@@ -1,31 +1,4 @@
-// @responsibility Regime + FOMC Kelly 결합 SSOT — ADR-0076 옵션 C (FOMC 우선 + R6 보호)
-/**
- * regimeFomcCombiner.ts — Regime kellyMultiplier 와 FOMC kellyMultiplier 결합 SSOT.
- *
- * 사용자 운영 보고 (2026-04-27): "FOMC 와 기본 Kelly 레짐이 개념이 중복됨 (오버랩).
- * FOMC 기간에는 기본 Kelly 레짐보다 FOMC 원칙을 우선."
- *
- * 기존 결합 (signalScanner/preflight/dryRunScanner 3 호출 지점):
- *   rawKelly = regimeKelly × fomcKelly × vixKelly × ipsKelly × ...
- *
- * 문제: regimeKelly 와 fomcKelly 가 *같은 차원* (Kelly 사이즈 보수성) 의 정책이라
- * 곱셈 결합 시 두 번 적용되어 보수성 누적. 예: PRE_1 (0.75) × R2_BULL (0.8) = 0.60
- * → 사용자가 *FOMC 직전에 사이즈 75%* 만 의도한 것인데 실제로는 60% 까지 압축.
- *
- * 해결 (옵션 C):
- *   - R6_DEFENSE: adjustment-only; no forced zero multiplier
- *   - FOMC NORMAL (게이트 비활성): regimeKelly 만 사용 (FOMC 영향 없음)
- *   - FOMC 활성 (PRE_3/PRE_2/PRE_1/DAY/POST_1/POST_2): FOMC 우선 (regimeKelly 미적용)
- *
- * 결과:
- *   - PRE_1 + R2_BULL: 0.75 (FOMC 우선)
- *   - PRE_1 + R5_CAUTION: 0.75 (FOMC 우선) — R5 무력화 의도. 약세 신호는 R6 escalation 으로
- *   - DAY + R2_BULL: 0 (FOMC DAY 차단)
- *   - POST_1 + R2_BULL: 1.30 (FOMC 부스트)
- *   - PRE_1 + R6_DEFENSE: FOMC adjustment applies; R6 does not override to zero
- *
- * 환경 변수 롤백: `FOMC_REGIME_OVERRIDE_DISABLED=true` 시 기존 곱셈 패턴 복원.
- */
+// @responsibility Regime Kelly 단순 통과 SSOT — FOMC 게이팅 제거됨 (regime-only).
 
 import type { FomcPhase } from './fomcCalendar.js';
 import type { RegimeLevel } from '../../src/types/core.js';
@@ -43,64 +16,24 @@ export interface RegimeFomcResult {
 }
 
 /**
- * Regime kellyMultiplier 와 FOMC kellyMultiplier 를 단일 값으로 결합 (ADR-0076 옵션 C).
- *
- * 우선순위:
- *   1. `FOMC_REGIME_OVERRIDE_DISABLED=true` ENV → 기존 곱셈 패턴 복원 (LEGACY_PRODUCT)
- *   2. R6_DEFENSE → adjustment-only source when FOMC is NORMAL
- *   3. FOMC NORMAL → regimeKelly 만 (REGIME)
- *   4. FOMC 활성 (그 외 phase) → fomcKelly 만 (FOMC)
+ * FOMC/R6 게이팅 제거됨. regimeKelly 를 그대로 반환 (REGIME_ONLY).
+ * fomcKelly, fomcPhase, regime 파라미터는 시그니처 호환을 위해 유지.
  */
 export function combineRegimeAndFomcKelly(
   regimeKelly: number,
-  fomcKelly: number,
-  fomcPhase: FomcPhase,
+  _fomcKelly: number,
+  _fomcPhase: FomcPhase,
   regime: RegimeLevel,
 ): RegimeFomcResult {
-  // ENV 롤백 — 기존 곱셈 패턴 복원
-  if (process.env.FOMC_REGIME_OVERRIDE_DISABLED === 'true') {
-    return {
-      value: regimeKelly * fomcKelly,
-      source: 'LEGACY_PRODUCT',
-      reason: `LEGACY 곱셈 (${regime} ×${regimeKelly.toFixed(2)} × FOMC ${fomcPhase} ×${fomcKelly.toFixed(2)})`,
-    };
-  }
-
-  // R6_DEFENSE no longer has execution authority. Keep it as a regime adjustment source only.
-  if (regime === 'R6_DEFENSE') {
-    if (fomcPhase === 'NORMAL') {
-      return {
-        value: regimeKelly,
-        source: 'REGIME_ADJUSTMENT_ONLY',
-        reason: `R6_DEFENSE adjustment-only x${regimeKelly.toFixed(2)} (executionImpact=NONE)`,
-      };
-    }
-  }
-
-  // FOMC NORMAL: 게이트 비활성 → regime 만
-  if (fomcPhase === 'NORMAL') {
-    return {
-      value: regimeKelly,
-      source: 'REGIME',
-      reason: `${regime} ×${regimeKelly.toFixed(2)} (FOMC 비활성)`,
-    };
-  }
-
-  // FOMC 활성: FOMC 우선 (regime 무시)
   return {
-    value: fomcKelly,
-    source: 'FOMC',
-    reason: `FOMC ${fomcPhase} ×${fomcKelly.toFixed(2)} 우선 (${regime} ×${regimeKelly.toFixed(2)} 무시)`,
+    value: regimeKelly,
+    source: 'REGIME',
+    reason: `${regime} ×${regimeKelly.toFixed(2)} (FOMC/VIX 게이팅 제거됨)`,
   };
 }
 
 /**
- * 진단 메시지용 — Kelly 배율 분해 라인을 RegimeFomcResult 로 재구성.
- *
- * @example
- *   "[Kelly 결합] FOMC PRE_1 ×0.75 우선 (R2_BULL ×0.80 무시)"
- *   "[Kelly 결합] R2_BULL ×0.80 (FOMC 비활성)"
- *   "[Kelly 결합] R6_DEFENSE adjustment-only x0.30 (executionImpact=NONE)"
+ * 진단 메시지용 — Kelly 배율 분해 라인.
  */
 export function describeRegimeFomcCombination(result: RegimeFomcResult): string {
   return `[Kelly 결합] ${result.reason} → ×${result.value.toFixed(2)}`;
