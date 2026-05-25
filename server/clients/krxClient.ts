@@ -176,7 +176,7 @@ import { krxInvestorOtpCsv } from './krxClient/otpCsv.js';
 
 
 const INVESTOR_ROW_CANDIDATE_KEYS = ['OutBlock_1', 'output', 'output1', 'output2', 'data', 'csv', 'list', 'rows', 'result', 'block1'] as const;
-const INVESTOR_DETAIL_SAFE_PROBE_ENDPOINTS = new Set(['MDCSTAT02201', 'MDCSTAT02203']);
+const INVESTOR_DETAIL_SAFE_PROBE_ENDPOINTS = new Set(['MDCSTAT02201', 'MDCSTAT02203', 'MDCSTAT02401']);
 const INVESTOR_DETAIL_SAFE_PROBE_COOLDOWN_MS = 60 * 60 * 1000;
 
 type KrxEndpointGuardReason =
