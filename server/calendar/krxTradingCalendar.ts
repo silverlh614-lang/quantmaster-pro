@@ -1,26 +1,14 @@
 /**
  * @responsibility KRX trading-calendar helper for stale-base decisions.
  *
- * This is intentionally local/static for emergency stability. It covers weekends,
- * 2026 Korea exchange holidays known to affect near-term stale-base checks, and a
- * small next-trading-day buffer. Extend the holiday table yearly or replace with a
- * KRX/public-data fetcher later.
+ * Holiday dates derive from the single source `../trading/krxHolidayDates.js`
+ * (STATIC_KRX_HOLIDAYS) — no local holiday table, so this module never drifts from
+ * the KRX holiday SSOT. Weekend + next-trading-day math stay local for stability.
  */
 
-const KRX_HOLIDAYS_BY_YEAR: Record<number, Set<string>> = {
-  2026: new Set([
-    '2026-01-01',
-    '2026-02-16', '2026-02-17', '2026-02-18',
-    '2026-03-02',
-    '2026-05-01',
-    '2026-05-05',
-    '2026-05-25',
-    '2026-08-17',
-    '2026-09-24', '2026-09-25',
-    '2026-10-05', '2026-10-09',
-    '2026-12-25', '2026-12-31',
-  ]),
-};
+import { STATIC_KRX_HOLIDAYS } from '../trading/krxHolidayDates.js';
+
+const KRX_HOLIDAY_SET: ReadonlySet<string> = new Set(STATIC_KRX_HOLIDAYS);
 
 export function toKstDateKey(input: Date | string): string {
   const d = typeof input === 'string' ? new Date(input) : input;
@@ -39,8 +27,7 @@ function addDays(dateKey: string, days: number): string {
 }
 
 export function isKrxHoliday(dateKey: string): boolean {
-  const year = Number(dateKey.slice(0, 4));
-  return KRX_HOLIDAYS_BY_YEAR[year]?.has(dateKey) ?? false;
+  return KRX_HOLIDAY_SET.has(dateKey);
 }
 
 export function isKrxTradingDay(dateKey: string): boolean {
