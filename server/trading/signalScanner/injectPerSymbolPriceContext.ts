@@ -1,6 +1,7 @@
 // @responsibility buyList candidates per-symbol price context hydration (volume + return5d/20d via KIS)
 import { fetchKisStockFullQuote, fetchKisStockDailyBars } from '../../clients/kisClient.js';
 import { createTraceId, logVisibilityEvent, logger } from '../../utils/logger.js';
+import type { SymbolSnapshotData } from '../sourceSnapshot/symbolSnapshotData.js';
 
 export interface PriceInjectionStats {
   totalCandidates: number;
@@ -54,9 +55,11 @@ async function resolvePriceContext(code: string): Promise<ResolvedPriceContext> 
  * 후보 배열에 KIS 현재가(FHKST01010100) + 일봉(FHKST03010100) 데이터를 주입한다.
  * volume / return5d / return20d 가 이미 채워진 필드는 덮어쓰지 않는다.
  * executionImpact=NONE — 매매 결정에 직접 관여하지 않고 candidatePoolBuilder 진단용 필드 공급.
+ * snapshotData 제공 시 KIS fetch 없이 스냅샷에서 직접 파생 (중복 KIS 호출 제거).
  */
 export async function injectPerSymbolPriceContext<T extends Record<string, unknown>>(
   candidates: T[],
+  options?: { snapshotData?: Readonly<Record<string, SymbolSnapshotData>> },
 ): Promise<{ candidates: T[]; stats: PriceInjectionStats }> {
   const stats: PriceInjectionStats = {
     totalCandidates: candidates.length,
@@ -75,7 +78,25 @@ export async function injectPerSymbolPriceContext<T extends Record<string, unkno
   stats.uniqueSymbols = symbols.length;
 
   const settled = await Promise.allSettled(
-    symbols.map(async (sym) => ({ sym, ctx: await resolvePriceContext(sym) })),
+    symbols.map(async (sym) => {
+      const snap = options?.snapshotData?.[sym];
+      if (snap) {
+        // UnifiedSourceSnapshot Phase 2 — 스냅샷에서 직접 파생 (KIS fetch 없음)
+        const close = snap.quote?.currentPrice ?? snap.dailyBars[0]?.close ?? null;
+        const bars = snap.dailyBars;
+        const volume = snap.quote?.volume ?? (bars.length > 0 ? bars[0].volume : null);
+        let return5d: number | null = null;
+        let return20d: number | null = null;
+        if (close !== null && bars.length >= 6 && bars[5].close > 0) {
+          return5d = parseFloat((((close - bars[5].close) / bars[5].close) * 100).toFixed(2));
+        }
+        if (close !== null && bars.length >= 21 && bars[20].close > 0) {
+          return20d = parseFloat((((close - bars[20].close) / bars[20].close) * 100).toFixed(2));
+        }
+        return { sym, ctx: { volume, return5d, return20d } };
+      }
+      return { sym, ctx: await resolvePriceContext(sym) };
+    }),
   );
 
   const priceMap = new Map<string, ResolvedPriceContext>();

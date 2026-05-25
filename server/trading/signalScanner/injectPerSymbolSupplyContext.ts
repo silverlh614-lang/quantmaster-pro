@@ -4,6 +4,7 @@ import { fetchInvestorFlowWithPolicy, type InvestorFlowRouteResult } from '../..
 import { deriveSupplyScore } from './normalSupplyPreview/candidateMapper.js';
 import type { ExecutionImpact } from '../../runtime/engineRuntimePolicy.js';
 import type { SupplyProviderHealthTrace } from './entryFilterDecomposition.js';
+import type { SymbolSnapshotData } from '../sourceSnapshot/symbolSnapshotData.js';
 
 export type SupplyProviderHealth =
   | 'VERIFIED'
@@ -138,6 +139,7 @@ export async function injectPerSymbolSupplyContext<T extends CandidateWithSupply
     fetchForSymbols: (symbols: string[]) => Promise<InvestorFlowResult[]>;
   };
   now?: Date;
+  snapshotData?: Readonly<Record<string, SymbolSnapshotData>>;
 }): Promise<{ candidates: T[]; stats: PerSymbolSupplyInjectionStats }> {
   const { candidates, investorFlowRouter } = params;
   const now = params.now ?? new Date();
@@ -152,12 +154,37 @@ export async function injectPerSymbolSupplyContext<T extends CandidateWithSupply
   let flowResults: InvestorFlowResult[] = [];
   let routerConnected = true;
 
-  try {
-    flowResults = await investorFlowRouter.fetchForSymbols(symbols);
-  } catch (error) {
-    routerConnected = false;
-    flowResults = [];
-    logger.warn('[PER_SYMBOL_SUPPLY_CONTEXT_INJECTION_ROUTER_THROW]', error instanceof Error ? error.message : String(error));
+  if (params.snapshotData) {
+    // UnifiedSourceSnapshot Phase 2 — スナップショットから直接構成 (router fetch 우회)
+    flowResults = symbols.map((sym) => {
+      const snap = params.snapshotData![sym];
+      const flow = snap?.investorFlow;
+      if (!flow) {
+        return {
+          symbol: sym,
+          status: 'MISSING' as const,
+          provider: 'NONE' as const,
+          fetchedAt: now.toISOString(),
+        };
+      }
+      return {
+        symbol: sym,
+        status: 'VERIFIED' as const,
+        provider: 'KIS_API' as const,
+        foreignNetBuyAmount: flow.foreignNetBuy,
+        institutionNetBuyAmount: flow.institutionalNetBuy,
+        investorNetBuyAmount: flow.foreignNetBuy + flow.institutionalNetBuy,
+        fetchedAt: snap.fetchedAt,
+      };
+    });
+  } else {
+    try {
+      flowResults = await investorFlowRouter.fetchForSymbols(symbols);
+    } catch (error) {
+      routerConnected = false;
+      flowResults = [];
+      logger.warn('[PER_SYMBOL_SUPPLY_CONTEXT_INJECTION_ROUTER_THROW]', error instanceof Error ? error.message : String(error));
+    }
   }
 
   const flowMap = new Map<string, InvestorFlowResult>();

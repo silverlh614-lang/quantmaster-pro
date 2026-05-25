@@ -312,7 +312,8 @@ export async function runAutoSignalScan(
   const candidates = await selectCandidates(preflightResult.context, options);
 
   // 2.1 Unified Source Snapshot (feature flag: USE_UNIFIED_SOURCE_SNAPSHOT=true)
-  // OFF 시 기존 per-gate 경로 100% 유지 — 이 블록은 진단 수집만 하며 buyListLoop 경로는 변경하지 않는다.
+  // OFF 시 기존 per-gate 경로 100% 유지 — executionImpact=NONE.
+  let unifiedSnapshot: import('../sourceSnapshot/unifiedSourceSnapshot.js').UnifiedSourceSnapshot | undefined;
   if (USE_UNIFIED_SNAPSHOT) {
     const candidateSymbols: string[] = [
       ...candidates.buyList.map((c: any) => c.code ?? c.symbol).filter(Boolean),
@@ -321,8 +322,7 @@ export async function runAutoSignalScan(
     const uniqueSymbols = [...new Set(candidateSymbols)] as string[];
     if (uniqueSymbols.length > 0) {
       try {
-        // 결과는 현재 기존 경로와 병행 — 향후 Gate 주입 연계 시 snapshot을 전달
-        await collectUnifiedSnapshot(uniqueSymbols, { scanCycleId: `scan_${Date.now()}` });
+        unifiedSnapshot = await collectUnifiedSnapshot(uniqueSymbols, { scanCycleId: `scan_${Date.now()}` });
       } catch (err) {
         // 수집 실패는 기존 경로 차단 금지 — 불변식 #1 Trading Engine 항상 생존
         console.warn(
@@ -338,6 +338,7 @@ export async function runAutoSignalScan(
     const injected = await injectPerSymbolSupplyContext({
       candidates: candidates.buyList,
       investorFlowRouter: createDefaultInvestorFlowRouter(),
+      snapshotData: unifiedSnapshot?.perSymbol,
     });
     candidates.buyList = injected.candidates;
     candidates.mainList = injected.candidates;
@@ -346,6 +347,7 @@ export async function runAutoSignalScan(
       const intradayInjected = await injectPerSymbolSupplyContext({
         candidates: candidates.intradayList,
         investorFlowRouter: createDefaultInvestorFlowRouter(),
+        snapshotData: unifiedSnapshot?.perSymbol,
       });
       candidates.intradayList = intradayInjected.candidates;
     }
@@ -387,13 +389,19 @@ export async function runAutoSignalScan(
     );
   }
 
-  // 2.5. Per-Symbol Price Context (volume + return5d/20d via KIS for candidatePool diagnostics)
+  // 2.5. Per-Symbol Price Context (volume + return5d/20d — snapshotData 있으면 KIS fetch 우회)
   try {
-    const priceInjected = await injectPerSymbolPriceContext(candidates.buyList as Record<string, unknown>[]);
+    const priceInjected = await injectPerSymbolPriceContext(
+      candidates.buyList as Record<string, unknown>[],
+      { snapshotData: unifiedSnapshot?.perSymbol },
+    );
     candidates.buyList = priceInjected.candidates as typeof candidates.buyList;
     candidates.mainList = priceInjected.candidates as typeof candidates.mainList;
     if (Array.isArray(candidates.intradayList) && candidates.intradayList.length > 0) {
-      const intradayPrice = await injectPerSymbolPriceContext(candidates.intradayList as Record<string, unknown>[]);
+      const intradayPrice = await injectPerSymbolPriceContext(
+        candidates.intradayList as Record<string, unknown>[],
+        { snapshotData: unifiedSnapshot?.perSymbol },
+      );
       candidates.intradayList = intradayPrice.candidates as typeof candidates.intradayList;
     }
   } catch (error) {
