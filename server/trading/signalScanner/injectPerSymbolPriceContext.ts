@@ -110,7 +110,7 @@ export async function injectPerSymbolPriceContext<T extends Record<string, unkno
   const traceId = createTraceId('price_ctx');
   logVisibilityEvent({
     visibility: 'DIAGNOSTIC',
-    category: 'PRICE',
+    category: 'KIS',
     sourceCommand: '/scan',
     traceId,
     message:
