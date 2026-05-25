@@ -38,10 +38,6 @@ import { updateShadowResults } from '../exitEngine.js';
 import { getVixGating } from '../vixGating.js';
 import { getFomcProximity } from '../fomcCalendar.js';
 import { isDataStarvedScan, getCompletenessSnapshot } from '../../screener/dataCompletenessTracker.js';
-import { getKellyMultiplier as getIpsKellyMultiplier } from '../kellyDampener.js';
-import { computeBiasPositionPenalty } from '../../learning/biasPositionPenalty.js';
-import { computeSafetyGatePolicyFeedback } from '../../learning/safetyGatePolicyFeedback.js';
-import { combineRegimeAndFomcKelly, describeRegimeFomcCombination } from '../regimeFomcCombiner.js';
 import { computeSlotConsumption } from '../slotAccounting.js';
 import { checkVolumeClockWindow } from '../volumeClock.js';
 import { isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
@@ -87,13 +83,6 @@ function toMhsBucket(mhs: unknown): string {
 }
 function buildRegimeAlertDedupKey(channelId: string, snap: RegimeStatusSnapshot): string {
   return `REGIME_STATUS:${snap.effectiveRegime}:${snap.riskOverride}:${snap.mhsBucket}:${snap.liveBuyPolicy}:${snap.shadowPolicy}:${snap.tradeDate}:${channelId}`;
-}
-
-export function getAccountScaleKellyMultiplier(totalAssets: number): number {
-  if (totalAssets >= 300_000_000) return 1.15;
-  if (totalAssets >= 100_000_000) return 1.08;
-  if (totalAssets >= 50_000_000) return 1.0;
-  return 0.92;
 }
 
 export function evaluateSellOnlyException(regimeConfig: any, macroState: any): any {
@@ -219,11 +208,6 @@ function applyMacroDiagnosticRegimeConfig(regimeConfig: any): any {
   };
 }
 
-function applyMacroDiagnosticKellyFloor(value: number, active: boolean): number {
-  if (!active) return value;
-  return Math.max(value, getMacroDiagnosticKellyFloor());
-}
-
 function applyMacroEntryOverrideRegimeConfig(
   regimeConfig: any,
   override: MacroEntryOverrideState | null,
@@ -244,15 +228,6 @@ function applyMacroEntryOverrideRegimeConfig(
         : [...MACRO_OVERRIDE_ALLOWED_SIGNALS],
     trancheStrategy: `${regimeConfig?.trancheStrategy ?? 'operator macro override'} | OPERATOR_MACRO_ENTRY_OVERRIDE`,
   };
-}
-
-function applyMacroEntryOverrideKellyFloor(
-  value: number,
-  override: MacroEntryOverrideState | null,
-  target: MacroEntryOverrideTarget,
-): number {
-  if (!macroEntryOverrideApplies(override, target)) return value;
-  return Math.max(value, override.kellyFloor);
 }
 
 function formatMacroEntryOverrideLog(override: MacroEntryOverrideState): string {
@@ -558,16 +533,11 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     volumeClockAllowsEntry: true,
   });
 
-  const ipsKelly = getIpsKellyMultiplier();
-  const accountKellyMultiplier = getAccountScaleKellyMultiplier(totalAssets);
-  const biasPositionPenalty = computeBiasPositionPenalty();
-  const biasMultiplier = biasPositionPenalty.multiplier;
-  const safetyGatePolicyFeedback = computeSafetyGatePolicyFeedback();
-  const safetyGateMultiplier = safetyGatePolicyFeedback.multiplier;
-  const exceptionKellyFactor = 1;
+  // 레짐별 매수비중 직접 사용 (R1=1.0, R2=0.8, R3=0.7, R4=0.5, R5=0.3)
+  const buyWeightPct = regimeConfig.kellyMultiplier;
   const effectiveVixKelly = 1.0;
   const effectiveFomcKelly = 1.0;
-  const regimeFomcCombined = combineRegimeAndFomcKelly(regimeConfig.kellyMultiplier, effectiveFomcKelly, fomcProximity.phase, regime);
+  const accountKellyMultiplier = 1.0;
 
   const liveEntryAllowedForKelly =
     !liveEntryBlockedReason;
@@ -576,13 +546,10 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     diagnosticLiveBlock: Boolean(liveEntryBlockedReason),
   });
   const kellyResult = computeEffectiveKelly({
-    baseKelly: regimeFomcCombined.value,
-    vixMultiplier: effectiveVixKelly,
-    ipsMultiplier: ipsKelly,
-    exceptionKellyFactor,
-    accountMultiplier: accountKellyMultiplier,
-    biasMultiplier,
-    safetyGateMultiplier,
+    baseKelly: buyWeightPct,
+    vixMultiplier: 1.0,
+    ipsMultiplier: 1.0,
+    accountMultiplier: 1.0,
     liveEntryAllowed: liveEntryAllowedForKelly,
     macroRegime: normalizeMacroRegime(regime),
     executionMode: executionModeForKelly,
@@ -593,9 +560,6 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   let rawKelly = kellyResult.rawKelly;
   let kellyMultiplier = kellyResult.effectiveKelly;
 
-  if (ipsKelly < 1.0) console.log(`[AutoTrade] IPS Kelly reduction applied x${ipsKelly.toFixed(2)}`);
-  if (biasMultiplier < 1) console.log(`[AutoTrade] learning bias position penalty applied x${biasMultiplier.toFixed(2)} (${biasPositionPenalty.reasons.join('; ')})`);
-  if (safetyGatePolicyFeedback.active) console.log(`[AutoTrade] safety gate policy feedback applied x${safetyGateMultiplier.toFixed(2)} (${safetyGatePolicyFeedback.reasons.join('; ')})`);
   if (kellyResult.blockedByPolicy) {
     console.info(formatKellyPolicyBlockedLog({
       macroRegime: normalizeMacroRegime(regime),
@@ -605,9 +569,9 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       shadowLearningAllowed: true,
       result: kellyResult,
     }));
-  } else if (kellyMultiplier !== regimeConfig.kellyMultiplier) {
+  } else if (kellyMultiplier !== buyWeightPct) {
     console.log(
-      `[AutoTrade] ${describeRegimeFomcCombination(regimeFomcCombined)} x IPS(${ipsKelly.toFixed(2)}) x account(${accountKellyMultiplier.toFixed(2)}) = raw x${rawKelly.toFixed(3)}${kellyResult.floorApplied ? ' floor applied' : ''} -> effective x${kellyMultiplier.toFixed(2)}`,
+      `[AutoTrade] 레짐 매수비중 ${regime} ×${buyWeightPct.toFixed(2)} → effective ×${kellyMultiplier.toFixed(2)}`,
     );
   }
 
@@ -624,13 +588,10 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const diagnosticOnlyLiveBlock = Boolean(liveEntryBlockReason);
   if (slotResult.isFull && kellyMultiplier !== 0) {
     const positionFullKellyResult = computeEffectiveKelly({
-      baseKelly: regimeFomcCombined.value,
-      vixMultiplier: effectiveVixKelly,
-      ipsMultiplier: ipsKelly,
-      exceptionKellyFactor,
-      accountMultiplier: accountKellyMultiplier,
-      biasMultiplier,
-      safetyGateMultiplier,
+      baseKelly: buyWeightPct,
+      vixMultiplier: 1.0,
+      ipsMultiplier: 1.0,
+      accountMultiplier: 1.0,
       liveEntryAllowed: false,
       macroRegime: normalizeMacroRegime(regime),
       executionMode: executionModeForKelly,
@@ -698,7 +659,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     regime: regime ?? 'UNKNOWN',
     regimeKelly: regimeConfig.kellyMultiplier,
     fomcPhase: fomcProximity.phase,
-    fomcKelly: effectiveFomcKelly,
+    fomcKelly: 1.0,
     finalKelly: kellyMultiplier,
     vixGatingActive: vixGating.noNewEntry,
     bearDefenseMode: false,
