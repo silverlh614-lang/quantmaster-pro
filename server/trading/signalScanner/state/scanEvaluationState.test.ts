@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { createScanCounters } from '../scanDiagnostics.js';
 import { recordPipelineStage } from '../scanDiagnostics/pipelineStageDiagnostics.js';
-import { buildScanEvaluationResult, formatScanEvaluationCompactLine, formatScanEvaluationSection } from './scanEvaluationState.js';
+import { buildScanEvaluationResult, formatScanEvaluationCompactLine, formatScanEvaluationSection, resolveScanMarketSessionView } from './scanEvaluationState.js';
 
 describe('scanEvaluationState', () => {
   it('does not let legacy SELL_ONLY skip Gate evaluation', () => {
@@ -161,5 +161,16 @@ describe('scanEvaluationState', () => {
     expect(section).toContain('diagnosticGateSurvivors=');
     expect(section).toContain('liveGateSurvivors=');
     expect(section).not.toContain('diagnosticSurvivors=');
+  });
+
+  it('rebases stale BUY_ALLOWED at 22:55 KST to CLOSED shadow observe display', () => {
+    const session = resolveScanMarketSessionView({
+      explicitMarketSessionState: 'BUY_ALLOWED',
+      asOf: '2026-05-25T22:55:00.000Z',
+    });
+
+    expect(session.marketSessionState).toBe('CLOSED');
+    expect(session.canonicalSession).toBe('CLOSED');
+    expect(session.displaySession).toBe('CLOSED_SHADOW_OBSERVE');
   });
 });

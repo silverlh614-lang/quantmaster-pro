@@ -177,6 +177,19 @@ export const DEFAULT_DATA_PROMOTION_STATUS: DataPromotionStatus = {
   yahooPrice: 'GATED',
 };
 
+export interface EntryLaneSplitCounts {
+  liveCandidates?: number;
+  liveOrderCreated?: number;
+  liveCreatedDeprecated?: number;
+  liveBlockedByPolicy?: number;
+  shadowDiagnosticCreated?: number;
+  shadowOrderCreated?: number;
+  paperExecutableCreated?: number;
+  paperObservationalCreated?: number;
+  counterfactualCreated?: number;
+  watchOnlyPreserved?: number;
+}
+
 export interface ScanSummary {
   time: string;
   candidates: number;
@@ -293,6 +306,8 @@ export interface ScanSummary {
   candidateExecutionResolutions?: UnifiedExecutionPermissionResolution[];
   // ADR-0527 Phase 2a — 위 per-candidate 정본의 roll-up. permission(boolean)과 count(*Count/*Created) 명명 분리.
   executionResolutionAggregate?: UnifiedExecutionPermissionAggregate;
+  // main(71e3c29) "split scan blocker entry lanes" — 진입 레인 분리 count.
+  entryLaneSplit?: EntryLaneSplitCounts;
 }
 
 export type PaperEntryDecision = 'CREATED' | 'SKIPPED' | 'BLOCKED' | 'ERROR';
