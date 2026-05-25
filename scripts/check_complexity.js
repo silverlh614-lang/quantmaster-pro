@@ -111,8 +111,9 @@ const BASELINE_TECHNICAL_DEBT = [
   //     - server/trading/signalScanner/scanDiagnostics/persistScanResults.ts (1827 LoC, 2b3d54de) — 스캔 진단 영속
   //   ✅ 2026-05-25 sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts 분해 완료 (1568→1336줄 — ADR-0521,
   //      types.ts 모듈 추출(타입 17종) + 메인 re-export, byte-equivalent, lint EXIT=0, test 39/39) → 카탈로그에서 정식 제거.
+  //   ✅ 2026-05-25 gate2ExternalDataProvider.ts 분해 완료 (1714→1435줄 — ADR-0523, types.ts(타입 21종)
+  //      + helpers.ts(순수 leaf 헬퍼 7) 추출 + 메인 export * re-export, byte-equivalent, lint EXIT=0, test 15/15) → 카탈로그에서 정식 제거.
   'server/clients/kisClient/query.ts',
-  'server/trading/gate2/gate2ExternalDataProvider.ts',
   'server/trading/signalScanner/scanDiagnostics/persistScanResults.ts',
 ];
 
