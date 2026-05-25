@@ -26,6 +26,7 @@ import {
   calculatePositionSlotsBySsot,
   hasOpenPosition,
 } from '../../../../positions/positionStateResolver.js';
+import { logDecisionEvent } from '../../../../observability/decisionLogCorrelation.js';
 
 export type SizingTierFinalDecision = Extract<ReturnType<typeof sizingTierDecider>, { ok: true }>['tierDecision'];
 export type SizingSignalGrade = 'STRONG_BUY' | 'BUY' | 'PROBING' | 'HOLD';
@@ -91,18 +92,36 @@ export async function sizingTierDeciderFinal(
   const positionPct = sizing.positionSizePct / 100;
 
   if (gateResult) {
-    console.log(
-      `[AutoTrade] ${stock.name} simple position policy ` +
-      `liveGate: ${params.liveGateScore.toFixed(1)} (stale: ${(stock.gateScore ?? 0)}) | ` +
-      `MTAS: ${gateResult.mtas.toFixed(1)}/10 | ` +
-      `CS: ${gateResult.compressionScore.toFixed(2)} | ` +
-      `tier: ${tierDecision.tier}(diagnostic) | ` +
-      `posPct: ${(positionPct * 100).toFixed(1)}%`
+    // ADR-0528 a1: position policy 결정 로그에 상관 필드 부착(log-only enrichment).
+    // 기존 가독 필드(simple position policy/liveGate/MTAS/CS/tier/posPct)는 detail 로 전량 보존.
+    // sourceSnapshotId 는 ctx 에서 read 하여 carry(재계산 금지) — 부재 시 'NA'(부분 적용 허용).
+    logDecisionEvent(
+      'POSITION_POLICY',
+      {
+        sourceSnapshotId: ctx.sourceSnapshotId ?? 'NA',
+        decisionStage: 'POSITION_POLICY',
+        symbol: stock.code,
+        candidateSetId: ctx.candidateSetId,
+        mode: ctx.shadowMode ? 'SHADOW' : 'LIVE',
+        positionIntent: `tier=${tierDecision.tier}(diagnostic) posPct=${(positionPct * 100).toFixed(1)}%`,
+      },
+      {
+        policy: 'simple position policy',
+        name: stock.name,
+        liveGate: params.liveGateScore.toFixed(1),
+        liveGateStale: stock.gateScore ?? 0,
+        mtas: `${gateResult.mtas.toFixed(1)}/10`,
+        cs: gateResult.compressionScore.toFixed(2),
+        tier: `${tierDecision.tier}(diagnostic)`,
+        posPct: `${(positionPct * 100).toFixed(1)}%`,
+        executionImpact: 'NONE',
+      },
     );
   }
 
   console.log(formatPositionPolicySimpleAppliedLog({
     snapshotId: `buyList:${stock.code}`,
+    sourceSnapshotId: ctx.sourceSnapshotId ?? 'NA', // ADR-0528 a2: 진짜 SourceSnapshot id carry(log-only)
     symbol: stock.code,
     sizing,
   }));

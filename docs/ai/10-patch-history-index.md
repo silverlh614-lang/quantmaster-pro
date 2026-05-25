@@ -96,6 +96,7 @@ Append the current PR row here. When this list grows past roughly 60 rows, move 
 - 2026-05-25 · ADR-0525 · gate-debug-raw, canonical-summary
 - 2026-05-25 · ADR-0526 · CandidateGateEvaluationView, SSOT
 - 2026-05-25 · ADR-0527 · ExecutionPermissionResolution, PositionPolicyDecision
+- 2026-05-25 · ADR-0528 · railway-decision-log-correlation, sourceSnapshotId, 5-event-chain, decisionStage
 - 2026-05-25 · Patch-SCAN-BLOCKERS-ENTRY-LANE-SPLIT-001 · scan_blockers, SHADOW_ONLY, entry-lanes
 - 2026-05-25 · Patch-PATCH-HISTORY-INDEX-COMPACT-ROUTER-001 · docs-ai-10, archive-snapshot, context-hygiene
 

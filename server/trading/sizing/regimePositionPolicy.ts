@@ -168,14 +168,20 @@ export function calculateRegimePositionSizing(input: PositionPolicySizingInput):
 
 export function formatPositionPolicySimpleAppliedLog(input: {
   snapshotId?: string;
+  /** ADR-0528 a2: 진짜 SourceSnapshot id(log-only carry). 부재 시 'NA'. */
+  sourceSnapshotId?: string;
   symbol?: string;
   sizing: PositionPolicySizingResult;
 }): string {
   const { policy } = input.sizing;
   return [
     '[POSITION_POLICY_SIMPLE_APPLIED]',
-    `snapshotId=${input.snapshotId ?? 'NA'}`,
+    // ADR-0528 a2: 진짜 sourceSnapshotId 를 carry. 기존 buyList:CODE proxy 는 positionSnapshotProxy 로 강등.
+    `decisionStage=POSITION_POLICY`,
+    `sourceSnapshotId=${input.sourceSnapshotId ?? 'NA'}`,
+    `positionSnapshotProxy=${input.snapshotId ?? 'NA'}`,
     `symbol=${input.symbol ?? 'NA'}`,
+    `positionIntent=simple_applied`,
     `regime=${policy.regime}`,
     `maxPositions=${policy.maxPositions}`,
     `currentPositions=${input.sizing.currentPositions}`,

@@ -271,8 +271,13 @@ export async function executeShadowBuyOrder(
   let orderIntent: OrderIntent | undefined;
   let shadowOrder: ShadowOrder | undefined;
   let paperFill: PaperFill | undefined;
+  // ADR-0528 a4~a8: 5-event 체인 공통 sourceSnapshotId. signalId(없으면 trade.id)를 사이클 키로
+  // 1회 도출해 5건에 동일 carry → `grep sourceSnapshotId=<X>` 5건 = 실 체결 증명(log-only, 결정 무영향).
+  const shadowSourceSnapshotId = input.signalId ?? input.trade.id;
   console.log(
-    `[SHADOW_EXECUTION_START] ${input.stockName}(${input.stockCode}) price=${input.currentPrice}`,
+    `[SHADOW_EXECUTION_START] decisionStage=SHADOW_EXECUTION_START ` +
+      `sourceSnapshotId=${shadowSourceSnapshotId} symbol=${input.stockCode} ` +
+      `${input.stockName}(${input.stockCode}) price=${input.currentPrice}`,
   );
 
   if (!input.approvalPolicy.executionAllowed) {
@@ -378,7 +383,7 @@ export async function executeShadowBuyOrder(
   });
   input.stateMachine?.transition('SHADOW_ORDER_CREATED', 'shadow order created');
   logStatusChange(orderIntent, 'ORDER_CREATED', 'shadow order created');
-  console.log(formatShadowOrderCreatedLog(shadowOrder));
+  console.log(formatShadowOrderCreatedLog(shadowOrder, shadowSourceSnapshotId)); // ADR-0528 a5
 
   const shadowResult = await deps.executeShadowBuy({
     trade: input.trade,
@@ -449,7 +454,7 @@ export async function executeShadowBuyOrder(
     fillId: shadowResult.fillId,
   });
   logStatusChange(orderIntent, 'PAPER_FILLED', 'shadow paper-fill recorded');
-  console.log(formatShadowPaperFilledLog(paperFill));
+  console.log(formatShadowPaperFilledLog(paperFill, shadowSourceSnapshotId)); // ADR-0528 a6
 
   const positionGuard = assertPipelineStage({
     requiredPreviousStage: 'SHADOW_PAPER_FILLED',
@@ -491,8 +496,9 @@ export async function executeShadowBuyOrder(
     fillId: shadowResult.fillId,
   });
   console.log(
-    `[SHADOW_POSITION_OPENED] symbol=${input.stockCode} tradeId=${input.trade.id} ` +
-      `fillId=${shadowResult.fillId ?? 'N/A'} mode=SHADOW executionImpact=NONE`,
+    `[SHADOW_POSITION_OPENED] decisionStage=SHADOW_POSITION_OPENED ` +
+      `sourceSnapshotId=${shadowSourceSnapshotId} symbol=${input.stockCode} ` +
+      `tradeId=${input.trade.id} fillId=${shadowResult.fillId ?? 'N/A'} mode=SHADOW executionImpact=NONE`,
   );
   updateShadowBuyLifecycleStatus({
     key: shadowBuyLifecycleKey(input.trade),
@@ -554,6 +560,7 @@ export async function executeShadowBuyOrder(
     side: 'BUY',
     quantity: paperFill.quantity,
     fillPrice: paperFill.fillPrice,
+    sourceSnapshotId: shadowSourceSnapshotId, // ADR-0528 a8: 체인 완결 마커
   }));
   console.log(formatVirtualAccountUpdatedLog({
     orderIntentId: orderIntent.orderIntentId,
