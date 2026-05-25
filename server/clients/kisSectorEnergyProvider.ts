@@ -1120,7 +1120,30 @@ function inputFromOfficialRow(row: KisSectorEnergyIndexRow): SectorEnergyInput {
 }
 
 async function defaultOfficialIndexRows(): Promise<KisSectorEnergyIndexRow[]> {
-  return [];
+  if (process.env.KIS_SECTOR_INDEX_DAILY_ENABLED !== 'true') return [];
+  const results: Array<KisSectorEnergyIndexRow | null> = await mapLimit(
+    Array.from(KIS_SECTOR_ISCD_MAP),
+    3,
+    async (entry): Promise<KisSectorEnergyIndexRow | null> => {
+      try {
+        const endpoint = await fetchKisSectorIndexDaily(entry.iscd);
+        if (!endpoint) return null;
+        const metrics = deriveKisSectorIndexDryRunMetrics(endpoint);
+        if (metrics.return20d == null || metrics.seriesCount < KIS_SECTOR_INDEX_MIN_SERIES_COUNT) return null;
+        const row: KisSectorEnergyIndexRow = {
+          sectorKey: entry.sectorKey,
+          sectorReturn5d: metrics.return5d ?? 0,
+          sectorReturn20d: metrics.return20d,
+          ...(metrics.turnoverAcceleration != null ? { turnoverAcceleration: metrics.turnoverAcceleration } : {}),
+          sourceTier: 'KIS_OFFICIAL_DAILY',
+        };
+        return row;
+      } catch {
+        return null;
+      }
+    },
+  );
+  return results.filter((row): row is KisSectorEnergyIndexRow => row !== null);
 }
 
 async function defaultOfficialDailyRows(): Promise<KisSectorEnergyIndexRow[]> {
