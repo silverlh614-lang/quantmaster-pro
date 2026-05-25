@@ -1,30 +1,46 @@
-// @responsibility ADR-0520 Gate1 scoring-alignment DRY_RUN gating; identifies real relaxed-curve survivor symbols for observation only. No live mutation.
+// @responsibility ADR-0520 Gate1 scoring-alignment DRY_RUN gating; per-candidate single-source relaxed-curve survivor identification. No live mutation.
 import type { Gate1ScoreStarvationTrace } from './gate1PositiveScoreStarvation.js';
-import type {
-  Gate1ScoringAlignmentReport,
-  Gate1ScoringAlignmentScenario,
+import {
+  ADR_0472_ALIGN_RECOGNIZED_POSITIVE_COMPONENTS,
+  resolveAdr0472AlignDeltaForCandidate,
+  type Gate1ScoringAlignmentReport,
+  type Gate1ScoringAlignmentScenario,
 } from './gate1ScoringAlignmentAdr0472.js';
+import { buildCandidatePenaltyDedupTrace, penaltyComponentTrace } from './gate1PenaltyDeduplication.js';
+import { buildCandidateRiskDoubleCountTrace } from './gate1RiskDoubleCount.js';
 
 /**
- * ADR-0520 — Gate1 Scoring Alignment DRY_RUN Gating.
+ * ADR-0520 — Gate1 Scoring Alignment DRY_RUN Gating (single-source per-candidate).
  *
  * The live Gate1 minimum-signal scoring curve is FROZEN (ADR-0471 freezeRule).
  * Operator approved a DRY_RUN observation gate: take the relaxed alignment curve
  * (ADR-0472 best scenario: recognize already-computed BREAKOUT_STRUCTURE +
  * PRICE_MOMENTUM positive components, apply ADR-0469 penalty dedup and ADR-0470
- * risk-at-sizing-only), apply it to the REAL candidate traces, and identify which
- * real symbols currently FAIL the live curve but WOULD PASS under the relaxed curve.
+ * risk-at-sizing-only), apply it PER-CANDIDATE to the REAL candidate traces, and
+ * identify which real symbols currently FAIL the live curve but WOULD PASS relaxed.
  *
- * This module never recomputes or mutates the live actualScore. It reads the live
- * per-candidate `Gate1ScoreStarvationTrace.actualScore` as an immutable reference
- * and copies the ADR-0472 relaxation delta on top. Survivor rows are recorded in
- * the ADR-0476 observation ledger for 1D/3D/5D forward-return tracking only.
+ * Single-source rule (operator requirement): the relaxed score is derived ONLY from
+ * each candidate's own `Gate1ScoreStarvationTrace` — the same frozen artifact the
+ * live curve produced — by REUSING the existing ADR-0472 (align positive), ADR-0469
+ * (penalty dedup) and ADR-0470 (risk-at-sizing) transform functions per-candidate.
+ * There is no second scoring formula and no scan-wide uniform delta approximation.
+ *
+ *   relaxedScore = trace.actualScore (frozen, read-only)
+ *                + ADR-0472 align delta (candidate's own recognized positives)
+ *                + ADR-0469 dedup delta (candidate's own duplicate-penalty removal)
+ *                + ADR-0470 risk-split delta (candidate's own signal risk penalty)
+ *
+ * This module never recomputes or mutates the live actualScore. Survivor rows are
+ * recorded in the ADR-0476 observation ledger for 1D/3D/5D forward-return tracking only.
  */
 
 export const GATE1_SCORING_ALIGNMENT_DRYRUN_ENV_FLAG = 'GATE1_SCORING_ALIGNMENT_DRYRUN_ENABLED';
 
 /** ADR-0472 best scenario applied per-candidate as the relaxed alignment curve. */
 export const ADR_0520_DRY_RUN_SCENARIO: Gate1ScoringAlignmentScenario = 'ALIGN_PLUS_DEDUP_PLUS_RISK_SPLIT';
+
+/** ADR-0470 caps the diagnostic signal-score risk penalty at 3 points; reuse the same cap. */
+const ADR_0470_SIGNAL_RISK_PENALTY_CAP = 3;
 
 export type Gate1ScoringAlignmentDryRunDecision =
   | 'WOULD_PASS_DRY_RUN'
@@ -38,14 +54,16 @@ export interface Gate1ScoringAlignmentDryRunCandidate {
   /** Live frozen Gate1 net score — read-only reference, never mutated. */
   actualScore: number;
   requiredScore: number;
-  /** Per-candidate relaxed alignment score = actualScore + alignment delta. */
+  /** Per-candidate relaxed alignment score = actualScore + align + dedup + risk-split deltas. */
   dryRunScore: number;
   scoreGap: number;
   decision: Gate1ScoringAlignmentDryRunDecision;
+  /** Per-candidate ADR-0472 positive align delta (sum of recognized positive contributions). */
+  alignPositiveDelta: number;
   /** Already-computed (live) positive contributions recognized by the relaxed curve. */
   breakoutStructureScore: number;
   priceMomentumScore: number;
-  /** Penalty reductions copied from the relaxed curve (diagnostic only). */
+  /** Per-candidate penalty reductions derived from this candidate's own trace. */
   dedupPenaltyDelta: number;
   riskSplitPenaltyDelta: number;
 }
@@ -54,7 +72,6 @@ export interface Gate1ScoringAlignmentDryRunGateResult {
   enabled: boolean;
   scenario: Gate1ScoringAlignmentScenario;
   requiredScore: number;
-  alignmentDelta: number;
   totalCandidates: number;
   /** Candidates that fail the live curve but pass the relaxed curve. */
   survivors: Gate1ScoringAlignmentDryRunCandidate[];
@@ -84,25 +101,6 @@ export function isGate1ScoringAlignmentDryRunEnabled(
   return env[GATE1_SCORING_ALIGNMENT_DRYRUN_ENV_FLAG] === 'true';
 }
 
-/**
- * Compute the relaxed alignment delta from the ADR-0472 report.
- *
- * The delta is the SHADOW-ONLY scenario difference between the relaxed best
- * scenario net average and the CURRENT (live) net average. The live curve itself
- * is never read or modified here — only the ADR-0472 dry-run aggregate is used.
- */
-export function resolveAdr0520AlignmentDelta(
-  report?: Gate1ScoringAlignmentReport | null,
-  scenario: Gate1ScoringAlignmentScenario = ADR_0520_DRY_RUN_SCENARIO,
-): number {
-  if (!report) return 0;
-  const current = report.scenarioResults.find((item) => item.scenario === 'CURRENT');
-  const relaxed = report.scenarioResults.find((item) => item.scenario === scenario)
-    ?? report.scenarioResults.find((item) => item.scenario === report.bestDryRun);
-  if (!current || !relaxed) return 0;
-  return Math.max(0, round1(relaxed.netScoreAvg - current.netScoreAvg));
-}
-
 function positiveComponentScore(
   trace: Gate1ScoreStarvationTrace,
   code: 'BREAKOUT_STRUCTURE' | 'PRICE_MOMENTUM',
@@ -112,8 +110,126 @@ function positiveComponentScore(
 }
 
 /**
+ * Per-candidate ADR-0469 dedup delta: the duplicate provider-unknown penalty removed
+ * for THIS candidate, computed by reusing `buildCandidatePenaltyDedupTrace`. The trace's
+ * own penalty components (or the ADR-0469 default aggregate when none are recorded) are
+ * the single source — no scan-wide average.
+ */
+function resolveDedupDeltaForCandidate(trace: Gate1ScoreStarvationTrace): number {
+  const penalties = trace.penaltyComponents.length > 0
+    ? trace.penaltyComponents.map((component) => penaltyComponentTrace({
+        code: component.code === 'SUPPLY_CONFLUENCE'
+          ? 'SUPPLY_CONFLUENCE'
+          : component.code === 'INVESTOR_FLOW'
+            ? 'INVESTOR_FLOW'
+            : component.code === 'RISK_PENALTY' || component.code === 'MACRO_RISK'
+              ? 'RISK_PENALTY'
+              : component.code === 'SOFT_FAIL_PENALTY'
+                ? 'SOFT_FAIL_PENALTY'
+                : component.code === 'SECTOR_ENERGY'
+                  ? 'SECTOR_ENERGY'
+                  : component.code === 'DATA_QUALITY' || component.code === 'UNKNOWN_DATA_PENALTY'
+                    ? 'DATA_QUALITY_PENALTY'
+                    : component.code === 'SESSION_STATUS'
+                      ? 'SESSION_PENALTY'
+                      : 'OTHER_PENALTY',
+        value: Math.abs(finite(component.weightedScore)),
+        providerIssue: component.providerIssue,
+        marketSignal: component.marketSignal,
+        confidence: component.confidence,
+        message: component.message,
+      }))
+    : undefined;
+  if (!penalties) return 0;
+  const dedup = buildCandidatePenaltyDedupTrace({
+    symbol: trace.symbol,
+    name: trace.name,
+    grossPositiveScore: finite(trace.grossPositiveScore),
+    originalPenaltyTotal: finite(trace.totalPenaltyScore),
+    originalNetScore: finite(trace.actualScore),
+    requiredScore: finite(trace.requiredScore),
+    penalties,
+  });
+  return round1(Math.max(0, dedup.scoreDeltaAfterDedup));
+}
+
+/**
+ * Per-candidate ADR-0470 risk-split delta: the signal-score risk penalty that the
+ * relaxed curve moves to sizing only, computed by reusing
+ * `buildCandidateRiskDoubleCountTrace`. The signal risk penalty is read from THIS
+ * candidate's own RISK_PENALTY trace component (capped at 3 to match ADR-0470's
+ * `signalRiskPenaltyFrom`). The delta = scoreIfRiskAtSizingOnly - actualScore.
+ */
+function resolveRiskSplitDeltaForCandidate(trace: Gate1ScoreStarvationTrace): number {
+  const riskPenalty = trace.penaltyComponents
+    .filter((component) => component.code === 'RISK_PENALTY' || component.code === 'MACRO_RISK')
+    .reduce((sum, component) => sum + Math.abs(Math.min(0, finite(component.weightedScore))), 0);
+  const signalRiskPenalty = Math.min(ADR_0470_SIGNAL_RISK_PENALTY_CAP, Math.max(0, riskPenalty));
+  if (signalRiskPenalty <= 0) return 0;
+  const actualScore = finite(trace.actualScore);
+  const riskTrace = buildCandidateRiskDoubleCountTrace({
+    symbol: trace.symbol,
+    name: trace.name,
+    originalSignalScore: actualScore,
+    originalSignalRiskPenalty: signalRiskPenalty,
+    originalKellyMultiplier: 1,
+    requiredScore: finite(trace.requiredScore),
+    rootCause: 'REGIME_RISK',
+  });
+  return round1(Math.max(0, riskTrace.scoreIfRiskAtSizingOnly - actualScore));
+}
+
+/**
+ * Compute the per-candidate relaxed score for a single real candidate trace by reusing
+ * the ADR-0472/0469/0470 transforms against THIS candidate's own frozen artifact.
+ */
+function evaluateCandidate(
+  trace: Gate1ScoreStarvationTrace,
+  requiredScoreOverride?: number,
+): Gate1ScoringAlignmentDryRunCandidate {
+  // requiredScore is the LIVE frozen threshold per candidate; never lowered.
+  const requiredScore = round1(requiredScoreOverride ?? finite(trace.requiredScore, 70));
+  // actualScore is the LIVE frozen net score; read-only reference, never mutated.
+  const actualScore = round1(finite(trace.actualScore));
+
+  // Each delta derives from THIS candidate's own trace via the reused live transforms.
+  const alignPositiveDelta = resolveAdr0472AlignDeltaForCandidate(
+    trace,
+    ADR_0472_ALIGN_RECOGNIZED_POSITIVE_COMPONENTS,
+  );
+  const dedupPenaltyDelta = resolveDedupDeltaForCandidate(trace);
+  const riskSplitPenaltyDelta = resolveRiskSplitDeltaForCandidate(trace);
+
+  const dryRunScore = round1(actualScore + alignPositiveDelta + dedupPenaltyDelta + riskSplitPenaltyDelta);
+  const scoreGap = round1(dryRunScore - requiredScore);
+  const passesLive = actualScore >= requiredScore;
+  const decision: Gate1ScoringAlignmentDryRunDecision = passesLive
+    ? 'ALREADY_PASSED_LIVE'
+    : scoreGap >= 0
+      ? 'WOULD_PASS_DRY_RUN'
+      : scoreGap >= -5
+        ? 'NEAR_MISS'
+        : 'WOULD_STILL_FAIL';
+
+  return {
+    symbol: trace.symbol,
+    ...(trace.name ? { name: trace.name } : {}),
+    actualScore,
+    requiredScore,
+    dryRunScore,
+    scoreGap,
+    decision,
+    alignPositiveDelta,
+    breakoutStructureScore: round1(positiveComponentScore(trace, 'BREAKOUT_STRUCTURE')),
+    priceMomentumScore: round1(positiveComponentScore(trace, 'PRICE_MOMENTUM')),
+    dedupPenaltyDelta,
+    riskSplitPenaltyDelta,
+  };
+}
+
+/**
  * Build the per-candidate DRY_RUN scoring-alignment gate result from the REAL
- * candidate traces. Returns disabled result with no survivors when the ENV flag
+ * candidate traces. Returns a disabled result with no survivors when the ENV flag
  * is off (preserving 100% of the prior behaviour for the caller).
  */
 export function buildGate1ScoringAlignmentDryRunGate(input: {
@@ -126,26 +242,13 @@ export function buildGate1ScoringAlignmentDryRunGate(input: {
 }): Gate1ScoringAlignmentDryRunGateResult {
   const scenario = input.scenario ?? ADR_0520_DRY_RUN_SCENARIO;
   const enabled = isGate1ScoringAlignmentDryRunEnabled(input.env ?? process.env);
+  // requiredScore on the result is informational only; per-candidate uses the frozen trace value.
   const requiredScoreFromReport = finite(input.alignmentReport?.requiredScore, 70);
-  const alignmentDelta = resolveAdr0520AlignmentDelta(input.alignmentReport, scenario);
-  const dedupDelta = (() => {
-    const align = input.alignmentReport?.scenarioResults.find((item) => item.scenario === 'ALIGN_ALL_POSITIVE_COMPONENTS');
-    const alignDedup = input.alignmentReport?.scenarioResults.find((item) => item.scenario === 'ALIGN_PLUS_PENALTY_DEDUP');
-    if (!align || !alignDedup) return 0;
-    return Math.max(0, round1(align.penaltyAvg - alignDedup.penaltyAvg));
-  })();
-  const riskSplitDelta = (() => {
-    const align = input.alignmentReport?.scenarioResults.find((item) => item.scenario === 'ALIGN_ALL_POSITIVE_COMPONENTS');
-    const alignRisk = input.alignmentReport?.scenarioResults.find((item) => item.scenario === 'ALIGN_PLUS_RISK_SPLIT');
-    if (!align || !alignRisk) return 0;
-    return Math.max(0, round1(align.penaltyAvg - alignRisk.penaltyAvg));
-  })();
 
   const base: Omit<Gate1ScoringAlignmentDryRunGateResult, 'survivors' | 'evaluated'> = {
     enabled,
     scenario,
-    requiredScore: round1(requiredScoreFromReport),
-    alignmentDelta,
+    requiredScore: round1(input.requiredScoreOverride ?? requiredScoreFromReport),
     totalCandidates: input.traces?.length ?? 0,
     executionImpact: 'NONE',
     liveExecutionAllowed: false,
@@ -158,36 +261,7 @@ export function buildGate1ScoringAlignmentDryRunGate(input: {
 
   const evaluated: Gate1ScoringAlignmentDryRunCandidate[] = input.traces
     .filter((trace) => typeof trace.symbol === 'string' && trace.symbol.length > 0)
-    .map((trace) => {
-      // requiredScore is the LIVE frozen threshold per candidate; never lowered.
-      const requiredScore = input.requiredScoreOverride ?? finite(trace.requiredScore, requiredScoreFromReport);
-      // actualScore is the LIVE frozen net score; read-only reference.
-      const actualScore = round1(finite(trace.actualScore));
-      // Relaxed curve = live actualScore + ADR-0472 alignment delta (copy, not mutate).
-      const dryRunScore = round1(actualScore + alignmentDelta);
-      const scoreGap = round1(dryRunScore - requiredScore);
-      const passesLive = actualScore >= requiredScore;
-      const decision: Gate1ScoringAlignmentDryRunDecision = passesLive
-        ? 'ALREADY_PASSED_LIVE'
-        : scoreGap >= 0
-          ? 'WOULD_PASS_DRY_RUN'
-          : scoreGap >= -5
-            ? 'NEAR_MISS'
-            : 'WOULD_STILL_FAIL';
-      return {
-        symbol: trace.symbol,
-        ...(trace.name ? { name: trace.name } : {}),
-        actualScore,
-        requiredScore: round1(requiredScore),
-        dryRunScore,
-        scoreGap,
-        decision,
-        breakoutStructureScore: round1(positiveComponentScore(trace, 'BREAKOUT_STRUCTURE')),
-        priceMomentumScore: round1(positiveComponentScore(trace, 'PRICE_MOMENTUM')),
-        dedupPenaltyDelta: dedupDelta,
-        riskSplitPenaltyDelta: riskSplitDelta,
-      };
-    });
+    .map((trace) => evaluateCandidate(trace, input.requiredScoreOverride));
 
   // Survivors: real symbols that fail the live curve but pass the relaxed curve.
   const survivors = evaluated.filter((candidate) => candidate.decision === 'WOULD_PASS_DRY_RUN');

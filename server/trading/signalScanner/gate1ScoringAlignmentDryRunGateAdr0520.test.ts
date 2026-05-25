@@ -7,7 +7,6 @@ import {
   GATE1_SCORING_ALIGNMENT_DRYRUN_ENV_FLAG,
   buildGate1ScoringAlignmentDryRunGate,
   isGate1ScoringAlignmentDryRunEnabled,
-  resolveAdr0520AlignmentDelta,
 } from './gate1ScoringAlignmentDryRunGateAdr0520.js';
 import { buildGate1DryRunObservationRows } from './gate1DryRunObservationLedgerAdr0476.js';
 import type { Gate1ScoreStarvationTrace } from './gate1PositiveScoreStarvation.js';
@@ -19,7 +18,16 @@ afterEach(() => {
   delete process.env[FLAG];
 });
 
-function trace(symbol: string, actualScore: number, name?: string): Gate1ScoreStarvationTrace {
+// alignDelta per-candidate = sum of recognized positive weightedScores
+// (BREAKOUT_STRUCTURE 6 + PRICE_MOMENTUM 10 = 16). No penalty components -> dedup/risk = 0.
+const TRACE_ALIGN_DELTA = 16;
+
+function trace(
+  symbol: string,
+  actualScore: number,
+  name?: string,
+  penaltyComponents: Gate1ScoreStarvationTrace['penaltyComponents'] = [],
+): Gate1ScoreStarvationTrace {
   return {
     symbol,
     ...(name ? { name } : {}),
@@ -56,7 +64,7 @@ function trace(symbol: string, actualScore: number, name?: string): Gate1ScoreSt
         message: 'momentum',
       },
     ],
-    penaltyComponents: [],
+    penaltyComponents,
     zeroContributionComponents: [],
     missingPositiveComponents: [],
     verifiedZeroComponents: [],
@@ -125,7 +133,7 @@ function alignmentReport(): Gate1ScoringAlignmentReport {
   };
 }
 
-// 43 real candidates: a few cross from fail -> pass under +30 delta.
+// 43 real candidates: a few cross from fail -> pass under the per-candidate align delta.
 function fortyThreeTraces(): Gate1ScoreStarvationTrace[] {
   return Array.from({ length: 43 }, (_, index) =>
     trace(`${index}`.padStart(6, '0'), 30 + index, `cand-${index}`));
@@ -144,9 +152,53 @@ describe('ADR-0520 Gate1 scoring-alignment DRY_RUN gating', () => {
     expect(result.evaluated).toHaveLength(0);
   });
 
-  it('resolves the ADR-0472 alignment delta from the relaxed best scenario', () => {
-    expect(resolveAdr0520AlignmentDelta(alignmentReport())).toBe(30);
-    expect(resolveAdr0520AlignmentDelta(null)).toBe(0);
+  it('derives the relaxed score per-candidate from the candidate own trace (single source, no uniform delta)', () => {
+    process.env[FLAG] = 'true';
+    const result = buildGate1ScoringAlignmentDryRunGate({
+      traces: [trace('100000', 60, 'single-source')],
+      alignmentReport: alignmentReport(),
+    });
+    const candidate = result.evaluated[0];
+    expect(candidate).toBeDefined();
+    // align delta comes ONLY from this candidate's own recognized positive components.
+    expect(candidate?.alignPositiveDelta).toBe(TRACE_ALIGN_DELTA);
+    expect(candidate?.dedupPenaltyDelta).toBe(0);
+    expect(candidate?.riskSplitPenaltyDelta).toBe(0);
+    // relaxedScore = actualScore (60, frozen) + alignDelta (16) = 76.
+    expect(candidate?.dryRunScore).toBe(60 + TRACE_ALIGN_DELTA);
+    expect(candidate?.actualScore).toBe(60);
+  });
+
+  it('adds per-candidate ADR-0469 dedup + ADR-0470 risk-split deltas from the candidate own penalties', () => {
+    process.env[FLAG] = 'true';
+    // Two duplicate SUPPLY_UNKNOWN provider penalties (10 + 8) dedup to keep-largest (10),
+    // removing 8. A RISK_PENALTY of 5 caps to ADR-0470's 3-point signal risk move-to-sizing.
+    const penalties: Gate1ScoreStarvationTrace['penaltyComponents'] = [
+      {
+        code: 'SUPPLY_CONFLUENCE', normalizedScore: 0, weight: 10, weightedScore: -10, maxScore: 0,
+        contributionPct: 0, confidence: 'UNKNOWN', providerIssue: true, marketSignal: false,
+        penaltyApplied: true, message: 'supply unknown',
+      },
+      {
+        code: 'INVESTOR_FLOW', normalizedScore: 0, weight: 8, weightedScore: -8, maxScore: 0,
+        contributionPct: 0, confidence: 'UNKNOWN', providerIssue: true, marketSignal: false,
+        penaltyApplied: true, message: 'investor unknown',
+      },
+      {
+        code: 'RISK_PENALTY', normalizedScore: 0, weight: 5, weightedScore: -5, maxScore: 0,
+        contributionPct: 0, confidence: 'VERIFIED', providerIssue: false, marketSignal: true,
+        penaltyApplied: true, message: 'risk',
+      },
+    ];
+    const result = buildGate1ScoringAlignmentDryRunGate({
+      traces: [trace('110000', 50, 'penalty-source', penalties)],
+      alignmentReport: alignmentReport(),
+    });
+    const candidate = result.evaluated[0];
+    expect(candidate?.dedupPenaltyDelta).toBe(8); // 18 total -> keep largest 10 -> removed 8
+    expect(candidate?.riskSplitPenaltyDelta).toBe(3); // signal risk penalty capped at 3
+    // relaxedScore = 50 + align(16) + dedup(8) + riskSplit(3) = 77.
+    expect(candidate?.dryRunScore).toBe(50 + TRACE_ALIGN_DELTA + 8 + 3);
   });
 
   it('identifies REAL survivor symbols that fail live but pass the relaxed curve', () => {
@@ -157,18 +209,21 @@ describe('ADR-0520 Gate1 scoring-alignment DRY_RUN gating', () => {
     });
     expect(result.enabled).toBe(true);
     expect(result.scenario).toBe(ADR_0520_DRY_RUN_SCENARIO);
-    expect(result.alignmentDelta).toBe(30);
     expect(result.totalCandidates).toBe(43);
-    // delta=30, required=70 -> actualScore in [40, 69] crosses (40+30=70 passes, <40 still fails).
-    // actualScore = 30+index. survivors: index 10..39 (actual 40..69) -> 30 survivors,
+    // Per-candidate align delta = 16, required = 70 -> actualScore in [54, 69] crosses.
+    // actualScore = 30+index. survivors: index 24..39 (actual 54..69) -> 16 survivors,
     // index 40..42 already pass live (actual 70..72).
-    expect(result.survivors.length).toBe(30);
+    expect(result.survivors.length).toBe(16);
     for (const survivor of result.survivors) {
       expect(survivor.decision).toBe('WOULD_PASS_DRY_RUN');
       // Real, non-placeholder symbol.
       expect(survivor.symbol).not.toMatch(/^ADR0472-/);
       expect(survivor.actualScore).toBeLessThan(survivor.requiredScore); // fails live
       expect(survivor.dryRunScore).toBeGreaterThanOrEqual(survivor.requiredScore); // passes relaxed
+      // dryRunScore derives strictly from the candidate own actualScore + per-candidate deltas.
+      expect(survivor.dryRunScore).toBe(
+        survivor.actualScore + survivor.alignPositiveDelta + survivor.dedupPenaltyDelta + survivor.riskSplitPenaltyDelta,
+      );
     }
   });
 
