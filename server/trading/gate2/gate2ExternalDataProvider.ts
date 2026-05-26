@@ -1,6 +1,7 @@
 // @responsibility Gate2 external financial snapshot, derived metrics, and safe projection helpers.
 
 import { getDartFinancials } from '../../clients/dartFinancialClient.js';
+import { getKisFinancials, kisFinancialsToQmpDartFinancials, type KisFinancials } from '../../clients/kisFinanceClient.js';
 import { normalizeDartFinancials, type QmpDartFinancials } from '../../clients/dartFinancialNormalizer.js';
 import { fetchWithRetry, FetchRetryError } from '../../utils/fetchWithRetry.js';
 import {
@@ -743,29 +744,49 @@ export function projectionToQmpDartFinancials(projection: Gate2ExternalProjectio
   };
 }
 
+/**
+ * ADR-0532 Phase 3: KIS L1 재무를 1차로, KIS 미가용 축(OCF/ICR/raw)만 DART 잔존에서 머지.
+ * roe/opm/매출/순이익은 KIS(명시 필드 → calculateGate2DerivedMetrics 가 우선 소비), ocfRatio/icr 는 DART.
+ */
+function mergeKisPrimaryWithDartResidual(
+  kisFin: KisFinancials,
+  dartFin: Gate2DartEvaluationFinancials | null,
+): Gate2DartEvaluationFinancials {
+  const kisQmp = kisFinancialsToQmpDartFinancials(kisFin);
+  const dartRec = isRecord(dartFin) ? (dartFin as Record<string, unknown>) : {};
+  return {
+    ...kisQmp,
+    ocfRatio: finiteNumber(dartRec.ocfRatio) ?? kisQmp.ocfRatio,
+    operatingCashFlow: finiteNumber(dartRec.operatingCashFlow) ?? kisQmp.operatingCashFlow,
+    interestExpense: finiteNumber(dartRec.interestExpense) ?? kisQmp.interestExpense,
+    interestCoverageRatio: finiteNumber(dartRec.interestCoverageRatio) ?? kisQmp.interestCoverageRatio,
+  };
+}
+
 export async function getGate2DartFinancialsForEvaluation(symbol: string): Promise<Gate2DartEvaluationFinancials | null> {
   const cached = getGate2ExternalCacheRecord(symbol);
   if (cached?.projection?.financialSnapshot?.confidence && cached.projection.financialSnapshot.confidence !== 'MISSING') {
     return projectionToQmpDartFinancials(cached.projection);
   }
   const dartFin = await getDartFinancials(symbol).catch(() => null);
-  // ADR-0532 Phase 2 (PER 복구): KIS_FINANCE_PRIMARY_ENABLED 시 PER 를 DART 성공 여부와 독립적으로
-  // KIS inquire-price(FHKST01010100)에서 가져와 cache projection 의 valuation.per 에 주입한다.
-  // DART null 이어도 PER projection 을 upsert → gate2ConfluenceScore 가 cacheProjection.valuation.per 소비.
-  // flag-off 시 기존 동작 byte-equivalent (DART null → null, PER fetch 0). executionImpact=NONE.
+  // ADR-0532 Phase 2+3: KIS_FINANCE_PRIMARY_ENABLED 시 KIS L1 재무(ROE/OPM/매출/순이익)를 1차 소스로,
+  // PER 는 KIS inquire-price 로, OCF/ICR 만 DART 잔존에서 머지한다 → cache projection 에 주입.
+  // KIS 실패 시 DART(기존 경로) fallback. flag-off 시 byte-equivalent(DART null→null, KIS fetch 0). executionImpact=NONE.
   if (process.env.KIS_FINANCE_PRIMARY_ENABLED === 'true') {
-    const perValuation = await fetchGate2PerValuation({ symbol, dartFin }).catch(
+    const kisFin = await getKisFinancials(symbol).catch(() => null);
+    const primaryFin = kisFin ? mergeKisPrimaryWithDartResidual(kisFin, dartFin) : dartFin;
+    const perValuation = await fetchGate2PerValuation({ symbol, dartFin: primaryFin }).catch(
       () => emptyPerValuation('KIS_PER_PROVIDER_ERROR', true),
     );
     const projection = buildGate2ExternalProjection({
       symbol,
-      dartFin,
+      dartFin: primaryFin,
       per: perValuation.per,
       perSource: perValuation.source,
       perReason: perValuation.reason,
     });
     upsertGate2ExternalCacheRecords([{ symbol: cleanSymbol(symbol), projection, updatedAt: projection.asOf }]);
-    return dartFin;
+    return primaryFin;
   }
   if (!dartFin) return null;
   const projection = buildGate2ExternalProjection({ symbol, dartFin });
