@@ -9,6 +9,7 @@ import {
   setPreflightDiagnosticScanSummaryIfAbsent,
 } from './persistScanResults.js';
 import { buildSnapshotBundleFromScanSummary } from '../../../telegram/renderers/snapshotBundle.js';
+import { buildQmpGateDetailHeaderView } from '../../../telegram/renderers/qmpGateDetailHeaderCanonical.js';
 import { deriveAdr0505EmissionStatus } from '../../../telegram/commands/system/scanBlockersCompactAdr0506.js';
 import type { PreflightBlockedScanSummary } from '../preflightBlockedScanSummary.js';
 import type { ScanSummary } from './scanSummaryTypes.js';
@@ -19,6 +20,8 @@ function preflight(overrides: Partial<PreflightBlockedScanSummary> = {}): Prefli
     timestamp: '2026-05-26T01:33:00.000Z',
     stage: 'BEFORE_BUYLIST_LOOP',
     blockedBy: 'HARD_BLOCK',
+    hardBlockSource: 'R3_SANITY_BLOCK',
+    hardBlockReason: 'GATE1_PASS_ZERO',
     candidateSummaryCount: 9,
     universeSnapshotRecorded: true,
     counterfactualRecorded: true,
@@ -73,6 +76,16 @@ describe('preflight diagnostic ScanSummary (Patch)', () => {
     expect(diag.hasSummary).toBe(true);
     expect(diag.hasSummaryField).toBe(true);
     expect(diag.totalCandidates).toBe(9);
+  });
+
+  it('populates the gate_full G1/Entry header with preflight diagnostic values (not null/none)', () => {
+    const view = buildQmpGateDetailHeaderView(buildPreflightDiagnosticScanSummary(preflight()));
+    // G1: real 0 survivors/pass (buyListLoop not entered), not null.
+    expect(view.gate1.gate1HardSurvivors).toBe(0);
+    expect(view.gate1.minSignalLivePass).toBe(0);
+    expect(view.gate1.topBlockReason).toBe('R3_SANITY_BLOCK:GATE1_PASS_ZERO');
+    // Entry: counterfactual reflects the recorded preflight universe, not 0.
+    expect(view.entryLane.counterfactualCreated).toBe(9);
   });
 
   it('removes SNAPSHOT_MISSING / 1970 / UNKNOWN in the gate_full snapshot bundle', () => {
