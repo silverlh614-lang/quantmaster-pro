@@ -18,7 +18,7 @@ import type { CandidateEntryTrace, Gate1CandidateTrace, SupplyProviderHealthTrac
 import { conditionResultsTraceToMap } from './gateConditionResultTrace.js';
 import type { MinimumSignalScoreTrace } from './minimumSignalScoreTrace.js';
 import type { SanitizedInvestorFlowSemanticRow } from '../../supply/investorFlowSemanticAvailability.js';
-import type { BuildGate1MinimumSignalForensicInput, Gate1ForensicTraceSourcePath } from './gate1MinimumSignalForensicAuditAdr0505.js';
+import type { BuildGate1MinimumSignalForensicInput, Gate1ForensicTraceSourcePath, SellOnlyCarryBreakPointAdr0507 } from './gate1MinimumSignalForensicAuditAdr0505.js';
 import type { InvestorFlowFlatRowForGateAdr0513 } from './investorFlowProviderRouterAdr0477.js';
 import { lookupSupplyBySymbolPayloadSnapshot } from '../../supply/investorFlowBySymbolPayloadSnapshot.js';
 
@@ -31,6 +31,17 @@ import { lookupSupplyBySymbolPayloadSnapshot } from '../../supply/investorFlowBy
  */
 export function isGate1ForensicCollectorAdr0507Disabled(): boolean {
   return process.env.GATE1_FORENSIC_COLLECTOR_ADR_0507_DISABLED === 'true';
+}
+
+/**
+ * ADR-0514-restore — per-symbol bySymbol row carry across ALL sourcePaths
+ * (ENTRY_FILTER / WATCHLIST / SELL_ONLY / PREFLIGHT), not just PREFLIGHT.
+ * DEFAULT ON via `!== 'false'` (ADR-0157 정확 비교 1줄 롤백). `='false'` 시 기존
+ * PREFLIGHT-only 회귀 동작 byte-equivalent 복원. DIAGNOSTIC_ONLY — score / threshold /
+ * execution / live 무영향 (executionImpact='NONE', usableForGate/Live=false).
+ */
+export function isGate1ForensicPerSymbolRowCarryEnabledAdr0514(): boolean {
+  return process.env.GATE1_FORENSIC_PERSYMBOL_ROW_CARRY_ENABLED !== 'false';
 }
 
 /* ───────── 입력 schema ───────── */
@@ -102,11 +113,22 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
             : 'UNKNOWN';
     const health = candidate?.supplyProviderHealth ?? supplyProviderHealth;
     const resolvedBySymbol = resolveActualSymbolForBySymbolAdr0515(candidate, t.symbol);
-    const directBySymbolPayload = sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT'
+    // ADR-0514-restore (Patch-GATE1-FORENSIC-PERSYMBOL-ROW-CARRY-RESTORE-001):
+    // per-symbol bySymbol carry was previously gated to PREFLIGHT only, starving
+    // ENTRY_FILTER / WATCHLIST candidates of their genuine per-symbol payload (they fell
+    // back to the single shared selectedCandidate row → semanticAvailable false positives).
+    // Restored across all sourcePaths behind GATE1_FORENSIC_PERSYMBOL_ROW_CARRY_ENABLED
+    // (DEFAULT ON, ADR-0157 exact compare !== 'false'). ='false' → byte-equivalent old
+    // (PREFLIGHT-only) behavior. DIAGNOSTIC_ONLY — no score / threshold / execution impact.
+    const perSymbolCarryEnabled = isGate1ForensicPerSymbolRowCarryEnabledAdr0514();
+    const perSymbolCarryScope = perSymbolCarryEnabled || sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT';
+    const candidateIsPseudo = isPseudoWatchlistSymbolAdr0515(candidate?.symbol) || isPseudoWatchlistSymbolAdr0515(t.symbol);
+    const pseudoSymbolUnresolved = candidateIsPseudo && !resolvedBySymbol;
+    const directBySymbolPayload = perSymbolCarryScope
       ? bySymbolPayloadForCandidateAdr0507(routerBySymbol, candidate, t.symbol, resolvedBySymbol)
       : undefined;
     const cachedLookupSymbol = resolvedBySymbol ?? (isPseudoWatchlistSymbolAdr0515(candidate?.symbol) ? null : candidate?.symbol) ?? (isPseudoWatchlistSymbolAdr0515(t.symbol) ? null : t.symbol);
-    const cachedBySymbolLookup = sourcePath === 'PREFLIGHT_UNIVERSE_SNAPSHOT' && !directBySymbolPayload && cachedLookupSymbol
+    const cachedBySymbolLookup = perSymbolCarryScope && !directBySymbolPayload && cachedLookupSymbol
       ? lookupSupplyBySymbolPayloadSnapshot({
           symbol: cachedLookupSymbol,
           tradeDate: input.tradeDate,
@@ -116,6 +138,18 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       : undefined;
     const bySymbolPayload = (directBySymbolPayload ?? cachedBySymbolLookup?.payload ?? undefined) as Record<string, unknown> | undefined;
     const bySymbolPayloadStale = Boolean(cachedBySymbolLookup?.payload && cachedBySymbolLookup.stale);
+    // sellOnly* carry SSOT — CONSUMED by gate1MinimumSignalForensic/supplyScopeAudit.ts.
+    // Honest projection: only claim availability when a payload genuinely exists (router or
+    // snapshot). Stale snapshot → available but NOT merged (base row preserved). Unresolved
+    // pseudo WATCHLIST symbol → unavailable + diagnostic skip reason (no invented data).
+    const sellOnlyCarry = perSymbolCarryScope
+      ? deriveSellOnlyCarryAdr0514({
+          directBySymbolPayload,
+          cachedPayload: (cachedBySymbolLookup?.payload ?? undefined) as Record<string, unknown> | undefined,
+          stale: bySymbolPayloadStale,
+          pseudoSymbolUnresolved,
+        })
+      : undefined;
     const healthRecord = mergeActualRowCarryAdr0507(health as Record<string, unknown> | undefined, bySymbolPayload, bySymbolPayloadStale);
     const selectedCandidateRecord = healthRecord?.selectedCandidate && typeof healthRecord.selectedCandidate === 'object'
       ? healthRecord.selectedCandidate as Record<string, unknown>
@@ -240,6 +274,10 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
       ...((selectedCandidateRecord?.supplySemanticRow ?? selectedCandidateRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.semanticRow) ? { supplySemanticRow: (selectedCandidateRecord?.supplySemanticRow ?? selectedCandidateRecord?.semanticInvestorRow ?? healthRecord?.supplySemanticRow ?? healthRecord?.semanticInvestorRow ?? healthRecord?.semanticRow) as SanitizedInvestorFlowSemanticRow | Record<string, unknown> } : {}),
       ...(selectedCandidateRecord ? { selectedCandidate: selectedCandidateRecord } : {}),
       ...(kisFlow ? { kisFlow } : {}),
+      ...(sellOnlyCarry?.available !== undefined ? { sellOnlyBySymbolPayloadAvailable: sellOnlyCarry.available } : {}),
+      ...(sellOnlyCarry?.merged !== undefined ? { sellOnlyBySymbolPayloadMerged: sellOnlyCarry.merged } : {}),
+      ...(sellOnlyCarry?.breakPoint ? { sellOnlyCarryBreakPoint: sellOnlyCarry.breakPoint } : {}),
+      ...(sellOnlyCarry?.semanticSkipReason ? { supplySemanticSkipReason: sellOnlyCarry.semanticSkipReason } : {}),
     };
     out.push(entry);
   }
@@ -330,6 +368,48 @@ function bySymbolPayloadForCandidateAdr0507(
     if (payload && typeof payload === 'object') return payload;
   }
   return undefined;
+}
+
+/**
+ * ADR-0514-restore — sellOnly* carry projection SSOT (CONSUMED by
+ * gate1MinimumSignalForensic/supplyScopeAudit.ts:326-330). Honest projection only:
+ *   - direct router bySymbol payload (fresh) → available + merged + CARRIED_TO_FORENSIC.
+ *   - cached snapshot payload but stale → available, NOT merged, BYSYMBOL_PAYLOAD_STALE
+ *     (base gateSemanticFlatRow preserved by mergeActualRowCarryAdr0507 stale branch).
+ *   - cached snapshot payload fresh → available + merged + CARRIED_TO_FORENSIC.
+ *   - unresolved pseudo WATCHLIST symbol → unavailable, PSEUDO_SYMBOL_NOT_RESOLVED,
+ *     semanticSkipReason=DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL (no invented data).
+ *   - no payload at all → unavailable, BYSYMBOL_PAYLOAD_MISSING.
+ * DIAGNOSTIC_ONLY — never claims availability without a genuine payload.
+ */
+function deriveSellOnlyCarryAdr0514(args: {
+  directBySymbolPayload: Record<string, unknown> | undefined;
+  cachedPayload: Record<string, unknown> | undefined;
+  stale: boolean;
+  pseudoSymbolUnresolved: boolean;
+}): {
+  available: boolean;
+  merged: boolean;
+  breakPoint: SellOnlyCarryBreakPointAdr0507;
+  semanticSkipReason?: 'DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL';
+} {
+  if (args.directBySymbolPayload) {
+    return { available: true, merged: true, breakPoint: 'CARRIED_TO_FORENSIC' };
+  }
+  if (args.cachedPayload) {
+    return args.stale
+      ? { available: true, merged: false, breakPoint: 'BYSYMBOL_PAYLOAD_STALE' }
+      : { available: true, merged: true, breakPoint: 'CARRIED_TO_FORENSIC' };
+  }
+  if (args.pseudoSymbolUnresolved) {
+    return {
+      available: false,
+      merged: false,
+      breakPoint: 'PSEUDO_SYMBOL_NOT_RESOLVED',
+      semanticSkipReason: 'DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL',
+    };
+  }
+  return { available: false, merged: false, breakPoint: 'BYSYMBOL_PAYLOAD_MISSING' };
 }
 
 function mergeActualRowCarryAdr0507(
