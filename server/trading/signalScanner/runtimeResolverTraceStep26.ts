@@ -242,7 +242,7 @@ function formatModule(module: RuntimeTraceModule): string[] {
 }
 
 function buildModules(summary: ScanSummary | null): RuntimeTraceModule[] {
-  const sourceSnapshotId = summary?.snapshotId ?? 'NO_SCAN_SUMMARY';
+  const sourceSnapshotId = sourceSnapshotIdOf(summary);
   const candidateCount = Math.max(0, Math.floor(summary?.candidates ?? summary?.gate1MinimumSignalForensicAdr0505?.totalCandidates ?? 0));
   const sampleScope = candidateCount > 0 ? `CANDIDATES_${candidateCount}` : 'NO_SCAN_SUMMARY';
   return [
