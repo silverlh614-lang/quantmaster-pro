@@ -9,7 +9,8 @@ import {
   getGate2DartFinancialsForEvaluation,
   refreshGate2ExternalData,
 } from './gate2ExternalDataProvider.js';
-import { getGate2ExternalCacheRecord } from './gate2ExternalCache.js';
+import { getGate2ExternalCacheRecord, upsertGate2ExternalCacheRecords } from './gate2ExternalCache.js';
+import type { Gate2DartEvaluationFinancials } from './gate2ExternalDataProvider/types.js';
 import { setKisClientOverrides } from '../../clients/kisClient/overrides.js';
 
 describe('Gate2ExternalDataProvider', () => {
@@ -487,6 +488,84 @@ describe('Gate2ExternalDataProvider', () => {
     // KIS 미가용 — DART null → ICR unavailable (DART 잔존 책임)
     expect(record?.projection?.conditionResults?.icr?.status).toBe('UNAVAILABLE');
     expect(record?.projection?.executionImpact).toBe('NONE');
+  });
+
+  // ADR-0532 Phase 3 cache-hit gap: 배포 후에도 perStatus=UNAVAILABLE source=NONE 이 관측된 원인.
+  // flag-on 인데 PER 미보유(legacy DART-only) projection 이 cache-hit 으로 서빙되어 KIS-primary 를 우회.
+  it('Phase 3 cache-hit gap: flag-on bypasses PER-less (legacy DART-only) cache → re-caches via KIS-primary', async () => {
+    process.env.KIS_APP_KEY = 'test-app-key';
+    process.env.KIS_APP_SECRET = 'test-app-secret';
+    process.env.KIS_FINANCE_PRIMARY_ENABLED = 'true';
+    // Seed a legacy DART-only projection: VERIFIED confidence, ROE/OPM present, but NO PER (valuation.per.per null).
+    const legacy = buildGate2ExternalProjection({
+      symbol: '551100',
+      dartFin: {
+        symbol: '551100', roe: -58.22, opm: -83.04, revenue: 1000, netIncome: -100,
+        dataConfidence: 'VERIFIED', source: 'DART',
+      } as unknown as Gate2DartEvaluationFinancials,
+    });
+    expect(legacy.financialSnapshot.confidence).toBe('VERIFIED');
+    expect(legacy.valuation.per.per).toBeNull(); // legacy lacks PER → would have been cache-hit before the fix
+    upsertGate2ExternalCacheRecords([{ symbol: '551100', projection: legacy, updatedAt: legacy.asOf }]);
+
+    setKisClientOverrides({
+      realDataKisGet: async (trId: string) => {
+        if (trId === 'FHKST66430300') return { output: [{ stac_yymm: '202412', roe_val: '18.0', lblt_rate: '40' }] };
+        if (trId === 'FHKST66430200') return { output: [{ sale_account: '1000', op_prfi: '200', thtr_ntin: '150' }] };
+        if (trId === 'FHKST01010100') return { output: { per: '12.0', stck_prpr: '60000', eps: '5000' } };
+        return {};
+      },
+    });
+
+    const fin = await getGate2DartFinancialsForEvaluation('551100');
+    expect(fin?.roe).toBeCloseTo(18); // KIS-primary roe, NOT stale legacy DART -58.22
+
+    const record = getGate2ExternalCacheRecord('551100');
+    expect(record?.projection?.valuation?.per?.per).toBe(12); // re-cached WITH KIS PER (self-correcting migration)
+    expect(record?.projection?.profitability?.roe).toBeCloseTo(18);
+  });
+
+  // flag-on + PER 보유 캐시(KIS-primary 산출분)는 정상 cache-hit (재산출 없음 → KIS 미호출).
+  it('Phase 3 cache-hit gap: flag-on serves cache-hit when cached projection already has PER (no KIS re-fetch)', async () => {
+    process.env.KIS_APP_KEY = 'test-app-key';
+    process.env.KIS_APP_SECRET = 'test-app-secret';
+    process.env.KIS_FINANCE_PRIMARY_ENABLED = 'true';
+    const withPer = buildGate2ExternalProjection({
+      symbol: '552200',
+      dartFin: { symbol: '552200', roe: 15, opm: 12, revenue: 2000, netIncome: 300, dataConfidence: 'VERIFIED', source: 'DART' } as unknown as Gate2DartEvaluationFinancials,
+      per: 11,
+      perSource: 'KIS',
+      perReason: 'PER_ACCEPTABLE',
+    });
+    expect(withPer.valuation.per.per).toBe(11);
+    upsertGate2ExternalCacheRecords([{ symbol: '552200', projection: withPer, updatedAt: withPer.asOf }]);
+
+    let kisCalled = false;
+    setKisClientOverrides({ realDataKisGet: async () => { kisCalled = true; return { output: {} }; } });
+
+    const fin = await getGate2DartFinancialsForEvaluation('552200');
+    expect(fin?.roe).toBeCloseTo(15); // served from cache
+    expect(kisCalled).toBe(false); // cache-hit, no re-fetch
+  });
+
+  // flag-off 는 PER 미보유 캐시도 항상 cache-hit (byte-equivalent, KIS 미호출).
+  it('Phase 3 cache-hit gap: flag-off serves PER-less cache-hit unchanged (byte-equivalent, no KIS call)', async () => {
+    process.env.KIS_APP_KEY = 'test-app-key';
+    process.env.KIS_APP_SECRET = 'test-app-secret';
+    // KIS_FINANCE_PRIMARY_ENABLED unset (off).
+    const legacy = buildGate2ExternalProjection({
+      symbol: '553300',
+      dartFin: { symbol: '553300', roe: 9, opm: 7, revenue: 500, netIncome: 40, dataConfidence: 'VERIFIED', source: 'DART' } as unknown as Gate2DartEvaluationFinancials,
+    });
+    expect(legacy.valuation.per.per).toBeNull();
+    upsertGate2ExternalCacheRecords([{ symbol: '553300', projection: legacy, updatedAt: legacy.asOf }]);
+
+    let kisCalled = false;
+    setKisClientOverrides({ realDataKisGet: async () => { kisCalled = true; return { output: {} }; } });
+
+    const fin = await getGate2DartFinancialsForEvaluation('553300');
+    expect(fin?.roe).toBeCloseTo(9); // served from cache unchanged
+    expect(kisCalled).toBe(false); // flag-off → no KIS fetch
   });
 
   it('flag OFF: DART-null returns null and does NOT call KIS PER (byte-equivalent)', async () => {
