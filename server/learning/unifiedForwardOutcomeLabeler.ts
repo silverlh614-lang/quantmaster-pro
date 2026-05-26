@@ -79,6 +79,7 @@ export interface UnifiedForwardOutcomeLabelerSummary {
   rowsUpdatedD3: number;
   rowsUpdatedD5: number;
   rowsUpdatedD10: number;
+  dataUnavailable: number;
   duplicateSuppressed: number;
   stalePending: number;
   gate3EvidenceSampleSize: number;
@@ -154,6 +155,7 @@ function defaultSummary(error: string | null = null): UnifiedForwardOutcomeLabel
     rowsUpdatedD3: 0,
     rowsUpdatedD5: 0,
     rowsUpdatedD10: 0,
+    dataUnavailable: 0,
     duplicateSuppressed: 0,
     stalePending: 0,
     gate3EvidenceSampleSize: 0,
@@ -286,7 +288,10 @@ function nearMissRow(entry: NearMissOutcomeEntry): UnifiedForwardOutcomeRow {
   };
 }
 
-function counterfactualRow(entry: CounterfactualShadowLearningLedgerEntry): UnifiedForwardOutcomeRow {
+function counterfactualRow(entry: CounterfactualShadowLearningLedgerEntry, now: Date): UnifiedForwardOutcomeRow {
+  const createdYmd = entry.createdAtKst.slice(0, 10);
+  const today = nowKstYmd(now);
+  const due = (days: number) => today >= addBusinessDaysFromKstDate(createdYmd, days);
   return {
     outcomeId: entry.scanId ? `${entry.scanId}:${entry.symbol}:ADR-0430` : `${entry.createdAtKst}:${entry.symbol}:ADR-0430`,
     sourceType: 'COUNTERFACTUAL_LEDGER',
@@ -296,7 +301,12 @@ function counterfactualRow(entry: CounterfactualShadowLearningLedgerEntry): Unif
     createdAt: entry.createdAtKst,
     sourceSnapshotId: entry.scanId ?? null,
     gateScoreInputSnapshotId: null,
-    horizonStatus: { D1: 'PENDING', D3: 'PENDING', D5: 'PENDING', D10: 'PENDING' },
+    horizonStatus: {
+      D1: horizonStatus(null, true, due(1)),
+      D3: horizonStatus(null, true, due(3)),
+      D5: horizonStatus(null, true, due(5)),
+      D10: horizonStatus(null, true, due(10)),
+    },
     forwardReturnD1: null,
     forwardReturnD3: null,
     forwardReturnD5: null,
@@ -308,7 +318,10 @@ function counterfactualRow(entry: CounterfactualShadowLearningLedgerEntry): Unif
   };
 }
 
-function paperRow(entry: UnifiedPaperObservationalEntry): UnifiedForwardOutcomeRow {
+function paperRow(entry: UnifiedPaperObservationalEntry, now: Date): UnifiedForwardOutcomeRow {
+  const createdYmd = entry.createdAt.slice(0, 10);
+  const today = nowKstYmd(now);
+  const due = (days: number) => today >= addBusinessDaysFromKstDate(createdYmd, days);
   return {
     outcomeId: entry.outcomeId,
     sourceType: 'PAPER_OBSERVATIONAL_ENTRY',
@@ -318,7 +331,12 @@ function paperRow(entry: UnifiedPaperObservationalEntry): UnifiedForwardOutcomeR
     createdAt: entry.createdAt,
     sourceSnapshotId: entry.sourceSnapshotId ?? null,
     gateScoreInputSnapshotId: entry.gateScoreInputSnapshotId ?? null,
-    horizonStatus: { D1: 'PENDING', D3: 'PENDING', D5: 'PENDING', D10: 'PENDING' },
+    horizonStatus: {
+      D1: horizonStatus(null, true, due(1)),
+      D3: horizonStatus(null, true, due(3)),
+      D5: horizonStatus(null, true, due(5)),
+      D10: horizonStatus(null, true, due(10)),
+    },
     forwardReturnD1: null,
     forwardReturnD3: null,
     forwardReturnD5: null,
@@ -343,8 +361,8 @@ export function normalizeUnifiedForwardOutcomeRows(input: {
     ...(input.gate3Seeds ?? []).map((seed) => gate3Row(seed, now)),
     ...(input.gate1Rows ?? []).map((row) => gate1Row(row, now)),
     ...(input.nearMissEntries ?? []).map(nearMissRow),
-    ...(input.counterfactualEntries ?? []).map(counterfactualRow),
-    ...(input.paperEntries ?? []).map(paperRow),
+    ...(input.counterfactualEntries ?? []).map((entry) => counterfactualRow(entry, now)),
+    ...(input.paperEntries ?? []).map((entry) => paperRow(entry, now)),
   ];
 }
 
@@ -366,6 +384,12 @@ function stalePendingRows(rows: readonly UnifiedForwardOutcomeRow[], now: Date):
     const createdYmd = row.createdAt.slice(0, 10);
     return tradingDaysBetween(createdYmd, now) >= 10;
   }).length;
+}
+
+function dataUnavailableHorizons(rows: readonly UnifiedForwardOutcomeRow[]): number {
+  return rows.reduce((total, row) =>
+    total + (['D1', 'D3', 'D5', 'D10'] as const).filter((horizon) => row.horizonStatus[horizon] === 'PENDING').length,
+  0);
 }
 
 async function updateGate3Seeds(input: {
@@ -509,13 +533,14 @@ export async function runUnifiedForwardOutcomeLabeler(
       rowsUpdatedD3: gate3Update.updatedD3 + gate1Update.updatedD3 + nearMissUpdate.updated3d,
       rowsUpdatedD5: gate3Update.updatedD5 + gate1Update.updatedD5 + nearMissUpdate.updated5d,
       rowsUpdatedD10: gate3Update.updatedD10 + nearMissUpdate.updated10d,
+      dataUnavailable: dataUnavailableHorizons(rows),
       duplicateSuppressed,
       stalePending: stalePendingRows(rows, now),
       gate3EvidenceSampleSize: buildGate3EvidenceScore(gate3Update.seeds).sampleSize,
       gate1CalibrationSampleSize: observedGate1Rows(gate1RowsAfter),
       nearMissEvidenceSampleSize: observedNearMissRows(nearMissEntriesAfter),
       lastLabelingRunAt: runAt,
-      lastLabelingErrorSanitized: null,
+      lastLabelingErrorSanitized: 'NONE',
       liveExecutionAllowed: false,
       executionImpact: 'NONE',
       shadowLearning: true,
@@ -547,13 +572,14 @@ export function formatUnifiedForwardOutcomeLabelerSection(
     `rowsUpdatedD3: ${summary.rowsUpdatedD3}`,
     `rowsUpdatedD5: ${summary.rowsUpdatedD5}`,
     `rowsUpdatedD10: ${summary.rowsUpdatedD10}`,
+    `dataUnavailable: ${summary.dataUnavailable ?? 0}`,
     `duplicateSuppressed: ${summary.duplicateSuppressed}`,
     `stalePending: ${summary.stalePending}`,
     `gate3EvidenceSampleSize: ${summary.gate3EvidenceSampleSize}`,
     `gate1CalibrationSampleSize: ${summary.gate1CalibrationSampleSize}`,
     `nearMissEvidenceSampleSize: ${summary.nearMissEvidenceSampleSize}`,
     `lastLabelingRunAt: ${summary.lastLabelingRunAt ?? 'N/A'}`,
-    `lastLabelingErrorSanitized: ${summary.lastLabelingErrorSanitized ?? 'none'}`,
+    `lastLabelingErrorSanitized: ${summary.lastLabelingErrorSanitized ?? 'NONE'}`,
     `liveExecutionAllowed=${summary.liveExecutionAllowed} executionImpact=${summary.executionImpact} shadowLearning=${summary.shadowLearning} thresholdAutoChanged=${summary.thresholdAutoChanged}`,
   ].join('\n');
 }

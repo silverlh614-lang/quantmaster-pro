@@ -1,6 +1,7 @@
 // @responsibility Unified forward outcome labeler regression tests for learning-only evidence and safety invariants.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { Gate3OutcomeSeed } from '../quant/gate3OutcomeSeed.js';
 import type { NearMissOutcomeEntry } from '../persistence/nearMissOutcomeLedger.js';
 import type { CounterfactualShadowLearningLedgerEntry } from '../persistence/counterfactualShadowLearningRepo.js';
@@ -170,6 +171,8 @@ describe('UnifiedForwardOutcomeLabeler', () => {
     expect(result.gate3EvidenceSampleSize).toBeGreaterThan(0);
     expect(result.gate1CalibrationSampleSize).toBeGreaterThan(0);
     expect(result.nearMissEvidenceSampleSize).toBeGreaterThan(0);
+    expect(result.lastLabelingRunAt).not.toBeNull();
+    expect(result.lastLabelingErrorSanitized).toBe('NONE');
     expect(result.liveExecutionAllowed).toBe(false);
     expect(result.executionImpact).toBe('NONE');
     expect(result.thresholdAutoChanged).toBe(false);
@@ -178,6 +181,29 @@ describe('UnifiedForwardOutcomeLabeler', () => {
     expect(section).toContain('unifiedOutcomeLabelerHealthy: true');
     expect(section).toContain('rowsUpdatedD1:');
     expect(section).toContain('gate3EvidenceSampleSize:');
+    expect(section).toContain('lastLabelingErrorSanitized: NONE');
+  });
+
+  it('keeps the run healthy when due horizons have no price data', async () => {
+    const result = await runUnifiedForwardOutcomeLabeler({
+      now: NOW,
+      persist: false,
+      gate3Seeds: [gate3Seed()],
+      gate1Rows: [gate1Row()],
+      nearMissEntries: [],
+      counterfactualEntries: [],
+      paperEntries: [],
+      priceFetcher: async () => null,
+    });
+
+    expect(result.unifiedOutcomeLabelerHealthy).toBe(true);
+    expect(result.sourceRowsScanned).toBeGreaterThan(0);
+    expect(result.rowsUpdatedD1 + result.rowsUpdatedD3 + result.rowsUpdatedD5 + result.rowsUpdatedD10).toBe(0);
+    expect(result.dataUnavailable).toBeGreaterThan(0);
+    expect(result.lastLabelingRunAt).not.toBeNull();
+    expect(result.lastLabelingErrorSanitized).toBe('NONE');
+    expect(result.liveExecutionAllowed).toBe(false);
+    expect(result.executionImpact).toBe('NONE');
   });
 
   it('honors the rollback env without touching price providers', async () => {
@@ -200,5 +226,13 @@ describe('UnifiedForwardOutcomeLabeler', () => {
     expect(result.liveExecutionAllowed).toBe(false);
     expect(result.executionImpact).toBe('NONE');
     expect(priceFetcher).not.toHaveBeenCalled();
+  });
+
+  it('is wired to a startup activation and an ALWAYS_ON dedicated scheduler', () => {
+    const source = readFileSync(new URL('../scheduler/learningJobs.ts', import.meta.url), 'utf8');
+
+    expect(source).toContain("runUnifiedForwardOutcomeLabelerJob('startup')");
+    expect(source).toContain("scheduledJob('36 7 * * *', 'ALWAYS_ON', 'unified_forward_outcome_labeling'");
+    expect(source).not.toContain("scheduledJob('36 7 * * 1-5', 'TRADING_DAY_ONLY', 'unified_forward_outcome_labeling'");
   });
 });
