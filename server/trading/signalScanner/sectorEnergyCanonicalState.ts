@@ -66,6 +66,10 @@ export function deriveSectorEnergyDiagnosticSources(
   return {
     oldOfficialTargetCoverage: clamp01Pct(master.officialTargetVerifiedCoverageDiagnostic) / 100,
     internalGroupedSnapshotCoverage: clamp01Pct(master.internalGroupedSnapshotCoverage) / 100,
+    groupedValidSectorCount: master.internalGroupedValidSectorCount,
+    groupedExpectedSectorCount: master.internalGroupedExpectedSectorCount,
     kisBasketDerivedStatus: 'DIAGNOSTIC_ONLY',
+    kisBasketOfficialEquivalent: false,
+    kisBasketUseForPromotion: false,
   };
 }

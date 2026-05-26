@@ -288,8 +288,13 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
     expect(attribution.leadershipAttribution.final.noLeadershipReason).toBe('LIVE_PROMOTION_DISABLED_AND_BREAKOUT_NOT_CONFIRMED');
 
     const section = formatGate2AttributionSection(attribution);
-    expect(section).toContain('officialIndex: status=UNAVAILABLE');
-    expect(section).toContain('shadowSector: status=AVAILABLE');
+    expect(section).toContain('officialIndex: sourceOfTruth=SectorEnergyCanonicalResolver status=UNAVAILABLE');
+    expect(section).toContain('officialSectorCount=11');
+    expect(section).toContain('promotionAllowed=false');
+    expect(section).toContain('sectorBoostAllowed=false');
+    expect(section).toContain('strongBuyAllowed=false');
+    expect(section).toContain('shadowSector: status=AVAILABLE sourceTier=NONE');
+    expect(section).toContain('diagnosticOnly=true useForPromotion=false useForSectorBoost=false useForStrongBuy=false useForLiveLeadership=false');
     expect(section).toContain('breakoutMomentum: status=NOT_CONFIRMED');
     expect(section).toContain('executionImpact=NONE');
   });
@@ -462,9 +467,9 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
     });
 
     expect(bridged?.leadershipAttribution.shadowSector.status).toBe('AVAILABLE');
-    expect(bridged?.leadershipAttribution.shadowSector.sourceTier).toBe('INTERNAL_GROUPED_SNAPSHOT');
+    expect(bridged?.leadershipAttribution.shadowSector.sourceTier).toBe('NONE');
     expect(bridged?.leadershipAttribution.shadowSector.shadowLeadershipAllowed).toBe(true);
-    expect(bridged?.leadershipAttribution.shadowSector.confidence).toBe('SHADOW_ONLY');
+    expect(bridged?.leadershipAttribution.shadowSector.confidence).toBe('BLOCKED');
     expect(bridged?.leadershipAttribution.shadowSector.internalGroupedSnapshotCoverage).toBe(1);
     expect(bridged?.leadershipAttribution.shadowSector.internalGroupedValidSectorCount).toBe(12);
     expect(bridged?.leadershipAttribution.shadowSector.internalProxyCoverage).toBe(1);
@@ -476,10 +481,11 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
     expect(bridged?.leadershipAttribution.blockers).toContain('BREAKOUT_MOMENTUM_FAIL');
 
     const section = formatGate2AttributionSection(bridged);
-    expect(section).toContain('shadowSector: status=AVAILABLE sourceTier=INTERNAL_GROUPED_SNAPSHOT');
-    expect(section).toContain('confidence=SHADOW_ONLY');
+    expect(section).toContain('shadowSector: status=AVAILABLE sourceTier=NONE');
+    expect(section).toContain('confidence=MISSING');
     expect(section).toContain('internalGroupedSnapshotCoverage=100.0%');
     expect(section).toContain('groupedValidSectorCount=12/12');
+    expect(section).toContain('diagnosticOnly=true useForPromotion=false useForSectorBoost=false useForStrongBuy=false useForLiveLeadership=false');
     expect(section).toContain('counterfactualAllowed=true');
     expect(section).toContain('liveLeadership=false shadowLeadership=true');
     expect(section).toContain('executionImpact=NONE');

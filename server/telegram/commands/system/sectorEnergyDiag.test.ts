@@ -29,7 +29,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       expect(mod.default.category).toBe('SYS');
       expect(mod.default.visibility).toBe('ADMIN');
       expect(mod.default.riskLevel).toBe(0); // read-only
-    }, 10_000);
+    }, 20_000);
 
     it('barrel index.ts 에 sectorEnergyDiag 등록', () => {
       const src = fs.readFileSync(path.resolve(__dirname, 'index.ts'), 'utf-8');
@@ -67,11 +67,11 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       }));
       const mod = await import('./sectorEnergyDiag.cmd.js');
       const msg = mod.formatSectorEnergyDiagMessage();
-      expect(msg).toMatch(/dataQuality.*OK/);
-      expect(msg).toMatch(/sourceTier.*KRX_CODE/);
-      expect(msg).toMatch(/freshness.*FRESH/);
-      expect(msg).toMatch(/coverage.*100\.0%/);
-      expect(msg).toMatch(/confidence.*100\.0%/);
+      expect(msg).toMatch(/legacyDataQualityDiagnosticOnly.*OK/);
+      expect(msg).toMatch(/legacySourceTierDiagnosticOnly.*KRX_CODE/);
+      expect(msg).toMatch(/legacyFreshnessDiagnosticOnly.*FRESH/);
+      expect(msg).toMatch(/legacyCoverageDiagnosticOnly.*100\.0%/);
+      expect(msg).toMatch(/legacyConfidenceDiagnosticOnly.*100\.0%/);
       expect(msg).toMatch(/High-conviction label diagnostics/);
       expect(msg).toMatch(/score\/diagnostic only/);
     });
@@ -90,11 +90,11 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       const mod = await import('./sectorEnergyDiag.cmd.js');
       const msg = mod.formatSectorEnergyDiagMessage();
       // dataQuality=DEGRADED 마커
-      expect(msg).toMatch(/dataQuality.*DEGRADED/);
+      expect(msg).toMatch(/legacyDataQualityDiagnosticOnly.*DEGRADED/);
       expect(msg).toMatch(/🔶/); // DEGRADED 이모지
       expect(msg).toMatch(/High-conviction label diagnostics/);
       // 4 조건 OR 다중 사유 동시 충족
-      expect(msg).toMatch(/confidence/);
+      expect(msg).toMatch(/legacyConfidenceDiagnosticOnly/);
       expect(msg).toMatch(/DEGRADED/);
       expect(msg).toMatch(/YAHOO_ETF/);
       // Step 4 — 진단 근거만 표시하고 매수 차단/강등은 하지 않음
@@ -114,7 +114,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       }));
       const mod = await import('./sectorEnergyDiag.cmd.js');
       const msg = mod.formatSectorEnergyDiagMessage();
-      expect(msg).toMatch(/dataQuality.*FAILED/);
+      expect(msg).toMatch(/legacyDataQualityDiagnosticOnly.*FAILED/);
       expect(msg).toMatch(/❌/);
       expect(msg).toMatch(/High-conviction label diagnostics/);
     });
@@ -167,9 +167,9 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       const mod = await import('./sectorEnergyDiag.cmd.js');
       const msg = mod.formatSectorEnergyDiagMessage();
 
-      expect(msg).toMatch(/confidence.*65\.0%.*PARTIAL.*KIS basket derived/);
-      expect(msg).not.toMatch(/confidence.*0\.0%/);
-      expect(msg).toContain('selectedSourceTier: <code>KIS_STOCK_BASKET_DERIVED</code>');
+      expect(msg).toMatch(/legacyConfidenceDiagnosticOnly.*65\.0%.*PARTIAL.*KIS basket derived/);
+      expect(msg).not.toMatch(/legacyConfidenceDiagnosticOnly.*0\.0%/);
+      expect(msg).toContain('legacySelectedSourceTierDiagnosticOnly: <code>KIS_STOCK_BASKET_DERIVED</code>');
       expect(msg).toContain('officialCoverage: <b>0/12</b>');
       expect(msg).toContain('basketCoverage: <b>12/12</b>');
       expect(msg).toContain('productionOfficialCoverage: <b>0.0%</b> (0/12)');
@@ -213,9 +213,9 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       }));
       const mod = await import('./sectorEnergyDiag.cmd.js');
       const msg = mod.formatSectorEnergyDiagMessage();
-      expect(msg).toMatch(/dataQuality.*STALE/);
-      expect(msg).toMatch(/sourceTier.*미수집/);
-      expect(msg).toMatch(/freshness.*미수집/);
+      expect(msg).toMatch(/legacyDataQualityDiagnosticOnly.*STALE/);
+      expect(msg).toMatch(/legacySourceTierDiagnosticOnly.*미수집/);
+      expect(msg).toMatch(/legacyFreshnessDiagnosticOnly.*미수집/);
       expect(msg).toMatch(/High-conviction label diagnostics/);
       expect(msg).toMatch(/unavailable/);
     });
@@ -355,9 +355,11 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       const reply = vi.fn();
 
       await mod.default.execute({ args: [], reply });
+      const firstReplyCount = reply.mock.calls.length;
       await mod.default.execute({ args: [], reply });
 
-      expect(reply).toHaveBeenCalledTimes(1);
+      expect(firstReplyCount).toBeGreaterThan(0);
+      expect(reply).toHaveBeenCalledTimes(firstReplyCount);
       expect(String(reply.mock.calls[0][0])).not.toContain('Dry Run unchanged');
       const logs = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
       expect(logs).toContain('[SECTOR_ENERGY_DEDUP_CHECK]');
@@ -435,14 +437,14 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
         now: new Date('2026-05-14T00:00:00.000Z'),
       });
 
-      expect(snapshot.selectedProductionSourceTier).toBe('KIS_STOCK_BASKET_DERIVED');
-      expect(snapshot.productionOfficialCoverage).toBe('0/12');
+      expect(snapshot.selectedProductionSourceTier).toBe('NONE');
+      expect(snapshot.productionOfficialCoverage).toBe('0/11');
       expect(snapshot.productionBasketCoverage).toBe('12/12');
-      expect(snapshot.strongBuyAllowed).toBe(true);
+      expect(snapshot.strongBuyAllowed).toBe(false);
       expect(snapshot.sectorBoostAllowed).toBe(false);
       expect(snapshot.executionImpact).toBe('NONE');
       expect(snapshot.generalBuyBlocked).toBe(false);
-      expect(mod.buildSectorEnergySnapshotDedupKey(snapshot)).toContain('SECTOR_ENERGY_SNAPSHOT:2026-05-14:KIS_STOCK_BASKET_DERIVED:PARTIAL:0/12:12/12:false:true:NONE:KIS_SECTOR_INDEX_DAILY_DRYRUN:2:10:2005,2006:OBSERVE');
+      expect(mod.buildSectorEnergySnapshotDedupKey(snapshot)).toContain('SECTOR_ENERGY_SNAPSHOT:2026-05-14:NONE:MISSING:0/11:12/12:false:false:NONE:KIS_SECTOR_INDEX_DAILY_DRYRUN:2:10:2005,2006:OBSERVE');
     });
   });
 

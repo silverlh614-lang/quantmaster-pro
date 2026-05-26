@@ -442,7 +442,7 @@ describe('ADR-0446 §5. Phase 2 formatters + HTML safety', () => {
     expect(out).toContain('beforeCoverage');
     expect(out).toContain('afterCoverage');
     expect(out).toContain('recoveryStatus');
-    expect(out).toContain('leadershipConfidence');
+    expect(out).toContain('legacyLeadershipConfidenceDiagnosticOnly');
   });
 
   it('formatPhase2RecoveryCompactLine — 핵심 필드 포함 (사용자 §"운영 출력 기대값")', () => {

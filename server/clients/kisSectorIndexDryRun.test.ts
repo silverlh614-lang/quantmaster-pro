@@ -116,8 +116,8 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
     expect(section).toContain('return20d=<code>');
     expect(section).toContain('candidateCoverage: <b>100.0%</b>');
     expect(section).toContain('promotionStage: <code>OBSERVE</code>');
-    expect(section).toContain('sectorBoostAllowed: <b>false</b>');
-    expect(section).toContain('strongBuyAllowed: <b>false</b>');
+    expect(section).toContain('legacySectorBoostAllowedDiagnosticOnly: <b>false</b>');
+    expect(section).toContain('legacyStrongBuyAllowedDiagnosticOnly: <b>false</b>');
     expect(section).toContain('executionImpact: <code>NONE</code>');
   });
 
@@ -234,7 +234,7 @@ describe('KIS_SECTOR_INDEX_DRYRUN diagnostic-only', () => {
     expect(report.promotionStage).toBe('OBSERVE');
     expect(report.strongBuyAllowed).toBe(false);
     expect(section).toContain('candidateCoverage: <b>83.3%</b>');
-    expect(section).toContain('sourceTier: <code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code>');
+    expect(section).toContain('legacySourceTierDiagnosticOnly: <code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code>');
   });
 
   it('0021/0029 EMPTY는 safe alias 후보로 분리되어 PENDING_IDXCODE_MST_VERIFY가 된다', async () => {

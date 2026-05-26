@@ -141,6 +141,7 @@ Append the current PR row here. When this list grows past roughly 60 rows, move 
 - 2026-05-26 · Patch-SHADOW-EXEC-SINGLE-PATH · shadow-buy, onApproved-noop-removal, single-execution-path, fill-once-guard, #8-test
 - 2026-05-26 · Patch-TRACE-SOURCESNAPSHOTID-ALIGNMENT · runtime-resolver-trace, runtime-pipeline-audit, NO_SCAN_SUMMARY-fix, scanEvaluation.scanId, ADR-0528-carry
 - 2026-05-26 · Patch-GATE1-RISK-SECTOR-VIEW-NORMALIZATION · Gate1-positive-wiring-display, RegimeRisk-confidence-sizing, SectorEnergy-view-split, R3-subReason
+- 2026-05-27 · Patch-SectorEnergy-Legacy-Renderer-Kill · canonical-output-lock, diagnostic-only-grouped-kis, TopBlocks, Gate2, ADR0488, Telegram-sector
 
 ---
 

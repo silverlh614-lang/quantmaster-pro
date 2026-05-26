@@ -1,5 +1,11 @@
 // @responsibility Broad candidate pool materialization before Gate evaluation.
 
+import {
+  lockSectorEnergyOutputToCanonical,
+  sectorEnergyCanonicalOrMissing,
+  type SectorEnergyCanonicalState,
+} from '../../src/domain/sector-energy/SectorEnergyCanonicalResolver.js';
+
 export type CandidateSourceTag =
   | 'WATCHLIST'
   | 'INTRADAY_MOVER'
@@ -211,6 +217,7 @@ export interface CandidateFeatureCoverageDiagnostics {
     shadowOnlyRows?: number;
   };
   sectorLeadership?: {
+    sectorEnergyCanonicalState?: SectorEnergyCanonicalState;
     officialIndexCoverage?: number;
     verifiedIndexCodeCoverage?: number;
     internalGroupedSnapshotCoverage?: number;
@@ -1014,6 +1021,14 @@ function buildFeatureCoverageDisplay(
     : toFiniteNumber(officialCoverage) === null
       ? `${fallbackSectorMissing}/${total}`
       : `false(officialCoverage=${formatPct(officialCoverage)})`;
+  const sectorCanonical = sectorEnergyCanonicalOrMissing(coverage?.sectorLeadership?.sectorEnergyCanonicalState);
+  const lockedSectorLeadership = lockSectorEnergyOutputToCanonical({
+    legacyPromotionAllowedDiagnosticOnly: coverage?.sectorLeadership?.promotionAllowed,
+    legacySectorBoostAllowedDiagnosticOnly: coverage?.sectorLeadership?.sectorBoostAllowed,
+    legacyStrongBuyAllowedDiagnosticOnly: coverage?.sectorLeadership?.strongBuyAllowed,
+    legacyLeadershipConfidenceDiagnosticOnly: coverage?.sectorLeadership?.leadershipConfidence,
+    legacySelectedSourceTierDiagnosticOnly: coverage?.sectorLeadership?.selectedSourceTier,
+  }, sectorCanonical);
 
   const rawVolumeAvailable = coverage?.volumeEnergy?.rawVolumeFieldAvailable === true || hasAnyVolumeRaw;
   const volumeEnergyRawMissing = rawVolumeAvailable
@@ -1036,7 +1051,7 @@ function buildFeatureCoverageDisplay(
     `BREAKOUT_SCORE_NOT_PROMOTED=${breakoutScoreNotPromoted}/${total}(basis=${breakoutPromotionBasisName})`,
     `SUPPLY_PARTIAL_ELIGIBLE=${formatCount(finiteCount(coverage?.supply?.gateEligibleRows, total), total)}`,
     `SUPPLY_SHADOW_ONLY_NEUTRAL_UNKNOWN=${supplySemanticMissing}/${total}`,
-    `SECTOR_OFFICIAL_PROMOTION_DISABLED=${coverage?.sectorLeadership?.promotionAllowed === false}`,
+    `SECTOR_OFFICIAL_PROMOTION_DISABLED=${lockedSectorLeadership.promotionAllowed === false}`,
     `VOLUME_ENERGY_NOT_PROMOTED=${volumeEnergyNotPromoted}`,
   ].join(', ');
 
@@ -1045,7 +1060,7 @@ function buildFeatureCoverageDisplay(
     `  RS rawComputed=${formatCount(finiteCount(coverage?.rs?.rawComputed, total), total)} traceAvailable=${formatCount(finiteCount(coverage?.rs?.traceAvailable, total), total)} gateApplied=${formatCount(finiteCount(coverage?.rs?.gateApplied, total), total)} scoreUsable=${formatCount(finiteCount(coverage?.rs?.scoreUsable, total), total)} actualMissing.rawInputMissing=${rsRawInputMissing}/${total} promotionGap.scoreNotPromoted=${rsScoreNotPromoted}/${total} sourceBasis.actual=${rsActualBasisName} sourceBasis.promotion=${rsPromotionBasisName} status=${rsRawInputMissing === 0 ? 'COMPUTED' : 'PARTIAL'}`,
     `  BREAKOUT mapped=${formatCount(finiteCount(coverage?.breakout?.mapped, total), total)} traceAvailableRuntime=${formatCount(finiteCount(coverage?.breakout?.traceAvailableRuntime, total), total)} traceAvailableAlignment=${formatCount(finiteCount(coverage?.breakout?.traceAvailableAlignment, total), total)} runtimeScoreComputed=${formatCount(finiteCount(coverage?.breakout?.runtimeScoreComputed, total), total)} scoreMappedRuntime=${formatCount(finiteCount(coverage?.breakout?.scoreMappedToGateRuntime, total), total)} scoreMappedAlignment=${formatCount(finiteCount(coverage?.breakout?.scoreMappedToGateAlignment, total), total)} actualMissing.rawTraceMissing=${breakoutRawTraceMissing}/${total} promotionGap.scoreNotPromoted=${breakoutScoreNotPromoted}/${total} zeroByCondition=${formatCount(finiteCount(coverage?.breakout?.zeroByCondition, total), total)} sourceBasis.actual=${breakoutActualBasisName} sourceBasis.promotion=${breakoutPromotionBasisName} status=${breakoutRawTraceMissing === 0 ? 'COMPUTED_BUT_CONDITION_ZERO' : 'PARTIAL'}`,
     `  SUPPLY injected=${formatCount(supplyInjected, total)} verified=${formatCount(finiteCount(coverage?.supply?.verified, total), total)} symbolMatched=${formatCount(finiteCount(coverage?.supply?.symbolMatched, total), total)} semanticAvailable=${formatCount(supplySemanticAvailable, total)} gateEligibleRows=${formatCount(finiteCount(coverage?.supply?.gateEligibleRows, total), total)} shadowOnlyRows=${formatCount(supplyShadowOnlyRows, total)} actualMissing.injectedMissing=${supplyInjectedMissing}/${total} actualMissing.semanticMissing=${supplySemanticMissing}/${total} status=PARTIAL_ELIGIBLE`,
-    `  SECTOR_LEADERSHIP officialIndexCoverage=${formatPct(coverage?.sectorLeadership?.officialIndexCoverage)} verifiedIndexCodeCoverage=${formatPct(coverage?.sectorLeadership?.verifiedIndexCodeCoverage)} internalGroupedSnapshotCoverage=${formatPct(coverage?.sectorLeadership?.internalGroupedSnapshotCoverage ?? coverage?.sectorLeadership?.internalProxyCoverage)} internalGroupedValidSectorCount=${coverage?.sectorLeadership?.internalGroupedValidSectorCount ?? 0}/${coverage?.sectorLeadership?.internalGroupedExpectedSectorCount ?? 0} stockDailyFallbackCoverage=${formatPct(coverage?.sectorLeadership?.stockDailyFallbackCoverage)} selectedSourceTier=${coverage?.sectorLeadership?.selectedSourceTier ?? 'UNKNOWN'} leadershipConfidence=${coverage?.sectorLeadership?.leadershipConfidence ?? 'UNKNOWN'} promotionAllowed=${coverage?.sectorLeadership?.promotionAllowed === true} shadowLeadershipAllowed=${coverage?.sectorLeadership?.shadowLeadershipAllowed === true} counterfactualAllowed=${coverage?.sectorLeadership?.counterfactualAllowed === true} actualMissing.officialIndexMissing=${toFiniteNumber(officialCoverage) === 0} status=${coverage?.sectorLeadership?.leadershipConfidence ?? 'UNKNOWN'}`,
+    `  SECTOR_LEADERSHIP sourceOfTruth=${lockedSectorLeadership.sourceOfTruth} universeType=${lockedSectorLeadership.universeType} officialSectorCount=${lockedSectorLeadership.officialSectorCount} verifiedOfficialSectorCount=${lockedSectorLeadership.verifiedOfficialSectorCount} promotionCoverage=${formatPct(lockedSectorLeadership.promotionCoverage)} requiredPromotionCoverage=${formatPct(lockedSectorLeadership.requiredPromotionCoverage)} promotionCoveragePass=${lockedSectorLeadership.promotionCoveragePass} promotionAllowed=${lockedSectorLeadership.promotionAllowed} sectorBoostAllowed=${lockedSectorLeadership.sectorBoostAllowed} strongBuyAllowed=${lockedSectorLeadership.strongBuyAllowed} shadowLeadershipAllowed=${lockedSectorLeadership.shadowLeadershipAllowed} counterfactualAllowed=${lockedSectorLeadership.counterfactualAllowed} selectedSourceTier=${lockedSectorLeadership.selectedSourceTier} dataQuality=${lockedSectorLeadership.dataQuality} confidence=${lockedSectorLeadership.confidence} status=${lockedSectorLeadership.dataQuality} reason=${lockedSectorLeadership.reason} diagnostic.oldOfficialIndexCoverage=${formatPct(coverage?.sectorLeadership?.officialIndexCoverage)} diagnostic.verifiedIndexCodeCoverage=${formatPct(coverage?.sectorLeadership?.verifiedIndexCodeCoverage)} diagnostic.internalGroupedSnapshotCoverage=${formatPct(coverage?.sectorLeadership?.internalGroupedSnapshotCoverage ?? coverage?.sectorLeadership?.internalProxyCoverage)} diagnostic.internalGroupedValidSectorCount=${coverage?.sectorLeadership?.internalGroupedValidSectorCount ?? 0}/${coverage?.sectorLeadership?.internalGroupedExpectedSectorCount ?? 0} diagnostic.stockDailyFallbackCoverage=${formatPct(coverage?.sectorLeadership?.stockDailyFallbackCoverage)} diagnostic.kisBasketDerivedStatus=DIAGNOSTIC_ONLY diagnosticValuesDoNotDrivePromotion=true actualMissing.officialIndexMissing=${toFiniteNumber(officialCoverage) === 0}`,
     `  VOLUME_ENERGY rawVolumeFieldAvailable=${rawVolumeAvailable} rawVolumeFieldKeys=${coverage?.volumeEnergy?.rawVolumeFieldKeys?.join('|') || (hasAnyVolumeRaw ? 'candidateSnapshot.volume' : 'none')} actualMissing.rawVolumeMissing=${!rawVolumeAvailable} promotionGap.volumeEnergyNotPromoted=${volumeEnergyNotPromoted} status=${rawVolumeAvailable ? 'RAW_AVAILABLE_SCORE_NOT_PROMOTED' : 'RAW_MISSING'}`,
   ];
 

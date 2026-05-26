@@ -36,6 +36,11 @@ import {
   buildSectorEnergyCoverageRecoveryReport,
   formatSectorEnergyCoverageRecoverySection,
 } from '../../../clients/sectorEnergyCoverageRecoveryAdr0474.js';
+import {
+  renderSectorEnergyCanonicalOutput,
+  sectorEnergyCanonicalOrMissing,
+} from '../../../../src/domain/sector-energy/SectorEnergyCanonicalResolver.js';
+import { getLastSectorEnergyCanonicalState } from '../../../trading/signalScanner/sectorEnergyCanonicalStateRef.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -111,8 +116,11 @@ function resolveSectorEnergyConfidenceDisplay(input: {
  */
 export function formatSectorEnergyDiagMessage(): string {
   const macro = loadMacroState();
+  const canonical = sectorEnergyCanonicalOrMissing(getLastSectorEnergyCanonicalState());
   const lines: string[] = [];
   lines.push('🌐 <b>[Sector Energy 4-axis 진단]</b>');
+  lines.push('');
+  lines.push(renderSectorEnergyCanonicalOutput(canonical));
   lines.push('');
 
   if (!macro) {
@@ -147,7 +155,7 @@ export function formatSectorEnergyDiagMessage(): string {
               ? '❌'
               : '⚪';
 
-  lines.push(`${qualityEmoji} dataQuality: <b>${dataQuality ?? '미수집'}</b>`);
+  lines.push(`${qualityEmoji} legacyDataQualityDiagnosticOnly: <b>${dataQuality ?? '미수집'}</b>`);
 
   // 4-axis 개별 표시 (ADR-0396 신규 필드)
   const sourceTier = macro.sectorEnergySourceTier as
@@ -162,27 +170,27 @@ export function formatSectorEnergyDiagMessage(): string {
   const diag = macro.sectorEnergyDiagnostics;
 
   if (sourceTier !== undefined) {
-    lines.push(`📡 sourceTier: <b>${sourceTier}</b>`);
+    lines.push(`📡 legacySourceTierDiagnosticOnly: <b>${sourceTier}</b>`);
   } else {
-    lines.push(`📡 sourceTier: <i>미수집 (ADR-0396 격상 전 영속 데이터)</i>`);
+    lines.push(`📡 legacySourceTierDiagnosticOnly: <i>미수집 (ADR-0396 격상 전 영속 데이터)</i>`);
   }
 
   if (freshness !== undefined) {
     const freshEmoji =
       freshness === 'FRESH' ? '✅' : freshness === 'DEGRADED' ? '🟡' : '❌';
-    lines.push(`⏱️ freshness: ${freshEmoji} <b>${freshness}</b>`);
+    lines.push(`⏱️ legacyFreshnessDiagnosticOnly: ${freshEmoji} <b>${freshness}</b>`);
   } else {
-    lines.push(`⏱️ freshness: <i>미수집</i>`);
+    lines.push(`⏱️ legacyFreshnessDiagnosticOnly: <i>미수집</i>`);
   }
 
   if (typeof coverage === 'number' && Number.isFinite(coverage)) {
     lines.push(
-      `📊 coverage: <b>${(coverage * 100).toFixed(1)}%</b> (${validCount ?? '?'}/12 섹터)`,
+      `📊 legacyCoverageDiagnosticOnly: <b>${(coverage * 100).toFixed(1)}%</b> (${validCount ?? '?'}/12 섹터)`,
     );
   } else if (typeof validCount === 'number') {
-    lines.push(`📊 coverage: <i>미수집</i> (${validCount}/12 섹터)`);
+    lines.push(`📊 legacyCoverageDiagnosticOnly: <i>미수집</i> (${validCount}/12 섹터)`);
   } else {
-    lines.push(`📊 coverage: <i>미수집</i>`);
+    lines.push(`📊 legacyCoverageDiagnosticOnly: <i>미수집</i>`);
   }
 
   const confidenceDisplay = resolveSectorEnergyConfidenceDisplay({
@@ -197,14 +205,14 @@ export function formatSectorEnergyDiagMessage(): string {
       ? `, ${confidenceDisplay.suffix}`
       : '';
     lines.push(
-      `🎯 confidence: ${confidenceEmoji(confidenceDisplay.value)} <b>${(confidenceDisplay.value * 100).toFixed(1)}%</b> ` +
+      `🎯 legacyConfidenceDiagnosticOnly: ${confidenceEmoji(confidenceDisplay.value)} <b>${(confidenceDisplay.value * 100).toFixed(1)}%</b> ` +
         `(${confidenceDisplay.confidenceClass}${suffix})`,
     );
     if (confidenceDisplay.reason) {
       lines.push(`  • reason: <i>${confidenceDisplay.reason}</i>`);
     }
   } else {
-    lines.push(`🎯 confidence: <i>미수집</i>`);
+    lines.push(`🎯 legacyConfidenceDiagnosticOnly: <i>미수집</i>`);
   }
 
   // ADR-0399 (= 사용자 명시 ADR-0374): KRX 원천 복구 진단 메타.
@@ -233,7 +241,7 @@ export function formatSectorEnergyDiagMessage(): string {
       lines.push('');
       lines.push('📊 <b>[Production SectorEnergy]</b>');
       lines.push(
-        `selectedSourceTier: <code>${diag.finalSourceTier ?? sourceTier ?? 'MISSING'}</code>`,
+        `legacySelectedSourceTierDiagnosticOnly: <code>${diag.finalSourceTier ?? sourceTier ?? 'MISSING'}</code>`,
       );
       lines.push(
         `officialCoverage: <b>${c.kisOfficialCount + c.verifiedIndexCodeCount}/${c.totalSectors}</b>`,
@@ -241,7 +249,7 @@ export function formatSectorEnergyDiagMessage(): string {
       lines.push(
         `basketCoverage: <b>${c.kisBasketCount}/${c.totalSectors}</b>`,
       );
-      lines.push('sectorBoostAllowed: <b>false</b>');
+      lines.push('legacySectorBoostAllowedDiagnosticOnly: <b>false</b>');
       lines.push('highConvictionLabel: <b>finalScore-only</b>');
       lines.push(`executionImpact: <code>${diag.executionImpact ?? 'NONE'}</code>`);
       lines.push(
@@ -259,7 +267,7 @@ export function formatSectorEnergyDiagMessage(): string {
     }
     if (diag.leadershipConfidence) {
       lines.push(
-        `🧭 leadershipConfidence: <b>${diag.leadershipConfidence}</b>`,
+        `🧭 legacyLeadershipConfidenceDiagnosticOnly: <b>${diag.leadershipConfidence}</b>`,
       );
     }
     if (diag.selectedSectors && diag.selectedSectors.length > 0) {
@@ -369,8 +377,8 @@ export interface SectorEnergySnapshot {
   dataQuality: string;
   productionOfficialCoverage: string;
   productionBasketCoverage: string;
-  strongBuyAllowed: true;
-  sectorBoostAllowed: false;
+  strongBuyAllowed: boolean;
+  sectorBoostAllowed: boolean;
   executionImpact: 'NONE';
   generalBuyBlocked: false;
   dryRunCandidateSourceTier: string;
@@ -463,6 +471,7 @@ export function buildSectorEnergyTelegramSnapshot(input: {
   now?: Date;
 }): SectorEnergySnapshot {
   const macro = loadMacroState() as Record<string, any> | null;
+  const canonical = sectorEnergyCanonicalOrMissing(getLastSectorEnergyCanonicalState());
   const coverage = extractCoverageCounts(macro);
   const dryRunFailedCodes = input.dryRun?.rows
     ?.filter((row) => !row.success)
@@ -472,12 +481,12 @@ export function buildSectorEnergyTelegramSnapshot(input: {
   return Object.freeze({
     topicKey: SECTOR_ENERGY_TELEGRAM_TOPIC_KEY,
     date: (input.now ?? new Date()).toISOString().slice(0, 10),
-    selectedProductionSourceTier: String(macro?.sectorEnergySourceTier ?? 'UNKNOWN'),
-    dataQuality: String(macro?.sectorEnergyDataQuality ?? 'UNKNOWN'),
-    productionOfficialCoverage: coverage.official,
+    selectedProductionSourceTier: canonical.selectedSourceTier,
+    dataQuality: canonical.dataQuality,
+    productionOfficialCoverage: `${canonical.verifiedOfficialSectorCount}/${canonical.officialSectorCount}`,
     productionBasketCoverage: coverage.basket,
-    strongBuyAllowed: true,
-    sectorBoostAllowed: false,
+    strongBuyAllowed: canonical.strongBuyAllowed,
+    sectorBoostAllowed: canonical.sectorBoostAllowed,
     executionImpact: 'NONE',
     generalBuyBlocked: false,
     dryRunCandidateSourceTier: String((input.dryRun as any)?.sourceTier ?? 'KIS_SECTOR_INDEX_DAILY_DRYRUN'),
@@ -647,14 +656,14 @@ async function sendSectorEnergyTelegramMessage(reply: (message: string) => unkno
 function formatDisabledKisSectorIndexDryRunSection(): string {
   return [
     '<b>[KIS Sector Index Candidate Dry Run]</b>',
-    'sourceTier: <code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code>',
+    'legacySourceTierDiagnosticOnly: <code>KIS_SECTOR_INDEX_DAILY_DRYRUN</code>',
     'attempted: <b>0</b>',
     'succeeded: <b>0</b>',
     'failed: <b>0</b>',
     'candidateCoverage: <b>0.0%</b>',
     'officialBenchmark: <b>false</b>',
     'promotionStage: <code>OBSERVE</code>',
-    'sectorBoostAllowed: <b>false</b>',
+    'legacySectorBoostAllowedDiagnosticOnly: <b>false</b>',
     'highConvictionLabel: <b>finalScore-only</b>',
     'executionImpact: <code>NONE</code>',
     'nextAction: <code>VERIFY_FAILED_ISCD_2005_2006_WITH_IDXCODE_MST_BEFORE_L4_WIRING</code>',

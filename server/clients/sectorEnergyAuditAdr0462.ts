@@ -108,7 +108,7 @@ export function formatSectorEnergyAuditTelegram(audit: SectorEnergyAudit): strin
     : '  1. OK';
   return [
     '🌐 SectorEnergy 진단 (ADR-0462)',
-    `• dataQuality: ${audit.dataQuality}`,
+    `• legacyDataQualityDiagnosticOnly: ${audit.dataQuality}`,
     `• mode: ${audit.learningOnly ? 'DIAGNOSTIC_ONLY' : 'SCORING'}`,
     `• sectorCoverage: ${formatCoverageMetric(audit.sectorCoverage)}`,
     `• indexCodeCoverage: ${(audit.indexCodeCoverage.ratio * 100).toFixed(1)}% (${audit.indexCodeCoverage.valid}/${audit.indexCodeCoverage.total})`,
@@ -118,9 +118,9 @@ export function formatSectorEnergyAuditTelegram(audit: SectorEnergyAudit): strin
     `• fallbackContributionToScore: ${audit.fallbackContributionToScore}`,
     '• reasons:',
     reasons,
-    `• leadershipConfidence: ${audit.leadershipConfidence}`,
-    `• sectorBoost: ${audit.sectorBoost}`,
-    `• STRONG_BUY: ${audit.leadershipConfidence === 'BLOCKED' ? 'BLOCKED' : 'ALLOWED'}`,
+    `• legacyLeadershipConfidenceDiagnosticOnly: ${audit.leadershipConfidence}`,
+    `• legacySectorBoostDiagnosticOnly: ${audit.sectorBoost}`,
+    `• legacyStrongBuyDiagnosticOnly: ${audit.leadershipConfidence === 'BLOCKED' ? 'BLOCKED' : 'ALLOWED'}`,
     `• executionHardBlock: ${audit.executionHardBlock}`,
     '• engine: ALIVE',
     '• learning/counterfactual: KEPT',

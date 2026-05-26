@@ -6,6 +6,9 @@ import {
   EXCLUDED_THEME_TAGS,
   SECTOR_OFFICIAL_PROMOTION_DISABLED,
   resolveSectorEnergyCanonicalState,
+  missingSectorEnergyCanonicalState,
+  sectorEnergyCanonicalOrMissing,
+  lockSectorEnergyOutputToCanonical,
   enforceSectorEnergyTopBlockConsistency,
   assertSectorEnergyTopBlockConsistency,
   overrideWithCanonicalPromotion,
@@ -152,6 +155,56 @@ describe('SectorEnergyCanonicalResolver — renderer authority', () => {
     expect(result.mismatchCode).toBe('CANONICAL_STATE_MISMATCH');
   });
 
+  it('locks rendered output to canonical when legacy Gate2 promotion survives as true', () => {
+    const c = stateWithVerified(8);
+    const rendered = lockSectorEnergyOutputToCanonical({
+      promotionAllowed: true,
+      sectorBoostAllowed: true,
+      strongBuyAllowed: true,
+      legacyPromotionAllowedDiagnosticOnly: true,
+    }, c);
+    expect(rendered.promotionAllowed).toBe(false);
+    expect(rendered.sectorBoostAllowed).toBe(false);
+    expect(rendered.strongBuyAllowed).toBe(false);
+    expect(rendered.legacyPromotionAllowedDiagnosticOnly).toBe(true);
+    expect(rendered.canonicalLocked).toBe(true);
+  });
+
+  it('keeps grouped legacy strong-buy as diagnostic-only while canonical strong-buy stays false', () => {
+    const c = stateWithVerified(8);
+    const rendered = lockSectorEnergyOutputToCanonical({
+      legacyStrongBuyAllowedDiagnosticOnly: true,
+      strongBuyAllowed: true,
+    }, c);
+    expect(rendered.strongBuyAllowed).toBe(false);
+    expect(rendered.legacyStrongBuyAllowedDiagnosticOnly).toBe(true);
+  });
+
+  it('does not fallback to legacy when canonical state is missing', () => {
+    const c = sectorEnergyCanonicalOrMissing(undefined);
+    const rendered = lockSectorEnergyOutputToCanonical({
+      promotionAllowed: true,
+      sectorBoostAllowed: true,
+      strongBuyAllowed: true,
+    }, c);
+    expect(c).toEqual(missingSectorEnergyCanonicalState());
+    expect(rendered.dataQuality).toBe('MISSING');
+    expect(rendered.promotionAllowed).toBe(false);
+    expect(rendered.sectorBoostAllowed).toBe(false);
+    expect(rendered.strongBuyAllowed).toBe(false);
+    expect(rendered.reason).toBe('SECTOR_ENERGY_CANONICAL_STATE_MISSING');
+  });
+
+  it('uses canonical selectedSourceTier over legacy diagnostic selectedSourceTier', () => {
+    const c = missingSectorEnergyCanonicalState();
+    const rendered = lockSectorEnergyOutputToCanonical({
+      selectedSourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
+      legacySelectedSourceTierDiagnosticOnly: 'OFFICIAL_KIS_SECTOR_INDEX',
+    }, c);
+    expect(rendered.selectedSourceTier).toBe('NONE');
+    expect(rendered.legacySelectedSourceTierDiagnosticOnly).toBe('OFFICIAL_KIS_SECTOR_INDEX');
+  });
+
   it('Test 9: DISABLED block + strongBuyAllowed=true throws SECTOR_ENERGY_CANONICAL_TOPBLOCK_CONFLICT', () => {
     const passing = stateWithVerified(11); // strongBuyAllowed = true
     expect(() =>
@@ -227,7 +280,7 @@ describe('SectorEnergyCanonicalResolver — invariants', () => {
 
   it('Invariant 6: excludedThemeTags fixed to the four non-official theme tags', () => {
     for (const c of samples) {
-      expect(c.excludedThemeTags).toEqual(['조선', '방산', '원자력', '이차전지']);
+      expect(c.excludedThemeTags).toEqual(EXCLUDED_THEME_TAGS);
     }
   });
 

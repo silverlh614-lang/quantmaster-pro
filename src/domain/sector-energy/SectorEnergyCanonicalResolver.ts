@@ -68,10 +68,10 @@ const THEME_TAG_POLICY_ENTRY: ThemeTagPolicyEntry = {
 };
 
 export const SECTOR_THEME_TAG_POLICY: Readonly<Record<ExcludedThemeTag, ThemeTagPolicyEntry>> = {
-  조선: THEME_TAG_POLICY_ENTRY,
-  방산: THEME_TAG_POLICY_ENTRY,
-  원자력: THEME_TAG_POLICY_ENTRY,
-  이차전지: THEME_TAG_POLICY_ENTRY,
+  [EXCLUDED_THEME_TAGS[0]]: THEME_TAG_POLICY_ENTRY,
+  [EXCLUDED_THEME_TAGS[1]]: THEME_TAG_POLICY_ENTRY,
+  [EXCLUDED_THEME_TAGS[2]]: THEME_TAG_POLICY_ENTRY,
+  [EXCLUDED_THEME_TAGS[3]]: THEME_TAG_POLICY_ENTRY,
 };
 
 // ─── Canonical State 타입 ──────────────────────────────────────────────────────
@@ -86,7 +86,8 @@ export type SectorEnergyDataQuality = 'VERIFIED' | 'PARTIAL' | 'MISSING';
 export type SectorEnergyCanonicalReason =
   | 'OFFICIAL_SECTOR_COVERAGE_PASS'
   | 'OFFICIAL_SECTOR_COVERAGE_BELOW_THRESHOLD'
-  | 'OFFICIAL_SECTOR_SOURCE_MISSING';
+  | 'OFFICIAL_SECTOR_SOURCE_MISSING'
+  | 'SECTOR_ENERGY_CANONICAL_STATE_MISSING';
 
 export interface SectorEnergyCanonicalState {
   sourceOfTruth: 'SectorEnergyCanonicalResolver';
@@ -270,9 +271,131 @@ export function resolveSectorEnergyCanonicalState(
     selectedSourceTier,
     dataQuality,
     confidence: dataQuality,
-    excludedThemeTags: ['조선', '방산', '원자력', '이차전지'],
+    excludedThemeTags: EXCLUDED_THEME_TAGS,
     executionImpact: 'NONE',
     reason,
+  };
+}
+
+export function missingSectorEnergyCanonicalState(): SectorEnergyCanonicalState {
+  return {
+    sourceOfTruth: 'SectorEnergyCanonicalResolver',
+    universeType: 'OFFICIAL_SECTOR_ONLY',
+    officialSectorCount: OFFICIAL_SECTOR_COUNT,
+    verifiedOfficialSectorCount: 0,
+    promotionCoverage: 0,
+    requiredPromotionCoverage: DEFAULT_REQUIRED_PROMOTION_COVERAGE,
+    promotionCoveragePass: false,
+    promotionAllowed: false,
+    sectorBoostAllowed: false,
+    strongBuyAllowed: false,
+    shadowLeadershipAllowed: true,
+    counterfactualAllowed: true,
+    selectedSourceTier: 'NONE',
+    dataQuality: 'MISSING',
+    confidence: 'MISSING',
+    excludedThemeTags: EXCLUDED_THEME_TAGS,
+    executionImpact: 'NONE',
+    reason: 'SECTOR_ENERGY_CANONICAL_STATE_MISSING',
+  };
+}
+
+export function isSectorEnergyCanonicalState(value: unknown): value is SectorEnergyCanonicalState {
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  return Boolean(
+    record &&
+    record.sourceOfTruth === 'SectorEnergyCanonicalResolver' &&
+    record.universeType === 'OFFICIAL_SECTOR_ONLY' &&
+    record.officialSectorCount === OFFICIAL_SECTOR_COUNT &&
+    typeof record.verifiedOfficialSectorCount === 'number' &&
+    typeof record.promotionCoverage === 'number' &&
+    typeof record.requiredPromotionCoverage === 'number' &&
+    typeof record.promotionCoveragePass === 'boolean' &&
+    typeof record.promotionAllowed === 'boolean' &&
+    typeof record.sectorBoostAllowed === 'boolean' &&
+    typeof record.strongBuyAllowed === 'boolean',
+  );
+}
+
+export function sectorEnergyCanonicalOrMissing(
+  canonical: SectorEnergyCanonicalState | null | undefined,
+): SectorEnergyCanonicalState {
+  return isSectorEnergyCanonicalState(canonical) ? canonical : missingSectorEnergyCanonicalState();
+}
+
+type SectorEnergyCanonicalLockedKey =
+  | 'sourceOfTruth'
+  | 'universeType'
+  | 'officialSectorCount'
+  | 'verifiedOfficialSectorCount'
+  | 'promotionCoverage'
+  | 'requiredPromotionCoverage'
+  | 'promotionCoveragePass'
+  | 'promotionAllowed'
+  | 'sectorBoostAllowed'
+  | 'strongBuyAllowed'
+  | 'shadowLeadershipAllowed'
+  | 'counterfactualAllowed'
+  | 'selectedSourceTier'
+  | 'dataQuality'
+  | 'confidence'
+  | 'executionImpact'
+  | 'reason'
+  | 'canonicalLocked';
+
+export type SectorEnergyCanonicalLockedOutput<T extends Record<string, any>> = Omit<T, SectorEnergyCanonicalLockedKey> & {
+  sourceOfTruth: SectorEnergyCanonicalState['sourceOfTruth'];
+  universeType: SectorEnergyCanonicalState['universeType'];
+  officialSectorCount: SectorEnergyCanonicalState['officialSectorCount'];
+  verifiedOfficialSectorCount: SectorEnergyCanonicalState['verifiedOfficialSectorCount'];
+  promotionCoverage: SectorEnergyCanonicalState['promotionCoverage'];
+  requiredPromotionCoverage: SectorEnergyCanonicalState['requiredPromotionCoverage'];
+  promotionCoveragePass: SectorEnergyCanonicalState['promotionCoveragePass'];
+  promotionAllowed: SectorEnergyCanonicalState['promotionAllowed'];
+  sectorBoostAllowed: SectorEnergyCanonicalState['sectorBoostAllowed'];
+  strongBuyAllowed: SectorEnergyCanonicalState['strongBuyAllowed'];
+  shadowLeadershipAllowed: SectorEnergyCanonicalState['shadowLeadershipAllowed'];
+  counterfactualAllowed: SectorEnergyCanonicalState['counterfactualAllowed'];
+  selectedSourceTier: SectorEnergyCanonicalState['selectedSourceTier'];
+  dataQuality: SectorEnergyCanonicalState['dataQuality'];
+  confidence: SectorEnergyCanonicalState['confidence'];
+  executionImpact: SectorEnergyCanonicalState['executionImpact'];
+  reason: SectorEnergyCanonicalState['reason'];
+  canonicalLocked: true;
+};
+
+export function lockSectorEnergyOutputToCanonical<T extends Record<string, any>>(
+  legacyOrDiagnosticBlock: T,
+  canonical: SectorEnergyCanonicalState,
+): SectorEnergyCanonicalLockedOutput<T> {
+  return {
+    ...legacyOrDiagnosticBlock,
+
+    sourceOfTruth: canonical.sourceOfTruth,
+    universeType: canonical.universeType,
+
+    officialSectorCount: canonical.officialSectorCount,
+    verifiedOfficialSectorCount: canonical.verifiedOfficialSectorCount,
+
+    promotionCoverage: canonical.promotionCoverage,
+    requiredPromotionCoverage: canonical.requiredPromotionCoverage,
+    promotionCoveragePass: canonical.promotionCoveragePass,
+
+    promotionAllowed: canonical.promotionAllowed,
+    sectorBoostAllowed: canonical.sectorBoostAllowed,
+    strongBuyAllowed: canonical.strongBuyAllowed,
+
+    shadowLeadershipAllowed: canonical.shadowLeadershipAllowed,
+    counterfactualAllowed: canonical.counterfactualAllowed,
+
+    selectedSourceTier: canonical.selectedSourceTier,
+    dataQuality: canonical.dataQuality,
+    confidence: canonical.confidence,
+
+    executionImpact: canonical.executionImpact,
+    reason: canonical.reason,
+
+    canonicalLocked: true,
   };
 }
 
@@ -295,6 +418,8 @@ export function enforceSectorEnergyTopBlockConsistency(
   }
   return next;
 }
+
+export const enforceSectorEnergyTopBlocks = enforceSectorEnergyTopBlockConsistency;
 
 /**
  * canonical 과 TopBlocks 가 모순이면 throw 한다 (테스트·런타임 가드).
@@ -373,7 +498,11 @@ export function renderSectorEnergyThemeTagsBlock(): string {
 export interface SectorEnergyDiagnosticSources {
   oldOfficialTargetCoverage?: number;
   internalGroupedSnapshotCoverage?: number;
+  groupedValidSectorCount?: number;
+  groupedExpectedSectorCount?: number;
   kisBasketDerivedStatus?: 'DIAGNOSTIC_ONLY';
+  kisBasketOfficialEquivalent?: false;
+  kisBasketUseForPromotion?: false;
 }
 
 /** Block 3 — Diagnostic Sources (모두 diagnosticOnly, promotion 판단에 영향 없음). */
@@ -387,7 +516,14 @@ export function renderSectorEnergyDiagnosticSourcesBlock(diag: SectorEnergyDiagn
       `  internalGroupedSnapshotCoverage=${pct1(diag.internalGroupedSnapshotCoverage)} diagnosticOnly=true`,
     );
   }
+  if (typeof diag.groupedValidSectorCount === 'number' || typeof diag.groupedExpectedSectorCount === 'number') {
+    lines.push(
+      `  groupedValidSectorCount=${diag.groupedValidSectorCount ?? 0}/${diag.groupedExpectedSectorCount ?? 0} diagnosticOnly=true`,
+    );
+  }
   lines.push('  kisBasketDerivedStatus=DIAGNOSTIC_ONLY');
+  lines.push(`  kisBasketOfficialEquivalent=${diag.kisBasketOfficialEquivalent ?? false}`);
+  lines.push(`  kisBasketUseForPromotion=${diag.kisBasketUseForPromotion ?? false}`);
   lines.push('  note=diagnostic values do not drive promotion decision');
   return lines.join('\n');
 }

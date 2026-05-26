@@ -117,6 +117,7 @@ import {
 } from './persistScanResultsDependencies.js';
 import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
 import { isPreflightDiagnosticScanSummary } from './preflightDiagnosticScanSummary.js';
+import { setLastSectorEnergyCanonicalState } from '../sectorEnergyCanonicalStateRef.js';
 import {
   buildCandidateGateEvaluationViews,
   aggregateCandidateGateEvaluationViews,
@@ -157,6 +158,7 @@ export function getConsecutiveZeroScans(): number { return _consecutiveZeroScans
 export function setPreflightDiagnosticScanSummaryIfAbsent(summary: ScanSummary): void {
   if (_lastScanSummary !== null && !isPreflightDiagnosticScanSummary(_lastScanSummary)) return;
   _lastScanSummary = summary;
+  setLastSectorEnergyCanonicalState(summary.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState);
 }
 
 export function setLastBuySignalAt(ts: number): void { _lastBuySignalAt = ts; }
@@ -1786,6 +1788,7 @@ export async function persistScanResults(
   }
 
   _lastScanSummary = summaryDraft;
+  setLastSectorEnergyCanonicalState(summaryDraft.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState);
   // ADR-0367: 정상 ScanSummary 영속 1회가 "직전 스캔 = preflight 차단" 의미를 무효화한다.
   clearPreflightBlockedScanSummary();
 

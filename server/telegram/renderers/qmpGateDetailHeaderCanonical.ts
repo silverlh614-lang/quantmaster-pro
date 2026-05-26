@@ -460,11 +460,9 @@ function buildTopBlocks(input: {
     input.summary,
     'sectorEnergySupplyUnknownAdr0488.sectorEnergyCanonicalState.promotionAllowed',
   );
-  const promotionAllowed =
-    canonicalPromotionAllowed ??
-    getByPath(input.summary, 'freshGate2Attribution.leadershipAttribution.officialIndex.promotionAllowed') ??
-    getByPath(input.summary, 'sectorEnergySupplyUnknownAdr0488.sectorEnergyMaster.promotionAllowed');
-  if (promotionAllowed === false) addBlock(blocks, 'SECTOR_OFFICIAL_PROMOTION_DISABLED');
+  if (canonicalPromotionAllowed === false || canonicalPromotionAllowed === undefined || canonicalPromotionAllowed === null) {
+    addBlock(blocks, 'SECTOR_OFFICIAL_PROMOTION_DISABLED');
+  }
   if (input.gate3.topBlockReason === 'GATE3_DATA_INCOMPLETE') addBlock(blocks, 'GATE3_DATA_INCOMPLETE');
   return blocks.length > 0 ? blocks : ['NONE'];
 }

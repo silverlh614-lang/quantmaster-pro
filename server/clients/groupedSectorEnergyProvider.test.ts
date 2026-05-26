@@ -78,14 +78,20 @@ describe('SECTOR-CLASSIFICATION-SNAPSHOT grouped sector energy', () => {
     const section = formatGroupedSectorEnergyDiagnosticSection(snapshot);
 
     expect(section).toContain('Sector Classification Snapshot');
-    expect(section).toContain('snapshotCoverage: 8/8');
+    expect(section).toContain('snapshotCoverage=8/8');
     expect(section).toContain('Grouped Sector Energy');
-    expect(section).toContain('groupedValidSectorCount:');
-    expect(section).toContain('internalGroupedSnapshotCoverage:');
-    expect(section).toContain('benchmarkStatus:');
-    expect(section).toContain('sourceTier: INTERNAL_GROUPED_SNAPSHOT');
-    expect(section).toContain('sectorBoostAllowed=false');
-    expect(section).toContain('strongBuyAllowed=false');
+    expect(section).toContain('groupedValidSectorCount=');
+    expect(section).toContain('internalGroupedSnapshotCoverage=');
+    expect(section).toContain('benchmarkStatus=');
+    expect(section).toContain('sourceTier=INTERNAL_GROUPED_SNAPSHOT');
+    expect(section).toContain('diagnosticOnly=true');
+    expect(section).toContain('useForPromotion=false');
+    expect(section).toContain('useForSectorBoost=false');
+    expect(section).toContain('useForStrongBuy=false');
+    expect(section).toContain('legacySectorBoostAllowedDiagnosticOnly=false');
+    expect(section).toContain('legacyStrongBuyAllowedDiagnosticOnly=false');
     expect(section).toContain('executionImpact=NONE');
+    expect(section).not.toContain('promotionAllowed=true');
+    expect(section).not.toContain('strongBuyAllowed=true');
   });
 });

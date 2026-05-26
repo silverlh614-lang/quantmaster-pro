@@ -726,7 +726,7 @@ export function formatPhase2RecoverySection(
   }
 
   lines.push(`  • recoveryStatus: ${diag.recoveryStatus}`);
-  lines.push(`  • leadershipConfidence: ${diag.leadershipConfidence}`);
+  lines.push(`  • legacyLeadershipConfidenceDiagnosticOnly: ${diag.leadershipConfidence}`);
 
   // ★ ADR-0447 — 🧩 Alias Expansion 섹션 (잡음 차단: aliasRecovered=0 + aggregateIgnored=0 → 미렌더).
   const aliasRecovered = diag.aliasExpansionRecovered ?? 0;

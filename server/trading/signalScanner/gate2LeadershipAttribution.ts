@@ -35,6 +35,11 @@
 import type { ConditionEvalOutput } from '../../quant/conditions/types.js';
 import { inferStatusFromLegacyResult } from '../../persistence/gateAuditRepo.js';
 import type { SectorEnergyAndSupplyUnknownPolicyReportAdr0488 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
+import {
+  lockSectorEnergyOutputToCanonical,
+  sectorEnergyCanonicalOrMissing,
+  type SectorEnergyCanonicalState,
+} from '../../../src/domain/sector-energy/SectorEnergyCanonicalResolver.js';
 
 /**
  * Gate2 조건별 fresh 카운터.
@@ -101,6 +106,7 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
   if (!attribution || !report?.sectorEnergyMaster) return attribution;
 
   const sector = report.sectorEnergyMaster;
+  const canonical = sectorEnergyCanonicalOrMissing(report.sectorEnergyCanonicalState);
   const officialCoverage = ratioFromMaybePercent(sector.officialIndexCoverage);
   const verifiedCoverage = ratioFromMaybePercent(sector.verifiedIndexCodeCoverage);
   const internalGroupedSnapshotCoverage = ratioFromMaybePercent(
@@ -109,30 +115,30 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
   );
   const internalProxyCoverage = Math.max(ratioFromMaybePercent(sector.internalProxyCoverage), internalGroupedSnapshotCoverage);
   const officialStatus: Gate2LeadershipAttribution['officialIndex']['status'] =
-    verifiedCoverage >= 0.8 ? 'VERIFIED'
-      : officialCoverage > 0 ? 'PARTIAL'
+    canonical.dataQuality === 'VERIFIED' ? 'VERIFIED'
+      : canonical.verifiedOfficialSectorCount > 0 ? 'PARTIAL'
         : 'UNAVAILABLE';
   const officialBlocker: NonNullable<Gate2LeadershipAttribution['officialIndex']['blocker']> =
-    officialCoverage <= 0
+    canonical.selectedSourceTier === 'NONE'
       ? 'OFFICIAL_INDEX_UNAVAILABLE'
-      : verifiedCoverage < 0.8
-        ? 'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD'
+      : !canonical.promotionCoveragePass
+        ? 'OFFICIAL_SECTOR_COVERAGE_BELOW_THRESHOLD'
         : 'NONE';
-  const shadowLeadershipAllowed = sector.shadowLeadershipAllowed === true;
+  const shadowLeadershipAllowed = canonical.shadowLeadershipAllowed === true;
   const breakoutConfirmed = attribution.leadershipAttribution.breakoutMomentum.status === 'CONFIRMED';
-  const liveLeadership = sector.promotionAllowed === true && attribution.gate2Pass > 0;
+  const liveLeadership = canonical.promotionAllowed === true && attribution.gate2Pass > 0;
   const blockers = new Set<Gate2LeadershipBlocker>(attribution.leadershipAttribution.blockers);
-  if (officialCoverage <= 0) blockers.add('OFFICIAL_INDEX_UNAVAILABLE');
-  if (verifiedCoverage < 0.8) blockers.add('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
+  if (canonical.selectedSourceTier === 'NONE') blockers.add('OFFICIAL_INDEX_UNAVAILABLE');
+  if (!canonical.promotionCoveragePass) blockers.add('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
   if (sector.leadershipConfidence === 'BLOCKED') blockers.add('SECTOR_UNAVAILABLE');
   if (!breakoutConfirmed) blockers.add('BREAKOUT_MOMENTUM_FAIL');
   blockers.delete('NO_LEADERSHIP_AFTER_ALL_CHECKS');
   if (blockers.size === 0) blockers.add('NO_LEADERSHIP_AFTER_ALL_CHECKS');
   const noLeadershipReason = liveLeadership
     ? 'LIVE_LEADERSHIP_CONFIRMED'
-    : !sector.promotionAllowed && !breakoutConfirmed
+    : !canonical.promotionAllowed && !breakoutConfirmed
       ? 'LIVE_PROMOTION_DISABLED_AND_BREAKOUT_NOT_CONFIRMED'
-      : !sector.promotionAllowed
+      : !canonical.promotionAllowed
         ? 'LIVE_PROMOTION_DISABLED_BY_OFFICIAL_INDEX'
         : !breakoutConfirmed
           ? 'BREAKOUT_MOMENTUM_NOT_CONFIRMED'
@@ -142,7 +148,15 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
     ...attribution,
     sectorEnergy: {
       ...(attribution.sectorEnergy ?? {}),
-      dataQuality: sector.leadershipConfidence,
+      ...lockSectorEnergyOutputToCanonical({
+        legacyDataQualityDiagnosticOnly: sector.leadershipConfidence,
+        legacyLeadershipConfidenceDiagnosticOnly: sector.leadershipConfidence,
+        legacyPromotionAllowedDiagnosticOnly: sector.promotionAllowed,
+        legacySectorBoostAllowedDiagnosticOnly: sector.sectorBoostAllowed,
+        legacyStrongBuyAllowedDiagnosticOnly: sector.strongBuyAllowed,
+        legacySelectedSourceTierDiagnosticOnly: sector.selectedSectorEnergySourceTier,
+      }, canonical),
+      sectorEnergyCanonicalState: canonical,
       validSectorCount: sector.records.length || attribution.sectorEnergy?.validSectorCount,
       expectedSectorCount: sector.records.length || attribution.sectorEnergy?.expectedSectorCount,
       indexCodeCoverage: officialCoverage,
@@ -156,13 +170,10 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
         : {}),
       internalProxyCoverage,
       stockBasketCoverage: ratioFromMaybePercent(sector.stockDailyFallbackCoverage),
-      selectedSectorEnergySourceTier: sector.selectedSectorEnergySourceTier,
-      leadershipConfidence: sector.leadershipConfidence,
-      promotionAllowed: sector.promotionAllowed,
-      sectorBoostAllowed: sector.sectorBoostAllowed,
-      strongBuyAllowed: sector.strongBuyAllowed,
+      selectedSectorEnergySourceTier: canonical.selectedSourceTier,
+      leadershipConfidence: canonical.confidence === 'VERIFIED' ? 'VERIFIED' : canonical.confidence === 'PARTIAL' ? 'PARTIAL' : 'BLOCKED',
       shadowLeadershipAllowed,
-      counterfactualAllowed: sector.counterfactualAllowed,
+      counterfactualAllowed: canonical.counterfactualAllowed,
       reasonCodes: sector.reasonCodes,
       isStale: false,
     },
@@ -170,17 +181,27 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
       ...attribution.leadershipAttribution,
       officialIndex: {
         status: officialStatus,
-        coverage: officialCoverage,
-        verifiedIndexCodeCoverage: verifiedCoverage,
+        sourceOfTruth: canonical.sourceOfTruth,
+        officialSectorCount: canonical.officialSectorCount,
+        verifiedOfficialSectorCount: canonical.verifiedOfficialSectorCount,
+        promotionCoverage: canonical.promotionCoverage,
+        requiredPromotionCoverage: canonical.requiredPromotionCoverage,
+        promotionCoveragePass: canonical.promotionCoveragePass,
+        coverage: canonical.promotionCoverage,
+        verifiedIndexCodeCoverage: canonical.promotionCoverage,
         blocker: officialBlocker,
-        promotionAllowed: sector.promotionAllowed,
-        impact: sector.promotionAllowed ? 'NONE' : 'NO_LIVE_PROMOTION_ONLY',
+        promotionAllowed: canonical.promotionAllowed,
+        sectorBoostAllowed: canonical.sectorBoostAllowed,
+        strongBuyAllowed: canonical.strongBuyAllowed,
+        impact: canonical.promotionAllowed ? 'NONE' : 'NO_LIVE_PROMOTION_ONLY',
+        executionImpact: canonical.executionImpact,
+        reason: canonical.reason,
       },
       shadowSector: {
         status: shadowLeadershipAllowed ? 'AVAILABLE' : 'UNAVAILABLE',
-        sourceTier: sector.selectedSectorEnergySourceTier,
+        sourceTier: canonical.selectedSourceTier,
         shadowLeadershipAllowed,
-        confidence: sector.leadershipConfidence,
+        confidence: canonical.confidence === 'MISSING' ? 'BLOCKED' : canonical.confidence,
         internalGroupedSnapshotCoverage,
         ...(sector.internalGroupedValidSectorCount !== undefined
           ? { internalGroupedValidSectorCount: sector.internalGroupedValidSectorCount }
@@ -189,7 +210,7 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
           ? { internalGroupedExpectedSectorCount: sector.internalGroupedExpectedSectorCount }
           : {}),
         internalProxyCoverage,
-        counterfactualAllowed: sector.counterfactualAllowed,
+        counterfactualAllowed: canonical.counterfactualAllowed,
       },
       final: {
         liveLeadership,
@@ -247,11 +268,21 @@ export interface Gate2LeadershipAttribution {
   dominantReason: Gate2LeadershipDominantReason;
   officialIndex: {
     status: 'VERIFIED' | 'PARTIAL' | 'UNAVAILABLE';
+    sourceOfTruth?: 'SectorEnergyCanonicalResolver';
+    officialSectorCount?: 11;
+    verifiedOfficialSectorCount?: number;
+    promotionCoverage?: number;
+    requiredPromotionCoverage?: number;
+    promotionCoveragePass?: boolean;
     coverage: number;
     verifiedIndexCodeCoverage?: number;
-    blocker?: 'NONE' | 'OFFICIAL_INDEX_UNAVAILABLE' | 'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD';
+    blocker?: 'NONE' | 'OFFICIAL_INDEX_UNAVAILABLE' | 'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD' | 'OFFICIAL_SECTOR_COVERAGE_BELOW_THRESHOLD';
     promotionAllowed: boolean;
+    sectorBoostAllowed?: boolean;
+    strongBuyAllowed?: boolean;
     impact: 'NONE' | 'NO_LIVE_PROMOTION_ONLY';
+    executionImpact?: 'NONE';
+    reason?: string;
   };
   shadowSector: {
     status: 'AVAILABLE' | 'UNAVAILABLE';
@@ -308,6 +339,13 @@ export interface SectorEnergyDiagnostic {
   counterfactualAllowed?: boolean;
   reasonCodes?: string[];
   isStale?: boolean;
+  sectorEnergyCanonicalState?: SectorEnergyCanonicalState;
+  legacyPromotionAllowedDiagnosticOnly?: boolean;
+  legacySectorBoostAllowedDiagnosticOnly?: boolean;
+  legacyStrongBuyAllowedDiagnosticOnly?: boolean;
+  legacyDataQualityDiagnosticOnly?: string;
+  legacyLeadershipConfidenceDiagnosticOnly?: string;
+  legacySelectedSourceTierDiagnosticOnly?: string;
 }
 
 /**
@@ -997,6 +1035,7 @@ export function buildSectorEnergyDiagnostic(input: {
   shadowLeadershipAllowed?: boolean;
   counterfactualAllowed?: boolean;
   reasonCodes?: string[];
+  sectorEnergyCanonicalState?: SectorEnergyCanonicalState;
 }): SectorEnergyDiagnostic {
   const isStale =
     input.dataQuality === 'STALE' ||
@@ -1048,6 +1087,7 @@ export function buildSectorEnergyDiagnostic(input: {
     ...(typeof input.shadowLeadershipAllowed === 'boolean' ? { shadowLeadershipAllowed: input.shadowLeadershipAllowed } : {}),
     ...(typeof input.counterfactualAllowed === 'boolean' ? { counterfactualAllowed: input.counterfactualAllowed } : {}),
     ...(input.reasonCodes && input.reasonCodes.length > 0 ? { reasonCodes: input.reasonCodes } : {}),
+    ...(input.sectorEnergyCanonicalState ? { sectorEnergyCanonicalState: input.sectorEnergyCanonicalState } : {}),
     isStale,
   };
 }
@@ -1106,6 +1146,15 @@ export function formatGate2AttributionSection(
 
   const topN = Math.max(1, Math.min(options?.topN ?? 5, attribution.buckets.length));
   const topBuckets = attribution.buckets.slice(0, topN);
+  const sectorCanonical = sectorEnergyCanonicalOrMissing(attribution.sectorEnergy?.sectorEnergyCanonicalState);
+  const lockedSectorEnergy = lockSectorEnergyOutputToCanonical({
+    legacyPromotionAllowedDiagnosticOnly: attribution.sectorEnergy?.promotionAllowed,
+    legacySectorBoostAllowedDiagnosticOnly: attribution.sectorEnergy?.sectorBoostAllowed,
+    legacyStrongBuyAllowedDiagnosticOnly: attribution.sectorEnergy?.strongBuyAllowed,
+    legacyDataQualityDiagnosticOnly: attribution.sectorEnergy?.dataQuality,
+    legacyLeadershipConfidenceDiagnosticOnly: attribution.sectorEnergy?.leadershipConfidence,
+    legacySelectedSourceTierDiagnosticOnly: attribution.sectorEnergy?.selectedSectorEnergySourceTier,
+  }, sectorCanonical);
 
   const lines: string[] = [];
   lines.push('🚧 <b>Gate2 / Leadership blockers (ADR-0422 fresh attribution):</b>');
@@ -1129,16 +1178,19 @@ export function formatGate2AttributionSection(
   );
 
   lines.push(
-    `  officialIndex: status=${leadership.officialIndex.status} coverage=${(leadership.officialIndex.coverage * 100).toFixed(1)}% ` +
-    `verifiedIndexCodeCoverage=${(((leadership.officialIndex.verifiedIndexCodeCoverage ?? leadership.officialIndex.coverage) * 100)).toFixed(1)}% ` +
-    `blocker=${leadership.officialIndex.blocker ?? 'NONE'} promotionAllowed=${leadership.officialIndex.promotionAllowed} impact=${leadership.officialIndex.impact}`,
+    `  officialIndex: sourceOfTruth=${lockedSectorEnergy.sourceOfTruth} status=${lockedSectorEnergy.dataQuality === 'MISSING' ? 'UNAVAILABLE' : lockedSectorEnergy.dataQuality} ` +
+    `officialSectorCount=${lockedSectorEnergy.officialSectorCount} verifiedOfficialSectorCount=${lockedSectorEnergy.verifiedOfficialSectorCount} ` +
+    `promotionCoverage=${(lockedSectorEnergy.promotionCoverage * 100).toFixed(1)}% requiredPromotionCoverage=${(lockedSectorEnergy.requiredPromotionCoverage * 100).toFixed(1)}% ` +
+    `promotionCoveragePass=${lockedSectorEnergy.promotionCoveragePass} blocker=${lockedSectorEnergy.reason} ` +
+    `promotionAllowed=${lockedSectorEnergy.promotionAllowed} sectorBoostAllowed=${lockedSectorEnergy.sectorBoostAllowed} strongBuyAllowed=${lockedSectorEnergy.strongBuyAllowed} executionImpact=${lockedSectorEnergy.executionImpact}`,
   );
   lines.push(
-    `  shadowSector: status=${leadership.shadowSector.status} sourceTier=${leadership.shadowSector.sourceTier} ` +
-    `shadowLeadershipAllowed=${leadership.shadowSector.shadowLeadershipAllowed} confidence=${leadership.shadowSector.confidence} ` +
+    `  shadowSector: status=${leadership.shadowSector.status} sourceTier=${lockedSectorEnergy.selectedSourceTier} ` +
+    `shadowLeadershipAllowed=${lockedSectorEnergy.shadowLeadershipAllowed} confidence=${lockedSectorEnergy.confidence} ` +
     `internalGroupedSnapshotCoverage=${(((leadership.shadowSector.internalGroupedSnapshotCoverage ?? leadership.shadowSector.internalProxyCoverage ?? 0) * 100)).toFixed(1)}% ` +
     `groupedValidSectorCount=${leadership.shadowSector.internalGroupedValidSectorCount ?? 0}/${leadership.shadowSector.internalGroupedExpectedSectorCount ?? 0} ` +
-    `counterfactualAllowed=${leadership.shadowSector.counterfactualAllowed === true}`,
+    `diagnosticOnly=true useForPromotion=false useForSectorBoost=false useForStrongBuy=false useForLiveLeadership=false ` +
+    `counterfactualAllowed=${lockedSectorEnergy.counterfactualAllowed === true}`,
   );
   lines.push(`  breakoutMomentum: status=${leadership.breakoutMomentum.status} blocker=${leadership.breakoutMomentum.blocker}`);
   lines.push(
@@ -1203,7 +1255,7 @@ export function formatGate2AttributionSection(
   if (se && (se.dataQuality !== undefined || se.isStale)) {
     lines.push('');
     lines.push('🌐 <b>SectorEnergy 진단 (ADR-0422 — 표시 only, ADR-0423 후속 PR 수리):</b>');
-    if (se.dataQuality) lines.push(`  • dataQuality: ${se.dataQuality}`);
+    lines.push(`  dataQuality: ${lockedSectorEnergy.dataQuality}`);
     if (typeof se.validSectorCount === 'number') {
       const expected =
         typeof se.expectedSectorCount === 'number' ? `/${se.expectedSectorCount}` : '';
@@ -1225,13 +1277,18 @@ export function formatGate2AttributionSection(
     if (typeof se.stockBasketCoverage === 'number') {
       lines.push(`  stockBasketCoverage: ${(ratioFromMaybePercent(se.stockBasketCoverage) * 100).toFixed(1)}%`);
     }
-    if (se.selectedSectorEnergySourceTier) lines.push(`  selectedSectorEnergySourceTier: ${se.selectedSectorEnergySourceTier}`);
-    if (se.leadershipConfidence) lines.push(`  leadershipConfidence: ${se.leadershipConfidence}`);
-    if (typeof se.promotionAllowed === 'boolean') lines.push(`  promotionAllowed: ${se.promotionAllowed}`);
-    if (typeof se.sectorBoostAllowed === 'boolean') lines.push(`  sectorBoostAllowed: ${se.sectorBoostAllowed}`);
-    if (typeof se.strongBuyAllowed === 'boolean') lines.push(`  strongBuyAllowed: ${se.strongBuyAllowed}`);
-    if (typeof se.shadowLeadershipAllowed === 'boolean') lines.push(`  shadowLeadershipAllowed: ${se.shadowLeadershipAllowed}`);
-    if (typeof se.counterfactualAllowed === 'boolean') lines.push(`  counterfactualAllowed: ${se.counterfactualAllowed}`);
+    lines.push(`  selectedSourceTier: ${lockedSectorEnergy.selectedSourceTier}`);
+    if (lockedSectorEnergy.legacySelectedSourceTierDiagnosticOnly) lines.push(`  legacySelectedSourceTierDiagnosticOnly: ${lockedSectorEnergy.legacySelectedSourceTierDiagnosticOnly}`);
+    if (lockedSectorEnergy.legacyDataQualityDiagnosticOnly) lines.push(`  legacyDataQualityDiagnosticOnly: ${lockedSectorEnergy.legacyDataQualityDiagnosticOnly}`);
+    if (lockedSectorEnergy.legacyLeadershipConfidenceDiagnosticOnly) lines.push(`  legacyLeadershipConfidenceDiagnosticOnly: ${lockedSectorEnergy.legacyLeadershipConfidenceDiagnosticOnly}`);
+    if (typeof lockedSectorEnergy.legacyPromotionAllowedDiagnosticOnly === 'boolean') lines.push(`  legacyPromotionAllowedDiagnosticOnly: ${lockedSectorEnergy.legacyPromotionAllowedDiagnosticOnly}`);
+    if (typeof lockedSectorEnergy.legacySectorBoostAllowedDiagnosticOnly === 'boolean') lines.push(`  legacySectorBoostAllowedDiagnosticOnly: ${lockedSectorEnergy.legacySectorBoostAllowedDiagnosticOnly}`);
+    if (typeof lockedSectorEnergy.legacyStrongBuyAllowedDiagnosticOnly === 'boolean') lines.push(`  legacyStrongBuyAllowedDiagnosticOnly: ${lockedSectorEnergy.legacyStrongBuyAllowedDiagnosticOnly}`);
+    lines.push(`  promotionAllowed: ${lockedSectorEnergy.promotionAllowed}`);
+    lines.push(`  sectorBoostAllowed: ${lockedSectorEnergy.sectorBoostAllowed}`);
+    lines.push(`  strongBuyAllowed: ${lockedSectorEnergy.strongBuyAllowed}`);
+    lines.push(`  shadowLeadershipAllowed: ${lockedSectorEnergy.shadowLeadershipAllowed}`);
+    lines.push(`  counterfactualAllowed: ${lockedSectorEnergy.counterfactualAllowed}`);
     if (typeof se.indexCodeCoverage === 'number') {
       lines.push(`  • indexCodeCoverage: ${(se.indexCodeCoverage * 100).toFixed(1)}%`);
     }

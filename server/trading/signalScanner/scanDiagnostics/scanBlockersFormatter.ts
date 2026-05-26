@@ -286,6 +286,7 @@ function scanEvaluationForDisplay(summary: ScanSummary): ScanSummary['scanEvalua
 function sectorEnergyQualityDiagnosticForDisplay(summary: ScanSummary): SectorEnergyQualityDiagnostic | undefined {
   const diagnostic = summary.sectorEnergyQualityDiagnostic;
   const sectorMaster = summary.sectorEnergySupplyUnknownAdr0488?.sectorEnergyMaster;
+  const canonical = summary.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState;
   if (!diagnostic || !sectorMaster) return diagnostic;
 
   const groupedValidSectorCount =
@@ -306,11 +307,11 @@ function sectorEnergyQualityDiagnosticForDisplay(summary: ScanSummary): SectorEn
     ...(groupedExpectedSectorCount !== undefined ? { internalGroupedExpectedSectorCount: groupedExpectedSectorCount } : {}),
     internalProxyCoverage: formatterRatioFromMaybePercent(sectorMaster.internalProxyCoverage),
     stockBasketCoverage: formatterRatioFromMaybePercent(sectorMaster.stockDailyFallbackCoverage),
-    selectedSectorEnergySourceTier: sectorMaster.selectedSectorEnergySourceTier,
-    leadershipConfidence: sectorMaster.leadershipConfidence,
-    promotionAllowed: sectorMaster.promotionAllowed,
-    shadowLeadershipAllowed: sectorMaster.shadowLeadershipAllowed,
-    counterfactualAllowed: sectorMaster.counterfactualAllowed,
+    selectedSectorEnergySourceTier: canonical?.selectedSourceTier ?? 'NONE',
+    leadershipConfidence: canonical?.confidence === 'VERIFIED' ? 'VERIFIED' : canonical?.confidence === 'PARTIAL' ? 'PARTIAL' : 'BLOCKED',
+    promotionAllowed: canonical?.promotionAllowed ?? false,
+    shadowLeadershipAllowed: canonical?.shadowLeadershipAllowed ?? true,
+    counterfactualAllowed: canonical?.counterfactualAllowed ?? true,
     reasonCodes: sectorMaster.reasonCodes,
   };
 }
@@ -430,6 +431,7 @@ function buildCandidateFeatureCoverageFromSummary(
       shadowOnlyRows: canonical.kisInvestorFlow.shadowOnlyRows || Math.max(0, total - (forensic?.supplySemanticAvailable ?? total)),
     },
     sectorLeadership: sectorMaster ? {
+      sectorEnergyCanonicalState: summary.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState,
       officialIndexCoverage: sectorMaster.officialIndexCoverage,
       verifiedIndexCodeCoverage: sectorMaster.verifiedIndexCodeCoverage,
       internalGroupedSnapshotCoverage: sectorMaster.internalGroupedSnapshotCoverage,

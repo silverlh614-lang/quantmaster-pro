@@ -776,7 +776,7 @@ export function formatSectorEnergyQualityDiagnosticSection(
 
   const lines: string[] = [];
   lines.push('🌐 <b>SectorEnergy 진단 (ADR-0423):</b>');
-  lines.push(`  • dataQuality: ${diagnostic.dataQuality}`);
+  lines.push(`  • legacyDataQualityDiagnosticOnly: ${diagnostic.dataQuality}`);
   lines.push(`  • validSectorCount: ${diagnostic.validSectorCount}/${diagnostic.expectedSectorCount}`);
   lines.push(`  • indexCodeCoverage: ${(diagnostic.indexCodeCoverage * 100).toFixed(1)}%`);
   lines.push(`  • missingIndexCodeCount: ${diagnostic.missingIndexCodeCount}/${diagnostic.totalSectorRows}`);
@@ -789,15 +789,15 @@ export function formatSectorEnergyQualityDiagnosticSection(
   if (audit) {
     lines.push('');
     lines.push('🌐 SectorEnergy Recovery Audit');
-    lines.push(`  • dataQuality: ${diagnostic.dataQuality}`);
+    lines.push(`  • legacyDataQualityDiagnosticOnly: ${diagnostic.dataQuality}`);
     lines.push(`  • validSectorCount: ${diagnostic.validSectorCount}/${diagnostic.expectedSectorCount}`);
     lines.push(`  • officialIndex: ${audit.officialSectorIndexAvailable ? 'available' : 'unavailable'}`);
     lines.push(`  • basket: KIS representative, rows=${audit.representativeBasketActualRows}/${audit.representativeBasketExpectedRows}`);
     lines.push('  • rowFreshness:');
     lines.push(`    freshRows=${audit.priceRowsFresh} staleRows=${audit.priceRowsStale} missingRows=${audit.representativeBasketMissingRows}`);
     lines.push(`  • breakPoint: ${audit.breakPoint}`);
-    lines.push(`  • sectorBoostAllowed=${audit.sectorBoostAllowed}`);
-    lines.push(`  • strongBuyAllowed=${audit.strongBuyAllowed}`);
+    lines.push(`  • legacySectorBoostAllowedDiagnosticOnly=${audit.sectorBoostAllowed}`);
+    lines.push(`  • legacyStrongBuyAllowedDiagnosticOnly=${audit.strongBuyAllowed}`);
     lines.push(`  • executionHardBlock=${audit.executionHardBlock}`);
     lines.push(`  • executionImpact=${audit.executionImpact}`);
     lines.push(`  • nextAction: ${audit.nextAction}`);
@@ -862,7 +862,7 @@ export function formatSectorEnergyQualityDiagnosticSection(
     (selectedTier === 'INTERNAL_GROUPED_SNAPSHOT'
       ? Math.max(diagnostic.internalProxyCoverage ?? 0, groupedDerivedCoverage)
       : groupedDerivedCoverage);
-  lines.push(`  • selectedSourceTier: ${selectedTier}`);
+  lines.push(`  • legacySelectedSourceTierDiagnosticOnly: ${selectedTier}`);
   lines.push(`  • officialIndexCoverage: ${((diagnostic.officialIndexCoverage ?? diagnostic.indexCodeCoverage) * 100).toFixed(1)}%`);
   if (diagnostic.decisionUsesSafeOfficialOnly === true) {
     lines.push(`  • selectedPromotionMetric: ${diagnostic.selectedPromotionMetric ?? 'SAFE_OFFICIAL_VERIFIED_COVERAGE'}`);
@@ -873,10 +873,11 @@ export function formatSectorEnergyQualityDiagnosticSection(
   lines.push(`  • internalGroupedValidSectorCount: ${groupedValidSectorCount}/${groupedExpectedSectorCount}`);
   lines.push(`  • internalProxyCoverage: ${((diagnostic.internalProxyCoverage ?? internalGroupedSnapshotCoverage) * 100).toFixed(1)}%`);
   lines.push(`  • stockBasketCoverage: ${((diagnostic.stockBasketCoverage ?? 0) * 100).toFixed(1)}%`);
-  lines.push(`  • leadershipConfidence: ${leadershipConfidence}`);
-  lines.push(`  • promotionAllowed: ${diagnostic.promotionAllowed === true}`);
-  lines.push(`  • sectorBoostAllowed: ${diagnostic.promotionAllowed === true}`);
-  lines.push(`  • strongBuyAllowed: ${diagnostic.promotionAllowed === true}`);
+  lines.push(`  • legacyLeadershipConfidenceDiagnosticOnly: ${leadershipConfidence}`);
+  lines.push(`  • legacyPromotionAllowedDiagnosticOnly: ${diagnostic.promotionAllowed === true}`);
+  lines.push(`  • legacySectorBoostAllowedDiagnosticOnly: ${diagnostic.promotionAllowed === true}`);
+  lines.push(`  • legacyStrongBuyAllowedDiagnosticOnly: ${diagnostic.promotionAllowed === true}`);
+  lines.push('  • diagnosticValuesDoNotDrivePromotion=true');
   lines.push(`  • shadowLeadershipAllowed: ${diagnostic.shadowLeadershipAllowed === true}`);
   lines.push(`  • counterfactualAllowed: ${diagnostic.counterfactualAllowed !== false}`);
   if (diagnostic.reasonCodes && diagnostic.reasonCodes.length > 0) {

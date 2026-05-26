@@ -277,24 +277,31 @@ export function buildGroupedSectorEnergyFromSectorInputs(input: {
 export function formatGroupedSectorEnergyDiagnosticSection(snapshot: GroupedSectorEnergySnapshot | null | undefined): string | null {
   if (!snapshot) return null;
   const lines: string[] = [];
-  lines.push('🧭 Sector Classification Snapshot (ADR-0423):');
-  lines.push(`  • snapshotCoverage: ${snapshot.classification.snapshotCoverage}`);
-  lines.push(`  • classifiedSymbols: ${snapshot.classification.classifiedSymbols}`);
-  lines.push(`  • missingClassification: ${snapshot.classification.missingClassification}`);
-  lines.push(`  • source=${snapshot.classification.source}`);
-  lines.push(`  • confidence=${snapshot.classification.confidence}`);
+  lines.push('Sector Classification Snapshot (ADR-0423):');
+  lines.push(`  snapshotCoverage=${snapshot.classification.snapshotCoverage}`);
+  lines.push(`  classifiedSymbols=${snapshot.classification.classifiedSymbols}`);
+  lines.push(`  missingClassification=${snapshot.classification.missingClassification}`);
+  lines.push(`  source=${snapshot.classification.source}`);
+  lines.push(`  confidence=${snapshot.classification.confidence}`);
   lines.push('');
-  lines.push('📊 Grouped Sector Energy (ADR-0423):');
-  lines.push(`  • groupedStatus: ${snapshot.groupedValidSectorCount > 0 ? 'GROUPED_ENERGY_OK' : 'GROUPED_ENERGY_NOT_EVALUATED'}`);
-  lines.push(`  • groupedValidSectorCount: ${snapshot.groupedValidSectorCount}/${snapshot.expectedSectorCount}`);
-  lines.push(`  • internalGroupedSnapshotCoverage: ${snapshot.expectedSectorCount > 0 ? ((snapshot.groupedValidSectorCount / snapshot.expectedSectorCount) * 100).toFixed(1) : '0.0'}%`);
-  lines.push(`  • topGroupedSectors: ${snapshot.topGroupedSectors.join(', ') || 'none'}`);
-  lines.push(`  • benchmarkStatus: ${snapshot.benchmarkStatus}`);
-  lines.push(`  • sourceTier: ${snapshot.sourceTier}`);
-  lines.push(`  • leadershipConfidence: ${snapshot.leadershipConfidence}`);
-  lines.push(`  • sectorBoostAllowed=${snapshot.sectorBoostAllowed}`);
-  lines.push(`  • strongBuyAllowed=${snapshot.strongBuyAllowed}`);
-  lines.push(`  • executionImpact=${snapshot.executionImpact}`);
+  lines.push('Grouped Sector Energy:');
+  lines.push(`  groupedStatus=${snapshot.groupedValidSectorCount > 0 ? 'GROUPED_ENERGY_OK' : 'GROUPED_ENERGY_NOT_EVALUATED'}`);
+  lines.push(`  sourceTier=${snapshot.sourceTier}`);
+  lines.push(`  internalGroupedSnapshotCoverage=${snapshot.expectedSectorCount > 0 ? ((snapshot.groupedValidSectorCount / snapshot.expectedSectorCount) * 100).toFixed(1) : '0.0'}%`);
+  lines.push(`  groupedValidSectorCount=${snapshot.groupedValidSectorCount}/${snapshot.expectedSectorCount}`);
+  lines.push('  diagnosticOnly=true');
+  lines.push('  useForPromotion=false');
+  lines.push('  useForSectorBoost=false');
+  lines.push('  useForStrongBuy=false');
+  lines.push('  useForLiveLeadership=false');
+  lines.push('  useForShadowEvidence=true');
+  lines.push(`  executionImpact=${snapshot.executionImpact}`);
+  lines.push('  note=grouped sector energy does not drive canonical promotion decision');
+  lines.push(`  topGroupedSectors=${snapshot.topGroupedSectors.join(', ') || 'none'}`);
+  lines.push(`  benchmarkStatus=${snapshot.benchmarkStatus}`);
+  lines.push(`  legacyLeadershipConfidenceDiagnosticOnly=${snapshot.leadershipConfidence}`);
+  lines.push(`  legacySectorBoostAllowedDiagnosticOnly=${snapshot.sectorBoostAllowed}`);
+  lines.push(`  legacyStrongBuyAllowedDiagnosticOnly=${snapshot.strongBuyAllowed}`);
   return lines.join('\n');
 }
 

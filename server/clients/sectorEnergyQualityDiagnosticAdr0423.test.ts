@@ -113,8 +113,8 @@ describe('ADR-0423 §J 사용자 명시 9 케이스', () => {
     expect(diag.dataQuality).toBe('PARTIAL');
     expect(diag.reasons).toContain('KIS_BASKET_DERIVED_SHADOW');
     expect(diag.shouldBlockLeadershipConfidence).toBe(false);
-    expect(section).toMatch(/leadershipConfidence: (READY_FOR_SHADOW|SHADOW_ONLY)/);
-    expect(section).not.toContain('leadershipConfidence: OK');
+    expect(section).toMatch(/legacyLeadershipConfidenceDiagnosticOnly: (READY_FOR_SHADOW|SHADOW_ONLY)/);
+    expect(section).not.toContain('legacyLeadershipConfidenceDiagnosticOnly: OK');
     expect(diag.leadershipConfidence).toBe('SHADOW_ONLY');
     expect(diag.promotionAllowed).toBe(false);
     expect(diag.shadowLeadershipAllowed).toBe(true);
@@ -172,7 +172,7 @@ describe('ADR-0423 §J 사용자 명시 9 케이스', () => {
     expect(section).toContain('fallbackUsed');
     expect(section).toContain('STOCK_DAILY');
     expect(section).toContain('reasons');
-    expect(section).toContain('leadershipConfidence');
+    expect(section).toContain('legacyLeadershipConfidenceDiagnosticOnly');
     expect(section).toContain('BLOCKED');
     expect(section).toContain('STALE');
   });
