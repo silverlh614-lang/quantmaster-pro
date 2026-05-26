@@ -29,6 +29,7 @@ export type EntryBlockReason =
   | 'SELL_ONLY'
   | 'SHADOW_ONLY'
   | 'OBSERVE_ONLY'
+  | 'R3_SANITY_GUARD'
   | 'KRX_NON_TRADING_DAY'
   | 'MARKET_CLOSED'
   | 'PROVIDER_BLOCKING'

@@ -163,11 +163,13 @@ function isR3Gate1PassZeroHardBlockEnabled(): boolean {
  * threshold evidence 축적을 차단한다. 개발·진단 중에는 차단 지점만 가시화하되 파이프라인을 막지
  * 않아야 하므로 default 로 봉인한다.
  *
- * - default false(미설정/그 외) → latch.active 여도 hard-abort 안 함. Gate 진단 계속(가시화 로그만).
+ * - default false(미설정/그 외) → hard-abort 대신 OBSERVE_ONLY execution guard 로 강등.
+ *   live/broker 실주문만 차단(diagnosticOnlyLiveBlock)하고 buyListLoop·Gate 평가는 계속 → Gate
+ *   score health / threshold evidence 가 축적된다 (liveEntryBlockedReason=R3_SANITY_GUARD).
  * - `=== 'true'` → 기존 ADR-0120/0401 영속 latch hard-block enforce 1줄 롤백 복원.
  *
  * latch 기록(persistScanResults) · 텔레그램 조회/해제(/sanity·/r3unblock) 는 영향 0 — 본 게이트는
- * preflight 의 *enforce* 지점만 봉인하므로 forensic 가시성·운영자 제어는 그대로 보존된다.
+ * preflight 의 *enforce* 지점만 강등하므로 forensic 가시성·운영자 제어는 그대로 보존된다.
  */
 function isR3SanityBlockEnabled(): boolean {
   return process.env.R3_SANITY_BLOCK_ENABLED === 'true';
@@ -204,6 +206,7 @@ function parseEntryBlockReasons(reason: string | undefined): EntryBlockReason[] 
     'POSITION_FULL',
     'SHADOW_ONLY',
     'OBSERVE_ONLY',
+    'R3_SANITY_GUARD',
     'KRX_NON_TRADING_DAY',
     'MARKET_CLOSED',
     'PROVIDER_BLOCKING',
@@ -451,12 +454,17 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   if (r3SanityBlock.active && isR3SanityAckTokenValid(r3SanityBlock, r3SanityAckToken)) {
     acknowledgeR3SanityBlock('preflight_env_ack');
   } else if (r3SanityBlock.active && !isR3SanityBlockEnabled()) {
-    // ENV 봉인(default) — 영속 latch 가 활성이어도 hard-abort 하지 않고 Gate 진단을 계속한다.
-    // 차단 지점 가시화를 위해 진단 로그만 남긴다 (R3_SANITY_BLOCK_ENABLED=true 시 enforce 복원).
+    // ENV 봉인(default) — 영속 latch 를 hard-abort 가 아닌 OBSERVE_ONLY execution guard 로 강등한다.
+    // live/broker 실주문만 차단(diagnosticOnlyLiveBlock)하고 buyListLoop·Gate 평가는 계속 → Gate
+    // score health / threshold evidence 가 축적된다. shadow/counterfactual/universe 학습 영향 0.
+    // (R3_SANITY_BLOCK_ENABLED=true 시 기존 hard-abort enforce 1줄 롤백 복원.)
+    liveEntryBlockedReason = appendLiveEntryBlockReason(liveEntryBlockedReason, 'R3_SANITY_GUARD');
+    macroDiagnosticOnly = true;
     console.info(
-      `[AutoTrade] R3 Sanity Block Active but env-sealed (R3_SANITY_BLOCK_ENABLED!=true); ` +
-        `Gate diagnostics continue. violation=${r3SanityBlock.violation} regime=${r3SanityBlock.regime} ` +
-        `triggeredAt=${r3SanityBlock.triggeredAt}. Set R3_SANITY_BLOCK_ENABLED=true to restore hard-block.`,
+      `[AutoTrade] R3 Sanity Block demoted to OBSERVE_ONLY (R3_SANITY_BLOCK_ENABLED!=true); ` +
+        `live execution blocked, Gate diagnostics continue. violation=${r3SanityBlock.violation} ` +
+        `regime=${r3SanityBlock.regime} triggeredAt=${r3SanityBlock.triggeredAt}. ` +
+        `Set R3_SANITY_BLOCK_ENABLED=true to restore hard-block.`,
     );
   } else if (r3SanityBlock.active) {
     emitPreflightOperationalWarn({

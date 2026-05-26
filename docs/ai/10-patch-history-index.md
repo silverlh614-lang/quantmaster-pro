@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-R3-SANITY-OBSERVE-ONLY-DEMOTE-001 · preflight, R3_SANITY_GUARD, observe-only-execution-guard, diagnosticOnlyLiveBlock, buyListLoop-diagnostic-lane, gateScoreHealthSamples, ADR-0120/0401-demote
 - 2026-05-26 · Patch-R3-SANITY-BLOCK-ENV-SEAL-001 · preflight, R3_SANITY_BLOCK_ENABLED, isR3SanityBlockEnabled, ADR-0120-latch-seal, gate-diagnostic-unblock, 1-line-rollback
 - 2026-05-26 · ADR-0531-ROLLOUT-LEARNING · regime, gate0-ssot, learning-label-migration, resolveCanonicalRegimeLevel, shadowResolverJob, emptyScanPostmortem, conditionAuditor, adaptiveLearningClock, invariant-8
 - 2026-05-26 · ADR-0531-ROLLOUT-DISPLAY · regime, gate0-ssot, display-consumer-migration, resolveCanonicalRegimeLevel, telegram-cmd, reportGenerator, survival, systemRouter
