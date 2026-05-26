@@ -389,3 +389,30 @@ describe('cmd 메타데이터', () => {
     await expect(mod.default.execute({ args: [], reply })).resolves.toBeUndefined();
   });
 });
+
+
+describe('LearningPulseV5 Display Normalization', () => {
+  it('classifies market closed fresh shadow zero as INFO waiting next open', async () => {
+    const mod = await import('./learningPulse.cmd.js');
+    const r = (mod as any).deriveFreshShadowDisplay({ marketSession: 'CLOSED', freshSampleSize: 0, queuedNextOpenShadowScan: true });
+    expect(r.status).toBe('WAITING_NEXT_OPEN');
+    expect(r.severity).toBe('INFO');
+  });
+  it('classifies intraday fresh shadow zero as WARN', async () => {
+    const mod = await import('./learningPulse.cmd.js');
+    const r = (mod as any).deriveFreshShadowDisplay({ marketSession: 'REGULAR', freshSampleSize: 0, queuedNextOpenShadowScan: false, lastShadowScanResult: 'OTHER' });
+    expect(r.status).toBe('ZERO_DURING_MARKET');
+    expect(r.severity).toBe('WARN');
+  });
+  it('classifies pending counterfactual before maturity as INFO waiting maturity', async () => {
+    const mod = await import('./learningPulse.cmd.js');
+    const r = (mod as any).deriveCounterfactualDisplay({ nearestMaturityAt: '2999-01-01T00:00:00.000Z', labeledCount: 0, resolvableNow: 0 });
+    expect(r.severity).toBe('INFO');
+    expect(r.blocker).toBe('NO_LABELED_COUNTERFACTUAL');
+  });
+  it('classifies unlabeled counterfactual after maturity as ERROR', async () => {
+    const mod = await import('./learningPulse.cmd.js');
+    const r = (mod as any).deriveCounterfactualDisplay({ nearestMaturityAt: '2000-01-01T00:00:00.000Z', labeledCount: 0, resolvableNow: 2 });
+    expect(r.severity).toBe('ERROR');
+  });
+});
