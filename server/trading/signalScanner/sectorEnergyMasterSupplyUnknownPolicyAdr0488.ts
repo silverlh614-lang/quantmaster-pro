@@ -35,6 +35,7 @@ import type {
 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488/types.js';
 import { deriveSectorEnergyCanonicalState, deriveSectorEnergyDiagnosticSources } from './sectorEnergyCanonicalState.js';
 import {
+  applySectorEnergyCanonicalOverride,
   lockSectorEnergyOutputToCanonical,
   renderSectorEnergyCanonicalOutput,
   sectorEnergyCanonicalOrMissing,
@@ -1139,12 +1140,27 @@ function overallStatus(
   return 'UNKNOWN';
 }
 
+/**
+ * ADR-0534: master report 의 결정 필드(promotion/sectorBoost/strongBuy/leadershipConfidence/sourceTier)를
+ * canonical 값으로 강제 덮어쓴다. recovery sub-object 도 동일하게 통일한다.
+ * 이 hub 하나를 통과하면 candidate pool / Gate2 rebind / Telegram / ADR-0488 renderer 가 모두 canonical 만 본다.
+ */
+function overrideMasterWithCanonical(
+  master: SectorEnergyMasterSupplyLineReportAdr0488,
+  canonical: SectorEnergyCanonicalState,
+): SectorEnergyMasterSupplyLineReportAdr0488 {
+  const recovery = applySectorEnergyCanonicalOverride(master.officialIndexMasterRecovery, canonical);
+  return applySectorEnergyCanonicalOverride({ ...master, officialIndexMasterRecovery: recovery }, canonical);
+}
+
 export function buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488(
   input: BuildSectorEnergyAndSupplyUnknownPolicyReportInputAdr0488 = {},
 ): SectorEnergyAndSupplyUnknownPolicyReportAdr0488 {
   if (input.throwForTest) throw new Error('ADR-0488 test failure');
   const generatedAt = nowIso(input.generatedAt);
-  const sectorEnergyMaster = buildSectorEnergyMasterReportAdr0488({ ...input, generatedAt, useAdr0495Seed: input.useAdr0495Seed ?? true });
+  const sectorEnergyMasterRaw = buildSectorEnergyMasterReportAdr0488({ ...input, generatedAt, useAdr0495Seed: input.useAdr0495Seed ?? true });
+  const sectorEnergyCanonicalState = deriveSectorEnergyCanonicalState(sectorEnergyMasterRaw);
+  const sectorEnergyMaster = overrideMasterWithCanonical(sectorEnergyMasterRaw, sectorEnergyCanonicalState);
   const supplyUnknownPolicy = buildSupplyUnknownPolicyReportAdr0488({ ...input, generatedAt });
   const topGaps = Array.from(new Set([...sectorEnergyMaster.topGaps, ...supplyUnknownPolicy.topGaps]));
   const recommendedNextActions = [
@@ -1154,7 +1170,7 @@ export function buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488(
   return {
     generatedAt,
     overallStatus: overallStatus(sectorEnergyMaster, supplyUnknownPolicy),
-    sectorEnergyCanonicalState: deriveSectorEnergyCanonicalState(sectorEnergyMaster),
+    sectorEnergyCanonicalState,
     sectorEnergyMaster,
     supplyUnknownPolicy,
     topGaps,
@@ -1175,12 +1191,13 @@ export function safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488(
   } catch (error) {
     console.warn('[ADR-0488] build failed; returning isolated diagnostic-only fallback:', error);
     const generatedAt = nowIso(input.generatedAt);
-    const fallbackMaster = buildSectorEnergyMasterReportAdr0488({ generatedAt });
+    const fallbackMasterRaw = buildSectorEnergyMasterReportAdr0488({ generatedAt });
+    const fallbackCanonical = deriveSectorEnergyCanonicalState(fallbackMasterRaw);
     return {
       generatedAt,
       overallStatus: 'UNKNOWN',
-      sectorEnergyCanonicalState: deriveSectorEnergyCanonicalState(fallbackMaster),
-      sectorEnergyMaster: fallbackMaster,
+      sectorEnergyCanonicalState: fallbackCanonical,
+      sectorEnergyMaster: overrideMasterWithCanonical(fallbackMasterRaw, fallbackCanonical),
       supplyUnknownPolicy: buildSupplyUnknownPolicyReportAdr0488({ generatedAt }),
       topGaps: ['REPAIR_SECTOR_INDEX_MASTER', 'SUPPLY_UNKNOWN_POLICY_OBSERVE'],
       recommendedNextActions: ['Retry ADR-0488 diagnostic build; do not change live execution.'],

@@ -12,6 +12,7 @@ import {
   enforceSectorEnergyTopBlockConsistency,
   assertSectorEnergyTopBlockConsistency,
   overrideWithCanonicalPromotion,
+  applySectorEnergyCanonicalOverride,
   renderSectorEnergyCanonicalOutput,
   type SectorEnergyCanonicalState,
 } from './SectorEnergyCanonicalResolver.js';
@@ -307,5 +308,57 @@ describe('SectorEnergyCanonicalResolver — invariants', () => {
   it('OFFICIAL_SECTOR_COUNT constant equals 11 and list length is 11', () => {
     expect(OFFICIAL_SECTOR_COUNT).toBe(11);
     expect(OFFICIAL_SECTOR_ENERGY_11).toHaveLength(11);
+  });
+});
+
+describe('applySectorEnergyCanonicalOverride — legacy field kill / renderer pass-through', () => {
+  it('legacy promotionAllowed=true is overridden to canonical false and preserved as diagnostic', () => {
+    const canonical = stateWithVerified(8); // promotionAllowed=false
+    const legacy = {
+      promotionAllowed: true,
+      sectorBoostAllowed: true,
+      strongBuyAllowed: true,
+      leadershipConfidence: 'VERIFIED',
+      selectedSectorEnergySourceTier: 'INTERNAL_GROUPED_SNAPSHOT',
+      officialIndexCoverage: 73.3,
+    };
+    const out = applySectorEnergyCanonicalOverride(legacy, canonical);
+    expect(out.promotionAllowed).toBe(false);
+    expect(out.sectorBoostAllowed).toBe(false);
+    expect(out.strongBuyAllowed).toBe(false);
+    expect(out.legacyPromotionAllowedDiagnosticOnly).toBe(true);
+    expect(out.legacySectorBoostAllowedDiagnosticOnly).toBe(true);
+    expect(out.legacyStrongBuyAllowedDiagnosticOnly).toBe(true);
+    // coverage 진단 수치는 보존 (단위 corruption 방지).
+    expect(out.officialIndexCoverage).toBe(73.3);
+    // legacy selectedSourceTier 보존, final 은 canonical tier.
+    expect(out.legacySelectedSourceTierDiagnosticOnly).toBe('INTERNAL_GROUPED_SNAPSHOT');
+    expect(out.selectedSourceTier).toBe('OFFICIAL_KIS_SECTOR_INDEX');
+  });
+
+  it('passing case keeps canonical true and maps leadershipConfidence=VERIFIED', () => {
+    const canonical = stateWithVerified(11);
+    const out = applySectorEnergyCanonicalOverride({ promotionAllowed: false, leadershipConfidence: 'BLOCKED' }, canonical);
+    expect(out.promotionAllowed).toBe(true);
+    expect(out.sectorBoostAllowed).toBe(true);
+    expect(out.strongBuyAllowed).toBe(true);
+    expect(out.leadershipConfidence).toBe('VERIFIED');
+  });
+
+  it('Invariant: override never yields promotionAllowed=true when canonical is false', () => {
+    for (const n of [0, 5, 8]) {
+      const canonical = stateWithVerified(n); // all fail
+      const out = applySectorEnergyCanonicalOverride({ promotionAllowed: true, sectorBoostAllowed: true, strongBuyAllowed: true }, canonical);
+      expect(out.promotionAllowed).toBe(false);
+      expect(out.sectorBoostAllowed).toBe(false);
+      expect(out.strongBuyAllowed).toBe(false);
+    }
+  });
+
+  it('Invariant: MISSING canonical maps leadershipConfidence=SHADOW_ONLY (shadow still allowed)', () => {
+    const canonical = resolveSectorEnergyCanonicalState({}); // NONE / MISSING
+    const out = applySectorEnergyCanonicalOverride({ leadershipConfidence: 'VERIFIED' }, canonical);
+    expect(out.leadershipConfidence).toBe('SHADOW_ONLY');
+    expect(out.promotionAllowed).toBe(false);
   });
 });
