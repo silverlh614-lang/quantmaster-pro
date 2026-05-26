@@ -24,7 +24,7 @@
 
 import type { RegimeLevel } from '../../src/types/core.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import {
   loadTodayScanTraces,
   type ScanTrace,
@@ -509,7 +509,8 @@ function buildActionGuidance(actions: PostmortemAction[]): string {
  * 외부에서 직접 호출 가능 (예: 진단 API).
  */
 export function runPostmortem(): PostmortemReport {
-  const regime   = getLiveRegime(loadMacroState());
+  // ADR-0531: Gate0 정본 레짐
+  const regime   = resolveCanonicalRegimeLevel(loadMacroState());
   const traces   = recentTraces(loadTodayScanTraces());
   const summary  = summarize(traces);
   const blocker  = findTopBlocker();
