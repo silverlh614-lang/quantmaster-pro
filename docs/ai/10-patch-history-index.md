@@ -54,6 +54,8 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · ADR-0531 · regime, gate0-ssot, buildGate0RegimeView, getLiveRegime-deprecated, regime-cmd-canonical
+- 2026-05-26 · ADR-0530 · regime, VKOSPI-sanity-guard, invariant-6, R6-recovery-vkospiOk-isolation, classifyVkospiSanity
 - 2026-05-26 · Patch-GATE1-FORENSIC-PERSYMBOL-ROW-CARRY-RESTORE-001 · gate1ForensicInputsCollector, ADR-0514-restore, per-symbol-carry, semanticAvailable, sellOnly-fields, ENTRY_FILTER, ENV-rollback
 - 2026-05-26 · Patch-PREFLIGHT-DIAGNOSTIC-SCANSUMMARY-PERSIST-001 · preflight, diagnostic-scansummary, SNAPSHOT_MISSING, NO_SCAN_SUMMARY, PERSIST_SKIPPED, gate_full, runtime-resolver-trace
 - 2026-05-26 · Patch-SCANBLOCKERS-PREFLIGHT-CANONICAL-RECONCILIATION-001 · scan_blockers, gate_full, preflight, canonical-reconciliation, QMP_DIAGNOSTIC_CANONICAL_MISMATCH
