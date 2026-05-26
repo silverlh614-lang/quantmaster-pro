@@ -35,7 +35,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { isPullbackSetup } from './pipelineHelpers.js';
 import { getKstMarketElapsedMinutes, MORNING_VOLUME_DISCOUNT, MORNING_END_MINUTES } from '../trading/entryEngine.js';
 import { evaluateServerGate } from '../quantFilter.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import type { YahooQuoteExtended } from './stockScreener.js';
 import type { RegimeLevel } from '../../src/types/core.js';
@@ -210,7 +210,7 @@ function calcIntradayTarget(price: number): number {
  * R6_DEFENSE(gate=99)에서는 사실상 진입 불가.
  */
 async function discoverIntradayCandidates(): Promise<void> {
-  const regime = getLiveRegime(loadMacroState());
+  const regime = resolveCanonicalRegimeLevel(loadMacroState()); // ADR-0531: Gate0 정본 레짐
   const minGate = INTRADAY_GATE_BY_REGIME[regime] ?? 99;
 
   // R6_DEFENSE — 장중 발굴 완전 차단

@@ -1,7 +1,9 @@
 // @responsibility adaptiveScanScheduler R6 recovery shadow scan overlay.
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
+import type { MacroState } from '../persistence/macroStateRepo.js';
 import { getRegimeDiagnostics, type RegimeDiagnostics } from '../trading/regimeBridge.js';
+import { isCanonicalR6Defense } from '../trading/regime/canonicalRegimeAccess.js';
 import type { BiasLabel, ShadowCandidateScanTrigger } from '../trading/marketStateResolver.js';
 import * as base from './adaptiveScanScheduler.base.js';
 
@@ -39,11 +41,12 @@ function isR6ConfirmationWaitDiagnostics(diagnostics: RegimeDiagnostics): boolea
     diagnostics.recoveryBlockedReason === 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION';
 }
 
-function resolveR6RecoveryShadowScanState(diagnostics: RegimeDiagnostics): R6RecoveryShadowScanState | undefined {
+function resolveR6RecoveryShadowScanState(diagnostics: RegimeDiagnostics, macroState: MacroState | null): R6RecoveryShadowScanState | undefined {
   if (isR6ConfirmationWaitDiagnostics(diagnostics)) return 'R6_CONFIRMATION_WAIT';
   const state = diagnostics.transitionState.r6StateMachineState;
   if (state === 'R6_RECOVERY_WATCH') return 'R6_RECOVERY_WATCH';
-  if (state === 'R6_DEFENSE' || diagnostics.effectiveRegime === 'R6_DEFENSE') return 'R6_DEFENSE';
+  // ADR-0531: legacy diagnostics.effectiveRegime 대신 canonical R6 판정(진짜 R6는 sanitize 후 보존).
+  if (state === 'R6_DEFENSE' || isCanonicalR6Defense(macroState)) return 'R6_DEFENSE';
   return undefined;
 }
 
@@ -76,6 +79,7 @@ function emitShadowCandidateScanTrigger(trigger: ShadowCandidateScanTrigger): vo
 // emitShadowCandidateScanTrigger('BIAS_RECOVERY')
 function shouldTriggerRecoveryShadowScan(input: {
   diagnostics: RegimeDiagnostics;
+  macroState: MacroState | null;
   mhs: number;
   biasScore: number;
   now: number;
@@ -87,7 +91,7 @@ function shouldTriggerRecoveryShadowScan(input: {
   const degradedObserve = input.diagnostics.sourceFreshness === 'SOFT_STALE';
   const macroFresh = input.diagnostics.sourceFreshness === 'FRESH' && input.diagnostics.r6TriggerBreakdown.triggerFreshness === 'FRESH';
   const noActiveR6 = input.diagnostics.activeR6Triggers.length === 0;
-  const recoveryState = resolveR6RecoveryShadowScanState(input.diagnostics);
+  const recoveryState = resolveR6RecoveryShadowScanState(input.diagnostics, input.macroState);
   const lastCandidateScanOld = lastR6RecoveryCandidateScanAt === 0 || input.now - lastR6RecoveryCandidateScanAt >= RECOVERY_SHADOW_SCAN_COOLDOWN_MS;
   if (!recoveryState || !noActiveR6 || !lastCandidateScanOld) return undefined;
   if (postCloseValid || degradedObserve) {
@@ -117,6 +121,7 @@ export function decideScan(): base.ScanDecision {
   void biasLabel;
   const recoveryShadowTrigger = shouldTriggerRecoveryShadowScan({
     diagnostics,
+    macroState,
     mhs: macroState?.mhs ?? 0,
     biasScore,
     now,

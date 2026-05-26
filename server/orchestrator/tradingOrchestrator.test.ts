@@ -82,8 +82,13 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
     }));
 
     // 레짐: maxPositions 작게 (테스트 편의)
+    // ADR-0531: tradingOrchestrator 는 canonicalRegimeAccess 정본 통로로 레짐을 읽는다.
     vi.doMock('../trading/regimeBridge.js', () => ({
       getLiveRegime: () => 'R2_BULL',
+    }));
+    vi.doMock('../trading/regime/canonicalRegimeAccess.js', () => ({
+      resolveCanonicalRegimeLevel: () => 'R2_BULL',
+      isCanonicalR6Defense: () => false,
     }));
     vi.doMock('../../src/services/quant/regimeEngine.js', () => ({
       REGIME_CONFIGS: { R2_BULL: { maxPositions: 3 } },
@@ -217,6 +222,11 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
     }));
     vi.doMock('../trading/regimeBridge.js', () => ({
       getLiveRegime: () => 'R6_DEFENSE',
+    }));
+    // ADR-0531: isR6DefenseRegime 는 canonicalRegimeAccess.isCanonicalR6Defense 를 사용한다.
+    vi.doMock('../trading/regime/canonicalRegimeAccess.js', () => ({
+      resolveCanonicalRegimeLevel: () => 'R6_DEFENSE',
+      isCanonicalR6Defense: () => true,
     }));
     vi.doMock('../persistence/macroStateRepo.js', () => ({
       loadMacroState: () => ({ regime: 'R6_DEFENSE', mhs: 25 }),
