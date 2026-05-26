@@ -4,7 +4,7 @@ import { getEmergencyStop } from '../../../state.js';
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import { getKrxMasterMetadata } from '../../../persistence/krxStockMasterRepo.js';
-import { getLiveRegime } from '../../../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../../../trading/regime/canonicalRegimeAccess.js';
 import { resetKrxCache } from '../../../clients/krxClient.js';
 import {
   _resetKrxOpenApiBreaker,
@@ -39,7 +39,7 @@ const krxScan: TelegramCommand = {
     );
     try {
       const macroState = loadMacroState();
-      const regime = getLiveRegime(macroState);
+      const regime = resolveCanonicalRegimeLevel(macroState); // ADR-0531: Gate0 정본 레짐
       const result = await runGuardedFullDiscoveryPipeline(regime, macroState);
       if (!result.ok) {
         await reply(

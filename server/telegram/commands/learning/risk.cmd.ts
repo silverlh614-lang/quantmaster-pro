@@ -5,7 +5,7 @@ import {
   getAccountRiskBudget,
   formatAccountRiskBudget,
 } from '../../../trading/accountRiskBudget.js';
-import { getLiveRegime } from '../../../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../../../trading/regime/canonicalRegimeAccess.js';
 import { calculateRegimePositionSizing } from '../../../trading/sizing/regimePositionPolicy.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -21,7 +21,7 @@ const risk: TelegramCommand = {
     const settings = loadTradingSettings();
     const totalAssets = settings.startingCapital ?? 0;
     const budget = getAccountRiskBudget({ totalAssets });
-    const regime = getLiveRegime(loadMacroState());
+    const regime = resolveCanonicalRegimeLevel(loadMacroState()); // ADR-0531: Gate0 정본 레짐
     const sizing = calculateRegimePositionSizing({
       regime,
       totalEquity: totalAssets,

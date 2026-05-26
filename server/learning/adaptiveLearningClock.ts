@@ -12,7 +12,7 @@
  */
 
 import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { loadLearningState } from './learningState.js';
 
 export interface LearningInterval {
@@ -33,7 +33,8 @@ export interface LearningInterval {
 export function getLearningInterval(): LearningInterval {
   const macroState = loadMacroState();
   const vix        = macroState?.vix ?? 15;
-  const regime     = macroState ? getLiveRegime(macroState) : 'R4_NEUTRAL';
+  // ADR-0531: Gate0 정본 레짐
+  const regime     = macroState ? resolveCanonicalRegimeLevel(macroState) : 'R4_NEUTRAL';
 
   if (vix > 30 || regime === 'R5_CAUTION' || regime === 'R6_DEFENSE') {
     return {

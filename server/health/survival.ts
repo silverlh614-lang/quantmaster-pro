@@ -10,7 +10,7 @@ import { computeKellySurface } from '../learning/kellySurfaceMap.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 
 // ─── 타입 ────────────────────────────────────────────────────────────────
 
@@ -218,7 +218,7 @@ export async function collectSurvivalSnapshot(now: Date = new Date()): Promise<S
   };
 
   const macroState = loadMacroState();
-  const currentRegime = getLiveRegime(macroState);
+  const currentRegime = resolveCanonicalRegimeLevel(macroState); // ADR-0531: Gate0 정본 레짐
   const { recommended, samples } = computeRecommendedKelly(currentRegime);
   const { avg: currentAvgKelly } = computeActiveKellyAverage();
   const ratio = recommended > 0 && currentAvgKelly >= 0 ? currentAvgKelly / recommended : null;

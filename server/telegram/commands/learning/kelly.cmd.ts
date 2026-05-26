@@ -1,7 +1,7 @@
 // @responsibility Legacy /kelly command compatibility.
 import { loadTradingSettings } from '../../../persistence/tradingSettingsRepo.js';
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
-import { getLiveRegime } from '../../../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../../../trading/regime/canonicalRegimeAccess.js';
 import { calculateRegimePositionSizing } from '../../../trading/sizing/regimePositionPolicy.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -15,7 +15,7 @@ const kelly: TelegramCommand = {
   async execute({ reply }) {
     const settings = loadTradingSettings();
     const totalEquity = settings.startingCapital ?? 0;
-    const regime = getLiveRegime(loadMacroState());
+    const regime = resolveCanonicalRegimeLevel(loadMacroState()); // ADR-0531: Gate0 정본 레짐
     const sizing = calculateRegimePositionSizing({
       regime,
       totalEquity,

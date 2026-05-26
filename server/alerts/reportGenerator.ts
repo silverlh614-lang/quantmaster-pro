@@ -22,7 +22,7 @@ import { sendTelegramAlert } from './telegramClient.js';
 import { channelMarketBriefing, channelPerformance } from './channelPipeline.js';
 import { fetchCloses } from '../trading/marketDataRefresh.js';
 import { loadGlobalScanReport } from './globalScanAgent.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { getFomcProximity } from '../trading/fomcCalendar.js';
 import { fetchYahooQuote } from '../screener/stockScreener.js';
 // ADR-0443 — yahooSymbolResolver SSOT 위임 — `${code}.KS ?? .KQ` brute-force
@@ -470,7 +470,7 @@ function buildWeeklyActionLines(params: {
   rrr: number;
 }): string[] {
   const { macroNow, winRate, closedCount, rrr } = params;
-  const regimeNow = getLiveRegime(macroNow);
+  const regimeNow = resolveCanonicalRegimeLevel(macroNow); // ADR-0531: Gate0 정본 레짐
   const fomc = getFomcProximity(
     macroNow
       ? {
@@ -789,7 +789,7 @@ export async function sendWatchlistBriefing(): Promise<void> {
   const list = loadWatchlist();
   const openCodes = buildOpenShadowCodes();
   const macro = loadMacroState();
-  const regime = getLiveRegime(macro);
+  const regime = resolveCanonicalRegimeLevel(macro); // ADR-0531: Gate0 정본 레짐
   // v3.1 (2026-04-26): macro snapshot 전달해 우호 환경 완화 일관성 확보.
   const fomc = getFomcProximity(
     macro

@@ -18,7 +18,7 @@ import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { channelHeader, CHANNEL_SEPARATOR } from './channelFormatter.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 
 // ── 후보 선정 ─────────────────────────────────────────────────────────────────
 
@@ -120,7 +120,7 @@ export async function sendWeeklyDeepAnalysis(): Promise<void> {
     }
 
     const macro = loadMacroState();
-    const regime = getLiveRegime(macro);
+    const regime = resolveCanonicalRegimeLevel(macro); // ADR-0531: Gate0 정본 레짐
     const currentPriceRaw = await fetchCurrentPrice(entry.code).catch(() => null);
     const currentPrice = typeof currentPriceRaw === 'number' && currentPriceRaw > 0 ? currentPriceRaw : null;
     const narrative = await getGeminiNarrative(entry, regime);
