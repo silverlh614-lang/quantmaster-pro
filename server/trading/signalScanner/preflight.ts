@@ -29,7 +29,7 @@ import {
   loadR3SanityBlockState,
 } from '../../persistence/r3SanityBlockRepo.js';
 // ADR-0401: R3 Violation streak pre-scan check (SHADOW_ONLY ephemeral 李⑤떒).
-import { getEffectiveR3ViolationStreak } from '../../persistence/r3ViolationStreakRepo.js';
+import { getEffectiveR3ViolationStreak, type R3ViolationStreakState } from '../../persistence/r3ViolationStreakRepo.js';
 import { getR3SanityProfile } from './r3SanityProfiles.js';
 import { loadShadowTrades, saveShadowTrades } from '../../persistence/shadowTradeRepo.js';
 import { computeShadowAccount } from '../../persistence/shadowAccountRepo.js';
@@ -137,6 +137,23 @@ const DEFAULT_MACRO_DIAGNOSTIC_MAX_POSITIONS_FLOOR = 1;
 
 function isPostCloseObservationScan(options?: RunAutoSignalScanOptions): boolean {
   return options?.candidateScanTrigger === 'POST_CLOSE_OBSERVE';
+}
+
+/**
+ * GATE1_PASS_ZERO SHADOW_ONLY pre-scan hard-block ENV 게이트 (ADR-0146 1줄 롤백, ADR-0157 정확 비교).
+ *
+ * 운영 로그 분석 결과 GATE1_PASS_ZERO 는 false-positive — Gate1 후보 거부는 *정상 게이트 동작*
+ * (약유동성 등) 이지 *엔진 고장* 이 아니다. 좋은 수급 후보까지 SHADOW_ONLY 로 강제하던 결함 폐기.
+ *
+ * - default false(미설정/그 외) → GATE1_PASS_ZERO 가 SHADOW_ONLY pre-scan hard-block 을 트리거하지 않음.
+ * - `=== 'true'` → 기존 ADR-0401 GATE1_PASS_ZERO hard-block 동작 복원 (1줄 롤백 안전망).
+ *
+ * CANDIDATES_ZERO / GATE_PASS_DATA_MISSING 는 본 게이트 영향 0 — 이들은 state machine 에서
+ * SHADOW_ONLY 까지 격상되지 않으며(각 ELEVATED/WARNING cap), preflight block 도 violation==='GATE1_PASS_ZERO'
+ * 에만 진입하므로 byte-equivalent 유지.
+ */
+function isR3Gate1PassZeroHardBlockEnabled(): boolean {
+  return process.env.R3_GATE1_PASS_ZERO_HARDBLOCK_ENABLED === 'true';
 }
 
 function macroEntryOverrideApplies(
@@ -714,8 +731,24 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   //   evaluateR3CountableScan ? ?대윴 嫄곗떆 李⑤떒?쇱쓣 R3 streak ?꾩쟻?먯꽌 ?쒖쇅?섎뒗 ?덉쟾留앹씠??
   // ADR-0401: ?곸냽 latch ? 臾닿?, streak repo ??24h decay 濡??먯뿰 ?뚮났.
   // HARD_BLOCK latch (?곸냽, ADR-0120) ???쇱씤 ~173 ?먯꽌 ?대? 泥섎━??(?덈? ?먯튃 #11/12 ???먮룞 ?댁젣 0).
+  // ADR-0401 트리거 축소 — GATE1_PASS_ZERO 의 SHADOW_ONLY pre-scan hard-block 폐기 (default).
+  //   운영 false-positive (Gate1 후보 거부 = 정상 게이트 동작 ≠ 엔진 고장) 차단.
+  //   ENV R3_GATE1_PASS_ZERO_HARDBLOCK_ENABLED=true 시 기존 동작 1줄 롤백 복원.
+  //   CANDIDATES_ZERO / GATE_PASS_DATA_MISSING 는 이 경로에 진입하지 않으므로 byte-equivalent.
   if (r3Countability.countable) {
-    const effectiveStreak = getEffectiveR3ViolationStreak();
+    // ENV disabled(default) 시 GATE1_PASS_ZERO 트리거 자체 폐기 — effectiveStreak 조회/block 모두 skip.
+    //   (else 분기는 !countable 케이스 전용이므로 구조 보존 — 정상 countable 스캔에 skip 로그 미발화).
+    const effectiveStreak: R3ViolationStreakState = isR3Gate1PassZeroHardBlockEnabled()
+      ? getEffectiveR3ViolationStreak()
+      : {
+          schemaVersion: 1,
+          violation: 'NONE',
+          regime: '',
+          consecutiveCount: 0,
+          firstSeenAt: '',
+          lastSeenAt: '',
+          scanIds: [],
+        };
     if (effectiveStreak.violation === 'GATE1_PASS_ZERO' && effectiveStreak.consecutiveCount > 0) {
       const profile = getR3SanityProfile(effectiveStreak.regime);
       if (effectiveStreak.consecutiveCount >= profile.shadowOnlyAt) {
