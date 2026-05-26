@@ -156,6 +156,23 @@ function isR3Gate1PassZeroHardBlockEnabled(): boolean {
   return process.env.R3_GATE1_PASS_ZERO_HARDBLOCK_ENABLED === 'true';
 }
 
+/**
+ * R3 Sanity 영속 HARD_BLOCK latch(ADR-0120)의 preflight enforce ENV 게이트 (default false = 봉인, 1줄 롤백).
+ *
+ * 영속 latch 는 preflight 최전단에서 hard-abort 하여 Gate 평가 자체를 막는다 → Gate 진단 데이터 /
+ * threshold evidence 축적을 차단한다. 개발·진단 중에는 차단 지점만 가시화하되 파이프라인을 막지
+ * 않아야 하므로 default 로 봉인한다.
+ *
+ * - default false(미설정/그 외) → latch.active 여도 hard-abort 안 함. Gate 진단 계속(가시화 로그만).
+ * - `=== 'true'` → 기존 ADR-0120/0401 영속 latch hard-block enforce 1줄 롤백 복원.
+ *
+ * latch 기록(persistScanResults) · 텔레그램 조회/해제(/sanity·/r3unblock) 는 영향 0 — 본 게이트는
+ * preflight 의 *enforce* 지점만 봉인하므로 forensic 가시성·운영자 제어는 그대로 보존된다.
+ */
+function isR3SanityBlockEnabled(): boolean {
+  return process.env.R3_SANITY_BLOCK_ENABLED === 'true';
+}
+
 function macroEntryOverrideApplies(
   override: MacroEntryOverrideState | null,
   target: MacroEntryOverrideTarget,
@@ -433,6 +450,14 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const r3SanityAckToken = process.env.R3_SANITY_ACK_TOKEN;
   if (r3SanityBlock.active && isR3SanityAckTokenValid(r3SanityBlock, r3SanityAckToken)) {
     acknowledgeR3SanityBlock('preflight_env_ack');
+  } else if (r3SanityBlock.active && !isR3SanityBlockEnabled()) {
+    // ENV 봉인(default) — 영속 latch 가 활성이어도 hard-abort 하지 않고 Gate 진단을 계속한다.
+    // 차단 지점 가시화를 위해 진단 로그만 남긴다 (R3_SANITY_BLOCK_ENABLED=true 시 enforce 복원).
+    console.info(
+      `[AutoTrade] R3 Sanity Block Active but env-sealed (R3_SANITY_BLOCK_ENABLED!=true); ` +
+        `Gate diagnostics continue. violation=${r3SanityBlock.violation} regime=${r3SanityBlock.regime} ` +
+        `triggeredAt=${r3SanityBlock.triggeredAt}. Set R3_SANITY_BLOCK_ENABLED=true to restore hard-block.`,
+    );
   } else if (r3SanityBlock.active) {
     emitPreflightOperationalWarn({
       code: 'P1_R3_SANITY_BLOCK_ACTIVE',

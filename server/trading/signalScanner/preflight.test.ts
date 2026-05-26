@@ -207,7 +207,8 @@ describe('preflight.ts byte-equivalent tests', () => {
     }));
   });
 
-  it('should abort if R3 sanity block is active and not acknowledged', async () => {
+  it('should abort if R3 sanity block is active and not acknowledged (when R3_SANITY_BLOCK_ENABLED=true)', async () => {
+    process.env.R3_SANITY_BLOCK_ENABLED = 'true';
     mockedLoadR3SanityBlockState.mockReturnValue({ active: true, violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', triggeredAt: 'ts' } as ReturnType<typeof loadR3SanityBlockState>);
     mockedIsR3SanityAckTokenValid.mockReturnValue(false);
     const result = await runPreflight();
@@ -216,6 +217,21 @@ describe('preflight.ts byte-equivalent tests', () => {
     expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'R3_SANITY_BLOCK' }));
     expect(mockedRecordCounterfactualUniverseLearningSnapshot).toHaveBeenCalledWith(expect.objectContaining({
       preflightStage: 'AFTER_UNIVERSE_BUILD',
+      blockedBy: ['HARD_BLOCK'],
+    }));
+  });
+
+  it('should NOT hard-abort when R3 sanity latch active but env-sealed (default) — Gate diagnostics continue', async () => {
+    delete process.env.R3_SANITY_BLOCK_ENABLED; // default = sealed
+    mockedLoadR3SanityBlockState.mockReturnValue({ active: true, violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', triggeredAt: 'ts' } as ReturnType<typeof loadR3SanityBlockState>);
+    mockedIsR3SanityAckTokenValid.mockReturnValue(false);
+    const result = await runPreflight();
+    expect(result.shouldAbort).toBe(false);
+    expect(result.macroGateState).toBeDefined();
+    expect(result.macroGateState.regime).toBe('R2_BULL');
+    // env-sealed latch must NOT route into the HARD_BLOCK abort path
+    expect(mockedRunShadowLearningOnlyScan).not.toHaveBeenCalledWith(expect.objectContaining({ reason: 'R3_SANITY_BLOCK' }));
+    expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
       blockedBy: ['HARD_BLOCK'],
     }));
   });

@@ -47,6 +47,18 @@ describe('R3 sanity block wiring', () => {
     expect(src).toContain('SHADOW_ONLY ephemeral');
   });
 
+  it('R3 sanity persistent hard-block is ENV-sealed (default false) — Gate 진단 차단 방지', () => {
+    // R3_SANITY_BLOCK_ENABLED default false → 영속 latch 가 활성이어도 hard-abort 하지 않고
+    // Gate 진단을 계속한다. =='true' 일 때만 기존 hard-block enforce 복원 (1줄 롤백).
+    const src = read('server/trading/signalScanner/preflight.ts');
+    expect(src).toContain('R3_SANITY_BLOCK_ENABLED');
+    expect(src).toContain('isR3SanityBlockEnabled');
+    // enforce 게이트: latch active + ENV true 일 때만 hard-abort 진입.
+    expect(src).toMatch(/process\.env\.R3_SANITY_BLOCK_ENABLED\s*===\s*['"]true['"]/);
+    // 봉인 분기: latch active + !enabled → enforce 스킵.
+    expect(src).toMatch(/r3SanityBlock\.active\s*&&\s*!isR3SanityBlockEnabled\(\)/);
+  });
+
   it('GATE_PASS_DATA_MISSING — state machine 안에서 WARNING_ONLY 처리 (절대 원칙 #8)', () => {
     // ADR-0401: scanDiagnostics 본체에서 violation 별 분기는 state machine 안에 캡슐화.
     // 외부 wiring 코드는 state.action 분기만 노출 — drift 차단.
