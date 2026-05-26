@@ -34,13 +34,32 @@ import { addBusinessDaysFromKstDate } from '../trading/krxHolidays.js';
 
 export type UnifiedForwardOutcomeSourceType =
   | 'GATE3_OUTCOME_SEED'
+  | 'GATE3_THRESHOLD_EVIDENCE'
   | 'GATE1_DRY_RUN_OBSERVATION'
   | 'NEAR_MISS_OUTCOME'
   | 'COUNTERFACTUAL_LEDGER'
-  | 'PAPER_OBSERVATIONAL_ENTRY';
+  | 'PAPER_OBSERVATIONAL_ENTRY'
+  | 'SHADOW_PROMOTION_AUDIT'
+  | 'PRE_BREAKOUT_OBSERVATION';
 
 export type UnifiedForwardOutcomeHorizon = 'D1' | 'D3' | 'D5' | 'D10';
 export type UnifiedForwardOutcomeEvidenceStatus = 'PENDING' | 'PARTIAL' | 'LABELED' | 'DATA_INSUFFICIENT';
+export type UnifiedForwardOutcomeHorizonStatus = 'PENDING' | 'UPDATED' | 'NOT_DUE' | 'UNSUPPORTED';
+
+export interface UnifiedForwardOutcomeSourceRegistryEntry {
+  sourceType: UnifiedForwardOutcomeSourceType;
+  sourceTableOrRepo: string;
+  enabled: boolean;
+  diagnosticOnly: boolean;
+  includeInExecutablePnL: boolean;
+  includeInForwardEvidence: boolean;
+  includeInGateCalibration: boolean;
+  includeInNearMissAnalytics: boolean;
+  includeInGate3Evidence?: boolean;
+  includeInGate1Calibration?: boolean;
+  includeInCounterfactualEvidence?: boolean;
+  executionImpact: 'NONE';
+}
 
 export interface UnifiedPaperObservationalEntry {
   outcomeId: string;
@@ -55,19 +74,47 @@ export interface UnifiedPaperObservationalEntry {
 export interface UnifiedForwardOutcomeRow {
   outcomeId: string;
   sourceType: UnifiedForwardOutcomeSourceType;
+  sourceLedgerId: string;
   symbol: string;
+  symbolName: string | null;
   decisionType: string;
+  decisionLabel: string | null;
   entryReferencePrice: number | null;
+  entryReferenceTime: string | null;
   createdAt: string;
+  tradeDate: string | null;
   sourceSnapshotId: string | null;
   gateScoreInputSnapshotId: string | null;
-  horizonStatus: Record<UnifiedForwardOutcomeHorizon, 'PENDING' | 'UPDATED' | 'NOT_DUE' | 'UNSUPPORTED'>;
+  candidateSetId: string | null;
+  marketSession: string | null;
+  engineMode: string | null;
+  regime: string | null;
+  policyView: string | null;
+  liveExecutionAllowedAtCreation: boolean;
+  shadowAllowedAtCreation: boolean;
+  counterfactualAllowedAtCreation: boolean;
+  horizonStatus: Record<UnifiedForwardOutcomeHorizon, UnifiedForwardOutcomeHorizonStatus>;
+  horizonStatusD1: UnifiedForwardOutcomeHorizonStatus;
+  horizonStatusD3: UnifiedForwardOutcomeHorizonStatus;
+  horizonStatusD5: UnifiedForwardOutcomeHorizonStatus;
+  horizonStatusD10: UnifiedForwardOutcomeHorizonStatus;
   forwardReturnD1: number | null;
   forwardReturnD3: number | null;
   forwardReturnD5: number | null;
   forwardReturnD10: number | null;
+  priceAtD1: number | null;
+  priceAtD3: number | null;
+  priceAtD5: number | null;
+  priceAtD10: number | null;
+  labelD1: string | null;
+  labelD3: string | null;
+  labelD5: string | null;
+  labelD10: string | null;
   label: string | null;
   evidenceStatus: UnifiedForwardOutcomeEvidenceStatus;
+  dataUnavailableReason: string | null;
+  duplicateKey: string;
+  lastUpdatedAt: string | null;
   executionImpact: 'NONE';
   marketSignal: false;
 }
@@ -79,16 +126,21 @@ export interface UnifiedForwardOutcomeLabelerSummary {
   rowsUpdatedD3: number;
   rowsUpdatedD5: number;
   rowsUpdatedD10: number;
+  dataUnavailable: number;
   duplicateSuppressed: number;
   stalePending: number;
+  sourceRowsByType: Partial<Record<UnifiedForwardOutcomeSourceType, number>>;
   gate3EvidenceSampleSize: number;
   gate1CalibrationSampleSize: number;
   nearMissEvidenceSampleSize: number;
+  counterfactualEvidenceSampleSize: number;
+  paperObservationalEvidenceSampleSize: number;
   lastLabelingRunAt: string | null;
   lastLabelingErrorSanitized: string | null;
   liveExecutionAllowed: false;
   executionImpact: 'NONE';
   shadowLearning: true;
+  counterfactualAllowed: true;
   thresholdAutoChanged: false;
 }
 
@@ -113,6 +165,101 @@ export const UNIFIED_FORWARD_OUTCOME_LABELER_STATUS_FILE = path.join(
   DATA_DIR,
   'unified-forward-outcome-labeler-status.json',
 );
+
+export const UNIFIED_FORWARD_OUTCOME_SOURCE_REGISTRY: readonly UnifiedForwardOutcomeSourceRegistryEntry[] = Object.freeze([
+  {
+    sourceType: 'GATE3_OUTCOME_SEED',
+    sourceTableOrRepo: 'gate3OutcomeRepo',
+    enabled: true,
+    diagnosticOnly: true,
+    includeInExecutablePnL: false,
+    includeInForwardEvidence: true,
+    includeInGateCalibration: true,
+    includeInNearMissAnalytics: false,
+    includeInGate3Evidence: true,
+    executionImpact: 'NONE',
+  },
+  {
+    sourceType: 'GATE3_THRESHOLD_EVIDENCE',
+    sourceTableOrRepo: 'buildGate3EvidenceScore',
+    enabled: true,
+    diagnosticOnly: true,
+    includeInExecutablePnL: false,
+    includeInForwardEvidence: true,
+    includeInGateCalibration: true,
+    includeInNearMissAnalytics: false,
+    includeInGate3Evidence: true,
+    executionImpact: 'NONE',
+  },
+  {
+    sourceType: 'GATE1_DRY_RUN_OBSERVATION',
+    sourceTableOrRepo: 'gate1DryRunObservationLedgerAdr0476',
+    enabled: true,
+    diagnosticOnly: true,
+    includeInExecutablePnL: false,
+    includeInForwardEvidence: true,
+    includeInGateCalibration: true,
+    includeInNearMissAnalytics: false,
+    includeInGate1Calibration: true,
+    executionImpact: 'NONE',
+  },
+  {
+    sourceType: 'NEAR_MISS_OUTCOME',
+    sourceTableOrRepo: 'nearMissOutcomeLedger',
+    enabled: true,
+    diagnosticOnly: true,
+    includeInExecutablePnL: false,
+    includeInForwardEvidence: true,
+    includeInGateCalibration: false,
+    includeInNearMissAnalytics: true,
+    executionImpact: 'NONE',
+  },
+  {
+    sourceType: 'COUNTERFACTUAL_LEDGER',
+    sourceTableOrRepo: 'counterfactualShadowLearningRepo',
+    enabled: true,
+    diagnosticOnly: true,
+    includeInExecutablePnL: false,
+    includeInForwardEvidence: true,
+    includeInGateCalibration: false,
+    includeInNearMissAnalytics: false,
+    includeInCounterfactualEvidence: true,
+    executionImpact: 'NONE',
+  },
+  {
+    sourceType: 'PAPER_OBSERVATIONAL_ENTRY',
+    sourceTableOrRepo: 'paperEntryForensic.observational',
+    enabled: true,
+    diagnosticOnly: true,
+    includeInExecutablePnL: false,
+    includeInForwardEvidence: true,
+    includeInGateCalibration: false,
+    includeInNearMissAnalytics: false,
+    executionImpact: 'NONE',
+  },
+  {
+    sourceType: 'SHADOW_PROMOTION_AUDIT',
+    sourceTableOrRepo: 'shadowPromotionAudit.optional',
+    enabled: false,
+    diagnosticOnly: true,
+    includeInExecutablePnL: false,
+    includeInForwardEvidence: true,
+    includeInGateCalibration: false,
+    includeInNearMissAnalytics: false,
+    executionImpact: 'NONE',
+  },
+  {
+    sourceType: 'PRE_BREAKOUT_OBSERVATION',
+    sourceTableOrRepo: 'preBreakoutObservation.optional',
+    enabled: false,
+    diagnosticOnly: true,
+    includeInExecutablePnL: false,
+    includeInForwardEvidence: true,
+    includeInGateCalibration: false,
+    includeInNearMissAnalytics: true,
+    executionImpact: 'NONE',
+  },
+]);
 
 const GATE3_HORIZONS: Array<{ key: Gate3ForwardHorizon; label: UnifiedForwardOutcomeHorizon; days: number }> = [
   { key: 'd1', label: 'D1', days: 1 },
@@ -154,16 +301,21 @@ function defaultSummary(error: string | null = null): UnifiedForwardOutcomeLabel
     rowsUpdatedD3: 0,
     rowsUpdatedD5: 0,
     rowsUpdatedD10: 0,
+    dataUnavailable: 0,
     duplicateSuppressed: 0,
     stalePending: 0,
+    sourceRowsByType: {},
     gate3EvidenceSampleSize: 0,
     gate1CalibrationSampleSize: 0,
     nearMissEvidenceSampleSize: 0,
+    counterfactualEvidenceSampleSize: 0,
+    paperObservationalEvidenceSampleSize: 0,
     lastLabelingRunAt: null,
     lastLabelingErrorSanitized: error,
     liveExecutionAllowed: false,
     executionImpact: 'NONE',
     shadowLearning: true,
+    counterfactualAllowed: true,
     thresholdAutoChanged: false,
   };
 }
@@ -187,72 +339,156 @@ export function getLastUnifiedForwardOutcomeLabelerSummary(): UnifiedForwardOutc
   return readStatus();
 }
 
-export function horizonIdempotencyKey(row: Pick<UnifiedForwardOutcomeRow, 'sourceType' | 'outcomeId' | 'symbol'>, horizon: UnifiedForwardOutcomeHorizon): string {
-  return `${row.sourceType}:${row.outcomeId}:${row.symbol}:${horizon}`;
+export function horizonIdempotencyKey(
+  row: Pick<UnifiedForwardOutcomeRow, 'sourceType' | 'outcomeId' | 'symbol'> & { sourceLedgerId?: string },
+  horizon: UnifiedForwardOutcomeHorizon,
+): string {
+  return `${row.sourceType}:${row.sourceLedgerId ?? row.outcomeId}:${row.symbol}:${horizon}`;
 }
 
-function horizonStatus(returnValue: number | null, supported: boolean, due: boolean): 'PENDING' | 'UPDATED' | 'NOT_DUE' | 'UNSUPPORTED' {
+function horizonStatus(returnValue: number | null, supported: boolean, due: boolean): UnifiedForwardOutcomeHorizonStatus {
   if (!supported) return 'UNSUPPORTED';
   if (returnValue !== null) return 'UPDATED';
   return due ? 'PENDING' : 'NOT_DUE';
 }
 
+function duplicateKey(row: Pick<UnifiedForwardOutcomeRow, 'sourceType' | 'sourceLedgerId' | 'symbol'>): string {
+  return `${row.sourceType}:${row.sourceLedgerId}:${row.symbol}`;
+}
+
+function priceFromReturn(entryReferencePrice: number | null, forwardReturn: number | null): number | null {
+  if (entryReferencePrice === null || forwardReturn === null) return null;
+  return Math.round(entryReferencePrice * (1 + forwardReturn / 100) * 100) / 100;
+}
+
+function dataUnavailableReasonFor(statuses: Record<UnifiedForwardOutcomeHorizon, UnifiedForwardOutcomeHorizonStatus>): string | null {
+  return Object.values(statuses).some((status) => status === 'PENDING') ? 'DATA_UNAVAILABLE' : null;
+}
+
+function completeRow(
+  row: Omit<
+    UnifiedForwardOutcomeRow,
+    | 'horizonStatusD1'
+    | 'horizonStatusD3'
+    | 'horizonStatusD5'
+    | 'horizonStatusD10'
+    | 'priceAtD1'
+    | 'priceAtD3'
+    | 'priceAtD5'
+    | 'priceAtD10'
+    | 'dataUnavailableReason'
+    | 'duplicateKey'
+  >,
+): UnifiedForwardOutcomeRow {
+  return {
+    ...row,
+    horizonStatusD1: row.horizonStatus.D1,
+    horizonStatusD3: row.horizonStatus.D3,
+    horizonStatusD5: row.horizonStatus.D5,
+    horizonStatusD10: row.horizonStatus.D10,
+    priceAtD1: priceFromReturn(row.entryReferencePrice, row.forwardReturnD1),
+    priceAtD3: priceFromReturn(row.entryReferencePrice, row.forwardReturnD3),
+    priceAtD5: priceFromReturn(row.entryReferencePrice, row.forwardReturnD5),
+    priceAtD10: priceFromReturn(row.entryReferencePrice, row.forwardReturnD10),
+    dataUnavailableReason: dataUnavailableReasonFor(row.horizonStatus),
+    duplicateKey: duplicateKey(row),
+  };
+}
+
 function gate3Row(seed: Gate3OutcomeSeed, now: Date): UnifiedForwardOutcomeRow {
   const today = nowKstYmd(now);
   const isDue = (days: number) => today >= addBusinessDaysFromKstDate(seed.tradeDate, days);
-  return {
+  const horizonStatusByKey = {
+    D1: horizonStatus(finite(seed.forwardReturns.d1), true, isDue(1)),
+    D3: horizonStatus(finite(seed.forwardReturns.d3), true, isDue(3)),
+    D5: horizonStatus(finite(seed.forwardReturns.d5), true, isDue(5)),
+    D10: horizonStatus(finite(seed.forwardReturns.d10), true, isDue(10)),
+  } satisfies Record<UnifiedForwardOutcomeHorizon, UnifiedForwardOutcomeHorizonStatus>;
+  return completeRow({
     outcomeId: seed.id,
     sourceType: 'GATE3_OUTCOME_SEED',
+    sourceLedgerId: seed.id,
     symbol: seed.symbol,
+    symbolName: null,
     decisionType: seed.readiness,
+    decisionLabel: seed.learningLabel,
     entryReferencePrice: seed.entryReferencePrice,
+    entryReferenceTime: seed.asOf,
     createdAt: seed.asOf,
+    tradeDate: seed.tradeDate,
     sourceSnapshotId: seed.sourceSnapshotId,
     gateScoreInputSnapshotId: seed.gate3SnapshotId,
-    horizonStatus: {
-      D1: horizonStatus(finite(seed.forwardReturns.d1), true, isDue(1)),
-      D3: horizonStatus(finite(seed.forwardReturns.d3), true, isDue(3)),
-      D5: horizonStatus(finite(seed.forwardReturns.d5), true, isDue(5)),
-      D10: horizonStatus(finite(seed.forwardReturns.d10), true, isDue(10)),
-    },
+    candidateSetId: null,
+    marketSession: null,
+    engineMode: null,
+    regime: null,
+    policyView: seed.route,
+    liveExecutionAllowedAtCreation: false,
+    shadowAllowedAtCreation: seed.route === 'SHADOW_ENTRY_ALLOWED',
+    counterfactualAllowedAtCreation: seed.route === 'COUNTERFACTUAL_ONLY',
+    horizonStatus: horizonStatusByKey,
     forwardReturnD1: finite(seed.forwardReturns.d1),
     forwardReturnD3: finite(seed.forwardReturns.d3),
     forwardReturnD5: finite(seed.forwardReturns.d5),
     forwardReturnD10: finite(seed.forwardReturns.d10),
+    labelD1: finite(seed.forwardReturns.d1) !== null ? seed.outcomeLabel : null,
+    labelD3: finite(seed.forwardReturns.d3) !== null ? seed.outcomeLabel : null,
+    labelD5: finite(seed.forwardReturns.d5) !== null ? seed.outcomeLabel : null,
+    labelD10: finite(seed.forwardReturns.d10) !== null ? seed.outcomeLabel : null,
     label: seed.outcomeLabel,
     evidenceStatus: seed.outcomeStatus === 'LABELED' ? 'LABELED' : seed.outcomeStatus === 'DATA_INSUFFICIENT' ? 'DATA_INSUFFICIENT' : seed.outcomeStatus === 'PARTIAL' ? 'PARTIAL' : 'PENDING',
+    lastUpdatedAt: seed.outcomeStatus === 'LABELED' ? now.toISOString() : null,
     executionImpact: 'NONE',
     marketSignal: false,
-  };
+  });
 }
 
 function gate1Row(row: Gate1DryRunObservationRow, now: Date): UnifiedForwardOutcomeRow {
   const today = nowKstYmd(now);
   const due = (days: number) => today >= addBusinessDaysFromKstDate(row.forDate, days);
-  return {
+  const horizonStatusByKey = {
+    D1: horizonStatus(finite(row.forwardReturn1D), true, due(1)),
+    D3: horizonStatus(finite(row.forwardReturn3D), true, due(3)),
+    D5: horizonStatus(finite(row.forwardReturn5D), true, due(5)),
+    D10: 'UNSUPPORTED',
+  } satisfies Record<UnifiedForwardOutcomeHorizon, UnifiedForwardOutcomeHorizonStatus>;
+  return completeRow({
     outcomeId: row.id,
     sourceType: 'GATE1_DRY_RUN_OBSERVATION',
+    sourceLedgerId: row.id,
     symbol: row.symbol,
+    symbolName: row.name ?? null,
     decisionType: row.dryRunDecision,
+    decisionLabel: row.dryRunScenario,
     entryReferencePrice: positiveFinite(row.entryReferencePrice),
+    entryReferenceTime: row.createdAt,
     createdAt: row.createdAt,
+    tradeDate: row.forDate,
     sourceSnapshotId: row.forDate,
     gateScoreInputSnapshotId: null,
-    horizonStatus: {
-      D1: horizonStatus(finite(row.forwardReturn1D), true, due(1)),
-      D3: horizonStatus(finite(row.forwardReturn3D), true, due(3)),
-      D5: horizonStatus(finite(row.forwardReturn5D), true, due(5)),
-      D10: 'UNSUPPORTED',
-    },
+    candidateSetId: null,
+    marketSession: row.sellOnly ? 'CLOSED_OR_SELL_ONLY' : null,
+    engineMode: row.policyPromotionMode,
+    regime: null,
+    policyView: row.policyPromotionMode,
+    liveExecutionAllowedAtCreation: false,
+    shadowAllowedAtCreation: true,
+    counterfactualAllowedAtCreation: true,
+    horizonStatus: horizonStatusByKey,
     forwardReturnD1: finite(row.forwardReturn1D),
     forwardReturnD3: finite(row.forwardReturn3D),
     forwardReturnD5: finite(row.forwardReturn5D),
     forwardReturnD10: null,
+    labelD1: finite(row.forwardReturn1D) !== null ? row.status : null,
+    labelD3: finite(row.forwardReturn3D) !== null ? row.status : null,
+    labelD5: finite(row.forwardReturn5D) !== null ? row.status : null,
+    labelD10: null,
     label: row.status,
     evidenceStatus: row.status.startsWith('MATURED') ? 'LABELED' : row.status === 'OBSERVING' ? 'PARTIAL' : 'PENDING',
+    lastUpdatedAt: row.status.startsWith('MATURED') ? now.toISOString() : null,
     executionImpact: 'NONE',
     marketSignal: false,
-  };
+  });
 }
 
 function nearMissRow(entry: NearMissOutcomeEntry): UnifiedForwardOutcomeRow {
@@ -260,74 +496,147 @@ function nearMissRow(entry: NearMissOutcomeEntry): UnifiedForwardOutcomeRow {
   const d3 = point(3);
   const d5 = point(5);
   const d10 = point(10);
-  return {
+  const horizonStatusByKey = {
+    D1: 'UNSUPPORTED',
+    D3: d3 ? horizonStatus(finite(d3.returnPct), true, d3.status === 'PENDING') : 'UNSUPPORTED',
+    D5: d5 ? horizonStatus(finite(d5.returnPct), true, d5.status === 'PENDING') : 'UNSUPPORTED',
+    D10: d10 ? horizonStatus(finite(d10.returnPct), true, d10.status === 'PENDING') : 'UNSUPPORTED',
+  } satisfies Record<UnifiedForwardOutcomeHorizon, UnifiedForwardOutcomeHorizonStatus>;
+  return completeRow({
     outcomeId: entry.id,
     sourceType: 'NEAR_MISS_OUTCOME',
+    sourceLedgerId: entry.id,
     symbol: entry.stockCode,
+    symbolName: entry.stockName,
     decisionType: entry.bucket,
+    decisionLabel: entry.diagnosticReason,
     entryReferencePrice: entry.signalPriceKrw,
+    entryReferenceTime: entry.createdAt,
     createdAt: entry.createdAt,
+    tradeDate: entry.signalDate,
     sourceSnapshotId: entry.signalDate,
     gateScoreInputSnapshotId: null,
-    horizonStatus: {
-      D1: 'UNSUPPORTED',
-      D3: d3 ? horizonStatus(finite(d3.returnPct), true, d3.status === 'PENDING') : 'UNSUPPORTED',
-      D5: d5 ? horizonStatus(finite(d5.returnPct), true, d5.status === 'PENDING') : 'UNSUPPORTED',
-      D10: d10 ? horizonStatus(finite(d10.returnPct), true, d10.status === 'PENDING') : 'UNSUPPORTED',
-    },
+    candidateSetId: null,
+    marketSession: null,
+    engineMode: null,
+    regime: null,
+    policyView: 'DIAGNOSTIC_ONLY',
+    liveExecutionAllowedAtCreation: false,
+    shadowAllowedAtCreation: true,
+    counterfactualAllowedAtCreation: true,
+    horizonStatus: horizonStatusByKey,
     forwardReturnD1: null,
     forwardReturnD3: finite(d3?.returnPct),
     forwardReturnD5: finite(d5?.returnPct),
     forwardReturnD10: finite(d10?.returnPct),
+    labelD1: null,
+    labelD3: d3?.status === 'OBSERVED' ? 'OBSERVED' : null,
+    labelD5: d5?.status === 'OBSERVED' ? 'OBSERVED' : null,
+    labelD10: d10?.status === 'OBSERVED' ? 'OBSERVED' : null,
     label: entry.closed ? 'CLOSED' : 'ACTIVE',
     evidenceStatus: entry.closed ? 'LABELED' : entry.horizons.some((item) => item.status === 'OBSERVED') ? 'PARTIAL' : 'PENDING',
+    lastUpdatedAt: entry.horizons.map((item) => item.observedAt).filter(Boolean).sort().at(-1) ?? null,
     executionImpact: 'NONE',
     marketSignal: false,
-  };
+  });
 }
 
-function counterfactualRow(entry: CounterfactualShadowLearningLedgerEntry): UnifiedForwardOutcomeRow {
-  return {
+function counterfactualRow(entry: CounterfactualShadowLearningLedgerEntry, now: Date): UnifiedForwardOutcomeRow {
+  const createdYmd = entry.createdAtKst.slice(0, 10);
+  const today = nowKstYmd(now);
+  const due = (days: number) => today >= addBusinessDaysFromKstDate(createdYmd, days);
+  const horizonStatusByKey = {
+    D1: horizonStatus(null, true, due(1)),
+    D3: horizonStatus(null, true, due(3)),
+    D5: horizonStatus(null, true, due(5)),
+    D10: horizonStatus(null, true, due(10)),
+  } satisfies Record<UnifiedForwardOutcomeHorizon, UnifiedForwardOutcomeHorizonStatus>;
+  return completeRow({
     outcomeId: entry.scanId ? `${entry.scanId}:${entry.symbol}:ADR-0430` : `${entry.createdAtKst}:${entry.symbol}:ADR-0430`,
     sourceType: 'COUNTERFACTUAL_LEDGER',
+    sourceLedgerId: entry.scanId ? `${entry.scanId}:${entry.symbol}:ADR-0430` : `${entry.createdAtKst}:${entry.symbol}:ADR-0430`,
     symbol: entry.symbol,
+    symbolName: entry.name ?? null,
     decisionType: entry.label,
+    decisionLabel: entry.outcomeLabel ?? entry.outcomeStatus ?? entry.entryReason ?? null,
     entryReferencePrice: positiveFinite(entry.entryPriceHint),
+    entryReferenceTime: entry.createdAtKst,
     createdAt: entry.createdAtKst,
+    tradeDate: createdYmd,
     sourceSnapshotId: entry.scanId ?? null,
     gateScoreInputSnapshotId: null,
-    horizonStatus: { D1: 'PENDING', D3: 'PENDING', D5: 'PENDING', D10: 'PENDING' },
+    candidateSetId: null,
+    marketSession: entry.marketSession ?? null,
+    engineMode: entry.engineMode ?? null,
+    regime: entry.regime ?? entry.effectiveRegime ?? null,
+    policyView: 'COUNTERFACTUAL_ONLY',
+    liveExecutionAllowedAtCreation: false,
+    shadowAllowedAtCreation: entry.executionShadowAllowed,
+    counterfactualAllowedAtCreation: true,
+    horizonStatus: horizonStatusByKey,
     forwardReturnD1: null,
     forwardReturnD3: null,
     forwardReturnD5: null,
     forwardReturnD10: null,
+    labelD1: null,
+    labelD3: null,
+    labelD5: null,
+    labelD10: null,
     label: entry.outcomeLabel ?? entry.outcomeStatus ?? null,
     evidenceStatus: entry.outcomeLabel ? 'LABELED' : 'PENDING',
+    lastUpdatedAt: entry.resolvedAt ?? null,
     executionImpact: 'NONE',
     marketSignal: false,
-  };
+  });
 }
 
-function paperRow(entry: UnifiedPaperObservationalEntry): UnifiedForwardOutcomeRow {
-  return {
+function paperRow(entry: UnifiedPaperObservationalEntry, now: Date): UnifiedForwardOutcomeRow {
+  const createdYmd = entry.createdAt.slice(0, 10);
+  const today = nowKstYmd(now);
+  const due = (days: number) => today >= addBusinessDaysFromKstDate(createdYmd, days);
+  const horizonStatusByKey = {
+    D1: horizonStatus(null, true, due(1)),
+    D3: horizonStatus(null, true, due(3)),
+    D5: horizonStatus(null, true, due(5)),
+    D10: horizonStatus(null, true, due(10)),
+  } satisfies Record<UnifiedForwardOutcomeHorizon, UnifiedForwardOutcomeHorizonStatus>;
+  return completeRow({
     outcomeId: entry.outcomeId,
     sourceType: 'PAPER_OBSERVATIONAL_ENTRY',
+    sourceLedgerId: entry.outcomeId,
     symbol: entry.symbol,
+    symbolName: null,
     decisionType: entry.decisionType,
+    decisionLabel: entry.decisionType,
     entryReferencePrice: positiveFinite(entry.entryReferencePrice),
+    entryReferenceTime: entry.createdAt,
     createdAt: entry.createdAt,
+    tradeDate: createdYmd,
     sourceSnapshotId: entry.sourceSnapshotId ?? null,
     gateScoreInputSnapshotId: entry.gateScoreInputSnapshotId ?? null,
-    horizonStatus: { D1: 'PENDING', D3: 'PENDING', D5: 'PENDING', D10: 'PENDING' },
+    candidateSetId: null,
+    marketSession: null,
+    engineMode: 'PAPER_OBSERVATIONAL',
+    regime: null,
+    policyView: 'OBSERVATIONAL_ONLY',
+    liveExecutionAllowedAtCreation: false,
+    shadowAllowedAtCreation: true,
+    counterfactualAllowedAtCreation: true,
+    horizonStatus: horizonStatusByKey,
     forwardReturnD1: null,
     forwardReturnD3: null,
     forwardReturnD5: null,
     forwardReturnD10: null,
+    labelD1: null,
+    labelD3: null,
+    labelD5: null,
+    labelD10: null,
     label: null,
     evidenceStatus: 'PENDING',
+    lastUpdatedAt: null,
     executionImpact: 'NONE',
     marketSignal: false,
-  };
+  });
 }
 
 export function normalizeUnifiedForwardOutcomeRows(input: {
@@ -343,8 +652,8 @@ export function normalizeUnifiedForwardOutcomeRows(input: {
     ...(input.gate3Seeds ?? []).map((seed) => gate3Row(seed, now)),
     ...(input.gate1Rows ?? []).map((row) => gate1Row(row, now)),
     ...(input.nearMissEntries ?? []).map(nearMissRow),
-    ...(input.counterfactualEntries ?? []).map(counterfactualRow),
-    ...(input.paperEntries ?? []).map(paperRow),
+    ...(input.counterfactualEntries ?? []).map((entry) => counterfactualRow(entry, now)),
+    ...(input.paperEntries ?? []).map((entry) => paperRow(entry, now)),
   ];
 }
 
@@ -360,12 +669,42 @@ function observedNearMissRows(entries: readonly NearMissOutcomeEntry[]): number 
   return entries.filter((entry) => entry.horizons.some((point) => point.status === 'OBSERVED' && finite(point.returnPct) !== null)).length;
 }
 
+function counterfactualEvidenceRows(entries: readonly CounterfactualShadowLearningLedgerEntry[]): number {
+  return entries.filter((entry) => entry.outcomeLabel || entry.outcomeStatus || entry.resolvedAt).length || entries.length;
+}
+
 function stalePendingRows(rows: readonly UnifiedForwardOutcomeRow[], now: Date): number {
   return rows.filter((row) => {
     if (row.evidenceStatus === 'LABELED') return false;
     const createdYmd = row.createdAt.slice(0, 10);
     return tradingDaysBetween(createdYmd, now) >= 10;
   }).length;
+}
+
+function dataUnavailableHorizons(rows: readonly UnifiedForwardOutcomeRow[]): number {
+  return rows.reduce((total, row) =>
+    total + (['D1', 'D3', 'D5', 'D10'] as const).filter((horizon) => row.horizonStatus[horizon] === 'PENDING').length,
+  0);
+}
+
+function sourceRowsByType(input: {
+  gate3Seeds: readonly Gate3OutcomeSeed[];
+  gate3EvidenceSampleSize: number;
+  gate1Rows: readonly Gate1DryRunObservationRow[];
+  nearMissEntries: readonly NearMissOutcomeEntry[];
+  counterfactualEntries: readonly CounterfactualShadowLearningLedgerEntry[];
+  paperEntries: readonly UnifiedPaperObservationalEntry[];
+}): Partial<Record<UnifiedForwardOutcomeSourceType, number>> {
+  return {
+    GATE3_OUTCOME_SEED: input.gate3Seeds.length,
+    GATE3_THRESHOLD_EVIDENCE: input.gate3EvidenceSampleSize,
+    GATE1_DRY_RUN_OBSERVATION: input.gate1Rows.length,
+    NEAR_MISS_OUTCOME: input.nearMissEntries.length,
+    COUNTERFACTUAL_LEDGER: input.counterfactualEntries.length,
+    PAPER_OBSERVATIONAL_ENTRY: input.paperEntries.length,
+    SHADOW_PROMOTION_AUDIT: 0,
+    PRE_BREAKOUT_OBSERVATION: 0,
+  };
 }
 
 async function updateGate3Seeds(input: {
@@ -464,19 +803,47 @@ export async function runUnifiedForwardOutcomeLabeler(
           priceFetcher: async (symbol, asOf) => (await priceFetcher(symbol, asOf ?? now, {
             outcomeId: `near-miss:${symbol}:${asOf?.toISOString().slice(0, 10) ?? runAt}`,
             sourceType: 'NEAR_MISS_OUTCOME',
+            sourceLedgerId: `near-miss:${symbol}:${asOf?.toISOString().slice(0, 10) ?? runAt}`,
             symbol,
+            symbolName: null,
             decisionType: 'NEAR_MISS',
+            decisionLabel: null,
             entryReferencePrice: null,
+            entryReferenceTime: null,
             createdAt: runAt,
+            tradeDate: asOf?.toISOString().slice(0, 10) ?? null,
             sourceSnapshotId: null,
             gateScoreInputSnapshotId: null,
+            candidateSetId: null,
+            marketSession: null,
+            engineMode: null,
+            regime: null,
+            policyView: 'DIAGNOSTIC_ONLY',
+            liveExecutionAllowedAtCreation: false,
+            shadowAllowedAtCreation: true,
+            counterfactualAllowedAtCreation: true,
             horizonStatus: { D1: 'UNSUPPORTED', D3: 'PENDING', D5: 'PENDING', D10: 'PENDING' },
+            horizonStatusD1: 'UNSUPPORTED',
+            horizonStatusD3: 'PENDING',
+            horizonStatusD5: 'PENDING',
+            horizonStatusD10: 'PENDING',
             forwardReturnD1: null,
             forwardReturnD3: null,
             forwardReturnD5: null,
             forwardReturnD10: null,
+            priceAtD1: null,
+            priceAtD3: null,
+            priceAtD5: null,
+            priceAtD10: null,
+            labelD1: null,
+            labelD3: null,
+            labelD5: null,
+            labelD10: null,
             label: null,
             evidenceStatus: 'PENDING',
+            dataUnavailableReason: null,
+            duplicateKey: `NEAR_MISS_OUTCOME:near-miss:${symbol}:${asOf?.toISOString().slice(0, 10) ?? runAt}:${symbol}`,
+            lastUpdatedAt: null,
             executionImpact: 'NONE',
             marketSignal: false,
           })) ?? null,
@@ -502,6 +869,7 @@ export async function runUnifiedForwardOutcomeLabeler(
       }
     }
 
+    const gate3EvidenceSampleSize = buildGate3EvidenceScore(gate3Update.seeds).sampleSize;
     const summary: UnifiedForwardOutcomeLabelerSummary = {
       unifiedOutcomeLabelerHealthy: true,
       sourceRowsScanned: rows.length,
@@ -509,16 +877,28 @@ export async function runUnifiedForwardOutcomeLabeler(
       rowsUpdatedD3: gate3Update.updatedD3 + gate1Update.updatedD3 + nearMissUpdate.updated3d,
       rowsUpdatedD5: gate3Update.updatedD5 + gate1Update.updatedD5 + nearMissUpdate.updated5d,
       rowsUpdatedD10: gate3Update.updatedD10 + nearMissUpdate.updated10d,
+      dataUnavailable: dataUnavailableHorizons(rows),
       duplicateSuppressed,
       stalePending: stalePendingRows(rows, now),
-      gate3EvidenceSampleSize: buildGate3EvidenceScore(gate3Update.seeds).sampleSize,
-      gate1CalibrationSampleSize: observedGate1Rows(gate1RowsAfter),
+      sourceRowsByType: sourceRowsByType({
+        gate3Seeds: gate3Update.seeds,
+        gate3EvidenceSampleSize,
+        gate1Rows: gate1RowsAfter,
+        nearMissEntries: nearMissEntriesAfter,
+        counterfactualEntries,
+        paperEntries,
+      }),
+      gate3EvidenceSampleSize,
+      gate1CalibrationSampleSize: gate1RowsAfter.length,
       nearMissEvidenceSampleSize: observedNearMissRows(nearMissEntriesAfter),
+      counterfactualEvidenceSampleSize: counterfactualEvidenceRows(counterfactualEntries),
+      paperObservationalEvidenceSampleSize: paperEntries.length,
       lastLabelingRunAt: runAt,
-      lastLabelingErrorSanitized: null,
+      lastLabelingErrorSanitized: 'NONE',
       liveExecutionAllowed: false,
       executionImpact: 'NONE',
       shadowLearning: true,
+      counterfactualAllowed: true,
       thresholdAutoChanged: false,
     };
     if (persist) writeStatus(summary);
@@ -534,6 +914,18 @@ export function buildUnifiedForwardOutcomeLabelerStatusForScan(): UnifiedForward
   return getLastUnifiedForwardOutcomeLabelerSummary() ?? defaultSummary('NO_LABELING_RUN_RECORDED');
 }
 
+function formatSourceRowsByType(sourceRowsByType: Partial<Record<UnifiedForwardOutcomeSourceType, number>> | undefined): string {
+  const source = sourceRowsByType ?? {};
+  const gate3 = Math.max(source.GATE3_OUTCOME_SEED ?? 0, source.GATE3_THRESHOLD_EVIDENCE ?? 0);
+  return [
+    `GATE3=${gate3}`,
+    `GATE1_DRY_RUN=${source.GATE1_DRY_RUN_OBSERVATION ?? 0}`,
+    `NEAR_MISS=${source.NEAR_MISS_OUTCOME ?? 0}`,
+    `COUNTERFACTUAL=${source.COUNTERFACTUAL_LEDGER ?? 0}`,
+    `PAPER_OBSERVATIONAL=${source.PAPER_OBSERVATIONAL_ENTRY ?? 0}`,
+  ].join(', ');
+}
+
 export function formatUnifiedForwardOutcomeLabelerSection(
   summary: UnifiedForwardOutcomeLabelerSummary | null | undefined,
 ): string | null {
@@ -543,17 +935,21 @@ export function formatUnifiedForwardOutcomeLabelerSection(
     '-------------------------------',
     `unifiedOutcomeLabelerHealthy: ${summary.unifiedOutcomeLabelerHealthy}`,
     `sourceRowsScanned: ${summary.sourceRowsScanned}`,
+    `sourceRowsByType: ${formatSourceRowsByType(summary.sourceRowsByType)}`,
     `rowsUpdatedD1: ${summary.rowsUpdatedD1}`,
     `rowsUpdatedD3: ${summary.rowsUpdatedD3}`,
     `rowsUpdatedD5: ${summary.rowsUpdatedD5}`,
     `rowsUpdatedD10: ${summary.rowsUpdatedD10}`,
+    `dataUnavailable: ${summary.dataUnavailable ?? 0}`,
     `duplicateSuppressed: ${summary.duplicateSuppressed}`,
     `stalePending: ${summary.stalePending}`,
     `gate3EvidenceSampleSize: ${summary.gate3EvidenceSampleSize}`,
     `gate1CalibrationSampleSize: ${summary.gate1CalibrationSampleSize}`,
     `nearMissEvidenceSampleSize: ${summary.nearMissEvidenceSampleSize}`,
+    `counterfactualEvidenceSampleSize: ${summary.counterfactualEvidenceSampleSize ?? 0}`,
+    `paperObservationalEvidenceSampleSize: ${summary.paperObservationalEvidenceSampleSize ?? 0}`,
     `lastLabelingRunAt: ${summary.lastLabelingRunAt ?? 'N/A'}`,
-    `lastLabelingErrorSanitized: ${summary.lastLabelingErrorSanitized ?? 'none'}`,
-    `liveExecutionAllowed=${summary.liveExecutionAllowed} executionImpact=${summary.executionImpact} shadowLearning=${summary.shadowLearning} thresholdAutoChanged=${summary.thresholdAutoChanged}`,
+    `lastLabelingErrorSanitized: ${summary.lastLabelingErrorSanitized ?? 'NONE'}`,
+    `liveExecutionAllowed=${summary.liveExecutionAllowed} executionImpact=${summary.executionImpact} shadowLearning=${summary.shadowLearning} counterfactualAllowed=${summary.counterfactualAllowed ?? true} thresholdAutoChanged=${summary.thresholdAutoChanged}`,
   ].join('\n');
 }

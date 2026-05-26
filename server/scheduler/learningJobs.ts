@@ -41,6 +41,14 @@ import {
 } from '../learning/unifiedForwardOutcomeLabeler.js';
 import { scheduledJob } from './scheduleGuard.js';
 
+async function runUnifiedForwardOutcomeLabelerJob(trigger: 'startup' | 'scheduled'): Promise<void> {
+  if (!isUnifiedForwardOutcomeLabelerEnabled()) return;
+  const res = await runUnifiedForwardOutcomeLabeler();
+  console.log(
+    `[UnifiedForwardOutcomeLabeler] trigger=${trigger} healthy=${res.unifiedOutcomeLabelerHealthy} sourceRowsScanned=${res.sourceRowsScanned} rowsUpdatedD1=${res.rowsUpdatedD1} rowsUpdatedD3=${res.rowsUpdatedD3} rowsUpdatedD5=${res.rowsUpdatedD5} rowsUpdatedD10=${res.rowsUpdatedD10} dataUnavailable=${res.dataUnavailable} duplicateSuppressed=${res.duplicateSuppressed} stalePending=${res.stalePending} gate3EvidenceSampleSize=${res.gate3EvidenceSampleSize} gate1CalibrationSampleSize=${res.gate1CalibrationSampleSize} nearMissEvidenceSampleSize=${res.nearMissEvidenceSampleSize} executionImpact=${res.executionImpact}`,
+  );
+}
+
 export function registerLearningJobs(): void {
   // OHLCV 기반 백테스트 — 매주 토요일 KST 08:00 (UTC 23:00 금요일).
   // 전체 추천 이력을 Yahoo 일봉으로 재검증: Sharpe·MDD·WIN률 실계산 + Telegram 발송.
@@ -197,12 +205,11 @@ export function registerLearningJobs(): void {
   // 호출자 1건 — replayMissedLearningJobs 는 본 cron + 모듈/테스트 외 호출 0건 (정적 grep 가드).
   // Real dispatcher maps jobName to recovery functions; failures remain FAILED, not fake success.
   // Unified Forward Outcome Labeler: learning evidence only, no threshold or live-order mutation.
-  scheduledJob('36 7 * * 1-5', 'TRADING_DAY_ONLY', 'unified_forward_outcome_labeling', async () => {
-    if (!isUnifiedForwardOutcomeLabelerEnabled()) return;
-    const res = await runUnifiedForwardOutcomeLabeler();
-    console.log(
-      `[UnifiedForwardOutcomeLabeler] healthy=${res.unifiedOutcomeLabelerHealthy} sourceRowsScanned=${res.sourceRowsScanned} rowsUpdatedD1=${res.rowsUpdatedD1} rowsUpdatedD3=${res.rowsUpdatedD3} rowsUpdatedD5=${res.rowsUpdatedD5} rowsUpdatedD10=${res.rowsUpdatedD10} duplicateSuppressed=${res.duplicateSuppressed} stalePending=${res.stalePending} gate3EvidenceSampleSize=${res.gate3EvidenceSampleSize} gate1CalibrationSampleSize=${res.gate1CalibrationSampleSize} nearMissEvidenceSampleSize=${res.nearMissEvidenceSampleSize} executionImpact=${res.executionImpact}`,
-    );
+  void runUnifiedForwardOutcomeLabelerJob('startup').catch((e) => {
+    console.warn('[UnifiedForwardOutcomeLabeler] startup invocation failed', e);
+  });
+  scheduledJob('36 7 * * *', 'ALWAYS_ON', 'unified_forward_outcome_labeling', async () => {
+    await runUnifiedForwardOutcomeLabelerJob('scheduled');
   }, { timezone: 'UTC', enqueueOnSkip: {} });
 
   // MissedLearningQueue replay: trading-day recovery of skipped learning jobs.

@@ -1,6 +1,7 @@
 // @responsibility Unified forward outcome labeler regression tests for learning-only evidence and safety invariants.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { Gate3OutcomeSeed } from '../quant/gate3OutcomeSeed.js';
 import type { NearMissOutcomeEntry } from '../persistence/nearMissOutcomeLedger.js';
 import type { CounterfactualShadowLearningLedgerEntry } from '../persistence/counterfactualShadowLearningRepo.js';
@@ -10,6 +11,7 @@ import {
   horizonIdempotencyKey,
   normalizeUnifiedForwardOutcomeRows,
   runUnifiedForwardOutcomeLabeler,
+  UNIFIED_FORWARD_OUTCOME_SOURCE_REGISTRY,
 } from './unifiedForwardOutcomeLabeler.js';
 
 const NOW = new Date('2026-05-22T08:00:00.000Z');
@@ -149,6 +151,22 @@ describe('UnifiedForwardOutcomeLabeler', () => {
     ]);
     expect(rows.every((row) => row.executionImpact === 'NONE' && row.marketSignal === false)).toBe(true);
     expect(horizonIdempotencyKey(rows[0], 'D3')).toBe('GATE3_OUTCOME_SEED:gate3-outcome:2026-05-12:005930:scan:READY:vcp:005930:D3');
+    expect(rows[0].sourceLedgerId).toBe(rows[0].outcomeId);
+    expect(rows[0].horizonStatusD1).toBe('UPDATED');
+    expect(rows[0].priceAtD1).toBe(10_300);
+    expect(rows[3].liveExecutionAllowedAtCreation).toBe(false);
+    expect(rows[4].policyView).toBe('OBSERVATIONAL_ONLY');
+  });
+
+  it('declares source registry safety policy for every common bus input', () => {
+    const byType = new Map(UNIFIED_FORWARD_OUTCOME_SOURCE_REGISTRY.map((entry) => [entry.sourceType, entry]));
+
+    expect(byType.get('GATE3_OUTCOME_SEED')?.includeInGate3Evidence).toBe(true);
+    expect(byType.get('GATE1_DRY_RUN_OBSERVATION')?.includeInGate1Calibration).toBe(true);
+    expect(byType.get('NEAR_MISS_OUTCOME')?.includeInNearMissAnalytics).toBe(true);
+    expect(byType.get('COUNTERFACTUAL_LEDGER')?.includeInCounterfactualEvidence).toBe(true);
+    expect(byType.get('PAPER_OBSERVATIONAL_ENTRY')?.includeInExecutablePnL).toBe(false);
+    expect(UNIFIED_FORWARD_OUTCOME_SOURCE_REGISTRY.every((entry) => entry.executionImpact === 'NONE')).toBe(true);
   });
 
   it('updates only due horizons and reports learning evidence without enabling live execution', async () => {
@@ -170,6 +188,14 @@ describe('UnifiedForwardOutcomeLabeler', () => {
     expect(result.gate3EvidenceSampleSize).toBeGreaterThan(0);
     expect(result.gate1CalibrationSampleSize).toBeGreaterThan(0);
     expect(result.nearMissEvidenceSampleSize).toBeGreaterThan(0);
+    expect(result.sourceRowsByType.GATE3_OUTCOME_SEED).toBe(1);
+    expect(result.sourceRowsByType.GATE1_DRY_RUN_OBSERVATION).toBe(1);
+    expect(result.sourceRowsByType.NEAR_MISS_OUTCOME).toBe(1);
+    expect(result.sourceRowsByType.COUNTERFACTUAL_LEDGER).toBe(1);
+    expect(result.counterfactualEvidenceSampleSize).toBe(1);
+    expect(result.paperObservationalEvidenceSampleSize).toBe(0);
+    expect(result.lastLabelingRunAt).not.toBeNull();
+    expect(result.lastLabelingErrorSanitized).toBe('NONE');
     expect(result.liveExecutionAllowed).toBe(false);
     expect(result.executionImpact).toBe('NONE');
     expect(result.thresholdAutoChanged).toBe(false);
@@ -177,7 +203,66 @@ describe('UnifiedForwardOutcomeLabeler', () => {
     const section = formatUnifiedForwardOutcomeLabelerSection(result);
     expect(section).toContain('unifiedOutcomeLabelerHealthy: true');
     expect(section).toContain('rowsUpdatedD1:');
+    expect(section).toContain('sourceRowsByType: GATE3=');
     expect(section).toContain('gate3EvidenceSampleSize:');
+    expect(section).toContain('lastLabelingErrorSanitized: NONE');
+  });
+
+  it('bridges already-labeled Gate3 threshold evidence into the common bus without rewriting it', async () => {
+    const labeledSeeds = Array.from({ length: 249 }, (_, index) =>
+      gate3Seed({
+        id: `gate3-outcome:2026-05-12:${String(index).padStart(6, '0')}:scan:READY:vcp`,
+        symbol: String(index).padStart(6, '0'),
+        forwardReturns: { d1: 8, d3: null, d5: null, d10: null },
+        outcomeStatus: 'LABELED',
+        outcomeLabel: 'GATE3_READY_FOLLOW_THROUGH',
+      }),
+    );
+
+    const result = await runUnifiedForwardOutcomeLabeler({
+      now: NOW,
+      persist: false,
+      gate3Seeds: labeledSeeds,
+      gate1Rows: [],
+      nearMissEntries: [],
+      counterfactualEntries: [],
+      paperEntries: [],
+      priceFetcher: async () => {
+        throw new Error('already labeled Gate3 evidence should not refetch prices');
+      },
+    });
+
+    expect(result.unifiedOutcomeLabelerHealthy).toBe(true);
+    expect(result.sourceRowsScanned).toBe(249);
+    expect(result.sourceRowsByType.GATE3_OUTCOME_SEED).toBe(249);
+    expect(result.sourceRowsByType.GATE3_THRESHOLD_EVIDENCE).toBeGreaterThanOrEqual(249);
+    expect(result.gate3EvidenceSampleSize).toBeGreaterThanOrEqual(249);
+    expect(result.rowsUpdatedD1).toBe(0);
+    expect(result.liveExecutionAllowed).toBe(false);
+    expect(result.executionImpact).toBe('NONE');
+    expect(result.thresholdAutoChanged).toBe(false);
+  });
+
+  it('keeps the run healthy when due horizons have no price data', async () => {
+    const result = await runUnifiedForwardOutcomeLabeler({
+      now: NOW,
+      persist: false,
+      gate3Seeds: [gate3Seed()],
+      gate1Rows: [gate1Row()],
+      nearMissEntries: [],
+      counterfactualEntries: [],
+      paperEntries: [],
+      priceFetcher: async () => null,
+    });
+
+    expect(result.unifiedOutcomeLabelerHealthy).toBe(true);
+    expect(result.sourceRowsScanned).toBeGreaterThan(0);
+    expect(result.rowsUpdatedD1 + result.rowsUpdatedD3 + result.rowsUpdatedD5 + result.rowsUpdatedD10).toBe(0);
+    expect(result.dataUnavailable).toBeGreaterThan(0);
+    expect(result.lastLabelingRunAt).not.toBeNull();
+    expect(result.lastLabelingErrorSanitized).toBe('NONE');
+    expect(result.liveExecutionAllowed).toBe(false);
+    expect(result.executionImpact).toBe('NONE');
   });
 
   it('honors the rollback env without touching price providers', async () => {
@@ -200,5 +285,13 @@ describe('UnifiedForwardOutcomeLabeler', () => {
     expect(result.liveExecutionAllowed).toBe(false);
     expect(result.executionImpact).toBe('NONE');
     expect(priceFetcher).not.toHaveBeenCalled();
+  });
+
+  it('is wired to a startup activation and an ALWAYS_ON dedicated scheduler', () => {
+    const source = readFileSync(new URL('../scheduler/learningJobs.ts', import.meta.url), 'utf8');
+
+    expect(source).toContain("runUnifiedForwardOutcomeLabelerJob('startup')");
+    expect(source).toContain("scheduledJob('36 7 * * *', 'ALWAYS_ON', 'unified_forward_outcome_labeling'");
+    expect(source).not.toContain("scheduledJob('36 7 * * 1-5', 'TRADING_DAY_ONLY', 'unified_forward_outcome_labeling'");
   });
 });
