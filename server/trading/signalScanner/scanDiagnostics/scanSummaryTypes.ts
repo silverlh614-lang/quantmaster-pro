@@ -80,6 +80,16 @@ export interface GatePassDistribution {
   gate1Unknown?: number;
 }
 
+export type MacroSignalConfidence =
+  | 'VERIFIED'
+  | 'STALE'
+  | 'STALE_VALID'
+  | 'MISSING_OR_PARTIAL'
+  | 'MISSING'
+  | 'UNKNOWN';
+
+export type Gate0SourceHealth = 'VERIFIED' | 'STALE' | 'MISSING' | 'DEGRADED';
+
 export interface MacroGateState {
   emergencyStop: boolean;
   autoTradeEnabled: boolean;
@@ -91,6 +101,7 @@ export interface MacroGateState {
   vixGatingActive: boolean;
   bearDefenseMode: boolean;
   mhsBelow30: boolean;
+  mhs?: number;
   watchlistEmpty: boolean;
   sellOnlyMode: boolean;
   kospi20dReturn?: number;
@@ -103,16 +114,26 @@ export interface MacroGateState {
   regimeSnapshotId?: string;
   regimeSnapshotAsOf?: string;
   regimeSnapshotTtlSec?: number;
+  regimeSnapshotAgeSec?: number;
   displayRegime?: string;
   riskOverride?: string;
   engineMode?: string;
   sourceHealth?: string;
+  macroSnapshotAvailable?: boolean;
+  macroSignalConfidence?: MacroSignalConfidence;
+  macroMarketSignal?: boolean;
+  macroSignalReason?: string;
+  macroSignalUsableForLive?: boolean;
+  macroSignalUsableForShadow?: boolean;
+  macroSignalUsableForCounterfactual?: boolean;
+  macroSignalUsableForDiagnostic?: boolean;
+  providerIssue?: boolean;
+  providerIssueIsolated?: boolean;
   regimeConflicts?: string[];
   r6RecoveryStatus?: string;
   activeR6Triggers?: string[];
   r6ShockLatch?: boolean;
   latchDecayPercent?: number;
-  mhs?: number;
   recoveryBlockedReason?: string;
   liveEntryAllowed?: boolean;
   liveExitAllowed?: boolean;

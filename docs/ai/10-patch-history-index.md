@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-GATE0-MACRO-PERMISSION-NORMALIZATION-001 · gate0, macroSignalValidity, stale-null-macroMarketSignal-false, SHADOW_ONLY_POLICY, providerIssue-isolated, scan_blockers_gate0
 - 2026-05-26 · Patch-SECTOR-ENERGY-SAFE-OFFICIAL-PROMOTION-001 · sector-energy, ADR-0488, SAFE_OFFICIAL_VERIFIED_COVERAGE, unsafe-alias-excluded(조선/방산/원자력/이차전지), denominator 15→11, safeOfficialVerifiedCoverage=100%, officialTargetVerifiedCoverageDiagnostic=73.3%, leadershipBlockReason-UNSAFE_ALIAS_CANDIDATES-removed, freshDataStatus/scan_blockers/sector_energy-display, decisionUsesSafeOfficialOnly, liveExecutionAllowed-false, executionImpact-NONE
 - 2026-05-26 · Patch-UNIFIED-FORWARD-COMMON-BUS-BRIDGE-001 · unified-forward-outcome-labeling, source-registry, common-forward-outcome-schema, gate3-threshold-evidence-bridge, sourceRowsByType, executablePnL-separated
 - 2026-05-26 · Patch-UNIFIED-FORWARD-LABELER-ACTIVATION-001 · unified-forward-outcome-labeling, startup-run, ALWAYS_ON-scheduler, DATA_UNAVAILABLE-healthy, lastLabelingRunAt, executionImpact-NONE

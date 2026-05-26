@@ -8,9 +8,14 @@ vi.mock('../../commandRegistry.js', async () => {
   return actual;
 });
 
-vi.mock('../../../trading/signalScanner/scanDiagnostics.js', () => ({
-  getLastScanSummary: () => mockSummary,
-}));
+vi.mock('../../../trading/signalScanner/scanDiagnostics.js', async () => {
+  const actual = await import('../../../trading/signalScanner/scanDiagnostics/gate0MacroPermissionDecision.js');
+  return {
+    buildGate0Decision: actual.buildGate0Decision,
+    formatGate0Decision: actual.formatGate0Decision,
+    getLastScanSummary: () => mockSummary,
+  };
+});
 
 describe('/scan_blockers_gate0 command', () => {
   beforeEach(async () => {
@@ -52,6 +57,7 @@ describe('/scan_blockers_gate0 command', () => {
         watchlistEmpty: false,
         sellOnlyMode: false,
         liveEntryAllowed: true,
+        liveEntryBlockedReason: 'R3_SANITY_GUARD',
         shadowBuyAllowed: true,
         shadowSellAllowed: true,
         shadowLearningAllowed: true,
@@ -85,13 +91,24 @@ describe('/scan_blockers_gate0 command', () => {
     expect(text).toContain('Gate0 Macro / Permission Guard');
     expect(text).toContain('sourceSnapshotId=scan-eval:gate0');
     expect(text).toContain('regimeSnapshotId=regime:test');
-    expect(text).toContain('regime: raw=R3_EARLY effective=R3_EARLY display=SHADOW_ONLY riskOverride=SHADOW_ONLY');
+    expect(text).toContain('sourceHealth=STALE');
+    expect(text).toContain('macroSnapshotAvailable=true');
+    expect(text).toContain('macroSignalConfidence=STALE');
+    expect(text).toContain('macroSignalReason=MACRO_SNAPSHOT_STALE');
+    expect(text).toContain('raw=R3_EARLY');
+    expect(text).toContain('effective=R3_EARLY');
+    expect(text).toContain('display=SHADOW_ONLY');
     expect(text).toContain('mhs=67');
-    expect(text).toContain('permissions: liveEntryAllowed=true brokerRouteAlive=true brokerLiveOrderAllowed=false');
+    expect(text).toContain('liveEntryAllowed=false');
+    expect(text).toContain('liveBlockReason=SHADOW_ONLY_POLICY');
+    expect(text).toContain('liveBlockSubReason=R3_SANITY_GUARD');
+    expect(text).toContain('paperOrderAllowed=true');
+    expect(text).toContain('shadowAllowed=true');
+    expect(text).toContain('counterfactualAllowed=true');
+    expect(text).toContain('diagnosticAllowed=true');
     expect(text).toContain('macroMarketSignal=false');
     expect(text).toContain('providerIssue=false');
     expect(text).toContain('executionImpact=NONE');
-    expect(text).toContain('no scan execution');
-    expect(text).toContain('no broker order');
+    expect(text).toContain('Shadow and counterfactual remain active');
   });
 });

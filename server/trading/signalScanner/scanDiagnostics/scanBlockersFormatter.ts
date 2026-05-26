@@ -50,6 +50,7 @@ import { formatUnifiedForwardOutcomeLabelerSection } from '../../../learning/uni
 import { formatScanEvaluationSection, resolveScanMarketSessionView } from '../state/scanEvaluationState.js';
 import { emitScanDiagnosticBuildFailedWarn } from '../state/scanDiagnosticSuppressor.js';
 import { formatFrozenQuoteSection, formatPriceCorrectionOverlaySection, formatPriceIntegritySection, formatR3StreakSkipLine } from './sectionFormatters.js';
+import { buildGate0Decision } from './gate0MacroPermissionDecision.js';
 import { getRegimePositionPolicy } from '../../sizing/regimePositionPolicy.js';
 import { formatCandidatePoolSection, type CandidateFeatureCoverageDiagnostics, type CandidatePoolResult } from '../../candidatePoolBuilder.js';
 import {
@@ -909,12 +910,14 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     const policyViewRegime = mg.riskOverride && mg.riskOverride !== 'NONE' ? mg.riskOverride : displayRegime;
     const positionPolicy = getRegimePositionPolicy(policyViewRegime || canonicalEffectiveRegime);
     const permissionView = resolvePermissionView(summary);
+    const gate0Decision = buildGate0Decision(summary, parseSummaryDate(summary) ?? new Date());
     lines.push(`  • 레짐: display=${displayRegime} effective=${canonicalEffectiveRegime} (policyView=${policyViewRegime || canonicalEffectiveRegime}, 총노출 ${positionPolicy.maxGrossExposurePct}%, 종목당 ${positionPolicy.perPositionPct}%)`);
     lines.push(`  • Kelly ×${mg.finalKellyMultiplier.toFixed(2)} (regime ×${mg.kellyMultiplierFromRegime.toFixed(2)}, FOMC ×${mg.fomcKellyMultiplier.toFixed(2)})`);
     if (mg.macroRegimeRaw || mg.macroRegimeEffective || mg.displayRegime) {
       lines.push(`  • raw/effective/display/riskOverride: ${rawRegime} → ${canonicalEffectiveRegime} / ${displayRegime} / ${mg.riskOverride ?? 'NONE'}`);
       lines.push(`  • regimeSource: canonical=RegimeResolver.canonicalOutput display=${displayRegime} riskOverride=${mg.riskOverride ?? 'NONE'} executionPermissionImpact=NONE`);
     }
+    lines.push(`  • Gate0 Macro/Permission: sourceHealth=${gate0Decision.sourceHealth} macroSnapshotAvailable=${gate0Decision.macroSnapshotAvailable} macroSignalConfidence=${gate0Decision.macroSignalConfidence} macroMarketSignal=${gate0Decision.macroMarketSignal} macroSignalReason=${gate0Decision.macroSignalReason} liveBlockReason=${gate0Decision.liveBlockReason} liveBlockSubReason=${gate0Decision.liveBlockSubReason ?? 'NONE'} shadowAllowed=${gate0Decision.shadowAllowed} counterfactualAllowed=${gate0Decision.counterfactualAllowed} diagnosticAllowed=${gate0Decision.diagnosticAllowed}`);
     if (staleLegacyR6Path) {
       lines.push(`  • legacyR6Path: deprecated=true notUsedForDecision=true legacyEffective=${legacyEffectiveRegime} legacyR6RecoveryStatus=${mg.r6RecoveryStatus ?? 'NONE'}`);
     } else {
@@ -942,7 +945,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (mg.diagnosticLiveEntryBlocked) {
       const liveEntryBlockedReason = String(mg.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY').toUpperCase();
       const removedPolicyReason = liveEntryBlockedReason.includes('SELL_ONLY') || liveEntryBlockedReason.includes('R6_DEFENSE');
-      lines.push(`  • liveEntryBlocked: <b>${removedPolicyReason ? 'LEGACY_POLICY_INPUT_IGNORED' : mg.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY'}</b> (diagnostics continue)`);
+      lines.push(`  • liveEntryBlocked: <b>${removedPolicyReason ? 'LEGACY_POLICY_INPUT_IGNORED' : gate0Decision.liveBlockReason}</b>${gate0Decision.liveBlockSubReason ? ` (subReason=${gate0Decision.liveBlockSubReason})` : ''} (diagnostics continue; Shadow/Paper/Counterfactual allowed)`);
       // R3 sanity OBSERVE_ONLY 강등 가시화 — hard-abort 가 아닌 execution guard 임을 명시 (hardBlockSource=NONE).
       if (liveEntryBlockedReason.includes('R3_SANITY_GUARD')) {
         lines.push('  • executionGuardSource: <b>R3_SANITY_BLOCK</b> (hardBlockSource=NONE)');

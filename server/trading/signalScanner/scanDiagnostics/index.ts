@@ -8,5 +8,6 @@ export * from './gateScoreDiagnostics.js';
 export * from './gateLayerDiagnostics.js';
 export * from './pipelineStageDiagnostics.js';
 export * from './macroScanDiagnostics.js';
+export * from './gate0MacroPermissionDecision.js';
 export * from './supplyDiagnostics.js';
 export * from '../scanDiagnosticsCore.js';

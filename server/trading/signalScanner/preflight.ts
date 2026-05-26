@@ -504,7 +504,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     manualManageOnly,
     sellOnlyMode: false,
     regime: regime ?? 'UNKNOWN',
-    bearDefenseMode: false,
+    bearDefenseMode: regime === 'R6_DEFENSE',
     vixGatingActive: vixGating.noNewEntry,
     fomcBlockActive: fomcProximity.noNewEntry,
     dataStarvedScan: false,
@@ -647,6 +647,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     vixGatingActive: vixGating.noNewEntry,
     bearDefenseMode: false,
     mhsBelow30: (macroState?.mhs ?? 100) < 30,
+    mhs: macroState?.mhs,
     watchlistEmpty: watchlist.length === 0,
     sellOnlyMode: false,
     macroEntryOverrideActive: macroEntryOverride !== null,
@@ -675,6 +676,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     counterfactualAllowed: true,
     diagnosticAllowed: true,
     brokerOrderAllowed: !diagnosticOnlyLiveBlock,
+    providerIssue: regimeSnapshot.providerIssue,
   });
 
   const keepPostCloseObservationAlive =

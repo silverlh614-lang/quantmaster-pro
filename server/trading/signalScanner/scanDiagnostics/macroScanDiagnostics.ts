@@ -13,6 +13,7 @@ export function buildMacroGateState(input: {
   vixGatingActive: boolean;
   bearDefenseMode: boolean;
   mhsBelow30: boolean;
+  mhs?: number;
   watchlistEmpty: boolean;
   sellOnlyMode: boolean;
   kospi20dReturn?: number;
@@ -49,6 +50,7 @@ export function buildMacroGateState(input: {
   brokerExitOrderAllowed?: boolean;
   paperOrderAllowed?: boolean;
   shadowAllowed?: boolean;
+  providerIssue?: boolean;
 }): MacroGateState {
   const engineMode = input.engineMode ?? input.displayRegime ?? input.regime;
   const shadowOnly = engineMode === 'SHADOW_ONLY' || input.displayRegime === 'SHADOW_ONLY' || input.riskOverride === 'SHADOW_ONLY';
@@ -65,6 +67,7 @@ export function buildMacroGateState(input: {
     vixGatingActive: input.vixGatingActive,
     bearDefenseMode: input.bearDefenseMode,
     mhsBelow30: input.mhsBelow30,
+    mhs: input.mhs,
     watchlistEmpty: input.watchlistEmpty,
     sellOnlyMode: input.sellOnlyMode,
     kospi20dReturn: input.kospi20dReturn,
@@ -101,6 +104,7 @@ export function buildMacroGateState(input: {
     brokerExitOrderAllowed: input.brokerExitOrderAllowed ?? (!shadowOnly && brokerRouteAlive && input.liveExitAllowed !== false),
     paperOrderAllowed: input.paperOrderAllowed ?? true,
     shadowAllowed: input.shadowAllowed ?? true,
+    providerIssue: input.providerIssue ?? false,
   };
 }
 
