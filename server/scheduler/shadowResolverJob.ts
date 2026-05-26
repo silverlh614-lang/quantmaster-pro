@@ -10,7 +10,7 @@ import { loadShadowTrades, saveShadowTrades } from '../persistence/shadowTradeRe
 import { updateShadowResults } from '../trading/exitEngine.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { setEmergencyStop } from '../state.js';
 import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import type { OperationalWarnPayload } from '../observability/operationalWarnTypes.js';
@@ -143,7 +143,8 @@ async function runShadowResolverTick(): Promise<void> {
   const shadows = loadShadowTrades();
   if (!shadows.some((s) => isOpenShadowStatus(s.status))) return;
   try {
-    await updateShadowResults(shadows, getLiveRegime(loadMacroState()));
+    // ADR-0531: Gate0 정본 레짐
+    await updateShadowResults(shadows, resolveCanonicalRegimeLevel(loadMacroState()));
     saveShadowTrades(shadows);
     await reactToLossStreak(countRecentConsecutiveLosses(shadows));
   } catch (e) {

@@ -151,8 +151,9 @@ describe('runPostmortem — recommendedActions 통합 + LOOSEN_GATE 제거 (ADR-
     saveGateAudit(audit);
 
     // regime 모킹 — RISK_ON 으로 강제하여 PATHOLOGICAL_BLOCK 분기 진입.
-    vi.doMock('../trading/regimeBridge.js', () => ({
-      getLiveRegime: () => (options.riskOnRegime !== false ? 'R2_BULL' : 'R5_CAUTION'),
+    // ADR-0531: runPostmortem 은 canonicalRegimeAccess 정본 통로로 레짐을 읽는다.
+    vi.doMock('../trading/regime/canonicalRegimeAccess.js', () => ({
+      resolveCanonicalRegimeLevel: () => (options.riskOnRegime !== false ? 'R2_BULL' : 'R5_CAUTION'),
     }));
     vi.doMock('../persistence/macroStateRepo.js', () => ({
       loadMacroState: () => null,
