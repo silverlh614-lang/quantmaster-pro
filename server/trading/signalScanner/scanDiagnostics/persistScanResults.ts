@@ -71,7 +71,6 @@ import {
   buildWaitDistribution,
   buildGateScoreCandidateBucketSummary,
   buildGateScoreHealthSummary,
-  buildGate1ThresholdSweepSummary,
   buildGateDiagnosticCarrySummary,
   buildGateLayerAuditSummary,
   buildPerStageDropoffSummary,
@@ -564,8 +563,6 @@ export async function persistScanResults(
     gateScoreHealth: buildGateScoreHealthSummary(counters),
     // ADR-452d — diagnostic-only near-miss bucket summary (executionImpact NONE).
     gateScoreCandidateBuckets: buildGateScoreCandidateBucketSummary(counters),
-    // Gate1 multi-threshold survivor sweep (diagnostic-only, executionImpact NONE).
-    gate1ThresholdSweep: buildGate1ThresholdSweepSummary(counters),
     gateLayerAudit,
     gateDiagnostics: buildGateDiagnosticCarrySummary(gateLayerAudit),
     dataPromotionStatus: DEFAULT_DATA_PROMOTION_STATUS,

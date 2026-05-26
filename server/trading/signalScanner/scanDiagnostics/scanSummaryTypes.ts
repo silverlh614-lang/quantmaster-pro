@@ -41,7 +41,6 @@ import type { StreakSkipReason } from '../r3StreakSkipPolicy.js';
 import type {
   GateScoreCandidateBucketSummary,
   GateScoreHealthSummary,
-  Gate1ThresholdSweepSummary,
 } from './gateScoreDiagnostics.js';
 import type { GateDiagnosticCarrySummary, GateLayerAuditSummary } from './gateLayerDiagnostics.js';
 import type { ScanEvaluationResult } from '../state/scanEvaluationState.js';
@@ -265,7 +264,6 @@ export interface ScanSummary {
   shadowNearBreakoutBlockReasons?: Partial<Record<string, number>>;
   gateScoreHealth?: GateScoreHealthSummary;
   gateScoreCandidateBuckets?: GateScoreCandidateBucketSummary;
-  gate1ThresholdSweep?: Gate1ThresholdSweepSummary;
   gateLayerAudit?: GateLayerAuditSummary;
   gateDiagnostics?: GateDiagnosticCarrySummary;
   dataPromotionStatus?: DataPromotionStatus;
