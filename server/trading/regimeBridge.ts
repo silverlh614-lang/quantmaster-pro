@@ -101,6 +101,11 @@ export function getRegimeDiagnostics(macroState: MacroState | null, now: Date = 
   return persistBoostedDiagnostics(macroState, now);
 }
 
+/**
+ * @deprecated ADR-0531: Gate0 레짐 정본은 resolveRegimeSnapshot().effectiveRegime 다.
+ * 본 함수는 legacy R6-recovery transitionState 의 effectiveRegime 으로, 의사결정·표시 1차
+ * 출처로 쓰지 말 것(정본과 다를 수 있음). 신규/마이그레이션 코드는 buildGate0RegimeView 사용.
+ */
 export function getLiveRegime(macroState: MacroState | null): RegimeLevel {
   return getRegimeDiagnostics(macroState).effectiveRegime;
 }

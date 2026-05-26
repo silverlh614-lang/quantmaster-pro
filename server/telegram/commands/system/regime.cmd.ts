@@ -2,6 +2,7 @@
 // @responsibility: /regime 명령 — 매크로 레짐(MHS·VKOSPI·VIX·USD/KRW·Bear방어) 1메시지 요약.
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { resolveRegimeSnapshot } from '../../../trading/regime/regimeResolver.js';
+import { buildGate0RegimeView } from '../../../trading/regime/gate0RegimeView.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import type { RegimeLevel } from '../../../../src/types/core.js';
@@ -39,6 +40,9 @@ const regime: TelegramCommand = {
     // ADR-0074: macroState.regime (GREEN/YELLOW/RED) vs getLiveRegime (R1~R6) 두 SSOT 동시 노출.
     // 매매 결정에 실제 사용되는 RegimeLevel + position policy를 1줄로 요약.
     const regimeDiagnostics = regimeSnapshot.diagnostics;
+    // ADR-0531: Gate0 정본 = resolveRegimeSnapshot().effectiveRegime. legacy transitionState
+    // (regimeDiagnostics.effectiveRegime)은 정본과 다를 때만 deprecated 라벨로만 노출한다.
+    const gate0View = buildGate0RegimeView(regimeSnapshot);
     const liveRegime = regimeSnapshot.effectiveRegime as RegimeLevel;
     const liveRegimeLine = formatLiveRegimeLine(liveRegime);
     const r6RecoveryLine = formatR6RecoveryLine(regimeDiagnostics);
@@ -48,7 +52,7 @@ const regime: TelegramCommand = {
       : undefined;
     const runtimePolicy = resolveEngineRuntimePolicy({
       engineMode: 'NORMAL',
-      macroRegime: regimeDiagnostics.effectiveRegime,
+      macroRegime: gate0View.effectiveRegime,
       liveBuyGateAllowed: true,
       reasonCodes: [],
     });
@@ -65,7 +69,8 @@ const regime: TelegramCommand = {
       `${liveRegimeLine}\n` +
       `snapshotId=${regimeSnapshot.snapshotId} asOf=${regimeSnapshot.asOf} ttlSec=${regimeSnapshot.ttlSec}\n` +
       `rawRegime=${regimeDiagnostics.rawRegime}\n` +
-      `effectiveRegime=${regimeDiagnostics.effectiveRegime}\n` +
+      `effectiveRegime=${gate0View.effectiveRegime}\n` +
+      `${gate0View.legacy ? `legacyEffectiveRegime=${gate0View.legacy.legacyEffective} deprecated=true notUsedForDecision=true\n` : ''}` +
       `${r6RecoveryLine}\n` +
       `${r6TriggerLine}\n` +
       `${macroReleaseBlockLine ? `${macroReleaseBlockLine}\n` : ''}` +
