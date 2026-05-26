@@ -116,6 +116,7 @@ import {
   type ScanEvaluationResult,
 } from './persistScanResultsDependencies.js';
 import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
+import { isPreflightDiagnosticScanSummary } from './preflightDiagnosticScanSummary.js';
 import {
   buildCandidateGateEvaluationViews,
   aggregateCandidateGateEvaluationViews,
@@ -146,6 +147,16 @@ let _lastScanSummary: ScanSummary | null = null;
 export function getLastBuySignalAt(): number { return _lastBuySignalAt; }
 export function getLastScanSummary(): ScanSummary | null { return _lastScanSummary; }
 export function getConsecutiveZeroScans(): number { return _consecutiveZeroScans; }
+
+/**
+ * Patch: preflight HARD_BLOCK 경로에서 minimal diagnostic ScanSummary 를 영속한다 (display-only).
+ * 실제 스캔 summary 는 절대 clobber 하지 않는다 — _lastScanSummary 가 null 이거나 직전 값이 본인(preflight diagnostic)일 때만 교체.
+ * 정상 persistScanResults 1회가 들어오면 그 값이 우선되고 clearPreflightBlockedScanSummary 가 stale 을 제거한다.
+ */
+export function setPreflightDiagnosticScanSummaryIfAbsent(summary: ScanSummary): void {
+  if (_lastScanSummary !== null && !isPreflightDiagnosticScanSummary(_lastScanSummary)) return;
+  _lastScanSummary = summary;
+}
 
 export function setLastBuySignalAt(ts: number): void { _lastBuySignalAt = ts; }
 
