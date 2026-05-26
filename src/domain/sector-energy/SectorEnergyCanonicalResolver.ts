@@ -95,6 +95,9 @@ export interface SectorEnergyCanonicalState {
 
   officialSectorCount: 11;
   verifiedOfficialSectorCount: number;
+  verifiedOfficialSectorKeys: OfficialSectorEnergyKey[];
+  missingOfficialSectorKeys: OfficialSectorEnergyKey[];
+  duplicateAliasRowsIgnored: string[];
 
   promotionCoverage: number;
   requiredPromotionCoverage: number;
@@ -148,6 +151,70 @@ export interface ResolveSectorEnergyCanonicalInput {
   requiredPromotionCoverage?: number;
   /** TopBlock 일관성 강제는 enforceSectorEnergyTopBlockConsistency 가 별도로 처리한다. */
   topBlocks?: string[];
+  officialIndexMasterRows?: IndexMasterRow[];
+  indexVerifyResults?: IndexVerifyResult[];
+  safePromotionEligibleSectorCount?: number;
+  safeOfficialVerifiedCoverage?: number;
+  sectorIndexVerifySuccessCount?: number;
+}
+
+export interface IndexMasterRow {
+  indexCode?: string;
+  indexName?: string;
+  sectorName?: string;
+}
+export interface IndexVerifyResult {
+  indexCode?: string;
+  indexName?: string;
+  success?: boolean;
+  verified?: boolean;
+  indexValueUsable?: boolean;
+}
+type VerifiedMapping = Record<OfficialSectorEnergyKey, {
+  verified: boolean; selectedIndexCode?: string; selectedIndexName?: string; verifyReason?: string;
+  sourceTier?: 'OFFICIAL_KIS_SECTOR_INDEX' | 'OFFICIAL_KRX_SECTOR_INDEX';
+}>;
+
+const OFFICIAL_SECTOR_ALIAS_MAP: Record<OfficialSectorEnergyKey, { aliases: string[]; preferredIndexCodes: string[] }> = {
+  SEMICONDUCTOR_ELECTRONICS: { aliases: ['반도체', 'SEMICONDUCTOR', '전기전자', '전기·전자', 'KRX 반도체'], preferredIndexCodes: ['4003', '0013'] },
+  AUTOMOTIVE_TRANSPORT_EQUIPMENT: { aliases: ['자동차', 'AUTOMOTIVE', '운수장비', '운송장비', 'KRX 자동차'], preferredIndexCodes: ['4002'] },
+  MACHINERY_EQUIPMENT: { aliases: ['기계', '기계장비', '기계·장비', 'MACHINERY_EQUIPMENT'], preferredIndexCodes: ['0012', '4014'] },
+  CHEMICALS: { aliases: ['화학', 'CHEMICALS', '에너지화학', 'KRX 에너지화학'], preferredIndexCodes: ['0008', '4007'] },
+  BIO_HEALTHCARE_PHARMA: { aliases: ['바이오/헬스케어', '헬스케어', '의약품', 'KRX 헬스케어'], preferredIndexCodes: ['4004'] },
+  STEEL_METALS: { aliases: ['철강', '철강금속', '철강·금속', 'KRX 철강'], preferredIndexCodes: ['4008'] },
+  CONSTRUCTION: { aliases: ['건설', '건설업', 'KRX 건설'], preferredIndexCodes: ['0018', '4011'] },
+  FINANCIALS: { aliases: ['금융', '은행', '증권', '보험', 'FINANCIALS'], preferredIndexCodes: ['0021', '4005', '4013', '4015'] },
+  CONSUMER_RETAIL: { aliases: ['유통/소비재', '유통', '유통업', 'CONSUMER_RETAIL', '경기소비재', '필수소비재'], preferredIndexCodes: ['0016', '4061', '4062'] },
+  FOOD_BEVERAGE_TOBACCO: { aliases: ['음식료', '음식료·담배', '음식료 담배', 'FOOD_BEVERAGE_TOBACCO'], preferredIndexCodes: ['0005'] },
+  SERVICE_TELECOM: { aliases: ['서비스', '서비스업', '통신', '방송통신', '미디어&엔터테인먼트', 'SERVICE_TELECOM'], preferredIndexCodes: ['4010', '4063'] },
+};
+
+export function resolveOfficialSectorEnergyCoverage(input: {
+  officialIndexMasterRows: IndexMasterRow[]; indexVerifyResults: IndexVerifyResult[]; officialSectorKeys?: OfficialSectorEnergyKey[];
+}): { officialSectorCount: 11; verifiedOfficialSectorCount: number; verifiedOfficialSectorKeys: OfficialSectorEnergyKey[]; missingOfficialSectorKeys: OfficialSectorEnergyKey[]; verifiedMapping: VerifiedMapping; duplicateAliasRowsIgnored: string[] } {
+  const keys = input.officialSectorKeys ?? [...OFFICIAL_SECTOR_ENERGY_11];
+  const verifiedCodes = new Set(input.indexVerifyResults.filter((r) => (r.success ?? r.verified) && r.indexValueUsable !== false).map((r) => String(r.indexCode ?? '').trim()).filter(Boolean));
+  const duplicateAliasRowsIgnored: string[] = [];
+  const verifiedMapping = {} as VerifiedMapping;
+  const verifiedOfficialSectorKeys: OfficialSectorEnergyKey[] = [];
+  for (const key of keys) {
+    const cfg = OFFICIAL_SECTOR_ALIAS_MAP[key];
+    const matches = input.officialIndexMasterRows.filter((row) => cfg.preferredIndexCodes.includes(String(row.indexCode ?? '').trim()) || cfg.aliases.includes(String(row.sectorName ?? row.indexName ?? '').trim()));
+    let selected = matches.find((m) => verifiedCodes.has(String(m.indexCode ?? '').trim()) && cfg.preferredIndexCodes.includes(String(m.indexCode ?? '').trim()));
+    if (!selected) selected = matches.find((m) => verifiedCodes.has(String(m.indexCode ?? '').trim()));
+    const dedup = new Set<string>();
+    for (const m of matches) {
+      const code = String(m.indexCode ?? '').trim();
+      if (!code) continue;
+      if (dedup.has(code)) duplicateAliasRowsIgnored.push(`${key}:${code}`);
+      dedup.add(code);
+    }
+    const verified = Boolean(selected && verifiedCodes.has(String(selected.indexCode ?? '').trim()));
+    verifiedMapping[key] = verified ? { verified, selectedIndexCode: String(selected?.indexCode ?? ''), selectedIndexName: selected?.indexName, verifyReason: 'verify success + indexValueUsable', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' } : { verified: false, verifyReason: 'missing verified candidate' };
+    if (verified) verifiedOfficialSectorKeys.push(key);
+  }
+  const missingOfficialSectorKeys = keys.filter((k) => !verifiedOfficialSectorKeys.includes(k));
+  return { officialSectorCount: 11, verifiedOfficialSectorCount: verifiedOfficialSectorKeys.length, verifiedOfficialSectorKeys, missingOfficialSectorKeys, verifiedMapping, duplicateAliasRowsIgnored };
 }
 
 // ─── 공식 verified 섹터 추출 (오직 공식 11개 중에서만 카운트) ──────────────────
@@ -229,6 +296,16 @@ export function resolveSectorEnergyCanonicalState(
   }
 
   const verifiedOfficialSectorCount = verified.size;
+  const verifiedOfficialSectorKeys = [...OFFICIAL_SECTOR_ENERGY_11].filter((k) => verified.has(k));
+  const missingOfficialSectorKeys = [...OFFICIAL_SECTOR_ENERGY_11].filter((k) => !verified.has(k));
+  const duplicateAliasRowsIgnored: string[] = [];
+  if (Array.isArray(input.officialIndexMasterRows) && Array.isArray(input.indexVerifyResults)) {
+    const coverage = resolveOfficialSectorEnergyCoverage({
+      officialIndexMasterRows: input.officialIndexMasterRows,
+      indexVerifyResults: input.indexVerifyResults,
+    });
+    if (coverage.verifiedOfficialSectorCount !== verifiedOfficialSectorCount) throw new Error('CANONICAL_SECTOR_COUNT_MISMATCH');
+  }
   const promotionCoverage = verifiedOfficialSectorCount / officialSectorCount;
   const promotionCoveragePass = promotionCoverage >= requiredPromotionCoverage;
 
@@ -260,6 +337,9 @@ export function resolveSectorEnergyCanonicalState(
     universeType: 'OFFICIAL_SECTOR_ONLY',
     officialSectorCount,
     verifiedOfficialSectorCount,
+    verifiedOfficialSectorKeys,
+    missingOfficialSectorKeys,
+    duplicateAliasRowsIgnored,
     promotionCoverage,
     requiredPromotionCoverage,
     promotionCoveragePass,
@@ -283,6 +363,9 @@ export function missingSectorEnergyCanonicalState(): SectorEnergyCanonicalState 
     universeType: 'OFFICIAL_SECTOR_ONLY',
     officialSectorCount: OFFICIAL_SECTOR_COUNT,
     verifiedOfficialSectorCount: 0,
+    verifiedOfficialSectorKeys: [],
+    missingOfficialSectorKeys: [...OFFICIAL_SECTOR_ENERGY_11],
+    duplicateAliasRowsIgnored: [],
     promotionCoverage: 0,
     requiredPromotionCoverage: DEFAULT_REQUIRED_PROMOTION_COVERAGE,
     promotionCoveragePass: false,
@@ -531,6 +614,9 @@ export function renderSectorEnergyCanonicalBlock(canonical: SectorEnergyCanonica
     `  universeType=${canonical.universeType}`,
     `  officialSectorCount=${canonical.officialSectorCount}`,
     `  verifiedOfficialSectorCount=${canonical.verifiedOfficialSectorCount}`,
+    `  verifiedOfficialSectorKeys=${canonical.verifiedOfficialSectorKeys.join(',')}`,
+    `  missingOfficialSectorKeys=${canonical.missingOfficialSectorKeys.join(',')}`,
+    `  duplicateAliasRowsIgnored=${canonical.duplicateAliasRowsIgnored.join(',')}`,
     `  promotionCoverage=${pct1(canonical.promotionCoverage)}`,
     `  requiredPromotionCoverage=${pct1(canonical.requiredPromotionCoverage)}`,
     `  promotionCoveragePass=${canonical.promotionCoveragePass}`,
