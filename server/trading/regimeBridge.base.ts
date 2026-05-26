@@ -273,7 +273,11 @@ function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previ
 
 function closeRecoveryEligible(breakdown: R6TriggerBreakdown, macroState: MacroState | null): boolean {
   const vkospiThreshold = resolveVkospiRecoveryThreshold(macroState);
-  return (breakdown.kospiCloseReturn ?? Number.NEGATIVE_INFINITY) > -2 && (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold && (breakdown.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 && Math.abs(breakdown.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 && (macroState?.mhs ?? 0) >= 40 && isFreshEnoughForRecoveryWatch(breakdown.triggerFreshness);
+  // ADR-0530: implausible VKOSPI level은 close-recovery 차단 근거에서 제외(buildR6RecoveryEvidence vkospiOk와 동일 격리).
+  // G2(KOSPI 비스트레스)가 발동 조건이라 진짜 폭락 시엔 격리 안 됨 → kospiCloseReturn/vkospiDayChange gate가 그대로 방어.
+  const vkospiImplausible = classifyVkospiSanity(macroState).trustState === 'UNTRUSTED_IMPLAUSIBLE';
+  const vkospiLevelOk = vkospiImplausible || (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold;
+  return (breakdown.kospiCloseReturn ?? Number.NEGATIVE_INFINITY) > -2 && vkospiLevelOk && (breakdown.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 && Math.abs(breakdown.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 && (macroState?.mhs ?? 0) >= 40 && isFreshEnoughForRecoveryWatch(breakdown.triggerFreshness);
 }
 
 
