@@ -17,6 +17,7 @@ import {
 import type { SectorIndexMasterProviderResult } from './SectorIndexMasterProvider.js';
 import type {
   KisIndexQuoteClientStatus,
+  KisSectorIndexValueQualityStatus,
   KisSectorIndexVerifyTransportStage,
   KisSectorIndexVerifyVariantPolicy,
 } from '../clients/kisClient/types.js';
@@ -63,6 +64,9 @@ export interface OfficialSectorIndexVerifyResult {
   transportStage?: KisSectorIndexVerifyTransportStage;
   outputPresent?: boolean;
   indexValueFieldPresent?: boolean;
+  apiTransportSuccess?: boolean;
+  indexValueUsable?: boolean;
+  valueQualityStatus?: KisSectorIndexValueQualityStatus;
   rawTopLevelKeys?: string[];
   outputKeys?: string[];
   attempts?: OfficialSectorIndexVerifyAttempt[];
@@ -97,6 +101,9 @@ export interface OfficialSectorIndexVerifyAttempt {
   transportStage?: KisSectorIndexVerifyTransportStage;
   outputPresent: boolean;
   indexValueFieldPresent: boolean;
+  apiTransportSuccess?: boolean;
+  indexValueUsable?: boolean;
+  valueQualityStatus?: KisSectorIndexValueQualityStatus;
   rawTopLevelKeys: string[];
   outputKeys: string[];
   verified: boolean;
@@ -141,6 +148,8 @@ export interface SectorIndexPromotionCoveragePolicy {
 
 export interface SectorIndexValueQuality {
   apiVerifiedCount: number;
+  apiTransportSuccessCount: number;
+  indexValueUsableCount: number;
   zeroCurrentIndexCount: number;
   nonZeroCurrentIndexCount: number;
   qualityUsableCount: number;
@@ -148,6 +157,7 @@ export interface SectorIndexValueQuality {
   qualityUsableCoverageExcludingUnsafeAlias: number;
   zeroCurrentIndexSymbols: string[];
   zeroCurrentIndexPolicy: 'OBSERVE_ONLY';
+  valueQualityStatus: 'OK' | 'VALUE_QUALITY_ZERO' | 'VALUE_QUALITY_LOW';
   qualityImpact: 'BLOCK_LIVE_PROMOTION_ONLY' | 'NONE';
   executionImpact: 'NONE';
 }
@@ -158,6 +168,9 @@ export interface SectorIndexQualityResult {
   idxDiv?: string | null;
   idxCode?: string | null;
   verified: boolean;
+  apiTransportSuccess: boolean;
+  indexValueUsable: boolean;
+  valueQualityStatus: KisSectorIndexValueQualityStatus;
   currentIndex: number | null;
   qualityUsable: boolean;
   qualityReason: 'OK' | 'CURRENT_INDEX_ZERO' | 'VALUE_PARSE_FAILED' | 'STALE';
@@ -298,26 +311,85 @@ function representativeCurrentIndex(result: OfficialSectorIndexVerifyResult): nu
   return typeof schemaAttempt?.currentIndex === 'number' ? schemaAttempt.currentIndex : null;
 }
 
+function representativeAttempt(result: OfficialSectorIndexVerifyResult): OfficialSectorIndexVerifyAttempt | undefined {
+  return result.attempts?.find((attempt) => attempt.verified)
+    ?? result.attempts?.find((attempt) => attempt.valueQualityStatus === 'VALUE_QUALITY_ZERO')
+    ?? result.attempts?.find((attempt) => attempt.apiTransportSuccess === true)
+    ?? result.attempts?.at(-1);
+}
+
+function resolveApiTransportSuccess(
+  result: OfficialSectorIndexVerifyResult,
+  attempt: OfficialSectorIndexVerifyAttempt | undefined,
+): boolean {
+  if (typeof result.apiTransportSuccess === 'boolean') return result.apiTransportSuccess;
+  if (typeof attempt?.apiTransportSuccess === 'boolean') return attempt.apiTransportSuccess;
+  const httpOk = result.httpStatus == null || (result.httpStatus >= 200 && result.httpStatus < 300);
+  const rtOk = result.rtCd == null || result.rtCd === '0';
+  return result.verified === true
+    || result.reasonCode === 'VALUE_QUALITY_ZERO'
+    || Boolean(httpOk && rtOk && result.outputPresent === true);
+}
+
+function resolveIndexValueUsable(
+  result: OfficialSectorIndexVerifyResult,
+  attempt: OfficialSectorIndexVerifyAttempt | undefined,
+  currentIndex: number | null,
+): boolean {
+  if (typeof result.indexValueUsable === 'boolean') return result.indexValueUsable;
+  if (typeof attempt?.indexValueUsable === 'boolean') return attempt.indexValueUsable;
+  return result.verified === true
+    && typeof currentIndex === 'number'
+    && Number.isFinite(currentIndex)
+    && currentIndex > 0;
+}
+
+function resolveValueQualityStatus(input: {
+  result: OfficialSectorIndexVerifyResult;
+  attempt?: OfficialSectorIndexVerifyAttempt;
+  currentIndex: number | null;
+  apiTransportSuccess: boolean;
+  indexValueUsable: boolean;
+}): KisSectorIndexValueQualityStatus {
+  if (input.result.valueQualityStatus) return input.result.valueQualityStatus;
+  if (input.attempt?.valueQualityStatus) return input.attempt.valueQualityStatus;
+  if (input.indexValueUsable) return 'USABLE';
+  if (input.currentIndex === 0 || input.result.reasonCode === 'VALUE_QUALITY_ZERO') return 'VALUE_QUALITY_ZERO';
+  return input.apiTransportSuccess ? 'VALUE_PARSE_FAILED' : 'API_TRANSPORT_FAILED';
+}
+
 function buildSectorIndexQuality(results: readonly OfficialSectorIndexVerifyResult[]): SectorIndexQualityResult[] {
   const seen = new Set<string>();
   const qualityRows: SectorIndexQualityResult[] = [];
   for (const result of results) {
     const currentIndex = representativeCurrentIndex(result);
+    const attempt = representativeAttempt(result);
+    const apiTransportSuccess = resolveApiTransportSuccess(result, attempt);
+    const indexValueUsable = resolveIndexValueUsable(result, attempt, currentIndex);
+    const valueQualityStatus = resolveValueQualityStatus({
+      result,
+      attempt,
+      currentIndex,
+      apiTransportSuccess,
+      indexValueUsable,
+    });
     const key = uniqueVerifyResultKey(result);
     if (seen.has(key)) continue;
     seen.add(key);
     const qualityReason: SectorIndexQualityResult['qualityReason'] =
-      !result.verified ? 'VALUE_PARSE_FAILED'
-        : currentIndex === null ? 'VALUE_PARSE_FAILED'
-          : currentIndex === 0 ? 'CURRENT_INDEX_ZERO'
-            : 'OK';
-    const qualityUsable = qualityReason === 'OK';
+      valueQualityStatus === 'USABLE' ? 'OK'
+        : valueQualityStatus === 'VALUE_QUALITY_ZERO' || currentIndex === 0 ? 'CURRENT_INDEX_ZERO'
+          : 'VALUE_PARSE_FAILED';
+    const qualityUsable = indexValueUsable;
     qualityRows.push({
       sectorName: result.sectorName,
       rawIdxName: result.rawIdxName,
       idxDiv: result.idxDiv,
       idxCode: result.idxCode,
       verified: result.verified,
+      apiTransportSuccess,
+      indexValueUsable,
+      valueQualityStatus,
       currentIndex,
       qualityUsable,
       qualityReason,
@@ -334,15 +406,22 @@ function buildIndexValueQuality(input: {
   officialTargetSectorCount: number;
   safePromotionEligibleSectorCount: number;
 }): SectorIndexValueQuality {
-  const verifiedRows = input.qualityRows.filter((row) => row.verified);
-  const zeroCurrentIndexSymbols = verifiedRows
+  const apiTransportRows = input.qualityRows.filter((row) => row.apiTransportSuccess);
+  const zeroCurrentIndexSymbols = apiTransportRows
     .filter((row) => row.qualityReason === 'CURRENT_INDEX_ZERO')
     .map((row) => row.sectorName);
-  const qualityUsableCount = verifiedRows.filter((row) => row.qualityUsable).length;
+  const qualityUsableCount = input.qualityRows.filter((row) => row.indexValueUsable).length;
+  const valueQualityStatus: SectorIndexValueQuality['valueQualityStatus'] = zeroCurrentIndexSymbols.length > 0
+    ? 'VALUE_QUALITY_ZERO'
+    : qualityUsableCount >= input.officialTargetSectorCount
+      ? 'OK'
+      : 'VALUE_QUALITY_LOW';
   return {
-    apiVerifiedCount: verifiedRows.length,
+    apiVerifiedCount: apiTransportRows.length,
+    apiTransportSuccessCount: apiTransportRows.length,
+    indexValueUsableCount: qualityUsableCount,
     zeroCurrentIndexCount: zeroCurrentIndexSymbols.length,
-    nonZeroCurrentIndexCount: verifiedRows.filter((row) =>
+    nonZeroCurrentIndexCount: input.qualityRows.filter((row) =>
       typeof row.currentIndex === 'number' && row.currentIndex > 0,
     ).length,
     qualityUsableCount,
@@ -350,6 +429,7 @@ function buildIndexValueQuality(input: {
     qualityUsableCoverageExcludingUnsafeAlias: pct(qualityUsableCount, input.safePromotionEligibleSectorCount),
     zeroCurrentIndexSymbols,
     zeroCurrentIndexPolicy: 'OBSERVE_ONLY',
+    valueQualityStatus,
     qualityImpact: zeroCurrentIndexSymbols.length > 0 ? 'BLOCK_LIVE_PROMOTION_ONLY' : 'NONE',
     executionImpact: 'NONE',
   };
@@ -603,7 +683,10 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     reasonCodes.add('PROMOTION_DISABLED_COVERAGE_BELOW_80');
     reasonCodes.add('VERIFIED_INDEX_CODE_COVERAGE_LOW');
   }
-  if (!marketClosed && indexValueQuality.zeroCurrentIndexCount > 0) reasonCodes.add('OFFICIAL_INDEX_ZERO_CURRENT_INDEX_OBSERVE_ONLY');
+  if (!marketClosed && indexValueQuality.zeroCurrentIndexCount > 0) {
+    reasonCodes.add('VALUE_QUALITY_ZERO');
+    reasonCodes.add('OFFICIAL_INDEX_ZERO_CURRENT_INDEX_OBSERVE_ONLY');
+  }
   if (!marketClosed && verifySuccessCount > 0 && !qualityGatePassed) reasonCodes.add('INDEX_VALUE_QUALITY_LOW');
   if (marketClosed) {
     reasonCodes.add('SECTOR_INDEX_MARKET_CLOSED');

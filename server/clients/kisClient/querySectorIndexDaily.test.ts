@@ -191,32 +191,30 @@ describe('fetchKisSectorIndexCurrentPrice', () => {
 });
 
 describe('fetchKisSectorIndexCurrentPriceProbe', () => {
-  it('tries idx_code and idx_div+idx_code variants until one verifies', async () => {
+  it('uses only the 4-digit idx_code as FID_INPUT_ISCD by default and keeps idx_div variants diagnostic-only', async () => {
     process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
-    _fetch
-      .mockResolvedValueOnce(new Response(JSON.stringify({ rt_cd: '1', msg_cd: 'INVALID', msg1: 'bad code', output: [] }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        rt_cd: '0',
-        msg_cd: 'MCA00000',
-        msg1: 'OK',
-        output: [{ hts_kor_isnm: 'chemical', bstp_nmix_prpr: '1234.56', bstp_nmix_prdy_ctrt: '1.2' }],
-      }), { status: 200 }));
+    _fetch.mockResolvedValue(new Response(JSON.stringify({
+      rt_cd: '0',
+      msg_cd: 'MCA00000',
+      msg1: 'OK',
+      output: [{ hts_kor_isnm: 'chemical', bstp_nmix_prpr: '1234.56', bstp_nmix_prdy_ctrt: '1.2' }],
+    }), { status: 200 }));
 
     const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000', '80000', '8:0000', '8-0000']);
 
     expect(result).toMatchObject({
       verified: true,
-      selectedInputIscd: '80000',
+      selectedInputIscd: '0000',
       currentIndex: 1234.56,
       reasonCode: 'VERIFY_SUCCESS',
       verifyVariantPolicy: {
         enabled: true,
-        triedVariants: ['idxCode', 'idxDivCompact'],
-        debugOnlyVariants: ['colon', 'hyphen'],
+        triedVariants: ['idxCode'],
+        debugOnlyVariants: ['idxDivCompact', 'colon', 'hyphen'],
         colonHyphenSent: false,
       },
     });
-    expect(result?.attempts).toHaveLength(2);
+    expect(result?.attempts).toHaveLength(1);
     expect(result?.attempts[0]).toMatchObject({
       fidCondMrktDivCode: 'U',
       fidInputIscd: '0000',
@@ -224,26 +222,21 @@ describe('fetchKisSectorIndexCurrentPriceProbe', () => {
       requestBuilt: true,
       requestSent: true,
       httpStatus: 200,
-      transportStage: 'HTTP_RESPONSE_RECEIVED',
-      rtCd: '1',
-      msgCd: 'INVALID',
-      msg1: 'bad code',
-      reasonCode: 'KIS_INDEX_API_REJECTED_CODE',
-      verified: false,
-    });
-    expect(result?.attempts[1]).toMatchObject({
-      fidInputIscd: '80000',
       outputPresent: true,
       indexValueFieldPresent: true,
       indexValueFieldName: 'bstp_nmix_prpr',
+      apiTransportSuccess: true,
+      indexValueUsable: true,
+      valueQualityStatus: 'USABLE',
       transportStage: 'VERIFY_SUCCESS',
       verified: true,
       reasonCode: 'VERIFY_SUCCESS',
     });
-    expect(_fetch).toHaveBeenCalledTimes(2);
-    expect(String(_fetch.mock.calls[1][0])).toContain('FID_COND_MRKT_DIV_CODE=U');
-    expect(String(_fetch.mock.calls[1][0])).toContain('FID_INPUT_ISCD=80000');
-    expect(_fetch.mock.calls[1][1]).toMatchObject({
+    expect(_fetch).toHaveBeenCalledTimes(1);
+    expect(String(_fetch.mock.calls[0][0])).toContain('FID_COND_MRKT_DIV_CODE=U');
+    expect(String(_fetch.mock.calls[0][0])).toContain('FID_INPUT_ISCD=0000');
+    expect(String(_fetch.mock.calls[0][0])).not.toContain('FID_INPUT_ISCD=80000');
+    expect(_fetch.mock.calls[0][1]).toMatchObject({
       method: 'GET',
     });
   });
@@ -277,7 +270,32 @@ describe('fetchKisSectorIndexCurrentPriceProbe', () => {
     });
   });
 
-  it('treats a finite zero index value as a schema-valid verify response', async () => {
+  it('does not promote auxiliary change fields to usable current index value', async () => {
+    process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
+    _fetch.mockResolvedValue(new Response(JSON.stringify({
+      rt_cd: '0',
+      msg_cd: 'MCA00000',
+      msg1: 'OK',
+      output: [{ hts_kor_isnm: 'chemical', bstp_nmix_prdy_ctrt: '1.23' }],
+    }), { status: 200 }));
+
+    const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
+
+    expect(result).toMatchObject({
+      verified: false,
+      selectedFailureReason: 'KIS_INDEX_API_SCHEMA_MISMATCH',
+    });
+    expect(result?.attempts[0]).toMatchObject({
+      outputPresent: true,
+      apiTransportSuccess: true,
+      indexValueFieldPresent: false,
+      indexValueUsable: false,
+      valueQualityStatus: 'VALUE_PARSE_FAILED',
+      reasonCode: 'KIS_INDEX_API_SCHEMA_MISMATCH',
+    });
+  });
+
+  it('classifies a finite zero index value as VALUE_QUALITY_ZERO instead of VERIFY_SUCCESS', async () => {
     _fetch.mockResolvedValue(new Response(JSON.stringify({
       rt_cd: '0',
       msg_cd: 'MCA00000',
@@ -288,17 +306,22 @@ describe('fetchKisSectorIndexCurrentPriceProbe', () => {
     const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
 
     expect(result).toMatchObject({
-      verified: true,
-      selectedInputIscd: '0000',
-      currentIndex: 0,
-      reasonCode: 'VERIFY_SUCCESS',
+      verified: false,
+      selectedInputIscd: null,
+      currentIndex: null,
+      reasonCode: 'VERIFY_VARIANTS_EXHAUSTED',
+      selectedFailureReason: 'VALUE_QUALITY_ZERO',
     });
     expect(result?.attempts[0]).toMatchObject({
       indexValueFieldPresent: true,
       indexValueFieldName: 'bstp_nmix_prpr',
       currentIndex: 0,
-      transportStage: 'VERIFY_SUCCESS',
-      reasonCode: 'VERIFY_SUCCESS',
+      apiTransportSuccess: true,
+      indexValueUsable: false,
+      valueQualityStatus: 'VALUE_QUALITY_ZERO',
+      transportStage: 'HTTP_RESPONSE_RECEIVED',
+      verified: false,
+      reasonCode: 'VALUE_QUALITY_ZERO',
     });
   });
 

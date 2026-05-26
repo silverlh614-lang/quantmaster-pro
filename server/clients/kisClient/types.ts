@@ -308,6 +308,12 @@ export type KisSectorIndexVerifyTransportStage =
 
 export type KisIndexQuoteBaseUrlKind = 'REAL' | 'VIRTUAL' | 'UNKNOWN';
 export type KisSectorIndexVerifyMode = 'OBSERVE' | 'OFF';
+export type KisSectorIndexValueQualityStatus =
+  | 'USABLE'
+  | 'VALUE_QUALITY_ZERO'
+  | 'VALUE_PARSE_FAILED'
+  | 'API_TRANSPORT_FAILED'
+  | 'NOT_ATTEMPTED';
 
 export interface KisSectorIndexVerifyVariantPolicy {
   enabled: boolean;
@@ -355,6 +361,9 @@ export interface KisSectorIndexCurrentPriceProbeAttempt {
   rawTopLevelKeys: string[];
   outputKeys: string[];
   currentIndex?: number | null;
+  apiTransportSuccess?: boolean;
+  indexValueUsable?: boolean;
+  valueQualityStatus?: KisSectorIndexValueQualityStatus;
   exceptionClass?: string | null;
   exceptionMessageSanitized?: string | null;
   timeoutMs?: number | null;

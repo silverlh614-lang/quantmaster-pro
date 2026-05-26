@@ -38,7 +38,11 @@ export async function verifySectorIndexCodeWithKisCurrentPrice(
   const result = await fetchKisSectorIndexCurrentPriceProbe(candidates, 'LOW');
   const selectedAttempt = result?.attempts.find((attempt) => attempt.verified) ?? result?.attempts.at(-1);
   const verified = result?.verified === true;
-  const reasonCode = verified ? 'VERIFY_SUCCESS' : 'VERIFY_VARIANTS_EXHAUSTED';
+  const reasonCode = verified
+    ? 'VERIFY_SUCCESS'
+    : selectedAttempt?.reasonCode === 'VALUE_QUALITY_ZERO'
+      ? 'VALUE_QUALITY_ZERO'
+      : 'VERIFY_VARIANTS_EXHAUSTED';
   const selectedFailureReason = verified ? undefined : result?.selectedFailureReason ?? selectedAttempt?.reasonCode;
   return {
     officialIndexCode: code,
@@ -78,6 +82,9 @@ export async function verifySectorIndexCodeWithKisCurrentPrice(
     transportStage: selectedAttempt?.transportStage,
     outputPresent: selectedAttempt?.outputPresent,
     indexValueFieldPresent: selectedAttempt?.indexValueFieldPresent,
+    apiTransportSuccess: selectedAttempt?.apiTransportSuccess,
+    indexValueUsable: selectedAttempt?.indexValueUsable,
+    valueQualityStatus: selectedAttempt?.valueQualityStatus,
     rawTopLevelKeys: selectedAttempt?.rawTopLevelKeys,
     outputKeys: selectedAttempt?.outputKeys,
     attempts: result?.attempts.map((attempt) => ({
@@ -108,6 +115,9 @@ export async function verifySectorIndexCodeWithKisCurrentPrice(
       transportStage: attempt.transportStage,
       outputPresent: attempt.outputPresent,
       indexValueFieldPresent: attempt.indexValueFieldPresent,
+      apiTransportSuccess: attempt.apiTransportSuccess,
+      indexValueUsable: attempt.indexValueUsable,
+      valueQualityStatus: attempt.valueQualityStatus,
       rawTopLevelKeys: attempt.rawTopLevelKeys,
       outputKeys: attempt.outputKeys,
       verified: attempt.verified,

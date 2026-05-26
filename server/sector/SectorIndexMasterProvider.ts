@@ -113,6 +113,14 @@ function parseFixedWidthLine(line: string): OfficialSectorIndexMasterRow | null 
   if (spaced) {
     return toMasterRow({ idxDiv: spaced[1], idxCode: spaced[2], idxName: spaced[3] });
   }
+  const fixedWidth = compact.match(/^(.)(\d{4})(.+)$/);
+  if (fixedWidth) {
+    return toMasterRow({
+      idxDiv: fixedWidth[1].trim() || undefined,
+      idxCode: fixedWidth[2],
+      idxName: fixedWidth[3].trim(),
+    });
+  }
   const codeMatch = compact.match(/^(.*?)(\d{4})(.{2,})$/);
   if (!codeMatch) return null;
   return toMasterRow({

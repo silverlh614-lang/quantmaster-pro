@@ -432,6 +432,8 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
         },
         indexValueQuality: {
           apiVerifiedCount: 11,
+          apiTransportSuccessCount: 11,
+          indexValueUsableCount: 9,
           zeroCurrentIndexCount: 2,
           nonZeroCurrentIndexCount: 9,
           qualityUsableCount: 9,
@@ -439,6 +441,7 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
           qualityUsableCoverageExcludingUnsafeAlias: 81.8,
           zeroCurrentIndexSymbols: ['화학', '철강'],
           zeroCurrentIndexPolicy: 'OBSERVE_ONLY',
+          valueQualityStatus: 'VALUE_QUALITY_ZERO',
           qualityImpact: 'BLOCK_LIVE_PROMOTION_ONLY',
           executionImpact: 'NONE',
         },
@@ -446,6 +449,9 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
           {
             sectorName: '화학',
             verified: true,
+            apiTransportSuccess: true,
+            indexValueUsable: false,
+            valueQualityStatus: 'VALUE_QUALITY_ZERO',
             currentIndex: 0,
             qualityUsable: false,
             qualityReason: 'CURRENT_INDEX_ZERO',
@@ -456,6 +462,9 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
           {
             sectorName: '금융',
             verified: true,
+            apiTransportSuccess: true,
+            indexValueUsable: true,
+            valueQualityStatus: 'USABLE',
             currentIndex: 123.4,
             qualityUsable: true,
             qualityReason: 'OK',
@@ -491,6 +500,8 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(compact).toContain('SectorIndexPromotionReadiness: officialTargetSectorCount=15 internalGroupedSectorCount=12 safePromotionEligibleSectorCount=11 unsafeAliasSectorCount=4 unresolvedSectorCount=0 verifiedSuccessCount=11');
     expect(compact).toContain('internalGroupedMetricWouldPass=true safeOnlyMetricWouldPass=true useAlternativeForLivePromotion=false alternativeReason=OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY');
     expect(compact).toContain('PromotionCoveragePolicy: selectedMetric=officialTargetVerifiedCoverage numerator=11 denominator=15 required=80% selectedCoverageValue=73.3% coveragePromotionAllowed=false promotionAllowed=false reason=VERIFIED_INDEX_CODE_COVERAGE_LOW alternativeInternalGroupedCoverage=91.7% executionImpact=NONE');
+    expect(compact).toContain('apiTransportSuccessCount=11 indexValueUsableCount=9 valueQualityStatus=VALUE_QUALITY_ZERO promotionAllowed=false sectorBoostAllowed=false shadowLeadershipAllowed=true');
+    expect(compact).toContain('apiTransportSuccess=true:indexValueUsable=false:valueQualityStatus=VALUE_QUALITY_ZERO');
     expect(compact).toContain('IndexValueQuality: apiVerifiedCount=11 currentIndexZeroCount=2 zeroCurrentIndexCount=2 currentIndexNonZeroCount=9 nonZeroCurrentIndexCount=9 qualityUsableCount=9 zeroCurrentIndexSymbols=화학,철강 zeroPolicy=OBSERVE_ONLY qualityImpact=BLOCK_LIVE_PROMOTION_ONLY executionImpact=NONE');
     expect(compact).toContain('SectorIndexQuality: 화학:verified=true:currentIndex=0:qualityUsable=false:qualityReason=CURRENT_INDEX_ZERO:useForShadowLeadership=true:useForLivePromotion=false:executionImpact=NONE');
   });

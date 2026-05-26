@@ -454,12 +454,17 @@ describe('SectorIndexVerifier', () => {
         sectorName: row.sectorName,
         idxDiv: row.idxDiv,
         idxCode: row.idxCode,
-        verified: true,
+        verified: row.sectorName !== 'finance',
+        apiTransportSuccess: true,
+        indexValueUsable: row.sectorName !== 'finance',
+        valueQualityStatus: row.sectorName === 'finance' ? 'VALUE_QUALITY_ZERO' : 'USABLE',
+        outputPresent: true,
+        indexValueFieldPresent: true,
         currentIndex: row.sectorName === 'finance' ? 0 : 123.4,
         providerIssue: false,
         marketSignal: false,
         executionImpact: 'NONE',
-        reasonCode: 'VERIFY_SUCCESS',
+        reasonCode: row.sectorName === 'finance' ? 'VALUE_QUALITY_ZERO' : 'VERIFY_SUCCESS',
       }),
     });
 
@@ -468,19 +473,19 @@ describe('SectorIndexVerifier', () => {
       safePromotionEligibleSectorCount: 2,
       unsafeAliasSectorCount: 1,
       unresolvedSectorCount: 1,
-      verifiedSuccessCount: 2,
+      verifiedSuccessCount: 1,
     });
     expect(result.coverageMetrics).toMatchObject({
       officialIndexCoverageByOfficialTarget: 50,
-      verifiedCoverageByOfficialTarget: 50,
-      verifiedCoverageExcludingUnsafeAlias: 100,
-      promotionVerifiedCoverage: 50,
+      verifiedCoverageByOfficialTarget: 25,
+      verifiedCoverageExcludingUnsafeAlias: 50,
+      promotionVerifiedCoverage: 25,
     });
     expect(result.promotionCoveragePolicy).toMatchObject({
       selectedMetric: 'officialTargetVerifiedCoverage',
-      numerator: 2,
+      numerator: 1,
       denominator: 4,
-      selectedCoverageValue: 50,
+      selectedCoverageValue: 25,
       promotionAllowed: false,
       reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
       executionImpact: 'NONE',
@@ -492,6 +497,8 @@ describe('SectorIndexVerifier', () => {
     });
     expect(result.indexValueQuality).toMatchObject({
       apiVerifiedCount: 2,
+      apiTransportSuccessCount: 2,
+      indexValueUsableCount: 1,
       zeroCurrentIndexCount: 1,
       nonZeroCurrentIndexCount: 1,
       qualityUsableCount: 1,
@@ -499,11 +506,15 @@ describe('SectorIndexVerifier', () => {
       qualityUsableCoverageExcludingUnsafeAlias: 50,
       zeroCurrentIndexSymbols: ['finance'],
       zeroCurrentIndexPolicy: 'OBSERVE_ONLY',
+      valueQualityStatus: 'VALUE_QUALITY_ZERO',
       qualityImpact: 'BLOCK_LIVE_PROMOTION_ONLY',
       executionImpact: 'NONE',
     });
     expect(result.sectorIndexQuality?.find((row) => row.sectorName === 'finance')).toMatchObject({
-      verified: true,
+      verified: false,
+      apiTransportSuccess: true,
+      indexValueUsable: false,
+      valueQualityStatus: 'VALUE_QUALITY_ZERO',
       currentIndex: 0,
       qualityUsable: false,
       qualityReason: 'CURRENT_INDEX_ZERO',
@@ -512,14 +523,17 @@ describe('SectorIndexVerifier', () => {
     });
     expect(result.promotionReadiness).toMatchObject({
       selectedPromotionMetric: 'officialTargetVerifiedCoverage',
-      selectedPromotionCoverage: 50,
+      selectedPromotionCoverage: 25,
       requiredPromotionCoverage: 80,
       qualityUsableCoverageByOfficialTarget: 25,
       promotionAllowed: false,
       reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
-      safeOnlyMetricWouldPass: true,
+      safeOnlyMetricWouldPass: false,
       useAlternativeForLivePromotion: false,
     });
+    expect(result.verifySuccessCount).toBe(1);
+    expect(result.verifyFailCount).toBe(1);
+    expect(result.reasonCodes).toContain('VALUE_QUALITY_ZERO');
     expect(result.reasonCodes).toContain('OFFICIAL_INDEX_ZERO_CURRENT_INDEX_OBSERVE_ONLY');
     expect(result.reasonCodes).toContain('INDEX_VALUE_QUALITY_LOW');
   });
@@ -555,6 +569,10 @@ describe('SectorIndexVerifier', () => {
         verifyInputCandidates: row.verifyInputCandidates,
         triedCandidates: ['0000', '80000'],
         verified: true,
+        apiTransportSuccess: true,
+        indexValueUsable: true,
+        valueQualityStatus: 'USABLE',
+        currentIndex: 123.4,
         providerIssue: false,
         marketSignal: false,
         executionImpact: 'NONE',
@@ -576,6 +594,9 @@ describe('SectorIndexVerifier', () => {
             msg1: 'bad code',
             outputPresent: false,
             indexValueFieldPresent: false,
+            apiTransportSuccess: false,
+            indexValueUsable: false,
+            valueQualityStatus: 'API_TRANSPORT_FAILED',
             rawTopLevelKeys: ['rt_cd', 'msg_cd', 'msg1'],
             outputKeys: [],
             verified: false,
@@ -597,6 +618,10 @@ describe('SectorIndexVerifier', () => {
             msg1: 'OK',
             outputPresent: true,
             indexValueFieldPresent: true,
+            apiTransportSuccess: true,
+            indexValueUsable: true,
+            valueQualityStatus: 'USABLE',
+            currentIndex: 123.4,
             rawTopLevelKeys: ['rt_cd', 'msg_cd', 'msg1', 'output'],
             outputKeys: ['bstp_nmix_prpr'],
             verified: true,

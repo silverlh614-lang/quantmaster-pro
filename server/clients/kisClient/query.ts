@@ -34,6 +34,7 @@ import type {
   KisSectorIndexCurrentPrice,
   KisSectorIndexCurrentPriceProbeAttempt,
   KisSectorIndexCurrentPriceProbeResult,
+  KisSectorIndexValueQualityStatus,
   KisSectorIndexVerifyMode,
   KisSectorIndexVerifyTransportStage,
   KisSectorIndexVerifyVariantPolicy,
@@ -777,13 +778,6 @@ function kisSectorIndexVerifyDisabledReason(): string {
 
 const SECTOR_INDEX_VALUE_FIELD_CANDIDATES = [
   'bstp_nmix_prpr',
-  'bstp_nmix_prdy_vrss',
-  'bstp_nmix_prdy_ctrt',
-  'bstp_nmix_oprc',
-  'bstp_nmix_hgpr',
-  'bstp_nmix_lwpr',
-  'prdy_vrss',
-  'prdy_ctrt',
   'stck_prpr',
   'prpr',
   'close',
@@ -867,10 +861,15 @@ function sectorIndexVerifyVariantPolicy(inputCandidates: readonly string[]): {
   policy: KisSectorIndexVerifyVariantPolicy;
 } {
   const unique = Array.from(new Set(inputCandidates.map((item) => String(item ?? '').trim()).filter(Boolean)));
-  const debugOnlyRaw = unique.filter((candidate) => candidate.includes(':') || candidate.includes('-'));
+  const debugOnlyRaw = unique.filter((candidate) => !/^\d{4}$/.test(candidate));
   const colonHyphenSent = process.env.KIS_SECTOR_INDEX_VERIFY_SEND_DEBUG_VARIANTS === 'true';
   const candidates = colonHyphenSent ? unique : unique.filter((candidate) => !debugOnlyRaw.includes(candidate));
-  const debugOnlyKinds = Array.from(new Set(debugOnlyRaw.map((candidate) => candidate.includes(':') ? 'colon' : 'hyphen')));
+  const debugOnlyKinds = Array.from(new Set(debugOnlyRaw.map((candidate) => {
+    if (/^\d{5}$/.test(candidate)) return 'idxDivCompact';
+    if (candidate.includes(':')) return 'colon';
+    if (candidate.includes('-')) return 'hyphen';
+    return 'nonFourDigit';
+  })));
   return {
     candidates,
     policy: {
@@ -916,6 +915,9 @@ function emptyProbeAttempt(input: {
     rawTopLevelKeys: [],
     outputKeys: [],
     currentIndex: null,
+    apiTransportSuccess: false,
+    indexValueUsable: false,
+    valueQualityStatus: input.transportStage === 'NOT_ATTEMPTED' ? 'NOT_ATTEMPTED' : 'API_TRANSPORT_FAILED',
     exceptionClass: input.exceptionClass ?? null,
     exceptionMessageSanitized: input.exceptionMessageSanitized ?? null,
     timeoutMs: input.timeoutMs ?? sectorIndexVerifyTimeoutMs(),
@@ -1076,6 +1078,7 @@ function classifyKisSectorIndexFailure(input: {
   if (!input.outputPresent) return 'KIS_INDEX_API_OUTPUT_EMPTY';
   if (!input.indexValueFieldPresent) return 'KIS_INDEX_API_SCHEMA_MISMATCH';
   if (input.currentIndex == null || !Number.isFinite(input.currentIndex)) return 'KIS_INDEX_API_INDEX_VALUE_INVALID';
+  if (input.currentIndex === 0) return 'VALUE_QUALITY_ZERO';
   return 'KIS_INDEX_API_VERIFY_CONDITION_NOT_MET';
 }
 
@@ -1123,7 +1126,21 @@ function materializeKisSectorIndexProbeAttempt(input: {
   const msgCd = root?.msg_cd != null ? String(root.msg_cd) : null;
   const msg1 = root?.msg1 != null ? String(root.msg1) : null;
   const successEquivalent = !rtCd || rtCd === '0';
-  const verified = successEquivalent && outputPresent && indexValueFieldPresent && currentIndex != null && Number.isFinite(currentIndex);
+  const httpOk = input.httpStatus == null || (input.httpStatus >= 200 && input.httpStatus < 300);
+  const apiTransportSuccess = Boolean(root && httpOk && successEquivalent && outputPresent);
+  const indexValueUsable = apiTransportSuccess
+    && indexValueFieldPresent
+    && currentIndex != null
+    && Number.isFinite(currentIndex)
+    && currentIndex > 0;
+  const valueQualityStatus: KisSectorIndexValueQualityStatus = indexValueUsable
+    ? 'USABLE'
+    : currentIndex === 0
+      ? 'VALUE_QUALITY_ZERO'
+      : apiTransportSuccess
+        ? 'VALUE_PARSE_FAILED'
+        : 'API_TRANSPORT_FAILED';
+  const verified = indexValueUsable;
   const reasonCode = verified
     ? 'VERIFY_SUCCESS'
     : classifyKisSectorIndexFailure({
@@ -1156,6 +1173,9 @@ function materializeKisSectorIndexProbeAttempt(input: {
     rawTopLevelKeys: root ? Object.keys(root).slice(0, 32) : [],
     outputKeys: row ? Object.keys(row).slice(0, 64) : [],
     currentIndex,
+    apiTransportSuccess,
+    indexValueUsable,
+    valueQualityStatus,
     exceptionClass: null,
     exceptionMessageSanitized: null,
     timeoutMs: sectorIndexVerifyTimeoutMs(),
@@ -1277,7 +1297,22 @@ export async function fetchKisSectorIndexCurrentPriceProbe(
     const attempts: KisSectorIndexCurrentPriceProbeAttempt[] = [];
     for (const candidate of candidates) {
       const result = await overrides.fetchKisSectorIndexCurrentPrice(candidate);
-      const verified = Boolean(result && typeof result.currentIndex === 'number' && result.currentIndex > 0);
+      const currentIndex = result?.currentIndex ?? null;
+      const indexValueFieldPresent = typeof currentIndex === 'number' && Number.isFinite(currentIndex);
+      const apiTransportSuccess = Boolean(result);
+      const indexValueUsable = apiTransportSuccess && indexValueFieldPresent && currentIndex != null && currentIndex > 0;
+      const valueQualityStatus: KisSectorIndexValueQualityStatus = indexValueUsable
+        ? 'USABLE'
+        : currentIndex === 0
+          ? 'VALUE_QUALITY_ZERO'
+          : apiTransportSuccess
+            ? 'VALUE_PARSE_FAILED'
+            : 'API_TRANSPORT_FAILED';
+      const reasonCode = indexValueUsable
+        ? 'VERIFY_SUCCESS'
+        : valueQualityStatus === 'VALUE_QUALITY_ZERO'
+          ? 'VALUE_QUALITY_ZERO'
+          : 'KIS_INDEX_API_OUTPUT_EMPTY';
       attempts.push({
         fidCondMrktDivCode: 'U',
         fidInputIscd: candidate,
@@ -1292,21 +1327,24 @@ export async function fetchKisSectorIndexCurrentPriceProbe(
         msgCd: null,
         msg1: null,
         outputShape: result ? 'override:object' : 'override:null',
-        indexValueFieldName: verified ? 'currentIndex' : null,
+        indexValueFieldName: indexValueFieldPresent ? 'currentIndex' : null,
         outputPresent: Boolean(result),
-        indexValueFieldPresent: verified,
+        indexValueFieldPresent,
         rawTopLevelKeys: [],
         outputKeys: result?.rawFieldKeys ?? [],
-        currentIndex: result?.currentIndex ?? null,
+        currentIndex,
+        apiTransportSuccess,
+        indexValueUsable,
+        valueQualityStatus,
         exceptionClass: null,
         exceptionMessageSanitized: null,
         timeoutMs: null,
         retryCount: 0,
-        transportStage: verified ? 'VERIFY_SUCCESS' : 'VERIFY_FAILED',
-        verified,
-        reasonCode: verified ? 'VERIFY_SUCCESS' : 'KIS_INDEX_API_OUTPUT_EMPTY',
+        transportStage: indexValueUsable ? 'VERIFY_SUCCESS' : 'VERIFY_FAILED',
+        verified: indexValueUsable,
+        reasonCode,
       });
-      if (verified) {
+      if (indexValueUsable) {
         return {
           sectorIscd: candidates[0] ?? candidate,
           selectedInputIscd: candidate,

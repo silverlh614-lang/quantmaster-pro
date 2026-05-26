@@ -39,6 +39,29 @@ describe('SectorIndexMasterProvider', () => {
     });
   });
 
+  it('parses fixed-width idx_div plus idx_code rows without collapsing KRX 44xxx rows to 4400', () => {
+    const rows = parseIdxCodeMasterText([
+      '00008\uD654\uD559',
+      '44002KRX \uC790\uB3D9\uCC28',
+      '44003KRX \uBC18\uB3C4\uCCB4',
+      '44004KRX \uD5EC\uC2A4\uCF00\uC5B4',
+      '44008KRX \uCCA0\uAC15',
+    ].join('\n'));
+
+    expect(rows.map((row) => `${row.idxDiv}:${row.idxCode}:${row.officialIndexCode}`)).toEqual([
+      '0:0008:0008',
+      '4:4002:4002',
+      '4:4003:4003',
+      '4:4004:4004',
+      '4:4008:4008',
+    ]);
+    expect(new Set(rows.map((row) => row.officialIndexCode))).not.toContain('4400');
+    expect(rows.find((row) => row.officialIndexCode === '4003')).toMatchObject({
+      officialIndexName: 'KRX \uBC18\uB3C4\uCCB4',
+      verifyInputCandidates: expect.arrayContaining(['4003']),
+    });
+  });
+
   it('loads idxcode.mst from zip and reports executionImpact NONE', async () => {
     const zip = storedZip('idxcode.mst', '1 0001 KOSPI\n1 0021 finance\n');
     const result = await loadKisOfficialSectorIndexMaster({
