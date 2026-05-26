@@ -6,6 +6,7 @@ import type { CandidateSnapshot } from '../entryFilterDecomposition.js';
 import type { LeadershipConfidence, SectorEnergySourceTier } from '../../../../src/services/sector/SectorEnergyDiagnostics.js';
 import type { SectorIndexMasterCoverageAdr0495 } from '../sectorIndexMasterSeedAdr0495.js';
 import type { OfficialSectorIndexMasterCoverageResult } from '../../../sector/SectorIndexVerifier.js';
+import type { SectorEnergyCanonicalState } from '../../../../src/domain/sector-energy/SectorEnergyCanonicalResolver.js';
 
 export type SectorEnergyMasterStatusAdr0488 =
   | 'FETCH_OK'
@@ -210,6 +211,11 @@ export interface SupplyUnknownPolicyStabilizationReportAdr0488 {
 export interface SectorEnergyAndSupplyUnknownPolicyReportAdr0488 {
   generatedAt: string;
   overallStatus: 'OBSERVING' | 'PARTIAL' | 'DEGRADED' | 'DATA_UNAVAILABLE' | 'UNKNOWN';
+  /**
+   * ADR-0534: SectorEnergy 최종 판단 단일 SSOT. 모든 promotion/sectorBoost/strongBuy 출력은
+   * 이 값만 읽는다. sectorEnergyMaster 의 동일 필드는 진단 입력으로 강등된다.
+   */
+  sectorEnergyCanonicalState: SectorEnergyCanonicalState;
   sectorEnergyMaster: SectorEnergyMasterSupplyLineReportAdr0488;
   supplyUnknownPolicy: SupplyUnknownPolicyStabilizationReportAdr0488;
   topGaps: string[];
