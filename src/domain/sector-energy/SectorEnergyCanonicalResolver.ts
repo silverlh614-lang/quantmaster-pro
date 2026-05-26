@@ -178,7 +178,7 @@ type VerifiedMapping = Record<OfficialSectorEnergyKey, {
 const OFFICIAL_SECTOR_ALIAS_MAP: Record<OfficialSectorEnergyKey, { aliases: string[]; preferredIndexCodes: string[] }> = {
   SEMICONDUCTOR_ELECTRONICS: { aliases: ['반도체', 'SEMICONDUCTOR', '전기전자', '전기·전자', 'KRX 반도체'], preferredIndexCodes: ['4003', '0013'] },
   AUTOMOTIVE_TRANSPORT_EQUIPMENT: { aliases: ['자동차', 'AUTOMOTIVE', '운수장비', '운송장비', 'KRX 자동차'], preferredIndexCodes: ['4002'] },
-  MACHINERY_EQUIPMENT: { aliases: ['기계', '기계장비', '기계·장비', 'MACHINERY_EQUIPMENT'], preferredIndexCodes: ['0012', '4014'] },
+  MACHINERY_EQUIPMENT: { aliases: ['기계', '기계장비', '기계 장비', '기계·장비', 'KRX 기계장비', 'MACHINERY', 'MACHINERY_EQUIPMENT'], preferredIndexCodes: ['0012', '4014'] },
   CHEMICALS: { aliases: ['화학', 'CHEMICALS', '에너지화학', 'KRX 에너지화학'], preferredIndexCodes: ['0008', '4007'] },
   BIO_HEALTHCARE_PHARMA: { aliases: ['바이오/헬스케어', '헬스케어', '의약품', 'KRX 헬스케어'], preferredIndexCodes: ['4004'] },
   STEEL_METALS: { aliases: ['철강', '철강금속', '철강·금속', 'KRX 철강'], preferredIndexCodes: ['4008'] },
@@ -186,7 +186,7 @@ const OFFICIAL_SECTOR_ALIAS_MAP: Record<OfficialSectorEnergyKey, { aliases: stri
   FINANCIALS: { aliases: ['금융', '은행', '증권', '보험', 'FINANCIALS'], preferredIndexCodes: ['0021', '4005', '4013', '4015'] },
   CONSUMER_RETAIL: { aliases: ['유통/소비재', '유통 소비재', '유통소비재', '유통', '유통업', 'CONSUMER_RETAIL', '경기소비재', '필수소비재'], preferredIndexCodes: ['0016', '4061', '4062'] },
   FOOD_BEVERAGE_TOBACCO: { aliases: ['음식료', '음식료·담배', '음식료 담배', '음식료담배', 'FOOD_BEVERAGE_TOBACCO'], preferredIndexCodes: ['0005'] },
-  SERVICE_TELECOM: { aliases: ['서비스', '서비스업', '통신', '방송통신', 'KRX 방송통신', '미디어&엔터테인먼트', 'KRX 미디어&엔터테인먼트', 'SERVICE_TELECOM'], preferredIndexCodes: ['4010', '4063'] },
+  SERVICE_TELECOM: { aliases: ['서비스', '서비스업', '통신', '방송통신', 'KRX 방송통신', '미디어&엔터테인먼트', 'KRX 미디어&엔터테인먼트', 'SERVICE', 'TELECOM', 'SERVICE_TELECOM'], preferredIndexCodes: ['4010', '4063'] },
 };
 
 /**
@@ -199,6 +199,11 @@ const SECTOR_COVERAGE_CRITICAL_INVARIANTS: ReadonlyArray<{
   evidenceCodes: readonly string[];
   evidenceNames: readonly string[];
 }> = [
+  {
+    key: 'MACHINERY_EQUIPMENT',
+    evidenceCodes: ['0012', '4014'],
+    evidenceNames: ['기계', '기계장비', '기계 장비', '기계·장비', 'KRX 기계장비'],
+  },
   {
     key: 'CONSUMER_RETAIL',
     evidenceCodes: ['0016', '4061', '4062'],
@@ -249,7 +254,7 @@ export function assertSectorEnergyCoverageInvariants(
 export function resolveOfficialSectorEnergyCoverage(input: {
   officialIndexMasterRows: IndexMasterRow[]; indexVerifyResults: IndexVerifyResult[]; officialSectorKeys?: OfficialSectorEnergyKey[];
 }): { officialSectorCount: 11; verifiedOfficialSectorCount: number; verifiedOfficialSectorKeys: OfficialSectorEnergyKey[]; missingOfficialSectorKeys: OfficialSectorEnergyKey[]; verifiedMapping: VerifiedMapping; duplicateAliasRowsIgnored: string[] } {
-  const keys = input.officialSectorKeys ?? [...OFFICIAL_SECTOR_ENERGY_11];
+  const keys = [...OFFICIAL_SECTOR_ENERGY_11];
   const verifiedCodes = new Set(input.indexVerifyResults.filter((r) => (r.success ?? r.verified) && r.indexValueUsable !== false).map((r) => String(r.indexCode ?? '').trim()).filter(Boolean));
   const duplicateAliasRowsIgnored: string[] = [];
   const verifiedMapping = {} as VerifiedMapping;
@@ -669,6 +674,13 @@ function pct1(value: number): string {
 
 /** Block 1 — SectorEnergy Canonical. */
 export function renderSectorEnergyCanonicalBlock(canonical: SectorEnergyCanonicalState): string {
+  const mappingLine = (key: OfficialSectorEnergyKey): string => {
+    const verified = canonical.verifiedOfficialSectorKeys.includes(key);
+    return `  ${key}=${verified ? 'VERIFIED' : 'MISSING'} selectedIndexCode=${verified ? 'N/A(canonical-state)' : 'NONE'}`;
+  };
+  const missingReasonLine = (key: OfficialSectorEnergyKey): string => (
+    `  ${key}=${canonical.missingOfficialSectorKeys.includes(key) ? 'missing verified candidate in official verify loop' : 'verified'}`
+  );
   return [
     'SectorEnergy Canonical:',
     `  sourceOfTruth=${canonical.sourceOfTruth}`,
@@ -691,6 +703,14 @@ export function renderSectorEnergyCanonicalBlock(canonical: SectorEnergyCanonica
     `  confidence=${canonical.confidence}`,
     `  executionImpact=${canonical.executionImpact}`,
     `  reason=${canonical.reason}`,
+    '  verifiedMapping:',
+    mappingLine('MACHINERY_EQUIPMENT'),
+    mappingLine('FOOD_BEVERAGE_TOBACCO'),
+    mappingLine('SERVICE_TELECOM'),
+    '  missingOfficialSectorReasons:',
+    missingReasonLine('MACHINERY_EQUIPMENT'),
+    missingReasonLine('FOOD_BEVERAGE_TOBACCO'),
+    missingReasonLine('SERVICE_TELECOM'),
   ].join('\n');
 }
 
