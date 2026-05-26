@@ -2,6 +2,7 @@
 
 import type { ScanSummary } from '../../trading/signalScanner/scanDiagnostics/scanSummaryTypes.js';
 import { resolveScanMarketSessionView } from '../../trading/signalScanner/state/scanEvaluationState.js';
+import { buildCanonicalForensicIds } from '../../trading/signalScanner/runtimeResolverTraceStep26.js';
 import {
   buildSnapshotBundleFromScanSummary,
   getByPath,
@@ -17,6 +18,23 @@ type AnyRecord = Record<string, unknown>;
 export type QmpHeaderExecutionImpact = 'NONE' | 'NEW_BUY_BLOCKED_ONLY' | 'LIVE_ORDER_ALLOWED';
 
 export interface QmpGateDetailHeaderView {
+  canonical: {
+    canonicalForensicId: string;
+    scanId: string;
+    sourceSnapshotId: string;
+    candidateSetId: string;
+    gateScoreInputSnapshotId: string;
+    viewSource: 'CanonicalGateForensicSnapshot';
+    recomputed: false;
+    legacyPathUsed: false;
+  };
+  executionImpactLanes: {
+    live: QmpHeaderExecutionImpact;
+    paper: 'NONE';
+    shadow: 'NONE';
+    learning: 'NONE';
+    counterfactual: 'NONE';
+  };
   sourceSnapshotId: string;
   asOf: string;
   session: {
@@ -498,9 +516,38 @@ function resolveSectorShadowLeadershipAllowed(summary: ScanSummary | null): bool
     boolOrNull(getByPath(summary, 'sectorEnergySupplyUnknownAdr0488.sectorEnergyMaster.shadowLeadershipAllowed'));
 }
 
+// ADR-0528: /gate_full 과 /scan_blockers full 이 동일 canonical 원장을 본다는 불변식을 검증한다.
+// id 가 sourceSnapshotId 와 어긋나거나, 비-live lane 이 매수차단을 운반하면 CANONICAL_VIEW_DIVERGENCE.
+function validateCanonicalViewConsistency(view: QmpGateDetailHeaderView): void {
+  const c = view.canonical;
+  const divergences: string[] = [];
+  if (c.canonicalForensicId !== `forensic:${c.sourceSnapshotId}`) {
+    divergences.push(`canonicalForensicId=${c.canonicalForensicId} expected=forensic:${c.sourceSnapshotId}`);
+  }
+  if (c.gateScoreInputSnapshotId !== `gateScoreInput:${c.sourceSnapshotId}`) {
+    divergences.push(`gateScoreInputSnapshotId=${c.gateScoreInputSnapshotId} expected=gateScoreInput:${c.sourceSnapshotId}`);
+  }
+  if (!c.candidateSetId.startsWith(`candidateSet:${c.sourceSnapshotId}:`)) {
+    divergences.push(`candidateSetId=${c.candidateSetId} not aligned with sourceSnapshotId=${c.sourceSnapshotId}`);
+  }
+  if (view.sourceSnapshotId !== c.sourceSnapshotId) {
+    divergences.push(`headerSnapshot=${view.sourceSnapshotId} canonicalSnapshot=${c.sourceSnapshotId}`);
+  }
+  const lanes = view.executionImpactLanes;
+  if (lanes.paper !== 'NONE' || lanes.shadow !== 'NONE' || lanes.learning !== 'NONE' || lanes.counterfactual !== 'NONE') {
+    divergences.push('non-live executionImpact lane carried buy-block (invariant #8)');
+  }
+  for (const divergence of divergences) {
+    const marker = `[CANONICAL_VIEW_DIVERGENCE] ${divergence}`;
+    view.missingSlices.push(marker);
+    console.warn(marker);
+  }
+}
+
 export function buildQmpGateDetailHeaderView(summary: ScanSummary | null): QmpGateDetailHeaderView {
   const missingSlices: string[] = [];
   const base = buildSnapshotBundleFromScanSummary(summary);
+  const forensicIds = buildCanonicalForensicIds(summary);
   const permission = resolvePermission(summary, missingSlices, base.effectiveRegime);
   const gate1 = buildGate1(summary, missingSlices);
   const gate2 = buildGate2(summary, missingSlices);
@@ -509,6 +556,25 @@ export function buildQmpGateDetailHeaderView(summary: ScanSummary | null): QmpGa
   const topBlocks = buildTopBlocks({ permission, gate2, gate3, summary });
 
   const view: QmpGateDetailHeaderView = {
+    canonical: {
+      canonicalForensicId: forensicIds.canonicalForensicId,
+      scanId: forensicIds.scanId,
+      sourceSnapshotId: forensicIds.sourceSnapshotId,
+      candidateSetId: forensicIds.candidateSetId,
+      gateScoreInputSnapshotId: forensicIds.gateScoreInputSnapshotId,
+      viewSource: 'CanonicalGateForensicSnapshot',
+      recomputed: false,
+      legacyPathUsed: false,
+    },
+    // 불변식 #8: 실거래 차단(live)과 Shadow/Paper/Learning/Counterfactual 차단은 분리.
+    // 비-live lane 은 executionImpact 로 매수차단을 표현하지 않는다(권한 boolean 으로만 게이팅).
+    executionImpactLanes: {
+      live: permission.executionImpact,
+      paper: 'NONE',
+      shadow: 'NONE',
+      learning: 'NONE',
+      counterfactual: 'NONE',
+    },
     sourceSnapshotId: base.sourceSnapshotId,
     asOf: base.asOf,
     session: {
@@ -549,6 +615,7 @@ export function buildQmpGateDetailHeaderView(summary: ScanSummary | null): QmpGa
     runtimePaperObservationalCreated,
     resolveSectorShadowLeadershipAllowed(summary),
   );
+  validateCanonicalViewConsistency(view);
   return view;
 }
 
@@ -562,9 +629,34 @@ function warnings(view: QmpGateDetailHeaderView): string[] {
   );
 }
 
+// ADR-0528: /gate_full 과 /scan_blockers full 이 공유하는 단일 canonical 헤더 블록.
+// 두 명령은 본 블록을 동일 source(getLastScanSummary → CanonicalGateForensicSnapshot view)로 렌더한다.
+export function renderCanonicalForensicHeaderBlock(view: QmpGateDetailHeaderView): string {
+  const c = view.canonical;
+  const lanes = view.executionImpactLanes;
+  const divergences = view.missingSlices
+    .filter((item) => item.startsWith('[CANONICAL_VIEW_DIVERGENCE]'))
+    .map((item) => item.replace('[CANONICAL_VIEW_DIVERGENCE] ', ''));
+  return [
+    '[Canonical Forensic View]',
+    `canonicalForensicId=${c.canonicalForensicId}`,
+    `scanId=${c.scanId}`,
+    `sourceSnapshotId=${c.sourceSnapshotId}`,
+    `candidateSetId=${c.candidateSetId}`,
+    `gateScoreInputSnapshotId=${c.gateScoreInputSnapshotId}`,
+    `viewSource=${c.viewSource}`,
+    `recomputed=${c.recomputed}`,
+    `legacyPathUsed=${c.legacyPathUsed}`,
+    `executionImpact: live=${lanes.live} paper=${lanes.paper} shadow=${lanes.shadow} learning=${lanes.learning} counterfactual=${lanes.counterfactual}`,
+    ...(divergences.length > 0 ? [`CANONICAL_VIEW_DIVERGENCE: ${divergences.join(' | ')}`] : []),
+  ].join('\n');
+}
+
 export function renderQmpGateDetailHeaderView(view: QmpGateDetailHeaderView): string {
   const headerWarnings = warnings(view);
   return [
+    renderCanonicalForensicHeaderBlock(view),
+    '',
     '[QMP Gate Detail]',
     `snapshot: ${view.sourceSnapshotId}`,
     `asOf: ${view.asOf}`,

@@ -31,6 +31,11 @@ function isProviderIssueStatusForScanBlockers(status: string | undefined): boole
 
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
+// ADR-0528 — /scan_blockers full 과 /gate_full 이 동일 canonical 헤더 블록을 공유(display-only, LIVE 무영향).
+import {
+  buildQmpGateDetailHeaderView,
+  renderCanonicalForensicHeaderBlock,
+} from '../../renderers/qmpGateDetailHeaderCanonical.js';
 import {
   formatScanBlockersMessage,
   formatTechnicalProviderDegradedSection,
@@ -1070,7 +1075,20 @@ const scanBlockers: TelegramCommand = {
     // 사용자 보고 — `/scan_blockers full` 출력이 truncate 되어 정밀한 root cause 가 전달 안 됨 → pagination 으로 차단.
     if (mode === 'full') {
       const fullHeader = '🔬 <b>[scan_blockers full mode]</b>';
-      const fullParts = [fullHeader, ...parts, formatGateDiagPayloadCarryDebugSection(summary)];
+      // ADR-0528 — canonical 헤더 블록을 최상단에 prepend (/gate_full 과 동일 canonicalForensicId).
+      // try/catch 격리 — 헤더 빌드 throw 가 full 메시지 자체를 차단하지 않음.
+      let canonicalForensicHeader: string | null = null;
+      try {
+        canonicalForensicHeader = renderCanonicalForensicHeaderBlock(buildQmpGateDetailHeaderView(summary));
+      } catch (err) {
+        warnScanBlockersDiagnostic('canonicalForensicHeader', err);
+      }
+      const fullParts = [
+        fullHeader,
+        ...(canonicalForensicHeader ? [canonicalForensicHeader] : []),
+        ...parts,
+        formatGateDiagPayloadCarryDebugSection(summary),
+      ];
       const finalFull = fullParts.join('\n');
       if (finalFull.length <= SCAN_BLOCKERS_LENGTH_BUDGET.full) {
         logCommand('single');
