@@ -1163,18 +1163,22 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
     expect(inputs).toHaveLength(1);
     expect(inputs[0].sourcePath).toBe('ENTRY_FILTER_GATE1_CANDIDATE_TRACE');
     expect(inputs[0].sourcePath).not.toBe('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
-    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBeUndefined();
-    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBeUndefined();
+    // Patch-GATE1-FORENSIC-PERSYMBOL-ROW-CARRY-RESTORE-001 (ADR-0514-restore, DEFAULT ON):
+    // per-symbol bySymbol carry now applies to ENTRY_FILTER candidates too (previously
+    // PREFLIGHT-only regression). 005930 has a genuine router bySymbol payload with rows →
+    // available + merged + CARRIED_TO_FORENSIC.
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
+    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBe(true);
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('CARRIED_TO_FORENSIC');
 
     const audit = buildGate1MinimumSignalForensicAuditAdr0505(inputs[0]);
     const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
     const out = formatGate1MinimumSignalForensicSection(summary)!;
 
-    expect(audit.supplyScopeAudit.forensicInputCarriesActualInvestorRows).toBe(false);
-    expect(summary.sellOnlyBySymbolPayloadAvailableCount ?? 0).toBe(0);
-    expect(summary.sellOnlyBySymbolPayloadMergedCount ?? 0).toBe(0);
-    expect(summary.sellOnlyActualRowsCarriedCount ?? 0).toBe(0);
-    expect(summary.sellOnlyCarryBreakPointDistribution?.CARRIED_TO_FORENSIC ?? 0).toBe(0);
+    // restored carry → forensic audit reflects the genuine per-symbol rows + breakpoint.
+    expect(audit.supplyScopeAudit.forensicInputCarriesActualInvestorRows).toBe(true);
+    expect(audit.supplyScopeAudit.sellOnlyBySymbolPayloadAvailable).toBe(true);
+    expect(audit.supplyScopeAudit.sellOnlyCarryBreakPoint).toBe('CARRIED_TO_FORENSIC');
     expect(out).not.toContain('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
   });
 
@@ -1216,12 +1220,15 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
     const summary = buildGate1MinimumSignalForensicSummaryAdr0505([audit]);
 
     expect(inputs[0].sourcePath).not.toBe('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
-    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBeUndefined();
-    expect(inputs[0].sellOnlyCarryBreakPoint).toBeUndefined();
-    expect(audit.supplyScopeAudit.sellOnlyCarryBreakPoint).toBeUndefined();
+    // Patch-GATE1-FORENSIC-PERSYMBOL-ROW-CARRY-RESTORE-001 (DEFAULT ON): 000660 is a real
+    // 6-digit symbol with NO bySymbol payload (empty router, no snapshot) → honest projection
+    // marks it unavailable with BYSYMBOL_PAYLOAD_MISSING (no invented data). providerIssue
+    // stays diagnostic-only — never promoted to a market signal.
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(false);
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_MISSING');
+    expect(audit.supplyScopeAudit.sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_MISSING');
     expect(audit.supplyScopeAudit.forensicInputCarriesActualInvestorRows).toBe(false);
     expect(audit.positiveComponents.SUPPLY_CONFLUENCE?.marketSignal).not.toBe(true);
-    expect(summary.sellOnlyCarryBreakPointDistribution?.BYSYMBOL_PAYLOAD_MISSING ?? 0).toBe(0);
   });
 
 
@@ -1253,9 +1260,17 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
       supplyRouterResult: { bySymbol: { '035420': { selectedProvider: 'KIS_API' } } },
     });
     expect(payloadWithoutRows[0].sourcePath).not.toBe('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
-    expect(payloadWithoutRows[0].sellOnlyBySymbolPayloadAvailable).toBeUndefined();
-    expect(payloadWithoutRows[0].sellOnlyBySymbolPayloadMerged).toBeUndefined();
-    expect(payloadWithoutRows[0].sellOnlyCarryBreakPoint).toBeUndefined();
+    // Patch-GATE1-FORENSIC-PERSYMBOL-ROW-CARRY-RESTORE-001 (DEFAULT ON): a genuine bySymbol
+    // payload object exists for 035420 → collector reports it CARRIED_TO_FORENSIC. The payload
+    // carries no actual investor rows, so the forensic audit downgrades the breakpoint to
+    // BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED (found-not-merged → forensic-dropped).
+    expect(payloadWithoutRows[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
+    expect(payloadWithoutRows[0].sellOnlyBySymbolPayloadMerged).toBe(true);
+    expect(payloadWithoutRows[0].sellOnlyCarryBreakPoint).toBe('CARRIED_TO_FORENSIC');
+
+    const payloadWithoutRowsAudit = buildGate1MinimumSignalForensicAuditAdr0505(payloadWithoutRows[0]);
+    expect(payloadWithoutRowsAudit.supplyScopeAudit.forensicInputCarriesActualInvestorRows).toBe(false);
+    expect(payloadWithoutRowsAudit.supplyScopeAudit.sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_MERGED_BUT_FORENSIC_DROPPED');
 
     const forensicDropped = buildGate1MinimumSignalForensicAuditAdr0505({
       trace: makeTrace({ symbol: '035420' }),
@@ -1323,10 +1338,13 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
     });
 
     expect(inputs[0].sourcePath).not.toBe('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
-    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBeUndefined();
-    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBeUndefined();
-    expect(inputs[0].sellOnlyCarryBreakPoint).toBeUndefined();
-    expect(inputs[0].actualInvestorFlowRows).toBeUndefined();
+    // Patch-GATE1-FORENSIC-PERSYMBOL-ROW-CARRY-RESTORE-001 (DEFAULT ON): per-symbol snapshot
+    // lookup now runs for ENTRY_FILTER candidates too. The 005930 snapshot is fresh
+    // (captured 01:00, now 01:05, maxAge 60) → carried + merged, sanitized rows surfaced.
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
+    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBe(true);
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('CARRIED_TO_FORENSIC');
+    expect((inputs[0].actualInvestorFlowRows?.length ?? 0)).toBeGreaterThan(0);
   });
 
   it('marks stale bySymbol payload snapshots SHADOW_ONLY without merging them as carried rows', () => {
@@ -1377,9 +1395,12 @@ describe('Patch-KIS-INVESTOR-FLOW-SEMANTIC-ROW-CARRY-004 forensic carry', () => 
     });
 
     expect(inputs[0].sourcePath).not.toBe('SELL_ONLY_DIAGNOSTIC_SNAPSHOT');
-    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBeUndefined();
-    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBeUndefined();
-    expect(inputs[0].sellOnlyCarryBreakPoint).toBeUndefined();
+    // Patch-GATE1-FORENSIC-PERSYMBOL-ROW-CARRY-RESTORE-001 (DEFAULT ON): the 000660 snapshot
+    // is stale (captured prior trade date) → available but NOT merged, base row preserved,
+    // no rows carried (no invented/stale data promoted to carried). BYSYMBOL_PAYLOAD_STALE.
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
+    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBe(false);
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('BYSYMBOL_PAYLOAD_STALE');
     expect(inputs[0].actualInvestorFlowRows).toBeUndefined();
     expect(inputs[0].actualInvestorFlowCarried).toBe(false);
   });
