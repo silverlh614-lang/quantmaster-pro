@@ -119,7 +119,9 @@ const BASELINE_TECHNICAL_DEBT = [
   //   baseline (`git show HEAD:...scanBlockersFormatter.ts | wc -l` 동일 재현 확정 — 본 PR 무수정).
   //   scan_blockers 텔레그램/진단 렌더러 (display-only, executionImpact='NONE', outbound 0건). ADR-0133/0502c
   //   패턴 정합으로 카탈로그 등재 → validate:complexity EXIT=0 회복. 분해는 별도 ADR-first 후속 PR.
-  'server/clients/kisClient/query.ts',
+  //   ✅ 2026-05-27 query.ts 분해 완료 (2273→1307줄 — ADR-0537, query/sectorIndex.ts(섹터 지수 도메인 ~815 LoC)
+  //      + query/helpers.ts(순수 leaf 헬퍼 17) 추출 + 메인 export * re-export, byte-equivalent, KIS/KRX quota 0 침범,
+  //      executionImpact=NONE) → 카탈로그에서 정식 제거 (1500 한계 자연 통과).
   'server/trading/signalScanner/scanDiagnostics/persistScanResults.ts',
   'server/trading/signalScanner/scanDiagnostics/scanBlockersFormatter.ts',
 ];
