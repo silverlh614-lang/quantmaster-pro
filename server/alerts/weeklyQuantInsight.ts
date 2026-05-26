@@ -17,7 +17,7 @@ import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { channelHeader, CHANNEL_SEPARATOR } from './channelFormatter.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 
 // ── 주간 집계 ────────────────────────────────────────────────────────────────
 
@@ -44,7 +44,7 @@ function isoWeekLabel(d: Date = new Date()): string {
 
 function collectMetrics(): WeeklyMetrics {
   const macro = loadMacroState();
-  const regime = getLiveRegime(macro);
+  const regime = resolveCanonicalRegimeLevel(macro); // ADR-0531: Gate0 정본 레짐
 
   const weekAgo = Date.now() - 7 * 86_400_000;
   const dynUniverse = loadDynamicUniverse();

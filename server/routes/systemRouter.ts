@@ -19,7 +19,7 @@ import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { computeFocusCodes } from '../screener/watchlistManager.js';
 import { getLastRejectionLog } from '../screener/stockScreener.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { getVixGating } from '../trading/vixGating.js';
 import { getFomcProximity } from '../trading/fomcCalendar.js';
 import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
@@ -236,7 +236,7 @@ router.get('/system/buy-audit', (_req: Request, res: Response) => {
   );
 
   const macroState = loadMacroState();
-  const regime = getLiveRegime(macroState);
+  const regime = resolveCanonicalRegimeLevel(macroState); // ADR-0531: Gate0 정본 레짐
   const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory);
   const fomcGating = getFomcProximity();
 

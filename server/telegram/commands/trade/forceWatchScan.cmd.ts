@@ -16,7 +16,7 @@
 import { getEmergencyStop } from '../../../state.js';
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
-import { getLiveRegime } from '../../../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../../../trading/regime/canonicalRegimeAccess.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -74,7 +74,7 @@ const forceWatchScan: TelegramCommand = {
       if (isFull) {
         const { runGuardedFullDiscoveryPipeline } = await import('../../../screener/guardedDiscoveryPipeline.js');
         const macroState = loadMacroState();
-        const regime = getLiveRegime(macroState);
+        const regime = resolveCanonicalRegimeLevel(macroState); // ADR-0531: Gate0 정본 레짐
         const result = await runGuardedFullDiscoveryPipeline(regime, macroState);
         if (!result.ok) {
           await reply(
