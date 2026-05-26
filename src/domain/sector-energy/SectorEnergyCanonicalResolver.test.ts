@@ -14,6 +14,8 @@ import {
   overrideWithCanonicalPromotion,
   applySectorEnergyCanonicalOverride,
   renderSectorEnergyCanonicalOutput,
+  resolveOfficialSectorEnergyCoverage,
+  assertSectorEnergyCoverageInvariants,
   type SectorEnergyCanonicalState,
 } from './SectorEnergyCanonicalResolver.js';
 
@@ -360,5 +362,144 @@ describe('applySectorEnergyCanonicalOverride — legacy field kill / renderer pa
     const out = applySectorEnergyCanonicalOverride({ leadershipConfidence: 'VERIFIED' }, canonical);
     expect(out.leadershipConfidence).toBe('SHADOW_ONLY');
     expect(out.promotionAllowed).toBe(false);
+  });
+});
+
+describe('resolveOfficialSectorEnergyCoverage — per-key mapping from real verify results (ADR-0535)', () => {
+  // 공식 11개 key 의 첫 preferred index code (alias map SSOT 와 일치).
+  const PREFERRED_CODE: Record<string, string> = {
+    SEMICONDUCTOR_ELECTRONICS: '4003',
+    AUTOMOTIVE_TRANSPORT_EQUIPMENT: '4002',
+    MACHINERY_EQUIPMENT: '0012',
+    CHEMICALS: '0008',
+    BIO_HEALTHCARE_PHARMA: '4004',
+    STEEL_METALS: '4008',
+    CONSTRUCTION: '0018',
+    FINANCIALS: '0021',
+    CONSUMER_RETAIL: '0016',
+    FOOD_BEVERAGE_TOBACCO: '0005',
+    SERVICE_TELECOM: '4010',
+  };
+
+  function fullCoverageInputs(verifiedKeys: readonly string[] = OFFICIAL_SECTOR_ENERGY_11) {
+    const officialIndexMasterRows = OFFICIAL_SECTOR_ENERGY_11.map((k) => ({ indexCode: PREFERRED_CODE[k], indexName: k }));
+    const indexVerifyResults = verifiedKeys.map((k) => ({ indexCode: PREFERRED_CODE[k], success: true, verified: true }));
+    return { officialIndexMasterRows, indexVerifyResults };
+  }
+
+  it('resolves all 11 official keys verified → count 11, missing empty', () => {
+    const coverage = resolveOfficialSectorEnergyCoverage(fullCoverageInputs());
+    expect(coverage.verifiedOfficialSectorCount).toBe(11);
+    expect(coverage.missingOfficialSectorKeys).toEqual([]);
+    expect(coverage.verifiedOfficialSectorKeys).toEqual([...OFFICIAL_SECTOR_ENERGY_11]);
+  });
+
+  it('CONSUMER_RETAIL verified by code 0016 is never reported missing', () => {
+    const coverage = resolveOfficialSectorEnergyCoverage({
+      officialIndexMasterRows: [{ indexCode: '0016', sectorName: '유통 소비재' }],
+      indexVerifyResults: [{ indexCode: '0016', verified: true, indexValueUsable: true }],
+    });
+    expect(coverage.verifiedOfficialSectorKeys).toContain('CONSUMER_RETAIL');
+    expect(coverage.missingOfficialSectorKeys).not.toContain('CONSUMER_RETAIL');
+  });
+
+  it('CONSUMER_RETAIL resolves by upstream sector name 유통 소비재 (space variant)', () => {
+    const coverage = resolveOfficialSectorEnergyCoverage({
+      officialIndexMasterRows: [{ indexCode: '9999', sectorName: '유통 소비재' }],
+      indexVerifyResults: [{ indexCode: '9999', verified: true }],
+    });
+    expect(coverage.verifiedOfficialSectorKeys).toContain('CONSUMER_RETAIL');
+  });
+
+  it('FOOD_BEVERAGE_TOBACCO resolves from 0005 음식료·담배 when verified', () => {
+    const coverage = resolveOfficialSectorEnergyCoverage({
+      officialIndexMasterRows: [{ indexCode: '0005', indexName: '음식료·담배' }],
+      indexVerifyResults: [{ indexCode: '0005', verified: true }],
+    });
+    expect(coverage.verifiedOfficialSectorKeys).toContain('FOOD_BEVERAGE_TOBACCO');
+  });
+
+  it('SERVICE_TELECOM resolves from 4010 KRX 방송통신 / 4063 미디어&엔터테인먼트 when verified', () => {
+    const broadcast = resolveOfficialSectorEnergyCoverage({
+      officialIndexMasterRows: [{ indexCode: '4010', indexName: 'KRX 방송통신' }],
+      indexVerifyResults: [{ indexCode: '4010', verified: true }],
+    });
+    expect(broadcast.verifiedOfficialSectorKeys).toContain('SERVICE_TELECOM');
+    const media = resolveOfficialSectorEnergyCoverage({
+      officialIndexMasterRows: [{ indexCode: '4063', indexName: 'KRX 미디어&엔터테인먼트' }],
+      indexVerifyResults: [{ indexCode: '4063', verified: true }],
+    });
+    expect(media.verifiedOfficialSectorKeys).toContain('SERVICE_TELECOM');
+  });
+
+  it('value-quality is not a count gate: verified result with indexValueUsable omitted still counts', () => {
+    const coverage = resolveOfficialSectorEnergyCoverage({
+      officialIndexMasterRows: [{ indexCode: '0008', indexName: 'CHEMICALS' }],
+      indexVerifyResults: [{ indexCode: '0008', verified: true }],
+    });
+    expect(coverage.verifiedOfficialSectorKeys).toContain('CHEMICALS');
+  });
+});
+
+describe('assertSectorEnergyCoverageInvariants — critical key regression guard (ADR-0535)', () => {
+  it('throws when CONSUMER_RETAIL has verified evidence (code 0016) yet is reported missing', () => {
+    expect(() =>
+      assertSectorEnergyCoverageInvariants(
+        { missingOfficialSectorKeys: ['CONSUMER_RETAIL'] },
+        {
+          officialIndexMasterRows: [{ indexCode: '0016', sectorName: '유통 소비재' }],
+          indexVerifyResults: [{ indexCode: '0016', verified: true }],
+        },
+      ),
+    ).toThrow('SECTOR_ENERGY_COVERAGE_INVARIANT_VIOLATION:CONSUMER_RETAIL');
+  });
+
+  it('throws when FOOD_BEVERAGE_TOBACCO 0005 is verified yet reported missing', () => {
+    expect(() =>
+      assertSectorEnergyCoverageInvariants(
+        { missingOfficialSectorKeys: ['FOOD_BEVERAGE_TOBACCO'] },
+        {
+          officialIndexMasterRows: [{ indexCode: '0005', indexName: '음식료·담배' }],
+          indexVerifyResults: [{ indexCode: '0005', verified: true }],
+        },
+      ),
+    ).toThrow('SECTOR_ENERGY_COVERAGE_INVARIANT_VIOLATION:FOOD_BEVERAGE_TOBACCO');
+  });
+
+  it('throws when SERVICE_TELECOM 4010/4063 is verified yet reported missing', () => {
+    expect(() =>
+      assertSectorEnergyCoverageInvariants(
+        { missingOfficialSectorKeys: ['SERVICE_TELECOM'] },
+        {
+          officialIndexMasterRows: [{ indexCode: '4063', indexName: 'KRX 미디어&엔터테인먼트' }],
+          indexVerifyResults: [{ indexCode: '4063', verified: true }],
+        },
+      ),
+    ).toThrow('SECTOR_ENERGY_COVERAGE_INVARIANT_VIOLATION:SERVICE_TELECOM');
+  });
+
+  it('does not throw when a critical key is missing without any verified evidence', () => {
+    expect(() =>
+      assertSectorEnergyCoverageInvariants(
+        { missingOfficialSectorKeys: ['CONSUMER_RETAIL', 'FOOD_BEVERAGE_TOBACCO', 'SERVICE_TELECOM'] },
+        {
+          officialIndexMasterRows: [{ indexCode: '0016', sectorName: '유통 소비재' }],
+          indexVerifyResults: [{ indexCode: '0016', verified: false }],
+        },
+      ),
+    ).not.toThrow();
+  });
+
+  it('does not throw when evidence is present but the key is correctly verified (not missing)', () => {
+    const coverage = resolveOfficialSectorEnergyCoverage({
+      officialIndexMasterRows: [{ indexCode: '0005', indexName: '음식료·담배' }],
+      indexVerifyResults: [{ indexCode: '0005', verified: true }],
+    });
+    expect(() =>
+      assertSectorEnergyCoverageInvariants(coverage, {
+        officialIndexMasterRows: [{ indexCode: '0005', indexName: '음식료·담배' }],
+        indexVerifyResults: [{ indexCode: '0005', verified: true }],
+      }),
+    ).not.toThrow();
   });
 });

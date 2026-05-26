@@ -115,8 +115,13 @@ const BASELINE_TECHNICAL_DEBT = [
   //      types.ts 모듈 추출(타입 17종) + 메인 re-export, byte-equivalent, lint EXIT=0, test 39/39) → 카탈로그에서 정식 제거.
   //   ✅ 2026-05-25 gate2ExternalDataProvider.ts 분해 완료 (1714→1435줄 — ADR-0523, types.ts(타입 21종)
   //      + helpers.ts(순수 leaf 헬퍼 7) 추출 + 메인 export * re-export, byte-equivalent, lint EXIT=0, test 15/15) → 카탈로그에서 정식 제거.
+  // 2026-05-26 governance unblock — scanBlockersFormatter.ts 1502 LoC. origin/main pre-existing
+  //   baseline (`git show HEAD:...scanBlockersFormatter.ts | wc -l` 동일 재현 확정 — 본 PR 무수정).
+  //   scan_blockers 텔레그램/진단 렌더러 (display-only, executionImpact='NONE', outbound 0건). ADR-0133/0502c
+  //   패턴 정합으로 카탈로그 등재 → validate:complexity EXIT=0 회복. 분해는 별도 ADR-first 후속 PR.
   'server/clients/kisClient/query.ts',
   'server/trading/signalScanner/scanDiagnostics/persistScanResults.ts',
+  'server/trading/signalScanner/scanDiagnostics/scanBlockersFormatter.ts',
 ];
 
 function isBaseline(file) {
