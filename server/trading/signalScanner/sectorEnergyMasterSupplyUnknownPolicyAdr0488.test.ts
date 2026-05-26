@@ -412,22 +412,70 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
           officialIndexCoverageByOfficialTarget: 73.3,
           verifiedCoverageByOfficialTarget: 73.3,
           verifiedCoverageExcludingUnsafeAlias: 100,
-          promotionVerifiedCoverage: 73.3,
+          promotionVerifiedCoverage: 100,
+          safeOfficialVerifiedCount: 11,
+          safeOfficialTargetCount: 11,
+          safeOfficialVerifiedCoverage: 100,
+          officialTargetVerifiedCoverageDiagnostic: 73.3,
+          officialTargetCoverageIncludesUnsafeAlias: true,
+          officialTargetCoverageUsedForDecision: false,
+          decisionUsesSafeOfficialOnly: true,
         },
         unsafeAliasPolicy: {
-          includeInPromotionDenominator: true,
+          includeInPromotionDenominator: false,
           includeInPromotionNumerator: false,
           useForShadowEvidence: true,
+          useForLivePromotion: false,
+          useForSectorBoost: false,
+          useForStrongBuy: false,
+          excludedNames: ['\uC870\uC120', '\uBC29\uC0B0', '\uC6D0\uC790\uB825', '\uC774\uCC28\uC804\uC9C0'],
           reason: 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS',
         },
         promotionCoveragePolicy: {
-          selectedMetric: 'officialTargetVerifiedCoverage',
+          selectedMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
           numerator: 11,
-          denominator: 15,
+          denominator: 11,
           requiredVerifiedCoverage: 80,
-          selectedCoverageValue: 73.3,
-          promotionAllowed: false,
-          reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+          selectedCoverageValue: 100,
+          safeOfficialVerifiedCount: 11,
+          safeOfficialTargetCount: 11,
+          safeOfficialVerifiedCoverage: 100,
+          officialTargetVerifiedCoverageDiagnostic: 73.3,
+          officialTargetCoverageIncludesUnsafeAlias: true,
+          officialTargetCoverageUsedForDecision: false,
+          decisionUsesSafeOfficialOnly: true,
+          promotionAllowed: true,
+          reason: 'VERIFIED_INDEX_CODE_COVERAGE_READY',
+          executionImpact: 'NONE',
+        },
+        promotionReadiness: {
+          officialTargetSectorCount: 15,
+          safePromotionEligibleSectorCount: 11,
+          unsafeAliasSectorCount: 4,
+          unresolvedSectorCount: 0,
+          verifiedSuccessCount: 11,
+          qualityUsableCount: 9,
+          verifiedCoverageByOfficialTarget: 73.3,
+          verifiedCoverageExcludingUnsafeAlias: 100,
+          qualityUsableCoverageByOfficialTarget: 60,
+          qualityUsableCoverageExcludingUnsafeAlias: 81.8,
+          selectedPromotionMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
+          selectedPromotionCoverage: 100,
+          safeOfficialVerifiedCount: 11,
+          safeOfficialTargetCount: 11,
+          safeOfficialVerifiedCoverage: 100,
+          officialTargetVerifiedCoverageDiagnostic: 73.3,
+          officialTargetCoverageIncludesUnsafeAlias: true,
+          officialTargetCoverageUsedForDecision: false,
+          decisionUsesSafeOfficialOnly: true,
+          promotionCoveragePass: true,
+          requiredPromotionCoverage: 80,
+          qualityGatePassed: true,
+          promotionAllowed: true,
+          reason: 'READY_FOR_PROMOTION',
+          safeOnlyMetricWouldPass: true,
+          useAlternativeForLivePromotion: false,
+          alternativePolicyReason: 'OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY',
           executionImpact: 'NONE',
         },
         indexValueQuality: {
@@ -475,7 +523,7 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
         ],
         safeAliasCount: 5,
         unsafeAliasCount: 4,
-        unsafeAliasSectorNames: ['조선', '방산', '원자력', '이차전지'],
+        unsafeAliasSectorNames: ['\uC870\uC120', '\uBC29\uC0B0', '\uC6D0\uC790\uB825', '\uC774\uCC28\uC804\uC9C0'],
         aliasResolvedCount: 12,
         unresolvedSectorNames: [],
         topMissingSectorNames: [],
@@ -493,14 +541,21 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     });
     const compact = formatSectorEnergySupplyUnknownCompactAdr0488(report);
 
-    expect(report.sectorEnergyMaster.promotionAllowed).toBe(false);
+    expect(report.sectorEnergyMaster.promotionAllowed).toBe(true);
+    expect(report.sectorEnergyMaster.selectedPromotionMetric).toBe('SAFE_OFFICIAL_VERIFIED_COVERAGE');
+    expect(report.sectorEnergyMaster.safeOfficialVerifiedCoverage).toBe(100);
+    expect(report.sectorEnergyMaster.officialTargetVerifiedCoverageDiagnostic).toBe(73.3);
+    expect(report.sectorEnergyMaster.sectorBoostAllowed).toBe(true);
+    expect(report.sectorEnergyMaster.strongBuyAllowed).toBe(true);
     expect(compact).toContain('SectorIndexCoverageDenominator: internalGroupedSectorCount=12 officialTargetSectorCount=15 safePromotionEligibleSectorCount=11 unsafeAliasSectorCount=4 unresolvedSectorCount=0 verifiedSuccessCount=11');
-    expect(compact).toContain('CoverageMetrics: officialIndexCoverageByOfficialTarget=73.3% verifiedCoverageByOfficialTarget=73.3% verifiedCoverageByInternalGrouped=91.7% verifiedCoverageExcludingUnsafeAlias=100% promotionVerifiedCoverage=73.3%');
-    expect(compact).toContain('UnsafeAliasPolicy: includeInPromotionDenominator=true includeInPromotionNumerator=false useForShadowEvidence=true useForLivePromotion=false reason=THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS');
+    expect(compact).toContain('CoverageMetrics: officialIndexCoverageByOfficialTarget=73.3% verifiedCoverageByOfficialTarget=73.3% verifiedCoverageByInternalGrouped=91.7% verifiedCoverageExcludingUnsafeAlias=100% safeOfficialVerifiedCoverage=100% promotionVerifiedCoverage=100% officialTargetVerifiedCoverageDiagnostic=73.3% officialTargetCoverageIncludesUnsafeAlias=true officialTargetCoverageUsedForDecision=false');
+    expect(compact).toContain('UnsafeAliasPolicy: includeInPromotionDenominator=false includeInPromotionNumerator=false useForShadowEvidence=true useForLivePromotion=false useForSectorBoost=false useForStrongBuy=false');
     expect(compact).toContain('SectorIndexPromotionReadiness: officialTargetSectorCount=15 internalGroupedSectorCount=12 safePromotionEligibleSectorCount=11 unsafeAliasSectorCount=4 unresolvedSectorCount=0 verifiedSuccessCount=11');
-    expect(compact).toContain('internalGroupedMetricWouldPass=true safeOnlyMetricWouldPass=true useAlternativeForLivePromotion=false alternativeReason=OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY');
-    expect(compact).toContain('PromotionCoveragePolicy: selectedMetric=officialTargetVerifiedCoverage numerator=11 denominator=15 required=80% selectedCoverageValue=73.3% coveragePromotionAllowed=false promotionAllowed=false reason=VERIFIED_INDEX_CODE_COVERAGE_LOW alternativeInternalGroupedCoverage=91.7% executionImpact=NONE');
-    expect(compact).toContain('apiTransportSuccessCount=11 indexValueUsableCount=9 valueQualityStatus=VALUE_QUALITY_ZERO promotionAllowed=false sectorBoostAllowed=false shadowLeadershipAllowed=true');
+    expect(compact).toContain('selectedPromotionMetric=SAFE_OFFICIAL_VERIFIED_COVERAGE selectedPromotionCoverage=100% safeOfficialVerifiedCoverage=100%');
+    expect(compact).toContain('internalGroupedMetricWouldPass=true safeOnlyMetricWouldPass=true useAlternativeForLivePromotion=false alternativeReason=SAFE_OFFICIAL_VERIFIED_COVERAGE_SELECTED');
+    expect(compact).toContain('PromotionCoveragePolicy: selectedMetric=SAFE_OFFICIAL_VERIFIED_COVERAGE numerator=11 denominator=11 required=80% selectedCoverageValue=100% coveragePromotionAllowed=true promotionAllowed=true reason=VERIFIED_INDEX_CODE_COVERAGE_READY alternativeInternalGroupedCoverage=91.7% executionImpact=NONE');
+    expect(compact).toContain('LegacyOfficialTargetDiagnostic: officialTargetVerifiedCoverageDiagnostic=73.3% officialTargetCoverageIncludesUnsafeAlias=true officialTargetCoverageUsedForDecision=false diagnosticOnly=true decisionImpact=NONE notUsedForPromotionDecision=true');
+    expect(compact).toContain('apiTransportSuccessCount=11 indexValueUsableCount=9 valueQualityStatus=VALUE_QUALITY_ZERO promotionAllowed=true sectorBoostAllowed=true shadowLeadershipAllowed=true');
     expect(compact).toContain('apiTransportSuccess=true:indexValueUsable=false:valueQualityStatus=VALUE_QUALITY_ZERO');
     expect(compact).toContain('IndexValueQuality: apiVerifiedCount=11 currentIndexZeroCount=2 zeroCurrentIndexCount=2 currentIndexNonZeroCount=9 nonZeroCurrentIndexCount=9 qualityUsableCount=9 zeroCurrentIndexSymbols=화학,철강 zeroPolicy=OBSERVE_ONLY qualityImpact=BLOCK_LIVE_PROMOTION_ONLY executionImpact=NONE');
     expect(compact).toContain('SectorIndexQuality: 화학:verified=true:currentIndex=0:qualityUsable=false:qualityReason=CURRENT_INDEX_ZERO:useForShadowLeadership=true:useForLivePromotion=false:executionImpact=NONE');

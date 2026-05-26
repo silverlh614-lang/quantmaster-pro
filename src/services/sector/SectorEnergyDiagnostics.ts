@@ -9,6 +9,9 @@ export type LeadershipConfidence = 'VERIFIED' | 'PARTIAL' | 'SHADOW_ONLY' | 'BLO
 
 export interface SectorIndexCoverageDiag {
   officialIndexCoverage: number;
+  selectedPromotionMetric?: string;
+  safeOfficialVerifiedCoverage?: number;
+  decisionUsesSafeOfficialOnly?: boolean;
   internalProxyCoverage: number;
   stockBasketCoverage: number;
   missingIndexCodeCount: number;
@@ -29,6 +32,8 @@ export interface SectorIndexCoverageDiag {
 export function evaluateCoverageDiagnostics(input: {
   totalSectorCount: number;
   officialCoveredCount: number;
+  safeOfficialVerifiedCount?: number;
+  safeOfficialTargetCount?: number;
   internalProxyCount: number;
   stockBasketCount: number;
   missingIndexCodeCount: number;
@@ -43,6 +48,14 @@ export function evaluateCoverageDiagnostics(input: {
 }): SectorIndexCoverageDiag {
   const n = input.totalSectorCount > 0 ? input.totalSectorCount : 1;
   const officialIndexCoverage = input.officialCoveredCount / n;
+  const safeOfficialTargetCount = Number.isFinite(input.safeOfficialTargetCount) && (input.safeOfficialTargetCount ?? 0) > 0
+    ? Number(input.safeOfficialTargetCount)
+    : input.totalSectorCount;
+  const safeOfficialVerifiedCoverage = Number.isFinite(input.safeOfficialVerifiedCount) && safeOfficialTargetCount > 0
+    ? Number(input.safeOfficialVerifiedCount) / safeOfficialTargetCount
+    : officialIndexCoverage;
+  const decisionUsesSafeOfficialOnly = Number.isFinite(input.safeOfficialVerifiedCount) && Number.isFinite(input.safeOfficialTargetCount);
+  const decisionCoverage = decisionUsesSafeOfficialOnly ? safeOfficialVerifiedCoverage : officialIndexCoverage;
   const internalProxyCoverage = input.internalProxyCount / n;
   const stockBasketCoverage = input.stockBasketCount / n;
 
@@ -54,13 +67,14 @@ export function evaluateCoverageDiagnostics(input: {
   const counterfactualAllowed = true;
   const reasonCodes: string[] = [];
 
+  const unsafeAliasBlocksPromotion = input.containsUnsafeAliasInPromotionTarget && !decisionUsesSafeOfficialOnly;
   const basePromotionConstraintsMet =
     input.officialIndexApiSucceeded &&
-    !input.containsUnsafeAliasInPromotionTarget &&
+    !unsafeAliasBlocksPromotion &&
     !input.dataHealthMissing &&
     !input.stale;
 
-  if (officialIndexCoverage >= 0.8 && basePromotionConstraintsMet) {
+  if (decisionCoverage >= 0.8 && basePromotionConstraintsMet) {
     leadershipConfidence = 'VERIFIED';
     promotionAllowed = true;
     sectorBoostAllowed = true;
@@ -68,7 +82,7 @@ export function evaluateCoverageDiagnostics(input: {
     shadowLeadershipAllowed = true;
     reasonCodes.push('OFFICIAL_INDEX_MASTER_LOADED');
     reasonCodes.push('OFFICIAL_INDEX_VERIFIED_COVERAGE');
-  } else if (officialIndexCoverage > 0) {
+  } else if (officialIndexCoverage > 0 || decisionCoverage > 0) {
     leadershipConfidence = 'PARTIAL';
     shadowLeadershipAllowed = true;
     reasonCodes.push('OFFICIAL_INDEX_MASTER_LOADED');
@@ -95,6 +109,9 @@ export function evaluateCoverageDiagnostics(input: {
 
   return {
     officialIndexCoverage,
+    selectedPromotionMetric: decisionUsesSafeOfficialOnly ? 'SAFE_OFFICIAL_VERIFIED_COVERAGE' : 'officialTargetVerifiedCoverage',
+    safeOfficialVerifiedCoverage,
+    decisionUsesSafeOfficialOnly,
     internalProxyCoverage,
     stockBasketCoverage,
     missingIndexCodeCount: input.missingIndexCodeCount,

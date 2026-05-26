@@ -293,6 +293,46 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
     expect(section).toContain('executionImpact=NONE');
   });
 
+  it('does not keep official coverage blocker when safe official SectorEnergy promotion is allowed', () => {
+    const attribution = buildGate2FreshAttribution({
+      buckets: [
+        { ...emptyBucket('breakout_momentum'), failed: 3, total: 3 },
+        { ...emptyBucket('relative_strength'), failed: 1, total: 1 },
+      ],
+      candidates: 19,
+      gate1Pass: 5,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+      sectorEnergy: buildSectorEnergyDiagnostic({
+        dataQuality: 'VERIFIED',
+        validSectorCount: 12,
+        expectedSectorCount: 12,
+        indexCodeCoverage: 0.733,
+        officialIndexCoverage: 0.733,
+        verifiedIndexCodeCoverage: 0.733,
+        selectedPromotionMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
+        safeOfficialVerifiedCoverage: 1,
+        decisionUsesSafeOfficialOnly: true,
+        selectedSectorEnergySourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
+        leadershipConfidence: 'VERIFIED',
+        promotionAllowed: true,
+        sectorBoostAllowed: true,
+        strongBuyAllowed: true,
+        shadowLeadershipAllowed: true,
+        counterfactualAllowed: true,
+      }),
+    });
+
+    expect(attribution.leadershipAttribution.officialIndex.status).toBe('VERIFIED');
+    expect(attribution.leadershipAttribution.officialIndex.blocker).toBe('NONE');
+    expect(attribution.leadershipAttribution.blockers).not.toContain('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
+    expect(attribution.leadershipAttribution.final.noLeadershipReason).toBe('BREAKOUT_MOMENTUM_NOT_CONFIRMED');
+    expect(attribution.leadershipAttribution.final.liveLeadership).toBe(false);
+    expect(attribution.leadershipAttribution.final.executionImpact).toBe('NONE');
+  });
+
   it('bridges ADR-0488 SectorEnergyMaster into Gate2 shadow leadership attribution', () => {
     const attribution = buildGate2FreshAttribution({
       buckets: [

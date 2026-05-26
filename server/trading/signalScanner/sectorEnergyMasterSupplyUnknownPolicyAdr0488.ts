@@ -84,6 +84,7 @@ function sectorIndexCoveragePolicyLines(
   context: {
     internalGroupedSectorCount?: number;
     promotionAllowed?: boolean;
+    sectorBoostAllowed?: boolean;
   } = {},
 ): string[] {
   const officialTargetSectorCount = master.coverageDenominator?.officialTargetSectorCount ?? master.targetSectorCount;
@@ -104,6 +105,26 @@ function sectorIndexCoveragePolicyLines(
   const verifiedCoverageExcludingUnsafeAlias = master.coverageMetrics?.verifiedCoverageExcludingUnsafeAlias
     ?? master.verifiedCoverageExcludingUnsafeAlias
     ?? ratioPct(verifiedSuccessCount, safePromotionEligibleSectorCount);
+  const safeOfficialVerifiedCount = master.promotionReadiness?.safeOfficialVerifiedCount
+    ?? master.safeOfficialVerifiedCount
+    ?? master.coverageMetrics?.safeOfficialVerifiedCount
+    ?? verifiedSuccessCount;
+  const safeOfficialTargetCount = master.promotionReadiness?.safeOfficialTargetCount
+    ?? master.safeOfficialTargetCount
+    ?? master.coverageMetrics?.safeOfficialTargetCount
+    ?? safePromotionEligibleSectorCount;
+  const safeOfficialVerifiedCoverage = master.promotionReadiness?.safeOfficialVerifiedCoverage
+    ?? master.safeOfficialVerifiedCoverage
+    ?? master.coverageMetrics?.safeOfficialVerifiedCoverage
+    ?? verifiedCoverageExcludingUnsafeAlias;
+  const officialTargetVerifiedCoverageDiagnostic = master.promotionReadiness?.officialTargetVerifiedCoverageDiagnostic
+    ?? master.officialTargetVerifiedCoverageDiagnostic
+    ?? master.coverageMetrics?.officialTargetVerifiedCoverageDiagnostic
+    ?? verifiedCoverageByOfficialTarget;
+  const officialTargetCoverageIncludesUnsafeAlias = master.promotionReadiness?.officialTargetCoverageIncludesUnsafeAlias
+    ?? master.officialTargetCoverageIncludesUnsafeAlias
+    ?? master.coverageMetrics?.officialTargetCoverageIncludesUnsafeAlias
+    ?? unsafeAliasSectorCount > 0;
   const quality = master.indexValueQuality;
   const qualityUsableCount = quality?.qualityUsableCount ?? quality?.nonZeroCurrentIndexCount ?? 0;
   const qualityUsableCoverageByOfficialTarget = quality?.qualityUsableCoverageByOfficialTarget
@@ -111,10 +132,13 @@ function sectorIndexCoveragePolicyLines(
   const qualityUsableCoverageExcludingUnsafeAlias = quality?.qualityUsableCoverageExcludingUnsafeAlias
     ?? ratioPct(qualityUsableCount, safePromotionEligibleSectorCount);
   const policy = master.promotionCoveragePolicy;
-  const selectedMetric = policy?.selectedMetric ?? 'officialTargetVerifiedCoverage';
-  const selectedNumerator = policy?.numerator ?? verifiedSuccessCount;
-  const selectedDenominator = policy?.denominator ?? officialTargetSectorCount;
-  const selectedCoverageValue = policy?.selectedCoverageValue ?? ratioPct(selectedNumerator, selectedDenominator);
+  const selectedMetric = policy?.selectedMetric ?? master.promotionReadiness?.selectedPromotionMetric ?? 'SAFE_OFFICIAL_VERIFIED_COVERAGE';
+  const selectedNumerator = policy?.numerator ?? safeOfficialVerifiedCount;
+  const selectedDenominator = policy?.denominator ?? safeOfficialTargetCount;
+  const selectedCoverageValue = policy?.selectedCoverageValue ?? master.promotionReadiness?.selectedPromotionCoverage ?? ratioPct(selectedNumerator, selectedDenominator);
+  const decisionUsesSafeOfficialOnly = master.promotionReadiness?.decisionUsesSafeOfficialOnly
+    ?? master.decisionUsesSafeOfficialOnly
+    ?? (selectedMetric === 'SAFE_OFFICIAL_VERIFIED_COVERAGE');
   const coveragePromotionAllowed = policy?.promotionAllowed ?? selectedCoverageValue >= 80;
   const effectivePromotionAllowed = context.promotionAllowed ?? coveragePromotionAllowed;
   const promotionReason = policy?.reason ?? (
@@ -123,20 +147,24 @@ function sectorIndexCoveragePolicyLines(
   const unsafePolicy = master.unsafeAliasPolicy;
   const internalGroupedMetricWouldPass = verifiedCoverageByInternalGrouped >= 80;
   const safeOnlyMetricWouldPass = master.promotionReadiness?.safeOnlyMetricWouldPass ?? verifiedCoverageExcludingUnsafeAlias >= 80;
+  const selectedQualityCoverage = selectedMetric === 'SAFE_OFFICIAL_VERIFIED_COVERAGE'
+    ? qualityUsableCoverageExcludingUnsafeAlias
+    : qualityUsableCoverageByOfficialTarget;
   const selectedReadinessReason = master.promotionReadiness?.reason ?? (
     selectedCoverageValue < 80
       ? 'VERIFIED_INDEX_CODE_COVERAGE_LOW'
-      : qualityUsableCoverageByOfficialTarget >= 80
+      : selectedQualityCoverage >= 80
         ? 'READY_FOR_PROMOTION'
         : 'INDEX_VALUE_QUALITY_LOW'
   );
   return [
     `SectorIndexCoverageDenominator: internalGroupedSectorCount=${internalGroupedSectorCount} officialTargetSectorCount=${officialTargetSectorCount} safePromotionEligibleSectorCount=${safePromotionEligibleSectorCount} unsafeAliasSectorCount=${unsafeAliasSectorCount} unresolvedSectorCount=${unresolvedSectorCount} verifiedSuccessCount=${verifiedSuccessCount}`,
-    `CoverageMetrics: officialIndexCoverageByOfficialTarget=${pct(officialIndexCoverageByOfficialTarget)} verifiedCoverageByOfficialTarget=${pct(verifiedCoverageByOfficialTarget)} verifiedCoverageByInternalGrouped=${pct(verifiedCoverageByInternalGrouped)} verifiedCoverageExcludingUnsafeAlias=${pct(verifiedCoverageExcludingUnsafeAlias)} promotionVerifiedCoverage=${pct(selectedCoverageValue)}`,
-    `SectorIndexPromotionReadiness: officialTargetSectorCount=${officialTargetSectorCount} internalGroupedSectorCount=${internalGroupedSectorCount} safePromotionEligibleSectorCount=${safePromotionEligibleSectorCount} unsafeAliasSectorCount=${unsafeAliasSectorCount} unresolvedSectorCount=${unresolvedSectorCount} verifiedSuccessCount=${verifiedSuccessCount} verifiedCoverageByOfficialTarget=${pct(verifiedCoverageByOfficialTarget)} verifiedCoverageByInternalGrouped=${pct(verifiedCoverageByInternalGrouped)} verifiedCoverageExcludingUnsafeAlias=${pct(verifiedCoverageExcludingUnsafeAlias)} selectedPromotionMetric=${master.promotionReadiness?.selectedPromotionMetric ?? 'officialTargetVerifiedCoverage'} selectedPromotionCoverage=${pct(selectedCoverageValue)} requiredPromotionCoverage=${pct(master.promotionReadiness?.requiredPromotionCoverage ?? 80)} qualityUsableCoverageByOfficialTarget=${pct(qualityUsableCoverageByOfficialTarget)} qualityUsableCoverageExcludingUnsafeAlias=${pct(qualityUsableCoverageExcludingUnsafeAlias)} promotionAllowed=${effectivePromotionAllowed} reason=${selectedReadinessReason} internalGroupedMetricWouldPass=${internalGroupedMetricWouldPass} safeOnlyMetricWouldPass=${safeOnlyMetricWouldPass} useAlternativeForLivePromotion=false alternativeReason=OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY executionImpact=NONE`,
-    `UnsafeAliasPolicy: includeInPromotionDenominator=${unsafePolicy?.includeInPromotionDenominator ?? true} includeInPromotionNumerator=${unsafePolicy?.includeInPromotionNumerator ?? false} useForShadowEvidence=${unsafePolicy?.useForShadowEvidence ?? true} useForLivePromotion=false reason=${unsafePolicy?.reason ?? 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS'}`,
+    `CoverageMetrics: officialIndexCoverageByOfficialTarget=${pct(officialIndexCoverageByOfficialTarget)} verifiedCoverageByOfficialTarget=${pct(verifiedCoverageByOfficialTarget)} verifiedCoverageByInternalGrouped=${pct(verifiedCoverageByInternalGrouped)} verifiedCoverageExcludingUnsafeAlias=${pct(verifiedCoverageExcludingUnsafeAlias)} safeOfficialVerifiedCoverage=${pct(safeOfficialVerifiedCoverage)} promotionVerifiedCoverage=${pct(selectedCoverageValue)} officialTargetVerifiedCoverageDiagnostic=${pct(officialTargetVerifiedCoverageDiagnostic)} officialTargetCoverageIncludesUnsafeAlias=${officialTargetCoverageIncludesUnsafeAlias} officialTargetCoverageUsedForDecision=false`,
+    `SectorIndexPromotionReadiness: officialTargetSectorCount=${officialTargetSectorCount} internalGroupedSectorCount=${internalGroupedSectorCount} safePromotionEligibleSectorCount=${safePromotionEligibleSectorCount} unsafeAliasSectorCount=${unsafeAliasSectorCount} unresolvedSectorCount=${unresolvedSectorCount} verifiedSuccessCount=${verifiedSuccessCount} safeOfficialVerifiedCount=${safeOfficialVerifiedCount} safeOfficialTargetCount=${safeOfficialTargetCount} verifiedCoverageByOfficialTarget=${pct(verifiedCoverageByOfficialTarget)} verifiedCoverageByInternalGrouped=${pct(verifiedCoverageByInternalGrouped)} verifiedCoverageExcludingUnsafeAlias=${pct(verifiedCoverageExcludingUnsafeAlias)} selectedPromotionMetric=${selectedMetric} selectedPromotionCoverage=${pct(selectedCoverageValue)} safeOfficialVerifiedCoverage=${pct(safeOfficialVerifiedCoverage)} requiredPromotionCoverage=${pct(master.promotionReadiness?.requiredPromotionCoverage ?? 80)} qualityUsableCoverageByOfficialTarget=${pct(qualityUsableCoverageByOfficialTarget)} qualityUsableCoverageExcludingUnsafeAlias=${pct(qualityUsableCoverageExcludingUnsafeAlias)} promotionAllowed=${effectivePromotionAllowed} reason=${selectedReadinessReason} decisionUsesSafeOfficialOnly=${decisionUsesSafeOfficialOnly} promotionCoveragePass=${master.promotionReadiness?.promotionCoveragePass ?? selectedCoverageValue >= 80} internalGroupedMetricWouldPass=${internalGroupedMetricWouldPass} safeOnlyMetricWouldPass=${safeOnlyMetricWouldPass} useAlternativeForLivePromotion=false alternativeReason=SAFE_OFFICIAL_VERIFIED_COVERAGE_SELECTED executionImpact=NONE`,
+    `UnsafeAliasPolicy: includeInPromotionDenominator=${unsafePolicy?.includeInPromotionDenominator ?? false} includeInPromotionNumerator=${unsafePolicy?.includeInPromotionNumerator ?? false} useForShadowEvidence=${unsafePolicy?.useForShadowEvidence ?? true} useForLivePromotion=${unsafePolicy?.useForLivePromotion ?? false} useForSectorBoost=${unsafePolicy?.useForSectorBoost ?? false} useForStrongBuy=${unsafePolicy?.useForStrongBuy ?? false} unsafeExcludedNames=${unsafePolicy?.excludedNames?.join(',') || master.unsafeExcludedNames?.join(',') || master.unsafeAliasSectorNames?.join(',') || 'NONE'} reason=${unsafePolicy?.reason ?? 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS'} status=EXCLUDED_FROM_OFFICIAL_SECTOR_PROMOTION executionImpact=NONE`,
     `PromotionCoveragePolicy: selectedMetric=${selectedMetric} numerator=${selectedNumerator} denominator=${selectedDenominator} required=${pct(policy?.requiredVerifiedCoverage ?? 80)} selectedCoverageValue=${pct(selectedCoverageValue)} coveragePromotionAllowed=${coveragePromotionAllowed} promotionAllowed=${effectivePromotionAllowed} reason=${promotionReason} alternativeInternalGroupedCoverage=${pct(verifiedCoverageByInternalGrouped)} executionImpact=NONE`,
-    `IndexValueQuality: apiVerifiedCount=${quality?.apiVerifiedCount ?? verifiedSuccessCount} currentIndexZeroCount=${quality?.zeroCurrentIndexCount ?? 0} zeroCurrentIndexCount=${quality?.zeroCurrentIndexCount ?? 0} currentIndexNonZeroCount=${quality?.nonZeroCurrentIndexCount ?? 0} nonZeroCurrentIndexCount=${quality?.nonZeroCurrentIndexCount ?? 0} qualityUsableCount=${qualityUsableCount} zeroCurrentIndexSymbols=${quality?.zeroCurrentIndexSymbols.join(',') || 'NONE'} zeroPolicy=${quality?.zeroCurrentIndexPolicy ?? 'OBSERVE_ONLY'} qualityImpact=${quality?.qualityImpact ?? 'NONE'} executionImpact=NONE apiTransportSuccessCount=${quality?.apiTransportSuccessCount ?? quality?.apiVerifiedCount ?? verifiedSuccessCount} indexValueUsableCount=${quality?.indexValueUsableCount ?? qualityUsableCount} valueQualityStatus=${quality?.valueQualityStatus ?? 'VALUE_QUALITY_LOW'} promotionAllowed=${effectivePromotionAllowed} sectorBoostAllowed=false shadowLeadershipAllowed=true`,
+    `LegacyOfficialTargetDiagnostic: officialTargetVerifiedCoverageDiagnostic=${pct(officialTargetVerifiedCoverageDiagnostic)} officialTargetCoverageIncludesUnsafeAlias=${officialTargetCoverageIncludesUnsafeAlias} officialTargetCoverageUsedForDecision=false diagnosticOnly=true decisionImpact=NONE notUsedForPromotionDecision=true`,
+    `IndexValueQuality: apiVerifiedCount=${quality?.apiVerifiedCount ?? verifiedSuccessCount} currentIndexZeroCount=${quality?.zeroCurrentIndexCount ?? 0} zeroCurrentIndexCount=${quality?.zeroCurrentIndexCount ?? 0} currentIndexNonZeroCount=${quality?.nonZeroCurrentIndexCount ?? 0} nonZeroCurrentIndexCount=${quality?.nonZeroCurrentIndexCount ?? 0} qualityUsableCount=${qualityUsableCount} zeroCurrentIndexSymbols=${quality?.zeroCurrentIndexSymbols?.join(',') || 'NONE'} zeroPolicy=${quality?.zeroCurrentIndexPolicy ?? 'OBSERVE_ONLY'} qualityImpact=${quality?.qualityImpact ?? 'NONE'} executionImpact=NONE apiTransportSuccessCount=${quality?.apiTransportSuccessCount ?? quality?.apiVerifiedCount ?? verifiedSuccessCount} indexValueUsableCount=${quality?.indexValueUsableCount ?? qualityUsableCount} valueQualityStatus=${quality?.valueQualityStatus ?? 'VALUE_QUALITY_LOW'} promotionAllowed=${effectivePromotionAllowed} sectorBoostAllowed=${context.sectorBoostAllowed ?? false} shadowLeadershipAllowed=true`,
     `SectorIndexQuality: ${(master.sectorIndexQuality ?? []).slice(0, 16).map((row) => `${row.sectorName}:verified=${row.verified}:currentIndex=${row.currentIndex ?? 'NONE'}:qualityUsable=${row.qualityUsable}:qualityReason=${row.qualityReason}:useForShadowLeadership=${row.useForShadowLeadership}:useForLivePromotion=${row.useForLivePromotion}:executionImpact=${row.executionImpact}:apiTransportSuccess=${row.apiTransportSuccess}:indexValueUsable=${row.indexValueUsable}:valueQualityStatus=${row.valueQualityStatus}`).join(' | ') || 'NONE'}`,
   ];
 }
@@ -588,6 +616,12 @@ function buildOfficialIndexMasterRecoveryAdr0488(input: {
   status: SectorEnergyMasterStatusAdr0488;
   officialIndexCoverage: number;
   verifiedIndexCodeCoverage: number;
+  selectedPromotionMetric?: string;
+  decisionUsesSafeOfficialOnly?: boolean;
+  safeOfficialVerifiedCoverage?: number;
+  safeOfficialVerifiedCount?: number;
+  safeOfficialTargetCount?: number;
+  officialTargetVerifiedCoverageDiagnostic?: number;
   internalGroupedSnapshotCoverage: number;
   internalGroupedValidSectorCount?: number;
   internalGroupedExpectedSectorCount?: number;
@@ -626,6 +660,12 @@ function buildOfficialIndexMasterRecoveryAdr0488(input: {
     status,
     sourceOfTruth,
     selectedSectorEnergySourceTier: input.selectedSectorEnergySourceTier,
+    ...(input.selectedPromotionMetric ? { selectedPromotionMetric: input.selectedPromotionMetric } : {}),
+    ...(input.decisionUsesSafeOfficialOnly !== undefined ? { decisionUsesSafeOfficialOnly: input.decisionUsesSafeOfficialOnly } : {}),
+    ...(input.safeOfficialVerifiedCoverage !== undefined ? { safeOfficialVerifiedCoverage: input.safeOfficialVerifiedCoverage } : {}),
+    ...(input.safeOfficialVerifiedCount !== undefined ? { safeOfficialVerifiedCount: input.safeOfficialVerifiedCount } : {}),
+    ...(input.safeOfficialTargetCount !== undefined ? { safeOfficialTargetCount: input.safeOfficialTargetCount } : {}),
+    ...(input.officialTargetVerifiedCoverageDiagnostic !== undefined ? { officialTargetVerifiedCoverageDiagnostic: input.officialTargetVerifiedCoverageDiagnostic } : {}),
     officialIndexCoverage: input.officialIndexCoverage,
     verifiedIndexCodeCoverage: input.verifiedIndexCodeCoverage,
     internalGroupedSnapshotCoverage: input.internalGroupedSnapshotCoverage,
@@ -737,6 +777,52 @@ export function buildSectorEnergyMasterReportAdr0488(
     ['verifiedIndexCodeCoverage', 'verifiedIndexCoverage', 'coverageVerified'],
     recordTotal > 0 ? verifiedRecordCoverage : adr0495Coverage.coverageVerified,
   ));
+  const selectedPromotionMetric = officialSectorIndexMaster?.promotionReadiness?.selectedPromotionMetric
+    ?? officialSectorIndexMaster?.selectedPromotionMetric
+    ?? 'SAFE_OFFICIAL_VERIFIED_COVERAGE';
+  const safeOfficialVerifiedCount = officialSectorIndexMaster?.promotionReadiness?.safeOfficialVerifiedCount
+    ?? officialSectorIndexMaster?.safeOfficialVerifiedCount
+    ?? officialSectorIndexMaster?.coverageMetrics?.safeOfficialVerifiedCount
+    ?? officialSectorIndexMaster?.verifySuccessCount
+    ?? 0;
+  const safeOfficialTargetCount = officialSectorIndexMaster?.promotionReadiness?.safeOfficialTargetCount
+    ?? officialSectorIndexMaster?.safeOfficialTargetCount
+    ?? officialSectorIndexMaster?.coverageMetrics?.safeOfficialTargetCount
+    ?? officialSectorIndexMaster?.coverageDenominator?.safePromotionEligibleSectorCount
+    ?? 0;
+  const safeOfficialVerifiedCoverage = round1(
+    officialSectorIndexMaster?.promotionReadiness?.safeOfficialVerifiedCoverage
+      ?? officialSectorIndexMaster?.safeOfficialVerifiedCoverage
+      ?? officialSectorIndexMaster?.coverageMetrics?.safeOfficialVerifiedCoverage
+      ?? officialSectorIndexMaster?.coverageMetrics?.verifiedCoverageExcludingUnsafeAlias
+      ?? (safeOfficialTargetCount > 0 ? ratioPct(safeOfficialVerifiedCount, safeOfficialTargetCount) : verifiedIndexCodeCoverage),
+  );
+  const officialTargetVerifiedCoverageDiagnostic = round1(
+    officialSectorIndexMaster?.promotionReadiness?.officialTargetVerifiedCoverageDiagnostic
+      ?? officialSectorIndexMaster?.officialTargetVerifiedCoverageDiagnostic
+      ?? officialSectorIndexMaster?.coverageMetrics?.officialTargetVerifiedCoverageDiagnostic
+      ?? officialSectorIndexMaster?.coverageMetrics?.verifiedCoverageByOfficialTarget
+      ?? verifiedIndexCodeCoverage,
+  );
+  const decisionUsesSafeOfficialOnly = officialSectorIndexMaster?.promotionReadiness?.decisionUsesSafeOfficialOnly === true
+    || officialSectorIndexMaster?.decisionUsesSafeOfficialOnly === true
+    || selectedPromotionMetric === 'SAFE_OFFICIAL_VERIFIED_COVERAGE';
+  const requiredPromotionCoverage = officialSectorIndexMaster?.promotionReadiness?.requiredPromotionCoverage ?? 80;
+  const selectedPromotionCoverage = round1(
+    selectedPromotionMetric === 'SAFE_OFFICIAL_VERIFIED_COVERAGE'
+      ? safeOfficialVerifiedCoverage
+      : officialSectorIndexMaster?.promotionReadiness?.selectedPromotionCoverage ?? verifiedIndexCodeCoverage,
+  );
+  const decisionCoverageRatio = Math.max(after, selectedPromotionCoverage / 100);
+  const promotionCoveragePass = selectedPromotionCoverage >= requiredPromotionCoverage;
+  const unsafeExcludedNames = officialSectorIndexMaster?.unsafeExcludedNames
+    ?? officialSectorIndexMaster?.unsafeAliasPolicy?.excludedNames
+    ?? officialSectorIndexMaster?.unsafeAliasSectorNames
+    ?? [];
+  const officialTargetCoverageIncludesUnsafeAlias = officialSectorIndexMaster?.promotionReadiness?.officialTargetCoverageIncludesUnsafeAlias
+    ?? officialSectorIndexMaster?.officialTargetCoverageIncludesUnsafeAlias
+    ?? officialSectorIndexMaster?.coverageMetrics?.officialTargetCoverageIncludesUnsafeAlias
+    ?? unsafeExcludedNames.length > 0;
   const rawInternalProxyCoverage = round1(diagnosticNumber(
     diag,
     ['internalProxyCoverage', 'internalProxyIndexCodeCoverage'],
@@ -788,21 +874,21 @@ export function buildSectorEnergyMasterReportAdr0488(
   const sectorDataStale = ['STALE', 'DEGRADED', 'FAILED', 'MISSING'].includes(sectorDataQuality.toUpperCase());
   const rawStatus: SectorEnergyMasterStatusAdr0488 =
     !evidencePresent ? 'DATA_UNAVAILABLE'
-      : after <= 0 ? 'DATA_UNAVAILABLE'
-        : sectorDataStale || after < 0.4 || !mapping.symmetryPassed ? 'DEGRADED'
-          : after < 0.8 ? 'PARTIAL'
+      : decisionCoverageRatio <= 0 ? 'DATA_UNAVAILABLE'
+        : sectorDataStale || decisionCoverageRatio < 0.4 || (!promotionCoveragePass && !mapping.symmetryPassed) ? 'DEGRADED'
+          : decisionCoverageRatio < 0.8 ? 'PARTIAL'
             : 'FETCH_OK';
-  const hasOfficialVerifiedEvidence = verifiedIndexCodeCoverage >= 80;
-  const status: SectorEnergyMasterStatusAdr0488 = useAdr0495Seed && adr0495Coverage.coveragePartial > 0 ? 'PARTIAL' : (!hasOfficialVerifiedEvidence && adr0495Coverage.normalized && adr0495Coverage.coverageVerified < 80 && rawStatus === 'FETCH_OK' ? 'PARTIAL' : rawStatus);
-  const topGaps = sectorTopGaps({ status, coveragePct: roundPct(after), verifiedIndexCodeCoverage, mapping, fallbackUsed });
+  const hasOfficialVerifiedEvidence = selectedPromotionCoverage >= 80;
+  const status: SectorEnergyMasterStatusAdr0488 = !hasOfficialVerifiedEvidence && useAdr0495Seed && adr0495Coverage.coveragePartial > 0 ? 'PARTIAL' : (!hasOfficialVerifiedEvidence && adr0495Coverage.normalized && adr0495Coverage.coverageVerified < 80 && rawStatus === 'FETCH_OK' ? 'PARTIAL' : rawStatus);
+  const topGaps = sectorTopGaps({ status, coveragePct: roundPct(decisionCoverageRatio), verifiedIndexCodeCoverage: selectedPromotionCoverage, mapping, fallbackUsed });
   const leadershipBlockReason: SectorEnergyMasterSupplyLineReportAdr0488['leadershipBlockReason'] =
-    verifiedIndexCodeCoverage < 80 ? 'VERIFIED_INDEX_CODE_COVERAGE_LOW'
-      : mapping.unsafeAliasCandidatesCount > 0 ? 'UNSAFE_ALIAS_CANDIDATES'
-        : !mapping.symmetryPassed ? 'SYMMETRY_VALIDATION_FAILED'
+    selectedPromotionCoverage < 80 ? 'VERIFIED_INDEX_CODE_COVERAGE_LOW'
+      : mapping.unsafeAliasCandidatesCount > 0 && !decisionUsesSafeOfficialOnly ? 'UNSAFE_ALIAS_CANDIDATES'
+        : !promotionCoveragePass && !mapping.symmetryPassed ? 'SYMMETRY_VALIDATION_FAILED'
           : fallbackUsed === 'STOCK_DAILY' || fallbackUsed === 'STOCK_DAILY_PROXY' ? 'STOCK_DAILY_FALLBACK_DIAGNOSTIC_ONLY'
             : sectorDataStale ? 'SECTOR_INDEX_STALE'
             : 'NONE';
-  const promotionAllowed = status === 'FETCH_OK' && leadershipBlockReason === 'NONE' && verifiedIndexCodeCoverage >= 80;
+  const promotionAllowed = status === 'FETCH_OK' && leadershipBlockReason === 'NONE' && promotionCoveragePass;
   const leadershipConfidence: LeadershipConfidence = promotionAllowed
     ? 'VERIFIED'
     : officialIndexCoverage > 0 || verifiedIndexCodeCoverage > 0
@@ -813,9 +899,12 @@ export function buildSectorEnergyMasterReportAdr0488(
   const sectorBoostAllowed = promotionAllowed;
   const strongBuyAllowed = promotionAllowed;
   const shadowLeadershipAllowed = leadershipConfidence !== 'BLOCKED';
+  const decisionTopGaps = promotionAllowed
+    ? topGaps.filter((gap) => !['IMPROVE_INDEX_CODE_COVERAGE', 'BLOCK_UNSAFE_ALIAS_CANDIDATES', 'REPAIR_MAPPING_SYMMETRY'].includes(gap))
+    : topGaps;
   const selectedSectorEnergySourceTier = selectSectorEnergySourceTier({
     officialIndexCoverage,
-    verifiedIndexCodeCoverage,
+    verifiedIndexCodeCoverage: selectedPromotionCoverage,
     internalProxyCoverage: internalGroupedSnapshotCoverage,
     stockDailyFallbackCoverage,
     fallbackUsed,
@@ -837,7 +926,19 @@ export function buildSectorEnergyMasterReportAdr0488(
       unresolvedSectorCount: mapping.unresolvedSectorCount,
     }),
     ...(officialSectorIndexMaster?.reasonCodes ?? []),
-  ]));
+  ].filter((code) => promotionAllowed
+    ? ![
+        'PROMOTION_DISABLED_COVERAGE_BELOW_80',
+        'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+        'VERIFIED_INDEX_CODE_COVERAGE_BELOW_THRESHOLD',
+        'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD',
+        'OFFICIAL_INDEX_COVERAGE_ZERO',
+        'INDEX_CODE_COVERAGE_ZERO',
+        'KIS_BASKET_DERIVED_SHADOW',
+        'KIS_BASKET_DERIVED_SHADOW_ONLY',
+      ].includes(code)
+    : true,
+  )));
   const diagnostics: string[] = [];
   if (!evidencePresent) diagnostics.push('SectorEnergy master source evidence missing.');
   if (officialSectorIndexMaster) {
@@ -852,6 +953,7 @@ export function buildSectorEnergyMasterReportAdr0488(
     diagnostics.push(...sectorIndexCoveragePolicyLines(officialSectorIndexMaster, {
       internalGroupedSectorCount: internalGroupedEvidence.validSectorCount,
       promotionAllowed,
+      sectorBoostAllowed,
     }).map((line) => `${line}.`));
     diagnostics.push(`SectorIndexMappingAttempt ${(officialSectorIndexMaster.mappingAttempts ?? []).slice(0, 12).map((attempt) => `${attempt.internalSectorName}:normalized=${attempt.normalizedInternalName}:aliasLookupKey=${attempt.aliasLookupKey ?? 'NONE'}:candidateOfficial=${(attempt.candidateOfficialNames ?? []).join('/') || 'NONE'}:rawOfficialCandidates=${(attempt.rawOfficialCandidates ?? []).join('/') || 'NONE'}:normalizedOfficialCandidates=${(attempt.normalizedOfficialCandidates ?? []).join('/') || 'NONE'}:canonicalOfficialCandidates=${(attempt.canonicalOfficialCandidates ?? []).join('/') || 'NONE'}:exact=${attempt.exactMatch}:safeAliasTarget=${attempt.safeAliasTarget ?? 'NONE'}:safe=${attempt.safeAliasMatch ?? 'NONE'}:unsafeTargets=${(attempt.unsafeAliasTargets ?? []).join('/') || 'NONE'}:unsafe=${attempt.unsafeAliasMatch ?? 'NONE'}:idxDiv=${attempt.idxDiv ?? 'NONE'}:idxCode=${attempt.idxCode ?? 'NONE'}:rawIdxName=${attempt.rawIdxName ?? 'NONE'}:selectedRaw=${attempt.selectedOfficialRawName ?? 'NONE'}:selectedCanonical=${attempt.selectedOfficialCanonicalName ?? 'NONE'}:selected=${attempt.selectedOfficialIndexName ?? 'NONE'}(${attempt.selectedOfficialIndexCode ?? '-'}):verifyInputCandidates=${(attempt.verifyInputCandidates ?? []).join('/') || 'NONE'}:prefixRemoved=${attempt.codePrefixRemoved === true}:included=${attempt.includedInOfficialCoverage}:shadowEvidenceOnly=${attempt.shadowEvidenceOnly === true}:verifyAttempted=${attempt.verifyAttempted === true}:verified=${attempt.verified === true}:reason=${attempt.reasonCode}`).join(' | ') || 'NONE'}.`);
     diagnostics.push(`SectorIndexUnresolvedDetails ${(officialSectorIndexMaster.unresolvedSectorDetails ?? []).slice(0, 12).map((detail) => `${detail.sector}:reason=${detail.reason}:aliasTarget=${detail.aliasTarget ?? 'NONE'}:candidateOfficial=${(detail.candidateOfficialNames ?? []).join('/') || 'NONE'}`).join(' | ') || 'NONE'}.`);
@@ -863,6 +965,7 @@ export function buildSectorEnergyMasterReportAdr0488(
   if (diagnosticSectorRows.length > 0) diagnostics.push(`SectorEnergy official/index master rows extracted from diagnostic payload: ${diagnosticSectorRows.length}.`);
   if (fallbackUsed === 'STOCK_DAILY' || fallbackUsed === 'STOCK_DAILY_PROXY') diagnostics.push('STOCK_DAILY fallback remains diagnostic-only.');
   diagnostics.push(`ADR-0495 seed coverage verified=${adr0495Coverage.coverageVerified}% partial=${adr0495Coverage.coveragePartial}% unknown=${adr0495Coverage.coverageUnknown}%; guardrails executionImpact=NONE liveExecutionAllowed=false sectorBoostAllowed=false strongBuyAllowed=false rawPayloadPersistenceAllowed=false.`);
+  diagnostics.push(`SectorEnergy decision selectedPromotionMetric=${selectedPromotionMetric} decisionUsesSafeOfficialOnly=${decisionUsesSafeOfficialOnly} safeOfficialVerifiedCoverage=${safeOfficialVerifiedCoverage}% requiredPromotionCoverage=${requiredPromotionCoverage}% promotionCoveragePass=${promotionCoveragePass} promotionAllowed=${promotionAllowed} unsafeExcluded=${unsafeExcludedNames.join(',') || 'NONE'} officialTargetVerifiedCoverageDiagnostic=${officialTargetVerifiedCoverageDiagnostic}% officialTargetCoverageIncludesUnsafeAlias=${officialTargetCoverageIncludesUnsafeAlias} officialTargetCoverageUsedForDecision=false executionImpact=NONE.`);
   diagnostics.push(`SectorEnergy coverage split officialIndexCoverage=${officialIndexCoverage}% verifiedIndexCodeCoverage=${verifiedIndexCodeCoverage}% internalGroupedSnapshotCoverage=${internalGroupedSnapshotCoverage}% internalProxyCoverageAlias=${internalProxyCoverage}% stockDailyFallbackCoverage=${stockDailyFallbackCoverage}%; selectedSourceTier=${selectedSectorEnergySourceTier}; leadershipConfidence=${leadershipConfidence}; promotionAllowed=${promotionAllowed}; leadershipBlockReason=${leadershipBlockReason}.`);
   const officialIndexMasterRecovery = buildOfficialIndexMasterRecoveryAdr0488({
     status,
@@ -879,6 +982,12 @@ export function buildSectorEnergyMasterReportAdr0488(
     stockDailyFallbackCoverage,
     leadershipBlockReason,
     selectedSectorEnergySourceTier,
+    selectedPromotionMetric,
+    decisionUsesSafeOfficialOnly,
+    safeOfficialVerifiedCoverage,
+    safeOfficialVerifiedCount,
+    safeOfficialTargetCount,
+    officialTargetVerifiedCoverageDiagnostic,
     leadershipConfidence,
     promotionAllowed,
     sectorBoostAllowed,
@@ -898,9 +1007,20 @@ export function buildSectorEnergyMasterReportAdr0488(
     records,
     mappingDiagnostics: mapping,
     indexCodeCoverageBefore: roundPct(before),
-    indexCodeCoverageAfter: roundPct(after),
+    indexCodeCoverageAfter: roundPct(decisionCoverageRatio),
     officialIndexCoverage,
     verifiedIndexCodeCoverage,
+    selectedPromotionMetric,
+    decisionUsesSafeOfficialOnly,
+    safeOfficialVerifiedCoverage,
+    safeOfficialVerifiedCount,
+    safeOfficialTargetCount,
+    requiredPromotionCoverage,
+    promotionCoveragePass,
+    unsafeExcludedNames,
+    officialTargetVerifiedCoverageDiagnostic,
+    officialTargetCoverageIncludesUnsafeAlias,
+    officialTargetCoverageUsedForDecision: false,
     internalGroupedSnapshotCoverage,
     ...(internalGroupedEvidence.validSectorCount !== undefined
       ? { internalGroupedValidSectorCount: internalGroupedEvidence.validSectorCount }
@@ -913,7 +1033,7 @@ export function buildSectorEnergyMasterReportAdr0488(
     aliasResolvedCount: mapping.aliasResolvedCount,
     aliasUnsafeCount: mapping.aliasUnsafeCount,
     unresolvedSectorCount: mapping.unresolvedSectorCount,
-    coveragePct: roundPct(after),
+    coveragePct: roundPct(decisionCoverageRatio),
     fresh: status === 'FETCH_OK' || status === 'PARTIAL' ? coveredRecords.length : 0,
     stale: diagnosticString(diag, ['dataQuality'], '') === 'STALE' ? 1 : 0,
     missing: status === 'DATA_UNAVAILABLE' ? 1 : mapping.missingIndexCodeCount,
@@ -934,8 +1054,8 @@ export function buildSectorEnergyMasterReportAdr0488(
     operatorApprovalRequired: true,
     officialIndexMasterRecovery,
     ...(officialSectorIndexMaster ? { officialSectorIndexMaster } : {}),
-    topGaps,
-    recommendedNextActions: sectorActions(topGaps),
+    topGaps: decisionTopGaps,
+    recommendedNextActions: sectorActions(decisionTopGaps),
     adr0495Coverage,
     diagnostics,
   };
@@ -1153,6 +1273,7 @@ export function formatSectorEnergySupplyUnknownCompactAdr0488(report: SectorEner
   const master = sector.officialSectorIndexMaster;
   return [
     `ADR-0488 SectorEnergyMaster: ${sector.status} | selectedSourceTier=${sector.selectedSectorEnergySourceTier} | coverageBefore=${pct(sector.indexCodeCoverageBefore)} | coverageAfter=${pct(sector.indexCodeCoverageAfter)} | officialIndexCoverage=${pct(sector.officialIndexCoverage)} | verifiedIndexCodeCoverage=${pct(sector.verifiedIndexCodeCoverage)} | internalGroupedSnapshotCoverage=${pct(sector.internalGroupedSnapshotCoverage)} | internalGroupedValidSectorCount=${sector.internalGroupedValidSectorCount ?? 0}/${sector.internalGroupedExpectedSectorCount ?? 0} | internalProxyCoverage=${pct(sector.internalProxyCoverage)} | stockDailyFallbackCoverage=${pct(sector.stockDailyFallbackCoverage)} | missing=${sector.mappingDiagnostics.missingIndexCodeCount} | leadershipConfidence=${sector.leadershipConfidence} | promotionAllowed=${sector.promotionAllowed} | reason=${sector.leadershipBlockReason} | sectorBoostAllowed=${sector.sectorBoostAllowed} | strongBuyAllowed=${sector.strongBuyAllowed} | shadowLeadershipAllowed=${sector.shadowLeadershipAllowed} | counterfactualAllowed=${sector.counterfactualAllowed} | impact=${sector.executionImpact}`,
+    `SectorEnergy Decision: dataQuality=${sector.leadershipConfidence === 'VERIFIED' ? 'VERIFIED' : sector.status} | selectedPromotionMetric=${sector.selectedPromotionMetric ?? 'SAFE_OFFICIAL_VERIFIED_COVERAGE'} | safeOfficialVerifiedCoverage=${pct(sector.safeOfficialVerifiedCoverage ?? sector.verifiedIndexCodeCoverage)} | requiredPromotionCoverage=${pct(sector.requiredPromotionCoverage ?? 80)} | promotionCoveragePass=${sector.promotionCoveragePass === true} | promotionAllowed=${sector.promotionAllowed} | leadershipConfidence=${sector.leadershipConfidence} | sectorBoostAllowed=${sector.sectorBoostAllowed} | strongBuyAllowed=${sector.strongBuyAllowed} | shadowLeadershipAllowed=${sector.shadowLeadershipAllowed} | counterfactualAllowed=${sector.counterfactualAllowed} | decisionUsesSafeOfficialOnly=${sector.decisionUsesSafeOfficialOnly === true} | unsafeExcluded=${sector.unsafeExcludedNames?.join(',') || 'NONE'} | officialTargetVerifiedCoverageDiagnostic=${pct(sector.officialTargetVerifiedCoverageDiagnostic ?? sector.verifiedIndexCodeCoverage)} | officialTargetCoverageIncludesUnsafeAlias=${sector.officialTargetCoverageIncludesUnsafeAlias === true} | officialTargetCoverageUsedForDecision=false | executionImpact=${sector.executionImpact}`,
     `ADR-0488 OfficialIndexMasterRecovery: ${official.status} | sourceOfTruth=${official.sourceOfTruth} | selectedSourceTier=${official.selectedSectorEnergySourceTier} | officialIndexCoverage=${pct(official.officialIndexCoverage)} | verifiedIndexCodeCoverage=${pct(official.verifiedIndexCodeCoverage)} | requiredVerifiedCoverage=${pct(official.requiredVerifiedCoveragePct)} | promotionAllowed=${official.promotionAllowed} | sectorBoostAllowed=${official.sectorBoostAllowed} | strongBuyAllowed=${official.strongBuyAllowed} | shadowLeadershipAllowed=${official.shadowLeadershipAllowed} | impact=${official.executionImpact}`,
     ...(master ? [
       `Official Sector Index Master Debug: masterSource=${master.masterSource} masterLoaded=${master.masterLoaded} masterRowCount=${master.masterRowCount} parseStatus=${master.parseStatus} idxcodeMstDownloaded=${master.idxcodeMstDownloaded} cacheFallbackUsed=${master.cacheFallbackUsed} rawSampleRows=${(master.rawSampleRows ?? []).slice(0, 5).map((row) => `${row.idxDiv ?? '-'}:${row.idxCode}:raw=${row.rawIdxName ?? row.idxName}:normalized=${row.normalizedIdxName}:canonical=${row.canonicalOfficialName ?? row.normalizedIdxName}:prefixRemoved=${row.codePrefixRemoved === true}:verifyCandidates=${row.verifyInputCandidates?.join('/') || 'NONE'}`).join('|') || 'NONE'} idxNameSampleTop=${(master.idxNameSampleTop ?? []).slice(0, 8).join(',') || 'NONE'}`,
@@ -1165,6 +1286,7 @@ export function formatSectorEnergySupplyUnknownCompactAdr0488(report: SectorEner
       ...sectorIndexCoveragePolicyLines(master, {
         internalGroupedSectorCount: sector.internalGroupedValidSectorCount,
         promotionAllowed: sector.promotionAllowed,
+        sectorBoostAllowed: sector.sectorBoostAllowed,
       }),
       `SectorIndexMappingAttempt: ${(master.mappingAttempts ?? []).slice(0, 12).map((attempt) => `${attempt.internalSectorName}:normalized=${attempt.normalizedInternalName}:aliasLookupKey=${attempt.aliasLookupKey ?? 'NONE'}:safeAliasTarget=${attempt.safeAliasTarget ?? 'NONE'}:unsafeAliasTargets=${(attempt.unsafeAliasTargets ?? []).join('/') || 'NONE'}:candidateOfficial=${(attempt.candidateOfficialNames ?? []).join('/') || 'NONE'}:rawOfficialCandidates=${(attempt.rawOfficialCandidates ?? []).join('/') || 'NONE'}:normalizedOfficialCandidates=${(attempt.normalizedOfficialCandidates ?? []).join('/') || 'NONE'}:canonicalOfficialCandidates=${(attempt.canonicalOfficialCandidates ?? []).join('/') || 'NONE'}:idxDiv=${attempt.idxDiv ?? 'NONE'}:idxCode=${attempt.idxCode ?? 'NONE'}:rawIdxName=${attempt.rawIdxName ?? 'NONE'}:selectedRaw=${attempt.selectedOfficialRawName ?? 'NONE'}:selectedCanonical=${attempt.selectedOfficialCanonicalName ?? 'NONE'}:selected=${attempt.selectedOfficialIndexName ?? 'NONE'}(${attempt.selectedOfficialIndexCode ?? '-'}):verifyInputCandidates=${(attempt.verifyInputCandidates ?? []).join('/') || 'NONE'}:prefixRemoved=${attempt.codePrefixRemoved === true}:included=${attempt.includedInOfficialCoverage}:shadowEvidenceOnly=${attempt.shadowEvidenceOnly === true}:verifyAttempted=${attempt.verifyAttempted === true}:verified=${attempt.verified === true}:reason=${attempt.reasonCode}`).join(' | ') || 'NONE'}`,
       `SectorIndexUnresolvedDetails: ${(master.unresolvedSectorDetails ?? []).slice(0, 12).map((detail) => `${detail.sector}:reason=${detail.reason}:aliasTarget=${detail.aliasTarget ?? 'NONE'}:candidateOfficial=${(detail.candidateOfficialNames ?? []).join('/') || 'NONE'}`).join(' | ') || 'NONE'}`,
@@ -1192,6 +1314,7 @@ export function formatSectorEnergySupplyUnknownDetailAdr0488(report: SectorEnerg
     `overallStatus=${report.overallStatus} policyPromotionMode=${report.policyPromotionMode}`,
     'SectorEnergyMaster:',
     `- status=${sector.status} coverageBefore=${pct(sector.indexCodeCoverageBefore)} coverageAfter=${pct(sector.indexCodeCoverageAfter)} missingIndexCodeCount=${sector.mappingDiagnostics.missingIndexCodeCount}`,
+    `- SectorEnergy Decision: dataQuality=${sector.leadershipConfidence === 'VERIFIED' ? 'VERIFIED' : sector.status} selectedPromotionMetric=${sector.selectedPromotionMetric ?? 'SAFE_OFFICIAL_VERIFIED_COVERAGE'} safeOfficialVerifiedCoverage=${pct(sector.safeOfficialVerifiedCoverage ?? sector.verifiedIndexCodeCoverage)} requiredPromotionCoverage=${pct(sector.requiredPromotionCoverage ?? 80)} promotionCoveragePass=${sector.promotionCoveragePass === true} promotionAllowed=${sector.promotionAllowed} leadershipConfidence=${sector.leadershipConfidence} sectorBoostAllowed=${sector.sectorBoostAllowed} strongBuyAllowed=${sector.strongBuyAllowed} shadowLeadershipAllowed=${sector.shadowLeadershipAllowed} counterfactualAllowed=${sector.counterfactualAllowed} decisionUsesSafeOfficialOnly=${sector.decisionUsesSafeOfficialOnly === true} unsafeExcluded=${sector.unsafeExcludedNames?.join(',') || 'NONE'} officialTargetVerifiedCoverageDiagnostic=${pct(sector.officialTargetVerifiedCoverageDiagnostic ?? sector.verifiedIndexCodeCoverage)} officialTargetCoverageIncludesUnsafeAlias=${sector.officialTargetCoverageIncludesUnsafeAlias === true} officialTargetCoverageUsedForDecision=false executionImpact=${sector.executionImpact}`,
     `- officialIndexCoverage=${pct(sector.officialIndexCoverage)} verifiedIndexCodeCoverage=${pct(sector.verifiedIndexCodeCoverage)} internalGroupedSnapshotCoverage=${pct(sector.internalGroupedSnapshotCoverage)} internalGroupedValidSectorCount=${sector.internalGroupedValidSectorCount ?? 0}/${sector.internalGroupedExpectedSectorCount ?? 0} internalProxyCoverage=${pct(sector.internalProxyCoverage)} stockDailyFallbackCoverage=${pct(sector.stockDailyFallbackCoverage)} leadershipBlockReason=${sector.leadershipBlockReason}`,
     `- ADR-0495 coverageVerified=${pct(sector.adr0495Coverage?.coverageVerified ?? 0)} coveragePartial=${pct(sector.adr0495Coverage?.coveragePartial ?? 0)} coverageUnknown=${pct(sector.adr0495Coverage?.coverageUnknown ?? 0)} normalized=${sector.adr0495Coverage?.normalized ?? false}`,
     `- aggregateIgnored=${sector.mappingDiagnostics.aggregateIgnoredCount} aliasMissing=${sector.mappingDiagnostics.aliasMissingCount} aliasResolvedCount=${sector.aliasResolvedCount} aliasUnsafeCount=${sector.aliasUnsafeCount} safeAliasCandidates=${sector.mappingDiagnostics.safeAliasCandidatesCount} unsafeAliasCandidates=${sector.mappingDiagnostics.unsafeAliasCandidatesCount} unresolvedSectorCount=${sector.unresolvedSectorCount}`,

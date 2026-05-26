@@ -29,8 +29,11 @@ export function buildGate2LeadershipAttribution(input: {
   fundamentalUnavailable: string[];
 }): Gate2LeadershipAttribution {
   const blockers: Gate2LeadershipBlocker[] = [];
-  if (input.coverage.officialIndexCoverage <= 0) blockers.push('OFFICIAL_INDEX_UNAVAILABLE');
-  if (input.coverage.officialIndexCoverage < 0.8) blockers.push('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
+  const decisionCoverage = input.coverage.decisionUsesSafeOfficialOnly && typeof input.coverage.safeOfficialVerifiedCoverage === 'number'
+    ? input.coverage.safeOfficialVerifiedCoverage
+    : input.coverage.officialIndexCoverage;
+  if (!input.coverage.promotionAllowed && input.coverage.officialIndexCoverage <= 0) blockers.push('OFFICIAL_INDEX_UNAVAILABLE');
+  if (!input.coverage.promotionAllowed && decisionCoverage < 0.8) blockers.push('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
   if (input.sectorStale) blockers.push('SECTOR_STALE');
   if (input.sectorUnavailable) blockers.push('SECTOR_UNAVAILABLE');
   if (!input.breakoutMomentumConfirmed) blockers.push('BREAKOUT_MOMENTUM_FAIL');
@@ -45,7 +48,11 @@ export function buildGate2LeadershipAttribution(input: {
   return {
     finalNoLeadershipReason: liveLeadership
       ? 'LIVE_LEADERSHIP_CONFIRMED'
-      : 'LIVE_PROMOTION_DISABLED_AND_BREAKOUT_NOT_CONFIRMED',
+      : !input.coverage.promotionAllowed && !input.breakoutMomentumConfirmed
+        ? 'LIVE_PROMOTION_DISABLED_AND_BREAKOUT_NOT_CONFIRMED'
+        : !input.breakoutMomentumConfirmed
+          ? 'BREAKOUT_MOMENTUM_NOT_CONFIRMED'
+          : 'NO_LEADERSHIP_AFTER_ALL_CHECKS',
     blockers,
     liveLeadership,
     shadowLeadership,

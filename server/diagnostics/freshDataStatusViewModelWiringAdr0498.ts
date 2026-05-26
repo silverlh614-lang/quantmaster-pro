@@ -433,6 +433,12 @@ interface SectorIndexMasterFreshStatusReportAdr0498 {
   sectorEnergyMaster?: {
     officialIndexCoverage?: number;
     verifiedIndexCodeCoverage?: number;
+    selectedPromotionMetric?: string;
+    safeOfficialVerifiedCoverage?: number;
+    safeOfficialVerifiedCount?: number;
+    safeOfficialTargetCount?: number;
+    officialTargetVerifiedCoverageDiagnostic?: number;
+    decisionUsesSafeOfficialOnly?: boolean;
     promotionAllowed?: boolean;
     reasonCodes?: string[];
     officialSectorIndexMaster?: {
@@ -444,6 +450,14 @@ interface SectorIndexMasterFreshStatusReportAdr0498 {
       parseStatus?: string;
       officialIndexCoverage?: number;
       verifiedIndexCodeCoverage?: number;
+      selectedPromotionMetric?: string;
+      safeOfficialVerifiedCoverage?: number;
+      safeOfficialVerifiedCount?: number;
+      safeOfficialTargetCount?: number;
+      officialTargetVerifiedCoverageDiagnostic?: number;
+      decisionUsesSafeOfficialOnly?: boolean;
+      unsafeExcludedNames?: string[];
+      officialTargetCoverageIncludesUnsafeAlias?: boolean;
       mappedSectorCount?: number;
       verifiedIndexCodeCount?: number;
       targetSectorCount?: number;
@@ -458,11 +472,27 @@ interface SectorIndexMasterFreshStatusReportAdr0498 {
       };
       coverageMetrics?: {
         verifiedCoverageExcludingUnsafeAlias?: number;
+        safeOfficialVerifiedCoverage?: number;
+        safeOfficialVerifiedCount?: number;
+        safeOfficialTargetCount?: number;
+        officialTargetVerifiedCoverageDiagnostic?: number;
+        officialTargetCoverageIncludesUnsafeAlias?: boolean;
+        officialTargetCoverageUsedForDecision?: false;
+        decisionUsesSafeOfficialOnly?: boolean;
       };
       promotionReadiness?: {
+        selectedPromotionMetric?: string;
         selectedPromotionCoverage?: number;
+        safeOfficialVerifiedCoverage?: number;
+        safeOfficialVerifiedCount?: number;
+        safeOfficialTargetCount?: number;
+        officialTargetVerifiedCoverageDiagnostic?: number;
+        officialTargetCoverageUsedForDecision?: false;
+        decisionUsesSafeOfficialOnly?: boolean;
         requiredPromotionCoverage?: number;
+        qualityUsableCoverageExcludingUnsafeAlias?: number;
         safeOnlyMetricWouldPass?: boolean;
+        promotionCoveragePass?: boolean;
         reason?: string;
       };
       indexValueQuality?: {
@@ -513,29 +543,68 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
   const master = report?.sectorEnergyMaster?.officialSectorIndexMaster;
   const officialCoverage = Number(master?.officialIndexCoverage ?? report?.sectorEnergyMaster?.officialIndexCoverage ?? 0);
   const verifiedCoverage = Number(master?.verifiedIndexCodeCoverage ?? report?.sectorEnergyMaster?.verifiedIndexCodeCoverage ?? 0);
-  const promotionReadiness = sectorMasterPromotionReadinessAdr0498(verifiedCoverage);
+  const selectedPromotionMetric = master?.promotionReadiness?.selectedPromotionMetric
+    ?? master?.selectedPromotionMetric
+    ?? report?.sectorEnergyMaster?.selectedPromotionMetric
+    ?? 'SAFE_OFFICIAL_VERIFIED_COVERAGE';
+  const safeOfficialVerifiedCoverage = Number(
+    master?.promotionReadiness?.safeOfficialVerifiedCoverage
+      ?? master?.safeOfficialVerifiedCoverage
+      ?? master?.coverageMetrics?.safeOfficialVerifiedCoverage
+      ?? master?.coverageMetrics?.verifiedCoverageExcludingUnsafeAlias
+      ?? report?.sectorEnergyMaster?.safeOfficialVerifiedCoverage
+      ?? verifiedCoverage,
+  );
+  const selectedPromotionCoverage = Number(master?.promotionReadiness?.selectedPromotionCoverage ?? safeOfficialVerifiedCoverage);
+  const readinessCoverage = selectedPromotionMetric === 'SAFE_OFFICIAL_VERIFIED_COVERAGE'
+    ? safeOfficialVerifiedCoverage
+    : selectedPromotionCoverage;
+  const promotionReadiness = sectorMasterPromotionReadinessAdr0498(readinessCoverage);
   const qualityZeroCount = Number(master?.indexValueQuality?.zeroCurrentIndexCount ?? 0);
   const qualityUsableCount = Number(master?.indexValueQuality?.qualityUsableCount ?? master?.indexValueQuality?.nonZeroCurrentIndexCount ?? 0);
+  const qualityUsableCoverageExcludingUnsafeAlias = Number(
+    master?.indexValueQuality?.qualityUsableCoverageExcludingUnsafeAlias
+      ?? master?.promotionReadiness?.qualityUsableCoverageExcludingUnsafeAlias
+      ?? 0,
+  );
+  const qualityGatePassed = qualityZeroCount <= 0 || qualityUsableCoverageExcludingUnsafeAlias >= 80;
   const qualityStatus = qualityZeroCount > 0 ? 'DEGRADED_CURRENT_INDEX_ZERO' : 'OK';
-  const coverageBlocker = verifiedCoverage >= 80
+  const coverageBlocker = readinessCoverage >= 80
     ? null
     : officialCoverage > 0
       ? 'BLOCKED_COVERAGE_LOW'
       : 'OFFICIAL_INDEX_COVERAGE_ZERO';
+  const legacyDecisionOnlyReasonCodes = new Set([
+    'PROMOTION_DISABLED_COVERAGE_BELOW_80',
+    'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+    'VERIFIED_INDEX_CODE_COVERAGE_BELOW_THRESHOLD',
+    'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD',
+    'OFFICIAL_INDEX_COVERAGE_ZERO',
+    'INDEX_CODE_COVERAGE_ZERO',
+    'KIS_BASKET_DERIVED_SHADOW',
+    'KIS_BASKET_DERIVED_SHADOW_ONLY',
+  ]);
+  const visibleReasonCodes = (master?.reasonCodes ?? report?.sectorEnergyMaster?.reasonCodes ?? [])
+    .filter((code) => readinessCoverage >= 80 ? !legacyDecisionOnlyReasonCodes.has(code) : true)
+    .slice(0, 3);
   const commonWarnings = [
     `officialIndexCoverage=${Number.isFinite(officialCoverage) ? officialCoverage : 0}%`,
     `verifiedIndexCodeCoverage=${Number.isFinite(verifiedCoverage) ? verifiedCoverage : 0}%`,
+    `selectedPromotionMetric=${selectedPromotionMetric}`,
+    `safeOfficialVerifiedCoverage=${Number.isFinite(safeOfficialVerifiedCoverage) ? safeOfficialVerifiedCoverage : 0}%`,
+    `officialTargetVerifiedCoverageDiagnostic=${Number(master?.promotionReadiness?.officialTargetVerifiedCoverageDiagnostic ?? master?.officialTargetVerifiedCoverageDiagnostic ?? master?.coverageMetrics?.officialTargetVerifiedCoverageDiagnostic ?? report?.sectorEnergyMaster?.officialTargetVerifiedCoverageDiagnostic ?? verifiedCoverage)}%`,
+    `officialTargetCoverageUsedForDecision=false`,
     'signal=UNKNOWN',
     'executionImpact=NONE',
     ...(coverageBlocker ? [coverageBlocker] : []),
-    ...(master?.reasonCodes ?? report?.sectorEnergyMaster?.reasonCodes ?? []).slice(0, 3),
+    ...visibleReasonCodes,
   ];
   const commonBlockers = coverageBlocker ? [coverageBlocker] : [];
   const masterIsKis = master?.masterSource === 'OFFICIAL_KIS_IDXCODE_MST' || master?.masterSource === 'CACHE';
   const masterIsKrx = master?.masterSource === 'OFFICIAL_KRX_INDEX_MASTER' || master?.masterSource === 'OFFICIAL_KRX_SECTOR_INDEX_MASTER';
   const providerHealth: ProviderHealthStatusAdr0497 = master?.masterLoaded ? 'UP' : 'EMPTY';
-  const confidence = sectorMasterConfidenceAdr0498(officialCoverage, verifiedCoverage);
-  const status = sectorMasterLineStatusAdr0498(officialCoverage, verifiedCoverage);
+  const confidence = sectorMasterConfidenceAdr0498(officialCoverage, readinessCoverage);
+  const status = sectorMasterLineStatusAdr0498(officialCoverage, readinessCoverage);
   const verifyClientReason = master?.kisIndexQuoteClientStatus?.enabled === false
     ? 'CLIENT_DISABLED'
     : master?.kisIndexQuoteClientStatus?.authReady === false
@@ -546,17 +615,18 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
     ?? master?.verifyApiFailureSamples?.find((sample) => sample.selectedFailureReason || sample.reasonCode)?.selectedFailureReason
     ?? master?.verifyApiFailureSamples?.find((sample) => sample.reasonCode)?.reasonCode
     ?? (master?.reasonCodes ?? []).find((code) => code.startsWith('KIS_INDEX_API_') || code.startsWith('VERIFY_'))
-    ?? (verifiedCoverage >= 80 ? 'VERIFIED' : 'VERIFY_NOT_ATTEMPTED');
-  const verifyProviderHealth: ProviderHealthStatusAdr0497 = verifiedCoverage >= 80
+    ?? (readinessCoverage >= 80 ? 'VERIFIED' : 'VERIFY_NOT_ATTEMPTED');
+  const verifyProviderHealth: ProviderHealthStatusAdr0497 = readinessCoverage >= 80
     ? 'UP'
     : (master?.verifyFailCount ?? 0) > 0
       ? 'DOWN'
       : 'EMPTY';
+  const qualityBlocker = qualityGatePassed ? null : 'DEGRADED_CURRENT_INDEX_ZERO';
   const promotionReadinessReason = master?.promotionReadiness?.reason
-    ?? (qualityZeroCount > 0 ? 'INDEX_VALUE_QUALITY_LOW' : coverageBlocker ?? 'NOT_EVALUATED');
+    ?? (qualityBlocker ? 'INDEX_VALUE_QUALITY_LOW' : coverageBlocker ?? 'READY_FOR_PROMOTION');
   const promotionReadinessBlockers = [
     ...(coverageBlocker ? [coverageBlocker] : []),
-    ...(qualityZeroCount > 0 ? ['DEGRADED_CURRENT_INDEX_ZERO'] : []),
+    ...(qualityBlocker ? [qualityBlocker] : []),
   ];
 
   return [
@@ -598,9 +668,9 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
       domain: 'SECTOR_ENERGY',
       providerHealth: officialCoverage > 0 ? 'UP' : 'EMPTY',
       providerDisplay: 'INTERNAL',
-      dataConfidence: sectorMasterConfidenceAdr0498(officialCoverage, verifiedCoverage),
+      dataConfidence: sectorMasterConfidenceAdr0498(officialCoverage, readinessCoverage),
       marketSignal: 'UNKNOWN',
-      dataLineStatus: sectorMasterLineStatusAdr0498(officialCoverage, verifiedCoverage),
+      dataLineStatus: sectorMasterLineStatusAdr0498(officialCoverage, readinessCoverage),
       promotionReadiness,
       blockers: commonBlockers,
       warnings: [
@@ -616,11 +686,11 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
       domain: 'SECTOR_ENERGY',
       providerHealth: verifyProviderHealth,
       providerDisplay: 'KIS',
-      dataConfidence: verifiedCoverage >= 80 ? 'VERIFIED' : verifiedCoverage > 0 ? 'PARTIAL' : 'MISSING',
+      dataConfidence: sectorMasterConfidenceAdr0498(officialCoverage, readinessCoverage),
       marketSignal: 'UNKNOWN',
-      dataLineStatus: verifiedCoverage >= 80 ? 'READY_FOR_ADVISORY' : verifiedCoverage > 0 ? 'READY_FOR_SHADOW' : 'OBSERVING',
+      dataLineStatus: sectorMasterLineStatusAdr0498(officialCoverage, readinessCoverage),
       promotionReadiness,
-      blockers: verifiedCoverage >= 80 ? [] : ['BLOCKED_COVERAGE_LOW'],
+      blockers: commonBlockers,
       warnings: [
         `reason=${verifyReason}`,
         `quality=${qualityStatus}`,
@@ -633,8 +703,7 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
         `verifyFailCount=${master?.verifyFailCount ?? 0}`,
         `qualityUsableCount=${qualityUsableCount}`,
         `zeroCurrentIndexCount=${qualityZeroCount}`,
-        `officialIndexCoverage=${Number.isFinite(officialCoverage) ? officialCoverage : 0}%`,
-        `verifiedIndexCodeCoverage=${Number.isFinite(verifiedCoverage) ? verifiedCoverage : 0}%`,
+        ...commonWarnings,
         'executionImpact=NONE',
       ],
     },
@@ -644,19 +713,22 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
       domain: 'SECTOR_ENERGY',
       providerHealth: 'UP',
       providerDisplay: 'INTERNAL',
-      dataConfidence: sectorMasterConfidenceAdr0498(officialCoverage, verifiedCoverage),
+      dataConfidence: sectorMasterConfidenceAdr0498(officialCoverage, readinessCoverage),
       marketSignal: 'UNKNOWN',
-      dataLineStatus: 'OBSERVING',
+      dataLineStatus: status,
       promotionReadiness: promotionReadinessBlockers.length > 0 ? 'BLOCKED' : promotionReadiness,
       blockers: promotionReadinessBlockers.length > 0 ? promotionReadinessBlockers : commonBlockers,
       warnings: [
         `reason=${promotionReadinessReason}`,
         `quality=${qualityStatus}`,
-        `selectedPromotionMetric=officialTargetVerifiedCoverage`,
-        `selectedPromotionCoverage=${master?.promotionReadiness?.selectedPromotionCoverage ?? verifiedCoverage}%`,
+        `selectedPromotionMetric=${selectedPromotionMetric}`,
+        `selectedPromotionCoverage=${readinessCoverage}%`,
         `requiredPromotionCoverage=${master?.promotionReadiness?.requiredPromotionCoverage ?? 80}%`,
         `verifiedCoverageExcludingUnsafeAlias=${master?.coverageMetrics?.verifiedCoverageExcludingUnsafeAlias ?? 0}%`,
-        `safeOnlyMetricWouldPass=${master?.promotionReadiness?.safeOnlyMetricWouldPass ?? false}`,
+        `safeOfficialVerifiedCoverage=${Number.isFinite(safeOfficialVerifiedCoverage) ? safeOfficialVerifiedCoverage : 0}%`,
+        `safeOnlyMetricWouldPass=${readinessCoverage >= 80}`,
+        `officialTargetVerifiedCoverageDiagnostic=${Number(master?.promotionReadiness?.officialTargetVerifiedCoverageDiagnostic ?? master?.officialTargetVerifiedCoverageDiagnostic ?? master?.coverageMetrics?.officialTargetVerifiedCoverageDiagnostic ?? report?.sectorEnergyMaster?.officialTargetVerifiedCoverageDiagnostic ?? verifiedCoverage)}%`,
+        'officialTargetCoverageUsedForDecision=false',
         'useAlternativeForLivePromotion=false',
         'executionImpact=NONE',
       ],

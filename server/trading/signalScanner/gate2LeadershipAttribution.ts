@@ -290,6 +290,10 @@ export interface SectorEnergyDiagnostic {
   reason?: string;
   indexCodeCoverage?: number;
   officialIndexCoverage?: number;
+  verifiedIndexCodeCoverage?: number;
+  selectedPromotionMetric?: string;
+  safeOfficialVerifiedCoverage?: number;
+  decisionUsesSafeOfficialOnly?: boolean;
   internalGroupedSnapshotCoverage?: number;
   internalGroupedValidSectorCount?: number;
   internalGroupedExpectedSectorCount?: number;
@@ -787,11 +791,18 @@ function buildGate2LeadershipAttribution(input: {
   const officialCoverage = ratioFromMaybePercent(
     input.sectorEnergy?.officialIndexCoverage ?? input.sectorEnergy?.indexCodeCoverage,
   );
-  const officialIndexStatus: Gate2LeadershipAttribution['officialIndex']['status'] =
-    officialCoverage >= 0.8 ? 'VERIFIED'
-      : officialCoverage > 0 ? 'PARTIAL'
-        : 'UNAVAILABLE';
+  const safeOfficialVerifiedCoverage = ratioFromMaybePercent(input.sectorEnergy?.safeOfficialVerifiedCoverage);
   const promotionAllowed = input.sectorEnergy?.promotionAllowed === true;
+  const decisionUsesSafeOfficialOnly = input.sectorEnergy?.decisionUsesSafeOfficialOnly === true
+    || input.sectorEnergy?.selectedPromotionMetric === 'SAFE_OFFICIAL_VERIFIED_COVERAGE'
+    || promotionAllowed;
+  const decisionCoverage = decisionUsesSafeOfficialOnly && safeOfficialVerifiedCoverage > 0
+    ? safeOfficialVerifiedCoverage
+    : ratioFromMaybePercent(input.sectorEnergy?.verifiedIndexCodeCoverage) || officialCoverage;
+  const officialIndexStatus: Gate2LeadershipAttribution['officialIndex']['status'] =
+    promotionAllowed || decisionCoverage >= 0.8 ? 'VERIFIED'
+      : officialCoverage > 0 || decisionCoverage > 0 ? 'PARTIAL'
+        : 'UNAVAILABLE';
   const sourceTier = input.sectorEnergy?.selectedSectorEnergySourceTier ?? 'NONE';
   const internalGroupedSnapshotCoverage = ratioFromMaybePercent(
     input.sectorEnergy?.internalGroupedSnapshotCoverage ??
@@ -806,8 +817,8 @@ function buildGate2LeadershipAttribution(input: {
   const shadowLeadershipAllowed = input.sectorEnergy?.shadowLeadershipAllowed === true || confidence === 'SHADOW_ONLY' || confidence === 'PARTIAL' || confidence === 'VERIFIED';
   const breakoutConfirmed = breakoutMomentumFailCount === 0;
   const blockers: Gate2LeadershipBlocker[] = [];
-  if (officialCoverage <= 0) blockers.push('OFFICIAL_INDEX_UNAVAILABLE');
-  if (officialCoverage < 0.8) blockers.push('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
+  if (!promotionAllowed && officialCoverage <= 0) blockers.push('OFFICIAL_INDEX_UNAVAILABLE');
+  if (!promotionAllowed && decisionCoverage < 0.8) blockers.push('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
   if (blockedBySectorStaleCount > 0 || input.sectorEnergy?.isStale) blockers.push('SECTOR_STALE');
   if (input.sectorEnergy && confidence === 'BLOCKED') blockers.push('SECTOR_UNAVAILABLE');
   if (blockedByUnavailableFundamentalCount > 0) blockers.push('FUNDAMENTAL_UNAVAILABLE');
@@ -836,10 +847,12 @@ function buildGate2LeadershipAttribution(input: {
     officialIndex: {
       status: officialIndexStatus,
       coverage: officialCoverage,
-      verifiedIndexCodeCoverage: officialCoverage,
-      blocker: officialCoverage <= 0
+      verifiedIndexCodeCoverage: decisionCoverage,
+      blocker: promotionAllowed
+        ? 'NONE'
+        : officialCoverage <= 0
         ? 'OFFICIAL_INDEX_UNAVAILABLE'
-        : officialCoverage < 0.8
+        : decisionCoverage < 0.8
           ? 'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD'
           : 'NONE',
       promotionAllowed,
@@ -967,6 +980,10 @@ export function buildSectorEnergyDiagnostic(input: {
   reasons?: string[];
   indexCodeCoverage?: number;
   officialIndexCoverage?: number;
+  verifiedIndexCodeCoverage?: number;
+  selectedPromotionMetric?: string;
+  safeOfficialVerifiedCoverage?: number;
+  decisionUsesSafeOfficialOnly?: boolean;
   internalGroupedSnapshotCoverage?: number;
   internalGroupedValidSectorCount?: number;
   internalGroupedExpectedSectorCount?: number;
@@ -997,6 +1014,16 @@ export function buildSectorEnergyDiagnostic(input: {
       : {}),
     ...(typeof input.officialIndexCoverage === 'number'
       ? { officialIndexCoverage: input.officialIndexCoverage }
+      : {}),
+    ...(typeof input.verifiedIndexCodeCoverage === 'number'
+      ? { verifiedIndexCodeCoverage: input.verifiedIndexCodeCoverage }
+      : {}),
+    ...(input.selectedPromotionMetric ? { selectedPromotionMetric: input.selectedPromotionMetric } : {}),
+    ...(typeof input.safeOfficialVerifiedCoverage === 'number'
+      ? { safeOfficialVerifiedCoverage: input.safeOfficialVerifiedCoverage }
+      : {}),
+    ...(typeof input.decisionUsesSafeOfficialOnly === 'boolean'
+      ? { decisionUsesSafeOfficialOnly: input.decisionUsesSafeOfficialOnly }
       : {}),
     ...(typeof input.internalGroupedSnapshotCoverage === 'number'
       ? { internalGroupedSnapshotCoverage: input.internalGroupedSnapshotCoverage }

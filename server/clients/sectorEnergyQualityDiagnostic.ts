@@ -273,6 +273,9 @@ export interface SectorEnergyQualityDiagnostic {
     count: number;
   }>;
   officialIndexCoverage?: number;
+  selectedPromotionMetric?: string;
+  safeOfficialVerifiedCoverage?: number;
+  decisionUsesSafeOfficialOnly?: boolean;
   internalGroupedSnapshotCoverage?: number;
   internalGroupedValidSectorCount?: number;
   internalGroupedExpectedSectorCount?: number;
@@ -362,6 +365,8 @@ export interface EvaluateSectorEnergyQualityInput {
     count: number;
   }>;
   officialIndexCoverage?: number;
+  safeOfficialVerifiedCoverage?: number;
+  decisionUsesSafeOfficialOnly?: boolean;
   internalGroupedSnapshotCoverage?: number;
   internalGroupedValidSectorCount?: number;
   internalGroupedExpectedSectorCount?: number;
@@ -634,6 +639,11 @@ export function evaluateSectorEnergyQualityDiagnostic(
 
   const operatorMessage = buildOperatorMessage(dataQuality, reasons, indexCodeCoverage, fallbackUsed);
   const officialIndexCoverage = Number.isFinite(input.officialIndexCoverage) ? Math.max(0, Math.min(1, Number(input.officialIndexCoverage))) : indexCodeCoverage;
+  const safeOfficialVerifiedCoverage = Number.isFinite(input.safeOfficialVerifiedCoverage)
+    ? Math.max(0, Math.min(1, Number(input.safeOfficialVerifiedCoverage)))
+    : officialIndexCoverage;
+  const decisionUsesSafeOfficialOnly = input.decisionUsesSafeOfficialOnly === true;
+  const decisionCoverage = decisionUsesSafeOfficialOnly ? safeOfficialVerifiedCoverage : officialIndexCoverage;
   const groupedExpectedSectorCount = Number.isFinite(input.internalGroupedExpectedSectorCount)
     ? Math.max(0, Number(input.internalGroupedExpectedSectorCount))
     : input.groupedSectorEnergy?.expectedSectorCount;
@@ -657,15 +667,15 @@ export function evaluateSectorEnergyQualityDiagnostic(
     ? Math.max(0, Math.min(1, Number(input.stockBasketCoverage)))
     : input.sourceTier === 'KIS_STOCK_BASKET_DERIVED' ? 1 : 0;
   const leadershipConfidence: 'VERIFIED' | 'PARTIAL' | 'SHADOW_ONLY' | 'BLOCKED' =
-    officialIndexCoverage >= 0.8 ? 'VERIFIED'
-      : officialIndexCoverage > 0 ? 'PARTIAL'
+    decisionCoverage >= 0.8 ? 'VERIFIED'
+      : officialIndexCoverage > 0 || decisionCoverage > 0 ? 'PARTIAL'
         : (internalProxyCoverage > 0 || stockBasketCoverage > 0) ? 'SHADOW_ONLY'
           : 'BLOCKED';
   const promotionAllowed = leadershipConfidence === 'VERIFIED';
   const shadowLeadershipAllowed = internalProxyCoverage > 0 || stockBasketCoverage > 0 || leadershipConfidence === 'VERIFIED' || leadershipConfidence === 'PARTIAL';
   const reasonCodes = [
     ...(officialIndexCoverage === 0 ? ['OFFICIAL_INDEX_COVERAGE_ZERO'] : []),
-    ...(officialIndexCoverage > 0 && officialIndexCoverage < 0.8 ? ['OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD'] : []),
+    ...(decisionCoverage > 0 && decisionCoverage < 0.8 ? ['OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD'] : []),
     ...(leadershipConfidence === 'SHADOW_ONLY' ? ['SHADOW_LEADERSHIP_RECORDED'] : []),
     ...(promotionAllowed ? ['OFFICIAL_INDEX_MASTER_LOADED'] : ['PROMOTION_DISABLED_COVERAGE_BELOW_80']),
     'EXECUTION_IMPACT_NONE_CONFIRMED',
@@ -726,6 +736,9 @@ export function evaluateSectorEnergyQualityDiagnostic(
         ? { topRecoveredAliases: input.sectorIndexRecovery.topRecoveredAliases }
         : {}),
     officialIndexCoverage,
+    selectedPromotionMetric: decisionUsesSafeOfficialOnly ? 'SAFE_OFFICIAL_VERIFIED_COVERAGE' : 'officialTargetVerifiedCoverage',
+    safeOfficialVerifiedCoverage,
+    decisionUsesSafeOfficialOnly,
     internalGroupedSnapshotCoverage,
     ...(groupedValidSectorCount !== undefined ? { internalGroupedValidSectorCount: groupedValidSectorCount } : {}),
     ...(groupedExpectedSectorCount !== undefined ? { internalGroupedExpectedSectorCount: groupedExpectedSectorCount } : {}),
@@ -851,6 +864,11 @@ export function formatSectorEnergyQualityDiagnosticSection(
       : groupedDerivedCoverage);
   lines.push(`  • selectedSourceTier: ${selectedTier}`);
   lines.push(`  • officialIndexCoverage: ${((diagnostic.officialIndexCoverage ?? diagnostic.indexCodeCoverage) * 100).toFixed(1)}%`);
+  if (diagnostic.decisionUsesSafeOfficialOnly === true) {
+    lines.push(`  • selectedPromotionMetric: ${diagnostic.selectedPromotionMetric ?? 'SAFE_OFFICIAL_VERIFIED_COVERAGE'}`);
+    lines.push(`  • safeOfficialVerifiedCoverage: ${((diagnostic.safeOfficialVerifiedCoverage ?? diagnostic.officialIndexCoverage ?? diagnostic.indexCodeCoverage) * 100).toFixed(1)}%`);
+    lines.push('  • officialTargetCoverageUsedForDecision=false');
+  }
   lines.push(`  • internalGroupedSnapshotCoverage: ${(internalGroupedSnapshotCoverage * 100).toFixed(1)}%`);
   lines.push(`  • internalGroupedValidSectorCount: ${groupedValidSectorCount}/${groupedExpectedSectorCount}`);
   lines.push(`  • internalProxyCoverage: ${((diagnostic.internalProxyCoverage ?? internalGroupedSnapshotCoverage) * 100).toFixed(1)}%`);

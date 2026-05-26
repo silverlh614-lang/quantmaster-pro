@@ -137,6 +137,7 @@ Append the current PR row here. When this list grows past roughly 60 rows, move 
 - 2026-05-26 · ADR-0529 · dart-financials-canonical, SourceSnapshot-slot, cached-reference, gate2-dart, byte-equivalent, quota-0
 - 2026-05-26 · Patch-SHADOW-EXEC-SINGLE-PATH · shadow-buy, onApproved-noop-removal, single-execution-path, fill-once-guard, #8-test
 - 2026-05-26 · Patch-TRACE-SOURCESNAPSHOTID-ALIGNMENT · runtime-resolver-trace, runtime-pipeline-audit, NO_SCAN_SUMMARY-fix, scanEvaluation.scanId, ADR-0528-carry
+- 2026-05-26 · Patch-SECTOR-ENERGY-SAFE-OFFICIAL-DISPLAY · SectorEnergy, SAFE_OFFICIAL_VERIFIED_COVERAGE, official-target-diagnostic-only, unsafe-alias-excluded, executionImpact-NONE
 
 ---
 
