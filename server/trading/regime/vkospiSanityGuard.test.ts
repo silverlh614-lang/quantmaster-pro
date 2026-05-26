@@ -226,4 +226,52 @@ describe('regimeBridge R6-recovery 통합 — implausible VKOSPI level gate 격�
     expect(evidence.vkospiOk).toBe(false);
     expect(evidence.reasons).not.toContain('VKOSPI_UNTRUSTED_IMPLAUSIBLE_PROVIDER_SANITY');
   });
+
+  // ADR-0530 완성: closeRecoveryEligible 의 중복 VKOSPI level gate 도 격리해야 confirmations 가 진행된다.
+  it('현 사고 격리 시 closeRecoveryEligible 통과 → recovery confirmations 가 0 에 고착되지 않는다', () => {
+    const now = new Date('2026-05-26T05:00:00.000Z');
+    const incidentMacro = macro({
+      vkospi: 67.0,
+      vix: 16.6,
+      kospiDayReturn: 3.02,
+      kospiCloseReturn: 3.02,
+      vkospiDayChange: -6.11,
+      usdKrwDayChange: -0.27,
+      mhs: 58,
+      updatedAt: now.toISOString(),
+    });
+    const rawRegime = getRawRegime(incidentMacro, now);
+    const state = evaluateR6RecoveryTransition(
+      previousR6State(now.toISOString()),
+      incidentMacro,
+      rawRegime,
+      now,
+    );
+    // 가드 적용 전: closeRecoveryEligible VKOSPI level(67<=28)=false → freshAndCloseEligible=false → confirmations 0 고착.
+    // 가드 적용 후: VKOSPI level 격리 → freshAndCloseEligible=true → 첫 전이에서 confirmations 진행.
+    expect(state.recoveryConfirmations).toBeGreaterThanOrEqual(1);
+  });
+
+  it('진짜 폭락(kospiClose -6%) 은 closeRecoveryEligible 가 그대로 차단 → confirmations 미진행(마스킹 금지)', () => {
+    const now = new Date('2026-05-26T05:00:00.000Z');
+    const crashMacro = macro({
+      vkospi: 45,
+      vix: 40,
+      kospiDayReturn: -6,
+      kospiCloseReturn: -6,
+      vkospiDayChange: 0,
+      usdKrwDayChange: 0.3,
+      mhs: 70,
+      updatedAt: now.toISOString(),
+    });
+    const rawRegime = getRawRegime(crashMacro, now);
+    const state = evaluateR6RecoveryTransition(
+      previousR6State(now.toISOString()),
+      crashMacro,
+      rawRegime,
+      now,
+    );
+    // G2(KOSPI 스트레스)로 가드 미발동 + kospiCloseReturn -6 < -2 → closeRecoveryEligible=false → 방어 유지.
+    expect(state.recoveryConfirmations).toBe(0);
+  });
 });
