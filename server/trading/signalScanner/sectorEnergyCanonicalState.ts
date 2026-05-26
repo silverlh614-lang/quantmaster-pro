@@ -64,6 +64,7 @@ function buildOfficialIndexInputsFromMaster(
     indexName: r.rawIdxName ?? undefined,
     success: r.verified === true,
     verified: r.verified === true,
+    ...(typeof r.currentIndex === 'number' && Number.isFinite(r.currentIndex) ? { currentIndex: r.currentIndex } : {}),
   }));
 
   const rows: IndexMasterRow[] = [];

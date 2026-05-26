@@ -89,6 +89,16 @@ export type SectorEnergyCanonicalReason =
   | 'OFFICIAL_SECTOR_SOURCE_MISSING'
   | 'SECTOR_ENERGY_CANONICAL_STATE_MISSING';
 
+/** 공식 key 별 verify 결과 — render 가 실제 index code/name/값을 보이도록 carry 한다 (N/A canonical-state 금지). */
+export interface SectorEnergyVerifiedMappingEntry {
+  key: OfficialSectorEnergyKey;
+  verified: boolean;
+  selectedIndexCode: string;
+  selectedIndexName?: string;
+  currentIndex?: number;
+  reason?: string;
+}
+
 export interface SectorEnergyCanonicalState {
   sourceOfTruth: 'SectorEnergyCanonicalResolver';
   universeType: 'OFFICIAL_SECTOR_ONLY';
@@ -98,6 +108,8 @@ export interface SectorEnergyCanonicalState {
   verifiedOfficialSectorKeys: OfficialSectorEnergyKey[];
   missingOfficialSectorKeys: OfficialSectorEnergyKey[];
   duplicateAliasRowsIgnored: string[];
+  /** 공식 key 별 selectedIndexCode/Name/currentIndex (실제 verify 코드). 빈 배열이면 미상. */
+  verifiedOfficialSectorMappings: SectorEnergyVerifiedMappingEntry[];
 
   promotionCoverage: number;
   requiredPromotionCoverage: number;
@@ -169,9 +181,10 @@ export interface IndexVerifyResult {
   success?: boolean;
   verified?: boolean;
   indexValueUsable?: boolean;
+  currentIndex?: number;
 }
 type VerifiedMapping = Record<OfficialSectorEnergyKey, {
-  verified: boolean; selectedIndexCode?: string; selectedIndexName?: string; verifyReason?: string;
+  verified: boolean; selectedIndexCode?: string; selectedIndexName?: string; currentIndex?: number; verifyReason?: string;
   sourceTier?: 'OFFICIAL_KIS_SECTOR_INDEX' | 'OFFICIAL_KRX_SECTOR_INDEX';
 }>;
 const DUPLICATE_ALIAS_KEYS = ['AUTOMOTIVE', 'SEMICONDUCTOR', 'CONSUMER_RETAIL'] as const;
@@ -215,6 +228,57 @@ export const OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS: readonly OfficialSector
   { key: 'FOOD_BEVERAGE_TOBACCO', sectorName: '음식료', indexCode: '0005' },
   { key: 'SERVICE_TELECOM', sectorName: '방송통신', indexCode: '4010' },
 ];
+
+/** duplicate alias 키 → 'ALIAS -> OFFICIAL_KEY' 표기 (canonical count 에는 불포함, 진단 표시 전용). */
+const DUPLICATE_ALIAS_OFFICIAL_KEY: Record<string, OfficialSectorEnergyKey | string> = {
+  AUTOMOTIVE: 'AUTOMOTIVE_TRANSPORT_EQUIPMENT',
+  SEMICONDUCTOR: 'SEMICONDUCTOR_ELECTRONICS',
+  CONSUMER_RETAIL: 'CONSUMER_RETAIL',
+};
+
+function formatDuplicateAlias(alias: string): string {
+  if (alias.includes('->')) return alias;
+  const official = DUPLICATE_ALIAS_OFFICIAL_KEY[alias.trim()];
+  return official ? `${alias} -> ${official}` : alias;
+}
+
+// ─── Stale blocker / status hygiene (ADR-0534 follow-up, 판단 로직 무변경) ──────────
+
+/** canonical PASS 시 출력에서 제거되어야 하는 SectorEnergy 관련 stale blocker 토큰. */
+export const STALE_SECTOR_ENERGY_BLOCKERS: readonly string[] = [
+  'OFFICIAL_INDEX_UNAVAILABLE',
+  'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD',
+  'OFFICIAL_SECTOR_COVERAGE_BELOW_THRESHOLD',
+  'SECTOR_OFFICIAL_PROMOTION_DISABLED',
+  'SECTOR_ENERGY_DEGRADED',
+  'SECTOR_LEADERSHIP_MISSING',
+];
+
+/**
+ * canonical 을 기준으로 blocker 배열을 정합화한다 (판단값 변경 없음 — 출력만).
+ *   promotionAllowed=true  → STALE_SECTOR_ENERGY_BLOCKERS 전부 제거.
+ *   promotionAllowed=false → SECTOR_OFFICIAL_PROMOTION_DISABLED 보장(1회).
+ * 그 외 실제 blocker(FUNDAMENTAL/BREAKOUT/RS/VOLUME 등)는 그대로 보존한다.
+ */
+export function stripStaleSectorEnergyBlockers(
+  canonical: Pick<SectorEnergyCanonicalState, 'promotionAllowed'>,
+  blockers: readonly string[],
+): string[] {
+  if (canonical.promotionAllowed === true) {
+    return blockers.filter((b) => !STALE_SECTOR_ENERGY_BLOCKERS.includes(b));
+  }
+  const next = blockers.filter((b) => b !== 'SECTOR_OFFICIAL_PROMOTION_DISABLED');
+  next.push('SECTOR_OFFICIAL_PROMOTION_DISABLED');
+  return next;
+}
+
+/** canonical 기준 렌더 상태 — PASS=VERIFIED, partial=PARTIAL, missing=MISSING. legacy PARTIAL/unavailable 금지. */
+export function sectorEnergyRenderedStatus(
+  canonical: Pick<SectorEnergyCanonicalState, 'promotionCoveragePass' | 'dataQuality'>,
+): SectorEnergyDataQuality {
+  if (canonical.promotionCoveragePass === true) return 'VERIFIED';
+  return canonical.dataQuality;
+}
 
 /**
  * ADR-0535 회귀 가드: official key 매핑 누락 invariant. alias map 내용과 독립적으로
@@ -321,6 +385,13 @@ export function resolveOfficialSectorEnergyCoverage(input: {
   const keys = [...OFFICIAL_SECTOR_ENERGY_11];
   if (keys.length !== OFFICIAL_SECTOR_COUNT) throw new Error('OFFICIAL_VERIFY_LOOP_KEY_COUNT_MISMATCH');
   const verifiedCodes = new Set(input.indexVerifyResults.filter((r) => (r.success ?? r.verified) && r.indexValueUsable !== false).map((r) => String(r.indexCode ?? '').trim()).filter(Boolean));
+  const currentIndexByCode = new Map<string, number>();
+  for (const r of input.indexVerifyResults) {
+    const code = String(r.indexCode ?? '').trim();
+    if (code && typeof r.currentIndex === 'number' && Number.isFinite(r.currentIndex) && !currentIndexByCode.has(code)) {
+      currentIndexByCode.set(code, r.currentIndex);
+    }
+  }
   const duplicateAliasRowsIgnored: string[] = [...DUPLICATE_ALIAS_KEYS];
   const verifiedMapping = {} as VerifiedMapping;
   const verifiedOfficialSectorKeys: OfficialSectorEnergyKey[] = [];
@@ -330,7 +401,11 @@ export function resolveOfficialSectorEnergyCoverage(input: {
     let selected = matches.find((m) => verifiedCodes.has(String(m.indexCode ?? '').trim()) && cfg.preferredIndexCodes.includes(String(m.indexCode ?? '').trim()));
     if (!selected) selected = matches.find((m) => verifiedCodes.has(String(m.indexCode ?? '').trim()));
     const verified = Boolean(selected && verifiedCodes.has(String(selected.indexCode ?? '').trim()));
-    verifiedMapping[key] = verified ? { verified, selectedIndexCode: String(selected?.indexCode ?? ''), selectedIndexName: selected?.indexName ?? selected?.sectorName, verifyReason: 'VERIFY_SUCCESS', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' } : { verified: false, selectedIndexCode: 'NONE', verifyReason: matches.length === 0 ? 'INDEX_MASTER_ROW_NOT_FOUND' : 'VERIFY_FAILED' };
+    const selectedCode = String(selected?.indexCode ?? '').trim();
+    const currentIndex = verified ? currentIndexByCode.get(selectedCode) : undefined;
+    verifiedMapping[key] = verified
+      ? { verified, selectedIndexCode: selectedCode, selectedIndexName: selected?.indexName ?? selected?.sectorName, ...(typeof currentIndex === 'number' ? { currentIndex } : {}), verifyReason: 'VERIFY_SUCCESS', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' }
+      : { verified: false, selectedIndexCode: 'NONE', verifyReason: matches.length === 0 ? 'INDEX_MASTER_ROW_NOT_FOUND' : 'VERIFY_FAILED' };
     if (verified) verifiedOfficialSectorKeys.push(key);
   }
   const missingOfficialSectorKeys = keys.filter((k) => !verifiedOfficialSectorKeys.includes(k));
@@ -435,13 +510,39 @@ export function resolveSectorEnergyCanonicalState(
   const verifiedOfficialSectorCount = verified.size;
   const verifiedOfficialSectorKeys = [...OFFICIAL_SECTOR_ENERGY_11].filter((k) => verified.has(k));
   const missingOfficialSectorKeys = [...OFFICIAL_SECTOR_ENERGY_11].filter((k) => !verified.has(k));
-  const duplicateAliasRowsIgnored: string[] = [];
+  let duplicateAliasRowsIgnored: string[] = [];
+  let verifiedOfficialSectorMappings: SectorEnergyVerifiedMappingEntry[] = [];
   if (Array.isArray(input.officialIndexMasterRows) && Array.isArray(input.indexVerifyResults)) {
     const coverage = resolveOfficialSectorEnergyCoverage({
       officialIndexMasterRows: input.officialIndexMasterRows,
       indexVerifyResults: input.indexVerifyResults,
     });
     if (coverage.verifiedOfficialSectorCount !== verifiedOfficialSectorCount) throw new Error('CANONICAL_SECTOR_COUNT_MISMATCH');
+    duplicateAliasRowsIgnored = coverage.duplicateAliasRowsIgnored.map((alias) => formatDuplicateAlias(alias));
+    verifiedOfficialSectorMappings = [...OFFICIAL_SECTOR_ENERGY_11].map((key) => {
+      const m = coverage.verifiedMapping[key];
+      return {
+        key,
+        verified: Boolean(m?.verified),
+        selectedIndexCode: m?.verified ? String(m.selectedIndexCode ?? '') : 'NONE',
+        ...(m?.selectedIndexName ? { selectedIndexName: m.selectedIndexName } : {}),
+        ...(typeof m?.currentIndex === 'number' ? { currentIndex: m.currentIndex } : {}),
+        ...(m?.verifyReason ? { reason: m.verifyReason } : {}),
+      };
+    });
+  } else {
+    // fallback(per-sector 데이터 없음): 검증된 key 는 base target 의 KIS 업종코드로 보강.
+    verifiedOfficialSectorMappings = [...OFFICIAL_SECTOR_ENERGY_11].map((key) => {
+      const isVerified = verified.has(key);
+      const base = OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS.find((t) => t.key === key);
+      return {
+        key,
+        verified: isVerified,
+        selectedIndexCode: isVerified && base ? base.indexCode : 'NONE',
+        ...(isVerified && base ? { selectedIndexName: base.sectorName } : {}),
+        reason: isVerified ? 'FALLBACK_BASE_TARGET' : 'NOT_VERIFIED',
+      };
+    });
   }
   const promotionCoverage = verifiedOfficialSectorCount / officialSectorCount;
   const promotionCoveragePass = promotionCoverage >= requiredPromotionCoverage;
@@ -477,6 +578,7 @@ export function resolveSectorEnergyCanonicalState(
     verifiedOfficialSectorKeys,
     missingOfficialSectorKeys,
     duplicateAliasRowsIgnored,
+    verifiedOfficialSectorMappings,
     promotionCoverage,
     requiredPromotionCoverage,
     promotionCoveragePass,
@@ -503,6 +605,7 @@ export function missingSectorEnergyCanonicalState(): SectorEnergyCanonicalState 
     verifiedOfficialSectorKeys: [],
     missingOfficialSectorKeys: [...OFFICIAL_SECTOR_ENERGY_11],
     duplicateAliasRowsIgnored: [],
+    verifiedOfficialSectorMappings: [],
     promotionCoverage: 0,
     requiredPromotionCoverage: DEFAULT_REQUIRED_PROMOTION_COVERAGE,
     promotionCoveragePass: false,
@@ -745,9 +848,15 @@ function pct1(value: number): string {
 
 /** Block 1 — SectorEnergy Canonical. */
 export function renderSectorEnergyCanonicalBlock(canonical: SectorEnergyCanonicalState): string {
+  const mappingByKey = new Map(canonical.verifiedOfficialSectorMappings.map((m) => [m.key, m]));
   const mappingLine = (key: OfficialSectorEnergyKey): string => {
     const verified = canonical.verifiedOfficialSectorKeys.includes(key);
-    return `  ${key}=${verified ? 'VERIFIED' : 'MISSING'} selectedIndexCode=${verified ? 'N/A(canonical-state)' : 'NONE'}`;
+    const m = mappingByKey.get(key);
+    if (!verified) return `  ${key}=MISSING selectedIndexCode=NONE`;
+    const code = m && m.selectedIndexCode && m.selectedIndexCode !== 'NONE' ? m.selectedIndexCode : 'UNKNOWN';
+    const namePart = m?.selectedIndexName ? ` selectedIndexName=${m.selectedIndexName}` : '';
+    const idxPart = typeof m?.currentIndex === 'number' ? ` currentIndex=${m.currentIndex}` : '';
+    return `  ${key}=VERIFIED selectedIndexCode=${code}${namePart}${idxPart}`;
   };
   const missingReasonLine = (key: OfficialSectorEnergyKey): string => (
     `  ${key}=${canonical.missingOfficialSectorKeys.includes(key) ? 'missing verified candidate in official verify loop' : 'verified'}`

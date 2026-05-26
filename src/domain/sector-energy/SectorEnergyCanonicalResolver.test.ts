@@ -17,6 +17,9 @@ import {
   resolveOfficialSectorEnergyCoverage,
   assertSectorEnergyCoverageInvariants,
   OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS,
+  stripStaleSectorEnergyBlockers,
+  sectorEnergyRenderedStatus,
+  STALE_SECTOR_ENERGY_BLOCKERS,
   type SectorEnergyCanonicalState,
 } from './SectorEnergyCanonicalResolver.js';
 
@@ -557,5 +560,77 @@ describe('OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS — always-verify universe 
     expect(coverage.verifiedOfficialSectorKeys).toContain('MACHINERY_EQUIPMENT');
     expect(coverage.verifiedOfficialSectorKeys).toContain('FOOD_BEVERAGE_TOBACCO');
     expect(coverage.verifiedOfficialSectorKeys).toContain('SERVICE_TELECOM');
+  });
+});
+
+describe('Post-Pass cleanup — blocker/status hygiene (canonical-driven)', () => {
+  function stateFrom(rows: { indexCode: string; sectorName?: string }[]): SectorEnergyCanonicalState {
+    return resolveSectorEnergyCanonicalState({
+      officialKisSectorIndex: { verifiedSectors: resolveOfficialSectorEnergyCoverage({
+        officialIndexMasterRows: rows,
+        indexVerifyResults: rows.map((r) => ({ indexCode: r.indexCode, verified: true, currentIndex: 100 })),
+      }).verifiedOfficialSectorKeys },
+      officialIndexMasterRows: rows,
+      indexVerifyResults: rows.map((r) => ({ indexCode: r.indexCode, verified: true, currentIndex: 100 })),
+    });
+  }
+  const passState = stateFrom(OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS.map((t) => ({ indexCode: t.indexCode, sectorName: t.sectorName })));
+
+  it('Test 1/Invariant 1: PASS → rendered status VERIFIED (not PARTIAL)', () => {
+    expect(passState.promotionCoveragePass).toBe(true);
+    expect(sectorEnergyRenderedStatus(passState)).toBe('VERIFIED');
+    expect(sectorEnergyRenderedStatus({ promotionCoveragePass: false, dataQuality: 'PARTIAL' })).toBe('PARTIAL');
+  });
+
+  it('Test 2/3 + Invariant 2/3/4: PASS strips stale official blockers, keeps real ones', () => {
+    const blockers = stripStaleSectorEnergyBlockers(passState, [
+      'OFFICIAL_INDEX_UNAVAILABLE',
+      'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD',
+      'SECTOR_OFFICIAL_PROMOTION_DISABLED',
+      'FUNDAMENTAL_UNAVAILABLE',
+      'BREAKOUT_MOMENTUM_FAIL',
+    ]);
+    expect(blockers).not.toContain('OFFICIAL_INDEX_UNAVAILABLE');
+    expect(blockers).not.toContain('OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD');
+    expect(blockers).not.toContain('SECTOR_OFFICIAL_PROMOTION_DISABLED');
+    expect(blockers).toContain('FUNDAMENTAL_UNAVAILABLE');
+    expect(blockers).toContain('BREAKOUT_MOMENTUM_FAIL');
+  });
+
+  it('Invariant 5/2: FAIL adds SECTOR_OFFICIAL_PROMOTION_DISABLED exactly once', () => {
+    const failState = { promotionAllowed: false };
+    const blockers = stripStaleSectorEnergyBlockers(failState, ['SECTOR_OFFICIAL_PROMOTION_DISABLED', 'BREAKOUT_MOMENTUM_FAIL']);
+    expect(blockers.filter((b) => b === 'SECTOR_OFFICIAL_PROMOTION_DISABLED')).toHaveLength(1);
+    expect(blockers).toContain('BREAKOUT_MOMENTUM_FAIL');
+  });
+
+  it('Test 4/Invariant 6: verified mappings carry real index codes (never N/A)', () => {
+    for (const m of passState.verifiedOfficialSectorMappings) {
+      if (m.verified) {
+        expect(m.selectedIndexCode).not.toBe('NONE');
+        expect(m.selectedIndexCode).not.toContain('N/A');
+        expect(m.selectedIndexCode).toMatch(/^\d{4}$/);
+      }
+    }
+    const machinery = passState.verifiedOfficialSectorMappings.find((m) => m.key === 'MACHINERY_EQUIPMENT');
+    expect(machinery?.selectedIndexCode).toBe('0012');
+    const food = passState.verifiedOfficialSectorMappings.find((m) => m.key === 'FOOD_BEVERAGE_TOBACCO');
+    expect(food?.selectedIndexCode).toBe('0005');
+    const service = passState.verifiedOfficialSectorMappings.find((m) => m.key === 'SERVICE_TELECOM');
+    expect(service?.selectedIndexCode).toBe('4010');
+  });
+
+  it('rendered canonical block shows real codes, not N/A(canonical-state)', () => {
+    const out = renderSectorEnergyCanonicalOutput(passState);
+    expect(out).not.toContain('N/A(canonical-state)');
+    expect(out).toContain('MACHINERY_EQUIPMENT=VERIFIED selectedIndexCode=0012');
+    expect(out).toContain('FOOD_BEVERAGE_TOBACCO=VERIFIED selectedIndexCode=0005');
+    expect(out).toContain('SERVICE_TELECOM=VERIFIED selectedIndexCode=4010');
+  });
+
+  it('STALE_SECTOR_ENERGY_BLOCKERS covers the documented stale tokens', () => {
+    for (const t of ['OFFICIAL_INDEX_UNAVAILABLE', 'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD', 'SECTOR_OFFICIAL_PROMOTION_DISABLED', 'SECTOR_ENERGY_DEGRADED']) {
+      expect(STALE_SECTOR_ENERGY_BLOCKERS).toContain(t);
+    }
   });
 });

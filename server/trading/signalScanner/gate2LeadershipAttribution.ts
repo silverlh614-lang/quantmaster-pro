@@ -38,6 +38,7 @@ import type { SectorEnergyAndSupplyUnknownPolicyReportAdr0488 } from './sectorEn
 import {
   lockSectorEnergyOutputToCanonical,
   sectorEnergyCanonicalOrMissing,
+  STALE_SECTOR_ENERGY_BLOCKERS,
   type SectorEnergyCanonicalState,
 } from '../../../src/domain/sector-energy/SectorEnergyCanonicalResolver.js';
 
@@ -133,6 +134,10 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
   if (sector.leadershipConfidence === 'BLOCKED') blockers.add('SECTOR_UNAVAILABLE');
   if (!breakoutConfirmed) blockers.add('BREAKOUT_MOMENTUM_FAIL');
   blockers.delete('NO_LEADERSHIP_AFTER_ALL_CHECKS');
+  // ADR-0534 follow-up: canonical PASS 시 stale official blocker 제거 (Invariants 2/3/4) — 판단값 변경 없음.
+  if (canonical.promotionAllowed === true) {
+    for (const stale of STALE_SECTOR_ENERGY_BLOCKERS) blockers.delete(stale as Gate2LeadershipBlocker);
+  }
   if (blockers.size === 0) blockers.add('NO_LEADERSHIP_AFTER_ALL_CHECKS');
   const noLeadershipReason = liveLeadership
     ? 'LIVE_LEADERSHIP_CONFIRMED'
@@ -863,6 +868,12 @@ function buildGate2LeadershipAttribution(input: {
   if (!breakoutConfirmed) blockers.push('BREAKOUT_MOMENTUM_FAIL');
   if (relativeStrengthFailCount > 0) blockers.push('RELATIVE_STRENGTH_FAIL');
   if (volumeConfirmationFailCount > 0) blockers.push('VOLUME_CONFIRMATION_FAIL');
+  // ADR-0534 follow-up: promotion 허용 시 stale official blocker 제거 (Invariants 2/3/4) — 실제 blocker 는 보존.
+  if (promotionAllowed) {
+    for (let i = blockers.length - 1; i >= 0; i -= 1) {
+      if (STALE_SECTOR_ENERGY_BLOCKERS.includes(blockers[i])) blockers.splice(i, 1);
+    }
+  }
   if (blockers.length === 0) blockers.push('NO_LEADERSHIP_AFTER_ALL_CHECKS');
   const liveLeadership = promotionAllowed && input.gate2Pass > 0;
   const finalNoLeadershipReason = liveLeadership

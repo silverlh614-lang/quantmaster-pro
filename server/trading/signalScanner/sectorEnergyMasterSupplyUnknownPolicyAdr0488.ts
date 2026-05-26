@@ -1233,7 +1233,10 @@ function formatSectorEnergyPolicyViewsAdr0488(
     ?? sector.verifiedIndexCodeCoverage;
   const safeCoverage = pct(safeCoverageValue);
   const officialCoverage = pct(officialCoverageValue);
-  const officialStatus = officialCoverageValue < (sector.requiredPromotionCoverage ?? 80) ? 'PARTIAL' : sector.status;
+  // ADR-0534 follow-up: canonical 이 PASS 면 officialIndexView 는 VERIFIED 다 (legacy officialTarget 73.3% 가 PARTIAL 로 끌어내리지 못한다).
+  const officialStatus = canonical.promotionCoveragePass === true
+    ? 'VERIFIED'
+    : (officialCoverageValue < (sector.requiredPromotionCoverage ?? 80) ? 'PARTIAL' : sector.status);
   const groupedCount = `${sector.internalGroupedValidSectorCount ?? 0}/${sector.internalGroupedExpectedSectorCount ?? 0}`;
   const locked = lockSectorEnergyOutputToCanonical({
     legacyDataQualityDiagnosticOnly: sector.leadershipConfidence === 'VERIFIED' ? 'VERIFIED' : sector.status,

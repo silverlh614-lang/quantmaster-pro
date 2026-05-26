@@ -376,7 +376,9 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   const supplyProviderHealth = buildSupplyProviderHealth();
   if (!supplyProviderHealth.hasRecentSample) addReason(blockedBy, 'SUPPLY_PROVIDER_NO_SAMPLE');
   const sectorEnergyHealth = buildSectorEnergyHealth(summary);
-  if (sectorEnergyHealth.dataQuality && sectorEnergyHealth.dataQuality !== 'OK') addReason(blockedBy, 'SECTOR_ENERGY_DEGRADED');
+  // ADR-0534 follow-up (Invariant 9): canonical PASS 면 legacy dataQuality(PARTIAL) 로 SECTOR_ENERGY_DEGRADED 를 활성 blocker 로 올리지 않는다.
+  const sectorEnergyCanonicalPass = summary?.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState?.promotionCoveragePass === true;
+  if (!sectorEnergyCanonicalPass && sectorEnergyHealth.dataQuality && sectorEnergyHealth.dataQuality !== 'OK') addReason(blockedBy, 'SECTOR_ENERGY_DEGRADED');
   if (sectorEnergyHealth.leadershipConfidence === 'BLOCKED') addReason(blockedBy, 'SECTOR_ENERGY_LEADERSHIP_BLOCKED');
 
   const promotionAuditInputs = [

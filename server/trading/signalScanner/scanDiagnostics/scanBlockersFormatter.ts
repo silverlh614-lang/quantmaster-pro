@@ -982,24 +982,44 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
 
   if (summary.sectorEnergyQuality !== undefined) {
     lines.push('');
-    lines.push('🌐 <b>섹터 에너지 데이터 품질:</b>');
-    // ADR-0396 (= 사용자 명시 ADR-0371): 5단계 union — DEGRADED 신규 마커 추가.
-    const qualityIcon =
-      summary.sectorEnergyQuality === 'OK' ? '✅'
-      : summary.sectorEnergyQuality === 'PARTIAL' ? '🟡'
-      : summary.sectorEnergyQuality === 'STALE' ? '🟠'
-      : summary.sectorEnergyQuality === 'DEGRADED' ? '🔶'
-      : '❌';
-    lines.push(`  • dataQuality: ${qualityIcon} <b>${summary.sectorEnergyQuality}</b>`);
-    if (summary.validSectorCount !== undefined) {
-      lines.push(`  • validSectorCount: ${summary.validSectorCount}/12`);
-    }
-    if (summary.sectorEnergyReasons && summary.sectorEnergyReasons.length > 0) {
-      lines.push(`  • reasons: ${summary.sectorEnergyReasons.slice(0, 3).join('; ')}`);
-    }
-    // ADR-0396: FAILED 외 DEGRADED 도 DATA_INVALID 후보 (emptyScanClassifier wiring 정합).
-    if (summary.sectorEnergyQuality === 'FAILED' || summary.sectorEnergyQuality === 'DEGRADED') {
-      lines.push(`  • <i>${summary.sectorEnergyQuality} → emptyScanReason DATA_INVALID 자동 가중 (ADR-0127/0396)</i>`);
+    const sectorCanonical = summary.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState;
+    if (sectorCanonical && sectorCanonical.promotionCoveragePass === true) {
+      // ADR-0534 follow-up: canonical PASS → VERIFIED summary. legacy basket/PARTIAL 문구는 diagnosticOnly 로 강등 (Invariant 1).
+      lines.push('🌐 <b>SectorEnergy Summary:</b>');
+      lines.push('  • sourceOfTruth=SectorEnergyCanonicalResolver');
+      lines.push('  • status=VERIFIED');
+      lines.push('  • universeType=OFFICIAL_SECTOR_ONLY');
+      lines.push(`  • officialSectorCount=${sectorCanonical.officialSectorCount}`);
+      lines.push(`  • verifiedOfficialSectorCount=${sectorCanonical.verifiedOfficialSectorCount}`);
+      lines.push(`  • promotionCoverage=${(sectorCanonical.promotionCoverage * 100).toFixed(1)}%`);
+      lines.push(`  • promotionAllowed=${sectorCanonical.promotionAllowed}`);
+      lines.push(`  • sectorBoostAllowed=${sectorCanonical.sectorBoostAllowed}`);
+      lines.push(`  • strongBuyAllowed=${sectorCanonical.strongBuyAllowed}`);
+      lines.push('  • executionImpact=NONE');
+      lines.push(`  • <i>legacyDataQualityDiagnosticOnly=${summary.sectorEnergyQuality} collapsed=true</i>`);
+      if (summary.sectorEnergyReasons && summary.sectorEnergyReasons.length > 0) {
+        lines.push(`  • <i>diagnosticLegacyReason=${summary.sectorEnergyReasons.slice(0, 2).join('; ')} diagnosticOnly=true</i>`);
+      }
+    } else {
+      lines.push('🌐 <b>섹터 에너지 데이터 품질:</b>');
+      // ADR-0396 (= 사용자 명시 ADR-0371): 5단계 union — DEGRADED 신규 마커 추가.
+      const qualityIcon =
+        summary.sectorEnergyQuality === 'OK' ? '✅'
+        : summary.sectorEnergyQuality === 'PARTIAL' ? '🟡'
+        : summary.sectorEnergyQuality === 'STALE' ? '🟠'
+        : summary.sectorEnergyQuality === 'DEGRADED' ? '🔶'
+        : '❌';
+      lines.push(`  • dataQuality: ${qualityIcon} <b>${summary.sectorEnergyQuality}</b>`);
+      if (summary.validSectorCount !== undefined) {
+        lines.push(`  • validSectorCount: ${summary.validSectorCount}/12`);
+      }
+      if (summary.sectorEnergyReasons && summary.sectorEnergyReasons.length > 0) {
+        lines.push(`  • reasons: ${summary.sectorEnergyReasons.slice(0, 3).join('; ')}`);
+      }
+      // ADR-0396: FAILED 외 DEGRADED 도 DATA_INVALID 후보 (emptyScanClassifier wiring 정합).
+      if (summary.sectorEnergyQuality === 'FAILED' || summary.sectorEnergyQuality === 'DEGRADED') {
+        lines.push(`  • <i>${summary.sectorEnergyQuality} → emptyScanReason DATA_INVALID 자동 가중 (ADR-0127/0396)</i>`);
+      }
     }
   }
 
