@@ -37,6 +37,15 @@ interface RuntimeTraceModule {
   sourceSnapshotId: string;
 }
 
+export interface CanonicalForensicIds {
+  canonicalForensicId: string;
+  scanId: string;
+  sourceSnapshotId: string;
+  candidateSetId: string;
+  gateScoreInputSnapshotId: string;
+  candidateCount: number;
+}
+
 export interface CanonicalRuntimeResolutionStep27 {
   scanId: string;
   sourceSnapshotId: string;
@@ -195,6 +204,22 @@ function candidateCountOf(summary: ScanSummary | null): number {
 
 function sourceSnapshotIdOf(summary: ScanSummary | null): string {
   return summary?.snapshotId ?? summary?.scanEvaluation?.scanId ?? (summary?.time ? `scan-summary:${summary.time}` : 'NO_SCAN_SUMMARY');
+}
+
+// ADR-0528: 단일 canonical id 도출 SSOT. runtime trace 와 QMP Gate 헤더가 동일 id 를 공유하도록
+// summary 의 snapshotId/scanEvaluation 만 투영한다(LIVE 결정 재계산 0, legacyPathUsed 0).
+export function buildCanonicalForensicIds(summary: ScanSummary | null): CanonicalForensicIds {
+  const sourceSnapshotId = sourceSnapshotIdOf(summary);
+  const candidateCount = candidateCountOf(summary);
+  const scanId = summary?.scanEvaluation?.scanId ?? summary?.time ?? 'NO_SCAN_SUMMARY';
+  return {
+    canonicalForensicId: `forensic:${sourceSnapshotId}`,
+    scanId,
+    sourceSnapshotId,
+    candidateSetId: `candidateSet:${sourceSnapshotId}:${candidateCount}`,
+    gateScoreInputSnapshotId: `gateScoreInput:${sourceSnapshotId}`,
+    candidateCount,
+  };
 }
 
 function buildModule(input: {
@@ -942,9 +967,7 @@ export function formatRuntimeResolverTraceStep26(summary: ScanSummary | null): s
   const canonical = summary?.canonicalRuntimeResolution ?? buildCanonicalRuntimeResolutionStep27(summary);
   const sourceSnapshotId = canonical.sourceSnapshotId;
   const candidateCount = candidateCountOf(summary);
-  const scanId = canonical.scanId;
-  const candidateSetId = `candidateSet:${sourceSnapshotId}:${candidateCount}`;
-  const gateScoreInputSnapshotId = canonical.gateScoreInputSnapshotId;
+  const { scanId, candidateSetId, gateScoreInputSnapshotId } = buildCanonicalForensicIds(summary);
   const modules = buildModules(summary);
   const actualScope = canonical.kisInvestorFlow.finalGateScoreEligible
     ? {

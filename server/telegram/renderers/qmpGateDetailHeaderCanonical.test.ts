@@ -6,6 +6,7 @@ import { buildSnapshotBundleFromScanSummary } from './snapshotBundle.js';
 import { renderGateDetailSummary } from './gateDetailRenderer.js';
 import {
   buildQmpGateDetailHeaderView,
+  renderCanonicalForensicHeaderBlock,
   renderQmpGateDetailHeaderView,
 } from './qmpGateDetailHeaderCanonical.js';
 
@@ -327,6 +328,80 @@ describe('ADR-536a-3 QMP Gate Detail header field source correction', () => {
       expect(text).toContain('TopBlocks: SHADOW_ONLY_POLICY');
       expect(text).toContain('Entry: liveOrderCreated=0 shadowDiagnostic=3');
       expect(text).not.toContain('TopBlock: GATE3_DATA_INCOMPLETE');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('ADR-0528 canonical forensic view header (gate_full / scan_blockers full unification)', () => {
+  it('derives aligned canonical ids and split executionImpact lanes', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const view = buildQmpGateDetailHeaderView(shadowClosedSummary());
+
+      expect(view.canonical.canonicalForensicId).toBe('forensic:scan-eval-20260525234352');
+      expect(view.canonical.scanId).toBe('scan-eval-20260525234352');
+      expect(view.canonical.sourceSnapshotId).toBe('scan-eval-20260525234352');
+      expect(view.canonical.candidateSetId).toBe('candidateSet:scan-eval-20260525234352:43');
+      expect(view.canonical.gateScoreInputSnapshotId).toBe('gateScoreInput:scan-eval-20260525234352');
+      expect(view.canonical.viewSource).toBe('CanonicalGateForensicSnapshot');
+      expect(view.canonical.recomputed).toBe(false);
+      expect(view.canonical.legacyPathUsed).toBe(false);
+
+      // 불변식 #8: live 만 실거래 차단을 운반, 나머지 lane 은 항상 NONE.
+      expect(view.executionImpactLanes).toEqual({
+        live: 'NONE',
+        paper: 'NONE',
+        shadow: 'NONE',
+        learning: 'NONE',
+        counterfactual: 'NONE',
+      });
+
+      // 정합 summary 는 CANONICAL_VIEW_DIVERGENCE 를 만들지 않는다.
+      expect(view.missingSlices.some((slice) => slice.startsWith('[CANONICAL_VIEW_DIVERGENCE]'))).toBe(false);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('renders the shared [Canonical Forensic View] block and prepends it to the gate detail', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const view = buildQmpGateDetailHeaderView(shadowClosedSummary());
+      const block = renderCanonicalForensicHeaderBlock(view);
+
+      expect(block).toContain('[Canonical Forensic View]');
+      expect(block).toContain('canonicalForensicId=forensic:scan-eval-20260525234352');
+      expect(block).toContain('candidateSetId=candidateSet:scan-eval-20260525234352:43');
+      expect(block).toContain('viewSource=CanonicalGateForensicSnapshot');
+      expect(block).toContain('recomputed=false');
+      expect(block).toContain('legacyPathUsed=false');
+      expect(block).toContain('executionImpact: live=NONE paper=NONE shadow=NONE learning=NONE counterfactual=NONE');
+      expect(block).not.toContain('CANONICAL_VIEW_DIVERGENCE:');
+
+      const full = renderQmpGateDetailHeaderView(view);
+      expect(full.startsWith('[Canonical Forensic View]')).toBe(true);
+      expect(full.indexOf('[Canonical Forensic View]')).toBeLessThan(full.indexOf('[QMP Gate Detail]'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('keeps gate_full and scan_blockers full pinned to the same canonicalForensicId from one summary', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const summary = shadowClosedSummary();
+      // 두 명령어는 동일 getLastScanSummary → 동일 canonical view 를 렌더한다.
+      const gateFullView = buildQmpGateDetailHeaderView(summary);
+      const scanBlockersFullView = buildQmpGateDetailHeaderView(summary);
+
+      expect(renderCanonicalForensicHeaderBlock(scanBlockersFullView)).toBe(
+        renderCanonicalForensicHeaderBlock(gateFullView),
+      );
+      expect(scanBlockersFullView.canonical.canonicalForensicId).toBe(
+        gateFullView.canonical.canonicalForensicId,
+      );
     } finally {
       warn.mockRestore();
     }
