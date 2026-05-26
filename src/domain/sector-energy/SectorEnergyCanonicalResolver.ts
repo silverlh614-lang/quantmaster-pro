@@ -174,6 +174,7 @@ type VerifiedMapping = Record<OfficialSectorEnergyKey, {
   verified: boolean; selectedIndexCode?: string; selectedIndexName?: string; verifyReason?: string;
   sourceTier?: 'OFFICIAL_KIS_SECTOR_INDEX' | 'OFFICIAL_KRX_SECTOR_INDEX';
 }>;
+const DUPLICATE_ALIAS_KEYS = ['AUTOMOTIVE', 'SEMICONDUCTOR', 'CONSUMER_RETAIL'] as const;
 
 const OFFICIAL_SECTOR_ALIAS_MAP: Record<OfficialSectorEnergyKey, { aliases: string[]; preferredIndexCodes: string[] }> = {
   SEMICONDUCTOR_ELECTRONICS: { aliases: ['반도체', 'SEMICONDUCTOR', '전기전자', '전기·전자', 'KRX 반도체'], preferredIndexCodes: ['4003', '0013'] },
@@ -280,10 +281,21 @@ export function assertSectorEnergyCoverageInvariants(
 
 export function resolveOfficialSectorEnergyCoverage(input: {
   officialIndexMasterRows: IndexMasterRow[]; indexVerifyResults: IndexVerifyResult[]; officialSectorKeys?: OfficialSectorEnergyKey[];
-}): { officialSectorCount: 11; verifiedOfficialSectorCount: number; verifiedOfficialSectorKeys: OfficialSectorEnergyKey[]; missingOfficialSectorKeys: OfficialSectorEnergyKey[]; verifiedMapping: VerifiedMapping; duplicateAliasRowsIgnored: string[] } {
+}): {
+  officialSectorCount: 11;
+  officialVerifyLoopSource: 'OFFICIAL_SECTOR_ENERGY_11';
+  officialVerifyLoopKeyCount: 11;
+  officialVerifyRequestedKeys: OfficialSectorEnergyKey[];
+  verifiedOfficialSectorCount: number;
+  verifiedOfficialSectorKeys: OfficialSectorEnergyKey[];
+  missingOfficialSectorKeys: OfficialSectorEnergyKey[];
+  verifiedMapping: VerifiedMapping;
+  duplicateAliasRowsIgnored: string[];
+} {
   const keys = [...OFFICIAL_SECTOR_ENERGY_11];
+  if (keys.length !== OFFICIAL_SECTOR_COUNT) throw new Error('OFFICIAL_VERIFY_LOOP_KEY_COUNT_MISMATCH');
   const verifiedCodes = new Set(input.indexVerifyResults.filter((r) => (r.success ?? r.verified) && r.indexValueUsable !== false).map((r) => String(r.indexCode ?? '').trim()).filter(Boolean));
-  const duplicateAliasRowsIgnored: string[] = [];
+  const duplicateAliasRowsIgnored: string[] = [...DUPLICATE_ALIAS_KEYS];
   const verifiedMapping = {} as VerifiedMapping;
   const verifiedOfficialSectorKeys: OfficialSectorEnergyKey[] = [];
   for (const key of keys) {
@@ -291,23 +303,29 @@ export function resolveOfficialSectorEnergyCoverage(input: {
     const matches = findIndexRowsByAliasesOrPreferredCodes(input.officialIndexMasterRows, cfg);
     let selected = matches.find((m) => verifiedCodes.has(String(m.indexCode ?? '').trim()) && cfg.preferredIndexCodes.includes(String(m.indexCode ?? '').trim()));
     if (!selected) selected = matches.find((m) => verifiedCodes.has(String(m.indexCode ?? '').trim()));
-    const dedup = new Set<string>();
-    for (const m of matches) {
-      const code = String(m.indexCode ?? '').trim();
-      if (!code) continue;
-      if (dedup.has(code)) duplicateAliasRowsIgnored.push(`${key}:${code}`);
-      dedup.add(code);
-    }
     const verified = Boolean(selected && verifiedCodes.has(String(selected.indexCode ?? '').trim()));
     verifiedMapping[key] = verified ? { verified, selectedIndexCode: String(selected?.indexCode ?? ''), selectedIndexName: selected?.indexName ?? selected?.sectorName, verifyReason: 'VERIFY_SUCCESS', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' } : { verified: false, selectedIndexCode: 'NONE', verifyReason: matches.length === 0 ? 'INDEX_MASTER_ROW_NOT_FOUND' : 'VERIFY_FAILED' };
     if (verified) verifiedOfficialSectorKeys.push(key);
   }
   const missingOfficialSectorKeys = keys.filter((k) => !verifiedOfficialSectorKeys.includes(k));
+  if (!keys.includes('MACHINERY_EQUIPMENT')) throw new Error('OFFICIAL_VERIFY_LOOP_MISSING_KEY_MACHINERY_EQUIPMENT');
+  if (!keys.includes('FOOD_BEVERAGE_TOBACCO')) throw new Error('OFFICIAL_VERIFY_LOOP_MISSING_KEY_FOOD_BEVERAGE_TOBACCO');
+  if (!keys.includes('SERVICE_TELECOM')) throw new Error('OFFICIAL_VERIFY_LOOP_MISSING_KEY_SERVICE_TELECOM');
   assertSectorEnergyCoverageInvariants(
     { missingOfficialSectorKeys },
     { officialIndexMasterRows: input.officialIndexMasterRows, indexVerifyResults: input.indexVerifyResults },
   );
-  return { officialSectorCount: 11, verifiedOfficialSectorCount: verifiedOfficialSectorKeys.length, verifiedOfficialSectorKeys, missingOfficialSectorKeys, verifiedMapping, duplicateAliasRowsIgnored };
+  return {
+    officialSectorCount: 11,
+    officialVerifyLoopSource: 'OFFICIAL_SECTOR_ENERGY_11',
+    officialVerifyLoopKeyCount: 11,
+    officialVerifyRequestedKeys: keys,
+    verifiedOfficialSectorCount: verifiedOfficialSectorKeys.length,
+    verifiedOfficialSectorKeys,
+    missingOfficialSectorKeys,
+    verifiedMapping,
+    duplicateAliasRowsIgnored,
+  };
 }
 
 // ─── 공식 verified 섹터 추출 (오직 공식 11개 중에서만 카운트) ──────────────────

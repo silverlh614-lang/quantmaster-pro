@@ -389,9 +389,13 @@ describe('resolveOfficialSectorEnergyCoverage — per-key mapping from real veri
 
   it('resolves all 11 official keys verified → count 11, missing empty', () => {
     const coverage = resolveOfficialSectorEnergyCoverage(fullCoverageInputs());
+    expect(coverage.officialVerifyLoopSource).toBe('OFFICIAL_SECTOR_ENERGY_11');
+    expect(coverage.officialVerifyLoopKeyCount).toBe(11);
+    expect(coverage.officialVerifyRequestedKeys).toEqual([...OFFICIAL_SECTOR_ENERGY_11]);
     expect(coverage.verifiedOfficialSectorCount).toBe(11);
     expect(coverage.missingOfficialSectorKeys).toEqual([]);
     expect(coverage.verifiedOfficialSectorKeys).toEqual([...OFFICIAL_SECTOR_ENERGY_11]);
+    expect(coverage.duplicateAliasRowsIgnored).toEqual(['AUTOMOTIVE', 'SEMICONDUCTOR', 'CONSUMER_RETAIL']);
   });
 
   it('CONSUMER_RETAIL verified by code 0016 is never reported missing', () => {
