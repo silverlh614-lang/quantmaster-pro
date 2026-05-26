@@ -167,6 +167,30 @@ function derivePromotionReadinessStatus(input: {
   if (input.labeledCount === 0) return 'BLOCKED_NO_LABELED_COUNTERFACTUAL';
   return 'DIAGNOSTIC_ONLY';
 }
+
+export function deriveFreshShadowDisplay(input: {
+  marketSession: string;
+  freshSampleSize: number;
+  queuedNextOpenShadowScan: boolean;
+  shadowScanLifecycleStatus?: string;
+  lastShadowScanResult?: string;
+}) {
+  if (input.shadowScanLifecycleStatus === 'FAILED') return { status: 'SCAN_FAILED', severity: 'ERROR', reason: 'SHADOW_SCAN_PIPELINE_FAILED', operatorAction: 'CHECK_SHADOW_SCAN_PIPELINE' };
+  if (input.marketSession === 'CLOSED' && input.queuedNextOpenShadowScan && input.freshSampleSize === 0) return { status: 'WAITING_NEXT_OPEN', severity: 'INFO', reason: 'MARKET_CLOSED_WAITING_NEXT_SHADOW_SCAN', operatorAction: 'WAIT_NEXT_OPEN' };
+  if (input.marketSession === 'REGULAR' && input.freshSampleSize === 0 && input.lastShadowScanResult !== 'SHADOW_SCAN_SCHEDULED') return { status: 'ZERO_DURING_MARKET', severity: 'WARN', reason: 'NO_FRESH_SAMPLE_DURING_MARKET', operatorAction: 'CHECK_SCAN_INPUT_OR_GATE_BLOCKERS' };
+  return { status: input.freshSampleSize > 0 ? 'ACTIVE' : 'WAITING_NEXT_OPEN', severity: 'INFO', reason: 'FRESH_SHADOW_INLET_ACTIVE', operatorAction: 'MONITOR' };
+}
+
+export function deriveCounterfactualDisplay(input: {
+  nearestMaturityAt?: string;
+  labeledCount: number;
+  resolvableNow: number;
+}) {
+  const nearestTs = input.nearestMaturityAt ? new Date(input.nearestMaturityAt).getTime() : NaN;
+  const matured = Number.isFinite(nearestTs) && Date.now() > nearestTs;
+  if (matured && input.resolvableNow > 0 && input.labeledCount === 0) return { status: 'WAITING_MATURITY', severity: 'ERROR', blocker: 'COUNTERFACTUAL_RESOLVER_NOT_LABELING_AFTER_MATURITY', operatorAction: 'CHECK_COUNTERFACTUAL_RESOLVER' };
+  return { status: 'WAITING_MATURITY', severity: 'INFO', blocker: 'NO_LABELED_COUNTERFACTUAL', operatorAction: 'WAIT_COUNTERFACTUAL_MATURITY' };
+}
 export function collectLearningPulse(now: Date = new Date()) {
   const errors: string[] = [];
   const v2 = collectLearningPulseV2(now);
@@ -380,6 +404,18 @@ function formatLearningPulseMessageBase(s: ReturnType<typeof collectLearningPuls
   return [`🩺 Learning Pulse v5 (${s.todayKst})`, `Legacy Pulse v4: operational=false / status=LEGACY_SNAPSHOT`, `🌱 Fresh Shadow: todayFreshCandidates ${s.freshShadow.todayFreshCandidates} / freshOpen ${s.freshShadow.freshShadowOpen} / freshClosed7d ${s.freshShadow.freshShadowClosed7d} / freshSampleSize ${s.freshPromotion.freshSampleSize} / freshExpectancyR ${typeof s.freshPromotion.freshExpectancyR === 'number' ? s.freshPromotion.freshExpectancyR.toFixed(4) : 'N/A'} / reason ${s.freshPromotion.freshExpectancyReason ?? 'OK'} / freshLifecycleBreaks ${s.freshShadow.lifecycleBreaks} / blocker ${s.freshPromotion.blocker}`, `🧪 Counterfactual: candidateCount ${s.counterfactual.candidateCount} / eligibleCount ${s.counterfactual.eligibleCount} / buildEventCount ${s.counterfactual.buildEventCount} / builtUniqueCount ${s.counterfactual.builtUniqueCount} / duplicateSuppressedCount ${s.counterfactual.duplicateSuppressedCount} / labeledCount ${s.counterfactual.labeledCount} / pendingOutcomeCount ${s.counterfactual.pendingOutcomeCount} / dataInsufficientCount ${s.counterfactual.dataInsufficientCount} / quarantinedCount ${s.counterfactual.quarantinedCount} / expiredCount ${s.counterfactual.expiredCount} / unresolvedCount ${s.counterfactual.unresolvedCount} / countInvariantValid ${s.counterfactual.countInvariantValid} / blocker ${s.counterfactual.blocker}`, `🚦 Promotion: basis=${s.freshPromotion.basis} / promotionTier=${s.freshPromotion.promotionTier} / freshSampleSize=${s.freshPromotion.freshSampleSize} / requiredFreshSamples=${s.freshPromotion.requiredFreshSamples} / promotionAllowed=${s.freshPromotion.promotionAllowed} / blockers=${s.freshPromotion.blockers.join(', ') || s.freshPromotion.blocker}`, `👻 Ghost Portfolio: OPEN ${s.ghost.open} / 7일 close ${s.ghost.closedRecent7d} / closeRate7d ${(s.ghost.closeRate7d*100).toFixed(1)}%`, `📊 Attribution: ${s.attribution7d.count}/${s.attribution7d.target} (7d) / starvationReason ${s.attribution.starvationReason}${s.attribution.previousStarvationReason ? ` / previousStarvationReason ${s.attribution.previousStarvationReason}` : ''}`, `⚖️ Condition Weights: changed ${s.weights.changedFromDefault} / untouched ${s.weights.untouched} / sunset ${s.weights.sunsetCount}`, `🔔 Suggest Metrics: suggestSignals7d ${suggestSignals7d} / diagnosticProposals7d ${s.diagnosticProposals7d} / counterfactualBuiltButUnlabeled ${s.counterfactualBuiltButUnlabeled} / counterfactualLabeledInputSamples ${s.counterfactualLabeledInputSamples} / suggestInputSamples ${s.suggestInputSamples} / autoApplied7d 0 / totalDiagnosticEvents7d ${s.diagnosticProposals7d} / blocker ${s.suggest.blocker} / status DIAGNOSTIC_ONLY / legacyTotal7d ${totalSuggest}`, `🧪 Experiment Proposal: active=${s.experimentsActive} / diagnosticProposals7d=${s.diagnosticProposals7d} / autoApply=false / executionImpact=NONE`, `🤖 Gemini: month=${s.gemini.month} / callCount=${s.gemini.callCount} / tokensUsed=${s.gemini.tokensUsed} / useRatio=${s.gemini.useRatio} / schedulerStatus=${s.gemini.schedulerStatus} / recommendationOnly=${s.gemini.recommendationOnly}`, s.metricWarnings.length ? `⚠️ metricWarnings=${JSON.stringify(s.metricWarnings)}` : '', s.flags.length ? `🚩 진단 플래그: ${s.flags.join(', ')}` : '✅ 모든 채널 정상', s.partialFailure ? '⚠️ 데이터 일부 미확인 — 손상/누락 저장소가 있어 가능한 영역만 표시' : ''].filter(Boolean).join('\n');
 }
 export function formatLearningPulseMessage(s: ReturnType<typeof collectLearningPulse>): string {
+  const freshShadowDisplay = deriveFreshShadowDisplay({
+    marketSession: (s.freshShadowInlet as any).marketSession ?? 'CLOSED',
+    freshSampleSize: s.freshPromotion.freshSampleSize,
+    queuedNextOpenShadowScan: Boolean((s.freshShadowInlet as any).queuedNextOpenShadowScan),
+    shadowScanLifecycleStatus: (s as any).shadowScanLifecycleStatus,
+    lastShadowScanResult: (s.freshShadowInlet as any).lastShadowScanResult,
+  });
+  const counterfactualDisplay = deriveCounterfactualDisplay({
+    nearestMaturityAt: s.counterfactualMaturity.nearestMaturityAt ?? undefined,
+    labeledCount: s.counterfactual.labeledCount,
+    resolvableNow: s.counterfactualResolver.resolvableNow,
+  });
   const runtimePolicy = resolveEngineRuntimePolicy({
     engineMode: 'OBSERVE_ONLY',
     liveBuyGateAllowed: false,
@@ -389,6 +425,22 @@ export function formatLearningPulseMessage(s: ReturnType<typeof collectLearningP
     ? 'N/A'
     : String(s.regimeLearning.activeRegimeExpectancyR);
   const extra = [
+    '1. Overall Learning Core',
+    `status=${counterfactualDisplay.severity === 'ERROR' ? 'RESOLVER_ATTENTION_REQUIRED' : 'NORMAL_WAITING_MATURITY'} / executionImpact=NONE / operatorAction=${counterfactualDisplay.operatorAction}`,
+    '2. Execution Policy',
+    `finalExecutionPolicy=SHADOW_AND_DIAGNOSTIC_ONLY / liveEntryAllowed=false / shadowLearningAllowed=true / counterfactualAllowed=true / brokerOrderAllowed=false / reason=OBSERVE_ONLY_MODE`,
+    '3. Fresh Shadow',
+    `status=${freshShadowDisplay.status} / sampleSize=${s.freshPromotion.freshSampleSize} / reason=${freshShadowDisplay.reason} / severity=${freshShadowDisplay.severity} / operatorAction=${freshShadowDisplay.operatorAction}`,
+    '4. Counterfactual',
+    `built=${s.counterfactual.builtUniqueCount} / pending=${s.counterfactual.pendingOutcomeCount} / labelableNow=${s.counterfactualResolver.resolvableNow} / labeled=${s.counterfactual.labeledCount} / status=${counterfactualDisplay.status} / severity=${counterfactualDisplay.severity} / promotionBlocker=${counterfactualDisplay.blocker}`,
+    '5. Gate Learning',
+    `Gate3 status=${s.gate3LearningFinalization.finalizationStatus ?? 'COMPLETE'} / completionScore=${s.gate3LearningFinalization.completionScore ?? 100}`,
+    '6. Regime Learning',
+    `activeRegime=${s.regimeLearning.activeRegime} / status=COLLECTING_PENDING_OUTCOMES / resolved=${s.regimeLearning.activeRegimeResolvedSampleSize}/100 / pending=${s.regimeLearning.activeRegimePendingCounterfactualCount} / severity=INFO`,
+    '7. Promotion Readiness',
+    `corePromotionAllowed=false / reason=NO_LABELED_COUNTERFACTUAL / advisoryPromotionAllowed=false / diagnosticAllowed=true`,
+    '8. Advisory / Optional Warnings',
+    `LOW_CONFIDENCE_REGIME_BACKFILL=display-only / GeminiScheduler=${s.geminiScheduler.schedulerStatus} recommendationOnly=${s.geminiScheduler.recommendationOnly}`,
     formatEngineRuntimePolicy(runtimePolicy),
     `🛡️ SafetyGate: enabled=${s.phase3A.safetyGate.enabled} / sampleSize=${s.phase3A.safetyGate.sampleSize} / status=${s.phase3A.safetyGate.status}`,
     `📐 ShadowLiveDelta: enabled=${s.phase3A.shadowLiveDelta.enabled} / lastRunAt=${s.phase3A.shadowLiveDelta.lastRunAt ?? 'N/A'} / status=${s.phase3A.shadowLiveDelta.status}`,
