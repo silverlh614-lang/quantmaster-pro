@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-SECTOR-INDEX-VERIFY-CANDIDATE-EXPANSION-LEVER1-001 · sector-energy, SectorIndexCodeMap, expandedVerifyInputCandidates, collectSafeAliasFamilyRows, KOSPI/KOSDAQ-0xxx-before-KRX-series-4xxx, verifyInputCandidates-only, coverage-unchanged, qualityUsable, executionImpact-NONE
 - 2026-05-26 · Patch-CANONICAL-GATE-FORENSIC-VIEW-ADR0528-001 · gate_full, scan_blockers, canonicalForensicId, buildCanonicalForensicIds, QmpGateDetailHeaderView.canonical, executionImpact-lane-split, validateCanonicalViewConsistency, CANONICAL_VIEW_DIVERGENCE, display-only
 - 2026-05-26 · Patch-KIS-FINANCE-CACHEHIT-FIX-ADR0532-001 · gate2, getGate2DartFinancialsForEvaluation, cache-hit-gap, flag-on-bypass-PER-less-legacy-DART-cache, KIS-primary-recompute-recache, self-correcting-migration, flag-off-byte-equivalent
 - 2026-05-26 · Patch-KIS-FINANCE-READ-ADR0532-PHASE3-001 · gate2, getGate2DartFinancialsForEvaluation, KIS-primary-roe/opm/per, mergeKisPrimaryWithDartResidual, ICR/OCF-DART-residual, KIS_FINANCE_PRIMARY_ENABLED, dualization-resolved
