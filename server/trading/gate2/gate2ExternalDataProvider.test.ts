@@ -461,6 +461,34 @@ describe('Gate2ExternalDataProvider', () => {
     expect(record?.projection?.executionImpact).toBe('NONE');
   });
 
+  it('ADR-0532 Phase 3: KIS financials become primary (roe/opm/per) when flag on + DART null', async () => {
+    process.env.KIS_APP_KEY = 'test-app-key';
+    process.env.KIS_APP_SECRET = 'test-app-secret';
+    process.env.KIS_FINANCE_PRIMARY_ENABLED = 'true';
+    // DART_API_KEY unset → DART null. KIS finance + PER served via overrides (by trId).
+    setKisClientOverrides({
+      realDataKisGet: async (trId: string) => {
+        if (trId === 'FHKST66430300') return { output: [{ stac_yymm: '202412', roe_val: '18.0', lblt_rate: '40', eps: '5000', bps: '40000' }] };
+        if (trId === 'FHKST66430200') return { output: [{ sale_account: '1000', op_prfi: '200', thtr_ntin: '150' }] };
+        if (trId === 'FHKST01010100') return { output: { per: '12.0', stck_prpr: '60000', eps: '5000' } };
+        return {};
+      },
+    });
+
+    const fin = await getGate2DartFinancialsForEvaluation('334466');
+    expect(fin?.roe).toBeCloseTo(18); // KIS roe_val primary
+
+    const record = getGate2ExternalCacheRecord('334466');
+    expect(record?.projection?.profitability?.roe).toBeCloseTo(18);
+    expect(record?.projection?.profitability?.opm).toBeCloseTo(20); // 200/1000*100 from KIS income-statement
+    expect(record?.projection?.conditionResults?.roe?.status).toBe('PASS');
+    expect(record?.projection?.conditionResults?.opm?.status).toBe('PASS');
+    expect(record?.projection?.valuation?.per?.per).toBe(12); // PER from KIS inquire-price
+    // KIS 미가용 — DART null → ICR unavailable (DART 잔존 책임)
+    expect(record?.projection?.conditionResults?.icr?.status).toBe('UNAVAILABLE');
+    expect(record?.projection?.executionImpact).toBe('NONE');
+  });
+
   it('flag OFF: DART-null returns null and does NOT call KIS PER (byte-equivalent)', async () => {
     process.env.KIS_APP_KEY = 'test-app-key';
     process.env.KIS_APP_SECRET = 'test-app-secret';
