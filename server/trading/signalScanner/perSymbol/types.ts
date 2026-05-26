@@ -47,6 +47,13 @@ export interface BuyListLoopMutables {
  */
 export interface BuyListLoopContext {
   // read-only 입력
+  /**
+   * ADR-0528: 결정 로그 상관 키(SourceSnapshot id, log-only carry). 단계별 가용성 인정 —
+   * 부재 시 'NA'. 결정 로직은 본 필드를 절대 읽지 않는다(log enrichment 전용).
+   */
+  sourceSnapshotId?: string;
+  /** ADR-0528: Step27 후보 집합 id(log-only carry). 결정 분기에서 사용 금지. */
+  candidateSetId?: string;
   buyList: WatchlistEntry[];
   swingList: WatchlistEntry[];
   watchlist: WatchlistEntry[];

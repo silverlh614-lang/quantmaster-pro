@@ -5,6 +5,10 @@
 
 import { describeEmptyScanReason } from '../emptyScanClassifier.js';
 import { formatPreflightBlockedScanSection, getLastPreflightBlockedScanSummary } from '../preflightBlockedScanSummary.js';
+import {
+  buildPreflightCanonicalReconciliation,
+  formatPreflightCanonicalReconciliationSection,
+} from './preflightCanonicalReconciliation.js';
 import { formatR3NoiseGovernorCompactLine } from '../r3NoiseGovernor.js';
 import { formatPreBreakoutWaitSummarySection } from '../preBreakoutWaitPolicy.js';
 import { formatShadowNearBreakoutSection, type ShadowNearBreakoutBlockReason } from '../shadowNearBreakoutEntryPolicy.js';
@@ -42,7 +46,7 @@ import { formatGate1SurvivalAuditSection, formatGate2CoverageAuditSection, forma
 import { formatGate3ThresholdEvidenceSection } from '../../../quant/gate3EvidenceScore.js';
 import { formatGate3EvidenceWarmupSection } from '../../../quant/gate3EvidenceWarmup.js';
 import { formatGate3FinalizationSection } from '../../../quant/gate3CompletionScore.js';
-import { formatScanEvaluationSection } from '../state/scanEvaluationState.js';
+import { formatScanEvaluationSection, resolveScanMarketSessionView } from '../state/scanEvaluationState.js';
 import { emitScanDiagnosticBuildFailedWarn } from '../state/scanDiagnosticSuppressor.js';
 import { formatFrozenQuoteSection, formatPriceCorrectionOverlaySection, formatPriceIntegritySection, formatR3StreakSkipLine } from './sectionFormatters.js';
 import { getRegimePositionPolicy } from '../../sizing/regimePositionPolicy.js';
@@ -68,6 +72,10 @@ function formatterGetByPath(obj: unknown, path: string): unknown {
 
 function formatterFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function formatterCount(value: unknown): number {
+  return formatterFiniteNumber(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 
 function formatterRatioFromMaybePercent(value: unknown): number {
@@ -219,25 +227,14 @@ function parseSummaryDate(summary: ScanSummary): Date | null {
 
 function resolvePermissionView(summary: ScanSummary) {
   const mg = summary.macroGateState;
-  const rawSession = mg?.displaySession ?? mg?.canonicalSession ?? summary.scanEvaluation?.marketSessionState ?? 'UNKNOWN';
-  const parsed = parseSummaryDate(summary);
-  const kstDay = parsed ? new Date(parsed.getTime() + 9 * 60 * 60 * 1000).getUTCDay() : null;
-  const weekend = kstDay === 0 || kstDay === 6;
-  const session = formatterUpper(rawSession);
-  const canonicalSession = weekend
-    ? 'HOLIDAY'
-    : session === 'HOLIDAY' || session === 'NON_TRADING_DAY'
-      ? 'HOLIDAY'
-      : ['CLOSED', 'AFTERMARKET', 'AFTER_MARKET', 'POST_CLOSE', 'PRE_MARKET'].includes(session)
-        ? 'CLOSED'
-        : ['BUY_ALLOWED', 'OPEN', 'REGULAR_OPEN', 'NORMAL'].includes(session)
-          ? 'REGULAR_OPEN'
-          : session || 'UNKNOWN';
-  const displaySession = canonicalSession === 'HOLIDAY'
-    ? 'HOLIDAY_SHADOW_OBSERVE'
-    : canonicalSession === 'CLOSED'
-      ? 'CLOSED_SHADOW_OBSERVE'
-      : rawSession;
+  const sessionView = resolveScanMarketSessionView({
+    explicitMarketSessionState: summary.scanEvaluation?.marketSessionState,
+    macroGateState: mg,
+    asOf: summary.scanEvaluation?.asOf ?? parseSummaryDate(summary)?.toISOString(),
+    timeLabel: summary.time,
+  });
+  const canonicalSession = sessionView.canonicalSession;
+  const displaySession = sessionView.displaySession;
   const displayRegime = mg?.displayRegime ?? mg?.regime ?? summary.scanEvaluation?.engineMode ?? 'UNKNOWN';
   const engineMode = mg?.engineMode ?? summary.scanEvaluation?.engineMode ?? displayRegime;
   const shadowOnly = formatterUpper(engineMode) === 'SHADOW_ONLY'
@@ -247,6 +244,7 @@ function resolvePermissionView(summary: ScanSummary) {
   const brokerRouteAlive = mg?.brokerRouteAlive ?? mg?.brokerOrderAllowed ?? true;
   const brokerLiveOrderAllowed = mg?.brokerLiveOrderAllowed ?? (brokerRouteAlive === true && liveSession && !shadowOnly && mg?.liveEntryAllowed === true);
   const brokerExitOrderAllowed = mg?.brokerExitOrderAllowed ?? (brokerRouteAlive === true && liveSession && !shadowOnly && mg?.liveExitAllowed === true);
+  const liveOrderAllowed = brokerLiveOrderAllowed === true && !shadowOnly && liveSession;
   const paperOrderAllowed = mg?.paperOrderAllowed ?? true;
   const shadowAllowed = mg?.shadowAllowed ?? mg?.shadowBuyAllowed ?? true;
   const counterfactualAllowed = mg?.counterfactualAllowed ?? true;
@@ -255,9 +253,10 @@ function resolvePermissionView(summary: ScanSummary) {
     displaySession,
     engineMode,
     displayRegime,
-    liveEntryAllowed: brokerLiveOrderAllowed,
+    liveEntryAllowed: liveOrderAllowed,
+    liveOrderAllowed,
     brokerRouteAlive,
-    brokerLiveOrderAllowed,
+    brokerLiveOrderAllowed: liveOrderAllowed,
     brokerExitOrderAllowed,
     paperOrderAllowed,
     shadowAllowed,
@@ -268,6 +267,18 @@ function resolvePermissionView(summary: ScanSummary) {
       ? 'Holiday blocks live broker orders; paper/shadow observation remains allowed.'
       : 'Paper/shadow observation permission is separate from live broker orders.',
   };
+}
+
+function scanEvaluationForDisplay(summary: ScanSummary): ScanSummary['scanEvaluation'] {
+  const scanEvaluation = summary.scanEvaluation;
+  if (!scanEvaluation) return undefined;
+  const sessionView = resolveScanMarketSessionView({
+    explicitMarketSessionState: scanEvaluation.marketSessionState,
+    macroGateState: summary.macroGateState,
+    asOf: scanEvaluation.asOf,
+    timeLabel: summary.time,
+  });
+  return { ...scanEvaluation, marketSessionState: sessionView.marketSessionState };
 }
 
 function sectorEnergyQualityDiagnosticForDisplay(summary: ScanSummary): SectorEnergyQualityDiagnostic | undefined {
@@ -731,10 +742,26 @@ function formatRuntimeWiringSummary(
       ? rawRegime
       : legacyEffectiveRegime;
   const permissionView = resolvePermissionView(summary);
-  const liveCandidates = summary.liveEligibleCount ?? 0;
-  const liveCreated = summary.entries ?? 0;
-  const liveBlocked = Math.max(0, liveCandidates - liveCreated);
-  const watchOnlyPreserved = softLane?.gate2PendingPreserved ?? 0;
+  const explicitLane = summary.entryLaneSplit;
+  const shadowOnly = formatterUpper(permissionView.engineMode) === 'SHADOW_ONLY'
+    || formatterUpper(permissionView.displayRegime) === 'SHADOW_ONLY';
+  const liveCandidates = formatterCount(explicitLane?.liveCandidates ?? summary.liveEligibleCount);
+  const rawLiveOrderCreated = formatterCount(explicitLane?.liveOrderCreated);
+  const liveOrderCreated = shadowOnly ? 0 : rawLiveOrderCreated;
+  const liveBlockedByPolicy = explicitLane?.liveBlockedByPolicy !== undefined
+    ? formatterCount(explicitLane.liveBlockedByPolicy)
+    : (permissionView.liveOrderAllowed ? 0 : liveCandidates);
+  const shadowDiagnosticCreated = formatterCount(
+    explicitLane?.shadowDiagnosticCreated ??
+      (shadowOnly ? Math.max(formatterCount(summary.entries), formatterCount(summary.provisionalShadowLane?.created)) : summary.provisionalShadowLane?.created),
+  );
+  const shadowOrderCreated = formatterCount(explicitLane?.shadowOrderCreated);
+  const lanePaperExecutableCreated = formatterCount(explicitLane?.paperExecutableCreated ?? paperExecutableCreatedCount);
+  const lanePaperObservationalCreated = formatterCount(explicitLane?.paperObservationalCreated ?? paperObservationalCreatedCount);
+  const counterfactualCreated = formatterCount(explicitLane?.counterfactualCreated ?? counterfactualLedgerRowsCreated);
+  const watchOnlyPreserved = formatterCount(explicitLane?.watchOnlyPreserved ?? softLane?.gate2PendingPreserved);
+  const liveOrderBreach = shadowOnly && rawLiveOrderCreated > 0;
+  const noLiveOrder = liveOrderCreated === 0 && permissionView.brokerLiveOrderAllowed === false && permissionView.executionImpact === 'NONE';
 
   const lines = [
     '🧩 <b>Runtime Wiring Summary</b>',
@@ -783,8 +810,20 @@ function formatRuntimeWiringSummary(
     }).join('|') : '-'}`,
     ...(paper.missingInputReasons?.length ? [`- paperEntryMissingInputReason=${paper.missingInputReasons.join('|')}`] : []),
     `- paperStatisticsSeparation=observationalExcludedFromExecutablePnL:true,winRate:true,rMultiple:true,entrySuccessRate:true; includedIn=nearMiss,preBreakoutObservation,forwardReturn1D3D5D,counterfactual,shadowPromotionAudit`,
-    `- Entry Lane Split: liveCandidates=${liveCandidates} liveCreated=${liveCreated} liveBlocked=${liveBlocked} paperCandidates=${paperEntryCandidateCount} paperExecutableCreated=${paperExecutableCreatedCount} paperObservationalCreated=${paperObservationalCreatedCount} paperSkipped=${paperEntrySkippedCount} shadowCandidates=${shadowObservableSoftCount} shadowCreated=${summary.provisionalShadowLane?.created ?? 0} counterfactualCreated=${counterfactualLedgerRowsCreated} watchOnlyPreserved=${watchOnlyPreserved}`,
-    `- Permission Resolution: canonicalSession=${permissionView.canonicalSession} displaySession=${permissionView.displaySession} liveEntryAllowed=${permissionView.liveEntryAllowed} engineMode=${permissionView.engineMode} brokerRouteAlive=${permissionView.brokerRouteAlive} brokerLiveOrderAllowed=${permissionView.brokerLiveOrderAllowed} brokerExitOrderAllowed=${permissionView.brokerExitOrderAllowed} paperOrderAllowed=${permissionView.paperOrderAllowed} shadowAllowed=${permissionView.shadowAllowed} watchAllowed=${permissionView.watchAllowed} counterfactualAllowed=${permissionView.counterfactualAllowed} executionImpact=${permissionView.executionImpact} note=${permissionView.note}`,
+    ...(shadowDiagnosticCreated > 0 ? [`- Shadow diagnostic entry: ${shadowDiagnosticCreated}개`] : []),
+    `- 실거래 주문: ${liveOrderCreated}개${noLiveOrder ? ' (실거래 없음)' : ''}`,
+    ...(liveOrderBreach ? ['- CRITICAL_PERMISSION_BREACH: SHADOW_ONLY_LIVE_ORDER_CREATED'] : []),
+    '- Entry Lane Split:',
+    `  liveCandidates=${liveCandidates}`,
+    `  liveOrderCreated=${liveOrderCreated}`,
+    `  liveBlockedByPolicy=${liveBlockedByPolicy}`,
+    `  shadowDiagnosticCreated=${shadowDiagnosticCreated}`,
+    `  shadowOrderCreated=${shadowOrderCreated}`,
+    `  paperExecutableCreated=${lanePaperExecutableCreated}`,
+    `  paperObservationalCreated=${lanePaperObservationalCreated}`,
+    `  counterfactualCreated=${counterfactualCreated}`,
+    `  watchOnlyPreserved=${watchOnlyPreserved}`,
+    `- Permission Resolution: canonicalSession=${permissionView.canonicalSession} displaySession=${permissionView.displaySession} liveEntryAllowed=${permissionView.liveEntryAllowed} liveOrderAllowed=${permissionView.liveOrderAllowed} engineMode=${permissionView.engineMode} brokerRouteAlive=${permissionView.brokerRouteAlive} brokerLiveOrderAllowed=${permissionView.brokerLiveOrderAllowed} brokerExitOrderAllowed=${permissionView.brokerExitOrderAllowed} paperOrderAllowed=${permissionView.paperOrderAllowed} shadowAllowed=${permissionView.shadowAllowed} watchAllowed=${permissionView.watchAllowed} counterfactualAllowed=${permissionView.counterfactualAllowed} executionImpact=${permissionView.executionImpact} note=${permissionView.note}`,
     `- Provider penalty: ${canonical.providerPenalty.penaltyScope}`,
     `- Sizing: advisory only / hardBlock=${canonical.sizing.hardBlockCount}`,
     `- Regime: raw=${rawRegime} effective=${effectiveRegime} display=${displayRegime} riskOverride=${riskOverride}`,
@@ -826,7 +865,14 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // _lastPreflightBlockedScanSummary 가 non-null 이면 항상 "직전 스캔 = preflight 차단" 을 의미한다.
   const preflightBlocked = getLastPreflightBlockedScanSummary();
   if (preflightBlocked) {
-    return formatPreflightBlockedScanSection(preflightBlocked);
+    // Patch: Page 1 을 frozen preflight 단독이 아니라 runtime truth 와 reconcile 한 canonical 요약으로 표시.
+    // gate_full(=formatScanBlockersMessage) 과 scan_blockers full 이 동일 payload 를 공유하므로 양쪽 모두 정합.
+    const reconciliation = buildPreflightCanonicalReconciliation(summary, preflightBlocked);
+    return [
+      formatPreflightCanonicalReconciliationSection(reconciliation),
+      '',
+      formatPreflightBlockedScanSection(preflightBlocked),
+    ].join('\n');
   }
   if (!summary) {
     return '📊 <b>[매수 차단 사유]</b>\n━━━━━━━━━━━━━━━━\n진단 데이터 없음 (스캔 미실행).';
@@ -836,6 +882,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     summary.canonicalRuntimeResolution ?? buildCanonicalRuntimeResolutionStep27(summary);
   const wd = summary.waitDistribution;
   const mg = summary.macroGateState;
+  const permissionViewForSummary = resolvePermissionView(summary);
+  const shadowOnlyForSummary = formatterUpper(permissionViewForSummary.engineMode) === 'SHADOW_ONLY'
+    || formatterUpper(permissionViewForSummary.displayRegime) === 'SHADOW_ONLY';
+  const shadowDiagnosticEntriesForSummary = shadowOnlyForSummary
+    ? Math.max(formatterCount(summary.entries), formatterCount(summary.provisionalShadowLane?.created))
+    : 0;
   const lines: string[] = [];
   lines.push(`📊 <b>[매수 차단 사유 분포]</b> 직전 스캔 (${summary.time})`);
   lines.push('━━━━━━━━━━━━━━━━');
@@ -857,6 +909,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     const positionPolicy = getRegimePositionPolicy(policyViewRegime || canonicalEffectiveRegime);
     const permissionView = resolvePermissionView(summary);
     lines.push(`  • 레짐: display=${displayRegime} effective=${canonicalEffectiveRegime} (policyView=${policyViewRegime || canonicalEffectiveRegime}, 총노출 ${positionPolicy.maxGrossExposurePct}%, 종목당 ${positionPolicy.perPositionPct}%)`);
+    lines.push(`  • Kelly ×${mg.finalKellyMultiplier.toFixed(2)} (regime ×${mg.kellyMultiplierFromRegime.toFixed(2)}, FOMC ×${mg.fomcKellyMultiplier.toFixed(2)})`);
     if (mg.macroRegimeRaw || mg.macroRegimeEffective || mg.displayRegime) {
       lines.push(`  • raw/effective/display/riskOverride: ${rawRegime} → ${canonicalEffectiveRegime} / ${displayRegime} / ${mg.riskOverride ?? 'NONE'}`);
       lines.push(`  • regimeSource: canonical=RegimeResolver.canonicalOutput display=${displayRegime} riskOverride=${mg.riskOverride ?? 'NONE'} executionPermissionImpact=NONE`);
@@ -899,7 +952,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (mg.watchlistEmpty) lines.push(`  • 워치리스트: <b>0개 ⚠️</b>`);
   }
 
-  const scanEvaluationSection = formatScanEvaluationSection(summary.scanEvaluation);
+  const scanEvaluationSection = formatScanEvaluationSection(scanEvaluationForDisplay(summary));
   if (scanEvaluationSection) {
     lines.push('');
     lines.push(scanEvaluationSection);
@@ -941,7 +994,13 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
 
   lines.push('');
   lines.push(`📋 <b>종목별 차단</b> (후보 ${summary.candidates}개):`);
-  lines.push(`  • 진입: <b>${summary.entries}개</b>`);
+  if (shadowDiagnosticEntriesForSummary > 0) {
+    lines.push(`  • 🧪 Shadow diagnostic entry: <b>${shadowDiagnosticEntriesForSummary}개</b>`);
+    lines.push('  • 실거래 주문: <b>0개</b> (실거래 없음)');
+  } else {
+    lines.push(`  • 진입 신호: <b>${summary.entries}개</b>`);
+    if (!permissionViewForSummary.liveOrderAllowed) lines.push('  • 실거래 주문: <b>0개</b> (실거래 없음)');
+  }
   if (wd) {
     if (wd.dataHold > 0) lines.push(`  • DATA_HOLD: ${wd.dataHold}개 ⚠️`);
     if (wd.gateFail > 0) lines.push(`  • Gate 재검증 미달: ${wd.gateFail}개`);
@@ -1043,7 +1102,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
       if (supplyTotal > 0) lines.push(`  • supplySemantic availability: ${supplyAvailable}/${supplyTotal}`);
     }
   } else if (summary.entries > 0) {
-    lines.push(`✅ <b>매수 발생:</b> ${summary.entries}개 (분류 대상 아님)`);
+    if (shadowDiagnosticEntriesForSummary > 0 || !permissionViewForSummary.liveOrderAllowed) {
+      lines.push(`🧪 <b>Shadow diagnostic entry:</b> ${shadowDiagnosticEntriesForSummary || summary.entries}개`);
+      lines.push('  • 실거래 주문 0개 — 실거래 없음');
+    } else {
+      lines.push(`✅ <b>진입 신호:</b> ${summary.entries}개 (분류 대상 아님)`);
+    }
   } else {
     lines.push('💡 <b>빈스캔 원인:</b> 분류 데이터 부족 (waitDistribution 미수집)');
   }

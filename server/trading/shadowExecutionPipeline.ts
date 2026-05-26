@@ -226,7 +226,8 @@ export interface ShadowFillNotificationInput {
  * ADR-0157 정확 비교 — `=== 'true'` 만 활성, `'1'`/`'TRUE'`/`'yes'`/빈값 모두 거부.
  *
  * default OFF — Shadow execution pipeline 항상 활성. `true` 명시 시에만 비활성
- * (회귀 안전 fallback — `onApproved` 가 ctx.shadows.push 만 하던 PR #933 이전 동작).
+ * (fill skip — paper-fill 자체를 영속하지 않음. P3-1 이후 onApproved 의 redundant
+ *  post-5-event no-op 재호출은 제거됨 → "legacy fallback" 은 더 이상 없다).
  */
 export function isShadowExecutionPipelineDisabled(): boolean {
   return process.env.SHADOW_EXECUTION_PIPELINE_DISABLED === 'true';
@@ -527,7 +528,7 @@ export async function executeShadowBuy(
   if (isShadowExecutionPipelineDisabled()) {
     return {
       outcome: 'ENV_DISABLED',
-      reason: 'SHADOW_EXECUTION_PIPELINE_DISABLED=true (legacy onApproved-only path)',
+      reason: 'SHADOW_EXECUTION_PIPELINE_DISABLED=true (paper-fill skip; no legacy fallback remains)',
       tradeId,
       executedAtIso,
       ...NOT_SHADOW_RESULT_BASE,

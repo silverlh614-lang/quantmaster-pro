@@ -8,13 +8,13 @@ import {
   type Gate2ExternalCacheRecord,
 } from '../../../trading/gate2/gate2ExternalCache.js';
 import {
-  buildGate2ConfluenceSummary,
   formatGate2ConfluenceCompact,
   formatGate2ConfluenceFull,
+  type Gate2ConfluenceSummary,
 } from '../../../quant/gate2ConfluenceScore.js';
 import { buildDiagnosticCommandHint } from '../../renderers/diagnosticButtonBuilder.js';
 import { renderGate2Compact } from '../../renderers/gateCompactRenderer.js';
-import { buildSnapshotBundleFromScanSummary, gate2SummaryFromConfluence } from '../../renderers/snapshotBundle.js';
+import { buildSnapshotBundleFromScanSummary, gate2SummaryFromAggregate } from '../../renderers/snapshotBundle.js';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -96,19 +96,6 @@ function resolveSummaryAsOf(summary: AnyRecord | null): string {
       ?? summary?.createdAt
       ?? getByPath(summary, 'candidatePool.asOf')
       ?? getByPath(summary, 'scanEvaluationState.asOf'),
-  );
-}
-
-function resolveSourceSnapshotId(summary: AnyRecord | null): string {
-  return text(
-    summary?.sourceSnapshotId
-      ?? summary?.scanId
-      ?? summary?.id
-      ?? getByPath(summary, 'candidatePool.sourceSnapshotId')
-      ?? getByPath(summary, 'entryFilterDecomposition.sourceSnapshotId')
-      ?? getByPath(summary, 'gateLayerAudit.sourceSnapshotId')
-      ?? resolveSummaryAsOf(summary),
-    'UNKNOWN_SOURCE_SNAPSHOT',
   );
 }
 
@@ -463,18 +450,15 @@ const scanBlockersGate2: TelegramCommand = {
     const summary = getLastScanSummary();
     const gate2Cache = loadGate2ExternalCache();
     const summaryRecord = recordOf(summary);
-    const entryFilter = resolveEntryFilter(summaryRecord);
-    const confluence = buildGate2ConfluenceSummary({
-      traces: resolveCandidateTraces(entryFilter),
-      sourceSnapshotId: resolveSourceSnapshotId(summaryRecord),
-      gate2CacheRecords: latestGate2CacheRecords(gate2Cache) as unknown as Record<string, unknown>[],
-    });
+    // ADR-0526 §Decision.5: gate2 PASS/FAIL status 정본 = 스캔-시점 View(candidateGateAggregate / candidateGate2Confluence).
+    // buildGate2ConfluenceSummary formatter 측 재실행 제거 — persist 된 confluence 정본을 read.
+    const confluence = (summaryRecord?.candidateGate2Confluence ?? null) as Gate2ConfluenceSummary | null;
     const wantsFull = args.some(arg => ['full', 'detail'].includes(arg.toLowerCase()));
     if (!wantsFull) {
       await reply([
         renderGate2Compact({
           ...buildSnapshotBundleFromScanSummary(summary),
-          gate2: gate2SummaryFromConfluence(confluence),
+          gate2: gate2SummaryFromAggregate(summaryRecord?.candidateGateAggregate),
         }),
         buildDiagnosticCommandHint('gate'),
       ].join('\n'));
@@ -482,12 +466,14 @@ const scanBlockersGate2: TelegramCommand = {
     }
     const lines = [
       '[scan_blockers_gate2] Gate2 Growth / Confluence Validation',
-      `source=${summary ? 'lastScanSummary+gate2ExternalCache' : 'gate2ExternalCache'} executionImpact=NONE`,
+      `source=${summary ? 'lastScanSummary(candidateGate2Confluence)' : 'none'} executionImpact=NONE`,
       '',
       formatGate2ConfluenceCompact(confluence),
       '',
-      formatGate2ConfluenceFull(confluence),
+      formatGate2ConfluenceFull(confluence) ?? '',
       '',
+      // 캐시 외부데이터는 status 를 덮어쓰지 않는 *표시-only* 보강 섹션이다(ADR-0526 사용자 결정).
+      '참고: 최신 외부데이터(캐시) — status 는 위 스캔-시점 View 가 정본:',
       compactGate2ExternalData(summary, gate2Cache),
       '',
       'note: compact diagnostic only; no scan execution, no provider fetch, no broker order, no live promotion.',

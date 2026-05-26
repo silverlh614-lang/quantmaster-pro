@@ -54,18 +54,13 @@ const DEFAULT_TARGETS = ['src/App.tsx'];
  *
  * 분해 진행 상황:
  *   ✅ server/trading/signalScanner/perSymbolEvaluation.ts (1617→30 LoC) — PR-Refactor-2 (ADR-0134) 완료, 본 카탈로그에서 정식 제거.
- *   ⏳ server/trading/signalScanner/perSymbol/buyListLoop.ts (1606 LoC) — Phase B 분해 진행 중. PR-B12-A (2026-05-05, ADR-0184) 시점 등재.
- *      perSymbolEvaluation.ts 분해 (PR-Refactor-2) 후속으로 evaluateBuyList 메인 루프 자체를 작은 단위로 추가 분해 예정. 분해 PR 머지 시 본 카탈로그에서 정식 제거.
+ *   ✅ server/trading/signalScanner/perSymbol/buyListLoop.ts (1606→810 LoC) — Phase B 분해 완료 (ADR-0184). 1500 한계 자연 통과 → 본 카탈로그에서 정식 제거 (2026-05-25).
+ *   ✅ server/trading/signalScanner/scanDiagnosticsCore.ts (1500+→11 LoC) — scanDiagnostics/* 모듈 추출 후 facade 잔존. 1500 한계 자연 통과 → 본 카탈로그에서 정식 제거 (2026-05-25).
  *
  * NOTE: explicit 인자 모드 (예: `node scripts/check_complexity.js path/to.ts`) 는
  * BASELINE 무시 — 명시 호출은 *강제 검증*. PR 마이그레이션 검증 시 사용.
  */
 const BASELINE_TECHNICAL_DEBT = [
-  'server/trading/signalScanner/perSymbol/buyListLoop.ts',
-  // 2026-05-18 refactor — scanDiagnostics.ts is now a facade. The legacy
-  // persistence/formatter core remains transitional debt while pure helpers
-  // move into server/trading/signalScanner/scanDiagnostics/* modules.
-  'server/trading/signalScanner/scanDiagnosticsCore.ts',
   // ✅ ADR-0502c Phase 1 (2026-05-12, PR #915) + Phase 2 (2026-05-12) —
   //   server/clients/krxClient.ts 2105 → 1071 줄 (-49.1%, 9 모듈 분리). ACMA 1500 한계
   //   통과 → BASELINE 카탈로그에서 정식 제거. Phase 3 (parser/queries/facade) 후속 PR
@@ -77,7 +72,9 @@ const BASELINE_TECHNICAL_DEBT = [
   //     - investorFlowProviderRouterAdr0477.ts (1694 LoC) — ADR-0477 router 본체
   //     - minimumSignalScoreTrace.ts (1520 LoC) — ADR-0466 score 분해
   //   각각 분해 PR 머지 시 본 카탈로그에서 정식 제거.
-  'server/trading/signalScanner/minimumSignalScoreTrace.ts',
+  //   ✅ 2026-05-25 minimumSignalScoreTrace.ts 분해 완료 (1736→1411줄 — ADR-0524, types.ts(타입 12종)
+  //      + scoring.ts(정규화·RS 스코어링 leaf) 추출 + 메인 export * re-export, byte-equivalent, lint EXIT=0,
+  //      test 155pass/1fail(사전 실패·무회귀)) → 카탈로그에서 정식 제거.
   // ADR-0367 (2026-05-14) — gate1MinimumSignalForensicAuditAdr0505.ts 2317 LoC.
   //   ADR-0505 본체(~430 LoC) 가 #944~#953 KIS investor row carry / forensic mapper
   //   누적 PR 로 1500 초과 — origin/main 에 이미 누적된 사전 baseline. ADR-0502c 패턴 정합
@@ -105,7 +102,8 @@ const BASELINE_TECHNICAL_DEBT = [
   //   후속 PR 시리즈로 진행 (책임 단위 SSOT 분리 + import 정합 + 회귀 테스트 의무).
   //   ✅ 2026-05-24 regimeLearningBackfill.ts 분해 완료 (1826→1491줄 — types.ts/formatters.ts 모듈
   //      추출 + 메인 re-export, byte-equivalent, lint EXIT=0, test 13/13) → 카탈로그에서 정식 제거.
-  'server/learning/regimeLearningBank.ts',
+  //   ✅ 2026-05-25 regimeLearningBank.ts 분해 완료 (1656→1431줄 — ADR-0522, analytics.ts 모듈 추출
+  //      (라벨 상수 5 + 순수 분석/품질/포맷 헬퍼 24) + 메인 re-export, byte-equivalent, lint EXIT=0, test 23/23) → 카탈로그에서 정식 제거.
   // 2026-05-24 governance unblock — 당일 feature/fix 커밋으로 1500 초과한 4 파일 (커밋 차단 해소).
   //   ADR-0133/0502c 패턴 정합 — 카탈로그 등재로 validate:complexity EXIT=0 회복. 본체 무수정
   //   (byte-equivalent, runtime 0줄). 분해는 각 파일별 별도 ADR-first 후속 PR (책임 단위 SSOT 분리 +
@@ -113,11 +111,12 @@ const BASELINE_TECHNICAL_DEBT = [
   //     - server/clients/kisClient/query.ts (2132 LoC, 7926f3ae) — KIS query SSOT (core)
   //     - server/trading/gate2/gate2ExternalDataProvider.ts (1715 LoC, 94879dba) — Gate2 외부데이터 provider
   //     - server/trading/signalScanner/scanDiagnostics/persistScanResults.ts (1827 LoC, 2b3d54de) — 스캔 진단 영속
-  //     - server/trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts (1568 LoC, 4f6736dd)
+  //   ✅ 2026-05-25 sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts 분해 완료 (1568→1336줄 — ADR-0521,
+  //      types.ts 모듈 추출(타입 17종) + 메인 re-export, byte-equivalent, lint EXIT=0, test 39/39) → 카탈로그에서 정식 제거.
+  //   ✅ 2026-05-25 gate2ExternalDataProvider.ts 분해 완료 (1714→1435줄 — ADR-0523, types.ts(타입 21종)
+  //      + helpers.ts(순수 leaf 헬퍼 7) 추출 + 메인 export * re-export, byte-equivalent, lint EXIT=0, test 15/15) → 카탈로그에서 정식 제거.
   'server/clients/kisClient/query.ts',
-  'server/trading/gate2/gate2ExternalDataProvider.ts',
   'server/trading/signalScanner/scanDiagnostics/persistScanResults.ts',
-  'server/trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts',
 ];
 
 function isBaseline(file) {

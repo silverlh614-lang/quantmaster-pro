@@ -37,7 +37,9 @@ import type { ShadowCandidateScanTrigger } from '../marketStateResolver.js';
 import { getSectorLeadershipScore } from '../../../src/services/quant/sectorEnergyEngine.js';
 import { getSectorByCode } from '../../screener/sectorMap.js';
 import { injectPerSymbolPriceContext } from './injectPerSymbolPriceContext.js';
+import { injectPerSymbolDartContext } from './injectPerSymbolDartContext.js';
 import { collectUnifiedSnapshot } from '../symbolDataCollector.js';
+import { buildScanEvaluationId } from './state/scanEvaluationState.js';
 
 // ─── Feature flag: USE_UNIFIED_SOURCE_SNAPSHOT ───────────────────────────────
 // true 시 buyListLoop 전에 SymbolDataCollector로 종목당 1회 일괄 수집.
@@ -308,6 +310,15 @@ export async function runAutoSignalScan(
     return { positionFull: preflightResult.positionFull };
   }
 
+  // ADR-0528 a1/a2 완결: scan-cycle 단일 canonical id 확립 (log-only carry).
+  // scan-start 에서 KST asOf 1회 산출 → buildScanEvaluationId 로 canonical id 생성.
+  // 동일 scanAsOf 를 (a) context.sourceSnapshotId(→ buyList ctx → a1/a2 POSITION_POLICY 로그)
+  // (b) persistScanResults 의 scanEvaluation.scanId build 양쪽에 thread → 두 값 byte-identical 보장.
+  // 신규 id 포맷·UUID·scan_${Date.now()} 금지 — 소비자 fallback(scanEvaluation.scanId) 과 동일값만 허용.
+  // 결정 로직·실행·storage 키 0 변경 (log enrichment 전용, 불변식 #5/#8 영역 외).
+  const scanAsOf = new Date(Date.now() + 9 * 3_600_000).toISOString();
+  preflightResult.context.sourceSnapshotId = buildScanEvaluationId(scanAsOf);
+
   // 2. Candidate Select (관심종목 3섹션 및 Intraday 후보군 선정)
   const candidates = await selectCandidates(preflightResult.context, options);
 
@@ -411,6 +422,26 @@ export async function runAutoSignalScan(
     );
   }
 
+  // 2.6. Per-Symbol DART Context (ADR-0529 — collector 가 채운 정본 DART 슬롯 carry, fetch 0)
+  // snapshotData 부재 시 no-op → read site 가 기존 getGate2DartFinancialsForEvaluation fallback (회귀 0).
+  try {
+    injectPerSymbolDartContext(
+      candidates.buyList as Record<string, unknown>[],
+      { snapshotData: unifiedSnapshot?.perSymbol },
+    );
+    if (Array.isArray(candidates.intradayList) && candidates.intradayList.length > 0) {
+      injectPerSymbolDartContext(
+        candidates.intradayList as Record<string, unknown>[],
+        { snapshotData: unifiedSnapshot?.perSymbol },
+      );
+    }
+  } catch (error) {
+    console.warn(
+      '[PER_SYMBOL_DART_CONTEXT_INJECTION] failed before evaluation; continuing',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
   // 3. Per-Symbol Evaluation (매수 조건 검증, 큐/포지션/가용현금 상태관리 공유)
   const queueState = createApprovalQueueState(preflightResult.context.orderableCash);
   await evaluateMainCandidates(candidates, preflightResult.context, counters, queueState);
@@ -442,6 +473,9 @@ export async function runAutoSignalScan(
     | undefined;
   await persistScanResults(counters, {
     sellOnly: options?.sellOnly,
+    // ADR-0528 a1/a2: scan-start scanAsOf 를 thread → scanEvaluation.scanId 가
+    // context.sourceSnapshotId(= buildScanEvaluationId(scanAsOf)) 와 byte-identical 보장.
+    scanAsOf,
     ...candidates.lengths,
     ...(perSymbolSupplyInjection ? { perSymbolSupplyInjection } : {}),
     ...(options?.candidateScanTrigger ? { candidateScanTrigger: options.candidateScanTrigger } : {}),

@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { createScanCounters } from '../scanDiagnostics.js';
 import { recordPipelineStage } from '../scanDiagnostics/pipelineStageDiagnostics.js';
-import { buildScanEvaluationResult, formatScanEvaluationCompactLine, formatScanEvaluationSection } from './scanEvaluationState.js';
+import { buildScanEvaluationId, buildScanEvaluationResult, formatScanEvaluationCompactLine, formatScanEvaluationSection, resolveScanMarketSessionView } from './scanEvaluationState.js';
 
 describe('scanEvaluationState', () => {
   it('does not let legacy SELL_ONLY skip Gate evaluation', () => {
@@ -161,5 +161,65 @@ describe('scanEvaluationState', () => {
     expect(section).toContain('diagnosticGateSurvivors=');
     expect(section).toContain('liveGateSurvivors=');
     expect(section).not.toContain('diagnosticSurvivors=');
+  });
+
+  it('rebases stale BUY_ALLOWED at 22:55 KST to CLOSED shadow observe display', () => {
+    const session = resolveScanMarketSessionView({
+      explicitMarketSessionState: 'BUY_ALLOWED',
+      asOf: '2026-05-25T22:55:00.000Z',
+    });
+
+    expect(session.marketSessionState).toBe('CLOSED');
+    expect(session.canonicalSession).toBe('CLOSED');
+    expect(session.displaySession).toBe('CLOSED_SHADOW_OBSERVE');
+  });
+});
+
+// ADR-0528 a1/a2 완결: scan-cycle 단일 canonical id 통일 가드.
+// a1/a2 POSITION_POLICY 로그에 주입되는 context.sourceSnapshotId(= buildScanEvaluationId(scanAsOf))
+// 와 소비자 fallback(scanEvaluation.scanId = buildScanEvaluationResult({asOf:scanAsOf}).scanId)
+// 가 byte-identical 임을 단언 — 통일의 핵심(불일치 시 operator cross-grep 깨짐).
+describe('scanEvaluationState — ADR-0528 canonical scan id unification', () => {
+  it('builds identical id from buildScanEvaluationId and buildScanEvaluationResult for the same scanAsOf', () => {
+    const scanAsOf = '2026-05-25T09:01:23.456Z';
+    const counters = createScanCounters();
+
+    const ctxInjectedId = buildScanEvaluationId(scanAsOf);
+    const consumerFallbackId = buildScanEvaluationResult({
+      asOf: scanAsOf,
+      counters,
+      totalCandidates: 0,
+      sourcePath: 'test',
+    }).scanId;
+
+    expect(ctxInjectedId).toBe(consumerFallbackId);
+    expect(ctxInjectedId).toBe('scan-eval-20260525090123');
+    expect(ctxInjectedId).not.toBe('NA');
+  });
+
+  it('is deterministic — same scanAsOf yields the same canonical id', () => {
+    const scanAsOf = '2026-05-25T14:30:00.000Z';
+    expect(buildScanEvaluationId(scanAsOf)).toBe(buildScanEvaluationId(scanAsOf));
+    const counters = createScanCounters();
+    const first = buildScanEvaluationResult({ asOf: scanAsOf, counters, totalCandidates: 3, sourcePath: 'test' }).scanId;
+    const second = buildScanEvaluationResult({ asOf: scanAsOf, counters, totalCandidates: 3, sourcePath: 'test' }).scanId;
+    expect(first).toBe(second);
+    expect(first).toBe(buildScanEvaluationId(scanAsOf));
+  });
+
+  it('produces a single canonical id across the carry channel and persist derivation (same scanAsOf both sides)', () => {
+    // index.ts: scanAsOf 1회 산출 → context.sourceSnapshotId 주입 + persistScanResults(scanAsOf) thread.
+    const scanAsOf = '2026-05-25T01:05:07.000Z';
+    const contextSourceSnapshotId = buildScanEvaluationId(scanAsOf); // (a) a1/a2 로그 경로
+
+    // (b) persistScanResults 내부 scanEvaluation derivation (scanAsOf 전달 시 동일 asOf 사용)
+    const persistScanEvaluationId = buildScanEvaluationResult({
+      asOf: scanAsOf,
+      counters: createScanCounters(),
+      totalCandidates: 5,
+      sourcePath: 'scanDiagnosticsCore.persistScanResults',
+    }).scanId;
+
+    expect(contextSourceSnapshotId).toBe(persistScanEvaluationId);
   });
 });

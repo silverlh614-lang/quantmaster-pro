@@ -8,10 +8,13 @@ vi.mock('../../commandRegistry.js', async () => {
 });
 
 vi.mock('../../../trading/signalScanner/scanDiagnostics.js', () => ({
+  // ADR-0526 Phase 1b: /gate2_external_refresh 는 raw candidateTraces 채굴 대신
+  // per-candidate 정본 View(candidateGateViews)의 symbol 을 read 한다.
   getLastScanSummary: () => ({
     entryFilterDecomposition: {
       candidateTraces: [{ symbol: '005930' }, { symbol: '000660' }],
     },
+    candidateGateViews: [{ symbol: '005930' }, { symbol: '000660' }],
   }),
 }));
 

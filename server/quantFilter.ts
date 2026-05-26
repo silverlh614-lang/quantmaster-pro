@@ -563,9 +563,18 @@ function buildGate1LiquidityFloor(
   quote: YahooQuoteExtended,
   coverage: Gate1SurvivalDiagnostic['kisOfficialQuoteCoverage'],
 ): Gate1SurvivalDiagnostic['liquidityFloor'] {
+  const q = quote as QuoteRecord;
+  const priceMetaAsOf = (q.priceMetadata as { asOf?: unknown } | undefined)?.asOf;
+  // OPENING_RAMP 세션 인지: 정본 평가시각 = coverage.asOf(KIS official) → priceMetadata.asOf.
+  // top-level now/asOf/fetchedAt 는 quote 스키마에 없어 항상 미부착이었으므로 canonical asOf 를 우선 사용한다.
+  // mid-session dry-up 은 early session 이 아니므로 floor 가 여전히 FAIL 로 분류한다.
   return normalizeLiquidityFloorForGate1({
-    quote: quote as QuoteRecord,
+    quote: q,
     quoteCoverage: coverage,
+    session: {
+      now: coverage.asOf ?? priceMetaAsOf ?? q.now ?? q.currentTime ?? q.timeKst ?? q.marketTimeKst ?? q.asOf ?? q.fetchedAt,
+      marketSession: q.marketSession ?? q.marketSessionState ?? q.session ?? q.tradingSession,
+    },
   });
 }
 

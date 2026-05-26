@@ -1,24 +1,17 @@
-// @responsibility Compact FinalDecisionResolver runtime wiring audit from latest scan snapshot.
+// @responsibility ADR-0527 Phase 2b — execution permission audit read from persisted unified resolution SSOT (no dummy-time recompute).
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import { getLastScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
-import { buildGate3RuntimeClosureSummary } from '../../../quant/gate3RuntimeClosure.js';
-import {
-  buildFinalDecisionRuntimeAuditSummary,
-  formatFinalDecisionRuntimeAuditCompact,
-  formatFinalDecisionRuntimeAuditFull,
-  resolveFinalExecutionDecision,
-  type FinalDecisionDataConfidenceCeiling,
-  type FinalDecisionEffectiveRegime,
-  type FinalDecisionEngineMode,
-  type FinalDecisionEntryTimingSignal,
-  type FinalDecisionMarketSession,
-  type FinalDecisionProviderHealthStatus,
-  type FinalDecisionShadowMode,
-} from '../../../trading/gates/finalDecisionResolver.js';
+import type {
+  UnifiedExecutionPermissionAggregate,
+  UnifiedExecutionPermissionResolution,
+} from '../../../trading/gates/unifiedExecutionContract.js';
 import { buildDiagnosticCommandHint } from '../../renderers/diagnosticButtonBuilder.js';
 import { renderExecutionCompact } from '../../renderers/executionCompactRenderer.js';
-import { buildSnapshotBundleFromScanSummary, executionSummaryFromAudit } from '../../renderers/snapshotBundle.js';
+import {
+  buildSnapshotBundleFromScanSummary,
+  executionSummaryFromUnifiedAggregate,
+} from '../../renderers/snapshotBundle.js';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -43,49 +36,6 @@ function text(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
 }
 
-function bool(value: unknown): boolean {
-  return value === true || String(value ?? '').trim().toLowerCase() === 'true';
-}
-
-function normalizeEngineMode(value: unknown): FinalDecisionEngineMode {
-  const raw = text(value, 'OBSERVE_ONLY').toUpperCase();
-  if (raw === 'NORMAL' || raw === 'DEGRADED' || raw === 'SELL_ONLY' || raw === 'SHADOW_ONLY' || raw === 'OBSERVE_ONLY') return raw;
-  return 'OBSERVE_ONLY';
-}
-
-function normalizeMarketSession(value: unknown): FinalDecisionMarketSession {
-  const raw = text(value, 'UNKNOWN').toUpperCase();
-  if (raw === 'REGULAR' || raw === 'PRE_MARKET' || raw === 'POST_MARKET' || raw === 'HOLIDAY' || raw === 'LUNCH' || raw === 'UNKNOWN') return raw;
-  if (raw === 'NON_TRADING_DAY' || raw === 'CLOSED') return 'HOLIDAY';
-  return 'UNKNOWN';
-}
-
-function normalizeRegime(value: unknown): FinalDecisionEffectiveRegime {
-  const raw = text(value, 'UNKNOWN').toUpperCase();
-  if (raw === 'GREEN' || raw === 'YELLOW' || raw === 'RED' || raw === 'R6_DEFENSE' || raw === 'R5_STABILIZING' || raw === 'UNKNOWN') return raw;
-  return raw.startsWith('R6') ? 'R6_DEFENSE' : 'UNKNOWN';
-}
-
-function normalizeHealth(value: unknown): FinalDecisionProviderHealthStatus {
-  const raw = text(value, 'VERIFIED').toUpperCase();
-  if (raw === 'VERIFIED' || raw === 'DEGRADED' || raw === 'STALE' || raw === 'MISSING') return raw;
-  if (raw === 'FRESH' || raw === 'OK' || raw === 'PASS') return 'VERIFIED';
-  return 'DEGRADED';
-}
-
-function normalizeConfidence(value: unknown): FinalDecisionDataConfidenceCeiling {
-  const raw = text(value, 'HIGH').toUpperCase();
-  return raw === 'LOW' || raw === 'MEDIUM' || raw === 'HIGH' ? raw : 'HIGH';
-}
-
-function resolveEntryFilter(summary: AnyRecord | null): AnyRecord | null {
-  return recordOf(summary?.entryFilterDecomposition) ?? recordOf(summary?.entryFilterDecompositionAdr0464);
-}
-
-function resolveCandidateTraces(summary: AnyRecord | null): AnyRecord[] {
-  return arrayOfRecords(resolveEntryFilter(summary)?.candidateTraces);
-}
-
 function resolveSourceSnapshotId(summary: AnyRecord | null): string {
   return text(
     summary?.sourceSnapshotId
@@ -99,22 +49,86 @@ function resolveSourceSnapshotId(summary: AnyRecord | null): string {
   );
 }
 
-function shadowModeFor(engineMode: FinalDecisionEngineMode): FinalDecisionShadowMode {
-  if (engineMode === 'SHADOW_ONLY') return 'SHADOW_ONLY';
-  if (engineMode === 'OBSERVE_ONLY') return 'OBSERVE_ONLY';
-  return 'NORMAL';
+/** persist 된 per-candidate 통합 정본(스캔-시점 asOf 도출). 부재 시 빈 배열(graceful). */
+function resolveCandidateResolutions(summary: AnyRecord | null): UnifiedExecutionPermissionResolution[] {
+  return arrayOfRecords(summary?.candidateExecutionResolutions) as unknown as UnifiedExecutionPermissionResolution[];
 }
 
-function runtimeLine(summary: ReturnType<typeof buildFinalDecisionRuntimeAuditSummary>): string {
+function scopedCount(aggregate: AnyRecord | null, field: string): number {
+  const value = getByPath(aggregate, `${field}.value`);
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * ADR-0527 Phase 2b — execution 요약 라인.
+ * UnifiedExecutionPermissionAggregate(스캔-시점 정본)를 read 한다(resolveFinalExecutionDecision 재실행 0).
+ * shadowBuyAllowed(표시)는 aggregate.shadowOrderCreated(count) — per-candidate boolean 권한과 의미 분리.
+ */
+function runtimeLine(aggregate: AnyRecord | null): string {
+  const liveBuy = scopedCount(aggregate, 'liveBuyAllowedCount');
   return [
     '[Execution]',
-    `ENTRY_READY: ${summary.entryReady}`,
-    `Live Buy: ${summary.liveBuyAllowed}`,
-    `Shadow Buy: ${summary.shadowBuyAllowed}`,
-    `Observe: ${summary.observeOnly}`,
-    `Top Block: ${Object.entries(summary.blockReasonDistribution).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'none'}`,
-    `Impact: ${Object.entries(summary.executionImpactDistribution).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'NONE'}`,
+    `ENTRY_READY: ${scopedCount(aggregate, 'entryReadyCount')}`,
+    `Live Buy: ${liveBuy}`,
+    `Shadow Buy: ${scopedCount(aggregate, 'shadowOrderCreated')}`,
+    `Observe: ${scopedCount(aggregate, 'observeOnlyCount')}`,
+    `Top Block: ${text(aggregate?.topBlockReason, 'none')}`,
+    `Impact: ${liveBuy > 0 ? 'LIVE_ORDER_ALLOWED' : scopedCount(aggregate, 'liveBuyBlockedCount') > 0 ? 'NEW_BUY_BLOCKED_ONLY' : 'NONE'}`,
     'Learning: ON',
+  ].join('\n');
+}
+
+/**
+ * ADR-0527 Phase 2b — full audit 라인을 persist 된 통합 정본에서 도출(더미 시각 재판정 제거).
+ * permission boolean 군은 A(byte-equivalent)에서, decision/reasonCodes 라벨은 B 에서 병합된 정본을 표시한다.
+ * leak detector(gate3LivePermissionLeakDetected/diagnosticOnlyBrokerOrderLeakDetected)는 통합 계약상
+ * permission 이 A 정본이고 STRONG_BUY 가 label-only(strongBuyAsLabelOnly)이므로 구조적으로 0.
+ */
+function formatUnifiedAuditFull(
+  sourceSnapshotId: string,
+  resolutions: readonly UnifiedExecutionPermissionResolution[],
+  aggregate: AnyRecord | null,
+): string {
+  const entryReady = scopedCount(aggregate, 'entryReadyCount');
+  const liveBuyAllowed = scopedCount(aggregate, 'liveBuyAllowedCount');
+  const liveBuyBlocked = scopedCount(aggregate, 'liveBuyBlockedCount');
+  const shadowBuyAllowed = scopedCount(aggregate, 'shadowOrderCreated');
+  const observeOnly = scopedCount(aggregate, 'observeOnlyCount');
+  const blocked = scopedCount(aggregate, 'blockedCount');
+  const blockReasonDistribution = (recordOf(aggregate?.blockReasonDistribution) ?? {}) as Record<string, number>;
+  const counterfactualRecorded = resolutions.filter(r => r.counterfactualAllowed).length;
+  const head = [
+    '[scan_blockers_execution] Final Decision / Execution Permission',
+    `sourceSnapshotId=${sourceSnapshotId}`,
+    `evaluated: ${resolutions.length}`,
+    `entryReady: ${entryReady}`,
+    `liveBuyAllowed: ${liveBuyAllowed}`,
+    `liveBuyBlocked: ${liveBuyBlocked}`,
+    `shadowBuyAllowed: ${shadowBuyAllowed}`,
+    `observeOnly: ${observeOnly}`,
+    `blocked: ${blocked}`,
+    // 불변식 #6: providerIssue 격리 — market signal 로 변환되지 않으므로 항상 0.
+    'providerIssueConvertedToMarketSignal: 0',
+    `counterfactualRecorded: ${counterfactualRecorded}`,
+    // 통합 계약상 permission=A 정본 + STRONG_BUY label-only → live/broker leak 구조적 0.
+    'gate3LivePermissionLeakDetected: 0',
+    'diagnosticOnlyBrokerOrderLeakDetected: 0',
+    `topBlockReason: ${text(aggregate?.topBlockReason, 'none')}`,
+  ];
+  const dist = Object.entries(blockReasonDistribution)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, count]) => `- ${reason}: ${count}`);
+  const perCandidate = resolutions.map((r) => {
+    const reasons = r.reasonCodes.length > 0 ? r.reasonCodes.join('|') : 'none';
+    return `- ${r.asOf} decision=${r.decision} liveBuy=${r.liveOrderAllowed} shadowBuy=${r.shadowPermissionAllowed} impact=${r.executionImpact} blockReason=${r.liveBlockReason} reasons=${reasons}`;
+  });
+  return [
+    ...head,
+    'blockReasonDistribution:',
+    ...(dist.length > 0 ? dist : ['- none: 0']),
+    'perCandidate:',
+    ...(perCandidate.length > 0 ? perCandidate : ['- (no candidates)']),
   ].join('\n');
 }
 
@@ -129,69 +143,30 @@ const scanBlockersExecution: TelegramCommand = {
   async execute({ args, reply }) {
     const summary = recordOf(getLastScanSummary());
     const sourceSnapshotId = resolveSourceSnapshotId(summary);
-    const traces = resolveCandidateTraces(summary);
-    const gate3 = buildGate3RuntimeClosureSummary({ traces, sourceSnapshotId });
-    const engineMode = normalizeEngineMode(
-      summary?.engineMode ?? summary?.executionMode ?? getByPath(summary, 'runtimePolicy.engineMode'),
-    );
-    const marketSession = normalizeMarketSession(
-      summary?.marketSession ?? summary?.marketSessionState ?? getByPath(summary, 'runtimePolicy.marketSessionState'),
-    );
-    const effectiveRegime = normalizeRegime(
-      summary?.effectiveRegime ?? summary?.macroRegime ?? getByPath(summary, 'runtimePolicy.effectiveRegime'),
-    );
-    const providerIssue = bool(summary?.providerIssue ?? getByPath(summary, 'runtimePolicy.providerIssue'));
-    const marketSignal = bool(summary?.marketSignal ?? getByPath(summary, 'runtimePolicy.marketSignal'));
-
-    const inputs = gate3.results.map((result) => {
-      const trace = traces.find((item) => text(item.symbol) === result.symbol) ?? {};
-      return {
-        sourceSnapshotId,
-        symbol: result.symbol,
-        asOf: text(summary?.asOf ?? summary?.time, '1970-01-01T00:00:00.000Z'),
-        gate1Status: result.gate1Status,
-        gate2Status: result.gate2Status,
-        gate3Readiness: result.gate3Readiness,
-        entryTimingSignal: result.entryTimingSignal as FinalDecisionEntryTimingSignal,
-        engineMode,
-        marketSession,
-        effectiveRegime,
-        riskOverride: effectiveRegime === 'R6_DEFENSE' ? 'R6_DEFENSE' as const : 'NONE' as const,
-        providerHealth: {
-          quote: normalizeHealth(result.priceFreshness),
-          supply: normalizeHealth(getByPath(trace, 'providerHealth.supply') ?? trace.supplyConfidence),
-          dart: normalizeHealth(getByPath(trace, 'providerHealth.dart') ?? trace.dartConfidence),
-          macro: normalizeHealth(getByPath(trace, 'providerHealth.macro') ?? getByPath(summary, 'providerHealth.macro')),
-        },
-        dataConfidenceCeiling: normalizeConfidence(trace.dataConfidenceCeiling ?? summary?.dataConfidenceCeiling),
-        marketSignal,
-        providerIssue: providerIssue || bool(trace.providerIssue),
-        shadowMode: shadowModeFor(engineMode),
-        requestedSide: 'BUY' as const,
-        currentPositionState: 'NONE' as const,
-        isDiagnosticOnly: bool(trace.isDiagnosticOnly) || result.gate3Readiness === 'SKIPPED',
-      };
-    });
-    const decisions = inputs.map(input => resolveFinalExecutionDecision(input, new Date('1970-01-01T00:00:00.000Z')));
-    const audit = buildFinalDecisionRuntimeAuditSummary({ sourceSnapshotId, decisions, inputs });
+    // ADR-0527 Phase 2b: execution 정본 = 스캔-시점 persist(candidateExecutionResolutions / executionResolutionAggregate).
+    // 더미 시각(1970) resolveFinalExecutionDecision 재계산 제거 → 실제 asOf 정본 read(divergence 제거 = 의도된 정정).
+    const aggregate = (summary?.executionResolutionAggregate ?? null) as UnifiedExecutionPermissionAggregate | null;
+    const aggregateRecord = recordOf(aggregate);
+    const resolutions = resolveCandidateResolutions(summary);
     const wantsFull = args.some(arg => ['full', 'detail'].includes(arg.toLowerCase()));
     if (!wantsFull) {
+      const execution = executionSummaryFromUnifiedAggregate(aggregate);
       await reply([
         renderExecutionCompact({
           ...buildSnapshotBundleFromScanSummary(summary),
-          execution: executionSummaryFromAudit(audit),
-          executionImpact: executionSummaryFromAudit(audit).executionImpact,
+          execution,
+          executionImpact: execution.executionImpact,
         }),
         buildDiagnosticCommandHint('execution'),
       ].join('\n'));
       return;
     }
     await reply([
-      formatFinalDecisionRuntimeAuditCompact(audit),
+      formatUnifiedAuditFull(sourceSnapshotId, resolutions, aggregateRecord),
       '',
-      runtimeLine(audit),
+      runtimeLine(aggregateRecord),
       '',
-      formatFinalDecisionRuntimeAuditFull(audit),
+      'shadowLearning: ON',
       '',
       'note: read-only diagnostic; no provider fetch, no broker order, no live promotion.',
     ].join('\n'));

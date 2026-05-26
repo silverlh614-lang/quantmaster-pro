@@ -8,6 +8,66 @@ import {
 
 export type { ConditionWeights };
 
+export const CONDITION_WEIGHT_REGIMES = [
+  'R1_TURBO',
+  'R2_BULL',
+  'R3_EARLY',
+  'R4_NEUTRAL',
+  'R5_CAUTION',
+  'R6_DEFENSE',
+] as const;
+
+export type ConditionWeightRegime = (typeof CONDITION_WEIGHT_REGIMES)[number];
+export type ConditionWeightResetScope = 'global' | 'regime' | 'all';
+
+export interface ConditionWeightResetOptions {
+  scope?: ConditionWeightResetScope;
+  regime?: string;
+  backup?: boolean;
+  now?: Date;
+}
+
+export interface ConditionWeightResetResult {
+  scope: ConditionWeightResetScope;
+  resetAt: string;
+  backupCreated: boolean;
+  backupFiles: string[];
+  touchedFiles: string[];
+  resetGlobal: boolean;
+  resetRegimes: string[];
+  previousGlobal: ConditionWeights | null;
+  previousRegimeWeights: Record<string, ConditionWeights | null>;
+  executionImpact: 'NONE';
+  liveExecutionAllowed: false;
+  shadowLearningImpact: 'NONE';
+}
+
+function readConditionWeightsFile(file: string): ConditionWeights | null {
+  if (!fs.existsSync(file)) return null;
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<ConditionWeights>;
+    return { ...DEFAULT_CONDITION_WEIGHTS, ...raw };
+  } catch {
+    /* SDS-ignore: invalid condition weight JSON is reported as null and reset overwrites with defaults */
+    return null;
+  }
+}
+
+function copyBackupIfPresent(file: string, stamp: string, backup: boolean): string | null {
+  if (!backup || !fs.existsSync(file)) return null;
+  const backupFile = `${file}.${stamp}.bak`;
+  fs.copyFileSync(file, backupFile);
+  return backupFile;
+}
+
+function resetWeightFile(file: string): void {
+  fs.writeFileSync(file, JSON.stringify({ ...DEFAULT_CONDITION_WEIGHTS }, null, 2));
+}
+
+function backupStamp(now: Date): string {
+  return now.toISOString().replace(/[-:.]/g, '');
+}
+
 export function loadConditionWeights(): ConditionWeights {
   ensureDataDir();
   if (!fs.existsSync(CONDITION_WEIGHTS_FILE)) return { ...DEFAULT_CONDITION_WEIGHTS };
@@ -57,6 +117,57 @@ export function loadConditionWeightsByRegime(regime: string): ConditionWeights {
 export function saveConditionWeightsByRegime(regime: string, w: ConditionWeights): void {
   ensureDataDir();
   fs.writeFileSync(conditionWeightsRegimeFile(regime), JSON.stringify(w, null, 2));
+}
+
+export function resetConditionWeightsToDefault(
+  options: ConditionWeightResetOptions = {},
+): ConditionWeightResetResult {
+  ensureDataDir();
+  const scope = options.scope ?? (options.regime ? 'regime' : 'global');
+  const now = options.now ?? new Date();
+  const resetAt = now.toISOString();
+  const stamp = backupStamp(now);
+  const backup = options.backup ?? true;
+  const result: ConditionWeightResetResult = {
+    scope,
+    resetAt,
+    backupCreated: false,
+    backupFiles: [],
+    touchedFiles: [],
+    resetGlobal: false,
+    resetRegimes: [],
+    previousGlobal: null,
+    previousRegimeWeights: {},
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    shadowLearningImpact: 'NONE',
+  };
+
+  if (scope === 'global' || scope === 'all') {
+    result.previousGlobal = readConditionWeightsFile(CONDITION_WEIGHTS_FILE);
+    const backupFile = copyBackupIfPresent(CONDITION_WEIGHTS_FILE, stamp, backup);
+    if (backupFile) result.backupFiles.push(backupFile);
+    resetWeightFile(CONDITION_WEIGHTS_FILE);
+    result.touchedFiles.push(CONDITION_WEIGHTS_FILE);
+    result.resetGlobal = true;
+  }
+
+  if (scope === 'regime' || scope === 'all') {
+    const regimes = scope === 'all' ? [...CONDITION_WEIGHT_REGIMES] : [options.regime];
+    for (const regime of regimes) {
+      if (!regime) throw new Error('regime is required when resetting condition weights by regime');
+      const file = conditionWeightsRegimeFile(regime);
+      result.previousRegimeWeights[regime] = readConditionWeightsFile(file);
+      const backupFile = copyBackupIfPresent(file, stamp, backup);
+      if (backupFile) result.backupFiles.push(backupFile);
+      resetWeightFile(file);
+      result.touchedFiles.push(file);
+      result.resetRegimes.push(regime);
+    }
+  }
+
+  result.backupCreated = result.backupFiles.length > 0;
+  return result;
 }
 
 /**

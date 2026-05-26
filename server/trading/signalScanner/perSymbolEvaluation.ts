@@ -355,6 +355,9 @@ export async function evaluateMainCandidates(
   const _watchlistMutatedBox = { value: watchlistMutated };
 
   await executeBuyList({
+    // ADR-0528: 결정 로그 상관 키 carry (log-only — 결정 분기 무영향).
+    sourceSnapshotId: context?.sourceSnapshotId,
+    candidateSetId: context?.candidateSetId,
     buyList,
     swingList,
     watchlist,

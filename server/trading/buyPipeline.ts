@@ -16,7 +16,8 @@ import { fetchYahooQuote, fetchKisQuoteFallback, type YahooQuoteExtended } from 
 import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
 import { fetchKisInvestorTradeByStockDaily } from '../clients/kisClient.js';
 import type { KisInvestorTradeByStockDaily } from '../clients/kisClient/types.js';
-import { getGate2DartFinancialsForEvaluation } from './gate2/gate2ExternalDataProvider.js';
+import { resolveDartFinancialsForEvaluation } from './gate2/gate2DartCanonicalSlot.js';
+import type { SymbolDartFinancialsSlot } from './sourceSnapshot/symbolSnapshotData.js';
 import { evaluateServerGate, type ServerGateResult } from '../quantFilter.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
@@ -26,6 +27,7 @@ import { generatePreMortem } from './entryEngine.js';
 import { buildPreMortemStructured } from './preMortemStructured.js';
 import { emitTelegramEvent } from '../alerts/telegramEventRouter.js';
 import { requestBuyApprovalWithDelivery } from '../telegram/buyApproval.js';
+import { isKrxTradingDay } from '../calendar/krxTradingCalendar.js';
 import type { TradeSignalBlockGate } from '../persistence/tradeSignalStatusRepo.js';
 import { fetchEnemyCheckData } from '../clients/enemyCheckClient.js';
 import { evaluateEnemyAutoBlock } from './enemyAutoBlock.js';
@@ -102,6 +104,8 @@ export async function fetchGateData(
   stockCode: string,
   conditionWeights?: ReturnType<typeof loadConditionWeights>,
   kospi20dReturn?: number,
+  // ADR-0529: 호출자가 carry 한 정본 DART 슬롯(있으면 슬롯 read, 없으면 기존 cache-first fallback — byte-equivalent).
+  dartSlot?: SymbolDartFinancialsSlot | null,
 ): Promise<GateData> {
   const weights = conditionWeights ?? loadConditionWeights();
   const quote = await fetchYahooQuoteByCode(stockCode, fetchYahooQuote)
@@ -111,7 +115,7 @@ export async function fetchGateData(
 
   const [kisFlow, dartFin] = await Promise.all([
     fetchKisInvestorTradeByStockDaily(stockCode).catch(() => null),
-    getGate2DartFinancialsForEvaluation(stockCode).catch(() => null),
+    resolveDartFinancialsForEvaluation(stockCode, dartSlot).catch(() => null),
   ]);
 
   const macroState = loadMacroState();
@@ -396,6 +400,29 @@ function applyPreMortemFields(
   }
 }
 
+/**
+ * Patch-SHADOW-OPERATING-WINDOW-GATE — SHADOW 운영자 승인 카드 운영시간 게이트 ENV 롤백
+ * (ADR-0157 정확 비교). `SHADOW_OPERATING_WINDOW_GATE_DISABLED=true` 1줄로 legacy(상시 발화) 복원.
+ */
+function isShadowOperatingWindowGateDisabled(): boolean {
+  return process.env.SHADOW_OPERATING_WINDOW_GATE_DISABLED === 'true';
+}
+
+/**
+ * Patch-SHADOW-OPERATING-WINDOW-GATE — 운영자용 SHADOW 매수 승인 카드 발화 허용 = LIVE 운영시간.
+ * 거래일(isKrxTradingDay) + 정규장 세션(marketSession==='REGULAR', deriveShadowApprovalContext SSOT).
+ * SHADOW + tradeDate/marketSession 전달 시에만 boolean 산출 — 그 외(LIVE·필드 부재·ENV 비활성)는
+ * undefined 반환 → buyApproval 게이트 비적용 (후방호환). 휴장(REGULAR 세션이라도)·장후·주말 → false.
+ */
+export function resolveOperatorShadowCardWindowOpen(
+  p: Pick<CreateBuyTaskParams, 'shadowMode' | 'tradeDate' | 'marketSession'>,
+): boolean | undefined {
+  if (!p.shadowMode || !p.tradeDate || !p.marketSession || isShadowOperatingWindowGateDisabled()) {
+    return undefined;
+  }
+  return isKrxTradingDay(p.tradeDate) && p.marketSession === 'REGULAR';
+}
+
 function requestApprovalForBuyTask(
   p: CreateBuyTaskParams,
   enemyCheck: EnemyCheckResult | null,
@@ -403,6 +430,7 @@ function requestApprovalForBuyTask(
   regime: string | undefined,
 ): Promise<BuyApprovalRequestResult> {
   return requestBuyApprovalWithDelivery({
+    operatorWindowOpen: resolveOperatorShadowCardWindowOpen(p),
     tradeId:     p.trade.id,
     stockCode:   p.stockCode,
     stockName:   p.stockName,

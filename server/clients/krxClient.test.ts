@@ -522,6 +522,32 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     process.env.KRX_TIME_WINDOW_GATING_DISABLED = 'true';
   });
 
+  it('guards MDCSTAT02401 symbol-level flow after market close without issuing HTTP fetches', async () => {
+    delete process.env.KRX_TIME_WINDOW_GATING_DISABLED;
+    process.env.KRX_INVESTOR_DETAIL_ENABLED = 'true';
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    vi.resetModules();
+    const { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } = await import('./krxClient.js');
+    const rows = await fetchInvestorTrading('20260525', {
+      symbol: '005930',
+      isuCd: 'KR7005930003',
+      now: new Date('2026-05-25T11:28:56.000Z'),
+    });
+    const diagnostic = getLastKrxInvestorTradingDiagnostic('20260525');
+
+    expect(rows).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(diagnostic?.endpoint).toBe('MDCSTAT02401');
+    expect(diagnostic?.routePurpose).toBe('SYMBOL_LEVEL');
+    expect(diagnostic?.routedStatus).toBe('SESSION_CLOSED_NOT_APPLICABLE');
+    expect(diagnostic?.providerIssue).toBe(false);
+    expect(diagnostic?.marketSignal).toBe(false);
+    expect(diagnostic?.executionImpact).toBe('NONE');
+    process.env.KRX_TIME_WINDOW_GATING_DISABLED = 'true';
+  });
+
   it('guards MDCSTAT02201/02203 when KRX_INVESTOR_DETAIL_ENABLED is not true', async () => {
     delete process.env.KRX_INVESTOR_DETAIL_ENABLED;
     const fetchSpy = vi.fn();

@@ -94,6 +94,9 @@ export type RuntimePipelineBlockReason =
 
 export interface RuntimePipelineAuditSnapshot {
   generatedAt: string;
+  // ADR-0528 carry: canonical sourceSnapshotId of the cycle this audit reflects so that
+  // preflight-blocked current cycle is not confused with past dry-run/aggregate state.
+  sourceSnapshotId: string;
   lastScanAt?: string | null;
   marketSession: string;
   engineMode: string;
@@ -173,6 +176,23 @@ export function isRuntimePipelineAuditDisabled(): boolean {
 
 function addReason(reasons: RuntimePipelineBlockReason[], reason: RuntimePipelineBlockReason): void {
   if (!reasons.includes(reason)) reasons.push(reason);
+}
+
+// ADR-0528 carry: same canonical resolution order as runtimeResolverTraceStep26.sourceSnapshotIdOf,
+// extended with the preflight-blocked summary so a buyListLoop-preflight-blocked current cycle still
+// carries its own scanId instead of falling back to NO_SCAN_SUMMARY (display-only, executionImpact=NONE).
+function resolveCanonicalSourceSnapshotId(
+  summary: ReturnType<typeof getLastScanSummary>,
+  preflightBlocked: PreflightBlockedScanSummary | null,
+): string {
+  return (
+    summary?.snapshotId ??
+    summary?.scanEvaluation?.scanId ??
+    (summary?.time ? `scan-summary:${summary.time}` : undefined) ??
+    preflightBlocked?.scanEvaluation?.scanId ??
+    preflightBlocked?.scanId ??
+    'NO_SCAN_SUMMARY'
+  );
 }
 
 function inferMarketSession(summary: ReturnType<typeof getLastScanSummary>): string {
@@ -430,6 +450,7 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
 
   return {
     generatedAt: new Date().toISOString(),
+    sourceSnapshotId: resolveCanonicalSourceSnapshotId(summary, preflightBlocked),
     lastScanAt: summary?.time ?? null,
     marketSession: inferMarketSession(summary),
     engineMode: getExecutionMode(),
@@ -509,6 +530,7 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
 export function formatRuntimePipelineAuditSection(snapshot: RuntimePipelineAuditSnapshot): string {
   return [
     '📍 <b>Runtime Pipeline Audit (ADR-461)</b>',
+    `  • sourceSnapshotId: <code>${snapshot.sourceSnapshotId}</code>`,
     `  • latestStage: <code>${snapshot.latestStage}</code>`,
     `  • blockedBy: <code>${snapshot.blockedBy.join(', ') || 'none'}</code>`,
     `  • buyListLoopEntered: <code>${snapshot.buyListLoopEntered ? 'true' : 'false'}</code>`,
@@ -560,6 +582,7 @@ export function formatRuntimePipelineAuditDetails(snapshot: RuntimePipelineAudit
     : '  • none';
   return [
     '📍 <b>Runtime Pipeline Audit (ADR-461)</b>',
+    `  • sourceSnapshotId: <code>${snapshot.sourceSnapshotId}</code>`,
     `  • generatedAt: <code>${snapshot.generatedAt}</code>`,
     `  • lastScanAt: <code>${snapshot.lastScanAt ?? 'none'}</code>`,
     `  • latestStage: <code>${snapshot.latestStage}</code>`,

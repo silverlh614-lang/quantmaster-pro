@@ -12,7 +12,9 @@
 // 핵심 불변식 (사용자 명시 절대 변경 금지):
 //   1. Gate threshold 변경 0
 //   2. LIVE/실주문 정책 0
-//   3. HARD_BLOCK 은 Shadow 도 차단
+//   3. HARD_BLOCK/SELL_ONLY 은 LIVE 실주문만 차단 — Shadow/Watch 진단·counterfactual 학습은
+//      always-on (ADR-0430 이 ADR-0425 의 "Shadow 도 차단" 을 학습 레인 한정으로 개정).
+//      단 TRUE_WEAKNESS(진짜 기술 미달)는 학습 표본 오염원이라 shadow/counterfactual 모두 차단.
 //   4. SOFT_DEGRADE 는 실매수 차단 + Shadow/Watch 보존
 //   5. DATA_UNAVAILABLE 은 failed 가 아니다
 //   6. STALE 은 failed 가 아니다
@@ -428,11 +430,15 @@ export function deriveGateDecisionRouterResult(
       reasons,
       liveAllowed: false,
       paperAllowed: false,
-      shadowAllowed: true,
+      // ADR-0425/0430 — TRUE_WEAKNESS 는 진짜 기술 미달이라 실거래·shadow 공통 게이트 미달.
+      // provisionalShadowLane / counterfactualShadowLearningLane 이 severity 로 후보를
+      // 차단(실동작)하므로 라우터 플래그도 그 실동작·operatorMessage 에 정렬한다 (Watch 만 보존).
+      // 불변식 #2 의 macro/risk 차단(HARD_BLOCK/SELL_ONLY) always-on 과 구분 — TRUE_WEAKNESS 는
+      // 학습 표본 오염원이라 shadow/counterfactual 학습 레인 진입 자체를 차단한다.
+      shadowAllowed: false,
       watchAllowed: true,
-      // ADR-0430 — TRUE_WEAKNESS 도 학습 표본 오염이라 counterfactual 도 차단 (사용자 §C #5 정합).
-      counterfactualLearningAllowed: true,
-      learningShadowAllowed: true,
+      counterfactualLearningAllowed: false,
+      learningShadowAllowed: false,
       label: 'BLOCK_TRUE_WEAKNESS',
       operatorMessage:
         '진짜 기술 약세 — trend/vcp/breakout 등 임계 미달 우세. ' +

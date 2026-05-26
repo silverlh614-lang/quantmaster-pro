@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildCandidateGate3ClosureSnapshot } from '../../../trading/signalScanner/scanDiagnostics/candidateGateEvaluationView.js';
 import { buildGate3CandidateDetail, groupGate3CandidateDetails, withGate3ShadowPolicy } from '../../../quant/gate3CandidateDetail.js';
 import { buildGate3ShadowPolicy, summarizeGate3ShadowPolicies } from '../../../quant/gate3ShadowPolicy.js';
 import { buildGate3OutcomeSeeds, summarizeGate3OutcomeSeeds } from '../../../quant/gate3OutcomeSeed.js';
@@ -158,6 +159,9 @@ describe('/scan_blockers_gate3 command', () => {
       gate3Completion: gate3.completionScore,
       policy: { shadowOnlyMode: true, allowsLive: false },
     });
+    // ADR-0526 Phase 1b: scanBlockersGate3 formatter 는 buildGate3RuntimeClosureSummary 를 재실행하지 않고
+    // persist 된 candidateGate3Closure 정본(스캔-시점, gate2 캐시 미사용)을 read 한다 — 실제 빌더로 모사.
+    mockSummary.candidateGate3Closure = buildCandidateGate3ClosureSnapshot(mockSummary);
     const registry = await import('../../commandRegistry.js');
     registry.commandRegistry.__resetForTests();
   });

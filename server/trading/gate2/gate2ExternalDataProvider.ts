@@ -1,6 +1,5 @@
 // @responsibility Gate2 external financial snapshot, derived metrics, and safe projection helpers.
 
-import type { DartFinancials } from '../../clients/dartFinancialClient.js';
 import { getDartFinancials } from '../../clients/dartFinancialClient.js';
 import { normalizeDartFinancials, type QmpDartFinancials } from '../../clients/dartFinancialNormalizer.js';
 import { fetchWithRetry, FetchRetryError } from '../../utils/fetchWithRetry.js';
@@ -16,292 +15,47 @@ import {
   upsertGate2ExternalCacheRecords,
   updateGate2ExternalLastRefresh,
 } from './gate2ExternalCache.js';
-import { realDataKisGet } from '../../clients/kisClient/http.js';
-import { HAS_REAL_DATA_CLIENT } from '../../clients/kisClient/constants.js';
 import { getStockByCode, isTradableKrxEquity } from '../../persistence/krxStockMasterRepo.js';
+// 정본 데이터 SSOT(Gate2 PER dedup, patch): Gate2 PER valuation 엔진(KIS FHKST01010100 추출·판정 + 정본 snapshot quote 재사용) 단일 모듈.
+import { emptyPerValuation, fetchGate2PerValuation } from './gate2ExternalDataProvider/perValuation.js';
 
-export type Gate2FinancialSource = 'DART' | 'CACHE' | 'NONE';
-export type Gate2FinancialConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
-export type Gate2FinancialStatementType = 'CFS' | 'OFS' | 'UNKNOWN';
-export type Gate2ConditionStatus = 'PASS' | 'FAIL' | 'UNAVAILABLE';
-export type Gate2CorpCodeResolveStatus = 'FOUND' | 'NOT_FOUND' | 'CACHE_MISSING' | 'ERROR';
-export type Gate2FiscalPeriodStatus = 'RESOLVED' | 'NONE' | 'ERROR';
-export type Gate2PerValuationSource = 'KIS' | 'DART_EPS_PRICE' | 'CACHE' | 'NONE';
-export type Gate2CorpCodeMissingReason =
-  | 'NONE'
-  | 'DART_NOT_APPLICABLE'
-  | 'DART_CORP_CODE_NOT_FOUND'
-  | 'DART_CORP_CODE_LOOKUP_FAILED'
-  | 'DART_CORP_CODE_CACHE_NOT_LOADED';
+export { fetchGate2PerValuation };
 
-export interface Gate2ExternalRefreshTrace {
-  symbol: string;
-  symbolNormalized?: string;
-  lookupKey?: string;
-  corpCodeResolveStatus: Gate2CorpCodeResolveStatus;
-  corpCode?: string;
-  instrumentType?: string;
-  corpCodeMissingReason?: Gate2CorpCodeMissingReason;
-  fiscalPeriodStatus: Gate2FiscalPeriodStatus;
-  fiscalPeriod?: string;
-  reportCode?: string;
-  statementType?: Gate2FinancialStatementType;
-  corpCodeRequestAttempted: boolean;
-  dartRequestAttempted: boolean;
-  dartHttpStatus?: number;
-  dartErrorCode?: string;
-  dartRawRows: number;
-  normalizedRows: number;
-  derivedMetricsComputed: boolean;
-  kisPerRequestAttempted: boolean;
-  kisPerRaw?: unknown;
-  perNormalized?: number | null;
-  perSource?: Gate2PerValuationSource;
-  perReason?: string;
-  epsComputed?: number | null;
-  currentPrice?: number | null;
-  listedShares?: number | null;
-  dartEpsComputed?: boolean;
-  perComputedFromPriceAndEps?: boolean;
-  perCacheHit?: boolean;
-  finalConfidence: 'VERIFIED' | 'STALE' | 'MISSING';
-  unavailableConditions: string[];
-  executionImpact: 'NONE';
-}
+export * from './gate2ExternalDataProvider/types.js';
+import type {
+  Gate2FinancialSource,
+  Gate2FinancialConfidence,
+  Gate2FinancialStatementType,
+  Gate2ConditionStatus,
+  Gate2CorpCodeResolveStatus,
+  Gate2FiscalPeriodStatus,
+  Gate2PerValuationSource,
+  Gate2CorpCodeMissingReason,
+  Gate2ExternalRefreshTrace,
+  Gate2InstrumentClass,
+  Gate2ExternalRefreshCounters,
+  Gate2ExternalRootCause,
+  Gate2FinancialSnapshot,
+  Gate2DerivedMetrics,
+  Gate2ProjectedCondition,
+  Gate2ExternalProjection,
+  Gate2ExternalRefreshResult,
+  Gate2DartProviderHealth,
+  Gate2DartEvaluationFinancials,
+  DartReportCandidate,
+  Gate2PerValuationResult,
+} from './gate2ExternalDataProvider/types.js';
+import {
+  cleanSymbol,
+  compactKorean,
+  finiteNumber,
+  isRecord,
+  nowIso,
+  responseStatusCode,
+  toDartAmount,
+} from './gate2ExternalDataProvider/helpers.js';
 
-type Gate2InstrumentClass =
-  | 'ETF'
-  | 'ETN'
-  | 'FUND'
-  | 'INDEX_PRODUCT'
-  | 'REIT'
-  | 'SPAC'
-  | 'PREFERRED'
-  | 'COMMON_STOCK'
-  | 'UNKNOWN';
-
-export interface Gate2ExternalRefreshCounters {
-  providerRequestsAttempted: number;
-  corpCodeResolved: number;
-  corpCodeMissing: number;
-  dartNotApplicableCount: number;
-  trueCorpCodeNotFound: number;
-  corpCodeLookupFailed: number;
-  fiscalPeriodResolved: number;
-  fiscalPeriodMissing: number;
-  dartResponsesOk: number;
-  dartResponsesError: number;
-  dartRowsFetched: number;
-  normalizedRowsBuilt: number;
-  derivedMetricsComputed: number;
-  kisPerAttempted: number;
-  kisPerAvailable: number;
-  kisPerUnavailable: number;
-  dartEpsComputed: number;
-  perComputedFromPriceAndEps: number;
-  perCacheHit: number;
-  unavailableDueToPER: number;
-  perFailDueToNegativeEps: number;
-  perUnavailableDueToNegativeEps: number;
-  perUnavailableDueToProviderMissing: number;
-  perUnavailableDueToPriceMissing: number;
-  perUnavailableDueToEpsMissing: number;
-  perUnavailableDueToNonPositive: number;
-  unavailableDueToCorpCodeMissing: number;
-  unavailableDueToFiscalPeriodMissing: number;
-  unavailableDueToFinancialRowsEmpty: number;
-  unavailableDueToNormalizationFailed: number;
-  unavailableCountRaw: number;
-  unavailableCountActionable: number;
-  unavailableExcludingExcluded: number;
-  excludedCount: number;
-  excludedUnavailableEquivalent: number;
-}
-
-export type Gate2ExternalRootCause =
-  | 'NONE'
-  | 'DART_API_KEY_MISSING'
-  | 'DART_CORP_CODE_CACHE_NOT_LOADED'
-  | 'DART_CORP_CODE_NOT_FOUND'
-  | 'PARTIAL_CORP_CODE_NOT_FOUND'
-  | 'DART_NOT_APPLICABLE_ONLY'
-  | 'PER_PARTIAL_UNAVAILABLE'
-  | 'DART_CORP_CODE_MAPPING_MISSING'
-  | 'DART_FISCAL_PERIOD_RESOLVE_FAILED'
-  | 'DART_FINANCIAL_HTTP_ERROR'
-  | 'DART_FINANCIAL_ROWS_EMPTY'
-  | 'DART_FINANCIAL_NORMALIZATION_FAILED'
-  | 'GATE2_DERIVED_METRICS_FAILED'
-  | 'DART_HTTP_OR_RESPONSE_ERROR'
-  | 'DART_NORMALIZATION_MAPPING_FAILED'
-  | 'DART_FINANCIALS_MISSING';
-
-export interface Gate2FinancialSnapshot {
-  symbol: string;
-  corpCode: string | null;
-  fiscalPeriod: string | null;
-  statementType: Gate2FinancialStatementType;
-  revenue: number | null;
-  operatingProfit: number | null;
-  netIncome: number | null;
-  operatingCashFlow: number | null;
-  equity: number | null;
-  totalAssets: number | null;
-  totalDebt: number | null;
-  interestExpense: number | null;
-  currentAssets: number | null;
-  currentLiabilities: number | null;
-  source: Gate2FinancialSource;
-  confidence: Gate2FinancialConfidence;
-  lastUpdated: string | null;
-  rawStatus: string;
-  normalizedStatus: string;
-  providerIssue: boolean;
-  marketSignal: false;
-  executionImpact: 'NONE';
-}
-
-export interface Gate2DerivedMetrics {
-  per: number | null;
-  roe: number | null;
-  opm: number | null;
-  netMargin: number | null;
-  icr: number | null;
-  debtRatio: number | null;
-  currentRatio: number | null;
-  earningsQualityScore: number | null;
-  ocfGreaterThanNetIncome: boolean | null;
-  opmYoYAcceleration: number | null;
-}
-
-export interface Gate2ProjectedCondition {
-  status: Gate2ConditionStatus;
-  value: number | null;
-  source: Gate2FinancialSource | 'KIS' | 'DART' | 'CACHE' | 'NONE';
-  reason: string;
-  executionImpact: 'NONE';
-}
-
-export interface Gate2ExternalProjection {
-  symbol: string;
-  asOf: string;
-  financialSnapshot: Gate2FinancialSnapshot;
-  metrics: Gate2DerivedMetrics;
-  valuation: {
-    per: Gate2ProjectedCondition & { per: number | null };
-  };
-  profitability: {
-    roe: number | null;
-    opm: number | null;
-    netMargin: number | null;
-    source: Gate2FinancialSource;
-  };
-  stability: {
-    icr: number | null;
-    debtRatio: number | null;
-    currentRatio: number | null;
-    source: Gate2FinancialSource;
-  };
-  earningsQuality: {
-    status: Gate2ConditionStatus;
-    score: number | null;
-    reason: string;
-    source: Gate2FinancialSource;
-    executionImpact: 'NONE';
-  };
-  conditionResults: Record<'earnings_quality' | 'per' | 'roe' | 'opm' | 'icr', Gate2ProjectedCondition>;
-  refreshTrace?: Gate2ExternalRefreshTrace;
-  unavailableCount: number;
-  highConvictionImpact: 'NONE' | 'BLOCK_STRONG_BUY_UPGRADE';
-  entryHardBlockImpact: 'NO';
-  shadowObservablePreserved: true;
-  counterfactualAllowed: true;
-  executionImpact: 'NONE';
-}
-
-export interface Gate2ExternalRefreshResult {
-  asOf: string;
-  requestedSymbols: string[];
-  refreshedCount: number;
-  verifiedCount: number;
-  staleCount: number;
-  missingCount: number;
-  rowsProjected: number;
-  unavailableCount: number;
-  counters: Gate2ExternalRefreshCounters;
-  rootCause: Gate2ExternalRootCause;
-  traces: Gate2ExternalRefreshTrace[];
-  providerHealth: Gate2DartProviderHealth;
-  strongBuyBlockedReason: 'NONE' | 'DART_FINANCIALS_MISSING' | 'GATE2_EXTERNAL_PARTIAL';
-  strongBuyBlockedDetails: string;
-  blockingDetails: string;
-  externalDataBlockReason: 'NONE' | 'DART_FINANCIALS_MISSING' | 'GATE2_EXTERNAL_PARTIAL';
-  externalDataBlockedDetails: string;
-  fundamentalQualityFailReason: 'NONE' | 'EPS_NON_POSITIVE';
-  fundamentalQualityFailDetails: string;
-  qualityFailDetails: string;
-  excludedDetails: string;
-  excludedCount: number;
-  excludedSymbols: string[];
-  excludedReason: 'DART_NOT_APPLICABLE' | 'NONE';
-  unavailableCountRaw: number;
-  unavailableCountActionable: number;
-  unavailableExcludingExcluded: number;
-  excludedUnavailableEquivalent: number;
-  corpCodeMissingSymbols: string[];
-  dartNotApplicableSymbols: string[];
-  trueCorpCodeNotFoundSymbols: string[];
-  corpCodeLookupFailedSymbols: string[];
-  nonEquitySymbols: string[];
-  executionImpact: 'NONE';
-  records: Gate2ExternalProjection[];
-}
-
-export interface Gate2DartProviderHealth {
-  apiKeyPresent: boolean;
-  corpCodeCacheLoaded: boolean;
-  corpCodeCacheCount: number;
-  lastCorpCodeCacheUpdatedAt: string | null;
-  requestEnabled: boolean;
-  lastHttpStatus: number | null;
-  lastErrorCode: string | null;
-  lastNonBlockingIssue: string | null;
-  lastNonBlockingSymbols: string[];
-  rateLimitState: 'UNKNOWN' | 'OK' | 'RATE_LIMITED';
-  cacheWritable: boolean;
-  executionImpact: 'NONE';
-}
-
-export type Gate2DartEvaluationFinancials = DartFinancials | QmpDartFinancials;
 const DART_BASE = 'https://opendart.fss.or.kr/api';
-
-function nowIso(now: Date = new Date()): string {
-  return now.toISOString();
-}
-
-function cleanSymbol(symbol: string): string {
-  return String(symbol || '').replace(/[^0-9]/g, '').slice(0, 6).padStart(6, '0');
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function finiteNumber(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value !== 'string') return null;
-  const parsed = Number(value.replace(/,/g, '').replace(/%/g, '').trim());
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function toDartAmount(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value !== 'string') return null;
-  const cleaned = value.replace(/,/g, '').replace(/%/g, '').replace(/\+/g, '').trim();
-  if (!cleaned || cleaned === '-' || cleaned.toUpperCase() === 'N/A') return null;
-  const parsed = Number(cleaned);
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 function newTrace(symbol: string): Gate2ExternalRefreshTrace {
   const normalizedSymbol = cleanSymbol(symbol);
@@ -331,16 +85,6 @@ function newTrace(symbol: string): Gate2ExternalRefreshTrace {
     unavailableConditions: ['earnings_quality', 'per', 'roe', 'opm', 'icr'],
     executionImpact: 'NONE',
   };
-}
-
-function responseStatusCode(payload: unknown): string | null {
-  if (!isRecord(payload)) return null;
-  const status = payload.status ?? payload.rt_cd;
-  return typeof status === 'string' ? status : status == null ? null : String(status);
-}
-
-function hasKisValuationCredentials(): boolean {
-  return HAS_REAL_DATA_CLIENT || Boolean(process.env.KIS_APP_KEY && process.env.KIS_APP_SECRET);
 }
 
 function inferInstrumentClassFromText(value: string): Gate2InstrumentClass {
@@ -517,13 +261,6 @@ async function resolveDartCorpCode(symbol: string, trace: Gate2ExternalRefreshTr
   }
 }
 
-interface DartReportCandidate {
-  fiscalPeriod: string;
-  bsnsYear: string;
-  reportCode: string;
-  quarter: QmpDartFinancials['quarter'];
-}
-
 function reportCandidates(now: Date = new Date()): DartReportCandidate[] {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -543,10 +280,6 @@ function rowsFromDartPayload(payload: unknown): Record<string, unknown>[] {
   if (!isRecord(payload)) return [];
   const list = payload.list;
   return Array.isArray(list) ? list.filter(isRecord) : [];
-}
-
-function compactKorean(value: unknown): string {
-  return String(value ?? '').replace(/\s+/g, '').replace(/[()\uFF08\uFF09]/g, '').trim();
 }
 
 function extractAccountAmount(rows: readonly Record<string, unknown>[], aliases: readonly string[]): number | null {
@@ -696,224 +429,6 @@ export async function fetchDartFinancialsForGate2(input: {
   }
   trace.fiscalPeriodStatus = trace.dartRequestAttempted ? 'NONE' : 'ERROR';
   return { dartFin: null, trace };
-}
-
-export interface Gate2PerValuationResult {
-  attempted: boolean;
-  per: number | null;
-  eps: number | null;
-  currentPrice: number | null;
-  listedShares: number | null;
-  source: Gate2PerValuationSource;
-  reason: string;
-  raw?: unknown;
-  dartEpsComputed: boolean;
-  perComputedFromPriceAndEps: boolean;
-  perCacheHit: boolean;
-}
-
-function emptyPerValuation(reason = 'PER_MISSING', attempted = false): Gate2PerValuationResult {
-  return {
-    attempted,
-    per: null,
-    eps: null,
-    currentPrice: null,
-    listedShares: null,
-    source: 'NONE',
-    reason,
-    dartEpsComputed: false,
-    perComputedFromPriceAndEps: false,
-    perCacheHit: false,
-  };
-}
-
-function pickKisValuationOutput(data: unknown): Record<string, unknown> | null {
-  if (!isRecord(data)) return null;
-  const buckets = [data.output, data.output1, data.output2];
-  for (const bucket of buckets) {
-    if (isRecord(bucket)) return bucket;
-    if (Array.isArray(bucket)) {
-      const first = bucket.find(isRecord);
-      if (first) return first;
-    }
-  }
-  return null;
-}
-
-function firstPositiveNumber(record: Record<string, unknown> | null, keys: readonly string[]): number | null {
-  if (!record) return null;
-  for (const key of keys) {
-    const value = finiteNumber(record[key]);
-    if (value != null && value > 0) return value;
-  }
-  return null;
-}
-
-function firstFiniteNumber(record: Record<string, unknown> | null, keys: readonly string[]): number | null {
-  if (!record) return null;
-  for (const key of keys) {
-    const value = finiteNumber(record[key]);
-    if (value != null) return value;
-  }
-  return null;
-}
-
-function sanitizedKisValuationRaw(output: Record<string, unknown> | null): Record<string, unknown> | undefined {
-  if (!output) return undefined;
-  const keepKeys = [
-    'stck_prpr',
-    'prpr',
-    'per',
-    'hts_per',
-    'eps',
-    'stac_eps',
-    'lstn_stcn',
-    'hts_avls',
-    'pbr',
-    'bps',
-  ];
-  const sanitized: Record<string, unknown> = {};
-  for (const key of keepKeys) {
-    if (output[key] != null) sanitized[key] = output[key];
-  }
-  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
-}
-
-function listedSharesFromMaster(symbol: string): number | null {
-  const entry = getStockByCode(cleanSymbol(symbol));
-  return typeof entry?.listedShares === 'number' && Number.isFinite(entry.listedShares) && entry.listedShares > 0
-    ? entry.listedShares
-    : null;
-}
-
-function netIncomeFromDartFin(dartFin: Gate2DartEvaluationFinancials | null | undefined): number | null {
-  if (!isRecord(dartFin)) return null;
-  return finiteNumber(dartFin.netIncome);
-}
-
-function sharesFromDartFin(dartFin: Gate2DartEvaluationFinancials | null | undefined): number | null {
-  if (!isRecord(dartFin)) return null;
-  const shares = finiteNumber(dartFin.sharesOutstanding ?? dartFin.weightedAverageShares ?? dartFin.listedShares);
-  return shares != null && shares > 0 ? shares : null;
-}
-
-function reasonForMissingPer(input: {
-  directPer: number | null;
-  currentPrice: number | null;
-  kisEps: number | null;
-  dartEps: number | null;
-  listedShares: number | null;
-  output: Record<string, unknown> | null;
-}): string {
-  if (!input.output) return 'KIS_PER_OUTPUT_MISSING';
-  if (input.kisEps != null && input.kisEps <= 0) return 'EPS_NON_POSITIVE';
-  if (input.dartEps != null && input.dartEps <= 0) return 'EPS_NON_POSITIVE';
-  if (input.directPer != null && input.directPer <= 0) return 'PER_NON_POSITIVE_OR_UNAVAILABLE';
-  if (input.currentPrice == null || input.currentPrice <= 0) return 'PRICE_MISSING';
-  if (input.kisEps == null && input.dartEps == null) {
-    return input.listedShares == null ? 'SHARES_OUTSTANDING_MISSING' : 'EPS_MISSING';
-  }
-  return 'PER_UNAVAILABLE';
-}
-
-export async function fetchGate2PerValuation(input: {
-  symbol: string;
-  dartFin?: Gate2DartEvaluationFinancials | null;
-}): Promise<Gate2PerValuationResult> {
-  const symbol = cleanSymbol(input.symbol);
-  if (!hasKisValuationCredentials()) return emptyPerValuation('KIS_PER_CONFIG_MISSING', false);
-  try {
-    const data = await realDataKisGet(
-      'FHKST01010100',
-      '/uapi/domestic-stock/v1/quotations/inquire-price',
-      {
-        FID_COND_MRKT_DIV_CODE: 'J',
-        FID_INPUT_ISCD: symbol,
-        __kisPurpose: 'GATE2_PER_VALUATION',
-      },
-      'LOW',
-    );
-    const output = pickKisValuationOutput(data);
-    const raw = sanitizedKisValuationRaw(output);
-    const rawDirectPer = firstFiniteNumber(output, ['per', 'PER', 'hts_per', 'HTS_PER']);
-    const directPer = rawDirectPer != null && rawDirectPer > 0 ? rawDirectPer : null;
-    const currentPrice = firstPositiveNumber(output, ['stck_prpr', 'STCK_PRPR', 'prpr', 'close']);
-    const kisEps = firstFiniteNumber(output, ['eps', 'EPS', 'stac_eps', 'STAC_EPS']);
-    const listedShares = firstPositiveNumber(output, ['lstn_stcn', 'LSTN_STCN', 'listedShares'])
-      ?? sharesFromDartFin(input.dartFin)
-      ?? listedSharesFromMaster(symbol);
-    if (directPer != null && directPer > 0) {
-      return {
-        attempted: true,
-        per: directPer,
-        eps: kisEps,
-        currentPrice,
-        listedShares,
-        source: 'KIS',
-        reason: directPer > 30 ? 'PER_TOO_HIGH' : 'PER_ACCEPTABLE',
-        raw,
-        dartEpsComputed: false,
-        perComputedFromPriceAndEps: false,
-        perCacheHit: false,
-      };
-    }
-    if (currentPrice != null && currentPrice > 0 && kisEps != null && kisEps > 0) {
-      return {
-        attempted: true,
-        per: currentPrice / kisEps,
-        eps: kisEps,
-        currentPrice,
-        listedShares,
-        source: 'KIS',
-        reason: 'PER_COMPUTED_FROM_KIS_PRICE_EPS',
-        raw,
-        dartEpsComputed: false,
-        perComputedFromPriceAndEps: true,
-        perCacheHit: false,
-      };
-    }
-    const netIncome = netIncomeFromDartFin(input.dartFin);
-    const rawDartEps = netIncome != null && listedShares != null && listedShares > 0
-      ? netIncome / listedShares
-      : null;
-    const dartEps = rawDartEps != null && rawDartEps > 0 ? rawDartEps : null;
-    if (currentPrice != null && currentPrice > 0 && dartEps != null && dartEps > 0) {
-      return {
-        attempted: true,
-        per: currentPrice / dartEps,
-        eps: dartEps,
-        currentPrice,
-        listedShares,
-        source: 'DART_EPS_PRICE',
-        reason: 'PER_COMPUTED_FROM_DART_EPS_AND_KIS_PRICE',
-        raw,
-        dartEpsComputed: true,
-        perComputedFromPriceAndEps: true,
-        perCacheHit: false,
-      };
-    }
-    return {
-      ...emptyPerValuation(reasonForMissingPer({
-        directPer: rawDirectPer,
-        currentPrice,
-        kisEps,
-        dartEps: rawDartEps,
-        listedShares,
-        output,
-      }), true),
-      eps: kisEps ?? rawDartEps,
-      currentPrice,
-      listedShares,
-      source: output ? 'KIS' : 'NONE',
-      raw,
-      dartEpsComputed: rawDartEps != null,
-    };
-  } catch (error) {
-    return {
-      ...emptyPerValuation(error instanceof Error ? `KIS_PER_PROVIDER_ERROR:${error.name}` : 'KIS_PER_PROVIDER_ERROR', true),
-      source: 'KIS',
-    };
-  }
 }
 
 function ratio(numerator: number | null, denominator: number | null): number | null {
@@ -1509,6 +1024,16 @@ export async function refreshGate2ExternalData(input: {
   symbols: readonly string[];
   fetcher?: (symbol: string) => Promise<Gate2DartEvaluationFinancials | null>;
   perFetcher?: (symbol: string, dartFin: Gate2DartEvaluationFinancials | null) => Promise<Gate2PerValuationResult>;
+  /**
+   * 정본 데이터 SSOT(Gate2 PER dedup, patch): 정본 SourceSnapshot quote(동일 FHKST01010100) per/eps/listedShares/currentPrice 맵.
+   * 제공 시 fetchGate2PerValuation 이 재호출을 skip 하고 이 값을 재사용한다 (없으면 기존 재호출 fallback).
+   */
+  snapshotQuotes?: Record<string, {
+    per?: number | null;
+    eps?: number | null;
+    listedShares?: number | null;
+    currentPrice?: number | null;
+  } | null | undefined>;
   now?: Date;
 }): Promise<Gate2ExternalRefreshResult> {
   const asOf = nowIso(input.now);
@@ -1556,7 +1081,7 @@ export async function refreshGate2ExternalData(input: {
         ? await input.perFetcher(symbol, dartFin)
         : input.fetcher
           ? emptyPerValuation('PER_MISSING', false)
-          : await fetchGate2PerValuation({ symbol, dartFin })
+          : await fetchGate2PerValuation({ symbol, dartFin, snapshotQuote: input.snapshotQuotes?.[symbol] ?? null })
       : emptyPerValuation(trace.corpCodeResolveStatus === 'FOUND' ? 'PER_MISSING' : 'PER_SKIPPED_DART_FINANCIALS_MISSING', false);
     trace.kisPerRequestAttempted = perValuation.attempted;
     trace.kisPerRaw = perValuation.raw;

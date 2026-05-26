@@ -28,6 +28,17 @@ export async function setTelegramBotCommands(): Promise<void> {
 
   let commands;
   try {
+    await Promise.all([
+      import('../telegram/commands/system/index.js'),
+      import('../telegram/commands/watchlist/index.js'),
+      import('../telegram/commands/positions/index.js'),
+      import('../telegram/commands/alert/index.js'),
+      import('../telegram/commands/learning/index.js'),
+      import('../telegram/commands/control/index.js'),
+      import('../telegram/commands/trade/index.js'),
+      import('../telegram/commands/infra/index.js'),
+      import('../telegram/commands/shadow/index.js'),
+    ]);
     commands = buildBotMenuCommandsExtended();
   } catch (e: unknown) {
     console.error('[Telegram] setMyCommands 빌드 실패:', e instanceof Error ? e.message : e);

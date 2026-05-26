@@ -116,6 +116,18 @@ import {
   type ScanEvaluationResult,
 } from './persistScanResultsDependencies.js';
 import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
+import { isPreflightDiagnosticScanSummary } from './preflightDiagnosticScanSummary.js';
+import {
+  buildCandidateGateEvaluationViews,
+  aggregateCandidateGateEvaluationViews,
+  buildCandidateGate2Coverage,
+  buildCandidateGate2ConfluenceSnapshot,
+  buildCandidateGate3ClosureSnapshot,
+} from './candidateGateEvaluationView.js';
+import {
+  buildCandidateExecutionResolutions,
+  aggregateUnifiedExecutionPermission,
+} from './candidateExecutionResolution.js';
 import { loadWatchlist } from '../../../persistence/watchlistRepo.js';
 import { upsertGate3OutcomeSeeds } from '../../../persistence/gate3OutcomeRepo.js';
 import { buildGate3EvidenceScore } from '../../../quant/gate3EvidenceScore.js';
@@ -135,6 +147,16 @@ let _lastScanSummary: ScanSummary | null = null;
 export function getLastBuySignalAt(): number { return _lastBuySignalAt; }
 export function getLastScanSummary(): ScanSummary | null { return _lastScanSummary; }
 export function getConsecutiveZeroScans(): number { return _consecutiveZeroScans; }
+
+/**
+ * Patch: preflight HARD_BLOCK 경로에서 minimal diagnostic ScanSummary 를 영속한다 (display-only).
+ * 실제 스캔 summary 는 절대 clobber 하지 않는다 — _lastScanSummary 가 null 이거나 직전 값이 본인(preflight diagnostic)일 때만 교체.
+ * 정상 persistScanResults 1회가 들어오면 그 값이 우선되고 clearPreflightBlockedScanSummary 가 stale 을 제거한다.
+ */
+export function setPreflightDiagnosticScanSummaryIfAbsent(summary: ScanSummary): void {
+  if (_lastScanSummary !== null && !isPreflightDiagnosticScanSummary(_lastScanSummary)) return;
+  _lastScanSummary = summary;
+}
 
 export function setLastBuySignalAt(ts: number): void { _lastBuySignalAt = ts; }
 
@@ -322,6 +344,13 @@ export interface PersistScanResultsOptions {
   watchlistSource?: string;
   macroGateState?: MacroGateState;
   scanEvaluation?: ScanEvaluationResult;
+  /**
+   * ADR-0528 a1/a2 — 호출자(signalScanner/index.ts) scan-start 에서 1회 산출한 KST asOf ISO.
+   * `scanEvaluation` 미전달 시 buildScanEvaluationResult 의 asOf 로 사용 → scanEvaluation.scanId 가
+   * 호출자 context.sourceSnapshotId(= buildScanEvaluationId(scanAsOf)) 와 byte-identical 보장.
+   * 부재 시 기존 kstNow.toISOString() 자연 fallback (회귀 안전).
+   */
+  scanAsOf?: string;
   candidateScanTrigger?: ShadowCandidateScanTrigger;
   sectorEnergyQuality?: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED';
   validSectorCount?: number;
@@ -404,7 +433,9 @@ export async function persistScanResults(
   const totalCandidates = options.buyListLength + options.intradayBuyListLength;
   const scanCandidateSnapshots = options.candidateSnapshots ?? counters.entryCandidateSnapshots;
   const scanEvaluation = options.scanEvaluation ?? buildScanEvaluationResult({
-    asOf: kstNow.toISOString(),
+    // ADR-0528 a1/a2: 호출자 scan-start scanAsOf 우선 → scanEvaluation.scanId 가
+    // context.sourceSnapshotId 와 동일값(byte-identical). 부재 시 kstNow 자연 fallback.
+    asOf: options.scanAsOf ?? kstNow.toISOString(),
     counters,
     totalCandidates,
     sellOnly: false,
@@ -1710,6 +1741,43 @@ export async function persistScanResults(
   }
 
   summaryDraft.canonicalRuntimeResolution = canonicalRuntimeResolutionForRootCause;
+
+  // ADR-0526 Phase 1a — per-candidate Gate0/1/2/3 판단 정본 View 도출·영속 (가산만, 무위험).
+  // entryFilterDecomposition / gateLayerAudit / meta 가 모두 세팅된 *후* 도출 — 정본 입력 정합.
+  // 결정론적(네트워크/캐시/더미 시각 없음). 이 View 를 읽는 소비자는 1b 전까지 0 — 화면 무변화.
+  // 빌드 실패가 ScanSummary 영속을 차단해서는 안 됨 — try/catch 격리.
+  try {
+    const candidateGateViews = buildCandidateGateEvaluationViews(summaryDraft);
+    if (candidateGateViews.length > 0) {
+      summaryDraft.candidateGateViews = candidateGateViews;
+      // gate2Coverage(표시용 보조 axis 지표)를 confluence 정본에서 1회 도출해 aggregate 에 carry —
+      // formatter 가 buildGate2ConfluenceSummary 를 재실행하지 않도록 함(ADR-0526 §Decision.5).
+      summaryDraft.candidateGateAggregate = aggregateCandidateGateEvaluationViews(
+        candidateGateViews,
+        buildCandidateGate2Coverage(summaryDraft),
+      );
+      // gate2 confluence / gate3 closure 정본 스냅샷(스캔-시점, 캐시 미사용) 영속 — full-mode formatter read 용.
+      summaryDraft.candidateGate2Confluence = buildCandidateGate2ConfluenceSnapshot(summaryDraft);
+      summaryDraft.candidateGate3Closure = buildCandidateGate3ClosureSnapshot(summaryDraft);
+    }
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildCandidateGateEvaluationViews', error: e });
+  }
+
+  // ADR-0527 Phase 2a — per-candidate 통합 실행허가 정본 도출·영속 (가산만, 무위험).
+  // Phase1 candidateGateViews 가 세팅된 *후* 도출 — gate quality 정본 입력 정합.
+  // A(resolveExecutionPermission) 는 LIVE 와 byte-equivalent, B 라벨은 실제 스캔 시각(더미 1970 의존 0)으로 산출.
+  // 소비자(formatter)는 Phase 2b 전까지 0 → 화면 무변화. 빌드 실패가 ScanSummary 영속을 차단하지 않도록 try/catch 격리.
+  try {
+    const executionResolutions = buildCandidateExecutionResolutions(summaryDraft);
+    if (executionResolutions.length > 0) {
+      summaryDraft.candidateExecutionResolutions = executionResolutions;
+      summaryDraft.executionResolutionAggregate = aggregateUnifiedExecutionPermission(executionResolutions);
+    }
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildCandidateExecutionResolutions', error: e });
+  }
+
   _lastScanSummary = summaryDraft;
   // ADR-0367: 정상 ScanSummary 영속 1회가 "직전 스캔 = preflight 차단" 의미를 무효화한다.
   clearPreflightBlockedScanSummary();
