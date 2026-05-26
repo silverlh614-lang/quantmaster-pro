@@ -419,6 +419,19 @@ describe('resolveOfficialSectorEnergyCoverage — per-key mapping from real veri
     expect(coverage.verifiedOfficialSectorKeys).toContain('FOOD_BEVERAGE_TOBACCO');
   });
 
+  it('MACHINERY_EQUIPMENT resolves from 0012/4014 기계·장비 계열 when verified', () => {
+    const machinery = resolveOfficialSectorEnergyCoverage({
+      officialIndexMasterRows: [{ indexCode: '0012', indexName: '기계·장비' }],
+      indexVerifyResults: [{ indexCode: '0012', verified: true }],
+    });
+    expect(machinery.verifiedOfficialSectorKeys).toContain('MACHINERY_EQUIPMENT');
+    const krxMachinery = resolveOfficialSectorEnergyCoverage({
+      officialIndexMasterRows: [{ indexCode: '4014', indexName: 'KRX 기계장비' }],
+      indexVerifyResults: [{ indexCode: '4014', verified: true }],
+    });
+    expect(krxMachinery.verifiedOfficialSectorKeys).toContain('MACHINERY_EQUIPMENT');
+  });
+
   it('SERVICE_TELECOM resolves from 4010 KRX 방송통신 / 4063 미디어&엔터테인먼트 when verified', () => {
     const broadcast = resolveOfficialSectorEnergyCoverage({
       officialIndexMasterRows: [{ indexCode: '4010', indexName: 'KRX 방송통신' }],
@@ -452,6 +465,18 @@ describe('assertSectorEnergyCoverageInvariants — critical key regression guard
         },
       ),
     ).toThrow('SECTOR_ENERGY_COVERAGE_INVARIANT_VIOLATION:CONSUMER_RETAIL');
+  });
+
+  it('throws when MACHINERY_EQUIPMENT 0012/4014 is verified yet reported missing', () => {
+    expect(() =>
+      assertSectorEnergyCoverageInvariants(
+        { missingOfficialSectorKeys: ['MACHINERY_EQUIPMENT'] },
+        {
+          officialIndexMasterRows: [{ indexCode: '0012', indexName: '기계·장비' }],
+          indexVerifyResults: [{ indexCode: '0012', verified: true }],
+        },
+      ),
+    ).toThrow('SECTOR_ENERGY_COVERAGE_INVARIANT_VIOLATION:MACHINERY_EQUIPMENT');
   });
 
   it('throws when FOOD_BEVERAGE_TOBACCO 0005 is verified yet reported missing', () => {

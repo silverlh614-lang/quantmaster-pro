@@ -170,3 +170,4 @@ rg "ADR-0527|ExecutionPermissionResolution" docs/archive/adr docs/adr
 - Do not load archive buckets unless a specific identifier or keyword points there.
 - If a row needs more than tags, create or update an ADR/archive note and link by identifier.
 - During commit prep, report this file's byte size when it changes.
+- 2026-05-26 · Patch-SECTOR-ENERGY-MISSING-OFFICIAL-3KEY-MAPPING-REPAIR · sector-energy, OFFICIAL_SECTOR_ALIAS_MAP-add(MACHINERY_EQUIPMENT-aliases+4014, SERVICE_TELECOM-SERVICE/TELECOM), official-verify-loop-fixed-to-OFFICIAL_SECTOR_ENERGY_11, invariant-add(MACHINERY_EQUIPMENT-0012/4014), canonical-output-add(verifiedMapping+missingOfficialSectorReasons-for-3keys), tests-add(0012/4014/0005/4010/4063-regression), executionImpact-NONE
