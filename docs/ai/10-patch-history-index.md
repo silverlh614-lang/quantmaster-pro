@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-R3-GATE1-PASS-ZERO-HARDBLOCK-DEPRECATION-001 · ADR-0401-narrowing, GATE1_PASS_ZERO, SHADOW_ONLY-prescan, R3_GATE1_PASS_ZERO_HARDBLOCK_ENABLED
 - 2026-05-25 · Patch-Shadow-Operating-Window-Gate · shadow-card, operating-window, buyPipeline
 - 2026-05-25 · Patch-Gate-TrueWeakness-Shadow-Flag-Alignment · gateDecisionRouter, shadowAllowed, counterfactual
 - 2026-05-25 · Patch-WATCHLIST-ADDED-ALERT-DEDUP-001 · watchlist, alert-dedup
