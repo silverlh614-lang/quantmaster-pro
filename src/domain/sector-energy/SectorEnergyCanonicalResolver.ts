@@ -194,6 +194,33 @@ const OFFICIAL_SECTOR_ALIAS_MAP: Record<OfficialSectorEnergyKey, { aliases: stri
  * 코드/이름 증거를 직접 본다 — verify 성공 증거가 입력에 존재하는데 해당 공식 key 가
  * missing 으로 빠지면 throw 한다 (CONSUMER_RETAIL/FOOD_BEVERAGE_TOBACCO/SERVICE_TELECOM).
  */
+
+function normalizeSectorLabel(value: string): string {
+  return value
+    .toUpperCase()
+    .replace(/^KRX\s*/u, '')
+    .replace(/[·&/]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
+function findIndexRowsByAliasesOrPreferredCodes(
+  rows: readonly IndexMasterRow[],
+  mapping: { aliases: string[]; preferredIndexCodes: string[] },
+): IndexMasterRow[] {
+  const preferred = new Set(mapping.preferredIndexCodes.map((code) => String(code).trim()));
+  const aliasRaw = new Set(mapping.aliases.map((a) => String(a).trim()));
+  const aliasNormalized = new Set(mapping.aliases.map((a) => normalizeSectorLabel(String(a))));
+  return rows.filter((row) => {
+    const code = String(row.indexCode ?? '').trim();
+    const rawName = String(row.sectorName ?? row.indexName ?? '').trim();
+    const normalized = normalizeSectorLabel(rawName);
+    if (preferred.has(code)) return true;
+    if (aliasRaw.has(rawName)) return true;
+    if (aliasNormalized.has(normalized)) return true;
+    return false;
+  });
+}
 const SECTOR_COVERAGE_CRITICAL_INVARIANTS: ReadonlyArray<{
   key: OfficialSectorEnergyKey;
   evidenceCodes: readonly string[];
@@ -261,7 +288,7 @@ export function resolveOfficialSectorEnergyCoverage(input: {
   const verifiedOfficialSectorKeys: OfficialSectorEnergyKey[] = [];
   for (const key of keys) {
     const cfg = OFFICIAL_SECTOR_ALIAS_MAP[key];
-    const matches = input.officialIndexMasterRows.filter((row) => cfg.preferredIndexCodes.includes(String(row.indexCode ?? '').trim()) || cfg.aliases.includes(String(row.sectorName ?? row.indexName ?? '').trim()));
+    const matches = findIndexRowsByAliasesOrPreferredCodes(input.officialIndexMasterRows, cfg);
     let selected = matches.find((m) => verifiedCodes.has(String(m.indexCode ?? '').trim()) && cfg.preferredIndexCodes.includes(String(m.indexCode ?? '').trim()));
     if (!selected) selected = matches.find((m) => verifiedCodes.has(String(m.indexCode ?? '').trim()));
     const dedup = new Set<string>();
@@ -272,7 +299,7 @@ export function resolveOfficialSectorEnergyCoverage(input: {
       dedup.add(code);
     }
     const verified = Boolean(selected && verifiedCodes.has(String(selected.indexCode ?? '').trim()));
-    verifiedMapping[key] = verified ? { verified, selectedIndexCode: String(selected?.indexCode ?? ''), selectedIndexName: selected?.indexName, verifyReason: 'verify success + indexValueUsable', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' } : { verified: false, verifyReason: 'missing verified candidate' };
+    verifiedMapping[key] = verified ? { verified, selectedIndexCode: String(selected?.indexCode ?? ''), selectedIndexName: selected?.indexName ?? selected?.sectorName, verifyReason: 'VERIFY_SUCCESS', sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX' } : { verified: false, selectedIndexCode: 'NONE', verifyReason: matches.length === 0 ? 'INDEX_MASTER_ROW_NOT_FOUND' : 'VERIFY_FAILED' };
     if (verified) verifiedOfficialSectorKeys.push(key);
   }
   const missingOfficialSectorKeys = keys.filter((k) => !verifiedOfficialSectorKeys.includes(k));
