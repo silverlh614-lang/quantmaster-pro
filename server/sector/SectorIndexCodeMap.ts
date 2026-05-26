@@ -384,6 +384,71 @@ function masterVerifyInputCandidates(row: OfficialSectorIndexMasterRow): string[
   });
 }
 
+// Lever 1: KOSPI/KOSDAQ 업종 코드(0xxx, 1xxx)를 KRX-시리즈(4xxx, 5xxx)보다 먼저 verify probe 가 시도하도록 정렬한다.
+// (probe 는 첫 nonzero 를 채택하므로 KRX-시리즈 0값 코드를 뒤로 미뤄 KOSPI/KOSDAQ nonzero 를 우선 채집)
+function verifyCandidateTier(candidate: string): number {
+  const code = candidate.match(/(\d{4})$/)?.[1] ?? candidate;
+  if (/^[01]\d{3}$/.test(code)) return 0;
+  if (/^[45]\d{3}$/.test(code)) return 2;
+  return 1;
+}
+
+// 매칭된 row 가 속한 SAFE alias 패밀리에 함께 매칭되는 다른 official 마스터 row 들을 찾는다.
+// row 자체 판정(officialIndexCode/coverage)은 바꾸지 않고, verify 시도 후보 코드만 넓힌다.
+function collectSafeAliasFamilyRows(
+  matched: OfficialSectorIndexMasterRow,
+  masterRowsByNameKey: Map<string, OfficialSectorIndexMasterRow[]>,
+): OfficialSectorIndexMasterRow[] {
+  const matchedNameKeys = new Set<string>(
+    [
+      matched.normalizedSectorName,
+      masterCanonicalName(matched),
+      normalizeOfficialSectorName(matched.officialIndexName),
+      normalizeOfficialSectorName(matched.rawSectorName),
+    ]
+      .filter(Boolean)
+      .flatMap((key) => [key, compactNameKey(key)]),
+  );
+
+  const familyRows = new Map<string, OfficialSectorIndexMasterRow>();
+  for (const [, aliases] of SAFE_ALIAS_BY_NORMALIZED_NAME) {
+    const normalizedAliasKeys = aliases.map(normalizeOfficialSectorName).filter(Boolean);
+    const familyContainsMatched = normalizedAliasKeys.some((aliasKey) =>
+      matchedNameKeys.has(aliasKey) || matchedNameKeys.has(compactNameKey(aliasKey)),
+    );
+    if (!familyContainsMatched) continue;
+    for (const aliasKey of normalizedAliasKeys) {
+      for (const candidateKey of [aliasKey, compactNameKey(aliasKey)]) {
+        for (const row of masterRowsByNameKey.get(candidateKey) ?? []) {
+          if (!officialSource(row)) continue;
+          familyRows.set(`${row.officialIndexCode}:${row.officialIndexName}`, row);
+        }
+      }
+    }
+  }
+  return Array.from(familyRows.values());
+}
+
+// 매칭된 row 의 verifyInputCandidates 를 동일 alias 패밀리의 다른 official row 코드 변형까지 확장한다.
+// KOSPI/KOSDAQ(0xxx/1xxx) 우선, KRX-시리즈(4xxx/5xxx) 후순위로 정렬하고 중복 제거한다.
+function expandedVerifyInputCandidates(
+  matched: OfficialSectorIndexMasterRow,
+  masterRowsByNameKey: Map<string, OfficialSectorIndexMasterRow[]>,
+): string[] {
+  const matchedCandidates = masterVerifyInputCandidates(matched);
+  const familyRows = collectSafeAliasFamilyRows(matched, masterRowsByNameKey);
+  const siblingCandidates = familyRows
+    .filter((row) => row.officialIndexCode !== matched.officialIndexCode)
+    .flatMap((row) => masterVerifyInputCandidates(row));
+  const ordered = [...matchedCandidates, ...siblingCandidates].filter(Boolean);
+  const deduped = Array.from(new Set(ordered));
+  // 안정 정렬: 동일 tier 내에서는 채집 순서(matched 우선)를 유지한다.
+  return deduped
+    .map((candidate, index) => ({ candidate, index, tier: verifyCandidateTier(candidate) }))
+    .sort((a, b) => (a.tier - b.tier) || (a.index - b.index))
+    .map((entry) => entry.candidate);
+}
+
 function officialCandidateNames(row: OfficialSectorIndexMasterRow | null | undefined): {
   raw: string[];
   normalized: string[];
@@ -535,12 +600,30 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
 }): OfficialSectorIndexCodeMapResult {
   const masterByCode = new Map<string, OfficialSectorIndexMasterRow>();
   const masterByName = new Map<string, OfficialSectorIndexMasterRow>();
+  // 동일 이름 키에 매핑되는 모든 official row 를 보존한다 (verify 후보 패밀리 확장용 — 매칭 판정엔 미사용).
+  const masterRowsByNameKey = new Map<string, OfficialSectorIndexMasterRow[]>();
+  const registerMasterRowByNameKey = (key: string, row: OfficialSectorIndexMasterRow): void => {
+    if (!key) return;
+    for (const candidateKey of [key, compactNameKey(key)]) {
+      if (!candidateKey) continue;
+      const bucket = masterRowsByNameKey.get(candidateKey);
+      if (bucket) {
+        if (!bucket.includes(row)) bucket.push(row);
+      } else {
+        masterRowsByNameKey.set(candidateKey, [row]);
+      }
+    }
+  };
   for (const row of input.masterRows) {
     masterByCode.set(row.officialIndexCode, row);
     registerMasterName(masterByName, row.normalizedSectorName, row);
     registerMasterName(masterByName, masterCanonicalName(row), row);
     registerMasterName(masterByName, normalizeOfficialSectorName(row.officialIndexName), row);
     registerMasterName(masterByName, normalizeOfficialSectorName(row.rawSectorName), row);
+    registerMasterRowByNameKey(row.normalizedSectorName, row);
+    registerMasterRowByNameKey(masterCanonicalName(row), row);
+    registerMasterRowByNameKey(normalizeOfficialSectorName(row.officialIndexName), row);
+    registerMasterRowByNameKey(normalizeOfficialSectorName(row.rawSectorName), row);
   }
 
   const rows: OfficialSectorIndexCodeMappingRow[] = [];
@@ -649,7 +732,7 @@ export function mapSectorNamesToOfficialIndexCodes(input: {
         idxCode: masterIdxCode(matched),
         rawIdxName: masterRawIdxName(matched),
         canonicalOfficialName: masterCanonicalName(matched),
-        verifyInputCandidates: masterVerifyInputCandidates(matched),
+        verifyInputCandidates: expandedVerifyInputCandidates(matched, masterRowsByNameKey),
         selectedOfficialRawName: masterRawIdxName(matched),
         selectedOfficialCanonicalName: masterCanonicalName(matched),
         codePrefixRemoved: masterCodePrefixRemoved(matched),

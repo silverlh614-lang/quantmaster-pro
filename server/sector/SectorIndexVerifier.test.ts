@@ -328,6 +328,39 @@ describe('SectorIndexCodeMap', () => {
       reasonCode: 'NON_OFFICIAL_SOURCE_SHADOW_ONLY',
     });
   });
+
+  it('expands verifyInputCandidates across the safe-alias family with KOSPI codes before KRX-series', () => {
+    // STEEL alias-family: KOSPI 철강금속(0011) and KRX-series KRX 철강(4402).
+    // Lever 1: probe candidates must include BOTH official codes so a nonzero KOSPI value can be
+    // discovered even when the KRX-series code returns currentIndex=0, but coverage must not change.
+    const result = mapSectorNamesToOfficialIndexCodes({
+      masterRows: [
+        officialRow('4402', 'KRX 철강'),
+        officialRow('0011', '철강금속'),
+      ],
+      targets: [{ sectorName: 'STEEL' }],
+    });
+
+    // Selected (matched) row + coverage judgement is unchanged: KOSPI sector code wins, single mapped sector.
+    expect(result.mappedSectorCount).toBe(1);
+    expect(result.officialIndexCoverage).toBe(100);
+    const steel = result.rows.find((row) => row.sectorName === 'STEEL');
+    expect(steel?.officialIndexCode).toBe('0011');
+    expect(steel?.includedInOfficialCoverage).toBe(true);
+
+    const candidates = steel?.verifyInputCandidates ?? [];
+    // Both the KOSPI (0xxx) and KRX-series (4xxx) bare codes are present (deduped, master-sourced only).
+    expect(candidates).toContain('0011');
+    expect(candidates).toContain('4402');
+    // KOSPI 업종 code (0xxx) is ordered ahead of the KRX-series code (4xxx) so the probe tries it first.
+    const firstKospi = candidates.findIndex((c) => /^[01]\d{3}$/.test(c.match(/(\d{4})$/)?.[1] ?? c));
+    const firstKrx = candidates.findIndex((c) => /^[45]\d{3}$/.test(c.match(/(\d{4})$/)?.[1] ?? c));
+    expect(firstKospi).toBeGreaterThanOrEqual(0);
+    expect(firstKrx).toBeGreaterThan(firstKospi);
+    expect(candidates.indexOf('0011')).toBeLessThan(candidates.indexOf('4402'));
+    // No fabricated codes: every candidate resolves back to a master idxCode (0011 or 4402).
+    expect(candidates.every((c) => /(?:0011|4402)$/.test(c))).toBe(true);
+  });
 });
 
 describe('SectorIndexVerifier', () => {
