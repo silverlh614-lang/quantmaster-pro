@@ -1,13 +1,17 @@
 /**
  * @responsibility Patch: preflight HARD_BLOCK 경로용 minimal diagnostic ScanSummary 빌더 — getLastScanSummary()가
- * null 로 떨어져 /gate_full(SNAPSHOT_MISSING)·Runtime Resolver Trace(NO_SCAN_SUMMARY)·ADR-0505(PERSIST_SKIPPED)가
- * 비는 것을 막는다. preflightBlockedScanSummary 의 canonical scanId/candidate/scanEvaluation 만 carry (재계산·외부호출 0).
+ * null 로 떨어져 /gate_full(SNAPSHOT_MISSING)·Runtime Resolver Trace(NO_SCAN_SUMMARY)·ADR-0505(PERSIST_SKIPPED/
+ * SUMMARY_FIELD_MISSING)가 비는 것을 막는다. canonical scanId/candidate/scanEvaluation + minimal gate1 forensic detail carry (재계산·외부호출 0).
  *
  * 절대 invariant: display-only, executionImpact='NONE'. gatePass=0 (buyListLoop 미진입). 실거래/Gate/SourceSnapshot 0줄 변경.
  */
 import type { ScanSummary } from './scanSummaryTypes.js';
 import type { PreflightBlockedScanSummary, PreflightScanEvaluationState } from '../preflightBlockedScanSummary.js';
 import type { ScanEvaluationResult, ScanEvaluationState } from '../state/scanEvaluationState.js';
+import {
+  buildGate1MinimumSignalForensicSummaryAdr0505,
+  type Gate1MinimumSignalForensicSummaryAdr0505,
+} from '../gate1MinimumSignalForensicAuditAdr0505.js';
 
 const PREFLIGHT_GATE_COMPACT_FALLBACK =
   'UNAVAILABLE | reason=PRE_FLIGHT_BLOCK | fallback=true | marketSignal=false';
@@ -44,9 +48,21 @@ export function buildPreflightDiagnosticScanSummary(
     ? { ...preflightEval, evaluationState: toCanonicalEvaluationState(preflightEval.evaluationState) }
     : undefined;
 
+  // ADR-0505 forensic detail field: buyListLoop 미진입이라 score/hydration 은 계산 안 됨(0).
+  // empty 빌더가 모든 required Record/literal 을 채우고, totalCandidates 만 candidateCount 로 덮어
+  // hasSummaryField=true(EMITTED) 로 전환한다 — SUMMARY_FIELD_MISSING 제거. score 미계산은 0(진실).
+  const candidateCount = preflightBlocked.candidateSummaryCount;
+  const gate1Forensic: Gate1MinimumSignalForensicSummaryAdr0505 = {
+    ...buildGate1MinimumSignalForensicSummaryAdr0505([]),
+    totalCandidates: candidateCount,
+    failedCandidates: candidateCount,
+    evaluationState: 'NOT_EVALUATED_BUYLIST_NOT_REACHED',
+    buyListLoopEntered: false,
+  };
+
   return {
     time,
-    candidates: preflightBlocked.candidateSummaryCount,
+    candidates: candidateCount,
     trackB: 0,
     swing: 0,
     catalyst: 0,
@@ -63,6 +79,7 @@ export function buildPreflightDiagnosticScanSummary(
       gate3Pass: 0,
       lastTriggerPass: 0,
     },
+    gate1MinimumSignalForensicAdr0505: gate1Forensic,
     gateDiagnostics: {
       gate1CompactText: resolveGateCompact(diagnostics, 'gate1CompactText'),
       gate2CompactText: resolveGateCompact(diagnostics, 'gate2CompactText'),

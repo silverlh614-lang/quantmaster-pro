@@ -9,6 +9,7 @@ import {
   setPreflightDiagnosticScanSummaryIfAbsent,
 } from './persistScanResults.js';
 import { buildSnapshotBundleFromScanSummary } from '../../../telegram/renderers/snapshotBundle.js';
+import { deriveAdr0505EmissionStatus } from '../../../telegram/commands/system/scanBlockersCompactAdr0506.js';
 import type { PreflightBlockedScanSummary } from '../preflightBlockedScanSummary.js';
 import type { ScanSummary } from './scanSummaryTypes.js';
 
@@ -58,6 +59,20 @@ describe('preflight diagnostic ScanSummary (Patch)', () => {
     expect(summary.gateDiagnostics?.gate1CompactText).toBeTruthy();
     expect(summary.scanEvaluation?.effectiveRegime).toBe('R3_EARLY');
     expect(isPreflightDiagnosticScanSummary(summary)).toBe(true);
+  });
+
+  it('carries a gate1 forensic detail field so ADR-0505 reports EMITTED (not SUMMARY_FIELD_MISSING)', () => {
+    const summary = buildPreflightDiagnosticScanSummary(preflight());
+    expect(summary.gate1MinimumSignalForensicAdr0505?.totalCandidates).toBe(9);
+    expect(summary.gate1MinimumSignalForensicAdr0505?.failedCandidates).toBe(9);
+    expect(summary.gate1MinimumSignalForensicAdr0505?.evaluationState).toBe('NOT_EVALUATED_BUYLIST_NOT_REACHED');
+    expect(summary.gate1MinimumSignalForensicAdr0505?.executionImpact).toBe('NONE');
+
+    const diag = deriveAdr0505EmissionStatus(summary, {});
+    expect(diag.status).toBe('EMITTED');
+    expect(diag.hasSummary).toBe(true);
+    expect(diag.hasSummaryField).toBe(true);
+    expect(diag.totalCandidates).toBe(9);
   });
 
   it('removes SNAPSHOT_MISSING / 1970 / UNKNOWN in the gate_full snapshot bundle', () => {
