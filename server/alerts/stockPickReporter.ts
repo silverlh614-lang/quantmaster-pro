@@ -17,7 +17,7 @@
 
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { fetchYahooQuote } from '../screener/stockScreener.js';
 // ADR-0443 — yahooSymbolResolver SSOT 위임 — `${entry.code}.KS` direct concat
 // 영구 차단. fetchYahooQuoteByCode 가 마스터 매칭 + 양 시장 fallback +
@@ -63,7 +63,7 @@ export async function generateDailyPickReport(): Promise<void> {
   }
 
   const macroState = loadMacroState();
-  const regime     = getLiveRegime(macroState);
+  const regime     = resolveCanonicalRegimeLevel(macroState); // ADR-0531: Gate0 정본 레짐
   const dateStr    = getKstDateStr();
 
   console.log(`[PickReport] 시작 — ${dateStr}, 레짐: ${regime}`);

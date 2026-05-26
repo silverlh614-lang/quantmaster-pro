@@ -26,7 +26,8 @@ const _runGuardedFullDiscoveryPipeline = vi.fn(
 const _autoPopulateWatchlist = vi.fn(async (): Promise<number> => 7);
 const _loadWatchlist = vi.fn(() => [{ code: '005930' }, { code: '000660' }]);
 const _loadMacroState = vi.fn(() => null);
-const _getLiveRegime = vi.fn(() => 'R3_NEUTRAL');
+// ADR-0531: forceWatchScan.cmd 가 정본 레짐 accessor 로 마이그레이션 — mock 경계도 동일하게 이동.
+const _resolveCanonicalRegimeLevel = vi.fn(() => 'R4_NEUTRAL');
 const _getEmergencyStop = vi.fn(() => false);
 
 vi.mock('../../../screener/guardedDiscoveryPipeline.js', () => ({
@@ -45,8 +46,8 @@ vi.mock('../../../persistence/macroStateRepo.js', () => ({
   loadMacroState: _loadMacroState,
 }));
 
-vi.mock('../../../trading/regimeBridge.js', () => ({
-  getLiveRegime: _getLiveRegime,
+vi.mock('../../../trading/regime/canonicalRegimeAccess.js', () => ({
+  resolveCanonicalRegimeLevel: _resolveCanonicalRegimeLevel,
 }));
 
 vi.mock('../../../state.js', () => ({
@@ -75,7 +76,7 @@ beforeEach(async () => {
   _loadWatchlist.mockClear();
   _loadWatchlist.mockReturnValue([{ code: '005930' }, { code: '000660' }]);
   _loadMacroState.mockClear();
-  _getLiveRegime.mockClear();
+  _resolveCanonicalRegimeLevel.mockClear();
   _getEmergencyStop.mockClear();
   _getEmergencyStop.mockReturnValue(false);
 });
