@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-SCANBLOCKERS-PREFLIGHT-CANONICAL-RECONCILIATION-001 · scan_blockers, gate_full, preflight, canonical-reconciliation, QMP_DIAGNOSTIC_CANONICAL_MISMATCH
 - 2026-05-26 · Patch-GATE1-LIQUIDITY-OPENING-RAMP-001 · gate1LiquidityFloor, OPENING_RAMP, session-aware-softpass, canonical-asOf-attachment, coverage.asOf, priceMetadata.asOf, wiring-test, GATE1_LIQUIDITY_OPENING_RAMP_ENABLED
 - 2026-05-26 · Patch-R3-GATE1-PASS-ZERO-HARDBLOCK-DEPRECATION-001 · ADR-0401-narrowing, GATE1_PASS_ZERO, SHADOW_ONLY-prescan, R3_GATE1_PASS_ZERO_HARDBLOCK_ENABLED
 - 2026-05-25 · Patch-Shadow-Operating-Window-Gate · shadow-card, operating-window, buyPipeline
