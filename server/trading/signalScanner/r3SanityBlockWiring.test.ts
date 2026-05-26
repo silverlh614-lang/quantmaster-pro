@@ -31,32 +31,36 @@ describe('R3 sanity block wiring', () => {
     expect(src).not.toContain('isR3SanityAckTokenValid');
   });
 
-  it('preflight module preserves R3 sanity block behavior + ADR-0401 SHADOW_ONLY pre-scan', () => {
+  it('preflight preserves R3 sanity HARD_BLOCK behavior under R3_SANITY_BLOCK_ENABLED=true + ADR-0401 SHADOW_ONLY pre-scan', () => {
     // ADR-0147b 분해 후 preflight.ts 의 return 값 구조가 단순화 (`{ shouldAbort,
-    // skipPersist }`). reason/abortReason 명시적 필드는 제거됐지만 R3 sanity
-    // block 동작 자체는 보존.
+    // skipPersist }`). R3 sanity hard-abort 는 R3_SANITY_BLOCK_ENABLED=true 일 때만 보존된다 (1줄 롤백).
     // ADR-0401 — SHADOW_ONLY ephemeral 차단도 preflight 에서 추가.
     const src = read('server/trading/signalScanner/preflight.ts');
     expect(src).toContain('loadR3SanityBlockState');
     expect(src).toContain('isR3SanityAckTokenValid');
     expect(src).toContain("recordBlockedDayShadowScan('R3_SANITY_BLOCK')");
-    expect(src).toContain('R3 Sanity Block Active');
+    // =true enforce 분기의 영속 차단 알림 + hard-abort return 보존.
+    expect(src).toContain('R3 sanity persistent block active');
     expect(src).toMatch(/return\s+\{\s*shouldAbort:\s*true/);
     // ADR-0401 wiring
     expect(src).toContain('getEffectiveR3ViolationStreak');
     expect(src).toContain('SHADOW_ONLY ephemeral');
   });
 
-  it('R3 sanity persistent hard-block is ENV-sealed (default false) — Gate 진단 차단 방지', () => {
-    // R3_SANITY_BLOCK_ENABLED default false → 영속 latch 가 활성이어도 hard-abort 하지 않고
-    // Gate 진단을 계속한다. =='true' 일 때만 기존 hard-block enforce 복원 (1줄 롤백).
+  it('R3 sanity latch is ENV-sealed (default false) → OBSERVE_ONLY 강등 (live 차단·Gate 진단 계속)', () => {
+    // R3_SANITY_BLOCK_ENABLED default false → 영속 latch 를 hard-abort 가 아닌 OBSERVE_ONLY
+    // execution guard 로 강등: live 실주문만 차단하고 buyListLoop·Gate 평가는 계속한다.
+    // =='true' 일 때만 기존 hard-block enforce 복원 (1줄 롤백).
     const src = read('server/trading/signalScanner/preflight.ts');
     expect(src).toContain('R3_SANITY_BLOCK_ENABLED');
     expect(src).toContain('isR3SanityBlockEnabled');
     // enforce 게이트: latch active + ENV true 일 때만 hard-abort 진입.
     expect(src).toMatch(/process\.env\.R3_SANITY_BLOCK_ENABLED\s*===\s*['"]true['"]/);
-    // 봉인 분기: latch active + !enabled → enforce 스킵.
+    // 봉인 분기: latch active + !enabled → OBSERVE_ONLY 강등 (hard-abort 스킵).
     expect(src).toMatch(/r3SanityBlock\.active\s*&&\s*!isR3SanityBlockEnabled\(\)/);
+    // 강등 = live 차단 reason 부착 + macroDiagnosticOnly (buyListLoop/Gate 진단 계속).
+    expect(src).toContain("appendLiveEntryBlockReason(liveEntryBlockedReason, 'R3_SANITY_GUARD')");
+    expect(src).toContain('demoted to OBSERVE_ONLY');
   });
 
   it('GATE_PASS_DATA_MISSING — state machine 안에서 WARNING_ONLY 처리 (절대 원칙 #8)', () => {
