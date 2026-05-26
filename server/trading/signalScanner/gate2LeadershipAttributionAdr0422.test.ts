@@ -15,6 +15,7 @@
 
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
+import { resolveSectorEnergyCanonicalState } from '../../../src/domain/sector-energy/SectorEnergyCanonicalResolver.js';
 import {
   type Gate2BlockerBucket,
   type Gate2BlockReasons,
@@ -356,6 +357,7 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
     const bridged = rebindGate2AttributionToSectorEnergyMasterAdr0488(attribution, {
       generatedAt: '2026-05-23T16:39:00.000Z',
       overallStatus: 'PARTIAL',
+      sectorEnergyCanonicalState: resolveSectorEnergyCanonicalState({}),
       sectorEnergyMaster: {
         generatedAt: '2026-05-23T16:39:00.000Z',
         status: 'PARTIAL',

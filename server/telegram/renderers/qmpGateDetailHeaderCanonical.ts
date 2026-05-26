@@ -454,7 +454,14 @@ function buildTopBlocks(input: {
   if (numberOf(getByPath(input.summary, 'canonicalRuntimeResolution.sizing.hardBlockCount'), 0) > 0) {
     addBlock(blocks, 'RISK_SIZING_ZERO');
   }
+  // ADR-0534: SectorEnergy 최종 판단은 canonical 단일 source 만 읽는다. legacy 두 경로는
+  // canonical 부재(레거시 summary) 시에만 쓰이는 방어용 fallback 으로 강등.
+  const canonicalPromotionAllowed = getByPath(
+    input.summary,
+    'sectorEnergySupplyUnknownAdr0488.sectorEnergyCanonicalState.promotionAllowed',
+  );
   const promotionAllowed =
+    canonicalPromotionAllowed ??
     getByPath(input.summary, 'freshGate2Attribution.leadershipAttribution.officialIndex.promotionAllowed') ??
     getByPath(input.summary, 'sectorEnergySupplyUnknownAdr0488.sectorEnergyMaster.promotionAllowed');
   if (promotionAllowed === false) addBlock(blocks, 'SECTOR_OFFICIAL_PROMOTION_DISABLED');

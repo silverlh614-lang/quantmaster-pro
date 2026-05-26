@@ -204,6 +204,11 @@ function shadowClosedSummary(): ScanSummary {
       },
     } as unknown as ScanSummary['canonicalRuntimeResolution'],
     sectorEnergySupplyUnknownAdr0488: {
+      sectorEnergyCanonicalState: {
+        promotionAllowed: false,
+        sectorBoostAllowed: false,
+        strongBuyAllowed: false,
+      },
       sectorEnergyMaster: {
         promotionAllowed: false,
         shadowLeadershipAllowed: true,

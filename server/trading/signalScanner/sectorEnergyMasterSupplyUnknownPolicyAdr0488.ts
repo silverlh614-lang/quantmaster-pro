@@ -33,6 +33,8 @@ import type {
   BuildSectorEnergyAndSupplyUnknownPolicyReportInputAdr0488,
   SectorEnergySupplyUnknownDetailRegistryEntryAdr0488,
 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488/types.js';
+import { deriveSectorEnergyCanonicalState, deriveSectorEnergyDiagnosticSources } from './sectorEnergyCanonicalState.js';
+import { renderSectorEnergyCanonicalOutput } from '../../../src/domain/sector-energy/SectorEnergyCanonicalResolver.js';
 
 export * from './sectorEnergyMasterSupplyUnknownPolicyAdr0488/types.js';
 
@@ -1147,6 +1149,7 @@ export function buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488(
   return {
     generatedAt,
     overallStatus: overallStatus(sectorEnergyMaster, supplyUnknownPolicy),
+    sectorEnergyCanonicalState: deriveSectorEnergyCanonicalState(sectorEnergyMaster),
     sectorEnergyMaster,
     supplyUnknownPolicy,
     topGaps,
@@ -1167,10 +1170,12 @@ export function safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488(
   } catch (error) {
     console.warn('[ADR-0488] build failed; returning isolated diagnostic-only fallback:', error);
     const generatedAt = nowIso(input.generatedAt);
+    const fallbackMaster = buildSectorEnergyMasterReportAdr0488({ generatedAt });
     return {
       generatedAt,
       overallStatus: 'UNKNOWN',
-      sectorEnergyMaster: buildSectorEnergyMasterReportAdr0488({ generatedAt }),
+      sectorEnergyCanonicalState: deriveSectorEnergyCanonicalState(fallbackMaster),
+      sectorEnergyMaster: fallbackMaster,
       supplyUnknownPolicy: buildSupplyUnknownPolicyReportAdr0488({ generatedAt }),
       topGaps: ['REPAIR_SECTOR_INDEX_MASTER', 'SUPPLY_UNKNOWN_POLICY_OBSERVE'],
       recommendedNextActions: ['Retry ADR-0488 diagnostic build; do not change live execution.'],
@@ -1220,6 +1225,8 @@ export function formatSectorEnergySupplyUnknownCompactAdr0488(report: SectorEner
   const official = sector.officialIndexMasterRecovery;
   const master = sector.officialSectorIndexMaster;
   return [
+    // ADR-0534: canonical 3개 final 블록이 SSOT. 아래 ADR-0488 master 라인은 진단 전용.
+    renderSectorEnergyCanonicalOutput(report.sectorEnergyCanonicalState, deriveSectorEnergyDiagnosticSources(sector)),
     `ADR-0488 SectorEnergyMaster: ${sector.status} | selectedSourceTier=${sector.selectedSectorEnergySourceTier} | coverageBefore=${pct(sector.indexCodeCoverageBefore)} | coverageAfter=${pct(sector.indexCodeCoverageAfter)} | officialIndexCoverage=${pct(sector.officialIndexCoverage)} | verifiedIndexCodeCoverage=${pct(sector.verifiedIndexCodeCoverage)} | internalGroupedSnapshotCoverage=${pct(sector.internalGroupedSnapshotCoverage)} | internalGroupedValidSectorCount=${sector.internalGroupedValidSectorCount ?? 0}/${sector.internalGroupedExpectedSectorCount ?? 0} | internalProxyCoverage=${pct(sector.internalProxyCoverage)} | stockDailyFallbackCoverage=${pct(sector.stockDailyFallbackCoverage)} | missing=${sector.mappingDiagnostics.missingIndexCodeCount} | leadershipConfidence=${sector.leadershipConfidence} | promotionAllowed=${sector.promotionAllowed} | reason=${sector.leadershipBlockReason} | sectorBoostAllowed=${sector.sectorBoostAllowed} | strongBuyAllowed=${sector.strongBuyAllowed} | shadowLeadershipAllowed=${sector.shadowLeadershipAllowed} | counterfactualAllowed=${sector.counterfactualAllowed} | impact=${sector.executionImpact}`,
     `SectorEnergy Decision: dataQuality=${sector.leadershipConfidence === 'VERIFIED' ? 'VERIFIED' : sector.status} | selectedPromotionMetric=${sector.selectedPromotionMetric ?? 'SAFE_OFFICIAL_VERIFIED_COVERAGE'} | safeOfficialVerifiedCoverage=${pct(sector.safeOfficialVerifiedCoverage ?? sector.verifiedIndexCodeCoverage)} | requiredPromotionCoverage=${pct(sector.requiredPromotionCoverage ?? 80)} | promotionCoveragePass=${sector.promotionCoveragePass === true} | promotionAllowed=${sector.promotionAllowed} | leadershipConfidence=${sector.leadershipConfidence} | sectorBoostAllowed=${sector.sectorBoostAllowed} | strongBuyAllowed=${sector.strongBuyAllowed} | shadowLeadershipAllowed=${sector.shadowLeadershipAllowed} | counterfactualAllowed=${sector.counterfactualAllowed} | decisionUsesSafeOfficialOnly=${sector.decisionUsesSafeOfficialOnly === true} | unsafeExcluded=${sector.unsafeExcludedNames?.join(',') || 'NONE'} | officialTargetVerifiedCoverageDiagnostic=${pct(sector.officialTargetVerifiedCoverageDiagnostic ?? sector.verifiedIndexCodeCoverage)} | officialTargetCoverageUsedForDecision=false | executionImpact=${sector.executionImpact}`,
     ...formatSectorEnergyPolicyViewsAdr0488(sector),
@@ -1261,6 +1268,8 @@ export function formatSectorEnergySupplyUnknownDetailAdr0488(report: SectorEnerg
   return [
     'ADR-0488 SectorEnergy Master Data Supply Line + Supply UNKNOWN Policy Stabilization',
     `overallStatus=${report.overallStatus} policyPromotionMode=${report.policyPromotionMode}`,
+    // ADR-0534: canonical 3개 final 블록이 SSOT. 아래 ADR-0488 master 라인은 진단 전용.
+    renderSectorEnergyCanonicalOutput(report.sectorEnergyCanonicalState, deriveSectorEnergyDiagnosticSources(sector)),
     'SectorEnergyMaster:',
     `- status=${sector.status} coverageBefore=${pct(sector.indexCodeCoverageBefore)} coverageAfter=${pct(sector.indexCodeCoverageAfter)} missingIndexCodeCount=${sector.mappingDiagnostics.missingIndexCodeCount}`,
     `- SectorEnergy Decision: dataQuality=${sector.leadershipConfidence === 'VERIFIED' ? 'VERIFIED' : sector.status} selectedPromotionMetric=${sector.selectedPromotionMetric ?? 'SAFE_OFFICIAL_VERIFIED_COVERAGE'} safeOfficialVerifiedCoverage=${pct(sector.safeOfficialVerifiedCoverage ?? sector.verifiedIndexCodeCoverage)} requiredPromotionCoverage=${pct(sector.requiredPromotionCoverage ?? 80)} promotionCoveragePass=${sector.promotionCoveragePass === true} promotionAllowed=${sector.promotionAllowed} leadershipConfidence=${sector.leadershipConfidence} sectorBoostAllowed=${sector.sectorBoostAllowed} strongBuyAllowed=${sector.strongBuyAllowed} shadowLeadershipAllowed=${sector.shadowLeadershipAllowed} counterfactualAllowed=${sector.counterfactualAllowed} decisionUsesSafeOfficialOnly=${sector.decisionUsesSafeOfficialOnly === true} unsafeExcluded=${sector.unsafeExcludedNames?.join(',') || 'NONE'} officialTargetVerifiedCoverageDiagnostic=${pct(sector.officialTargetVerifiedCoverageDiagnostic ?? sector.verifiedIndexCodeCoverage)} officialTargetCoverageUsedForDecision=false executionImpact=${sector.executionImpact}`,
