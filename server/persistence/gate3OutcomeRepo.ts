@@ -133,6 +133,22 @@ export function updateGate3ForwardReturns(
   }), filePath);
 }
 
+/**
+ * 전체 seed 교체 — forwardReturns 만이 아니라 labeler 가 계산한 maxForwardReturnPct /
+ * outcomeStatus / outcomeLabel 등 모든 갱신 필드를 그대로 영속한다. id 미존재 시 null.
+ * marketSignal/providerIssue 는 학습 불변식상 항상 false 로 고정 (9대 불변식 #6).
+ */
+export function persistGate3OutcomeSeed(
+  seed: Gate3OutcomeSeed,
+  filePath = GATE3_OUTCOME_LEDGER_FILE,
+): Gate3OutcomeSeed | null {
+  return updateSeed(seed.id, () => ({
+    ...seed,
+    marketSignal: false,
+    providerIssue: false,
+  }), filePath);
+}
+
 export function labelGate3Outcome(
   id: string,
   label: Gate3OutcomeLabel,

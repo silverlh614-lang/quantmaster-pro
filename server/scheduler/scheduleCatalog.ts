@@ -57,6 +57,7 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '16:25', label: '저녁 사이클 회로 자동 reset', group: 'maintenance', jobName: 'circuit_auto_reset', silentWhen: '내부 회로 reset 만 — Telegram 송출 없음' },
   { timeKst: '16:30', label: '일일 종목 픽 리포트', group: 'reports', jobName: 'daily_pick_report' },
   { timeKst: '16:30', label: 'Future Return Resolve (ADR-0175)', group: 'learning', jobName: 'future_return_resolve', silentWhen: 'ENV `FUTURE_RETURN_RESOLVER_ENABLED` 미활성 또는 활성 signal 없으면 무음' },
+  { timeKst: '16:35', label: 'Gate3 Forward Return 갱신 (P1-FIX)', group: 'learning', jobName: 'gate3_forward_return_update', silentWhen: 'ENV `GATE3_FORWARD_RETURN_CRON_ENABLED=false` 또는 갱신된 seed 0건이면 무음 — 갱신>0 시에만 LOW 알림' },
   { timeKst: '16:40', label: '스캔 회고 리포트', group: 'reports', jobName: 'scan_retrospective' },
   { timeKst: '19:00', label: 'Nightly Reflection', group: 'learning', jobName: 'nightly_reflection' },
   { timeKst: '20:30', label: 'KIS 토큰 강제 갱신', group: 'trading', jobName: 'kis_token_refresh', silentWhen: '성공 시 내부 로그만' },

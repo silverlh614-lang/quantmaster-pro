@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-GATE3-FORWARD-RETURN-CRON-WIRING-P1-001 · gate3-evidence, updatePendingGate3Outcomes-unwired, learningJobs-scheduledJob-gate3_forward_return_update, 16:35-KST-TRADING_DAY_ONLY, persistGate3OutcomeSeed, schedulerHealthy-recovery, krxHolidays-businessday-SSOT-dedup, GATE3_FORWARD_RETURN_CRON_ENABLED, executionImpact-NONE
 - 2026-05-26 · Patch-SECTOR-INDEX-VERIFY-CANDIDATE-EXPANSION-LEVER1-001 · sector-energy, SectorIndexCodeMap, expandedVerifyInputCandidates, collectSafeAliasFamilyRows, KOSPI/KOSDAQ-0xxx-before-KRX-series-4xxx, verifyInputCandidates-only, coverage-unchanged, qualityUsable, executionImpact-NONE
 - 2026-05-26 · Patch-CANONICAL-GATE-FORENSIC-VIEW-ADR0528-001 · gate_full, scan_blockers, canonicalForensicId, buildCanonicalForensicIds, QmpGateDetailHeaderView.canonical, executionImpact-lane-split, validateCanonicalViewConsistency, CANONICAL_VIEW_DIVERGENCE, display-only
 - 2026-05-26 · Patch-KIS-FINANCE-CACHEHIT-FIX-ADR0532-001 · gate2, getGate2DartFinancialsForEvaluation, cache-hit-gap, flag-on-bypass-PER-less-legacy-DART-cache, KIS-primary-recompute-recache, self-correcting-migration, flag-off-byte-equivalent
