@@ -19,7 +19,7 @@ import { deriveShadowApprovalContext } from '../telegram/shadowApprovalDedupeSto
 import { safePctChange } from '../utils/safePctChange.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { resolveCanonicalRegimeLevel } from './regime/canonicalRegimeAccess.js';
-import { KRX_HOLIDAYS } from './krxHolidays.js';
+import { addBusinessDaysFromKstDate, formatKstYmd } from './krxHolidays.js';
 
 export interface TrancheSchedule {
   id: string;
@@ -52,38 +52,14 @@ function saveTranches(list: TrancheSchedule[]): void {
 }
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
-const DEFAULT_KRX_HOLIDAYS = KRX_HOLIDAYS;
 const TRANCHE_MAX_DROP_PCT = -3;
 const REGIME_BLOCK_SET = new Set(['R5_BEAR']);
 
-function formatKstYmd(kstDate: Date): string {
-  const y = kstDate.getUTCFullYear();
-  const m = `${kstDate.getUTCMonth() + 1}`.padStart(2, '0');
-  const d = `${kstDate.getUTCDate()}`.padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
+// 영업일 계산은 krxHolidays.ts SSOT 에 위임. 기존 import 경로 정합을 위해 재export.
+export { addBusinessDaysFromKstDate };
 
 function kstTodayYmd(nowMs = Date.now()): string {
   return formatKstYmd(new Date(nowMs + KST_OFFSET_MS));
-}
-
-function isKrxBusinessDay(ymd: string, holidays = DEFAULT_KRX_HOLIDAYS): boolean {
-  const d = new Date(`${ymd}T00:00:00.000Z`);
-  const dow = d.getUTCDay();
-  if (dow === 0 || dow === 6) return false;
-  return !holidays.has(ymd);
-}
-
-export function addBusinessDaysFromKstDate(baseYmd: string, businessDays: number, holidays = DEFAULT_KRX_HOLIDAYS): string {
-  if (businessDays <= 0) return baseYmd;
-  const d = new Date(`${baseYmd}T00:00:00.000Z`);
-  let added = 0;
-  while (added < businessDays) {
-    d.setUTCDate(d.getUTCDate() + 1);
-    const ymd = formatKstYmd(d);
-    if (isKrxBusinessDay(ymd, holidays)) added += 1;
-  }
-  return formatKstYmd(d);
 }
 
 /** KST 날짜 문자열 (YYYY-MM-DD) 반환 */

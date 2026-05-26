@@ -73,7 +73,8 @@ vi.mock('./regimeBridge.js', () => ({
   getLiveRegime: vi.fn(() => 'R3_NEUTRAL'),
 }));
 
-vi.mock('./krxHolidays.js', () => ({
+vi.mock('./krxHolidays.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./krxHolidays.js')>()),
   KRX_HOLIDAYS: new Set<string>(),
 }));
 

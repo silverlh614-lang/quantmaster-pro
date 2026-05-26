@@ -93,3 +93,35 @@ export function isKrxHoliday(dateYmd: string): boolean {
 export function getStaticKrxHolidays(): ReadonlySet<string> {
   return STATIC_HOLIDAYS;
 }
+
+/** KST 기준 Date → 'YYYY-MM-DD'. (영업일 계산 SSOT) */
+export function formatKstYmd(kstDate: Date): string {
+  const y = kstDate.getUTCFullYear();
+  const m = `${kstDate.getUTCMonth() + 1}`.padStart(2, '0');
+  const d = `${kstDate.getUTCDate()}`.padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** 'YYYY-MM-DD'(KST) 가 KRX 영업일인지 — 주말·휴장일 제외. */
+export function isKrxBusinessDay(ymd: string, holidays: ReadonlySet<string> = KRX_HOLIDAYS): boolean {
+  const date = new Date(`${ymd}T00:00:00.000Z`);
+  const dow = date.getUTCDay();
+  if (dow === 0 || dow === 6) return false;
+  return !holidays.has(ymd);
+}
+
+/** baseYmd('YYYY-MM-DD')에서 N 영업일 뒤 날짜('YYYY-MM-DD'). 영업일 계산 SSOT. */
+export function addBusinessDaysFromKstDate(
+  baseYmd: string,
+  businessDays: number,
+  holidays: ReadonlySet<string> = KRX_HOLIDAYS,
+): string {
+  if (businessDays <= 0) return baseYmd;
+  const date = new Date(`${baseYmd}T00:00:00.000Z`);
+  let added = 0;
+  while (added < businessDays) {
+    date.setUTCDate(date.getUTCDate() + 1);
+    if (isKrxBusinessDay(formatKstYmd(date), holidays)) added += 1;
+  }
+  return formatKstYmd(date);
+}

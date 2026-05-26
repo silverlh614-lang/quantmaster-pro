@@ -31,6 +31,10 @@ import {
   replayMissedLearningJobs,
 } from '../learning/missedLearningQueue.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
+import {
+  runUpdateGate3ForwardReturnsJob,
+  isGate3ForwardReturnCronEnabled,
+} from '../trading/gate3ForwardReturnCron.js';
 import { scheduledJob } from './scheduleGuard.js';
 
 export function registerLearningJobs(): void {
@@ -158,6 +162,24 @@ export function registerLearningJobs(): void {
     });
     console.log(
       `[FutureReturnResolver] resolved=${result.resolvedCount}/${result.totalSignals} outcomes=${result.outcomesUpdated} errors=${result.errors} (${result.durationMs}ms)`,
+    );
+  }, { timezone: 'UTC' });
+
+  // Gate3 Forward Return 갱신 — 평일 KST 16:35 (UTC 07:35). KRX 장 마감 35분 후.
+  // P1-FIX: gate3 outcome seed 의 d1/d3/d5/d10 forward-return 갱신 잡이 어떤 스케줄러에도
+  //   등록되지 않아 학습 증거가 영원히 PENDING 으로 적체(pending=1426, d1Updated=0,
+  //   WARN_FORWARD_RETURN_UPDATE_MISSING)되던 결함의 wiring 사이트.
+  // Shadow Learning 증거 갱신 전용 — executionImpact=NONE, LIVE 주문/SourceSnapshot/Gate 판정 본체 변경 0.
+  // 9대 불변식 #2(Shadow 무중단) / #6(providerIssue≠marketSignal: 종가 실패 시 seed skip → 재시도) 준수.
+  // KIS 호출은 kisClient 단일 통로(fetchCurrentPrice) + per-symbol 캐시로 quota 보호.
+  // ENV `GATE3_FORWARD_RETURN_CRON_ENABLED=false` 1줄로 즉시 비활성 (ADR-0157, default ON).
+  // ScheduleClass='TRADING_DAY_ONLY' (ADR-0045) — KRX 휴장일 자동 silent skip
+  //   (PENDING seed 는 다음 영업일 cron 호출 시 자연 재시도, enqueue 불필요).
+  scheduledJob('35 7 * * 1-5', 'TRADING_DAY_ONLY', 'gate3_forward_return_update', async () => {
+    if (!isGate3ForwardReturnCronEnabled()) return;
+    const res = await runUpdateGate3ForwardReturnsJob();
+    console.log(
+      `[Gate3ForwardReturn] pending=${res.pending} dueSeeds=${res.seedsWithDueHorizon} symbolsQueried=${res.symbolsQueried} symbolsFailed=${res.symbolsFailed} updated=${res.seedsUpdated}`,
     );
   }, { timezone: 'UTC' });
 
