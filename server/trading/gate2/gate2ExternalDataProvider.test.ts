@@ -6,8 +6,10 @@ import {
   buildMissingGate2FinancialSnapshot,
   classifyGate2CorpCodeMissingForDiagnostics,
   fetchGate2PerValuation,
+  getGate2DartFinancialsForEvaluation,
   refreshGate2ExternalData,
 } from './gate2ExternalDataProvider.js';
+import { getGate2ExternalCacheRecord } from './gate2ExternalCache.js';
 import { setKisClientOverrides } from '../../clients/kisClient/overrides.js';
 
 describe('Gate2ExternalDataProvider', () => {
@@ -15,6 +17,8 @@ describe('Gate2ExternalDataProvider', () => {
     setKisClientOverrides({});
     delete process.env.KIS_APP_KEY;
     delete process.env.KIS_APP_SECRET;
+    delete process.env.KIS_FINANCE_PRIMARY_ENABLED;
+    delete process.env.DART_API_KEY;
   });
 
   it('projects DART missing as unavailable without execution impact', () => {
@@ -424,6 +428,55 @@ describe('Gate2ExternalDataProvider', () => {
       source: 'KIS',
       reason: 'PER_ACCEPTABLE',
     });
+  });
+
+  // ADR-0532 Phase 2 — PER recovery: KIS PER decoupled from DART in the gate2 read path.
+  it('carries injected KIS PER in valuation.per even when DART financials are absent', () => {
+    const projection = buildGate2ExternalProjection({
+      symbol: '005930',
+      dartFin: null,
+      per: 12.5,
+      perSource: 'KIS',
+      perReason: 'PER_ACCEPTABLE',
+    });
+    expect(projection.valuation.per.per).toBe(12.5);
+    expect(projection.conditionResults.per.source).toBe('KIS');
+    expect(projection.executionImpact).toBe('NONE');
+  });
+
+  it('KIS_FINANCE_PRIMARY_ENABLED=true injects KIS PER into cache projection even when DART is null', async () => {
+    process.env.KIS_APP_KEY = 'test-app-key';
+    process.env.KIS_APP_SECRET = 'test-app-secret';
+    process.env.KIS_FINANCE_PRIMARY_ENABLED = 'true';
+    // DART_API_KEY unset → getDartFinancials returns null (no network).
+    setKisClientOverrides({
+      realDataKisGet: async () => ({ output: { stck_prpr: '60000', per: '12.5', eps: '4800', lstn_stcn: '1000000' } }),
+    });
+
+    await getGate2DartFinancialsForEvaluation('334455');
+
+    const record = getGate2ExternalCacheRecord('334455');
+    expect(record?.projection?.valuation?.per?.per).toBe(12.5);
+    expect(record?.projection?.conditionResults?.per?.source).toBe('KIS');
+    expect(record?.projection?.executionImpact).toBe('NONE');
+  });
+
+  it('flag OFF: DART-null returns null and does NOT call KIS PER (byte-equivalent)', async () => {
+    process.env.KIS_APP_KEY = 'test-app-key';
+    process.env.KIS_APP_SECRET = 'test-app-secret';
+    // KIS_FINANCE_PRIMARY_ENABLED unset (off). DART_API_KEY unset → dartFin null.
+    let kisCalled = false;
+    setKisClientOverrides({
+      realDataKisGet: async () => {
+        kisCalled = true;
+        return { output: {} };
+      },
+    });
+
+    const fin = await getGate2DartFinancialsForEvaluation('667788');
+
+    expect(fin).toBeNull();
+    expect(kisCalled).toBe(false);
   });
 });
 

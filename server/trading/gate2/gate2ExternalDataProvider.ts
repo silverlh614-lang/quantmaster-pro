@@ -749,6 +749,24 @@ export async function getGate2DartFinancialsForEvaluation(symbol: string): Promi
     return projectionToQmpDartFinancials(cached.projection);
   }
   const dartFin = await getDartFinancials(symbol).catch(() => null);
+  // ADR-0532 Phase 2 (PER 복구): KIS_FINANCE_PRIMARY_ENABLED 시 PER 를 DART 성공 여부와 독립적으로
+  // KIS inquire-price(FHKST01010100)에서 가져와 cache projection 의 valuation.per 에 주입한다.
+  // DART null 이어도 PER projection 을 upsert → gate2ConfluenceScore 가 cacheProjection.valuation.per 소비.
+  // flag-off 시 기존 동작 byte-equivalent (DART null → null, PER fetch 0). executionImpact=NONE.
+  if (process.env.KIS_FINANCE_PRIMARY_ENABLED === 'true') {
+    const perValuation = await fetchGate2PerValuation({ symbol, dartFin }).catch(
+      () => emptyPerValuation('KIS_PER_PROVIDER_ERROR', true),
+    );
+    const projection = buildGate2ExternalProjection({
+      symbol,
+      dartFin,
+      per: perValuation.per,
+      perSource: perValuation.source,
+      perReason: perValuation.reason,
+    });
+    upsertGate2ExternalCacheRecords([{ symbol: cleanSymbol(symbol), projection, updatedAt: projection.asOf }]);
+    return dartFin;
+  }
   if (!dartFin) return null;
   const projection = buildGate2ExternalProjection({ symbol, dartFin });
   upsertGate2ExternalCacheRecords([{ symbol: cleanSymbol(symbol), projection, updatedAt: projection.asOf }]);
