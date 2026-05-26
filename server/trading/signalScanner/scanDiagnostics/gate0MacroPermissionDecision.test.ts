@@ -138,6 +138,54 @@ describe('Gate0 macro signal validity / permission resolver', () => {
     expect(decision.liveBlockSubReason).toBe('R3_SANITY_GUARD');
   });
 
+  it('keeps EOD snapshots report/shadow-valid but blocks live and broker order permission', () => {
+    const decision = buildGate0Decision(summary(macro({
+      sourceHealth: 'VERIFIED',
+      sourceFreshness: 'EOD_SNAPSHOT_VALID',
+      regimeSnapshotAsOf: '2026-05-26T06:57:15.433Z',
+      regimeSnapshotAgeSec: 22680,
+      mhs: 58,
+      kospi20dReturn: 3.2,
+      liveEntryBlockedReason: 'R3_SANITY_GUARD',
+    })), NOW);
+
+    expect(decision.usableForReport).toBe(true);
+    expect(decision.usableForShadow).toBe(true);
+    expect(decision.usableForCounterfactual).toBe(true);
+    expect(decision.usableForDiagnostic).toBe(true);
+    expect(decision.usableForLiveOrder).toBe(false);
+    expect(decision.usableForBrokerOrder).toBe(false);
+    expect(decision.snapshotFreshnessForLive).toBe('STALE');
+    expect(decision.snapshotFreshnessForShadow).toBe('EOD_VALID');
+    expect(decision.liveEntryAllowed).toBe(false);
+    expect(decision.brokerOrderAllowed).toBe(false);
+    expect(decision.liveBlockReason).toBe('EOD_SNAPSHOT_NOT_LIVE_TRADABLE');
+    expect(decision.liveBlockSubReason).toBe('SHADOW_ONLY_POLICY');
+    expect(decision.executionImpact).toBe('NONE');
+  });
+
+  it('marks implausible VKOSPI as diagnostic-only and excludes it from scoring', () => {
+    const decision = buildGate0Decision(summary(macro({
+      engineMode: 'NORMAL',
+      displayRegime: 'R3_EARLY',
+      riskOverride: 'NONE',
+      mhs: 58,
+      kospi20dReturn: 3.2,
+      vkospi: 67,
+      vkospiTrustState: 'UNTRUSTED_IMPLAUSIBLE',
+      vkospiSanityReasons: ['VKOSPI_UNTRUSTED_IMPLAUSIBLE_PROVIDER_SANITY'],
+    })), NOW);
+
+    expect(decision.vkospiValue).toBe(67);
+    expect(decision.vkospiConfidence).toBe('UNTRUSTED');
+    expect(decision.vkospiUsableForRegime).toBe(false);
+    expect(decision.vkospiUsableForR6Trigger).toBe(false);
+    expect(decision.vkospiUsableForRecovery).toBe(false);
+    expect(decision.vkospiDisplayMode).toBe('DIAGNOSTIC_ONLY');
+    expect(decision.scorePenaltyReason).toBe('VKOSPI_UNTRUSTED_EXCLUDED_FROM_SCORING');
+    expect(decision.macroMarketSignal).toBe(false);
+  });
+
   it('isolates providerIssue from marketSignal derivation', () => {
     const decision = buildGate0Decision(summary(macro({
       providerIssue: true,

@@ -107,6 +107,30 @@ describe('engine boundary refactor policy contracts', () => {
     expect(shadowCase.virtualOutcome1d).toBe('ACTIVE');
   });
 
+  it('blocks EOD snapshots from live/broker orders while preserving shadow learning', () => {
+    const policy = resolveEngineRuntimePolicy({
+      engineMode: 'NORMAL',
+      macroRegime: 'R3_EARLY',
+      sourceFreshness: 'EOD_SNAPSHOT_VALID',
+      snapshotAgeSec: 22680,
+      ttlSec: 300,
+      marketSessionState: 'REGULAR',
+      liveBuyGateAllowed: true,
+      brokerOrderAllowed: true,
+      operatorOrderAllowed: true,
+      realTradingEnabled: true,
+    });
+
+    expect(policy.liveEntryAllowed).toBe(false);
+    expect(policy.brokerOrderAllowed).toBe(false);
+    expect(policy.liveBlockReason).toBe('EOD_SNAPSHOT_NOT_LIVE_TRADABLE');
+    expect(policy.usableForLiveOrder).toBe(false);
+    expect(policy.snapshotFreshnessForShadow).toBe('EOD_VALID');
+    expect(policy.shadowLearningAllowed).toBe(true);
+    expect(policy.counterfactualAllowed).toBe(true);
+    expect(policy.executionImpact).toBe('NONE');
+  });
+
   it('caps AI_ESTIMATED data before CORE use', () => {
     const signal = normalizeDataSignal({
       source: 'AI_MODEL',

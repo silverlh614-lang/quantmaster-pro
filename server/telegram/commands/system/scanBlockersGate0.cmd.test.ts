@@ -92,6 +92,7 @@ describe('/scan_blockers_gate0 command', () => {
     expect(text).toContain('sourceSnapshotId=scan-eval:gate0');
     expect(text).toContain('regimeSnapshotId=regime:test');
     expect(text).toContain('sourceHealth=STALE');
+    expect(text).toContain('sourceFreshness=UNKNOWN');
     expect(text).toContain('macroSnapshotAvailable=true');
     expect(text).toContain('macroSignalConfidence=STALE');
     expect(text).toContain('macroSignalReason=MACRO_SNAPSHOT_STALE');
@@ -100,8 +101,11 @@ describe('/scan_blockers_gate0 command', () => {
     expect(text).toContain('display=SHADOW_ONLY');
     expect(text).toContain('mhs=67');
     expect(text).toContain('liveEntryAllowed=false');
-    expect(text).toContain('liveBlockReason=SHADOW_ONLY_POLICY');
-    expect(text).toContain('liveBlockSubReason=R3_SANITY_GUARD');
+    expect(text).toContain('usableForLiveOrder=false');
+    expect(text).toContain('usableForBrokerOrder=false');
+    expect(text).toContain('snapshotFreshnessForLive=STALE');
+    expect(text).toContain('liveBlockReason=SNAPSHOT_STALE_NOT_LIVE_TRADABLE');
+    expect(text).toContain('liveBlockSubReason=SHADOW_ONLY_POLICY');
     expect(text).toContain('paperOrderAllowed=true');
     expect(text).toContain('shadowAllowed=true');
     expect(text).toContain('counterfactualAllowed=true');
@@ -109,6 +113,7 @@ describe('/scan_blockers_gate0 command', () => {
     expect(text).toContain('macroMarketSignal=false');
     expect(text).toContain('providerIssue=false');
     expect(text).toContain('executionImpact=NONE');
+    expect(text).toContain('finalExecutionPolicy=SHADOW_AND_DIAGNOSTIC_ONLY');
     expect(text).toContain('Shadow and counterfactual remain active');
   });
 });

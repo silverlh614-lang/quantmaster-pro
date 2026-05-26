@@ -11,6 +11,7 @@ export type Gate0ExecutionImpact = 'NONE' | 'LIVE_BUY_BLOCKED' | 'LIVE_EXIT_ONLY
 export interface MacroSnapshotFreshness {
   macroSnapshotAvailable: boolean;
   sourceHealth: Gate0SourceHealth;
+  sourceFreshness: string;
   regimeSnapshotAgeSec?: number;
   regimeSnapshotTtlSec?: number;
 }
@@ -31,12 +32,16 @@ export interface Gate0ExecutionPermission {
   liveExitAllowed: boolean;
   brokerRouteAlive: boolean;
   brokerLiveOrderAllowed: boolean;
+  brokerOrderAllowed: boolean;
   paperOrderAllowed: boolean;
   liveBlockReason: string;
   liveBlockSubReason?: string;
   liveBlockSource: string;
   executionImpact: Gate0ExecutionImpact;
   diagnosticOnly: boolean;
+  executionPermissionReason: string;
+  executionPermissionSource: string;
+  finalExecutionPolicy: string;
 }
 
 export interface Gate0LearningPermission {
@@ -46,7 +51,32 @@ export interface Gate0LearningPermission {
   shadowLearningAllowed: boolean;
 }
 
-export interface Gate0Decision extends MacroSnapshotFreshness, MacroSignalValidity, Gate0ExecutionPermission, Gate0LearningPermission {
+export interface SnapshotUsageValidity {
+  usableForDisplay: boolean;
+  usableForReport: boolean;
+  usableForDiagnostic: boolean;
+  usableForShadow: boolean;
+  usableForCounterfactual: boolean;
+  usableForGateEvaluation: boolean;
+  usableForLiveOrder: boolean;
+  usableForBrokerOrder: boolean;
+  snapshotFreshnessForLive: string;
+  snapshotFreshnessForShadow: string;
+  snapshotFreshnessForDiagnostic: string;
+  reason: string;
+}
+
+interface VkospiDiagnostic {
+  vkospiValue: number | null;
+  vkospiConfidence: string;
+  vkospiUsableForRegime: boolean;
+  vkospiUsableForR6Trigger: boolean;
+  vkospiUsableForRecovery: boolean;
+  vkospiDisplayMode: string;
+  scorePenaltyReason: string;
+}
+
+export interface Gate0Decision extends MacroSnapshotFreshness, SnapshotUsageValidity, MacroSignalValidity, Gate0ExecutionPermission, Gate0LearningPermission, VkospiDiagnostic {
   gate: 'GATE0_MACRO_PERMISSION_GUARD';
   sourceSnapshotId: string;
   regimeSnapshotId?: string;
@@ -107,27 +137,29 @@ function parseAgeSec(asOf: unknown, now: Date): number | undefined {
 }
 
 export function resolveMacroSnapshotFreshness(
-  snapshot: Pick<MacroGateState, 'regimeSnapshotId' | 'regimeSnapshotAsOf' | 'regimeSnapshotTtlSec' | 'regimeSnapshotAgeSec' | 'sourceHealth'> | null | undefined,
+  snapshot: Pick<MacroGateState, 'regimeSnapshotId' | 'regimeSnapshotAsOf' | 'regimeSnapshotTtlSec' | 'regimeSnapshotAgeSec' | 'sourceHealth' | 'sourceFreshness'> | null | undefined,
   now = new Date(),
 ): MacroSnapshotFreshness {
   const explicitHealth = normalizeSourceHealth(snapshot?.sourceHealth);
+  const sourceFreshness = upper(snapshot?.sourceFreshness) || 'UNKNOWN';
   const ageSec = snapshot?.regimeSnapshotAgeSec ?? parseAgeSec(snapshot?.regimeSnapshotAsOf, now);
   const ttlSec = finiteNumber(snapshot?.regimeSnapshotTtlSec) ? snapshot.regimeSnapshotTtlSec : undefined;
   const hasSnapshotIdentity = text(snapshot?.regimeSnapshotId, '') !== '' || text(snapshot?.regimeSnapshotAsOf, '') !== '';
   const macroSnapshotAvailable = hasSnapshotIdentity || (explicitHealth !== null && explicitHealth !== 'MISSING');
 
   if (!macroSnapshotAvailable) {
-    return { macroSnapshotAvailable: false, sourceHealth: 'MISSING', regimeSnapshotAgeSec: ageSec, regimeSnapshotTtlSec: ttlSec };
+    return { macroSnapshotAvailable: false, sourceHealth: 'MISSING', sourceFreshness, regimeSnapshotAgeSec: ageSec, regimeSnapshotTtlSec: ttlSec };
   }
   if (explicitHealth === 'MISSING') {
-    return { macroSnapshotAvailable: true, sourceHealth: 'MISSING', regimeSnapshotAgeSec: ageSec, regimeSnapshotTtlSec: ttlSec };
+    return { macroSnapshotAvailable: true, sourceHealth: 'MISSING', sourceFreshness, regimeSnapshotAgeSec: ageSec, regimeSnapshotTtlSec: ttlSec };
   }
   if (explicitHealth === 'STALE' || (finiteNumber(ageSec) && finiteNumber(ttlSec) && ageSec > ttlSec)) {
-    return { macroSnapshotAvailable: true, sourceHealth: 'STALE', regimeSnapshotAgeSec: ageSec, regimeSnapshotTtlSec: ttlSec };
+    return { macroSnapshotAvailable: true, sourceHealth: 'STALE', sourceFreshness, regimeSnapshotAgeSec: ageSec, regimeSnapshotTtlSec: ttlSec };
   }
   return {
     macroSnapshotAvailable: true,
     sourceHealth: explicitHealth ?? 'VERIFIED',
+    sourceFreshness,
     regimeSnapshotAgeSec: ageSec,
     regimeSnapshotTtlSec: ttlSec,
   };
@@ -219,6 +251,109 @@ export function resolveMacroSignalValidity(
   };
 }
 
+export function resolveSnapshotUsageValidity(
+  snapshot: MacroGateState | null | undefined,
+  freshness: MacroSnapshotFreshness,
+): SnapshotUsageValidity {
+  const eodValid = freshness.sourceFreshness === 'EOD_SNAPSHOT_VALID' || freshness.sourceFreshness === 'POST_CLOSE_VALID';
+  const base = {
+    usableForDisplay: freshness.macroSnapshotAvailable,
+    usableForReport: freshness.macroSnapshotAvailable,
+    usableForDiagnostic: true,
+    usableForShadow: true,
+    usableForCounterfactual: true,
+    usableForGateEvaluation: true,
+  };
+
+  if (!freshness.macroSnapshotAvailable || freshness.sourceHealth === 'MISSING') {
+    return {
+      ...base,
+      usableForDisplay: false,
+      usableForReport: false,
+      usableForLiveOrder: false,
+      usableForBrokerOrder: false,
+      snapshotFreshnessForLive: 'MISSING',
+      snapshotFreshnessForShadow: 'MISSING_REFERENCE',
+      snapshotFreshnessForDiagnostic: 'MISSING_REFERENCE',
+      reason: 'MACRO_SNAPSHOT_MISSING',
+    };
+  }
+
+  if (eodValid) {
+    return {
+      ...base,
+      usableForLiveOrder: false,
+      usableForBrokerOrder: false,
+      snapshotFreshnessForLive: 'STALE',
+      snapshotFreshnessForShadow: 'EOD_VALID',
+      snapshotFreshnessForDiagnostic: 'EOD_VALID',
+      reason: 'EOD_SNAPSHOT_NOT_LIVE_TRADABLE',
+    };
+  }
+
+  if (freshness.sourceHealth === 'STALE') {
+    return {
+      ...base,
+      usableForLiveOrder: false,
+      usableForBrokerOrder: false,
+      snapshotFreshnessForLive: 'STALE',
+      snapshotFreshnessForShadow: 'STALE_REFERENCE',
+      snapshotFreshnessForDiagnostic: 'STALE_REFERENCE',
+      reason: 'SNAPSHOT_STALE_NOT_LIVE_TRADABLE',
+    };
+  }
+
+  if (freshness.sourceHealth === 'DEGRADED') {
+    return {
+      ...base,
+      usableForLiveOrder: false,
+      usableForBrokerOrder: false,
+      snapshotFreshnessForLive: 'DEGRADED',
+      snapshotFreshnessForShadow: 'DEGRADED_REFERENCE',
+      snapshotFreshnessForDiagnostic: 'DEGRADED_REFERENCE',
+      reason: 'MACRO_SNAPSHOT_DEGRADED',
+    };
+  }
+
+  return {
+    ...base,
+    usableForLiveOrder: snapshot?.usableForLiveOrder ?? true,
+    usableForBrokerOrder: snapshot?.usableForBrokerOrder ?? snapshot?.usableForLiveOrder ?? true,
+    snapshotFreshnessForLive: 'FRESH',
+    snapshotFreshnessForShadow: 'FRESH',
+    snapshotFreshnessForDiagnostic: 'FRESH',
+    reason: 'SNAPSHOT_LIVE_TRADABLE',
+  };
+}
+
+function resolveVkospiDiagnostic(mg: MacroGateState | null | undefined): VkospiDiagnostic {
+  const value = finiteOrNull(mg?.vkospi);
+  const trustState = upper(mg?.vkospiTrustState);
+  const reasons = mg?.vkospiSanityReasons ?? [];
+  const untrusted = trustState.startsWith('UNTRUSTED')
+    || reasons.some(reason => upper(reason).startsWith('VKOSPI_UNTRUSTED'));
+  if (untrusted) {
+    return {
+      vkospiValue: value,
+      vkospiConfidence: 'UNTRUSTED',
+      vkospiUsableForRegime: false,
+      vkospiUsableForR6Trigger: false,
+      vkospiUsableForRecovery: false,
+      vkospiDisplayMode: 'DIAGNOSTIC_ONLY',
+      scorePenaltyReason: 'VKOSPI_UNTRUSTED_EXCLUDED_FROM_SCORING',
+    };
+  }
+  return {
+    vkospiValue: value,
+    vkospiConfidence: trustState || (value === null ? 'MISSING' : 'VERIFIED'),
+    vkospiUsableForRegime: value !== null,
+    vkospiUsableForR6Trigger: value !== null,
+    vkospiUsableForRecovery: value !== null,
+    vkospiDisplayMode: value === null ? 'MISSING' : 'NORMAL',
+    scorePenaltyReason: 'NONE',
+  };
+}
+
 function isShadowOnly(mg: MacroGateState | null | undefined): boolean {
   return upper(mg?.engineMode) === 'SHADOW_ONLY'
     || upper(mg?.displayRegime) === 'SHADOW_ONLY'
@@ -235,9 +370,10 @@ function liveBlockSubReason(mg: MacroGateState | null | undefined): string | und
 export function resolveExecutionPermission(
   mg: MacroGateState | null | undefined,
   macroSignalValidity: Pick<MacroSignalValidity, 'macroSignalUsableForLive'>,
+  snapshotUsage: SnapshotUsageValidity,
 ): Gate0ExecutionPermission {
   const shadowOnly = isShadowOnly(mg);
-  const subReason = liveBlockSubReason(mg);
+  const inputSubReason = liveBlockSubReason(mg);
   const emergencyStop = mg?.emergencyStop === true;
   const sellOnlyMode = mg?.sellOnlyMode === true;
   const autoTradeDisabled = mg?.autoTradeEnabled === false;
@@ -245,28 +381,37 @@ export function resolveExecutionPermission(
 
   let liveBlockReason = 'NONE';
   if (emergencyStop) liveBlockReason = 'EMERGENCY_STOP';
+  else if (!snapshotUsage.usableForLiveOrder) liveBlockReason = snapshotUsage.reason;
   else if (shadowOnly) liveBlockReason = 'SHADOW_ONLY_POLICY';
   else if (sellOnlyMode) liveBlockReason = 'SELL_ONLY_MODE';
   else if (autoTradeDisabled) liveBlockReason = 'AUTO_TRADE_DISABLED';
   else if (!macroSignalValidity.macroSignalUsableForLive) liveBlockReason = 'MACRO_SIGNAL_NOT_USABLE';
   else if (mg?.liveEntryAllowed === false) liveBlockReason = 'POLICY_BLOCK';
 
+  const subReason = liveBlockReason === snapshotUsage.reason && shadowOnly
+    ? 'SHADOW_ONLY_POLICY'
+    : inputSubReason;
   const brokerRouteInput = mg?.brokerRouteAlive ?? mg?.brokerOrderAllowed ?? mg?.liveEntryAllowed ?? true;
-  const brokerRouteAlive = liveBlockReason === 'NONE' && brokerRouteInput === true;
-  const liveEntryAllowed = liveBlockReason === 'NONE' && brokerRouteAlive && macroSignalValidity.macroSignalUsableForLive;
-  const brokerLiveOrderAllowed = liveEntryAllowed && (mg?.brokerLiveOrderAllowed ?? true) === true;
+  const brokerRouteAlive = liveBlockReason === 'NONE' && snapshotUsage.usableForBrokerOrder && brokerRouteInput === true;
+  const liveEntryAllowed = liveBlockReason === 'NONE' && brokerRouteAlive && macroSignalValidity.macroSignalUsableForLive && snapshotUsage.usableForLiveOrder;
+  const brokerLiveOrderAllowed = liveEntryAllowed && snapshotUsage.usableForBrokerOrder && (mg?.brokerLiveOrderAllowed ?? true) === true;
+  const finalExecutionPolicy = liveEntryAllowed ? 'LIVE_ORDER_ALLOWED' : 'SHADOW_AND_DIAGNOSTIC_ONLY';
 
   return {
     liveEntryAllowed,
     liveExitAllowed: mg?.liveExitAllowed ?? true,
     brokerRouteAlive,
     brokerLiveOrderAllowed,
+    brokerOrderAllowed: brokerLiveOrderAllowed,
     paperOrderAllowed,
     liveBlockReason,
     ...(liveBlockReason !== 'NONE' && subReason ? { liveBlockSubReason: subReason } : {}),
     liveBlockSource: 'ExecutionPermissionResolver',
     executionImpact: 'NONE',
     diagnosticOnly: liveBlockReason !== 'NONE' || shadowOnly,
+    executionPermissionReason: liveBlockReason,
+    executionPermissionSource: 'Gate0SnapshotUsageValidity',
+    finalExecutionPolicy,
   };
 }
 
@@ -309,9 +454,11 @@ function activeRiskFlags(mg: MacroGateState | null | undefined): string {
 export function buildGate0Decision(summary: ScanSummary | null | undefined, now = new Date()): Gate0Decision {
   const mg = summary?.macroGateState;
   const freshness = resolveMacroSnapshotFreshness(mg, now);
+  const snapshotUsage = resolveSnapshotUsageValidity(mg, freshness);
   const validity = resolveMacroSignalValidity(mg, freshness);
-  const executionPermission = resolveExecutionPermission(mg, validity);
+  const executionPermission = resolveExecutionPermission(mg, validity, snapshotUsage);
   const learningPermission = resolveLearningPermission(mg);
+  const vkospiDiagnostic = resolveVkospiDiagnostic(mg);
   const displayRegime = mg?.displayRegime ?? mg?.regime ?? 'UNKNOWN';
   const engineMode = mg?.engineMode ?? displayRegime;
 
@@ -321,6 +468,7 @@ export function buildGate0Decision(summary: ScanSummary | null | undefined, now 
     ...(mg?.regimeSnapshotId ? { regimeSnapshotId: mg.regimeSnapshotId } : {}),
     ...(mg?.regimeSnapshotAsOf ? { regimeSnapshotAsOf: mg.regimeSnapshotAsOf } : {}),
     ...freshness,
+    ...snapshotUsage,
     ...validity,
     rawRegime: mg?.macroRegimeRaw ?? mg?.regime ?? 'UNKNOWN',
     effectiveRegime: effectiveRegime(mg),
@@ -342,6 +490,7 @@ export function buildGate0Decision(summary: ScanSummary | null | undefined, now 
     activeRiskFlags: activeRiskFlags(mg),
     ...executionPermission,
     ...learningPermission,
+    ...vkospiDiagnostic,
     providerIssue: mg?.providerIssue === true,
     note: 'Gate0 slice is read-only; stale macro snapshot is not used as live market signal. Shadow and counterfactual remain active.',
   };
@@ -373,6 +522,7 @@ export function formatGate0Decision(decision: Gate0Decision, evaluated = true): 
     `regimeSnapshotAgeSec=${numberText(decision.regimeSnapshotAgeSec)}`,
     `regimeSnapshotTtlSec=${numberText(decision.regimeSnapshotTtlSec)}`,
     `sourceHealth=${decision.sourceHealth}`,
+    `sourceFreshness=${decision.sourceFreshness}`,
     `macroSnapshotAvailable=${decision.macroSnapshotAvailable}`,
     `macroSignalConfidence=${decision.macroSignalConfidence}`,
     `macroMarketSignal=${decision.macroMarketSignal}`,
@@ -381,6 +531,19 @@ export function formatGate0Decision(decision: Gate0Decision, evaluated = true): 
     `macroSignalUsableForShadow=${decision.macroSignalUsableForShadow}`,
     `macroSignalUsableForCounterfactual=${decision.macroSignalUsableForCounterfactual}`,
     `macroSignalUsableForDiagnostic=${decision.macroSignalUsableForDiagnostic}`,
+    '',
+    'Snapshot Usage:',
+    `usableForReport=${decision.usableForReport}`,
+    `usableForDiagnostic=${decision.usableForDiagnostic}`,
+    `usableForShadow=${decision.usableForShadow}`,
+    `usableForCounterfactual=${decision.usableForCounterfactual}`,
+    `usableForGateEvaluation=${decision.usableForGateEvaluation}`,
+    `usableForLiveOrder=${decision.usableForLiveOrder}`,
+    `usableForBrokerOrder=${decision.usableForBrokerOrder}`,
+    `snapshotFreshnessForLive=${decision.snapshotFreshnessForLive}`,
+    `snapshotFreshnessForShadow=${decision.snapshotFreshnessForShadow}`,
+    `snapshotFreshnessForDiagnostic=${decision.snapshotFreshnessForDiagnostic}`,
+    `snapshotUsageReason=${decision.reason}`,
     '',
     'Regime:',
     `raw=${decision.rawRegime}`,
@@ -402,6 +565,7 @@ export function formatGate0Decision(decision: Gate0Decision, evaluated = true): 
     `liveBlockSource=${decision.liveBlockSource}`,
     `brokerRouteAlive=${decision.brokerRouteAlive}`,
     `brokerLiveOrderAllowed=${decision.brokerLiveOrderAllowed}`,
+    `brokerOrderAllowed=${decision.brokerOrderAllowed}`,
     `paperOrderAllowed=${decision.paperOrderAllowed}`,
     `shadowAllowed=${decision.shadowAllowed}`,
     `shadowLearningAllowed=${decision.shadowLearningAllowed}`,
@@ -411,8 +575,21 @@ export function formatGate0Decision(decision: Gate0Decision, evaluated = true): 
     'Execution:',
     `executionImpact=${decision.executionImpact}`,
     `diagnosticOnly=${decision.diagnosticOnly}`,
+    `executionPermissionReason=${decision.executionPermissionReason}`,
+    `executionPermissionSource=${decision.executionPermissionSource}`,
+    `finalExecutionPolicy=${decision.finalExecutionPolicy}`,
     `providerIssue=${decision.providerIssue}`,
     `providerIssueIsolated=${decision.providerIssueIsolated}`,
+    '',
+    'VKOSPI:',
+    `value=${numberText(decision.vkospiValue)}`,
+    `confidence=${decision.vkospiConfidence}`,
+    `usableForRegime=${decision.vkospiUsableForRegime}`,
+    `usableForR6Trigger=${decision.vkospiUsableForR6Trigger}`,
+    `usableForRecovery=${decision.vkospiUsableForRecovery}`,
+    `displayMode=${decision.vkospiDisplayMode}`,
+    `scorePenalty=0`,
+    `scorePenaltyReason=${decision.scorePenaltyReason}`,
     `note=${decision.note}`,
   ].join('\n');
 }

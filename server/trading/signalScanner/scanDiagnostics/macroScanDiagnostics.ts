@@ -26,10 +26,20 @@ export function buildMacroGateState(input: {
   regimeSnapshotId?: string;
   regimeSnapshotAsOf?: string;
   regimeSnapshotTtlSec?: number;
+  regimeSnapshotAgeSec?: number;
   displayRegime?: string;
   riskOverride?: string;
   engineMode?: string;
   sourceHealth?: string;
+  sourceFreshness?: string;
+  usableForLiveOrder?: boolean;
+  usableForBrokerOrder?: boolean;
+  snapshotFreshnessForLive?: string;
+  snapshotFreshnessForShadow?: string;
+  snapshotFreshnessForDiagnostic?: string;
+  executionPermissionReason?: string;
+  executionPermissionSource?: string;
+  finalExecutionPolicy?: string;
   regimeConflicts?: string[];
   r6RecoveryStatus?: string;
   activeR6Triggers?: string[];
@@ -50,6 +60,9 @@ export function buildMacroGateState(input: {
   brokerExitOrderAllowed?: boolean;
   paperOrderAllowed?: boolean;
   shadowAllowed?: boolean;
+  vkospi?: number;
+  vkospiTrustState?: string;
+  vkospiSanityReasons?: string[];
   providerIssue?: boolean;
 }): MacroGateState {
   const engineMode = input.engineMode ?? input.displayRegime ?? input.regime;
@@ -80,10 +93,20 @@ export function buildMacroGateState(input: {
     regimeSnapshotId: input.regimeSnapshotId,
     regimeSnapshotAsOf: input.regimeSnapshotAsOf,
     regimeSnapshotTtlSec: input.regimeSnapshotTtlSec,
+    regimeSnapshotAgeSec: input.regimeSnapshotAgeSec,
     displayRegime: input.displayRegime,
     riskOverride: input.riskOverride,
     engineMode: input.engineMode,
     sourceHealth: input.sourceHealth,
+    sourceFreshness: input.sourceFreshness,
+    usableForLiveOrder: input.usableForLiveOrder,
+    usableForBrokerOrder: input.usableForBrokerOrder,
+    snapshotFreshnessForLive: input.snapshotFreshnessForLive,
+    snapshotFreshnessForShadow: input.snapshotFreshnessForShadow,
+    snapshotFreshnessForDiagnostic: input.snapshotFreshnessForDiagnostic,
+    executionPermissionReason: input.executionPermissionReason,
+    executionPermissionSource: input.executionPermissionSource,
+    finalExecutionPolicy: input.finalExecutionPolicy,
     regimeConflicts: input.regimeConflicts,
     r6RecoveryStatus: input.r6RecoveryStatus,
     activeR6Triggers: input.activeR6Triggers,
@@ -104,6 +127,9 @@ export function buildMacroGateState(input: {
     brokerExitOrderAllowed: input.brokerExitOrderAllowed ?? (!shadowOnly && brokerRouteAlive && input.liveExitAllowed !== false),
     paperOrderAllowed: input.paperOrderAllowed ?? true,
     shadowAllowed: input.shadowAllowed ?? true,
+    vkospi: input.vkospi,
+    vkospiTrustState: input.vkospiTrustState,
+    vkospiSanityReasons: input.vkospiSanityReasons,
     providerIssue: input.providerIssue ?? false,
   };
 }

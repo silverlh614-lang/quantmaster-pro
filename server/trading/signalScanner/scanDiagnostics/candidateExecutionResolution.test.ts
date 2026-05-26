@@ -209,10 +209,10 @@ describe('ADR-0527 buildCandidateExecutionResolutions — A byte-equivalence', (
       expect(r.paperFillAllowed).toBe(true);
       expect(r.learningAllowed).toBe(true);
     }
-    // gate-quality 통과 후보(Samsung)는 SHADOW_ONLY_MODE 사유 — A 우선순위에서 POLICY_BLOCK 이 아님.
+    // gate-quality 통과 후보(Samsung)는 SHADOW_ONLY_POLICY 사유 — A 우선순위에서 POLICY_BLOCK 이 아님.
     // (gate-quality 실패 후보는 A 가 POLICY_BLOCK 을 먼저 반환 = byte-equivalent 우선순위 보존.)
     const reasons = new Set(resolutions.map(r => r.liveBlockReason));
-    expect(reasons.has('SHADOW_ONLY_MODE')).toBe(true);
+    expect(reasons.has('SHADOW_ONLY_POLICY')).toBe(true);
   });
 
   it('providerIssue isolates marketSignal to false (invariant #6) without becoming bearish', () => {

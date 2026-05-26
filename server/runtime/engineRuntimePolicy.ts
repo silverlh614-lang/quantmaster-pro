@@ -36,6 +36,14 @@ export interface EngineRuntimePolicy {
   counterfactualAllowed: boolean;
   diagnosticAllowed: boolean;
   brokerOrderAllowed: boolean;
+  usableForLiveOrder: boolean;
+  usableForBrokerOrder: boolean;
+  snapshotFreshnessForLive: string;
+  snapshotFreshnessForShadow: string;
+  snapshotFreshnessForDiagnostic: string;
+  executionPermissionReason: ExecutionPermissionLiveBlockReason;
+  executionPermissionSource: string;
+  finalExecutionPolicy: string;
   shadowAllowed: boolean;
   learningAllowed: boolean;
   executionImpact: ExecutionImpact;
@@ -60,6 +68,13 @@ export interface ResolveEngineRuntimePolicyInput {
   engineMode: EngineMode;
   macroRegime?: string;
   marketSessionState?: string;
+  asOf?: string;
+  ttlSec?: number;
+  sourceFreshness?: string | null;
+  snapshotAgeSec?: number | null;
+  snapshotUsableForLiveOrder?: boolean;
+  macroPolicy?: string | null;
+  riskOverride?: string | null;
   hardBlock?: boolean;
   positionFull?: boolean;
   riskLimitReached?: boolean;
@@ -129,6 +144,9 @@ export const LearningPolicy = Object.freeze({
 function liveEntryPolicyBlocked(input: ResolveEngineRuntimePolicyInput, engineMode: EngineMode): boolean {
   return engineMode === 'SHADOW_ONLY'
     || engineMode === 'OBSERVE_ONLY'
+    || input.snapshotUsableForLiveOrder === false
+    || input.sourceFreshness === 'EOD_SNAPSHOT_VALID'
+    || input.sourceFreshness === 'POST_CLOSE_VALID'
     || input.engineMode === 'SELL_ONLY'
     || input.marketSessionState === 'NON_TRADING_DAY'
     || input.marketSessionState === 'CLOSED'
@@ -145,6 +163,8 @@ function liveEntryPolicyReasons(input: ResolveEngineRuntimePolicyInput, engineMo
   if (input.engineMode === 'SELL_ONLY') reasons.push('SELL_ONLY_MODE');
   if (engineMode === 'SHADOW_ONLY') reasons.push('SHADOW_ONLY');
   if (engineMode === 'OBSERVE_ONLY') reasons.push('OBSERVE_ONLY');
+  if (input.snapshotUsableForLiveOrder === false) reasons.push('SNAPSHOT_NOT_LIVE_TRADABLE');
+  if (input.sourceFreshness === 'EOD_SNAPSHOT_VALID' || input.sourceFreshness === 'POST_CLOSE_VALID') reasons.push('EOD_SNAPSHOT_NOT_LIVE_TRADABLE');
   if (input.marketSessionState === 'NON_TRADING_DAY') reasons.push('KRX_NON_TRADING_DAY');
   if (input.marketSessionState === 'CLOSED') reasons.push('MARKET_CLOSED');
   if (input.hardBlock === true) reasons.push('HARD_BLOCK');
@@ -154,6 +174,19 @@ function liveEntryPolicyReasons(input: ResolveEngineRuntimePolicyInput, engineMo
   if (input.operatorOrderAllowed === false) reasons.push('OPERATOR_BLOCK');
   if (input.realTradingEnabled === false) reasons.push('REAL_TRADING_DISABLED');
   return reasons;
+}
+
+function primaryPolicyBlockReason(reasons: readonly string[]): ExecutionPermissionLiveBlockReason {
+  if (reasons.includes('SELL_ONLY_MODE')) return 'SELL_ONLY_MODE';
+  if (reasons.includes('EOD_SNAPSHOT_NOT_LIVE_TRADABLE')) return 'EOD_SNAPSHOT_NOT_LIVE_TRADABLE';
+  if (reasons.includes('SNAPSHOT_NOT_LIVE_TRADABLE')) return 'SNAPSHOT_STALE_NOT_LIVE_TRADABLE';
+  if (reasons.includes('SHADOW_ONLY')) return 'SHADOW_ONLY_POLICY';
+  if (reasons.includes('OBSERVE_ONLY')) return 'OBSERVE_ONLY_MODE';
+  if (reasons.includes('BROKER_PERMISSION_BLOCK')) return 'BROKER_PERMISSION_BLOCK';
+  if (reasons.includes('OPERATOR_BLOCK')) return 'OPERATOR_BLOCK';
+  if (reasons.includes('REAL_TRADING_DISABLED')) return 'REAL_TRADING_DISABLED';
+  if (reasons.includes('MARKET_CLOSED') || reasons.includes('KRX_NON_TRADING_DAY')) return 'MARKET_SESSION_BLOCK';
+  return 'POLICY_BLOCK';
 }
 
 function buildPolicy(input: {
@@ -178,13 +211,23 @@ function buildPolicy(input: {
     liveBlockReason: input.liveEntryAllowed
       ? 'NONE'
       : input.permission.liveBlockReason === 'NONE'
-        ? 'POLICY_BLOCK'
+        ? primaryPolicyBlockReason(input.reasonCodes)
         : input.permission.liveBlockReason,
     ...LearningPolicy.resolve(),
     brokerOrderAllowed: input.liveEntryAllowed,
+    usableForLiveOrder: input.permission.usableForLiveOrder,
+    usableForBrokerOrder: input.permission.usableForBrokerOrder,
+    snapshotFreshnessForLive: input.permission.snapshotFreshnessForLive,
+    snapshotFreshnessForShadow: input.permission.snapshotFreshnessForShadow,
+    snapshotFreshnessForDiagnostic: input.permission.snapshotFreshnessForDiagnostic,
+    executionPermissionReason: input.permission.executionPermissionReason,
+    executionPermissionSource: input.permission.executionPermissionSource,
+    finalExecutionPolicy: input.permission.finalExecutionPolicy,
     executionImpact: input.executionImpact,
     confidenceAdjustments: input.permission.confidenceAdjustments,
-    policyLabels: input.permission.policyLabels,
+    policyLabels: input.reasonCodes.includes('SELL_ONLY_MODE')
+      ? [...new Set([...input.permission.policyLabels, 'SELL_ONLY_EVALUATION_CONTINUED'])]
+      : input.permission.policyLabels,
     learningLabels: input.permission.learningLabels,
     scorePenalty: input.permission.scorePenalty,
     sizingMultiplier: input.permission.sizingMultiplier,
@@ -200,6 +243,13 @@ export const ExecutionPolicy = Object.freeze({
     const engineMode = EngineModeManager.normalize(input.engineMode);
     const permission = resolveExecutionPermission({
       sourceSnapshotId: 'runtime-policy',
+      asOf: input.asOf,
+      ttlSec: input.ttlSec,
+      sourceFreshness: input.sourceFreshness,
+      snapshotAgeSec: input.snapshotAgeSec,
+      snapshotUsableForLiveOrder: input.snapshotUsableForLiveOrder,
+      macroPolicy: input.macroPolicy,
+      riskOverride: input.riskOverride,
       engineMode: input.engineMode,
       operationMode: input.engineMode,
       effectiveRegime: input.macroRegime,
@@ -244,11 +294,15 @@ export const ExecutionPolicy = Object.freeze({
 
     const liveBuyAllowed = input.liveBuyGateAllowed === true && !blockedByPolicy && permission.liveOrderAllowed;
     const liveSellAllowed = input.liveSellGateAllowed !== false;
+    const snapshotLiveBlocked = permission.liveBlockReason === 'EOD_SNAPSHOT_NOT_LIVE_TRADABLE'
+      || permission.liveBlockReason === 'SNAPSHOT_STALE_NOT_LIVE_TRADABLE'
+      || permission.liveBlockReason === 'SNAPSHOT_MISSING_NOT_LIVE_TRADABLE'
+      || permission.liveBlockReason === 'SNAPSHOT_DEGRADED_NOT_LIVE_TRADABLE';
     return buildPolicy({
       engineMode,
       liveEntryAllowed: liveBuyAllowed,
       liveExitAllowed: liveSellAllowed,
-      executionImpact: blockedByPolicy ? 'NEW_BUY_BLOCKED_ONLY' : liveBuyAllowed || liveSellAllowed ? 'LIVE_ORDER_ALLOWED' : 'LIVE_ORDER_BLOCKED',
+      executionImpact: snapshotLiveBlocked ? 'NONE' : blockedByPolicy ? 'NEW_BUY_BLOCKED_ONLY' : liveBuyAllowed || liveSellAllowed ? 'LIVE_ORDER_ALLOWED' : 'LIVE_ORDER_BLOCKED',
       reasonCodes,
       permission,
     });
@@ -296,6 +350,12 @@ export function formatEngineRuntimePolicy(policy: EngineRuntimePolicy): string {
     `diagnosticAllowed=${policy.diagnosticAllowed}`,
     `brokerOrderAllowed=${policy.brokerOrderAllowed}`,
     `liveBlockReason=${policy.liveBlockReason}`,
+    `snapshotFreshnessForLive=${policy.snapshotFreshnessForLive}`,
+    `snapshotFreshnessForShadow=${policy.snapshotFreshnessForShadow}`,
+    `usableForLiveOrder=${policy.usableForLiveOrder}`,
+    `usableForBrokerOrder=${policy.usableForBrokerOrder}`,
+    `executionPermissionReason=${policy.executionPermissionReason}`,
+    `finalExecutionPolicy=${policy.finalExecutionPolicy}`,
     `scorePenalty=${policy.scorePenalty}`,
     `sizingMultiplier=${policy.sizingMultiplier.toFixed(4)}`,
     `providerIssueIsolated=${policy.providerIssueIsolated}`,

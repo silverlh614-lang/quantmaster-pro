@@ -51,11 +51,18 @@ const regime: TelegramCommand = {
       ? `${regimeSnapshot.macroReleaseBlockMessage} ageSec=${regimeSnapshot.macroReleaseBlockDetails?.ageSec ?? 'N/A'} lastRefreshAttemptAt=${regimeSnapshot.macroReleaseBlockDetails?.lastRefreshAttemptAt ?? 'N/A'} refreshJobLastRunAt=${regimeSnapshot.macroReleaseBlockDetails?.refreshJobLastRunAt ?? 'N/A'}`
       : undefined;
     const runtimePolicy = resolveEngineRuntimePolicy({
-      engineMode: 'NORMAL',
+      engineMode: regimeSnapshot.engineMode,
       macroRegime: gate0View.effectiveRegime,
+      asOf: regimeSnapshot.asOf,
+      ttlSec: regimeSnapshot.ttlSec,
+      sourceFreshness: regimeDiagnostics.sourceFreshness,
+      snapshotAgeSec: macroState.ageSec,
+      macroPolicy: regimeSnapshot.riskOverride,
+      riskOverride: regimeSnapshot.riskOverride,
       liveBuyGateAllowed: true,
       reasonCodes: [],
     });
+    const vkospiUntrusted = String(regimeDiagnostics.recoveryEvidence.vkospiTrustState ?? '').startsWith('UNTRUSTED');
     // ADR-0075 PR-4 wiring: 강세/소외 섹터 1줄 노출 — 운영자가 Gate +2/-1 부스트 영향 즉시 인지
     const sectorEnergyLine = formatSectorEnergyLine(macro);
     // ADR-0107 (사용자 진단 4/29 "MHS 70 을 벗어난 적이 없다"): 4-axis 분해 노출.
@@ -76,6 +83,7 @@ const regime: TelegramCommand = {
       `${macroReleaseBlockLine ? `${macroReleaseBlockLine}\n` : ''}` +
       `r6ShockLatch=${regimeDiagnostics.r6ShockLatch} recoveryBlockedReason=${regimeDiagnostics.recoveryBlockedReason ?? 'N/A'}\n` +
       `${formatEngineRuntimePolicy(runtimePolicy)}\n` +
+      `vkospiConfidence=${vkospiUntrusted ? 'UNTRUSTED' : regimeDiagnostics.recoveryEvidence.vkospiTrustState ?? 'UNKNOWN'} vkospiUsableForRegime=${vkospiUntrusted ? 'false' : 'true'} vkospiUsableForR6Trigger=${vkospiUntrusted ? 'false' : 'true'} vkospiDisplayMode=${vkospiUntrusted ? 'DIAGNOSTIC_ONLY' : 'NORMAL'} scorePenaltyReason=${vkospiUntrusted ? 'VKOSPI_UNTRUSTED_EXCLUDED_FROM_SCORING' : 'NONE'}\n` +
       `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}\n` +
       `vkospiDayChange=${macro.vkospiDayChange?.toFixed(2) ?? 'N/A'} computed=${macro.vkospiDayChangeComputed?.toFixed(2) ?? 'N/A'} prevClose=${macro.vkospiPrevClose?.toFixed(2) ?? 'N/A'} source=${macro.vkospiDayChangeSource ?? 'N/A'}\n` +
       `vkospiRecoveryFallbackUsed=${regimeDiagnostics.transitionState.r6RecoveryEvidence.vkospiRecoveryFallbackUsed ? 'true' : 'false'}\n` +

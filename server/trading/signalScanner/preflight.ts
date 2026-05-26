@@ -636,6 +636,27 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     };
   }
 
+  const macroSourceFreshness = regimeDiagnostics.sourceFreshness;
+  const macroAgeSec = regimeSnapshot.marketState.macroState.ageSec;
+  const macroTtlSec = regimeSnapshot.ttlSec;
+  const macroEodSnapshot = macroSourceFreshness === 'EOD_SNAPSHOT_VALID' || macroSourceFreshness === 'POST_CLOSE_VALID';
+  const macroTtlExpired = typeof macroAgeSec === 'number' && Number.isFinite(macroAgeSec) && macroAgeSec > macroTtlSec;
+  const macroSnapshotUsableForLiveOrder =
+    !macroEodSnapshot &&
+    !macroTtlExpired &&
+    macroSourceFreshness !== 'SOFT_STALE' &&
+    macroSourceFreshness !== 'HARD_STALE' &&
+    macroSourceFreshness !== 'STALE' &&
+    macroSourceFreshness !== 'MISSING';
+  const macroSnapshotLiveBlockReason = macroEodSnapshot
+    ? 'EOD_SNAPSHOT_NOT_LIVE_TRADABLE'
+    : !macroSnapshotUsableForLiveOrder
+      ? 'SNAPSHOT_STALE_NOT_LIVE_TRADABLE'
+      : undefined;
+  const macroShadowOnlyPolicy = regimeSnapshot.engineMode === 'SHADOW_ONLY' || regimeSnapshot.riskOverride === 'SHADOW_ONLY' || regimeSnapshot.displayRegime === 'SHADOW_ONLY';
+  const macroLivePermissionAllowed = !diagnosticOnlyLiveBlock && macroSnapshotUsableForLiveOrder && !macroShadowOnlyPolicy;
+  const macroLivePermissionReason = macroSnapshotLiveBlockReason ?? (macroShadowOnlyPolicy ? 'SHADOW_ONLY_POLICY' : liveEntryBlockReason);
+
   const macroGateState = buildMacroGateState({
     emergencyStop: getEmergencyStop(),
     autoTradeEnabled: process.env.AUTO_TRADE_ENABLED === 'true',
@@ -659,23 +680,36 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     regimeSnapshotId: regimeSnapshot.snapshotId,
     regimeSnapshotAsOf: regimeSnapshot.asOf,
     regimeSnapshotTtlSec: regimeSnapshot.ttlSec,
+    regimeSnapshotAgeSec: macroAgeSec,
     displayRegime: regimeSnapshot.displayRegime,
     riskOverride: regimeSnapshot.riskOverride,
     engineMode: regimeSnapshot.engineMode,
     sourceHealth: regimeSnapshot.sourceHealth,
+    sourceFreshness: macroSourceFreshness,
+    usableForLiveOrder: macroSnapshotUsableForLiveOrder,
+    usableForBrokerOrder: macroSnapshotUsableForLiveOrder,
+    snapshotFreshnessForLive: macroSnapshotUsableForLiveOrder ? 'FRESH' : 'STALE',
+    snapshotFreshnessForShadow: macroEodSnapshot ? 'EOD_VALID' : macroSnapshotUsableForLiveOrder ? 'FRESH' : 'STALE_REFERENCE',
+    snapshotFreshnessForDiagnostic: macroEodSnapshot ? 'EOD_VALID' : macroSnapshotUsableForLiveOrder ? 'FRESH' : 'STALE_REFERENCE',
+    executionPermissionReason: macroLivePermissionReason,
+    executionPermissionSource: 'PreflightGate0SnapshotUsageValidity',
+    finalExecutionPolicy: macroLivePermissionAllowed ? 'LIVE_ORDER_ALLOWED' : 'SHADOW_AND_DIAGNOSTIC_ONLY',
     regimeConflicts: regimeSnapshot.conflicts,
     r6RecoveryStatus: undefined,
     activeR6Triggers: undefined,
     r6ShockLatch: undefined,
     recoveryBlockedReason: regimeDiagnostics.recoveryBlockedReason,
-    liveEntryAllowed: !diagnosticOnlyLiveBlock,
+    liveEntryAllowed: macroLivePermissionAllowed,
     liveExitAllowed: true,
     shadowBuyAllowed: true,
     shadowSellAllowed: true,
     shadowLearningAllowed: true,
     counterfactualAllowed: true,
     diagnosticAllowed: true,
-    brokerOrderAllowed: !diagnosticOnlyLiveBlock,
+    brokerOrderAllowed: macroLivePermissionAllowed,
+    vkospi: macroState?.vkospi,
+    vkospiTrustState: regimeDiagnostics.recoveryEvidence.vkospiTrustState,
+    vkospiSanityReasons: regimeDiagnostics.recoveryEvidence.reasons,
     providerIssue: regimeSnapshot.providerIssue,
   });
 

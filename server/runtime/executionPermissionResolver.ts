@@ -3,8 +3,13 @@
 export type ExecutionPermissionLiveBlockReason =
   | 'NONE'
   | 'SELL_ONLY_MODE'
+  | 'SHADOW_ONLY_POLICY'
   | 'SHADOW_ONLY_MODE'
   | 'OBSERVE_ONLY_MODE'
+  | 'EOD_SNAPSHOT_NOT_LIVE_TRADABLE'
+  | 'SNAPSHOT_STALE_NOT_LIVE_TRADABLE'
+  | 'SNAPSHOT_MISSING_NOT_LIVE_TRADABLE'
+  | 'SNAPSHOT_DEGRADED_NOT_LIVE_TRADABLE'
   | 'BROKER_PERMISSION_BLOCK'
   | 'OPERATOR_BLOCK'
   | 'REAL_TRADING_DISABLED'
@@ -20,6 +25,11 @@ export interface ResolveExecutionPermissionInput {
   sourceSnapshotId: string;
   asOf?: string;
   ttlSec?: number;
+  sourceFreshness?: string | null;
+  snapshotAgeSec?: number | null;
+  snapshotUsableForLiveOrder?: boolean;
+  macroPolicy?: string | null;
+  riskOverride?: string | null;
   gateQualityPassed?: boolean;
   engineMode?: string | null;
   operationMode?: string | null;
@@ -48,6 +58,17 @@ export interface ExecutionPermissionResolution {
   paperFillAllowed: true;
   liveOrderAllowed: boolean;
   liveBlockReason: ExecutionPermissionLiveBlockReason;
+  snapshotFreshnessForLive: string;
+  snapshotFreshnessForShadow: string;
+  snapshotFreshnessForDiagnostic: string;
+  usableForLiveOrder: boolean;
+  usableForBrokerOrder: boolean;
+  usableForShadow: true;
+  usableForCounterfactual: true;
+  usableForDiagnostic: true;
+  executionPermissionReason: ExecutionPermissionLiveBlockReason;
+  executionPermissionSource: string;
+  finalExecutionPolicy: 'LIVE_ORDER_ALLOWED' | 'SHADOW_AND_DIAGNOSTIC_ONLY';
   confidenceAdjustments: string[];
   policyLabels: string[];
   learningLabels: string[];
@@ -64,7 +85,10 @@ function upper(value: string | null | undefined): string {
 }
 
 function isShadowOnly(input: ResolveExecutionPermissionInput): boolean {
-  return upper(input.engineMode) === 'SHADOW_ONLY' || upper(input.operationMode) === 'SHADOW_ONLY';
+  return upper(input.engineMode) === 'SHADOW_ONLY'
+    || upper(input.operationMode) === 'SHADOW_ONLY'
+    || upper(input.macroPolicy) === 'SHADOW_ONLY'
+    || upper(input.riskOverride) === 'SHADOW_ONLY';
 }
 
 function isObserveOnly(input: ResolveExecutionPermissionInput): boolean {
@@ -85,14 +109,89 @@ function finiteNumber(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+interface SnapshotUsageValidity {
+  usableForLiveOrder: boolean;
+  usableForBrokerOrder: boolean;
+  snapshotFreshnessForLive: string;
+  snapshotFreshnessForShadow: string;
+  snapshotFreshnessForDiagnostic: string;
+  reason: ExecutionPermissionLiveBlockReason | 'NONE';
+}
+
+function resolveSnapshotUsageValidity(input: ResolveExecutionPermissionInput): SnapshotUsageValidity {
+  const sourceFreshness = upper(input.sourceFreshness);
+  const ttlExpired = finiteNumber(input.snapshotAgeSec) && finiteNumber(input.ttlSec) && input.snapshotAgeSec > input.ttlSec;
+  const eodValid = sourceFreshness === 'EOD_SNAPSHOT_VALID' || sourceFreshness === 'POST_CLOSE_VALID';
+  if (input.snapshotUsableForLiveOrder === false) {
+    return {
+      usableForLiveOrder: false,
+      usableForBrokerOrder: false,
+      snapshotFreshnessForLive: eodValid ? 'STALE' : 'BLOCKED',
+      snapshotFreshnessForShadow: eodValid ? 'EOD_VALID' : 'REFERENCE_ONLY',
+      snapshotFreshnessForDiagnostic: eodValid ? 'EOD_VALID' : 'REFERENCE_ONLY',
+      reason: eodValid ? 'EOD_SNAPSHOT_NOT_LIVE_TRADABLE' : 'SNAPSHOT_STALE_NOT_LIVE_TRADABLE',
+    };
+  }
+  if (eodValid) {
+    return {
+      usableForLiveOrder: false,
+      usableForBrokerOrder: false,
+      snapshotFreshnessForLive: 'STALE',
+      snapshotFreshnessForShadow: 'EOD_VALID',
+      snapshotFreshnessForDiagnostic: 'EOD_VALID',
+      reason: 'EOD_SNAPSHOT_NOT_LIVE_TRADABLE',
+    };
+  }
+  if (ttlExpired || sourceFreshness === 'SOFT_STALE' || sourceFreshness === 'HARD_STALE' || sourceFreshness === 'STALE') {
+    return {
+      usableForLiveOrder: false,
+      usableForBrokerOrder: false,
+      snapshotFreshnessForLive: 'STALE',
+      snapshotFreshnessForShadow: 'STALE_REFERENCE',
+      snapshotFreshnessForDiagnostic: 'STALE_REFERENCE',
+      reason: 'SNAPSHOT_STALE_NOT_LIVE_TRADABLE',
+    };
+  }
+  if (sourceFreshness === 'MISSING') {
+    return {
+      usableForLiveOrder: false,
+      usableForBrokerOrder: false,
+      snapshotFreshnessForLive: 'MISSING',
+      snapshotFreshnessForShadow: 'MISSING_REFERENCE',
+      snapshotFreshnessForDiagnostic: 'MISSING_REFERENCE',
+      reason: 'SNAPSHOT_MISSING_NOT_LIVE_TRADABLE',
+    };
+  }
+  if (sourceFreshness === 'DEGRADED') {
+    return {
+      usableForLiveOrder: false,
+      usableForBrokerOrder: false,
+      snapshotFreshnessForLive: 'DEGRADED',
+      snapshotFreshnessForShadow: 'DEGRADED_REFERENCE',
+      snapshotFreshnessForDiagnostic: 'DEGRADED_REFERENCE',
+      reason: 'SNAPSHOT_DEGRADED_NOT_LIVE_TRADABLE',
+    };
+  }
+  return {
+    usableForLiveOrder: true,
+    usableForBrokerOrder: true,
+    snapshotFreshnessForLive: 'FRESH',
+    snapshotFreshnessForShadow: 'FRESH',
+    snapshotFreshnessForDiagnostic: 'FRESH',
+    reason: 'NONE',
+  };
+}
+
 function resolveLiveBlockReason(input: ResolveExecutionPermissionInput): ExecutionPermissionLiveBlockReason {
-  if (input.gateQualityPassed === false) return 'POLICY_BLOCK';
-  if (isShadowOnly(input)) return 'SHADOW_ONLY_MODE';
+  const snapshotUsage = resolveSnapshotUsageValidity(input);
+  if (isMarketSessionLiveBlocked(input.marketSessionState)) return 'MARKET_SESSION_BLOCK';
+  if (!snapshotUsage.usableForLiveOrder) return snapshotUsage.reason === 'NONE' ? 'SNAPSHOT_STALE_NOT_LIVE_TRADABLE' : snapshotUsage.reason;
+  if (isShadowOnly(input)) return 'SHADOW_ONLY_POLICY';
   if (isObserveOnly(input)) return 'OBSERVE_ONLY_MODE';
+  if (input.gateQualityPassed === false) return 'POLICY_BLOCK';
   if (input.realTradingEnabled === false) return 'REAL_TRADING_DISABLED';
   if (input.brokerOrderAllowed === false) return 'BROKER_PERMISSION_BLOCK';
   if (input.operatorOrderAllowed === false) return 'OPERATOR_BLOCK';
-  if (isMarketSessionLiveBlocked(input.marketSessionState)) return 'MARKET_SESSION_BLOCK';
   return 'NONE';
 }
 
@@ -104,11 +203,13 @@ function resolveSizingMultiplier(input: ResolveExecutionPermissionInput): number
 }
 
 export function resolveExecutionPermission(input: ResolveExecutionPermissionInput): ExecutionPermissionResolution {
+  const snapshotUsage = resolveSnapshotUsageValidity(input);
   const liveBlockReason = resolveLiveBlockReason(input);
   const providerIssueIsolated = input.providerIssue === true;
   const kellyAdvisory = finiteNumber(input.kellyFraction) || finiteNumber(input.kellySizingMultiplier);
   const marketSignal = providerIssueIsolated ? false : input.marketSignal === true;
   const liveOrderAllowed = liveBlockReason === 'NONE';
+  const finalExecutionPolicy = liveOrderAllowed ? 'LIVE_ORDER_ALLOWED' : 'SHADOW_AND_DIAGNOSTIC_ONLY';
   const confidenceAdjustments: string[] = [];
   const policyLabels = ['SOURCE_SNAPSHOT_SSOT_CONFIRMED'];
   const learningLabels = ['SHADOW_LEARNING_ALWAYS_ON', 'COUNTERFACTUAL_ALWAYS_ON'];
@@ -137,6 +238,17 @@ export function resolveExecutionPermission(input: ResolveExecutionPermissionInpu
     paperFillAllowed: true,
     liveOrderAllowed,
     liveBlockReason,
+    snapshotFreshnessForLive: snapshotUsage.snapshotFreshnessForLive,
+    snapshotFreshnessForShadow: snapshotUsage.snapshotFreshnessForShadow,
+    snapshotFreshnessForDiagnostic: snapshotUsage.snapshotFreshnessForDiagnostic,
+    usableForLiveOrder: snapshotUsage.usableForLiveOrder,
+    usableForBrokerOrder: snapshotUsage.usableForBrokerOrder,
+    usableForShadow: true,
+    usableForCounterfactual: true,
+    usableForDiagnostic: true,
+    executionPermissionReason: liveBlockReason,
+    executionPermissionSource: 'ExecutionPermissionResolver',
+    finalExecutionPolicy,
     confidenceAdjustments,
     policyLabels,
     learningLabels,
@@ -171,6 +283,11 @@ export function formatExecutionPermissionLog(
     `paperFillAllowed=${permission.paperFillAllowed}`,
     `liveOrderAllowed=${permission.liveOrderAllowed}`,
     `liveBlockReason=${permission.liveBlockReason}`,
+    `snapshotFreshnessForLive=${permission.snapshotFreshnessForLive}`,
+    `snapshotFreshnessForShadow=${permission.snapshotFreshnessForShadow}`,
+    `usableForLiveOrder=${permission.usableForLiveOrder}`,
+    `usableForBrokerOrder=${permission.usableForBrokerOrder}`,
+    `finalExecutionPolicy=${permission.finalExecutionPolicy}`,
     `scorePenalty=${permission.scorePenalty}`,
     `sizingMultiplier=${permission.sizingMultiplier.toFixed(4)}`,
     `providerIssueIsolated=${permission.providerIssueIsolated}`,

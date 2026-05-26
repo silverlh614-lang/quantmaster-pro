@@ -61,4 +61,47 @@ describe('resolveExecutionPermission P0 contract', () => {
       '[PROVIDER_HEALTH_SEPARATED_FROM_MARKET_SIGNAL]',
     ]));
   });
+
+  it('blocks live/broker order usage for EOD snapshots while keeping learning lanes alive', () => {
+    const policy = resolveExecutionPermission({
+      sourceSnapshotId: 'snap-eod',
+      asOf: '2026-05-26T06:57:15.433Z',
+      ttlSec: 300,
+      sourceFreshness: 'EOD_SNAPSHOT_VALID',
+      snapshotAgeSec: 22680,
+      engineMode: 'NORMAL',
+      marketSessionState: 'REGULAR',
+      brokerOrderAllowed: true,
+      operatorOrderAllowed: true,
+      realTradingEnabled: true,
+    });
+
+    expect(policy.usableForLiveOrder).toBe(false);
+    expect(policy.usableForBrokerOrder).toBe(false);
+    expect(policy.snapshotFreshnessForLive).toBe('STALE');
+    expect(policy.snapshotFreshnessForShadow).toBe('EOD_VALID');
+    expect(policy.liveOrderAllowed).toBe(false);
+    expect(policy.liveBlockReason).toBe('EOD_SNAPSHOT_NOT_LIVE_TRADABLE');
+    expect(policy.shadowEvaluationAllowed).toBe(true);
+    expect(policy.counterfactualAllowed).toBe(true);
+    expect(policy.executionImpact).toBe('NONE');
+  });
+
+  it('treats SHADOW_ONLY policy as a live-only block even when R3 would otherwise allow live', () => {
+    const policy = resolveExecutionPermission({
+      sourceSnapshotId: 'snap-shadow',
+      sourceFreshness: 'FRESH',
+      engineMode: 'NORMAL',
+      effectiveRegime: 'R3_EARLY',
+      macroPolicy: 'SHADOW_ONLY',
+      brokerOrderAllowed: true,
+      operatorOrderAllowed: true,
+      realTradingEnabled: true,
+    });
+
+    expect(policy.liveOrderAllowed).toBe(false);
+    expect(policy.liveBlockReason).toBe('SHADOW_ONLY_POLICY');
+    expect(policy.shadowOrderAllowed).toBe(true);
+    expect(policy.executionImpact).toBe('NONE');
+  });
 });

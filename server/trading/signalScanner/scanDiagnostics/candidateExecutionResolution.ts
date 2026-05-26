@@ -133,6 +133,10 @@ interface ScanExecutionContext {
   operatorOrderAllowed: boolean;
   realTradingEnabled: boolean;
   macroLiveAllowed: boolean;
+  sourceFreshness: string | null;
+  snapshotAgeSec: number | null;
+  ttlSec: number | null;
+  snapshotUsableForLiveOrder?: boolean;
   providerIssue: boolean;
   marketSignal: boolean;
   kellyFraction: number | null;
@@ -157,6 +161,9 @@ function deriveScanExecutionContext(summary: AnyRecord): ScanExecutionContext {
   const operatorOrderAllowed = macro.liveEntryAllowed !== false;
   const realTradingEnabled = bool(macro.autoTradeEnabled) || macro.autoTradeEnabled === undefined;
   const macroLiveAllowed = macro.liveEntryAllowed !== false && !bool(macro.diagnosticLiveEntryBlocked);
+  const sourceFreshness = text(macro.sourceFreshness, '') || null;
+  const snapshotAgeSec = finiteNumber(macro.regimeSnapshotAgeSec);
+  const ttlSec = finiteNumber(macro.regimeSnapshotTtlSec);
   const providerIssue = bool(macro.providerIssue ?? summary.providerIssue);
   const marketSignal = bool(macro.marketSignal ?? summary.marketSignal);
   const kellyFraction = finiteNumber(macro.finalKellyMultiplier);
@@ -170,6 +177,10 @@ function deriveScanExecutionContext(summary: AnyRecord): ScanExecutionContext {
     operatorOrderAllowed,
     realTradingEnabled,
     macroLiveAllowed,
+    sourceFreshness,
+    snapshotAgeSec,
+    ttlSec,
+    snapshotUsableForLiveOrder: macro.usableForLiveOrder as boolean | undefined,
     providerIssue,
     marketSignal,
     kellyFraction,
@@ -243,6 +254,10 @@ export function buildCandidateExecutionResolutions(summary: ScanSummary | null):
     const aInput: ResolveExecutionPermissionInput = {
       sourceSnapshotId,
       asOf,
+      ttlSec: ctx.ttlSec ?? undefined,
+      sourceFreshness: ctx.sourceFreshness,
+      snapshotAgeSec: ctx.snapshotAgeSec,
+      snapshotUsableForLiveOrder: ctx.snapshotUsableForLiveOrder,
       gateQualityPassed: ctx.macroLiveAllowed && gateQualityPassedFor(view),
       engineMode: ctx.engineMode,
       operationMode: ctx.operationMode,
