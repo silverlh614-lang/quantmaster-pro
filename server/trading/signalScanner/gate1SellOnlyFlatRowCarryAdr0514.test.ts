@@ -241,3 +241,134 @@ describe('ADR-0514 SELL_ONLY gateSemanticFlatRow carry', () => {
     }
   });
 });
+
+function entryFilterGateTrace(symbol: string) {
+  return {
+    symbol,
+    regime: 'R2_BULL' as const,
+    marketSession: 'REGULAR' as const,
+    gate1Passed: false,
+    hardFailCount: 0,
+    softFailCount: 0,
+    diagnosticOnlyCount: 1,
+    conditions: [],
+    wouldPassIfProviderIssueSoftened: false,
+    wouldPassIfSupplySampleIgnored: false,
+    wouldPassIfSectorEnergyIgnored: false,
+    wouldPassIfTimeWindowIgnored: false,
+    minSignalScoreTrace: makeTrace(symbol),
+    executionImpact: 'NONE' as const,
+  };
+}
+
+function entryFilterCandidateTrace(symbol: string) {
+  return {
+    symbol,
+    stageReached: 'GATE1' as const,
+    marketSession: 'REGULAR' as const,
+    blockers: [],
+    executionImpact: 'NONE' as const,
+  };
+}
+
+describe('Patch-GATE1-FORENSIC-PERSYMBOL-ROW-CARRY-RESTORE-001 ENTRY_FILTER per-symbol carry', () => {
+  it('carries the per-symbol bySymbol row (not a shared candidate row) for an ENTRY_FILTER candidate', () => {
+    const ownRow = {
+      foreignNetBuy: 111,
+      institutionNetBuy: 222,
+      programNetBuy: null,
+      _source: 'ROUTER_EXTRACTED' as const,
+    };
+    const otherRow = {
+      foreignNetBuy: -999,
+      institutionNetBuy: -999,
+      programNetBuy: null,
+      _source: 'ROUTER_EXTRACTED' as const,
+    };
+    const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      gate1CandidateTraces: [entryFilterGateTrace('005930')],
+      candidateTraces: [entryFilterCandidateTrace('005930')],
+      // shared health carries a DIFFERENT candidate's flat row — the old PREFLIGHT-only
+      // regression would have leaked this shared row onto 005930. Restored per-symbol carry
+      // must override it with 005930's genuine bySymbol row.
+      supplyProviderHealth: {
+        providerName: 'KIS_API',
+        selectedInvestorFlowProvider: 'KIS_API',
+        providerScope: 'SYMBOL_LEVEL',
+        gateSemanticFlatRow: otherRow,
+      } as unknown as Parameters<typeof collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507>[0]['supplyProviderHealth'],
+      supplyRouterResult: {
+        bySymbol: {
+          '005930': {
+            code: '005930',
+            providerScope: 'SYMBOL_LEVEL',
+            gateSemanticFlatRow: ownRow,
+            actualInvestorRow: { foreignNetBuy: '111', institutionNetBuy: '222' },
+            actualInvestorFlowRows: [{ foreignNetBuy: '111', institutionNetBuy: '222' }],
+            actualInvestorFlowCarried: true,
+          },
+        },
+      },
+    });
+
+    expect(inputs[0].sourcePath).toBe('ENTRY_FILTER_GATE1_CANDIDATE_TRACE');
+    expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBe(true);
+    expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBe(true);
+    expect(inputs[0].sellOnlyCarryBreakPoint).toBe('CARRIED_TO_FORENSIC');
+    // per-symbol row wins over the shared candidate row.
+    expect(inputs[0].kisFlow?.gateSemanticFlatRow).toEqual(ownRow);
+    expect(inputs[0].kisFlow?.actualInvestorFlowRows).toEqual([{ foreignNetBuy: '111', institutionNetBuy: '222' }]);
+  });
+
+  it('falls back to the shared candidate row (byte-equivalent old behavior) when ENV=false', () => {
+    const prev = process.env.GATE1_FORENSIC_PERSYMBOL_ROW_CARRY_ENABLED;
+    process.env.GATE1_FORENSIC_PERSYMBOL_ROW_CARRY_ENABLED = 'false';
+    try {
+      const ownRow = {
+        foreignNetBuy: 111,
+        institutionNetBuy: 222,
+        programNetBuy: null,
+        _source: 'ROUTER_EXTRACTED' as const,
+      };
+      const sharedRow = {
+        foreignNetBuy: -999,
+        institutionNetBuy: -999,
+        programNetBuy: null,
+        _source: 'ROUTER_EXTRACTED' as const,
+      };
+      const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+        gate1CandidateTraces: [entryFilterGateTrace('005930')],
+        candidateTraces: [entryFilterCandidateTrace('005930')],
+        supplyProviderHealth: {
+          providerName: 'KIS_API',
+          selectedInvestorFlowProvider: 'KIS_API',
+          providerScope: 'SYMBOL_LEVEL',
+          gateSemanticFlatRow: sharedRow,
+        } as unknown as Parameters<typeof collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507>[0]['supplyProviderHealth'],
+        supplyRouterResult: {
+          bySymbol: {
+            '005930': {
+              code: '005930',
+              providerScope: 'SYMBOL_LEVEL',
+              gateSemanticFlatRow: ownRow,
+              actualInvestorFlowRows: [{ foreignNetBuy: '111', institutionNetBuy: '222' }],
+              actualInvestorFlowCarried: true,
+            },
+          },
+        },
+      });
+
+      // ENV=false → per-symbol carry suppressed for ENTRY_FILTER (old PREFLIGHT-only regression).
+      expect(inputs[0].sourcePath).toBe('ENTRY_FILTER_GATE1_CANDIDATE_TRACE');
+      expect(inputs[0].sellOnlyBySymbolPayloadAvailable).toBeUndefined();
+      expect(inputs[0].sellOnlyBySymbolPayloadMerged).toBeUndefined();
+      expect(inputs[0].sellOnlyCarryBreakPoint).toBeUndefined();
+      // shared row leaks through (no per-symbol override), and the per-symbol rows are NOT carried.
+      expect(inputs[0].kisFlow?.gateSemanticFlatRow).toEqual(sharedRow);
+      expect(inputs[0].actualInvestorFlowRows).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.GATE1_FORENSIC_PERSYMBOL_ROW_CARRY_ENABLED;
+      else process.env.GATE1_FORENSIC_PERSYMBOL_ROW_CARRY_ENABLED = prev;
+    }
+  });
+});
