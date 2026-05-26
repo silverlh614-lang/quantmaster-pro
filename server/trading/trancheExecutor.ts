@@ -18,7 +18,7 @@ import { requestBuyApproval } from '../telegram/buyApproval.js';
 import { deriveShadowApprovalContext } from '../telegram/shadowApprovalDedupeStore.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { getLiveRegime } from './regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from './regime/canonicalRegimeAccess.js';
 import { KRX_HOLIDAYS } from './krxHolidays.js';
 
 export interface TrancheSchedule {
@@ -219,7 +219,8 @@ export class TrancheExecutor {
     let changed = false;
     const allShadows = loadShadowTrades();
     const shadowsById = new Map(allShadows.map((s) => [s.id, s]));
-    const currentRegime = getLiveRegime(loadMacroState());
+    // ADR-0531: Gate0 정본 레짐(노출 예산/재검증 입력). kill-switch GATE0_CANONICAL_REGIME_DISABLED=true 즉시 롤백.
+    const currentRegime = resolveCanonicalRegimeLevel(loadMacroState());
 
     // ADR-0166 §M2 (audit-PR-520) — 추매 진입점 노출 예산 cap 입력 합성.
     // checkPendingTranches batch 처리이므로 accountSnapshot 함수 진입부 1회 fetch + 캐싱.

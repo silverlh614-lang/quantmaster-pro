@@ -17,7 +17,7 @@ import { fetchCurrentPrice, fetchAccountBalance } from '../clients/kisClient.js'
 import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS, fetchKisIntraday } from '../screener/stockScreener.js';
 import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
 import { evaluateServerGate } from '../quantFilter.js';
-import { getLiveRegime } from './regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from './regime/canonicalRegimeAccess.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import {
   isOpenShadowStatus,
@@ -69,7 +69,7 @@ export async function runDryRunScan(): Promise<DryRunScanResult> {
   const shadows          = loadShadowTrades();
   const macroState       = loadMacroState();
   const conditionWeights = loadConditionWeights();
-  const regime           = getLiveRegime(macroState);
+  const regime           = resolveCanonicalRegimeLevel(macroState); // ADR-0531: Gate0 정본 레짐
   const regimeConfig     = REGIME_CONFIGS[regime];
   const liveFocusCodes   = computeFocusCodes(watchlist);
   for (const w of watchlist) {

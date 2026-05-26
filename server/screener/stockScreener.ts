@@ -21,7 +21,7 @@ import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, hasKisClientOverride
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { isPullbackSetup, addBusinessDays } from './pipelineHelpers.js';
 import { recordGateAudit, recordGateAuditByStatus, flushGateAudit } from '../persistence/gateAuditRepo.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { getCurrentScanPreset } from './scanPresets.js';
 import { MOMENTUM_MAX_SIZE, SWING_MAX_SIZE, addToWatchlist } from './watchlistManager.js';
 
@@ -679,7 +679,7 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
     // 레짐을 전달해 RISK_ON_EARLY/RISK_OFF_CORRECTION에서 STRONG/NORMAL 밴드가 동적 적용되도록.
     // 프리셋 VCP/눌림목 가중은 개별 조건 weight에 승수로 덮어씌운다.
     const macroState = loadMacroState();
-    const regime     = getLiveRegime(macroState);
+    const regime     = resolveCanonicalRegimeLevel(macroState); // ADR-0531: Gate0 정본 레짐
     const baseWeights = loadConditionWeights();
     const presetWeights = {
       ...baseWeights,

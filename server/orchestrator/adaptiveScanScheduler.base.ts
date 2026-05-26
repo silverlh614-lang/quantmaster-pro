@@ -37,7 +37,8 @@ import { emitDiagnosticWarn } from '../observability/diagnosticWarn.js';
 import { logger } from '../utils/logger.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
-import { getLiveRegime, getRegimeDiagnostics, type RegimeDiagnostics } from '../trading/regimeBridge.js';
+import { getRegimeDiagnostics, type RegimeDiagnostics } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import type { ShadowCandidateScanTrigger, BiasLabel } from '../trading/marketStateResolver.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { sendEmptyScanDecisionBroker, sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -259,7 +260,8 @@ export function decideScan(): ScanDecision {
 
   const macroState = loadMacroState();
   const regimeDiagnostics = getRegimeDiagnostics(macroState);
-  const regime     = regimeDiagnostics.effectiveRegime ?? getLiveRegime(macroState);
+  // ADR-0531: Gate0 레짐 정본은 resolveRegimeSnapshot().effectiveRegime (legacy regimeDiagnostics 고착 제거).
+  const regime     = resolveCanonicalRegimeLevel(macroState);
   const biasScore = resolveSchedulerBiasScore(macroState as Record<string, unknown> | null);
   const biasLabel = resolveSchedulerBiasLabel(biasScore);
   const recoveryShadowTrigger = shouldTriggerRecoveryShadowScan({
@@ -653,7 +655,7 @@ export function recordScanResult(signalCount: number, opts?: RecordScanResultOpt
         if (consecutiveEmptyScans === EMPTY_SCAN_BACKOFF_THRESHOLD) {
           // 단일 임계 도달 시점에만 1회 알림 (spam 방지).
           // 단순 경보가 아닌 3택 Decision Broker로 전환 — 운용자가 "도구를 든 판단자"로 서도록.
-          const regime = getLiveRegime(loadMacroState());
+          const regime = resolveCanonicalRegimeLevel(loadMacroState());
           const usage = canApplyToday();
           const currentThreshold = getEffectiveGateThreshold(regime);
           sendEmptyScanDecisionBroker({

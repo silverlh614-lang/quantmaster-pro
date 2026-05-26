@@ -48,14 +48,21 @@ SourceSnapshot(데이터)을 바꾸지 않고 Policy/Confidence/ExecutionPermiss
     명령 출력. `status.cmd.ts`·`adminNowDetail.cmd.ts`·`metaCommands.ts`는 이미 정본 사용(변경 없음).
   - **LEARNING_LABEL**(라벨 정합, 차단 영향 없음 — 불변식 #8): `shadowResolverJob.ts:146`,
     `emptyScanPostmortem.ts:512`, `counterfactualShadowLearningLane.ts`.
+- **DECISION-layer 단일 접근자**: `server/trading/regime/canonicalRegimeAccess.ts` —
+  `resolveCanonicalRegimeLevel(macroState, now?)`(정본 effectiveRegime, kill-switch 시 legacy `getLiveRegime`) ·
+  `isCanonicalR6Defense(macroState, now?)`(R6 분기용: canonical `riskOverride==='R6_DEFENSE'` 또는
+  `effectiveRegime==='R6_DEFENSE'` — 진짜 R6 보존). 본 PR은 **DECISION 소비처만** 마이그레이션.
+  DISPLAY_ONLY / LEARNING_LABEL 은 후속 PR 로 분리(불변식 #8: shadow 차단과 분리).
 
 ## Behavior change & byte-equivalent
 
 - **LIVE 주문 본체 0줄 변경.** 변경 대상은 scan 스케줄 입력·운영자 표시·학습 라벨. KIS/KRX quota 0 침범.
 - **scan 스케줄 동작 변화 인지**: R5_CAUTION(legacy)→R3_EARLY(canonical) 전환 시 interval multiplier
   ×2.0 → canonical 값, empty-scan Decision Broker threshold 변화. LIVE 주문은 아니나 behavior change.
-- **ENV 즉시 롤백**: `GATE0_CANONICAL_REGIME_DISABLED=true` 1줄로 DECISION 소비처가 기존 legacy
-  동작 100% 복원. default OFF=기존 legacy 보존(운영자 명시 활성화 후 SHADOW 검증 → LIVE 권장).
+- **DEFAULT-ON + kill-switch (운영자 상시 지침, ADR-0530 패턴 일치)**: canonical 레짐은 **기본 활성(default-ON)**
+  이다. 신정책 활성화에 ENV를 요구하지 않는다(운영자 지침: "env on/off 기능에 의존하지마"). ENV는 **kill-switch
+  전용** — `GATE0_CANONICAL_REGIME_DISABLED=true` 1줄로 DECISION 소비처가 기존 legacy `getLiveRegime` 동작을
+  100% 즉시 복원한다(롤백). 별도 활성화 ENV는 없다.
 - **R6 보존**: *진짜 R6*(activeR6Triggers>0)는 canonical도 sanitize 후 R6_DEFENSE 유지 —
   방어가 임의 해제되지 않음.
 
