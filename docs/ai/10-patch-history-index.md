@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-KIS-FINANCE-CLIENT-ADR0532-PHASE1-001 · kisFinanceClient, KIS-L1-financials, financial-ratio-FHKST66430300, income-statement-FHKST66430200, ROE/OPM/debtRatio, QmpDartFinancials-mapper, no-corp_code, infra-not-wired
 - 2026-05-26 · Patch-KIS-PER-RECOVERY-ADR0532-PHASE2-001 · gate2, PER-recovery, fetchGate2PerValuation, getGate2DartFinancialsForEvaluation, per-decoupled-from-DART, KIS_FINANCE_PRIMARY_ENABLED, inquire-price-FHKST01010100, flag-gated
 - 2026-05-26 · ADR-0532 · gate2, kis-finance-fundamentals-migration, DART→KIS-L1, financial-ratio/income-statement/stability-ratio/inquire-price-PER, no-corp_code, ICR/OCF-DART-residual, KIS_FINANCE_PRIMARY_ENABLED, design-only
 - 2026-05-26 · Patch-GATE1-SWEEP-SCALE-REVERT-001 · scan_blockers, gate1ThresholdSweep-removed, raw-vs-minSignal-scale-bug, redundant-with-ADR0471/0466, keep-executionGuardSource-tokens
