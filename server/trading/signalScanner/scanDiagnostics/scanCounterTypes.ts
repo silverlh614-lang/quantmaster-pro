@@ -66,10 +66,6 @@ export interface ScanCounters {
   gateScoreUnavailableCounts: Record<string, number>;
   gateScoreThresholdNotMetCounts: Record<string, number>;
   gateScoreProviderDegradedCounts: Record<string, number>;
-  // Gate1 threshold sweep (diagnostic-only) — per-candidate gate1 raw scores + the regime's
-  // adaptive normal threshold, used to render survivors@{70,65,60,adaptive}. executionImpact=NONE.
-  gate1SweepScores: number[];
-  gate1SweepAdaptiveThreshold: number;
   gateLayerAudit: GateLayerAuditAccumulator;
   perStageDropoff: Partial<Record<PipelineStageName, Partial<Record<PipelineStageStatus, number>>>>;
   gateScoreBucketCounts: Record<GateScoreCandidateBucket, number>;

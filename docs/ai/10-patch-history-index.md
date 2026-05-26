@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-GATE1-SWEEP-SCALE-REVERT-001 · scan_blockers, gate1ThresholdSweep-removed, raw-vs-minSignal-scale-bug, redundant-with-ADR0471/0466, keep-executionGuardSource-tokens
 - 2026-05-26 · Patch-R3-SANITY-REMOVE-ABORT-001 · preflight, R3_SANITY_BLOCK, ABORT_HARD_BLOCK-removed, unconditional-OBSERVE_ONLY, R3_SANITY_BLOCK_ENABLED-removed, buyListLoop-diagnostic-lane
 - 2026-05-26 · Patch-R3-SANITY-OBSERVE-DISPLAY-001 · scan_blockers, gate1ThresholdSweep, survivors@70/65/60/adaptive, executionGuardSource, R3_SANITY_OBSERVE_ONLY_DIAGNOSTIC_CARRIED, gateScoreDiagnostics
 - 2026-05-26 · Patch-R3-SANITY-OBSERVE-ONLY-DEMOTE-001 · preflight, R3_SANITY_GUARD, observe-only-execution-guard, diagnosticOnlyLiveBlock, buyListLoop-diagnostic-lane, gateScoreHealthSamples, ADR-0120/0401-demote
