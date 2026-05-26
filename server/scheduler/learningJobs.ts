@@ -35,6 +35,10 @@ import {
   runUpdateGate3ForwardReturnsJob,
   isGate3ForwardReturnCronEnabled,
 } from '../trading/gate3ForwardReturnCron.js';
+import {
+  isUnifiedForwardOutcomeLabelerEnabled,
+  runUnifiedForwardOutcomeLabeler,
+} from '../learning/unifiedForwardOutcomeLabeler.js';
 import { scheduledJob } from './scheduleGuard.js';
 
 export function registerLearningJobs(): void {
@@ -192,6 +196,16 @@ export function registerLearningJobs(): void {
   //   (다음 영업일 cron 호출 시 자연 복구 시도).
   // 호출자 1건 — replayMissedLearningJobs 는 본 cron + 모듈/테스트 외 호출 0건 (정적 grep 가드).
   // Real dispatcher maps jobName to recovery functions; failures remain FAILED, not fake success.
+  // Unified Forward Outcome Labeler: learning evidence only, no threshold or live-order mutation.
+  scheduledJob('36 7 * * 1-5', 'TRADING_DAY_ONLY', 'unified_forward_outcome_labeling', async () => {
+    if (!isUnifiedForwardOutcomeLabelerEnabled()) return;
+    const res = await runUnifiedForwardOutcomeLabeler();
+    console.log(
+      `[UnifiedForwardOutcomeLabeler] healthy=${res.unifiedOutcomeLabelerHealthy} sourceRowsScanned=${res.sourceRowsScanned} rowsUpdatedD1=${res.rowsUpdatedD1} rowsUpdatedD3=${res.rowsUpdatedD3} rowsUpdatedD5=${res.rowsUpdatedD5} rowsUpdatedD10=${res.rowsUpdatedD10} duplicateSuppressed=${res.duplicateSuppressed} stalePending=${res.stalePending} gate3EvidenceSampleSize=${res.gate3EvidenceSampleSize} gate1CalibrationSampleSize=${res.gate1CalibrationSampleSize} nearMissEvidenceSampleSize=${res.nearMissEvidenceSampleSize} executionImpact=${res.executionImpact}`,
+    );
+  }, { timezone: 'UTC', enqueueOnSkip: {} });
+
+  // MissedLearningQueue replay: trading-day recovery of skipped learning jobs.
   scheduledJob('30 0 * * 1-5', 'TRADING_DAY_ONLY', 'missed_learning_replay', async () => {
     if (!isMissedLearningQueueEnabled()) return;
     const today = new Date().toISOString().slice(0, 10);

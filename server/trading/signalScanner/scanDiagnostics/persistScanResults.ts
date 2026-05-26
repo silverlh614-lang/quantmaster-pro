@@ -135,6 +135,7 @@ import { buildGate3EvidenceWarmupStatus } from '../../../quant/gate3EvidenceWarm
 import { buildGate3CompletionScore } from '../../../quant/gate3CompletionScore.js';
 import { buildLiveReadinessScore } from '../../../quant/liveReadinessScore.js';
 import { rememberGate3FinalizationSummary } from '../../../quant/gate3FinalizationState.js';
+import { buildUnifiedForwardOutcomeLabelerStatusForScan } from '../../../learning/unifiedForwardOutcomeLabeler.js';
 import { loadKisOfficialSectorIndexMaster } from '../../../sector/SectorIndexMasterProvider.js';
 import { buildOfficialSectorIndexMasterCoverage, type OfficialSectorIndexMasterCoverageResult } from '../../../sector/SectorIndexVerifier.js';
 import { verifySectorIndexCodeWithKisCurrentPrice } from '../../../sector/KisSectorIndexVerifierAdapter.js';
@@ -1776,6 +1777,12 @@ export async function persistScanResults(
     }
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildCandidateExecutionResolutions', error: e });
+  }
+
+  try {
+    summaryDraft.unifiedOutcomeLabeler = buildUnifiedForwardOutcomeLabelerStatusForScan();
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildUnifiedForwardOutcomeLabelerStatusForScan', error: e });
   }
 
   _lastScanSummary = summaryDraft;

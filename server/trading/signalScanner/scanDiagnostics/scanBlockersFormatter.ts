@@ -46,6 +46,7 @@ import { formatGate1SurvivalAuditSection, formatGate2CoverageAuditSection, forma
 import { formatGate3ThresholdEvidenceSection } from '../../../quant/gate3EvidenceScore.js';
 import { formatGate3EvidenceWarmupSection } from '../../../quant/gate3EvidenceWarmup.js';
 import { formatGate3FinalizationSection } from '../../../quant/gate3CompletionScore.js';
+import { formatUnifiedForwardOutcomeLabelerSection } from '../../../learning/unifiedForwardOutcomeLabeler.js';
 import { formatScanEvaluationSection, resolveScanMarketSessionView } from '../state/scanEvaluationState.js';
 import { emitScanDiagnosticBuildFailedWarn } from '../state/scanDiagnosticSuppressor.js';
 import { formatFrozenQuoteSection, formatPriceCorrectionOverlaySection, formatPriceIntegritySection, formatR3StreakSkipLine } from './sectionFormatters.js';
@@ -1201,6 +1202,11 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   if (gate3EvidenceWarmupSection) {
     lines.push('');
     lines.push(gate3EvidenceWarmupSection);
+  }
+  const unifiedOutcomeLabelerSection = formatUnifiedForwardOutcomeLabelerSection(summary.unifiedOutcomeLabeler);
+  if (unifiedOutcomeLabelerSection) {
+    lines.push('');
+    lines.push(unifiedOutcomeLabelerSection);
   }
   const gate3ThresholdEvidenceSection = formatGate3ThresholdEvidenceSection(summary.gateLayerAudit?.gate3Consolidated?.thresholdEvidence);
   if (gate3ThresholdEvidenceSection) {

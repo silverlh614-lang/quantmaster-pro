@@ -1,0 +1,204 @@
+// @responsibility Unified forward outcome labeler regression tests for learning-only evidence and safety invariants.
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Gate3OutcomeSeed } from '../quant/gate3OutcomeSeed.js';
+import type { NearMissOutcomeEntry } from '../persistence/nearMissOutcomeLedger.js';
+import type { CounterfactualShadowLearningLedgerEntry } from '../persistence/counterfactualShadowLearningRepo.js';
+import type { Gate1DryRunObservationRow } from '../trading/signalScanner/gate1DryRunObservationLedgerAdr0476.js';
+import {
+  formatUnifiedForwardOutcomeLabelerSection,
+  horizonIdempotencyKey,
+  normalizeUnifiedForwardOutcomeRows,
+  runUnifiedForwardOutcomeLabeler,
+} from './unifiedForwardOutcomeLabeler.js';
+
+const NOW = new Date('2026-05-22T08:00:00.000Z');
+
+function gate3Seed(overrides: Partial<Gate3OutcomeSeed> = {}): Gate3OutcomeSeed {
+  return {
+    id: 'gate3-outcome:2026-05-12:005930:scan:READY:vcp',
+    symbol: '005930',
+    sourceSnapshotId: 'scan:test',
+    gate3SnapshotId: 'scan:test:gate3',
+    asOf: '2026-05-12T00:00:00.000Z',
+    tradeDate: '2026-05-12',
+    readiness: 'READY',
+    issue: 'vcp',
+    route: 'SHADOW_ENTRY_ALLOWED',
+    entryReferencePrice: 10_000,
+    stopLoss: 9_300,
+    targetPrice: 11_500,
+    rrr: 2.4,
+    priceConfirmation: 'BREAKOUT_CONFIRMED',
+    volumeConfirmation: 'CONFIRMED',
+    falseBreakoutRisk: 'LOW',
+    lastTriggerStatus: 'FIRED',
+    learningLabel: 'GATE3_READY_FIRED',
+    forwardReturns: { d1: null, d3: null, d5: null, d10: null },
+    maxForwardReturnPct: null,
+    minForwardReturnPct: null,
+    hitTarget: null,
+    hitStop: null,
+    outcomeStatus: 'PENDING',
+    outcomeLabel: null,
+    executionImpact: 'NONE',
+    marketSignal: false,
+    providerIssue: false,
+    ...overrides,
+  };
+}
+
+function gate1Row(overrides: Partial<Gate1DryRunObservationRow> = {}): Gate1DryRunObservationRow {
+  return {
+    id: 'gate1-dry-run:2026-05-12:005930',
+    createdAt: '2026-05-12T00:00:00.000Z',
+    forDate: '2026-05-12',
+    source: 'GATE1_NEAR_MISS',
+    symbol: '005930',
+    actualGate1Passed: false,
+    actualLiveEligible: false,
+    dryRunDecision: 'NEAR_MISS',
+    dryRunScenario: 'threshold-minus-5',
+    requiredScore: 70,
+    providerIssue: false,
+    marketSignal: false,
+    sectorEnergyDiagnosticOnly: false,
+    sellOnly: false,
+    entryReferencePrice: 10_000,
+    status: 'PENDING',
+    executionImpact: 'NONE',
+    liveExecutionAllowed: false,
+    policyPromotionMode: 'SHADOW_ONLY',
+    ...overrides,
+  };
+}
+
+function nearMissEntry(): NearMissOutcomeEntry {
+  return {
+    id: 'near-miss:2026-05-12:005930:PROBING',
+    stockCode: '005930',
+    stockName: 'Samsung Electronics',
+    signalDate: '2026-05-12',
+    signalPriceKrw: 10_000,
+    bucket: 'PROBING',
+    diagnosticReason: 'near threshold',
+    gateScore: 4.6,
+    normalThreshold: 5,
+    horizons: [
+      { horizonDays: 3, targetDate: '2026-05-15', status: 'OBSERVED', priceKrw: 10_500, returnPct: 5, observedAt: '2026-05-15T00:00:00.000Z' },
+      { horizonDays: 5, targetDate: '2026-05-19', status: 'PENDING' },
+      { horizonDays: 10, targetDate: '2026-05-26', status: 'PENDING' },
+    ],
+    createdAt: '2026-05-12T00:00:00.000Z',
+    closed: false,
+    executionImpact: 'NONE',
+  };
+}
+
+function counterfactualEntry(): CounterfactualShadowLearningLedgerEntry {
+  return {
+    symbol: '000660',
+    eventType: 'COUNTERFACTUAL_SHADOW_LEARNING_ENTRY',
+    source: 'ADR-0430',
+    learningOnly: true,
+    provisional: false,
+    executionShadow: false,
+    label: 'COUNTERFACTUAL_BLOCKED_BUY',
+    reasons: ['LEARNING_ONLY'],
+    blockedBy: ['SHADOW_ONLY_MODE'],
+    liveAllowed: false,
+    paperAllowed: false,
+    executionShadowAllowed: false,
+    virtualAccountImpact: 'NONE',
+    createdAtKst: '2026-05-12T00:00:00.000Z',
+    entryPriceHint: 100_000,
+    executionImpact: 'NONE',
+    liveOrderSent: false,
+  };
+}
+
+afterEach(() => {
+  delete process.env.UNIFIED_FORWARD_OUTCOME_LABELER_ENABLED;
+});
+
+describe('UnifiedForwardOutcomeLabeler', () => {
+  it('normalizes Gate3, Gate1, Near-Miss, counterfactual, and paper rows into a safe common schema', () => {
+    const rows = normalizeUnifiedForwardOutcomeRows({
+      now: NOW,
+      gate3Seeds: [gate3Seed({ forwardReturns: { d1: 3, d3: 4, d5: 6, d10: null }, outcomeStatus: 'LABELED', outcomeLabel: 'GATE3_READY_FOLLOW_THROUGH' })],
+      gate1Rows: [gate1Row({ forwardReturn1D: 2, status: 'MATURED_1D' })],
+      nearMissEntries: [nearMissEntry()],
+      counterfactualEntries: [counterfactualEntry()],
+      paperEntries: [{
+        outcomeId: 'paper-observation:2026-05-12:035420',
+        symbol: '035420',
+        decisionType: 'OBSERVATIONAL_PAPER_ENTRY',
+        entryReferencePrice: 200_000,
+        createdAt: '2026-05-12T00:00:00.000Z',
+        sourceSnapshotId: 'scan:test',
+        gateScoreInputSnapshotId: 'scan:test:gate',
+      }],
+    });
+
+    expect(rows.map((row) => row.sourceType)).toEqual([
+      'GATE3_OUTCOME_SEED',
+      'GATE1_DRY_RUN_OBSERVATION',
+      'NEAR_MISS_OUTCOME',
+      'COUNTERFACTUAL_LEDGER',
+      'PAPER_OBSERVATIONAL_ENTRY',
+    ]);
+    expect(rows.every((row) => row.executionImpact === 'NONE' && row.marketSignal === false)).toBe(true);
+    expect(horizonIdempotencyKey(rows[0], 'D3')).toBe('GATE3_OUTCOME_SEED:gate3-outcome:2026-05-12:005930:scan:READY:vcp:005930:D3');
+  });
+
+  it('updates only due horizons and reports learning evidence without enabling live execution', async () => {
+    const result = await runUnifiedForwardOutcomeLabeler({
+      now: NOW,
+      persist: false,
+      gate3Seeds: [gate3Seed()],
+      gate1Rows: [gate1Row()],
+      nearMissEntries: [nearMissEntry()],
+      counterfactualEntries: [counterfactualEntry()],
+      paperEntries: [],
+      priceFetcher: async () => 10_800,
+    });
+
+    expect(result.unifiedOutcomeLabelerHealthy).toBe(true);
+    expect(result.rowsUpdatedD1).toBeGreaterThan(0);
+    expect(result.rowsUpdatedD3).toBeGreaterThan(0);
+    expect(result.rowsUpdatedD5).toBeGreaterThan(0);
+    expect(result.gate3EvidenceSampleSize).toBeGreaterThan(0);
+    expect(result.gate1CalibrationSampleSize).toBeGreaterThan(0);
+    expect(result.nearMissEvidenceSampleSize).toBeGreaterThan(0);
+    expect(result.liveExecutionAllowed).toBe(false);
+    expect(result.executionImpact).toBe('NONE');
+    expect(result.thresholdAutoChanged).toBe(false);
+
+    const section = formatUnifiedForwardOutcomeLabelerSection(result);
+    expect(section).toContain('unifiedOutcomeLabelerHealthy: true');
+    expect(section).toContain('rowsUpdatedD1:');
+    expect(section).toContain('gate3EvidenceSampleSize:');
+  });
+
+  it('honors the rollback env without touching price providers', async () => {
+    process.env.UNIFIED_FORWARD_OUTCOME_LABELER_ENABLED = 'false';
+    const priceFetcher = vi.fn(async () => 10_800);
+
+    const result = await runUnifiedForwardOutcomeLabeler({
+      now: NOW,
+      persist: false,
+      gate3Seeds: [gate3Seed()],
+      gate1Rows: [gate1Row()],
+      nearMissEntries: [],
+      counterfactualEntries: [],
+      paperEntries: [],
+      priceFetcher,
+    });
+
+    expect(result.unifiedOutcomeLabelerHealthy).toBe(false);
+    expect(result.lastLabelingErrorSanitized).toBe('UNIFIED_FORWARD_OUTCOME_LABELER_DISABLED');
+    expect(result.liveExecutionAllowed).toBe(false);
+    expect(result.executionImpact).toBe('NONE');
+    expect(priceFetcher).not.toHaveBeenCalled();
+  });
+});

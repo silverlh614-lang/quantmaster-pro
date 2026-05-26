@@ -44,6 +44,7 @@ When modifying any file, ensure changes stay within the owning module's stated r
 | `server/clients/naverStockListClient.ts` | Fetch Naver mobile market-cap leaders as Tier 2 fallback (ADR-0013) |
 | `server/data/stockMasterSeed.ts` | Hard-coded KOSPI/KOSDAQ leader seed — Tier 4 ultimate fallback (ADR-0013) |
 | `server/health/diagnostics.ts` | Collect 8-axis system health snapshot — shared by /health Telegram cmd and /api/health/pipeline HTTP route |
+| `server/learning/unifiedForwardOutcomeLabeler.ts` | Normalize Gate3/Gate1/Near-Miss/counterfactual/paper rows and update due forward-return evidence only |
 | `server/telegram/renderers/canonicalDebugRawView.ts` | Project persisted ScanSummary canonical slices into debug_raw view with scope tags — zero recomputation (ADR-0525) |
 | `server/trading/signalScanner/scanDiagnostics/candidateGateEvaluationView.ts` | Per-candidate Gate0/1/2/3 evaluation SSOT — formatters read this view, never re-infer from raw traces (ADR-0526) |
 | `server/trading/gates/unifiedExecutionContract.ts` | Unified execution-permission contract pins + PositionPolicyDecision SSOT — permission separated from count (ADR-0527) |

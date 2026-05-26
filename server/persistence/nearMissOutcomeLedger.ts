@@ -169,13 +169,17 @@ export function recordNearMissOutcome(input: NearMissOutcomeRecordInput): { reco
 
 export async function refreshNearMissOutcomeLedger(opts: {
   now?: Date;
-  priceFetcher?: (code: string) => Promise<number | null>;
-} = {}): Promise<{ updated: number; skipped: number; closed: number }> {
+  priceFetcher?: (code: string, asOf?: Date) => Promise<number | null>;
+} = {}): Promise<{ updated: number; updated3d: number; updated5d: number; updated10d: number; skipped: number; closed: number }> {
   const now = opts.now ?? new Date();
   const today = now.toISOString().slice(0, 10);
-  const fetcher = opts.priceFetcher ?? fetchCurrentPrice;
+  const fetcher: (code: string, asOf?: Date) => Promise<number | null> =
+    opts.priceFetcher ?? ((code: string) => fetchCurrentPrice(code));
   const entries = loadEntries();
   let updated = 0;
+  let updated3d = 0;
+  let updated5d = 0;
+  let updated10d = 0;
   let skipped = 0;
   let closed = 0;
 
@@ -184,28 +188,30 @@ export async function refreshNearMissOutcomeLedger(opts: {
     const due = entry.horizons.filter((point) => point.status === 'PENDING' && today >= point.targetDate);
     if (due.length === 0) continue;
 
-    let price: number | null = null;
-    try {
-      price = await fetcher(entry.stockCode);
-    } catch {
-      price = null;
-    }
+    for (const point of due) {
+      let price: number | null = null;
+      try {
+        price = await fetcher(entry.stockCode, new Date(`${point.targetDate}T00:00:00.000Z`));
+      } catch {
+        price = null;
+      }
 
-    if (!isFinitePositive(price ?? NaN)) {
-      for (const point of due) {
+      if (!isFinitePositive(price ?? NaN)) {
         point.status = 'SKIPPED';
         point.skipReason = 'price_unavailable';
         point.observedAt = now.toISOString();
         skipped += 1;
+        continue;
       }
-    } else {
-      for (const point of due) {
-        point.status = 'OBSERVED';
-        point.priceKrw = price ?? undefined;
-        point.returnPct = Number(((((price ?? 0) - entry.signalPriceKrw) / entry.signalPriceKrw) * 100).toFixed(2));
-        point.observedAt = now.toISOString();
-        updated += 1;
-      }
+
+      point.status = 'OBSERVED';
+      point.priceKrw = price ?? undefined;
+      point.returnPct = Number(((((price ?? 0) - entry.signalPriceKrw) / entry.signalPriceKrw) * 100).toFixed(2));
+      point.observedAt = now.toISOString();
+      updated += 1;
+      if (point.horizonDays === 3) updated3d += 1;
+      else if (point.horizonDays === 5) updated5d += 1;
+      else updated10d += 1;
     }
 
     if (entry.horizons.every((point) => point.status !== 'PENDING')) {
@@ -215,7 +221,7 @@ export async function refreshNearMissOutcomeLedger(opts: {
   }
 
   saveEntries(entries);
-  return { updated, skipped, closed };
+  return { updated, updated3d, updated5d, updated10d, skipped, closed };
 }
 
 export function summarizeNearMissOutcomeLedger(): NearMissOutcomeSummary {

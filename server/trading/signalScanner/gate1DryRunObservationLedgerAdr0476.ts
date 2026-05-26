@@ -164,10 +164,20 @@ export interface Gate1DryRunObservationBuildInput {
 
 export interface Gate1DryRunObservationOutcomeUpdateResult {
   updated: number;
+  updatedD1: number;
+  updatedD3: number;
+  updatedD5: number;
+  duplicateSuppressed: number;
   pending: number;
   outcomeUpdateAvailable: boolean;
   reason: 'MARKET_CLOSED' | 'PRICE_CACHE_MISSING' | 'NOT_MATURED' | 'UPDATED';
 }
+
+export type Gate1DryRunObservationPriceFetcher = (
+  symbol: string,
+  asOf: Date,
+  row: Gate1DryRunObservationRow,
+) => Promise<number | null | undefined> | number | null | undefined;
 
 export const GATE1_DRY_RUN_OBSERVATION_LEDGER_FILE = path.join(
   DATA_DIR,
@@ -193,6 +203,33 @@ function safeSymbol(symbol: string): string {
 
 function makeId(row: Pick<Gate1DryRunObservationRow, 'forDate' | 'symbol' | 'source' | 'dryRunScenario'>): string {
   return `adr0476-${row.forDate}-${safeSymbol(row.symbol)}-${row.source}-${row.dryRunScenario}`.slice(0, 180);
+}
+
+function addBusinessDays(yyyymmdd: string, businessDays: number): string {
+  const [y, m, d] = yyyymmdd.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  let added = 0;
+  while (added < businessDays) {
+    t.setUTCDate(t.getUTCDate() + 1);
+    const dow = t.getUTCDay();
+    if (dow !== 0 && dow !== 6) added += 1;
+  }
+  return t.toISOString().slice(0, 10);
+}
+
+function pctReturn(entryPrice: number, futurePrice: number): number {
+  return Math.round((((futurePrice - entryPrice) / entryPrice) * 100) * 100) / 100;
+}
+
+function targetDateAsUtc(targetDate: string): Date {
+  return new Date(`${targetDate}T00:00:00.000Z`);
+}
+
+function updateStatusForResolvedHorizons(row: Gate1DryRunObservationRow): Gate1DryRunObservationStatus {
+  if (finite(row.forwardReturn5D)) return 'MATURED_5D';
+  if (finite(row.forwardReturn3D)) return 'MATURED_3D';
+  if (finite(row.forwardReturn1D)) return 'MATURED_1D';
+  return row.status === 'PENDING' ? 'OBSERVING' : row.status;
 }
 
 function withOptionalScoreFields(
@@ -674,21 +711,68 @@ export async function updateGate1DryRunObservationOutcomes(input: {
   rows?: readonly Gate1DryRunObservationRow[];
   marketOpen?: boolean;
   priceCacheAvailable?: boolean;
+  priceFetcher?: Gate1DryRunObservationPriceFetcher;
 } = {}): Promise<Gate1DryRunObservationOutcomeUpdateResult> {
   const rows = input.rows ? [...input.rows] : loadRows();
+  const persist = input.rows === undefined;
   if (input.marketOpen === false) {
-    return { updated: 0, pending: rows.length, outcomeUpdateAvailable: false, reason: 'MARKET_CLOSED' };
+    return { updated: 0, updatedD1: 0, updatedD3: 0, updatedD5: 0, duplicateSuppressed: 0, pending: rows.length, outcomeUpdateAvailable: false, reason: 'MARKET_CLOSED' };
   }
   if (input.priceCacheAvailable === false) {
-    return { updated: 0, pending: rows.length, outcomeUpdateAvailable: false, reason: 'PRICE_CACHE_MISSING' };
+    return { updated: 0, updatedD1: 0, updatedD3: 0, updatedD5: 0, duplicateSuppressed: 0, pending: rows.length, outcomeUpdateAvailable: false, reason: 'PRICE_CACHE_MISSING' };
   }
   const now = input.now ?? new Date();
   const today = now.toISOString().slice(0, 10);
-  const matured = rows.filter((row) => today > row.forDate);
-  if (matured.length === 0) {
-    return { updated: 0, pending: rows.length, outcomeUpdateAvailable: false, reason: 'NOT_MATURED' };
+  const horizons = [
+    { days: 1, field: 'forwardReturn1D', counter: 'updatedD1' },
+    { days: 3, field: 'forwardReturn3D', counter: 'updatedD3' },
+    { days: 5, field: 'forwardReturn5D', counter: 'updatedD5' },
+  ] as const;
+  const hasDue = rows.some((row) => horizons.some((horizon) => today >= addBusinessDays(row.forDate, horizon.days)));
+  if (!hasDue) {
+    return { updated: 0, updatedD1: 0, updatedD3: 0, updatedD5: 0, duplicateSuppressed: 0, pending: rows.length, outcomeUpdateAvailable: false, reason: 'NOT_MATURED' };
   }
-  return { updated: 0, pending: rows.length, outcomeUpdateAvailable: true, reason: 'UPDATED' };
+
+  let updatedD1 = 0;
+  let updatedD3 = 0;
+  let updatedD5 = 0;
+  let duplicateSuppressed = 0;
+  const fetcher = input.priceFetcher;
+
+  for (const row of rows) {
+    const entryPrice = finite(row.entryReferencePrice) && row.entryReferencePrice > 0 ? row.entryReferencePrice : null;
+    if (entryPrice === null) continue;
+    for (const horizon of horizons) {
+      const targetDate = addBusinessDays(row.forDate, horizon.days);
+      if (today < targetDate) continue;
+      if (finite(row[horizon.field])) {
+        duplicateSuppressed += 1;
+        continue;
+      }
+      if (!fetcher) continue;
+      const price = await fetcher(row.symbol, targetDateAsUtc(targetDate), row);
+      if (!finite(price) || price <= 0) continue;
+      row[horizon.field] = pctReturn(entryPrice, price);
+      row.status = updateStatusForResolvedHorizons(row);
+      if (horizon.counter === 'updatedD1') updatedD1 += 1;
+      else if (horizon.counter === 'updatedD3') updatedD3 += 1;
+      else updatedD5 += 1;
+    }
+  }
+
+  const updated = updatedD1 + updatedD3 + updatedD5;
+  if (persist && updated > 0) writeRows(rows);
+  const pending = rows.filter((row) => row.status === 'PENDING' || row.status === 'OBSERVING').length;
+  return {
+    updated,
+    updatedD1,
+    updatedD3,
+    updatedD5,
+    duplicateSuppressed,
+    pending,
+    outcomeUpdateAvailable: updated > 0,
+    reason: updated > 0 ? 'UPDATED' : 'PRICE_CACHE_MISSING',
+  };
 }
 
 export function formatGate1DryRunObservationSummary(

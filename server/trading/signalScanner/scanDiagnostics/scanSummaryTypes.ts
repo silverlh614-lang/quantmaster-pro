@@ -3,6 +3,7 @@
 import type { EmptyScanRootCauseDashboardAdr0500 } from '../../../diagnostics/emptyScanRootCauseDashboardAdr0500.js';
 import type { WeekendReplaySummaryAdr0501 } from '../../../diagnostics/weekendReplayAdr0501.js';
 import type { GateReclassificationDryRunSummary } from '../../../learning/gateReclassificationDryRun.js';
+import type { UnifiedForwardOutcomeLabelerSummary } from '../../../learning/unifiedForwardOutcomeLabeler.js';
 import type { SectorEnergyQualityDiagnostic } from '../../../clients/sectorEnergyQualityDiagnostic.js';
 import type { ShadowCandidateScanTrigger } from '../../marketStateResolver.js';
 import type { EmptyScanReason } from '../emptyScanClassifier.js';
@@ -277,6 +278,7 @@ export interface ScanSummary {
   gate1ScoringAlignment?: Gate1ScoringAlignmentReport;
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport;
   gate1DryRunObservationLedger?: Gate1DryRunObservationSummary;
+  unifiedOutcomeLabeler?: UnifiedForwardOutcomeLabelerSummary;
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult;
   naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult;
   semanticNetBuyNormalizationAdr0482?: SemanticNetBuyNormalizationReportAdr0482;

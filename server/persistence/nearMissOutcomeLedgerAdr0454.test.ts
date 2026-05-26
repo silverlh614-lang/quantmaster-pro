@@ -74,13 +74,13 @@ describe('ADR-454 Near-Miss Outcome Ledger', () => {
       now: new Date(`${addBusinessDays(baseInput.signalDate, 5)}T00:00:00.000Z`),
       priceFetcher: async () => 77_000,
     });
-    expect(partial).toEqual({ updated: 2, skipped: 0, closed: 0 });
+    expect(partial).toEqual({ updated: 2, updated3d: 1, updated5d: 1, updated10d: 0, skipped: 0, closed: 0 });
 
     const final = await refreshNearMissOutcomeLedger({
       now: new Date(`${addBusinessDays(baseInput.signalDate, 10)}T00:00:00.000Z`),
       priceFetcher: async () => 63_000,
     });
-    expect(final).toEqual({ updated: 1, skipped: 0, closed: 1 });
+    expect(final).toEqual({ updated: 1, updated3d: 0, updated5d: 0, updated10d: 1, skipped: 0, closed: 1 });
 
     const [entry] = getAllNearMissOutcomes();
     expect(entry.closed).toBe(true);
