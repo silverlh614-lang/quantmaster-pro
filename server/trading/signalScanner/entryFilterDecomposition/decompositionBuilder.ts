@@ -265,12 +265,15 @@ export function buildEntryFilterDecomposition(
 
   const diagnosticBlockReason = String(input.macroGateState?.liveEntryBlockedReason ?? '').toUpperCase();
   const removedPolicyDiagnosticBlock = diagnosticBlockReason.includes('SELL_ONLY') || diagnosticBlockReason.includes('R6_DEFENSE');
+  const diagnosticLiveBlockCode = diagnosticBlockReason.includes('R3_SANITY_GUARD')
+    ? 'SHADOW_ONLY_MODE'
+    : input.macroGateState?.liveEntryBlockedReason ?? 'DIAGNOSTIC_LIVE_ENTRY_BLOCK';
   if (input.macroGateState?.diagnosticLiveEntryBlocked && !removedPolicyDiagnosticBlock) {
     for (const trace of traces) {
       trace.blockers.push(
         blocker({
           category: "MARKET_RISK",
-          code: input.macroGateState.liveEntryBlockedReason ?? "DIAGNOSTIC_LIVE_ENTRY_BLOCK",
+          code: diagnosticLiveBlockCode,
           severity: "DIAGNOSTIC_ONLY",
           message:
             "Live new-buy execution is blocked, but candidate/gate diagnostics continue.",

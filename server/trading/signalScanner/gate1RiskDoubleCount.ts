@@ -12,6 +12,7 @@ export type RiskPenaltyPlacement =
   | 'GATE1_SOFT_FAIL'
   | 'KELLY_SIZING'
   | 'POSITION_CAP'
+  | 'CONFIDENCE_AND_SIZING_ONLY'
   | 'ADVISORY_ONLY'
   | 'UNKNOWN';
 
@@ -154,6 +155,14 @@ export interface RiskDoubleCountAuditReport {
   signalRiskPenaltyAvg: number;
   kellyRiskMultiplierAvg: number;
   combinedKellyMultiplierAvg: number;
+  regimeRiskPlacement: 'CONFIDENCE_AND_SIZING_ONLY';
+  signalScorePenaltyApplied: boolean;
+  confidenceDowngradeApplied: boolean;
+  sizingMultiplierApplied: boolean;
+  finalPlacement: 'CONFIDENCE_AND_SIZING_ONLY';
+  marketSignalRiskPenalty: number;
+  providerIssuePenaltyScope: 'DIAGNOSTIC_ONLY';
+  gateScoreImpact: number;
   doubleCountCandidates: number;
   duplicateRiskRootCauses: Array<{
     code: RiskRootCauseCode;
@@ -293,13 +302,13 @@ function signalRiskPenaltyFrom(input: {
   positive?: PositiveScoreStarvationReport | null;
   penalty?: PenaltyDeduplicationReport | null;
 }): number {
-  const rawPenalty = input.penalty?.riskPenaltyAudit.signalRiskPenalty ?? 6.3;
+  const rawPenalty = input.penalty?.riskPenaltyAudit.signalRiskPenalty ?? input.positive?.totalPenaltyScoreAvg ?? 0;
   const fromPenalty = input.positive?.topPositiveContributors ? undefined : undefined;
   void fromPenalty;
-  // P0-4: REGIME_RISK is already expressed through Kelly sizing. Keep the sizing
-  // multiplier intact, but cap diagnostic signal-score risk impact to avoid a
-  // second large score subtraction in Gate1 current diagnostics.
-  return Math.min(3, Math.max(0, rawPenalty));
+  void rawPenalty;
+  // REGIME_RISK belongs to confidence/sizing. Keep any source penalty visible in
+  // upstream audits, but do not let this ADR-0470 report subtract it again.
+  return 0;
 }
 
 export function buildRiskMultiplierBreakdown(input: {
@@ -396,17 +405,31 @@ export function buildCandidateRiskDoubleCountTrace(input: {
   rootCause?: RiskRootCauseCode;
 }): CandidateRiskDoubleCountTrace {
   const rootCause = input.rootCause ?? 'REGIME_RISK';
+  const effectiveSignalRiskPenalty = rootCause === 'REGIME_RISK' ? 0 : input.originalSignalRiskPenalty;
   const riskComponents = [
-    riskPenaltyComponent({
-      code: rootCause,
-      placement: 'SIGNAL_SCORE',
-      value: input.originalSignalRiskPenalty,
-      multiplier: undefined,
-      providerIssue: rootCause === 'SUPPLY_PROVIDER_UNKNOWN',
-      marketSignal: rootCause !== 'SUPPLY_PROVIDER_UNKNOWN',
-      sizingOnly: false,
-      message: 'Risk penalty is included in Gate1 signal score.',
-    }),
+    ...(rootCause === 'REGIME_RISK' ? [
+      riskPenaltyComponent({
+        code: rootCause,
+        placement: 'CONFIDENCE_AND_SIZING_ONLY',
+        value: 0,
+        multiplier: input.originalKellyMultiplier,
+        providerIssue: false,
+        marketSignal: false,
+        sizingOnly: true,
+        message: 'Regime risk is confidence downgrade plus Kelly sizing, not a Gate1 signal-score penalty.',
+      }),
+    ] : [
+      riskPenaltyComponent({
+        code: rootCause,
+        placement: 'SIGNAL_SCORE',
+        value: effectiveSignalRiskPenalty,
+        multiplier: undefined,
+        providerIssue: rootCause === 'SUPPLY_PROVIDER_UNKNOWN',
+        marketSignal: rootCause !== 'SUPPLY_PROVIDER_UNKNOWN',
+        sizingOnly: false,
+        message: 'Risk penalty is included in Gate1 signal score.',
+      }),
+    ]),
     riskPenaltyComponent({
       code: rootCause,
       placement: 'KELLY_SIZING',
@@ -425,15 +448,15 @@ export function buildCandidateRiskDoubleCountTrace(input: {
     .filter((component) => component.placement === 'KELLY_SIZING')
     .map((component) => component.code);
   const duplicateRiskRootCauses = signalRiskRootCauses.filter((code) => sizingRiskRootCauses.includes(code));
-  const scoreIfRiskAtSizingOnly = round2(input.originalSignalScore + input.originalSignalRiskPenalty);
+  const scoreIfRiskAtSizingOnly = round2(input.originalSignalScore + effectiveSignalRiskPenalty);
   const scoreIfRiskAtSignalOnly = input.originalSignalScore;
-  const scoreIfRiskCappedAt05 = round2(input.originalSignalScore + Math.max(0, input.originalSignalRiskPenalty * 0.5));
-  const scoreIfRiskCappedAt07 = round2(input.originalSignalScore + Math.max(0, input.originalSignalRiskPenalty * 0.7));
+  const scoreIfRiskCappedAt05 = round2(input.originalSignalScore + Math.max(0, effectiveSignalRiskPenalty * 0.5));
+  const scoreIfRiskCappedAt07 = round2(input.originalSignalScore + Math.max(0, effectiveSignalRiskPenalty * 0.7));
   return {
     symbol: input.symbol,
     name: input.name,
     originalSignalScore: round2(input.originalSignalScore),
-    originalSignalRiskPenalty: round2(input.originalSignalRiskPenalty),
+    originalSignalRiskPenalty: round2(effectiveSignalRiskPenalty),
     originalKellyMultiplier: round2(input.originalKellyMultiplier),
     originalFinalKelly: input.originalFinalKelly,
     riskComponents,
@@ -441,7 +464,7 @@ export function buildCandidateRiskDoubleCountTrace(input: {
     sizingRiskRootCauses,
     duplicateRiskRootCauses,
     doubleCountDetected: duplicateRiskRootCauses.length > 0,
-    doubleCountScoreImpact: round2(input.originalSignalRiskPenalty),
+    doubleCountScoreImpact: round2(effectiveSignalRiskPenalty),
     scoreIfRiskAtSizingOnly,
     scoreIfRiskAtSignalOnly,
     scoreIfRiskCappedAt05,
@@ -813,7 +836,7 @@ export function buildRiskDoubleCountAuditReport(input: RiskDoubleCountBuildInput
   const scaleCalibrationRecommended = finalCalibrationMatrix.every((item) => item.gate1Survivors === 0);
   let recommendedAction: RiskDoubleCountAuditReport['recommendedAction'] = 'DIAGNOSTIC_ONLY';
   if (duplicateRiskRootCauses.length > 0) recommendedAction = 'MOVE_RISK_TO_SIZING_DRY_RUN';
-  if (scaleCalibrationRecommended) recommendedAction = 'REVIEW_RISK_ROOT_CAUSE';
+  if (scaleCalibrationRecommended && duplicateRiskRootCauses.length > 0) recommendedAction = 'REVIEW_RISK_ROOT_CAUSE';
   return {
     timestamp: input.timestamp,
     forDate: input.forDate,
@@ -823,6 +846,14 @@ export function buildRiskDoubleCountAuditReport(input: RiskDoubleCountBuildInput
     signalRiskPenaltyAvg: round1(signalRiskPenalty),
     kellyRiskMultiplierAvg: breakdown.combinedKellyMultiplier,
     combinedKellyMultiplierAvg: breakdown.combinedKellyMultiplier,
+    regimeRiskPlacement: 'CONFIDENCE_AND_SIZING_ONLY',
+    signalScorePenaltyApplied: false,
+    confidenceDowngradeApplied: true,
+    sizingMultiplierApplied: breakdown.combinedKellyMultiplier < 1,
+    finalPlacement: 'CONFIDENCE_AND_SIZING_ONLY',
+    marketSignalRiskPenalty: 0,
+    providerIssuePenaltyScope: 'DIAGNOSTIC_ONLY',
+    gateScoreImpact: 0,
     doubleCountCandidates: traces.filter((trace) => trace.doubleCountDetected).length,
     duplicateRiskRootCauses,
     riskMultiplierBreakdown: breakdown,
@@ -847,6 +878,14 @@ export function formatRiskDoubleCountAuditReport(report?: RiskDoubleCountAuditRe
     `  candidates: ${report.totalCandidates}`,
     `  signalRiskPenaltyAvg: ${report.signalRiskPenaltyAvg.toFixed(1)}`,
     `  kellyRiskMultiplierAvg: ${report.kellyRiskMultiplierAvg.toFixed(2)}`,
+    `  regimeRiskPlacement: ${report.regimeRiskPlacement}`,
+    `  signalScorePenaltyApplied: ${report.signalScorePenaltyApplied}`,
+    `  confidenceDowngradeApplied: ${report.confidenceDowngradeApplied}`,
+    `  sizingMultiplierApplied: ${report.sizingMultiplierApplied}`,
+    `  finalPlacement: ${report.finalPlacement}`,
+    `  marketSignalRiskPenalty: ${report.marketSignalRiskPenalty.toFixed(1)}`,
+    `  providerIssuePenaltyScope: ${report.providerIssuePenaltyScope}`,
+    `  gateScoreImpact: ${report.gateScoreImpact.toFixed(1)}`,
     `  doubleCountCandidates: ${report.doubleCountCandidates}`,
     `  doubleCountWarning: ${report.doubleCountCandidates > 0}`,
   ];

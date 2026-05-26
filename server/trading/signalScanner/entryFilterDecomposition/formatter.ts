@@ -234,9 +234,16 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`9. learningBlocked: ${d.learningBlocked}`);
   lines.push(`10. counterfactualRecorded: ${d.counterfactualRecorded}`);
   if (d.topBlockers.length > 0) {
+    const policyBlockers = d.topBlockers.filter((b) => ['SHADOW_ONLY_MODE', 'SHADOW_ONLY_POLICY'].includes(b.code));
+    const gateBlockers = d.topBlockers.filter((b) => !['SHADOW_ONLY_MODE', 'SHADOW_ONLY_POLICY', 'R3_SANITY_GUARD'].includes(b.code));
     lines.push("");
-    lines.push("TOP blockers:");
-    d.topBlockers
+    if (policyBlockers.length > 0) {
+      lines.push("Policy Blockers:");
+      policyBlockers.forEach((b, idx) => lines.push(`${idx + 1}. ${b.code}: ${b.count}`));
+      lines.push("");
+    }
+    lines.push("Gate Failures:");
+    gateBlockers
       .slice(0, 5)
       .forEach((b, idx) => lines.push(`${idx + 1}. ${b.code}: ${b.count}`));
   }

@@ -125,6 +125,26 @@ describe('ADR-0464 entry filter decomposition', () => {
     expect(d.candidateTraces[0].blockers.every((b) => b.learningBlocking === false)).toBe(true);
   });
 
+  it('R3 sanity observe-only is shown as SHADOW_ONLY policy, not a Gate failure blocker', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 2,
+      watchlistCandidates: 2,
+      entries: 0,
+      macroGateState: macro({ diagnosticLiveEntryBlocked: true, liveEntryBlockedReason: 'R3_SANITY_GUARD' }),
+      waitDistribution: { dataHold: 0, preBreakout: 0, gateFail: 1, sizingBlocked: 0, driftRemove: 0, corpAction: 0, volumeDrop: 0, other: 0 },
+      candidateSnapshots: snapshots(2),
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+
+    expect(d.topBlockers.map((item) => item.code)).toContain('SHADOW_ONLY_MODE');
+    expect(d.topBlockers.map((item) => item.code)).not.toContain('R3_SANITY_GUARD');
+    expect(formatted).toContain('Policy Blockers:');
+    expect(formatted).toContain('SHADOW_ONLY_MODE: 2');
+    expect(formatted).toContain('Gate Failures:');
+    expect(formatted).toContain('GATE1_FAIL: 1');
+  });
+
   it('provider issue is not classified as market risk', () => {
     const b = blocker({ category: 'PROVIDER_ISSUE', code: 'QUOTE_PROVIDER_DOWNGRADED', severity: 'SOFT_BLOCK', message: 'provider degraded', executionBlocking: 'NONE' });
     expect(b.category).toBe('PROVIDER_ISSUE');

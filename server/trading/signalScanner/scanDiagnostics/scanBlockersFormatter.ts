@@ -945,11 +945,11 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (mg.diagnosticLiveEntryBlocked) {
       const liveEntryBlockedReason = String(mg.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY').toUpperCase();
       const removedPolicyReason = liveEntryBlockedReason.includes('SELL_ONLY') || liveEntryBlockedReason.includes('R6_DEFENSE');
-      lines.push(`  • liveEntryBlocked: <b>${removedPolicyReason ? 'LEGACY_POLICY_INPUT_IGNORED' : gate0Decision.liveBlockReason}</b>${gate0Decision.liveBlockSubReason ? ` (subReason=${gate0Decision.liveBlockSubReason})` : ''} (diagnostics continue; Shadow/Paper/Counterfactual allowed)`);
+      lines.push(`  • liveEntryBlocked: <b>${removedPolicyReason ? 'LEGACY_POLICY_INPUT_IGNORED' : liveEntryBlockedReason.includes('R3_SANITY_GUARD') ? 'SHADOW_ONLY_MODE' : gate0Decision.liveBlockReason}</b>${liveEntryBlockedReason.includes('R3_SANITY_GUARD') ? ' (subReason=R3_SANITY_GUARD)' : gate0Decision.liveBlockSubReason ? ` (subReason=${gate0Decision.liveBlockSubReason})` : ''} (diagnostics continue; Shadow/Paper/Counterfactual allowed)`);
       // R3 sanity OBSERVE_ONLY 강등 가시화 — hard-abort 가 아닌 execution guard 임을 명시 (hardBlockSource=NONE).
       if (liveEntryBlockedReason.includes('R3_SANITY_GUARD')) {
-        lines.push('  • executionGuardSource: <b>R3_SANITY_BLOCK</b> (hardBlockSource=NONE)');
-        lines.push('  • preflightDecision: <b>R3_SANITY_OBSERVE_ONLY_DIAGNOSTIC_CARRIED</b>');
+        lines.push('  • executionGuardSource: <b>R3_SANITY_DIAGNOSTIC_GUARD</b> (hardBlockSource=NONE)');
+        lines.push('  • preflightDecision: <b>OBSERVE_ONLY_DIAGNOSTIC_CARRIED</b>');
       }
     }
     if (mg.sellOnlyMode) {

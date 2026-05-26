@@ -349,6 +349,29 @@ describe('ADR-0467 Gate1 positive score starvation trace', () => {
     expect(formatPositiveScoreStarvationReport(report)).toContain('WATCHLIST_UPSTREAM_SCORE: verified 1 / missing 0 / avg +2.6');
   });
 
+  it('canonical runtime wiring removes computed RS and mapped breakout from missing display', () => {
+    const report = buildPositiveScoreStarvationReport({
+      traces: [makeTrace()],
+      timestamp: '2026-05-11T00:00:00.000Z',
+      forDate: '2026-05-11',
+      regime: 'R3_EARLY',
+      marketSession: 'SELL_ONLY',
+    });
+    const section = formatPositiveScoreStarvationReport(report, {
+      watchlist: { verified: 1, missing: 0, avg: 2.6, selectedInputPath: 'gateScoreInputSnapshot.watchlist.watchlistScore', conflict: false },
+      momentum: { return5dCount: 1, return20dCount: 1, relativeReturn20dCount: 1, marketRelativeReturnCount: 1, priceMomentumComputedCount: 1, projectedToGate1: true },
+      breakout: { traceAvailable: 1, scoreComputed: 1, scoreMapped: 1, zeroByCondition: 1, missingByMapping: 0, waitFeatureMissing: 0, waitEntryPriceNotReached: 0 },
+    } as never) ?? '';
+    const missingLine = section.split('\n').find((line) => line.includes('missingContributionComponents')) ?? '';
+
+    expect(missingLine).not.toContain('WATCHLIST_UPSTREAM_SCORE');
+    expect(missingLine).not.toContain('RELATIVE_STRENGTH');
+    expect(missingLine).not.toContain('BREAKOUT_STRUCTURE');
+    expect(section).toContain('RELATIVE_STRENGTH: rsRankPctComputedCount 1');
+    expect(section).toContain('BREAKOUT_STRUCTURE: traceAvailable 1 / scoreMappedToGate 1 / missingByMapping 0');
+    expect(section).toContain('componentScopes: CORE_SIGNAL=');
+  });
+
   it('ADR-0467 fallback report is emitted when gateScoreHealthSamples=0', () => {
     const report = buildPositiveScoreStarvationFallbackReport({
       timestamp: '2026-05-09T00:00:00.000Z',

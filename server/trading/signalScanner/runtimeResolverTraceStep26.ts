@@ -575,9 +575,19 @@ export function rebindPositiveScoreStarvationReportToCanonicalStep27(
   canonical: CanonicalRuntimeResolutionStep27,
 ): ScanSummary['positiveScoreStarvation'] {
   if (!report) return report;
-  const missingPositiveComponents = report.missingPositiveComponents.filter((item) => item.code !== 'WATCHLIST_UPSTREAM_SCORE');
+  const resolvedComponents = new Set([
+    ...(canonical.watchlist.verified > 0 && canonical.watchlist.missing === 0 ? ['WATCHLIST_UPSTREAM_SCORE'] : []),
+    ...(canonical.momentum.priceMomentumComputedCount > 0 ? ['PRICE_MOMENTUM'] : []),
+    ...(canonical.momentum.relativeReturn20dCount > 0 ? ['RELATIVE_STRENGTH'] : []),
+    ...(canonical.breakout.traceAvailable > 0 && canonical.breakout.scoreMapped > 0 && canonical.breakout.missingByMapping === 0 ? ['BREAKOUT_STRUCTURE'] : []),
+  ]);
+  const missingPositiveComponents = report.missingPositiveComponents.filter((item) => !resolvedComponents.has(item.code));
   const currentPathComponentStatus = [
-    ...report.currentPathComponentStatus.filter((item) => item.code !== 'WATCHLIST_UPSTREAM_SCORE' && item.code !== 'PRICE_MOMENTUM'),
+    ...report.currentPathComponentStatus.filter((item) =>
+      item.code !== 'WATCHLIST_UPSTREAM_SCORE' &&
+      item.code !== 'PRICE_MOMENTUM' &&
+      item.code !== 'RELATIVE_STRENGTH' &&
+      item.code !== 'BREAKOUT_STRUCTURE'),
     {
       code: 'WATCHLIST_UPSTREAM_SCORE' as const,
       verified: canonical.watchlist.verified,
@@ -589,6 +599,18 @@ export function rebindPositiveScoreStarvationReportToCanonicalStep27(
       verified: canonical.momentum.priceMomentumComputedCount,
       missing: 0,
       avgContribution: report.currentPathComponentStatus.find((item) => item.code === 'PRICE_MOMENTUM')?.avgContribution ?? 0,
+    },
+    {
+      code: 'RELATIVE_STRENGTH' as const,
+      verified: canonical.momentum.relativeReturn20dCount,
+      missing: canonical.momentum.relativeReturn20dCount > 0 ? 0 : report.totalCandidates,
+      avgContribution: report.currentPathComponentStatus.find((item) => item.code === 'RELATIVE_STRENGTH')?.avgContribution ?? 0,
+    },
+    {
+      code: 'BREAKOUT_STRUCTURE' as const,
+      verified: canonical.breakout.scoreMapped,
+      missing: canonical.breakout.missingByMapping,
+      avgContribution: report.currentPathComponentStatus.find((item) => item.code === 'BREAKOUT_STRUCTURE')?.avgContribution ?? 0,
     },
   ];
   const recommendedAction =

@@ -40,6 +40,35 @@ export type SignalScoreComponentCode =
   | 'SOFT_FAIL_PENALTY'
   | 'OTHER';
 
+export type Gate1ScoreComponentScope =
+  | 'CORE_SIGNAL'
+  | 'ADVISORY_SIGNAL'
+  | 'CONFIDENCE_ONLY';
+
+const GATE1_SCORE_COMPONENT_SCOPES: Record<Gate1ScoreComponentScope, readonly string[]> = {
+  CORE_SIGNAL: [
+    'TECHNICAL_TREND',
+    'PRICE_MOMENTUM',
+    'RELATIVE_STRENGTH',
+    'BREAKOUT_STRUCTURE',
+    'VOLUME_LIQUIDITY',
+    'WATCHLIST_UPSTREAM_SCORE',
+  ],
+  ADVISORY_SIGNAL: [
+    'VCP_OR_VOLATILITY_COMPRESSION',
+    'SECTOR_RELATIVE_STRENGTH',
+    'GHOST_SIGNAL_STRENGTH',
+    'PRE_BREAKOUT_STRUCTURE',
+  ],
+  CONFIDENCE_ONLY: [
+    'providerIssue',
+    'unknownData',
+    'staleData',
+    'diagnosticProviderIssue',
+    'sectorPartialCoverage',
+  ],
+};
+
 export interface SignalScoreComponentTrace {
   code: SignalScoreComponentCode;
   rawValue?: unknown;
@@ -1145,6 +1174,26 @@ export function buildPositiveScoreStarvationFallbackReport(input: {
   };
 }
 
+function componentScopesText(): string {
+  return (Object.entries(GATE1_SCORE_COMPONENT_SCOPES) as Array<[Gate1ScoreComponentScope, readonly string[]]>)
+    .map(([scope, components]) => `${scope}=${components.join(',')}`)
+    .join(' | ');
+}
+
+function componentResolvedByCanonical(
+  code: PositiveSignalComponentCode,
+  canonical?: CanonicalRuntimeResolutionStep27,
+): boolean {
+  if (!canonical) return false;
+  if (code === 'WATCHLIST_UPSTREAM_SCORE') return canonical.watchlist.verified > 0 && canonical.watchlist.missing === 0;
+  if (code === 'PRICE_MOMENTUM') return canonical.momentum.priceMomentumComputedCount > 0;
+  if (code === 'RELATIVE_STRENGTH') return canonical.momentum.relativeReturn20dCount > 0;
+  if (code === 'BREAKOUT_STRUCTURE') {
+    return canonical.breakout.traceAvailable > 0 && canonical.breakout.scoreMapped > 0 && canonical.breakout.missingByMapping === 0;
+  }
+  return false;
+}
+
 export function formatPositiveScoreStarvationReport(
   report?: PositiveScoreStarvationReport | null,
   canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27,
@@ -1155,9 +1204,12 @@ export function formatPositiveScoreStarvationReport(
   const calibration = Object.fromEntries(
     report.calibrationResults.map((item) => [item.scenario, item.hypotheticalSurvivors]),
   ) as Partial<Record<PositiveScoreCalibrationScenario, number>>;
+  const displayMissingPositiveComponents = report.missingPositiveComponents
+    .filter((item) => !componentResolvedByCanonical(item.code, canonicalRuntimeResolution));
   const lines = [
     '🧬 Positive Score Starvation Audit (ADR-0467)',
     `  candidates: ${report.totalCandidates}`,
+    `  componentScopes: ${componentScopesText()}`,
     `  requiredScoreAvg: ${report.requiredScoreAvg.toFixed(1)}`,
     `  actualScoreAvg: ${report.actualScoreAvg.toFixed(1)}`,
     `  grossPositiveScoreAvg: ${report.grossPositiveScoreAvg.toFixed(1)}`,
@@ -1185,8 +1237,8 @@ export function formatPositiveScoreStarvationReport(
       : 'none'}`,
   );
   lines.push(
-    `  missingContributionComponents: ${report.missingPositiveComponents.length > 0
-      ? report.missingPositiveComponents
+    `  missingContributionComponents: ${displayMissingPositiveComponents.length > 0
+      ? displayMissingPositiveComponents
         .slice(0, 5)
         .map((item) => `${item.code} ${item.count}`)
         .join(', ')
@@ -1201,6 +1253,7 @@ export function formatPositiveScoreStarvationReport(
   }
   if (canonicalRuntimeResolution) {
     const momentum = canonicalRuntimeResolution.momentum;
+    const breakout = canonicalRuntimeResolution.breakout;
     const momentumStatus = report.currentPathComponentStatus.find((item) => item.code === 'PRICE_MOMENTUM');
     const zeroReasonTags: string[] = [];
     const computed = momentum.priceMomentumComputedCount;
@@ -1219,6 +1272,15 @@ export function formatPositiveScoreStarvationReport(
         `positiveCount ${Math.max(0, report.totalCandidates - (report.zeroContributionComponents.find((c) => c.code === 'PRICE_MOMENTUM')?.count ?? report.totalCandidates))} / ` +
         `zeroReason ${zeroReason}`,
     );
+    lines.push(
+      `  RELATIVE_STRENGTH: rsRankPctComputedCount ${momentum.relativeReturn20dCount} / ` +
+        `relativeStrengthScoreComputedCount ${momentum.relativeReturn20dCount} / rsScoreAppliedCount ${momentum.relativeReturn20dCount} / ` +
+        `missingByConnection=${momentum.relativeReturn20dCount === 0}`,
+    );
+    lines.push(
+      `  BREAKOUT_STRUCTURE: traceAvailable ${breakout.traceAvailable} / scoreMappedToGate ${breakout.scoreMapped} / ` +
+        `missingByMapping ${breakout.missingByMapping} / zeroByCondition ${breakout.zeroByCondition}`,
+    );
   }
   lines.push(
     `  scoreCeilingAudit: configured ${ceiling.configuredPositiveMaxScore.toFixed(1)}, ` +
@@ -1233,6 +1295,7 @@ export function formatPositiveScoreStarvationReport(
       `normalize100=${calibration.NORMALIZE_WEIGHTS_TO_100 ?? 0}`,
   );
   lines.push('  executionImpact: NONE');
+  lines.push('  nextAction: WIRE_RS_PERCENTILE_INPUT,WIRE_BREAKOUT_STRUCTURE');
   lines.push(`  recommendedAction: ${report.recommendedAction}`);
   return lines.join('\n');
 }

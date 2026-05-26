@@ -95,7 +95,7 @@ function makeRiskReport() {
 }
 
 describe('ADR-0470 risk penalty double-count split', () => {
-  it('same risk root cause in signal and Kelly creates doubleCountWarning', () => {
+  it('REGIME_RISK is normalized to confidence and sizing only', () => {
     const trace = buildCandidateRiskDoubleCountTrace({
       symbol: '005930',
       originalSignalScore: 21.4,
@@ -105,8 +105,24 @@ describe('ADR-0470 risk penalty double-count split', () => {
       rootCause: 'REGIME_RISK',
     });
 
+    expect(trace.doubleCountDetected).toBe(false);
+    expect(trace.duplicateRiskRootCauses).not.toContain('REGIME_RISK');
+    expect(trace.riskComponents.some((component) => component.placement === 'SIGNAL_SCORE')).toBe(false);
+    expect(trace.riskComponents.some((component) => component.placement === 'CONFIDENCE_AND_SIZING_ONLY')).toBe(true);
+  });
+
+  it('non-regime same risk root cause in signal and Kelly still creates doubleCountWarning', () => {
+    const trace = buildCandidateRiskDoubleCountTrace({
+      symbol: '005930',
+      originalSignalScore: 21.4,
+      originalSignalRiskPenalty: 6.3,
+      originalKellyMultiplier: 0.26,
+      requiredScore: 70,
+      rootCause: 'MACRO_RISK',
+    });
+
     expect(trace.doubleCountDetected).toBe(true);
-    expect(trace.duplicateRiskRootCauses).toContain('REGIME_RISK');
+    expect(trace.duplicateRiskRootCauses).toContain('MACRO_RISK');
   });
 
   it('RISK_AT_SIZING_ONLY removes signal risk penalty but keeps Kelly multiplier', () => {
@@ -127,7 +143,7 @@ describe('ADR-0470 risk penalty double-count split', () => {
 
     expect(result.riskPenaltyAvg).toBe(0);
     expect(result.kellyMultiplierAvg).toBe(0.26);
-    expect(result.netScoreAvg).toBeGreaterThan(positive.netScoreAvg);
+    expect(result.netScoreAvg).toBe(positive.netScoreAvg);
   });
 
   it('REMOVE_SIGNAL_RISK_KEEP_KELLY is executionImpact NONE', () => {
@@ -251,8 +267,8 @@ describe('ADR-0470 risk penalty double-count split', () => {
     });
 
     expect(summary.executionImpact).toBe('NONE');
-    expect(summary.tags).toContain('CASE_RISK_DOUBLE_COUNT');
-    expect(summary.tags).toContain('CASE_RISK_SIGNAL_AND_KELLY_DUPLICATE');
+    expect(summary.tags).not.toContain('CASE_RISK_DOUBLE_COUNT');
+    expect(summary.tags).not.toContain('CASE_RISK_SIGNAL_AND_KELLY_DUPLICATE');
     expect(summary.tags).toContain('CASE_RISK_AT_SIZING_ONLY_DRY_RUN');
     expect(summary.tags).toContain('CASE_RISK_CAP_DRY_RUN');
     expect(summary.tags).toContain('CASE_FINAL_GATE1_CALIBRATION_MATRIX');
@@ -312,6 +328,10 @@ describe('ADR-0470 risk penalty double-count split', () => {
 
     expect(section).toContain('signalRiskPenaltyAvg');
     expect(section).toContain('kellyRiskMultiplierAvg');
+    expect(section).toContain('regimeRiskPlacement: CONFIDENCE_AND_SIZING_ONLY');
+    expect(section).toContain('signalScorePenaltyApplied: false');
+    expect(section).toContain('doubleCountWarning: false');
+    expect(section).toContain('finalPlacement: CONFIDENCE_AND_SIZING_ONLY');
     expect(section).toContain('RISK_AT_SIZING_ONLY');
     expect(section).toContain('POSITIVE_REPAIR_DEDUP_RISK_CAP_0.70');
     expect(section).toContain('scaleCalibrationRecommended');
