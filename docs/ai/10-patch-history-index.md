@@ -54,7 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
-- 2026-05-26 · Patch-GATE3-WARMUP-WARNING-HEALTH-SPLIT-001 · gate3-evidence-warmup, schedulerHealthy, duplicate-suppression-warning-nonfatal, evidenceReady-preserved, executionImpact-NONE
+- 2026-05-26 · Patch-SECTOR-ENERGY-SAFE-OFFICIAL-PROMOTION-001 · sector-energy, ADR-0488, SAFE_OFFICIAL_VERIFIED_COVERAGE, unsafe-alias-excluded(조선/방산/원자력/이차전지), denominator 15→11, safeOfficialVerifiedCoverage=100%, officialTargetVerifiedCoverageDiagnostic=73.3%, leadershipBlockReason-UNSAFE_ALIAS_CANDIDATES-removed, freshDataStatus/scan_blockers/sector_energy-display, decisionUsesSafeOfficialOnly, liveExecutionAllowed-false, executionImpact-NONE
 - 2026-05-26 · Patch-UNIFIED-FORWARD-COMMON-BUS-BRIDGE-001 · unified-forward-outcome-labeling, source-registry, common-forward-outcome-schema, gate3-threshold-evidence-bridge, sourceRowsByType, executablePnL-separated
 - 2026-05-26 · Patch-UNIFIED-FORWARD-LABELER-ACTIVATION-001 · unified-forward-outcome-labeling, startup-run, ALWAYS_ON-scheduler, DATA_UNAVAILABLE-healthy, lastLabelingRunAt, executionImpact-NONE
 - 2026-05-26 · ADR-0533 · unified-forward-outcome-labeling-bus, gate3-evidence, gate1-dry-run-forward-return, near-miss-horizon-counts, counterfactual-paper-observational, executionImpact-NONE
@@ -137,7 +137,6 @@ Append the current PR row here. When this list grows past roughly 60 rows, move 
 - 2026-05-26 · ADR-0529 · dart-financials-canonical, SourceSnapshot-slot, cached-reference, gate2-dart, byte-equivalent, quota-0
 - 2026-05-26 · Patch-SHADOW-EXEC-SINGLE-PATH · shadow-buy, onApproved-noop-removal, single-execution-path, fill-once-guard, #8-test
 - 2026-05-26 · Patch-TRACE-SOURCESNAPSHOTID-ALIGNMENT · runtime-resolver-trace, runtime-pipeline-audit, NO_SCAN_SUMMARY-fix, scanEvaluation.scanId, ADR-0528-carry
-- 2026-05-26 · Patch-SECTOR-ENERGY-SAFE-OFFICIAL-DISPLAY · SectorEnergy, SAFE_OFFICIAL_VERIFIED_COVERAGE, official-target-diagnostic-only, unsafe-alias-excluded, executionImpact-NONE
 
 ---
 

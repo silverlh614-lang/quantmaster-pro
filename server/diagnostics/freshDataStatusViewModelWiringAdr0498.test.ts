@@ -277,10 +277,7 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
       sectorEnergyMaster: {
         officialIndexCoverage: 50,
         verifiedIndexCodeCoverage: 25,
-        selectedPromotionMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
-        safeOfficialVerifiedCoverage: 100,
-        officialTargetVerifiedCoverageDiagnostic: 25,
-        promotionAllowed: true,
+        promotionAllowed: false,
         officialSectorIndexMaster: {
           masterSource: 'OFFICIAL_KIS_IDXCODE_MST',
           masterLoaded: true,
@@ -295,34 +292,19 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
           verifySuccessCount: 3,
           verifyFailCount: 3,
           coverageMetrics: {
-            safeOfficialVerifiedCount: 3,
-            safeOfficialTargetCount: 3,
-            safeOfficialVerifiedCoverage: 100,
             verifiedCoverageExcludingUnsafeAlias: 100,
-            officialTargetVerifiedCoverageDiagnostic: 25,
-            officialTargetCoverageUsedForDecision: false,
-            decisionUsesSafeOfficialOnly: true,
           },
           promotionReadiness: {
-            selectedPromotionMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
-            selectedPromotionCoverage: 100,
+            selectedPromotionCoverage: 25,
             requiredPromotionCoverage: 80,
-            safeOfficialVerifiedCount: 3,
-            safeOfficialTargetCount: 3,
-            safeOfficialVerifiedCoverage: 100,
-            officialTargetVerifiedCoverageDiagnostic: 25,
-            officialTargetCoverageUsedForDecision: false,
-            decisionUsesSafeOfficialOnly: true,
-            promotionCoveragePass: true,
             safeOnlyMetricWouldPass: true,
-            reason: 'READY_FOR_PROMOTION',
+            reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
           },
           indexValueQuality: {
             apiVerifiedCount: 3,
             zeroCurrentIndexCount: 1,
             nonZeroCurrentIndexCount: 2,
             qualityUsableCount: 2,
-            qualityUsableCoverageExcludingUnsafeAlias: 100,
           },
           unresolvedSectorNames: ['방산'],
           reasonCodes: ['PROMOTION_DISABLED_COVERAGE_BELOW_80'],
@@ -333,15 +315,11 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
     const text = section.lines.join('\n');
 
     expect(text).toContain('SECTOR_ENERGY/KRX_SECTOR_INDEX_MASTER provider=KRX confidence=MISSING');
-    expect(text).toContain('SECTOR_ENERGY/KIS_SECTOR_INDEX_MASTER provider=KIS confidence=VERIFIED');
-    expect(text).toContain('SECTOR_ENERGY/SECTOR_INDEX_CODE_MAPPING provider=INTERNAL confidence=VERIFIED');
+    expect(text).toContain('SECTOR_ENERGY/KIS_SECTOR_INDEX_MASTER provider=KIS confidence=VERIFIED signal=UNKNOWN status=READY_FOR_ADVISORY promo=READY');
+    expect(text).toContain('SECTOR_ENERGY/SECTOR_INDEX_CODE_MAPPING provider=INTERNAL confidence=VERIFIED signal=UNKNOWN status=READY_FOR_ADVISORY promo=READY');
     expect(text).toContain('SECTOR_ENERGY/KIS_SECTOR_INDEX_VERIFY provider=KIS confidence=VERIFIED signal=UNKNOWN status=READY_FOR_ADVISORY promo=READY quality=DEGRADED_CURRENT_INDEX_ZERO');
-    expect(text).toContain('SECTOR_ENERGY/SECTOR_INDEX_PROMOTION_READINESS provider=INTERNAL confidence=VERIFIED signal=UNKNOWN status=READY_FOR_ADVISORY promo=READY quality=DEGRADED_CURRENT_INDEX_ZERO');
-    const warnings = inputs.flatMap((input) => input.warnings ?? []).join(' ');
-    expect(warnings).toContain('selectedPromotionMetric=SAFE_OFFICIAL_VERIFIED_COVERAGE');
-    expect(warnings).toContain('safeOfficialVerifiedCoverage=100%');
-    expect(warnings).toContain('officialTargetCoverageUsedForDecision=false');
-    expect(text).not.toContain('PROMOTION_DISABLED_COVERAGE_BELOW_80');
+    expect(text).toContain('SECTOR_ENERGY/SECTOR_INDEX_PROMOTION_READINESS provider=INTERNAL confidence=VERIFIED signal=UNKNOWN status=READY_FOR_ADVISORY promo=BLOCKED quality=DEGRADED_CURRENT_INDEX_ZERO');
+    expect(text).toContain('promo=BLOCKED');
     expect(text).toContain('impact=NONE');
     expect(text).not.toContain('signal=BEARISH');
   });

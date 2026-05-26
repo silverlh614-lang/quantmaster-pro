@@ -125,57 +125,33 @@ export interface SectorIndexCoverageMetrics {
   verifiedCoverageByInternalGrouped?: number;
   verifiedCoverageExcludingUnsafeAlias: number;
   promotionVerifiedCoverage: number;
-  safeOfficialVerifiedCount?: number;
-  safeOfficialTargetCount?: number;
-  safeOfficialVerifiedCoverage?: number;
-  officialTargetVerifiedCoverageDiagnostic?: number;
-  officialTargetCoverageIncludesUnsafeAlias?: boolean;
-  officialTargetCoverageUsedForDecision?: false;
-  decisionUsesSafeOfficialOnly?: true;
-}
-
-export interface SectorIndexUnsafeAliasExclusion {
-  sectorName: string;
-  status: 'EXCLUDED_FROM_OFFICIAL_SECTOR_PROMOTION';
-  reason: 'NO_OFFICIAL_SINGLE_SECTOR_INDEX_OR_THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS';
-  useForLivePromotion: false;
-  useForSectorBoost: false;
-  useForStrongBuy: false;
-  executionImpact: 'NONE';
 }
 
 export interface SectorIndexUnsafeAliasPolicy {
-  includeInPromotionDenominator: boolean;
+  // ADR-0488: 조선/방산/원자력/이차전지 등은 공식 단일 섹터가 없어 promotion numerator·denominator 모두에서 제외한다.
+  includeInPromotionDenominator: false;
   includeInPromotionNumerator: false;
   useForShadowEvidence: true;
-  useForLivePromotion?: false;
-  useForSectorBoost?: false;
-  useForStrongBuy?: false;
-  excludedNames?: string[];
-  excludedRows?: SectorIndexUnsafeAliasExclusion[];
-  reason: 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS';
+  useForLivePromotion: false;
+  useForSectorBoost: false;
+  useForStrongBuy: false;
+  status: 'EXCLUDED_FROM_OFFICIAL_SECTOR_PROMOTION';
+  reason: 'NO_OFFICIAL_SINGLE_SECTOR_INDEX_OR_THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS' | 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS';
+  executionImpact: 'NONE';
 }
 
-export type SectorIndexPromotionMetric = 'SAFE_OFFICIAL_VERIFIED_COVERAGE' | 'officialTargetVerifiedCoverage';
-
 export interface SectorIndexPromotionCoveragePolicy {
-  selectedMetric: SectorIndexPromotionMetric;
+  // ADR-0488: promotion decision은 공식·안전 섹터(unsafe alias 제외) 기준 coverage만 사용한다.
+  selectedMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE' | 'officialTargetVerifiedCoverage';
   numerator: number;
   denominator: number;
   requiredVerifiedCoverage: 80;
   selectedCoverageValue: number;
-  safeOfficialVerifiedCount?: number;
-  safeOfficialTargetCount?: number;
-  safeOfficialVerifiedCoverage?: number;
-  officialTargetVerifiedCoverageDiagnostic?: number;
-  officialTargetCoverageIncludesUnsafeAlias?: boolean;
-  officialTargetCoverageUsedForDecision?: false;
-  decisionUsesSafeOfficialOnly?: true;
-  diagnosticOnly?: true;
-  notUsedForPromotionDecision?: boolean;
   promotionAllowed: boolean;
   reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW' | 'VERIFIED_INDEX_CODE_COVERAGE_READY' | 'SECTOR_INDEX_MARKET_CLOSED';
   alternativeInternalGroupedCoverage?: number;
+  officialTargetVerifiedCoverageDiagnostic?: number;
+  decisionUsesSafeOfficialOnly: true;
   executionImpact: 'NONE';
 }
 
@@ -223,22 +199,23 @@ export interface SectorIndexPromotionReadiness {
   verifiedCoverageExcludingUnsafeAlias: number;
   qualityUsableCoverageByOfficialTarget: number;
   qualityUsableCoverageExcludingUnsafeAlias: number;
-  selectedPromotionMetric: SectorIndexPromotionMetric;
+  selectedPromotionMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE' | 'officialTargetVerifiedCoverage';
   selectedPromotionCoverage: number;
-  safeOfficialVerifiedCount?: number;
-  safeOfficialTargetCount?: number;
-  safeOfficialVerifiedCoverage?: number;
-  officialTargetVerifiedCoverageDiagnostic?: number;
-  officialTargetCoverageIncludesUnsafeAlias?: boolean;
-  officialTargetCoverageUsedForDecision?: false;
-  decisionUsesSafeOfficialOnly?: true;
-  promotionCoveragePass?: boolean;
-  diagnosticOnly?: true;
   requiredPromotionCoverage: 80;
   qualityGatePassed: boolean;
   promotionAllowed: boolean;
   reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW' | 'INDEX_VALUE_QUALITY_LOW' | 'READY_FOR_PROMOTION' | 'SECTOR_INDEX_MARKET_CLOSED_OBSERVE_ONLY';
   safeOnlyMetricWouldPass: boolean;
+  // ADR-0488: 공식·안전 섹터(조선/방산/원자력/이차전지 등 unsafe alias 제외) 기준 promotion SSOT.
+  safeOfficialTargetCount: number;
+  safeOfficialVerifiedCount: number;
+  safeOfficialVerifiedCoverage: number;
+  unsafeExcludedCount: number;
+  unsafeExcludedNames: string[];
+  officialTargetVerifiedCoverageDiagnostic: number;
+  promotionCoveragePass: boolean;
+  promotionAllowedByCoverage: boolean;
+  decisionUsesSafeOfficialOnly: true;
   useAlternativeForLivePromotion: false;
   alternativePolicyReason: 'OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY';
   executionImpact: 'NONE';
@@ -289,17 +266,6 @@ export interface OfficialSectorIndexMasterCoverageResult {
   verifiedCoverageByInternalGrouped?: number;
   verifiedCoverageExcludingUnsafeAlias?: number;
   promotionVerifiedCoverage?: number;
-  selectedPromotionMetric?: SectorIndexPromotionMetric;
-  safeOfficialVerifiedCount?: number;
-  safeOfficialTargetCount?: number;
-  safeOfficialVerifiedCoverage?: number;
-  officialTargetVerifiedCoverageDiagnostic?: number;
-  officialTargetCoverageIncludesUnsafeAlias?: boolean;
-  officialTargetCoverageUsedForDecision?: false;
-  decisionUsesSafeOfficialOnly?: true;
-  promotionCoveragePass?: boolean;
-  unsafeExcludedNames?: string[];
-  unsafeAliasExclusions?: SectorIndexUnsafeAliasExclusion[];
   safeAliasCoverage?: number;
   exactMatchCount?: number;
   safeAliasMatchCount?: number;
@@ -646,22 +612,20 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
   const safePromotionEligibleSectorCount = mapping.rows.filter((row) =>
     row.officialCoverageEligible && !row.unsafeAlias && Boolean(row.officialIndexCode),
   ).length;
-  const safeOfficialVerifiedCount = verifySuccessCount;
+  const verifiedCoverageExcludingUnsafeAlias = pct(verifySuccessCount, safePromotionEligibleSectorCount);
+  // ADR-0488: 조선/방산/원자력/이차전지 등 unsafe alias(공식 단일 섹터 부재)는 promotion numerator·denominator 모두에서 제외한다.
+  const unsafeSectorNameSet = new Set(
+    mapping.rows.filter((row) => row.unsafeAlias).map((row) => row.sectorName),
+  );
+  const unsafeExcludedNames = mapping.unsafeAliasSectorNames ?? Array.from(unsafeSectorNameSet);
+  const unsafeExcludedCount = unsafeExcludedNames.length;
   const safeOfficialTargetCount = safePromotionEligibleSectorCount;
+  const safeOfficialVerifiedCount = verificationResults.filter(
+    (result) => result.verified && !unsafeSectorNameSet.has(result.sectorName),
+  ).length;
   const safeOfficialVerifiedCoverage = pct(safeOfficialVerifiedCount, safeOfficialTargetCount);
   const officialTargetVerifiedCoverageDiagnostic = verifiedIndexCodeCoverage;
-  const officialTargetCoverageIncludesUnsafeAlias = mapping.unsafeAliasCount > 0;
-  const promotionCoveragePass = safeOfficialVerifiedCoverage >= 80;
-  const verifiedCoverageExcludingUnsafeAlias = pct(verifySuccessCount, safePromotionEligibleSectorCount);
-  const unsafeAliasExclusions = mapping.unsafeAliasSectorNames.map((sectorName) => ({
-    sectorName,
-    status: 'EXCLUDED_FROM_OFFICIAL_SECTOR_PROMOTION' as const,
-    reason: 'NO_OFFICIAL_SINGLE_SECTOR_INDEX_OR_THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS' as const,
-    useForLivePromotion: false as const,
-    useForSectorBoost: false as const,
-    useForStrongBuy: false as const,
-    executionImpact: 'NONE' as const,
-  }));
+  const safeCoveragePromotionAllowed = !marketClosed && safeOfficialVerifiedCoverage >= 80;
   const coverageDenominator: SectorIndexCoverageDenominator = {
     officialTargetSectorCount: mapping.targetSectorCount,
     safePromotionEligibleSectorCount,
@@ -673,14 +637,7 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     officialIndexCoverageByOfficialTarget: mapping.officialIndexCoverage,
     verifiedCoverageByOfficialTarget: verifiedIndexCodeCoverage,
     verifiedCoverageExcludingUnsafeAlias,
-    promotionVerifiedCoverage: safeOfficialVerifiedCoverage,
-    safeOfficialVerifiedCount,
-    safeOfficialTargetCount,
-    safeOfficialVerifiedCoverage,
-    officialTargetVerifiedCoverageDiagnostic,
-    officialTargetCoverageIncludesUnsafeAlias,
-    officialTargetCoverageUsedForDecision: false,
-    decisionUsesSafeOfficialOnly: true,
+    promotionVerifiedCoverage: verifiedIndexCodeCoverage,
   };
   const unsafeAliasPolicy: SectorIndexUnsafeAliasPolicy = {
     includeInPromotionDenominator: false,
@@ -689,9 +646,9 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     useForLivePromotion: false,
     useForSectorBoost: false,
     useForStrongBuy: false,
-    excludedNames: mapping.unsafeAliasSectorNames,
-    excludedRows: unsafeAliasExclusions,
-    reason: 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS',
+    status: 'EXCLUDED_FROM_OFFICIAL_SECTOR_PROMOTION',
+    reason: 'NO_OFFICIAL_SINGLE_SECTOR_INDEX_OR_THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS',
+    executionImpact: 'NONE',
   };
   const promotionCoveragePolicy: SectorIndexPromotionCoveragePolicy = {
     selectedMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
@@ -699,19 +656,14 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     denominator: safeOfficialTargetCount,
     requiredVerifiedCoverage: 80,
     selectedCoverageValue: safeOfficialVerifiedCoverage,
-    safeOfficialVerifiedCount,
-    safeOfficialTargetCount,
-    safeOfficialVerifiedCoverage,
-    officialTargetVerifiedCoverageDiagnostic,
-    officialTargetCoverageIncludesUnsafeAlias,
-    officialTargetCoverageUsedForDecision: false,
-    decisionUsesSafeOfficialOnly: true,
-    promotionAllowed: promotionCoveragePass,
+    promotionAllowed: safeCoveragePromotionAllowed,
     reason: marketClosed
       ? 'SECTOR_INDEX_MARKET_CLOSED'
-      : promotionCoveragePass
+      : safeOfficialVerifiedCoverage >= 80
         ? 'VERIFIED_INDEX_CODE_COVERAGE_READY'
         : 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+    officialTargetVerifiedCoverageDiagnostic,
+    decisionUsesSafeOfficialOnly: true,
     executionImpact: 'NONE',
   };
   const sectorIndexQuality = buildSectorIndexQuality(verificationResults);
@@ -720,6 +672,7 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     officialTargetSectorCount: mapping.targetSectorCount,
     safePromotionEligibleSectorCount,
   });
+  // 품질 게이트도 공식·안전 섹터 기준(unsafe alias 제외)으로 평가한다 (decisionUsesSafeOfficialOnly).
   const qualityGatePassed = indexValueQuality.qualityUsableCoverageExcludingUnsafeAlias >= 80;
   const promotionReadiness: SectorIndexPromotionReadiness = {
     officialTargetSectorCount: mapping.targetSectorCount,
@@ -734,25 +687,26 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     qualityUsableCoverageExcludingUnsafeAlias: indexValueQuality.qualityUsableCoverageExcludingUnsafeAlias,
     selectedPromotionMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
     selectedPromotionCoverage: safeOfficialVerifiedCoverage,
-    safeOfficialVerifiedCount,
-    safeOfficialTargetCount,
-    safeOfficialVerifiedCoverage,
-    officialTargetVerifiedCoverageDiagnostic,
-    officialTargetCoverageIncludesUnsafeAlias,
-    officialTargetCoverageUsedForDecision: false,
-    decisionUsesSafeOfficialOnly: true,
-    promotionCoveragePass,
     requiredPromotionCoverage: 80,
     qualityGatePassed,
-    promotionAllowed: promotionCoveragePass && qualityGatePassed,
+    promotionAllowed: safeCoveragePromotionAllowed && qualityGatePassed,
     reason: marketClosed
       ? 'SECTOR_INDEX_MARKET_CLOSED_OBSERVE_ONLY'
-      : !promotionCoveragePass
+      : safeOfficialVerifiedCoverage < 80
         ? 'VERIFIED_INDEX_CODE_COVERAGE_LOW'
         : qualityGatePassed
           ? 'READY_FOR_PROMOTION'
           : 'INDEX_VALUE_QUALITY_LOW',
     safeOnlyMetricWouldPass: safeOfficialVerifiedCoverage >= 80,
+    safeOfficialTargetCount,
+    safeOfficialVerifiedCount,
+    safeOfficialVerifiedCoverage,
+    unsafeExcludedCount,
+    unsafeExcludedNames,
+    officialTargetVerifiedCoverageDiagnostic,
+    promotionCoveragePass: safeCoveragePromotionAllowed,
+    promotionAllowedByCoverage: safeCoveragePromotionAllowed,
+    decisionUsesSafeOfficialOnly: true,
     useAlternativeForLivePromotion: false,
     alternativePolicyReason: 'OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY',
     executionImpact: 'NONE',
@@ -774,7 +728,7 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
   }
   if (!(provider?.masterLoaded ?? masterRows.length > 0)) reasonCodes.add('MASTER_NOT_LOADED');
   if (masterRows.length === 0) reasonCodes.add('MASTER_ROWS_EMPTY');
-  if (!marketClosed && mapping.officialIndexCoverage > 0 && !promotionCoveragePass) {
+  if (!marketClosed && mapping.officialIndexCoverage > 0 && safeOfficialVerifiedCoverage < 80) {
     reasonCodes.add('PROMOTION_DISABLED_COVERAGE_BELOW_80');
     reasonCodes.add('VERIFIED_INDEX_CODE_COVERAGE_LOW');
   }
@@ -827,17 +781,6 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     verifiedCoverageByOfficialTarget: coverageMetrics.verifiedCoverageByOfficialTarget,
     verifiedCoverageExcludingUnsafeAlias,
     promotionVerifiedCoverage: coverageMetrics.promotionVerifiedCoverage,
-    selectedPromotionMetric: promotionReadiness.selectedPromotionMetric,
-    safeOfficialVerifiedCount,
-    safeOfficialTargetCount,
-    safeOfficialVerifiedCoverage,
-    officialTargetVerifiedCoverageDiagnostic,
-    officialTargetCoverageIncludesUnsafeAlias,
-    officialTargetCoverageUsedForDecision: false,
-    decisionUsesSafeOfficialOnly: true,
-    promotionCoveragePass,
-    unsafeExcludedNames: mapping.unsafeAliasSectorNames,
-    unsafeAliasExclusions,
     safeAliasCoverage: pct(mapping.safeAliasCount, mapping.targetSectorCount),
     exactMatchCount: mapping.exactMatchCount,
     safeAliasMatchCount: mapping.safeAliasMatchCount,

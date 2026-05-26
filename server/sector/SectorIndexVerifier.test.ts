@@ -479,28 +479,17 @@ describe('SectorIndexVerifier', () => {
       officialIndexCoverageByOfficialTarget: 50,
       verifiedCoverageByOfficialTarget: 25,
       verifiedCoverageExcludingUnsafeAlias: 50,
-      promotionVerifiedCoverage: 50,
-      safeOfficialVerifiedCount: 1,
-      safeOfficialTargetCount: 2,
-      safeOfficialVerifiedCoverage: 50,
-      officialTargetVerifiedCoverageDiagnostic: 25,
-      officialTargetCoverageIncludesUnsafeAlias: true,
-      officialTargetCoverageUsedForDecision: false,
-      decisionUsesSafeOfficialOnly: true,
+      promotionVerifiedCoverage: 25,
     });
     expect(result.promotionCoveragePolicy).toMatchObject({
       selectedMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
       numerator: 1,
       denominator: 2,
       selectedCoverageValue: 50,
-      safeOfficialVerifiedCount: 1,
-      safeOfficialTargetCount: 2,
-      safeOfficialVerifiedCoverage: 50,
-      officialTargetVerifiedCoverageDiagnostic: 25,
-      officialTargetCoverageUsedForDecision: false,
-      decisionUsesSafeOfficialOnly: true,
       promotionAllowed: false,
       reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+      officialTargetVerifiedCoverageDiagnostic: 25,
+      decisionUsesSafeOfficialOnly: true,
       executionImpact: 'NONE',
     });
     expect(result.unsafeAliasPolicy).toMatchObject({
@@ -510,7 +499,7 @@ describe('SectorIndexVerifier', () => {
       useForLivePromotion: false,
       useForSectorBoost: false,
       useForStrongBuy: false,
-      excludedNames: ['defense'],
+      status: 'EXCLUDED_FROM_OFFICIAL_SECTOR_PROMOTION',
     });
     expect(result.indexValueQuality).toMatchObject({
       apiVerifiedCount: 2,
@@ -542,16 +531,18 @@ describe('SectorIndexVerifier', () => {
       selectedPromotionMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
       selectedPromotionCoverage: 50,
       requiredPromotionCoverage: 80,
-      safeOfficialVerifiedCount: 1,
-      safeOfficialTargetCount: 2,
-      safeOfficialVerifiedCoverage: 50,
-      officialTargetVerifiedCoverageDiagnostic: 25,
-      officialTargetCoverageUsedForDecision: false,
-      decisionUsesSafeOfficialOnly: true,
       qualityUsableCoverageByOfficialTarget: 25,
       promotionAllowed: false,
       reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
       safeOnlyMetricWouldPass: false,
+      safeOfficialTargetCount: 2,
+      safeOfficialVerifiedCount: 1,
+      safeOfficialVerifiedCoverage: 50,
+      unsafeExcludedCount: 1,
+      officialTargetVerifiedCoverageDiagnostic: 25,
+      promotionCoveragePass: false,
+      promotionAllowedByCoverage: false,
+      decisionUsesSafeOfficialOnly: true,
       useAlternativeForLivePromotion: false,
     });
     expect(result.verifySuccessCount).toBe(1);
@@ -669,103 +660,6 @@ describe('SectorIndexVerifier', () => {
       verified: true,
     });
     expect(result.reasonCodes).toContain('VERIFY_SUCCESS');
-  });
-
-  it('uses safe official verified coverage for promotion while preserving old official-target coverage as diagnostic only', async () => {
-    const safeSectorNames = [
-      '\uAE08\uC735\uC5C5',
-      '\uD654\uD559',
-      '\uC6B4\uC218\uC7A5\uBE44',
-      '\uC804\uAE30\uC804\uC790',
-      '\uCCA0\uAC15\uAE08\uC18D',
-      '\uC11C\uBE44\uC2A4\uC5C5',
-      '\uAE30\uACC4',
-      '\uC6B4\uC218\uCC3D\uACE0',
-      '\uC720\uD1B5\uC5C5',
-      '\uAC74\uC124',
-      '\uC758\uC57D\uD488',
-    ];
-    const unsafeSectorNames = ['\uC870\uC120', '\uBC29\uC0B0', '\uC6D0\uC790\uB825', '\uC774\uCC28\uC804\uC9C0'];
-    const rows = safeSectorNames.map((name, index) => officialRow(String(1000 + index), name));
-
-    const result = await buildOfficialSectorIndexMasterCoverage({
-      provider: {
-        masterSource: 'OFFICIAL_KIS_IDXCODE_MST',
-        masterLoaded: true,
-        masterRowCount: rows.length,
-        idxcodeMstDownloaded: true,
-        cacheFallbackUsed: false,
-        parseStatus: 'OK',
-        rows,
-        providerIssue: false,
-        marketSignal: false,
-        executionImpact: 'NONE',
-        reasonCodes: ['OFFICIAL_INDEX_MASTER_LOADED'],
-        cacheFile: 'memory',
-        fetchedAt: '2026-05-23T00:00:00.000Z',
-      },
-      targets: [...safeSectorNames, ...unsafeSectorNames].map((sectorName) => ({ sectorName })),
-      verifyIndexCode: async (row) => ({
-        officialIndexCode: row.officialIndexCode ?? '',
-        sectorName: row.sectorName,
-        idxDiv: row.idxDiv,
-        idxCode: row.idxCode,
-        verified: true,
-        apiTransportSuccess: true,
-        indexValueUsable: true,
-        valueQualityStatus: 'USABLE',
-        outputPresent: true,
-        indexValueFieldPresent: true,
-        currentIndex: 123.4,
-        providerIssue: false,
-        marketSignal: false,
-        executionImpact: 'NONE',
-        reasonCode: 'VERIFY_SUCCESS',
-      }),
-    });
-
-    expect(result.verifiedIndexCodeCoverage).toBe(73.3);
-    expect(result.coverageMetrics).toMatchObject({
-      verifiedCoverageByOfficialTarget: 73.3,
-      officialTargetVerifiedCoverageDiagnostic: 73.3,
-      safeOfficialVerifiedCount: 11,
-      safeOfficialTargetCount: 11,
-      safeOfficialVerifiedCoverage: 100,
-      promotionVerifiedCoverage: 100,
-      officialTargetCoverageIncludesUnsafeAlias: true,
-      officialTargetCoverageUsedForDecision: false,
-      decisionUsesSafeOfficialOnly: true,
-    });
-    expect(result.promotionCoveragePolicy).toMatchObject({
-      selectedMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
-      numerator: 11,
-      denominator: 11,
-      selectedCoverageValue: 100,
-      promotionAllowed: true,
-      reason: 'VERIFIED_INDEX_CODE_COVERAGE_READY',
-    });
-    expect(result.promotionReadiness).toMatchObject({
-      selectedPromotionMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
-      selectedPromotionCoverage: 100,
-      safeOfficialVerifiedCoverage: 100,
-      officialTargetVerifiedCoverageDiagnostic: 73.3,
-      promotionCoveragePass: true,
-      promotionAllowed: true,
-      reason: 'READY_FOR_PROMOTION',
-    });
-    expect(result.unsafeExcludedNames).toEqual(unsafeSectorNames);
-    expect(result.unsafeAliasExclusions).toEqual(unsafeSectorNames.map((sectorName) => ({
-      sectorName,
-      status: 'EXCLUDED_FROM_OFFICIAL_SECTOR_PROMOTION',
-      reason: 'NO_OFFICIAL_SINGLE_SECTOR_INDEX_OR_THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS',
-      useForLivePromotion: false,
-      useForSectorBoost: false,
-      useForStrongBuy: false,
-      executionImpact: 'NONE',
-    })));
-    expect(result.reasonCodes).not.toContain('VERIFIED_INDEX_CODE_COVERAGE_LOW');
-    expect(result.marketSignal).toBe(false);
-    expect(result.executionImpact).toBe('NONE');
   });
 
   it('keeps official mapped coverage when all verify variants are exhausted', async () => {
