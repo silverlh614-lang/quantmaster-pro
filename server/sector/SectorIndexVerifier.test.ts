@@ -482,18 +482,24 @@ describe('SectorIndexVerifier', () => {
       promotionVerifiedCoverage: 25,
     });
     expect(result.promotionCoveragePolicy).toMatchObject({
-      selectedMetric: 'officialTargetVerifiedCoverage',
+      selectedMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
       numerator: 1,
-      denominator: 4,
-      selectedCoverageValue: 25,
+      denominator: 2,
+      selectedCoverageValue: 50,
       promotionAllowed: false,
       reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+      officialTargetVerifiedCoverageDiagnostic: 25,
+      decisionUsesSafeOfficialOnly: true,
       executionImpact: 'NONE',
     });
     expect(result.unsafeAliasPolicy).toMatchObject({
-      includeInPromotionDenominator: true,
+      includeInPromotionDenominator: false,
       includeInPromotionNumerator: false,
       useForShadowEvidence: true,
+      useForLivePromotion: false,
+      useForSectorBoost: false,
+      useForStrongBuy: false,
+      status: 'EXCLUDED_FROM_OFFICIAL_SECTOR_PROMOTION',
     });
     expect(result.indexValueQuality).toMatchObject({
       apiVerifiedCount: 2,
@@ -522,13 +528,21 @@ describe('SectorIndexVerifier', () => {
       useForLivePromotion: false,
     });
     expect(result.promotionReadiness).toMatchObject({
-      selectedPromotionMetric: 'officialTargetVerifiedCoverage',
-      selectedPromotionCoverage: 25,
+      selectedPromotionMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
+      selectedPromotionCoverage: 50,
       requiredPromotionCoverage: 80,
       qualityUsableCoverageByOfficialTarget: 25,
       promotionAllowed: false,
       reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
       safeOnlyMetricWouldPass: false,
+      safeOfficialTargetCount: 2,
+      safeOfficialVerifiedCount: 1,
+      safeOfficialVerifiedCoverage: 50,
+      unsafeExcludedCount: 1,
+      officialTargetVerifiedCoverageDiagnostic: 25,
+      promotionCoveragePass: false,
+      promotionAllowedByCoverage: false,
+      decisionUsesSafeOfficialOnly: true,
       useAlternativeForLivePromotion: false,
     });
     expect(result.verifySuccessCount).toBe(1);

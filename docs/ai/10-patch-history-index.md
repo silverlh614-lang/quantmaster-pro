@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-SECTOR-ENERGY-SAFE-OFFICIAL-PROMOTION-001 · sector-energy, ADR-0488, SAFE_OFFICIAL_VERIFIED_COVERAGE, unsafe-alias-excluded(조선/방산/원자력/이차전지), denominator 15→11, safeOfficialVerifiedCoverage=100%, officialTargetVerifiedCoverageDiagnostic=73.3%, leadershipBlockReason-UNSAFE_ALIAS_CANDIDATES-removed, freshDataStatus/scan_blockers/sector_energy-display, decisionUsesSafeOfficialOnly, liveExecutionAllowed-false, executionImpact-NONE
 - 2026-05-26 · ADR-0533 · unified-forward-outcome-labeling-bus, gate3-evidence, gate1-dry-run-forward-return, near-miss-horizon-counts, counterfactual-paper-observational, executionImpact-NONE
 - 2026-05-26 · Patch-SECTOR-INDEX-VALUE-QUALITY-ZERO-001 · sector-index, idxcode-mst-fixedwidth, FID_INPUT_ISCD-4digit, VALUE_QUALITY_ZERO, apiTransportSuccessCount, executionImpact-NONE
 - 2026-05-26 · Patch-GATE3-FORWARD-RETURN-CRON-WIRING-P1-001 · gate3-evidence, updatePendingGate3Outcomes-unwired, learningJobs-scheduledJob-gate3_forward_return_update, 16:35-KST-TRADING_DAY_ONLY, persistGate3OutcomeSeed, schedulerHealthy-recovery, krxHolidays-businessday-SSOT-dedup, GATE3_FORWARD_RETURN_CRON_ENABLED, executionImpact-NONE

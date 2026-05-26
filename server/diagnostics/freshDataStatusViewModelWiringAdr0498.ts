@@ -460,10 +460,19 @@ interface SectorIndexMasterFreshStatusReportAdr0498 {
         verifiedCoverageExcludingUnsafeAlias?: number;
       };
       promotionReadiness?: {
+        selectedPromotionMetric?: string;
         selectedPromotionCoverage?: number;
         requiredPromotionCoverage?: number;
         safeOnlyMetricWouldPass?: boolean;
         reason?: string;
+        safeOfficialVerifiedCoverage?: number;
+        safeOfficialTargetCount?: number;
+        safeOfficialVerifiedCount?: number;
+        unsafeExcludedCount?: number;
+        unsafeExcludedNames?: string[];
+        officialTargetVerifiedCoverageDiagnostic?: number;
+        promotionCoveragePass?: boolean;
+        decisionUsesSafeOfficialOnly?: boolean;
       };
       indexValueQuality?: {
         apiVerifiedCount?: number;
@@ -513,7 +522,17 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
   const master = report?.sectorEnergyMaster?.officialSectorIndexMaster;
   const officialCoverage = Number(master?.officialIndexCoverage ?? report?.sectorEnergyMaster?.officialIndexCoverage ?? 0);
   const verifiedCoverage = Number(master?.verifiedIndexCodeCoverage ?? report?.sectorEnergyMaster?.verifiedIndexCodeCoverage ?? 0);
+  // ADR-0488: promotion 판정은 공식·안전 섹터(unsafe alias 제외) coverage 기준. officialTarget verified(=73.3%)는 diagnostic-only.
+  const safeOfficialVerifiedCoverage = Number(
+    master?.promotionReadiness?.safeOfficialVerifiedCoverage
+      ?? master?.coverageMetrics?.verifiedCoverageExcludingUnsafeAlias
+      ?? verifiedCoverage,
+  );
+  const officialTargetVerifiedCoverageDiagnostic = Number(
+    master?.promotionReadiness?.officialTargetVerifiedCoverageDiagnostic ?? verifiedCoverage,
+  );
   const promotionReadiness = sectorMasterPromotionReadinessAdr0498(verifiedCoverage);
+  const safePromotionReadiness = sectorMasterPromotionReadinessAdr0498(safeOfficialVerifiedCoverage);
   const qualityZeroCount = Number(master?.indexValueQuality?.zeroCurrentIndexCount ?? 0);
   const qualityUsableCount = Number(master?.indexValueQuality?.qualityUsableCount ?? master?.indexValueQuality?.nonZeroCurrentIndexCount ?? 0);
   const qualityStatus = qualityZeroCount > 0 ? 'DEGRADED_CURRENT_INDEX_ZERO' : 'OK';
@@ -552,10 +571,16 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
     : (master?.verifyFailCount ?? 0) > 0
       ? 'DOWN'
       : 'EMPTY';
+  // ADR-0488: promotion-readiness coverage block은 공식·안전 섹터 기준으로만 판정한다.
+  const safeCoverageBlocker = safeOfficialVerifiedCoverage >= 80
+    ? null
+    : officialCoverage > 0
+      ? 'BLOCKED_COVERAGE_LOW'
+      : 'OFFICIAL_INDEX_COVERAGE_ZERO';
   const promotionReadinessReason = master?.promotionReadiness?.reason
-    ?? (qualityZeroCount > 0 ? 'INDEX_VALUE_QUALITY_LOW' : coverageBlocker ?? 'NOT_EVALUATED');
+    ?? (qualityZeroCount > 0 ? 'INDEX_VALUE_QUALITY_LOW' : safeCoverageBlocker ?? 'NOT_EVALUATED');
   const promotionReadinessBlockers = [
-    ...(coverageBlocker ? [coverageBlocker] : []),
+    ...(safeCoverageBlocker ? [safeCoverageBlocker] : []),
     ...(qualityZeroCount > 0 ? ['DEGRADED_CURRENT_INDEX_ZERO'] : []),
   ];
 
@@ -644,19 +669,23 @@ export function mapSectorEnergyOfficialIndexMasterToStatusInputsAdr0498(
       domain: 'SECTOR_ENERGY',
       providerHealth: 'UP',
       providerDisplay: 'INTERNAL',
-      dataConfidence: sectorMasterConfidenceAdr0498(officialCoverage, verifiedCoverage),
+      dataConfidence: sectorMasterConfidenceAdr0498(officialCoverage, safeOfficialVerifiedCoverage),
       marketSignal: 'UNKNOWN',
       dataLineStatus: 'OBSERVING',
-      promotionReadiness: promotionReadinessBlockers.length > 0 ? 'BLOCKED' : promotionReadiness,
+      promotionReadiness: promotionReadinessBlockers.length > 0 ? 'BLOCKED' : safePromotionReadiness,
       blockers: promotionReadinessBlockers.length > 0 ? promotionReadinessBlockers : commonBlockers,
       warnings: [
         `reason=${promotionReadinessReason}`,
         `quality=${qualityStatus}`,
-        `selectedPromotionMetric=officialTargetVerifiedCoverage`,
-        `selectedPromotionCoverage=${master?.promotionReadiness?.selectedPromotionCoverage ?? verifiedCoverage}%`,
+        `selectedPromotionMetric=${master?.promotionReadiness?.selectedPromotionMetric ?? 'SAFE_OFFICIAL_VERIFIED_COVERAGE'}`,
+        `selectedPromotionCoverage=${master?.promotionReadiness?.selectedPromotionCoverage ?? safeOfficialVerifiedCoverage}%`,
         `requiredPromotionCoverage=${master?.promotionReadiness?.requiredPromotionCoverage ?? 80}%`,
-        `verifiedCoverageExcludingUnsafeAlias=${master?.coverageMetrics?.verifiedCoverageExcludingUnsafeAlias ?? 0}%`,
-        `safeOnlyMetricWouldPass=${master?.promotionReadiness?.safeOnlyMetricWouldPass ?? false}`,
+        `safeOfficialVerifiedCoverage=${safeOfficialVerifiedCoverage}%`,
+        `verifiedCoverageExcludingUnsafeAlias=${master?.coverageMetrics?.verifiedCoverageExcludingUnsafeAlias ?? safeOfficialVerifiedCoverage}%`,
+        `safeOnlyMetricWouldPass=${master?.promotionReadiness?.safeOnlyMetricWouldPass ?? (safeOfficialVerifiedCoverage >= 80)}`,
+        `unsafeExcluded=${(master?.promotionReadiness?.unsafeExcludedNames ?? []).join(',') || 'NONE'}`,
+        `officialTargetVerifiedCoverageDiagnostic=${officialTargetVerifiedCoverageDiagnostic}%`,
+        `decisionUsesSafeOfficialOnly=${master?.promotionReadiness?.decisionUsesSafeOfficialOnly ?? true}`,
         'useAlternativeForLivePromotion=false',
         'executionImpact=NONE',
       ],

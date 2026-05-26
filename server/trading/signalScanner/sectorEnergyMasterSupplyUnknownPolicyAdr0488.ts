@@ -110,32 +110,47 @@ function sectorIndexCoveragePolicyLines(
     ?? ratioPct(qualityUsableCount, officialTargetSectorCount);
   const qualityUsableCoverageExcludingUnsafeAlias = quality?.qualityUsableCoverageExcludingUnsafeAlias
     ?? ratioPct(qualityUsableCount, safePromotionEligibleSectorCount);
+  const readiness = master.promotionReadiness;
+  // ADR-0488: 공식·안전 섹터(unsafe alias 제외) 기준 promotion SSOT.
+  const safeOfficialTargetCount = readiness?.safeOfficialTargetCount ?? safePromotionEligibleSectorCount;
+  const safeOfficialVerifiedCount = readiness?.safeOfficialVerifiedCount ?? verifiedSuccessCount;
+  const safeOfficialVerifiedCoverage = readiness?.safeOfficialVerifiedCoverage ?? verifiedCoverageExcludingUnsafeAlias;
+  const unsafeExcludedNames = readiness?.unsafeExcludedNames ?? master.unsafeAliasSectorNames ?? [];
+  const unsafeExcludedCount = readiness?.unsafeExcludedCount ?? unsafeAliasSectorCount;
   const policy = master.promotionCoveragePolicy;
-  const selectedMetric = policy?.selectedMetric ?? 'officialTargetVerifiedCoverage';
-  const selectedNumerator = policy?.numerator ?? verifiedSuccessCount;
-  const selectedDenominator = policy?.denominator ?? officialTargetSectorCount;
+  const officialTargetVerifiedCoverageDiagnostic = readiness?.officialTargetVerifiedCoverageDiagnostic
+    ?? policy?.officialTargetVerifiedCoverageDiagnostic
+    ?? verifiedCoverageByOfficialTarget;
+  const requiredPromotionCoverage = readiness?.requiredPromotionCoverage ?? 80;
+  const selectedMetric = policy?.selectedMetric ?? 'SAFE_OFFICIAL_VERIFIED_COVERAGE';
+  const selectedNumerator = policy?.numerator ?? safeOfficialVerifiedCount;
+  const selectedDenominator = policy?.denominator ?? safeOfficialTargetCount;
   const selectedCoverageValue = policy?.selectedCoverageValue ?? ratioPct(selectedNumerator, selectedDenominator);
   const coveragePromotionAllowed = policy?.promotionAllowed ?? selectedCoverageValue >= 80;
   const effectivePromotionAllowed = context.promotionAllowed ?? coveragePromotionAllowed;
+  const promotionCoveragePass = readiness?.promotionCoveragePass ?? safeOfficialVerifiedCoverage >= 80;
+  const promotionAllowedByCoverage = readiness?.promotionAllowedByCoverage ?? promotionCoveragePass;
+  const decisionUsesSafeOfficialOnly = readiness?.decisionUsesSafeOfficialOnly ?? true;
   const promotionReason = policy?.reason ?? (
     selectedCoverageValue >= 80 ? 'VERIFIED_INDEX_CODE_COVERAGE_READY' : 'VERIFIED_INDEX_CODE_COVERAGE_LOW'
   );
   const unsafePolicy = master.unsafeAliasPolicy;
   const internalGroupedMetricWouldPass = verifiedCoverageByInternalGrouped >= 80;
-  const safeOnlyMetricWouldPass = master.promotionReadiness?.safeOnlyMetricWouldPass ?? verifiedCoverageExcludingUnsafeAlias >= 80;
-  const selectedReadinessReason = master.promotionReadiness?.reason ?? (
-    selectedCoverageValue < 80
+  const safeOnlyMetricWouldPass = readiness?.safeOnlyMetricWouldPass ?? safeOfficialVerifiedCoverage >= 80;
+  const selectedReadinessReason = readiness?.reason ?? (
+    safeOfficialVerifiedCoverage < 80
       ? 'VERIFIED_INDEX_CODE_COVERAGE_LOW'
-      : qualityUsableCoverageByOfficialTarget >= 80
+      : qualityUsableCoverageExcludingUnsafeAlias >= 80
         ? 'READY_FOR_PROMOTION'
         : 'INDEX_VALUE_QUALITY_LOW'
   );
   return [
     `SectorIndexCoverageDenominator: internalGroupedSectorCount=${internalGroupedSectorCount} officialTargetSectorCount=${officialTargetSectorCount} safePromotionEligibleSectorCount=${safePromotionEligibleSectorCount} unsafeAliasSectorCount=${unsafeAliasSectorCount} unresolvedSectorCount=${unresolvedSectorCount} verifiedSuccessCount=${verifiedSuccessCount}`,
     `CoverageMetrics: officialIndexCoverageByOfficialTarget=${pct(officialIndexCoverageByOfficialTarget)} verifiedCoverageByOfficialTarget=${pct(verifiedCoverageByOfficialTarget)} verifiedCoverageByInternalGrouped=${pct(verifiedCoverageByInternalGrouped)} verifiedCoverageExcludingUnsafeAlias=${pct(verifiedCoverageExcludingUnsafeAlias)} promotionVerifiedCoverage=${pct(selectedCoverageValue)}`,
-    `SectorIndexPromotionReadiness: officialTargetSectorCount=${officialTargetSectorCount} internalGroupedSectorCount=${internalGroupedSectorCount} safePromotionEligibleSectorCount=${safePromotionEligibleSectorCount} unsafeAliasSectorCount=${unsafeAliasSectorCount} unresolvedSectorCount=${unresolvedSectorCount} verifiedSuccessCount=${verifiedSuccessCount} verifiedCoverageByOfficialTarget=${pct(verifiedCoverageByOfficialTarget)} verifiedCoverageByInternalGrouped=${pct(verifiedCoverageByInternalGrouped)} verifiedCoverageExcludingUnsafeAlias=${pct(verifiedCoverageExcludingUnsafeAlias)} selectedPromotionMetric=${master.promotionReadiness?.selectedPromotionMetric ?? 'officialTargetVerifiedCoverage'} selectedPromotionCoverage=${pct(selectedCoverageValue)} requiredPromotionCoverage=${pct(master.promotionReadiness?.requiredPromotionCoverage ?? 80)} qualityUsableCoverageByOfficialTarget=${pct(qualityUsableCoverageByOfficialTarget)} qualityUsableCoverageExcludingUnsafeAlias=${pct(qualityUsableCoverageExcludingUnsafeAlias)} promotionAllowed=${effectivePromotionAllowed} reason=${selectedReadinessReason} internalGroupedMetricWouldPass=${internalGroupedMetricWouldPass} safeOnlyMetricWouldPass=${safeOnlyMetricWouldPass} useAlternativeForLivePromotion=false alternativeReason=OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY executionImpact=NONE`,
-    `UnsafeAliasPolicy: includeInPromotionDenominator=${unsafePolicy?.includeInPromotionDenominator ?? true} includeInPromotionNumerator=${unsafePolicy?.includeInPromotionNumerator ?? false} useForShadowEvidence=${unsafePolicy?.useForShadowEvidence ?? true} useForLivePromotion=false reason=${unsafePolicy?.reason ?? 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS'}`,
-    `PromotionCoveragePolicy: selectedMetric=${selectedMetric} numerator=${selectedNumerator} denominator=${selectedDenominator} required=${pct(policy?.requiredVerifiedCoverage ?? 80)} selectedCoverageValue=${pct(selectedCoverageValue)} coveragePromotionAllowed=${coveragePromotionAllowed} promotionAllowed=${effectivePromotionAllowed} reason=${promotionReason} alternativeInternalGroupedCoverage=${pct(verifiedCoverageByInternalGrouped)} executionImpact=NONE`,
+    `SectorIndexPromotionReadiness: officialTargetSectorCount=${officialTargetSectorCount} internalGroupedSectorCount=${internalGroupedSectorCount} safePromotionEligibleSectorCount=${safePromotionEligibleSectorCount} unsafeAliasSectorCount=${unsafeAliasSectorCount} unresolvedSectorCount=${unresolvedSectorCount} verifiedSuccessCount=${verifiedSuccessCount} verifiedCoverageByOfficialTarget=${pct(verifiedCoverageByOfficialTarget)} verifiedCoverageByInternalGrouped=${pct(verifiedCoverageByInternalGrouped)} verifiedCoverageExcludingUnsafeAlias=${pct(verifiedCoverageExcludingUnsafeAlias)} selectedPromotionMetric=${readiness?.selectedPromotionMetric ?? selectedMetric} selectedPromotionCoverage=${pct(selectedCoverageValue)} requiredPromotionCoverage=${pct(requiredPromotionCoverage)} qualityUsableCoverageByOfficialTarget=${pct(qualityUsableCoverageByOfficialTarget)} qualityUsableCoverageExcludingUnsafeAlias=${pct(qualityUsableCoverageExcludingUnsafeAlias)} promotionAllowed=${effectivePromotionAllowed} reason=${selectedReadinessReason} internalGroupedMetricWouldPass=${internalGroupedMetricWouldPass} safeOnlyMetricWouldPass=${safeOnlyMetricWouldPass} safeOfficialTargetCount=${safeOfficialTargetCount} safeOfficialVerifiedCount=${safeOfficialVerifiedCount} safeOfficialVerifiedCoverage=${pct(safeOfficialVerifiedCoverage)} unsafeExcludedCount=${unsafeExcludedCount} unsafeExcludedNames=${unsafeExcludedNames.join(',') || 'NONE'} officialTargetVerifiedCoverageDiagnostic=${pct(officialTargetVerifiedCoverageDiagnostic)} promotionCoveragePass=${promotionCoveragePass} promotionAllowedByCoverage=${promotionAllowedByCoverage} decisionUsesSafeOfficialOnly=${decisionUsesSafeOfficialOnly} useAlternativeForLivePromotion=false alternativeReason=OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY executionImpact=NONE`,
+    `UnsafeAliasPolicy: includeInPromotionDenominator=${unsafePolicy?.includeInPromotionDenominator ?? false} includeInPromotionNumerator=${unsafePolicy?.includeInPromotionNumerator ?? false} useForShadowEvidence=${unsafePolicy?.useForShadowEvidence ?? true} useForLivePromotion=false useForSectorBoost=false useForStrongBuy=false status=EXCLUDED_FROM_OFFICIAL_SECTOR_PROMOTION reason=${unsafePolicy?.reason ?? 'NO_OFFICIAL_SINGLE_SECTOR_INDEX_OR_THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS'}`,
+    `PromotionCoveragePolicy: selectedMetric=${selectedMetric} numerator=${selectedNumerator} denominator=${selectedDenominator} required=${pct(policy?.requiredVerifiedCoverage ?? 80)} selectedCoverageValue=${pct(selectedCoverageValue)} coveragePromotionAllowed=${coveragePromotionAllowed} promotionAllowed=${effectivePromotionAllowed} reason=${promotionReason} alternativeInternalGroupedCoverage=${pct(verifiedCoverageByInternalGrouped)} officialTargetVerifiedCoverageDiagnostic=${pct(officialTargetVerifiedCoverageDiagnostic)} decisionUsesSafeOfficialOnly=${decisionUsesSafeOfficialOnly} executionImpact=NONE`,
+    `OfficialSectorEnergy: selectedPromotionMetric=${readiness?.selectedPromotionMetric ?? selectedMetric} safeOfficialVerifiedCoverage=${pct(safeOfficialVerifiedCoverage)} requiredPromotionCoverage=${pct(requiredPromotionCoverage)} unsafeExcluded=${unsafeExcludedNames.join(',') || 'NONE'} officialTargetVerifiedCoverageDiagnostic=${pct(officialTargetVerifiedCoverageDiagnostic)} decisionUsesSafeOfficialOnly=${decisionUsesSafeOfficialOnly} promotionCoveragePass=${promotionCoveragePass} executionImpact=NONE`,
     `IndexValueQuality: apiVerifiedCount=${quality?.apiVerifiedCount ?? verifiedSuccessCount} currentIndexZeroCount=${quality?.zeroCurrentIndexCount ?? 0} zeroCurrentIndexCount=${quality?.zeroCurrentIndexCount ?? 0} currentIndexNonZeroCount=${quality?.nonZeroCurrentIndexCount ?? 0} nonZeroCurrentIndexCount=${quality?.nonZeroCurrentIndexCount ?? 0} qualityUsableCount=${qualityUsableCount} zeroCurrentIndexSymbols=${quality?.zeroCurrentIndexSymbols.join(',') || 'NONE'} zeroPolicy=${quality?.zeroCurrentIndexPolicy ?? 'OBSERVE_ONLY'} qualityImpact=${quality?.qualityImpact ?? 'NONE'} executionImpact=NONE apiTransportSuccessCount=${quality?.apiTransportSuccessCount ?? quality?.apiVerifiedCount ?? verifiedSuccessCount} indexValueUsableCount=${quality?.indexValueUsableCount ?? qualityUsableCount} valueQualityStatus=${quality?.valueQualityStatus ?? 'VALUE_QUALITY_LOW'} promotionAllowed=${effectivePromotionAllowed} sectorBoostAllowed=false shadowLeadershipAllowed=true`,
     `SectorIndexQuality: ${(master.sectorIndexQuality ?? []).slice(0, 16).map((row) => `${row.sectorName}:verified=${row.verified}:currentIndex=${row.currentIndex ?? 'NONE'}:qualityUsable=${row.qualityUsable}:qualityReason=${row.qualityReason}:useForShadowLeadership=${row.useForShadowLeadership}:useForLivePromotion=${row.useForLivePromotion}:executionImpact=${row.executionImpact}:apiTransportSuccess=${row.apiTransportSuccess}:indexValueUsable=${row.indexValueUsable}:valueQualityStatus=${row.valueQualityStatus}`).join(' | ') || 'NONE'}`,
   ];
@@ -737,6 +752,14 @@ export function buildSectorEnergyMasterReportAdr0488(
     ['verifiedIndexCodeCoverage', 'verifiedIndexCoverage', 'coverageVerified'],
     recordTotal > 0 ? verifiedRecordCoverage : adr0495Coverage.coverageVerified,
   ));
+  // ADR-0488: promotion decision은 공식·안전 섹터(조선/방산/원자력/이차전지 등 unsafe alias 제외) 기준 coverage만 사용한다.
+  // officialTarget 기준 verifiedIndexCodeCoverage(=73.3%)는 diagnostic-only 로만 보존한다.
+  const safeOfficialVerifiedCoverage = round1(
+    officialSectorIndexMaster?.promotionReadiness?.safeOfficialVerifiedCoverage
+      ?? officialSectorIndexMaster?.coverageMetrics?.verifiedCoverageExcludingUnsafeAlias
+      ?? officialSectorIndexMaster?.verifiedCoverageExcludingUnsafeAlias
+      ?? verifiedIndexCodeCoverage,
+  );
   const rawInternalProxyCoverage = round1(diagnosticNumber(
     diag,
     ['internalProxyCoverage', 'internalProxyIndexCodeCoverage'],
@@ -792,17 +815,17 @@ export function buildSectorEnergyMasterReportAdr0488(
         : sectorDataStale || after < 0.4 || !mapping.symmetryPassed ? 'DEGRADED'
           : after < 0.8 ? 'PARTIAL'
             : 'FETCH_OK';
-  const hasOfficialVerifiedEvidence = verifiedIndexCodeCoverage >= 80;
+  const hasOfficialVerifiedEvidence = safeOfficialVerifiedCoverage >= 80;
   const status: SectorEnergyMasterStatusAdr0488 = useAdr0495Seed && adr0495Coverage.coveragePartial > 0 ? 'PARTIAL' : (!hasOfficialVerifiedEvidence && adr0495Coverage.normalized && adr0495Coverage.coverageVerified < 80 && rawStatus === 'FETCH_OK' ? 'PARTIAL' : rawStatus);
   const topGaps = sectorTopGaps({ status, coveragePct: roundPct(after), verifiedIndexCodeCoverage, mapping, fallbackUsed });
+  // ADR-0488: unsafe alias(조방원/이차전지)는 공식 promotion 대상에서 제외되므로 그 존재 자체는 block 사유가 아니다.
   const leadershipBlockReason: SectorEnergyMasterSupplyLineReportAdr0488['leadershipBlockReason'] =
-    verifiedIndexCodeCoverage < 80 ? 'VERIFIED_INDEX_CODE_COVERAGE_LOW'
-      : mapping.unsafeAliasCandidatesCount > 0 ? 'UNSAFE_ALIAS_CANDIDATES'
-        : !mapping.symmetryPassed ? 'SYMMETRY_VALIDATION_FAILED'
-          : fallbackUsed === 'STOCK_DAILY' || fallbackUsed === 'STOCK_DAILY_PROXY' ? 'STOCK_DAILY_FALLBACK_DIAGNOSTIC_ONLY'
-            : sectorDataStale ? 'SECTOR_INDEX_STALE'
-            : 'NONE';
-  const promotionAllowed = status === 'FETCH_OK' && leadershipBlockReason === 'NONE' && verifiedIndexCodeCoverage >= 80;
+    safeOfficialVerifiedCoverage < 80 ? 'VERIFIED_INDEX_CODE_COVERAGE_LOW'
+      : !mapping.symmetryPassed ? 'SYMMETRY_VALIDATION_FAILED'
+        : fallbackUsed === 'STOCK_DAILY' || fallbackUsed === 'STOCK_DAILY_PROXY' ? 'STOCK_DAILY_FALLBACK_DIAGNOSTIC_ONLY'
+          : sectorDataStale ? 'SECTOR_INDEX_STALE'
+          : 'NONE';
+  const promotionAllowed = status === 'FETCH_OK' && leadershipBlockReason === 'NONE' && safeOfficialVerifiedCoverage >= 80;
   const leadershipConfidence: LeadershipConfidence = promotionAllowed
     ? 'VERIFIED'
     : officialIndexCoverage > 0 || verifiedIndexCodeCoverage > 0
