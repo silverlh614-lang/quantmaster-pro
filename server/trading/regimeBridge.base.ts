@@ -19,6 +19,7 @@ import { channelRegimeChange } from '../alerts/channelPipeline.js';
 import { renderPlaybook } from '../alerts/regimePlaybook.js';
 import { resetConditionWeightsForRegime } from '../persistence/conditionWeightsRepo.js';
 import { isForcedRegimeDowngradeActive } from '../learning/learningState.js';
+import { classifyVkospiSanity } from './regime/vkospiSanityGuard.js';
 import {
   emptyR6RecoveryEvidence,
   emptyR6TriggerBreakdown,
@@ -467,18 +468,25 @@ function buildR6RecoveryEvidence(
   const vkospiThreshold = resolveVkospiRecoveryThreshold(macroState);
   const vkospiDayChange = macroState?.vkospiDayChange ?? macroState?.vkospiDayChangeComputed;
   const vkospiDayChangeMissing = vkospiDayChange == null;
+  // ADR-0522: VKOSPI level 신뢰 판정. UNTRUSTED_IMPLAUSIBLE 면 level gate(vkospiOk)를 격리한다
+  // (provider 장애 ≠ market signal, 불변식 #6). day-change 기반 SELL_ONLY 는 별도라 영향 없음.
+  const vkospiSanity = classifyVkospiSanity(macroState, now);
+  const vkospiImplausible = vkospiSanity.trustState === 'UNTRUSTED_IMPLAUSIBLE';
   const fallbackLevelStable =
     vkospiDayChangeMissing &&
     (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold &&
     ((macroState?.kospiCloseReturn ?? macroState?.kospiDayReturn) ?? Number.NEGATIVE_INFINITY) > -2 &&
     Math.abs(macroState?.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 &&
     isFreshEnoughForRecoveryWatch(freshness);
+  // implausible 이면 VKOSPI level gate 를 차단 근거에서 제외(vkospiOk=true). 값 자체는 보정/0치환 금지(불변식 #6).
+  // 그 외엔 기존 threshold 비교 그대로(TRUSTED/MISSING/STALE 은 legacy 동작 보존).
+  const vkospiLevelOk = vkospiImplausible || (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold;
   const evidence: R6RecoveryEvidence = {
     vkospiDayChangeOk: (vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 || fallbackLevelStable,
     usdKrwDayChangeOk: Math.abs(macroState?.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5,
     kospiDayReturnOk: ((macroState?.kospiCloseReturn ?? macroState?.kospiDayReturn) ?? Number.NEGATIVE_INFINITY) > -2,
     mhsScoreOk: (macroState?.mhs ?? 0) >= 40,
-    vkospiOk: (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold,
+    vkospiOk: vkospiLevelOk,
     vkospiThresholdApplied: vkospiThreshold,
     marketDataFreshnessOk: isFreshEnoughForRecoveryWatch(freshness),
     confirmations,
@@ -486,6 +494,7 @@ function buildR6RecoveryEvidence(
     reasons: [],
     checkedAt: now.toISOString(),
     vkospiRecoveryFallbackUsed: fallbackLevelStable,
+    vkospiTrustState: vkospiSanity.trustState,
   };
   if (!evidence.vkospiDayChangeOk) evidence.reasons.push('VKOSPI_DAY_CHANGE_NOT_STABLE');
   if (fallbackLevelStable) evidence.reasons.push('VKOSPI_DAY_CHANGE_MISSING_BUT_LEVEL_STABLE');
@@ -493,7 +502,9 @@ function buildR6RecoveryEvidence(
   if (!evidence.usdKrwDayChangeOk) evidence.reasons.push('USD_KRW_DAY_CHANGE_NOT_STABLE');
   if (!evidence.kospiDayReturnOk) evidence.reasons.push('KOSPI_DAY_RETURN_NOT_STABLE');
   if (!evidence.mhsScoreOk) evidence.reasons.push('MHS_BELOW_RECOVERY_FLOOR');
-  if (!evidence.vkospiOk) evidence.reasons.push(`VKOSPI_LEVEL_NOT_STABLE(current=${macroState?.vkospi?.toFixed(1) ?? 'N/A'},threshold=${vkospiThreshold})`);
+  // implausible 격리 시 VKOSPI level 차단 근거 제거 사실을 진단 라벨로 노출(차단이 아닌 release 영향만).
+  if (vkospiImplausible) evidence.reasons.push('VKOSPI_UNTRUSTED_IMPLAUSIBLE_PROVIDER_SANITY');
+  else if (!evidence.vkospiOk) evidence.reasons.push(`VKOSPI_LEVEL_NOT_STABLE(current=${macroState?.vkospi?.toFixed(1) ?? 'N/A'},threshold=${vkospiThreshold})`);
   if (!evidence.marketDataFreshnessOk) evidence.reasons.push(`MARKET_DATA_${freshness}`);
   if (evidence.reasons.length === 0) evidence.reasons.push('R6_RECOVERY_EVIDENCE_OK');
   return evidence;
