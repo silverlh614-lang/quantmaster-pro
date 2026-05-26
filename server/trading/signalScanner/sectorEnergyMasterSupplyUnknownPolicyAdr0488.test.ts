@@ -378,7 +378,7 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(compact).toContain('SectorIndexUnresolvedDetails: UNRESOLVED_A:reason=EN_TO_KR_ALIAS_MISSING');
   });
 
-  it('prints official-target promotion coverage separately from internal grouped diagnostic coverage', () => {
+  it('uses safe-official verified coverage for promotion with officialTarget verified coverage kept diagnostic-only', () => {
     const report = buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
       sectorEnergyDiagnosticAdr0474: diag({
         dataQuality: 'OK',
@@ -415,19 +415,26 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
           promotionVerifiedCoverage: 73.3,
         },
         unsafeAliasPolicy: {
-          includeInPromotionDenominator: true,
+          includeInPromotionDenominator: false,
           includeInPromotionNumerator: false,
           useForShadowEvidence: true,
-          reason: 'THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS',
+          useForLivePromotion: false,
+          useForSectorBoost: false,
+          useForStrongBuy: false,
+          status: 'EXCLUDED_FROM_OFFICIAL_SECTOR_PROMOTION',
+          reason: 'NO_OFFICIAL_SINGLE_SECTOR_INDEX_OR_THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS',
+          executionImpact: 'NONE',
         },
         promotionCoveragePolicy: {
-          selectedMetric: 'officialTargetVerifiedCoverage',
+          selectedMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
           numerator: 11,
-          denominator: 15,
+          denominator: 11,
           requiredVerifiedCoverage: 80,
-          selectedCoverageValue: 73.3,
-          promotionAllowed: false,
-          reason: 'VERIFIED_INDEX_CODE_COVERAGE_LOW',
+          selectedCoverageValue: 100,
+          promotionAllowed: true,
+          reason: 'VERIFIED_INDEX_CODE_COVERAGE_READY',
+          officialTargetVerifiedCoverageDiagnostic: 73.3,
+          decisionUsesSafeOfficialOnly: true,
           executionImpact: 'NONE',
         },
         indexValueQuality: {
@@ -493,17 +500,122 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     });
     const compact = formatSectorEnergySupplyUnknownCompactAdr0488(report);
 
+    // 보고서 레벨 promotionAllowed 는 이 합성 픽스처의 supply-line(after=42%, PARTIAL) + symmetry 미충족 때문에 false 다.
+    // 핵심은 coverage block 이 safe-official 100% 로 해소(promotionCoveragePass=true, reason=READY_FOR_PROMOTION)된 점이다.
     expect(report.sectorEnergyMaster.promotionAllowed).toBe(false);
+    expect(report.sectorEnergyMaster.leadershipBlockReason).not.toBe('VERIFIED_INDEX_CODE_COVERAGE_LOW');
     expect(compact).toContain('SectorIndexCoverageDenominator: internalGroupedSectorCount=12 officialTargetSectorCount=15 safePromotionEligibleSectorCount=11 unsafeAliasSectorCount=4 unresolvedSectorCount=0 verifiedSuccessCount=11');
-    expect(compact).toContain('CoverageMetrics: officialIndexCoverageByOfficialTarget=73.3% verifiedCoverageByOfficialTarget=73.3% verifiedCoverageByInternalGrouped=91.7% verifiedCoverageExcludingUnsafeAlias=100% promotionVerifiedCoverage=73.3%');
-    expect(compact).toContain('UnsafeAliasPolicy: includeInPromotionDenominator=true includeInPromotionNumerator=false useForShadowEvidence=true useForLivePromotion=false reason=THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS');
+    expect(compact).toContain('CoverageMetrics: officialIndexCoverageByOfficialTarget=73.3% verifiedCoverageByOfficialTarget=73.3% verifiedCoverageByInternalGrouped=91.7% verifiedCoverageExcludingUnsafeAlias=100% promotionVerifiedCoverage=100%');
+    expect(compact).toContain('UnsafeAliasPolicy: includeInPromotionDenominator=false includeInPromotionNumerator=false useForShadowEvidence=true useForLivePromotion=false useForSectorBoost=false useForStrongBuy=false status=EXCLUDED_FROM_OFFICIAL_SECTOR_PROMOTION reason=NO_OFFICIAL_SINGLE_SECTOR_INDEX_OR_THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS');
     expect(compact).toContain('SectorIndexPromotionReadiness: officialTargetSectorCount=15 internalGroupedSectorCount=12 safePromotionEligibleSectorCount=11 unsafeAliasSectorCount=4 unresolvedSectorCount=0 verifiedSuccessCount=11');
-    expect(compact).toContain('internalGroupedMetricWouldPass=true safeOnlyMetricWouldPass=true useAlternativeForLivePromotion=false alternativeReason=OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY');
-    expect(compact).toContain('PromotionCoveragePolicy: selectedMetric=officialTargetVerifiedCoverage numerator=11 denominator=15 required=80% selectedCoverageValue=73.3% coveragePromotionAllowed=false promotionAllowed=false reason=VERIFIED_INDEX_CODE_COVERAGE_LOW alternativeInternalGroupedCoverage=91.7% executionImpact=NONE');
-    expect(compact).toContain('apiTransportSuccessCount=11 indexValueUsableCount=9 valueQualityStatus=VALUE_QUALITY_ZERO promotionAllowed=false sectorBoostAllowed=false shadowLeadershipAllowed=true');
+    expect(compact).toContain('selectedPromotionMetric=SAFE_OFFICIAL_VERIFIED_COVERAGE selectedPromotionCoverage=100% requiredPromotionCoverage=80%');
+    expect(compact).toContain('safeOfficialTargetCount=11 safeOfficialVerifiedCount=11 safeOfficialVerifiedCoverage=100% unsafeExcludedCount=4 unsafeExcludedNames=조선,방산,원자력,이차전지 officialTargetVerifiedCoverageDiagnostic=73.3% promotionCoveragePass=true promotionAllowedByCoverage=true decisionUsesSafeOfficialOnly=true');
+    expect(compact).toContain('PromotionCoveragePolicy: selectedMetric=SAFE_OFFICIAL_VERIFIED_COVERAGE numerator=11 denominator=11 required=80% selectedCoverageValue=100% coveragePromotionAllowed=true promotionAllowed=false reason=VERIFIED_INDEX_CODE_COVERAGE_READY alternativeInternalGroupedCoverage=91.7% officialTargetVerifiedCoverageDiagnostic=73.3% decisionUsesSafeOfficialOnly=true executionImpact=NONE');
+    expect(compact).toContain('OfficialSectorEnergy: selectedPromotionMetric=SAFE_OFFICIAL_VERIFIED_COVERAGE safeOfficialVerifiedCoverage=100% requiredPromotionCoverage=80% unsafeExcluded=조선,방산,원자력,이차전지 officialTargetVerifiedCoverageDiagnostic=73.3% decisionUsesSafeOfficialOnly=true promotionCoveragePass=true executionImpact=NONE');
     expect(compact).toContain('apiTransportSuccess=true:indexValueUsable=false:valueQualityStatus=VALUE_QUALITY_ZERO');
     expect(compact).toContain('IndexValueQuality: apiVerifiedCount=11 currentIndexZeroCount=2 zeroCurrentIndexCount=2 currentIndexNonZeroCount=9 nonZeroCurrentIndexCount=9 qualityUsableCount=9 zeroCurrentIndexSymbols=화학,철강 zeroPolicy=OBSERVE_ONLY qualityImpact=BLOCK_LIVE_PROMOTION_ONLY executionImpact=NONE');
     expect(compact).toContain('SectorIndexQuality: 화학:verified=true:currentIndex=0:qualityUsable=false:qualityReason=CURRENT_INDEX_ZERO:useForShadowLeadership=true:useForLivePromotion=false:executionImpact=NONE');
+  });
+
+  it('resolves the coverage block via safe-official coverage (100%) even when officialTarget verified coverage is 73.3% (unsafe alias excluded)', () => {
+    const report = buildSectorEnergyMasterReportAdr0488({
+      sectorEnergyDiagnosticAdr0474: diag({
+        dataQuality: 'OK',
+        indexCodeCoverageAfterAliasCandidate: 100,
+        officialIndexCoverage: 73.3,
+        verifiedIndexCodeCoverage: 73.3,
+        missingIndexCodeCount: 0,
+        aliasMissingCount: 0,
+        fallbackUsed: 'NONE',
+      }),
+      sectorMasterRecords: [
+        { sectorName: '전기전자', indexCode: '0005', market: 'KOSPI', source: 'KIS', normalized: true },
+        { sectorName: '화학', indexCode: '0006', market: 'KOSPI', source: 'KIS', normalized: true },
+        { sectorName: '운송장비', indexCode: '0012', market: 'KOSPI', source: 'KIS', normalized: true },
+        { sectorName: '금융업', indexCode: '0018', market: 'KOSPI', source: 'KIS', normalized: true },
+      ],
+      officialSectorIndexMaster: {
+        masterSource: 'OFFICIAL_KIS_IDXCODE_MST',
+        masterLoaded: true,
+        masterRowCount: 485,
+        idxcodeMstDownloaded: true,
+        cacheFallbackUsed: false,
+        parseStatus: 'OK',
+        officialIndexCoverage: 73.3,
+        verifiedIndexCodeCoverage: 73.3,
+        mappedSectorCount: 11,
+        verifiedIndexCodeCount: 11,
+        targetSectorCount: 15,
+        coverageDenominator: {
+          officialTargetSectorCount: 15,
+          safePromotionEligibleSectorCount: 11,
+          unsafeAliasSectorCount: 4,
+          unresolvedSectorCount: 0,
+          verifiedSuccessCount: 11,
+        },
+        coverageMetrics: {
+          officialIndexCoverageByOfficialTarget: 73.3,
+          verifiedCoverageByOfficialTarget: 73.3,
+          verifiedCoverageExcludingUnsafeAlias: 100,
+          promotionVerifiedCoverage: 100,
+        },
+        promotionReadiness: {
+          officialTargetSectorCount: 15,
+          safePromotionEligibleSectorCount: 11,
+          unsafeAliasSectorCount: 4,
+          unresolvedSectorCount: 0,
+          verifiedSuccessCount: 11,
+          qualityUsableCount: 11,
+          verifiedCoverageByOfficialTarget: 73.3,
+          verifiedCoverageExcludingUnsafeAlias: 100,
+          qualityUsableCoverageByOfficialTarget: 73.3,
+          qualityUsableCoverageExcludingUnsafeAlias: 100,
+          selectedPromotionMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE',
+          selectedPromotionCoverage: 100,
+          requiredPromotionCoverage: 80,
+          qualityGatePassed: true,
+          promotionAllowed: true,
+          reason: 'READY_FOR_PROMOTION',
+          safeOnlyMetricWouldPass: true,
+          safeOfficialTargetCount: 11,
+          safeOfficialVerifiedCount: 11,
+          safeOfficialVerifiedCoverage: 100,
+          unsafeExcludedCount: 4,
+          unsafeExcludedNames: ['조선', '방산', '원자력', '이차전지'],
+          officialTargetVerifiedCoverageDiagnostic: 73.3,
+          promotionCoveragePass: true,
+          promotionAllowedByCoverage: true,
+          decisionUsesSafeOfficialOnly: true,
+          useAlternativeForLivePromotion: false,
+          alternativePolicyReason: 'OFFICIAL_TARGET_POLICY_SELECTED_FOR_SAFETY',
+          executionImpact: 'NONE',
+        },
+        safeAliasCount: 5,
+        unsafeAliasCount: 4,
+        unsafeAliasSectorNames: ['조선', '방산', '원자력', '이차전지'],
+        aliasResolvedCount: 12,
+        unresolvedSectorNames: [],
+        topMissingSectorNames: [],
+        verifyApiPath: '/uapi/domestic-stock/v1/quotations/inquire-index-price',
+        verifyTrId: 'FHPUP02100000',
+        verifySuccessCount: 11,
+        verifyFailCount: 0,
+        providerIssue: false,
+        marketSignal: false,
+        executionImpact: 'NONE',
+        reasonCodes: [],
+        mappingRows: [],
+        verificationResults: [],
+      },
+    });
+
+    // officialTarget verified=73.3% 는 diagnostic-only 로만 남고, promotion 은 safe-official 100% 로 통과한다.
+    expect(report.verifiedIndexCodeCoverage).toBe(73.3);
+    expect(report.leadershipBlockReason).toBe('NONE');
+    expect(report.promotionAllowed).toBe(true);
+    expect(report.liveExecutionAllowed).toBe(false);
+    expect(report.executionImpact).toBe('NONE');
+    expect(report.counterfactualAllowed).toBe(true);
   });
 
   it('classifies verified KIS official coverage at 80%+ as promotion-ready without live execution unlock', () => {

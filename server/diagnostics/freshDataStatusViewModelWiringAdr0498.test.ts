@@ -318,7 +318,7 @@ describe('ADR-0498 FreshDataStatusViewModel wiring', () => {
     expect(text).toContain('SECTOR_ENERGY/KIS_SECTOR_INDEX_MASTER provider=KIS confidence=PARTIAL');
     expect(text).toContain('SECTOR_ENERGY/SECTOR_INDEX_CODE_MAPPING provider=INTERNAL confidence=PARTIAL');
     expect(text).toContain('SECTOR_ENERGY/KIS_SECTOR_INDEX_VERIFY provider=KIS confidence=PARTIAL signal=UNKNOWN status=READY_FOR_SHADOW promo=BLOCKED quality=DEGRADED_CURRENT_INDEX_ZERO');
-    expect(text).toContain('SECTOR_ENERGY/SECTOR_INDEX_PROMOTION_READINESS provider=INTERNAL confidence=PARTIAL signal=UNKNOWN status=OBSERVING promo=BLOCKED quality=DEGRADED_CURRENT_INDEX_ZERO');
+    expect(text).toContain('SECTOR_ENERGY/SECTOR_INDEX_PROMOTION_READINESS provider=INTERNAL confidence=VERIFIED signal=UNKNOWN status=OBSERVING promo=BLOCKED quality=DEGRADED_CURRENT_INDEX_ZERO');
     expect(text).toContain('promo=BLOCKED');
     expect(text).toContain('impact=NONE');
     expect(text).not.toContain('signal=BEARISH');
