@@ -1,6 +1,7 @@
 // @responsibility Persistent macro regime transition/recovery guard state repo.
 import fs from "fs";
 import type { RegimeLevel } from "../../src/types/core.js";
+import type { VkospiTrustState } from "../../src/types/gate0Regime.js";
 import { ensureDataDir, REGIME_TRANSITION_STATE_FILE } from "./paths.js";
 
 export type R6RecoveryStatus =
@@ -79,6 +80,8 @@ export interface R6RecoveryEvidence {
   reasons: string[];
   checkedAt: string;
   vkospiRecoveryFallbackUsed?: boolean;
+  /** ADR-0522: VKOSPI 값 신뢰 상태. UNTRUSTED_IMPLAUSIBLE 면 vkospiOk level gate 가 격리됐음을 노출. */
+  vkospiTrustState?: VkospiTrustState;
 }
 
 export interface RegimeTransitionState {
