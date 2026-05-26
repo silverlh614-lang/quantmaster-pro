@@ -764,15 +764,21 @@ function mergeKisPrimaryWithDartResidual(
 }
 
 export async function getGate2DartFinancialsForEvaluation(symbol: string): Promise<Gate2DartEvaluationFinancials | null> {
+  const flagOn = process.env.KIS_FINANCE_PRIMARY_ENABLED === 'true';
   const cached = getGate2ExternalCacheRecord(symbol);
   if (cached?.projection?.financialSnapshot?.confidence && cached.projection.financialSnapshot.confidence !== 'MISSING') {
-    return projectionToQmpDartFinancials(cached.projection);
+    // ADR-0532 Phase 3 cache-hit gap: flag-on 시, PER 미보유(legacy DART-only) 캐시는 신뢰하지 않고
+    // KIS-primary 로 1회 재산출한다(재산출 후 PER 보유 projection 으로 re-cache → 이후 정상 cache-hit).
+    // flag-off 는 항상 cache-hit → byte-equivalent.
+    if (!flagOn || cached.projection.valuation?.per?.per != null) {
+      return projectionToQmpDartFinancials(cached.projection);
+    }
   }
   const dartFin = await getDartFinancials(symbol).catch(() => null);
   // ADR-0532 Phase 2+3: KIS_FINANCE_PRIMARY_ENABLED 시 KIS L1 재무(ROE/OPM/매출/순이익)를 1차 소스로,
   // PER 는 KIS inquire-price 로, OCF/ICR 만 DART 잔존에서 머지한다 → cache projection 에 주입.
   // KIS 실패 시 DART(기존 경로) fallback. flag-off 시 byte-equivalent(DART null→null, KIS fetch 0). executionImpact=NONE.
-  if (process.env.KIS_FINANCE_PRIMARY_ENABLED === 'true') {
+  if (flagOn) {
     const kisFin = await getKisFinancials(symbol).catch(() => null);
     const primaryFin = kisFin ? mergeKisPrimaryWithDartResidual(kisFin, dartFin) : dartFin;
     const perValuation = await fetchGate2PerValuation({ symbol, dartFin: primaryFin }).catch(
