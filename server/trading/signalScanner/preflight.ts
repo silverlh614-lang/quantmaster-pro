@@ -156,25 +156,6 @@ function isR3Gate1PassZeroHardBlockEnabled(): boolean {
   return process.env.R3_GATE1_PASS_ZERO_HARDBLOCK_ENABLED === 'true';
 }
 
-/**
- * R3 Sanity 영속 HARD_BLOCK latch(ADR-0120)의 preflight enforce ENV 게이트 (default false = 봉인, 1줄 롤백).
- *
- * 영속 latch 는 preflight 최전단에서 hard-abort 하여 Gate 평가 자체를 막는다 → Gate 진단 데이터 /
- * threshold evidence 축적을 차단한다. 개발·진단 중에는 차단 지점만 가시화하되 파이프라인을 막지
- * 않아야 하므로 default 로 봉인한다.
- *
- * - default false(미설정/그 외) → hard-abort 대신 OBSERVE_ONLY execution guard 로 강등.
- *   live/broker 실주문만 차단(diagnosticOnlyLiveBlock)하고 buyListLoop·Gate 평가는 계속 → Gate
- *   score health / threshold evidence 가 축적된다 (liveEntryBlockedReason=R3_SANITY_GUARD).
- * - `=== 'true'` → 기존 ADR-0120/0401 영속 latch hard-block enforce 1줄 롤백 복원.
- *
- * latch 기록(persistScanResults) · 텔레그램 조회/해제(/sanity·/r3unblock) 는 영향 0 — 본 게이트는
- * preflight 의 *enforce* 지점만 강등하므로 forensic 가시성·운영자 제어는 그대로 보존된다.
- */
-function isR3SanityBlockEnabled(): boolean {
-  return process.env.R3_SANITY_BLOCK_ENABLED === 'true';
-}
-
 function macroEntryOverrideApplies(
   override: MacroEntryOverrideState | null,
   target: MacroEntryOverrideTarget,
@@ -453,67 +434,19 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const r3SanityAckToken = process.env.R3_SANITY_ACK_TOKEN;
   if (r3SanityBlock.active && isR3SanityAckTokenValid(r3SanityBlock, r3SanityAckToken)) {
     acknowledgeR3SanityBlock('preflight_env_ack');
-  } else if (r3SanityBlock.active && !isR3SanityBlockEnabled()) {
-    // ENV 봉인(default) — 영속 latch 를 hard-abort 가 아닌 OBSERVE_ONLY execution guard 로 강등한다.
-    // live/broker 실주문만 차단(diagnosticOnlyLiveBlock)하고 buyListLoop·Gate 평가는 계속 → Gate
-    // score health / threshold evidence 가 축적된다. shadow/counterfactual/universe 학습 영향 0.
-    // (R3_SANITY_BLOCK_ENABLED=true 시 기존 hard-abort enforce 1줄 롤백 복원.)
+  } else if (r3SanityBlock.active) {
+    // R3 sanity 영속 latch → 항상 OBSERVE_ONLY execution guard (절대 hard-abort 하지 않는다).
+    // GATE1_PASS_ZERO 등은 false-positive(정상 게이트 동작 ≠ 엔진 고장)이며, ABORT_HARD_BLOCK 은
+    // buyListLoop·Gate 진단 자체를 막아 threshold evidence 축적을 차단했다 → abort return 경로 제거.
+    // live/broker 실주문만 차단(diagnosticOnlyLiveBlock)하고 buyListLoop·Gate 평가는 계속한다.
+    // shadow/counterfactual/universe 학습 영향 0, executionImpact=NONE. latch 기록·텔레그램 ACK 보존.
     liveEntryBlockedReason = appendLiveEntryBlockReason(liveEntryBlockedReason, 'R3_SANITY_GUARD');
     macroDiagnosticOnly = true;
     console.info(
-      `[AutoTrade] R3 Sanity Block demoted to OBSERVE_ONLY (R3_SANITY_BLOCK_ENABLED!=true); ` +
+      `[AutoTrade] R3 Sanity Block demoted to OBSERVE_ONLY execution guard (no hard-abort); ` +
         `live execution blocked, Gate diagnostics continue. violation=${r3SanityBlock.violation} ` +
-        `regime=${r3SanityBlock.regime} triggeredAt=${r3SanityBlock.triggeredAt}. ` +
-        `Set R3_SANITY_BLOCK_ENABLED=true to restore hard-block.`,
+        `regime=${r3SanityBlock.regime} triggeredAt=${r3SanityBlock.triggeredAt}.`,
     );
-  } else if (r3SanityBlock.active) {
-    emitPreflightOperationalWarn({
-      code: 'P1_R3_SANITY_BLOCK_ACTIVE',
-      domain: 'REGIME',
-      message: '[AutoTrade] R3 sanity persistent block active',
-      dedupKey: `preflight:r3-sanity-block:${r3SanityBlock.violation}:${r3SanityBlock.regime}`,
-      details: {
-        violation: r3SanityBlock.violation,
-        regime: r3SanityBlock.regime,
-        triggeredAt: r3SanityBlock.triggeredAt,
-      },
-    });
-    await recordBlockedDayShadowScan('R3_SANITY_BLOCK');
-    await recordPreflightBlockedScan(
-      {
-        stage: 'AFTER_UNIVERSE_BUILD',
-        primaryReason: 'HARD_BLOCK',
-        watchlist,
-        regime,
-        marketSnapshot: {
-          emergencyStop: getEmergencyStop(),
-          regime: regime ?? macroState?.regime,
-          vkospiLevel: macroState?.vkospi,
-        },
-        notes: [
-          `R3 sanity persistent block active: ${r3SanityBlock.violation} (${r3SanityBlock.regime})`,
-        ],
-      },
-      {
-        blockedBy: 'HARD_BLOCK',
-        hardBlockSource: 'R3_SANITY_BLOCK',
-        hardBlockModule: 'r3SanityBlockRepo',
-        hardBlockReason: `${r3SanityBlock.violation} (${r3SanityBlock.regime})`,
-        preflightDecision: 'ABORT_HARD_BLOCK',
-      },
-    );
-    await updateShadowResults(shadows, regime);
-    saveShadowTrades(shadows);
-    return {
-      shouldAbort: true,
-      shouldAbortEngine: true,
-      shouldAbortLiveOrder: true,
-      shouldAbortGateEvaluation: true,
-      shouldAbortShadowLearning: false,
-      shouldAbortCounterfactual: false,
-      skipPersist: true,
-      context: diagnosticContext({ sellOnlyExc, vixGating, fomcProximity }),
-    };
   }
 
   if (isDataStarvedScan()) {
