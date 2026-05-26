@@ -184,10 +184,67 @@ const OFFICIAL_SECTOR_ALIAS_MAP: Record<OfficialSectorEnergyKey, { aliases: stri
   STEEL_METALS: { aliases: ['철강', '철강금속', '철강·금속', 'KRX 철강'], preferredIndexCodes: ['4008'] },
   CONSTRUCTION: { aliases: ['건설', '건설업', 'KRX 건설'], preferredIndexCodes: ['0018', '4011'] },
   FINANCIALS: { aliases: ['금융', '은행', '증권', '보험', 'FINANCIALS'], preferredIndexCodes: ['0021', '4005', '4013', '4015'] },
-  CONSUMER_RETAIL: { aliases: ['유통/소비재', '유통', '유통업', 'CONSUMER_RETAIL', '경기소비재', '필수소비재'], preferredIndexCodes: ['0016', '4061', '4062'] },
-  FOOD_BEVERAGE_TOBACCO: { aliases: ['음식료', '음식료·담배', '음식료 담배', 'FOOD_BEVERAGE_TOBACCO'], preferredIndexCodes: ['0005'] },
-  SERVICE_TELECOM: { aliases: ['서비스', '서비스업', '통신', '방송통신', '미디어&엔터테인먼트', 'SERVICE_TELECOM'], preferredIndexCodes: ['4010', '4063'] },
+  CONSUMER_RETAIL: { aliases: ['유통/소비재', '유통 소비재', '유통소비재', '유통', '유통업', 'CONSUMER_RETAIL', '경기소비재', '필수소비재'], preferredIndexCodes: ['0016', '4061', '4062'] },
+  FOOD_BEVERAGE_TOBACCO: { aliases: ['음식료', '음식료·담배', '음식료 담배', '음식료담배', 'FOOD_BEVERAGE_TOBACCO'], preferredIndexCodes: ['0005'] },
+  SERVICE_TELECOM: { aliases: ['서비스', '서비스업', '통신', '방송통신', 'KRX 방송통신', '미디어&엔터테인먼트', 'KRX 미디어&엔터테인먼트', 'SERVICE_TELECOM'], preferredIndexCodes: ['4010', '4063'] },
 };
+
+/**
+ * ADR-0535 회귀 가드: official key 매핑 누락 invariant. alias map 내용과 독립적으로
+ * 코드/이름 증거를 직접 본다 — verify 성공 증거가 입력에 존재하는데 해당 공식 key 가
+ * missing 으로 빠지면 throw 한다 (CONSUMER_RETAIL/FOOD_BEVERAGE_TOBACCO/SERVICE_TELECOM).
+ */
+const SECTOR_COVERAGE_CRITICAL_INVARIANTS: ReadonlyArray<{
+  key: OfficialSectorEnergyKey;
+  evidenceCodes: readonly string[];
+  evidenceNames: readonly string[];
+}> = [
+  {
+    key: 'CONSUMER_RETAIL',
+    evidenceCodes: ['0016', '4061', '4062'],
+    evidenceNames: ['유통/소비재', '유통', '유통업', '유통 소비재', '유통소비재', '경기소비재', '필수소비재'],
+  },
+  {
+    key: 'FOOD_BEVERAGE_TOBACCO',
+    evidenceCodes: ['0005'],
+    evidenceNames: ['음식료', '음식료·담배', '음식료 담배', '음식료담배'],
+  },
+  {
+    key: 'SERVICE_TELECOM',
+    evidenceCodes: ['4010', '4063'],
+    evidenceNames: ['서비스', '서비스업', '통신', '방송통신', '미디어&엔터테인먼트', 'KRX 방송통신', 'KRX 미디어&엔터테인먼트'],
+  },
+];
+
+function verifiedIndexCodeSet(indexVerifyResults: readonly IndexVerifyResult[]): Set<string> {
+  return new Set(
+    indexVerifyResults
+      .filter((r) => (r.success ?? r.verified) && r.indexValueUsable !== false)
+      .map((r) => String(r.indexCode ?? '').trim())
+      .filter(Boolean),
+  );
+}
+
+export function assertSectorEnergyCoverageInvariants(
+  coverage: { missingOfficialSectorKeys: readonly OfficialSectorEnergyKey[] },
+  input: { officialIndexMasterRows: readonly IndexMasterRow[]; indexVerifyResults: readonly IndexVerifyResult[] },
+): void {
+  const missing = new Set<OfficialSectorEnergyKey>(coverage.missingOfficialSectorKeys);
+  if (missing.size === 0) return;
+  const verifiedCodes = verifiedIndexCodeSet(input.indexVerifyResults);
+  for (const inv of SECTOR_COVERAGE_CRITICAL_INVARIANTS) {
+    if (!missing.has(inv.key)) continue;
+    const codeEvidence = inv.evidenceCodes.some((c) => verifiedCodes.has(c));
+    const nameEvidence = input.officialIndexMasterRows.some((row) => {
+      const name = String(row.sectorName ?? row.indexName ?? '').trim();
+      const code = String(row.indexCode ?? '').trim();
+      return inv.evidenceNames.includes(name) && verifiedCodes.has(code);
+    });
+    if (codeEvidence || nameEvidence) {
+      throw new Error(`SECTOR_ENERGY_COVERAGE_INVARIANT_VIOLATION:${inv.key}`);
+    }
+  }
+}
 
 export function resolveOfficialSectorEnergyCoverage(input: {
   officialIndexMasterRows: IndexMasterRow[]; indexVerifyResults: IndexVerifyResult[]; officialSectorKeys?: OfficialSectorEnergyKey[];
@@ -214,6 +271,10 @@ export function resolveOfficialSectorEnergyCoverage(input: {
     if (verified) verifiedOfficialSectorKeys.push(key);
   }
   const missingOfficialSectorKeys = keys.filter((k) => !verifiedOfficialSectorKeys.includes(k));
+  assertSectorEnergyCoverageInvariants(
+    { missingOfficialSectorKeys },
+    { officialIndexMasterRows: input.officialIndexMasterRows, indexVerifyResults: input.indexVerifyResults },
+  );
   return { officialSectorCount: 11, verifiedOfficialSectorCount: verifiedOfficialSectorKeys.length, verifiedOfficialSectorKeys, missingOfficialSectorKeys, verifiedMapping, duplicateAliasRowsIgnored };
 }
 

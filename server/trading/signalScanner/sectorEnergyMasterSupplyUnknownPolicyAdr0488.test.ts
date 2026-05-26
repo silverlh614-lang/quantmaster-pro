@@ -500,45 +500,46 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     });
     const compact = formatSectorEnergySupplyUnknownCompactAdr0488(report);
 
-    // ADR-0534: canonical SSOT 가 safe-official(unsafe alias 제외 100%) trick 을 무효화한다.
-    // officialTarget verified coverage=73.3% → 공식 11개 중 8개 → promotionCoveragePass=false → promotionAllowed=false.
+    // ADR-0535: canonical 은 safe-official(공식 11개 = unsafe theme alias 제외) verified coverage 를 따른다.
+    // safeOfficialVerifiedCoverage=100% → 공식 11개 모두 verified → promotionCoveragePass=true → promotionAllowed=true.
+    // officialTarget verified coverage=73.3%(denominator 15)는 diagnosticOnly 로만 보존. master 결정과 byte-equivalent.
     expect(report.sectorEnergyCanonicalState.officialSectorCount).toBe(11);
-    expect(report.sectorEnergyCanonicalState.verifiedOfficialSectorCount).toBe(8);
-    expect(report.sectorEnergyCanonicalState.promotionCoveragePass).toBe(false);
-    expect(report.sectorEnergyCanonicalState.promotionAllowed).toBe(false);
-    expect(report.sectorEnergyCanonicalState.reason).toBe('OFFICIAL_SECTOR_COVERAGE_BELOW_THRESHOLD');
-    // master 결정 필드는 canonical 으로 override; safe-official 결과는 legacy 진단으로만 보존.
-    expect(report.sectorEnergyMaster.promotionAllowed).toBe(false);
-    expect(report.sectorEnergyMaster.sectorBoostAllowed).toBe(false);
-    expect(report.sectorEnergyMaster.strongBuyAllowed).toBe(false);
+    expect(report.sectorEnergyCanonicalState.verifiedOfficialSectorCount).toBe(11);
+    expect(report.sectorEnergyCanonicalState.promotionCoveragePass).toBe(true);
+    expect(report.sectorEnergyCanonicalState.promotionAllowed).toBe(true);
+    expect(report.sectorEnergyCanonicalState.reason).toBe('OFFICIAL_SECTOR_COVERAGE_PASS');
+    // master 결정 필드는 canonical 과 일치 (둘 다 safe-official 100% 기준).
+    expect(report.sectorEnergyMaster.promotionAllowed).toBe(true);
+    expect(report.sectorEnergyMaster.sectorBoostAllowed).toBe(true);
+    expect(report.sectorEnergyMaster.strongBuyAllowed).toBe(true);
     expect((report.sectorEnergyMaster as unknown as Record<string, unknown>).legacyPromotionAllowedDiagnosticOnly).toBe(true);
     expect(report.sectorEnergyMaster.leadershipBlockReason).not.toBe('VERIFIED_INDEX_CODE_COVERAGE_LOW');
-    // compact: canonical 3블록이 final, safe-official 계산은 diagnosticOnly 로 강등.
+    // compact: canonical 3블록이 final, officialTarget 73.3% 는 diagnosticOnly 로 강등.
     expect(compact).toContain('SectorEnergy Canonical:');
     expect(compact).toContain('officialSectorCount=11');
-    expect(compact).toContain('verifiedOfficialSectorCount=8');
-    expect(compact).toContain('promotionCoveragePass=false');
-    expect(compact).toContain('reason=OFFICIAL_SECTOR_COVERAGE_BELOW_THRESHOLD');
-    // Invariant 2: canonical=false 면 어떤 렌더 라인도 promotionAllowed=true 를 내보내지 않는다.
-    expect(compact).not.toContain('promotionAllowed=true');
+    expect(compact).toContain('verifiedOfficialSectorCount=11');
+    expect(compact).toContain('promotionCoveragePass=true');
+    expect(compact).toContain('reason=OFFICIAL_SECTOR_COVERAGE_PASS');
+    // canonical=true 면 final 결정 라인은 promotionAllowed=true 를 내보낸다.
+    expect(compact).toContain('promotionAllowed=true');
     expect(compact).toContain('legacyPromotionAllowedDiagnosticOnly=');
     expect(compact).toContain('CoverageMetrics: officialIndexCoverageByOfficialTarget=73.3% verifiedCoverageByOfficialTarget=73.3% verifiedCoverageByInternalGrouped=91.7% verifiedCoverageExcludingUnsafeAlias=100% promotionVerifiedCoverage=100%');
     expect(compact).toContain('UnsafeAliasPolicy: includeInPromotionDenominator=false includeInPromotionNumerator=false useForShadowEvidence=true useForLivePromotion=false useForSectorBoost=false useForStrongBuy=false status=EXCLUDED_FROM_OFFICIAL_SECTOR_PROMOTION reason=NO_OFFICIAL_SINGLE_SECTOR_INDEX_OR_THEME_TO_OFFICIAL_SECTOR_AMBIGUOUS');
     expect(compact).toContain('SectorIndexPromotionReadinessDiagnosticOnly: officialTargetSectorCount=15 internalGroupedSectorCount=12 safePromotionEligibleSectorCount=11 unsafeAliasSectorCount=4 unresolvedSectorCount=0 verifiedSuccessCount=11');
     expect(compact).toContain('selectedPromotionMetricDiagnosticOnly=SAFE_OFFICIAL_VERIFIED_COVERAGE selectedPromotionCoverageDiagnosticOnly=100% requiredPromotionCoverageDiagnosticOnly=80%');
     expect(compact).toContain('safeOfficialTargetCount=11 safeOfficialVerifiedCount=11 safeOfficialVerifiedCoverage=100% unsafeExcludedCount=4 unsafeExcludedNames=조선,방산,원자력,이차전지 officialTargetVerifiedCoverageDiagnostic=73.3% legacyPromotionCoveragePassDiagnosticOnly=true legacyPromotionAllowedByCoverageDiagnosticOnly=true decisionUsesSafeOfficialOnlyDiagnosticOnly=true');
-    expect(compact).toContain('PromotionCoveragePolicyDiagnosticOnly: selectedMetricDiagnosticOnly=SAFE_OFFICIAL_VERIFIED_COVERAGE numerator=11 denominator=11 requiredDiagnosticOnly=80% selectedCoverageValueDiagnosticOnly=100% legacyCoveragePromotionAllowedDiagnosticOnly=true legacyPromotionAllowedDiagnosticOnly=false reason=VERIFIED_INDEX_CODE_COVERAGE_READY alternativeInternalGroupedCoverage=91.7% officialTargetVerifiedCoverageDiagnostic=73.3% decisionUsesSafeOfficialOnlyDiagnosticOnly=true executionImpact=NONE');
+    expect(compact).toContain('PromotionCoveragePolicyDiagnosticOnly: selectedMetricDiagnosticOnly=SAFE_OFFICIAL_VERIFIED_COVERAGE numerator=11 denominator=11 requiredDiagnosticOnly=80% selectedCoverageValueDiagnosticOnly=100% legacyCoveragePromotionAllowedDiagnosticOnly=true legacyPromotionAllowedDiagnosticOnly=true reason=VERIFIED_INDEX_CODE_COVERAGE_READY alternativeInternalGroupedCoverage=91.7% officialTargetVerifiedCoverageDiagnostic=73.3% decisionUsesSafeOfficialOnlyDiagnosticOnly=true executionImpact=NONE');
     expect(compact).toContain('OfficialSectorEnergy: selectedPromotionMetric=SAFE_OFFICIAL_VERIFIED_COVERAGE safeOfficialVerifiedCoverage=100% requiredPromotionCoverage=80% unsafeExcluded=조선,방산,원자력,이차전지 officialTargetVerifiedCoverageDiagnostic=73.3% decisionUsesSafeOfficialOnly=true promotionCoveragePass=true executionImpact=NONE');
-    expect(compact).toContain('officialIndexView: sourceOfTruth=SectorEnergyCanonicalResolver status=PARTIAL officialSectorCount=11 verifiedOfficialSectorCount=8 promotionCoverage=72.7%');
+    expect(compact).toContain('officialIndexView: sourceOfTruth=SectorEnergyCanonicalResolver status=PARTIAL officialSectorCount=11 verifiedOfficialSectorCount=11 promotionCoverage=100%');
     expect(compact).toContain('officialIndexDiagnostic: officialTargetCoverage=73.3% safeOfficialVerifiedCoverage=100%');
     expect(compact).toContain('internalGroupedView: status=AVAILABLE groupedValidSectorCount=12/12 diagnosticOnly=true useForShadowEvidence=true useForLivePromotion=false useForPromotion=false useForSectorBoost=false useForStrongBuy=false useForLiveLeadership=false');
-    expect(compact).toContain('shadowEvidenceView: status=FETCH_OK shadowLeadershipAllowed=true counterfactualAllowed=true executionImpact=NONE');
-    expect(compact).toContain('legacyPromotionViewDiagnosticOnly: legacyDataQualityDiagnosticOnly=FETCH_OK legacyPromotionAllowedDiagnosticOnly=false legacySectorBoostAllowedDiagnosticOnly=false legacyStrongBuyAllowedDiagnosticOnly=false legacyLeadershipConfidenceDiagnosticOnly=PARTIAL canonicalLocked=true');
+    expect(compact).toContain('shadowEvidenceView: status=VERIFIED shadowLeadershipAllowed=true counterfactualAllowed=true executionImpact=NONE');
+    expect(compact).toContain('legacyPromotionViewDiagnosticOnly: legacyDataQualityDiagnosticOnly=VERIFIED legacyPromotionAllowedDiagnosticOnly=true legacySectorBoostAllowedDiagnosticOnly=true legacyStrongBuyAllowedDiagnosticOnly=true legacyLeadershipConfidenceDiagnosticOnly=VERIFIED canonicalLocked=true');
     expect(compact).toContain('apiTransportSuccess=true:indexValueUsable=false:valueQualityStatus=VALUE_QUALITY_ZERO');
     expect(compact).toContain('IndexValueQualityDiagnosticOnly: apiVerifiedCount=11 currentIndexZeroCount=2 zeroCurrentIndexCount=2 currentIndexNonZeroCount=9 nonZeroCurrentIndexCount=9 qualityUsableCount=9 zeroCurrentIndexSymbols=화학,철강 zeroPolicy=OBSERVE_ONLY qualityImpact=BLOCK_LIVE_PROMOTION_ONLY executionImpact=NONE');
     expect(compact).toContain('SectorIndexQuality: 화학:verified=true:currentIndex=0:qualityUsable=false:qualityReason=CURRENT_INDEX_ZERO:useForShadowLeadership=true:useForLivePromotion=false:executionImpact=NONE');
     expect(compact).toContain('officialTargetVerifiedCoverageDiagnostic=73.3%');
-    // final livePromotion view 는 canonical(false) 을 그대로 표시한다 — safe-official true 가 되살아나지 않는다.
+    // final 결정은 canonical 단일 SSOT 만 통과한다 — legacy SAFE_OFFICIAL_ONLY 별도 라인은 존재하지 않는다.
     expect(compact).not.toContain('livePromotionView: status=SAFE_OFFICIAL_ONLY promotionAllowed=true');
     expect(compact).toContain('apiTransportSuccess=true:indexValueUsable=false:valueQualityStatus=VALUE_QUALITY_ZERO');
   });
