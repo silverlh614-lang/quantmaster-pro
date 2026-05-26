@@ -28,6 +28,8 @@ import {
   type PreflightBlockedBy,
   type PreflightBlockedScanSummary,
 } from './preflightBlockedScanSummary.js';
+import { buildPreflightDiagnosticScanSummary } from './scanDiagnostics/preflightDiagnosticScanSummary.js';
+import { setPreflightDiagnosticScanSummaryIfAbsent } from './scanDiagnostics/persistScanResults.js';
 import { emitOperationalWarn } from '../../observability/operationalWarn.js';
 import type { WarnMode } from '../../observability/operationalWarnTypes.js';
 
@@ -225,6 +227,14 @@ export async function recordPreflightBlockedScan(
       counterfactualRecorded: learningResult.recorded,
     });
     emitPreflightScanEvaluationWarn(summary);
+    // Patch: getLastScanSummary()가 null 로 남으면 /gate_full·Runtime Trace·ADR-0505 가 비므로,
+    // canonical scanId/candidate 를 담은 minimal diagnostic ScanSummary 를 영속한다 (display-only, 실제 스캔 미clobber).
+    try {
+      setPreflightDiagnosticScanSummaryIfAbsent(buildPreflightDiagnosticScanSummary(summary));
+    } catch (e) {
+      /* SDS-ignore: diagnostic summary 영속 실패는 보조 — preflight abort 흐름을 절대 차단하지 않는다 */
+      console.warn('[PreflightDiagnosticScanSummary] 영속 실패 — 격리 (abort 흐름 보호)', e);
+    }
     return summary;
   } catch (e) {
     emitOperationalWarn({

@@ -5,6 +5,10 @@
 
 import { describeEmptyScanReason } from '../emptyScanClassifier.js';
 import { formatPreflightBlockedScanSection, getLastPreflightBlockedScanSummary } from '../preflightBlockedScanSummary.js';
+import {
+  buildPreflightCanonicalReconciliation,
+  formatPreflightCanonicalReconciliationSection,
+} from './preflightCanonicalReconciliation.js';
 import { formatR3NoiseGovernorCompactLine } from '../r3NoiseGovernor.js';
 import { formatPreBreakoutWaitSummarySection } from '../preBreakoutWaitPolicy.js';
 import { formatShadowNearBreakoutSection, type ShadowNearBreakoutBlockReason } from '../shadowNearBreakoutEntryPolicy.js';
@@ -861,7 +865,14 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // _lastPreflightBlockedScanSummary 가 non-null 이면 항상 "직전 스캔 = preflight 차단" 을 의미한다.
   const preflightBlocked = getLastPreflightBlockedScanSummary();
   if (preflightBlocked) {
-    return formatPreflightBlockedScanSection(preflightBlocked);
+    // Patch: Page 1 을 frozen preflight 단독이 아니라 runtime truth 와 reconcile 한 canonical 요약으로 표시.
+    // gate_full(=formatScanBlockersMessage) 과 scan_blockers full 이 동일 payload 를 공유하므로 양쪽 모두 정합.
+    const reconciliation = buildPreflightCanonicalReconciliation(summary, preflightBlocked);
+    return [
+      formatPreflightCanonicalReconciliationSection(reconciliation),
+      '',
+      formatPreflightBlockedScanSection(preflightBlocked),
+    ].join('\n');
   }
   if (!summary) {
     return '📊 <b>[매수 차단 사유]</b>\n━━━━━━━━━━━━━━━━\n진단 데이터 없음 (스캔 미실행).';
