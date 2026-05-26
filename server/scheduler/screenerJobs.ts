@@ -12,7 +12,7 @@ import { runGlobalScanAgent } from '../alerts/globalScanAgent.js';
 import { runSupplyChainScan } from '../alerts/supplyChainAgent.js';
 import { trackPendingRecords } from '../learning/newsSupplyLogger.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { withForcedMarket } from '../utils/forceMarketGuard.js';
 
 export function registerScreenerJobs(): void {
@@ -21,7 +21,7 @@ export function registerScreenerJobs(): void {
 
   scheduledJob('35 23 * * 0-4', 'TRADING_DAY_ONLY', 'stage2_3_final_screening', () => withForcedMarket(async () => {
     const macroState = loadMacroState();
-    const regime = getLiveRegime(macroState);
+    const regime = resolveCanonicalRegimeLevel(macroState); // ADR-0531: Gate0 정본 레짐
     await runStage2_3FinalScreening(regime, macroState);
   }), { timezone: 'UTC' });
 

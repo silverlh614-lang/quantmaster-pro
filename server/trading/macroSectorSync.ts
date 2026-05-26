@@ -31,7 +31,7 @@ import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { loadGlobalScanReport } from '../alerts/globalScanAgent.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { getVixConservativeMode, setVixConservativeMode } from '../state.js';
-import { getLiveRegime } from './regimeBridge.js';
+import { resolveCanonicalRegimeLevel } from './regime/canonicalRegimeAccess.js';
 import { fetchCloses } from './marketDataRefresh.js';
 import { MACRO_SYNC_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadPrevRegime, savePrevRegime } from '../learning/learningState.js';
@@ -432,7 +432,8 @@ export async function macroSectorAlignmentCheck(): Promise<void> {
     // ── 7. 아이디어 5 — 레짐 전환 감지 즉시 해당 레짐 캘리브레이션 트리거 ───────
     // macroState 갱신 이후의 "현재 레짐"을 확정한다. 이전 저장분과 다르면 신규 레짐 재보정.
     const updatedMacro = loadMacroState();
-    const currRegime = updatedMacro ? getLiveRegime(updatedMacro) : null;
+    // ADR-0531: Gate0 정본 레짐(섹터 동기화 진단). null 분기 보존.
+    const currRegime = updatedMacro ? resolveCanonicalRegimeLevel(updatedMacro) : null;
     const prevRegime = loadPrevRegime();
     if (currRegime && prevRegime && prevRegime !== currRegime) {
       savePrevRegime(currRegime);

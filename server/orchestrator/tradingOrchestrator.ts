@@ -27,7 +27,7 @@ import { cleanupWatchlist } from '../screener/watchlistManager.js';
 import { probePreMarketGap, type GapProbeResult } from '../trading/preMarketGapProbe.js';
 import { assertSafeOrder, PreOrderGuardError } from '../trading/preOrderGuard.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { getLiveRegime } from '../trading/regimeBridge.js';
+import { resolveCanonicalRegimeLevel, isCanonicalR6Defense } from '../trading/regime/canonicalRegimeAccess.js';
 import { withForcedMarket } from '../utils/forceMarketGuard.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { buildPreopenOrchestratorCycleKey } from '../utils/preopenDiscoveryGuards.js';
@@ -80,7 +80,8 @@ export async function preMarketOrderPrep(): Promise<void> {
   // 신호 발견 후 뒤늦게 skip 하던 기존 구조는 이미 Shadow DB 에 PROVISIONAL 기록이
   // 남아 "가득 찬 계좌에 추가 매수 시도" 이력이 누적되었다. 진입부에서 끊는다.
   const activeCount = loadShadowTrades().filter(s => isOpenShadowStatus(s.status)).length;
-  const regime = getLiveRegime(loadMacroState());
+  // ADR-0531: Gate0 레짐 정본 사용(legacy getLiveRegime 고착 제거).
+  const regime = resolveCanonicalRegimeLevel(loadMacroState());
   const maxPositions = REGIME_CONFIGS[regime]?.maxPositions ?? 4;
   if (activeCount >= maxPositions) {
     console.log(
@@ -346,7 +347,8 @@ function resolveState(h: number, m: number, dow: number): TradingState {
 
 function isR6DefenseRegime(): boolean {
   try {
-    return getLiveRegime(loadMacroState()) === 'R6_DEFENSE';
+    // ADR-0531: canonical R6 판정(riskOverride/effectiveRegime). 진짜 R6는 sanitize 후 보존.
+    return isCanonicalR6Defense(loadMacroState());
   } catch (e) {
     console.warn('[Orchestrator] R6 post-close scan regime check failed:', e instanceof Error ? e.message : e);
     return false;
