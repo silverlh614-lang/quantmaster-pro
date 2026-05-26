@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-GATE3-WARMUP-WARNING-HEALTH-SPLIT-001 · gate3-evidence-warmup, schedulerHealthy, duplicate-suppression-warning-nonfatal, evidenceReady-preserved, executionImpact-NONE
 - 2026-05-26 · Patch-UNIFIED-FORWARD-COMMON-BUS-BRIDGE-001 · unified-forward-outcome-labeling, source-registry, common-forward-outcome-schema, gate3-threshold-evidence-bridge, sourceRowsByType, executablePnL-separated
 - 2026-05-26 · Patch-UNIFIED-FORWARD-LABELER-ACTIVATION-001 · unified-forward-outcome-labeling, startup-run, ALWAYS_ON-scheduler, DATA_UNAVAILABLE-healthy, lastLabelingRunAt, executionImpact-NONE
 - 2026-05-26 · ADR-0533 · unified-forward-outcome-labeling-bus, gate3-evidence, gate1-dry-run-forward-return, near-miss-horizon-counts, counterfactual-paper-observational, executionImpact-NONE

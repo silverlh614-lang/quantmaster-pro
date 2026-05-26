@@ -73,6 +73,10 @@ function updatedCount(seeds: readonly Gate3OutcomeSeed[], horizon: keyof Gate3Ou
   return seeds.filter((seed) => finiteReturn(seed.forwardReturns[horizon])).length;
 }
 
+function isSchedulerFailureWarning(warning: Gate3EvidenceWarmupWarning): boolean {
+  return warning !== 'WARN_DUPLICATE_SUPPRESSION_CHECK';
+}
+
 export function buildGate3EvidenceWarmupStatus(
   seeds: readonly Gate3OutcomeSeed[],
   options: Gate3EvidenceWarmupOptions = {},
@@ -105,7 +109,7 @@ export function buildGate3EvidenceWarmupStatus(
     d5Updated: updatedCount(seeds, 'd5'),
     d10Updated: updatedCount(seeds, 'd10'),
     stalePending: ages.filter((age) => age >= staleThreshold).length,
-    schedulerHealthy: warnings.length === 0,
+    schedulerHealthy: warnings.every((warning) => !isSchedulerFailureWarning(warning)),
     evidenceReady: thresholdEvidenceSampleSize > 0,
     thresholdEvidenceSampleSize,
     duplicateSuppressed,

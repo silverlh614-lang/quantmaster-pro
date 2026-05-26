@@ -87,7 +87,9 @@ describe('Gate3 Evidence Warm-up', () => {
     expect(stalled.warnings).toContain('WARN_FORWARD_RETURN_UPDATE_MISSING');
     expect(stalled.schedulerHealthy).toBe(false);
     expect(duplicateRisk.warnings).toContain('WARN_DUPLICATE_SUPPRESSION_CHECK');
+    expect(duplicateRisk.schedulerHealthy).toBe(true);
     expect(disconnected.warnings).toContain('WARN_EVIDENCE_AGGREGATOR_DISCONNECTED');
+    expect(disconnected.schedulerHealthy).toBe(false);
   });
 
   it('formats the operator warm-up section', () => {
