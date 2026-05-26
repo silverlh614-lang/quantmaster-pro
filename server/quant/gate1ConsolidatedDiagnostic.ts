@@ -131,9 +131,15 @@ function isTradabilityAdvisory(status: string | null): boolean {
 }
 
 function isLiquidityWeak(status: string | null): boolean {
+  // OPENING_RAMP 는 개장초 soft-pass(상시 유동) — weak 가 아니다(FAIL 의 대칭 완화).
   return status === 'THIN'
     || status === 'SPIKE_ONLY'
     || status === 'FAIL';
+}
+
+/** OPENING_RAMP 는 PASS-동등 soft-pass — data issue 로 노출하지 않는다. */
+function isLiquidityPassEquivalent(status: string | null): boolean {
+  return status === 'PASS' || status === 'OPENING_RAMP';
 }
 
 function buildSections(gate1: Gate1Bucket): Gate1ConsolidatedDiagnosticSections {
@@ -341,7 +347,7 @@ function buildDataIssues(input: {
   return [
     ...(input.quoteConfidence !== 'VERIFIED' ? [`quote=${input.quoteConfidence}`] : []),
     ...(input.tradabilityStatus !== 'TRADABLE' ? [`tradable=${input.tradabilityStatus}`] : []),
-    ...(input.liquidityStatus !== 'PASS' ? [`liquidity=${input.liquidityStatus}`] : []),
+    ...(!isLiquidityPassEquivalent(input.liquidityStatus) ? [`liquidity=${input.liquidityStatus}`] : []),
     ...(input.technicalStatus !== 'COMPUTED' ? [`technicalIndicators=${input.technicalStatus}`] : []),
     ...stringList(sourceCoverage.missingInputs).map((item) => `missingInput=${item}`),
     ...stringList(sourceCoverage.missingExternalData).map((item) => `missingExternal=${item}`),
