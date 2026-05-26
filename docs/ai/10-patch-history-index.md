@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-PREFLIGHT-GATE-HEADER-DIAGNOSTIC-SUMMARY-001 · gate_full, G1-header, hardSurvivors, minSignalPass, topGate1BlockReason, entryLane-counterfactual, gate2SoftLeadershipLane, gateLayerAudit
 - 2026-05-26 · Patch-PREFLIGHT-GATE1-FORENSIC-DETAIL-WIRING-001 · preflight, gate1-forensic, ADR-0505, SUMMARY_FIELD_MISSING, EMITTED, gate_full
 - 2026-05-26 · ADR-0531 · regime, gate0-ssot, buildGate0RegimeView, getLiveRegime-deprecated, regime-cmd-canonical
 - 2026-05-26 · ADR-0530 · regime, VKOSPI-sanity-guard, invariant-6, R6-recovery-vkospiOk-isolation, classifyVkospiSanity

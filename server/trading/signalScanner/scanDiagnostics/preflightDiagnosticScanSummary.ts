@@ -32,6 +32,14 @@ function resolveGateCompact(
   return typeof value === 'string' && value.length > 0 ? value : PREFLIGHT_GATE_COMPACT_FALLBACK;
 }
 
+/** preflight hard block 의 top Gate1 block reason — hardBlockSource:hardBlockReason (예: R3_SANITY_BLOCK:GATE1_PASS_ZERO). */
+function resolveTopGate1BlockReason(preflightBlocked: PreflightBlockedScanSummary): string {
+  const parts = [preflightBlocked.hardBlockSource, preflightBlocked.hardBlockReason].filter(
+    (p): p is string => typeof p === 'string' && p.length > 0,
+  );
+  return parts.length > 0 ? parts.join(':') : preflightBlocked.blockedBy;
+}
+
 /**
  * preflight HARD_BLOCK 시점의 minimal diagnostic ScanSummary. buyListLoop 미진입이므로 gatePass=0,
  * gateSamples 없음 — RuntimePipelineAudit 의 buyListLoopEntered 판정은 false 로 유지된다(정합).
@@ -80,6 +88,36 @@ export function buildPreflightDiagnosticScanSummary(
       lastTriggerPass: 0,
     },
     gate1MinimumSignalForensicAdr0505: gate1Forensic,
+    // /gate_full 상단 G1/G2 summary 가 buyListLoop 이후 full metrics 부재 시 preflight diagnostic 값을 반영하도록 carry.
+    // buyListLoop 미진입 → hardSurvivors/minSignalPass=0 (실제 0건, 미계산 아님). topGate1BlockReason = hard block 사유.
+    gate2SoftLeadershipLane: {
+      gate1HardSurvivors: 0,
+      minSignalLivePass: 0,
+      gate2PendingPreserved: 0,
+      labels: ['PRE_BUYLIST_BLOCK'],
+      shadowObservablePreserved: true,
+      watchPreserved: true,
+      counterfactualRecorded: preflightBlocked.counterfactualRecorded,
+      executionImpact: 'NONE',
+    },
+    gateLayerAudit: {
+      gate1PassCount: 0,
+      gate2PassCount: 0,
+      gate3PassCount: 0,
+      strongBuySuppressedByDataUnavailableCount: 0,
+      topGate1BlockReasons: [{ reason: resolveTopGate1BlockReason(preflightBlocked), count: candidateCount }],
+      topGate2BlockReasons: [],
+      topGate3BlockReasons: [{ reason: 'PRE_BREAKOUT_WAIT', count: candidateCount }],
+    },
+    entryLaneSplit: {
+      liveCandidates: 0,
+      liveOrderCreated: 0,
+      liveBlockedByPolicy: 0,
+      shadowDiagnosticCreated: 0,
+      paperObservationalCreated: 0,
+      counterfactualCreated: preflightBlocked.counterfactualRecorded ? candidateCount : 0,
+      watchOnlyPreserved: 0,
+    },
     gateDiagnostics: {
       gate1CompactText: resolveGateCompact(diagnostics, 'gate1CompactText'),
       gate2CompactText: resolveGateCompact(diagnostics, 'gate2CompactText'),
