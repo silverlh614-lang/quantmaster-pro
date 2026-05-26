@@ -55,6 +55,8 @@ export function createScanCounters(): ScanCounters {
     gateScoreUnavailableCounts: {},
     gateScoreThresholdNotMetCounts: {},
     gateScoreProviderDegradedCounts: {},
+    gate1SweepScores: [],
+    gate1SweepAdaptiveThreshold: 0,
     gateLayerAudit: createGateLayerAuditAccumulator(),
     perStageDropoff: {},
     gateScoreBucketCounts: {

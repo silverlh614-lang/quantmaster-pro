@@ -52,7 +52,7 @@ export { rememberSupplyBySymbolPayloadSnapshot } from '../../../supply/investorF
 export { fetchInvestorTrading, getLastKrxInvestorTradingDiagnostic } from '../../../clients/krxClient.js';
 export { DEFAULT_DATA_PROMOTION_STATUS } from './scanSummaryTypes.js';
 export { buildGatePassDistribution, buildWaitDistribution } from './scanCounterAccumulators.js';
-export { buildGateScoreCandidateBucketSummary, buildGateScoreHealthSummary } from './gateScoreDiagnostics.js';
+export { buildGateScoreCandidateBucketSummary, buildGateScoreHealthSummary, buildGate1ThresholdSweepSummary } from './gateScoreDiagnostics.js';
 export { buildGateDiagnosticCarrySummary, buildGateLayerAuditSummary } from './gateLayerDiagnostics.js';
 export { buildPerStageDropoffSummary } from './pipelineStageDiagnostics.js';
 export { cacheRawToNaverInvestorTrendPointAdr0481, cacheRawToSemanticInputAdr0482 } from './supplyDiagnostics.js';

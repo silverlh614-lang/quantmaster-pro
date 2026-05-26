@@ -41,7 +41,7 @@ import {
   type PaperEntrySkipReason,
   type ScanSummary,
 } from './scanSummaryTypes.js';
-import { formatGateScoreCandidateBucketSection, formatGateScoreHealthSection } from './gateScoreDiagnostics.js';
+import { formatGateScoreCandidateBucketSection, formatGateScoreHealthSection, formatGate1ThresholdSweepSection } from './gateScoreDiagnostics.js';
 import { formatGate1SurvivalAuditSection, formatGate2CoverageAuditSection, formatGate3TimingReadinessAuditSection } from './gateLayerDiagnostics.js';
 import { formatGate3ThresholdEvidenceSection } from '../../../quant/gate3EvidenceScore.js';
 import { formatGate3EvidenceWarmupSection } from '../../../quant/gate3EvidenceWarmup.js';
@@ -942,6 +942,11 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
       const liveEntryBlockedReason = String(mg.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY').toUpperCase();
       const removedPolicyReason = liveEntryBlockedReason.includes('SELL_ONLY') || liveEntryBlockedReason.includes('R6_DEFENSE');
       lines.push(`  • liveEntryBlocked: <b>${removedPolicyReason ? 'LEGACY_POLICY_INPUT_IGNORED' : mg.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY'}</b> (diagnostics continue)`);
+      // R3 sanity OBSERVE_ONLY 강등 가시화 — hard-abort 가 아닌 execution guard 임을 명시 (hardBlockSource=NONE).
+      if (liveEntryBlockedReason.includes('R3_SANITY_GUARD')) {
+        lines.push('  • executionGuardSource: <b>R3_SANITY_BLOCK</b> (hardBlockSource=NONE)');
+        lines.push('  • preflightDecision: <b>R3_SANITY_OBSERVE_ONLY_DIAGNOSTIC_CARRIED</b>');
+      }
     }
     if (mg.sellOnlyMode) {
       lines.push('  Legacy defense policy input detected - executionImpact=NONE');
@@ -1174,6 +1179,13 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   if (gateScoreBucketSection) {
     lines.push('');
     lines.push(gateScoreBucketSection);
+  }
+
+  // Gate1 threshold sweep — survivors@{70,65,60,adaptive} (diagnostic-only, executionImpact NONE).
+  const gate1ThresholdSweepSection = formatGate1ThresholdSweepSection(summary.gate1ThresholdSweep);
+  if (gate1ThresholdSweepSection) {
+    lines.push('');
+    lines.push(gate1ThresholdSweepSection);
   }
 
   // ADR-458 — Approved Gate Reclassification Dry-Run (shadow-only, executionImpact NONE).
