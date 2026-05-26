@@ -155,4 +155,30 @@ describe('ADR-461 runtime pipeline audit', () => {
     process.env.RUNTIME_PIPELINE_AUDIT_DISABLED = 'true';
     expect(isRuntimePipelineAuditDisabled()).toBe(true);
   });
+
+  // ADR-0528 carry: section must expose the canonical sourceSnapshotId of the cycle it reflects.
+  it('canonical sourceSnapshotId를 섹션에 carry (scanEvaluation.scanId fallback)', async () => {
+    mockSummary = baseSummary({
+      scanEvaluation: { scanId: 'scan-eval-2026-05-25T13:10:00' } as never,
+    });
+    const { buildRuntimePipelineAuditSnapshot, formatRuntimePipelineAuditSection } = await import('./runtimePipelineAudit.js');
+    const s = buildRuntimePipelineAuditSnapshot();
+    expect(s.sourceSnapshotId).toBe('scan-eval-2026-05-25T13:10:00');
+    expect(formatRuntimePipelineAuditSection(s)).toContain('sourceSnapshotId: <code>scan-eval-2026-05-25T13:10:00</code>');
+  });
+
+  it('summary snapshotId 우선 — canonical id로 사용', async () => {
+    mockSummary = baseSummary({ snapshotId: 'scan-eval-canonical-001' });
+    const { buildRuntimePipelineAuditSnapshot } = await import('./runtimePipelineAudit.js');
+    expect(buildRuntimePipelineAuditSnapshot().sourceSnapshotId).toBe('scan-eval-canonical-001');
+  });
+
+  it('summary 부재 시 NO_SCAN_SUMMARY fallback (회귀 0)', async () => {
+    mockSummary = null;
+    const { buildRuntimePipelineAuditSnapshot } = await import('./runtimePipelineAudit.js');
+    const id = buildRuntimePipelineAuditSnapshot().sourceSnapshotId;
+    // preflight-blocked store가 비어 있으면 NO_SCAN_SUMMARY, 있으면 그 scanId — 둘 다 비-비결정 표시.
+    expect(typeof id).toBe('string');
+    expect(id.length).toBeGreaterThan(0);
+  });
 });
