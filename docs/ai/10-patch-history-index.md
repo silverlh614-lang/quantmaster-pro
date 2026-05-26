@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-SECTOR-ENERGY-RENDERER-OVERRIDE-LEGACY-KILL-ADR0534-001 · sector-energy, applySectorEnergyCanonicalOverride, canonical-derived-from-officialTarget-coverage(73.3%→8/11→FALSE)-not-safeOfficial-100%, master+recovery-override-at-hub, candidate-pool/Gate2/Telegram/ADR-0488-pass-through, legacy*DiagnosticOnly, safeOfficialPromotionAllowedDiagnosticOnly-relabel, leadershipConfidence-canonical-map, no-rendered-promotionAllowed-true-when-canonical-false, executionImpact-NONE
 - 2026-05-26 · ADR-0534 · sector-energy, SectorEnergyCanonicalResolver, SectorEnergyCanonicalState, OFFICIAL_SECTOR_ENERGY_11, promotionCoverage=verified/11, requiredPromotionCoverage-0.8, OFFICIAL_KIS→KRX→NONE, theme-tag-only(조선/방산/원자력/이차전지), KIS-basket/grouped/old-12-15-coverage-diagnosticOnly, ADR-0488-carry, TopBlocks-single-source, enforceSectorEnergyTopBlockConsistency, executionImpact-NONE
 - 2026-05-26 · Patch-GATE0-SNAPSHOT-USAGE-LIVE-PERMISSION-HARDENING-001 · gate0, EOD_SNAPSHOT_VALID-live-block, snapshot-usage-validity, SHADOW_ONLY_POLICY, VKOSPI-untrusted-diagnostic-only, executionImpact-NONE
 - 2026-05-26 · Patch-GATE0-MACRO-PERMISSION-NORMALIZATION-001 · gate0, macroSignalValidity, stale-null-macroMarketSignal-false, SHADOW_ONLY_POLICY, providerIssue-isolated, scan_blockers_gate0

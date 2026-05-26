@@ -16,17 +16,19 @@ function clamp01Pct(value: number | undefined): number {
 }
 
 /**
- * 공식 source 의 verified coverage(%) 를 공식 11개 denominator 의 정수 count 로 재기준한다.
- * master.promotionAllowed 와 경계(80%)에서 일치하도록 보정 — LIVE 판단 byte-equivalent 보존.
+ * 공식 11개 섹터 기준 verified count 를 도출한다.
+ * ADR-0534: 기준은 official-target verified coverage(예: 73.3%)다.
+ * safeOfficialVerifiedCoverage(unsafe theme alias 제외로 100% 가 되는 값)는 final 판단에 쓰지 않는다 —
+ * 그 trick 은 canonical 의 공식 11개 denominator 원칙을 우회하므로 진단으로만 본다.
+ * master.promotionAllowed 에 정렬하지 않는다 — canonical 이 권위를 회수한다.
  */
 function deriveVerifiedOfficialCount(master: SectorEnergyMasterSupplyLineReportAdr0488): number {
-  const coveragePct = clamp01Pct(master.safeOfficialVerifiedCoverage ?? master.verifiedIndexCodeCoverage);
+  const coveragePct = clamp01Pct(
+    master.officialTargetVerifiedCoverageDiagnostic ?? master.verifiedIndexCodeCoverage,
+  );
   let count = Math.round((coveragePct / 100) * 11);
   if (count < 0) count = 0;
   if (count > 11) count = 11;
-  // 경계 정합: master 의 공식 promotion 결정과 canonical pass(>=9) 를 일치시킨다.
-  if (master.promotionAllowed === true && count < 9) count = 9;
-  if (master.promotionAllowed === false && count >= 9) count = 8;
   return count;
 }
 

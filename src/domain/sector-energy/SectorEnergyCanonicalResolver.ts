@@ -329,6 +329,69 @@ export function overrideWithCanonicalPromotion(
   };
 }
 
+// ─── Renderer Override (ADR-0534): legacy 결정 필드를 canonical 으로 덮어쓴다 ─────
+
+/** canonical.dataQuality → legacy leadershipConfidence enum 매핑. */
+type LegacyLeadershipConfidence = 'VERIFIED' | 'PARTIAL' | 'SHADOW_ONLY' | 'BLOCKED';
+function leadershipConfidenceFromCanonical(canonical: SectorEnergyCanonicalState): LegacyLeadershipConfidence {
+  if (canonical.promotionCoveragePass) return 'VERIFIED';
+  // 공식 source 없음(MISSING)이라도 shadowLeadershipAllowed=true 이므로 SHADOW_ONLY (BLOCKED 아님).
+  if (canonical.dataQuality === 'MISSING') return 'SHADOW_ONLY';
+  return 'PARTIAL';
+}
+
+/** 모든 SectorEnergy 출력 객체에 추가되는 canonical 결정/진단 overlay 필드. */
+export interface SectorEnergyCanonicalOverlay {
+  promotionAllowed: boolean;
+  sectorBoostAllowed: boolean;
+  strongBuyAllowed: boolean;
+  shadowLeadershipAllowed: boolean;
+  promotionCoveragePass: boolean;
+  leadershipConfidence: LegacyLeadershipConfidence;
+  selectedSourceTier: SectorEnergySelectedSourceTier;
+  dataQuality: SectorEnergyDataQuality;
+  confidence: SectorEnergyDataQuality;
+  // legacy 진단 보존 (final 판단에 사용 금지)
+  legacyPromotionAllowedDiagnosticOnly?: unknown;
+  legacySectorBoostAllowedDiagnosticOnly?: unknown;
+  legacyStrongBuyAllowedDiagnosticOnly?: unknown;
+  legacyLeadershipConfidenceDiagnosticOnly?: unknown;
+  legacySelectedSourceTierDiagnosticOnly?: unknown;
+  legacyDataQualityDiagnosticOnly?: unknown;
+}
+
+/**
+ * ADR-0534: SectorEnergy 출력 객체의 결정 필드를 canonical 값으로 강제 덮어쓴다.
+ * promotion/sectorBoost/strongBuy/shadow/leadershipConfidence/sourceTier/dataQuality 를 canonical 으로 통일하고,
+ * 기존 값은 legacy*DiagnosticOnly 로 보존한다. coverage 수치(단위 상이)는 건드리지 않는다.
+ * renderer 는 이 함수 결과를 pass-through 한다 — legacy 계산값이 promotion 을 되살릴 수 없다.
+ */
+export function applySectorEnergyCanonicalOverride<T extends object>(
+  target: T,
+  canonical: SectorEnergyCanonicalState,
+): T & SectorEnergyCanonicalOverlay {
+  const t = target as Record<string, unknown>;
+  return {
+    ...target,
+    legacyPromotionAllowedDiagnosticOnly: t.promotionAllowed,
+    legacySectorBoostAllowedDiagnosticOnly: t.sectorBoostAllowed,
+    legacyStrongBuyAllowedDiagnosticOnly: t.strongBuyAllowed,
+    legacyLeadershipConfidenceDiagnosticOnly: t.leadershipConfidence,
+    legacySelectedSourceTierDiagnosticOnly: t.selectedSectorEnergySourceTier ?? t.selectedSourceTier,
+    legacyDataQualityDiagnosticOnly: t.dataQuality,
+    promotionAllowed: canonical.promotionAllowed,
+    sectorBoostAllowed: canonical.sectorBoostAllowed,
+    strongBuyAllowed: canonical.strongBuyAllowed,
+    shadowLeadershipAllowed: canonical.shadowLeadershipAllowed,
+    promotionCoveragePass: canonical.promotionCoveragePass,
+    leadershipConfidence: leadershipConfidenceFromCanonical(canonical),
+    selectedSourceTier: canonical.selectedSourceTier,
+    ...('selectedSectorEnergySourceTier' in t ? { selectedSectorEnergySourceTier: canonical.selectedSourceTier } : {}),
+    dataQuality: canonical.dataQuality,
+    confidence: canonical.confidence,
+  };
+}
+
 // ─── 출력 렌더 (3개 final 블록) ─────────────────────────────────────────────────
 
 function pct1(value: number): string {
