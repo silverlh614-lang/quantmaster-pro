@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-26 · Patch-R3-SANITY-BLOCK-ENV-SEAL-001 · preflight, R3_SANITY_BLOCK_ENABLED, isR3SanityBlockEnabled, ADR-0120-latch-seal, gate-diagnostic-unblock, 1-line-rollback
 - 2026-05-26 · Patch-PREFLIGHT-GATE-HEADER-DIAGNOSTIC-SUMMARY-001 · gate_full, G1-header, hardSurvivors, minSignalPass, topGate1BlockReason, entryLane-counterfactual, gate2SoftLeadershipLane, gateLayerAudit
 - 2026-05-26 · ADR-0531-ROLLOUT-DECISION · regime, gate0-ssot, canonicalRegimeAccess, resolveCanonicalRegimeLevel, isCanonicalR6Defense, decision-consumer-migration, GATE0_CANONICAL_REGIME_DISABLED-killswitch
 - 2026-05-26 · Patch-PREFLIGHT-GATE1-FORENSIC-DETAIL-WIRING-001 · preflight, gate1-forensic, ADR-0505, SUMMARY_FIELD_MISSING, EMITTED, gate_full
