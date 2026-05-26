@@ -16,6 +16,7 @@ import {
   renderSectorEnergyCanonicalOutput,
   resolveOfficialSectorEnergyCoverage,
   assertSectorEnergyCoverageInvariants,
+  OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS,
   type SectorEnergyCanonicalState,
 } from './SectorEnergyCanonicalResolver.js';
 
@@ -530,5 +531,31 @@ describe('assertSectorEnergyCoverageInvariants — critical key regression guard
         indexVerifyResults: [{ indexCode: '0005', verified: true }],
       }),
     ).not.toThrow();
+  });
+});
+
+describe('OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS — always-verify universe (ADR-0534 follow-up)', () => {
+  it('covers exactly the 11 official sectors, one target per key', () => {
+    expect(OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS).toHaveLength(11);
+    const keys = OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS.map((t) => t.key).sort();
+    expect(keys).toEqual([...OFFICIAL_SECTOR_ENERGY_11].sort());
+  });
+
+  it('every base target index code is 4 digits', () => {
+    for (const target of OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS) {
+      expect(target.indexCode).toMatch(/^\d{4}$/);
+      expect(target.sectorName.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('verifying the base universe resolves to 11/11 (machinery/food/service no longer missing)', () => {
+    const officialIndexMasterRows = OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS.map((t) => ({ indexCode: t.indexCode, sectorName: t.sectorName }));
+    const indexVerifyResults = OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS.map((t) => ({ indexCode: t.indexCode, verified: true }));
+    const coverage = resolveOfficialSectorEnergyCoverage({ officialIndexMasterRows, indexVerifyResults });
+    expect(coverage.verifiedOfficialSectorCount).toBe(11);
+    expect(coverage.missingOfficialSectorKeys).toEqual([]);
+    expect(coverage.verifiedOfficialSectorKeys).toContain('MACHINERY_EQUIPMENT');
+    expect(coverage.verifiedOfficialSectorKeys).toContain('FOOD_BEVERAGE_TOBACCO');
+    expect(coverage.verifiedOfficialSectorKeys).toContain('SERVICE_TELECOM');
   });
 });

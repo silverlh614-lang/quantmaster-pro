@@ -142,6 +142,7 @@ import { buildOfficialSectorIndexMasterCoverage, type OfficialSectorIndexMasterC
 import { verifySectorIndexCodeWithKisCurrentPrice } from '../../../sector/KisSectorIndexVerifierAdapter.js';
 import { isTradingDay } from '../../../utils/marketDayClassifier.js';
 import type { OfficialSectorIndexTarget } from '../../../sector/SectorIndexCodeMap.js';
+import { OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS } from '../../../../src/domain/sector-energy/SectorEnergyCanonicalResolver.js';
 let _lastBuySignalAt = 0;
 let _consecutiveZeroScans = 0;
 let _lastScanSummary: ScanSummary | null = null;
@@ -295,6 +296,26 @@ function collectOfficialSectorIndexTargets(
     for (const sector of topGroupedSectors) {
       const sectorName = typeof sector === 'string' ? sector.trim() : '';
       if (sectorName) addTarget({ sectorName, sectorKey: sectorName });
+    }
+  }
+
+  // ADR-0534 follow-up: 공식 11개 섹터를 후보 풀과 무관하게 항상 verify 한다 (numerator↔denominator 정합).
+  // 기계장비/음식료/방송통신 처럼 후보에 없던 official 섹터가 누락되어 8/11 로 잡히던 문제를 해소한다.
+  // KIS 업종지수 조회(observe-mode)만 추가 — executionImpact=NONE. ENV=false 로 즉시 롤백.
+  if (process.env.SECTOR_ENERGY_OFFICIAL_BASE_VERIFY_ENABLED !== 'false') {
+    const normalizeSectorName = (value: string): string => value.trim().toLowerCase().replace(/[\s/·]/g, '');
+    const presentNames = new Set<string>();
+    const presentCodes = new Set<string>();
+    for (const target of targets.values()) {
+      const name = normalizeSectorName(String(target.sectorName ?? ''));
+      if (name) presentNames.add(name);
+      const code = String(target.candidateIndexCode ?? '').trim();
+      if (code) presentCodes.add(code);
+    }
+    for (const base of OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS) {
+      if (presentCodes.has(base.indexCode)) continue;
+      if (presentNames.has(normalizeSectorName(base.sectorName))) continue;
+      addTarget({ sectorName: base.sectorName, sectorKey: base.key, candidateIndexCode: base.indexCode });
     }
   }
 

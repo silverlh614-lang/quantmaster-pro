@@ -190,6 +190,32 @@ const OFFICIAL_SECTOR_ALIAS_MAP: Record<OfficialSectorEnergyKey, { aliases: stri
   SERVICE_TELECOM: { aliases: ['서비스', '서비스업', '통신', '방송통신', 'KRX 방송통신', '미디어&엔터테인먼트', 'KRX 미디어&엔터테인먼트', 'SERVICE', 'TELECOM', 'SERVICE_TELECOM'], preferredIndexCodes: ['4010', '4063'] },
 };
 
+export interface OfficialSectorEnergyVerifyTarget {
+  key: OfficialSectorEnergyKey;
+  sectorName: string;
+  indexCode: string;
+}
+
+/**
+ * ADR-0534 follow-up: 공식 11개 섹터를 후보 풀과 무관하게 매 스캔 verify 하기 위한 기준 target.
+ * indexCode 는 KIS idxcode.mst 업종코드(공식, U/FHPUP02100000 으로 조회). collectOfficialSectorIndexTargets
+ * 가 이 11개를 항상 시드하여 numerator(verified) 가 denominator(11) 와 정합하도록 보장한다 —
+ * 후보 섹터에 기계/음식료/통신 종목이 없어도 MACHINERY/FOOD/SERVICE_TELECOM 이 누락되지 않는다.
+ */
+export const OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS: readonly OfficialSectorEnergyVerifyTarget[] = [
+  { key: 'SEMICONDUCTOR_ELECTRONICS', sectorName: '반도체', indexCode: '4003' },
+  { key: 'AUTOMOTIVE_TRANSPORT_EQUIPMENT', sectorName: '자동차', indexCode: '4002' },
+  { key: 'MACHINERY_EQUIPMENT', sectorName: '기계장비', indexCode: '0012' },
+  { key: 'CHEMICALS', sectorName: '화학', indexCode: '0008' },
+  { key: 'BIO_HEALTHCARE_PHARMA', sectorName: '바이오/헬스케어', indexCode: '4004' },
+  { key: 'STEEL_METALS', sectorName: '철강', indexCode: '4008' },
+  { key: 'CONSTRUCTION', sectorName: '건설', indexCode: '0018' },
+  { key: 'FINANCIALS', sectorName: '금융', indexCode: '0021' },
+  { key: 'CONSUMER_RETAIL', sectorName: '유통/소비재', indexCode: '0016' },
+  { key: 'FOOD_BEVERAGE_TOBACCO', sectorName: '음식료', indexCode: '0005' },
+  { key: 'SERVICE_TELECOM', sectorName: '방송통신', indexCode: '4010' },
+];
+
 /**
  * ADR-0535 회귀 가드: official key 매핑 누락 invariant. alias map 내용과 독립적으로
  * 코드/이름 증거를 직접 본다 — verify 성공 증거가 입력에 존재하는데 해당 공식 key 가
