@@ -149,6 +149,23 @@ export interface Gate1ThresholdEvidenceSummary {
   bestDryRunThreshold: 70 | 65 | 60;
   recommendedAction: 'OBSERVE_MORE' | 'KEEP_THRESHOLD_70' | 'DRY_RUN_THRESHOLD_65_R3_ONLY' | 'REJECT_THRESHOLD_RELAXATION';
   confidence: 'INSUFFICIENT_SAMPLE' | 'LOW' | 'MEDIUM' | 'HIGH';
+  scoreBandTable: Array<{
+    band: '70+' | '65~70' | '60~65' | '55~60' | 'below55';
+    count: number;
+    matureD1: number;
+    matureD3: number;
+    matureD5: number;
+    avgReturnD1: number | 'N/A';
+    avgReturnD3: number | 'N/A';
+    avgReturnD5: number | 'N/A';
+    winRateD5: number | 'N/A';
+    hitPlus3PctRate: number | 'N/A';
+    hitMinus3PctRate: number | 'N/A';
+    avgMFE: number | 'N/A';
+    avgMAE: number | 'N/A';
+    expectancyR: number | 'N/A';
+    falseNegativeRate: number | 'N/A';
+  }>;
   liveExecutionImpact: 'NONE';
   thresholdAutoChanged: false;
   operatorApprovalRequired: true;
@@ -851,6 +868,42 @@ export function buildGate1ThresholdEvidenceSummary(
       : can65
         ? 'DRY_RUN_THRESHOLD_65_R3_ONLY'
         : 'REJECT_THRESHOLD_RELAXATION';
+  const buildBandSummary = (
+    bandRows: Gate1DryRunObservationRow[],
+    band: '70+' | '65~70' | '60~65' | '55~60' | 'below55',
+  ) => {
+    const maturedD1Rows = bandRows.filter((row) => finite(row.forwardReturn1D));
+    const maturedD3Rows = bandRows.filter((row) => finite(row.forwardReturn3D));
+    const maturedD5Rows = bandRows.filter((row) => finite(row.forwardReturn5D));
+    const avgValue = (values: number[]): number | 'N/A' => (values.length > 0
+      ? round1(values.reduce((sum, value) => sum + value, 0) / values.length)
+      : 'N/A');
+    const rateValue = (ok: number, total: number): number | 'N/A' => (total > 0 ? round1((ok / total) * 100) : 'N/A');
+    const d5Returns = maturedD5Rows.map((row) => row.forwardReturn5D as number);
+    const mfeValues = maturedD5Rows
+      .map((row) => row.maxFavorableExcursionPct)
+      .filter(finite);
+    const maeValues = maturedD5Rows
+      .map((row) => row.maxAdverseExcursionPct)
+      .filter(finite);
+    return {
+      band,
+      count: bandRows.length,
+      matureD1: maturedD1Rows.length,
+      matureD3: maturedD3Rows.length,
+      matureD5: maturedD5Rows.length,
+      avgReturnD1: avgValue(maturedD1Rows.map((row) => row.forwardReturn1D as number)),
+      avgReturnD3: avgValue(maturedD3Rows.map((row) => row.forwardReturn3D as number)),
+      avgReturnD5: avgValue(d5Returns),
+      winRateD5: rateValue(d5Returns.filter((value) => value > 0).length, d5Returns.length),
+      hitPlus3PctRate: rateValue(d5Returns.filter((value) => value >= 3).length, d5Returns.length),
+      hitMinus3PctRate: rateValue(d5Returns.filter((value) => value <= -3).length, d5Returns.length),
+      avgMFE: avgValue(mfeValues),
+      avgMAE: avgValue(maeValues),
+      expectancyR: avgValue(d5Returns.map((value) => value / 3)),
+      falseNegativeRate: rateValue(d5Returns.filter((value) => value >= 3).length, d5Returns.length),
+    };
+  };
   return {
     sampleWindow: '1D/3D/5D',
     totalSamples,
@@ -860,6 +913,13 @@ export function buildGate1ThresholdEvidenceSummary(
     bestDryRunThreshold: recommendedAction === 'DRY_RUN_THRESHOLD_65_R3_ONLY' ? 65 : 70,
     recommendedAction,
     confidence,
+    scoreBandTable: [
+      buildBandSummary(sample.filter((row) => (row.dryRunScore as number) >= 70), '70+'),
+      buildBandSummary(sample.filter((row) => (row.dryRunScore as number) >= 65 && (row.dryRunScore as number) < 70), '65~70'),
+      buildBandSummary(sample.filter((row) => (row.dryRunScore as number) >= 60 && (row.dryRunScore as number) < 65), '60~65'),
+      buildBandSummary(sample.filter((row) => (row.dryRunScore as number) >= 55 && (row.dryRunScore as number) < 60), '55~60'),
+      buildBandSummary(sample.filter((row) => (row.dryRunScore as number) < 55), 'below55'),
+    ],
     liveExecutionImpact: 'NONE',
     thresholdAutoChanged: false,
     operatorApprovalRequired: true,

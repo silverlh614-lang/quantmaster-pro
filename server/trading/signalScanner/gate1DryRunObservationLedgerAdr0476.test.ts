@@ -301,6 +301,18 @@ describe('ADR-0476 Gate1 Dry-run Observation Ledger', () => {
     expect(section).toContain('rowsCreated:');
     expect(section).toContain('liveExecutionAllowed: false');
     expect(section).not.toMatch(/<b>|<i>|<code>/);
+    expect(message).toContain('Gate1 Threshold Evidence');
+    expect(message).toContain('scoreBandTable:');
+    expect(message).toContain('70+:');
+    expect(message).toContain('65~70:');
+    expect(message).toContain('60~65:');
+    expect(message).toContain('55~60:');
+    expect(message).toContain('below55:');
+    expect(message).toContain('recommendedAction: OBSERVE_MORE');
+    expect(message).toContain('confidence: INSUFFICIENT_SAMPLE');
+    expect(message).toContain('executionImpact: NONE');
+    expect(message).toContain('thresholdAutoChanged: false');
+    expect(message).toContain('operatorApprovalRequired: true');
   });
 
   it('runtimePipelineAudit removes NO_DRY_RUN_RECORDS when ADR-0476 rows exist and keeps ADR_460_NOT_INSTALLED', async () => {
