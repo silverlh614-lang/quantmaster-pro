@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-27 · Patch-SAFE-LEAF-CC-DECOMP-001 · refactor, safe leaf cc 분해 3종(mapNaverIndustryToKorean 67→순서보존 룩업배열, parseKrxMasterCsv market 분류헬퍼, summarizeInvestorFlowProviderHealth display resolver), GodFunctionGuard 221→218, 동작 보존(테스트 무회귀), 판단로직 무관 순수/display leaf, executionImpact-NONE
 - 2026-05-27 · Patch-TELEGRAM-FORMATTER-CC-DECOMP-001 · refactor, telegram display formatter 4종 cc 분해(gateAudit/sectorEnergyDiag/programMarketRaw/supplyHealth-diagnoseInvestorFlow), 분기클러스터→순수 섹션헬퍼·룩업테이블 추출, GodFunctionGuard 225→221, 출력 byte-identical(커맨드테스트 70/70), 판단로직 불변, executionImpact-NONE
 - 2026-05-27 · Patch-GODFUNCTION-CC-NULLSAFETY-RECALIBRATION-001 · governance, check_complexity cc 계수 정정(옵셔널체이닝 ?.·nullish ?? 제외 — McCabe 결정분기만), GodFunctionGuard 410→225(null-safety 과대계수 185건 제거), 런타임 0줄·체커자체테스트 13/13, executionImpact-NONE
 - 2026-05-27 · Patch-GODFUNCTION-UI-PURE-HELPER-PHASE4-001 · refactor, GodFunctionGuard 412→410(UI 소규모), RegimeGaugeSection/EngineControlCard 순수 value→문자열·variant 매핑 헬퍼 추출(cc≤25), JSX/hook 구조 불변·렌더출력 verbatim 보존, typecheck 0, executionImpact-NONE

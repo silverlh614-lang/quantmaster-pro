@@ -688,6 +688,17 @@ function formatKrxAdr0445SubLines(krx: InvestorFlowProviderHealth): string[] {
   return sub;
 }
 
+function resolveNaverDisplay(routerNaver: string | undefined, naver: InvestorFlowProviderHealth | undefined): string {
+  if (routerNaver === 'NOT_WIRED') return 'DATA_UNAVAILABLE / NO_SAMPLE';
+  return routerNaver ?? (naver ? normalizeSupplyProviderStatus(naver.status) : 'DATA_UNAVAILABLE / NO_SAMPLE');
+}
+
+function resolveSemanticDisplay(routerSemantic: string | undefined): string {
+  if (routerSemantic === 'READY_FOR_SHADOW') return 'READY_FOR_SHADOW / NORMALIZED_SAMPLE';
+  if (routerSemantic && routerSemantic !== 'NOT_WIRED' && routerSemantic !== 'DATA_UNAVAILABLE') return routerSemantic;
+  return 'DATA_UNAVAILABLE / NO_INPUT_SAMPLE';
+}
+
 export function summarizeInvestorFlowProviderHealth(health: InvestorFlowProviderHealth[], router?: SupplyProviderWarmupReport['investorFlowRouter'] | null): string {
   if (health.length === 0 && !router) return 'Supply Provider Health: no recent investor-flow provider sample';
   const byProvider = new Map<InvestorFlowProvider, InvestorFlowProviderHealth>();
@@ -706,14 +717,8 @@ export function summarizeInvestorFlowProviderHealth(health: InvestorFlowProvider
     const routerCache = router.providerStatuses?.CACHE;
     const routerNaver = router.providerStatuses?.NAVER ?? router.providerStatuses?.NAVER_INVESTOR_TREND;
     const routerSemantic = router.providerStatuses?.SEMANTIC_NETBUY;
-    const naverDisplay = routerNaver === 'NOT_WIRED'
-      ? 'DATA_UNAVAILABLE / NO_SAMPLE'
-      : routerNaver ?? (naver ? normalizeSupplyProviderStatus(naver.status) : 'DATA_UNAVAILABLE / NO_SAMPLE');
-    const semanticDisplay = routerSemantic === 'READY_FOR_SHADOW'
-      ? 'READY_FOR_SHADOW / NORMALIZED_SAMPLE'
-      : routerSemantic && routerSemantic !== 'NOT_WIRED' && routerSemantic !== 'DATA_UNAVAILABLE'
-        ? routerSemantic
-        : 'DATA_UNAVAILABLE / NO_INPUT_SAMPLE';
+    const naverDisplay = resolveNaverDisplay(routerNaver, naver);
+    const semanticDisplay = resolveSemanticDisplay(routerSemantic);
     const cacheDisplay = routerCache ?? cache?.status ?? 'CACHE_EMPTY';
     lines.push(`- NAVER: ${naverDisplay}`);
     lines.push(`- Semantic NetBuy: ${semanticDisplay}`);
