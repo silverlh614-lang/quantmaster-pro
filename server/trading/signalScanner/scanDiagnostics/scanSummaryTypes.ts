@@ -315,7 +315,6 @@ export interface ScanSummary {
   penaltyDeduplication?: PenaltyDeduplicationReport;
   riskDoubleCount?: RiskDoubleCountAuditReport;
   finalGate1Calibration?: FinalGate1CalibrationAuditReport;
-  gate1ThresholdEvidence?: import('../../../quant/gate1ThresholdEvidence.js').Gate1ThresholdEvidenceReport;
   gate1ScoringAlignment?: Gate1ScoringAlignmentReport;
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport;
   gate1DryRunObservationLedger?: Gate1DryRunObservationSummary;

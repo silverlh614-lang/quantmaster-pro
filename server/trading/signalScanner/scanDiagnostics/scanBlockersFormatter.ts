@@ -44,7 +44,6 @@ import {
 import { formatGateScoreCandidateBucketSection, formatGateScoreHealthSection } from './gateScoreDiagnostics.js';
 import { formatGate1SurvivalAuditSection, formatGate2CoverageAuditSection, formatGate3TimingReadinessAuditSection } from './gateLayerDiagnostics.js';
 import { formatGate3ThresholdEvidenceSection } from '../../../quant/gate3EvidenceScore.js';
-import { formatGate1ThresholdEvidenceSection } from '../../../quant/gate1ThresholdEvidence.js';
 import { formatGate3EvidenceWarmupSection } from '../../../quant/gate3EvidenceWarmup.js';
 import { formatGate3FinalizationSection } from '../../../quant/gate3CompletionScore.js';
 import { formatUnifiedForwardOutcomeLabelerSection } from '../../../learning/unifiedForwardOutcomeLabeler.js';
@@ -1371,15 +1370,6 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   if (finalGate1CalibrationSection) {
     lines.push('');
     lines.push(finalGate1CalibrationSection);
-  }
-
-  // Gate1 Threshold Evidence (emit-only, suggest-only) — between Final Gate1 Calibration and Gate1 Scoring
-  // Alignment. Always renders; with no/insufficient mature samples it shows INSUFFICIENT_SAMPLE/OBSERVE_MORE.
-  try {
-    lines.push('');
-    lines.push(formatGate1ThresholdEvidenceSection(summary.gate1ThresholdEvidence));
-  } catch (e) {
-    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatGate1ThresholdEvidenceSection', error: e });
   }
 
   try {
