@@ -151,6 +151,7 @@ Append the current PR row here. When this list grows past roughly 60 rows, move 
 - 2026-05-26 · Patch-TRACE-SOURCESNAPSHOTID-ALIGNMENT · runtime-resolver-trace, runtime-pipeline-audit, NO_SCAN_SUMMARY-fix, scanEvaluation.scanId, ADR-0528-carry
 - 2026-05-26 · Patch-GATE1-RISK-SECTOR-VIEW-NORMALIZATION · Gate1-positive-wiring-display, RegimeRisk-confidence-sizing, SectorEnergy-view-split, R3-subReason
 - 2026-05-27 · Patch-SectorEnergy-Legacy-Renderer-Kill · canonical-output-lock, diagnostic-only-grouped-kis, TopBlocks, Gate2, ADR0488, Telegram-sector
+- 2026-05-27 · ADR-0537 · refactor, kisClient/query.ts 분해 (sectorIndex + helpers leaf), 2273→1307, byte-equivalent, baseline-해소, quota-0
 
 ---
 
