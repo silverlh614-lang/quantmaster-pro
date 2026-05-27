@@ -52,6 +52,10 @@ import { emitScanDiagnosticBuildFailedWarn } from '../state/scanDiagnosticSuppre
 import { formatFrozenQuoteSection, formatPriceCorrectionOverlaySection, formatPriceIntegritySection, formatR3StreakSkipLine } from './sectionFormatters.js';
 import { buildGate0Decision } from './gate0MacroPermissionDecision.js';
 import { getRegimePositionPolicy } from '../../sizing/regimePositionPolicy.js';
+import {
+  buildDecisionContextFromScanSummaryView,
+  formatDecisionContextAuthorityBlock,
+} from '../../../runtime/sourceSnapshotDecisionContextBuilder.js';
 import { formatCandidatePoolSection, type CandidateFeatureCoverageDiagnostics, type CandidatePoolResult } from '../../candidatePoolBuilder.js';
 import {
   buildCanonicalRuntimeResolutionStep27,
@@ -949,15 +953,47 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     const positionPolicy = getRegimePositionPolicy(policyViewRegime || canonicalEffectiveRegime);
     const permissionView = resolvePermissionView(summary);
     const gate0Decision = buildGate0Decision(summary, parseSummaryDate(summary) ?? new Date());
-    lines.push(`  • 레짐: display=${displayRegime} effective=${canonicalEffectiveRegime} (policyView=${policyViewRegime || canonicalEffectiveRegime}, 총노출 ${positionPolicy.maxGrossExposurePct}%, 종목당 ${positionPolicy.perPositionPct}%)`);
-    lines.push(`  • Kelly ×${mg.finalKellyMultiplier.toFixed(2)} (regime ×${mg.kellyMultiplierFromRegime.toFixed(2)}, FOMC ×${mg.fomcKellyMultiplier.toFixed(2)})`);
-    if (mg.macroRegimeRaw || mg.macroRegimeEffective || mg.displayRegime) {
-      lines.push(`  • raw/effective/display/riskOverride: ${rawRegime} → ${canonicalEffectiveRegime} / ${displayRegime} / ${mg.riskOverride ?? 'NONE'}`);
-      lines.push(`  • regimeSource: canonical=RegimeResolver.canonicalOutput display=${displayRegime} riskOverride=${mg.riskOverride ?? 'NONE'} executionPermissionImpact=NONE`);
+    // ADR-0535: 권위 위계 read-model — 매크로 카드(/regime)와 동일한 SourceSnapshotDecisionContext 형상으로 투영.
+    // 정본 권한 결과(gate0Decision + permissionView)를 매핑만 한다(재계산 금지). 화면 간 동일 snapshotId ⟹ 동일 권위.
+    const decisionContext = buildDecisionContextFromScanSummaryView({
+      snapshotId: gate0Decision.sourceSnapshotId,
+      asOf: mg.regimeSnapshotAsOf ?? 'N/A',
+      ttlSec: mg.regimeSnapshotTtlSec ?? 0,
+      rawRegime: rawRegime ?? 'UNKNOWN',
+      effectiveRegime: canonicalEffectiveRegime ?? 'UNKNOWN',
+      displayRegime: displayRegime ?? 'UNKNOWN',
+      riskOverride: mg.riskOverride ?? 'NONE',
+      ...(staleLegacyR6Path ? { legacyEffectiveRegime } : {}),
+      executionPolicy: {
+        finalExecutionPolicy: gate0Decision.finalExecutionPolicy,
+        liveEntryAllowed: permissionView.liveEntryAllowed,
+        liveExitAllowed: gate0Decision.liveExitAllowed,
+        brokerOrderAllowed: permissionView.brokerLiveOrderAllowed,
+        shadowBuyAllowed: mg.shadowBuyAllowed ?? gate0Decision.shadowAllowed,
+        shadowSellAllowed: mg.shadowSellAllowed ?? gate0Decision.shadowAllowed,
+        shadowLearningAllowed: gate0Decision.shadowLearningAllowed,
+        counterfactualAllowed: gate0Decision.counterfactualAllowed,
+        diagnosticAllowed: gate0Decision.diagnosticAllowed,
+        liveBlockReason: gate0Decision.liveBlockReason,
+        executionPermissionReason: gate0Decision.executionPermissionReason,
+        executionImpact: gate0Decision.executionImpact,
+        engineMode: gate0Decision.engineMode,
+      },
+      kellyMultiplier: mg.finalKellyMultiplier,
+      exposureCap: positionPolicy.maxGrossExposurePct,
+      maxPositions: positionPolicy.maxPositions,
+      positionCap: positionPolicy.perPositionPct,
+    });
+    // INV-5 cross-screen parity: 비교 대상 snapshotId 는 ScanSummary 정본 식별자(snapshotId). 다르면 DIFFERENT_SNAPSHOT 명시.
+    for (const line of formatDecisionContextAuthorityBlock(decisionContext, {
+      comparisonSnapshotId: summary.snapshotId,
+    })) {
+      lines.push(`  • ${line}`);
     }
+    lines.push(`  • Kelly ×${mg.finalKellyMultiplier.toFixed(2)} (regime ×${mg.kellyMultiplierFromRegime.toFixed(2)}, FOMC ×${mg.fomcKellyMultiplier.toFixed(2)})`);
     lines.push(`  • Gate0 Macro/Permission: sourceHealth=${gate0Decision.sourceHealth} sourceFreshness=${gate0Decision.sourceFreshness} macroSignalConfidence=${gate0Decision.macroSignalConfidence} macroMarketSignal=${gate0Decision.macroMarketSignal} usableForLiveOrder=${gate0Decision.usableForLiveOrder} usableForBrokerOrder=${gate0Decision.usableForBrokerOrder} snapshotFreshnessForLive=${gate0Decision.snapshotFreshnessForLive} liveBlockReason=${gate0Decision.liveBlockReason} liveBlockSubReason=${gate0Decision.liveBlockSubReason ?? 'NONE'} finalExecutionPolicy=${gate0Decision.finalExecutionPolicy} shadowAllowed=${gate0Decision.shadowAllowed} counterfactualAllowed=${gate0Decision.counterfactualAllowed} diagnosticAllowed=${gate0Decision.diagnosticAllowed}`);
     if (staleLegacyR6Path) {
-      lines.push(`  • legacyR6Path: deprecated=true notUsedForDecision=true legacyEffective=${legacyEffectiveRegime} legacyR6RecoveryStatus=${mg.r6RecoveryStatus ?? 'NONE'}`);
+      lines.push(`  • legacyR6Path: legacyR6RecoveryStatus=${mg.r6RecoveryStatus ?? 'NONE'}`);
     } else {
       if (mg.r6RecoveryStatus) lines.push(`  • r6RecoveryStatus: ${mg.r6RecoveryStatus}`);
       if (mg.activeR6Triggers) lines.push(`  • activeR6Triggers: [${mg.activeR6Triggers.join(',') || 'none'}]`);

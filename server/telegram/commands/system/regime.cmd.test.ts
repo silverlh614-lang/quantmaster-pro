@@ -162,11 +162,13 @@ describe('formatLiveRegimeLine — 매매 레짐 SSOT 노출 (ADR-0074)', () => 
     expect(line).toContain('최대 8포지션');
   });
 
-  it('형식 일관성: 모든 레짐이 "<emoji> 매매: <RegimeLevel>" 패턴 유지', () => {
+  it('형식 일관성: 모든 레짐이 "<emoji> 🎚 Scoring/Sizing Regime: <RegimeLevel>" 패턴 유지', () => {
     const regimes: RegimeLevel[] = ['R1_TURBO', 'R2_BULL', 'R3_EARLY', 'R4_NEUTRAL', 'R5_CAUTION', 'R6_DEFENSE'];
     for (const r of regimes) {
       const line = formatLiveRegimeLine(r);
-      expect(line).toMatch(/매매: R[1-6]_/);
+      // ADR-0535: 이 라인은 스코어링/사이징 디테일이지 engineMode 주장이 아니다.
+      expect(line).toMatch(/🎚 Scoring\/Sizing Regime: R[1-6]_/);
+      expect(line).not.toMatch(/(^|[^/])매매:/);
     }
   });
 });

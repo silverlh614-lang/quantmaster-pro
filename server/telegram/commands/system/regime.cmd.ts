@@ -8,6 +8,10 @@ import type { TelegramCommand } from '../_types.js';
 import type { RegimeLevel } from '../../../../src/types/core.js';
 import { formatEngineRuntimePolicy, resolveEngineRuntimePolicy } from '../../../runtime/engineRuntimePolicy.js';
 import { getRegimePositionPolicy } from '../../../trading/sizing/regimePositionPolicy.js';
+import {
+  buildSourceSnapshotDecisionContext,
+  formatDecisionContextAuthorityBlock,
+} from '../../../runtime/sourceSnapshotDecisionContextBuilder.js';
 
 const regime: TelegramCommand = {
   name: '/regime',
@@ -26,14 +30,12 @@ const regime: TelegramCommand = {
       return;
     }
     const mhsEmoji = (macro.mhs ?? 0) >= 60 ? '🟢' : (macro.mhs ?? 0) >= 40 ? '🟡' : '🔴';
-    const regimeEmoji = macro.regime === 'GREEN' ? '🟢' : macro.regime === 'YELLOW' ? '🟡' : '🔴';
     const regimeSnapshot = resolveRegimeSnapshot({ macroState: macro });
     const macroState = regimeSnapshot.marketState.macroState;
     const macroFreshness = macroState.freshness;
     const regimeReleaseBlockedReason = macroFreshness === 'HARD_STALE' ? 'MACRO_HARD_STALE' : macroFreshness === 'MISSING' ? 'MACRO_MISSING' : 'NONE';
     console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=/regime snapshotId=${regimeSnapshot.snapshotId} asOf=${regimeSnapshot.asOf} detectedRegime=${regimeSnapshot.detectedRegime} effectiveRegime=${regimeSnapshot.effectiveRegime} displayRegime=${regimeSnapshot.displayRegime} riskOverride=${regimeSnapshot.riskOverride} mhs=${regimeSnapshot.mhs ?? 'N/A'} rawMhs=${regimeSnapshot.marketState.mhsLabel} macroFreshness=${macroFreshness} staleSources=${regimeSnapshot.marketState.staleSources.join(',') || 'none'}`);
     const resolvedMhsEmoji = regimeSnapshot.riskOverride === 'R6_DEFENSE' ? '🔴' : mhsEmoji;
-    const resolvedRegimeEmoji = regimeSnapshot.riskOverride === 'R6_DEFENSE' ? '🔴' : regimeEmoji;
     const freshnessLine = formatRegimeFreshnessLine(macro.updatedAt);
     // ADR-0071: USD/KRW 출처 + 격차 표시 — 사용자 신뢰도 즉시 인지
     const usdKrwLine = formatUsdKrwLine(macro);
@@ -63,6 +65,14 @@ const regime: TelegramCommand = {
       reasonCodes: [],
     });
     const vkospiUntrusted = String(regimeDiagnostics.recoveryEvidence.vkospiTrustState ?? '').startsWith('UNTRUSTED');
+    // ADR-0535: 권위 위계 read-model 투영 — 정본(regimeSnapshot/gate0View/runtimePolicy/positionPolicy)에서 재계산 없이 매핑.
+    const decisionContext = buildSourceSnapshotDecisionContext({
+      regimeSnapshot,
+      gate0View,
+      executionPolicy: runtimePolicy,
+      regimePositionPolicy: getRegimePositionPolicy(liveRegime),
+    });
+    const authorityBlock = formatDecisionContextAuthorityBlock(decisionContext).join('\n');
     // ADR-0075 PR-4 wiring: 강세/소외 섹터 1줄 노출 — 운영자가 Gate +2/-1 부스트 영향 즉시 인지
     const sectorEnergyLine = formatSectorEnergyLine(macro);
     // ADR-0107 (사용자 진단 4/29 "MHS 70 을 벗어난 적이 없다"): 4-axis 분해 노출.
@@ -72,12 +82,8 @@ const regime: TelegramCommand = {
       `━━━━━━━━━━━━━━━━\n` +
       `${resolvedMhsEmoji} MHS: ${regimeSnapshot.mhs ?? 'N/A'}\n` +
       `${mhsAxisLine}\n` +
-      `${resolvedRegimeEmoji} 매크로: ${regimeSnapshot.displayRegime}\n` +
+      `${authorityBlock}\n` +
       `${liveRegimeLine}\n` +
-      `snapshotId=${regimeSnapshot.snapshotId} asOf=${regimeSnapshot.asOf} ttlSec=${regimeSnapshot.ttlSec}\n` +
-      `rawRegime=${regimeDiagnostics.rawRegime}\n` +
-      `effectiveRegime=${gate0View.effectiveRegime}\n` +
-      `${gate0View.legacy ? `legacyEffectiveRegime=${gate0View.legacy.legacyEffective} deprecated=true notUsedForDecision=true\n` : ''}` +
       `${r6RecoveryLine}\n` +
       `${r6TriggerLine}\n` +
       `${macroReleaseBlockLine ? `${macroReleaseBlockLine}\n` : ''}` +
@@ -212,7 +218,7 @@ export function formatLiveRegimeLine(liveRegime: RegimeLevel): string {
     liveRegime === 'R3_EARLY'   ? '🌱' :
     liveRegime === 'R2_BULL'    ? '🟢' :
     liveRegime === 'R1_TURBO'   ? '🔥' : '⚙️';
-  return `${emoji} 매매: ${liveRegime} (role=position policy + score adjustment only, 총노출 ${policy.maxGrossExposurePct}%, 최대 ${policy.maxPositions}포지션, 종목당 ${policy.perPositionPct}%)`;
+  return `${emoji} 🎚 Scoring/Sizing Regime: ${liveRegime} (role=position policy + score adjustment only, 총노출 ${policy.maxGrossExposurePct}%, 최대 ${policy.maxPositions}포지션, 종목당 ${policy.perPositionPct}%)`;
 }
 
 /**
