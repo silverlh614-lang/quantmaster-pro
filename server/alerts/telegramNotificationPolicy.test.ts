@@ -40,6 +40,33 @@ describe('telegramNotificationPolicy', () => {
     expect(formatTelegramNotificationSuppressedLog(decision)).toContain('telegramSent=false');
   });
 
+  it('allows manual bot query diagnostic responses even when diagnosticOnly=true', () => {
+    const decision = routeTelegramNotification({
+      message: [
+        '🔬 [scan_blockers full mode]',
+        'diagnosticOnly=true',
+        'executionImpact=NONE',
+        'marketSignal=false',
+        'providerIssue=false',
+        'kisImpact=NONE',
+      ].join('\n'),
+      eventType: 'BOT_QUERY_RESPONSE',
+      targetChannel: 'BOT_QUERY_RESPONSE',
+      diagnosticOnly: true,
+      executionImpact: 'NONE',
+      marketSignal: false,
+      providerIssue: false,
+      kisImpact: 'NONE',
+      nowMs: 1000,
+    });
+
+    expect(decision.severity).toBe('DIAGNOSTIC');
+    expect(decision.targetChannel).toBe('BOT_QUERY_RESPONSE');
+    expect(decision.shouldSuppress).toBe(false);
+    expect(decision.telegramEligible).toBe(true);
+    expect(decision.reason).toBe('BOT_QUERY_RESPONSE_MANUAL_REQUEST');
+  });
+
   it('routes approval-required events as ACTION_REQUIRED without changing trading fields', () => {
     const decision = routeTelegramNotification({
       message: '[Threshold 제안 — 승인 필요]\nactionRequired=true\nexecutionImpact=NONE',
