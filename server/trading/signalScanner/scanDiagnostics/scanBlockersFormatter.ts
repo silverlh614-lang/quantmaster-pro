@@ -50,12 +50,11 @@ import { formatUnifiedForwardOutcomeLabelerSection } from '../../../learning/uni
 import { formatScanEvaluationSection, resolveScanMarketSessionView } from '../state/scanEvaluationState.js';
 import { emitScanDiagnosticBuildFailedWarn } from '../state/scanDiagnosticSuppressor.js';
 import { formatFrozenQuoteSection, formatPriceCorrectionOverlaySection, formatPriceIntegritySection, formatR3StreakSkipLine } from './sectionFormatters.js';
-import { buildGate0Decision } from './gate0MacroPermissionDecision.js';
-import { getRegimePositionPolicy } from '../../sizing/regimePositionPolicy.js';
 import {
-  buildDecisionContextFromScanSummaryView,
-  formatDecisionContextAuthorityBlock,
-} from '../../../runtime/sourceSnapshotDecisionContextBuilder.js';
+  buildDiagnosticRegimeContext,
+  formatScanSummaryDecisionContextAuthorityLines,
+  resolveScanSummaryPermissionView,
+} from './scanSummaryDecisionContext.js';
 import { formatCandidatePoolSection, type CandidateFeatureCoverageDiagnostics, type CandidatePoolResult } from '../../candidatePoolBuilder.js';
 import {
   buildCanonicalRuntimeResolutionStep27,
@@ -109,42 +108,6 @@ const PAPER_ENTRY_HARD_SKIP_REASONS = new Set<string>([
 
 function formatterUpper(value: unknown): string {
   return String(value ?? '').trim().toUpperCase();
-}
-
-function buildDiagnosticRegimeContext(summary: ScanSummary): {
-  rawRegime: string;
-  effectiveRegime: string;
-  displayRegime: string;
-  riskOverride: string;
-  engineMode: string;
-  policyView: string;
-  liveEntryAllowed: boolean;
-  shadowAllowed: boolean;
-  counterfactualAllowed: boolean;
-  sourceSnapshotId?: string;
-} {
-  const mg = summary.macroGateState;
-  const permission = resolvePermissionView(summary);
-  const rawRegime = mg?.macroRegimeRaw ?? mg?.regime ?? 'UNKNOWN';
-  const effectiveRegime = mg?.macroRegimeEffective ?? mg?.displayRegime ?? mg?.regime ?? 'UNKNOWN';
-  const displayRegime = mg?.displayRegime ?? effectiveRegime;
-  const riskOverride = mg?.riskOverride ?? 'NONE';
-  const canonicalEngineMode = permission.engineMode || 'UNKNOWN';
-  const invalidEngineMode = canonicalEngineMode.startsWith('R') || canonicalEngineMode.includes('_EARLY') || canonicalEngineMode.includes('_CAUTION');
-  const engineMode = invalidEngineMode ? (mg?.displayRegime ?? canonicalEngineMode) : canonicalEngineMode;
-  const policyView = permission.policyView || (riskOverride !== 'NONE' ? riskOverride : displayRegime);
-  return {
-    rawRegime,
-    effectiveRegime,
-    displayRegime,
-    riskOverride,
-    engineMode,
-    policyView,
-    liveEntryAllowed: permission.liveEntryAllowed,
-    shadowAllowed: permission.shadowAllowed,
-    counterfactualAllowed: permission.counterfactualAllowed,
-    sourceSnapshotId: summary.entryFilterDecomposition?.sourceSnapshotId,
-  };
 }
 
 function hasPaperReferencePrice(record: PaperEntryDecisionRecord): boolean {
@@ -247,68 +210,6 @@ function normalizePaperEntryDecision(record: PaperEntryDecisionRecord): PaperEnt
     };
   }
   return record;
-}
-
-function parseSummaryDate(summary: ScanSummary): Date | null {
-  const sourceHealth = summary.sourceSnapshotDataHealth as { asOf?: string } | undefined;
-  const candidates = [
-    summary.scanEvaluation?.asOf,
-    sourceHealth?.asOf,
-    summary.snapshotId,
-    summary.time,
-  ];
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    const raw = String(candidate);
-    const normalized = raw.includes(' KST') ? raw.replace(' KST', '+09:00') : raw;
-    const ms = Date.parse(normalized);
-    if (Number.isFinite(ms)) return new Date(ms);
-  }
-  return null;
-}
-
-function resolvePermissionView(summary: ScanSummary) {
-  const mg = summary.macroGateState;
-  const sessionView = resolveScanMarketSessionView({
-    explicitMarketSessionState: summary.scanEvaluation?.marketSessionState,
-    macroGateState: mg,
-    asOf: summary.scanEvaluation?.asOf ?? parseSummaryDate(summary)?.toISOString(),
-    timeLabel: summary.time,
-  });
-  const canonicalSession = sessionView.canonicalSession;
-  const displaySession = sessionView.displaySession;
-  const displayRegime = mg?.displayRegime ?? mg?.regime ?? summary.scanEvaluation?.engineMode ?? 'UNKNOWN';
-  const engineMode = mg?.engineMode ?? summary.scanEvaluation?.engineMode ?? displayRegime;
-  const shadowOnly = formatterUpper(engineMode) === 'SHADOW_ONLY'
-    || formatterUpper(displayRegime) === 'SHADOW_ONLY'
-    || formatterUpper(mg?.riskOverride) === 'SHADOW_ONLY';
-  const liveSession = canonicalSession === 'REGULAR_OPEN';
-  const brokerRouteAlive = mg?.brokerRouteAlive ?? mg?.brokerOrderAllowed ?? true;
-  const brokerLiveOrderAllowed = mg?.brokerLiveOrderAllowed ?? (brokerRouteAlive === true && liveSession && !shadowOnly && mg?.liveEntryAllowed === true);
-  const brokerExitOrderAllowed = mg?.brokerExitOrderAllowed ?? (brokerRouteAlive === true && liveSession && !shadowOnly && mg?.liveExitAllowed === true);
-  const liveOrderAllowed = brokerLiveOrderAllowed === true && !shadowOnly && liveSession;
-  const paperOrderAllowed = mg?.paperOrderAllowed ?? true;
-  const shadowAllowed = mg?.shadowAllowed ?? mg?.shadowBuyAllowed ?? true;
-  const counterfactualAllowed = mg?.counterfactualAllowed ?? true;
-  return {
-    canonicalSession,
-    displaySession,
-    engineMode,
-    displayRegime,
-    liveEntryAllowed: liveOrderAllowed,
-    liveOrderAllowed,
-    brokerRouteAlive,
-    brokerLiveOrderAllowed: liveOrderAllowed,
-    brokerExitOrderAllowed,
-    paperOrderAllowed,
-    shadowAllowed,
-    watchAllowed: true,
-    counterfactualAllowed,
-    executionImpact: 'NONE',
-    note: canonicalSession === 'HOLIDAY'
-      ? 'Holiday blocks live broker orders; paper/shadow observation remains allowed.'
-      : 'Paper/shadow observation permission is separate from live broker orders.',
-  };
 }
 
 function scanEvaluationForDisplay(summary: ScanSummary): ScanSummary['scanEvaluation'] {
@@ -785,7 +686,7 @@ function formatRuntimeWiringSummary(
     macro?.regime !== 'R6_DEFENSE'
       ? rawRegime
       : legacyEffectiveRegime;
-  const permissionView = resolvePermissionView(summary);
+  const permissionView = resolveScanSummaryPermissionView(summary);
   const explicitLane = summary.entryLaneSplit;
   const shadowOnly = formatterUpper(permissionView.engineMode) === 'SHADOW_ONLY'
     || formatterUpper(permissionView.displayRegime) === 'SHADOW_ONLY';
@@ -926,7 +827,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     summary.canonicalRuntimeResolution ?? buildCanonicalRuntimeResolutionStep27(summary);
   const wd = summary.waitDistribution;
   const mg = summary.macroGateState;
-  const permissionViewForSummary = resolvePermissionView(summary);
+  const permissionViewForSummary = resolveScanSummaryPermissionView(summary);
   const shadowOnlyForSummary = formatterUpper(permissionViewForSummary.engineMode) === 'SHADOW_ONLY'
     || formatterUpper(permissionViewForSummary.displayRegime) === 'SHADOW_ONLY';
   const shadowDiagnosticEntriesForSummary = shadowOnlyForSummary
@@ -948,50 +849,15 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
       legacyEffectiveRegime === 'R6_DEFENSE' &&
       displayRegime !== 'R6_DEFENSE' &&
       mg.regime !== 'R6_DEFENSE';
-    const canonicalEffectiveRegime = staleLegacyR6Path ? rawRegime : legacyEffectiveRegime;
-    const policyViewRegime = mg.riskOverride && mg.riskOverride !== 'NONE' ? mg.riskOverride : displayRegime;
-    const positionPolicy = getRegimePositionPolicy(policyViewRegime || canonicalEffectiveRegime);
-    const permissionView = resolvePermissionView(summary);
-    const gate0Decision = buildGate0Decision(summary, parseSummaryDate(summary) ?? new Date());
-    // ADR-0535: 권위 위계 read-model — 매크로 카드(/regime)와 동일한 SourceSnapshotDecisionContext 형상으로 투영.
-    // 정본 권한 결과(gate0Decision + permissionView)를 매핑만 한다(재계산 금지). 화면 간 동일 snapshotId ⟹ 동일 권위.
-    const decisionContext = buildDecisionContextFromScanSummaryView({
-      snapshotId: gate0Decision.sourceSnapshotId,
-      asOf: mg.regimeSnapshotAsOf ?? 'N/A',
-      ttlSec: mg.regimeSnapshotTtlSec ?? 0,
-      rawRegime: rawRegime ?? 'UNKNOWN',
-      effectiveRegime: canonicalEffectiveRegime ?? 'UNKNOWN',
-      displayRegime: displayRegime ?? 'UNKNOWN',
-      riskOverride: mg.riskOverride ?? 'NONE',
-      ...(staleLegacyR6Path ? { legacyEffectiveRegime } : {}),
-      executionPolicy: {
-        finalExecutionPolicy: gate0Decision.finalExecutionPolicy,
-        liveEntryAllowed: permissionView.liveEntryAllowed,
-        liveExitAllowed: gate0Decision.liveExitAllowed,
-        brokerOrderAllowed: permissionView.brokerLiveOrderAllowed,
-        shadowBuyAllowed: mg.shadowBuyAllowed ?? gate0Decision.shadowAllowed,
-        shadowSellAllowed: mg.shadowSellAllowed ?? gate0Decision.shadowAllowed,
-        shadowLearningAllowed: gate0Decision.shadowLearningAllowed,
-        counterfactualAllowed: gate0Decision.counterfactualAllowed,
-        diagnosticAllowed: gate0Decision.diagnosticAllowed,
-        liveBlockReason: gate0Decision.liveBlockReason,
-        executionPermissionReason: gate0Decision.executionPermissionReason,
-        executionImpact: gate0Decision.executionImpact,
-        engineMode: gate0Decision.engineMode,
-      },
-      kellyMultiplier: mg.finalKellyMultiplier,
-      exposureCap: positionPolicy.maxGrossExposurePct,
-      maxPositions: positionPolicy.maxPositions,
-      positionCap: positionPolicy.perPositionPct,
-    });
+    const { lines: decisionContextLines, bundle } = formatScanSummaryDecisionContextAuthorityLines(summary);
+    const permissionView = bundle?.permissionView ?? resolveScanSummaryPermissionView(summary);
+    const gate0Decision = bundle?.gate0Decision;
     // INV-5 cross-screen parity: 비교 대상 snapshotId 는 ScanSummary 정본 식별자(snapshotId). 다르면 DIFFERENT_SNAPSHOT 명시.
-    for (const line of formatDecisionContextAuthorityBlock(decisionContext, {
-      comparisonSnapshotId: summary.snapshotId,
-    })) {
+    for (const line of decisionContextLines) {
       lines.push(`  • ${line}`);
     }
     lines.push(`  • Kelly ×${mg.finalKellyMultiplier.toFixed(2)} (regime ×${mg.kellyMultiplierFromRegime.toFixed(2)}, FOMC ×${mg.fomcKellyMultiplier.toFixed(2)})`);
-    lines.push(`  • Gate0 Macro/Permission: sourceHealth=${gate0Decision.sourceHealth} sourceFreshness=${gate0Decision.sourceFreshness} macroSignalConfidence=${gate0Decision.macroSignalConfidence} macroMarketSignal=${gate0Decision.macroMarketSignal} usableForLiveOrder=${gate0Decision.usableForLiveOrder} usableForBrokerOrder=${gate0Decision.usableForBrokerOrder} snapshotFreshnessForLive=${gate0Decision.snapshotFreshnessForLive} liveBlockReason=${gate0Decision.liveBlockReason} liveBlockSubReason=${gate0Decision.liveBlockSubReason ?? 'NONE'} finalExecutionPolicy=${gate0Decision.finalExecutionPolicy} shadowAllowed=${gate0Decision.shadowAllowed} counterfactualAllowed=${gate0Decision.counterfactualAllowed} diagnosticAllowed=${gate0Decision.diagnosticAllowed}`);
+    if (gate0Decision) lines.push(`  • Gate0 Macro/Permission: sourceHealth=${gate0Decision.sourceHealth} sourceFreshness=${gate0Decision.sourceFreshness} macroSignalConfidence=${gate0Decision.macroSignalConfidence} macroMarketSignal=${gate0Decision.macroMarketSignal} usableForLiveOrder=${gate0Decision.usableForLiveOrder} usableForBrokerOrder=${gate0Decision.usableForBrokerOrder} snapshotFreshnessForLive=${gate0Decision.snapshotFreshnessForLive} liveBlockReason=${gate0Decision.liveBlockReason} liveBlockSubReason=${gate0Decision.liveBlockSubReason ?? 'NONE'} finalExecutionPolicy=${gate0Decision.finalExecutionPolicy} shadowAllowed=${gate0Decision.shadowAllowed} counterfactualAllowed=${gate0Decision.counterfactualAllowed} diagnosticAllowed=${gate0Decision.diagnosticAllowed}`);
     if (staleLegacyR6Path) {
       lines.push(`  • legacyR6Path: legacyR6RecoveryStatus=${mg.r6RecoveryStatus ?? 'NONE'}`);
     } else {
@@ -1019,7 +885,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (mg.diagnosticLiveEntryBlocked) {
       const liveEntryBlockedReason = String(mg.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY').toUpperCase();
       const removedPolicyReason = liveEntryBlockedReason.includes('SELL_ONLY') || liveEntryBlockedReason.includes('R6_DEFENSE');
-      lines.push(`  • liveEntryBlocked: <b>${removedPolicyReason ? 'LEGACY_POLICY_INPUT_IGNORED' : liveEntryBlockedReason.includes('R3_SANITY_GUARD') ? 'SHADOW_ONLY_MODE' : gate0Decision.liveBlockReason}</b>${liveEntryBlockedReason.includes('R3_SANITY_GUARD') ? ' (subReason=R3_SANITY_GUARD)' : gate0Decision.liveBlockSubReason ? ` (subReason=${gate0Decision.liveBlockSubReason})` : ''} (diagnostics continue; Shadow/Paper/Counterfactual allowed)`);
+      lines.push(`  • liveEntryBlocked: <b>${removedPolicyReason ? 'LEGACY_POLICY_INPUT_IGNORED' : liveEntryBlockedReason.includes('R3_SANITY_GUARD') ? 'SHADOW_ONLY_MODE' : gate0Decision?.liveBlockReason ?? 'DIAGNOSTIC_ONLY'}</b>${liveEntryBlockedReason.includes('R3_SANITY_GUARD') ? ' (subReason=R3_SANITY_GUARD)' : gate0Decision?.liveBlockSubReason ? ` (subReason=${gate0Decision.liveBlockSubReason})` : ''} (diagnostics continue; Shadow/Paper/Counterfactual allowed)`);
       // R3 sanity OBSERVE_ONLY 강등 가시화 — hard-abort 가 아닌 execution guard 임을 명시 (hardBlockSource=NONE).
       if (liveEntryBlockedReason.includes('R3_SANITY_GUARD')) {
         lines.push('  • executionGuardSource: <b>R3_SANITY_DIAGNOSTIC_GUARD</b> (hardBlockSource=NONE)');

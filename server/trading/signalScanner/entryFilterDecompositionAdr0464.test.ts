@@ -393,3 +393,44 @@ it('uses Gate1Trace rawValue when report rows no longer carry quote feature fiel
   expect(formatted).toContain('- relativeStrengthScoreComputedCount=3');
   expect(formatted).toContain('INPUT_NOT_CONNECTED=0');
 });
+
+it('locks child regime output to SourceSnapshotDecisionContext and keeps legacy R6 diagnostic-only', () => {
+  const d = buildEntryFilterDecomposition({
+    now,
+    universeCandidates: 1,
+    watchlistCandidates: 1,
+    entries: 0,
+    macroGateState: macro({ regime: 'R3_EARLY', macroRegimeEffective: 'R6_DEFENSE', displayRegime: 'SHADOW_ONLY', riskOverride: 'SHADOW_ONLY' }),
+    candidateSnapshots: snapshots(1),
+  });
+  const formatted = formatEntryFilterDecompositionSection(d, {
+    rawRegime: 'R3_EARLY',
+    effectiveRegime: 'R3_EARLY',
+    displayRegime: 'SHADOW_ONLY',
+    riskOverride: 'SHADOW_ONLY',
+    engineMode: 'SHADOW_ONLY',
+    policyView: 'SHADOW_ONLY',
+    liveEntryAllowed: false,
+    shadowAllowed: true,
+    counterfactualAllowed: true,
+    regimeContextSource: 'SourceSnapshotDecisionContext',
+    regimeContextMatch: true,
+    page2EffectiveRegime: 'R3_EARLY',
+    childEffectiveRegime: 'R3_EARLY',
+    legacyEffectiveRegime: 'R6_DEFENSE',
+    legacyDeprecated: true,
+    legacyUsedForDecision: false,
+    regimeContextMismatch: false,
+    legacyEffectiveRegimeLeak: false,
+    nextAction: 'NONE',
+  }) ?? '';
+  expect(formatted).toContain('- effectiveRegime=R3_EARLY');
+  expect(formatted).toContain('- regimeContextSource=SourceSnapshotDecisionContext');
+  expect(formatted).toContain('- regimeContextMatch=true');
+  expect(formatted).toContain('- page2EffectiveRegime=R3_EARLY');
+  expect(formatted).toContain('- childEffectiveRegime=R3_EARLY');
+  expect(formatted).toContain('- legacyEffectiveRegime=R6_DEFENSE deprecated=true usedForDecision=false');
+  expect(formatted).toContain('- REGIME_CONTEXT_MISMATCH=false');
+  expect(formatted).toContain('- LEGACY_EFFECTIVE_REGIME_LEAK=false');
+  expect(formatted).not.toContain('- effectiveRegime=R6_DEFENSE');
+});

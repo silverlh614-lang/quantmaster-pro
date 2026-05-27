@@ -217,6 +217,16 @@ export function formatEntryFilterDecompositionSection(
     shadowAllowed: boolean;
     counterfactualAllowed: boolean;
     sourceSnapshotId?: string;
+    regimeContextSource?: 'SourceSnapshotDecisionContext';
+    regimeContextMatch?: boolean;
+    page2EffectiveRegime?: string;
+    childEffectiveRegime?: string;
+    legacyEffectiveRegime?: string;
+    legacyDeprecated?: boolean;
+    legacyUsedForDecision?: false;
+    regimeContextMismatch?: boolean;
+    legacyEffectiveRegimeLeak?: boolean;
+    nextAction?: 'NONE' | 'USE_SOURCE_SNAPSHOT_DECISION_CONTEXT';
   },
 ): string | null {
   if (!d) return null;
@@ -225,7 +235,7 @@ export function formatEntryFilterDecompositionSection(
   const sample = d.candidateTraces[0];
   const macroState = (sample?.macroState as Record<string, unknown> | undefined) ?? {};
   const rawRegime = canonicalContext?.rawRegime ?? (macroState.regime as string | undefined) ?? sample?.regime ?? 'UNKNOWN';
-  const effectiveRegime = canonicalContext?.effectiveRegime ?? (macroState.macroRegimeEffective as string | undefined) ?? 'UNKNOWN';
+  const effectiveRegime = canonicalContext?.childEffectiveRegime ?? canonicalContext?.effectiveRegime ?? (macroState.macroRegimeEffective as string | undefined) ?? 'UNKNOWN';
   const displayRegime = canonicalContext?.displayRegime ?? (macroState.displayRegime as string | undefined) ?? 'UNKNOWN';
   const riskOverride = canonicalContext?.riskOverride ?? (macroState.riskOverride as string | undefined) ?? 'NONE';
   const engineMode = canonicalContext?.engineMode ?? (macroState.engineMode as string | undefined) ?? 'UNKNOWN';
@@ -233,6 +243,15 @@ export function formatEntryFilterDecompositionSection(
   const liveEntryAllowed = canonicalContext?.liveEntryAllowed ?? (macroState.liveEntryAllowed as boolean | undefined) ?? false;
   const shadowAllowed = canonicalContext?.shadowAllowed ?? (macroState.shadowAllowed as boolean | undefined) ?? true;
   const counterfactualAllowed = canonicalContext?.counterfactualAllowed ?? (macroState.counterfactualAllowed as boolean | undefined) ?? true;
+  const page2EffectiveRegime = canonicalContext?.page2EffectiveRegime ?? effectiveRegime;
+  const childEffectiveRegime = canonicalContext?.childEffectiveRegime ?? effectiveRegime;
+  const legacyEffectiveRegime = canonicalContext?.legacyEffectiveRegime;
+  const regimeContextSource = canonicalContext?.regimeContextSource ?? 'MISSING_SOURCE_SNAPSHOT_DECISION_CONTEXT';
+  const regimeContextMismatch = canonicalContext?.regimeContextMismatch ?? (canonicalContext ? childEffectiveRegime !== page2EffectiveRegime : true);
+  const legacyEffectiveRegimeLeak = canonicalContext?.legacyEffectiveRegimeLeak ??
+    (legacyEffectiveRegime !== undefined && childEffectiveRegime === legacyEffectiveRegime && childEffectiveRegime !== page2EffectiveRegime);
+  const regimeContextMatch = canonicalContext?.regimeContextMatch ?? (!regimeContextMismatch && !legacyEffectiveRegimeLeak);
+  const nextAction = canonicalContext?.nextAction ?? (regimeContextMatch ? 'NONE' : 'USE_SOURCE_SNAPSHOT_DECISION_CONTEXT');
   lines.push('• Regime Context:');
   lines.push(`  - rawRegime=${rawRegime}`);
   lines.push(`  - effectiveRegime=${effectiveRegime}`);
@@ -245,6 +264,16 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`  - counterfactualAllowed=${counterfactualAllowed}`);
   lines.push('  - executionPermissionImpact=NONE');
   lines.push('  - regimeSource=RegimeResolver.canonicalOutput');
+  lines.push(`  - regimeContextSource=${regimeContextSource}`);
+  lines.push(`  - regimeContextMatch=${regimeContextMatch}`);
+  lines.push(`  - page2EffectiveRegime=${page2EffectiveRegime}`);
+  lines.push(`  - childEffectiveRegime=${childEffectiveRegime}`);
+  if (legacyEffectiveRegime !== undefined) {
+    lines.push(`  - legacyEffectiveRegime=${legacyEffectiveRegime} deprecated=${canonicalContext?.legacyDeprecated ?? true} usedForDecision=false`);
+  }
+  lines.push(`  - REGIME_CONTEXT_MISMATCH=${regimeContextMismatch}`);
+  lines.push(`  - LEGACY_EFFECTIVE_REGIME_LEAK=${legacyEffectiveRegimeLeak}`);
+  lines.push(`  - nextAction=${nextAction}`);
   if (canonicalContext?.sourceSnapshotId) lines.push(`  - sourceSnapshotId=${canonicalContext.sourceSnapshotId}`);
   lines.push('  - note=rawRegime is market phase; display/effective regime controls operator view and live permission.');
   lines.push(`• marketSession: ${sample?.marketSession ?? "UNKNOWN"}`);
@@ -685,6 +714,16 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`- liveEntryAllowed=${liveEntryAllowed}`);
   lines.push(`- shadowAllowed=${shadowAllowed}`);
   lines.push(`- counterfactualAllowed=${counterfactualAllowed}`);
+  lines.push(`- regimeContextSource=${regimeContextSource}`);
+  lines.push(`- regimeContextMatch=${regimeContextMatch}`);
+  lines.push(`- page2EffectiveRegime=${page2EffectiveRegime}`);
+  lines.push(`- childEffectiveRegime=${childEffectiveRegime}`);
+  if (legacyEffectiveRegime !== undefined) {
+    lines.push(`- legacyEffectiveRegime=${legacyEffectiveRegime} deprecated=${canonicalContext?.legacyDeprecated ?? true} usedForDecision=false`);
+  }
+  lines.push(`- REGIME_CONTEXT_MISMATCH=${regimeContextMismatch}`);
+  lines.push(`- LEGACY_EFFECTIVE_REGIME_LEAK=${legacyEffectiveRegimeLeak}`);
+  lines.push(`- nextAction=${nextAction}`);
   lines.push(`- r6RecoveryStatus=${r6RecoveryStatus}`);
   lines.push(`- recoveryBlockedReason=${r6BlockedReason}`);
   lines.push('- signalScorePenaltyApplied=false');

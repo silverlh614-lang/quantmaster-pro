@@ -434,7 +434,7 @@ export function formatLearningPulseMessage(s: ReturnType<typeof collectLearningP
     '4. Counterfactual',
     `built=${s.counterfactual.builtUniqueCount} / pending=${s.counterfactual.pendingOutcomeCount} / labelableNow=${s.counterfactualResolver.resolvableNow} / labeled=${s.counterfactual.labeledCount} / status=${counterfactualDisplay.status} / severity=${counterfactualDisplay.severity} / promotionBlocker=${counterfactualDisplay.blocker}`,
     '5. Gate Learning',
-    `Gate3 status=${s.gate3LearningFinalization.finalizationStatus ?? 'COMPLETE'} / completionScore=${s.gate3LearningFinalization.completionScore ?? 100}`,
+    `Gate3 status=${s.gate3LearningFinalization.status ?? 'COMPLETE'} / completionScore=${s.gate3LearningFinalization.completionScore ?? 100}`,
     '6. Regime Learning',
     `activeRegime=${s.regimeLearning.activeRegime} / status=COLLECTING_PENDING_OUTCOMES / resolved=${s.regimeLearning.activeRegimeResolvedSampleSize}/100 / pending=${s.regimeLearning.activeRegimePendingCounterfactualCount} / severity=INFO`,
     '7. Promotion Readiness',

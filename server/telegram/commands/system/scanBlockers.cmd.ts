@@ -41,6 +41,7 @@ import {
   formatTechnicalProviderDegradedSection,
   getLastScanSummary,
 } from '../../../trading/signalScanner/scanDiagnostics.js';
+import { buildDiagnosticRegimeContext } from '../../../trading/signalScanner/scanDiagnostics/scanSummaryDecisionContext.js';
 import {
   buildCanonicalRuntimeResolutionStep27,
   formatRuntimeResolverTraceStep26,
@@ -919,21 +920,7 @@ const scanBlockers: TelegramCommand = {
     }
 
     const parts: string[] = [baseMessage, runtimeResolverTraceStep26];
-    const diagnosticRegimeContext = {
-      engineMode: String(
-        summary.engineMode
-        ?? summary.scanEvaluationState?.engineMode
-        ?? summary.runtimePermission?.engineMode
-        ?? summary.canonicalPermission?.engineMode
-        ?? summary.macroGateState?.engineMode
-        ?? 'UNKNOWN',
-      ),
-      effectiveRegime: String(summary.macroGateState?.macroRegimeEffective ?? summary.macroGateState?.displayRegime ?? summary.macroGateState?.regime ?? 'UNKNOWN'),
-      displayRegime: String(summary.macroGateState?.displayRegime ?? summary.macroGateState?.macroRegimeEffective ?? 'UNKNOWN'),
-      riskOverride: String(summary.macroGateState?.riskOverride ?? 'NONE'),
-      policyView: String(summary.runtimePermission?.policyView ?? summary.macroGateState?.riskOverride ?? summary.macroGateState?.displayRegime ?? 'UNKNOWN'),
-      liveEntryAllowed: summary.runtimePermission?.liveEntryAllowed === true,
-    };
+    const diagnosticRegimeContext = summary ? buildDiagnosticRegimeContext(summary) : undefined;
     const normalSupplyPreviewSection = formatNormalSupplyPreviewSection(
       getLastNormalSupplyPreview(),
       diagnosticRegimeContext,

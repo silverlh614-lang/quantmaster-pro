@@ -134,9 +134,12 @@ describe('buildSourceSnapshotDecisionContext (projection, no recompute)', () => 
     expect(ctx.marketRegime.legacyDeprecated).toBe(true);
     expect(ctx.marketRegime.legacyUsedForDecision).toBe(false);
     expect(ctx.marketRegime.source).toBe('RegimeResolver.canonicalOutput');
+    expect(ctx.regimeConstitution).toBe(ctx.marketRegime);
     expect(ctx.executionPolicy.finalExecutionPolicy).toBe('SHADOW_AND_DIAGNOSTIC_ONLY');
     expect(ctx.executionPolicy.liveEntryAllowed).toBe(false);
     expect(ctx.executionPolicy.brokerOrderAllowed).toBe(false);
+    expect(ctx.executionPolicy.brokerLiveOrderAllowed).toBe(false);
+    expect(ctx.executionPolicy.brokerExitOrderAllowed).toBe(true);
     expect(ctx.executionPolicy.shadowLearningAllowed).toBe(true);
     expect(ctx.executionPolicy.executionImpact).toBe('NONE');
     expect(ctx.scoringPolicy.scorePenalty).toBe(1);
@@ -145,6 +148,8 @@ describe('buildSourceSnapshotDecisionContext (projection, no recompute)', () => 
     expect(ctx.scoringPolicy.exposureCap).toBe(50);
     expect(ctx.scoringPolicy.maxPositions).toBe(5);
     expect(ctx.scoringPolicy.positionCap).toBe(10);
+    expect(ctx.freshnessPolicy.snapshotFreshnessForLive).toBe('UNKNOWN');
+    expect(ctx.freshnessPolicy.snapshotFreshnessForShadow).toBe('UNKNOWN');
   });
 
   it('riskOverride NONE → riskOverride null and policyView = displayRegime', () => {
@@ -161,6 +166,31 @@ describe('buildSourceSnapshotDecisionContext (projection, no recompute)', () => 
     expect(ctx.executionPolicy.finalExecutionPolicy).toBe('LIVE_ALLOWED');
     expect(ctx.executionPolicy.executionImpact).toBe('NONE'); // LIVE_ORDER_ALLOWED display-normalized to NONE
     expect(ctx.scoringPolicy.kellyMultiplier).toBe(0.85);
+  });
+
+  it('projects explicit broker and freshness policy without recompute', () => {
+    const ctx = buildSourceSnapshotDecisionContext({
+      regimeSnapshot: makeRegimeSnapshot(),
+      gate0View: makeGate0View(),
+      executionPolicy: makeRuntimePolicy({
+        brokerOrderAllowed: false,
+        brokerLiveOrderAllowed: false,
+        brokerExitOrderAllowed: false,
+        snapshotFreshnessForLive: 'STALE',
+        snapshotFreshnessForShadow: 'FRESH',
+        usableForLiveOrder: false,
+        usableForBrokerOrder: false,
+      } as Partial<EngineRuntimePolicy>),
+      regimePositionPolicy: POSITION_POLICY,
+    });
+    expect(ctx.executionPolicy.brokerLiveOrderAllowed).toBe(false);
+    expect(ctx.executionPolicy.brokerExitOrderAllowed).toBe(false);
+    expect(ctx.freshnessPolicy).toEqual({
+      snapshotFreshnessForLive: 'STALE',
+      snapshotFreshnessForShadow: 'FRESH',
+      usableForLiveOrder: false,
+      usableForBrokerOrder: false,
+    });
   });
 });
 

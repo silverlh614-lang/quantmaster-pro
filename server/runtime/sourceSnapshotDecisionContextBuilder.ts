@@ -159,27 +159,31 @@ function projectDecisionContext(p: ProjectionPrimitives): SourceSnapshotDecision
     p.displayRegime,
     ep.finalExecutionPolicy,
   );
+  const marketRegime = {
+    rawRegime: p.rawRegime,
+    effectiveRegime: p.effectiveRegime,
+    displayRegime: p.displayRegime,
+    riskOverride: p.riskOverride,
+    policyView: p.policyView,
+    ...(p.legacyEffectiveRegime !== undefined
+      ? { legacyEffectiveRegime: p.legacyEffectiveRegime, legacyDeprecated: true }
+      : {}),
+    legacyUsedForDecision: false as const,
+    source: 'RegimeResolver.canonicalOutput' as const,
+  };
   return {
     snapshotId: p.snapshotId,
     asOf: p.asOf,
     ttlSec: p.ttlSec,
-    marketRegime: {
-      rawRegime: p.rawRegime,
-      effectiveRegime: p.effectiveRegime,
-      displayRegime: p.displayRegime,
-      riskOverride: p.riskOverride,
-      policyView: p.policyView,
-      ...(p.legacyEffectiveRegime !== undefined
-        ? { legacyEffectiveRegime: p.legacyEffectiveRegime, legacyDeprecated: true }
-        : {}),
-      legacyUsedForDecision: false,
-      source: 'RegimeResolver.canonicalOutput',
-    },
+    regimeConstitution: marketRegime,
+    marketRegime,
     executionPolicy: {
       finalExecutionPolicy,
       liveEntryAllowed: ep.liveEntryAllowed,
       liveExitAllowed: ep.liveExitAllowed,
       brokerOrderAllowed: ep.brokerOrderAllowed,
+      brokerLiveOrderAllowed: ep.brokerLiveOrderAllowed ?? ep.brokerOrderAllowed,
+      brokerExitOrderAllowed: ep.brokerExitOrderAllowed ?? ep.liveExitAllowed,
       shadowBuyAllowed: ep.shadowBuyAllowed,
       shadowSellAllowed: ep.shadowSellAllowed,
       shadowLearningAllowed: ep.shadowLearningAllowed,
@@ -196,6 +200,12 @@ function projectDecisionContext(p: ProjectionPrimitives): SourceSnapshotDecision
       exposureCap: p.exposureCap,
       maxPositions: p.maxPositions,
       positionCap: p.positionCap,
+    },
+    freshnessPolicy: {
+      snapshotFreshnessForLive: ep.snapshotFreshnessForLive ?? 'UNKNOWN',
+      snapshotFreshnessForShadow: ep.snapshotFreshnessForShadow ?? ep.snapshotFreshnessForLive ?? 'UNKNOWN',
+      usableForLiveOrder: ep.usableForLiveOrder ?? ep.liveEntryAllowed,
+      usableForBrokerOrder: ep.usableForBrokerOrder ?? ep.brokerOrderAllowed,
     },
   };
 }

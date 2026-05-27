@@ -110,6 +110,39 @@ describe('Normal Supply Preview under SELL_ONLY', () => {
     expect(section).not.toContain('Signal Source Split');
   });
 
+  it('prints actual regime from SourceSnapshotDecisionContext and keeps legacy R6 diagnostic-only', () => {
+    const preview = persistNormalSupplyPreview({
+      engineMode: 'MACRO_LIVE_BLOCK',
+      source: 'RUNTIME_DIAGNOSTIC',
+      candidates: [],
+    });
+    const section = formatNormalSupplyPreviewSection(preview, {
+      engineMode: 'SHADOW_ONLY',
+      effectiveRegime: 'R3_EARLY',
+      displayRegime: 'SHADOW_ONLY',
+      riskOverride: 'SHADOW_ONLY',
+      policyView: 'SHADOW_ONLY',
+      liveEntryAllowed: false,
+      regimeContextSource: 'SourceSnapshotDecisionContext',
+      regimeContextMatch: true,
+      page2EffectiveRegime: 'R3_EARLY',
+      childEffectiveRegime: 'R3_EARLY',
+      legacyEffectiveRegime: 'R6_DEFENSE',
+      legacyDeprecated: true,
+      legacyUsedForDecision: false,
+      regimeContextMismatch: false,
+      legacyEffectiveRegimeLeak: false,
+      nextAction: 'NONE',
+    }) ?? '';
+    expect(section).toContain('actualEffectiveRegime: R3_EARLY');
+    expect(section).toContain('actualLegacyEffectiveRegime: R6_DEFENSE deprecated=true usedForDecision=false');
+    expect(section).toContain('regimeContextSource: SourceSnapshotDecisionContext');
+    expect(section).toContain('regimeContextMatch: true');
+    expect(section).toContain('REGIME_CONTEXT_MISMATCH: false');
+    expect(section).toContain('LEGACY_EFFECTIVE_REGIME_LEAK: false');
+    expect(section).not.toContain('actualEffectiveRegime: R6_DEFENSE');
+  });
+
   it('formats compact ACCUMULATING promotion block reason without changing live policy', () => {
     const preview = persistNormalSupplyPreview({
       engineMode: 'SELL_ONLY',

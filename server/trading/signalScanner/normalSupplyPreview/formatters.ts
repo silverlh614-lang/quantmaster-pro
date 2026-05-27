@@ -252,6 +252,16 @@ export function formatNormalSupplyPreviewSection(
     riskOverride: string;
     policyView: string;
     liveEntryAllowed: boolean;
+    regimeContextSource?: 'SourceSnapshotDecisionContext';
+    regimeContextMatch?: boolean;
+    page2EffectiveRegime?: string;
+    childEffectiveRegime?: string;
+    legacyEffectiveRegime?: string;
+    legacyDeprecated?: boolean;
+    legacyUsedForDecision?: false;
+    regimeContextMismatch?: boolean;
+    legacyEffectiveRegimeLeak?: boolean;
+    nextAction?: 'NONE' | 'USE_SOURCE_SNAPSHOT_DECISION_CONTEXT';
   } | { maxTopCandidates?: number },
   options: { maxTopCandidates?: number } = {},
 ): string | null {
@@ -259,20 +269,42 @@ export function formatNormalSupplyPreviewSection(
   const canonicalContext = canonicalContextOrOptions && 'engineMode' in canonicalContextOrOptions
     ? canonicalContextOrOptions
     : undefined;
-  const resolvedOptions = canonicalContext ? options : (canonicalContextOrOptions ?? options);
+  const resolvedOptions: { maxTopCandidates?: number } = canonicalContext
+    ? options
+    : ((canonicalContextOrOptions as { maxTopCandidates?: number } | undefined) ?? options);
   const maxTop = resolvedOptions.maxTopCandidates ?? 5;
   const top = preview.topCandidates[0];
   const activeBuyCount = countActiveBuyCandidates(preview.candidates);
   const bullishThreshold = NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold;
+  const actualEffectiveRegime = canonicalContext?.childEffectiveRegime ?? canonicalContext?.effectiveRegime ?? (preview as { actualEffectiveRegime?: string }).actualEffectiveRegime ?? 'UNKNOWN';
+  const page2EffectiveRegime = canonicalContext?.page2EffectiveRegime ?? actualEffectiveRegime;
+  const childEffectiveRegime = canonicalContext?.childEffectiveRegime ?? actualEffectiveRegime;
+  const legacyEffectiveRegime = canonicalContext?.legacyEffectiveRegime;
+  const regimeContextSource = canonicalContext?.regimeContextSource ?? 'MISSING_SOURCE_SNAPSHOT_DECISION_CONTEXT';
+  const regimeContextMismatch = canonicalContext?.regimeContextMismatch ?? (canonicalContext ? childEffectiveRegime !== page2EffectiveRegime : true);
+  const legacyEffectiveRegimeLeak = canonicalContext?.legacyEffectiveRegimeLeak ??
+    (legacyEffectiveRegime !== undefined && childEffectiveRegime === legacyEffectiveRegime && childEffectiveRegime !== page2EffectiveRegime);
+  const regimeContextMatch = canonicalContext?.regimeContextMatch ?? (!regimeContextMismatch && !legacyEffectiveRegimeLeak);
+  const nextAction = canonicalContext?.nextAction ?? (regimeContextMatch ? 'NONE' : 'USE_SOURCE_SNAPSHOT_DECISION_CONTEXT');
   const lines: string[] = [];
   lines.push('🧪 <b>Normal Supply Preview with legacy defense policy disabled (ADR-0518)</b>');
   lines.push('━━━━━━━━━━━━━━━━');
   lines.push(`previewBasis: ${preview.previewMode}`);
   lines.push(`actualEngineMode: ${canonicalContext?.engineMode ?? preview.runtimePermission.engineMode}`);
-  lines.push(`actualEffectiveRegime: ${canonicalContext?.effectiveRegime ?? (preview as { actualEffectiveRegime?: string }).actualEffectiveRegime ?? 'UNKNOWN'}`);
+  lines.push(`actualEffectiveRegime: ${actualEffectiveRegime}`);
   lines.push(`actualDisplayRegime: ${canonicalContext?.displayRegime ?? (preview as { actualDisplayRegime?: string }).actualDisplayRegime ?? 'UNKNOWN'}`);
   lines.push(`actualRiskOverride: ${canonicalContext?.riskOverride ?? (preview as { actualRiskOverride?: string }).actualRiskOverride ?? 'NONE'}`);
   lines.push(`actualPolicyView: ${canonicalContext?.policyView ?? (canonicalContext?.riskOverride && canonicalContext.riskOverride !== 'NONE' ? canonicalContext.riskOverride : canonicalContext?.displayRegime ?? 'UNKNOWN')}`);
+  if (legacyEffectiveRegime !== undefined) {
+    lines.push(`actualLegacyEffectiveRegime: ${legacyEffectiveRegime} deprecated=${canonicalContext?.legacyDeprecated ?? true} usedForDecision=false`);
+  }
+  lines.push(`regimeContextSource: ${regimeContextSource}`);
+  lines.push(`regimeContextMatch: ${regimeContextMatch}`);
+  lines.push(`page2EffectiveRegime: ${page2EffectiveRegime}`);
+  lines.push(`childEffectiveRegime: ${childEffectiveRegime}`);
+  lines.push(`REGIME_CONTEXT_MISMATCH: ${regimeContextMismatch}`);
+  lines.push(`LEGACY_EFFECTIVE_REGIME_LEAK: ${legacyEffectiveRegimeLeak}`);
+  lines.push(`nextAction: ${nextAction}`);
   lines.push(`actualLiveExecutionAllowed: ${preview.runtimePermission.actualLiveOrderAllowed}`);
   lines.push(`source: ${preview.source}`);
   if (preview.reason) lines.push(`reason: ${preview.reason}`);

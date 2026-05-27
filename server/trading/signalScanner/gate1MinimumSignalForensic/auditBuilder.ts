@@ -88,6 +88,9 @@ export function resolveGate1EvaluationStateAdr0510(input: {
   traceWithQuoteCount?: number;
   traceWithSymbolFeaturesCount?: number;
   traceWithConditionResultsCount?: number;
+  candidateTraceContainerCount?: number;
+  conditionResultsContainerCount?: number;
+  computedTechnicalTraceCount?: number;
   minSignalScoreTraceAvailableCount?: number;
   buyListLoopEntered?: boolean;
   gateEvaluationOutputAvailableCount?: number;

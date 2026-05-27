@@ -80,6 +80,8 @@ export interface SourceSnapshotExecutionPolicyView {
   liveExitAllowed: boolean;
   /** 브로커 주문 라우팅 허용(SHADOW_ONLY display 면 false — 불변식 #3). */
   brokerOrderAllowed: boolean;
+  brokerLiveOrderAllowed: boolean;
+  brokerExitOrderAllowed: boolean;
   /** Shadow 매수(항상 살아 있어야 함 — 불변식 #2 보호 대상). */
   shadowBuyAllowed: boolean;
   /** Shadow 매도. */
@@ -118,6 +120,13 @@ export interface SourceSnapshotScoringPolicyView {
   positionCap: number;
 }
 
+export interface SourceSnapshotFreshnessPolicyView {
+  snapshotFreshnessForLive: string;
+  snapshotFreshnessForShadow: string;
+  usableForLiveOrder: boolean;
+  usableForBrokerOrder: boolean;
+}
+
 /**
  * SourceSnapshotDecisionContext — 모든 운영자 화면이 읽는 단일 진단 read-model.
  * 정본 계산은 바꾸지 않는다. 화면 간 동일 snapshotId ⟹ 동일 권위값을 보장하기 위한 SSOT 투영.
@@ -126,9 +135,11 @@ export interface SourceSnapshotDecisionContext {
   snapshotId: string;
   asOf: string;
   ttlSec: number;
+  regimeConstitution: SourceSnapshotMarketRegimeView;
   marketRegime: SourceSnapshotMarketRegimeView;
   executionPolicy: SourceSnapshotExecutionPolicyView;
   scoringPolicy: SourceSnapshotScoringPolicyView;
+  freshnessPolicy: SourceSnapshotFreshnessPolicyView;
 }
 
 /**
@@ -145,6 +156,8 @@ export interface SourceSnapshotExecutionPolicyInput {
   liveEntryAllowed: boolean;
   liveExitAllowed: boolean;
   brokerOrderAllowed: boolean;
+  brokerLiveOrderAllowed?: boolean;
+  brokerExitOrderAllowed?: boolean;
   shadowBuyAllowed: boolean;
   shadowSellAllowed: boolean;
   shadowLearningAllowed: boolean;
@@ -158,6 +171,10 @@ export interface SourceSnapshotExecutionPolicyInput {
   engineMode: string;
   scorePenalty?: number;
   sizingMultiplier?: number;
+  snapshotFreshnessForLive?: string;
+  snapshotFreshnessForShadow?: string;
+  usableForLiveOrder?: boolean;
+  usableForBrokerOrder?: boolean;
 }
 
 /**
