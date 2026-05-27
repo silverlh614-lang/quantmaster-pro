@@ -40,8 +40,14 @@ import {
   saveShadowAuctionOrderOnce,
   sendShadowAuctionTelegramOnce,
 } from '../trading/shadowAuctionIdempotency.js';
+import {
+  buildMiddayRescanCycleId,
+  logMiddayRescanCycleStarted,
+  sendMiddayRescanFinalSummary,
+} from './middayRescanTelegram.js';
 
 const preopenOrchestratorRunningKeys = new Set<string>();
+const MIDDAY_RESCAN_SECTIONS = ['MOMENTUM', 'SWING', 'CATALYST'] as const;
 
 // ─── 편의 조회 래퍼 ────────────────────────────────────────────────────────────
 export function getShadowTrades() { return loadShadowTrades(); }
@@ -550,17 +556,28 @@ export class TradingDayOrchestrator {
         // 장중 워치리스트 재스캔 — 13:00~13:30 KST 사이 한 번
         // 오전 장 전(08:45) autoPopulate에서 빠진 종목을 장중에 보완
         if (t >= 1300 && t <= 1330 && !this.hasRan('middayRescan')) {
+          const cycleId = buildMiddayRescanCycleId();
+          const tradeDate = kstTradeDate();
+          logMiddayRescanCycleStarted({
+            cycleId,
+            tradeDate,
+            triggerSource: 'ORCHESTRATOR_INTRADAY_WINDOW',
+            sectionTargets: MIDDAY_RESCAN_SECTIONS,
+          });
           console.log('[Orchestrator] 장중 워치리스트 재스캔 (KST 13:00)');
           const wlBeforeMidday = new Set(loadWatchlist().map(w => w.code));
           const added = await autoPopulateWatchlist().catch(() => 0) ?? 0;
           await cleanupWatchlist().catch(console.error);
-          if (added > 0) {
-            const newEntries = loadWatchlist().filter(w => !wlBeforeMidday.has(w.code));
-            const namesList  = newEntries.map(w => `${w.name}(${w.code})`).join('\n');
-            await sendTelegramAlert(
-              `📋 <b>[MiddayRescan] 장중 워치리스트 추가</b>\n신규 ${added}개:\n${namesList}`
-            ).catch(console.error);
-          }
+          await sendMiddayRescanFinalSummary({
+            cycleId,
+            tradeDate,
+            triggerSource: 'ORCHESTRATOR_INTRADAY_WINDOW',
+            sectionTargets: MIDDAY_RESCAN_SECTIONS,
+            beforeCodes: wlBeforeMidday,
+            finalWatchlist: loadWatchlist(),
+            addedCount: added,
+            sendTelegram: sendTelegramAlert,
+          }).catch(console.error);
           this.markRan('middayRescan');
         }
 
