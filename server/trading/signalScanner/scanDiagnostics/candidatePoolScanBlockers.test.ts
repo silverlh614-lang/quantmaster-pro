@@ -497,9 +497,11 @@ describe('scan_blockers candidate pool section', () => {
 
     const text = formatScanBlockersMessage(summary);
 
-    expect(text).toContain('레짐: display=SHADOW_ONLY effective=R3_EARLY');
-    expect(text).toContain('raw/effective/display/riskOverride: R3_EARLY → R3_EARLY / SHADOW_ONLY / SHADOW_ONLY');
-    expect(text).toContain('legacyR6Path: deprecated=true notUsedForDecision=true');
+    // ADR-0535: 권위 위계 블록이 raw/effective/display/policy + legacy(deprecated) 를 노출.
+    expect(text).toContain('🧭 Market Raw: R3_EARLY');
+    expect(text).toContain('🎚 Scoring Effective: R3_EARLY');
+    expect(text).toContain('🛡 Display/Policy: SHADOW_ONLY (riskOverride=SHADOW_ONLY)');
+    expect(text).toContain('legacyEffectiveRegime=R6_DEFENSE deprecated=true usedForDecision=false');
     expect(text).toContain('Regime: raw=R3_EARLY effective=R3_EARLY display=SHADOW_ONLY riskOverride=SHADOW_ONLY');
   });
 });

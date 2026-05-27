@@ -38,7 +38,10 @@ describe("/scan_blockers R6 forensic macro gate fields", () => {
       },
     } as any);
 
-    expect(text).toContain("raw/effective/display/riskOverride: R6_DEFENSE → R6_DEFENSE / R6_DEFENSE / NONE");
+    // ADR-0535: 권위 위계 블록이 raw/effective/display 를 운영자 라벨로 노출.
+    expect(text).toContain("🧭 Market Raw: R6_DEFENSE");
+    expect(text).toContain("🎚 Scoring Effective: R6_DEFENSE");
+    expect(text).toContain("🛡 Display/Policy: R6_DEFENSE");
     expect(text).toContain("activeR6Triggers: [KOSPI_INTRADAY_LOW_SHOCK]");
     expect(text).toContain("r6ShockLatch: true");
     expect(text).toContain("liveEntryAllowed: false");
