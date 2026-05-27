@@ -235,9 +235,13 @@ function findFunctionRegions(src) {
 
     const body = lines.slice(i, bodyEnd + 1).join('\n');
     const lineCount = bodyEnd - i + 1;
-    // cyclomatic 근사: 분기 키워드 카운트
+    // cyclomatic 근사: 분기 키워드 카운트.
+    // 옵셔널 체이닝(?.)·nullish(??)는 null-safety 관용구이지 결정 분기가 아니므로 cc 계수에서 제외한다.
+    // (McCabe cc 는 if/case/&&/||/삼항 ?: 같은 *결정 분기*만 센다. `a?.b ?? c` 는 단일 "값 또는 기본값"
+    //  표현으로 인지 복잡도 0 — 표시/데이터 코드의 방어적 null 처리를 과대계수하던 것을 정정.)
     const branches = (body.match(/\b(if|else if|case|catch|while|for)\b/g) || []).length;
-    const ternary = (body.match(/\?[^?]/g) || []).length; // 단순 ? 카운트
+    const decisionBody = body.replace(/\?\?/g, '').replace(/\?\./g, '');
+    const ternary = (decisionBody.match(/\?[^?]/g) || []).length; // 삼항 ?: 만 (옵셔널/ nullish 제외)
     const logical = (body.match(/&&|\|\|/g) || []).length;
     const complexity = 1 + branches + ternary + logical;
 
