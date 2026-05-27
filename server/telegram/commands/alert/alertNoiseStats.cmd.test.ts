@@ -14,6 +14,8 @@ describe('/alert_noise_stats command', () => {
 
     const cmd = commandRegistry.resolve('/alert_noise_stats');
     expect(cmd).toBeDefined();
+    expect(commandRegistry.resolve('/noise_summary')).toBe(cmd);
+    expect(commandRegistry.resolve('/notification_log')).toBe(cmd);
     expect(cmd?.category).toBe('ALR');
     expect(cmd?.visibility).toBe('ADMIN');
     expect(cmd?.riskLevel).toBe(0);
@@ -31,6 +33,8 @@ describe('/alert_noise_stats command', () => {
     expect(message).toContain('digestedByChannel=');
     expect(message).toContain('sentByLevel=');
     expect(message).toContain('activeDedupeKeysCount=');
+    expect(message).toContain('[NOTIFICATION_DAILY_SUMMARY_AGGREGATED]');
+    expect(message).toContain('sentBySeverity=');
     expect(message).toContain('executionImpact=NONE');
   });
 });

@@ -310,6 +310,15 @@ export async function sendMiddayRescanFinalSummary(
   }), {
     priority: 'LOW',
     category: 'midday_rescan',
+    notificationSeverity: 'SUMMARY',
+    notificationEventType: EVENT_TYPE,
+    summaryId: input.cycleId,
+    executionImpact: 'NONE',
+    marketSignal: false,
+    providerIssue: false,
+    kisImpact: 'NONE',
+    actionRequired: false,
+    tradeEvent: false,
     dedupeKey: dedupKey,
     cooldownMs: COOLDOWN_MS,
   });

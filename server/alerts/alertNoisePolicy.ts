@@ -276,6 +276,12 @@ function handleWatchlistCandidateRejectedCapacity(event: AlertNoiseEvent, ts: nu
 
 function handleWatchlistSaturation(event: AlertNoiseEvent, ts: number): NoiseDecision {
   const key = `WATCHLIST_SATURATION:${event.dedupeHint ?? event.session ?? 'GLOBAL'}`;
+  const status = String(event.status ?? '').toUpperCase();
+  const nearHardCap = String(event.dedupeHint ?? '').startsWith('45~') || String(event.dedupeHint ?? '').startsWith('50');
+  if (status === 'HARD_CAP' || nearHardCap) {
+    if (isDedupeActive(key, ts)) return silent(event, 'WATCHLIST_HARD_CAP_ACTION_REQUIRED_DEDUPED', key, 15 * 60);
+    return warning(event, 'WATCHLIST_HARD_CAP_ACTION_REQUIRED', key, 15 * 60);
+  }
   if (isDedupeActive(key, ts)) return silent(event, 'WATCHLIST_SATURATION_DEDUPED', key, SIX_HOURS);
   return digest(event, 'WATCHLIST_CAPACITY_DIGEST_ONLY', key, SIX_HOURS);
 }

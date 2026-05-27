@@ -81,6 +81,27 @@ describe('ADR-0468 alert noise policy', () => {
     expect(strongReject.shouldSendNow).toBe(true);
   });
 
+  it('keeps hard cap watchlist saturation action-required', () => {
+    const hardCap = evaluateAlertNoise({
+      eventType: 'WATCHLIST_SATURATION',
+      status: 'HARD_CAP',
+      dedupeHint: '50+',
+      nowMs: 1,
+    });
+    const repeated = evaluateAlertNoise({
+      eventType: 'WATCHLIST_SATURATION',
+      status: 'HARD_CAP',
+      dedupeHint: '50+',
+      nowMs: 2,
+    });
+
+    expect(hardCap.level).toBe('WARNING');
+    expect(hardCap.shouldSendNow).toBe(true);
+    expect(hardCap.reason).toBe('WATCHLIST_HARD_CAP_ACTION_REQUIRED');
+    expect(repeated.shouldSendNow).toBe(false);
+    expect(repeated.reason).toBe('WATCHLIST_HARD_CAP_ACTION_REQUIRED_DEDUPED');
+  });
+
   it('keeps legacy SELL_ONLY transition internal-only and suppresses maintained state', () => {
     const transition = evaluateAlertNoise({
       eventType: 'ENGINE_STATE',

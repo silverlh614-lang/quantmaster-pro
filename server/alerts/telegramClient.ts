@@ -121,7 +121,19 @@ import {
   recordThresholdLoopTelegramSent,
   type ThresholdLoopDiagnosticInput,
 } from './thresholdSearchLoopNotificationPolicy.js';
+import {
+  formatNotificationClassifiedLog,
+  formatTelegramNotificationRoutedLog,
+  formatTelegramNotificationSentLog,
+  formatTelegramNotificationSuppressedLog,
+  recordTelegramNotificationSent,
+  routeTelegramNotification,
+  type TelegramNotificationRouteDecision,
+  type TelegramNotificationSeverity,
+  type TelegramNotificationTarget,
+} from './telegramNotificationPolicy.js';
 export type { AlertTier } from './alertTiers.js';
+export type { TelegramNotificationSeverity, TelegramNotificationTarget } from './telegramNotificationPolicy.js';
 
 interface AlertCooldownEntry {
   lastSentAt: number;
@@ -164,6 +176,27 @@ export interface TelegramAlertOptions {
   requireAck?: boolean;
   /** ADR-0468 diagnostic-only noise policy hook. Existing callers are unchanged unless this is supplied. */
   noiseEvent?: AlertNoiseEvent;
+  /** Final push taxonomy. Omitted legacy calls keep their existing delivery unless policy suppression applies. */
+  notificationSeverity?: TelegramNotificationSeverity;
+  notificationEventType?: string;
+  notificationTarget?: TelegramNotificationTarget;
+  tradeDate?: string;
+  section?: string;
+  symbol?: string;
+  regime?: string;
+  stateBucket?: string;
+  normalizedReason?: string;
+  summaryId?: string;
+  eventId?: string;
+  executionImpact?: 'NONE' | string;
+  marketSignal?: boolean;
+  providerIssue?: boolean;
+  kisImpact?: 'NONE' | string;
+  actionRequired?: boolean;
+  tradeEvent?: boolean;
+  critical?: boolean;
+  diagnosticOnly?: boolean;
+  notificationOnly?: boolean;
 }
 
 function priorityFromNoiseLevel(level: AlertLevel): AlertPriority {
@@ -461,6 +494,12 @@ interface NoisePolicyApplicationResult {
   suppressed: boolean;
 }
 
+interface NotificationPolicyApplicationResult {
+  opts?: TelegramAlertOptions;
+  decision: TelegramNotificationRouteDecision;
+  suppressed: boolean;
+}
+
 function applyInferredNoisePolicyToAlert(
   message: string,
   opts?: TelegramAlertOptions,
@@ -493,6 +532,87 @@ function applyInferredNoisePolicyToAlert(
       dedupeKey: baseOpts.dedupeKey ?? noise.dedupeKey,
       cooldownMs: baseOpts.cooldownMs ?? noise.ttlSeconds * 1000,
       category: baseOpts.category ?? noise.reason,
+    },
+  };
+}
+
+function hasNotificationPolicyDeliveryIntent(message: string, opts?: TelegramAlertOptions): boolean {
+  const o = opts ?? {};
+  const explicitValues = [
+    o.notificationSeverity,
+    o.notificationEventType,
+    o.notificationTarget,
+    o.eventId,
+  ];
+  const explicitFlags = [
+    o.actionRequired,
+    o.tradeEvent,
+    o.critical,
+    o.diagnosticOnly,
+    o.executionImpact,
+    o.marketSignal,
+    o.providerIssue,
+    o.kisImpact,
+  ];
+  return explicitValues.some(Boolean)
+    || explicitFlags.some((value) => value !== undefined)
+    || /(?:executionImpact|diagnosticOnly|actionRequired|tradeEvent|critical|kisImpact)\s*=/.test(message);
+}
+
+function applyTelegramNotificationPolicy(
+  message: string,
+  opts?: TelegramAlertOptions,
+): NotificationPolicyApplicationResult {
+  const o = opts ?? {};
+  const decision = routeTelegramNotification({
+    message,
+    eventType: o.notificationEventType ?? o.category,
+    severity: o.notificationSeverity,
+    priority: o.priority,
+    tier: o.tier,
+    category: o.category,
+    dedupeKey: o.dedupeKey,
+    cooldownMs: o.cooldownMs,
+    tradeDate: o.tradeDate,
+    section: o.section,
+    symbol: o.symbol,
+    regime: o.regime,
+    stateBucket: o.stateBucket,
+    normalizedReason: o.normalizedReason,
+    summaryId: o.summaryId,
+    eventId: o.eventId,
+    executionImpact: o.executionImpact,
+    marketSignal: o.marketSignal,
+    providerIssue: o.providerIssue,
+    kisImpact: o.kisImpact,
+    actionRequired: o.actionRequired,
+    tradeEvent: o.tradeEvent,
+    critical: o.critical,
+    diagnosticOnly: o.diagnosticOnly,
+    notificationOnly: o.notificationOnly,
+    targetChannel: o.notificationTarget,
+  });
+  console.log(formatNotificationClassifiedLog(decision));
+  if (decision.shouldSuppress) {
+    console.log(formatTelegramNotificationSuppressedLog(decision));
+    return { opts, decision, suppressed: true };
+  }
+  console.log(formatTelegramNotificationRoutedLog(decision));
+
+  if (!hasNotificationPolicyDeliveryIntent(message, opts)) {
+    return { opts, decision, suppressed: false };
+  }
+
+  return {
+    decision,
+    suppressed: false,
+    opts: {
+      ...opts,
+      priority: o.priority ?? decision.priority,
+      tier: o.tier ?? decision.tier,
+      dedupeKey: o.dedupeKey ?? decision.dedupKey,
+      cooldownMs: o.cooldownMs ?? decision.cooldownMs,
+      category: o.category ?? decision.eventType,
     },
   };
 }
@@ -701,6 +821,10 @@ export async function sendTelegramAlert(
   // invariant/debug 라우팅 가드는 Telegram 대신 Railway/debug 로그로만 보낸다.
   if (shouldSuppressByTelegramRoutingGuard(message)) return undefined;
 
+  const notificationPolicy = applyTelegramNotificationPolicy(message, opts);
+  if (notificationPolicy.suppressed) return undefined;
+  opts = notificationPolicy.opts;
+
   const payload = buildTieredAlertPayload(message, opts);
   if (captureUnifiedBriefingIfNeeded(payload.finalMessage, opts)) return undefined;
 
@@ -713,7 +837,12 @@ export async function sendTelegramAlert(
   );
   if (digestHandled) return undefined;
 
-  return sendImmediateAlert(payload, ack, opts);
+  const messageId = await sendImmediateAlert(payload, ack, opts);
+  if (messageId !== undefined) {
+    recordTelegramNotificationSent(notificationPolicy.decision, opts?.eventId);
+    console.log(formatTelegramNotificationSentLog(notificationPolicy.decision));
+  }
+  return messageId;
 }
 /**
  * parse_mode 없는 plain text 전용 전송 SSOT.
@@ -978,6 +1107,14 @@ export async function sendEmptyScanDecisionBroker(
     dedupeKey: diagnostic.dedupKey,
     cooldownMs: 60 * 60 * 1000,
     category: 'threshold_search',
+    notificationSeverity: 'ACTION_REQUIRED',
+    notificationEventType: 'THRESHOLD_SEARCH_LOOP',
+    executionImpact: 'NONE',
+    marketSignal: false,
+    providerIssue: false,
+    kisImpact: 'NONE',
+    actionRequired: true,
+    tradeEvent: false,
     replyMarkup,
   });
   if (messageId !== undefined) {
