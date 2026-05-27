@@ -245,10 +245,22 @@ const CONFLUENCE_LABELS: ActivePassiveConfluence[] = [
 
 export function formatNormalSupplyPreviewSection(
   preview: NormalSupplyPreview | null | undefined,
+  canonicalContextOrOptions?: {
+    engineMode: string;
+    effectiveRegime: string;
+    displayRegime: string;
+    riskOverride: string;
+    policyView: string;
+    liveEntryAllowed: boolean;
+  } | { maxTopCandidates?: number },
   options: { maxTopCandidates?: number } = {},
 ): string | null {
   if (!preview) return null;
-  const maxTop = options.maxTopCandidates ?? 5;
+  const canonicalContext = canonicalContextOrOptions && 'engineMode' in canonicalContextOrOptions
+    ? canonicalContextOrOptions
+    : undefined;
+  const resolvedOptions = canonicalContext ? options : (canonicalContextOrOptions ?? options);
+  const maxTop = resolvedOptions.maxTopCandidates ?? 5;
   const top = preview.topCandidates[0];
   const activeBuyCount = countActiveBuyCandidates(preview.candidates);
   const bullishThreshold = NORMAL_SUPPLY_SCORE_THRESHOLDS.bullishThreshold;
@@ -256,10 +268,11 @@ export function formatNormalSupplyPreviewSection(
   lines.push('🧪 <b>Normal Supply Preview with legacy defense policy disabled (ADR-0518)</b>');
   lines.push('━━━━━━━━━━━━━━━━');
   lines.push(`previewBasis: ${preview.previewMode}`);
-  lines.push(`actualEngineMode: ${preview.runtimePermission.engineMode}`);
-  lines.push(`actualEffectiveRegime: ${(preview as { actualEffectiveRegime?: string }).actualEffectiveRegime ?? preview.runtimePermission.engineMode}`);
-  lines.push(`actualDisplayRegime: ${(preview as { actualDisplayRegime?: string }).actualDisplayRegime ?? preview.runtimePermission.engineMode}`);
-  lines.push(`actualRiskOverride: ${(preview as { actualRiskOverride?: string }).actualRiskOverride ?? 'NONE'}`);
+  lines.push(`actualEngineMode: ${canonicalContext?.engineMode ?? preview.runtimePermission.engineMode}`);
+  lines.push(`actualEffectiveRegime: ${canonicalContext?.effectiveRegime ?? (preview as { actualEffectiveRegime?: string }).actualEffectiveRegime ?? 'UNKNOWN'}`);
+  lines.push(`actualDisplayRegime: ${canonicalContext?.displayRegime ?? (preview as { actualDisplayRegime?: string }).actualDisplayRegime ?? 'UNKNOWN'}`);
+  lines.push(`actualRiskOverride: ${canonicalContext?.riskOverride ?? (preview as { actualRiskOverride?: string }).actualRiskOverride ?? 'NONE'}`);
+  lines.push(`actualPolicyView: ${canonicalContext?.policyView ?? (canonicalContext?.riskOverride && canonicalContext.riskOverride !== 'NONE' ? canonicalContext.riskOverride : canonicalContext?.displayRegime ?? 'UNKNOWN')}`);
   lines.push(`actualLiveExecutionAllowed: ${preview.runtimePermission.actualLiveOrderAllowed}`);
   lines.push(`source: ${preview.source}`);
   if (preview.reason) lines.push(`reason: ${preview.reason}`);
