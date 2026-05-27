@@ -825,7 +825,7 @@ const ValuationRow = ({ stock }: { stock: StockRecommendation }) => (
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <ValuationCell label="P/E" value={stock.valuation?.per && stock.valuation.per > 0 ? `${stock.valuation.per.toFixed(1)}x` : 'N/A'} />
         <ValuationCell label="P/B" value={stock.valuation?.pbr && stock.valuation.pbr > 0 ? `${stock.valuation.pbr.toFixed(2)}x` : 'N/A'} />
-        <ValuationCell label="EPS" value={`${(stock.valuation?.epsGrowth ?? 0) > 0 ? '+' : ''}${stock.valuation?.epsGrowth ?? 0}%`} valueClass={(stock.valuation?.epsGrowth ?? 0) > 0 ? 'text-green-400' : (stock.valuation?.epsGrowth ?? 0) < 0 ? 'text-red-400' : 'text-white/50'} />
+        <ValuationCell label="EPS" value={`${(stock.valuation?.epsGrowth ?? 0) > 0 ? '+' : ''}${(stock.valuation?.epsGrowth ?? 0).toFixed(1)}%`} valueClass={(stock.valuation?.epsGrowth ?? 0) > 0 ? 'text-green-400' : (stock.valuation?.epsGrowth ?? 0) < 0 ? 'text-red-400' : 'text-white/50'} />
       </div>
     </div>
   </div>
