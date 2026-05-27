@@ -527,3 +527,89 @@ describe('LearningPulseV5 Legacy Top-line Summary Normalization', () => {
     expect(msg).toContain('LOW_CONFIDENCE_REGIME_BACKFILL=display-only');
   });
 });
+
+describe('Regime Promotion Split Blocker Normalization', () => {
+  const marketClosedNoLabels = {
+    corePromotionAllowed: false,
+    regimePromotionAllowedForDiagnostic: true,
+    regimePromotionAllowedForAdvisory: true,
+    counterfactualBuiltButUnlabeled: 1000,
+    counterfactualLabeledInputSamples: 0,
+    counterfactualWaitingForMaturity: 1000,
+    counterfactualMaturityStatus: 'WAITING_NORMAL',
+    freshShadowDisplayStatus: 'WAITING_NEXT_OPEN',
+    freshShadowSeverity: 'INFO' as const,
+    activeRegime: 'R6_DEFENSE',
+    activeRegimeResolvedSampleSize: 0,
+    requiredResolvedSampleSize: 100,
+    activeRegimePendingCounterfactualCount: 18,
+    metricWarnings: ['LOW_CONFIDENCE_REGIME_BACKFILL'],
+    rawCorePromotionBlocker: 'NO_FRESH_SAMPLE',
+    rawSecondaryLearningBlockers: ['NO_FRESH_SAMPLE', 'WAITING_FOR_COUNTERFACTUAL_MATURITY', 'LOW_CONFIDENCE_REGIME_BACKFILL'],
+    executionImpact: 'NONE',
+  };
+
+  it('uses NO_LABELED_COUNTERFACTUAL instead of raw NO_FRESH_SAMPLE when market is closed and counterfactual labels are missing', async () => {
+    const mod = await import('./learningPulse.cmd.js');
+    const r = (mod as any).normalizeRegimePromotionSplit(marketClosedNoLabels);
+    expect(r.corePromotionBlocker).toBe('NO_LABELED_COUNTERFACTUAL');
+    expect(r.corePromotionBlockerReason).toBe('WAITING_FOR_FIRST_COUNTERFACTUAL_LABELS');
+    expect(r.corePromotionSeverity).toBe('INFO');
+    expect(r.primaryLearningBlocker).toBe('NO_LABELED_COUNTERFACTUAL');
+    expect(r.suggestPromotionBlocker).toBe('NO_LABELED_COUNTERFACTUAL');
+    expect(r.displayOnlyBlockers).toContain('MARKET_CLOSED_WAITING_NEXT_SHADOW_SCAN');
+    expect(r.rawDiagnosticBlockers).toContain('NO_FRESH_SAMPLE');
+  });
+
+  it('does not include NO_FRESH_SAMPLE in secondaryLearningBlockers for market closed waiting next open', async () => {
+    const mod = await import('./learningPulse.cmd.js');
+    const r = (mod as any).normalizeRegimePromotionSplit(marketClosedNoLabels);
+    expect(r.secondaryLearningBlockers).not.toContain('NO_FRESH_SAMPLE');
+    expect(r.secondaryLearningBlockers).toContain('WAITING_COUNTERFACTUAL_MATURITY');
+  });
+
+  it('allows NO_FRESH_SAMPLE_DURING_MARKET as WARN only during regular session zero fresh shadow', async () => {
+    const mod = await import('./learningPulse.cmd.js');
+    const r = (mod as any).normalizeRegimePromotionSplit({
+      ...marketClosedNoLabels,
+      counterfactualBuiltButUnlabeled: 0,
+      counterfactualLabeledInputSamples: 5,
+      freshShadowDisplayStatus: 'ZERO_DURING_MARKET',
+      freshShadowSeverity: 'WARN',
+    });
+    expect(r.corePromotionBlocker).toBe('NO_FRESH_SAMPLE_DURING_MARKET');
+    expect(r.corePromotionSeverity).toBe('WARN');
+  });
+
+  it('classifies R6 low sample as displayOnly when R6 counterfactual cases are still pending maturity', async () => {
+    const mod = await import('./learningPulse.cmd.js');
+    const r = (mod as any).normalizeRegimePromotionSplit(marketClosedNoLabels);
+    expect(r.displayOnlyBlockers).toContain('R6_LOW_SAMPLE');
+    expect(r.corePromotionBlocker).not.toBe('R6_LOW_SAMPLE');
+  });
+
+  it('classifies LOW_CONFIDENCE_REGIME_BACKFILL as advisoryOnly and preserves executionImpact NONE', async () => {
+    const mod = await import('./learningPulse.cmd.js');
+    const r = (mod as any).normalizeRegimePromotionSplit(marketClosedNoLabels);
+    expect(r.advisoryOnlyBlockers).toContain('LOW_CONFIDENCE_REGIME_BACKFILL');
+    expect(r.executionImpact).toBe('NONE');
+  });
+
+  it('renders the normalized core blocker and demoted raw blocker in the Regime Promotion Split line', async () => {
+    const { collectLearningPulse, formatLearningPulseMessage } = await import('./learningPulse.cmd.js');
+    const line = (msg: string, prefix: string): string => msg.split('\n').find((l) => l.startsWith(prefix)) ?? '';
+    const snap = collectLearningPulse(NOW);
+    const overridden = {
+      ...snap,
+      counterfactualBuiltButUnlabeled: 1000,
+      counterfactualLabeledInputSamples: 0,
+      counterfactual: { ...snap.counterfactual, labeledCount: 0 },
+    } as ReturnType<typeof collectLearningPulse>;
+    const splitLine = line(formatLearningPulseMessage(overridden), 'Regime Promotion Split:');
+    expect(splitLine).toContain('corePromotionBlocker=NO_LABELED_COUNTERFACTUAL');
+    expect(splitLine).not.toContain('corePromotionBlocker=NO_FRESH_SAMPLE');
+    expect(splitLine).toContain('rawDiagnosticBlockers=["NO_FRESH_SAMPLE"]');
+    expect(splitLine).not.toContain('secondaryLearningBlockers=["NO_FRESH_SAMPLE"');
+    expect(splitLine).toContain('executionImpact=NONE');
+  });
+});

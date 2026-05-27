@@ -210,6 +210,130 @@ export function normalizePromotionBlocker(input: {
   if (input.freshDisplayStatus === 'WAITING_NEXT_OPEN') return { displayBlocker: 'MARKET_CLOSED_WAITING_NEXT_SHADOW_SCAN', severity: 'INFO', displayReason: 'MARKET_CLOSED_AND_NEXT_SHADOW_SCAN_SCHEDULED' };
   return { displayBlocker: 'LOW_SAMPLE_SIZE', severity: 'INFO', displayReason: 'PROMOTION_SAMPLE_NOT_READY' };
 }
+
+type DisplaySeverity = 'INFO' | 'WARN' | 'ERROR';
+type RegimePromotionBlocker =
+  | 'NO_LABELED_COUNTERFACTUAL'
+  | 'WAITING_COUNTERFACTUAL_MATURITY'
+  | 'NO_FRESH_SAMPLE_DURING_MARKET'
+  | 'MARKET_CLOSED_WAITING_NEXT_SHADOW_SCAN'
+  | 'LOW_CONFIDENCE_REGIME_BACKFILL'
+  | 'LOW_RESOLVED_REGIME_SAMPLE'
+  | 'R6_LOW_SAMPLE'
+  | 'LOW_SAMPLE_SIZE'
+  | 'NONE';
+type NormalizedRegimePromotionSplit = {
+  regimePromotionAllowedForDiagnostic: boolean;
+  regimePromotionAllowedForAdvisory: boolean;
+  corePromotionAllowed: boolean;
+  corePromotionBlocker: RegimePromotionBlocker;
+  corePromotionBlockerReason: string;
+  corePromotionSeverity: DisplaySeverity;
+  suggestPromotionBlocker: RegimePromotionBlocker;
+  primaryLearningBlocker: RegimePromotionBlocker;
+  secondaryLearningBlockers: RegimePromotionBlocker[];
+  displayOnlyBlockers: RegimePromotionBlocker[];
+  advisoryOnlyBlockers: RegimePromotionBlocker[];
+  rawDiagnosticBlockers: string[];
+  freshShadowDisplayStatus?: string;
+  freshShadowSeverity?: DisplaySeverity;
+  executionImpact: string;
+};
+
+// Regime Promotion Split blocker normalizer — keeps the detail section aligned with the
+// normalized top-line: the real core bottleneck (NO_LABELED_COUNTERFACTUAL) is primary, while a
+// market-closed fresh-sample zero is demoted to a display-only waiting state. Raw blockers are
+// preserved under rawDiagnosticBlockers (never surfaced as the core blocker).
+export function normalizeRegimePromotionSplit(input: {
+  corePromotionAllowed: boolean;
+  regimePromotionAllowedForDiagnostic: boolean;
+  regimePromotionAllowedForAdvisory: boolean;
+  counterfactualBuiltButUnlabeled: number;
+  counterfactualLabeledInputSamples: number;
+  counterfactualWaitingForMaturity: number;
+  counterfactualMaturityStatus?: string;
+  freshShadowDisplayStatus?: string;
+  freshShadowSeverity?: DisplaySeverity;
+  activeRegime?: string;
+  activeRegimeResolvedSampleSize?: number;
+  requiredResolvedSampleSize?: number;
+  activeRegimePendingCounterfactualCount?: number;
+  metricWarnings?: string[];
+  rawCorePromotionBlocker?: string;
+  rawSecondaryLearningBlockers?: string[];
+  executionImpact?: string;
+}): NormalizedRegimePromotionSplit {
+  const secondaryLearningBlockers: RegimePromotionBlocker[] = [];
+  const displayOnlyBlockers: RegimePromotionBlocker[] = [];
+  const advisoryOnlyBlockers: RegimePromotionBlocker[] = [];
+  const rawDiagnosticBlockers: string[] = [];
+
+  let corePromotionBlocker: RegimePromotionBlocker = 'NONE';
+  let corePromotionBlockerReason = 'PROMOTION_ALLOWED_OR_NO_CORE_BLOCKER';
+  let corePromotionSeverity: DisplaySeverity = 'INFO';
+
+  if (!input.corePromotionAllowed) {
+    if (input.counterfactualBuiltButUnlabeled > 0 && input.counterfactualLabeledInputSamples === 0) {
+      // Labeled counterfactual sample is the real promotion input bottleneck — outranks fresh-shadow zero.
+      corePromotionBlocker = 'NO_LABELED_COUNTERFACTUAL';
+      corePromotionBlockerReason = 'WAITING_FOR_FIRST_COUNTERFACTUAL_LABELS';
+      corePromotionSeverity = 'INFO';
+    } else if (input.freshShadowDisplayStatus === 'ZERO_DURING_MARKET') {
+      corePromotionBlocker = 'NO_FRESH_SAMPLE_DURING_MARKET';
+      corePromotionBlockerReason = 'FRESH_SHADOW_ZERO_DURING_MARKET';
+      corePromotionSeverity = 'WARN';
+    } else {
+      corePromotionBlocker = 'LOW_SAMPLE_SIZE';
+      corePromotionBlockerReason = 'PROMOTION_SAMPLE_NOT_READY';
+      corePromotionSeverity = 'INFO';
+    }
+  }
+
+  if (input.counterfactualWaitingForMaturity > 0 || input.counterfactualMaturityStatus === 'WAITING_NORMAL') {
+    secondaryLearningBlockers.push('WAITING_COUNTERFACTUAL_MATURITY');
+  }
+
+  if (input.freshShadowDisplayStatus === 'WAITING_NEXT_OPEN') {
+    displayOnlyBlockers.push('MARKET_CLOSED_WAITING_NEXT_SHADOW_SCAN');
+  }
+
+  if (input.activeRegime === 'R6_DEFENSE' && (input.activeRegimeResolvedSampleSize ?? 0) < (input.requiredResolvedSampleSize ?? 100)) {
+    if ((input.activeRegimePendingCounterfactualCount ?? 0) > 0) {
+      displayOnlyBlockers.push('R6_LOW_SAMPLE');
+    } else {
+      advisoryOnlyBlockers.push('LOW_RESOLVED_REGIME_SAMPLE');
+    }
+  }
+
+  if (input.metricWarnings?.includes('LOW_CONFIDENCE_REGIME_BACKFILL')) {
+    advisoryOnlyBlockers.push('LOW_CONFIDENCE_REGIME_BACKFILL');
+  }
+
+  for (const raw of [input.rawCorePromotionBlocker, ...(input.rawSecondaryLearningBlockers ?? [])]) {
+    if (raw === 'NO_FRESH_SAMPLE') rawDiagnosticBlockers.push('NO_FRESH_SAMPLE');
+  }
+
+  const suggestPromotionBlocker: RegimePromotionBlocker =
+    input.counterfactualLabeledInputSamples === 0 ? 'NO_LABELED_COUNTERFACTUAL' : corePromotionBlocker;
+
+  return {
+    regimePromotionAllowedForDiagnostic: input.regimePromotionAllowedForDiagnostic,
+    regimePromotionAllowedForAdvisory: input.regimePromotionAllowedForAdvisory,
+    corePromotionAllowed: input.corePromotionAllowed,
+    corePromotionBlocker,
+    corePromotionBlockerReason,
+    corePromotionSeverity,
+    suggestPromotionBlocker,
+    primaryLearningBlocker: corePromotionBlocker,
+    secondaryLearningBlockers: [...new Set(secondaryLearningBlockers)],
+    displayOnlyBlockers: [...new Set(displayOnlyBlockers)],
+    advisoryOnlyBlockers: [...new Set(advisoryOnlyBlockers)],
+    rawDiagnosticBlockers: [...new Set(rawDiagnosticBlockers)],
+    freshShadowDisplayStatus: input.freshShadowDisplayStatus,
+    freshShadowSeverity: input.freshShadowSeverity,
+    executionImpact: input.executionImpact ?? 'NONE',
+  };
+}
 export function collectLearningPulse(now: Date = new Date()) {
   const errors: string[] = [];
   const v2 = collectLearningPulseV2(now);
@@ -444,6 +568,25 @@ export function formatLearningPulseMessage(s: ReturnType<typeof collectLearningP
     marketSession: (s.freshShadowInlet as any).marketSession ?? 'CLOSED',
     rawBlockers: s.freshPromotion.blockers,
   });
+  const regimePromotionSplit = normalizeRegimePromotionSplit({
+    corePromotionAllowed: (s.regimeLearning as any).corePromotionAllowed ?? false,
+    regimePromotionAllowedForDiagnostic: (s.regimeLearning as any).regimePromotionAllowedForDiagnostic ?? true,
+    regimePromotionAllowedForAdvisory: (s.regimeLearning as any).regimePromotionAllowedForAdvisory ?? true,
+    counterfactualBuiltButUnlabeled: s.counterfactualBuiltButUnlabeled,
+    counterfactualLabeledInputSamples: s.counterfactualLabeledInputSamples,
+    counterfactualWaitingForMaturity: s.counterfactualWaitingForMaturity,
+    counterfactualMaturityStatus: (s as any).counterfactualMaturityStatus,
+    freshShadowDisplayStatus: freshShadowDisplay.status,
+    freshShadowSeverity: freshShadowDisplay.severity as DisplaySeverity,
+    activeRegime: s.regimeLearning.activeRegime,
+    activeRegimeResolvedSampleSize: s.regimeLearning.activeRegimeResolvedSampleSize,
+    requiredResolvedSampleSize: 100,
+    activeRegimePendingCounterfactualCount: s.regimeLearning.activeRegimePendingCounterfactualCount,
+    metricWarnings: s.metricWarnings,
+    rawCorePromotionBlocker: (s.regimeLearning as any).corePromotionBlocker,
+    rawSecondaryLearningBlockers: (s.regimeLearning as any).secondaryLearningBlockers,
+    executionImpact: 'NONE',
+  });
   const runtimePolicy = resolveEngineRuntimePolicy({
     engineMode: 'OBSERVE_ONLY',
     liveBuyGateAllowed: false,
@@ -481,7 +624,7 @@ export function formatLearningPulseMessage(s: ReturnType<typeof collectLearningP
     `Regime Learning v6: activeRegime=${s.regimeLearning.activeRegime} / rawRegime=${s.regimeLearning.rawRegime} / effectiveRegime=${s.regimeLearning.effectiveRegime} / shadowLearningAllowed=${s.regimeLearning.shadowLearningAllowed} / regimeLearningSampleSize=${s.regimeLearning.regimeLearningSampleSize} / regimeAssignedCount=${s.regimeLearning.regimeAssignedCount} / unknownRegimeCount=${s.regimeLearning.unknownRegimeCount} / unknownRatioRaw=${(s.regimeLearning as any).unknownRatioRaw ?? s.regimeLearning.unknownRatio} / recoveredLowConfidenceRegimeCount=${(s.regimeLearning as any).recoveredLowConfidenceRegimeCount ?? 0} / recoveredLowConfidenceRegimeRatio=${(s.regimeLearning as any).recoveredLowConfidenceRegimeRatio ?? 0} / trueUnknownRegimeCount=${(s.regimeLearning as any).trueUnknownRegimeCount ?? s.regimeLearning.unknownRegimeCount} / trueUnknownRatio=${(s.regimeLearning as any).trueUnknownRatio ?? s.regimeLearning.unknownRatio} / regimeRatioDenominator=${(s.regimeLearning as any).regimeRatioDenominator ?? 'regimeLearningSampleSize'} / regimeRatioDenominatorValue=${(s.regimeLearning as any).regimeRatioDenominatorValue ?? s.regimeLearning.regimeLearningSampleSize} / unknownRatio=${s.regimeLearning.unknownRatio} / regimeDuplicateCandidates=${(s.regimeLearning as any).regimeDuplicateCandidates ?? 0} / regimeDuplicateSuppressed=${(s.regimeLearning as any).regimeDuplicateSuppressed ?? 0} / regimeDuplicatePreventedAtSource=${(s.regimeLearning as any).regimeDuplicatePreventedAtSource ?? 0} / regimeDuplicateSuppressedAfterInsert=${(s.regimeLearning as any).regimeDuplicateSuppressedAfterInsert ?? 0} / regimeDedupStatus=${(s.regimeLearning as any).regimeDedupStatus ?? 'NONE'} / bestRegimeByExpectancy=${s.regimeLearning.bestRegimeByExpectancy ?? 'N/A'} / worstRegimeByExpectancy=${s.regimeLearning.worstRegimeByExpectancy ?? 'N/A'} / activeRegimeSampleSize=${s.regimeLearning.activeRegimeSampleSize} / activeRegimeTotalSampleSize=${s.regimeLearning.activeRegimeTotalSampleSize} / activeRegimeResolvedSampleSize=${s.regimeLearning.activeRegimeResolvedSampleSize} / activeRegimePendingCounterfactualCount=${s.regimeLearning.activeRegimePendingCounterfactualCount} / activeRegimeAttributableSampleSize=${s.regimeLearning.activeRegimeAttributableSampleSize} / activeRegimeExpectancyR=${activeRegimeExpectancyR} / activeRegimeQualityStatus=${s.regimeLearning.activeRegimeQualityStatus} / activeRegimeWhyNotReliable=${s.regimeLearning.activeRegimeWhyNotReliable} / activeRegimeTopPattern=${s.regimeLearning.activeRegimeTopPattern} / activeRegimeLearningNeed=${s.regimeLearning.activeRegimeLearningNeed} / R2ResolvedSampleSize=${s.regimeLearning.R2ResolvedSampleSize} / R2PendingCounterfactual=${s.regimeLearning.R2PendingCounterfactualCount} / R3ResolvedSampleSize=${s.regimeLearning.R3ResolvedSampleSize} / R3PendingCounterfactual=${s.regimeLearning.R3PendingCounterfactualCount} / R6ResolvedSampleSize=${s.regimeLearning.R6ResolvedSampleSize} / R6PendingCounterfactual=${s.regimeLearning.R6PendingCounterfactualCount} / regimeBackfillTargetUnknownCount=${(s.regimeLearning as any).regimeBackfillTargetUnknownCount ?? s.regimeLearning.unknownRegimeCount} / regimeBackfillAttemptedTotal=${(s.regimeLearning as any).regimeBackfillAttemptedTotal ?? (s.regimeLearning as any).regimeBackfillAttempted ?? 0} / regimeBackfillAttemptedUnique=${(s.regimeLearning as any).regimeBackfillAttemptedUnique ?? 0} / regimeBackfillAttemptedDuplicates=${(s.regimeLearning as any).regimeBackfillAttemptedDuplicates ?? 0} / attemptedOverTargetReason=${(s.regimeLearning as any).attemptedOverTargetReason ?? 'NONE'} / regimeBackfillAttempted=${(s.regimeLearning as any).regimeBackfillAttempted ?? 0} / regimeBackfillRecovered=${(s.regimeLearning as any).regimeBackfillRecovered ?? 0} / regimeBackfillFailed=${(s.regimeLearning as any).regimeBackfillFailed ?? 0} / regimeBackfillWindowMinutes=${(s.regimeLearning as any).regimeBackfillWindowMinutes ?? 60} / regimeBackfillRecoveredBySource=${JSON.stringify((s.regimeLearning as any).regimeBackfillRecoveredBySource ?? {})} / regimeBackfillRecoveredByConfidence=${JSON.stringify((s.regimeLearning as any).regimeBackfillRecoveredByConfidence ?? {})} / regimeBackfillFailedAfterDailyFallback=${(s.regimeLearning as any).regimeBackfillFailedAfterDailyFallback ?? (s.regimeLearning as any).regimeBackfillFailed ?? 0} / regimeBackfillFailureTopReasonsAfterDailyFallback=${JSON.stringify((s.regimeLearning as any).regimeBackfillFailureTopReasonsAfterDailyFallback ?? [])} / regimeBackfillFailureTopReasons=${JSON.stringify((s.regimeLearning as any).regimeBackfillFailureTopReasons ?? [])} / regimeBackfillFailureBySourceLane=${JSON.stringify((s.regimeLearning as any).regimeBackfillFailureBySourceLane ?? {})} / regimeBackfillFailureByTimestampSource=${JSON.stringify((s.regimeLearning as any).regimeBackfillFailureByTimestampSource ?? {})} / regimeBackfillFailureByTradingDate=${JSON.stringify((s.regimeLearning as any).regimeBackfillFailureByTradingDate ?? {})} / regimeSnapshotCoverageByTradingDate=${JSON.stringify((s.regimeLearning as any).regimeSnapshotCoverageByTradingDate ?? {})} / missingRegimeSnapshotDates=${JSON.stringify((s.regimeLearning as any).missingRegimeSnapshotDates ?? [])} / dailyRegimeFallbackStatus=${(s.regimeLearning as any).dailyRegimeFallbackStatus ?? 'OK'} / regimeBackfillFailureSampleKeys=${JSON.stringify((s.regimeLearning as any).regimeBackfillFailureSampleKeys ?? [])} / regimeDuplicateSourceTop3=${JSON.stringify((s.regimeLearning as any).regimeDuplicateSourceTop3 ?? [])} / regimeDuplicateKeySample=${JSON.stringify((s.regimeLearning as any).regimeDuplicateKeySample ?? [])} / regimeDuplicateRootCause=${(s.regimeLearning as any).regimeDuplicateRootCause ?? 'NONE'} / nextRegimeMaturityAt=${s.regimeLearning.nextRegimeMaturityAt ?? 'N/A'} / regimesNeedingAttributionRecalc=${JSON.stringify(s.regimeLearning.regimesNeedingAttributionRecalc ?? [])} / regimeLearningNextAction=${s.regimeLearning.regimeLearningNextAction} / nextRegimeLearningAction=${s.regimeLearning.nextRegimeLearningAction}`,
     `Regime Snapshot Reconstruction: regimeSnapshotReconstructionAttemptedDates=${JSON.stringify((s.regimeLearning as any).regimeSnapshotReconstructionAttemptedDates ?? [])} / regimeSnapshotReconstructionSucceededDates=${JSON.stringify((s.regimeLearning as any).regimeSnapshotReconstructionSucceededDates ?? [])} / regimeSnapshotReconstructionFailedDates=${JSON.stringify((s.regimeLearning as any).regimeSnapshotReconstructionFailedDates ?? [])} / regimeSnapshotReconstructionSourceBreakdown=${JSON.stringify((s.regimeLearning as any).regimeSnapshotReconstructionSourceBreakdown ?? {})} / regimeSnapshotReconstructionConfidenceBreakdown=${JSON.stringify((s.regimeLearning as any).regimeSnapshotReconstructionConfidenceBreakdown ?? {})}`,
     `Regime Source Inventory: regimeSourceInventoryByDate=${JSON.stringify((s.regimeLearning as any).regimeSourceInventoryByDate ?? {})} / regimeSourceInventoryTopAvailable=${JSON.stringify((s.regimeLearning as any).regimeSourceInventoryTopAvailable ?? [])} / regimeSourceInventoryMissingSources=${JSON.stringify((s.regimeLearning as any).regimeSourceInventoryMissingSources ?? {})} / regimeSourceInventoryAuditStatus=${(s.regimeLearning as any).regimeSourceInventoryAuditStatus ?? 'NO_MISSING_DATES'} / regimeSnapshotReconstructionPriorityDate=${(s.regimeLearning as any).regimeSnapshotReconstructionPriorityDate ?? '2026-05-13'} / priorityDateReconstructionStatus=${(s.regimeLearning as any).priorityDateReconstructionStatus ?? 'NOT_ATTEMPTED'} / priorityDateRecoveredSampleCount=${(s.regimeLearning as any).priorityDateRecoveredSampleCount ?? 0} / priorityDateFailureReason=${(s.regimeLearning as any).priorityDateFailureReason ?? 'NOT_ATTEMPTED'} / postReconstructionTrueUnknownRatio=${(s.regimeLearning as any).postReconstructionTrueUnknownRatio ?? (s.regimeLearning as any).trueUnknownRatio ?? s.regimeLearning.unknownRatio} / regimePromotionStillBlocked=${(s.regimeLearning as any).regimePromotionStillBlocked ?? true} / regimePromotionBlockReason=${(s.regimeLearning as any).regimePromotionBlockReason ?? 'REGIME_PROMOTION_BLOCKED_TRUE_UNKNOWN_RATIO_HIGH'}`,
-    `Regime Promotion Split: regimePromotionAllowedForDiagnostic=${(s.regimeLearning as any).regimePromotionAllowedForDiagnostic ?? true} / regimePromotionAllowedForAdvisory=${(s.regimeLearning as any).regimePromotionAllowedForAdvisory ?? true} / corePromotionAllowed=${(s.regimeLearning as any).corePromotionAllowed ?? false} / corePromotionBlocker=${(s.regimeLearning as any).corePromotionBlocker ?? 'NO_FRESH_SAMPLE'} / suggestPromotionBlocker=${(s.regimeLearning as any).suggestPromotionBlocker ?? 'NO_LABELED_COUNTERFACTUAL'} / primaryLearningBlocker=${(s.regimeLearning as any).primaryLearningBlocker ?? 'NO_LABELED_COUNTERFACTUAL'} / secondaryLearningBlockers=${JSON.stringify((s.regimeLearning as any).secondaryLearningBlockers ?? [])} / nextRequiredEvent=${(s.regimeLearning as any).nextRequiredEvent ?? 'COUNTERFACTUAL_MATURITY_OR_NEXT_OPEN_SHADOW_SCAN'}`,
+    `Regime Promotion Split: regimePromotionAllowedForDiagnostic=${regimePromotionSplit.regimePromotionAllowedForDiagnostic} / regimePromotionAllowedForAdvisory=${regimePromotionSplit.regimePromotionAllowedForAdvisory} / corePromotionAllowed=${regimePromotionSplit.corePromotionAllowed} / corePromotionBlocker=${regimePromotionSplit.corePromotionBlocker} / corePromotionBlockerReason=${regimePromotionSplit.corePromotionBlockerReason} / corePromotionSeverity=${regimePromotionSplit.corePromotionSeverity} / suggestPromotionBlocker=${regimePromotionSplit.suggestPromotionBlocker} / primaryLearningBlocker=${regimePromotionSplit.primaryLearningBlocker} / secondaryLearningBlockers=${JSON.stringify(regimePromotionSplit.secondaryLearningBlockers)} / displayOnlyBlockers=${JSON.stringify(regimePromotionSplit.displayOnlyBlockers)} / advisoryOnlyBlockers=${JSON.stringify(regimePromotionSplit.advisoryOnlyBlockers)} / rawDiagnosticBlockers=${JSON.stringify(regimePromotionSplit.rawDiagnosticBlockers)} / freshShadowDisplayStatus=${regimePromotionSplit.freshShadowDisplayStatus} / freshShadowSeverity=${regimePromotionSplit.freshShadowSeverity} / executionImpact=${regimePromotionSplit.executionImpact} / nextRequiredEvent=${(s.regimeLearning as any).nextRequiredEvent ?? 'COUNTERFACTUAL_MATURITY_OR_NEXT_OPEN_SHADOW_SCAN'}`,
     `Regime Backfill Explain: regimeBackfillFailedPromotionEligibleCount=${(s.regimeLearning as any).regimeBackfillFailedPromotionEligibleCount ?? 0} / regimeBackfillFailedExcludedCount=${(s.regimeLearning as any).regimeBackfillFailedExcludedCount ?? 0} / regimeBackfillFailedExcludedByLane=${JSON.stringify((s.regimeLearning as any).regimeBackfillFailedExcludedByLane ?? {})} / regimeBackfillFailedExcludedReason=${(s.regimeLearning as any).regimeBackfillFailedExcludedReason ?? 'NONE'} / recoveredFromOriginalUnknownCount=${(s.regimeLearning as any).recoveredFromOriginalUnknownCount ?? 0} / recoveredFromAdditionalRepairLaneCount=${(s.regimeLearning as any).recoveredFromAdditionalRepairLaneCount ?? 0} / recoveredTotalCount=${(s.regimeLearning as any).recoveredTotalCount ?? 0}`,
     `Counterfactual Metadata Repair: metadataRepairStatus=${(s.counterfactualMetadataRepair as any).metadataRepairStatus ?? (s.counterfactualMetadataRepair as any).incrementalRepairStatus} / recoverySourceBreakdown=${JSON.stringify(s.counterfactualMetadataRepair.recoverySourceBreakdown)} / recoveryConfidenceBreakdown=${JSON.stringify(s.counterfactualMetadataRepair.recoveryConfidenceBreakdown)} / counterfactualMetadataMissingByField=${JSON.stringify((s.counterfactualMetadataRepair as any).counterfactualMetadataMissingByField ?? {})} / counterfactualMetadataMissingBySourceLane=${JSON.stringify((s.counterfactualMetadataRepair as any).counterfactualMetadataMissingBySourceLane ?? {})} / counterfactualMetadataMissingSampleKeys=${JSON.stringify((s.counterfactualMetadataRepair as any).counterfactualMetadataMissingSampleKeys ?? [])} / counterfactualMetadataMissingFirstSeenAt=${(s.counterfactualMetadataRepair as any).counterfactualMetadataMissingFirstSeenAt ?? 'N/A'} / recoveredLowCount=${s.counterfactualMetadataRepair.recoveryConfidenceBreakdown.RECOVERED_LOW ?? 0} / coreEligibleRecoveredLowCount=0 / advisoryEligibleRecoveredLowCount=${s.counterfactualMetadataRepair.recoveryConfidenceBreakdown.RECOVERED_LOW ?? 0} / metadataConfidenceHaircutApplied=true`,
     `Suggest Blockers: counterfactualBuiltButUnlabeled=${s.counterfactualBuiltButUnlabeled} / counterfactualLabeledInputSamples=${s.counterfactualLabeledInputSamples} / counterfactualWaitingForMaturity=${s.counterfactualWaitingForMaturity} / counterfactualMetadataMissing=${s.counterfactualMetadataMissing} / suggestInputSamples=${s.suggestInputSamples} / primaryBlocker=${s.suggest.primaryBlocker} / secondaryBlockers=${JSON.stringify(s.suggest.secondaryBlockers)} / status=${s.suggest.status}`,
