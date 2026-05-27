@@ -498,6 +498,59 @@ function formatSupplyConfluenceLines(router: InvestorFlowProviderRouteResult | n
   return lines;
 }
 
+/** zero net-buy(외인+기관=0) 종목의 zeroSuspect 상세 1건 합성. */
+function buildInvestorFlowZeroDetail(code: string, sample: InvestorFlowSample): ZeroSuspectDetail {
+  return {
+    code,
+    source: zeroSuspectSource(sample.provider),
+    foreignNetBuy: Number.isFinite(sample.foreignNetBuy) ? sample.foreignNetBuy : null,
+    institutionalNetBuy: Number.isFinite(sample.institutionalNetBuy) ? sample.institutionalNetBuy : null,
+    individualNetBuy: Number.isFinite(sample.individualNetBuy) ? sample.individualNetBuy! : null,
+    reason: classifyZeroSuspectReason(sample),
+  };
+}
+
+/** marker/coverage/stale 조합 → riskReason (DATA_UNAVAILABLE > zeroSuspicious > partial > staleCache). */
+function resolveInvestorFlowRiskReason(input: {
+  marker: Marker;
+  success: number;
+  total: number;
+  zero: number;
+  zeroSuspicious: boolean;
+  partial: boolean;
+  staleCache: number;
+  cacheSamplesLength: number;
+  oldestCacheAge: number | null;
+}): string | undefined {
+  if (input.marker === 'DATA_UNAVAILABLE') {
+    return `scoring-eligible investor flow semantic fields unavailable (success ${input.success}/${input.total})`;
+  }
+  if (input.zeroSuspicious) return zeroFilledRiskReason(input.zero, input.total);
+  if (input.partial) return `coverage ${input.success}/${input.total}`;
+  if (input.staleCache > 0) {
+    return `CACHE stale ${input.staleCache}/${input.cacheSamplesLength}, oldest ${formatAgo(input.oldestCacheAge)}`;
+  }
+  return undefined;
+}
+
+/** cache 라인 — oldest/dates suffix 합성. */
+function formatInvestorFlowCacheLine(cacheSamplesLength: number, total: number, oldestCacheAge: number | null, cacheDates: string[]): string {
+  const oldestSuffix = oldestCacheAge !== null ? `, oldest=${formatAgo(oldestCacheAge)}` : '';
+  const datesSuffix = cacheDates.length > 0 ? `, dates=${cacheDates.join(',')}` : '';
+  return `cache: ${cacheSamplesLength}/${total}${oldestSuffix}${datesSuffix}`;
+}
+
+/** kisVerified / KIS-first 비활성 / 기본(KRX/NAVER/CACHE) → fallback 라인. */
+function resolveInvestorFlowFallbackLines(kisVerified: boolean): string[] {
+  if (kisVerified) {
+    return ['fallback: disabled because KIS verified sample is available', 'legacyProviders: KRX/NAVER/CACHE diagnostic-only', 'KRX role=MANUAL_VALIDATION_ONLY'];
+  }
+  if (isKrxAutoFetchDisabledForSupplyHealth()) {
+    return ['fallback: disabled by KIS-first mode until KIS verified sample is available', 'legacyProviders: KRX/NAVER/CACHE diagnostic-only', 'KRX role=MANUAL_VALIDATION_ONLY'];
+  }
+  return ['대체: KRX / NAVER / CACHE'];
+}
+
 async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs: number): Promise<ChannelStatus> {
   let success = 0, zero = 0;
   const zeroDetails: ZeroSuspectDetail[] = [];
@@ -521,14 +574,7 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
     if (routed.source === 'CACHE') cacheSamples.push(routed.data);
     if (routed.data.foreignNetBuy + routed.data.institutionalNetBuy === 0) {
       zero++;
-      zeroDetails.push({
-        code: stock.code,
-        source: zeroSuspectSource(routed.data.provider),
-        foreignNetBuy: Number.isFinite(routed.data.foreignNetBuy) ? routed.data.foreignNetBuy : null,
-        institutionalNetBuy: Number.isFinite(routed.data.institutionalNetBuy) ? routed.data.institutionalNetBuy : null,
-        individualNetBuy: Number.isFinite(routed.data.individualNetBuy) ? routed.data.individualNetBuy! : null,
-        reason: classifyZeroSuspectReason(routed.data),
-      });
+      zeroDetails.push(buildInvestorFlowZeroDetail(stock.code, routed.data));
     }
   }
   const total = targets.length;
@@ -549,15 +595,10 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
     staleCacheCount: staleCache,
   });
   // ADR-0421 — DATA_UNAVAILABLE 시 명시적 reason 추가 (success=0 + missing>0 영역).
-  const riskReason = marker === 'DATA_UNAVAILABLE'
-    ? `scoring-eligible investor flow semantic fields unavailable (success ${success}/${total})`
-    : zeroSuspicious
-      ? zeroFilledRiskReason(zero, total)
-      : partial
-        ? `coverage ${success}/${total}`
-        : staleCache > 0
-          ? `CACHE stale ${staleCache}/${cacheSamples.length}, oldest ${formatAgo(oldestCacheAge)}`
-          : undefined;
+  const riskReason = resolveInvestorFlowRiskReason({
+    marker, success, total, zero, zeroSuspicious, partial, staleCache,
+    cacheSamplesLength: cacheSamples.length, oldestCacheAge,
+  });
   const kisVerified = total > 0
     && sourceCounts.get('KIS_API') === total
     && success === total
@@ -574,18 +615,14 @@ async function diagnoseInvestorFlow(targets: WatchlistEntry[], now: Date, nowMs:
       `success: ${success}/${total}`,
       `missing: ${missing}`,
       `stale: ${staleCache}`,
-      `cache: ${cacheSamples.length}/${total}${oldestCacheAge !== null ? `, oldest=${formatAgo(oldestCacheAge)}` : ''}${cacheDates.length > 0 ? `, dates=${cacheDates.join(',')}` : ''}`,
+      formatInvestorFlowCacheLine(cacheSamples.length, total, oldestCacheAge, cacheDates),
       `zero-filled 의심: ${zeroWarn(zero, total)}`,
       ...formatZeroSuspectLines(zero, total, zeroDetails),
       ...(kisFirstProviderTriedLines.length > 0 ? kisFirstProviderTriedLines : [`providerTried: ${attemptSummaries[0] ?? 'N/A'}`]),
       ...(providerHealthSummary ? providerHealthSummary.split('\n').map((line) => `providerHealth: ${line}`) : []),
       ...formatSupplyConfluenceLines(router, success),
       renderInvestorFlowDecision(marker),
-      ...(kisVerified
-        ? ['fallback: disabled because KIS verified sample is available', 'legacyProviders: KRX/NAVER/CACHE diagnostic-only', 'KRX role=MANUAL_VALIDATION_ONLY']
-        : isKrxAutoFetchDisabledForSupplyHealth()
-          ? ['fallback: disabled by KIS-first mode until KIS verified sample is available', 'legacyProviders: KRX/NAVER/CACHE diagnostic-only', 'KRX role=MANUAL_VALIDATION_ONLY']
-          : ['대체: KRX / NAVER / CACHE']),
+      ...resolveInvestorFlowFallbackLines(kisVerified),
       '상세: /investor_flow 예정',
     ],
   };
