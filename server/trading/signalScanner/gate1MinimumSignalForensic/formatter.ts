@@ -78,11 +78,28 @@ function appendGate1OverviewLines(lines: string[], summary: Gate1MinimumSignalFo
 }
 
 function appendSupplySemanticCoverageLines(lines: string[], summary: Gate1MinimumSignalForensicSummaryAdr0505): void {
+  const total = summary.totalCandidates;
+  const rawAvailable = count(summary.rawInvestorRowAvailableCount);
+  const displayUsable = count(summary.supplyDiagnosticAvailable);
+  const gateEligible = count(summary.supplySemanticAvailable);
+  const shadowObservable = Math.max(displayUsable, count(summary.forensicInputCarriesActualInvestorRowsCount));
+  const semanticUnavailable = Math.max(0, total - gateEligible);
+  lines.push('- Supply Layer Split:');
+  lines.push(`  - Raw Provider Coverage: ${rawAvailable}/${total}`);
+  lines.push(`  - Display/Preview Usable: ${displayUsable}/${total}`);
+  lines.push(`  - Shadow Observable: ${shadowObservable}/${total}`);
+  lines.push(`  - Gate Score Eligible: ${gateEligible}/${total}`);
+  lines.push(`  - Live Promotion Eligible: 0/${total}`);
+  lines.push(`  - Semantic Unavailable: ${semanticUnavailable}/${total}`);
+  lines.push('  - ExecutionImpact: NONE');
+  lines.push('  - MarketSignal: false');
+  lines.push('  - ProviderIssueConvertedToBearish: false');
+  lines.push('  - 안내: 수급 raw/display coverage와 Gate score eligible coverage는 다른 레이어입니다. displayUsable row는 Shadow/Watch 관측에는 사용할 수 있으나, live promotion이나 Gate score에는 별도 semantic eligibility를 통과해야 합니다.');
   lines.push(
-    `- supplySemanticCoverage=${count(summary.supplySemanticAvailable)}/${summary.totalCandidates} supplyDiagnosticRows=${count(summary.supplyDiagnosticAvailable)}/${summary.totalCandidates} semanticUnavailable=${Math.max(0, summary.totalCandidates - (count(summary.supplySemanticAvailable)))} marketSignal=false`,
+    `- supplySemanticCoverage=${gateEligible}/${summary.totalCandidates} supplyDiagnosticRows=${displayUsable}/${summary.totalCandidates} semanticUnavailable=${semanticUnavailable} marketSignal=false`,
   );
   lines.push(
-    `- supplySemantic: available=${count(summary.supplySemanticAvailable)}/${summary.totalCandidates} diagnosticAvailable=${count(summary.supplyDiagnosticAvailable)}/${summary.totalCandidates}`,
+    `- supplySemantic: available=${gateEligible}/${summary.totalCandidates} diagnosticAvailable=${displayUsable}/${summary.totalCandidates}`,
   );
   const pseudoSkipped = summary.semanticReasonDistribution?.DIAGNOSTIC_SKIPPED_PSEUDO_SYMBOL ?? 0;
   if (pseudoSkipped > 0) {
