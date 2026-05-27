@@ -416,3 +416,114 @@ describe('LearningPulseV5 Display Normalization', () => {
     expect(r.severity).toBe('ERROR');
   });
 });
+
+describe('LearningPulseV5 Legacy Top-line Summary Normalization', () => {
+  let tmpDir: string;
+  const line = (msg: string, prefix: string): string => msg.split('\n').find((l) => l.startsWith(prefix)) ?? '';
+  const lineAfter = (msg: string, header: string): string => {
+    const lines = msg.split('\n');
+    const idx = lines.findIndex((l) => l.trim() === header);
+    return idx >= 0 ? lines[idx + 1] ?? '' : '';
+  };
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lp-topline-'));
+    process.env.PERSIST_DATA_DIR = tmpDir;
+    vi.resetModules();
+  });
+  afterEach(() => {
+    delete process.env.PERSIST_DATA_DIR;
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
+  });
+
+  it('does not show NO_FRESH_SAMPLE in top-line when market is closed and next shadow scan is scheduled', async () => {
+    const { collectLearningPulse, formatLearningPulseMessage } = await import('./learningPulse.cmd.js');
+    const closedNow = new Date('2026-04-30T08:00:00Z'); // 17:00 KST Thursday — market closed
+    const msg = formatLearningPulseMessage(collectLearningPulse(closedNow));
+    const freshLine = line(msg, '🌱 Fresh Shadow:');
+    expect(freshLine).toContain('status WAITING_NEXT_OPEN');
+    expect(freshLine).toContain('reason MARKET_CLOSED_WAITING_NEXT_SHADOW_SCAN');
+    expect(freshLine).toContain('severity INFO');
+    expect(freshLine).toContain('operatorAction WAIT_NEXT_OPEN');
+    expect(freshLine).not.toContain('reason NO_FRESH_SAMPLE');
+    expect(freshLine).not.toContain('blocker NO_FRESH_SAMPLE');
+    const promoLine = line(msg, '🚦 Promotion:');
+    expect(promoLine).not.toContain('blockers=NO_FRESH_SAMPLE');
+    expect(promoLine).toContain('blocker=');
+  });
+
+  it('preserves raw fresh-shadow diagnostic fields in the full section', async () => {
+    const { collectLearningPulse, formatLearningPulseMessage } = await import('./learningPulse.cmd.js');
+    const msg = formatLearningPulseMessage(collectLearningPulse(NOW));
+    const rawLine = line(msg, 'Fresh Shadow Raw Diagnostic:');
+    expect(rawLine).toContain('freshExpectancyRawReason=NO_FRESH_SAMPLE');
+    expect(rawLine).toContain('rawPromotionBlocker=NO_FRESH_SAMPLE');
+    expect(rawLine).toContain('freshLifecycleBreaks=');
+  });
+
+  it('shows NO_FRESH_SAMPLE_DURING_MARKET blocker only when regular session has zero fresh shadow sample', async () => {
+    const mod = await import('./learningPulse.cmd.js');
+    const closed = (mod as any).deriveFreshShadowDisplay({ marketSession: 'CLOSED', freshSampleSize: 0, queuedNextOpenShadowScan: true });
+    expect(closed.blocker).toBeNull();
+    const intraday = (mod as any).deriveFreshShadowDisplay({ marketSession: 'REGULAR', freshSampleSize: 0, queuedNextOpenShadowScan: false, lastShadowScanResult: 'OTHER' });
+    expect(intraday.status).toBe('ZERO_DURING_MARKET');
+    expect(intraday.severity).toBe('WARN');
+    expect(intraday.blocker).toBe('NO_FRESH_SAMPLE_DURING_MARKET');
+    const failed = (mod as any).deriveFreshShadowDisplay({ marketSession: 'CLOSED', freshSampleSize: 0, queuedNextOpenShadowScan: true, shadowScanLifecycleStatus: 'FAILED' });
+    expect(failed.blocker).toBe('SHADOW_SCAN_FAILED');
+  });
+
+  it('uses NO_LABELED_COUNTERFACTUAL as promotion blocker before counterfactual maturity labels exist', async () => {
+    const mod = await import('./learningPulse.cmd.js');
+    const r = (mod as any).normalizePromotionBlocker({
+      promotionAllowed: false,
+      counterfactualLabeledInputSamples: 0,
+      counterfactualBuiltButUnlabeled: 1000,
+      counterfactualMaturityStatus: 'WAITING_NORMAL',
+      freshDisplayStatus: 'WAITING_NEXT_OPEN',
+      marketSession: 'CLOSED',
+      rawBlockers: ['NO_FRESH_SAMPLE'],
+    });
+    expect(r.displayBlocker).toBe('NO_LABELED_COUNTERFACTUAL');
+    expect(r.displayReason).toBe('WAITING_FOR_FIRST_COUNTERFACTUAL_LABELS');
+    expect(r.severity).toBe('INFO');
+  });
+
+  it('falls back to market-closed waiting scan blocker when no counterfactual built yet', async () => {
+    const mod = await import('./learningPulse.cmd.js');
+    const r = (mod as any).normalizePromotionBlocker({
+      promotionAllowed: false,
+      counterfactualLabeledInputSamples: 0,
+      counterfactualBuiltButUnlabeled: 0,
+      counterfactualMaturityStatus: 'NONE',
+      freshDisplayStatus: 'WAITING_NEXT_OPEN',
+      marketSession: 'CLOSED',
+      rawBlockers: ['NO_FRESH_SAMPLE'],
+    });
+    expect(r.displayBlocker).toBe('MARKET_CLOSED_WAITING_NEXT_SHADOW_SCAN');
+    expect(r.severity).toBe('INFO');
+  });
+
+  it('renders NO_LABELED_COUNTERFACTUAL promotion blocker in the top-line message', async () => {
+    const { collectLearningPulse, formatLearningPulseMessage } = await import('./learningPulse.cmd.js');
+    const snap = collectLearningPulse(NOW);
+    const overridden = {
+      ...snap,
+      counterfactualBuiltButUnlabeled: 1000,
+      counterfactualLabeledInputSamples: 0,
+      counterfactual: { ...snap.counterfactual, labeledCount: 0 },
+    } as ReturnType<typeof collectLearningPulse>;
+    const promoLine = line(formatLearningPulseMessage(overridden), '🚦 Promotion:');
+    expect(promoLine).toContain('blocker=NO_LABELED_COUNTERFACTUAL');
+    expect(promoLine).toContain('reason=WAITING_FOR_FIRST_COUNTERFACTUAL_LABELS');
+    expect(promoLine).not.toContain('blockers=');
+  });
+
+  it('keeps optional advisory warnings out of the Overall Learning Core status', async () => {
+    const { collectLearningPulse, formatLearningPulseMessage } = await import('./learningPulse.cmd.js');
+    const msg = formatLearningPulseMessage(collectLearningPulse(NOW));
+    expect(lineAfter(msg, '1. Overall Learning Core')).toContain('NORMAL_WAITING_MATURITY');
+    expect(msg).toContain('8. Advisory / Optional Warnings');
+    expect(msg).toContain('LOW_CONFIDENCE_REGIME_BACKFILL=display-only');
+  });
+});
