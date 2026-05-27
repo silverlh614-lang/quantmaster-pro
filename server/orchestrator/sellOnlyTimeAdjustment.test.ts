@@ -1,53 +1,49 @@
 /**
- * @responsibility ADR-0122 SELL_ONLY 시간 조정 (14:55 → 15:00 KST) 회귀 테스트
+ * @responsibility ALWAYS-ON 시간대 정책 회귀 테스트 (구 ADR-0122 SELL_ONLY 시간조정 대체)
  *
- * 사용자 보고 4/30: "SELL_ONLY 는 15시부터" — 14:55 부터 SELL_ONLY 적용은
- * 5분 일찍 시작하는 결함. KRX 정규 매매 14:30~15:20, 동시호가 15:20~15:30.
- * 15:00 부터 SELL_ONLY 적용으로 마감 30분 전 신규 진입 차단 의도 정합.
+ * 사용자 5/27: always-on — 장중 전 시간 매수 허용. 시간대(시초가/점심/마감) 기반 SELL_ONLY 제거,
+ * 볼륨클록은 가/감점 전용. decideScan 의 시간 구간은 스캔 *빈도* 만 조정하고 매매를 차단하지 않는다.
+ * 안전 SELL_ONLY(R6 방어/긴급정지/수동/VKOSPI 급등)는 유지 (별도 분기).
  */
 
 import { describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-describe('ADR-0122 SELL_ONLY 시간 조정 — 14:55 → 15:00 KST', () => {
-  const sourcePath = path.resolve(__dirname, 'adaptiveScanScheduler.ts');
+describe('ALWAYS-ON 시간대 정책 — decideScan 시간대 기반 SELL_ONLY 제거', () => {
+  const sourcePath = path.resolve(__dirname, 'adaptiveScanScheduler.base.ts');
   const source = fs.readFileSync(sourcePath, 'utf-8');
 
-  it('14:55 마감동시호가 분기 → 15:00 분기로 변경 (소스 검증)', () => {
-    // 1455 임계값 회귀 차단 — 사용자 보고 정합
-    expect(source).not.toMatch(/t < 1455.*마감전.*급변/);
-    expect(source).toMatch(/t < 1500.*마감전.*급변/);
+  it('시간대 기반 forceSellOnly = true 가 존재하지 않는다', () => {
+    expect(source).not.toMatch(/forceSellOnly = true/);
   });
 
-  it('SELL_ONLY 시작 임계 1500 (15:00 KST) 사용', () => {
-    // else 분기 (마감 SELL_ONLY) 전에 t < 1500 이 있어야 함
-    expect(source).toMatch(/else if \(t < 1500\)/);
+  it('시간대 phase 라벨에 SELL_ONLY 가 없다 (시초가/점심/마감)', () => {
+    expect(source).not.toMatch(/시초가\(SELL_ONLY/);
+    expect(source).not.toMatch(/점심\(SELL_ONLY\)/);
+    expect(source).not.toMatch(/마감\(SELL_ONLY\)/);
   });
 
-  it('SELL_ONLY phase 라벨 — "마감(SELL_ONLY)" 정합', () => {
-    expect(source).toMatch(/마감\(SELL_ONLY\)/);
+  it('always-on phase 라벨 적용 (점심 저빈도 관찰 / 마감 관찰 / 시초가 변동성 회피)', () => {
+    expect(source).toMatch(/점심\(저빈도 관찰\)/);
+    expect(source).toMatch(/마감\(관찰\)/);
+    expect(source).toMatch(/시초가\(변동성 회피\)/);
   });
 
-  it('ADR-0122 주석 — legacy 분기 정합 보존 (ADR-0192 갱신 후)', () => {
-    // ADR-0192 (2026-05-06) 가 phase 분기를 useLegacy 분기 안으로 이동.
-    // ADR-0122 정책 자체는 보존 (legacy 분기 = 14:55→15:00 의도 그대로).
-    expect(source).toMatch(/ADR-0122/);
+  it('REMOVED_POLICY_INPUT_IGNORED 시간대 SELL_ONLY 중화 블록이 제거됨', () => {
+    // 시간대 SELL_ONLY 자체가 없으므로 중화/롤백 표시 블록도 불필요 — 제거 정합.
+    expect(source).not.toMatch(/REMOVED_POLICY_INPUT_IGNORED/);
+    expect(source).not.toMatch(/ROLLBACK_DISABLED/);
   });
 
-  it('점심 SELL_ONLY 11:30~13:00 보존 (legacy 분기, ADR-0192 호환)', () => {
-    // ADR-0192 (2026-05-06): 신규 정책은 12:00~13:00 점심, legacy 분기는 11:30~13:00 보존.
-    expect(source).toMatch(/t < 1130/);
-    expect(source).toMatch(/t < 1300/);
-    expect(source).toMatch(/점심\(SELL_ONLY\)/);
+  it('점심 구간 스캔 빈도(baseInterval=10) + lastLunchBlockSeenAt 재개 로직 보존', () => {
+    expect(source).toMatch(/baseInterval = 10/);
+    expect(source).toMatch(/lastLunchBlockSeenAt = now/);
   });
 
-  it('forceSellOnly 토글 분기 — legacy 2 (점심+마감) + ADR-0192 신규 3 (시초가+점심+마감) = 5', () => {
-    // ADR-0122 (2026-04-30): 점심 + 마감 SELL_ONLY = 2개
-    // ADR-0192 (2026-05-06): 신규 시초가(09:00~09:30) + 점심(12:00~13:00) + 마감(15:00~) = 3개 추가
-    // legacy 분기 보존 (TRADE_WINDOW_LEGACY_HOURS=true 시 ADR-0122 동작 복원).
-    const matches = source.match(/forceSellOnly = true/g);
-    expect(matches).toBeDefined();
-    expect(matches!.length).toBe(5);
+  it('안전 SELL_ONLY 경로(R6/VKOSPI) 는 유지 (시간대 제거가 안전장치를 건드리지 않음)', () => {
+    // VKOSPI 급등·R6_DEFENSE 분기는 decideScan 상단에서 그대로 유지된다.
+    expect(source).toMatch(/VKOSPI/);
+    expect(source).toMatch(/R6_DEFENSE/);
   });
 });

@@ -372,55 +372,37 @@ export function decideScan(): ScanDecision {
     };
   }
 
-  // ── 3. 시간대별 기본 간격 ────────────────────────────────────────────────
-  //   Volume Clock과 연동: 11:30~13:00 및 14:55~15:20은 매수 차단 구간이므로
-  //   SELL_ONLY 모드로 exitEngine 포지션 감시만 수행 (Yahoo API 호출 절약)
+  // ── 3. 시간대별 기본 간격 (ALWAYS-ON: 시간대는 스캔 빈도만 조정, 매매 차단 없음) ──
+  //   시초가/점심/마감 구간도 매매는 허용한다. 빠른 변동/저거래 구간은 baseInterval(스캔 주기)
+  //   로만 반영하고, 진입 가/감점은 volumeClock.scoreBonus 가 담당한다. 시간대 기반 SELL_ONLY 없음.
   let baseInterval: number;
   let phase: string;
-  let forceSellOnly = false;
 
-  // ADR-0192 (사용자 5/6): 매매 허용 시간 09:30~12:00 + 13:00~15:30.
-  //   - 09:00~09:30 시초가 SELL_ONLY (변동성 회피, 기존 09:00 매수 시작에서 30분 후퇴)
-  //   - 점심 차단 12:00~13:00 (기존 11:30~13:00 → 점심 30분 단축, 오전 매매 +30분)
-  //   - 오후 정상 매매 13:00~15:00 (기존 13:00~14:30 → +30분)
-  //   - 마감 SELL_ONLY 15:00~15:30 (ADR-0122 정합 보존)
-  // ENV `TRADE_WINDOW_LEGACY_HOURS=true` 우회 시 기존 동작 복원 (isBuyableKstWindow 와 정합).
+  // ADR-0192 시간 구간(스캔 빈도 SSOT). ENV `TRADE_WINDOW_LEGACY_HOURS=true` 우회 시 기존 구간 복원.
   const useLegacy = process.env.TRADE_WINDOW_LEGACY_HOURS === 'true';
   if (useLegacy) {
     if      (t < 930)  { baseInterval = 2;  phase = '시초가(급변)'; }
     else if (t < 1130) { baseInterval = 3;  phase = '오전 주도주'; }
     else if (t < 1300) {
-      baseInterval = 10; phase = '점심(SELL_ONLY)'; forceSellOnly = true;
+      baseInterval = 10; phase = '점심(저빈도 관찰)';
       lastLunchBlockSeenAt = now;
     }
     else if (t < 1430) { baseInterval = 5;  phase = '오후 재개장'; }
     else if (t < 1500) { baseInterval = 2;  phase = '마감전(급변)'; }
-    else               { baseInterval = 2;  phase = '마감(SELL_ONLY)'; forceSellOnly = true; }
+    else               { baseInterval = 2;  phase = '마감(관찰)'; }
   } else {
-    if      (t < 930)  {
-      baseInterval = 5;  phase = '시초가(SELL_ONLY/변동성 회피)'; forceSellOnly = true;
-    }
+    if      (t < 930)  { baseInterval = 5;  phase = '시초가(변동성 회피)'; }
     else if (t < 1200) { baseInterval = 3;  phase = '오전 주도주'; }
     else if (t < 1300) {
-      baseInterval = 10; phase = '점심(SELL_ONLY)'; forceSellOnly = true;
-      lastLunchBlockSeenAt = now; // 점심 구간 통과 중 — 해제 감지용 기록
+      baseInterval = 10; phase = '점심(저빈도 관찰)';
+      lastLunchBlockSeenAt = now; // 점심 구간 통과 중 — 오후 재개 1회 강제 스캔 감지용
     }
     else if (t < 1500) { baseInterval = 3;  phase = '오후 재개장'; }
-    // ADR-0122 정합 보존 — 마감 30분 전 SELL_ONLY (15:00~15:30).
-    else               { baseInterval = 2;  phase = '마감(SELL_ONLY)'; forceSellOnly = true; }
+    else               { baseInterval = 2;  phase = '마감(관찰)'; }
   }
 
-  // ── 4. 레짐 배율 적용 ────────────────────────────────────────────────────
-  if (forceSellOnly) {
-    console.info(
-      `[REMOVED_POLICY_INPUT_IGNORED] marketSession=ADAPTIVE_SCHEDULER_PHASE ` +
-      `inputEntryBlockMode=SELL_ONLY removedPolicies=SELL_ONLY ` +
-      `liveBuyAllowed=GATE_DATA_ONLY realOrderAllowed=GATE_DATA_ONLY shadowSignalAllowed=true ` +
-      `diagnosticAllowed=true counterfactualAllowed=true executionImpact='NONE' rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'`,
-    );
-    forceSellOnly = false;
-    phase = phase.replace(/SELL_ONLY/g, 'ROLLBACK_DISABLED');
-  }
+  // ── 4. 레짐 배율 적용 (시간대 기반 SELL_ONLY 없음 — VKOSPI/R6/긴급정지 등 안전 SELL_ONLY 만 위 섹션에서 처리) ──
+
 
   const multiplier = REGIME_MULTIPLIER[regime] ?? 1.0;
 
@@ -445,11 +427,10 @@ export function decideScan(): ScanDecision {
 
   const finalInterval = effectiveInterval * emptyBackoff;
 
-  // ── 6-b. 점심 차단 해제 직후 1회 강제 스캔 ───────────────────────────────
-  // 11:30~13:00 에 forceSellOnly 로 돌던 직후 13:00 재개 시, 기본 5분 interval 을 기다리면
-  // 슬롯 회복·오후 주도주 추격이 지연된다. 점심 구간 통과 기록(lastLunchBlockSeenAt)이 있고
-  // 현재 t >= 1300 이며 아직 lunchResumeFiredAt 가 오늘 설정 안 됐다면 1회 force scan.
-  if (!forceSellOnly && t >= 1300 && t < 1310 && lastLunchBlockSeenAt > 0) {
+  // ── 6-b. 점심 저빈도 구간 직후 1회 강제 스캔 ─────────────────────────────
+  // 점심(12:00~13:00) 저빈도 스캔 직후 13:00 재개 시, 기본 interval 을 기다리면 슬롯 회복·오후
+  // 주도주 추격이 지연된다. 점심 구간 통과 기록(lastLunchBlockSeenAt)이 있고 t >= 1300 이면 1회 force scan.
+  if (t >= 1300 && t < 1310 && lastLunchBlockSeenAt > 0) {
     immediateRescanRequested = true;
     // 같은 영업일 내 재진입을 막기 위해 lastLunchBlockSeenAt 를 소비.
     lastLunchBlockSeenAt = 0;
@@ -488,10 +469,9 @@ export function decideScan(): ScanDecision {
     livenessDecision = evaluateEmptyScanLiveness({
       marketSession,
       emptyScanStreak: consecutiveEmptyScans,
-      sellOnlyAlreadyActive: forceSellOnly,
+      sellOnlyAlreadyActive: false, // ALWAYS-ON: 시간대 기반 SELL_ONLY 없음.
     });
     // 핵심 — REGULAR session + emptyScanStreak 만으로 SELL_ONLY 강제 금지.
-    // forceSellOnly (phase-based: 시초가/점심/마감 또는 R6_DEFENSE) 는 그대로 유지.
     emptyScanForcesSellOnly = false;
   }
 

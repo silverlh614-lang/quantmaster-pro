@@ -1,7 +1,7 @@
 /**
  * @responsibility 매매 허용 시간 정책 회귀 테스트 (ADR-0192)
  *
- * 사용자 5/6 요청 — 09:30~12:00 + 13:00~15:30 + 시초가 SELL_ONLY + 점심 30분 단축.
+ * 사용자 5/6 요청 — isBuyableKstWindow 진단 윈도 09:30~12:00 + 13:00~15:30. ALWAYS-ON: 시간대 기반 SELL_ONLY 없음.
  *
  * 정적 grep 가드 (drift 차단) + ENV 매트릭스.
  */
@@ -11,12 +11,12 @@ import fs from 'fs';
 import path from 'path';
 
 const SCHEDULER_PATH = path.resolve(
-  __dirname, 'adaptiveScanScheduler.ts',
+  __dirname, 'adaptiveScanScheduler.base.ts',
 );
 const source = fs.readFileSync(SCHEDULER_PATH, 'utf-8');
 
-describe('ADR-0192 정적 가드 — isBuyableKstWindow + decideScan phase', () => {
-  it('isBuyableKstWindow 신규 정책 시간대 (09:30~12:00 + 13:00~15:30)', () => {
+describe('ADR-0192 / ALWAYS-ON 정적 가드 — isBuyableKstWindow + decideScan phase', () => {
+  it('isBuyableKstWindow 시간대 (09:30~12:00 + 13:00~15:30) — 진단/경보 윈도 (매매 게이트 아님)', () => {
     expect(source).toMatch(/t >= 930 && t < 1200/);
     expect(source).toMatch(/t >= 1300 && t < 1530/);
   });
@@ -33,33 +33,31 @@ describe('ADR-0192 정적 가드 — isBuyableKstWindow + decideScan phase', () 
     expect(matches!.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('decideScan 시초가(09:00~09:30) SELL_ONLY 분기', () => {
-    expect(source).toMatch(/시초가\(SELL_ONLY\/변동성 회피\)/);
+  it('ALWAYS-ON: decideScan 에 시간대 기반 forceSellOnly 가 없다', () => {
+    // 시간대(시초가/점심/마감) 기반 SELL_ONLY 제거 — volume clock 가/감점 + always-on.
+    expect(source).not.toMatch(/forceSellOnly = true/);
   });
 
-  it('decideScan 오전 12:00 까지 정상 매매 (기존 11:30 → 12:00)', () => {
-    // 신규 정책 분기 안 t < 1200 등장
+  it('ALWAYS-ON: decideScan 시간대 phase 라벨에 SELL_ONLY 가 없다', () => {
+    expect(source).not.toMatch(/시초가\(SELL_ONLY/);
+    expect(source).not.toMatch(/점심\(SELL_ONLY\)/);
+    expect(source).not.toMatch(/마감\(SELL_ONLY\)/);
+  });
+
+  it('decideScan 시간 구간 보존 (t < 1200 / t < 1500 — 스캔 빈도 SSOT)', () => {
     expect(source).toMatch(/t < 1200/);
-  });
-
-  it('decideScan 오후 15:00 까지 정상 매매 (기존 14:30 → 15:00)', () => {
     expect(source).toMatch(/t < 1500/);
-  });
-
-  it('decideScan 마감 15:00~15:30 SELL_ONLY (ADR-0122 정합)', () => {
-    expect(source).toMatch(/'마감\(SELL_ONLY\)'/);
   });
 
   it('lastLunchBlockSeenAt 점심 구간 통과 변수 보존', () => {
     expect(source).toMatch(/lastLunchBlockSeenAt = now/);
   });
 
-  it('ADR-0192 추적 주석 (다중 위치)', () => {
-    const adr0192Count = (source.match(/ADR-0192/g) ?? []).length;
-    expect(adr0192Count).toBeGreaterThanOrEqual(2);
+  it('ADR-0192 추적 주석 보존', () => {
+    expect((source.match(/ADR-0192/g) ?? []).length).toBeGreaterThanOrEqual(1);
   });
 
-  it('ADR-0122 정합 보존 주석 (마감 SELL_ONLY 정책 보존 명문화)', () => {
+  it('ADR-0122 legacy 윈도 주석 보존', () => {
     expect(source).toMatch(/ADR-0122/);
   });
 });
@@ -130,14 +128,14 @@ describe('ADR-0192 isBuyableKstWindow 동작 매트릭스', () => {
     expect(computeBuyableKst(11, 30, true)).toBe(false);
   });
 
-  it('Legacy 모드 — 14:30 차단 (마감전 SELL_ONLY)', () => {
+  it('Legacy 모드 — 14:30 차단 (마감전 윈도)', () => {
     expect(computeBuyableKst(14, 30, true)).toBe(false);
   });
 });
 
 describe('ADR-0192 decideScan phase 시각 매트릭스', () => {
-  it('09:00 시초가 SELL_ONLY 분기 boundary (t < 930)', () => {
-    // t = 900 → t < 930 분기 진입 → 신규 정책 시초가 SELL_ONLY
+  it('09:00 시초가 분기 boundary (t < 930)', () => {
+    // t = 900 → t < 930 분기 진입 → 시초가(변동성 회피)
     expect(900 < 930).toBe(true);
   });
 
@@ -161,7 +159,7 @@ describe('ADR-0192 decideScan phase 시각 매트릭스', () => {
     expect(1330 >= 1300 && 1330 < 1500).toBe(true);
   });
 
-  it('15:00 마감 SELL_ONLY 분기 (ADR-0122 정합 보존)', () => {
+  it('15:00 마감 분기 (t >= 1500)', () => {
     expect(1500 >= 1500).toBe(true);
   });
 });
