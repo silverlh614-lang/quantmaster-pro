@@ -179,12 +179,17 @@ describe('composeNowVerdict — priority chain', () => {
     expect(composeNowVerdict()).toContain('Live Buy: BLOCKED');
   });
 
-  it('🟡 HOLD when regime = R6_DEFENSE', () => {
+  it('🟡 SHADOW_ONLY / HOLD when raw R6_DEFENSE condition is active (live buy blocked)', () => {
+    // ADR-0535 authority hierarchy: raw R6 surfaces via display/riskOverride=SHADOW_ONLY and blocks
+    // live buy; effectiveRegime stays the separate scoring regime (R6 is never the effective regime).
     vi.spyOn(macroRepo, 'loadMacroState').mockReturnValue({
       regime: 'R6_DEFENSE',
       mhs: 25,
     } as ReturnType<typeof macroRepo.loadMacroState>);
-    expect(composeNowVerdict()).toContain('R6_DEFENSE / HOLD');
+    const verdict = composeNowVerdict();
+    expect(verdict).toContain('SHADOW_ONLY / HOLD');
+    expect(verdict).toContain('Live Buy: BLOCKED');
+    expect(verdict).toContain('RAW_R6_DEFENSE_CONDITION_ACTIVE');
   });
 
   it('🟢 OK on default normal state', () => {
@@ -197,7 +202,7 @@ describe('composeNowVerdict — priority chain', () => {
     expect(verdict).not.toContain('macroState:');
   });
 
-  it('NOW separates raw trend from effective R6 state and explicitly blocks live buy', () => {
+  it('NOW separates the raw R6 trigger from the (downgraded) effective regime and blocks live buy', () => {
     vi.spyOn(macroRepo, 'loadMacroState').mockReturnValue({
       regime: 'R3_BULL_TREND',
       mhs: 70,
@@ -208,7 +213,10 @@ describe('composeNowVerdict — priority chain', () => {
     const verdict = composeNowVerdict();
 
     expect(verdict).not.toContain('Raw trend:');
-    expect(verdict).toMatch(/Effective regime: R6_(PANIC|DEFENSE)/);
+    // Raw R6 trigger is acknowledged (reason chain) while the effective scoring regime is NOT R6
+    // (sanitizeEffectiveRegime keeps R6 out of effective). Live buy blocked, shadow continues.
+    expect(verdict).toContain('ACTIVE_R6_TRIGGER_PRESENT');
+    expect(verdict).not.toMatch(/Effective regime: R6_/);
     expect(verdict).toContain('Live Buy: BLOCKED');
     expect(verdict).toContain('Shadow: ON');
   });
@@ -230,8 +238,10 @@ describe('composeNowVerdict — priority chain', () => {
 
     const verdict = composeNowVerdict(now);
 
-    expect(verdict).toMatch(/Effective regime: R6_(PANIC|DEFENSE)/);
+    // Single snapshot: raw R6 trigger acknowledged, live buy blocked, effective never R6/R3_NORMAL.
+    expect(verdict).toContain('ACTIVE_R6_TRIGGER_PRESENT');
     expect(verdict).toContain('Live Buy: BLOCKED');
+    expect(verdict).not.toMatch(/Effective regime: R6_/);
     expect(verdict).not.toContain('Effective regime: R3_NORMAL');
     expect(verdict).not.toContain('BUY_ALLOWED');
     expect(macroRepo.loadMacroState).toHaveBeenCalledTimes(1);
