@@ -196,9 +196,11 @@ describe("message and log formatting", () => {
   it("builds hard-cap approach message without soft-cap warning language", () => {
     const c = classifyWatchlistSaturation(input(47))!;
     const msg = buildWatchlistSaturationMessage(c);
-    expect(msg).toContain("Hard Cap \uC811\uADFC");
+    expect(msg).toContain("[Watchlist 확인 필요]");
     expect(msg).not.toContain("Soft Cap \uACBD\uACE0");
-    expect(msg).toContain("\uD655\uC778 \uD544\uC694");
+    expect(msg).not.toContain("경고");
+    expect(msg).toContain("상태: hard cap 접근 — 확인 필요");
+    expect(msg).toContain("조치 필요: 확인");
     expect(msg).toContain("watchlistIntakeBlocked=false");
     expect(msg).toContain("executionImpact=NONE");
     expect(msg).toContain("notificationOnly=true");
@@ -206,7 +208,8 @@ describe("message and log formatting", () => {
 
   it("builds hard-cap message with intake-only impact", () => {
     const msg = buildWatchlistSaturationMessage(classifyWatchlistSaturation(input(52))!);
-    expect(msg).toContain("Hard Cap \uB3C4\uB2EC");
+    expect(msg).toContain("[Watchlist 확인 필요]");
+    expect(msg).toContain("상태: hard cap 도달 — 확인 필요");
     expect(msg).toContain("watchlistIntakeBlocked=true");
     expect(msg).toContain("tradingLogicChanged=false");
   });

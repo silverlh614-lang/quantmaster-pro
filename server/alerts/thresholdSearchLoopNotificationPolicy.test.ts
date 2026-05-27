@@ -4,9 +4,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   _resetThresholdLoopNotificationState,
   buildThresholdLoopDiagnostic,
+  buildThresholdObserveDiagnosticMessage,
   buildThresholdProposalApprovalMessage,
   evaluateThresholdLoopTelegramDelivery,
   formatThresholdLoopEvaluatedLog,
+  formatThresholdWordingPolicyLogs,
   recordThresholdLoopTelegramSent,
 } from './thresholdSearchLoopNotificationPolicy.js';
 
@@ -67,6 +69,7 @@ describe('thresholdSearchLoopNotificationPolicy', () => {
     expect(diagnostic.thresholdAutoChanged).toBe(false);
     expect(diagnostic.actualThresholdChanged).toBe(false);
     expect(delivery.shouldSend).toBe(true);
+    expect(message).toContain('[Threshold 제안 — 승인 필요]');
     expect(message).toContain('actualThresholdChanged=false');
     expect(message).toContain('executionImpact=NONE');
   });
@@ -105,5 +108,23 @@ describe('thresholdSearchLoopNotificationPolicy', () => {
     expect(line).toContain('thresholdChanged=false');
     expect(line).toContain('notificationOnly=true');
     expect(line).toContain('diagnosticOnly=true');
+  });
+
+  it('uses observe wording when Gate/RRR timing is the bottleneck', () => {
+    const diagnostic = buildThresholdLoopDiagnostic({
+      tradeDate: '2026-05-27',
+      noEntryStreak: 5,
+      gatePassCount: 2,
+      gate3RrrFailCount: 2,
+    });
+    const message = buildThresholdObserveDiagnosticMessage(diagnostic);
+    const logs = formatThresholdWordingPolicyLogs(diagnostic).join('\n');
+
+    expect(message).toContain('[Threshold 진단]');
+    expect(message).toContain('Gate 기준: 유지');
+    expect(message).toContain('권장 조치: 관망');
+    expect(message).toContain('임계치 변경: 없음');
+    expect(logs).toContain('[DIAGNOSTIC_WORDING_DOWNGRADED]');
+    expect(logs).toContain('thresholdChanged=false');
   });
 });

@@ -362,9 +362,8 @@ export function recordWatchlistSaturationAlertSent(
 }
 
 function messageTitle(c: WatchlistSaturationClassification): string {
-  if (c.capStatus === "HARD_CAP") return "\u26A0\uFE0F <b>[Watchlist Hard Cap \uB3C4\uB2EC]</b>";
-  if (c.remainingToHard <= 3) return "\u26A0\uFE0F <b>[Watchlist Hard Cap \uC811\uADFC]</b>";
-  return "\uD83D\uDCCB <b>[Watchlist \uC790\uB3D9 \uAD00\uB9AC \uC0C1\uD0DC]</b>";
+  if (c.capStatus === "HARD_CAP" || c.remainingToHard <= 3) return "⚠️ <b>[Watchlist 확인 필요]</b>";
+  return "📋 <b>[Watchlist 상태]</b>";
 }
 
 export function buildWatchlistSaturationMessage(
@@ -383,18 +382,23 @@ export function buildWatchlistSaturationMessage(
   if (sources) lines.push(`sourceDistribution=${sources}`);
 
   if (c.capStatus === "HARD_CAP") {
-    lines.push("\uC2E0\uADDC \uD6C4\uBCF4 \uC720\uC785 \uC601\uD5A5 \uAC00\uB2A5");
-    lines.push("\uD655\uC778 \uD544\uC694");
+    lines.push("상태: hard cap 도달 — 확인 필요");
+    lines.push("신규 후보 유입 영향 가능");
+    lines.push("조치 필요: 확인");
   } else if (c.remainingToHard <= 3) {
-    lines.push("\uC790\uB3D9 \uC815\uB9AC \uC2E4\uD328 \uB610\uB294 \uC815\uB9AC \uD6C4\uBCF4 \uBD80\uC871");
-    lines.push("\uC2E0\uADDC \uD6C4\uBCF4 \uC720\uC785 \uC601\uD5A5 \uAC00\uB2A5");
-    lines.push("\uD655\uC778 \uD544\uC694");
+    lines.push("상태: hard cap 접근 — 확인 필요");
+    lines.push("자동 정리 후보 부족 가능");
+    lines.push("신규 후보 유입 영향 가능");
+    lines.push("조치 필요: 확인");
   } else {
-    lines.push("\uC790\uB3D9 \uAD00\uB9AC \uC0C1\uD0DC");
+    lines.push("상태: soft cap 관찰 — 자동 관리 대상");
+    lines.push("매매 영향: 없음");
+    lines.push("조치 필요: 없음");
   }
 
   lines.push(
     `watchlistIntakeBlocked=${c.watchlistIntakeBlocked}`,
+    "매매 영향: 없음",
     "executionImpact=NONE marketSignal=false providerIssue=false kisImpact=NONE",
     "tradingLogicChanged=false gateLogicChanged=false orderLogicChanged=false",
     "notificationOnly=true watchlistDisplayOnly=true",

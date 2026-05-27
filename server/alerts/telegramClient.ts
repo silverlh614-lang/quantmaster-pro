@@ -118,6 +118,7 @@ import {
   formatThresholdProposalRequiresApprovalLog,
   formatThresholdProposalSuppressedLog,
   formatThresholdTelegramSentLog,
+  formatThresholdWordingPolicyLogs,
   recordThresholdLoopTelegramSent,
   type ThresholdLoopDiagnosticInput,
 } from './thresholdSearchLoopNotificationPolicy.js';
@@ -1062,6 +1063,9 @@ export async function sendEmptyScanDecisionBroker(
   });
   const delivery = evaluateThresholdLoopTelegramDelivery(diagnostic);
   console.log(formatThresholdLoopEvaluatedLog(diagnostic));
+  for (const line of formatThresholdWordingPolicyLogs(diagnostic)) {
+    console.log(line);
+  }
 
   if (!diagnostic.thresholdLoweringEligible) {
     console.log(formatThresholdObserveRecommendedLog(diagnostic));

@@ -19,7 +19,7 @@ describe('telegramNotificationPolicy', () => {
   it('suppresses explicit executionImpact=NONE diagnostic push messages', () => {
     const decision = routeTelegramNotification({
       message: [
-        '[Threshold Diagnostic]',
+        '[Threshold 진단]',
         'executionImpact=NONE',
         'marketSignal=false',
         'providerIssue=false',
@@ -42,7 +42,7 @@ describe('telegramNotificationPolicy', () => {
 
   it('routes approval-required events as ACTION_REQUIRED without changing trading fields', () => {
     const decision = routeTelegramNotification({
-      message: '[Threshold Proposal - 승인 필요]\nactionRequired=true\nexecutionImpact=NONE',
+      message: '[Threshold 제안 — 승인 필요]\nactionRequired=true\nexecutionImpact=NONE',
       eventType: 'THRESHOLD_SEARCH_LOOP',
       actionRequired: true,
       executionImpact: 'NONE',

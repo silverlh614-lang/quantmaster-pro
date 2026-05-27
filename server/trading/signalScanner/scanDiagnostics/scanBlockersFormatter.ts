@@ -820,7 +820,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     ].join('\n');
   }
   if (!summary) {
-    return '📊 <b>[매수 차단 사유]</b>\n━━━━━━━━━━━━━━━━\n진단 데이터 없음 (스캔 미실행).';
+    return '📊 <b>[스캔 진단 요약]</b>\n━━━━━━━━━━━━━━━━\n진단 데이터 없음 (스캔 미실행).';
   }
 
   const canonicalRuntimeResolution =
@@ -834,7 +834,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     ? Math.max(formatterCount(summary.entries), formatterCount(summary.provisionalShadowLane?.created))
     : 0;
   const lines: string[] = [];
-  lines.push(`📊 <b>[매수 차단 사유 분포]</b> 직전 스캔 (${summary.time})`);
+  lines.push(`📊 <b>[스캔 진단 요약]</b> 직전 스캔 (${summary.time})`);
   lines.push('━━━━━━━━━━━━━━━━');
 
   if (mg) {
@@ -962,7 +962,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   }
 
   lines.push('');
-  lines.push(`📋 <b>종목별 차단</b> (후보 ${summary.candidates}개):`);
+  lines.push(`📋 <b>종목별 필터 상태</b> (후보 ${summary.candidates}개):`);
   if (shadowDiagnosticEntriesForSummary > 0) {
     lines.push(`  • 🧪 Shadow diagnostic entry: <b>${shadowDiagnosticEntriesForSummary}개</b>`);
     lines.push('  • 실거래 주문: <b>0개</b> (실거래 없음)');
@@ -972,7 +972,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   }
   if (wd) {
     if (wd.dataHold > 0) lines.push(`  • DATA_HOLD: ${wd.dataHold}개 ⚠️`);
-    if (wd.gateFail > 0) lines.push(`  • Gate 재검증 미달: ${wd.gateFail}개`);
+    if (wd.gateFail > 0) lines.push(`  • Gate 재검증 미완료: ${wd.gateFail}개`);
     if (wd.preBreakout > 0) lines.push(`  • Pre-breakout WAIT: ${wd.preBreakout}개`);
     if (canonicalRuntimeResolution.sizing.hardBlockCount > 0) {
       lines.push(`  • Sizing BLOCKED: ${canonicalRuntimeResolution.sizing.hardBlockCount}개 ⚠️`);

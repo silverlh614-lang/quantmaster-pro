@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatScanSummaryCausalArrowAllowedLog,
   formatScanSummaryReasonMappedLog,
+  formatScanSummaryWordingPolicyLogs,
   formatScanSummaryZeroReasonSuppressedLog,
   mapScanSummaryDisplayReasons,
 } from './scanSummaryReasonMapping.js';
@@ -88,5 +89,22 @@ describe('scanSummaryReasonMapping', () => {
     expect(mappedLog).toContain('displayOnly=true');
     expect(zeroLog).toContain('causalArrowSuppressed=true');
     expect(zeroLog).toContain('telegramSentField=false');
+  });
+
+  it('emits common wording policy logs for user action and causal suppression', () => {
+    const mapping = mapScanSummaryDisplayReasons({
+      scanCycleId: 'scan-wording',
+      providerFailureCount: 0,
+      gateMissCount: 0,
+      rrrFailCount: 0,
+      executionImpact: 'NONE',
+    });
+    const logs = formatScanSummaryWordingPolicyLogs(mapping).join('\n');
+
+    expect(logs).toContain('[MESSAGE_WORDING_MAPPED]');
+    expect(logs).toContain('[USER_ACTION_LABEL_RESOLVED]');
+    expect(logs).toContain('[CAUSAL_REASON_SUPPRESSED]');
+    expect(logs).toContain('notificationOnly=true');
+    expect(logs).toContain('displayOnly=true');
   });
 });
