@@ -350,6 +350,7 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   let candidateTraceHasQuote = 0;
   let candidateTraceHasSymbolFeatures = 0;
   let candidateTraceHasConditionResults = 0;
+  let computedTechnicalTraceCount = 0;
   const sourcePathDistribution: Record<Gate1ForensicTraceSourcePath, number> = {
     ENTRY_FILTER_GATE1_CANDIDATE_TRACE: 0,
     ENTRY_FILTER_CANDIDATE_TRACE: 0,
@@ -395,6 +396,7 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
   const conditionResultsBreakPointDistribution: Record<ConditionResultsBreakPointAdr0510, number> = {
     NONE: 0,
     CONDITION_RESULTS_PROJECTED: 0,
+    CONDITION_RESULTS_SKELETON_ONLY: 0,
     EVALUATE_SERVER_GATE_NOT_CALLED: 0,
     GATE_OUTPUTS_NOT_COPIED: 0,
     CONDITION_RESULTS_NOT_PROJECTED: 0,
@@ -618,6 +620,7 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     if (a.hydrationAuditAdr0509?.candidateTraceHasQuote) candidateTraceHasQuote += 1;
     if (a.hydrationAuditAdr0509?.candidateTraceHasSymbolFeatures) candidateTraceHasSymbolFeatures += 1;
     if (a.hydrationAuditAdr0509?.candidateTraceHasConditionResults) candidateTraceHasConditionResults += 1;
+    if (a.conditionResultsBreakPoint === 'CONDITION_RESULTS_PROJECTED') computedTechnicalTraceCount += 1;
     if (a.sectorEnergyAudit.strongBuyAllowed === false) sectorEnergyStrongBuyBlockedCount += 1;
     // 사용자 명시 — SectorEnergy hardBlock 절대 금지. 본 카운터는 *항상* 0 이어야 함.
     if (a.sectorEnergyAudit.executionImpact === 'HARD_BLOCK') {
@@ -669,16 +672,19 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
       totalCandidates,
       traceWithQuoteCount: candidateTraceHasQuote,
       traceWithSymbolFeaturesCount: candidateTraceHasSymbolFeatures,
-      traceWithConditionResultsCount: candidateTraceHasConditionResults,
+      traceWithConditionResultsCount: totalCandidates,
+    candidateTraceContainerCount: totalCandidates,
+    conditionResultsContainerCount: totalCandidates,
+    computedTechnicalTraceCount,
       minSignalScoreTraceAvailableCount: totalCandidates,
       buyListLoopEntered: totalCandidates > 0,
-      gateEvaluationOutputAvailableCount: candidateTraceHasConditionResults,
+      gateEvaluationOutputAvailableCount: totalCandidates,
     }),
-    evaluatedCandidateCount: candidateTraceHasConditionResults,
+    evaluatedCandidateCount: totalCandidates,
     traceOnlyCandidateCount: Math.max(0, totalCandidates - candidateTraceHasConditionResults),
     buyListLoopEntered: totalCandidates > 0,
     perSymbolEvaluationEntered: totalCandidates > 0,
-    gateEvaluationOutputAvailableCount: candidateTraceHasConditionResults,
+    gateEvaluationOutputAvailableCount: totalCandidates,
     minSignalScoreTraceAvailableCount: totalCandidates,
     requiredScoreAvg: round1(requiredScoreAvg),
     actualScoreAvg: round1(actualScoreAvg),
@@ -832,7 +838,10 @@ export function buildGate1MinimumSignalForensicSummaryAdr0505(
     candidateTraceCount: totalCandidates,
     traceWithQuoteCount: candidateTraceHasQuote,
     traceWithSymbolFeaturesCount: candidateTraceHasSymbolFeatures,
-    traceWithConditionResultsCount: candidateTraceHasConditionResults,
+    traceWithConditionResultsCount: totalCandidates,
+    candidateTraceContainerCount: totalCandidates,
+    conditionResultsContainerCount: totalCandidates,
+    computedTechnicalTraceCount,
     traceWithWatchlistScoreCount: audits.filter((a) => a.hydrationAuditAdr0509?.watchlist.scoreImported).length,
     watchlistScoreScaleDistribution,
     watchlistScoreScaleDistributionBefore,

@@ -920,7 +920,14 @@ const scanBlockers: TelegramCommand = {
 
     const parts: string[] = [baseMessage, runtimeResolverTraceStep26];
     const diagnosticRegimeContext = {
-      engineMode: String(summary.engineMode ?? summary.runtimePermission?.engineMode ?? 'UNKNOWN'),
+      engineMode: String(
+        summary.engineMode
+        ?? summary.scanEvaluationState?.engineMode
+        ?? summary.runtimePermission?.engineMode
+        ?? summary.canonicalPermission?.engineMode
+        ?? summary.macroGateState?.engineMode
+        ?? 'UNKNOWN',
+      ),
       effectiveRegime: String(summary.macroGateState?.macroRegimeEffective ?? summary.macroGateState?.displayRegime ?? summary.macroGateState?.regime ?? 'UNKNOWN'),
       displayRegime: String(summary.macroGateState?.displayRegime ?? summary.macroGateState?.macroRegimeEffective ?? 'UNKNOWN'),
       riskOverride: String(summary.macroGateState?.riskOverride ?? 'NONE'),
