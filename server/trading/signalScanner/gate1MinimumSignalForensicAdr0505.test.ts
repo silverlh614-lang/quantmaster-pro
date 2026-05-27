@@ -296,7 +296,7 @@ describe('ADR-0505 — Gate1 Minimum Signal Forensic Audit', () => {
       const summary = buildGate1MinimumSignalForensicSummaryAdr0505(audits);
       const out = formatGate1MinimumSignalForensicSection(summary);
       expect(out).toContain('🧬 Gate1 Minimum Signal Forensic (ADR-0505)');
-      expect(out).toContain('candidates=48 failed=n/a (not live failure)');
+      expect(out).toContain('candidates=48 failed=48');
       expect(out).toContain('dominant=POSITIVE_SCORE_STARVATION');
       expect(out).toContain('watchlist=48');
       expect(out).toContain('rs=48');

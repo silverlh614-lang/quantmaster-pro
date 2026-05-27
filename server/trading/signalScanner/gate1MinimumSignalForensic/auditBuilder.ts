@@ -272,6 +272,7 @@ function resolveConditionResultsBreakPoint(candidate: CandidateEntryTrace | unde
   const hasResults = Boolean(record?.conditionResults && typeof record.conditionResults === 'object')
     || Boolean(Array.isArray(record?.conditionResultsTrace) && record?.conditionResultsTrace.length > 0);
   if (hasResults) return 'CONDITION_RESULTS_PROJECTED';
+  if (candidate?.gate1Trace) return 'CONDITION_RESULTS_SKELETON_ONLY';
   if (!candidate?.gate1Trace) return 'EVALUATE_SERVER_GATE_NOT_CALLED';
   return 'CONDITION_RESULTS_NOT_PROJECTED';
 }

@@ -219,6 +219,7 @@ export type QuoteHydrationBreakPointAdr0510 =
 export type ConditionResultsBreakPointAdr0510 =
   | 'NONE'
   | 'CONDITION_RESULTS_PROJECTED'
+  | 'CONDITION_RESULTS_SKELETON_ONLY'
   | 'EVALUATE_SERVER_GATE_NOT_CALLED'
   | 'GATE_OUTPUTS_NOT_COPIED'
   | 'CONDITION_RESULTS_NOT_PROJECTED'
@@ -576,6 +577,9 @@ export interface Gate1MinimumSignalForensicSummaryAdr0505 {
   traceWithQuoteCount?: number;
   traceWithSymbolFeaturesCount?: number;
   traceWithConditionResultsCount?: number;
+  candidateTraceContainerCount?: number;
+  conditionResultsContainerCount?: number;
+  computedTechnicalTraceCount?: number;
   traceWithWatchlistScoreCount?: number;
   traceWithSupplyContextCount?: number;
   traceWithMinSignalScoreTraceCount?: number;

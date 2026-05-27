@@ -273,7 +273,9 @@ function appendGate1HydrationTraceLines(lines: string[], summary: Gate1MinimumSi
     `- supplyMissingNeutralized=${count(summary.supplyMissingNeutralizedCount ?? summary.supplyMissingNeutralized)} supplyMissingExecutionImpact=${summary.supplyMissingExecutionImpact ?? 'NONE'} supplyMissingMarketSignal=${String(summary.supplyMissingMarketSignal ?? false)} supplyRowMissingLearningTag=${count(summary.supplyRowMissingLearningTagCount)} learningTag=${formatDistribution(summary.supplyMissingLearningTagDistribution ?? {})}`,
   );
   lines.push(`- traceWithQuoteCount: ${summary.traceWithQuoteCount ?? count(summary.candidateTraceHasQuote)}/${summary.totalCandidates}`);
+  lines.push(`- candidateTraceContainer: ${(summary.candidateTraceContainerCount ?? summary.totalCandidates)}/${summary.totalCandidates}`);
   lines.push(`- traceWithConditionResultsCount: ${summary.traceWithConditionResultsCount ?? count(summary.candidateTraceHasConditionResults)}/${summary.totalCandidates}`);
+  lines.push(`- computedTechnicalTraceCount: ${(summary.computedTechnicalTraceCount ?? 0)}/${summary.totalCandidates}`);
   if (summary.sourcePathDistribution) lines.push(`- sourcePathDistribution: ${formatDistribution(summary.sourcePathDistribution)}`);
   if (summary.watchlistBreakPointDistribution) lines.push(`- watchlistBreakPoint: ${formatDistribution(summary.watchlistBreakPointDistribution)}`);
   if (summary.quoteHydrationBreakPointDistribution) lines.push(`- quoteHydrationBreakPoint: ${formatDistribution(summary.quoteHydrationBreakPointDistribution)}`);
