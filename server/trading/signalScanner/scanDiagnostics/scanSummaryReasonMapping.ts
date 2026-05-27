@@ -1,5 +1,12 @@
 // @responsibility Scan summary display reason mapping policy.
 
+import {
+  buildMessageWordingDecision,
+  formatCausalReasonSuppressedLog,
+  formatMessageWordingMappedLog,
+  formatUserActionLabelResolvedLog,
+} from '../../../alerts/messageWordingPolicy.js';
+
 export type ScanSummaryZeroCountReason =
   | 'YAHOO_FAILURE'
   | 'GATE_MISS'
@@ -179,4 +186,22 @@ export function formatScanSummaryCausalArrowAllowedLog(mapping: ScanSummaryReaso
     `displayText=${mapping.providerLine.replace(/\s+/g, '_')}`,
     safetyFields(mapping),
   ].join(' ');
+}
+
+export function formatScanSummaryWordingPolicyLogs(mapping: ScanSummaryReasonMapping): string[] {
+  const decision = buildMessageWordingDecision({
+    eventType: 'SCAN_SUMMARY',
+    originalTone: mapping.actionRequired ? 'ACTION_REQUIRED' : 'DIAGNOSTIC',
+    executionImpact: mapping.executionImpact,
+    actionRequired: mapping.actionRequired,
+    diagnosticOnly: mapping.executionImpact === 'NONE',
+    displayTextType: 'SCAN_SUMMARY_REASON_MAPPING',
+  });
+  return [
+    formatMessageWordingMappedLog(decision),
+    formatUserActionLabelResolvedLog(decision),
+    ...mapping.suppressedZeroCountReasons.map((reason) =>
+      formatCausalReasonSuppressedLog(decision, reason, 0),
+    ),
+  ];
 }

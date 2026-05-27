@@ -8,6 +8,7 @@ import {
   evaluateNoEntryTelegramDelivery,
   formatNoEntryPipelineHealthOkLog,
   formatNoEntryStreakEvaluatedLog,
+  formatNoEntryWordingPolicyLogs,
   noEntryStreakBucket,
   recordNoEntryTelegramSent,
 } from './noEntryStreakDiagnostic.js';
@@ -52,9 +53,11 @@ describe('noEntryStreakDiagnostic', () => {
     expect(diagnostic.counterfactualBlockedByNoEntryStreak).toBe(false);
     expect(delivery.shouldSend).toBe(false);
     expect(delivery.reason).toBe('NORMAL_NO_ENTRY_DIAGNOSTIC_SUPPRESSED');
-    expect(message).toContain('상태: 조건 미충족 — 대기');
+    expect(message).toContain('상태: 진입 조건 미충족 — 대기');
     expect(message).toContain('데이터 실패: 없음');
     expect(message).toContain('조치 필요: 없음');
+    expect(message).toContain('Shadow learning: ON');
+    expect(message).toContain('Counterfactual: ON');
     expect(message).toContain('thresholdChanged=false');
     expect(message).not.toContain('Yahoo 실패: 0개');
     expect(message).not.toContain('파이프라인 점검 필요');
@@ -85,7 +88,7 @@ describe('noEntryStreakDiagnostic', () => {
     expect(diagnostic.dominantNoEntryReason).toBe('PIPELINE_ACTUAL_FAILURE');
     expect(diagnostic.failureReason).toBe('GATE_EVALUATED_ZERO_ABNORMAL');
     expect(evaluateNoEntryTelegramDelivery(diagnostic).shouldSend).toBe(true);
-    expect(message).toContain('[스캔 파이프라인 점검 필요]');
+    expect(message).toContain('[No-entry 파이프라인 확인 필요]');
     expect(message).toContain('actionRequired=true');
   });
 
@@ -131,5 +134,25 @@ describe('noEntryStreakDiagnostic', () => {
     expect(evaluated).toContain('orderLogicChanged=false');
     expect(health).toContain('forceScanBlocked=false');
     expect(health).toContain('shadowLearningAllowed=true');
+  });
+
+  it('logs common wording downgrade for normal no-entry diagnostics', () => {
+    const diagnostic = buildNoEntryStreakDiagnostic({
+      tradeDate: '2026-05-27',
+      scanCycleId: 'scan-wording',
+      noEntryStreakCount: 3,
+      candidateCount: 20,
+      gateEvaluatedCount: 20,
+      preBreakoutWaitCount: 10,
+      shadowLearningAllowed: true,
+      counterfactualAllowed: true,
+    });
+    const logs = formatNoEntryWordingPolicyLogs(diagnostic).join('\n');
+
+    expect(logs).toContain('[MESSAGE_WORDING_MAPPED]');
+    expect(logs).toContain('[DIAGNOSTIC_WORDING_DOWNGRADED]');
+    expect(logs).toContain('[USER_ACTION_LABEL_RESOLVED]');
+    expect(logs).toContain('toTone=DIAGNOSTIC');
+    expect(logs).toContain('조치_필요:_없음');
   });
 });

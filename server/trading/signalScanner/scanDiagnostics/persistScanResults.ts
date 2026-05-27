@@ -128,12 +128,14 @@ import {
   formatNoEntryStreakEvaluatedLog,
   formatNoEntryTelegramSentLog,
   formatNoEntryTelegramSuppressedLog,
+  formatNoEntryWordingPolicyLogs,
   recordNoEntryTelegramSent,
   type NoEntryStreakDiagnosticInput,
 } from './noEntryStreakDiagnostic.js';
 import {
   formatScanSummaryCausalArrowAllowedLog,
   formatScanSummaryReasonMappedLog,
+  formatScanSummaryWordingPolicyLogs,
   formatScanSummaryZeroReasonSuppressedLog,
   mapScanSummaryDisplayReasons,
 } from './scanSummaryReasonMapping.js';
@@ -1938,7 +1940,13 @@ export async function persistScanResults(
     });
     _lastScanSummary.noEntryStreakDiagnostic = noEntryDiagnostic;
     console.log(formatNoEntryStreakEvaluatedLog(noEntryDiagnostic));
+    for (const line of formatNoEntryWordingPolicyLogs(noEntryDiagnostic)) {
+      console.log(line);
+    }
     console.log(formatScanSummaryReasonMappedLog(summaryReasonMapping));
+    for (const line of formatScanSummaryWordingPolicyLogs(summaryReasonMapping)) {
+      console.log(line);
+    }
     for (const reason of summaryReasonMapping.suppressedZeroCountReasons) {
       console.log(formatScanSummaryZeroReasonSuppressedLog(summaryReasonMapping, reason));
     }

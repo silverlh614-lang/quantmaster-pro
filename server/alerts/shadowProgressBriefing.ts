@@ -297,7 +297,7 @@ export function detectSampleStall(now: Date = new Date()): SampleStallResult {
   if (sampleCount7d === 0) {
     return {
       stalled: true,
-      reason: `최근 ${SAMPLE_STALL_DAYS}일간 신규 Shadow 0건 — 파이프라인 점검 필요`,
+      reason: `최근 ${SAMPLE_STALL_DAYS}일간 신규 Shadow 0건 — 샘플 정체 관찰`,
       sampleCount7d, targetVelocity, currentVelocity,
     };
   }
@@ -324,14 +324,16 @@ export async function sendSampleStallAlertIfNeeded(): Promise<boolean> {
   await emitTelegramEvent({
     type: 'SHADOW_SUMMARY',
     message: [
-      `⚠️ <b>[Sample Stall]</b> ${r.reason}`,
+      `📊 <b>[Shadow 샘플 진단]</b> ${r.reason}`,
       `현재 속도: ${r.currentVelocity.toFixed(2)}건/일 (목표 ${r.targetVelocity.toFixed(2)}건/일)`,
+      `매매 영향: 없음`,
+      `조치 필요: 없음`,
       ``,
-      `<b>점검 체크리스트:</b>`,
+      `<b>확인 체크리스트:</b>`,
       `· 시장이 Risk-Off (정상 가능)`,
-      `· 워치리스트 비어있음 (비정상 → autoPopulate 확인)`,
-      `· Gemini API 레이트리밋 (비정상 → getRateLimiterStats)`,
-      `· KIS 토큰 만료 후 재발급 실패 (비정상 → invalidateKisToken)`,
+      `· 워치리스트 비어있음 (확인: autoPopulate)`,
+      `· Gemini API 레이트리밋 (확인: getRateLimiterStats)`,
+      `· KIS 토큰 만료 후 재발급 상태 (확인: invalidateKisToken)`,
     ].join('\n'),
     severity: 'HIGH',
     dedupeKey: 'sample-stall',

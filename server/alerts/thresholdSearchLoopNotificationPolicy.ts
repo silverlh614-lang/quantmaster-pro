@@ -1,5 +1,12 @@
 // @responsibility Threshold Search Loop Telegram proposal dedup policy; diagnostic-only routing.
 
+import {
+  buildMessageWordingDecision,
+  formatDiagnosticWordingDowngradedLog,
+  formatMessageWordingMappedLog,
+  formatUserActionLabelResolvedLog,
+} from './messageWordingPolicy.js';
+
 export type ThresholdNoEntryReason =
   | 'POLICY_LIVE_DISABLED_SHADOW_ONLY'
   | 'OPENING_OR_SESSION_GUARD'
@@ -340,8 +347,8 @@ export function buildThresholdProposalApprovalMessage(
   delivery: ThresholdLoopDeliveryDecision,
 ): string {
   return (
-    `🎚️ <b>[Threshold Proposal - 승인 필요]</b>\n` +
-    `진입 0회 원인: Gate1 threshold 미달 우세\n` +
+    `🎚️ <b>[Threshold 제안 — 승인 필요]</b>\n` +
+    `사유: Gate1 threshold 미달 우세\n` +
     `제안: 임계치 완화 검토\n` +
     `실제 변경: 없음\n` +
     `승인 필요: true\n` +
@@ -362,11 +369,11 @@ export function buildThresholdProposalApprovalMessage(
 export function buildThresholdObserveDiagnosticMessage(diagnostic: ThresholdLoopDiagnostic): string {
   const gatePassLine = diagnostic.gatePassCount > 0 ? '있음' : '없음';
   return (
-    `🎚️ <b>[Threshold Diagnostic]</b>\n` +
-    `진입 0회 원인: Gate 기준 문제가 아님\n` +
+    `🎚️ <b>[Threshold 진단]</b>\n` +
+    `Gate 기준: 유지\n` +
+    `진입 0회 주 원인: ${diagnostic.dominantNoEntryReason}\n` +
     `Gate 통과 후보: ${gatePassLine}\n` +
-    `주 병목: ${diagnostic.dominantNoEntryReason}\n` +
-    `권장 조치: 관망 유지\n` +
+    `권장 조치: 관망\n` +
     `임계치 변경: 없음\n` +
     `매매 영향: 없음\n` +
     `thresholdProposalGenerated=false\n` +
@@ -377,4 +384,25 @@ export function buildThresholdObserveDiagnosticMessage(diagnostic: ThresholdLoop
     `marketSignal=false providerIssue=false tradingLogicChanged=false gateLogicChanged=false orderLogicChanged=false\n` +
     `thresholdChanged=false notificationOnly=true diagnosticOnly=true`
   );
+}
+
+export function formatThresholdWordingPolicyLogs(diagnostic: ThresholdLoopDiagnostic): string[] {
+  const decision = buildMessageWordingDecision({
+    eventType: diagnostic.eventType,
+    originalTone: diagnostic.thresholdProposalGenerated ? 'ACTION_REQUIRED' : 'WARNING',
+    executionImpact: diagnostic.executionImpact,
+    actionRequired: diagnostic.operatorApprovalRequired,
+    diagnosticOnly: true,
+    displayTextType: diagnostic.thresholdProposalGenerated
+      ? 'THRESHOLD_APPROVAL_PROPOSAL'
+      : 'THRESHOLD_DIAGNOSTIC',
+  });
+  const logs = [
+    formatMessageWordingMappedLog(decision),
+    formatUserActionLabelResolvedLog(decision),
+  ];
+  if (!diagnostic.thresholdProposalGenerated) {
+    logs.push(formatDiagnosticWordingDowngradedLog(decision, 'threshold_observe_no_change'));
+  }
+  return logs;
 }

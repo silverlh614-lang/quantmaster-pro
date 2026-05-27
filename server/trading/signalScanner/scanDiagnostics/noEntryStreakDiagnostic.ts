@@ -1,6 +1,12 @@
 // @responsibility No-entry streak diagnostic notification policy.
 
 import {
+  buildMessageWordingDecision,
+  formatDiagnosticWordingDowngradedLog,
+  formatMessageWordingMappedLog,
+  formatUserActionLabelResolvedLog,
+} from '../../../alerts/messageWordingPolicy.js';
+import {
   mapScanSummaryDisplayReasons,
   type ScanSummaryReasonMapping,
 } from './scanSummaryReasonMapping.js';
@@ -458,6 +464,25 @@ export function formatNoEntryTelegramSentLog(diagnostic: NoEntryStreakDiagnostic
   ].join(' ');
 }
 
+export function formatNoEntryWordingPolicyLogs(diagnostic: NoEntryStreakDiagnostic): string[] {
+  const decision = buildMessageWordingDecision({
+    eventType: diagnostic.eventType,
+    originalTone: diagnostic.actionRequired ? 'ACTION_REQUIRED' : 'WARNING',
+    executionImpact: diagnostic.executionImpact,
+    actionRequired: diagnostic.actionRequired,
+    diagnosticOnly: diagnostic.diagnosticOnly,
+    displayTextType: diagnostic.actionRequired ? 'NO_ENTRY_ACTION_REQUIRED' : 'NO_ENTRY_DIAGNOSTIC',
+  });
+  const logs = [
+    formatMessageWordingMappedLog(decision),
+    formatUserActionLabelResolvedLog(decision),
+  ];
+  if (!diagnostic.actionRequired && diagnostic.executionImpact === 'NONE') {
+    logs.push(formatDiagnosticWordingDowngradedLog(decision, 'normal_no_entry_waiting'));
+  }
+  return logs;
+}
+
 export function buildNoEntryScanSummaryMessage(
   diagnostic: NoEntryStreakDiagnostic,
   input: NoEntryStreakDiagnosticInput,
@@ -477,7 +502,7 @@ export function buildNoEntryScanSummaryMessage(
 ): string {
   if (diagnostic.actionRequired) {
     return [
-      `⚠️ <b>[스캔 파이프라인 점검 필요]</b> ${input.timeLabel ?? ''}`.trim(),
+      `⚠️ <b>[No-entry 파이프라인 확인 필요]</b> ${input.timeLabel ?? ''}`.trim(),
       '진입 0회가 반복되며 scan pipeline 이상 징후가 확인되었습니다.',
       `원인: ${diagnostic.failureReason ?? reasonLabel(diagnostic.dominantNoEntryReason)}`,
       mapping.providerLine,
@@ -503,21 +528,24 @@ export function buildNoEntryScanSummaryMessage(
 
   return [
     `📊 <b>[스캔 요약]</b> ${input.timeLabel ?? ''}`.trim(),
-    `총 후보: ${count(input.candidateCount)}개 | SWING: ${count(input.swingCount)}개 | CATALYST: ${count(input.catalystCount)}개 | MOMENTUM: ${count(input.momentumCount)}개`,
-    `- ${mapping.providerLine}`,
-    `- ${mapping.gateLine}`,
-    `- ${mapping.rrrLine}`,
-    '- 진입 성공: 0개',
-    '상태: 조건 미충족 — 대기',
+    `총 후보: ${count(input.candidateCount)}개`,
+    '진입 성공: 0개',
+    '',
+    '상태: 진입 조건 미충족 — 대기',
     `주 원인: ${reasonLabel(diagnostic.dominantNoEntryReason)}`,
+    `${mapping.providerLine}`,
     '매매 영향: 없음',
     '조치 필요: 없음',
+    '',
+    '상세:',
+    `${mapping.gateLine}`,
+    `${mapping.rrrLine}`,
+    `Shadow learning: ${diagnostic.shadowLearningStatus}`,
+    `Counterfactual: ${diagnostic.counterfactualStatus}`,
     `pipelineHealthStatus=${diagnostic.pipelineHealthStatus}`,
     `dominantNoEntryReason=${diagnostic.dominantNoEntryReason}`,
     'actionRequired=false',
     'executionImpact=NONE',
-    `shadowLearningStatus=${diagnostic.shadowLearningStatus}`,
-    `counterfactualStatus=${diagnostic.counterfactualStatus}`,
     'forceScanBlocked=false',
     'thresholdChanged=false',
     'entryBlockedByNoEntryStreak=false',
