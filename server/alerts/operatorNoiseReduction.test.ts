@@ -55,7 +55,10 @@ describe('ADR-0108 #2 + Patch-WATCHLIST-SATURATION-COOLDOWN-001 — Watchlist �
     // 도달 / below-alert 재진입 bypass)으로 재설계. watchlistRepo.ts 는 SSOT 위임만.
     const policy = readFile('server/persistence/watchlistSaturationPolicy.ts');
     expect(policy).toContain(
-      'export const WATCHLIST_SATURATION_COOLDOWN_MS = 30 * 60 * 1000',
+      'export const WATCHLIST_SOFT_CAP_COOLDOWN_MS = 60 * 60 * 1000',
+    );
+    expect(policy).toContain(
+      'export const WATCHLIST_HARD_CAP_COOLDOWN_MS = 15 * 60 * 1000',
     );
     expect(policy).toContain('WATCHLIST_SATURATION_COOLDOWN_MIN'); // ENV override
     expect(policy).toContain('export function evaluateWatchlistSaturationAlert');

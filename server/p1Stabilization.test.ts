@@ -186,7 +186,8 @@ describe('P1 read-only debug positions and normal policy states', () => {
     const result = evaluateWatchlistSaturationAlert({ section: 'MOMENTUM', count: 35, alertCap: 30, softCap: 40, hardCap: 50, autoCount: 35, manualCount: 0 }, NOW);
     expect(result.classification?.severity).toBe('ADVISORY');
     expect(result.classification?.executionImpact).toBe('NONE');
-    expect(result.decision.shouldEmit).toBe(true);
+    expect(result.decision.shouldEmit).toBe(false);
+    expect(result.decision.suppressionReason).toBe('OBSERVE_ONLY');
     expect(shouldSendWatchlistSaturationTelegram(result.classification!)).toBe(false);
   });
 });

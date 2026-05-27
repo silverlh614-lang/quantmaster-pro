@@ -9,6 +9,9 @@ import {
   formatWatchlistSaturationSentLog,
   shouldSendWatchlistSaturationTelegram,
   formatWatchlistSaturationSuppressedLog,
+  formatWatchlistSaturationStatusLog,
+  buildWatchlistSaturationDedupeKey,
+  resolveWatchlistSaturationTelegramCooldownMs,
 } from "./watchlistSaturationPolicy.js";
 import { isEmergencyWatchlistCodeGuardEnabled } from "../dataQuality/emergencyDataQualityGuards.js";
 import { normalizeKrxCode } from "../utils/symbolNormalizer.js";
@@ -488,6 +491,77 @@ export function buildWatchlistAutoTrimAlert(input: {
 // severity 분류(ADVISORY/WARNING/CRITICAL) + cooldown 상태머신 + 메시지 빌더는
 // `./watchlistSaturationPolicy.ts` SSOT 로 이관 — 반복 발송 억제 + "포화" 표현 분리.
 
+export function buildWatchlistAutoManagementSummaryMessage(input: {
+  result: EnforceCapsResult;
+  hard: Record<WatchlistSection, number>;
+  soft: Record<WatchlistSection, number>;
+  softDisabled: boolean;
+}): string {
+  const { result, hard, soft, softDisabled } = input;
+  const totalSoft =
+    result.softDropped.SWING +
+    result.softDropped.CATALYST +
+    result.softDropped.MOMENTUM;
+  const totalHard =
+    result.hardDropped.SWING +
+    result.hardDropped.CATALYST +
+    result.hardDropped.MOMENTUM;
+  const total = totalSoft + totalHard;
+  const lines: string[] = [
+    `\uD83D\uDCCB <b>[Watchlist \uC790\uB3D9 \uAD00\uB9AC \uC644\uB8CC]</b>`,
+    `\uC815\uB9AC: ${total}\uAC1C (soft ${totalSoft} / hard ${totalHard})`,
+  ];
+
+  for (const sec of ["SWING", "CATALYST", "MOMENTUM"] as const) {
+    const sd = result.softDropped[sec];
+    const hd = result.hardDropped[sec];
+    if (sd === 0 && hd === 0) continue;
+    const parts: string[] = [];
+    if (sd > 0) parts.push(`soft -${sd}/${soft[sec]}`);
+    if (hd > 0) parts.push(`hard -${hd}/${hard[sec]}`);
+    lines.push(`${sec}: \uC815\uB9AC ${sd + hd}\uAC1C (${parts.join(", ")})`);
+  }
+
+  lines.push(
+    `\uAE30\uC900: \uAE30\uC874 cleanup candidate / stale / failCount / \uC870\uAC74\uBBF8\uB2EC \uBC18\uBCF5`,
+    softDisabled
+      ? `soft cap \uBE44\uD65C\uC131: hard cap \uBCF4\uD638\uB9CC \uC801\uC6A9`
+      : `soft cap \uC790\uB3D9 \uAD00\uB9AC \uC801\uC6A9`,
+    `\uB9E4\uB9E4 \uC601\uD5A5: \uC5C6\uC74C`,
+    `\uB2E4\uC74C \uC54C\uB9BC: hard cap \uC811\uADFC \uB610\uB294 \uC815\uB9AC \uC2E4\uD328 \uC2DC`,
+    `executionImpact=NONE marketSignal=false providerIssue=false kisImpact=NONE`,
+    `tradingLogicChanged=false gateLogicChanged=false orderLogicChanged=false`,
+    `notificationOnly=true watchlistDisplayOnly=true`,
+  );
+  return lines.join("\n");
+}
+
+function countWatchlistSections(list: readonly WatchlistEntry[]): Record<WatchlistSection, number> {
+  const counts: Record<WatchlistSection, number> = { SWING: 0, CATALYST: 0, MOMENTUM: 0 };
+  for (const entry of list) counts[sectionOf(entry)] += 1;
+  return counts;
+}
+
+function formatWatchlistAutoCleanupSummaryLog(input: {
+  section: WatchlistSection;
+  beforeCount: number;
+  afterCount: number;
+  trimmedCount: number;
+  hardCap: number;
+  telegramEligible: boolean;
+}): string {
+  return (
+    `[WATCHLIST_AUTO_CLEANUP_SUMMARY] section=${input.section} ` +
+    `beforeCount=${input.beforeCount} afterCount=${input.afterCount} ` +
+    `trimmedCount=${input.trimmedCount} skippedCount=0 ` +
+    `cleanupSucceeded=${input.trimmedCount > 0} telegramEligible=${input.telegramEligible} ` +
+    `remainingSlots=${Math.max(0, input.hardCap - input.afterCount)} ` +
+    `executionImpact=NONE marketSignal=false providerIssue=false kisImpact=NONE ` +
+    `tradingLogicChanged=false gateLogicChanged=false orderLogicChanged=false ` +
+    `notificationOnly=true watchlistDisplayOnly=true`
+  );
+}
+
 export function saveWatchlist(list: WatchlistEntry[]): void {
   ensureDataDir();
 
@@ -516,11 +590,14 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
 
   // PR-3 #8 + ADR-0028 §모순9: 섹션별 soft/hard 두 단계 cap 강제.
   // soft cap 도달 시 composite score 하위를 능동 정리해 deadzone 차단.
-  const result = enforceSectionCaps(list);
+  const capEvaluationNow = new Date();
+  const beforeSectionCounts = countWatchlistSections(list);
+  const result = enforceSectionCaps(list, capEvaluationNow);
   const { trimmed, dropped } = result;
   const totalDropped = dropped.SWING + dropped.CATALYST + dropped.MOMENTUM;
 
   fs.writeFileSync(WATCHLIST_FILE, JSON.stringify(trimmed, null, 2));
+  const afterSectionCounts = countWatchlistSections(trimmed);
 
   const momentumCount = trimmed.filter(
     (entry) =>
@@ -535,9 +612,25 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
   //   - 포화 cooldown 30분 → 12시간 + soft cap 90% 임박 시에만 발송 (단순 alert 임계 통과 발송 차단)
   //   - ENV 우회: WATCHLIST_TRIM_ALERT_DISABLED=true / WATCHLIST_OVERFLOW_ALERT_DISABLED=true
   const trimAlertEnabled = process.env.WATCHLIST_TRIM_ALERT_DISABLED !== "true";
+  for (const section of ["SWING", "CATALYST", "MOMENTUM"] as const) {
+    const afterCount = afterSectionCounts[section];
+    const trimmedCount = dropped[section];
+    const telegramEligible =
+      trimmedCount >= 3 ||
+      afterCount >= hard[section] ||
+      hard[section] - afterCount <= 3;
+    console.log(formatWatchlistAutoCleanupSummaryLog({
+      section,
+      beforeCount: beforeSectionCounts[section],
+      afterCount,
+      trimmedCount,
+      hardCap: hard[section],
+      telegramEligible,
+    }));
+  }
   if (trimAlertEnabled && totalDropped >= 3) {
     void sendTelegramAlert(
-      buildWatchlistAutoTrimAlert({ result, hard, soft, softDisabled }),
+      buildWatchlistAutoManagementSummaryMessage({ result, hard, soft, softDisabled }),
       {
         priority: "NORMAL",
         dedupeKey: "watchlist-autotrim",
@@ -572,38 +665,32 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
       autoCount: momentumSourceDist.AUTO,
       manualCount: momentumSourceDist.MANUAL,
       dartCount: momentumSourceDist.DART,
-    });
+    }, capEvaluationNow);
   if (saturation) {
-    if (saturationDecision.shouldEmit && saturationDecision.emitReason) {
+    console.log(formatWatchlistSaturationStatusLog(saturation));
+    if (
+      saturationDecision.shouldEmit &&
+      saturationDecision.emitReason &&
+      shouldSendWatchlistSaturationTelegram(saturation)
+    ) {
       console.log(
         formatWatchlistSaturationSentLog(saturation, saturationDecision.emitReason),
       );
-      if (shouldSendWatchlistSaturationTelegram(saturation)) {
-        void sendTelegramAlert(buildWatchlistSaturationMessage(saturation), {
-          priority: saturation.severity === "CRITICAL" ? "HIGH" : "NORMAL",
-          // cooldown 은 watchlistSaturationPolicy 상태머신이 단독 관리 — telegramClient 의 키 기반
-          // cooldown 은 우회 (cooldownMs:0). 카테고리 추정용으로만 dedupeKey 전달.
-          dedupeKey: "watchlist-momentum-saturation",
-          cooldownMs: 0,
-          category: "watchlist_saturation",
-          noiseEvent: {
-            eventType: "WATCHLIST_SATURATION",
-            channel: "CH4_JOURNAL",
-            status: saturation.severity,
-            session: "MOMENTUM",
-            dedupeHint: "MOMENTUM",
-            executionImpact: "NONE",
-          },
-        }).catch(console.error);
-      } else {
-        console.log(formatWatchlistSaturationSuppressedLog(saturation, {
-          ...saturationDecision,
-          shouldEmit: false,
-          emitReason: null,
-          suppressionReason: "COOLDOWN_ACTIVE",
-        }));
-      }
-      recordWatchlistSaturationAlertSent(saturation);
+      void sendTelegramAlert(buildWatchlistSaturationMessage(saturation), {
+        priority: saturation.severity === "CRITICAL" ? "HIGH" : "NORMAL",
+        dedupeKey: buildWatchlistSaturationDedupeKey(saturation, capEvaluationNow),
+        cooldownMs: resolveWatchlistSaturationTelegramCooldownMs(saturation),
+        category: "watchlist_saturation",
+        noiseEvent: {
+          eventType: "WATCHLIST_SATURATION",
+          channel: "CH4_JOURNAL",
+          status: saturation.capStatus,
+          session: saturation.section,
+          dedupeHint: saturation.countBucket,
+          executionImpact: "NONE",
+        },
+      }).catch(console.error);
+      recordWatchlistSaturationAlertSent(saturation, capEvaluationNow);
     } else {
       // Telegram 발송 억제 — Railway 에는 compact 로그만.
       console.log(
