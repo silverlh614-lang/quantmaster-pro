@@ -12,6 +12,10 @@ interface Props {
   onToggle: () => void;
 }
 
+function engineModeBadgeVariant(mode: string): 'danger' | 'warning' | 'info' {
+  return mode === 'LIVE' ? 'danger' : mode === 'VTS' ? 'warning' : 'info';
+}
+
 export function EngineControlCard({ engineStatus, toggling, onToggle }: Props) {
   return (
     <Card padding="md">
@@ -33,7 +37,7 @@ export function EngineControlCard({ engineStatus, toggling, onToggle }: Props) {
                 <span className="px-1.5 py-0.5 rounded bg-white/5 font-bold">{engineStatus.currentState}</span>
               )}
               {engineStatus?.mode && (
-                <Badge variant={engineStatus.mode === 'LIVE' ? 'danger' : engineStatus.mode === 'VTS' ? 'warning' : 'info'} size="sm">
+                <Badge variant={engineModeBadgeVariant(engineStatus.mode)} size="sm">
                   {engineStatus.mode}
                 </Badge>
               )}

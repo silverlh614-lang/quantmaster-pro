@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-27 · Patch-GODFUNCTION-UI-PURE-HELPER-PHASE4-001 · refactor, GodFunctionGuard 412→410(UI 소규모), RegimeGaugeSection/EngineControlCard 순수 value→문자열·variant 매핑 헬퍼 추출(cc≤25), JSX/hook 구조 불변·렌더출력 verbatim 보존, typecheck 0, executionImpact-NONE
 - 2026-05-27 · Patch-PERSISTSCANRESULTS-TYPES-HELPERS-PHASE3-001 · refactor, persistScanResults.ts 부분분해 2088→1818, persistScanResults/types.ts+helpers.ts 추출(순수헬퍼6+옵션타입), god함수 본문 byte-identical(1623줄 무변경), 진단/판단로직 불변, baseline 유지(1500 미돌파), test 426/12 무회귀, executionImpact-NONE
 - 2026-05-27 · Patch-SDS-WARN-EMITTER-RECOGNITION-PHASE2-001 · governance, SDS swallowed 95→0, silent_degradation_sentinel 로그인식 확장(emit*Warn/clientWarn/warnXxx/logXxx — ADR-531 taxonomy emitter), 4건 SDS-ignore 주석(shadow/buy/gate2 핸들러), 런타임 0줄·판단로직 불변, executionImpact-NONE
 - 2026-05-27 · Patch-SRP-RESPONSIBILITY-HEADERS-PHASE1-001 · governance, @responsibility 헤더 45파일 추가(orderGateway/buy/fill/telegram-alert/sector), comment-only(runtime 0줄·삭제 0·로직 무변경), SRP 누락 45→0, executionImpact-NONE
