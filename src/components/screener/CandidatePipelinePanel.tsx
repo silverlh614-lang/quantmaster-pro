@@ -86,9 +86,14 @@ export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProp
       aria-label="후보군 파이프라인"
     >
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[11px] font-black uppercase tracking-widest opacity-70 flex items-center gap-1.5">
-          <Filter className="w-3 h-3" /> 후보군 파이프라인
-        </span>
+        <div className="flex flex-col">
+          <span className="text-[11px] font-black uppercase tracking-widest opacity-70 flex items-center gap-1.5">
+            <Filter className="w-3 h-3" /> 후보군 파이프라인
+          </span>
+          <span className="text-[9px] text-white/40 mt-0.5 normal-case tracking-normal font-medium">
+            서버 자동매매 스크리너 집계 · 아래 후보 판정 카드와 별개 경로
+          </span>
+        </div>
         <div className="flex items-center gap-2">
           {data?.lastScanTime && (
             <span className="text-[10px] text-white/50 font-num hidden sm:inline">
