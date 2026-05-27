@@ -272,14 +272,42 @@ function appendGate1HydrationTraceLines(lines: string[], summary: Gate1MinimumSi
   lines.push(
     `- supplyMissingNeutralized=${count(summary.supplyMissingNeutralizedCount ?? summary.supplyMissingNeutralized)} supplyMissingExecutionImpact=${summary.supplyMissingExecutionImpact ?? 'NONE'} supplyMissingMarketSignal=${String(summary.supplyMissingMarketSignal ?? false)} supplyRowMissingLearningTag=${count(summary.supplyRowMissingLearningTagCount)} learningTag=${formatDistribution(summary.supplyMissingLearningTagDistribution ?? {})}`,
   );
-  lines.push(`- traceWithQuoteCount: ${summary.traceWithQuoteCount ?? count(summary.candidateTraceHasQuote)}/${summary.totalCandidates}`);
-  lines.push(`- candidateTraceContainer: ${(summary.candidateTraceContainerCount ?? summary.totalCandidates)}/${summary.totalCandidates}`);
-  lines.push(`- traceWithConditionResultsCount: ${summary.traceWithConditionResultsCount ?? count(summary.candidateTraceHasConditionResults)}/${summary.totalCandidates}`);
-  lines.push(`- computedTechnicalTraceCount: ${(summary.computedTechnicalTraceCount ?? 0)}/${summary.totalCandidates}`);
-  if (summary.sourcePathDistribution) lines.push(`- sourcePathDistribution: ${formatDistribution(summary.sourcePathDistribution)}`);
+  const candidateCount = summary.totalCandidates;
+  const candidateTraceContainer = summary.candidateTraceContainerCount ?? candidateCount;
+  const conditionResultsContainer = summary.conditionResultsContainerCount ?? candidateCount;
+  const fullComputedTrace = summary.computedTechnicalTraceCount ?? 0;
+  const traceWithConditionResults = summary.traceWithConditionResultsCount ?? count(summary.candidateTraceHasConditionResults);
+  const skeletonOnlyTrace = Math.max(0, traceWithConditionResults - fullComputedTrace);
+  const missingTraceContainer = Math.max(0, candidateCount - candidateTraceContainer);
+
+  lines.push('- ConditionResults Projection:');
+  lines.push(`  - candidateCount: ${candidateCount}`);
+  lines.push(`  - candidateTraceContainer: ${candidateTraceContainer}/${candidateCount}`);
+  lines.push(`  - conditionResultsContainer: ${conditionResultsContainer}/${candidateCount}`);
+  lines.push(`  - fullComputedTrace: ${fullComputedTrace}/${candidateCount}`);
+  lines.push(`  - skeletonOnlyTrace: ${skeletonOnlyTrace}/${candidateCount}`);
+  lines.push(`  - missingTraceContainer: ${missingTraceContainer}/${candidateCount}`);
+  lines.push(`  - computedTechnicalTraceCount: ${fullComputedTrace}/${candidateCount}`);
+  lines.push(`  - traceWithConditionResultsCount: ${traceWithConditionResults}/${candidateCount}`);
+  lines.push('  - executionImpact: NONE');
+  lines.push('  - marketSignal: false');
+  lines.push('  - note: ConditionResults container coverage와 full computed technical trace coverage는 다른 개념입니다. Skeleton-only trace는 후보가 누락된 것이 아니라, 일부 기술 필드가 부족하여 UNAVAILABLE/DIAGNOSTIC_ONLY로 기록된 설명용 trace입니다.');
+
+  if (summary.sourcePathDistribution) {
+    const full = summary.sourcePathDistribution.ENTRY_FILTER_GATE1_CANDIDATE_TRACE ?? 0;
+    lines.push(`- sourcePathDistribution: ENTRY_FILTER_GATE1_CANDIDATE_TRACE_FULL=${full}, ENTRY_FILTER_GATE1_CANDIDATE_TRACE_SKELETON=${skeletonOnlyTrace}, ENTRY_FILTER_GATE1_CANDIDATE_TRACE_TOTAL=${traceWithConditionResults}`);
+    lines.push(`- TraceContainerDistribution: FULL_COMPUTED=${fullComputedTrace}, SKELETON_ONLY=${skeletonOnlyTrace}, MISSING=${missingTraceContainer}, TOTAL=${candidateCount}`);
+  }
   if (summary.watchlistBreakPointDistribution) lines.push(`- watchlistBreakPoint: ${formatDistribution(summary.watchlistBreakPointDistribution)}`);
   if (summary.quoteHydrationBreakPointDistribution) lines.push(`- quoteHydrationBreakPoint: ${formatDistribution(summary.quoteHydrationBreakPointDistribution)}`);
-  if (summary.conditionResultsBreakPointDistribution) lines.push(`- conditionResultsBreakPoint: ${formatDistribution(summary.conditionResultsBreakPointDistribution)}`);
+  if (summary.conditionResultsBreakPointDistribution) {
+    lines.push(`- conditionResultsBreakPoint: CONDITION_RESULTS_PROJECTED_FULL=${fullComputedTrace}, CONDITION_RESULTS_SKELETON_ONLY=${skeletonOnlyTrace}, CONDITION_RESULTS_MISSING=${missingTraceContainer}`);
+  }
+  if (skeletonOnlyTrace > 0) {
+    const quoteMissing = summary.quoteHydrationBreakPointDistribution?.QUOTE_FETCHED_NOT_COPIED ?? 0;
+    const technicalMissing = summary.technicalProjectionBreakPointDistribution?.TECHNICAL_STATUS_COMPUTED_FIELD_MISSING ?? 0;
+    lines.push(`- skeletonOnlyReasonTop: QUOTE_RETURN_FIELD_MISSING=${quoteMissing}, TECHNICAL_FIELD_NOT_COMPUTED=${technicalMissing}`);
+  }
   lines.push(`- nextAction: ${resolveGate1ForensicNextAction(summary)}`);
 }
 
