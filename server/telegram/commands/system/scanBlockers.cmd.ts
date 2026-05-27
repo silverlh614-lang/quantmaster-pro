@@ -919,8 +919,17 @@ const scanBlockers: TelegramCommand = {
     }
 
     const parts: string[] = [baseMessage, runtimeResolverTraceStep26];
+    const diagnosticRegimeContext = {
+      engineMode: String(summary.engineMode ?? summary.runtimePermission?.engineMode ?? 'UNKNOWN'),
+      effectiveRegime: String(summary.macroGateState?.macroRegimeEffective ?? summary.macroGateState?.displayRegime ?? summary.macroGateState?.regime ?? 'UNKNOWN'),
+      displayRegime: String(summary.macroGateState?.displayRegime ?? summary.macroGateState?.macroRegimeEffective ?? 'UNKNOWN'),
+      riskOverride: String(summary.macroGateState?.riskOverride ?? 'NONE'),
+      policyView: String(summary.runtimePermission?.policyView ?? summary.macroGateState?.riskOverride ?? summary.macroGateState?.displayRegime ?? 'UNKNOWN'),
+      liveEntryAllowed: summary.runtimePermission?.liveEntryAllowed === true,
+    };
     const normalSupplyPreviewSection = formatNormalSupplyPreviewSection(
       getLastNormalSupplyPreview(),
+      diagnosticRegimeContext,
       { maxTopCandidates: mode === 'full' ? 5 : 3 },
     );
     if (normalSupplyPreviewSection) parts.push(normalSupplyPreviewSection);
