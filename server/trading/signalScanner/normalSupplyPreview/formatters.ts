@@ -255,8 +255,12 @@ export function formatNormalSupplyPreviewSection(
   const lines: string[] = [];
   lines.push('🧪 <b>Normal Supply Preview with legacy defense policy disabled (ADR-0518)</b>');
   lines.push('━━━━━━━━━━━━━━━━');
-  lines.push(`mode: ${preview.engineMode}`);
-  lines.push(`previewMode: ${preview.previewMode}`);
+  lines.push(`previewBasis: ${preview.previewMode}`);
+  lines.push(`actualEngineMode: ${preview.runtimePermission.engineMode}`);
+  lines.push(`actualEffectiveRegime: ${(preview as { actualEffectiveRegime?: string }).actualEffectiveRegime ?? preview.runtimePermission.engineMode}`);
+  lines.push(`actualDisplayRegime: ${(preview as { actualDisplayRegime?: string }).actualDisplayRegime ?? preview.runtimePermission.engineMode}`);
+  lines.push(`actualRiskOverride: ${(preview as { actualRiskOverride?: string }).actualRiskOverride ?? 'NONE'}`);
+  lines.push(`actualLiveExecutionAllowed: ${preview.runtimePermission.actualLiveOrderAllowed}`);
   lines.push(`source: ${preview.source}`);
   if (preview.reason) lines.push(`reason: ${preview.reason}`);
   if (preview.preflightDecision) lines.push(`preflightDecision: ${preview.preflightDecision}`);
@@ -273,6 +277,8 @@ export function formatNormalSupplyPreviewSection(
   lines.push(`strongBuyAllowed: ${preview.strongBuyAllowed}`);
   lines.push(`shadowObservableAllowed: ${preview.shadowObservableAllowed}`);
   lines.push(`executionImpact: ${preview.executionImpact}`);
+  lines.push('');
+  lines.push('note: This is a diagnostic preview under NORMAL supply assumptions, not the actual engine mode.');
   lines.push('');
   lines.push(`정상모드 기준 후보 수: ${preview.candidateCount}`);
   lines.push('수급 주입 상태:');
