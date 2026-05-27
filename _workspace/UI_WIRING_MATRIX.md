@@ -187,6 +187,49 @@ UI→hook→store→service→표시의 정적 배선은 두 흐름 모두 **끊
 
 ---
 
+## 9. 추가 발견 — 종목 카드 데이터 품질 (2026-05-27 사용자 보고)
+
+사용자 보고 2건 — 카드의 ① VALUATION MATRIX N/A 다발, ② 가격이 현재가 아닌 과거(전일) 가격.
+정적 추적 결과 두 건 모두 **enrichment 파이프라인의 데이터 원천·라벨 문제**로 확정.
+
+### 9.1 N/A 다발 (P/E · P/B) + EPS 미포맷
+
+| 항목 | 위치 | 근거 | 상태 |
+|---|---|---|---|
+| P/E `N/A` | `WatchlistCard.tsx:826` | `valuation.per>0` 일 때만 표시, 아니면 `N/A` | PARTIAL |
+| P/B `N/A` | `WatchlistCard.tsx:827` | `valuation.pbr>0` 일 때만 표시, 아니면 `N/A` | PARTIAL |
+| EPS 원시 float | `WatchlistCard.tsx:828` | `${epsGrowth ?? 0}%` — `.toFixed()` 없음 → "+116.94253…%" 그대로 | BROKEN(표시) |
+
+- **근본 원인(N/A):** 후보 탐색 가격·지표는 Yahoo 1년 OHLCV(`enrichment.ts:440 fetchHistoricalData`)에서 계산되는데 **Yahoo chart API 는 PER/PBR 을 제공하지 않는다.** PER/PBR 은 오직 Naver snapshot(`fetchAiUniverseSnapshot`, `enrichment.ts:346-347/372-373`) 또는 KRX valuation(`enrichment.ts:506`)이 채운다. 두 소스가 0/부재면 `valuation.per/pbr=0` → 카드가 `N/A`. 이는 PENDING_WIRING **B10**(marketCap KIS 결합)·**C18**(Yahoo quoteSummary PER/EPS opportunistic) 로 이미 등재된 **BLOCKED P3(사용자 결정 대기)** 갭과 동일 뿌리.
+- **근본 원인(EPS):** `epsGrowth` 가 `.toFixed()` 없이 렌더 → 소수 다자리 노출. 순수 표시 버그.
+- **수정 후보:** (a) [P2·즉시] `WatchlistCard.tsx:828` EPS `.toFixed(1)` 포맷 — 1줄, 무위험. (b) [P3·BLOCKED] PER/PBR 데이터 소스 확장 = PENDING_WIRING C18(Yahoo quoteSummary)·B10(KIS) — 외부 API·사용자 결정 의존, 본 매트릭스 범위 밖.
+
+### 9.2 과거(전일) 가격이 "실시간"으로 라벨됨
+
+| 항목 | 위치 | 근거 | 상태 |
+|---|---|---|---|
+| currentPrice = Yahoo 일봉 종가 | `enrichment.ts:461` | `currentPrice = closes[closes.length-1]` (1y 일봉 마지막 종가) | PARTIAL |
+| 항상 `REALTIME` 라벨 | `enrichment.ts:525-526` | `dataSourceType:'REALTIME'` + `priceUpdatedAt: now (Real-time)` 무조건 | BROKEN(라벨) |
+| 배지 "KIS 실시간" | `ConfidenceBadge.tsx:12` · `WatchlistCard.tsx:720` | `REALTIME→'KIS 실시간'` | BROKEN(라벨) |
+| fallback "전일 종가(Naver)" → STALE | `enrichment.ts:344/365` | Naver close → `dataSourceType:'STALE'`→배지 "가격 지연" | OK(정직) |
+| dataSource "KIS 랭킹…" 문구 | `momentumRecommendations.ts:471`(프롬프트) | AI 가 `dataSource:"KIS 랭킹 + Gemini…"` 작성 강제 | BROKEN(라벨) |
+
+- **근본 원인:** main enrichment 경로의 "현재가"는 사실 **Yahoo 1년 일봉의 마지막 종가**다. 장 마감/주말이면 이는 **전일(또는 직전 거래일) 종가** = 과거 가격이다. 그런데 경로가 무조건 `dataSourceType:'REALTIME'` + "(Real-time)" 로 라벨하고, 배지는 "KIS 실시간" 으로 표기한다. 게다가 ADR-0011 로 탐색 경로의 KIS 호출은 제거됐으므로 **"KIS" 출처 표기 자체가 사실과 다르다**(실제는 Yahoo). 실시간 갱신은 별도 `priceSync.ts:103`(KIS REALTIME, 동기화 버튼/auto-sync)에서만 일어난다.
+- **불변식 영향:** 데이터 신뢰 등급(§데이터 원천 혼동, 불변식 #3) 위반 — L3(Yahoo) 데이터를 L1(KIS 실시간)으로 표기. 사용자가 가격 신선도/출처를 오인.
+- **수정 후보:** (a) [P1] 라벨 정직화 — main 경로 `dataSourceType` 을 무조건 `REALTIME` 이 아니라 **시장 상태/데이터 시점 기반**으로 분기(장중 intraday 확인 시에만 REALTIME, 그 외 일봉 종가는 `STALE`/`DELAYED` + "전일 종가(Yahoo)"). (b) [P1] "KIS 실시간"/"KIS 랭킹" 문구를 실제 출처(Yahoo/Naver)로 정정 — `ConfidenceBadge` 라벨 + `momentumRecommendations.ts:471` 프롬프트의 `dataSource` 지시 문구. (c) [P2] 장중 진입 시 즉시 `onSyncAll`(KIS) 1회 호출로 실가 갱신 유도.
+
+### 9.3 우선순위 요약 (§6 표 확장)
+
+| 우선순위 | 문제 | 위치 | 수정 방향 |
+|---|---|---|---|
+| P1 | 과거가격이 "KIS 실시간"으로 오표기 (라벨/출처 거짓) | `enrichment.ts:525-526` · `ConfidenceBadge.tsx:12` · `momentumRecommendations.ts:471` | dataSourceType 시점 기반 분기 + 출처 문구 정정(Yahoo 일봉 명시) |
+| P2 | EPS 원시 float 노출 | `WatchlistCard.tsx:828` | `.toFixed(1)` (1줄, 무위험) |
+| P3(BLOCKED) | P/E·P/B N/A 다발 | `enrichment.ts:346/506` | PER/PBR 소스 확장 = PENDING_WIRING C18/B10 (외부 API·사용자 결정) |
+
+> 권장 다음 패치: **9.2(b) 출처 문구 정정 + 9.1(a) EPS 포맷** 을 한 묶음 저위험 표시 정정으로 우선 처리(매매로직·데이터 파이프라인 무변경, byte-equivalent). 9.2(a) dataSourceType 시점 분기는 enrichment 동작 변경이라 별도 PR + 회귀 검토. 9.1(b) PER/PBR 은 외부 의존 BLOCKED.
+
+---
+
 ## 검증 명령 (package.json 확인 결과 — 이번 단계 실행은 선택)
 
 | 명령 | 존재 | 비고 |
