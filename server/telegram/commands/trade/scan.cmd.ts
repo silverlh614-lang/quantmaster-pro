@@ -4,7 +4,7 @@ import { getEmergencyStop } from '../../../state.js';
 import { getLastScanSummary, getLastScanSummaryAt } from '../../../trading/signalScanner.js';
 import { triggerScanInBackground } from '../../scanTriggerLock.js';
 import { commandRegistry } from '../../commandRegistry.js';
-import type { TelegramCommand } from '../_types.js';
+import type { CommandReplyFn, TelegramCommand } from '../_types.js';
 
 function formatAgeKo(ageMs: number): string {
   if (ageMs < 0) return '방금';
@@ -23,6 +23,19 @@ function formatScanQuickSummary(): string {
   if (!summary || at === 0) return '직전 스캔 데이터 없음 (미실행).';
   const age = formatAgeKo(Date.now() - at);
   return `직전 스캔 ${age} · 후보 ${summary.candidates ?? 0} / 진입 ${summary.entries ?? 0}. 차단 사유는 /scan_blockers.`;
+}
+
+/** /scan fresh 와 /scan_fresh 가 공유하는 강제 재스캔 트리거 + ACK (비상 정지 가드는 호출부 책임). */
+export async function replyFreshScanTrigger(reply: CommandReplyFn): Promise<void> {
+  const kicked = triggerScanInBackground({
+    onDone: async () => { await reply(`✅ 강제 스캔 완료 — ${formatScanQuickSummary()}`); },
+    onError: async () => { await reply('❌ 강제 스캔 실패 — 로그 확인 필요.'); },
+  });
+  await reply(
+    kicked.alreadyRunning
+      ? '⏳ 이미 스캔 진행 중 — 중복 트리거 생략. 잠시 후 /scan 으로 결과 확인.'
+      : '🔍 강제 스캔 시작 — 완료되면 결과를 보냅니다.',
+  );
 }
 
 const scan: TelegramCommand = {
@@ -59,16 +72,8 @@ const scan: TelegramCommand = {
       return;
     }
 
-    // B1: /scan fresh — 백그라운드 강제 재스캔 + 중복 트리거 차단.
-    const kicked = triggerScanInBackground({
-      onDone: async () => { await reply(`✅ 강제 스캔 완료 — ${formatScanQuickSummary()}`); },
-      onError: async () => { await reply('❌ 강제 스캔 실패 — 로그 확인 필요.'); },
-    });
-    await reply(
-      kicked.alreadyRunning
-        ? '⏳ 이미 스캔 진행 중 — 중복 트리거 생략. 잠시 후 /scan 으로 결과 확인.'
-        : '🔍 강제 스캔 시작 — 완료되면 결과를 보냅니다.',
-    );
+    // B1: /scan fresh — 백그라운드 강제 재스캔 + 중복 트리거 차단 (/scan_fresh 와 동일 경로).
+    await replyFreshScanTrigger(reply);
   },
 };
 

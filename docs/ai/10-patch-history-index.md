@@ -179,3 +179,4 @@ rg "ADR-0527|ExecutionPermissionResolution" docs/archive/adr docs/adr
 - 2026-05-27 · Patch-SectorEnergy-Residual-Diagnostic-Cleanup-Only · sector-energy-canonical-pass-guard, adr0474/0487/0488-legacy-collapse, runtime-pipeline-blocker-filter, top-operator-sector-repair-demotion, executionImpact-NONE
 - 2026-05-27 · Patch-SCAN-CMD-RESPONSIVENESS-DECOUPLE-001 · scan.cmd, scanBlockers.cmd, scanTriggerLock, instant-summary+age, scan-fresh-background-lock, scan_blockers-no-scan-dependency, byte-equivalent, executionImpact-NONE
 - 2026-05-27 · Patch-TYPECHECK-BASELINE-LEARNINGPULSE-GATE3-STATUS-001 · learningPulse.cmd, gate3LearningFinalization.status-not-finalizationStatus, ADR-534-baseline-burndown, lint-green, executionImpact-NONE
+- 2026-05-27 · Patch-SCAN-FRESH-STANDALONE-COMMAND-001 · scanFresh.cmd, /scan_fresh-standalone-autocomplete-entry, shared-replyFreshScanTrigger, MENU_ALWAYS_INCLUDE-scan_fresh, executionImpact-NONE
