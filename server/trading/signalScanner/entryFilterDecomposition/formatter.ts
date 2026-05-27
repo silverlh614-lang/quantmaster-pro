@@ -206,21 +206,33 @@ export function mapConservativeCode(code: string): string | null {
 
 export function formatEntryFilterDecompositionSection(
   d?: EntryFilterDecomposition,
+  canonicalContext?: {
+    rawRegime: string;
+    effectiveRegime: string;
+    displayRegime: string;
+    riskOverride: string;
+    engineMode: string;
+    policyView: string;
+    liveEntryAllowed: boolean;
+    shadowAllowed: boolean;
+    counterfactualAllowed: boolean;
+    sourceSnapshotId?: string;
+  },
 ): string | null {
   if (!d) return null;
   const lines: string[] = [];
   lines.push("📊 <b>Entry Filter Decomposition (ADR-0464)</b>");
   const sample = d.candidateTraces[0];
   const macroState = (sample?.macroState as Record<string, unknown> | undefined) ?? {};
-  const rawRegime = (macroState.regime as string | undefined) ?? sample?.regime ?? 'UNKNOWN';
-  const effectiveRegime = (macroState.macroRegimeEffective as string | undefined) ?? rawRegime;
-  const displayRegime = (macroState.displayRegime as string | undefined) ?? effectiveRegime;
-  const riskOverride = (macroState.riskOverride as string | undefined) ?? 'NONE';
-  const engineMode = (macroState.engineMode as string | undefined) ?? displayRegime;
-  const policyView = riskOverride !== 'NONE' ? riskOverride : displayRegime;
-  const liveEntryAllowed = (macroState.liveEntryAllowed as boolean | undefined) ?? false;
-  const shadowAllowed = (macroState.shadowAllowed as boolean | undefined) ?? true;
-  const counterfactualAllowed = (macroState.counterfactualAllowed as boolean | undefined) ?? true;
+  const rawRegime = canonicalContext?.rawRegime ?? (macroState.regime as string | undefined) ?? sample?.regime ?? 'UNKNOWN';
+  const effectiveRegime = canonicalContext?.effectiveRegime ?? (macroState.macroRegimeEffective as string | undefined) ?? 'UNKNOWN';
+  const displayRegime = canonicalContext?.displayRegime ?? (macroState.displayRegime as string | undefined) ?? 'UNKNOWN';
+  const riskOverride = canonicalContext?.riskOverride ?? (macroState.riskOverride as string | undefined) ?? 'NONE';
+  const engineMode = canonicalContext?.engineMode ?? (macroState.engineMode as string | undefined) ?? 'UNKNOWN';
+  const policyView = canonicalContext?.policyView ?? (riskOverride !== 'NONE' ? riskOverride : displayRegime);
+  const liveEntryAllowed = canonicalContext?.liveEntryAllowed ?? (macroState.liveEntryAllowed as boolean | undefined) ?? false;
+  const shadowAllowed = canonicalContext?.shadowAllowed ?? (macroState.shadowAllowed as boolean | undefined) ?? true;
+  const counterfactualAllowed = canonicalContext?.counterfactualAllowed ?? (macroState.counterfactualAllowed as boolean | undefined) ?? true;
   lines.push('• Regime Context:');
   lines.push(`  - rawRegime=${rawRegime}`);
   lines.push(`  - effectiveRegime=${effectiveRegime}`);
@@ -233,6 +245,7 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`  - counterfactualAllowed=${counterfactualAllowed}`);
   lines.push('  - executionPermissionImpact=NONE');
   lines.push('  - regimeSource=RegimeResolver.canonicalOutput');
+  if (canonicalContext?.sourceSnapshotId) lines.push(`  - sourceSnapshotId=${canonicalContext.sourceSnapshotId}`);
   lines.push('  - note=rawRegime is market phase; display/effective regime controls operator view and live permission.');
   lines.push(`• marketSession: ${sample?.marketSession ?? "UNKNOWN"}`);
   lines.push(`• universeCandidates: ${d.universeCandidates}`);

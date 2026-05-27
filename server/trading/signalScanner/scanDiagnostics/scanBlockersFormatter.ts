@@ -107,6 +107,42 @@ function formatterUpper(value: unknown): string {
   return String(value ?? '').trim().toUpperCase();
 }
 
+function buildDiagnosticRegimeContext(summary: ScanSummary): {
+  rawRegime: string;
+  effectiveRegime: string;
+  displayRegime: string;
+  riskOverride: string;
+  engineMode: string;
+  policyView: string;
+  liveEntryAllowed: boolean;
+  shadowAllowed: boolean;
+  counterfactualAllowed: boolean;
+  sourceSnapshotId?: string;
+} {
+  const mg = summary.macroGateState;
+  const permission = resolvePermissionView(summary);
+  const rawRegime = mg?.macroRegimeRaw ?? mg?.regime ?? 'UNKNOWN';
+  const effectiveRegime = mg?.macroRegimeEffective ?? mg?.displayRegime ?? mg?.regime ?? 'UNKNOWN';
+  const displayRegime = mg?.displayRegime ?? effectiveRegime;
+  const riskOverride = mg?.riskOverride ?? 'NONE';
+  const canonicalEngineMode = permission.engineMode || 'UNKNOWN';
+  const invalidEngineMode = canonicalEngineMode.startsWith('R') || canonicalEngineMode.includes('_EARLY') || canonicalEngineMode.includes('_CAUTION');
+  const engineMode = invalidEngineMode ? (mg?.displayRegime ?? canonicalEngineMode) : canonicalEngineMode;
+  const policyView = permission.policyView || (riskOverride !== 'NONE' ? riskOverride : displayRegime);
+  return {
+    rawRegime,
+    effectiveRegime,
+    displayRegime,
+    riskOverride,
+    engineMode,
+    policyView,
+    liveEntryAllowed: permission.liveEntryAllowed,
+    shadowAllowed: permission.shadowAllowed,
+    counterfactualAllowed: permission.counterfactualAllowed,
+    sourceSnapshotId: summary.entryFilterDecomposition?.sourceSnapshotId,
+  };
+}
+
 function hasPaperReferencePrice(record: PaperEntryDecisionRecord): boolean {
   return formatterFiniteNumber(record.resolvedEntryPrice) && record.resolvedEntryPrice > 0;
 }
@@ -1411,7 +1447,8 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   }
 
   // ADR-0464 — Entry Filter Conservatism Decomposition.
-  const entryFilterSection = formatEntryFilterDecompositionSection(summary.entryFilterDecomposition);
+  const diagnosticRegimeContext = buildDiagnosticRegimeContext(summary);
+  const entryFilterSection = formatEntryFilterDecompositionSection(summary.entryFilterDecomposition, diagnosticRegimeContext);
   if (entryFilterSection) {
     lines.push('');
     lines.push(entryFilterSection);
