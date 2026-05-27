@@ -143,6 +143,7 @@ export interface Gate1DryRunObservationSummary {
 export interface Gate1ThresholdEvidenceSummary {
   sampleWindow: '1D/3D/5D';
   totalSamples: number;
+  pendingSamples: number;
   matureSamplesD1: number;
   matureSamplesD3: number;
   matureSamplesD5: number;
@@ -840,11 +841,27 @@ export function formatGate1DryRunObservationSummary(
 export function buildGate1ThresholdEvidenceSummary(
   rows: readonly Gate1DryRunObservationRow[],
 ): Gate1ThresholdEvidenceSummary {
+  // ADR-0476 ledger is the primary source — totalSamples/pending reflect ALL observation rows
+  // (rowsCreated/pending/observing/matured), not only D5-matured ones, so the Evidence report
+  // reconciles with the Gate1 Dry-run Observation Ledger section.
+  const ledger = summarizeGate1DryRunObservationRows(rows);
+  const totalSamples = ledger.rowsCreated;
+  const pendingSamples = ledger.pending;
   const matureD1 = rows.filter((row) => finite(row.forwardReturn1D)).length;
   const matureD3 = rows.filter((row) => finite(row.forwardReturn3D)).length;
   const matureD5 = rows.filter((row) => finite(row.forwardReturn5D)).length;
-  const sample = rows.filter((row) => finite(row.dryRunScore) && finite(row.forwardReturn5D));
-  const band = (min: number, max?: number) => sample.filter((row) => {
+  // scoreBand membership uses every row's dryRunScore (unscored ⟹ below55) so band counts sum to
+  // totalSamples; forward-return/MFE/win-rate stats inside buildBandSummary stay scoped to matured rows.
+  const scoreOf = (row: Gate1DryRunObservationRow): number =>
+    finite(row.dryRunScore) ? (row.dryRunScore as number) : Number.NEGATIVE_INFINITY;
+  const scoreBand = (min: number, max?: number) => rows.filter((row) => {
+    const s = scoreOf(row);
+    return s >= min && (max === undefined || s < max);
+  });
+  // Recommendation/confidence remain gated on MATURED outcomes — pending-only rows never relax the gate.
+  const matured = rows.filter((row) => finite(row.dryRunScore) && finite(row.forwardReturn5D));
+  const matureSampleSize = matured.length;
+  const band = (min: number, max?: number) => matured.filter((row) => {
     const s = row.dryRunScore as number;
     return s >= min && (max === undefined || s < max);
   });
@@ -859,9 +876,8 @@ export function buildGate1ThresholdEvidenceSummary(
   const hitMinus5_65 = b65.length > 0 ? b65.filter((row) => (row.forwardReturn5D as number) <= -5).length / b65.length : 0;
   const can65 = b65.length >= 10 && avg(b65) >= avg(b70) && winRate65 >= 0.55 && hitMinus5_65 <= hitMinus5_70 + 0.05;
   const reject60 = b60.length > 0 && avg(b60) < 0;
-  const totalSamples = sample.length;
-  const confidence = totalSamples < 100 ? 'INSUFFICIENT_SAMPLE' : totalSamples < 200 ? 'LOW' : totalSamples < 400 ? 'MEDIUM' : 'HIGH';
-  const recommendedAction = totalSamples < 100
+  const confidence = matureSampleSize < 100 ? 'INSUFFICIENT_SAMPLE' : matureSampleSize < 200 ? 'LOW' : matureSampleSize < 400 ? 'MEDIUM' : 'HIGH';
+  const recommendedAction = matureSampleSize < 100
     ? 'OBSERVE_MORE'
     : reject60
       ? 'KEEP_THRESHOLD_70'
@@ -907,6 +923,7 @@ export function buildGate1ThresholdEvidenceSummary(
   return {
     sampleWindow: '1D/3D/5D',
     totalSamples,
+    pendingSamples,
     matureSamplesD1: matureD1,
     matureSamplesD3: matureD3,
     matureSamplesD5: matureD5,
@@ -914,11 +931,11 @@ export function buildGate1ThresholdEvidenceSummary(
     recommendedAction,
     confidence,
     scoreBandTable: [
-      buildBandSummary(sample.filter((row) => (row.dryRunScore as number) >= 70), '70+'),
-      buildBandSummary(sample.filter((row) => (row.dryRunScore as number) >= 65 && (row.dryRunScore as number) < 70), '65~70'),
-      buildBandSummary(sample.filter((row) => (row.dryRunScore as number) >= 60 && (row.dryRunScore as number) < 65), '60~65'),
-      buildBandSummary(sample.filter((row) => (row.dryRunScore as number) >= 55 && (row.dryRunScore as number) < 60), '55~60'),
-      buildBandSummary(sample.filter((row) => (row.dryRunScore as number) < 55), 'below55'),
+      buildBandSummary(scoreBand(70), '70+'),
+      buildBandSummary(scoreBand(65, 70), '65~70'),
+      buildBandSummary(scoreBand(60, 65), '60~65'),
+      buildBandSummary(scoreBand(55, 60), '55~60'),
+      buildBandSummary(scoreBand(Number.NEGATIVE_INFINITY, 55), 'below55'),
     ],
     liveExecutionImpact: 'NONE',
     thresholdAutoChanged: false,
@@ -975,6 +992,7 @@ export function formatGate1ThresholdEvidenceSection(
     '------------------------',
     'window: D1/D3/D5',
     `totalSamples: ${summary ? summary.totalSamples : 'N/A'}`,
+    `pendingSamples: ${summary ? summary.pendingSamples : 'N/A'}`,
     `matureSamplesD1: ${summary ? summary.matureSamplesD1 : 'N/A'}`,
     `matureSamplesD3: ${summary ? summary.matureSamplesD3 : 'N/A'}`,
     `matureSamplesD5: ${summary ? summary.matureSamplesD5 : 'N/A'}`,
@@ -991,6 +1009,10 @@ export function formatGate1ThresholdEvidenceSection(
     const band = summary?.scoreBandTable.find((entry) => entry.band === key);
     lines.push(...gate1EvidenceBandBlock(band, key));
   }
+  const countSum = summary
+    ? summary.scoreBandTable.reduce((sum, entry) => sum + entry.count, 0)
+    : 'N/A';
+  lines.push(`countSum: ${countSum}`);
   lines.push(
     '',
     'Regime Split:',
