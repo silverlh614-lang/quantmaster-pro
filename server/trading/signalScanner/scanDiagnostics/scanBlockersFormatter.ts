@@ -1420,6 +1420,19 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
       lines.push('');
       lines.push(dryRunObservationSection);
     }
+    if (summary.gate1ThresholdEvidence) {
+      lines.push('');
+      lines.push('🧪 Gate1 Threshold Evidence');
+      lines.push(`  sampleWindow: ${summary.gate1ThresholdEvidence.sampleWindow}`);
+      lines.push(`  totalSamples: ${summary.gate1ThresholdEvidence.totalSamples}`);
+      lines.push(`  matureSamplesD1/D3/D5: ${summary.gate1ThresholdEvidence.matureSamplesD1}/${summary.gate1ThresholdEvidence.matureSamplesD3}/${summary.gate1ThresholdEvidence.matureSamplesD5}`);
+      lines.push(`  bestDryRunThreshold: ${summary.gate1ThresholdEvidence.bestDryRunThreshold}`);
+      lines.push(`  recommendedAction: ${summary.gate1ThresholdEvidence.recommendedAction}`);
+      lines.push(`  confidence: ${summary.gate1ThresholdEvidence.confidence}`);
+      lines.push(`  liveExecutionImpact: ${summary.gate1ThresholdEvidence.liveExecutionImpact}`);
+      lines.push(`  thresholdAutoChanged: ${summary.gate1ThresholdEvidence.thresholdAutoChanged}`);
+      lines.push(`  operatorApprovalRequired: ${summary.gate1ThresholdEvidence.operatorApprovalRequired}`);
+    }
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatGate1DryRunObservationSummary', error: e });
   }
