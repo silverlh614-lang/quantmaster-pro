@@ -459,3 +459,205 @@ export function formatGate3LearningFinalizationSection(summary: Gate3LearningFin
     'marketSignal=false; shadowLearning=true; counterfactualRecorded=true',
   ].join('\n');
 }
+
+// === Gate3 Learning Evidence Snapshot Fallback Normalization (display-only) ===
+// Separates the *current* evidence query result from the *last valid* COMPLETE snapshot so a
+// transient empty/stale source does not overwrite a previously COMPLETE Gate3 as INCOMPLETE/0.
+// This is presentation/state classification only — Gate scoring, thresholds and promotion are untouched.
+
+export type Gate3EvidenceCurrentStatus =
+  | 'OK'
+  | 'SOURCE_EMPTY'
+  | 'SOURCE_STALE'
+  | 'SOURCE_MISSING'
+  | 'QUERY_FAILED'
+  | 'UNKNOWN';
+
+export type Gate3DisplayStatus =
+  | 'COMPLETE'
+  | 'COMPLETE_LAST_VALID'
+  | 'INCOMPLETE'
+  | 'EVIDENCE_SOURCE_EMPTY'
+  | 'EVIDENCE_SOURCE_STALE'
+  | 'EVIDENCE_SOURCE_MISSING'
+  | 'UNKNOWN';
+
+export interface Gate3EvidenceSnapshot {
+  snapshotId: string;
+  createdAt: string;
+  source: string;
+  outcomeSeeds: number;
+  labeled: number;
+  pending: number;
+  dataInsufficient: number;
+  thresholdEvidenceSampleSize: number;
+  suggestions: number;
+  completionScore: number;
+  status: 'COMPLETE' | 'INCOMPLETE';
+  evidenceReady: boolean;
+  schedulerHealthy: boolean;
+}
+
+export interface Gate3LearningDisplayState {
+  displayStatus: Gate3DisplayStatus;
+  currentEvidenceStatus: Gate3EvidenceCurrentStatus;
+  currentOutcomeSeeds: number;
+  currentLabeled: number;
+  currentPending: number;
+  currentThresholdEvidenceSampleSize: number;
+  currentCompletionScore: number;
+  lastValidSnapshotAvailable: boolean;
+  lastValidSnapshotId?: string;
+  lastValidAt?: string;
+  lastValidOutcomeSeeds?: number;
+  lastValidLabeled?: number;
+  lastValidPending?: number;
+  lastValidThresholdEvidenceSampleSize?: number;
+  lastValidCompletionScore?: number;
+  lastValidStatus?: 'COMPLETE' | 'INCOMPLETE';
+  evidenceReady: boolean;
+  displaySeverity: 'INFO' | 'WARN' | 'ERROR';
+  operatorAction: string;
+  executionImpact: 'NONE' | string;
+  rawCurrentStatus?: string;
+  rawWarnings?: string[];
+}
+
+// A current finalization is only worth persisting as last-valid when it is genuinely COMPLETE
+// with non-zero evidence — never on an empty/stale run.
+export function isValidCompleteGate3Snapshot(finalization: Gate3LearningFinalizationSummary): boolean {
+  return finalization.completionScore >= 100
+    && finalization.status === 'COMPLETE'
+    && finalization.thresholdEvidenceSampleSize > 0
+    && finalization.labeled > 0
+    && finalization.evidenceWarmup.evidenceReady === true;
+}
+
+export function toGate3EvidenceSnapshot(
+  finalization: Gate3LearningFinalizationSummary,
+  meta?: { snapshotId?: string; createdAt?: string; source?: string },
+): Gate3EvidenceSnapshot {
+  const createdAt = meta?.createdAt ?? new Date().toISOString();
+  return {
+    snapshotId: meta?.snapshotId ?? `gate3-${createdAt}`,
+    createdAt,
+    source: meta?.source ?? 'GATE3_EVIDENCE_REPO',
+    outcomeSeeds: finalization.outcomeSeeds,
+    labeled: finalization.labeled,
+    pending: finalization.pending,
+    dataInsufficient: finalization.dataInsufficient,
+    thresholdEvidenceSampleSize: finalization.thresholdEvidenceSampleSize,
+    suggestions: finalization.suggestions,
+    completionScore: finalization.completionScore,
+    status: finalization.status === 'COMPLETE' ? 'COMPLETE' : 'INCOMPLETE',
+    evidenceReady: finalization.evidenceWarmup.evidenceReady,
+    schedulerHealthy: finalization.evidenceWarmup.schedulerHealthy,
+  };
+}
+
+export function normalizeGate3LearningDisplay(input: {
+  current: Gate3LearningFinalizationSummary;
+  lastValid?: Gate3EvidenceSnapshot | null;
+  cohortSnapshotStatus?: string;
+  evidenceSnapshotAgeSec?: number;
+  evidenceSnapshotMaxAgeSec?: number;
+  evidenceRepoAvailable?: boolean;
+  sourceNotFound?: boolean;
+  querySucceeded?: boolean;
+  queryFailed?: boolean;
+}): Gate3LearningDisplayState {
+  const current = input.current;
+  const lastValid = input.lastValid ?? null;
+  const lastValidComplete = lastValid?.status === 'COMPLETE';
+  const querySucceeded = input.querySucceeded ?? true;
+  const queryFailed = input.queryFailed ?? false;
+
+  const stale = input.cohortSnapshotStatus === 'COHORT_BACKFILL_SNAPSHOT_STALE'
+    || (typeof input.evidenceSnapshotAgeSec === 'number'
+      && typeof input.evidenceSnapshotMaxAgeSec === 'number'
+      && input.evidenceSnapshotAgeSec > input.evidenceSnapshotMaxAgeSec);
+  const missing = input.evidenceRepoAvailable === false || input.sourceNotFound === true;
+  const hasEvidence = current.thresholdEvidenceSampleSize > 0 && current.labeled > 0;
+  const empty = current.thresholdEvidenceSampleSize === 0
+    && current.labeled === 0
+    && current.pending === 0
+    && querySucceeded === true;
+
+  // Precedence: hard failures first, real current evidence (OK) before stale/empty fallbacks.
+  let currentEvidenceStatus: Gate3EvidenceCurrentStatus;
+  if (queryFailed) currentEvidenceStatus = 'QUERY_FAILED';
+  else if (missing) currentEvidenceStatus = 'SOURCE_MISSING';
+  else if (hasEvidence) currentEvidenceStatus = 'OK';
+  else if (stale) currentEvidenceStatus = 'SOURCE_STALE';
+  else if (empty) currentEvidenceStatus = 'SOURCE_EMPTY';
+  else currentEvidenceStatus = 'UNKNOWN';
+
+  let displayStatus: Gate3DisplayStatus;
+  let displaySeverity: 'INFO' | 'WARN' | 'ERROR';
+  let operatorAction: string;
+
+  if (currentEvidenceStatus === 'OK' && current.status === 'COMPLETE' && current.completionScore >= 100) {
+    displayStatus = 'COMPLETE';
+    displaySeverity = 'INFO';
+    operatorAction = 'GATE3_EVIDENCE_COMPLETE';
+  } else if ((currentEvidenceStatus === 'SOURCE_EMPTY' || currentEvidenceStatus === 'SOURCE_STALE') && lastValidComplete) {
+    displayStatus = 'COMPLETE_LAST_VALID';
+    displaySeverity = 'INFO';
+    operatorAction = 'KEEP_LAST_VALID_GATE3_EVIDENCE';
+  } else if ((currentEvidenceStatus === 'SOURCE_MISSING' || currentEvidenceStatus === 'QUERY_FAILED') && lastValidComplete) {
+    displayStatus = 'COMPLETE_LAST_VALID';
+    displaySeverity = 'WARN';
+    operatorAction = 'CHECK_GATE3_EVIDENCE_SOURCE';
+  } else if (currentEvidenceStatus === 'SOURCE_MISSING') {
+    displayStatus = 'EVIDENCE_SOURCE_MISSING';
+    displaySeverity = 'WARN';
+    operatorAction = 'CHECK_GATE3_EVIDENCE_REPOSITORY';
+  } else if (currentEvidenceStatus === 'SOURCE_STALE') {
+    displayStatus = 'EVIDENCE_SOURCE_STALE';
+    displaySeverity = 'INFO';
+    operatorAction = 'WAIT_GATE3_EVIDENCE_REFRESH';
+  } else if (currentEvidenceStatus === 'QUERY_FAILED') {
+    displayStatus = 'UNKNOWN';
+    displaySeverity = 'WARN';
+    operatorAction = 'CHECK_GATE3_EVIDENCE_SOURCE';
+  } else if (currentEvidenceStatus === 'OK') {
+    // Current evidence present but not yet COMPLETE — a genuine in-progress current state.
+    displayStatus = 'INCOMPLETE';
+    displaySeverity = 'INFO';
+    operatorAction = 'WAIT_GATE3_EVIDENCE_WARMUP';
+  } else {
+    // SOURCE_EMPTY / UNKNOWN with no last valid snapshot — truly incomplete.
+    displayStatus = 'INCOMPLETE';
+    displaySeverity = 'INFO';
+    operatorAction = 'WAIT_GATE3_EVIDENCE_WARMUP';
+  }
+
+  const evidenceReady = displayStatus === 'COMPLETE_LAST_VALID'
+    ? Boolean(lastValid?.evidenceReady)
+    : current.evidenceWarmup.evidenceReady;
+
+  return {
+    displayStatus,
+    currentEvidenceStatus,
+    currentOutcomeSeeds: current.outcomeSeeds,
+    currentLabeled: current.labeled,
+    currentPending: current.pending,
+    currentThresholdEvidenceSampleSize: current.thresholdEvidenceSampleSize,
+    currentCompletionScore: current.completionScore,
+    lastValidSnapshotAvailable: Boolean(lastValid),
+    lastValidSnapshotId: lastValid?.snapshotId,
+    lastValidAt: lastValid?.createdAt,
+    lastValidOutcomeSeeds: lastValid?.outcomeSeeds,
+    lastValidLabeled: lastValid?.labeled,
+    lastValidPending: lastValid?.pending,
+    lastValidThresholdEvidenceSampleSize: lastValid?.thresholdEvidenceSampleSize,
+    lastValidCompletionScore: lastValid?.completionScore,
+    lastValidStatus: lastValid?.status,
+    evidenceReady,
+    displaySeverity,
+    operatorAction,
+    executionImpact: 'NONE',
+    rawCurrentStatus: current.status,
+    rawWarnings: current.evidenceWarmup.warnings.slice(),
+  };
+}
