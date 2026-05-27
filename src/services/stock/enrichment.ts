@@ -522,8 +522,11 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       targetPrice2: fallbackFields.targetPrice2 ?? stock.targetPrice2,
       entryPrice:   fallbackFields.entryPrice   ?? stock.entryPrice,
       stopLoss:     fallbackFields.stopLoss     ?? stock.stopLoss,
-      dataSourceType: 'REALTIME',
-      priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (Real-time)`,
+      // 탐색 enrichment 가격은 Yahoo 1년 일봉의 마지막 종가(closes[last])다 — KIS 실시간이
+      // 아니다(ADR-0011 로 탐색 경로 KIS 호출 제거). 'YAHOO'(DEGRADED, "Yahoo 참고")로
+      // 정직하게 표기. 실시간 시세는 KIS 동기화(priceSync 'REALTIME') 경로에서만 부여된다.
+      dataSourceType: 'YAHOO',
+      priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (Yahoo 일봉)`,
       supplyData: kisSupply || stock.supplyData,
       shortSelling: kisShort || stock.shortSelling,
       technicalSignals: {
