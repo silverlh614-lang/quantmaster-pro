@@ -164,12 +164,54 @@ function buildSafeQuoteFeatures(w: any): Record<string, unknown> {
   };
 }
 
-function buildConditionResultsTrace(w: any): Record<string, unknown> | undefined {
+function hasFiniteNumber(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function buildDiagnosticCondition(
+  key: string,
+  status: "PASS" | "FAIL" | "WAIT" | "UNAVAILABLE" | "DIAGNOSTIC_ONLY",
+  reason: string,
+  sourcePath: string,
+): Record<string, unknown> {
+  return {
+    key,
+    status,
+    scoreImpact: 0,
+    confidenceImpact: status === "UNAVAILABLE" ? -0.01 : 0,
+    reason,
+    sourcePath,
+    dataStatus: status === "UNAVAILABLE" ? "MISSING" : "VERIFIED",
+    marketSignal: false,
+    providerIssue: false,
+    executionImpact: "NONE",
+  };
+}
+
+function buildConditionResultsSkeleton(w: any): Record<string, unknown> {
+  const quote = buildSafeQuoteFeatures(w);
+  const hasMomentum = hasFiniteNumber(quote.return5d) || hasFiniteNumber(quote.return20d);
+  const hasRs = hasFiniteNumber(w.relativeStrengthScore) || hasFiniteNumber(quote.rsRankPct) || hasFiniteNumber(quote.relativeReturn20d);
+  const hasBreakout = hasFiniteNumber(w.breakoutScore) || hasFiniteNumber(quote.high5d) || hasFiniteNumber(quote.high20d);
+  const hasMaAlignment = hasFiniteNumber(quote.ma20) && hasFiniteNumber(quote.ma60) && hasFiniteNumber(quote.price);
+  const hasVolumeLiquidity = hasFiniteNumber(quote.volume) && (hasFiniteNumber(quote.avgVolume20d) || hasFiniteNumber(quote.volumeRatio));
+  return {
+    price_momentum: buildDiagnosticCondition("PRICE_MOMENTUM", hasMomentum ? "WAIT" : "UNAVAILABLE", hasMomentum ? "DIAGNOSTIC_MOMENTUM_PROJECTED" : "QUOTE_FEATURE_FIELD_MISSING", "buildConditionResultsSkeleton"),
+    relative_strength: buildDiagnosticCondition("RELATIVE_STRENGTH", hasRs ? "WAIT" : "UNAVAILABLE", hasRs ? "DIAGNOSTIC_RS_PROJECTED" : "QUOTE_FEATURE_FIELD_MISSING", "buildConditionResultsSkeleton"),
+    breakout_structure: buildDiagnosticCondition("BREAKOUT_STRUCTURE", hasBreakout ? "WAIT" : "UNAVAILABLE", hasBreakout ? "DIAGNOSTIC_BREAKOUT_PROJECTED" : "QUOTE_FEATURE_FIELD_MISSING", "buildConditionResultsSkeleton"),
+    ma_alignment: buildDiagnosticCondition("MA_ALIGNMENT", hasMaAlignment ? "WAIT" : "UNAVAILABLE", hasMaAlignment ? "DIAGNOSTIC_MA_PENDING" : "QUOTE_FEATURE_FIELD_MISSING", "buildConditionResultsSkeleton"),
+    volume_liquidity: buildDiagnosticCondition("VOLUME_LIQUIDITY", hasVolumeLiquidity ? "WAIT" : "UNAVAILABLE", hasVolumeLiquidity ? "DIAGNOSTIC_VOLUME_PENDING" : "QUOTE_FEATURE_FIELD_MISSING", "buildConditionResultsSkeleton"),
+    watchlist_score: buildDiagnosticCondition("WATCHLIST_SCORE", hasFiniteNumber(w.watchlistPriorityScore ?? w.watchlistScore) ? "WAIT" : "UNAVAILABLE", hasFiniteNumber(w.watchlistPriorityScore ?? w.watchlistScore) ? "DIAGNOSTIC_WATCHLIST_PROJECTED" : "WATCHLIST_SCORE_MISSING", "buildConditionResultsSkeleton"),
+    supply_semantic: buildDiagnosticCondition("SUPPLY_SEMANTIC", "DIAGNOSTIC_ONLY", "ACTUAL_INVESTOR_ROW_NOT_CARRIED", "buildConditionResultsSkeleton"),
+  };
+}
+
+function buildConditionResultsTrace(w: any): Record<string, unknown> {
   if (w.conditionResults && typeof w.conditionResults === "object") return w.conditionResults;
   const projected = conditionResultsTraceToMap(
     w.conditionResultsTrace ?? projectGateOutputsToConditionResultsTrace(w.gateEvaluation?.outputs),
   );
-  return projected;
+  return projected ?? buildConditionResultsSkeleton(w);
 }
 
 function buildConditionResultsTraceArray(w: any) {
