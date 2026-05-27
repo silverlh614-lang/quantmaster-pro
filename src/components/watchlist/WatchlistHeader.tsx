@@ -10,8 +10,6 @@ import { motion } from 'motion/react';
 import { cn } from '../../ui/cn';
 import { HeroChecklist } from '../trading/HeroChecklist';
 import { ConfidenceBadge } from '../common/ConfidenceBadge';
-import { OffHoursBanner } from '../common/OffHoursBanner';
-import { RecommendationWarningsBanner } from '../common/RecommendationWarningsBanner';
 import { MASTER_CHECKLIST_STEPS } from '../../constants/checklist';
 import type { StockRecommendation, MarketContext, StockFilters } from '../../services/stockService';
 import { getQuantGateScore } from '../../utils/recommendationScore';
@@ -416,8 +414,6 @@ export function WatchlistHeader({
 }: WatchlistHeaderProps) {
   return (
     <>
-      <OffHoursBanner className="mb-4 sm:mb-6" />
-      <RecommendationWarningsBanner className="mb-4 sm:mb-6" />
       <HeroSection
         filters={filters}
         setFilters={setFilters}
