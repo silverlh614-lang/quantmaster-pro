@@ -377,9 +377,13 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   if (!supplyProviderHealth.hasRecentSample) addReason(blockedBy, 'SUPPLY_PROVIDER_NO_SAMPLE');
   const sectorEnergyHealth = buildSectorEnergyHealth(summary);
   // ADR-0534 follow-up (Invariant 9): canonical PASS 면 legacy dataQuality(PARTIAL) 로 SECTOR_ENERGY_DEGRADED 를 활성 blocker 로 올리지 않는다.
-  const sectorEnergyCanonicalPass = summary?.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState?.promotionCoveragePass === true;
-  if (!sectorEnergyCanonicalPass && sectorEnergyHealth.dataQuality && sectorEnergyHealth.dataQuality !== 'OK') addReason(blockedBy, 'SECTOR_ENERGY_DEGRADED');
-  if (sectorEnergyHealth.leadershipConfidence === 'BLOCKED') addReason(blockedBy, 'SECTOR_ENERGY_LEADERSHIP_BLOCKED');
+  const sectorEnergyCanonical = summary?.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState;
+  const sectorEnergyCanonicalHealthy =
+    sectorEnergyCanonical?.promotionCoveragePass === true
+    && sectorEnergyCanonical?.verifiedOfficialSectorCount === 11
+    && sectorEnergyCanonical?.dataQuality === 'VERIFIED';
+  if (!sectorEnergyCanonicalHealthy && sectorEnergyHealth.dataQuality && sectorEnergyHealth.dataQuality !== 'OK') addReason(blockedBy, 'SECTOR_ENERGY_DEGRADED');
+  if (!sectorEnergyCanonicalHealthy && sectorEnergyHealth.leadershipConfidence === 'BLOCKED') addReason(blockedBy, 'SECTOR_ENERGY_LEADERSHIP_BLOCKED');
 
   const promotionAuditInputs = [
     ...(summary?.investorFlowSampleAdr0489 ? [buildPromotionAuditInputForDataLineAdr0494({
@@ -397,6 +401,13 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   ];
   const promotionAudits = evaluateFreshDataPromotionAuditsAdr0494(promotionAuditInputs, { store: null });
   const promotionAuditSummary = summarizeFreshDataPromotionAuditsAdr0494(promotionAudits);
+  const sectorEnergyLegacyPromotionTokens = ['SECTOR_ENERGY_DEGRADED', 'SECTOR_ENERGY_UNOBSERVABLE', 'SECTOR_ENERGY_DIAGNOSTIC_ONLY', 'sectorEnergy:INSUFFICIENT_HISTORY', 'sectorEnergy:HIGH_MISSING_RATE'];
+  const promotionAuditBlockedLines = sectorEnergyCanonicalHealthy
+    ? promotionAuditSummary.promotionAuditBlockedLines.filter((line) => !sectorEnergyLegacyPromotionTokens.some((token) => line.includes(token)))
+    : promotionAuditSummary.promotionAuditBlockedLines;
+  const promotionAuditBlockers = sectorEnergyCanonicalHealthy
+    ? promotionAuditSummary.promotionAuditBlockers.filter((line) => !sectorEnergyLegacyPromotionTokens.some((token) => line.includes(token)))
+    : promotionAuditSummary.promotionAuditBlockers;
 
   let freshDataStatusInputsAdr0498: FreshDataStatusViewModelInputAdr0498[] = [];
   let freshDataStatusSectionAdr0498 = safeBuildFreshDataStatusSectionAdr0498([], { maxLines: 4 });
@@ -460,7 +471,9 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     sellOnlyActive,
     emergencyStop: summary?.macroGateState?.emergencyStop ?? getEmergencyStop(),
     latestStage,
-    blockedBy,
+    blockedBy: sectorEnergyCanonicalHealthy
+      ? blockedBy.filter((reason) => !['SECTOR_ENERGY_DEGRADED', 'SECTOR_ENERGY_UNOBSERVABLE', 'SECTOR_ENERGY_DIAGNOSTIC_ONLY'].includes(reason))
+      : blockedBy,
     candidateSummaryCount,
     watchlistCount,
     buyListLoopEntered,
@@ -492,9 +505,9 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     sectorEnergySupplyUnknownDiagnosticLine: formatRuntimePipelineAdr0488EvidenceLine(summary?.sectorEnergySupplyUnknownAdr0488),
     supplySnapshotStoreDiagnosticLine: formatSupplySnapshotDetailAdr0491(summary?.supplySnapshotStoreAdr0491 ?? { status: 'EMPTY', mode: 'LATEST', snapshots: [], retained: 0, replayAvailable: false, diagnosticOnly: true, executionImpact: 'NONE', liveExecutionAllowed: false, policyPromotionMode: 'SHADOW_ONLY', operatorApprovalRequired: true, diagnostics: [] }),
     promotionAuditSummary: promotionAuditSummary.promotionAuditSummary,
-    promotionAuditBlockers: promotionAuditSummary.promotionAuditBlockers,
+    promotionAuditBlockers,
     promotionAuditReadyLines: promotionAuditSummary.promotionAuditReadyLines,
-    promotionAuditBlockedLines: promotionAuditSummary.promotionAuditBlockedLines,
+    promotionAuditBlockedLines,
     freshDataStatusViewModels: freshDataStatusSectionAdr0498.viewModels,
     freshDataStatusCompactLines: freshDataStatusSectionAdr0498.lines,
     freshDataStatusNormalizedCount: freshDataStatusSectionAdr0498.viewModels.length,

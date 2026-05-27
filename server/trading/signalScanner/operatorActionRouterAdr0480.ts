@@ -724,11 +724,16 @@ export function buildOperatorActionQueueAdr0480(input: BuildOperatorActionQueueI
 export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: ScanSummary | null): OperatorActionSource[] {
   if (!summary) return [];
   const sources: OperatorActionSource[] = [];
+  const canonical = summary.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState;
+  const sectorEnergyCanonicalHealthy =
+    canonical?.promotionCoveragePass === true
+    && canonical?.verifiedOfficialSectorCount === 11
+    && canonical?.dataQuality === 'VERIFIED';
   if ((summary.candidates > 0 || summary.gateMisses > 0) && summary.entries === 0 && (summary.waitDistribution?.dataHold ?? 0) > 0) {
     sources.push({ adr: '0465', sectionId: 'scan_blockers', code: 'SUPPLY_DATA_UNAVAILABLE', diagnosticKey: 'investor_flow', diagnosticValue: 'DATA_UNAVAILABLE', severity: 'DATA_UNAVAILABLE' });
   }
   const sectorQuality = summary.sectorEnergyQuality;
-  if (sectorQuality && sectorQuality !== 'OK' && sectorQuality !== 'PARTIAL') {
+  if (!sectorEnergyCanonicalHealthy && sectorQuality && sectorQuality !== 'OK' && sectorQuality !== 'PARTIAL') {
     sources.push({ adr: '0474', sectionId: 'sector_energy', code: 'SECTOR_ENERGY_DEGRADED', diagnosticKey: 'SectorEnergy', diagnosticValue: sectorQuality, severity: 'DEGRADED' });
   }
   const sectorDiag = summary.sectorEnergyQualityDiagnostic as { fallbackUsed?: string; dataQuality?: string; indexCodeCoverage?: number } | undefined;
@@ -747,8 +752,14 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
   if (summary.supplyRecoveryRuntimeMountAdr0486?.checks.some((check) => check.legacyOutputCode === 'READINESS_AUDIT_EVIDENCE_MISSING')) {
     sources.push({ adr: '0486', sectionId: 'runtime_pipeline_audit', code: 'SUPPLY_READINESS_EVIDENCE_MISSING', diagnosticKey: 'readinessAuditEvidence', diagnosticValue: 'missing', severity: 'ERROR' });
   }
-  sources.push(...collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487));
-  sources.push(...collectOperatorActionSourcesFromAdr0488(summary.sectorEnergySupplyUnknownAdr0488));
+  sources.push(...(sectorEnergyCanonicalHealthy
+    ? collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487).filter((source) =>
+      !['SECTOR_DATA_SUPPLY_LINE_MISSING', 'SECTOR_INDEX_MASTER_REPAIR_NEEDED', 'REPAIR_SECTOR_INDEX_MASTER', 'IMPROVE_INDEX_CODE_COVERAGE'].includes(source.code ?? ''))
+    : collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487)));
+  sources.push(...(sectorEnergyCanonicalHealthy
+    ? collectOperatorActionSourcesFromAdr0488(summary.sectorEnergySupplyUnknownAdr0488).filter((source) =>
+      !['REPAIR_SECTOR_INDEX_MASTER', 'IMPROVE_INDEX_CODE_COVERAGE'].includes(source.code ?? ''))
+    : collectOperatorActionSourcesFromAdr0488(summary.sectorEnergySupplyUnknownAdr0488)));
   sources.push(...collectOperatorActionSourcesFromSupplySnapshotAdr0491(summary.supplySnapshotStoreAdr0491));
   return sources;
 }
