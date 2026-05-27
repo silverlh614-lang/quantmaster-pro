@@ -132,6 +132,12 @@ import {
   type NoEntryStreakDiagnosticInput,
 } from './noEntryStreakDiagnostic.js';
 import {
+  formatScanSummaryCausalArrowAllowedLog,
+  formatScanSummaryReasonMappedLog,
+  formatScanSummaryZeroReasonSuppressedLog,
+  mapScanSummaryDisplayReasons,
+} from './scanSummaryReasonMapping.js';
+import {
   buildCandidateGateEvaluationViews,
   aggregateCandidateGateEvaluationViews,
   buildCandidateGate2Coverage,
@@ -1917,8 +1923,28 @@ export async function persistScanResults(
     };
     const noEntryDiagnostic = buildNoEntryStreakDiagnostic(noEntryInput);
     const noEntryDelivery = evaluateNoEntryTelegramDelivery(noEntryDiagnostic);
+    const summaryReasonMapping = mapScanSummaryDisplayReasons({
+      scanCycleId: noEntryDiagnostic.scanCycleId,
+      providerFailureCount: counters.yahooFails,
+      providerFailureExecutionImpact: noEntryDiagnostic.dominantNoEntryReason === 'PROVIDER_FAILURE_WITH_EXECUTION_IMPACT'
+        ? noEntryDiagnostic.executionImpact
+        : 'NONE',
+      providerFailureCausedEntryHold: noEntryDiagnostic.dominantNoEntryReason === 'PROVIDER_FAILURE_WITH_EXECUTION_IMPACT',
+      dominantNoEntryReason: noEntryDiagnostic.dominantNoEntryReason,
+      gateMissCount: counters.gateMisses,
+      rrrFailCount: counters.rrrMisses,
+      actionRequired: noEntryDiagnostic.actionRequired,
+      executionImpact: noEntryDiagnostic.executionImpact,
+    });
     _lastScanSummary.noEntryStreakDiagnostic = noEntryDiagnostic;
     console.log(formatNoEntryStreakEvaluatedLog(noEntryDiagnostic));
+    console.log(formatScanSummaryReasonMappedLog(summaryReasonMapping));
+    for (const reason of summaryReasonMapping.suppressedZeroCountReasons) {
+      console.log(formatScanSummaryZeroReasonSuppressedLog(summaryReasonMapping, reason));
+    }
+    if (summaryReasonMapping.causalArrowAllowed) {
+      console.log(formatScanSummaryCausalArrowAllowedLog(summaryReasonMapping));
+    }
     console.log(
       noEntryDiagnostic.pipelineFailureDetected
         ? formatNoEntryPipelineFailureDetectedLog(noEntryDiagnostic)
@@ -1928,7 +1954,7 @@ export async function persistScanResults(
       console.log(formatNoEntryTelegramSuppressedLog(noEntryDiagnostic, noEntryDelivery));
     } else {
       const messageId = await sendTelegramAlert(
-        buildNoEntryScanSummaryMessage(noEntryDiagnostic, noEntryInput),
+        buildNoEntryScanSummaryMessage(noEntryDiagnostic, noEntryInput, summaryReasonMapping),
         {
           priority: 'HIGH',
           tier: 'T1_ALARM',

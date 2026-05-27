@@ -985,7 +985,9 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (wd.other > 0) lines.push(`  • 기타: ${wd.other}개`);
   } else {
     lines.push(`  • Gate 미달: ${summary.gateMisses}개 (waitDistribution 미수집)`);
-    lines.push(`  • Yahoo 실패: ${summary.yahooFails}개`);
+    lines.push(summary.yahooFails > 0
+      ? `  • 데이터 이슈: ${summary.yahooFails}개 (diagnosticOnly=true, causalArrow=false)`
+      : '  • 데이터 실패: 없음');
     lines.push(`  • RRR 미달: ${summary.rrrMisses}개`);
   }
   if (summary.noEntryStreakDiagnostic) {

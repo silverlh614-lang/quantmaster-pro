@@ -1,5 +1,10 @@
 // @responsibility No-entry streak diagnostic notification policy.
 
+import {
+  mapScanSummaryDisplayReasons,
+  type ScanSummaryReasonMapping,
+} from './scanSummaryReasonMapping.js';
+
 export type NoEntryDominantReason =
   | 'POLICY_BLOCKED'
   | 'SHADOW_ONLY'
@@ -456,12 +461,26 @@ export function formatNoEntryTelegramSentLog(diagnostic: NoEntryStreakDiagnostic
 export function buildNoEntryScanSummaryMessage(
   diagnostic: NoEntryStreakDiagnostic,
   input: NoEntryStreakDiagnosticInput,
+  mapping: ScanSummaryReasonMapping = mapScanSummaryDisplayReasons({
+    scanCycleId: diagnostic.scanCycleId,
+    providerFailureCount: input.yahooFailCount ?? 0,
+    providerFailureExecutionImpact: diagnostic.dominantNoEntryReason === 'PROVIDER_FAILURE_WITH_EXECUTION_IMPACT'
+      ? diagnostic.executionImpact
+      : 'NONE',
+    providerFailureCausedEntryHold: diagnostic.dominantNoEntryReason === 'PROVIDER_FAILURE_WITH_EXECUTION_IMPACT',
+    dominantNoEntryReason: diagnostic.dominantNoEntryReason,
+    gateMissCount: input.gateMissCount,
+    rrrFailCount: input.rrrFailCount,
+    actionRequired: diagnostic.actionRequired,
+    executionImpact: diagnostic.executionImpact,
+  }),
 ): string {
   if (diagnostic.actionRequired) {
     return [
       `⚠️ <b>[스캔 파이프라인 점검 필요]</b> ${input.timeLabel ?? ''}`.trim(),
       '진입 0회가 반복되며 scan pipeline 이상 징후가 확인되었습니다.',
       `원인: ${diagnostic.failureReason ?? reasonLabel(diagnostic.dominantNoEntryReason)}`,
+      mapping.providerLine,
       `failedStage=${diagnostic.failedStage ?? 'UNKNOWN'}`,
       `correlationId=${diagnostic.correlationId}`,
       '조치 필요: 있음',
@@ -485,9 +504,9 @@ export function buildNoEntryScanSummaryMessage(
   return [
     `📊 <b>[스캔 요약]</b> ${input.timeLabel ?? ''}`.trim(),
     `총 후보: ${count(input.candidateCount)}개 | SWING: ${count(input.swingCount)}개 | CATALYST: ${count(input.catalystCount)}개 | MOMENTUM: ${count(input.momentumCount)}개`,
-    `- Yahoo 실패: ${count(input.yahooFailCount)}개`,
-    `- Gate 미달: ${count(input.gateMissCount)}개`,
-    `- RRR 미달: ${count(input.rrrFailCount)}개`,
+    `- ${mapping.providerLine}`,
+    `- ${mapping.gateLine}`,
+    `- ${mapping.rrrLine}`,
     '- 진입 성공: 0개',
     '상태: 조건 미충족 — 대기',
     `주 원인: ${reasonLabel(diagnostic.dominantNoEntryReason)}`,

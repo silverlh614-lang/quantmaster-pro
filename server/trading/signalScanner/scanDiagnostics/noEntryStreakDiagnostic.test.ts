@@ -53,8 +53,10 @@ describe('noEntryStreakDiagnostic', () => {
     expect(delivery.shouldSend).toBe(false);
     expect(delivery.reason).toBe('NORMAL_NO_ENTRY_DIAGNOSTIC_SUPPRESSED');
     expect(message).toContain('상태: 조건 미충족 — 대기');
+    expect(message).toContain('데이터 실패: 없음');
     expect(message).toContain('조치 필요: 없음');
     expect(message).toContain('thresholdChanged=false');
+    expect(message).not.toContain('Yahoo 실패: 0개');
     expect(message).not.toContain('파이프라인 점검 필요');
   });
 
