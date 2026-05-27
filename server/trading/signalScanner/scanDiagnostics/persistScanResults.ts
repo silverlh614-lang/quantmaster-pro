@@ -146,9 +146,12 @@ import { OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS } from '../../../../src/doma
 let _lastBuySignalAt = 0;
 let _consecutiveZeroScans = 0;
 let _lastScanSummary: ScanSummary | null = null;
+let _lastScanSummaryAt = 0;
 
 export function getLastBuySignalAt(): number { return _lastBuySignalAt; }
 export function getLastScanSummary(): ScanSummary | null { return _lastScanSummary; }
+/** _lastScanSummary 가 마지막으로 영속된 wall-clock(ms). 미실행이면 0. age/staleness 판정 SSOT. */
+export function getLastScanSummaryAt(): number { return _lastScanSummaryAt; }
 export function getConsecutiveZeroScans(): number { return _consecutiveZeroScans; }
 
 /**
@@ -159,6 +162,7 @@ export function getConsecutiveZeroScans(): number { return _consecutiveZeroScans
 export function setPreflightDiagnosticScanSummaryIfAbsent(summary: ScanSummary): void {
   if (_lastScanSummary !== null && !isPreflightDiagnosticScanSummary(_lastScanSummary)) return;
   _lastScanSummary = summary;
+  _lastScanSummaryAt = Date.now();
   setLastSectorEnergyCanonicalState(summary.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState);
 }
 
@@ -1809,6 +1813,7 @@ export async function persistScanResults(
   }
 
   _lastScanSummary = summaryDraft;
+  _lastScanSummaryAt = Date.now();
   setLastSectorEnergyCanonicalState(summaryDraft.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState);
   // ADR-0367: 정상 ScanSummary 영속 1회가 "직전 스캔 = preflight 차단" 의미를 무효화한다.
   clearPreflightBlockedScanSummary();

@@ -29,6 +29,7 @@ export {
   type ScanSummary,
   getLastBuySignalAt,
   getLastScanSummary,
+  getLastScanSummaryAt,
   getConsecutiveZeroScans,
 } from './signalScanner/scanDiagnostics.js';
 

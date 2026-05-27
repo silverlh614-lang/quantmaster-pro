@@ -40,7 +40,9 @@ import {
   formatScanBlockersMessage,
   formatTechnicalProviderDegradedSection,
   getLastScanSummary,
+  getLastScanSummaryAt,
 } from '../../../trading/signalScanner/scanDiagnostics.js';
+import { triggerScanInBackground } from '../../scanTriggerLock.js';
 import {
   buildCanonicalRuntimeResolutionStep27,
   formatRuntimeResolverTraceStep26,
@@ -272,6 +274,18 @@ const scanBlockers: TelegramCommand = {
     const gateSubMode = modeResult.gateSubMode;
     const supplySubMode = modeResult.supplySubMode ?? 'summary';
     const summary = getLastScanSummary();
+    // A1 — 직전 스캔이 한 번도 영속되지 않았으면 빈 "미실행" 요약 대신 백그라운드 스캔을
+    // 킥하고 재시도를 안내한다. /scan 선행 의존성 제거 (read-only diagnostic → 1회 트리거).
+    if (summary === null && getLastScanSummaryAt() === 0) {
+      const kicked = triggerScanInBackground();
+      logCommand('single');
+      await replyOnce(
+        kicked.alreadyRunning
+          ? '⏳ 직전 스캔 데이터 없음 — 스캔이 이미 진행 중입니다. 완료 후 /scan_blockers 재시도.'
+          : '🔍 직전 스캔 데이터 없음 — 백그라운드 스캔을 시작했습니다. 잠시 후 /scan_blockers 재시도. (강제: /scan fresh)',
+      );
+      return;
+    }
     const scanCanonicalRuntimeResolution =
       summary?.canonicalRuntimeResolution ?? buildCanonicalRuntimeResolutionStep27(summary ?? null);
 
