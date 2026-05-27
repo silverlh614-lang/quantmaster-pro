@@ -422,6 +422,7 @@ export async function fetchDartFinancialsForGate2(input: {
         trace.dartErrorCode = undefined;
         return { dartFin, trace };
       } catch (error) {
+        /* SDS-ignore: classifyFetchError → trace.dartHttpStatus/dartErrorCode 진단 trace 에 기록한다 (silent 아님). */
         const classified = classifyFetchError(error);
         trace.dartHttpStatus = classified.httpStatus;
         trace.dartErrorCode = classified.errorCode;

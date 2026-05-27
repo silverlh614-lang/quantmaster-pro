@@ -562,6 +562,7 @@ async function executeBuyTaskApproval(
   try {
     approvalResult = await approvalResultPromise;
   } catch (error) {
+    /* SDS-ignore: 실패 사유를 approvalResult.deliveryFailureReason 에 기록하고 action=SKIP 으로 표면화한다 (silent 아님). */
     approvalResult = {
       action: 'SKIP',
       telegramDelivered: false,
