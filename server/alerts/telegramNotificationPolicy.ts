@@ -231,6 +231,7 @@ function inferSeverity(
     hasTextToken(input, 'GATE_FORENSIC') ||
     hasTextToken(input, 'FORENSIC') ||
     hasTextToken(input, 'SOFT_CAP') ||
+    hasTextToken(input, 'NO_ENTRY_STREAK') ||
     hasTextToken(input, 'NO_ENTRY_DIAGNOSTIC')
   ) {
     return 'DIAGNOSTIC';

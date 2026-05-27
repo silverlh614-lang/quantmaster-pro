@@ -120,6 +120,24 @@ import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceSt
 import { isPreflightDiagnosticScanSummary } from './preflightDiagnosticScanSummary.js';
 import { setLastSectorEnergyCanonicalState } from '../sectorEnergyCanonicalStateRef.js';
 import {
+  buildNoEntryScanSummaryMessage,
+  buildNoEntryStreakDiagnostic,
+  evaluateNoEntryTelegramDelivery,
+  formatNoEntryPipelineFailureDetectedLog,
+  formatNoEntryPipelineHealthOkLog,
+  formatNoEntryStreakEvaluatedLog,
+  formatNoEntryTelegramSentLog,
+  formatNoEntryTelegramSuppressedLog,
+  recordNoEntryTelegramSent,
+  type NoEntryStreakDiagnosticInput,
+} from './noEntryStreakDiagnostic.js';
+import {
+  formatScanSummaryCausalArrowAllowedLog,
+  formatScanSummaryReasonMappedLog,
+  formatScanSummaryZeroReasonSuppressedLog,
+  mapScanSummaryDisplayReasons,
+} from './scanSummaryReasonMapping.js';
+import {
   buildCandidateGateEvaluationViews,
   aggregateCandidateGateEvaluationViews,
   buildCandidateGate2Coverage,
@@ -1834,26 +1852,146 @@ export async function persistScanResults(
   }
 
   if (_consecutiveZeroScans >= 3) {
+    const noEntryStreakCount = _consecutiveZeroScans;
     _consecutiveZeroScans = 0;
-    await sendTelegramAlert(
-      `📊 <b>[스캔 요약]</b> ${timeLabel}\n` +
-      `총 후보: ${_lastScanSummary.candidates}개 | SWING: ${_lastScanSummary.swing}개 | CATALYST: ${_lastScanSummary.catalyst}개 | MOMENTUM: ${_lastScanSummary.momentum}개\n` +
-      `- Yahoo 실패: ${counters.yahooFails}개 → 진입 보류\n` +
-      `- Gate 미달: ${counters.gateMisses}개\n` +
-      `- RRR 미달: ${counters.rrrMisses}개\n` +
-      `- 진입 성공: 0개\n` +
-      `⚠️ 3회 연속 진입 없음 — 파이프라인 점검 필요`,
-      {
-        category: 'scan_empty',
-        noiseEvent: {
-          eventType: 'SCAN_EMPTY',
-          channel: 'CH4_JOURNAL',
-          consecutiveFailures: 3,
-          executionImpact: 'NONE',
-          dedupeHint: 'zero_entry_scan',
+    const macro = _lastScanSummary.macroGateState;
+    const finalExecutionPolicy = macro?.finalExecutionPolicy ?? '';
+    const session = macro?.canonicalSession ?? macro?.displaySession ?? 'REGULAR';
+    const sessionUpper = session.toUpperCase();
+    const shadowOnly = [
+      macro?.displayRegime,
+      macro?.riskOverride,
+      macro?.engineMode,
+      finalExecutionPolicy,
+    ].includes('SHADOW_ONLY') || finalExecutionPolicy === 'SHADOW_AND_DIAGNOSTIC_ONLY';
+    const noEntryInput: NoEntryStreakDiagnosticInput = {
+      tradeDate: kstNow.toISOString().slice(0, 10),
+      scanCycleId: `scan-${kstNow.toISOString()}`,
+      timeLabel,
+      noEntryStreakCount,
+      candidateCount: _lastScanSummary.candidates,
+      swingCount: _lastScanSummary.swing,
+      catalystCount: _lastScanSummary.catalyst,
+      momentumCount: _lastScanSummary.momentum,
+      yahooFailCount: counters.yahooFails,
+      gateMissCount: counters.gateMisses,
+      rrrFailCount: counters.rrrMisses,
+      preBreakoutWaitCount: counters.waitPreBreakout,
+      gateEvaluatedCount:
+        counters.gateMisses +
+        counters.rrrMisses +
+        counters.entries +
+        counters.waitGateFail +
+        counters.waitPreBreakout +
+        counters.gate1Pass +
+        counters.gate1Unknown,
+      gate3EvaluatedCount: counters.gate3Pass + counters.rrrMisses + counters.lastTriggerPass,
+      entryTimingNotReadyCount: counters.gate3Pass > 0 && counters.lastTriggerPass === 0 ? counters.gate3Pass : 0,
+      priceNotConfirmedCount: counters.waitDataHold,
+      gate2LeadershipNotConfirmedCount: counters.gate1Pass > 0 && counters.gate2Pass === 0 ? counters.gate1Pass : 0,
+      gate1ThresholdMissCount: counters.waitGateFail || counters.gateMisses,
+      dataFreshnessStale:
+        options.marketDataFreshness === 'STALE' ||
+        options.marketDataFreshness === 'EXPIRED' ||
+        macro?.sourceFreshness === 'STALE',
+      providerIssue: macro?.providerIssue === true,
+      providerFailureWithExecutionImpact:
+        macro?.providerIssue === true &&
+        macro?.providerIssueIsolated === false &&
+        macro?.usableForLiveOrder === false,
+      policyBlocked: macro?.emergencyStop === true || finalExecutionPolicy === 'LIVE_BLOCKED',
+      shadowOnly,
+      liveDisabled:
+        !shadowOnly &&
+        (macro?.liveEntryAllowed === false ||
+          macro?.brokerLiveOrderAllowed === false ||
+          macro?.brokerOrderAllowed === false),
+      openingGuardActive: sessionUpper.includes('OPENING'),
+      sessionGuardActive: ['PRE_MARKET', 'POST_MARKET', 'CLOSED', 'HOLIDAY'].includes(sessionUpper),
+      slotLimit: counters.waitSizingBlocked > 0 && counters.waitSizingBlocked >= _lastScanSummary.candidates,
+      scanCompleted: true,
+      shadowLearningAllowed: macro?.shadowLearningAllowed !== false,
+      counterfactualAllowed: macro?.counterfactualAllowed !== false,
+      counterfactualRecorded:
+        counters.counterfactualRecordedToday > 0 ||
+        (_lastScanSummary.counterfactualShadowLearning?.created ?? 0) > 0 ||
+        _lastScanSummary.gate2SoftLeadershipLane?.counterfactualRecorded === true,
+      forceScanCompleted: true,
+      regime: macro?.macroRegimeEffective ?? macro?.regime ?? 'UNKNOWN',
+      session,
+      now: kstNow,
+    };
+    const noEntryDiagnostic = buildNoEntryStreakDiagnostic(noEntryInput);
+    const noEntryDelivery = evaluateNoEntryTelegramDelivery(noEntryDiagnostic);
+    const summaryReasonMapping = mapScanSummaryDisplayReasons({
+      scanCycleId: noEntryDiagnostic.scanCycleId,
+      providerFailureCount: counters.yahooFails,
+      providerFailureExecutionImpact: noEntryDiagnostic.dominantNoEntryReason === 'PROVIDER_FAILURE_WITH_EXECUTION_IMPACT'
+        ? noEntryDiagnostic.executionImpact
+        : 'NONE',
+      providerFailureCausedEntryHold: noEntryDiagnostic.dominantNoEntryReason === 'PROVIDER_FAILURE_WITH_EXECUTION_IMPACT',
+      dominantNoEntryReason: noEntryDiagnostic.dominantNoEntryReason,
+      gateMissCount: counters.gateMisses,
+      rrrFailCount: counters.rrrMisses,
+      actionRequired: noEntryDiagnostic.actionRequired,
+      executionImpact: noEntryDiagnostic.executionImpact,
+    });
+    _lastScanSummary.noEntryStreakDiagnostic = noEntryDiagnostic;
+    console.log(formatNoEntryStreakEvaluatedLog(noEntryDiagnostic));
+    console.log(formatScanSummaryReasonMappedLog(summaryReasonMapping));
+    for (const reason of summaryReasonMapping.suppressedZeroCountReasons) {
+      console.log(formatScanSummaryZeroReasonSuppressedLog(summaryReasonMapping, reason));
+    }
+    if (summaryReasonMapping.causalArrowAllowed) {
+      console.log(formatScanSummaryCausalArrowAllowedLog(summaryReasonMapping));
+    }
+    console.log(
+      noEntryDiagnostic.pipelineFailureDetected
+        ? formatNoEntryPipelineFailureDetectedLog(noEntryDiagnostic)
+        : formatNoEntryPipelineHealthOkLog(noEntryDiagnostic),
+    );
+    if (!noEntryDelivery.shouldSend) {
+      console.log(formatNoEntryTelegramSuppressedLog(noEntryDiagnostic, noEntryDelivery));
+    } else {
+      const messageId = await sendTelegramAlert(
+        buildNoEntryScanSummaryMessage(noEntryDiagnostic, noEntryInput, summaryReasonMapping),
+        {
+          priority: 'HIGH',
+          tier: 'T1_ALARM',
+          category: 'no_entry_streak',
+          dedupeKey: noEntryDiagnostic.dedupKey,
+          cooldownMs: 15 * 60 * 1000,
+          notificationSeverity: 'ACTION_REQUIRED',
+          notificationEventType: 'NO_ENTRY_STREAK',
+          tradeDate: noEntryDiagnostic.tradeDate,
+          regime: noEntryDiagnostic.regime,
+          stateBucket: noEntryDiagnostic.noEntryStreakBucket,
+          normalizedReason: noEntryDiagnostic.dominantNoEntryReason,
+          executionImpact: noEntryDiagnostic.executionImpact,
+          marketSignal: false,
+          providerIssue: noEntryDiagnostic.providerIssue,
+          kisImpact: 'NONE',
+          actionRequired: true,
+          tradeEvent: false,
+          diagnosticOnly: false,
+          notificationOnly: true,
+          noiseEvent: {
+            eventType: 'SCAN_EMPTY',
+            channel: 'CH4_JOURNAL',
+            consecutiveFailures: noEntryStreakCount,
+            executionImpact: noEntryDiagnostic.executionImpact,
+            dedupeHint: 'zero_entry_scan',
+          },
         },
-      },
-    ).catch(console.error);
+      ).catch((error) => {
+        console.error(error);
+        return undefined;
+      });
+      if (messageId !== undefined) {
+        recordNoEntryTelegramSent(noEntryDiagnostic);
+        console.log(formatNoEntryTelegramSentLog(noEntryDiagnostic));
+      }
+    }
   }
 
   // ADR-0401 — R3 Violation 5단계 state machine wiring.
