@@ -109,6 +109,171 @@ function resolveSectorEnergyConfidenceDisplay(input: {
   };
 }
 
+/** 5단계 dataQuality → emoji 마커 (ADR-0396 정합). */
+function resolveSectorEnergyQualityEmoji(
+  dataQuality: SectorEnergyDataQuality5 | undefined,
+): string {
+  const map: Partial<Record<SectorEnergyDataQuality5, string>> = {
+    OK: '✅',
+    PARTIAL: '🟡',
+    STALE: '🟠',
+    DEGRADED: '🔶',
+    FAILED: '❌',
+  };
+  return (dataQuality && map[dataQuality]) || '⚪';
+}
+
+/** sourceTier 라인 (ADR-0396 신규 필드 / 미수집 후방호환). */
+function buildSectorEnergySourceTierLine(sourceTier: SectorEnergySourceTier | undefined): string {
+  if (sourceTier !== undefined) return `📡 legacySourceTierDiagnosticOnly: <b>${sourceTier}</b>`;
+  return `📡 legacySourceTierDiagnosticOnly: <i>미수집 (ADR-0396 격상 전 영속 데이터)</i>`;
+}
+
+/** freshness 라인 (FRESH/DEGRADED/그외 emoji). */
+function buildSectorEnergyFreshnessLine(freshness: SectorEnergyFreshness | undefined): string {
+  if (freshness === undefined) return `⏱️ legacyFreshnessDiagnosticOnly: <i>미수집</i>`;
+  const freshEmoji = freshness === 'FRESH' ? '✅' : freshness === 'DEGRADED' ? '🟡' : '❌';
+  return `⏱️ legacyFreshnessDiagnosticOnly: ${freshEmoji} <b>${freshness}</b>`;
+}
+
+/** coverage 라인 (number / validCount-only / 미수집). */
+function buildSectorEnergyCoverageLine(coverage: unknown, validCount: unknown): string {
+  if (typeof coverage === 'number' && Number.isFinite(coverage)) {
+    return `📊 legacyCoverageDiagnosticOnly: <b>${(coverage * 100).toFixed(1)}%</b> (${validCount ?? '?'}/12 섹터)`;
+  }
+  if (typeof validCount === 'number') {
+    return `📊 legacyCoverageDiagnosticOnly: <i>미수집</i> (${validCount}/12 섹터)`;
+  }
+  return `📊 legacyCoverageDiagnosticOnly: <i>미수집</i>`;
+}
+
+/** confidence 라인 (display 있으면 emoji+class+reason, 없으면 미수집). */
+function buildSectorEnergyConfidenceLines(confidenceDisplay: SectorEnergyConfidenceDisplay | null): string[] {
+  if (!confidenceDisplay) return [`🎯 legacyConfidenceDiagnosticOnly: <i>미수집</i>`];
+  const suffix = confidenceDisplay.suffix ? `, ${confidenceDisplay.suffix}` : '';
+  const out = [
+    `🎯 legacyConfidenceDiagnosticOnly: ${confidenceEmoji(confidenceDisplay.value)} <b>${(confidenceDisplay.value * 100).toFixed(1)}%</b> ` +
+      `(${confidenceDisplay.confidenceClass}${suffix})`,
+  ];
+  if (confidenceDisplay.reason) out.push(`  • reason: <i>${confidenceDisplay.reason}</i>`);
+  return out;
+}
+
+/** ADR-0399 KRX 원천 복구 진단 섹션 (diag 메타 분해). */
+function buildSectorEnergyKrxRecoveryLines(
+  diag: NonNullable<MacroSectorEnergyDiag>,
+  sourceTier: SectorEnergySourceTier | undefined,
+): string[] {
+  const lines: string[] = ['', '🔍 <b>[KRX 원천 복구 진단 (ADR-0399)]</b>'];
+  if (diag.candidateDates && diag.candidateDates.length > 0) {
+    lines.push(`📅 candidateDates: <code>${diag.candidateDates.join(', ')}</code>`);
+  }
+  if (diag.sourceTierAttempts && diag.sourceTierAttempts.length > 0) {
+    lines.push(`🪜 sourceTierAttempts:`);
+    for (const a of diag.sourceTierAttempts) {
+      const reason = a.reason ? ` — ${a.reason}` : '';
+      lines.push(`  • <b>${a.tier}</b>: validCount=${a.validCount}${reason}`);
+    }
+  }
+  if (diag.fallbackReason) {
+    lines.push(`⚠️ fallbackReason: <i>${diag.fallbackReason}</i>`);
+  }
+  if (diag.coverageBreakdown) {
+    const c = diag.coverageBreakdown;
+    lines.push('');
+    lines.push('📊 <b>[Production SectorEnergy]</b>');
+    lines.push(`legacySelectedSourceTierDiagnosticOnly: <code>${diag.finalSourceTier ?? sourceTier ?? 'MISSING'}</code>`);
+    lines.push(`officialCoverage: <b>${c.kisOfficialCount + c.verifiedIndexCodeCount}/${c.totalSectors}</b>`);
+    lines.push(`basketCoverage: <b>${c.kisBasketCount}/${c.totalSectors}</b>`);
+    lines.push('legacySectorBoostAllowedDiagnosticOnly: <b>false</b>');
+    lines.push('highConvictionLabel: <b>finalScore-only</b>');
+    lines.push(`executionImpact: <code>${diag.executionImpact ?? 'NONE'}</code>`);
+    lines.push(`  • productionOfficialCoverage: <b>${(Math.max(c.verifiedIndexCodeCoverage, c.kisOfficialCoverage) * 100).toFixed(1)}%</b> (${Math.max(c.verifiedIndexCodeCount, c.kisOfficialCount)}/${c.totalSectors})`);
+    lines.push(`  • productionBasketCoverage: <b>${(c.kisBasketCoverage * 100).toFixed(1)}%</b> (${c.kisBasketCount}/${c.totalSectors})`);
+    lines.push(`  • internalProxyCoverage: <b>${(c.internalProxyCoverage * 100).toFixed(1)}%</b> (${c.internalProxyCount}/${c.totalSectors})`);
+    lines.push(`  • stockDailyFallbackCoverage: <b>${(c.stockDailyFallbackCoverage * 100).toFixed(1)}%</b> (${c.stockDailyFallbackCount}/${c.totalSectors})`);
+  }
+  if (diag.leadershipConfidence) {
+    lines.push(`🧭 legacyLeadershipConfidenceDiagnosticOnly: <b>${diag.leadershipConfidence}</b>`);
+  }
+  if (diag.selectedSectors && diag.selectedSectors.length > 0) {
+    lines.push(`🏁 selectedSectors: <code>${diag.selectedSectors.join(', ')}</code>`);
+  }
+  lines.push(`🛡 liveExecutionAllowed: <b>${String(diag.liveExecutionAllowed ?? false)}</b>`);
+  lines.push(`🧪 executionImpact: <b>${diag.executionImpact ?? 'NONE'}</b>`);
+  return lines;
+}
+
+/** ADR-0423/0446 — qualityDiag 하위 진단 섹션 (quality/phase2/krxRaw/sanity). */
+function buildSectorEnergyQualityDiagLines(
+  qualityDiag: NonNullable<MacroSectorEnergyQualityDiag>,
+): string[] {
+  const lines: string[] = [''];
+  const section = formatSectorEnergyQualityDiagnosticSection(qualityDiag);
+  if (section) lines.push(section);
+  if (qualityDiag.sectorIndexRecovery) {
+    const phase2 = formatPhase2RecoverySection(qualityDiag.sectorIndexRecovery);
+    if (phase2) {
+      lines.push('');
+      lines.push(phase2);
+    }
+  }
+  if (qualityDiag.krxSectorIndexRaw) {
+    const krxRaw = formatKrxSectorIndexRawDiagnosticSection(qualityDiag.krxSectorIndexRaw);
+    if (krxRaw) {
+      lines.push('');
+      lines.push(krxRaw);
+    }
+  }
+  if (qualityDiag.sanityViolation) {
+    const sanity = formatSanityDiagnosticSection(qualityDiag.sanityViolation);
+    if (sanity) {
+      lines.push('');
+      lines.push(sanity);
+    }
+  }
+  return lines;
+}
+
+/** ADR-0398 high-conviction label diagnostics 섹션. */
+function buildSectorEnergyHighConvictionLines(input: {
+  sourceTier: SectorEnergySourceTier | undefined;
+  dataQuality: SectorEnergyDataQuality5 | undefined;
+  confidenceDisplay: SectorEnergyConfidenceDisplay | null;
+}): string[] {
+  if (isSectorEnergyStrongBuyGateDisabled()) {
+    return ['High-conviction label diagnostics disabled by ENV `SECTOR_ENERGY_STRONG_BUY_GATE_DISABLED=true`.'];
+  }
+  if (
+    input.sourceTier !== undefined &&
+    input.dataQuality !== undefined &&
+    input.confidenceDisplay !== null
+  ) {
+    const gate = evaluateSectorEnergyStrongBuyGate({
+      confidence: input.confidenceDisplay.value,
+      dataQuality: input.dataQuality,
+      sourceTier: input.sourceTier,
+    });
+    const lines = ['<b>[High-conviction label diagnostics]</b> score/diagnostic only; no buy block or downgrade.'];
+    if (gate.reasons.length > 0) {
+      for (const reason of gate.reasons) lines.push(`  - ${reason}`);
+    } else {
+      lines.push('  - all SectorEnergy label diagnostics clear');
+    }
+    return lines;
+  }
+  return ['<b>[High-conviction label diagnostics]</b> unavailable: 4-axis data missing.'];
+}
+
+type MacroSectorEnergyDiag = ReturnType<typeof loadMacroState> extends infer M
+  ? M extends { sectorEnergyDiagnostics?: infer D }
+    ? D
+    : never
+  : never;
+type MacroSectorEnergyQualityDiag =
+  | Parameters<typeof formatSectorEnergyQualityDiagnosticSection>[0]
+  | undefined;
+
 /**
  * /sector_energy_diag 메시지 빌더 SSOT (단위 테스트 가능).
  *
@@ -142,19 +307,7 @@ export function formatSectorEnergyDiagMessage(): string {
   const dataQuality = macro.sectorEnergyDataQuality as
     | SectorEnergyDataQuality5
     | undefined;
-  const qualityEmoji =
-    dataQuality === 'OK'
-      ? '✅'
-      : dataQuality === 'PARTIAL'
-        ? '🟡'
-        : dataQuality === 'STALE'
-          ? '🟠'
-          : dataQuality === 'DEGRADED'
-            ? '🔶'
-            : dataQuality === 'FAILED'
-              ? '❌'
-              : '⚪';
-
+  const qualityEmoji = resolveSectorEnergyQualityEmoji(dataQuality);
   lines.push(`${qualityEmoji} legacyDataQualityDiagnosticOnly: <b>${dataQuality ?? '미수집'}</b>`);
 
   // 4-axis 개별 표시 (ADR-0396 신규 필드)
@@ -169,29 +322,9 @@ export function formatSectorEnergyDiagMessage(): string {
   const validCount = macro.sectorEnergyValidSectorCount;
   const diag = macro.sectorEnergyDiagnostics;
 
-  if (sourceTier !== undefined) {
-    lines.push(`📡 legacySourceTierDiagnosticOnly: <b>${sourceTier}</b>`);
-  } else {
-    lines.push(`📡 legacySourceTierDiagnosticOnly: <i>미수집 (ADR-0396 격상 전 영속 데이터)</i>`);
-  }
-
-  if (freshness !== undefined) {
-    const freshEmoji =
-      freshness === 'FRESH' ? '✅' : freshness === 'DEGRADED' ? '🟡' : '❌';
-    lines.push(`⏱️ legacyFreshnessDiagnosticOnly: ${freshEmoji} <b>${freshness}</b>`);
-  } else {
-    lines.push(`⏱️ legacyFreshnessDiagnosticOnly: <i>미수집</i>`);
-  }
-
-  if (typeof coverage === 'number' && Number.isFinite(coverage)) {
-    lines.push(
-      `📊 legacyCoverageDiagnosticOnly: <b>${(coverage * 100).toFixed(1)}%</b> (${validCount ?? '?'}/12 섹터)`,
-    );
-  } else if (typeof validCount === 'number') {
-    lines.push(`📊 legacyCoverageDiagnosticOnly: <i>미수집</i> (${validCount}/12 섹터)`);
-  } else {
-    lines.push(`📊 legacyCoverageDiagnosticOnly: <i>미수집</i>`);
-  }
+  lines.push(buildSectorEnergySourceTierLine(sourceTier));
+  lines.push(buildSectorEnergyFreshnessLine(freshness));
+  lines.push(buildSectorEnergyCoverageLine(coverage, validCount));
 
   const confidenceDisplay = resolveSectorEnergyConfidenceDisplay({
     confidence,
@@ -200,85 +333,13 @@ export function formatSectorEnergyDiagMessage(): string {
     coverage,
     kisBasketCoverage: diag?.coverageBreakdown?.kisBasketCoverage,
   });
-  if (confidenceDisplay) {
-    const suffix = confidenceDisplay.suffix
-      ? `, ${confidenceDisplay.suffix}`
-      : '';
-    lines.push(
-      `🎯 legacyConfidenceDiagnosticOnly: ${confidenceEmoji(confidenceDisplay.value)} <b>${(confidenceDisplay.value * 100).toFixed(1)}%</b> ` +
-        `(${confidenceDisplay.confidenceClass}${suffix})`,
-    );
-    if (confidenceDisplay.reason) {
-      lines.push(`  • reason: <i>${confidenceDisplay.reason}</i>`);
-    }
-  } else {
-    lines.push(`🎯 legacyConfidenceDiagnosticOnly: <i>미수집</i>`);
-  }
+  lines.push(...buildSectorEnergyConfidenceLines(confidenceDisplay));
 
   // ADR-0399 (= 사용자 명시 ADR-0374): KRX 원천 복구 진단 메타.
   // sourceTierAttempts / candidateDates / fallbackReason — 운영자 *어느 layer 가 작동했는지* 추적.
   // 사용자 명시 9 핵심 원칙 #9 — fallback 작동 시 UI 와 diagnostics 에 반드시 표시.
   if (diag) {
-    lines.push('');
-    lines.push('🔍 <b>[KRX 원천 복구 진단 (ADR-0399)]</b>');
-    if (diag.candidateDates && diag.candidateDates.length > 0) {
-      lines.push(
-        `📅 candidateDates: <code>${diag.candidateDates.join(', ')}</code>`,
-      );
-    }
-    if (diag.sourceTierAttempts && diag.sourceTierAttempts.length > 0) {
-      lines.push(`🪜 sourceTierAttempts:`);
-      for (const a of diag.sourceTierAttempts) {
-        const reason = a.reason ? ` — ${a.reason}` : '';
-        lines.push(`  • <b>${a.tier}</b>: validCount=${a.validCount}${reason}`);
-      }
-    }
-    if (diag.fallbackReason) {
-      lines.push(`⚠️ fallbackReason: <i>${diag.fallbackReason}</i>`);
-    }
-    if (diag.coverageBreakdown) {
-      const c = diag.coverageBreakdown;
-      lines.push('');
-      lines.push('📊 <b>[Production SectorEnergy]</b>');
-      lines.push(
-        `legacySelectedSourceTierDiagnosticOnly: <code>${diag.finalSourceTier ?? sourceTier ?? 'MISSING'}</code>`,
-      );
-      lines.push(
-        `officialCoverage: <b>${c.kisOfficialCount + c.verifiedIndexCodeCount}/${c.totalSectors}</b>`,
-      );
-      lines.push(
-        `basketCoverage: <b>${c.kisBasketCount}/${c.totalSectors}</b>`,
-      );
-      lines.push('legacySectorBoostAllowedDiagnosticOnly: <b>false</b>');
-      lines.push('highConvictionLabel: <b>finalScore-only</b>');
-      lines.push(`executionImpact: <code>${diag.executionImpact ?? 'NONE'}</code>`);
-      lines.push(
-        `  • productionOfficialCoverage: <b>${(Math.max(c.verifiedIndexCodeCoverage, c.kisOfficialCoverage) * 100).toFixed(1)}%</b> (${Math.max(c.verifiedIndexCodeCount, c.kisOfficialCount)}/${c.totalSectors})`,
-      );
-      lines.push(
-        `  • productionBasketCoverage: <b>${(c.kisBasketCoverage * 100).toFixed(1)}%</b> (${c.kisBasketCount}/${c.totalSectors})`,
-      );
-      lines.push(
-        `  • internalProxyCoverage: <b>${(c.internalProxyCoverage * 100).toFixed(1)}%</b> (${c.internalProxyCount}/${c.totalSectors})`,
-      );
-      lines.push(
-        `  • stockDailyFallbackCoverage: <b>${(c.stockDailyFallbackCoverage * 100).toFixed(1)}%</b> (${c.stockDailyFallbackCount}/${c.totalSectors})`,
-      );
-    }
-    if (diag.leadershipConfidence) {
-      lines.push(
-        `🧭 legacyLeadershipConfidenceDiagnosticOnly: <b>${diag.leadershipConfidence}</b>`,
-      );
-    }
-    if (diag.selectedSectors && diag.selectedSectors.length > 0) {
-      lines.push(
-        `🏁 selectedSectors: <code>${diag.selectedSectors.join(', ')}</code>`,
-      );
-    }
-    lines.push(
-      `🛡 liveExecutionAllowed: <b>${String(diag.liveExecutionAllowed ?? false)}</b>`,
-    );
-    lines.push(`🧪 executionImpact: <b>${diag.executionImpact ?? 'NONE'}</b>`);
+    lines.push(...buildSectorEnergyKrxRecoveryLines(diag, sourceTier));
   }
 
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
@@ -290,38 +351,7 @@ export function formatSectorEnergyDiagMessage(): string {
     | Parameters<typeof formatSectorEnergyQualityDiagnosticSection>[0]
     | undefined;
   if (qualityDiag) {
-    lines.push('');
-    const section = formatSectorEnergyQualityDiagnosticSection(qualityDiag);
-    if (section) lines.push(section);
-
-    // ADR-0446 Phase 2: indexCode recovery 분해 (ADR-0424 위에서 row 단위 분해 + sourceTier breakdown).
-    if (qualityDiag.sectorIndexRecovery) {
-      const phase2 = formatPhase2RecoverySection(
-        qualityDiag.sectorIndexRecovery,
-      );
-      if (phase2) {
-        lines.push('');
-        lines.push(phase2);
-      }
-    }
-
-    // KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001: KRX 섹터 indexCode raw 입력 부검.
-    // verifiedIndexCodeCoverage=0% 의 정확한 break point 노출 (진단 전용 — 매매 영향 0).
-    if (qualityDiag.krxSectorIndexRaw) {
-      const krxRaw = formatKrxSectorIndexRawDiagnosticSection(qualityDiag.krxSectorIndexRaw);
-      if (krxRaw) {
-        lines.push('');
-        lines.push(krxRaw);
-      }
-    }
-
-    if (qualityDiag.sanityViolation) {
-      const sanity = formatSanityDiagnosticSection(qualityDiag.sanityViolation);
-      if (sanity) {
-        lines.push('');
-        lines.push(sanity);
-      }
-    }
+    lines.push(...buildSectorEnergyQualityDiagLines(qualityDiag));
   }
 
   // ADR-0398 high-conviction label diagnostics
@@ -344,27 +374,7 @@ export function formatSectorEnergyDiagMessage(): string {
   }
 
   lines.push('');
-  if (isSectorEnergyStrongBuyGateDisabled()) {
-    lines.push('High-conviction label diagnostics disabled by ENV `SECTOR_ENERGY_STRONG_BUY_GATE_DISABLED=true`.');
-  } else if (
-    sourceTier !== undefined &&
-    dataQuality !== undefined &&
-    confidenceDisplay !== null
-  ) {
-    const gate = evaluateSectorEnergyStrongBuyGate({
-      confidence: confidenceDisplay.value,
-      dataQuality,
-      sourceTier,
-    });
-    lines.push('<b>[High-conviction label diagnostics]</b> score/diagnostic only; no buy block or downgrade.');
-    if (gate.reasons.length > 0) {
-      for (const reason of gate.reasons) lines.push(`  - ${reason}`);
-    } else {
-      lines.push('  - all SectorEnergy label diagnostics clear');
-    }
-  } else {
-    lines.push('<b>[High-conviction label diagnostics]</b> unavailable: 4-axis data missing.');
-  }
+  lines.push(...buildSectorEnergyHighConvictionLines({ sourceTier, dataQuality, confidenceDisplay }));
 
   return lines.join('\n');
 }

@@ -211,31 +211,9 @@ export function buildConditionStatusRows(
   return rows.slice(0, topN);
 }
 
-/** 메시지 빌더 SSOT — 6 섹션 (헤더/거시/Top 사유/일별/조건 status/진단). */
-export function formatGateAuditMessage(input: {
-  windowDays: number;
-  buckets: RejectionBucket[];
-  daily: DailyGateRow[];
-  totalGhostsInWindow: number;
-  macro: MacroState | null;
-  scan: ScanSummary | null;
-  diagnostic: DiagnosticCase;
-  diagnosticHint: string;
-  emergencyStop: boolean;
-  autoTradePaused: boolean;
-  autoTradeEnabled: boolean;
-  autoTradeMode: string;
-  /** ADR-0391 P0-A §A-4 — 진단 보강 4 필드 (옵셔널, 후방호환). */
-  envMode?: string;
-  runtimeMode?: string;
-  killSwitchReason?: string | null;
-  modeConsistency?: 'CONSISTENT' | 'INTENDED_OVERRIDE' | 'UNINTENDED_DIVERGENCE';
-  /** ADR-0387/0388 — 조건별 status 분포 (옵셔널 — 데이터 부재 시 섹션 미노출). */
-  conditionStatusRows?: ConditionStatusRow[];
-}): string {
-  const L: string[] = [];
-  L.push(`📊 Gate Audit (last ${input.windowDays} days)`);
-  L.push('━━━━━━━━━━━━━━━━', '', '🚦 거시 게이트 상태:');
+/** 거시 게이트 상태 섹션 (헤더 1줄 + macro/AUTO_TRADE/진단 4필드 라인). */
+function buildGateAuditMacroSection(input: FormatGateAuditInput): string[] {
+  const L: string[] = ['━━━━━━━━━━━━━━━━', '', '🚦 거시 게이트 상태:'];
   L.push(`   regime: ${input.macro?.regime ?? '?'}`);
   L.push(`   MHS: ${input.macro?.mhs ?? '?'}` + (typeof input.macro?.mhs === 'number' && input.macro.mhs < 30 ? ' ⚠️ <30' : ''));
   L.push(`   VIX: ${input.macro?.vix ?? '?'}` + (typeof input.macro?.vix === 'number' && input.macro.vix >= 28 ? ' ⚠️ ≥28' : ''));
@@ -257,52 +235,102 @@ export function formatGateAuditMessage(input: {
       ' 🚨';
     L.push(`   modeConsistency: ${input.modeConsistency}${marker}`);
   }
+  return L;
+}
 
-  L.push('', `🚧 직전 ${input.windowDays}일 Ghost 거절 사유 (총 ${input.totalGhostsInWindow}건):`);
+/** Ghost 거절 사유 분포 섹션 (헤더 + bucket 라인 또는 placeholder). */
+function buildGateAuditBucketsSection(input: FormatGateAuditInput): string[] {
+  const L: string[] = ['', `🚧 직전 ${input.windowDays}일 Ghost 거절 사유 (총 ${input.totalGhostsInWindow}건):`];
   if (input.buckets.length === 0) {
     L.push('   (해당 윈도우 ghost 등록 0건)');
-  } else {
-    for (const b of input.buckets) {
-      const pct = input.totalGhostsInWindow > 0
-        ? ((b.count / input.totalGhostsInWindow) * 100).toFixed(1)
-        : '0.0';
-      L.push(`   ${b.reason}: ${b.count}건 (${pct}%)`);
-    }
+    return L;
   }
+  for (const b of input.buckets) {
+    const pct = input.totalGhostsInWindow > 0
+      ? ((b.count / input.totalGhostsInWindow) * 100).toFixed(1)
+      : '0.0';
+    L.push(`   ${b.reason}: ${b.count}건 (${pct}%)`);
+  }
+  return L;
+}
 
-  L.push('', '📅 일별 ghost / buy:');
-  for (const r of input.daily) {
+/** 일별 ghost / buy 섹션. */
+function buildGateAuditDailySection(daily: DailyGateRow[]): string[] {
+  const L: string[] = ['', '📅 일별 ghost / buy:'];
+  for (const r of daily) {
     const tail = r.topReason ? ` (${r.topReason} ${r.topReasonCount}건)` : '';
     L.push(`   ${r.date}: ghost=${r.ghosts}  buy=${r.buys}${tail}`);
   }
+  return L;
+}
 
-  if (input.scan) {
-    L.push('', '🔬 직전 스캔 (`/scan_blockers` 발췌):');
-    L.push(`   time=${input.scan.time}  candidates=${input.scan.candidates}  entries=${input.scan.entries}`);
-    if (input.scan.gatePassDistribution) {
-      const g = input.scan.gatePassDistribution;
-      L.push(`   gate1Pass=${g.gate1Pass}  gate2Pass=${g.gate2Pass}  gate3Pass=${g.gate3Pass}  lastTriggerPass=${g.lastTriggerPass}`);
-    }
+/** 직전 스캔 발췌 섹션 (scan 부재 시 빈 배열). */
+function buildGateAuditScanSection(scan: ScanSummary | null): string[] {
+  if (!scan) return [];
+  const L: string[] = ['', '🔬 직전 스캔 (`/scan_blockers` 발췌):'];
+  L.push(`   time=${scan.time}  candidates=${scan.candidates}  entries=${scan.entries}`);
+  if (scan.gatePassDistribution) {
+    const g = scan.gatePassDistribution;
+    L.push(`   gate1Pass=${g.gate1Pass}  gate2Pass=${g.gate2Pass}  gate3Pass=${g.gate3Pass}  lastTriggerPass=${g.lastTriggerPass}`);
   }
+  return L;
+}
 
-  // ADR-0387/0388 — 조건별 status 분포 (passed/failed/unavailable/error 4 카운터).
-  if (input.conditionStatusRows && input.conditionStatusRows.length > 0) {
-    L.push('', '📐 조건별 status (ADR-0387/0388):');
-    for (const r of input.conditionStatusRows) {
-      const marker
-        = r.worstStatus === 'ERROR' ? ' ❌'
-        : r.worstStatus === 'UNAVAILABLE' ? ' ⚠️'
-        : r.worstStatus === 'FAILED' ? ' 🚧'
-        : '';
-      const totalSafe = r.total > 0 ? r.total : 1;
-      const ePct = ((r.error / totalSafe) * 100).toFixed(0);
-      const uPct = ((r.unavailable / totalSafe) * 100).toFixed(0);
-      L.push(
-        `   ${r.key}: passed=${r.passed} failed=${r.failed} unavailable=${r.unavailable}(${uPct}%) error=${r.error}(${ePct}%)${marker}`,
-      );
-    }
-    L.push('   ❌=evaluator 결함 / ⚠️=데이터 부재 / 🚧=임계 미달');
+/** worstStatus → marker 룩업 (조건별 status 섹션). */
+const CONDITION_STATUS_MARKER: Record<ConditionStatusRow['worstStatus'], string> = {
+  ERROR: ' ❌',
+  UNAVAILABLE: ' ⚠️',
+  FAILED: ' 🚧',
+  OK: '',
+};
+
+/** ADR-0387/0388 — 조건별 status 분포 섹션 (행 부재 시 빈 배열). */
+function buildGateAuditConditionStatusSection(rows: ConditionStatusRow[] | undefined): string[] {
+  if (!rows || rows.length === 0) return [];
+  const L: string[] = ['', '📐 조건별 status (ADR-0387/0388):'];
+  for (const r of rows) {
+    const marker = CONDITION_STATUS_MARKER[r.worstStatus];
+    const totalSafe = r.total > 0 ? r.total : 1;
+    const ePct = ((r.error / totalSafe) * 100).toFixed(0);
+    const uPct = ((r.unavailable / totalSafe) * 100).toFixed(0);
+    L.push(
+      `   ${r.key}: passed=${r.passed} failed=${r.failed} unavailable=${r.unavailable}(${uPct}%) error=${r.error}(${ePct}%)${marker}`,
+    );
   }
+  L.push('   ❌=evaluator 결함 / ⚠️=데이터 부재 / 🚧=임계 미달');
+  return L;
+}
+
+export interface FormatGateAuditInput {
+  windowDays: number;
+  buckets: RejectionBucket[];
+  daily: DailyGateRow[];
+  totalGhostsInWindow: number;
+  macro: MacroState | null;
+  scan: ScanSummary | null;
+  diagnostic: DiagnosticCase;
+  diagnosticHint: string;
+  emergencyStop: boolean;
+  autoTradePaused: boolean;
+  autoTradeEnabled: boolean;
+  autoTradeMode: string;
+  /** ADR-0391 P0-A §A-4 — 진단 보강 4 필드 (옵셔널, 후방호환). */
+  envMode?: string;
+  runtimeMode?: string;
+  killSwitchReason?: string | null;
+  modeConsistency?: 'CONSISTENT' | 'INTENDED_OVERRIDE' | 'UNINTENDED_DIVERGENCE';
+  /** ADR-0387/0388 — 조건별 status 분포 (옵셔널 — 데이터 부재 시 섹션 미노출). */
+  conditionStatusRows?: ConditionStatusRow[];
+}
+
+/** 메시지 빌더 SSOT — 6 섹션 (헤더/거시/Top 사유/일별/조건 status/진단). */
+export function formatGateAuditMessage(input: FormatGateAuditInput): string {
+  const L: string[] = [`📊 Gate Audit (last ${input.windowDays} days)`];
+  L.push(...buildGateAuditMacroSection(input));
+  L.push(...buildGateAuditBucketsSection(input));
+  L.push(...buildGateAuditDailySection(input.daily));
+  L.push(...buildGateAuditScanSection(input.scan));
+  L.push(...buildGateAuditConditionStatusSection(input.conditionStatusRows));
 
   L.push('', '🎯 진단:');
   L.push(`   ${input.diagnosticHint}`);
