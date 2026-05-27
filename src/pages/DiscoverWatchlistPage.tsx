@@ -16,6 +16,8 @@ import { WatchlistHeader } from '../components/watchlist/WatchlistHeader';
 import { WatchlistFilterPanel } from '../components/watchlist/WatchlistFilterPanel';
 import { CandidatePipelinePanel } from '../components/screener/CandidatePipelinePanel';
 import { WatchlistCard } from '../components/watchlist/WatchlistCard';
+import { OffHoursBanner } from '../components/common/OffHoursBanner';
+import { RecommendationWarningsBanner } from '../components/common/RecommendationWarningsBanner';
 import { GatePyramidVisualization } from '../components/analysis/GatePyramidVisualization';
 import { useWatchlistFilters } from '../hooks/useWatchlistFilters';
 import { useWatchlistData } from '../hooks/useWatchlistData';
@@ -286,6 +288,16 @@ export function DiscoverWatchlistPage({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 데이터 추정 안내 · 장외 배너 — DISCOVER 두 탭(overview·search) 공통 노출.
+          이전엔 WatchlistHeader(overview 전용) 안에만 있어 search 탭에서 사유가
+          안 보이던 "버튼만 누르고 결과 없음" 가시성 갭 해소 (UI_WIRING_MATRIX §6 P1). */}
+      {view === 'DISCOVER' && (
+        <>
+          <OffHoursBanner />
+          <RecommendationWarningsBanner />
+        </>
+      )}
 
       {/* DISCOVER 섹션 내부 탭 — 후보 판정 대시보드 vs 종목 검색 */}
       {view === 'DISCOVER' && (
