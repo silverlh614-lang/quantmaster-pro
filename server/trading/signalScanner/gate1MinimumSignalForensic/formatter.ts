@@ -304,9 +304,14 @@ function appendGate1HydrationTraceLines(lines: string[], summary: Gate1MinimumSi
     lines.push(`- conditionResultsBreakPoint: CONDITION_RESULTS_PROJECTED_FULL=${fullComputedTrace}, CONDITION_RESULTS_SKELETON_ONLY=${skeletonOnlyTrace}, CONDITION_RESULTS_MISSING=${missingTraceContainer}`);
   }
   if (skeletonOnlyTrace > 0) {
-    const quoteMissing = summary.quoteHydrationBreakPointDistribution?.QUOTE_FETCHED_NOT_COPIED ?? 0;
-    const technicalMissing = summary.technicalProjectionBreakPointDistribution?.TECHNICAL_STATUS_COMPUTED_FIELD_MISSING ?? 0;
-    lines.push(`- skeletonOnlyReasonTop: QUOTE_RETURN_FIELD_MISSING=${quoteMissing}, TECHNICAL_FIELD_NOT_COMPUTED=${technicalMissing}`);
+    const breakdown = resolveSkeletonOnlyReasonBreakdown(
+      skeletonOnlyTrace,
+      summary.quoteHydrationBreakPointDistribution?.QUOTE_FETCHED_NOT_COPIED ?? 0,
+      summary.technicalProjectionBreakPointDistribution?.TECHNICAL_STATUS_COMPUTED_FIELD_MISSING ?? 0,
+    );
+    lines.push(`- skeletonOnlyReasonTop: ${breakdown.entries.map(([reason, value]) => `${reason}=${value}`).join(', ')}`);
+    lines.push(`- skeletonReasonCountSum: ${breakdown.countSum}`);
+    lines.push(`- skeletonReasonInvariant: ${breakdown.invariant}`);
   }
   lines.push(`- nextAction: ${resolveGate1ForensicNextAction(summary)}`);
 }
@@ -331,6 +336,29 @@ const GATE1_SEMANTIC_REASON_ACTIONS: Record<string, string> = {
   ONLY_MARKET_LEVEL_FLOW: 'REJECT_MARKET_LEVEL_FLOW_FOR_SYMBOL_SCORE',
   ONLY_SECTOR_LEVEL_FLOW: 'REJECT_MARKET_LEVEL_FLOW_FOR_SYMBOL_SCORE',
 };
+
+/**
+ * Attributes every skeleton-only trace to a reason: known reasons (quote/technical) first, capped,
+ * then the unexplained remainder to TRACE_CONTAINER_CREATED_BUT_FULL_TECHNICAL_TRACE_NOT_COMPUTED.
+ * Guarantees countSum === skeletonOnlyTrace (no skeleton trace left invisible as a 0/0 reason).
+ */
+export function resolveSkeletonOnlyReasonBreakdown(
+  skeletonOnlyTrace: number,
+  quoteFieldMissing: number,
+  technicalFieldMissing: number,
+): { entries: Array<[string, number]>; countSum: number; invariant: boolean } {
+  const total = Math.max(0, skeletonOnlyTrace);
+  const quote = Math.min(Math.max(0, quoteFieldMissing), total);
+  const technical = Math.min(Math.max(0, technicalFieldMissing), total - quote);
+  const containerCreatedNotComputed = total - quote - technical;
+  const entries = ([
+    ['QUOTE_RETURN_FIELD_MISSING', quote],
+    ['TECHNICAL_FIELD_NOT_COMPUTED', technical],
+    ['TRACE_CONTAINER_CREATED_BUT_FULL_TECHNICAL_TRACE_NOT_COMPUTED', containerCreatedNotComputed],
+  ] as Array<[string, number]>).filter((entry) => entry[1] > 0);
+  const countSum = entries.reduce((sum, [, value]) => sum + value, 0);
+  return { entries, countSum, invariant: countSum === total };
+}
 
 export function resolveGate1ForensicNextAction(summary: Gate1MinimumSignalForensicSummaryAdr0505): string {
   const topSemanticReason = pickTopDistributionKey(summary.semanticReasonDistribution ?? {});
