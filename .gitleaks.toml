@@ -49,6 +49,10 @@ regexes = [
   # 타입명 식별자. generic-api-key 룰이 `key:` 뒤 17자 토큰(엔트로피 3.69)을
   # 비밀로 오탐. 실제 비밀이 아닌 타입 어노테이션이므로 좁게 화이트리스트.
   '''Gate3ThresholdKey''',
+  # `key: Gate3ForwardHorizon` (server/learning/unifiedForwardOutcomeLabeler.ts) —
+  # 위와 동일 클래스의 TypeScript 타입명 오탐. generic-api-key 룰이 `key:` 뒤
+  # 타입 식별자(엔트로피 3.64)를 비밀로 오인. 실제 비밀이 아니므로 좁게 화이트리스트.
+  '''Gate3ForwardHorizon''',
 ]
 
 # ADR-461 livePathSafetyAudit.ts 의 과거 false positive.
