@@ -20,6 +20,7 @@ import './fssBackfill.cmd.js';
 import './fssDetail.cmd.js';
 import './fssMapping.cmd.js';
 import './fssStatus.cmd.js';
+import './gate1ThresholdEvidence.cmd.js';
 import './gateAudit.cmd.js';
 import './gateUx.cmd.js';
 import './gate2ExternalRefresh.cmd.js';
