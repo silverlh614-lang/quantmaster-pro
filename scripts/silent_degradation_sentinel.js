@@ -161,6 +161,10 @@ function scanSwallowedErrors(files) {
       //   - HTTP 응답으로 클라이언트에 통보: res.status / res.json / res.send
       //   - 진단 누적: issues.push / warnings.push / errors.push (호출자가 반환받음)
       //   - 텔레그램 봇 응답: await reply(
+      //   - 도메인 경고 emitter 패밀리(ADR-531 taxonomy 경유 emit): emit*Warn / clientWarn /
+      //     warnXxx / logXxx — 모두 emitOperationalWarn·emitReportSectionWarn·logVisibilityEvent
+      //     등 logger/console 종착 wrapper. catch 가 이름에 warn/log 의도를 명시한 함수를
+      //     호출하면 silent 가 아니다 (false-positive 제거, 런타임 무관 — 체커 인식 확장).
       const mentionsLogging = new RegExp([
         'console\\.(log|warn|error|info|debug)',
         'logger\\.',           'log\\.',
@@ -173,6 +177,10 @@ function scanSwallowedErrors(files) {
         '\\bres\\.(status|json|send)\\(',
         '\\b(issues|warnings|errors)\\.push\\(',
         '\\breply\\(',
+        'emit\\w*Warn\\(',                                // emitOperationalWarn/emitScanBlockersSectionWarn 등 taxonomy 경고 emitter
+        '\\bclientWarn\\(',                               // clientWarnBridge — 서버/클라 경고 브리지
+        '\\bwarn[A-Z]\\w*\\(',                            // warnScanBlockersDiagnostic 등 warn 접두 emitter
+        '\\blog[A-Z]\\w*\\(',                             // logProviderResult/logVisibilityEvent 등 log 접두 emitter
       ].join('|')).test(body);
       // break도 catch 탈출(루프 종료) 의미 — 상위 코드에서 lastErr를 throw하는 패턴 인정.
       const rethrows = /\b(throw|return|reject\(|break\b)/.test(body);

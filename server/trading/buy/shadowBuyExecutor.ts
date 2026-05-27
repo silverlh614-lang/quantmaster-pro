@@ -587,6 +587,7 @@ export async function executeShadowBuyOrder(
       fill: paperFill,
     });
   } catch (error) {
+    /* SDS-ignore: failPipeline 로 TELEGRAM_SEND_FAILED 사유를 기록하고 telegramStatus=SUPPRESSED 로 표면화한다 (silent 아님). */
     telegramStatus = 'SUPPRESSED';
     failPipeline({
       intent: orderIntent,
