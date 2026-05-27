@@ -1,3 +1,7 @@
+/**
+ * @responsibility 미체결 주문에 대해 시장 세션·리스크 모드 기반 대기·취소·재발주 액션을 결정한다.
+ */
+
 import type { FillSide } from './fillTypes.js';
 
 export type MarketSessionState =

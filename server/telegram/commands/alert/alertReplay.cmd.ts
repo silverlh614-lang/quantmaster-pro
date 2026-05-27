@@ -1,3 +1,7 @@
+/**
+ * @responsibility /alert_replay 명령 — 알림 ID로 원장을 조회해 PRIVATE DM 으로 재발송한다.
+ */
+
 import { findAlertHistoryById } from '../../../persistence/alertHistoryRepo.js';
 import { sendPrivateAlert, escapeHtml } from '../../../alerts/telegramClient.js';
 import { queryNotificationLedger } from '../../../persistence/notificationLedgerRepo.js';

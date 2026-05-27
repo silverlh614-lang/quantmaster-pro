@@ -1,3 +1,7 @@
+/**
+ * @responsibility last_trigger 조건 평가기 — Gate3 최종 진입 타이밍 트리거를 가중치 점수로 환산한다.
+ */
+
 import type { ConditionEvaluator } from './types.js';
 import { evaluateGate3LastTrigger } from '../gate3LastTrigger.js';
 

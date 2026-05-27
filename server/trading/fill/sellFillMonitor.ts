@@ -1,3 +1,7 @@
+/**
+ * @responsibility 매도 체결 조회 결과로부터 체결·재발주·이연·거부 모니터 액션을 결정한다.
+ */
+
 import type { FillQueryResult, NormalizedSellFillState } from './fillTypes.js';
 import { emitOperationalWarn } from './fillOperationalWarn.js';
 import {

@@ -1,3 +1,7 @@
+/**
+ * @responsibility 섀도우 청산 알림 중복 제거기 — 청산 이벤트 ID 기반으로 반복 알림 발송을 억제한다.
+ */
+
 export type ShadowExitStage =
   | 'STOP_APPROACH'
   | 'STOP_CONFIRM_REQUIRED'

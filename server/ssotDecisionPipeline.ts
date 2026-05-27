@@ -1,3 +1,7 @@
+/**
+ * @responsibility SSOT 결정 파이프라인 — 단일 스냅샷에서 게이트·정책·실행·학습 결정을 순차 도출한다.
+ */
+
 import type { CandidateSnapshot, FeatureSnapshot, MarketSession, UnifiedMarketSnapshot } from './ssotSnapshot.js';
 import {
   resolveExecutionPermission,

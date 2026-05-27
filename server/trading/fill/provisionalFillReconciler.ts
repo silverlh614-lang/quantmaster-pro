@@ -1,3 +1,7 @@
+/**
+ * @responsibility 잠정 체결을 조회 결과와 대조해 확정·롤백 상태로 정합화하는 정산기를 제공한다.
+ */
+
 import type { PositionFill, ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
 import { emitOperationalWarn } from './fillOperationalWarn.js';
 import type { FillQueryResult } from './fillTypes.js';

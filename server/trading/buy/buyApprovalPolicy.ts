@@ -1,3 +1,7 @@
+/**
+ * @responsibility 승인 액션·전달 상태로부터 매수 실행 허용 여부 정책 결정을 산출한다.
+ */
+
 import type {
   ApprovalAction,
   ApprovalDecision,

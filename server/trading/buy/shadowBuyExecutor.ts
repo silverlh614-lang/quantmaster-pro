@@ -1,3 +1,7 @@
+/**
+ * @responsibility 승인된 매수 신호를 가상 체결로 집행해 섀도우 포지션을 생성하는 실행기를 제공한다.
+ */
+
 import type { ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
 import {
   appendShadowLog,

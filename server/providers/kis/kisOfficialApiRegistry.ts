@@ -1,3 +1,7 @@
+/**
+ * @responsibility KIS 공식 API 레지스트리 — 엔드포인트별 경로·TR ID·사용 허용 범위 스펙을 선언한다.
+ */
+
 export type KisOfficialDomain = 'QUOTE' | 'OHLCV' | 'SUPPLY' | 'PROGRAM_TRADE' | 'BALANCE' | 'ORDER';
 export type KisOutputShape = 'output' | 'output1_output2';
 

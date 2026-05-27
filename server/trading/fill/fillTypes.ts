@@ -1,3 +1,7 @@
+/**
+ * @responsibility 체결 조회·정규화 모듈이 공유하는 체결 결과·주문 타입 계약을 선언한다.
+ */
+
 export type FillQueryResult =
   | { kind: 'FILLED'; filledQty: number; avgPrice: number; raw?: unknown }
   | { kind: 'PARTIALLY_FILLED'; filledQty: number; remainingQty: number; avgPrice?: number; raw?: unknown }

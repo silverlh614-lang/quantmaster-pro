@@ -1,3 +1,7 @@
+/**
+ * @responsibility /alert_inbox 명령 — 오늘자 알림 원장 통계·상위 이벤트 요약을 텔레그램으로 회신한다.
+ */
+
 import { getNotificationStats, queryNotificationLedger } from '../../../persistence/notificationLedgerRepo.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';

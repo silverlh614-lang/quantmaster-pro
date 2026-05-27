@@ -1,3 +1,7 @@
+/**
+ * @responsibility KIS 공식 섹터 지수 마스터 원시 행을 정규화된 마스터 행으로 변환한다.
+ */
+
 import { normalizeSectorName, resolveSectorAlias, type SectorIndexMasterRow } from './SectorIndexCodeMap';
 
 export const KIS_OFFICIAL_SECTOR_INDEX_MASTER_URL =

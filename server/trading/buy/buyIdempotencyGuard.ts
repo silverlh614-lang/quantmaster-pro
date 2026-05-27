@@ -1,3 +1,7 @@
+/**
+ * @responsibility 매수 식별자 기반 dedup 키로 중복 매수 예약을 차단하는 멱등성 가드를 제공한다.
+ */
+
 import type { BuyApprovalMode } from './buyApprovalPolicy.js';
 
 export type BuySide = 'BUY' | 'SELL';

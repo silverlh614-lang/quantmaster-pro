@@ -1,3 +1,7 @@
+/**
+ * @responsibility 매수 신호 처리 결과를 거래 신호 상태 원장에 기록하는 상태 라이터를 제공한다.
+ */
+
 import {
   markAutoTradeReady as markAutoTradeReadyRepo,
   markBlocked as markBlockedRepo,

@@ -1,3 +1,7 @@
+/**
+ * @responsibility 알림 원장 저장소 — 알림 전달 상태 기록을 JSONL 로 적재·조회하며 비밀값을 마스킹한다.
+ */
+
 import fs from 'fs/promises';
 import path from 'path';
 import { DATA_DIR } from './paths.js';
