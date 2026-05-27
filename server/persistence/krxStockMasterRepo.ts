@@ -541,6 +541,13 @@ function parseCsvLine(line: string): string[] {
 }
 
 /** 외부 노출 — KRX CSV 파서 (테스트 가능하도록 분리). HTML 응답 감지 시 빈 배열. */
+function classifyKrxMarket(marketRaw: string): StockMasterEntry['market'] {
+  if (marketRaw === 'KOSPI') return 'KOSPI';
+  if (marketRaw === 'KOSDAQ') return 'KOSDAQ';
+  if (marketRaw === 'KONEX') return 'KONEX';
+  return 'OTHER';
+}
+
 export function parseKrxMasterCsv(csv: string): StockMasterEntry[] {
   if (isLikelyHtmlResponse(csv)) {
     emitMaintenanceWarn({ domain: 'DATA', code: 'P3_KRX_MASTER_REPO_DEGRADED', source: 'KRX_MASTER_REPO', message: 'KRX stock master CSV parser detected HTML response.', dedupKey: 'p3:krx-master:html-response', details: { detailsSuppressed: true } });
@@ -560,11 +567,7 @@ export function parseKrxMasterCsv(csv: string): StockMasterEntry[] {
     const name = cols[2];
     const marketRaw = cols[6];
     if (!/^\d{6}$/.test(code) || !name) continue;
-    const market: StockMasterEntry['market'] =
-      marketRaw === 'KOSPI' ? 'KOSPI'
-      : marketRaw === 'KOSDAQ' ? 'KOSDAQ'
-      : marketRaw === 'KONEX' ? 'KONEX'
-      : 'OTHER';
+    const market: StockMasterEntry['market'] = classifyKrxMarket(marketRaw);
     // ADR-0455: 옵셔널 enrichment 필드 — CSV 컬럼 길이 가드 + 빈 값 skip (정합 보존).
     const entry: StockMasterEntry = { code, name, market };
     if (cols[7]) entry.securityType = cols[7];

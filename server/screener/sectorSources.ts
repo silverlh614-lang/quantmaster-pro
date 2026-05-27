@@ -90,50 +90,58 @@ const NAVER_MAX_INDUSTRIES    = Number(process.env.SECTOR_FALLBACK_NAVER_MAX ?? 
  * 특정성(specificity) 우선 — "반도체장비" 가 "반도체" 보다 먼저 매칭되도록 순서 유지.
  * 매칭 실패 시 null 반환 — 결과 맵에서 제외되어 '미분류'로 낙하.
  */
+// 네이버 업종명 → 표준 한글 섹터명 매핑 규칙 (순서 의존 — specific-first, 첫 매칭 우선).
+// 각 규칙은 [부분문자열 후보들, 결과]. 기존 if-체인과 동작 동일 (동일 순서·substring·결과).
+const NAVER_INDUSTRY_RULES: ReadonlyArray<readonly [readonly string[], string]> = [
+  [['반도체장비'], '반도체장비'],
+  [['반도체소재'], '반도체소재'],
+  [['반도체'], '반도체'],
+  [['2차전지', '이차전지'], '2차전지'],
+  [['자동차부품'], '자동차부품'],
+  [['자동차'], '자동차'],
+  [['조선기자재'], '조선기자재'],
+  [['조선'], '조선'],
+  [['방위', '방산'], '방산'],
+  [['원자력'], '원자력'],
+  [['제약'], '제약'],
+  [['생명공학', '바이오'], '바이오'],
+  [['건강관리', '헬스케어'], '헬스케어'],
+  [['전력기기', '전기장비'], '전력기기'],
+  [['유틸리티', '전기가스'], '유틸리티'],
+  [['신재생', '태양광', '풍력'], '신재생에너지'],
+  [['석유', '가스', '에너지'], '에너지'],
+  [['화장품'], '화장품'],
+  [['화학'], '화학'],
+  [['철강'], '철강'],
+  [['비철금속', '광업'], '금속'],
+  [['건설'], '건설'],
+  [['기계'], '기계'],
+  [['로봇'], '로봇'],
+  [['가전'], '가전'],
+  [['전자부품'], '전자부품'],
+  [['통신장비'], '전자부품'],
+  [['통신'], '통신'],
+  [['소프트웨어', '인터넷', 'IT서비스'], 'IT서비스'],
+  [['은행', '증권', '금융'], '금융'],
+  [['보험'], '보험'],
+  [['식료', '음식료', '식품'], '식품'],
+  [['의류', '섬유'], '의류'],
+  [['생활용품', '가정용품'], '생활용품'],
+  [['백화점', '유통', '소매'], '유통'],
+  [['엔터', '미디어'], '엔터테인먼트'],
+  [['해상운송', '해운'], '해운'],
+  [['항공'], '항공'],
+  [['운송', '물류'], '운송'],
+  [['의료미용'], '의료미용'],
+  [['소재'], '소재'],
+];
+
 export function mapNaverIndustryToKorean(rawIndustry: string): string | null {
   const s = rawIndustry.replace(/\s+/g, '');
   if (!s) return null;
-  if (s.includes('반도체장비'))                        return '반도체장비';
-  if (s.includes('반도체소재'))                        return '반도체소재';
-  if (s.includes('반도체'))                            return '반도체';
-  if (s.includes('2차전지') || s.includes('이차전지')) return '2차전지';
-  if (s.includes('자동차부품'))                        return '자동차부품';
-  if (s.includes('자동차'))                            return '자동차';
-  if (s.includes('조선기자재'))                        return '조선기자재';
-  if (s.includes('조선'))                              return '조선';
-  if (s.includes('방위') || s.includes('방산'))        return '방산';
-  if (s.includes('원자력'))                            return '원자력';
-  if (s.includes('제약'))                              return '제약';
-  if (s.includes('생명공학') || s.includes('바이오'))  return '바이오';
-  if (s.includes('건강관리') || s.includes('헬스케어'))return '헬스케어';
-  if (s.includes('전력기기') || s.includes('전기장비'))return '전력기기';
-  if (s.includes('유틸리티') || s.includes('전기가스'))return '유틸리티';
-  if (s.includes('신재생') || s.includes('태양광') || s.includes('풍력')) return '신재생에너지';
-  if (s.includes('석유') || s.includes('가스') || s.includes('에너지'))   return '에너지';
-  if (s.includes('화장품'))                            return '화장품';
-  if (s.includes('화학'))                              return '화학';
-  if (s.includes('철강'))                              return '철강';
-  if (s.includes('비철금속') || s.includes('광업'))    return '금속';
-  if (s.includes('건설'))                              return '건설';
-  if (s.includes('기계'))                              return '기계';
-  if (s.includes('로봇'))                              return '로봇';
-  if (s.includes('가전'))                              return '가전';
-  if (s.includes('전자부품'))                          return '전자부품';
-  if (s.includes('통신장비'))                          return '전자부품';
-  if (s.includes('통신'))                              return '통신';
-  if (s.includes('소프트웨어') || s.includes('인터넷') || s.includes('IT서비스')) return 'IT서비스';
-  if (s.includes('은행') || s.includes('증권') || s.includes('금융')) return '금융';
-  if (s.includes('보험'))                              return '보험';
-  if (s.includes('식료') || s.includes('음식료') || s.includes('식품')) return '식품';
-  if (s.includes('의류') || s.includes('섬유'))        return '의류';
-  if (s.includes('생활용품') || s.includes('가정용품'))return '생활용품';
-  if (s.includes('백화점') || s.includes('유통') || s.includes('소매')) return '유통';
-  if (s.includes('엔터') || s.includes('미디어'))      return '엔터테인먼트';
-  if (s.includes('해상운송') || s.includes('해운'))    return '해운';
-  if (s.includes('항공'))                              return '항공';
-  if (s.includes('운송') || s.includes('물류'))        return '운송';
-  if (s.includes('의료미용'))                          return '의료미용';
-  if (s.includes('소재'))                              return '소재';
+  for (const [needles, result] of NAVER_INDUSTRY_RULES) {
+    if (needles.some((needle) => s.includes(needle))) return result;
+  }
   return null;
 }
 
