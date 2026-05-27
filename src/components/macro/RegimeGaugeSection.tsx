@@ -14,6 +14,26 @@ interface Props {
 
 const REGIMES: EconomicRegime[] = ['RECOVERY', 'EXPANSION', 'SLOWDOWN', 'RECESSION', 'UNCERTAIN', 'CRISIS', 'RANGE_BOUND'];
 
+function keyIndicatorLabel(k: string): string {
+  return k === 'exportGrowth' ? '수출증가율' : k === 'bokRateDirection' ? '기준금리' : k === 'oeciCli' ? 'OECD CLI' : 'GDP 성장률';
+}
+
+function fxRegimeLabel(fx: Gate0Result['fxRegime']): string {
+  return fx === 'DOLLAR_STRONG' ? '💵 달러 강세' : fx === 'DOLLAR_WEAK' ? '🌏 달러 약세' : '〰 중립 구간';
+}
+
+function fxRegimeImpact(fx: Gate0Result['fxRegime']): string {
+  return fx === 'DOLLAR_STRONG' ? '수출주 +3pt / 내수주 -3pt' : fx === 'DOLLAR_WEAK' ? '내수주 +3pt / 수출주 -3pt' : 'FX 조정 없음';
+}
+
+function rateCycleLabel(rc: Gate0Result['rateCycle']): string {
+  return rc === 'TIGHTENING' ? '🔺 긴축기' : rc === 'EASING' ? '🔻 완화기' : '⏸ 동결기';
+}
+
+function rateCycleImpact(rc: Gate0Result['rateCycle']): string {
+  return rc === 'TIGHTENING' ? 'ICR 기준 강화 · 레버리지 페널티' : rc === 'EASING' ? '성장주 가중치 +20%' : '기본 모드 유지';
+}
+
 export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
   const setEconomicRegimeData = useGlobalIntelStore(s => s.setEconomicRegimeData);
 
@@ -111,7 +131,7 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
                 {Object.entries(economicRegime.keyIndicators).map(([k, v]) => (
                   <div key={k} className="p-3 bg-theme-bg border border-theme-border">
                     <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">
-                      {k === 'exportGrowth' ? '수출증가율' : k === 'bokRateDirection' ? '기준금리' : k === 'oeciCli' ? 'OECD CLI' : 'GDP 성장률'}
+                      {keyIndicatorLabel(k)}
                     </p>
                     <p className="text-sm font-black font-mono mt-1">{v}</p>
                   </div>
@@ -158,35 +178,19 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
                 <div className="p-4 border border-theme-border">
                   <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-2">환율 레짐</p>
                   <p className="text-lg font-black">
-                    {gate0Result.fxRegime === 'DOLLAR_STRONG'
-                      ? '💵 달러 강세'
-                      : gate0Result.fxRegime === 'DOLLAR_WEAK'
-                        ? '🌏 달러 약세'
-                        : '〰 중립 구간'}
+                    {fxRegimeLabel(gate0Result.fxRegime)}
                   </p>
                   <p className="text-[10px] text-theme-text-muted mt-1">
-                    {gate0Result.fxRegime === 'DOLLAR_STRONG'
-                      ? '수출주 +3pt / 내수주 -3pt'
-                      : gate0Result.fxRegime === 'DOLLAR_WEAK'
-                        ? '내수주 +3pt / 수출주 -3pt'
-                        : 'FX 조정 없음'}
+                    {fxRegimeImpact(gate0Result.fxRegime)}
                   </p>
                 </div>
                 <div className="p-4 border border-theme-border">
                   <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-2">금리 사이클</p>
                   <p className="text-lg font-black">
-                    {gate0Result.rateCycle === 'TIGHTENING'
-                      ? '🔺 긴축기'
-                      : gate0Result.rateCycle === 'EASING'
-                        ? '🔻 완화기'
-                        : '⏸ 동결기'}
+                    {rateCycleLabel(gate0Result.rateCycle)}
                   </p>
                   <p className="text-[10px] text-theme-text-muted mt-1">
-                    {gate0Result.rateCycle === 'TIGHTENING'
-                      ? 'ICR 기준 강화 · 레버리지 페널티'
-                      : gate0Result.rateCycle === 'EASING'
-                        ? '성장주 가중치 +20%'
-                        : '기본 모드 유지'}
+                    {rateCycleImpact(gate0Result.rateCycle)}
                   </p>
                 </div>
               </div>
