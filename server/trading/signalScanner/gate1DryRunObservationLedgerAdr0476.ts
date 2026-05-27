@@ -140,6 +140,20 @@ export interface Gate1DryRunObservationSummary {
   nextAction: 'TRACK_1D_3D_5D_FORWARD_RETURNS';
 }
 
+export interface Gate1ThresholdEvidenceSummary {
+  sampleWindow: '1D/3D/5D';
+  totalSamples: number;
+  matureSamplesD1: number;
+  matureSamplesD3: number;
+  matureSamplesD5: number;
+  bestDryRunThreshold: 70 | 65 | 60;
+  recommendedAction: 'OBSERVE_MORE' | 'KEEP_THRESHOLD_70' | 'DRY_RUN_THRESHOLD_65_R3_ONLY' | 'REJECT_THRESHOLD_RELAXATION';
+  confidence: 'INSUFFICIENT_SAMPLE' | 'LOW' | 'MEDIUM' | 'HIGH';
+  liveExecutionImpact: 'NONE';
+  thresholdAutoChanged: false;
+  operatorApprovalRequired: true;
+}
+
 export interface Gate1DryRunObservationBuildInput {
   now?: Date;
   forDate: string;
@@ -804,4 +818,50 @@ export function formatGate1DryRunObservationSummary(
     `  executionImpact: ${summary.executionImpact}`,
     `  nextAction: ${summary.nextAction}`,
   ].join('\n');
+}
+
+export function buildGate1ThresholdEvidenceSummary(
+  rows: readonly Gate1DryRunObservationRow[],
+): Gate1ThresholdEvidenceSummary {
+  const matureD1 = rows.filter((row) => finite(row.forwardReturn1D)).length;
+  const matureD3 = rows.filter((row) => finite(row.forwardReturn3D)).length;
+  const matureD5 = rows.filter((row) => finite(row.forwardReturn5D)).length;
+  const sample = rows.filter((row) => finite(row.dryRunScore) && finite(row.forwardReturn5D));
+  const band = (min: number, max?: number) => sample.filter((row) => {
+    const s = row.dryRunScore as number;
+    return s >= min && (max === undefined || s < max);
+  });
+  const avg = (items: Gate1DryRunObservationRow[]) => items.length > 0
+    ? items.reduce((sum, row) => sum + (row.forwardReturn5D as number), 0) / items.length
+    : Number.NEGATIVE_INFINITY;
+  const b70 = band(70);
+  const b65 = band(65, 70);
+  const b60 = band(60, 65);
+  const winRate65 = b65.length > 0 ? b65.filter((row) => (row.forwardReturn5D as number) > 0).length / b65.length : 0;
+  const hitMinus5_70 = b70.length > 0 ? b70.filter((row) => (row.forwardReturn5D as number) <= -5).length / b70.length : 0;
+  const hitMinus5_65 = b65.length > 0 ? b65.filter((row) => (row.forwardReturn5D as number) <= -5).length / b65.length : 0;
+  const can65 = b65.length >= 10 && avg(b65) >= avg(b70) && winRate65 >= 0.55 && hitMinus5_65 <= hitMinus5_70 + 0.05;
+  const reject60 = b60.length > 0 && avg(b60) < 0;
+  const totalSamples = sample.length;
+  const confidence = totalSamples < 100 ? 'INSUFFICIENT_SAMPLE' : totalSamples < 200 ? 'LOW' : totalSamples < 400 ? 'MEDIUM' : 'HIGH';
+  const recommendedAction = totalSamples < 100
+    ? 'OBSERVE_MORE'
+    : reject60
+      ? 'KEEP_THRESHOLD_70'
+      : can65
+        ? 'DRY_RUN_THRESHOLD_65_R3_ONLY'
+        : 'REJECT_THRESHOLD_RELAXATION';
+  return {
+    sampleWindow: '1D/3D/5D',
+    totalSamples,
+    matureSamplesD1: matureD1,
+    matureSamplesD3: matureD3,
+    matureSamplesD5: matureD5,
+    bestDryRunThreshold: recommendedAction === 'DRY_RUN_THRESHOLD_65_R3_ONLY' ? 65 : 70,
+    recommendedAction,
+    confidence,
+    liveExecutionImpact: 'NONE',
+    thresholdAutoChanged: false,
+    operatorApprovalRequired: true,
+  };
 }

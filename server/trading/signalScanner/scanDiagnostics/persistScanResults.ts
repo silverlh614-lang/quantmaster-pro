@@ -45,6 +45,7 @@ import {
   buildGate1ScoringAlignmentDryRunGate,
   buildGate1PositiveSourceWiringReport,
   buildGate1DryRunObservationRows,
+  buildGate1ThresholdEvidenceSummary,
   saveGate1DryRunObservationRows,
   summarizeGate1DryRunObservationRows,
   buildInvestorFlowProviderRouteResultAdr0477,
@@ -1516,6 +1517,7 @@ export async function persistScanResults(
     });
     await saveGate1DryRunObservationRows(rows);
     summaryDraft.gate1DryRunObservationLedger = summarizeGate1DryRunObservationRows(rows, rows.length);
+    summaryDraft.gate1ThresholdEvidence = buildGate1ThresholdEvidenceSummary(rows);
     logAdrDiagnostic(
       `[ADR-0476] Gate1DryRunObservation rows emitted`,
       {
