@@ -1,3 +1,7 @@
+/**
+ * @responsibility KIS 응답 필드 매핑 상수 — 도메인별 내부 속성명을 KIS 원시 필드명에 대응시킨다.
+ */
+
 export const KIS_FIELD_MAP = {
   quote: {
     currentPrice: 'stck_prpr',

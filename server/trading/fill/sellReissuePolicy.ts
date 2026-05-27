@@ -1,3 +1,7 @@
+/**
+ * @responsibility 미체결 매도 재발주 허용 여부를 dedup 키 기반 멱등성으로 결정하는 정책을 제공한다.
+ */
+
 import { emitOperationalWarn } from './fillOperationalWarn.js';
 
 export type SellReissueMode = 'LIVE' | 'PAPER' | 'SHADOW';

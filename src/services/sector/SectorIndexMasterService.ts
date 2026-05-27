@@ -1,3 +1,7 @@
+/**
+ * @responsibility 커버리지·섹터 상태로부터 Gate2 리더십 차단 사유 귀속 결과를 산출한다.
+ */
+
 import type { SectorIndexCoverageDiag } from './SectorEnergyDiagnostics';
 
 export type Gate2LeadershipBlocker =

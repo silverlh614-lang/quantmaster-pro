@@ -1,3 +1,7 @@
+/**
+ * @responsibility 섹터명-공식 지수코드 매핑 테이블, 안전·비안전 별칭 해소 규칙을 제공한다.
+ */
+
 import type { SectorEnergySourceTier } from '../../services/sector/SectorEnergyDiagnostics';
 
 export interface SectorIndexMasterRow {

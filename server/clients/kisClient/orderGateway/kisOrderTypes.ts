@@ -1,3 +1,7 @@
+/**
+ * @responsibility KIS 주문 게이트웨이 타입 정의 — 주문 의도·결과·메타데이터 계약을 선언한다.
+ */
+
 export type OrderGatewayExecutionImpact = 'LIVE_ORDER_BLOCKED';
 
 export interface OrderGatewayMetadata {

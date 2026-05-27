@@ -1,3 +1,7 @@
+/**
+ * @responsibility 섀도우 체결 안전성을 호가·슬롯·수량 검증으로 보장하는 안전 가드를 제공한다.
+ */
+
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { getRealtimeQuote } from '../clients/kisStreamClient.js';
 import {

@@ -1,3 +1,7 @@
+/**
+ * @responsibility 체결 단계 운영 경고를 실행영향 등급으로 분류해 발행하는 어댑터를 제공한다.
+ */
+
 import { emitLegacyOperationalWarn } from '../../observability/legacyOperationalWarnAdapter.js';
 import type { ExecutionImpact } from '../../observability/executionImpact.js';
 

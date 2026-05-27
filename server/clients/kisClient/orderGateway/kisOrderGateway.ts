@@ -1,3 +1,7 @@
+/**
+ * @responsibility KIS 주문 게이트웨이 — 매수·매도·OCO·취소 주문 전송을 단일 통로로 집행한다.
+ */
+
 import { kisGet, kisPost } from '../http.js';
 import { KIS_IS_REAL } from '../constants.js';
 import { buildKisBuyOrderRequest } from './kisBuyOrderAdapter.js';

@@ -1,3 +1,7 @@
+/**
+ * @responsibility KIS 수급 API 배선 감사기 — 각 엔드포인트의 런타임 역할·파이프라인 단계·리스크를 점검한다.
+ */
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { findKisOfficialEndpointByPath } from '../clients/kisClient/kisOfficialEndpointRegistry';

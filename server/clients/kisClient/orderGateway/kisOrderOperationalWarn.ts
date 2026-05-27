@@ -1,3 +1,7 @@
+/**
+ * @responsibility KIS 주문 운영 경고 발행기 — 주문 차단·거부 이벤트를 실행영향 등급으로 경보화한다.
+ */
+
 import { emitLegacyOperationalWarn } from '../../../observability/legacyOperationalWarnAdapter.js';
 import type { ExecutionImpact } from '../../../observability/executionImpact.js';
 

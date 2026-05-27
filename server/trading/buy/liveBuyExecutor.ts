@@ -1,3 +1,7 @@
+/**
+ * @responsibility 승인된 매수 신호를 KIS 실주문으로 집행하며 체결 모니터에 등록하는 실행기를 제공한다.
+ */
+
 import type { ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
 import type { ApprovalAction } from '../../telegram/buyApproval.js';
 import { fetchAccountBalance, submitBuyOrder } from '../../clients/kisClient.js';
