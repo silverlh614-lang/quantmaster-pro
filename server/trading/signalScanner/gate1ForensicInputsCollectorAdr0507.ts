@@ -491,7 +491,13 @@ function mergeActualRowCarryAdr0507(
 
 function getConditionResults(input: CandidateEntryTrace): Record<string, unknown> | undefined {
   if (input.conditionResults && typeof input.conditionResults === 'object') return input.conditionResults;
-  return conditionResultsTraceToMap(input.conditionResultsTrace);
+  const projected = conditionResultsTraceToMap(input.conditionResultsTrace);
+  if (projected && Object.keys(projected).length > 0) return projected;
+  return {
+    price_momentum: { status: 'UNAVAILABLE', reason: 'DIAGNOSTIC_SKELETON_MISSING_UPSTREAM_FIELDS' },
+    relative_strength: { status: 'UNAVAILABLE', reason: 'DIAGNOSTIC_SKELETON_MISSING_UPSTREAM_FIELDS' },
+    ma_alignment: { status: 'UNAVAILABLE', reason: 'DIAGNOSTIC_SKELETON_MISSING_UPSTREAM_FIELDS' },
+  };
 }
 
 function hasObjectField(input: unknown, field: string): boolean {
