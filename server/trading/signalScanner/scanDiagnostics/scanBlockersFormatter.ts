@@ -988,6 +988,18 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(`  • Yahoo 실패: ${summary.yahooFails}개`);
     lines.push(`  • RRR 미달: ${summary.rrrMisses}개`);
   }
+  if (summary.noEntryStreakDiagnostic) {
+    const d = summary.noEntryStreakDiagnostic;
+    lines.push(
+      `  • noEntryStreakCount=${d.noEntryStreakCount} pipelineHealthStatus=${d.pipelineHealthStatus} dominantNoEntryReason=${d.dominantNoEntryReason}`,
+    );
+    lines.push(
+      `  • actionRequired=${d.actionRequired} executionImpact=${d.executionImpact} forceScanBlocked=${d.forceScanBlocked} thresholdChanged=${d.thresholdChanged}`,
+    );
+    lines.push(
+      `  • shadowLearningStatus=${d.shadowLearningStatus} counterfactualStatus=${d.counterfactualStatus} entryBlockedByNoEntryStreak=${d.entryBlockedByNoEntryStreak}`,
+    );
+  }
 
   // ADR-0412 — Frozen Quote 진단 + R3 streak skip 라인 (R3 state machine 노출 *전*).
   if (summary.perSymbolSupplyInjection) {

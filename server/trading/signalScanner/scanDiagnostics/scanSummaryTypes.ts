@@ -61,6 +61,7 @@ import type {
   UnifiedExecutionPermissionResolution,
   UnifiedExecutionPermissionAggregate,
 } from '../../gates/unifiedExecutionContract.js';
+import type { NoEntryStreakDiagnostic } from './noEntryStreakDiagnostic.js';
 
 export interface WaitDistribution {
   dataHold: number;
@@ -334,6 +335,7 @@ export interface ScanSummary {
   canonicalRuntimeResolution?: CanonicalRuntimeResolutionStep27;
   candidatePool?: CandidatePoolResult;
   paperEntryForensic?: PaperEntryForensicSummary;
+  noEntryStreakDiagnostic?: NoEntryStreakDiagnostic;
   // ADR-0526 Phase 1a — per-candidate Gate0/1/2/3 판단 정본 (가산만, 기존 필드 무변경).
   // 생산자(persistScanResults)가 도출·영속. 소비자(formatter)는 1b 에서 read 로 재바인딩.
   candidateGateViews?: CandidateGateEvaluationView[];
