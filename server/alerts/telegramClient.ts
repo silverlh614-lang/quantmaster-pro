@@ -109,6 +109,18 @@ import {
   TELEGRAM_MAX_MESSAGE_LEN,
 } from './telegramHtmlSanitizer.js';
 import { evaluateAlertNoise, type AlertLevel, type AlertNoiseEvent } from './alertNoisePolicy.js';
+import {
+  buildThresholdLoopDiagnostic,
+  buildThresholdProposalApprovalMessage,
+  evaluateThresholdLoopTelegramDelivery,
+  formatThresholdLoopEvaluatedLog,
+  formatThresholdObserveRecommendedLog,
+  formatThresholdProposalRequiresApprovalLog,
+  formatThresholdProposalSuppressedLog,
+  formatThresholdTelegramSentLog,
+  recordThresholdLoopTelegramSent,
+  type ThresholdLoopDiagnosticInput,
+} from './thresholdSearchLoopNotificationPolicy.js';
 export type { AlertTier } from './alertTiers.js';
 
 interface AlertCooldownEntry {
@@ -888,6 +900,8 @@ export interface EmptyScanBrokerParams {
   /** 오늘 이미 소진한 오버라이드 횟수 */
   usedToday?: number;
   dailyLimit?: number;
+  /** Notification-only no-entry decomposition for threshold proposal suppression. */
+  thresholdDiagnostic?: Partial<ThresholdLoopDiagnosticInput>;
 }
 
 /**
@@ -905,40 +919,72 @@ export async function sendEmptyScanDecisionBroker(
     currentThreshold,
     usedToday = 0,
     dailyLimit = 2,
+    thresholdDiagnostic = {},
   } = params;
 
   const nonce = Date.now().toString(36);
   const isLive = (process.env.AUTO_TRADE_MODE ?? 'SHADOW').toUpperCase() === 'LIVE';
   const remaining = Math.max(0, dailyLimit - usedToday);
+  const diagnostic = buildThresholdLoopDiagnostic({
+    ...thresholdDiagnostic,
+    noEntryStreak: consecutiveEmptyScans,
+    regime,
+    gateThreshold: currentThreshold,
+  });
+  const delivery = evaluateThresholdLoopTelegramDelivery(diagnostic);
+  console.log(formatThresholdLoopEvaluatedLog(diagnostic));
+
+  if (!diagnostic.thresholdLoweringEligible) {
+    console.log(formatThresholdObserveRecommendedLog(diagnostic));
+    console.log(formatThresholdProposalSuppressedLog(diagnostic, delivery, {
+      gate3RrrFailCount: thresholdDiagnostic.gate3RrrFailCount ?? 0,
+      preBreakoutWaitCount: thresholdDiagnostic.preBreakoutWaitCount ?? 0,
+    }));
+    return;
+  }
+
+  if (!delivery.shouldSend) {
+    console.log(formatThresholdProposalSuppressedLog(diagnostic, delivery, {
+      gate3RrrFailCount: thresholdDiagnostic.gate3RrrFailCount ?? 0,
+      preBreakoutWaitCount: thresholdDiagnostic.preBreakoutWaitCount ?? 0,
+    }));
+    return;
+  }
+  console.log(formatThresholdProposalRequiresApprovalLog(diagnostic, delivery));
 
   const header =
-    `🧭 <b>[빈 스캔 Decision Broker]</b>\n` +
-    `━━━━━━━━━━━━━━━━\n` +
+    buildThresholdProposalApprovalMessage(diagnostic, delivery) +
+    `\n\n<b>Decision Broker</b>\n` +
     `연속 빈 스캔: <b>${consecutiveEmptyScans}회</b>\n` +
     `현재 레짐: ${regime}` +
-    (currentThreshold !== undefined ? ` | Gate ≥ ${currentThreshold.toFixed(1)}` : '') +
+    (currentThreshold !== undefined ? ` | Gate >= ${currentThreshold.toFixed(1)}` : '') +
     `\n오늘 사용: ${usedToday}/${dailyLimit}${remaining === 0 ? ' (한도 소진)' : ''}\n` +
-    `━━━━━━━━━━━━━━━━\n` +
     `<b>조치 선택 (30분 후 자동 만료)</b>\n` +
-    `① 유니버스 확장 — 52주 신고가 + 외국인 순매수 추가 편입\n` +
-    `② 임계값 −0.5 완화${isLive ? ' (LIVE 모드에서 차단됨)' : ''}\n` +
-    `③ 관망 유지 — 조치 없이 현 상태 고수`;
+    `1. 유니버스 확장\n` +
+    `2. 임계값 -0.5 검토${isLive ? ' (LIVE 모드 차단)' : ''}\n` +
+    `3. 관망 유지`;
 
   const replyMarkup = {
     inline_keyboard: [[
-      { text: '① 유니버스 확장', callback_data: `op_override:EXPAND_UNIVERSE:${nonce}` },
-      { text: `② 임계값 −0.5${isLive ? ' 🚫' : ''}`, callback_data: `op_override:RELAX_THRESHOLD:${nonce}` },
-      { text: '③ 관망 유지', callback_data: `op_override:HOLD:${nonce}` },
+      { text: '1. 유니버스 확장', callback_data: `op_override:EXPAND_UNIVERSE:${nonce}` },
+      { text: `2. 임계값 -0.5${isLive ? ' 차단' : ''}`, callback_data: `op_override:RELAX_THRESHOLD:${nonce}` },
+      { text: '3. 관망 유지', callback_data: `op_override:HOLD:${nonce}` },
     ]],
   };
 
-  return sendTelegramAlert(header, {
+  const messageId = await sendTelegramAlert(header, {
     priority: 'HIGH',
-    tier: 'T1_ALARM',  // 참뮌의 선택 대기 중 — 응답 없으면 관망 유지로 자동 만료.
-    dedupeKey: 'empty_scan_broker',
-    category: 'decision_broker',
+    tier: 'T1_ALARM',  // Operator approval prompt; no response keeps HOLD.
+    dedupeKey: diagnostic.dedupKey,
+    cooldownMs: 60 * 60 * 1000,
+    category: 'threshold_search',
     replyMarkup,
   });
+  if (messageId !== undefined) {
+    recordThresholdLoopTelegramSent(diagnostic);
+    console.log(formatThresholdTelegramSentLog(diagnostic));
+  }
+  return messageId;
 }
 
 /**

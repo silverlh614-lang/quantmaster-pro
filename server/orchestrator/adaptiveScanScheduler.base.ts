@@ -638,15 +638,11 @@ export function recordScanResult(signalCount: number, opts?: RecordScanResultOpt
           const regime = resolveCanonicalRegimeLevel(loadMacroState());
           const usage = canApplyToday();
           const currentThreshold = getEffectiveGateThreshold(regime);
-          sendEmptyScanDecisionBroker({
-            consecutiveEmptyScans,
-            regime,
-            currentThreshold,
-            usedToday: usage.used,
-            dailyLimit: usage.limit,
-          }).catch(console.error);
+          const thresholdDiagnostic: NonNullable<
+            Parameters<typeof sendEmptyScanDecisionBroker>[0]['thresholdDiagnostic']
+          > = {};
 
-          // Phase 5-⑪: Threshold Search Loop — 세션당 1회 gate 분포 + 섀도우 드라이런 제안
+          // Phase 5-⑪: Threshold Search Loop — notification-only diagnostic, no threshold mutation.
           if (!alreadyExecutedThisSession()) {
             markSessionExecuted();
             try {
@@ -660,20 +656,33 @@ export function recordScanResult(signalCount: number, opts?: RecordScanResultOpt
                 scores, baselineThreshold: currentThreshold, currentDelta: 0,
               });
               const hist = formatGateHistogram(proposal.histogram, proposal.total);
-              const body = proposal.shouldPropose
-                ? `📉 <b>[Threshold Search Loop] 임계치 하향 제안</b>\n` +
-                  `${proposal.reason}\n\n<pre>${hist}</pre>\n` +
-                  `<i>최종 적용은 Decision Broker 버튼으로 수동 승인 필요 — 세션당 1회, 최대 -1.0pt 까지.</i>`
-                : `🔬 <b>[Threshold Search Loop] 제안 보류</b>\n` +
-                  `${proposal.reason}\n\n<pre>${hist}</pre>`;
-              sendTelegramAlert(body, {
-                priority: 'HIGH', category: 'threshold_search',
-                dedupeKey: `threshold_search:${new Date().toISOString().slice(0, 10)}`,
-              }).catch(console.error);
+              const gatePassCount = scores.filter((score) => Number.isFinite(score) && score >= currentThreshold).length;
+              Object.assign(thresholdDiagnostic, {
+                gateScores: scores,
+                gatePassCount,
+                gate1ThresholdMissCount: proposal.shouldPropose ? proposal.projectedCaptures : 0,
+                dominantNoEntryReason: proposal.shouldPropose ? 'GATE1_THRESHOLD_NOT_MET' : undefined,
+              });
+              console.log(
+                `[THRESHOLD_SEARCH_LOOP_DIAGNOSTIC] telegramSent=false thresholdChanged=false ` +
+                `thresholdAutoChanged=false actualThresholdChanged=false executionImpact=NONE ` +
+                `marketSignal=false providerIssue=false tradingLogicChanged=false gateLogicChanged=false ` +
+                `orderLogicChanged=false notificationOnly=true diagnosticOnly=true ` +
+                `reason=${proposal.reason}\n${hist}`,
+              );
             } catch (e) {
               console.error('[ThresholdSearchLoop] 실행 실패:', e instanceof Error ? e.message : e);
             }
           }
+
+          sendEmptyScanDecisionBroker({
+            consecutiveEmptyScans,
+            regime,
+            currentThreshold,
+            usedToday: usage.used,
+            dailyLimit: usage.limit,
+            thresholdDiagnostic,
+          }).catch(console.error);
         }
       }
     }

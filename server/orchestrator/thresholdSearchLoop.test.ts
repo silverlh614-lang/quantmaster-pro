@@ -47,12 +47,21 @@ describe('projectCapturesAtLoweredThreshold', () => {
 
 describe('buildThresholdProposal', () => {
   it('≥5건 포착 가능 → shouldPropose=true', () => {
-    const scores = [7.5, 7.6, 7.7, 7.8, 7.9, 8.0]; // 기준 8.0, -0.5 하향 시 모두 통과
+    const scores = [7.5, 7.6, 7.7, 7.8, 7.9, 7.95]; // 기준 8.0, -0.5 하향 시 모두 통과
     const p = buildThresholdProposal({
       scores, baselineThreshold: 8.0, currentDelta: 0,
     });
     expect(p.shouldPropose).toBe(true);
     expect(p.projectedCaptures).toBe(6);
+  });
+
+  it('기준 이상 Gate 통과 후보가 있으면 threshold lowering 제안을 억제', () => {
+    const scores = [7.5, 7.6, 7.7, 7.8, 7.9, 8.0];
+    const p = buildThresholdProposal({
+      scores, baselineThreshold: 8.0, currentDelta: 0,
+    });
+    expect(p.shouldPropose).toBe(false);
+    expect(p.reason).toContain('threshold lowering push suppressed');
   });
 
   it('5건 미만 → shouldPropose=false, 보류 사유 기록', () => {

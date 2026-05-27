@@ -105,6 +105,15 @@ export function buildThresholdProposal(params: {
   const dryDelta = params.dryDelta ?? THRESHOLD_SEARCH_DRY_DELTA;
   const histogram = buildGateHistogram(params.scores);
   const total = params.scores.length;
+  const gatePassCount = params.scores.filter((s) => Number.isFinite(s) && s >= params.baselineThreshold).length;
+
+  if (gatePassCount > 0) {
+    return {
+      shouldPropose: false, proposedDelta: dryDelta, projectedCaptures: gatePassCount,
+      reason: `Gate pass candidates already exist (${gatePassCount}); threshold lowering push suppressed, recommendation=OBSERVE`,
+      histogram, total,
+    };
+  }
 
   // 이미 누적 한도(-1pt)에 도달하면 더는 하향 제안하지 않음
   const wouldBeTotal = params.currentDelta + dryDelta;
