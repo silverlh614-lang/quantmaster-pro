@@ -132,6 +132,9 @@ export interface Gate1DryRunObservationSummary {
   matured3D: number;
   matured5D: number;
   sources: Partial<Record<Gate1DryRunObservationSource, number>>;
+  sourceBreakdownCountSum: number;
+  unclassifiedSourceRows: number;
+  sourceBreakdownInvariant: boolean;
   outcomeUpdateAvailable: boolean;
   outcomeUpdateReason: 'MARKET_CLOSED' | 'PRICE_CACHE_MISSING' | 'NOT_MATURED' | 'UPDATED';
   liveExecutionAllowed: false;
@@ -140,10 +143,30 @@ export interface Gate1DryRunObservationSummary {
   nextAction: 'TRACK_1D_3D_5D_FORWARD_RETURNS';
 }
 
+export interface Gate1EvidenceMaturityStatus {
+  schedulerHealthy: boolean;
+  status: 'NOT_YET_DUE' | 'DUE_PENDING_RUN' | 'UP_TO_DATE' | 'NO_ROWS';
+  pendingD1: number;
+  pendingD3: number;
+  pendingD5: number;
+  dueNow: number;
+  stalePending: number;
+  nextMaturityRunAt: string;
+  lastMaturityRunAt: string;
+  dataUnavailable: boolean;
+  lastErrorSanitized: string;
+  executionImpact: 'NONE';
+}
+
 export interface Gate1ThresholdEvidenceSummary {
   sampleWindow: '1D/3D/5D';
   totalSamples: number;
   pendingSamples: number;
+  ledgerRowsCreated: number;
+  scoreBandCountSum: number;
+  evidenceLedgerMatch: boolean;
+  scoreBandLedgerMatch: boolean;
+  maturity: Gate1EvidenceMaturityStatus;
   matureSamplesD1: number;
   matureSamplesD3: number;
   matureSamplesD5: number;
@@ -720,6 +743,10 @@ export function summarizeGate1DryRunObservationRows(
     sources[row.source] = (sources[row.source] ?? 0) + 1;
   }
   const countStatus = (status: Gate1DryRunObservationStatus) => rows.filter((row) => row.status === status).length;
+  // Source attribution integrity: every row carries a source, so the breakdown must sum to rowsCreated.
+  // unclassified>0 surfaces rows whose source bucket is missing from the breakdown (early detection).
+  const sourceBreakdownCountSum = Object.values(sources).reduce((sum, count) => sum + (count ?? 0), 0);
+  const unclassifiedSourceRows = Math.max(0, rowsCreated - sourceBreakdownCountSum);
   return {
     rowsCreated,
     totalRows: rows.length,
@@ -729,6 +756,9 @@ export function summarizeGate1DryRunObservationRows(
     matured3D: countStatus('MATURED_3D'),
     matured5D: countStatus('MATURED_5D'),
     sources,
+    sourceBreakdownCountSum,
+    unclassifiedSourceRows,
+    sourceBreakdownInvariant: unclassifiedSourceRows === 0,
     outcomeUpdateAvailable: false,
     outcomeUpdateReason: 'NOT_MATURED',
     liveExecutionAllowed: false,
@@ -811,9 +841,7 @@ export function formatGate1DryRunObservationSummary(
   summary?: Gate1DryRunObservationSummary | null,
 ): string | null {
   if (!summary) return null;
-  const sourceLine = (source: Gate1DryRunObservationSource) =>
-    `    ${source}: ${summary.sources[source] ?? 0}`;
-  return [
+  const lines = [
     '🧾 Gate1 Dry-run Observation Ledger (ADR-0476)',
     `  rowsCreated: ${summary.rowsCreated}`,
     `  pending: ${summary.pending}`,
@@ -822,24 +850,99 @@ export function formatGate1DryRunObservationSummary(
     `  matured3D: ${summary.matured3D}`,
     `  matured5D: ${summary.matured5D}`,
     '  sources:',
-    sourceLine('ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'),
-    sourceLine('ADR_0472_SCORING_ALIGNMENT'),
-    sourceLine('ADR_0475_POSITIVE_SOURCE_WIRING'),
-    sourceLine('ADR_0477_INVESTOR_FLOW_PROVIDER_ROUTER'),
-    sourceLine('ADR_0481_NAVER_INVESTOR_TREND_COLLECTOR'),
-    sourceLine('ADR_0482_SEMANTIC_NETBUY_NORMALIZER'),
-    sourceLine('ADR_0484_SUPPLY_COVERAGE_RECOVERY'),
-    sourceLine('ADR_0485_SUPPLY_ADVISORY_READINESS'),
-    sourceLine('ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY'),
-    sourceLine('GATE1_NEAR_MISS'),
+  ];
+  // Render EVERY source bucket with rows (complete breakdown) so the displayed sum reconciles with
+  // rowsCreated — no source type is hidden by a fixed render list.
+  const sourceEntries = (Object.entries(summary.sources) as Array<[Gate1DryRunObservationSource, number]>)
+    .filter(([, count]) => (count ?? 0) > 0)
+    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
+  if (sourceEntries.length === 0) {
+    lines.push('    (none)');
+  } else {
+    for (const [source, count] of sourceEntries) {
+      lines.push(`    ${source}: ${count}`);
+    }
+  }
+  lines.push(
+    `  sourceBreakdownCountSum: ${summary.sourceBreakdownCountSum}`,
+    `  unclassifiedSourceRows: ${summary.unclassifiedSourceRows}`,
+    `  sourceBreakdownInvariant: ${summary.sourceBreakdownInvariant}`,
+  );
+  if (!summary.sourceBreakdownInvariant) {
+    lines.push('  sourceBreakdownNextAction: CLASSIFY_GATE1_EVIDENCE_SOURCE');
+  }
+  lines.push(
     `  liveExecutionAllowed: ${summary.liveExecutionAllowed}`,
     `  executionImpact: ${summary.executionImpact}`,
     `  nextAction: ${summary.nextAction}`,
-  ].join('\n');
+  );
+  return lines.join('\n');
+}
+
+/**
+ * Derives the D+1/D+3/D+5 maturity-schedule status from the ledger rows + current date alone
+ * (no separate persisted scheduler state). lastMaturityRunAt is not tracked at this layer ⟹ 'N/A'.
+ * stalePending>0 ⟹ a horizon was due >2 business days ago yet is still pending (scheduler stalled).
+ */
+function buildGate1EvidenceMaturityStatus(
+  rows: readonly Gate1DryRunObservationRow[],
+  now: Date,
+): Gate1EvidenceMaturityStatus {
+  const base = { lastMaturityRunAt: 'N/A', lastErrorSanitized: 'NONE', executionImpact: 'NONE' } as const;
+  if (rows.length === 0) {
+    return { ...base, schedulerHealthy: true, status: 'NO_ROWS', pendingD1: 0, pendingD3: 0, pendingD5: 0, dueNow: 0, stalePending: 0, nextMaturityRunAt: 'N/A', dataUnavailable: true };
+  }
+  const today = now.toISOString().slice(0, 10);
+  const horizons = [
+    { days: 1, field: 'forwardReturn1D' },
+    { days: 3, field: 'forwardReturn3D' },
+    { days: 5, field: 'forwardReturn5D' },
+  ] as const;
+  let pendingD1 = 0;
+  let pendingD3 = 0;
+  let pendingD5 = 0;
+  let dueNow = 0;
+  let stalePending = 0;
+  const futureDueDates: string[] = [];
+  for (const row of rows) {
+    for (const horizon of horizons) {
+      if (finite(row[horizon.field])) continue;
+      if (horizon.days === 1) pendingD1 += 1;
+      else if (horizon.days === 3) pendingD3 += 1;
+      else pendingD5 += 1;
+      const dueDate = addBusinessDays(row.forDate, horizon.days);
+      if (today >= dueDate) {
+        dueNow += 1;
+        if (today >= addBusinessDays(dueDate, 2)) stalePending += 1;
+      } else {
+        futureDueDates.push(dueDate);
+      }
+    }
+  }
+  const anyPending = pendingD1 + pendingD3 + pendingD5 > 0;
+  const nextMaturityRunAt = futureDueDates.length > 0
+    ? futureDueDates.sort()[0]
+    : (dueNow > 0 ? 'DUE_NOW' : 'N/A');
+  const status: Gate1EvidenceMaturityStatus['status'] = !anyPending
+    ? 'UP_TO_DATE'
+    : dueNow > 0 ? 'DUE_PENDING_RUN' : 'NOT_YET_DUE';
+  return {
+    ...base,
+    schedulerHealthy: stalePending === 0,
+    status,
+    pendingD1,
+    pendingD3,
+    pendingD5,
+    dueNow,
+    stalePending,
+    nextMaturityRunAt,
+    dataUnavailable: false,
+  };
 }
 
 export function buildGate1ThresholdEvidenceSummary(
   rows: readonly Gate1DryRunObservationRow[],
+  now: Date = new Date(),
 ): Gate1ThresholdEvidenceSummary {
   // ADR-0476 ledger is the primary source — totalSamples/pending reflect ALL observation rows
   // (rowsCreated/pending/observing/matured), not only D5-matured ones, so the Evidence report
@@ -920,23 +1023,30 @@ export function buildGate1ThresholdEvidenceSummary(
       falseNegativeRate: rateValue(d5Returns.filter((value) => value >= 3).length, d5Returns.length),
     };
   };
+  const scoreBandTable = [
+    buildBandSummary(scoreBand(70), '70+'),
+    buildBandSummary(scoreBand(65, 70), '65~70'),
+    buildBandSummary(scoreBand(60, 65), '60~65'),
+    buildBandSummary(scoreBand(55, 60), '55~60'),
+    buildBandSummary(scoreBand(Number.NEGATIVE_INFINITY, 55), 'below55'),
+  ];
+  const scoreBandCountSum = scoreBandTable.reduce((sum, band) => sum + band.count, 0);
   return {
     sampleWindow: '1D/3D/5D',
     totalSamples,
     pendingSamples,
+    ledgerRowsCreated: ledger.rowsCreated,
+    scoreBandCountSum,
+    evidenceLedgerMatch: totalSamples === ledger.rowsCreated,
+    scoreBandLedgerMatch: scoreBandCountSum === totalSamples,
+    maturity: buildGate1EvidenceMaturityStatus(rows, now),
     matureSamplesD1: matureD1,
     matureSamplesD3: matureD3,
     matureSamplesD5: matureD5,
     bestDryRunThreshold: recommendedAction === 'DRY_RUN_THRESHOLD_65_R3_ONLY' ? 65 : 70,
     recommendedAction,
     confidence,
-    scoreBandTable: [
-      buildBandSummary(scoreBand(70), '70+'),
-      buildBandSummary(scoreBand(65, 70), '65~70'),
-      buildBandSummary(scoreBand(60, 65), '60~65'),
-      buildBandSummary(scoreBand(55, 60), '55~60'),
-      buildBandSummary(scoreBand(Number.NEGATIVE_INFINITY, 55), 'below55'),
-    ],
+    scoreBandTable,
     liveExecutionImpact: 'NONE',
     thresholdAutoChanged: false,
     operatorApprovalRequired: true,
@@ -1026,6 +1136,39 @@ export function formatGate1ThresholdEvidenceSection(
     '- SKELETON_ONLY: N/A',
     '- supplyGateScoreEligible=true: N/A',
     '- supplyGateScoreEligible=false: N/A',
+    '',
+    'Gate1 Threshold Evidence Integrity:',
+    `- ledgerRowsCreated: ${summary ? summary.ledgerRowsCreated : 'N/A'}`,
+    `- evidenceTotalSamples: ${summary ? summary.totalSamples : 'N/A'}`,
+    `- scoreBandCountSum: ${summary ? summary.scoreBandCountSum : 'N/A'}`,
+    `- evidenceLedgerMatch: ${summary ? summary.evidenceLedgerMatch : 'N/A'}`,
+    `- scoreBandLedgerMatch: ${summary ? summary.scoreBandLedgerMatch : 'N/A'}`,
+    `- executionImpact: NONE`,
+  );
+  if (summary && (!summary.evidenceLedgerMatch || !summary.scoreBandLedgerMatch)) {
+    lines.push(
+      `- mismatchReason: ${!summary.evidenceLedgerMatch ? 'EVIDENCE_TOTAL_NE_LEDGER_ROWS' : 'SCOREBAND_SUM_NE_EVIDENCE_TOTAL'}`,
+      `- missingRows: ${Math.max(0, summary.ledgerRowsCreated - summary.totalSamples)}`,
+      `- extraRows: ${Math.max(0, summary.totalSamples - summary.scoreBandCountSum)}`,
+      `- nextAction: RECONCILE_EVIDENCE_LEDGER_COUNT`,
+    );
+  }
+  const maturity = summary?.maturity;
+  lines.push(
+    '',
+    'Gate1 Evidence Maturity Scheduler:',
+    `- schedulerHealthy: ${maturity ? maturity.schedulerHealthy : 'N/A'}`,
+    `- status: ${maturity ? maturity.status : 'N/A'}`,
+    `- pendingD1: ${maturity ? maturity.pendingD1 : 'N/A'}`,
+    `- pendingD3: ${maturity ? maturity.pendingD3 : 'N/A'}`,
+    `- pendingD5: ${maturity ? maturity.pendingD5 : 'N/A'}`,
+    `- dueNow: ${maturity ? maturity.dueNow : 'N/A'}`,
+    `- stalePending: ${maturity ? maturity.stalePending : 'N/A'}`,
+    `- nextMaturityRunAt: ${maturity ? maturity.nextMaturityRunAt : 'N/A'}`,
+    `- lastMaturityRunAt: ${maturity ? maturity.lastMaturityRunAt : 'N/A'}`,
+    `- dataUnavailable: ${maturity ? maturity.dataUnavailable : 'N/A'}`,
+    `- lastErrorSanitized: ${maturity ? maturity.lastErrorSanitized : 'NONE'}`,
+    `- executionImpact: NONE`,
   );
   return lines.join('\n');
 }

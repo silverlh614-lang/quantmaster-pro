@@ -71,6 +71,24 @@ describe('formatGate1ThresholdEvidenceSection — with summary', () => {
     sampleWindow: '1D/3D/5D',
     totalSamples: 250,
     pendingSamples: 30,
+    ledgerRowsCreated: 250,
+    scoreBandCountSum: 250,
+    evidenceLedgerMatch: true,
+    scoreBandLedgerMatch: true,
+    maturity: {
+      schedulerHealthy: true,
+      status: 'DUE_PENDING_RUN',
+      pendingD1: 30,
+      pendingD3: 30,
+      pendingD5: 30,
+      dueNow: 10,
+      stalePending: 0,
+      nextMaturityRunAt: '2026-05-28',
+      lastMaturityRunAt: 'N/A',
+      dataUnavailable: false,
+      lastErrorSanitized: 'NONE',
+      executionImpact: 'NONE',
+    },
     matureSamplesD1: 250,
     matureSamplesD3: 240,
     matureSamplesD5: 220,
@@ -110,11 +128,24 @@ describe('formatGate1ThresholdEvidenceSection — with summary', () => {
     expect(text).toContain('pendingSamples: 30');
     expect(text).toContain('countSum: 250');
   });
+
+  it('renders the evidence↔ledger integrity and maturity-scheduler blocks', () => {
+    expect(text).toContain('Gate1 Threshold Evidence Integrity:');
+    expect(text).toContain('ledgerRowsCreated: 250');
+    expect(text).toContain('scoreBandCountSum: 250');
+    expect(text).toContain('evidenceLedgerMatch: true');
+    expect(text).toContain('scoreBandLedgerMatch: true');
+    expect(text).toContain('Gate1 Evidence Maturity Scheduler:');
+    expect(text).toContain('schedulerHealthy: true');
+    expect(text).toContain('status: DUE_PENDING_RUN');
+    expect(text).toContain('pendingD1: 30');
+    expect(text).toContain('nextMaturityRunAt: 2026-05-28');
+  });
 });
 
 describe('buildGate1ThresholdEvidenceSummary — reads pending ADR-0476 ledger rows', () => {
   function pendingRow(dryRunScore: number): Gate1DryRunObservationRow {
-    return { status: 'PENDING', dryRunScore } as unknown as Gate1DryRunObservationRow;
+    return { status: 'PENDING', dryRunScore, forDate: '2026-05-27' } as unknown as Gate1DryRunObservationRow;
   }
   // 13 pending rows: 0×70+, 2×65~70, 3×60~65, 4×55~60, 4×below55 (mirrors the operator's Page 17).
   const rows: Gate1DryRunObservationRow[] = [
@@ -123,7 +154,8 @@ describe('buildGate1ThresholdEvidenceSummary — reads pending ADR-0476 ledger r
     pendingRow(59), pendingRow(57), pendingRow(56), pendingRow(55),
     pendingRow(54), pendingRow(50), pendingRow(40), pendingRow(30),
   ];
-  const summary = buildGate1ThresholdEvidenceSummary(rows);
+  // Fixed clock = forDate so no horizon is due yet (NOT_YET_DUE, all 13 pending each horizon).
+  const summary = buildGate1ThresholdEvidenceSummary(rows, new Date('2026-05-27T10:00:00Z'));
 
   it('counts all created rows as totalSamples/pendingSamples (not just D5-matured)', () => {
     expect(summary.totalSamples).toBe(13);
@@ -142,6 +174,25 @@ describe('buildGate1ThresholdEvidenceSummary — reads pending ADR-0476 ledger r
     expect(byBand.below55).toBe(4);
     const countSum = summary.scoreBandTable.reduce((sum, b) => sum + b.count, 0);
     expect(countSum).toBe(summary.totalSamples);
+  });
+
+  it('reports evidence↔ledger count invariant matches (P2)', () => {
+    expect(summary.ledgerRowsCreated).toBe(13);
+    expect(summary.scoreBandCountSum).toBe(13);
+    expect(summary.evidenceLedgerMatch).toBe(true);
+    expect(summary.scoreBandLedgerMatch).toBe(true);
+  });
+
+  it('derives a NOT_YET_DUE maturity schedule with all horizons pending (P4)', () => {
+    expect(summary.maturity.status).toBe('NOT_YET_DUE');
+    expect(summary.maturity.schedulerHealthy).toBe(true);
+    expect(summary.maturity.pendingD1).toBe(13);
+    expect(summary.maturity.pendingD3).toBe(13);
+    expect(summary.maturity.pendingD5).toBe(13);
+    expect(summary.maturity.dueNow).toBe(0);
+    expect(summary.maturity.stalePending).toBe(0);
+    expect(summary.maturity.dataUnavailable).toBe(false);
+    expect(summary.maturity.executionImpact).toBe('NONE');
   });
 
   it('keeps pending-only state at INSUFFICIENT_SAMPLE / OBSERVE_MORE with returns N/A', () => {
