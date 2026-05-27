@@ -1427,9 +1427,13 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
       lines.push(`  totalSamples: ${summary.gate1ThresholdEvidence.totalSamples}`);
       lines.push(`  matureSamplesD1/D3/D5: ${summary.gate1ThresholdEvidence.matureSamplesD1}/${summary.gate1ThresholdEvidence.matureSamplesD3}/${summary.gate1ThresholdEvidence.matureSamplesD5}`);
       lines.push(`  bestDryRunThreshold: ${summary.gate1ThresholdEvidence.bestDryRunThreshold}`);
+      lines.push('  scoreBandTable:');
+      for (const band of summary.gate1ThresholdEvidence.scoreBandTable) {
+        lines.push(`    ${band.band}: count=${band.count} matureD1=${band.matureD1} matureD3=${band.matureD3} matureD5=${band.matureD5} avgReturnD1=${band.avgReturnD1} avgReturnD3=${band.avgReturnD3} avgReturnD5=${band.avgReturnD5} winRateD5=${band.winRateD5} hitPlus3PctRate=${band.hitPlus3PctRate} hitMinus3PctRate=${band.hitMinus3PctRate} avgMFE=${band.avgMFE} avgMAE=${band.avgMAE} expectancyR=${band.expectancyR} falseNegativeRate=${band.falseNegativeRate}`);
+      }
       lines.push(`  recommendedAction: ${summary.gate1ThresholdEvidence.recommendedAction}`);
       lines.push(`  confidence: ${summary.gate1ThresholdEvidence.confidence}`);
-      lines.push(`  liveExecutionImpact: ${summary.gate1ThresholdEvidence.liveExecutionImpact}`);
+      lines.push(`  executionImpact: ${summary.gate1ThresholdEvidence.liveExecutionImpact}`);
       lines.push(`  thresholdAutoChanged: ${summary.gate1ThresholdEvidence.thresholdAutoChanged}`);
       lines.push(`  operatorApprovalRequired: ${summary.gate1ThresholdEvidence.operatorApprovalRequired}`);
     }
