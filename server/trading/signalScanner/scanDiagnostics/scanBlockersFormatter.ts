@@ -32,7 +32,7 @@ import { formatRiskDoubleCountAuditReport } from '../gate1RiskDoubleCount.js';
 import { formatFinalGate1CalibrationReport } from '../gate1FinalCalibration.js';
 import { formatGate1ScoringAlignmentReport } from '../gate1ScoringAlignmentAdr0472.js';
 import { formatGate1PositiveSourceWiringReport } from '../gate1PositiveSourceWiringAdr0475.js';
-import { formatGate1DryRunObservationSummary } from '../gate1DryRunObservationLedgerAdr0476.js';
+import { formatGate1DryRunObservationSummary, formatGate1ThresholdEvidenceSection } from '../gate1DryRunObservationLedgerAdr0476.js';
 import { formatInvestorFlowProviderRouterAdr0477 } from '../investorFlowProviderRouterAdr0477.js';
 import {
   type PaperEntryCandidateForensic,
@@ -1372,6 +1372,16 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(finalGate1CalibrationSection);
   }
 
+  // Gate1 Threshold Evidence (emit-only, suggest-only) — directly below Final Gate1 Calibration and
+  // above Gate1 Scoring Alignment. Always renders; immature/0-mature dry-run data ⟹ INSUFFICIENT_SAMPLE
+  // / OBSERVE_MORE skeleton (N/A). Distinct from Gate3 Threshold Evidence; requiredScore=70 untouched.
+  try {
+    lines.push('');
+    lines.push(formatGate1ThresholdEvidenceSection(summary.gate1ThresholdEvidence));
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatGate1ThresholdEvidenceSection', error: e });
+  }
+
   try {
     const gate1ScoringAlignmentSection = formatGate1ScoringAlignmentReport(
       rebindGate1ScoringAlignmentReportToCanonicalStep27(
@@ -1419,23 +1429,6 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     if (dryRunObservationSection) {
       lines.push('');
       lines.push(dryRunObservationSection);
-    }
-    if (summary.gate1ThresholdEvidence) {
-      lines.push('');
-      lines.push('🧪 Gate1 Threshold Evidence');
-      lines.push(`  sampleWindow: ${summary.gate1ThresholdEvidence.sampleWindow}`);
-      lines.push(`  totalSamples: ${summary.gate1ThresholdEvidence.totalSamples}`);
-      lines.push(`  matureSamplesD1/D3/D5: ${summary.gate1ThresholdEvidence.matureSamplesD1}/${summary.gate1ThresholdEvidence.matureSamplesD3}/${summary.gate1ThresholdEvidence.matureSamplesD5}`);
-      lines.push(`  bestDryRunThreshold: ${summary.gate1ThresholdEvidence.bestDryRunThreshold}`);
-      lines.push('  scoreBandTable:');
-      for (const band of summary.gate1ThresholdEvidence.scoreBandTable) {
-        lines.push(`    ${band.band}: count=${band.count} matureD1=${band.matureD1} matureD3=${band.matureD3} matureD5=${band.matureD5} avgReturnD1=${band.avgReturnD1} avgReturnD3=${band.avgReturnD3} avgReturnD5=${band.avgReturnD5} winRateD5=${band.winRateD5} hitPlus3PctRate=${band.hitPlus3PctRate} hitMinus3PctRate=${band.hitMinus3PctRate} avgMFE=${band.avgMFE} avgMAE=${band.avgMAE} expectancyR=${band.expectancyR} falseNegativeRate=${band.falseNegativeRate}`);
-      }
-      lines.push(`  recommendedAction: ${summary.gate1ThresholdEvidence.recommendedAction}`);
-      lines.push(`  confidence: ${summary.gate1ThresholdEvidence.confidence}`);
-      lines.push(`  executionImpact: ${summary.gate1ThresholdEvidence.liveExecutionImpact}`);
-      lines.push(`  thresholdAutoChanged: ${summary.gate1ThresholdEvidence.thresholdAutoChanged}`);
-      lines.push(`  operatorApprovalRequired: ${summary.gate1ThresholdEvidence.operatorApprovalRequired}`);
     }
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatGate1DryRunObservationSummary', error: e });

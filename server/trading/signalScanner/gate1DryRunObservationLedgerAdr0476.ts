@@ -881,10 +881,10 @@ export function buildGate1ThresholdEvidenceSummary(
     const rateValue = (ok: number, total: number): number | 'N/A' => (total > 0 ? round1((ok / total) * 100) : 'N/A');
     const d5Returns = maturedD5Rows.map((row) => row.forwardReturn5D as number);
     const mfeValues = maturedD5Rows
-      .map((row) => row.maxFavorableExcursionPct)
+      .map((row) => row.maxFavorableExcursion5D)
       .filter(finite);
     const maeValues = maturedD5Rows
-      .map((row) => row.maxAdverseExcursionPct)
+      .map((row) => row.maxAdverseExcursion5D)
       .filter(finite);
     return {
       band,
@@ -924,4 +924,86 @@ export function buildGate1ThresholdEvidenceSummary(
     thresholdAutoChanged: false,
     operatorApprovalRequired: true,
   };
+}
+
+const GATE1_THRESHOLD_EVIDENCE_BAND_ORDER: ReadonlyArray<Gate1ThresholdEvidenceSummary['scoreBandTable'][number]['band']> = [
+  '70+',
+  '65~70',
+  '60~65',
+  '55~60',
+  'below55',
+];
+
+function gate1EvidenceCell(value: number | 'N/A' | undefined): string {
+  return value === undefined || value === 'N/A' ? 'N/A' : String(value);
+}
+
+function gate1EvidenceBandBlock(
+  band: Gate1ThresholdEvidenceSummary['scoreBandTable'][number] | undefined,
+  key: Gate1ThresholdEvidenceSummary['scoreBandTable'][number]['band'],
+): string[] {
+  return [
+    `${key}:`,
+    `  count: ${band ? band.count : 'N/A'}`,
+    `  matureD1: ${band ? band.matureD1 : 'N/A'}`,
+    `  matureD3: ${band ? band.matureD3 : 'N/A'}`,
+    `  matureD5: ${band ? band.matureD5 : 'N/A'}`,
+    `  avgReturnD1: ${gate1EvidenceCell(band?.avgReturnD1)}`,
+    `  avgReturnD3: ${gate1EvidenceCell(band?.avgReturnD3)}`,
+    `  avgReturnD5: ${gate1EvidenceCell(band?.avgReturnD5)}`,
+    `  winRateD5: ${gate1EvidenceCell(band?.winRateD5)}`,
+    `  hitPlus3PctRate: ${gate1EvidenceCell(band?.hitPlus3PctRate)}`,
+    `  hitMinus3PctRate: ${gate1EvidenceCell(band?.hitMinus3PctRate)}`,
+    `  avgMFE: ${gate1EvidenceCell(band?.avgMFE)}`,
+    `  avgMAE: ${gate1EvidenceCell(band?.avgMAE)}`,
+    `  expectancyR: ${gate1EvidenceCell(band?.expectancyR)}`,
+    `  falseNegativeRate: ${gate1EvidenceCell(band?.falseNegativeRate)}`,
+  ];
+}
+
+/**
+ * Renders the Gate1 Threshold Evidence section for /scan_blockers full (emit-only, suggest-only).
+ * ALWAYS returns the section — undefined summary (immature/0 mature samples) renders the
+ * INSUFFICIENT_SAMPLE / OBSERVE_MORE skeleton with N/A. Distinct from "Gate3 Threshold Evidence".
+ * regimeSplit/dataQualitySplit are not carried on dry-run rows yet → N/A (follow-up data wiring).
+ */
+export function formatGate1ThresholdEvidenceSection(
+  summary?: Gate1ThresholdEvidenceSummary | null,
+): string {
+  const lines: string[] = [
+    'Gate1 Threshold Evidence',
+    '------------------------',
+    'window: D1/D3/D5',
+    `totalSamples: ${summary ? summary.totalSamples : 'N/A'}`,
+    `matureSamplesD1: ${summary ? summary.matureSamplesD1 : 'N/A'}`,
+    `matureSamplesD3: ${summary ? summary.matureSamplesD3 : 'N/A'}`,
+    `matureSamplesD5: ${summary ? summary.matureSamplesD5 : 'N/A'}`,
+    'thresholdAutoChanged: false',
+    'operatorApprovalRequired: true',
+    'liveExecutionAllowed: false',
+    'executionImpact: NONE',
+    `confidence: ${summary ? summary.confidence : 'INSUFFICIENT_SAMPLE'}`,
+    `recommendedAction: ${summary ? summary.recommendedAction : 'OBSERVE_MORE'}`,
+    '',
+    'scoreBandTable:',
+  ];
+  for (const key of GATE1_THRESHOLD_EVIDENCE_BAND_ORDER) {
+    const band = summary?.scoreBandTable.find((entry) => entry.band === key);
+    lines.push(...gate1EvidenceBandBlock(band, key));
+  }
+  lines.push(
+    '',
+    'Regime Split:',
+    '- R3_EARLY: N/A',
+    '- R5_CAUTION: N/A',
+    '- R6_RECOVERY_WATCH: N/A',
+    '- SHADOW_ONLY: N/A',
+    '',
+    'Data Quality Split:',
+    '- FULL_COMPUTED: N/A',
+    '- SKELETON_ONLY: N/A',
+    '- supplyGateScoreEligible=true: N/A',
+    '- supplyGateScoreEligible=false: N/A',
+  );
+  return lines.join('\n');
 }
