@@ -19,6 +19,9 @@ export type SignalScoreComponentCode =
   | "RISK_PENALTY"
   | "UNKNOWN_DATA_PENALTY"
   | "SOFT_FAIL_PENALTY"
+  // Patch-B: ADR-0467 ADVISORY_SIGNAL 범위 컴포넌트 — Gate1 hard block 미관여, score=0 graceful.
+  | "SECTOR_RELATIVE_STRENGTH"
+  | "GHOST_SIGNAL_STRENGTH"
   | "OTHER";
 
 export type SignalScoreComponentConfidence =
