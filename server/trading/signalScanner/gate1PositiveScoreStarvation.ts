@@ -377,6 +377,20 @@ const CONDITION_TO_POSITIVE_CODE: Record<string, PositiveSignalComponentCode> = 
   pullback: 'VCP_OR_VOLATILITY_COMPRESSION',
 };
 
+/**
+ * Codes in AUDITED_POSITIVE_FEATURES that have no Gate1 output key mapping and whose
+ * fallbackPolicy is NEUTRAL_IF_MISSING or DIAGNOSTIC_ONLY (not MISSING).
+ * When absent from Gate1 outputs these are scored zero but marked available=true
+ * so they do not inflate missingPositiveComponents or trigger starvation reasons
+ * that belong to genuinely unconnected features (e.g. WATCHLIST_SCORE_NOT_IMPORTED).
+ * ADR-0467, gate1ScoreCeilingRepair fallbackPolicy reference.
+ */
+const NEUTRAL_IF_MISSING_CODES: ReadonlySet<PositiveSignalComponentCode> = new Set([
+  'WATCHLIST_PRIORITY',      // fallbackPolicy: NEUTRAL_IF_MISSING — rank-based boost, not a Gate1 condition key
+  'GHOST_SIGNAL_STRENGTH',   // fallbackPolicy: DIAGNOSTIC_ONLY   — advisory learning trace
+  'SECTOR_RELATIVE_STRENGTH', // fallbackPolicy: EXCLUDE_FROM_DENOMINATOR — sector data often absent
+]);
+
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -522,14 +536,20 @@ export function buildGate1ScoreStarvationTraceFromGateResult(
 
   for (const code of AUDITED_POSITIVE_FEATURES) {
     if (!grouped.has(code)) {
+      // NEUTRAL_IF_MISSING codes have no Gate1 output key and a fallbackPolicy that
+      // does not indicate a wiring gap — treat as available=true, confidence=DIAGNOSTIC_ONLY
+      // so they do not inflate missingPositiveComponents counts (ADR-0467).
+      const isNeutral = NEUTRAL_IF_MISSING_CODES.has(code);
       grouped.set(code, positiveComponent({
         code,
         weightedScore: 0,
         maxScore: code === 'WATCHLIST_UPSTREAM_SCORE' ? 20 : 10,
-        available: false,
-        confidence: 'MISSING',
+        available: isNeutral ? true : false,
+        confidence: isNeutral ? 'DIAGNOSTIC_ONLY' : 'MISSING',
         source: 'ADR-0467 audit',
-        zeroContributionReason: 'feature not present in Gate1 outputs',
+        zeroContributionReason: isNeutral
+          ? 'neutral-if-missing: no Gate1 output key, score=0 by design'
+          : 'feature not present in Gate1 outputs',
       }));
     }
   }
