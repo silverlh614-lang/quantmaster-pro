@@ -110,7 +110,7 @@ import {
   listCacheKeys,
   resetCacheState,
 } from './krxClient/cache.js';
-import { resetCooldownState as _resetCooldownState } from './krxClient/cooldown.js';
+import { resetCooldownState as _resetCooldownState, isBldCooldown } from './krxClient/cooldown.js';
 export { getLastKrxInvestorTradingDiagnostic } from './krxClient/cache.js';
 
 /**
@@ -142,6 +142,7 @@ import {
   isValidYyyymmdd,
   previousBusinessDayYYYYMMDD,
   resolveTradeDate,
+  resolveTradeDateWithFallback,
   compactTradeDate,
 } from './krxClient/dateUtils.js';
 
@@ -1089,6 +1090,32 @@ function buildInvestorTradingVariants(
 }
 
 // ── 공개 API ─────────────────────────────────────────────────────────────────
+
+/**
+ * Patch-E (ADR-0009): primary 날짜 KRX 응답이 재시도 가능한 실패인지 판정.
+ * fallback 트리거 조건 (OR):
+ *   - raw === null (HTTP 실패 / 네트워크 오류)
+ *   - responseKind === 'GATED'
+ *   - csvFailureReason === 'ENDPOINT_PARAM_NOT_READY'
+ *   - rowCount === 0 (빈 데이터)
+ *   - otpGenerated === false
+ * bld 가 cooldown 중이면 false 반환 (재시도해도 cooldown 게이트에서 막힘).
+ */
+function shouldFallbackKrxDate(
+  bld: string,
+  raw: KrxRawResponse | null,
+  rowCount: number,
+): boolean {
+  if (isBldCooldown(bld)) return false;
+  if (raw === null) return true;
+  const meta = getLastKrxPostMeta(bld);
+  if (!meta) return rowCount === 0;
+  if (meta.responseKind === 'GATED') return true;
+  if (meta.csvFailureReason === 'ENDPOINT_PARAM_NOT_READY') return true;
+  if (meta.otpGenerated === false) return true;
+  if (rowCount === 0) return true;
+  return false;
+}
 
 /**
  * 투자자별 개별종목 거래실적. 기본값: KST 오늘.
