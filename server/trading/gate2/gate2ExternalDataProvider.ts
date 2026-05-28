@@ -1122,13 +1122,21 @@ export async function refreshGate2ExternalData(input: {
       dartFin = fetched.dartFin;
       trace = fetched.trace;
     }
+    // ADR-0532 Phase 3 fallback: KIS_FINANCE_PRIMARY_ENABLED=true 시 DART 재무 미가용(dartFin=null)이어도
+    // KIS inquire-price(FHKST01010100)에서 PER 를 독립적으로 가져와 per=UNAVAILABLE 차단.
+    // custom fetcher/perFetcher 경로는 그대로 유지 (테스트 하네스 byte-equivalent). executionImpact=NONE.
+    const kisPrimaryEnabled = process.env.KIS_FINANCE_PRIMARY_ENABLED === 'true';
     const perValuation = dartFin
       ? input.perFetcher
         ? await input.perFetcher(symbol, dartFin)
         : input.fetcher
           ? emptyPerValuation('PER_MISSING', false)
           : await fetchGate2PerValuation({ symbol, dartFin, snapshotQuote: input.snapshotQuotes?.[symbol] ?? null })
-      : emptyPerValuation(trace.corpCodeResolveStatus === 'FOUND' ? 'PER_MISSING' : 'PER_SKIPPED_DART_FINANCIALS_MISSING', false);
+      : kisPrimaryEnabled && !input.perFetcher && !input.fetcher
+        ? await fetchGate2PerValuation({ symbol, dartFin: null, snapshotQuote: input.snapshotQuotes?.[symbol] ?? null }).catch(
+          () => emptyPerValuation('KIS_PER_PROVIDER_ERROR', true),
+        )
+        : emptyPerValuation(trace.corpCodeResolveStatus === 'FOUND' ? 'PER_MISSING' : 'PER_SKIPPED_DART_FINANCIALS_MISSING', false);
     trace.kisPerRequestAttempted = perValuation.attempted;
     trace.kisPerRaw = perValuation.raw;
     trace.perNormalized = perValuation.per;
