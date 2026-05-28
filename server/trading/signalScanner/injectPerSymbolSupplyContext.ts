@@ -1,6 +1,7 @@
 // @responsibility buyList candidates per-symbol investor-flow context hydration
 import { createTraceId, logger, logVisibilityEvent } from '../../utils/logger.js';
 import { fetchInvestorFlowWithPolicy, type InvestorFlowRouteResult } from '../../supply/investorFlowRouter.js';
+import { rememberSupplyBySymbolPayloadSnapshot } from '../../supply/investorFlowBySymbolPayloadSnapshot.js';
 import { deriveSupplyScore } from './normalSupplyPreview/candidateMapper.js';
 import type { ExecutionImpact } from '../../runtime/engineRuntimePolicy.js';
 import type { SupplyProviderHealthTrace } from './entryFilterDecomposition.js';
@@ -65,6 +66,12 @@ export interface PerSymbolSupplyInjectionStats {
   unknown: number;
   routerConnected: boolean;
   gateContextConnected: boolean;
+  /**
+   * WIRE_SELECTED_CANDIDATE_ACTUAL_ROW — 이번 스캔에서 외인/기관 net-buy 숫자를 carry 한
+   * 종목(6-digit) 수. forensic collector 가 소비하는 by-symbol payload snapshot 으로 보존된
+   * 종목 수와 동일. DIAGNOSTIC_ONLY — score/threshold/execution 무영향.
+   */
+  investorFlowBySymbolCount?: number;
 }
 
 export interface CandidateWithSupplyContext {
@@ -140,7 +147,7 @@ export async function injectPerSymbolSupplyContext<T extends CandidateWithSupply
   };
   now?: Date;
   snapshotData?: Readonly<Record<string, SymbolSnapshotData>>;
-}): Promise<{ candidates: T[]; stats: PerSymbolSupplyInjectionStats }> {
+}): Promise<{ candidates: T[]; stats: PerSymbolSupplyInjectionStats; investorFlowBySymbol: Record<string, Record<string, unknown>> }> {
   const { candidates, investorFlowRouter } = params;
   const now = params.now ?? new Date();
   const symbols = [...new Set(candidates.map(candidateSymbol).filter(Boolean))];
@@ -148,7 +155,7 @@ export async function injectPerSymbolSupplyContext<T extends CandidateWithSupply
   if (candidates.length === 0) {
     const stats = buildStats(candidates, [], symbols, true);
     logStats(stats);
-    return { candidates, stats };
+    return { candidates, stats, investorFlowBySymbol: {} };
   }
 
   let flowResults: InvestorFlowResult[] = [];
@@ -216,9 +223,88 @@ export async function injectPerSymbolSupplyContext<T extends CandidateWithSupply
     candidate.supplyProviderHealth = supplyContextToHealthTrace(supplyContext, candidate.supplyProviderHealth);
   }
 
+  // WIRE_SELECTED_CANDIDATE_ACTUAL_ROW — 이번 스캔의 모든 후보 per-symbol flow 를 6-digit
+  // 키 map 으로 보존(작업 1). 기존엔 router 가 종목당 단일-key snapshot 을 따로 persist 해
+  // 마지막 20개만 살아남아(MAX_SNAPSHOTS) gateScoreEligible 이 ~21/49 로 capped 됐다. 여기서
+  // 한 스캔 = 단일 multi-symbol snapshot 으로 묶어 보존하면 forensic collector 의 by-symbol
+  // 조회가 49개 전부를 resolve 한다. DIAGNOSTIC_ONLY — usableForGate/Live=false, executionImpact=NONE.
+  const investorFlowBySymbol = buildInvestorFlowBySymbolCarryMap(flowResults);
+  const investorFlowBySymbolCount = Object.keys(investorFlowBySymbol).length;
+  if (investorFlowBySymbolCount > 0) {
+    try {
+      rememberSupplyBySymbolPayloadSnapshot({
+        routeResult: { selectedProvider: 'PER_SYMBOL_SUPPLY_INJECTION', bySymbol: investorFlowBySymbol },
+        capturedAt: now.toISOString(),
+      });
+    } catch (error) {
+      // 보존 실패는 진단 carry 만 영향 — 주입/스코어링 경로는 그대로. silent swallow 금지.
+      logger.warn('[PER_SYMBOL_SUPPLY_BYSYMBOL_SNAPSHOT_PERSIST_THROW]', error instanceof Error ? error.message : String(error));
+    }
+  }
+
   const stats = buildStats(candidates, flowResults, symbols, routerConnected);
+  stats.investorFlowBySymbolCount = investorFlowBySymbolCount;
   logStats(stats);
-  return { candidates, stats };
+  return { candidates, stats, investorFlowBySymbol };
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * WIRE_SELECTED_CANDIDATE_ACTUAL_ROW (작업 1) — per-symbol investor-flow 결과를 6-digit
+ * symbol 키 map 으로 정규화한다. 각 entry 는 forensic by-symbol payload 가 소비할 수 있도록
+ * `gateSemanticFlatRow`(외인/기관/프로그램) + normalized actual row 를 promote 한다.
+ *
+ * 규칙:
+ *   - symbol 은 normalizeSupplySymbol 로 6-digit 통일(KIS/candidate/shortCode 혼재 흡수).
+ *   - 외인·기관 net-buy 가 둘 다 없으면 핵심 의미 필드 부재 → 억지 attach 금지(diagnosticOnly skip).
+ *   - programNetBuy 는 placeholder/부재여도 row 전체를 버리지 않는다(작업 5: partial 허용).
+ *   - 모든 entry 는 진단 전용 — usableForGate/Live=false, executionImpact=NONE(snapshot sanitizer 강제).
+ */
+function buildInvestorFlowBySymbolCarryMap(
+  flowResults: InvestorFlowResult[],
+): Record<string, Record<string, unknown>> {
+  const bySymbol: Record<string, Record<string, unknown>> = {};
+  for (const result of flowResults) {
+    const symbol = normalizeSupplySymbol(result?.symbol);
+    if (!symbol) continue;
+    const sample = (result.routeResult?.data
+      ?? result.routeResult?.bySymbol?.[symbol]
+      ?? undefined) as Record<string, unknown> | undefined;
+    const foreignNetBuy = toFiniteNumber(sample?.foreignNetBuy) ?? toFiniteNumber(result.foreignNetBuyAmount);
+    const institutionNetBuy = toFiniteNumber(sample?.institutionalNetBuy) ?? toFiniteNumber(result.institutionNetBuyAmount);
+    // 핵심 필드(외인·기관) 둘 다 없으면 의미 row 부재 — diagnosticOnly 로 남기고 map 미수록.
+    if (foreignNetBuy == null && institutionNetBuy == null) continue;
+    const programNetBuy = toFiniteNumber(sample?.programNetBuy) ?? toFiniteNumber(result.programNetBuyAmount);
+    const individualNetBuy = toFiniteNumber(sample?.individualNetBuy);
+    const gateSemanticFlatRow = { foreignNetBuy, institutionNetBuy, programNetBuy };
+    const normalizedInvestorRow: Record<string, unknown> = {
+      symbol,
+      foreignNetBuy,
+      institutionNetBuy,
+      ...(programNetBuy != null ? { programNetBuy } : {}),
+      ...(individualNetBuy != null ? { individualNetBuy } : {}),
+    };
+    const sampleRows = Array.isArray(sample?.actualInvestorFlowRows) && (sample!.actualInvestorFlowRows as unknown[]).length > 0
+      ? (sample!.actualInvestorFlowRows as Array<Record<string, unknown>>)
+      : undefined;
+    bySymbol[symbol] = {
+      symbol,
+      providerScope: 'SYMBOL_LEVEL',
+      gateSemanticFlatRow,
+      normalizedInvestorRow,
+      actualInvestorFlowRows: sampleRows ?? [normalizedInvestorRow],
+      actualInvestorRow: (sample?.actualInvestorRow as Record<string, unknown> | undefined) ?? normalizedInvestorRow,
+      diagnosticActualInvestorRow: (sample?.diagnosticActualInvestorRow as Record<string, unknown> | undefined) ?? normalizedInvestorRow,
+      actualInvestorFlowRowCount: sampleRows?.length ?? 1,
+      actualInvestorFlowCarried: true,
+      materialized: true,
+      usableForRouter: true,
+    };
+  }
+  return bySymbol;
 }
 
 function candidateSymbol(candidate: CandidateWithSupplyContext): string {
