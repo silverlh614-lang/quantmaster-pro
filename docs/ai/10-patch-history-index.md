@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-28 · Patch-E · krx-provider, resolveTradeDateWithFallback 배선(fetchInvestorTrading/fetchInvestorTradingDetail/fetchPerPbr/fetchShortBalance), primary→fallback 1회 재시도(GATED/ENDPOINT_PARAM_NOT_READY/rowCount=0/otpGenerated=false/null), isBldCooldown 충돌방지, resolveTradeDate import 제거, krxClient.ts 1480→1580줄(architect 분해 ADR 필요), SDS-OK, executionImpact-NONE(SHADOW_ONLY 유지)
 - 2026-05-27 · ADR-0538 · refactor, formatScanBlockersMessage god함수 분해(cc 131→≤25), scanBlockersMessageSections.ts 신규(섹션빌더 12), scanBlockersFormatter 1485→1161(baseline 완화), GodFunctionGuard 218→217, display-only 출력 byte-identical(테스트 335/12 무회귀), executionImpact-NONE
 - 2026-05-27 · Patch-SAFE-LEAF-CC-DECOMP-001 · refactor, safe leaf cc 분해 3종(mapNaverIndustryToKorean 67→순서보존 룩업배열, parseKrxMasterCsv market 분류헬퍼, summarizeInvestorFlowProviderHealth display resolver), GodFunctionGuard 221→218, 동작 보존(테스트 무회귀), 판단로직 무관 순수/display leaf, executionImpact-NONE
 - 2026-05-27 · Patch-TELEGRAM-FORMATTER-CC-DECOMP-001 · refactor, telegram display formatter 4종 cc 분해(gateAudit/sectorEnergyDiag/programMarketRaw/supplyHealth-diagnoseInvestorFlow), 분기클러스터→순수 섹션헬퍼·룩업테이블 추출, GodFunctionGuard 225→221, 출력 byte-identical(커맨드테스트 70/70), 판단로직 불변, executionImpact-NONE
