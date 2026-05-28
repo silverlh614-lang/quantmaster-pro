@@ -37,6 +37,7 @@ export function buildMacroGateState(input: {
   snapshotFreshnessForLive?: string;
   snapshotFreshnessForShadow?: string;
   snapshotFreshnessForDiagnostic?: string;
+  snapshotStaleCause?: string;
   executionPermissionReason?: string;
   executionPermissionSource?: string;
   finalExecutionPolicy?: string;
@@ -45,6 +46,7 @@ export function buildMacroGateState(input: {
   activeR6Triggers?: string[];
   r6ShockLatch?: boolean;
   recoveryBlockedReason?: string;
+  cooldownUntil?: string;
   liveEntryAllowed?: boolean;
   liveExitAllowed?: boolean;
   shadowBuyAllowed?: boolean;
@@ -104,6 +106,7 @@ export function buildMacroGateState(input: {
     snapshotFreshnessForLive: input.snapshotFreshnessForLive,
     snapshotFreshnessForShadow: input.snapshotFreshnessForShadow,
     snapshotFreshnessForDiagnostic: input.snapshotFreshnessForDiagnostic,
+    snapshotStaleCause: input.snapshotStaleCause,
     executionPermissionReason: input.executionPermissionReason,
     executionPermissionSource: input.executionPermissionSource,
     finalExecutionPolicy: input.finalExecutionPolicy,
@@ -112,6 +115,7 @@ export function buildMacroGateState(input: {
     activeR6Triggers: input.activeR6Triggers,
     r6ShockLatch: input.r6ShockLatch,
     recoveryBlockedReason: input.recoveryBlockedReason,
+    cooldownUntil: input.cooldownUntil,
     liveEntryAllowed: input.liveEntryAllowed,
     liveExitAllowed: input.liveExitAllowed ?? true,
     shadowBuyAllowed: input.shadowBuyAllowed ?? true,

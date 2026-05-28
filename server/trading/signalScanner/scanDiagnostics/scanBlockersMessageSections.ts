@@ -47,7 +47,7 @@ export function buildMacroGateSection(summary: ScanSummary, mg: MacroGateState):
     lines.push(`  • ${line}`);
   }
   lines.push(`  • Kelly ×${mg.finalKellyMultiplier.toFixed(2)} (regime ×${mg.kellyMultiplierFromRegime.toFixed(2)}, FOMC ×${mg.fomcKellyMultiplier.toFixed(2)})`);
-  if (gate0Decision) lines.push(`  • Gate0 Macro/Permission: sourceHealth=${gate0Decision.sourceHealth} sourceFreshness=${gate0Decision.sourceFreshness} macroSignalConfidence=${gate0Decision.macroSignalConfidence} macroMarketSignal=${gate0Decision.macroMarketSignal} usableForLiveOrder=${gate0Decision.usableForLiveOrder} usableForBrokerOrder=${gate0Decision.usableForBrokerOrder} snapshotFreshnessForLive=${gate0Decision.snapshotFreshnessForLive} liveBlockReason=${gate0Decision.liveBlockReason} liveBlockSubReason=${gate0Decision.liveBlockSubReason ?? 'NONE'} finalExecutionPolicy=${gate0Decision.finalExecutionPolicy} shadowAllowed=${gate0Decision.shadowAllowed} counterfactualAllowed=${gate0Decision.counterfactualAllowed} diagnosticAllowed=${gate0Decision.diagnosticAllowed}`);
+  if (gate0Decision) lines.push(`  • Gate0 Macro/Permission: sourceHealth=${gate0Decision.sourceHealth} sourceFreshness=${gate0Decision.sourceFreshness} macroSignalConfidence=${gate0Decision.macroSignalConfidence} macroMarketSignal=${gate0Decision.macroMarketSignal} usableForLiveOrder=${gate0Decision.usableForLiveOrder} usableForBrokerOrder=${gate0Decision.usableForBrokerOrder} snapshotFreshnessForLive=${gate0Decision.snapshotFreshnessForLive} liveBlockReason=${gate0Decision.liveBlockReason} liveBlockSubReason=${gate0Decision.liveBlockSubReason ?? 'NONE'} finalExecutionPolicy=${gate0Decision.finalExecutionPolicy} shadowAllowed=${gate0Decision.shadowAllowed} counterfactualAllowed=${gate0Decision.counterfactualAllowed} diagnosticAllowed=${gate0Decision.diagnosticAllowed} snapshotStaleCause=${gate0Decision.snapshotStaleCause ?? 'NONE'}`);
   lines.push(...buildMacroR6RecoveryLines(mg, staleLegacyR6Path));
   lines.push(...buildMacroPermissionFlagLines(mg, permissionView));
   lines.push(`  • FOMC: ${mg.fomcPhase} (점수/신뢰도 보정만 적용, executionImpact=NONE)`);
@@ -76,6 +76,12 @@ function buildMacroR6RecoveryLines(mg: MacroGateState, staleLegacyR6Path: boolea
     if (mg.activeR6Triggers) lines.push(`  • activeR6Triggers: [${mg.activeR6Triggers.join(',') || 'none'}]`);
     if (mg.r6ShockLatch !== undefined) lines.push(`  • r6ShockLatch: ${mg.r6ShockLatch}`);
     if (mg.recoveryBlockedReason) lines.push(`  • recoveryBlockedReason: ${mg.recoveryBlockedReason}`);
+    if (mg.recoveryBlockedReason === 'R6_COOLDOWN_ACTIVE' && mg.cooldownUntil) {
+      const expiresMs = Date.parse(mg.cooldownUntil);
+      const nowMs = Date.now();
+      const remainingMin = Number.isFinite(expiresMs) ? Math.max(0, Math.ceil((expiresMs - nowMs) / 60_000)) : null;
+      lines.push(`  • cooldownExpiresAt: ${mg.cooldownUntil}${remainingMin !== null ? ` (remainingMin=${remainingMin})` : ''}`);
+    }
   }
   return lines;
 }

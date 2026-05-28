@@ -987,28 +987,40 @@ export async function persistScanResults(
       tradingDate: todayKst,
     });
     const cacheRaw = supplySnapshotCacheLookupAdr0491.cacheRaw;
-    const krxTradeDate = compactTradingDateAdr0505(previousTradingDateCandidate);
+    // Try today first during market hours; fall back to previous trading day on empty response.
+    const krxTodayDate = compactTradingDateAdr0505(todayKst);
+    const krxPrevDate = compactTradingDateAdr0505(previousTradingDateCandidate);
+    let krxTradeDate = sellOnlyOrClosed ? krxPrevDate : krxTodayDate;
+    let krxSourceDate: string = sellOnlyOrClosed ? previousTradingDateCandidate : todayKst;
+    let krxDataStatus: 'VERIFIED' | 'STALE' = sellOnlyOrClosed ? 'STALE' : 'VERIFIED';
     let previousTradingDayKrxRaw: Record<string, unknown> | null = null;
     let krxSemanticInputAdr0482: SemanticNetBuyInputPoint | null = null;
     let krxInvestorDiagnosticAdr0505: InvestorFlowProviderRouterInput['krxInvestorDiagnosticAdr0505'] = null;
     try {
-      const krxInvestorRows = await fetchInvestorTrading(krxTradeDate, { symbol: firstSymbol });
+      let krxInvestorRows = await fetchInvestorTrading(krxTradeDate, { symbol: firstSymbol });
+      // If today yielded no rows during market hours, fall back to previous trading day.
+      if (krxInvestorRows.length === 0 && !sellOnlyOrClosed) {
+        krxTradeDate = krxPrevDate;
+        krxSourceDate = previousTradingDateCandidate;
+        krxDataStatus = 'STALE';
+        krxInvestorRows = await fetchInvestorTrading(krxTradeDate, { symbol: firstSymbol });
+      }
       krxInvestorDiagnosticAdr0505 = krxDiagnosticToRouterInputAdr0505(
         getLastKrxInvestorTradingDiagnostic(krxTradeDate),
-        previousTradingDateCandidate,
+        krxSourceDate,
       );
       const normalizedFirstSymbol = normalizeSymbolCodeAdr0505(firstSymbol);
       const krxHit = krxInvestorRows.find((row) => normalizeSymbolCodeAdr0505(row.code) === normalizedFirstSymbol) ?? null;
       if (krxHit) {
         previousTradingDayKrxRaw = krxInvestorRowToRouterRawAdr0505({
           row: krxHit,
-          sourceDate: previousTradingDateCandidate,
-          status: 'STALE',
+          sourceDate: krxSourceDate,
+          status: krxDataStatus,
         });
         krxSemanticInputAdr0482 = krxInvestorRowToSemanticInputAdr0482({
           row: krxHit,
-          sourceDate: previousTradingDateCandidate,
-          status: 'STALE',
+          sourceDate: krxSourceDate,
+          status: krxDataStatus,
         });
       } else if (krxInvestorDiagnosticAdr0505?.parserStatus === 'OK') {
         krxInvestorDiagnosticAdr0505 = {
@@ -1026,7 +1038,7 @@ export async function persistScanResults(
         endpoint: 'MDCSTAT02401',
         bld: 'dbms/MDC/STAT/standard/MDCSTAT02401',
         tradeDate: krxTradeDate,
-        previousTradingDateCandidate,
+        previousTradingDateCandidate: krxSourceDate,
         selectedKrxFlowMode: 'DIRECT_JSON',
         payloadMode: 'EXTENDED_VARIANT',
         routePurpose: 'SYMBOL_LEVEL',
@@ -1076,7 +1088,7 @@ export async function persistScanResults(
           netBuyAmount: null,
           netBuyVolume: null,
         },
-        summary: `KRX_SYMBOL_INVESTOR_FLOW fetch failed for previousTradingDateCandidate=${previousTradingDateCandidate}; error=${error instanceof Error ? error.message : String(error)}`,
+        summary: `KRX_SYMBOL_INVESTOR_FLOW fetch failed for tradeDate=${krxTradeDate} sourceDate=${krxSourceDate}; error=${error instanceof Error ? error.message : String(error)}`,
       };
     }
     const cachedNaverPoint = cacheRawToNaverInvestorTrendPointAdr0481(cacheRaw);
