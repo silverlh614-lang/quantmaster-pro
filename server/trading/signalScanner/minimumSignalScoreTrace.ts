@@ -775,17 +775,17 @@ export function buildMinimumSignalScoreTrace(input: {
     }),
     component({
       code: "WATCHLIST_PRIORITY",
-      normalizedScore: input.trace.symbol === "UNIVERSE_SUMMARY" ? 0 : 8,
+      normalizedScore: (!input.trace.symbol || input.trace.symbol === "UNIVERSE_SUMMARY") ? 0 : 8,
       weight: 1,
-      weightedScore: input.trace.symbol === "UNIVERSE_SUMMARY" ? 0 : 8,
+      weightedScore: (!input.trace.symbol || input.trace.symbol === "UNIVERSE_SUMMARY") ? 0 : 8,
       maxScore: 8,
       confidence:
-        input.trace.symbol === "UNIVERSE_SUMMARY" ? "MISSING" : "VERIFIED",
+        (!input.trace.symbol || input.trace.symbol === "UNIVERSE_SUMMARY") ? "MISSING" : "VERIFIED",
       providerIssue: false,
       marketSignal: false,
-      penaltyApplied: input.trace.symbol === "UNIVERSE_SUMMARY",
+      penaltyApplied: (!input.trace.symbol || input.trace.symbol === "UNIVERSE_SUMMARY"),
       penaltyReason:
-        input.trace.symbol === "UNIVERSE_SUMMARY"
+        (!input.trace.symbol || input.trace.symbol === "UNIVERSE_SUMMARY")
           ? "WATCHLIST_MISSING"
           : undefined,
       message: "Watchlist row priority contribution.",
@@ -945,6 +945,71 @@ export function buildMinimumSignalScoreTrace(input: {
         input.hasGate1Blocker && supplyProviderUnknownRootSeen
           ? "Soft-fail aggregate shares SUPPLY_PROVIDER_UNKNOWN root cause and is diagnostic-only to avoid duplicate signal-score penalty."
           : "Legacy Gate1 aggregate soft fail penalty is separated from hard risk.",
+    }),
+    // Patch-B: ADR-0467 ADVISORY_SIGNAL 범위 — contributesTo:'ADVISORY_ONLY'.
+    // Gate1 hard block 미관여, LIVE 매매 경로 byte-equivalent 보존.
+    // 입력 필드 없으면 confidence=MISSING, score=0 (graceful missing).
+    component({
+      code: "SECTOR_RELATIVE_STRENGTH",
+      rawValue: nestedNumericTraceValue(input.trace, [
+        "rsRankPct",
+        "sectorRelativeReturn20d",
+        "featurePack.momentum.rsRankPct",
+        "featurePack.momentum.sectorRelativeReturn20d",
+        "quoteFeatures.rsRankPct",
+        "quoteFeatures.sectorRelativeReturn20d",
+      ]),
+      normalizedScore: 0,
+      weight: 0,
+      weightedScore: 0,
+      maxScore: 0,
+      confidence: (() => {
+        const v = nestedNumericTraceValue(input.trace, [
+          "rsRankPct",
+          "sectorRelativeReturn20d",
+          "featurePack.momentum.rsRankPct",
+          "featurePack.momentum.sectorRelativeReturn20d",
+          "quoteFeatures.rsRankPct",
+          "quoteFeatures.sectorRelativeReturn20d",
+        ]);
+        return v !== undefined ? "DIAGNOSTIC_ONLY" : "MISSING";
+      })(),
+      providerIssue: false,
+      marketSignal: false,
+      penaltyApplied: false,
+      message:
+        "SECTOR_RELATIVE_STRENGTH is advisory-only (ADR-0467); score=0, Gate1 hard block 미관여.",
+    }),
+    component({
+      code: "GHOST_SIGNAL_STRENGTH",
+      rawValue: nestedNumericTraceValue(input.trace, [
+        "ghostSignalScore",
+        "counterfactualScore",
+        "ghostLearningScore",
+        "shadowLearningScore",
+        "featurePack.ghost.score",
+        "featurePack.counterfactual.score",
+      ]),
+      normalizedScore: 0,
+      weight: 0,
+      weightedScore: 0,
+      maxScore: 0,
+      confidence: (() => {
+        const v = nestedNumericTraceValue(input.trace, [
+          "ghostSignalScore",
+          "counterfactualScore",
+          "ghostLearningScore",
+          "shadowLearningScore",
+          "featurePack.ghost.score",
+          "featurePack.counterfactual.score",
+        ]);
+        return v !== undefined ? "DIAGNOSTIC_ONLY" : "MISSING";
+      })(),
+      providerIssue: false,
+      marketSignal: false,
+      penaltyApplied: false,
+      message:
+        "GHOST_SIGNAL_STRENGTH is advisory-only (ADR-0467); score=0, Gate1 hard block 미관여.",
     }),
   ];
   const computedScore = round1(

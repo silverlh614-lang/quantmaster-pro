@@ -68,6 +68,41 @@ export function resolveTradeDate(date: string | undefined, now: Date = new Date(
   return todayKstYYYYMMDD();
 }
 
+/**
+ * ADR-0009 / Patch-D — 장중(isMarketDataPublished=false) tradeDate 고착 문제 해소.
+ * 수동 date 인자가 유효하면 { primary: date, fallback: date } 그대로 반환.
+ * 주말이면 직전 영업일만 반환 (당일이 유효한 거래일이 아니므로 fallback 불필요).
+ * 평일 장중에는 todayKst 를 primary, previousBusinessDay 를 fallback 으로 제공.
+ *   → 호출부는 primary 로 KRX 요청을 먼저 시도하고, ENDPOINT_PARAM_NOT_READY /
+ *     GATED / 빈 행 응답 시 fallback 으로 재시도한다.
+ * 평일 18:00 이후(isMarketDataPublished=true) 에는 당일만 반환 (fallback=undefined).
+ */
+export function resolveTradeDateWithFallback(
+  date: string | undefined,
+  now: Date = new Date(),
+): { primary: string; fallback: string | undefined } {
+  // 수동 지정 날짜 — 백필/디버깅 경로, 변환 없이 존중.
+  if (date && isValidYyyymmdd(date)) {
+    return { primary: date, fallback: undefined };
+  }
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
+  const kst = new Date(utcMs + 9 * 60 * 60_000);
+  const day = kst.getUTCDay();
+  const isWeekend = day === 0 || day === 6;
+  // 주말 — 직전 영업일만 유효, fallback 불필요.
+  if (isWeekend) {
+    return { primary: previousBusinessDayYYYYMMDD(now), fallback: undefined };
+  }
+  const published = isMarketDataPublished(now);
+  if (published) {
+    // 18:00 이후 확정 데이터 — 당일만 사용, fallback 불필요.
+    return { primary: todayKstYYYYMMDD(), fallback: undefined };
+  }
+  // 평일 장중(18:00 이전) — 당일을 우선 시도, 전일을 fallback 으로 제공.
+  // Patch-D: 이전 동작은 전일 고착이었으나 당일 KRX 데이터가 공개되어 있을 수 있어 당일 우선.
+  return { primary: todayKstYYYYMMDD(), fallback: previousBusinessDayYYYYMMDD(now) };
+}
+
 /** YYYY-MM-DD 또는 다른 separator 가 섞인 값을 YYYYMMDD 만으로 정규화. */
 export function compactTradeDate(date: string): string {
   return date.replace(/[^0-9]/g, '');

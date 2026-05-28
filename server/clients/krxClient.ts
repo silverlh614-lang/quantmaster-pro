@@ -110,7 +110,7 @@ import {
   listCacheKeys,
   resetCacheState,
 } from './krxClient/cache.js';
-import { resetCooldownState as _resetCooldownState } from './krxClient/cooldown.js';
+import { resetCooldownState as _resetCooldownState, isBldCooldown } from './krxClient/cooldown.js';
 export { getLastKrxInvestorTradingDiagnostic } from './krxClient/cache.js';
 
 /**
@@ -138,10 +138,7 @@ export { shouldSkipKrxCallByTimeWindow } from './krxClient/timeWindow.js';
 
 // ── 날짜 유틸 (ADR-0502c — dateUtils.ts SSOT) ────────────────────────────────
 import {
-  todayKstYYYYMMDD,
-  isValidYyyymmdd,
-  previousBusinessDayYYYYMMDD,
-  resolveTradeDate,
+  resolveTradeDateWithFallback,
   compactTradeDate,
 } from './krxClient/dateUtils.js';
 
@@ -173,127 +170,22 @@ export const __krxClientTestOnly = {
 
 // ── CSV 파서 + OTP-CSV flow (ADR-0502c Phase 2 — csv.ts + otpCsv.ts SSOT) ────
 import { krxInvestorOtpCsv } from './krxClient/otpCsv.js';
-
+// ── Investor detail guard (ADR-0502c Phase 3 — investorDetailGuard.ts SSOT) ──
+import {
+  type KrxEndpointGuardReason,
+  INVESTOR_DETAIL_SAFE_PROBE_ENDPOINTS,
+  INVESTOR_DETAIL_SAFE_PROBE_COOLDOWN_MS,
+  resetKrxInvestorDetailSafeProbeGuardState,
+  isKrxInvestorDetailIntradaySession,
+  isKrxInvestorDetailSafeProbeEndpoint,
+  krxInvestorDetailProbeEnabled,
+  krxInvestorDetailGuardCooldownKey,
+  activeKrxInvestorDetailGuardCooldown,
+  recordKrxInvestorDetailBadRequestCooldown,
+  emitKrxInvestorDetailGuard,
+} from './krxClient/investorDetailGuard.js';
 
 const INVESTOR_ROW_CANDIDATE_KEYS = ['OutBlock_1', 'output', 'output1', 'output2', 'data', 'csv', 'list', 'rows', 'result', 'block1'] as const;
-const INVESTOR_DETAIL_SAFE_PROBE_ENDPOINTS = new Set(['MDCSTAT02201', 'MDCSTAT02203', 'MDCSTAT02401']);
-const INVESTOR_DETAIL_SAFE_PROBE_COOLDOWN_MS = 60 * 60 * 1000;
-
-type KrxEndpointGuardReason =
-  | 'SESSION_CLOSED_NOT_APPLICABLE'
-  | 'ENDPOINT_PARAM_NOT_READY'
-  | 'BAD_REQUEST_SESSION_OR_PARAM';
-
-const krxInvestorDetailGuardCooldown = new Map<string, number>();
-const krxInvestorDetailGuardLogState = new Map<string, { lastEmittedAt: number; suppressedCount: number }>();
-
-function resetKrxInvestorDetailSafeProbeGuardState(): void {
-  krxInvestorDetailGuardCooldown.clear();
-  krxInvestorDetailGuardLogState.clear();
-}
-
-function kstDateParts(now: Date): { day: number; hour: number; minute: number } {
-  const kst = new Date(now.getTime() + 9 * 60 * 60_000);
-  return {
-    day: kst.getUTCDay(),
-    hour: kst.getUTCHours(),
-    minute: kst.getUTCMinutes(),
-  };
-}
-
-function isKrxInvestorDetailIntradaySession(now: Date): boolean {
-  if (process.env.KRX_TIME_WINDOW_GATING_DISABLED === 'true') return true;
-  if (process.env.DATA_FETCH_FORCE_MARKET === 'true') return true;
-  if (process.env.DATA_FETCH_FORCE_OFF === 'true') return false;
-  const { day, hour, minute } = kstDateParts(now);
-  if (day === 0 || day === 6) return false;
-  const minutes = hour * 60 + minute;
-  return minutes >= 9 * 60 && minutes <= 15 * 60 + 30;
-}
-
-function isKrxInvestorDetailSafeProbeEndpoint(endpoint: string): boolean {
-  return INVESTOR_DETAIL_SAFE_PROBE_ENDPOINTS.has(endpoint);
-}
-
-function krxInvestorDetailProbeEnabled(): boolean {
-  return process.env.KRX_INVESTOR_DETAIL_ENABLED === 'true';
-}
-
-function krxInvestorDetailGuardCooldownKey(input: {
-  endpoint: string;
-  session: 'CLOSED' | 'INTRADAY';
-  tradeDate: string;
-}): string {
-  return `provider=KRX:module=INVESTOR_DETAIL:endpoint=${input.endpoint}:session=${input.session}:date=${input.tradeDate}`;
-}
-
-function activeKrxInvestorDetailGuardCooldown(input: {
-  endpoint: string;
-  session: 'CLOSED' | 'INTRADAY';
-  tradeDate: string;
-  now: Date;
-}): number {
-  const cooldownUntil = krxInvestorDetailGuardCooldown.get(krxInvestorDetailGuardCooldownKey(input)) ?? 0;
-  return Math.max(0, cooldownUntil - input.now.getTime());
-}
-
-function recordKrxInvestorDetailBadRequestCooldown(input: {
-  endpoint: string;
-  tradeDate: string;
-  now: Date;
-}): void {
-  krxInvestorDetailGuardCooldown.set(
-    krxInvestorDetailGuardCooldownKey({ endpoint: input.endpoint, session: 'INTRADAY', tradeDate: input.tradeDate }),
-    input.now.getTime() + INVESTOR_DETAIL_SAFE_PROBE_COOLDOWN_MS,
-  );
-}
-
-function emitKrxInvestorDetailGuard(input: {
-  endpoint: string;
-  reason: KrxEndpointGuardReason;
-  intradaySession: boolean;
-  enabled: boolean;
-  now: Date;
-}): void {
-  const key = `${input.endpoint}:${input.reason}:${input.intradaySession ? 'INTRADAY' : 'CLOSED'}:${input.enabled ? 'ENABLED' : 'DISABLED'}`;
-  const state = krxInvestorDetailGuardLogState.get(key);
-  const elapsed = state ? input.now.getTime() - state.lastEmittedAt : Number.POSITIVE_INFINITY;
-  if (!state || elapsed >= INVESTOR_DETAIL_SAFE_PROBE_COOLDOWN_MS) {
-    if (state && state.suppressedCount > 0) {
-      logVisibilityEvent({
-        visibility: 'SUMMARY',
-        category: 'KRX',
-        message:
-        `[KRX_ENDPOINT_GUARD_SUPPRESSED] endpoint=${input.endpoint}` +
-        ` reason=${input.reason}` +
-        ` suppressedCount=${state.suppressedCount}` +
-        ' executionImpact=NONE',
-        summary: { endpoint: input.endpoint, reason: input.reason, suppressedCount: state.suppressedCount, executionImpact: 'NONE' },
-        details: { input },
-        level: 'info',
-        executionImpact: 'NONE',
-      });
-    }
-    logVisibilityEvent({
-      visibility: 'DIAGNOSTIC',
-      category: 'KRX',
-      dedupKey: `KRX_ENDPOINT_GUARDED:${input.reason}:${input.endpoint}:NONE`,
-      message:
-      `[KRX_ENDPOINT_GUARDED] endpoint=${input.endpoint}` +
-      ` reason=${input.reason}` +
-      ` intradaySession=${String(input.intradaySession)}` +
-      ` enabled=${String(input.enabled)}` +
-      ' providerIssue=false marketSignal=false executionImpact=NONE',
-      summary: { endpoint: input.endpoint, reason: input.reason, providerIssue: false, marketSignal: false, executionImpact: 'NONE' },
-      details: { input },
-      level: 'info',
-      executionImpact: 'NONE',
-    });
-    krxInvestorDetailGuardLogState.set(key, { lastEmittedAt: input.now.getTime(), suppressedCount: 0 });
-    return;
-  }
-  state.suppressedCount += 1;
-}
 
 // ADR-0502c: ExtractRowsResult 정의는 ./krxClient/types.ts 로 이동.
 
@@ -1091,19 +983,46 @@ function buildInvestorTradingVariants(
 // ── 공개 API ─────────────────────────────────────────────────────────────────
 
 /**
+ * Patch-E (ADR-0009): primary 날짜 KRX 응답이 재시도 가능한 실패인지 판정.
+ * fallback 트리거 조건 (OR):
+ *   - raw === null (HTTP 실패 / 네트워크 오류)
+ *   - responseKind === 'GATED'
+ *   - csvFailureReason === 'ENDPOINT_PARAM_NOT_READY'
+ *   - rowCount === 0 (빈 데이터)
+ *   - otpGenerated === false
+ * bld 가 cooldown 중이면 false 반환 (재시도해도 cooldown 게이트에서 막힘).
+ */
+function shouldFallbackKrxDate(
+  bld: string,
+  raw: KrxRawResponse | null,
+  rowCount: number,
+): boolean {
+  if (isBldCooldown(bld)) return false;
+  if (raw === null) return true;
+  const meta = getLastKrxPostMeta(bld);
+  if (!meta) return rowCount === 0;
+  if (meta.responseKind === 'GATED') return true;
+  if (meta.csvFailureReason === 'ENDPOINT_PARAM_NOT_READY') return true;
+  if (meta.otpGenerated === false) return true;
+  if (rowCount === 0) return true;
+  return false;
+}
+
+/**
  * 투자자별 개별종목 거래실적. 기본값: KST 오늘.
  * KRX 리포트 필드명 (MDCSTAT02203)은 한글 키 — 방어적 다중 키 fallback 적용.
  */
 export async function fetchInvestorTrading(date?: string, options: FetchInvestorTradingOptions = {}): Promise<KrxInvestorRow[]> {
   const now = options.now ?? new Date();
-  const tradeDate = resolveTradeDate(date, now);
+  // Patch-E: resolveTradeDateWithFallback — primary 우선, 장중 실패 시 fallback(전일) 1회 재시도.
+  const { primary: primaryDate, fallback: fallbackDate } = resolveTradeDateWithFallback(date, now);
   const symbolCode = normalizeCode(options.symbol);
   const explicitIsuCd = normalizeIsuCd(options.isuCd);
-  const cacheKey = `investor:${tradeDate}:${symbolCode || 'ALL'}:${explicitIsuCd || 'AUTO_ISU'}`;
+  const cacheKey = `investor:${primaryDate}:${symbolCode || 'ALL'}:${explicitIsuCd || 'AUTO_ISU'}`;
   const cached = getCached<KrxInvestorRow[]>(cacheKey);
   if (cached && !options.allowDisabledAutoFetch) return cached;
 
-  const compactDate = compactTradeDate(tradeDate);
+  const compactDate = compactTradeDate(primaryDate);
   if (!options.allowDisabledAutoFetch && isKrxAutoFetchDisabled()) {
     const diagnostic = buildKrxAutoDisabledDiagnostic({
       tradeDate: compactDate,
@@ -1114,74 +1033,115 @@ export async function fetchInvestorTrading(date?: string, options: FetchInvestor
     setInvestorTradingDiagnostic(compactDate, diagnostic);
     return [];
   }
-  const isuCdResolution = resolveKrxIsuCdForSymbol(symbolCode, explicitIsuCd);
-  const variants = buildInvestorTradingVariants(compactDate, symbolCode, isuCdResolution);
-  const intradaySession = isKrxInvestorDetailIntradaySession(now);
-  const attemptedDiagnostics: KrxInvestorTradingDiagnostic[] = [];
-  const attemptedVariantIds: string[] = [];
-  for (const variant of variants) {
-    attemptedVariantIds.push(variant.id);
-    const guardedDiagnostic = guardedKrxInvestorDetailDiagnosticForVariant({
-      variant,
-      tradeDate: compactDate,
-      attemptedVariants: [...attemptedVariantIds],
-      intradaySession,
-      now,
-    });
-    if (guardedDiagnostic) {
-      attemptedDiagnostics.push(guardedDiagnostic);
-      continue;
-    }
-    const raw = variant.mode === 'OTP_CSV'
-      ? await krxInvestorOtpCsv(variant, { allowDisabledAutoFetch: options.allowDisabledAutoFetch })
-      : await krxPost(variant.bld, variant.params, { bypassTimeWindow: true, allowDisabledAutoFetch: options.allowDisabledAutoFetch, suppressHttpErrorLog: isKrxInvestorDetailSafeProbeEndpoint(variant.endpoint) });
-    const extracted = extractRowsDetailed(raw);
-    const normalized = normalizeKrxInvestorRows(extracted.rows);
-    const rows = symbolCode
-      ? normalized.rows.filter((row) => row.code === symbolCode)
-      : normalized.rows;
-    const diagnostic = markKrxInvestorDetailBadRequestDiagnostic({
-      diagnostic: buildInvestorTradingDiagnostic({
-        raw,
-        tradeDate: compactDate,
-        extract: extracted,
-        normalized: { ...normalized, rows },
+
+  // ── 날짜별 variant 루프 실행기 ──────────────────────────────────────────────
+  async function runVariantLoop(loopDate: string): Promise<{ rows: KrxInvestorRow[]; diagnostics: KrxInvestorTradingDiagnostic[]; variantIds: string[] }> {
+    const loopCompact = compactTradeDate(loopDate);
+    const isuCdResolution = resolveKrxIsuCdForSymbol(symbolCode, explicitIsuCd);
+    const variants = buildInvestorTradingVariants(loopCompact, symbolCode, isuCdResolution);
+    const intradaySession = isKrxInvestorDetailIntradaySession(now);
+    const attemptedDiagnostics: KrxInvestorTradingDiagnostic[] = [];
+    const attemptedVariantIds: string[] = [];
+    for (const variant of variants) {
+      attemptedVariantIds.push(variant.id);
+      const guardedDiagnostic = guardedKrxInvestorDetailDiagnosticForVariant({
         variant,
+        tradeDate: loopCompact,
         attemptedVariants: [...attemptedVariantIds],
-      }),
-      variant,
-      tradeDate: compactDate,
-      attemptedVariants: [...attemptedVariantIds],
-      intradaySession,
-      now,
-    });
-    attemptedDiagnostics.push(diagnostic);
-    if (rows.length > 0 && diagnostic.parserStatus === 'OK') {
-      const selectedDiagnostic = { ...diagnostic, selectedVariant: variant.id, attemptedVariants: [...attemptedVariantIds] };
-      setInvestorTradingDiagnostic(compactDate, selectedDiagnostic);
-      setCached(cacheKey, rows);
-      return rows;
+        intradaySession,
+        now,
+      });
+      if (guardedDiagnostic) {
+        attemptedDiagnostics.push(guardedDiagnostic);
+        continue;
+      }
+      const raw = variant.mode === 'OTP_CSV'
+        ? await krxInvestorOtpCsv(variant, { allowDisabledAutoFetch: options.allowDisabledAutoFetch })
+        : await krxPost(variant.bld, variant.params, { bypassTimeWindow: true, allowDisabledAutoFetch: options.allowDisabledAutoFetch, suppressHttpErrorLog: isKrxInvestorDetailSafeProbeEndpoint(variant.endpoint) });
+      const extracted = extractRowsDetailed(raw);
+      const normalized = normalizeKrxInvestorRows(extracted.rows);
+      const rows = symbolCode
+        ? normalized.rows.filter((row) => row.code === symbolCode)
+        : normalized.rows;
+      const diagnostic = markKrxInvestorDetailBadRequestDiagnostic({
+        diagnostic: buildInvestorTradingDiagnostic({
+          raw,
+          tradeDate: loopCompact,
+          extract: extracted,
+          normalized: { ...normalized, rows },
+          variant,
+          attemptedVariants: [...attemptedVariantIds],
+        }),
+        variant,
+        tradeDate: loopCompact,
+        attemptedVariants: [...attemptedVariantIds],
+        intradaySession,
+        now,
+      });
+      attemptedDiagnostics.push(diagnostic);
+      if (rows.length > 0 && diagnostic.parserStatus === 'OK') {
+        return { rows, diagnostics: attemptedDiagnostics, variantIds: attemptedVariantIds };
+      }
     }
+    return { rows: [], diagnostics: attemptedDiagnostics, variantIds: attemptedVariantIds };
   }
 
+  // primary 날짜로 시도
+  const primaryResult = await runVariantLoop(primaryDate);
+  if (primaryResult.rows.length > 0) {
+    const lastDiag = primaryResult.diagnostics.at(-1)!;
+    const selectedDiagnostic = { ...lastDiag, selectedVariant: primaryResult.variantIds.at(-1) ?? null, attemptedVariants: primaryResult.variantIds };
+    setInvestorTradingDiagnostic(compactDate, selectedDiagnostic);
+    setCached(cacheKey, primaryResult.rows);
+    return primaryResult.rows;
+  }
+
+  // Patch-E: fallback 재시도 — bld 판정은 BLD_INVESTOR_TRADING 대표로 사용, 최대 1회.
+  if (fallbackDate && shouldFallbackKrxDate(BLD_INVESTOR_TRADING, null, 0)) {
+    console.info(`[KRX:InvestorTrading] primary(${compactDate}) 빈 응답 → fallback(${compactTradeDate(fallbackDate)}) 재시도`);
+    const fbResult = await runVariantLoop(fallbackDate);
+    const fbCompact = compactTradeDate(fallbackDate);
+    if (fbResult.rows.length > 0) {
+      const lastDiag = fbResult.diagnostics.at(-1)!;
+      const selectedDiagnostic = { ...lastDiag, selectedVariant: fbResult.variantIds.at(-1) ?? null, attemptedVariants: fbResult.variantIds };
+      setInvestorTradingDiagnostic(fbCompact, selectedDiagnostic);
+      setCached(cacheKey, fbResult.rows);
+      return fbResult.rows;
+    }
+    // fallback 도 실패 — fallback 진단 기록
+    const allDiagnostics = [...primaryResult.diagnostics, ...fbResult.diagnostics];
+    const allVariantIds = [...primaryResult.variantIds, ...fbResult.variantIds];
+    const bestDiagnostic =
+      allDiagnostics.find((d) => d.selectedRowCount > 0 && d.normalizedRows > 0) ??
+      allDiagnostics.find((d) => d.routedStatus === 'BAD_REQUEST_SESSION_OR_PARAM') ??
+      allDiagnostics.find((d) => d.responseKind !== 'HTTP_ERROR' && d.responseKind !== 'COOLDOWN') ??
+      allDiagnostics.find((d) => d.responseKind === 'HTTP_ERROR') ??
+      allDiagnostics.at(-1) ??
+      buildInvestorTradingDiagnostic({ raw: null, tradeDate: fbCompact, extract: extractRowsDetailed(null), normalized: normalizeKrxInvestorRows([]), attemptedVariants: allVariantIds });
+    setInvestorTradingDiagnostic(fbCompact, { ...bestDiagnostic, selectedVariant: null, attemptedVariants: allVariantIds, summary: `${bestDiagnostic.summary};fallback=${fbCompact};selectedVariant=NONE;variantCount=${allVariantIds.length}` });
+    setCached(cacheKey, []);
+    return [];
+  }
+
+  // fallback 없음 또는 cooldown — primary 진단 기록
   const bestDiagnostic =
-    attemptedDiagnostics.find((diagnostic) => diagnostic.selectedRowCount > 0 && diagnostic.normalizedRows > 0) ??
-    attemptedDiagnostics.find((diagnostic) => diagnostic.routedStatus === 'BAD_REQUEST_SESSION_OR_PARAM') ??
-    attemptedDiagnostics.find((diagnostic) => diagnostic.responseKind !== 'HTTP_ERROR' && diagnostic.responseKind !== 'COOLDOWN') ??
-    attemptedDiagnostics.find((diagnostic) => diagnostic.responseKind === 'HTTP_ERROR') ??
-    attemptedDiagnostics.at(-1) ??
+    primaryResult.diagnostics.find((d) => d.selectedRowCount > 0 && d.normalizedRows > 0) ??
+    primaryResult.diagnostics.find((d) => d.routedStatus === 'BAD_REQUEST_SESSION_OR_PARAM') ??
+    primaryResult.diagnostics.find((d) => d.responseKind !== 'HTTP_ERROR' && d.responseKind !== 'COOLDOWN') ??
+    primaryResult.diagnostics.find((d) => d.responseKind === 'HTTP_ERROR') ??
+    primaryResult.diagnostics.at(-1) ??
     buildInvestorTradingDiagnostic({
       raw: null,
       tradeDate: compactDate,
       extract: extractRowsDetailed(null),
       normalized: normalizeKrxInvestorRows([]),
-      attemptedVariants: attemptedVariantIds,
+      attemptedVariants: primaryResult.variantIds,
     });
   setInvestorTradingDiagnostic(compactDate, {
     ...bestDiagnostic,
     selectedVariant: null,
-    attemptedVariants: attemptedVariantIds,
-    summary: `${bestDiagnostic.summary};selectedVariant=NONE;variantCount=${attemptedVariantIds.length}`,
+    attemptedVariants: primaryResult.variantIds,
+    summary: `${bestDiagnostic.summary};selectedVariant=NONE;variantCount=${primaryResult.variantIds.length}`,
   });
   setCached(cacheKey, []);
   return [];
@@ -1205,120 +1165,181 @@ export async function fetchInvestorTrading(date?: string, options: FetchInvestor
 // ADR-0502c: KrxInvestorDetailRow 정의는 ./krxClient/types.ts 로 이동.
 
 export async function fetchInvestorTradingDetail(date?: string): Promise<KrxInvestorDetailRow[]> {
-  const tradeDate = resolveTradeDate(date);
-  const cacheKey = `investorDetail:${tradeDate}`;
+  // Patch-E: resolveTradeDateWithFallback — primary 우선, 실패 시 fallback(전일) 1회 재시도.
+  const { primary: primaryDate, fallback: fallbackDate } = resolveTradeDateWithFallback(date);
+  const cacheKey = `investorDetail:${primaryDate}`;
   const cached = getCached<KrxInvestorDetailRow[]>(cacheKey);
   if (cached) return cached;
 
-  try {
-    const raw = await krxPost(BLD_INVESTOR_DETAIL, {
-      searchType:   '2',         // 2=투자자별 (1=종목별)
-      mktId:        'STK',       // STK=KOSPI (KSQ=KOSDAQ, ALL=양시장)
-      strtDd:       tradeDate,
-      endDd:        tradeDate,
-      trdVolVal:    '1',
-      share:        '1',
-      money:        '1',
-      csvxls_isNo:  'false',
-    });
-    const rows = extractRows(raw);
-
-    const out: KrxInvestorDetailRow[] = [];
-    for (const r of rows) {
-      // 카테고리명 — 한글 키 (INVSTR_NM / INVSTR_TP_NM / 등) 다중 fallback
-      const category = String(
-        r.INVSTR_NM ?? r.INVSTR_TP_NM ?? r.INVSTR ?? r.TRDR_NM ?? '',
-      ).trim();
-      if (!category) continue;
-
-      // 순매수 수량 (주) + 거래대금 (원)
-      const netBuyQty = toNum(
-        r.NETBY_QTY ?? r.NETBY_TRDVOL ?? r.NETBY_VOLUME ?? 0,
-      );
-      const netBuyKrw = toNum(
-        r.NETBY_TR_PBMN ?? r.NETBY_TRDVAL ?? r.NETBY_AMT ?? 0,
-      );
-
-      out.push({ category, netBuyQty, netBuyKrw });
+  async function attemptFetch(tradeDate: string): Promise<{ raw: KrxRawResponse | null; out: KrxInvestorDetailRow[] }> {
+    try {
+      const raw = await krxPost(BLD_INVESTOR_DETAIL, {
+        searchType:   '2',         // 2=투자자별 (1=종목별)
+        mktId:        'STK',       // STK=KOSPI (KSQ=KOSDAQ, ALL=양시장)
+        strtDd:       tradeDate,
+        endDd:        tradeDate,
+        trdVolVal:    '1',
+        share:        '1',
+        money:        '1',
+        csvxls_isNo:  'false',
+      });
+      const rows = extractRows(raw);
+      const out: KrxInvestorDetailRow[] = [];
+      for (const r of rows) {
+        // 카테고리명 — 한글 키 (INVSTR_NM / INVSTR_TP_NM / 등) 다중 fallback
+        const category = String(
+          r.INVSTR_NM ?? r.INVSTR_TP_NM ?? r.INVSTR ?? r.TRDR_NM ?? '',
+        ).trim();
+        if (!category) continue;
+        // 순매수 수량 (주) + 거래대금 (원)
+        const netBuyQty = toNum(r.NETBY_QTY ?? r.NETBY_TRDVOL ?? r.NETBY_VOLUME ?? 0);
+        const netBuyKrw = toNum(r.NETBY_TR_PBMN ?? r.NETBY_TRDVAL ?? r.NETBY_AMT ?? 0);
+        out.push({ category, netBuyQty, netBuyKrw });
+      }
+      return { raw, out };
+    } catch (e) {
+      console.warn(`[KRX:InvestorDetail] ${tradeDate} 조회 실패: ${e instanceof Error ? e.message : e}`);
+      return { raw: null, out: [] };
     }
-
-    setCached(cacheKey, out);
-    return out;
-  } catch (e) {
-    console.warn(
-      `[KRX:InvestorDetail] ${tradeDate} 조회 실패: ${e instanceof Error ? e.message : e}`,
-    );
-    return [];
   }
+
+  const { raw: primaryRaw, out: primaryOut } = await attemptFetch(primaryDate);
+  if (primaryOut.length > 0) {
+    setCached(cacheKey, primaryOut);
+    return primaryOut;
+  }
+
+  // Patch-E: fallback 재시도 — 최대 1회.
+  if (fallbackDate && shouldFallbackKrxDate(BLD_INVESTOR_DETAIL, primaryRaw, primaryOut.length)) {
+    console.info(`[KRX:InvestorDetail] primary(${primaryDate}) 빈 응답 → fallback(${fallbackDate}) 재시도`);
+    const { out: fbOut } = await attemptFetch(fallbackDate);
+    if (fbOut.length > 0) {
+      setCached(cacheKey, fbOut);
+      return fbOut;
+    }
+  }
+
+  setCached(cacheKey, []);
+  return [];
 }
 
 /**
  * 상장종목 PER/PBR/배당수익률 스냅샷. MDCSTAT03501.
  */
 export async function fetchPerPbr(date?: string): Promise<KrxPerPbrRow[]> {
-  const tradeDate = resolveTradeDate(date);
-  const cacheKey = `perpbr:${tradeDate}`;
+  // Patch-E: resolveTradeDateWithFallback — primary 우선, 실패 시 fallback(전일) 1회 재시도.
+  const { primary: primaryDate, fallback: fallbackDate } = resolveTradeDateWithFallback(date);
+  const cacheKey = `perpbr:${primaryDate}`;
   const cached = getCached<KrxPerPbrRow[]>(cacheKey);
   if (cached) return cached;
 
-  const raw = await krxPost(BLD_PER_PBR, {
-    searchType:   '1',
-    mktId:        'ALL',
-    trdDd:        tradeDate,
-    csvxls_isNo:  'false',
-  });
-  const rows = extractRows(raw);
-
-  const out: KrxPerPbrRow[] = [];
-  for (const r of rows) {
-    const code = normalizeCode(r.ISU_SRT_CD ?? r.ISU_CD);
-    if (!code) continue;
-    out.push({
-      code,
-      name: String(r.ISU_ABBRV ?? r.ISU_NM ?? '').trim(),
-      per: toNum(r.PER),
-      pbr: toNum(r.PBR),
-      dividendYield: toNum(r.DVD_YD),
-      eps: toNum(r.EPS),
-      bps: toNum(r.BPS),
-      close: toNum(r.TDD_CLSPRC ?? r.CLSPRC),
-    });
+  async function attemptFetch(tradeDate: string): Promise<{ raw: KrxRawResponse | null; out: KrxPerPbrRow[] }> {
+    try {
+      const raw = await krxPost(BLD_PER_PBR, {
+        searchType:   '1',
+        mktId:        'ALL',
+        trdDd:        tradeDate,
+        csvxls_isNo:  'false',
+      });
+      const rows = extractRows(raw);
+      const out: KrxPerPbrRow[] = [];
+      for (const r of rows) {
+        const code = normalizeCode(r.ISU_SRT_CD ?? r.ISU_CD);
+        if (!code) continue;
+        out.push({
+          code,
+          name: String(r.ISU_ABBRV ?? r.ISU_NM ?? '').trim(),
+          per: toNum(r.PER),
+          pbr: toNum(r.PBR),
+          dividendYield: toNum(r.DVD_YD),
+          eps: toNum(r.EPS),
+          bps: toNum(r.BPS),
+          close: toNum(r.TDD_CLSPRC ?? r.CLSPRC),
+        });
+      }
+      return { raw, out };
+    } catch (e) {
+      console.warn(`[KRX:PerPbr] ${tradeDate} 조회 실패: ${e instanceof Error ? e.message : e}`);
+      return { raw: null, out: [] };
+    }
   }
-  setCached(cacheKey, out);
-  return out;
+
+  const { raw: primaryRaw, out: primaryOut } = await attemptFetch(primaryDate);
+  if (primaryOut.length > 0) {
+    setCached(cacheKey, primaryOut);
+    return primaryOut;
+  }
+
+  // Patch-E: fallback 재시도 — 최대 1회.
+  if (fallbackDate && shouldFallbackKrxDate(BLD_PER_PBR, primaryRaw, primaryOut.length)) {
+    console.info(`[KRX:PerPbr] primary(${primaryDate}) 빈 응답 → fallback(${fallbackDate}) 재시도`);
+    const { out: fbOut } = await attemptFetch(fallbackDate);
+    if (fbOut.length > 0) {
+      setCached(cacheKey, fbOut);
+      return fbOut;
+    }
+  }
+
+  setCached(cacheKey, []);
+  return [];
 }
 
 /**
  * 공매도 잔고 상위. MDCSTAT30001.
  */
 export async function fetchShortBalance(date?: string): Promise<KrxShortBalanceRow[]> {
-  const tradeDate = resolveTradeDate(date);
-  const cacheKey = `short:${tradeDate}`;
+  // Patch-E: resolveTradeDateWithFallback — primary 우선, 실패 시 fallback(전일) 1회 재시도.
+  const { primary: primaryDate, fallback: fallbackDate } = resolveTradeDateWithFallback(date);
+  const cacheKey = `short:${primaryDate}`;
   const cached = getCached<KrxShortBalanceRow[]>(cacheKey);
   if (cached) return cached;
 
-  const raw = await krxPost(BLD_SHORT_BALANCE, {
-    searchType:   '1',
-    mktId:        'ALL',
-    trdDd:        tradeDate,
-    csvxls_isNo:  'false',
-  });
-  const rows = extractRows(raw);
-
-  const out: KrxShortBalanceRow[] = [];
-  for (const r of rows) {
-    const code = normalizeCode(r.ISU_SRT_CD ?? r.ISU_CD);
-    if (!code) continue;
-    out.push({
-      code,
-      name: String(r.ISU_ABBRV ?? r.ISU_NM ?? '').trim(),
-      shortBalance: toNum(r.BAL_QTY),
-      shortBalanceValue: toNum(r.BAL_AMT),
-      shortRatio: toNum(r.BAL_RTO),
-    });
+  async function attemptFetch(tradeDate: string): Promise<{ raw: KrxRawResponse | null; out: KrxShortBalanceRow[] }> {
+    try {
+      const raw = await krxPost(BLD_SHORT_BALANCE, {
+        searchType:   '1',
+        mktId:        'ALL',
+        trdDd:        tradeDate,
+        csvxls_isNo:  'false',
+      });
+      const rows = extractRows(raw);
+      const out: KrxShortBalanceRow[] = [];
+      for (const r of rows) {
+        const code = normalizeCode(r.ISU_SRT_CD ?? r.ISU_CD);
+        if (!code) continue;
+        out.push({
+          code,
+          name: String(r.ISU_ABBRV ?? r.ISU_NM ?? '').trim(),
+          shortBalance: toNum(r.BAL_QTY),
+          shortBalanceValue: toNum(r.BAL_AMT),
+          shortRatio: toNum(r.BAL_RTO),
+        });
+      }
+      return { raw, out };
+    } catch (e) {
+      console.warn(`[KRX:ShortBalance] ${tradeDate} 조회 실패: ${e instanceof Error ? e.message : e}`);
+      return { raw: null, out: [] };
+    }
   }
-  setCached(cacheKey, out);
-  return out;
+
+  const { raw: primaryRaw, out: primaryOut } = await attemptFetch(primaryDate);
+  if (primaryOut.length > 0) {
+    setCached(cacheKey, primaryOut);
+    return primaryOut;
+  }
+
+  // Patch-E: fallback 재시도 — 최대 1회.
+  if (fallbackDate && shouldFallbackKrxDate(BLD_SHORT_BALANCE, primaryRaw, primaryOut.length)) {
+    console.info(`[KRX:ShortBalance] primary(${primaryDate}) 빈 응답 → fallback(${fallbackDate}) 재시도`);
+    const { out: fbOut } = await attemptFetch(fallbackDate);
+    if (fbOut.length > 0) {
+      setCached(cacheKey, fbOut);
+      return fbOut;
+    }
+  }
+
+  setCached(cacheKey, []);
+  return [];
 }
 
 // ── 상태 점검 ────────────────────────────────────────────────────────────────
