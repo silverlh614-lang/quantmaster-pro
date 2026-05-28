@@ -139,7 +139,7 @@ function dartReason(status: string): string {
 function valuationStatus(external: Record<string, unknown> | undefined, dartStatus: string): { status: string; source: string } {
   const valuation = nestedRecord(external, 'valuation');
   const explicitPer = statusOf(nestedRecord(valuation, 'per'), '');
-  if (explicitPer) return { status: explicitPer, source: stringValue(valuation?.source, 'NONE') };
+  if (explicitPer) return { status: explicitPer, source: stringValue(nestedRecord(valuation, 'per')?.source ?? valuation?.source, 'NONE') };
   if (dartStatus === 'VERIFIED') return { status: 'DEFERRED', source: 'DART' };
   if (dartStatus === 'STAGE_NOT_FETCHED') return { status: 'DEFERRED', source: 'NONE' };
   return { status: 'MISSING', source: 'NONE' };
@@ -172,7 +172,7 @@ function formatGate2ExternalDataStageSection(d: EntryFilterDecomposition): strin
   return [
     'Gate2ExternalData:',
     `- dart: status=${dartStatus} reason=${dartReason(dartStatus)} affectedConditions=earnings_quality,roe,opm,icr,per scoreImpact=limited_to_high_conviction executionImpact=NONE`,
-    `- valuation: perStatus=${valuation.status} source=${valuation.source}`,
+    `- valuation: perStatus=${valuation.status} source=${valuation.source} reason=${stringValue(nestedRecord(nestedRecord(external, 'valuation'), 'per')?.reason, 'NONE')}`,
     `- sectorCycle: status=${sectorStatus} sourceTier=${sectorSourceTier}`,
     `- leaderCycle: status=${leaderStatus} sourceTier=${leaderSourceTier}`,
     '- highConvictionImpact=BLOCK_STRONG_BUY_UPGRADE',
