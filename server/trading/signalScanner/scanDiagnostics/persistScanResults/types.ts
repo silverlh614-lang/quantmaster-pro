@@ -24,6 +24,14 @@ export interface PersistScanResultsOptions {
   catalystListLength: number;
   momentumListLength: number;
   perSymbolSupplyInjection?: PerSymbolSupplyInjectionStats;
+  /**
+   * WIRE_SELECTED_CANDIDATE_ACTUAL_ROW — 이번 스캔 후보 전체의 6-digit 키 aggregate
+   * investor-flow map (injectPerSymbolSupplyContext.investorFlowBySymbol). gate1 forensic
+   * collector 의 `supplyRouterResult.bySymbol` 에 merge 되어 per-candidate actual row 가
+   * snapshot retention/freshness 에 비의존적으로 결정론적 carry 된다. DIAGNOSTIC_ONLY —
+   * usableForGate/Live=false, executionImpact='NONE'.
+   */
+  investorFlowBySymbolCarry?: Record<string, Record<string, unknown>>;
   candidateSnapshots?: CandidateSnapshot[];
   candidatePool?: CandidatePoolResult;
   candidatePoolSourceCandidates?: CandidatePoolInputCandidate[];

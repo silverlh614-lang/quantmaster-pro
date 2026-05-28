@@ -398,6 +398,9 @@ export async function runAutoSignalScan(
   }
 
   let perSymbolSupplyInjection: PerSymbolSupplyInjectionStats | undefined;
+  // WIRE_SELECTED_CANDIDATE_ACTUAL_ROW — per-scan 6-digit 키 aggregate investor-flow map.
+  // forensic collector 로 직접 thread(snapshot retention/freshness 비의존) → 결정론적 carry.
+  let investorFlowBySymbolCarry: Record<string, Record<string, unknown>> | undefined;
   try {
     const injected = await injectPerSymbolSupplyContext({
       candidates: candidates.buyList,
@@ -407,6 +410,7 @@ export async function runAutoSignalScan(
     candidates.buyList = injected.candidates;
     candidates.mainList = injected.candidates;
     perSymbolSupplyInjection = injected.stats;
+    investorFlowBySymbolCarry = injected.investorFlowBySymbol;
     if (Array.isArray(candidates.intradayList) && candidates.intradayList.length > 0) {
       const intradayInjected = await injectPerSymbolSupplyContext({
         candidates: candidates.intradayList,
@@ -414,6 +418,8 @@ export async function runAutoSignalScan(
         snapshotData: unifiedSnapshot?.perSymbol,
       });
       candidates.intradayList = intradayInjected.candidates;
+      // intraday 후보 row 도 forensic carry map 에 합류(buyList 우선, 미존재 키만 보강).
+      investorFlowBySymbolCarry = { ...intradayInjected.investorFlowBySymbol, ...investorFlowBySymbolCarry };
     }
     const normalSupplyPreviewAllowed =
       options?.sellOnly === true ||
@@ -533,6 +539,7 @@ export async function runAutoSignalScan(
     scanAsOf,
     ...candidates.lengths,
     ...(perSymbolSupplyInjection ? { perSymbolSupplyInjection } : {}),
+    ...(investorFlowBySymbolCarry && Object.keys(investorFlowBySymbolCarry).length > 0 ? { investorFlowBySymbolCarry } : {}),
     ...(options?.candidateScanTrigger ? { candidateScanTrigger: options.candidateScanTrigger } : {}),
     macroGateState: preflightResult.macroGateState,
     ...(macro?.sectorEnergyDataQuality !== undefined ? {

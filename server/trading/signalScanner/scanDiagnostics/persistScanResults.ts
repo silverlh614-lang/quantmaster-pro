@@ -1431,6 +1431,21 @@ export async function persistScanResults(
   // FromEntryFilterDecompositionAdr0507` SSOT 위임). 본 wiring 이후 운영 환경의
   // SUMMARY_FIELD_MISSING 결함이 EMITTED 로 자연 전환.
   try {
+    // WIRE_SELECTED_CANDIDATE_ACTUAL_ROW — 후보 전체 aggregate carry map 을 forensic collector
+    // 의 supplyRouterResult.bySymbol 에 merge. firstSymbol router payload(full KIS evidence, 더
+    // 풍부)가 충돌 시 우선하고, carry map 이 나머지 후보를 채운다. 이로써 per-candidate actual
+    // row 가 snapshot retention/freshness 에 비의존적으로 결정론적 carry 된다. DIAGNOSTIC_ONLY.
+    const supplyRouterResultForForensic = (() => {
+      const carryBySymbol = options.investorFlowBySymbolCarry;
+      if (!carryBySymbol || Object.keys(carryBySymbol).length === 0) {
+        return summaryDraft.investorFlowProviderRouter;
+      }
+      const baseRouter = (summaryDraft.investorFlowProviderRouter ?? {}) as Record<string, unknown>;
+      const routerBySymbol = baseRouter.bySymbol && typeof baseRouter.bySymbol === 'object'
+        ? (baseRouter.bySymbol as Record<string, Record<string, unknown>>)
+        : {};
+      return { ...baseRouter, bySymbol: { ...carryBySymbol, ...routerBySymbol } };
+    })();
     const effectiveForensicInputs =
       options.gate1ForensicInputs && options.gate1ForensicInputs.length > 0
         ? options.gate1ForensicInputs
@@ -1438,7 +1453,7 @@ export async function persistScanResults(
             gate1CandidateTraces: summaryDraft.entryFilterDecomposition?.gate1CandidateTraces,
             candidateTraces: summaryDraft.entryFilterDecomposition?.candidateTraces,
             supplyProviderHealth: summaryDraft.entryFilterDecomposition?.supplyProviderHealth,
-            supplyRouterResult: summaryDraft.investorFlowProviderRouter,
+            supplyRouterResult: supplyRouterResultForForensic,
             tradeDate: kstNow.toISOString().slice(0, 10),
             now: kstNow.toISOString(),
           });

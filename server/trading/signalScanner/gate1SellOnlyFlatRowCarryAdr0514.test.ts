@@ -372,3 +372,73 @@ describe('Patch-GATE1-FORENSIC-PERSYMBOL-ROW-CARRY-RESTORE-001 ENTRY_FILTER per-
     }
   });
 });
+
+// WIRE_SELECTED_CANDIDATE_ACTUAL_ROW — injectPerSymbolSupplyContext aggregate map 이
+// supplyRouterResult.bySymbol 로 직접 thread 됐을 때(snapshot retention 비의존) 후보 전체가
+// 결정론적으로 carry + semanticAvailable 되는지 검증.
+function carryEntry(code: string, foreignNetBuy: number, institutionNetBuy: number, programNetBuy: number | null = null) {
+  const normalizedInvestorRow = { symbol: code, foreignNetBuy, institutionNetBuy };
+  return {
+    symbol: code,
+    providerScope: 'SYMBOL_LEVEL' as const,
+    gateSemanticFlatRow: { foreignNetBuy, institutionNetBuy, programNetBuy },
+    normalizedInvestorRow,
+    actualInvestorFlowRows: [normalizedInvestorRow],
+    actualInvestorRow: normalizedInvestorRow,
+    diagnosticActualInvestorRow: normalizedInvestorRow,
+    actualInvestorFlowCarried: true,
+  };
+}
+
+describe('WIRE_SELECTED_CANDIDATE_ACTUAL_ROW threaded aggregate by-symbol carry', () => {
+  it('carries actual rows + semanticAvailable for EVERY candidate via threaded map (no 20-snapshot cap)', () => {
+    const codes = Array.from({ length: 25 }, (_, i) => String(100000 + i).padStart(6, '0'));
+    const bySymbol: Record<string, Record<string, unknown>> = {};
+    for (let i = 0; i < codes.length; i += 1) {
+      bySymbol[codes[i]!] = carryEntry(codes[i]!, 1000 * (i + 1), 500 * (i + 1));
+    }
+
+    const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      gate1CandidateTraces: codes.map(entryFilterGateTrace),
+      candidateTraces: codes.map(entryFilterCandidateTrace),
+      supplyRouterResult: { bySymbol },
+    });
+
+    expect(inputs).toHaveLength(25);
+    for (const input of inputs) {
+      expect(input.kisFlow?.forensicInputCarriesActualInvestorRows).toBe(true);
+      expect(input.actualInvestorFlowRows?.length ?? 0).toBeGreaterThan(0);
+      const audit = buildGate1MinimumSignalForensicAuditAdr0505(input);
+      expect(audit.supplyScopeAudit.semanticAvailable).toBe(true);
+      // 불변식: 진단 carry 일 뿐 실거래/시그널 무영향.
+      expect(audit.supplyScopeAudit.executionImpact).toBe('NONE');
+      expect(audit.supplyScopeAudit.marketSignal).toBe(false);
+      expect(audit.supplyScopeAudit.usableForGate).toBe(false);
+    }
+  });
+
+  it('program placeholder candidate stays semanticAvailable (foreign+institution numeric)', () => {
+    const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      gate1CandidateTraces: [entryFilterGateTrace('005930')],
+      candidateTraces: [entryFilterCandidateTrace('005930')],
+      supplyRouterResult: { bySymbol: { '005930': carryEntry('005930', 120, 80, null) } },
+    });
+    const audit = buildGate1MinimumSignalForensicAuditAdr0505(inputs[0]);
+    expect(audit.supplyScopeAudit.semanticAvailable).toBe(true);
+    expect(audit.supplyScopeAudit.programNetBuy).toBeNull();
+    expect(audit.supplyScopeAudit.executionImpact).toBe('NONE');
+  });
+
+  it('candidate absent from carry map stays neutral/diagnostic (no bearish, no forced row)', () => {
+    const inputs = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
+      gate1CandidateTraces: [entryFilterGateTrace('035720')],
+      candidateTraces: [entryFilterCandidateTrace('035720')],
+      supplyRouterResult: { bySymbol: { '005930': carryEntry('005930', 100, 200) } },
+    });
+    expect(inputs[0].actualInvestorFlowRows).toBeUndefined();
+    const audit = buildGate1MinimumSignalForensicAuditAdr0505(inputs[0]);
+    expect(audit.supplyScopeAudit.semanticAvailable).toBe(false);
+    expect(audit.supplyScopeAudit.marketSignal).toBe(false);
+    expect(audit.supplyScopeAudit.executionImpact).toBe('NONE');
+  });
+});
