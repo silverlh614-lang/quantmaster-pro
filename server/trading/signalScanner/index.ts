@@ -161,7 +161,7 @@ function toHydrationState(value: unknown): 'HYDRATED' | 'MISSING' | 'UNAVAILABLE
   return 'HYDRATED';
 }
 
-function buildCandidateSnapshotSsot(w: any, macro?: { kospi20dReturn?: number }) {
+function buildCandidateSnapshotSsot(w: any, macro?: { kospi20dReturn?: number; programNetBuyAmount?: number }) {
   const conditionResults = buildConditionResultsTrace(w);
   const gate1Pass = w.gate1Result?.pass === true || w.gateEvaluation?.passed === true;
   const gate2Pass = w.gate2Result?.pass === true;
@@ -229,6 +229,16 @@ function buildCandidateSnapshotSsot(w: any, macro?: { kospi20dReturn?: number })
     trendScore: w.trendScore ?? w.symbolFeatures?.trendScore,
     investorFlow: w.investorFlow,
     kospi20dReturn: w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? w.quote?.kospi20dReturn ?? w.featurePack?.momentum?.kospi20dReturn ?? w.momentumProjection?.kospi20dReturn ?? macro?.kospi20dReturn,
+    // P2-B: index return explicit alias — featureHydrationAudit rsIndexFallbackUsed fires when
+    // candidate has kospi20dReturn but not indexReturn20d. Aliasing eliminates the false-positive.
+    // executionImpact=NONE (diagnostic-only field, no gate pass/fail logic touched).
+    indexReturn20d: w.indexReturn20d ?? w.symbolFeatures?.indexReturn20d ?? w.quote?.indexReturn20d ?? w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? w.quote?.kospi20dReturn ?? w.featurePack?.momentum?.kospi20dReturn ?? w.momentumProjection?.kospi20dReturn ?? macro?.kospi20dReturn,
+    // P2-A: market-level program net buy fallback — wired as diagnostic-only candidate field when
+    // no per-symbol stock-level program data is available (Naver/KIS per-symbol both return null).
+    // macroState.programNetBuyAmount is KOSPI-aggregate, NOT per-stock — used purely for
+    // programFlowDiagnostics visibility, not for supply signal evaluation.
+    // executionImpact=NONE (candidateMapper.extractStockProgramFlow reads supplyContext records).
+    programNetBuyAmount: w.programNetBuyAmount ?? w.supplyContext?.programNetBuyAmount ?? (macro?.programNetBuyAmount != null ? macro.programNetBuyAmount : undefined),
   };
 }
 
@@ -512,6 +522,8 @@ export async function runAutoSignalScan(
         sectorEnergyReasons?: string[];
         sectorEnergyQualityDiagnostic?: import('../../clients/sectorEnergyQualityDiagnostic.js').SectorEnergyQualityDiagnostic;
         kospi20dReturn?: number;
+        // P2-A: market-level program net buy amount carry (억원) — diagnostic-only fallback.
+        programNetBuyAmount?: number;
       }
     | undefined;
   await persistScanResults(counters, {
@@ -611,6 +623,10 @@ export async function runAutoSignalScan(
         return20d: w.return20d ?? w.symbolFeatures?.return20d ?? w.quote?.return20d ?? w.featurePack?.momentum?.return20d ?? w.momentumProjection?.return20d,
         return5d: w.return5d ?? w.symbolFeatures?.return5d ?? w.quote?.return5d ?? w.featurePack?.momentum?.return5d ?? w.momentumProjection?.return5d,
         kospi20dReturn: w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? w.quote?.kospi20dReturn ?? w.featurePack?.momentum?.kospi20dReturn ?? w.momentumProjection?.kospi20dReturn ?? macro?.kospi20dReturn,
+        // P2-B: explicit indexReturn20d alias — eliminates rsIndexFallbackUsed false-positive.
+        indexReturn20d: w.indexReturn20d ?? w.symbolFeatures?.indexReturn20d ?? w.quote?.indexReturn20d ?? w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? w.quote?.kospi20dReturn ?? w.featurePack?.momentum?.kospi20dReturn ?? w.momentumProjection?.kospi20dReturn ?? macro?.kospi20dReturn,
+        // P2-A: market-level program net buy fallback for diagnostic visibility.
+        programNetBuyAmount: w.programNetBuyAmount ?? w.supplyContext?.programNetBuyAmount ?? (macro?.programNetBuyAmount != null ? macro.programNetBuyAmount : undefined),
         quote: buildSafeQuoteFeatures(w),
         price: w.symbolFeatures?.price ?? w.entryPrice ?? w.quote?.price ?? w.quote?.currentPrice,
         currentPrice: w.symbolFeatures?.currentPrice ?? w.quote?.currentPrice ?? w.entryPrice,
@@ -686,6 +702,10 @@ export async function runAutoSignalScan(
         return20d: w.return20d ?? w.symbolFeatures?.return20d ?? w.quote?.return20d ?? w.featurePack?.momentum?.return20d ?? w.momentumProjection?.return20d,
         return5d: w.return5d ?? w.symbolFeatures?.return5d ?? w.quote?.return5d ?? w.featurePack?.momentum?.return5d ?? w.momentumProjection?.return5d,
         kospi20dReturn: w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? w.quote?.kospi20dReturn ?? w.featurePack?.momentum?.kospi20dReturn ?? w.momentumProjection?.kospi20dReturn ?? macro?.kospi20dReturn,
+        // P2-B: explicit indexReturn20d alias — eliminates rsIndexFallbackUsed false-positive.
+        indexReturn20d: w.indexReturn20d ?? w.symbolFeatures?.indexReturn20d ?? w.quote?.indexReturn20d ?? w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? w.quote?.kospi20dReturn ?? w.featurePack?.momentum?.kospi20dReturn ?? w.momentumProjection?.kospi20dReturn ?? macro?.kospi20dReturn,
+        // P2-A: market-level program net buy fallback for diagnostic visibility.
+        programNetBuyAmount: w.programNetBuyAmount ?? w.supplyContext?.programNetBuyAmount ?? (macro?.programNetBuyAmount != null ? macro.programNetBuyAmount : undefined),
         quote: buildSafeQuoteFeatures(w),
         price: w.symbolFeatures?.price ?? w.entryPrice ?? w.quote?.price ?? w.quote?.currentPrice,
         currentPrice: w.symbolFeatures?.currentPrice ?? w.quote?.currentPrice ?? w.entryPrice,
