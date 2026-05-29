@@ -341,10 +341,18 @@ function computeDominantFailureReason(input: {
     return 'SECTOR_ENERGY_DIAGNOSTIC_PENALTY';
   }
 
-  // ceiling 미달
-  const totalPossibleCeiling = trace.positiveScoreTotal + trace.penaltyTotal;
-  if (totalPossibleCeiling < trace.requiredScore && missingPositiveSources.length === 0) {
-    return 'SCORE_CEILING_BELOW_THRESHOLD';
+  // 실현 점수 미달 — 구조적 ceiling vs 약한 양(+)신호 구분 (진단 라벨 정직화).
+  // positiveScoreTotal 은 *실현* 양수 합(달성 가능한 max 가 아님). 실현 net 이 required 미만이고
+  // 누락 소스가 없을 때: 달성 가능한 ceiling(컴포넌트 maxScore 합)이 required 이상이면 구조적
+  // ceiling 문제가 아니라 *진짜 약한 신호* 다 → POSITIVE_SIGNAL_BELOW_THRESHOLD (ceiling repair 로
+  // 회복 불가). ceiling 이 실제로 required 미만일 때만 SCORE_CEILING_BELOW_THRESHOLD 유지.
+  // 점수/threshold/매매 무변경 — 라벨만 실측(repair 무효과)과 일치시킨다.
+  const realizedNet = trace.positiveScoreTotal + trace.penaltyTotal;
+  if (realizedNet < trace.requiredScore && missingPositiveSources.length === 0) {
+    const achievableCeiling = trace.components.reduce((sum, c) => sum + (c.maxScore ?? 0), 0);
+    return achievableCeiling < trace.requiredScore
+      ? 'SCORE_CEILING_BELOW_THRESHOLD'
+      : 'POSITIVE_SIGNAL_BELOW_THRESHOLD';
   }
 
   // 복합

@@ -41,6 +41,10 @@ export type DominantFailureReason =
   | 'INVESTOR_FLOW_UNKNOWN_PENALTY'
   | 'SECTOR_ENERGY_DIAGNOSTIC_PENALTY'
   | 'SCORE_CEILING_BELOW_THRESHOLD'
+  // 실현 양(+)신호가 required 미만이지만 *달성 가능한* ceiling(컴포넌트 maxScore 합)은
+  // required 이상인 경우 — 구조적 ceiling 문제가 아니라 진짜 약한 신호. ceiling repair 로
+  // 회복되지 않음을 정직하게 구분한다 (진단 라벨 전용, 점수/threshold 무변경).
+  | 'POSITIVE_SIGNAL_BELOW_THRESHOLD'
   | 'MIXED'
   | 'UNKNOWN';
 
