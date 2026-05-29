@@ -14,7 +14,8 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0540`**
+**다음 ADR 번호: `0541`**
+(2026-05-29 기준, 마지막 발급 0540 — macro-shortselling-trading-day-aware-freshness. ADR-0540 — macroDataHealthRouter shortSelling freshness 36h flat → 거래일-aware(ADR-0190/0483 정합, tradingDayDistance 거리≤2 FRESH·3+ outage STALE 유지), 주말/T+1 정상지연 STALE 오판 제거, 나머지 7소스 byte-equivalent, 신규 ENV 0건, 불변식 #6 보존(confidence/ExecutionPermission 만 영향·stale→tradable 승격 아님); executionImpact=NONE(SHADOW_ONLY).)
 (2026-05-29 기준, 마지막 발급 0539 — r6-recovery-regime-linked-cooldown-fasttrack. ADR-0539 — R6 Recovery Regime-Linked Cooldown Fast-Track (내부설정 TradingSettings.r6RecoveryFastTrack.enabled 기본 ON — Railway ENV 아님, 설정 API/UI 토글; evidenceComplete+confirmations 유지 cooldown 시간벽만 우회: rawR3_EARLY↑ + not-stale + shock-latch 비활성, 불변식 #6 정합, FSS/engine 차단 별도); 의도적 활성화(NOT byte-equivalent), 롤백=설정 enabled=false.)
 
 (2026-05-27 기준, 마지막 발급 0538 — scanblockers-message-section-decomposition. ADR-0538 — formatScanBlockersMessage 섹션 빌더 분해 (cc 131→≤25, scanBlockersMessageSections.ts 신규, display-only byte-equivalent, 테스트 335-pass 게이트); executionImpact=NONE.)
