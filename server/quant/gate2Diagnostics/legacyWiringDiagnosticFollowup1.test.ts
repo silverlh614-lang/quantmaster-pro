@@ -74,15 +74,18 @@ function dart(patch: Partial<DartCoverage>): Gate2ExternalDataCoverage {
 }
 
 describe('§A kisFlow apiPath/trId metadata-not-carried 배선', () => {
-  it('endpoint/trId 미carry + endpointKey UNKNOWN → UNKNOWN_METADATA_NOT_CARRIED + canonical 참조값', () => {
+  it('endpoint/trId 미carry + endpointKey UNKNOWN → apiPath/trId 가 canonical 값 참조 + traceBreakPoint', () => {
     const text = formatGate2KisInvestorFlowCompactDiagnostic(
       kisFlow({ endpoint: null, trId: null, endpointKey: 'UNKNOWN' }),
     );
-    expect(text).toContain('apiPath=UNKNOWN_METADATA_NOT_CARRIED');
-    expect(text).toContain('trId=UNKNOWN_METADATA_NOT_CARRIED');
+    // Patch B: 과거 apiPath/trId=UNKNOWN_METADATA_NOT_CARRIED (canonical 을 아는데도 미참조) →
+    // canonical apiPath/trId 를 표시에 직접 참조 (METADATA_NOT_CARRIED 마커 부기).
+    expect(text).toContain(`apiPath=${KIS_INVESTOR_FLOW_CANONICAL.apiPath} (canonical;UNKNOWN_METADATA_NOT_CARRIED)`);
+    expect(text).toContain(`trId=${KIS_INVESTOR_FLOW_CANONICAL.trId} (canonical;UNKNOWN_METADATA_NOT_CARRIED)`);
     expect(text).toContain('traceBreakPoint=PROVIDER_METADATA_DROPPED_AFTER_ROUTER');
-    expect(text).toContain(`canonicalApiPath=${KIS_INVESTOR_FLOW_CANONICAL.apiPath}`);
-    expect(text).toContain(`canonicalTrId=${KIS_INVESTOR_FLOW_CANONICAL.trId}`);
+    // apiPath/trId 가 더 이상 bare UNKNOWN_METADATA_NOT_CARRIED 로만 표기되지 않는다.
+    expect(text).not.toContain('apiPath=UNKNOWN_METADATA_NOT_CARRIED');
+    expect(text).not.toContain('trId=UNKNOWN_METADATA_NOT_CARRIED');
     // 옛 UNRESOLVED/UNKNOWN 단순 표기로 회귀하지 않는다.
     expect(text).not.toContain('apiPath=UNRESOLVED');
     expect(text).not.toContain('trId=UNKNOWN |');

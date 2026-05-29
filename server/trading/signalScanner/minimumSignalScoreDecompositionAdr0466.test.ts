@@ -927,3 +927,56 @@ describe("ADR-0466 minimum signal score decomposition", () => {
     expect(section).toContain("thresholdMinus5Survivors");
   });
 });
+
+describe("A1 VOLUME_LIQUIDITY avgVolume 배선 복구 — ratio 채점 vs fallback", () => {
+  function volComponent(patch: Parameters<typeof minTrace>[0]) {
+    return minTrace(patch).components.find((c) => c.code === "VOLUME_LIQUIDITY");
+  }
+
+  it("avgVolume + volume 주어지면 ratio 기반 VERIFIED 점수를 산출한다", () => {
+    // ratio = 1.5/1.0 = 1.5 → clamp(60 + (0.5/0.5)*40, 0, 100) = 100
+    const vol = volComponent({ volume: 1_500_000, avgVolume: 1_000_000 });
+    expect(vol?.confidence).toBe("VERIFIED");
+    expect(vol?.normalizedScore).toBe(100);
+    expect(vol?.weightedScore).toBeGreaterThan(0);
+    expect(vol?.rawValue).toMatchObject({ volume: 1_500_000, avgVolume: 1_000_000, ratio: 1.5 });
+    expect(vol?.marketSignal).toBe(false);
+  });
+
+  it("top-level avgVolume 이 quote 경유로도 읽혀 ratio 가 산출된다 (배선 검증)", () => {
+    // candidate 의 top-level 주입값이 quote/quoteFeatures 로 미러된 케이스 모사:
+    // scorer 는 quote.avgVolume / quote.volume 도 읽는다.
+    const vol = volComponent({
+      quote: { avgVolume: 2_000_000, volume: 1_000_000 },
+    } as Parameters<typeof minTrace>[0]);
+    expect(vol?.confidence).toBe("VERIFIED");
+    // ratio = 0.5 → clamp(((0.5-0.5)/0.5)*60, 0, 100) = 0
+    expect(vol?.normalizedScore).toBe(0);
+    expect(vol?.rawValue).toMatchObject({ ratio: 0.5 });
+  });
+
+  it("낮은 ratio(<0.5) 는 LIQUIDITY_LOW 페널티 + marketSignal=true", () => {
+    const vol = volComponent({ volume: 200_000, avgVolume: 1_000_000 });
+    expect(vol?.confidence).toBe("VERIFIED");
+    expect(vol?.penaltyApplied).toBe(true);
+    expect(vol?.penaltyReason).toBe("LIQUIDITY_LOW");
+    expect(vol?.marketSignal).toBe(true);
+  });
+
+  it("avgVolume 부재 시 기존 pass/fail fallback 동작을 보존한다 (회귀 방지)", () => {
+    const missing = volComponent({ volume: 1_000_000 });
+    // avgVolume 없음 → ratio 분기 진입 불가 → passed 미정 → MISSING/0 (기존 동작)
+    expect(missing?.confidence).toBe("MISSING");
+    expect(missing?.weightedScore).toBe(0);
+    expect(missing?.message).toContain("not filled with a uniform default");
+
+    const passedTrue = volComponent({ volumeLiquidityPassed: true });
+    expect(passedTrue?.confidence).toBe("VERIFIED");
+    expect(passedTrue?.weightedScore).toBe(8);
+
+    const passedFalse = volComponent({ volumeLiquidityPassed: false });
+    expect(passedFalse?.confidence).toBe("DEGRADED");
+    expect(passedFalse?.weightedScore).toBe(4);
+    expect(passedFalse?.penaltyReason).toBe("LIQUIDITY_LOW");
+  });
+});

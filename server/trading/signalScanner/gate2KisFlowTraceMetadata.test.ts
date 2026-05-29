@@ -18,7 +18,7 @@ function toMap(fields: string[]): Map<string, string> {
 }
 
 describe('buildKisFlowTraceFields', () => {
-  it('KIS_API + metadata 미carry → UNKNOWN_METADATA_NOT_CARRIED + traceBreakPoint + canonical 참조값 표기', () => {
+  it('KIS_API + metadata 미carry → apiPath/trId 가 canonical 값 참조 + traceBreakPoint + canonical 참조값 표기', () => {
     const input: BuildKisFlowTraceInput = {
       selectedProvider: 'KIS_API',
       apiPath: undefined,
@@ -33,8 +33,11 @@ describe('buildKisFlowTraceFields', () => {
     const fields = buildKisFlowTraceFields(input);
     const map = toMap(fields);
 
-    expect(map.get('apiPath')).toBe('UNKNOWN_METADATA_NOT_CARRIED');
-    expect(map.get('trId')).toBe('UNKNOWN_METADATA_NOT_CARRIED');
+    // Patch B: apiPath/trId 가 bare UNKNOWN 대신 canonical 값을 참조 (METADATA_NOT_CARRIED 마커 부기).
+    expect(map.get('apiPath')).toBe(`${KIS_INVESTOR_FLOW_CANONICAL.apiPath} (canonical;UNKNOWN_METADATA_NOT_CARRIED)`);
+    expect(map.get('trId')).toBe(`${KIS_INVESTOR_FLOW_CANONICAL.trId} (canonical;UNKNOWN_METADATA_NOT_CARRIED)`);
+    expect(map.get('apiPath')).not.toBe('UNKNOWN_METADATA_NOT_CARRIED');
+    expect(map.get('trId')).not.toBe('UNKNOWN_METADATA_NOT_CARRIED');
     expect(map.get('traceBreakPoint')).toBe('PROVIDER_METADATA_DROPPED_AFTER_ROUTER');
     expect(map.get('canonicalApiPath')).toBe(KIS_INVESTOR_FLOW_CANONICAL.apiPath);
     expect(map.get('canonicalTrId')).toBe(KIS_INVESTOR_FLOW_CANONICAL.trId);

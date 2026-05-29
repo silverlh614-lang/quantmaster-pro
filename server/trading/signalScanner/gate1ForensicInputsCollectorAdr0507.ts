@@ -286,7 +286,19 @@ export function collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507(
 
 export interface Gate1ForensicInputCompletenessSummaryAdr0507 {
   candidateTraceCount: number;
+  /**
+   * scorer(minimumSignalScoreTrace) 가 실제 읽는 finite 숫자 키 ≥1 보유 trace 수.
+   * (ADR-0507 정직성) 과거엔 quote *객체 존재*만 셌으나, 객체는 있어도 숫자 미충전이면
+   * scorer 분기가 MISSING/fallback 으로 떨어진다 → 정직한 hydration 지표로 강화.
+   */
   traceWithQuoteCount: number;
+  /** quote *객체* 존재 trace 수 (객체 셸 유무만; 숫자 충전 여부와 무관). */
+  traceWithQuoteObjectCount: number;
+  /**
+   * scorer-read 숫자 키별 finite 보유 trace 수 — 어느 키가 비는지 정직 노출.
+   * 예: { avgVolume: 0, volume: 15, return20d: 3, ... } → avgVolume 전 종목 결손 가시화.
+   */
+  quoteNumericFieldCoverage: Record<string, number>;
   traceWithSymbolFeaturesCount: number;
   traceWithConditionResultsCount: number;
   conditionResultsAvailableCount: number;
@@ -504,6 +516,54 @@ function hasObjectField(input: unknown, field: string): boolean {
   return Boolean(input && typeof input === 'object' && (input as Record<string, unknown>)[field] && typeof (input as Record<string, unknown>)[field] === 'object');
 }
 
+/**
+ * minimumSignalScoreTrace scorer 가 실제 읽는 quote-level 숫자 키 목록.
+ * scorer 의 nested path 읽기(top-level / symbolFeatures / quote / quoteFeatures)와 정합.
+ * 이 키들이 finite 여야 해당 scoring 컴포넌트가 VERIFIED 로 산출된다.
+ */
+const SCORER_READ_QUOTE_NUMERIC_KEYS = [
+  'volume',
+  'avgVolume',
+  'return5d',
+  'return20d',
+  'relativeReturn20d',
+  'marketRelativeReturn',
+  'kospiRelativeReturn',
+  'kospi20dReturn',
+  'rsRankPct',
+  'relativeStrengthScore',
+  'price',
+  'ma20',
+  'ma60',
+  'rsi14',
+  'atr',
+] as const;
+
+function isFiniteNumberAdr0507(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/**
+ * scorer 가 읽는 경로(top-level / symbolFeatures / quote / quoteFeatures)에서
+ * 주어진 숫자 키가 finite 로 존재하는지 검사. scorer 의 resolveNumericTracePath 와
+ * 동일한 fallback 순서를 따른다 (진단 정합).
+ */
+function traceQuoteFieldIsFinite(trace: CandidateEntryTrace, key: string): boolean {
+  const record = trace as unknown as Record<string, unknown>;
+  const containers: Array<Record<string, unknown> | undefined> = [
+    record,
+    record.symbolFeatures && typeof record.symbolFeatures === 'object' ? (record.symbolFeatures as Record<string, unknown>) : undefined,
+    record.quote && typeof record.quote === 'object' ? (record.quote as Record<string, unknown>) : undefined,
+    record.quoteFeatures && typeof record.quoteFeatures === 'object' ? (record.quoteFeatures as Record<string, unknown>) : undefined,
+  ];
+  return containers.some((container) => container !== undefined && isFiniteNumberAdr0507(container[key]));
+}
+
+/** trace 가 scorer-read 숫자 키 중 하나라도 finite 로 보유하는지 (정직한 hydration 판정). */
+function traceHasFiniteScorerQuoteField(trace: CandidateEntryTrace): boolean {
+  return SCORER_READ_QUOTE_NUMERIC_KEYS.some((key) => traceQuoteFieldIsFinite(trace, key));
+}
+
 function hasWatchlistScoreField(input: CandidateEntryTrace): boolean {
   const record = input as unknown as Record<string, unknown>;
   const fields = ['stage2Score', 'watchlistScore', 'upstreamCandidateScore', 'watchlistUpstreamScore', 'totalGateScore', 'gateScore', 'priorityScore', 'score'];
@@ -532,9 +592,23 @@ export function summarizeGate1ForensicInputCompletenessAdr0507(
   }
   const traceWithConditionResultsCount = conditionResultsByTrace.filter(Boolean).length;
   const conditionResultsAvailableCount = Object.values(conditionResultsKeyCoverage).reduce((sum, count) => sum + count, 0);
+
+  // ADR-0507 정직성: quote 객체 셸 존재(traceWithQuoteObjectCount) 와
+  // scorer 가 실제 읽는 finite 숫자 보유(traceWithQuoteCount) 를 분리 집계한다.
+  // 과거엔 객체 존재만으로 hydrated 15/15 라 보고했으나, 숫자 미충전이면 scorer 는
+  // MISSING/fallback 으로 떨어진다 → 비대칭을 정직하게 노출.
+  const traceWithQuoteObjectCount = candidateTraces.filter((t) => hasObjectField(t, 'quote')).length;
+  const traceWithFiniteQuoteCount = candidateTraces.filter((t) => traceHasFiniteScorerQuoteField(t)).length;
+  const quoteNumericFieldCoverage: Record<string, number> = {};
+  for (const key of SCORER_READ_QUOTE_NUMERIC_KEYS) {
+    quoteNumericFieldCoverage[key] = candidateTraces.filter((t) => traceQuoteFieldIsFinite(t, key)).length;
+  }
+
   const summary: Gate1ForensicInputCompletenessSummaryAdr0507 = {
     candidateTraceCount: candidateTraces.length,
-    traceWithQuoteCount: candidateTraces.filter((t) => hasObjectField(t, 'quote')).length,
+    traceWithQuoteCount: traceWithFiniteQuoteCount,
+    traceWithQuoteObjectCount,
+    quoteNumericFieldCoverage,
     traceWithSymbolFeaturesCount: candidateTraces.filter((t) => hasObjectField(t, 'symbolFeatures')).length,
     traceWithConditionResultsCount,
     conditionResultsAvailableCount,
@@ -549,9 +623,12 @@ export function summarizeGate1ForensicInputCompletenessAdr0507(
     traceWithSupplyContextCount: candidateTraces.filter((t) => Boolean(t.supplyConfluenceState || t.supplyProviderHealth)).length,
     traceWithMinSignalScoreTraceCount: candidateTraces.filter((t) => minTraceSymbols.has(t.symbol)).length,
   };
+  // TRACE_HYDRATION_MISSING 은 *trace 셸 전면 결손* 탐지 의도 — quote 객체 셸 존재 기준
+  // (traceWithQuoteObjectCount) 으로 판정해 기존 behavior 를 byte-equivalent 보존한다.
+  // (숫자 미충전은 traceWithQuoteCount/quoteNumericFieldCoverage 로 별도 정직 노출.)
   if (
     summary.candidateTraceCount > 0 &&
-    summary.traceWithQuoteCount === 0 &&
+    traceWithQuoteObjectCount === 0 &&
     summary.traceWithSymbolFeaturesCount === 0 &&
     summary.traceWithConditionResultsCount === 0
   ) {
