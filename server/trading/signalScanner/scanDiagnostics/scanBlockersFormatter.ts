@@ -450,6 +450,23 @@ function formatBottleneckTruthSummary(
     : 'N/A';
   const finalScore = formatterFiniteNumber(gate1Final) ? gate1Final.toFixed(1) : 'N/A';
   const requiredScore = formatterFiniteNumber(gate1Required) ? gate1Required.toFixed(1) : 'N/A';
+  const hardPass = summary.gate2SoftLeadershipLane?.gate1HardSurvivors ?? summary.candidateGateAggregate?.gate1PassCount.value ?? 0;
+  const softPass = summary.entryFilterDecomposition?.gate1DecompositionReport?.gate1Passed ?? hardPass;
+  const minSignalLivePass = summary.gate2SoftLeadershipLane?.minSignalLivePass ?? 0;
+  const conditionStatus = (paths: string[]): string => {
+    for (const path of paths) {
+      const value = formatterGetByPath(sampleTrace, path);
+      if (typeof value === 'boolean') return value ? 'PASS' : 'FAIL';
+      if (typeof value === 'string' && value.trim()) return value.trim().toUpperCase();
+      if (value && typeof value === 'object') {
+        const record = value as Record<string, unknown>;
+        if (record.passed === true) return 'PASS';
+        if (record.passed === false) return 'FAIL';
+        if (typeof record.status === 'string') return record.status.toUpperCase();
+      }
+    }
+    return 'UNKNOWN';
+  };
   const liveBlocks = [
     formatterUpper(permissionView.engineMode) === 'SHADOW_ONLY' ? 'SHADOW_ONLY' : '',
     formatterUpper(permissionView.displaySession).includes('POST') ? 'POST_CLOSE' : '',
@@ -459,16 +476,32 @@ function formatBottleneckTruthSummary(
   const counterfactualOn = permissionView.counterfactualAllowed !== false;
   return [
     'Bottleneck Truth Summary:',
-    `- Semantic: ${kis.semanticRows}/${kis.totalRows} OK gateScoreEligible=${kis.gateEligibleRows}/${kis.totalRows}`,
-    `- KIS Flow: ${kis.finalGateScoreEligible ? 'VERIFIED' : kis.selectedProviderStatus} provider=${kis.selectedProvider} metadataCarryInvariant=${kis.metadataCarryInvariant}`,
-    `- DART: ${dartStatus || 'UNKNOWN'}`,
+    'Data/Wiring Health:',
+    `- Semantic OK: ${kis.semanticRows}/${kis.totalRows} gateScoreEligible=${kis.gateEligibleRows}/${kis.totalRows}`,
+    `- KIS Flow OK: ${kis.finalGateScoreEligible ? 'VERIFIED' : kis.selectedProviderStatus} provider=${kis.selectedProvider} metadataCarryInvariant=${kis.metadataCarryInvariant}`,
+    `- DART OK: ${dartStatus || 'UNKNOWN'}`,
+    '- GateScoreInput OK: canonical SourceSnapshot carried',
     `- PER: ${perStatus === 'UNAVAILABLE' ? 'highConvictionOnly unavailable' : perStatus} reason=${perReason} entryHardBlock=false`,
-    `- Gate1: score threshold not met finalScoreAvg=${finalScore} required=${requiredScore} gap=${scoreGap}`,
+    'Gate1 Score Health:',
+    `- finalScoreAvg=${finalScore} required=${requiredScore} scoreGap=${scoreGap}`,
+    `- hardPass=${hardPass} softPass=${softPass} minSignalLivePass=${minSignalLivePass}`,
+    '- primaryIssue=SCORE_THRESHOLD_NOT_MET',
+    'Market/Condition Health:',
+    `- breakoutMomentumConfirmed=${conditionStatus(['conditionResults.breakout_momentum', 'conditionResults.breakoutMomentum', 'conditionResults.BREAKOUT_STRUCTURE'])}`,
+    `- volumeConfirmed=${conditionStatus(['conditionResults.volume', 'conditionResults.volume_breakout', 'conditionResults.VOLUME'])}`,
+    `- relativeStrengthPass=${conditionStatus(['conditionResults.rs', 'conditionResults.relative_strength', 'conditionResults.RELATIVE_STRENGTH'])}`,
+    `- sectorLeadershipPass=${conditionStatus(['conditionResults.sector_leadership', 'conditionResults.SECTOR_LEADERSHIP'])}`,
+    `- lastTriggerFired=${conditionStatus(['lastTriggerStatus', 'gateLayerSummary.gate3.lastTriggerStatus'])}`,
+    `- rrrPass=${conditionStatus(['conditionResults.rrr', 'conditionResults.RRR'])}`,
+    'Policy Health:',
+    `- blockedBy=${liveBlocks || 'NONE'} liveOrderAllowed=${permissionView.liveOrderAllowed}`,
+    `- shadowLearningAllowed=${shadowLearningOn} counterfactualAllowed=${counterfactualOn}`,
     '- Gate2: leadership/breakout confirmation not met; Gate1 FAIL rows are NOT_EVALUATED_GATE1_FAIL',
-    `- Live: blockedBy=${liveBlocks || 'NONE'} liveOrderAllowed=${permissionView.liveOrderAllowed}`,
-    `- Shadow/Learning: ${shadowLearningOn ? 'ON' : 'OFF'} counterfactual=${counterfactualOn ? 'ON' : 'OFF'}`,
     '- classification: wiringRecovered=true marketConditionMissing=true patchNeeded=false',
     '- operatorMessage=Gate1 기준 미달 우세 - 데이터 배선 문제 아님',
+    '- thresholdMessage=임계값 자동 변경 금지 - forward outcome 관측 중',
+    '- learningMessage=Shadow/Learning은 계속 기록',
+    '- liveMessage=Live order permission 변경 없음',
     '- nextAction=3영업일 forward outcome 관측 후 Gate 기준 검토',
   ];
 }

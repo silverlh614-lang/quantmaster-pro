@@ -265,8 +265,16 @@ describe('ADR-0476 Gate1 Dry-run Observation Ledger', () => {
     const rows = buildGate1DryRunObservationRows({
       forDate: '2026-05-09',
       sourceSnapshotId: 'scan-eval:test-001',
+      scanId: 'scan-eval:test-001',
+      candidateSetId: 'candidateSet:scan-eval:test-001:2',
       regime: 'R3_EARLY',
+      rawRegime: 'R3_EARLY',
+      effectiveRegime: 'R3_EARLY',
+      displayRegime: 'SHADOW_ONLY',
+      engineMode: 'SHADOW_ONLY',
+      policyView: 'SHADOW_ONLY',
       marketSession: 'POST_CLOSE',
+      marketSessionState: 'POST_CLOSE',
       candidateSnapshots: snapshots(),
       sellOnly: true,
       providerIssue: false,
@@ -274,8 +282,16 @@ describe('ADR-0476 Gate1 Dry-run Observation Ledger', () => {
     });
     const row = rows.find((item) => item.source === 'GATE1_SCORE_OBSERVATION_V2' && item.symbol === '005930');
     expect(row?.sourceSnapshotId).toBe('scan-eval:test-001');
+    expect(row?.scanId).toBe('scan-eval:test-001');
+    expect(row?.candidateSetId).toBe('candidateSet:scan-eval:test-001:2');
+    expect(row?.tradeDate).toBe('2026-05-09');
     expect(row?.regime).toBe('R3_EARLY');
+    expect(row?.effectiveRegime).toBe('R3_EARLY');
+    expect(row?.displayRegime).toBe('SHADOW_ONLY');
+    expect(row?.engineMode).toBe('SHADOW_ONLY');
+    expect(row?.policyView).toBe('SHADOW_ONLY');
     expect(row?.marketSession).toBe('POST_CLOSE');
+    expect(row?.marketSessionState).toBe('POST_CLOSE');
     expect(row?.finalGate1Score).toBe(65.2);
     expect(row?.rawPositiveScore).toBe(68.2);
     expect(row?.effectivePenaltyScore).toBe(3);
@@ -287,6 +303,10 @@ describe('ADR-0476 Gate1 Dry-run Observation Ledger', () => {
     expect(row?.operatorApprovalRequired).toBe(true);
     expect(row?.liveExecutionAllowed).toBe(false);
     expect(row?.executionImpact).toBe('NONE');
+    expect(row?.shadowObservationEligible).toBe(true);
+    expect(row?.shadowBuyAllowed).toBe(false);
+    expect(row?.shadowLearningAllowed).toBe(true);
+    expect(row?.counterfactualAllowed).toBe(true);
   });
 
   it('dedupes same forDate+symbol+source+scenario while preserving createdAt', async () => {
@@ -414,7 +434,7 @@ describe('ADR-0476 Gate1 Dry-run Observation Ledger', () => {
     expect(summary.pending).toBe(rows.length);
     expect(summary.sources.ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY).toBeGreaterThan(0);
     expect(summary.executionImpact).toBe('NONE');
-    expect(formatted).toContain('TRACK_1D_3D_5D_FORWARD_RETURNS');
+    expect(formatted).toContain('TRACK_1D_3D_5D_10D_FORWARD_RETURNS');
   });
 
   it('static guards and ADR document/index are present', () => {

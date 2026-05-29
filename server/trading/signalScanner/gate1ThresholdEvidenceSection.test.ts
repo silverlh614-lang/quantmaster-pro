@@ -51,13 +51,17 @@ describe('formatGate1ThresholdEvidenceSection — skeleton (no summary)', () => 
   });
 
   it('shows fixed safety lines and the INSUFFICIENT_SAMPLE / OBSERVE_MORE fallback', () => {
-    expect(text).toContain('window: D1/D3/D5');
+    expect(text).toContain('window: D1/D3/D5/D10');
+    expect(text).toContain('matureSamplesD10: N/A');
     expect(text).toContain('thresholdAutoChanged: false');
     expect(text).toContain('operatorApprovalRequired: true');
     expect(text).toContain('liveExecutionAllowed: false');
     expect(text).toContain('executionImpact: NONE');
     expect(text).toContain('confidence: INSUFFICIENT_SAMPLE');
     expect(text).toContain('recommendedAction: OBSERVE_MORE');
+    expect(text).toContain('Threshold Policy Split:');
+    expect(text).toContain('liveRequiredScore=70');
+    expect(text).toContain('shadowObservationEligible!=shadowBuyAllowed');
     expect(text).toContain('totalSamples: N/A');
     expect(text).toContain('pendingSamples: N/A');
     expect(text).toContain('countSum: N/A');
@@ -68,7 +72,7 @@ describe('formatGate1ThresholdEvidenceSection — skeleton (no summary)', () => 
 
 describe('formatGate1ThresholdEvidenceSection — with summary', () => {
   const summary: Gate1ThresholdEvidenceSummary = {
-    sampleWindow: '1D/3D/5D',
+    sampleWindow: '1D/3D/5D/10D',
     totalSamples: 250,
     pendingSamples: 30,
     ledgerRowsCreated: 250,
@@ -81,6 +85,7 @@ describe('formatGate1ThresholdEvidenceSection — with summary', () => {
       pendingD1: 30,
       pendingD3: 30,
       pendingD5: 30,
+      pendingD10: 30,
       dueNow: 10,
       stalePending: 0,
       nextMaturityRunAt: '2026-05-28',
@@ -92,9 +97,16 @@ describe('formatGate1ThresholdEvidenceSection — with summary', () => {
     matureSamplesD1: 250,
     matureSamplesD3: 240,
     matureSamplesD5: 220,
+    matureSamplesD10: 0,
     bestDryRunThreshold: 70,
-    recommendedAction: 'KEEP_THRESHOLD_70',
-    confidence: 'MEDIUM',
+    recommendedAction: 'KEEP_THRESHOLD',
+    confidence: 'OBSERVING',
+    reviewReady: false,
+    reviewBlockers: ['MFE_MAE_TIMING_SPLIT_INSUFFICIENT'],
+    liveRequiredScore: 70,
+    shadowObservationMode: 'ON',
+    shadowObservationBands: ['60~65', '65~70', '70+'],
+    liveThresholdAutoChanged: false,
     scoreBandTable: [
       band('70+', 100),
       band('65~70', 60),
@@ -111,8 +123,9 @@ describe('formatGate1ThresholdEvidenceSection — with summary', () => {
   it('renders real sample counts and band values', () => {
     expect(text).toContain('totalSamples: 250');
     expect(text).toContain('matureSamplesD5: 220');
-    expect(text).toContain('confidence: MEDIUM');
-    expect(text).toContain('recommendedAction: KEEP_THRESHOLD_70');
+    expect(text).toContain('matureSamplesD10: 0');
+    expect(text).toContain('confidence: OBSERVING');
+    expect(text).toContain('recommendedAction: KEEP_THRESHOLD');
     expect(text).toContain('count: 100');
     expect(text).toContain('winRateD5: 55');
     expect(text).toContain('expectancyR: 1.1');
@@ -139,6 +152,7 @@ describe('formatGate1ThresholdEvidenceSection — with summary', () => {
     expect(text).toContain('schedulerHealthy: true');
     expect(text).toContain('status: DUE_PENDING_RUN');
     expect(text).toContain('pendingD1: 30');
+    expect(text).toContain('pendingD10: 30');
     expect(text).toContain('nextMaturityRunAt: 2026-05-28');
   });
 });
@@ -163,6 +177,7 @@ describe('buildGate1ThresholdEvidenceSummary — reads pending ADR-0476 ledger r
     expect(summary.matureSamplesD1).toBe(0);
     expect(summary.matureSamplesD3).toBe(0);
     expect(summary.matureSamplesD5).toBe(0);
+    expect(summary.matureSamplesD10).toBe(0);
   });
 
   it('distributes the 13 rows across score bands so counts sum to totalSamples', () => {
@@ -189,6 +204,7 @@ describe('buildGate1ThresholdEvidenceSummary — reads pending ADR-0476 ledger r
     expect(summary.maturity.pendingD1).toBe(13);
     expect(summary.maturity.pendingD3).toBe(13);
     expect(summary.maturity.pendingD5).toBe(13);
+    expect(summary.maturity.pendingD10).toBe(13);
     expect(summary.maturity.dueNow).toBe(0);
     expect(summary.maturity.stalePending).toBe(0);
     expect(summary.maturity.dataUnavailable).toBe(false);
