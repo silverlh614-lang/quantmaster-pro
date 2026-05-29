@@ -27,11 +27,9 @@ import {
   accumulateGateScoreCandidateBucket,
   accumulateGateScoreHealth,
   accumulateNearMissOutcomeLedgerWrite,
-  accumulatePositiveScoreStarvation,
   recordPipelineStage,
 } from '../../scanDiagnostics.js';
 import { getRegimeGateBand } from '../../../gateConfig.js';
-import { buildGate1ScoreStarvationTraceFromGateResult } from '../../gate1PositiveScoreStarvation.js';
 import { conditionResultsTraceToMap, projectGateOutputsToConditionResultsTrace } from '../../gateConditionResultTrace.js';
 import type { BuyListLoopContext } from '../types.js';
 
@@ -119,24 +117,11 @@ export async function kisIntradayCorrectionStep(
   } catch (e) {
     console.warn('[ADR-452c] accumulateGateScoreHealth failed:', e instanceof Error ? e.message : e);
   }
-  try {
-    if (reCheckGate) {
-      const band = getRegimeGateBand(ctx.regime);
-      accumulatePositiveScoreStarvation(
-        ctx.scanCounters,
-        buildGate1ScoreStarvationTraceFromGateResult({
-          symbol: stock.code,
-          name: stock.name,
-          requiredScore: band.strong,
-          gateResult: reCheckGate,
-          watchlistScore: stock.gateScore,
-          upstreamScore: stock.gateScore,
-        }),
-      );
-    }
-  } catch (e) {
-    console.warn('[ADR-0467] positive score starvation audit failed:', e instanceof Error ? e.message : e);
-  }
+  // ADR-0541: positive score starvation audit accumulation relocated from this
+  // per-symbol intraday re-check to persistScanResults (after entryFilterDecomposition
+  // builds the canonical minSignalScoreTrace.components). The per-symbol stage lacked
+  // the canonical CORE_SIGNAL weightedScores, so audit traces accumulated here could
+  // not supply minSignalComponents and mis-attributed PRICE_MOMENTUM to OTHER_POSITIVE.
   try {
     const band = getRegimeGateBand(ctx.regime);
     const bucketDecision = accumulateGateScoreCandidateBucket(ctx.scanCounters, reCheckGate, band.normal);

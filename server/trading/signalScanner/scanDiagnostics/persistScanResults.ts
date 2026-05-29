@@ -170,6 +170,12 @@ import { loadKisOfficialSectorIndexMaster } from '../../../sector/SectorIndexMas
 import { buildOfficialSectorIndexMasterCoverage, type OfficialSectorIndexMasterCoverageResult } from '../../../sector/SectorIndexVerifier.js';
 import { verifySectorIndexCodeWithKisCurrentPrice } from '../../../sector/KisSectorIndexVerifierAdapter.js';
 import { isTradingDay } from '../../../utils/marketDayClassifier.js';
+// ADR-0541 — positive score starvation audit supply wiring. The trace builder and
+// counter accumulator relocate here from the per-symbol intraday re-check so the
+// canonical minSignalScoreTrace.components (built by buildEntryFilterDecomposition)
+// can finally supply minSignalComponents for correct CORE_SIGNAL attribution.
+import { buildGate1ScoreStarvationTraceFromGateResult } from '../gate1PositiveScoreStarvation.js';
+import { accumulatePositiveScoreStarvation } from './scanCounterAccumulators.js';
 let _lastBuySignalAt = 0;
 let _consecutiveZeroScans = 0;
 let _lastScanSummary: ScanSummary | null = null;
@@ -344,13 +350,11 @@ export async function persistScanResults(
     perStageDropoffSummary: buildPerStageDropoffSummary(counters),
     // ADR-458 — dry-run only approved reclassification impact summary.
     gateReclassificationDryRun: buildGateReclassificationDryRunSummary(counters.gateReclassificationDryRunResults),
-    positiveScoreStarvation: buildPositiveScoreStarvationReport({
-      traces: counters.positiveScoreStarvationTraces,
-      timestamp: kstNow.toISOString(),
-      forDate: kstNow.toISOString().slice(0, 10),
-      regime: options.macroGateState?.regime ?? 'UNKNOWN',
-      marketSession: 'BUY_ALLOWED',
-    }),
+    // ADR-0541 — positiveScoreStarvation report build relocated below (option A):
+    // it now runs AFTER the entryFilterDecomposition accumulation loop populates
+    // counters.positiveScoreStarvationTraces with canonical minSignalComponents,
+    // immediately before the ADR-0467 fallback. Initializing it here (pre-loop)
+    // would always see empty traces and force the fallback path.
   };
 
   try {
@@ -727,6 +731,77 @@ export async function persistScanResults(
     }
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildEntryFilterDecomposition', error: e });
+  }
+
+  // ADR-0541 — positive score starvation audit supply wiring (relocated from the
+  // per-symbol intraday re-check). entryFilterDecomposition has now built each
+  // candidate's canonical minSignalScoreTrace, whose `components` carry the
+  // authoritative CORE_SIGNAL weightedScores (PRICE_MOMENTUM etc.). Supplying them
+  // as minSignalComponents lets buildGate1ScoreStarvationTraceFromGateResult attribute
+  // those contributions from the canonical source instead of estimating them from
+  // Gate2-level outputs (which leaked into OTHER_POSITIVE).
+  //
+  // Scale (§6.4): minSignalScoreTrace.requiredScore / actualScore / components are all
+  // ABSOLUTE 0~100-scale values (component maxScores sum to ~84+). gateRawScore is a
+  // separate ~0~15 raw-gate scale. The consumer multiplies requiredScore and rawScore
+  // by scoreScale but uses component weightedScores raw. To keep every figure coherent
+  // on the 0~100 scale (and avoid double scaling), we pass scoreScale:1 and source both
+  // requiredScore and rawScore from minSignalScoreTrace (NOT gateRawScore).
+  //
+  // Build failures are isolated here so a diagnostic problem can never stop the trading
+  // engine (invariants #1/#2). Silent catch is forbidden — failures emit a warning.
+  try {
+    const entryFilter = summaryDraft.entryFilterDecomposition;
+    if (entryFilter && entryFilter.gate1CandidateTraces.length > 0) {
+      for (const g1 of entryFilter.gate1CandidateTraces) {
+        const minSignal = g1.minSignalScoreTrace;
+        if (!minSignal) continue;
+        const trace = buildGate1ScoreStarvationTraceFromGateResult({
+          symbol: g1.symbol,
+          name: g1.name,
+          // ABSOLUTE 0~100 scale; scoreScale:1 leaves it unscaled (no double scaling).
+          requiredScore: minSignal.requiredScore,
+          gateResult: {
+            // Canonical actualScore from the min-signal trace (0~100), coherent with
+            // the component weightedScores below — NOT the 0~15 gateRawScore.
+            rawScore: minSignal.actualScore,
+            availableMaxScore: g1.availableMaxScore,
+            normalizedGateScore: g1.normalizedGateScore,
+          },
+          // ADR-0541 supply: canonical CORE_SIGNAL contributions. Used raw by the
+          // consumer (no scaling), so they stay on the 0~100 scale.
+          minSignalComponents: minSignal.components.map((c) => ({
+            code: c.code,
+            weightedScore: c.weightedScore,
+            maxScore: c.maxScore,
+            confidence: c.confidence,
+            message: c.message,
+          })),
+          watchlistScore: minSignal.components.find((c) => c.code === 'WATCHLIST_UPSTREAM_SCORE')?.weightedScore,
+          upstreamScore: minSignal.components.find((c) => c.code === 'WATCHLIST_UPSTREAM_SCORE')?.weightedScore,
+          scoreScale: 1,
+        });
+        accumulatePositiveScoreStarvation(counters, trace);
+      }
+    }
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.accumulatePositiveScoreStarvationAdr0541', error: e });
+  }
+
+  // ADR-0541 (option A) — build the canonical PositiveScoreStarvationReport from the
+  // freshly-accumulated traces, immediately before the ADR-0467 fallback. If the
+  // accumulation loop produced no traces (entryFilter absent / build failed), the
+  // report's totalCandidates is 0 and the fallback below takes over (guard preserved).
+  try {
+    summaryDraft.positiveScoreStarvation = buildPositiveScoreStarvationReport({
+      traces: counters.positiveScoreStarvationTraces,
+      timestamp: kstNow.toISOString(),
+      forDate: kstNow.toISOString().slice(0, 10),
+      regime: options.macroGateState?.regime ?? 'UNKNOWN',
+      marketSession: 'BUY_ALLOWED',
+    });
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildPositiveScoreStarvationReportAdr0541', error: e });
   }
 
   // ADR-0467 fallback: when the scan stopped before buyListLoop, Gate1 score
