@@ -152,6 +152,37 @@ function shadowAwareStageStatus(status: string): string {
   return 'MISSING';
 }
 
+// §D ProgramTrade optional lane: program 수급 데이터는 선택 진단축이며, 부재가 Gate2 실패로
+// 승격되지 않는다. transport/parse 오류일 때만 providerIssue=true, 그 외 부재는 false.
+function programTradeLane(external: Record<string, unknown> | undefined): {
+  status: string;
+  providerIssue: boolean;
+} {
+  const program = nestedRecord(external, 'programTrade') ?? nestedRecord(external, 'marketProgram');
+  if (!program) return { status: 'MISSING', providerIssue: false };
+  const status = statusOf(program, 'MISSING');
+  // providerIssue 는 명시 transport/parse error 일 때만 true (missing/empty 는 false).
+  const providerIssue = program.providerIssue === true;
+  return { status, providerIssue };
+}
+
+// §G dartFinancials line health (B+C 가 projection 에 추가한 dartLineHealth) 의
+// availableFields/missingFields 를 표시용 문자열로 환원. 없으면 NONE.
+function dartLineFields(external: Record<string, unknown> | undefined): {
+  available: string;
+  missing: string;
+} {
+  const health = nestedRecord(external, 'dartLineHealth');
+  const toCsv = (value: unknown): string =>
+    Array.isArray(value) && value.length > 0
+      ? value.filter((item): item is string => typeof item === 'string').join(',') || 'NONE'
+      : 'NONE';
+  return {
+    available: toCsv(health?.availableFields),
+    missing: toCsv(health?.missingFields),
+  };
+}
+
 function formatGate2ExternalDataStageSection(d: EntryFilterDecomposition): string[] {
   const sample = d.candidateTraces[0];
   const external = resolveGate2ExternalData(sample);
@@ -169,17 +200,72 @@ function formatGate2ExternalDataStageSection(d: EntryFilterDecomposition): strin
   const leaderSourceTier =
     stringValue(leaderCycle?.sourceTier, '') ||
     (leaderStatus === 'SHADOW_ONLY' ? sectorSourceTier : 'NONE');
-  return [
+  // §D program optional lane — missing 은 OPTIONAL_MISSING 으로 표기하고 Gate2 failure 와 분리.
+  const program = programTradeLane(external);
+  const programCompact = program.status === 'MISSING' ? 'OPTIONAL_MISSING' : program.status;
+  const lines = [
     'Gate2ExternalData:',
     `- dart: status=${dartStatus} reason=${dartReason(dartStatus)} affectedConditions=earnings_quality,roe,opm,icr,per scoreImpact=limited_to_high_conviction executionImpact=NONE`,
     `- valuation: perStatus=${valuation.status} source=${valuation.source} reason=${stringValue(nestedRecord(nestedRecord(external, 'valuation'), 'per')?.reason, 'NONE')}`,
-    `- sectorCycle: status=${sectorStatus} sourceTier=${sectorSourceTier}`,
-    `- leaderCycle: status=${leaderStatus} sourceTier=${leaderSourceTier}`,
+    // §E observe lane — sector/leader MISSING/UNKNOWN 을 hard fail 로 취급하지 않음(diagnosticOnly).
+    `- sectorCycle: status=${sectorStatus} sourceTier=${sectorSourceTier} marketSignal=false diagnosticOnly=true executionImpact=NONE`,
+    `- leaderCycle: status=${leaderStatus} sourceTier=${leaderSourceTier} marketSignal=false diagnosticOnly=true executionImpact=NONE`,
+    // §D program optional lane
+    `- program: status=${program.status} compact=${programCompact} optional=true signal=UNKNOWN scoring=excluded diagnosticOnly=true marketSignal=false providerIssue=${program.providerIssue} executionImpact=NONE action=OBSERVE_PROGRAM_TRADE`,
     '- highConvictionImpact=BLOCK_STRONG_BUY_UPGRADE',
     '- entryHardBlockImpact=NO',
     '- shadowObservablePreserved=true',
     '- counterfactualAllowed=true',
     '- executionImpact=NONE',
+  ];
+  // §G Gate2 Data Line Health 통합 요약 블록 (표시 전용, 값/판정 무변경).
+  lines.push(...formatGate2DataLineHealthSection({
+    dartStatus,
+    valuationStatus: valuation.status,
+    valuationSource: valuation.source,
+    sectorStatus,
+    sectorSourceTier,
+    leaderStatus,
+    leaderSourceTier,
+    programStatus: program.status,
+    external,
+  }));
+  return lines;
+}
+
+// §G Gate2 Data Line Health 통합 블록 — 각 외부 데이터 라인의 상태를 한 곳에서 요약.
+// KIS_FLOW 상세는 별도 KIS Router Eligibility 섹션 참조. executionImpact/marketSignal 무변경.
+function formatGate2DataLineHealthSection(input: {
+  dartStatus: string;
+  valuationStatus: string;
+  valuationSource: string;
+  sectorStatus: string;
+  sectorSourceTier: string;
+  leaderStatus: string;
+  leaderSourceTier: string;
+  programStatus: string;
+  external: Record<string, unknown> | undefined;
+}): string[] {
+  const dartFields = dartLineFields(input.external);
+  const dartLineStatus = statusOf(nestedRecord(input.external, 'dartLineHealth'), input.dartStatus);
+  const valuationLine =
+    input.valuationStatus === 'AVAILABLE' || input.valuationStatus === 'VERIFIED'
+      ? 'AVAILABLE'
+      : 'UNAVAILABLE';
+  const valuationReason = stringValue(
+    nestedRecord(nestedRecord(input.external, 'valuation'), 'per')?.reason,
+    'NONE',
+  );
+  const programLine = input.programStatus === 'MISSING' ? 'MISSING' : input.programStatus;
+  return [
+    'Gate2 Data Line Health:',
+    '- KIS_FLOW: VERIFIED (상세는 KIS Router Eligibility 참조)',
+    `- DART_FINANCIALS: ${dartLineStatus} availableFields=${dartFields.available} missingFields=${dartFields.missing}`,
+    `- VALUATION_PER: ${valuationLine} source=${input.valuationSource} reason=${valuationReason}`,
+    `- PROGRAM_TRADE: ${programLine} optional=true`,
+    `- SECTOR_CYCLE: ${input.sectorStatus} sourceTier=${input.sectorSourceTier}`,
+    `- LEADER_CYCLE: ${input.leaderStatus} sourceTier=${input.leaderSourceTier}`,
+    '- executionImpact=NONE marketSignal=false',
   ];
 }
 
