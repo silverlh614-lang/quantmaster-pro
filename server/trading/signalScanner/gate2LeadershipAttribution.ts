@@ -249,6 +249,11 @@ export type Gate2LeadershipDominantReason =
   | 'SECTOR_DATA_STALE'
   | 'BREAKOUT_MOMENTUM_NOT_CONFIRMED'
   | 'FUNDAMENTAL_DATA_UNAVAILABLE'
+  // Section F (Gate2 External Data Stabilization) — optionalMissing 전용 dominant.
+  // programTrade / optional sector·theme·leader cycle missing 만으로 Gate2 가 막힌
+  // 것처럼 보이지 않게, 진짜 실패(CONDITION_FAIL / FUNDAMENTAL_DATA_UNAVAILABLE) 와
+  // 분리된 별도 dominant 값. bearish / hard fail 로 변환 금지.
+  | 'OPTIONAL_DATA_MISSING'
   | 'MIXED'
   | 'UNKNOWN';
 
@@ -269,6 +274,17 @@ export interface Gate2LeadershipAttribution {
   blockedBySectorStaleCount: number;
   blockedByConditionFailCount: number;
   blockedByUnavailableFundamentalCount: number;
+  /**
+   * Section F (Gate2 External Data Stabilization) — optionalMissing 그룹.
+   *
+   * programTrade missing + optional sector/theme/leader cycle missing 의 unavailable
+   * 카운트 합. trueConditionFail(blockedByConditionFailCount) / dataUnavailable
+   * (blockedByUnavailableFundamentalCount) 와 *중복 집계되지 않는* 별도 축이다.
+   *
+   * 진단 전용 — optional 데이터 부재는 bearish/hard fail 이 아니며 Gate2 threshold·
+   * permission 에 영향 0. 추가 전용 필드 (non-breaking).
+   */
+  blockedByOptionalMissingCount: number;
   sectorStaleContributionPct: number;
   dominantReason: Gate2LeadershipDominantReason;
   officialIndex: {
@@ -806,12 +822,27 @@ function buildGate2LeadershipAttribution(input: {
   const fundamentalKeys = new Set(['earnings_quality', 'per', 'sectorLeadership', 'sector_leadership', 'sectorBoost', 'sector_boost']);
   const relativeStrengthKeys = new Set(['relative_strength', 'relativeStrength', 'rs', 'rs_percentile']);
   const volumeKeys = new Set(['volume_surge', 'volume_breakout', 'volumeEnergy', 'volume_energy']);
+  // Section F — optionalMissing 전용 키 집합. programTrade missing + optional
+  // sector/theme/leader cycle missing. conditionKeys / fundamentalKeys 와 분리되어
+  // 중복 집계되지 않는다 (아래 filter 가 optionalKeys 만 격리). 진단 전용 — 매매 무관.
+  const optionalKeys = new Set([
+    'programTrade', 'program_trade',
+    'sectorCycle', 'sector_cycle',
+    'leaderCycle', 'leader_cycle',
+    'themeCycle', 'theme_cycle',
+  ]);
   const blockedByConditionFailCount = input.sorted
-    .filter((b) => conditionKeys.has(b.conditionKey))
+    .filter((b) => conditionKeys.has(b.conditionKey) && !optionalKeys.has(b.conditionKey))
     .reduce((sum, b) => sum + b.failed, 0);
   const blockedByUnavailableFundamentalCount = input.sorted
-    .filter((b) => fundamentalKeys.has(b.conditionKey))
+    .filter((b) => fundamentalKeys.has(b.conditionKey) && !optionalKeys.has(b.conditionKey))
     .reduce((sum, b) => sum + b.unavailable + b.stale + b.error, 0);
+  // optionalMissing — optional lane 의 데이터 부재(unavailable+stale)만 집계.
+  // failed/error 는 의도적으로 제외: optional 미보유는 "데이터 없음"이지 "조건 실패"가
+  // 아니므로 trueConditionFail 로 누수되면 안 된다 (DATA_UNAVAILABLE 은 failed 아님, ADR-0416).
+  const blockedByOptionalMissingCount = input.sorted
+    .filter((b) => optionalKeys.has(b.conditionKey))
+    .reduce((sum, b) => sum + b.unavailable + b.stale, 0);
   const breakoutMomentumFailCount = input.sorted
     .filter((b) => b.conditionKey === 'breakout_momentum')
     .reduce((sum, b) => sum + b.failed + b.wait, 0);
@@ -830,6 +861,15 @@ function buildGate2LeadershipAttribution(input: {
   if (blockedBySectorStaleCount / denom >= 0.5) dominantReason = 'SECTOR_DATA_STALE';
   else if (blockedByUnavailableFundamentalCount / denom >= 0.5) dominantReason = 'FUNDAMENTAL_DATA_UNAVAILABLE';
   else if (blockedByConditionFailCount / denom >= 0.5) dominantReason = 'BREAKOUT_MOMENTUM_NOT_CONFIRMED';
+  // Section F — optionalMissing 만 존재(trueConditionFail=0 & dataUnavailable=0 & sectorStale=0)
+  // 할 때만 OPTIONAL_DATA_MISSING dominant. 진짜 실패와 *섞이면* MIXED 로 떨어지므로
+  // optional 부재가 Gate2 를 막은 것처럼 보이지 않는다. bearish 신호 아님.
+  else if (
+    blockedByOptionalMissingCount > 0 &&
+    blockedByConditionFailCount === 0 &&
+    blockedByUnavailableFundamentalCount === 0 &&
+    blockedBySectorStaleCount === 0
+  ) dominantReason = 'OPTIONAL_DATA_MISSING';
   else if (blockedBySectorStaleCount + blockedByUnavailableFundamentalCount + blockedByConditionFailCount > 0) dominantReason = 'MIXED';
   const officialCoverage = ratioFromMaybePercent(
     input.sectorEnergy?.officialIndexCoverage ?? input.sectorEnergy?.indexCodeCoverage,
@@ -891,6 +931,7 @@ function buildGate2LeadershipAttribution(input: {
     blockedBySectorStaleCount,
     blockedByConditionFailCount,
     blockedByUnavailableFundamentalCount,
+    blockedByOptionalMissingCount,
     sectorStaleContributionPct,
     dominantReason,
     officialIndex: {
@@ -1181,9 +1222,10 @@ export function formatGate2AttributionSection(
 
   const leadership = attribution.leadershipAttribution;
   lines.push(
-    `  • Gate2LeadershipAttribution: sectorStale=${leadership.blockedBySectorStaleCount} / ` +
-    `conditionFail=${leadership.blockedByConditionFailCount} / ` +
+    `  • Gate2LeadershipAttribution: conditionFail=${leadership.blockedByConditionFailCount} / ` +
     `fundamentalUnavailable=${leadership.blockedByUnavailableFundamentalCount} / ` +
+    `optionalMissing=${leadership.blockedByOptionalMissingCount} / ` +
+    `sectorStale=${leadership.blockedBySectorStaleCount} / ` +
     `sectorStaleContributionPct=${leadership.sectorStaleContributionPct.toFixed(1)}% / ` +
     `dominant=${leadership.dominantReason}`,
   );
