@@ -84,10 +84,16 @@ export function collectInvestorFlowMaterializedCandidates(
   samplesByProvider: Partial<Record<InvestorFlowProviderId, SemanticNetBuySample>>,
   actualRowCarryByProvider: Partial<Record<InvestorFlowProviderId, ActualInvestorFlowCarryAdr0477>> = {},
 ): InvestorFlowMaterializedCandidateAdr0503[] {
+  // ADR-0542 — KIS-first 명시 재정렬. KIS investor-trade-by-stock-daily(FHPTJ04160001, L1)이
+  // 사실상 1차 공급원이며(KRX OTP 구조적 차단 시 자동 선택) 표시 fallbackChain 과도 정합한다.
+  // 정합 범위(quality-guard 검증): kisFirstMode=true(ADR-0503, KRX 차단 운영상태)에서는 KRX 가
+  // rank 필터에서 탈락하므로 priority 무관·byte-equivalent. kisFirstMode=false(KRX 정상) 且
+  // KIS·KRX 동시 materialized 케이스에서는 본 재정렬로 KIS 가 우선 선택된다 — 의도된 KIS-first
+  // 동작이며(양쪽 L1, SHADOW_ONLY, executionImpact=NONE, live 무영향) 표시·귀속 라벨만 바뀐다.
   const priority: Record<string, number> = {
-    KRX_SYMBOL_INVESTOR_FLOW: 1,
-    KRX_INVESTOR_FLOW: 2,
-    KIS_API: 3,
+    KIS_API: 1,
+    KRX_SYMBOL_INVESTOR_FLOW: 2,
+    KRX_INVESTOR_FLOW: 3,
     KRX_MARKET_INVESTOR_FLOW: 4,
     FSS_PASSIVE_ACTIVE: 5,
     NAVER_INVESTOR_TREND: 6,
