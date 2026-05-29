@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0539`**
+**다음 ADR 번호: `0540`**
+(2026-05-29 기준, 마지막 발급 0539 — r6-recovery-regime-linked-cooldown-fasttrack. ADR-0539 — R6 Recovery Regime-Linked Cooldown Fast-Track (내부설정 TradingSettings.r6RecoveryFastTrack.enabled 기본 ON — Railway ENV 아님, 설정 API/UI 토글; evidenceComplete+confirmations 유지 cooldown 시간벽만 우회: rawR3_EARLY↑ + not-stale + shock-latch 비활성, 불변식 #6 정합, FSS/engine 차단 별도); 의도적 활성화(NOT byte-equivalent), 롤백=설정 enabled=false.)
+
 (2026-05-27 기준, 마지막 발급 0538 — scanblockers-message-section-decomposition. ADR-0538 — formatScanBlockersMessage 섹션 빌더 분해 (cc 131→≤25, scanBlockersMessageSections.ts 신규, display-only byte-equivalent, 테스트 335-pass 게이트); executionImpact=NONE.)
 (2026-05-27 기준, 마지막 발급 0537 — kisclient-query-decomposition. ADR-0537 — kisClient/query.ts 분해 (sectorIndex + 순수 helpers leaf 모듈 추출, byte-equivalent, baseline 해소); executionImpact=NONE.)
 (2026-05-27 기준, 마지막 발급 0536 — yahoo-quotesummary-per-eps-opportunistic-enrichment. ADR-0536 — Yahoo quoteSummary 기반 PER/EPS Opportunistic Enrichment (PENDING_WIRING C18, Proposed/설계 only, Naver→Yahoo quoteSummary fallback + perSource 출처 + ENV YAHOO_QUOTE_SUMMARY_PER_ENABLED default OFF; executionImpact=NONE).)
@@ -120,6 +122,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0539 | R6 Recovery Regime-Linked Cooldown Fast-Track | trading-engine / regime / r6-cooldown / live-gating |
 | 0538 | scanBlockers Message Section Decomposition | telegram / scan-blockers / refactor / godfunction |
 | 0537 | kisClient/query.ts Decomposition | kis-client / refactor / complexity-baseline |
 | 0536 | yahoo-quotesummary-per-eps-opportunistic-enrichment | discovery / enrichment / data-source |

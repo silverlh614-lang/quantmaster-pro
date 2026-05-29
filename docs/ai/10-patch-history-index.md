@@ -54,6 +54,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-29 · ADR-0539 · r6-cooldown-regime-fasttrack, 내부설정 TradingSettings.r6RecoveryFastTrack.enabled 기본 ON(Railway ENV 아님, 설정 API/UI 토글), evidenceComplete+confirmations 유지 cooldown 시간벽만 우회(rawR3↑+notStale+latch비활성), 불변식#6 정합, 의도적 활성화(NOT byte-equivalent)·롤백=설정 enabled=false
 - 2026-05-29 · Patch-A1A2B · gate1-scoring-wiring, VOLUME_LIQUIDITY avgVolume 배선복구(injectPerSymbolPriceContext avgVolume 수집/주입+index.ts 매퍼 w.volume/w.avgVolume fallback), forensic 정직성(hasObjectField→finite numeric, traceWithQuoteObjectCount/quoteNumericFieldCoverage 분리, TRACE_HYDRATION_MISSING 판정 byte-equivalent), Gate2 KIS_FLOW canonical 표시정정, 곡선/가중치/requiredScore=70 무수정, executionImpact-NONE(SHADOW_ONLY)
 - 2026-05-28 · Patch-F1F2 · gate1-starvation, WATCHLIST_PRIORITY/GHOST_SIGNAL/SECTOR_RS NEUTRAL_IF_MISSING 처리(missingPositiveComponents 과대계수 수정), ACTUAL_ROW_CARRIED_WITH_FIELDS→OBSERVE_SCORE_COMPUTATION 분기(formatter+scanBlockersCompact), display-only 3파일 +27줄, executionImpact-NONE
 - 2026-05-28 · Patch-E · krx-provider, resolveTradeDateWithFallback 배선(fetchInvestorTrading/fetchInvestorTradingDetail/fetchPerPbr/fetchShortBalance), primary→fallback 1회 재시도(GATED/ENDPOINT_PARAM_NOT_READY/rowCount=0/otpGenerated=false/null), isBldCooldown 충돌방지, resolveTradeDate import 제거, krxClient.ts 1480→1580줄(architect 분해 ADR 필요), SDS-OK, executionImpact-NONE(SHADOW_ONLY 유지)

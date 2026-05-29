@@ -32,6 +32,12 @@ export interface TradingSettings {
   ocoAutoRegister: {
     enabled: boolean;
   };
+  // R6 회복 cooldown 레짐연동 fast-track (ADR-0539): raw 레짐이 R3_EARLY 이상으로 회복 시
+  // cooldown 시간벽만 조기해제 (evidence/confirmations/stale/latch 가드는 유지). 앱 내부 설정 —
+  // Railway 외부 ENV 가 아니라 설정 API/UI 에서 토글한다.
+  r6RecoveryFastTrack: {
+    enabled: boolean;
+  };
   // 섀도우 계좌 시작 원금 (원화)
   startingCapital: number;
   // 메타 정보
@@ -59,6 +65,11 @@ export const DEFAULT_TRADING_SETTINGS: TradingSettings = {
     endTime: '15:30',
   },
   ocoAutoRegister: {
+    enabled: true,
+  },
+  // ADR-0539: 기본 ON (운영자 결정). raw 회복 시 cooldown 시간벽 조기해제 — evidence/confirmations/
+  // stale/latch 가드는 유지. 비활성화는 설정 API/UI 에서 enabled=false 로 토글.
+  r6RecoveryFastTrack: {
     enabled: true,
   },
   startingCapital: 100_000_000,

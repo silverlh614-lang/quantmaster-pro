@@ -14,6 +14,7 @@
 import type { RegimeVariables, RegimeLevel } from '../../src/types/core.js';
 import { classifyRegime, REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
+import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { channelRegimeChange } from '../alerts/channelPipeline.js';
 import { renderPlaybook } from '../alerts/regimePlaybook.js';
@@ -637,7 +638,36 @@ export function evaluateR6RecoveryTransition(
     const nextConfirmations = previouslyEffectiveR6 ? (freshAndCloseEligible ? 1 : 0) : (sourceChanged && freshAndCloseEligible ? previousState.recoveryConfirmations + 1 : previousState.recoveryConfirmations);
     const cooldownUntil = previousState.cooldownUntil ?? new Date(now.getTime() + cooldownMinutes * 60_000).toISOString();
     const evidence = buildR6RecoveryEvidence(macroState, now, requiredConfirmations, nextConfirmations);
-    const recovered = evidenceComplete(evidence) && nextConfirmations >= requiredConfirmations && Date.parse(cooldownUntil) <= now.getTime();
+    // ADR-0539: 레짐-연동 cooldown fast-track. 토글은 앱 내부 설정(TradingSettings.r6RecoveryFastTrack,
+    // 기본 ON) — Railway 외부 ENV 가 아니다. 설정 API/UI 에서 enabled=false 로 즉시 롤백 가능.
+    // #1 evidenceComplete·#2 confirmations 는 절대 우회 금지 — cooldown 시간벽(#3)만 조건부 우회한다.
+    // 불변식 #6: provider stale 은 tradable 아님(rawRecoveredToHealthy + notStale 가드). shock-latch 활성 시 우회 불가.
+    const cooldownElapsed = Date.parse(cooldownUntil) <= now.getTime();
+    const fastTrackEnabled = loadTradingSettings().r6RecoveryFastTrack?.enabled === true;
+    // R1_TURBO/R2_BULL/R3_EARLY 만 healthy 로 간주(R4_NEUTRAL/R5_CAUTION/R6_DEFENSE 제외).
+    // REGIME_ORDER(방어→공격) 상 R3_EARLY 이상 인덱스 — capRecoveryRegime/applyForcedDowngrade 와 동일 literal 체계.
+    const rawRecoveredToHealthy = REGIME_ORDER.indexOf(rawRegime) >= REGIME_ORDER.indexOf('R3_EARLY');
+    // 순환 회피: latchStillActive(:아래)는 `!recovered && ...` 라 recovered 산출에 못 씀.
+    // shock-latch 활성 여부는 previousState 에서 직접 판정.
+    const shockLatchStillActive = previousState.r6ShockLatch === true && !isLatchExpired(previousState, now);
+    const cooldownFastTrack =
+      fastTrackEnabled &&
+      rawRecoveredToHealthy &&
+      !isHardStaleForRecovery(triggerBreakdown.triggerFreshness) && // 불변식 #6: stale ≠ tradable
+      !shockLatchStillActive;                                       // VKOSPI/intraday-low latch 비활성
+    const recovered = evidenceComplete(evidence) && nextConfirmations >= requiredConfirmations && (cooldownElapsed || cooldownFastTrack);
+    // fast-track 가 *유일하게* recovered 를 끌어올린 경우(cooldown 미경과)만 진단 흔적을 남긴다.
+    const recoveredByFastTrack = recovered && !cooldownElapsed && cooldownFastTrack;
+    if (recoveredByFastTrack) {
+      console.info(
+        '[R6_REGIME_FASTTRACK_RELEASED] ' +
+        `rawRegime=${rawRegime} ` +
+        `cooldownUntil=${cooldownUntil} (not elapsed) ` +
+        `confirmations=${nextConfirmations}/${requiredConfirmations} ` +
+        `macroFreshness=${triggerBreakdown.triggerFreshness} ` +
+        'shockLatchActive=false evidenceComplete=true executionImpact=COOLDOWN_TIMEWALL_BYPASSED',
+      );
+    }
     const blockedReason = recoveryBlockedReason(triggerBreakdown, previousState, macroState, cooldownUntil, now) ?? (nextConfirmations < requiredConfirmations ? 'R6_RECOVERY_CONFIRMATION_REQUIRED' : undefined);
     const nextDecayPercent = latchDecayPercent(previousState, closeEligible, now, { triggerBreakdown, macroState, biasScore });
     const latchStillActive = !recovered && previousState.r6ShockLatch && !isLatchExpired(previousState, now);
@@ -675,7 +705,7 @@ export function evaluateR6RecoveryTransition(
       exitedR6At: previousState.exitedR6At ?? nowIso,
       lastTransitionAt: previousState.effectiveRegime === effectiveRegime && previousState.r6StateMachineState === r6StateMachineState ? previousState.lastTransitionAt : nowIso,
       transitionDirection: transitionDirection(previousState.effectiveRegime, effectiveRegime),
-      transitionReason: recovered ? 'R6 state machine recovered; rawRegime restored as effectiveRegime' : isHardStaleForRecovery(triggerBreakdown.triggerFreshness) ? 'R6 release blocked by macroState hard stale; shadow remains allowed' : recoveryWatch ? 'R6_DEFENSE eased to R6_RECOVERY_WATCH by state machine' : 'R6 state machine waiting for recovery confirmations/cooldown',
+      transitionReason: recoveredByFastTrack ? 'R6_REGIME_FASTTRACK_RELEASED; cooldown time-wall bypassed by raw regime recovery (evidence+confirmations held)' : recovered ? 'R6 state machine recovered; rawRegime restored as effectiveRegime' : isHardStaleForRecovery(triggerBreakdown.triggerFreshness) ? 'R6 release blocked by macroState hard stale; shadow remains allowed' : recoveryWatch ? 'R6_DEFENSE eased to R6_RECOVERY_WATCH by state machine' : 'R6 state machine waiting for recovery confirmations/cooldown',
       r6RecoveryStatus: status,
       r6RecoveryEvidence: evidence,
       cooldownUntil: recovered ? undefined : cooldownUntil,
