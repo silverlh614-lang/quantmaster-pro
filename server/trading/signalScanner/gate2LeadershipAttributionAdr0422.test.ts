@@ -543,6 +543,29 @@ describe('Section F (Gate2 External Data Stabilization) — attribution 3 그룹
     expect(la.dominantReason).toBe('OPTIONAL_DATA_MISSING');
   });
 
+  it('PR#1310 리뷰(P2): optional sectorCycle stale 는 SECTOR_DATA_STALE dominant 로 둔갑하지 않는다', () => {
+    // optional sector-cycle 레인만 stale 이 gate1Pass 의 ≥50% — 수정 전엔 blockedBySectorStaleCount
+    // 가 'sector' 포함 키를 모두 집계해 SECTOR_DATA_STALE 로 오분류됐다. optionalKeys 격리 후엔
+    // blockedBySectorStaleCount=0, optionalMissing 으로 집계 → dominant=OPTIONAL_DATA_MISSING.
+    const buckets: Gate2BlockerBucket[] = [
+      { ...emptyBucket('sectorCycle'), stale: 6, total: 10 }, // 60% of gate1Pass
+    ];
+    const attribution = buildGate2FreshAttribution({
+      buckets,
+      candidates: 40,
+      gate1Pass: 10,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+    });
+    const la = attribution.leadershipAttribution;
+    expect(la.blockedBySectorStaleCount).toBe(0);
+    expect(la.blockedByOptionalMissingCount).toBe(6);
+    expect(la.dominantReason).not.toBe('SECTOR_DATA_STALE');
+    expect(la.dominantReason).toBe('OPTIONAL_DATA_MISSING');
+  });
+
   it('optionalMissing + 진짜 실패 혼재 시 OPTIONAL_DATA_MISSING 으로 떨어지지 않는다 (MIXED 또는 진짜 dominant)', () => {
     const buckets: Gate2BlockerBucket[] = [
       { ...emptyBucket('breakout_momentum'), failed: 6, total: 6 }, // 60% → BREAKOUT_MOMENTUM_NOT_CONFIRMED

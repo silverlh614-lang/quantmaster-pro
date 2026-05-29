@@ -871,8 +871,11 @@ function buildGate2LeadershipAttribution(input: {
   const volumeConfirmationFailCount = input.sorted
     .filter((b) => volumeKeys.has(b.conditionKey))
     .reduce((sum, b) => sum + b.failed, 0);
+  // PR#1310 리뷰(P2) 정합: optional sector-cycle 레인(optionalKeys)의 stale 은 SECTOR_DATA_STALE
+  // dominance 에 집계하지 않는다 — 그렇지 않으면 optional 데이터 공백이 Gate2 leadership blocker
+  // 처럼 둔갑한다(optionalMissing 격리 의도 위배). 진짜 sector energy/leadership stale 만 집계.
   const blockedBySectorStaleCount = input.sectorEnergy?.isStale ? input.gate1Pass : input.sorted
-    .filter((b) => b.conditionKey.toLowerCase().includes('sector'))
+    .filter((b) => b.conditionKey.toLowerCase().includes('sector') && !optionalKeys.has(b.conditionKey))
     .reduce((sum, b) => sum + b.stale, 0);
   const denom = Math.max(1, input.gate1Pass);
   const sectorStaleContributionPct = Math.round((blockedBySectorStaleCount / denom) * 1000) / 10;

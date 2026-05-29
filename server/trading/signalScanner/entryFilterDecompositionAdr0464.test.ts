@@ -526,6 +526,9 @@ describe('Gate2 external data Section D/E/G display lanes', () => {
       watchlistCandidates: 1,
       entries: 0,
       macroGateState: macro(),
+      // PR#1310 리뷰(P2): KIS_FLOW 는 supplyProviderHealth.status 에서 파생(하드코딩 금지).
+      // 공급이 VERIFIED 면 KIS_FLOW: VERIFIED 가 나와야 한다(파생 근거).
+      supplyProviderHealth: { status: 'VERIFIED' },
       candidateSnapshots: [
         {
           symbol: 'H1',
@@ -556,5 +559,31 @@ describe('Gate2 external data Section D/E/G display lanes', () => {
     expect(formatted).toContain('- SECTOR_CYCLE: SHADOW_ONLY sourceTier=INTERNAL_GROUPED_SNAPSHOT');
     expect(formatted).toContain('- LEADER_CYCLE: UNKNOWN sourceTier=NONE');
     expect(formatted).toContain('- executionImpact=NONE marketSignal=false');
+  });
+
+  it('§G KIS_FLOW 는 공급 미가용 시 VERIFIED 로 오표시하지 않는다 (PR#1310 리뷰 P2)', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 1,
+      watchlistCandidates: 1,
+      entries: 0,
+      macroGateState: macro(),
+      // 투자흐름 row 가 없는 스캔(MISSING) — 하드코딩이라면 VERIFIED 로 오표시됐을 케이스.
+      supplyProviderHealth: { status: 'MISSING' },
+      candidateSnapshots: [
+        {
+          symbol: 'H1',
+          price: 100,
+          volume: 1000,
+          gate2ExternalDataCoverage: {
+            dartFinancials: { status: 'MISSING', required: true, stageNotFetched: false },
+            leaderCycle: { status: 'UNKNOWN' },
+          },
+        },
+      ],
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+    expect(formatted).toContain('- KIS_FLOW: MISSING (상세는 KIS Router Eligibility 참조)');
+    expect(formatted).not.toContain('- KIS_FLOW: VERIFIED');
   });
 });
