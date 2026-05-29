@@ -179,8 +179,17 @@ function buildSurvivorTaxonomy(input: Gate1ScoreAccountingInput, positive: Posit
     ?? summary?.gate2SoftLeadershipLane?.gate2PendingPreserved
     ?? 0;
   const shadowObservable = Math.min(rawShadowObservable, gate1Evaluated);
-  const rawCounterfactual = decomposition?.counterfactualRecorded
-    ?? countEntryLane(summary, 'counterfactualCreated')
+  // Source the actual counterfactual ledger rows created (canonical entryLaneSplit.counterfactualCreated),
+  // not the entry-filter block-distribution metric. decomposition.counterfactualRecorded counts candidates
+  // diverted INTO the counterfactual entry lane during the buy loop (frequently 0 under WATCH/SHADOW_ONLY),
+  // which is a different scope and contradicted Candidate Pool / Entry Lane Split (both report the ledger count).
+  // 0 is not nullish, so the previous `decomposition?.counterfactualRecorded ?? …` chain short-circuited and
+  // never reached the lane count. executionImpact=NONE — diagnostic accounting consistency only.
+  const laneCounterfactual = summary?.entryLaneSplit
+    ? countEntryLane(summary, 'counterfactualCreated')
+    : undefined;
+  const rawCounterfactual = laneCounterfactual
+    ?? decomposition?.counterfactualRecorded
     ?? (summary?.gate2SoftLeadershipLane?.counterfactualRecorded ? totalCandidates : 0);
   const counterfactualRecorded = Math.min(rawCounterfactual, totalCandidates);
   const note = gate1HardPass === 0 && rawLiveCandidate > 0

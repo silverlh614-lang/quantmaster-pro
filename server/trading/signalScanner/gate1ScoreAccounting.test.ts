@@ -244,6 +244,49 @@ describe('Gate1 score accounting diagnostic consistency', () => {
     expect(text).toContain('[OK] GATE2_NOT_EVALUATED_WHEN_GATE1_FAIL');
   });
 
+  it('reports the actual counterfactual ledger rows, not the entry-filter block-distribution count', () => {
+    // Regression: Survivor Taxonomy printed counterfactualRecorded=0 (from the entry-filter block
+    // distribution) while Candidate Pool / Entry Lane Split reported the 21 ledger rows actually created.
+    // 0 is not nullish, so the old `decomposition?.counterfactualRecorded ?? laneCount` chain never reached
+    // the lane count. The taxonomy must agree with the canonical entryLaneSplit.counterfactualCreated.
+    const summary = {
+      time: '2026-05-29T07:56:00.000Z',
+      candidates: 21,
+      entries: 0,
+      positiveScoreStarvation: positiveReport(),
+      gate2SoftLeadershipLane: {
+        gate1HardSurvivors: 0,
+        minSignalLivePass: 1,
+        gate2PendingPreserved: 0,
+        labels: [],
+        shadowObservablePreserved: false,
+        watchPreserved: false,
+        counterfactualRecorded: false,
+        executionImpact: 'NONE',
+      },
+      entryLaneSplit: {
+        liveCandidates: 2,
+        liveOrderCreated: 0,
+        counterfactualCreated: 21,
+      },
+      entryFilterDecomposition: {
+        counterfactualRecorded: 0,
+        ledgerRowsCreated: 21,
+        gate1DecompositionReport: { gate1Passed: 6 },
+      },
+    } as unknown as ScanSummary;
+
+    const accounting = buildGate1ScoreAccountingReport({
+      positive: summary.positiveScoreStarvation,
+      summary,
+    });
+    expect(accounting?.survivor.counterfactualRecorded).toBe(21);
+    expect(accounting?.invariants.every((item) => item.status === 'OK')).toBe(true);
+
+    const text = formatGate1ScoreHealthSection(summary) ?? '';
+    expect(text).toContain('counterfactualRecorded=21');
+  });
+
   it('keeps dry-run duplicate penalty removal out of effective penalty accounting', () => {
     const report = buildPenaltyDeduplicationReport({
       positiveStarvationReport: positiveReport(),
