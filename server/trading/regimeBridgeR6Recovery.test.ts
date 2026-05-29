@@ -1,8 +1,23 @@
 // @responsibility R6 recovery transition guard unit coverage.
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
 import type { MacroState } from "../persistence/macroStateRepo.js";
 import { defaultRegimeTransitionState } from "../persistence/regimeTransitionStateRepo.js";
+
+// ADR-0539: fast-track 토글은 내부 TradingSettings(loadTradingSettings) 에서 읽는다(Railway ENV 아님).
+// loadTradingSettings 만 mock 으로 대체하고 나머지 export 는 실제 모듈 유지(saveTradingSettings/DEFAULT 등).
+const settingsMock = vi.hoisted(() => ({ loadTradingSettings: vi.fn() }));
+vi.mock("../persistence/tradingSettingsRepo.js", async (importActual) => ({
+  ...(await importActual<typeof import("../persistence/tradingSettingsRepo.js")>()),
+  loadTradingSettings: settingsMock.loadTradingSettings,
+}));
+
 import { evaluateR6RecoveryTransition, getRawRegime } from "./regimeBridge.js";
+
+// 기본: fast-track OFF(enabled=false) → 기존 16 케이스는 cooldown 시간벽 동작 그대로(byte-equivalent).
+// fast-track 케이스만 enabled=true 로 override 한다.
+beforeEach(() => {
+  settingsMock.loadTradingSettings.mockReturnValue({ r6RecoveryFastTrack: { enabled: false } } as never);
+});
 
 function macro(overrides: Partial<MacroState> = {}): MacroState {
   return {
@@ -43,6 +58,7 @@ afterEach(() => {
   delete process.env.R6_VKOSPI_RECOVERY_THRESHOLD_BASE;
   delete process.env.R6_VKOSPI_THRESHOLD_RELAXED;
   delete process.env.R6_VKOSPI_THRESHOLD_HIGH_MHS;
+  settingsMock.loadTradingSettings.mockReset();
 
 });
 
@@ -557,4 +573,171 @@ describe("R6 Recovery Transition Guard", () => {
     expect(state.r6RecoveryEvidence.marketDataFreshnessOk).toBe(false);
   });
 
+});
+
+// ADR-0539: 레짐-연동 cooldown fast-track. ENV default OFF → byte-equivalent.
+// #1 evidenceComplete · #2 confirmations 는 절대 우회 금지(아래 negative 케이스로 고정),
+// cooldown 시간벽(#3)만 raw 회복(R3_EARLY↑)+not-stale+latch비활성 시 조기 우회한다.
+describe("R6 Recovery Cooldown Regime-Linked Fast-Track (ADR-0539)", () => {
+  // 공통: 240분 cooldown 미경과 상태에서 evidence 완전 + confirmations 충족하도록 1회 확인으로 단축.
+  // → 유일하게 남는 차단요인이 cooldown 시간벽이 되도록 구성(fast-track 효과를 격리 검증).
+  function r6ExitPrevious(now: Date) {
+    return {
+      ...defaultRegimeTransitionState(now.toISOString()),
+      currentRegime: "R6_DEFENSE" as const,
+      rawRegime: "R6_DEFENSE" as const,
+      effectiveRegime: "R6_DEFENSE" as const,
+      r6RecoveryStatus: "IN_R6" as const,
+      enteredR6At: "2026-05-16T00:00:00.000Z",
+    };
+  }
+
+  it("releases recovery before cooldown elapses when flag ON + raw R3_EARLY + evidence + confirmations + not-stale + no latch", () => {
+    settingsMock.loadTradingSettings.mockReturnValue({ r6RecoveryFastTrack: { enabled: true } } as never);
+    process.env.R6_RECOVERY_COOLDOWN_MINUTES = "240";
+    process.env.R6_RECOVERY_REQUIRE_CONFIRMATIONS = "1";
+    const now = new Date("2026-05-17T00:00:00.000Z");
+    const recoveredMacro = macro();
+    const rawRegime = getRawRegime(recoveredMacro);
+    const state = evaluateR6RecoveryTransition(
+      r6ExitPrevious(now),
+      recoveredMacro,
+      rawRegime,
+      now,
+    );
+
+    // raw 가 R3_EARLY 로 회복됐고 cooldownUntil(=+240m)은 미경과인데도 fast-track 으로 RECOVERED.
+    expect(rawRegime).toBe("R3_EARLY");
+    expect(state.r6RecoveryEvidence.confirmations).toBeGreaterThanOrEqual(1);
+    expect(state.r6RecoveryStatus).not.toBe("R6_RECOVERY_WATCH");
+    expect(state.r6RecoveryStatus).not.toBe("COOLDOWN");
+    expect(["R5_STABILIZING", "RECOVERED"]).toContain(state.r6RecoveryStatus);
+    // recovered 경로는 cooldownUntil 을 비운다(:709) — fast-track 도 동일 recovered 경로를 탐.
+    expect(state.cooldownUntil).toBeUndefined();
+    // 진단 흔적: transitionReason 에 fast-track 흔적이 남아야 추적 가능.
+    expect(state.transitionReason).toContain("R6_REGIME_FASTTRACK_RELEASED");
+    // effective 가 R6/R5 capping 을 벗어나 raw 방향으로 풀림(별도 분기 없이 recovered=true 경로 통과).
+    expect(state.effectiveRegime).not.toBe("R6_DEFENSE");
+  });
+
+  it("does NOT fast-track when flag ON but raw still R5_CAUTION (rawRecoveredToHealthy=false)", () => {
+    settingsMock.loadTradingSettings.mockReturnValue({ r6RecoveryFastTrack: { enabled: true } } as never);
+    process.env.R6_RECOVERY_COOLDOWN_MINUTES = "240";
+    process.env.R6_RECOVERY_REQUIRE_CONFIRMATIONS = "1";
+    const now = new Date("2026-05-17T00:00:00.000Z");
+    const state = evaluateR6RecoveryTransition(
+      r6ExitPrevious(now),
+      macro(),
+      "R5_CAUTION", // raw 가 아직 healthy(R3_EARLY↑) 아님 → 가드 차단
+      now,
+    );
+
+    expect(state.r6RecoveryStatus).not.toBe("RECOVERED");
+    expect(state.cooldownUntil).toBe("2026-05-17T04:00:00.000Z");
+    expect(state.transitionReason).not.toContain("FASTTRACK");
+  });
+
+  it("does NOT fast-track when flag ON but macroState is hard-stale (불변식 #6: stale ≠ tradable)", () => {
+    settingsMock.loadTradingSettings.mockReturnValue({ r6RecoveryFastTrack: { enabled: true } } as never);
+    process.env.R6_RECOVERY_COOLDOWN_MINUTES = "240";
+    process.env.R6_RECOVERY_REQUIRE_CONFIRMATIONS = "1";
+    const now = new Date("2026-05-17T00:00:00.000Z");
+    // previousR6Triggers 로 recovery-flow 진입 보장(:404 baseline 과 동일) → in-flow stale 가드 검증.
+    const previous = {
+      ...r6ExitPrevious(now),
+      previousR6Triggers: ["KOSPI_CLOSE_SHOCK" as const],
+    };
+    const staleMacro = macro({ updatedAt: "2026-05-15T00:00:00.000Z" }); // 2일 전 → HARD_STALE
+    const state = evaluateR6RecoveryTransition(
+      previous,
+      staleMacro,
+      getRawRegime(staleMacro),
+      now,
+    );
+
+    // isHardStaleForRecovery=true → cooldownFastTrack 가드(!isHardStaleForRecovery) 차단 + recovered=false.
+    expect(state.r6RecoveryStatus).toBe("STALE_DATA_BLOCKED");
+    expect(state.effectiveRegime).toBe("R6_DEFENSE");
+    expect(state.transitionReason).not.toContain("FASTTRACK");
+  });
+
+  it("does NOT fast-track when flag ON but shock latch still active (decay≥60, latch flag set)", () => {
+    // 래치가 release-eligibility 도달(decay≥60)로 R6 를 더는 hold 하진 않지만 latchExpiresAt 미만료 →
+    // shockLatchStillActive=true 라 fast-track 우회 불가. (:455 테스트와 동일 셋업)
+    settingsMock.loadTradingSettings.mockReturnValue({ r6RecoveryFastTrack: { enabled: true } } as never);
+    process.env.R6_RECOVERY_COOLDOWN_MINUTES = "240";
+    process.env.R6_RECOVERY_REQUIRE_CONFIRMATIONS = "1";
+    const previous = {
+      ...defaultRegimeTransitionState("2026-05-17T00:00:00.000Z"),
+      currentRegime: "R6_DEFENSE" as const,
+      rawRegime: "R6_DEFENSE" as const,
+      effectiveRegime: "R6_DEFENSE" as const,
+      r6RecoveryStatus: "R6_DEFENSE" as const,
+      r6StateMachineState: "R6_DEFENSE" as const,
+      r6ShockLatch: true,
+      r6ShockLatchReason: "KOSPI_CLOSE_SHOCK" as const,
+      latchTriggeredAt: "2026-05-17T00:00:00.000Z",
+      latchExpiresAt: "2026-05-18T00:00:00.000Z", // 미만료 → isLatchExpired=false
+      latchReleaseEligibleAt: "2026-05-17T06:00:00.000Z",
+      latchDecayPercent: 40,
+      sourceUpdatedAt: "2026-05-17T00:00:00.000Z",
+    };
+    const state = evaluateR6RecoveryTransition(
+      previous,
+      macro({ updatedAt: "2026-05-17T06:10:00.000Z", kospiCloseReturn: 0.2 }),
+      "R3_EARLY",
+      new Date("2026-05-17T06:10:00.000Z"),
+    );
+
+    // 래치 비활성 가드(shockLatchStillActive)가 fast-track 을 막아 RECOVERED 로 못 감.
+    expect(state.r6ShockLatch).toBe(true);
+    expect(state.r6RecoveryStatus).not.toBe("RECOVERED");
+    expect(state.r6RecoveryStatus).toBe("R6_RECOVERY_WATCH");
+    expect(state.effectiveRegime).toBe("R5_CAUTION");
+    expect(state.transitionReason).not.toContain("FASTTRACK");
+  });
+
+  it("does NOT fast-track when flag ON but confirmations are insufficient (#2 절대 우회 금지)", () => {
+    settingsMock.loadTradingSettings.mockReturnValue({ r6RecoveryFastTrack: { enabled: true } } as never);
+    process.env.R6_RECOVERY_COOLDOWN_MINUTES = "240";
+    process.env.R6_RECOVERY_REQUIRE_CONFIRMATIONS = "2"; // R6 exit 1회 확인(=1)으로는 미달
+    const now = new Date("2026-05-17T00:00:00.000Z");
+    const recoveredMacro = macro();
+    const state = evaluateR6RecoveryTransition(
+      r6ExitPrevious(now),
+      recoveredMacro,
+      getRawRegime(recoveredMacro),
+      now,
+    );
+
+    // confirmations(1) < required(2) → fast-track 무관하게 recovered=false.
+    expect(state.r6RecoveryEvidence.confirmations).toBeLessThan(2);
+    expect(state.r6RecoveryStatus).not.toBe("RECOVERED");
+    expect(state.cooldownUntil).toBe("2026-05-17T04:00:00.000Z");
+    expect(state.transitionReason).not.toContain("FASTTRACK");
+  });
+
+  it("when fast-track disabled (enabled=false): cooldown time-wall holds → recovered=false", () => {
+    // 설정에서 fast-track 을 끄면 기존 240분 고정벽 동작 그대로(:246 회귀 테스트와 동일 결과).
+    // production default 는 ON 이지만 운영자가 설정 API/UI 에서 enabled=false 로 끌 수 있음(롤백 경로).
+    settingsMock.loadTradingSettings.mockReturnValue({ r6RecoveryFastTrack: { enabled: false } } as never);
+    process.env.R6_RECOVERY_COOLDOWN_MINUTES = "240";
+    process.env.R6_RECOVERY_REQUIRE_CONFIRMATIONS = "1";
+    const now = new Date("2026-05-17T00:00:00.000Z");
+    const recoveredMacro = macro();
+    const rawRegime = getRawRegime(recoveredMacro);
+    const state = evaluateR6RecoveryTransition(
+      r6ExitPrevious(now),
+      recoveredMacro,
+      rawRegime,
+      now,
+    );
+
+    expect(rawRegime).toBe("R3_EARLY");
+    expect(state.r6RecoveryStatus).not.toBe("RECOVERED");
+    expect(state.r6RecoveryStatus).toBe("R6_RECOVERY_WATCH");
+    expect(state.effectiveRegime).toBe("R5_CAUTION");
+    expect(state.cooldownUntil).toBe("2026-05-17T04:00:00.000Z");
+    expect(state.transitionReason).not.toContain("FASTTRACK");
+  });
 });
