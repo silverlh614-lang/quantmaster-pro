@@ -1,0 +1,367 @@
+/**
+ * @responsibility Gate1 score accounting diagnostic SSOT for scan_blockers.
+ */
+
+import type { FinalGate1CalibrationAuditReport } from './gate1FinalCalibration.js';
+import type { PenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js';
+import type { PositiveScoreStarvationReport } from './gate1PositiveScoreStarvation.js';
+import type { CanonicalRuntimeResolutionStep27 } from './runtimeResolverTraceStep26.js';
+import type { ScanSummary } from './scanDiagnostics/scanSummaryTypes.js';
+
+type InvariantStatus = 'OK' | 'FAIL';
+
+export interface Gate1PenaltyAccounting {
+  effectiveOriginalPenaltyAvg: number;
+  effectiveDedupedPenaltyAvg: number;
+  effectiveRemovedPenaltyAvg: number;
+  diagnosticOriginalPenaltyAvg: number;
+  diagnosticDedupedPenaltyAvg: number;
+  diagnosticRemovedPenaltyAvg: number;
+  effectiveGateScoreImpact: number;
+  diagnosticOnly: boolean;
+  diagnosticGroupKey: string;
+}
+
+export interface Gate1SurvivorTaxonomy {
+  totalCandidates: number;
+  gate1Evaluated: number;
+  gate1HardPass: number;
+  gate1SoftPass: number;
+  minSignalLivePass: number;
+  liveCandidateAfterGate1: number;
+  diagnosticSurvivor: number;
+  shadowObservable: number;
+  counterfactualRecorded: number;
+  note: string;
+}
+
+export interface Gate1ScoreAccountingReport {
+  requiredScoreAvg: number;
+  finalGate1ScoreAvg: number;
+  finalGate1ScoreMin: number;
+  finalGate1ScoreMax: number;
+  rawPositiveScoreAvg: number;
+  rawPenaltyScoreAvg: number;
+  effectivePenaltyScoreAvg: number;
+  netScoreAvg: number;
+  normalizedGate1ScorePct: number;
+  configuredPositiveMax: number;
+  observedPositiveMax: number;
+  utilizationByMaxPct: number;
+  utilizationByAvgPct: number;
+  previousPositiveUtilizationAvgDeprecated: number;
+  scaleMismatch: boolean;
+  primaryIssue: string;
+  secondaryIssue: string;
+  penalty: Gate1PenaltyAccounting;
+  survivor: Gate1SurvivorTaxonomy;
+  invariants: Array<{
+    code: string;
+    status: InvariantStatus;
+    message: string;
+  }>;
+  executionImpact: 'NONE';
+  shadowLearning: true;
+}
+
+export interface Gate1ScoreAccountingInput {
+  positive?: PositiveScoreStarvationReport | null;
+  penalty?: PenaltyDeduplicationReport | null;
+  finalCalibration?: FinalGate1CalibrationAuditReport | null;
+  canonical?: CanonicalRuntimeResolutionStep27 | null;
+  summary?: ScanSummary | null;
+}
+
+function finite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function round1(value: number): number {
+  return Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
+}
+
+function pct(numerator: number, denominator: number): number {
+  if (!Number.isFinite(denominator) || denominator <= 0) return 0;
+  return round1(Math.max(0, Math.min(100, (numerator / denominator) * 100)));
+}
+
+function countSnapshots(
+  summary: ScanSummary | null | undefined,
+  predicate: (candidate: NonNullable<ScanSummary['candidatePool']>['candidateSnapshots'][number]) => boolean,
+): number {
+  const snapshots = summary?.candidatePool?.candidateSnapshots ?? [];
+  return snapshots.filter(predicate).length;
+}
+
+function countEntryLane(summary: ScanSummary | null | undefined, key: keyof NonNullable<ScanSummary['entryLaneSplit']>): number {
+  const value = summary?.entryLaneSplit?.[key];
+  return finite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+function diagnosticGroupTotals(report?: PenaltyDeduplicationReport | null): {
+  original: number;
+  deduped: number;
+  removed: number;
+  groupKey: string;
+} {
+  if (!report || report.duplicateGroups.length === 0) {
+    return { original: 0, deduped: 0, removed: 0, groupKey: 'NONE' };
+  }
+  const groups = report.duplicateGroups;
+  const first = groups[0];
+  return {
+    original: round1(groups.reduce((acc, group) => acc + group.avgOriginalPenalty, 0)),
+    deduped: round1(groups.reduce((acc, group) => acc + group.avgDedupedPenalty, 0)),
+    removed: round1(groups.reduce((acc, group) => acc + group.avgRemovedPenalty, 0)),
+    groupKey: first?.groupKey ?? 'DIAGNOSTIC_GROUP',
+  };
+}
+
+function buildPenaltyAccounting(input: Gate1ScoreAccountingInput): Gate1PenaltyAccounting {
+  const report = input.penalty;
+  const canonical = input.canonical;
+  const effectiveFromCanonical = canonical
+    ? canonical.providerPenalty.effectiveProviderPenaltyAvg + canonical.providerPenalty.effectiveUnknownPenaltyAvg
+    : undefined;
+  const marketSignalPenalty = report?.marketSignalPenaltyAvg ?? 0;
+  const effectiveOriginal = round1(Math.max(
+    0,
+    report?.effectiveOriginalPenaltyAvg ?? effectiveFromCanonical ?? report?.originalPenaltyAvg ?? 0,
+    marketSignalPenalty,
+  ));
+  const effectiveRemoved = round1(Math.min(effectiveOriginal, report?.removedPenaltyAvg ?? 0));
+  const effectiveDeduped = round1(Math.max(0, effectiveOriginal - effectiveRemoved));
+  const diagnostic = diagnosticGroupTotals(report);
+  const diagnosticOnly = diagnostic.removed > 0 && effectiveRemoved === 0;
+  return {
+    effectiveOriginalPenaltyAvg: effectiveOriginal,
+    effectiveDedupedPenaltyAvg: effectiveDeduped,
+    effectiveRemovedPenaltyAvg: effectiveRemoved,
+    diagnosticOriginalPenaltyAvg: diagnostic.original,
+    diagnosticDedupedPenaltyAvg: diagnostic.deduped,
+    diagnosticRemovedPenaltyAvg: diagnostic.removed,
+    effectiveGateScoreImpact: effectiveRemoved,
+    diagnosticOnly,
+    diagnosticGroupKey: diagnostic.groupKey,
+  };
+}
+
+function buildSurvivorTaxonomy(input: Gate1ScoreAccountingInput, positive: PositiveScoreStarvationReport): Gate1SurvivorTaxonomy {
+  const summary = input.summary;
+  const totalCandidates = Math.max(0, Math.floor(summary?.candidates ?? positive.totalCandidates));
+  const gate1Evaluated = totalCandidates;
+  const decomposition = summary?.entryFilterDecomposition;
+  const rawHardPass = summary?.gate2SoftLeadershipLane?.gate1HardSurvivors
+    ?? countSnapshots(summary, (candidate) => (candidate as { gate1Passed?: boolean }).gate1Passed === true);
+  const rawSoftPass = decomposition?.gate1DecompositionReport?.gate1Passed
+    ?? summary?.candidateGateAggregate?.gate1PassCount.value
+    ?? rawHardPass;
+  const gate1HardPass = Math.min(rawHardPass, gate1Evaluated);
+  const gate1SoftPass = Math.min(Math.max(rawSoftPass, gate1HardPass), gate1Evaluated);
+  const rawMinSignalPass = summary?.gate2SoftLeadershipLane?.minSignalLivePass
+    ?? countSnapshots(summary, (candidate) => (candidate as { minSignalScorePassed?: boolean }).minSignalScorePassed === true);
+  const minSignalLivePass = Math.min(rawMinSignalPass, gate1Evaluated);
+  const rawLiveCandidate = countEntryLane(summary, 'liveCandidates') || (summary?.liveEligibleCount ?? 0);
+  const liveCandidateAfterGate1 = Math.min(rawLiveCandidate, minSignalLivePass);
+  const diagnosticSurvivor = Math.min(
+    Math.max(
+      gate1SoftPass,
+      rawLiveCandidate,
+      summary?.gate2SoftLeadershipLane?.gate2PendingPreserved ?? 0,
+    ),
+    gate1Evaluated,
+  );
+  const rawShadowObservable = summary?.shadowObservableCount
+    ?? summary?.gate2SoftLeadershipLane?.gate2PendingPreserved
+    ?? 0;
+  const shadowObservable = Math.min(rawShadowObservable, gate1Evaluated);
+  const rawCounterfactual = decomposition?.counterfactualRecorded
+    ?? countEntryLane(summary, 'counterfactualCreated')
+    ?? (summary?.gate2SoftLeadershipLane?.counterfactualRecorded ? totalCandidates : 0);
+  const counterfactualRecorded = Math.min(rawCounterfactual, totalCandidates);
+  const note = gate1HardPass === 0 && rawLiveCandidate > 0
+    ? 'liveCandidateAfterGate1 excludes policy-blocked diagnostic candidates; raw liveCandidates are reported as diagnosticSurvivor.'
+    : 'liveCandidateAfterGate1 is executable-live taxonomy only; diagnostic/shadow candidates are counted separately.';
+  return {
+    totalCandidates,
+    gate1Evaluated,
+    gate1HardPass,
+    gate1SoftPass,
+    minSignalLivePass,
+    liveCandidateAfterGate1,
+    diagnosticSurvivor,
+    shadowObservable,
+    counterfactualRecorded,
+    note,
+  };
+}
+
+function gate2NotEvaluatedWhenGate1Fail(summary?: ScanSummary | null): boolean {
+  const results = summary?.candidateGate2Confluence?.results ?? [];
+  return results.every((result) => {
+    const record = result as unknown as Record<string, unknown>;
+    if (record.gate1Status !== 'FAIL_HARD') return true;
+    return record.finalGate2 === 'NOT_EVALUATED_DUE_TO_GATE1_FAIL' &&
+      record.upstreamBlocker === 'GATE1_FAIL' &&
+      record.primaryBlocker === undefined;
+  });
+}
+
+export function buildGate1ScoreAccountingReport(
+  input: Gate1ScoreAccountingInput,
+): Gate1ScoreAccountingReport | null {
+  const positive = input.positive;
+  if (!positive || positive.totalCandidates <= 0) return null;
+  const penalty = buildPenaltyAccounting(input);
+  const configuredPositiveMax = round1(Math.max(
+    positive.scoreCeilingAudit.configuredPositiveMaxScore,
+    positive.grossPositiveScoreAvg,
+    positive.actualScoreMax,
+    0.1,
+  ));
+  const observedPositiveMax = round1(Math.max(
+    positive.scoreCeilingAudit.observedPositiveMaxScore,
+    positive.grossPositiveScoreAvg,
+  ));
+  const finalGate1ScoreAvg = positive.actualScoreAvg;
+  const netScoreAvg = round1(positive.grossPositiveScoreAvg - penalty.effectiveOriginalPenaltyAvg);
+  const normalizedGate1ScorePct = pct(finalGate1ScoreAvg, configuredPositiveMax);
+  const scaleMismatch = Math.abs(finalGate1ScoreAvg - netScoreAvg) >= 5 ||
+    positive.positiveUtilizationAvg > 100;
+  const survivor = buildSurvivorTaxonomy(input, positive);
+  const kis = input.canonical?.kisInvestorFlow as (CanonicalRuntimeResolutionStep27['kisInvestorFlow'] & {
+    apiPath?: string | null;
+    trId?: string | null;
+    metadataCarryInvariant?: string;
+  }) | undefined;
+  const metadataPresent = Boolean(kis?.apiPath && kis.trId);
+  const metadataCarryOk = !kis || kis.selectedProvider !== 'KIS_API' ||
+    (metadataPresent && kis.metadataCarryInvariant !== 'MISSING');
+  const survivorOk =
+    survivor.gate1HardPass <= survivor.gate1SoftPass &&
+    survivor.gate1SoftPass <= survivor.gate1Evaluated &&
+    survivor.minSignalLivePass <= survivor.gate1Evaluated &&
+    survivor.liveCandidateAfterGate1 <= survivor.minSignalLivePass &&
+    survivor.shadowObservable <= survivor.gate1Evaluated &&
+    survivor.counterfactualRecorded <= survivor.totalCandidates;
+  return {
+    requiredScoreAvg: positive.requiredScoreAvg,
+    finalGate1ScoreAvg,
+    finalGate1ScoreMin: positive.actualScoreMin,
+    finalGate1ScoreMax: positive.actualScoreMax,
+    rawPositiveScoreAvg: positive.grossPositiveScoreAvg,
+    rawPenaltyScoreAvg: positive.totalPenaltyScoreAvg,
+    effectivePenaltyScoreAvg: penalty.effectiveOriginalPenaltyAvg,
+    netScoreAvg,
+    normalizedGate1ScorePct,
+    configuredPositiveMax,
+    observedPositiveMax,
+    utilizationByMaxPct: pct(observedPositiveMax, configuredPositiveMax),
+    utilizationByAvgPct: pct(positive.grossPositiveScoreAvg, configuredPositiveMax),
+    previousPositiveUtilizationAvgDeprecated: positive.positiveUtilizationAvg,
+    scaleMismatch,
+    primaryIssue: finalGate1ScoreAvg < positive.requiredScoreAvg ? 'SCORE_THRESHOLD_NOT_MET' : 'NONE',
+    secondaryIssue: scaleMismatch ? 'SCALE_MISMATCH_DETECTED' : positive.recommendedAction,
+    penalty,
+    survivor,
+    invariants: [
+      {
+        code: 'SCORE_AVG_CONSISTENCY',
+        status: 'OK',
+        message: 'actualScoreAvg is rendered as finalGate1ScoreAvg; rawPositive/net labels are separate.',
+      },
+      {
+        code: 'PENALTY_ACCOUNTING_CONSISTENCY',
+        status: penalty.effectiveRemovedPenaltyAvg <= penalty.effectiveOriginalPenaltyAvg ? 'OK' : 'FAIL',
+        message: 'effectiveRemovedPenaltyAvg must not exceed effectiveOriginalPenaltyAvg.',
+      },
+      {
+        code: 'DIAGNOSTIC_PENALTY_SEPARATION',
+        status: !penalty.diagnosticOnly || penalty.effectiveGateScoreImpact === 0 ? 'OK' : 'FAIL',
+        message: 'diagnosticOnly penalty must not affect effectiveGateScore.',
+      },
+      {
+        code: 'SURVIVOR_TAXONOMY_CONSISTENCY',
+        status: survivorOk ? 'OK' : 'FAIL',
+        message: 'hard/soft/live/diagnostic survivor counts obey hierarchy.',
+      },
+      {
+        code: 'POSITIVE_UTILIZATION_RANGE',
+        status: positive.positiveUtilizationAvg <= 100 && pct(observedPositiveMax, configuredPositiveMax) <= 100 ? 'OK' : 'FAIL',
+        message: 'utilization percentage must stay <=100 unless explicitly named deprecated/overutilization.',
+      },
+      {
+        code: 'KIS_METADATA_CARRY',
+        status: metadataCarryOk ? 'OK' : 'FAIL',
+        message: 'canonical apiPath/trId must be carried without UNKNOWN metadata markers when present.',
+      },
+      {
+        code: 'GATE2_NOT_EVALUATED_WHEN_GATE1_FAIL',
+        status: gate2NotEvaluatedWhenGate1Fail(input.summary) ? 'OK' : 'FAIL',
+        message: 'Gate2 matrix must not imply a Gate2 hard failure for Gate1-failed candidates.',
+      },
+    ],
+    executionImpact: 'NONE',
+    shadowLearning: true,
+  };
+}
+
+export function formatGate1ScoreHealthSection(
+  summary: ScanSummary | null | undefined,
+  canonical?: CanonicalRuntimeResolutionStep27 | null,
+): string | null {
+  const report = buildGate1ScoreAccountingReport({
+    positive: summary?.positiveScoreStarvation,
+    penalty: summary?.penaltyDeduplication,
+    finalCalibration: summary?.finalGate1Calibration,
+    canonical: canonical ?? summary?.canonicalRuntimeResolution,
+    summary,
+  });
+  if (!report) return null;
+  const gap = round1(report.finalGate1ScoreAvg - report.requiredScoreAvg);
+  const penalty = report.penalty;
+  const survivor = report.survivor;
+  return [
+    'Gate1 Score Health:',
+    `- finalScoreAvg=${report.finalGate1ScoreAvg.toFixed(1)} / required=${report.requiredScoreAvg.toFixed(1)} / gap=${gap.toFixed(1)}`,
+    `- finalScoreMinMax=${report.finalGate1ScoreMin.toFixed(1)}~${report.finalGate1ScoreMax.toFixed(1)}`,
+    `- rawPositiveAvg=${report.rawPositiveScoreAvg.toFixed(1)}`,
+    `- effectivePenaltyAvg=${report.effectivePenaltyScoreAvg.toFixed(1)}`,
+    `- diagnosticPenaltyAvg=${penalty.diagnosticOriginalPenaltyAvg.toFixed(1)}, diagnosticRemoved=${penalty.diagnosticRemovedPenaltyAvg.toFixed(1)}, gateScoreImpact=${penalty.effectiveGateScoreImpact.toFixed(1)}`,
+    `- hardPass=${survivor.gate1HardPass}, softPass=${survivor.gate1SoftPass}, minSignalLivePass=${survivor.minSignalLivePass}`,
+    `- primaryIssue=${report.primaryIssue}`,
+    `- secondaryIssue=${report.secondaryIssue}`,
+    '- executionImpact=NONE',
+    '- shadowLearning=true',
+    '',
+    'Positive Score Utilization:',
+    `- configuredPositiveMax=${report.configuredPositiveMax.toFixed(1)}`,
+    `- observedPositiveMax=${report.observedPositiveMax.toFixed(1)}`,
+    `- rawPositiveAvg=${report.rawPositiveScoreAvg.toFixed(1)}`,
+    `- finalGate1ScoreAvg=${report.finalGate1ScoreAvg.toFixed(1)}`,
+    `- utilizationByMax=${report.utilizationByMaxPct.toFixed(1)}%`,
+    `- utilizationByAvg=${report.utilizationByAvgPct.toFixed(1)}%`,
+    `- scaleMismatch=${report.scaleMismatch}`,
+    `- previousPositiveUtilizationAvgDeprecated=${report.previousPositiveUtilizationAvgDeprecated.toFixed(1)}%`,
+    '',
+    'Penalty Diagnostic:',
+    `- effective penalties: ${penalty.effectiveOriginalPenaltyAvg > 0 ? `original=${penalty.effectiveOriginalPenaltyAvg.toFixed(1)} deduped=${penalty.effectiveDedupedPenaltyAvg.toFixed(1)} removed=${penalty.effectiveRemovedPenaltyAvg.toFixed(1)}` : 'none'}`,
+    `- diagnostic duplicate group: ${penalty.diagnosticGroupKey}, affected=diagnostic, removed=${penalty.diagnosticRemovedPenaltyAvg.toFixed(1)}, impact=NONE`,
+    '- no bearish conversion',
+    '',
+    'Gate1 Survivor Taxonomy:',
+    `- totalCandidates=${survivor.totalCandidates}`,
+    `- evaluated=${survivor.gate1Evaluated}`,
+    `- hardPass=${survivor.gate1HardPass}`,
+    `- softPass=${survivor.gate1SoftPass}`,
+    `- minSignalLivePass=${survivor.minSignalLivePass}`,
+    `- liveCandidateAfterGate1=${survivor.liveCandidateAfterGate1}`,
+    `- diagnosticSurvivor=${survivor.diagnosticSurvivor}`,
+    `- shadowObservable=${survivor.shadowObservable}`,
+    `- counterfactualRecorded=${survivor.counterfactualRecorded}`,
+    `- note: ${survivor.note}`,
+    '',
+    'Gate1 Score Invariants:',
+    ...report.invariants.map((item) => `[${item.status}] ${item.code} - ${item.message}`),
+  ].join('\n');
+}

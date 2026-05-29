@@ -144,6 +144,14 @@ export interface PenaltyDeduplicationReport {
   originalPenaltyAvg: number;
   dedupedPenaltyAvg: number;
   removedPenaltyAvg: number;
+  effectiveOriginalPenaltyAvg: number;
+  effectiveDedupedPenaltyAvg: number;
+  effectiveRemovedPenaltyAvg: number;
+  diagnosticOriginalPenaltyAvg: number;
+  diagnosticDedupedPenaltyAvg: number;
+  diagnosticRemovedPenaltyAvg: number;
+  effectiveGateScoreImpact: number;
+  diagnosticOnly: boolean;
   originalNetScoreAvg: number;
   dedupedNetScoreAvg: number;
   avgScoreDelta: number;
@@ -386,7 +394,8 @@ export function buildCandidatePenaltyDedupTrace(input: {
   penalties: readonly PenaltyComponentTrace[];
 }): CandidatePenaltyDedupTrace {
   const duplicatePenaltyGroups = buildDuplicateGroups(input.penalties);
-  const removedPenalty = sum(duplicatePenaltyGroups.map((group) => group.removedPenalty));
+  const diagnosticRemovedPenalty = sum(duplicatePenaltyGroups.map((group) => group.removedPenalty));
+  const removedPenalty = round2(Math.min(Math.max(0, input.originalPenaltyTotal), diagnosticRemovedPenalty));
   const dedupedPenaltyTotal = round2(Math.max(0, input.originalPenaltyTotal - removedPenalty));
   const dedupedNetScore = round2(input.originalNetScore + removedPenalty);
   return {
@@ -752,8 +761,21 @@ export function buildPenaltyDeduplicationReport(input: PenaltyDeduplicationBuild
     ).map((penalty) => penalty.value)))));
   const survivorsAfterDedup = traces.filter((trace) => trace.wouldPassAfterDedup).length;
   const dedupPositive = scenarioResults.find((item) => item.scenario === 'DEDUP_AND_POSITIVE_REPAIR');
+  const effectiveOriginalPenaltyAvg = round1(avg(traces.map((trace) => trace.originalPenaltyTotal)));
+  const effectiveDedupedPenaltyAvg = round1(avg(traces.map((trace) => trace.dedupedPenaltyTotal)));
+  const effectiveRemovedPenaltyAvg = round1(avg(traces.map((trace) => trace.scoreDeltaAfterDedup)));
+  const diagnosticOriginalPenaltyAvg = round1(avg(traces.map((trace) =>
+    sum(trace.duplicatePenaltyGroups.map((group) => group.originalTotalPenalty)))));
+  const diagnosticDedupedPenaltyAvg = round1(avg(traces.map((trace) =>
+    sum(trace.duplicatePenaltyGroups.map((group) => group.dedupedPenalty)))));
+  const diagnosticRemovedPenaltyAvg = round1(avg(traces.map((trace) =>
+    sum(trace.duplicatePenaltyGroups.map((group) => group.removedPenalty)))));
   let recommendedAction: PenaltyDeduplicationReport['recommendedAction'] = 'DIAGNOSTIC_ONLY';
-  if (duplicateGroups.some((group) => group.groupKey === 'SUPPLY_UNKNOWN')) recommendedAction = 'DEDUP_SUPPLY_UNKNOWN_PENALTY';
+  if (diagnosticRemovedPenaltyAvg > 0 && effectiveOriginalPenaltyAvg === 0) {
+    recommendedAction = 'DIAGNOSTIC_ONLY';
+  } else if (duplicateGroups.some((group) => group.groupKey === 'SUPPLY_UNKNOWN') && effectiveOriginalPenaltyAvg > 0) {
+    recommendedAction = 'DEDUP_SUPPLY_UNKNOWN_PENALTY';
+  }
   else if (riskPenaltyAudit.doubleCountWarning) recommendedAction = 'REVIEW_RISK_PENALTY';
   else if (softFailPenaltyAudit.duplicateWithOtherPenalty) recommendedAction = 'REVIEW_SOFT_FAIL_ACCUMULATION';
 
@@ -763,9 +785,17 @@ export function buildPenaltyDeduplicationReport(input: PenaltyDeduplicationBuild
     regime: input.regime,
     marketSession: input.marketSession,
     totalCandidates: positiveReport.totalCandidates,
-    originalPenaltyAvg: round1(avg(traces.map((trace) => trace.originalPenaltyTotal))),
-    dedupedPenaltyAvg: round1(avg(traces.map((trace) => trace.dedupedPenaltyTotal))),
-    removedPenaltyAvg: round1(avg(traces.map((trace) => trace.scoreDeltaAfterDedup))),
+    originalPenaltyAvg: effectiveOriginalPenaltyAvg,
+    dedupedPenaltyAvg: effectiveDedupedPenaltyAvg,
+    removedPenaltyAvg: effectiveRemovedPenaltyAvg,
+    effectiveOriginalPenaltyAvg,
+    effectiveDedupedPenaltyAvg,
+    effectiveRemovedPenaltyAvg,
+    diagnosticOriginalPenaltyAvg,
+    diagnosticDedupedPenaltyAvg,
+    diagnosticRemovedPenaltyAvg,
+    effectiveGateScoreImpact: effectiveRemovedPenaltyAvg,
+    diagnosticOnly: diagnosticRemovedPenaltyAvg > 0 && effectiveRemovedPenaltyAvg === 0,
     originalNetScoreAvg: round1(avg(traces.map((trace) => trace.originalNetScore))),
     dedupedNetScoreAvg: round1(avg(dedupedNetScores)),
     avgScoreDelta: round1(avg(traces.map((trace) => trace.scoreDeltaAfterDedup))),
@@ -807,9 +837,14 @@ export function formatPenaltyDeduplicationReport(
   const lines = [
     '🧯 Penalty Deduplication Audit (ADR-0469)',
     `  candidates: ${report.totalCandidates}`,
-    `  originalPenaltyAvg: ${report.originalPenaltyAvg.toFixed(1)}`,
-    `  dedupedPenaltyAvg: ${report.dedupedPenaltyAvg.toFixed(1)}`,
-    `  removedPenaltyAvg: ${report.removedPenaltyAvg.toFixed(1)}`,
+    `  effectiveOriginalPenaltyAvg: ${(report.effectiveOriginalPenaltyAvg ?? report.originalPenaltyAvg).toFixed(1)}`,
+    `  effectiveDedupedPenaltyAvg: ${(report.effectiveDedupedPenaltyAvg ?? report.dedupedPenaltyAvg).toFixed(1)}`,
+    `  effectiveRemovedPenaltyAvg: ${(report.effectiveRemovedPenaltyAvg ?? report.removedPenaltyAvg).toFixed(1)}`,
+    `  diagnosticOriginalPenaltyAvg: ${(report.diagnosticOriginalPenaltyAvg ?? 0).toFixed(1)}`,
+    `  diagnosticDedupedPenaltyAvg: ${(report.diagnosticDedupedPenaltyAvg ?? 0).toFixed(1)}`,
+    `  diagnosticRemovedPenaltyAvg: ${(report.diagnosticRemovedPenaltyAvg ?? 0).toFixed(1)}`,
+    `  effectiveGateScoreImpact: ${(report.effectiveGateScoreImpact ?? 0).toFixed(1)}`,
+    `  diagnosticOnly: ${report.diagnosticOnly ?? false}`,
     `  originalNetScoreAvg: ${report.originalNetScoreAvg.toFixed(1)}`,
     `  dedupedNetScoreAvg: ${report.dedupedNetScoreAvg.toFixed(1)}`,
     `  avgScoreDelta: +${report.avgScoreDelta.toFixed(1)}`,
@@ -825,9 +860,11 @@ export function formatPenaltyDeduplicationReport(
         `     rootCause: ${group.rootCause}`,
         '     providerIssue: true',
         '     marketSignal: false',
-        `     avgOriginalPenalty: ${group.avgOriginalPenalty.toFixed(1)}`,
-        `     avgDedupedPenalty: ${group.avgDedupedPenalty.toFixed(1)}`,
-        `     avgRemovedPenalty: ${group.avgRemovedPenalty.toFixed(1)}`,
+        '     scope: DIAGNOSTIC_SIMULATION',
+        `     diagnosticAvgOriginalPenalty: ${group.avgOriginalPenalty.toFixed(1)}`,
+        `     diagnosticAvgDedupedPenalty: ${group.avgDedupedPenalty.toFixed(1)}`,
+        `     diagnosticAvgRemovedPenalty: ${group.avgRemovedPenalty.toFixed(1)}`,
+        '     effectiveGateScoreImpact: 0.0',
       );
     }
   }

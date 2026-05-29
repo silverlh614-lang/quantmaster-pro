@@ -178,12 +178,14 @@ describe('ADR-0472 Gate1 scoring alignment', () => {
     expect(combined.netScoreAvg).toBeGreaterThan(aligned.netScoreAvg);
   });
 
-  it('risk split dry-run can be combined with component alignment', () => {
-    const aligned = scenario('ALIGN_ALL_POSITIVE_COMPONENTS');
-    const combined = scenario('ALIGN_PLUS_RISK_SPLIT');
+  it('risk split dry-run stays neutral when signal risk is already isolated from Gate1 score', () => {
+    const reports = makeReports();
+    const aligned = reports.alignment.scenarioResults.find((item) => item.scenario === 'ALIGN_ALL_POSITIVE_COMPONENTS');
+    const combined = reports.alignment.scenarioResults.find((item) => item.scenario === 'ALIGN_PLUS_RISK_SPLIT');
 
-    expect(combined.penaltyAvg).toBeLessThan(aligned.penaltyAvg);
-    expect(combined.netScoreAvg).toBeGreaterThan(aligned.netScoreAvg);
+    expect(reports.risk?.signalRiskPenaltyAvg).toBe(0);
+    expect(combined?.penaltyAvg).toBe(aligned?.penaltyAvg);
+    expect(combined?.netScoreAvg).toBe(aligned?.netScoreAvg);
   });
 
   it('providerHealth VERIFIED auto-disables unknownPolicyActive', () => {

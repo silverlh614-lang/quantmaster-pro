@@ -8,6 +8,8 @@ export const STEP26_RUNTIME_PATCH_VERSION = 'STEP26_RUNTIME_TRACE_2026_05_21';
 const KRX_MDCSTAT02401_BLD = 'dbms/MDC/STAT/standard/MDCSTAT02401';
 const KRX_MDCSTAT02401_ALLOWED_KEYS = ['bld', 'endDd', 'inqVal', 'isuCd', 'strtDd'];
 const PROVIDER_OK_STATUSES = new Set(['VERIFIED', 'OK', 'READY', 'UP', 'SUCCESS', 'PARTIAL']);
+export const KIS_INVESTOR_FLOW_CANONICAL_API_PATH = '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily';
+export const KIS_INVESTOR_FLOW_CANONICAL_TR_ID = 'FHPTJ04160001';
 
 type RuntimeTraceModuleName =
   | 'scanDiagnosticsCore.persistScanResults'
@@ -63,6 +65,10 @@ export interface CanonicalRuntimeResolutionStep27 {
     failedCriteria: string[];
     providerIssue: boolean;
     marketSignal: boolean;
+    apiPath: string | null;
+    trId: string | null;
+    traceBreakPoint: 'NONE' | 'PROVIDER_METADATA_DROPPED_AFTER_ROUTER';
+    metadataCarryInvariant: 'OK' | 'MISSING';
   };
   watchlist: {
     verified: number;
@@ -486,6 +492,10 @@ export function buildCanonicalRuntimeResolutionStep27(summary: ScanSummary | nul
       failedCriteria,
       providerIssue,
       marketSignal,
+      apiPath: selectedProvider === 'KIS_API' ? KIS_INVESTOR_FLOW_CANONICAL_API_PATH : null,
+      trId: selectedProvider === 'KIS_API' ? KIS_INVESTOR_FLOW_CANONICAL_TR_ID : null,
+      traceBreakPoint: 'NONE',
+      metadataCarryInvariant: selectedProvider === 'KIS_API' ? 'OK' : 'MISSING',
     },
     watchlist: {
       verified: watchlistVerified,
@@ -699,6 +709,10 @@ function buildKisRouterEligibility(summary: ScanSummary | null): string[] {
   return [
     'KIS Router Eligibility:',
     `- provider=${canonical.kisInvestorFlow.selectedProvider}`,
+    `- apiPath=${canonical.kisInvestorFlow.apiPath ?? 'NONE'}`,
+    `- trId=${canonical.kisInvestorFlow.trId ?? 'NONE'}`,
+    `- traceBreakPoint=${canonical.kisInvestorFlow.traceBreakPoint}`,
+    `- metadataCarryInvariant=${canonical.kisInvestorFlow.metadataCarryInvariant}`,
     `- rawCount=${rawCount}`,
     `- normalizedCount=${normalizedCount}`,
     `- materializedCount=${materializedCount}`,

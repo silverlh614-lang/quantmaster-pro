@@ -17,6 +17,8 @@ export type Gate2Status =
   | 'GATE2_FAIL'
   | 'DATA_INCOMPLETE'
   | 'SKIPPED_BY_GATE1';
+export type Gate2EvaluationScope = 'FULL' | 'DIAGNOSTIC_ONLY';
+export type Gate2FinalStatus = Gate2Status | 'NOT_EVALUATED_DUE_TO_GATE1_FAIL';
 
 export type Gate2ConfluenceLevel = 'STRONG' | 'MODERATE' | 'WEAK' | 'INCOMPLETE';
 export type Gate2ConfidenceCeiling = 'HIGH' | 'MEDIUM' | 'LOW';
@@ -39,6 +41,10 @@ export interface Gate2EvaluationResult {
   sourceSnapshotId: string;
   gate1Status: string;
   gate2Status: Gate2Status;
+  gate2EvaluationScope: Gate2EvaluationScope;
+  finalGate2: Gate2FinalStatus;
+  upstreamBlocker?: 'GATE1_FAIL';
+  gate2DiagnosticPrimary?: string;
   rawScore: number | null;
   coverageAdjustedScore: number | null;
   confluenceLevel: Gate2ConfluenceLevel;
@@ -608,6 +614,10 @@ export function buildGate2EvaluationResult(input: {
       sourceSnapshotId,
       gate1Status,
       gate2Status: 'SKIPPED_BY_GATE1',
+      gate2EvaluationScope: 'DIAGNOSTIC_ONLY',
+      finalGate2: 'NOT_EVALUATED_DUE_TO_GATE1_FAIL',
+      upstreamBlocker: 'GATE1_FAIL',
+      gate2DiagnosticPrimary: 'SKIPPED_BY_GATE1_HARD_FAIL',
       rawScore: null,
       coverageAdjustedScore: null,
       confluenceLevel: 'INCOMPLETE',
@@ -619,7 +629,6 @@ export function buildGate2EvaluationResult(input: {
       confidenceCeiling: 'LOW',
       axes: AXES.map(axis => missingAxis(axis, 'SKIPPED_BY_GATE1_HARD_FAIL')),
       primaryMissingAxis: 'RS_RELATIVE_STRENGTH',
-      primaryBlocker: 'SKIPPED_BY_GATE1_HARD_FAIL',
       gate2GrowthValidated: false,
       gate2ConfluenceLevel: 'INCOMPLETE',
       executionImpact: 'NONE',
@@ -686,6 +695,9 @@ export function buildGate2EvaluationResult(input: {
     sourceSnapshotId,
     gate1Status,
     gate2Status,
+    gate2EvaluationScope: 'FULL',
+    finalGate2: gate2Status,
+    ...(primaryBlocker ? { gate2DiagnosticPrimary: primaryBlocker } : {}),
     rawScore,
     coverageAdjustedScore,
     confluenceLevel,
@@ -910,7 +922,7 @@ export function formatGate2ConfluenceFull(summary: Gate2ConfluenceSummary | null
       const axes = result.axes
         .map(axis => `${axis.axis}=${axis.score ?? 'null'}:${axis.status}:${axis.promotionStage}${axis.scoreIncluded ? '' : ':excluded'}`)
         .join(' ');
-      return `- ${result.symbol} gate1=${result.gate1Status} gate2=${result.gate2Status} score=${result.coverageAdjustedScore ?? 'null'} usable=${result.usableAxisCount}/5 ${axes}`;
+      return `- ${result.symbol} gate1=${result.gate1Status} gate2EvaluationScope=${result.gate2EvaluationScope} finalGate2=${result.finalGate2} upstreamBlocker=${result.upstreamBlocker ?? 'NONE'} gate2DiagnosticPrimary=${result.gate2DiagnosticPrimary ?? 'NONE'} score=${result.coverageAdjustedScore ?? 'null'} usable=${result.usableAxisCount}/5 ${axes}`;
     }),
     'marketSignal=false',
     'executionImpact=NONE',

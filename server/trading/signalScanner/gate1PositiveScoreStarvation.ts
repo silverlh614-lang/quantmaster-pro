@@ -587,7 +587,7 @@ export function buildGate1ScoreStarvationTrace(
       : sum(input.positiveComponents.map((c) => Math.max(0, c.maxScore))),
   );
   const positiveUtilizationPct = positiveMaxPossibleScore > 0
-    ? round2((grossPositiveScore / positiveMaxPossibleScore) * 100)
+    ? round2(Math.max(0, Math.min(100, (grossPositiveScore / positiveMaxPossibleScore) * 100)))
     : 0;
   const scoreCeilingEstimate = round2(positiveMaxPossibleScore - totalPenaltyScore);
 
@@ -1073,8 +1073,8 @@ export function buildPositiveScoreStarvationFallbackReport(input: {
   const requiredScoreAvg = round1(min.requiredScoreAvg);
   const actualScoreRange = round1(min.actualScoreMax - min.actualScoreMin);
   const compressed = min.totalCandidates >= 3 && actualScoreRange <= 5;
-  const positiveUtilizationAvg = requiredScoreAvg > 0
-    ? round1((grossPositiveScoreAvg / requiredScoreAvg) * 100)
+  const positiveUtilizationAvg = configuredPositiveMaxScore > 0
+    ? round1(Math.max(0, Math.min(100, (grossPositiveScoreAvg / configuredPositiveMaxScore) * 100)))
     : 0;
 
   const scoreCeilingAudit: ScoreCeilingAudit = {
@@ -1204,6 +1204,17 @@ export function formatPositiveScoreStarvationReport(
   const calibration = Object.fromEntries(
     report.calibrationResults.map((item) => [item.scenario, item.hypotheticalSurvivors]),
   ) as Partial<Record<PositiveScoreCalibrationScenario, number>>;
+  const configuredPositiveMax = Math.max(
+    0.1,
+    ceiling.configuredPositiveMaxScore,
+    report.grossPositiveScoreAvg,
+    report.actualScoreMax,
+  );
+  const observedPositiveMax = Math.max(ceiling.observedPositiveMaxScore, report.grossPositiveScoreAvg);
+  const utilizationByMax = round1(Math.max(0, Math.min(100, (observedPositiveMax / configuredPositiveMax) * 100)));
+  const utilizationByAvg = round1(Math.max(0, Math.min(100, (report.grossPositiveScoreAvg / configuredPositiveMax) * 100)));
+  const scaleMismatch = Math.abs(report.actualScoreAvg - report.netScoreAvg) >= 5 ||
+    report.positiveUtilizationAvg > 100;
   const displayMissingPositiveComponents = report.missingPositiveComponents
     .filter((item) => !componentResolvedByCanonical(item.code, canonicalRuntimeResolution));
   const lines = [
@@ -1211,11 +1222,17 @@ export function formatPositiveScoreStarvationReport(
     `  candidates: ${report.totalCandidates}`,
     `  componentScopes: ${componentScopesText()}`,
     `  requiredScoreAvg: ${report.requiredScoreAvg.toFixed(1)}`,
-    `  actualScoreAvg: ${report.actualScoreAvg.toFixed(1)}`,
-    `  grossPositiveScoreAvg: ${report.grossPositiveScoreAvg.toFixed(1)}`,
-    `  totalPenaltyScoreAvg: ${report.totalPenaltyScoreAvg.toFixed(1)}`,
-    `  netScoreAvg: ${report.netScoreAvg.toFixed(1)}`,
-    `  positiveUtilizationAvg: ${report.positiveUtilizationAvg.toFixed(1)}%`,
+    `  finalGate1ScoreAvg: ${report.actualScoreAvg.toFixed(1)} (legacy actualScoreAvg)`,
+    `  rawPositiveScoreAvg: ${report.grossPositiveScoreAvg.toFixed(1)} (legacy grossPositiveScoreAvg)`,
+    `  rawPenaltyScoreAvg: ${report.totalPenaltyScoreAvg.toFixed(1)} (legacy totalPenaltyScoreAvg)`,
+    `  netScoreAvg: ${report.netScoreAvg.toFixed(1)} (rawPositiveScoreAvg - effectivePenaltyScoreAvg)`,
+    '  Positive Score Utilization:',
+    `  configuredPositiveMax: ${configuredPositiveMax.toFixed(1)}`,
+    `  observedPositiveMax: ${observedPositiveMax.toFixed(1)}`,
+    `  utilizationByMax: ${utilizationByMax.toFixed(1)}%`,
+    `  utilizationByAvg: ${utilizationByAvg.toFixed(1)}%`,
+    `  scaleMismatch: ${scaleMismatch}`,
+    `  previousPositiveUtilizationAvgDeprecated: ${report.positiveUtilizationAvg.toFixed(1)}% (legacy positiveUtilizationAvg)`,
     `  actualScoreMin/Max: ${report.actualScoreMin.toFixed(1)} / ${report.actualScoreMax.toFixed(1)}`,
     `  actualScoreRange: ${report.actualScoreRange.toFixed(1)} compressed=${compression.compressed}`,
     `  suspectedCause: ${compression.suspectedCauses.join(' / ') || 'NONE'}`,

@@ -30,6 +30,7 @@ import { formatGate1ScoreCeilingRepairReport } from '../gate1ScoreCeilingRepair.
 import { formatPenaltyDeduplicationReport } from '../gate1PenaltyDeduplication.js';
 import { formatRiskDoubleCountAuditReport } from '../gate1RiskDoubleCount.js';
 import { formatFinalGate1CalibrationReport } from '../gate1FinalCalibration.js';
+import { formatGate1ScoreHealthSection } from '../gate1ScoreAccounting.js';
 import { formatGate1ScoringAlignmentReport } from '../gate1ScoringAlignmentAdr0472.js';
 import { formatGate1PositiveSourceWiringReport } from '../gate1PositiveSourceWiringAdr0475.js';
 import { formatGate1DryRunObservationSummary, formatGate1ThresholdEvidenceSection } from '../gate1DryRunObservationLedgerAdr0476.js';
@@ -717,6 +718,7 @@ function formatRuntimeWiringSummary(
     `- RS rawComputed=${rsRawComputed}/${total} fallbackUsable=${rsFallbackUsable}/${total} applied=${rsApplied}/${total} fallbackIncluded=${rsFallbackUsable > 0}`,
     `- Breakout mapped: ${canonical.breakout.scoreMapped}/${total}`,
     `- KIS investorFlow gateEligibleRows: ${canonical.kisInvestorFlow.gateEligibleRows}/${canonical.kisInvestorFlow.totalRows || total}`,
+    `- KIS metadata: apiPath=${canonical.kisInvestorFlow.apiPath ?? 'NONE'} trId=${canonical.kisInvestorFlow.trId ?? 'NONE'} traceBreakPoint=${canonical.kisInvestorFlow.traceBreakPoint} metadataCarryInvariant=${canonical.kisInvestorFlow.metadataCarryInvariant}`,
     `- Watchlist score verified: ${canonical.watchlist.verified}/${total}`,
     `- Gate1 hard survivors: ${softLane?.gate1HardSurvivors ?? 0}`,
     `- MinSignal live pass: ${minSignalLivePass}`,
@@ -1159,6 +1161,12 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     lines.push(gateScoreBucketSection);
   }
 
+  const gate1ScoreHealthSection = formatGate1ScoreHealthSection(summary, canonicalRuntimeResolution);
+  if (gate1ScoreHealthSection) {
+    lines.push('');
+    lines.push(gate1ScoreHealthSection);
+  }
+
   // ADR-458 — Approved Gate Reclassification Dry-Run (shadow-only, executionImpact NONE).
   const gate1SurvivalSection = formatGate1SurvivalAuditSection(summary.gateLayerAudit?.gate1Survival);
   if (gate1SurvivalSection) {
@@ -1437,6 +1445,10 @@ function formatCanonicalRuntimeResolutionAdoptionSection(
     `gateScoreInputSnapshotId=${canonical.gateScoreInputSnapshotId}`,
     'KIS Investor Flow Semantic Row:',
     `- selectedProvider: ${canonical.kisInvestorFlow.selectedProvider}`,
+    `- apiPath=${canonical.kisInvestorFlow.apiPath ?? 'NONE'}`,
+    `- trId=${canonical.kisInvestorFlow.trId ?? 'NONE'}`,
+    `- traceBreakPoint=${canonical.kisInvestorFlow.traceBreakPoint}`,
+    `- metadataCarryInvariant=${canonical.kisInvestorFlow.metadataCarryInvariant}`,
     `- rawRow: ${canonical.kisInvestorFlow.rawRows}/${canonical.kisInvestorFlow.totalRows}`,
     `- semanticRow: ${canonical.kisInvestorFlow.semanticRows}/${canonical.kisInvestorFlow.totalRows}`,
     `- gateEligibleRows: ${canonical.kisInvestorFlow.gateEligibleRows}/${canonical.kisInvestorFlow.totalRows}`,
