@@ -718,7 +718,9 @@ function pickTopBucket(
  *
  * 결정 트리 (위에서 아래 첫 매칭):
  *   1. gate1Pass === 0 → NO_GATE1_SURVIVORS
- *   2. totalRelevant === 0 → UNKNOWN
+ *   2. totalRelevant === 0 → sectorEnergy.isStale → SECTOR_DATA_STALE_DOMINANT;
+ *      blockReasons.preBreakoutWait/max(1,gate1Pass)>0.5 → PRE_BREAKOUT_WAIT_DOMINANT;
+ *      blockReasons.gateRecheckMiss/max(1,gate1Pass)>0.5 → GATE_RECHECK_DOMINANT; else UNKNOWN
  *   3. stale / totalRelevant > 0.4 OR sectorEnergy.isStale === true
  *      → SECTOR_DATA_STALE_DOMINANT
  *   4. unavailable / totalRelevant > 0.5 → DATA_UNAVAILABLE_DOMINANT
@@ -756,8 +758,25 @@ export function computeGate2LeadershipDiagnosis(input: {
   const totalRelevant = totalFailed + totalUnavailable + totalError + totalStale + totalWait;
 
   if (totalRelevant <= 0) {
-    // sectorEnergy.isStale 만 있는 경우 — 진단 우선 표시.
+    // sectorEnergy.isStale 만 있는 경우 — 진단 우선 표시 (기존 분기 보존).
     if (sectorEnergy?.isStale) return 'SECTOR_DATA_STALE_DOMINANT';
+    // followup ③: Gate2 미통과 사유가 condition bucket 이 아닌 blockReasons
+    // (preBreakoutWait / gateRecheckMiss) 에 있어 totalRelevant=0 이면 기존엔 UNKNOWN
+    // 으로 떨어졌다. gate1Pass>0 인데 진단축이 blockReasons 우세이면 해당 dominant 를
+    // 분류한다 (UNKNOWN 갭 해소). 임계/매매 무변경 — 진단 분류 정확화 전용.
+    const earlySafeGate1Pass = Math.max(1, gate1Pass);
+    if (
+      (blockReasons?.preBreakoutWait ?? 0) / earlySafeGate1Pass >
+      GATE2_DIAGNOSIS_THRESHOLDS.WAIT_DOMINANT_RATIO
+    ) {
+      return 'PRE_BREAKOUT_WAIT_DOMINANT';
+    }
+    if (
+      (blockReasons?.gateRecheckMiss ?? 0) / earlySafeGate1Pass >
+      GATE2_DIAGNOSIS_THRESHOLDS.GATE_RECHECK_DOMINANT_RATIO
+    ) {
+      return 'GATE_RECHECK_DOMINANT';
+    }
     return 'UNKNOWN';
   }
 

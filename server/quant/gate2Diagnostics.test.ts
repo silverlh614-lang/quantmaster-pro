@@ -1193,6 +1193,11 @@ describe('Gate2 wiring diagnostics', () => {
           netIncome: '100000000000',
           operatingIncome: '84000000000',
           interestExpense: '10000000000',
+          // followup①(§C): roe/opm 파생을 위한 revenue/totalEquity 추가 — 전체 필드 가용 →
+          // 라인 status 가 VERIFIED 로 정확히 분류되도록 fixture 를 완전 채움(부분 데이터였던
+          // 기존 fixture 는 §C 도입 후 정확히 PARTIAL 로 분류됨).
+          revenue: '200000000000',
+          totalEquity: '500000000000',
         },
       }),
     });

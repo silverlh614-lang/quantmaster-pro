@@ -179,6 +179,27 @@ export function isDegradedStatus(status: Gate2ExternalProviderStatus): boolean {
   return status === 'DEGRADED' || status === 'STALE';
 }
 
+// §C 정합 — DART 라인의 실제 필드 가용성으로 "부분 가용(PARTIAL)" 여부를 판정한다.
+// transport/parse error(providerStatus 기반) 가 아니면서 핵심 재무 필드(roe/opm/ocfRatio/icr) 중
+// 일부만 존재할 때 true. 진단 라벨 정확화 전용 — 매매/threshold/permission 무관, marketSignal 불변.
+const DART_TRANSPORT_OR_PARSE_PROVIDER_STATUS = new Set([
+  'HTTP_ERROR',
+  'PARSE_ERROR',
+  'DART_ERROR_CODE',
+  'RATE_LIMITED',
+  'UNKNOWN_ERROR',
+]);
+
+export function isDartPartialAvailability(dart: Gate2ExternalDataCoverage['dartFinancials']): boolean {
+  const transportOrParseError =
+    typeof dart.providerStatus === 'string'
+    && DART_TRANSPORT_OR_PARSE_PROVIDER_STATUS.has(dart.providerStatus);
+  if (transportOrParseError) return false;
+  const fields = [dart.roe, dart.opm, dart.ocfRatio, dart.interestCoverageRatio];
+  const available = fields.filter(v => v != null).length;
+  return available > 0 && available < fields.length;
+}
+
 export function readinessFromStatus(status: Gate2ExternalProviderStatus, required: boolean): Gate2DataReadinessStatus {
   if (status === 'VERIFIED' || status === 'PARTIAL') return 'OK';
   if (status === 'STAGE_NOT_FETCHED') return required ? 'STAGE_NOT_FETCHED' : 'OPTIONAL';
@@ -418,9 +439,22 @@ export function buildGate2ConsolidatedDiagnostic(input: {
     primaryIssue = 'KIS_INVESTOR_FLOW_UNAVAILABLE';
     operatorAction = 'CHECK_KIS_INVESTOR_FLOW';
   } else if (isMissingStatus(external.dartFinancials.status) || isDegradedStatus(external.dartFinancials.status)) {
-    health = isDegradedStatus(external.dartFinancials.status) ? 'DEGRADED' : 'DATA_INCOMPLETE';
-    primaryIssue = 'DART_FINANCIALS_UNAVAILABLE';
-    operatorAction = 'CHECK_DART_FINANCIALS';
+    // §C 정합 — DART status 가 coarse DEGRADED/MISSING 이라도 실제로는 일부 핵심 재무 필드가
+    // 존재하는 "부분 가용"일 수 있다(예: ROE/OPM available, OCF/NI·ICR null). transport/parse
+    // error 가 아닌 단순 부재일 때는 DART_FINANCIALS_UNAVAILABLE 로 단정하지 않고
+    // DART_FINANCIALS_PARTIAL 로 분리 라벨링한다. 진단 라벨 정확화 전용 — 매매/threshold/permission
+    // 무관, providerIssue→marketSignal 변환 0, executionImpact 별도 표기. operatorAction 은 기존
+    // CHECK_DART_FINANCIALS 유지(우선순위·후속 가드 무회귀).
+    const dartPartial = isDartPartialAvailability(external.dartFinancials);
+    if (dartPartial) {
+      health = 'DATA_INCOMPLETE';
+      primaryIssue = 'DART_FINANCIALS_PARTIAL';
+      operatorAction = 'CHECK_DART_FINANCIALS';
+    } else {
+      health = isDegradedStatus(external.dartFinancials.status) ? 'DEGRADED' : 'DATA_INCOMPLETE';
+      primaryIssue = 'DART_FINANCIALS_UNAVAILABLE';
+      operatorAction = 'CHECK_DART_FINANCIALS';
+    }
   } else if (isMissingStatus(external.benchmark.status) || isDegradedStatus(external.benchmark.status)) {
     health = isDegradedStatus(external.benchmark.status) ? 'DEGRADED' : 'DATA_INCOMPLETE';
     primaryIssue = 'BENCHMARK_UNAVAILABLE';

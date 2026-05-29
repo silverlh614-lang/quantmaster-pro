@@ -669,6 +669,51 @@ describe('ADR-0422 §E 결정 트리 분기 SSOT', () => {
     expect(diag).toBe('GATE_RECHECK_DOMINANT');
   });
 
+  // followup ③ — 실전 09:29 스캔 갭: gate1Pass=5/gate2Pass=0 인데 Gate2 미통과 사유가
+  // condition bucket 이 아닌 blockReasons(preBreakoutWait=8, gateRecheckMiss=6)에 있어
+  // totalRelevant=0 → 기존엔 UNKNOWN. blockReasons 우세를 totalRelevant===0 분기에서도 분류한다.
+  it('③ PRE_BREAKOUT_WAIT_DOMINANT — totalRelevant=0 + preBreakoutWait 우세 (gate1Pass>0)', () => {
+    const diag = computeGate2LeadershipDiagnosis({
+      // 모든 후보가 passed — failed/unavailable/error/stale/wait 합계 0 → totalRelevant=0.
+      buckets: [{ ...emptyBucket('momentum'), passed: 5, total: 5 }],
+      gate1Pass: 5,
+      // 실전값: preBreakoutWait=8(우세), gateRecheckMiss=6. 8/max(1,5)=1.6 > 0.5.
+      blockReasons: { gateRecheckMiss: 6, preBreakoutWait: 8, sizingBlocked: 0, driftRemove: 0 },
+    });
+    expect(diag).toBe('PRE_BREAKOUT_WAIT_DOMINANT');
+  });
+
+  it('③ GATE_RECHECK_DOMINANT — totalRelevant=0 + gateRecheckMiss 우세·preBreakoutWait 비우세', () => {
+    const diag = computeGate2LeadershipDiagnosis({
+      buckets: [{ ...emptyBucket('momentum'), passed: 5, total: 5 }],
+      gate1Pass: 5,
+      // preBreakoutWait 2/5=0.4 ≤ 0.5(비우세) → gateRecheckMiss 4/5=0.8 > 0.5 매칭.
+      blockReasons: { gateRecheckMiss: 4, preBreakoutWait: 2, sizingBlocked: 0, driftRemove: 0 },
+    });
+    expect(diag).toBe('GATE_RECHECK_DOMINANT');
+  });
+
+  it('③ totalRelevant=0 + blockReasons 둘 다 비우세 → UNKNOWN 보존', () => {
+    const diag = computeGate2LeadershipDiagnosis({
+      buckets: [{ ...emptyBucket('momentum'), passed: 5, total: 5 }],
+      gate1Pass: 10,
+      // preBreakoutWait 3/10=0.3, gateRecheckMiss 2/10=0.2 — 둘 다 ≤ 0.5.
+      blockReasons: { gateRecheckMiss: 2, preBreakoutWait: 3, sizingBlocked: 0, driftRemove: 0 },
+    });
+    expect(diag).toBe('UNKNOWN');
+  });
+
+  it('③ totalRelevant=0 + sectorEnergy.isStale 우선 — preBreakoutWait 보다 stale 우선 분기 보존', () => {
+    const diag = computeGate2LeadershipDiagnosis({
+      buckets: [{ ...emptyBucket('momentum'), passed: 5, total: 5 }],
+      gate1Pass: 5,
+      sectorEnergy: { isStale: true },
+      // sectorEnergy.isStale 가 먼저 매칭되어야 한다(기존 분기 보존).
+      blockReasons: { gateRecheckMiss: 0, preBreakoutWait: 8, sizingBlocked: 0, driftRemove: 0 },
+    });
+    expect(diag).toBe('SECTOR_DATA_STALE_DOMINANT');
+  });
+
   it('EVALUATOR_ERROR_DOMINANT — error 비율 > 0.3', () => {
     const buckets: Gate2BlockerBucket[] = [
       { ...emptyBucket('earnings_quality'), error: 4, total: 4 },
