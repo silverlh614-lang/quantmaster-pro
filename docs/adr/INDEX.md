@@ -123,6 +123,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0540 | Macro shortSelling Trading-Day-Aware Freshness | regime / provider / macro-health / live-gating |
 | 0539 | R6 Recovery Regime-Linked Cooldown Fast-Track | trading-engine / regime / r6-cooldown / live-gating |
 | 0538 | scanBlockers Message Section Decomposition | telegram / scan-blockers / refactor / godfunction |
 | 0537 | kisClient/query.ts Decomposition | kis-client / refactor / complexity-baseline |
