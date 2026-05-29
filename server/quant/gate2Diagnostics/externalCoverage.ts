@@ -59,6 +59,49 @@ import type {
 } from './types.js';
 import { isBenchmarkInput, isDartInput, isKisInput, unique } from './wiringDiagnostics.js';
 import { buildGate2ExternalProjection } from '../../trading/gate2/gate2ExternalDataProvider.js';
+import type { Gate2ExternalRefreshTrace } from '../../trading/gate2/gate2ExternalDataProvider/types.js';
+
+/**
+ * §B 정합 — DART 데이터 라인 헬스가 NOT_ATTEMPTED 로 오표시되는 문제를 고친다.
+ *
+ * 근본 원인: buildGate2ExternalProjection 는 refreshTrace.dartRequestAttempted 가 없으면
+ * classifyDartLineHealth 가 NOT_ATTEMPTED 를 반환한다. 진단 빌더(externalCoverage)는 실제
+ * fetch trace 를 보유하지 않으므로, 이미 해석된 dartStatus(=external.dartFinancials.status)와
+ * dartFin 존재 여부로부터 attempted/transport-error 사실을 SSOT 정합하게 합성한다.
+ *
+ * 합성 규칙(거짓 표시 금지 — attempt 근거가 있을 때만 attempted=true):
+ *  - dartFin 부재 또는 STAGE_NOT_FETCHED → undefined (NOT_ATTEMPTED 유지, 정상).
+ *  - dartFin 존재 → dartRequestAttempted=true.
+ *  - dartStatus=DEGRADED(transport/parse/provider error) → dartErrorCode 부여 → classifyDartLineHealth DEGRADED.
+ *  - 어떤 경우에도 marketSignal/executionImpact 불변(분류 함수가 보존), provider 호출 0.
+ */
+function synthesizeDartRefreshTraceForDisplay(input: {
+  symbol: string;
+  dartFin: Gate2ExternalCoverageInput['dartFin'];
+  dartStatus: Gate2ExternalProviderStatus;
+  dartProviderStatus: string | null;
+  anyDartFieldAvailable: boolean;
+}): Gate2ExternalRefreshTrace | undefined {
+  if (!input.dartFin || input.dartStatus === 'STAGE_NOT_FETCHED') return undefined;
+  const transportError = input.dartStatus === 'DEGRADED';
+  const rawRows = input.anyDartFieldAvailable ? 1 : 0;
+  return {
+    symbol: input.symbol,
+    corpCodeResolveStatus: 'FOUND',
+    fiscalPeriodStatus: 'RESOLVED',
+    corpCodeRequestAttempted: true,
+    dartRequestAttempted: true,
+    dartHttpStatus: transportError && input.dartProviderStatus === 'HTTP_ERROR' ? 503 : undefined,
+    dartErrorCode: transportError ? (input.dartProviderStatus ?? 'DART_PROVIDER_DEGRADED') : undefined,
+    dartRawRows: rawRows,
+    normalizedRows: rawRows,
+    derivedMetricsComputed: input.anyDartFieldAvailable,
+    kisPerRequestAttempted: false,
+    finalConfidence: input.dartStatus === 'VERIFIED' ? 'VERIFIED' : input.dartStatus === 'STALE' ? 'STALE' : 'MISSING',
+    unavailableConditions: [],
+    executionImpact: 'NONE',
+  };
+}
 
 export function fieldAvailable(wiring: readonly Gate2WiringDiagnostic[], input: string): boolean {
   return wiring.some(item => item.availableInputs.includes(input));
@@ -692,10 +735,22 @@ export function buildGate2ExternalDataCoverage(
   const kisDataConfidence = kisConfidence(input.kisFlow);
   const dartProviderStatusValue = dartProviderStatus(input.dartFin);
   const dartDataConfidence = dartConfidence(input.dartFin);
+  // §B — 합성 refreshTrace 를 전달해 dartLineHealth 가 NOT_ATTEMPTED 대신 실제 상태
+  // (VERIFIED/PARTIAL/DEGRADED/EMPTY_VALID)를 반영하게 한다. provider 재호출 0.
+  const anyDartFieldAvailable = dartFields.roe || dartFields.opm || dartFields.interestCoverageRatio
+    || dartFields.ocfRatio || dartFields.operatingCashFlow || dartFields.netIncome;
+  const dartRefreshTraceForDisplay = synthesizeDartRefreshTraceForDisplay({
+    symbol: quoteSymbol(input),
+    dartFin: input.dartFin,
+    dartStatus,
+    dartProviderStatus: dartProviderStatusValue,
+    anyDartFieldAvailable,
+  });
   const gate2FinancialProjection = buildGate2ExternalProjection({
     symbol: quoteSymbol(input),
     dartFin: input.dartFin,
     quote: input.quote,
+    refreshTrace: dartRefreshTraceForDisplay,
   });
 
   return {

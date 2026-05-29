@@ -49,6 +49,47 @@ describe('followup ② — dartLineHealth carry into Gate2 external coverage', (
     expect(coverage.executionImpact).toBe('NONE');
   });
 
+  it('§B dartFin 존재(VERIFIED) 시 dartLineHealth.status 가 NOT_ATTEMPTED 가 아니다 (합성 refreshTrace)', () => {
+    // 실전 회귀: external.dartFinancials.status=VERIFIED 인데 dartLineHealth=NOT_ATTEMPTED 로 표시됨.
+    // 합성 refreshTrace(dartRequestAttempted=true) 로 실제 상태를 반영한다.
+    const dartFin = {
+      symbol: '005930',
+      corpCode: '00126380',
+      reportDate: '2026-03-31',
+      revenue: 1000,
+      operatingIncome: 200,
+      netIncome: 150,
+      operatingCashFlow: 180,
+      interestExpense: 10,
+      totalEquity: 1500,
+      totalAssets: 3000,
+      ocfRatio: 1.2,
+      roe: 0.1,
+      opm: 0.2,
+      opmYoYDelta: 0.01,
+      revenueYoYGrowth: 0.05,
+      operatingIncomeYoYGrowth: 0.06,
+      marginAcceleration: 0.01,
+      interestCoverageRatio: 20,
+      source: 'DART' as const,
+      providerStatus: 'OK_WITH_DATA' as const,
+      dataConfidence: 'VERIFIED' as const,
+      providerIssue: false,
+      marketSignal: false as const,
+      executionImpact: 'NONE' as const,
+    };
+    const coverage = buildGate2ExternalDataCoverage([], {
+      dartFin,
+      quote: { symbol: '005930' },
+    });
+    const carried = coverage.dartLineHealth as Record<string, unknown> | undefined;
+    expect(carried).toBeDefined();
+    expect(carried?.status).not.toBe('NOT_ATTEMPTED');
+    // 불변식 — 표시 정합 패치라 시장 신호/실행 영향 0.
+    expect(carried?.marketSignal).toBe(false);
+    expect(carried?.executionImpact).toBe('NONE');
+  });
+
   it('dartLineHealth missingFields 가 비어있지 않다 — DART 부재 시 실제 미가용 필드 노출 (NONE 갭 해소)', () => {
     const coverage = buildGate2ExternalDataCoverage([], {
       dartFin: null,

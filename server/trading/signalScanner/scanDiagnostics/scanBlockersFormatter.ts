@@ -1063,7 +1063,13 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
 
   // ADR-0464 — Entry Filter Conservatism Decomposition.
   const diagnosticRegimeContext = buildDiagnosticRegimeContext(summary);
-  pushOptionalSection(lines, formatEntryFilterDecompositionSection(summary.entryFilterDecomposition, diagnosticRegimeContext));
+  // §A — Gate2 Data Line Health KIS_FLOW 를 canonicalRuntimeResolution(=KIS Router Eligibility 동일 SSOT)
+  // 에서 파생하도록 canonical kisInvestorFlow 를 전달한다. 표시 전용 — 매매/스코어 무영향.
+  pushOptionalSection(lines, formatEntryFilterDecompositionSection(
+    summary.entryFilterDecomposition,
+    diagnosticRegimeContext,
+    { kisInvestorFlow: canonicalRuntimeResolution.kisInvestorFlow },
+  ));
 
   // ADR-0448 Phase 0 — R3 Noise Governor compact line.
   //   Gate1 통과 0건 시점의 cause 분류 (TRUE_GATE1_ZERO / SELL_ONLY / LUNCH_BREAK /

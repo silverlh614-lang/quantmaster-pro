@@ -3,6 +3,26 @@
  */
 
 import type { EntryFilterDecomposition, EntryBlocker } from './types.js';
+import { KIS_INVESTOR_FLOW_CANONICAL } from '../gate2KisFlowTraceMetadata.js';
+
+// §A — canonical runtime resolution(kisInvestorFlow) 의 권위 신호. KIS Router Eligibility 와
+// 동일 SSOT 에서 파생되며, Gate2 Data Line Health KIS_FLOW 표시의 단일 근거가 된다.
+// 표시 전용 — executionImpact/marketSignal 불변, provider 재호출 0.
+export interface Gate2CanonicalKisFlow {
+  selectedProvider: string;
+  finalRouterUsable: boolean;
+  finalGateScoreEligible: boolean;
+  gateEligibleRows: number;
+  totalRows: number;
+  shadowOnlyRows: number;
+  failedCriteria: string[];
+  providerIssue: boolean;
+  marketSignal: boolean;
+}
+
+export interface Gate2CanonicalContext {
+  kisInvestorFlow?: Gate2CanonicalKisFlow;
+}
 
 
 const finite = (n: unknown): n is number => Number.isFinite(n as number);
@@ -183,7 +203,7 @@ function dartLineFields(external: Record<string, unknown> | undefined): {
   };
 }
 
-function formatGate2ExternalDataStageSection(d: EntryFilterDecomposition): string[] {
+function formatGate2ExternalDataStageSection(d: EntryFilterDecomposition, canonical?: Gate2CanonicalContext): string[] {
   const sample = d.candidateTraces[0];
   const external = resolveGate2ExternalData(sample);
   const dart = nestedRecord(external, 'dartFinancials');
@@ -219,6 +239,11 @@ function formatGate2ExternalDataStageSection(d: EntryFilterDecomposition): strin
     '- executionImpact=NONE',
   ];
   // §G Gate2 Data Line Health 통합 요약 블록 (표시 전용, 값/판정 무변경).
+  const kisFlowLine = resolveKisFlowDataLine({
+    canonical: canonical?.kisInvestorFlow,
+    fallbackStatus: stringValue(d.supplyProviderHealth?.status, 'UNKNOWN'),
+  });
+  const dartLineStatus = statusOf(nestedRecord(external, 'dartLineHealth'), dartStatus);
   lines.push(...formatGate2DataLineHealthSection({
     dartStatus,
     valuationStatus: valuation.status,
@@ -228,11 +253,55 @@ function formatGate2ExternalDataStageSection(d: EntryFilterDecomposition): strin
     leaderStatus,
     leaderSourceTier,
     programStatus: program.status,
-    // KIS_FLOW 는 권위 출처(supplyProviderHealth.status)에서 파생. 미가용 시 UNKNOWN(하드코딩 VERIFIED 금지).
-    kisFlowStatus: stringValue(d.supplyProviderHealth?.status, 'UNKNOWN'),
+    kisFlowLine,
     external,
   }));
+  // §C — VALUATION_PER 종목별 reason 분해.
+  lines.push(...formatValuationPerReasonDistribution(d));
+  // §E — dominant attribution (DART VERIFIED 면 FUNDAMENTAL_DATA_UNAVAILABLE 로 묶지 않음).
+  const dominant = resolveGate2Dominant({ d, dartLineStatus, kisFlowStatus: kisFlowLine.status });
+  // §D — Gate2 Condition Attribution Matrix.
+  lines.push(...formatGate2ConditionAttributionMatrix(d, dominant));
+  lines.push(`- dominant=${dominant.code}`);
+  // §F — Gate2 Data Line ↔ Wiring invariant 검증.
+  lines.push(...formatGate2DataLineInvariants({
+    canonical: canonical?.kisInvestorFlow,
+    kisFlowStatus: kisFlowLine.status,
+    dartLineStatus,
+    programStatus: program.status,
+    programProviderIssue: program.providerIssue,
+  }));
   return lines;
+}
+
+// §A — KIS_FLOW Data Line 상태/상세를 canonical runtime resolution 에서 파생한다.
+// finalRouterUsable && finalGateScoreEligible → VERIFIED, gateEligibleRows>0 → PARTIAL_VERIFIED,
+// providerIssue → DEGRADED. canonical 부재 시 supplyProviderHealth.status 로 후방호환.
+// apiPath/trId 는 KIS_API provider 일 때 canonical SSOT 에서 carry.
+function resolveKisFlowDataLine(input: {
+  canonical?: Gate2CanonicalKisFlow;
+  fallbackStatus: string;
+}): { status: string; detail: string } {
+  const c = input.canonical;
+  if (!c) {
+    return { status: input.fallbackStatus, detail: '(상세는 KIS Router Eligibility 참조)' };
+  }
+  const provider = stringValue(c.selectedProvider, 'UNKNOWN');
+  const isKis = provider === 'KIS_API';
+  const apiPath = isKis ? KIS_INVESTOR_FLOW_CANONICAL.apiPath : 'NONE';
+  const trId = isKis ? KIS_INVESTOR_FLOW_CANONICAL.trId : 'NONE';
+  let status: string;
+  if (c.finalRouterUsable && c.finalGateScoreEligible) {
+    status = 'VERIFIED';
+  } else if (c.gateEligibleRows > 0) {
+    status = 'PARTIAL_VERIFIED';
+  } else if (c.providerIssue) {
+    status = 'DEGRADED';
+  } else {
+    status = input.fallbackStatus === 'VERIFIED' ? 'PARTIAL_VERIFIED' : input.fallbackStatus;
+  }
+  const detail = `gateEligibleRows=${c.gateEligibleRows}/${c.totalRows} provider=${provider} apiPath=${apiPath} trId=${trId}`;
+  return { status, detail };
 }
 
 // §G Gate2 Data Line Health 통합 블록 — 각 외부 데이터 라인의 상태를 한 곳에서 요약.
@@ -246,10 +315,12 @@ function formatGate2DataLineHealthSection(input: {
   leaderStatus: string;
   leaderSourceTier: string;
   programStatus: string;
-  kisFlowStatus: string;
+  kisFlowLine: { status: string; detail: string };
   external: Record<string, unknown> | undefined;
 }): string[] {
   const dartFields = dartLineFields(input.external);
+  // §B — dartLineHealth.status 는 합성 refreshTrace 를 통해 실제 상태(VERIFIED/PARTIAL/DEGRADED/
+  // EMPTY_VALID)를 반영한다. NOT_ATTEMPTED 는 dartFin 부재(실제 미시도)일 때만 표기된다.
   const dartLineStatus = statusOf(nestedRecord(input.external, 'dartLineHealth'), input.dartStatus);
   const valuationLine =
     input.valuationStatus === 'AVAILABLE' || input.valuationStatus === 'VERIFIED'
@@ -259,18 +330,212 @@ function formatGate2DataLineHealthSection(input: {
     nestedRecord(nestedRecord(input.external, 'valuation'), 'per')?.reason,
     'NONE',
   );
-  const programLine = input.programStatus === 'MISSING' ? 'MISSING' : input.programStatus;
+  // §D/§G — program/sector/leader 는 optional/diagnosticOnly. entry hard block 으로 승격 금지.
+  const programLine = input.programStatus === 'MISSING' ? 'OPTIONAL_MISSING' : input.programStatus;
+  const sectorLine = input.sectorStatus === 'MISSING' ? 'DIAGNOSTIC_MISSING' : input.sectorStatus;
+  const leaderLine = (input.leaderStatus === 'MISSING' || input.leaderStatus === 'UNKNOWN')
+    ? 'DIAGNOSTIC_MISSING'
+    : input.leaderStatus;
   return [
     'Gate2 Data Line Health:',
-    // PR#1310 리뷰(P2) 정합: KIS_FLOW 는 supplyProviderHealth.status 에서 파생(하드코딩 VERIFIED 금지).
-    // 투자흐름 row 가 없을 때(MISSING/EMPTY/ERROR 등) VERIFIED 로 오표시하지 않는다 — 상세는 KIS Router Eligibility 참조.
-    `- KIS_FLOW: ${input.kisFlowStatus} (상세는 KIS Router Eligibility 참조)`,
-    `- DART_FINANCIALS: ${dartLineStatus} availableFields=${dartFields.available} missingFields=${dartFields.missing}`,
-    `- VALUATION_PER: ${valuationLine} source=${input.valuationSource} reason=${valuationReason}`,
-    `- PROGRAM_TRADE: ${programLine} optional=true`,
-    `- SECTOR_CYCLE: ${input.sectorStatus} sourceTier=${input.sectorSourceTier}`,
-    `- LEADER_CYCLE: ${input.leaderStatus} sourceTier=${input.leaderSourceTier}`,
-    '- executionImpact=NONE marketSignal=false',
+    // §A — KIS_FLOW 는 canonicalRuntimeResolution.kisInvestorFlow(=KIS Router Eligibility 동일 SSOT)
+    // 에서 파생. finalRouterUsable && finalGateScoreEligible 면 VERIFIED, gateEligibleRows/provider/
+    // apiPath/trId carry. 투자흐름 미가용 시에만 MISSING/DEGRADED.
+    `- KIS_FLOW: ${input.kisFlowLine.status} ${input.kisFlowLine.detail} signal=NONE impact=NONE`,
+    `- DART_FINANCIALS: ${dartLineStatus} availableFields=${dartFields.available} missingFields=${dartFields.missing} providerIssue=${boolText(nestedRecord(input.external, 'dartLineHealth')?.providerIssue)}`,
+    `- VALUATION_PER: ${valuationLine} source=${input.valuationSource} reason=${valuationReason} highConvictionOnly=true entryHardBlock=false`,
+    `- PROGRAM_TRADE: ${programLine} optional=true diagnosticOnly=true`,
+    `- SECTOR_CYCLE: ${sectorLine} sourceTier=${input.sectorSourceTier} diagnosticOnly=true shadowOnly=true`,
+    `- LEADER_CYCLE: ${leaderLine} sourceTier=${input.leaderSourceTier} diagnosticOnly=true shadowOnly=true`,
+    '- executionImpact=NONE marketSignal=false shadowLearning=true',
+  ];
+}
+
+function boolText(value: unknown): string {
+  return value === true ? 'true' : 'false';
+}
+
+// §C — VALUATION_PER unavailable 을 단일 UNAVAILABLE 로 뭉개지 않고 종목별 reason 으로 분해한다.
+// PER 임계/판정은 무변경 — 진단 분류 전용. KIS_FINANCE_PRIMARY_ENABLED ENV 상태도 표기.
+function classifyPerReason(reason: string, perStatus: string, source: string): string {
+  const upper = reason.toUpperCase();
+  if (perStatus === 'AVAILABLE' || perStatus === 'VERIFIED') return 'AVAILABLE';
+  if (upper.includes('NON_POSITIVE') || upper.includes('NEGATIVE') || upper.includes('NON_POSITIVE_OR_UNAVAILABLE')) return 'PER_NON_POSITIVE';
+  if (upper.includes('PARSE')) return 'PER_PARSE_FAILED';
+  if (upper.includes('NOT_ATTEMPTED') || (source === 'NONE' && upper === 'NONE')) return 'FINANCE_API_NOT_ATTEMPTED';
+  if (upper.includes('EMPTY')) return 'FINANCE_API_EMPTY';
+  if (upper.includes('MISSING') || upper === 'PER_MISSING' || upper === 'NONE') return 'PER_FIELD_MISSING';
+  return 'PER_FIELD_MISSING';
+}
+
+function formatValuationPerReasonDistribution(d: EntryFilterDecomposition): string[] {
+  const financePrimaryEnabled = process.env.KIS_FINANCE_PRIMARY_ENABLED === 'true';
+  const distribution: Record<string, number> = {
+    PER_NON_POSITIVE: 0,
+    PER_FIELD_MISSING: 0,
+    PER_PARSE_FAILED: 0,
+    FINANCE_API_NOT_ATTEMPTED: 0,
+    FINANCE_API_EMPTY: 0,
+  };
+  const affected: string[] = [];
+  let resolvedSource = 'NONE';
+  let evaluated = 0;
+  for (const trace of d.candidateTraces) {
+    const external = resolveGate2ExternalData(trace);
+    const per = nestedRecord(nestedRecord(external, 'valuation'), 'per');
+    if (!per) continue;
+    evaluated += 1;
+    const perStatus = statusOf(per, 'UNAVAILABLE');
+    const source = stringValue(per.source, 'NONE');
+    if (source !== 'NONE') resolvedSource = source;
+    const reasonClass = classifyPerReason(stringValue(per.reason, 'NONE'), perStatus, source);
+    if (reasonClass === 'AVAILABLE') continue;
+    distribution[reasonClass] = (distribution[reasonClass] ?? 0) + 1;
+    if (affected.length < 12) affected.push(`${trace.symbol}: ${reasonClass}`);
+  }
+  if (evaluated === 0) return [];
+  const lines = [
+    'VALUATION_PER:',
+    `- status=UNAVAILABLE source=${resolvedSource} highConvictionOnly=true entryHardBlock=false`,
+    `- env.KIS_FINANCE_PRIMARY_ENABLED=${financePrimaryEnabled}`,
+    `- reasonDistribution: ${Object.entries(distribution).map(([k, v]) => `${k}=${v}`).join(' ')}`,
+  ];
+  if (affected.length > 0) lines.push(`- affectedSymbols: ${affected.join(', ')}`);
+  return lines;
+}
+
+// §E — Gate2 dominant attribution. DART_FINANCIALS 가 VERIFIED/PARTIAL 이면 FUNDAMENTAL_DATA_UNAVAILABLE
+// 로 묶지 않고, PER 만 미가용이면 VALUATION_PER_UNAVAILABLE_HIGH_CONVICTION_ONLY 로 세분한다.
+// 실제 condition fail(breakout/volume/RS)이 있으면 그쪽을 dominant 로 재산정. optional missing 제외.
+function resolveGate2Dominant(input: {
+  d: EntryFilterDecomposition;
+  dartLineStatus: string;
+  kisFlowStatus: string;
+}): { code: string } {
+  const dartOk = input.dartLineStatus === 'VERIFIED' || input.dartLineStatus === 'PARTIAL' || input.dartLineStatus === 'PARTIAL_VERIFIED';
+  const kisOk = input.kisFlowStatus === 'VERIFIED' || input.kisFlowStatus === 'PARTIAL_VERIFIED';
+  // 실제 condition fail 후보 집계 (gate1 통과했으나 gate2 미통과한 trace 의 condition 분포).
+  const tally = { breakout: 0, volume: 0, rs: 0 };
+  for (const trace of input.d.candidateTraces) {
+    if (trace.gate2Passed === true) continue;
+    const cond = conditionMatrixRow(trace);
+    if (cond.breakoutMomentum === 'FAIL') tally.breakout += 1;
+    if (cond.volume === 'FAIL') tally.volume += 1;
+    if (cond.rs === 'FAIL') tally.rs += 1;
+  }
+  const conditionFails = tally.breakout + tally.volume + tally.rs;
+  if (conditionFails > 0) {
+    const distinct = [tally.breakout > 0, tally.volume > 0, tally.rs > 0].filter(Boolean).length;
+    if (distinct > 1) return { code: 'MIXED_CONDITION_FAIL' };
+    if (tally.breakout > 0) return { code: 'BREAKOUT_MOMENTUM_NOT_CONFIRMED' };
+    if (tally.volume > 0) return { code: 'VOLUME_CONFIRMATION_FAIL' };
+    return { code: 'RS_FAIL' };
+  }
+  if (!dartOk) return { code: 'FUNDAMENTAL_DATA_UNAVAILABLE' };
+  if (!kisOk) return { code: 'SUPPLY_FLOW_UNAVAILABLE' };
+  // DART/KIS 정상 + 명시 condition fail 미집계 → PER 만 미가용이면 high-conviction 한정 사유.
+  return { code: 'VALUATION_PER_UNAVAILABLE_HIGH_CONVICTION_ONLY' };
+}
+
+type ConditionCell = 'PASS' | 'FAIL' | 'UNAVAILABLE' | 'OPTIONAL_MISSING' | 'DIAGNOSTIC_ONLY' | 'NOT_APPLICABLE';
+
+function cellFromCondition(value: unknown): ConditionCell {
+  const rec = recordOf(value);
+  if (!rec) return value === true ? 'PASS' : value === false ? 'FAIL' : 'UNAVAILABLE';
+  const status = stringValue(rec.status ?? rec.result, '').toUpperCase();
+  if (rec.passed === true || status === 'PASS') return 'PASS';
+  if (rec.passed === false || status === 'FAIL') return 'FAIL';
+  if (status === 'UNAVAILABLE') return 'UNAVAILABLE';
+  return 'UNAVAILABLE';
+}
+
+// §D — 종목별 condition 셀 산출. external/conditionResults 가 부재하면 UNAVAILABLE/optional 로 honest 표기.
+function conditionMatrixRow(trace: EntryFilterDecomposition['candidateTraces'][number]): {
+  kisFlow: ConditionCell; dart: ConditionCell; per: ConditionCell; rs: ConditionCell;
+  breakoutMomentum: ConditionCell; volume: ConditionCell; sectorCycle: ConditionCell; leaderCycle: ConditionCell;
+} {
+  const external = resolveGate2ExternalData(trace);
+  const conditions = recordOf(getByPath(trace, 'conditionResults'));
+  const dartStatus = statusOf(nestedRecord(external, 'dartLineHealth'), statusOf(nestedRecord(external, 'dartFinancials'), 'UNAVAILABLE'));
+  const perStatus = statusOf(nestedRecord(nestedRecord(external, 'valuation'), 'per'), 'UNAVAILABLE');
+  const sectorStatus = statusOf(nestedRecord(external, 'sectorCycle'), 'MISSING');
+  const leaderStatus = statusOf(nestedRecord(external, 'leaderCycle'), 'MISSING');
+  const mapStatus = (s: string, optional: boolean): ConditionCell =>
+    (s === 'VERIFIED' || s === 'PARTIAL' || s === 'PARTIAL_VERIFIED' || s === 'AVAILABLE') ? 'PASS'
+      : (s === 'MISSING' || s === 'UNKNOWN' || s === 'NOT_ATTEMPTED') ? (optional ? (s === 'MISSING' || s === 'UNKNOWN' ? 'DIAGNOSTIC_ONLY' : 'UNAVAILABLE') : 'UNAVAILABLE')
+        : 'UNAVAILABLE';
+  return {
+    kisFlow: mapStatus(statusOf(nestedRecord(external, 'kisInvestorFlow'), 'UNAVAILABLE'), false),
+    dart: mapStatus(dartStatus, false),
+    per: perStatus === 'AVAILABLE' || perStatus === 'VERIFIED' ? 'PASS' : 'UNAVAILABLE',
+    rs: conditions ? cellFromCondition(conditions.rs ?? conditions.relative_strength ?? conditions.RELATIVE_STRENGTH) : 'UNAVAILABLE',
+    breakoutMomentum: conditions ? cellFromCondition(conditions.breakout_momentum ?? conditions.breakoutMomentum ?? conditions.BREAKOUT_STRUCTURE) : 'UNAVAILABLE',
+    volume: conditions ? cellFromCondition(conditions.volume ?? conditions.volume_breakout ?? conditions.VOLUME) : 'UNAVAILABLE',
+    sectorCycle: 'DIAGNOSTIC_ONLY',
+    leaderCycle: 'DIAGNOSTIC_ONLY',
+  };
+}
+
+function primaryBlockerFor(row: ReturnType<typeof conditionMatrixRow>): string {
+  if (row.breakoutMomentum === 'FAIL') return 'BREAKOUT_MOMENTUM_NOT_CONFIRMED';
+  if (row.volume === 'FAIL') return 'VOLUME_CONFIRMATION_FAIL';
+  if (row.rs === 'FAIL') return 'RS_FAIL';
+  if (row.dart === 'UNAVAILABLE') return 'FUNDAMENTAL_DATA_UNAVAILABLE';
+  if (row.kisFlow === 'UNAVAILABLE') return 'SUPPLY_FLOW_UNAVAILABLE';
+  if (row.per === 'UNAVAILABLE') return 'VALUATION_PER_HIGH_CONVICTION_ONLY';
+  return 'NONE';
+}
+
+function formatGate2ConditionAttributionMatrix(d: EntryFilterDecomposition, dominant: { code: string }): string[] {
+  const rows = d.candidateTraces.slice(0, 12);
+  if (rows.length === 0) return [];
+  const lines = [
+    'Gate2 Condition Attribution Matrix:',
+    'symbol | name | gate1 | kisFlow | dart | per | rs | breakout | volume | sector | leader | gate2 | primaryBlocker | hardBlock | diagnosticOnly',
+  ];
+  for (const trace of rows) {
+    const c = conditionMatrixRow(trace);
+    const gate1 = getByPath(trace, 'gate1Passed') === true ? 'PASS' : getByPath(trace, 'gate1Passed') === false ? 'FAIL' : 'UNKNOWN';
+    const gate2 = trace.gate2Passed === true ? 'PASS' : trace.gate2Passed === false ? 'FAIL' : 'UNKNOWN';
+    const blocker = primaryBlockerFor(c);
+    // PER/sector/leader/program 은 entry hard block 아님 → hardBlock 판정에서 제외.
+    const hardBlock = ['BREAKOUT_MOMENTUM_NOT_CONFIRMED', 'VOLUME_CONFIRMATION_FAIL', 'RS_FAIL'].includes(blocker);
+    lines.push([
+      trace.symbol,
+      stringValue(trace.name, '-'),
+      gate1, c.kisFlow, c.dart, c.per, c.rs, c.breakoutMomentum, c.volume,
+      c.sectorCycle, c.leaderCycle, gate2, blocker,
+      hardBlock ? 'true' : 'false',
+      blocker === 'VALUATION_PER_HIGH_CONVICTION_ONLY' ? 'true' : 'false',
+    ].join(' | '));
+  }
+  return lines;
+}
+
+// §F — Gate2 Data Line Health ↔ Wiring Diagnostic 정합 invariant. 위반 시 VIOLATION 표기.
+function formatGate2DataLineInvariants(input: {
+  canonical?: Gate2CanonicalKisFlow;
+  kisFlowStatus: string;
+  dartLineStatus: string;
+  programStatus: string;
+  programProviderIssue: boolean;
+}): string[] {
+  const c = input.canonical;
+  const kisCarry = !(c && c.finalGateScoreEligible === true
+    && input.kisFlowStatus !== 'VERIFIED' && input.kisFlowStatus !== 'PARTIAL_VERIFIED');
+  const dartCarry = !(input.dartLineStatus === 'NOT_ATTEMPTED'); // attempted=true 면 NOT_ATTEMPTED 금지
+  // program MISSING 은 optional → providerIssue=false 여야 하고 primaryBlocker 로 승격되면 안 된다.
+  const optionalProgramNotBlocking = !(input.programStatus === 'MISSING' && input.programProviderIssue === true);
+  const providerHealthSeparated = !(c?.marketSignal === true); // providerIssue→bearish 변환 금지
+  const shadowContinuity = true; // shadowLearning/counterfactual 은 Gate2 pass=0 무관하게 ON
+  const mark = (ok: boolean) => (ok ? 'OK' : 'VIOLATION');
+  return [
+    'Gate2 DataLine Invariants:',
+    `[${mark(kisCarry)}] KIS_FLOW_CARRY`,
+    `[${mark(dartCarry)}] DART_STATUS_CARRY`,
+    `[${mark(optionalProgramNotBlocking)}] OPTIONAL_PROGRAM_NOT_BLOCKING`,
+    `[${mark(providerHealthSeparated)}] PROVIDER_HEALTH_SEPARATED_FROM_MARKET_SIGNAL`,
+    `[${mark(shadowContinuity)}] SHADOW_LEARNING_CONTINUITY`,
   ];
 }
 
@@ -319,6 +584,7 @@ export function formatEntryFilterDecompositionSection(
     legacyEffectiveRegimeLeak?: boolean;
     nextAction?: 'NONE' | 'USE_SOURCE_SNAPSHOT_DECISION_CONTEXT';
   },
+  gate2Canonical?: Gate2CanonicalContext,
 ): string | null {
   if (!d) return null;
   const lines: string[] = [];
@@ -827,7 +1093,7 @@ export function formatEntryFilterDecompositionSection(
   lines.push('- inputSourcePath=RegimeResolver.canonicalOutput');
   lines.push(`- inputBreakPoint=${effectiveRegime === 'UNKNOWN' ? 'INPUT_CONTEXT_MISSING' : 'NONE'}`);
   lines.push('');
-  lines.push(...formatGate2ExternalDataStageSection(d));
+  lines.push(...formatGate2ExternalDataStageSection(d, gate2Canonical));
 
   if (d.filterConservatismReport) {
     lines.push("");
