@@ -752,6 +752,10 @@ export function buildGate2ExternalDataCoverage(
     profitability: gate2FinancialProjection.profitability as unknown as Record<string, unknown>,
     stability: gate2FinancialProjection.stability as unknown as Record<string, unknown>,
     earningsQuality: gate2FinancialProjection.earningsQuality as unknown as Record<string, unknown>,
+    // followup ②: projection dartLineHealth 를 external 레코드에 carry → entryFilterDecomposition
+    // formatter 의 DART_FINANCIALS availableFields/missingFields 표시가 NONE 대신 실값을 읽는다.
+    // 새 외부 호출 0, executionImpact=NONE + providerIssue/marketSignal=false 보존.
+    dartLineHealth: gate2FinancialProjection.dartLineHealth as unknown as Record<string, unknown>,
     conditionResults: gate2FinancialProjection.conditionResults as unknown as Record<string, unknown>,
     gate2ConditionProjection: gate2FinancialProjection.conditionResults as unknown as Record<string, unknown>,
     unavailableCount: gate2FinancialProjection.unavailableCount,

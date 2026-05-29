@@ -543,6 +543,29 @@ describe('Section F (Gate2 External Data Stabilization) — attribution 3 그룹
     expect(la.dominantReason).toBe('OPTIONAL_DATA_MISSING');
   });
 
+  it('PR#1310 리뷰(P2): optional sectorCycle stale 는 SECTOR_DATA_STALE dominant 로 둔갑하지 않는다', () => {
+    // optional sector-cycle 레인만 stale 이 gate1Pass 의 ≥50% — 수정 전엔 blockedBySectorStaleCount
+    // 가 'sector' 포함 키를 모두 집계해 SECTOR_DATA_STALE 로 오분류됐다. optionalKeys 격리 후엔
+    // blockedBySectorStaleCount=0, optionalMissing 으로 집계 → dominant=OPTIONAL_DATA_MISSING.
+    const buckets: Gate2BlockerBucket[] = [
+      { ...emptyBucket('sectorCycle'), stale: 6, total: 10 }, // 60% of gate1Pass
+    ];
+    const attribution = buildGate2FreshAttribution({
+      buckets,
+      candidates: 40,
+      gate1Pass: 10,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+    });
+    const la = attribution.leadershipAttribution;
+    expect(la.blockedBySectorStaleCount).toBe(0);
+    expect(la.blockedByOptionalMissingCount).toBe(6);
+    expect(la.dominantReason).not.toBe('SECTOR_DATA_STALE');
+    expect(la.dominantReason).toBe('OPTIONAL_DATA_MISSING');
+  });
+
   it('optionalMissing + 진짜 실패 혼재 시 OPTIONAL_DATA_MISSING 으로 떨어지지 않는다 (MIXED 또는 진짜 dominant)', () => {
     const buckets: Gate2BlockerBucket[] = [
       { ...emptyBucket('breakout_momentum'), failed: 6, total: 6 }, // 60% → BREAKOUT_MOMENTUM_NOT_CONFIRMED
@@ -667,6 +690,51 @@ describe('ADR-0422 §E 결정 트리 분기 SSOT', () => {
       blockReasons: { gateRecheckMiss: 6, preBreakoutWait: 0, sizingBlocked: 0, driftRemove: 0 },
     });
     expect(diag).toBe('GATE_RECHECK_DOMINANT');
+  });
+
+  // followup ③ — 실전 09:29 스캔 갭: gate1Pass=5/gate2Pass=0 인데 Gate2 미통과 사유가
+  // condition bucket 이 아닌 blockReasons(preBreakoutWait=8, gateRecheckMiss=6)에 있어
+  // totalRelevant=0 → 기존엔 UNKNOWN. blockReasons 우세를 totalRelevant===0 분기에서도 분류한다.
+  it('③ PRE_BREAKOUT_WAIT_DOMINANT — totalRelevant=0 + preBreakoutWait 우세 (gate1Pass>0)', () => {
+    const diag = computeGate2LeadershipDiagnosis({
+      // 모든 후보가 passed — failed/unavailable/error/stale/wait 합계 0 → totalRelevant=0.
+      buckets: [{ ...emptyBucket('momentum'), passed: 5, total: 5 }],
+      gate1Pass: 5,
+      // 실전값: preBreakoutWait=8(우세), gateRecheckMiss=6. 8/max(1,5)=1.6 > 0.5.
+      blockReasons: { gateRecheckMiss: 6, preBreakoutWait: 8, sizingBlocked: 0, driftRemove: 0 },
+    });
+    expect(diag).toBe('PRE_BREAKOUT_WAIT_DOMINANT');
+  });
+
+  it('③ GATE_RECHECK_DOMINANT — totalRelevant=0 + gateRecheckMiss 우세·preBreakoutWait 비우세', () => {
+    const diag = computeGate2LeadershipDiagnosis({
+      buckets: [{ ...emptyBucket('momentum'), passed: 5, total: 5 }],
+      gate1Pass: 5,
+      // preBreakoutWait 2/5=0.4 ≤ 0.5(비우세) → gateRecheckMiss 4/5=0.8 > 0.5 매칭.
+      blockReasons: { gateRecheckMiss: 4, preBreakoutWait: 2, sizingBlocked: 0, driftRemove: 0 },
+    });
+    expect(diag).toBe('GATE_RECHECK_DOMINANT');
+  });
+
+  it('③ totalRelevant=0 + blockReasons 둘 다 비우세 → UNKNOWN 보존', () => {
+    const diag = computeGate2LeadershipDiagnosis({
+      buckets: [{ ...emptyBucket('momentum'), passed: 5, total: 5 }],
+      gate1Pass: 10,
+      // preBreakoutWait 3/10=0.3, gateRecheckMiss 2/10=0.2 — 둘 다 ≤ 0.5.
+      blockReasons: { gateRecheckMiss: 2, preBreakoutWait: 3, sizingBlocked: 0, driftRemove: 0 },
+    });
+    expect(diag).toBe('UNKNOWN');
+  });
+
+  it('③ totalRelevant=0 + sectorEnergy.isStale 우선 — preBreakoutWait 보다 stale 우선 분기 보존', () => {
+    const diag = computeGate2LeadershipDiagnosis({
+      buckets: [{ ...emptyBucket('momentum'), passed: 5, total: 5 }],
+      gate1Pass: 5,
+      sectorEnergy: { isStale: true },
+      // sectorEnergy.isStale 가 먼저 매칭되어야 한다(기존 분기 보존).
+      blockReasons: { gateRecheckMiss: 0, preBreakoutWait: 8, sizingBlocked: 0, driftRemove: 0 },
+    });
+    expect(diag).toBe('SECTOR_DATA_STALE_DOMINANT');
   });
 
   it('EVALUATOR_ERROR_DOMINANT — error 비율 > 0.3', () => {
