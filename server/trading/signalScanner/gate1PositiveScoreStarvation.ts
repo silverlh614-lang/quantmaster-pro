@@ -343,6 +343,21 @@ export interface Gate1ScoreStarvationGateResultInput {
     thresholdNotMetConditions?: readonly string[];
     providerDegradedConditions?: readonly string[];
   };
+  /**
+   * ADR-0467 attribution fix: canonical Gate1 minimum-signal-score components
+   * (minimumSignalScoreTrace.components — code+weightedScore+maxScore+confidence).
+   * When supplied, CORE_SIGNAL component contributions (PRICE_MOMENTUM etc.) are
+   * read from these canonical weightedScores instead of Gate2-level condition
+   * outputs, preventing the OTHER_POSITIVE mis-attribution leak. Optional:
+   * absence preserves the legacy gateResult.outputs fallback byte-equivalently.
+   */
+  minSignalComponents?: ReadonlyArray<{
+    code: string;
+    weightedScore: number;
+    maxScore: number;
+    confidence?: ScoreConfidence;
+    message?: string;
+  }>;
   watchlistScore?: number;
   upstreamScore?: number;
   watchlistRank?: number;
@@ -494,6 +509,28 @@ function positiveCodeForCondition(key: string): PositiveSignalComponentCode {
   return CONDITION_TO_POSITIVE_CODE[key] ?? 'OTHER_POSITIVE';
 }
 
+/**
+ * ADR-0467 attribution fix: CORE_SIGNAL positive codes whose canonical Gate1
+ * minimum-signal contribution lives in minimumSignalScoreTrace.components
+ * (weightedScore) — NOT in Gate2-level condition outputs. When minSignalComponents
+ * is supplied, these codes are sourced from the canonical weightedScore and the
+ * matching condition outputs are NOT re-attributed (prevents the OTHER_POSITIVE
+ * leak and the false PRICE_MOMENTUM zeroContribution). Every other code keeps the
+ * legacy outputs path so absence of minSignalComponents stays byte-equivalent.
+ */
+const CANONICAL_MIN_SIGNAL_CODES: ReadonlySet<PositiveSignalComponentCode> = new Set([
+  'PRICE_MOMENTUM',
+  'TECHNICAL_TREND',
+  'RELATIVE_STRENGTH',
+  'BREAKOUT_STRUCTURE',
+  'VOLUME_LIQUIDITY',
+  'WATCHLIST_UPSTREAM_SCORE',
+]);
+
+function isCanonicalMinSignalCode(code: string): code is PositiveSignalComponentCode {
+  return CANONICAL_MIN_SIGNAL_CODES.has(code as PositiveSignalComponentCode);
+}
+
 export function buildGate1ScoreStarvationTraceFromGateResult(
   input: Gate1ScoreStarvationGateResultInput,
 ): Gate1ScoreStarvationTrace {
@@ -506,8 +543,23 @@ export function buildGate1ScoreStarvationTraceFromGateResult(
   const outputs = input.gateResult.outputs ?? [];
   const grouped = new Map<PositiveSignalComponentCode, PositiveScoreContributionTrace>();
 
+  // ADR-0467 attribution fix: canonical CORE_SIGNAL contributions come from the
+  // minimumSignalScoreTrace components (weightedScore). When supplied, the codes
+  // they cover are owned by the canonical path; the matching Gate2-level condition
+  // outputs are skipped below so they neither create a false zeroContribution nor
+  // leak their residual value into OTHER_POSITIVE. Absent => legacy outputs path.
+  const canonicalComponents = (input.minSignalComponents ?? []).filter((component) =>
+    isCanonicalMinSignalCode(component.code),
+  );
+  const canonicalCodes = new Set<PositiveSignalComponentCode>(
+    canonicalComponents.map((component) => component.code as PositiveSignalComponentCode),
+  );
+
   for (const item of outputs) {
     const code = positiveCodeForCondition(item.key);
+    // Skip condition outputs whose canonical contribution is supplied via
+    // minSignalComponents — prevents double-count and OTHER_POSITIVE leak.
+    if (canonicalCodes.has(code)) continue;
     const score = finite(item.output?.score) ? Math.max(0, item.output.score * scale) : 0;
     const status = item.output?.status;
     const available = item.output !== null && status !== 'DATA_UNAVAILABLE' && status !== 'ERROR';
@@ -532,6 +584,25 @@ export function buildGate1ScoreStarvationTraceFromGateResult(
       message: `${code} from ${item.key}`,
     });
     grouped.set(code, next);
+  }
+
+  // ADR-0467: seed canonical CORE_SIGNAL contributions from minimumSignalScoreTrace
+  // weightedScores (the SSOT for PRICE_MOMENTUM etc.). This overrides any prior
+  // outputs-derived entry and authoritatively attributes the contribution.
+  for (const component of canonicalComponents) {
+    const code = component.code as PositiveSignalComponentCode;
+    const weightedScore = finite(component.weightedScore) ? Math.max(0, component.weightedScore) : 0;
+    const maxScore = finite(component.maxScore) && component.maxScore > 0 ? component.maxScore : 10;
+    grouped.set(code, positiveComponent({
+      code,
+      weightedScore,
+      maxScore,
+      available: true,
+      confidence: component.confidence ?? 'VERIFIED',
+      source: 'minimumSignalScoreTrace.components',
+      zeroContributionReason: weightedScore === 0 ? 'MIN_SIGNAL_WEIGHTED_SCORE_ZERO' : undefined,
+      message: component.message ?? `${code} from minimumSignalScoreTrace (weightedScore ${weightedScore.toFixed(1)})`,
+    }));
   }
 
   for (const code of AUDITED_POSITIVE_FEATURES) {
