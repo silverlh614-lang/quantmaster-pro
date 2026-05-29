@@ -481,7 +481,9 @@ function priceMomentumScore(trace: CandidateEntryTrace): {
   confidence: SignalScoreComponentConfidence;
   message: string;
 } {
-  const return5d = nestedNumericTraceValue(trace, [
+  // resolveNumericTracePath 사용으로 first-match sourcePath 를 진단에 노출한다.
+  // value 동작은 nestedNumericTraceValue 와 100% 동일(같은 우선순위·같은 first-match 결과).
+  const return5dResolution = resolveNumericTracePath(trace, [
     "return5d",
     "quote.return5d",
     "quoteFeatures.return5d",
@@ -490,7 +492,7 @@ function priceMomentumScore(trace: CandidateEntryTrace): {
     "gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.values.return5d",
     "gate3ExternalDataCoverage.momentumIndicators.values.return5d",
   ]);
-  const return20d = nestedNumericTraceValue(trace, [
+  const return20dResolution = resolveNumericTracePath(trace, [
     "return20d",
     "quote.return20d",
     "quoteFeatures.return20d",
@@ -501,6 +503,8 @@ function priceMomentumScore(trace: CandidateEntryTrace): {
     "gateLayerSummary.gate3.externalDataCoverage.momentumIndicators.values.return20d",
     "gate3ExternalDataCoverage.momentumIndicators.values.return20d",
   ]);
+  const return5d = return5dResolution.value;
+  const return20d = return20dResolution.value;
   const gateScore = numericTraceValue(trace, ["gateScore"]);
   if (finite(return5d) || finite(return20d)) {
     const r5 = finite(return5d) ? percentReturn(return5d) : undefined;
@@ -513,7 +517,16 @@ function priceMomentumScore(trace: CandidateEntryTrace): {
     const normalizedScore =
       values.reduce((sum, value) => sum + value, 0) / values.length;
     return {
-      rawValue: { return5d: r5, return20d: r20 },
+      // 진단(behavior-neutral): resolved sourcePath + resolved value 노출.
+      // H1(컴포넌트 MISSING) vs H2(top-level 오염값 우선) 판별용 — 점수 산출 영향 0.
+      rawValue: {
+        return5d: r5,
+        return20d: r20,
+        return5dSourcePath: return5dResolution.sourcePath,
+        return5dResolved: return5dResolution.value,
+        return20dSourcePath: return20dResolution.sourcePath,
+        return20dResolved: return20dResolution.value,
+      },
       normalizedScore,
       weightedScore: weightedFromNormalized(normalizedScore, 20),
       confidence: "VERIFIED",

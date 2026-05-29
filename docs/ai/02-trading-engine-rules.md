@@ -51,12 +51,17 @@
 R6·SELL_ONLY·HOLIDAY·장전/장후·providerIssue 는 **SourceSnapshot(데이터)을 바꾸지 않고**
 Policy·Confidence·ExecutionPermission·LearningLabel 만 바꾼다.
 
-### 매매 허용 시간 (ADR-0192)
+### 매매 허용 시간 (volumeClock ALWAYS-ON)
 
-- 매수 허용: **09:30~12:00 + 13:00~15:30** (KST)
-- 시초가 09:00~09:30 SELL_ONLY (변동성 회피) · 점심 12:00~13:00 SELL_ONLY · 마감 15:00~15:30 SELL_ONLY
-- ENV `TRADE_WINDOW_LEGACY_HOURS=true` 1줄 즉시 이전 동작(09:00~11:30 + 13:00~14:30) 복원.
-- volumeClock SSOT (`server/trading/volumeClock.ts`) 가 실제 매수 차단 결정 (ADR-0515 점심 12:00~12:59).
+- volumeClock SSOT (`server/trading/volumeClock.ts`) 가 매수 허용 시간을 결정한다. 현행 기본은
+  **ALWAYS-ON** — 09:00~15:20 전 시간대 `allowEntry=true`(시초가·점심 포함). 시간대는 **차단이 아니라
+  점수 가/감점(scoreBonus)** 으로만 반영한다 (SELL_ONLY 전환 아님).
+- 시간대별 가/감점 (KST): 09:00~09:29 −3 · 09:30~09:59 −2 · 10:00~10:59 +2 · 11:00~11:59 −1 ·
+  12:00~12:59 −2(점심) · 13:00~13:14 −2 · 13:15~13:29 −1 · 13:30~14:29 0 · 14:30~15:20 −2.
+- **유일한 하드 차단 = 15:21~15:30 마감 동시호가(단일가)** — 시장 메커니즘상 일반 발주 불가.
+  그 외(09:00~15:20)는 시초가·점심 포함 차단 없음. 09:00 이전 / 15:30 이후는 연속매매 세션 부재(미개장).
+- ENV `VOLUME_CLOCK_LEGACY_HARD_BLOCK=true` 1줄로 구(ADR-0192) 하드 차단(09:00~09:29 / 12:00~12:59 /
+  15:21~15:30) legacy 동작 복원. 기본값은 always-on(감점 전용).
 
 ### R6_DEFENSE / FOMC / VIX 게이팅
 
