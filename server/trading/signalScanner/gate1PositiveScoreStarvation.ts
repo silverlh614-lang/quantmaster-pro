@@ -1278,9 +1278,11 @@ export function formatPositiveScoreStarvationReport(
     const zeroReasonTags: string[] = [];
     const computed = momentum.priceMomentumComputedCount;
     if ((momentumStatus?.avgContribution ?? 0) === 0 && computed > 0) {
-      if (momentum.return5dCount < computed) zeroReasonTags.push('RETURN5D_BELOW_THRESHOLD');
-      if (momentum.return20dCount < computed) zeroReasonTags.push('RETURN20D_BELOW_THRESHOLD');
-      if (momentum.relativeReturn20dCount < computed) zeroReasonTags.push('RELATIVE_RETURN_BELOW_THRESHOLD');
+      // 아래 태그는 coverage gap(임계미달 아님): return*Count < computed 는 해당 필드의
+      // 커버리지가 computed(=4개 coverage 의 max)보다 작다는 격차를 뜻한다. 부호·값·점수 무관.
+      if (momentum.return5dCount < computed) zeroReasonTags.push('RETURN5D_COVERAGE_GAP');
+      if (momentum.return20dCount < computed) zeroReasonTags.push('RETURN20D_COVERAGE_GAP');
+      if (momentum.relativeReturn20dCount < computed) zeroReasonTags.push('RELATIVE_RETURN_COVERAGE_GAP');
       if (momentum.marketRelativeReturnCount < computed) zeroReasonTags.push('NEGATIVE_SLOPE');
       if (zeroReasonTags.length === 0) zeroReasonTags.push('SCORE_CURVE_TOO_STRICT');
     }
