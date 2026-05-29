@@ -492,6 +492,148 @@ describe('ADR-0422 §I 사용자 명시 9 케이스', () => {
   });
 });
 
+describe('Section F (Gate2 External Data Stabilization) — attribution 3 그룹 분리', () => {
+  it('optionalMissing 은 trueConditionFail / dataUnavailable 와 중복 집계되지 않는다', () => {
+    // programTrade unavailable + condition fail + fundamental unavailable 혼재.
+    const buckets: Gate2BlockerBucket[] = [
+      { ...emptyBucket('breakout_momentum'), failed: 3, total: 3 },     // trueConditionFail
+      { ...emptyBucket('earnings_quality'), unavailable: 2, total: 2 }, // dataUnavailable
+      { ...emptyBucket('programTrade'), unavailable: 4, total: 4 },     // optionalMissing
+      { ...emptyBucket('sector_cycle'), unavailable: 1, stale: 1, total: 2 }, // optionalMissing
+    ];
+    const attribution = buildGate2FreshAttribution({
+      buckets,
+      candidates: 40,
+      gate1Pass: 10,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+    });
+    const la = attribution.leadershipAttribution;
+    expect(la.blockedByConditionFailCount).toBe(3);
+    expect(la.blockedByUnavailableFundamentalCount).toBe(2);
+    // programTrade(4 unavailable) + sector_cycle(1 unavailable + 1 stale) = 6
+    expect(la.blockedByOptionalMissingCount).toBe(6);
+    // optional 은 condition/fundamental 카운트에 누수되지 않음
+    expect(la.blockedByConditionFailCount).not.toBe(7);
+    expect(la.blockedByUnavailableFundamentalCount).not.toBe(8);
+  });
+
+  it('optionalMissing 만 존재 시 dominant=OPTIONAL_DATA_MISSING (진짜 실패처럼 보이지 않음)', () => {
+    const buckets: Gate2BlockerBucket[] = [
+      { ...emptyBucket('programTrade'), unavailable: 5, total: 5 },
+      { ...emptyBucket('leader_cycle'), unavailable: 3, total: 3 },
+      { ...emptyBucket('theme_cycle'), unavailable: 2, total: 2 },
+    ];
+    const attribution = buildGate2FreshAttribution({
+      buckets,
+      candidates: 40,
+      gate1Pass: 10,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+    });
+    const la = attribution.leadershipAttribution;
+    expect(la.blockedByOptionalMissingCount).toBe(10);
+    expect(la.blockedByConditionFailCount).toBe(0);
+    expect(la.blockedByUnavailableFundamentalCount).toBe(0);
+    expect(la.blockedBySectorStaleCount).toBe(0);
+    expect(la.dominantReason).toBe('OPTIONAL_DATA_MISSING');
+  });
+
+  it('optionalMissing + 진짜 실패 혼재 시 OPTIONAL_DATA_MISSING 으로 떨어지지 않는다 (MIXED 또는 진짜 dominant)', () => {
+    const buckets: Gate2BlockerBucket[] = [
+      { ...emptyBucket('breakout_momentum'), failed: 6, total: 6 }, // 60% → BREAKOUT_MOMENTUM_NOT_CONFIRMED
+      { ...emptyBucket('programTrade'), unavailable: 4, total: 4 },  // optional — dominant 못 됨
+    ];
+    const attribution = buildGate2FreshAttribution({
+      buckets,
+      candidates: 40,
+      gate1Pass: 10,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+    });
+    const la = attribution.leadershipAttribution;
+    expect(la.blockedByOptionalMissingCount).toBe(4);
+    expect(la.dominantReason).not.toBe('OPTIONAL_DATA_MISSING');
+    expect(la.dominantReason).toBe('BREAKOUT_MOMENTUM_NOT_CONFIRMED');
+  });
+
+  it('optional 부재는 failed/error 를 trueConditionFail 로 누수시키지 않는다 (DATA_UNAVAILABLE≠failed, ADR-0416)', () => {
+    // programTrade 에 failed/error 가 있어도 optionalMissing 은 unavailable+stale 만 집계.
+    const buckets: Gate2BlockerBucket[] = [
+      { ...emptyBucket('programTrade'), failed: 3, error: 2, unavailable: 1, total: 6 },
+    ];
+    const attribution = buildGate2FreshAttribution({
+      buckets,
+      candidates: 40,
+      gate1Pass: 10,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+    });
+    const la = attribution.leadershipAttribution;
+    // optional key 는 conditionKeys/fundamentalKeys 에 없으므로 0
+    expect(la.blockedByConditionFailCount).toBe(0);
+    expect(la.blockedByUnavailableFundamentalCount).toBe(0);
+    // unavailable 1 만 optionalMissing 으로 (failed/error 제외)
+    expect(la.blockedByOptionalMissingCount).toBe(1);
+  });
+
+  it('formatGate2AttributionSection 이 optionalMissing= 라인을 §F 순서로 출력', () => {
+    const buckets: Gate2BlockerBucket[] = [
+      { ...emptyBucket('programTrade'), unavailable: 4, total: 4 },
+    ];
+    const attribution = buildGate2FreshAttribution({
+      buckets,
+      candidates: 40,
+      gate1Pass: 10,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+    });
+    const section = formatGate2AttributionSection(attribution);
+    expect(section).not.toBeNull();
+    expect(section).toContain('optionalMissing=4');
+    expect(section).toContain('conditionFail=0');
+    expect(section).toContain('fundamentalUnavailable=0');
+    expect(section).toContain('sectorStale=0');
+    expect(section).toContain('dominant=OPTIONAL_DATA_MISSING');
+    // §F 순서: conditionFail → fundamentalUnavailable → optionalMissing → sectorStale
+    const line = section!.split('\n').find((l) => l.includes('Gate2LeadershipAttribution:'))!;
+    expect(line.indexOf('conditionFail')).toBeLessThan(line.indexOf('fundamentalUnavailable'));
+    expect(line.indexOf('fundamentalUnavailable')).toBeLessThan(line.indexOf('optionalMissing'));
+    expect(line.indexOf('optionalMissing')).toBeLessThan(line.indexOf('sectorStale'));
+  });
+
+  it('optionalMissing 은 hard fail blocker / bearish 신호로 변환되지 않는다 (executionImpact=NONE 유지)', () => {
+    const buckets: Gate2BlockerBucket[] = [
+      { ...emptyBucket('programTrade'), unavailable: 4, total: 4 },
+      { ...emptyBucket('leader_cycle'), unavailable: 2, total: 2 },
+    ];
+    const attribution = buildGate2FreshAttribution({
+      buckets,
+      candidates: 40,
+      gate1Pass: 10,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+    });
+    const la = attribution.leadershipAttribution;
+    // optional 부재만으로는 FUNDAMENTAL_UNAVAILABLE / SECTOR_STALE blocker 안 생김
+    expect(la.blockers).not.toContain('FUNDAMENTAL_UNAVAILABLE');
+    expect(la.blockers).not.toContain('SECTOR_STALE');
+    expect(la.final.executionImpact).toBe('NONE');
+  });
+});
+
 describe('ADR-0422 §E 결정 트리 분기 SSOT', () => {
   it('NO_GATE1_SURVIVORS — gate1Pass=0', () => {
     const diag = computeGate2LeadershipDiagnosis({

@@ -434,3 +434,127 @@ it('locks child regime output to SourceSnapshotDecisionContext and keeps legacy 
   expect(formatted).toContain('- LEGACY_EFFECTIVE_REGIME_LEAK=false');
   expect(formatted).not.toContain('- effectiveRegime=R6_DEFENSE');
 });
+
+describe('Gate2 external data Section D/E/G display lanes', () => {
+  it('§D ProgramTrade missing renders optional/diagnosticOnly lane (not a Gate2 failure)', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 1,
+      watchlistCandidates: 1,
+      entries: 0,
+      macroGateState: macro(),
+      candidateSnapshots: [
+        {
+          symbol: 'P1',
+          price: 100,
+          volume: 1000,
+          gate2ExternalDataCoverage: {
+            dartFinancials: { status: 'MISSING', required: true, stageNotFetched: false },
+            sectorCycle: { status: 'PARTIAL', provider: 'INTERNAL_GROUPED_SNAPSHOT' },
+            leaderCycle: { status: 'UNKNOWN' },
+          },
+        },
+      ],
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+    expect(formatted).toContain(
+      '- program: status=MISSING compact=OPTIONAL_MISSING optional=true signal=UNKNOWN scoring=excluded diagnosticOnly=true marketSignal=false providerIssue=false executionImpact=NONE action=OBSERVE_PROGRAM_TRADE',
+    );
+    // ProgramTrade missing 이 bearish/hard fail 로 승격되지 않음.
+    expect(formatted).not.toContain('PROGRAM_TRADE_FAIL');
+  });
+
+  it('§D ProgramTrade transport error sets providerIssue=true only', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 1,
+      watchlistCandidates: 1,
+      entries: 0,
+      macroGateState: macro(),
+      candidateSnapshots: [
+        {
+          symbol: 'P2',
+          price: 100,
+          volume: 1000,
+          gate2ExternalDataCoverage: {
+            dartFinancials: { status: 'MISSING', required: true, stageNotFetched: false },
+            programTrade: { status: 'DEGRADED', providerIssue: true },
+          },
+        },
+      ],
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+    expect(formatted).toContain('providerIssue=true executionImpact=NONE action=OBSERVE_PROGRAM_TRADE');
+    // providerIssue 가 marketSignal 로 변환되지 않음.
+    expect(formatted).toContain('- program: status=DEGRADED');
+    expect(formatted).toContain('marketSignal=false');
+  });
+
+  it('§E SectorCycle/LeaderCycle observe lane annotates diagnosticOnly without hard fail', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 1,
+      watchlistCandidates: 1,
+      entries: 0,
+      macroGateState: macro(),
+      candidateSnapshots: [
+        {
+          symbol: 'S1',
+          price: 100,
+          volume: 1000,
+          gate2ExternalDataCoverage: {
+            dartFinancials: { status: 'MISSING', required: true, stageNotFetched: false },
+            sectorCycle: { status: 'PARTIAL', provider: 'INTERNAL_GROUPED_SNAPSHOT' },
+            leaderCycle: { status: 'UNKNOWN' },
+          },
+        },
+      ],
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+    expect(formatted).toContain(
+      '- sectorCycle: status=SHADOW_ONLY sourceTier=INTERNAL_GROUPED_SNAPSHOT marketSignal=false diagnosticOnly=true executionImpact=NONE',
+    );
+    expect(formatted).toContain(
+      '- leaderCycle: status=UNKNOWN sourceTier=NONE marketSignal=false diagnosticOnly=true executionImpact=NONE',
+    );
+  });
+
+  it('§G Gate2 Data Line Health block summarizes all external lines (executionImpact=NONE)', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 1,
+      watchlistCandidates: 1,
+      entries: 0,
+      macroGateState: macro(),
+      candidateSnapshots: [
+        {
+          symbol: 'H1',
+          price: 100,
+          volume: 1000,
+          gate2ExternalDataCoverage: {
+            dartFinancials: { status: 'PARTIAL', required: true, stageNotFetched: false },
+            dartLineHealth: {
+              status: 'PARTIAL',
+              availableFields: ['roe', 'opm'],
+              missingFields: ['earningsQuality', 'icr'],
+            },
+            valuation: { per: { status: 'AVAILABLE', source: 'DART', reason: 'NONE' } },
+            sectorCycle: { status: 'PARTIAL', provider: 'INTERNAL_GROUPED_SNAPSHOT' },
+            leaderCycle: { status: 'UNKNOWN' },
+          },
+        },
+      ],
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+    expect(formatted).toContain('Gate2 Data Line Health:');
+    expect(formatted).toContain('- KIS_FLOW: VERIFIED (상세는 KIS Router Eligibility 참조)');
+    expect(formatted).toContain(
+      '- DART_FINANCIALS: PARTIAL availableFields=roe,opm missingFields=earningsQuality,icr',
+    );
+    expect(formatted).toContain('- VALUATION_PER: AVAILABLE source=DART reason=NONE');
+    expect(formatted).toContain('- PROGRAM_TRADE: MISSING optional=true');
+    expect(formatted).toContain('- SECTOR_CYCLE: SHADOW_ONLY sourceTier=INTERNAL_GROUPED_SNAPSHOT');
+    expect(formatted).toContain('- LEADER_CYCLE: UNKNOWN sourceTier=NONE');
+    expect(formatted).toContain('- executionImpact=NONE marketSignal=false');
+  });
+});

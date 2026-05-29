@@ -1,6 +1,7 @@
 // @responsibility Step 26 runtime resolver trace for /scan_blockers verification.
 
 import { getLastKrxPostMeta } from '../../clients/krxClient/http.js';
+import { buildKisFlowTraceFields, type Gate2KisFlowUseScope } from './gate2KisFlowTraceMetadata.js';
 import type { ScanSummary } from './scanDiagnostics/scanSummaryTypes.js';
 
 export const STEP26_RUNTIME_PATCH_VERSION = 'STEP26_RUNTIME_TRACE_2026_05_21';
@@ -696,6 +697,24 @@ function buildKisRouterEligibility(summary: ScanSummary | null): string[] {
     semanticRows > 0;
   const failedCriteria = canonical.kisInvestorFlow.failedCriteria;
   const total = canonical.kisInvestorFlow.totalRows;
+  const selectedProvider = canonical.kisInvestorFlow.selectedProvider;
+  const gateEligibleRows = canonical.kisInvestorFlow.gateEligibleRows;
+  const useScope: Gate2KisFlowUseScope = gateEligibleRows > 0
+    ? 'GATE_SCORE_ELIGIBLE'
+    : 'SHADOW_ONLY_NEUTRAL_UNKNOWN';
+  // metadata carry 진단: 라우터는 KIS apiPath/trId 를 carry 하지 않으므로 undefined 로 넘겨
+  // UNKNOWN_METADATA_NOT_CARRIED 분기를 타게 한다 ("데이터 없음" vs "metadata 유실" 구분).
+  const kisFlowTraceFields = buildKisFlowTraceFields({
+    selectedProvider,
+    apiPath: undefined,
+    trId: undefined,
+    krxEndpoint: router?.krxSourceRepairDiagnostic?.selectedBld ?? null,
+    selectedRowPath: router?.selectedActualRowPath ?? null,
+    selectedFieldKeys: router?.selectedActualRowFieldKeys ?? null,
+    foreignNetBuy: router?.gateSemanticFlatRow?.foreignNetBuy ?? null,
+    institutionNetBuy: router?.gateSemanticFlatRow?.institutionNetBuy ?? null,
+    useScope,
+  });
   return [
     'KIS Router Eligibility:',
     `- provider=${canonical.kisInvestorFlow.selectedProvider}`,
@@ -715,6 +734,7 @@ function buildKisRouterEligibility(summary: ScanSummary | null): string[] {
     `- finalRouterUsable=${boolText(canonical.kisInvestorFlow.finalRouterUsable)}`,
     `- finalGateScoreEligible=${boolText(canonical.kisInvestorFlow.finalGateScoreEligible)}`,
     `- gateEligibleRows=${canonical.kisInvestorFlow.gateEligibleRows}/${total}`,
+    ...kisFlowTraceFields,
   ];
 }
 

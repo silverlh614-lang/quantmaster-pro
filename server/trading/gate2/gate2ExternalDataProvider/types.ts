@@ -4,7 +4,7 @@ import type { DartFinancials } from '../../../clients/dartFinancialClient.js';
 import type { QmpDartFinancials } from '../../../clients/dartFinancialNormalizer.js';
 
 export type Gate2FinancialSource = 'DART' | 'CACHE' | 'NONE';
-export type Gate2FinancialConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
+export type Gate2FinancialConfidence = 'VERIFIED' | 'PARTIAL' | 'DEGRADED' | 'STALE' | 'MISSING';
 export type Gate2FinancialStatementType = 'CFS' | 'OFS' | 'UNKNOWN';
 export type Gate2ConditionStatus = 'PASS' | 'FAIL' | 'UNAVAILABLE';
 export type Gate2CorpCodeResolveStatus = 'FOUND' | 'NOT_FOUND' | 'CACHE_MISSING' | 'ERROR';
@@ -165,13 +165,35 @@ export interface Gate2ProjectedCondition {
   executionImpact: 'NONE';
 }
 
+// §B PER 표시 분류 결과 (값 무변경 — 표시·분류 필드만).
+export interface Gate2PerValuationDisplay {
+  perStatus: 'AVAILABLE' | 'UNAVAILABLE';
+  rawPER: number | null;
+  normalizedPER: number | null;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  highConvictionImpact: 'NONE' | 'BLOCK_STRONG_BUY_UPGRADE';
+  entryHardBlockImpact: 'NO';
+  executionImpact: 'NONE';
+}
+
+// §C DART 데이터 라인 건전성 (condition 단위 분해 — 진단 표시, 시장 신호 아님).
+export interface Gate2DartLineHealth {
+  status: 'VERIFIED' | 'PARTIAL' | 'DEGRADED' | 'EMPTY_VALID' | 'NOT_ATTEMPTED';
+  availableFields: string[];
+  missingFields: string[];
+  primaryIssue: string;
+  providerIssue: boolean;
+  marketSignal: false;
+  executionImpact: 'NONE';
+}
+
 export interface Gate2ExternalProjection {
   symbol: string;
   asOf: string;
   financialSnapshot: Gate2FinancialSnapshot;
   metrics: Gate2DerivedMetrics;
   valuation: {
-    per: Gate2ProjectedCondition & { per: number | null };
+    per: Gate2ProjectedCondition & { per: number | null } & Gate2PerValuationDisplay;
   };
   profitability: {
     roe: number | null;
@@ -193,6 +215,7 @@ export interface Gate2ExternalProjection {
     executionImpact: 'NONE';
   };
   conditionResults: Record<'earnings_quality' | 'per' | 'roe' | 'opm' | 'icr', Gate2ProjectedCondition>;
+  dartLineHealth: Gate2DartLineHealth;
   refreshTrace?: Gate2ExternalRefreshTrace;
   unavailableCount: number;
   highConvictionImpact: 'NONE' | 'BLOCK_STRONG_BUY_UPGRADE';
