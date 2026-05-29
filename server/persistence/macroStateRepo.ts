@@ -180,8 +180,14 @@ export interface MacroState {
    */
   marginBalanceSource?: 'ECOS_API' | 'NONE';
   shortSellingRatio?: number;       // 공매도 비율 (%)
-  /** Phase 1 — 어느 fallback 단계에서 데이터를 얻었는지 (KRX_DIRECT/KRX_OTP/KIS_ESTIMATE). */
-  shortSellingSource?: 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_ESTIMATE';
+  /**
+   * Phase 1 — 어느 fallback 단계에서 데이터를 얻었는지.
+   *   - KRX_DIRECT / KRX_OTP : KRX 공식 (L1)
+   *   - KIS_PROXY            : KIS daily-short-sale 시장-프록시 ETF 비중 (L1, ADR-0543)
+   *   - KIS_ESTIMATE         : KIS 잔고 상위 가중 평균 추정 (L4 휴리스틱 — live 임계 평가 제외)
+   *   - CACHE                : /ssb 수동 백필 (L4 — live 임계 평가 제외, ADR-0543 타입 정식화)
+   */
+  shortSellingSource?: 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_PROXY' | 'KIS_ESTIMATE' | 'CACHE';
   /** Phase 1 — 마지막 조회 성공 시각 (ISO) — /health 신선도 표시용. */
   shortSellingFetchedAt?: string;
   spxDayReturn?: number;            // S&P500 당일 수익률 (미국 장 마감 기준)

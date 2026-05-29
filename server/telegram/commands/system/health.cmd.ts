@@ -212,8 +212,12 @@ export function formatShortSellingSourceLine(s: HealthSnapshot): string {
       return `✅ KRX 직접${suffix}`;
     case 'KRX_OTP':
       return `🟡 KRX OTP 폴백${suffix}`;
+    case 'KIS_PROXY':
+      return `🟢 KIS L1 프록시${suffix}`;
     case 'KIS_ESTIMATE':
       return `⚠️ KIS 추정값${suffix}`;
+    case 'CACHE':
+      return `🟠 수동 백필${suffix}`;
     default: {
       const exhaustive: never = s.shortSellingSource;
       return `? ${exhaustive as string}${suffix}`;

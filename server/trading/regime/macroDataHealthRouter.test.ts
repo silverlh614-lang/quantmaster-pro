@@ -116,6 +116,27 @@ describe('macroDataHealthRouter shortSelling trading-day-aware freshness', () =>
     });
     expect(classifyMacroDataHealth(macro, now).shortSelling).toBe('DEGRADED');
   });
+
+  // ── ADR-0543 ──────────────────────────────────────────────────────────
+  it('(ADR-0543) source=KIS_PROXY + fresh fetchedAt → VERIFIED', () => {
+    const now = new Date('2026-06-01T05:00:00Z'); // 월
+    const macro = baseMacro(now, {
+      shortSellingSource: 'KIS_PROXY',
+      shortSellingFetchedAt: '2026-05-29T07:00:00Z', // 직전 거래일(금) → 거리 1 → FRESH
+    });
+    const health = classifyMacroDataHealth(macro, now);
+    expect(health.shortSelling).toBe('VERIFIED');
+    expect(summarizeMacroDataHealth(health)).toBe('VERIFIED');
+  });
+
+  it('(ADR-0543) source=CACHE(L4) 도 fetchedAt freshness 로 판정 (DEGRADED 아님)', () => {
+    const now = new Date('2026-06-01T05:00:00Z');
+    const macro = baseMacro(now, {
+      shortSellingSource: 'CACHE',
+      shortSellingFetchedAt: '2026-05-29T07:00:00Z',
+    });
+    expect(classifyMacroDataHealth(macro, now).shortSelling).toBe('VERIFIED');
+  });
 });
 
 describe('macroDataHealthRouter 7-source 36h 동작 무변경 회귀', () => {
