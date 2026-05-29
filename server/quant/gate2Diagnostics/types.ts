@@ -184,6 +184,9 @@ export interface Gate2ExternalDataCoverage {
   profitability?: Record<string, unknown>;
   stability?: Record<string, unknown>;
   earningsQuality?: Record<string, unknown>;
+  // followup ②: projection dartLineHealth carry — availableFields/missingFields 표시 전용.
+  // executionImpact=NONE + providerIssue 보존, marketSignal=false. 매매/판정 무영향.
+  dartLineHealth?: Record<string, unknown>;
   conditionResults?: Record<string, unknown>;
   gate2ConditionProjection?: Record<string, unknown>;
   unavailableCount?: number;

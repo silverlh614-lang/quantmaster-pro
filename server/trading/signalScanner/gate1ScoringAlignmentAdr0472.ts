@@ -125,6 +125,8 @@ export const ADR_0472_OBSERVATION_DAYS = 3;
 
 export const MINIMUM_SIGNAL_SCORE_COMPONENT_CODES_ADR0472: SignalScoreComponentCode[] = [
   'PRICE_MOMENTUM',
+  'BREAKOUT_STRUCTURE',
+  'WATCHLIST_UPSTREAM_SCORE',
   'VOLUME_LIQUIDITY',
   'TECHNICAL_TREND',
   'RELATIVE_STRENGTH',
@@ -157,12 +159,12 @@ const COMPONENT_MEANINGS: Gate1ScoringComponentMeaning[] = [
   {
     code: 'WATCHLIST_UPSTREAM_SCORE',
     meaning: 'Stage2/watchlist candidate score imported into Gate1 as a positive signal contribution.',
-    liveSignalComponentPresent: false,
+    liveSignalComponentPresent: true,
   },
   {
     code: 'BREAKOUT_STRUCTURE',
     meaning: 'VCP, breakout, near-breakout, or new-high structure contribution.',
-    liveSignalComponentPresent: false,
+    liveSignalComponentPresent: true,
   },
   {
     code: 'RELATIVE_STRENGTH',

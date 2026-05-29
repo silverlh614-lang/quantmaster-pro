@@ -648,6 +648,13 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     macroSourceFreshness !== 'HARD_STALE' &&
     macroSourceFreshness !== 'STALE' &&
     macroSourceFreshness !== 'MISSING';
+  const snapshotStaleCause = macroSnapshotUsableForLiveOrder
+    ? undefined
+    : macroEodSnapshot
+      ? `EOD_SNAPSHOT(${macroSourceFreshness})`
+      : macroTtlExpired
+        ? `TTL_EXPIRED(ageSec=${macroAgeSec},ttlSec=${macroTtlSec})`
+        : `FRESHNESS_DEGRADED(${macroSourceFreshness})`;
   const macroSnapshotLiveBlockReason = macroEodSnapshot
     ? 'EOD_SNAPSHOT_NOT_LIVE_TRADABLE'
     : !macroSnapshotUsableForLiveOrder
@@ -691,6 +698,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     snapshotFreshnessForLive: macroSnapshotUsableForLiveOrder ? 'FRESH' : 'STALE',
     snapshotFreshnessForShadow: macroEodSnapshot ? 'EOD_VALID' : macroSnapshotUsableForLiveOrder ? 'FRESH' : 'STALE_REFERENCE',
     snapshotFreshnessForDiagnostic: macroEodSnapshot ? 'EOD_VALID' : macroSnapshotUsableForLiveOrder ? 'FRESH' : 'STALE_REFERENCE',
+    snapshotStaleCause,
     executionPermissionReason: macroLivePermissionReason,
     executionPermissionSource: 'PreflightGate0SnapshotUsageValidity',
     finalExecutionPolicy: macroLivePermissionAllowed ? 'LIVE_ORDER_ALLOWED' : 'SHADOW_AND_DIAGNOSTIC_ONLY',
@@ -699,6 +707,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     activeR6Triggers: undefined,
     r6ShockLatch: undefined,
     recoveryBlockedReason: regimeDiagnostics.recoveryBlockedReason,
+    cooldownUntil: regimeDiagnostics.cooldownUntil,
     liveEntryAllowed: macroLivePermissionAllowed,
     liveExitAllowed: true,
     shadowBuyAllowed: true,

@@ -127,12 +127,14 @@ function scenario(name: string) {
 }
 
 describe('ADR-0472 Gate1 scoring alignment', () => {
-  it('minimumSignalScoreTrace component set missing WATCHLIST_UPSTREAM_SCORE is recorded', () => {
-    expect(detectGate1ScoringAlignmentMissingComponents()).toContain('WATCHLIST_UPSTREAM_SCORE');
+  it('minimumSignalScoreTrace component set includes WATCHLIST_UPSTREAM_SCORE', () => {
+    expect(detectGate1ScoringAlignmentMissingComponents()).not.toContain('WATCHLIST_UPSTREAM_SCORE');
+    expect(MINIMUM_SIGNAL_SCORE_COMPONENT_CODES_ADR0472).toContain('WATCHLIST_UPSTREAM_SCORE');
   });
 
-  it('minimumSignalScoreTrace component set missing BREAKOUT_STRUCTURE is recorded', () => {
-    expect(detectGate1ScoringAlignmentMissingComponents()).toContain('BREAKOUT_STRUCTURE');
+  it('minimumSignalScoreTrace component set includes BREAKOUT_STRUCTURE', () => {
+    expect(detectGate1ScoringAlignmentMissingComponents()).not.toContain('BREAKOUT_STRUCTURE');
+    expect(MINIMUM_SIGNAL_SCORE_COMPONENT_CODES_ADR0472).toContain('BREAKOUT_STRUCTURE');
   });
 
   it('WATCHLIST_PRIORITY and WATCHLIST_UPSTREAM_SCORE are not treated as the same component', () => {
@@ -142,7 +144,8 @@ describe('ADR-0472 Gate1 scoring alignment', () => {
 
     expect(priority?.meaning).not.toEqual(upstream?.meaning);
     expect(report.minimumSignalComponents).toContain('WATCHLIST_PRIORITY');
-    expect(report.missingComponents).toContain('WATCHLIST_UPSTREAM_SCORE');
+    expect(report.minimumSignalComponents).toContain('WATCHLIST_UPSTREAM_SCORE');
+    expect(report.missingComponents).not.toContain('WATCHLIST_UPSTREAM_SCORE');
   });
 
   it('ADD_WATCHLIST_UPSTREAM_SCORE dry-run does not change live score', () => {
@@ -336,9 +339,8 @@ describe('ADR-0472 Gate1 scoring alignment', () => {
     const section = formatGate1ScoringAlignmentReport(makeReports().alignment);
 
     expect(section).toContain('Gate1 Scoring Alignment (ADR-0472)');
-    expect(section).toContain('componentSetAligned: false');
-    expect(section).toContain('WATCHLIST_UPSTREAM_SCORE');
-    expect(section).toContain('BREAKOUT_STRUCTURE');
+    expect(section).toContain('componentSetAligned: true');
+    expect(section).toContain('missingComponents: none');
     expect(section).toContain('nextAction: OBSERVE_3D_THEN_OPERATOR_APPROVAL');
   });
 

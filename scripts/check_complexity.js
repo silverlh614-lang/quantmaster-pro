@@ -122,6 +122,10 @@ const BASELINE_TECHNICAL_DEBT = [
   //   ✅ 2026-05-27 query.ts 분해 완료 (2273→1307줄 — ADR-0537, query/sectorIndex.ts(섹터 지수 도메인 ~815 LoC)
   //      + query/helpers.ts(순수 leaf 헬퍼 17) 추출 + 메인 export * re-export, byte-equivalent, KIS/KRX quota 0 침범,
   //      executionImpact=NONE) → 카탈로그에서 정식 제거 (1500 한계 자연 통과).
+  //   ▶ 2026-05-27 persistScanResults.ts 부분 분해 (2088→1818줄 — persistScanResults/types.ts(PersistScanResultsOptions)
+  //      + persistScanResults/helpers.ts(순수 leaf 헬퍼 6) 추출, god 함수 본문 byte-identical(1623줄 무변경),
+  //      lint EXIT=0, test 426pass/12fail(사전 실패·무회귀)). 1500 미돌파 → 카탈로그 *유지*. 진단블록 분해는
+  //      "판단/진단로직 불변" 원칙상 별도 테스트-가드 후속 작업으로 보류 (사용자 결정).
   'server/trading/signalScanner/scanDiagnostics/persistScanResults.ts',
   'server/trading/signalScanner/scanDiagnostics/scanBlockersFormatter.ts',
 ];
@@ -231,9 +235,13 @@ function findFunctionRegions(src) {
 
     const body = lines.slice(i, bodyEnd + 1).join('\n');
     const lineCount = bodyEnd - i + 1;
-    // cyclomatic 근사: 분기 키워드 카운트
+    // cyclomatic 근사: 분기 키워드 카운트.
+    // 옵셔널 체이닝(?.)·nullish(??)는 null-safety 관용구이지 결정 분기가 아니므로 cc 계수에서 제외한다.
+    // (McCabe cc 는 if/case/&&/||/삼항 ?: 같은 *결정 분기*만 센다. `a?.b ?? c` 는 단일 "값 또는 기본값"
+    //  표현으로 인지 복잡도 0 — 표시/데이터 코드의 방어적 null 처리를 과대계수하던 것을 정정.)
     const branches = (body.match(/\b(if|else if|case|catch|while|for)\b/g) || []).length;
-    const ternary = (body.match(/\?[^?]/g) || []).length; // 단순 ? 카운트
+    const decisionBody = body.replace(/\?\?/g, '').replace(/\?\./g, '');
+    const ternary = (decisionBody.match(/\?[^?]/g) || []).length; // 삼항 ?: 만 (옵셔널/ nullish 제외)
     const logical = (body.match(/&&|\|\|/g) || []).length;
     const complexity = 1 + branches + ternary + logical;
 

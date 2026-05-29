@@ -19,6 +19,99 @@ export function __resetProgramMarketRawRateLimitForTests(): void {
   _lastInvocationMs = 0;
 }
 
+/** KIS 응답(KOSPI/KOSDAQ) 키-값 라인 — object 는 JSON 직렬화, null/undefined → 'N/A'. */
+function buildKisResponseLines(label: string, resp: Record<string, any>): string[] {
+  const lines: string[] = ['', `KIS ${label} Response:`];
+  for (const k of ['requested','marketClassCode','httpStatus','responseCode','msgCd','msg1','outputLength','outputKeys','firstRowSample','firstRowBsopHour','lastRowBsopHour','selectedBsopHour','selectedRawWholeNetBuy','zeroReason']) {
+    lines.push(`- ${k}: ${typeof resp[k] === 'object' ? JSON.stringify(resp[k]) : (resp[k] ?? 'N/A')}`);
+  }
+  return lines;
+}
+
+/** KRX intraday shape probe → 라인 (활성/비활성 + shapeProbe 분해). */
+function buildKrxIntradayProbeLines(
+  enabled: boolean,
+  bld: string,
+  krx: Awaited<ReturnType<typeof fetchKrxIntradayProgramTradeAggregate>> | null,
+  krxLatencyMs: number,
+): string[] {
+  const lines: string[] = [
+    '',
+    '🔬 <b>[KRX Intraday Shape Probe]</b>',
+    `krxIntradayEnabled: ${enabled}`,
+    `krxBldMarketProgramIntraday: ${bld}`,
+  ];
+  if (!enabled || !krx) {
+    lines.push('krxFallbackStatus: NOT_TRIED');
+    lines.push('krxIntradayConfidence: DISABLED');
+    lines.push('operatorHint: set KRX_INTRADAY_MARKET_PROGRAM_ENABLED=true and optionally KRX_BLD_MARKET_PROGRAM_INTRADAY for shape verification');
+    return lines;
+  }
+  const shapeProbe = krx.intradayShapeProbe ?? null;
+  lines.push(`krxFallbackStatus: ${krx.confidence}`);
+  lines.push(`krxProviderLatencyMs: ${krxLatencyMs}`);
+  lines.push(`krxIntradayConfidence: ${shapeProbe?.confidence ?? krx.confidence}`);
+  lines.push(`selectedPath: ${shapeProbe?.shapeCandidatePath ?? 'NONE'}`);
+  lines.push(`topLevelKeys: ${shapeProbe?.topLevelKeys.join(', ') || 'NONE'}`);
+  lines.push(`rowCount: ${shapeProbe?.rowCount ?? 0}`);
+  lines.push(`firstRowKeys: ${shapeProbe?.firstRowKeys.slice(0, 12).join(', ') || 'NONE'}`);
+  lines.push(`numericFieldCandidates: ${shapeProbe?.numericFieldCandidates.slice(0, 12).join(', ') || 'NONE'}`);
+  if (shapeProbe?.firstRowSample) {
+    const sample = Object.entries(shapeProbe.firstRowSample).slice(0, 8).map(([k, v]) => `${k}:${v ?? 'NULL'}`).join(', ');
+    lines.push(`firstRowSample: ${sample || 'NONE'}`);
+  }
+  return lines;
+}
+
+/** rowBreakdown 섹션 — SNAPSHOT_INCONSISTENT / split / combined-only 3 분기. */
+function buildRowBreakdownLines(pm: any, finalStatus: string, rawStatus: string): string[] {
+  const lines: string[] = ['', 'rowBreakdown:'];
+  if (finalStatus === 'SNAPSHOT_INCONSISTENT') {
+    lines.push('status: SNAPSHOT_INCONSISTENT');
+    lines.push(`reason: ${pm?.inconsistencyReason ?? 'snapshot invariant violated'}`);
+    lines.push(`rawStatus: ${rawStatus}`);
+    lines.push('판정: observe only');
+    lines.push('KOSPI: N/A');
+    lines.push('KOSDAQ: N/A');
+    lines.push('COMBINED: N/A');
+    lines.push('scoring: excluded');
+    lines.push('executionImpact: NONE');
+    return lines;
+  }
+  if (pm.splitAvailable) {
+    for (const [name, row] of Object.entries(pm.rowBreakdown) as [string, any][]) {
+      lines.push(`${name.toUpperCase()}: outputLength=${row.outputLength} nonZeroRows=${row.nonZeroRows} selectedBsopHour=${row.selectedBsopHour} rawWholeNetBuy=${row.rawWholeNetBuy} rawArbitrageNetBuy=${row.rawArbitrageNetBuy} rawNonArbitrageNetBuy=${row.rawNonArbitrageNetBuy} displayWholeNetBuy=${row.displayWholeNetBuy}`);
+      lines.push(row.unitCandidates
+        ? `  unitCandidates: KRW=${row.unitCandidates.KRW} KRW_1K=${row.unitCandidates.KRW_1K} KRW_1M=${row.unitCandidates.KRW_1M}`
+        : '  unitCandidates: N/A');
+    }
+    return lines;
+  }
+  lines.push(`combinedSource: ${pm?.combinedSource ?? 'UNKNOWN'}`);
+  lines.push(`splitAvailable: ${pm.splitAvailable ?? false}`);
+  lines.push(`combinedOnly: ${pm.combinedOnly ?? true}`);
+  lines.push(`KOSPI: N/A (split unavailable)`);
+  lines.push(`KOSDAQ: N/A (split unavailable)`);
+  const c = pm.rowBreakdown.combined;
+  lines.push(`COMBINED: outputLength=${c.outputLength} nonZeroRows=${c.nonZeroRows} selectedBsopHour=${c.selectedBsopHour} rawWholeNetBuy=${c.rawWholeNetBuy}`);
+  lines.push(`  unitCandidates: KRW=${c.unitCandidates.KRW} KRW_1K=${c.unitCandidates.KRW_1K} KRW_1M=${c.unitCandidates.KRW_1M}`);
+  return lines;
+}
+
+/** unitCandidates 섹션 (pm.unit + pm.unitCandidates 둘 다 있을 때만). */
+function buildUnitCandidatesLines(pm: any): string[] {
+  return [
+    'unitCandidates:',
+    `  KRW: ${pm.unitCandidates.KRW}`,
+    `  KRW_1K: ${pm.unitCandidates.KRW_1K} selected`,
+    `  KRW_1M: ${pm.unitCandidates.KRW_1M}`,
+    `selectedDisplayUnitAssumption=${pm.unit.rawUnitAssumption}`,
+    `mappingConfidence=${pm.unit.mappingConfidence}`,
+    `scoring=${pm.policy?.scoring ?? 'N/A'}`,
+    `useForExecution=${pm.policy?.useForExecution ?? false}`,
+  ];
+}
+
 export async function buildProgramMarketRawMessage(): Promise<string> {
   const requestedAt = new Date().toISOString();
   const startMs = Date.now();
@@ -40,31 +133,15 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
     requestedAt,
     providerLatencyMs: latencyMs,
   });
-  lines.push('');
-  lines.push('🔬 <b>[KRX Intraday Shape Probe]</b>');
-  lines.push(`krxIntradayEnabled: ${isKrxIntradayMarketProgramEnabled()}`);
-  lines.push(`krxBldMarketProgramIntraday: ${getKrxIntradayMarketProgramBld()}`);
-  if (isKrxIntradayMarketProgramEnabled()) {
+  const krxEnabled = isKrxIntradayMarketProgramEnabled();
+  let krxAggregate: Awaited<ReturnType<typeof fetchKrxIntradayProgramTradeAggregate>> | null = null;
+  let krxLatencyMs = 0;
+  if (krxEnabled) {
     const krxStartMs = Date.now();
-    const krx = await fetchKrxIntradayProgramTradeAggregate(Date.now());
-    const shapeProbe = krx.intradayShapeProbe ?? null;
-    lines.push(`krxFallbackStatus: ${krx.confidence}`);
-    lines.push(`krxProviderLatencyMs: ${Date.now() - krxStartMs}`);
-    lines.push(`krxIntradayConfidence: ${shapeProbe?.confidence ?? krx.confidence}`);
-    lines.push(`selectedPath: ${shapeProbe?.shapeCandidatePath ?? 'NONE'}`);
-    lines.push(`topLevelKeys: ${shapeProbe?.topLevelKeys.join(', ') || 'NONE'}`);
-    lines.push(`rowCount: ${shapeProbe?.rowCount ?? 0}`);
-    lines.push(`firstRowKeys: ${shapeProbe?.firstRowKeys.slice(0, 12).join(', ') || 'NONE'}`);
-    lines.push(`numericFieldCandidates: ${shapeProbe?.numericFieldCandidates.slice(0, 12).join(', ') || 'NONE'}`);
-    if (shapeProbe?.firstRowSample) {
-      const sample = Object.entries(shapeProbe.firstRowSample).slice(0, 8).map(([k, v]) => `${k}:${v ?? 'NULL'}`).join(', ');
-      lines.push(`firstRowSample: ${sample || 'NONE'}`);
-    }
-  } else {
-    lines.push('krxFallbackStatus: NOT_TRIED');
-    lines.push('krxIntradayConfidence: DISABLED');
-    lines.push('operatorHint: set KRX_INTRADAY_MARKET_PROGRAM_ENABLED=true and optionally KRX_BLD_MARKET_PROGRAM_INTRADAY for shape verification');
+    krxAggregate = await fetchKrxIntradayProgramTradeAggregate(Date.now());
+    krxLatencyMs = Date.now() - krxStartMs;
   }
+  lines.push(...buildKrxIntradayProbeLines(krxEnabled, getKrxIntradayMarketProgramBld(), krxAggregate, krxLatencyMs));
   const kospiParams = buildMarketProgramTradeTodayParams('K');
   const kosdaqParams = buildMarketProgramTradeTodayParams('Q');
   const serializerProbe = new URLSearchParams(kospiParams).toString();
@@ -89,20 +166,8 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
   const aggregate = (pm as any)?.aggregateDiagnostic;
   const kospiResp = aggregate?.kospiResponse;
   const kosdaqResp = aggregate?.kosdaqResponse;
-  if (kospiResp) {
-    lines.push('');
-    lines.push('KIS KOSPI Response:');
-    for (const k of ['requested','marketClassCode','httpStatus','responseCode','msgCd','msg1','outputLength','outputKeys','firstRowSample','firstRowBsopHour','lastRowBsopHour','selectedBsopHour','selectedRawWholeNetBuy','zeroReason']) {
-      lines.push(`- ${k}: ${typeof kospiResp[k] === 'object' ? JSON.stringify(kospiResp[k]) : (kospiResp[k] ?? 'N/A')}`);
-    }
-  }
-  if (kosdaqResp) {
-    lines.push('');
-    lines.push('KIS KOSDAQ Response:');
-    for (const k of ['requested','marketClassCode','httpStatus','responseCode','msgCd','msg1','outputLength','outputKeys','firstRowSample','firstRowBsopHour','lastRowBsopHour','selectedBsopHour','selectedRawWholeNetBuy','zeroReason']) {
-      lines.push(`- ${k}: ${typeof kosdaqResp[k] === 'object' ? JSON.stringify(kosdaqResp[k]) : (kosdaqResp[k] ?? 'N/A')}`);
-    }
-  }
+  if (kospiResp) lines.push(...buildKisResponseLines('KOSPI', kospiResp));
+  if (kosdaqResp) lines.push(...buildKisResponseLines('KOSDAQ', kosdaqResp));
 
   const snapshotId = (pm as any)?.snapshotId;
   const finalStatus = (pm as any)?.finalStatus ?? 'UNKNOWN';
@@ -139,45 +204,10 @@ export async function buildProgramMarketRawMessage(): Promise<string> {
   lines.push(`snapshotId=${snapshotId ?? 'SNAPSHOT_MISSING'}`);
   lines.push(`snapshotSource=${finalStatus === 'SNAPSHOT_INCONSISTENT' ? 'UNKNOWN' : ((pm as any)?.snapshotSource ?? (pm as any)?.combinedSource ?? 'UNKNOWN')}`);
   if (pm?.rowBreakdown) {
-    lines.push('');
-    lines.push('rowBreakdown:');
-    if (finalStatus === 'SNAPSHOT_INCONSISTENT') {
-      lines.push('status: SNAPSHOT_INCONSISTENT');
-      lines.push(`reason: ${(pm as any)?.inconsistencyReason ?? 'snapshot invariant violated'}`);
-      lines.push(`rawStatus: ${rawStatus}`);
-      lines.push('판정: observe only');
-      lines.push('KOSPI: N/A');
-      lines.push('KOSDAQ: N/A');
-      lines.push('COMBINED: N/A');
-      lines.push('scoring: excluded');
-      lines.push('executionImpact: NONE');
-    } else if (pm.splitAvailable) {
-      for (const [name, row] of Object.entries(pm.rowBreakdown)) {
-        lines.push(`${name.toUpperCase()}: outputLength=${row.outputLength} nonZeroRows=${row.nonZeroRows} selectedBsopHour=${row.selectedBsopHour} rawWholeNetBuy=${row.rawWholeNetBuy} rawArbitrageNetBuy=${row.rawArbitrageNetBuy} rawNonArbitrageNetBuy=${row.rawNonArbitrageNetBuy} displayWholeNetBuy=${row.displayWholeNetBuy}`);
-        lines.push(row.unitCandidates
-          ? `  unitCandidates: KRW=${row.unitCandidates.KRW} KRW_1K=${row.unitCandidates.KRW_1K} KRW_1M=${row.unitCandidates.KRW_1M}`
-          : '  unitCandidates: N/A');
-      }
-    } else {
-      lines.push(`combinedSource: ${(pm as any)?.combinedSource ?? 'UNKNOWN'}`);
-      lines.push(`splitAvailable: ${pm.splitAvailable ?? false}`);
-      lines.push(`combinedOnly: ${pm.combinedOnly ?? true}`);
-      lines.push(`KOSPI: N/A (split unavailable)`);
-      lines.push(`KOSDAQ: N/A (split unavailable)`);
-      const c = pm.rowBreakdown.combined;
-      lines.push(`COMBINED: outputLength=${c.outputLength} nonZeroRows=${c.nonZeroRows} selectedBsopHour=${c.selectedBsopHour} rawWholeNetBuy=${c.rawWholeNetBuy}`);
-      lines.push(`  unitCandidates: KRW=${c.unitCandidates.KRW} KRW_1K=${c.unitCandidates.KRW_1K} KRW_1M=${c.unitCandidates.KRW_1M}`);
-    }
+    lines.push(...buildRowBreakdownLines(pm, finalStatus, rawStatus));
   }
   if (pm?.unit && pm.unitCandidates) {
-    lines.push('unitCandidates:');
-    lines.push(`  KRW: ${pm.unitCandidates.KRW}`);
-    lines.push(`  KRW_1K: ${pm.unitCandidates.KRW_1K} selected`);
-    lines.push(`  KRW_1M: ${pm.unitCandidates.KRW_1M}`);
-    lines.push(`selectedDisplayUnitAssumption=${pm.unit.rawUnitAssumption}`);
-    lines.push(`mappingConfidence=${pm.unit.mappingConfidence}`);
-    lines.push(`scoring=${pm.policy?.scoring ?? 'N/A'}`);
-    lines.push(`useForExecution=${pm.policy?.useForExecution ?? false}`);
+    lines.push(...buildUnitCandidatesLines(pm));
   }
 
   return lines.join('\n');

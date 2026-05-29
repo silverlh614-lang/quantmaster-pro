@@ -343,6 +343,21 @@ export interface Gate1ScoreStarvationGateResultInput {
     thresholdNotMetConditions?: readonly string[];
     providerDegradedConditions?: readonly string[];
   };
+  /**
+   * ADR-0467 attribution fix: canonical Gate1 minimum-signal-score components
+   * (minimumSignalScoreTrace.components — code+weightedScore+maxScore+confidence).
+   * When supplied, CORE_SIGNAL component contributions (PRICE_MOMENTUM etc.) are
+   * read from these canonical weightedScores instead of Gate2-level condition
+   * outputs, preventing the OTHER_POSITIVE mis-attribution leak. Optional:
+   * absence preserves the legacy gateResult.outputs fallback byte-equivalently.
+   */
+  minSignalComponents?: ReadonlyArray<{
+    code: string;
+    weightedScore: number;
+    maxScore: number;
+    confidence?: ScoreConfidence;
+    message?: string;
+  }>;
   watchlistScore?: number;
   upstreamScore?: number;
   watchlistRank?: number;
@@ -376,6 +391,20 @@ const CONDITION_TO_POSITIVE_CODE: Record<string, PositiveSignalComponentCode> = 
   vcp: 'VCP_OR_VOLATILITY_COMPRESSION',
   pullback: 'VCP_OR_VOLATILITY_COMPRESSION',
 };
+
+/**
+ * Codes in AUDITED_POSITIVE_FEATURES that have no Gate1 output key mapping and whose
+ * fallbackPolicy is NEUTRAL_IF_MISSING or DIAGNOSTIC_ONLY (not MISSING).
+ * When absent from Gate1 outputs these are scored zero but marked available=true
+ * so they do not inflate missingPositiveComponents or trigger starvation reasons
+ * that belong to genuinely unconnected features (e.g. WATCHLIST_SCORE_NOT_IMPORTED).
+ * ADR-0467, gate1ScoreCeilingRepair fallbackPolicy reference.
+ */
+const NEUTRAL_IF_MISSING_CODES: ReadonlySet<PositiveSignalComponentCode> = new Set([
+  'WATCHLIST_PRIORITY',      // fallbackPolicy: NEUTRAL_IF_MISSING — rank-based boost, not a Gate1 condition key
+  'GHOST_SIGNAL_STRENGTH',   // fallbackPolicy: DIAGNOSTIC_ONLY   — advisory learning trace
+  'SECTOR_RELATIVE_STRENGTH', // fallbackPolicy: EXCLUDE_FROM_DENOMINATOR — sector data often absent
+]);
 
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
@@ -480,6 +509,28 @@ function positiveCodeForCondition(key: string): PositiveSignalComponentCode {
   return CONDITION_TO_POSITIVE_CODE[key] ?? 'OTHER_POSITIVE';
 }
 
+/**
+ * ADR-0467 attribution fix: CORE_SIGNAL positive codes whose canonical Gate1
+ * minimum-signal contribution lives in minimumSignalScoreTrace.components
+ * (weightedScore) — NOT in Gate2-level condition outputs. When minSignalComponents
+ * is supplied, these codes are sourced from the canonical weightedScore and the
+ * matching condition outputs are NOT re-attributed (prevents the OTHER_POSITIVE
+ * leak and the false PRICE_MOMENTUM zeroContribution). Every other code keeps the
+ * legacy outputs path so absence of minSignalComponents stays byte-equivalent.
+ */
+const CANONICAL_MIN_SIGNAL_CODES: ReadonlySet<PositiveSignalComponentCode> = new Set([
+  'PRICE_MOMENTUM',
+  'TECHNICAL_TREND',
+  'RELATIVE_STRENGTH',
+  'BREAKOUT_STRUCTURE',
+  'VOLUME_LIQUIDITY',
+  'WATCHLIST_UPSTREAM_SCORE',
+]);
+
+function isCanonicalMinSignalCode(code: string): code is PositiveSignalComponentCode {
+  return CANONICAL_MIN_SIGNAL_CODES.has(code as PositiveSignalComponentCode);
+}
+
 export function buildGate1ScoreStarvationTraceFromGateResult(
   input: Gate1ScoreStarvationGateResultInput,
 ): Gate1ScoreStarvationTrace {
@@ -492,8 +543,23 @@ export function buildGate1ScoreStarvationTraceFromGateResult(
   const outputs = input.gateResult.outputs ?? [];
   const grouped = new Map<PositiveSignalComponentCode, PositiveScoreContributionTrace>();
 
+  // ADR-0467 attribution fix: canonical CORE_SIGNAL contributions come from the
+  // minimumSignalScoreTrace components (weightedScore). When supplied, the codes
+  // they cover are owned by the canonical path; the matching Gate2-level condition
+  // outputs are skipped below so they neither create a false zeroContribution nor
+  // leak their residual value into OTHER_POSITIVE. Absent => legacy outputs path.
+  const canonicalComponents = (input.minSignalComponents ?? []).filter((component) =>
+    isCanonicalMinSignalCode(component.code),
+  );
+  const canonicalCodes = new Set<PositiveSignalComponentCode>(
+    canonicalComponents.map((component) => component.code as PositiveSignalComponentCode),
+  );
+
   for (const item of outputs) {
     const code = positiveCodeForCondition(item.key);
+    // Skip condition outputs whose canonical contribution is supplied via
+    // minSignalComponents — prevents double-count and OTHER_POSITIVE leak.
+    if (canonicalCodes.has(code)) continue;
     const score = finite(item.output?.score) ? Math.max(0, item.output.score * scale) : 0;
     const status = item.output?.status;
     const available = item.output !== null && status !== 'DATA_UNAVAILABLE' && status !== 'ERROR';
@@ -520,16 +586,41 @@ export function buildGate1ScoreStarvationTraceFromGateResult(
     grouped.set(code, next);
   }
 
+  // ADR-0467: seed canonical CORE_SIGNAL contributions from minimumSignalScoreTrace
+  // weightedScores (the SSOT for PRICE_MOMENTUM etc.). This overrides any prior
+  // outputs-derived entry and authoritatively attributes the contribution.
+  for (const component of canonicalComponents) {
+    const code = component.code as PositiveSignalComponentCode;
+    const weightedScore = finite(component.weightedScore) ? Math.max(0, component.weightedScore) : 0;
+    const maxScore = finite(component.maxScore) && component.maxScore > 0 ? component.maxScore : 10;
+    grouped.set(code, positiveComponent({
+      code,
+      weightedScore,
+      maxScore,
+      available: true,
+      confidence: component.confidence ?? 'VERIFIED',
+      source: 'minimumSignalScoreTrace.components',
+      zeroContributionReason: weightedScore === 0 ? 'MIN_SIGNAL_WEIGHTED_SCORE_ZERO' : undefined,
+      message: component.message ?? `${code} from minimumSignalScoreTrace (weightedScore ${weightedScore.toFixed(1)})`,
+    }));
+  }
+
   for (const code of AUDITED_POSITIVE_FEATURES) {
     if (!grouped.has(code)) {
+      // NEUTRAL_IF_MISSING codes have no Gate1 output key and a fallbackPolicy that
+      // does not indicate a wiring gap — treat as available=true, confidence=DIAGNOSTIC_ONLY
+      // so they do not inflate missingPositiveComponents counts (ADR-0467).
+      const isNeutral = NEUTRAL_IF_MISSING_CODES.has(code);
       grouped.set(code, positiveComponent({
         code,
         weightedScore: 0,
         maxScore: code === 'WATCHLIST_UPSTREAM_SCORE' ? 20 : 10,
-        available: false,
-        confidence: 'MISSING',
+        available: isNeutral ? true : false,
+        confidence: isNeutral ? 'DIAGNOSTIC_ONLY' : 'MISSING',
         source: 'ADR-0467 audit',
-        zeroContributionReason: 'feature not present in Gate1 outputs',
+        zeroContributionReason: isNeutral
+          ? 'neutral-if-missing: no Gate1 output key, score=0 by design'
+          : 'feature not present in Gate1 outputs',
       }));
     }
   }
@@ -1275,9 +1366,11 @@ export function formatPositiveScoreStarvationReport(
     const zeroReasonTags: string[] = [];
     const computed = momentum.priceMomentumComputedCount;
     if ((momentumStatus?.avgContribution ?? 0) === 0 && computed > 0) {
-      if (momentum.return5dCount < computed) zeroReasonTags.push('RETURN5D_BELOW_THRESHOLD');
-      if (momentum.return20dCount < computed) zeroReasonTags.push('RETURN20D_BELOW_THRESHOLD');
-      if (momentum.relativeReturn20dCount < computed) zeroReasonTags.push('RELATIVE_RETURN_BELOW_THRESHOLD');
+      // 아래 태그는 coverage gap(임계미달 아님): return*Count < computed 는 해당 필드의
+      // 커버리지가 computed(=4개 coverage 의 max)보다 작다는 격차를 뜻한다. 부호·값·점수 무관.
+      if (momentum.return5dCount < computed) zeroReasonTags.push('RETURN5D_COVERAGE_GAP');
+      if (momentum.return20dCount < computed) zeroReasonTags.push('RETURN20D_COVERAGE_GAP');
+      if (momentum.relativeReturn20dCount < computed) zeroReasonTags.push('RELATIVE_RETURN_COVERAGE_GAP');
       if (momentum.marketRelativeReturnCount < computed) zeroReasonTags.push('NEGATIVE_SLOPE');
       if (zeroReasonTags.length === 0) zeroReasonTags.push('SCORE_CURVE_TOO_STRICT');
     }

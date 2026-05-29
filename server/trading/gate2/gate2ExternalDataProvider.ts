@@ -19,6 +19,8 @@ import {
 import { getStockByCode, isTradableKrxEquity } from '../../persistence/krxStockMasterRepo.js';
 // 정본 데이터 SSOT(Gate2 PER dedup, patch): Gate2 PER valuation 엔진(KIS FHKST01010100 추출·판정 + 정본 snapshot quote 재사용) 단일 모듈.
 import { emptyPerValuation, fetchGate2PerValuation } from './gate2ExternalDataProvider/perValuation.js';
+// 진단 표시 분류 SSOT (값 무변경): PER 표시 + DART 라인 건전성 condition 단위 분해.
+import { classifyDartLineHealth, classifyPerValuationDisplay } from './gate2ExternalDataProvider/dataLineClassification.js';
 
 export { fetchGate2PerValuation };
 
@@ -422,6 +424,7 @@ export async function fetchDartFinancialsForGate2(input: {
         trace.dartErrorCode = undefined;
         return { dartFin, trace };
       } catch (error) {
+        /* SDS-ignore: classifyFetchError → trace.dartHttpStatus/dartErrorCode 진단 trace 에 기록한다 (silent 아님). */
         const classified = classifyFetchError(error);
         trace.dartHttpStatus = classified.httpStatus;
         trace.dartErrorCode = classified.errorCode;
@@ -659,6 +662,14 @@ export function buildGate2ExternalProjection(input: {
       executionImpact: 'NONE' as const,
     }
     : undefined;
+  const perDisplay = classifyPerValuationDisplay({
+    perCondition: conditions.per,
+    metricsPer: metrics.per,
+    perSource: input.perSource,
+    perReason: input.perReason,
+    highConvictionImpact,
+  });
+  const dartLineHealth = classifyDartLineHealth({ metrics, refreshTrace });
   return {
     symbol: cleanSymbol(input.symbol),
     asOf,
@@ -668,6 +679,7 @@ export function buildGate2ExternalProjection(input: {
       per: {
         ...conditions.per,
         per: metrics.per,
+        ...perDisplay,
       },
     },
     profitability: {
@@ -690,6 +702,7 @@ export function buildGate2ExternalProjection(input: {
       executionImpact: 'NONE',
     },
     conditionResults: conditions,
+    dartLineHealth,
     ...(refreshTrace ? { refreshTrace } : {}),
     unavailableCount,
     highConvictionImpact,
@@ -726,7 +739,9 @@ export function projectionToQmpDartFinancials(projection: Gate2ExternalProjectio
     interestCoverageRatio: metrics.icr,
     source: snapshot.source === 'CACHE' ? 'QMP_CACHE' : snapshot.source === 'DART' ? 'DART' : 'UNKNOWN',
     providerStatus: snapshot.confidence === 'VERIFIED' ? 'OK_WITH_DATA' : snapshot.confidence === 'STALE' ? 'STALE_CACHE' : 'FIELD_MISSING',
-    dataConfidence: snapshot.confidence,
+    // PARTIAL 은 Gate2 내부 진단 라벨 — QmpDartFinancials 계약(DartFinancialConfidence)은 PARTIAL 미보유이므로
+    // 기존 normalizeConfidence 규약과 동일하게 DEGRADED 로 투영한다 (값/판정 영향 없음, 표시 보존).
+    dataConfidence: snapshot.confidence === 'PARTIAL' ? 'DEGRADED' : snapshot.confidence,
     providerIssue: snapshot.providerIssue,
     marketSignal: false,
     executionImpact: 'DIAGNOSTIC_ONLY',
@@ -1121,13 +1136,21 @@ export async function refreshGate2ExternalData(input: {
       dartFin = fetched.dartFin;
       trace = fetched.trace;
     }
+    // ADR-0532 Phase 3 fallback: KIS_FINANCE_PRIMARY_ENABLED=true 시 DART 재무 미가용(dartFin=null)이어도
+    // KIS inquire-price(FHKST01010100)에서 PER 를 독립적으로 가져와 per=UNAVAILABLE 차단.
+    // custom fetcher/perFetcher 경로는 그대로 유지 (테스트 하네스 byte-equivalent). executionImpact=NONE.
+    const kisPrimaryEnabled = process.env.KIS_FINANCE_PRIMARY_ENABLED === 'true';
     const perValuation = dartFin
       ? input.perFetcher
         ? await input.perFetcher(symbol, dartFin)
         : input.fetcher
           ? emptyPerValuation('PER_MISSING', false)
           : await fetchGate2PerValuation({ symbol, dartFin, snapshotQuote: input.snapshotQuotes?.[symbol] ?? null })
-      : emptyPerValuation(trace.corpCodeResolveStatus === 'FOUND' ? 'PER_MISSING' : 'PER_SKIPPED_DART_FINANCIALS_MISSING', false);
+      : kisPrimaryEnabled && !input.perFetcher && !input.fetcher
+        ? await fetchGate2PerValuation({ symbol, dartFin: null, snapshotQuote: input.snapshotQuotes?.[symbol] ?? null }).catch(
+          () => emptyPerValuation('KIS_PER_PROVIDER_ERROR', true),
+        )
+        : emptyPerValuation(trace.corpCodeResolveStatus === 'FOUND' ? 'PER_MISSING' : 'PER_SKIPPED_DART_FINANCIALS_MISSING', false);
     trace.kisPerRequestAttempted = perValuation.attempted;
     trace.kisPerRaw = perValuation.raw;
     trace.perNormalized = perValuation.per;

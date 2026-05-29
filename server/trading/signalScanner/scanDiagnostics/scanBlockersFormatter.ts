@@ -3,7 +3,6 @@
  * ADR-0001 scan diagnostics core split.
  */
 
-import { describeEmptyScanReason } from '../emptyScanClassifier.js';
 import { formatPreflightBlockedScanSection, getLastPreflightBlockedScanSummary } from '../preflightBlockedScanSummary.js';
 import {
   buildPreflightCanonicalReconciliation,
@@ -53,7 +52,6 @@ import { emitScanDiagnosticBuildFailedWarn } from '../state/scanDiagnosticSuppre
 import { formatFrozenQuoteSection, formatPriceCorrectionOverlaySection, formatPriceIntegritySection, formatR3StreakSkipLine } from './sectionFormatters.js';
 import {
   buildDiagnosticRegimeContext,
-  formatScanSummaryDecisionContextAuthorityLines,
   resolveScanSummaryPermissionView,
 } from './scanSummaryDecisionContext.js';
 import { formatCandidatePoolSection, type CandidateFeatureCoverageDiagnostics, type CandidatePoolResult } from '../../candidatePoolBuilder.js';
@@ -66,6 +64,17 @@ import {
   rebindPositiveScoreStarvationReportToCanonicalStep27,
   formatGatePositiveRuntimeAlignmentSection,
 } from '../runtimeResolverTraceStep26.js';
+import {
+  buildEmptyScanReasonSection,
+  buildFilterStatusSection,
+  buildMacroGateSection,
+  buildR3ViolationStateSection,
+  buildSectorEnergyQualitySection,
+  buildShadowLearningSection,
+  buildSupplyInjectionSection,
+  pushOptionalSection,
+  pushOptionalSectionRaw,
+} from './scanBlockersMessageSections.js';
 
 function formatterGetByPath(obj: unknown, path: string): unknown {
   let current: unknown = obj;
@@ -827,7 +836,6 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
 
   const canonicalRuntimeResolution =
     summary.canonicalRuntimeResolution ?? buildCanonicalRuntimeResolutionStep27(summary);
-  const wd = summary.waitDistribution;
   const mg = summary.macroGateState;
   const permissionViewForSummary = resolveScanSummaryPermissionView(summary);
   const shadowOnlyForSummary = formatterUpper(permissionViewForSummary.engineMode) === 'SHADOW_ONLY'
@@ -840,285 +848,71 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   lines.push('━━━━━━━━━━━━━━━━');
 
   if (mg) {
-    lines.push('');
-    lines.push('🛑 <b>거시 게이트:</b>');
-    lines.push(`  • emergencyStop: ${mg.emergencyStop ? '<b>ON ⚠️</b>' : 'off'}`);
-    lines.push(`  • autoTradeEnabled: ${mg.autoTradeEnabled ? 'on' : '<b>OFF ⚠️</b>'}`);
-    const rawRegime = mg.macroRegimeRaw ?? mg.regime;
-    const displayRegime = mg.displayRegime ?? mg.regime;
-    const legacyEffectiveRegime = mg.macroRegimeEffective ?? mg.regime;
-    const staleLegacyR6Path =
-      legacyEffectiveRegime === 'R6_DEFENSE' &&
-      displayRegime !== 'R6_DEFENSE' &&
-      mg.regime !== 'R6_DEFENSE';
-    const { lines: decisionContextLines, bundle } = formatScanSummaryDecisionContextAuthorityLines(summary);
-    const permissionView = bundle?.permissionView ?? resolveScanSummaryPermissionView(summary);
-    const gate0Decision = bundle?.gate0Decision;
-    // INV-5 cross-screen parity: 비교 대상 snapshotId 는 ScanSummary 정본 식별자(snapshotId). 다르면 DIFFERENT_SNAPSHOT 명시.
-    for (const line of decisionContextLines) {
-      lines.push(`  • ${line}`);
-    }
-    lines.push(`  • Kelly ×${mg.finalKellyMultiplier.toFixed(2)} (regime ×${mg.kellyMultiplierFromRegime.toFixed(2)}, FOMC ×${mg.fomcKellyMultiplier.toFixed(2)})`);
-    if (gate0Decision) lines.push(`  • Gate0 Macro/Permission: sourceHealth=${gate0Decision.sourceHealth} sourceFreshness=${gate0Decision.sourceFreshness} macroSignalConfidence=${gate0Decision.macroSignalConfidence} macroMarketSignal=${gate0Decision.macroMarketSignal} usableForLiveOrder=${gate0Decision.usableForLiveOrder} usableForBrokerOrder=${gate0Decision.usableForBrokerOrder} snapshotFreshnessForLive=${gate0Decision.snapshotFreshnessForLive} liveBlockReason=${gate0Decision.liveBlockReason} liveBlockSubReason=${gate0Decision.liveBlockSubReason ?? 'NONE'} finalExecutionPolicy=${gate0Decision.finalExecutionPolicy} shadowAllowed=${gate0Decision.shadowAllowed} counterfactualAllowed=${gate0Decision.counterfactualAllowed} diagnosticAllowed=${gate0Decision.diagnosticAllowed}`);
-    if (staleLegacyR6Path) {
-      lines.push(`  • legacyR6Path: legacyR6RecoveryStatus=${mg.r6RecoveryStatus ?? 'NONE'}`);
-    } else {
-      if (mg.r6RecoveryStatus) lines.push(`  • r6RecoveryStatus: ${mg.r6RecoveryStatus}`);
-      if (mg.activeR6Triggers) lines.push(`  • activeR6Triggers: [${mg.activeR6Triggers.join(',') || 'none'}]`);
-      if (mg.r6ShockLatch !== undefined) lines.push(`  • r6ShockLatch: ${mg.r6ShockLatch}`);
-      if (mg.recoveryBlockedReason) lines.push(`  • recoveryBlockedReason: ${mg.recoveryBlockedReason}`);
-    }
-    if (mg.liveEntryAllowed !== undefined) lines.push(`  • liveEntryAllowed: ${permissionView.liveEntryAllowed}`);
-    if (mg.liveExitAllowed !== undefined) lines.push(`  • liveExitAllowed: ${mg.liveExitAllowed}`);
-    if (mg.shadowBuyAllowed !== undefined) lines.push(`  • shadowBuyAllowed: ${mg.shadowBuyAllowed}`);
-    if (mg.shadowSellAllowed !== undefined) lines.push(`  • shadowSellAllowed: ${mg.shadowSellAllowed}`);
-    if (mg.shadowLearningAllowed !== undefined) lines.push(`  • shadowLearningAllowed: ${mg.shadowLearningAllowed}`);
-    if (mg.counterfactualAllowed !== undefined) lines.push(`  • counterfactualAllowed: ${mg.counterfactualAllowed}`);
-    if (mg.brokerOrderAllowed !== undefined || mg.brokerRouteAlive !== undefined) {
-      lines.push(`  • brokerRouteAlive: ${permissionView.brokerRouteAlive}`);
-      lines.push(`  • brokerLiveOrderAllowed: ${permissionView.brokerLiveOrderAllowed}`);
-      lines.push(`  • brokerExitOrderAllowed: ${permissionView.brokerExitOrderAllowed}`);
-      lines.push(`  • paperOrderAllowed: ${permissionView.paperOrderAllowed}`);
-    }
-    lines.push(`  • FOMC: ${mg.fomcPhase} (점수/신뢰도 보정만 적용, executionImpact=NONE)`);
-    if (mg.vixGatingActive) lines.push(`  • VIX 게이팅: <b>ON ⚠️</b>`);
-    if (mg.bearDefenseMode) lines.push(`  • bearDefenseMode: <b>ON ⚠️</b>`);
-    if (mg.mhsBelow30) lines.push(`  • MHS<30: <b>ON ⚠️</b>`);
-    if (mg.diagnosticLiveEntryBlocked) {
-      const liveEntryBlockedReason = String(mg.liveEntryBlockedReason ?? 'DIAGNOSTIC_ONLY').toUpperCase();
-      const removedPolicyReason = liveEntryBlockedReason.includes('SELL_ONLY') || liveEntryBlockedReason.includes('R6_DEFENSE');
-      lines.push(`  • liveEntryBlocked: <b>${removedPolicyReason ? 'LEGACY_POLICY_INPUT_IGNORED' : liveEntryBlockedReason.includes('R3_SANITY_GUARD') ? 'SHADOW_ONLY_MODE' : gate0Decision?.liveBlockReason ?? 'DIAGNOSTIC_ONLY'}</b>${liveEntryBlockedReason.includes('R3_SANITY_GUARD') ? ' (subReason=R3_SANITY_GUARD)' : gate0Decision?.liveBlockSubReason ? ` (subReason=${gate0Decision.liveBlockSubReason})` : ''} (diagnostics continue; Shadow/Paper/Counterfactual allowed)`);
-      // R3 sanity OBSERVE_ONLY 강등 가시화 — hard-abort 가 아닌 execution guard 임을 명시 (hardBlockSource=NONE).
-      if (liveEntryBlockedReason.includes('R3_SANITY_GUARD')) {
-        lines.push('  • executionGuardSource: <b>R3_SANITY_DIAGNOSTIC_GUARD</b> (hardBlockSource=NONE)');
-        lines.push('  • preflightDecision: <b>OBSERVE_ONLY_DIAGNOSTIC_CARRIED</b>');
-      }
-    }
-    if (mg.sellOnlyMode) {
-      lines.push('  Legacy defense policy input detected - executionImpact=NONE');
-      lines.push('  removedPolicy: LEGACY_DEFENSE_POLICY_REMOVED');
-      lines.push('  Current buy permission uses Gate/data quality only.');
-      lines.push('  shadow note: Shadow/Counterfactual snapshot preserved; executionImpact=NONE.');
-    }
-    if (mg.watchlistEmpty) lines.push(`  • 워치리스트: <b>0개 ⚠️</b>`);
+    lines.push(...buildMacroGateSection(summary, mg));
   }
 
-  const scanEvaluationSection = formatScanEvaluationSection(scanEvaluationForDisplay(summary));
-  if (scanEvaluationSection) {
-    lines.push('');
-    lines.push(scanEvaluationSection);
-  }
+  pushOptionalSection(lines, formatScanEvaluationSection(scanEvaluationForDisplay(summary)));
 
-  const candidatePoolSection = formatCandidatePoolSection(
+  pushOptionalSection(lines, formatCandidatePoolSection(
     withCandidatePoolRuntimeCoverage(summary, canonicalRuntimeResolution),
-  );
-  if (candidatePoolSection) {
-    lines.push('');
-    lines.push(candidatePoolSection);
-  }
+  ));
 
   lines.push('');
   lines.push(formatRuntimeWiringSummary(summary, canonicalRuntimeResolution));
 
   if (summary.sectorEnergyQuality !== undefined) {
-    lines.push('');
-    const sectorCanonical = summary.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState;
-    if (sectorCanonical && sectorCanonical.promotionCoveragePass === true) {
-      // ADR-0534 follow-up: canonical PASS → VERIFIED summary. legacy basket/PARTIAL 문구는 diagnosticOnly 로 강등 (Invariant 1).
-      lines.push('🌐 <b>SectorEnergy Summary:</b>');
-      lines.push('  • sourceOfTruth=SectorEnergyCanonicalResolver');
-      lines.push('  • status=VERIFIED');
-      lines.push('  • universeType=OFFICIAL_SECTOR_ONLY');
-      lines.push(`  • officialSectorCount=${sectorCanonical.officialSectorCount}`);
-      lines.push(`  • verifiedOfficialSectorCount=${sectorCanonical.verifiedOfficialSectorCount}`);
-      lines.push(`  • promotionCoverage=${(sectorCanonical.promotionCoverage * 100).toFixed(1)}%`);
-      lines.push(`  • promotionAllowed=${sectorCanonical.promotionAllowed}`);
-      lines.push(`  • sectorBoostAllowed=${sectorCanonical.sectorBoostAllowed}`);
-      lines.push(`  • strongBuyAllowed=${sectorCanonical.strongBuyAllowed}`);
-      lines.push('  • executionImpact=NONE');
-      lines.push(`  • <i>legacyDataQualityDiagnosticOnly=${summary.sectorEnergyQuality} collapsed=true</i>`);
-      if (summary.sectorEnergyReasons && summary.sectorEnergyReasons.length > 0) {
-        lines.push(`  • <i>diagnosticLegacyReason=${summary.sectorEnergyReasons.slice(0, 2).join('; ')} diagnosticOnly=true</i>`);
-      }
-    } else {
-      lines.push('🌐 <b>섹터 에너지 데이터 품질:</b>');
-      // ADR-0396 (= 사용자 명시 ADR-0371): 5단계 union — DEGRADED 신규 마커 추가.
-      const qualityIcon =
-        summary.sectorEnergyQuality === 'OK' ? '✅'
-        : summary.sectorEnergyQuality === 'PARTIAL' ? '🟡'
-        : summary.sectorEnergyQuality === 'STALE' ? '🟠'
-        : summary.sectorEnergyQuality === 'DEGRADED' ? '🔶'
-        : '❌';
-      lines.push(`  • dataQuality: ${qualityIcon} <b>${summary.sectorEnergyQuality}</b>`);
-      if (summary.validSectorCount !== undefined) {
-        lines.push(`  • validSectorCount: ${summary.validSectorCount}/12`);
-      }
-      if (summary.sectorEnergyReasons && summary.sectorEnergyReasons.length > 0) {
-        lines.push(`  • reasons: ${summary.sectorEnergyReasons.slice(0, 3).join('; ')}`);
-      }
-      // ADR-0396: FAILED 외 DEGRADED 도 DATA_INVALID 후보 (emptyScanClassifier wiring 정합).
-      if (summary.sectorEnergyQuality === 'FAILED' || summary.sectorEnergyQuality === 'DEGRADED') {
-        lines.push(`  • <i>${summary.sectorEnergyQuality} → emptyScanReason DATA_INVALID 자동 가중 (ADR-0127/0396)</i>`);
-      }
-    }
+    lines.push(...buildSectorEnergyQualitySection({
+      sectorEnergyQuality: summary.sectorEnergyQuality,
+      validSectorCount: summary.validSectorCount,
+      sectorEnergyReasons: summary.sectorEnergyReasons,
+      sectorEnergyCanonicalState: summary.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState,
+    }));
   }
 
-  lines.push('');
-  lines.push(`📋 <b>종목별 필터 상태</b> (후보 ${summary.candidates}개):`);
-  if (shadowDiagnosticEntriesForSummary > 0) {
-    lines.push(`  • 🧪 Shadow diagnostic entry: <b>${shadowDiagnosticEntriesForSummary}개</b>`);
-    lines.push('  • 실거래 주문: <b>0개</b> (실거래 없음)');
-  } else {
-    lines.push(`  • 진입 신호: <b>${summary.entries}개</b>`);
-    if (!permissionViewForSummary.liveOrderAllowed) lines.push('  • 실거래 주문: <b>0개</b> (실거래 없음)');
-  }
-  if (wd) {
-    if (wd.dataHold > 0) lines.push(`  • DATA_HOLD: ${wd.dataHold}개 ⚠️`);
-    if (wd.gateFail > 0) lines.push(`  • Gate 재검증 미완료: ${wd.gateFail}개`);
-    if (wd.preBreakout > 0) lines.push(`  • Pre-breakout WAIT: ${wd.preBreakout}개`);
-    if (canonicalRuntimeResolution.sizing.hardBlockCount > 0) {
-      lines.push(`  • Sizing BLOCKED: ${canonicalRuntimeResolution.sizing.hardBlockCount}개 ⚠️`);
-    } else if (wd.sizingBlocked > 0 || canonicalRuntimeResolution.sizing.advisoryCount > 0) {
-      lines.push(`  • SIZING_ADVISORY_LOW: ${canonicalRuntimeResolution.sizing.advisoryCount || wd.sizingBlocked}개 (hardBlock=0, canonicalRuntimeResolution.sizing)`);
-    }
-    if (wd.volumeDrop > 0) lines.push(`  • 거래량 급감: ${wd.volumeDrop}개`);
-    if (wd.driftRemove > 0) lines.push(`  • Drift REMOVE: ${wd.driftRemove}개`);
-    if (wd.corpAction > 0) lines.push(`  • Corporate Action: ${wd.corpAction}개`);
-    if (wd.other > 0) lines.push(`  • 기타: ${wd.other}개`);
-  } else {
-    lines.push(`  • Gate 미달: ${summary.gateMisses}개 (waitDistribution 미수집)`);
-    lines.push(summary.yahooFails > 0
-      ? `  • 데이터 이슈: ${summary.yahooFails}개 (diagnosticOnly=true, causalArrow=false)`
-      : '  • 데이터 실패: 없음');
-    lines.push(`  • RRR 미달: ${summary.rrrMisses}개`);
-  }
-  if (summary.noEntryStreakDiagnostic) {
-    const d = summary.noEntryStreakDiagnostic;
-    lines.push(
-      `  • noEntryStreakCount=${d.noEntryStreakCount} pipelineHealthStatus=${d.pipelineHealthStatus} dominantNoEntryReason=${d.dominantNoEntryReason}`,
-    );
-    lines.push(
-      `  • actionRequired=${d.actionRequired} executionImpact=${d.executionImpact} forceScanBlocked=${d.forceScanBlocked} thresholdChanged=${d.thresholdChanged}`,
-    );
-    lines.push(
-      `  • shadowLearningStatus=${d.shadowLearningStatus} counterfactualStatus=${d.counterfactualStatus} entryBlockedByNoEntryStreak=${d.entryBlockedByNoEntryStreak}`,
-    );
-  }
+  lines.push(...buildFilterStatusSection({
+    summary,
+    shadowDiagnosticEntriesForSummary,
+    liveOrderAllowed: permissionViewForSummary.liveOrderAllowed,
+    sizingHardBlockCount: canonicalRuntimeResolution.sizing.hardBlockCount,
+    sizingAdvisoryCount: canonicalRuntimeResolution.sizing.advisoryCount,
+  }));
 
   // ADR-0412 — Frozen Quote 진단 + R3 streak skip 라인 (R3 state machine 노출 *전*).
-  if (summary.perSymbolSupplyInjection) {
-    const s = summary.perSymbolSupplyInjection;
-    lines.push('');
-    lines.push('📊 <b>Per-Symbol Supply Injection</b>');
-    lines.push(`  candidates: ${s.totalCandidates}`);
-    lines.push(`  requested: ${s.requestedSymbols}`);
-    lines.push(`  injected: ${s.injected}`);
-    lines.push(`  verified: ${s.verified}`);
-    lines.push(`  degraded: ${s.degraded}`);
-    lines.push(`  stale: ${s.stale}`);
-    lines.push(`  missing: ${s.missing}`);
-    lines.push(`  unknown: ${s.unknown}`);
-    lines.push(`  routerConnected: ${s.routerConnected}`);
-    lines.push(`  gateContextConnected: ${s.gateContextConnected}`);
-  }
+  lines.push(...buildSupplyInjectionSection(summary));
 
-  const frozenSection = formatFrozenQuoteSection(summary.frozenQuote);
-  if (frozenSection) {
-    lines.push(frozenSection);
-  }
-  const streakSkipLine = formatR3StreakSkipLine(summary.r3StreakSkipped);
-  if (streakSkipLine) {
-    lines.push('');
-    lines.push(streakSkipLine);
-  }
+  pushOptionalSectionRaw(lines, formatFrozenQuoteSection(summary.frozenQuote));
+  pushOptionalSection(lines, formatR3StreakSkipLine(summary.r3StreakSkipped));
 
   // ADR-0414 — Price Integrity + Correction Overlay (Stage 1 Read-Only).
   // 진단 only — corrected 값 LIVE 매수 판단 사용 0건 (절대 원칙 #3).
-  const priceIntegritySection = formatPriceIntegritySection(summary.priceIntegrity);
-  if (priceIntegritySection) {
-    lines.push(priceIntegritySection);
-  }
-  const priceCorrectionSection = formatPriceCorrectionOverlaySection(summary.priceCorrection);
-  if (priceCorrectionSection) {
-    lines.push(priceCorrectionSection);
-  }
+  pushOptionalSectionRaw(lines, formatPriceIntegritySection(summary.priceIntegrity));
+  pushOptionalSectionRaw(lines, formatPriceCorrectionOverlaySection(summary.priceCorrection));
 
   // ADR-0401 — R3 Sanity state machine 결과 노출 (CLEAN 외 분기에서만).
   if (summary.r3ViolationState && summary.r3ViolationState.state !== 'CLEAN') {
-    const r3 = summary.r3ViolationState;
-    const stateIcon: Record<typeof r3.state, string> = {
-      CLEAN: '✅',
-      WARNING: '🟡',
-      ELEVATED: '🟠',
-      SHADOW_ONLY: '⚫️',
-      HARD_BLOCK: '🚨',
-    };
-    lines.push('');
-    lines.push(`${stateIcon[r3.state]} <b>R3 Sanity 단계 (ADR-0401):</b> ${r3.state}`);
-    lines.push(
-      `  • 누적 ${r3.consecutiveCount}회 / 임계 hard ${r3.profile.hardBlockAt} (regime ${r3.regime})`,
-    );
-    if (r3.guardReasons.length > 0) {
-      lines.push(`  • guard 활성: ${r3.guardReasons.slice(0, 2).join('; ')}`);
-    }
-    if (r3.state === 'HARD_BLOCK') {
-      lines.push('  • <code>/r3_unblock</code> 으로 해제');
-    } else if (r3.state === 'SHADOW_ONLY') {
-      lines.push('  • ephemeral — 다음 정상 스캔 시 자동 회복');
-    }
+    lines.push(...buildR3ViolationStateSection(summary.r3ViolationState));
   }
 
-  lines.push('');
-  if (summary.emptyScanReason) {
-    const desc = describeEmptyScanReason(summary.emptyScanReason);
-    const forensic = summary.gate1MinimumSignalForensicAdr0505;
-    const supplyAvailable = forensic?.supplySemanticAvailable ?? 0;
-    const supplyTotal = forensic?.totalCandidates ?? summary.candidates ?? 0;
-    const supplyAvailabilityRate = supplyTotal > 0 ? supplyAvailable / supplyTotal : 0;
-    if (summary.emptyScanReason === 'NO_LEADERSHIP' && supplyTotal > 0 && supplyAvailabilityRate < 0.3) {
-      lines.push('💡 <b>빈스캔 원인 (ADR-0119):</b> DEGRADED_SCAN');
-      lines.push(`  • 표면상 NO_LEADERSHIP이나, 수급 semantic row ${supplyAvailable}/${supplyTotal}으로 리더십 판정 신뢰도 낮음`);
-      lines.push('  • leadership diagnosis confidence: LOW');
-      lines.push('  • 우선 조치: Supply Semantic Row Carry 복구 필요');
-    } else {
-      lines.push(`💡 <b>빈스캔 원인 (ADR-0119):</b> ${summary.emptyScanReason}`);
-      lines.push(`  • ${desc.label}`);
-      lines.push(`  • ${desc.advice}`);
-      if (supplyTotal > 0) lines.push(`  • supplySemantic availability: ${supplyAvailable}/${supplyTotal}`);
-    }
-  } else if (summary.entries > 0) {
-    if (shadowDiagnosticEntriesForSummary > 0 || !permissionViewForSummary.liveOrderAllowed) {
-      lines.push(`🧪 <b>Shadow diagnostic entry:</b> ${shadowDiagnosticEntriesForSummary || summary.entries}개`);
-      lines.push('  • 실거래 주문 0개 — 실거래 없음');
-    } else {
-      lines.push(`✅ <b>진입 신호:</b> ${summary.entries}개 (분류 대상 아님)`);
-    }
-  } else {
-    lines.push('💡 <b>빈스캔 원인:</b> 분류 데이터 부족 (waitDistribution 미수집)');
-  }
+  lines.push(...buildEmptyScanReasonSection({
+    summary,
+    shadowDiagnosticEntriesForSummary,
+    liveOrderAllowed: permissionViewForSummary.liveOrderAllowed,
+  }));
 
   // ADR-0420 — Fresh Scan Blocker Attribution (GATE1_PASS_ZERO 상세) 노출.
   // gate1Pass=0 + candidates>0 시점에만 노출 (formatFreshAttributionSection 내부 필터).
   // last 7 days /gate_audit 와 *분리* (사용자 명시 핵심 불변식 #4).
-  const freshSection = formatFreshAttributionSection(summary.freshConditionAttribution);
-  if (freshSection) {
-    lines.push('');
-    lines.push(freshSection);
-  }
+  pushOptionalSection(lines, formatFreshAttributionSection(summary.freshConditionAttribution));
 
   // ADR-0422 — Gate2 / NO_LEADERSHIP fresh attribution 노출.
   // gate1Pass>0 + gate2Pass=0 시점에만 노출 (formatGate2AttributionSection 내부 필터).
   // gate1Pass=0 시점은 ADR-0420 GATE1_PASS_ZERO 분석이 우선 (책임 분리).
-  const gate2Section = formatGate2AttributionSection(
+  pushOptionalSection(lines, formatGate2AttributionSection(
     rebindGate2AttributionToSectorEnergyMasterAdr0488(
       summary.freshGate2Attribution,
       summary.sectorEnergySupplyUnknownAdr0488,
     ),
-  );
-  if (gate2Section) {
-    lines.push('');
-    lines.push(gate2Section);
-  }
+  ));
 
   // ADR-0505 — Gate1 Minimum Signal Forensic Audit compact section.
   // 사용자 명시 ADR-0502 의미상 후속 (INDEX SSOT 정합 0505 재할당).
@@ -1147,19 +941,11 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // ADR-452c — Gate Score Health visibility (diagnostic-only).
   // Gate attribution 근처에 raw/available/normalized score health 를 노출한다.
   // normalizedGateScore 는 표시만 하며 live decision 에 사용하지 않는다.
-  const gateScoreHealthSection = formatGateScoreHealthSection(summary.gateScoreHealth);
-  if (gateScoreHealthSection) {
-    lines.push('');
-    lines.push(gateScoreHealthSection);
-  }
+  pushOptionalSection(lines, formatGateScoreHealthSection(summary.gateScoreHealth));
 
   // ADR-452d — Gate near-miss buckets (diagnostic-only, executionImpact NONE).
   // DATA_BLOCKED_NEAR_MISS / PROBING / SHADOW_ONLY 는 실매수 승격 없이 운영 진단에만 노출한다.
-  const gateScoreBucketSection = formatGateScoreCandidateBucketSection(summary.gateScoreCandidateBuckets);
-  if (gateScoreBucketSection) {
-    lines.push('');
-    lines.push(gateScoreBucketSection);
-  }
+  pushOptionalSection(lines, formatGateScoreCandidateBucketSection(summary.gateScoreCandidateBuckets));
 
   const gate1ScoreHealthSection = formatGate1ScoreHealthSection(summary, canonicalRuntimeResolution);
   if (gate1ScoreHealthSection) {
@@ -1168,97 +954,45 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   }
 
   // ADR-458 — Approved Gate Reclassification Dry-Run (shadow-only, executionImpact NONE).
-  const gate1SurvivalSection = formatGate1SurvivalAuditSection(summary.gateLayerAudit?.gate1Survival);
-  if (gate1SurvivalSection) {
-    lines.push('');
-    lines.push(gate1SurvivalSection);
-  }
-  const gate2CoverageSection = formatGate2CoverageAuditSection(summary.gateLayerAudit?.gate2Coverage);
-  if (gate2CoverageSection) {
-    lines.push('');
-    lines.push(gate2CoverageSection);
-  }
-  const gate3TimingSection = formatGate3TimingReadinessAuditSection(summary.gateLayerAudit?.gate3Consolidated);
-  if (gate3TimingSection) {
-    lines.push('');
-    lines.push(gate3TimingSection);
-  }
-  const gate3EvidenceWarmupSection = formatGate3EvidenceWarmupSection(summary.gateLayerAudit?.gate3Consolidated?.evidenceWarmup);
-  if (gate3EvidenceWarmupSection) {
-    lines.push('');
-    lines.push(gate3EvidenceWarmupSection);
-  }
-  const unifiedOutcomeLabelerSection = formatUnifiedForwardOutcomeLabelerSection(summary.unifiedOutcomeLabeler);
-  if (unifiedOutcomeLabelerSection) {
-    lines.push('');
-    lines.push(unifiedOutcomeLabelerSection);
-  }
-  const gate3ThresholdEvidenceSection = formatGate3ThresholdEvidenceSection(summary.gateLayerAudit?.gate3Consolidated?.thresholdEvidence);
-  if (gate3ThresholdEvidenceSection) {
-    lines.push('');
-    lines.push(gate3ThresholdEvidenceSection);
-  }
-  const gate3FinalizationSection = formatGate3FinalizationSection({
+  pushOptionalSection(lines, formatGate1SurvivalAuditSection(summary.gateLayerAudit?.gate1Survival));
+  pushOptionalSection(lines, formatGate2CoverageAuditSection(summary.gateLayerAudit?.gate2Coverage));
+  pushOptionalSection(lines, formatGate3TimingReadinessAuditSection(summary.gateLayerAudit?.gate3Consolidated));
+  pushOptionalSection(lines, formatGate3EvidenceWarmupSection(summary.gateLayerAudit?.gate3Consolidated?.evidenceWarmup));
+  pushOptionalSection(lines, formatUnifiedForwardOutcomeLabelerSection(summary.unifiedOutcomeLabeler));
+  pushOptionalSection(lines, formatGate3ThresholdEvidenceSection(summary.gateLayerAudit?.gate3Consolidated?.thresholdEvidence));
+  pushOptionalSection(lines, formatGate3FinalizationSection({
     completionScore: summary.gateLayerAudit?.gate3Consolidated?.completionScore,
     liveReadinessScore: summary.gateLayerAudit?.gate3Consolidated?.liveReadinessScore,
-  });
-  if (gate3FinalizationSection) {
-    lines.push('');
-    lines.push(gate3FinalizationSection);
-  }
+  }));
 
-  const gateReclassificationDryRunSection = formatGateReclassificationDryRunSection(summary.gateReclassificationDryRun);
-  if (gateReclassificationDryRunSection) {
-    lines.push('');
-    lines.push(gateReclassificationDryRunSection);
-  }
+  pushOptionalSection(lines, formatGateReclassificationDryRunSection(summary.gateReclassificationDryRun));
 
-  const positiveStarvationSection = formatPositiveScoreStarvationReport(
+  pushOptionalSection(lines, formatPositiveScoreStarvationReport(
     rebindPositiveScoreStarvationReportToCanonicalStep27(
       summary.positiveScoreStarvation,
       canonicalRuntimeResolution,
     ),
     canonicalRuntimeResolution,
-  );
-  if (positiveStarvationSection) {
-    lines.push('');
-    lines.push(positiveStarvationSection);
-  }
+  ));
 
-  const scoreCeilingRepairSection = formatGate1ScoreCeilingRepairReport(
+  pushOptionalSection(lines, formatGate1ScoreCeilingRepairReport(
     rebindGate1ScoreCeilingRepairReportToCanonicalStep27(
       summary.scoreCeilingRepair,
       canonicalRuntimeResolution,
     ),
-  );
-  if (scoreCeilingRepairSection) {
-    lines.push('');
-    lines.push(scoreCeilingRepairSection);
-  }
+  ));
 
-  const penaltyDeduplicationSection = formatPenaltyDeduplicationReport(
+  pushOptionalSection(lines, formatPenaltyDeduplicationReport(
     summary.penaltyDeduplication,
     canonicalRuntimeResolution,
-  );
-  if (penaltyDeduplicationSection) {
-    lines.push('');
-    lines.push(penaltyDeduplicationSection);
-  }
+  ));
 
-  const riskDoubleCountSection = formatRiskDoubleCountAuditReport(summary.riskDoubleCount);
-  if (riskDoubleCountSection) {
-    lines.push('');
-    lines.push(riskDoubleCountSection);
-  }
+  pushOptionalSection(lines, formatRiskDoubleCountAuditReport(summary.riskDoubleCount));
 
-  const finalGate1CalibrationSection = formatFinalGate1CalibrationReport(
+  pushOptionalSection(lines, formatFinalGate1CalibrationReport(
     summary.finalGate1Calibration,
     canonicalRuntimeResolution,
-  );
-  if (finalGate1CalibrationSection) {
-    lines.push('');
-    lines.push(finalGate1CalibrationSection);
-  }
+  ));
 
   // Gate1 Threshold Evidence (emit-only, suggest-only) — directly below Final Gate1 Calibration and
   // above Gate1 Scoring Alignment. Always renders; immature/0-mature dry-run data ⟹ INSUFFICIENT_SAMPLE
@@ -1271,26 +1005,18 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   }
 
   try {
-    const gate1ScoringAlignmentSection = formatGate1ScoringAlignmentReport(
+    pushOptionalSection(lines, formatGate1ScoringAlignmentReport(
       rebindGate1ScoringAlignmentReportToCanonicalStep27(
         summary.gate1ScoringAlignment,
         canonicalRuntimeResolution,
       ),
-    );
-    if (gate1ScoringAlignmentSection) {
-      lines.push('');
-      lines.push(gate1ScoringAlignmentSection);
-    }
+    ));
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatGate1ScoringAlignmentReport', error: e });
   }
 
   try {
-    const positiveSourceWiringSection = formatGate1PositiveSourceWiringReport(summary.gate1PositiveSourceWiring);
-    if (positiveSourceWiringSection) {
-      lines.push('');
-      lines.push(positiveSourceWiringSection);
-    }
+    pushOptionalSection(lines, formatGate1PositiveSourceWiringReport(summary.gate1PositiveSourceWiring));
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatGate1PositiveSourceWiringReport', error: e });
   }
@@ -1300,93 +1026,58 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   // 본 섹션은 reasons 분해 + leadershipConfidence 차단 결정 + operatorAction 안내.
   // ADR-0422 Gate2 섹션의 sectorEnergy 표시(요약) 와 *책임 분리* — 본 섹션은 *원인 분해 상세*.
   try {
-    const investorFlowRouterSection = formatInvestorFlowProviderRouterAdr0477(
+    pushOptionalSection(lines, formatInvestorFlowProviderRouterAdr0477(
       summary.investorFlowProviderRouter,
       canonicalRuntimeResolution,
-    );
-    if (investorFlowRouterSection) {
-      lines.push('');
-      lines.push(investorFlowRouterSection);
-    }
+    ));
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatInvestorFlowProviderRouterAdr0477', error: e });
   }
 
   try {
-    const dryRunObservationSection = formatGate1DryRunObservationSummary(summary.gate1DryRunObservationLedger);
-    if (dryRunObservationSection) {
-      lines.push('');
-      lines.push(dryRunObservationSection);
-    }
+    pushOptionalSection(lines, formatGate1DryRunObservationSummary(summary.gate1DryRunObservationLedger));
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatGate1DryRunObservationSummary', error: e });
   }
 
-  const sectorEnergySection = formatSectorEnergyQualityDiagnosticSection(sectorEnergyQualityDiagnosticForDisplay(summary));
-  if (sectorEnergySection) {
-    lines.push('');
-    lines.push(sectorEnergySection);
-  }
+  pushOptionalSection(lines, formatSectorEnergyQualityDiagnosticSection(sectorEnergyQualityDiagnosticForDisplay(summary)));
 
   // ADR-0425 — Gate Decision Router (hard block vs soft degrade separation).
   // 사용자 §F — Router 결과 (severity / lanes / reasons / operatorMessage) 노출.
   // Gate threshold 변경 0 — decision semantics 분리만. Shadow/Watch 학습 후보 보존.
-  const routerSection = formatGateDecisionRouterSection(summary.gateDecisionRouter);
-  if (routerSection) {
-    lines.push('');
-    lines.push(routerSection);
-  }
+  pushOptionalSection(lines, formatGateDecisionRouterSection(summary.gateDecisionRouter));
 
   // ADR-0436 — Gate Eligibility Split (LIVE_ELIGIBLE vs SHADOW_OBSERVABLE).
   // 사용자 §5 — 실매수 후보 vs 학습/관측 후보 분리 표시. shadowObservableCount=undefined
   // 시 미노출 (ENV OFF 또는 ADR-0436 미작동 — 후방호환). 부재 시 진단 메시지 무영향.
-  const gateEligibilitySection = formatGateEligibilitySplitSection(summary);
-  if (gateEligibilitySection) {
-    lines.push('');
-    lines.push(gateEligibilitySection);
-  }
+  pushOptionalSection(lines, formatGateEligibilitySplitSection(summary));
 
   // ADR-0426 — R3_EARLY Provisional Shadow Lane.
   // 사용자 §E — eligible / created / topReasons / dominantLabel 노출.
   // R3_EARLY + Gate1 생존자 + SOFT_DEGRADE 시점에 학습 샘플 보존 lane.
   // LIVE 매매 본체 영향 0 — 후보 metadata 만 영속.
-  const provisionalSection = formatProvisionalShadowSection(summary.provisionalShadowLane);
-  if (provisionalSection) {
-    lines.push('');
-    lines.push(provisionalSection);
-  }
+  pushOptionalSection(lines, formatProvisionalShadowSection(summary.provisionalShadowLane));
 
   // ADR-0430 — Counterfactual Shadow Learning Lane.
   // SELL_ONLY/HARD_BLOCK 시점 학습 표본 분리 표시. ADR-0427 provisional 다음 노출.
   // 매매 정책 변경 0건 — 학습 ledger 진단만.
   if (summary.r6ShadowEntryPolicy) {
-    const r6 = summary.r6ShadowEntryPolicy;
-    lines.push('');
-    lines.push('Shadow Learning:');
-    lines.push(`  candidateEvaluated=${r6.candidateEvaluated}`);
-    lines.push(`  accumulatingCandidates=${r6.accumulatingCandidates}`);
-    lines.push(`  shadowBuySignals=${r6.shadowBuySignals}`);
-    lines.push(`  r6CounterfactualEntries=${r6.r6CounterfactualEntries}`);
-    lines.push(`  noShadowEntryReason=${r6.noShadowEntryReason ?? 'N/A'}`);
-    lines.push('  legacy defense policy disabled; buy permission uses Gate/data quality only');
-    lines.push('  executionImpact=NONE');
+    lines.push(...buildShadowLearningSection(summary.r6ShadowEntryPolicy));
   }
 
-  const counterfactualSection = formatCounterfactualShadowLearningSection(
+  pushOptionalSection(lines, formatCounterfactualShadowLearningSection(
     summary.counterfactualShadowLearning,
-  );
-  if (counterfactualSection) {
-    lines.push('');
-    lines.push(counterfactualSection);
-  }
+  ));
 
   // ADR-0464 — Entry Filter Conservatism Decomposition.
   const diagnosticRegimeContext = buildDiagnosticRegimeContext(summary);
-  const entryFilterSection = formatEntryFilterDecompositionSection(summary.entryFilterDecomposition, diagnosticRegimeContext);
-  if (entryFilterSection) {
-    lines.push('');
-    lines.push(entryFilterSection);
-  }
+  // §A — Gate2 Data Line Health KIS_FLOW 를 canonicalRuntimeResolution(=KIS Router Eligibility 동일 SSOT)
+  // 에서 파생하도록 canonical kisInvestorFlow 를 전달한다. 표시 전용 — 매매/스코어 무영향.
+  pushOptionalSection(lines, formatEntryFilterDecompositionSection(
+    summary.entryFilterDecomposition,
+    diagnosticRegimeContext,
+    { kisInvestorFlow: canonicalRuntimeResolution.kisInvestorFlow },
+  ));
 
   // ADR-0448 Phase 0 — R3 Noise Governor compact line.
   //   Gate1 통과 0건 시점의 cause 분류 (TRUE_GATE1_ZERO / SELL_ONLY / LUNCH_BREAK /
@@ -1403,11 +1094,7 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   //   priceTooFar / volumeWeak / gateRecheckFailed) + topReasons + failCountProtected.
   //   부재 시 미노출 (decisions 빈 배열 — 후방호환).
   if (summary.preBreakoutWaitSummary) {
-    const section = formatPreBreakoutWaitSummarySection(summary.preBreakoutWaitSummary);
-    if (section) {
-      lines.push('');
-      lines.push(section);
-    }
+    pushOptionalSection(lines, formatPreBreakoutWaitSummarySection(summary.preBreakoutWaitSummary));
   }
 
   // ADR-0452 — Shadow Near-Breakout Entry compact section.
@@ -1418,18 +1105,14 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     (summary.shadowNearBreakoutCreated ?? 0) > 0 ||
     (summary.shadowNearBreakoutBlocked ?? 0) > 0
   ) {
-    const section = formatShadowNearBreakoutSection({
+    pushOptionalSection(lines, formatShadowNearBreakoutSection({
       created: summary.shadowNearBreakoutCreated ?? 0,
       blocked: summary.shadowNearBreakoutBlocked ?? 0,
       blockReasons:
         (summary.shadowNearBreakoutBlockReasons as Partial<
           Record<ShadowNearBreakoutBlockReason, number>
         >) ?? {},
-    });
-    if (section) {
-      lines.push('');
-      lines.push(section);
-    }
+    }));
   }
 
   return lines.join('\n');
