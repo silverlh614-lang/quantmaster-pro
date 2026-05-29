@@ -88,8 +88,11 @@ export function buildKisFlowTraceFields(input: BuildKisFlowTraceInput): string[]
       apiPathValue = input.apiPath as string;
       trIdValue = input.trId as string;
     } else {
-      apiPathValue = UNKNOWN_METADATA;
-      trIdValue = UNKNOWN_METADATA;
+      // Patch B: KIS investor-flow canonical apiPath/trId 는 SSOT 로 이미 알려져 있다.
+      // metadata drop 시 apiPath/trId 를 bare UNKNOWN 으로 두지 않고 canonical 값을 참조
+      // (METADATA_NOT_CARRIED 마커 부기). traceBreakPoint 로 drop 사실은 별도 노출.
+      apiPathValue = `${KIS_INVESTOR_FLOW_CANONICAL.apiPath} (canonical;${UNKNOWN_METADATA})`;
+      trIdValue = `${KIS_INVESTOR_FLOW_CANONICAL.trId} (canonical;${UNKNOWN_METADATA})`;
       traceBreakPoint = TRACE_BREAK_POINT_METADATA_DROPPED;
       emitCanonical = true;
     }

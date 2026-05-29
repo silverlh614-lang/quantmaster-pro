@@ -50,8 +50,10 @@ export function formatGate2KisInvestorFlowCompactDiagnostic(
   // §A — apiPath/trId 정합 (진단 가시화 전용, marketSignal=false 불변).
   // 실제 carry 된 endpoint/trId 가 있으면 그 값을 표기(기존 동작 유지).
   // endpoint 가 없지만 endpointKey 가 알려져 있으면 endpointKey 로 표기(기존 동작 유지).
-  // endpoint·trId 둘 다 router 가 carry 하지 않은 경우(metadata drop) 옛 UNRESOLVED/UNKNOWN 대신
-  // UNKNOWN_METADATA_NOT_CARRIED + traceBreakPoint + canonical 참조값을 동시 표기한다.
+  // endpoint·trId 둘 다 router 가 carry 하지 않은 경우(metadata drop) — 과거엔 apiPath/trId 를
+  // UNKNOWN_METADATA_NOT_CARRIED 로 표기했으나, KIS investor-flow 의 canonical apiPath/trId 는
+  // SSOT(KIS_INVESTOR_FLOW_CANONICAL)로 *이미 알려져 있다*. 따라서 apiPath/trId 표시에 canonical
+  // 값을 참조시키고(METADATA_NOT_CARRIED 마커 부기), traceBreakPoint 로 drop 사실을 별도 노출한다.
   const hasEndpoint = typeof kis.endpoint === 'string' && kis.endpoint.length > 0;
   const hasTrId = typeof kis.trId === 'string' && kis.trId.length > 0;
   const knownEndpointKey = kis.endpointKey !== 'UNKNOWN';
@@ -62,11 +64,11 @@ export function formatGate2KisInvestorFlowCompactDiagnostic(
     ? (kis.endpoint as string)
     : knownEndpointKey
       ? `endpointKey:${kis.endpointKey}`
-      : KIS_FLOW_METADATA_NOT_CARRIED;
+      : `${KIS_INVESTOR_FLOW_CANONICAL.apiPath} (canonical;${KIS_FLOW_METADATA_NOT_CARRIED})`;
   const trIdDisplay = hasTrId
     ? (kis.trId as string)
     : metadataNotCarried
-      ? KIS_FLOW_METADATA_NOT_CARRIED
+      ? `${KIS_INVESTOR_FLOW_CANONICAL.trId} (canonical;${KIS_FLOW_METADATA_NOT_CARRIED})`
       : 'UNKNOWN';
 
   return [
@@ -74,11 +76,7 @@ export function formatGate2KisInvestorFlowCompactDiagnostic(
     `apiPath=${endpointDisplay}`,
     `trId=${trIdDisplay}`,
     ...(metadataNotCarried
-      ? [
-        `traceBreakPoint=${KIS_FLOW_TRACE_BREAK_POINT}`,
-        `canonicalApiPath=${KIS_INVESTOR_FLOW_CANONICAL.apiPath}`,
-        `canonicalTrId=${KIS_INVESTOR_FLOW_CANONICAL.trId}`,
-      ]
+      ? [`traceBreakPoint=${KIS_FLOW_TRACE_BREAK_POINT}`]
       : []),
     `foreign=${formatSigned(kis.foreignNetBuy)}`,
     `inst=${formatSigned(kis.institutionalNetBuy)}`,
