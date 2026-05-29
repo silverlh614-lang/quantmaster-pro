@@ -14,7 +14,8 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0542`**
+**다음 ADR 번호: `0543`**
+(2026-05-29 기준, 마지막 발급 0542 — investor-flow-supply-router-kis-output-bucket-realign. ADR-0542 — investorFlowProviderRouterAdr0477 KIS coverage 2/11 정정: KIS investor-trade-by-stock-daily output1/output2 버킷 합성(synthesizeInvestorFlowAcrossBuckets, 외국인/기관이 버킷에 갈라진 종목 복구, 기대 7~10/11) + registry outputBuckets 드리프트 정정 + priority KIS-first 명시 재정렬(byte-equivalent) + KIS_ONLY_TRACE 진단; ENV KIS_INVESTOR_OUTPUT_BUCKET_FIX default ON 1줄 revert, KIS quota 0, L1 한정(L4 estimate 는 ADR-0543 분리), 불변식 #6/#7 보존; executionImpact=NONE(SHADOW_ONLY).)
 (2026-05-29 기준, 마지막 발급 0541 — positive-score-starvation-audit-relocation. ADR-0541 — ADR-0467 starvation audit 누적을 per-symbol intraday re-check(kisIntradayCorrection.ts:125)에서 persistScanResults(entryFilterDecomposition 직후)로 이전, canonical minSignalScoreTrace.components 공급으로 CORE_SIGNAL(PRICE_MOMENTUM 등) 오귀속·OTHER_POSITIVE leak 정정; 모집단 buyList subset→candidateSet 전수, report 빌드 순서 재배치; 소비 로직(gate1PositiveScoreStarvation.ts) 무변경, 신규 ENV 0건, 9대 불변식 무위반; executionImpact=NONE(진단 전용).)
 (2026-05-29 기준, 마지막 발급 0540 — macro-shortselling-trading-day-aware-freshness. ADR-0540 — macroDataHealthRouter shortSelling freshness 36h flat → 거래일-aware(ADR-0190/0483 정합, tradingDayDistance 거리≤2 FRESH·3+ outage STALE 유지), 주말/T+1 정상지연 STALE 오판 제거, 나머지 7소스 byte-equivalent, 신규 ENV 0건, 불변식 #6 보존(confidence/ExecutionPermission 만 영향·stale→tradable 승격 아님); executionImpact=NONE(SHADOW_ONLY).)
 (2026-05-29 기준, 마지막 발급 0539 — r6-recovery-regime-linked-cooldown-fasttrack. ADR-0539 — R6 Recovery Regime-Linked Cooldown Fast-Track (내부설정 TradingSettings.r6RecoveryFastTrack.enabled 기본 ON — Railway ENV 아님, 설정 API/UI 토글; evidenceComplete+confirmations 유지 cooldown 시간벽만 우회: rawR3_EARLY↑ + not-stale + shock-latch 비활성, 불변식 #6 정합, FSS/engine 차단 별도); 의도적 활성화(NOT byte-equivalent), 롤백=설정 enabled=false.)
@@ -124,6 +125,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0542 | Investor Flow Supply Router KIS output1/output2 Bucket Realign + KIS-first Reprioritization | provider / supply-routing / kis-client / shadow-only |
 | 0541 | Positive Score Starvation Audit Relocation to persistScanResults | gate-system / diagnostics / scan-blockers / display-only |
 | 0540 | Macro shortSelling Trading-Day-Aware Freshness | regime / provider / macro-health / live-gating |
 | 0539 | R6 Recovery Regime-Linked Cooldown Fast-Track | trading-engine / regime / r6-cooldown / live-gating |

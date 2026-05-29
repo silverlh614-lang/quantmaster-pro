@@ -97,6 +97,90 @@ const INVESTOR_TRADE_BY_STOCK_DAILY_ORG_ADJ_PRC = process.env.KIS_INVESTOR_DAILY
 const INVESTOR_TRADE_BY_STOCK_DAILY_ETC_CLS_CODE = process.env.KIS_INVESTOR_DAILY_ETC_CLS_CODE ?? '0';
 
 /**
+ * ADR-0542 — KIS investor-trade-by-stock-daily output1/output2 버킷 합성 게이트.
+ * default ON. `KIS_INVESTOR_OUTPUT_BUCKET_FIX=false` 1줄로 직전(단일 버킷) 동작으로 revert.
+ * KIS quota 추가 호출 0 — 이미 받은 응답의 파싱만 변경한다.
+ */
+function isKisInvestorOutputBucketFixEnabled(): boolean {
+  return process.env.KIS_INVESTOR_OUTPUT_BUCKET_FIX !== 'false';
+}
+
+const INVESTOR_FLOW_FOREIGN_NET_BUY_KEYS = ['frgn_ntby_qty', 'frgn_ntby_tr_pbmn', 'FRGN_NTBY_QTY', 'FRGN_NTBY_TR_PBMN'];
+const INVESTOR_FLOW_INSTITUTION_NET_BUY_KEYS = ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn', 'ORGN_NTBY_QTY', 'ORGN_NTBY_TR_PBMN'];
+const INVESTOR_FLOW_INDIVIDUAL_NET_BUY_KEYS = ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn', 'PRSN_NTBY_QTY', 'PRSN_NTBY_TR_PBMN'];
+
+type InvestorFlowBucketName = 'output' | 'output1' | 'output2';
+
+/**
+ * ADR-0542 — output1(요약 row)·output2(일자별 시계열) 어느 버킷에 순매수 필드가 있든
+ * 외국인·기관·개인 net-buy 와 carrier base row 를 합성한다. 공식 spec(chk COLUMN_MAPPING)
+ * 상 frgn/orgn/prsn_ntby_qty 는 두 버킷 모두에 나타날 수 있어, 단일 버킷 commit 후 한쪽이
+ * 비면 누락되던(coverage 2/11) 회귀를 제거한다. base row 는 net-buy 가 잡힌 버킷의 [0] 우선.
+ */
+function synthesizeInvestorFlowAcrossBuckets(
+  data: unknown,
+  order: InvestorFlowBucketName[],
+): {
+  baseRow: KisOutput | undefined;
+  baseBucket: InvestorFlowBucketName | undefined;
+  foreignNetBuy: number | undefined;
+  institutionalNetBuy: number | undefined;
+  individualNetBuy: number | undefined;
+} {
+  const root = data as Partial<Record<InvestorFlowBucketName, unknown>> | null;
+  let foreignNetBuy: number | undefined;
+  let institutionalNetBuy: number | undefined;
+  let individualNetBuy: number | undefined;
+  let baseRow: KisOutput | undefined;
+  let baseBucket: InvestorFlowBucketName | undefined;
+  for (const bucket of order) {
+    const rows = rowsFromKisInvestorBucket(root?.[bucket]);
+    const row = rows[0];
+    if (!row) continue;
+    const f = extractKisNumberOptional(row, INVESTOR_FLOW_FOREIGN_NET_BUY_KEYS);
+    const i = extractKisNumberOptional(row, INVESTOR_FLOW_INSTITUTION_NET_BUY_KEYS);
+    const p = extractKisNumberOptional(row, INVESTOR_FLOW_INDIVIDUAL_NET_BUY_KEYS);
+    if (foreignNetBuy === undefined && f !== undefined) foreignNetBuy = f;
+    if (institutionalNetBuy === undefined && i !== undefined) institutionalNetBuy = i;
+    if (individualNetBuy === undefined && p !== undefined) individualNetBuy = p;
+    // base row = 외인·기관 둘 다 잡힌 첫 버킷 우선, 없으면 net-buy 가 하나라도 잡힌 첫 버킷.
+    if (!baseRow && (f !== undefined || i !== undefined || p !== undefined)) {
+      baseRow = row;
+      baseBucket = bucket;
+    }
+    if (foreignNetBuy !== undefined && institutionalNetBuy !== undefined && baseRow) break;
+  }
+  return { baseRow, baseBucket, foreignNetBuy, institutionalNetBuy, individualNetBuy };
+}
+
+function rowsFromKisInvestorBucket(bucket: unknown): KisOutput[] {
+  if (Array.isArray(bucket)) return bucket.filter((r): r is KisOutput => !!r && typeof r === 'object');
+  if (bucket && typeof bucket === 'object') return [bucket as KisOutput];
+  return [];
+}
+
+/**
+ * ADR-0542 Step 0 — KIS_ONLY_TRACE 진단용 payloadClass. 누락 종목의 net-buy 필드가
+ * 어느 버킷(output/output1/output2)에 존재/부재했는지 비식별 메타만 기록한다(값 미노출).
+ * Silent 금지 — 다음 스캔에서 가설(output1 vs output2)을 확증하는 무비용 게이트.
+ */
+function traceInvestorFlowBuckets(data: unknown): Record<InvestorFlowBucketName, { rowCount: number; foreign: boolean; institution: boolean; individual: boolean }> {
+  const root = data as Partial<Record<InvestorFlowBucketName, unknown>> | null;
+  const trace = {} as Record<InvestorFlowBucketName, { rowCount: number; foreign: boolean; institution: boolean; individual: boolean }>;
+  for (const bucket of ['output', 'output1', 'output2'] as InvestorFlowBucketName[]) {
+    const rows = rowsFromKisInvestorBucket(root?.[bucket]);
+    const row = rows[0];
+    trace[bucket] = {
+      rowCount: rows.length,
+      foreign: row ? extractKisNumberOptional(row, INVESTOR_FLOW_FOREIGN_NET_BUY_KEYS) !== undefined : false,
+      institution: row ? extractKisNumberOptional(row, INVESTOR_FLOW_INSTITUTION_NET_BUY_KEYS) !== undefined : false,
+      individual: row ? extractKisNumberOptional(row, INVESTOR_FLOW_INDIVIDUAL_NET_BUY_KEYS) !== undefined : false,
+    };
+  }
+  return trace;
+}
+
+/**
  * ADR-0146: comp-program-trade-today 의 시장구분코드는 `U` 가 아니라 국내주식 공통값 `J`.
  * `/sh` rawDiag 에서 `msg_cd=OPSQ2001 ERROR INVALID FID_COND_MRKT_DIV_CODE` 로 확인됨.
  */
@@ -816,8 +900,12 @@ export async function fetchKisInvestorTradeByStockDaily(
   if (overrides.fetchKisInvestorTradeByStockDaily) return overrides.fetchKisInvestorTradeByStockDaily(code);
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
   const safeCode = code.padStart(6, '0');
+  const bucketFixEnabled = isKisInvestorOutputBucketFixEnabled();
+  // ADR-0542: 게이트 ON 시 output1+output2 합성을 위해 row 선택 버킷보다 raw 응답을 보존한다.
+  // 게이트 OFF 면 selectedData 를 쓰지 않으므로 직전(단일 버킷) 동작과 byte-equivalent.
   try {
     let rows: KisOutput[] = [];
+    let selectedData: unknown = null;
     const dateCandidates = investorTradeByStockDailyDateCandidates();
     for (let i = 0; i < dateCandidates.length; i += 1) {
       const sourceDate = dateCandidates[i];
@@ -831,6 +919,7 @@ export async function fetchKisInvestorTradeByStockDaily(
         if (isAcceptedEmptyKisResponse(data)) continue;
         const selected = pickMaterializedBucket(data, ['output2', 'output', 'output1'], (bucketRows) => classifyInvestorFlowPayload(bucketRows, { trId: INVESTOR_TRADE_BY_STOCK_DAILY_TR_ID }));
         rows = selected?.rows ?? [];
+        selectedData = data;
         if (rows.length > 0) break;
       } catch (e) {
         if (i === dateCandidates.length - 1) throw e;
@@ -838,20 +927,56 @@ export async function fetchKisInvestorTradeByStockDaily(
     }
     const payloadClass = classifyInvestorFlowPayload(rows, { trId: INVESTOR_TRADE_BY_STOCK_DAILY_TR_ID });
     if (!payloadClass.materialized) {
-      if (process.env.KIS_ONLY_TRACE === 'true') console.warn('[KIS] INVESTOR_TRADE_BY_STOCK_DAILY materialize skipped', payloadClass);
+      if (process.env.KIS_ONLY_TRACE === 'true') {
+        // ADR-0542 Step 0 — 누락 종목의 버킷별 net-buy 존재 여부를 캡처해 가설(output1 vs output2)을 확증한다.
+        console.warn('[KIS] INVESTOR_TRADE_BY_STOCK_DAILY materialize skipped', {
+          ...payloadClass,
+          bucketTrace: traceInvestorFlowBuckets(selectedData),
+        });
+      }
       return null;
     }
-    const row = rows[0];
-    if (!row) return null;
-    const foreignNetBuy = extractKisNumberOptional(row, ['frgn_ntby_qty', 'frgn_ntby_tr_pbmn', 'FRGN_NTBY_QTY', 'FRGN_NTBY_TR_PBMN']);
-    const institutionalNetBuy = extractKisNumberOptional(row, ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn', 'ORGN_NTBY_QTY', 'ORGN_NTBY_TR_PBMN']);
-    const individualNetBuy = extractKisNumberOptional(row, ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn', 'PRSN_NTBY_QTY', 'PRSN_NTBY_TR_PBMN']);
-    if (foreignNetBuy === undefined || institutionalNetBuy === undefined) return null;
+    const singleBucketRow = rows[0];
+    if (!singleBucketRow) return null;
+
+    // ADR-0542 — 게이트 ON: output1·output2·output 어느 버킷에 net-buy 가 있든 합성한다.
+    // 게이트 OFF: 직전과 동일하게 선택 버킷 row[0] 만 사용 (byte-equivalent revert).
+    const synthesized = bucketFixEnabled
+      ? synthesizeInvestorFlowAcrossBuckets(selectedData, ['output2', 'output', 'output1'])
+      : undefined;
+    const row = synthesized?.baseRow ?? singleBucketRow;
+    const baseBucket = synthesized?.baseBucket;
+
+    const foreignNetBuy = bucketFixEnabled
+      ? synthesized?.foreignNetBuy
+      : extractKisNumberOptional(row, INVESTOR_FLOW_FOREIGN_NET_BUY_KEYS);
+    const institutionalNetBuy = bucketFixEnabled
+      ? synthesized?.institutionalNetBuy
+      : extractKisNumberOptional(row, INVESTOR_FLOW_INSTITUTION_NET_BUY_KEYS);
+    const individualNetBuy = bucketFixEnabled
+      ? synthesized?.individualNetBuy
+      : extractKisNumberOptional(row, INVESTOR_FLOW_INDIVIDUAL_NET_BUY_KEYS);
+    if (foreignNetBuy === undefined || institutionalNetBuy === undefined) {
+      if (process.env.KIS_ONLY_TRACE === 'true') {
+        console.warn('[KIS] INVESTOR_TRADE_BY_STOCK_DAILY net-buy incomplete', {
+          stockCode: safeCode,
+          bucketFixEnabled,
+          foreignNetBuyFinite: foreignNetBuy !== undefined,
+          institutionalNetBuyFinite: institutionalNetBuy !== undefined,
+          individualNetBuyFinite: individualNetBuy !== undefined,
+          bucketTrace: traceInvestorFlowBuckets(selectedData),
+        });
+      }
+      return null;
+    }
     logInvestorFlowSelected(rows.length);
+    const sourcePath = bucketFixEnabled && baseBucket
+      ? `KIS_INVESTOR_TRADE_BY_STOCK_DAILY.${baseBucket}[0]`
+      : 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY.output2[0]';
     const actualInvestorFlowRowCarrier = buildKisActualInvestorFlowRowCarrier({
       row,
       safeCode,
-      sourcePath: 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY.output2[0]',
+      sourcePath,
       foreignNetBuy,
       institutionalNetBuy,
       individualNetBuy,
