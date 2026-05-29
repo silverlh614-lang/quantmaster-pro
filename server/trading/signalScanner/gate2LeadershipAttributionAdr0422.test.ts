@@ -586,6 +586,50 @@ describe('Section F (Gate2 External Data Stabilization) — attribution 3 그룹
     expect(la.dominantReason).toBe('BREAKOUT_MOMENTUM_NOT_CONFIRMED');
   });
 
+  it('§E conditionFail > fundamentalUnavailable 면 dominant 가 FUNDAMENTAL 로 과귀속되지 않는다 (최대 기여 축)', () => {
+    // 실측 회귀: conditionFail=6, fundamentalUnavailable=2, gate1Pass=2 (denom=2).
+    // 두 축 모두 임계(>=0.5*denom) 초과 — 고정 우선순위는 FUNDAMENTAL 로 과귀속했다.
+    // 최대 기여 축(condition=6 > fundamental=2)을 dominant 로 선택해야 한다.
+    const buckets: Gate2BlockerBucket[] = [
+      { ...emptyBucket('breakout_momentum'), failed: 3, total: 3 },
+      { ...emptyBucket('momentum'), failed: 3, total: 3 },
+      { ...emptyBucket('earnings_quality'), unavailable: 1, total: 1 },
+      { ...emptyBucket('per'), unavailable: 1, total: 1 },
+    ];
+    const attribution = buildGate2FreshAttribution({
+      buckets,
+      candidates: 22,
+      gate1Pass: 2,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+    });
+    const la = attribution.leadershipAttribution;
+    expect(la.blockedByConditionFailCount).toBe(6);
+    expect(la.blockedByUnavailableFundamentalCount).toBe(2);
+    expect(la.dominantReason).not.toBe('FUNDAMENTAL_DATA_UNAVAILABLE');
+    expect(la.dominantReason).toBe('BREAKOUT_MOMENTUM_NOT_CONFIRMED');
+  });
+
+  it('§E conditionFail == fundamentalUnavailable 동률이면 dominant=MIXED', () => {
+    const buckets: Gate2BlockerBucket[] = [
+      { ...emptyBucket('breakout_momentum'), failed: 2, total: 2 },
+      { ...emptyBucket('earnings_quality'), unavailable: 1, total: 1 },
+      { ...emptyBucket('per'), unavailable: 1, total: 1 },
+    ];
+    const attribution = buildGate2FreshAttribution({
+      buckets,
+      candidates: 22,
+      gate1Pass: 2,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+    });
+    expect(attribution.leadershipAttribution.dominantReason).toBe('MIXED');
+  });
+
   it('optional 부재는 failed/error 를 trueConditionFail 로 누수시키지 않는다 (DATA_UNAVAILABLE≠failed, ADR-0416)', () => {
     // programTrade 에 failed/error 가 있어도 optionalMissing 은 unavailable+stale 만 집계.
     const buckets: Gate2BlockerBucket[] = [

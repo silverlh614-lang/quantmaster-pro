@@ -879,20 +879,29 @@ function buildGate2LeadershipAttribution(input: {
     .reduce((sum, b) => sum + b.stale, 0);
   const denom = Math.max(1, input.gate1Pass);
   const sectorStaleContributionPct = Math.round((blockedBySectorStaleCount / denom) * 1000) / 10;
+  // §E 정합 — dominant 를 고정 우선순위(sectorStale→fundamental→condition)로 "첫 임계 초과"
+  // 선택하면, 여러 축이 동시에 임계를 넘을 때 *더 큰* 실패 축을 가리고 과귀속된다
+  // (실측: conditionFail=6 vs fundamentalUnavailable=2 인데 dominant=FUNDAMENTAL 로 표기됨).
+  // 임계(>=0.5*denom)를 넘는 축들 중 *최대 기여* 축을 dominant 로 선택하고, 동률이면 MIXED.
+  // optionalMissing 은 진짜 실패가 0 일 때만 dominant. 임계/카운트/threshold/매매 무변경 — 진단 라벨 정확화 전용.
   let dominantReason: Gate2LeadershipDominantReason = 'UNKNOWN';
-  if (blockedBySectorStaleCount / denom >= 0.5) dominantReason = 'SECTOR_DATA_STALE';
-  else if (blockedByUnavailableFundamentalCount / denom >= 0.5) dominantReason = 'FUNDAMENTAL_DATA_UNAVAILABLE';
-  else if (blockedByConditionFailCount / denom >= 0.5) dominantReason = 'BREAKOUT_MOMENTUM_NOT_CONFIRMED';
-  // Section F — optionalMissing 만 존재(trueConditionFail=0 & dataUnavailable=0 & sectorStale=0)
-  // 할 때만 OPTIONAL_DATA_MISSING dominant. 진짜 실패와 *섞이면* MIXED 로 떨어지므로
-  // optional 부재가 Gate2 를 막은 것처럼 보이지 않는다. bearish 신호 아님.
-  else if (
-    blockedByOptionalMissingCount > 0 &&
-    blockedByConditionFailCount === 0 &&
-    blockedByUnavailableFundamentalCount === 0 &&
-    blockedBySectorStaleCount === 0
-  ) dominantReason = 'OPTIONAL_DATA_MISSING';
-  else if (blockedBySectorStaleCount + blockedByUnavailableFundamentalCount + blockedByConditionFailCount > 0) dominantReason = 'MIXED';
+  const realBlockTotal = blockedBySectorStaleCount + blockedByUnavailableFundamentalCount + blockedByConditionFailCount;
+  const overThreshold: Array<{ reason: Gate2LeadershipDominantReason; count: number }> = [];
+  if (blockedBySectorStaleCount / denom >= 0.5) overThreshold.push({ reason: 'SECTOR_DATA_STALE', count: blockedBySectorStaleCount });
+  if (blockedByUnavailableFundamentalCount / denom >= 0.5) overThreshold.push({ reason: 'FUNDAMENTAL_DATA_UNAVAILABLE', count: blockedByUnavailableFundamentalCount });
+  if (blockedByConditionFailCount / denom >= 0.5) overThreshold.push({ reason: 'BREAKOUT_MOMENTUM_NOT_CONFIRMED', count: blockedByConditionFailCount });
+  if (overThreshold.length === 1) {
+    dominantReason = overThreshold[0].reason;
+  } else if (overThreshold.length > 1) {
+    const maxCount = Math.max(...overThreshold.map((o) => o.count));
+    const leaders = overThreshold.filter((o) => o.count === maxCount);
+    dominantReason = leaders.length === 1 ? leaders[0].reason : 'MIXED';
+  } else if (realBlockTotal === 0 && blockedByOptionalMissingCount > 0) {
+    // Section F — optionalMissing 만 존재할 때만 OPTIONAL_DATA_MISSING. 진짜 실패와 섞이면 MIXED. bearish 신호 아님.
+    dominantReason = 'OPTIONAL_DATA_MISSING';
+  } else if (realBlockTotal > 0) {
+    dominantReason = 'MIXED';
+  }
   const officialCoverage = ratioFromMaybePercent(
     input.sectorEnergy?.officialIndexCoverage ?? input.sectorEnergy?.indexCodeCoverage,
   );
