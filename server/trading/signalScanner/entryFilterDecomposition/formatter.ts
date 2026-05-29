@@ -416,13 +416,17 @@ function resolveGate2Dominant(input: {
   const kisOk = input.kisFlowStatus === 'VERIFIED' || input.kisFlowStatus === 'PARTIAL_VERIFIED';
   // 실제 condition fail 후보 집계 (gate1 통과했으나 gate2 미통과한 trace 의 condition 분포).
   const tally = { breakout: 0, volume: 0, rs: 0 };
+  let evaluatedGate2 = 0;
   for (const trace of input.d.candidateTraces) {
+    if (gate1MatrixStatus(trace) !== 'PASS') continue;
+    evaluatedGate2 += 1;
     if (trace.gate2Passed === true) continue;
     const cond = conditionMatrixRow(trace);
     if (cond.breakoutMomentum === 'FAIL') tally.breakout += 1;
     if (cond.volume === 'FAIL') tally.volume += 1;
     if (cond.rs === 'FAIL') tally.rs += 1;
   }
+  if (evaluatedGate2 === 0) return { code: 'NOT_EVALUATED_GATE1_FAIL' };
   const conditionFails = tally.breakout + tally.volume + tally.rs;
   if (conditionFails > 0) {
     const distinct = [tally.breakout > 0, tally.volume > 0, tally.rs > 0].filter(Boolean).length;
@@ -476,6 +480,18 @@ function conditionMatrixRow(trace: EntryFilterDecomposition['candidateTraces'][n
   };
 }
 
+function gate1MatrixStatus(trace: EntryFilterDecomposition['candidateTraces'][number]): 'PASS' | 'FAIL' | 'UNKNOWN' {
+  const passed = getByPath(trace, 'gate1Passed');
+  if (passed === true) return 'PASS';
+  if (passed === false) return 'FAIL';
+  const status = stringValue(getByPath(trace, 'gate1Status'), '').toUpperCase();
+  if (status.includes('PASS')) return 'PASS';
+  if (status.includes('FAIL')) return 'FAIL';
+  const blockers = getByPath(trace, 'blockers');
+  if (Array.isArray(blockers) && blockers.some((item) => recordOf(item)?.code === 'GATE1_FAIL')) return 'FAIL';
+  return 'UNKNOWN';
+}
+
 function primaryBlockerFor(row: ReturnType<typeof conditionMatrixRow>): string {
   if (row.breakoutMomentum === 'FAIL') return 'BREAKOUT_MOMENTUM_NOT_CONFIRMED';
   if (row.volume === 'FAIL') return 'VOLUME_CONFIRMATION_FAIL';
@@ -489,25 +505,47 @@ function primaryBlockerFor(row: ReturnType<typeof conditionMatrixRow>): string {
 function formatGate2ConditionAttributionMatrix(d: EntryFilterDecomposition, dominant: { code: string }): string[] {
   const rows = d.candidateTraces.slice(0, 12);
   if (rows.length === 0) return [];
+  const evaluatedCount = d.candidateTraces.filter((trace) => gate1MatrixStatus(trace) === 'PASS').length;
   const lines = [
     'Gate2 Condition Attribution Matrix:',
-    'symbol | name | gate1 | kisFlow | dart | per | rs | breakout | volume | sector | leader | gate2 | primaryBlocker | hardBlock | diagnosticOnly',
+    `gate2Evaluated=${evaluatedCount}/${d.candidateTraces.length}`,
+    'symbol | name | gate1 | gate2EvaluationScope | finalGate2 | upstreamBlocker | gate2DiagnosticPrimary | kisFlow | dart | per | rs | breakout | volume | sector | leader | hardBlock | diagnosticOnly',
   ];
   for (const trace of rows) {
     const c = conditionMatrixRow(trace);
-    const gate1 = getByPath(trace, 'gate1Passed') === true ? 'PASS' : getByPath(trace, 'gate1Passed') === false ? 'FAIL' : 'UNKNOWN';
-    const gate2 = trace.gate2Passed === true ? 'PASS' : trace.gate2Passed === false ? 'FAIL' : 'UNKNOWN';
-    const blocker = primaryBlockerFor(c);
+    const gate1 = gate1MatrixStatus(trace);
+    const diagnosticPrimary = primaryBlockerFor(c);
+    const gate1Failed = gate1 === 'FAIL';
+    const blocker = gate1Failed ? 'NONE' : diagnosticPrimary;
+    const gate2EvaluationScope = gate1Failed ? 'DIAGNOSTIC_ONLY' : 'FULL';
+    const finalGate2 = gate1Failed
+      ? 'NOT_EVALUATED_GATE1_FAIL'
+      : trace.gate2Passed === true
+        ? 'EVALUATED_PASS'
+        : blocker === 'VALUATION_PER_HIGH_CONVICTION_ONLY'
+          ? 'DATA_INCOMPLETE_HIGH_CONVICTION_ONLY'
+          : blocker === 'NONE'
+            ? 'DIAGNOSTIC_OPTIONAL_MISSING'
+            : 'EVALUATED_CONDITION_FAIL';
+    const upstreamBlocker = gate1Failed ? 'GATE1_FAIL' : 'NONE';
     // PER/sector/leader/program 은 entry hard block 아님 → hardBlock 판정에서 제외.
     const hardBlock = ['BREAKOUT_MOMENTUM_NOT_CONFIRMED', 'VOLUME_CONFIRMATION_FAIL', 'RS_FAIL'].includes(blocker);
     lines.push([
       trace.symbol,
       stringValue(trace.name, '-'),
-      gate1, c.kisFlow, c.dart, c.per, c.rs, c.breakoutMomentum, c.volume,
-      c.sectorCycle, c.leaderCycle, gate2, blocker,
+      gate1,
+      gate2EvaluationScope,
+      finalGate2,
+      upstreamBlocker,
+      diagnosticPrimary,
+      c.kisFlow, c.dart, c.per, c.rs, c.breakoutMomentum, c.volume,
+      c.sectorCycle, c.leaderCycle,
       hardBlock ? 'true' : 'false',
-      blocker === 'VALUATION_PER_HIGH_CONVICTION_ONLY' ? 'true' : 'false',
+      gate1Failed || blocker === 'VALUATION_PER_HIGH_CONVICTION_ONLY' ? 'true' : 'false',
     ].join(' | '));
+  }
+  if (dominant.code === 'NOT_EVALUATED_GATE1_FAIL') {
+    lines.push('- attributionNote=Gate1 fail rows are diagnosticOnly and are not counted as Gate2 hard failures.');
   }
   return lines;
 }
@@ -528,14 +566,20 @@ function formatGate2DataLineInvariants(input: {
   const optionalProgramNotBlocking = !(input.programStatus === 'MISSING' && input.programProviderIssue === true);
   const providerHealthSeparated = !(c?.marketSignal === true); // providerIssue→bearish 변환 금지
   const shadowContinuity = true; // shadowLearning/counterfactual 은 Gate2 pass=0 무관하게 ON
+  const perHighConvictionOnly = true;
+  const diagnosticMissingNotMarketSignal = providerHealthSeparated;
   const mark = (ok: boolean) => (ok ? 'OK' : 'VIOLATION');
   return [
     'Gate2 DataLine Invariants:',
     `[${mark(kisCarry)}] KIS_FLOW_CARRY`,
     `[${mark(dartCarry)}] DART_STATUS_CARRY`,
     `[${mark(optionalProgramNotBlocking)}] OPTIONAL_PROGRAM_NOT_BLOCKING`,
+    `[${mark(perHighConvictionOnly)}] PER_UNAVAILABLE_HIGH_CONVICTION_ONLY_NOT_ENTRY_BLOCK`,
+    `[${mark(optionalProgramNotBlocking)}] OPTIONAL_PROGRAM_TRADE_NOT_BLOCKING`,
+    `[${mark(diagnosticMissingNotMarketSignal)}] DIAGNOSTIC_MISSING_NOT_MARKET_SIGNAL`,
     `[${mark(providerHealthSeparated)}] PROVIDER_HEALTH_SEPARATED_FROM_MARKET_SIGNAL`,
     `[${mark(shadowContinuity)}] SHADOW_LEARNING_CONTINUITY`,
+    `[${mark(shadowContinuity)}] SHADOW_LEARNING_CONTINUES_UNDER_SHADOW_ONLY`,
   ];
 }
 

@@ -40,6 +40,7 @@ export type Gate1DryRunObservationSource =
   | 'ADR_0488_SECTOR_ENERGY_MASTER_SUPPLY_LINE'
   | 'ADR_0488_SUPPLY_UNKNOWN_POLICY_STABILIZATION'
   | 'ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY'
+  | 'GATE1_SCORE_OBSERVATION_V2'
   | 'GATE1_NEAR_MISS'
   | 'COUNTERFACTUAL_UNIVERSE';
 
@@ -60,6 +61,9 @@ export type Gate1DryRunObservationDecision =
   | 'UNKNOWN_DIAGNOSTIC_ONLY'
   | 'POSITIVE_SOURCE_REPAIRED';
 
+export type Gate1ObservationScoreBand = '70+' | '65~70' | '60~65' | '55~60' | 'below55' | 'UNSCORED';
+export type Gate1ObservationFeatureCompleteness = 'COMPLETE' | 'PARTIAL' | 'UNKNOWN';
+
 export interface Gate1DryRunObservationRow {
   id: string;
   createdAt: string;
@@ -75,6 +79,28 @@ export interface Gate1DryRunObservationRow {
   dryRunScore?: number;
   requiredScore: number;
   scoreGap?: number;
+  sourceSnapshotId?: string;
+  regime?: string;
+  marketSession?: string;
+  finalGate1Score?: number;
+  rawPositiveScore?: number;
+  effectivePenaltyScore?: number;
+  diagnosticPenaltyScore?: number;
+  scoreBand?: Gate1ObservationScoreBand;
+  hardPass?: boolean;
+  softPass?: boolean;
+  liveCandidateAfterGate1?: boolean;
+  shadowObservable?: boolean;
+  counterfactualEligible?: boolean;
+  maturityStatus?: Gate1DryRunObservationStatus;
+  featureCompleteness?: Gate1ObservationFeatureCompleteness;
+  supplyGateScoreEligible?: boolean;
+  breakoutPositive?: boolean;
+  rsPercentile?: number;
+  priceMomentumPositive?: boolean;
+  observationOnly?: true;
+  thresholdAutoChanged?: false;
+  operatorApprovalRequired?: true;
   providerIssue: boolean;
   marketSignal: boolean;
   sectorEnergyDiagnosticOnly: boolean;
@@ -198,6 +224,9 @@ export interface Gate1ThresholdEvidenceSummary {
 export interface Gate1DryRunObservationBuildInput {
   now?: Date;
   forDate: string;
+  sourceSnapshotId?: string;
+  regime?: string;
+  marketSession?: string;
   candidateSnapshots?: readonly CandidateSnapshot[];
   finalGate1Calibration?: FinalGate1CalibrationAuditReport | null;
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport | null;
@@ -287,6 +316,39 @@ function updateStatusForResolvedHorizons(row: Gate1DryRunObservationRow): Gate1D
   return row.status === 'PENDING' ? 'OBSERVING' : row.status;
 }
 
+function scoreBandFor(score: unknown): Gate1ObservationScoreBand {
+  if (!finite(score)) return 'UNSCORED';
+  if (score >= 70) return '70+';
+  if (score >= 65) return '65~70';
+  if (score >= 60) return '60~65';
+  if (score >= 55) return '55~60';
+  return 'below55';
+}
+
+function snapshotNumber(snapshot: CandidateSnapshot, keys: readonly string[]): number | undefined {
+  const source = snapshot as unknown as Record<string, unknown>;
+  const quote = snapshot.quote && typeof snapshot.quote === 'object'
+    ? snapshot.quote as Record<string, unknown>
+    : undefined;
+  for (const key of keys) {
+    const direct = source[key];
+    if (finite(direct)) return direct;
+    const quoted = quote?.[key];
+    if (finite(quoted)) return quoted;
+  }
+  return undefined;
+}
+
+function resolveFeatureCompleteness(snapshot: CandidateSnapshot): Gate1ObservationFeatureCompleteness {
+  const hasMomentum = snapshotNumber(snapshot, ['return5d', 'return20d', 'marketRelativeReturn']) !== undefined;
+  const hasRs = snapshotNumber(snapshot, ['rsRankPct', 'relativeStrengthScore', 'relativeStrength']) !== undefined;
+  const hasBreakout = finite(snapshot.breakoutScore) || finite(snapshot.vcpScore) || Boolean(snapshot.breakoutTrace);
+  const present = [hasMomentum, hasRs, hasBreakout].filter(Boolean).length;
+  if (present === 3) return 'COMPLETE';
+  if (present > 0) return 'PARTIAL';
+  return 'UNKNOWN';
+}
+
 function withOptionalScoreFields(
   row: Omit<Gate1DryRunObservationRow, 'id'> & { id?: string },
 ): Gate1DryRunObservationRow {
@@ -297,6 +359,10 @@ function withOptionalScoreFields(
     executionImpact: 'NONE' as const,
     liveExecutionAllowed: false as const,
     policyPromotionMode: 'SHADOW_ONLY' as const,
+    maturityStatus: row.maturityStatus ?? row.status,
+    observationOnly: true as const,
+    thresholdAutoChanged: false as const,
+    operatorApprovalRequired: true as const,
   };
   return base;
 }
@@ -310,6 +376,9 @@ function rowFromSnapshot(input: {
   dryRunDecision: Gate1DryRunObservationDecision;
   dryRunScore?: number;
   requiredScore?: number;
+  sourceSnapshotId?: string;
+  regime?: string;
+  marketSession?: string;
   sellOnly: boolean;
   providerIssue: boolean;
   marketSignal: boolean;
@@ -319,6 +388,15 @@ function rowFromSnapshot(input: {
   const actualScore = input.snapshot.gateScore;
   const score = input.dryRunScore ?? actualScore;
   const scoreGap = finite(score) ? round1(score - requiredScore) : undefined;
+  const rawPositiveScore = snapshotNumber(input.snapshot, ['gateRawScore', 'totalGateScore', 'gateScore']);
+  const finalGate1Score = finite(actualScore) ? actualScore : score;
+  const effectivePenaltyScore = finite(rawPositiveScore) && finite(finalGate1Score)
+    ? Math.max(0, round1(rawPositiveScore - finalGate1Score))
+    : 0;
+  const rsPercentile = snapshotNumber(input.snapshot, ['rsRankPct']);
+  const priceMomentum = snapshotNumber(input.snapshot, ['return5d', 'return20d', 'marketRelativeReturn']);
+  const hardPass = input.snapshot.gate1Passed === true && input.snapshot.minSignalScorePassed === true;
+  const softPass = input.snapshot.gate1Passed === true || input.snapshot.minSignalScorePassed === true;
   return withOptionalScoreFields({
     createdAt: input.nowIso,
     forDate: input.forDate,
@@ -333,6 +411,24 @@ function rowFromSnapshot(input: {
     ...(finite(score) ? { dryRunScore: round1(score) } : {}),
     requiredScore,
     ...(scoreGap !== undefined ? { scoreGap } : {}),
+    ...(input.sourceSnapshotId ? { sourceSnapshotId: input.sourceSnapshotId } : {}),
+    ...(input.regime ? { regime: input.regime } : {}),
+    ...(input.marketSession ? { marketSession: input.marketSession } : {}),
+    ...(finite(finalGate1Score) ? { finalGate1Score: round1(finalGate1Score) } : {}),
+    ...(finite(rawPositiveScore) ? { rawPositiveScore: round1(rawPositiveScore) } : {}),
+    effectivePenaltyScore,
+    diagnosticPenaltyScore: 0,
+    scoreBand: scoreBandFor(finalGate1Score),
+    hardPass,
+    softPass,
+    liveCandidateAfterGate1: hardPass && input.sellOnly !== true,
+    shadowObservable: true,
+    counterfactualEligible: Boolean(input.snapshot.symbol),
+    featureCompleteness: resolveFeatureCompleteness(input.snapshot),
+    supplyGateScoreEligible: input.snapshot.supplyProviderHealth?.providerIssue !== true,
+    breakoutPositive: (input.snapshot.breakoutScore ?? 0) > 0 || (input.snapshot.vcpScore ?? 0) > 0,
+    ...(finite(rsPercentile) ? { rsPercentile: round1(rsPercentile) } : {}),
+    ...(finite(priceMomentum) ? { priceMomentumPositive: priceMomentum > 0 } : {}),
     providerIssue: input.providerIssue || input.snapshot.supplyProviderHealth?.providerIssue === true,
     marketSignal: input.marketSignal || input.snapshot.supplyProviderHealth?.marketSignal === true,
     sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly || input.snapshot.sectorEnergyState === 'DIAGNOSTIC_ONLY',
@@ -467,6 +563,35 @@ function buildScoringAlignmentRowsAdr0520(input: Gate1DryRunObservationBuildInpu
   }));
 }
 
+function buildGate1ScoreObservationV2Rows(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
+  const rows = [...(input.candidateSnapshots ?? [])]
+    .filter((snapshot) => snapshot.symbol)
+    .sort((a, b) => (b.gateScore ?? Number.NEGATIVE_INFINITY) - (a.gateScore ?? Number.NEGATIVE_INFINITY))
+    .slice(0, input.topN ?? 10);
+  return rows.map((snapshot) => {
+    const requiredScore = snapshot.minSignalRequiredScore ?? 70;
+    const score = snapshot.gateScore;
+    const gap = finite(score) ? round1(score - requiredScore) : Number.NEGATIVE_INFINITY;
+    return rowFromSnapshot({
+      snapshot,
+      nowIso,
+      forDate: input.forDate,
+      source: 'GATE1_SCORE_OBSERVATION_V2',
+      scenario: 'GATE1_SCORE_THRESHOLD_OBSERVATION_V2',
+      dryRunDecision: gap >= 0 ? 'WOULD_PASS_DRY_RUN' : gap >= -10 ? 'NEAR_MISS' : 'WOULD_STILL_FAIL',
+      dryRunScore: score,
+      requiredScore,
+      sourceSnapshotId: input.sourceSnapshotId,
+      regime: input.regime,
+      marketSession: input.marketSession,
+      sellOnly: input.sellOnly === true,
+      providerIssue: input.providerIssue === true,
+      marketSignal: input.marketSignal === true,
+      sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
+    });
+  });
+}
+
 function buildGateNearMissRows(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
   const rows = [...(input.candidateSnapshots ?? [])]
     .filter((snapshot) => finite(snapshot.gateScore))
@@ -487,6 +612,9 @@ function buildGateNearMissRows(input: Gate1DryRunObservationBuildInput, nowIso: 
     dryRunDecision: 'NEAR_MISS',
     dryRunScore: item.snapshot.gateScore,
     requiredScore: item.requiredScore,
+    sourceSnapshotId: input.sourceSnapshotId,
+    regime: input.regime,
+    marketSession: input.marketSession,
     sellOnly: input.sellOnly === true,
     providerIssue: input.providerIssue === true,
     marketSignal: input.marketSignal === true,
@@ -508,6 +636,9 @@ function buildCounterfactualUniverseRows(input: Gate1DryRunObservationBuildInput
     dryRunDecision: 'WOULD_STILL_FAIL',
     dryRunScore: snapshot.gateScore,
     requiredScore: snapshot.minSignalRequiredScore ?? 70,
+    sourceSnapshotId: input.sourceSnapshotId,
+    regime: input.regime,
+    marketSession: input.marketSession,
     sellOnly: input.sellOnly === true,
     providerIssue: input.providerIssue === true,
     marketSignal: input.marketSignal === true,
@@ -674,6 +805,7 @@ export function buildGate1DryRunObservationRows(input: Gate1DryRunObservationBui
     ...buildFreshDataSupplyRowsAdr0487(input),
     ...buildSectorEnergySupplyUnknownRowsAdr0488(input),
     ...buildSupplySnapshotRowsAdr0491(input),
+    ...buildGate1ScoreObservationV2Rows(input, nowIso),
     ...buildGateNearMissRows(input, nowIso),
     ...buildCounterfactualUniverseRows(input, nowIso),
   ];
@@ -1106,6 +1238,8 @@ export function formatGate1ThresholdEvidenceSection(
     `matureSamplesD1: ${summary ? summary.matureSamplesD1 : 'N/A'}`,
     `matureSamplesD3: ${summary ? summary.matureSamplesD3 : 'N/A'}`,
     `matureSamplesD5: ${summary ? summary.matureSamplesD5 : 'N/A'}`,
+    'observationLedgerV2: true',
+    'ledgerExecutionImpact: NONE',
     'thresholdAutoChanged: false',
     'operatorApprovalRequired: true',
     'liveExecutionAllowed: false',

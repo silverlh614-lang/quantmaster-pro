@@ -429,6 +429,50 @@ function withCandidatePoolRuntimeCoverage(
   };
 }
 
+function formatBottleneckTruthSummary(
+  summary: ScanSummary,
+  canonical: CanonicalRuntimeResolutionStep27,
+  permissionView: ReturnType<typeof resolveScanSummaryPermissionView>,
+): string[] {
+  const kis = canonical.kisInvestorFlow;
+  const sampleTrace = summary.entryFilterDecomposition?.candidateTraces?.[0];
+  const dartStatus = formatterUpper(
+    formatterGetByPath(sampleTrace, 'gate2ExternalDataCoverage.dartLineHealth.status') ??
+    formatterGetByPath(sampleTrace, 'gate2ExternalDataCoverage.dartFinancials.status') ??
+    'UNKNOWN',
+  );
+  const perStatus = formatterUpper(formatterGetByPath(sampleTrace, 'gate2ExternalDataCoverage.valuation.per.status') ?? 'UNKNOWN');
+  const perReason = formatterUpper(formatterGetByPath(sampleTrace, 'gate2ExternalDataCoverage.valuation.per.reason') ?? 'NONE');
+  const gate1Final = summary.positiveScoreStarvation?.actualScoreAvg;
+  const gate1Required = summary.positiveScoreStarvation?.requiredScoreAvg;
+  const scoreGap = formatterFiniteNumber(gate1Final) && formatterFiniteNumber(gate1Required)
+    ? (gate1Final - gate1Required).toFixed(1)
+    : 'N/A';
+  const finalScore = formatterFiniteNumber(gate1Final) ? gate1Final.toFixed(1) : 'N/A';
+  const requiredScore = formatterFiniteNumber(gate1Required) ? gate1Required.toFixed(1) : 'N/A';
+  const liveBlocks = [
+    formatterUpper(permissionView.engineMode) === 'SHADOW_ONLY' ? 'SHADOW_ONLY' : '',
+    formatterUpper(permissionView.displaySession).includes('POST') ? 'POST_CLOSE' : '',
+    permissionView.liveOrderAllowed === false ? 'LIVE_ORDER_DENIED' : '',
+  ].filter(Boolean).join('/');
+  const shadowLearningOn = permissionView.shadowAllowed !== false;
+  const counterfactualOn = permissionView.counterfactualAllowed !== false;
+  return [
+    'Bottleneck Truth Summary:',
+    `- Semantic: ${kis.semanticRows}/${kis.totalRows} OK gateScoreEligible=${kis.gateEligibleRows}/${kis.totalRows}`,
+    `- KIS Flow: ${kis.finalGateScoreEligible ? 'VERIFIED' : kis.selectedProviderStatus} provider=${kis.selectedProvider} metadataCarryInvariant=${kis.metadataCarryInvariant}`,
+    `- DART: ${dartStatus || 'UNKNOWN'}`,
+    `- PER: ${perStatus === 'UNAVAILABLE' ? 'highConvictionOnly unavailable' : perStatus} reason=${perReason} entryHardBlock=false`,
+    `- Gate1: score threshold not met finalScoreAvg=${finalScore} required=${requiredScore} gap=${scoreGap}`,
+    '- Gate2: leadership/breakout confirmation not met; Gate1 FAIL rows are NOT_EVALUATED_GATE1_FAIL',
+    `- Live: blockedBy=${liveBlocks || 'NONE'} liveOrderAllowed=${permissionView.liveOrderAllowed}`,
+    `- Shadow/Learning: ${shadowLearningOn ? 'ON' : 'OFF'} counterfactual=${counterfactualOn ? 'ON' : 'OFF'}`,
+    '- classification: wiringRecovered=true marketConditionMissing=true patchNeeded=false',
+    '- operatorMessage=Gate1 기준 미달 우세 - 데이터 배선 문제 아님',
+    '- nextAction=3영업일 forward outcome 관측 후 Gate 기준 검토',
+  ];
+}
+
 function formatRuntimeWiringSummary(
   summary: ScanSummary,
   canonical: CanonicalRuntimeResolutionStep27,
@@ -846,6 +890,8 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   const lines: string[] = [];
   lines.push(`📊 <b>[스캔 진단 요약]</b> 직전 스캔 (${summary.time})`);
   lines.push('━━━━━━━━━━━━━━━━');
+  lines.push(...formatBottleneckTruthSummary(summary, canonicalRuntimeResolution, permissionViewForSummary));
+  lines.push('');
 
   if (mg) {
     lines.push(...buildMacroGateSection(summary, mg));

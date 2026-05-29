@@ -110,8 +110,8 @@ describe('ADR-0464 entry filter decomposition', () => {
   it('Gate1 fail is recorded without removed SELL_ONLY time-window pollution', () => {
     const d = buildEntryFilterDecomposition({
       now,
-      universeCandidates: 1,
-      watchlistCandidates: 1,
+      universeCandidates: 2,
+      watchlistCandidates: 2,
       entries: 0,
       macroGateState: macro({ sellOnlyMode: true }),
       waitDistribution: { dataHold: 0, preBreakout: 0, gateFail: 1, sizingBlocked: 0, driftRemove: 0, corpAction: 0, volumeDrop: 0, other: 0 },
@@ -534,6 +534,8 @@ describe('Gate2 external data Section D/E/G display lanes', () => {
           symbol: 'H1',
           price: 100,
           volume: 1000,
+          gate1Passed: false,
+          gate2Passed: false,
           gate2ExternalDataCoverage: {
             dartFinancials: { status: 'PARTIAL', required: true, stageNotFetched: false },
             dartLineHealth: {
@@ -603,10 +605,10 @@ describe('Gate2 Data Line Health canonical carry (patch: gate2 data line health 
   };
 
   function decomposition(canonicalSupplyStatus: 'VERIFIED' | 'MISSING' = 'MISSING') {
-    return buildEntryFilterDecomposition({
+    const built = buildEntryFilterDecomposition({
       now,
-      universeCandidates: 1,
-      watchlistCandidates: 1,
+      universeCandidates: 2,
+      watchlistCandidates: 2,
       entries: 0,
       macroGateState: macro(),
       // 공급 health 는 MISSING 이라도 canonical 이 VERIFIED 면 KIS_FLOW 는 VERIFIED 여야 한다.
@@ -617,6 +619,27 @@ describe('Gate2 Data Line Health canonical carry (patch: gate2 data line health 
           price: 100,
           volume: 1000,
           gate2ExternalDataCoverage: {
+            kisInvestorFlow: { status: 'VERIFIED' },
+            dartFinancials: { status: 'VERIFIED', required: true, stageNotFetched: false },
+            dartLineHealth: {
+              status: 'VERIFIED',
+              availableFields: ['roe', 'opm', 'ocfToNi', 'icr', 'earningsQuality'],
+              missingFields: [],
+              providerIssue: false,
+            },
+            valuation: { per: { status: 'UNAVAILABLE', source: 'KIS', reason: 'PER_NON_POSITIVE_OR_UNAVAILABLE' } },
+            sectorCycle: { status: 'MISSING' },
+            leaderCycle: { status: 'MISSING' },
+          },
+        },
+        {
+          symbol: 'H2',
+          price: 110,
+          volume: 1200,
+          gate1Passed: true,
+          gate2Passed: false,
+          gate2ExternalDataCoverage: {
+            kisInvestorFlow: { status: 'VERIFIED' },
             dartFinancials: { status: 'VERIFIED', required: true, stageNotFetched: false },
             dartLineHealth: {
               status: 'VERIFIED',
@@ -631,6 +654,17 @@ describe('Gate2 Data Line Health canonical carry (patch: gate2 data line health 
         },
       ],
     });
+    const gate1FailTrace = built.candidateTraces[0] as { gate1Passed?: boolean; gate2Passed?: boolean } | undefined;
+    const gate1PassTrace = built.candidateTraces[1] as { gate1Passed?: boolean; gate2Passed?: boolean } | undefined;
+    if (gate1FailTrace) {
+      gate1FailTrace.gate1Passed = false;
+      gate1FailTrace.gate2Passed = false;
+    }
+    if (gate1PassTrace) {
+      gate1PassTrace.gate1Passed = true;
+      gate1PassTrace.gate2Passed = false;
+    }
+    return built;
   }
 
   it('§A KIS_FLOW 는 canonical finalGateScoreEligible 에서 VERIFIED + gateEligibleRows/apiPath/trId carry', () => {
@@ -662,9 +696,16 @@ describe('Gate2 Data Line Health canonical carry (patch: gate2 data line health 
       { kisInvestorFlow: canonicalKisVerified },
     ) ?? '';
     expect(formatted).toContain('Gate2 Condition Attribution Matrix:');
+    expect(formatted).toContain('gate2EvaluationScope | finalGate2 | upstreamBlocker | gate2DiagnosticPrimary');
+    expect(formatted).toContain('NOT_EVALUATED_GATE1_FAIL');
+    expect(formatted).toContain('GATE1_FAIL');
+    expect(formatted).toContain('DATA_INCOMPLETE_HIGH_CONVICTION_ONLY');
     expect(formatted).toContain('Gate2 DataLine Invariants:');
     expect(formatted).toContain('[OK] KIS_FLOW_CARRY');
     expect(formatted).toContain('[OK] DART_STATUS_CARRY');
+    expect(formatted).toContain('[OK] PER_UNAVAILABLE_HIGH_CONVICTION_ONLY_NOT_ENTRY_BLOCK');
+    expect(formatted).toContain('[OK] OPTIONAL_PROGRAM_TRADE_NOT_BLOCKING');
+    expect(formatted).toContain('[OK] DIAGNOSTIC_MISSING_NOT_MARKET_SIGNAL');
     expect(formatted).toContain('[OK] SHADOW_LEARNING_CONTINUITY');
   });
 

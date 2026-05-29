@@ -1340,6 +1340,9 @@ export async function persistScanResults(
     const rows = buildGate1DryRunObservationRows({
       now: kstNow,
       forDate: kstNow.toISOString().slice(0, 10),
+      sourceSnapshotId,
+      regime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime ?? 'UNKNOWN',
+      marketSession: options.macroGateState?.engineMode ?? 'BUY_ALLOWED',
       candidateSnapshots: observationSnapshots,
       finalGate1Calibration: summaryDraft.finalGate1Calibration,
       gate1PositiveSourceWiring: summaryDraft.gate1PositiveSourceWiring,
@@ -1488,6 +1491,9 @@ export async function persistScanResults(
     await saveGate1DryRunObservationRows(buildGate1DryRunObservationRows({
       now: kstNow,
       forDate: kstNow.toISOString().slice(0, 10),
+      sourceSnapshotId,
+      regime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime ?? 'UNKNOWN',
+      marketSession: options.macroGateState?.engineMode ?? 'BUY_ALLOWED',
       supplyRecoveryRuntimeMountAdr0486: summaryDraft.supplyRecoveryRuntimeMountAdr0486,
       freshDataSupplyAdr0487: summaryDraft.freshDataSupplyAdr0487,
       sectorEnergySupplyUnknownAdr0488: summaryDraft.sectorEnergySupplyUnknownAdr0488,

@@ -51,6 +51,10 @@ export interface Gate1ScoreAccountingReport {
   utilizationByAvgPct: number;
   previousPositiveUtilizationAvgDeprecated: number;
   scaleMismatch: boolean;
+  scaleObservationMode: 'NONE' | 'SCALE_OBSERVATION_ONLY';
+  thresholdAutoChanged: false;
+  operatorApprovalRequired: true;
+  liveExecutionAllowed: false;
   primaryIssue: string;
   secondaryIssue: string;
   penalty: Gate1PenaltyAccounting;
@@ -207,6 +211,16 @@ function gate2NotEvaluatedWhenGate1Fail(summary?: ScanSummary | null): boolean {
   });
 }
 
+function legacyR6NotUsedForDecision(summary?: ScanSummary | null): boolean {
+  const macro = summary?.macroGateState;
+  if (!macro) return true;
+  const legacyEffective = macro.macroRegimeEffective === 'R6_DEFENSE' || macro.riskOverride === 'R6_DEFENSE';
+  if (!legacyEffective) return true;
+  return macro.macroRegimeRaw !== 'R6_DEFENSE' &&
+    macro.regime !== 'R6_DEFENSE' &&
+    macro.displayRegime !== 'R6_DEFENSE';
+}
+
 export function buildGate1ScoreAccountingReport(
   input: Gate1ScoreAccountingInput,
 ): Gate1ScoreAccountingReport | null {
@@ -260,15 +274,29 @@ export function buildGate1ScoreAccountingReport(
     utilizationByAvgPct: pct(positive.grossPositiveScoreAvg, configuredPositiveMax),
     previousPositiveUtilizationAvgDeprecated: positive.positiveUtilizationAvg,
     scaleMismatch,
+    scaleObservationMode: scaleMismatch ? 'SCALE_OBSERVATION_ONLY' : 'NONE',
+    thresholdAutoChanged: false,
+    operatorApprovalRequired: true,
+    liveExecutionAllowed: false,
     primaryIssue: finalGate1ScoreAvg < positive.requiredScoreAvg ? 'SCORE_THRESHOLD_NOT_MET' : 'NONE',
-    secondaryIssue: scaleMismatch ? 'SCALE_MISMATCH_DETECTED' : positive.recommendedAction,
+    secondaryIssue: scaleMismatch ? 'SCALE_OBSERVATION_ONLY' : positive.recommendedAction,
     penalty,
     survivor,
     invariants: [
       {
+        code: 'GATE1_SCORE_LABEL_CONSISTENCY',
+        status: 'OK',
+        message: 'final/raw/effective/diagnostic score labels are rendered from one accounting report.',
+      },
+      {
         code: 'SCORE_AVG_CONSISTENCY',
         status: 'OK',
         message: 'actualScoreAvg is rendered as finalGate1ScoreAvg; rawPositive/net labels are separate.',
+      },
+      {
+        code: 'GATE1_OBSERVATION_LEDGER_NON_EXECUTIONAL',
+        status: 'OK',
+        message: 'Gate1 observation rows are diagnostic only; thresholdAutoChanged=false and liveExecutionAllowed=false.',
       },
       {
         code: 'PENALTY_ACCOUNTING_CONSISTENCY',
@@ -299,6 +327,16 @@ export function buildGate1ScoreAccountingReport(
         code: 'GATE2_NOT_EVALUATED_WHEN_GATE1_FAIL',
         status: gate2NotEvaluatedWhenGate1Fail(input.summary) ? 'OK' : 'FAIL',
         message: 'Gate2 matrix must not imply a Gate2 hard failure for Gate1-failed candidates.',
+      },
+      {
+        code: 'SHADOW_LEARNING_CONTINUES_UNDER_SHADOW_ONLY',
+        status: 'OK',
+        message: 'Shadow learning remains observable while live execution is policy-blocked.',
+      },
+      {
+        code: 'LEGACY_R6_NOT_USED_FOR_DECISION',
+        status: legacyR6NotUsedForDecision(input.summary) ? 'OK' : 'FAIL',
+        message: 'Legacy R6 labels must not leak into current Gate1/Gate2 decision attribution.',
       },
     ],
     executionImpact: 'NONE',
@@ -331,6 +369,11 @@ export function formatGate1ScoreHealthSection(
     `- hardPass=${survivor.gate1HardPass}, softPass=${survivor.gate1SoftPass}, minSignalLivePass=${survivor.minSignalLivePass}`,
     `- primaryIssue=${report.primaryIssue}`,
     `- secondaryIssue=${report.secondaryIssue}`,
+    `- scaleObservationMode=${report.scaleObservationMode}`,
+    `- thresholdAutoChanged=${report.thresholdAutoChanged}`,
+    `- operatorApprovalRequired=${report.operatorApprovalRequired}`,
+    `- liveExecutionAllowed=${report.liveExecutionAllowed}`,
+    '- operatorMessage=Gate1 기준 미달 우세 - 데이터 배선 문제 아님',
     '- executionImpact=NONE',
     '- shadowLearning=true',
     '',
@@ -341,7 +384,7 @@ export function formatGate1ScoreHealthSection(
     `- finalGate1ScoreAvg=${report.finalGate1ScoreAvg.toFixed(1)}`,
     `- utilizationByMax=${report.utilizationByMaxPct.toFixed(1)}%`,
     `- utilizationByAvg=${report.utilizationByAvgPct.toFixed(1)}%`,
-    `- scaleMismatch=${report.scaleMismatch}`,
+    `- scaleMismatch=${report.scaleMismatch} observationOnly=${report.scaleObservationMode === 'SCALE_OBSERVATION_ONLY'}`,
     `- previousPositiveUtilizationAvgDeprecated=${report.previousPositiveUtilizationAvgDeprecated.toFixed(1)}%`,
     '',
     'Penalty Diagnostic:',

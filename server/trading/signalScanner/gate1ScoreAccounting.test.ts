@@ -224,6 +224,9 @@ describe('Gate1 score accounting diagnostic consistency', () => {
     expect(accounting?.utilizationByMaxPct).toBe(52.4);
     expect(accounting?.utilizationByAvgPct).toBe(27.5);
     expect(accounting?.scaleMismatch).toBe(true);
+    expect(accounting?.scaleObservationMode).toBe('SCALE_OBSERVATION_ONLY');
+    expect(accounting?.thresholdAutoChanged).toBe(false);
+    expect(accounting?.operatorApprovalRequired).toBe(true);
     expect(accounting?.survivor.liveCandidateAfterGate1).toBe(1);
     expect(accounting?.survivor.diagnosticSurvivor).toBe(7);
     expect(accounting?.invariants.every((item) => item.status === 'OK')).toBe(true);
@@ -232,7 +235,11 @@ describe('Gate1 score accounting diagnostic consistency', () => {
     expect(text).toContain('finalScoreAvg=53.5 / required=70.0 / gap=-16.5');
     expect(text).toContain('diagnosticPenaltyAvg=23.0, diagnosticRemoved=13.0, gateScoreImpact=0.0');
     expect(text).toContain('utilizationByMax=52.4%');
-    expect(text).toContain('scaleMismatch=true');
+    expect(text).toContain('scaleObservationMode=SCALE_OBSERVATION_ONLY');
+    expect(text).toContain('thresholdAutoChanged=false');
+    expect(text).toContain('operatorApprovalRequired=true');
+    expect(text).toContain('scaleMismatch=true observationOnly=true');
+    expect(text).toContain('[OK] GATE1_OBSERVATION_LEDGER_NON_EXECUTIONAL');
     expect(text).toContain('[OK] PENALTY_ACCOUNTING_CONSISTENCY');
     expect(text).toContain('[OK] GATE2_NOT_EVALUATED_WHEN_GATE1_FAIL');
   });

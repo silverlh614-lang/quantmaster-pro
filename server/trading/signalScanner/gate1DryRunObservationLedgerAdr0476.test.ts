@@ -188,8 +188,13 @@ function snapshots(): CandidateSnapshot[] {
       symbol: '005930',
       name: 'Samsung',
       gateScore: 65.2,
+      gateRawScore: 68.2,
       minSignalRequiredScore: 70,
       gate1Passed: false,
+      minSignalScorePassed: false,
+      breakoutScore: 2,
+      rsRankPct: 72,
+      return5d: 1.8,
       supplyProviderHealth: { providerIssue: true, marketSignal: false },
       sectorEnergyState: 'DIAGNOSTIC_ONLY',
     },
@@ -197,8 +202,13 @@ function snapshots(): CandidateSnapshot[] {
       symbol: '000660',
       name: 'SK hynix',
       gateScore: 61,
+      gateRawScore: 61,
       minSignalRequiredScore: 70,
       gate1Passed: false,
+      minSignalScorePassed: false,
+      breakoutScore: 0,
+      rsRankPct: 51,
+      return5d: -0.3,
       supplyProviderHealth: { providerIssue: true, marketSignal: false },
     },
   ];
@@ -249,6 +259,34 @@ describe('ADR-0476 Gate1 Dry-run Observation Ledger', () => {
     const nearMiss = rows.find((item) => item.source === 'GATE1_NEAR_MISS');
     expect(nearMiss?.scoreGap).toBeGreaterThanOrEqual(-5);
     expect(nearMiss?.dryRunDecision).toBe('NEAR_MISS');
+  });
+
+  it('emits Gate1 Score Observation Ledger v2 fields as non-executional evidence', () => {
+    const rows = buildGate1DryRunObservationRows({
+      forDate: '2026-05-09',
+      sourceSnapshotId: 'scan-eval:test-001',
+      regime: 'R3_EARLY',
+      marketSession: 'POST_CLOSE',
+      candidateSnapshots: snapshots(),
+      sellOnly: true,
+      providerIssue: false,
+      marketSignal: false,
+    });
+    const row = rows.find((item) => item.source === 'GATE1_SCORE_OBSERVATION_V2' && item.symbol === '005930');
+    expect(row?.sourceSnapshotId).toBe('scan-eval:test-001');
+    expect(row?.regime).toBe('R3_EARLY');
+    expect(row?.marketSession).toBe('POST_CLOSE');
+    expect(row?.finalGate1Score).toBe(65.2);
+    expect(row?.rawPositiveScore).toBe(68.2);
+    expect(row?.effectivePenaltyScore).toBe(3);
+    expect(row?.diagnosticPenaltyScore).toBe(0);
+    expect(row?.scoreBand).toBe('65~70');
+    expect(row?.shadowObservable).toBe(true);
+    expect(row?.counterfactualEligible).toBe(true);
+    expect(row?.thresholdAutoChanged).toBe(false);
+    expect(row?.operatorApprovalRequired).toBe(true);
+    expect(row?.liveExecutionAllowed).toBe(false);
+    expect(row?.executionImpact).toBe('NONE');
   });
 
   it('dedupes same forDate+symbol+source+scenario while preserving createdAt', async () => {
@@ -302,6 +340,9 @@ describe('ADR-0476 Gate1 Dry-run Observation Ledger', () => {
     expect(section).toContain('liveExecutionAllowed: false');
     expect(section).not.toMatch(/<b>|<i>|<code>/);
     expect(message).toContain('Gate1 Threshold Evidence');
+    expect(message).toContain('Bottleneck Truth Summary:');
+    expect(message).toContain('Gate1 FAIL rows are NOT_EVALUATED_GATE1_FAIL');
+    expect(message).toContain('Shadow/Learning:');
     expect(message).toContain('scoreBandTable:');
     expect(message).toContain('70+:');
     expect(message).toContain('65~70:');
