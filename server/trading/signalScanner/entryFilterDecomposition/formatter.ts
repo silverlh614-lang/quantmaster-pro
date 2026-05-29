@@ -228,6 +228,8 @@ function formatGate2ExternalDataStageSection(d: EntryFilterDecomposition): strin
     leaderStatus,
     leaderSourceTier,
     programStatus: program.status,
+    // KIS_FLOW 는 권위 출처(supplyProviderHealth.status)에서 파생. 미가용 시 UNKNOWN(하드코딩 VERIFIED 금지).
+    kisFlowStatus: stringValue(d.supplyProviderHealth?.status, 'UNKNOWN'),
     external,
   }));
   return lines;
@@ -244,6 +246,7 @@ function formatGate2DataLineHealthSection(input: {
   leaderStatus: string;
   leaderSourceTier: string;
   programStatus: string;
+  kisFlowStatus: string;
   external: Record<string, unknown> | undefined;
 }): string[] {
   const dartFields = dartLineFields(input.external);
@@ -259,7 +262,9 @@ function formatGate2DataLineHealthSection(input: {
   const programLine = input.programStatus === 'MISSING' ? 'MISSING' : input.programStatus;
   return [
     'Gate2 Data Line Health:',
-    '- KIS_FLOW: VERIFIED (상세는 KIS Router Eligibility 참조)',
+    // PR#1310 리뷰(P2) 정합: KIS_FLOW 는 supplyProviderHealth.status 에서 파생(하드코딩 VERIFIED 금지).
+    // 투자흐름 row 가 없을 때(MISSING/EMPTY/ERROR 등) VERIFIED 로 오표시하지 않는다 — 상세는 KIS Router Eligibility 참조.
+    `- KIS_FLOW: ${input.kisFlowStatus} (상세는 KIS Router Eligibility 참조)`,
     `- DART_FINANCIALS: ${dartLineStatus} availableFields=${dartFields.available} missingFields=${dartFields.missing}`,
     `- VALUATION_PER: ${valuationLine} source=${input.valuationSource} reason=${valuationReason}`,
     `- PROGRAM_TRADE: ${programLine} optional=true`,
