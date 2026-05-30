@@ -185,6 +185,20 @@ describe('TwinRankingCard', () => {
     render(<TwinRankingCard data={data} loading={false} error={null} />);
     expect(screen.getByText(/promotion/)).toBeDefined();
   });
+
+  it('Twin closedCount 0 → "+0.00%" 가짜 표기 대신 "표본 수집 중" 노출', () => {
+    // makeTwinResponse 기본값은 3 twin 모두 closedCount=0 (빈 데이터)
+    const data = makeTwinResponse({ totalCount: 0 });
+    render(<TwinRankingCard data={data} loading={false} error={null} />);
+    // 3 twin 모두 표본 없음 → empty 노출
+    expect(screen.getByTestId('twin-1-empty').textContent).toContain('표본 수집 중');
+    expect(screen.getByTestId('twin-2-empty').textContent).toContain('표본 수집 중');
+    expect(screen.getByTestId('twin-3-empty').textContent).toContain('표본 수집 중');
+    // 가짜 Sharpe 0.00 표기가 없어야 함 (Sharpe 는 Twin 행에서만 출력)
+    expect(screen.queryByText(/Sharpe 0\.00/)).toBeNull();
+    // CURRENT(LIVE) 한 줄만 진짜 데이터 → 안내 노트 노출
+    expect(screen.getByTestId('twin-no-samples-note')).toBeDefined();
+  });
 });
 
 // ── OverStrictCard ─────────────────────────────────────────────────────────────
@@ -199,10 +213,10 @@ describe('OverStrictCard', () => {
     expect(screen.getByText(/비활성/)).toBeDefined();
   });
 
-  it('NO_DATA 상태 → PR-F-2 후속 안내', () => {
+  it('NO_DATA 상태 → 표본 누적 대기 안내', () => {
     const data = makeAttributionResponse({ status: 'NO_DATA' });
     render(<OverStrictCard data={data} loading={false} error={null} />);
-    expect(screen.getByText(/PR-F-2/)).toBeDefined();
+    expect(screen.getByText(/표본이 누적/)).toBeDefined();
   });
 
   it('over_strict_candidate 표시 — overStrictCount 내림차순', () => {
@@ -257,9 +271,9 @@ describe('GoodDefenseCard', () => {
     expect(screen.getByTestId('good-defense-16')).toBeDefined();
   });
 
-  it('NO_DATA → PR-F-2 안내', () => {
+  it('NO_DATA → 표본 누적 대기 안내', () => {
     const data = makeAttributionResponse({ status: 'NO_DATA' });
     render(<GoodDefenseCard data={data} loading={false} error={null} />);
-    expect(screen.getByText(/PR-F-2/)).toBeDefined();
+    expect(screen.getByText(/표본이 누적/)).toBeDefined();
   });
 });

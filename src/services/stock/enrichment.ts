@@ -489,6 +489,8 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     let krxInvestorTrend: { institutionNet5d: number; sampleSize: number } | null = null;
     // ADR-0156: Yahoo 컨센서스 — Phase 4 #13/#14 격상 입력 (옵션 A 변형)
     let yahooConsensus: { recommendationStrength: number | null; earningsSurpriseAvg: number | null; source: 'yahoo' | 'unavailable' } | null = null;
+    // Naver 모바일 snapshot — closePrice 우선 사용을 위해 블록 밖으로 hoist.
+    let naverSnap: Awaited<ReturnType<typeof fetchAiUniverseSnapshot>> | null = null;
     const isKoreanStock = /^\d{6}$/.test(stock.code.split('.')[0]);
     if (isKoreanStock) {
       const baseCode = stock.code.split('.')[0];
@@ -496,7 +498,8 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       // `foreignerOwnRatio` 만 유지. 일별 순매수·공매도 잔고는 AI 프롬프트가 자체
       // 판단(PR-13 정렬 유지). 자동매매는 그대로 server/clients/kisClient.ts 사용.
       // Naver 는 DART 가 제공하지 않는 시장가 기반 PER/PBR/시총 만 보강 (2순위).
-      const snap = await fetchAiUniverseSnapshot(baseCode);
+      naverSnap = await fetchAiUniverseSnapshot(baseCode);
+      const snap = naverSnap;
       // ADR-0152: 외인 추세 fetch — 영속 부재 시 null fallback (호출자 stock.checklist 보존)
       try { foreignerTrend = await fetchForeignerRatioTrend(baseCode); }
       catch { /* SDS-ignore: 추세 fetch 실패 시 fallback */ }
@@ -514,9 +517,23 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       krxValuation = await fetchKrxValuation(baseCode);
     }
 
-    // Fix 2 — AI 응답 토큰 절단으로 targetPrice/stopLoss/entryPrice 가 0 으로 남는
-    // 경우를 실시간 현재가 기반 기본값으로 보정. 이미 유효값이 있으면 그대로 사용.
-    const resolvedPrice = currentPrice || stock.currentPrice || 0;
+    // ─── 가격 SSOT — Yahoo 신뢰 철회 (사용자 정책) ─────────────────────────
+    // Yahoo 1년 일봉의 마지막 종가는 split/통화/티커 매핑 오차로 ~10배 왜곡
+    // (예: SK하이닉스 ₩1.86M) 사례가 발견되어 더 이상 currentPrice 의 권위 있는
+    // 출처로 사용하지 않는다. Naver 모바일 snapshot.closePrice 가 있으면 NAVER
+    // (L3 DEGRADED), 없으면 STALE(마지막 알려진 값 유지) — Yahoo 일봉 fallback 금지.
+    // 실시간 KIS 시세는 priceSync('REALTIME') 경로에서만 덮어쓴다.
+    // Yahoo OHLCV(1년 일봉 closes/highs/lows/volumes)는 RSI/MACD/Bollinger/VCP 등
+    // 모양(shape) 기반 기술적 지표 계산에 한해 사용한다 (절대값 표시 X).
+    const naverPriceCandidate = naverSnap?.closePrice && naverSnap.closePrice > 0
+      ? naverSnap.closePrice
+      : null;
+    const priceFromNaver = naverPriceCandidate !== null;
+    const resolvedCurrentPrice = priceFromNaver
+      ? (naverPriceCandidate as number)
+      : (stock.currentPrice && stock.currentPrice > 0 ? stock.currentPrice : 0);
+    // applyTradingFieldFallbacks 는 가격이 있을 때만 의미가 있다.
+    const resolvedPrice = resolvedCurrentPrice;
     const fallbackFields = applyTradingFieldFallbacks(
       { targetPrice: stock.targetPrice, targetPrice2: stock.targetPrice2,
         entryPrice: stock.entryPrice, stopLoss: stock.stopLoss },
@@ -525,16 +542,17 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
 
     const enriched: StockRecommendation = {
       ...stock,
-      currentPrice: currentPrice || stock.currentPrice,
+      currentPrice: resolvedCurrentPrice || stock.currentPrice,
       targetPrice:  fallbackFields.targetPrice  ?? stock.targetPrice,
       targetPrice2: fallbackFields.targetPrice2 ?? stock.targetPrice2,
       entryPrice:   fallbackFields.entryPrice   ?? stock.entryPrice,
       stopLoss:     fallbackFields.stopLoss     ?? stock.stopLoss,
-      // 탐색 enrichment 가격은 Yahoo 1년 일봉의 마지막 종가(closes[last])다 — KIS 실시간이
-      // 아니다(ADR-0011 로 탐색 경로 KIS 호출 제거). 'YAHOO'(DEGRADED, "Yahoo 참고")로
-      // 정직하게 표기. 실시간 시세는 KIS 동기화(priceSync 'REALTIME') 경로에서만 부여된다.
-      dataSourceType: 'YAHOO',
-      priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (Yahoo 일봉)`,
+      // dataSourceType 정직 표기: Naver closePrice 사용 시 'NAVER', 미확보 시 'STALE'.
+      // 'YAHOO' 는 더 이상 부여하지 않는다 (사용자 정책: Yahoo 신뢰 철회).
+      dataSourceType: priceFromNaver ? 'NAVER' : 'STALE',
+      priceUpdatedAt: priceFromNaver
+        ? `${new Date().toLocaleTimeString('ko-KR')} (Naver 모바일)`
+        : `${new Date().toLocaleTimeString('ko-KR')} (Naver 미확보 · 마지막 값 유지)`,
       supplyData: kisSupply || stock.supplyData,
       shortSelling: kisShort || stock.shortSelling,
       technicalSignals: {

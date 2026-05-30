@@ -111,9 +111,10 @@ export function classifyDataQuality(stock: StockRecommendation): DataQualityCoun
   }
 
   // 가격 출처 1 항목 — 5-tier 자동 사다리 (STALE 분리)
+  // NAVER 는 L3(KRX 시세 직접 fetch) 로 YAHOO 와 동일한 'api' 등급으로 분류한다.
   const dataSourceType = stock.dataSourceType;
   if (dataSourceType === 'REALTIME') computed += 1;
-  else if (dataSourceType === 'YAHOO') api += 1;
+  else if (dataSourceType === 'YAHOO' || dataSourceType === 'NAVER') api += 1;
   else if (dataSourceType === 'STALE') delayed += 1;
   else aiInferred += 1; // AI / undefined → 보수적 estimated
 

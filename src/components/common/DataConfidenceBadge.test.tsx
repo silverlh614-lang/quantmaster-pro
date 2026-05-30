@@ -40,8 +40,15 @@ describe('DataConfidenceBadge', () => {
     const { container, rerender } = render(<ConfidenceBadge type="REALTIME" />);
     expect(container.querySelector('[data-confidence]')?.getAttribute('data-confidence')).toBe('VERIFIED');
 
-    rerender(<ConfidenceBadge type="YAHOO" />);
+    rerender(<ConfidenceBadge type="NAVER" />);
     expect(container.querySelector('[data-confidence]')?.getAttribute('data-confidence')).toBe('DEGRADED');
+    expect(container.textContent).toContain('Naver 시세');
+
+    // YAHOO 는 사용자 정책상 신뢰 철회 — 잔존 데이터 호환을 위해 매핑은 유지하되
+    // STALE 등급으로 강등 표기 ("Yahoo (사용 중단)").
+    rerender(<ConfidenceBadge type="YAHOO" />);
+    expect(container.querySelector('[data-confidence]')?.getAttribute('data-confidence')).toBe('STALE');
+    expect(container.textContent).toContain('사용 중단');
 
     rerender(<ConfidenceBadge type="AI" />);
     expect(container.querySelector('[data-confidence]')?.getAttribute('data-confidence')).toBe('AI_ESTIMATED');

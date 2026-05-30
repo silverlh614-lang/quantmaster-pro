@@ -115,7 +115,7 @@ export function buildUniverseRuleLine(
     sourceStatus === 'ERROR' ||
     sourceStatus === 'NO_MATCHES'
   ) {
-    return '[후보군 — 마지막 거래일 기준 정량 데이터(Yahoo/Naver/KRX 캐시) 기반 후보군. 뉴스·촉매제 검색은 일시적으로 비활성화 상태이다. 이 목록을 우선 고려하되 학습 지식 확장 허용. 6자리 종목코드는 실존 값만.]';
+    return '[후보군 — 마지막 거래일 기준 정량 데이터(Naver/KRX 캐시) 기반 후보군. 뉴스·촉매제 검색은 일시적으로 비활성화 상태이다. 이 목록을 우선 고려하되 학습 지식 확장 허용. 6자리 종목코드는 실존 값만.]';
   }
 
   // sourceStatus 미제공 (구버전 서버) — 기존 분기 유지 (호환)
@@ -468,7 +468,7 @@ ${preFilledBlock || '      (사전 수집 데이터 없음)'}
       8. **[엄격한 평가 원칙]** 단순히 '좋아 보인다'는 이유로 BUY를 주지 마라. 위 기준을 '보수적'으로 적용하여 데이터가 확실할 때만 긍정적 의견을 제시하라.
       9. **[수치 필드 처리]** currentPrice 는 0으로 두라(enrichment가 실시간 시세로 덮어쓴다). 다만 valuation.per/pbr 및 시가총액은 위 [후보군] 라인에 주입된 KRX 실데이터 값(PER/PBR/시총)을 그대로 사용하라. PER/PBR 이 N/A 또는 부재한 종목만 0으로 두며, 학습지식 기반 추정은 금지한다.
       10. **[트레이딩 전략 수립]** 각 종목에 대해 현재가 기준 최적의 '진입가(entryPrice)', '손절가(stopLoss)', '1차 목표가(targetPrice)', '2차 목표가(targetPrice2)'를 기술적 분석(지지/저항, 피보나치 등)을 통해 비율 기반으로 산출하라. 절대치 추정 어려우면 0으로 두면 enrichment가 보정한다.
-      11. **[데이터 출처 명시]** 'dataSource' 필드는 실제 사전 수집 출처만 명시하라(예: "Yahoo/Naver 사전수집 + Gemini 선정"). 가격·지표는 Yahoo OHLCV·Naver snapshot 에서 오므로, 호출하지 않은 KIS 를 출처로 표기하지 마라.
+      11. **[데이터 출처 명시]** 'dataSource' 필드는 실제 사전 수집 출처만 명시하라(예: "Naver 사전수집 + Gemini 선정"). 현재가는 Naver 모바일 snapshot 에서 오고, 1년 일봉 OHLCV 는 기술적 지표 계산(RSI/MACD/Bollinger/VCP — 모양 기반)에만 사용된다. Yahoo 절대값은 더 이상 신뢰하지 않으므로 'Yahoo 사전수집' 라벨을 쓰지 마라. 호출하지 않은 KIS 도 출처로 표기하지 마라.
       12. **[글로벌 ETF 모니터링]** 'globalEtfMonitoring' 필드는 빈 배열 []로 두라. (별도 ETF 모니터링 파이프라인이 채운다)
       12-1. **[환율/국채 데이터]** 위 [사전 수집 거시지표]의 USD/KRW 환율과 10년물 금리를 그대로 사용하라. 'exchangeRate': { "value": 환율숫자, "change": 0 }, 'bondYield': { "value": 금리숫자, "change": 0 } 형식.
       13. **[장세 전환 감지]** 현재 시장의 주도 섹터가 바뀌고 있는지(Regime Shift)를 판단하여 'regimeShiftDetector' 필드에 반영하라.
