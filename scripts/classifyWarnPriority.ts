@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { P5Reason, P5_REASON_CODES } from './warnIgnorePatterns.ts';
+import { P5_REASON_CODES, type P5Reason } from './warnIgnorePatterns.ts';
 
 export type WarnClassification =
   | {
