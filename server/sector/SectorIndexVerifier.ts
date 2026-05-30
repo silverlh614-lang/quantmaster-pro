@@ -279,7 +279,7 @@ export interface SectorIndexQualityResult {
   valueQualityStatus: KisSectorIndexValueQualityStatus;
   currentIndex: number | null;
   qualityUsable: boolean;
-  qualityReason: 'OK' | 'CURRENT_INDEX_ZERO' | 'VALUE_PARSE_FAILED' | 'STALE';
+  qualityReason: 'OK' | 'CURRENT_INDEX_ZERO' | 'VALUE_PARSE_FAILED' | 'STALE' | 'SESSION_CLOSED';
   useForShadowLeadership: true;
   useForLivePromotion: boolean;
   executionImpact: 'NONE';
@@ -467,6 +467,8 @@ function resolveValueQualityStatus(input: {
   apiTransportSuccess: boolean;
   indexValueUsable: boolean;
 }): KisSectorIndexValueQualityStatus {
+  // 휴장/세션닫힘은 verify 를 건너뛴 상태 — transport/parse 실패가 아니라 NOT_ATTEMPTED 다 (ADR-0544 후속).
+  if (input.result.reasonCode === 'SECTOR_INDEX_MARKET_CLOSED') return 'NOT_ATTEMPTED';
   if (input.result.valueQualityStatus) return input.result.valueQualityStatus;
   if (input.attempt?.valueQualityStatus) return input.attempt.valueQualityStatus;
   if (input.indexValueUsable) return 'USABLE';
@@ -494,8 +496,9 @@ function buildSectorIndexQuality(results: readonly OfficialSectorIndexVerifyResu
     seen.add(key);
     const qualityReason: SectorIndexQualityResult['qualityReason'] =
       valueQualityStatus === 'USABLE' ? 'OK'
-        : valueQualityStatus === 'VALUE_QUALITY_ZERO' || currentIndex === 0 ? 'CURRENT_INDEX_ZERO'
-          : 'VALUE_PARSE_FAILED';
+        : valueQualityStatus === 'NOT_ATTEMPTED' || result.reasonCode === 'SECTOR_INDEX_MARKET_CLOSED' ? 'SESSION_CLOSED'
+          : valueQualityStatus === 'VALUE_QUALITY_ZERO' || currentIndex === 0 ? 'CURRENT_INDEX_ZERO'
+            : 'VALUE_PARSE_FAILED';
     const qualityUsable = indexValueUsable;
     qualityRows.push({
       sectorName: result.sectorName,
@@ -700,7 +703,8 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     result,
   ]));
   const verifySuccessCount = verificationResults.filter((result) => result.verified).length;
-  const verifyFailCount = verificationResults.length - verifySuccessCount;
+  // 휴장/세션닫힘은 verify 를 호출하지 않은 SKIPPED 상태 — fail 로 집계하지 않는다 (ADR-0544 후속, display 정합).
+  const verifyFailCount = marketClosed ? 0 : verificationResults.length - verifySuccessCount;
   const verifyAttemptDetails = verificationResults.flatMap((result) => result.attempts ?? []);
   const verifyVariantAttemptCount = verifyAttemptDetails.length || verificationResults.length;
   const verifyVariantPolicy = verificationResults.find((result) => result.verifyVariantPolicy)?.verifyVariantPolicy;
