@@ -850,7 +850,10 @@ const scanBlockers: TelegramCommand = {
               ? 'REJECT_MARKET_LEVEL_FLOW_FOR_SYMBOL_SCORE'
               : (forensic.zeroButMaterializedCount ?? 0) > 0
                 ? 'OBSERVE_ZERO_NEUTRAL_SUPPLY'
-                : 'WIRE_KIS_INVESTOR_FLOW_NETBUY_FIELDS';
+                // gateEligibleRows>0 이면 netbuy 필드는 이미 배선·동작 중 — 잔여는 shadowOnly row 관측 대상이지 미배선이 아니다.
+                : canonicalKis.gateEligibleRows > 0
+                  ? 'OBSERVE_REMAINING_SHADOW_ONLY_ROW'
+                  : 'WIRE_KIS_INVESTOR_FLOW_NETBUY_FIELDS';
         supplySemanticAuditSection = [
           '🔌 KIS Investor Flow Semantic Row',
           `• selectedProvider: ${canonicalKis.selectedProvider}`,
