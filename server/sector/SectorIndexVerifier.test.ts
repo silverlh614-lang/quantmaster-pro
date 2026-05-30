@@ -842,6 +842,15 @@ describe('SectorIndexVerifier', () => {
     // 인증장애처럼 보이던 근본원인. providerIssue=false 가 보존되어야 한다 (불변식 #6).
     expect(result.kisIndexQuoteClientStatus).toBeUndefined();
     expect(result.providerIssue).toBe(false);
+    // ADR-0544 후속: 휴장 스킵은 verify 실패가 아니다 — verifyFailCount=0 (호출 안 함).
+    expect(result.verifyFailCount).toBe(0);
+    // 휴장 스킵 row 는 transport/parse 실패가 아니라 NOT_ATTEMPTED / SESSION_CLOSED 로 분류한다.
+    for (const row of result.sectorIndexQuality ?? []) {
+      expect(row.valueQualityStatus).toBe('NOT_ATTEMPTED');
+      expect(row.qualityReason).toBe('SESSION_CLOSED');
+      expect(row.valueQualityStatus).not.toBe('API_TRANSPORT_FAILED');
+      expect(row.qualityReason).not.toBe('VALUE_PARSE_FAILED');
+    }
   });
 
   it('surfaces KRX/theme index names as themeIndexCandidates for unmapped-sector mapping diagnosis', async () => {

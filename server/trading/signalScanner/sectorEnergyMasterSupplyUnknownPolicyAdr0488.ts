@@ -1252,9 +1252,14 @@ function formatSectorEnergyPolicyViewsAdr0488(
     legacyStrongBuyAllowedDiagnosticOnly: sector.strongBuyAllowed,
     legacySelectedSourceTierDiagnosticOnly: sector.selectedSectorEnergySourceTier,
   }, canonical);
+  // ADR-0544 후속: 휴장/세션닫힘은 verify 미호출 상태 — promotionCoverage 0% 가 아니라 N/A_SESSION_CLOSED 로 표시(운영자 오해 차단).
+  const sessionClosed = canonical.sectorIndexVerifyMode === 'VERIFY_SKIPPED_SESSION_CLOSED';
+  const promotionCoverageDisplay = sessionClosed
+    ? 'N/A_SESSION_CLOSED'
+    : pct(locked.promotionCoverage * 100);
   return [
     'SectorEnergy Views:',
-    `officialIndexView: sourceOfTruth=${locked.sourceOfTruth} status=${officialStatus} officialSectorCount=${locked.officialSectorCount} verifiedOfficialSectorCount=${locked.verifiedOfficialSectorCount} promotionCoverage=${pct(locked.promotionCoverage * 100)} requiredPromotionCoverage=${pct(locked.requiredPromotionCoverage * 100)} promotionCoveragePass=${locked.promotionCoveragePass} useForLivePromotion=${locked.promotionAllowed} useForUnsafeAliasLivePromotion=false reason=${locked.reason} executionImpact=${locked.executionImpact}`,
+    `officialIndexView: sourceOfTruth=${locked.sourceOfTruth} status=${officialStatus} officialSectorCount=${locked.officialSectorCount} verifiedOfficialSectorCount=${sessionClosed ? 'N/A_SESSION_CLOSED' : locked.verifiedOfficialSectorCount} promotionCoverage=${promotionCoverageDisplay} requiredPromotionCoverage=${pct(locked.requiredPromotionCoverage * 100)} promotionCoveragePass=${locked.promotionCoveragePass} useForLivePromotion=${locked.promotionAllowed} useForUnsafeAliasLivePromotion=false reason=${locked.reason} executionImpact=${locked.executionImpact}`,
     `officialIndexDiagnostic: officialTargetCoverage=${officialCoverage} safeOfficialVerifiedCoverage=${safeCoverage} unsafeExcluded=${unsafeExcluded} legacyPromotionAllowedDiagnosticOnly=${locked.legacyPromotionAllowedDiagnosticOnly} legacySelectedSourceTierDiagnosticOnly=${locked.legacySelectedSourceTierDiagnosticOnly}`,
     `internalGroupedView: status=AVAILABLE groupedValidSectorCount=${groupedCount} diagnosticOnly=true useForShadowEvidence=true useForLivePromotion=false useForPromotion=false useForSectorBoost=false useForStrongBuy=false useForLiveLeadership=false`,
     `shadowEvidenceView: status=${sector.leadershipConfidence === 'VERIFIED' ? 'VERIFIED' : sector.status} shadowLeadershipAllowed=${locked.shadowLeadershipAllowed} counterfactualAllowed=${locked.counterfactualAllowed} executionImpact=${locked.executionImpact}`,
