@@ -701,6 +701,78 @@ describe('Section F (Gate2 External Data Stabilization) — attribution 3 그룹
   });
 });
 
+describe('scanblockers-truth-consistency P3 — Gate2 denominator/attribution 분모 분리 표시', () => {
+  // Gate1 FAIL 다수 + Gate2 생존 소수 입력 (accumulator 는 이미 Gate1 생존자만 집계 →
+  // 버킷에는 gate1Pass 만큼만 반영). candidates=50, gate1Pass=6 → Gate1-FAIL 후보 44.
+  const buildSplitFixture = () =>
+    buildGate2FreshAttribution({
+      buckets: [
+        { ...emptyBucket('breakout_momentum'), failed: 4, total: 6 },
+        { ...emptyBucket('earnings_quality'), unavailable: 2, total: 6 },
+      ],
+      candidates: 50,
+      gate1Pass: 6,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+    });
+
+  it('분모 분리 행을 출력하고 항등식(evaluatedAfterGate1 + notEvaluatedGate1Fail = inputTotal) 성립', () => {
+    const section = formatGate2AttributionSection(buildSplitFixture());
+    expect(section).not.toBeNull();
+    // candidates=50, gate1Pass=6 → notEvaluated=44, identity 50.
+    expect(section).toContain('gate2InputTotal=50');
+    expect(section).toContain('gate2EvaluatedAfterGate1=6');
+    expect(section).toContain('gate2NotEvaluatedGate1Fail=44');
+    expect(section).toContain('finalGate2=NOT_EVALUATED_GATE1_FAIL');
+    expect(section).toContain('diagnosticOnly=true, hardBlock=false');
+    // 예외 라벨이 없어야 항등식 성립을 의미.
+    expect(section).not.toContain('identityException');
+    const denomLine = section!.split('\n').find((l) => l.includes('gate2InputTotal='))!;
+    const evaluated = Number(denomLine.match(/gate2EvaluatedAfterGate1=(\d+)/)![1]);
+    const notEvaluated = Number(denomLine.match(/gate2NotEvaluatedGate1Fail=(\d+)/)![1]);
+    const inputTotal = Number(denomLine.match(/gate2InputTotal=(\d+)/)![1]);
+    expect(evaluated + notEvaluated).toBe(inputTotal);
+  });
+
+  it('Gate1 FAIL 후보는 gate2TrueFailedCount(trueFail 분모)에서 제외된다', () => {
+    const attribution = buildSplitFixture();
+    // gate2TrueFailedCount 는 버킷 failed 합 = 4 (Gate1 생존자 6 모집단 기준), Gate1-FAIL 44 미포함.
+    expect(attribution.gate2TrueFailedCount).toBe(4);
+    const section = formatGate2AttributionSection(attribution)!;
+    // split 라인에 분모가 gate2EvaluatedAfterGate1 임이 명시되어야 한다.
+    expect(section).toContain('gate2TrueFailedCount=4 /gate2EvaluatedAfterGate1=6');
+    // gate2DiagnosticOnlyCount 는 notEvaluated(=44) 로 파생 표시.
+    expect(section).toContain('gate2DiagnosticOnlyCount=44');
+  });
+
+  it('disclaimer 문구가 존재한다', () => {
+    const section = formatGate2AttributionSection(buildSplitFixture())!;
+    expect(section).toContain(
+      'Gate2 counts exclude Gate1-failed candidates from true failure denominator.',
+    );
+  });
+
+  it('dominant attribution 라인은 evaluatedAfterGate1 분모 기준임을 명시한다', () => {
+    const section = formatGate2AttributionSection(buildSplitFixture())!;
+    const laLine = section.split('\n').find((l) => l.includes('Gate2LeadershipAttribution:'))!;
+    expect(laLine).toContain('dominant=');
+    expect(laLine).toContain('denominator=gate2EvaluatedAfterGate1=6');
+  });
+
+  it('집계 산출값(gate2TrueFailedCount/dominant)은 표시 변경과 무관하게 불변', () => {
+    // 동일 입력에서 attribution 객체의 산출값이 표시 라인 추가와 독립적으로 유지됨을 단언.
+    const attribution = buildSplitFixture();
+    expect(attribution.candidates).toBe(50);
+    expect(attribution.gate1Pass).toBe(6);
+    expect(attribution.gate2TrueFailedCount).toBe(4);
+    // dominant 은 conditionFail(4)/denom(max(1,6)=6)=0.66 >= 0.5 → BREAKOUT_MOMENTUM_NOT_CONFIRMED.
+    expect(attribution.leadershipAttribution.dominantReason).toBe('BREAKOUT_MOMENTUM_NOT_CONFIRMED');
+    expect(attribution.leadershipAttribution.final.executionImpact).toBe('NONE');
+  });
+});
+
 describe('ADR-0422 §E 결정 트리 분기 SSOT', () => {
   it('NO_GATE1_SURVIVORS — gate1Pass=0', () => {
     const diag = computeGate2LeadershipDiagnosis({

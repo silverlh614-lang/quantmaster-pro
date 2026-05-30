@@ -1244,11 +1244,40 @@ export function formatGate2AttributionSection(
   lines.push(
     `  • candidates=${attribution.candidates} gate1Pass=${attribution.gate1Pass} gate2Pass=${attribution.gate2Pass}`,
   );
+  // P3 (scanblockers-truth-consistency): Gate2 denominator/attribution 분모 분리 표시.
+  // 산출/집계 로직(buyListLoop accumulator = isGate1Survivor gating, buildGate2LeadershipAttribution
+  // 산식·임계)은 무변경. 아래는 전부 기존 집계값(attribution.candidates/gate1Pass/...)에서 파생한
+  // 표시 전용 라벨이다. accumulator 가 이미 Gate1 생존자만 집계하므로 gate2TrueFailedCount 의 모집단
+  // (분모)은 gate1Pass = gate2EvaluatedAfterGate1 이며, Gate1-FAIL 후보는 trueFail 분모에서 제외된다.
+  const gate2InputTotal = attribution.candidates;
+  const gate2EvaluatedAfterGate1 = attribution.gate1Pass;
+  const gate2NotEvaluatedGate1Fail = Math.max(0, attribution.candidates - attribution.gate1Pass);
+  const gate2TrueFailedCount = attribution.gate2TrueFailedCount;
+  const gate2UnavailableCount = attribution.gate2UnavailableCount;
+  const gate2DiagnosticOnlyCount = gate2NotEvaluatedGate1Fail;
+  const gate2WatchPreservedCount = attribution.gate2WatchPreservedCount;
+  const gate2ShadowPreservedCount = attribution.gate2ShadowPreservedCount;
+  // 분모 항등식: gate2EvaluatedAfterGate1 + gate2NotEvaluatedGate1Fail = gate2InputTotal.
+  const denominatorIdentityHolds =
+    gate2EvaluatedAfterGate1 + gate2NotEvaluatedGate1Fail === gate2InputTotal;
   lines.push(
-    `  • split: gate2TrueFailedCount=${attribution.gate2TrueFailedCount} / ` +
-    `gate2UnavailableCount=${attribution.gate2UnavailableCount} / ` +
-    `gate2WatchPreservedCount=${attribution.gate2WatchPreservedCount} / ` +
-    `gate2ShadowPreservedCount=${attribution.gate2ShadowPreservedCount}`,
+    `  • denominator: gate2InputTotal=${gate2InputTotal} / ` +
+    `gate2EvaluatedAfterGate1=${gate2EvaluatedAfterGate1} / ` +
+    `gate2NotEvaluatedGate1Fail=${gate2NotEvaluatedGate1Fail} ` +
+    `(diagnosticOnly=true, hardBlock=false, finalGate2=NOT_EVALUATED_GATE1_FAIL)` +
+    (denominatorIdentityHolds
+      ? ''
+      : ` / identityException=evaluatedAfterGate1+notEvaluatedGate1Fail!=inputTotal`),
+  );
+  lines.push(
+    `  • split: gate2TrueFailedCount=${gate2TrueFailedCount} /gate2EvaluatedAfterGate1=${gate2EvaluatedAfterGate1} / ` +
+    `gate2UnavailableCount=${gate2UnavailableCount} / ` +
+    `gate2DiagnosticOnlyCount=${gate2DiagnosticOnlyCount} / ` +
+    `gate2WatchPreservedCount=${gate2WatchPreservedCount} / ` +
+    `gate2ShadowPreservedCount=${gate2ShadowPreservedCount}`,
+  );
+  lines.push(
+    '  • note: Gate2 counts exclude Gate1-failed candidates from true failure denominator.',
   );
 
   const leadership = attribution.leadershipAttribution;
@@ -1258,7 +1287,7 @@ export function formatGate2AttributionSection(
     `optionalMissing=${leadership.blockedByOptionalMissingCount} / ` +
     `sectorStale=${leadership.blockedBySectorStaleCount} / ` +
     `sectorStaleContributionPct=${leadership.sectorStaleContributionPct.toFixed(1)}% / ` +
-    `dominant=${leadership.dominantReason}`,
+    `dominant=${leadership.dominantReason} (denominator=gate2EvaluatedAfterGate1=${gate2EvaluatedAfterGate1})`,
   );
 
   lines.push(
