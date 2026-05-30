@@ -69,6 +69,8 @@ export interface StockRecommendation {
     pbr: number;
     epsGrowth: number;
     debtRatio: number;
+    /** ADR-0536 C18 — PER 값의 출처 (옵셔널, 카드/진단 표시·perEvaluator DATA_UNAVAILABLE 원인 구분용). */
+    perSource?: 'NAVER_SNAPSHOT' | 'YAHOO_QUOTE_SUMMARY' | 'YAHOO_CHART_META' | 'UNAVAILABLE';
   };
   technicalSignals: {
     maAlignment: 'BULLISH' | 'NEUTRAL' | 'BEARISH';

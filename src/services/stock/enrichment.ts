@@ -33,6 +33,8 @@ interface KrxValuation {
   bps: number;
   marketCap: number;         // 억원
   marketCapDisplay: string;  // "12.3조" / "3,450억"
+  /** ADR-0536 C18 — 서버 /snapshot 응답이 동봉한 PER 출처 표기 (구버전 서버는 undefined). */
+  perSource?: 'NAVER_SNAPSHOT' | 'YAHOO_QUOTE_SUMMARY' | 'YAHOO_CHART_META' | 'UNAVAILABLE';
 }
 
 // 세션 스코프 in-memory 캐시 — 한 번의 분석 사이클에서 동일 종목 코드 중복 호출을 줄인다.
@@ -177,6 +179,7 @@ async function fetchKrxValuation(code: string): Promise<KrxValuation | null> {
       bps: Number(data.bps) || 0,
       marketCap: Number(data.marketCap) || 0,
       marketCapDisplay: typeof data.marketCapDisplay === 'string' ? data.marketCapDisplay : '',
+      perSource: (data as { perSource?: KrxValuation['perSource'] }).perSource,
     };
     const isEmpty = result.per <= 0 && result.pbr <= 0 && result.marketCap <= 0;
     const cached = isEmpty ? null : result;
@@ -320,6 +323,7 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     let snapPer = override?.per ?? 0;
     let snapPbr = override?.pbr ?? 0;
     let snapMarketCap = override?.marketCap ?? 0;
+    let snapPerSource: StockRecommendation['valuation']['perSource'] | undefined;
 
     // ─── DART 펀더멘털 (1순위) ──────────────────────────────────────────────
     // DART 사업보고서 기반 ROE/debt/OCF/이자보상/EPS 성장 — Naver 보다 신뢰도 우위.
@@ -346,6 +350,8 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
             if (snap.per > 0) snapPer = snap.per;
             if (snap.pbr > 0) snapPbr = snap.pbr;
             if (snap.marketCap > 0) snapMarketCap = snap.marketCap;
+            // ADR-0536 C18 — 서버가 동봉한 perSource carry (옵셔널, 구버전 서버는 undefined).
+            snapPerSource = snap.perSource;
           }
         } catch { /* SDS-ignore: snapshot 실패 시 가격 보강 포기 — 카드는 그대로 표시 */ }
       }
@@ -371,6 +377,8 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         // DART 가 직접 제공하지 않는 PER/PBR 은 Naver snapshot 사용.
         per: (snapPer > 0) ? snapPer : stock.valuation.per,
         pbr: (snapPbr > 0) ? snapPbr : stock.valuation.pbr,
+        // ADR-0536 C18 — perSource carry.
+        perSource: snapPerSource ?? stock.valuation.perSource,
         // 펀더멘털: DART 우선 → 없으면 기존 값 유지.
         debtRatio: fallbackDart?.debtRatio || stock.valuation.debtRatio,
         epsGrowth: (typeof fallbackDart?.epsGrowth === 'number' && fallbackDart.epsGrowth !== 0)
@@ -629,6 +637,8 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         ...stock.valuation,
         per: (krxValuation?.per && krxValuation.per > 0) ? krxValuation.per : stock.valuation.per,
         pbr: (krxValuation?.pbr && krxValuation.pbr > 0) ? krxValuation.pbr : stock.valuation.pbr,
+        // ADR-0536 C18 — 서버가 동봉한 PER 출처를 카드/진단에서 사용 가능하도록 carry.
+        perSource: krxValuation?.perSource ?? stock.valuation.perSource,
         debtRatio: dartFinancials?.debtRatio || stock.valuation.debtRatio,
         epsGrowth: (typeof dartFinancials?.epsGrowth === 'number' && dartFinancials.epsGrowth !== 0)
           ? dartFinancials.epsGrowth

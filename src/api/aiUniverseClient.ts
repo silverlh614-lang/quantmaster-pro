@@ -36,6 +36,15 @@ export interface AiUniverseValuation {
   changeRate?: number;
   found: boolean;
   source: string;
+  /**
+   * PER 값의 출처 표기 (ADR-0536 §"출처 명시(provenance)"). 서버 /api/ai-universe/snapshot
+   * 응답이 동봉. 미지원 구버전 서버는 undefined — 클라이언트는 fallback 처리.
+   *  - 'NAVER_SNAPSHOT'       : Naver Finance 모바일 snapshot (현행 1차 소스)
+   *  - 'YAHOO_QUOTE_SUMMARY'  : Yahoo quoteSummary 보강 (C18 Phase 1, ENV gated)
+   *  - 'YAHOO_CHART_META'     : 예약 — 차트 meta fallback (Phase 2 후속)
+   *  - 'UNAVAILABLE'          : 모든 소스 부재 → 카드 N/A
+   */
+  perSource?: 'NAVER_SNAPSHOT' | 'YAHOO_QUOTE_SUMMARY' | 'YAHOO_CHART_META' | 'UNAVAILABLE';
 }
 
 /**
