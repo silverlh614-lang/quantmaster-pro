@@ -24,6 +24,7 @@ import { AlertsFeedBell } from '../components/autoTrading/AlertsFeedBell';
 import { AutoTradeHeroKpis } from '../components/autoTrading/AutoTradeHeroKpis';
 import { AutoTradeStatusCommandBar } from '../components/trading/autoTrade/AutoTradeStatusCommandBar';
 import { LivePreflightChecklist } from '../components/trading/autoTrade/LivePreflightChecklist';
+import { ShadowLifecycleProgressBar } from '../components/trading/autoTrade/ShadowLifecycleProgressBar';
 import { AutoTradeTabbedView } from '../components/autoTrading/AutoTradeTabbedView';
 import { ProDiagnosticsStrip } from '../components/autoTrading/ProDiagnosticsStrip';
 import { ApiConnectionLamps } from '../components/autoTrading/ApiConnectionLamps';
@@ -79,7 +80,7 @@ export function AutoTradePage() {
   const killSwitch = useKillSwitchStatus();
   // SSE 실시간 엔진 스트림 — 연결되면 5초 폴링은 cache-hit 로 흡수되어 무해.
   useEngineStream();
-  const { engineStatus, buyAudit, gateAudit } = useAutoTradeEngine();
+  const { engineStatus, buyAudit, gateAudit, serverShadowTrades } = useAutoTradeEngine();
   const alertsFeed = useAlertsFeed();
 
   // Nuclear Reactor Gate — LIVE 모드 시동 시에만 사용
@@ -219,6 +220,10 @@ export function AutoTradePage() {
           killSwitchActive={killSwitchActive}
           lastScanAt={engineStatus?.lastScanAt ?? null}
         />
+
+        {/* UI_WIRING_MATRIX §10 #2B Phase F — Shadow 생애주기 6단계 흐름 health.
+            기존 serverShadowTrades 에서 client-side aggregation, 새 서버 호출·로직 0건. */}
+        <ShadowLifecycleProgressBar shadowTrades={serverShadowTrades} />
 
         {/*
           ADR-0049 — Context-Adaptive Layout.
