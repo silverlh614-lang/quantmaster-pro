@@ -46,6 +46,12 @@ export interface BuildMarketRegimeViewInput {
   inverseGate1Result?: InverseGate1Result | null;
   marketContext?: MarketContext | null;
   staleFields?: readonly string[];
+  /**
+   * 불변식 #6 — 주말/장외(WEEKEND_CACHE / AFTER_MARKET / HOLIDAY_CACHE)는 시장이 닫혀
+   * 직전 거래일 종가를 쓰는 *예상된* 상태이지 provider 장애가 아니다. true 면 stale field 를
+   * PROVIDER_ISSUE 가 아니라 "직전 거래일 캐시" 정보로 분류해 거짓 provider 장애 표기를 막는다.
+   */
+  offHoursExpected?: boolean;
 }
 
 export function getMarketRegimeLabel(state: MarketRegimeState): string {
@@ -133,11 +139,17 @@ export function buildMarketRegimeView(input: BuildMarketRegimeViewInput): Market
   const missingData = evidence.some(item => item.issueType === 'MISSING_DATA' || isUnavailableConfidence(item.confidence));
   const state = deriveState(input, providerIssue, marketSignal, missingData);
   const confidence = deriveConfidence(state, evidence, providerIssue, missingData);
+  // 불변식 #6 — 주말/장외 + telemetry 부재로 UNKNOWN 일 때는 "데이터 부족/provider 장애" 가
+  // 아니라 "직전 거래일 캐시(예상된 장외)" 로 정직 표기. state machine 은 그대로(UNKNOWN 유지)
+  // 두되 라벨·요약만 장외 맥락으로 덮어쓴다(표시 전용).
+  const offHoursUnknown = Boolean(input.offHoursExpected) && state === 'UNKNOWN';
   const baseView: MarketRegimeView = {
     state,
     confidence,
-    title: getMarketRegimeLabel(state),
-    summary: getMarketRegimeDescription(state),
+    title: offHoursUnknown ? '직전 거래일 캐시 (주말/장외)' : getMarketRegimeLabel(state),
+    summary: offHoursUnknown
+      ? '주말·장외 시간이라 시장이 닫혀 직전 거래일 종가 기준 캐시를 사용 중입니다. 데이터 장애가 아니며, 장 재개 시 자동 갱신됩니다.'
+      : getMarketRegimeDescription(state),
     evidence,
     executionHint: 'NORMAL_OPERATION',
     providerIssue,
@@ -160,7 +172,7 @@ function buildEvidence(input: BuildMarketRegimeViewInput): RegimeEvidenceItem[] 
   appendBearRegimeEvidence(items, input.bearRegimeResult);
   appendVkospiEvidence(items, input.vkospiTriggerResult);
   appendInverseEvidence(items, input.inverseGate1Result);
-  appendStaleFieldEvidence(items, input.staleFields);
+  appendStaleFieldEvidence(items, input.staleFields, input.offHoursExpected);
   if (items.length === 0) {
     items.push({
       key: 'regime_telemetry',
@@ -210,8 +222,14 @@ function appendInverseEvidence(items: RegimeEvidenceItem[], result?: InverseGate
   items.push({ key: 'inverse_gate_1', label: 'Inverse Gate 1', value: `${result.signalType} ${result.triggeredCount}/${result.conditions.length}`, direction: result.signalType === 'STRONG_BEAR' ? 'BEARISH' : result.signalType === 'PARTIAL' ? 'MIXED' : 'NEUTRAL', confidence: 'VERIFIED', source: 'Inverse Gate 1', updatedAt: result.lastUpdated, issueType: risk ? (result.signalType === 'PARTIAL' ? 'MIXED_SIGNAL' : 'MARKET_SIGNAL') : undefined });
 }
 
-function appendStaleFieldEvidence(items: RegimeEvidenceItem[], staleFields?: readonly string[]): void {
-  staleFields?.forEach(field => items.push({ key: `stale_${field}`, label: `Provider stale: ${field}`, value: 'stale', direction: 'UNKNOWN', confidence: 'STALE', source: 'X-Field-Stale', issueType: 'PROVIDER_ISSUE' }));
+function appendStaleFieldEvidence(items: RegimeEvidenceItem[], staleFields?: readonly string[], offHoursExpected?: boolean): void {
+  // 불변식 #6 — 장중 stale 은 PROVIDER_ISSUE(provider 장애), 주말/장외 stale 은 예상된
+  // 직전 거래일 캐시이므로 issueType 미지정(provider 장애로 변환 금지). 둘 다 confidence STALE 유지.
+  staleFields?.forEach(field => items.push(
+    offHoursExpected
+      ? { key: `offhours_${field}`, label: `직전 거래일 캐시: ${field}`, value: 'weekend/off-hours cache', direction: 'UNKNOWN', confidence: 'STALE', source: 'WEEKEND_CACHE' }
+      : { key: `stale_${field}`, label: `Provider stale: ${field}`, value: 'stale', direction: 'UNKNOWN', confidence: 'STALE', source: 'X-Field-Stale', issueType: 'PROVIDER_ISSUE' },
+  ));
 }
 
 function deriveState(input: BuildMarketRegimeViewInput, providerIssue: boolean, marketSignal: boolean, missingData: boolean): MarketRegimeState {
