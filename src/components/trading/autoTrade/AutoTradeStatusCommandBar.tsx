@@ -15,9 +15,10 @@
  * Phase A 스코프(이 PR): 헤로 한 줄 + 상태 배지 5종. inline help/tour/explain drawer/
  * pre-flight modal/Shadow lifecycle 시각화/LIVE Readiness Score 는 후속 PR(B~G).
  */
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ShieldCheck, ShieldAlert, ShieldOff, Activity, AlertOctagon, Clock,
+  ChevronDown, ChevronUp, HelpCircle,
 } from 'lucide-react';
 import { cn } from '../../../ui/cn';
 
@@ -153,9 +154,48 @@ function StatusBadge({ label, value, tone, title }: BadgeProps) {
   );
 }
 
+interface BlockReason { code: string; detail: string; tone: 'alert' | 'warn' | 'info' }
+
+function deriveBlockReasons(props: AutoTradeStatusCommandBarProps): BlockReason[] {
+  const { isRunning, mode, emergencyStop, killSwitchActive } = props;
+  const reasons: BlockReason[] = [];
+  if (!isRunning) {
+    reasons.push({
+      code: 'ENGINE_STOPPED',
+      detail: '엔진 cron 가 멈춰 자동 실행과 Shadow 학습이 모두 정지된 상태. 불변식 #1/#2 위반 가능 — 즉시 재시동 확인 권장.',
+      tone: 'alert',
+    });
+  }
+  if (emergencyStop) {
+    reasons.push({
+      code: 'EMERGENCY_STOP_ON',
+      detail: '운영자 비상정지 토글이 ON. 신규 실행은 차단, 관찰·기록·Shadow 학습은 유지.',
+      tone: 'alert',
+    });
+  }
+  if (killSwitchActive) {
+    reasons.push({
+      code: 'KILL_SWITCH_ACTIVE',
+      detail: '자동 안전 강등 — VKOSPI·일일손실·매크로 위험 등 조건 충족. LIVE 차단·Shadow 유지.',
+      tone: 'warn',
+    });
+  }
+  if (mode !== 'LIVE') {
+    reasons.push({
+      code: `MODE_${mode || 'UNKNOWN'}`,
+      detail: `현재 모드 ${mode || 'UNKNOWN'} — LIVE 전환 전까지 실거래 신규매수는 자동 차단. Shadow 사이클은 정상.`,
+      tone: 'info',
+    });
+  }
+  return reasons;
+}
+
 export function AutoTradeStatusCommandBar(props: AutoTradeStatusCommandBarProps) {
   const hero = deriveHeroCopy(props);
   const { isRunning, mode, emergencyStop, killSwitchActive, lastScanAt } = props;
+  const [showReasons, setShowReasons] = useState(false);
+  const blockReasons = deriveBlockReasons(props);
+  const isBlocked = hero.verdict !== 'ALLOWED';
 
   return (
     <section
@@ -173,8 +213,50 @@ export function AutoTradeStatusCommandBar(props: AutoTradeStatusCommandBarProps)
           <p className="text-xs sm:text-sm text-theme-text-secondary font-bold mt-1.5 leading-relaxed">
             {hero.body}
           </p>
+          {isBlocked && blockReasons.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowReasons((v) => !v)}
+              aria-expanded={showReasons}
+              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] text-[10px] sm:text-xs font-black uppercase tracking-widest text-theme-text-secondary transition-colors"
+            >
+              <HelpCircle className="w-3 h-3" />
+              차단 사유 보기 ({blockReasons.length})
+              {showReasons ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* UI_WIRING_MATRIX §10 #2B Phase C — 사용자 디자인 스펙 "왜 차단됐는가? Explain Drawer".
+          새 데이터 hookup 0건 — 헤로와 동일한 derived state 를 구조화해 사유별로 분리 노출. */}
+      {isBlocked && showReasons && blockReasons.length > 0 && (
+        <ul className="flex flex-col gap-2 rounded-xl border border-white/10 bg-black/20 p-3 sm:p-4">
+          {blockReasons.map((r) => (
+            <li
+              key={r.code}
+              className={cn(
+                'rounded-lg border px-3 py-2 flex flex-col gap-0.5',
+                r.tone === 'alert' ? 'border-rose-500/30 bg-rose-500/[0.06]'
+                  : r.tone === 'warn' ? 'border-amber-500/30 bg-amber-500/[0.06]'
+                  : 'border-sky-500/30 bg-sky-500/[0.06]',
+              )}
+            >
+              <span className={cn(
+                'text-[10px] font-black font-mono tracking-wide uppercase',
+                r.tone === 'alert' ? 'text-rose-300'
+                  : r.tone === 'warn' ? 'text-amber-300'
+                  : 'text-sky-300',
+              )}>
+                {r.code}
+              </span>
+              <span className="text-xs font-bold text-theme-text-secondary leading-relaxed">
+                {r.detail}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
         <StatusBadge
