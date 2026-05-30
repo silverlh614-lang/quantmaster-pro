@@ -18,6 +18,7 @@ import type { Gate1ScoreCeilingRepairReport } from '../gate1ScoreCeilingRepair.j
 import type { Gate1ScoringAlignmentReport } from '../gate1ScoringAlignmentAdr0472.js';
 import type { Gate1DryRunObservationSummary } from '../gate1DryRunObservationLedgerAdr0476.js';
 import type { Gate1ThresholdEvidenceSummary } from '../gate1DryRunObservationLedgerAdr0476.js';
+import type { Gate1RegimeAwareSurvivorObservation } from '../gate1RegimeAwareSurvivorAdr0546.js';
 import type { RiskDoubleCountAuditReport } from '../gate1RiskDoubleCount.js';
 import type { PositiveScoreStarvationReport } from '../gate1PositiveScoreStarvation.js';
 import type { InvestorFlowProviderRouteResult } from '../investorFlowProviderRouterAdr0477.js';
@@ -322,6 +323,8 @@ export interface ScanSummary {
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport;
   gate1DryRunObservationLedger?: Gate1DryRunObservationSummary;
   gate1ThresholdEvidence?: Gate1ThresholdEvidenceSummary;
+  // ADR-0546 Phase2 prep — regime 인식 임계 survivor 관측(섀도 전용, executionImpact=NONE).
+  gate1RegimeAwareSurvivor?: Gate1RegimeAwareSurvivorObservation;
   unifiedOutcomeLabeler?: UnifiedForwardOutcomeLabelerSummary;
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult;
   naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult;
