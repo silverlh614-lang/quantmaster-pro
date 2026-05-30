@@ -89,7 +89,12 @@ function ModalHeader({
           <SignalBadge signal={stock.type || 'NEUTRAL'} />
         </div>
         <div className="flex items-center gap-4 flex-wrap">
-          <span className="text-2xl font-black text-theme-text font-num">{formatWon(stock.currentPrice)}</span>
+          {/* Render-시점 신뢰 가드 — NAVER/REALTIME 만 표시, 그 외(LLM 환각·Yahoo·STALE)는 "가격 미확보" */}
+          {(stock.dataSourceType === 'NAVER' || stock.dataSourceType === 'REALTIME') && stock.currentPrice && stock.currentPrice > 0 ? (
+            <span className="text-2xl font-black text-theme-text font-num">{formatWon(stock.currentPrice)}</span>
+          ) : (
+            <span className="text-2xl font-black text-theme-text-muted font-num">가격 미확보</span>
+          )}
           {stock.isLeadingSector && <LeadingBadge />}
         </div>
       </div>
