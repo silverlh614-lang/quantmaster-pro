@@ -93,19 +93,34 @@ export function PortfolioExtractPage() {
       setCompletedGates(prev => [...prev, i]);
     }
 
-    // 실제 추출 — aiConvictionScore 상위 N. 게이트 가중치 슬라이더는 현 시점엔
-    // 입력만 수집(후속 PR에서 Gate별 sub-score 분리·가중치 반영). 사용자가
-    // "추출됐다" 라는 메시지만 보고 결과를 찾지 못하던 와이어링 갭 해소(§10.2).
+    // 실제 추출 — aiConvictionScore × Gate 가중치 통과 비율 (UI_WIRING_MATRIX §10.3 후속).
+    // 공식: composite = aiScore * (0.5 + 0.5 * (통과한 Gate 가중치 합 / 100))
+    //   - 전 Gate 통과(slider 합 100%) → ×1.0 (full aiScore)
+    //   - 어떤 Gate 도 미통과 → ×0.5 (aiScore 절반)
+    //   - 부분 통과 시 user-set slider 비중대로 가산
+    // 이전엔 슬라이더가 입력만 수집되고 실제 정렬은 aiScore 단독이라 사용자 입력이
+    // 무의미했음. 이제 슬라이더가 실제로 ranking 에 작용한다.
     const ranked = [...(recommendations || [])]
       .filter(s => (s.aiConvictionScore?.totalScore ?? 0) > 0)
-      .sort((a, b) => (b.aiConvictionScore?.totalScore ?? 0) - (a.aiConvictionScore?.totalScore ?? 0))
-      .slice(0, stockCount);
+      .map(s => {
+        const ai = s.aiConvictionScore?.totalScore ?? 0;
+        const ge = s.gateEvaluation;
+        const passedWeight =
+          (ge?.gate1Passed ? gate1Weight : 0) +
+          (ge?.gate2Passed ? gate2Weight : 0) +
+          (ge?.gate3Passed ? gate3Weight : 0);
+        const composite = ai * (0.5 + 0.5 * (passedWeight / 100));
+        return { stock: s, composite };
+      })
+      .sort((a, b) => b.composite - a.composite)
+      .slice(0, stockCount)
+      .map(x => x.stock);
     setExtractedItems(ranked);
 
     setCurrentGate(-1);
     setExtracting(false);
     setExtracted(true);
-  }, [totalGateWeight, recommendations, stockCount]);
+  }, [totalGateWeight, recommendations, stockCount, gate1Weight, gate2Weight, gate3Weight]);
 
   // ── 추출 결과를 Backtest 페이지로 보내기 ─────────────────────────────────
   // useMarketStore.backtestPortfolioItems 에 균등 가중치로 추가 + 중복 제거 + setView('BACKTEST').
@@ -540,8 +555,8 @@ export function PortfolioExtractPage() {
                       추출 완료
                     </p>
                     <p className="text-xs text-theme-text-muted font-bold">
-                      aiConvictionScore 상위 {extractedItems.length}/{stockCount}개 추출
-                      ({positionMode === 'kelly' ? 'Kelly 공식' : '균등배분'} · Gate 가중치는 입력값으로 수집·후속 반영)
+                      Composite = aiScore × (0.5 + 0.5 × 통과 Gate 가중치/100) 상위 {extractedItems.length}/{stockCount}개
+                      ({positionMode === 'kelly' ? 'Kelly 공식' : '균등배분'} · Gate {gate1Weight}/{gate2Weight}/{gate3Weight})
                     </p>
                   </div>
 
