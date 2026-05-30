@@ -57,6 +57,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-30 · Patch-RiskyStockExclusion · screener-iscd-stat-cls-code-53-54-55-56, krx-master-regex-투자경고-투자주의, stockScreener-isRiskyKisRow-gap, isTradableKrxEquity-regex, executionImpact-NONE
 - 2026-05-29 · Patch-Gate1ThresholdEvidenceMaturity · gate1-threshold-evidence-d10, forward-outcome-ledger-maturity, score-band-review-gated, shadow-observation-policy-split, unified-forward-labeler-gate1-d10, thresholdAutoChanged-false, executionImpact-NONE
 - 2026-05-29 · Patch-Gate1Gate2ObservationTruth · gate1-score-observation-ledger-v2, scale-observation-only, gate2-not-evaluated-gate1-fail, PER-highConvictionOnly-not-entry-block, optional-diagnostic-missing-not-blocking, scan_blockers-bottleneck-truth, executionImpact-NONE
 - 2026-05-29 · Patch-Gate1DominantHonesty · gate1-forensic-ceiling-vs-weak-signal, ADR-0505 computeDominantFailureReason 가 실현 net(positiveScoreTotal+penaltyTotal) < required 시 무조건 SCORE_CEILING_BELOW_THRESHOLD 라벨 → ceiling repair 드라이런이 survivor 0 증가(실측)인데도 구조적 ceiling 문제처럼 오표시. 정정: 달성가능 ceiling(컴포넌트 maxScore 합)>=required 면 POSITIVE_SIGNAL_BELOW_THRESHOLD(진짜 약한 신호, repair 무효), ceiling<required 일 때만 SCORE_CEILING_BELOW_THRESHOLD 유지. DominantFailureReason enum+EMPTY_DOMINANT_DISTRIBUTION 신규값 추가, 점수/threshold/positiveScoreTotal/penaltyTotal 산식·매매 무변경(진단 라벨 정직화 only), gate1PositiveScoreStarvation/gate1ScoreCeilingRepair 의 별도 configured-ceiling 로직 무관·미수정, 106 tests pass, executionImpact-NONE

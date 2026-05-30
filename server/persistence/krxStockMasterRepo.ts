@@ -117,7 +117,7 @@ export function isTradableKrxEquity(entry: StockMasterEntry): boolean {
   if (/스팩|SPAC|기업인수목적/.test(joined)) return false;
   if (/리츠|REIT/.test(joined)) return false;
   if (/우선주|종류주|1우|2우|3우|우B|우\)/.test(joined)) return false;
-  if (/관리|거래정지|정리매매|투자위험/.test(joined)) return false;
+  if (/관리|거래정지|정리매매|투자위험|투자경고|투자주의/.test(joined)) return false;
   return true;
 }
 
