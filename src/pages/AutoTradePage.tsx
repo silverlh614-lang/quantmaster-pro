@@ -22,6 +22,7 @@ import { EngineHealthBanner } from '../components/autoTrading/EngineHealthBanner
 import { CompositeVerdictCard } from '../components/autoTrading/CompositeVerdictCard';
 import { AlertsFeedBell } from '../components/autoTrading/AlertsFeedBell';
 import { AutoTradeHeroKpis } from '../components/autoTrading/AutoTradeHeroKpis';
+import { AutoTradeStatusCommandBar } from '../components/trading/autoTrade/AutoTradeStatusCommandBar';
 import { AutoTradeTabbedView } from '../components/autoTrading/AutoTradeTabbedView';
 import { ProDiagnosticsStrip } from '../components/autoTrading/ProDiagnosticsStrip';
 import { ApiConnectionLamps } from '../components/autoTrading/ApiConnectionLamps';
@@ -195,6 +196,16 @@ export function AutoTradePage() {
               />
             </div>
           }
+        />
+
+        {/* UI_WIRING_MATRIX §10 #2B Phase A — "지금 실제 돈이 나가는가?" 1초 인식 배너.
+            engineStatus / killSwitch 의 derived state 만 사용. 새 서버 호출·로직 0건. */}
+        <AutoTradeStatusCommandBar
+          isRunning={isRunning}
+          mode={mode}
+          emergencyStop={Boolean(engineStatus?.emergencyStop)}
+          killSwitchActive={killSwitchActive}
+          lastScanAt={engineStatus?.lastScanAt ?? null}
         />
 
         {/*
