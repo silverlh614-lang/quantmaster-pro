@@ -315,12 +315,19 @@ function formatUpside(stock: StockRecommendation): string {
 }
 
 function PriceAndUpside({ stock }: { stock: StockRecommendation }) {
+  // currentPrice 0/누락 = enrichment 가 신뢰 가능 소스(KIS/Naver) 모두 실패해 폐기한 상태.
+  // LLM 환각/Yahoo stale 값 표시 절대 금지 — placeholder 노출.
+  const hasPrice = typeof stock.currentPrice === 'number' && stock.currentPrice > 0;
   return (
     <div className="flex items-center justify-between">
       <div className="flex flex-col">
         <div className="flex items-center gap-2">
           <TrendingUp className="w-4 h-4 text-green-400" />
-          <span className="text-lg font-black text-theme-text">₩{stock.currentPrice?.toLocaleString() || '0'}</span>
+          {hasPrice ? (
+            <span className="text-lg font-black text-theme-text">₩{(stock.currentPrice as number).toLocaleString()}</span>
+          ) : (
+            <span className="text-lg font-black text-theme-text-muted">가격 미확보</span>
+          )}
           <ConfidenceBadge type={stock.dataSourceType || 'AI'} />
         </div>
         {(stock.priceUpdatedAt || stock.dataSource) && (

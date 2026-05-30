@@ -517,22 +517,37 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       krxValuation = await fetchKrxValuation(baseCode);
     }
 
-    // ─── 가격 SSOT — Yahoo 신뢰 철회 (사용자 정책) ─────────────────────────
-    // Yahoo 1년 일봉의 마지막 종가는 split/통화/티커 매핑 오차로 ~10배 왜곡
-    // (예: SK하이닉스 ₩1.86M) 사례가 발견되어 더 이상 currentPrice 의 권위 있는
-    // 출처로 사용하지 않는다. Naver 모바일 snapshot.closePrice 가 있으면 NAVER
-    // (L3 DEGRADED), 없으면 STALE(마지막 알려진 값 유지) — Yahoo 일봉 fallback 금지.
-    // 실시간 KIS 시세는 priceSync('REALTIME') 경로에서만 덮어쓴다.
-    // Yahoo OHLCV(1년 일봉 closes/highs/lows/volumes)는 RSI/MACD/Bollinger/VCP 등
-    // 모양(shape) 기반 기술적 지표 계산에 한해 사용한다 (절대값 표시 X).
+    // ─── 가격 SSOT — Yahoo 신뢰 철회 + L4 LLM 환각 차단 (사용자 정책) ───────
+    // Yahoo 1년 일봉 마지막 종가는 split/통화/티커 매핑 오차로 ~10배 왜곡
+    // (SK하이닉스 ₩1.86M) 사례 발견되어 사용 안 함.
+    // LLM(Gemini) currentPrice 도 환각 가능성(L4 AI_ESTIMATED, ₩1.86M 같은 값을
+    // 그대로 응답에 넣음)으로 신뢰 X.
+    // 정직성 우선순위:
+    //   1. NAVER (모바일 snapshot.closePrice, L3 KRX 시세 직접 fetch)
+    //   2. REALTIME (이전 KIS 동기화 결과 — stock.dataSourceType==='REALTIME' 일 때만 유지)
+    //   3. 그 외 모두 → currentPrice=0, dataSourceType='STALE'
+    //      (UI 가 "가격 미확보" placeholder 표시) — 가짜 값 표시 절대 금지.
+    // Yahoo OHLCV(1년 일봉 closes/highs/lows/volumes)는 RSI/MACD/Bollinger/VCP
+    // 모양(shape) 기반 기술적 지표 계산에 한해 계속 사용 (절대값 표시 X).
     const naverPriceCandidate = naverSnap?.closePrice && naverSnap.closePrice > 0
       ? naverSnap.closePrice
       : null;
     const priceFromNaver = naverPriceCandidate !== null;
+    const priceFromPreviousKis = !priceFromNaver
+      && stock.dataSourceType === 'REALTIME'
+      && typeof stock.currentPrice === 'number'
+      && stock.currentPrice > 0;
     const resolvedCurrentPrice = priceFromNaver
       ? (naverPriceCandidate as number)
-      : (stock.currentPrice && stock.currentPrice > 0 ? stock.currentPrice : 0);
-    // applyTradingFieldFallbacks 는 가격이 있을 때만 의미가 있다.
+      : priceFromPreviousKis
+        ? (stock.currentPrice as number)
+        : 0; // LLM 환각/Yahoo/snapshot stale 모두 폐기 — UI 가 "가격 미확보" 표시
+    const resolvedSourceType: NonNullable<StockRecommendation['dataSourceType']> = priceFromNaver
+      ? 'NAVER'
+      : priceFromPreviousKis
+        ? 'REALTIME'
+        : 'STALE';
+    // applyTradingFieldFallbacks 는 가격이 있을 때만 의미가 있다 (currentPrice=0 시 no-op).
     const resolvedPrice = resolvedCurrentPrice;
     const fallbackFields = applyTradingFieldFallbacks(
       { targetPrice: stock.targetPrice, targetPrice2: stock.targetPrice2,
@@ -542,17 +557,17 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
 
     const enriched: StockRecommendation = {
       ...stock,
-      currentPrice: resolvedCurrentPrice || stock.currentPrice,
+      currentPrice: resolvedCurrentPrice, // 0 일 수 있음 — UI 가 "가격 미확보" 표시
       targetPrice:  fallbackFields.targetPrice  ?? stock.targetPrice,
       targetPrice2: fallbackFields.targetPrice2 ?? stock.targetPrice2,
       entryPrice:   fallbackFields.entryPrice   ?? stock.entryPrice,
       stopLoss:     fallbackFields.stopLoss     ?? stock.stopLoss,
-      // dataSourceType 정직 표기: Naver closePrice 사용 시 'NAVER', 미확보 시 'STALE'.
-      // 'YAHOO' 는 더 이상 부여하지 않는다 (사용자 정책: Yahoo 신뢰 철회).
-      dataSourceType: priceFromNaver ? 'NAVER' : 'STALE',
+      dataSourceType: resolvedSourceType,
       priceUpdatedAt: priceFromNaver
         ? `${new Date().toLocaleTimeString('ko-KR')} (Naver 모바일)`
-        : `${new Date().toLocaleTimeString('ko-KR')} (Naver 미확보 · 마지막 값 유지)`,
+        : priceFromPreviousKis
+          ? stock.priceUpdatedAt ?? `${new Date().toLocaleTimeString('ko-KR')} (KIS 이전값)`
+          : `${new Date().toLocaleTimeString('ko-KR')} (가격 미확보 — Naver fetch 실패)`,
       supplyData: kisSupply || stock.supplyData,
       shortSelling: kisShort || stock.shortSelling,
       technicalSignals: {
