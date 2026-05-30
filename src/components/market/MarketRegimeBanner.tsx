@@ -10,6 +10,7 @@ import { cn } from '../../ui/cn';
 import type { BearRegimeResult, InverseGate1Result, VkospiTriggerResult } from '../../types/quant';
 import type { MarketContext } from '../../services/stock/types';
 import { buildMarketRegimeView, formatRegimeUpdatedAt } from '../../lib/marketRegimeViewModel';
+import { useMarketMode } from '../../hooks/useMarketMode';
 import { RegimeEvidencePanel } from './RegimeEvidencePanel';
 import { RegimeRiskBanner } from './RegimeRiskBanner';
 import { RegimeStatusBadge } from './RegimeStatusBadge';
@@ -32,7 +33,11 @@ const BANNER_TONE = {
 
 export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inverseGate1Result, marketContext, staleFields }: MarketRegimeBannerProps) {
   const [expanded, setExpanded] = useState(false);
-  const view = useMemo(() => buildMarketRegimeView({ bearRegimeResult, vkospiTriggerResult, inverseGate1Result, marketContext, staleFields }), [bearRegimeResult, vkospiTriggerResult, inverseGate1Result, marketContext, staleFields]);
+  // 불변식 #6 — 주말/장외(WEEKEND_CACHE / AFTER_MARKET)는 예상된 캐시 상태이지 provider 장애가
+  // 아니다. offHoursExpected 로 전달해 stale field 가 거짓 provider 장애로 표기되지 않게 한다.
+  const marketMode = useMarketMode();
+  const offHoursExpected = marketMode !== 'LIVE_TRADING_DAY';
+  const view = useMemo(() => buildMarketRegimeView({ bearRegimeResult, vkospiTriggerResult, inverseGate1Result, marketContext, staleFields, offHoursExpected }), [bearRegimeResult, vkospiTriggerResult, inverseGate1Result, marketContext, staleFields, offHoursExpected]);
 
   return (
     <section className={cn('no-print border-b backdrop-blur-sm', BANNER_TONE[view.state])} aria-label="Market Regime display-only status">
@@ -45,8 +50,11 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inve
             <span className="text-[10px] text-white/35">{formatRegimeUpdatedAt(view.updatedAt)}</span>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-white/70">{view.summary}</p>
-          {view.state === 'UNKNOWN' && (
+          {view.state === 'UNKNOWN' && !offHoursExpected && (
             <p className="mt-1 text-[11px] text-white/45">No market regime telemetry available. Connect macro/market/provider health sources to populate regime context. Until regime data is available, market context should be treated as UNKNOWN.</p>
+          )}
+          {view.state === 'UNKNOWN' && offHoursExpected && (
+            <p className="mt-1 text-[11px] text-white/45">주말·장외 시간 — 직전 거래일 종가 기준 캐시를 사용 중입니다. provider 장애가 아니며, 장 재개(평일 09:00 KST) 시 자동 갱신됩니다.</p>
           )}
         </div>
         <button
