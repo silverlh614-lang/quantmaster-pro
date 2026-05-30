@@ -7,6 +7,7 @@ import type { PenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js'
 import type { PositiveScoreStarvationReport } from './gate1PositiveScoreStarvation.js';
 import type { CanonicalRuntimeResolutionStep27 } from './runtimeResolverTraceStep26.js';
 import { resolveScoringEffectiveRegime } from './scanDiagnostics/gate0MacroPermissionDecision.js';
+import { formatGate1RegimeAwareSurvivorLine } from './gate1RegimeAwareSurvivorAdr0546.js';
 import type { ScanSummary } from './scanDiagnostics/scanSummaryTypes.js';
 import {
   LEGACY_GATE1_REQUIRED_SCORE,
@@ -422,6 +423,7 @@ export function formatGate1ScoreHealthSection(
     `- secondaryIssue=${report.secondaryIssue}`,
     `- scaleObservationMode=${report.scaleObservationMode}`,
     `- legacyRequired=${report.legacyRequiredScore.toFixed(1)} regimeAwareRequired=${report.regimeAwareRequiredScore.toFixed(1)} regimeAwareGap=${report.regimeAwareGap.toFixed(1)} applied=${report.appliedRequiredScore.toFixed(1)} regimeAwareActive=${report.regimeAwareRequiredActive} (ADR-0546 shadow)`,
+    formatGate1RegimeAwareSurvivorLine(summary?.gate1RegimeAwareSurvivor),
     `- thresholdAutoChanged=${report.thresholdAutoChanged}`,
     `- operatorApprovalRequired=${report.operatorApprovalRequired}`,
     `- liveExecutionAllowed=${report.liveExecutionAllowed}`,
