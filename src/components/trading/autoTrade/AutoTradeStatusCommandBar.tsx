@@ -21,6 +21,7 @@ import {
   ChevronDown, ChevronUp, HelpCircle,
 } from 'lucide-react';
 import { cn } from '../../../ui/cn';
+import { InfoTooltip } from '../../../ui/info-tooltip';
 
 export interface AutoTradeStatusCommandBarProps {
   /** 엔진 cron 가 살아 있는지 (engineStatus.running). */
@@ -135,22 +136,21 @@ function formatRelative(iso: string | null): string {
   return new Date(iso).toLocaleString('ko-KR');
 }
 
-interface BadgeProps { label: string; value: string; tone: 'ok' | 'warn' | 'alert' | 'neutral'; title?: string; }
+interface BadgeProps { label: string; value: string; tone: 'ok' | 'warn' | 'alert' | 'neutral'; tooltip?: React.ReactNode; }
 
-function StatusBadge({ label, value, tone, title }: BadgeProps) {
+function StatusBadge({ label, value, tone, tooltip }: BadgeProps) {
   const toneClass =
     tone === 'ok' ? 'border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-300'
       : tone === 'warn' ? 'border-amber-500/30 bg-amber-500/[0.06] text-amber-300'
       : tone === 'alert' ? 'border-rose-500/30 bg-rose-500/[0.06] text-rose-300'
       : 'border-white/15 bg-white/[0.04] text-theme-text-secondary';
   return (
-    <div
-      className={cn('rounded-xl border px-3 py-2 flex flex-col gap-0.5 min-w-0', toneClass)}
-      title={title}
-    >
-      <span className="text-[9px] font-black uppercase tracking-[0.18em] opacity-70">{label}</span>
-      <span className="text-xs font-black truncate">{value}</span>
-    </div>
+    <InfoTooltip label={tooltip} className="block min-w-0">
+      <div className={cn('rounded-xl border px-3 py-2 flex flex-col gap-0.5 min-w-0', toneClass)}>
+        <span className="text-[9px] font-black uppercase tracking-[0.18em] opacity-70">{label}</span>
+        <span className="text-xs font-black truncate">{value}</span>
+      </div>
+    </InfoTooltip>
   );
 }
 
@@ -263,34 +263,39 @@ export function AutoTradeStatusCommandBar(props: AutoTradeStatusCommandBarProps)
           label="Engine"
           value={isRunning ? 'Running' : 'Stopped'}
           tone={isRunning ? 'ok' : 'alert'}
-          title="자동매매 엔진 cron 의 살아있음 여부 — Stopped 면 Shadow 학습도 멈춥니다 (불변식 #1/#2)."
+          tooltip="자동매매 엔진 cron 의 살아있음 여부. Stopped 면 Shadow 학습 사이클도 함께 멈춥니다 (불변식 #1/#2 위반 가능)."
         />
         <StatusBadge
           label="Mode"
           value={mode || 'UNKNOWN'}
           tone={mode === 'LIVE' ? 'warn' : mode ? 'neutral' : 'alert'}
-          title="LIVE = 실거래 가능 / SHADOW · PAPER = 가상 판단·학습만 / MANUAL = 자동 실행 정지."
+          tooltip="LIVE = 실거래 가능 / SHADOW · PAPER = 가상 판단·학습만 / MANUAL = 자동 실행 정지. Mode 와 실제 LIVE 허용은 다름 — 안전 가드도 함께 확인."
         />
         <StatusBadge
           label="Emergency"
           value={emergencyStop ? 'ON' : 'OFF'}
           tone={emergencyStop ? 'alert' : 'ok'}
-          title="Emergency Stop ON = 신규 실행 즉시 차단. 관찰·기록·Shadow 학습은 유지됩니다 (실행 차단 ≠ 엔진 사망)."
+          tooltip="Emergency Stop ON = 신규 실행 즉시 차단. 관찰·기록·Shadow 학습은 유지됩니다 (실행 차단 ≠ 엔진 사망)."
         />
         <StatusBadge
           label="Kill Switch"
           value={killSwitchActive ? 'Active' : 'Safe'}
           tone={killSwitchActive ? 'warn' : 'ok'}
-          title="자동 안전 강등 — VKOSPI/일일손실/매크로 위험 등 조건 충족 시 LIVE 차단. Shadow 는 유지."
+          tooltip="자동 안전 강등 — VKOSPI / 일일손실 / 매크로 위험 조건 충족 시 LIVE 자동 차단. Shadow 기록과 학습은 그대로 유지됩니다."
         />
-        <div className="col-span-2 sm:col-span-1 rounded-xl border border-white/15 bg-white/[0.04] px-3 py-2 flex flex-col gap-0.5">
-          <span className="text-[9px] font-black uppercase tracking-[0.18em] opacity-70 text-theme-text-secondary flex items-center gap-1">
-            <Clock className="w-2.5 h-2.5" /> Last Scan
-          </span>
-          <span className="text-xs font-black text-theme-text" title={lastScanAt ?? '아직 스캔 기록 없음'}>
-            {formatRelative(lastScanAt)}
-          </span>
-        </div>
+        <InfoTooltip
+          label={lastScanAt ? `정확한 시각: ${new Date(lastScanAt).toLocaleString('ko-KR')}` : '아직 스캔 기록 없음 — 엔진 cron 첫 tick 대기 중.'}
+          className="col-span-2 sm:col-span-1"
+        >
+          <div className="rounded-xl border border-white/15 bg-white/[0.04] px-3 py-2 flex flex-col gap-0.5">
+            <span className="text-[9px] font-black uppercase tracking-[0.18em] opacity-70 text-theme-text-secondary flex items-center gap-1">
+              <Clock className="w-2.5 h-2.5" /> Last Scan
+            </span>
+            <span className="text-xs font-black text-theme-text">
+              {formatRelative(lastScanAt)}
+            </span>
+          </div>
+        </InfoTooltip>
       </div>
 
       <div className="flex items-center gap-2 text-[10px] font-bold text-theme-text-muted">
