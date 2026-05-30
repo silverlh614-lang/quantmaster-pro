@@ -9,6 +9,19 @@ import { KIS_INVESTOR_FLOW_CANONICAL } from '../../trading/signalScanner/gate2Ki
 
 const KIS_FLOW_METADATA_NOT_CARRIED = 'UNKNOWN_METADATA_NOT_CARRIED';
 const KIS_FLOW_TRACE_BREAK_POINT = 'PROVIDER_METADATA_DROPPED_AFTER_ROUTER';
+const KIS_FLOW_TRACE_BREAK_POINT_CARRIED_OK = 'METADATA_CARRIED_OK';
+
+// canonical resolver(runtimeResolverTraceStep26)는 selectedProvider==='KIS_API' 일 때
+// metadataCarryInvariant='OK' 로 단언하며 canonical apiPath/trId(KIS_INVESTOR_FLOW_CANONICAL)를 SSOT
+// truth 로 carry 한다. 본 compact 뷰의 coverage.provider 가 KIS 계열이면 canonical metadata 가 이미
+// SSOT 로 알려진 것과 동치다. 이 경우 router 가 endpoint/trId 를 carry 하지 않았더라도 top-level
+// apiPath/trId 에 UNKNOWN_METADATA_NOT_CARRIED 마커를 붙이지 않고 canonical 단일 truth 를 출력해
+// "KIS Router Eligibility" 라인(canonical 값 직접 사용)과의 모순을 제거한다. 표시 전용 — 산출/게이팅 무영향.
+function deriveCanonicalMetadataCarryOk(
+  kis: NonNullable<Gate2ExternalDataCoverage['kisInvestorFlow']>,
+): boolean {
+  return kis.provider === 'KIS_API' || kis.provider === 'KIS_OFFICIAL';
+}
 
 export function formatGate2CompactDiagnostic(input: {
   sourceCoverage?: Gate2SourceCoverage | null;
@@ -32,6 +45,7 @@ function formatSigned(value: number | null): string {
 
 export function formatGate2KisInvestorFlowCompactDiagnostic(
   externalDataCoverage?: Gate2ExternalDataCoverage | null,
+  options?: { canonicalMetadataCarryOk?: boolean },
 ): string | null {
   const kis = externalDataCoverage?.kisInvestorFlow;
   if (!kis || !kis.required) return null;
@@ -58,18 +72,34 @@ export function formatGate2KisInvestorFlowCompactDiagnostic(
   const hasTrId = typeof kis.trId === 'string' && kis.trId.length > 0;
   const knownEndpointKey = kis.endpointKey !== 'UNKNOWN';
 
-  const metadataNotCarried = !hasEndpoint && !hasTrId && !knownEndpointKey;
+  // P1: canonical metadataCarryInvariant=OK(또는 canonical metadata 존재) 면 canonical apiPath/trId 가
+  // SSOT truth 이므로 UNKNOWN_METADATA_NOT_CARRIED 마커 분기를 타지 않는다. options 로 명시 주입되지
+  // 않았으면 coverage.provider(KIS 계열)에서 canonical OK 를 파생한다(resolver 와 동치).
+  const canonicalMetadataCarryOk =
+    options?.canonicalMetadataCarryOk ?? deriveCanonicalMetadataCarryOk(kis);
+
+  const metadataNotCarried =
+    !hasEndpoint && !hasTrId && !knownEndpointKey && canonicalMetadataCarryOk !== true;
+
+  // router 가 endpoint/trId 를 carry 하지 않았지만 canonical OK 인 경우: canonical 단일 truth 를
+  // 마커 없이 출력하고 legacy drop 사실은 하위 진단 필드로만 부기(top-level 모순 출력 방지).
+  const canonicalTruthOnly =
+    !hasEndpoint && !hasTrId && !knownEndpointKey && canonicalMetadataCarryOk === true;
 
   const endpointDisplay = hasEndpoint
     ? (kis.endpoint as string)
     : knownEndpointKey
       ? `endpointKey:${kis.endpointKey}`
-      : `${KIS_INVESTOR_FLOW_CANONICAL.apiPath} (canonical;${KIS_FLOW_METADATA_NOT_CARRIED})`;
+      : canonicalTruthOnly
+        ? KIS_INVESTOR_FLOW_CANONICAL.apiPath
+        : `${KIS_INVESTOR_FLOW_CANONICAL.apiPath} (canonical;${KIS_FLOW_METADATA_NOT_CARRIED})`;
   const trIdDisplay = hasTrId
     ? (kis.trId as string)
-    : metadataNotCarried
-      ? `${KIS_INVESTOR_FLOW_CANONICAL.trId} (canonical;${KIS_FLOW_METADATA_NOT_CARRIED})`
-      : 'UNKNOWN';
+    : canonicalTruthOnly
+      ? KIS_INVESTOR_FLOW_CANONICAL.trId
+      : metadataNotCarried
+        ? `${KIS_INVESTOR_FLOW_CANONICAL.trId} (canonical;${KIS_FLOW_METADATA_NOT_CARRIED})`
+        : 'UNKNOWN';
 
   return [
     `Gate2 KIS Flow: ${kis.status}`,
@@ -77,6 +107,13 @@ export function formatGate2KisInvestorFlowCompactDiagnostic(
     `trId=${trIdDisplay}`,
     ...(metadataNotCarried
       ? [`traceBreakPoint=${KIS_FLOW_TRACE_BREAK_POINT}`]
+      : canonicalTruthOnly
+        ? [`traceBreakPoint=${KIS_FLOW_TRACE_BREAK_POINT_CARRIED_OK}`]
+        : []),
+    // canonical OK 인데 router 가 metadata 를 미carry 한 사실(legacy drop)은 하위 진단 필드로만 부기.
+    // top-level apiPath/trId/traceBreakPoint 에는 모순 마커가 없으므로 user-facing 정합 유지.
+    ...(canonicalTruthOnly
+      ? ['diagnosticLegacyMetadataDrop=apiPathTrIdNotCarriedByRouter']
       : []),
     `foreign=${formatSigned(kis.foreignNetBuy)}`,
     `inst=${formatSigned(kis.institutionalNetBuy)}`,

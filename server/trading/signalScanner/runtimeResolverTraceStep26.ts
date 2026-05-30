@@ -712,8 +712,10 @@ function buildKisRouterEligibility(summary: ScanSummary | null): string[] {
   const useScope: Gate2KisFlowUseScope = gateEligibleRows > 0
     ? 'GATE_SCORE_ELIGIBLE'
     : 'SHADOW_ONLY_NEUTRAL_UNKNOWN';
-  // metadata carry 진단: 라우터는 KIS apiPath/trId 를 carry 하지 않으므로 undefined 로 넘겨
-  // UNKNOWN_METADATA_NOT_CARRIED 분기를 타게 한다 ("데이터 없음" vs "metadata 유실" 구분).
+  // metadata carry 진단: canonical resolver 의 metadataCarryInvariant 를 truth 신호로 전달한다.
+  // OK 면(=selectedProvider KIS_API → canonical apiPath/trId SSOT) router 가 apiPath/trId 를
+  // carry 하지 않았더라도 canonical 단일 truth 를 마커 없이 표시(UNKNOWN_METADATA_NOT_CARRIED 동시출력
+  // 제거 — "KIS Router Eligibility" 라인과 정합). MISSING 이면 기존 drop 마커 분기 유지. 표시 전용.
   const kisFlowTraceFields = buildKisFlowTraceFields({
     selectedProvider,
     apiPath: canonical.kisInvestorFlow.apiPath,
@@ -724,6 +726,7 @@ function buildKisRouterEligibility(summary: ScanSummary | null): string[] {
     foreignNetBuy: router?.gateSemanticFlatRow?.foreignNetBuy ?? null,
     institutionNetBuy: router?.gateSemanticFlatRow?.institutionNetBuy ?? null,
     useScope,
+    metadataCarryInvariant: canonical.kisInvestorFlow.metadataCarryInvariant,
   });
   return [
     'KIS Router Eligibility:',

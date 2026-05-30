@@ -49,6 +49,67 @@ describe('buildKisFlowTraceFields', () => {
     expect(map.get('diagnosticOnly')).toBe('false');
   });
 
+  it('KIS_API + apiPath null + metadataCarryInvariant=OK → canonical 단일 truth(마커 없음) + traceBreakPoint=METADATA_CARRIED_OK', () => {
+    // P1: canonical resolver 가 metadataCarryInvariant=OK 로 단언하면 canonical apiPath/trId 는 SSOT
+    // truth. router 가 apiPath/trId 를 carry 안 했어도 UNKNOWN 마커 부착 금지 — canonical 단일 truth 만 출력.
+    const input: BuildKisFlowTraceInput = {
+      selectedProvider: 'KIS_API',
+      apiPath: null,
+      trId: null,
+      foreignNetBuy: 100,
+      institutionNetBuy: -50,
+      useScope: 'GATE_SCORE_ELIGIBLE',
+      metadataCarryInvariant: 'OK',
+    };
+
+    const fields = buildKisFlowTraceFields(input);
+    const map = toMap(fields);
+    const joined = fields.join('\n');
+
+    expect(map.get('apiPath')).toBe(KIS_INVESTOR_FLOW_CANONICAL.apiPath);
+    expect(map.get('trId')).toBe(KIS_INVESTOR_FLOW_CANONICAL.trId);
+    // canonical OK 와 UNKNOWN_METADATA_NOT_CARRIED 동시 출력 금지.
+    expect(joined).not.toContain('UNKNOWN_METADATA_NOT_CARRIED');
+    expect(joined).not.toContain('PROVIDER_METADATA_DROPPED_AFTER_ROUTER');
+    expect(map.get('traceBreakPoint')).toBe('METADATA_CARRIED_OK');
+    // legacy drop 사실은 하위 진단 필드로만 부기.
+    expect(map.get('diagnosticLegacyMetadataDrop')).toBe('apiPathTrIdNotCarriedByRouter');
+    // emitCanonical 분기(canonicalApiPath/canonicalTrId 별도 라인)는 타지 않는다.
+    expect(map.has('canonicalApiPath')).toBe(false);
+    expect(map.get('executionImpact')).toBe('NONE');
+  });
+
+  it('KIS_API + apiPath null + metadataCarryInvariant=MISSING → 기존 UNKNOWN 마커 분기 보존(회귀)', () => {
+    const input: BuildKisFlowTraceInput = {
+      selectedProvider: 'KIS_API',
+      apiPath: null,
+      trId: null,
+      useScope: 'GATE_SCORE_ELIGIBLE',
+      metadataCarryInvariant: 'MISSING',
+    };
+
+    const map = toMap(buildKisFlowTraceFields(input));
+    expect(map.get('apiPath')).toBe(`${KIS_INVESTOR_FLOW_CANONICAL.apiPath} (canonical;UNKNOWN_METADATA_NOT_CARRIED)`);
+    expect(map.get('trId')).toBe(`${KIS_INVESTOR_FLOW_CANONICAL.trId} (canonical;UNKNOWN_METADATA_NOT_CARRIED)`);
+    expect(map.get('traceBreakPoint')).toBe('PROVIDER_METADATA_DROPPED_AFTER_ROUTER');
+    expect(map.has('diagnosticLegacyMetadataDrop')).toBe(false);
+  });
+
+  it('KIS_API + apiPath/trId 정상 carry + metadataCarryInvariant=OK → carry 값 그대로(canonical 강제 안 함)', () => {
+    const input: BuildKisFlowTraceInput = {
+      selectedProvider: 'KIS_API',
+      apiPath: '/uapi/some/actual/path',
+      trId: 'FHACTUAL001',
+      useScope: 'GATE_SCORE_ELIGIBLE',
+      metadataCarryInvariant: 'OK',
+    };
+    const map = toMap(buildKisFlowTraceFields(input));
+    expect(map.get('apiPath')).toBe('/uapi/some/actual/path');
+    expect(map.get('trId')).toBe('FHACTUAL001');
+    expect(map.has('traceBreakPoint')).toBe(false);
+    expect(map.has('diagnosticLegacyMetadataDrop')).toBe(false);
+  });
+
   it('KRX provider → endpoint(BLD) 를 apiPath 위치에 표기 + trId=NOT_APPLICABLE_KRX_PROVIDER', () => {
     const input: BuildKisFlowTraceInput = {
       selectedProvider: 'KRX',
