@@ -23,6 +23,7 @@ import { CompositeVerdictCard } from '../components/autoTrading/CompositeVerdict
 import { AlertsFeedBell } from '../components/autoTrading/AlertsFeedBell';
 import { AutoTradeHeroKpis } from '../components/autoTrading/AutoTradeHeroKpis';
 import { AutoTradeStatusCommandBar } from '../components/trading/autoTrade/AutoTradeStatusCommandBar';
+import { LivePreflightChecklist } from '../components/trading/autoTrade/LivePreflightChecklist';
 import { AutoTradeTabbedView } from '../components/autoTrading/AutoTradeTabbedView';
 import { ProDiagnosticsStrip } from '../components/autoTrading/ProDiagnosticsStrip';
 import { ApiConnectionLamps } from '../components/autoTrading/ApiConnectionLamps';
@@ -201,6 +202,17 @@ export function AutoTradePage() {
         {/* UI_WIRING_MATRIX §10 #2B Phase A — "지금 실제 돈이 나가는가?" 1초 인식 배너.
             engineStatus / killSwitch 의 derived state 만 사용. 새 서버 호출·로직 0건. */}
         <AutoTradeStatusCommandBar
+          isRunning={isRunning}
+          mode={mode}
+          emergencyStop={Boolean(engineStatus?.emergencyStop)}
+          killSwitchActive={killSwitchActive}
+          lastScanAt={engineStatus?.lastScanAt ?? null}
+        />
+
+        {/* UI_WIRING_MATRIX §10 #2B Phase E — LIVE 전환 사전 점검 체크리스트 (정보 전용).
+            기존 arming 4단계 안전 체인(EngineToggleGate) 미수정 — 체크리스트는 사용자가
+            ARM 전 "지금 LIVE 갈 수 있나?"를 한눈에 보는 보조 표시. */}
+        <LivePreflightChecklist
           isRunning={isRunning}
           mode={mode}
           emergencyStop={Boolean(engineStatus?.emergencyStop)}
