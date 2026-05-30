@@ -292,7 +292,14 @@ UI→hook→store→service→표시의 정적 배선은 두 흐름 모두 **끊
 - ScreenerPage Gate Wizard 깊은 변경: 매매 후보 평가 로직 인접 — 별도 audit 필요시.
 - LearningSanityDashboardPage 6 카드 확장: 데이터 누적·진단 도메인, ADR 동반 변경 권장.
 
-### 10.4 추가 audit 권고 (선택)
+### 10.4 정정 + 후속 (2026-05-27, 깊게 확인 결과)
+
+§10.1 의 두 PARTIAL/DECORATIVE 판정을 정밀 재확인했다:
+
+- **ManualInput — 정정: DECORATIVE → OK.** §10.1 표가 wrapper 만 보고 "입력 0건" 으로 잘못 판정했다. 실제 wrapper(`ManualInputPage.tsx`)는 `<ManualQuantInput>`(`src/components/analysis/ManualQuantInput.tsx`, 635줄)를 임베드하고 있고, 그 안에 Stock Name/Code/Current Price, RSI(14)/ICR/MA Alignment/Ichimoku, BOK Rate/USD-KRW/VKOSPI/VIX/Export Growth 등 **풍부한 정량 입력 필드와 onChange/setState 가 모두 wired** 돼 있다. rename 이나 액션 추가 불필요.
+- **PortfolioExtract — 수정 완료(부분, PARTIAL→OK).** `handleExtract` 가 애니메이션만 돌리던 것을 (1) `recommendations` 를 `aiConvictionScore.totalScore` 내림차순으로 정렬해 실제 상위 N 선정, (2) 완료 카드에 종목 표를 노출, (3) "Backtest 로 보내기" 버튼으로 `useMarketStore.backtestPortfolioItems` 에 균등 가중치(중복 제거)로 추가 후 `setView('BACKTEST')` 라우팅 — 으로 wiring 했다. Gate 가중치 슬라이더는 현 PR 에선 입력만 수집하며(슬라이더 자체는 정상 동작) Gate 별 sub-score 분리·가중치 반영은 후속 PR.
+
+### 10.5 추가 audit 권고 (선택)
 
 다음 audit 라운드에서 다룰 만한 것:
 - AutoTradePage 의 SSE(`useEngineStream`) 끊김/재연결 UX.

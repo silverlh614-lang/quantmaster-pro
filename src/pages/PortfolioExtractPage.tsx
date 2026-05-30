@@ -12,7 +12,8 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Stack } from '../layout/Stack';
 import { ConnectionStatus, type ConnectionState } from '../components/common/ConnectionStatus';
-import { useRecommendationStore } from '../stores';
+import { useMarketStore, useRecommendationStore, useSettingsStore } from '../stores';
+import type { StockRecommendation } from '../services/stockService';
 
 // ── Gate extraction step definition ─────────────────────────────────────────
 interface GateStep {
@@ -51,6 +52,8 @@ type PositionSizeMode = 'kelly' | 'equal';
 
 export function PortfolioExtractPage() {
   const { recommendations, lastUpdated, loading } = useRecommendationStore();
+  const { backtestPortfolioItems, setBacktestPortfolioItems } = useMarketStore();
+  const { setView } = useSettingsStore();
   const upstreamState: ConnectionState = loading
     ? 'loading'
     : recommendations && recommendations.length > 0
@@ -74,6 +77,7 @@ export function PortfolioExtractPage() {
   const [currentGate, setCurrentGate] = useState<number>(-1); // -1 = idle, 0/1/2 = gate index
   const [completedGates, setCompletedGates] = useState<number[]>([]);
   const [extracted, setExtracted] = useState(false);
+  const [extractedItems, setExtractedItems] = useState<StockRecommendation[]>([]);
 
   // ── Extraction handler with sequential gate animation ──────────────────────
   const handleExtract = useCallback(async () => {
@@ -81,6 +85,7 @@ export function PortfolioExtractPage() {
     setExtracting(true);
     setExtracted(false);
     setCompletedGates([]);
+    setExtractedItems([]);
 
     for (let i = 0; i < 3; i++) {
       setCurrentGate(i);
@@ -88,10 +93,38 @@ export function PortfolioExtractPage() {
       setCompletedGates(prev => [...prev, i]);
     }
 
+    // 실제 추출 — aiConvictionScore 상위 N. 게이트 가중치 슬라이더는 현 시점엔
+    // 입력만 수집(후속 PR에서 Gate별 sub-score 분리·가중치 반영). 사용자가
+    // "추출됐다" 라는 메시지만 보고 결과를 찾지 못하던 와이어링 갭 해소(§10.2).
+    const ranked = [...(recommendations || [])]
+      .filter(s => (s.aiConvictionScore?.totalScore ?? 0) > 0)
+      .sort((a, b) => (b.aiConvictionScore?.totalScore ?? 0) - (a.aiConvictionScore?.totalScore ?? 0))
+      .slice(0, stockCount);
+    setExtractedItems(ranked);
+
     setCurrentGate(-1);
     setExtracting(false);
     setExtracted(true);
-  }, [totalGateWeight]);
+  }, [totalGateWeight, recommendations, stockCount]);
+
+  // ── 추출 결과를 Backtest 페이지로 보내기 ─────────────────────────────────
+  // useMarketStore.backtestPortfolioItems 에 균등 가중치로 추가 + 중복 제거 + setView('BACKTEST').
+  // usePortfolioOps.addToBacktest 와 동일 store 통로 사용(PageRouter 단일 인스턴스 원칙 보존).
+  const handleSendToBacktest = useCallback(() => {
+    if (extractedItems.length === 0) {
+      setView('BACKTEST');
+      return;
+    }
+    const existing = new Set((backtestPortfolioItems || []).map((it: { code: string }) => it.code));
+    const weight = Number((100 / extractedItems.length).toFixed(2));
+    const toAdd = extractedItems
+      .filter(s => !existing.has(s.code))
+      .map(s => ({ name: s.name, code: s.code, weight }));
+    if (toAdd.length > 0) {
+      setBacktestPortfolioItems([...(backtestPortfolioItems || []), ...toAdd]);
+    }
+    setView('BACKTEST');
+  }, [extractedItems, backtestPortfolioItems, setBacktestPortfolioItems, setView]);
 
   // ── Weight adjustment helper ───────────────────────────────────────────────
   const clampWeight = (v: number) => Math.max(0, Math.min(100, v));
@@ -499,16 +532,63 @@ export function PortfolioExtractPage() {
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0 }}
-                  className="mt-6 sm:mt-8 p-4 sm:p-6 bg-green-500/10 border border-green-500/25 rounded-xl sm:rounded-2xl text-center"
+                  className="mt-6 sm:mt-8 p-4 sm:p-6 bg-green-500/10 border border-green-500/25 rounded-xl sm:rounded-2xl"
                 >
-                  <CheckCircle2 className="w-8 h-8 text-green-400 mx-auto mb-3" />
-                  <p className="text-sm sm:text-base font-black text-green-400 uppercase tracking-wider mb-1">
-                    추출 완료
-                  </p>
-                  <p className="text-xs text-theme-text-muted font-bold">
-                    3-Gate 필터를 통과한 상위 {stockCount}개 종목이 추출되었습니다.
-                    ({positionMode === 'kelly' ? 'Kelly 공식' : '균등배분'} 적용)
-                  </p>
+                  <div className="text-center mb-4">
+                    <CheckCircle2 className="w-8 h-8 text-green-400 mx-auto mb-3" />
+                    <p className="text-sm sm:text-base font-black text-green-400 uppercase tracking-wider mb-1">
+                      추출 완료
+                    </p>
+                    <p className="text-xs text-theme-text-muted font-bold">
+                      aiConvictionScore 상위 {extractedItems.length}/{stockCount}개 추출
+                      ({positionMode === 'kelly' ? 'Kelly 공식' : '균등배분'} · Gate 가중치는 입력값으로 수집·후속 반영)
+                    </p>
+                  </div>
+
+                  {extractedItems.length === 0 ? (
+                    <p className="text-center text-xs text-amber-400 font-bold">
+                      후보 판정 결과에 aiConvictionScore 가 있는 종목이 없습니다. 후보 판정 탭에서 먼저 분석을 실행하세요.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="rounded-lg border border-white/10 bg-black/20 overflow-hidden mb-4">
+                        <table className="w-full text-left">
+                          <thead className="bg-white/5">
+                            <tr>
+                              <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-theme-text-muted">#</th>
+                              <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-theme-text-muted">종목</th>
+                              <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-theme-text-muted text-right">AI Score</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {extractedItems.map((s, idx) => (
+                              <tr key={`extracted-${s.code}`} className="border-t border-white/5">
+                                <td className="px-3 py-1.5 text-[10px] font-bold text-theme-text-muted font-mono">{idx + 1}</td>
+                                <td className="px-3 py-1.5">
+                                  <span className="text-xs font-black text-theme-text">{s.name}</span>
+                                  <span className="text-[10px] font-bold text-theme-text-muted ml-2 font-mono">{s.code}</span>
+                                </td>
+                                <td className="px-3 py-1.5 text-right text-xs font-black text-green-400 font-mono tabular-nums">
+                                  {s.aiConvictionScore?.totalScore ?? 0}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="flex justify-center">
+                        <Button
+                          variant="primary"
+                          size="md"
+                          icon={<Play className="w-4 h-4" />}
+                          onClick={handleSendToBacktest}
+                        >
+                          Backtest 로 보내기 ({extractedItems.length}개, 균등 {(100 / extractedItems.length).toFixed(1)}%)
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
