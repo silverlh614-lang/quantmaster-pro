@@ -1,3 +1,7 @@
+/**
+ * @responsibility KIS 일별 체결 조회 API를 호출해 정규화된 체결 결과를 반환하는 서비스를 제공한다.
+ */
+
 import { kisGet, KIS_IS_REAL } from '../../clients/kisClient.js';
 import type { KisApiPriority } from '../../clients/kisClient.js';
 import type { FillQueryOrder, FillQueryResult, FillSide } from './fillTypes.js';

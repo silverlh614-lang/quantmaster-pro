@@ -422,7 +422,7 @@ export function formatNoEntryPipelineHealthOkLog(diagnostic: NoEntryStreakDiagno
     `gateEvaluated=${diagnostic.gateEvaluated}`,
     `gate3Evaluated=${diagnostic.gate3Evaluated}`,
     `shadowLearningAllowed=${boolText(diagnostic.shadowLearningAllowed)}`,
-    `counterfactualRecorded=${boolText(diagnostic.counterfactualRecorded)}`,
+    `counterfactualRecordedAnyScope=${boolText(diagnostic.counterfactualRecorded)}`,
     'forceScanBlocked=false',
     safetyFields(diagnostic),
   ].join(' ');

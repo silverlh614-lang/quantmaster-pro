@@ -219,14 +219,18 @@ describe('ADR-0471 final Gate1 calibration', () => {
     ]));
   });
 
-  it('recommended threshold targets survivor range 3~7', () => {
+  it('recommended threshold stays at current score when survivor target is unreachable', () => {
     const report = makeFinalReport();
     const row = report.thresholdSweep.rows.find((item) =>
       item.unknownPolicy === report.thresholdSweep.recommendedUnknownPolicy &&
       item.threshold === report.thresholdSweep.recommendedDryRunThreshold);
 
-    expect(row?.survivors).toBeGreaterThanOrEqual(3);
-    expect(row?.survivors).toBeLessThanOrEqual(7);
+    expect(report.thresholdSweep.recommendedDryRunThreshold).toBe(70);
+    expect(row?.survivors).toBe(0);
+    expect(report.thresholdSweep.rows.some((item) =>
+      item.unknownPolicy === report.thresholdSweep.recommendedUnknownPolicy &&
+      item.survivors >= report.thresholdSweep.targetSurvivorRange.min &&
+      item.survivors <= report.thresholdSweep.targetSurvivorRange.max)).toBe(false);
   });
 
   it('liveExecutionAllowed remains false', () => {

@@ -1,3 +1,7 @@
+/**
+ * @responsibility KIS 매도·취소 주문 어댑터 — 매도·취소 의도를 KIS 주문 요청 형식으로 변환한다.
+ */
+
 import { SELL_TR_ID } from '../constants.js';
 import type { KisOrderKind, KisSellOrderIntent } from './kisOrderTypes.js';
 import type { KisOrderRequest } from './kisBuyOrderAdapter.js';

@@ -1,2 +1,6 @@
+/**
+ * @responsibility 생략된 알림 원장 항목을 조회해 텔레그램으로 응답하는 /omitted 명령을 등록한다.
+ */
+
 import { getOmittedNotifications } from '../../../persistence/notificationLedgerRepo.js'; import { commandRegistry } from '../../commandRegistry.js'; import type { TelegramCommand } from '../_types.js';
 const cmd: TelegramCommand={name:'/omitted',category:'ALR',visibility:'ADMIN',riskLevel:0,description:'생략 알림 조회',usage:'/omitted [today|keyword]',async execute({args,reply}){const token=args[0];const rows=await getOmittedNotifications({dateKey:'today'===token||!token?new Date().toISOString().slice(0,10):undefined,keyword:token&&token!=='today'?token:undefined});await reply(`🧾 omitted ${rows.length}\n`+rows.slice(-20).map(r=>`${r.id} | ${r.deliveryState} | ${r.eventType}`).join('\n'));}}; commandRegistry.register(cmd);

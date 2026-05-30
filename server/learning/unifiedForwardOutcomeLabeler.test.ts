@@ -128,7 +128,13 @@ describe('UnifiedForwardOutcomeLabeler', () => {
     const rows = normalizeUnifiedForwardOutcomeRows({
       now: NOW,
       gate3Seeds: [gate3Seed({ forwardReturns: { d1: 3, d3: 4, d5: 6, d10: null }, outcomeStatus: 'LABELED', outcomeLabel: 'GATE3_READY_FOLLOW_THROUGH' })],
-      gate1Rows: [gate1Row({ forwardReturn1D: 2, status: 'MATURED_1D' })],
+      gate1Rows: [gate1Row({
+        sourceSnapshotId: 'scan:test',
+        candidateSetId: 'candidateSet:scan:test:1',
+        forwardReturn1D: 2,
+        forwardReturn10D: 4,
+        status: 'MATURED_10D',
+      })],
       nearMissEntries: [nearMissEntry()],
       counterfactualEntries: [counterfactualEntry()],
       paperEntries: [{
@@ -154,6 +160,10 @@ describe('UnifiedForwardOutcomeLabeler', () => {
     expect(rows[0].sourceLedgerId).toBe(rows[0].outcomeId);
     expect(rows[0].horizonStatusD1).toBe('UPDATED');
     expect(rows[0].priceAtD1).toBe(10_300);
+    expect(rows[1].sourceSnapshotId).toBe('scan:test');
+    expect(rows[1].candidateSetId).toBe('candidateSet:scan:test:1');
+    expect(rows[1].horizonStatusD10).toBe('UPDATED');
+    expect(rows[1].forwardReturnD10).toBe(4);
     expect(rows[3].liveExecutionAllowedAtCreation).toBe(false);
     expect(rows[4].policyView).toBe('OBSERVATIONAL_ONLY');
   });

@@ -1,3 +1,7 @@
+/**
+ * @responsibility KIS 일별 체결 조회 원시 응답을 정규화된 체결 결과 형태로 변환한다.
+ */
+
 import type { FillQueryOrder, FillQueryResult, NormalizedKisFillRow } from './fillTypes.js';
 
 export interface KisDailyCcldResponse {

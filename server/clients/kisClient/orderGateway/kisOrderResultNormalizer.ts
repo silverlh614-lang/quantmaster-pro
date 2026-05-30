@@ -1,3 +1,7 @@
+/**
+ * @responsibility KIS 주문 결과 정규화기 — 원시 응답을 게이트웨이 표준 결과 형태로 변환한다.
+ */
+
 import type { KisOrderKind, OrderGatewayMetadata, OrderGatewayResult } from './kisOrderTypes.js';
 import type { KisOrderErrorClassification } from './kisOrderErrorClassifier.js';
 import { emitKisOrderOperationalWarn } from './kisOrderOperationalWarn.js';

@@ -111,8 +111,8 @@ export interface HealthSnapshot {
   krxTokenValid: boolean;
   krxCircuitState: string;
   krxFailures: number;
-  /** Phase 1 — 공매도 비율 데이터 출처 (KRX_DIRECT/KRX_OTP/KIS_ESTIMATE 또는 미수집). */
-  shortSellingSource?: 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_ESTIMATE';
+  /** Phase 1 — 공매도 비율 데이터 출처 (KRX_DIRECT/KRX_OTP/KIS_PROXY/KIS_ESTIMATE/CACHE 또는 미수집). */
+  shortSellingSource?: 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_PROXY' | 'KIS_ESTIMATE' | 'CACHE';
   /** Phase 1 — 공매도 마지막 조회 시각 ISO. */
   shortSellingFetchedAt?: string;
 

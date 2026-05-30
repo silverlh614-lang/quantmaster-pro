@@ -133,6 +133,7 @@ export interface MacroGateState {
   snapshotFreshnessForLive?: string;
   snapshotFreshnessForShadow?: string;
   snapshotFreshnessForDiagnostic?: string;
+  snapshotStaleCause?: string;
   usableForDisplay?: boolean;
   usableForReport?: boolean;
   usableForDiagnostic?: boolean;
@@ -155,6 +156,7 @@ export interface MacroGateState {
   r6ShockLatch?: boolean;
   latchDecayPercent?: number;
   recoveryBlockedReason?: string;
+  cooldownUntil?: string;
   liveEntryAllowed?: boolean;
   liveExitAllowed?: boolean;
   shadowBuyAllowed?: boolean;

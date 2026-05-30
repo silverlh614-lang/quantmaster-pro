@@ -1,3 +1,7 @@
+/**
+ * @responsibility 섹터 지수 커버리지를 평가해 부스트·승격·실행 허용 진단 결과를 산출한다.
+ */
+
 export type SectorEnergySourceTier =
   | 'OFFICIAL_KRX_SECTOR_INDEX'
   | 'OFFICIAL_KIS_SECTOR_INDEX'

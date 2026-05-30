@@ -90,7 +90,7 @@ describe('/scan_blockers_execution command', () => {
     expect(text).toContain('SELL_ONLY_LIVE_BUY_BLOCKED');
     expect(text).toContain('providerIssueConvertedToMarketSignal: 0');
     expect(text).toContain('shadowLearning: ON');
-    expect(text).toContain('counterfactualRecorded: 1');
+    expect(text).toContain('entryCounterfactualReadyCount: 1');
     expect(text).toContain('gate3LivePermissionLeakDetected: 0');
     expect(text).toContain('diagnosticOnlyBrokerOrderLeakDetected: 0');
     expect(text).toContain('read-only diagnostic; no provider fetch, no broker order, no live promotion');

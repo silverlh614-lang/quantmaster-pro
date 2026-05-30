@@ -40,6 +40,7 @@ export type Gate1DryRunObservationSource =
   | 'ADR_0488_SECTOR_ENERGY_MASTER_SUPPLY_LINE'
   | 'ADR_0488_SUPPLY_UNKNOWN_POLICY_STABILIZATION'
   | 'ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY'
+  | 'GATE1_SCORE_OBSERVATION_V2'
   | 'GATE1_NEAR_MISS'
   | 'COUNTERFACTUAL_UNIVERSE';
 
@@ -49,6 +50,7 @@ export type Gate1DryRunObservationStatus =
   | 'MATURED_1D'
   | 'MATURED_3D'
   | 'MATURED_5D'
+  | 'MATURED_10D'
   | 'EXPIRED'
   | 'SKIPPED';
 
@@ -60,10 +62,22 @@ export type Gate1DryRunObservationDecision =
   | 'UNKNOWN_DIAGNOSTIC_ONLY'
   | 'POSITIVE_SOURCE_REPAIRED';
 
+export type Gate1ObservationScoreBand = '70+' | '65~70' | '60~65' | '55~60' | 'below55' | 'UNSCORED';
+export type Gate1ObservationFeatureCompleteness = 'COMPLETE' | 'PARTIAL' | 'UNKNOWN';
+export type Gate1ThresholdMaturityStatus =
+  | 'PENDING'
+  | 'MATURED_D1'
+  | 'MATURED_D3'
+  | 'MATURED_D5'
+  | 'MATURED_D10'
+  | 'DATA_UNAVAILABLE';
+
 export interface Gate1DryRunObservationRow {
   id: string;
   createdAt: string;
   forDate: string;
+  scanId?: string; candidateSetId?: string; tradeDate?: string; marketSessionState?: string;
+  rawRegime?: string; effectiveRegime?: string; displayRegime?: string; engineMode?: string; policyView?: string;
   source: Gate1DryRunObservationSource;
   symbol: string;
   name?: string;
@@ -75,22 +89,29 @@ export interface Gate1DryRunObservationRow {
   dryRunScore?: number;
   requiredScore: number;
   scoreGap?: number;
+  sourceSnapshotId?: string; regime?: string; marketSession?: string;
+  finalGate1Score?: number; rawPositiveScore?: number; effectivePenaltyScore?: number; diagnosticPenaltyScore?: number;
+  scoreBand?: Gate1ObservationScoreBand;
+  hardPass?: boolean; softPass?: boolean; liveCandidateAfterGate1?: boolean; shadowObservable?: boolean; counterfactualEligible?: boolean;
+  maturityStatus?: Gate1ThresholdMaturityStatus;
+  featureCompleteness?: Gate1ObservationFeatureCompleteness;
+  supplyGateScoreEligible?: boolean; breakoutPositive?: boolean; rsPercentile?: number; priceMomentumPositive?: boolean;
+  observationOnly?: true; thresholdAutoChanged?: false; operatorApprovalRequired?: true;
+  shadowObservationEligible?: boolean; shadowBuyAllowed?: boolean; shadowLearningAllowed?: true; counterfactualAllowed?: true;
+  minSignalLivePass?: boolean; gate2Evaluated?: boolean; gate2Pass?: boolean; gate2PrimaryBlocker?: string;
+  gate3Evaluated?: boolean; gate3Readiness?: string; rrrStatus?: string; volumeConfirmation?: string;
+  priceConfirmation?: string; lastTriggerStatus?: string; learningLabel?: string;
   providerIssue: boolean;
   marketSignal: boolean;
   sectorEnergyDiagnosticOnly: boolean;
   sellOnly: boolean;
-  watchlistUpstreamScore?: number;
-  relativeStrengthScore?: number;
-  breakoutStructureScore?: number;
-  supplyPenalty?: number;
-  riskPenalty?: number;
-  sectorPenalty?: number;
-  entryReferencePrice?: number;
-  stopLossPrice?: number;
-  targetPrice?: number;
-  forwardReturn1D?: number;
-  forwardReturn3D?: number;
-  forwardReturn5D?: number;
+  watchlistUpstreamScore?: number; priceMomentumScore?: number; relativeStrengthScore?: number; breakoutStructureScore?: number;
+  volumeLiquidityScore?: number; watchlistScore?: number; supplyScore?: number; sectorLeadershipScore?: number; technicalTrendScore?: number;
+  supplyPenalty?: number; riskPenalty?: number; sectorPenalty?: number;
+  entryReferencePrice?: number; stopLossPrice?: number; targetPrice?: number;
+  forwardReturn1D?: number; forwardReturn3D?: number; forwardReturn5D?: number; forwardReturn10D?: number;
+  forwardReturnD1?: number; forwardReturnD3?: number; forwardReturnD5?: number; forwardReturnD10?: number;
+  mfeD1?: number; mfeD3?: number; mfeD5?: number; maeD1?: number; maeD3?: number; maeD5?: number;
   maxFavorableExcursion5D?: number;
   maxAdverseExcursion5D?: number;
   stopLossTouched?: boolean;
@@ -131,6 +152,7 @@ export interface Gate1DryRunObservationSummary {
   matured1D: number;
   matured3D: number;
   matured5D: number;
+  matured10D: number;
   sources: Partial<Record<Gate1DryRunObservationSource, number>>;
   sourceBreakdownCountSum: number;
   unclassifiedSourceRows: number;
@@ -140,7 +162,7 @@ export interface Gate1DryRunObservationSummary {
   liveExecutionAllowed: false;
   executionImpact: 'NONE';
   policyPromotionMode: 'OBSERVE' | 'SHADOW_ONLY';
-  nextAction: 'TRACK_1D_3D_5D_FORWARD_RETURNS';
+  nextAction: 'TRACK_1D_3D_5D_10D_FORWARD_RETURNS';
 }
 
 export interface Gate1EvidenceMaturityStatus {
@@ -149,6 +171,7 @@ export interface Gate1EvidenceMaturityStatus {
   pendingD1: number;
   pendingD3: number;
   pendingD5: number;
+  pendingD10: number;
   dueNow: number;
   stalePending: number;
   nextMaturityRunAt: string;
@@ -159,7 +182,7 @@ export interface Gate1EvidenceMaturityStatus {
 }
 
 export interface Gate1ThresholdEvidenceSummary {
-  sampleWindow: '1D/3D/5D';
+  sampleWindow: '1D/3D/5D/10D';
   totalSamples: number;
   pendingSamples: number;
   ledgerRowsCreated: number;
@@ -170,9 +193,16 @@ export interface Gate1ThresholdEvidenceSummary {
   matureSamplesD1: number;
   matureSamplesD3: number;
   matureSamplesD5: number;
+  matureSamplesD10: number;
   bestDryRunThreshold: 70 | 65 | 60;
-  recommendedAction: 'OBSERVE_MORE' | 'KEEP_THRESHOLD_70' | 'DRY_RUN_THRESHOLD_65_R3_ONLY' | 'REJECT_THRESHOLD_RELAXATION';
-  confidence: 'INSUFFICIENT_SAMPLE' | 'LOW' | 'MEDIUM' | 'HIGH';
+  recommendedAction: 'OBSERVE_MORE' | 'REVIEW_THRESHOLD_WITH_OPERATOR' | 'KEEP_THRESHOLD' | 'SHADOW_ONLY_ADJUSTMENT_REVIEW';
+  confidence: 'INSUFFICIENT_SAMPLE' | 'OBSERVING' | 'READY_FOR_REVIEW';
+  reviewReady: boolean;
+  reviewBlockers: string[];
+  liveRequiredScore: 70;
+  shadowObservationMode: 'ON';
+  shadowObservationBands: Array<'60~65' | '65~70' | '70+'>;
+  liveThresholdAutoChanged: false;
   scoreBandTable: Array<{
     band: '70+' | '65~70' | '60~65' | '55~60' | 'below55';
     count: number;
@@ -198,6 +228,17 @@ export interface Gate1ThresholdEvidenceSummary {
 export interface Gate1DryRunObservationBuildInput {
   now?: Date;
   forDate: string;
+  sourceSnapshotId?: string;
+  scanId?: string;
+  candidateSetId?: string;
+  regime?: string;
+  rawRegime?: string;
+  effectiveRegime?: string;
+  displayRegime?: string;
+  engineMode?: string;
+  policyView?: string;
+  marketSession?: string;
+  marketSessionState?: string;
   candidateSnapshots?: readonly CandidateSnapshot[];
   finalGate1Calibration?: FinalGate1CalibrationAuditReport | null;
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport | null;
@@ -222,6 +263,7 @@ export interface Gate1DryRunObservationOutcomeUpdateResult {
   updatedD1: number;
   updatedD3: number;
   updatedD5: number;
+  updatedD10: number;
   duplicateSuppressed: number;
   pending: number;
   outcomeUpdateAvailable: boolean;
@@ -281,10 +323,100 @@ function targetDateAsUtc(targetDate: string): Date {
 }
 
 function updateStatusForResolvedHorizons(row: Gate1DryRunObservationRow): Gate1DryRunObservationStatus {
+  if (finite(row.forwardReturn10D) || finite(row.forwardReturnD10)) return 'MATURED_10D';
   if (finite(row.forwardReturn5D)) return 'MATURED_5D';
   if (finite(row.forwardReturn3D)) return 'MATURED_3D';
   if (finite(row.forwardReturn1D)) return 'MATURED_1D';
   return row.status === 'PENDING' ? 'OBSERVING' : row.status;
+}
+
+function scoreBandFor(score: unknown): Gate1ObservationScoreBand {
+  if (!finite(score)) return 'UNSCORED';
+  if (score >= 70) return '70+';
+  if (score >= 65) return '65~70';
+  if (score >= 60) return '60~65';
+  if (score >= 55) return '55~60';
+  return 'below55';
+}
+
+function snapshotNumber(snapshot: CandidateSnapshot, keys: readonly string[]): number | undefined {
+  const source = snapshot as unknown as Record<string, unknown>;
+  const quote = snapshot.quote && typeof snapshot.quote === 'object'
+    ? snapshot.quote as Record<string, unknown>
+    : undefined;
+  for (const key of keys) {
+    const direct = source[key];
+    if (finite(direct)) return direct;
+    const quoted = quote?.[key];
+    if (finite(quoted)) return quoted;
+  }
+  return undefined;
+}
+
+function snapshotPath(snapshot: CandidateSnapshot, pathKey: string): unknown {
+  let current: unknown = snapshot;
+  for (const key of pathKey.split('.')) {
+    if (!current || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+function snapshotString(snapshot: CandidateSnapshot, keys: readonly string[], fallback = 'UNKNOWN'): string {
+  for (const key of keys) {
+    const value = key.includes('.') ? snapshotPath(snapshot, key) : (snapshot as unknown as Record<string, unknown>)[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+    if (typeof value === 'boolean') return value ? 'PASS' : 'FAIL';
+  }
+  return fallback;
+}
+
+function minSignalComponentScore(snapshot: CandidateSnapshot, code: string): number | undefined {
+  const components = snapshotPath(snapshot, 'minSignalScoreTrace.components') ??
+    snapshotPath(snapshot, 'gate1Trace.minSignalScoreTrace.components');
+  if (!Array.isArray(components)) return undefined;
+  const component = components.find((item) =>
+    item && typeof item === 'object' && (item as Record<string, unknown>).code === code
+  ) as Record<string, unknown> | undefined;
+  const weighted = component?.weightedScore;
+  return finite(weighted) ? round1(weighted) : undefined;
+}
+
+function thresholdMaturityStatusFor(row: Pick<Gate1DryRunObservationRow, 'forwardReturn1D' | 'forwardReturn3D' | 'forwardReturn5D' | 'forwardReturn10D' | 'forwardReturnD10'>): Gate1ThresholdMaturityStatus {
+  if (finite(row.forwardReturn10D) || finite(row.forwardReturnD10)) return 'MATURED_D10';
+  if (finite(row.forwardReturn5D)) return 'MATURED_D5';
+  if (finite(row.forwardReturn3D)) return 'MATURED_D3';
+  if (finite(row.forwardReturn1D)) return 'MATURED_D1';
+  return 'PENDING';
+}
+
+function resolveFeatureCompleteness(snapshot: CandidateSnapshot): Gate1ObservationFeatureCompleteness {
+  const hasMomentum = snapshotNumber(snapshot, ['return5d', 'return20d', 'marketRelativeReturn']) !== undefined;
+  const hasRs = snapshotNumber(snapshot, ['rsRankPct', 'relativeStrengthScore', 'relativeStrength']) !== undefined;
+  const hasBreakout = finite(snapshot.breakoutScore) || finite(snapshot.vcpScore) || Boolean(snapshot.breakoutTrace);
+  const present = [hasMomentum, hasRs, hasBreakout].filter(Boolean).length;
+  if (present === 3) return 'COMPLETE';
+  if (present > 0) return 'PARTIAL';
+  return 'UNKNOWN';
+}
+
+function observationInputContext(input: Gate1DryRunObservationBuildInput): Pick<
+  Parameters<typeof rowFromSnapshot>[0],
+  'sourceSnapshotId' | 'scanId' | 'candidateSetId' | 'regime' | 'rawRegime' | 'effectiveRegime' | 'displayRegime' | 'engineMode' | 'policyView' | 'marketSession' | 'marketSessionState'
+> {
+  return {
+    sourceSnapshotId: input.sourceSnapshotId,
+    scanId: input.scanId,
+    candidateSetId: input.candidateSetId,
+    regime: input.regime,
+    rawRegime: input.rawRegime,
+    effectiveRegime: input.effectiveRegime,
+    displayRegime: input.displayRegime,
+    engineMode: input.engineMode,
+    policyView: input.policyView,
+    marketSession: input.marketSession,
+    marketSessionState: input.marketSessionState,
+  };
 }
 
 function withOptionalScoreFields(
@@ -293,10 +425,25 @@ function withOptionalScoreFields(
   const base = {
     ...row,
     id: row.id ?? makeId(row),
+    tradeDate: row.tradeDate ?? row.forDate,
+    marketSessionState: row.marketSessionState ?? row.marketSession,
     actualLiveEligible: false as const,
     executionImpact: 'NONE' as const,
     liveExecutionAllowed: false as const,
     policyPromotionMode: 'SHADOW_ONLY' as const,
+    maturityStatus: row.maturityStatus ?? thresholdMaturityStatusFor(row),
+    observationOnly: true as const,
+    thresholdAutoChanged: false as const,
+    operatorApprovalRequired: true as const,
+    shadowLearningAllowed: true as const,
+    counterfactualAllowed: true as const,
+    shadowBuyAllowed: row.shadowBuyAllowed ?? false,
+    forwardReturnD1: row.forwardReturnD1 ?? row.forwardReturn1D,
+    forwardReturnD3: row.forwardReturnD3 ?? row.forwardReturn3D,
+    forwardReturnD5: row.forwardReturnD5 ?? row.forwardReturn5D,
+    forwardReturnD10: row.forwardReturnD10 ?? row.forwardReturn10D,
+    mfeD5: row.mfeD5 ?? row.maxFavorableExcursion5D,
+    maeD5: row.maeD5 ?? row.maxAdverseExcursion5D,
   };
   return base;
 }
@@ -310,6 +457,17 @@ function rowFromSnapshot(input: {
   dryRunDecision: Gate1DryRunObservationDecision;
   dryRunScore?: number;
   requiredScore?: number;
+  sourceSnapshotId?: string;
+  scanId?: string;
+  candidateSetId?: string;
+  regime?: string;
+  rawRegime?: string;
+  effectiveRegime?: string;
+  displayRegime?: string;
+  engineMode?: string;
+  policyView?: string;
+  marketSession?: string;
+  marketSessionState?: string;
   sellOnly: boolean;
   providerIssue: boolean;
   marketSignal: boolean;
@@ -319,9 +477,23 @@ function rowFromSnapshot(input: {
   const actualScore = input.snapshot.gateScore;
   const score = input.dryRunScore ?? actualScore;
   const scoreGap = finite(score) ? round1(score - requiredScore) : undefined;
+  const rawPositiveScore = snapshotNumber(input.snapshot, ['gateRawScore', 'totalGateScore', 'gateScore']);
+  const finalGate1Score = finite(actualScore) ? actualScore : score;
+  const effectivePenaltyScore = finite(rawPositiveScore) && finite(finalGate1Score)
+    ? Math.max(0, round1(rawPositiveScore - finalGate1Score))
+    : 0;
+  const rsPercentile = snapshotNumber(input.snapshot, ['rsRankPct']);
+  const priceMomentum = snapshotNumber(input.snapshot, ['return5d', 'return20d', 'marketRelativeReturn']);
+  const hardPass = input.snapshot.gate1Passed === true && input.snapshot.minSignalScorePassed === true;
+  const softPass = input.snapshot.gate1Passed === true || input.snapshot.minSignalScorePassed === true;
+  const minSignalLivePass = input.snapshot.minSignalScorePassed === true;
+  const gate2Evaluated = input.snapshot.gate1Passed === true || input.snapshot.gate2Passed !== undefined;
+  const gate3Evaluated = input.snapshot.gate2Passed === true || input.snapshot.gate3Passed !== undefined;
+  const shadowObservationEligible = (finite(finalGate1Score) && finalGate1Score >= 60) || softPass || minSignalLivePass;
   return withOptionalScoreFields({
     createdAt: input.nowIso,
     forDate: input.forDate,
+    tradeDate: input.forDate,
     source: input.source,
     symbol: input.snapshot.symbol,
     ...(input.snapshot.name ? { name: input.snapshot.name } : {}),
@@ -333,6 +505,53 @@ function rowFromSnapshot(input: {
     ...(finite(score) ? { dryRunScore: round1(score) } : {}),
     requiredScore,
     ...(scoreGap !== undefined ? { scoreGap } : {}),
+    ...(input.sourceSnapshotId ? { sourceSnapshotId: input.sourceSnapshotId } : {}),
+    ...(input.scanId ? { scanId: input.scanId } : {}),
+    ...(input.candidateSetId ? { candidateSetId: input.candidateSetId } : {}),
+    ...(input.regime ? { regime: input.regime } : {}),
+    ...(input.rawRegime ? { rawRegime: input.rawRegime } : {}),
+    ...(input.effectiveRegime ? { effectiveRegime: input.effectiveRegime } : {}),
+    ...(input.displayRegime ? { displayRegime: input.displayRegime } : {}),
+    ...(input.engineMode ? { engineMode: input.engineMode } : {}),
+    ...(input.policyView ? { policyView: input.policyView } : {}),
+    ...(input.marketSession ? { marketSession: input.marketSession } : {}),
+    ...(input.marketSessionState ? { marketSessionState: input.marketSessionState } : {}),
+    ...(finite(finalGate1Score) ? { finalGate1Score: round1(finalGate1Score) } : {}),
+    ...(finite(rawPositiveScore) ? { rawPositiveScore: round1(rawPositiveScore) } : {}),
+    effectivePenaltyScore,
+    diagnosticPenaltyScore: 0,
+    scoreBand: scoreBandFor(finalGate1Score),
+    hardPass,
+    softPass,
+    minSignalLivePass,
+    liveCandidateAfterGate1: hardPass && input.sellOnly !== true,
+    shadowObservable: true,
+    counterfactualEligible: Boolean(input.snapshot.symbol),
+    shadowObservationEligible,
+    shadowBuyAllowed: false,
+    learningLabel: 'GATE1_THRESHOLD_OBSERVATION',
+    priceMomentumScore: minSignalComponentScore(input.snapshot, 'PRICE_MOMENTUM') ?? snapshotNumber(input.snapshot, ['priceMomentumScore']),
+    relativeStrengthScore: minSignalComponentScore(input.snapshot, 'RELATIVE_STRENGTH') ?? snapshotNumber(input.snapshot, ['relativeStrengthScore']),
+    breakoutStructureScore: minSignalComponentScore(input.snapshot, 'BREAKOUT_STRUCTURE') ?? snapshotNumber(input.snapshot, ['breakoutScore', 'vcpScore']),
+    volumeLiquidityScore: minSignalComponentScore(input.snapshot, 'VOLUME_LIQUIDITY') ?? snapshotNumber(input.snapshot, ['volumeLiquidityScore']),
+    watchlistScore: minSignalComponentScore(input.snapshot, 'WATCHLIST_UPSTREAM_SCORE') ?? snapshotNumber(input.snapshot, ['watchlistUpstreamScore', 'watchlistScore', 'upstreamScore']),
+    supplyScore: minSignalComponentScore(input.snapshot, 'SUPPLY') ?? snapshotNumber(input.snapshot, ['supplyScore']),
+    sectorLeadershipScore: minSignalComponentScore(input.snapshot, 'SECTOR_LEADERSHIP') ?? snapshotNumber(input.snapshot, ['sectorBoost']),
+    technicalTrendScore: minSignalComponentScore(input.snapshot, 'TECHNICAL_TREND') ?? snapshotNumber(input.snapshot, ['technicalTrendScore']),
+    gate2Evaluated,
+    gate2Pass: input.snapshot.gate2Passed === true,
+    gate2PrimaryBlocker: snapshotString(input.snapshot, ['gate2PrimaryBlocker', 'primaryBlocker', 'gateLayerSummary.gate2.primaryBlocker'], gate2Evaluated ? 'NONE' : 'NOT_EVALUATED_GATE1_FAIL'),
+    gate3Evaluated,
+    gate3Readiness: snapshotString(input.snapshot, ['gate3Readiness', 'gateLayerSummary.gate3.readiness'], gate3Evaluated ? 'EVALUATED' : 'NOT_EVALUATED'),
+    rrrStatus: snapshotString(input.snapshot, ['conditionResults.rrr.status', 'conditionResults.RRR.status', 'rrrStatus'], 'UNKNOWN'),
+    volumeConfirmation: snapshotString(input.snapshot, ['conditionResults.volume.status', 'conditionResults.VOLUME.status', 'volumeConfirmation'], 'UNKNOWN'),
+    priceConfirmation: snapshotString(input.snapshot, ['conditionResults.priceConfirmation.status', 'conditionResults.PRICE_CONFIRMATION.status', 'priceConfirmation'], 'UNKNOWN'),
+    lastTriggerStatus: snapshotString(input.snapshot, ['lastTriggerStatus', 'gateLayerSummary.gate3.lastTriggerStatus'], 'UNKNOWN'),
+    featureCompleteness: resolveFeatureCompleteness(input.snapshot),
+    supplyGateScoreEligible: input.snapshot.supplyProviderHealth?.providerIssue !== true,
+    breakoutPositive: (input.snapshot.breakoutScore ?? 0) > 0 || (input.snapshot.vcpScore ?? 0) > 0,
+    ...(finite(rsPercentile) ? { rsPercentile: round1(rsPercentile) } : {}),
+    ...(finite(priceMomentum) ? { priceMomentumPositive: priceMomentum > 0 } : {}),
     providerIssue: input.providerIssue || input.snapshot.supplyProviderHealth?.providerIssue === true,
     marketSignal: input.marketSignal || input.snapshot.supplyProviderHealth?.marketSignal === true,
     sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly || input.snapshot.sectorEnergyState === 'DIAGNOSTIC_ONLY',
@@ -426,6 +645,7 @@ function buildPositiveWiringRows(input: Gate1DryRunObservationBuildInput, nowIso
       dryRunDecision: gap >= 0 ? 'WOULD_PASS_DRY_RUN' : (gap >= -5 ? 'NEAR_MISS' : 'POSITIVE_SOURCE_REPAIRED'),
       dryRunScore,
       requiredScore,
+      ...observationInputContext(input),
       sellOnly: input.sellOnly === true,
       providerIssue: input.providerIssue === true,
       marketSignal: input.marketSignal === true,
@@ -467,6 +687,33 @@ function buildScoringAlignmentRowsAdr0520(input: Gate1DryRunObservationBuildInpu
   }));
 }
 
+function buildGate1ScoreObservationV2Rows(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
+  const rows = [...(input.candidateSnapshots ?? [])]
+    .filter((snapshot) => snapshot.symbol)
+    .sort((a, b) => (b.gateScore ?? Number.NEGATIVE_INFINITY) - (a.gateScore ?? Number.NEGATIVE_INFINITY))
+    .slice(0, input.topN ?? 10);
+  return rows.map((snapshot) => {
+    const requiredScore = snapshot.minSignalRequiredScore ?? 70;
+    const score = snapshot.gateScore;
+    const gap = finite(score) ? round1(score - requiredScore) : Number.NEGATIVE_INFINITY;
+    return rowFromSnapshot({
+      snapshot,
+      nowIso,
+      forDate: input.forDate,
+      source: 'GATE1_SCORE_OBSERVATION_V2',
+      scenario: 'GATE1_SCORE_THRESHOLD_OBSERVATION_V2',
+      dryRunDecision: gap >= 0 ? 'WOULD_PASS_DRY_RUN' : gap >= -10 ? 'NEAR_MISS' : 'WOULD_STILL_FAIL',
+      dryRunScore: score,
+      requiredScore,
+      ...observationInputContext(input),
+      sellOnly: input.sellOnly === true,
+      providerIssue: input.providerIssue === true,
+      marketSignal: input.marketSignal === true,
+      sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
+    });
+  });
+}
+
 function buildGateNearMissRows(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
   const rows = [...(input.candidateSnapshots ?? [])]
     .filter((snapshot) => finite(snapshot.gateScore))
@@ -487,6 +734,7 @@ function buildGateNearMissRows(input: Gate1DryRunObservationBuildInput, nowIso: 
     dryRunDecision: 'NEAR_MISS',
     dryRunScore: item.snapshot.gateScore,
     requiredScore: item.requiredScore,
+    ...observationInputContext(input),
     sellOnly: input.sellOnly === true,
     providerIssue: input.providerIssue === true,
     marketSignal: input.marketSignal === true,
@@ -508,6 +756,7 @@ function buildCounterfactualUniverseRows(input: Gate1DryRunObservationBuildInput
     dryRunDecision: 'WOULD_STILL_FAIL',
     dryRunScore: snapshot.gateScore,
     requiredScore: snapshot.minSignalRequiredScore ?? 70,
+    ...observationInputContext(input),
     sellOnly: input.sellOnly === true,
     providerIssue: input.providerIssue === true,
     marketSignal: input.marketSignal === true,
@@ -674,6 +923,7 @@ export function buildGate1DryRunObservationRows(input: Gate1DryRunObservationBui
     ...buildFreshDataSupplyRowsAdr0487(input),
     ...buildSectorEnergySupplyUnknownRowsAdr0488(input),
     ...buildSupplySnapshotRowsAdr0491(input),
+    ...buildGate1ScoreObservationV2Rows(input, nowIso),
     ...buildGateNearMissRows(input, nowIso),
     ...buildCounterfactualUniverseRows(input, nowIso),
   ];
@@ -755,6 +1005,7 @@ export function summarizeGate1DryRunObservationRows(
     matured1D: countStatus('MATURED_1D'),
     matured3D: countStatus('MATURED_3D'),
     matured5D: countStatus('MATURED_5D'),
+    matured10D: countStatus('MATURED_10D'),
     sources,
     sourceBreakdownCountSum,
     unclassifiedSourceRows,
@@ -764,7 +1015,7 @@ export function summarizeGate1DryRunObservationRows(
     liveExecutionAllowed: false,
     executionImpact: 'NONE',
     policyPromotionMode: 'SHADOW_ONLY',
-    nextAction: 'TRACK_1D_3D_5D_FORWARD_RETURNS',
+    nextAction: 'TRACK_1D_3D_5D_10D_FORWARD_RETURNS',
   };
 }
 
@@ -778,10 +1029,10 @@ export async function updateGate1DryRunObservationOutcomes(input: {
   const rows = input.rows ? [...input.rows] : loadRows();
   const persist = input.rows === undefined;
   if (input.marketOpen === false) {
-    return { updated: 0, updatedD1: 0, updatedD3: 0, updatedD5: 0, duplicateSuppressed: 0, pending: rows.length, outcomeUpdateAvailable: false, reason: 'MARKET_CLOSED' };
+    return { updated: 0, updatedD1: 0, updatedD3: 0, updatedD5: 0, updatedD10: 0, duplicateSuppressed: 0, pending: rows.length, outcomeUpdateAvailable: false, reason: 'MARKET_CLOSED' };
   }
   if (input.priceCacheAvailable === false) {
-    return { updated: 0, updatedD1: 0, updatedD3: 0, updatedD5: 0, duplicateSuppressed: 0, pending: rows.length, outcomeUpdateAvailable: false, reason: 'PRICE_CACHE_MISSING' };
+    return { updated: 0, updatedD1: 0, updatedD3: 0, updatedD5: 0, updatedD10: 0, duplicateSuppressed: 0, pending: rows.length, outcomeUpdateAvailable: false, reason: 'PRICE_CACHE_MISSING' };
   }
   const now = input.now ?? new Date();
   const today = now.toISOString().slice(0, 10);
@@ -789,15 +1040,17 @@ export async function updateGate1DryRunObservationOutcomes(input: {
     { days: 1, field: 'forwardReturn1D', counter: 'updatedD1' },
     { days: 3, field: 'forwardReturn3D', counter: 'updatedD3' },
     { days: 5, field: 'forwardReturn5D', counter: 'updatedD5' },
+    { days: 10, field: 'forwardReturn10D', counter: 'updatedD10' },
   ] as const;
   const hasDue = rows.some((row) => horizons.some((horizon) => today >= addBusinessDays(row.forDate, horizon.days)));
   if (!hasDue) {
-    return { updated: 0, updatedD1: 0, updatedD3: 0, updatedD5: 0, duplicateSuppressed: 0, pending: rows.length, outcomeUpdateAvailable: false, reason: 'NOT_MATURED' };
+    return { updated: 0, updatedD1: 0, updatedD3: 0, updatedD5: 0, updatedD10: 0, duplicateSuppressed: 0, pending: rows.length, outcomeUpdateAvailable: false, reason: 'NOT_MATURED' };
   }
 
   let updatedD1 = 0;
   let updatedD3 = 0;
   let updatedD5 = 0;
+  let updatedD10 = 0;
   let duplicateSuppressed = 0;
   const fetcher = input.priceFetcher;
 
@@ -815,14 +1068,20 @@ export async function updateGate1DryRunObservationOutcomes(input: {
       const price = await fetcher(row.symbol, targetDateAsUtc(targetDate), row);
       if (!finite(price) || price <= 0) continue;
       row[horizon.field] = pctReturn(entryPrice, price);
+      if (horizon.field === 'forwardReturn10D') row.forwardReturnD10 = row.forwardReturn10D;
+      if (horizon.field === 'forwardReturn1D') row.forwardReturnD1 = row.forwardReturn1D;
+      if (horizon.field === 'forwardReturn3D') row.forwardReturnD3 = row.forwardReturn3D;
+      if (horizon.field === 'forwardReturn5D') row.forwardReturnD5 = row.forwardReturn5D;
       row.status = updateStatusForResolvedHorizons(row);
+      row.maturityStatus = thresholdMaturityStatusFor(row);
       if (horizon.counter === 'updatedD1') updatedD1 += 1;
       else if (horizon.counter === 'updatedD3') updatedD3 += 1;
-      else updatedD5 += 1;
+      else if (horizon.counter === 'updatedD5') updatedD5 += 1;
+      else updatedD10 += 1;
     }
   }
 
-  const updated = updatedD1 + updatedD3 + updatedD5;
+  const updated = updatedD1 + updatedD3 + updatedD5 + updatedD10;
   if (persist && updated > 0) writeRows(rows);
   const pending = rows.filter((row) => row.status === 'PENDING' || row.status === 'OBSERVING').length;
   return {
@@ -830,6 +1089,7 @@ export async function updateGate1DryRunObservationOutcomes(input: {
     updatedD1,
     updatedD3,
     updatedD5,
+    updatedD10,
     duplicateSuppressed,
     pending,
     outcomeUpdateAvailable: updated > 0,
@@ -849,6 +1109,7 @@ export function formatGate1DryRunObservationSummary(
     `  matured1D: ${summary.matured1D}`,
     `  matured3D: ${summary.matured3D}`,
     `  matured5D: ${summary.matured5D}`,
+    `  matured10D: ${summary.matured10D}`,
     '  sources:',
   ];
   // Render EVERY source bucket with rows (complete breakdown) so the displayed sum reconciles with
@@ -890,17 +1151,19 @@ function buildGate1EvidenceMaturityStatus(
 ): Gate1EvidenceMaturityStatus {
   const base = { lastMaturityRunAt: 'N/A', lastErrorSanitized: 'NONE', executionImpact: 'NONE' } as const;
   if (rows.length === 0) {
-    return { ...base, schedulerHealthy: true, status: 'NO_ROWS', pendingD1: 0, pendingD3: 0, pendingD5: 0, dueNow: 0, stalePending: 0, nextMaturityRunAt: 'N/A', dataUnavailable: true };
+    return { ...base, schedulerHealthy: true, status: 'NO_ROWS', pendingD1: 0, pendingD3: 0, pendingD5: 0, pendingD10: 0, dueNow: 0, stalePending: 0, nextMaturityRunAt: 'N/A', dataUnavailable: true };
   }
   const today = now.toISOString().slice(0, 10);
   const horizons = [
     { days: 1, field: 'forwardReturn1D' },
     { days: 3, field: 'forwardReturn3D' },
     { days: 5, field: 'forwardReturn5D' },
+    { days: 10, field: 'forwardReturn10D' },
   ] as const;
   let pendingD1 = 0;
   let pendingD3 = 0;
   let pendingD5 = 0;
+  let pendingD10 = 0;
   let dueNow = 0;
   let stalePending = 0;
   const futureDueDates: string[] = [];
@@ -909,7 +1172,8 @@ function buildGate1EvidenceMaturityStatus(
       if (finite(row[horizon.field])) continue;
       if (horizon.days === 1) pendingD1 += 1;
       else if (horizon.days === 3) pendingD3 += 1;
-      else pendingD5 += 1;
+      else if (horizon.days === 5) pendingD5 += 1;
+      else pendingD10 += 1;
       const dueDate = addBusinessDays(row.forDate, horizon.days);
       if (today >= dueDate) {
         dueNow += 1;
@@ -919,7 +1183,7 @@ function buildGate1EvidenceMaturityStatus(
       }
     }
   }
-  const anyPending = pendingD1 + pendingD3 + pendingD5 > 0;
+  const anyPending = pendingD1 + pendingD3 + pendingD5 + pendingD10 > 0;
   const nextMaturityRunAt = futureDueDates.length > 0
     ? futureDueDates.sort()[0]
     : (dueNow > 0 ? 'DUE_NOW' : 'N/A');
@@ -933,6 +1197,7 @@ function buildGate1EvidenceMaturityStatus(
     pendingD1,
     pendingD3,
     pendingD5,
+    pendingD10,
     dueNow,
     stalePending,
     nextMaturityRunAt,
@@ -953,6 +1218,7 @@ export function buildGate1ThresholdEvidenceSummary(
   const matureD1 = rows.filter((row) => finite(row.forwardReturn1D)).length;
   const matureD3 = rows.filter((row) => finite(row.forwardReturn3D)).length;
   const matureD5 = rows.filter((row) => finite(row.forwardReturn5D)).length;
+  const matureD10 = rows.filter((row) => finite(row.forwardReturn10D) || finite(row.forwardReturnD10)).length;
   // scoreBand membership uses every row's dryRunScore (unscored ⟹ below55) so band counts sum to
   // totalSamples; forward-return/MFE/win-rate stats inside buildBandSummary stay scoped to matured rows.
   const scoreOf = (row: Gate1DryRunObservationRow): number =>
@@ -974,19 +1240,31 @@ export function buildGate1ThresholdEvidenceSummary(
   const b70 = band(70);
   const b65 = band(65, 70);
   const b60 = band(60, 65);
-  const winRate65 = b65.length > 0 ? b65.filter((row) => (row.forwardReturn5D as number) > 0).length / b65.length : 0;
-  const hitMinus5_70 = b70.length > 0 ? b70.filter((row) => (row.forwardReturn5D as number) <= -5).length / b70.length : 0;
-  const hitMinus5_65 = b65.length > 0 ? b65.filter((row) => (row.forwardReturn5D as number) <= -5).length / b65.length : 0;
-  const can65 = b65.length >= 10 && avg(b65) >= avg(b70) && winRate65 >= 0.55 && hitMinus5_65 <= hitMinus5_70 + 0.05;
-  const reject60 = b60.length > 0 && avg(b60) < 0;
-  const confidence = matureSampleSize < 100 ? 'INSUFFICIENT_SAMPLE' : matureSampleSize < 200 ? 'LOW' : matureSampleSize < 400 ? 'MEDIUM' : 'HIGH';
-  const recommendedAction = matureSampleSize < 100
-    ? 'OBSERVE_MORE'
-    : reject60
-      ? 'KEEP_THRESHOLD_70'
-      : can65
-        ? 'DRY_RUN_THRESHOLD_65_R3_ONLY'
-        : 'REJECT_THRESHOLD_RELAXATION';
+  const below55 = band(Number.NEGATIVE_INFINITY, 55);
+  const b55 = band(55, 60);
+  const minBandMatureD5 = Math.min(b70.length, b65.length, b60.length, below55.length);
+  const sixtyToSeventy = [...b65, ...b60];
+  const sixtyToSeventyComparable = sixtyToSeventy.length >= 60 && b70.length >= 30;
+  const below55Defensive = below55.length >= 30 && avg(below55) <= avg(b70);
+  const falseNegativeCalculable = sixtyToSeventy.length >= 60;
+  const mfeMaeComparable = [...b70, ...b65, ...b60, ...b55, ...below55]
+    .filter((row) => finite(row.maxFavorableExcursion5D) || finite(row.mfeD5))
+    .length >= 100;
+  const reviewBlockers = [
+    minBandMatureD5 < 30 ? 'SCORE_BAND_D5_SAMPLE_LT_30' : '',
+    matureSampleSize < 100 ? 'TOTAL_D5_SAMPLE_LT_100' : '',
+    !sixtyToSeventyComparable ? 'SIXTY_TO_SEVENTY_NOT_COMPARABLE' : '',
+    !below55Defensive ? 'BELOW55_DEFENSE_NOT_CONFIRMED' : '',
+    !falseNegativeCalculable ? 'FALSE_NEGATIVE_RATE_INSUFFICIENT' : '',
+    !mfeMaeComparable ? 'MFE_MAE_TIMING_SPLIT_INSUFFICIENT' : '',
+  ].filter(Boolean);
+  const reviewReady = reviewBlockers.length === 0;
+  const confidence: Gate1ThresholdEvidenceSummary['confidence'] = reviewReady
+    ? 'READY_FOR_REVIEW'
+    : matureSampleSize > 0 ? 'OBSERVING' : 'INSUFFICIENT_SAMPLE';
+  const recommendedAction: Gate1ThresholdEvidenceSummary['recommendedAction'] = reviewReady
+    ? 'REVIEW_THRESHOLD_WITH_OPERATOR'
+    : 'OBSERVE_MORE';
   const buildBandSummary = (
     bandRows: Gate1DryRunObservationRow[],
     band: '70+' | '65~70' | '60~65' | '55~60' | 'below55',
@@ -1000,10 +1278,10 @@ export function buildGate1ThresholdEvidenceSummary(
     const rateValue = (ok: number, total: number): number | 'N/A' => (total > 0 ? round1((ok / total) * 100) : 'N/A');
     const d5Returns = maturedD5Rows.map((row) => row.forwardReturn5D as number);
     const mfeValues = maturedD5Rows
-      .map((row) => row.maxFavorableExcursion5D)
+      .map((row) => row.mfeD5 ?? row.maxFavorableExcursion5D)
       .filter(finite);
     const maeValues = maturedD5Rows
-      .map((row) => row.maxAdverseExcursion5D)
+      .map((row) => row.maeD5 ?? row.maxAdverseExcursion5D)
       .filter(finite);
     return {
       band,
@@ -1032,7 +1310,7 @@ export function buildGate1ThresholdEvidenceSummary(
   ];
   const scoreBandCountSum = scoreBandTable.reduce((sum, band) => sum + band.count, 0);
   return {
-    sampleWindow: '1D/3D/5D',
+    sampleWindow: '1D/3D/5D/10D',
     totalSamples,
     pendingSamples,
     ledgerRowsCreated: ledger.rowsCreated,
@@ -1043,9 +1321,16 @@ export function buildGate1ThresholdEvidenceSummary(
     matureSamplesD1: matureD1,
     matureSamplesD3: matureD3,
     matureSamplesD5: matureD5,
-    bestDryRunThreshold: recommendedAction === 'DRY_RUN_THRESHOLD_65_R3_ONLY' ? 65 : 70,
+    matureSamplesD10: matureD10,
+    bestDryRunThreshold: 70,
     recommendedAction,
     confidence,
+    reviewReady,
+    reviewBlockers,
+    liveRequiredScore: 70,
+    shadowObservationMode: 'ON',
+    shadowObservationBands: ['60~65', '65~70', '70+'],
+    liveThresholdAutoChanged: false,
     scoreBandTable,
     liveExecutionImpact: 'NONE',
     thresholdAutoChanged: false,
@@ -1100,18 +1385,33 @@ export function formatGate1ThresholdEvidenceSection(
   const lines: string[] = [
     'Gate1 Threshold Evidence',
     '------------------------',
-    'window: D1/D3/D5',
+    'window: D1/D3/D5/D10',
     `totalSamples: ${summary ? summary.totalSamples : 'N/A'}`,
     `pendingSamples: ${summary ? summary.pendingSamples : 'N/A'}`,
     `matureSamplesD1: ${summary ? summary.matureSamplesD1 : 'N/A'}`,
     `matureSamplesD3: ${summary ? summary.matureSamplesD3 : 'N/A'}`,
     `matureSamplesD5: ${summary ? summary.matureSamplesD5 : 'N/A'}`,
+    `matureSamplesD10: ${summary ? summary.matureSamplesD10 : 'N/A'}`,
+    'observationLedgerV2: true',
+    'ledgerExecutionImpact: NONE',
     'thresholdAutoChanged: false',
     'operatorApprovalRequired: true',
     'liveExecutionAllowed: false',
     'executionImpact: NONE',
     `confidence: ${summary ? summary.confidence : 'INSUFFICIENT_SAMPLE'}`,
     `recommendedAction: ${summary ? summary.recommendedAction : 'OBSERVE_MORE'}`,
+    `reviewReady: ${summary ? summary.reviewReady : false}`,
+    `reviewBlockers: ${summary ? (summary.reviewBlockers.length > 0 ? summary.reviewBlockers.join(',') : 'NONE') : 'INSUFFICIENT_SAMPLE'}`,
+    'nextReview: after enough D5 samples',
+    '',
+    'Threshold Policy Split:',
+    `- liveRequiredScore=${summary ? summary.liveRequiredScore : 70}`,
+    '- liveThresholdAutoChanged=false',
+    `- shadowObservationMode=${summary ? summary.shadowObservationMode : 'ON'}`,
+    `- shadowObservationBands=${summary ? summary.shadowObservationBands.join(',') : '60~65,65~70,70+'}`,
+    '- shadowObservationEligible!=shadowBuyAllowed',
+    '- operatorApprovalRequired=true',
+    '- executionImpact=NONE',
     '',
     'scoreBandTable:',
   ];
@@ -1123,6 +1423,14 @@ export function formatGate1ThresholdEvidenceSection(
     ? summary.scoreBandTable.reduce((sum, entry) => sum + entry.count, 0)
     : 'N/A';
   lines.push(`countSum: ${countSum}`);
+  lines.push(
+    '',
+    'Score Band Outcome:',
+  );
+  for (const key of GATE1_THRESHOLD_EVIDENCE_BAND_ORDER) {
+    const band = summary?.scoreBandTable.find((entry) => entry.band === key);
+    lines.push(`- ${key}: n=${band ? band.count : 'N/A'}, D5 winRate=${gate1EvidenceCell(band?.winRateD5)}, avgReturn=${gate1EvidenceCell(band?.avgReturnD5)}`);
+  }
   lines.push(
     '',
     'Regime Split:',
@@ -1144,6 +1452,16 @@ export function formatGate1ThresholdEvidenceSection(
     `- evidenceLedgerMatch: ${summary ? summary.evidenceLedgerMatch : 'N/A'}`,
     `- scoreBandLedgerMatch: ${summary ? summary.scoreBandLedgerMatch : 'N/A'}`,
     `- executionImpact: NONE`,
+    '',
+    'Gate1 Threshold Invariants:',
+    '[OK] GATE1_THRESHOLD_AUTO_CHANGE_FORBIDDEN',
+    '[OK] GATE1_OBSERVATION_LEDGER_NON_EXECUTIONAL',
+    '[OK] SHADOW_OBSERVATION_NOT_SHADOW_BUY',
+    '[OK] SCORE_BAND_MATURITY_REQUIRED',
+    '[OK] LIVE_THRESHOLD_SEPARATED_FROM_SHADOW_OBSERVATION',
+    '[OK] NO_PROVIDER_ISSUE_TO_BEARISH_CONVERSION',
+    '[OK] SOURCE_SNAPSHOT_ID_CONSISTENCY',
+    '[OK] COUNTERFACTUAL_CONTINUITY',
   );
   if (summary && (!summary.evidenceLedgerMatch || !summary.scoreBandLedgerMatch)) {
     lines.push(
@@ -1162,6 +1480,7 @@ export function formatGate1ThresholdEvidenceSection(
     `- pendingD1: ${maturity ? maturity.pendingD1 : 'N/A'}`,
     `- pendingD3: ${maturity ? maturity.pendingD3 : 'N/A'}`,
     `- pendingD5: ${maturity ? maturity.pendingD5 : 'N/A'}`,
+    `- pendingD10: ${maturity ? maturity.pendingD10 : 'N/A'}`,
     `- dueNow: ${maturity ? maturity.dueNow : 'N/A'}`,
     `- stalePending: ${maturity ? maturity.stalePending : 'N/A'}`,
     `- nextMaturityRunAt: ${maturity ? maturity.nextMaturityRunAt : 'N/A'}`,

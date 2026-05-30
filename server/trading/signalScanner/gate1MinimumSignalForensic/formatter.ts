@@ -252,7 +252,7 @@ function appendGate1HydrationTraceLines(lines: string[], summary: Gate1MinimumSi
   lines.push(`  - supplyMissingNeutralized: ${count(summary.supplyMissingNeutralizedCount ?? summary.supplyMissingNeutralized)}`);
   lines.push('  - executionImpact: NONE');
   lines.push('  - shadowLearning: true');
-  lines.push('  - counterfactualRecorded: true');
+  lines.push('  - gate1CounterfactualPolicyAllowed: true');
   if (summary.technicalProjectionCoverage) {
     lines.push(`- technicalProjectionCoverage: ${formatDistribution(summary.technicalProjectionCoverage)}`);
   }
@@ -389,6 +389,7 @@ function resolveSupplySemanticUnwrapNextAction(summary: Gate1MinimumSignalForens
   if (breakPoint === 'FORENSIC_COLLECTOR_DROPPED_ACTUAL_ROW') return 'WIRE_FORENSIC_COLLECTOR_ACTUAL_ROW';
   if (breakPoint === 'ACTUAL_ROW_CARRIED_ALIAS_NOT_MAPPED' || breakPoint === 'NUMERIC_FIELDS_FOUND_BUT_NOT_RECOGNIZED' || breakPoint === 'NESTED_ROW_UNWRAPPED_BUT_ALIAS_NOT_MAPPED') return 'ADD_ALIAS_FOR_ACTUAL_NUMERIC_KEYS';
   if (breakPoint === 'ROW_ARRAY_FOUND_BUT_INVESTOR_TYPE_NOT_MAPPED') return 'MAP_INVESTOR_TYPE_ROWS';
+  if (breakPoint === 'ACTUAL_ROW_CARRIED_WITH_FIELDS') return 'OBSERVE_SCORE_COMPUTATION';
   if (breakPoint === 'ONLY_WRAPPER_METADATA' || breakPoint === 'NO_ROW_FOUND') return 'WIRE_SELECTED_CANDIDATE_ACTUAL_ROW';
   if ((count(summary.zeroButMaterializedCount)) > 0) return 'OBSERVE_ZERO_NEUTRAL_SUPPLY';
   return 'OBSERVE_ZERO_NEUTRAL_SUPPLY';

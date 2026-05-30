@@ -1,3 +1,7 @@
+/**
+ * @responsibility 매수 신호 생애주기 상태 전이를 검증하며 관리하는 상태머신을 제공한다.
+ */
+
 import {
   emitOperationalWarn,
   type BuyP0WarnCode,

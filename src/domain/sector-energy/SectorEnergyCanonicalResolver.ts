@@ -81,13 +81,55 @@ export type SectorEnergySelectedSourceTier =
   | 'OFFICIAL_KRX_SECTOR_INDEX'
   | 'NONE';
 
-export type SectorEnergyDataQuality = 'VERIFIED' | 'PARTIAL' | 'MISSING';
+export type SectorEnergyDataQuality = 'VERIFIED' | 'PARTIAL' | 'MISSING' | 'SESSION_NOT_VERIFIABLE';
 
 export type SectorEnergyCanonicalReason =
   | 'OFFICIAL_SECTOR_COVERAGE_PASS'
   | 'OFFICIAL_SECTOR_COVERAGE_BELOW_THRESHOLD'
   | 'OFFICIAL_SECTOR_SOURCE_MISSING'
-  | 'SECTOR_ENERGY_CANONICAL_STATE_MISSING';
+  | 'SECTOR_ENERGY_CANONICAL_STATE_MISSING'
+  | 'SECTOR_INDEX_VERIFY_SKIPPED_SESSION_CLOSED'
+  | 'SESSION_CLOSED_NO_LAST_KNOWN_SECTOR_SNAPSHOT';
+
+/**
+ * ADR-0544: 표시 전용 세션 분류 enum. 게이팅(promotion/sectorBoost/strongBuy)에는 사용하지 않는다.
+ * 휴일/비장중 verify-skip 과 장중 verify 실제 0건을 표시상 구별한다.
+ */
+export type SectorEnergyStatus =
+  | 'AVAILABLE'
+  | 'UNAVAILABLE'
+  | 'OBSERVE_ONLY_SESSION_CLOSED';
+
+export type SectorEnergyConfidenceLabel =
+  | 'VERIFIED'
+  | 'PARTIAL'
+  | 'MISSING'
+  | 'LAST_KNOWN_OR_OBSERVE_ONLY';
+
+export type SectorEnergySectorIndexVerifyMode =
+  | 'LIVE_VERIFY'
+  | 'VERIFY_SKIPPED_SESSION_CLOSED'
+  | 'LAST_KNOWN_VALID';
+
+/**
+ * ADR-0545: 휴일/세션닫힘 시 직전 verified sector snapshot 표시 블록 (표시 + shadowEvidence 전용).
+ * ★ 게이팅 무관 — last-known 이 있어도 live promotion/sectorBoost/strongBuy 는 활성화하지 않는다.
+ *   lastKnownUsableForLivePromotion 은 세션닫힘이면 무조건 false 다.
+ * 서버 어댑터(deriveSectorEnergyCanonicalState)가 sectorEnergyVerifiedSnapshotRepo 로부터 채운다.
+ */
+export interface SectorEnergyLastKnownSnapshotDisplay {
+  lastKnownSectorSnapshotId: string;
+  lastKnownSectorSnapshotAsOf: string;
+  lastKnownVerifiedOfficialSectorCount: number;
+  lastKnownPromotionCoverage: number;
+  lastKnownSourceTier: string;
+  /** 직전 verified snapshot tradeDate 와 현재 tradeDate 사이의 거래일 격차 (>=0). */
+  lastKnownAgeTradingDays: number;
+  /** ★ 세션닫힘이면 무조건 false (live promotion 금지 SSOT). */
+  lastKnownUsableForLivePromotion: false;
+  /** 표시·shadow 근거로는 사용 가능. */
+  lastKnownUsableForShadowEvidence: true;
+}
 
 /** 공식 key 별 verify 결과 — render 가 실제 index code/name/값을 보이도록 carry 한다 (N/A canonical-state 금지). */
 export interface SectorEnergyVerifiedMappingEntry {
@@ -126,6 +168,21 @@ export interface SectorEnergyCanonicalState {
 
   dataQuality: SectorEnergyDataQuality;
   confidence: SectorEnergyDataQuality;
+
+  /**
+   * ADR-0544: 표시 전용 세션 분류 필드 (게이팅 무관).
+   * 휴일/비장중 verify-skip 과 장중 실제 verify 0건을 표시상 구별한다.
+   */
+  status: SectorEnergyStatus;
+  confidenceLabel: SectorEnergyConfidenceLabel;
+  sectorIndexVerifyMode: SectorEnergySectorIndexVerifyMode;
+
+  /**
+   * ADR-0545: 휴일/세션닫힘 시 직전 verified sector snapshot 표시 (표시 + shadowEvidence 전용).
+   * ★ 게이팅 무관 — 존재하더라도 promotion/sectorBoost/strongBuy 는 절대 활성화하지 않는다.
+   * 부재 시 undefined (reason=SESSION_CLOSED_NO_LAST_KNOWN_SECTOR_SNAPSHOT).
+   */
+  lastKnown?: SectorEnergyLastKnownSnapshotDisplay;
 
   excludedThemeTags: readonly ['조선', '방산', '원자력', '이차전지'];
 
@@ -168,6 +225,30 @@ export interface ResolveSectorEnergyCanonicalInput {
   safePromotionEligibleSectorCount?: number;
   safeOfficialVerifiedCoverage?: number;
   sectorIndexVerifySuccessCount?: number;
+  /**
+   * ADR-0544: 세션 신호(표시 전용). 어댑터가 master.reasonCodes 로부터 채운다.
+   * sessionClosed && verifySkipped && verified=0 일 때만 표시 재분류 (게이팅 불변).
+   * 미설정(undefined)이면 기존 MISSING/SOURCE_MISSING 분류 그대로 (byte-equivalent rollback).
+   */
+  sessionVerifiability?: {
+    /** HOLIDAY/CLOSED/PRE_MARKET/AFTER_HOURS 등 비장중. */
+    sessionClosed: boolean;
+    /** SECTOR_INDEX_MARKET_CLOSED 등 verify 의도적 스킵 신호 존재. */
+    verifySkipped: boolean;
+  };
+  /**
+   * ADR-0545: last-known snapshot 정책 활성화 여부 (어댑터의 ENV
+   * SECTOR_ENERGY_LAST_KNOWN_SNAPSHOT_ENABLED 반영). false/undefined 면 ADR-0544 동작 그대로
+   * (sectorIndexVerifyMode=VERIFY_SKIPPED_SESSION_CLOSED / reason=SECTOR_INDEX_VERIFY_SKIPPED_
+   * SESSION_CLOSED) — byte-equivalent. true 이고 snapshot 부재 시에만 no-last-known reason.
+   */
+  lastKnownLookupEnabled?: boolean;
+  /**
+   * ADR-0545: 서버 어댑터가 sectorEnergyVerifiedSnapshotRepo 에서 읽은 직전 verified snapshot.
+   * sessionNotVerifiable(휴일+스킵+verified=0) 일 때만 표시에 반영한다.
+   * ★ 게이팅(promotion 3종)에는 사용하지 않는다 — 표시 + shadowEvidence 전용.
+   */
+  lastKnownSnapshot?: SectorEnergyLastKnownSnapshotDisplay;
 }
 
 export interface IndexMasterRow {
@@ -570,6 +651,45 @@ export function resolveSectorEnergyCanonicalState(
     reason = 'OFFICIAL_SECTOR_COVERAGE_BELOW_THRESHOLD';
   }
 
+  // ─── ADR-0544: 표시 전용 세션 분류 (게이팅 불변 — promotion 3종 미접촉) ───────────
+  // 휴일/비장중에 KIS index verify 가 의도적으로 스킵되어 verified=0 인 경우,
+  // 실제 소스 결함(MISSING/SOURCE_MISSING)과 표시상 구별한다.
+  // status/confidenceLabel/sectorIndexVerifyMode 표시 필드 + dataQuality/reason 문자열만
+  // 대입하며, promotionAllowed/sectorBoostAllowed/strongBuyAllowed/promotionCoveragePass 는
+  // 위에서 이미 verified/11 ≥ 0.8 로 확정되어 휴일(verified=0)엔 전부 false 그대로다.
+  let status: SectorEnergyStatus = promotionCoveragePass
+    ? 'AVAILABLE'
+    : verifiedOfficialSectorCount > 0
+      ? 'AVAILABLE'
+      : 'UNAVAILABLE';
+  let confidenceLabel: SectorEnergyConfidenceLabel = dataQuality;
+  let sectorIndexVerifyMode: SectorEnergySectorIndexVerifyMode = 'LIVE_VERIFY';
+  let lastKnown: SectorEnergyLastKnownSnapshotDisplay | undefined;
+
+  const sessionNotVerifiable =
+    input.sessionVerifiability?.sessionClosed === true &&
+    input.sessionVerifiability?.verifySkipped === true &&
+    verifiedOfficialSectorCount === 0;
+  if (sessionNotVerifiable) {
+    dataQuality = 'SESSION_NOT_VERIFIABLE';
+    reason = 'SECTOR_INDEX_VERIFY_SKIPPED_SESSION_CLOSED';
+    status = 'OBSERVE_ONLY_SESSION_CLOSED';
+    confidenceLabel = 'LAST_KNOWN_OR_OBSERVE_ONLY';
+    sectorIndexVerifyMode = 'VERIFY_SKIPPED_SESSION_CLOSED';
+    // ─── ADR-0545: last-known 정책이 활성화된 경우에만 표시 보강 (표시·shadow 전용) ───
+    // ★ promotion 3종은 여기서 읽지도 쓰지도 않는다 — verified=0 이므로 위에서 이미 전부 false 확정.
+    //   lastKnown.lastKnownUsableForLivePromotion 은 타입 레벨로 false 고정(세션닫힘이면 무조건 금지).
+    // lastKnownLookupEnabled=false/undefined 면 ADR-0544 동작 그대로 (byte-equivalent).
+    if (input.lastKnownLookupEnabled === true) {
+      if (input.lastKnownSnapshot) {
+        lastKnown = input.lastKnownSnapshot;
+        sectorIndexVerifyMode = 'LAST_KNOWN_VALID';
+      } else {
+        reason = 'SESSION_CLOSED_NO_LAST_KNOWN_SECTOR_SNAPSHOT';
+      }
+    }
+  }
+
   return {
     sourceOfTruth: 'SectorEnergyCanonicalResolver',
     universeType: 'OFFICIAL_SECTOR_ONLY',
@@ -590,6 +710,10 @@ export function resolveSectorEnergyCanonicalState(
     selectedSourceTier,
     dataQuality,
     confidence: dataQuality,
+    status,
+    confidenceLabel,
+    sectorIndexVerifyMode,
+    ...(lastKnown ? { lastKnown } : {}),
     excludedThemeTags: EXCLUDED_THEME_TAGS,
     executionImpact: 'NONE',
     reason,
@@ -617,6 +741,9 @@ export function missingSectorEnergyCanonicalState(): SectorEnergyCanonicalState 
     selectedSourceTier: 'NONE',
     dataQuality: 'MISSING',
     confidence: 'MISSING',
+    status: 'UNAVAILABLE',
+    confidenceLabel: 'MISSING',
+    sectorIndexVerifyMode: 'LIVE_VERIFY',
     excludedThemeTags: EXCLUDED_THEME_TAGS,
     executionImpact: 'NONE',
     reason: 'SECTOR_ENERGY_CANONICAL_STATE_MISSING',
@@ -783,8 +910,9 @@ export function overrideWithCanonicalPromotion(
 type LegacyLeadershipConfidence = 'VERIFIED' | 'PARTIAL' | 'SHADOW_ONLY' | 'BLOCKED';
 function leadershipConfidenceFromCanonical(canonical: SectorEnergyCanonicalState): LegacyLeadershipConfidence {
   if (canonical.promotionCoveragePass) return 'VERIFIED';
-  // 공식 source 없음(MISSING)이라도 shadowLeadershipAllowed=true 이므로 SHADOW_ONLY (BLOCKED 아님).
-  if (canonical.dataQuality === 'MISSING') return 'SHADOW_ONLY';
+  // 공식 source 없음(MISSING)/세션 닫힘(SESSION_NOT_VERIFIABLE)이라도 shadowLeadershipAllowed=true
+  // 이므로 SHADOW_ONLY (BLOCKED 아님). 휴일 verify-skip 은 소스 결함이 아니다 (ADR-0544).
+  if (canonical.dataQuality === 'MISSING' || canonical.dataQuality === 'SESSION_NOT_VERIFIABLE') return 'SHADOW_ONLY';
   return 'PARTIAL';
 }
 
@@ -881,6 +1009,21 @@ export function renderSectorEnergyCanonicalBlock(canonical: SectorEnergyCanonica
     `  selectedSourceTier=${canonical.selectedSourceTier}`,
     `  dataQuality=${canonical.dataQuality}`,
     `  confidence=${canonical.confidence}`,
+    `  status=${canonical.status}`,
+    `  confidenceLabel=${canonical.confidenceLabel}`,
+    `  sectorIndexVerifyMode=${canonical.sectorIndexVerifyMode}`,
+    ...(canonical.lastKnown
+      ? [
+          `  lastKnownSectorSnapshotId=${canonical.lastKnown.lastKnownSectorSnapshotId}`,
+          `  lastKnownSectorSnapshotAsOf=${canonical.lastKnown.lastKnownSectorSnapshotAsOf}`,
+          `  lastKnownVerifiedOfficialSectorCount=${canonical.lastKnown.lastKnownVerifiedOfficialSectorCount}`,
+          `  lastKnownPromotionCoverage=${pct1(canonical.lastKnown.lastKnownPromotionCoverage)}`,
+          `  lastKnownSourceTier=${canonical.lastKnown.lastKnownSourceTier}`,
+          `  lastKnownAgeTradingDays=${canonical.lastKnown.lastKnownAgeTradingDays}`,
+          `  lastKnownUsableForLivePromotion=${canonical.lastKnown.lastKnownUsableForLivePromotion}`,
+          `  lastKnownUsableForShadowEvidence=${canonical.lastKnown.lastKnownUsableForShadowEvidence}`,
+        ]
+      : []),
     `  executionImpact=${canonical.executionImpact}`,
     `  reason=${canonical.reason}`,
     '  verifiedMapping:',

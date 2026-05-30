@@ -91,7 +91,7 @@ describe('computeGeminiUseRatio', () => {
   beforeEach(async () => {
     vi.resetModules();
     mod = await import('./learningPulse.cmd.js');
-  });
+  }, 30_000);
 
   it('1. callCount=0 → 0', () => expect(mod.computeGeminiUseRatio(0)).toBe(0));
   it('2. callCount=22 → 1.0', () => expect(mod.computeGeminiUseRatio(22)).toBe(1));

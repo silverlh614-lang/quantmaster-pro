@@ -568,6 +568,13 @@ function priorityFor(rootCause: OperatorActionRootCause, sources: OperatorAction
     const repeatedNoise = sources.length >= 3 || sources.some((source) => includesAny(diagnosticText(source), ['REPEATED_NOISE', 'NOISE_HIGH']));
     return repeatedNoise ? 'P2' : 'P3';
   }
+  // ADR-0544: 휴일/비장중 verify-skip 으로 인한 SectorEnergy index master 신호는 소스 결함이 아니다.
+  // P1 Repair → P3 Observe(다음 거래일에 verify) 로 강등한다. 장중 실제 실패는 fallback=basePriority(P1) 유지.
+  if (rootCause === 'REPAIR_SECTOR_INDEX_MASTER' &&
+    sources.some((source) => includesAny(diagnosticText(source),
+      ['SECTOR_INDEX_MARKET_CLOSED', 'HOLIDAY_NO_SESSION', 'SESSION_NOT_VERIFIABLE', 'SECTOR_INDEX_VERIFY_SKIPPED_SESSION_CLOSED']))) {
+    return 'P3';
+  }
   return ACTION_DEFINITIONS[rootCause].basePriority;
 }
 
@@ -583,18 +590,29 @@ function uniqueSortedAdrs(defaultAdrs: string[], sources: OperatorActionSource[]
   return Array.from(out).sort();
 }
 
+function isSectorIndexSessionClosed(sources: OperatorActionSource[]): boolean {
+  return sources.some((source) => includesAny(diagnosticText(source),
+    ['SECTOR_INDEX_MARKET_CLOSED', 'HOLIDAY_NO_SESSION', 'SESSION_NOT_VERIFIABLE', 'SECTOR_INDEX_VERIFY_SKIPPED_SESSION_CLOSED']));
+}
+
 function buildItem(rootCause: OperatorActionRootCause, sources: OperatorActionSource[], status: OperatorActionStatus = 'OPEN'): OperatorActionItem {
   const definition = ACTION_DEFINITIONS[rootCause];
   const priority = priorityFor(rootCause, sources);
+  // ADR-0544: 휴일/비장중 SectorEnergy verify-skip 은 소스 결함이 아니라 세션 닫힘 → Observe 안내로 대체.
+  const sessionClosedSectorIndex = rootCause === 'REPAIR_SECTOR_INDEX_MASTER' && isSectorIndexSessionClosed(sources);
+  const recommendedAction = sessionClosedSectorIndex
+    ? 'Observe SectorEnergy verify on next trading session; no live action required during HOLIDAY; keep last-known or internal grouped as diagnosticOnly.'
+    : definition.recommendedAction;
+  const title = sessionClosedSectorIndex ? 'Observe SectorEnergy verify next session' : definition.title;
   return {
     id: `ADR-0480:${rootCause}`,
     rootCause,
     category: definition.category,
     priority,
     status,
-    title: definition.title,
+    title,
     summary: definition.summary,
-    recommendedAction: definition.recommendedAction,
+    recommendedAction,
     relatedAdrs: uniqueSortedAdrs(definition.relatedAdrs, sources),
     sources,
     evidenceCount: sources.length,

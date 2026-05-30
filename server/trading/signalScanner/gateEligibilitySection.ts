@@ -93,7 +93,7 @@ export function formatGateEligibilitySplitSection(
     lines.push(`  - Soft leadership lanes: ${lane.labels.join(',')}`);
     lines.push(`  - shadowObservablePreserved=${lane.shadowObservablePreserved}`);
     lines.push(`  - watchPreserved=${lane.watchPreserved}`);
-    lines.push(`  - counterfactualRecorded=${lane.counterfactualRecorded}`);
+    lines.push(`  - gateCounterfactualRecorded=${lane.counterfactualRecorded}`);
     lines.push(`  - executionImpact=${lane.executionImpact}`);
   }
 

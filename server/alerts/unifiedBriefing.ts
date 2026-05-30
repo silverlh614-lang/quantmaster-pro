@@ -51,6 +51,7 @@ export function captureToUnifiedBriefing(body: string, from: string): boolean {
  * T1/CRITICAL은 브리핑 창을 우회해 즉시 발송 — 긴급 경보가 지연되면 안 된다.
  */
 export function shouldBypassCapture(opts?: TelegramAlertOptions): boolean {
+  if (opts?.notificationTarget === 'BOT_QUERY_RESPONSE') return true;
   if (opts?.tier === 'T1_ALARM') return true;
   if (opts?.priority === 'CRITICAL') return true;
   return false;

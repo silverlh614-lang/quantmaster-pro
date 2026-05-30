@@ -141,7 +141,11 @@ describe('ADR-0519 Gate2 confluence score', () => {
     });
 
     expect(result.gate2Status).toBe('SKIPPED_BY_GATE1');
-    expect(result.primaryBlocker).toBe('SKIPPED_BY_GATE1_HARD_FAIL');
+    expect(result.gate2EvaluationScope).toBe('DIAGNOSTIC_ONLY');
+    expect(result.finalGate2).toBe('NOT_EVALUATED_DUE_TO_GATE1_FAIL');
+    expect(result.upstreamBlocker).toBe('GATE1_FAIL');
+    expect(result.gate2DiagnosticPrimary).toBe('SKIPPED_BY_GATE1_HARD_FAIL');
+    expect(result.primaryBlocker).toBeUndefined();
     expect(result.executionImpact).toBe('NONE');
   });
 

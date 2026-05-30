@@ -101,6 +101,10 @@ export interface Gate0Decision extends MacroSnapshotFreshness, SnapshotUsageVali
   activeRiskFlags: string;
   providerIssue: boolean;
   note: string;
+  // 정합 정정(pre-existing TS2339): scanBlockersMessageSections 가 gate0Decision.snapshotStaleCause 를
+  // 읽지만 본 인터페이스에 필드가 없어 lint 가 HEAD 에서 실패했다. optional type-only 추가 —
+  // 빌더 미wiring 이라 display 는 `?? 'NONE'` 로 기존과 byte-equivalent (runtime 동작 무변경).
+  snapshotStaleCause?: string;
 }
 
 function finiteNumber(value: unknown): value is number {

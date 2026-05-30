@@ -1,3 +1,7 @@
+/**
+ * @responsibility 단일 SourceSnapshot에서 공통 게이트·정책·진단 결과를 산출하는 SSOT 파이프라인을 정의한다.
+ */
+
 export type MarketSession = 'REGULAR' | 'AFTERMARKET';
 export type DisplaySession = 'REGULAR' | 'AFTERMARKET_SELL_ONLY';
 export type EntryBlockMode = 'NORMAL' | 'R6_DEFENSE_SELL_ONLY' | 'SELL_ONLY';

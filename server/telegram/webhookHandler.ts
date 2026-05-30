@@ -6,7 +6,7 @@
 // commandRegistry 에 자동 등록된다. 본 파일은 callback_query 4-prefix 라우팅 + /help
 // + 메타 명령어 6종 + commandRegistry 위임 + 알 수 없는 명령 fallback 만 담당한다.
 import { Request, Response } from 'express';
-import { sendTelegramAlert, answerCallbackQuery } from '../alerts/telegramClient.js';
+import { sendTelegramAlert, answerCallbackQuery, type TelegramAlertOptions } from '../alerts/telegramClient.js';
 import { handleBuyApprovalCallback } from './buyApproval.js';
 import { handleOperatorOverrideCallback } from './operatorOverride.js';
 import { handleT1AckCallback } from '../alerts/ackTracker.js';
@@ -23,6 +23,15 @@ import './commands/control/index.js';
 import './commands/trade/index.js';
 import './commands/infra/index.js';
 import './commands/shadow/index.js';
+
+export function buildBotQueryResponseOptions(replyMarkup?: InlineKeyboardMarkup): TelegramAlertOptions {
+  return {
+    ...(replyMarkup ? { replyMarkup: replyMarkup as unknown as Record<string, unknown> } : {}),
+    notificationTarget: 'BOT_QUERY_RESPONSE',
+    notificationEventType: 'BOT_QUERY_RESPONSE',
+    notificationOnly: true,
+  };
+}
 
 export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
   res.sendStatus(200); // Telegram에 즉시 200 응답 (재전송 방지)
@@ -57,10 +66,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
     // 버튼 callback 은 callbackRouter 에서만 처리한다. 텍스트 명령은 아래 commandRouter 로 분리.
     const callbackReply = async (message: string, replyMarkup?: InlineKeyboardMarkup) => {
-      const opts = replyMarkup
-        ? { replyMarkup: replyMarkup as unknown as Record<string, unknown> }
-        : undefined;
-      await sendTelegramAlert(message, opts).catch(console.error);
+      await sendTelegramAlert(message, buildBotQueryResponseOptions(replyMarkup)).catch(console.error);
     };
     const callbackHandled = await dispatchTelegramCallback({ data, reply: callbackReply }).catch((e: unknown) => {
       console.error('[TelegramBot] callback router 처리 실패:', e instanceof Error ? e.message : e);
@@ -93,12 +99,7 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
   const userId = msg.from?.id ? String(msg.from.id) : undefined;
 
   const reply = async (message: string, replyMarkup?: InlineKeyboardMarkup) => {
-    // sendTelegramAlert 는 replyMarkup 을 Record<string, unknown> 으로 받기 때문에
-    // InlineKeyboardMarkup 을 unknown 경유로 전달한다 (구조 동일).
-    const opts = replyMarkup
-      ? { replyMarkup: replyMarkup as unknown as Record<string, unknown> }
-      : undefined;
-    await sendTelegramAlert(message, opts).catch(console.error);
+    await sendTelegramAlert(message, buildBotQueryResponseOptions(replyMarkup)).catch(console.error);
   };
 
   try {

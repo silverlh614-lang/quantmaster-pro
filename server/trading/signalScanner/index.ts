@@ -82,8 +82,8 @@ function buildSafeQuoteFeatures(w: any): Record<string, unknown> {
     high20: pickNumber(q.high20, q.high20d, sf.high20, sf.high20d, gateLayerFeatures.high20),
     high60: pickNumber(q.high60, sf.high60, gateLayerFeatures.high60),
     high60d: pickNumber(q.high60d, sf.high60d, gateLayerFeatures.high60d),
-    volume: pickNumber(q.volume, sf.volume, gateLayerFeatures.volume),
-    avgVolume: pickNumber(q.avgVolume, sf.avgVolume, gateLayerFeatures.avgVolume),
+    volume: pickNumber(q.volume, sf.volume, w.volume, gateLayerFeatures.volume),
+    avgVolume: pickNumber(q.avgVolume, sf.avgVolume, w.avgVolume, gateLayerFeatures.avgVolume),
     avgVolume20d: pickNumber(q.avgVolume20d, sf.avgVolume20d, gateLayerFeatures.avgVolume20d),
     volumeRatio: pickNumber(q.volumeRatio, sf.volumeRatio, gateLayerFeatures.volumeRatio),
     ma5: pickNumber(q.ma5, sf.ma5),
@@ -161,7 +161,7 @@ function toHydrationState(value: unknown): 'HYDRATED' | 'MISSING' | 'UNAVAILABLE
   return 'HYDRATED';
 }
 
-function buildCandidateSnapshotSsot(w: any, macro?: { kospi20dReturn?: number }) {
+function buildCandidateSnapshotSsot(w: any, macro?: { kospi20dReturn?: number; programNetBuyAmount?: number }) {
   const conditionResults = buildConditionResultsTrace(w);
   const gate1Pass = w.gate1Result?.pass === true || w.gateEvaluation?.passed === true;
   const gate2Pass = w.gate2Result?.pass === true;
@@ -209,7 +209,8 @@ function buildCandidateSnapshotSsot(w: any, macro?: { kospi20dReturn?: number })
     riskContextHydrated: toHydrationState(w.riskContext),
     price: w.symbolFeatures?.price ?? w.entryPrice ?? w.quote?.price ?? w.quote?.currentPrice,
     currentPrice: w.symbolFeatures?.currentPrice ?? w.quote?.currentPrice ?? w.entryPrice,
-    volume: w.symbolFeatures?.volume ?? w.quote?.volume,
+    volume: w.symbolFeatures?.volume ?? w.quote?.volume ?? w.volume,
+    avgVolume: w.symbolFeatures?.avgVolume ?? w.quote?.avgVolume ?? w.avgVolume,
     volumeRatio: w.symbolFeatures?.volumeRatio ?? w.quote?.volumeRatio,
     turnover: w.turnover ?? w.quote?.turnover,
     ma20: w.symbolFeatures?.ma20 ?? w.quote?.ma20,
@@ -229,6 +230,16 @@ function buildCandidateSnapshotSsot(w: any, macro?: { kospi20dReturn?: number })
     trendScore: w.trendScore ?? w.symbolFeatures?.trendScore,
     investorFlow: w.investorFlow,
     kospi20dReturn: w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? w.quote?.kospi20dReturn ?? w.featurePack?.momentum?.kospi20dReturn ?? w.momentumProjection?.kospi20dReturn ?? macro?.kospi20dReturn,
+    // P2-B: index return explicit alias — featureHydrationAudit rsIndexFallbackUsed fires when
+    // candidate has kospi20dReturn but not indexReturn20d. Aliasing eliminates the false-positive.
+    // executionImpact=NONE (diagnostic-only field, no gate pass/fail logic touched).
+    indexReturn20d: w.indexReturn20d ?? w.symbolFeatures?.indexReturn20d ?? w.quote?.indexReturn20d ?? w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? w.quote?.kospi20dReturn ?? w.featurePack?.momentum?.kospi20dReturn ?? w.momentumProjection?.kospi20dReturn ?? macro?.kospi20dReturn,
+    // P2-A: market-level program net buy fallback — wired as diagnostic-only candidate field when
+    // no per-symbol stock-level program data is available (Naver/KIS per-symbol both return null).
+    // macroState.programNetBuyAmount is KOSPI-aggregate, NOT per-stock — used purely for
+    // programFlowDiagnostics visibility, not for supply signal evaluation.
+    // executionImpact=NONE (candidateMapper.extractStockProgramFlow reads supplyContext records).
+    programNetBuyAmount: w.programNetBuyAmount ?? w.supplyContext?.programNetBuyAmount ?? (macro?.programNetBuyAmount != null ? macro.programNetBuyAmount : undefined),
   };
 }
 
@@ -388,6 +399,9 @@ export async function runAutoSignalScan(
   }
 
   let perSymbolSupplyInjection: PerSymbolSupplyInjectionStats | undefined;
+  // WIRE_SELECTED_CANDIDATE_ACTUAL_ROW — per-scan 6-digit 키 aggregate investor-flow map.
+  // forensic collector 로 직접 thread(snapshot retention/freshness 비의존) → 결정론적 carry.
+  let investorFlowBySymbolCarry: Record<string, Record<string, unknown>> | undefined;
   try {
     const injected = await injectPerSymbolSupplyContext({
       candidates: candidates.buyList,
@@ -397,6 +411,7 @@ export async function runAutoSignalScan(
     candidates.buyList = injected.candidates;
     candidates.mainList = injected.candidates;
     perSymbolSupplyInjection = injected.stats;
+    investorFlowBySymbolCarry = injected.investorFlowBySymbol;
     if (Array.isArray(candidates.intradayList) && candidates.intradayList.length > 0) {
       const intradayInjected = await injectPerSymbolSupplyContext({
         candidates: candidates.intradayList,
@@ -404,6 +419,8 @@ export async function runAutoSignalScan(
         snapshotData: unifiedSnapshot?.perSymbol,
       });
       candidates.intradayList = intradayInjected.candidates;
+      // intraday 후보 row 도 forensic carry map 에 합류(buyList 우선, 미존재 키만 보강).
+      investorFlowBySymbolCarry = { ...intradayInjected.investorFlowBySymbol, ...investorFlowBySymbolCarry };
     }
     const normalSupplyPreviewAllowed =
       options?.sellOnly === true ||
@@ -512,6 +529,8 @@ export async function runAutoSignalScan(
         sectorEnergyReasons?: string[];
         sectorEnergyQualityDiagnostic?: import('../../clients/sectorEnergyQualityDiagnostic.js').SectorEnergyQualityDiagnostic;
         kospi20dReturn?: number;
+        // P2-A: market-level program net buy amount carry (억원) — diagnostic-only fallback.
+        programNetBuyAmount?: number;
       }
     | undefined;
   await persistScanResults(counters, {
@@ -521,6 +540,7 @@ export async function runAutoSignalScan(
     scanAsOf,
     ...candidates.lengths,
     ...(perSymbolSupplyInjection ? { perSymbolSupplyInjection } : {}),
+    ...(investorFlowBySymbolCarry && Object.keys(investorFlowBySymbolCarry).length > 0 ? { investorFlowBySymbolCarry } : {}),
     ...(options?.candidateScanTrigger ? { candidateScanTrigger: options.candidateScanTrigger } : {}),
     macroGateState: preflightResult.macroGateState,
     ...(macro?.sectorEnergyDataQuality !== undefined ? {
@@ -611,14 +631,18 @@ export async function runAutoSignalScan(
         return20d: w.return20d ?? w.symbolFeatures?.return20d ?? w.quote?.return20d ?? w.featurePack?.momentum?.return20d ?? w.momentumProjection?.return20d,
         return5d: w.return5d ?? w.symbolFeatures?.return5d ?? w.quote?.return5d ?? w.featurePack?.momentum?.return5d ?? w.momentumProjection?.return5d,
         kospi20dReturn: w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? w.quote?.kospi20dReturn ?? w.featurePack?.momentum?.kospi20dReturn ?? w.momentumProjection?.kospi20dReturn ?? macro?.kospi20dReturn,
+        // P2-B: explicit indexReturn20d alias — eliminates rsIndexFallbackUsed false-positive.
+        indexReturn20d: w.indexReturn20d ?? w.symbolFeatures?.indexReturn20d ?? w.quote?.indexReturn20d ?? w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? w.quote?.kospi20dReturn ?? w.featurePack?.momentum?.kospi20dReturn ?? w.momentumProjection?.kospi20dReturn ?? macro?.kospi20dReturn,
+        // P2-A: market-level program net buy fallback for diagnostic visibility.
+        programNetBuyAmount: w.programNetBuyAmount ?? w.supplyContext?.programNetBuyAmount ?? (macro?.programNetBuyAmount != null ? macro.programNetBuyAmount : undefined),
         quote: buildSafeQuoteFeatures(w),
         price: w.symbolFeatures?.price ?? w.entryPrice ?? w.quote?.price ?? w.quote?.currentPrice,
         currentPrice: w.symbolFeatures?.currentPrice ?? w.quote?.currentPrice ?? w.entryPrice,
         high5d: w.symbolFeatures?.high5d ?? w.quote?.high5d,
         high20d: w.symbolFeatures?.high20d ?? w.quote?.high20d,
         high60: w.symbolFeatures?.high60 ?? w.quote?.high60,
-        volume: w.symbolFeatures?.volume ?? w.quote?.volume,
-        avgVolume: w.symbolFeatures?.avgVolume ?? w.quote?.avgVolume,
+        volume: w.symbolFeatures?.volume ?? w.quote?.volume ?? w.volume,
+        avgVolume: w.symbolFeatures?.avgVolume ?? w.quote?.avgVolume ?? w.avgVolume,
         volumeRatio: w.symbolFeatures?.volumeRatio ?? w.quote?.volumeRatio,
         ma20: w.symbolFeatures?.ma20 ?? w.quote?.ma20,
         ma60: w.symbolFeatures?.ma60 ?? w.quote?.ma60,
@@ -686,14 +710,18 @@ export async function runAutoSignalScan(
         return20d: w.return20d ?? w.symbolFeatures?.return20d ?? w.quote?.return20d ?? w.featurePack?.momentum?.return20d ?? w.momentumProjection?.return20d,
         return5d: w.return5d ?? w.symbolFeatures?.return5d ?? w.quote?.return5d ?? w.featurePack?.momentum?.return5d ?? w.momentumProjection?.return5d,
         kospi20dReturn: w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? w.quote?.kospi20dReturn ?? w.featurePack?.momentum?.kospi20dReturn ?? w.momentumProjection?.kospi20dReturn ?? macro?.kospi20dReturn,
+        // P2-B: explicit indexReturn20d alias — eliminates rsIndexFallbackUsed false-positive.
+        indexReturn20d: w.indexReturn20d ?? w.symbolFeatures?.indexReturn20d ?? w.quote?.indexReturn20d ?? w.kospi20dReturn ?? w.symbolFeatures?.kospi20dReturn ?? w.quote?.kospi20dReturn ?? w.featurePack?.momentum?.kospi20dReturn ?? w.momentumProjection?.kospi20dReturn ?? macro?.kospi20dReturn,
+        // P2-A: market-level program net buy fallback for diagnostic visibility.
+        programNetBuyAmount: w.programNetBuyAmount ?? w.supplyContext?.programNetBuyAmount ?? (macro?.programNetBuyAmount != null ? macro.programNetBuyAmount : undefined),
         quote: buildSafeQuoteFeatures(w),
         price: w.symbolFeatures?.price ?? w.entryPrice ?? w.quote?.price ?? w.quote?.currentPrice,
         currentPrice: w.symbolFeatures?.currentPrice ?? w.quote?.currentPrice ?? w.entryPrice,
         high5d: w.symbolFeatures?.high5d ?? w.quote?.high5d,
         high20d: w.symbolFeatures?.high20d ?? w.quote?.high20d,
         high60: w.symbolFeatures?.high60 ?? w.quote?.high60,
-        volume: w.symbolFeatures?.volume ?? w.quote?.volume,
-        avgVolume: w.symbolFeatures?.avgVolume ?? w.quote?.avgVolume,
+        volume: w.symbolFeatures?.volume ?? w.quote?.volume ?? w.volume,
+        avgVolume: w.symbolFeatures?.avgVolume ?? w.quote?.avgVolume ?? w.avgVolume,
         volumeRatio: w.symbolFeatures?.volumeRatio ?? w.quote?.volumeRatio,
         ma20: w.symbolFeatures?.ma20 ?? w.quote?.ma20,
         ma60: w.symbolFeatures?.ma60 ?? w.quote?.ma60,

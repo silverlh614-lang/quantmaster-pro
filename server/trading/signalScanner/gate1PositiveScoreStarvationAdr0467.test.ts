@@ -4,6 +4,7 @@ import {
   buildPositiveScoreStarvationFallbackReport,
   buildEntryDecisionLedgerPositiveStarvationSummary,
   buildGate1ScoreStarvationTrace,
+  buildGate1ScoreStarvationTraceFromGateResult,
   buildPenaltyApplicationOrderAudit,
   buildPositiveFeatureAvailabilityAudit,
   buildPositiveScoreCalibrationResults,
@@ -412,6 +413,64 @@ describe('ADR-0467 Gate1 positive score starvation trace', () => {
     expect(report?.actualScoreAvg).toBe(21.4);
     expect(report?.rangeCompressionReport.compressed).toBe(true);
     expect(formatPositiveScoreStarvationReport(report)).toContain('zeroContributionComponents');
+  });
+
+  it('ADR-0467 CORE_SIGNAL contribution is attributed from minSignalComponents, not OTHER_POSITIVE', () => {
+    // momentum condition output is THRESHOLD_NOT_MET score=0 (Gate2-level), yet the
+    // canonical Gate1 minimum-signal PRICE_MOMENTUM weightedScore is positive (12/20).
+    const trace = buildGate1ScoreStarvationTraceFromGateResult({
+      symbol: '005930',
+      name: 'Samsung',
+      requiredScore: 7,
+      gateResult: {
+        rawScore: 4,
+        availableMaxScore: 9,
+        outputs: [
+          { key: 'momentum', output: { score: 0, status: 'THRESHOLD_NOT_MET' } },
+          // an unmapped condition that would otherwise inflate OTHER_POSITIVE
+          { key: 'some_unmapped_condition', output: { score: 0.5, status: 'PASS' } },
+        ],
+      },
+      minSignalComponents: [
+        { code: 'PRICE_MOMENTUM', weightedScore: 12, maxScore: 20, confidence: 'VERIFIED' },
+      ],
+      scoreScale: 10,
+    });
+
+    const momentum = trace.positiveComponents.find((c) => c.code === 'PRICE_MOMENTUM');
+    expect(momentum?.weightedScore).toBe(12);
+    expect(momentum?.source).toBe('minimumSignalScoreTrace.components');
+    // PRICE_MOMENTUM must NOT be marked zeroContribution.
+    expect(trace.zeroContributionComponents).not.toContain('PRICE_MOMENTUM');
+    expect(trace.verifiedZeroComponents).not.toContain('PRICE_MOMENTUM');
+    // the momentum value must not have leaked into OTHER_POSITIVE.
+    const otherPositive = trace.positiveComponents.find((c) => c.code === 'OTHER_POSITIVE');
+    expect(otherPositive?.weightedScore ?? 0).toBeLessThan(12);
+    expect(trace.grossPositiveScore).toBeGreaterThanOrEqual(12);
+  });
+
+  it('ADR-0467 fallback: without minSignalComponents the legacy gateResult.outputs path is preserved', () => {
+    const gateResult = {
+      rawScore: 4,
+      availableMaxScore: 9,
+      outputs: [
+        { key: 'momentum', output: { score: 0, status: 'THRESHOLD_NOT_MET' } },
+        { key: 'volume_breakout', output: { score: 0.6, status: 'PASS' } },
+      ],
+    };
+    const legacy = buildGate1ScoreStarvationTraceFromGateResult({
+      symbol: '005930',
+      requiredScore: 7,
+      gateResult,
+      scoreScale: 10,
+    });
+    // PRICE_MOMENTUM resolved purely from the momentum condition output (score 0).
+    const momentum = legacy.positiveComponents.find((c) => c.code === 'PRICE_MOMENTUM');
+    expect(momentum?.source).toBe('evaluateServerGate.outputs');
+    expect(momentum?.weightedScore).toBe(0);
+    // VOLUME_LIQUIDITY from volume_breakout condition output (0.6 * scale = 6).
+    const volume = legacy.positiveComponents.find((c) => c.code === 'VOLUME_LIQUIDITY');
+    expect(volume?.weightedScore).toBe(6);
   });
 
   it('ADR-0467 reporter does not block engine if score data is missing', () => {

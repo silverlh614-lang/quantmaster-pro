@@ -41,6 +41,7 @@ export function reconcileShadowPersistenceQueue(limit = 20): ShadowPersistenceRe
       markShadowLedgerWriteSucceeded(retrying.queueId);
       result.succeeded++;
     } catch (error) {
+      /* SDS-ignore: reasonFromError → markShadowLedgerWriteFailed 로 실패 사유를 원장에 기록하고 REPLAY_REQUIRED 를 트리거한다 (silent 아님). */
       const reason = reasonFromError(error);
       markShadowLedgerWriteFailed(retrying.queueId, reason);
       const latest = listShadowLedgerWriteQueue().find((item) => item.queueId === retrying.queueId);

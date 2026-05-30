@@ -206,7 +206,9 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
         status: shadowLeadershipAllowed ? 'AVAILABLE' : 'UNAVAILABLE',
         sourceTier: canonical.selectedSourceTier,
         shadowLeadershipAllowed,
-        confidence: canonical.confidence === 'MISSING' ? 'BLOCKED' : canonical.confidence,
+        // ADR-0544: SESSION_NOT_VERIFIABLE 도 MISSING 과 동일 표시 라벨(BLOCKED)로 매핑한다 —
+        // shadowLeadershipAllowed/counterfactualAllowed(게이팅)는 별도 보존되어 무변경.
+        confidence: (canonical.confidence === 'MISSING' || canonical.confidence === 'SESSION_NOT_VERIFIABLE') ? 'BLOCKED' : canonical.confidence,
         internalGroupedSnapshotCoverage,
         ...(sector.internalGroupedValidSectorCount !== undefined
           ? { internalGroupedValidSectorCount: sector.internalGroupedValidSectorCount }
@@ -249,6 +251,11 @@ export type Gate2LeadershipDominantReason =
   | 'SECTOR_DATA_STALE'
   | 'BREAKOUT_MOMENTUM_NOT_CONFIRMED'
   | 'FUNDAMENTAL_DATA_UNAVAILABLE'
+  // Section F (Gate2 External Data Stabilization) — optionalMissing 전용 dominant.
+  // programTrade / optional sector·theme·leader cycle missing 만으로 Gate2 가 막힌
+  // 것처럼 보이지 않게, 진짜 실패(CONDITION_FAIL / FUNDAMENTAL_DATA_UNAVAILABLE) 와
+  // 분리된 별도 dominant 값. bearish / hard fail 로 변환 금지.
+  | 'OPTIONAL_DATA_MISSING'
   | 'MIXED'
   | 'UNKNOWN';
 
@@ -269,6 +276,17 @@ export interface Gate2LeadershipAttribution {
   blockedBySectorStaleCount: number;
   blockedByConditionFailCount: number;
   blockedByUnavailableFundamentalCount: number;
+  /**
+   * Section F (Gate2 External Data Stabilization) — optionalMissing 그룹.
+   *
+   * programTrade missing + optional sector/theme/leader cycle missing 의 unavailable
+   * 카운트 합. trueConditionFail(blockedByConditionFailCount) / dataUnavailable
+   * (blockedByUnavailableFundamentalCount) 와 *중복 집계되지 않는* 별도 축이다.
+   *
+   * 진단 전용 — optional 데이터 부재는 bearish/hard fail 이 아니며 Gate2 threshold·
+   * permission 에 영향 0. 추가 전용 필드 (non-breaking).
+   */
+  blockedByOptionalMissingCount: number;
   sectorStaleContributionPct: number;
   dominantReason: Gate2LeadershipDominantReason;
   officialIndex: {
@@ -702,7 +720,9 @@ function pickTopBucket(
  *
  * 결정 트리 (위에서 아래 첫 매칭):
  *   1. gate1Pass === 0 → NO_GATE1_SURVIVORS
- *   2. totalRelevant === 0 → UNKNOWN
+ *   2. totalRelevant === 0 → sectorEnergy.isStale → SECTOR_DATA_STALE_DOMINANT;
+ *      blockReasons.preBreakoutWait/max(1,gate1Pass)>0.5 → PRE_BREAKOUT_WAIT_DOMINANT;
+ *      blockReasons.gateRecheckMiss/max(1,gate1Pass)>0.5 → GATE_RECHECK_DOMINANT; else UNKNOWN
  *   3. stale / totalRelevant > 0.4 OR sectorEnergy.isStale === true
  *      → SECTOR_DATA_STALE_DOMINANT
  *   4. unavailable / totalRelevant > 0.5 → DATA_UNAVAILABLE_DOMINANT
@@ -740,8 +760,25 @@ export function computeGate2LeadershipDiagnosis(input: {
   const totalRelevant = totalFailed + totalUnavailable + totalError + totalStale + totalWait;
 
   if (totalRelevant <= 0) {
-    // sectorEnergy.isStale 만 있는 경우 — 진단 우선 표시.
+    // sectorEnergy.isStale 만 있는 경우 — 진단 우선 표시 (기존 분기 보존).
     if (sectorEnergy?.isStale) return 'SECTOR_DATA_STALE_DOMINANT';
+    // followup ③: Gate2 미통과 사유가 condition bucket 이 아닌 blockReasons
+    // (preBreakoutWait / gateRecheckMiss) 에 있어 totalRelevant=0 이면 기존엔 UNKNOWN
+    // 으로 떨어졌다. gate1Pass>0 인데 진단축이 blockReasons 우세이면 해당 dominant 를
+    // 분류한다 (UNKNOWN 갭 해소). 임계/매매 무변경 — 진단 분류 정확화 전용.
+    const earlySafeGate1Pass = Math.max(1, gate1Pass);
+    if (
+      (blockReasons?.preBreakoutWait ?? 0) / earlySafeGate1Pass >
+      GATE2_DIAGNOSIS_THRESHOLDS.WAIT_DOMINANT_RATIO
+    ) {
+      return 'PRE_BREAKOUT_WAIT_DOMINANT';
+    }
+    if (
+      (blockReasons?.gateRecheckMiss ?? 0) / earlySafeGate1Pass >
+      GATE2_DIAGNOSIS_THRESHOLDS.GATE_RECHECK_DOMINANT_RATIO
+    ) {
+      return 'GATE_RECHECK_DOMINANT';
+    }
     return 'UNKNOWN';
   }
 
@@ -806,12 +843,27 @@ function buildGate2LeadershipAttribution(input: {
   const fundamentalKeys = new Set(['earnings_quality', 'per', 'sectorLeadership', 'sector_leadership', 'sectorBoost', 'sector_boost']);
   const relativeStrengthKeys = new Set(['relative_strength', 'relativeStrength', 'rs', 'rs_percentile']);
   const volumeKeys = new Set(['volume_surge', 'volume_breakout', 'volumeEnergy', 'volume_energy']);
+  // Section F — optionalMissing 전용 키 집합. programTrade missing + optional
+  // sector/theme/leader cycle missing. conditionKeys / fundamentalKeys 와 분리되어
+  // 중복 집계되지 않는다 (아래 filter 가 optionalKeys 만 격리). 진단 전용 — 매매 무관.
+  const optionalKeys = new Set([
+    'programTrade', 'program_trade',
+    'sectorCycle', 'sector_cycle',
+    'leaderCycle', 'leader_cycle',
+    'themeCycle', 'theme_cycle',
+  ]);
   const blockedByConditionFailCount = input.sorted
-    .filter((b) => conditionKeys.has(b.conditionKey))
+    .filter((b) => conditionKeys.has(b.conditionKey) && !optionalKeys.has(b.conditionKey))
     .reduce((sum, b) => sum + b.failed, 0);
   const blockedByUnavailableFundamentalCount = input.sorted
-    .filter((b) => fundamentalKeys.has(b.conditionKey))
+    .filter((b) => fundamentalKeys.has(b.conditionKey) && !optionalKeys.has(b.conditionKey))
     .reduce((sum, b) => sum + b.unavailable + b.stale + b.error, 0);
+  // optionalMissing — optional lane 의 데이터 부재(unavailable+stale)만 집계.
+  // failed/error 는 의도적으로 제외: optional 미보유는 "데이터 없음"이지 "조건 실패"가
+  // 아니므로 trueConditionFail 로 누수되면 안 된다 (DATA_UNAVAILABLE 은 failed 아님, ADR-0416).
+  const blockedByOptionalMissingCount = input.sorted
+    .filter((b) => optionalKeys.has(b.conditionKey))
+    .reduce((sum, b) => sum + b.unavailable + b.stale, 0);
   const breakoutMomentumFailCount = input.sorted
     .filter((b) => b.conditionKey === 'breakout_momentum')
     .reduce((sum, b) => sum + b.failed + b.wait, 0);
@@ -821,16 +873,37 @@ function buildGate2LeadershipAttribution(input: {
   const volumeConfirmationFailCount = input.sorted
     .filter((b) => volumeKeys.has(b.conditionKey))
     .reduce((sum, b) => sum + b.failed, 0);
+  // PR#1310 리뷰(P2) 정합: optional sector-cycle 레인(optionalKeys)의 stale 은 SECTOR_DATA_STALE
+  // dominance 에 집계하지 않는다 — 그렇지 않으면 optional 데이터 공백이 Gate2 leadership blocker
+  // 처럼 둔갑한다(optionalMissing 격리 의도 위배). 진짜 sector energy/leadership stale 만 집계.
   const blockedBySectorStaleCount = input.sectorEnergy?.isStale ? input.gate1Pass : input.sorted
-    .filter((b) => b.conditionKey.toLowerCase().includes('sector'))
+    .filter((b) => b.conditionKey.toLowerCase().includes('sector') && !optionalKeys.has(b.conditionKey))
     .reduce((sum, b) => sum + b.stale, 0);
   const denom = Math.max(1, input.gate1Pass);
   const sectorStaleContributionPct = Math.round((blockedBySectorStaleCount / denom) * 1000) / 10;
+  // §E 정합 — dominant 를 고정 우선순위(sectorStale→fundamental→condition)로 "첫 임계 초과"
+  // 선택하면, 여러 축이 동시에 임계를 넘을 때 *더 큰* 실패 축을 가리고 과귀속된다
+  // (실측: conditionFail=6 vs fundamentalUnavailable=2 인데 dominant=FUNDAMENTAL 로 표기됨).
+  // 임계(>=0.5*denom)를 넘는 축들 중 *최대 기여* 축을 dominant 로 선택하고, 동률이면 MIXED.
+  // optionalMissing 은 진짜 실패가 0 일 때만 dominant. 임계/카운트/threshold/매매 무변경 — 진단 라벨 정확화 전용.
   let dominantReason: Gate2LeadershipDominantReason = 'UNKNOWN';
-  if (blockedBySectorStaleCount / denom >= 0.5) dominantReason = 'SECTOR_DATA_STALE';
-  else if (blockedByUnavailableFundamentalCount / denom >= 0.5) dominantReason = 'FUNDAMENTAL_DATA_UNAVAILABLE';
-  else if (blockedByConditionFailCount / denom >= 0.5) dominantReason = 'BREAKOUT_MOMENTUM_NOT_CONFIRMED';
-  else if (blockedBySectorStaleCount + blockedByUnavailableFundamentalCount + blockedByConditionFailCount > 0) dominantReason = 'MIXED';
+  const realBlockTotal = blockedBySectorStaleCount + blockedByUnavailableFundamentalCount + blockedByConditionFailCount;
+  const overThreshold: Array<{ reason: Gate2LeadershipDominantReason; count: number }> = [];
+  if (blockedBySectorStaleCount / denom >= 0.5) overThreshold.push({ reason: 'SECTOR_DATA_STALE', count: blockedBySectorStaleCount });
+  if (blockedByUnavailableFundamentalCount / denom >= 0.5) overThreshold.push({ reason: 'FUNDAMENTAL_DATA_UNAVAILABLE', count: blockedByUnavailableFundamentalCount });
+  if (blockedByConditionFailCount / denom >= 0.5) overThreshold.push({ reason: 'BREAKOUT_MOMENTUM_NOT_CONFIRMED', count: blockedByConditionFailCount });
+  if (overThreshold.length === 1) {
+    dominantReason = overThreshold[0].reason;
+  } else if (overThreshold.length > 1) {
+    const maxCount = Math.max(...overThreshold.map((o) => o.count));
+    const leaders = overThreshold.filter((o) => o.count === maxCount);
+    dominantReason = leaders.length === 1 ? leaders[0].reason : 'MIXED';
+  } else if (realBlockTotal === 0 && blockedByOptionalMissingCount > 0) {
+    // Section F — optionalMissing 만 존재할 때만 OPTIONAL_DATA_MISSING. 진짜 실패와 섞이면 MIXED. bearish 신호 아님.
+    dominantReason = 'OPTIONAL_DATA_MISSING';
+  } else if (realBlockTotal > 0) {
+    dominantReason = 'MIXED';
+  }
   const officialCoverage = ratioFromMaybePercent(
     input.sectorEnergy?.officialIndexCoverage ?? input.sectorEnergy?.indexCodeCoverage,
   );
@@ -891,6 +964,7 @@ function buildGate2LeadershipAttribution(input: {
     blockedBySectorStaleCount,
     blockedByConditionFailCount,
     blockedByUnavailableFundamentalCount,
+    blockedByOptionalMissingCount,
     sectorStaleContributionPct,
     dominantReason,
     officialIndex: {
@@ -1172,20 +1246,60 @@ export function formatGate2AttributionSection(
   lines.push(
     `  • candidates=${attribution.candidates} gate1Pass=${attribution.gate1Pass} gate2Pass=${attribution.gate2Pass}`,
   );
+  // P3 (scanblockers-truth-consistency): Gate2 denominator/attribution 분모 분리 표시.
+  // 산출/집계 로직(buyListLoop accumulator = isGate1Survivor gating, buildGate2LeadershipAttribution
+  // 산식·임계)은 무변경. 아래는 전부 기존 집계값(attribution.candidates/gate1Pass/...)에서 파생한
+  // 표시 전용 라벨이다. accumulator 가 이미 Gate1 생존자만 집계하므로 gate2TrueFailedCount 의 모집단
+  // (분모)은 gate1Pass = gate2EvaluatedAfterGate1 이며, Gate1-FAIL 후보는 trueFail 분모에서 제외된다.
+  const gate2InputTotal = attribution.candidates;
+  const gate2EvaluatedAfterGate1 = attribution.gate1Pass;
+  const gate2NotEvaluatedGate1Fail = Math.max(0, attribution.candidates - attribution.gate1Pass);
+  const gate2TrueFailedCount = attribution.gate2TrueFailedCount;
+  const gate2UnavailableCount = attribution.gate2UnavailableCount;
+  const gate2DiagnosticOnlyCount = gate2NotEvaluatedGate1Fail;
+  const gate2WatchPreservedCount = attribution.gate2WatchPreservedCount;
+  const gate2ShadowPreservedCount = attribution.gate2ShadowPreservedCount;
+  // 분모 항등식: gate2EvaluatedAfterGate1 + gate2NotEvaluatedGate1Fail = gate2InputTotal.
+  const denominatorIdentityHolds =
+    gate2EvaluatedAfterGate1 + gate2NotEvaluatedGate1Fail === gate2InputTotal;
   lines.push(
-    `  • split: gate2TrueFailedCount=${attribution.gate2TrueFailedCount} / ` +
-    `gate2UnavailableCount=${attribution.gate2UnavailableCount} / ` +
-    `gate2WatchPreservedCount=${attribution.gate2WatchPreservedCount} / ` +
-    `gate2ShadowPreservedCount=${attribution.gate2ShadowPreservedCount}`,
+    `  • denominator: gate2InputTotal=${gate2InputTotal} / ` +
+    `gate2EvaluatedAfterGate1=${gate2EvaluatedAfterGate1} / ` +
+    `gate2NotEvaluatedGate1Fail=${gate2NotEvaluatedGate1Fail} ` +
+    `(diagnosticOnly=true, hardBlock=false, finalGate2=NOT_EVALUATED_GATE1_FAIL)` +
+    (denominatorIdentityHolds
+      ? ''
+      : ` / identityException=evaluatedAfterGate1+notEvaluatedGate1Fail!=inputTotal`),
+  );
+  // P3 후속 (scanblockers-truth-consistency followup): gate2TrueFailedCount /
+  //   gate2UnavailableCount 는 accumulator(scanCounterAccumulators.accumulateGate2Attribution)
+  //   가 Gate1 생존자(buyListLoop.isGate1Survivor)의 *조건별* output 을 conditionKey bucket 에
+  //   가산한 합 = **condition-level occurrence count** 이지 후보(candidate) 수가 아니다.
+  //   따라서 occurrences(예 19) > candidates(예 3) 는 정상 (후보 1개당 다수 조건 평가).
+  //   분자=조건 occurrence, 분모=후보 라는 단위 불일치를 제거하기 위해 라벨에 ConditionOccurrences
+  //   와 across …candidates 를 명시한다. 집계식(:1048-1049)·accumulator 는 무변경 — 표시 전용.
+  lines.push(
+    `  • split: gate2TrueFailedConditionOccurrences=${gate2TrueFailedCount} ` +
+    `(across gate2EvaluatedAfterGate1=${gate2EvaluatedAfterGate1} candidates) / ` +
+    `gate2UnavailableConditionOccurrences=${gate2UnavailableCount} / ` +
+    `gate2DiagnosticOnlyCount=${gate2DiagnosticOnlyCount} / ` +
+    `gate2WatchPreservedCount=${gate2WatchPreservedCount} / ` +
+    `gate2ShadowPreservedCount=${gate2ShadowPreservedCount}`,
+  );
+  lines.push(
+    '  • note: true/unavailable counts are condition-level occurrences among Gate1-surviving ' +
+    'evaluated candidates (occurrences may exceed candidate count); Gate1-failed candidates ' +
+    'are excluded from this population.',
   );
 
   const leadership = attribution.leadershipAttribution;
   lines.push(
-    `  • Gate2LeadershipAttribution: sectorStale=${leadership.blockedBySectorStaleCount} / ` +
-    `conditionFail=${leadership.blockedByConditionFailCount} / ` +
+    `  • Gate2LeadershipAttribution: conditionFail=${leadership.blockedByConditionFailCount} / ` +
     `fundamentalUnavailable=${leadership.blockedByUnavailableFundamentalCount} / ` +
+    `optionalMissing=${leadership.blockedByOptionalMissingCount} / ` +
+    `sectorStale=${leadership.blockedBySectorStaleCount} / ` +
     `sectorStaleContributionPct=${leadership.sectorStaleContributionPct.toFixed(1)}% / ` +
-    `dominant=${leadership.dominantReason}`,
+    `dominant=${leadership.dominantReason} (denominator=gate2EvaluatedAfterGate1=${gate2EvaluatedAfterGate1})`,
   );
 
   lines.push(

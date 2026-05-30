@@ -505,6 +505,9 @@ function applyInferredNoisePolicyToAlert(
   message: string,
   opts?: TelegramAlertOptions,
 ): NoisePolicyApplicationResult {
+  if (opts?.notificationTarget === 'BOT_QUERY_RESPONSE') {
+    return { opts, suppressed: false };
+  }
   const inferredNoiseEvent = inferNoiseEventFromLegacyAlert(message, opts);
   if (!inferredNoiseEvent) return { opts, suppressed: false };
 
@@ -600,6 +603,10 @@ function applyTelegramNotificationPolicy(
   }
   console.log(formatTelegramNotificationRoutedLog(decision));
 
+  if (o.notificationTarget === 'BOT_QUERY_RESPONSE') {
+    return { opts, decision, suppressed: false };
+  }
+
   if (!hasNotificationPolicyDeliveryIntent(message, opts)) {
     return { opts, decision, suppressed: false };
   }
@@ -618,7 +625,8 @@ function applyTelegramNotificationPolicy(
   };
 }
 
-function shouldSuppressByTelegramRoutingGuard(message: string): boolean {
+function shouldSuppressByTelegramRoutingGuard(message: string, opts?: TelegramAlertOptions): boolean {
+  if (opts?.notificationTarget === 'BOT_QUERY_RESPONSE') return false;
   if (
     !isTelegramInvariantRoutingDisabled() &&
     classifyTelegramRouting(message) === 'RAILWAY_LOG_ONLY'
@@ -820,7 +828,7 @@ export async function sendTelegramAlert(
   if (isSuppressedNoiseTelegramAlert(message, opts)) return undefined;
 
   // invariant/debug 라우팅 가드는 Telegram 대신 Railway/debug 로그로만 보낸다.
-  if (shouldSuppressByTelegramRoutingGuard(message)) return undefined;
+  if (shouldSuppressByTelegramRoutingGuard(message, opts)) return undefined;
 
   const notificationPolicy = applyTelegramNotificationPolicy(message, opts);
   if (notificationPolicy.suppressed) return undefined;

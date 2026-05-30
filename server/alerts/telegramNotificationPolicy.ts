@@ -281,6 +281,9 @@ function suppressReason(
   dedupKey: string,
   nowMs: number,
 ): { shouldSuppress: boolean; reason: string; cooldownRemainingMs: number } {
+  if (input.targetChannel === 'BOT_QUERY_RESPONSE') {
+    return { shouldSuppress: false, reason: 'BOT_QUERY_RESPONSE_MANUAL_REQUEST', cooldownRemainingMs: 0 };
+  }
   if (severity === 'DEBUG_LOG_ONLY') {
     return { shouldSuppress: true, reason: 'DEBUG_LOG_ONLY', cooldownRemainingMs: 0 };
   }

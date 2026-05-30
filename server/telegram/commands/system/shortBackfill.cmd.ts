@@ -65,7 +65,7 @@ function saveLatestShortSelling(rows: ParsedShortSeed[]): ParsedShortSeed | null
   saveMacroState({
     ...macro,
     shortSellingRatio: latest.ratio,
-    shortSellingSource: 'CACHE' as any,
+    shortSellingSource: 'CACHE',
     shortSellingFetchedAt: now,
     updatedAt: now,
   });

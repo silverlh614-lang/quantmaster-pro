@@ -1,3 +1,7 @@
+/**
+ * @responsibility 매수 체결 조회 결과로부터 체결·부분·만료·거부 모니터 액션을 결정한다.
+ */
+
 import type { FillQueryResult, NormalizedBuyFillState } from './fillTypes.js';
 
 export interface BuyFillMonitorOrder {

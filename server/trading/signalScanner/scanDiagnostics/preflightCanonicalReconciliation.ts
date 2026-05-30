@@ -121,7 +121,7 @@ export function formatPreflightCanonicalReconciliationSection(
   lines.push(`diagnosticCarried=${recon.diagnosticCarried}`);
   lines.push(`buyListLoopEnteredDiagnostic=${recon.buyListLoopEnteredDiagnostic}`);
   lines.push(`universeSnapshotRecorded=${recon.universeSnapshotRecorded}`);
-  lines.push(`counterfactualRecorded=${recon.counterfactualRecorded}`);
+  lines.push(`universeCounterfactualRecorded=${recon.counterfactualRecorded}`);
   lines.push(`shadowLearningRecorded=${recon.shadowLearningRecorded}`);
   lines.push(`executionImpact=${recon.executionImpact}`);
   lines.push(

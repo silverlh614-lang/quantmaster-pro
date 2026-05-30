@@ -1,3 +1,7 @@
+/**
+ * @responsibility 포지션 출처 결정기 — 엔진 모드·보유 건수로 신뢰할 포지션 데이터 소스를 선택한다.
+ */
+
 export type PositionSourceMode =
   | 'SHADOW_FIRST'
   | 'LIVE_FIRST'

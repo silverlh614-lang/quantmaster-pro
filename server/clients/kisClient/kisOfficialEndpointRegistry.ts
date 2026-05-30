@@ -92,7 +92,10 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     path: '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily',
     trId: 'FHPTJ04160001',
     requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_ISCD', 'FID_INPUT_DATE_1', 'FID_ORG_ADJ_PRC', 'FID_ETC_CLS_CODE'],
-    outputBuckets: ['output'],
+    // ADR-0542: 공식 spec(investor_trade_by_stock_daily.py)은 output1(요약 row)+output2(일자별 시계열)
+    // 둘 다 반환한다. 직전 registry는 ['output'] 만 선언해 impl(query.ts)의 output1/output2 합성과
+    // 드리프트가 있었다. SSOT 정합 — outputBuckets 메타 정정(런타임은 impl 상수 사용).
+    outputBuckets: ['output1', 'output2', 'output'],
     confidenceClass: 'VERIFIED_DAILY',
     defaultUseScope: 'ADVISORY',
     executionImpact: 'NONE',
@@ -104,6 +107,9 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'supply',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/quotations/investor-trend-estimate',
+    // ADR-0543(분리 예정): 실제 spec/impl(query.ts fetchKisInvestorTrendEstimate)은 단일 param
+    // MKSC_SHRN_ISCD 를 사용하나 본 registry는 [FID_COND_MRKT_DIV_CODE, FID_INPUT_ISCD] 로 드리프트.
+    // L4(ESTIMATED) 격리 정책과 함께 ADR-0543 에서 정정 — 본 PR(ADR-0542)에서는 손대지 않음.
     requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_ISCD'],
     outputBuckets: ['output'],
     confidenceClass: 'ESTIMATED',

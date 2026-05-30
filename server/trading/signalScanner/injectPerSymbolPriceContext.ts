@@ -7,6 +7,7 @@ export interface PriceInjectionStats {
   totalCandidates: number;
   uniqueSymbols: number;
   volumeInjected: number;
+  avgVolumeInjected: number;
   return5dInjected: number;
   return20dInjected: number;
   failed: number;
@@ -14,6 +15,7 @@ export interface PriceInjectionStats {
 
 interface ResolvedPriceContext {
   volume: number | null;
+  avgVolume: number | null;
   return5d: number | null;
   return20d: number | null;
 }
@@ -22,6 +24,24 @@ function normalizeSymbol(value: unknown): string {
   if (typeof value !== 'string') return '';
   const digits = value.replace(/[^0-9]/g, '');
   return digits.length >= 6 ? digits.slice(-6) : digits;
+}
+
+/**
+ * 이미 확보된 일봉(bars)의 volume 평균을 산출한다 (KIS 추가 호출 없음).
+ * 최근 최대 20개 bar 의 finite volume 만 사용. 유효 volume 이 없으면 null.
+ * VOLUME_LIQUIDITY scorer(minimumSignalScoreTrace.ts) 의 avgVolume>0 분기 입력.
+ */
+function averageBarVolume(bars: ReadonlyArray<{ volume: number | null }>): number | null {
+  const volumes: number[] = [];
+  for (const bar of bars) {
+    if (volumes.length >= 20) break;
+    if (typeof bar.volume === 'number' && Number.isFinite(bar.volume)) {
+      volumes.push(bar.volume);
+    }
+  }
+  if (volumes.length === 0) return null;
+  const sum = volumes.reduce((acc, v) => acc + v, 0);
+  return Math.round(sum / volumes.length);
 }
 
 async function resolvePriceContext(code: string): Promise<ResolvedPriceContext> {
@@ -34,6 +54,7 @@ async function resolvePriceContext(code: string): Promise<ResolvedPriceContext> 
   const bars = barsSettled.status === 'fulfilled' ? barsSettled.value : [];
 
   const volume = quote?.volume ?? (bars.length > 0 ? bars[0].volume : null);
+  const avgVolume = bars.length > 0 ? averageBarVolume(bars) : null;
 
   // bars[0] = 최근 거래일, bars[5] = 5영업일 전, bars[20] = 20영업일 전 (내림차순)
   let return5d: number | null = null;
@@ -48,7 +69,7 @@ async function resolvePriceContext(code: string): Promise<ResolvedPriceContext> 
     }
   }
 
-  return { volume, return5d, return20d };
+  return { volume, avgVolume, return5d, return20d };
 }
 
 /**
@@ -65,6 +86,7 @@ export async function injectPerSymbolPriceContext<T extends Record<string, unkno
     totalCandidates: candidates.length,
     uniqueSymbols: 0,
     volumeInjected: 0,
+    avgVolumeInjected: 0,
     return5dInjected: 0,
     return20dInjected: 0,
     failed: 0,
@@ -85,6 +107,7 @@ export async function injectPerSymbolPriceContext<T extends Record<string, unkno
         const close = snap.quote?.currentPrice ?? snap.dailyBars[0]?.close ?? null;
         const bars = snap.dailyBars;
         const volume = snap.quote?.volume ?? (bars.length > 0 ? bars[0].volume : null);
+        const avgVolume = bars.length > 0 ? averageBarVolume(bars) : null;
         let return5d: number | null = null;
         let return20d: number | null = null;
         if (close !== null && bars.length >= 6 && bars[5].close > 0) {
@@ -93,7 +116,7 @@ export async function injectPerSymbolPriceContext<T extends Record<string, unkno
         if (close !== null && bars.length >= 21 && bars[20].close > 0) {
           return20d = parseFloat((((close - bars[20].close) / bars[20].close) * 100).toFixed(2));
         }
-        return { sym, ctx: { volume, return5d, return20d } };
+        return { sym, ctx: { volume, avgVolume, return5d, return20d } };
       }
       return { sym, ctx: await resolvePriceContext(sym) };
     }),
@@ -118,6 +141,10 @@ export async function injectPerSymbolPriceContext<T extends Record<string, unkno
       (candidate as Record<string, unknown>).volume = ctx.volume;
       stats.volumeInjected++;
     }
+    if (ctx.avgVolume !== null && (candidate.avgVolume == null || !Number.isFinite(candidate.avgVolume as number))) {
+      (candidate as Record<string, unknown>).avgVolume = ctx.avgVolume;
+      stats.avgVolumeInjected++;
+    }
     if (ctx.return5d !== null && (candidate.return5d == null || !Number.isFinite(candidate.return5d as number))) {
       (candidate as Record<string, unknown>).return5d = ctx.return5d;
       stats.return5dInjected++;
@@ -137,7 +164,8 @@ export async function injectPerSymbolPriceContext<T extends Record<string, unkno
     message:
       `[PER_SYMBOL_PRICE_CONTEXT_INJECTION] ` +
       `totalCandidates=${stats.totalCandidates} uniqueSymbols=${stats.uniqueSymbols} ` +
-      `volumeInjected=${stats.volumeInjected} return5dInjected=${stats.return5dInjected} ` +
+      `volumeInjected=${stats.volumeInjected} avgVolumeInjected=${stats.avgVolumeInjected} ` +
+      `return5dInjected=${stats.return5dInjected} ` +
       `return20dInjected=${stats.return20dInjected} failed=${stats.failed} executionImpact=NONE`,
     summary: { ...stats, executionImpact: 'NONE' },
     details: { stats },

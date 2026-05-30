@@ -110,8 +110,8 @@ describe('ADR-0464 entry filter decomposition', () => {
   it('Gate1 fail is recorded without removed SELL_ONLY time-window pollution', () => {
     const d = buildEntryFilterDecomposition({
       now,
-      universeCandidates: 1,
-      watchlistCandidates: 1,
+      universeCandidates: 2,
+      watchlistCandidates: 2,
       entries: 0,
       macroGateState: macro({ sellOnlyMode: true }),
       waitDistribution: { dataHold: 0, preBreakout: 0, gateFail: 1, sizingBlocked: 0, driftRemove: 0, corpAction: 0, volumeDrop: 0, other: 0 },
@@ -168,6 +168,23 @@ describe('ADR-0464 entry filter decomposition', () => {
   it('FILTER_TOO_CONSERVATIVE is not emitted in CRISIS/RISK_OFF when entry 0 is expected', () => {
     const d = buildEntryFilterDecomposition({ now, universeCandidates: 20, watchlistCandidates: 20, entries: 0, macroGateState: macro({ regime: 'RISK_OFF' }), candidateSnapshots: snapshots(20) });
     expect(d.filterConservatismReport).toBeUndefined();
+  });
+
+  it('Policy Health counterfactualRecorded is scope-labelled entryCounterfactualRecorded (P2 followup)', () => {
+    // scanblockers-truth-consistency 후속: universe-scope(universeCounterfactualRowsCreated)와
+    // 혼동되는 bare 'counterfactualRecorded' 번호목록 항목 잔존 금지 — scope-prefix 라벨만.
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 2,
+      watchlistCandidates: 2,
+      entries: 0,
+      macroGateState: macro(),
+      candidateSnapshots: snapshots(2),
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+    expect(formatted).toContain(`entryCounterfactualRecorded: ${d.counterfactualRecorded}`);
+    // 번호목록 항목 '10. counterfactualRecorded:' (bare) 는 출력되지 않는다.
+    expect(formatted).not.toMatch(/\d+\.\s+counterfactualRecorded:/);
   });
 });
 
@@ -433,4 +450,291 @@ it('locks child regime output to SourceSnapshotDecisionContext and keeps legacy 
   expect(formatted).toContain('- REGIME_CONTEXT_MISMATCH=false');
   expect(formatted).toContain('- LEGACY_EFFECTIVE_REGIME_LEAK=false');
   expect(formatted).not.toContain('- effectiveRegime=R6_DEFENSE');
+});
+
+describe('Gate2 external data Section D/E/G display lanes', () => {
+  it('§D ProgramTrade missing renders optional/diagnosticOnly lane (not a Gate2 failure)', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 1,
+      watchlistCandidates: 1,
+      entries: 0,
+      macroGateState: macro(),
+      candidateSnapshots: [
+        {
+          symbol: 'P1',
+          price: 100,
+          volume: 1000,
+          gate2ExternalDataCoverage: {
+            dartFinancials: { status: 'MISSING', required: true, stageNotFetched: false },
+            sectorCycle: { status: 'PARTIAL', provider: 'INTERNAL_GROUPED_SNAPSHOT' },
+            leaderCycle: { status: 'UNKNOWN' },
+          },
+        },
+      ],
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+    expect(formatted).toContain(
+      '- program: status=MISSING compact=OPTIONAL_MISSING optional=true signal=UNKNOWN scoring=excluded diagnosticOnly=true marketSignal=false providerIssue=false executionImpact=NONE action=OBSERVE_PROGRAM_TRADE',
+    );
+    // ProgramTrade missing 이 bearish/hard fail 로 승격되지 않음.
+    expect(formatted).not.toContain('PROGRAM_TRADE_FAIL');
+  });
+
+  it('§D ProgramTrade transport error sets providerIssue=true only', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 1,
+      watchlistCandidates: 1,
+      entries: 0,
+      macroGateState: macro(),
+      candidateSnapshots: [
+        {
+          symbol: 'P2',
+          price: 100,
+          volume: 1000,
+          gate2ExternalDataCoverage: {
+            dartFinancials: { status: 'MISSING', required: true, stageNotFetched: false },
+            programTrade: { status: 'DEGRADED', providerIssue: true },
+          },
+        },
+      ],
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+    expect(formatted).toContain('providerIssue=true executionImpact=NONE action=OBSERVE_PROGRAM_TRADE');
+    // providerIssue 가 marketSignal 로 변환되지 않음.
+    expect(formatted).toContain('- program: status=DEGRADED');
+    expect(formatted).toContain('marketSignal=false');
+  });
+
+  it('§E SectorCycle/LeaderCycle observe lane annotates diagnosticOnly without hard fail', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 1,
+      watchlistCandidates: 1,
+      entries: 0,
+      macroGateState: macro(),
+      candidateSnapshots: [
+        {
+          symbol: 'S1',
+          price: 100,
+          volume: 1000,
+          gate2ExternalDataCoverage: {
+            dartFinancials: { status: 'MISSING', required: true, stageNotFetched: false },
+            sectorCycle: { status: 'PARTIAL', provider: 'INTERNAL_GROUPED_SNAPSHOT' },
+            leaderCycle: { status: 'UNKNOWN' },
+          },
+        },
+      ],
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+    expect(formatted).toContain(
+      '- sectorCycle: status=SHADOW_ONLY sourceTier=INTERNAL_GROUPED_SNAPSHOT marketSignal=false diagnosticOnly=true executionImpact=NONE',
+    );
+    expect(formatted).toContain(
+      '- leaderCycle: status=UNKNOWN sourceTier=NONE marketSignal=false diagnosticOnly=true executionImpact=NONE',
+    );
+  });
+
+  it('§G Gate2 Data Line Health block summarizes all external lines (executionImpact=NONE)', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 1,
+      watchlistCandidates: 1,
+      entries: 0,
+      macroGateState: macro(),
+      // PR#1310 리뷰(P2): KIS_FLOW 는 supplyProviderHealth.status 에서 파생(하드코딩 금지).
+      // 공급이 VERIFIED 면 KIS_FLOW: VERIFIED 가 나와야 한다(파생 근거).
+      supplyProviderHealth: { status: 'VERIFIED' },
+      candidateSnapshots: [
+        {
+          symbol: 'H1',
+          price: 100,
+          volume: 1000,
+          gate1Passed: false,
+          gate2Passed: false,
+          gate2ExternalDataCoverage: {
+            dartFinancials: { status: 'PARTIAL', required: true, stageNotFetched: false },
+            dartLineHealth: {
+              status: 'PARTIAL',
+              availableFields: ['roe', 'opm'],
+              missingFields: ['earningsQuality', 'icr'],
+            },
+            valuation: { per: { status: 'AVAILABLE', source: 'DART', reason: 'NONE' } },
+            sectorCycle: { status: 'PARTIAL', provider: 'INTERNAL_GROUPED_SNAPSHOT' },
+            leaderCycle: { status: 'UNKNOWN' },
+          },
+        },
+      ],
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+    expect(formatted).toContain('Gate2 Data Line Health:');
+    expect(formatted).toContain('- KIS_FLOW: VERIFIED (상세는 KIS Router Eligibility 참조)');
+    expect(formatted).toContain(
+      '- DART_FINANCIALS: PARTIAL availableFields=roe,opm missingFields=earningsQuality,icr',
+    );
+    expect(formatted).toContain('- VALUATION_PER: AVAILABLE source=DART reason=NONE');
+    // §G — program/leader optional·diagnostic missing 은 OPTIONAL_MISSING/DIAGNOSTIC_MISSING 로 표기.
+    expect(formatted).toContain('- PROGRAM_TRADE: OPTIONAL_MISSING optional=true diagnosticOnly=true');
+    expect(formatted).toContain('- SECTOR_CYCLE: SHADOW_ONLY sourceTier=INTERNAL_GROUPED_SNAPSHOT');
+    expect(formatted).toContain('- LEADER_CYCLE: DIAGNOSTIC_MISSING sourceTier=NONE');
+    expect(formatted).toContain('- executionImpact=NONE marketSignal=false shadowLearning=true');
+  });
+
+  it('§G KIS_FLOW 는 공급 미가용 시 VERIFIED 로 오표시하지 않는다 (PR#1310 리뷰 P2)', () => {
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 1,
+      watchlistCandidates: 1,
+      entries: 0,
+      macroGateState: macro(),
+      // 투자흐름 row 가 없는 스캔(MISSING) — 하드코딩이라면 VERIFIED 로 오표시됐을 케이스.
+      supplyProviderHealth: { status: 'MISSING' },
+      candidateSnapshots: [
+        {
+          symbol: 'H1',
+          price: 100,
+          volume: 1000,
+          gate2ExternalDataCoverage: {
+            dartFinancials: { status: 'MISSING', required: true, stageNotFetched: false },
+            leaderCycle: { status: 'UNKNOWN' },
+          },
+        },
+      ],
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+    expect(formatted).toContain('- KIS_FLOW: MISSING (상세는 KIS Router Eligibility 참조)');
+    expect(formatted).not.toContain('- KIS_FLOW: VERIFIED');
+  });
+});
+
+describe('Gate2 Data Line Health canonical carry (patch: gate2 data line health fix)', () => {
+  const canonicalKisVerified = {
+    selectedProvider: 'KIS_API',
+    finalRouterUsable: true,
+    finalGateScoreEligible: true,
+    gateEligibleRows: 22,
+    totalRows: 23,
+    shadowOnlyRows: 1,
+    failedCriteria: [],
+    providerIssue: false,
+    marketSignal: false,
+  };
+
+  function decomposition(canonicalSupplyStatus: 'VERIFIED' | 'MISSING' = 'MISSING') {
+    const built = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 2,
+      watchlistCandidates: 2,
+      entries: 0,
+      macroGateState: macro(),
+      // 공급 health 는 MISSING 이라도 canonical 이 VERIFIED 면 KIS_FLOW 는 VERIFIED 여야 한다.
+      supplyProviderHealth: { status: canonicalSupplyStatus },
+      candidateSnapshots: [
+        {
+          symbol: 'H1',
+          price: 100,
+          volume: 1000,
+          gate2ExternalDataCoverage: {
+            kisInvestorFlow: { status: 'VERIFIED' },
+            dartFinancials: { status: 'VERIFIED', required: true, stageNotFetched: false },
+            dartLineHealth: {
+              status: 'VERIFIED',
+              availableFields: ['roe', 'opm', 'ocfToNi', 'icr', 'earningsQuality'],
+              missingFields: [],
+              providerIssue: false,
+            },
+            valuation: { per: { status: 'UNAVAILABLE', source: 'KIS', reason: 'PER_NON_POSITIVE_OR_UNAVAILABLE' } },
+            sectorCycle: { status: 'MISSING' },
+            leaderCycle: { status: 'MISSING' },
+          },
+        },
+        {
+          symbol: 'H2',
+          price: 110,
+          volume: 1200,
+          gate1Passed: true,
+          gate2Passed: false,
+          gate2ExternalDataCoverage: {
+            kisInvestorFlow: { status: 'VERIFIED' },
+            dartFinancials: { status: 'VERIFIED', required: true, stageNotFetched: false },
+            dartLineHealth: {
+              status: 'VERIFIED',
+              availableFields: ['roe', 'opm', 'ocfToNi', 'icr', 'earningsQuality'],
+              missingFields: [],
+              providerIssue: false,
+            },
+            valuation: { per: { status: 'UNAVAILABLE', source: 'KIS', reason: 'PER_NON_POSITIVE_OR_UNAVAILABLE' } },
+            sectorCycle: { status: 'MISSING' },
+            leaderCycle: { status: 'MISSING' },
+          },
+        },
+      ],
+    });
+    const gate1FailTrace = built.candidateTraces[0] as { gate1Passed?: boolean; gate2Passed?: boolean } | undefined;
+    const gate1PassTrace = built.candidateTraces[1] as { gate1Passed?: boolean; gate2Passed?: boolean } | undefined;
+    if (gate1FailTrace) {
+      gate1FailTrace.gate1Passed = false;
+      gate1FailTrace.gate2Passed = false;
+    }
+    if (gate1PassTrace) {
+      gate1PassTrace.gate1Passed = true;
+      gate1PassTrace.gate2Passed = false;
+    }
+    return built;
+  }
+
+  it('§A KIS_FLOW 는 canonical finalGateScoreEligible 에서 VERIFIED + gateEligibleRows/apiPath/trId carry', () => {
+    const formatted = formatEntryFilterDecompositionSection(
+      decomposition('MISSING'),
+      undefined,
+      { kisInvestorFlow: canonicalKisVerified },
+    ) ?? '';
+    expect(formatted).toContain(
+      '- KIS_FLOW: VERIFIED gateEligibleRows=22/23 provider=KIS_API apiPath=/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily trId=FHPTJ04160001',
+    );
+    expect(formatted).not.toContain('- KIS_FLOW: MISSING');
+  });
+
+  it('§B DART_FINANCIALS 는 dartLineHealth carry 로 VERIFIED 표기 (NOT_ATTEMPTED 아님)', () => {
+    const formatted = formatEntryFilterDecompositionSection(
+      decomposition('VERIFIED'),
+      undefined,
+      { kisInvestorFlow: canonicalKisVerified },
+    ) ?? '';
+    expect(formatted).toContain('- DART_FINANCIALS: VERIFIED');
+    expect(formatted).not.toContain('DART_FINANCIALS: NOT_ATTEMPTED');
+  });
+
+  it('§D Condition Attribution Matrix + §F invariants 노출, executionImpact=NONE', () => {
+    const formatted = formatEntryFilterDecompositionSection(
+      decomposition('VERIFIED'),
+      undefined,
+      { kisInvestorFlow: canonicalKisVerified },
+    ) ?? '';
+    expect(formatted).toContain('Gate2 Condition Attribution Matrix:');
+    expect(formatted).toContain('gate2EvaluationScope | finalGate2 | upstreamBlocker | gate2DiagnosticPrimary');
+    expect(formatted).toContain('NOT_EVALUATED_GATE1_FAIL');
+    expect(formatted).toContain('GATE1_FAIL');
+    expect(formatted).toContain('DATA_INCOMPLETE_HIGH_CONVICTION_ONLY');
+    expect(formatted).toContain('Gate2 DataLine Invariants:');
+    expect(formatted).toContain('[OK] KIS_FLOW_CARRY');
+    expect(formatted).toContain('[OK] DART_STATUS_CARRY');
+    expect(formatted).toContain('[OK] PER_UNAVAILABLE_HIGH_CONVICTION_ONLY_NOT_ENTRY_BLOCK');
+    expect(formatted).toContain('[OK] OPTIONAL_PROGRAM_TRADE_NOT_BLOCKING');
+    expect(formatted).toContain('[OK] DIAGNOSTIC_MISSING_NOT_MARKET_SIGNAL');
+    expect(formatted).toContain('[OK] SHADOW_LEARNING_CONTINUITY');
+  });
+
+  it('§F KIS_FLOW_CARRY invariant 위반 감지 (canonical eligible 인데 표시 MISSING 이면 VIOLATION)', () => {
+    // canonical finalGateScoreEligible=true 이지만 provider=KRX 라 KIS_API 가 아니어도 VERIFIED 파생됨.
+    // 위반은 canonical eligible + 표시가 VERIFIED/PARTIAL 이 아닐 때만 — 정상 경로에서는 OK 가 보장된다.
+    const formatted = formatEntryFilterDecompositionSection(
+      decomposition('MISSING'),
+      undefined,
+      { kisInvestorFlow: canonicalKisVerified },
+    ) ?? '';
+    expect(formatted).toContain('[OK] KIS_FLOW_CARRY');
+    expect(formatted).toContain('marketSignal=false');
+  });
 });

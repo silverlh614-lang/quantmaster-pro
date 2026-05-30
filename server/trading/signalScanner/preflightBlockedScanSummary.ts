@@ -351,7 +351,7 @@ export function formatPreflightBlockedScanSection(summary: PreflightBlockedScanS
   if (summary.preflightDecision) lines.push(`preflightDecision=${summary.preflightDecision}`);
   lines.push(`candidateSummaryCount=${summary.candidateSummaryCount}`);
   lines.push(`universeSnapshotRecorded=${summary.universeSnapshotRecorded}`);
-  lines.push(`counterfactualRecorded=${summary.counterfactualRecorded}`);
+  lines.push(`preflightCounterfactualRecorded=${summary.counterfactualRecorded}`);
   lines.push(`buyListLoopEntered=${summary.buyListLoopEntered}`);
   lines.push(`executionImpact=${summary.executionImpact}`);
   if (summary.scanEvaluation) {

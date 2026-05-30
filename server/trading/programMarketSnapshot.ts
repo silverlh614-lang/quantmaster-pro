@@ -1,3 +1,7 @@
+/**
+ * @responsibility 코스피·코스닥 응답 구성을 판별해 프로그램 매매 스냅샷의 출처·행수 불변식을 산출한다.
+ */
+
 export type CombinedSource = 'KOSPI_PLUS_KOSDAQ' | 'SINGLE_KIS_RESPONSE' | 'CACHE' | 'UNKNOWN';
 
 export function resolveCombinedSource(input: {

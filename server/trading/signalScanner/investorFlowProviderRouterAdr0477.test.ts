@@ -1230,7 +1230,7 @@ describe('ADR-0477 Investor Flow Provider Router Wiring', () => {
     expect(doc).toContain('Status: Accepted / Shadow-only dry-run');
     expect(doc).toContain('Provider issue remains separated from market signal');
     expect(doc).toContain('UNKNOWN remains UNKNOWN');
-    expect(index).toContain('| 0477 | investor-flow-provider-router-wiring.');
+    expect(index).toMatch(/\|\s*0477\s*\|\s*investor-flow-provider-router-wiring\b/);
     expect(index).toContain('다음 발급');
   });
 });
