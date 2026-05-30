@@ -74,22 +74,38 @@ function dart(patch: Partial<DartCoverage>): Gate2ExternalDataCoverage {
 }
 
 describe('§A kisFlow apiPath/trId metadata-not-carried 배선', () => {
-  it('endpoint/trId 미carry + endpointKey UNKNOWN → apiPath/trId 가 canonical 값 참조 + traceBreakPoint', () => {
+  it('KIS_API provider(canonical OK) + endpoint/trId 미carry → canonical 단일 truth(마커 없음) + traceBreakPoint=METADATA_CARRIED_OK', () => {
+    // P1: provider=KIS_API 면 canonical resolver 가 metadataCarryInvariant=OK 로 단언하므로
+    // router 가 endpoint/trId 를 carry 하지 않았더라도 canonical apiPath/trId 를 마커 없는 단일 truth 로
+    // 출력한다. "KIS Router Eligibility" 라인과 동일 값 — 모순 제거.
     const text = formatGate2KisInvestorFlowCompactDiagnostic(
-      kisFlow({ endpoint: null, trId: null, endpointKey: 'UNKNOWN' }),
+      kisFlow({ provider: 'KIS_API', endpoint: null, trId: null, endpointKey: 'UNKNOWN' }),
     );
-    // Patch B: 과거 apiPath/trId=UNKNOWN_METADATA_NOT_CARRIED (canonical 을 아는데도 미참조) →
-    // canonical apiPath/trId 를 표시에 직접 참조 (METADATA_NOT_CARRIED 마커 부기).
-    expect(text).toContain(`apiPath=${KIS_INVESTOR_FLOW_CANONICAL.apiPath} (canonical;UNKNOWN_METADATA_NOT_CARRIED)`);
-    expect(text).toContain(`trId=${KIS_INVESTOR_FLOW_CANONICAL.trId} (canonical;UNKNOWN_METADATA_NOT_CARRIED)`);
-    expect(text).toContain('traceBreakPoint=PROVIDER_METADATA_DROPPED_AFTER_ROUTER');
-    // apiPath/trId 가 더 이상 bare UNKNOWN_METADATA_NOT_CARRIED 로만 표기되지 않는다.
-    expect(text).not.toContain('apiPath=UNKNOWN_METADATA_NOT_CARRIED');
-    expect(text).not.toContain('trId=UNKNOWN_METADATA_NOT_CARRIED');
+    expect(text).toContain(`apiPath=${KIS_INVESTOR_FLOW_CANONICAL.apiPath}`);
+    expect(text).toContain(`trId=${KIS_INVESTOR_FLOW_CANONICAL.trId}`);
+    // canonical OK 와 UNKNOWN_METADATA_NOT_CARRIED 동시 출력 금지.
+    expect(text).not.toContain('UNKNOWN_METADATA_NOT_CARRIED');
+    expect(text).not.toContain('PROVIDER_METADATA_DROPPED_AFTER_ROUTER');
+    expect(text).toContain('traceBreakPoint=METADATA_CARRIED_OK');
+    // legacy drop 사실은 하위 진단 필드로만 부기(user-facing 모순 없음).
+    expect(text).toContain('diagnosticLegacyMetadataDrop=apiPathTrIdNotCarriedByRouter');
     // 옛 UNRESOLVED/UNKNOWN 단순 표기로 회귀하지 않는다.
     expect(text).not.toContain('apiPath=UNRESOLVED');
     expect(text).not.toContain('trId=UNKNOWN |');
     // providerIssue→marketSignal 변환 금지.
+    expect(text).toContain('marketSignal=false');
+  });
+
+  it('canonical 진짜 부재(provider=UNKNOWN) + endpoint/trId 미carry → UNKNOWN 마커 + traceBreakPoint(legacy drop 분기 보존)', () => {
+    // provider 가 KIS 계열이 아니면 canonical metadata 가 SSOT 로 알려지지 않은(MISSING) 경우라
+    // 기존 UNKNOWN_METADATA_NOT_CARRIED 마커 분기를 유지한다(둘 다 MISSING — 모순 아님).
+    const text = formatGate2KisInvestorFlowCompactDiagnostic(
+      kisFlow({ provider: 'UNKNOWN', endpoint: null, trId: null, endpointKey: 'UNKNOWN' }),
+    );
+    expect(text).toContain(`apiPath=${KIS_INVESTOR_FLOW_CANONICAL.apiPath} (canonical;UNKNOWN_METADATA_NOT_CARRIED)`);
+    expect(text).toContain(`trId=${KIS_INVESTOR_FLOW_CANONICAL.trId} (canonical;UNKNOWN_METADATA_NOT_CARRIED)`);
+    expect(text).toContain('traceBreakPoint=PROVIDER_METADATA_DROPPED_AFTER_ROUTER');
+    expect(text).not.toContain('diagnosticLegacyMetadataDrop');
     expect(text).toContain('marketSignal=false');
   });
 
