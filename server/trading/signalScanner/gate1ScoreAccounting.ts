@@ -6,6 +6,7 @@ import type { FinalGate1CalibrationAuditReport } from './gate1FinalCalibration.j
 import type { PenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js';
 import type { PositiveScoreStarvationReport } from './gate1PositiveScoreStarvation.js';
 import type { CanonicalRuntimeResolutionStep27 } from './runtimeResolverTraceStep26.js';
+import { resolveScoringEffectiveRegime } from './scanDiagnostics/gate0MacroPermissionDecision.js';
 import type { ScanSummary } from './scanDiagnostics/scanSummaryTypes.js';
 import {
   LEGACY_GATE1_REQUIRED_SCORE,
@@ -280,8 +281,8 @@ export function buildGate1ScoreAccountingReport(
   const normalizedGate1ScorePct = pct(finalGate1ScoreAvg, configuredPositiveMax);
   const scaleMismatch = isGate1ScaleMismatch(finalGate1ScoreAvg, netScoreAvg, positive.positiveUtilizationAvg);
   // ADR-0546 섀도 병행 — legacy(70) vs 레짐 인식 required 를 나란히 기록 (Phase1 동작 보존).
-  const regime = input.summary?.macroGateState?.macroRegimeEffective
-    ?? input.summary?.macroGateState?.regime;
+  // scoring-effective regime SSOT 사용 — stale legacy R6 누출 차단(R6 6×10=60 오염 방지).
+  const regime = resolveScoringEffectiveRegime(input.summary?.macroGateState);
   const legacyRequiredScore = LEGACY_GATE1_REQUIRED_SCORE;
   const regimeAwareRequiredScore = round1(getRegimeAwareGate1RequiredScore(regime));
   const regimeAwareGap = round1(legacyRequiredScore - regimeAwareRequiredScore);
