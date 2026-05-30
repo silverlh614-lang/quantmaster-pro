@@ -224,7 +224,7 @@ export async function preScreenStocks(options?: {
     //   sltr_yn='Y'   → 정리매매
     //   mang_issu_cls_code/mang_issu_yn='Y' → 관리종목
     //   mrkt_warn_cls_code='02'(경고)·'03'(위험) → 투자경고/위험
-    //   iscd_stat_cls_code '51'(관리)·'58'(정지) → 종목상태
+    //   iscd_stat_cls_code '51'(관리)·'52'(투자주의환기)·'53'(투자경고)·'54'(투자위험)·'55'(경고)·'56'(위험예고)·'58'(정지) → 종목상태
     const isRiskyKisRow = (s: Record<string, string>): boolean => {
       if ((s.trht_yn ?? '').toUpperCase() === 'Y') return true;
       if ((s.sltr_yn ?? '').toUpperCase() === 'Y') return true;
@@ -233,7 +233,7 @@ export async function preScreenStocks(options?: {
       const warnCode = s.mrkt_warn_cls_code ?? '';
       if (warnCode === '02' || warnCode === '03') return true;
       const statCode = s.iscd_stat_cls_code ?? '';
-      if (statCode === '51' || statCode === '52' || statCode === '58') return true;
+      if (['51','52','53','54','55','56','58'].includes(statCode)) return true;
       return false;
     };
 
