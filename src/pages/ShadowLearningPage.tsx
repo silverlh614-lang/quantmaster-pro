@@ -190,7 +190,16 @@ export function TwinRankingCard({ data, loading, error }: CardProps<TwinPortfoli
       {error && <ErrorState message={error.message} />}
       {loading && !data && <LoadingState />}
       {data && (() => {
-        const ranking: Array<{ name: string; cumReturnPct: number; sharpe: number; closedCount: number; isTwin: boolean; winning: boolean }> = [
+        interface TwinRow {
+          name: string;
+          cumReturnPct: number;
+          sharpe: number;
+          closedCount: number;
+          isTwin: boolean;
+          winning: boolean;
+          hasSamples: boolean;
+        }
+        const ranking: TwinRow[] = [
           {
             name: '👤 CURRENT (LIVE)',
             cumReturnPct: data.realCumReturnPct,
@@ -198,6 +207,7 @@ export function TwinRankingCard({ data, loading, error }: CardProps<TwinPortfoli
             closedCount: 0,
             isTwin: false,
             winning: false,
+            hasSamples: true,
           },
         ];
         for (const k of ALL_TWIN_KEYS) {
@@ -209,28 +219,49 @@ export function TwinRankingCard({ data, loading, error }: CardProps<TwinPortfoli
             closedCount: stats.closedCount,
             isTwin: true,
             winning: data.comparison.weekWinning[k],
+            hasSamples: stats.closedCount > 0,
           });
         }
-        ranking.sort((a, b) => b.cumReturnPct - a.cumReturnPct);
+        // 표본 보유 행만 cumReturnPct 로 정렬, 표본 없는 행은 항상 하단.
+        ranking.sort((a, b) => {
+          if (a.hasSamples !== b.hasSamples) return a.hasSamples ? -1 : 1;
+          return b.cumReturnPct - a.cumReturnPct;
+        });
+        const rankedCount = ranking.filter((r) => r.hasSamples).length;
 
         return (
           <ul className="space-y-2">
             {ranking.map((r, i) => {
-              const rankEmoji = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '4️⃣';
+              const rankEmoji = !r.hasSamples ? '·'
+                : i === 0 ? '🥇'
+                : i === 1 ? '🥈'
+                : i === 2 ? '🥉'
+                : '4️⃣';
               const sign = r.cumReturnPct >= 0 ? '+' : '';
               return (
                 <li key={r.name} className="flex items-center justify-between text-sm" data-testid={`twin-${i}`}>
                   <span className="truncate text-zinc-200">
-                    {rankEmoji} {r.name} {r.winning && <span className="text-emerald-400">✅</span>}
+                    {rankEmoji} {r.name} {r.winning && r.hasSamples && <span className="text-emerald-400">✅</span>}
                   </span>
-                  <span className={`font-mono ${r.cumReturnPct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {sign}{r.cumReturnPct.toFixed(2)}%{r.isTwin && (
-                      <span className="ml-2 text-xs text-zinc-500">Sharpe {r.sharpe.toFixed(2)}</span>
-                    )}
-                  </span>
+                  {r.hasSamples ? (
+                    <span className={`font-mono ${r.cumReturnPct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {sign}{r.cumReturnPct.toFixed(2)}%{r.isTwin && (
+                        <span className="ml-2 text-xs text-zinc-500">Sharpe {r.sharpe.toFixed(2)}</span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="font-mono text-xs text-zinc-500" data-testid={`twin-${i}-empty`}>
+                      표본 수집 중 ({r.closedCount}건)
+                    </span>
+                  )}
                 </li>
               );
             })}
+            {rankedCount <= 1 && (
+              <li className="pt-1 text-xs text-zinc-500" data-testid="twin-no-samples-note">
+                · Twin 정책은 종결 표본이 누적되면 자동으로 순위 비교에 합류합니다.
+              </li>
+            )}
           </ul>
         );
       })()}
@@ -256,7 +287,7 @@ export function OverStrictCard({ data, loading, error }: CardProps<ShadowAttribu
           {data.progressTowardSampleSufficient && (
             <SampleProgressBar progress={data.progressTowardSampleSufficient} />
           )}
-          <EmptyState message="conditionScores 호출자 wiring (PR-F-2 후속) 후 노출" />
+          <EmptyState message="표본이 누적되면 후보가 자동으로 노출됩니다." />
         </div>
       )}
       {data && data.status === 'OK' && (() => {
@@ -300,7 +331,7 @@ export function GoodDefenseCard({ data, loading, error }: CardProps<ShadowAttrib
           {data.progressTowardSampleSufficient && (
             <SampleProgressBar progress={data.progressTowardSampleSufficient} />
           )}
-          <EmptyState message="conditionScores 호출자 wiring (PR-F-2 후속) 후 노출" />
+          <EmptyState message="표본이 누적되면 후보가 자동으로 노출됩니다." />
         </div>
       )}
       {data && data.status === 'OK' && (() => {

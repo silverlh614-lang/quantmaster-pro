@@ -41,9 +41,9 @@ function Badge({ children, tone = 'neutral' }: { children: React.ReactNode; tone
 function EmptyState(): React.ReactElement {
   return (
     <div className="rounded-2xl border border-dashed border-zinc-700 bg-zinc-950/50 p-6 text-sm text-zinc-400">
-      <p className="font-semibold text-zinc-200">No shadow case telemetry available.</p>
-      <p className="mt-2">Connect Shadow Case registry or learning telemetry source to populate this library.</p>
-      <p className="mt-2">Shadow Learning should remain active even when live execution is blocked.</p>
+      <p className="font-semibold text-zinc-200">📭 아직 수집된 Shadow Case 가 없습니다.</p>
+      <p className="mt-2">실거래가 차단된 상황에서도 Shadow Learning 은 계속 가상 케이스를 기록합니다. 첫 케이스가 발생하면 자동으로 표시됩니다.</p>
+      <p className="mt-2 text-xs text-zinc-500">Shadow Case 는 실제 체결이 아닌 학습용 가상/관측 데이터입니다.</p>
     </div>
   );
 }
