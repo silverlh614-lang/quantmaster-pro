@@ -1269,15 +1269,25 @@ export function formatGate2AttributionSection(
       ? ''
       : ` / identityException=evaluatedAfterGate1+notEvaluatedGate1Fail!=inputTotal`),
   );
+  // P3 후속 (scanblockers-truth-consistency followup): gate2TrueFailedCount /
+  //   gate2UnavailableCount 는 accumulator(scanCounterAccumulators.accumulateGate2Attribution)
+  //   가 Gate1 생존자(buyListLoop.isGate1Survivor)의 *조건별* output 을 conditionKey bucket 에
+  //   가산한 합 = **condition-level occurrence count** 이지 후보(candidate) 수가 아니다.
+  //   따라서 occurrences(예 19) > candidates(예 3) 는 정상 (후보 1개당 다수 조건 평가).
+  //   분자=조건 occurrence, 분모=후보 라는 단위 불일치를 제거하기 위해 라벨에 ConditionOccurrences
+  //   와 across …candidates 를 명시한다. 집계식(:1048-1049)·accumulator 는 무변경 — 표시 전용.
   lines.push(
-    `  • split: gate2TrueFailedCount=${gate2TrueFailedCount} /gate2EvaluatedAfterGate1=${gate2EvaluatedAfterGate1} / ` +
-    `gate2UnavailableCount=${gate2UnavailableCount} / ` +
+    `  • split: gate2TrueFailedConditionOccurrences=${gate2TrueFailedCount} ` +
+    `(across gate2EvaluatedAfterGate1=${gate2EvaluatedAfterGate1} candidates) / ` +
+    `gate2UnavailableConditionOccurrences=${gate2UnavailableCount} / ` +
     `gate2DiagnosticOnlyCount=${gate2DiagnosticOnlyCount} / ` +
     `gate2WatchPreservedCount=${gate2WatchPreservedCount} / ` +
     `gate2ShadowPreservedCount=${gate2ShadowPreservedCount}`,
   );
   lines.push(
-    '  • note: Gate2 counts exclude Gate1-failed candidates from true failure denominator.',
+    '  • note: true/unavailable counts are condition-level occurrences among Gate1-surviving ' +
+    'evaluated candidates (occurrences may exceed candidate count); Gate1-failed candidates ' +
+    'are excluded from this population.',
   );
 
   const leadership = attribution.leadershipAttribution;

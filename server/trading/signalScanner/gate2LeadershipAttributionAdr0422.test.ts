@@ -736,22 +736,51 @@ describe('scanblockers-truth-consistency P3 — Gate2 denominator/attribution �
     expect(evaluated + notEvaluated).toBe(inputTotal);
   });
 
-  it('Gate1 FAIL 후보는 gate2TrueFailedCount(trueFail 분모)에서 제외된다', () => {
+  it('Gate1 FAIL 후보는 gate2TrueFailedConditionOccurrences 모집단에서 제외된다', () => {
     const attribution = buildSplitFixture();
     // gate2TrueFailedCount 는 버킷 failed 합 = 4 (Gate1 생존자 6 모집단 기준), Gate1-FAIL 44 미포함.
     expect(attribution.gate2TrueFailedCount).toBe(4);
     const section = formatGate2AttributionSection(attribution)!;
-    // split 라인에 분모가 gate2EvaluatedAfterGate1 임이 명시되어야 한다.
-    expect(section).toContain('gate2TrueFailedCount=4 /gate2EvaluatedAfterGate1=6');
+    // P3 후속: 단위가 condition-level occurrence 임을 명시 + 후보 모집단(across …candidates) 표기.
+    expect(section).toContain(
+      'gate2TrueFailedConditionOccurrences=4 (across gate2EvaluatedAfterGate1=6 candidates)',
+    );
+    expect(section).toContain('gate2UnavailableConditionOccurrences=2');
     // gate2DiagnosticOnlyCount 는 notEvaluated(=44) 로 파생 표시.
     expect(section).toContain('gate2DiagnosticOnlyCount=44');
   });
 
-  it('disclaimer 문구가 존재한다', () => {
+  it('occurrences > candidates 류 단위 모순 미발생 (조건-레벨 occurrence 명시)', () => {
+    // 후보 1개당 다수 조건 평가 → occurrence(예 19) > candidates(예 3) 정상.
+    const attribution = buildGate2FreshAttribution({
+      buckets: [
+        { ...emptyBucket('breakout_momentum'), failed: 10, total: 3 },
+        { ...emptyBucket('momentum'), failed: 9, total: 3 },
+      ],
+      candidates: 40,
+      gate1Pass: 3,
+      gate2Pass: 0,
+      gate3Pass: 0,
+      entries: 0,
+      lastTriggerPass: 0,
+    });
+    // occurrence 합 = 19, 후보 = 3 → 19 > 3 이지만 단위(occurrence vs candidate)가 다르므로 정상.
+    expect(attribution.gate2TrueFailedCount).toBe(19);
+    const section = formatGate2AttributionSection(attribution)!;
+    expect(section).toContain(
+      'gate2TrueFailedConditionOccurrences=19 (across gate2EvaluatedAfterGate1=3 candidates)',
+    );
+    // 단위가 모호한 'gate2TrueFailedCount=19 /gate2EvaluatedAfterGate1=3' 형태는 출력되지 않는다.
+    expect(section).not.toMatch(/gate2TrueFailedCount=\d+ ?\/ ?gate2EvaluatedAfterGate1=/);
+  });
+
+  it('disclaimer 문구가 condition-level occurrence 단위를 정직하게 명시한다', () => {
     const section = formatGate2AttributionSection(buildSplitFixture())!;
     expect(section).toContain(
-      'Gate2 counts exclude Gate1-failed candidates from true failure denominator.',
+      'true/unavailable counts are condition-level occurrences among Gate1-surviving evaluated candidates',
     );
+    expect(section).toContain('occurrences may exceed candidate count');
+    expect(section).toContain('Gate1-failed candidates are excluded from this population');
   });
 
   it('dominant attribution 라인은 evaluatedAfterGate1 분모 기준임을 명시한다', () => {

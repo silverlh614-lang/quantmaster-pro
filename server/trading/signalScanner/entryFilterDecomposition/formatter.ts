@@ -697,7 +697,10 @@ export function formatEntryFilterDecompositionSection(
   lines.push(`7. ORDER_ROUTE_OPERATOR_BLOCK: ${d.blockedByOrderRoute}`);
   lines.push(`8. PROVIDER_ISSUE_DOWNGRADED: ${d.providerIssueDowngraded}`);
   lines.push(`9. learningBlocked: ${d.learningBlocked}`);
-  lines.push(`10. counterfactualRecorded: ${d.counterfactualRecorded}`);
+  // P2 후속 (scanblockers-truth-consistency followup): entry-scope counterfactual 카운터.
+  //   universe-scope(candidatePool.universeCounterfactualRowsCreated)와 혼동을 막기 위해
+  //   scope-prefix 라벨(entryCounterfactualRecorded). 값/의미 무변경 — 라벨만.
+  lines.push(`10. entryCounterfactualRecorded: ${d.counterfactualRecorded}`);
   if (d.topBlockers.length > 0) {
     const policyBlockers = d.topBlockers.filter((b) => ['SHADOW_ONLY_MODE', 'SHADOW_ONLY_POLICY'].includes(b.code));
     const gateBlockers = d.topBlockers.filter((b) => !['SHADOW_ONLY_MODE', 'SHADOW_ONLY_POLICY', 'R3_SANITY_GUARD'].includes(b.code));
