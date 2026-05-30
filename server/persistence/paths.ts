@@ -222,6 +222,8 @@ export const DXY_MONITOR_STATE_FILE   = path.join(DATA_DIR, 'dxy-monitor-state.j
 export const SECTOR_ETF_MOMENTUM_FILE = path.join(DATA_DIR, 'sector-etf-momentum.json');
 /** KIS Sector Index dry-run promotion audit history — 20 trading-day observation lane. */
 export const KIS_SECTOR_INDEX_PROMOTION_HISTORY_FILE = path.join(DATA_DIR, 'kis-sector-index-promotion-history.json');
+/** ADR-0545 last-known verified sector snapshot (휴일/세션닫힘 표시·shadow 근거 전용, live promotion 비활성). */
+export const SECTOR_ENERGY_VERIFIED_SNAPSHOT_FILE = path.join(DATA_DIR, 'sector-energy-verified-snapshot.json');
 /**
  * AI 응답 캐시 영속화 — 클라이언트 lsSet/aiCache의 3층 (Volume) 백엔드.
  * macro-environment 등 분기급 TTL 키는 재배포 후에도 즉시 히트하여 비용 절감.

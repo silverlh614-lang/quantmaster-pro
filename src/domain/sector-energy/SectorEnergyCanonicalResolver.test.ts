@@ -705,3 +705,66 @@ describe('ADR-0544 — SectorEnergy session-not-verifiable display isolation', (
     expect(out).toContain('reason=SECTOR_INDEX_VERIFY_SKIPPED_SESSION_CLOSED');
   });
 });
+
+// ─── ADR-0545: SectorEnergy Last-Known Verified Snapshot (display + shadow-only) ──
+describe('ADR-0545 — SectorEnergy last-known verified snapshot', () => {
+  const holidayInput = {
+    sessionVerifiability: { sessionClosed: true, verifySkipped: true },
+    lastKnownLookupEnabled: true,
+  } as const;
+  const lastKnownSnapshot = {
+    lastKnownSectorSnapshotId: 'sector-verified:2026-05-29:2026-05-29T05:00:00.000Z',
+    lastKnownSectorSnapshotAsOf: '2026-05-29T05:00:00.000Z',
+    lastKnownVerifiedOfficialSectorCount: 11,
+    lastKnownPromotionCoverage: 1,
+    lastKnownSourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
+    lastKnownAgeTradingDays: 1,
+    lastKnownUsableForLivePromotion: false as const,
+    lastKnownUsableForShadowEvidence: true as const,
+  };
+
+  it('휴일 + last-known 존재 → LAST_KNOWN_VALID 표시, lastKnownUsableForLivePromotion=false', () => {
+    const c = resolveSectorEnergyCanonicalState({ ...holidayInput, lastKnownSnapshot });
+    expect(c.dataQuality).toBe('SESSION_NOT_VERIFIABLE');
+    expect(c.sectorIndexVerifyMode).toBe('LAST_KNOWN_VALID');
+    expect(c.reason).toBe('SECTOR_INDEX_VERIFY_SKIPPED_SESSION_CLOSED');
+    expect(c.lastKnown?.lastKnownVerifiedOfficialSectorCount).toBe(11);
+    expect(c.lastKnown?.lastKnownUsableForLivePromotion).toBe(false);
+    expect(c.lastKnown?.lastKnownUsableForShadowEvidence).toBe(true);
+  });
+
+  it('★ SSOT: 휴일 + last-known 있어도 promotion/sectorBoost/strongBuy=false 불변', () => {
+    const c = resolveSectorEnergyCanonicalState({ ...holidayInput, lastKnownSnapshot });
+    expect(c.promotionCoveragePass).toBe(false);
+    expect(c.promotionAllowed).toBe(false);
+    expect(c.sectorBoostAllowed).toBe(false);
+    expect(c.strongBuyAllowed).toBe(false);
+    // 당일 verified=0 → promotionCoverage=0 (last-known coverage 가 역류하지 않는다).
+    expect(c.verifiedOfficialSectorCount).toBe(0);
+    expect(c.promotionCoverage).toBe(0);
+    const blocks = enforceSectorEnergyTopBlockConsistency(c, ['NONE']);
+    expect(() => assertSectorEnergyTopBlockConsistency(c, blocks)).not.toThrow();
+  });
+
+  it('휴일 + last-known 부재 → SESSION_CLOSED_NO_LAST_KNOWN_SECTOR_SNAPSHOT', () => {
+    const c = resolveSectorEnergyCanonicalState({ ...holidayInput });
+    expect(c.reason).toBe('SESSION_CLOSED_NO_LAST_KNOWN_SECTOR_SNAPSHOT');
+    expect(c.sectorIndexVerifyMode).toBe('VERIFY_SKIPPED_SESSION_CLOSED');
+    expect(c.lastKnown).toBeUndefined();
+  });
+
+  it('장중(session open) 이면 last-known 입력이 있어도 표시에 반영 안 함 (sessionNotVerifiable=false)', () => {
+    const c = resolveSectorEnergyCanonicalState({ officialKisSectorIndex: kisIndexWithVerified(11), lastKnownSnapshot });
+    expect(c.sectorIndexVerifyMode).toBe('LIVE_VERIFY');
+    expect(c.lastKnown).toBeUndefined();
+    expect(c.promotionAllowed).toBe(true);
+  });
+
+  it('rendered block emits last-known display fields', () => {
+    const out = renderSectorEnergyCanonicalOutput(resolveSectorEnergyCanonicalState({ ...holidayInput, lastKnownSnapshot }));
+    expect(out).toContain('sectorIndexVerifyMode=LAST_KNOWN_VALID');
+    expect(out).toContain('lastKnownVerifiedOfficialSectorCount=11');
+    expect(out).toContain('lastKnownUsableForLivePromotion=false');
+    expect(out).toContain('lastKnownUsableForShadowEvidence=true');
+  });
+});
