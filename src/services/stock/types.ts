@@ -250,7 +250,7 @@ export interface StockRecommendation {
     riskFactors: string[];
   };
   dataSource?: string;
-  dataSourceType?: 'AI' | 'REALTIME' | 'YAHOO' | 'STALE'; // 신뢰도 계층
+  dataSourceType?: 'AI' | 'REALTIME' | 'NAVER' | 'YAHOO' | 'STALE'; // 신뢰도 계층 (L1 REALTIME → L3 NAVER/YAHOO → L4 AI/STALE)
   /**
    * PR-B (ADR-0029): 27 조건 항목별 실제 데이터 출처 메타.
    * 부재 시 PR-A 휴리스틱 fallback (`classifyDataQuality` 가 키 그룹 기반 분류).

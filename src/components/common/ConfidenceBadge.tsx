@@ -2,7 +2,7 @@
 import React from 'react';
 import { DataConfidenceBadge, type DataConfidence } from './DataConfidenceBadge';
 
-type DataSourceType = 'AI' | 'REALTIME' | 'YAHOO' | 'STALE';
+type DataSourceType = 'AI' | 'REALTIME' | 'NAVER' | 'YAHOO' | 'STALE';
 
 interface ConfidenceBadgeProps {
   type: DataSourceType;
@@ -10,9 +10,10 @@ interface ConfidenceBadgeProps {
 
 const SOURCE_TO_CONFIDENCE: Record<DataSourceType, { confidence: DataConfidence; source: string; label: string }> = {
   REALTIME: { confidence: 'VERIFIED', source: 'KIS real-time', label: 'KIS 실시간' },
-  YAHOO: { confidence: 'DEGRADED', source: 'Yahoo delayed/API', label: 'Yahoo 참고' },
-  AI: { confidence: 'AI_ESTIMATED', source: 'AI inference', label: 'AI 추정' },
-  STALE: { confidence: 'STALE', source: 'stale price feed', label: '가격 지연' },
+  NAVER:    { confidence: 'DEGRADED', source: 'Naver mobile snapshot (KRX 시세)', label: 'Naver 시세' },
+  YAHOO:    { confidence: 'DEGRADED', source: 'Yahoo delayed/API', label: 'Yahoo 참고' },
+  AI:       { confidence: 'AI_ESTIMATED', source: 'AI inference', label: 'AI 추정' },
+  STALE:    { confidence: 'STALE', source: 'stale price feed', label: '가격 지연' },
 };
 
 export const ConfidenceBadge: React.FC<ConfidenceBadgeProps> = ({ type }) => {

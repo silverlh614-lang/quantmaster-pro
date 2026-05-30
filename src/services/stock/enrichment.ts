@@ -489,6 +489,8 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     let krxInvestorTrend: { institutionNet5d: number; sampleSize: number } | null = null;
     // ADR-0156: Yahoo 컨센서스 — Phase 4 #13/#14 격상 입력 (옵션 A 변형)
     let yahooConsensus: { recommendationStrength: number | null; earningsSurpriseAvg: number | null; source: 'yahoo' | 'unavailable' } | null = null;
+    // Naver 모바일 snapshot — closePrice 우선 사용을 위해 블록 밖으로 hoist.
+    let naverSnap: Awaited<ReturnType<typeof fetchAiUniverseSnapshot>> | null = null;
     const isKoreanStock = /^\d{6}$/.test(stock.code.split('.')[0]);
     if (isKoreanStock) {
       const baseCode = stock.code.split('.')[0];
@@ -496,7 +498,8 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       // `foreignerOwnRatio` 만 유지. 일별 순매수·공매도 잔고는 AI 프롬프트가 자체
       // 판단(PR-13 정렬 유지). 자동매매는 그대로 server/clients/kisClient.ts 사용.
       // Naver 는 DART 가 제공하지 않는 시장가 기반 PER/PBR/시총 만 보강 (2순위).
-      const snap = await fetchAiUniverseSnapshot(baseCode);
+      naverSnap = await fetchAiUniverseSnapshot(baseCode);
+      const snap = naverSnap;
       // ADR-0152: 외인 추세 fetch — 영속 부재 시 null fallback (호출자 stock.checklist 보존)
       try { foreignerTrend = await fetchForeignerRatioTrend(baseCode); }
       catch { /* SDS-ignore: 추세 fetch 실패 시 fallback */ }
@@ -514,9 +517,21 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       krxValuation = await fetchKrxValuation(baseCode);
     }
 
+    // ─── 가격 SSOT 우선순위 (탐색 경로) ─────────────────────────────────────
+    // Naver 모바일 snapshot.closePrice 는 KRX 시세를 직접 읽어 한국 종목에서는
+    // Yahoo 1년 일봉(`closes[last]`) 보다 신뢰도가 높다. Yahoo 는 split/통화·티커
+    // 매핑 오차로 ~10배 왜곡(예: SK하이닉스 ₩1.86M)이 가끔 발생한다. Naver 가
+    // 있으면 NAVER, 없으면 Yahoo last close 로 fallback. 실시간 KIS 시세는
+    // priceSync ('REALTIME') 경로에서만 덮어쓴다.
+    const naverPriceCandidate = naverSnap?.closePrice && naverSnap.closePrice > 0
+      ? naverSnap.closePrice
+      : null;
+    const resolvedCurrentPrice = naverPriceCandidate ?? currentPrice ?? stock.currentPrice ?? 0;
+    const priceFromNaver = naverPriceCandidate !== null && resolvedCurrentPrice === naverPriceCandidate;
+
     // Fix 2 — AI 응답 토큰 절단으로 targetPrice/stopLoss/entryPrice 가 0 으로 남는
     // 경우를 실시간 현재가 기반 기본값으로 보정. 이미 유효값이 있으면 그대로 사용.
-    const resolvedPrice = currentPrice || stock.currentPrice || 0;
+    const resolvedPrice = resolvedCurrentPrice || 0;
     const fallbackFields = applyTradingFieldFallbacks(
       { targetPrice: stock.targetPrice, targetPrice2: stock.targetPrice2,
         entryPrice: stock.entryPrice, stopLoss: stock.stopLoss },
@@ -525,16 +540,18 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
 
     const enriched: StockRecommendation = {
       ...stock,
-      currentPrice: currentPrice || stock.currentPrice,
+      currentPrice: resolvedCurrentPrice || stock.currentPrice,
       targetPrice:  fallbackFields.targetPrice  ?? stock.targetPrice,
       targetPrice2: fallbackFields.targetPrice2 ?? stock.targetPrice2,
       entryPrice:   fallbackFields.entryPrice   ?? stock.entryPrice,
       stopLoss:     fallbackFields.stopLoss     ?? stock.stopLoss,
-      // 탐색 enrichment 가격은 Yahoo 1년 일봉의 마지막 종가(closes[last])다 — KIS 실시간이
-      // 아니다(ADR-0011 로 탐색 경로 KIS 호출 제거). 'YAHOO'(DEGRADED, "Yahoo 참고")로
-      // 정직하게 표기. 실시간 시세는 KIS 동기화(priceSync 'REALTIME') 경로에서만 부여된다.
-      dataSourceType: 'YAHOO',
-      priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (Yahoo 일봉)`,
+      // dataSourceType 정직 표기: Naver closePrice 사용 시 'NAVER'(L3 DEGRADED),
+      // 아니면 Yahoo 1년 일봉 마지막 종가 'YAHOO'(L3 DEGRADED). 실시간 KIS 시세는
+      // priceSync ('REALTIME') 경로에서만 덮어쓴다.
+      dataSourceType: priceFromNaver ? 'NAVER' : 'YAHOO',
+      priceUpdatedAt: priceFromNaver
+        ? `${new Date().toLocaleTimeString('ko-KR')} (Naver 모바일)`
+        : `${new Date().toLocaleTimeString('ko-KR')} (Yahoo 일봉)`,
       supplyData: kisSupply || stock.supplyData,
       shortSelling: kisShort || stock.shortSelling,
       technicalSignals: {

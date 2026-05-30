@@ -40,6 +40,10 @@ describe('DataConfidenceBadge', () => {
     const { container, rerender } = render(<ConfidenceBadge type="REALTIME" />);
     expect(container.querySelector('[data-confidence]')?.getAttribute('data-confidence')).toBe('VERIFIED');
 
+    rerender(<ConfidenceBadge type="NAVER" />);
+    expect(container.querySelector('[data-confidence]')?.getAttribute('data-confidence')).toBe('DEGRADED');
+    expect(container.textContent).toContain('Naver 시세');
+
     rerender(<ConfidenceBadge type="YAHOO" />);
     expect(container.querySelector('[data-confidence]')?.getAttribute('data-confidence')).toBe('DEGRADED');
 
