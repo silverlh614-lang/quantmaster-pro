@@ -1111,7 +1111,7 @@ export function formatCandidatePoolSection(result?: CandidatePoolResult): string
     `  gateEvaluated=${result.gateEvaluated}`,
     `  candidateDiagnosticScorePositive=${result.candidateDiagnosticScorePositive}`,
     `- shadowEligible=${result.shadowEligible}`,
-    `- counterfactualRecorded=${result.counterfactualRecorded}`,
+    `- universeCounterfactualRowsCreated=${result.counterfactualRecorded}`,
     `- fallbackUsed=${result.fallbackUsed}${result.fallbackReason ? ` reason=${result.fallbackReason}` : ''}`,
     `- topCandidateSources=${topSources}`,
     `- actualMissingFeatures=${featureCoverageDisplay.actualMissingFeatures}`,

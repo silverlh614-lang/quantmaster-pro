@@ -69,7 +69,7 @@ describe('preflightBlockedScanSummary (ADR-0367)', () => {
     expect(msg).toContain('blockedBy=HARD_BLOCK');
     expect(msg).toContain('candidateSummaryCount=48');
     expect(msg).toContain('universeSnapshotRecorded=true');
-    expect(msg).toContain('counterfactualRecorded=true');
+    expect(msg).toContain('preflightCounterfactualRecorded=true');
     expect(msg).toContain('buyListLoopEntered=false');
   });
 
