@@ -25,6 +25,7 @@ import { AutoTradeHeroKpis } from '../components/autoTrading/AutoTradeHeroKpis';
 import { AutoTradeStatusCommandBar } from '../components/trading/autoTrade/AutoTradeStatusCommandBar';
 import { LivePreflightChecklist } from '../components/trading/autoTrade/LivePreflightChecklist';
 import { ShadowLifecycleProgressBar } from '../components/trading/autoTrade/ShadowLifecycleProgressBar';
+import { LiveReadinessScore } from '../components/trading/autoTrade/LiveReadinessScore';
 import { AutoTradeTabbedView } from '../components/autoTrading/AutoTradeTabbedView';
 import { ProDiagnosticsStrip } from '../components/autoTrading/ProDiagnosticsStrip';
 import { ApiConnectionLamps } from '../components/autoTrading/ApiConnectionLamps';
@@ -224,6 +225,17 @@ export function AutoTradePage() {
         {/* UI_WIRING_MATRIX §10 #2B Phase F — Shadow 생애주기 6단계 흐름 health.
             기존 serverShadowTrades 에서 client-side aggregation, 새 서버 호출·로직 0건. */}
         <ShadowLifecycleProgressBar shadowTrades={serverShadowTrades} />
+
+        {/* UI_WIRING_MATRIX §10 #2B Phase G — LIVE Readiness Score (v1, 참고 지표).
+            5 component weighted (30/20/20/15/15). 자동 전환 권한 부여/박탈 안 함. */}
+        <LiveReadinessScore
+          shadowTrades={serverShadowTrades}
+          isRunning={isRunning}
+          mode={mode}
+          emergencyStop={Boolean(engineStatus?.emergencyStop)}
+          killSwitchActive={killSwitchActive}
+          kisStreamConnected={engineStatus?.kisStreamConnected}
+        />
 
         {/*
           ADR-0049 — Context-Adaptive Layout.
