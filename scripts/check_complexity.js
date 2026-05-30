@@ -126,8 +126,10 @@ const BASELINE_TECHNICAL_DEBT = [
   //      + persistScanResults/helpers.ts(순수 leaf 헬퍼 6) 추출, god 함수 본문 byte-identical(1623줄 무변경),
   //      lint EXIT=0, test 426pass/12fail(사전 실패·무회귀)). 1500 미돌파 → 카탈로그 *유지*. 진단블록 분해는
   //      "판단/진단로직 불변" 원칙상 별도 테스트-가드 후속 작업으로 보류 (사용자 결정).
+  //   ✅ 2026-05-30 scanBlockersFormatter.ts 1500 한계 자연 통과 (1502→1258 LoC,
+  //      `git show HEAD:...scanBlockersFormatter.ts | wc -l` = 1258 동일 재현 확정 — 후속 PR
+  //      누적 정리로 한계 미만 회복). 본 점검 PR 무수정 → 카탈로그에서 정식 제거하여 enforcement 복원.
   'server/trading/signalScanner/scanDiagnostics/persistScanResults.ts',
-  'server/trading/signalScanner/scanDiagnostics/scanBlockersFormatter.ts',
 ];
 
 function isBaseline(file) {

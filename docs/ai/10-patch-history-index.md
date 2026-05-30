@@ -57,6 +57,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-05-30 · Patch-BaselineWarnAudit · governance, warn-budget-toolchain-repair(classifyWarnPriority.ts P5Reason type-only import 정정 — node native type-strip SyntaxError 해소, check_warn_budget.js 복구: runtime-WARN 612/P5-excluded 507), complexity-baseline-catalog-drift 정정(scanBlockersFormatter.ts 1502→1258 LoC 한계 자연통과 → BASELINE_TECHNICAL_DEBT 제거하여 enforcement 복원, 잔여 baseline 1건=persistScanResults.ts 1949 LoC), runtime 0줄·매매로직 무관, validate:complexity EXIT=0, executionImpact-NONE
 - 2026-05-30 · Patch-RiskyStockExclusion · screener-iscd-stat-cls-code-53-54-55-56, krx-master-regex-투자경고-투자주의, stockScreener-isRiskyKisRow-gap, isTradableKrxEquity-regex, executionImpact-NONE
 - 2026-05-29 · Patch-Gate1ThresholdEvidenceMaturity · gate1-threshold-evidence-d10, forward-outcome-ledger-maturity, score-band-review-gated, shadow-observation-policy-split, unified-forward-labeler-gate1-d10, thresholdAutoChanged-false, executionImpact-NONE
 - 2026-05-29 · Patch-Gate1Gate2ObservationTruth · gate1-score-observation-ledger-v2, scale-observation-only, gate2-not-evaluated-gate1-fail, PER-highConvictionOnly-not-entry-block, optional-diagnostic-missing-not-blocking, scan_blockers-bottleneck-truth, executionImpact-NONE
