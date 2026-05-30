@@ -94,15 +94,37 @@ function buildOfficialIndexInputsFromMaster(
  * ADR-0535: per-sector verify 결과가 있으면 alias map 으로 공식 11개 key 별 verified 를 직접 도출한다
  * (verifiedOfficialSectorKeys/missingOfficialSectorKeys 가 실제 데이터를 반영). 없으면 safe-official count fallback.
  */
+/**
+ * ADR-0544: master.reasonCodes 로부터 세션 신호(표시 전용)를 도출한다.
+ * SECTOR_INDEX_MARKET_CLOSED / HOLIDAY_NO_SESSION_OBSERVE_ONLY 신호는 SectorIndexVerifier 가
+ * 휴일/비장중 verify 스킵 시 이미 master.reasonCodes 에 push 한다 (KIS quota 0 침범).
+ * ENV `SECTOR_ENERGY_SESSION_ISOLATION_ADR0544_DISABLED=true` 면 신호 미전달 → 기존 MISSING 분류
+ * 그대로 (byte-equivalent rollback). 게이팅(promotion/sectorBoost/strongBuy)에는 사용하지 않는다.
+ */
+function deriveSessionVerifiability(
+  master: SectorEnergyMasterSupplyLineReportAdr0488,
+): { sessionClosed: boolean; verifySkipped: boolean } | undefined {
+  if (process.env.SECTOR_ENERGY_SESSION_ISOLATION_ADR0544_DISABLED === 'true') return undefined;
+  const reasonCodes = master.reasonCodes ?? [];
+  const verifySkipped =
+    reasonCodes.includes('SECTOR_INDEX_MARKET_CLOSED') ||
+    master.officialSectorIndexMaster?.promotionReadiness?.reason === 'SECTOR_INDEX_MARKET_CLOSED_OBSERVE_ONLY';
+  const sessionClosed = reasonCodes.includes('HOLIDAY_NO_SESSION_OBSERVE_ONLY') || verifySkipped;
+  if (!sessionClosed && !verifySkipped) return undefined;
+  return { sessionClosed, verifySkipped };
+}
+
 export function deriveSectorEnergyCanonicalState(
   master: SectorEnergyMasterSupplyLineReportAdr0488,
 ): SectorEnergyCanonicalState {
   const tier = master.selectedSectorEnergySourceTier;
 
+  const sessionVerifiability = deriveSessionVerifiability(master);
   const input: ResolveSectorEnergyCanonicalInput = {
     oldOfficialTargetCoverage: clamp01Pct(master.officialTargetVerifiedCoverageDiagnostic) / 100,
     kisBasketDerived: { status: 'DIAGNOSTIC_ONLY' },
     internalGroupedSnapshot: { coverage: clamp01Pct(master.internalGroupedSnapshotCoverage) / 100 },
+    ...(sessionVerifiability ? { sessionVerifiability } : {}),
   };
 
   const officialInputs = buildOfficialIndexInputsFromMaster(master);

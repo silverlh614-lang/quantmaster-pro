@@ -206,7 +206,9 @@ export function rebindGate2AttributionToSectorEnergyMasterAdr0488(
         status: shadowLeadershipAllowed ? 'AVAILABLE' : 'UNAVAILABLE',
         sourceTier: canonical.selectedSourceTier,
         shadowLeadershipAllowed,
-        confidence: canonical.confidence === 'MISSING' ? 'BLOCKED' : canonical.confidence,
+        // ADR-0544: SESSION_NOT_VERIFIABLE 도 MISSING 과 동일 표시 라벨(BLOCKED)로 매핑한다 —
+        // shadowLeadershipAllowed/counterfactualAllowed(게이팅)는 별도 보존되어 무변경.
+        confidence: (canonical.confidence === 'MISSING' || canonical.confidence === 'SESSION_NOT_VERIFIABLE') ? 'BLOCKED' : canonical.confidence,
         internalGroupedSnapshotCoverage,
         ...(sector.internalGroupedValidSectorCount !== undefined
           ? { internalGroupedValidSectorCount: sector.internalGroupedValidSectorCount }

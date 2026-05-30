@@ -634,3 +634,74 @@ describe('Post-Pass cleanup — blocker/status hygiene (canonical-driven)', () =
     }
   });
 });
+
+// ─── ADR-0544: SectorEnergy Session-Not-Verifiable Display Isolation ─────────────
+describe('ADR-0544 — SectorEnergy session-not-verifiable display isolation', () => {
+  const holidayInput = {
+    sessionVerifiability: { sessionClosed: true, verifySkipped: true },
+  } as const;
+
+  it('T1: 휴일 verify-skip(verified=0) → SESSION_NOT_VERIFIABLE / VERIFY_SKIPPED reason', () => {
+    const c = resolveSectorEnergyCanonicalState({ ...holidayInput });
+    expect(c.verifiedOfficialSectorCount).toBe(0);
+    expect(c.dataQuality).toBe('SESSION_NOT_VERIFIABLE');
+    expect(c.reason).toBe('SECTOR_INDEX_VERIFY_SKIPPED_SESSION_CLOSED');
+    expect(c.status).toBe('OBSERVE_ONLY_SESSION_CLOSED');
+    expect(c.confidenceLabel).toBe('LAST_KNOWN_OR_OBSERVE_ONLY');
+    expect(c.sectorIndexVerifyMode).toBe('VERIFY_SKIPPED_SESSION_CLOSED');
+  });
+
+  it('T2 (★ SSOT): 휴일 분류 변경에도 promotion/sectorBoost/strongBuy=false 불변 (false→true 회귀 0)', () => {
+    const c = resolveSectorEnergyCanonicalState({ ...holidayInput });
+    expect(c.promotionCoveragePass).toBe(false);
+    expect(c.promotionAllowed).toBe(false);
+    expect(c.sectorBoostAllowed).toBe(false);
+    expect(c.strongBuyAllowed).toBe(false);
+    // topBlock consistency 가드: promotion=false + DISABLED 조합은 throw 하지 않는다.
+    const blocks = enforceSectorEnergyTopBlockConsistency(c, ['NONE']);
+    expect(blocks).toContain(SECTOR_OFFICIAL_PROMOTION_DISABLED);
+    expect(() => assertSectorEnergyTopBlockConsistency(c, blocks)).not.toThrow();
+  });
+
+  it('T3: 휴일 → shadowLeadership/counterfactual=true, executionImpact=NONE 유지', () => {
+    const c = resolveSectorEnergyCanonicalState({ ...holidayInput });
+    expect(c.shadowLeadershipAllowed).toBe(true);
+    expect(c.counterfactualAllowed).toBe(true);
+    expect(c.executionImpact).toBe('NONE');
+  });
+
+  it('T4: 장중 실제 verify 0건(session 신호 없음) → 기존 MISSING / OFFICIAL_SECTOR_SOURCE_MISSING 유지 (분리)', () => {
+    const c = resolveSectorEnergyCanonicalState({});
+    expect(c.dataQuality).toBe('MISSING');
+    expect(c.reason).toBe('OFFICIAL_SECTOR_SOURCE_MISSING');
+    expect(c.sectorIndexVerifyMode).toBe('LIVE_VERIFY');
+    // sessionClosed=false 면 신규 분류가 새지 않는다.
+    const c2 = resolveSectorEnergyCanonicalState({ sessionVerifiability: { sessionClosed: false, verifySkipped: false } });
+    expect(c2.dataQuality).toBe('MISSING');
+  });
+
+  it('T5: 장중 부분 verify(verified=5) → PARTIAL 유지 (신규 분류 누설 없음, session AND 조건)', () => {
+    const c = resolveSectorEnergyCanonicalState({
+      officialKisSectorIndex: { verifiedSectors: OFFICIAL_SECTOR_ENERGY_11.slice(0, 5) },
+      // 세션 신호가 있어도 verified>0 이면 SESSION_NOT_VERIFIABLE 로 새지 않는다 (count===0 AND 조건).
+      sessionVerifiability: { sessionClosed: true, verifySkipped: true },
+    });
+    expect(c.verifiedOfficialSectorCount).toBe(5);
+    expect(c.dataQuality).toBe('PARTIAL');
+  });
+
+  it('T6: 11/11 verified → VERIFIED/PASS 유지 (sessionClosed=false 무관)', () => {
+    const c = resolveSectorEnergyCanonicalState({ officialKisSectorIndex: kisIndexWithVerified(11) });
+    expect(c.dataQuality).toBe('VERIFIED');
+    expect(c.promotionCoveragePass).toBe(true);
+    expect(c.promotionAllowed).toBe(true);
+  });
+
+  it('rendered canonical block emits session display fields', () => {
+    const out = renderSectorEnergyCanonicalOutput(resolveSectorEnergyCanonicalState({ ...holidayInput }));
+    expect(out).toContain('dataQuality=SESSION_NOT_VERIFIABLE');
+    expect(out).toContain('status=OBSERVE_ONLY_SESSION_CLOSED');
+    expect(out).toContain('sectorIndexVerifyMode=VERIFY_SKIPPED_SESSION_CLOSED');
+    expect(out).toContain('reason=SECTOR_INDEX_VERIFY_SKIPPED_SESSION_CLOSED');
+  });
+});

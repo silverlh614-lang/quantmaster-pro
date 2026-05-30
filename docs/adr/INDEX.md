@@ -14,7 +14,8 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0544`**
+**다음 ADR 번호: `0545`**
+(2026-05-30 기준, 마지막 발급 0544 — sectorenergy-session-not-verifiable-display-isolation. ADR-0544 — 휴일/비장중 KIS index verify-skip 을 소스 결함(MISSING/OFFICIAL_SECTOR_SOURCE_MISSING) 과 표시상 분리: resolver 입력 옵셔널 sessionVerifiability + 어댑터(deriveSectorEnergyCanonicalState) master.reasonCodes(SECTOR_INDEX_MARKET_CLOSED/HOLIDAY_NO_SESSION_OBSERVE_ONLY)→입력 매핑, sessionClosed&&verifySkipped&&verified=0 일 때만 dataQuality=SESSION_NOT_VERIFIABLE/reason=SECTOR_INDEX_VERIFY_SKIPPED_SESSION_CLOSED/status=OBSERVE_ONLY_SESSION_CLOSED/sectorIndexVerifyMode 재분류(장중 verify-0 은 MISSING 유지) + KisIndexQuoteClientStatus session-skip vs AUTH_NOT_READY 분리(휴일 providerIssue=false) + operatorAction REPAIR_SECTOR_INDEX_MASTER P1→P3 Observe(장중 P1 유지) + Bottleneck Truth SectorEnergy Health 블록; ENV SECTOR_ENERGY_SESSION_ISOLATION_ADR0544_DISABLED 1줄 byte-equivalent 롤백, promotion/sectorBoost/strongBuy false→true 0(promotionCoveragePass 산식·공식 11섹터 정책 무접촉), 불변식 #4/#6/#7/#8 보존; executionImpact=NONE.)
 (2026-05-29 기준, 마지막 발급 0543 — macro-shortselling-kis-l1-proxy-fallback. ADR-0543 — KRX OTP 구조적 차단으로 정체된 shortSelling 신선도를 KIS 공식 daily-short-sale(FHPST04830000) 시장-프록시 ETF(069500, 미반환 시 005930 재시도) 비중(ssts_tr_pbmn_rlim, L1)으로 보강: fetchKrxShortSelling 폴백 체인 KRX_OTP 뒤·KIS_ESTIMATE 앞에 KIS_PROXY 삽입(kisClient 단일통로 fetchKisDailyShortSale 재사용, 수정 0줄) + ShortSellingSource union 에 KIS_PROXY/CACHE 정식 추가(shortBackfill as any 해소) + 소비측 L4 격리(KIS_ESTIMATE/CACHE 는 R5 8% 임계 평가 제외, ratio 캡); ENV SHORT_SELLING_KIS_PROXY_FALLBACK default OFF 1줄 byte-equivalent·즉시 롤백, regimeBridge.base.ts ?? 5 무변경, KRX quota 0·KIS quota +1콜/일, 불변식 #1/#2/#6/#7/#9 보존; executionImpact=NONE(SHADOW_ONLY, live 전환 시 R5 임계 입력 변경 미실현).)
 (2026-05-29 기준, 마지막 발급 0542 — investor-flow-supply-router-kis-output-bucket-realign. ADR-0542 — investorFlowProviderRouterAdr0477 KIS coverage 2/11 정정: KIS investor-trade-by-stock-daily output1/output2 버킷 합성(synthesizeInvestorFlowAcrossBuckets, 외국인/기관이 버킷에 갈라진 종목 복구, 기대 7~10/11) + registry outputBuckets 드리프트 정정 + priority KIS-first 명시 재정렬(byte-equivalent) + KIS_ONLY_TRACE 진단; ENV KIS_INVESTOR_OUTPUT_BUCKET_FIX default ON 1줄 revert, KIS quota 0, L1 한정(L4 estimate 는 ADR-0543 분리), 불변식 #6/#7 보존; executionImpact=NONE(SHADOW_ONLY).)
 (2026-05-29 기준, 마지막 발급 0541 — positive-score-starvation-audit-relocation. ADR-0541 — ADR-0467 starvation audit 누적을 per-symbol intraday re-check(kisIntradayCorrection.ts:125)에서 persistScanResults(entryFilterDecomposition 직후)로 이전, canonical minSignalScoreTrace.components 공급으로 CORE_SIGNAL(PRICE_MOMENTUM 등) 오귀속·OTHER_POSITIVE leak 정정; 모집단 buyList subset→candidateSet 전수, report 빌드 순서 재배치; 소비 로직(gate1PositiveScoreStarvation.ts) 무변경, 신규 ENV 0건, 9대 불변식 무위반; executionImpact=NONE(진단 전용).)
@@ -126,6 +127,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0544 | SectorEnergy Session-Not-Verifiable Display Isolation | sector-energy / display-classification / session-isolation / provider-policy / shadow-only |
 | 0543 | Macro shortSelling KIS L1 Proxy Fallback (KRX OTP outage remediation) | provider / macro-health / regime / shadow-only / data-source-policy |
 | 0542 | Investor Flow Supply Router KIS output1/output2 Bucket Realign + KIS-first Reprioritization | provider / supply-routing / kis-client / shadow-only |
 | 0541 | Positive Score Starvation Audit Relocation to persistScanResults | gate-system / diagnostics / scan-blockers / display-only |

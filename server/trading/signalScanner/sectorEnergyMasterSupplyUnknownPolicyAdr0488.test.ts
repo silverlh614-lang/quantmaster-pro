@@ -15,6 +15,12 @@ import {
 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
 import { buildOperatorActionQueueAdr0480 } from './operatorActionRouterAdr0480.js';
 import { buildGate1DryRunObservationRows } from './gate1DryRunObservationLedgerAdr0476.js';
+import { buildOfficialSectorIndexMasterCoverage } from '../../sector/SectorIndexVerifier.js';
+import {
+  canonicalizeOfficialIndexName,
+  normalizeOfficialSectorName,
+  type OfficialSectorIndexMasterRow,
+} from '../../sector/SectorIndexCodeMap.js';
 
 const modulePath = path.resolve('server/trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts');
 const moduleSrc = () => fs.readFileSync(modulePath, 'utf-8');
@@ -929,5 +935,49 @@ describe('ADR-0488 SectorEnergy master + supply UNKNOWN policy', () => {
     expect(report.classification.rootCause).toBe('SUPPLY_PROVIDER_UNKNOWN');
     expect(report.marketSignal).toBe(false);
     expect(report.diagnostics.join(' ')).toContain('not classified as market signal');
+  });
+
+  it('ADR-0544 T7: 휴장 verify-skip → KisIndexQuoteClientStatus 세션 분리(SESSION_CLOSED_OR_HOLIDAY, providerIssue=false) + Health 블록', async () => {
+    const officialRow = (code: string, name: string): OfficialSectorIndexMasterRow => {
+      const canonical = canonicalizeOfficialIndexName(name);
+      const idxDiv = canonical.codePrefix ?? '1';
+      return {
+        market: 'KOSPI', idxDiv, idxCode: code, officialIndexCode: code, officialIndexName: name,
+        normalizedSectorName: normalizeOfficialSectorName(name), canonicalOfficialName: canonical.canonicalName,
+        codePrefixRemoved: canonical.codePrefixRemoved, rawIdxName: name, normalizedIdxName: normalizeOfficialSectorName(name),
+        rawSectorName: name, sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX', aliasResolved: false, unsafeAlias: false,
+        verifyInputCandidates: [code, `${idxDiv}${code}`],
+      };
+    };
+    const rows = [officialRow('0021', 'finance'), officialRow('0006', 'chemical')];
+    const officialSectorIndexMaster = await buildOfficialSectorIndexMasterCoverage({
+      provider: {
+        masterSource: 'OFFICIAL_KIS_IDXCODE_MST', masterLoaded: true, masterRowCount: rows.length,
+        idxcodeMstDownloaded: true, cacheFallbackUsed: false, parseStatus: 'OK', rows,
+        providerIssue: false, marketSignal: false, executionImpact: 'NONE',
+        reasonCodes: ['OFFICIAL_INDEX_MASTER_LOADED'], cacheFile: 'memory', fetchedAt: '2026-05-30T00:00:00.000Z',
+      },
+      targets: [{ sectorName: 'finance' }, { sectorName: 'chemical' }],
+      marketClosed: true,
+    });
+    expect(officialSectorIndexMaster.kisIndexQuoteClientStatus).toBeUndefined();
+    expect(officialSectorIndexMaster.reasonCodes).toContain('SECTOR_INDEX_MARKET_CLOSED');
+
+    const report = buildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({ officialSectorIndexMaster });
+    const compact = formatSectorEnergySupplyUnknownCompactAdr0488(report);
+    // KIS auth/skip 분리: 휴일 스킵을 인증장애로 표시하지 않는다.
+    expect(compact).toContain('sessionCallable=false');
+    expect(compact).toContain('skipReason=SESSION_CLOSED_OR_HOLIDAY');
+    expect(compact).toContain('authReady=NOT_REQUIRED_FOR_SKIPPED_VERIFY');
+    expect(compact).toContain('providerIssue=false');
+    // SectorEnergy Health 블록(휴일).
+    expect(compact).toContain('SectorEnergy Health:');
+    expect(compact).toContain('Live index verify: SKIPPED_SESSION_CLOSED');
+    expect(compact).toContain('Promotion: DISABLED_FOR_SESSION');
+    expect(compact).toContain('Shadow evidence: ALLOWED');
+    // 세션 분류 + 게이팅 불변.
+    expect(report.sectorEnergyCanonicalState.dataQuality).toBe('SESSION_NOT_VERIFIABLE');
+    expect(report.sectorEnergyCanonicalState.promotionAllowed).toBe(false);
+    expect(report.sectorEnergyCanonicalState.strongBuyAllowed).toBe(false);
   });
 });
