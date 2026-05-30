@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import {
   Info, RefreshCw, ShieldCheck, HelpCircle, Zap, TrendingUp,
-  Target, CheckCircle2, Shield
+  Target, CheckCircle2, Shield, AlertTriangle, X,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { performWalkForwardAnalysis, WalkForwardAnalysis } from '../../services/stockService';
@@ -322,10 +322,14 @@ function EmptyState() {
 export const WalkForwardView: React.FC = () => {
   const [walkForwardAnalysis, setWalkForwardAnalysis] = useState<WalkForwardAnalysis | null>(null);
   const [analyzingWalkForward, setAnalyzingWalkForward] = useState(false);
+  // UI_WIRING_MATRIX §10.3 #4 — rate-limit 시 toast 만으론 사유가 사라져 사용자가
+  // 재시도 시점을 알 수 없던 갭. sticky 배너로 사유·재시도 액션 영속 표시.
+  const [rateLimited, setRateLimited] = useState(false);
 
   const handleWalkForwardAnalysis = async () => {
     setAnalyzingWalkForward(true);
     setWalkForwardAnalysis(null);
+    setRateLimited(false);
     try {
       const result = await performWalkForwardAnalysis();
       if (result) {
@@ -343,6 +347,7 @@ export const WalkForwardView: React.FC = () => {
 
       if (isRateLimitError(message, status, code)) {
         toast.error('API quota exceeded. Please retry later.');
+        setRateLimited(true);
       } else {
         toast.error('Analysis failed.');
       }
@@ -359,6 +364,39 @@ export const WalkForwardView: React.FC = () => {
       exit={{ opacity: 0, y: -20 }}
       className="space-y-12"
     >
+      {rateLimited && !analyzingWalkForward && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5 text-amber-400" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs sm:text-sm font-black text-amber-400 uppercase tracking-widest">API quota exceeded</p>
+              <p className="text-[11px] sm:text-xs text-theme-text-secondary font-bold mt-0.5">
+                Wait ~60s for the Gemini quota to refresh, then retry. The toast disappears but this banner stays so you don't lose context.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-stretch sm:self-auto">
+            <button
+              type="button"
+              onClick={handleWalkForwardAnalysis}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-widest transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Retry now
+            </button>
+            <button
+              type="button"
+              onClick={() => setRateLimited(false)}
+              aria-label="Dismiss rate-limit banner"
+              className="p-2 text-amber-400/70 hover:text-amber-300 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
       <WalkForwardHeader analyzing={analyzingWalkForward} onAnalyze={handleWalkForwardAnalysis} />
       {walkForwardAnalysis ? <AnalysisResult analysis={walkForwardAnalysis} /> : <EmptyState />}
     </motion.div>
