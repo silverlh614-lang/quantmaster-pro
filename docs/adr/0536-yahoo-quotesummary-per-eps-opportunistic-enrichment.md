@@ -4,7 +4,11 @@
 
 ## Status
 
-Proposed (설계 only — 본 ADR 머지로 인한 런타임 동작 변경 0건. 구현은 ENV flag 뒤 후속 PR, 운영자 승인 후 wiring. PENDING_WIRING C18 활성화 근거 문서.)
+Accepted (Phase 1 wired, ENV default OFF — 2026-05-30).
+
+- Phase 0 (이 ADR 머지 시점, 2026-05-27): 설계 문서만, 코드 0줄.
+- **Phase 1 (현재, 코드 wired)**: `server/screener/adapters/yahooQuoteSummary.ts` 신규 + `/api/ai-universe/snapshot` 라우트가 Naver per/pbr ≤ 0 시 quoteSummary 폴백, 응답에 `perSource` 동봉. 클라이언트 타입(`AiUniverseValuation.perSource`, `StockRecommendation.valuation.perSource`) + `enrichment.ts` carry. ENV `YAHOO_QUOTE_SUMMARY_PER_ENABLED=true` 명시 활성화 — **default OFF 면 fetchYahooQuoteSummary 가 즉시 null 반환(외부 호출 0건, byte-equivalent)**. 11 mocked adapter tests + 기존 enrichment regression pass.
+- Phase 2 (후속): 운영자 staging 검증(샘플 코드 PER 대조 + 부재율 감소 확인) 후 ENV 활성화 / 카드에 perSource 툴팁 표시 / SymbolMarketRegistry 결합으로 .KS/.KQ 시도 1발 정확화 / 배치 `/snapshots` 경로 확장 — 운영 데이터 누적 후 별도 PR.
 
 ## Context
 

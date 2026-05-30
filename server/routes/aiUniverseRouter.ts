@@ -12,6 +12,7 @@
 import { Router, Request, Response } from 'express';
 import { discoverUniverse, enrichKnownStock, type AiUniverseMode } from '../services/aiUniverseService.js';
 import { fetchNaverStockSnapshot, type NaverStockSnapshot } from '../clients/naverFinanceClient.js';
+import { fetchYahooQuoteSummary } from '../screener/adapters/yahooQuoteSummary.js';
 import { getStockByCode } from '../persistence/krxStockMasterRepo.js';
 import { getBudgetSnapshot } from '../persistence/aiCallBudgetRepo.js';
 
@@ -93,15 +94,33 @@ router.get('/snapshot', async (req: Request, res: Response) => {
       dividendYield: 0, foreignerOwnRatio: 0,
       found: false,
       source: 'NAVER_MISS',
+      perSource: 'UNAVAILABLE',
     });
+  }
+
+  // ADR-0536 C18 Phase 1 — Naver per/pbr 부재 시 Yahoo quoteSummary opportunistic 보강.
+  // ENV YAHOO_QUOTE_SUMMARY_PER_ENABLED=true 일 때만 실 호출(default OFF 면 fetchYahoo*
+  // 가 즉시 null → byte-equivalent). Naver per>0 이면 Yahoo 호출 0건 (1순위 보존).
+  let per = snap.per;
+  let pbr = snap.pbr;
+  let eps = snap.eps;
+  let perSource: 'NAVER_SNAPSHOT' | 'YAHOO_QUOTE_SUMMARY' | 'UNAVAILABLE' =
+    per > 0 ? 'NAVER_SNAPSHOT' : 'UNAVAILABLE';
+  if (per <= 0 || pbr <= 0) {
+    const yfs = await fetchYahooQuoteSummary(code);
+    if (yfs) {
+      if (per <= 0 && yfs.per != null) { per = yfs.per; perSource = 'YAHOO_QUOTE_SUMMARY'; }
+      if (pbr <= 0 && yfs.pbr != null) { pbr = yfs.pbr; }
+      if (eps <= 0 && yfs.eps != null) { eps = yfs.eps; }
+    }
   }
 
   res.json({
     code: snap.code,
     name: snap.name,
-    per: snap.per,
-    pbr: snap.pbr,
-    eps: snap.eps,
+    per,
+    pbr,
+    eps,
     bps: snap.bps,
     marketCap: snap.marketCap,
     marketCapDisplay: formatMarketCapKr(snap.marketCap),
@@ -111,6 +130,7 @@ router.get('/snapshot', async (req: Request, res: Response) => {
     changeRate: snap.changeRate,
     found: true,
     source: snap.source,
+    perSource,
   });
 });
 
