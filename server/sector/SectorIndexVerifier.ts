@@ -26,6 +26,103 @@ export const KIS_SECTOR_INDEX_VERIFY_API_PATH =
   '/uapi/domestic-stock/v1/quotations/inquire-index-price';
 export const KIS_SECTOR_INDEX_VERIFY_TR_ID = 'FHPUP02100000';
 
+// ─── D1 (observe-only): verify 실패 타입 분리 → providerIssue/dataQuality 표시 매핑 ─────────
+// ★ 게이팅 무관, executionImpact=NONE, marketSignal=false. 불변식 #6 보존:
+//   휴장/세션닫힘은 providerIssue=false (bearish 승격 금지). OPEN 중 transport/parse 실패만 providerIssue=true.
+//   index value 0 은 dataQuality=LOW (providerIssue=false). promotion 게이팅은 절대 바꾸지 않는다.
+
+/** verify 실패/품질을 표시상 분류한 라벨 (게이팅 무관, 표시 전용). */
+export type OfficialSectorIndexVerifyDisplayClass =
+  | 'VERIFIED'
+  | 'SESSION_NOT_VERIFIABLE'
+  | 'OFFICIAL_INDEX_VERIFY_FAILED'
+  | 'OFFICIAL_INDEX_VALUE_PARSE_FAILED'
+  | 'VALUE_QUALITY_LOW';
+
+export interface OfficialSectorIndexVerifyDisplayClassification {
+  displayClass: OfficialSectorIndexVerifyDisplayClass;
+  providerIssue: boolean;
+  dataQuality: 'VERIFIED' | 'LOW' | 'SESSION_NOT_VERIFIABLE' | 'MISSING';
+  executionImpact: 'NONE';
+  marketSignal: false;
+}
+
+const SESSION_CLOSED_REASONS: ReadonlySet<string> = new Set([
+  'SECTOR_INDEX_MARKET_CLOSED',
+  'HOLIDAY_NO_SESSION_OBSERVE_ONLY',
+]);
+const TRANSPORT_FAILURE_REASONS: ReadonlySet<string> = new Set([
+  'KIS_INDEX_API_HTTP_ERROR',
+  'KIS_INDEX_API_AUTH_ERROR',
+  'KIS_INDEX_API_RATE_LIMIT',
+  'KIS_INDEX_API_CLIENT_DISABLED',
+  'OFFICIAL_INDEX_API_VERIFY_FAILED',
+  'OFFICIAL_INDEX_CODE_INVALID',
+  'VERIFY_VARIANTS_EXHAUSTED',
+]);
+const PARSE_FAILURE_REASONS: ReadonlySet<string> = new Set([
+  'VALUE_PARSE_FAILED',
+  'OUTPUT_SHAPE_UNRECOGNIZED',
+  'INDEX_VALUE_FIELD_MISSING',
+]);
+const VALUE_QUALITY_LOW_REASONS: ReadonlySet<string> = new Set([
+  'VALUE_QUALITY_ZERO',
+  'VALUE_QUALITY_LOW',
+]);
+
+/**
+ * verify 결과(또는 verifyApiFailureSamples 의 selectedFailureReason)를 표시 분류한다.
+ *  - session closed/holiday → SESSION_NOT_VERIFIABLE, providerIssue=false (불변식 #6)
+ *  - OPEN 중 transport 실패 → OFFICIAL_INDEX_VERIFY_FAILED, providerIssue=true, executionImpact=NONE
+ *  - parse 실패 → OFFICIAL_INDEX_VALUE_PARSE_FAILED, providerIssue=true, executionImpact=NONE
+ *  - index value 0/품질 저하 → VALUE_QUALITY_LOW(dataQuality=LOW), providerIssue=false
+ * ★ promotion 게이팅·marketSignal 무변경. 휴장→providerIssue 승격 금지.
+ */
+export function classifyOfficialSectorIndexVerifyDisplay(input: {
+  verified?: boolean;
+  selectedFailureReason?: string;
+  reasonCode?: string;
+  sessionClosed?: boolean;
+}): OfficialSectorIndexVerifyDisplayClassification {
+  if (input.verified === true) {
+    return { displayClass: 'VERIFIED', providerIssue: false, dataQuality: 'VERIFIED', executionImpact: 'NONE', marketSignal: false };
+  }
+  const reason = input.selectedFailureReason ?? input.reasonCode ?? '';
+  if (input.sessionClosed === true || SESSION_CLOSED_REASONS.has(reason)) {
+    return { displayClass: 'SESSION_NOT_VERIFIABLE', providerIssue: false, dataQuality: 'SESSION_NOT_VERIFIABLE', executionImpact: 'NONE', marketSignal: false };
+  }
+  if (VALUE_QUALITY_LOW_REASONS.has(reason)) {
+    return { displayClass: 'VALUE_QUALITY_LOW', providerIssue: false, dataQuality: 'LOW', executionImpact: 'NONE', marketSignal: false };
+  }
+  if (PARSE_FAILURE_REASONS.has(reason)) {
+    return { displayClass: 'OFFICIAL_INDEX_VALUE_PARSE_FAILED', providerIssue: true, dataQuality: 'MISSING', executionImpact: 'NONE', marketSignal: false };
+  }
+  if (TRANSPORT_FAILURE_REASONS.has(reason)) {
+    return { displayClass: 'OFFICIAL_INDEX_VERIFY_FAILED', providerIssue: true, dataQuality: 'MISSING', executionImpact: 'NONE', marketSignal: false };
+  }
+  // 미분류 OPEN 실패는 보수적으로 transport 실패로 표시 (providerIssue=true) — 게이팅 무관.
+  return { displayClass: 'OFFICIAL_INDEX_VERIFY_FAILED', providerIssue: true, dataQuality: 'MISSING', executionImpact: 'NONE', marketSignal: false };
+}
+
+/** master loaded 인데 OPEN 중 verify 0건이면 표시 status (게이팅 무관). */
+export const OFFICIAL_INDEX_MASTER_LOADED_BUT_UNVERIFIED = 'OFFICIAL_INDEX_MASTER_LOADED_BUT_UNVERIFIED' as const;
+
+/**
+ * master loaded && OPEN(세션 열림) && verifySuccessCount=0 인 표시 status 를 산출한다.
+ * 그 외(휴장/verified>0/master 미로드)는 undefined — 기존 표시 그대로 (byte-equivalent).
+ * ★ 표시 전용, promotion 게이팅·coverage 산식 무관.
+ */
+export function resolveMasterLoadedButUnverifiedStatus(input: {
+  masterLoaded?: boolean;
+  marketClosed?: boolean;
+  verifySuccessCount?: number;
+}): typeof OFFICIAL_INDEX_MASTER_LOADED_BUT_UNVERIFIED | undefined {
+  if (input.masterLoaded === true && input.marketClosed !== true && (input.verifySuccessCount ?? 0) === 0) {
+    return OFFICIAL_INDEX_MASTER_LOADED_BUT_UNVERIFIED;
+  }
+  return undefined;
+}
+
 export interface OfficialSectorIndexVerifyResult {
   officialIndexCode: string;
   sectorName: string;
@@ -741,6 +838,13 @@ export async function buildOfficialSectorIndexMasterCoverage(input: {
     reasonCodes.add('SECTOR_INDEX_MARKET_CLOSED');
     reasonCodes.add('HOLIDAY_NO_SESSION_OBSERVE_ONLY');
   }
+  // D1 (observe-only): master loaded && OPEN && verify 0건 → 표시 status (게이팅 무관).
+  const masterLoadedButUnverified = resolveMasterLoadedButUnverifiedStatus({
+    masterLoaded: provider?.masterLoaded ?? masterRows.length > 0,
+    marketClosed,
+    verifySuccessCount,
+  });
+  if (masterLoadedButUnverified) reasonCodes.add(masterLoadedButUnverified);
   reasonCodes.add('EXECUTION_IMPACT_NONE_CONFIRMED');
 
   return {

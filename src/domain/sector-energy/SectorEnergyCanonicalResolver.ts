@@ -887,6 +887,68 @@ export function assertSectorEnergyTopBlockConsistency(
   }
 }
 
+// ─── D4 (observe-only): SectorEnergy 정적 가드 5종 + shadow continuity ──────────────────
+// ★ 진단 가드 — 위반 시 throw 하되 엔진 정지가 아니라 표시/가드 단계의 invariant 강제다.
+//   promotion 게이팅·coverage 산식·11섹터 정책을 절대 바꾸지 않는다 (읽기·검증 전용).
+
+export const SECTOR_ENERGY_OBSERVE_ONLY_INVARIANTS = [
+  'SECTOR_ENERGY_SESSION_CLOSED_NOT_PROVIDER_ISSUE',
+  'INTERNAL_GROUPED_NOT_USED_FOR_PROMOTION',
+  'THEME_TAGS_NOT_PROMOTED_TO_OFFICIAL_SECTOR',
+  'SECTOR_ENERGY_EXECUTION_IMPACT_NONE',
+  'PROMOTION_REQUIRES_OFFICIAL_VERIFIED_COVERAGE',
+  'SHADOW_EVIDENCE_CONTINUES_WHEN_PROMOTION_DISABLED',
+] as const;
+
+export type SectorEnergyObserveOnlyInvariant = (typeof SECTOR_ENERGY_OBSERVE_ONLY_INVARIANTS)[number];
+
+/**
+ * SectorEnergy observe-only invariant 5종 + shadow continuity 를 정적 검증한다.
+ *  - SECTOR_ENERGY_SESSION_CLOSED_NOT_PROVIDER_ISSUE: 세션닫힘(SESSION_NOT_VERIFIABLE/
+ *    OBSERVE_ONLY_SESSION_CLOSED)에 providerIssue=true 로 보고하면 위반 (불변식 #6).
+ *  - INTERNAL_GROUPED_NOT_USED_FOR_PROMOTION: internalGrouped 등 진단 입력이 promotion 을 켜면 위반.
+ *  - THEME_TAGS_NOT_PROMOTED_TO_OFFICIAL_SECTOR: 공식 섹터 11개에 themeTag(조선/방산/원자력/이차전지)가 끼면 위반.
+ *  - SECTOR_ENERGY_EXECUTION_IMPACT_NONE: executionImpact !== 'NONE' 이면 위반.
+ *  - PROMOTION_REQUIRES_OFFICIAL_VERIFIED_COVERAGE: promotionAllowed=true 인데 promotionCoveragePass=false 면 위반.
+ *  - SHADOW_EVIDENCE_CONTINUES_WHEN_PROMOTION_DISABLED: promotionAllowed=false 인데 shadowLeadershipAllowed=false 면 위반.
+ * @param providerIssueReported D1 표시상 providerIssue 값 (선택, 세션닫힘 검증용).
+ */
+export function assertSectorEnergyObserveOnlyInvariants(
+  canonical: SectorEnergyCanonicalState,
+  options: { providerIssueReported?: boolean } = {},
+): void {
+  // SECTOR_ENERGY_EXECUTION_IMPACT_NONE
+  if (canonical.executionImpact !== 'NONE') {
+    throw new Error('SECTOR_ENERGY_INVARIANT_VIOLATION:SECTOR_ENERGY_EXECUTION_IMPACT_NONE');
+  }
+  // PROMOTION_REQUIRES_OFFICIAL_VERIFIED_COVERAGE
+  if (canonical.promotionAllowed === true && canonical.promotionCoveragePass !== true) {
+    throw new Error('SECTOR_ENERGY_INVARIANT_VIOLATION:PROMOTION_REQUIRES_OFFICIAL_VERIFIED_COVERAGE');
+  }
+  // INTERNAL_GROUPED_NOT_USED_FOR_PROMOTION — promotion 은 공식 verified coverage 로만 켜진다.
+  if (canonical.promotionAllowed === true && canonical.verifiedOfficialSectorCount < Math.ceil(OFFICIAL_SECTOR_COUNT * canonical.requiredPromotionCoverage)) {
+    throw new Error('SECTOR_ENERGY_INVARIANT_VIOLATION:INTERNAL_GROUPED_NOT_USED_FOR_PROMOTION');
+  }
+  // THEME_TAGS_NOT_PROMOTED_TO_OFFICIAL_SECTOR — 공식 verified key 에 themeTag 가 끼면 위반.
+  const themeAsOfficial = canonical.verifiedOfficialSectorKeys.some(
+    (k) => (EXCLUDED_THEME_TAGS as readonly string[]).includes(k as unknown as string),
+  );
+  if (themeAsOfficial || !canonical.verifiedOfficialSectorKeys.every((k) => OFFICIAL_SECTOR_SET.has(k))) {
+    throw new Error('SECTOR_ENERGY_INVARIANT_VIOLATION:THEME_TAGS_NOT_PROMOTED_TO_OFFICIAL_SECTOR');
+  }
+  // SECTOR_ENERGY_SESSION_CLOSED_NOT_PROVIDER_ISSUE — 세션닫힘은 providerIssue 가 아니다 (불변식 #6).
+  const sessionClosed = canonical.dataQuality === 'SESSION_NOT_VERIFIABLE'
+    || canonical.status === 'OBSERVE_ONLY_SESSION_CLOSED'
+    || canonical.sectorIndexVerifyMode === 'VERIFY_SKIPPED_SESSION_CLOSED';
+  if (sessionClosed && options.providerIssueReported === true) {
+    throw new Error('SECTOR_ENERGY_INVARIANT_VIOLATION:SECTOR_ENERGY_SESSION_CLOSED_NOT_PROVIDER_ISSUE');
+  }
+  // SHADOW_EVIDENCE_CONTINUES_WHEN_PROMOTION_DISABLED — promotion off 라도 shadow 는 계속된다.
+  if (canonical.promotionAllowed === false && canonical.shadowLeadershipAllowed !== true) {
+    throw new Error('SECTOR_ENERGY_INVARIANT_VIOLATION:SHADOW_EVIDENCE_CONTINUES_WHEN_PROMOTION_DISABLED');
+  }
+}
+
 /**
  * legacy 모듈이 canonical 과 다른 promotionAllowed 를 emit 할 때 canonical 값으로 override 한다.
  * renderer 는 항상 canonical 값을 쓴다. mismatch 는 코드로 표시만 한다.
@@ -1034,6 +1096,35 @@ export function renderSectorEnergyCanonicalBlock(canonical: SectorEnergyCanonica
     missingReasonLine('MACHINERY_EQUIPMENT'),
     missingReasonLine('FOOD_BEVERAGE_TOBACCO'),
     missingReasonLine('SERVICE_TELECOM'),
+  ].join('\n');
+}
+
+/**
+ * D2 (observe-only) — SectorEnergy Source Separation 뷰.
+ * 5개 view 의 useForLivePromotion/useForShadowEvidence 를 명시 표기한다 (표시 전용).
+ * internalGrouped/theme/basket(legacy)은 useForLivePromotion=false 를 명시한다.
+ * ★ 게이팅 무관 — canonical 값을 읽기만 한다.
+ */
+export interface SectorEnergySourceSeparationDiagnostic {
+  internalGroupedValidSectorCount?: number;
+  internalGroupedExpectedSectorCount?: number;
+  legacyOfficialTargetVerifiedCoverage?: number;
+}
+
+export function renderSectorEnergySourceSeparationBlock(
+  canonical: SectorEnergyCanonicalState,
+  diag: SectorEnergySourceSeparationDiagnostic = {},
+): string {
+  const officialStatus = canonical.promotionCoveragePass ? 'VERIFIED' : canonical.dataQuality;
+  const groupedCount = `${diag.internalGroupedValidSectorCount ?? 0}/${diag.internalGroupedExpectedSectorCount ?? 0}`;
+  return [
+    'SectorEnergy Source Separation:',
+    `  officialIndexView: status=${officialStatus} verifiedOfficialSectorCount=${canonical.verifiedOfficialSectorCount}/${canonical.officialSectorCount} promotionCoveragePass=${canonical.promotionCoveragePass} useForLivePromotion=${canonical.promotionAllowed} useForSectorBoost=${canonical.sectorBoostAllowed} useForStrongBuy=${canonical.strongBuyAllowed} useForShadowEvidence=true executionImpact=${canonical.executionImpact}`,
+    `  internalGroupedView: status=DIAGNOSTIC_ONLY groupedValidSectorCount=${groupedCount} useForLivePromotion=false useForSectorBoost=false useForStrongBuy=false useForShadowEvidence=true executionImpact=NONE`,
+    `  shadowEvidenceView: shadowLeadershipAllowed=${canonical.shadowLeadershipAllowed} counterfactualAllowed=${canonical.counterfactualAllowed} useForLivePromotion=false useForShadowEvidence=true executionImpact=NONE`,
+    `  themeTagView: status=THEME_TAG_ONLY excludedThemeTags=${canonical.excludedThemeTags.join(',')} useForLivePromotion=false useForSectorBoost=false useForStrongBuy=false useForShadowEvidence=true executionImpact=NONE`,
+    `  legacyDiagnosticView: status=DIAGNOSTIC_ONLY legacyOfficialTargetVerifiedCoverage=${typeof diag.legacyOfficialTargetVerifiedCoverage === 'number' ? pct1(diag.legacyOfficialTargetVerifiedCoverage) : 'N/A'} useForLivePromotion=false useForShadowEvidence=false executionImpact=NONE`,
+    '  note=only officialIndexView drives live promotion; internalGrouped/theme/legacy are diagnostic/shadow-only',
   ].join('\n');
 }
 

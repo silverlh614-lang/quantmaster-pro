@@ -14,6 +14,9 @@ import {
   overrideWithCanonicalPromotion,
   applySectorEnergyCanonicalOverride,
   renderSectorEnergyCanonicalOutput,
+  renderSectorEnergySourceSeparationBlock,
+  assertSectorEnergyObserveOnlyInvariants,
+  SECTOR_ENERGY_OBSERVE_ONLY_INVARIANTS,
   resolveOfficialSectorEnergyCoverage,
   assertSectorEnergyCoverageInvariants,
   OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS,
@@ -766,5 +769,95 @@ describe('ADR-0545 — SectorEnergy last-known verified snapshot', () => {
     expect(out).toContain('lastKnownVerifiedOfficialSectorCount=11');
     expect(out).toContain('lastKnownUsableForLivePromotion=false');
     expect(out).toContain('lastKnownUsableForShadowEvidence=true');
+  });
+});
+
+// ─── D5 (observe-only): SectorEnergy Official Index Verify scenarios A~E ──────────────────
+describe('SectorEnergy Official Index Verify — D5 scenarios A~E (observe-only)', () => {
+  const holidayInput = {
+    sessionVerifiability: { sessionClosed: true, verifySkipped: true },
+    lastKnownLookupEnabled: false,
+  } as const;
+
+  it('A: 휴장 → OBSERVE_ONLY, promotion=false, providerIssue=false (불변식 #6)', () => {
+    const c = resolveSectorEnergyCanonicalState({ ...holidayInput });
+    expect(c.status).toBe('OBSERVE_ONLY_SESSION_CLOSED');
+    expect(c.dataQuality).toBe('SESSION_NOT_VERIFIABLE');
+    expect(c.promotionAllowed).toBe(false);
+    expect(c.sectorBoostAllowed).toBe(false);
+    expect(c.strongBuyAllowed).toBe(false);
+    // 세션닫힘에 providerIssue=true 로 보고하면 invariant 위반 → 가드가 throw.
+    expect(() => assertSectorEnergyObserveOnlyInvariants(c, { providerIssueReported: false })).not.toThrow();
+    expect(() => assertSectorEnergyObserveOnlyInvariants(c, { providerIssueReported: true }))
+      .toThrow(/SECTOR_ENERGY_SESSION_CLOSED_NOT_PROVIDER_ISSUE/);
+    // shadow 는 휴장에도 계속된다.
+    expect(c.shadowLeadershipAllowed).toBe(true);
+    expect(c.counterfactualAllowed).toBe(true);
+  });
+
+  it('B: OPEN verify 9/11 → coverage≥80%, promotion=true', () => {
+    const c = stateWithVerified(9);
+    expect(c.verifiedOfficialSectorCount).toBe(9);
+    expect(c.promotionCoverage).toBeGreaterThanOrEqual(0.8);
+    expect(c.promotionCoveragePass).toBe(true);
+    expect(c.promotionAllowed).toBe(true);
+    expect(() => assertSectorEnergyObserveOnlyInvariants(c)).not.toThrow();
+  });
+
+  it('C: OPEN verify 5/11 → promotion=false, shadow=true', () => {
+    const c = stateWithVerified(5);
+    expect(c.verifiedOfficialSectorCount).toBe(5);
+    expect(c.promotionCoverage).toBeLessThan(0.8);
+    expect(c.promotionCoveragePass).toBe(false);
+    expect(c.promotionAllowed).toBe(false);
+    expect(c.shadowLeadershipAllowed).toBe(true);
+    expect(() => assertSectorEnergyObserveOnlyInvariants(c)).not.toThrow();
+  });
+
+  it('D: internalGrouped 12/12 + official 0/11 → useForPromotion=false (Source Separation)', () => {
+    const c = resolveSectorEnergyCanonicalState({
+      officialKisSectorIndex: kisIndexWithVerified(0),
+      internalGroupedSnapshot: { verifiedCount: 12 },
+    });
+    expect(c.verifiedOfficialSectorCount).toBe(0);
+    expect(c.promotionAllowed).toBe(false);
+    const block = renderSectorEnergySourceSeparationBlock(c, {
+      internalGroupedValidSectorCount: 12,
+      internalGroupedExpectedSectorCount: 12,
+    });
+    expect(block).toContain('SectorEnergy Source Separation:');
+    expect(block).toContain('internalGroupedView: status=DIAGNOSTIC_ONLY groupedValidSectorCount=12/12 useForLivePromotion=false');
+    expect(block).toContain('officialIndexView: status=MISSING verifiedOfficialSectorCount=0/11 promotionCoveragePass=false useForLivePromotion=false');
+    expect(block).toContain('shadowEvidenceView: shadowLeadershipAllowed=true');
+    expect(() => assertSectorEnergyObserveOnlyInvariants(c)).not.toThrow();
+  });
+
+  it('E: themeTag alias → THEME_TAG_ONLY, unsafeAliasExcluded (공식 섹터 승격 금지)', () => {
+    const c = resolveSectorEnergyCanonicalState({
+      // 비공식 themeTag(조선/방산/원자력/이차전지)는 공식 섹터로 카운트되지 않는다.
+      officialKisSectorIndex: { verifiedSectors: ['조선', '방산', '원자력', '이차전지'] },
+    });
+    expect(c.verifiedOfficialSectorCount).toBe(0);
+    expect(c.promotionAllowed).toBe(false);
+    const block = renderSectorEnergySourceSeparationBlock(c);
+    expect(block).toContain('themeTagView: status=THEME_TAG_ONLY excludedThemeTags=조선,방산,원자력,이차전지 useForLivePromotion=false');
+    expect(c.excludedThemeTags).toEqual(['조선', '방산', '원자력', '이차전지']);
+    expect(() => assertSectorEnergyObserveOnlyInvariants(c)).not.toThrow();
+  });
+
+  it('D4: invariant 6종 토큰 존재 + EXECUTION_IMPACT_NONE 가드', () => {
+    expect(SECTOR_ENERGY_OBSERVE_ONLY_INVARIANTS).toContain('SECTOR_ENERGY_SESSION_CLOSED_NOT_PROVIDER_ISSUE');
+    expect(SECTOR_ENERGY_OBSERVE_ONLY_INVARIANTS).toContain('INTERNAL_GROUPED_NOT_USED_FOR_PROMOTION');
+    expect(SECTOR_ENERGY_OBSERVE_ONLY_INVARIANTS).toContain('THEME_TAGS_NOT_PROMOTED_TO_OFFICIAL_SECTOR');
+    expect(SECTOR_ENERGY_OBSERVE_ONLY_INVARIANTS).toContain('SECTOR_ENERGY_EXECUTION_IMPACT_NONE');
+    expect(SECTOR_ENERGY_OBSERVE_ONLY_INVARIANTS).toContain('PROMOTION_REQUIRES_OFFICIAL_VERIFIED_COVERAGE');
+    expect(SECTOR_ENERGY_OBSERVE_ONLY_INVARIANTS).toContain('SHADOW_EVIDENCE_CONTINUES_WHEN_PROMOTION_DISABLED');
+    const c = stateWithVerified(11);
+    const tampered = { ...c, executionImpact: 'BLOCK' as unknown as 'NONE' };
+    expect(() => assertSectorEnergyObserveOnlyInvariants(tampered))
+      .toThrow(/SECTOR_ENERGY_EXECUTION_IMPACT_NONE/);
+    const promoMismatch = { ...c, promotionAllowed: true, promotionCoveragePass: false };
+    expect(() => assertSectorEnergyObserveOnlyInvariants(promoMismatch))
+      .toThrow(/PROMOTION_REQUIRES_OFFICIAL_VERIFIED_COVERAGE/);
   });
 });
