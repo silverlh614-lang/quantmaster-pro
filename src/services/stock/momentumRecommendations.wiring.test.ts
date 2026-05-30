@@ -169,7 +169,7 @@ describe('momentumRecommendations — buildUniverseRuleLine (PR-37 ADR-0016)', (
     const d = buildUniverseRuleLine('NO_MATCHES', 10, true);
     [a, b, c, d].forEach(line => {
       expect(line).toContain('마지막 거래일');
-      expect(line).toContain('Yahoo/Naver/KRX');
+      expect(line).toContain('Naver/KRX');
       expect(line).not.toContain('baseline');
       // PR-38: FALLBACK_SEED 와는 별도 분기여야 한다 (하드코딩 seed 표기 없음)
       expect(line).not.toContain('하드코딩');

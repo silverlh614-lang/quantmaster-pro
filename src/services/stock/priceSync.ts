@@ -1,6 +1,7 @@
 // @responsibility stock priceSync 서비스 모듈
 import { enrichStockWithRealData } from './enrichment';
 import { fetchHistoricalData } from './historicalData';
+import { fetchAiUniverseSnapshot } from '../../api/aiUniverseClient';
 import { debugLog } from '../../utils/debug';
 import { clientWarn } from '../../utils/clientWarn';
 import type { StockRecommendation } from './types';
@@ -114,10 +115,10 @@ export async function syncStockPriceKIS(stock: StockRecommendation): Promise<Sto
 }
 
 /**
- * syncStockPrice — 가격 신뢰도 계층 (AI 추정 완전 배제)
- * 1순위: KIS 실시간  → dataSourceType: 'REALTIME'
- * 2순위: Yahoo Finance 서버 프록시 → dataSourceType: 'YAHOO'
- * 3순위: 마지막 알려진 가격 유지   → dataSourceType: 'STALE'
+ * syncStockPrice — 가격 신뢰도 계층 (Yahoo 신뢰 철회 · AI 추정 완전 배제)
+ * 1순위: KIS 실시간          → dataSourceType: 'REALTIME' (L1)
+ * 2순위: Naver 모바일 snapshot → dataSourceType: 'NAVER'    (L3, KRX 직접 시세)
+ * 3순위: 마지막 알려진 가격 유지 → dataSourceType: 'STALE'
  */
 export async function syncStockPrice(stock: StockRecommendation): Promise<StockRecommendation> {
   // 1순위: KIS 실시간
@@ -129,52 +130,45 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
     clientWarn({
       domain: 'PRICE_SYNC',
       code: 'P4_PRICE_SYNC_DEGRADED',
-      message: `[가격동기화] KIS UI 가격 동기화 실패 → Yahoo 표시 가격 시도`,
+      message: `[가격동기화] KIS UI 가격 동기화 실패 → Naver 모바일 snapshot 시도`,
       dedupKey: `priceSync:kis:${stock.code}`,
       details: { stockCode: stock.code, stockName: stock.name, error: kisErr instanceof Error ? kisErr.message : String(kisErr) },
     });
   }
 
-  // 2순위: Yahoo Finance (/api/historical-data 서버 프록시)
-  const baseCode = stock.code.replace(/\.(KS|KQ)$/, '');
-  const suffixes = ['.KS', '.KQ'];
-  for (const suffix of suffixes) {
-    try {
-      const symbol = `${baseCode}${suffix}`;
-      const res = await fetch(`/api/historical-data?symbol=${symbol}&range=1d&interval=1m`);
-      if (res.ok) {
-        const data = await res.json();
-        const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice as number | undefined;
-        if (price && price > 0) {
-          const roundedPrice = Math.round(price);
-          debugLog(`[가격동기화] Yahoo Finance 성공 (${symbol}): ${stock.name} ${roundedPrice}원`);
-          const priceLevels = recalculatePriceLevels(stock, roundedPrice);
-          const updated: StockRecommendation = {
-            ...stock,
-            ...priceLevels,
-            currentPrice: roundedPrice,
-            dataSourceType: 'YAHOO',
-            priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (Yahoo Finance)`,
-          };
-          return await enrichStockWithRealData(updated);
-        }
-      }
-    } catch (yahooErr: any) {
-      clientWarn({
-        domain: 'PRICE_SYNC',
-        code: 'P4_PRICE_SYNC_DEGRADED',
-        message: `[가격동기화] Yahoo UI 가격 동기화 실패`,
-        dedupKey: `priceSync:yahoo:${baseCode}${suffix}`,
-        details: { symbol: `${baseCode}${suffix}`, stockCode: stock.code, stockName: stock.name, error: yahooErr instanceof Error ? yahooErr.message : String(yahooErr) },
-      });
+  // 2순위: Naver 모바일 snapshot (Yahoo 신뢰 철회 — split/통화/티커 매핑 오차로
+  // ~10배 왜곡 사례 반복. Naver 는 KRX 시세를 직접 fetch).
+  const baseCode = stock.code.split('.')[0];
+  try {
+    const snap = await fetchAiUniverseSnapshot(baseCode);
+    if (snap?.closePrice && snap.closePrice > 0) {
+      const roundedPrice = Math.round(snap.closePrice);
+      debugLog(`[가격동기화] Naver 모바일 성공 (${baseCode}): ${stock.name} ${roundedPrice}원`);
+      const priceLevels = recalculatePriceLevels(stock, roundedPrice);
+      const updated: StockRecommendation = {
+        ...stock,
+        ...priceLevels,
+        currentPrice: roundedPrice,
+        dataSourceType: 'NAVER',
+        priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (Naver 모바일)`,
+      };
+      return await enrichStockWithRealData(updated);
     }
+  } catch (naverErr: any) {
+    clientWarn({
+      domain: 'PRICE_SYNC',
+      code: 'P4_PRICE_SYNC_DEGRADED',
+      message: `[가격동기화] Naver 모바일 snapshot 실패`,
+      dedupKey: `priceSync:naver:${baseCode}`,
+      details: { stockCode: stock.code, stockName: stock.name, error: naverErr instanceof Error ? naverErr.message : String(naverErr) },
+    });
   }
 
   // 3순위: 마지막 알려진 가격 유지
   clientWarn({
     domain: 'PRICE_SYNC',
     code: 'P4_PRICE_SYNC_DEGRADED',
-    message: `[가격동기화] 모든 UI 가격 소스 실패 — 화면에 STALE 가격 유지`,
+    message: `[가격동기화] 모든 UI 가격 소스(KIS·Naver) 실패 — 화면에 STALE 가격 유지`,
     dedupKey: `priceSync:stale:${stock.code}`,
     details: { stockCode: stock.code, stockName: stock.name, dataSourceType: 'STALE' },
   });

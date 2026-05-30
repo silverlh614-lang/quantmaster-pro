@@ -187,8 +187,13 @@ export function partitionTracesByStage(
 ): PipelineStocksResponse {
   const passed: PipelineStockEntry[] = [];
   const dropped: PipelineStockEntry[] = [];
+  // 한 종목이 동일 스캔 세션에서 여러 trace 로 영속되는 경우(재시도·중복 수집)를
+  // 화면에서 1회만 노출. 첫 등장 outcome 을 canonical 로 사용 (시간순 가정).
+  const seen = new Set<string>();
 
   for (const t of traces) {
+    if (seen.has(t.stock)) continue;
+    seen.add(t.stock);
     const yahooFail = t.stages.gate?.startsWith('FAIL(yahoo') ?? false;
     const gateFail = !yahooFail && (t.stages.gate?.startsWith('FAIL') ?? false);
     const rrrFail = t.stages.rrr?.startsWith('FAIL') ?? false;

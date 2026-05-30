@@ -67,4 +67,17 @@ describe('partitionTracesByStage — PR-J 단계별 분류', () => {
     expect(r.counts.passed).toBe(5);
     expect(r.counts.dropped).toBe(1);
   });
+
+  it('동일 종목 코드가 여러 trace 로 영속돼도 화면에선 1회만 노출 (dedup)', () => {
+    // 사용자 보고: "거래 가능 단계 드릴다운 통과 571" 에서 LG 003550 이 1번/마지막 2회 노출
+    const dupTraces: ScanTrace[] = [
+      trace('003550', 'LG', { gate: 'PASS', rrr: 'PASS', buy: 'SHADOW' }),
+      trace('005380', '현대차', { gate: 'PASS', rrr: 'PASS', buy: 'SHADOW' }),
+      trace('003550', 'LG', { gate: 'PASS', rrr: 'PASS', buy: 'SHADOW' }), // 중복
+    ];
+    const r = partitionTracesByStage(dupTraces, 'CANDIDATES');
+    expect(r.passed).toHaveLength(2);
+    expect(r.counts.passed).toBe(2);
+    expect(r.passed.map((e) => e.stock)).toEqual(['003550', '005380']);
+  });
 });
