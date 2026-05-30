@@ -62,10 +62,15 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('candidateDiagnosticScorePositive=');
     expect(text).not.toContain('diagnosticSurvivors=');
     expect(text).toContain('shadowEligible=1');
-    expect(text).toContain('counterfactualRecorded=1');
+    expect(text).toContain('universeCounterfactualRowsCreated=1');
     expect(text).toContain('Candidate evaluation active');
     expect(text).toContain('Live order permission separated');
     expect(text).toContain('Missing features scored as confidence penalty');
+    // P2 truth-consistency: universe rows recorded (=1) while entries=0 must NOT surface a
+    // scope-less `counterfactualRecorded=false` that contradicts the universe count. All
+    // counterfactual counts are scope-prefixed (universe/gate/entry), never a bare false.
+    expect(text).not.toContain('counterfactualRecorded=false');
+    expect(text).not.toContain('counterfactualRecorded: false');
   });
 
   it('renders Gate1 hard survivors preserved into the Gate2 soft leadership lane', () => {
@@ -143,7 +148,7 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('  paperObservationalCreated=3');
     expect(text).toContain('GATE1_HARD_SURVIVOR_GATE2_PENDING');
     expect(text).toContain('shadowObservablePreserved=true');
-    expect(text).toContain('counterfactualRecorded=true');
+    expect(text).toContain('gateCounterfactualRecorded=true');
     expect(text).toContain('executionImpact=NONE');
   });
 

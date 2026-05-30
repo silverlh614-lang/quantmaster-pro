@@ -252,7 +252,7 @@ function appendGate1HydrationTraceLines(lines: string[], summary: Gate1MinimumSi
   lines.push(`  - supplyMissingNeutralized: ${count(summary.supplyMissingNeutralizedCount ?? summary.supplyMissingNeutralized)}`);
   lines.push('  - executionImpact: NONE');
   lines.push('  - shadowLearning: true');
-  lines.push('  - counterfactualRecorded: true');
+  lines.push('  - gate1CounterfactualPolicyAllowed: true');
   if (summary.technicalProjectionCoverage) {
     lines.push(`- technicalProjectionCoverage: ${formatDistribution(summary.technicalProjectionCoverage)}`);
   }

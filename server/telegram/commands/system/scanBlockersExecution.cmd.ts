@@ -96,7 +96,7 @@ function formatUnifiedAuditFull(
   const observeOnly = scopedCount(aggregate, 'observeOnlyCount');
   const blocked = scopedCount(aggregate, 'blockedCount');
   const blockReasonDistribution = (recordOf(aggregate?.blockReasonDistribution) ?? {}) as Record<string, number>;
-  const counterfactualRecorded = resolutions.filter(r => r.counterfactualAllowed).length;
+  const entryCounterfactualReadyCount = resolutions.filter(r => r.counterfactualAllowed).length;
   const head = [
     '[scan_blockers_execution] Final Decision / Execution Permission',
     `sourceSnapshotId=${sourceSnapshotId}`,
@@ -109,7 +109,7 @@ function formatUnifiedAuditFull(
     `blocked: ${blocked}`,
     // 불변식 #6: providerIssue 격리 — market signal 로 변환되지 않으므로 항상 0.
     'providerIssueConvertedToMarketSignal: 0',
-    `counterfactualRecorded: ${counterfactualRecorded}`,
+    `entryCounterfactualReadyCount: ${entryCounterfactualReadyCount}`,
     // 통합 계약상 permission=A 정본 + STRONG_BUY label-only → live/broker leak 구조적 0.
     'gate3LivePermissionLeakDetected: 0',
     'diagnosticOnlyBrokerOrderLeakDetected: 0',
