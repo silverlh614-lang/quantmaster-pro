@@ -307,17 +307,23 @@ function ScoreTiles({ stock }: { stock: StockRecommendation }) {
 }
 
 function formatUpside(stock: StockRecommendation): string {
+  // currentPrice 가 신뢰 소스(NAVER/REALTIME) 가 아니면 upside 도 무의미 — '-' 노출
+  // (Yahoo 환각 ₩1.86M 같은 값으로 +20%/-88% 가짜 산출 차단)
+  const isTrusted = stock.dataSourceType === 'NAVER' || stock.dataSourceType === 'REALTIME';
   const targetPrice = Number(stock.targetPrice) || 0;
   const currentPrice = Number(stock.currentPrice) || 0;
-  if (targetPrice <= 0 || currentPrice <= 0) return '-';
+  if (!isTrusted || targetPrice <= 0 || currentPrice <= 0) return '-';
   const upside = Math.round((targetPrice / currentPrice - 1) * 100);
   return upside > 0 ? `+${upside}%` : `${upside}%`;
 }
 
 function PriceAndUpside({ stock }: { stock: StockRecommendation }) {
-  // currentPrice 0/누락 = enrichment 가 신뢰 가능 소스(KIS/Naver) 모두 실패해 폐기한 상태.
-  // LLM 환각/Yahoo stale 값 표시 절대 금지 — placeholder 노출.
-  const hasPrice = typeof stock.currentPrice === 'number' && stock.currentPrice > 0;
+  // Render-시점 신뢰 가드: dataSourceType 이 NAVER/REALTIME 만 가격 표시 허용.
+  // 캐시된 stock.currentPrice(LLM 환각·Yahoo 잔재·snapshot stale)는 enrichment
+  // 재실행 전이라도 표시 거부 — "가격 미확보" placeholder (불변식 #7 확장:
+  // L4 AI_ESTIMATED·STALE 등은 live execution 뿐 아니라 표시 가격으로도 금지).
+  const isTrustedSource = stock.dataSourceType === 'NAVER' || stock.dataSourceType === 'REALTIME';
+  const hasPrice = isTrustedSource && typeof stock.currentPrice === 'number' && stock.currentPrice > 0;
   return (
     <div className="flex items-center justify-between">
       <div className="flex flex-col">
@@ -330,7 +336,7 @@ function PriceAndUpside({ stock }: { stock: StockRecommendation }) {
           )}
           <ConfidenceBadge type={stock.dataSourceType || 'AI'} />
         </div>
-        {(stock.priceUpdatedAt || stock.dataSource) && (
+        {hasPrice && (stock.priceUpdatedAt || stock.dataSource) && (
           <div className="text-[8px] font-black text-theme-text-muted uppercase tracking-tighter mt-1">
             {stock.priceUpdatedAt} {stock.dataSource && `via ${stock.dataSource}`}
           </div>
