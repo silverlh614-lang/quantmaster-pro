@@ -42,6 +42,7 @@ import {
   applySectorEnergyCanonicalOverride,
   lockSectorEnergyOutputToCanonical,
   renderSectorEnergyCanonicalOutput,
+  renderSectorEnergySourceSeparationBlock,
   sectorEnergyCanonicalOrMissing,
   type SectorEnergyCanonicalState,
 } from '../../../src/domain/sector-energy/SectorEnergyCanonicalResolver.js';
@@ -1271,6 +1272,14 @@ export function formatSectorEnergySupplyUnknownCompactAdr0488(report: SectorEner
     renderSectorEnergyCanonicalOutput(canonical, deriveSectorEnergyDiagnosticSources(sector)),
     // ADR-0544: 세션-aware SectorEnergy Health 요약 (표시 전용, sessionDisplayAdr0544 모듈).
     renderSectorEnergyHealthBlockAdr0544(canonical),
+    // D2 (observe-only): Source Separation 뷰 — official/internalGrouped/shadow/theme/legacy 권한 명시 (표시 전용).
+    renderSectorEnergySourceSeparationBlock(canonical, {
+      internalGroupedValidSectorCount: sector.internalGroupedValidSectorCount,
+      internalGroupedExpectedSectorCount: sector.internalGroupedExpectedSectorCount,
+      legacyOfficialTargetVerifiedCoverage: typeof sector.officialTargetVerifiedCoverageDiagnostic === 'number'
+        ? sector.officialTargetVerifiedCoverageDiagnostic / 100
+        : undefined,
+    }),
     `ADR-0488 SectorEnergyMaster DiagnosticOnly: diagnosticOnly=true | collapsed=true | canonicalStatus=${canonical.dataQuality} | canonicalPromotionAllowed=${canonical.promotionAllowed} | legacySelectedSourceTierDiagnosticOnly=${sector.selectedSectorEnergySourceTier} | legacyTargetCoverage=${pct(sector.officialTargetVerifiedCoverageDiagnostic ?? sector.verifiedIndexCodeCoverage)} | legacyUnsafeAliasExcludedCount=${sector.unsafeExcludedNames?.length ?? 0} | legacyPromotionAllowedDiagnosticOnly=${sector.promotionAllowed} | note=ADR-0488 diagnostic values do not override SectorEnergyCanonicalState | executionImpact=${sector.executionImpact}`,
     `SectorEnergy Decision DiagnosticOnly: diagnosticOnly=true | collapsed=true | canonicalPromotionCoverage=${pct(canonical.promotionCoverage * 100)} | canonicalPromotionAllowed=${canonical.promotionAllowed} | legacyTargetCoverage=${pct(sector.officialTargetVerifiedCoverageDiagnostic ?? sector.verifiedIndexCodeCoverage)} | legacyTargetCoverageUsedForDecision=false | legacySafeCoverageDiagnosticOnly=${pct(sector.safeOfficialVerifiedCoverage ?? sector.verifiedIndexCodeCoverage)} | note=legacy diagnostic metrics do not drive canonical SectorEnergy decision | executionImpact=${sector.executionImpact}`,
     ...formatSectorEnergyPolicyViewsAdr0488(sector, canonical),

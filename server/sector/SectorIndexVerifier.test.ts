@@ -5,7 +5,54 @@ import {
   normalizeOfficialSectorName,
   type OfficialSectorIndexMasterRow,
 } from './SectorIndexCodeMap.js';
-import { buildOfficialSectorIndexMasterCoverage } from './SectorIndexVerifier.js';
+import {
+  buildOfficialSectorIndexMasterCoverage,
+  classifyOfficialSectorIndexVerifyDisplay,
+  resolveMasterLoadedButUnverifiedStatus,
+  OFFICIAL_INDEX_MASTER_LOADED_BUT_UNVERIFIED,
+} from './SectorIndexVerifier.js';
+
+describe('D1 (observe-only): verify 실패 타입 분리 → providerIssue/dataQuality', () => {
+  it('session closed/holiday → SESSION_NOT_VERIFIABLE, providerIssue=false (불변식 #6)', () => {
+    expect(classifyOfficialSectorIndexVerifyDisplay({ sessionClosed: true, reasonCode: 'SECTOR_INDEX_MARKET_CLOSED' }))
+      .toMatchObject({ displayClass: 'SESSION_NOT_VERIFIABLE', providerIssue: false, executionImpact: 'NONE', marketSignal: false });
+    expect(classifyOfficialSectorIndexVerifyDisplay({ selectedFailureReason: 'HOLIDAY_NO_SESSION_OBSERVE_ONLY' }))
+      .toMatchObject({ displayClass: 'SESSION_NOT_VERIFIABLE', providerIssue: false });
+  });
+
+  it('OPEN transport 실패 → OFFICIAL_INDEX_VERIFY_FAILED, providerIssue=true, executionImpact=NONE', () => {
+    expect(classifyOfficialSectorIndexVerifyDisplay({ selectedFailureReason: 'KIS_INDEX_API_HTTP_ERROR' }))
+      .toMatchObject({ displayClass: 'OFFICIAL_INDEX_VERIFY_FAILED', providerIssue: true, executionImpact: 'NONE', marketSignal: false });
+  });
+
+  it('parse 실패 → OFFICIAL_INDEX_VALUE_PARSE_FAILED, providerIssue=true, executionImpact=NONE', () => {
+    expect(classifyOfficialSectorIndexVerifyDisplay({ selectedFailureReason: 'VALUE_PARSE_FAILED' }))
+      .toMatchObject({ displayClass: 'OFFICIAL_INDEX_VALUE_PARSE_FAILED', providerIssue: true, executionImpact: 'NONE' });
+  });
+
+  it('index value 0 → VALUE_QUALITY_LOW (dataQuality=LOW), providerIssue=false', () => {
+    expect(classifyOfficialSectorIndexVerifyDisplay({ selectedFailureReason: 'VALUE_QUALITY_ZERO' }))
+      .toMatchObject({ displayClass: 'VALUE_QUALITY_LOW', dataQuality: 'LOW', providerIssue: false, executionImpact: 'NONE' });
+  });
+
+  it('verified → VERIFIED, providerIssue=false', () => {
+    expect(classifyOfficialSectorIndexVerifyDisplay({ verified: true }))
+      .toMatchObject({ displayClass: 'VERIFIED', providerIssue: false });
+  });
+
+  it('master loaded + OPEN + verify 0건 → OFFICIAL_INDEX_MASTER_LOADED_BUT_UNVERIFIED', () => {
+    expect(resolveMasterLoadedButUnverifiedStatus({ masterLoaded: true, marketClosed: false, verifySuccessCount: 0 }))
+      .toBe(OFFICIAL_INDEX_MASTER_LOADED_BUT_UNVERIFIED);
+    // 휴장이면 status 없음 (세션닫힘이 우선, providerIssue 승격 금지).
+    expect(resolveMasterLoadedButUnverifiedStatus({ masterLoaded: true, marketClosed: true, verifySuccessCount: 0 }))
+      .toBeUndefined();
+    // verify>0 또는 master 미로드면 없음.
+    expect(resolveMasterLoadedButUnverifiedStatus({ masterLoaded: true, marketClosed: false, verifySuccessCount: 3 }))
+      .toBeUndefined();
+    expect(resolveMasterLoadedButUnverifiedStatus({ masterLoaded: false, marketClosed: false, verifySuccessCount: 0 }))
+      .toBeUndefined();
+  });
+});
 
 function officialRow(code: string, name: string): OfficialSectorIndexMasterRow {
   const canonical = canonicalizeOfficialIndexName(name);
