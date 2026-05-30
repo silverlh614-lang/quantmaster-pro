@@ -207,6 +207,16 @@ describe('compareTwinsVsReal', () => {
     }
   });
 
+  it('real 음수 + Twin 종결 0건 → weekWinning false (거짓 우월 차단)', () => {
+    // 회귀: real=-53.35%, 빈 twin cumReturnPct=0. closedCount 가드 없으면 0 > -53.35 = true 로
+    // 데이터 없는 twin 이 ✅ 우월·promotion 후보로 표시되던 버그.
+    const cmp = compareTwinsVsReal(-53.35);
+    for (const k of ALL_TWIN_KEYS) {
+      expect(cmp.perTwin[k].closedCount).toBe(0);
+      expect(cmp.weekWinning[k]).toBe(false);
+    }
+  });
+
   it('Twin 별 cumReturnPct 계산 + Real 대비 우월 판정', async () => {
     // AGGRESSIVE 만 진입 (Gate 16) +20%
     recordTwinEntries({

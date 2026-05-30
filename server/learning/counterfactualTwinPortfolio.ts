@@ -89,7 +89,11 @@ export interface TwinStats {
 export interface TwinComparisonResult {
   perTwin: Record<TwinKey, TwinStats>;
   realCumReturnPct: number;
-  /** 각 Twin 이 real 보다 cumReturnPct 우월하면 1, 아니면 0 — 호출자가 4주 누적 */
+  /**
+   * 각 Twin 이 real 보다 cumReturnPct 우월하면 true — 호출자가 4주 누적.
+   * 단, 종결 거래 0건(closedCount=0) twin 은 증거 부재이므로 항상 false
+   * (real 이 음수일 때 0 > 음수 로 거짓 우월 판정되던 버그 차단).
+   */
   weekWinning: Record<TwinKey, boolean>;
 }
 
@@ -284,7 +288,11 @@ export function compareTwinsVsReal(realCumReturnPct: number): TwinComparisonResu
   for (const twin of ALL_TWIN_KEYS) {
     const stats = computeTwinStats(twin, entries);
     perTwin[twin] = stats;
-    weekWinning[twin] = stats.cumReturnPct > realCumReturnPct;
+    // 불변식 #2 정합 — 증거(종결 거래) 가 없는 twin 은 "우월" 로 판정하지 않는다.
+    // 종결 0건이면 cumReturnPct=0 인데, real 이 음수(예: -53.35%)면 0 > -53.35 = true 로
+    // 데이터 없는 twin 이 거짓 우월(✅)·promotion 후보로 표시되던 버그 차단.
+    // 빈 데이터를 긍정 신호로 변환 금지(데이터 부재 ≠ 우월).
+    weekWinning[twin] = stats.closedCount > 0 && stats.cumReturnPct > realCumReturnPct;
   }
 
   return {
