@@ -48,6 +48,7 @@ Rules:
 | ADR-541 | docs/validation | archive lookup only | `docs/archive/adr/patch-history-full-log.md` |
 | ADR-542 | docs/validation | archive lookup only | `docs/archive/adr/patch-history-full-log.md` |
 | ADR-543 | provider/macro-health/regime | shortSelling KIS L1 proxy fallback (069500→005930) + L4 R5 임계 격리, ENV gated default OFF, executionImpact NONE | `docs/adr/0543-macro-shortselling-kis-l1-proxy-fallback.md` |
+| ADR-544 | sector-energy/display | 휴일/비장중 verify-skip 을 MISSING 과 분리(SESSION_NOT_VERIFIABLE) + KIS auth/skip 분리(providerIssue=false) + operatorAction P1→P3 + Health 블록, promotion/11섹터 정책 무변경, ENV gated byte-equivalent, executionImpact NONE | `docs/adr/0544-sectorenergy-session-not-verifiable-display-isolation.md` |
 
 ---
 

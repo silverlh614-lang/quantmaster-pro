@@ -791,6 +791,10 @@ describe('SectorIndexVerifier', () => {
     expect(result.reasonCodes).not.toContain('PROMOTION_DISABLED_COVERAGE_BELOW_80');
     expect(result.marketSignal).toBe(false);
     expect(result.executionImpact).toBe('NONE');
+    // ADR-0544 T7 precondition: 휴장 스킵 시 clientStatus 가 없으므로 render 가
+    // 인증장애처럼 보이던 근본원인. providerIssue=false 가 보존되어야 한다 (불변식 #6).
+    expect(result.kisIndexQuoteClientStatus).toBeUndefined();
+    expect(result.providerIssue).toBe(false);
   });
 
   it('surfaces KRX/theme index names as themeIndexCandidates for unmapped-sector mapping diagnosis', async () => {

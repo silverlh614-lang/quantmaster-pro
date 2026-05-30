@@ -99,6 +99,22 @@ describe('ADR-0480 Operator Action Router & Remediation Queue', () => {
     expect(action.priority).toBe('P3');
   });
 
+  it('ADR-0544 T8a: 휴일 SectorEnergy verify-skip → REPAIR_SECTOR_INDEX_MASTER P1→P3 강등 + Observe 안내', () => {
+    const action = buildOperatorActionQueueAdr0480({ sources: [
+      source({ adr: '0488', diagnosticKey: 'REPAIR_SECTOR_INDEX_MASTER', diagnosticValue: 'REPAIR_SECTOR_INDEX_MASTER SECTOR_INDEX_MARKET_CLOSED' }),
+    ] }).allActions.find((a) => a.rootCause === 'REPAIR_SECTOR_INDEX_MASTER');
+    expect(action?.priority).toBe('P3');
+    expect(action?.recommendedAction).toContain('next trading session');
+    expect(action?.executionImpact).toBe('NONE');
+  });
+
+  it('ADR-0544 T8b: 장중 실제 SectorEnergy repair → P1 유지 (session 신호 없음)', () => {
+    const action = buildOperatorActionQueueAdr0480({ sources: [
+      source({ adr: '0488', diagnosticKey: 'REPAIR_SECTOR_INDEX_MASTER', diagnosticValue: 'REPAIR_SECTOR_INDEX_MASTER VERIFIED_INDEX_CODE_COVERAGE_LOW' }),
+    ] }).allActions.find((a) => a.rootCause === 'REPAIR_SECTOR_INDEX_MASTER');
+    expect(action?.priority).toBe('P1');
+  });
+
   it('13. Top actions are sorted by priority and evidence count', () => {
     const report = buildOperatorActionQueueAdr0480({ sources: [
       source({ diagnosticKey: 'CACHE_EMPTY', diagnosticValue: 'CACHE_EMPTY' }),
