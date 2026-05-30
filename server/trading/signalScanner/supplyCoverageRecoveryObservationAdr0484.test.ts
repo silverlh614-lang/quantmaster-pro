@@ -56,7 +56,7 @@ describe('ADR-0484 Supply Coverage Recovery Observation', () => {
   it('24. ADR-0479 detail registry exposes ADR-0484 trace', () => { expect(getSupplyCoverageRecoveryDetailRegistryEntryAdr0484(buildSupplyCoverageRecoveryObservationReportAdr0484({ currentSnapshot: snapshot() })).adrTraceHint).toBe('/adr_trace 0484'); });
   it('25. No raw provider payload is persisted', () => { expect(moduleSrc()).not.toContain('rawProvider'); expect(saveSupplyCoverageRecoverySnapshotAdr0484).toBeTypeOf('function'); });
   it('26-27. No KIS order or live execution modules are imported', () => { const src = moduleSrc(); expect(src).not.toMatch(/orderExecutor|trancheExecutor|autoTradeEngine|kis.*Order/i); });
-  it('28. requiredScore remains 70', () => { expect(moduleSrc()).toContain('requiredScore: 70'); });
+  it('28. requiredScore uses LEGACY_GATE1_REQUIRED_SCORE SSOT (ADR-0546, =70)', () => { expect(moduleSrc()).toContain('requiredScore: LEGACY_GATE1_REQUIRED_SCORE'); });
   it('29. Gate thresholds, weights, Kelly remain unchanged', () => { expect(moduleSrc()).not.toMatch(/kelly|gateThreshold|thresholds|weights/i); });
   it('30. UNKNOWN is never converted to bullish', () => { expect(buildSupplyCoverageSnapshotAdr0484({ investorFlowProviderRouterAdr0477: router({ signal: 'UNKNOWN' }) }).investorFlow.bullishSignalCount).toBe(0); });
   it('31. Provider issue is never converted to bearish', () => { expect(buildSupplyCoverageSnapshotAdr0484({ investorFlowProviderRouterAdr0477: router({ status: 'PROVIDER_ERROR', signal: 'UNKNOWN' }) }).investorFlow.bearishSignalCount).toBe(0); });

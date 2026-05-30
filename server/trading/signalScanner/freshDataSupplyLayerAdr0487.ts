@@ -1,6 +1,7 @@
 // @responsibility ADR-0487 Fresh Data Supply Layer foundation; OBSERVE/SHADOW_ONLY diagnostics only.
 import type { OperatorActionSource } from './operatorActionRouterAdr0480.js';
 import type { SupplyCoverageReportAdr0496 } from './investorFlowSemanticNetBuyAdr0496.js';
+import { LEGACY_GATE1_REQUIRED_SCORE } from '../gateConfig.js';
 
 export type FreshDataDomain =
   | 'SECTOR_ENERGY'
@@ -1124,7 +1125,7 @@ export function buildFreshDataSupplyObservationRowAdr0487(report: FreshDataSuppl
     actualLiveEligible: false,
     dryRunDecision: 'UNKNOWN_DIAGNOSTIC_ONLY',
     dryRunScenario: 'FRESH_DATA_SUPPLY_LAYER_ADR0487',
-    requiredScore: 70,
+    requiredScore: LEGACY_GATE1_REQUIRED_SCORE,
     providerIssue: report.overallStatus !== 'READY_FOR_SHADOW',
     marketSignal: false,
     sectorEnergyDiagnosticOnly: true,

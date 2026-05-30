@@ -8,6 +8,7 @@ import type { InvestorFlowSampleAcquisitionReportAdr0489 } from './investorFlowS
 import type { ProgramTradingDataLineReportAdr0490 } from './programTradingDataLineAdr0490.js';
 import type { InvestorFlowSanitizedSampleAdr0496, SupplyCoverageReportAdr0496 } from './investorFlowSemanticNetBuyAdr0496.js';
 import { normalizeInvestorFlowCodeAdr0491, normalizeInvestorFlowSnapshotKeyAdr0491, normalizeInvestorFlowSourceKeyAdr0491, type InvestorFlowSnapshotSourceAdr0491 } from './investorFlowSnapshotKeyNormalizerAdr0491.js';
+import { LEGACY_GATE1_REQUIRED_SCORE } from '../gateConfig.js';
 
 export type SupplySnapshotReplayModeAdr0491 = 'LATEST' | 'PREVIOUS_TRADING_DAY' | 'BY_SCAN_ID' | 'BY_DATE' | 'WINDOW';
 export type SupplySnapshotStatusAdr0491 = 'RECORDED' | 'EMPTY' | 'REPLAY_READY' | 'REPLAY_UNAVAILABLE' | 'CORRUPT_RECOVERED';
@@ -695,7 +696,7 @@ export function buildSupplySnapshotObservationRowAdr0491(result: SupplySnapshotR
     actualLiveEligible: false as const,
     dryRunDecision: 'UNKNOWN_DIAGNOSTIC_ONLY' as const,
     dryRunScenario: 'SUPPLY_SNAPSHOT_STORE_REPLAY_ADR0491',
-    requiredScore: 70,
+    requiredScore: LEGACY_GATE1_REQUIRED_SCORE,
     providerIssue: latest?.providerIssue ?? false,
     marketSignal: false,
     sectorEnergyDiagnosticOnly: true,
