@@ -410,7 +410,10 @@ export function formatGate1ScoreHealthSection(
     `- liveCandidateAfterGate1=${survivor.liveCandidateAfterGate1}`,
     `- diagnosticSurvivor=${survivor.diagnosticSurvivor}`,
     `- shadowObservable=${survivor.shadowObservable}`,
-    `- counterfactualRecorded=${survivor.counterfactualRecorded}`,
+    // P2 후속 (scanblockers-truth-consistency followup): entry-lane scope counterfactual
+    //   (entryLaneSplit.counterfactualCreated). universe-scope(candidatePoolBuilder.
+    //   universeCounterfactualRowsCreated)와 혼동을 막기 위해 scope-prefix. 값/의미 무변경 — 라벨만.
+    `- entryCounterfactualRecorded=${survivor.counterfactualRecorded}`,
     `- note: ${survivor.note}`,
     '',
     'Gate1 Score Invariants:',

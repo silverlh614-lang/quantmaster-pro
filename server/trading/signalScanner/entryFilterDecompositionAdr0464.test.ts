@@ -169,6 +169,23 @@ describe('ADR-0464 entry filter decomposition', () => {
     const d = buildEntryFilterDecomposition({ now, universeCandidates: 20, watchlistCandidates: 20, entries: 0, macroGateState: macro({ regime: 'RISK_OFF' }), candidateSnapshots: snapshots(20) });
     expect(d.filterConservatismReport).toBeUndefined();
   });
+
+  it('Policy Health counterfactualRecorded is scope-labelled entryCounterfactualRecorded (P2 followup)', () => {
+    // scanblockers-truth-consistency 후속: universe-scope(universeCounterfactualRowsCreated)와
+    // 혼동되는 bare 'counterfactualRecorded' 번호목록 항목 잔존 금지 — scope-prefix 라벨만.
+    const d = buildEntryFilterDecomposition({
+      now,
+      universeCandidates: 2,
+      watchlistCandidates: 2,
+      entries: 0,
+      macroGateState: macro(),
+      candidateSnapshots: snapshots(2),
+    });
+    const formatted = formatEntryFilterDecompositionSection(d) ?? '';
+    expect(formatted).toContain(`entryCounterfactualRecorded: ${d.counterfactualRecorded}`);
+    // 번호목록 항목 '10. counterfactualRecorded:' (bare) 는 출력되지 않는다.
+    expect(formatted).not.toMatch(/\d+\.\s+counterfactualRecorded:/);
+  });
 });
 
 it('flattens technical fields from nested symbolFeatures to top-level trace', () => {

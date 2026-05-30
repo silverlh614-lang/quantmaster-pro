@@ -284,7 +284,10 @@ describe('Gate1 score accounting diagnostic consistency', () => {
     expect(accounting?.invariants.every((item) => item.status === 'OK')).toBe(true);
 
     const text = formatGate1ScoreHealthSection(summary) ?? '';
-    expect(text).toContain('counterfactualRecorded=21');
+    // P2 후속 (scanblockers-truth-consistency followup): entry-scope scope-prefix 라벨.
+    expect(text).toContain('entryCounterfactualRecorded=21');
+    // universe-scope(universeCounterfactualRowsCreated)와 혼동되는 bare 라벨은 출력되지 않는다.
+    expect(text).not.toMatch(/(?<![A-Za-z])counterfactualRecorded=/);
   });
 
   it('keeps dry-run duplicate penalty removal out of effective penalty accounting', () => {
