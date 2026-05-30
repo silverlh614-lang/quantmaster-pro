@@ -197,7 +197,8 @@ export interface SupplyUnknownPolicyStabilizationReportAdr0488 {
   survivorsUnknownDiagnosticOnly: number;
   providerVerifiedOverrideWarning: boolean;
   autoDisableWhenProviderVerified: true;
-  requiredScore: 70;
+  /** ADR-0546: Gate1 required score SSOT. default LEGACY_GATE1_REQUIRED_SCORE (70). */
+  requiredScore: number;
   dryRunVariants: SupplyUnknownDryRunVariantResultAdr0488[];
   topGaps: string[];
   recommendedNextActions: string[];

@@ -25,6 +25,7 @@ import {
   type SupplySnapshotReplayResultAdr0491,
 } from './supplySnapshotStoreReplayAdr0491.js';
 import type { Gate1ScoringAlignmentDryRunGateResult } from './gate1ScoringAlignmentDryRunGateAdr0520.js';
+import { LEGACY_GATE1_REQUIRED_SCORE } from '../gateConfig.js';
 
 export type Gate1DryRunObservationSource =
   | 'ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'
@@ -194,12 +195,12 @@ export interface Gate1ThresholdEvidenceSummary {
   matureSamplesD3: number;
   matureSamplesD5: number;
   matureSamplesD10: number;
-  bestDryRunThreshold: 70 | 65 | 60;
+  bestDryRunThreshold: number; // ADR-0546: default LEGACY_GATE1_REQUIRED_SCORE (70); 65/60 = dry-run relax bands
   recommendedAction: 'OBSERVE_MORE' | 'REVIEW_THRESHOLD_WITH_OPERATOR' | 'KEEP_THRESHOLD' | 'SHADOW_ONLY_ADJUSTMENT_REVIEW';
   confidence: 'INSUFFICIENT_SAMPLE' | 'OBSERVING' | 'READY_FOR_REVIEW';
   reviewReady: boolean;
   reviewBlockers: string[];
-  liveRequiredScore: 70;
+  liveRequiredScore: number; // ADR-0546: default LEGACY_GATE1_REQUIRED_SCORE (70)
   shadowObservationMode: 'ON';
   shadowObservationBands: Array<'60~65' | '65~70' | '70+'>;
   liveThresholdAutoChanged: false;
@@ -473,7 +474,7 @@ function rowFromSnapshot(input: {
   marketSignal: boolean;
   sectorEnergyDiagnosticOnly: boolean;
 }): Gate1DryRunObservationRow {
-  const requiredScore = input.requiredScore ?? input.snapshot.minSignalRequiredScore ?? 70;
+  const requiredScore = input.requiredScore ?? input.snapshot.minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE;
   const actualScore = input.snapshot.gateScore;
   const score = input.dryRunScore ?? actualScore;
   const scoreGap = finite(score) ? round1(score - requiredScore) : undefined;
@@ -621,7 +622,7 @@ function buildPositiveWiringRows(input: Gate1DryRunObservationBuildInput, nowIso
     ?? [...report.dryRunScenarios].sort((a, b) => b.netScoreAvg - a.netScoreAvg)[0];
   if (!best) return [];
   const snapshots = [...(input.candidateSnapshots ?? [])].slice(0, input.topN ?? 5);
-  const requiredScore = best.requiredScore || 70;
+  const requiredScore = best.requiredScore || LEGACY_GATE1_REQUIRED_SCORE;
   const topCount = Math.max(1, Math.min(input.topN ?? 5, snapshots.length || 5));
   const synthetic = snapshots.length > 0
     ? snapshots
@@ -693,7 +694,7 @@ function buildGate1ScoreObservationV2Rows(input: Gate1DryRunObservationBuildInpu
     .sort((a, b) => (b.gateScore ?? Number.NEGATIVE_INFINITY) - (a.gateScore ?? Number.NEGATIVE_INFINITY))
     .slice(0, input.topN ?? 10);
   return rows.map((snapshot) => {
-    const requiredScore = snapshot.minSignalRequiredScore ?? 70;
+    const requiredScore = snapshot.minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE;
     const score = snapshot.gateScore;
     const gap = finite(score) ? round1(score - requiredScore) : Number.NEGATIVE_INFINITY;
     return rowFromSnapshot({
@@ -718,7 +719,7 @@ function buildGateNearMissRows(input: Gate1DryRunObservationBuildInput, nowIso: 
   const rows = [...(input.candidateSnapshots ?? [])]
     .filter((snapshot) => finite(snapshot.gateScore))
     .map((snapshot) => {
-      const requiredScore = snapshot.minSignalRequiredScore ?? 70;
+      const requiredScore = snapshot.minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE;
       const gap = round1((snapshot.gateScore ?? 0) - requiredScore);
       return { snapshot, requiredScore, gap };
     })
@@ -755,7 +756,7 @@ function buildCounterfactualUniverseRows(input: Gate1DryRunObservationBuildInput
     scenario: 'BEFORE_BUYLIST_LOOP_SNAPSHOT',
     dryRunDecision: 'WOULD_STILL_FAIL',
     dryRunScore: snapshot.gateScore,
-    requiredScore: snapshot.minSignalRequiredScore ?? 70,
+    requiredScore: snapshot.minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE,
     ...observationInputContext(input),
     sellOnly: input.sellOnly === true,
     providerIssue: input.providerIssue === true,
@@ -776,7 +777,7 @@ function buildInvestorFlowRouterRows(input: Gate1DryRunObservationBuildInput, no
     actualLiveEligible: false,
     dryRunDecision: route.signal === 'BULLISH' ? 'PROVIDER_SOFTENED' : 'WOULD_STILL_FAIL',
     dryRunScenario: 'INVESTOR_FLOW_PROVIDER_ROUTER_ADR0477',
-    requiredScore: 70,
+    requiredScore: LEGACY_GATE1_REQUIRED_SCORE,
     providerIssue: route.signal === 'UNKNOWN',
     marketSignal: route.signal === 'BEARISH',
     sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
@@ -814,7 +815,7 @@ function buildNaverInvestorTrendRowsAdr0481(input: Gate1DryRunObservationBuildIn
     actualLiveEligible: false,
     dryRunDecision: result.signal === 'BULLISH' ? 'PROVIDER_SOFTENED' : 'WOULD_STILL_FAIL',
     dryRunScenario: 'NAVER_INVESTOR_TREND_COLLECTOR_ADR0481',
-    requiredScore: 70,
+    requiredScore: LEGACY_GATE1_REQUIRED_SCORE,
     providerIssue: result.signal === 'UNKNOWN',
     marketSignal: result.signal === 'BEARISH',
     sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
@@ -852,7 +853,7 @@ function buildSemanticNetBuyNormalizerRowsAdr0482(input: Gate1DryRunObservationB
     actualLiveEligible: false,
     dryRunDecision: report.signal === 'BULLISH' ? 'PROVIDER_SOFTENED' : 'WOULD_STILL_FAIL',
     dryRunScenario: 'SEMANTIC_NETBUY_NORMALIZER_ADR0482',
-    requiredScore: 70,
+    requiredScore: LEGACY_GATE1_REQUIRED_SCORE,
     providerIssue: selected === null || selected.quality.isProviderIssue,
     marketSignal: report.signal === 'BEARISH',
     sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
@@ -1322,12 +1323,12 @@ export function buildGate1ThresholdEvidenceSummary(
     matureSamplesD3: matureD3,
     matureSamplesD5: matureD5,
     matureSamplesD10: matureD10,
-    bestDryRunThreshold: 70,
+    bestDryRunThreshold: LEGACY_GATE1_REQUIRED_SCORE,
     recommendedAction,
     confidence,
     reviewReady,
     reviewBlockers,
-    liveRequiredScore: 70,
+    liveRequiredScore: LEGACY_GATE1_REQUIRED_SCORE,
     shadowObservationMode: 'ON',
     shadowObservationBands: ['60~65', '65~70', '70+'],
     liveThresholdAutoChanged: false,
@@ -1405,7 +1406,7 @@ export function formatGate1ThresholdEvidenceSection(
     'nextReview: after enough D5 samples',
     '',
     'Threshold Policy Split:',
-    `- liveRequiredScore=${summary ? summary.liveRequiredScore : 70}`,
+    `- liveRequiredScore=${summary ? summary.liveRequiredScore : LEGACY_GATE1_REQUIRED_SCORE}`,
     '- liveThresholdAutoChanged=false',
     `- shadowObservationMode=${summary ? summary.shadowObservationMode : 'ON'}`,
     `- shadowObservationBands=${summary ? summary.shadowObservationBands.join(',') : '60~65,65~70,70+'}`,

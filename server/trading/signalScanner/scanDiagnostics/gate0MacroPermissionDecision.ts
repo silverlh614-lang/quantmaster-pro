@@ -432,7 +432,12 @@ function sourceSnapshotId(summary: ScanSummary | null | undefined): string {
   return text(summary?.snapshotId ?? summary?.scanEvaluation?.scanId ?? summary?.macroGateState?.regimeSnapshotId, 'NO_SCAN_SUMMARY');
 }
 
-function effectiveRegime(mg: MacroGateState | null | undefined): string {
+/**
+ * scoring-effective regime SSOT. stale legacy R6 path(displayRegime/regime 모두 R6 아님)
+ * 이면 rawRegime 으로 복귀해 legacy R6 누출을 차단한다 (LEGACY_R6_NOT_USED_FOR_DECISION 정합).
+ * ADR-0546 섀도 로깅이 본 함수를 재사용 — Gate1 required 레짐 입력 단일화.
+ */
+export function resolveScoringEffectiveRegime(mg: MacroGateState | null | undefined): string {
   const rawRegime = mg?.macroRegimeRaw ?? mg?.regime ?? 'UNKNOWN';
   const displayRegime = mg?.displayRegime ?? mg?.regime ?? 'UNKNOWN';
   const legacyEffectiveRegime = mg?.macroRegimeEffective ?? mg?.regime ?? rawRegime;
@@ -475,7 +480,7 @@ export function buildGate0Decision(summary: ScanSummary | null | undefined, now 
     ...snapshotUsage,
     ...validity,
     rawRegime: mg?.macroRegimeRaw ?? mg?.regime ?? 'UNKNOWN',
-    effectiveRegime: effectiveRegime(mg),
+    effectiveRegime: resolveScoringEffectiveRegime(mg),
     displayRegime,
     riskOverride: mg?.riskOverride ?? 'NONE',
     engineMode,

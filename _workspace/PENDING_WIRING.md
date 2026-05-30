@@ -87,6 +87,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | C4 | 0140 Naver 외인 추세 | `server/persistence/foreignerRatioRepo.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 6영업일 누적 후 — enrichment 시그널 + signalScanner 가중치 + enemyChecklist 외인 이탈 플래그 wiring |
 | C5 | 0142 FSS Mapping | `server/persistence/fssMappingPolicy.ts` | 2026-05-02 | BLOCKED | P2 | 운영자 결정 + 1~2주 데이터 누적 후 — `FSS_MAPPING_ENABLED=true` ENV 활성화 결정 대기 (`/fss_mapping` 검증 + 시장 행동 일치도 확인) |
 | C6 | 0136 PR-1 후속 | `server/trading/regimeBridge.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P1 | regime 의사결정 회귀 격리 — `passiveActiveBoth=null → R3_EARLY 트리거 보수화` wiring |
+| C19 | 0546 Gate1 Regime-Aware Required (Phase 2) | `server/trading/gateConfig.ts` | 2026-05-30 | BLOCKED | P0 | **운영자 결정 대기 + forward-outcome 데이터 누적 후** — `resolveGate1RequiredScore` SSOT. Phase 1(ADR-0546)은 SSOT 신설 + 섀도 병행 로깅까지(`GATE1_REGIME_AWARE_REQUIRED=false` 동작 보존). Phase 2: 3영업일+ forward-outcome 로 `regimeAwareRequired`(R3_EARLY→40~60) 승률 비손상 검증 후 `GATE1_REGIME_AWARE_REQUIRED=true` 전환 + R3 Sanity Guard 입력을 레짐 인식값으로 승격(GATE1_PASS_ZERO 해소) + `entryRevalidationStep`/`normalizeMacroRegime` regime 라벨 이중 명명(RegimeLevel↔MacroRegime) 정합·resolvedRegime 단일 스냅샷 전달·분모 폴백(R4=5) 점검. LIVE 매매 활성화 경로 — 검증 후 진행. SLA 면제 (운영자 결정 + 데이터 누적). |
 | C16 | 0389/0390 PR-E 8 evaluator status migration | `server/quant/conditions/evaluators.ts` | 2026-05-06 | BLOCKED | P3 | **사용자 결정 대기 — SL 발생 후 추천 재검토** (사용자 명시 5/6 PR-A 머지 후 "나머지는 부채로 등록 (sl 이후 추천)"). 8 evaluator (rsi_zone / macd_bull / pullback / ma60_rising / weekly_rsi_zone / supply_confluence / earnings_quality / trend_acceleration) 의 `ConditionEvalStatus` 격상 — `DATA_UNAVAILABLE` / `THRESHOLD_NOT_MET` / `PROVIDER_DEGRADED` / `FIRED` 4 분류 분리. ADR-0390 (five-evaluator-status-migration, PR #658) 5 evaluator 완료 + ADR-0411 PR-Z6 (#659) Yahoo↔KIS PROVIDER_DEGRADED layer 추가, 잔여 8 — 사용자 결정 대기. SLA 면제 (사용자 결정 패턴). |
 | C17 | 0388 P5 context propagation | `server/trading/signalScanner/perSymbol/buyListLoop.ts` | 2026-05-06 | BLOCKED | P3 | **사용자 결정 대기 — SL 발생 후 추천 재검토**. `ConditionEvalContext` 또는 perSymbolEvaluation 결과에 `hadRequiredData` / `skippedByPolicy` / `dataUnavailableReasons` 메타 명시 전달 — 점수 0 의 4 의미 (THRESHOLD_NOT_MET / DATA_UNAVAILABLE / PROVIDER_DEGRADED / SKIPPED_BY_POLICY) 구분 가능. 현재 evaluator 가 직접 추측 → context 신뢰 격상. ADR-0388 (condition-eval-status-error-isolation, PR #656) 패턴 차용. SLA 면제 (사용자 결정 패턴). |
 | C18 | (신규) P6 Yahoo quoteSummary PER/EPS | `server/screener/adapters/yahooQuoteAdapter.ts` | 2026-05-06 | BLOCKED | P3 | **사용자 결정 대기 — SL 발생 후 추천 재검토**. Yahoo chart API 외 quoteSummary endpoint 를 opportunistic enrichment 로 사용 — `trailingPE` / `forwardPE` / `epsTrailingTwelveMonths` 보강. 실패해도 OHLCV quote 유지 + `perSource` 출처 표시 (`YAHOO_CHART_META` / `YAHOO_QUOTE_SUMMARY` / `UNAVAILABLE`). ADR-0058 IntentTag `HISTORICAL` 분류 + 5분 TTL + Negative cache 30분. PER 데이터 부재율 감소 + per evaluator `DATA_UNAVAILABLE` 원인 명확화. SLA 면제 (사용자 결정 + 외부 API 의존성). |
@@ -125,10 +126,10 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 |----------|---------|----|----|----|----|
 | A. 학습 시리즈 | 14 | 0 | 9 | 5 | 0 |
 | B. 매매 본체 | 12 | 1 | 4 | 7 | 0 |
-| C. 시그널 입력 | 9 | 0 | 1 | 5 | 3 |
+| C. 시그널 입력 | 10 | 1 | 1 | 5 | 3 |
 | D. UI Phase | 8 | 0 | 4 | 4 | 0 |
 | E. 영속/진단 | 10 | 0 | 0 | 4 | 6 |
-| **합계** | **53** | **1** | **18** | **25** | **9** |
+| **합계** | **54** | **2** | **18** | **25** | **9** |
 
 > 주: 위 통계는 active backlog 기준이다. 완료/영구결정 `DECIDED_NOT_WIRING` 15건은 2026-05-25 정리로 active table 에서 제거했다.
 

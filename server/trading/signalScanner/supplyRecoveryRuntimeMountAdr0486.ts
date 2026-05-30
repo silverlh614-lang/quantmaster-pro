@@ -1,5 +1,6 @@
 // @responsibility ADR-0486 supply recovery runtime mount verification; diagnostic-only formatter/evidence audit.
 import type { OperatorActionSource } from './operatorActionRouterAdr0480.js';
+import { LEGACY_GATE1_REQUIRED_SCORE } from '../gateConfig.js';
 
 export type SupplyRecoveryMountStatus =
   | 'MOUNTED'
@@ -617,7 +618,7 @@ export function buildSupplyRecoveryRuntimeMountObservationRowAdr0486(
     actualLiveEligible: false,
     dryRunDecision: 'UNKNOWN_DIAGNOSTIC_ONLY',
     dryRunScenario: 'SUPPLY_RECOVERY_RUNTIME_MOUNT_ADR0486',
-    requiredScore: 70,
+    requiredScore: LEGACY_GATE1_REQUIRED_SCORE,
     providerIssue: report.missingEvidenceCount > 0 || report.legacyOutputCount > 0,
     marketSignal: false,
     sectorEnergyDiagnosticOnly: false,

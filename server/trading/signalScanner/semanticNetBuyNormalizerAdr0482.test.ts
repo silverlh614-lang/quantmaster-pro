@@ -305,7 +305,7 @@ describe('ADR-0482 Semantic Net-Buy Normalizer', () => {
   it('requiredScore, Gate thresholds, weights, and Kelly remain unchanged', () => {
     const ledgerSrc = fs.readFileSync(path.resolve('server/trading/signalScanner/gate1DryRunObservationLedgerAdr0476.ts'), 'utf-8');
     const normalizerSrc = fs.readFileSync(path.resolve('server/trading/signalScanner/semanticNetBuyNormalizerAdr0482.ts'), 'utf-8');
-    expect(ledgerSrc).toContain('requiredScore: 70');
+    expect(ledgerSrc).toContain('requiredScore: LEGACY_GATE1_REQUIRED_SCORE');
     expect(normalizerSrc).not.toMatch(/requiredScore\s*=\s*(60|65)|setGateThreshold|GATE_RELAX|kelly/i);
   });
 
