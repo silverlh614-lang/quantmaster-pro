@@ -230,6 +230,77 @@ UI→hook→store→service→표시의 정적 배선은 두 흐름 모두 **끊
 
 ---
 
+## 10. 전체 페이지 와이어링 점검 + 수정 계획 (2026-05-27)
+
+§1~§9 는 DISCOVER/WATCHLIST 한 흐름만 깊게 다뤘다. 본 §10 은 **나머지 모든 페이지**(MARKET, MANUAL_INPUT, AUTO_TRADE, TRADE_JOURNAL, SCREENER, SUBSCRIPTION, BACKTEST, PORTFOLIO_EXTRACT, RECOMMENDATION_HISTORY, MACRO_INTEL, SHADOW_LEARNING, 진단 5종, PUBLIC_REPORT 4종, WALK_FORWARD)를 *얕게-넓게* 훑은 결과다. 깊은 추적은 후속 라운드.
+
+### 10.1 페이지별 상태 표
+
+| # | View | 컴포넌트 (file) | 주 데이터 출처 | 주 액션 | 상태 | 사유/냄새 |
+|---|------|----------------|----------------|---------|------|------------|
+| 1 | MARKET | `MarketPage.tsx` | `useMarketStore` · `evaluateGate0` | `onFetchMarketOverview` (prop) | OK | 자동 갱신 useEffect, 출처 명확 |
+| 2 | MANUAL_INPUT | `ManualInputPage.tsx` | `useMarketStore` (읽기) | — (입력 없음) | **DECORATIVE** | 이름 "수동 입력"인데 input·submit 0건. Market Regime Viewer 성격 |
+| 3 | AUTO_TRADE | `AutoTradePage.tsx` | `useAutoTradingDashboard` · `useEngineStream`(SSE) | toggleEngine · emergencyStop · KPI drilldown | OK | LIVE 매매 본체 연결, Nuclear Reactor Gate arm/resume 정상. 본 PR 범위 밖(매매 본체) |
+| 4 | TRADE_JOURNAL | `TradeJournalPage.tsx` | `useTradeStore` | onCloseTrade · onDeleteTrade · onUpdateMemo · onTriggerPreMortem | OK | PageRouter 4-prop 정상 |
+| 5 | SCREENER | `ScreenerPage.tsx` | `useRecommendationStore` · `useAnalysisStore` | `onScreen(handleScreenWithUniverse)` | OK | Gate Wizard·Bear Screen 분기 정상 |
+| 6 | SUBSCRIPTION | `SubscriptionPage.tsx` | `useSettingsStore` · `useRecommendationStore` | onAddSector · onRemoveSector | OK | 섹터 필터→추천 실시간 갱신 |
+| 7 | BACKTEST | `BacktestPage.tsx` | `useMarketStore` · `usePortfolioStore` | onRunBacktest 등 10개 | OK | 포트폴리오 CRUD+가중치+AI추천 완비 |
+| 8 | PORTFOLIO_EXTRACT | `PortfolioExtractPage.tsx` | `useRecommendationStore`(read) | `handleExtract` (setTimeout 애니메이션) | **PARTIAL** | 추출 버튼이 **UI 애니메이션만 실행** — 실제 portfolio 저장/라우팅 호출 없음. 결과가 어디로 가는지 끊김 |
+| 9 | RECOMMENDATION_HISTORY | `RecommendationHistoryPage.tsx` | `fetchRecommendationHistory`·`fetchRecommendationStats` (useQuery 30s) | period 7/30/90/ALL 필터 | OK | TanStack Query 폴링, signal breakdown |
+| 10 | MACRO_INTEL | `MacroIntelligencePage.tsx` | `useGlobalIntelStore` (6 layer) | — (읽기) | OK | 매크로 6 레이어 대시보드 |
+| 11 | SHADOW_LEARNING | `ShadowLearningPage.tsx` | useQuery ×4 (rejection/twin/attribution/cases) | — | OK | 60s 폴링, 5 카드 |
+| 12 | DIAGNOSTICS+4 (5 view) | `LearningSanityDashboardPage.tsx` | useQuery ×6 (ADR-0178~0182) | — | OK | 6 카드, 60s 폴링 |
+| 13 | PUBLIC_REPORT+3 (4 view) | `PublicReportPage.tsx` | `useGlobalIntelStore` · `useMarketStore` · `useShadowTradeStore` | focusSection 스크롤, mode 토글 | OK | 4 view 단일 컴포넌트 분기 |
+| 14 | WALK_FORWARD | `WalkForwardView.tsx` | `performWalkForwardAnalysis`(stockService) | 분석 버튼 | OK | API 호출+결과+rate-limit 토스트. 재시도 UX 없음(P2) |
+
+요약: **OK 12 / PARTIAL 1 / DECORATIVE 1 / BROKEN 0** (DISCOVER 제외). 앱 골격 와이어링은 대체로 건강하다. 사용자가 체감한 "잘 안 됨" 의 대부분은 DISCOVER 한 흐름과 카드 데이터 품질에 집중돼 있었고, 이는 §6/§9 에서 처리됐다.
+
+### 10.2 미해결 우선순위 종합 (§6+§9+§10)
+
+| 우선순위 | 항목 | 위치 | 상태 |
+|---|---|---|---|
+| **P0** | (없음) — 모든 P0 후속 처리 또는 진단 완료 | — | — |
+| **P1** | §10 PortfolioExtract 추출 흐름이 UI 애니메이션만 — 실제 저장/라우팅 부재 | `PortfolioExtractPage.tsx:handleExtract` | 미수정 |
+| **P1** | §10 ManualInput 이름과 내용 불일치 — 입력 0건인 읽기 페이지 | `ManualInputPage.tsx` | 미수정 (rename or 액션 추가) |
+| **P1 (BLOCKED)** | §9.1b PER/PBR N/A 데이터 소스 확장 (ADR-0536 Proposed) | `enrichment.ts` + 새 yahoo quoteSummary | ADR 머지됨, 구현 보류(운영자+네트워크) |
+| **P2** | §10 WalkForward 재시도 UX 없음 (rate-limit 시 수동 재클릭) | `WalkForwardView.tsx` | polish |
+| **P2** | §10 AutoTrade 신규 사용자 온보딩 복잡도 (LIVE 매매 본체와 연결) | `AutoTradePage.tsx` | UX·문서, 매매 본체 무관 |
+
+§6/§9 의 P0/P1 들(배너 가시성·VITE 키 문서·파이프라인 라벨·EPS 포맷·배지 정직화·dataSource 정직화)은 #1285~#1292 로 모두 머지 완료.
+
+### 10.3 다음 수정 계획 (어디서부터)
+
+권장 순서 — 위험도 낮은 것부터, 사용자 체감 큰 것부터.
+
+**1) ManualInputPage — 정체성 결정 (저위험, 빠름)** ⭐ 첫 후보
+- 두 옵션 중 사용자 결정 필요: (a) 정말로 수동 입력 페이지로 만들 것인지(가격/지표 직접 입력 → 분석 트리거) (b) "Market Regime Viewer" 류로 이름·아이콘 정정. 코드 변경 최소(rename or 1~2 input 추가). 매매 본체·SourceSnapshot 무관. **이걸 먼저 확정**해야 사이드바 라벨이 정직해진다.
+
+**2) PortfolioExtractPage — 추출 결과 destination 와이어링 (P1, 의미 있는 기능 복구)**
+- 현재 `handleExtract` 가 UI 애니메이션만 실행한다. 의도가 (a) Backtest 페이지로 추출 종목을 보내기 (b) `usePortfolioStore` 에 임시 저장 (c) PDF/CSV 내보내기 중 어느 것인지 확정 후 해당 호출 추가. 1~2파일, 매매 본체 무관, 회귀 위험 작음.
+
+**3) (BLOCKED 해소) C18 wiring (ADR-0536) — 운영자 승인·네트워크 검증 후**
+- §9.1b PER/PBR N/A 근본 해소. 외부 API(quota) + ENV 활성화 + 실 Naver/Yahoo 네트워크 테스트가 필요해 본 컨테이너 단독 진행 불가. 운영자 승인 시 별도 PR.
+
+**4) WalkForward 재시도 UX (P2 polish)**
+- rate-limit 시 자동 backoff 재시도 또는 명시적 "다시 시도" 버튼. WalkForwardView 단일 파일.
+
+**5) AutoTrade 온보딩 UX (P2, 매매 본체 무관)**
+- Nuclear Reactor Gate·KPI 드릴다운 등 풍부한 기능에 대한 inline help/tour. LIVE 매매 본체 코드 무변경 — UI 보조만.
+
+명시적 비권장 (현재 시점):
+- AutoTrade 본체 로직 수정: 본 audit 범위 밖, LIVE 매매 본체.
+- ScreenerPage Gate Wizard 깊은 변경: 매매 후보 평가 로직 인접 — 별도 audit 필요시.
+- LearningSanityDashboardPage 6 카드 확장: 데이터 누적·진단 도메인, ADR 동반 변경 권장.
+
+### 10.4 추가 audit 권고 (선택)
+
+다음 audit 라운드에서 다룰 만한 것:
+- AutoTradePage 의 SSE(`useEngineStream`) 끊김/재연결 UX.
+- ScreenerPage Gate Wizard 의 데이터 출처 라벨(서버 스크리너 결과 vs 클라이언트 추천).
+- BacktestPage AI 추천 가중치(`applyAIRecommendedWeights`) 의 데이터 출처와 한계 노출.
+
+---
+
 ## 검증 명령 (package.json 확인 결과 — 이번 단계 실행은 선택)
 
 | 명령 | 존재 | 비고 |
