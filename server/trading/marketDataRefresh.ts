@@ -30,6 +30,7 @@ import { resolveRegimeSnapshot } from './regime/regimeResolver.js';
 import { classifyMacroDataHealth, listMacroDataHealthIssues, summarizeMacroDataHealth } from './regime/macroDataHealthRouter.js';
 import { defaultWarnTtlSec, emitOperationalWarn } from '../observability/operationalWarn.js';
 import { fetchKisMarketSupply, fetchKisMarketProgramTrade } from '../clients/kisClient.js';
+import { tryKrxShortViaKisProxy } from './shortSellingKisProxy.js';
 import { enforceRowInvariant, resolveCombinedSource } from './programMarketSnapshot.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
 import { fetchLatestUsdKrw, fetchLatestMarginBalance5dChange } from '../clients/ecosClient.js';
@@ -365,13 +366,10 @@ function parsePct(v: unknown): number | null {
 }
 
 /**
- * 공매도 비율 데이터 출처 — Phase 1 운영 가시화.
- *
- *   - KRX_DIRECT   : KRX 공개 JSON 직접 호출 성공 (가장 신뢰도 높음)
- *   - KRX_OTP      : KRX OTP-token 부트스트랩 후 재호출 성공 (정상 fallback)
- *   - KIS_ESTIMATE : KRX 두 경로 모두 실패 → KIS 잔고 상위 가중 평균 추정 (근사값)
+ * 공매도 비율 데이터 출처 — Phase 1 운영 가시화. KRX_DIRECT/KRX_OTP(L1) ·
+ * KIS_PROXY(L1, ADR-0543 daily-short-sale 프록시 ETF, ENV gated) · KIS_ESTIMATE(L4 휴리스틱, 최후).
  */
-export type ShortSellingSource = 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_ESTIMATE';
+export type ShortSellingSource = 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_PROXY' | 'KIS_ESTIMATE';
 
 export interface ShortSellingResult {
   /** 공매도 비율 (%) */
@@ -383,16 +381,10 @@ export interface ShortSellingResult {
 }
 
 /**
- * KRX 공매도 비율 조회 — 다단계 폴백 체인.
- *
- *   1) KRX 공개 JSON (referer + User-Agent)              ← 1차 (가장 단순, 가장 잘 깨짐)
- *   2) KRX OTP-token 부트스트랩 후 재호출                ← 2차 (Naver/공공데이터에 일반적인 패턴)
- *   3) KIS 공매도 잔고 상위(FHPST04020000) 가중 평균 추정 ← 3차 (직접 비율 X — 추정값)
- *
- * 모두 실패하면 null. macroState 의 shortSellingRatio 는 "기존 값 유지" 정책.
- *
- * Phase 1 — 반환값에 source 라벨 부착하여 운영자가 어느 fallback 이 작동 중인지 인지.
- * 본 데이터는 macroState 에 영속(`shortSellingSource`) → /health 에 노출.
+ * KRX 공매도 비율 조회 — 다단계 폴백 체인 (ADR-0543 확장):
+ *   1) KRX 공개 JSON(L1)  2) KRX OTP(L1)  3) KIS 프록시 ETF(L1, ENV gated)  4) KIS 추정(L4, 최후)
+ * 모두 실패하면 null → macroState shortSellingRatio "기존 값 유지"(carryForward) 정책.
+ * 반환값 source 라벨은 macroState 에 영속(`shortSellingSource`) → /health 노출.
  */
 export async function fetchKrxShortSelling(): Promise<ShortSellingResult | null> {
   const fetchedAt = new Date().toISOString();
@@ -407,7 +399,17 @@ export async function fetchKrxShortSelling(): Promise<ShortSellingResult | null>
   const viaOtp = await tryKrxShortViaOtp();
   if (viaOtp != null) return { ratio: viaOtp, source: 'KRX_OTP', fetchedAt };
 
-  // ── 3차: KIS 공매도 잔고 상위 → 가중 평균 추정 ────────────
+  // ── 3차 (ADR-0543, ENV gated default OFF): KIS 시장-프록시 ETF 비중 (L1) ──
+  // 플래그 !== 'true' 면 미호출 → byte-equivalent (기존 3경로 유지). kisClient 단일통로.
+  if (process.env.SHORT_SELLING_KIS_PROXY_FALLBACK === 'true') {
+    const viaKisProxy = await tryKrxShortViaKisProxy();
+    if (viaKisProxy != null) {
+      console.log(`[MarketRefresh] KRX 공매도 비율 KIS L1 프록시: ${viaKisProxy.toFixed(2)}% (daily-short-sale)`);
+      return { ratio: viaKisProxy, source: 'KIS_PROXY', fetchedAt };
+    }
+  }
+
+  // ── 4차 (최후): KIS 공매도 잔고 상위 → 가중 평균 추정 (L4) ────────────
   // 정확한 "전체 시장 비율" 은 아니지만, top 30 종목의 BAL_QTY/시총 가중 평균은
   // 시장 압력의 1차 근사로 사용 가능. 임계값(8%) 비교 용도로는 충분.
   const viaKis = await tryKrxShortViaKisRanking();
@@ -1099,16 +1101,23 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
   }
 
   // ── ⑥ KRX 공매도 비율 (코스피 전체) ──────────────────────────────────────
-  // 8% 초과 시 R5_CAUTION 보조 조건 — regime 분류기가 computed.shortSellingRatio를 참조.
-  // Phase 1: 출처(source) + 조회 시각(fetchedAt) 도 macroState 에 영속 → /health 에 노출.
+  // 8% 초과 시 R5_CAUTION 보조 — regimeEngine.classifyRegime 가 regimeBridge 경유 `> 8` 참조.
+  // source/fetchedAt 도 macroState 영속 → /health 노출.
   const shortResult = await fetchKrxShortSelling();
   if (shortResult != null) {
-    computed.shortSellingRatio = shortResult.ratio;
+    // ADR-0543 소비측 L4 가드(불변식 #7): KIS_ESTIMATE(휴리스틱)·CACHE(수동백필)는 L4 → R5 8%
+    // 임계 평가 제외 — 영속 ratio 를 경계(8) 이하로 캡(source/fetchedAt 보존). regime 산출 자체
+    // (regimeBridge.base.ts `?? 5`) 무변경=엔진 생존(불변식 #1). ENV OFF 면 미적용(byte-equivalent).
+    const L4_SOURCES: ReadonlySet<ShortSellingSource | 'CACHE'> = new Set(['KIS_ESTIMATE', 'CACHE']);
+    const capL4 = process.env.SHORT_SELLING_KIS_PROXY_FALLBACK === 'true' && L4_SOURCES.has(shortResult.source);
+    const ratioForRegime = capL4 ? Math.min(shortResult.ratio, 8) : shortResult.ratio;
+    computed.shortSellingRatio = ratioForRegime;
     computed.shortSellingSource = shortResult.source;
     computed.shortSellingFetchedAt = shortResult.fetchedAt;
     console.log(
-      `[MarketRefresh] KRX 공매도비율: ${shortResult.ratio.toFixed(2)}% ` +
-        `(source=${shortResult.source})${shortResult.ratio > 8 ? ' ⚠ R5_CAUTION 보조' : ''}`,
+      `[MarketRefresh] KRX 공매도비율: ${shortResult.ratio.toFixed(2)}% (source=${shortResult.source})` +
+        (ratioForRegime !== shortResult.ratio ? ` [L4 R5임계 제외→${ratioForRegime.toFixed(2)}%]` : '') +
+        (ratioForRegime > 8 ? ' ⚠ R5_CAUTION 보조' : ''),
     );
   } else {
     emitMarketDataProviderWarn('SHORT_SELLING_QUERY_FAILED', {

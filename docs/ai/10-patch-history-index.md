@@ -47,6 +47,7 @@ Rules:
 | ADR-535 | test fixtures | canonical mock/schema alignment | `docs/archive/adr/adr-535-test-fixture-schema-alignment.md` |
 | ADR-541 | docs/validation | archive lookup only | `docs/archive/adr/patch-history-full-log.md` |
 | ADR-542 | docs/validation | archive lookup only | `docs/archive/adr/patch-history-full-log.md` |
+| ADR-543 | provider/macro-health/regime | shortSelling KIS L1 proxy fallback (069500→005930) + L4 R5 임계 격리, ENV gated default OFF, executionImpact NONE | `docs/adr/0543-macro-shortselling-kis-l1-proxy-fallback.md` |
 
 ---
 
