@@ -4,6 +4,7 @@ import type { FreshDataSupplyReportAdr0487 } from './freshDataSupplyLayerAdr0487
 import type { FinalGate1CalibrationAuditReport, UnknownPenaltyPolicyScenario } from './gate1FinalCalibration.js';
 import type { PenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js';
 import type { CandidateSnapshot } from './entryFilterDecomposition.js';
+import { LEGACY_GATE1_REQUIRED_SCORE } from '../gateConfig.js';
 import type { LeadershipConfidence, SectorEnergySourceTier } from '../../../src/services/sector/SectorEnergyDiagnostics.js';
 import {
   buildSectorEnergyFallbackSeedAdr0495,
@@ -49,7 +50,7 @@ import {
 
 export * from './sectorEnergyMasterSupplyUnknownPolicyAdr0488/types.js';
 
-const REQUIRED_SCORE_ADR0488 = 70;
+const REQUIRED_SCORE_ADR0488 = LEGACY_GATE1_REQUIRED_SCORE; // ADR-0546 SSOT (Phase 1: 70)
 const AGGREGATE_SECTOR_NAMES = new Set([
   'KOSPI',
   'KOSDAQ',

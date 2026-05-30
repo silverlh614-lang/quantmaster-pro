@@ -7,6 +7,12 @@ import type { PenaltyDeduplicationReport } from './gate1PenaltyDeduplication.js'
 import type { PositiveScoreStarvationReport } from './gate1PositiveScoreStarvation.js';
 import type { CanonicalRuntimeResolutionStep27 } from './runtimeResolverTraceStep26.js';
 import type { ScanSummary } from './scanDiagnostics/scanSummaryTypes.js';
+import {
+  LEGACY_GATE1_REQUIRED_SCORE,
+  getRegimeAwareGate1RequiredScore,
+  isGate1RegimeAwareRequiredEnabled,
+  resolveGate1RequiredScore,
+} from '../gateConfig.js';
 
 type InvariantStatus = 'OK' | 'FAIL';
 
@@ -52,6 +58,16 @@ export interface Gate1ScoreAccountingReport {
   previousPositiveUtilizationAvgDeprecated: number;
   scaleMismatch: boolean;
   scaleObservationMode: 'NONE' | 'SCALE_OBSERVATION_ONLY';
+  /** ADR-0546 섀도 병행 — 레거시(현행) Gate1 required (×10, 항상 70). */
+  legacyRequiredScore: number;
+  /** ADR-0546 섀도 병행 — 레짐 인식 required (×10). 플래그 OFF 라도 관측용으로 항상 계산. */
+  regimeAwareRequiredScore: number;
+  /** ADR-0546 섀도 병행 — legacy - regimeAware (양수 = 레짐 완화 여지). */
+  regimeAwareGap: number;
+  /** ADR-0546 — 실제 적용 required (resolveGate1RequiredScore; Phase1=legacy 70). */
+  appliedRequiredScore: number;
+  /** ADR-0546 — GATE1_REGIME_AWARE_REQUIRED 활성 여부. Phase1 항상 false. */
+  regimeAwareRequiredActive: boolean;
   thresholdAutoChanged: false;
   operatorApprovalRequired: true;
   liveExecutionAllowed: false;
@@ -119,6 +135,19 @@ function diagnosticGroupTotals(report?: PenaltyDeduplicationReport | null): {
     removed: round1(groups.reduce((acc, group) => acc + group.avgRemovedPenalty, 0)),
     groupKey: first?.groupKey ?? 'DIAGNOSTIC_GROUP',
   };
+}
+
+/**
+ * scaleMismatch 판정식 SSOT (ADR-0546). finalGate1/actual 와 net 의 괴리(≥5) 또는
+ * positive utilization>100 이면 스케일 혼선으로 판정. gate1PositiveScoreStarvation 가
+ * 동일 식을 재사용 (이전 중복 정의 제거).
+ */
+export function isGate1ScaleMismatch(
+  scoreAvg: number,
+  netScoreAvg: number,
+  positiveUtilizationAvg: number,
+): boolean {
+  return Math.abs(scoreAvg - netScoreAvg) >= 5 || positiveUtilizationAvg > 100;
 }
 
 function buildPenaltyAccounting(input: Gate1ScoreAccountingInput): Gate1PenaltyAccounting {
@@ -249,8 +278,15 @@ export function buildGate1ScoreAccountingReport(
   const finalGate1ScoreAvg = positive.actualScoreAvg;
   const netScoreAvg = round1(positive.grossPositiveScoreAvg - penalty.effectiveOriginalPenaltyAvg);
   const normalizedGate1ScorePct = pct(finalGate1ScoreAvg, configuredPositiveMax);
-  const scaleMismatch = Math.abs(finalGate1ScoreAvg - netScoreAvg) >= 5 ||
-    positive.positiveUtilizationAvg > 100;
+  const scaleMismatch = isGate1ScaleMismatch(finalGate1ScoreAvg, netScoreAvg, positive.positiveUtilizationAvg);
+  // ADR-0546 섀도 병행 — legacy(70) vs 레짐 인식 required 를 나란히 기록 (Phase1 동작 보존).
+  const regime = input.summary?.macroGateState?.macroRegimeEffective
+    ?? input.summary?.macroGateState?.regime;
+  const legacyRequiredScore = LEGACY_GATE1_REQUIRED_SCORE;
+  const regimeAwareRequiredScore = round1(getRegimeAwareGate1RequiredScore(regime));
+  const regimeAwareGap = round1(legacyRequiredScore - regimeAwareRequiredScore);
+  const appliedRequiredScore = resolveGate1RequiredScore(regime);
+  const regimeAwareRequiredActive = isGate1RegimeAwareRequiredEnabled();
   const survivor = buildSurvivorTaxonomy(input, positive);
   const kis = input.canonical?.kisInvestorFlow as (CanonicalRuntimeResolutionStep27['kisInvestorFlow'] & {
     apiPath?: string | null;
@@ -284,6 +320,11 @@ export function buildGate1ScoreAccountingReport(
     previousPositiveUtilizationAvgDeprecated: positive.positiveUtilizationAvg,
     scaleMismatch,
     scaleObservationMode: scaleMismatch ? 'SCALE_OBSERVATION_ONLY' : 'NONE',
+    legacyRequiredScore,
+    regimeAwareRequiredScore,
+    regimeAwareGap,
+    appliedRequiredScore,
+    regimeAwareRequiredActive,
     thresholdAutoChanged: false,
     operatorApprovalRequired: true,
     liveExecutionAllowed: false,
@@ -379,6 +420,7 @@ export function formatGate1ScoreHealthSection(
     `- primaryIssue=${report.primaryIssue}`,
     `- secondaryIssue=${report.secondaryIssue}`,
     `- scaleObservationMode=${report.scaleObservationMode}`,
+    `- legacyRequired=${report.legacyRequiredScore.toFixed(1)} regimeAwareRequired=${report.regimeAwareRequiredScore.toFixed(1)} regimeAwareGap=${report.regimeAwareGap.toFixed(1)} applied=${report.appliedRequiredScore.toFixed(1)} regimeAwareActive=${report.regimeAwareRequiredActive} (ADR-0546 shadow)`,
     `- thresholdAutoChanged=${report.thresholdAutoChanged}`,
     `- operatorApprovalRequired=${report.operatorApprovalRequired}`,
     `- liveExecutionAllowed=${report.liveExecutionAllowed}`,

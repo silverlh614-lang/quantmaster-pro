@@ -9,6 +9,7 @@ import type { OperatorActionQueueReport, OperatorActionRootCause } from './opera
 import type { ScanSummary } from './scanDiagnostics.js';
 import type { SemanticNetBuyNormalizationReportAdr0482 } from './semanticNetBuyNormalizerAdr0482.js';
 import type { SupplySourceFreshnessReportAdr0483 } from './supplySourceFreshnessAdr0483.js';
+import { LEGACY_GATE1_REQUIRED_SCORE } from '../gateConfig.js';
 
 export type SupplyCoverageRecoveryStatus = 'IMPROVING' | 'STABLE' | 'DEGRADED' | 'INSUFFICIENT_DATA' | 'OBSERVING' | 'UNKNOWN';
 export type SupplyCoverageMetricTrend = 'UP' | 'DOWN' | 'FLAT' | 'UNKNOWN';
@@ -383,7 +384,7 @@ export function buildSupplyCoverageRecoveryObservationRowAdr0484(report: SupplyC
     actualLiveEligible: false,
     dryRunDecision: 'UNKNOWN_DIAGNOSTIC_ONLY',
     dryRunScenario: 'SUPPLY_COVERAGE_RECOVERY_ADR0484',
-    requiredScore: 70,
+    requiredScore: LEGACY_GATE1_REQUIRED_SCORE,
     providerIssue: report.topRemainingBlockers.length > 0,
     marketSignal: false,
     sectorEnergyDiagnosticOnly: false,

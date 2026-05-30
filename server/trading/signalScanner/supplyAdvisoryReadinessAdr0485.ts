@@ -2,6 +2,7 @@
 import type { Gate1DryRunObservationRow } from './gate1DryRunObservationLedgerAdr0476.js';
 import type { OperatorActionQueueReport } from './operatorActionRouterAdr0480.js';
 import type { SupplyCoverageRecoveryObservationReportAdr0484, SupplyCoverageRecoveryStatus, SupplyCoverageSnapshotAdr0484 } from './supplyCoverageRecoveryObservationAdr0484.js';
+import { LEGACY_GATE1_REQUIRED_SCORE } from '../gateConfig.js';
 
 export type SupplyAdvisoryReadinessStatus = 'READY' | 'NOT_READY' | 'OBSERVING' | 'INSUFFICIENT_DATA' | 'DEGRADED' | 'UNKNOWN';
 export type SupplyAdvisoryReadinessReason =
@@ -380,7 +381,7 @@ export function buildSupplyAdvisoryReadinessObservationRowAdr0485(report: Supply
     actualLiveEligible: false,
     dryRunDecision: 'UNKNOWN_DIAGNOSTIC_ONLY',
     dryRunScenario: 'SUPPLY_ADVISORY_READINESS_ADR0485',
-    requiredScore: 70,
+    requiredScore: LEGACY_GATE1_REQUIRED_SCORE,
     providerIssue: report.failedReasons.length > 0,
     marketSignal: false,
     sectorEnergyDiagnosticOnly: false,

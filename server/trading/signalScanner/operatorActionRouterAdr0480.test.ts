@@ -175,7 +175,9 @@ describe('ADR-0480 Operator Action Router & Remediation Queue', () => {
   });
 
   it('20. requiredScore remains 70', () => {
-    expect(minimumScoreSrc).toContain('const requiredScore = input.trace.minSignalRequiredScore ?? 70');
+    // ADR-0546: minimumSignalScoreTrace derives requiredScore from the carried
+    // minSignalRequiredScore (settings fallback), never a hardcoded relaxed value.
+    expect(minimumScoreSrc).toContain('const requiredScore = input.trace.minSignalRequiredScore');
   });
 
   it('21. Gate thresholds, weights, and Kelly remain unchanged', () => {

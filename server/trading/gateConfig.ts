@@ -118,3 +118,53 @@ export function getRuntimeThresholdSnapshot(): ThresholdDeltaSnapshot {
     source: runtimeDelta.source,
   };
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADR-0546 — Gate1 Required-Score SSOT (Phase 1, 동작 보존)
+//
+// 포렌식/관측/dry-run 계층은 ×10 스케일(0~100, required 70)을 쓰고, live 재검증·
+// 사이징은 ×1 스케일(0~10, getEffectiveGateThreshold)을 쓴다. 두 스케일을 잇는
+// 환산 상수·레짐 인식 임계·레거시 임계를 본 모듈에 단일화한다. Phase 1 은 플래그
+// OFF 기본 → 모든 호출이 레거시 70 을 반환해 live/diagnostic 결과가 0 변화한다.
+// 레짐 인식값은 섀도 병행 로깅 전용으로만 계산한다(Phase 2 운영자 승인 후 전환).
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Gate1 score scale — live ×1 임계(getEffectiveGateThreshold)를 포렌식 ×10
+ * 스케일로 환산하는 단일 명명 상수. `scoreScale ?? 10` 매직넘버 제거 SSOT.
+ */
+export const GATE1_SCORE_SCALE = 10;
+
+/**
+ * 레거시(현행) Gate1 minimum-signal 통과 임계 — ×10 스케일 70.
+ * 포렌식/관측/dry-run 8개 파일에 하드코딩돼 있던 70 의 단일 출처.
+ */
+export const LEGACY_GATE1_REQUIRED_SCORE = 70;
+
+/**
+ * 레짐 인식 Gate1 임계 활성 스위치. default OFF — Phase 1 동작 보존.
+ * `GATE1_REGIME_AWARE_REQUIRED=true` 전환은 Phase 2(운영자 승인) 사안 — ENV 1줄 즉시 롤백.
+ */
+export function isGate1RegimeAwareRequiredEnabled(): boolean {
+  return process.env.GATE1_REGIME_AWARE_REQUIRED === 'true';
+}
+
+/**
+ * 레짐 인식 required score (×10 스케일). live 임계 SSOT(getEffectiveGateThreshold)
+ * 를 ×GATE1_SCORE_SCALE 환산. 플래그와 무관하게 항상 레짐값을 계산 — Phase 1
+ * 섀도 병행 로깅(legacy 70 vs regime-aware)에서 관측 데이터로만 사용한다.
+ */
+export function getRegimeAwareGate1RequiredScore(regime?: string): number {
+  return getEffectiveGateThreshold(regime) * GATE1_SCORE_SCALE;
+}
+
+/**
+ * Gate1 required-score 단일 진입점 (ADR-0546). 플래그 OFF(기본)면 레거시 70,
+ * ON 이면 레짐 인식값. Phase 1 에서는 항상 OFF → live/diagnostic 결과 0 변화.
+ * 하드코딩 70 을 우회하지 말고 본 함수(또는 LEGACY_GATE1_REQUIRED_SCORE)만 쓴다.
+ */
+export function resolveGate1RequiredScore(regime?: string): number {
+  return isGate1RegimeAwareRequiredEnabled()
+    ? getRegimeAwareGate1RequiredScore(regime)
+    : LEGACY_GATE1_REQUIRED_SCORE;
+}

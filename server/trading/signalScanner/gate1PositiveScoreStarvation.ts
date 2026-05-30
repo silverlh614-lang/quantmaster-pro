@@ -1,6 +1,8 @@
 // @responsibility ADR-0467 Gate1 positive score starvation diagnostic audit
 import type { MinSignalScoreDecompositionReport } from './minimumSignalScoreTrace.js';
 import type { CanonicalRuntimeResolutionStep27 } from './runtimeResolverTraceStep26.js';
+import { GATE1_SCORE_SCALE } from '../gateConfig.js';
+import { isGate1ScaleMismatch } from './gate1ScoreAccounting.js';
 
 export type ScoreConfidence =
   | 'VERIFIED'
@@ -534,7 +536,7 @@ function isCanonicalMinSignalCode(code: string): code is PositiveSignalComponent
 export function buildGate1ScoreStarvationTraceFromGateResult(
   input: Gate1ScoreStarvationGateResultInput,
 ): Gate1ScoreStarvationTrace {
-  const scale = finite(input.scoreScale) ? input.scoreScale : 10;
+  const scale = finite(input.scoreScale) ? input.scoreScale : GATE1_SCORE_SCALE;
   const actualRaw = finite(input.gateResult.rawScore)
     ? input.gateResult.rawScore
     : finite(input.gateResult.gateScore)
@@ -1304,8 +1306,7 @@ export function formatPositiveScoreStarvationReport(
   const observedPositiveMax = Math.max(ceiling.observedPositiveMaxScore, report.grossPositiveScoreAvg);
   const utilizationByMax = round1(Math.max(0, Math.min(100, (observedPositiveMax / configuredPositiveMax) * 100)));
   const utilizationByAvg = round1(Math.max(0, Math.min(100, (report.grossPositiveScoreAvg / configuredPositiveMax) * 100)));
-  const scaleMismatch = Math.abs(report.actualScoreAvg - report.netScoreAvg) >= 5 ||
-    report.positiveUtilizationAvg > 100;
+  const scaleMismatch = isGate1ScaleMismatch(report.actualScoreAvg, report.netScoreAvg, report.positiveUtilizationAvg);
   const displayMissingPositiveComponents = report.missingPositiveComponents
     .filter((item) => !componentResolvedByCanonical(item.code, canonicalRuntimeResolution));
   const lines = [

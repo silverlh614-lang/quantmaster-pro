@@ -281,7 +281,7 @@ describe('ADR-0481 NAVER Investor Trend Collector Wiring', () => {
   it('requiredScore remains 70 and gate thresholds/weights/Kelly remain unchanged by ADR-0481', () => {
     const ledgerSrc = fs.readFileSync(path.resolve('server/trading/signalScanner/gate1DryRunObservationLedgerAdr0476.ts'), 'utf-8');
     const collectorSrc = fs.readFileSync(path.resolve('server/trading/signalScanner/naverInvestorTrendCollectorAdr0481.ts'), 'utf-8');
-    expect(ledgerSrc).toContain('requiredScore: 70');
+    expect(ledgerSrc).toContain('requiredScore: LEGACY_GATE1_REQUIRED_SCORE');
     expect(collectorSrc).not.toMatch(/requiredScore\s*=\s*(60|65)|setGateThreshold|GATE_RELAX|kelly/i);
   });
 
