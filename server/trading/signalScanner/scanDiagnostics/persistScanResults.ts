@@ -117,6 +117,8 @@ import {
   type ScanEvaluationResult,
 } from './persistScanResultsDependencies.js';
 import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
+import { resolveScoringEffectiveRegime } from './gate0MacroPermissionDecision.js';
+import { buildGate1RegimeAwareSurvivorObservation } from '../gate1RegimeAwareSurvivorAdr0546.js';
 import { isPreflightDiagnosticScanSummary } from './preflightDiagnosticScanSummary.js';
 import { setLastSectorEnergyCanonicalState } from '../sectorEnergyCanonicalStateRef.js';
 import {
@@ -1366,6 +1368,11 @@ export async function persistScanResults(
     await saveGate1DryRunObservationRows(rows);
     summaryDraft.gate1DryRunObservationLedger = summarizeGate1DryRunObservationRows(rows, rows.length);
     summaryDraft.gate1ThresholdEvidence = buildGate1ThresholdEvidenceSummary(rows);
+    // ADR-0546 Phase2 prep — regime 인식 임계로 추가 통과할 후보 관측 (섀도 전용, flag OFF 불변).
+    summaryDraft.gate1RegimeAwareSurvivor = buildGate1RegimeAwareSurvivorObservation(
+      rows,
+      resolveScoringEffectiveRegime(options.macroGateState),
+    );
     logAdrDiagnostic(
       `[ADR-0476] Gate1DryRunObservation rows emitted`,
       {
