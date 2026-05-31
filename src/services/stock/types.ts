@@ -127,6 +127,8 @@ export interface StockRecommendation {
     institutionalDailyAmounts?: number[];
     isPassiveAndActive: boolean;
     dataSource: string;
+    /** 외국인 보유율(%) — Naver 모바일 snapshot 실데이터 (buildSnapshotSupplyStub 가 주입). */
+    foreignerOwnRatio?: number;
   };
   correlationScore?: number;
   isPullbackVolumeLow?: boolean; // 1순위: 눌림목 거래량 감소 여부

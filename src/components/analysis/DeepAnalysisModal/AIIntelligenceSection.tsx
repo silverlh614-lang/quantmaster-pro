@@ -261,6 +261,10 @@ function SupplyDataCard({ stock }: Props) {
   // 오인시키지 않고 '미연동' 으로 정직 표기한다 (KIS 투자자별 매매동향 배선 시 자동 노출).
   const hasRealFlow =
     sd.dataSource === 'KIS' || sd.dataSource === 'KIS_OFFICIAL' || sd.dataSource === 'KRX';
+  // 외국인 보유율 — Naver 모바일 snapshot 실데이터. 5일 순매수(KIS 필요)와 달리 KIS 없이도 가용.
+  const ownRatio = typeof sd.foreignerOwnRatio === 'number' && sd.foreignerOwnRatio > 0
+    ? sd.foreignerOwnRatio
+    : null;
   return (
     <div className="glass-3d rounded-2xl p-8 border border-white/10 mb-6">
       <div className="flex items-center gap-3 mb-6">
@@ -277,7 +281,7 @@ function SupplyDataCard({ stock }: Props) {
             ? 'text-blue-400/50 bg-blue-500/10 border-blue-500/20'
             : 'text-white/40 bg-white/5 border-white/10',
         )}>
-          {hasRealFlow ? '실데이터' : '순매수 미연동'}
+          {hasRealFlow ? '실데이터' : ownRatio != null ? 'Naver 보유율' : '미연동'}
         </span>
       </div>
 
@@ -319,18 +323,29 @@ function SupplyDataCard({ stock }: Props) {
           </div>
         </>
       ) : (
-        <div className="p-4 rounded-2xl border bg-white/5 border-white/10">
-          <div className="flex items-center gap-2 mb-1.5">
-            <Info className="w-4 h-4 text-white/30" />
-            <span className="text-xs font-black text-white/40 uppercase tracking-widest">
-              외국인·기관 순매수 미연동
-            </span>
+        <>
+          {ownRatio != null && (
+            <div className="bg-white/5 rounded-2xl p-4 border border-white/10 mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-black text-white/30 uppercase tracking-widest">외국인 보유율</span>
+                <span className="text-[9px] font-black text-blue-400/60 uppercase tracking-widest">Naver 실데이터</span>
+              </div>
+              <span className="text-2xl font-black text-blue-400 block">{ownRatio.toFixed(2)}%</span>
+            </div>
+          )}
+          <div className="p-4 rounded-2xl border bg-white/5 border-white/10">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Info className="w-4 h-4 text-white/30" />
+              <span className="text-xs font-black text-white/40 uppercase tracking-widest">
+                외국인·기관 순매수 미연동
+              </span>
+            </div>
+            <p className="text-[11px] text-white/40 font-bold leading-relaxed">
+              5일 순매수는 KIS 투자자별 매매동향(읽기 전용)이 필요합니다.
+              {ownRatio != null ? ' 위 외국인 보유율은 Naver 실데이터입니다.' : ' (표시되던 0주는 실측값이 아닌 placeholder 였습니다)'}
+            </p>
           </div>
-          <p className="text-[11px] text-white/40 font-bold leading-relaxed">
-            KIS 투자자별 매매동향(순매수) 미연동 — 표시 가능한 실측 순매수 데이터가 없습니다.
-            (표시되던 0주는 실측값이 아니라 placeholder 였습니다)
-          </p>
-        </div>
+        </>
       )}
     </div>
   );
