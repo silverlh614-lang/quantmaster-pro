@@ -9,6 +9,7 @@ import {
   getGlobalCorrelationMatrix, getGlobalMultiSourceData, trackThemeToKoreaValueChain,
   getSupplyChainIntelligence, getSectorOrderIntelligence, getFinancialStressIndex, getFomcSentimentAnalysis,
 } from '../../services/stockService';
+import { toKoLabel } from '../../utils/displayLabels';
 
 export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
   const [globalMultiSource, setGlobalMultiSource] = useState<GlobalMultiSourceData | null>(null);
@@ -105,20 +106,20 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
               <p className={`text-lg font-bold font-mono ${globalMultiSource.chinaPmi.manufacturing >= 50 ? 'text-green-700' : 'text-red-700'}`}>
                 {globalMultiSource.chinaPmi.manufacturing}
               </p>
-              <p className="text-[9px] text-theme-text-muted">제조업 ({globalMultiSource.chinaPmi.trend})</p>
+              <p className="text-[9px] text-theme-text-muted">제조업 ({toKoLabel(globalMultiSource.chinaPmi.trend)})</p>
             </div>
             <div className="p-3 border border-theme-border bg-theme-bg">
               <p className="text-[8px] font-black uppercase text-theme-text-muted mb-1">TSMC REVENUE</p>
               <p className={`text-lg font-bold font-mono ${globalMultiSource.tsmcRevenue.yoyGrowth > 0 ? 'text-green-700' : 'text-red-700'}`}>
                 {globalMultiSource.tsmcRevenue.yoyGrowth > 0 ? '+' : ''}{globalMultiSource.tsmcRevenue.yoyGrowth}%
               </p>
-              <p className="text-[9px] text-theme-text-muted">YoY ({globalMultiSource.tsmcRevenue.trend})</p>
+              <p className="text-[9px] text-theme-text-muted">YoY ({toKoLabel(globalMultiSource.tsmcRevenue.trend)})</p>
             </div>
             <div className="p-3 border border-theme-border bg-theme-bg">
               <p className="text-[8px] font-black uppercase text-theme-text-muted mb-1">BOJ POLICY</p>
               <p className="text-lg font-bold font-mono">{globalMultiSource.bojPolicy.currentRate}%</p>
               <p className={`text-[9px] ${globalMultiSource.bojPolicy.yenCarryRisk === 'HIGH' ? 'text-red-600 font-bold' : 'text-theme-text-muted'}`}>
-                캐리리스크: {globalMultiSource.bojPolicy.yenCarryRisk}
+                캐리리스크: {toKoLabel(globalMultiSource.bojPolicy.yenCarryRisk)}
               </p>
             </div>
             <div className="p-3 border border-theme-border bg-theme-bg">
@@ -126,7 +127,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
               <p className={`text-lg font-bold font-mono ${globalMultiSource.usIsm.manufacturing >= 50 ? 'text-green-700' : 'text-red-700'}`}>
                 {globalMultiSource.usIsm.manufacturing}
               </p>
-              <p className="text-[9px] text-theme-text-muted">{globalMultiSource.usIsm.trend}</p>
+              <p className="text-[9px] text-theme-text-muted">{toKoLabel(globalMultiSource.usIsm.trend)}</p>
             </div>
             <div className="p-3 border border-theme-border bg-theme-bg">
               <p className="text-[8px] font-black uppercase text-theme-text-muted mb-1">US CPI / 실업률</p>
@@ -214,14 +215,14 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                       theme.investmentTiming === 'LATE' ? 'border-amber-400 bg-amber-50 text-amber-700' :
                       'border-red-400 bg-red-50 text-red-700'
                     }`}>
-                      {theme.investmentTiming}
+                      {toKoLabel(theme.investmentTiming)}
                     </span>
                     <span className={`text-[9px] font-bold px-2 py-0.5 border ${
                       theme.globalTrend.momentum === 'ACCELERATING' ? 'border-green-400 text-green-700' :
                       theme.globalTrend.momentum === 'EMERGING' ? 'border-blue-400 text-blue-700' :
                       'border-theme-border text-theme-text-muted'
                     }`}>
-                      {theme.globalTrend.momentum}
+                      {toKoLabel(theme.globalTrend.momentum)}
                     </span>
                   </div>
                   {theme.globalTrend.globalMarketSize && (
@@ -278,7 +279,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                               vc.marketAttention === 'EMERGING' ? 'bg-blue-200 text-blue-800' :
                               'bg-theme-card text-theme-text-secondary'
                             }`}>
-                              {vc.marketAttention}
+                              {toKoLabel(vc.marketAttention)}
                             </span>
                           </td>
                         </tr>
@@ -318,7 +319,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                   supplyChain.bdi.trend === 'SURGING' || supplyChain.bdi.trend === 'RISING' ? 'border-green-400 text-green-700 bg-green-50' :
                   supplyChain.bdi.trend === 'FALLING' || supplyChain.bdi.trend === 'COLLAPSING' ? 'border-red-400 text-red-700 bg-red-50' :
                   'border-theme-border text-theme-text-muted'
-                }`}>{supplyChain.bdi.trend}</span>
+                }`}>{toKoLabel(supplyChain.bdi.trend)}</span>
                 <span className={`text-[10px] font-mono ${supplyChain.bdi.mom3Change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   3M {supplyChain.bdi.mom3Change >= 0 ? '+' : ''}{supplyChain.bdi.mom3Change.toFixed(1)}%
                 </span>
@@ -359,7 +360,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                 supplyChain.gcfi.trend === 'RISING' ? 'border-red-400 text-red-700 bg-red-50' :
                 supplyChain.gcfi.trend === 'FALLING' ? 'border-green-400 text-green-700 bg-green-50' :
                 'border-theme-border text-theme-text-muted'
-              }`}>{supplyChain.gcfi.trend}</span>
+              }`}>{toKoLabel(supplyChain.gcfi.trend)}</span>
             </div>
           </div>
         ) : (
@@ -391,7 +392,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                   sectorOrders.globalDefense.trend === 'EXPANDING' ? 'border-green-400 text-green-700 bg-green-50' :
                   sectorOrders.globalDefense.trend === 'CUTTING' ? 'border-red-400 text-red-700 bg-red-50' :
                   'border-theme-border text-theme-text-muted'
-                }`}>{sectorOrders.globalDefense.trend}</span>
+                }`}>{toKoLabel(sectorOrders.globalDefense.trend)}</span>
               </div>
               <p className="text-[10px] text-theme-text-secondary">미국 국방예산: ${sectorOrders.globalDefense.usDefenseBudget.toLocaleString()}억</p>
               <p className="text-[9px] text-theme-text-muted mt-1">{sectorOrders.globalDefense.koreaExposure}</p>
@@ -413,7 +414,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                   sectorOrders.smrContracts.timing === 'OPTIMAL' ? 'border-green-400 text-green-700 bg-green-50' :
                   sectorOrders.smrContracts.timing === 'TOO_EARLY' ? 'border-blue-400 text-blue-700 bg-blue-50' :
                   'border-amber-400 text-amber-700 bg-amber-50'
-                }`}>{sectorOrders.smrContracts.timing}</span>
+                }`}>{toKoLabel(sectorOrders.smrContracts.timing)}</span>
               </div>
               <p className="text-[10px] text-theme-text-secondary">NRC 승인: {sectorOrders.smrContracts.usNrcApprovals}기</p>
               <p className="text-[9px] text-theme-text-muted mt-1">{sectorOrders.smrContracts.koreaHyundai}</p>
@@ -478,7 +479,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                   fsi.tedSpread.alert === 'CRISIS' ? 'border-red-400 text-red-700 bg-red-50' :
                   fsi.tedSpread.alert === 'ELEVATED' ? 'border-amber-400 text-amber-700 bg-amber-50' :
                   'border-green-400 text-green-700 bg-green-50'
-                }`}>{fsi.tedSpread.alert}</span>
+                }`}>{toKoLabel(fsi.tedSpread.alert)}</span>
               </div>
               <div className="border border-theme-border p-3 text-center">
                 <p className="text-[9px] font-black uppercase text-theme-text-muted mb-1">US HY Spread</p>
@@ -487,7 +488,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                   fsi.usHySpread.trend === 'WIDENING' ? 'border-red-400 text-red-700 bg-red-50' :
                   fsi.usHySpread.trend === 'TIGHTENING' ? 'border-green-400 text-green-700 bg-green-50' :
                   'border-theme-border text-theme-text-muted'
-                }`}>{fsi.usHySpread.trend}</span>
+                }`}>{toKoLabel(fsi.usHySpread.trend)}</span>
               </div>
               <div className="border border-theme-border p-3 text-center">
                 <p className="text-[9px] font-black uppercase text-theme-text-muted mb-1">MOVE Index</p>
@@ -496,7 +497,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                   fsi.moveIndex.alert === 'EXTREME' ? 'border-red-400 text-red-700 bg-red-50' :
                   fsi.moveIndex.alert === 'ELEVATED' ? 'border-amber-400 text-amber-700 bg-amber-50' :
                   'border-green-400 text-green-700 bg-green-50'
-                }`}>{fsi.moveIndex.alert}</span>
+                }`}>{toKoLabel(fsi.moveIndex.alert)}</span>
               </div>
             </div>
           </div>
@@ -544,7 +545,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                   fomcSentiment.dotPlotShift === 'MORE_CUTS' ? 'border-green-400 text-green-700 bg-green-50' :
                   fomcSentiment.dotPlotShift === 'FEWER_CUTS' ? 'border-red-400 text-red-700 bg-red-50' :
                   'border-theme-border text-theme-text-muted'
-                }`}>{fomcSentiment.dotPlotShift}</span>
+                }`}>{toKoLabel(fomcSentiment.dotPlotShift)}</span>
               </div>
               <div className="border border-theme-border p-3 text-center">
                 <p className="text-[9px] font-black uppercase text-theme-text-muted mb-1">KOSPI 임팩트</p>
@@ -552,7 +553,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                   fomcSentiment.kospiImpact === 'BULLISH' ? 'border-green-400 text-green-700 bg-green-50' :
                   fomcSentiment.kospiImpact === 'BEARISH' ? 'border-red-400 text-red-700 bg-red-50' :
                   'border-theme-border text-theme-text-muted'
-                }`}>{fomcSentiment.kospiImpact}</span>
+                }`}>{toKoLabel(fomcSentiment.kospiImpact)}</span>
               </div>
               <div className="border border-theme-border p-3">
                 <p className="text-[9px] font-black uppercase text-theme-text-muted mb-1">핵심 문구</p>

@@ -2,6 +2,7 @@
 import React from 'react';
 import { Globe } from 'lucide-react';
 import { cn } from '../../../ui/cn';
+import { toKoLabel } from '../../../utils/displayLabels';
 
 interface GlobalEtfMonitoring {
   symbol?: string;
@@ -42,7 +43,7 @@ export const GlobalEtfSection: React.FC<GlobalEtfSectionProps> = React.memo(({ e
                   "px-3 py-1 rounded-lg text-[10px] font-black",
                   isInflow ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
                 )}>
-                  {displayLabel}
+                  {toKoLabel(displayLabel)}
                 </div>
               )}
             </div>

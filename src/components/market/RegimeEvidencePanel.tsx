@@ -1,6 +1,7 @@
 // @responsibility MarketRegime 근거 패널 표시 컴포넌트
 import { DatabaseZap, LineChart, MinusCircle, RefreshCcw } from 'lucide-react';
 import { cn } from '../../ui/cn';
+import { toKoLabel } from '../../utils/displayLabels';
 import { formatRegimeUpdatedAt, splitRegimeEvidence, type RegimeEvidenceItem } from '../../lib/marketRegimeViewModel';
 
 const DIRECTION_STYLE: Record<NonNullable<RegimeEvidenceItem['direction']>, string> = {
@@ -31,8 +32,8 @@ function EvidenceRow({ item }: { item: RegimeEvidenceItem }) {
       </div>
       <div className="truncate text-xs font-num text-white/75">{item.value ?? '—'}</div>
       <div className="flex flex-wrap gap-1.5">
-        <span className={cn('rounded border px-1.5 py-0.5 text-[9px] font-black', DIRECTION_STYLE[direction])}>{direction}</span>
-        <span className={cn('rounded bg-white/5 px-1.5 py-0.5 text-[9px] font-black', CONFIDENCE_STYLE[confidence])}>{confidence}</span>
+        <span className={cn('rounded border px-1.5 py-0.5 text-[9px] font-black', DIRECTION_STYLE[direction])}>{toKoLabel(direction)}</span>
+        <span className={cn('rounded bg-white/5 px-1.5 py-0.5 text-[9px] font-black', CONFIDENCE_STYLE[confidence])}>{toKoLabel(confidence)}</span>
       </div>
     </li>
   );

@@ -2,6 +2,7 @@
 import React from 'react';
 import { Activity, Flame, Zap, ShieldAlert } from 'lucide-react';
 import { cn } from '../../../ui/cn';
+import { toKoLabel } from '../../../utils/displayLabels';
 
 interface MarketPhaseSectionProps {
   marketPhase?: string;
@@ -40,7 +41,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
           marketPhase === 'TRANSITION' ? "bg-purple-500/20 text-purple-400 border-purple-500/30" :
           "bg-white/10 text-white/40 border-white/[0.07]"
         )}>
-          {marketPhase || 'NEUTRAL'}
+          {marketPhase ? toKoLabel(marketPhase) : 'NEUTRAL'}
         </div>
       </div>
       <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
@@ -68,7 +69,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
             />
           </div>
           <p className="text-[10px] font-black text-white/30 mt-3 tracking-tight">
-            {euphoriaSignals?.status || '분석 중...'}
+            {euphoriaSignals?.status ? toKoLabel(euphoriaSignals.status) : '분석 중...'}
           </p>
         </div>
       </div>
@@ -86,7 +87,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
       <div className="space-y-4">
         <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
           <span className="text-xs font-bold text-white/40 uppercase">현재 국면</span>
-          <span className="text-sm font-black text-white">{regimeShiftDetector?.currentRegime || '안정'}</span>
+          <span className="text-sm font-black text-white">{regimeShiftDetector?.currentRegime ? toKoLabel(regimeShiftDetector.currentRegime) : '안정'}</span>
         </div>
         <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
           <span className="text-xs font-bold text-white/40 uppercase">전환 확률</span>

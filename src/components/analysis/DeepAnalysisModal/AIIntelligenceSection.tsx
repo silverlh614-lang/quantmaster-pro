@@ -8,14 +8,11 @@ import {
 import { motion } from 'motion/react';
 import { cn } from '../../../ui/cn';
 import { getMarketPhaseInfo } from '../../../constants/checklist';
+import { toKoLabel } from '../../../utils/displayLabels';
 import type { StockRecommendation } from '../../../services/stockService';
 
 interface Props {
   stock: StockRecommendation;
-}
-
-function formatToken(value: string | undefined): string | undefined {
-  return value?.replace('_', ' ');
 }
 
 function SectionHeader() {
@@ -379,7 +376,7 @@ function ShortSellingCard({ stock }: Props) {
               {short.trend === 'DECREASING'
                 ? <ArrowDownRight className="w-5 h-5" />
                 : <ArrowUpRight className="w-5 h-5" />}
-              <span className="text-sm">{short.trend}</span>
+              <span className="text-sm">{toKoLabel(short.trend)}</span>
             </div>
           </div>
           <div className="bg-orange-500/10 p-4 rounded-2xl border border-orange-500/20">
@@ -491,7 +488,7 @@ function AnomalyDetectionCard({ stock }: Props) {
         <>
           <div className="mb-4">
             <div className={cn('inline-block px-3 py-1 rounded-full text-[10px] font-black mb-3 border', resolveAnomalyClass(anomaly.type))}>
-              {formatToken(anomaly.type)}
+              {toKoLabel(anomaly.type)}
             </div>
             <div className="flex items-center gap-2">
               <span className="text-2xl font-black text-white tracking-tighter">{anomaly.score}</span>
