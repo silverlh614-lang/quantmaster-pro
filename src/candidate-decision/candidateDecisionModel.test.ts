@@ -75,6 +75,21 @@ describe('candidate decision model', () => {
     expect(model.shadowTrackingStatus).toBe('ON');
   });
 
+  it('AI-추정 우세 종목: finalScore 검증가중(<100) + STALE 보다 AI_ESTIMATED 우선 (배포 정합 회귀)', () => {
+    // 대주전자재료류 — checklist 전부 충족이나 conditionSourceTiers 대부분 AI_INFERRED(검증 5·AI 22).
+    const mostlyAiTiers = Object.fromEntries(
+      Object.keys(FULL_PASS_CHECKLIST).map((k, i) => [k, i < 5 ? 'COMPUTED' : 'AI_INFERRED']),
+    ) as NonNullable<StockRecommendation['conditionSourceTiers']>;
+    const model = buildCandidateDecisionCardModel(
+      stock({ conditionSourceTiers: mostlyAiTiers, dataSourceType: 'STALE' }),
+      { sourceSnapshotId: 'x', asOf: '2026-05-25T00:00:00.000Z', engineMode: 'NORMAL', marketGateStatus: 'GREEN' },
+    );
+    // 27/27 전부 통과지만 검증 5·AI 22 → 가중 (5 + 22×0.5)/27×100 = 59. 부풀린 100 아님.
+    expect(model.finalScore).toBe(59);
+    // dataSourceType='STALE' 라도 AI 우세(aiRatio≥0.3)면 AI_ESTIMATED 우선 표기.
+    expect(model.dataConfidence.overall).toBe('AI_ESTIMATED');
+  });
+
   it('downgrades weak-sector candidates without stopping Shadow tracking', () => {
     const model = buildCandidateDecisionCardModel(stock({ relatedSectors: ['Battery'] }), {
       engineMode: 'NORMAL',
