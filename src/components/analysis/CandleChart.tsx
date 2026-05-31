@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createChart, createSeriesMarkers, CandlestickSeries, LineSeries, HistogramSeries, IChartApi, CandlestickData, LineData, HistogramData, Time } from 'lightweight-charts';
 import { calculateEMA, calculateRSI, calculateBollingerBands } from '../../utils/indicators';
 import { fetchHistoricalData } from '../../services/stock/historicalData';
+import { fetchNaverDailyChart } from '../../services/stock/naverDailyChart';
 import { formatNextOpenKst, nextOpenAtFor } from '../../utils/marketTime';
 import { usePriceCanon } from '../../hooks/usePriceCanon';
 
@@ -356,7 +357,11 @@ async function buildCandleChart({
   setError: (value: string | null) => void;
   setOffHours: (value: { nextOpenAt?: string } | null) => void;
 }) {
-  const result = await fetchHistoricalData(stockCode, range, '1d', { withMeta: true });
+  // KR 차트 정본은 Naver 일봉 우선 (Yahoo 는 KR stale 심함·장외 미가용). 실패 시 Yahoo fallback.
+  const naver = await fetchNaverDailyChart(stockCode, range);
+  const result = naver && naver.data
+    ? naver
+    : await fetchHistoricalData(stockCode, range, '1d', { withMeta: true });
   if (isCancelled()) return;
   if (!result.data) {
     applyNoDataState(result, setOffHours, setError);

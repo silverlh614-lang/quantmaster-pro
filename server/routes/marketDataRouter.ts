@@ -14,6 +14,7 @@ import {
   buildMacroInterpretContext,
 } from '../engines/macroIndexEngine.js';
 import { fetchPerPbr } from '../clients/krxClient.js';
+import { fetchNaverDailyOhlcv } from '../clients/naverFinanceClient.js';
 import { isMarketOpen } from '../utils/marketClock.js';
 import { isMarketOpenFor, nextOpenAtFor } from '../utils/symbolMarketRegistry.js';
 import { guardedFetch } from '../utils/egressGuard.js';
@@ -32,6 +33,28 @@ import {
 } from '../persistence/marketIndicatorsSnapshotRepo.js';
 
 const router = Router();
+
+// Naver 모바일 일봉 OHLCV (KR 차트 정본). Yahoo 절대값은 KR stale 심함 → Naver 우선,
+// 클라이언트가 실패(204) 시 Yahoo(/historical-data) 로 fallback. 장외에도 가용(KIS 와 달리).
+router.get('/naver/daily', async (req: Request, res: Response) => {
+  const code = String(req.query.code ?? '').trim();
+  const count = Math.max(1, Math.min(1000, parseInt(String(req.query.count ?? '260'), 10) || 260));
+  if (!/^\d{6}$/.test(code)) {
+    res.status(400).json({ error: 'code(6자리 KR) 파라미터 필요' });
+    return;
+  }
+  try {
+    const chart = await fetchNaverDailyOhlcv(code, count);
+    if (!chart) {
+      res.status(204).end();
+      return;
+    }
+    res.json(chart);
+  } catch (e: any) {
+    logger.warn(`[naver/daily] ${code}: ${e?.message ?? e}`);
+    res.status(502).json({ error: 'naver daily fetch 실패' });
+  }
+});
 
 // ── ADR-0009: Yahoo historical-data 프록시 LRU 캐시 ─────────────────────────
 // 클라이언트 폴링이 같은 (symbol,range,interval) 조합을 분당 여러 번 요청하므로

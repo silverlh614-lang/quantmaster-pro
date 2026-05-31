@@ -12,6 +12,7 @@ import { useShadowTradeStore } from '../../stores/useShadowTradeStore';
 import { buildShadowTrade } from '../../services/autoTrading';
 import { syncStockPrice } from '../../services/stockService';
 import { fetchKisInvestorSupply, fetchKisShortSelling } from '../../api/kisMarketDataClient';
+import { fetchNaverPeak } from '../../services/stock/naverDailyChart';
 import type { MarketOverview, StockRecommendation } from '../../services/stockService';
 import type { EconomicRegimeData, EvaluationResult, ExtendedRegimeData, ROEType } from '../../types/core';
 import { debugLog, debugWarn } from '../../utils/debug';
@@ -275,14 +276,17 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
     (async () => {
       try {
         const priced = await syncStockPrice(stock);
-        // KIS read-only 수급·공매도 (모달 단위 단일 종목 — bulk 미경유, 쿼터 최소). 각각 실패→null.
-        const [kisSupply, kisShort] = await Promise.all([
+        // 모달 단위 단일 종목(bulk 미경유, 쿼터 최소). KIS 수급·공매도 + Naver 52주 peak 병렬. 실패→null.
+        const [kisSupply, kisShort, naverPeak] = await Promise.all([
           fetchKisInvestorSupply(stock.code).catch(() => null),
           fetchKisShortSelling(stock.code).catch(() => null),
+          fetchNaverPeak(stock.code).catch(() => null),
         ]);
         if (cancelled) return;
         const merged: StockRecommendation = {
           ...priced,
+          // 52주 peak 은 Naver 우선(장외에도 가용). 실패 시 priced.peakPrice(KIS w52_hgpr 등) 유지.
+          ...(naverPeak && naverPeak > 0 ? { peakPrice: naverPeak } : {}),
           // KIS 순매수 + 기존 Naver foreignerOwnRatio 보존(dataSource=KIS 로 실데이터 표기)
           supplyData: kisSupply ? { ...priced.supplyData, ...kisSupply } : priced.supplyData,
           shortSelling: kisShort ?? priced.shortSelling,

@@ -119,29 +119,18 @@ export async function syncStockPriceKIS(stock: StockRecommendation): Promise<Sto
 
 /**
  * syncStockPrice — 가격 신뢰도 계층 (Yahoo 신뢰 철회 · AI 추정 완전 배제)
- * 1순위: KIS 실시간          → dataSourceType: 'REALTIME' (L1)
- * 2순위: Naver 모바일 snapshot → dataSourceType: 'NAVER'    (L3, KRX 직접 시세)
+ * 1순위: Naver 모바일 snapshot → dataSourceType: 'NAVER'   (KRX 직접 시세, 장외에도 가용)
+ * 2순위: KIS 실시간          → dataSourceType: 'REALTIME' (Naver 미가용 시 fallback)
  * 3순위: 마지막 알려진 가격 유지 → dataSourceType: 'STALE'
+ *
+ * KIS 는 장외 호출이 어렵고(토큰·세션) 검색/조회 지연·실패를 유발하므로, 표시 SSOT
+ * (usePriceCanon — Naver 우선)와 동일하게 Naver 를 1순위로 둔다 (사용자 정책). 자동매매
+ * 실주문 경로(server kisClient·autoTradeEngine)와는 무관 — 본 함수는 UI 표시 동기화 전용.
  */
 export async function syncStockPrice(stock: StockRecommendation): Promise<StockRecommendation> {
-  // 1순위: KIS 실시간
-  try {
-    const kisResult = await syncStockPriceKIS(stock);
-    debugLog(`[가격동기화] KIS 실시간 성공: ${stock.name} ${kisResult.currentPrice}원`);
-    return await enrichStockWithRealData(kisResult);
-  } catch (kisErr: any) {
-    clientWarn({
-      domain: 'PRICE_SYNC',
-      code: 'P4_PRICE_SYNC_DEGRADED',
-      message: `[가격동기화] KIS UI 가격 동기화 실패 → Naver 모바일 snapshot 시도`,
-      dedupKey: `priceSync:kis:${stock.code}`,
-      details: { stockCode: stock.code, stockName: stock.name, error: kisErr instanceof Error ? kisErr.message : String(kisErr) },
-    });
-  }
-
-  // 2순위: Naver 모바일 snapshot (Yahoo 신뢰 철회 — split/통화/티커 매핑 오차로
-  // ~10배 왜곡 사례 반복. Naver 는 KRX 시세를 직접 fetch).
   const baseCode = stock.code.split('.')[0];
+
+  // 1순위: Naver 모바일 snapshot (KRX 직접 시세·장외 가용·Yahoo 신뢰 철회).
   try {
     const snap = await fetchAiUniverseSnapshot(baseCode);
     if (snap?.closePrice && snap.closePrice > 0) {
@@ -161,9 +150,24 @@ export async function syncStockPrice(stock: StockRecommendation): Promise<StockR
     clientWarn({
       domain: 'PRICE_SYNC',
       code: 'P4_PRICE_SYNC_DEGRADED',
-      message: `[가격동기화] Naver 모바일 snapshot 실패`,
+      message: `[가격동기화] Naver 모바일 snapshot 실패 → KIS 실시간 시도`,
       dedupKey: `priceSync:naver:${baseCode}`,
       details: { stockCode: stock.code, stockName: stock.name, error: naverErr instanceof Error ? naverErr.message : String(naverErr) },
+    });
+  }
+
+  // 2순위: KIS 실시간 (Naver 미가용 시 fallback). 장외엔 실패할 수 있어 후순위.
+  try {
+    const kisResult = await syncStockPriceKIS(stock);
+    debugLog(`[가격동기화] KIS 실시간 성공: ${stock.name} ${kisResult.currentPrice}원`);
+    return await enrichStockWithRealData(kisResult);
+  } catch (kisErr: any) {
+    clientWarn({
+      domain: 'PRICE_SYNC',
+      code: 'P4_PRICE_SYNC_DEGRADED',
+      message: `[가격동기화] KIS UI 가격 동기화 실패 — STALE 가격 유지`,
+      dedupKey: `priceSync:kis:${stock.code}`,
+      details: { stockCode: stock.code, stockName: stock.name, error: kisErr instanceof Error ? kisErr.message : String(kisErr) },
     });
   }
 

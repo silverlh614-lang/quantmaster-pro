@@ -145,6 +145,66 @@ export async function fetchNaverStockSnapshot(code: string): Promise<NaverStockS
   }
 }
 
+/** Yahoo `inquire`/chart 호환 형태 — extractValidChartData 가 그대로 소비. */
+export interface NaverDailyChart {
+  timestamp: number[]; // unix seconds, 오름차순
+  indicators: { quote: [{ open: number[]; high: number[]; low: number[]; close: number[]; volume: number[] }] };
+}
+
+/**
+ * Naver 모바일 일봉(`/price`) 응답을 Yahoo 호환 차트 형태로 정규화 (순수 함수 — 단위 테스트 대상).
+ * Naver row: localTradedAt('YYYY-MM-DD')·openPrice/highPrice/lowPrice/closePrice(콤마 문자열)·
+ * accumulatedTradingVolume. 최신순으로 오므로 오름차순으로 뒤집는다.
+ */
+export function normalizeNaverDaily(rows: unknown): NaverDailyChart | null {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const asc = [...rows].reverse();
+  const timestamp: number[] = [];
+  const open: number[] = [];
+  const high: number[] = [];
+  const low: number[] = [];
+  const close: number[] = [];
+  const volume: number[] = [];
+  for (const r of asc) {
+    const row = (r ?? {}) as Record<string, unknown>;
+    const ms = Date.parse(String(row.localTradedAt ?? '').trim());
+    const c = parseNumber(row.closePrice);
+    if (!Number.isFinite(ms) || !(c > 0)) continue;
+    timestamp.push(Math.floor(ms / 1000));
+    open.push(parseNumber(row.openPrice) || c);
+    high.push(parseNumber(row.highPrice) || c);
+    low.push(parseNumber(row.lowPrice) || c);
+    close.push(c);
+    volume.push(parseNumber(row.accumulatedTradingVolume));
+  }
+  if (timestamp.length === 0) return null;
+  return { timestamp, indicators: { quote: [{ open, high, low, close, volume }] } };
+}
+
+/**
+ * 종목 일봉 OHLCV (KR 6자리). Yahoo 신뢰 철회(KR stale) 대체 — 차트 정본 소스.
+ * 실패 시 null (호출자가 Yahoo fallback 결정). 예산 가드 + negative cache 공유.
+ */
+export async function fetchNaverDailyOhlcv(code: string, count = 260): Promise<NaverDailyChart | null> {
+  if (!/^\d{6}$/.test(code)) return null;
+  if (isNegativelyCached(code)) return null;
+  if (!tryConsume('naver_finance', 1)) return null;
+  const pageSize = Math.max(1, Math.min(1000, count));
+  const url = `${NAVER_BASE}/${code}/price?pageSize=${pageSize}&page=1`;
+  try {
+    const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (!res.ok) {
+      if (res.status >= 400 && res.status < 500) recordNegative(code);
+      if (res.status !== 404) console.warn(`[NaverFinance] daily HTTP ${res.status} for ${code}`);
+      return null;
+    }
+    return normalizeNaverDaily(await res.json());
+  } catch (e) {
+    console.warn(`[NaverFinance] daily fetch 실패 ${code}: ${e instanceof Error ? e.message : e}`);
+    return null;
+  }
+}
+
 /**
  * 다중 종목 enrichment — 병렬 4건 제한.
  */
