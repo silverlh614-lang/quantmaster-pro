@@ -207,7 +207,7 @@ const WatchedPriceBanner = ({ stock }: { stock: StockRecommendation }) => {
   const isUp = diff >= 0;
   return (
     <div className={cn(
-      'flex items-center justify-between px-5 py-3 text-[11px] font-black uppercase tracking-widest',
+      'flex items-center justify-between px-5 py-3 text-[11px] font-semibold tracking-tight',
       isUp ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400',
     )}>
       <div className="flex items-center gap-2">
@@ -246,13 +246,13 @@ const FloatingBadges = ({
       {mode && (
         <div className={cn('absolute top-3 left-3 z-10 flex items-center gap-1 border px-2 py-1 rounded-lg backdrop-blur-sm', mode.className)}>
           <mode.icon className="w-2.5 h-2.5" />
-          <span className="text-[9px] font-black uppercase tracking-widest">{mode.label}</span>
+          <span className="text-[9px] font-semibold tracking-tight">{mode.label}</span>
         </div>
       )}
       {news && (
         <div className={cn('absolute top-3 right-3 z-10 flex items-center gap-1 border px-2 py-1 rounded-lg backdrop-blur-sm', phaseColors[news.phase] || '')}>
           <Newspaper className="w-2.5 h-2.5" />
-          <span className="text-[9px] font-black uppercase tracking-widest">News {news.phase} ({news.score})</span>
+          <span className="text-[9px] font-semibold tracking-tight">News {news.phase} ({news.score})</span>
         </div>
       )}
     </>
@@ -358,7 +358,7 @@ const StockIdentityPanel = ({
             </span>
             {alerts.length > 0 && (
               <div
-                className="px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border bg-amber-500/20 text-amber-400 border-amber-500/30 shadow-lg backdrop-blur-md flex items-center gap-1 shrink-0"
+                className="px-2 py-1 rounded-full text-[9px] font-semibold tracking-tight border bg-amber-500/20 text-amber-400 border-amber-500/30 shadow-lg backdrop-blur-md flex items-center gap-1 shrink-0"
                 title={alerts.map((alert) => alert.report_nm).join(', ')}
               >
                 <FileText className="w-3 h-3" />
@@ -367,7 +367,7 @@ const StockIdentityPanel = ({
             )}
             {stock.gate && (
               <div className={cn(
-                'px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md shrink-0',
+                'px-3 py-1 rounded-full text-[9px] font-semibold tracking-tight border shadow-lg backdrop-blur-md shrink-0',
                 stock.gate === 1 ? 'bg-red-500/20 text-red-400 border-red-500/30' :
                   stock.gate === 2 ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
                     'bg-green-500/20 text-green-400 border-green-500/30',
@@ -376,7 +376,7 @@ const StockIdentityPanel = ({
               </div>
             )}
             {isAllGatesPassed && (
-              <div className="flex items-center gap-1 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border shadow-lg backdrop-blur-md shrink-0 bg-yellow-400/20 text-yellow-400 border-yellow-400/40">
+              <div className="flex items-center gap-1 px-3 py-1 rounded-full text-[9px] font-semibold tracking-tight border shadow-lg backdrop-blur-md shrink-0 bg-yellow-400/20 text-yellow-400 border-yellow-400/40">
                 <Crown className="w-3 h-3" />
                 BEST
               </div>
@@ -604,7 +604,7 @@ const ExternalLinksAndPlan = ({ stock }: { stock: StockRecommendation }) => (
         <span className="text-[9px] sm:text-[11px] font-black text-white/40 ml-1 sm:ml-2 tracking-widest uppercase truncate">Heat</span>
       </div>
       <a href={naverChartHref(stock)} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="flex items-center gap-1.5 sm:gap-2.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-white/5 hover:bg-orange-500 hover:text-white border border-white/10 rounded-lg sm:rounded-xl transition-all group/link shadow-sm active:scale-95">
-        <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest">Chart</span>
+        <span className="text-[8px] sm:text-[10px] font-semibold tracking-tight">Chart</span>
         <ExternalLink className="w-3 h-3 sm:w-3.5 sm:h-3.5 group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 transition-transform" />
       </a>
     </div>
@@ -728,7 +728,7 @@ const PriceStrategySection = ({
           <div className={cn('flex items-center gap-2 sm:gap-2.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl border shadow-[0_0_15px_rgba(249,115,22,0.1)] transition-all', tone.wrapper)} title={variant.title}>
             <div className="flex items-center gap-1.5 mr-1">
               <div className={cn('w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full', tone.dot)} />
-              <span className={cn('text-[7px] sm:text-[8px] font-black uppercase tracking-widest', tone.text)}>{variant.label}</span>
+              <span className={cn('text-[7px] sm:text-[8px] font-semibold tracking-tight', tone.text)}>{variant.label}</span>
             </div>
             <PriceEditCell stockCode={stock.code} currentPrice={displayPrice} syncingStock={syncingStock} onManualUpdate={(newPrice) => onManualPriceUpdate(stock, newPrice)} onSync={() => onSyncPrice(stock)} />
           </div>
@@ -792,7 +792,7 @@ const PriceBox = ({
   }[tone];
   return (
     <div className={cn('rounded-2xl sm:rounded-3xl p-3 sm:p-5 border flex flex-col items-center justify-center gap-1.5 sm:gap-2 group/price transition-all shadow-sm min-w-0', classes.box)}>
-      <span className={cn('text-[7px] sm:text-[9px] font-black uppercase tracking-widest truncate w-full text-center', classes.label)}>{label}</span>
+      <span className={cn('text-[7px] sm:text-[9px] font-semibold tracking-tight truncate w-full text-center', classes.label)}>{label}</span>
       <span className={cn('text-xs sm:text-base font-black tracking-tighter truncate font-num', classes.primary)}>{primary}</span>
       {secondary && <span className={cn('text-[10px] sm:text-sm font-black tracking-tighter truncate', classes.secondary)}>{secondary}</span>}
     </div>
