@@ -158,51 +158,70 @@ export interface NaverDailyChart {
  */
 export function normalizeNaverDaily(rows: unknown): NaverDailyChart | null {
   if (!Array.isArray(rows) || rows.length === 0) return null;
-  const asc = [...rows].reverse();
-  const timestamp: number[] = [];
-  const open: number[] = [];
-  const high: number[] = [];
-  const low: number[] = [];
-  const close: number[] = [];
-  const volume: number[] = [];
-  for (const r of asc) {
+  // 날짜(ts)별 dedup — lightweight-charts 는 시간이 유일·오름차순이어야 렌더된다.
+  const byTs = new Map<number, { open: number; high: number; low: number; close: number; volume: number }>();
+  for (const r of rows) {
     const row = (r ?? {}) as Record<string, unknown>;
     const ms = Date.parse(String(row.localTradedAt ?? '').trim());
     const c = parseNumber(row.closePrice);
     if (!Number.isFinite(ms) || !(c > 0)) continue;
-    timestamp.push(Math.floor(ms / 1000));
-    open.push(parseNumber(row.openPrice) || c);
-    high.push(parseNumber(row.highPrice) || c);
-    low.push(parseNumber(row.lowPrice) || c);
-    close.push(c);
-    volume.push(parseNumber(row.accumulatedTradingVolume));
+    byTs.set(Math.floor(ms / 1000), {
+      open: parseNumber(row.openPrice) || c,
+      high: parseNumber(row.highPrice) || c,
+      low: parseNumber(row.lowPrice) || c,
+      close: c,
+      volume: parseNumber(row.accumulatedTradingVolume),
+    });
   }
-  if (timestamp.length === 0) return null;
-  return { timestamp, indicators: { quote: [{ open, high, low, close, volume }] } };
+  if (byTs.size === 0) return null;
+  const sorted = [...byTs.entries()].sort((a, b) => a[0] - b[0]); // 오름차순·유일
+  return {
+    timestamp: sorted.map(([ts]) => ts),
+    indicators: {
+      quote: [{
+        open: sorted.map(([, v]) => v.open),
+        high: sorted.map(([, v]) => v.high),
+        low: sorted.map(([, v]) => v.low),
+        close: sorted.map(([, v]) => v.close),
+        volume: sorted.map(([, v]) => v.volume),
+      }],
+    },
+  };
 }
 
 /**
  * 종목 일봉 OHLCV (KR 6자리). Yahoo 신뢰 철회(KR stale) 대체 — 차트 정본 소스.
+ *
+ * Naver `/price` 는 pageSize 60 초과 시 빈 응답을 주므로 **반드시 페이지네이션**한다
+ * (이전 count=264 단일요청은 빈값→Yahoo fallback→장외 blank 결함을 유발했다).
  * 실패 시 null (호출자가 Yahoo fallback 결정). 예산 가드 + negative cache 공유.
  */
 export async function fetchNaverDailyOhlcv(code: string, count = 260): Promise<NaverDailyChart | null> {
   if (!/^\d{6}$/.test(code)) return null;
   if (isNegativelyCached(code)) return null;
   if (!tryConsume('naver_finance', 1)) return null;
-  const pageSize = Math.max(1, Math.min(1000, count));
-  const url = `${NAVER_BASE}/${code}/price?pageSize=${pageSize}&page=1`;
+  const PAGE_SIZE = 60; // Naver 하드 캡 (60 OK, 90+ 빈 응답)
+  const pages = Math.min(8, Math.max(1, Math.ceil(count / PAGE_SIZE)));
+  const all: unknown[] = [];
   try {
-    const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT_MS) });
-    if (!res.ok) {
-      if (res.status >= 400 && res.status < 500) recordNegative(code);
-      if (res.status !== 404) console.warn(`[NaverFinance] daily HTTP ${res.status} for ${code}`);
-      return null;
+    for (let page = 1; page <= pages; page++) {
+      const res = await fetch(`${NAVER_BASE}/${code}/price?pageSize=${PAGE_SIZE}&page=${page}`, {
+        headers: HEADERS,
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        if (res.status >= 400 && res.status < 500) recordNegative(code);
+        break;
+      }
+      const rows = await res.json();
+      if (!Array.isArray(rows) || rows.length === 0) break;
+      all.push(...rows);
+      if (rows.length < PAGE_SIZE) break; // 마지막 페이지 (더 과거 데이터 없음)
     }
-    return normalizeNaverDaily(await res.json());
   } catch (e) {
     console.warn(`[NaverFinance] daily fetch 실패 ${code}: ${e instanceof Error ? e.message : e}`);
-    return null;
   }
+  return all.length > 0 ? normalizeNaverDaily(all) : null;
 }
 
 /** 외국인/기관 순매수 (frgn.naver) — 표시 전용. KIS 와 달리 장외에도 가용. */
