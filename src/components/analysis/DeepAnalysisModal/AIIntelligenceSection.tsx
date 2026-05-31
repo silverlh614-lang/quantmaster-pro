@@ -185,6 +185,11 @@ function VisualGradeRow({
   grade: number | undefined;
   color: string;
 }) {
+  // visualReport 점수는 0~10 척도에서 '높을수록 우수' (confluenceAxes 와 동일 방향).
+  // 직전엔 `{grade}등급` + `6 - grade` 별 계산이라 1~5 만 가정 → 8·9 점이 별 0개로
+  // 깨져 보이고 "등급" 표기가 1=최고 오해를 유발했다. 명시적 'N/10' + 비례 별로 정정.
+  const score = Math.max(0, Math.min(10, grade ?? 0));
+  const filledStars = Math.round(score / 2);
   return (
     <div className="flex items-center justify-between bg-white/5 p-3 rounded-xl border border-white/5">
       <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{label}</span>
@@ -195,12 +200,12 @@ function VisualGradeRow({
               key={star}
               className={cn(
                 'w-2.5 h-2.5',
-                star <= (6 - (grade || 5)) ? color + ' fill-current' : 'text-white/10',
+                star <= filledStars ? color + ' fill-current' : 'text-white/10',
               )}
             />
           ))}
         </div>
-        <span className={cn('text-xs font-black', color)}>{grade}등급</span>
+        <span className={cn('text-xs font-black', color)}>{score}/10</span>
       </div>
     </div>
   );
@@ -424,24 +429,41 @@ function resolveAnomalyClass(type: string | undefined): string {
 }
 
 function AnomalyDetectionCard({ stock }: Props) {
+  const anomaly = stock.anomalyDetection;
+  // type 이 NONE/미정이고 intensity 0 이면 "이상 없음(정상)" 으로 명확히 표기한다.
+  // 직전엔 'NONE' 배지 + '0 Intensity' 만 떠서 카드가 깨졌거나 미연동된 것처럼 보였다.
+  const hasAnomaly = !!anomaly && anomaly.type !== 'NONE' && (anomaly.score ?? 0) > 0;
   return (
     <AiCardShell
       icon={<Radar className="w-12 h-12 text-purple-500" />}
       title="Anomaly Detection"
       titleIcon={<Radar className="w-5 h-5 text-purple-500" />}
     >
-      <div className="mb-4">
-        <div className={cn('inline-block px-3 py-1 rounded-full text-[10px] font-black mb-3 border', resolveAnomalyClass(stock.anomalyDetection?.type))}>
-          {formatToken(stock.anomalyDetection?.type) || 'NONE DETECTED'}
+      {hasAnomaly ? (
+        <>
+          <div className="mb-4">
+            <div className={cn('inline-block px-3 py-1 rounded-full text-[10px] font-black mb-3 border', resolveAnomalyClass(anomaly.type))}>
+              {formatToken(anomaly.type)}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-black text-white tracking-tighter">{anomaly.score}</span>
+              <span className="text-[10px] font-bold text-white/20 uppercase">Intensity</span>
+            </div>
+          </div>
+          <p className="text-[12px] text-white/70 leading-relaxed font-bold break-words">
+            {anomaly.description}
+          </p>
+        </>
+      ) : (
+        <div className="py-2">
+          <div className="inline-block px-3 py-1 rounded-full text-[10px] font-black mb-3 border bg-emerald-500/10 text-emerald-400/80 border-emerald-500/20">
+            정상 — 특이 신호 없음
+          </div>
+          <p className="text-[12px] text-white/50 leading-relaxed font-bold break-words">
+            {anomaly?.description || '펀더멘털·수급 다이버전스 등 이상 징후가 감지되지 않았습니다.'}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-2xl font-black text-white tracking-tighter">{stock.anomalyDetection?.score || 0}</span>
-          <span className="text-[10px] font-bold text-white/20 uppercase">Intensity</span>
-        </div>
-      </div>
-      <p className="text-[12px] text-white/70 leading-relaxed font-bold break-words">
-        {stock.anomalyDetection?.description}
-      </p>
+      )}
     </AiCardShell>
   );
 }

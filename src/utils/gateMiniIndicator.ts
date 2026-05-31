@@ -6,7 +6,7 @@ import {
   GATE1_IDS,
   GATE2_IDS,
   GATE3_IDS,
-  CONDITION_PASS_THRESHOLD,
+  isChecklistConditionMet,
 } from '../constants/gateConfig';
 import { CONDITION_ID_TO_CHECKLIST_KEY } from '../types/core';
 import type { ConditionId } from '../types/core';
@@ -49,9 +49,7 @@ export function classifyGateState(passedCount: number, totalCount: number): Gate
 function conditionPassesScore(stock: StockRecommendation, id: ConditionId): boolean {
   const key = CONDITION_ID_TO_CHECKLIST_KEY[id];
   if (!key) return false;
-  const value = stock.checklist[key as keyof typeof stock.checklist];
-  if (typeof value !== 'number' || !Number.isFinite(value)) return false;
-  return value >= CONDITION_PASS_THRESHOLD;
+  return isChecklistConditionMet(stock.checklist[key as keyof typeof stock.checklist]);
 }
 
 function buildGateLine(
