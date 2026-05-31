@@ -109,11 +109,26 @@ export async function fetchNaverStockSnapshot(code: string): Promise<NaverStockS
       return hit?.value ?? null;
     };
 
+    // closePrice 필드 우선순위 — dealTrendInfos[0] (최근 거래일별 record) 가
+    // 권위 있는 값. top-level `data.closePrice` 는 기준가/예전값 의미가 모호해
+    // 종목별로 stale 가능 (SK하이닉스 000660 ₩1.86M vs 실제 5/29 종가 ₩2.33M
+    // 케이스 — 사용자 보고). top-level 은 dealTrendInfos 부재 시 fallback 만.
+    const dealCp = parseNumber(dealTrendInfos.closePrice);
+    const topCp = parseNumber(data.closePrice);
+    const closePrice = dealCp > 0 ? dealCp : topCp;
+    const dealCr = parseNumber(dealTrendInfos.fluctuationsRatio);
+    const topCr = parseNumber(data.fluctuationsRatio);
+    const changeRate = dealCp > 0 ? dealCr : topCr; // closePrice 동일 출처 정합
+    // 두 필드 동시 존재 + 5% 이상 괴리 시 진단 로그 (Naver 측 캐시·필드 의미 변경 감지)
+    if (dealCp > 0 && topCp > 0 && Math.abs(dealCp - topCp) / dealCp > 0.05) {
+      console.warn(`[NaverFinance] closePrice 괴리 ${code}: dealTrendInfos=${dealCp} top=${topCp} (dealTrendInfos 채택)`);
+    }
+
     return {
       code,
       name: data.stockName ?? '',
-      closePrice: parseNumber(data.closePrice ?? dealTrendInfos.closePrice),
-      changeRate: parseNumber(data.fluctuationsRatio ?? dealTrendInfos.fluctuationsRatio),
+      closePrice,
+      changeRate,
       marketCap: parseNumber(findInfo('marketValue')),
       per: parseNumber(findInfo('per')),
       pbr: parseNumber(findInfo('pbr')),
