@@ -29,11 +29,13 @@ describe('buildStockAnalysisCanon', () => {
     for (const k of ['roeType3','earningsSurprise','performanceReality','ocfQuality','marginAcceleration','interestCoverage','economicMoatVerified','momentumRanking','ichimokuBreakout','technicalGoldenCross','volumeSurgeVerified','turtleBreakout','fibonacciLevel','elliottWaveVerified','vcpPattern','divergenceCheck','supplyInflow','institutionalBuying','consensusTarget','cycleVerified','riskOnEnvironment','notPreviousLeader','policyAlignment','mechanicalStop','psychologicalObjectivity','catalystAnalysis']) allTrue[k] = true;
     const canon = buildStockAnalysisCanon(stock({ checklist: allTrue as any }));
     const byName = Object.fromEntries(canon.radar.map((r) => [r.subject, r.A]));
-    expect(byName['시장 주도력']).toBe(0); // 전부 AI 추정
-    expect(byName['기본적 분석']).toBe(100); // 전부 API
-    expect(canon.radar.every((r) => r.A === 100)).toBe(false);
-    expect(canon.verifiedPassCount).toBeLessThan(26); // 27/27 부풀림 아님
-    expect(canon.metCount).toBeGreaterThan(canon.verifiedPassCount); // AI 충족 > 검증 충족
+    // 가중: 검증=1·AI=0.5. 시장 주도력(전부 AI)=50, 기본적(전부 API 검증)=100.
+    expect(byName['시장 주도력']).toBe(50);
+    expect(byName['기본적 분석']).toBe(100);
+    expect(canon.radar.every((r) => r.A === 100)).toBe(false); // 전부 100(27/27) 아님
+    expect(canon.radar.every((r) => r.A === 0)).toBe(false);    // 전부 0(빈 레이더)도 아님
+    expect(canon.verifiedPassCount).toBeLessThan(26);
+    expect(canon.metCount).toBeGreaterThan(canon.verifiedPassCount);
   });
 
   it('quantScore 는 gateEvaluation 없어도 fallback 으로 항상 산출 (검색 종목 final score 미표시 방지)', () => {

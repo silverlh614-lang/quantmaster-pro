@@ -81,9 +81,14 @@ export function buildStockAnalysisCanon(stock: StockRecommendation): StockAnalys
   const metCount = all.filter((c) => c.met).length;
   const verifiedPassCount = all.filter((c) => c.status === 'VERIFIED_PASS').length;
 
+  // 가중 점수: 검증통과=1.0 · AI추정통과=0.5 · 미달=0. 검증-only(0/27 빈 레이더)와 truthy
+  // (전부 100%) 의 양극단을 피해, AI 추정도 절반은 반영하되 실데이터일수록 더 차오르게 한다.
   const radar: RadarAxis[] = RADAR_CATEGORIES.map((cat) => {
-    const verifiedMet = cat.keys.filter((key) => (conditions[key] ?? conditionView(stock, key)).status === 'VERIFIED_PASS').length;
-    return { subject: cat.name, A: Math.round((verifiedMet / cat.keys.length) * 100), fullMark: 100 };
+    const score = cat.keys.reduce((sum, key) => {
+      const s = (conditions[key] ?? conditionView(stock, key)).status;
+      return sum + (s === 'VERIFIED_PASS' ? 1 : s === 'AI_PASS' ? 0.5 : 0);
+    }, 0);
+    return { subject: cat.name, A: Math.round((score / cat.keys.length) * 100), fullMark: 100 };
   });
 
   const aiScore = clamp(stock?.aiConvictionScore?.totalScore ?? 0);

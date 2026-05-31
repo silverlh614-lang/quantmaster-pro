@@ -392,7 +392,12 @@ export function buildCandidateDecisionCardModel(
     sector: stockSector(stock),
     finalDecision,
     displayDecision: publicDecisionLabel(finalDecision),
-    finalScore: Math.round(normalizeFinalScore(stock)),
+    // finalScore 는 표시된 게이트(gate1/2/3 통과수)와 정합되게 산출 — AI 가 넣는
+    // gateEvaluation.finalScore=0 placeholder 로 인해 "FINAL SCORE 0" 으로 표기되던 결함 정정.
+    finalScore: Math.round(
+      ((gate1.passed + gate2.passed + gate3.passed) /
+        Math.max(1, gate1.total + gate2.total + gate3.total)) * 100,
+    ),
     sourceSnapshotId,
     asOf,
     gate0,
