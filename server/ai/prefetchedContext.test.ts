@@ -25,6 +25,11 @@ vi.mock('../screener/stockScreener.js', () => ({
   fetchYahooQuote: vi.fn(),
 }));
 
+// ADR-0547 — 기술지표 quote 는 technicalQuoteRouter 경유로 수집된다. 라우터를 목한다.
+vi.mock('../screener/adapters/technicalQuoteRouter.js', () => ({
+  fetchTechnicalQuote: vi.fn(),
+}));
+
 vi.mock('../clients/dartFinancialClient.js', () => ({
   getDartFinancials: vi.fn(),
 }));
@@ -34,7 +39,7 @@ vi.mock('../clients/krxClient.js', () => ({
 }));
 
 import { fetchCurrentPrice, fetchKisInvestorTradeByStockDaily } from '../clients/kisClient.js';
-import { fetchYahooQuote } from '../screener/stockScreener.js';
+import { fetchTechnicalQuote } from '../screener/adapters/technicalQuoteRouter.js';
 import { getDartFinancials } from '../clients/dartFinancialClient.js';
 import { fetchPerPbr } from '../clients/krxClient.js';
 import { buildStockInterpretContext } from './prefetchedContext.js';
@@ -43,7 +48,7 @@ describe('buildStockInterpretContext', () => {
   beforeEach(() => {
     vi.mocked(fetchCurrentPrice).mockReset();
     vi.mocked(fetchKisInvestorTradeByStockDaily).mockReset();
-    vi.mocked(fetchYahooQuote).mockReset();
+    vi.mocked(fetchTechnicalQuote).mockReset();
     vi.mocked(getDartFinancials).mockReset();
     vi.mocked(fetchPerPbr).mockReset().mockResolvedValue([]);
   });
@@ -57,7 +62,7 @@ describe('buildStockInterpretContext', () => {
   it('모든 소스가 null·실패여도 블록 문자열은 생성된다', async () => {
     vi.mocked(fetchCurrentPrice).mockResolvedValue(null);
     vi.mocked(fetchKisInvestorTradeByStockDaily).mockResolvedValue(null);
-    vi.mocked(fetchYahooQuote).mockResolvedValue(null);
+    vi.mocked(fetchTechnicalQuote).mockResolvedValue(null);
     vi.mocked(getDartFinancials).mockResolvedValue(null);
 
     const ctx = await buildStockInterpretContext({ code: '005930', name: '삼성전자' });
@@ -79,7 +84,7 @@ describe('buildStockInterpretContext', () => {
       source: 'KIS_API',
       fetchedAt: '2026-05-11T09:30:00.000Z',
     });
-    vi.mocked(fetchYahooQuote).mockResolvedValue({
+    vi.mocked(fetchTechnicalQuote).mockResolvedValue({
       price: 72500, changePercent: 1.5, volume: 20_000_000,
       dayOpen: 71000, prevClose: 71400,
       avgVolume: 15_000_000,
