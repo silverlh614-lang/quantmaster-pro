@@ -37,24 +37,24 @@ const FILTER_CARDS: {
 }[] = [
   {
     mode: 'MOMENTUM',
-    label: 'Momentum Leaders',
-    description: 'Strong momentum and supply-focused near-term candidates',
+    label: '모멘텀 주도주',
+    description: '강한 모멘텀·수급 중심의 단기 후보',
     activeClassName: 'bg-orange-500/15 border-orange-500/30 shadow-lg shadow-orange-500/10',
     iconClassName: 'text-orange-500',
     Icon: Zap,
   },
   {
     mode: 'EARLY_DETECT',
-    label: 'Early Signals',
-    description: 'Early energy setups before a larger move is confirmed',
+    label: '얼리 시그널',
+    description: '큰 변동 확인 전 초기 에너지 셋업',
     activeClassName: 'bg-blue-500/15 border-blue-500/30 shadow-lg shadow-blue-500/10',
     iconClassName: 'text-blue-500',
     Icon: Activity,
   },
   {
     mode: 'QUANT_SCREEN',
-    label: 'Quant Screen',
-    description: 'Factor-driven candidates from ROE, valuation, and leverage filters',
+    label: '퀀트 스크린',
+    description: 'ROE·밸류에이션·레버리지 팩터 기반 후보',
     activeClassName: 'bg-emerald-500/15 border-emerald-500/30 shadow-lg shadow-emerald-500/10',
     iconClassName: 'text-emerald-500',
     Icon: Activity,
@@ -155,7 +155,7 @@ function AnalysisStartButton({
       ) : (
         <Search className="w-6 h-6 sm:w-7 sm:h-7" />
       )}
-      <span className="tracking-tighter">{loading ? 'Analysis running...' : 'Start leader scan'}</span>
+      <span className="tracking-tighter">{loading ? '분석 진행 중...' : '주도주 스캔 시작'}</span>
     </button>
   );
 }
@@ -212,11 +212,11 @@ function HeroSection({
             <span className="text-gradient-accent">Pro</span>
           </h2>
           <p className="text-xs sm:text-sm lg:text-base font-bold text-theme-text-muted uppercase tracking-[0.15em] sm:tracking-[0.2em] mb-6 sm:mb-10">
-            Data-driven regime and signal analysis
+            데이터 기반 국면·신호 분석
           </p>
           <div className="relative group/info mb-10">
             <p className="text-theme-text-muted max-w-xl text-lg sm:text-xl font-medium leading-relaxed">
-              AI powered <span className="text-theme-text border-b border-theme-border cursor-help font-bold" onClick={() => setShowMasterChecklist(true)}>27-step master checklist</span> for leader discovery.
+              AI 기반 <span className="text-theme-text border-b border-theme-border cursor-help font-bold" onClick={() => setShowMasterChecklist(true)}>27단계 마스터 체크리스트</span>로 주도주 발굴.
             </p>
             <button
               onClick={() => setShowMasterChecklist(true)}
@@ -251,8 +251,8 @@ function TopRecommendationHeader() {
           <Crown className="w-6 h-6 text-orange-500" />
         </div>
         <div>
-          <h3 className="text-2xl font-black text-theme-text tracking-tighter uppercase">Today's Top 3 Leaders</h3>
-          <p className="text-sm text-theme-text-muted font-bold">Highest scoring candidates from the master checklist.</p>
+          <h3 className="text-2xl font-black text-theme-text tracking-tighter uppercase">오늘의 TOP 3 주도주</h3>
+          <p className="text-sm text-theme-text-muted font-bold">마스터 체크리스트 최고 점수 후보.</p>
         </div>
       </div>
       <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-theme-surface rounded-xl border border-theme-border">

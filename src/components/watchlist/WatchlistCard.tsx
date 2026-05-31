@@ -385,7 +385,7 @@ const StockIdentityPanel = ({
         </div>
         {stock.aiConvictionScore && (
           <div className="mt-2 text-[10px] text-orange-300/60">
-            Model score is diagnostic, not an auto-trade trigger.
+            모델 점수는 진단용이며 자동매매 트리거가 아닙니다.
           </div>
         )}
         {quantGateScore && (
