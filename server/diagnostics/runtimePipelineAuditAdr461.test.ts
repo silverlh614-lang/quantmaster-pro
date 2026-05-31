@@ -181,4 +181,46 @@ describe('ADR-461 runtime pipeline audit', () => {
     expect(typeof id).toBe('string');
     expect(id.length).toBeGreaterThan(0);
   });
+
+  // ADR-0544 follow-up (GAP-C): 휴일/세션닫힘 verify-skip 은 SECTOR_ENERGY_DEGRADED blocker 가 아니다.
+  function sectorEnergyReport(canonicalOverrides: Record<string, unknown>): unknown {
+    return {
+      sectorEnergyCanonicalState: {
+        verifiedOfficialSectorCount: 0,
+        promotionCoveragePass: false,
+        ...canonicalOverrides,
+      },
+      // promotion-audit builder 가 읽는 최소 필드 (게이팅 무관 — blocker 산출 경로만 통과).
+      sectorEnergyMaster: {
+        records: [], missing: 1, stale: 0, providerError: 0,
+        leadershipConfidence: 'SHADOW_ONLY', coveragePct: 0,
+      },
+      supplyUnknownPolicy: { providerIssue: false, marketSignal: false },
+    };
+  }
+
+  it('SESSION_NOT_VERIFIABLE canonical → blockedBy 에 SECTOR_ENERGY_DEGRADED 없음', async () => {
+    mockSummary = baseSummary({
+      sectorEnergyQuality: 'DEGRADED',
+      sectorEnergySupplyUnknownAdr0488: sectorEnergyReport({
+        dataQuality: 'SESSION_NOT_VERIFIABLE',
+        sectorIndexVerifyMode: 'VERIFY_SKIPPED_SESSION_CLOSED',
+      }) as never,
+    });
+    const { buildRuntimePipelineAuditSnapshot } = await import('./runtimePipelineAudit.js');
+    expect(buildRuntimePipelineAuditSnapshot().blockedBy).not.toContain('SECTOR_ENERGY_DEGRADED');
+  });
+
+  // 대조군: 장중 실제 verify 0건(MISSING)은 여전히 DEGRADED blocker 유지 (분류 분리 보존).
+  it('장중 MISSING canonical → SECTOR_ENERGY_DEGRADED blocker 유지', async () => {
+    mockSummary = baseSummary({
+      sectorEnergyQuality: 'DEGRADED',
+      sectorEnergySupplyUnknownAdr0488: sectorEnergyReport({
+        dataQuality: 'MISSING',
+        sectorIndexVerifyMode: 'LIVE_VERIFY',
+      }) as never,
+    });
+    const { buildRuntimePipelineAuditSnapshot } = await import('./runtimePipelineAudit.js');
+    expect(buildRuntimePipelineAuditSnapshot().blockedBy).toContain('SECTOR_ENERGY_DEGRADED');
+  });
 });
