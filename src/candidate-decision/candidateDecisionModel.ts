@@ -60,6 +60,18 @@ function conditionVerifiedPass(stock: StockRecommendation, id: ConditionId): boo
   return conditionPasses(stock, id) && isVerifiedTier(resolveConditionTier(stock, key as keyof StockRecommendation['checklist']));
 }
 
+/** 검증 가중 최종 점수 — 검증 통과=1·AI 추정 통과=0.5·미달=0 (SSOT 레이더와 동일 철학).
+ * AI 가 채운 truthy 만으로 100 이 되던 부풀림을 실데이터 검증 비율로 정직화한다. */
+function weightedFinalScore(stock: StockRecommendation): number {
+  const ids: ConditionId[] = [...GATE1_IDS, ...GATE2_IDS, ...GATE3_IDS];
+  if (ids.length === 0) return 0;
+  const weighted = ids.reduce(
+    (sum, id) => sum + (conditionVerifiedPass(stock, id) ? 1 : conditionPasses(stock, id) ? 0.5 : 0),
+    0,
+  );
+  return Math.round((weighted / ids.length) * 100);
+}
+
 function buildGateSummary(
   stock: StockRecommendation,
   name: string,
@@ -125,12 +137,15 @@ export function buildCandidateDataConfidence(stock: StockRecommendation): DataCo
   const total = Math.max(1, dataQuality.total + missingIndicatorCount);
   const aiRatio = aiEstimatedIndicatorCount / total;
   const verifiedRatio = calculatedIndicatorCount / total;
-  const overall: DataConfidenceSummary['overall'] = providerIssue
-    ? 'STALE'
-    : missingIndicatorCount > 0
-      ? 'MISSING'
-      : aiRatio >= 0.3
-        ? 'AI_ESTIMATED'
+  // AI 추정이 우세하면 STALE 보다 AI_ESTIMATED 를 우선 표시 — 'stale(실패처럼 보임)' 보다
+  // 'AI 추정(L4 참조값)' 이 사용자에게 더 정직하고 신뢰감 있다. providerIssue 불리언은 그대로
+  // 보존(불변식 marketSignal 분리 로직용). live 차단은 아래 liveExecutionAllowed 에서 별도 유지.
+  const overall: DataConfidenceSummary['overall'] = missingIndicatorCount > 0
+    ? 'MISSING'
+    : aiRatio >= 0.3
+      ? 'AI_ESTIMATED'
+      : providerIssue
+        ? 'STALE'
         : verifiedRatio >= 0.7
           ? 'VERIFIED'
           : 'DEGRADED';
@@ -393,6 +408,9 @@ export function buildCandidateDecisionCardModel(
     && (finalDecision === 'CONFIRMED_CANDIDATE' || finalDecision === 'BUY_CANDIDATE')
     && confidence.overall !== 'MISSING'
     && confidence.overall !== 'STALE'
+    // 불변식 #7 — AI_ESTIMATED(L4) 는 live 집행 표시 차단 (overall 우선순위 변경에 따른 안전 보존).
+    && confidence.overall !== 'AI_ESTIMATED'
+    && !confidence.providerIssue
   );
   const shadowTrackingStatus = deriveShadowTrackingStatus(finalDecision);
   const executionImpact = deriveExecutionImpact(finalDecision, liveExecutionAllowed, engineMode);
@@ -403,12 +421,10 @@ export function buildCandidateDecisionCardModel(
     sector: stockSector(stock),
     finalDecision,
     displayDecision: publicDecisionLabel(finalDecision),
-    // finalScore 는 표시된 게이트(gate1/2/3 통과수)와 정합되게 산출 — AI 가 넣는
-    // gateEvaluation.finalScore=0 placeholder 로 인해 "FINAL SCORE 0" 으로 표기되던 결함 정정.
-    finalScore: Math.round(
-      ((gate1.passed + gate2.passed + gate3.passed) /
-        Math.max(1, gate1.total + gate2.total + gate3.total)) * 100,
-    ),
+    // finalScore — 검증 가중(검증=1·AI추정=0.5·미달=0). Gemini 가 checklist 를 거의 다 true 로
+    // 채워 단순 통과수면 "전부 통과=100" 으로 부풀던 문제(실데이터 검증 0 인데 100) 정직화.
+    // 실데이터 검증 비율이 높을수록 점수가 오른다 — SSOT 레이더와 동일 가중.
+    finalScore: weightedFinalScore(stock),
     sourceSnapshotId,
     asOf,
     gate0,
