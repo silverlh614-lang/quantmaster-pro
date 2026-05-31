@@ -26,7 +26,7 @@ function AnalystRatingStat({ label, value, className }: { label: string; value: 
 function AnalystTargetPriceRange({ stock }: Props) {
   return (
     <div className="bg-black/20 p-4 rounded-2xl border border-white/5">
-      <span className="text-[10px] font-black text-white/40 uppercase block mb-2">Target Price Range</span>
+      <span className="text-[10px] font-black text-white/40 uppercase block mb-2">목표주가 범위</span>
       <div className="flex justify-between items-center">
         <span className="text-sm font-black text-white/60">₩{stock.analystRatings?.targetPriceLow?.toLocaleString() || '0'}</span>
         <div className="flex-1 h-1 bg-white/10 mx-4 rounded-full relative">
@@ -35,7 +35,7 @@ function AnalystTargetPriceRange({ stock }: Props) {
         <span className="text-sm font-black text-white/60">₩{stock.analystRatings?.targetPriceHigh?.toLocaleString() || '0'}</span>
       </div>
       <div className="text-center mt-2">
-        <span className="text-xs font-black text-blue-400">Avg: ₩{stock.analystRatings?.targetPriceAvg?.toLocaleString() || '0'}</span>
+        <span className="text-xs font-black text-blue-400">평균: ₩{stock.analystRatings?.targetPriceAvg?.toLocaleString() || '0'}</span>
       </div>
     </div>
   );
@@ -46,22 +46,22 @@ function AnalystSentimentCard({ stock }: Props) {
     <div className="bg-white/5 rounded-2xl p-6 border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-4">
         <Users className="w-5 h-5 text-blue-400" />
-        <h3 className="text-lg font-black text-white uppercase tracking-tight">Analyst Sentiment</h3>
+        <h3 className="text-lg font-black text-white uppercase tracking-tight">애널리스트 심리</h3>
       </div>
       {stock.analystRatings ? (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-black text-white/60 tracking-tight">Consensus</span>
+            <span className="text-sm font-black text-white/60 tracking-tight">컨센서스</span>
             <span className={cn('text-sm px-3 py-1 rounded-full font-black tracking-widest', resolveAnalystConsensusClass(stock.analystRatings.consensus))}>
               {stock.analystRatings.consensus}
             </span>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <AnalystRatingStat label="Strong Buy" value={stock.analystRatings?.strongBuy} className="text-red-500" />
-            <AnalystRatingStat label="Buy" value={stock.analystRatings?.buy} className="text-orange-400" />
-            <AnalystRatingStat label="Strong Sell" value={stock.analystRatings?.strongSell} className="text-blue-600" />
-            <AnalystRatingStat label="Sell" value={stock.analystRatings?.sell} className="text-blue-400" />
+            <AnalystRatingStat label="적극 매수" value={stock.analystRatings?.strongBuy} className="text-red-500" />
+            <AnalystRatingStat label="매수" value={stock.analystRatings?.buy} className="text-orange-400" />
+            <AnalystRatingStat label="적극 매도" value={stock.analystRatings?.strongSell} className="text-blue-600" />
+            <AnalystRatingStat label="매도" value={stock.analystRatings?.sell} className="text-blue-400" />
           </div>
 
           <AnalystTargetPriceRange stock={stock} />
@@ -73,7 +73,7 @@ function AnalystSentimentCard({ stock }: Props) {
           )}
         </div>
       ) : (
-        <p className="text-sm text-white/30 font-bold">No analyst data available</p>
+        <p className="text-sm text-white/30 font-bold">애널리스트 데이터 없음</p>
       )}
     </div>
   );
@@ -99,7 +99,7 @@ function NewsSentimentScore({ score }: { score: number }) {
   return (
     <div className="bg-black/20 p-6 rounded-3xl border border-white/5 relative overflow-hidden">
       <div className="relative z-10 flex flex-col items-center">
-        <span className="text-[10px] font-black text-white/40 tracking-tight mb-2">Sentiment Score</span>
+        <span className="text-[10px] font-black text-white/40 tracking-tight mb-2">심리 점수</span>
         <div className="text-5xl font-black mb-2" style={{
           color: score >= 60 ? '#34d399' : score <= 40 ? '#f87171' : '#9ca3af',
         }}>
@@ -125,12 +125,12 @@ function NewsSentimentCard({ stock }: Props) {
     <div className="bg-white/5 rounded-2xl p-6 border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-4">
         <Newspaper className="w-5 h-5 text-emerald-400" />
-        <h3 className="text-lg font-black text-white uppercase tracking-tight">News Sentiment</h3>
+        <h3 className="text-lg font-black text-white uppercase tracking-tight">뉴스 심리</h3>
       </div>
       {stock.newsSentiment ? (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-black text-white/60 tracking-tight">Status</span>
+            <span className="text-sm font-black text-white/60 tracking-tight">상태</span>
             <span className={cn('text-sm px-3 py-1 rounded-full font-black tracking-widest flex items-center gap-2', resolveNewsStatusClass(stock.newsSentiment.status))}>
               <NewsStatusIcon status={stock.newsSentiment.status} />
               {stock.newsSentiment.status}
@@ -144,7 +144,7 @@ function NewsSentimentCard({ stock }: Props) {
           </p>
         </div>
       ) : (
-        <p className="text-sm text-white/30 font-bold">No news sentiment data available</p>
+        <p className="text-sm text-white/30 font-bold">뉴스 심리 데이터 없음</p>
       )}
     </div>
   );

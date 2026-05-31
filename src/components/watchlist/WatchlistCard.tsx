@@ -123,13 +123,13 @@ const buildCardShadowTrade = (
 
 const modeBadgeMeta = (lastUsedMode: string) => {
   if (lastUsedMode === 'EARLY_DETECT') {
-    return { label: 'Early', icon: Activity, className: 'bg-blue-500/20 border-blue-500/30 text-blue-400' };
+    return { label: '얼리', icon: Activity, className: 'bg-blue-500/20 border-blue-500/30 text-blue-400' };
   }
   if (lastUsedMode === 'MOMENTUM') {
-    return { label: 'Momentum', icon: Zap, className: 'bg-orange-500/20 border-orange-500/30 text-orange-400' };
+    return { label: '모멘텀', icon: Zap, className: 'bg-orange-500/20 border-orange-500/30 text-orange-400' };
   }
   if (lastUsedMode === 'QUANT_SCREEN') {
-    return { label: 'Quant', icon: Activity, className: 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' };
+    return { label: '퀀트', icon: Activity, className: 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' };
   }
   return null;
 };
@@ -142,11 +142,11 @@ const marketVariant = (stock: StockRecommendation, marketMode: MarketMode) => {
   } catch {
     nextOpenLabel = 'N/A';
   }
-  if (open) return { label: 'LIVE', tone: 'orange', title: 'Regular-session live price' };
-  if (marketMode === 'WEEKEND_CACHE') return { label: 'Weekend', tone: 'gray', title: `Next open ${nextOpenLabel}` };
-  if (marketMode === 'HOLIDAY_CACHE') return { label: 'Holiday', tone: 'gray', title: `Next open ${nextOpenLabel}` };
-  if (marketMode === 'DEGRADED') return { label: 'Degraded', tone: 'red', title: 'Price source degraded' };
-  return { label: 'Closed', tone: 'blue', title: `Next open ${nextOpenLabel}` };
+  if (open) return { label: 'LIVE', tone: 'orange', title: '정규장 실시간 가격' };
+  if (marketMode === 'WEEKEND_CACHE') return { label: '주말', tone: 'gray', title: `다음 개장 ${nextOpenLabel}` };
+  if (marketMode === 'HOLIDAY_CACHE') return { label: '휴장', tone: 'gray', title: `다음 개장 ${nextOpenLabel}` };
+  if (marketMode === 'DEGRADED') return { label: '지연', tone: 'red', title: '가격 소스 지연' };
+  return { label: '장마감', tone: 'blue', title: `다음 개장 ${nextOpenLabel}` };
 };
 
 const toneClasses = (tone: string) => ({
@@ -186,7 +186,7 @@ const TopBanners = ({
     {isAllGatesPassed && (
       <div className="bg-gradient-to-r from-yellow-500/90 to-amber-400/90 backdrop-blur-md text-[10px] font-black text-black py-2 px-4 flex items-center justify-center gap-2 z-20 tracking-tight">
         <Crown className="w-3.5 h-3.5" />
-        BEST · All Gates Passed
+        BEST · 전체 Gate 통과
       </div>
     )}
     {view === 'WATCHLIST' && stock.watchedPrice && stock.watchedPrice > 0 && (
@@ -195,7 +195,7 @@ const TopBanners = ({
     {isRiskAlert(stock) && (
       <div className="bg-red-500/90 backdrop-blur-md text-[10px] font-black text-white py-2 px-4 flex items-center justify-center gap-2 z-20 animate-pulse tracking-tight">
         <AlertTriangle className="w-3.5 h-3.5" />
-        Risk Alert: -30% Rule Exceeded
+        리스크 경보: -30% 룰 초과
       </div>
     )}
   </>
@@ -212,11 +212,11 @@ const WatchedPriceBanner = ({ stock }: { stock: StockRecommendation }) => {
     )}>
       <div className="flex items-center gap-2">
         {isUp ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-        <span>Since Added</span>
+        <span>추가 후</span>
         <span className="text-base font-black">{isUp ? '+' : ''}{pct.toFixed(2)}%</span>
       </div>
       <div className="flex flex-col items-end text-[9px] opacity-60">
-        <span>Added ₩{stock.watchedPrice?.toLocaleString()}</span>
+        <span>추가가 ₩{stock.watchedPrice?.toLocaleString()}</span>
         <span>{stock.watchedAt}</span>
       </div>
     </div>
@@ -252,7 +252,7 @@ const FloatingBadges = ({
       {news && (
         <div className={cn('absolute top-3 right-3 z-10 flex items-center gap-1 border px-2 py-1 rounded-lg backdrop-blur-sm', phaseColors[news.phase] || '')}>
           <Newspaper className="w-2.5 h-2.5" />
-          <span className="text-[9px] font-semibold tracking-tight">News {news.phase} ({news.score})</span>
+          <span className="text-[9px] font-semibold tracking-tight">뉴스 {news.phase} ({news.score})</span>
         </div>
       )}
     </>
@@ -296,7 +296,7 @@ const HeaderSection = ({
       className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 hover:border-orange-500/50 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black text-orange-500 transition-all tracking-tight active:scale-[0.98] shadow-[0_0_20px_rgba(249,115,22,0.05)] hover:shadow-[0_0_25px_rgba(249,115,22,0.15)] group/deep"
     >
       <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 group-hover/deep:scale-110 transition-transform" />
-      Deep Analysis
+      심층 분석
     </button>
   </div>
 );
@@ -335,7 +335,7 @@ const StockIdentityPanel = ({
                   onCopy(stock.name, stock.code);
                 }}
                 className="text-lg sm:text-2xl lg:text-3xl font-black tracking-tighter text-white group-hover:text-orange-500 transition-all duration-300 leading-tight cursor-pointer flex items-center gap-2 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] break-keep"
-                title="Copy stock name"
+                title="종목명 복사"
               >
                 {stock.name}
                 <Copy className="w-4 h-4 opacity-0 group-hover/copy:opacity-50 transition-opacity shrink-0" />
@@ -348,7 +348,7 @@ const StockIdentityPanel = ({
                     exit={{ opacity: 0 }}
                     className="absolute -top-10 left-0 text-[10px] font-black text-green-400 tracking-tight bg-green-500/20 backdrop-blur-md px-2 py-1 rounded-lg border border-green-500/30 z-30"
                   >
-                    Copied!
+                    복사됨!
                   </motion.span>
                 )}
               </AnimatePresence>
@@ -411,7 +411,7 @@ const StockIdentityPanel = ({
             <div className="flex items-center gap-2 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20 backdrop-blur-md">
               <TrendingUp className={cn('w-3.5 h-3.5', (stock.chartPattern.type || '').includes('BULLISH') ? 'text-green-400' : 'text-red-400')} />
               <span className="text-[10px] sm:text-[11px] font-black text-blue-400 tracking-tight">
-                Pattern: {stock.chartPattern.name}
+                패턴: {stock.chartPattern.name}
               </span>
             </div>
           </div>
@@ -439,7 +439,7 @@ const AiScoreBlock = ({
   <>
     {stock.aiConvictionScore && (
       <div className="flex flex-col items-end shrink-0">
-        <span className="text-[9px] font-black text-white/30 tracking-tight mb-0.5">Model Score</span>
+        <span className="text-[9px] font-black text-white/30 tracking-tight mb-0.5">모델 점수</span>
         <span className={cn(
           'text-lg sm:text-xl font-black tracking-tighter font-num',
           stock.aiConvictionScore.totalScore >= 80 ? 'text-orange-500' :
@@ -519,27 +519,27 @@ const SignalAndActions = ({
       {stock.isLeadingSector && (
         <span className="bg-orange-500 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-1 rounded-full tracking-tight shadow-[0_4px_15px_rgba(249,115,22,0.4)] flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
           <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current" />
-          Leading
+          주도주
         </span>
       )}
       {stock.isSectorTopPick && (
         <span className="bg-blue-500 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-1 rounded-full tracking-tight shadow-[0_4px_15px_rgba(59,130,246,0.4)] flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
           <Award className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current" />
-          Top Pick
+          대표 추천
         </span>
       )}
       <span className="text-[9px] sm:text-[10px] font-black text-white/50 bg-white/10 px-2.5 py-1 rounded-full border border-white/[0.07] tracking-tight backdrop-blur-md truncate max-w-[100px] sm:max-w-none">
-        {stock.relatedSectors?.[0] || 'Market'}
+        {stock.relatedSectors?.[0] || '시장'}
       </span>
     </div>
     <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-      <button onClick={(event) => { event.stopPropagation(); onAddToBacktest(stock); }} className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/[0.07] bg-white/5 text-white/30 hover:text-blue-400 hover:border-blue-500/30 hover:bg-blue-500/5 active:scale-90 shadow-sm" title="Add to Backtest">
+      <button onClick={(event) => { event.stopPropagation(); onAddToBacktest(stock); }} className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/[0.07] bg-white/5 text-white/30 hover:text-blue-400 hover:border-blue-500/30 hover:bg-blue-500/5 active:scale-90 shadow-sm" title="백테스트 추가">
         <History className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
       </button>
       <button onClick={(event) => { event.stopPropagation(); onToggleWatchlist(stock); }} className={cn('p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border active:scale-90 shadow-sm', isWatched(stock.code) ? 'bg-orange-500 text-white border-orange-400 shadow-[0_8px_20px_rgba(249,115,22,0.4)]' : 'bg-white/5 border-white/[0.07] text-white/30 hover:text-white/70 hover:bg-white/10')}>
         <Bookmark className={cn('w-4 h-4 sm:w-4.5 sm:h-4.5', isWatched(stock.code) && 'fill-current')} />
       </button>
-      <button onClick={(event) => { event.stopPropagation(); onSetTradeRecord(stock); }} className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/[0.07] bg-white/5 text-white/30 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5 active:scale-90 shadow-sm" title="Trade record">
+      <button onClick={(event) => { event.stopPropagation(); onSetTradeRecord(stock); }} className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/[0.07] bg-white/5 text-white/30 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5 active:scale-90 shadow-sm" title="매매 기록">
         <Plus className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
       </button>
       {(stock.type === 'STRONG_BUY' || stock.type === 'BUY') && (
@@ -550,7 +550,7 @@ const SignalAndActions = ({
             onSetView('AUTO_TRADE');
           }}
           className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-violet-500/30 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 active:scale-90 shadow-sm"
-          title="Register Shadow Trade"
+          title="섀도우 트레이드 등록"
         >
           <Zap className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
         </button>
@@ -601,10 +601,10 @@ const ExternalLinksAndPlan = ({ stock }: { stock: StockRecommendation }) => (
             <div key={index} className={cn('w-1 sm:w-1.5 h-3 sm:h-4 rounded-full transition-all duration-500 shrink-0', index < (stock.hotness ?? 0) ? 'bg-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.6)]' : 'bg-white/10')} />
           ))}
         </div>
-        <span className="text-[9px] sm:text-[11px] font-black text-white/40 ml-1 sm:ml-2 tracking-widest uppercase truncate">Heat</span>
+        <span className="text-[9px] sm:text-[11px] font-black text-white/40 ml-1 sm:ml-2 tracking-widest uppercase truncate">관심도</span>
       </div>
       <a href={naverChartHref(stock)} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="flex items-center gap-1.5 sm:gap-2.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-white/5 hover:bg-orange-500 hover:text-white border border-white/[0.07] rounded-lg sm:rounded-xl transition-all group/link shadow-sm active:scale-95">
-        <span className="text-[8px] sm:text-[10px] font-semibold tracking-tight">Chart</span>
+        <span className="text-[8px] sm:text-[10px] font-semibold tracking-tight">차트</span>
         <ExternalLink className="w-3 h-3 sm:w-3.5 sm:h-3.5 group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 transition-transform" />
       </a>
     </div>
@@ -612,7 +612,7 @@ const ExternalLinksAndPlan = ({ stock }: { stock: StockRecommendation }) => (
       <div className="mb-6 sm:mb-8 bg-orange-500/5 p-4 rounded-2xl border border-orange-500/10">
         <div className="flex items-center gap-2 mb-3">
           <Target className="w-4 h-4 text-orange-500" />
-          <span className="text-[10px] font-black text-orange-500 tracking-tight">Automated Tranche Plan</span>
+          <span className="text-[10px] font-black text-orange-500 tracking-tight">자동 분할매수 계획</span>
         </div>
         <div className="grid grid-cols-3 gap-2">
           {[
@@ -630,7 +630,7 @@ const ExternalLinksAndPlan = ({ stock }: { stock: StockRecommendation }) => (
                   {tranche.data?.trigger ? tranche.data.trigger.split(' (')[0] : '-'}
                 </div>
                 <div className="text-[7px] font-bold text-white/20 uppercase tracking-tighter truncate">
-                  {tranche.data?.trigger?.includes('(') ? tranche.data.trigger.split('(')[1].replace(')', '') : 'Trigger'}
+                  {tranche.data?.trigger?.includes('(') ? tranche.data.trigger.split('(')[1].replace(')', '') : '트리거'}
                 </div>
               </div>
             </div>
@@ -644,7 +644,7 @@ const ExternalLinksAndPlan = ({ stock }: { stock: StockRecommendation }) => (
 const TechnicalHealthGrid = ({ stock }: { stock: StockRecommendation }) => {
   const items = [
     {
-      label: 'Conf.',
+      label: '신뢰',
       icon: Zap,
       value: `${stock.confidenceScore}%`,
       active: !!stock.confidenceScore && stock.confidenceScore >= 90,
@@ -652,7 +652,7 @@ const TechnicalHealthGrid = ({ stock }: { stock: StockRecommendation }) => {
       iconActiveClass: 'text-green-400 fill-current',
     },
     {
-      label: 'Mom.',
+      label: '모멘텀',
       icon: TrendingUp,
       value: `${stock.momentumRank}%`,
       active: !!stock.momentumRank && stock.momentumRank <= 5,
@@ -660,7 +660,7 @@ const TechnicalHealthGrid = ({ stock }: { stock: StockRecommendation }) => {
       iconActiveClass: 'text-red-400',
     },
     {
-      label: 'Ichi.',
+      label: '일목',
       icon: Cloud,
       value: stock.ichimokuStatus?.split('_')[0] || 'N/A',
       active: stock.ichimokuStatus === 'ABOVE_CLOUD',
@@ -668,9 +668,9 @@ const TechnicalHealthGrid = ({ stock }: { stock: StockRecommendation }) => {
       iconActiveClass: 'text-blue-400',
     },
     {
-      label: 'Sector',
+      label: '섹터',
       icon: Crown,
-      value: stock.isLeadingSector ? 'LEAD' : 'MAIN',
+      value: stock.isLeadingSector ? '주도' : '일반',
       active: !!stock.isLeadingSector,
       activeClass: 'bg-orange-500/10 border-orange-500/20 text-orange-400',
       iconActiveClass: 'text-orange-400',
@@ -802,8 +802,8 @@ const PriceBox = ({
 const FooterInsights = ({ stock }: { stock: StockRecommendation }) => (
   <div className="p-5 sm:p-8 pt-5 sm:pt-7 flex-1 flex flex-col justify-between">
     <div className="space-y-6 sm:space-y-8">
-      <InsightRow icon={ShieldCheck} tone="blue" title="Economic Moat" badge={stock.economicMoat?.type || 'NONE'} badgeActive={stock.economicMoat?.type !== 'NONE'} description={stock.economicMoat?.description} />
-      <InsightRow icon={Zap} tone="yellow" title="Catalyst Analysis" badge={stock.checklist?.catalystAnalysis ? 'PASSED' : 'PENDING'} badgeActive={!!stock.checklist?.catalystAnalysis} description={stock.catalystDetail?.description || 'No catalyst memo yet.'} extra={stock.catalystSummary} />
+      <InsightRow icon={ShieldCheck} tone="blue" title="경제적 해자" badge={stock.economicMoat?.type || '없음'} badgeActive={stock.economicMoat?.type !== 'NONE'} description={stock.economicMoat?.description} />
+      <InsightRow icon={Zap} tone="yellow" title="촉매 분석" badge={stock.checklist?.catalystAnalysis ? '통과' : '대기'} badgeActive={!!stock.checklist?.catalystAnalysis} description={stock.catalystDetail?.description || '아직 촉매 메모가 없습니다.'} extra={stock.catalystSummary} />
       <ValuationRow stock={stock} />
       {stock.latestNews && stock.latestNews.length > 0 && <LatestNews stock={stock} />}
     </div>
@@ -856,7 +856,7 @@ const ValuationRow = ({ stock }: { stock: StockRecommendation }) => {
         <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-orange-400" />
       </div>
       <div className="min-w-0 flex-1">
-        <span className="text-[9px] sm:text-[10px] font-black text-white/20 tracking-tight sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Valuation Matrix</span>
+        <span className="text-[9px] sm:text-[10px] font-black text-white/20 tracking-tight sm:tracking-[0.2em] block mb-1.5 sm:mb-2">밸류에이션</span>
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
           <ValuationCell label="P/E" value={per && per > 0 ? `${per.toFixed(1)}x` : 'N/A'} />
           <ValuationCell label="P/B" value={pbr && pbr > 0 ? `${pbr.toFixed(2)}x` : 'N/A'} />
@@ -880,7 +880,7 @@ const LatestNews = ({ stock }: { stock: StockRecommendation }) => (
       <Newspaper className="w-5 h-5 sm:w-6 sm:h-6 text-orange-400" />
     </div>
     <div className="min-w-0 flex-1">
-      <span className="text-[9px] sm:text-[10px] font-black text-white/20 tracking-tight sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Latest News</span>
+      <span className="text-[9px] sm:text-[10px] font-black text-white/20 tracking-tight sm:tracking-[0.2em] block mb-1.5 sm:mb-2">최신 뉴스</span>
       <div className="space-y-2">
         {(stock.latestNews || []).slice(0, 5).map((news, index) => (
           <a key={index} href={`https://www.google.com/search?q=${encodeURIComponent(`${news.headline || ''} ${stock.name || ''}`)}`} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="flex flex-col gap-1 p-2 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl transition-all group/news-item cursor-pointer">

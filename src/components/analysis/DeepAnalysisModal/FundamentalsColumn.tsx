@@ -55,7 +55,7 @@ function EconomicMoatCard({ stock }: Props) {
     <div className="bg-blue-500/5 p-5 rounded-3xl border border-blue-500/10 group/moat hover:bg-blue-500/10 transition-all">
       <div className="flex items-center gap-3 mb-2">
         <ShieldCheck className="w-4 h-4 text-blue-400" />
-        <span className="text-[10px] font-black text-blue-400/60 tracking-tight">Economic Moat: {stock.economicMoat.type}</span>
+        <span className="text-[10px] font-black text-blue-400/60 tracking-tight">경제적 해자: {stock.economicMoat.type}</span>
       </div>
       <p className="text-xs text-white/70 font-bold leading-relaxed">
         {stock.economicMoat.description}
@@ -76,23 +76,23 @@ function FundamentalMetricGrid({ stock }: Props) {
   return (
     <div className="grid grid-cols-1 gap-4 mb-8">
       <FundamentalMetricCard
-        label="P/E Ratio (PER)"
+        label="P/E 비율 (PER)"
         description="주가수익비율: 이익 대비 주가 수준 (낮을수록 저평가)"
         value={fmtRatio(per, 'x')}
       />
       <FundamentalMetricCard
-        label="P/B Ratio (PBR)"
+        label="P/B 비율 (PBR)"
         description="주가순자산비율: 자산 가치 대비 주가 (1미만 시 장부가 미달)"
         value={fmtRatio(pbr, 'x')}
       />
       <FundamentalMetricCard
-        label="EPS Growth"
+        label="EPS 성장률"
         description="주당순이익 성장률: 기업의 수익성 성장 속도"
         value={fmtPct(epsGrowth)}
         valueClassName={epsGrowth > 0 ? 'text-green-400' : epsGrowth < 0 ? 'text-red-400' : 'text-white/40'}
       />
       <FundamentalMetricCard
-        label="Debt Ratio"
+        label="부채비율"
         description="부채비율: 재무 건전성 및 리스크 지표 (낮을수록 안전)"
         value={fmtDebt(debtRatio)}
       />
@@ -117,24 +117,24 @@ function RoeAnalysisSection({ stock }: Props) {
   return (
     <div className="space-y-4 border-t border-white/5 pt-6">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-black text-white/20 tracking-tight">ROE Analysis & DuPont</span>
+        <span className="text-[10px] font-black text-white/20 tracking-tight">ROE 분석 & 듀폰</span>
         <span className="text-xs font-black text-orange-400">{stock.roeType}</span>
       </div>
 
       <div className="grid grid-cols-1 gap-3">
         <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-          <span className="text-[9px] font-black text-white/30 uppercase block mb-2">Historical Trend</span>
+          <span className="text-[9px] font-black text-white/30 uppercase block mb-2">과거 추세</span>
           <p className="text-xs text-white/70 font-bold leading-relaxed">{stock.roeAnalysis.historicalTrend}</p>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
-          <RoeMetricBox label="Margin" value={`${(stock.roeAnalysis.metrics.netProfitMargin * 100).toFixed(1)}%`} />
-          <RoeMetricBox label="Turnover" value={`${stock.roeAnalysis.metrics.assetTurnover.toFixed(2)}x`} />
-          <RoeMetricBox label="Leverage" value={`${stock.roeAnalysis.metrics.equityMultiplier.toFixed(2)}x`} />
+          <RoeMetricBox label="이익률" value={`${(stock.roeAnalysis.metrics.netProfitMargin * 100).toFixed(1)}%`} />
+          <RoeMetricBox label="회전율" value={`${stock.roeAnalysis.metrics.assetTurnover.toFixed(2)}x`} />
+          <RoeMetricBox label="레버리지" value={`${stock.roeAnalysis.metrics.equityMultiplier.toFixed(2)}x`} />
         </div>
 
         <div className="bg-orange-500/5 p-4 rounded-2xl border border-orange-500/10">
-          <span className="text-[9px] font-black text-orange-500/40 uppercase block mb-2">Strategic Drivers</span>
+          <span className="text-[9px] font-black text-orange-500/40 uppercase block mb-2">전략적 동인</span>
           <div className="flex flex-wrap gap-2">
             {(stock.roeAnalysis.drivers || []).map((driver, i) => (
               <span key={i} className="text-[10px] px-2 py-1 rounded-md bg-orange-500/10 text-orange-400 font-black border border-orange-500/10">
@@ -145,7 +145,7 @@ function RoeAnalysisSection({ stock }: Props) {
         </div>
 
         <div className="bg-orange-500/5 p-4 rounded-2xl border border-orange-500/10">
-          <span className="text-[9px] font-black text-orange-500/40 uppercase block mb-2">DuPont Strategy</span>
+          <span className="text-[9px] font-black text-orange-500/40 uppercase block mb-2">듀폰 전략</span>
           <p className="text-xs text-orange-500/80 font-bold leading-relaxed italic">{stock.roeAnalysis.strategy}</p>
         </div>
       </div>
@@ -236,7 +236,7 @@ export function FundamentalsColumn({ stock }: Props) {
     <div className="bg-white/5 rounded-2xl p-6 border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-6">
         <BarChart3 className="w-5 h-5 text-orange-400" />
-        <h3 className="text-lg font-black text-white uppercase tracking-tight">Fundamental Insights</h3>
+        <h3 className="text-lg font-black text-white uppercase tracking-tight">펀더멘털 인사이트</h3>
       </div>
 
       <FundamentalMetricGrid stock={stock} />

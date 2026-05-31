@@ -87,7 +87,7 @@ function TechnicalIndicatorsGrid({ stock }: Props) {
     <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <TechnicalIndicatorPill
-          label="MA Alignment"
+          label="이평선 배열"
           value={stock.technicalSignals?.maAlignment}
           className={resolveMaAlignmentClass(stock.technicalSignals?.maAlignment)}
         />
@@ -97,12 +97,12 @@ function TechnicalIndicatorsGrid({ stock }: Props) {
           className="bg-white/5 border-white/[0.07] text-white/80"
         />
         <TechnicalIndicatorPill
-          label="MACD Status"
+          label="MACD 상태"
           value={formatStatusToken(stock.technicalSignals?.macdStatus)}
           className={resolveMacdStatusClass(stock.technicalSignals?.macdStatus)}
         />
         <TechnicalIndicatorPill
-          label="Ichimoku"
+          label="일목균형표"
           value={formatStatusToken(stock.ichimokuStatus)}
           className={resolveIchimokuClass(stock.ichimokuStatus)}
           textSizeClass="text-[10px]"
@@ -111,12 +111,12 @@ function TechnicalIndicatorsGrid({ stock }: Props) {
 
       <div className="grid grid-cols-2 gap-4 mt-4">
         <CompactMetricRow
-          label="Volume Surge"
-          value={stock.technicalSignals?.volumeSurge ? 'DETECTED' : 'NORMAL'}
+          label="거래량 급증"
+          value={stock.technicalSignals?.volumeSurge ? '감지됨' : '정상'}
           valueClassName={stock.technicalSignals?.volumeSurge ? 'text-orange-400' : 'text-white/20'}
         />
         <CompactMetricRow
-          label="Disparity (20)"
+          label="이격도 (20)"
           value={`${stock.technicalSignals?.disparity20}%`}
           valueClassName={resolveDisparityClass(stock.technicalSignals?.disparity20)}
         />
@@ -131,7 +131,7 @@ function ElliottWaveMiniCard({ stock }: Props) {
     <div className="bg-gradient-to-br from-indigo-500/10 to-purple-600/5 rounded-3xl p-5 border border-indigo-500/20">
       <div className="flex items-center gap-3 mb-3">
         <Activity className="w-4 h-4 text-indigo-400" />
-        <span className="text-[10px] font-black text-white/40 tracking-tight">Elliott Wave Status</span>
+        <span className="text-[10px] font-black text-white/40 tracking-tight">엘리어트 파동 상태</span>
       </div>
       <div className="flex items-center gap-3 mb-2">
         <span className="text-lg font-black text-indigo-400">{formatStatusToken(stock.elliottWaveStatus.wave || '')}</span>
@@ -149,7 +149,7 @@ function ChartPatternMiniCard({ stock }: Props) {
     <div className="bg-gradient-to-br from-emerald-500/10 to-teal-600/5 rounded-3xl p-5 border border-emerald-500/20">
       <div className="flex items-center gap-3 mb-3">
         <Target className="w-4 h-4 text-emerald-400" />
-        <span className="text-[10px] font-black text-white/40 tracking-tight">Chart Pattern</span>
+        <span className="text-[10px] font-black text-white/40 tracking-tight">차트 패턴</span>
       </div>
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-black text-white uppercase">{stock.chartPattern.name}</span>
@@ -168,7 +168,7 @@ function ChartPatternMiniCard({ stock }: Props) {
         <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
           <div className="h-full bg-emerald-500" style={{ width: `${stock.chartPattern.reliability}%` }} />
         </div>
-        <span className="text-[9px] font-black text-white/40">{stock.chartPattern.reliability}% Reliability</span>
+        <span className="text-[9px] font-black text-white/40">신뢰도 {stock.chartPattern.reliability}%</span>
       </div>
       <p className="text-[11px] text-white/70 font-bold leading-relaxed">
         {stock.chartPattern.description}
@@ -264,7 +264,7 @@ function TechnicalDetailCards({ stock }: Props) {
     <div className="mt-8 space-y-4">
       {signals?.macdHistogramDetail && (
         <TechnicalDetailCard
-          title="MACD Histogram"
+          title="MACD 히스토그램"
           value={signals.macdHistogram?.toFixed(2) || 'N/A'}
           status={signals.macdHistogramDetail.status}
           implication={signals.macdHistogramDetail.implication}
@@ -274,7 +274,7 @@ function TechnicalDetailCards({ stock }: Props) {
       )}
       {signals?.bbWidthDetail && (
         <TechnicalDetailCard
-          title="Bollinger Band Width"
+          title="볼린저 밴드 폭"
           value={signals.bbWidth?.toFixed(3) || 'N/A'}
           status={signals.bbWidthDetail.status}
           implication={signals.bbWidthDetail.implication}
@@ -284,7 +284,7 @@ function TechnicalDetailCards({ stock }: Props) {
       )}
       {signals?.stochRsiDetail && (
         <TechnicalDetailCard
-          title="Stochastic RSI"
+          title="스토캐스틱 RSI"
           value={signals.stochRsi?.toFixed(2) || 'N/A'}
           status={signals.stochRsiDetail.status}
           implication={signals.stochRsiDetail.implication}
@@ -301,7 +301,7 @@ function TechnicalIndicatorsPanel({ stock }: Props) {
     <div className="bg-white/5 rounded-2xl p-6 border border-white/[0.07] relative overflow-hidden group/card">
       <div className="flex items-center gap-3 mb-6">
         <Activity className="w-5 h-5 text-blue-400" />
-        <h3 className="text-lg font-black text-white uppercase tracking-tight">Technical Indicators</h3>
+        <h3 className="text-lg font-black text-white uppercase tracking-tight">기술적 지표</h3>
       </div>
       <TechnicalIndicatorsGrid stock={stock} />
       <TechnicalPatternCards stock={stock} />
@@ -315,7 +315,7 @@ function ElliottWaveSummaryCard({ stock }: Props) {
     <div className="bg-white/5 rounded-2xl p-8 border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-6">
         <Zap className="w-5 h-5 text-yellow-400" />
-        <h3 className="text-lg font-black text-white uppercase tracking-tight">Elliott Wave</h3>
+        <h3 className="text-lg font-black text-white uppercase tracking-tight">엘리어트 파동</h3>
       </div>
       {stock.elliottWaveStatus ? (
         <div className="space-y-4">
@@ -327,7 +327,7 @@ function ElliottWaveSummaryCard({ stock }: Props) {
           </p>
         </div>
       ) : (
-        <p className="text-sm text-white/30 font-bold">No wave data available</p>
+        <p className="text-sm text-white/30 font-bold">파동 데이터 없음</p>
       )}
     </div>
   );
@@ -338,7 +338,7 @@ function ChartPatternAnalysisCard({ stock }: Props) {
     <div className="bg-white/5 rounded-2xl p-8 border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-6">
         <TrendingUp className="w-5 h-5 text-blue-400" />
-        <h3 className="text-lg font-black text-white uppercase tracking-tight">Chart Pattern Analysis</h3>
+        <h3 className="text-lg font-black text-white uppercase tracking-tight">차트 패턴 분석</h3>
       </div>
       {stock.chartPattern ? (
         <div className="space-y-6">
@@ -354,7 +354,7 @@ function ChartPatternAnalysisCard({ stock }: Props) {
               {stock.chartPattern.name} ({formatStatusToken(stock.chartPattern.type || '')})
             </div>
             <div className="flex flex-col items-end">
-              <span className="text-[10px] font-black text-white/20 tracking-tight mb-1">Reliability</span>
+              <span className="text-[10px] font-black text-white/20 tracking-tight mb-1">신뢰도</span>
               <div className="flex items-center gap-2">
                 <div className="w-24 h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
                   <div
@@ -373,7 +373,7 @@ function ChartPatternAnalysisCard({ stock }: Props) {
           </div>
         </div>
       ) : (
-        <p className="text-sm text-white/30 font-bold">No chart pattern identified</p>
+        <p className="text-sm text-white/30 font-bold">식별된 차트 패턴 없음</p>
       )}
     </div>
   );
@@ -399,23 +399,23 @@ function StrategicInsightCard({ stock }: Props) {
     <div className="bg-white/5 rounded-2xl p-6 border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-4">
         <Sparkles className="w-5 h-5 text-purple-400" />
-        <h3 className="text-lg font-black text-white uppercase tracking-tight">Strategic Insight</h3>
+        <h3 className="text-lg font-black text-white uppercase tracking-tight">전략적 인사이트</h3>
       </div>
       {stock.strategicInsight ? (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black text-white/20 tracking-tight">Cycle Position</span>
+            <span className="text-[10px] font-black text-white/20 tracking-tight">사이클 위치</span>
             <span className={cn('text-xs font-black px-2 py-0.5 rounded-md', resolveCyclePositionClass(stock.strategicInsight.cyclePosition))}>
               {formatStatusToken(stock.strategicInsight.cyclePosition || '')}
             </span>
           </div>
           <div className="space-y-3">
-            <StrategicInsightDetail label="Earnings Quality" value={stock.strategicInsight.earningsQuality} />
-            <StrategicInsightDetail label="Policy Context" value={stock.strategicInsight.policyContext} />
+            <StrategicInsightDetail label="실적 품질" value={stock.strategicInsight.earningsQuality} />
+            <StrategicInsightDetail label="정책 맥락" value={stock.strategicInsight.policyContext} />
           </div>
         </div>
       ) : (
-        <p className="text-sm text-white/30 font-bold">No strategic insight available</p>
+        <p className="text-sm text-white/30 font-bold">전략적 인사이트 없음</p>
       )}
     </div>
   );

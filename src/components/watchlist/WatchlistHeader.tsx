@@ -295,7 +295,7 @@ function TopRecommendationHeader() {
       </div>
       <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-theme-surface rounded-xl border border-theme-border">
         <Activity className="w-4 h-4 text-green-400" />
-        <span className="text-[10px] font-black text-theme-text-muted tracking-tight">AI scan active</span>
+        <span className="text-[10px] font-black text-theme-text-muted tracking-tight">AI 스캔 활성</span>
       </div>
     </div>
   );
@@ -321,9 +321,9 @@ function ScoreTiles({ stock }: { stock: StockRecommendation }) {
   return (
     <div className="grid grid-cols-2 gap-4 mb-8">
       <div className="bg-theme-card rounded-2xl p-4 border border-theme-border">
-        <div className="text-[10px] font-black text-theme-text-muted tracking-tight mb-1">AI Score</div>
+        <div className="text-[10px] font-black text-theme-text-muted tracking-tight mb-1">AI 점수</div>
         <div className="text-2xl font-black text-orange-500">{stock.aiConvictionScore?.totalScore || 0}</div>
-        <div className="text-[10px] text-orange-300/60 mt-1">Gemini conviction</div>
+        <div className="text-[10px] text-orange-300/60 mt-1">Gemini 확신도</div>
       </div>
       <div className="bg-theme-card rounded-2xl p-4 border border-theme-border">
         {quant ? (
@@ -331,12 +331,12 @@ function ScoreTiles({ stock }: { stock: StockRecommendation }) {
             <div className="text-[10px] font-black text-theme-text-muted tracking-tight mb-1">Gate</div>
             <div className={cn('text-2xl font-black', quant.pass ? 'text-emerald-400' : 'text-red-400')}>{quant.value.toFixed(1)}/10</div>
             <div className="text-[10px] text-theme-text-muted mt-1">
-              {quant.pass ? 'Auto-trade eligible' : 'Auto-trade blocked'} · {quant.regime.replace(/_.+$/, '')} threshold {quant.threshold}
+              {quant.pass ? '자동매매 가능' : '자동매매 차단'} · {quant.regime.replace(/_.+$/, '')} 기준 {quant.threshold}
             </div>
           </>
         ) : (
           <>
-            <div className="text-[10px] font-black text-theme-text-muted tracking-tight mb-1">Checklist</div>
+            <div className="text-[10px] font-black text-theme-text-muted tracking-tight mb-1">체크리스트</div>
             <div className="text-2xl font-black text-theme-text">{Object.values(stock.checklist || {}).filter(Boolean).length}/27</div>
           </>
         )}

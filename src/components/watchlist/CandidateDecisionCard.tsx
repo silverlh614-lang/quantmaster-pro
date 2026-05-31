@@ -139,7 +139,7 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
             </span>
             <DataConfidenceBadge confidence={model.dataConfidence.overall} compact source="candidate card" />
             <Badge variant={model.shadowTrackingStatus === 'OFF' ? 'default' : 'info'} size="sm">
-              Shadow {model.shadowTrackingStatus}
+              섀도우 {model.shadowTrackingStatus}
             </Badge>
           </div>
         </div>
@@ -207,7 +207,7 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
           <div className={cn('mt-1 text-xs font-black', model.liveExecutionAllowed ? 'text-emerald-200' : 'text-amber-200')}>{executionText(model)}</div>
         </div>
         <div className="rounded-lg border border-white/[0.05] bg-white/[0.018] px-3 py-2.5">
-          <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-tight text-white/40"><ShieldCheck className="h-3 w-3" />Shadow</div>
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-tight text-white/40"><ShieldCheck className="h-3 w-3" />섀도우</div>
           <div className="mt-1 text-xs font-black text-violet-200">{model.shadowTrackingStatus}</div>
         </div>
         <div className="rounded-lg border border-white/[0.05] bg-white/[0.018] px-3 py-2.5">
@@ -223,9 +223,9 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
       {showDetails && (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-semibold tracking-tight text-white/40">
           <span>데이터 신뢰</span>
-          <DataConfidenceBadge confidence="VERIFIED" label={`VERIFIED ${model.dataConfidence.calculatedIndicatorCount}`} compact showTooltip={false} />
+          <DataConfidenceBadge confidence="VERIFIED" label={`검증 ${model.dataConfidence.calculatedIndicatorCount}`} compact showTooltip={false} />
           <DataConfidenceBadge confidence="AI_ESTIMATED" label={`AI ${model.dataConfidence.aiEstimatedIndicatorCount}`} compact />
-          <DataConfidenceBadge confidence="MISSING" label={`MISSING ${model.dataConfidence.missingIndicatorCount}`} compact />
+          <DataConfidenceBadge confidence="MISSING" label={`누락 ${model.dataConfidence.missingIndicatorCount}`} compact />
           <span className="inline-flex items-center gap-1"><Eye className="h-3 w-3" />marketSignal=false</span>
           <span className="inline-flex items-center gap-1"><TrendingUp className="h-3 w-3" />engine={model.engineMode}</span>
         </div>

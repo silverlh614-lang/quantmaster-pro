@@ -117,7 +117,7 @@ function ModalHeader({
 function LeadingBadge() {
   return (
     <span className="text-[9px] font-black bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md border border-amber-500/20 tracking-tight">
-      Leading
+      주도주
     </span>
   );
 }
@@ -145,11 +145,11 @@ function AiConvictionCard({ stock }: { stock: StockRecommendation }) {
   return (
     <div className="glass-3d rounded-xl p-4">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] font-black text-theme-text-muted tracking-tight">AI Conviction</span>
+        <span className="text-[10px] font-black text-theme-text-muted tracking-tight">AI 합치도</span>
         <span className="text-sm font-black text-theme-text font-num">{stock.aiConvictionScore.totalScore}/100</span>
       </div>
       <div className="text-[10px] text-orange-300/60 mb-2">
-        Gemini conviction score is diagnostic and is not an auto-trading entry rule.
+        Gemini 합치도 점수는 진단용이며, 자동매매 진입 규칙이 아닙니다.
       </div>
       <div className="gate-bar h-3">
         {segments.map(segment => (
@@ -176,7 +176,7 @@ function AiAnalysisCard({ stock }: { stock: StockRecommendation }) {
     <div className="glass-3d rounded-xl p-5">
       <div className="flex items-center gap-2 mb-3">
         <Brain className="w-4 h-4 text-purple-400" />
-        <h3 className="text-sm font-black text-theme-text uppercase tracking-tight">AI Analysis</h3>
+        <h3 className="text-sm font-black text-theme-text uppercase tracking-tight">AI 분석</h3>
       </div>
       <p className="text-sm text-theme-text-secondary leading-relaxed whitespace-pre-wrap">{stock.reason}</p>
     </div>
@@ -229,7 +229,7 @@ function ChecklistSummary({ stock }: { stock: StockRecommendation }) {
     <div className="glass-3d rounded-xl p-5">
       <div className="flex items-center gap-2 mb-3">
         <ShieldCheck className="w-4 h-4 text-green-400" />
-        <h4 className="text-sm font-black text-theme-text uppercase tracking-tight">Checklist Progress</h4>
+        <h4 className="text-sm font-black text-theme-text uppercase tracking-tight">체크리스트 진행</h4>
         <span className="ml-auto text-sm font-black text-green-400 font-num">{Math.round(pct)}%</span>
       </div>
       <div className="h-2 rounded-full overflow-hidden bg-white/5">
@@ -239,9 +239,9 @@ function ChecklistSummary({ stock }: { stock: StockRecommendation }) {
         />
       </div>
       <div className="grid grid-cols-3 gap-2 mt-3">
-        <GateMiniStatus label="Gate 1" value="PASS" className="text-green-400" />
-        <GateMiniStatus label="Gate 2" value="PASS" className="text-green-400" />
-        <GateMiniStatus label="Gate 3" value="IN PROGRESS" className="text-blue-400" />
+        <GateMiniStatus label="Gate 1" value="통과" className="text-green-400" />
+        <GateMiniStatus label="Gate 2" value="통과" className="text-green-400" />
+        <GateMiniStatus label="Gate 3" value="진행 중" className="text-blue-400" />
       </div>
     </div>
   );
@@ -269,13 +269,13 @@ function FundamentalsCard({ stock }: { stock: StockRecommendation }) {
     <div className="glass-3d rounded-xl p-5">
       <div className="flex items-center gap-2 mb-3">
         <BarChart3 className="w-4 h-4 text-blue-400" />
-        <h4 className="text-sm font-black text-theme-text uppercase tracking-tight">Fundamentals</h4>
+        <h4 className="text-sm font-black text-theme-text uppercase tracking-tight">기업 펀더멘털</h4>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <FundamentalMetric label="PER" value={stock.valuation?.per && stock.valuation.per > 0 ? `${stock.valuation.per.toFixed(1)}x` : 'N/A'} />
         <FundamentalMetric label="PBR" value={stock.valuation?.pbr && stock.valuation.pbr > 0 ? `${stock.valuation.pbr.toFixed(2)}x` : 'N/A'} />
-        <FundamentalMetric label="Debt Ratio" value={stock.valuation?.debtRatio && stock.valuation.debtRatio > 0 ? `${stock.valuation.debtRatio.toFixed(1)}%` : 'N/A'} />
-        <FundamentalMetric label="Market Cap" value={stock.marketCap ? `${(stock.marketCap / 10000).toFixed(1)}T KRW` : 'N/A'} />
+        <FundamentalMetric label="부채비율" value={stock.valuation?.debtRatio && stock.valuation.debtRatio > 0 ? `${stock.valuation.debtRatio.toFixed(1)}%` : 'N/A'} />
+        <FundamentalMetric label="시가총액" value={stock.marketCap ? `${(stock.marketCap / 10000).toFixed(1)}조원` : 'N/A'} />
       </div>
     </div>
   );
@@ -297,7 +297,7 @@ function NewsCard({ stock }: { stock: StockRecommendation }) {
     <div className="glass-3d rounded-xl p-5">
       <div className="flex items-center gap-2 mb-3">
         <Newspaper className="w-4 h-4 text-orange-400" />
-        <h4 className="text-sm font-black text-theme-text uppercase tracking-tight">Latest News</h4>
+        <h4 className="text-sm font-black text-theme-text uppercase tracking-tight">최신 뉴스</h4>
       </div>
       <div className="space-y-2">
         {stock.latestNews.slice(0, 5).map((news, i) => (
@@ -374,7 +374,7 @@ function ModalFooter({
         onClick={onClose}
         className="flex-1 py-3 bg-theme-surface hover:bg-white/10 text-theme-text-secondary font-black rounded-xl border border-theme-border transition-all active:scale-95 text-sm"
       >
-        Close
+        닫기
       </button>
       <a
         href={naverFinanceUrl(stock)}
@@ -383,7 +383,7 @@ function ModalFooter({
         className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 text-white font-black rounded-xl shadow-[0_8px_20px_rgba(249,115,22,0.3)] transition-all active:scale-95 text-sm text-center flex items-center justify-center gap-2"
       >
         <ArrowUpRight className="w-4 h-4" />
-        Naver Chart
+        네이버 차트
       </a>
     </div>
   );

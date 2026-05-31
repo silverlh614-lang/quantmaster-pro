@@ -150,7 +150,7 @@ export function WatchlistTable({
                 "mb-1 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-tight",
                 averageHitRate >= 85 ? "bg-green-500/20 text-green-400" : "bg-blue-500/20 text-blue-400"
               )}>
-                {averageHitRate >= 85 ? "Excellent" : "Stable"}
+                {averageHitRate >= 85 ? "우수" : "안정"}
               </div>
             </div>
             <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 max-h-[250px] overflow-y-auto p-4 bg-theme-card backdrop-blur-xl border border-theme-border rounded-2xl opacity-0 group-hover/stat-1:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-xl scale-95 group-hover/stat-1:scale-100 origin-top">
@@ -166,13 +166,13 @@ export function WatchlistTable({
 
           <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/[0.07] flex flex-col justify-center items-center gap-2 relative group/stat-2">
             <div className="flex items-center gap-1">
-              <span className="text-[9px] sm:text-[10px] font-black text-white/30 tracking-tight sm:tracking-[0.2em] text-center">Recent 30-day STRONG_BUY hit rate</span>
+              <span className="text-[9px] sm:text-[10px] font-black text-white/30 tracking-tight sm:tracking-[0.2em] text-center">최근 30일 STRONG_BUY 적중률</span>
               <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
             </div>
             <div className="flex items-end gap-2">
               <span className="text-4xl font-black text-indigo-400 tracking-tighter">{strongBuyHitRate}%</span>
               <div className="mb-1 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-tight bg-indigo-500/20 text-indigo-400">
-                High Precision
+                고정밀
               </div>
             </div>
             <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 max-h-[250px] overflow-y-auto p-4 bg-theme-card backdrop-blur-xl border border-theme-border rounded-2xl opacity-0 group-hover/stat-2:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-xl scale-95 group-hover/stat-2:scale-100 origin-top">
@@ -233,23 +233,23 @@ export function WatchlistTable({
             <div className="rounded-2xl border border-white/[0.07] bg-white/[0.035] p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <div className="text-[10px] font-black tracking-tight text-white/35">Today Candidate Summary</div>
-                  <div className="mt-1 text-sm font-black text-white">Gate → Data Trust → Block Reason → Shadow Tracking</div>
+                  <div className="text-[10px] font-black tracking-tight text-white/35">오늘의 후보 요약</div>
+                  <div className="mt-1 text-sm font-black text-white">Gate → 데이터 신뢰 → 차단 사유 → 섀도우 추적</div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-                  <SummaryPill label="Strong" value={candidateSummary.confirmedCandidateCount} tone="green" />
-                  <SummaryPill label="Entry" value={candidateSummary.buyCandidateCount} tone="green" />
-                  <SummaryPill label="Watch" value={candidateSummary.watchCount} tone="blue" />
-                  <SummaryPill label="Pullback" value={candidateSummary.waitPullbackCount} tone="amber" />
-                  <SummaryPill label="Blocked" value={candidateSummary.blockedCount + candidateSummary.dataInsufficientCount} tone="red" />
-                  <SummaryPill label="Shadow" value={candidateSummary.shadowTrackingCount} tone="violet" />
-                  <SummaryPill label="Total" value={candidateSummary.totalCandidates} tone="slate" />
+                  <SummaryPill label="강력" value={candidateSummary.confirmedCandidateCount} tone="green" />
+                  <SummaryPill label="진입" value={candidateSummary.buyCandidateCount} tone="green" />
+                  <SummaryPill label="관찰" value={candidateSummary.watchCount} tone="blue" />
+                  <SummaryPill label="눌림목" value={candidateSummary.waitPullbackCount} tone="amber" />
+                  <SummaryPill label="차단" value={candidateSummary.blockedCount + candidateSummary.dataInsufficientCount} tone="red" />
+                  <SummaryPill label="섀도우" value={candidateSummary.shadowTrackingCount} tone="violet" />
+                  <SummaryPill label="전체" value={candidateSummary.totalCandidates} tone="slate" />
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-1 gap-2 text-[11px] font-bold text-white/55 md:grid-cols-3">
-                <div className="rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2">Active Candidates: strong, entry, watch, pullback</div>
-                <div className="rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2">Blocked / Risk: blocked, data insufficient, sell-only, shadow-only</div>
-                <div className="rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2">Shadow Tracking: registered, open, closed, blocked-but-tracked</div>
+                <div className="rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2">활성 후보: 강력, 진입, 관찰, 눌림목</div>
+                <div className="rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2">차단 / 리스크: 차단, 데이터 부족, 매도 전용, 섀도우 전용</div>
+                <div className="rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2">섀도우 추적: 등록됨, 진행, 종료, 차단되었으나 추적</div>
               </div>
             </div>
           )}

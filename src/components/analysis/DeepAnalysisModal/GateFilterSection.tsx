@@ -16,13 +16,13 @@ export function GateFilterSection({ stock }: Props) {
       <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-2.5">
           <div className="w-1 h-5 bg-blue-500 rounded-full" />
-          <h3 className="text-base font-black text-white uppercase tracking-tighter">3-Gate Filter Pyramid</h3>
+          <h3 className="text-base font-black text-white uppercase tracking-tighter">3단계 Gate 필터 피라미드</h3>
         </div>
         <div className={cn(
           "px-3 py-1 rounded-full text-[9px] font-semibold tracking-tight border",
           stock.gateEvaluation.isPassed ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-red-500/20 text-red-400 border-red-500/30"
         )}>
-          {stock.gateEvaluation.isPassed ? "Total Pass" : "Failed at Gate " + stock.gateEvaluation.currentGate}
+          {stock.gateEvaluation.isPassed ? "전체 통과" : "Gate " + stock.gateEvaluation.currentGate + " 미통과"}
         </div>
       </div>
 
@@ -60,14 +60,14 @@ export function GateFilterSection({ stock }: Props) {
                 )}
               </div>
               <h4 className="text-sm font-black text-white mb-1.5">
-                {gateNum === 1 ? "Survival Filter" : gateNum === 2 ? "Growth Verification" : "Precision Timing"}
+                {gateNum === 1 ? "생존 필터" : gateNum === 2 ? "성장성 검증" : "정밀 타이밍"}
               </h4>
               <div className="flex items-baseline gap-1.5 mb-2">
                 <span className="text-2xl font-black text-white tracking-tighter">{gate?.score || 0}</span>
-                <span className="text-[10px] font-bold text-white/20 tracking-tight">Score</span>
+                <span className="text-[10px] font-bold text-white/20 tracking-tight">점수</span>
               </div>
               <p className="text-[11px] text-white/50 leading-relaxed font-bold">
-                {gate?.reason || "Waiting for evaluation..."}
+                {gate?.reason || "평가 대기 중..."}
               </p>
             </div>
           );
