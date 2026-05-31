@@ -51,9 +51,9 @@ type PaperTradeLog = NonNullable<AdvancedAnalysisResult['paperTradeLogs']>[numbe
 type PaperTradePick = PaperTradeLog['picks'][number];
 
 const TAB_ITEMS: { id: AnalysisTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: 'BACKTEST', label: 'Back-Testing', icon: History },
+  { id: 'BACKTEST', label: '백테스팅', icon: History },
   { id: 'WALK_FORWARD', label: 'Walk-Forward', icon: ArrowRightLeft },
-  { id: 'PAPER_TRADING', label: 'Paper Trading', icon: Activity },
+  { id: 'PAPER_TRADING', label: '모의 투자', icon: Activity },
 ];
 
 const CHART_TOOLTIP_STYLE = {
@@ -131,7 +131,7 @@ function BacktestControls({
   return (
     <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/[0.07] space-y-6">
       <div>
-        <h3 className="text-xl font-black text-white mb-2 uppercase tracking-tight">Historical Back-Testing</h3>
+        <h3 className="text-xl font-black text-white mb-2 uppercase tracking-tight">과거 데이터 백테스팅</h3>
         <p className="text-sm text-white/40 leading-relaxed">
           {BACKTEST_DESCRIPTION}
         </p>
@@ -193,7 +193,7 @@ function BacktestResultSummary({ result }: { result: AdvancedAnalysisResult }) {
     <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/[0.07] space-y-6">
       <div className="flex justify-between items-start">
         <div>
-          <span className="text-[10px] font-black text-orange-500 tracking-tight block mb-1">Analysis Result</span>
+          <span className="text-[10px] font-black text-orange-500 tracking-tight block mb-1">분석 결과</span>
           <h3 className="text-2xl font-black text-white tracking-tight">{result.period}</h3>
         </div>
         <div className={cn(
@@ -205,15 +205,15 @@ function BacktestResultSummary({ result }: { result: AdvancedAnalysisResult }) {
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <MetricTile label="Win Rate" value={`${result.metrics.winRate}%`} valueClassName="text-white" />
-        <MetricTile label="Max DD" value={`${result.metrics.maxDrawdown}%`} valueClassName="text-red-400" />
-        <MetricTile label="Sharpe" value={result.metrics.sharpeRatio} valueClassName="text-blue-400" />
+        <MetricTile label="승률" value={`${result.metrics.winRate}%`} valueClassName="text-white" />
+        <MetricTile label="최대 낙폭" value={`${result.metrics.maxDrawdown}%`} valueClassName="text-red-400" />
+        <MetricTile label="샤프 지수" value={result.metrics.sharpeRatio} valueClassName="text-blue-400" />
       </div>
 
       <div className="bg-orange-500/5 p-4 rounded-2xl border border-orange-500/10">
         <div className="flex items-center gap-2 mb-2">
           <Lightbulb className="w-4 h-4 text-orange-500" />
-          <span className="text-[10px] font-black text-orange-500 tracking-tight">AI Insight</span>
+          <span className="text-[10px] font-black text-orange-500 tracking-tight">AI 인사이트</span>
         </div>
         <p className="text-xs text-white/70 leading-relaxed font-medium italic">
           {result.description}
@@ -258,7 +258,7 @@ function PerformanceChartCard({
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-white/20" />
-            <span className="text-[10px] font-black text-white/40 tracking-tight">Benchmark</span>
+            <span className="text-[10px] font-black text-white/40 tracking-tight">벤치마크</span>
           </div>
         </div>
       </div>
@@ -317,7 +317,7 @@ function ContributionAnalysis({ result }: { result: AdvancedAnalysisResult }) {
       <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/[0.07]">
         <div className="flex items-center gap-3 mb-6">
           <Crown className="w-6 h-6 text-orange-400" />
-          <h4 className="text-lg font-black text-white uppercase tracking-tight">Top Contributors</h4>
+          <h4 className="text-lg font-black text-white uppercase tracking-tight">주요 기여 종목</h4>
         </div>
         <div className="space-y-4">
           {result.topContributors?.map((item, i) => (
@@ -348,14 +348,14 @@ function ContributionAnalysis({ result }: { result: AdvancedAnalysisResult }) {
       <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/[0.07]">
         <div className="flex items-center gap-3 mb-6">
           <AlertTriangle className="w-6 h-6 text-red-400" />
-          <h4 className="text-lg font-black text-white uppercase tracking-tight">Noise Items</h4>
+          <h4 className="text-lg font-black text-white uppercase tracking-tight">노이즈 항목</h4>
         </div>
         <div className="grid grid-cols-1 gap-3">
           {result.noiseItems?.map((item, i) => (
             <div key={i} className="flex items-center gap-3 p-4 bg-red-500/5 rounded-2xl border border-red-500/10">
               <X className="w-4 h-4 text-red-400" />
               <span className="text-sm font-black text-white/60 tracking-tight">{item}</span>
-              <span className="ml-auto text-[10px] font-black text-red-400/30 tracking-tight">Low Impact</span>
+              <span className="ml-auto text-[10px] font-black text-red-400/30 tracking-tight">낮은 영향</span>
             </div>
           ))}
         </div>
@@ -392,11 +392,11 @@ function BacktestTab({
       {canShowPerformance && (
         <PerformanceChartCard
           result={result}
-          title="Performance Comparison"
+          title="성과 비교"
           iconClassName="text-orange-500"
           gradientId="colorValue"
           color="#f97316"
-          seriesLabel="Portfolio"
+          seriesLabel="포트폴리오"
           heightClassName="h-[300px]"
         />
       )}
@@ -433,10 +433,10 @@ function WalkForwardPeriodCard({
         </div>
       </div>
       <span className="text-[10px] font-black text-white/20 tracking-tight block mb-2">{period}</span>
-      <span className="text-2xl font-black text-white">{variant === 'training' ? '2025 Full Year' : '2026 Q1 (Recent)'}</span>
+      <span className="text-2xl font-black text-white">{variant === 'training' ? '2025년 전체' : '2026년 1분기 (최근)'}</span>
       <div className="mt-6 space-y-3">
         <div className="flex justify-between text-[10px] font-semibold tracking-tight">
-          <span className="text-white/30">Accuracy</span>
+          <span className="text-white/30">정확도</span>
           <span className={variant === 'training' ? "text-blue-400" : "text-orange-500"}>{accuracy}%</span>
         </div>
         <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
@@ -467,14 +467,14 @@ function WalkForwardResult({ result }: { result: AdvancedAnalysisResult }) {
       <div className="grid grid-cols-2 gap-8">
         <WalkForwardPeriodCard
           variant="training"
-          title="Training"
-          period="Base Period"
+          title="학습"
+          period="기준 기간"
           accuracy={result.metrics.accuracy as number}
         />
         <WalkForwardPeriodCard
           variant="validation"
-          title="Validation"
-          period="Test Period"
+          title="검증"
+          period="테스트 기간"
           accuracy={baseAccuracy - 4.2}
         />
       </div>
@@ -482,7 +482,7 @@ function WalkForwardResult({ result }: { result: AdvancedAnalysisResult }) {
       <div className="bg-white/5 p-6 rounded-3xl border border-white/5 text-left">
         <div className="flex items-center gap-3 mb-4">
           <ShieldCheck className="w-5 h-5 text-green-400" />
-          <span className="text-sm font-black text-white uppercase tracking-tight">Robustness Score: {result.metrics.robustnessScore}%</span>
+          <span className="text-sm font-black text-white uppercase tracking-tight">견고성 점수: {result.metrics.robustnessScore}%</span>
         </div>
         <p className="text-xs text-white/50 leading-relaxed">
           {result.description}
@@ -491,11 +491,11 @@ function WalkForwardResult({ result }: { result: AdvancedAnalysisResult }) {
 
       <PerformanceChartCard
         result={result}
-        title="Walk-Forward Performance"
+        title="Walk-Forward 성과"
         iconClassName="text-blue-400"
         gradientId="colorValueBlue"
         color="#3b82f6"
-        seriesLabel="Validation"
+        seriesLabel="검증"
         heightClassName="h-[250px]"
         textLeft
       />
@@ -523,7 +523,7 @@ function WalkForwardTab({
           <div className="w-20 h-20 bg-blue-500/10 rounded-[2rem] border border-blue-500/20 flex items-center justify-center mx-auto">
             <ArrowRightLeft className="w-10 h-10 text-blue-400" />
           </div>
-          <h3 className="text-3xl font-black text-white uppercase tracking-tight">Walk-Forward Analysis</h3>
+          <h3 className="text-3xl font-black text-white uppercase tracking-tight">Walk-Forward 분석</h3>
           <p className="text-white/40 leading-relaxed font-medium">
             {WALK_FORWARD_DESCRIPTION}
           </p>
@@ -589,15 +589,15 @@ function PaperPickCard({
 
       <div className="space-y-3 mb-6">
         <div className="flex justify-between items-center">
-          <span className="text-[10px] font-black text-white/20 tracking-tight">Entry</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight">진입</span>
           <span className="text-sm font-black text-white">{PAPER_ENTRY_DISPLAY}</span>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-[10px] font-black text-white/20 tracking-tight">Target</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight">목표</span>
           <span className="text-sm font-black text-green-400">{PAPER_TARGET_DISPLAY}</span>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-[10px] font-black text-white/20 tracking-tight">Stop</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight">손절</span>
           <span className="text-sm font-black text-red-400">{PAPER_STOP_DISPLAY}</span>
         </div>
       </div>
@@ -605,7 +605,7 @@ function PaperPickCard({
       <div className="pt-4 border-t border-white/5">
         <div className="flex items-center gap-2 mb-2">
           <Zap className="w-3 h-3 text-orange-500" />
-          <span className="text-[9px] font-black text-white/30 tracking-tight">Catalyst (Step 27)</span>
+          <span className="text-[9px] font-black text-white/30 tracking-tight">촉매 (27단계)</span>
         </div>
         <p className="text-[11px] text-white/50 leading-relaxed font-medium italic">
           {pick.catalyst}
@@ -629,7 +629,7 @@ function PaperTradeLogCard({
       <div className="p-6 border-b border-white/5 bg-white/[0.02] flex justify-between items-center">
         <div className="flex items-center gap-3">
           <Clock className="w-5 h-5 text-orange-500" />
-          <span className="text-lg font-black text-white">{log.date} Master Picks</span>
+          <span className="text-lg font-black text-white">{log.date} 마스터 픽</span>
         </div>
       </div>
 
@@ -643,7 +643,7 @@ function PaperTradeLogCard({
         <div className="bg-orange-500/5 p-6 rounded-3xl border border-orange-500/10">
           <div className="flex items-center gap-3 mb-3">
             <Brain className="w-5 h-5 text-orange-500" />
-            <span className="text-sm font-black text-white uppercase tracking-tight">AI Feedback Loop</span>
+            <span className="text-sm font-black text-white uppercase tracking-tight">AI 피드백 루프</span>
           </div>
           <p className="text-xs text-white/60 leading-relaxed font-medium">
             {log.aiFeedback}
@@ -677,7 +677,7 @@ function PaperTradingTab({
     >
       <div className="flex justify-between items-center">
         <div>
-          <h3 className="text-2xl font-black text-white uppercase tracking-tight">Paper Trading Log</h3>
+          <h3 className="text-2xl font-black text-white uppercase tracking-tight">모의 투자 기록</h3>
           <p className="text-sm text-white/40 font-medium">{PAPER_TRADING_DESCRIPTION}</p>
         </div>
         <button
@@ -686,7 +686,7 @@ function PaperTradingTab({
           className="flex items-center gap-2 px-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-2xl font-black text-sm transition-all shadow-lg shadow-orange-500/20 active:scale-95"
         >
           {isAnalyzing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          REFRESH PICKS
+          픽 새로고침
         </button>
       </div>
 

@@ -25,7 +25,7 @@ export const AnalysisViewButtons: React.FC<{
         analysisView === 'STANDARD' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white"
       )}
     >
-      Standard
+      기본
     </button>
     <button
       onClick={() => setAnalysisView('QUANT')}
@@ -34,7 +34,7 @@ export const AnalysisViewButtons: React.FC<{
         analysisView === 'QUANT' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white"
       )}
     >
-      Quant View
+      퀀트 뷰
     </button>
   </div>
 );

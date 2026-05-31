@@ -15,11 +15,11 @@ export function SellChecklistSection({ stock }: Props) {
       <div className="flex items-center justify-between mb-3 px-1">
         <div className="flex items-center gap-2.5">
           <div className="w-1 h-5 bg-red-500 rounded-full" />
-          <h3 className="text-base font-black text-white uppercase tracking-tighter">Sell Checklist Evaluation</h3>
+          <h3 className="text-base font-black text-white uppercase tracking-tighter">매도 체크리스트 평가</h3>
         </div>
         <div className="flex items-baseline gap-1.5">
           <span className="text-xl font-black text-red-500 tracking-tighter">{stock.sellScore || 0}</span>
-          <span className="text-[9px] font-bold text-white/25 tracking-tight">Sell Score</span>
+          <span className="text-[9px] font-bold text-white/25 tracking-tight">매도 점수</span>
         </div>
       </div>
 

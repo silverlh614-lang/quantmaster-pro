@@ -317,7 +317,7 @@ export function WatchlistFilterPanel({
                   {isFilterExpanded && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mt-4 p-5 glass-3d rounded-2xl border border-theme-border bg-theme-surface">
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-black text-theme-text-muted tracking-tight ml-1">Min ROE (%)</label>
+                        <label className="text-[10px] font-black text-theme-text-muted tracking-tight ml-1">최소 ROE (%)</label>
                         <input
                           type="number"
                           placeholder="최소 ROE (%)"
@@ -328,7 +328,7 @@ export function WatchlistFilterPanel({
                         <span className="text-[9px] text-theme-text-muted ml-1">자기자본이익률 (수익성)</span>
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-black text-theme-text-muted tracking-tight ml-1">Max PER</label>
+                        <label className="text-[10px] font-black text-theme-text-muted tracking-tight ml-1">최대 PER</label>
                         <input
                           type="number"
                           placeholder="최대 PER"
@@ -339,7 +339,7 @@ export function WatchlistFilterPanel({
                         <span className="text-[9px] text-theme-text-muted ml-1">주가수익비율 (저평가)</span>
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-black text-theme-text-muted tracking-tight ml-1">Max Debt Ratio (%)</label>
+                        <label className="text-[10px] font-black text-theme-text-muted tracking-tight ml-1">최대 부채비율 (%)</label>
                         <input
                           type="number"
                           placeholder="최대 부채비율 (%)"
@@ -350,7 +350,7 @@ export function WatchlistFilterPanel({
                         <span className="text-[9px] text-theme-text-muted ml-1">부채비율 (재무 건전성)</span>
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-black text-theme-text-muted tracking-tight ml-1">Min Market Cap (억)</label>
+                        <label className="text-[10px] font-black text-theme-text-muted tracking-tight ml-1">최소 시총 (억)</label>
                         <input
                           type="number"
                           placeholder="최소 시총 (억)"
@@ -409,8 +409,8 @@ export function WatchlistFilterPanel({
                   <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/[0.07] overflow-x-auto no-scrollbar">
                     {[
                       { id: 'ALL', label: '모든 심리' },
-                      { id: 'RISK_ON', label: 'Risk-On' },
-                      { id: 'RISK_OFF', label: 'Risk-Off' },
+                      { id: 'RISK_ON', label: '위험 선호' },
+                      { id: 'RISK_OFF', label: '위험 회피' },
                     ].map((s) => (
                       <button
                         key={s.id}

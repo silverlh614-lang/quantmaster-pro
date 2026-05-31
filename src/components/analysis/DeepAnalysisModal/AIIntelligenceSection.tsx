@@ -22,7 +22,7 @@ function SectionHeader() {
   return (
     <div className="flex items-center gap-3 mb-6 px-4">
       <div className="w-1.5 h-6 bg-orange-500 rounded-full" />
-      <h3 className="text-xl font-black text-white uppercase tracking-tighter">AI Advanced Intelligence</h3>
+      <h3 className="text-xl font-black text-white uppercase tracking-tighter">AI 고급 인텔리전스</h3>
     </div>
   );
 }
@@ -89,13 +89,13 @@ function MarketPhaseAnalysis({ stock }: Props) {
         <div className={cn('px-2 py-0.5 rounded text-[8px] font-black uppercase', resolveMarketPhaseClass(phase))}>
           {phaseInfo.label}
         </div>
-        <span className="text-[9px] font-black text-white/20 tracking-tight">Phase Analysis</span>
+        <span className="text-[9px] font-black text-white/20 tracking-tight">국면 분석</span>
       </div>
 
       <div className="bg-white/5 rounded-xl p-3 border border-white/5 mb-3">
         <div className="flex items-center gap-2 mb-1">
           <Lightbulb className="w-3 h-3 text-yellow-500" />
-          <span className="text-[9px] font-black text-white/40 tracking-tight">Recommendation</span>
+          <span className="text-[9px] font-black text-white/40 tracking-tight">추천</span>
         </div>
         <p className="text-[11px] text-white/80 font-bold leading-relaxed">
           {phaseInfo.recommendation}
@@ -113,7 +113,7 @@ function AiConvictionCard({ stock }: Props) {
   return (
     <AiCardShell
       icon={<Brain className="w-12 h-12 text-orange-500" />}
-      title="AI Conviction Score"
+      title="AI 확신도 점수"
       titleIcon={<Target className="w-5 h-5 text-orange-500" />}
     >
       <div className="flex items-baseline gap-2 mb-4">
@@ -124,7 +124,7 @@ function AiConvictionCard({ stock }: Props) {
         ⓘ Gemini 정성 평가 — 자동매매 진입 기준 아님
       </div>
       <div className="bg-orange-500/10 p-3 rounded-xl border border-orange-500/20 mb-4">
-        <span className="text-[10px] font-black text-orange-500 tracking-tight block mb-1">Market Context Weighting</span>
+        <span className="text-[10px] font-black text-orange-500 tracking-tight block mb-1">시장 맥락 가중치</span>
         <p className="text-[11px] text-orange-400/80 font-bold leading-tight">
           {stock.aiConvictionScore?.description}
         </p>
@@ -139,7 +139,7 @@ function CatalystAnalysisCard({ stock }: Props) {
   return (
     <AiCardShell
       icon={<Zap className="w-12 h-12 text-orange-500" />}
-      title="Catalyst Analysis"
+      title="촉매 분석"
       titleIcon={<Flame className="w-5 h-5 text-orange-500" />}
     >
       <div className="flex items-baseline gap-2 mb-4">
@@ -153,14 +153,14 @@ function CatalystAnalysisCard({ stock }: Props) {
       </div>
       <div className="space-y-4">
         <div>
-          <span className="text-[10px] font-black text-white/30 tracking-tight block mb-2">Key Catalyst</span>
+          <span className="text-[10px] font-black text-white/30 tracking-tight block mb-2">핵심 촉매</span>
           <p className="text-xs text-white/70 font-bold leading-relaxed">
             {stock.catalystDetail?.description || '발굴된 촉매제가 없습니다.'}
           </p>
         </div>
         {stock.catalystDetail?.upcomingEvents && stock.catalystDetail.upcomingEvents.length > 0 && (
           <div>
-            <span className="text-[10px] font-black text-white/30 tracking-tight block mb-2">Upcoming Events</span>
+            <span className="text-[10px] font-black text-white/30 tracking-tight block mb-2">예정된 이벤트</span>
             <div className="space-y-1.5">
               {(stock.catalystDetail?.upcomingEvents || []).map((event, i) => (
                 <div key={i} className="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg border border-white/5">
@@ -215,16 +215,16 @@ function VisualReportCard({ stock }: Props) {
   return (
     <AiCardShell
       icon={<FileText className="w-12 h-12 text-orange-500" />}
-      title="Visual Report"
+      title="비주얼 리포트"
       titleIcon={<CheckCircle2 className="w-5 h-5 text-orange-500" />}
     >
       <div className="grid grid-cols-1 gap-3 mb-4">
-        <VisualGradeRow label="Financial" grade={stock.visualReport?.financial} color="text-blue-400" />
-        <VisualGradeRow label="Technical" grade={stock.visualReport?.technical} color="text-orange-400" />
-        <VisualGradeRow label="Supply" grade={stock.visualReport?.supply} color="text-green-400" />
+        <VisualGradeRow label="재무" grade={stock.visualReport?.financial} color="text-blue-400" />
+        <VisualGradeRow label="기술적" grade={stock.visualReport?.technical} color="text-orange-400" />
+        <VisualGradeRow label="수급" grade={stock.visualReport?.supply} color="text-green-400" />
       </div>
       <div className="bg-white/5 p-3 rounded-xl border border-white/5">
-        <span className="text-[10px] font-black text-white/30 tracking-tight block mb-1">AI Verdict</span>
+        <span className="text-[10px] font-black text-white/30 tracking-tight block mb-1">AI 판정</span>
         <p className="text-[11px] text-white/70 font-bold leading-tight italic">
           "{stock.visualReport?.summary}"
         </p>
@@ -362,7 +362,7 @@ function ShortSellingCard({ stock }: Props) {
   return (
     <AiCardShell
       icon={<TrendingDown className="w-12 h-12 text-red-500" />}
-      title="Short Selling"
+      title="공매도"
       titleIcon={<TrendingDown className="w-5 h-5 text-red-500" />}
     >
       {hasShortData ? (
@@ -408,7 +408,7 @@ function TenbaggerDnaCard({ stock }: Props) {
   return (
     <AiCardShell
       icon={<Sparkles className="w-12 h-12 text-blue-400" />}
-      title="Tenbagger DNA"
+      title="텐배거 DNA"
       titleIcon={<Sparkles className="w-5 h-5 text-blue-400" />}
     >
       {stock.tenbaggerDNA ? (
@@ -447,7 +447,7 @@ function HistoricalAnalogyCard({ stock }: Props) {
   return (
     <AiCardShell
       icon={<History className="w-12 h-12 text-blue-500" />}
-      title="Historical Analogy"
+      title="과거 유사 사례"
       titleIcon={<History className="w-5 h-5 text-blue-500" />}
     >
       <div className="mb-4">
@@ -461,7 +461,7 @@ function HistoricalAnalogyCard({ stock }: Props) {
           </div>
           <span className="text-xs font-black text-blue-400">{stock.historicalAnalogy?.similarity}%</span>
         </div>
-        <span className="text-[9px] font-black text-white/20 tracking-tight">Similarity Match</span>
+        <span className="text-[9px] font-black text-white/20 tracking-tight">유사도 매칭</span>
       </div>
       <p className="text-[12px] text-white/70 leading-relaxed font-bold break-words">
         {stock.historicalAnalogy?.reason}
@@ -484,7 +484,7 @@ function AnomalyDetectionCard({ stock }: Props) {
   return (
     <AiCardShell
       icon={<Radar className="w-12 h-12 text-purple-500" />}
-      title="Anomaly Detection"
+      title="이상 징후 탐지"
       titleIcon={<Radar className="w-5 h-5 text-purple-500" />}
     >
       {hasAnomaly ? (
@@ -495,7 +495,7 @@ function AnomalyDetectionCard({ stock }: Props) {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-2xl font-black text-white tracking-tighter">{anomaly.score}</span>
-              <span className="text-[10px] font-bold text-white/20 uppercase">Intensity</span>
+              <span className="text-[10px] font-bold text-white/20 uppercase">강도</span>
             </div>
           </div>
           <p className="text-[12px] text-white/70 leading-relaxed font-bold break-words">
@@ -520,7 +520,7 @@ function SemanticMappingCard({ stock }: Props) {
   return (
     <AiCardShell
       icon={<Hash className="w-12 h-12 text-emerald-500" />}
-      title="Semantic Mapping"
+      title="시맨틱 매핑"
       titleIcon={<Hash className="w-5 h-5 text-emerald-500" />}
     >
       <div className="mb-4">
