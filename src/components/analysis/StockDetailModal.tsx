@@ -16,6 +16,8 @@ import { debugWarn } from '../../utils/debug';
 import { GateStatusWidget } from './GateStatusWidget';
 import { TranchePlanCard } from './TranchePlanCard';
 import { PriceDisplay } from '../common/PriceDisplay';
+import { usePriceCanon } from '../../hooks/usePriceCanon';
+import { rebaseStrategyToCurrent } from '../../utils/priceStrategy';
 
 interface StockDetailModalProps {
   stock: StockRecommendation | null;
@@ -181,11 +183,25 @@ function AiAnalysisCard({ stock }: { stock: StockRecommendation }) {
 }
 
 function PriceStrategyGrid({ stock }: { stock: StockRecommendation }) {
+  // 가격 전략 정본 — 현재가(Naver) 기준 stale 재계산. 검색 카드·deep-analysis 와 동일 헬퍼.
+  const { price: canonPrice } = usePriceCanon(stock.code, {
+    fallbackPrice: stock.dataSourceType === 'REALTIME' ? stock.currentPrice : undefined,
+    fallbackSource: 'REALTIME',
+  });
+  const current = canonPrice ?? stock.currentPrice ?? 0;
+  const { entry, target, stop, rebased } = rebaseStrategyToCurrent(
+    current, stock.entryPrice ?? 0, stock.targetPrice ?? 0, stock.stopLoss ?? 0,
+  );
   return (
-    <div className="grid grid-cols-3 gap-3">
-      <PriceBox tone="blue" label="Entry" value={formatWon(stock.entryPrice) !== '-' ? formatWon(stock.entryPrice) : fallbackPrice(stock.currentPrice, 1)} />
-      <PriceBox tone="green" label="Target" value={formatWon(stock.targetPrice) !== '-' ? formatWon(stock.targetPrice) : fallbackPrice(stock.currentPrice, 1.2)} />
-      <PriceBox tone="red" label="Stop" value={formatWon(stock.stopLoss) !== '-' ? formatWon(stock.stopLoss) : fallbackPrice(stock.currentPrice, 0.93)} />
+    <div>
+      <div className="grid grid-cols-3 gap-3">
+        <PriceBox tone="blue" label="진입" value={entry > 0 ? formatWon(entry) : fallbackPrice(current, 1)} />
+        <PriceBox tone="green" label="목표" value={target > 0 ? formatWon(target) : fallbackPrice(current, 1.2)} />
+        <PriceBox tone="red" label="손절" value={stop > 0 ? formatWon(stop) : fallbackPrice(current, 0.93)} />
+      </div>
+      {rebased && (
+        <p className="mt-2 text-[9px] font-black text-amber-400/70">ⓘ 현재가 기준 재계산 — 저장 레벨이 현재가 이탈</p>
+      )}
     </div>
   );
 }

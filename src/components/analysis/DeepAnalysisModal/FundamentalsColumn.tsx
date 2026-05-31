@@ -3,6 +3,7 @@ import React from 'react';
 import { BarChart3, ShieldCheck } from 'lucide-react';
 import { cn } from '../../../ui/cn';
 import { usePriceCanon } from '../../../hooks/usePriceCanon';
+import { rebaseStrategyToCurrent } from '../../../utils/priceStrategy';
 import type { StockRecommendation } from '../../../services/stockService';
 
 interface Props {
@@ -178,36 +179,51 @@ function PriceActionCard({
 }
 
 function PriceActionCards({ stock }: Props) {
+  // 가격 전략 정본 — 현재가(Naver) 기준 stale 재계산. 검색 카드(PriceStrategySection)와 동일 헬퍼.
+  const { price: canonPrice } = usePriceCanon(stock.code, {
+    fallbackPrice: stock.dataSourceType === 'REALTIME' ? stock.currentPrice : undefined,
+    fallbackSource: 'REALTIME',
+  });
+  const current = canonPrice ?? stock.currentPrice ?? 0;
+  const { entry, target, stop, rebased } = rebaseStrategyToCurrent(
+    current, stock.entryPrice ?? 0, stock.targetPrice ?? 0, stock.stopLoss ?? 0,
+  );
+  const pct = (v: number) => (current > 0 && v > 0 ? Math.round((v / current - 1) * 100) : 0);
   return (
-    <div className="grid grid-cols-3 gap-3 mt-4">
-      <PriceActionCard
-        label="Entry"
-        value={`₩${stock.entryPrice?.toLocaleString() || stock.currentPrice?.toLocaleString() || '---'}`}
-        subValue={stock.entryPrice2 ? `~ ₩${stock.entryPrice2.toLocaleString()}` : undefined}
-        className="bg-blue-500/10 border-blue-500/20"
-        labelClassName="text-blue-400/60"
-        valueClassName="text-lg font-black text-white"
-        subValueClassName="text-blue-400/50"
-      />
-      <PriceActionCard
-        label="Target"
-        value={`₩${stock.targetPrice?.toLocaleString() || '---'}`}
-        subValue={`+${Math.round(((stock.targetPrice || 0) / (stock.currentPrice || 1) - 1) * 100)}%`}
-        className="bg-orange-500/10 border-orange-500/20"
-        labelClassName="text-orange-400/60"
-        valueClassName="text-lg font-black text-orange-400"
-        subValueClassName="text-orange-400/50"
-      />
-      <PriceActionCard
-        label="Stop"
-        value={`₩${stock.stopLoss?.toLocaleString() || '---'}`}
-        subValue={`${Math.round(((stock.stopLoss || 0) / (stock.currentPrice || 1) - 1) * 100)}%`}
-        className="bg-red-500/10 border-red-500/20"
-        labelClassName="text-red-400/60"
-        valueClassName="text-lg font-black text-red-400"
-        subValueClassName="text-red-400/50"
-      />
-    </div>
+    <>
+      <div className="grid grid-cols-3 gap-3 mt-4">
+        <PriceActionCard
+          label="진입"
+          value={entry > 0 ? `₩${entry.toLocaleString()}` : '---'}
+          subValue={!rebased && stock.entryPrice2 ? `~ ₩${stock.entryPrice2.toLocaleString()}` : undefined}
+          className="bg-blue-500/10 border-blue-500/20"
+          labelClassName="text-blue-400/60"
+          valueClassName="text-lg font-black text-white"
+          subValueClassName="text-blue-400/50"
+        />
+        <PriceActionCard
+          label="목표"
+          value={target > 0 ? `₩${target.toLocaleString()}` : '---'}
+          subValue={`+${pct(target)}%`}
+          className="bg-orange-500/10 border-orange-500/20"
+          labelClassName="text-orange-400/60"
+          valueClassName="text-lg font-black text-orange-400"
+          subValueClassName="text-orange-400/50"
+        />
+        <PriceActionCard
+          label="손절"
+          value={stop > 0 ? `₩${stop.toLocaleString()}` : '---'}
+          subValue={`${pct(stop)}%`}
+          className="bg-red-500/10 border-red-500/20"
+          labelClassName="text-red-400/60"
+          valueClassName="text-lg font-black text-red-400"
+          subValueClassName="text-red-400/50"
+        />
+      </div>
+      {rebased && (
+        <p className="mt-2 text-[9px] font-black text-amber-400/70">ⓘ 현재가 기준 재계산 — 저장 레벨이 현재가 이탈</p>
+      )}
+    </>
   );
 }
 
