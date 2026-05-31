@@ -234,4 +234,34 @@ describe('ADR-0480 Operator Action Router & Remediation Queue', () => {
     expect(runtimeAuditSrc).toContain('formatRuntimePipelineDiagnosticEvidenceLineAdr0480');
     expect(runtimeAuditSrc).toContain('adr460Installed: false');
   });
+
+  // ADR-0544 follow-up: 휴일/세션닫힘 SectorEnergy 진단 소스 억제 → REPAIR action 미생성.
+  const sectorSummary = (canonical: Record<string, unknown>): ScanSummary => ({
+    time: 't', candidates: 1, trackB: 0, swing: 0, catalyst: 0, momentum: 0,
+    yahooFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
+    sectorEnergyQuality: 'DEGRADED',
+    sectorEnergySupplyUnknownAdr0488: {
+      sectorEnergyCanonicalState: canonical,
+      // collectOperatorActionSourcesFromAdr0488 가 읽는 최소 report (status!=FETCH_OK → REPAIR gap 후보).
+      topGaps: [],
+      sectorEnergyMaster: { status: 'PARTIAL', coveragePct: 0 },
+      supplyUnknownPolicy: { unknownPolicyActive: false, providerIssue: false },
+    },
+  } as unknown as ScanSummary);
+
+  it('31. 세션닫힘(SESSION_NOT_VERIFIABLE) → SECTOR_ENERGY_DEGRADED 소스 미push (REPAIR action 미생성)', () => {
+    const sources = collectOperatorActionSourcesFromScanSummaryAdr0480(
+      sectorSummary({ dataQuality: 'SESSION_NOT_VERIFIABLE', sectorIndexVerifyMode: 'VERIFY_SKIPPED_SESSION_CLOSED', verifiedOfficialSectorCount: 0, promotionCoveragePass: false }),
+    );
+    expect(sources.some((s) => s.code === 'SECTOR_ENERGY_DEGRADED')).toBe(false);
+    const actions = buildOperatorActionQueueAdr0480({ sources }).allActions;
+    expect(actions.some((a) => a.rootCause === 'REPAIR_SECTOR_INDEX_MASTER')).toBe(false);
+  });
+
+  it('32. 대조군: 장중 MISSING → SECTOR_ENERGY_DEGRADED 소스 유지 (분류 분리 보존)', () => {
+    const sources = collectOperatorActionSourcesFromScanSummaryAdr0480(
+      sectorSummary({ dataQuality: 'MISSING', sectorIndexVerifyMode: 'LIVE_VERIFY', verifiedOfficialSectorCount: 0, promotionCoveragePass: false }),
+    );
+    expect(sources.some((s) => s.code === 'SECTOR_ENERGY_DEGRADED')).toBe(true);
+  });
 });
