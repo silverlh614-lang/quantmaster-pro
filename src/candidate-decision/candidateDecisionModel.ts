@@ -81,12 +81,12 @@ function buildGateSummary(
       : failStatus;
   // 절충(사용자 채택): 게이트 통과수는 유지하되 검증/AI 추정 비율을 함께 표기 —
   // Gemini all-true 로 통과수가 부풀 때 실데이터 근거가 얼마인지 정직하게 보여준다.
-  const breakdown = passed > 0 ? ` · 검증 ${verifiedPassed}·AI ${passed - verifiedPassed}` : '';
+  const breakdown = passed > 0 ? ` (검${verifiedPassed}·AI${passed - verifiedPassed})` : '';
   const primaryReason = status === 'PASS'
-    ? `통과 (${passed}/${total}${breakdown})`
+    ? `통과 ${passed}/${total}${breakdown}`
     : status === 'DATA_INSUFFICIENT'
-      ? `데이터 부족 — 평가 보류 (0/${total})`
-      : `미충족 (${passed}/${total} 항목, 기준 ${required}${breakdown})`;
+      ? `데이터 부족 ${0}/${total}`
+      : `미충족 ${passed}/${total} 기준${required}${breakdown}`;
   return { name, status, passed, total, primaryReason };
 }
 
@@ -229,12 +229,12 @@ function buildPositiveDrivers(
 ): string[] {
   return [
     stock.reason,
-    sectorAlignment.sectorBonusApplied ? `${sectorAlignment.sectorName} ${sectorAlignment.sectorAlignment} alignment` : '',
-    stock.supplyQuality?.active ? 'Active supply inflow' : '',
-    gate1.status === 'PASS' ? 'Gate 1 survival filter passed' : '',
-    gate2.status === 'PASS' ? 'Gate 2 growth validation passed' : '',
-    gate3.status === 'PASS' ? 'Gate 3 timing conditions passed' : '',
-    ...(stock.patterns ?? []).slice(0, 2).map((pattern) => `Pattern: ${pattern}`),
+    sectorAlignment.sectorBonusApplied ? `${sectorAlignment.sectorName} 섹터 정렬 양호` : '',
+    stock.supplyQuality?.active ? '수급 유입 활발' : '',
+    gate1.status === 'PASS' ? 'Gate 1 생존 필터 통과' : '',
+    gate2.status === 'PASS' ? 'Gate 2 성장성 검증 통과' : '',
+    gate3.status === 'PASS' ? 'Gate 3 타이밍 조건 통과' : '',
+    ...(stock.patterns ?? []).slice(0, 2).map((pattern) => `패턴: ${pattern}`),
     stock.visualReport?.summary,
   ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
 }
@@ -246,12 +246,12 @@ function buildRiskDrivers(
 ): string[] {
   return [
     ...(stock.riskFactors ?? []),
-    sectorAlignment.sectorPenaltyApplied ? `${sectorAlignment.sectorName} sector is ${sectorAlignment.sectorAlignment}` : '',
-    confidence.aiEstimatedIndicatorCount > 0 ? 'AI estimated evidence included' : '',
-    confidence.missingIndicatorCount > 0 ? 'Core data missing' : '',
-    confidence.providerIssue ? 'Provider issue isolated from marketSignal' : '',
-    stock.technicalSignals?.rsi > 75 ? `RSI overheat watch (${stock.technicalSignals.rsi})` : '',
-    stock.isPreviousLeader ? 'Previous leader fatigue risk' : '',
+    sectorAlignment.sectorPenaltyApplied ? `${sectorAlignment.sectorName} 섹터 약세 구간` : '',
+    confidence.aiEstimatedIndicatorCount > 0 ? 'AI 추정 근거 포함 (미검증)' : '',
+    confidence.missingIndicatorCount > 0 ? '핵심 데이터 누락' : '',
+    confidence.providerIssue ? '공급자 데이터 이슈 (시그널과 분리)' : '',
+    stock.technicalSignals?.rsi > 75 ? `RSI 과열 주의 (${stock.technicalSignals.rsi})` : '',
+    stock.isPreviousLeader ? '前 주도주 피로 리스크' : '',
     stock.newsSentiment?.status === 'NEGATIVE' ? stock.newsSentiment.summary : '',
   ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
 }
@@ -266,17 +266,17 @@ function buildBlockReasons(
   sectorAlignment: CandidateSectorAlignment,
 ): string[] {
   return [
-    engineMode === 'SELL_ONLY' ? 'SELL_ONLY policy blocks new buys while diagnostics continue.' : '',
-    engineMode === 'SHADOW_ONLY' || engineMode === 'OBSERVE_ONLY' ? `${engineMode} keeps live buys blocked while Shadow tracking stays available.` : '',
-    gate0.status === 'BLOCKED' ? 'Gate 0 market environment blocks new entry.' : '',
-    gate1.status === 'BLOCKED' ? gate1.primaryReason ?? 'Gate 1 survival filter failed.' : '',
-    sectorAlignment.sectorAlignment === 'AVOID_SECTOR' ? `${sectorAlignment.sectorName} is an avoid sector; new buy is blocked.` : '',
-    sectorAlignment.sectorAlignment === 'WEAK_SECTOR' ? `${sectorAlignment.sectorName} is weak; candidate is downgraded to watch.` : '',
-    gate2.status !== 'PASS' ? gate2.primaryReason ?? 'Gate 2 growth validation is not fully confirmed.' : '',
-    gate3.status !== 'PASS' ? gate3.primaryReason ?? 'Gate 3 timing/LastTrigger is not confirmed.' : '',
-    confidence.overall === 'MISSING' ? 'Core data is missing; live judgment is deferred.' : '',
-    confidence.overall === 'STALE' ? 'Stale provider data; marketSignal remains false.' : '',
-    confidence.overall === 'AI_ESTIMATED' ? 'AI estimated evidence is separated from calculated evidence.' : '',
+    engineMode === 'SELL_ONLY' ? 'SELL_ONLY 정책 — 진단 중 신규 매수 차단' : '',
+    engineMode === 'SHADOW_ONLY' || engineMode === 'OBSERVE_ONLY' ? `${engineMode} — 실매수 차단 (Shadow 추적은 유지)` : '',
+    gate0.status === 'BLOCKED' ? 'Gate 0 시장 환경 — 신규 진입 차단' : '',
+    gate1.status === 'BLOCKED' ? gate1.primaryReason ?? 'Gate 1 생존 필터 미통과' : '',
+    sectorAlignment.sectorAlignment === 'AVOID_SECTOR' ? `${sectorAlignment.sectorName} 회피 섹터 — 신규 매수 차단` : '',
+    sectorAlignment.sectorAlignment === 'WEAK_SECTOR' ? `${sectorAlignment.sectorName} 약세 섹터 — 관찰로 강등` : '',
+    gate2.status !== 'PASS' ? gate2.primaryReason ?? 'Gate 2 성장성 검증 미완료' : '',
+    gate3.status !== 'PASS' ? gate3.primaryReason ?? 'Gate 3 타이밍/트리거 미확정' : '',
+    confidence.overall === 'MISSING' ? '핵심 데이터 누락 — 실시간 판단 보류' : '',
+    confidence.overall === 'STALE' ? '공급자 데이터 stale — 시그널 미확정' : '',
+    confidence.overall === 'AI_ESTIMATED' ? 'AI 추정 근거는 계산 근거와 분리됨' : '',
   ].filter((item): item is string => item.length > 0);
 }
 

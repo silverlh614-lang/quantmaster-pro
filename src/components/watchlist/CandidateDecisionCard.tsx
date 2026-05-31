@@ -80,13 +80,13 @@ function ReasonList({ title, items, tone, limit }: { title: string; items: strin
 }
 
 function executionText(model: StockDecisionCard): string {
-  return model.liveExecutionAllowed ? 'ALLOWED' : 'BLOCKED';
+  return model.liveExecutionAllowed ? '허용' : '차단';
 }
 
 function sectorEffectText(model: StockDecisionCard): string {
-  if (model.sectorAlignment.sectorBonusApplied) return 'Gate 2 context bonus';
-  if (model.sectorAlignment.sectorPenaltyApplied) return 'Position size limited';
-  return 'No sector penalty';
+  if (model.sectorAlignment.sectorBonusApplied) return 'Gate 2 컨텍스트 보너스';
+  if (model.sectorAlignment.sectorPenaltyApplied) return '포지션 크기 제한';
+  return '섹터 페널티 없음';
 }
 
 export function CandidateDecisionCard({ model, mode = 'pro', className }: CandidateDecisionCardProps) {
@@ -124,7 +124,7 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[9px] font-black uppercase tracking-widest text-white/35">Final Score</div>
+          <div className="text-[9px] font-black uppercase tracking-widest text-white/35">최종 점수</div>
           <div className="font-num text-2xl font-black text-white">{model.finalScore}</div>
           <div className="mt-1 max-w-[12rem] truncate text-[9px] font-mono text-white/30" title={model.sourceSnapshotId}>
             {model.sourceSnapshotId}
@@ -139,9 +139,9 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
       <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="text-[9px] font-black uppercase tracking-wider text-white/35">Sector Alignment</div>
+            <div className="text-[9px] font-black uppercase tracking-wider text-white/35">섹터 정렬</div>
             <div className="mt-1 text-xs font-black text-white">
-              {model.sectorAlignment.sectorName} / Score {model.sectorAlignment.sectorScore} / Rank {model.sectorAlignment.sectorRank || 'N/A'}
+              {model.sectorAlignment.sectorName} / 점수 {model.sectorAlignment.sectorScore} / 순위 {model.sectorAlignment.sectorRank || 'N/A'}
             </div>
           </div>
           <Badge
@@ -153,7 +153,7 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
         </div>
         {showDetails && (
           <div className="mt-1 text-[11px] font-bold text-white/45">
-            Effect: {sectorEffectText(model)}
+            효과: {sectorEffectText(model)}
           </div>
         )}
       </div>
@@ -165,25 +165,25 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
       )}
 
       <div className={cn('mt-4 grid gap-3', showDetails ? 'md:grid-cols-3' : 'grid-cols-1')}>
-        <ReasonList title="Positive Drivers" items={model.positiveDrivers} tone="green" limit={isSimple ? 1 : 3} />
-        {showDetails && <ReasonList title="Risk Drivers" items={model.riskDrivers} tone="red" limit={3} />}
-        <ReasonList title="Block Reasons" items={model.blockedReasons} tone="amber" limit={isSimple ? 2 : 5} />
+        <ReasonList title="긍정 요인" items={model.positiveDrivers} tone="green" limit={isSimple ? 1 : 3} />
+        {showDetails && <ReasonList title="리스크 요인" items={model.riskDrivers} tone="red" limit={3} />}
+        <ReasonList title="차단 사유" items={model.blockedReasons} tone="amber" limit={isSimple ? 2 : 5} />
       </div>
 
       {hasAiWarning && (
         <div className="mt-3 rounded-lg border border-violet-400/20 bg-violet-400/[0.06] px-3 py-2 text-[11px] font-bold text-violet-100/80">
-          This decision includes AI-estimated evidence. Confirm calculated data before live trading.
+          이 판단에는 AI 추정 근거가 포함됩니다. 실매매 전 계산 데이터를 확인하세요.
         </div>
       )}
       {hasMissingWarning && (
         <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2 text-[11px] font-bold text-amber-100/80">
-          Data confidence is not fully verified. Provider issues stay separated from marketSignal.
+          데이터 신뢰도가 완전히 검증되지 않았습니다. 공급자 이슈는 marketSignal과 분리됩니다.
         </div>
       )}
 
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
-          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-white/35"><Ban className="h-3 w-3" />Live Execution</div>
+          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-white/35"><Ban className="h-3 w-3" />실매매 집행</div>
           <div className={cn('mt-1 text-xs font-black', model.liveExecutionAllowed ? 'text-emerald-200' : 'text-amber-200')}>{executionText(model)}</div>
         </div>
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
@@ -191,18 +191,18 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
           <div className="mt-1 text-xs font-black text-violet-200">{model.shadowTrackingStatus}</div>
         </div>
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
-          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-white/35"><Activity className="h-3 w-3" />Impact</div>
+          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-white/35"><Activity className="h-3 w-3" />영향</div>
           <div className="mt-1 truncate text-xs font-black text-white/75" title={model.executionImpact}>{model.executionImpact}</div>
         </div>
         <div className="rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
-          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-white/35"><Timer className="h-3 w-3" />Next</div>
+          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-white/35"><Timer className="h-3 w-3" />다음 조치</div>
           <div className="mt-1 truncate text-xs font-black text-white/75" title={model.nextAction.join(' / ')}>{model.nextAction[0] ?? 'WATCH'}</div>
         </div>
       </div>
 
       {showDetails && (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-wider text-white/40">
-          <span>Data Trust</span>
+          <span>데이터 신뢰</span>
           <DataConfidenceBadge confidence="VERIFIED" label={`VERIFIED ${model.dataConfidence.calculatedIndicatorCount}`} compact showTooltip={false} />
           <DataConfidenceBadge confidence="AI_ESTIMATED" label={`AI ${model.dataConfidence.aiEstimatedIndicatorCount}`} compact />
           <DataConfidenceBadge confidence="MISSING" label={`MISSING ${model.dataConfidence.missingIndicatorCount}`} compact />

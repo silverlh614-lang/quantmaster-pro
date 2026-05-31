@@ -25,6 +25,7 @@ interface MasterRadarChartProps {
 }
 
 export function MasterRadarChart({ stock }: MasterRadarChartProps) {
+  const canon = buildStockAnalysisCanon(stock);
   return (
     <div className="glass-3d rounded-2xl p-5 sm:p-6 border border-white/10 flex flex-col">
       <div className="w-full flex items-center justify-between mb-4">
@@ -34,16 +35,16 @@ export function MasterRadarChart({ stock }: MasterRadarChartProps) {
             27단계 마스터 레이더
           </span>
         </div>
-        <div className="px-3 py-1 bg-orange-500/10 rounded-lg border border-orange-500/20">
+        <div className="px-3 py-1 bg-orange-500/10 rounded-lg border border-orange-500/20" title="검증=실데이터(DART/KRX/계산) 확인 · 충족=AI 추정 포함">
           <span className="text-[11px] font-black text-orange-500">
-            {getPassedConditionCount(stock)} / 27
+            검증 {canon.verifiedPassCount} · 충족 {canon.metCount}
           </span>
         </div>
       </div>
 
       <div className="w-full h-[280px]">
         <ResponsiveContainer width="100%" height="100%">
-          <RadarChart cx="50%" cy="50%" outerRadius="78%" data={getRadarData(stock)}>
+          <RadarChart cx="50%" cy="50%" outerRadius="78%" data={canon.radar}>
             <PolarGrid stroke="rgba(255,255,255,0.1)" />
             <PolarAngleAxis
               dataKey="subject"

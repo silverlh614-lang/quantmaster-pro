@@ -21,6 +21,7 @@ import { evaluateEnemyChecklist } from '../../utils/enemyChecklistFlag';
 import { useGlobalIntelStore } from '../../stores';
 import { SignalBadge } from '../../ui/badge';
 import { PriceEditCell } from '../common/PriceEditCell';
+import { usePriceCanon } from '../../hooks/usePriceCanon';
 import { isMarketOpenFor, nextOpenAtFor, formatNextOpenKst } from '../../utils/marketTime';
 import { useMarketMode } from '../../hooks/useMarketMode';
 import { useUIVerbosity } from '../../hooks/useUIVerbosity';
@@ -394,10 +395,10 @@ const StockIdentityPanel = ({
               ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
               : 'border-red-500/20 bg-red-500/10 text-red-200',
           )}>
-            Model Score {stock.aiConvictionScore?.totalScore ?? '-'} | Gate {quantGateScore.value.toFixed(1)}/10{' '}
-            {quantGateScore.pass ? 'auto-trade eligible' : 'auto-trade blocked'}{' '}
-            ({quantGateScore.regime.replace(/_.+$/, '')} threshold {quantGateScore.threshold}
-            {quantGateScore.pass ? '' : ' unmet'})
+            모델 점수 {stock.aiConvictionScore?.totalScore ?? '-'} | Gate {quantGateScore.value.toFixed(1)}/10{' '}
+            {quantGateScore.pass ? '자동매매 가능' : '자동매매 차단'}{' '}
+            ({quantGateScore.regime.replace(/_.+$/, '')} 기준 {quantGateScore.threshold}
+            {quantGateScore.pass ? '' : ' 미달'})
           </div>
         )}
         {stock.chartPattern && (
@@ -463,18 +464,22 @@ const AiFactorBar = ({ stock }: { stock: StockRecommendation }) => {
   const total = stock.aiConvictionScore?.totalScore ?? 0;
   const g1Count = Math.max(1, Math.ceil(factors.length / 3));
   const g2Count = Math.max(1, Math.ceil(factors.length / 3));
-  const g1 = factors.slice(0, g1Count).reduce((sum, factor) => sum + factor.score, 0);
-  const g2 = factors.slice(g1Count, g1Count + g2Count).reduce((sum, factor) => sum + factor.score, 0);
-  const g3 = factors.slice(g1Count + g2Count).reduce((sum, factor) => sum + factor.score, 0);
-  const g1Max = g1Count * 10;
-  const g2Max = g2Count * 10;
-  const g3Max = Math.max(1, factors.length - g1Count - g2Count) * 10;
+  // factor.score 는 0~100 척도 → 게이트별 평균(0~100)으로 표시. 과거 ×10 가정이 "94/10"
+  // 처럼 분모를 깨뜨렸던 버그 수정 (분자 0~100 vs 분모 10 불일치).
+  const avgScore = (arr: typeof factors) =>
+    arr.length ? Math.round(arr.reduce((sum, factor) => sum + factor.score, 0) / arr.length) : 0;
+  const g1 = avgScore(factors.slice(0, g1Count));
+  const g2 = avgScore(factors.slice(g1Count, g1Count + g2Count));
+  const g3 = avgScore(factors.slice(g1Count + g2Count));
+  const g1Max = 100;
+  const g2Max = 100;
+  const g3Max = 100;
   return (
     <>
       {stock.aiConvictionScore && (
         <div className="mb-4 sm:mb-6">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">Decision Confluence</span>
+            <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">판단 합치도</span>
             <span className="text-[11px] font-black text-white/70 font-num">{total}/100</span>
           </div>
           <div className="gate-bar">
@@ -690,12 +695,19 @@ const PriceStrategySection = ({
 }: Pick<WatchlistCardProps, 'stock' | 'syncingStock' | 'onManualPriceUpdate' | 'onSyncPrice'> & { marketMode: MarketMode }) => {
   const variant = marketVariant(stock, marketMode);
   const tone = toneClasses(variant.tone);
+  // 현재가 정본(SSOT) — Naver-first. stock.currentPrice(stale L4/이전 동기화) 직접 표시를
+  // 끊어, 차트·상세 헤더와 같은 가격을 쓰게 한다 (하부 가격 전략 ≠ 현재가 불일치 수정).
+  const { price: canonPrice } = usePriceCanon(stock.code, {
+    fallbackPrice: stock.dataSourceType === 'REALTIME' ? stock.currentPrice : undefined,
+    fallbackSource: 'REALTIME',
+  });
+  const displayPrice = canonPrice ?? stock.currentPrice;
   return (
     <div className="bg-white/[0.03] border-y border-white/10 p-5 sm:p-8 py-5 sm:py-7 relative">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-5 gap-3">
         <div className="flex items-center gap-2">
           <div className="w-1 h-4 bg-orange-500 rounded-full" />
-          <span className="text-[10px] sm:text-[11px] font-black text-white/30 uppercase tracking-[0.2em] sm:tracking-[0.25em]">Price Strategy</span>
+          <span className="text-[10px] sm:text-[11px] font-black text-white/30 uppercase tracking-[0.2em] sm:tracking-[0.25em]">가격 전략</span>
         </div>
         <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 sm:gap-1">
           <div className={cn('flex items-center gap-2 sm:gap-2.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl border shadow-[0_0_15px_rgba(249,115,22,0.1)] transition-all', tone.wrapper)} title={variant.title}>
@@ -703,7 +715,7 @@ const PriceStrategySection = ({
               <div className={cn('w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full', tone.dot)} />
               <span className={cn('text-[7px] sm:text-[8px] font-black uppercase tracking-widest', tone.text)}>{variant.label}</span>
             </div>
-            <PriceEditCell stockCode={stock.code} currentPrice={stock.currentPrice} syncingStock={syncingStock} onManualUpdate={(newPrice) => onManualPriceUpdate(stock, newPrice)} onSync={() => onSyncPrice(stock)} />
+            <PriceEditCell stockCode={stock.code} currentPrice={displayPrice} syncingStock={syncingStock} onManualUpdate={(newPrice) => onManualPriceUpdate(stock, newPrice)} onSync={() => onSyncPrice(stock)} />
           </div>
           <div className="flex items-center gap-2 mt-1">
             {stock.priceUpdatedAt && (
@@ -723,9 +735,9 @@ const PriceStrategySection = ({
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
-        <PriceBox tone="blue" label="Entry" primary={formatKrw(stock.entryPrice, stock.currentPrice > 0 ? `₩${stock.currentPrice.toLocaleString()}*` : '-')} secondary={stock.entryPrice2 && stock.entryPrice2 > 0 ? `2nd ₩${stock.entryPrice2.toLocaleString()}` : undefined} />
-        <PriceBox tone="green" label="Target" primary={formatKrw(stock.targetPrice, stock.currentPrice > 0 ? `₩${Math.round(stock.currentPrice * 1.20).toLocaleString()}*` : '-')} secondary={stock.targetPrice2 && stock.targetPrice2 > 0 ? `2nd ₩${stock.targetPrice2.toLocaleString()}` : undefined} />
-        <PriceBox tone="red" label="Stop" primary={formatKrw(stock.stopLoss, stock.currentPrice > 0 ? `₩${Math.round(stock.currentPrice * 0.93).toLocaleString()}*` : '-')} />
+        <PriceBox tone="blue" label="진입" primary={formatKrw(stock.entryPrice, displayPrice > 0 ? `₩${displayPrice.toLocaleString()}*` : '-')} secondary={stock.entryPrice2 && stock.entryPrice2 > 0 ? `2차 ₩${stock.entryPrice2.toLocaleString()}` : undefined} />
+        <PriceBox tone="green" label="목표" primary={formatKrw(stock.targetPrice, displayPrice > 0 ? `₩${Math.round(displayPrice * 1.20).toLocaleString()}*` : '-')} secondary={stock.targetPrice2 && stock.targetPrice2 > 0 ? `2차 ₩${stock.targetPrice2.toLocaleString()}` : undefined} />
+        <PriceBox tone="red" label="손절" primary={formatKrw(stock.stopLoss, displayPrice > 0 ? `₩${Math.round(displayPrice * 0.93).toLocaleString()}*` : '-')} />
       </div>
     </div>
   );
