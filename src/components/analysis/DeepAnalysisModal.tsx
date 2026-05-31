@@ -75,7 +75,7 @@ function DeepAnalysisActionButtons({
       <button
         onClick={onExportPDF}
         disabled={isExporting}
-        className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-blue-500 transition-all group active:scale-90 border border-white/10 backdrop-blur-md shadow-lg"
+        className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-blue-500 transition-all group active:scale-90 border border-white/[0.07] backdrop-blur-md shadow-lg"
         title="PDF 리포트 저장"
       >
         {isExporting ? (
@@ -86,7 +86,7 @@ function DeepAnalysisActionButtons({
       </button>
       <button
         onClick={() => onClose()}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-all group active:scale-90 border border-white/10 backdrop-blur-md shadow-lg"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-all group active:scale-90 border border-white/[0.07] backdrop-blur-md shadow-lg"
         title="닫기"
       >
         <span className="text-[10px] font-semibold tracking-tight text-white/40 group-hover:text-white transition-colors">Close</span>
@@ -367,7 +367,7 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
             initial={{ scale: 0.95, opacity: 0, y: 30 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 30 }}
-            className="glass-3d rounded-3xl w-full max-w-[1400px] max-h-[94vh] border border-white/10 shadow-2xl overflow-hidden relative flex flex-col print-section"
+            className="glass-3d rounded-3xl w-full max-w-[1400px] max-h-[94vh] border border-white/[0.07] shadow-xl overflow-hidden relative flex flex-col print-section"
             onClick={e => e.stopPropagation()}
           >
             <AnalysisViewToggle>

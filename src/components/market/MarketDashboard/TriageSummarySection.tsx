@@ -14,7 +14,7 @@ export const TriageSummarySection: React.FC<TriageSummarySectionProps> = ({ gate
 
   return (
     <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
-      <div className="glass-3d p-6 rounded-[2rem] border border-white/10 flex flex-col justify-between relative overflow-hidden group">
+      <div className="glass-3d p-6 rounded-[2rem] border border-white/[0.07] flex flex-col justify-between relative overflow-hidden group">
         <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
           <Activity size={80} />
         </div>
@@ -25,7 +25,7 @@ export const TriageSummarySection: React.FC<TriageSummarySectionProps> = ({ gate
         </div>
       </div>
 
-      <div className="glass-3d p-6 rounded-[2rem] border border-white/10 flex flex-col justify-between relative overflow-hidden group">
+      <div className="glass-3d p-6 rounded-[2rem] border border-white/[0.07] flex flex-col justify-between relative overflow-hidden group">
         <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
           <ShieldAlert size={80} className="text-red-500" />
         </div>
@@ -38,7 +38,7 @@ export const TriageSummarySection: React.FC<TriageSummarySectionProps> = ({ gate
         </div>
       </div>
 
-      <div className="glass-3d p-6 rounded-[2rem] border border-white/10 flex flex-col justify-between relative overflow-hidden group">
+      <div className="glass-3d p-6 rounded-[2rem] border border-white/[0.07] flex flex-col justify-between relative overflow-hidden group">
         <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
           <TrendingUp size={80} className="text-orange-500" />
         </div>
@@ -51,7 +51,7 @@ export const TriageSummarySection: React.FC<TriageSummarySectionProps> = ({ gate
         </div>
       </div>
 
-      <div className="glass-3d p-6 rounded-[2rem] border border-white/10 flex flex-col justify-between relative overflow-hidden group">
+      <div className="glass-3d p-6 rounded-[2rem] border border-white/[0.07] flex flex-col justify-between relative overflow-hidden group">
         <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
           <Zap size={80} className="text-indigo-500" />
         </div>

@@ -98,7 +98,7 @@ function VerdictSlot({ verdict, regime, expired, marketRegimeView, className }: 
             'rounded-md border px-2 py-1 text-[11px] leading-snug',
             lowRegimeConfidence
               ? 'border-amber-500/30 bg-amber-500/10 text-amber-100'
-              : 'border-white/10 bg-white/5 text-white/65',
+              : 'border-white/[0.07] bg-white/5 text-white/65',
           )}
           data-vcard-regime-context={marketRegimeView.state}
         >
@@ -261,7 +261,7 @@ function VerdictCardRoot({
   if (variant !== 'verdict') {
     // Migration Gate — variant='default' 시 기본 카드 (children 그대로 노출)
     return (
-      <div className={cn('rounded-xl border border-white/10 bg-zinc-900/50 p-3', className)} data-vcard-variant="default">
+      <div className={cn('rounded-xl border border-white/[0.07] bg-zinc-900/50 p-3', className)} data-vcard-variant="default">
         {children ?? <span className="text-xs opacity-50">정보 미수집</span>}
       </div>
     );

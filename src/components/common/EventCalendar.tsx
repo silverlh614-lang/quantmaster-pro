@@ -28,7 +28,7 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({ events }) => {
 
   if (safeEvents.length === 0) {
     return (
-      <div className="bg-[#151619] border border-white/10 rounded-2xl p-8 flex flex-col items-center justify-center text-center space-y-4">
+      <div className="bg-[#151619] border border-white/[0.07] rounded-2xl p-8 flex flex-col items-center justify-center text-center space-y-4">
         <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center">
           <CalendarIcon className="w-8 h-8 text-gray-600" />
         </div>
@@ -71,7 +71,7 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({ events }) => {
               "relative overflow-hidden bg-[#151619] border rounded-2xl p-5 transition-all group",
               event.impact === 'HIGH' ? "border-red-500/30 hover:border-red-500/50" : 
               event.impact === 'MEDIUM' ? "border-orange-500/30 hover:border-orange-500/50" : 
-              "border-white/10 hover:border-white/20"
+              "border-white/[0.07] hover:border-white/20"
             )}
           >
             {/* Impact Glow */}

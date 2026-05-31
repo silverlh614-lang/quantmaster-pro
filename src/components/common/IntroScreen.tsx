@@ -37,7 +37,7 @@ export function IntroScreen() {
 
           {/* 로고 배지 + 확장 링 */}
           <motion.div
-            className="relative mb-7 flex h-20 w-20 items-center justify-center rounded-3xl border border-white/10 bg-gradient-to-br from-blue-500/20 to-orange-500/20 shadow-[0_0_60px_-10px_rgba(59,130,246,0.6)]"
+            className="relative mb-7 flex h-20 w-20 items-center justify-center rounded-3xl border border-white/[0.07] bg-gradient-to-br from-blue-500/20 to-orange-500/20 shadow-[0_0_60px_-10px_rgba(59,130,246,0.6)]"
             initial={{ scale: 0.7, opacity: 0, rotate: -8 }}
             animate={{ scale: 1, opacity: 1, rotate: 0 }}
             transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}

@@ -23,7 +23,7 @@ export const HeroChecklist: React.FC<HeroChecklistProps> = ({ steps, onShowCheck
     <div className="mb-12">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-3 px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl border border-white/10 transition-all group/toggle mb-6"
+        className="flex items-center gap-3 px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl border border-white/[0.07] transition-all group/toggle mb-6"
       >
         <ShieldCheck className={cn("w-5 h-5 text-orange-500 transition-transform", expanded ? "rotate-180" : "")} />
         <span className="text-sm font-black text-white/60 tracking-tight">27단계 마스터 체크리스트 보기</span>
@@ -42,7 +42,7 @@ export const HeroChecklist: React.FC<HeroChecklistProps> = ({ steps, onShowCheck
               {steps.map((step, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center gap-3 bg-white/5 px-5 py-3 rounded-2xl border border-white/10 shadow-lg hover:bg-white/10 hover:border-orange-500/30 transition-all cursor-help group/step active:scale-95"
+                  className="flex items-center gap-3 bg-white/5 px-5 py-3 rounded-2xl border border-white/[0.07] shadow-lg hover:bg-white/10 hover:border-orange-500/30 transition-all cursor-help group/step active:scale-95"
                   onClick={onShowChecklist}
                 >
                   <div className="w-8 h-8 rounded-xl bg-orange-500/10 flex items-center justify-center group-hover/step:bg-orange-500/20 transition-colors">

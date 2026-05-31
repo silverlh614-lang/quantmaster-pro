@@ -54,7 +54,7 @@ type SelectOption = {
   label: string;
 };
 
-const FIELD_CLASS = 'w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white font-bold focus:outline-none focus:border-indigo-500/50 transition-all';
+const FIELD_CLASS = 'w-full bg-white/5 border border-white/[0.07] rounded-2xl px-4 py-3 text-white font-bold focus:outline-none focus:border-indigo-500/50 transition-all';
 const INITIAL_STOCK_INFO: StockInfo = { name: '', code: '', currentPrice: '' };
 const INITIAL_INDICATORS: ManualIndicators = {
   rsi: '50',
@@ -157,7 +157,7 @@ function allMainGatesPassed(result: EvaluationResult): boolean {
 
 function InputShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10 shadow-2xl">
+    <div className="glass-3d p-8 rounded-[2.5rem] border border-white/[0.07] shadow-xl">
       {children}
     </div>
   );
@@ -596,7 +596,7 @@ function ResultSection({
   stockInfo: StockInfo;
 }) {
   return (
-    <div className="glass-3d p-10 rounded-[3rem] border border-white/10 shadow-2xl animate-in fade-in zoom-in duration-700">
+    <div className="glass-3d p-10 rounded-[3rem] border border-white/[0.07] shadow-xl animate-in fade-in zoom-in duration-700">
       <ResultHeader result={result} stockInfo={stockInfo} />
       <Gate0Card result={result} />
       <GateGrid result={result} />

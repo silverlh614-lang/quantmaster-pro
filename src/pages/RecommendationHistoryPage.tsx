@@ -83,7 +83,7 @@ export function RecommendationHistoryPage() {
       </header>
 
       {/* PR-G: signalType + period 분리 통계 */}
-      <section aria-label="기간·시그널별 통계" className="rounded border border-white/10 bg-black/20 p-3 sm:p-4 space-y-3">
+      <section aria-label="기간·시그널별 통계" className="rounded border border-white/[0.07] bg-black/20 p-3 sm:p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-[11px] font-semibold tracking-tight opacity-70">
             기간·시그널별 적중률
@@ -99,7 +99,7 @@ export function RecommendationHistoryPage() {
                   'text-[10px] font-black px-2 py-1 rounded border transition-colors',
                   period === opt.id
                     ? 'bg-violet-500/30 border-violet-500/50 text-violet-100'
-                    : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10',
+                    : 'bg-white/5 border-white/[0.07] text-white/60 hover:bg-white/10',
                 )}
               >
                 {opt.label}
@@ -164,11 +164,11 @@ export function RecommendationHistoryPage() {
             이력 로드 실패 — 서버 응답 오류
           </div>
         ) : records.length === 0 ? (
-          <div className="rounded border border-white/10 bg-white/5 p-6 text-center text-sm text-white/50">
+          <div className="rounded border border-white/[0.07] bg-white/5 p-6 text-center text-sm text-white/50">
             아직 판정 이력이 없습니다.
           </div>
         ) : (
-          <div className="overflow-x-auto rounded border border-white/10 bg-black/20">
+          <div className="overflow-x-auto rounded border border-white/[0.07] bg-black/20">
             <table className="w-full text-xs sm:text-sm">
               <thead className="text-[10px] tracking-tight text-white/50 bg-white/5">
                 <tr>
@@ -219,7 +219,7 @@ function StatBox({ label, value, sub, tone = 'neutral' }: StatBoxProps) {
   const cls =
     tone === 'good' ? 'border-green-500/30 bg-green-950/30 text-green-200' :
     tone === 'bad'  ? 'border-red-500/30   bg-red-950/30   text-red-200' :
-                      'border-white/10     bg-white/5      text-white/90';
+                      'border-white/[0.07]     bg-white/5      text-white/90';
   return (
     <div className={cn('rounded border p-3', cls)}>
       <div className="text-[10px] tracking-tight opacity-60 mb-1">{label}</div>
@@ -246,7 +246,7 @@ function BreakdownCard({ label, stats, accent = 'gray' }: BreakdownCardProps) {
   const accentCls =
     accent === 'violet' ? 'border-violet-500/30 bg-violet-950/20' :
     accent === 'green' ? 'border-green-500/30 bg-green-950/20' :
-    'border-white/10 bg-white/5';
+    'border-white/[0.07] bg-white/5';
   const winRatePct = stats.winRate != null ? stats.winRate * 100 : null;
   const tone: 'good' | 'bad' | 'neutral' = stats.sampleSufficient && winRatePct != null
     ? toneByPct(winRatePct, 50)

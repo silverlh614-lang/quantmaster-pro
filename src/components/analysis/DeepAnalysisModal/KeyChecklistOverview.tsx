@@ -18,7 +18,7 @@ interface KeyChecklistOverviewProps {
 
 export function KeyChecklistOverview({ stock }: KeyChecklistOverviewProps) {
   return (
-    <div className="glass-3d rounded-2xl p-5 sm:p-6 border border-white/10">
+    <div className="glass-3d rounded-2xl p-5 sm:p-6 border border-white/[0.07]">
       <div className="flex items-center gap-2.5 mb-4">
         <CheckSquare className="w-5 h-5 text-green-400" />
         <span className="text-[10px] font-black text-white/30 tracking-tight">
@@ -68,7 +68,7 @@ function ChecklistRow({ keyId, stock }: ChecklistRowProps) {
       ? { box: 'bg-green-500/20 border-green-500/30 opacity-100', icon: 'text-green-400', text: 'text-white/80', show: true, title: '실데이터 검증 통과' }
       : status === 'AI_PASS'
         ? { box: 'bg-amber-500/15 border-amber-500/30 opacity-100', icon: 'text-amber-400', text: 'text-white/55', show: true, title: 'AI 추정 (미검증)' }
-        : { box: 'bg-white/5 border-white/10 opacity-30', icon: '', text: 'text-white/20', show: false, title: '미충족' };
+        : { box: 'bg-white/5 border-white/[0.07] opacity-30', icon: '', text: 'text-white/20', show: false, title: '미충족' };
   return (
     <div className="flex items-center gap-2" title={lamp.title}>
       <div

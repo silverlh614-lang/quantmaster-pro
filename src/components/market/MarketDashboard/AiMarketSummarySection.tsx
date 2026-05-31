@@ -8,7 +8,7 @@ interface AiMarketSummarySectionProps {
 }
 
 export const AiMarketSummarySection: React.FC<AiMarketSummarySectionProps> = ({ summary, lastUpdated }) => (
-  <div className="glass-3d p-10 rounded-[3rem] border border-white/10 shadow-2xl relative overflow-hidden group hover:border-white/20 transition-all duration-700">
+  <div className="glass-3d p-10 rounded-[3rem] border border-white/[0.07] shadow-xl relative overflow-hidden group hover:border-white/20 transition-all duration-700">
     <div className="absolute top-0 right-0 p-12 opacity-5 group-hover:opacity-10 transition-opacity duration-700">
       <TrendingUp size={200} />
     </div>
@@ -22,7 +22,7 @@ export const AiMarketSummarySection: React.FC<AiMarketSummarySectionProps> = ({ 
         </div>
         <div>
           <span className="text-[10px] font-black text-indigo-400/60 tracking-tight block mb-1">AI Institutional Grade Analysis</span>
-          <h2 className="text-2xl font-black text-white uppercase tracking-tighter drop-shadow-2xl">실시간 시장 지능 요약</h2>
+          <h2 className="text-2xl font-black text-white uppercase tracking-tighter drop-shadow-xl">실시간 시장 지능 요약</h2>
         </div>
       </div>
       <p className="text-xl md:text-3xl font-black text-white/90 leading-tight mb-8 max-w-4xl tracking-tighter drop-shadow-lg">

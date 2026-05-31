@@ -104,7 +104,7 @@ export const GlobalTrendChart: React.FC<GlobalTrendChartProps> = React.memo(({ i
   }, [kospi, nasdaq, sp500]);
 
   return (
-    <div className="glass-3d p-10 rounded-[3rem] border border-white/10 shadow-2xl">
+    <div className="glass-3d p-10 rounded-[3rem] border border-white/[0.07] shadow-xl">
       <div className="flex items-center justify-between mb-10">
         <h3 className="text-xl font-black text-white uppercase tracking-tighter">글로벌 지수 통합 추이</h3>
         <div className="flex gap-6">

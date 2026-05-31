@@ -233,7 +233,7 @@ function PriceActionCards({ stock }: Props) {
 
 export function FundamentalsColumn({ stock }: Props) {
   return (
-    <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
+    <div className="bg-white/5 rounded-2xl p-6 border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-6">
         <BarChart3 className="w-5 h-5 text-orange-400" />
         <h3 className="text-lg font-black text-white uppercase tracking-tight">Fundamental Insights</h3>

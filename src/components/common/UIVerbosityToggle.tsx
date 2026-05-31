@@ -56,7 +56,7 @@ export function UIVerbosityToggle({ className, compact = false }: UIVerbosityTog
   return (
     <div
       className={cn(
-        'inline-flex items-center gap-0.5 rounded-lg border border-white/10 bg-zinc-900/60 p-0.5',
+        'inline-flex items-center gap-0.5 rounded-lg border border-white/[0.07] bg-zinc-900/60 p-0.5',
         className,
       )}
       role="radiogroup"

@@ -98,7 +98,7 @@ export function PortfolioCorrelationMatrix({ className }: PortfolioCorrelationMa
 
   if (symbols.length < 2) {
     return (
-      <div className={cn('rounded border border-white/10 bg-white/5 p-3 sm:p-4', className)}>
+      <div className={cn('rounded border border-white/[0.07] bg-white/5 p-3 sm:p-4', className)}>
         <div className="flex items-center gap-1.5 mb-2 text-[10px] font-semibold tracking-tight opacity-70">
           <GitMerge className="w-3 h-3" />
           <span>보유 종목 상관관계</span>
@@ -112,7 +112,7 @@ export function PortfolioCorrelationMatrix({ className }: PortfolioCorrelationMa
 
   return (
     <div
-      className={cn('rounded border border-white/10 bg-black/20 p-3 sm:p-4', className)}
+      className={cn('rounded border border-white/[0.07] bg-black/20 p-3 sm:p-4', className)}
       role="region"
       aria-label="보유 종목 상관관계 매트릭스"
     >
@@ -137,7 +137,7 @@ export function PortfolioCorrelationMatrix({ className }: PortfolioCorrelationMa
               type="button"
               onClick={() => refetch()}
               disabled={isFetching}
-              className="text-[10px] font-black px-2 py-1 rounded border bg-white/5 border-white/10 text-white/60 hover:bg-white/10 flex items-center gap-1"
+              className="text-[10px] font-black px-2 py-1 rounded border bg-white/5 border-white/[0.07] text-white/60 hover:bg-white/10 flex items-center gap-1"
               aria-label="새로고침"
             >
               <RefreshCw className={cn('w-3 h-3', isFetching && 'animate-spin')} /> 새로고침

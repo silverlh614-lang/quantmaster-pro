@@ -52,7 +52,7 @@ const DATA_CONFIDENCE_ORDER: DataConfidence[] = ['VERIFIED', 'DEGRADED', 'STALE'
 
 function DataTrustLegend() {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.025] p-3">
+    <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-[10px] font-black tracking-tight text-white/45">Data Trust Visibility</p>
@@ -88,7 +88,7 @@ function DataTrustLegend() {
 function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: 'green' | 'yellow' | 'red' | 'blue' }) {
   return (
     <div className={cn(
-      'rounded-lg border border-white/10 bg-white/[0.03] p-3',
+      'rounded-lg border border-white/[0.07] bg-white/[0.03] p-3',
       tone === 'green' && 'border-emerald-400/20 bg-emerald-400/[0.04]',
       tone === 'yellow' && 'border-yellow-400/20 bg-yellow-400/[0.04]',
       tone === 'red' && 'border-red-400/20 bg-red-400/[0.04]',
@@ -180,7 +180,7 @@ export function PublicReportDashboard({
   };
 
   return (
-    <div id="public-report-content" className="border-b border-white/10 bg-[rgba(5,10,20,0.72)] backdrop-blur-xl">
+    <div id="public-report-content" className="border-b border-white/[0.07] bg-[rgba(5,10,20,0.72)] backdrop-blur-xl">
       <div className="mx-auto max-w-screen-2xl space-y-5 px-4 py-5 sm:px-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -277,7 +277,7 @@ export function PublicReportDashboard({
               <Stat label="Engine mode" value={market.engineMode} />
               <Stat label="Shadow Learning" value={market.shadowLearningAllowed ? 'ON' : 'OFF'} tone="green" />
             </div>
-            <div className="mt-4 rounded-lg border border-white/[0.08] bg-black/10 p-3">
+            <div className="mt-4 rounded-lg border border-white/[0.05] bg-black/10 p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[10px] font-semibold tracking-tight text-white/40">Macro Health Score</p>
@@ -325,7 +325,7 @@ export function PublicReportDashboard({
             </CardHeader>
             <div className="grid grid-cols-1 gap-2 lg:grid-cols-5">
               {sector.topSectors.slice(0, 5).map((item) => (
-                <div key={item.sectorName} className="rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
+                <div key={item.sectorName} className="rounded-lg border border-white/[0.05] bg-white/[0.025] px-3 py-2">
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-xs font-black text-white/40">#{item.relativeStrengthRank}</span>
                     <span className="text-sm font-black text-white">{item.sectorScore}</span>

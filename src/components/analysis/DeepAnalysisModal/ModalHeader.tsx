@@ -35,7 +35,7 @@ export function ModalHeader({ stock }: ModalHeaderProps) {
               stock.aiConvictionScore.marketPhase === 'RISK_OFF' || stock.aiConvictionScore.marketPhase === 'BEAR' ? "bg-red-500/20 text-red-400 border-red-500/30" :
               stock.aiConvictionScore.marketPhase === 'SIDEWAYS' ? "bg-blue-500/20 text-blue-400 border-blue-500/30" :
               stock.aiConvictionScore.marketPhase === 'TRANSITION' ? "bg-purple-500/20 text-purple-400 border-purple-500/30" :
-              "bg-white/10 text-white/40 border-white/10"
+              "bg-white/10 text-white/40 border-white/[0.07]"
             )} title={getMarketPhaseInfo(stock.aiConvictionScore.marketPhase).description}>
               {getMarketPhaseInfo(stock.aiConvictionScore.marketPhase).label}
               <Info className="w-2.5 h-2.5 opacity-50" />
@@ -50,7 +50,7 @@ export function ModalHeader({ stock }: ModalHeaderProps) {
             })()}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 hover:bg-orange-500 hover:text-white border border-white/10 rounded-lg transition-all group/link active:scale-95"
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 hover:bg-orange-500 hover:text-white border border-white/[0.07] rounded-lg transition-all group/link active:scale-95"
           >
             <span className="text-[9px] font-semibold tracking-tight">Chart</span>
             <ExternalLink className="w-2.5 h-2.5 group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 transition-transform" />
@@ -64,7 +64,7 @@ export function ModalHeader({ stock }: ModalHeaderProps) {
       </div>
 
       {/* Right: compact stats strip */}
-      <div className="flex items-stretch gap-0 bg-white/[0.03] rounded-2xl border border-white/10 backdrop-blur-xl overflow-hidden shrink-0">
+      <div className="flex items-stretch gap-0 bg-white/[0.03] rounded-2xl border border-white/[0.07] backdrop-blur-xl overflow-hidden shrink-0">
         <div className="flex flex-col justify-center px-4 py-2.5 min-w-fit">
           <span className="text-[9px] font-black text-white/30 tracking-tight mb-0.5">Current Price</span>
           <div className="flex items-baseline gap-1">

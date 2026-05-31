@@ -90,7 +90,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
   return (
     <div className="space-y-6">
       {/* Header & Management */}
-      <div className="bg-[#151619] border border-white/10 rounded-xl p-6">
+      <div className="bg-[#151619] border border-white/[0.07] rounded-xl p-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
@@ -109,7 +109,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
 
         <div className="space-y-4">
           {draftSectors.length === 0 ? (
-            <div className="bg-black/30 border border-dashed border-white/10 rounded-lg p-4 text-center">
+            <div className="bg-black/30 border border-dashed border-white/[0.07] rounded-lg p-4 text-center">
               <p className="text-sm text-gray-400 font-medium">선택된 섹터가 없습니다.</p>
               <p className="text-xs text-gray-500 mt-1">아래 후보 섹터를 선택하거나 직접 입력해 <span className="text-amber-400 font-bold">저장</span>을 눌러주세요.</p>
             </div>
@@ -118,7 +118,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
               {draftSectors.map(sector => (
                 <div
                   key={sector}
-                  className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 group hover:border-amber-500/30 transition-all"
+                  className="flex items-center gap-2 bg-white/5 border border-white/[0.07] rounded-lg px-3 py-1.5 group hover:border-amber-500/30 transition-all"
                 >
                   <span className="text-sm font-medium text-gray-200">{sector}</span>
                   <button
@@ -140,7 +140,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
               value={newSector}
               onChange={(e) => setNewSector(e.target.value)}
               placeholder="섹터 이름을 입력 후 Enter"
-              className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 pr-9 text-sm text-white focus:outline-none focus:border-amber-500/50"
+              className="w-full bg-black/40 border border-white/[0.07] rounded-lg px-3 py-2 pr-9 text-sm text-white focus:outline-none focus:border-amber-500/50"
             />
             <button
               type="submit"
@@ -183,7 +183,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
                 type="button"
                 onClick={handleReset}
                 disabled={!isDirty}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 bg-white/5 hover:bg-white/10 border border-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-300 bg-white/5 hover:bg-white/10 border border-white/[0.07] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 되돌리기
@@ -196,7 +196,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
                   "flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold tracking-tight transition-all",
                   isDirty
                     ? "bg-amber-500 text-black hover:bg-amber-400 shadow-[0_4px_14px_rgba(245,158,11,0.35)]"
-                    : "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed"
+                    : "bg-white/5 text-gray-500 border border-white/[0.07] cursor-not-allowed"
                 )}
               >
                 <Save className="w-3.5 h-3.5" />
@@ -231,7 +231,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx * 0.1 }}
-                  className="bg-[#151619] border border-white/10 rounded-xl p-5 hover:border-amber-500/30 transition-all group relative overflow-hidden"
+                  className="bg-[#151619] border border-white/[0.07] rounded-xl p-5 hover:border-amber-500/30 transition-all group relative overflow-hidden"
                 >
                   <div className="absolute top-0 right-0 p-2">
                     <div className="flex items-center gap-1 text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
@@ -303,7 +303,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
         </div>
 
         <div className="space-y-6">
-          <div className="bg-[#151619] border border-white/10 rounded-xl p-6">
+          <div className="bg-[#151619] border border-white/[0.07] rounded-xl p-6">
             <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
               <Activity className="w-5 h-5 text-blue-400" />
               시스템 가동 현황

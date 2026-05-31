@@ -46,7 +46,7 @@ const getStatusLabel = (status: string) => {
 };
 
 const SnsSentimentCard = ({ sentiment }: { sentiment: SnsSentiment }) => (
-  <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10 shadow-2xl">
+  <div className="glass-3d p-8 rounded-[2.5rem] border border-white/[0.07] shadow-xl">
     <div className="flex items-center justify-between mb-8">
       <h3 className="text-lg font-black text-white uppercase tracking-tighter flex items-center gap-3">
         <MessageSquare className="w-5 h-5 text-indigo-400" />
@@ -92,7 +92,7 @@ const SnsSentimentCard = ({ sentiment }: { sentiment: SnsSentiment }) => (
           {sentiment.trendingKeywords && sentiment.trendingKeywords.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {sentiment.trendingKeywords.map((keyword, idx) => (
-                <div key={idx} className="flex items-center gap-2 px-4 py-2 bg-white/5 text-white/60 rounded-xl text-xs font-black border border-white/10 hover:bg-white/10 transition-colors cursor-default">
+                <div key={idx} className="flex items-center gap-2 px-4 py-2 bg-white/5 text-white/60 rounded-xl text-xs font-black border border-white/[0.07] hover:bg-white/10 transition-colors cursor-default">
                   <Hash size={12} className="text-indigo-400" />
                   {keyword}
                 </div>
@@ -115,7 +115,7 @@ export const SentimentMacroSection: React.FC<SentimentMacroSectionProps> = React
   <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
     {snsSentiment && <SnsSentimentCard sentiment={snsSentiment} />}
 
-    <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10 shadow-2xl">
+    <div className="glass-3d p-8 rounded-[2.5rem] border border-white/[0.07] shadow-xl">
       <h3 className="text-lg font-black text-white uppercase tracking-tighter mb-8 flex items-center gap-3">
         <Globe className="w-5 h-5 text-emerald-400" />
         거시 지표 및 환율

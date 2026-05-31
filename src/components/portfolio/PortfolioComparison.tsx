@@ -55,7 +55,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
         initial={{ opacity: 0, scale: 0.9, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.9, y: 20 }}
-        className="relative w-full max-w-7xl h-full max-h-[90vh] glass-3d rounded-[4rem] border border-white/10 overflow-hidden flex flex-col shadow-[0_50px_100px_rgba(0,0,0,0.5)]"
+        className="relative w-full max-w-7xl h-full max-h-[90vh] glass-3d rounded-[4rem] border border-white/[0.07] overflow-hidden flex flex-col shadow-[0_50px_100px_rgba(0,0,0,0.5)]"
       >
         <div className="p-4 sm:p-10 border-b border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-4">

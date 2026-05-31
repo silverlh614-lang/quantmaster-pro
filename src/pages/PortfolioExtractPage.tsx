@@ -566,7 +566,7 @@ export function PortfolioExtractPage() {
                     </p>
                   ) : (
                     <>
-                      <div className="rounded-lg border border-white/10 bg-black/20 overflow-hidden mb-4">
+                      <div className="rounded-lg border border-white/[0.07] bg-black/20 overflow-hidden mb-4">
                         <table className="w-full text-left">
                           <thead className="bg-white/5">
                             <tr>

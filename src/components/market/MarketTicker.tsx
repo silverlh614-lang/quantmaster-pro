@@ -40,7 +40,7 @@ export const MarketTicker: React.FC<MarketTickerProps> = ({ data, loading, onRef
 
   return (
     <div className="h-10 bg-black/60 border-b border-white/5 flex items-center overflow-hidden relative group">
-      <div className="absolute left-4 z-20 flex items-center gap-2 bg-black/80 px-3 py-1 rounded-full border border-white/10 backdrop-blur-md">
+      <div className="absolute left-4 z-20 flex items-center gap-2 bg-black/80 px-3 py-1 rounded-full border border-white/[0.07] backdrop-blur-md">
         <button 
           onClick={onRefresh}
           disabled={loading}

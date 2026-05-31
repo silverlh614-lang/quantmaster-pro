@@ -253,7 +253,7 @@ export function BearScreenerPanel({
                   <button
                     key={stock.code}
                     onClick={() => onStockClick?.(stock)}
-                    className="text-left p-3 rounded-lg bg-white/5 border border-white/10 hover:border-red-500/40 hover:bg-red-950/40 transition-all group"
+                    className="text-left p-3 rounded-lg bg-white/5 border border-white/[0.07] hover:border-red-500/40 hover:bg-red-950/40 transition-all group"
                   >
                     <div className="flex items-start justify-between gap-2 mb-1.5">
                       <div>

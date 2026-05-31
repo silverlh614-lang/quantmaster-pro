@@ -92,10 +92,10 @@ export function SectorStocksDrilldown({ sectorName, score, onClose }: SectorStoc
       onClick={onClose}
     >
       <div
-        className="bg-neutral-950 border border-white/10 rounded-xl w-full max-w-xl max-h-[80vh] overflow-hidden flex flex-col"
+        className="bg-neutral-950 border border-white/[0.07] rounded-xl w-full max-w-xl max-h-[80vh] overflow-hidden flex flex-col"
         onClick={e => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between p-4 border-b border-white/10">
+        <header className="flex items-center justify-between p-4 border-b border-white/[0.07]">
           <div className="flex items-center gap-2">
             <span className={cn('text-[10px] font-black px-1.5 py-0.5 rounded border', SECTOR_HEAT_CSS[tone])}>
               {score != null ? Math.round(score) : '—'}
@@ -154,7 +154,7 @@ export function SectorStocksDrilldown({ sectorName, score, onClose }: SectorStoc
                       stock.type === 'BUY' ? 'bg-green-500/20 border-green-500/40 text-green-200' :
                       stock.type === 'STRONG_SELL' || stock.type === 'SELL' ? 'bg-red-500/20 border-red-500/40 text-red-200' :
                       stock.type === 'HOLDING' ? 'bg-amber-500/20 border-amber-500/40 text-amber-200' :
-                      'bg-white/5 border-white/10 text-white/60',
+                      'bg-white/5 border-white/[0.07] text-white/60',
                     )}>
                       {stock.type === 'HOLDING' ? '보유' : stock.type}
                     </span>

@@ -101,7 +101,7 @@ function TabNavigation({
   onChange: (tab: AnalysisTab) => void;
 }) {
   return (
-    <div className="flex items-center gap-2 p-1 bg-white/5 rounded-2xl border border-white/10 w-fit">
+    <div className="flex items-center gap-2 p-1 bg-white/5 rounded-2xl border border-white/[0.07] w-fit">
       {TAB_ITEMS.map((tab) => (
         <button
           key={tab.id}
@@ -129,7 +129,7 @@ function BacktestControls({
   onRunAnalysis: RunAnalysisHandler;
 }) {
   return (
-    <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/10 space-y-6">
+    <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/[0.07] space-y-6">
       <div>
         <h3 className="text-xl font-black text-white mb-2 uppercase tracking-tight">Historical Back-Testing</h3>
         <p className="text-sm text-white/40 leading-relaxed">
@@ -190,7 +190,7 @@ function MetricTile({
 
 function BacktestResultSummary({ result }: { result: AdvancedAnalysisResult }) {
   return (
-    <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/10 space-y-6">
+    <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/[0.07] space-y-6">
       <div className="flex justify-between items-start">
         <div>
           <span className="text-[10px] font-black text-orange-500 tracking-tight block mb-1">Analysis Result</span>
@@ -245,7 +245,7 @@ function PerformanceChartCard({
   if (!result.performanceData) return null;
 
   return (
-    <div className={cn("bg-white/5 rounded-[2.5rem] p-8 border border-white/10", textLeft && "text-left")}>
+    <div className={cn("bg-white/5 rounded-[2.5rem] p-8 border border-white/[0.07]", textLeft && "text-left")}>
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
           <BarChart3 className={cn("w-6 h-6", iconClassName)} />
@@ -314,7 +314,7 @@ function PerformanceChartCard({
 function ContributionAnalysis({ result }: { result: AdvancedAnalysisResult }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/10">
+      <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/[0.07]">
         <div className="flex items-center gap-3 mb-6">
           <Crown className="w-6 h-6 text-orange-400" />
           <h4 className="text-lg font-black text-white uppercase tracking-tight">Top Contributors</h4>
@@ -345,7 +345,7 @@ function ContributionAnalysis({ result }: { result: AdvancedAnalysisResult }) {
         </div>
       </div>
 
-      <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/10">
+      <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/[0.07]">
         <div className="flex items-center gap-3 mb-6">
           <AlertTriangle className="w-6 h-6 text-red-400" />
           <h4 className="text-lg font-black text-white uppercase tracking-tight">Noise Items</h4>
@@ -421,7 +421,7 @@ function WalkForwardPeriodCard({
     <div className={cn(
       "p-8 rounded-[2.5rem] relative overflow-hidden group",
       variant === 'training'
-        ? "bg-white/5 border border-white/10"
+        ? "bg-white/5 border border-white/[0.07]"
         : "bg-orange-500/5 border border-orange-500/20"
     )}>
       <div className="absolute top-0 right-0 p-4">
@@ -516,7 +516,7 @@ function WalkForwardTab({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      className="bg-white/5 rounded-[2.5rem] p-8 border border-white/10"
+      className="bg-white/5 rounded-[2.5rem] p-8 border border-white/[0.07]"
     >
       <div className="max-w-3xl mx-auto text-center space-y-8">
         <div className="space-y-4">
@@ -625,7 +625,7 @@ function PaperTradeLogCard({
   onCopy: (code: string) => void;
 }) {
   return (
-    <div className="bg-white/5 rounded-[2.5rem] border border-white/10 overflow-hidden">
+    <div className="bg-white/5 rounded-[2.5rem] border border-white/[0.07] overflow-hidden">
       <div className="p-6 border-b border-white/5 bg-white/[0.02] flex justify-between items-center">
         <div className="flex items-center gap-3">
           <Clock className="w-5 h-5 text-orange-500" />

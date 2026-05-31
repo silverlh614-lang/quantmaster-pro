@@ -100,7 +100,7 @@ export function SectorRotationHeatmap() {
 
       {/* Expanded — 전 섹터 막대 */}
       {expanded && (
-        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 pb-3 border-t border-white/10 mt-1 pt-2">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 pb-3 border-t border-white/[0.07] mt-1 pt-2">
           <ul className="space-y-1">
             {sorted.map(s => {
               const tone = classifySectorHeat(s.score);

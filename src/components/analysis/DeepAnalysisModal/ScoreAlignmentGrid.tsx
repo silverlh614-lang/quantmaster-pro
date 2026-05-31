@@ -21,7 +21,7 @@ function ScoreCard({ label, value, scale, tone, tooltip }: ScoreCardProps) {
   const toneClass =
     tone === 'orange' ? 'border-orange-500/20 bg-orange-500/10 text-orange-300' :
     tone === 'blue' ? 'border-blue-500/20 bg-blue-500/10 text-blue-300' :
-    'border-white/10 bg-white/5 text-white/70';
+    'border-white/[0.07] bg-white/5 text-white/70';
   return (
     <div className={cn('rounded-2xl border p-4 min-w-0', toneClass)} title={tooltip}>
       <div className="text-[10px] font-semibold tracking-tight opacity-70">{label}</div>

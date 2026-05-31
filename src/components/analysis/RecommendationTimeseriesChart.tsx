@@ -96,7 +96,7 @@ export function RecommendationTimeseriesChart({ className }: RecommendationTimes
 
   return (
     <div
-      className={cn('rounded border border-white/10 bg-black/20 p-3 sm:p-4', className)}
+      className={cn('rounded border border-white/[0.07] bg-black/20 p-3 sm:p-4', className)}
       role="region"
       aria-label="판정 일별 시계열"
     >
@@ -115,7 +115,7 @@ export function RecommendationTimeseriesChart({ className }: RecommendationTimes
                 'text-[10px] font-black px-2 py-1 rounded border transition-colors',
                 days === opt.id
                   ? 'bg-violet-500/30 border-violet-500/50 text-violet-100'
-                  : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10',
+                  : 'bg-white/5 border-white/[0.07] text-white/60 hover:bg-white/10',
               )}
             >
               {opt.label}
@@ -127,7 +127,7 @@ export function RecommendationTimeseriesChart({ className }: RecommendationTimes
       {/* 어제 vs 오늘 비교 */}
       {today && (
         <div className="grid grid-cols-3 gap-2 mb-3 text-[11px]">
-          <div className="rounded border border-white/10 bg-white/5 p-2">
+          <div className="rounded border border-white/[0.07] bg-white/5 p-2">
             <div className="text-[10px] opacity-60">오늘 판정</div>
             <div className={cn('text-lg font-black font-num', deltaCls(today.total, yesterday?.total ?? null))}>
               {today.total}
@@ -138,7 +138,7 @@ export function RecommendationTimeseriesChart({ className }: RecommendationTimes
               </div>
             )}
           </div>
-          <div className="rounded border border-white/10 bg-white/5 p-2">
+          <div className="rounded border border-white/[0.07] bg-white/5 p-2">
             <div className="text-[10px] opacity-60">오늘 승률</div>
             <div className={cn('text-lg font-black font-num',
               today.winRate == null ? 'text-white/40' :
@@ -150,7 +150,7 @@ export function RecommendationTimeseriesChart({ className }: RecommendationTimes
               {today.wins}승 / {today.losses}패
             </div>
           </div>
-          <div className="rounded border border-white/10 bg-white/5 p-2">
+          <div className="rounded border border-white/[0.07] bg-white/5 p-2">
             <div className="text-[10px] opacity-60">오늘 평균 수익률</div>
             <div className={cn('text-lg font-black font-num',
               today.avgReturn == null ? 'text-white/40' :
@@ -174,7 +174,7 @@ export function RecommendationTimeseriesChart({ className }: RecommendationTimes
         <p className="text-xs opacity-60">시계열 데이터 없음</p>
       ) : (
         <>
-          <div className="grid grid-cols-[5rem_1fr_3rem_3.5rem] gap-2 text-[10px] tracking-tight opacity-50 pb-1 border-b border-white/10 mb-1">
+          <div className="grid grid-cols-[5rem_1fr_3rem_3.5rem] gap-2 text-[10px] tracking-tight opacity-50 pb-1 border-b border-white/[0.07] mb-1">
             <span>날짜</span>
             <span className="text-center">분포 (승/패)</span>
             <span className="text-right">건수</span>

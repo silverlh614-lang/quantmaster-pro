@@ -13,7 +13,7 @@ import {
 import { PipelineStageDrilldown } from './PipelineStageDrilldown';
 
 const STAGE_TONE: Record<PipelineStageId, string> = {
-  UNIVERSE:      'bg-white/5     border-white/10  text-white/70',
+  UNIVERSE:      'bg-white/5     border-white/[0.07]  text-white/70',
   CANDIDATES:    'bg-blue-500/15 border-blue-500/30 text-blue-200',
   MOMENTUM_PASS: 'bg-cyan-500/15 border-cyan-500/30 text-cyan-200',
   GATE1_PASS:    'bg-amber-500/15 border-amber-500/30 text-amber-200',
@@ -81,7 +81,7 @@ export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProp
 
   return (
     <div
-      className={cn('rounded border border-white/10 bg-black/20 p-3 sm:p-4', className)}
+      className={cn('rounded border border-white/[0.07] bg-black/20 p-3 sm:p-4', className)}
       role="region"
       aria-label="후보군 파이프라인"
     >
@@ -149,7 +149,7 @@ export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProp
 
           {/* 펼치기 — 전 단계 */}
           {expanded && (
-            <div className="mt-3 pt-3 border-t border-white/10 space-y-1.5">
+            <div className="mt-3 pt-3 border-t border-white/[0.07] space-y-1.5">
               {data.stages.map(stage => (
                 <StageRow key={stage.id} stage={stage} onDrilldown={setDrilldownStage} />
               ))}

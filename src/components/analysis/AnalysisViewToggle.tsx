@@ -17,7 +17,7 @@ export const AnalysisViewButtons: React.FC<{
   analysisView: AnalysisView;
   setAnalysisView: (v: AnalysisView) => void;
 }> = ({ analysisView, setAnalysisView }) => (
-  <div className="flex bg-white/5 p-1 rounded-full border border-white/10 backdrop-blur-md shadow-2xl mr-2">
+  <div className="flex bg-white/5 p-1 rounded-full border border-white/[0.07] backdrop-blur-md shadow-xl mr-2">
     <button
       onClick={() => setAnalysisView('STANDARD')}
       className={cn(

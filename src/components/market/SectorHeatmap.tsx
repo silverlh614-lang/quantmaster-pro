@@ -21,7 +21,7 @@ export const SectorHeatmap: React.FC<SectorHeatmapProps> = React.memo(({ sectors
   if (!sectors || sectors.length === 0) {
     debugWarn('SectorHeatmap: sectors 데이터 없음');
     return (
-      <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10 shadow-2xl">
+      <div className="glass-3d p-8 rounded-[2.5rem] border border-white/[0.07] shadow-xl">
         <div className="flex items-center gap-4 mb-6">
           <div className="bg-indigo-500/20 p-3 rounded-2xl border border-indigo-500/30">
             <Layers size={24} className="text-indigo-400" />
@@ -40,7 +40,7 @@ export const SectorHeatmap: React.FC<SectorHeatmapProps> = React.memo(({ sectors
   );
 
   return (
-    <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10 shadow-2xl">
+    <div className="glass-3d p-8 rounded-[2.5rem] border border-white/[0.07] shadow-xl">
       <div className="flex items-center justify-between mb-10">
         <div className="flex items-center gap-4">
           <div className="bg-indigo-500/20 p-3 rounded-2xl border border-indigo-500/30">

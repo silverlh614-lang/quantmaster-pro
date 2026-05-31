@@ -198,7 +198,7 @@ function ScopeImpactCard({ model }: { model: ReturnType<typeof buildPendingDashb
 
 function PriorityRow({ priority, items }: { priority: PendingPriority; items: PendingWiringItem[] }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-3">
       <div className="flex items-center justify-between gap-2">
         <Badge variant={priorityVariant(priority)} size="sm">{priority}</Badge>
         <span className="text-xs font-black text-theme-text">{items.length}</span>
@@ -221,7 +221,7 @@ function WiringStatusTable({ items }: { items: PendingWiringItem[] }) {
           <thead className="text-[10px] tracking-tight text-slate-500">
             <tr>
               {['Priority', 'Module', 'Status', 'Scope', 'Source', 'Owner', 'Created', 'Due', 'Impact', 'Next action'].map((header) => (
-                <th key={header} className="border-b border-white/10 px-3 py-2 font-black">{header}</th>
+                <th key={header} className="border-b border-white/[0.07] px-3 py-2 font-black">{header}</th>
               ))}
             </tr>
           </thead>
@@ -257,7 +257,7 @@ function WiringTableRow({ item }: { item: PendingWiringItem }) {
 
 function WiringMobileCard({ item }: { item: PendingWiringItem }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={priorityVariant(item.priority)} size="sm">{item.priority}</Badge>
         <StatusBadge status={item.status} />
@@ -294,7 +294,7 @@ function ScopeList({ item }: { item: PendingWiringItem }) {
 
 function Metric({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/10 p-3">
+    <div className="rounded-2xl border border-white/[0.07] bg-black/10 p-3">
       <div className="text-[10px] font-black tracking-tight text-slate-500">{label}</div>
       <div className={cn('mt-1 text-2xl font-black', tone)}>{value}</div>
     </div>

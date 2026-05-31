@@ -128,7 +128,7 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-base font-black text-white sm:text-lg">{model.stockName}</span>
-            <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-black tracking-widest text-white/55">
+            <span className="rounded-md border border-white/[0.07] bg-white/[0.04] px-2 py-0.5 text-[10px] font-black tracking-widest text-white/55">
               {model.stockCode}
             </span>
             <span className="text-[11px] font-bold text-white/45">{model.sector}</span>

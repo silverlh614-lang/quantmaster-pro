@@ -322,7 +322,7 @@ const StockIdentityPanel = ({
   // Gate 점수(통과 비율)는 AI 충족으로 부풀 수 있어, 실데이터 검증 비율을 함께 표기(정본).
   const { verifiedPassCount, metCount } = buildStockAnalysisCanon(stock);
   return (
-    <div className="relative p-4 sm:p-6 bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden group/name-area shadow-[inset_0_0_20px_rgba(255,255,255,0.02)]">
+    <div className="relative p-4 sm:p-6 bg-white/[0.03] border border-white/[0.07] rounded-2xl overflow-hidden group/name-area shadow-[inset_0_0_20px_rgba(255,255,255,0.02)]">
       <div className="absolute -top-12 -left-12 w-40 h-40 bg-orange-500/5 blur-[80px] rounded-full group-hover/name-area:bg-orange-500/15 transition-all duration-700" />
       <div className="absolute -bottom-12 -right-12 w-40 h-40 bg-blue-500/5 blur-[80px] rounded-full group-hover/name-area:bg-blue-500/15 transition-all duration-700" />
       <div className="relative flex flex-col min-w-0">
@@ -528,18 +528,18 @@ const SignalAndActions = ({
           Top Pick
         </span>
       )}
-      <span className="text-[9px] sm:text-[10px] font-black text-white/50 bg-white/10 px-2.5 py-1 rounded-full border border-white/10 tracking-tight backdrop-blur-md truncate max-w-[100px] sm:max-w-none">
+      <span className="text-[9px] sm:text-[10px] font-black text-white/50 bg-white/10 px-2.5 py-1 rounded-full border border-white/[0.07] tracking-tight backdrop-blur-md truncate max-w-[100px] sm:max-w-none">
         {stock.relatedSectors?.[0] || 'Market'}
       </span>
     </div>
     <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-      <button onClick={(event) => { event.stopPropagation(); onAddToBacktest(stock); }} className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/10 bg-white/5 text-white/30 hover:text-blue-400 hover:border-blue-500/30 hover:bg-blue-500/5 active:scale-90 shadow-sm" title="Add to Backtest">
+      <button onClick={(event) => { event.stopPropagation(); onAddToBacktest(stock); }} className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/[0.07] bg-white/5 text-white/30 hover:text-blue-400 hover:border-blue-500/30 hover:bg-blue-500/5 active:scale-90 shadow-sm" title="Add to Backtest">
         <History className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
       </button>
-      <button onClick={(event) => { event.stopPropagation(); onToggleWatchlist(stock); }} className={cn('p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border active:scale-90 shadow-sm', isWatched(stock.code) ? 'bg-orange-500 text-white border-orange-400 shadow-[0_8px_20px_rgba(249,115,22,0.4)]' : 'bg-white/5 border-white/10 text-white/30 hover:text-white/70 hover:bg-white/10')}>
+      <button onClick={(event) => { event.stopPropagation(); onToggleWatchlist(stock); }} className={cn('p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border active:scale-90 shadow-sm', isWatched(stock.code) ? 'bg-orange-500 text-white border-orange-400 shadow-[0_8px_20px_rgba(249,115,22,0.4)]' : 'bg-white/5 border-white/[0.07] text-white/30 hover:text-white/70 hover:bg-white/10')}>
         <Bookmark className={cn('w-4 h-4 sm:w-4.5 sm:h-4.5', isWatched(stock.code) && 'fill-current')} />
       </button>
-      <button onClick={(event) => { event.stopPropagation(); onSetTradeRecord(stock); }} className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/10 bg-white/5 text-white/30 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5 active:scale-90 shadow-sm" title="Trade record">
+      <button onClick={(event) => { event.stopPropagation(); onSetTradeRecord(stock); }} className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all border border-white/[0.07] bg-white/5 text-white/30 hover:text-emerald-400 hover:border-emerald-500/30 hover:bg-emerald-500/5 active:scale-90 shadow-sm" title="Trade record">
         <Plus className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
       </button>
       {(stock.type === 'STRONG_BUY' || stock.type === 'BUY') && (
@@ -603,13 +603,13 @@ const ExternalLinksAndPlan = ({ stock }: { stock: StockRecommendation }) => (
         </div>
         <span className="text-[9px] sm:text-[11px] font-black text-white/40 ml-1 sm:ml-2 tracking-widest uppercase truncate">Heat</span>
       </div>
-      <a href={naverChartHref(stock)} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="flex items-center gap-1.5 sm:gap-2.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-white/5 hover:bg-orange-500 hover:text-white border border-white/10 rounded-lg sm:rounded-xl transition-all group/link shadow-sm active:scale-95">
+      <a href={naverChartHref(stock)} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="flex items-center gap-1.5 sm:gap-2.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-white/5 hover:bg-orange-500 hover:text-white border border-white/[0.07] rounded-lg sm:rounded-xl transition-all group/link shadow-sm active:scale-95">
         <span className="text-[8px] sm:text-[10px] font-semibold tracking-tight">Chart</span>
         <ExternalLink className="w-3 h-3 sm:w-3.5 sm:h-3.5 group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 transition-transform" />
       </a>
     </div>
     {stock.tranchePlan && (
-      <div className="mb-6 sm:mb-8 bg-orange-500/5 p-4 rounded-2xl border border-orange-500/10 shadow-inner">
+      <div className="mb-6 sm:mb-8 bg-orange-500/5 p-4 rounded-2xl border border-orange-500/10">
         <div className="flex items-center gap-2 mb-3">
           <Target className="w-4 h-4 text-orange-500" />
           <span className="text-[10px] font-black text-orange-500 tracking-tight">Automated Tranche Plan</span>
@@ -718,7 +718,7 @@ const PriceStrategySection = ({
   const stopShown = tranchePlan?.stop ?? stock.stopLoss ?? 0;
   const isMultiTranche = tranchePlan?.multiTranche ?? false;
   return (
-    <div className="bg-white/[0.03] border-y border-white/10 p-5 sm:p-8 py-5 sm:py-7 relative">
+    <div className="bg-white/[0.03] border-y border-white/[0.07] p-5 sm:p-8 py-5 sm:py-7 relative">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-5 gap-3">
         <div className="flex items-center gap-2">
           <div className="w-1 h-4 bg-orange-500 rounded-full" />
@@ -868,7 +868,7 @@ const ValuationRow = ({ stock }: { stock: StockRecommendation }) => {
 };
 
 const ValuationCell = ({ label, value, valueClass = 'text-white/80' }: { label: string; value: string; valueClass?: string }) => (
-  <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 shadow-inner min-w-0">
+  <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 min-w-0">
     <span className="text-[7px] sm:text-[9px] font-black text-white/10 uppercase block mb-0.5 sm:mb-1 tracking-tighter truncate">{label}</span>
     <span className={cn('text-xs sm:text-sm font-black truncate block font-num', valueClass)}>{value}</span>
   </div>

@@ -24,7 +24,7 @@ function EvidenceRow({ item }: { item: RegimeEvidenceItem }) {
   const direction = item.direction ?? 'UNKNOWN';
   const confidence = item.confidence ?? 'UNKNOWN';
   return (
-    <li className="grid grid-cols-1 gap-2 rounded-lg border border-white/10 bg-black/15 p-2 sm:grid-cols-[1.2fr_1fr_auto] sm:items-center">
+    <li className="grid grid-cols-1 gap-2 rounded-lg border border-white/[0.07] bg-black/15 p-2 sm:grid-cols-[1.2fr_1fr_auto] sm:items-center">
       <div className="min-w-0">
         <div className="text-xs font-bold text-white/90">{item.label}</div>
         <div className="text-[10px] text-white/45">{item.source ?? 'source unavailable'} · {formatRegimeUpdatedAt(item.updatedAt)}</div>
@@ -45,7 +45,7 @@ function EvidenceGroup({ title, items, icon }: { title: string; items: RegimeEvi
       <h4 className="flex items-center gap-1.5 text-[10px] font-semibold tracking-tight text-white/55">
         <Icon className="h-3.5 w-3.5" aria-hidden /> {title} <span className="font-num">({items.length})</span>
       </h4>
-      {items.length > 0 ? <ul className="space-y-1.5">{items.map(item => <EvidenceRow key={item.key} item={item} />)}</ul> : <p className="rounded-lg border border-white/10 bg-white/[0.03] p-2 text-xs text-white/35">No entries.</p>}
+      {items.length > 0 ? <ul className="space-y-1.5">{items.map(item => <EvidenceRow key={item.key} item={item} />)}</ul> : <p className="rounded-lg border border-white/[0.07] bg-white/[0.03] p-2 text-xs text-white/35">No entries.</p>}
     </section>
   );
 }

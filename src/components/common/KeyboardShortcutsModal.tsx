@@ -39,10 +39,10 @@ export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModal
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-950 shadow-2xl"
+        className="w-full max-w-lg rounded-2xl border border-white/[0.07] bg-slate-950 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4">
           <div className="flex items-center gap-2">
             <Keyboard className="h-4 w-4 text-blue-400" />
             <h2
@@ -91,7 +91,7 @@ export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModal
           ))}
         </ul>
 
-        <div className="border-t border-white/10 px-5 py-3 text-[11px] text-theme-text-muted">
+        <div className="border-t border-white/[0.07] px-5 py-3 text-[11px] text-theme-text-muted">
           입력 필드 위에서는 단축키가 비활성화됩니다. <kbd className="mx-1 px-1 font-mono">Esc</kbd> 는 언제나 동작.
         </div>
       </div>

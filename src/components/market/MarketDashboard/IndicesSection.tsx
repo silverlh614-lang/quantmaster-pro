@@ -18,7 +18,7 @@ interface IndicesSectionProps {
 const MarketCard = ({ item }: { item: MarketDataPoint }) => {
   const isPositive = item.change >= 0;
   return (
-    <div className="glass-3d p-6 rounded-[2rem] border border-white/10 shadow-xl hover:bg-white/[0.05] transition-all group">
+    <div className="glass-3d p-6 rounded-[2rem] border border-white/[0.07] shadow-xl hover:bg-white/[0.05] transition-all group">
       <div className="flex justify-between items-start mb-4 gap-2">
         <span className="text-[10px] font-black text-white/30 tracking-tight truncate" title={item.name}>{item.name}</span>
         <div className={`px-2 py-1 rounded-lg ${isPositive ? 'bg-red-500/10' : 'bg-blue-500/10'}`}>

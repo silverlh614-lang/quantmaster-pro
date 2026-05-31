@@ -22,7 +22,7 @@ function LayerCard({ title, icon, available, children, tone = 'neutral' }: Layer
     tone === 'good' ? 'border-green-500/30 bg-green-950/30' :
     tone === 'warn' ? 'border-amber-500/30 bg-amber-950/30' :
     tone === 'bad'  ? 'border-red-500/30 bg-red-950/30' :
-                      'border-white/10 bg-white/5';
+                      'border-white/[0.07] bg-white/5';
   return (
     <div className={cn('rounded border p-3 sm:p-4 min-h-[120px]', toneCls)} role="region" aria-label={title}>
       <div className="flex items-center gap-1.5 mb-2 text-[10px] font-semibold tracking-tight opacity-70">

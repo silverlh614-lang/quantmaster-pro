@@ -16,27 +16,27 @@ export function MarketPositionSection({ stock }: Props) {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <div className="bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
+        <div className="bg-white/5 rounded-xl p-4 border border-white/[0.07] flex flex-col items-center justify-center text-center">
           <span className="text-[9px] font-black text-white/25 tracking-tight mb-1.5">Momentum Rank</span>
           <span className="text-2xl font-black text-blue-400">#{stock.momentumRank}</span>
           <span className="text-[9px] font-bold text-white/40 mt-0.5">Top {Math.round((stock.momentumRank / 2500) * 100)}%</span>
         </div>
 
-        <div className="bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
+        <div className="bg-white/5 rounded-xl p-4 border border-white/[0.07] flex flex-col items-center justify-center text-center">
           <span className="text-[9px] font-black text-white/25 tracking-tight mb-1.5">Supply Quality</span>
           <div className="flex gap-1.5">
             <div className={cn("px-2 py-0.5 rounded text-[9px] font-black border",
-              stock.supplyQuality?.active ? "bg-orange-500/20 text-orange-400 border-orange-500/30" : "bg-white/5 text-white/20 border-white/10")}>
+              stock.supplyQuality?.active ? "bg-orange-500/20 text-orange-400 border-orange-500/30" : "bg-white/5 text-white/20 border-white/[0.07]")}>
               ACTIVE
             </div>
             <div className={cn("px-2 py-0.5 rounded text-[9px] font-black border",
-              stock.supplyQuality?.passive ? "bg-blue-500/20 text-blue-400 border-blue-500/30" : "bg-white/5 text-white/20 border-white/10")}>
+              stock.supplyQuality?.passive ? "bg-blue-500/20 text-blue-400 border-blue-500/30" : "bg-white/5 text-white/20 border-white/[0.07]")}>
               PASSIVE
             </div>
           </div>
         </div>
 
-        <div className="bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
+        <div className="bg-white/5 rounded-xl p-4 border border-white/[0.07] flex flex-col items-center justify-center text-center">
           <span className="text-[9px] font-black text-white/25 tracking-tight mb-1.5">Sector Status</span>
           <span className={cn("text-xs font-black", stock.isLeadingSector ? "text-orange-400" : "text-white/40")}>
             {stock.isLeadingSector ? "LEADING" : "SECONDARY"}
@@ -46,7 +46,7 @@ export function MarketPositionSection({ stock }: Props) {
           </span>
         </div>
 
-        <div className="bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
+        <div className="bg-white/5 rounded-xl p-4 border border-white/[0.07] flex flex-col items-center justify-center text-center">
           <span className="text-[9px] font-black text-white/25 tracking-tight mb-1.5">Peak Distance</span>
           {(() => {
             // peakPrice 미확보(0)·현재가 미만 등 비정상값이면 '—' 로 표기.
@@ -65,7 +65,7 @@ export function MarketPositionSection({ stock }: Props) {
           })()}
         </div>
 
-        <div className="bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
+        <div className="bg-white/5 rounded-xl p-4 border border-white/[0.07] flex flex-col items-center justify-center text-center">
           <span className="text-[9px] font-black text-white/25 tracking-tight mb-1.5">Market Cap</span>
           <span className="text-sm font-black text-white uppercase">{stock.marketCapCategory} CAP</span>
           <span className="text-[9px] font-bold text-white/40 mt-0.5">₩{(stock.marketCap / 100000000).toFixed(1)}B</span>

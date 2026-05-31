@@ -115,7 +115,7 @@ export function WatchlistTable({
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="mb-8 sm:mb-12 bg-white/5 rounded-[1.5rem] sm:rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-white/10 shadow-inner"
+        className="mb-8 sm:mb-12 bg-white/5 rounded-[1.5rem] sm:rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-white/[0.07]"
       >
         <div className="flex items-center gap-3 mb-4">
           <div className="w-1.5 h-6 bg-orange-500 rounded-full shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
@@ -126,7 +126,7 @@ export function WatchlistTable({
             <button
               key={`nav-${stock.code}`}
               onClick={() => scrollToStock(stock.code)}
-              className="group flex items-center gap-2 sm:gap-3 bg-white/5 hover:bg-orange-500/10 border border-white/10 hover:border-orange-500/30 px-3 py-1.5 sm:px-4 sm:py-2.5 rounded-xl sm:rounded-2xl transition-all active:scale-95"
+              className="group flex items-center gap-2 sm:gap-3 bg-white/5 hover:bg-orange-500/10 border border-white/[0.07] hover:border-orange-500/30 px-3 py-1.5 sm:px-4 sm:py-2.5 rounded-xl sm:rounded-2xl transition-all active:scale-95"
             >
               <span className="text-[10px] sm:text-xs font-black text-white group-hover:text-orange-500 transition-colors truncate max-w-[80px] sm:max-w-none">{stock.name}</span>
               <span className="text-[8px] sm:text-[10px] font-black text-white/20 group-hover:text-orange-500/40 transition-colors">{stock.code}</span>
@@ -139,7 +139,7 @@ export function WatchlistTable({
       {/* Stats Section (discover only) */}
       {view === 'DISCOVER' && (
         <div className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-1">
+          <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/[0.07] flex flex-col justify-center items-center gap-2 relative group/stat-1">
             <div className="flex items-center gap-1">
               <span className="text-[9px] sm:text-[10px] font-black text-white/30 tracking-tight sm:tracking-[0.2em] text-center">시스템 후보 사후 성과 (최근 10회)</span>
               <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
@@ -153,7 +153,7 @@ export function WatchlistTable({
                 {averageHitRate >= 85 ? "Excellent" : "Stable"}
               </div>
             </div>
-            <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 max-h-[250px] overflow-y-auto p-4 bg-theme-card backdrop-blur-xl border border-theme-border rounded-2xl opacity-0 group-hover/stat-1:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-2xl scale-95 group-hover/stat-1:scale-100 origin-top">
+            <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 max-h-[250px] overflow-y-auto p-4 bg-theme-card backdrop-blur-xl border border-theme-border rounded-2xl opacity-0 group-hover/stat-1:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-xl scale-95 group-hover/stat-1:scale-100 origin-top">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-1 h-3 bg-orange-500 rounded-full" />
                 <span className="text-[10px] font-black text-white/40 tracking-tight">산출 기준</span>
@@ -164,7 +164,7 @@ export function WatchlistTable({
             </div>
           </div>
 
-          <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-2">
+          <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/[0.07] flex flex-col justify-center items-center gap-2 relative group/stat-2">
             <div className="flex items-center gap-1">
               <span className="text-[9px] sm:text-[10px] font-black text-white/30 tracking-tight sm:tracking-[0.2em] text-center">Recent 30-day STRONG_BUY hit rate</span>
               <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
@@ -175,7 +175,7 @@ export function WatchlistTable({
                 High Precision
               </div>
             </div>
-            <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 max-h-[250px] overflow-y-auto p-4 bg-theme-card backdrop-blur-xl border border-theme-border rounded-2xl opacity-0 group-hover/stat-2:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-2xl scale-95 group-hover/stat-2:scale-100 origin-top">
+            <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 max-h-[250px] overflow-y-auto p-4 bg-theme-card backdrop-blur-xl border border-theme-border rounded-2xl opacity-0 group-hover/stat-2:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-xl scale-95 group-hover/stat-2:scale-100 origin-top">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-1 h-3 bg-indigo-500 rounded-full" />
                 <span className="text-[10px] font-black text-white/40 tracking-tight">산출 기준</span>
@@ -186,7 +186,7 @@ export function WatchlistTable({
             </div>
           </div>
 
-          <div className="md:col-span-2 bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner">
+          <div className="md:col-span-2 bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/[0.07]">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <History className="w-4 h-4 text-white/30" />
@@ -224,13 +224,13 @@ export function WatchlistTable({
       {loading && view === 'DISCOVER' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-64 bg-white/5 rounded-3xl animate-pulse border border-white/10" />
+            <div key={i} className="h-64 bg-white/5 rounded-3xl animate-pulse border border-white/[0.07]" />
           ))}
         </div>
       ) : (
         <div className="space-y-4">
           {displayList.length > 0 && (
-            <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 shadow-inner">
+            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.035] p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <div className="text-[10px] font-black tracking-tight text-white/35">Today Candidate Summary</div>

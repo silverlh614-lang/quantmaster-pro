@@ -61,7 +61,7 @@ export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
         initial={{ scale: 0.95, opacity: 0, y: 12 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.95, opacity: 0, y: 12 }}
-        className="glass-3d rounded-2xl sm:rounded-3xl p-5 sm:p-8 max-w-md w-full border border-theme-border shadow-2xl overflow-y-auto max-h-[90vh]"
+        className="glass-3d rounded-2xl sm:rounded-3xl p-5 sm:p-8 max-w-md w-full border border-theme-border shadow-xl overflow-y-auto max-h-[90vh]"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-5 sm:mb-6">

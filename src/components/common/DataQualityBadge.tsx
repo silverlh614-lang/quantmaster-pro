@@ -53,7 +53,7 @@ export function DataQualityBadge({ count, compact = true, className, forceShow }
     return (
       <span
         className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold whitespace-nowrap',
-          'bg-gray-800 text-gray-400 border border-white/10', className)}
+          'bg-gray-800 text-gray-400 border border-white/[0.07]', className)}
         title="데이터 항목 평가 결과 없음"
       >
         데이터 부족
@@ -146,7 +146,7 @@ export function DataQualityBadge({ count, compact = true, className, forceShow }
             <span className="font-black">{manual}</span>
           </li>
         )}
-        <li className="flex justify-between border-t border-white/10 pt-0.5 opacity-70">
+        <li className="flex justify-between border-t border-white/[0.07] pt-0.5 opacity-70">
           <span>합계</span>
           <span className="font-black">{total}</span>
         </li>

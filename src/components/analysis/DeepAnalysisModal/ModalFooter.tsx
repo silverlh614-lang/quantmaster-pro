@@ -15,7 +15,7 @@ export function ModalFooter({ stock, onClose, watchlist, setWatchlist }: ModalFo
   const isWatchlisted = (watchlist || []).some(s => s.code === stock.code);
 
   return (
-    <div className="px-4 py-3 border-t border-white/10 bg-white/5 flex flex-col sm:flex-row items-center justify-between gap-3">
+    <div className="px-4 py-3 border-t border-white/[0.07] bg-white/5 flex flex-col sm:flex-row items-center justify-between gap-3">
       <div className="flex items-center gap-3 text-[9px] font-black text-white/20 tracking-tight order-2 sm:order-1 flex-wrap justify-center">
         <div className="flex items-center gap-1.5">
           <Globe className="w-3 h-3" />
@@ -31,7 +31,7 @@ export function ModalFooter({ stock, onClose, watchlist, setWatchlist }: ModalFo
       <div className="flex items-center gap-3 order-1 sm:order-2">
         <button
           onClick={() => onClose()}
-          className="px-5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 font-black text-xs transition-all border border-white/10 flex items-center gap-1.5"
+          className="px-5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 font-black text-xs transition-all border border-white/[0.07] flex items-center gap-1.5"
         >
           <X className="w-3.5 h-3.5" />
           Close

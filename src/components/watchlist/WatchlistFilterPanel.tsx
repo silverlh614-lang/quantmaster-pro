@@ -186,7 +186,7 @@ export function WatchlistFilterPanel({
                   <span className="text-sm sm:text-base font-black text-theme-text uppercase tracking-tight">종목 검색 및 실시간 필터</span>
                   <div className="relative group/info">
                     <Info className="w-3.5 h-3.5 text-theme-text-muted hover:text-orange-500 transition-colors cursor-help" />
-                    <div className="absolute left-0 top-6 w-80 max-h-[350px] overflow-y-auto p-4 bg-theme-bg backdrop-blur-xl border border-theme-border rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none">
+                    <div className="absolute left-0 top-6 w-80 max-h-[350px] overflow-y-auto p-4 bg-theme-bg backdrop-blur-xl border border-theme-border rounded-2xl shadow-xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none">
                       <h4 className="text-xs font-black text-orange-500 mb-2 tracking-tight">빈칸 검색 후보 판정 기준 (Top 10)</h4>
                       <ul className="space-y-2">
                         {[
@@ -241,7 +241,7 @@ export function WatchlistFilterPanel({
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && onMarketSearch()}
-                    className="w-full h-full bg-theme-input border-2 border-theme-border rounded-2xl pl-11 pr-6 py-3 text-base font-black text-theme-text placeholder:text-theme-text-muted placeholder:text-sm focus:outline-none focus:border-orange-500/50 focus:ring-4 focus:ring-orange-500/10 transition-all shadow-inner relative z-0"
+                    className="w-full h-full bg-theme-input border-2 border-theme-border rounded-2xl pl-11 pr-6 py-3 text-base font-black text-theme-text placeholder:text-theme-text-muted placeholder:text-sm focus:outline-none focus:border-orange-500/50 focus:ring-4 focus:ring-orange-500/10 transition-all relative z-0"
                   />
                 </div>
                 <button
@@ -271,7 +271,7 @@ export function WatchlistFilterPanel({
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
-                  className="w-full bg-theme-surface border-2 border-theme-border rounded-2xl pl-12 pr-10 py-4 text-base font-black text-theme-text appearance-none focus:outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 transition-all shadow-2xl cursor-pointer h-[60px]"
+                  className="w-full bg-theme-surface border-2 border-theme-border rounded-2xl pl-12 pr-10 py-4 text-base font-black text-theme-text appearance-none focus:outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 transition-all shadow-xl cursor-pointer h-[60px]"
                 >
                   <option value="NAME">이름순 (가나다)</option>
                   <option value="CODE">종목코드순</option>
@@ -385,7 +385,7 @@ export function WatchlistFilterPanel({
                 {/* Type Filter */}
                 <div className="flex flex-col gap-2">
                   <span className="text-[10px] font-black text-white/30 tracking-tight px-1">판정 유형</span>
-                  <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner overflow-x-auto no-scrollbar">
+                  <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/[0.07] overflow-x-auto no-scrollbar">
                     {['ALL', 'STRONG_BUY', 'BUY', 'STRONG_SELL', 'SELL'].map((type) => (
                       <button
                         key={type}
@@ -406,7 +406,7 @@ export function WatchlistFilterPanel({
                 {/* Sentiment Filter */}
                 <div className="flex flex-col gap-2">
                   <span className="text-[10px] font-black text-white/30 tracking-tight px-1">시장 심리</span>
-                  <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner overflow-x-auto no-scrollbar">
+                  <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/[0.07] overflow-x-auto no-scrollbar">
                     {[
                       { id: 'ALL', label: '모든 심리' },
                       { id: 'RISK_ON', label: 'Risk-On' },
@@ -434,7 +434,7 @@ export function WatchlistFilterPanel({
                   <select
                     value={selectedPattern}
                     onChange={(e) => setSelectedPattern(e.target.value)}
-                    className="bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm font-black text-white/60 focus:outline-none focus:border-orange-500/50 transition-all shadow-inner cursor-pointer h-[52px]"
+                    className="bg-white/5 border border-white/[0.07] rounded-2xl px-4 py-3 text-sm font-black text-white/60 focus:outline-none focus:border-orange-500/50 transition-all cursor-pointer h-[52px]"
                   >
                     <option value="ALL">모든 패턴</option>
                     {allPatterns.map(pattern => (
@@ -446,7 +446,7 @@ export function WatchlistFilterPanel({
                 {/* Price Range Filter */}
                 <div className="flex flex-col gap-2">
                   <span className="text-[10px] font-black text-white/30 tracking-tight px-1">가격 범위 (원)</span>
-                  <div className="flex items-center gap-2 bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner">
+                  <div className="flex items-center gap-2 bg-white/5 p-1.5 rounded-2xl border border-white/[0.07]">
                     <input
                       type="number"
                       placeholder="최소"
@@ -469,7 +469,7 @@ export function WatchlistFilterPanel({
 
             {/* Checklist Filter — DISCOVER only */}
             {view === 'DISCOVER' && (
-            <div className="flex flex-col gap-3 bg-white/[0.02] p-5 rounded-3xl border border-white/5 shadow-inner">
+            <div className="flex flex-col gap-3 bg-white/[0.02] p-5 rounded-3xl border border-white/5">
               <div className="flex items-center gap-2 mb-1">
                 <ShieldCheck className="w-4 h-4 text-orange-500/50" />
                 <span className="text-[10px] font-black text-theme-text-muted tracking-tight">27단계 마스터 체크리스트 정밀 필터</span>
@@ -499,7 +499,7 @@ export function WatchlistFilterPanel({
                               "px-3 py-2 rounded-xl text-[10px] font-black transition-all border whitespace-nowrap flex items-center gap-2",
                               selectedChecklist.includes(key)
                                 ? "bg-orange-500/20 border-orange-500/50 text-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.15)]"
-                                : "bg-white/5 border-white/10 text-white/30 hover:text-white/60 hover:border-white/20"
+                                : "bg-white/5 border-white/[0.07] text-white/30 hover:text-white/60 hover:border-white/20"
                             )}
                             title={info.description}
                           >
@@ -533,7 +533,7 @@ export function WatchlistFilterPanel({
                 <div className="flex gap-1.5">
                   {selectedType !== 'ALL' && <span className="px-2 py-0.5 bg-orange-500/10 text-orange-500 text-[8px] font-black rounded-md border border-orange-500/20">{selectedType}</span>}
                   {selectedSentiment !== 'ALL' && <span className="px-2 py-0.5 bg-blue-500/10 text-blue-500 text-[8px] font-black rounded-md border border-blue-500/20">{selectedSentiment}</span>}
-                  {selectedPattern !== 'ALL' && <span className="px-2 py-0.5 bg-white/10 text-white/40 text-[8px] font-black rounded-md border border-white/10">{selectedPattern}</span>}
+                  {selectedPattern !== 'ALL' && <span className="px-2 py-0.5 bg-white/10 text-white/40 text-[8px] font-black rounded-md border border-white/[0.07]">{selectedPattern}</span>}
                   {(minPrice !== '' || maxPrice !== '') && <span className="px-2 py-0.5 bg-green-500/10 text-green-500 text-[8px] font-black rounded-md border border-green-500/20">{minPrice || '0'} ~ {maxPrice || '무제한'}</span>}
                   {selectedChecklist.length > 0 && <span className="px-2 py-0.5 bg-orange-500/20 text-orange-500 text-[8px] font-black rounded-md border border-orange-500/30">체크리스트 {selectedChecklist.length}개</span>}
                   {selectedType === 'ALL' && selectedSentiment === 'ALL' && selectedPattern === 'ALL' && selectedChecklist.length === 0 && minPrice === '' && maxPrice === '' && (

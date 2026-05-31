@@ -71,10 +71,10 @@ export function PipelineStageDrilldown({ stage, onClose }: PipelineStageDrilldow
       onClick={onClose}
     >
       <div
-        className="bg-neutral-950 border border-white/10 rounded-xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+        className="bg-neutral-950 border border-white/[0.07] rounded-xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
         onClick={e => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between p-4 border-b border-white/10">
+        <header className="flex items-center justify-between p-4 border-b border-white/[0.07]">
           <div>
             <h2 className="text-base font-black">{STAGE_LABEL[stage]} 단계 드릴다운</h2>
             {data && (

@@ -271,7 +271,7 @@ export function GatePyramidVisualization({ recommendations, totalUniverse }: Gat
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       className="relative"
     >
-      <div className="glass-3d rounded-2xl sm:rounded-3xl border border-white/10 overflow-hidden relative">
+      <div className="glass-3d rounded-2xl sm:rounded-3xl border border-white/[0.07] overflow-hidden relative">
         {/* Background glow orbs */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-0 left-1/4 w-64 h-64 bg-orange-500/[0.04] blur-[100px]" />
@@ -301,7 +301,7 @@ export function GatePyramidVisualization({ recommendations, totalUniverse }: Gat
                 "p-2 rounded-lg border transition-all",
                 isExpanded
                   ? "bg-orange-500/10 border-orange-500/20 text-orange-400"
-                  : "bg-white/5 border-white/10 text-white/40 hover:text-white/60"
+                  : "bg-white/5 border-white/[0.07] text-white/40 hover:text-white/60"
               )}
             >
               <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isExpanded && "rotate-180")} />
@@ -396,7 +396,7 @@ export function GatePyramidVisualization({ recommendations, totalUniverse }: Gat
         <div className="relative z-10 px-6 sm:px-10 pb-6">
           <div className="grid grid-cols-4 gap-2 sm:gap-3">
             {[
-              { label: 'Universe', value: stats.total, color: 'text-white/60', bg: 'bg-white/5', border: 'border-white/10' },
+              { label: 'Universe', value: stats.total, color: 'text-white/60', bg: 'bg-white/5', border: 'border-white/[0.07]' },
               { label: 'Gate 1', value: stats.gate1, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
               { label: 'Gate 2', value: stats.gate2, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
               { label: 'Gate 3', value: stats.gate3, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20' },

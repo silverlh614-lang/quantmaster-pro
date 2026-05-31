@@ -56,7 +56,7 @@ export class ErrorBoundary extends Component<Props, State> {
               <summary className="cursor-pointer text-red-400 text-sm font-bold mb-2">
                 에러 상세
               </summary>
-              <pre className="bg-white/5 border border-white/10 rounded-xl p-4 text-xs text-red-300 overflow-auto max-h-60 whitespace-pre-wrap">
+              <pre className="bg-white/5 border border-white/[0.07] rounded-xl p-4 text-xs text-red-300 overflow-auto max-h-60 whitespace-pre-wrap">
                 {this.state.error.toString()}
                 {isDev && this.state.errorInfo?.componentStack}
               </pre>

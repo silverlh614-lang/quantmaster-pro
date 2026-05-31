@@ -12,7 +12,7 @@ interface TranchePlanCardProps {
 
 const STATUS_STYLE = {
   EXECUTED: { label: '실행', cls: 'bg-green-500/20 border-green-500/40 text-green-200', icon: <Check className="w-3 h-3" /> },
-  PENDING:  { label: '대기', cls: 'bg-gray-700/40   border-white/10    text-white/60', icon: <Clock className="w-3 h-3" /> },
+  PENDING:  { label: '대기', cls: 'bg-gray-700/40   border-white/[0.07]    text-white/60', icon: <Clock className="w-3 h-3" /> },
 } as const;
 
 interface TrancheRowProps {
@@ -66,7 +66,7 @@ export function TranchePlanCard({ plan, className }: TranchePlanCardProps) {
   if (!plan) {
     return (
       <div
-        className={cn('rounded border border-white/10 bg-black/20 p-3', className)}
+        className={cn('rounded border border-white/[0.07] bg-black/20 p-3', className)}
         role="region"
         aria-label="분할매수 계획"
       >
@@ -83,7 +83,7 @@ export function TranchePlanCard({ plan, className }: TranchePlanCardProps) {
 
   return (
     <div
-      className={cn('rounded border border-white/10 bg-black/20 p-3', className)}
+      className={cn('rounded border border-white/[0.07] bg-black/20 p-3', className)}
       role="region"
       aria-label="분할매수 계획"
     >

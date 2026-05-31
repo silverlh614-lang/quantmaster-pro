@@ -19,7 +19,7 @@ const modes: Array<{ value: ViewMode; label: string; icon: React.ElementType; ti
 export function PublicReportModeToggle({ value, onChange }: PublicReportModeToggleProps) {
   return (
     <div
-      className="inline-flex flex-wrap items-center gap-1 rounded-xl border border-white/10 bg-black/20 p-1"
+      className="inline-flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.07] bg-black/20 p-1"
       role="radiogroup"
       aria-label="Report view mode"
     >

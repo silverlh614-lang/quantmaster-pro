@@ -114,7 +114,7 @@ export function MarketModeBanner() {
 
       {/* Expanded panel — 정책 박스 (모바일도 표시) */}
       {expanded && (
-        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 pb-3 border-t border-white/10 mt-1 pt-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 pb-3 border-t border-white/[0.07] mt-1 pt-3 grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Stats (모바일 grid) */}
           <div className="md:hidden grid grid-cols-3 gap-2 text-[10px] font-bold font-num text-white/70 col-span-1">
             <span>MHS<br /><span className={cn('text-base font-black', style.accent)}>{fmtNumber(mhs, 0)}</span><span className="opacity-60">/100</span></span>

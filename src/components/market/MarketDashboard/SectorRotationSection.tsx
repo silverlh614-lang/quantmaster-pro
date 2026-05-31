@@ -22,7 +22,7 @@ export const SectorRotationSection: React.FC<SectorRotationSectionProps> = ({ to
     </div>
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       {topSectors.map((sector, i) => (
-        <div key={i} className="glass-3d p-6 rounded-[2rem] border border-white/10 relative overflow-hidden group">
+        <div key={i} className="glass-3d p-6 rounded-[2rem] border border-white/[0.07] relative overflow-hidden group">
           <div className="absolute -right-4 -top-4 text-white/5 font-black text-6xl italic group-hover:scale-110 transition-transform">
             0{sector.rank}
           </div>

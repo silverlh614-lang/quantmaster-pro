@@ -27,7 +27,7 @@ interface MasterRadarChartProps {
 export function MasterRadarChart({ stock }: MasterRadarChartProps) {
   const canon = buildStockAnalysisCanon(stock);
   return (
-    <div className="glass-3d rounded-2xl p-5 sm:p-6 border border-white/10 flex flex-col">
+    <div className="glass-3d rounded-2xl p-5 sm:p-6 border border-white/[0.07] flex flex-col">
       <div className="w-full flex items-center justify-between mb-4">
         <div className="flex items-center gap-2.5">
           <Radar className="w-5 h-5 text-orange-500" />

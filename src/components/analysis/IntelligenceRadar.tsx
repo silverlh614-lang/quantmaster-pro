@@ -147,10 +147,10 @@ export const IntelligenceRadar: React.FC<Props> = (props) => {
     status === 'BULLISH' ? 'text-green-400 border-green-500/30 bg-green-500/10' :
     status === 'BEARISH' ? 'text-red-400 border-red-500/30 bg-red-500/10' :
     status === 'NEUTRAL' ? 'text-amber-400 border-amber-500/30 bg-amber-500/10' :
-    'text-white/40 border-white/10 bg-white/5';
+    'text-white/40 border-white/[0.07] bg-white/5';
 
   return (
-    <div className="glass-3d p-5 rounded-[2rem] border border-white/10 shadow-2xl">
+    <div className="glass-3d p-5 rounded-[2rem] border border-white/[0.07] shadow-xl">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xs font-semibold tracking-tight text-white/80">
           글로벌 인텔리전스 통합 레이더 (A~L)
@@ -163,7 +163,7 @@ export const IntelligenceRadar: React.FC<Props> = (props) => {
           <span className="text-[9px] px-2 py-0.5 border border-green-500/30 text-green-400 bg-green-500/10 font-bold">{bullish}B</span>
           <span className="text-[9px] px-2 py-0.5 border border-red-500/30 text-red-400 bg-red-500/10 font-bold">{bearish}R</span>
           {available.length < points.length && (
-            <span className="text-[9px] px-2 py-0.5 border border-white/10 text-white/40 bg-white/5 font-bold">{points.length - available.length} N/A</span>
+            <span className="text-[9px] px-2 py-0.5 border border-white/[0.07] text-white/40 bg-white/5 font-bold">{points.length - available.length} N/A</span>
           )}
         </div>
       </div>
@@ -239,7 +239,7 @@ export const IntelligenceRadar: React.FC<Props> = (props) => {
       {available.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-3">
           {available.map(p => (
-            <span key={p.layer} className="text-[8px] text-white/50 px-1.5 py-0.5 bg-white/5 border border-white/10 rounded">
+            <span key={p.layer} className="text-[8px] text-white/50 px-1.5 py-0.5 bg-white/5 border border-white/[0.07] rounded">
               {p.layer}: {p.raw}
             </span>
           ))}

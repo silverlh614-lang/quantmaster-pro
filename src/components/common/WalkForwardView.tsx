@@ -93,7 +93,7 @@ function WalkForwardHeader({
 
 function GuideSection() {
   return (
-    <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/10">
+    <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-6">
         <HelpCircle className="w-5 h-5 text-purple-400" />
         <h4 className="text-lg font-black text-white uppercase tracking-tighter">Analysis Guide</h4>
@@ -136,7 +136,7 @@ function robustnessClass(score: number): string {
 
 function RobustnessHero({ analysis }: { analysis: WalkForwardAnalysis }) {
   return (
-    <div className="glass-3d rounded-[3rem] p-12 border border-white/10 shadow-2xl relative overflow-hidden">
+    <div className="glass-3d rounded-[3rem] p-12 border border-white/[0.07] shadow-xl relative overflow-hidden">
       <div className="absolute top-0 right-0 w-96 h-96 bg-purple-500/10 blur-[100px] -mr-48 -mt-48" />
       <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
         <div className="text-center lg:text-left">
@@ -175,7 +175,7 @@ function ScoreDetailCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white/5 rounded-[2rem] p-8 border border-white/10">
+    <div className="bg-white/5 rounded-[2rem] p-8 border border-white/[0.07]">
       <div className="flex items-center gap-4 mb-4">
         {icon}
         <span className="text-[11px] font-black text-white/40 tracking-tight">{title}</span>
@@ -206,7 +206,7 @@ function TextListCard({
   accent: 'orange' | 'blue';
 }) {
   return (
-    <div className="glass-3d rounded-[3rem] p-10 border border-white/10 shadow-2xl">
+    <div className="glass-3d rounded-[3rem] p-10 border border-white/[0.07] shadow-xl">
       <div className="flex items-center gap-4 mb-8">
         {icon}
         <span className="text-[11px] font-black text-white/20 tracking-tight">{title}</span>
@@ -258,7 +258,7 @@ function metricLabel(key: string): string {
 
 function MetricsGrid({ analysis }: { analysis: WalkForwardAnalysis }) {
   return (
-    <div className="glass-3d rounded-[3rem] p-10 border border-white/10 shadow-2xl">
+    <div className="glass-3d rounded-[3rem] p-10 border border-white/[0.07] shadow-xl">
       <span className="text-[11px] font-black text-white/20 tracking-tight block mb-10">Performance Metrics (IS vs OOS)</span>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {Object.entries(analysis.metrics).map(([key, value]) => {
@@ -311,7 +311,7 @@ function AnalysisResult({ analysis }: { analysis: WalkForwardAnalysis }) {
 
 function EmptyState() {
   return (
-    <div className="py-32 flex flex-col items-center justify-center glass-3d rounded-[3rem] border border-white/10 border-dashed">
+    <div className="py-32 flex flex-col items-center justify-center glass-3d rounded-[3rem] border border-white/[0.07] border-dashed">
       <Shield className="w-16 h-16 text-white/10 mb-6" />
       <h3 className="text-2xl font-black text-white/20 mb-3">No analysis result yet</h3>
       <p className="text-base text-white/10 font-bold">Run the walk-forward analysis to populate this view.</p>

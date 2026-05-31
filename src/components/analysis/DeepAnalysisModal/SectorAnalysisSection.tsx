@@ -20,7 +20,7 @@ export function SectorAnalysisSection({ stock }: Props) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {/* Trends & Catalysts */}
         <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+          <div className="bg-white/5 rounded-xl p-4 border border-white/[0.07]">
             <div className="flex items-center gap-2 mb-2.5">
               <TrendingUp className="w-4 h-4 text-blue-400" />
               <span className="text-[10px] font-black text-white/40 tracking-tight">Current Trends</span>
@@ -35,7 +35,7 @@ export function SectorAnalysisSection({ stock }: Props) {
             </ul>
           </div>
 
-          <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+          <div className="bg-white/5 rounded-xl p-4 border border-white/[0.07]">
             <div className="flex items-center gap-2 mb-2.5">
               <Zap className="w-4 h-4 text-yellow-400" />
               <span className="text-[10px] font-black text-white/40 tracking-tight">Sector Catalysts</span>
@@ -51,7 +51,7 @@ export function SectorAnalysisSection({ stock }: Props) {
           </div>
 
           <div className="md:col-span-2">
-            <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+            <div className="bg-white/5 rounded-xl p-4 border border-white/[0.07]">
               <div className="flex items-center gap-2 mb-3">
                 <Layers className="w-4 h-4 text-purple-400" />
                 <span className="text-[10px] font-black text-white/40 tracking-tight">Related Sectors & Correlation</span>
@@ -72,7 +72,7 @@ export function SectorAnalysisSection({ stock }: Props) {
         </div>
 
         {/* Leading Stocks */}
-        <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+        <div className="bg-white/5 rounded-xl p-4 border border-white/[0.07]">
           <div className="flex items-center gap-2 mb-2.5">
             <Crown className="w-4 h-4 text-orange-400" />
             <span className="text-[10px] font-black text-white/40 tracking-tight">Leading Stocks</span>

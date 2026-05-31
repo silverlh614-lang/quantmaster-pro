@@ -160,7 +160,7 @@ function ScreenerField({
         name={name}
         value={value ?? ''}
         onChange={onChange}
-        className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50 transition-colors"
+        className="w-full bg-black/40 border border-white/[0.07] rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50 transition-colors"
         placeholder={placeholder}
       />
     </div>
@@ -181,7 +181,7 @@ function ModeSelect({
         name="mode"
         value={mode}
         onChange={onChange}
-        className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50 transition-colors appearance-none"
+        className="w-full bg-black/40 border border-white/[0.07] rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500/50 transition-colors appearance-none"
       >
         {MODE_OPTIONS.map(option => (
           <option key={option.value} value={option.value}>{option.label}</option>
@@ -203,7 +203,7 @@ function ScreenerForm({
   onInputChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
 }) {
   return (
-    <div className="bg-[#151619] border border-white/10 rounded-xl p-6">
+    <div className="bg-[#151619] border border-white/[0.07] rounded-xl p-6">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center border border-blue-500/30">
           <Filter className="w-5 h-5 text-blue-400" />
@@ -369,7 +369,7 @@ function RecommendationCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.1 }}
       onClick={() => onStockClick?.(stock)}
-      className="bg-[#151619] border border-white/10 rounded-xl p-5 hover:border-purple-500/30 transition-all group cursor-pointer"
+      className="bg-[#151619] border border-white/[0.07] rounded-xl p-5 hover:border-purple-500/30 transition-all group cursor-pointer"
     >
       <div className="flex items-start justify-between">
         <div className="flex gap-4">
@@ -508,7 +508,7 @@ function StrengthItem({ title, body }: { title: string; body: string }) {
 
 function TrendPanel() {
   return (
-    <div className="bg-[#151619] border border-white/10 rounded-xl p-6">
+    <div className="bg-[#151619] border border-white/[0.07] rounded-xl p-6">
       <h3 className="text-sm font-bold text-gray-400 tracking-tight mb-4">Recent Screening Themes</h3>
       <div className="space-y-3">
         {TREND_ITEMS.map(item => (

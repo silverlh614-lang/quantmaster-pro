@@ -15,19 +15,19 @@ function formatStatusToken(value: string | undefined): string | undefined {
 function resolveMaAlignmentClass(value: string | undefined): string {
   if (value === 'BULLISH') return 'bg-green-500/10 text-green-400 border-green-500/20';
   if (value === 'BEARISH') return 'bg-red-500/10 text-red-400 border-red-500/20';
-  return 'bg-white/5 text-white/40 border-white/10';
+  return 'bg-white/5 text-white/40 border-white/[0.07]';
 }
 
 function resolveMacdStatusClass(value: string | undefined): string {
   return value === 'GOLDEN_CROSS'
     ? 'bg-orange-500/10 text-orange-400 border-orange-500/20'
-    : 'bg-white/5 text-white/40 border-white/10';
+    : 'bg-white/5 text-white/40 border-white/[0.07]';
 }
 
 function resolveIchimokuClass(value: string | undefined): string {
   if (value === 'ABOVE_CLOUD') return 'bg-green-500/10 text-green-400 border-green-500/20';
   if (value === 'BELOW_CLOUD') return 'bg-red-500/10 text-red-400 border-red-500/20';
-  return 'bg-white/5 text-white/40 border-white/10';
+  return 'bg-white/5 text-white/40 border-white/[0.07]';
 }
 
 function resolveDisparityClass(value: number | undefined): string {
@@ -94,7 +94,7 @@ function TechnicalIndicatorsGrid({ stock }: Props) {
         <TechnicalIndicatorPill
           label="RSI (14)"
           value={stock.technicalSignals?.rsi}
-          className="bg-white/5 border-white/10 text-white/80"
+          className="bg-white/5 border-white/[0.07] text-white/80"
         />
         <TechnicalIndicatorPill
           label="MACD Status"
@@ -158,7 +158,7 @@ function ChartPatternMiniCard({ stock }: Props) {
           resolveChartPatternTypeClass(
             stock.chartPattern.type,
             'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-            'bg-white/5 text-white/40 border-white/10',
+            'bg-white/5 text-white/40 border-white/[0.07]',
           ),
         )}>
           {formatStatusToken(stock.chartPattern.type || '')}
@@ -238,7 +238,7 @@ function TechnicalDetailCard({
   badgeClassName: string;
 }) {
   return (
-    <div className="bg-white/5 p-5 rounded-3xl border border-white/10 shadow-inner">
+    <div className="bg-white/5 p-5 rounded-3xl border border-white/[0.07]">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <div className={cn('w-2 h-2 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.5)]', dotClassName)} />
@@ -298,7 +298,7 @@ function TechnicalDetailCards({ stock }: Props) {
 
 function TechnicalIndicatorsPanel({ stock }: Props) {
   return (
-    <div className="bg-white/5 rounded-2xl p-6 border border-white/10 relative overflow-hidden group/card">
+    <div className="bg-white/5 rounded-2xl p-6 border border-white/[0.07] relative overflow-hidden group/card">
       <div className="flex items-center gap-3 mb-6">
         <Activity className="w-5 h-5 text-blue-400" />
         <h3 className="text-lg font-black text-white uppercase tracking-tight">Technical Indicators</h3>
@@ -312,7 +312,7 @@ function TechnicalIndicatorsPanel({ stock }: Props) {
 
 function ElliottWaveSummaryCard({ stock }: Props) {
   return (
-    <div className="bg-white/5 rounded-2xl p-8 border border-white/10">
+    <div className="bg-white/5 rounded-2xl p-8 border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-6">
         <Zap className="w-5 h-5 text-yellow-400" />
         <h3 className="text-lg font-black text-white uppercase tracking-tight">Elliott Wave</h3>
@@ -335,7 +335,7 @@ function ElliottWaveSummaryCard({ stock }: Props) {
 
 function ChartPatternAnalysisCard({ stock }: Props) {
   return (
-    <div className="bg-white/5 rounded-2xl p-8 border border-white/10">
+    <div className="bg-white/5 rounded-2xl p-8 border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-6">
         <TrendingUp className="w-5 h-5 text-blue-400" />
         <h3 className="text-lg font-black text-white uppercase tracking-tight">Chart Pattern Analysis</h3>
@@ -396,7 +396,7 @@ function StrategicInsightDetail({ label, value }: { label: string; value: string
 
 function StrategicInsightCard({ stock }: Props) {
   return (
-    <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
+    <div className="bg-white/5 rounded-2xl p-6 border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-4">
         <Sparkles className="w-5 h-5 text-purple-400" />
         <h3 className="text-lg font-black text-white uppercase tracking-tight">Strategic Insight</h3>

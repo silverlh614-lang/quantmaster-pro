@@ -31,7 +31,7 @@ export const GlobalEtfSection: React.FC<GlobalEtfSectionProps> = React.memo(({ e
         const displayNote = etf.implication ?? etf.reason ?? '';
         const change = etf.change ?? 0;
         return (
-          <div key={i} className="glass-3d p-6 rounded-[2rem] border border-white/10 hover:bg-white/[0.05] transition-all">
+          <div key={i} className="glass-3d p-6 rounded-[2rem] border border-white/[0.07] hover:bg-white/[0.05] transition-all">
             <div className="flex justify-between items-start mb-4">
               <div>
                 <span className="text-[10px] font-black text-white/30 tracking-tight block mb-1">{etf.symbol ?? etf.name}</span>

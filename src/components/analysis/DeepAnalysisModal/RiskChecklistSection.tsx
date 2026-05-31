@@ -137,7 +137,7 @@ export function RiskChecklistSection({ stock }: Props) {
           </div>
         </div>
 
-        <p className="text-[10px] text-white/40 font-bold leading-relaxed mt-6 pt-4 border-t border-white/10">
+        <p className="text-[10px] text-white/40 font-bold leading-relaxed mt-6 pt-4 border-t border-white/[0.07]">
           <span className="text-green-400">🟢 검증</span>=실데이터(DART·KRX·계산) 확인 · <span className="text-amber-400">🟡 AI 추정</span>=미검증(L4 참조 전용). 시장 사이클·수급·펀더멘털·기술·심리를 종합 점검하며, 충족 15개 이상이면 '강한 후보'로 간주됩니다.
         </p>
       </div>

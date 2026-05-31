@@ -85,7 +85,7 @@ export function GateStatusCard({ summary, onExpand, className, forceShow }: Gate
 
   return (
     <div
-      className={cn('rounded border border-white/10 bg-black/20 p-2', className)}
+      className={cn('rounded border border-white/[0.07] bg-black/20 p-2', className)}
       role="region"
       aria-label={`Gate 0~3 통과 요약 — ${v.label}`}
     >

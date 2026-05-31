@@ -173,7 +173,7 @@ export const DartPreNewsPanel: React.FC = () => {
   ).length;
 
   return (
-    <div className="bg-[#0f1012] border border-white/10 rounded-xl p-6">
+    <div className="bg-[#0f1012] border border-white/[0.07] rounded-xl p-6">
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
@@ -246,13 +246,13 @@ export const DartPreNewsPanel: React.FC = () => {
               <button
                 onClick={() => setSortBy('preNews')}
                 className={`text-[9px] px-2 py-1 rounded font-bold border transition-colors ${
-                  sortBy === 'preNews' ? 'bg-amber-500 border-amber-500 text-white' : 'border-white/10 text-gray-500 hover:text-white'
+                  sortBy === 'preNews' ? 'bg-amber-500 border-amber-500 text-white' : 'border-white/[0.07] text-gray-500 hover:text-white'
                 }`}
               >Pre-News순</button>
               <button
                 onClick={() => setSortBy('total')}
                 className={`text-[9px] px-2 py-1 rounded font-bold border transition-colors ${
-                  sortBy === 'total' ? 'bg-amber-500 border-amber-500 text-white' : 'border-white/10 text-gray-500 hover:text-white'
+                  sortBy === 'total' ? 'bg-amber-500 border-amber-500 text-white' : 'border-white/[0.07] text-gray-500 hover:text-white'
                 }`}
               >종합점수순</button>
             </div>

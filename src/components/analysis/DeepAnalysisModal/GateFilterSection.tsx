@@ -39,7 +39,7 @@ export function GateFilterSection({ stock }: Props) {
                 "p-5 rounded-2xl border transition-all relative overflow-hidden",
                 isPassed ? "bg-green-500/[0.03] border-green-500/20" :
                 isCurrent ? "bg-orange-500/[0.03] border-orange-500/20" :
-                "bg-white/5 border-white/10 opacity-50"
+                "bg-white/5 border-white/[0.07] opacity-50"
               )}
             >
               <div className="flex items-center justify-between mb-3">
@@ -47,7 +47,7 @@ export function GateFilterSection({ stock }: Props) {
                   "w-8 h-8 rounded-lg flex items-center justify-center border",
                   isPassed ? "bg-green-500/20 border-green-500/30 text-green-500" :
                   isCurrent ? "bg-orange-500/20 border-orange-500/30 text-orange-500" :
-                  "bg-white/5 border-white/10 text-white/20"
+                  "bg-white/5 border-white/[0.07] text-white/20"
                 )}>
                   <span className="text-sm font-black">{gateNum}</span>
                 </div>

@@ -305,7 +305,7 @@ function RankBadge({ index }: { index: number }) {
   return (
     <div className="absolute top-0 right-0 p-6">
       <div className={cn(
-        'w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl border shadow-2xl',
+        'w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl border shadow-xl',
         index === 0 ? 'bg-orange-500 border-orange-400 text-white' :
         index === 1 ? 'bg-slate-400 border-slate-300 text-white' :
         'bg-amber-700 border-amber-600 text-white'
@@ -395,7 +395,7 @@ function TopRecommendationCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.1 }}
       onClick={() => onDeepAnalysis(stock)}
-      className="glass-3d rounded-2xl sm:rounded-3xl p-8 border border-white/10 relative overflow-hidden group cursor-pointer hover:border-orange-500/50 transition-all"
+      className="glass-3d rounded-2xl sm:rounded-3xl p-8 border border-white/[0.07] relative overflow-hidden group cursor-pointer hover:border-orange-500/50 transition-all"
     >
       <RankBadge index={index} />
 

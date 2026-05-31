@@ -24,7 +24,7 @@ export const DynamicWeightsSection: React.FC<DynamicWeightsSectionProps> = React
   }
 
   return (
-    <div className="glass-3d p-10 rounded-[3rem] border border-white/10 shadow-2xl">
+    <div className="glass-3d p-10 rounded-[3rem] border border-white/[0.07] shadow-xl">
       <div className="flex items-center justify-between mb-10">
         <div>
           <h3 className="text-xl font-black text-white uppercase tracking-tighter flex items-center gap-3">

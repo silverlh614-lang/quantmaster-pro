@@ -13,7 +13,7 @@ interface LastTriggerCardProps {
 const VERDICT_STYLE = {
   EXECUTE:   { label: '🟢 진입 트리거', cls: 'bg-green-500/20 border-green-500/40 text-green-200' },
   WATCHLIST: { label: '🟡 트리거 대기', cls: 'bg-amber-500/20 border-amber-500/40 text-amber-200' },
-  INACTIVE:  { label: '⚫ 비활성',     cls: 'bg-gray-700/40 border-white/10  text-white/60' },
+  INACTIVE:  { label: '⚫ 비활성',     cls: 'bg-gray-700/40 border-white/[0.07]  text-white/60' },
 } as const;
 
 export function LastTriggerCard({ summary, className }: LastTriggerCardProps) {
@@ -22,7 +22,7 @@ export function LastTriggerCard({ summary, className }: LastTriggerCardProps) {
 
   return (
     <div
-      className={cn('rounded border border-white/10 bg-black/20 p-2', className)}
+      className={cn('rounded border border-white/[0.07] bg-black/20 p-2', className)}
       role="region"
       aria-label="라스트 트리거"
     >

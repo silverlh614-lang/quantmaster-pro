@@ -57,7 +57,7 @@ export function FloatingActionButton({ onRefresh, onSearch, onExportPDF, isRefre
                   transition={{ delay: i * 0.05, type: 'spring', stiffness: 400, damping: 20 }}
                   className="flex items-center gap-2"
                 >
-                  <span className="text-[10px] font-black text-white bg-black/80 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10 shadow-lg whitespace-nowrap">
+                  <span className="text-[10px] font-black text-white bg-black/80 backdrop-blur-md px-2 py-1 rounded-lg border border-white/[0.07] shadow-lg whitespace-nowrap">
                     {action.label}
                   </span>
                   <button

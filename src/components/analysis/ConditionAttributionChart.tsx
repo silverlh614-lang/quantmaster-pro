@@ -84,7 +84,7 @@ export function ConditionAttributionChart({ className }: ConditionAttributionCha
 
   if (isLoading) {
     return (
-      <div className={cn('rounded border border-white/10 bg-black/20 p-3', className)}>
+      <div className={cn('rounded border border-white/[0.07] bg-black/20 p-3', className)}>
         <div className="text-xs opacity-50">귀인 통계 로드 중…</div>
       </div>
     );
@@ -100,7 +100,7 @@ export function ConditionAttributionChart({ className }: ConditionAttributionCha
 
   if (!data || data.stats.length === 0) {
     return (
-      <div className={cn('rounded border border-white/10 bg-black/20 p-3 text-xs opacity-60', className)}>
+      <div className={cn('rounded border border-white/[0.07] bg-black/20 p-3 text-xs opacity-60', className)}>
         조건별 귀인 데이터 없음 — closed trade 가 누적되면 점진적으로 채워집니다.
       </div>
     );
@@ -111,7 +111,7 @@ export function ConditionAttributionChart({ className }: ConditionAttributionCha
 
   return (
     <div
-      className={cn('rounded border border-white/10 bg-black/20 p-3 sm:p-4', className)}
+      className={cn('rounded border border-white/[0.07] bg-black/20 p-3 sm:p-4', className)}
       role="region"
       aria-label="조건별 수익률 귀인"
     >
@@ -123,7 +123,7 @@ export function ConditionAttributionChart({ className }: ConditionAttributionCha
           {sorted.length} 조건 · {data.totalRecords} 레코드
         </span>
       </div>
-      <div className="grid grid-cols-[8rem_1fr_4rem_3.5rem] gap-2 text-[10px] tracking-tight opacity-50 pb-1 border-b border-white/10 mb-1">
+      <div className="grid grid-cols-[8rem_1fr_4rem_3.5rem] gap-2 text-[10px] tracking-tight opacity-50 pb-1 border-b border-white/[0.07] mb-1">
         <span>조건</span>
         <span className="text-center">기여도</span>
         <span className="text-right">avg</span>

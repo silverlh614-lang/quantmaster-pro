@@ -22,7 +22,7 @@ export function EnemyChecklistCard({ summary, className }: EnemyChecklistCardPro
 
   return (
     <div
-      className={cn('rounded border border-white/10 bg-black/20 p-2', className)}
+      className={cn('rounded border border-white/[0.07] bg-black/20 p-2', className)}
       role="region"
       aria-label="Enemy 체크리스트"
     >

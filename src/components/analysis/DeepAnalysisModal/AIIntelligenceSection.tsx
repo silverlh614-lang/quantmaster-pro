@@ -39,7 +39,7 @@ function AiCardShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white/5 rounded-2xl p-6 border border-white/10 relative overflow-hidden group/ai-card">
+    <div className="bg-white/5 rounded-2xl p-6 border border-white/[0.07] relative overflow-hidden group/ai-card">
       <div className="absolute top-0 right-0 p-4 opacity-10 group-hover/ai-card:opacity-20 transition-opacity">
         {icon}
       </div>
@@ -245,7 +245,7 @@ function SupplyDataStatCard({
   subLabel: string;
 }) {
   return (
-    <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+    <div className="bg-white/5 rounded-2xl p-4 border border-white/[0.07]">
       <span className="text-[10px] font-black text-white/30 tracking-tight block mb-1">{label}</span>
       <span className={cn('text-xl font-black', valueClassName)}>{value}</span>
       <span className="text-[10px] text-white/30 block mt-1">{subLabel}</span>
@@ -268,7 +268,7 @@ function SupplyDataCard({ stock }: Props) {
     ? sd.foreignerOwnRatio
     : null;
   return (
-    <div className="glass-3d rounded-2xl p-8 border border-white/10 mb-6">
+    <div className="glass-3d rounded-2xl p-8 border border-white/[0.07] mb-6">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
           <TrendingUp className="w-5 h-5 text-blue-400" />
@@ -281,7 +281,7 @@ function SupplyDataCard({ stock }: Props) {
           'ml-auto text-[9px] font-black px-2 py-1 rounded-lg border tracking-tight',
           hasRealFlow
             ? 'text-blue-400/50 bg-blue-500/10 border-blue-500/20'
-            : 'text-white/40 bg-white/5 border-white/10',
+            : 'text-white/40 bg-white/5 border-white/[0.07]',
         )}>
           {hasRealFlow ? '실데이터' : ownRatio != null ? 'Naver 보유율' : '미연동'}
         </span>
@@ -306,7 +306,7 @@ function SupplyDataCard({ stock }: Props) {
 
           <div className={cn(
             'p-4 rounded-2xl border',
-            sd.isPassiveAndActive ? 'bg-red-500/10 border-red-500/20' : 'bg-white/5 border-white/10',
+            sd.isPassiveAndActive ? 'bg-red-500/10 border-red-500/20' : 'bg-white/5 border-white/[0.07]',
           )}>
             <div className="flex items-center gap-2">
               {sd.isPassiveAndActive
@@ -327,7 +327,7 @@ function SupplyDataCard({ stock }: Props) {
       ) : (
         <>
           {ownRatio != null && (
-            <div className="bg-white/5 rounded-2xl p-4 border border-white/10 mb-4">
+            <div className="bg-white/5 rounded-2xl p-4 border border-white/[0.07] mb-4">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[10px] font-black text-white/30 tracking-tight">외국인 보유율</span>
                 <span className="text-[9px] font-black text-blue-400/60 tracking-tight">Naver 실데이터</span>
@@ -335,7 +335,7 @@ function SupplyDataCard({ stock }: Props) {
               <span className="text-2xl font-black text-blue-400 block">{ownRatio.toFixed(2)}%</span>
             </div>
           )}
-          <div className="p-4 rounded-2xl border bg-white/5 border-white/10">
+          <div className="p-4 rounded-2xl border bg-white/5 border-white/[0.07]">
             <div className="flex items-center gap-2 mb-1.5">
               <Info className="w-4 h-4 text-white/30" />
               <span className="text-xs font-black text-white/40 tracking-tight">
@@ -367,7 +367,7 @@ function ShortSellingCard({ stock }: Props) {
     >
       {hasShortData ? (
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
+          <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/[0.07]">
             <div>
               <span className="text-[10px] font-black text-white/30 tracking-tight block mb-1">공매도 비율</span>
               <span className="text-2xl font-black text-white">{short.ratio}%</span>
@@ -413,7 +413,7 @@ function TenbaggerDnaCard({ stock }: Props) {
     >
       {stock.tenbaggerDNA ? (
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
+          <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/[0.07]">
             <div>
               <span className="text-[10px] font-black text-white/30 tracking-tight block mb-1">매칭 패턴</span>
               <span className="text-sm font-black text-white">{stock.tenbaggerDNA.matchPattern}</span>
@@ -473,7 +473,7 @@ function HistoricalAnalogyCard({ stock }: Props) {
 function resolveAnomalyClass(type: string | undefined): string {
   if (type === 'FUNDAMENTAL_DIVERGENCE') return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
   if (type === 'SMART_MONEY_ACCUMULATION') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
-  return 'bg-white/5 text-white/30 border-white/10';
+  return 'bg-white/5 text-white/30 border-white/[0.07]';
 }
 
 function AnomalyDetectionCard({ stock }: Props) {

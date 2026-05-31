@@ -124,7 +124,7 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
 
         {/* KIS Stream 연결 상태 디버그 배지 */}
         {streamDebug && (
-          <div className="bg-[#0d0e11] border border-white/10 rounded-lg px-4 py-2.5">
+          <div className="bg-[#0d0e11] border border-white/[0.07] rounded-lg px-4 py-2.5">
             <button
               type="button"
               onClick={() => setShowStreamLog(prev => !prev)}

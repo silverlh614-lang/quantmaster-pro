@@ -81,7 +81,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
               "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all border",
               showCompareMode 
                 ? "bg-indigo-500 border-indigo-400 text-white shadow-[0_0_20px_rgba(99,102,241,0.3)]" 
-                : "bg-white/5 border-white/10 text-white/40 hover:text-white hover:bg-white/10"
+                : "bg-white/5 border-white/[0.07] text-white/40 hover:text-white hover:bg-white/10"
             )}
           >
             <ArrowRightLeft className="w-3.5 h-3.5" />
@@ -89,7 +89,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
           </button>
           <button
             onClick={() => setIsSaving(true)}
-            className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-xs font-black transition-all border border-white/10"
+            className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-xs font-black transition-all border border-white/[0.07]"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>New Portfolio</span>
@@ -105,7 +105,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden"
           >
-            <div className="glass-3d rounded-[2rem] p-8 border border-white/10 space-y-6 bg-indigo-500/5">
+            <div className="glass-3d rounded-[2rem] p-8 border border-white/[0.07] space-y-6 bg-indigo-500/5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-white/20 tracking-tight ml-1">Portfolio Name</label>
@@ -114,7 +114,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     placeholder="e.g., Growth Tech 2026"
-                    className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50 transition-all"
+                    className="w-full bg-black/40 border border-white/[0.07] rounded-2xl px-5 py-3 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50 transition-all"
                   />
                 </div>
                 <div className="space-y-2">
@@ -124,7 +124,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                     value={newDesc}
                     onChange={(e) => setNewDesc(e.target.value)}
                     placeholder="Strategy notes..."
-                    className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50 transition-all"
+                    className="w-full bg-black/40 border border-white/[0.07] rounded-2xl px-5 py-3 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50 transition-all"
                   />
                 </div>
               </div>
@@ -228,12 +228,12 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                       type="text"
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
-                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50"
+                      className="w-full bg-black/40 border border-white/[0.07] rounded-xl px-4 py-2 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50"
                     />
                     <textarea
                       value={editDesc}
                       onChange={(e) => setEditDesc(e.target.value)}
-                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-xs font-medium text-white/60 focus:outline-none focus:border-indigo-500/50 h-20 resize-none"
+                      className="w-full bg-black/40 border border-white/[0.07] rounded-xl px-4 py-2 text-xs font-medium text-white/60 focus:outline-none focus:border-indigo-500/50 h-20 resize-none"
                     />
                     <div className="flex justify-end gap-2">
                       <button onClick={() => setEditingId(null)} className="p-2 text-white/20"><X className="w-4 h-4" /></button>

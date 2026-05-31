@@ -48,7 +48,7 @@ export class SectionErrorBoundary extends Component<Props, State> {
           )}
           <button
             onClick={this.handleRetry}
-            className="flex items-center gap-2 px-4 py-2 bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-white/60 hover:bg-white/20 transition-all"
+            className="flex items-center gap-2 px-4 py-2 bg-white/10 border border-white/[0.07] rounded-xl text-xs font-bold text-white/60 hover:bg-white/20 transition-all"
           >
             <RefreshCw className="w-3 h-3" />
             다시 시도

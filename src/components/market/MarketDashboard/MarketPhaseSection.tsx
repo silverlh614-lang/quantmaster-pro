@@ -26,19 +26,19 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
 }) => (
   <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
     {/* Market Phase */}
-    <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10 flex flex-col justify-between">
+    <div className="glass-3d p-8 rounded-[2.5rem] border border-white/[0.07] flex flex-col justify-between">
       <div className="flex items-center gap-3 mb-6">
         <Activity className="w-5 h-5 text-purple-400" />
         <span className="text-[11px] font-black text-white/20 tracking-tight">Market Phase</span>
       </div>
       <div className="mb-8">
         <div className={cn(
-          "inline-flex items-center gap-3 px-6 py-3 rounded-2xl text-lg font-semibold tracking-tight border shadow-2xl",
+          "inline-flex items-center gap-3 px-6 py-3 rounded-2xl text-lg font-semibold tracking-tight border shadow-xl",
           marketPhase === 'RISK_ON' || marketPhase === 'BULL' ? "bg-green-500/20 text-green-400 border-green-500/30" :
           marketPhase === 'RISK_OFF' || marketPhase === 'BEAR' ? "bg-red-500/20 text-red-400 border-red-500/30" :
           marketPhase === 'SIDEWAYS' ? "bg-blue-500/20 text-blue-400 border-blue-500/30" :
           marketPhase === 'TRANSITION' ? "bg-purple-500/20 text-purple-400 border-purple-500/30" :
-          "bg-white/10 text-white/40 border-white/10"
+          "bg-white/10 text-white/40 border-white/[0.07]"
         )}>
           {marketPhase || 'NEUTRAL'}
         </div>
@@ -50,7 +50,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
     </div>
 
     {/* Euphoria Detector */}
-    <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10">
+    <div className="glass-3d p-8 rounded-[2.5rem] border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-6">
         <Flame className="w-5 h-5 text-orange-500" />
         <span className="text-[11px] font-black text-white/20 tracking-tight">Euphoria Detector</span>
@@ -78,7 +78,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
     </div>
 
     {/* Regime Shift Detector */}
-    <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10">
+    <div className="glass-3d p-8 rounded-[2.5rem] border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-6">
         <Zap className="w-5 h-5 text-yellow-400" />
         <span className="text-[11px] font-black text-white/20 tracking-tight">Regime Shift Detector</span>

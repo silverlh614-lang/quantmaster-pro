@@ -70,21 +70,21 @@ export function PublicReportPage({ preferredMode, focusSection = 'TOP' }: Public
         subtitle="The default path is copy/download first, then final operator review before posting."
       >
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-4">
             <FileText className="h-5 w-5 text-blue-300" />
             <p className="mt-3 text-sm font-black text-white">Blog Markdown / HTML</p>
             <p className="mt-1 text-xs leading-relaxed text-white/55">
               Generates title, one-line conclusion, Market Gate, sector rotation, candidate summary, buy block, Shadow result, tags, and investment notice.
             </p>
           </div>
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-4">
             <Send className="h-5 w-5 text-emerald-300" />
             <p className="mt-3 text-sm font-black text-white">Telegram Summary</p>
             <p className="mt-1 text-xs leading-relaxed text-white/55">
               Keeps public channel output short while preserving the same source snapshot and Shadow Learning state.
             </p>
           </div>
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-4">
             <ShieldCheck className="h-5 w-5 text-amber-300" />
             <p className="mt-3 text-sm font-black text-white">Data Trust Boundary</p>
             <p className="mt-1 text-xs leading-relaxed text-white/55">

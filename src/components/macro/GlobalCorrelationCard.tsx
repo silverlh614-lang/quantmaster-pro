@@ -68,7 +68,7 @@ export function GlobalCorrelationCard() {
 
   if (!data) {
     return (
-      <div className="rounded border border-white/10 bg-white/5 p-3 sm:p-4 min-h-[120px]">
+      <div className="rounded border border-white/[0.07] bg-white/5 p-3 sm:p-4 min-h-[120px]">
         <div className="flex items-center gap-1.5 mb-2 text-[10px] font-semibold tracking-tight opacity-70">
           <GitMerge className="w-3 h-3" />
           <span>글로벌 상관관계</span>
@@ -84,7 +84,7 @@ export function GlobalCorrelationCard() {
         'rounded border p-3 sm:p-4 min-h-[120px]',
         data.isDecoupling ? 'border-amber-500/30 bg-amber-950/30' :
         data.isGlobalSync ? 'border-red-500/30 bg-red-950/30' :
-        'border-white/10 bg-white/5',
+        'border-white/[0.07] bg-white/5',
       )}
       role="region"
       aria-label="글로벌 상관관계"
