@@ -30,7 +30,7 @@ describe('navigation SSOT', () => {
   });
 
   it('keeps report entry points available on desktop and mobile', () => {
-    const report = NAV_GROUPS.find((group) => group.label === 'Report');
+    const report = NAV_GROUPS.find((group) => group.label === '리포트');
     expect(report).toBeDefined();
     expect(report?.items.map((item) => item.id)).toEqual(['PUBLIC_REPORT', 'BLOG_EXPORT', 'TELEGRAM_SUMMARY', 'PAID_PREVIEW']);
     expect(MORE_MOBILE_TABS.some((item) => item.id === 'BLOG_EXPORT')).toBe(true);
@@ -42,10 +42,10 @@ describe('navigation SSOT', () => {
   });
 
   it('hides operator navigation unless operator mode is enabled', () => {
-    expect(NAV_GROUPS.some((group) => group.label === 'Operator')).toBe(true);
-    expect(getVisibleNavGroups(false).some((group) => group.label === 'Operator')).toBe(false);
-    expect(getVisibleNavGroups(true).some((group) => group.label === 'Operator')).toBe(true);
-    const operator = getVisibleNavGroups(true).find((group) => group.label === 'Operator');
+    expect(NAV_GROUPS.some((group) => group.label === '운영자')).toBe(true);
+    expect(getVisibleNavGroups(false).some((group) => group.label === '운영자')).toBe(false);
+    expect(getVisibleNavGroups(true).some((group) => group.label === '운영자')).toBe(true);
+    const operator = getVisibleNavGroups(true).find((group) => group.label === '운영자');
     expect(operator?.items.map((item) => item.id)).toEqual([
       'MACRO_INTEL',
       'DIAGNOSTICS',
