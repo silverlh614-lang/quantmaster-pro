@@ -716,6 +716,12 @@ export async function fetchKisDailyShortSale(
   }
 }
 
+// ─── ADR-0548: KIS 국내휴장일조회(chk-holiday / CTCA0903R) — L1 휴장 권위 출처 ───
+// query.ts 1,500줄 한계(ADR-0537 baseline 해소) 보존을 위해 fetcher 본체는
+// query/holidayCalendar.ts leaf 로 분리. 기존 query.js 공개 경로는 byte-equivalent re-export.
+export { fetchKisHolidayCalendar } from './query/holidayCalendar.js';
+export type { KisHolidayEntry } from './query/holidayCalendar.js';
+
 export async function fetchKisShortSaleRanking(
   priority: KisApiPriority = 'LOW',
 ): Promise<KisShortSaleRankingRow[] | null> {

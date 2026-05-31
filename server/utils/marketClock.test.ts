@@ -116,4 +116,24 @@ describe('marketClock.classifyMarketDataMode (PR-37, ADR-0016)', () => {
     process.env.DATA_FETCH_FORCE_MARKET = 'true';
     expect(classifyMarketDataMode(SAT_1000_KST)).toBe('LIVE_TRADING_DAY');
   });
+
+  // ── ADR-0548 — 평일 휴장 인지(HOLIDAY_CACHE 배선) ──
+  // 2026-05-05 (화) 어린이날: STATIC_HOLIDAYS 등록 평일 휴장.
+  // isMarketOpen 은 휴장을 인지하지 않고 시간·주말만 판정하므로, HOLIDAY_CACHE 분기는
+  // 장중(09:00~15:30) 밖 시각에서만 평가된다. 16:00 KST(07:00 UTC)·08:00 KST 사용.
+  const HOLIDAY_TUE_1600_KST = new Date('2026-05-05T07:00:00.000Z');
+  const HOLIDAY_TUE_0800_KST = new Date('2026-05-04T23:00:00.000Z'); // 2026-05-05 08:00 KST(장전)
+
+  it('ADR-0548 — 평일 휴장(어린이날) 장 마감 후 → HOLIDAY_CACHE (AFTER_MARKET 오분류 수정)', () => {
+    expect(classifyMarketDataMode(HOLIDAY_TUE_1600_KST)).toBe('HOLIDAY_CACHE');
+  });
+  it('ADR-0548 — 평일 휴장(어린이날) 장전 → HOLIDAY_CACHE', () => {
+    expect(classifyMarketDataMode(HOLIDAY_TUE_0800_KST)).toBe('HOLIDAY_CACHE');
+  });
+  it('ADR-0548 — 평일 비휴장 비영업(장 마감 후) → AFTER_MARKET (회귀 무변)', () => {
+    expect(classifyMarketDataMode(FRI_1700_KST)).toBe('AFTER_MARKET');
+  });
+  it('ADR-0548 — 평일 비휴장 영업 → LIVE_TRADING_DAY (회귀 무변)', () => {
+    expect(classifyMarketDataMode(FRI_1000_KST)).toBe('LIVE_TRADING_DAY');
+  });
 });
