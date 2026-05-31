@@ -188,8 +188,12 @@ export function DiscoverWatchlistPage({
   usePriceAlertWatcher(displayList);
 
   // 상세 모달 좌우 스와이프 탐색용 — 현재 정렬된 후보 리스트를 store 에 동기화(모달은 전역 렌더라 직접 전달 불가).
+  // displayList 는 매 렌더 새 배열 참조라 의존성에 직접 쓰면 무한 setState 루프 → 종목코드 키로 변경 시에만 갱신.
   const setDetailNavList = useAnalysisStore((s) => s.setDetailNavList);
-  React.useEffect(() => { setDetailNavList(displayList); }, [displayList, setDetailNavList]);
+  const navKey = displayList.map((s) => s.code).join(',');
+  React.useEffect(() => {
+    setDetailNavList(displayList);
+  }, [navKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
     filters, setFilters,
