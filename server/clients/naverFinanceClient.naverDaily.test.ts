@@ -1,6 +1,6 @@
 // @responsibility normalizeNaverDaily 순수함수 단위 테스트 (실제 Naver /price 응답 형태 mock)
 import { describe, it, expect } from 'vitest';
-import { normalizeNaverDaily } from './naverFinanceClient.js';
+import { normalizeNaverDaily, normalizeNaverInvestorTrend } from './naverFinanceClient.js';
 
 // 실제 m.stock.naver.com/api/stock/{code}/price 응답 형태 (최신순·콤마 문자열·거래량 숫자)
 const rows = [
@@ -40,5 +40,33 @@ describe('normalizeNaverDaily', () => {
     ])!;
     expect(r.timestamp).toHaveLength(1);
     expect(r.indicators.quote[0].close).toEqual([317000]);
+  });
+});
+
+describe('normalizeNaverInvestorTrend (frgn.naver)', () => {
+  // 실제 frgn.naver 행 형태 (최신순): 날짜·종가·전일대비·등락률·거래량·기관순매수·외인순매수·외인보유주수·보유율%
+  const html = `<table>
+    <tr><td>2026.05.29</td><td>317,000</td><td>17,500</td><td>+5.84%</td><td>32,804,208</td><td>+5,314,304</td><td>-1,061,741</td><td>2,822,131,672</td><td>48.27%</td></tr>
+    <tr><td>2026.05.28</td><td>299,500</td><td>7,500</td><td>-2.44%</td><td>30,195,334</td><td>-1,613,562</td><td>-5,173,125</td><td>2,823,193,413</td><td>48.29%</td></tr>
+    <tr><td>2026.05.27</td><td>307,000</td><td>8,000</td><td>+2.68%</td><td>33,916,688</td><td>+1,550,904</td><td>-274,173</td><td>2,828,993,929</td><td>48.39%</td></tr>
+  </table>`;
+
+  it('5일 누적 순매수 합산 (컬럼: 기관=nums[4], 외국인=nums[5])', () => {
+    const r = normalizeNaverInvestorTrend(html)!;
+    expect(r.institutionNet).toBe(5314304 - 1613562 + 1550904);
+    expect(r.foreignNet).toBe(-1061741 - 5173125 - 274173);
+    expect(r.individualNet).toBe(-(r.foreignNet + r.institutionNet));
+    expect(r.dataSource).toBe('NAVER');
+  });
+
+  it('외국인 보유율 = 최신행 nums[7], 연속 순매수일 = 0(최신 외인 순매도)', () => {
+    const r = normalizeNaverInvestorTrend(html)!;
+    expect(r.foreignerOwnRatio).toBe(48.27);
+    expect(r.foreignConsecutive).toBe(0);
+  });
+
+  it('데이터 행 없음/빈 HTML → null', () => {
+    expect(normalizeNaverInvestorTrend('<table><tr><th>날짜</th></tr></table>')).toBeNull();
+    expect(normalizeNaverInvestorTrend('')).toBeNull();
   });
 });

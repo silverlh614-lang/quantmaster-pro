@@ -55,6 +55,30 @@ export async function fetchNaverPeak(code: string): Promise<number | null> {
   return valid.length > 0 ? Math.max(...valid) : null;
 }
 
+export interface NaverSupplyDetail {
+  foreignNet: number;
+  institutionNet: number;
+  individualNet: number;
+  foreignConsecutive: number;
+  isPassiveAndActive: boolean;
+  foreignerOwnRatio?: number;
+  dataSource: 'NAVER';
+}
+
+/** 외국인/기관 5일 순매수 (Naver frgn.naver, 장외 가용). 실패 시 null → KIS fallback. */
+export async function fetchNaverSupply(code: string): Promise<NaverSupplyDetail | null> {
+  const base = baseCodeOf(code);
+  if (!base) return null;
+  try {
+    const res = await fetch(`/api/naver/supply?code=${base}`);
+    if (res.status === 204 || !res.ok) return null;
+    const data = await res.json();
+    return data && data.dataSource === 'NAVER' ? (data as NaverSupplyDetail) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 테스트·진단용 캐시 초기화. */
 export function resetNaverDailyCache(): void {
   _cache.clear();

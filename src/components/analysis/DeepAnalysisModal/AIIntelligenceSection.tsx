@@ -259,8 +259,10 @@ function SupplyDataCard({ stock }: Props) {
   // 순매수(net flow) 측정 소스가 KIS/KRX 일 때만 실데이터. 기본 경로는 Naver snapshot
   // stub(buildSnapshotSupplyStub — 순매수 0 박제)이므로 그 경우 0주를 '실데이터' 로
   // 오인시키지 않고 '미연동' 으로 정직 표기한다 (KIS 투자자별 매매동향 배선 시 자동 노출).
+  // 'NAVER'(frgn.naver 실 순매수) 는 실데이터. 'NAVER_SNAPSHOT'(stub, 순매수 0)은 제외.
   const hasRealFlow =
-    sd.dataSource === 'KIS' || sd.dataSource === 'KIS_OFFICIAL' || sd.dataSource === 'KRX';
+    sd.dataSource === 'KIS' || sd.dataSource === 'KIS_OFFICIAL' ||
+    sd.dataSource === 'KRX' || sd.dataSource === 'NAVER';
   // 외국인 보유율 — Naver 모바일 snapshot 실데이터. 5일 순매수(KIS 필요)와 달리 KIS 없이도 가용.
   const ownRatio = typeof sd.foreignerOwnRatio === 'number' && sd.foreignerOwnRatio > 0
     ? sd.foreignerOwnRatio

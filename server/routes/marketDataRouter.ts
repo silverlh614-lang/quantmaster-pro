@@ -14,7 +14,7 @@ import {
   buildMacroInterpretContext,
 } from '../engines/macroIndexEngine.js';
 import { fetchPerPbr } from '../clients/krxClient.js';
-import { fetchNaverDailyOhlcv } from '../clients/naverFinanceClient.js';
+import { fetchNaverDailyOhlcv, fetchNaverInvestorTrend } from '../clients/naverFinanceClient.js';
 import { isMarketOpen } from '../utils/marketClock.js';
 import { isMarketOpenFor, nextOpenAtFor } from '../utils/symbolMarketRegistry.js';
 import { guardedFetch } from '../utils/egressGuard.js';
@@ -53,6 +53,26 @@ router.get('/naver/daily', async (req: Request, res: Response) => {
   } catch (e: any) {
     logger.warn(`[naver/daily] ${code}: ${e?.message ?? e}`);
     res.status(502).json({ error: 'naver daily fetch 실패' });
+  }
+});
+
+// Naver 외국인/기관 순매수 (frgn.naver). KIS 와 달리 장외에도 가용 — 표시 전용.
+router.get('/naver/supply', async (req: Request, res: Response) => {
+  const code = String(req.query.code ?? '').trim();
+  if (!/^\d{6}$/.test(code)) {
+    res.status(400).json({ error: 'code(6자리 KR) 파라미터 필요' });
+    return;
+  }
+  try {
+    const supply = await fetchNaverInvestorTrend(code);
+    if (!supply) {
+      res.status(204).end();
+      return;
+    }
+    res.json(supply);
+  } catch (e: any) {
+    logger.warn(`[naver/supply] ${code}: ${e?.message ?? e}`);
+    res.status(502).json({ error: 'naver supply fetch 실패' });
   }
 });
 

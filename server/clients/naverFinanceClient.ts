@@ -205,6 +205,91 @@ export async function fetchNaverDailyOhlcv(code: string, count = 260): Promise<N
   }
 }
 
+/** 외국인/기관 순매수 (frgn.naver) — 표시 전용. KIS 와 달리 장외에도 가용. */
+export interface NaverInvestorTrend {
+  foreignNet: number;      // 최근 5거래일 외국인 순매수 합
+  institutionNet: number;  // 최근 5거래일 기관 순매수 합
+  individualNet: number;   // frgn.naver 미제공 → -(외인+기관) 근사
+  foreignConsecutive: number;
+  isPassiveAndActive: boolean;
+  foreignerOwnRatio?: number;
+  dataSource: 'NAVER';
+}
+
+function parseSignedNumber(input: string): number | null {
+  const cleaned = input.replace(/,/g, '').replace(/%/g, '').replace(/[^\d+\-.]/g, '').trim();
+  if (!cleaned || !/^[+-]?\d+(\.\d+)?$/.test(cleaned)) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * frgn.naver(외국인/기관 매매동향) HTML 을 5일 누적 순매수로 정규화 (순수 함수 — 단위 테스트).
+ * 컬럼: 날짜, 종가, 전일대비, 등락률, 거래량, 기관 순매수(nums[4]), 외국인 순매수(nums[5]),
+ * 외국인 보유주수(nums[6]), 외국인 보유율%(nums[7]). 숫자/날짜는 ASCII 라 EUC-KR 디코딩 불필요.
+ */
+export function normalizeNaverInvestorTrend(html: string): NaverInvestorTrend | null {
+  const rows = [...html.matchAll(/<tr[\s\S]*?<\/tr>/gi)].map((m) => m[0]);
+  const data: { institution: number; foreign: number; ownRatio: number | null }[] = [];
+  for (const row of rows) {
+    const cells = [...row.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) =>
+      m[1].replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/gi, ' ').replace(/\s+/g, ' ').trim(),
+    );
+    if (!cells.some((c) => /\d{4}\.\d{2}\.\d{2}/.test(c))) continue;
+    const nums = cells.filter((c) => c && !/\d{4}\.\d{2}\.\d{2}/.test(c));
+    const institution = parseSignedNumber(nums[4] ?? '');
+    const foreign = parseSignedNumber(nums[5] ?? '');
+    if (institution === null && foreign === null) continue;
+    data.push({ institution: institution ?? 0, foreign: foreign ?? 0, ownRatio: parseSignedNumber(nums[7] ?? '') });
+  }
+  if (data.length === 0) return null;
+  const recent = data.slice(0, 5);
+  const foreignNet = recent.reduce((s, r) => s + r.foreign, 0);
+  const institutionNet = recent.reduce((s, r) => s + r.institution, 0);
+  let foreignConsecutive = 0;
+  for (const r of recent) {
+    if (r.foreign > 0) foreignConsecutive += 1;
+    else break;
+  }
+  return {
+    foreignNet,
+    institutionNet,
+    individualNet: -(foreignNet + institutionNet),
+    foreignConsecutive,
+    isPassiveAndActive: foreignNet > 0 && institutionNet > 0,
+    foreignerOwnRatio: recent[0].ownRatio ?? undefined,
+    dataSource: 'NAVER',
+  };
+}
+
+/** 외국인/기관 순매수 (frgn.naver, 장외 가용). 실패 시 null. */
+export async function fetchNaverInvestorTrend(code: string): Promise<NaverInvestorTrend | null> {
+  if (!/^\d{6}$/.test(code)) return null;
+  if (isNegativelyCached(code)) return null;
+  if (!tryConsume('naver_finance', 1)) return null;
+  const url = `https://finance.naver.com/item/frgn.naver?code=${code}`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
+        'Referer': 'https://finance.naver.com/',
+      },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      if (res.status >= 400 && res.status < 500) recordNegative(code);
+      return null;
+    }
+    // 숫자/날짜는 ASCII — latin1 로 읽어 EUC-KR 디코딩 없이 파싱 (한글 라벨은 무시).
+    const html = Buffer.from(await res.arrayBuffer()).toString('latin1');
+    return normalizeNaverInvestorTrend(html);
+  } catch (e) {
+    console.warn(`[NaverFinance] frgn fetch 실패 ${code}: ${e instanceof Error ? e.message : e}`);
+    return null;
+  }
+}
+
 /**
  * 다중 종목 enrichment — 병렬 4건 제한.
  */
