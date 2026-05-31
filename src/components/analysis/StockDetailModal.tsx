@@ -17,7 +17,7 @@ import { GateStatusWidget } from './GateStatusWidget';
 import { TranchePlanCard } from './TranchePlanCard';
 import { PriceDisplay } from '../common/PriceDisplay';
 import { usePriceCanon } from '../../hooks/usePriceCanon';
-import { computeEntryStrategy } from '../../utils/priceStrategy';
+import { computeTranchePlan, toTranchePlan, type TranchePlanResult } from '../../utils/priceStrategy';
 
 interface StockDetailModalProps {
   stock: StockRecommendation | null;
@@ -182,26 +182,16 @@ function AiAnalysisCard({ stock }: { stock: StockRecommendation }) {
   );
 }
 
-function PriceStrategyGrid({ stock }: { stock: StockRecommendation }) {
-  // 가격 전략 정본 — 현재가(Naver) 기준 stale 재계산. 검색 카드·deep-analysis 와 동일 헬퍼.
-  const { price: canonPrice } = usePriceCanon(stock.code, {
-    fallbackPrice: stock.dataSourceType === 'REALTIME' ? stock.currentPrice : undefined,
-    fallbackSource: 'REALTIME',
-  });
-  const current = canonPrice ?? stock.currentPrice ?? 0;
-  const { entry, target, stop, basis } = computeEntryStrategy(
-    current, stock.entryPrice ?? 0, stock.targetPrice ?? 0, stock.stopLoss ?? 0, stock.technicalSignals?.disparity20,
-  );
+function PriceStrategyGrid({ stock, plan, current }: { stock: StockRecommendation; plan: TranchePlanResult | null; current: number }) {
+  // regime 가중 분할매수 — 진입(평균)/목표/손절. 1·2·3차 상세는 위 분할매수 계획 카드.
+  const entry = plan?.avgEntry ?? stock.entryPrice ?? 0;
+  const target = plan?.target ?? stock.targetPrice ?? 0;
+  const stop = plan?.stop ?? stock.stopLoss ?? 0;
   return (
-    <div>
-      <div className="grid grid-cols-3 gap-3">
-        <PriceBox tone="blue" label="진입" value={entry > 0 ? formatWon(entry) : fallbackPrice(current, 1)} />
-        <PriceBox tone="green" label="목표" value={target > 0 ? formatWon(target) : fallbackPrice(current, 1.2)} />
-        <PriceBox tone="red" label="손절" value={stop > 0 ? formatWon(stop) : fallbackPrice(current, 0.93)} />
-      </div>
-      {basis === 'PULLBACK' && (
-        <p className="mt-2 text-[9px] font-black text-amber-400/70">ⓘ 눌림목(20일선) 진입 — 현재가 추격 대신 되돌림 매수</p>
-      )}
+    <div className="grid grid-cols-3 gap-3">
+      <PriceBox tone="blue" label={plan?.multiTranche ? '진입(평균)' : '진입'} value={entry > 0 ? formatWon(entry) : fallbackPrice(current, 1)} />
+      <PriceBox tone="green" label="목표" value={target > 0 ? formatWon(target) : fallbackPrice(current, 1.2)} />
+      <PriceBox tone="red" label="손절" value={stop > 0 ? formatWon(stop) : fallbackPrice(current, 0.93)} />
     </div>
   );
 }
@@ -346,13 +336,23 @@ function NewsLink({
 }
 
 function ModalBody({ stock }: { stock: StockRecommendation }) {
+  // 가격 정본(Naver) + regime 가중 분할매수 계획 — 분할매수 카드와 가격 전략이 공유.
+  const { price: canonPrice } = usePriceCanon(stock.code, {
+    fallbackPrice: stock.dataSourceType === 'REALTIME' ? stock.currentPrice : undefined,
+    fallbackSource: 'REALTIME',
+  });
+  const current = canonPrice ?? stock.currentPrice ?? 0;
+  const tranchePlan = computeTranchePlan(
+    current, stock.technicalSignals?.disparity20, stock.aiConvictionScore?.marketPhase,
+    stock.entryPrice ?? 0, stock.targetPrice ?? 0, stock.stopLoss ?? 0,
+  );
   return (
     <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
       {stock.checklist && <GateStatusWidget stock={stock} />}
-      <TranchePlanCard plan={stock.tranchePlan} />
+      <TranchePlanCard plan={stock.tranchePlan ?? (tranchePlan ? toTranchePlan(tranchePlan) : null)} />
       <AiConvictionCard stock={stock} />
       <AiAnalysisCard stock={stock} />
-      <PriceStrategyGrid stock={stock} />
+      <PriceStrategyGrid stock={stock} plan={tranchePlan} current={current} />
       <ChecklistSummary stock={stock} />
       <FundamentalsCard stock={stock} />
       <NewsCard stock={stock} />

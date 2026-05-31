@@ -1,41 +1,53 @@
-// @responsibility computeEntryStrategy 단위 테스트 — 눌림목(20일선) 진입 전략.
+// @responsibility computeTranchePlan/toTranchePlan 단위 테스트 — regime 가중 분할매수.
 import { describe, it, expect } from 'vitest';
-import { computeEntryStrategy } from './priceStrategy';
+import { computeTranchePlan, toTranchePlan } from './priceStrategy';
 
-describe('computeEntryStrategy (눌림목)', () => {
-  it('이격 큰 종목 — 진입 = 20일선 눌림목(현재가 아래) + R:R 보존', () => {
-    // 현재 153,100 · 이격도 108(20일선 8% 위) · AI 진입 118,500 목표 155,000 손절 102,000
-    const r = computeEntryStrategy(153100, 118500, 155000, 102000, 108);
-    expect(r.basis).toBe('PULLBACK');
-    expect(r.entry).toBe(Math.round(153100 * (100 / 108))); // MA20 ≈ 141,759
-    expect(r.entry).toBeLessThan(153100);
-    expect(r.target).toBe(Math.round(r.entry * (155000 / 118500)));
-    expect(r.stop).toBe(Math.round(r.entry * (102000 / 118500)));
-    expect(r.target).toBeGreaterThan(r.entry);
-    expect(r.stop).toBeLessThan(r.entry);
+describe('computeTranchePlan (regime 가중 분할매수)', () => {
+  it('강세(BULL) — 즉시 비중↑ [50/30/20], 3분할, 눌림목이 현재가 아래', () => {
+    const r = computeTranchePlan(153100, 108, 'BULL', 118500, 155000, 102000)!;
+    expect(r.multiTranche).toBe(true);
+    expect(r.regimeLabel).toBe('강세');
+    expect(r.levels.map((l) => l.weight)).toEqual([50, 30, 20]);
+    expect(r.levels[0].price).toBe(153100);            // 1차 = 현재가
+    expect(r.levels[2].price).toBeLessThan(153100);     // 3차 = 20일선 눌림목 (아래)
+    expect(r.zoneLow).toBe(r.levels[2].price);
+    expect(r.zoneHigh).toBe(153100);
+    expect(r.avgEntry).toBeGreaterThan(r.zoneLow);
+    expect(r.avgEntry).toBeLessThan(r.zoneHigh);
+    expect(r.target).toBeGreaterThan(r.avgEntry);
+    expect(r.stop).toBeLessThan(r.avgEntry);
   });
 
-  it('이격 ≤100 (20일선 근처/아래) — 진입 = 현재가', () => {
-    const r = computeEntryStrategy(100000, 95000, 120000, 90000, 99);
-    expect(r.basis).toBe('CURRENT');
-    expect(r.entry).toBe(100000);
+  it('약세(BEAR) — 깊은 눌림 비중↑ [20/30/50] (방어)', () => {
+    const r = computeTranchePlan(153100, 108, 'BEAR', 118500, 155000, 102000)!;
+    expect(r.regimeLabel).toBe('약세');
+    expect(r.levels.map((l) => l.weight)).toEqual([20, 30, 50]);
   });
 
-  it('이격도 없음 — 진입 = 현재가 (눌림목 데이터 부재)', () => {
-    const r = computeEntryStrategy(100000, 95000, 120000, 90000, undefined);
-    expect(r.basis).toBe('CURRENT');
-    expect(r.entry).toBe(100000);
+  it('중립(SIDEWAYS) — 균등 [34/33/33]', () => {
+    const r = computeTranchePlan(153100, 108, 'SIDEWAYS', 118500, 155000, 102000)!;
+    expect(r.regimeLabel).toBe('중립');
+    expect(r.levels.map((l) => l.weight)).toEqual([34, 33, 33]);
   });
 
-  it('과도한 이격 — 되돌림 15%로 clamp', () => {
-    // 이격도 140 → 100/140≈0.714 → clamp 0.85 (최대 15% 되돌림)
-    const r = computeEntryStrategy(100000, 90000, 130000, 85000, 140);
-    expect(r.entry).toBe(85000);
+  it('되돌림 여력 없음(이격≤100) — 단일 진입(현재가, 100%)', () => {
+    const r = computeTranchePlan(100000, 99, 'BULL', 95000, 120000, 90000)!;
+    expect(r.multiTranche).toBe(false);
+    expect(r.levels).toHaveLength(1);
+    expect(r.levels[0].weight).toBe(100);
+    expect(r.levels[0].price).toBe(100000);
   });
 
-  it('current 0 — 원본 AI 레벨 그대로', () => {
-    const r = computeEntryStrategy(0, 95000, 120000, 90000, 110);
-    expect(r.entry).toBe(95000);
-    expect(r.target).toBe(120000);
+  it('current 0 — null', () => {
+    expect(computeTranchePlan(0, 108, 'BULL', 1, 1, 1)).toBeNull();
+  });
+
+  it('toTranchePlan — 카드용 변환 (size·trigger·status)', () => {
+    const r = computeTranchePlan(153100, 108, 'BULL', 118500, 155000, 102000)!;
+    const plan = toTranchePlan(r);
+    expect(plan.tranche1.size).toBe(50);
+    expect(plan.tranche1.status).toBe('PENDING');
+    expect(plan.tranche1.trigger).toContain('₩');
+    expect(plan.tranche3.size).toBe(20);
   });
 });

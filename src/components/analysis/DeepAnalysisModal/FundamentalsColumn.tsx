@@ -3,7 +3,8 @@ import React from 'react';
 import { BarChart3, ShieldCheck } from 'lucide-react';
 import { cn } from '../../../ui/cn';
 import { usePriceCanon } from '../../../hooks/usePriceCanon';
-import { computeEntryStrategy } from '../../../utils/priceStrategy';
+import { computeTranchePlan } from '../../../utils/priceStrategy';
+import { TrancheBreakdown } from '../../common/TrancheBreakdown';
 import type { StockRecommendation } from '../../../services/stockService';
 
 interface Props {
@@ -185,17 +186,22 @@ function PriceActionCards({ stock }: Props) {
     fallbackSource: 'REALTIME',
   });
   const current = canonPrice ?? stock.currentPrice ?? 0;
-  const { entry, target, stop, basis } = computeEntryStrategy(
-    current, stock.entryPrice ?? 0, stock.targetPrice ?? 0, stock.stopLoss ?? 0, stock.technicalSignals?.disparity20,
+  const plan = computeTranchePlan(
+    current, stock.technicalSignals?.disparity20, stock.aiConvictionScore?.marketPhase,
+    stock.entryPrice ?? 0, stock.targetPrice ?? 0, stock.stopLoss ?? 0,
   );
+  const entry = plan?.avgEntry ?? stock.entryPrice ?? 0;
+  const target = plan?.target ?? stock.targetPrice ?? 0;
+  const stop = plan?.stop ?? stock.stopLoss ?? 0;
+  const multi = plan?.multiTranche ?? false;
   const pct = (v: number) => (current > 0 && v > 0 ? Math.round((v / current - 1) * 100) : 0);
   return (
     <>
       <div className="grid grid-cols-3 gap-3 mt-4">
         <PriceActionCard
-          label="진입"
+          label={multi ? '진입(평균)' : '진입'}
           value={entry > 0 ? `₩${entry.toLocaleString()}` : '---'}
-          subValue={basis !== 'PULLBACK' && stock.entryPrice2 ? `~ ₩${stock.entryPrice2.toLocaleString()}` : undefined}
+          subValue={!multi && stock.entryPrice2 ? `~ ₩${stock.entryPrice2.toLocaleString()}` : undefined}
           className="bg-blue-500/10 border-blue-500/20"
           labelClassName="text-blue-400/60"
           valueClassName="text-lg font-black text-white"
@@ -220,9 +226,7 @@ function PriceActionCards({ stock }: Props) {
           subValueClassName="text-red-400/50"
         />
       </div>
-      {basis === 'PULLBACK' && (
-        <p className="mt-2 text-[9px] font-black text-amber-400/70">ⓘ 눌림목(20일선) 진입 — 현재가 추격 대신 되돌림 매수</p>
-      )}
+      <TrancheBreakdown plan={plan} />
     </>
   );
 }
