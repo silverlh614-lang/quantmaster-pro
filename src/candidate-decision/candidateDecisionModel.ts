@@ -59,22 +59,24 @@ function buildGateSummary(
   ids: readonly ConditionId[],
   required: number,
   failStatus: GateStatus,
-  explicitPassed?: boolean,
-  primaryReason?: string,
 ): GateSummary {
+  // UI 표시 SSOT — conditionPasses(>=CONDITION_PASS_THRESHOLD) 단일 임계값 기반.
+  // 직전엔 `explicitPassed` (stock.gateEvaluation.gateNPassed) 가 다른 임계값으로
+  // 산정된 후 우선 채택돼, status=PASS + passed=0/total=N 모순 표시됨.
+  // primaryReason 도 외부 값(다른 임계 기반) 무시하고 로컬 count 로 재구성 — 정직성.
   const passed = ids.filter((id) => conditionPasses(stock, id)).length;
-  const status: GateStatus = explicitPassed === true || passed >= required
+  const total = ids.length;
+  const status: GateStatus = passed >= required
     ? 'PASS'
     : passed === 0
       ? 'DATA_INSUFFICIENT'
       : failStatus;
-  return {
-    name,
-    status,
-    passed,
-    total: ids.length,
-    primaryReason,
-  };
+  const primaryReason = status === 'PASS'
+    ? `통과 (${passed}/${total} 항목 충족)`
+    : status === 'DATA_INSUFFICIENT'
+      ? `데이터 부족 — 평가 보류 (0/${total})`
+      : `미충족 (${passed}/${total} 항목, 기준 ${required})`;
+  return { name, status, passed, total, primaryReason };
 }
 
 function buildGate0Summary(context: CandidateDecisionBuildContext, stock: StockRecommendation): GateSummary {
@@ -367,9 +369,9 @@ export function buildCandidateDecisionCardModel(
   const asOf = context.asOf ?? stock.priceUpdatedAt ?? stock.financialUpdatedAt ?? new Date(0).toISOString();
   const confidence = buildCandidateDataConfidence(stock);
   const gate0 = buildGate0Summary(context, stock);
-  const gate1 = buildGateSummary(stock, 'Gate 1 Survival', GATE1_IDS, GATE1_REQUIRED, 'BLOCKED', stock.gateEvaluation?.gate1Passed, stock.gateEvaluation?.gate1?.reason);
-  const gate2 = buildGateSummary(stock, 'Gate 2 Growth', GATE2_IDS, GATE2_REQUIRED, 'WATCH', stock.gateEvaluation?.gate2Passed, stock.gateEvaluation?.gate2?.reason);
-  const gate3 = buildGateSummary(stock, 'Gate 3 Timing', GATE3_IDS, GATE3_REQUIRED, 'WAIT', stock.gateEvaluation?.gate3Passed, stock.gateEvaluation?.gate3?.reason);
+  const gate1 = buildGateSummary(stock, 'Gate 1 Survival', GATE1_IDS, GATE1_REQUIRED, 'BLOCKED');
+  const gate2 = buildGateSummary(stock, 'Gate 2 Growth', GATE2_IDS, GATE2_REQUIRED, 'WATCH');
+  const gate3 = buildGateSummary(stock, 'Gate 3 Timing', GATE3_IDS, GATE3_REQUIRED, 'WAIT');
   const sectorAlignment = buildSectorAlignment(stock, context);
   const finalDecision = decideStatus(stock, confidence, gate0, gate1, gate2, gate3, engineMode, sectorAlignment);
   const positiveDrivers = buildPositiveDrivers(stock, gate1, gate2, gate3, sectorAlignment);

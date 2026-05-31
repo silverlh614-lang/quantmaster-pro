@@ -2,6 +2,24 @@ import { describe, expect, it } from 'vitest';
 import type { StockRecommendation } from '../services/stockService';
 import { buildCandidateDecisionCardModel, buildCandidateDecisionSummary } from './candidateDecisionModel';
 
+// buildGateSummary 가 stock.checklist 의 각 키 점수(>=CONDITION_PASS_THRESHOLD=5) 를
+// 카운트해 Gate status 산출 — 정직한 데이터 모델 정합 (직전엔 gateNPassed 외부 값
+// 우선 채택했지만 그 경로는 다른 임계값으로 산출돼 UI 모순 야기).
+const FULL_PASS_CHECKLIST = {
+  cycleVerified: 8, momentumRanking: 8, roeType3: 8, supplyInflow: 8, riskOnEnvironment: 8,
+  ichimokuBreakout: 8, mechanicalStop: 8, economicMoatVerified: 8, notPreviousLeader: 8,
+  technicalGoldenCross: 8, volumeSurgeVerified: 8, institutionalBuying: 8, consensusTarget: 8,
+  earningsSurprise: 8, performanceReality: 8, policyAlignment: 8, psychologicalObjectivity: 8,
+  turtleBreakout: 8, fibonacciLevel: 8, elliottWaveVerified: 8, vcpPattern: 8, divergenceCheck: 8,
+  marginAcceleration: 8, interestCoverage: 8, ocfQuality: 8, relativeStrength: 8, catalystAnalysis: 8,
+} as StockRecommendation['checklist'];
+
+// conditionSourceTiers — 모든 키 COMPUTED 로 명시해 aiInferred=0 (classifyDataQuality
+// heuristic 의 AI_INFERRED fallback 회피 — 테스트 deterministic).
+const ALL_COMPUTED_TIERS = Object.fromEntries(
+  Object.keys(FULL_PASS_CHECKLIST).map((k) => [k, 'COMPUTED']),
+) as NonNullable<StockRecommendation['conditionSourceTiers']>;
+
 function stock(overrides: Partial<StockRecommendation> = {}): StockRecommendation {
   return {
     name: 'Example Candidate',
@@ -24,7 +42,8 @@ function stock(overrides: Partial<StockRecommendation> = {}): StockRecommendatio
       gate2: { score: 80, reason: 'Growth validation passed' },
       gate3: { score: 78, reason: 'Timing gate passed' },
     },
-    checklist: {},
+    checklist: FULL_PASS_CHECKLIST,
+    conditionSourceTiers: ALL_COMPUTED_TIERS,
     patterns: ['VCP'],
     riskFactors: ['RRR watch'],
     supplyQuality: { active: true, passive: false },
@@ -32,7 +51,6 @@ function stock(overrides: Partial<StockRecommendation> = {}): StockRecommendatio
     visualReport: { financial: 80, technical: 76, supply: 74, summary: 'Balanced confluence.' },
     relatedSectors: ['Shipbuilding'],
     technicalSignals: { rsi: 62 },
-    conditionSourceTiers: {},
     ...overrides,
   } as StockRecommendation;
 }
