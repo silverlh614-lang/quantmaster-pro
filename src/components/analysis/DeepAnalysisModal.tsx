@@ -9,6 +9,7 @@ import { AnalysisViewToggle, AnalysisViewButtons } from './AnalysisViewToggle';
 import { evaluateStock } from '../../services/quant/gateEngine';
 import { useGlobalIntelStore, useMarketStore, useRecommendationStore, useSettingsStore } from '../../stores';
 import { useAnalysisStore } from '../../stores';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import { useShadowTradeStore } from '../../stores/useShadowTradeStore';
 import { buildShadowTrade } from '../../services/autoTrading';
 import { syncStockPrice } from '../../services/stockService';
@@ -334,6 +335,11 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
   const { watchlist, setWatchlist } = useRecommendationStore();
   const { setView } = useSettingsStore();
   const { addShadowTrade } = useShadowTradeStore();
+  // 모바일은 아래에서 올라오는 바텀시트, 데스크톱은 기존 중앙 모달 — 진입 애니메이션을 분기.
+  const isMobile = useIsMobile();
+  const sheetMotion = isMobile
+    ? { initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' } }
+    : { initial: { scale: 0.95, opacity: 0, y: 30 }, animate: { scale: 1, opacity: 1, y: 0 }, exit: { scale: 0.95, opacity: 0, y: 30 } };
 
   const deepAnalysisGateSignals = useMemo(() => {
     if (!stock) return [];
@@ -359,17 +365,20 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[150] flex items-center justify-center p-3 md:p-5 bg-black/90 backdrop-blur-md"
+          className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center p-0 sm:p-5 bg-black/90 backdrop-blur-md"
         >
           <motion.div
             key="deep-analysis-content"
             ref={analysisReportRef}
-            initial={{ scale: 0.95, opacity: 0, y: 30 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.95, opacity: 0, y: 30 }}
-            className="glass-3d rounded-3xl w-full max-w-[1400px] max-h-[94vh] border border-white/[0.07] shadow-xl overflow-hidden relative flex flex-col print-section"
+            initial={sheetMotion.initial}
+            animate={sheetMotion.animate}
+            exit={sheetMotion.exit}
+            transition={{ duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
+            className="glass-3d rounded-t-3xl sm:rounded-3xl w-full max-w-[1400px] max-h-[92vh] sm:max-h-[94vh] border border-white/[0.07] shadow-xl overflow-hidden relative flex flex-col print-section"
             onClick={e => e.stopPropagation()}
           >
+            {/* 모바일 바텀시트 grabber — 시트임을 알리는 시각 affordance (닫기는 X 버튼 전용) */}
+            <div className="sm:hidden mx-auto mt-2.5 mb-1 h-1 w-10 shrink-0 rounded-full bg-white/20 no-print" />
             <AnalysisViewToggle>
             {(analysisView, setAnalysisView) => (<>
             <DeepAnalysisActionButtons
