@@ -382,8 +382,18 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     sectorEnergyCanonical?.promotionCoveragePass === true
     && sectorEnergyCanonical?.verifiedOfficialSectorCount === 11
     && sectorEnergyCanonical?.dataQuality === 'VERIFIED';
-  if (!sectorEnergyCanonicalHealthy && sectorEnergyHealth.dataQuality && sectorEnergyHealth.dataQuality !== 'OK') addReason(blockedBy, 'SECTOR_ENERGY_DEGRADED');
-  if (!sectorEnergyCanonicalHealthy && sectorEnergyHealth.leadershipConfidence === 'BLOCKED') addReason(blockedBy, 'SECTOR_ENERGY_LEADERSHIP_BLOCKED');
+  // ADR-0544 follow-up (GAP-C): 휴일/세션닫힘 verify-skip 은 소스 결함(DEGRADED)이 아니라
+  // SESSION_NOT_VERIFIABLE 이다 (불변식 #6: providerIssue≠bearish). canonical resolver/operator
+  // action/KIS status 표시는 ADR-0544 가 이미 분리했으나 runtime pipeline audit blockedBy 산출만
+  // 누락되어 SECTOR_ENERGY_DEGRADED + legacy promotion 토큰(HIGH_MISSING_RATE 등)이 잔존했다.
+  // session-closed 면 healthy 와 동일하게 promotion blocker 억제 — 게이팅(promotionCoveragePass)
+  // 은 읽지도 쓰지도 않으므로 promotion 은 어차피 disabled 그대로. executionImpact=NONE.
+  const sectorEnergySessionClosed =
+    sectorEnergyCanonical?.dataQuality === 'SESSION_NOT_VERIFIABLE'
+    || sectorEnergyCanonical?.sectorIndexVerifyMode === 'VERIFY_SKIPPED_SESSION_CLOSED';
+  const sectorEnergyPromotionBlockerSuppressed = sectorEnergyCanonicalHealthy || sectorEnergySessionClosed;
+  if (!sectorEnergyPromotionBlockerSuppressed && sectorEnergyHealth.dataQuality && sectorEnergyHealth.dataQuality !== 'OK') addReason(blockedBy, 'SECTOR_ENERGY_DEGRADED');
+  if (!sectorEnergyPromotionBlockerSuppressed && sectorEnergyHealth.leadershipConfidence === 'BLOCKED') addReason(blockedBy, 'SECTOR_ENERGY_LEADERSHIP_BLOCKED');
 
   const promotionAuditInputs = [
     ...(summary?.investorFlowSampleAdr0489 ? [buildPromotionAuditInputForDataLineAdr0494({
@@ -402,10 +412,10 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
   const promotionAudits = evaluateFreshDataPromotionAuditsAdr0494(promotionAuditInputs, { store: null });
   const promotionAuditSummary = summarizeFreshDataPromotionAuditsAdr0494(promotionAudits);
   const sectorEnergyLegacyPromotionTokens = ['SECTOR_ENERGY_DEGRADED', 'SECTOR_ENERGY_UNOBSERVABLE', 'SECTOR_ENERGY_DIAGNOSTIC_ONLY', 'sectorEnergy:INSUFFICIENT_HISTORY', 'sectorEnergy:HIGH_MISSING_RATE'];
-  const promotionAuditBlockedLines = sectorEnergyCanonicalHealthy
+  const promotionAuditBlockedLines = sectorEnergyPromotionBlockerSuppressed
     ? promotionAuditSummary.promotionAuditBlockedLines.filter((line) => !sectorEnergyLegacyPromotionTokens.some((token) => line.includes(token)))
     : promotionAuditSummary.promotionAuditBlockedLines;
-  const promotionAuditBlockers = sectorEnergyCanonicalHealthy
+  const promotionAuditBlockers = sectorEnergyPromotionBlockerSuppressed
     ? promotionAuditSummary.promotionAuditBlockers.filter((line) => !sectorEnergyLegacyPromotionTokens.some((token) => line.includes(token)))
     : promotionAuditSummary.promotionAuditBlockers;
 
@@ -471,7 +481,7 @@ export function buildRuntimePipelineAuditSnapshot(): RuntimePipelineAuditSnapsho
     sellOnlyActive,
     emergencyStop: summary?.macroGateState?.emergencyStop ?? getEmergencyStop(),
     latestStage,
-    blockedBy: sectorEnergyCanonicalHealthy
+    blockedBy: sectorEnergyPromotionBlockerSuppressed
       ? blockedBy.filter((reason) => !['SECTOR_ENERGY_DEGRADED', 'SECTOR_ENERGY_UNOBSERVABLE', 'SECTOR_ENERGY_DIAGNOSTIC_ONLY'].includes(reason))
       : blockedBy,
     candidateSummaryCount,

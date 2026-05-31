@@ -69,7 +69,7 @@ export function renderSectorEnergyHealthBlockAdr0544(
     : canonical.promotionAllowed
       ? 'SectorEnergy coverage verified; promotion eligible.'
       : 'Repair SectorEnergy index master before promotion.';
-  return [
+  const lines = [
     'SectorEnergy Health:',
     '  Official sector master: LOADED',
     `  Live index verify: ${liveIndexVerify}`,
@@ -77,5 +77,26 @@ export function renderSectorEnergyHealthBlockAdr0544(
     `  Shadow evidence: ${canonical.shadowLeadershipAllowed ? 'ALLOWED' : 'BLOCKED'}`,
     `  ExecutionImpact: ${canonical.executionImpact}`,
     `  OperatorMessage: ${operatorMessage}`,
-  ].join('\n');
+  ];
+  if (sessionClosed) lines.push(...renderSectorEnergySessionClosedInvariantsAdr0544(canonical));
+  return lines.join('\n');
+}
+
+/**
+ * ADR-0544 follow-up (GAP-F): 휴일/세션닫힘 SectorEnergy 가 "고장"이 아니라 "검증 미시도(정상)"
+ * 임을 scan_blockers full 에 명시하는 invariant 라벨 (표시 전용). session-closed 일 때만 노출.
+ * 게이팅(promotionAllowed)은 읽기만 — 무변경. shadow/counterfactual 은 계속 ALLOWED.
+ */
+export function renderSectorEnergySessionClosedInvariantsAdr0544(
+  canonical: SectorEnergyCanonicalState,
+): string[] {
+  const shadowAllowed = canonical.shadowLeadershipAllowed === true;
+  return [
+    '  SectorEnergy Session Invariants:',
+    '    [OK] SECTOR_VERIFY_SKIPPED_IS_NOT_PROVIDER_FAILURE',
+    '    [OK] SESSION_CLOSED_SECTOR_NOT_DEGRADED_FOR_EXECUTION',
+    '    [OK] HOLIDAY_SECTOR_PROMOTION_DISABLED_NOT_REPAIR_REQUIRED',
+    `    [${shadowAllowed ? 'OK' : 'WARN'}] SHADOW_EVIDENCE_ALLOWED_WHEN_SECTOR_VERIFY_SKIPPED`,
+    '    [OK] SECTOR_VERIFY_NOT_ATTEMPTED_DOES_NOT_COUNT_AS_FAILURE',
+  ];
 }

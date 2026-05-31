@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { deriveSectorEnergyCanonicalState } from './sectorEnergyCanonicalState.js';
+import { renderSectorEnergyHealthBlockAdr0544 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488/sessionDisplayAdr0544.js';
 import type { SectorEnergyMasterSupplyLineReportAdr0488 } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488/types.js';
 
 /** 최소 master 픽스처 — verified=0 (per-sector 데이터 없음 → fallback count 0). */
@@ -82,5 +83,28 @@ describe('ADR-0544 adapter — session signal mapping', () => {
     expect(c.promotionAllowed).toBe(false);
     expect(c.sectorBoostAllowed).toBe(false);
     expect(c.strongBuyAllowed).toBe(false);
+  });
+});
+
+// ADR-0544 follow-up (GAP-F): Health 블록 세션 invariant 라벨.
+describe('ADR-0544 Health block — session-closed invariants', () => {
+  it('휴일 canonical → 5종 invariant 라벨 노출 + shadow ALLOWED', () => {
+    const c = deriveSectorEnergyCanonicalState(masterFixture(['SECTOR_INDEX_MARKET_CLOSED', 'HOLIDAY_NO_SESSION_OBSERVE_ONLY']));
+    const block = renderSectorEnergyHealthBlockAdr0544(c);
+    expect(block).toContain('SectorEnergy Session Invariants:');
+    expect(block).toContain('[OK] SECTOR_VERIFY_SKIPPED_IS_NOT_PROVIDER_FAILURE');
+    expect(block).toContain('[OK] SESSION_CLOSED_SECTOR_NOT_DEGRADED_FOR_EXECUTION');
+    expect(block).toContain('[OK] HOLIDAY_SECTOR_PROMOTION_DISABLED_NOT_REPAIR_REQUIRED');
+    expect(block).toContain('[OK] SHADOW_EVIDENCE_ALLOWED_WHEN_SECTOR_VERIFY_SKIPPED');
+    expect(block).toContain('[OK] SECTOR_VERIFY_NOT_ATTEMPTED_DOES_NOT_COUNT_AS_FAILURE');
+    // 휴일 operator 메시지는 수리 요구가 아니라 다음 거래일 관찰.
+    expect(block).toContain('Observe SectorEnergy verify on next trading session');
+    expect(block).not.toContain('Repair SectorEnergy index master');
+  });
+
+  it('장중 MISSING canonical → 세션 invariant 블록 미노출 (장중은 기존 표시 유지)', () => {
+    const c = deriveSectorEnergyCanonicalState(masterFixture(['OFFICIAL_INDEX_API_VERIFY_FAILED']));
+    const block = renderSectorEnergyHealthBlockAdr0544(c);
+    expect(block).not.toContain('SectorEnergy Session Invariants:');
   });
 });
