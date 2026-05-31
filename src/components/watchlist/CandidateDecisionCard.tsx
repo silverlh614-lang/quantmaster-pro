@@ -91,8 +91,8 @@ function ReasonList({ title, items, tone, limit }: { title: string; items: strin
           ))}
         </ul>
       ) : (
-        <div className="rounded-md border border-white/[0.07] bg-white/[0.025] px-2.5 py-1.5 text-[11px] text-white/35">
-          No major item.
+        <div className="rounded-md border border-white/[0.05] bg-white/[0.015] px-2.5 py-1.5 text-[11px] text-white/35">
+          주요 항목 없음
         </div>
       )}
     </div>
@@ -119,7 +119,7 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
 
   return (
     <section
-      className={cn('rounded-2xl border border-white/10 bg-black/18 p-4 shadow-inner', isReport && 'bg-white/[0.025]', className)}
+      className={cn('rounded-2xl border border-white/[0.06] bg-white/[0.015] p-4 sm:p-5', isReport && 'bg-white/[0.025]', className)}
       data-candidate-decision={model.finalDecision}
       data-shadow-tracking={model.shadowTrackingStatus}
       data-execution-impact={model.executionImpact}
@@ -144,7 +144,7 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[9px] font-black uppercase tracking-widest text-white/35">최종 점수</div>
+          <div className="text-[10px] font-semibold tracking-tight text-white/40">최종 점수</div>
           <div className="font-num text-2xl font-black text-white">{model.finalScore}</div>
           <div className="mt-1 max-w-[12rem] truncate text-[9px] font-mono text-white/30" title={model.sourceSnapshotId}>
             {model.sourceSnapshotId}
@@ -152,14 +152,14 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
+      <div className="mt-5 grid grid-cols-2 gap-2 xl:grid-cols-4">
         {[model.gate0, model.gate1, model.gate2, model.gate3].map((gate) => <GatePill key={gate.name} gate={gate} />)}
       </div>
 
-      <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
+      <div className="mt-3 rounded-lg border border-white/[0.05] bg-white/[0.018] px-3 py-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="text-[9px] font-black uppercase tracking-wider text-white/35">섹터 정렬</div>
+            <div className="text-[10px] font-semibold tracking-tight text-white/40">섹터 정렬</div>
             <div className="mt-1 text-xs font-black text-white">
               {model.sectorAlignment.sectorName} / 점수 {model.sectorAlignment.sectorScore} / 순위 {model.sectorAlignment.sectorRank || 'N/A'}
             </div>
@@ -184,7 +184,7 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
         </div>
       )}
 
-      <div className={cn('mt-4 grid gap-3', showDetails ? 'md:grid-cols-3' : 'grid-cols-1')}>
+      <div className={cn('mt-5 grid gap-3', showDetails ? 'md:grid-cols-3' : 'grid-cols-1')}>
         <ReasonList title="긍정 요인" items={model.positiveDrivers} tone="green" limit={isSimple ? 1 : 3} />
         {showDetails && <ReasonList title="리스크 요인" items={model.riskDrivers} tone="red" limit={3} />}
         <ReasonList title="차단 사유" items={model.blockedReasons} tone="amber" limit={isSimple ? 2 : 5} />
@@ -201,21 +201,21 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
         </div>
       )}
 
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
-          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-white/35"><Ban className="h-3 w-3" />실매매 집행</div>
+      <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="rounded-lg border border-white/[0.05] bg-white/[0.018] px-3 py-2.5">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-tight text-white/40"><Ban className="h-3 w-3" />실매매 집행</div>
           <div className={cn('mt-1 text-xs font-black', model.liveExecutionAllowed ? 'text-emerald-200' : 'text-amber-200')}>{executionText(model)}</div>
         </div>
-        <div className="rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
-          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-white/35"><ShieldCheck className="h-3 w-3" />Shadow</div>
+        <div className="rounded-lg border border-white/[0.05] bg-white/[0.018] px-3 py-2.5">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-tight text-white/40"><ShieldCheck className="h-3 w-3" />Shadow</div>
           <div className="mt-1 text-xs font-black text-violet-200">{model.shadowTrackingStatus}</div>
         </div>
-        <div className="rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
-          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-white/35"><Activity className="h-3 w-3" />영향</div>
+        <div className="rounded-lg border border-white/[0.05] bg-white/[0.018] px-3 py-2.5">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-tight text-white/40"><Activity className="h-3 w-3" />영향</div>
           <div className="mt-1 truncate text-xs font-black text-white/75" title={model.executionImpact}>{model.executionImpact}</div>
         </div>
-        <div className="rounded-lg border border-white/[0.08] bg-white/[0.025] px-3 py-2">
-          <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-white/35"><Timer className="h-3 w-3" />다음 조치</div>
+        <div className="rounded-lg border border-white/[0.05] bg-white/[0.018] px-3 py-2.5">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-tight text-white/40"><Timer className="h-3 w-3" />다음 조치</div>
           <div className="mt-1 truncate text-xs font-black text-white/75" title={model.nextAction.join(' / ')}>{model.nextAction[0] ?? 'WATCH'}</div>
         </div>
       </div>
