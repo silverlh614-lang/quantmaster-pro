@@ -747,15 +747,23 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
     canonical?.promotionCoveragePass === true
     && canonical?.verifiedOfficialSectorCount === 11
     && canonical?.dataQuality === 'VERIFIED';
+  // ADR-0544 follow-up: 휴일/세션닫힘 verify-skip 은 소스 결함(DEGRADED)이 아니므로 SectorEnergy
+  // 진단 소스를 push 하지 않는다 — push 하면 REPAIR_SECTOR_INDEX_MASTER action 이 (P3 강등돼도)
+  // operator action 리스트에 계속 노출된다. runtimePipelineAudit GAP-C 와 동일 패턴.
+  // 게이팅(promotionCoveragePass)은 미접촉 — promotion 은 어차피 휴일 disabled 그대로.
+  const sectorEnergySessionClosed =
+    canonical?.dataQuality === 'SESSION_NOT_VERIFIABLE'
+    || canonical?.sectorIndexVerifyMode === 'VERIFY_SKIPPED_SESSION_CLOSED';
+  const sectorEnergyDiagnosticSuppressed = sectorEnergyCanonicalHealthy || sectorEnergySessionClosed;
   if ((summary.candidates > 0 || summary.gateMisses > 0) && summary.entries === 0 && (summary.waitDistribution?.dataHold ?? 0) > 0) {
     sources.push({ adr: '0465', sectionId: 'scan_blockers', code: 'SUPPLY_DATA_UNAVAILABLE', diagnosticKey: 'investor_flow', diagnosticValue: 'DATA_UNAVAILABLE', severity: 'DATA_UNAVAILABLE' });
   }
   const sectorQuality = summary.sectorEnergyQuality;
-  if (!sectorEnergyCanonicalHealthy && sectorQuality && sectorQuality !== 'OK' && sectorQuality !== 'PARTIAL') {
+  if (!sectorEnergyDiagnosticSuppressed && sectorQuality && sectorQuality !== 'OK' && sectorQuality !== 'PARTIAL') {
     sources.push({ adr: '0474', sectionId: 'sector_energy', code: 'SECTOR_ENERGY_DEGRADED', diagnosticKey: 'SectorEnergy', diagnosticValue: sectorQuality, severity: 'DEGRADED' });
   }
   const sectorDiag = summary.sectorEnergyQualityDiagnostic as { fallbackUsed?: string; dataQuality?: string; indexCodeCoverage?: number } | undefined;
-  if (sectorDiag?.fallbackUsed && sectorDiag.fallbackUsed !== 'NONE') {
+  if (!sectorEnergySessionClosed && sectorDiag?.fallbackUsed && sectorDiag.fallbackUsed !== 'NONE') {
     sources.push({ adr: '0474', sectionId: 'sector_energy', code: 'FALLBACK_MOUNTED', diagnosticKey: 'fallbackUsed', diagnosticValue: sectorDiag.fallbackUsed, severity: 'DEGRADED' });
   }
   if ((summary.gateScoreCandidateBuckets?.totalNearMissLike ?? 0) > 0) {
@@ -770,11 +778,13 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
   if (summary.supplyRecoveryRuntimeMountAdr0486?.checks.some((check) => check.legacyOutputCode === 'READINESS_AUDIT_EVIDENCE_MISSING')) {
     sources.push({ adr: '0486', sectionId: 'runtime_pipeline_audit', code: 'SUPPLY_READINESS_EVIDENCE_MISSING', diagnosticKey: 'readinessAuditEvidence', diagnosticValue: 'missing', severity: 'ERROR' });
   }
-  sources.push(...(sectorEnergyCanonicalHealthy
+  // ADR-0544 follow-up: 휴일/세션닫힘도 healthy 와 동일하게 SectorEnergy repair 코드를 필터한다 —
+  // verify-skip 은 소스 결함이 아니므로 REPAIR_SECTOR_INDEX_MASTER 류를 operator action 으로 올리지 않는다.
+  sources.push(...(sectorEnergyDiagnosticSuppressed
     ? collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487).filter((source) =>
       !['SECTOR_DATA_SUPPLY_LINE_MISSING', 'SECTOR_INDEX_MASTER_REPAIR_NEEDED', 'REPAIR_SECTOR_INDEX_MASTER', 'IMPROVE_INDEX_CODE_COVERAGE'].includes(source.code ?? ''))
     : collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487)));
-  sources.push(...(sectorEnergyCanonicalHealthy
+  sources.push(...(sectorEnergyDiagnosticSuppressed
     ? collectOperatorActionSourcesFromAdr0488(summary.sectorEnergySupplyUnknownAdr0488).filter((source) =>
       !['REPAIR_SECTOR_INDEX_MASTER', 'IMPROVE_INDEX_CODE_COVERAGE'].includes(source.code ?? ''))
     : collectOperatorActionSourcesFromAdr0488(summary.sectorEnergySupplyUnknownAdr0488)));
