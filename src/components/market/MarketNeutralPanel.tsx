@@ -30,7 +30,7 @@ export function MarketNeutralPanel({ marketNeutralResult }: MarketNeutralPanelPr
     <div
       className="border-b border-purple-600/40 bg-purple-950/80 text-purple-100 transition-all duration-500 no-print"
       role="region"
-      aria-label="Market Neutral 모드 패널"
+      aria-label="마켓 뉴트럴 모드 패널"
     >
       {/* ── Main row ── */}
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-2 flex items-center gap-3 flex-wrap">
@@ -38,7 +38,7 @@ export function MarketNeutralPanel({ marketNeutralResult }: MarketNeutralPanelPr
         {/* Label */}
         <div className="flex items-center gap-2 font-black text-sm shrink-0">
           <Scale className="w-4 h-4 text-purple-400" />
-          <span className="tracking-tight text-xs text-purple-400">MARKET NEUTRAL</span>
+          <span className="tracking-tight text-xs text-purple-400">마켓 뉴트럴</span>
         </div>
 
         {/* Allocation pills */}
@@ -71,7 +71,7 @@ export function MarketNeutralPanel({ marketNeutralResult }: MarketNeutralPanelPr
           onClick={() => setExpanded(v => !v)}
           className="ml-auto flex items-center gap-1 text-[10px] font-semibold tracking-tight opacity-70 hover:opacity-100 transition-opacity shrink-0"
           aria-expanded={expanded}
-          aria-label="Market Neutral 상세 정보 보기"
+          aria-label="마켓 뉴트럴 상세 정보 보기"
         >
           {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           <span className="hidden sm:inline">{expanded ? '접기' : '상세'}</span>

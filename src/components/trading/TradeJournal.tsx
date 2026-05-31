@@ -298,7 +298,7 @@ export const TradeJournal: React.FC<Props> = ({
                         <p className="font-bold">{trade.positionSize ?? 0}%</p>
                       </div>
                       <div>
-                        <span className="text-gray-400">Final Score</span>
+                        <span className="text-gray-400">최종 점수</span>
                         <p className="font-bold">{finalScore.toFixed(1)}</p>
                       </div>
                     </div>

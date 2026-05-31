@@ -27,7 +27,7 @@ function EvidenceRow({ item }: { item: RegimeEvidenceItem }) {
     <li className="grid grid-cols-1 gap-2 rounded-lg border border-white/[0.07] bg-black/15 p-2 sm:grid-cols-[1.2fr_1fr_auto] sm:items-center">
       <div className="min-w-0">
         <div className="text-xs font-bold text-white/90">{item.label}</div>
-        <div className="text-[10px] text-white/45">{item.source ?? 'source unavailable'} · {formatRegimeUpdatedAt(item.updatedAt)}</div>
+        <div className="text-[10px] text-white/45">{item.source ?? '출처 없음'} · {formatRegimeUpdatedAt(item.updatedAt)}</div>
       </div>
       <div className="truncate text-xs font-num text-white/75">{item.value ?? '—'}</div>
       <div className="flex flex-wrap gap-1.5">
@@ -45,7 +45,7 @@ function EvidenceGroup({ title, items, icon }: { title: string; items: RegimeEvi
       <h4 className="flex items-center gap-1.5 text-[10px] font-semibold tracking-tight text-white/55">
         <Icon className="h-3.5 w-3.5" aria-hidden /> {title} <span className="font-num">({items.length})</span>
       </h4>
-      {items.length > 0 ? <ul className="space-y-1.5">{items.map(item => <EvidenceRow key={item.key} item={item} />)}</ul> : <p className="rounded-lg border border-white/[0.07] bg-white/[0.03] p-2 text-xs text-white/35">No entries.</p>}
+      {items.length > 0 ? <ul className="space-y-1.5">{items.map(item => <EvidenceRow key={item.key} item={item} />)}</ul> : <p className="rounded-lg border border-white/[0.07] bg-white/[0.03] p-2 text-xs text-white/35">항목 없음.</p>}
     </section>
   );
 }
@@ -55,11 +55,11 @@ export function RegimeEvidencePanel({ evidence }: { evidence: RegimeEvidenceItem
   const remaining = evidence.filter(item => !groups.providerIssues.includes(item) && !groups.marketSignals.includes(item) && !groups.missingData.includes(item) && !groups.mixedSignals.includes(item));
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-      <EvidenceGroup title="Provider Issues" icon="provider" items={groups.providerIssues} />
-      <EvidenceGroup title="Market Signals" icon="signal" items={groups.marketSignals} />
-      <EvidenceGroup title="Missing / Stale Data" icon="missing" items={groups.missingData} />
-      <EvidenceGroup title="Mixed Signals" icon="mixed" items={groups.mixedSignals} />
-      {remaining.length > 0 && <EvidenceGroup title="Supporting Evidence" icon="signal" items={remaining} />}
+      <EvidenceGroup title="공급자 이슈" icon="provider" items={groups.providerIssues} />
+      <EvidenceGroup title="시장 신호" icon="signal" items={groups.marketSignals} />
+      <EvidenceGroup title="누락 / 오래된 데이터" icon="missing" items={groups.missingData} />
+      <EvidenceGroup title="혼조 신호" icon="mixed" items={groups.mixedSignals} />
+      {remaining.length > 0 && <EvidenceGroup title="보조 근거" icon="signal" items={remaining} />}
     </div>
   );
 }

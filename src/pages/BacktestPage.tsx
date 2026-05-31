@@ -83,7 +83,7 @@ export function BacktestPage({
       <Stack gap="xl">
         {/* Header */}
         <PageHeader
-                title="Portfolio Backtest"
+                title="포트폴리오 백테스트"
           subtitle="포트폴리오 백테스트 시뮬레이터"
           accentColor="bg-blue-500"
         >
@@ -107,7 +107,7 @@ export function BacktestPage({
                 </div>
                 <div>
                   <span className="text-micro block">초기투자금액</span>
-                  <span className="text-[10px] font-bold text-theme-text-muted">Initial Equity</span>
+                  <span className="text-[10px] font-bold text-theme-text-muted">초기 자본</span>
                 </div>
               </div>
               <div className="relative">
@@ -140,7 +140,7 @@ export function BacktestPage({
                 </div>
                 <div>
                   <span className="text-micro block">백테스트 기간</span>
-                  <span className="text-[10px] font-bold text-theme-text-muted">Backtest Period</span>
+                  <span className="text-[10px] font-bold text-theme-text-muted">검증 기간</span>
                 </div>
               </div>
               <div className="relative">
@@ -189,7 +189,7 @@ export function BacktestPage({
                 </div>
                 <div>
                   <span className="text-micro block">거래수수료</span>
-                  <span className="text-[10px] font-bold text-theme-text-muted">Commission Fee</span>
+                  <span className="text-[10px] font-bold text-theme-text-muted">수수료율</span>
                 </div>
               </div>
               <div className="relative">
@@ -303,7 +303,7 @@ export function BacktestPage({
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <Badge variant={totalWeight === 100 ? 'success' : totalWeight > 100 ? 'danger' : 'warning'}>
-                    Total: {totalWeight}%
+                    합계: {totalWeight}%
                   </Badge>
                   <div className="w-24 sm:w-32 h-1 bg-white/5 rounded-full overflow-hidden">
                     <motion.div
@@ -363,7 +363,7 @@ export function BacktestPage({
                               {riskyStock && (
                                 <Badge variant={isHighRisk ? 'danger' : 'warning'} size="sm">
                                   <ShieldAlert className="w-2.5 h-2.5 mr-0.5" />
-                                  {riskyStock.riskLevel} RISK
+                                  {riskyStock.riskLevel} 위험
                                 </Badge>
                               )}
                             </div>
@@ -375,7 +375,7 @@ export function BacktestPage({
                                   exit={{ opacity: 0 }}
                                   className="absolute -top-6 left-0 text-[8px] font-black text-green-400 tracking-tight bg-green-500/20 backdrop-blur-md px-2 py-0.5 rounded-lg border border-green-500/30 z-30"
                                 >
-                                  Copied!
+                                  복사됨!
                                 </motion.span>
                               )}
                             </AnimatePresence>
@@ -445,7 +445,7 @@ export function BacktestPage({
                 <KpiStrip items={[
                   { label: 'CAGR (연평균)', value: `${backtestResult.cagr.toFixed(2)}%`, status: backtestResult.cagr >= 0 ? 'pass' : 'fail', trend: backtestResult.cagr >= 0 ? 'up' : 'down' },
                   { label: '승률', value: `${backtestResult.winRate.toFixed(1)}%`, status: backtestResult.winRate >= 50 ? 'pass' : 'warn', trend: backtestResult.winRate >= 50 ? 'up' : 'down' },
-                  { label: 'Profit Factor', value: backtestResult.profitFactor.toFixed(2), status: backtestResult.profitFactor >= 1 ? 'pass' : 'fail', trend: backtestResult.profitFactor >= 1 ? 'up' : 'down' },
+                  { label: '손익비', value: backtestResult.profitFactor.toFixed(2), status: backtestResult.profitFactor >= 1 ? 'pass' : 'fail', trend: backtestResult.profitFactor >= 1 ? 'up' : 'down' },
                   { label: '총 매매', value: backtestResult.trades, status: 'neutral' },
                   { label: '최대 연속 손실', value: `${backtestResult.maxConsecutiveLoss}회`, status: backtestResult.maxConsecutiveLoss <= 3 ? 'pass' : 'fail', trend: 'down' },
                 ]} />
@@ -475,7 +475,7 @@ export function BacktestPage({
                           labelStyle={{ color: 'rgba(255,255,255,0.4)', fontWeight: '900', marginBottom: '8px', fontSize: '11px', textTransform: 'uppercase' as const, letterSpacing: '0.1em' }}
                         />
                         <Legend verticalAlign="top" align="right" height={48} iconType="circle" wrapperStyle={{ fontWeight: 900, fontSize: '12px', textTransform: 'uppercase' as const, letterSpacing: '0.1em' }} />
-                        <Area type="monotone" dataKey="value" name="Portfolio" stroke="#f97316" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
+                        <Area type="monotone" dataKey="value" name="포트폴리오" stroke="#f97316" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
                         <Area type="monotone" dataKey="benchmark" name="KOSPI" stroke="#3b82f6" strokeWidth={2} strokeDasharray="8 8" fillOpacity={1} fill="url(#colorBenchmark)" />
                       </AreaChart>
                     </ResponsiveContainer>
@@ -569,7 +569,7 @@ export function BacktestPage({
                         <div className="min-w-0">
                           <h4 className="text-xs sm:text-sm font-black text-theme-text mb-2 flex items-center gap-2 flex-wrap">
                             오늘의 후보가 '제거' 대상으로?
-                            <Badge variant="info" size="sm">AI Tip</Badge>
+                            <Badge variant="info" size="sm">AI 팁</Badge>
                           </h4>
                           <div className="space-y-1.5 text-[10px] sm:text-xs text-theme-text-muted font-medium leading-relaxed">
                             <p>• <span className="text-blue-400 font-bold">시간 지평의 차이:</span> 단기 모멘텀 vs 장기 안정성 평가</p>
@@ -599,7 +599,7 @@ export function BacktestPage({
                                     exit={{ opacity: 0 }}
                                     className="absolute -top-6 left-0 text-[8px] font-black text-green-400 tracking-tight bg-green-500/20 backdrop-blur-md px-2 py-0.5 rounded-lg border border-green-500/30 z-30"
                                   >
-                                    Copied!
+                                    복사됨!
                                   </motion.span>
                                 )}
                               </AnimatePresence>
@@ -678,7 +678,7 @@ export function BacktestPage({
                               <span className={cn('text-sm sm:text-lg font-black', rs.riskLevel === 'HIGH' ? 'text-red-500' : 'text-red-400')}>{rs.stock}</span>
                               <Badge variant="danger" size="sm">
                                 <ShieldAlert className="w-3 h-3 mr-0.5" />
-                                {rs.riskLevel} RISK
+                                {rs.riskLevel} 위험
                               </Badge>
                             </div>
                             <p className="text-[10px] sm:text-xs text-theme-text-secondary font-bold leading-relaxed">{rs.reason}</p>

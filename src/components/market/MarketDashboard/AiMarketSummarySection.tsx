@@ -21,7 +21,7 @@ export const AiMarketSummarySection: React.FC<AiMarketSummarySectionProps> = ({ 
           <Zap size={24} className="text-indigo-400 animate-pulse" />
         </div>
         <div>
-          <span className="text-[10px] font-black text-indigo-400/60 tracking-tight block mb-1">AI Institutional Grade Analysis</span>
+          <span className="text-[10px] font-black text-indigo-400/60 tracking-tight block mb-1">AI 기관급 분석</span>
           <h2 className="text-2xl font-black text-white uppercase tracking-tighter drop-shadow-xl">실시간 시장 지능 요약</h2>
         </div>
       </div>

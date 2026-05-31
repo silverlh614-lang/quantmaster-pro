@@ -143,7 +143,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
       <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
-            글로벌 상관관계 매트릭스 — Decoupling / Synchronization Detector
+            글로벌 상관관계 매트릭스 — 디커플링 / 동조화 감지기
           </h3>
           <button onClick={loadGlobalCorrelation} disabled={correlationLoading}
             className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-[10px] font-black uppercase disabled:opacity-50">
@@ -191,7 +191,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
-              섹터-테마 역추적 — Global Theme → Korea Hidden Gems
+              섹터-테마 역추적 — 글로벌 테마 → 한국 숨은 수혜주
             </h3>
             <p className="text-[8px] text-theme-text-muted mt-1">글로벌 메가트렌드에서 아직 시장이 연결짓지 못한 한국 숨은 수혜주 발굴</p>
           </div>

@@ -74,17 +74,17 @@ function DashboardHeader({ count }: { count: number }) {
       <div>
         <div className="flex items-center gap-2 text-[10px] font-black tracking-tight text-slate-400">
           <FileClock className="h-3.5 w-3.5" />
-          Pending Wiring Dashboard
+          배선 대기 대시보드
         </div>
         <h2 id="pending-wiring-title" className="mt-1 text-xl font-black text-theme-text">
-          Pending wiring visibility
+          배선 대기 가시성
         </h2>
         <p className="mt-1 text-sm text-theme-text-secondary">
-          Shows modules that are not fully wired yet without changing execution paths.
+          실행 경로를 바꾸지 않으면서 아직 완전히 배선되지 않은 모듈을 표시합니다.
         </p>
       </div>
       <Badge variant={count > 0 ? 'warning' : 'default'} size="sm">
-        {count > 0 ? `${count} pending items` : 'Registry empty'}
+        {count > 0 ? `대기 항목 ${count}건` : '레지스트리 비어 있음'}
       </Badge>
     </div>
   );
@@ -97,7 +97,7 @@ function PendingBanner({ risk, safe }: { risk: string | null; safe: string | nul
         <div className="flex items-start gap-3">
           <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-300" />
           <div>
-            <div className="text-sm font-black text-red-200">Risk banner</div>
+            <div className="text-sm font-black text-red-200">위험 배너</div>
             <p className="mt-1 text-sm text-theme-text-secondary">{risk}</p>
           </div>
         </div>
@@ -110,7 +110,7 @@ function PendingBanner({ risk, safe }: { risk: string | null; safe: string | nul
       <div className="flex items-start gap-3">
         <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
         <div>
-          <div className="text-sm font-black text-emerald-200">Safe backlog banner</div>
+          <div className="text-sm font-black text-emerald-200">안전 백로그 배너</div>
           <p className="mt-1 text-sm text-theme-text-secondary">{safe}</p>
         </div>
       </div>
@@ -124,9 +124,9 @@ function PendingEmptyState() {
       <div className="flex items-start gap-3">
         <FileClock className="mt-0.5 h-5 w-5 shrink-0 text-blue-300" />
         <div>
-          <div className="text-sm font-black text-theme-text">No pending wiring telemetry available.</div>
+          <div className="text-sm font-black text-theme-text">배선 대기 텔레메트리가 없습니다.</div>
           <p className="mt-1 text-sm text-theme-text-secondary">
-            Connect pending wiring registry or parser to populate this dashboard.
+            이 대시보드를 채우려면 배선 대기 레지스트리 또는 파서를 연결하세요.
           </p>
         </div>
       </div>
@@ -143,12 +143,12 @@ function PendingSummaryCard({ model }: { model: ReturnType<typeof buildPendingDa
   ];
   return (
     <Card padding="sm" className="space-y-4">
-      <CardTitleEyebrow title="Pending Summary" eyebrow="Registry totals" />
+      <CardTitleEyebrow title="대기 요약" eyebrow="레지스트리 합계" />
       <div className="grid grid-cols-2 gap-3">
-        <Metric label="Total" value={model.total} tone="text-theme-text" />
-        <Metric label="Overdue" value={model.overdue.length} tone="text-red-300" />
-        <Metric label="Due soon" value={model.dueSoon.length} tone="text-amber-300" />
-        <Metric label="LIVE scope" value={model.byScope.LIVE} tone="text-red-300" />
+        <Metric label="전체" value={model.total} tone="text-theme-text" />
+        <Metric label="기한 초과" value={model.overdue.length} tone="text-red-300" />
+        <Metric label="기한 임박" value={model.dueSoon.length} tone="text-amber-300" />
+        <Metric label="LIVE 범위" value={model.byScope.LIVE} tone="text-red-300" />
       </div>
       <div className="flex flex-wrap gap-2">
         {PENDING_PRIORITIES.map((priority) => (
@@ -169,7 +169,7 @@ function PendingSummaryCard({ model }: { model: ReturnType<typeof buildPendingDa
 function PriorityBreakdownCard({ model }: { model: ReturnType<typeof buildPendingDashboardModel> }) {
   return (
     <Card padding="sm" className="space-y-3">
-      <CardTitleEyebrow title="Priority Breakdown" eyebrow="Top backlog" />
+      <CardTitleEyebrow title="우선순위 분류" eyebrow="상위 백로그" />
       {PENDING_PRIORITIES.map((priority) => (
         <PriorityRow key={priority} priority={priority} items={model.items.filter((item) => item.priority === priority)} />
       ))}
@@ -181,7 +181,7 @@ function ScopeImpactCard({ model }: { model: ReturnType<typeof buildPendingDashb
   const scopes = Object.entries(model.byScope).filter(([, count]) => count > 0).slice(0, 9);
   return (
     <Card padding="sm" className="space-y-3">
-      <CardTitleEyebrow title="Impact Scope" eyebrow="Execution isolation" />
+      <CardTitleEyebrow title="영향 범위" eyebrow="실행 격리" />
       <div className="flex flex-wrap gap-2">
         {scopes.map(([scope, count]) => (
           <Badge key={scope} variant={scope === 'LIVE' ? 'danger' : 'info'} size="sm">
@@ -190,7 +190,7 @@ function ScopeImpactCard({ model }: { model: ReturnType<typeof buildPendingDashb
         ))}
       </div>
       <p className="text-xs leading-relaxed text-theme-text-secondary">
-        Red is reserved for LIVE exposure or blocking impact. Shadow and observe states remain visible without over-alerting.
+        빨간색은 LIVE 노출 또는 차단 영향에만 사용됩니다. 섀도우·관측 상태는 과도한 경보 없이 계속 표시됩니다.
       </p>
     </Card>
   );
@@ -206,7 +206,7 @@ function PriorityRow({ priority, items }: { priority: PendingPriority; items: Pe
       <p className="mt-2 text-xs font-semibold text-theme-text-secondary">{priorityDescription(priority)}</p>
       <ul className="mt-2 space-y-1 text-xs text-slate-300">
         {items.slice(0, 3).map((item) => <li key={item.id} className="truncate">{item.id} · {item.moduleName}</li>)}
-        {items.length === 0 && <li className="text-slate-500">No items</li>}
+        {items.length === 0 && <li className="text-slate-500">항목 없음</li>}
       </ul>
     </div>
   );
@@ -215,12 +215,12 @@ function PriorityRow({ priority, items }: { priority: PendingPriority; items: Pe
 function WiringStatusTable({ items }: { items: PendingWiringItem[] }) {
   return (
     <Card padding="sm" className="space-y-4">
-      <CardTitleEyebrow title="Wiring Status Table" eyebrow="Source registry rows" />
+      <CardTitleEyebrow title="배선 상태 표" eyebrow="소스 레지스트리 행" />
       <div className="hidden overflow-x-auto lg:block">
         <table className="min-w-full text-left text-xs">
           <thead className="text-[10px] tracking-tight text-slate-500">
             <tr>
-              {['Priority', 'Module', 'Status', 'Scope', 'Source', 'Owner', 'Created', 'Due', 'Impact', 'Next action'].map((header) => (
+              {['우선순위', '모듈', '상태', '범위', '소스', '담당자', '생성일', '기한', '영향', '다음 조치'].map((header) => (
                 <th key={header} className="border-b border-white/[0.07] px-3 py-2 font-black">{header}</th>
               ))}
             </tr>
@@ -266,10 +266,10 @@ function WiringMobileCard({ item }: { item: PendingWiringItem }) {
       <div className="mt-3 font-black text-theme-text">{item.moduleName}</div>
       <div className="mt-2"><ScopeList item={item} /></div>
       <dl className="mt-3 grid grid-cols-2 gap-2 text-xs text-theme-text-secondary">
-        <InfoTerm label="Source" value={item.sourceFile ?? '—'} />
-        <InfoTerm label="Owner" value={item.owner ?? '—'} />
-        <InfoTerm label="Created" value={item.createdAt ?? '—'} />
-        <InfoTerm label="Due" value={item.dueAt ?? '—'} />
+        <InfoTerm label="소스" value={item.sourceFile ?? '—'} />
+        <InfoTerm label="담당자" value={item.owner ?? '—'} />
+        <InfoTerm label="생성일" value={item.createdAt ?? '—'} />
+        <InfoTerm label="기한" value={item.dueAt ?? '—'} />
       </dl>
       <p className="mt-3 text-xs leading-relaxed text-slate-300">{getPendingRecommendedAction(item)}</p>
     </div>
@@ -340,8 +340,8 @@ function statusVariant(status: PendingWiringStatus) {
 }
 
 function priorityDescription(priority: PendingPriority): string {
-  if (priority === 'P0') return 'Immediate review needed';
-  if (priority === 'P1') return 'Next patch priority';
-  if (priority === 'P2') return 'Planned improvement';
-  return 'Low-risk backlog';
+  if (priority === 'P0') return '즉시 검토 필요';
+  if (priority === 'P1') return '다음 패치 우선순위';
+  if (priority === 'P2') return '계획된 개선';
+  return '저위험 백로그';
 }

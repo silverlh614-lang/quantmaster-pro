@@ -29,9 +29,9 @@ export const DynamicWeightsSection: React.FC<DynamicWeightsSectionProps> = React
         <div>
           <h3 className="text-xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
             <Zap className="w-6 h-6 text-yellow-400" />
-            동적 가중치 전략 (Dynamic Weighting)
+            동적 가중치 전략
           </h3>
-          <p className="text-xs font-bold text-white/30 tracking-tight mt-2">Adaptive Scoring Strategy</p>
+          <p className="text-xs font-bold text-white/30 tracking-tight mt-2">적응형 스코어링 전략</p>
         </div>
         <div className="px-4 py-2 bg-yellow-400/10 border border-yellow-400/20 rounded-2xl">
           <span className="text-[10px] font-black text-yellow-400 tracking-tight">실시간 최적화 적용 중</span>

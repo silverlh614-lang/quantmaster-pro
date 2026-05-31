@@ -72,7 +72,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-3">
           <div className="w-2 h-8 bg-indigo-500 rounded-full shadow-[0_0_15px_rgba(99,102,241,0.5)]" />
-          <h3 className="text-2xl font-black text-theme-text tracking-tight uppercase">Portfolio Vault</h3>
+          <h3 className="text-2xl font-black text-theme-text tracking-tight uppercase">포트폴리오 보관함</h3>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -85,14 +85,14 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
             )}
           >
             <ArrowRightLeft className="w-3.5 h-3.5" />
-            <span>{showCompareMode ? 'Exit Compare' : 'Compare Mode'}</span>
+            <span>{showCompareMode ? '비교 종료' : '비교 모드'}</span>
           </button>
           <button
             onClick={() => setIsSaving(true)}
             className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-xs font-black transition-all border border-white/[0.07]"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>New Portfolio</span>
+            <span>새 포트폴리오</span>
           </button>
         </div>
       </div>
@@ -108,22 +108,22 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
             <div className="glass-3d rounded-[2rem] p-8 border border-white/[0.07] space-y-6 bg-indigo-500/5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-white/20 tracking-tight ml-1">Portfolio Name</label>
+                  <label className="text-[10px] font-black text-white/20 tracking-tight ml-1">포트폴리오 이름</label>
                   <input
                     type="text"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
-                    placeholder="e.g., Growth Tech 2026"
+                    placeholder="예: 성장 테크 2026"
                     className="w-full bg-black/40 border border-white/[0.07] rounded-2xl px-5 py-3 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50 transition-all"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-white/20 tracking-tight ml-1">Description (Optional)</label>
+                  <label className="text-[10px] font-black text-white/20 tracking-tight ml-1">설명 (선택)</label>
                   <input
                     type="text"
                     value={newDesc}
                     onChange={(e) => setNewDesc(e.target.value)}
-                    placeholder="Strategy notes..."
+                    placeholder="전략 메모..."
                     className="w-full bg-black/40 border border-white/[0.07] rounded-2xl px-5 py-3 text-sm font-bold text-white focus:outline-none focus:border-indigo-500/50 transition-all"
                   />
                 </div>
@@ -133,7 +133,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                   onClick={() => setIsSaving(false)}
                   className="px-6 py-2.5 rounded-xl text-xs font-black text-white/40 hover:text-white transition-colors"
                 >
-                  Cancel
+                  취소
                 </button>
                 <button
                   onClick={handleSave}
@@ -141,7 +141,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                   className="flex items-center gap-2 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white px-8 py-2.5 rounded-xl text-xs font-black transition-all shadow-lg"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>Save Current Portfolio</span>
+                  <span>현재 포트폴리오 저장</span>
                 </button>
               </div>
             </div>
@@ -153,7 +153,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
         {!portfolios || portfolios.length === 0 ? (
           <div className="col-span-full py-20 text-center glass-3d rounded-[3rem] border border-white/5 border-dashed">
             <Folder className="w-12 h-12 text-white/5 mx-auto mb-4" />
-            <p className="text-white/20 font-black text-sm">No saved portfolios yet.</p>
+            <p className="text-white/20 font-black text-sm">저장된 포트폴리오가 아직 없습니다.</p>
           </div>
         ) : (
           portfolios.map((portfolio) => (
@@ -244,7 +244,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                   <>
                     <h4 className="text-xl font-black text-white mb-2 line-clamp-1">{portfolio.name}</h4>
                     <p className="text-xs font-medium text-white/40 mb-6 line-clamp-2 h-8">
-                      {portfolio.description || 'No description provided.'}
+                      {portfolio.description || '설명이 없습니다.'}
                     </p>
                   </>
                 )}
@@ -253,12 +253,12 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <div className="flex flex-col">
-                        <span className="text-[9px] font-black text-white/20 tracking-tight">Assets</span>
+                        <span className="text-[9px] font-black text-white/20 tracking-tight">종목 수</span>
                         <span className="text-xs font-black text-white">{portfolio.items.length}</span>
                       </div>
                       {portfolio.lastBacktestResult && (
                         <div className="flex flex-col">
-                          <span className="text-[9px] font-black text-white/20 tracking-tight">Return</span>
+                          <span className="text-[9px] font-black text-white/20 tracking-tight">수익률</span>
                           <span className={cn(
                             "text-xs font-black",
                             portfolio.lastBacktestResult.cumulativeReturn >= 0 ? "text-green-400" : "text-red-400"
@@ -294,7 +294,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
             className="flex items-center gap-4 bg-indigo-500 hover:bg-indigo-600 text-white px-12 py-5 rounded-[2.5rem] font-black text-lg transition-all shadow-[0_20px_50px_rgba(99,102,241,0.4)] active:scale-95"
           >
             <BarChart3 className="w-6 h-6" />
-            <span>Compare {selectedForCompare.length} Portfolios</span>
+            <span>포트폴리오 {selectedForCompare.length}개 비교</span>
           </button>
         </motion.div>
       )}

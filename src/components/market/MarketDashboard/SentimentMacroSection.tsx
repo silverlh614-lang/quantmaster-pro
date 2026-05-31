@@ -76,7 +76,7 @@ const SnsSentimentCard = ({ sentiment }: { sentiment: SnsSentiment }) => (
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-fluid-5xl font-black text-white tracking-tighter">{sentiment.score}</span>
-          <span className="text-[10px] font-black text-white/20 tracking-tight mt-1">Sentiment</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight mt-1">심리</span>
         </div>
       </div>
 

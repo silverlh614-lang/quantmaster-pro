@@ -47,14 +47,14 @@ const PRESETS: PresetOption[] = [
     color: 'text-purple-400', bgColor: 'bg-purple-500/12', borderColor: 'border-purple-500/40',
   },
   {
-    id: 'ALL', label: '전체 상장', labelEn: 'All Listed',
+    id: 'ALL', label: '전체 상장', labelEn: '전 종목',
     description: 'KOSPI + KOSDAQ 전체 — 최대 범위 탐색',
     icon: <Globe className="w-5 h-5" />,
     market: 'JQ', defaultFilters: {},
     color: 'text-green-400', bgColor: 'bg-green-500/12', borderColor: 'border-green-500/40',
   },
   {
-    id: 'CUSTOM', label: '커스텀', labelEn: 'Custom Universe',
+    id: 'CUSTOM', label: '커스텀', labelEn: '사용자 정의',
     description: '시총·거래량·외국인 조건을 직접 설정',
     icon: <SlidersHorizontal className="w-5 h-5" />,
     market: 'JQ', defaultFilters: { minMarketCapBillion: 1000 },
@@ -157,7 +157,7 @@ export function UniverseSelector({ value, onChange }: UniverseSelectorProps) {
         <div className="flex-1 min-w-0 text-left">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="text-micro">Gate 0 — 유니버스 선택</span>
-            <Badge variant="info" size="sm">UNIVERSE</Badge>
+            <Badge variant="info" size="sm">유니버스</Badge>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             {summaryParts.map((part, i) => (

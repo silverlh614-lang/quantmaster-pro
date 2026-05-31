@@ -52,8 +52,8 @@ export function PublicReportPage({ preferredMode, focusSection = 'TOP' }: Public
   return (
     <div className="mx-auto max-w-screen-2xl space-y-5 px-4 py-4 sm:px-6 sm:py-6">
       <PageHeader
-        title="Public Report"
-        subtitle="Market Gate, sector rotation, candidate decisions, buy blocks, and Shadow results are packaged for blog and Telegram review."
+        title="공개 리포트"
+        subtitle="마켓 게이트, 섹터 로테이션, 후보 판단, 매수 차단, Shadow 결과를 블로그 및 Telegram 검토용으로 패키징합니다."
         accentColor="bg-blue-500"
         actions={(
           <div className="flex flex-wrap items-center gap-2">
@@ -62,33 +62,33 @@ export function PublicReportPage({ preferredMode, focusSection = 'TOP' }: Public
           </div>
         )}
       >
-        Public output is a data report, not a trade instruction. It keeps raw logs, provider responses, execution traces, and private price plans outside the export boundary.
+        공개 출력물은 매매 지시가 아니라 데이터 리포트입니다. 원시 로그, 공급자 응답, 실행 추적, 비공개 가격 계획은 내보내기 범위 밖에 유지합니다.
       </PageHeader>
 
       <Section
-        title="Report Export Flow"
-        subtitle="The default path is copy/download first, then final operator review before posting."
+        title="리포트 내보내기 흐름"
+        subtitle="기본 경로는 먼저 복사/다운로드한 뒤, 게시 전 운영자가 최종 검토하는 것입니다."
       >
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-4">
             <FileText className="h-5 w-5 text-blue-300" />
-            <p className="mt-3 text-sm font-black text-white">Blog Markdown / HTML</p>
+            <p className="mt-3 text-sm font-black text-white">블로그 Markdown / HTML</p>
             <p className="mt-1 text-xs leading-relaxed text-white/55">
-              Generates title, one-line conclusion, Market Gate, sector rotation, candidate summary, buy block, Shadow result, tags, and investment notice.
+              제목, 한 줄 결론, 마켓 게이트, 섹터 로테이션, 후보 요약, 매수 차단, Shadow 결과, 태그, 투자 유의사항을 생성합니다.
             </p>
           </div>
           <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-4">
             <Send className="h-5 w-5 text-emerald-300" />
-            <p className="mt-3 text-sm font-black text-white">Telegram Summary</p>
+            <p className="mt-3 text-sm font-black text-white">Telegram 요약</p>
             <p className="mt-1 text-xs leading-relaxed text-white/55">
-              Keeps public channel output short while preserving the same source snapshot and Shadow Learning state.
+              동일한 소스 스냅샷과 Shadow Learning 상태를 유지하면서 공개 채널 출력을 짧게 유지합니다.
             </p>
           </div>
           <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-4">
             <ShieldCheck className="h-5 w-5 text-amber-300" />
-            <p className="mt-3 text-sm font-black text-white">Data Trust Boundary</p>
+            <p className="mt-3 text-sm font-black text-white">데이터 신뢰 경계</p>
             <p className="mt-1 text-xs leading-relaxed text-white/55">
-              VERIFIED, AI_ESTIMATED, MISSING, and provider issues stay visible without turning data faults into market signals.
+              VERIFIED, AI_ESTIMATED, MISSING와 공급자 이슈는 데이터 결함을 시장 신호로 바꾸지 않고 그대로 표시됩니다.
             </p>
           </div>
         </div>

@@ -18,14 +18,14 @@ export function ShadowTradingBar({ result, stockCode, stockName, currentPrice, o
   return (
     <div className="mb-12 p-6 border-2 border-dashed border-violet-400 bg-violet-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
-        <p className="text-[10px] font-black text-violet-500 tracking-tight mb-1">SHADOW TRADING</p>
+        <p className="text-[10px] font-black text-violet-500 tracking-tight mb-1">섀도우 트레이딩</p>
         <p className="text-sm font-bold text-theme-text">
           {stockName} ({stockCode}) — {currentPrice.toLocaleString()}원
         </p>
         <p className="text-[10px] text-gray-500 mt-1">
           {result.recommendation === '풀 포지션' || result.recommendation === '절반 포지션'
-            ? 'Kelly ' + result.positionSize + '% · RRR ' + result.rrr.toFixed(1) + ' — 신호 조건 충족'
-            : '관망/매도 신호 — Shadow 기록만 가능'}
+            ? '켈리 ' + result.positionSize + '% · RRR ' + result.rrr.toFixed(1) + ' — 신호 조건 충족'
+            : '관망/매도 신호 — 섀도우 기록만 가능'}
         </p>
       </div>
       <button
@@ -39,7 +39,7 @@ export function ShadowTradingBar({ result, stockCode, stockName, currentPrice, o
         )}
       >
         <PlayCircle className="w-4 h-4" />
-        모의계좌 실행 / Shadow 기록
+        모의계좌 실행 / 섀도우 기록
       </button>
     </div>
   );

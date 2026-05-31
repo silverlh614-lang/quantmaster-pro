@@ -22,7 +22,7 @@ export const GlobalEtfSection: React.FC<GlobalEtfSectionProps> = React.memo(({ e
   <section>
     <div className="flex items-center gap-4 mb-8">
       <Globe className="w-6 h-6 text-indigo-400" />
-      <h3 className="text-xl font-black text-white uppercase tracking-tighter">Global ETF Monitoring</h3>
+      <h3 className="text-xl font-black text-white uppercase tracking-tighter">글로벌 ETF 모니터링</h3>
     </div>
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       {etfs.map((etf, i) => {
