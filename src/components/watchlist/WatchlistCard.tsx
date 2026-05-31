@@ -845,21 +845,28 @@ const InsightRow = ({
   </div>
 );
 
-const ValuationRow = ({ stock }: { stock: StockRecommendation }) => (
-  <div className="flex items-start gap-4 sm:gap-5">
-    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shrink-0 shadow-sm">
-      <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-orange-400" />
-    </div>
-    <div className="min-w-0 flex-1">
-      <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Valuation Matrix</span>
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        <ValuationCell label="P/E" value={stock.valuation?.per && stock.valuation.per > 0 ? `${stock.valuation.per.toFixed(1)}x` : 'N/A'} />
-        <ValuationCell label="P/B" value={stock.valuation?.pbr && stock.valuation.pbr > 0 ? `${stock.valuation.pbr.toFixed(2)}x` : 'N/A'} />
-        <ValuationCell label="EPS" value={`${(stock.valuation?.epsGrowth ?? 0) > 0 ? '+' : ''}${(stock.valuation?.epsGrowth ?? 0).toFixed(1)}%`} valueClass={(stock.valuation?.epsGrowth ?? 0) > 0 ? 'text-green-400' : (stock.valuation?.epsGrowth ?? 0) < 0 ? 'text-red-400' : 'text-white/50'} />
+const ValuationRow = ({ stock }: { stock: StockRecommendation }) => {
+  // P/E·P/B 정본 — stock.valuation(AI 채움·종목마다 누락) 우선, 없으면 Naver 스냅샷 fallback.
+  // FundamentalsColumn(deep analysis)과 동일 소스 → 카드/상세 어느 경로든 같은 값 표시.
+  const { per: naverPer, pbr: naverPbr } = usePriceCanon(stock.code);
+  const per = stock.valuation?.per && stock.valuation.per > 0 ? stock.valuation.per : naverPer;
+  const pbr = stock.valuation?.pbr && stock.valuation.pbr > 0 ? stock.valuation.pbr : naverPbr;
+  return (
+    <div className="flex items-start gap-4 sm:gap-5">
+      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shrink-0 shadow-sm">
+        <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-orange-400" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Valuation Matrix</span>
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <ValuationCell label="P/E" value={per && per > 0 ? `${per.toFixed(1)}x` : 'N/A'} />
+          <ValuationCell label="P/B" value={pbr && pbr > 0 ? `${pbr.toFixed(2)}x` : 'N/A'} />
+          <ValuationCell label="EPS" value={`${(stock.valuation?.epsGrowth ?? 0) > 0 ? '+' : ''}${(stock.valuation?.epsGrowth ?? 0).toFixed(1)}%`} valueClass={(stock.valuation?.epsGrowth ?? 0) > 0 ? 'text-green-400' : (stock.valuation?.epsGrowth ?? 0) < 0 ? 'text-red-400' : 'text-white/50'} />
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const ValuationCell = ({ label, value, valueClass = 'text-white/80' }: { label: string; value: string; valueClass?: string }) => (
   <div className="bg-white/5 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-white/5 shadow-inner min-w-0">
