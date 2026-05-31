@@ -702,6 +702,18 @@ const PriceStrategySection = ({
     fallbackSource: 'REALTIME',
   });
   const displayPrice = canonPrice ?? stock.currentPrice;
+  // 가격 전략 stale 보정 — 손절≥현재가 또는 진입>현재가면 저장된 L4 AI 레벨이 현재가 아래로
+  // 이탈한 것(진입가>현재가 모순). AI 의 목표/손절 비율은 유지한 채 진입을 현재가에 앵커링해
+  // 재계산한다. 표시 전용 — 자동매매(KIS) 경로와 무관.
+  const aiEntry = stock.entryPrice ?? 0;
+  const strategyStale = displayPrice > 0 && (
+    ((stock.stopLoss ?? 0) > 0 && (stock.stopLoss ?? 0) >= displayPrice) || (aiEntry > 0 && aiEntry > displayPrice)
+  );
+  const targetRatio = aiEntry > 0 && (stock.targetPrice ?? 0) > 0 ? stock.targetPrice / aiEntry : 1.20;
+  const stopRatio = aiEntry > 0 && (stock.stopLoss ?? 0) > 0 ? stock.stopLoss / aiEntry : 0.93;
+  const entryShown = strategyStale ? displayPrice : stock.entryPrice;
+  const targetShown = strategyStale ? Math.round(displayPrice * targetRatio) : stock.targetPrice;
+  const stopShown = strategyStale ? Math.round(displayPrice * stopRatio) : stock.stopLoss;
   return (
     <div className="bg-white/[0.03] border-y border-white/10 p-5 sm:p-8 py-5 sm:py-7 relative">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-5 gap-3">
@@ -735,10 +747,15 @@ const PriceStrategySection = ({
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
-        <PriceBox tone="blue" label="진입" primary={formatKrw(stock.entryPrice, displayPrice > 0 ? `₩${displayPrice.toLocaleString()}*` : '-')} secondary={stock.entryPrice2 && stock.entryPrice2 > 0 ? `2차 ₩${stock.entryPrice2.toLocaleString()}` : undefined} />
-        <PriceBox tone="green" label="목표" primary={formatKrw(stock.targetPrice, displayPrice > 0 ? `₩${Math.round(displayPrice * 1.20).toLocaleString()}*` : '-')} secondary={stock.targetPrice2 && stock.targetPrice2 > 0 ? `2차 ₩${stock.targetPrice2.toLocaleString()}` : undefined} />
-        <PriceBox tone="red" label="손절" primary={formatKrw(stock.stopLoss, displayPrice > 0 ? `₩${Math.round(displayPrice * 0.93).toLocaleString()}*` : '-')} />
+        <PriceBox tone="blue" label="진입" primary={formatKrw(entryShown, displayPrice > 0 ? `₩${displayPrice.toLocaleString()}` : '-')} secondary={!strategyStale && stock.entryPrice2 && stock.entryPrice2 > 0 ? `2차 ₩${stock.entryPrice2.toLocaleString()}` : undefined} />
+        <PriceBox tone="green" label="목표" primary={formatKrw(targetShown, displayPrice > 0 ? `₩${Math.round(displayPrice * 1.20).toLocaleString()}` : '-')} secondary={!strategyStale && stock.targetPrice2 && stock.targetPrice2 > 0 ? `2차 ₩${stock.targetPrice2.toLocaleString()}` : undefined} />
+        <PriceBox tone="red" label="손절" primary={formatKrw(stopShown, displayPrice > 0 ? `₩${Math.round(displayPrice * 0.93).toLocaleString()}` : '-')} />
       </div>
+      {strategyStale && (
+        <p className="mt-2 flex items-center gap-1 text-[9px] font-black text-amber-400/70">
+          ⓘ 현재가 기준 재계산 — 저장된 AI 레벨이 현재가 이탈 (목표/손절 비율 유지)
+        </p>
+      )}
     </div>
   );
 };
