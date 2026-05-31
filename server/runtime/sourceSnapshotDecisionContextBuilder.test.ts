@@ -213,7 +213,7 @@ describe('formatDecisionContextAuthorityBlock (shared renderer)', () => {
       '🔴 Live Buy: BLOCKED',
       '🟢 Shadow/Learning: ON',
       'snapshotId=snap-001 asOf=2026-05-27T01:00:00.000Z ttlSec=300',
-      'legacyEffectiveRegime=R5_CAUTION deprecated=true usedForDecision=false',
+      'legacyEffectiveRegime=R5_CAUTION deprecated=true usedForDecision=false (표시 전용·매매 사이징 미사용, 정본=Scoring Effective)',
     ]);
   });
 
