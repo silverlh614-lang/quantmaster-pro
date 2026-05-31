@@ -71,7 +71,7 @@ export const TimingSyncPanel: React.FC<Props> = ({ result }) => {
       {/* Sync Score 게이지 */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between text-xs text-gray-500">
-          <span>Sync Score</span>
+          <span>동기화 점수</span>
           <span className={cfg.color}>{result.syncScore} / 100</span>
         </div>
         <div className="h-2 bg-gray-800 rounded-full overflow-hidden">

@@ -135,7 +135,7 @@ export const MTFConfluencePanel: React.FC<Props> = ({ result, inputs, onInputsCh
       {/* Score Bar */}
       <div className="px-5 pb-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-[10px] text-gray-400">MTF Score</span>
+          <span className="text-[10px] text-gray-400">MTF 점수</span>
           <span className="text-base font-black text-white">{r.mtfScore.toFixed(0)}<span className="text-xs text-gray-400"> / 100</span></span>
         </div>
         <div className="h-2.5 bg-gray-700 rounded-full overflow-hidden">
@@ -240,7 +240,7 @@ export const MTFConfluencePanel: React.FC<Props> = ({ result, inputs, onInputsCh
               <Activity className="w-3.5 h-3.5 text-violet-400 mt-0.5 flex-shrink-0" />
               <p className="text-[10px] text-violet-200 leading-relaxed">
                 <span className="font-bold">핵심 통찰:</span> 일봉 신호가 아무리 완벽해도 주봉이 하락 추세라면 역방향 수영이다.
-                MTF Score &lt; 65이면 일봉 Gate 신호가 완벽해도 진입을 차단한다.
+                MTF 점수 &lt; 65이면 일봉 Gate 신호가 완벽해도 진입을 차단한다.
               </p>
             </div>
           </div>

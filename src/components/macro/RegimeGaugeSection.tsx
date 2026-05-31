@@ -70,7 +70,7 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-black uppercase tracking-tight">Macro Intelligence</h2>
+          <h2 className="text-2xl font-black uppercase tracking-tight">매크로 인텔리전스</h2>
           <p className="text-[10px] font-mono text-theme-text-muted mt-1">
             거시경제 컨트롤 타워 — 경기 레짐 · MHS · ETF 자금흐름 · FX 임팩트
           </p>
@@ -97,7 +97,7 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
         {/* 경기 레짐 게이지 */}
         <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
           <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted mb-6">
-            경기 레짐 게이지 — Economic Regime Classifier
+            경기 레짐 게이지 — 경기 레짐 분류기
           </h3>
           <div className="flex gap-2 mb-6">
             {REGIMES.map(r => {
@@ -172,7 +172,7 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
           {gate0Result && (
             <div className="p-6 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
               <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted mb-4">
-                FX · Rate Cycle 임팩트
+                환율 · 금리 사이클 임팩트
               </h3>
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 border border-theme-border">

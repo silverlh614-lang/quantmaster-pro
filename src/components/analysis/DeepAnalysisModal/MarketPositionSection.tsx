@@ -7,6 +7,9 @@ interface Props {
   stock: StockRecommendation;
 }
 
+// 시가총액 분류 표시 — 전역 toKoLabel 의 MID='중기'(사이클)와 충돌하므로 여기선 MID='중형'.
+const MARKET_CAP_LABEL: Record<string, string> = { LARGE: '대형', MID: '중형', SMALL: '소형' };
+
 export function MarketPositionSection({ stock }: Props) {
   return (
     <div className="mb-6">
@@ -67,7 +70,7 @@ export function MarketPositionSection({ stock }: Props) {
 
         <div className="bg-white/5 rounded-xl p-4 border border-white/[0.07] flex flex-col items-center justify-center text-center">
           <span className="text-[9px] font-black text-white/25 tracking-tight mb-1.5">시가총액</span>
-          <span className="text-sm font-black text-white uppercase">{stock.marketCapCategory} 시총</span>
+          <span className="text-sm font-black text-white">{MARKET_CAP_LABEL[stock.marketCapCategory ?? ''] ?? stock.marketCapCategory ?? '-'} 시총</span>
           <span className="text-[9px] font-bold text-white/40 mt-0.5">₩{(stock.marketCap / 100000000).toFixed(1)}B</span>
         </div>
       </div>

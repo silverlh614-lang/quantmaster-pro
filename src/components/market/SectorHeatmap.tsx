@@ -48,17 +48,17 @@ export const SectorHeatmap: React.FC<SectorHeatmapProps> = React.memo(({ sectors
           </div>
           <div>
             <h2 className="text-2xl font-black text-white uppercase tracking-tighter">섹터 로테이션 맵</h2>
-            <p className="text-xs font-bold text-white/30 tracking-tight">Real-time Sector Capital Flow Heatmap</p>
+            <p className="text-xs font-bold text-white/30 tracking-tight">실시간 섹터 자금 흐름 히트맵</p>
           </div>
         </div>
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-indigo-500 rounded-full" />
-            <span className="text-[10px] font-black text-white/40 tracking-tight">강세 (Strong)</span>
+            <span className="text-[10px] font-black text-white/40 tracking-tight">강세</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-white/10 rounded-full" />
-            <span className="text-[10px] font-black text-white/40 tracking-tight">약세 (Weak)</span>
+            <span className="text-[10px] font-black text-white/40 tracking-tight">약세</span>
           </div>
         </div>
       </div>
@@ -130,7 +130,7 @@ export const SectorHeatmap: React.FC<SectorHeatmapProps> = React.memo(({ sectors
       <div className="mt-10 p-6 bg-indigo-500/5 border border-indigo-500/10 rounded-[2rem] flex items-start gap-4">
         <Zap className="w-5 h-5 text-indigo-400 mt-1 shrink-0" />
         <div className="space-y-1">
-          <p className="text-xs font-black text-indigo-400 tracking-tight">AI Capital Flow Insight</p>
+          <p className="text-xs font-black text-indigo-400 tracking-tight">AI 자금 흐름 인사이트</p>
           <p className="text-sm font-medium text-white/40 leading-relaxed">
             현재 자금은 <span className="text-white font-bold">{sortedSectors[0]?.name}</span> 섹터로 강력하게 유입되고 있으며, 
             <span className="text-white font-bold">{sortedSectors[sortedSectors.length - 1]?.name}</span> 섹터는 상대적으로 소외되고 있습니다. 

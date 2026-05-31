@@ -14,7 +14,7 @@ export function RiskAlertSection({ result }: Props) {
       <div className="p-6 border border-theme-text bg-white">
         <div className="flex items-center gap-2 mb-6">
           <AlertTriangle className="w-5 h-5 text-orange-500" />
-          <h2 className="col-header">EUPHORIA DETECTOR</h2>
+          <h2 className="col-header">과열 탐지기</h2>
         </div>
         <div className="flex gap-2 mb-4">
           {[1, 2, 3, 4, 5].map(i => (
@@ -26,8 +26,8 @@ export function RiskAlertSection({ result }: Props) {
         </div>
         <p className="text-xs font-mono tracking-tight">
           {result.euphoriaLevel >= 3
-            ? 'WARNING: OVERHEAT DETECTED - PROFIT TAKING RECOMMENDED'
-            : 'STABLE: NO EUPHORIA DETECTED'}
+            ? '경고: 과열 감지됨 - 차익 실현 권장'
+            : '안정: 과열 신호 없음'}
         </p>
       </div>
 
@@ -35,15 +35,15 @@ export function RiskAlertSection({ result }: Props) {
       <div className={`p-6 border border-theme-text ${result.emergencyStop ? 'bg-red-600 text-white' : 'bg-white'}`}>
         <div className="flex items-center gap-2 mb-6">
           <AlertTriangle className={`w-5 h-5 ${result.emergencyStop ? 'text-white' : 'text-red-600'}`} />
-          <h2 className={`col-header ${result.emergencyStop ? 'text-white' : ''}`}>EMERGENCY STOP</h2>
+          <h2 className={`col-header ${result.emergencyStop ? 'text-white' : ''}`}>비상 정지</h2>
         </div>
         <p className="text-2xl font-black italic uppercase mb-2">
-          {result.emergencyStop ? 'SYSTEM HALTED' : 'SYSTEM OPERATIONAL'}
+          {result.emergencyStop ? '시스템 중단됨' : '시스템 정상 작동'}
         </p>
         <p className="text-xs opacity-70 font-mono">
           {result.emergencyStop
-            ? 'BLACK SWAN EVENT DETECTED. ALL POSITIONS PROTECTED.'
-            : 'NO CRITICAL MARKET ANOMALIES DETECTED.'}
+            ? '블랙스완 이벤트 감지됨. 모든 포지션 보호됨.'
+            : '중대한 시장 이상 징후 없음.'}
         </p>
       </div>
     </div>

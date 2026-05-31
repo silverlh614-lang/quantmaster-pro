@@ -80,8 +80,8 @@ export function ShadowLearningStatusCard({ data }: { data: ShadowCaseLibraryResp
     <section className={panelClass()}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-zinc-100">Shadow Learning Status</h2>
-          <p className="mt-1 text-xs text-zinc-500">Live execution controls are shown separately from Shadow case recording.</p>
+          <h2 className="text-lg font-bold text-zinc-100">Shadow Learning 상태</h2>
+          <p className="mt-1 text-xs text-zinc-500">실거래 실행 제어는 Shadow 케이스 기록과 분리되어 표시됩니다.</p>
         </div>
         <Badge tone={data.status.shadowLearning ? 'safe' : 'danger'}>shadowLearning={String(data.status.shadowLearning)}</Badge>
       </div>
@@ -96,7 +96,7 @@ export function ShadowLearningStatusCard({ data }: { data: ShadowCaseLibraryResp
         <Stat label="lastCaseAt" value={formatShadowCaseTimestamp(data.status.lastCaseAt)} />
       </div>
       {reassure && banner && <div className="mt-4 rounded-xl border border-emerald-800 bg-emerald-950/30 p-3 text-sm text-emerald-200">{banner}</div>}
-      {warn && <div className="mt-4 rounded-xl border border-rose-800 bg-rose-950/30 p-3 text-sm text-rose-200">{banner ?? 'Shadow Learning risk detected. Review telemetry wiring and execution-impact metadata.'}</div>}
+      {warn && <div className="mt-4 rounded-xl border border-rose-800 bg-rose-950/30 p-3 text-sm text-rose-200">{banner ?? 'Shadow Learning 위험이 감지되었습니다. 텔레메트리 배선과 실행 영향 메타데이터를 점검하세요.'}</div>}
     </section>
   );
 }
@@ -106,7 +106,7 @@ export function ShadowCaseTypeSummary({ items }: { items: ShadowCaseItem[] }): R
   const populated = ALL_SHADOW_CASE_TYPES.filter((caseType) => counts[caseType] > 0);
   return (
     <section className={panelClass()}>
-      <h2 className="text-lg font-bold text-zinc-100">Case Type Summary</h2>
+      <h2 className="text-lg font-bold text-zinc-100">케이스 유형 요약</h2>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {(populated.length > 0 ? populated : ALL_SHADOW_CASE_TYPES.slice(0, 8)).map((caseType) => {
           const rows = items.filter((item) => item.caseType === caseType);
@@ -127,7 +127,7 @@ export function ShadowCaseTypeSummary({ items }: { items: ShadowCaseItem[] }): R
                 <span>impact: {latest?.executionImpact ?? 'NONE'}</span>
                 <span>learning: {latest ? latest.confidenceLevel : 'N/A'}</span>
               </div>
-              <p className="mt-2 text-xs text-zinc-500">{latest ? deriveShadowRecommendedAction(latest) : 'Connect telemetry to populate recommended action.'}</p>
+              <p className="mt-2 text-xs text-zinc-500">{latest ? deriveShadowRecommendedAction(latest) : '권장 조치를 채우려면 텔레메트리를 연결하세요.'}</p>
             </div>
           );
         })}
@@ -162,7 +162,7 @@ function CaseCard({ item }: { item: ShadowCaseItem }): React.ReactElement {
   return (
     <article className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm text-zinc-300">
       <div className="flex items-start justify-between gap-3">
-        <div><strong className="text-zinc-100">{item.symbolName ?? item.symbol ?? 'Market case'}</strong><p className="text-xs text-zinc-500">{formatShadowCaseTimestamp(item.timestamp)}</p></div>
+        <div><strong className="text-zinc-100">{item.symbolName ?? item.symbol ?? '시장 케이스'}</strong><p className="text-xs text-zinc-500">{formatShadowCaseTimestamp(item.timestamp)}</p></div>
         <Badge tone={impactTone(item.executionImpact)}>{item.executionImpact}</Badge>
       </div>
       <p className="mt-2 text-zinc-200">{getShadowCaseTypeLabel(item.caseType)}</p>
@@ -180,7 +180,7 @@ function CaseCard({ item }: { item: ShadowCaseItem }): React.ReactElement {
 export function ShadowCaseTable({ items }: { items: ShadowCaseItem[] }): React.ReactElement {
   return (
     <section className={panelClass()}>
-      <h2 className="text-lg font-bold text-zinc-100">Shadow Case Table</h2>
+      <h2 className="text-lg font-bold text-zinc-100">Shadow 케이스 표</h2>
       <div className="mt-4 hidden overflow-x-auto lg:block">
         <table className="min-w-[1500px] w-full text-left">
           <thead className="text-xs uppercase text-zinc-500">
@@ -207,26 +207,26 @@ export function CounterfactualOutcomeCard({ outcomes }: { outcomes: ShadowCounte
   return (
     <section className={panelClass()}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-bold text-zinc-100">Counterfactual Outcome</h2>
-        <Badge tone="info">Virtual / Shadow only</Badge>
+        <h2 className="text-lg font-bold text-zinc-100">반사실 결과</h2>
+        <Badge tone="info">가상 / Shadow 전용</Badge>
       </div>
-      {rows.length === 0 ? <p className="mt-4 text-sm text-zinc-500">No counterfactual outcome telemetry is connected yet.</p> : (
+      {rows.length === 0 ? <p className="mt-4 text-sm text-zinc-500">아직 연결된 반사실 결과 텔레메트리가 없습니다.</p> : (
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((row) => (
             <article key={row.caseId} className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm text-zinc-300">
               <div className="flex items-center justify-between"><strong className="font-mono text-zinc-100">{row.symbol}</strong><Badge tone={row.outcome === 'WIN' ? 'safe' : row.outcome === 'LOSS' ? 'danger' : 'neutral'}>{row.outcome}</Badge></div>
-              <p className="mt-2 text-xs text-zinc-500">Virtual entry {formatPrice(row.virtualEntryPrice)} · current {formatPrice(row.currentPrice)}</p>
+              <p className="mt-2 text-xs text-zinc-500">가상 진입 {formatPrice(row.virtualEntryPrice)} · 현재 {formatPrice(row.currentPrice)}</p>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <span>stop: {formatPrice(row.virtualStopLoss)}</span><span>target: {formatPrice(row.virtualTargetPrice)}</span>
                 <span>MFE: {formatPct(row.maxFavorableExcursion)}</span><span>MAE: {formatPct(row.maxAdverseExcursion)}</span>
                 <span>return: {formatPct(row.returnPct)}</span><span>holdingDays: {row.holdingDays ?? 'N/A'}</span>
               </div>
-              <p className="mt-3 text-xs text-zinc-500">{row.lesson ?? 'Post-outcome validation pending for blocked live action.'}</p>
+              <p className="mt-3 text-xs text-zinc-500">{row.lesson ?? '차단된 실거래 액션에 대한 사후 결과 검증 대기 중.'}</p>
             </article>
           ))}
         </div>
       )}
-      <p className="mt-4 text-xs text-zinc-500">Example interpretation: live execution may be blocked, while a Shadow counterfactual can still show virtual progress for later gate calibration.</p>
+      <p className="mt-4 text-xs text-zinc-500">해석 예시: 실거래 실행은 차단될 수 있지만, Shadow 반사실은 이후 Gate 보정을 위해 가상 진행 상황을 계속 보여줄 수 있습니다.</p>
     </section>
   );
 }
@@ -234,20 +234,20 @@ export function CounterfactualOutcomeCard({ outcomes }: { outcomes: ShadowCounte
 export function ProviderMarketSignalSplitCard({ items }: { items: ShadowCaseItem[] }): React.ReactElement {
   const split = splitProviderIssueAndMarketSignal(items);
   const groups = [
-    ['Provider issues', split.providerIssues, 'Keep API/data faults separate from market interpretation.'],
-    ['Market signals', split.marketSignals, 'Use post-outcomes to calibrate signal thresholds.'],
-    ['Mixed metadata', split.mixed, 'Needs metadata split before operational interpretation.'],
-    ['Unknown split', split.unknown, 'Add providerIssue and marketSignal metadata at source.'],
+    ['Provider 이슈', split.providerIssues, 'API/데이터 장애를 시장 해석과 분리해서 다룹니다.'],
+    ['시장 신호', split.marketSignals, '사후 결과를 활용해 신호 임계값을 보정합니다.'],
+    ['혼합 메타데이터', split.mixed, '운영 해석 전에 메타데이터 분리가 필요합니다.'],
+    ['미분류', split.unknown, '소스에 providerIssue 및 marketSignal 메타데이터를 추가하세요.'],
   ] as const;
   return (
     <section className={panelClass()}>
-      <h2 className="text-lg font-bold text-zinc-100">Provider vs Market Signal Split</h2>
+      <h2 className="text-lg font-bold text-zinc-100">Provider vs 시장 신호 분리</h2>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {groups.map(([title, rows, note]) => (
           <div key={title} className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
-            <div className="flex items-center justify-between"><p className="font-semibold text-zinc-100">{title}</p><Badge tone={title === 'Mixed metadata' ? 'warn' : 'neutral'}>{rows.length}</Badge></div>
+            <div className="flex items-center justify-between"><p className="font-semibold text-zinc-100">{title}</p><Badge tone={title === '혼합 메타데이터' ? 'warn' : 'neutral'}>{rows.length}</Badge></div>
             <p className="mt-2 text-xs text-zinc-500">{note}</p>
-            <ul className="mt-3 space-y-1 text-xs text-zinc-400">{rows.slice(0, 3).map((item) => <li key={item.id}>{getShadowCaseTypeLabel(item.caseType)} · {item.symbol ?? 'market'}</li>)}</ul>
+            <ul className="mt-3 space-y-1 text-xs text-zinc-400">{rows.slice(0, 3).map((item) => <li key={item.id}>{getShadowCaseTypeLabel(item.caseType)} · {item.symbol ?? '시장'}</li>)}</ul>
           </div>
         ))}
       </div>
@@ -264,12 +264,12 @@ export function ShadowCaseLibrary({ data, loading = false, error = null }: Shado
   return (
     <section className="space-y-4" data-testid="shadow-case-library">
       <div className="rounded-2xl border border-sky-800/60 bg-sky-950/30 p-4 text-sm text-sky-100">
-        <h2 className="text-xl font-bold text-sky-50">Shadow Case Library</h2>
-        <p className="mt-2">Shadow Case records are not live trade fills. They are virtual/observational data recorded for learning when live execution is blocked.</p>
-        <p className="mt-1">Provider failures must be interpreted separately from market signals.</p>
+        <h2 className="text-xl font-bold text-sky-50">Shadow Case 라이브러리</h2>
+        <p className="mt-2">Shadow Case 기록은 실거래 체결이 아닙니다. 실거래 실행이 차단된 동안 학습용으로 기록된 가상/관측 데이터입니다.</p>
+        <p className="mt-1">Provider 장애는 시장 신호와 분리해서 해석해야 합니다.</p>
       </div>
-      {error && <div className="rounded-xl border border-rose-800 bg-rose-950/30 p-3 text-sm text-rose-200">Shadow Case telemetry failed to load: {error.message}</div>}
-      {loading && !data && <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm text-zinc-400">Loading Shadow Case telemetry…</div>}
+      {error && <div className="rounded-xl border border-rose-800 bg-rose-950/30 p-3 text-sm text-rose-200">Shadow Case 텔레메트리를 불러오지 못했습니다: {error.message}</div>}
+      {loading && !data && <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm text-zinc-400">Shadow Case 텔레메트리를 불러오는 중…</div>}
       {!loading && emptyData.items.length === 0 ? <EmptyState /> : (
         <>
           <ShadowLearningStatusCard data={emptyData} />

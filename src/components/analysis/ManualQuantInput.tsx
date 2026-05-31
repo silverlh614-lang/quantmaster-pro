@@ -77,19 +77,19 @@ const INITIAL_MACRO_INPUTS: ManualMacroInputs = {
 };
 
 const MA_OPTIONS: SelectOption[] = [
-  { value: 'UP', label: 'Bullish alignment' },
-  { value: 'NEUTRAL', label: 'Neutral alignment' },
-  { value: 'DOWN', label: 'Bearish alignment' },
+  { value: 'UP', label: '정배열' },
+  { value: 'NEUTRAL', label: '중립 배열' },
+  { value: 'DOWN', label: '역배열' },
 ];
 const CLOUD_OPTIONS: SelectOption[] = [
-  { value: 'ABOVE', label: 'Above cloud' },
-  { value: 'INSIDE', label: 'Inside cloud' },
-  { value: 'BELOW', label: 'Below cloud' },
+  { value: 'ABOVE', label: '구름대 위' },
+  { value: 'INSIDE', label: '구름대 안' },
+  { value: 'BELOW', label: '구름대 아래' },
 ];
 const RATE_OPTIONS: SelectOption[] = [
-  { value: 'HIKING', label: 'Hiking / Tightening' },
-  { value: 'HOLDING', label: 'Holding / Pause' },
-  { value: 'CUTTING', label: 'Cutting / Easing' },
+  { value: 'HIKING', label: '인상 / 긴축' },
+  { value: 'HOLDING', label: '동결 / 보류' },
+  { value: 'CUTTING', label: '인하 / 완화' },
 ];
 
 function buildManualStockData(indicators: ManualIndicators): Record<ConditionId, number> {
@@ -170,8 +170,8 @@ function ManualHeader() {
         <Calculator size={24} className="text-indigo-400" />
       </div>
       <div>
-        <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Manual Quant Input</h2>
-        <p className="text-xs font-bold text-white/30 tracking-tight">Manual Indicator Input & Quant Engine</p>
+        <h2 className="text-2xl font-black text-white uppercase tracking-tighter">수동 퀀트 입력</h2>
+        <p className="text-xs font-bold text-white/30 tracking-tight">수동 지표 입력 & 퀀트 엔진</p>
       </div>
     </div>
   );
@@ -269,12 +269,12 @@ function BasicInfoSection({
 }) {
   return (
     <div className="space-y-6">
-      <SectionTitle icon={<Info size={14} />} label="Basic Info" />
+      <SectionTitle icon={<Info size={14} />} label="기본 정보" />
       <div className="grid grid-cols-2 gap-4">
-        <TextInput label="Stock Name" placeholder="e.g. HD Hyundai Heavy" value={stockInfo.name} onChange={(name) => setStockInfo(prev => ({ ...prev, name }))} />
-        <TextInput label="Stock Code" placeholder="e.g. 329180" value={stockInfo.code} onChange={(code) => setStockInfo(prev => ({ ...prev, code }))} />
+        <TextInput label="종목명" placeholder="예: HD현대중공업" value={stockInfo.name} onChange={(name) => setStockInfo(prev => ({ ...prev, name }))} />
+        <TextInput label="종목코드" placeholder="예: 329180" value={stockInfo.code} onChange={(code) => setStockInfo(prev => ({ ...prev, code }))} />
       </div>
-      <TextInput label="Current Price" placeholder="e.g. 245000" value={stockInfo.currentPrice} onChange={(currentPrice) => setStockInfo(prev => ({ ...prev, currentPrice }))} />
+      <TextInput label="현재가" placeholder="예: 245000" value={stockInfo.currentPrice} onChange={(currentPrice) => setStockInfo(prev => ({ ...prev, currentPrice }))} />
     </div>
   );
 }
@@ -288,16 +288,16 @@ function IndicatorSection({
 }) {
   return (
     <div className="space-y-6">
-      <SectionTitle icon={<Activity size={14} />} label="Technical / Fundamental Inputs" />
+      <SectionTitle icon={<Activity size={14} />} label="기술적 / 펀더멘털 입력" />
       <div className="grid grid-cols-2 gap-4">
         <TextInput label="RSI (14)" type="number" value={indicators.rsi} onChange={(rsi) => setIndicators(prev => ({ ...prev, rsi }))} />
-        <TextInput label="Interest Coverage Ratio" type="number" step="0.1" value={indicators.icr} onChange={(icr) => setIndicators(prev => ({ ...prev, icr }))} />
+        <TextInput label="이자보상배율" type="number" step="0.1" value={indicators.icr} onChange={(icr) => setIndicators(prev => ({ ...prev, icr }))} />
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <SelectInput label="Moving Average Alignment" value={indicators.maAlignment} options={MA_OPTIONS} onChange={(maAlignment) => setIndicators(prev => ({ ...prev, maAlignment: maAlignment as ManualIndicators['maAlignment'] }))} />
-        <SelectInput label="Ichimoku Cloud Position" value={indicators.ichimokuCloud} options={CLOUD_OPTIONS} onChange={(ichimokuCloud) => setIndicators(prev => ({ ...prev, ichimokuCloud: ichimokuCloud as ManualIndicators['ichimokuCloud'] }))} />
+        <SelectInput label="이동평균 배열" value={indicators.maAlignment} options={MA_OPTIONS} onChange={(maAlignment) => setIndicators(prev => ({ ...prev, maAlignment: maAlignment as ManualIndicators['maAlignment'] }))} />
+        <SelectInput label="일목균형표 구름대 위치" value={indicators.ichimokuCloud} options={CLOUD_OPTIONS} onChange={(ichimokuCloud) => setIndicators(prev => ({ ...prev, ichimokuCloud: ichimokuCloud as ManualIndicators['ichimokuCloud'] }))} />
       </div>
-      <TextInput label="Foreign Net Buying 5D (KRW bn)" type="number" value={indicators.foreignBuying} onChange={(foreignBuying) => setIndicators(prev => ({ ...prev, foreignBuying }))} />
+      <TextInput label="외국인 순매수 5일 (억원)" type="number" value={indicators.foreignBuying} onChange={(foreignBuying) => setIndicators(prev => ({ ...prev, foreignBuying }))} />
     </div>
   );
 }
@@ -311,14 +311,14 @@ function MacroEnvironmentSection({
 }) {
   return (
     <div className="mt-8 pt-8 border-t border-white/5 space-y-6">
-      <SectionTitle icon={<Globe size={14} />} label="Macro Environment (Gate 0)" />
+      <SectionTitle icon={<Globe size={14} />} label="거시 환경 (Gate 0)" />
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <SelectInput label="BOK Rate Direction" value={macroInputs.bokRateDirection} options={RATE_OPTIONS} onChange={(bokRateDirection) => setMacroInputs(prev => ({ ...prev, bokRateDirection: bokRateDirection as ManualMacroInputs['bokRateDirection'] }))} />
+        <SelectInput label="한국은행 금리 방향" value={macroInputs.bokRateDirection} options={RATE_OPTIONS} onChange={(bokRateDirection) => setMacroInputs(prev => ({ ...prev, bokRateDirection: bokRateDirection as ManualMacroInputs['bokRateDirection'] }))} />
         <TextInput label="USD/KRW" type="number" value={macroInputs.usdKrw} onChange={(usdKrw) => setMacroInputs(prev => ({ ...prev, usdKrw }))} />
         <TextInput label="VKOSPI" type="number" step="0.1" value={macroInputs.vkospi} onChange={(vkospi) => setMacroInputs(prev => ({ ...prev, vkospi }))} />
         <TextInput label="VIX" type="number" step="0.1" value={macroInputs.vix} onChange={(vix) => setMacroInputs(prev => ({ ...prev, vix }))} />
-        <TextInput label="Export Growth 3MA (%)" type="number" step="0.1" value={macroInputs.exportGrowth3mAvg} onChange={(exportGrowth3mAvg) => setMacroInputs(prev => ({ ...prev, exportGrowth3mAvg }))} />
-        <TextInput label="Stock Export Ratio (%)" type="number" min="0" max="100" value={macroInputs.stockExportRatio} onChange={(stockExportRatio) => setMacroInputs(prev => ({ ...prev, stockExportRatio }))} />
+        <TextInput label="수출 증가율 3개월 평균 (%)" type="number" step="0.1" value={macroInputs.exportGrowth3mAvg} onChange={(exportGrowth3mAvg) => setMacroInputs(prev => ({ ...prev, exportGrowth3mAvg }))} />
+        <TextInput label="종목 수출 비중 (%)" type="number" min="0" max="100" value={macroInputs.stockExportRatio} onChange={(stockExportRatio) => setMacroInputs(prev => ({ ...prev, stockExportRatio }))} />
       </div>
     </div>
   );
@@ -334,7 +334,7 @@ function CalculateButton({ onClick }: { onClick: () => void }) {
         <div className="absolute inset-0 bg-gradient-to-r from-indigo-400 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
         <div className="relative flex items-center gap-3">
           <Zap size={20} className="text-white fill-white" />
-          <span className="text-lg font-black text-white uppercase tracking-tighter">Run Quant Engine</span>
+          <span className="text-lg font-black text-white uppercase tracking-tighter">퀀트 엔진 실행</span>
         </div>
       </button>
     </div>
@@ -376,35 +376,35 @@ function gate0Tone(level: NonNullable<EvaluationResult['gate0Result']>['mhsLevel
     HIGH: {
       shell: 'bg-emerald-500/10 border-emerald-500/30',
       text: 'text-emerald-400',
-      status: 'Normal operation',
+      status: '정상 운용',
     },
     MEDIUM: {
       shell: 'bg-amber-500/10 border-amber-500/30',
       text: 'text-amber-400',
-      status: 'Reduced Kelly operation',
+      status: 'Kelly 축소 운용',
     },
     LOW: {
       shell: 'bg-red-500/10 border-red-500/30',
       text: 'text-red-400',
-      status: 'Buying halted',
+      status: '매수 중단',
     },
   }[level];
 }
 
 function rateCycleLabel(rateCycle: string): { title: string; body: string } {
   const labels: Record<string, { title: string; body: string }> = {
-    TIGHTENING: { title: 'Tightening', body: 'ICR threshold tightened' },
-    EASING: { title: 'Easing', body: 'Growth factor boosted' },
-    NEUTRAL: { title: 'Neutral', body: 'Base mode' },
+    TIGHTENING: { title: '긴축', body: '이자보상배율 임계값 강화' },
+    EASING: { title: '완화', body: '성장 팩터 가중' },
+    NEUTRAL: { title: '중립', body: '기본 모드' },
   };
-  return labels[rateCycle] ?? { title: rateCycle, body: 'Base mode' };
+  return labels[rateCycle] ?? { title: rateCycle, body: '기본 모드' };
 }
 
 function fxRegimeLabel(fxRegime: string): string {
   const labels: Record<string, string> = {
-    DOLLAR_STRONG: 'Dollar strong',
-    DOLLAR_WEAK: 'Dollar weak',
-    NEUTRAL: 'Neutral',
+    DOLLAR_STRONG: '달러 강세',
+    DOLLAR_WEAK: '달러 약세',
+    NEUTRAL: '중립',
   };
   return labels[fxRegime] ?? fxRegime;
 }
@@ -421,22 +421,22 @@ function ResultHeader({
     <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-8 mb-12">
       <div>
         <div className="flex items-center gap-3 mb-2">
-          <h3 className="text-fluid-4xl font-black text-white tracking-tighter">{stockInfo.name || 'Manual Stock'}</h3>
+          <h3 className="text-fluid-4xl font-black text-white tracking-tighter">{stockInfo.name || '수동 종목'}</h3>
           <span className="text-sm font-black text-white/20 tracking-tight">{stockInfo.code}</span>
         </div>
-        <p className="text-sm font-bold text-white/40 tracking-tight">Quant Engine Evaluation Result</p>
+        <p className="text-sm font-bold text-white/40 tracking-tight">퀀트 엔진 평가 결과</p>
       </div>
       <div className="flex items-center gap-6">
         <div className="text-right">
-          <span className="text-[10px] font-black text-white/20 tracking-tight block mb-1">Final Score</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight block mb-1">최종 점수</span>
           <div className="text-fluid-5xl font-black text-indigo-400 tracking-tighter">{result.finalScore.toFixed(1)}</div>
         </div>
         <div className={cn(
           'px-8 py-4 rounded-3xl border-2 flex flex-col items-center justify-center min-w-[160px]',
           passed ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-red-500/10 border-red-500/30 text-red-400'
         )}>
-          <span className="text-[10px] font-semibold tracking-tight mb-1">Status</span>
-          <span className="text-2xl font-black uppercase tracking-tighter">{passed ? 'PASS' : 'FAIL'}</span>
+          <span className="text-[10px] font-semibold tracking-tight mb-1">상태</span>
+          <span className="text-2xl font-black uppercase tracking-tighter">{passed ? '통과' : '미통과'}</span>
         </div>
       </div>
     </div>
@@ -453,10 +453,10 @@ function Gate0Card({ result }: { result: EvaluationResult }) {
     <div className={cn('p-6 rounded-[2rem] border mb-8', tone.shell)}>
       <div className="flex items-center gap-3 mb-4">
         <Globe size={18} className={tone.text} />
-        <span className="text-[10px] font-black text-white/40 tracking-tight">Gate 0: Macro Survival Gate</span>
+        <span className="text-[10px] font-black text-white/40 tracking-tight">Gate 0: 거시 생존 게이트</span>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Gate0Metric title="MHS Score">
+        <Gate0Metric title="MHS 점수">
           <p className={cn('text-fluid-3xl font-black tracking-tighter', tone.text)}>
             {gate0.macroHealthScore}
             <span className="text-sm text-white/30 ml-1">/100</span>
@@ -465,22 +465,22 @@ function Gate0Card({ result }: { result: EvaluationResult }) {
             {gate0.mhsLevel === 'MEDIUM' ? `${tone.status} (${Math.round((1 - gate0.kellyReduction) * 100)}%)` : tone.status}
           </p>
         </Gate0Metric>
-        <Gate0Metric title="Rate Cycle">
+        <Gate0Metric title="금리 사이클">
           <p className="text-lg font-black text-white tracking-tighter">{rate.title}</p>
           <p className="text-xs font-bold text-white/30 mt-1">{rate.body}</p>
         </Gate0Metric>
-        <Gate0Metric title="FX Regime">
+        <Gate0Metric title="환율 레짐">
           <p className="text-lg font-black text-white tracking-tighter">{fxRegimeLabel(gate0.fxRegime)}</p>
           <p className="text-xs font-bold text-white/30 mt-1">
-            FX adjustment: {result.fxAdjustmentFactor >= 0 ? '+' : ''}{result.fxAdjustmentFactor.toFixed(2)}pt
+            환율 조정: {result.fxAdjustmentFactor >= 0 ? '+' : ''}{result.fxAdjustmentFactor.toFixed(2)}pt
           </p>
         </Gate0Metric>
-        <Gate0Metric title="Detail Scores">
+        <Gate0Metric title="세부 점수">
           <div className="space-y-0.5 text-[10px] font-bold text-white/40">
-            <p>Rates {gate0.details.interestRateScore}/25</p>
-            <p>Liquidity {gate0.details.liquidityScore}/25</p>
-            <p>Economy {gate0.details.economicScore}/25</p>
-            <p>Risk {gate0.details.riskScore}/25</p>
+            <p>금리 {gate0.details.interestRateScore}/25</p>
+            <p>유동성 {gate0.details.liquidityScore}/25</p>
+            <p>경기 {gate0.details.economicScore}/25</p>
+            <p>리스크 {gate0.details.riskScore}/25</p>
           </div>
         </Gate0Metric>
       </div>
@@ -520,7 +520,7 @@ function GateCard({
       <span className="text-[10px] font-black text-white/20 tracking-tight block mb-4">{title}</span>
       <div className="flex items-center gap-3">
         {passed ? <CheckCircle2 className="text-green-400" /> : <XCircle className="text-red-400" />}
-        <span className="text-xl font-black text-white uppercase tracking-tighter">{passed ? 'Passed' : 'Failed'}</span>
+        <span className="text-xl font-black text-white uppercase tracking-tighter">{passed ? '통과' : '미통과'}</span>
       </div>
     </div>
   );
@@ -529,9 +529,9 @@ function GateCard({
 function GateGrid({ result }: { result: EvaluationResult }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
-      <GateCard icon={<ShieldCheck size={80} />} title="Gate 1: Survival Filter" passed={result.gate1Passed} />
-      <GateCard icon={<TrendingUp size={80} />} title="Gate 2: Growth Validation" passed={result.gate2Passed} />
-      <GateCard icon={<Zap size={80} />} title="Gate 3: Timing Breakout" passed={result.gate3Passed} />
+      <GateCard icon={<ShieldCheck size={80} />} title="Gate 1: 생존 필터" passed={result.gate1Passed} />
+      <GateCard icon={<TrendingUp size={80} />} title="Gate 2: 성장 검증" passed={result.gate2Passed} />
+      <GateCard icon={<Zap size={80} />} title="Gate 3: 타이밍 돌파" passed={result.gate3Passed} />
     </div>
   );
 }
@@ -542,14 +542,14 @@ function KellyCard({ result }: { result: EvaluationResult }) {
     <div className="bg-indigo-500/10 p-8 rounded-[2.5rem] border border-indigo-500/20">
       <div className="flex items-center gap-3 mb-6">
         <Wallet className="w-5 h-5 text-indigo-400" />
-        <h4 className="text-sm font-black text-white tracking-tight">Kelly Criterion Position Sizing</h4>
+        <h4 className="text-sm font-black text-white tracking-tight">Kelly 기준 포지션 사이징</h4>
       </div>
       <div className="flex items-end gap-4 mb-4">
         <div className="text-fluid-6xl font-black text-white tracking-tighter">{weight}%</div>
-        <span className="text-sm font-bold text-white/40 tracking-tight mb-2">Recommended Weight</span>
+        <span className="text-sm font-bold text-white/40 tracking-tight mb-2">권장 가중치</span>
       </div>
       <p className="text-xs font-medium text-white/40 leading-relaxed">
-        Position size is derived from the same quant engine output, then shown as an advisory weight for this manual diagnostic view.
+        포지션 크기는 동일한 퀀트 엔진 출력에서 산출되며, 이 수동 진단 화면에서는 참고용 가중치로 표시됩니다.
       </p>
     </div>
   );
@@ -560,12 +560,12 @@ function RiskRewardCard() {
     <div className="bg-white/5 p-8 rounded-[2.5rem] border border-white/5">
       <div className="flex items-center gap-3 mb-6">
         <BarChart3 className="w-5 h-5 text-purple-400" />
-        <h4 className="text-sm font-black text-white tracking-tight">Risk/Reward Analysis</h4>
+        <h4 className="text-sm font-black text-white tracking-tight">손익비 분석</h4>
       </div>
       <div className="space-y-4">
-        <RiskRewardRow label="Risk-Reward Ratio" value="2.5 : 1" className="text-white" />
-        <RiskRewardRow label="Stop Loss" value="-12.0%" className="text-red-400" />
-        <RiskRewardRow label="Target Profit" value="+30.0%" className="text-green-400" />
+        <RiskRewardRow label="손익비 (RRR)" value="2.5 : 1" className="text-white" />
+        <RiskRewardRow label="손절가" value="-12.0%" className="text-red-400" />
+        <RiskRewardRow label="목표 수익" value="+30.0%" className="text-green-400" />
       </div>
     </div>
   );

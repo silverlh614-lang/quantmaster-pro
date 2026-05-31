@@ -63,8 +63,8 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
               <ArrowRightLeft className="w-8 h-8 text-indigo-400" />
             </div>
             <div>
-              <h2 className="text-fluid-3xl font-black text-white tracking-tight uppercase">Portfolio Comparison</h2>
-              <p className="text-white/40 font-bold text-sm tracking-tight">Analyzing {portfolios.length} strategies</p>
+              <h2 className="text-fluid-3xl font-black text-white tracking-tight uppercase">포트폴리오 비교</h2>
+              <p className="text-white/40 font-bold text-sm tracking-tight">{portfolios.length}개 전략 분석 중</p>
             </div>
           </div>
           <button 
@@ -81,7 +81,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
             <div className="glass-3d rounded-[3rem] p-8 border border-white/5">
               <div className="flex items-center gap-3 mb-8">
                 <TrendingUp className="w-5 h-5 text-orange-400" />
-                <span className="text-xs font-black text-white/40 tracking-tight">Cumulative Return</span>
+                <span className="text-xs font-black text-white/40 tracking-tight">누적 수익률</span>
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -106,7 +106,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
             <div className="glass-3d rounded-[3rem] p-8 border border-white/5">
               <div className="flex items-center gap-3 mb-8">
                 <ShieldCheck className="w-5 h-5 text-blue-400" />
-                <span className="text-xs font-black text-white/40 tracking-tight">Sharpe Ratio</span>
+                <span className="text-xs font-black text-white/40 tracking-tight">샤프 지수</span>
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -127,7 +127,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
             <div className="glass-3d rounded-[3rem] p-8 border border-white/5">
               <div className="flex items-center gap-3 mb-8">
                 <Activity className="w-5 h-5 text-red-400" />
-                <span className="text-xs font-black text-white/40 tracking-tight">Max Drawdown</span>
+                <span className="text-xs font-black text-white/40 tracking-tight">최대 낙폭</span>
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -148,7 +148,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
             <div className="glass-3d rounded-[3rem] p-8 border border-white/5">
               <div className="flex items-center gap-3 mb-8">
                 <PieChartIcon className="w-5 h-5 text-purple-400" />
-                <span className="text-xs font-black text-white/40 tracking-tight">Volatility</span>
+                <span className="text-xs font-black text-white/40 tracking-tight">변동성</span>
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -172,11 +172,11 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
             <table className="w-full text-left min-w-[600px]">
               <thead>
                 <tr className="bg-white/5">
-                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">Portfolio Name</th>
-                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">Return</th>
-                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">Sharpe</th>
-                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">Max DD</th>
-                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">Allocation</th>
+                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">포트폴리오 이름</th>
+                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">수익률</th>
+                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">샤프</th>
+                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">최대 낙폭</th>
+                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">배분</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -184,7 +184,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
                   <tr key={p.id} className="hover:bg-white/[0.02] transition-colors">
                     <td className="px-3 sm:px-8 py-3 sm:py-8">
                       <div className="font-black text-white text-lg">{p.name}</div>
-                      <div className="text-[10px] font-black text-white/20 tracking-tight mt-1">{p.items?.length || 0} Assets</div>
+                      <div className="text-[10px] font-black text-white/20 tracking-tight mt-1">{p.items?.length || 0}개 종목</div>
                     </td>
                     <td className="px-3 sm:px-8 py-3 sm:py-8">
                       <div className={cn(
@@ -206,7 +206,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
                         ))}
                         {p.items.length > 3 && (
                           <span className="px-3 py-1 bg-white/5 rounded-lg text-[10px] font-black text-white/40 tracking-tight border border-white/5">
-                            +{p.items.length - 3} more
+                            +{p.items.length - 3}개 더
                           </span>
                         )}
                       </div>

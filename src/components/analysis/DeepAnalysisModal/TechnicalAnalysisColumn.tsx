@@ -2,14 +2,16 @@
 import React from 'react';
 import { Activity, TrendingUp, Zap, Sparkles, Target } from 'lucide-react';
 import { cn } from '../../../ui/cn';
+import { toKoLabel } from '../../../utils/displayLabels';
 import type { StockRecommendation } from '../../../services/stockService';
 
 interface Props {
   stock: StockRecommendation;
 }
 
+// 표시 전용 한글 변환 — enum 원본값은 resolve*Class 비교에서 그대로 사용(불변).
 function formatStatusToken(value: string | undefined): string | undefined {
-  return value?.replace('_', ' ');
+  return value == null ? undefined : toKoLabel(value);
 }
 
 function resolveMaAlignmentClass(value: string | undefined): string {

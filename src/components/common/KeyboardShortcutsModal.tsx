@@ -73,7 +73,7 @@ export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModal
                 {row.keys.map((k, j) => (
                   <React.Fragment key={j}>
                     {j > 0 && (
-                      <span className="text-[10px] text-theme-text-muted">then</span>
+                      <span className="text-[10px] text-theme-text-muted">그다음</span>
                     )}
                     <kbd
                       className={cn(

@@ -17,20 +17,20 @@ export function DashboardHeader({ result, activeTab, onTabChange }: Props) {
     <>
       <header className="mb-8 border-b border-theme-border pb-4 flex justify-between items-end">
         <div>
-          <h1 className="text-fluid-4xl font-serif italic tracking-tight">Living Quant System</h1>
-          <p className="col-header mt-2">27-Condition Hierarchical Analysis Engine</p>
+          <h1 className="text-fluid-4xl font-serif italic tracking-tight">리빙 퀀트 시스템</h1>
+          <p className="col-header mt-2">27개 조건 계층형 분석 엔진</p>
         </div>
         <div className="text-right">
-          <p className="data-value text-sm">REGIME: BULLISH START</p>
-          <p className="data-value text-sm">PROFILE: {result.profile.type}</p>
+          <p className="data-value text-sm">레짐: 상승 초입</p>
+          <p className="data-value text-sm">프로파일: {result.profile.type}</p>
         </div>
       </header>
 
       {/* Tab Navigation */}
       <div className="flex gap-0 mb-10 border-b-2 border-theme-text">
         {([
-          { id: 'QUANT', label: 'QUANT ANALYSIS', icon: <Target size={14} /> },
-          { id: 'MACRO', label: 'MACRO INTELLIGENCE', icon: <Globe size={14} /> },
+          { id: 'QUANT', label: '퀀트 분석', icon: <Target size={14} /> },
+          { id: 'MACRO', label: '매크로 인텔리전스', icon: <Globe size={14} /> },
         ] as const).map(tab => (
           <button
             key={tab.id}

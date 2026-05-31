@@ -21,7 +21,7 @@ export const TriageSummarySection: React.FC<TriageSummarySectionProps> = ({ gate
         <div className="relative z-10">
           <span className="text-[10px] font-black text-white/20 tracking-tight mb-4 block">전체 분석 종목</span>
           <div className="text-fluid-4xl font-black text-white tracking-tighter">{total}</div>
-          <p className="text-[9px] font-bold text-white/40 mt-2 tracking-tight">Total Monitored Assets</p>
+          <p className="text-[9px] font-bold text-white/40 mt-2 tracking-tight">전체 모니터링 종목</p>
         </div>
       </div>
 

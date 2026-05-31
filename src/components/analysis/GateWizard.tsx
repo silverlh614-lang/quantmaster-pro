@@ -58,27 +58,27 @@ interface GateStatus {
 
 const STEPS: StepDef[] = [
   {
-    key: 'gate1', label: 'Gate 1', labelKo: 'Survival',
+    key: 'gate1', label: 'Gate 1', labelKo: '생존',
     icon: <Shield className="w-5 h-5" />,
     color: 'text-red-400', bgColor: 'bg-red-500/12', borderColor: 'border-red-500/40', glowColor: 'shadow-[0_0_20px_rgba(239,68,68,0.15)]',
   },
   {
-    key: 'gate2', label: 'Gate 2', labelKo: 'Growth',
+    key: 'gate2', label: 'Gate 2', labelKo: '성장',
     icon: <TrendingUp className="w-5 h-5" />,
     color: 'text-amber-400', bgColor: 'bg-amber-500/12', borderColor: 'border-amber-500/40', glowColor: 'shadow-[0_0_20px_rgba(245,158,11,0.15)]',
   },
   {
-    key: 'gate3', label: 'Gate 3', labelKo: 'Timing',
+    key: 'gate3', label: 'Gate 3', labelKo: '타이밍',
     icon: <Clock className="w-5 h-5" />,
     color: 'text-green-400', bgColor: 'bg-green-500/12', borderColor: 'border-green-500/40', glowColor: 'shadow-[0_0_20px_rgba(34,197,94,0.15)]',
   },
   {
-    key: 'position', label: 'Position', labelKo: 'Sizing',
+    key: 'position', label: '포지션', labelKo: '사이징',
     icon: <Target className="w-5 h-5" />,
     color: 'text-blue-400', bgColor: 'bg-blue-500/12', borderColor: 'border-blue-500/40', glowColor: 'shadow-[0_0_20px_rgba(59,130,246,0.15)]',
   },
   {
-    key: 'execute', label: 'Execute', labelKo: 'Confirm',
+    key: 'execute', label: '실행', labelKo: '확인',
     icon: <Play className="w-5 h-5" />,
     color: 'text-purple-400', bgColor: 'bg-purple-500/12', borderColor: 'border-purple-500/40', glowColor: 'shadow-[0_0_20px_rgba(168,85,247,0.15)]',
   },
@@ -86,16 +86,16 @@ const STEPS: StepDef[] = [
 
 const GATE_PANEL_COPY = [
   {
-    description: 'All five survival checks must pass before the next gate can open.',
-    ruleText: 'ALL 5 conditions must pass (score >= 5)',
+    description: '다음 게이트가 열리려면 5개 생존 점검을 모두 통과해야 합니다.',
+    ruleText: '5개 조건 전부 통과 필요 (점수 >= 5)',
   },
   {
-    description: 'At least nine growth and momentum checks must pass to verify signal quality.',
-    ruleText: '9 of 12 conditions must pass (score >= 5)',
+    description: '신호 품질 검증을 위해 성장·모멘텀 점검 중 최소 9개를 통과해야 합니다.',
+    ruleText: '12개 중 9개 조건 통과 필요 (점수 >= 5)',
   },
   {
-    description: 'At least seven timing checks must pass to confirm entry timing.',
-    ruleText: '7 of 10 conditions must pass (score >= 5)',
+    description: '진입 타이밍 확정을 위해 타이밍 점검 중 최소 7개를 통과해야 합니다.',
+    ruleText: '10개 중 7개 조건 통과 필요 (점수 >= 5)',
   },
 ] as const;
 
@@ -108,9 +108,9 @@ const POSITION_OPTIONS: {
   bgColor: string;
   borderColor: string;
 }[] = [
-  { mode: 'full', label: 'Full position (100%)', desc: 'All gates passed with maximum conviction', icon: <Zap className="w-5 h-5" />, color: 'text-green-400', bgColor: 'bg-green-500/10', borderColor: 'border-green-500/40' },
-  { mode: 'half', label: 'Half position (50%)', desc: 'Conservative entry with room to scale', icon: <Scale className="w-5 h-5" />, color: 'text-amber-400', bgColor: 'bg-amber-500/10', borderColor: 'border-amber-500/40' },
-  { mode: 'observation', label: 'Observation only', desc: 'Track the setup without execution', icon: <Eye className="w-5 h-5" />, color: 'text-blue-400', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/40' },
+  { mode: 'full', label: '풀 포지션 (100%)', desc: '모든 게이트 통과, 최대 확신', icon: <Zap className="w-5 h-5" />, color: 'text-green-400', bgColor: 'bg-green-500/10', borderColor: 'border-green-500/40' },
+  { mode: 'half', label: '하프 포지션 (50%)', desc: '추가 매수 여지를 둔 보수적 진입', icon: <Scale className="w-5 h-5" />, color: 'text-amber-400', bgColor: 'bg-amber-500/10', borderColor: 'border-amber-500/40' },
+  { mode: 'observation', label: '관망만', desc: '집행 없이 셋업만 추적', icon: <Eye className="w-5 h-5" />, color: 'text-blue-400', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/40' },
 ];
 
 function getConditionIcon(id: number) {
@@ -426,7 +426,7 @@ function GatePanel({ step, conditionIds, scores, onUpdateScore, passedCount, req
           </div>
         </div>
         <Badge variant={gatePassed ? 'success' : 'warning'} size="sm">
-          {passedCount}/{requiredCount} {gatePassed ? 'PASS' : 'FAIL'}
+          {passedCount}/{requiredCount} {gatePassed ? '통과' : '미통과'}
         </Badge>
       </div>
 
@@ -475,7 +475,7 @@ function ConditionRow({
           </span>
           <span className="text-[10px] font-black text-theme-text-muted uppercase">{id}</span>
           <span className={cn('text-xs font-black truncate', passed ? 'text-green-400' : 'text-theme-text')}>
-            {cond?.name || `Condition ${id}`}
+            {cond?.name || `조건 ${id}`}
           </span>
         </div>
         <p className="text-[9px] text-theme-text-muted font-medium truncate pl-5.5">
@@ -540,9 +540,9 @@ function PositionPanel({ positionMode, onChangeMode, gate1Count, gate2Count, gat
           <Target className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400" />
         </div>
         <div>
-          <div className="text-base sm:text-lg font-black text-theme-text">Position Sizing</div>
+          <div className="text-base sm:text-lg font-black text-theme-text">포지션 사이징</div>
           <span className="text-[10px] font-bold text-theme-text-muted">
-            {stockName ? `${stockName} ` : ''}Gate status: G1 {gate1Count}/5, G2 {gate2Count}/12, G3 {gate3Count}/10
+            {stockName ? `${stockName} ` : ''}Gate 상태: G1 {gate1Count}/5, G2 {gate2Count}/12, G3 {gate3Count}/10
           </span>
         </div>
       </div>
@@ -603,7 +603,7 @@ function ExecutionPanel({ stockName, stockCode, positionMode, onExecute }: {
   positionMode: PositionMode;
   onExecute: () => void;
 }) {
-  const modeLabel = positionMode === 'full' ? 'Full position (100%)' : positionMode === 'half' ? 'Half position (50%)' : 'Observation only';
+  const modeLabel = positionMode === 'full' ? '풀 포지션 (100%)' : positionMode === 'half' ? '하프 포지션 (50%)' : '관망만';
   const modeColor = positionMode === 'full' ? 'text-green-400' : positionMode === 'half' ? 'text-amber-400' : 'text-blue-400';
 
   return (
@@ -613,24 +613,24 @@ function ExecutionPanel({ stockName, stockCode, positionMode, onExecute }: {
           <Crosshair className="w-5 h-5 sm:w-6 sm:h-6 text-purple-400" />
         </div>
         <div>
-          <div className="text-base sm:text-lg font-black text-theme-text">Execution Confirmation</div>
-          <span className="text-[10px] font-bold text-theme-text-muted">All 3 gates passed. Confirm final action.</span>
+          <div className="text-base sm:text-lg font-black text-theme-text">집행 확인</div>
+          <span className="text-[10px] font-bold text-theme-text-muted">3개 게이트를 모두 통과했습니다. 최종 액션을 확인하세요.</span>
         </div>
       </div>
 
       <div className="p-4 sm:p-6 bg-white/[0.03] rounded-xl sm:rounded-2xl border border-theme-border mb-6 space-y-3">
         {stockName && (
           <div className="flex justify-between text-sm">
-            <span className="font-black text-theme-text-muted">Stock</span>
+            <span className="font-black text-theme-text-muted">종목</span>
             <span className="font-black text-theme-text">{stockName} {stockCode && <span className="text-theme-text-muted font-mono text-xs">({stockCode})</span>}</span>
           </div>
         )}
         <div className="flex justify-between text-sm">
-          <span className="font-black text-theme-text-muted">Gate Pass</span>
-          <span className="font-black text-green-400">3 / 3 ALL PASS</span>
+          <span className="font-black text-theme-text-muted">게이트 통과</span>
+          <span className="font-black text-green-400">3 / 3 전부 통과</span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="font-black text-theme-text-muted">Position</span>
+          <span className="font-black text-theme-text-muted">포지션</span>
           <span className={cn('font-black', modeColor)}>{modeLabel}</span>
         </div>
       </div>
@@ -638,7 +638,7 @@ function ExecutionPanel({ stockName, stockCode, positionMode, onExecute }: {
       {positionMode === 'observation' ? (
         <div className="p-4 bg-blue-500/10 border border-blue-500/25 rounded-xl text-center">
           <Eye className="w-6 h-6 text-blue-400 mx-auto mb-2" />
-          <p className="text-xs font-black text-blue-400">Observation mode records monitoring only.</p>
+          <p className="text-xs font-black text-blue-400">관망 모드는 모니터링만 기록합니다.</p>
         </div>
       ) : (
         <Button
@@ -648,7 +648,7 @@ function ExecutionPanel({ stockName, stockCode, positionMode, onExecute }: {
           onClick={onExecute}
           className="w-full py-4 text-base shadow-[0_8px_30px_rgba(249,115,22,0.3)]"
         >
-          {positionMode === 'full' ? 'Execute full position buy' : 'Execute half position buy'}
+          {positionMode === 'full' ? '풀 포지션 매수 집행' : '하프 포지션 매수 집행'}
         </Button>
       )}
     </Card>
@@ -675,7 +675,7 @@ function WizardBottomNav({
         onClick={onPrev}
         disabled={activeStep === 0}
       >
-        Previous
+        이전
       </Button>
       <div className="text-[10px] font-black text-theme-text-muted tracking-tight">
         {activeStep + 1} / {STEPS.length}
@@ -688,7 +688,7 @@ function WizardBottomNav({
           onClick={onNext}
           disabled={!canGoNext}
         >
-          {canGoNext ? 'Next' : 'Locked'}
+          {canGoNext ? '다음' : '잠김'}
         </Button>
       ) : (
         <div />

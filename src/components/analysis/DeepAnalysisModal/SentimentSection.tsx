@@ -2,6 +2,7 @@
 import React from 'react';
 import { TrendingUp, TrendingDown, Minus, Users, Newspaper } from 'lucide-react';
 import { cn } from '../../../ui/cn';
+import { toKoLabel } from '../../../utils/displayLabels';
 import type { StockRecommendation } from '../../../services/stockService';
 
 interface Props {
@@ -53,7 +54,7 @@ function AnalystSentimentCard({ stock }: Props) {
           <div className="flex items-center justify-between">
             <span className="text-sm font-black text-white/60 tracking-tight">컨센서스</span>
             <span className={cn('text-sm px-3 py-1 rounded-full font-black tracking-widest', resolveAnalystConsensusClass(stock.analystRatings.consensus))}>
-              {stock.analystRatings.consensus}
+              {toKoLabel(stock.analystRatings.consensus)}
             </span>
           </div>
 
@@ -133,7 +134,7 @@ function NewsSentimentCard({ stock }: Props) {
             <span className="text-sm font-black text-white/60 tracking-tight">상태</span>
             <span className={cn('text-sm px-3 py-1 rounded-full font-black tracking-widest flex items-center gap-2', resolveNewsStatusClass(stock.newsSentiment.status))}>
               <NewsStatusIcon status={stock.newsSentiment.status} />
-              {stock.newsSentiment.status}
+              {toKoLabel(stock.newsSentiment.status)}
             </span>
           </div>
 

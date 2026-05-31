@@ -66,11 +66,11 @@ function computeRecommendedWeights(vkospi: number): Record<number, number> {
 // ── VKOSPI Regime label ─────────────────────────────────────────────────────
 
 function getVkospiLabel(v: number): { label: string; color: string } {
-  if (v >= VKOSPI.EXTREME) return { label: 'EXTREME FEAR', color: 'text-red-500' };
-  if (v >= VKOSPI.FEAR) return { label: 'FEAR', color: 'text-red-400' };
-  if (v >= VKOSPI.ELEVATED) return { label: 'ELEVATED', color: 'text-amber-400' };
-  if (v >= VKOSPI.CALM) return { label: 'CALM', color: 'text-green-400' };
-  return { label: 'ULTRA CALM', color: 'text-blue-400' };
+  if (v >= VKOSPI.EXTREME) return { label: '극도의 공포', color: 'text-red-500' };
+  if (v >= VKOSPI.FEAR) return { label: '공포', color: 'text-red-400' };
+  if (v >= VKOSPI.ELEVATED) return { label: '경계', color: 'text-amber-400' };
+  if (v >= VKOSPI.CALM) return { label: '안정', color: 'text-green-400' };
+  return { label: '매우 안정', color: 'text-blue-400' };
 }
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ export function WeightConfigPanel({ weights, onWeightsChange, vkospi = 18 }: Wei
         <div className="flex-1 min-w-0 text-left">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="text-micro">팩터 가중치 컨트롤</span>
-            <Badge variant="info" size="sm">27 CONDITIONS</Badge>
+            <Badge variant="info" size="sm">27개 조건</Badge>
             {modifiedCount > 0 && (
               <Badge variant="warning" size="sm">{modifiedCount} 수정됨</Badge>
             )}
@@ -202,11 +202,11 @@ export function WeightConfigPanel({ weights, onWeightsChange, vkospi = 18 }: Wei
                     />
                   </div>
                   <div className="flex justify-between mt-1 text-[8px] font-black text-theme-text-muted tracking-tight">
-                    <span>ULTRA CALM</span>
-                    <span>CALM</span>
-                    <span>ELEVATED</span>
-                    <span>FEAR</span>
-                    <span>EXTREME</span>
+                    <span>매우 안정</span>
+                    <span>안정</span>
+                    <span>경계</span>
+                    <span>공포</span>
+                    <span>극도</span>
                   </div>
                 </div>
 

@@ -2,6 +2,7 @@
 import React from 'react';
 import { Globe } from 'lucide-react';
 import { cn } from '../../../ui/cn';
+import { toKoLabel } from '../../../utils/displayLabels';
 
 interface GlobalEtfMonitoring {
   symbol?: string;
@@ -22,7 +23,7 @@ export const GlobalEtfSection: React.FC<GlobalEtfSectionProps> = React.memo(({ e
   <section>
     <div className="flex items-center gap-4 mb-8">
       <Globe className="w-6 h-6 text-indigo-400" />
-      <h3 className="text-xl font-black text-white uppercase tracking-tighter">Global ETF Monitoring</h3>
+      <h3 className="text-xl font-black text-white uppercase tracking-tighter">글로벌 ETF 모니터링</h3>
     </div>
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       {etfs.map((etf, i) => {
@@ -42,7 +43,7 @@ export const GlobalEtfSection: React.FC<GlobalEtfSectionProps> = React.memo(({ e
                   "px-3 py-1 rounded-lg text-[10px] font-black",
                   isInflow ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
                 )}>
-                  {displayLabel}
+                  {toKoLabel(displayLabel)}
                 </div>
               )}
             </div>

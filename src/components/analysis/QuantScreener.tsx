@@ -40,24 +40,24 @@ const INITIAL_FILTERS: StockFilters = {
 
 const PIPELINE_DELAYS_MS = [0, 12000, 22000, 32000, 42000];
 const PIPELINE_STAGES: PipelineStage[] = [
-  { label: 'Quant Screen', desc: 'ROE, valuation, liquidity, and 52-week proximity filter', color: 'text-blue-400', border: 'border-blue-500/40' },
-  { label: 'DART Review', desc: 'Recent disclosures and ownership signals', color: 'text-amber-400', border: 'border-amber-500/40' },
-  { label: 'Composite Score', desc: 'Quant, disclosure, and news factors combined', color: 'text-green-400', border: 'border-green-500/40' },
-  { label: 'Quiet Accumulation', desc: 'VWAP, institutional split buying, and supply shrinkage', color: 'text-purple-400', border: 'border-purple-500/40' },
-  { label: 'Timing Review', desc: 'Narrative quality and 27-condition gate read', color: 'text-pink-400', border: 'border-pink-500/40' },
+  { label: '퀀트 스크리닝', desc: 'ROE, 밸류에이션, 유동성, 52주 근접도 필터', color: 'text-blue-400', border: 'border-blue-500/40' },
+  { label: 'DART 검토', desc: '최근 공시 및 지분 신호', color: 'text-amber-400', border: 'border-amber-500/40' },
+  { label: '종합 점수', desc: '퀀트, 공시, 뉴스 팩터 결합', color: 'text-green-400', border: 'border-green-500/40' },
+  { label: '조용한 매집', desc: 'VWAP, 기관 분할 매수, 매물대 축소', color: 'text-purple-400', border: 'border-purple-500/40' },
+  { label: '타이밍 검토', desc: '내러티브 품질 및 27조건 게이트 판독', color: 'text-pink-400', border: 'border-pink-500/40' },
 ];
 
 const MODE_OPTIONS = [
-  { value: 'MOMENTUM', label: 'Momentum leaders' },
-  { value: 'EARLY_DETECT', label: 'Early signal detection' },
-  { value: 'QUANT_SCREEN', label: 'Hybrid quant discovery' },
-  { value: 'BEAR_SCREEN', label: 'Bear screener' },
+  { value: 'MOMENTUM', label: '모멘텀 주도주' },
+  { value: 'EARLY_DETECT', label: '초기 신호 감지' },
+  { value: 'QUANT_SCREEN', label: '하이브리드 퀀트 발굴' },
+  { value: 'BEAR_SCREEN', label: '약세장 스크리너' },
 ] as const;
 
 const TREND_ITEMS = [
-  { label: 'Low PBR basket', value: '+12.4%' },
-  { label: 'AI semiconductor theme', value: '+8.7%' },
-  { label: 'K-defense export momentum', value: '+15.2%' },
+  { label: '저PBR 바스켓', value: '+12.4%' },
+  { label: 'AI 반도체 테마', value: '+8.7%' },
+  { label: 'K-방산 수출 모멘텀', value: '+15.2%' },
 ];
 
 function usePipelineStage(loading: boolean, mode: StockFilters['mode']): number {
@@ -122,9 +122,9 @@ function BearModeBanner({
     >
       <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-black text-red-200">Bear regime detected. Bear Screener is recommended.</p>
+        <p className="text-sm font-black text-red-200">약세장 레짐이 감지되었습니다. 약세장 스크리너를 권장합니다.</p>
         <p className="text-xs text-red-300/80 mt-1">
-          Gate -1 is in bear mode. Defensive bear-screen candidates are safer than the standard bull screener during this phase.
+          Gate -1이 약세장 모드입니다. 이 국면에서는 방어적 약세장 스크리닝 후보가 표준 강세장 스크리너보다 안전합니다.
         </p>
       </div>
       <button
@@ -133,7 +133,7 @@ function BearModeBanner({
         disabled={loading}
         className="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-colors disabled:opacity-50"
       >
-        Switch
+        전환
       </button>
     </motion.div>
   );
@@ -176,7 +176,7 @@ function ModeSelect({
 }) {
   return (
     <div className="flex-1 space-y-2">
-      <label className="text-xs font-medium text-gray-500 tracking-tight">Analysis Mode</label>
+      <label className="text-xs font-medium text-gray-500 tracking-tight">분석 모드</label>
       <select
         name="mode"
         value={mode}
@@ -209,16 +209,16 @@ function ScreenerForm({
           <Filter className="w-5 h-5 text-blue-400" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-white">Step 1: Quant Screener</h2>
-          <p className="text-sm text-gray-400">Narrow the universe using valuation, balance sheet, and market-cap filters.</p>
+          <h2 className="text-xl font-bold text-white">1단계: 퀀트 스크리너</h2>
+          <p className="text-sm text-gray-400">밸류에이션, 재무 상태, 시가총액 필터로 유니버스를 좁힙니다.</p>
         </div>
       </div>
 
       <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <ScreenerField label="Minimum ROE (%)" name="minRoe" value={filters.minRoe} placeholder="e.g. 15" onChange={onInputChange} />
-        <ScreenerField label="Maximum PER" name="maxPer" value={filters.maxPer} placeholder="e.g. 20" onChange={onInputChange} />
-        <ScreenerField label="Maximum Debt Ratio (%)" name="maxDebtRatio" value={filters.maxDebtRatio} placeholder="e.g. 100" onChange={onInputChange} />
-        <ScreenerField label="Minimum Market Cap (KRW bn)" name="minMarketCap" value={filters.minMarketCap} placeholder="e.g. 1000" onChange={onInputChange} />
+        <ScreenerField label="최소 ROE (%)" name="minRoe" value={filters.minRoe} placeholder="예: 15" onChange={onInputChange} />
+        <ScreenerField label="최대 PER" name="maxPer" value={filters.maxPer} placeholder="예: 20" onChange={onInputChange} />
+        <ScreenerField label="최대 부채비율 (%)" name="maxDebtRatio" value={filters.maxDebtRatio} placeholder="예: 100" onChange={onInputChange} />
+        <ScreenerField label="최소 시가총액 (억원)" name="minMarketCap" value={filters.minMarketCap} placeholder="예: 1000" onChange={onInputChange} />
         <div className="md:col-span-2 lg:col-span-3 flex items-center gap-4">
           <ModeSelect mode={filters.mode} onChange={onInputChange} />
           <button
@@ -243,7 +243,7 @@ function ScreenerForm({
 function PipelineExplainer() {
   return (
     <div className="bg-[#0f1012] border border-blue-500/20 rounded-xl p-5">
-      <p className="text-xs font-semibold tracking-tight text-blue-400 mb-4">5-step hybrid discovery mode</p>
+      <p className="text-xs font-semibold tracking-tight text-blue-400 mb-4">5단계 하이브리드 발굴 모드</p>
       <div className="flex items-start gap-0">
         {PIPELINE_STAGES.map((stage, idx) => (
           <React.Fragment key={stage.label}>
@@ -253,7 +253,7 @@ function PipelineExplainer() {
         ))}
       </div>
       <p className="text-[9px] text-gray-600 mt-4 text-center">
-        This mode searches for quiet early leaders instead of obvious headline names.
+        이 모드는 눈에 띄는 화제의 종목 대신 조용한 초기 주도주를 탐색합니다.
       </p>
     </div>
   );
@@ -276,7 +276,7 @@ function PipelineLoading({ stageIndex }: { stageIndex: number }) {
     <div className="bg-[#151619] border border-white/5 rounded-xl p-8 space-y-5">
       <div className="flex items-center gap-3 mb-2">
         <div className="w-6 h-6 rounded-full border-2 border-blue-500/40 border-t-blue-500 animate-spin" />
-        <p className="text-white font-bold">Running hybrid discovery pipeline</p>
+        <p className="text-white font-bold">하이브리드 발굴 파이프라인 실행 중</p>
       </div>
       <div className="space-y-3">
         {PIPELINE_STAGES.map((stage, idx) => (
@@ -284,7 +284,7 @@ function PipelineLoading({ stageIndex }: { stageIndex: number }) {
         ))}
       </div>
       <p className="text-[10px] text-gray-600 text-center">
-        Finding low-noise early leaders can take a little longer than a standard scan.
+        노이즈가 적은 초기 주도주 발굴은 표준 스캔보다 다소 오래 걸릴 수 있습니다.
       </p>
     </div>
   );
@@ -315,7 +315,7 @@ function PipelineProgressRow({
       </div>
       <div className="flex-1">
         <p className={cn('text-sm font-bold', isDone ? 'text-green-400' : isActive ? stage.color : 'text-gray-600')}>
-          Step {index + 1}: {stage.label}
+          {index + 1}단계: {stage.label}
         </p>
         <p className={cn('text-[10px] mt-0.5', isActive ? 'text-gray-400' : 'text-gray-600')}>{stage.desc}</p>
       </div>
@@ -331,8 +331,8 @@ function StandardLoading() {
         <Brain className="w-6 h-6 text-purple-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
       </div>
       <div className="text-center">
-        <p className="text-white font-medium">System is reviewing candidates.</p>
-        <p className="text-sm text-gray-500 mt-1">The screener is checking leadership cycles, macro fit, and supply quality.</p>
+        <p className="text-white font-medium">시스템이 후보를 검토하고 있습니다.</p>
+        <p className="text-sm text-gray-500 mt-1">스크리너가 주도주 사이클, 거시 적합도, 매물대 품질을 점검하고 있습니다.</p>
       </div>
     </div>
   );
@@ -400,7 +400,7 @@ function RecommendationCard({
 function LeadingBadge() {
   return (
     <span className="text-[10px] font-bold bg-amber-500/10 text-amber-500 px-1.5 py-0.5 rounded border border-amber-500/20 uppercase tracking-tighter">
-      Leading
+      주도주
     </span>
   );
 }
@@ -408,10 +408,10 @@ function LeadingBadge() {
 function RecommendationMetrics({ stock }: { stock: StockRecommendation }) {
   return (
     <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-2 md:grid-cols-4 gap-4">
-      <Metric label="ROE" value={stock.valuation?.per ? 'Checked' : '-'} />
+      <Metric label="ROE" value={stock.valuation?.per ? '확인됨' : '-'} />
       <Metric label="PER" value={`${stock.valuation?.per ?? '-'}x`} />
-      <Metric label="Debt Ratio" value={`${stock.valuation?.debtRatio ?? '-'}%`} />
-      <Metric label="Market Cap" value={formatMarketCap(stock.marketCap)} />
+      <Metric label="부채비율" value={`${stock.valuation?.debtRatio ?? '-'}%`} />
+      <Metric label="시가총액" value={formatMarketCap(stock.marketCap)} />
     </div>
   );
 }
@@ -432,8 +432,8 @@ function EmptyResults() {
         <BarChart3 className="w-8 h-8 text-gray-600" />
       </div>
       <div>
-        <p className="text-gray-400 font-medium">No screening results yet.</p>
-        <p className="text-sm text-gray-600 mt-1">Adjust filters and run a new screen to find candidates.</p>
+        <p className="text-gray-400 font-medium">아직 스크리닝 결과가 없습니다.</p>
+        <p className="text-sm text-gray-600 mt-1">필터를 조정하고 새 스크리닝을 실행해 후보를 찾아보세요.</p>
       </div>
     </div>
   );
@@ -457,11 +457,11 @@ function AnalysisResultsPanel({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Brain className="w-5 h-5 text-purple-400" />
-          <h3 className="text-lg font-bold text-white">Step 2: Candidate Screening Results</h3>
+          <h3 className="text-lg font-bold text-white">2단계: 후보 스크리닝 결과</h3>
         </div>
         {recommendations.length > 0 && (
           <span className="text-xs font-medium text-purple-400 bg-purple-400/10 px-2 py-1 rounded border border-purple-400/20">
-            {recommendations.length} candidates
+            후보 {recommendations.length}개
           </span>
         )}
       </div>
@@ -481,12 +481,12 @@ function StrengthPanel() {
     <div className="bg-gradient-to-br from-purple-600/20 to-blue-600/20 border border-purple-500/20 rounded-xl p-6">
       <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
         <Target className="w-5 h-5 text-purple-400" />
-        Pipeline Strengths
+        파이프라인 강점
       </h3>
       <ul className="space-y-4">
-        <StrengthItem title="Quant validation" body="Filters weak balance sheets and low-quality valuations before qualitative review." />
-        <StrengthItem title="Narrative review" body="Ranks candidates by leadership cycle, macro fit, and supply quality." />
-        <StrengthItem title="Risk discipline" body="Prioritizes validated setups instead of simply chasing popular tickers." />
+        <StrengthItem title="퀀트 검증" body="정성 검토 전에 취약한 재무 상태와 저품질 밸류에이션을 걸러냅니다." />
+        <StrengthItem title="내러티브 검토" body="주도주 사이클, 거시 적합도, 매물대 품질로 후보 순위를 매깁니다." />
+        <StrengthItem title="리스크 규율" body="단순히 인기 종목을 좇기보다 검증된 셋업을 우선합니다." />
       </ul>
     </div>
   );
@@ -509,7 +509,7 @@ function StrengthItem({ title, body }: { title: string; body: string }) {
 function TrendPanel() {
   return (
     <div className="bg-[#151619] border border-white/[0.07] rounded-xl p-6">
-      <h3 className="text-sm font-bold text-gray-400 tracking-tight mb-4">Recent Screening Themes</h3>
+      <h3 className="text-sm font-bold text-gray-400 tracking-tight mb-4">최근 스크리닝 테마</h3>
       <div className="space-y-3">
         {TREND_ITEMS.map(item => (
           <div key={item.label} className="flex items-center justify-between p-3 bg-black/20 rounded-lg border border-white/5">

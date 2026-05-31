@@ -77,7 +77,7 @@ export default function LearningSanityDashboardPage(): React.ReactElement {
   return (
     <div className="px-4 py-6 space-y-6" data-testid="learning-sanity-dashboard-page">
       <header className="space-y-2">
-        <h1 className="text-xl font-bold text-zinc-100">Learning Diagnostics Dashboard</h1>
+        <h1 className="text-xl font-bold text-zinc-100">학습 진단 대시보드</h1>
         <p className="text-sm text-zinc-400">
           ADR-0178~0182 — 6 카드 (Safety Gate / Shadow vs Live / MissedLearningQueue
           / Rejected Winners / Stale Reflections / Unresolved Counterfactuals).

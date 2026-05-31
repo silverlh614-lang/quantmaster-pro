@@ -154,7 +154,7 @@ export function PortfolioExtractPage() {
       <Stack gap="xl">
         {/* Header */}
         <PageHeader
-          title="Portfolio Extraction"
+          title="포트폴리오 추출"
           subtitle="3-Gate 포트폴리오 추출 엔진"
           accentColor="bg-purple-500"
           actions={
@@ -183,7 +183,7 @@ export function PortfolioExtractPage() {
                 </div>
                 <div>
                   <span className="text-micro block">종목 수 선택</span>
-                  <span className="text-[10px] font-bold text-theme-text-muted">Number of Stocks</span>
+                  <span className="text-[10px] font-bold text-theme-text-muted">종목 개수</span>
                 </div>
               </div>
 
@@ -245,7 +245,7 @@ export function PortfolioExtractPage() {
                   </div>
                   <div>
                     <span className="text-micro block">Gate 가중치</span>
-                    <span className="text-[10px] font-bold text-theme-text-muted">Factor Weights</span>
+                    <span className="text-[10px] font-bold text-theme-text-muted">팩터 비중</span>
                   </div>
                 </div>
                 <Badge variant={totalGateWeight === 100 ? 'success' : 'danger'} size="sm">
@@ -345,7 +345,7 @@ export function PortfolioExtractPage() {
                 </div>
                 <div>
                   <span className="text-micro block">포지션 사이즈</span>
-                  <span className="text-[10px] font-bold text-theme-text-muted">Position Sizing</span>
+                  <span className="text-[10px] font-bold text-theme-text-muted">비중 산정</span>
                 </div>
               </div>
 
@@ -364,7 +364,7 @@ export function PortfolioExtractPage() {
                     <div className="flex items-center gap-2">
                       <Zap className={cn('w-4 h-4', positionMode === 'kelly' ? 'text-orange-400' : 'text-theme-text-muted')} />
                       <span className={cn('text-sm font-semibold tracking-tight', positionMode === 'kelly' ? 'text-orange-400' : 'text-theme-text')}>
-                        Kelly Formula
+                        Kelly 공식
                       </span>
                     </div>
                     <div className={cn(
@@ -393,7 +393,7 @@ export function PortfolioExtractPage() {
                     <div className="flex items-center gap-2">
                       <Layers className={cn('w-4 h-4', positionMode === 'equal' ? 'text-blue-400' : 'text-theme-text-muted')} />
                       <span className={cn('text-sm font-semibold tracking-tight', positionMode === 'equal' ? 'text-blue-400' : 'text-theme-text')}>
-                        Equal Weight
+                        균등 비중
                       </span>
                     </div>
                     <div className={cn(
@@ -572,7 +572,7 @@ export function PortfolioExtractPage() {
                             <tr>
                               <th className="px-3 py-2 text-[9px] font-semibold tracking-tight text-theme-text-muted">#</th>
                               <th className="px-3 py-2 text-[9px] font-semibold tracking-tight text-theme-text-muted">종목</th>
-                              <th className="px-3 py-2 text-[9px] font-semibold tracking-tight text-theme-text-muted text-right">AI Score</th>
+                              <th className="px-3 py-2 text-[9px] font-semibold tracking-tight text-theme-text-muted text-right">AI 점수</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -599,7 +599,7 @@ export function PortfolioExtractPage() {
                           icon={<Play className="w-4 h-4" />}
                           onClick={handleSendToBacktest}
                         >
-                          Backtest 로 보내기 ({extractedItems.length}개, 균등 {(100 / extractedItems.length).toFixed(1)}%)
+                          백테스트로 보내기 ({extractedItems.length}개, 균등 {(100 / extractedItems.length).toFixed(1)}%)
                         </Button>
                       </div>
                     </>

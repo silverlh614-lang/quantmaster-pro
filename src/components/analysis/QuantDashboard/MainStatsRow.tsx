@@ -23,37 +23,37 @@ export function MainStatsRow({ result }: Props) {
       <div className="p-6 border border-theme-text bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
         <div className="flex items-center gap-2 mb-2">
           <Target className="w-4 h-4" />
-          <h2 className="col-header">FINAL SCORE</h2>
+          <h2 className="col-header">최종 점수</h2>
         </div>
         <p className="text-fluid-5xl font-bold font-mono tracking-tighter">{result.finalScore.toFixed(0)}</p>
-        <p className="text-xs opacity-50 mt-1">MAX: 270.0</p>
+        <p className="text-xs opacity-50 mt-1">최대: 270.0</p>
       </div>
 
       <div className={cn('p-6 border border-theme-text bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]', getRecommendationColor(result.recommendation))}>
         <div className="flex items-center gap-2 mb-2">
           <Activity className="w-4 h-4" />
-          <h2 className="col-header">RECOMMENDATION</h2>
+          <h2 className="col-header">추천</h2>
         </div>
         <p className="text-2xl font-black uppercase italic">{result.recommendation}</p>
-        <p className="text-xs opacity-50 mt-1">DYNAMIC SCORING APPLIED</p>
+        <p className="text-xs opacity-50 mt-1">동적 스코어링 적용됨</p>
       </div>
 
       <div className="p-6 border border-theme-text bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
         <div className="flex items-center gap-2 mb-2">
           <DollarSign className="w-4 h-4" />
-          <h2 className="col-header">POSITION SIZE</h2>
+          <h2 className="col-header">포지션 크기</h2>
         </div>
         <p className="text-fluid-5xl font-bold font-mono tracking-tighter">{result.positionSize}%</p>
-        <p className="text-xs opacity-50 mt-1">KELLY CRITERION ADJUSTED</p>
+        <p className="text-xs opacity-50 mt-1">켈리 공식 조정됨</p>
       </div>
 
       <div className="p-6 border border-theme-text bg-white shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
         <div className="flex items-center gap-2 mb-2">
           <TrendingUp className="w-4 h-4" />
-          <h2 className="col-header">RRR (RISK-REWARD)</h2>
+          <h2 className="col-header">RRR (손익비)</h2>
         </div>
         <p className="text-fluid-5xl font-bold font-mono tracking-tighter">{result.rrr.toFixed(1)}</p>
-        <p className="text-xs opacity-50 mt-1">MIN THRESHOLD: 2.0</p>
+        <p className="text-xs opacity-50 mt-1">최소 기준: 2.0</p>
       </div>
     </div>
   );

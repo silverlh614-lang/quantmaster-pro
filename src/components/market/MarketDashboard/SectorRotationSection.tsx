@@ -18,7 +18,7 @@ export const SectorRotationSection: React.FC<SectorRotationSectionProps> = ({ to
   <section>
     <div className="flex items-center gap-4 mb-8">
       <Layers className="w-6 h-6 text-blue-400" />
-      <h3 className="text-xl font-black text-white uppercase tracking-tighter">섹터 로테이션 분석 (Sector Rotation)</h3>
+      <h3 className="text-xl font-black text-white uppercase tracking-tighter">섹터 로테이션 분석</h3>
     </div>
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       {topSectors.map((sector, i) => (
@@ -29,10 +29,10 @@ export const SectorRotationSection: React.FC<SectorRotationSectionProps> = ({ to
           <div className="relative z-10">
             <h4 className="text-lg font-black text-white mb-2">{sector.name}</h4>
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black text-blue-400 tracking-tight">Strength: {sector.strength}%</span>
+              <span className="text-[10px] font-black text-blue-400 tracking-tight">강도: {sector.strength}%</span>
               <div className="flex items-center gap-1 text-green-400">
                 <TrendingUp size={12} />
-                <span className="text-[10px] font-black">Leading</span>
+                <span className="text-[10px] font-black">주도</span>
               </div>
             </div>
           </div>

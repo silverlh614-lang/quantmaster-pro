@@ -13,7 +13,7 @@ export function MasterChecklistModal() {
       <ModalHeader
         onClose={() => setShowMasterChecklist(false)}
         icon={<ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6 text-orange-500" />}
-        subtitle="Master Selection System"
+        subtitle="마스터 종목 선정 시스템"
       >
         27단계 마스터 체크리스트
       </ModalHeader>
@@ -53,7 +53,7 @@ export function MasterChecklistModal() {
         <div className="space-y-3 sm:space-y-4 pt-4 sm:pt-6">
           <div className="flex items-center gap-3 mb-3 sm:mb-4">
             <div className="px-3 py-1 bg-red-500/15 rounded-full border border-red-500/25">
-              <span className="text-[10px] font-black text-red-500 tracking-tight">Sell Checklist</span>
+              <span className="text-[10px] font-black text-red-500 tracking-tight">매도 체크리스트</span>
             </div>
             <div className="h-px flex-1 bg-theme-border" />
             <span className="text-[10px] font-bold text-theme-text-muted tracking-tight hidden sm:block">매도 원칙 및 리스크 관리</span>

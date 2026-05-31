@@ -2,6 +2,7 @@
 import React from 'react';
 import { Activity, Flame, Zap, ShieldAlert } from 'lucide-react';
 import { cn } from '../../../ui/cn';
+import { toKoLabel } from '../../../utils/displayLabels';
 
 interface MarketPhaseSectionProps {
   marketPhase?: string;
@@ -29,7 +30,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
     <div className="glass-3d p-8 rounded-[2.5rem] border border-white/[0.07] flex flex-col justify-between">
       <div className="flex items-center gap-3 mb-6">
         <Activity className="w-5 h-5 text-purple-400" />
-        <span className="text-[11px] font-black text-white/20 tracking-tight">Market Phase</span>
+        <span className="text-[11px] font-black text-white/20 tracking-tight">시장 국면</span>
       </div>
       <div className="mb-8">
         <div className={cn(
@@ -40,12 +41,12 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
           marketPhase === 'TRANSITION' ? "bg-purple-500/20 text-purple-400 border-purple-500/30" :
           "bg-white/10 text-white/40 border-white/[0.07]"
         )}>
-          {marketPhase || 'NEUTRAL'}
+          {marketPhase ? toKoLabel(marketPhase) : 'NEUTRAL'}
         </div>
       </div>
       <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-        <span className="text-[9px] font-black text-white/20 tracking-tight block mb-1">Active Strategy</span>
-        <p className="text-sm font-bold text-white/70">{activeStrategy || 'Standard Balanced'}</p>
+        <span className="text-[9px] font-black text-white/20 tracking-tight block mb-1">활성 전략</span>
+        <p className="text-sm font-bold text-white/70">{activeStrategy || '표준 균형'}</p>
       </div>
     </div>
 
@@ -53,7 +54,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
     <div className="glass-3d p-8 rounded-[2.5rem] border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-6">
         <Flame className="w-5 h-5 text-orange-500" />
-        <span className="text-[11px] font-black text-white/20 tracking-tight">Euphoria Detector</span>
+        <span className="text-[11px] font-black text-white/20 tracking-tight">과열 탐지기</span>
       </div>
       <div className="flex items-center gap-6 mb-8">
         <div className="text-fluid-5xl font-black text-white tracking-tighter">{euphoriaSignals?.score ?? 0}</div>
@@ -68,7 +69,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
             />
           </div>
           <p className="text-[10px] font-black text-white/30 mt-3 tracking-tight">
-            {euphoriaSignals?.status || 'Analyzing...'}
+            {euphoriaSignals?.status ? toKoLabel(euphoriaSignals.status) : '분석 중...'}
           </p>
         </div>
       </div>
@@ -81,15 +82,15 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
     <div className="glass-3d p-8 rounded-[2.5rem] border border-white/[0.07]">
       <div className="flex items-center gap-3 mb-6">
         <Zap className="w-5 h-5 text-yellow-400" />
-        <span className="text-[11px] font-black text-white/20 tracking-tight">Regime Shift Detector</span>
+        <span className="text-[11px] font-black text-white/20 tracking-tight">국면 전환 탐지기</span>
       </div>
       <div className="space-y-4">
         <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
-          <span className="text-xs font-bold text-white/40 uppercase">Current Regime</span>
-          <span className="text-sm font-black text-white">{regimeShiftDetector?.currentRegime || 'Stable'}</span>
+          <span className="text-xs font-bold text-white/40 uppercase">현재 국면</span>
+          <span className="text-sm font-black text-white">{regimeShiftDetector?.currentRegime ? toKoLabel(regimeShiftDetector.currentRegime) : '안정'}</span>
         </div>
         <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
-          <span className="text-xs font-bold text-white/40 uppercase">Shift Probability</span>
+          <span className="text-xs font-bold text-white/40 uppercase">전환 확률</span>
           <span className={cn(
             "text-sm font-black",
             (regimeShiftDetector?.shiftProbability ?? 0) > 0.6 ? "text-red-400" : "text-green-400"
@@ -100,7 +101,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
         {regimeShiftDetector?.isShiftDetected && (
           <div className="flex items-center gap-2 text-red-400 animate-pulse">
             <ShieldAlert className="w-4 h-4" />
-            <span className="text-[10px] font-semibold tracking-tight">Regime Shift Detected!</span>
+            <span className="text-[10px] font-semibold tracking-tight">국면 전환 감지됨!</span>
           </div>
         )}
       </div>

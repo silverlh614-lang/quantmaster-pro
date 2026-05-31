@@ -257,7 +257,7 @@ export const TradeJournal: React.FC<Props> = ({
                         }`}>{trade.status}</span>
                         <span className={`text-[8px] font-bold px-2 py-0.5 border ${
                           trade.followedSystem ? 'border-indigo-300 text-indigo-600 bg-indigo-50' : 'border-amber-300 text-amber-600 bg-amber-50'
-                        }`}>{trade.followedSystem ? 'SYSTEM' : 'INTUITION'}</span>
+                        }`}>{trade.followedSystem ? '시스템' : '직관'}</span>
                         <span className={`text-[8px] font-bold px-2 py-0.5 border ${
                           trade.systemSignal === 'STRONG_BUY' ? 'border-green-400 text-green-700' :
                           trade.systemSignal === 'BUY' ? 'border-blue-400 text-blue-700' :
@@ -298,7 +298,7 @@ export const TradeJournal: React.FC<Props> = ({
                         <p className="font-bold">{trade.positionSize ?? 0}%</p>
                       </div>
                       <div>
-                        <span className="text-gray-400">Final Score</span>
+                        <span className="text-gray-400">최종 점수</span>
                         <p className="font-bold">{finalScore.toFixed(1)}</p>
                       </div>
                     </div>
@@ -617,7 +617,7 @@ export const TradeJournal: React.FC<Props> = ({
               {/* 대결 헤더 */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className={`border-2 p-5 text-center ${sysVsInt.systemEdge > 0 ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200'}`}>
-                  <p className="text-[9px] font-black uppercase text-indigo-500 tracking-widest">SYSTEM</p>
+                  <p className="text-[9px] font-black uppercase text-indigo-500 tracking-widest">시스템</p>
                   <p className="text-fluid-3xl font-black mt-1">{sysVsInt.systemWinRate}%</p>
                   <p className="text-[9px] text-gray-500">{sysVsInt.systemTrades}건 중 {sysVsInt.systemWins}승</p>
                   <p className={`text-sm font-bold mt-1 ${sysVsInt.systemAvgReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -626,7 +626,7 @@ export const TradeJournal: React.FC<Props> = ({
                 </div>
 
                 <div className="flex flex-col items-center justify-center">
-                  <p className="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2">EDGE</p>
+                  <p className="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2">엣지</p>
                   <p className={`text-fluid-4xl font-black ${
                     sysVsInt.systemEdge > 0 ? 'text-indigo-600' : sysVsInt.systemEdge < 0 ? 'text-amber-600' : 'text-gray-400'
                   }`}>
@@ -644,7 +644,7 @@ export const TradeJournal: React.FC<Props> = ({
                 </div>
 
                 <div className={`border-2 p-5 text-center ${sysVsInt.systemEdge < 0 ? 'border-amber-400 bg-amber-50' : 'border-gray-200'}`}>
-                  <p className="text-[9px] font-black uppercase text-amber-500 tracking-widest">INTUITION</p>
+                  <p className="text-[9px] font-black uppercase text-amber-500 tracking-widest">직관</p>
                   <p className="text-fluid-3xl font-black mt-1">{sysVsInt.intuitionWinRate}%</p>
                   <p className="text-[9px] text-gray-500">{sysVsInt.intuitionTrades}건 중 {sysVsInt.intuitionWins}승</p>
                   <p className={`text-sm font-bold mt-1 ${sysVsInt.intuitionAvgReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -659,8 +659,8 @@ export const TradeJournal: React.FC<Props> = ({
                   <thead>
                     <tr className="border-b-2 border-gray-300">
                       <th className="p-2 text-left font-black uppercase">지표</th>
-                      <th className="p-2 text-right font-black uppercase text-indigo-600">SYSTEM</th>
-                      <th className="p-2 text-right font-black uppercase text-amber-600">INTUITION</th>
+                      <th className="p-2 text-right font-black uppercase text-indigo-600">시스템</th>
+                      <th className="p-2 text-right font-black uppercase text-amber-600">직관</th>
                       <th className="p-2 text-center font-black uppercase">우위</th>
                     </tr>
                   </thead>
@@ -677,9 +677,9 @@ export const TradeJournal: React.FC<Props> = ({
                         <td className="p-2 text-right font-mono">{row.int}</td>
                         <td className="p-2 text-center">
                           {row.winner === 'SYS' ? (
-                            <span className="text-[8px] font-bold px-2 py-0.5 bg-indigo-100 text-indigo-700 border border-indigo-300">SYSTEM</span>
+                            <span className="text-[8px] font-bold px-2 py-0.5 bg-indigo-100 text-indigo-700 border border-indigo-300">시스템</span>
                           ) : row.winner === 'INT' ? (
-                            <span className="text-[8px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 border border-amber-300">INTUITION</span>
+                            <span className="text-[8px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 border border-amber-300">직관</span>
                           ) : <span className="text-gray-300">-</span>}
                         </td>
                       </tr>

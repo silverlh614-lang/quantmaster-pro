@@ -42,7 +42,7 @@ describe('AnimatePresence mode="wait" 페이지 스왑', () => {
     expect(getByTestId('page').textContent).toBe('DISCOVER');
 
     await act(async () => {
-      fireEvent.click(getByLabelText('Trade'));
+      fireEvent.click(getByLabelText('매매'));
     });
     await act(async () => {
       await new Promise((r) => setTimeout(r, 300));
@@ -50,7 +50,7 @@ describe('AnimatePresence mode="wait" 페이지 스왑', () => {
     expect(getByTestId('page').textContent).toBe('AUTO_TRADE');
 
     await act(async () => {
-      fireEvent.click(getByLabelText('Watchlist'));
+      fireEvent.click(getByLabelText('관심종목'));
     });
     await act(async () => {
       await new Promise((r) => setTimeout(r, 300));

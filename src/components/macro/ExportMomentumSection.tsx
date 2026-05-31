@@ -81,7 +81,7 @@ export function ExportMomentumSection() {
                     {positive ? '+' : ''}{p.yoyGrowth.toFixed(1)}%
                   </p>
                   <p className="text-[8px] text-theme-text-muted mt-1">YoY</p>
-                  {hot && <p className="text-[8px] font-black text-amber-700 mt-1">🔥 HOT</p>}
+                  {hot && <p className="text-[8px] font-black text-amber-700 mt-1">🔥 급등</p>}
                   {p.consecutiveGrowthMonths && (
                     <p className="text-[8px] text-blue-600 font-black mt-1">{p.consecutiveGrowthMonths}개월 연속↑</p>
                   )}
