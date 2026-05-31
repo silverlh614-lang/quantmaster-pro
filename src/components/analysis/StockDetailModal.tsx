@@ -6,10 +6,11 @@
 import React, { useEffect, useState } from 'react';
 import {
   X, Target, ShieldCheck, Brain, BarChart3,
-  Newspaper, ArrowUpRight, ExternalLink,
+  Newspaper, ArrowUpRight, ExternalLink, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StockRecommendation } from '../../services/stockService';
+import { useAnalysisStore } from '../../stores';
 import { SignalBadge } from '../../ui/badge';
 import { cn } from '../../ui/cn';
 import { debugWarn } from '../../utils/debug';
@@ -406,11 +407,32 @@ function ModalContent({
 
 function ModalFrame({
   isDesktop,
+  onSwipePrev,
+  onSwipeNext,
   children,
 }: {
   isDesktop: boolean;
+  onSwipePrev?: () => void;
+  onSwipeNext?: () => void;
   children: React.ReactNode;
 }) {
+  // 모바일 좌우 스와이프 → 이전/다음 후보. 수평 우세 + 거리 임계(60px)에서만 동작해 수직 스크롤과 충돌 회피.
+  const touchStart = React.useRef<{ x: number; y: number } | null>(null);
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchStart.current = { x: t.clientX, y: t.clientY };
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const start = touchStart.current;
+    touchStart.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (dx < 0) onSwipeNext?.();
+    else onSwipePrev?.();
+  };
   return isDesktop ? (
     <motion.div
       initial={{ x: '100%' }}
@@ -435,9 +457,46 @@ function ModalFrame({
       transition={{ type: 'spring', damping: 30, stiffness: 300 }}
       className="fixed inset-0 z-[95] flex flex-col"
       style={{ background: 'var(--bg-app)' }}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
     >
       {children}
     </motion.div>
+  );
+}
+
+function DetailNavControl({
+  index, total, hasPrev, hasNext, onPrev, onNext,
+}: {
+  index: number;
+  total: number;
+  hasPrev: boolean;
+  hasNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="absolute bottom-28 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-black/70 px-1.5 py-1 shadow-xl backdrop-blur-md">
+      <button
+        type="button"
+        onClick={onPrev}
+        disabled={!hasPrev}
+        aria-label="이전 후보"
+        className="flex h-7 w-7 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 disabled:opacity-25"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      <span className="min-w-[46px] text-center font-num text-[11px] font-bold text-white/80">{index + 1} / {total}</span>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={!hasNext}
+        aria-label="다음 후보"
+        className="flex h-7 w-7 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 disabled:opacity-25"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
+    </div>
   );
 }
 
@@ -465,17 +524,38 @@ function ModalBackdrop({
 export const StockDetailModal: React.FC<StockDetailModalProps> = ({ stock, onClose }) => {
   const isDesktop = useDesktopBreakpoint();
   useEscapeClose(Boolean(stock), onClose);
+  const detailNavList = useAnalysisStore((s) => s.detailNavList);
+  const setSelectedDetailStock = useAnalysisStore((s) => s.setSelectedDetailStock);
 
   if (!stock) {
     debugWarn('StockDetailModal: stock is null - will not render');
     return null;
   }
 
+  // 좌우 스와이프/탭으로 현재 정렬된 후보 리스트를 탐색(인덱스·이전/다음).
+  const navIndex = detailNavList.findIndex((s) => s.code === stock.code);
+  const navTotal = detailNavList.length;
+  const hasPrev = navIndex > 0;
+  const hasNext = navIndex >= 0 && navIndex < navTotal - 1;
+  const goPrev = () => { if (hasPrev) setSelectedDetailStock(detailNavList[navIndex - 1]); };
+  const goNext = () => { if (hasNext) setSelectedDetailStock(detailNavList[navIndex + 1]); };
+  const showNav = navIndex >= 0 && navTotal > 1;
+
   return (
     <AnimatePresence>
       <ModalBackdrop isDesktop={isDesktop} onClose={onClose} />
-      <ModalFrame isDesktop={isDesktop}>
+      <ModalFrame isDesktop={isDesktop} onSwipePrev={goPrev} onSwipeNext={goNext}>
         <ModalContent stock={stock} onClose={onClose} />
+        {showNav && (
+          <DetailNavControl
+            index={navIndex}
+            total={navTotal}
+            hasPrev={hasPrev}
+            hasNext={hasNext}
+            onPrev={goPrev}
+            onNext={goNext}
+          />
+        )}
       </ModalFrame>
     </AnimatePresence>
   );

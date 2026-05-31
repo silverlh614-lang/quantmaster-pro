@@ -21,6 +21,7 @@ import { RecommendationWarningsBanner } from '../components/common/Recommendatio
 import { GatePyramidVisualization } from '../components/analysis/GatePyramidVisualization';
 import { useWatchlistFilters } from '../hooks/useWatchlistFilters';
 import { useWatchlistData } from '../hooks/useWatchlistData';
+import { useAnalysisStore } from '../stores';
 import { usePriceAlertWatcher } from '../hooks/usePriceAlertWatcher';
 import type { StockRecommendation } from '../services/stockService';
 import type { ConditionId } from '../types/quant';
@@ -185,6 +186,10 @@ export function DiscoverWatchlistPage({
 
   // PR-C (ADR-0030): 가격 알림 watcher — 워치리스트 displayList 의 4단계 alertLevel transition 감지
   usePriceAlertWatcher(displayList);
+
+  // 상세 모달 좌우 스와이프 탐색용 — 현재 정렬된 후보 리스트를 store 에 동기화(모달은 전역 렌더라 직접 전달 불가).
+  const setDetailNavList = useAnalysisStore((s) => s.setDetailNavList);
+  React.useEffect(() => { setDetailNavList(displayList); }, [displayList, setDetailNavList]);
 
   const {
     filters, setFilters,
