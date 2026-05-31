@@ -21,6 +21,7 @@ import { debugLog, debugWarn } from '../../utils/debug';
 
 // Sub-components
 import { ModalHeader } from './DeepAnalysisModal/ModalHeader';
+import { StickySummaryBar } from './DeepAnalysisModal/StickySummaryBar';
 import { MarketPositionSection } from './DeepAnalysisModal/MarketPositionSection';
 import { AIIntelligenceSection } from './DeepAnalysisModal/AIIntelligenceSection';
 import { GateFilterSection } from './DeepAnalysisModal/GateFilterSection';
@@ -71,7 +72,7 @@ function DeepAnalysisActionButtons({
   onClose: () => void;
 }) {
   return (
-    <div className="absolute top-4 right-4 z-[160] flex items-center gap-2 no-print">
+    <div className="static w-full justify-end px-4 pt-3 sm:absolute sm:top-4 sm:right-4 sm:w-auto sm:justify-start sm:px-0 sm:pt-0 z-[160] flex items-center gap-2 no-print">
       <AnalysisViewButtons analysisView={analysisView} setAnalysisView={setAnalysisView} />
       <button
         onClick={onExportPDF}
@@ -258,21 +259,25 @@ function DeepAnalysisBody({
   deepAnalysisGateSignals: Array<{ time: string; type: 'STRONG_BUY' | 'BUY'; label: string }>;
 }) {
   return (
-    <div className="flex-1 overflow-y-auto p-5 md:p-7 custom-scrollbar">
-      {analysisView === 'QUANT' ? (
-        <DeepAnalysisQuantView
-          stock={stock}
-          marketOverview={marketOverview}
-          globalIntelStore={globalIntelStore}
-          weeklyRsiValues={weeklyRsiValues}
-          onShadowTrade={handleShadowTrade}
-        />
-      ) : (
-        <DeepAnalysisStandardView
-          stock={stock}
-          deepAnalysisGateSignals={deepAnalysisGateSignals}
-        />
-      )}
+    <div className="flex-1 overflow-y-auto custom-scrollbar">
+      {/* 모바일 전용 — 스크롤해도 종목·최종점수·신호가 상단 고정(맥락 유지) */}
+      <StickySummaryBar stock={stock} />
+      <div className="p-5 md:p-7">
+        {analysisView === 'QUANT' ? (
+          <DeepAnalysisQuantView
+            stock={stock}
+            marketOverview={marketOverview}
+            globalIntelStore={globalIntelStore}
+            weeklyRsiValues={weeklyRsiValues}
+            onShadowTrade={handleShadowTrade}
+          />
+        ) : (
+          <DeepAnalysisStandardView
+            stock={stock}
+            deepAnalysisGateSignals={deepAnalysisGateSignals}
+          />
+        )}
+      </div>
     </div>
   );
 }
