@@ -38,6 +38,10 @@ export interface PriceCanonResult {
   isFetching: boolean;
   /** 수동 refetch trigger (사용자 새로고침 등). */
   refetch: () => Promise<unknown>;
+  /** Naver 밸류에이션 — 같은 스냅샷 파생. 없으면 null (값 없음 표시). */
+  per: number | null;
+  pbr: number | null;
+  eps: number | null;
 }
 
 interface UsePriceCanonOptions {
@@ -74,10 +78,14 @@ export function usePriceCanon(
     queryFn: async () => {
       const snap = await fetchAiUniverseSnapshot(baseCode);
       const closePrice = snap?.closePrice;
+      // 밸류에이션(PER/PBR/EPS)도 같은 Naver 스냅샷에서 추출 — 추가 outbound 0 (정본 단일 통로).
+      const per = snap?.per && snap.per > 0 ? snap.per : null;
+      const pbr = snap?.pbr && snap.pbr > 0 ? snap.pbr : null;
+      const eps = snap?.eps && snap.eps > 0 ? snap.eps : null;
       if (typeof closePrice === 'number' && closePrice > 0) {
-        return { price: closePrice, source: 'NAVER' as const };
+        return { price: closePrice, source: 'NAVER' as const, per, pbr, eps };
       }
-      return { price: null, source: 'NONE' as const };
+      return { price: null, source: 'NONE' as const, per, pbr, eps };
     },
     enabled: enabled && isValidCode,
     staleTime: STALE_TIME_MS,
@@ -111,5 +119,8 @@ export function usePriceCanon(
     isStale,
     isFetching: query.isFetching,
     refetch: query.refetch,
+    per: naverResult?.per ?? null,
+    pbr: naverResult?.pbr ?? null,
+    eps: naverResult?.eps ?? null,
   };
 }

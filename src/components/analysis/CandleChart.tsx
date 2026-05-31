@@ -226,10 +226,13 @@ function addGateSignalMarkers(candleSeries: any, gateSignals: GateSignal[]) {
 }
 
 function fitRecentRange(mainChart: IChartApi, totalBars: number) {
-  mainChart.timeScale().fitContent();
-  if (totalBars <= 120) return;
+  if (totalBars <= 0) return;
+  // fitContent 가 모달 오픈 애니메이션 중 잘못된 폭으로 맞춰져 캔들이 우측에 몰리고 좌측에
+  // 공백이 남던(=너무 축소돼 보이던) 문제 수정. 논리 범위를 명시 설정해 폭 변화에 무관하게
+  // 최근 N봉을 가득 채운다(우측 정렬·확대). 데이터가 적으면 전체.
+  const VISIBLE = Math.min(totalBars, 90);
   mainChart.timeScale().setVisibleLogicalRange({
-    from: totalBars - 120,
+    from: totalBars - VISIBLE,
     to: totalBars - 1,
   });
 }
@@ -283,6 +286,9 @@ function syncChartRanges(mainChart: IChartApi, sub: IChartApi) {
     mainChart.timeScale().setVisibleLogicalRange(r);
     syncing = false;
   });
+  // 초기 정렬 — sub(RSI/MACD)를 메인의 확대된 범위(fitRecentRange)에 즉시 맞춘다.
+  const initial = mainChart.timeScale().getVisibleLogicalRange();
+  if (initial) sub.timeScale().setVisibleLogicalRange(initial);
 }
 
 function maybeCreateSubChart(

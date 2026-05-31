@@ -2,6 +2,7 @@
 import React from 'react';
 import { BarChart3, ShieldCheck } from 'lucide-react';
 import { cn } from '../../../ui/cn';
+import { usePriceCanon } from '../../../hooks/usePriceCanon';
 import type { StockRecommendation } from '../../../services/stockService';
 
 interface Props {
@@ -62,8 +63,11 @@ function EconomicMoatCard({ stock }: Props) {
 }
 
 function FundamentalMetricGrid({ stock }: Props) {
-  const per = Number(stock.valuation?.per) || 0;
-  const pbr = Number(stock.valuation?.pbr) || 0;
+  // PER/PBR 정본 — stock.valuation(AI 채움, 종목마다 누락) 우선, 없으면 Naver 스냅샷 fallback.
+  // usePriceCanon 이 같은 스냅샷에서 파생하므로 후보 대시보드/검색 어느 경로든 동일 표시.
+  const { per: naverPer, pbr: naverPbr } = usePriceCanon(stock.code);
+  const per = Number(stock.valuation?.per) || naverPer || 0;
+  const pbr = Number(stock.valuation?.pbr) || naverPbr || 0;
   const epsGrowth = Number(stock.valuation?.epsGrowth) || 0;
   const debtRatio = Number(stock.valuation?.debtRatio) || 0;
 
