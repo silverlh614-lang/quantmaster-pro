@@ -11,6 +11,7 @@ import { useAnalysisStore } from '../../stores';
 import { useShadowTradeStore } from '../../stores/useShadowTradeStore';
 import { buildShadowTrade } from '../../services/autoTrading';
 import { syncStockPrice } from '../../services/stockService';
+import { fetchKisInvestorSupply, fetchKisShortSelling } from '../../api/kisMarketDataClient';
 import type { MarketOverview, StockRecommendation } from '../../services/stockService';
 import type { EconomicRegimeData, EvaluationResult, ExtendedRegimeData, ROEType } from '../../types/core';
 import { debugLog, debugWarn } from '../../utils/debug';
@@ -273,13 +274,33 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
     let cancelled = false;
     (async () => {
       try {
-        const updated = await syncStockPrice(stock);
-        if (!cancelled && updated.currentPrice !== stock.currentPrice) {
-          debugLog('DeepAnalysisModal: price synced', { name: stock.name, old: stock.currentPrice, new: updated.currentPrice });
-          setDeepAnalysisStock(updated);
+        const priced = await syncStockPrice(stock);
+        // KIS read-only 수급·공매도 (모달 단위 단일 종목 — bulk 미경유, 쿼터 최소). 각각 실패→null.
+        const [kisSupply, kisShort] = await Promise.all([
+          fetchKisInvestorSupply(stock.code).catch(() => null),
+          fetchKisShortSelling(stock.code).catch(() => null),
+        ]);
+        if (cancelled) return;
+        const merged: StockRecommendation = {
+          ...priced,
+          // KIS 순매수 + 기존 Naver foreignerOwnRatio 보존(dataSource=KIS 로 실데이터 표기)
+          supplyData: kisSupply ? { ...priced.supplyData, ...kisSupply } : priced.supplyData,
+          shortSelling: kisShort ?? priced.shortSelling,
+        };
+        const changed =
+          merged.currentPrice !== stock.currentPrice ||
+          merged.peakPrice !== stock.peakPrice ||
+          Boolean(kisSupply) ||
+          Boolean(kisShort);
+        if (changed) {
+          debugLog('DeepAnalysisModal: detail synced', {
+            name: stock.name, price: merged.currentPrice, peak: merged.peakPrice,
+            kisSupply: Boolean(kisSupply), kisShort: Boolean(kisShort),
+          });
+          setDeepAnalysisStock(merged);
         }
       } catch (err) {
-        debugWarn('DeepAnalysisModal: price sync failed', err);
+        debugWarn('DeepAnalysisModal: detail sync failed', err);
       }
     })();
     return () => { cancelled = true; };
