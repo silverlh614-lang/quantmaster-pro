@@ -15,9 +15,9 @@ const SOURCE_TO_CONFIDENCE: Record<DataSourceType, { confidence: DataConfidence;
   // 데이터 호환을 위해 매핑은 유지하되 'STALE'(가격 지연) 등급으로 강등 표기.
   YAHOO:    { confidence: 'STALE', source: 'Yahoo (사용 중단)', label: 'Yahoo (사용 중단)' },
   AI:       { confidence: 'AI_ESTIMATED', source: 'AI inference', label: 'AI 추정' },
-  // STALE — 신뢰 가능한 가격 소스(KIS/Naver) 모두 실패. UI 가 currentPrice=0 시
-  // "가격 미확보" placeholder 노출 (LLM 환각/Yahoo 잔재 값 절대 표시 안 함).
-  STALE:    { confidence: 'STALE', source: 'KIS·Naver 모두 미확보', label: '가격 미확보' },
+  // STALE — 신뢰 가능한 가격 소스(KIS/Naver) 모두 실패. PriceDisplay 가
+  // usePriceCanon 으로 자동 재시도 중 — UI 는 "갱신 중..." 톤으로 표현.
+  STALE:    { confidence: 'STALE', source: 'KIS·Naver 모두 미확보 — 자동 재시도 중', label: '갱신 중...' },
 };
 
 export const ConfidenceBadge: React.FC<ConfidenceBadgeProps> = ({ type }) => {

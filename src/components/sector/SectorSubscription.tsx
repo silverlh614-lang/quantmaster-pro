@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { StockRecommendation } from '../../services/stockService';
 import { useSettingsStore } from '../../stores';
 import { cn } from '../../ui/cn';
+import { PriceDisplay } from '../common/PriceDisplay';
 
 interface SectorSubscriptionProps {
   subscribedSectors: string[];
@@ -258,7 +259,14 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
                       <p className="text-sm text-gray-400 mt-3 line-clamp-2">{stock.reason}</p>
                     </div>
                     <div className="text-right">
-                      <div className="text-lg font-bold text-white">{stock.currentPrice?.toLocaleString()}원</div>
+                      {/* 가격 정본 SSOT — usePriceCanon 단일 통로 */}
+                      <PriceDisplay
+                        code={stock.code}
+                        variant="card"
+                        showBadge={false}
+                        showTrendIcon={false}
+                        fallbackKisPrice={stock.dataSourceType === 'REALTIME' ? stock.currentPrice : null}
+                      />
                       <div className="text-xs font-bold text-green-400 mt-1">Gate {stock.gate} 통과</div>
                     </div>
                   </div>
