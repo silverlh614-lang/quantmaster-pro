@@ -21,7 +21,7 @@ const STAGE_TONE: Record<PipelineStageId, string> = {
   ENTRIES:       'bg-green-500/20 border-green-500/40 text-green-200',
 };
 
-function StageRow({ stage, onDrilldown }: { stage: ClientPipelineStage; onDrilldown?: (id: DrilldownStage) => void }) {
+function StageRow({ stage, onDrilldown }: { stage: ClientPipelineStage; onDrilldown?: (id: DrilldownStage, count: number) => void }) {
   const isUniverse = stage.id === 'UNIVERSE';
   const showDropped = stage.droppedAtThisStep != null && stage.droppedAtThisStep > 0;
   const drilldownEnabled = !isUniverse && onDrilldown != null;
@@ -30,7 +30,7 @@ function StageRow({ stage, onDrilldown }: { stage: ClientPipelineStage; onDrilld
       <button
         type="button"
         disabled={!drilldownEnabled}
-        onClick={() => drilldownEnabled && onDrilldown(stage.id as DrilldownStage)}
+        onClick={() => drilldownEnabled && onDrilldown(stage.id as DrilldownStage, stage.count)}
         className={cn(
           'flex-1 rounded border px-3 py-2 flex items-center justify-between text-left',
           STAGE_TONE[stage.id],
@@ -71,7 +71,7 @@ interface CandidatePipelinePanelProps {
  */
 export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProps) {
   const [expanded, setExpanded] = useState(false);
-  const [drilldownStage, setDrilldownStage] = useState<DrilldownStage | null>(null);
+  const [drilldown, setDrilldown] = useState<{ stage: DrilldownStage; expectedCount: number } | null>(null);
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['screener', 'pipeline-summary'],
     queryFn: fetchPipelineSummary,
@@ -134,9 +134,9 @@ export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProp
           {/* 항상 표시 — Top + Bottom 만 컴팩트 */}
           <div className="space-y-1.5">
             {/* CANDIDATES (시작점) */}
-            <StageRow stage={data.stages.find(s => s.id === 'CANDIDATES')!} onDrilldown={setDrilldownStage} />
+            <StageRow stage={data.stages.find(s => s.id === 'CANDIDATES')!} onDrilldown={(id, count) => setDrilldown({ stage: id, expectedCount: count })} />
             {/* ENTRIES (최종) */}
-            <StageRow stage={data.stages.find(s => s.id === 'ENTRIES')!} onDrilldown={setDrilldownStage} />
+            <StageRow stage={data.stages.find(s => s.id === 'ENTRIES')!} onDrilldown={(id, count) => setDrilldown({ stage: id, expectedCount: count })} />
           </div>
 
           {/* 변환률 */}
@@ -151,7 +151,7 @@ export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProp
           {expanded && (
             <div className="mt-3 pt-3 border-t border-white/[0.07] space-y-1.5">
               {data.stages.map(stage => (
-                <StageRow key={stage.id} stage={stage} onDrilldown={setDrilldownStage} />
+                <StageRow key={stage.id} stage={stage} onDrilldown={(id, count) => setDrilldown({ stage: id, expectedCount: count })} />
               ))}
             </div>
           )}
@@ -159,10 +159,11 @@ export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProp
       )}
 
       {/* PR-J 단계별 종목 드릴다운 모달 */}
-      {drilldownStage && (
+      {drilldown && (
         <PipelineStageDrilldown
-          stage={drilldownStage}
-          onClose={() => setDrilldownStage(null)}
+          stage={drilldown.stage}
+          expectedCount={drilldown.expectedCount}
+          onClose={() => setDrilldown(null)}
         />
       )}
     </div>

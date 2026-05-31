@@ -40,6 +40,8 @@ function StockRow({ entry }: { entry: ClientPipelineStockEntry }) {
 
 interface PipelineStageDrilldownProps {
   stage: DrilldownStage;
+  /** 파이프라인 요약 funnel 의 해당 단계 집계 수 — 추적(trace) 수와 비교해 불일치를 정직하게 표기. */
+  expectedCount?: number;
   onClose: () => void;
 }
 
@@ -55,13 +57,18 @@ const STAGE_LABEL: Record<DrilldownStage, string> = {
  * 단계별 종목 드릴다운 — passed / dropped 분리 표시.
  * 모달 형식 (overlay + close 버튼).
  */
-export function PipelineStageDrilldown({ stage, onClose }: PipelineStageDrilldownProps) {
+export function PipelineStageDrilldown({ stage, expectedCount, onClose }: PipelineStageDrilldownProps) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['screener', 'pipeline-stocks', stage],
     queryFn: () => fetchPipelineStocks(stage),
     staleTime: 60_000,
     retry: 2,
   });
+
+  // 요약 funnel 집계(expectedCount, 최근 스캔 카운터)와 trace 추적 수는 소스가 달라(중복 종목
+  // 제거·부분 trace·스캔 시점 차이) 어긋날 수 있다 — 숨기지 않고 차이를 명시한다(정직 표시).
+  const traceTotal = data ? data.counts.passed + data.counts.dropped : 0;
+  const countMismatch = data != null && expectedCount != null && expectedCount !== traceTotal;
 
   return (
     <div
@@ -80,6 +87,11 @@ export function PipelineStageDrilldown({ stage, onClose }: PipelineStageDrilldow
             {data && (
               <p className="text-[10px] text-white/50 mt-0.5">
                 통과 {data.counts.passed} · 탈락 {data.counts.dropped}
+              </p>
+            )}
+            {countMismatch && (
+              <p className="text-[10px] text-amber-300/70 mt-0.5">
+                요약 집계 {expectedCount} · 추적 {traceTotal}건 — 차이 {Math.abs((expectedCount ?? 0) - traceTotal)}건(중복 종목 제거·부분 trace·스캔 시점)
               </p>
             )}
           </div>
