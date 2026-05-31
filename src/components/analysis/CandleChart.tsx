@@ -308,11 +308,14 @@ function maybeCreateSubChart(
   syncChartRanges(mainChart, sub);
 }
 
-function installResizeObserver(refs: ChartRefs, mainContainer: HTMLDivElement, subContainer: HTMLDivElement | null) {
+function installResizeObserver(refs: ChartRefs, mainContainer: HTMLDivElement, subContainer: HTMLDivElement | null, totalBars: number) {
   if (refs.resizeObserverRef.current) refs.resizeObserverRef.current.disconnect();
   const ro = new ResizeObserver(() => {
     if (refs.mainChartRef.current) {
       refs.mainChartRef.current.applyOptions({ width: mainContainer.clientWidth });
+      // 폭 확정(모달 오픈 애니메이션 완료) 후 확대 범위 재적용 — 초기 좁은 폭에 고정돼
+      // 캔들이 우측에 몰리던 문제를 폭 변경 시마다 교정한다.
+      fitRecentRange(refs.mainChartRef.current, totalBars);
     }
     if (subContainer && refs.subChartRef.current) {
       refs.subChartRef.current.applyOptions({ width: subContainer.clientWidth });
@@ -382,7 +385,7 @@ async function buildCandleChart({
   addGateSignalMarkers(candleSeries, gateSignals);
   fitRecentRange(mainChart, chartData.candleData.length);
   maybeCreateSubChart(mainChart, subContainer, refs, subChart, height, chartData);
-  installResizeObserver(refs, mainContainer, subContainer);
+  installResizeObserver(refs, mainContainer, subContainer, chartData.candleData.length);
 }
 
 function ChartControls({
