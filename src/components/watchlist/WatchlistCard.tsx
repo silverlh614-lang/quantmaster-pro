@@ -3,7 +3,7 @@ import React from 'react';
 import {
   TrendingUp, TrendingDown, Bookmark, Star, Award, History, Plus, Zap,
   AlertTriangle, Copy, FileText, Search, ExternalLink, Flame, Target,
-  ShieldCheck, Clock, Newspaper, BarChart3, Crown, Activity, Cloud,
+  ShieldCheck, Clock, Newspaper, BarChart3, Crown, Activity, Cloud, ChevronDown,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../ui/cn';
@@ -919,6 +919,8 @@ export function WatchlistCard({
   onManualPriceUpdate,
 }: WatchlistCardProps) {
   const isAllGatesPassed = isAllGatesPassedFor(stock);
+  // 모바일 요약-우선: 핵심(헤더·판정·가격)만 노출, 심층 상세는 토글로 접는다. 데스크톱(sm+)은 항상 전체.
+  const [expanded, setExpanded] = React.useState(false);
   const marketMode = useMarketMode();
   const verbosity = useUIVerbosity();
   const macroEnv = useGlobalIntelStore((state) => state.macroEnv);
@@ -976,25 +978,36 @@ export function WatchlistCard({
           mode={candidateCardMode}
           className="mb-4 sm:mb-6"
         />
-        <AiFactorBar stock={stock} />
-        <SignalAndActions
-          stock={stock}
-          kisBalance={kisBalance}
-          isWatched={isWatched}
-          onAddToBacktest={onAddToBacktest}
-          onToggleWatchlist={onToggleWatchlist}
-          onSetTradeRecord={onSetTradeRecord}
-          onAddShadowTrade={onAddShadowTrade}
-          onSetView={onSetView}
-        />
-        <DiagnosticsSection
-          stock={stock}
-          lastTriggerSummary={lastTriggerSummary}
-          enemyChecklistSummary={enemyChecklistSummary}
-          onDeepAnalysis={onDeepAnalysis}
-        />
-        <ExternalLinksAndPlan stock={stock} />
-        <TechnicalHealthGrid stock={stock} />
+        <button
+          type="button"
+          onClick={(event) => { event.stopPropagation(); setExpanded((value) => !value); }}
+          className="sm:hidden w-full flex items-center justify-center gap-1.5 mb-2 py-2 rounded-xl border border-white/[0.06] bg-white/[0.02] text-[11px] font-semibold tracking-tight text-white/45 active:scale-[0.98] transition-all"
+          aria-expanded={expanded}
+        >
+          {expanded ? '간단히 보기' : '상세 보기'}
+          <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', expanded && 'rotate-180')} />
+        </button>
+        <div className={expanded ? 'contents' : 'hidden sm:contents'}>
+          <AiFactorBar stock={stock} />
+          <SignalAndActions
+            stock={stock}
+            kisBalance={kisBalance}
+            isWatched={isWatched}
+            onAddToBacktest={onAddToBacktest}
+            onToggleWatchlist={onToggleWatchlist}
+            onSetTradeRecord={onSetTradeRecord}
+            onAddShadowTrade={onAddShadowTrade}
+            onSetView={onSetView}
+          />
+          <DiagnosticsSection
+            stock={stock}
+            lastTriggerSummary={lastTriggerSummary}
+            enemyChecklistSummary={enemyChecklistSummary}
+            onDeepAnalysis={onDeepAnalysis}
+          />
+          <ExternalLinksAndPlan stock={stock} />
+          <TechnicalHealthGrid stock={stock} />
+        </div>
       </div>
       <PriceStrategySection
         stock={stock}
@@ -1003,7 +1016,9 @@ export function WatchlistCard({
         onManualPriceUpdate={onManualPriceUpdate}
         onSyncPrice={onSyncPrice}
       />
-      <FooterInsights stock={stock} />
+      <div className={expanded ? 'contents' : 'hidden sm:contents'}>
+        <FooterInsights stock={stock} />
+      </div>
     </motion.div>
   );
 }

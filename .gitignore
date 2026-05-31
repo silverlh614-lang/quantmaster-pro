@@ -17,3 +17,7 @@ grep_output.txt
 debug_*.txt
 .env*
 !.env.example
+# 개발 전용 미리보기 하네스 (모바일 배치 시각 검증용 — 프로덕션 빌드/커밋 제외)
+/devpreview.html
+/src/devpreview/
+/.claude/launch.json
