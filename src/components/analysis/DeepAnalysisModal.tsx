@@ -4,6 +4,7 @@ import { RefreshCw, Download, X, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QuantDashboard } from './QuantDashboard';
 import { CandleChart } from './CandleChart';
+import { DeferredMount } from '../common/DeferredMount';
 import { AnalysisViewToggle, AnalysisViewButtons } from './AnalysisViewToggle';
 import { evaluateStock } from '../../services/quant/gateEngine';
 import { useGlobalIntelStore, useMarketStore, useRecommendationStore, useSettingsStore } from '../../stores';
@@ -183,21 +184,36 @@ function DeepAnalysisStandardView({
       {/* 판정 근거 요약 — 한 줄 요약으로 밀도 향상 */}
       <DeepAnalysisAiSummary reason={stock.reason} />
 
-      {/* Candle Chart with Technical Overlays */}
-      <div className="mb-6">
-        <CandleChart
-          stockCode={stock.code}
-          stockName={stock.name}
-          gateSignals={deepAnalysisGateSignals}
-          height={380}
-        />
-      </div>
+      {/* Candle Chart — 무거운 차트는 오픈 애니메이션 직후 지연 마운트(열림 부드럽게) */}
+      <DeferredMount
+        delay={260}
+        placeholder={<div className="mb-6 h-[380px] animate-pulse rounded-2xl border border-white/[0.05] bg-white/[0.02]" />}
+      >
+        <div className="mb-6">
+          <CandleChart
+            stockCode={stock.code}
+            stockName={stock.name}
+            gateSignals={deepAnalysisGateSignals}
+            height={380}
+          />
+        </div>
+      </DeferredMount>
 
-      {/* Radar Chart & Checklist Overview */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-8">
-        <MasterRadarChart stock={stock} />
-        <KeyChecklistOverview stock={stock} />
-      </div>
+      {/* Radar Chart & Checklist Overview — 지연 마운트 */}
+      <DeferredMount
+        delay={340}
+        placeholder={(
+          <div className="mb-8 grid grid-cols-1 gap-5 xl:grid-cols-2">
+            <div className="h-72 animate-pulse rounded-2xl border border-white/[0.05] bg-white/[0.02]" />
+            <div className="h-72 animate-pulse rounded-2xl border border-white/[0.05] bg-white/[0.02]" />
+          </div>
+        )}
+      >
+        <div className="mb-8 grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <MasterRadarChart stock={stock} />
+          <KeyChecklistOverview stock={stock} />
+        </div>
+      </DeferredMount>
 
       <MarketPositionSection stock={stock} />
 
@@ -335,13 +351,6 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
     setView('AUTO_TRADE');
   }, [stock, addShadowTrade, setView]);
 
-  const canCloseRef = useRef(false);
-  useEffect(() => {
-    if (!stock) { canCloseRef.current = false; return; }
-    const timer = setTimeout(() => { canCloseRef.current = true; }, 300);
-    return () => { clearTimeout(timer); canCloseRef.current = false; };
-  }, [stock?.code]);
-
   return (
     <AnimatePresence>
       {stock && (
@@ -351,9 +360,6 @@ export function DeepAnalysisModal({ stock, onClose, analysisReportRef, weeklyRsi
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[150] flex items-center justify-center p-3 md:p-5 bg-black/90 backdrop-blur-md"
-          onClick={(e: React.MouseEvent) => {
-            if (e.target === e.currentTarget && canCloseRef.current) onClose();
-          }}
         >
           <motion.div
             key="deep-analysis-content"
