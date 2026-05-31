@@ -88,7 +88,7 @@ function buildGateSummary(
     : status === 'DATA_INSUFFICIENT'
       ? `데이터 부족 ${0}/${total}`
       : `미충족 ${passed}/${total} 기준${required}${breakdown}`;
-  return { name, status, passed, total, primaryReason };
+  return { name, status, passed, total, verifiedPassed, primaryReason };
 }
 
 function buildGate0Summary(context: CandidateDecisionBuildContext, stock: StockRecommendation): GateSummary {
@@ -108,6 +108,8 @@ function buildGate0Summary(context: CandidateDecisionBuildContext, stock: StockR
     status,
     passed: status === 'PASS' ? 1 : 0,
     total: 1,
+    // Gate 0 은 시장 환경 검증(AI checklist 아님) — 통과 시 검증 통과로 취급.
+    verifiedPassed: status === 'PASS' ? 1 : 0,
     primaryReason: `market=${marketGateStatus}`,
   };
 }

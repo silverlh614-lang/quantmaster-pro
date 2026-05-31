@@ -317,6 +317,8 @@ const StockIdentityPanel = ({
   onCopy: WatchlistCardProps['onCopy'];
 }) => {
   const alerts = matchingDartAlerts(stock, dartAlerts);
+  // Gate 점수(통과 비율)는 AI 충족으로 부풀 수 있어, 실데이터 검증 비율을 함께 표기(정본).
+  const { verifiedPassCount, metCount } = buildStockAnalysisCanon(stock);
   return (
     <div className="relative p-4 sm:p-6 bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden group/name-area shadow-[inset_0_0_20px_rgba(255,255,255,0.02)]">
       <div className="absolute -top-12 -left-12 w-40 h-40 bg-orange-500/5 blur-[80px] rounded-full group-hover/name-area:bg-orange-500/15 transition-all duration-700" />
@@ -396,6 +398,7 @@ const StockIdentityPanel = ({
               : 'border-red-500/20 bg-red-500/10 text-red-200',
           )}>
             모델 점수 {stock.aiConvictionScore?.totalScore ?? '-'} | Gate {quantGateScore.value.toFixed(1)}/10{' '}
+            <span className="text-white/55">· 검증 {verifiedPassCount}/{metCount}</span>{' '}
             {quantGateScore.pass ? '자동매매 가능' : '자동매매 차단'}{' '}
             ({quantGateScore.regime.replace(/_.+$/, '')} 기준 {quantGateScore.threshold}
             {quantGateScore.pass ? '' : ' 미달'})

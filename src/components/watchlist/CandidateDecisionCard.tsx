@@ -40,17 +40,37 @@ const GATE_TONE: Record<GateSummary['status'], string> = {
   NOT_EVALUATED: 'border-slate-400/20 bg-slate-400/[0.05] text-slate-300',
 };
 
+// 통과지만 검증 0(전부 AI 추정) — emerald(검증 통과) 대신 amber 로 톤다운해 "미검증 통과" 구분.
+const GATE_TONE_AI = 'border-amber-400/30 bg-amber-400/[0.09] text-amber-100';
+
 function GatePill({ gate }: { gate: GateSummary }) {
+  const verified = gate.verifiedPassed ?? 0;
+  const aiPassed = Math.max(0, gate.passed - verified);
+  // 통과(PASS)인데 검증 0 → 전부 AI 추정으로 통과. 게이트가 "전부 PASS" 로만 보여 부풀려
+  // 보이던 문제를, 배지·색·바로 "검증 통과 vs AI 통과" 를 한눈에 구분한다.
+  const aiOnly = gate.status === 'PASS' && verified === 0 && gate.passed > 0;
   return (
-    <div className={cn('rounded-lg border px-2.5 py-2', GATE_TONE[gate.status])}>
+    <div className={cn('rounded-lg border px-2.5 py-2', aiOnly ? GATE_TONE_AI : GATE_TONE[gate.status])}>
       <div className="flex items-center justify-between gap-2">
         <span className="text-[9px] font-black uppercase tracking-wider text-white/45">{gate.name.replace(/^Gate\s*/i, 'G')}</span>
-        <span className="text-[9px] font-black">{gate.status}</span>
+        <span className="text-[9px] font-black">{aiOnly ? 'AI 통과' : gate.status}</span>
       </div>
       <div className="mt-1 text-sm font-black font-num">{gate.passed}/{gate.total}</div>
-      {gate.primaryReason && (
-        <div className="mt-1 truncate text-[10px] font-bold text-white/42" title={gate.primaryReason}>{gate.primaryReason}</div>
+      {gate.total > 0 && (
+        <div
+          className="mt-1.5 flex h-1 overflow-hidden rounded-full bg-white/10"
+          title={`검증 ${verified} · AI 추정 ${aiPassed} · 미달 ${gate.total - gate.passed}`}
+        >
+          <div className="bg-emerald-400" style={{ width: `${(verified / gate.total) * 100}%` }} />
+          <div className="bg-amber-400/70" style={{ width: `${(aiPassed / gate.total) * 100}%` }} />
+        </div>
       )}
+      <div className="mt-1 text-[10px] font-black tracking-tight">
+        <span className="text-emerald-300/90">검증 {verified}</span>
+        <span className="text-white/25"> · </span>
+        <span className="text-amber-300/90">AI {aiPassed}</span>
+        <span className="text-white/30 font-bold"> / {gate.total}</span>
+      </div>
     </div>
   );
 }

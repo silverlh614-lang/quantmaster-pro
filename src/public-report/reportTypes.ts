@@ -67,6 +67,8 @@ export interface GateSummary {
   status: GateStatus;
   passed: number;
   total: number;
+  /** 통과 중 실데이터 검증(AI 추정 아님) 건수 — 게이트 신뢰 시각화용. */
+  verifiedPassed?: number;
   primaryReason?: string;
 }
 
