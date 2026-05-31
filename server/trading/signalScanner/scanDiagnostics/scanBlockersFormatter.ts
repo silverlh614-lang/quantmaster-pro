@@ -833,14 +833,23 @@ function formatRuntimeWiringSummary(
     `- paperEntryForensicFallbackReasonCount=${paper.forensicFallbackReasonCount}`,
     `- paperEntryExecutionImpact=${paperEntryExecutionImpact}`,
     `- paperEntryRecommendedAction=${paper.recommendedAction}`,
-    `- paperEntryDecisionLines=${paper.decisionRecords.length ? paper.decisionRecords.map((record) => {
-      const reasonView = buildPaperDecisionReasonView(record);
-      const secondary = reasonView.secondaryReasons.length > 0 ? reasonView.secondaryReasons.join(',') : 'NONE';
-      const kind = resolvePaperEntryKind(record);
-      const paperExecutable = isExecutablePaperEntry(record);
-      const promotionAllowed = paperExecutable;
-      return `${record.symbol}:${record.decision}:kind=${kind}:primary=${reasonView.primaryReason}:secondary=${secondary}:score=${record.minSignalLivePass ? 'PASS' : 'FAIL'}:gate1=${record.gate1HardSurvivor ? 'PASS' : 'FAIL'}:gate2=${record.gate2PendingPreserved ? 'PENDING' : 'PASS'}:gate3=${record.executionPermission === 'ALLOW' ? 'PASS' : 'BLOCK'}:sizing=${record.sizingAllowed ? 'PASS' : (record.sizingReason ?? 'BLOCKED')}:executable=${paperExecutable}:promotionAllowed=${promotionAllowed}:liveOrderAllowed=false:paperExecutable=${paperExecutable}:learningAllowed=${record.decision === 'CREATED'}:executionImpact=${paperEntryExecutionImpact}`;
-    }).join('|') : '-'}`,
+    // 가독성: 직전엔 N개 record 를 ':' field + '|' 로 이어붙인 단일 160자+ 라인이라
+    // 텔레그램에서 예측 불가하게 줄바꿈돼 스캔이 어려웠다. record 당 1줄(들여쓰기)로
+    // 분해해 심볼별 세로 스캔이 가능하게 한다. 중복 필드(paperExecutable=executable
+    // 동일값 2회 출력)도 제거한다. field/값 자체는 무변경.
+    ...(paper.decisionRecords.length
+      ? [
+          `- paperEntryDecisionLines (${paper.decisionRecords.length}건):`,
+          ...paper.decisionRecords.map((record) => {
+            const reasonView = buildPaperDecisionReasonView(record);
+            const secondary = reasonView.secondaryReasons.length > 0 ? reasonView.secondaryReasons.join(',') : 'NONE';
+            const kind = resolvePaperEntryKind(record);
+            const paperExecutable = isExecutablePaperEntry(record);
+            const promotionAllowed = paperExecutable;
+            return `  ${record.symbol}:${record.decision}:kind=${kind}:primary=${reasonView.primaryReason}:secondary=${secondary}:score=${record.minSignalLivePass ? 'PASS' : 'FAIL'}:gate1=${record.gate1HardSurvivor ? 'PASS' : 'FAIL'}:gate2=${record.gate2PendingPreserved ? 'PENDING' : 'PASS'}:gate3=${record.executionPermission === 'ALLOW' ? 'PASS' : 'BLOCK'}:sizing=${record.sizingAllowed ? 'PASS' : (record.sizingReason ?? 'BLOCKED')}:executable=${paperExecutable}:promotionAllowed=${promotionAllowed}:liveOrderAllowed=false:learningAllowed=${record.decision === 'CREATED'}:executionImpact=${paperEntryExecutionImpact}`;
+          }),
+        ]
+      : ['- paperEntryDecisionLines=-']),
     ...(paper.missingInputReasons?.length ? [`- paperEntryMissingInputReason=${paper.missingInputReasons.join('|')}`] : []),
     `- paperStatisticsSeparation=observationalExcludedFromExecutablePnL:true,winRate:true,rMultiple:true,entrySuccessRate:true; includedIn=nearMiss,preBreakoutObservation,forwardReturn1D3D5D,counterfactual,shadowPromotionAudit`,
     ...(shadowDiagnosticCreated > 0 ? [`- Shadow diagnostic entry: ${shadowDiagnosticCreated}개`] : []),

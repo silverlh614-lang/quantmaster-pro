@@ -273,6 +273,11 @@ const scanBlockers: TelegramCommand = {
     const gateSubMode = modeResult.gateSubMode;
     const supplySubMode = modeResult.supplySubMode ?? 'summary';
     const summary = getLastScanSummary();
+    // 단일 통로(불변식 #3): 본 명령의 모든 진단 섹션이 동일한 macroState 스냅샷을
+    // 보도록 1회만 로드한다. 직전엔 6개 섹션이 각자 loadMacroState() 를 호출해
+    // 같은 파일을 6회 read·JSON.parse 하고, refresh job 이 중간에 파일을 덮어쓰면
+    // 섹션 간 sectorEnergyQualityDiagnostic 이 불일치할 수 있었다(표시 정합성 위험).
+    const macroStateSnapshot = loadMacroState();
     const scanCanonicalRuntimeResolution =
       summary?.canonicalRuntimeResolution ?? buildCanonicalRuntimeResolutionStep27(summary ?? null);
 
@@ -512,7 +517,7 @@ const scanBlockers: TelegramCommand = {
     let sanityLine: string | null = null;
     let sectorEnergyCoverageRecoverySection: string | null = null;
     try {
-      const macro = loadMacroState();
+      const macro = macroStateSnapshot;
       const qDiag = macro?.sectorEnergyQualityDiagnostic;
       if (qDiag?.sectorIndexRecovery) {
         // sectorIndexRecovery 영속 데이터 (cast 안전 — schema 옵셔널 후방호환)
@@ -561,7 +566,7 @@ const scanBlockers: TelegramCommand = {
     let executionImpactLine: string | null = null;
     try {
       if (!isSectorEnergyExecutionDecouplingDisabled()) {
-        const macroForExec = loadMacroState();
+        const macroForExec = macroStateSnapshot;
         const qDiagForExec = macroForExec?.sectorEnergyQualityDiagnostic as
           | {
               dataQuality?: string;
@@ -650,7 +655,7 @@ const scanBlockers: TelegramCommand = {
     try {
       if (!freshDataSupplyReportForOperator) {
         freshDataSupplyReportForOperator = safeBuildFreshDataSupplyReportAdr0487({
-          sectorEnergyDiagnosticAdr0474: loadMacroState()?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
+          sectorEnergyDiagnosticAdr0474: macroStateSnapshot?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
           naverInvestorTrendAdr0481: summary?.naverInvestorTrendAdr0481 as unknown as Record<string, unknown>,
           semanticNetBuyNormalizationAdr0482: summary?.semanticNetBuyNormalizationAdr0482 as unknown as Record<string, unknown>,
           supplySourceFreshnessAdr0483: summary?.supplySourceFreshnessAdr0483 as unknown as FreshDataSupplyReportInputAdr0487['supplySourceFreshnessAdr0483'],
@@ -661,7 +666,7 @@ const scanBlockers: TelegramCommand = {
       }
       if (!sectorEnergySupplyUnknownReportForOperator) {
         sectorEnergySupplyUnknownReportForOperator = safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
-          sectorEnergyDiagnosticAdr0474: loadMacroState()?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
+          sectorEnergyDiagnosticAdr0474: macroStateSnapshot?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
           freshDataSupplyAdr0487: freshDataSupplyReportForOperator,
           finalGate1CalibrationAdr0471: summary?.finalGate1Calibration ?? null,
           penaltyDeduplicationAdr0469: summary?.penaltyDeduplication ?? null,
@@ -797,7 +802,7 @@ const scanBlockers: TelegramCommand = {
       });
       supplyRecoveryRuntimeMountLine = formatSupplyRecoveryRuntimeMountCompactAdr0486(mountReport);
       freshDataSupplyReportForOperator = freshDataSupplyReportForOperator ?? safeBuildFreshDataSupplyReportAdr0487({
-        sectorEnergyDiagnosticAdr0474: loadMacroState()?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
+        sectorEnergyDiagnosticAdr0474: macroStateSnapshot?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
         naverInvestorTrendAdr0481: summary?.naverInvestorTrendAdr0481 as unknown as Record<string, unknown>,
         semanticNetBuyNormalizationAdr0482: summary?.semanticNetBuyNormalizationAdr0482 as unknown as Record<string, unknown>,
         supplySourceFreshnessAdr0483: summary?.supplySourceFreshnessAdr0483 as unknown as FreshDataSupplyReportInputAdr0487['supplySourceFreshnessAdr0483'],
@@ -807,7 +812,7 @@ const scanBlockers: TelegramCommand = {
       });
       freshDataSupplyLine = formatFreshDataSupplyCompactAdr0487(freshDataSupplyReportForOperator);
       sectorEnergySupplyUnknownReportForOperator = sectorEnergySupplyUnknownReportForOperator ?? safeBuildSectorEnergyAndSupplyUnknownPolicyReportAdr0488({
-        sectorEnergyDiagnosticAdr0474: loadMacroState()?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
+        sectorEnergyDiagnosticAdr0474: macroStateSnapshot?.sectorEnergyQualityDiagnostic as unknown as Record<string, unknown> | null,
         freshDataSupplyAdr0487: freshDataSupplyReportForOperator,
         finalGate1CalibrationAdr0471: summary?.finalGate1Calibration ?? null,
         penaltyDeduplicationAdr0469: summary?.penaltyDeduplication ?? null,
