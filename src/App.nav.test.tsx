@@ -48,13 +48,13 @@ describe('App — 하단 탭 섹션 전환 (연결 회귀)', () => {
     );
 
     // BottomNav 가 렌더되어야 함 (마운트 성공 증거)
-    expect(screen.queryByLabelText('Candidates'), 'BottomNav 가 렌더되어야 함').not.toBeNull();
+    expect(screen.queryByLabelText('후보'), 'BottomNav 가 렌더되어야 함').not.toBeNull();
 
     const cases: Array<[string, string]> = [
-      ['Trade', 'AUTO_TRADE'],
-      ['Watchlist', 'WATCHLIST'],
-      ['Report', 'PUBLIC_REPORT'],
-      ['Candidates', 'DISCOVER'],
+      ['매매', 'AUTO_TRADE'],
+      ['관심종목', 'WATCHLIST'],
+      ['리포트', 'PUBLIC_REPORT'],
+      ['후보', 'DISCOVER'],
     ];
     for (const [label, expected] of cases) {
       fireEvent.click(screen.getByLabelText(label));

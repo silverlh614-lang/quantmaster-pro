@@ -27,17 +27,17 @@ describe('BottomNav — 섹션 전환', () => {
       </>,
     );
     expect(getByTestId('current-view').textContent).toBe('DISCOVER');
-    fireEvent.click(getByLabelText('Trade'));
+    fireEvent.click(getByLabelText('매매'));
     expect(useSettingsStore.getState().view).toBe('AUTO_TRADE');
     expect(getByTestId('current-view').textContent).toBe('AUTO_TRADE');
   });
 
   it('주요 탭 4개 모두 올바른 view 로 전환', () => {
     const cases: Array<[string, string]> = [
-      ['Trade', 'AUTO_TRADE'],
-      ['Watchlist', 'WATCHLIST'],
-      ['Report', 'PUBLIC_REPORT'],
-      ['Candidates', 'DISCOVER'],
+      ['매매', 'AUTO_TRADE'],
+      ['관심종목', 'WATCHLIST'],
+      ['리포트', 'PUBLIC_REPORT'],
+      ['후보', 'DISCOVER'],
     ];
     const { getByLabelText } = render(<BottomNav />);
     for (const [label, expected] of cases) {
