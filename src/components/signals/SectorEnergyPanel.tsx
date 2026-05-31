@@ -121,7 +121,7 @@ export const SectorEnergyPanel: React.FC<Props> = ({ result, inputs, onInputsCha
           <Zap className="w-5 h-5 text-amber-400" />
           <div>
             <h3 className="text-sm font-semibold text-gray-100">
-              섹터 에너지 맵 &amp; 로테이션 마스터 게이트
+              섹터 에너지 맵 & 로테이션 마스터 게이트
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
               {result ? result.summary : '데이터 로딩 중...'}
