@@ -11,7 +11,7 @@ import {
 } from '../constants/gateConfig';
 import { CONDITION_ID_TO_CHECKLIST_KEY, type ConditionId } from '../types/core';
 import type { StockRecommendation } from '../services/stockService';
-import { classifyDataQuality } from '../utils/dataQualityClassifier';
+import { classifyDataQuality, resolveConditionTier, isVerifiedTier } from '../utils/dataQualityClassifier';
 import type {
   CandidateDecisionSummary,
   CandidateSectorAlignment,
@@ -53,6 +53,13 @@ function conditionPasses(stock: StockRecommendation, id: ConditionId): boolean {
   return isChecklistConditionMet(value);
 }
 
+/** 통과 + 실데이터 검증(AI 추정 아님) 인지 — 게이트 절충 표기(검증 N·AI M)용. */
+function conditionVerifiedPass(stock: StockRecommendation, id: ConditionId): boolean {
+  const key = CONDITION_ID_TO_CHECKLIST_KEY[id];
+  if (!key) return false;
+  return conditionPasses(stock, id) && isVerifiedTier(resolveConditionTier(stock, key as keyof StockRecommendation['checklist']));
+}
+
 function buildGateSummary(
   stock: StockRecommendation,
   name: string,
@@ -65,17 +72,21 @@ function buildGateSummary(
   // 산정된 후 우선 채택돼, status=PASS + passed=0/total=N 모순 표시됨.
   // primaryReason 도 외부 값(다른 임계 기반) 무시하고 로컬 count 로 재구성 — 정직성.
   const passed = ids.filter((id) => conditionPasses(stock, id)).length;
+  const verifiedPassed = ids.filter((id) => conditionVerifiedPass(stock, id)).length;
   const total = ids.length;
   const status: GateStatus = passed >= required
     ? 'PASS'
     : passed === 0
       ? 'DATA_INSUFFICIENT'
       : failStatus;
+  // 절충(사용자 채택): 게이트 통과수는 유지하되 검증/AI 추정 비율을 함께 표기 —
+  // Gemini all-true 로 통과수가 부풀 때 실데이터 근거가 얼마인지 정직하게 보여준다.
+  const breakdown = passed > 0 ? ` · 검증 ${verifiedPassed}·AI ${passed - verifiedPassed}` : '';
   const primaryReason = status === 'PASS'
-    ? `통과 (${passed}/${total} 항목 충족)`
+    ? `통과 (${passed}/${total}${breakdown})`
     : status === 'DATA_INSUFFICIENT'
       ? `데이터 부족 — 평가 보류 (0/${total})`
-      : `미충족 (${passed}/${total} 항목, 기준 ${required})`;
+      : `미충족 (${passed}/${total} 항목, 기준 ${required}${breakdown})`;
   return { name, status, passed, total, primaryReason };
 }
 
