@@ -141,6 +141,7 @@ export function formatMacroHardStaleGuide(snapshot: {
     `refreshJobLastRunAt: ${snapshot.macroRefreshJobLastRunAt ?? 'N/A'}`,
     `경과: ${snapshot.macroAgeSec ?? 'N/A'}초`,
     `MHS는 ${snapshot.mhs ?? 'N/A'}으로 회복권이나 Macro snapshot이 오래되어 R6 해제는 보류됩니다.`,
+    `※ 여기서 R6는 deprecated legacy 라벨(표시 전용·매매 사이징 미사용)이며, 실제 Live 차단 원인은 snapshot STALE(데이터 신선도)입니다.`,
     `regimeReleaseAllowed=${snapshot.regimeReleaseAllowed ?? false}`,
     `releaseBlockedReason=${snapshot.regimeReleaseBlockedReason ?? 'MACRO_HARD_STALE'}`,
     `분류: Provider freshness issue / Market bearish signal 아님`,

@@ -243,7 +243,7 @@ export function formatDecisionContextAuthorityBlock(
   ];
 
   if (mr.legacyEffectiveRegime !== undefined) {
-    lines.push(`legacyEffectiveRegime=${mr.legacyEffectiveRegime} deprecated=true usedForDecision=false`);
+    lines.push(`legacyEffectiveRegime=${mr.legacyEffectiveRegime} deprecated=true usedForDecision=false (표시 전용·매매 사이징 미사용, 정본=Scoring Effective)`);
   }
 
   if (opts.comparisonSnapshotId !== undefined && opts.comparisonSnapshotId !== ctx.snapshotId) {
