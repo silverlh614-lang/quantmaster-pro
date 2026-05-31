@@ -215,7 +215,7 @@ async function tryTier3Quant(
   if (result.stale || result.candidates.length === 0) return null;
   const ranked = result.candidates.map((c) => ({
     entry: { code: c.code, name: c.name, market: c.market } as StockMasterEntry,
-    sources: new Set<string>(['quant:yahoo']),
+    sources: new Set<string>(['quant:naver']),
   }));
   return { ranked, tradingDate: result.tradingDateRef };
 }

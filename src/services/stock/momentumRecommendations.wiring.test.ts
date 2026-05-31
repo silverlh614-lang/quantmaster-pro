@@ -128,9 +128,9 @@ describe('momentumRecommendations — buildUniverseRuleLine (PR-37 ADR-0016)', (
     expect(line).toContain('학습 지식');
   });
 
-  it('FALLBACK_QUANT 는 Yahoo OHLCV 정량 후보 + metric 이름 명시 + 보수적 BUY/STRONG_BUY 지시 (PR-38)', () => {
+  it('FALLBACK_QUANT 는 Naver 일봉 정량 후보 + metric 이름 명시 + 보수적 BUY/STRONG_BUY 지시 (PR-38)', () => {
     const line = buildUniverseRuleLine('FALLBACK_QUANT', 10, true);
-    expect(line).toContain('Yahoo OHLCV');
+    expect(line).toContain('Naver 일봉');
     expect(line).toContain('metric');
     // PR-38: metric 이름이 프롬프트에 명시되어 AI 가 어떤 수치를 검토해야 하는지 모호함 제거
     expect(line).toContain('momentum20d');
@@ -195,9 +195,9 @@ describe('momentumRecommendations — buildUniverseWarning (PR-37 ADR-0016 §6)'
     expect(msg).toContain('1일');
   });
 
-  it('FALLBACK_QUANT 메시지에 Yahoo OHLCV 출처 + 뉴스 비활성 안내', () => {
+  it('FALLBACK_QUANT 메시지에 Naver 일봉 출처 + 뉴스 비활성 안내', () => {
     const msg = buildUniverseWarning('FALLBACK_QUANT', false);
-    expect(msg).toContain('Yahoo OHLCV');
+    expect(msg).toContain('Naver 일봉');
     expect(msg).toContain('뉴스');
   });
 

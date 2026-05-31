@@ -66,7 +66,7 @@ export function flattenCandidates(result: AiUniverseDiscoverResult | null): Mome
  *
  * - Tier 1 GOOGLE_OK     : 뉴스·공시 매칭 후보군. 엄격한 universe 한정.
  * - Tier 2 FALLBACK_SNAPSHOT : 직전 정상 거래일 universe 재평가. 후보 우선시 + 학습 지식 확장 허용.
- * - Tier 3 FALLBACK_QUANT    : Yahoo OHLCV 정량 후보군. AI 가 metric 검토 후 강도 결정.
+ * - Tier 3 FALLBACK_QUANT    : Naver 일봉(실패 시 Yahoo 폴백) 정량 후보군. AI 가 metric 검토 후 강도 결정.
  * - Tier 4 FALLBACK_NAVER    : Naver 펀더멘털 단독. 뉴스 분석 비활성.
  * - Tier 5 FALLBACK_SEED     : 하드코딩 KOSPI/KOSDAQ leader seed (정량 산출 결과 아님).
  * - NOT_CONFIGURED / BUDGET_EXCEEDED / ERROR / NO_MATCHES : 폴백 사슬을 따라 도달한 마지막 후보군.
@@ -89,7 +89,7 @@ export function buildUniverseRuleLine(
     // PR-38: metric 이름 + 검토 우선순위를 명시. 뉴스·촉매 분석이 비활성 상태이므로
     // BUY/STRONG_BUY 강도는 보수적으로 적용해야 한다는 점을 프롬프트에서 강제한다.
     return [
-      '[후보군 — Yahoo OHLCV 기반 정량 후보군.',
+      '[후보군 — Naver 일봉 기반 정량 후보군.',
       '다음 metric 을 우선 검토하라:',
       '20거래일 모멘텀(momentum20d),',
       '20일 평균 거래대금(avgTurnoverKrw),',
@@ -145,7 +145,7 @@ export function buildUniverseWarning(
     return `직전 거래일 ${date} universe 를 재평가 중${age}. 뉴스·촉매 분석은 잠시 후 자동 복구됩니다.`;
   }
   if (sourceStatus === 'FALLBACK_QUANT') {
-    return '정량 데이터(Yahoo OHLCV) 기반 자동 후보군 사용 중. 뉴스·촉매 분석은 일시적으로 비활성화 상태입니다.';
+    return '정량 데이터(Naver 일봉) 기반 자동 후보군 사용 중. 뉴스·촉매 분석은 일시적으로 비활성화 상태입니다.';
   }
   if (sourceStatus === 'FALLBACK_NAVER') {
     return 'Naver Finance 펀더멘털(PER/PBR/배당) 단독 후보군. 뉴스·촉매 분석은 일시적으로 비활성화 상태입니다.';

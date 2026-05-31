@@ -68,6 +68,17 @@ function gatedResponse(): Response {
   });
 }
 
+/** Naver `/price` 빈 응답 — Naver 우선 경로가 빈 배열로 즉시 null → Yahoo 폴백 검증용. */
+function naverEmptyResponse(): Response {
+  return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+}
+
+/** fetch mock 래퍼 — Naver(m.stock.naver.com) URL 은 빈 배열, 그 외(Yahoo)는 provider 위임. */
+function withNaverEmpty(yahooProvider: () => Response): (url: unknown) => Promise<Response> {
+  return async (url: unknown) =>
+    String(url).includes('m.stock.naver.com') ? naverEmptyResponse() : yahooProvider();
+}
+
 describe('quantitativeCandidateGenerator (PR-37)', () => {
   beforeEach(() => {
     cleanFiles();
@@ -146,7 +157,7 @@ describe('quantitativeCandidateGenerator (PR-37)', () => {
       makeYahooResponse({ closes: closes_B }),
     ];
     let i = 0;
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => responses[i++] ?? makeYahooResponse({ closes: closes_C }));
+    vi.spyOn(globalThis, 'fetch').mockImplementation(withNaverEmpty(() => responses[i++] ?? makeYahooResponse({ closes: closes_C })));
 
     const result = await generateQuantitativeCandidates('MOMENTUM', { maxCandidates: 5, universeLimit: 5 });
     expect(result.stale).toBe(false);
@@ -172,7 +183,7 @@ describe('quantitativeCandidateGenerator (PR-37)', () => {
       makeYahooResponse({ closes: closes_near, fiftyTwoWeekHigh: 100 }),
       makeYahooResponse({ closes: closes_in, fiftyTwoWeekHigh: 100 }),
     ];
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => responses[i++] ?? responses[0]);
+    vi.spyOn(globalThis, 'fetch').mockImplementation(withNaverEmpty(() => responses[i++] ?? responses[0]));
     const result = await generateQuantitativeCandidates('EARLY_DETECT', { maxCandidates: 3, universeLimit: 5 });
     expect(result.stale).toBe(false);
     // 모든 후보의 drawdown 이 -0.05 ~ -0.15 구간이어야 함
@@ -206,7 +217,7 @@ describe('quantitativeCandidateGenerator (PR-37)', () => {
       makeYahooResponse({ closes: closes_low }),
       makeYahooResponse({ closes: closes_mid }),
     ];
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => responses[i++] ?? responses[0]);
+    vi.spyOn(globalThis, 'fetch').mockImplementation(withNaverEmpty(() => responses[i++] ?? responses[0]));
 
     const result = await generateQuantitativeCandidates('BEAR_SCREEN', { maxCandidates: 3, universeLimit: 5 });
     expect(result.stale).toBe(false);

@@ -16,6 +16,7 @@ import type { AiUniverseMode } from './aiUniverseTypes.js';
 // 인라인 분기 자체 구현 영구 차단. entry.market 을 marketHint 로 전달해 master 부재
 // 시점에도 byte-equivalent 동작 보존 (CORE_SEED 사용 시).
 import { toYahooSymbol as toYahooSymbolSsot } from '../utils/symbolNormalizer.js';
+import { fetchNaverDailyOhlcv } from '../clients/naverFinanceClient.js';
 
 /** Tier 3 후보 객체 — 정량 metric 포함. */
 export interface QuantitativeCandidate {
@@ -198,6 +199,33 @@ async function fetchYahooBundle(symbol: string): Promise<YahooBundle | null> {
   }
 }
 
+/**
+ * Naver 일봉(`/price`) 기반 번들 — Yahoo 와 동일 YahooBundle 형태로 변환.
+ * KR 정본은 Naver 우선(Yahoo 는 KR stale 심함·장외 미가용). 52주 신고가 meta 가 없어
+ * fiftyTwoWeekHigh=null → drawdown 계산의 `?? max(closes)` 폴백을 그대로 사용한다.
+ * fetchNaverDailyOhlcv 가 naver_finance 예산을 1건 소비(페이지당 X) + negative cache 처리.
+ */
+async function fetchNaverBundle(code: string): Promise<YahooBundle | null> {
+  const chart = await fetchNaverDailyOhlcv(code, 70); // 3mo+ (~70 거래일) — Yahoo range=3mo 와 동일 창
+  const q = chart?.indicators?.quote?.[0];
+  const ts = chart?.timestamp ?? [];
+  if (!chart || !q || ts.length === 0) return null;
+  const len = Math.min(ts.length, q.close.length);
+  const bars: YahooBar[] = [];
+  for (let i = 0; i < len; i++) {
+    bars.push({
+      close: typeof q.close[i] === 'number' ? q.close[i] : null,
+      high: typeof q.high[i] === 'number' ? q.high[i] : null,
+      low: typeof q.low[i] === 'number' ? q.low[i] : null,
+      volume: typeof q.volume[i] === 'number' ? q.volume[i] : null,
+    });
+  }
+  const lastMs = ts[ts.length - 1] * 1000;
+  const kst = new Date(lastMs + 9 * 3_600_000);
+  const tradingDate = `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}-${String(kst.getUTCDate()).padStart(2, '0')}`;
+  return { bars, tradingDate, fiftyTwoWeekHigh: null };
+}
+
 // ── 정량 metric 헬퍼 ─────────────────────────────────────────────────────
 
 function lastN<T>(arr: T[], n: number): T[] {
@@ -324,16 +352,15 @@ export async function generateQuantitativeCandidates(
   let successCount = 0;
 
   for (const entry of universe) {
-    const symbol = toYahooSymbol(entry);
-    if (!symbol) continue;
-    if (classifySymbol(symbol) !== 'KRX') continue; // 안전 가드
-
-    // 호출 예산 — 한도 도달 시 즉시 종료해 stale 처리.
-    if (!tryConsume(YAHOO_BUCKET, 1)) {
-      // 이미 모은 결과로 진행 가능하면 진행, 모은 게 부족하면 stale.
-      break;
+    // KR 정본 = Naver 우선 (6자리 코드 직접 사용·심볼 변환 불필요·예산은 fetchNaverDailyOhlcv 내부).
+    let bundle = await fetchNaverBundle(entry.code);
+    if (!bundle || bundle.bars.length < 21) {
+      // Naver 실패·부족 시에만 Yahoo 폴백 (기존 경로 보존, Yahoo 예산 별도 소비).
+      const symbol = toYahooSymbol(entry);
+      if (symbol && classifySymbol(symbol) === 'KRX' && tryConsume(YAHOO_BUCKET, 1)) {
+        bundle = await fetchYahooBundle(symbol);
+      }
     }
-    const bundle = await fetchYahooBundle(symbol);
     if (!bundle || bundle.bars.length < 21) continue;
 
     const metrics: Record<string, number> = {
