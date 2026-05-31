@@ -12,6 +12,7 @@ import {
 import { CONDITION_ID_TO_CHECKLIST_KEY, type ConditionId } from '../types/core';
 import type { StockRecommendation } from '../services/stockService';
 import { classifyDataQuality, resolveConditionTier, isVerifiedTier } from '../utils/dataQualityClassifier';
+import { buildStockAnalysisCanon } from '../services/stock/stockAnalysisCanon';
 import type {
   CandidateDecisionSummary,
   CandidateSectorAlignment,
@@ -58,18 +59,6 @@ function conditionVerifiedPass(stock: StockRecommendation, id: ConditionId): boo
   const key = CONDITION_ID_TO_CHECKLIST_KEY[id];
   if (!key) return false;
   return conditionPasses(stock, id) && isVerifiedTier(resolveConditionTier(stock, key as keyof StockRecommendation['checklist']));
-}
-
-/** 검증 가중 최종 점수 — 검증 통과=1·AI 추정 통과=0.5·미달=0 (SSOT 레이더와 동일 철학).
- * AI 가 채운 truthy 만으로 100 이 되던 부풀림을 실데이터 검증 비율로 정직화한다. */
-function weightedFinalScore(stock: StockRecommendation): number {
-  const ids: ConditionId[] = [...GATE1_IDS, ...GATE2_IDS, ...GATE3_IDS];
-  if (ids.length === 0) return 0;
-  const weighted = ids.reduce(
-    (sum, id) => sum + (conditionVerifiedPass(stock, id) ? 1 : conditionPasses(stock, id) ? 0.5 : 0),
-    0,
-  );
-  return Math.round((weighted / ids.length) * 100);
 }
 
 function buildGateSummary(
@@ -421,10 +410,9 @@ export function buildCandidateDecisionCardModel(
     sector: stockSector(stock),
     finalDecision,
     displayDecision: publicDecisionLabel(finalDecision),
-    // finalScore — 검증 가중(검증=1·AI추정=0.5·미달=0). Gemini 가 checklist 를 거의 다 true 로
-    // 채워 단순 통과수면 "전부 통과=100" 으로 부풀던 문제(실데이터 검증 0 인데 100) 정직화.
-    // 실데이터 검증 비율이 높을수록 점수가 오른다 — SSOT 레이더와 동일 가중.
-    finalScore: weightedFinalScore(stock),
+    // finalScore — 분석 표시 정본(stockAnalysisCanon)의 검증 가중 점수를 그대로 사용.
+    // deep-analysis ScoreAlignmentGrid 과 같은 값을 읽어 화면 간 최종점수 불일치를 제거한다.
+    finalScore: buildStockAnalysisCanon(stock).weightedScore,
     sourceSnapshotId,
     asOf,
     gate0,

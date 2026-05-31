@@ -3,6 +3,7 @@ import React from 'react';
 import { cn } from '../../../ui/cn';
 import type { StockRecommendation } from '../../../services/stockService';
 import { buildStockAnalysisCanon } from '../../../services/stock/stockAnalysisCanon';
+import { classifyScoreConcordance } from '../../../utils/recommendationScore';
 
 interface Props {
   stock: StockRecommendation;
@@ -37,7 +38,10 @@ export function ScoreAlignmentGrid({ stock }: Props) {
   // 분석 표시 정본(SSOT) — quantScore/concordance 가 절대 null 이 아니다(게이트 미산출 시
   // 신뢰도→AI fallback). 검색 종목처럼 gateEvaluation 이 없을 때 Gate 가 '-' 로 비고
   // concordance 블록이 통째로 숨겨지던 "final score 표시 안됨" 문제를 제거한다.
-  const { aiScore, quantScore, concordance, verifiedPassCount, metCount } = buildStockAnalysisCanon(stock);
+  // 최종 점수 = 검증 가중(weightedScore) — 후보 카드와 동일 정본 값. 합치도는 AI vs 최종(가중)
+  // 비교로 통일해 위젯 내부도 같은 숫자(예: 최종 59)를 보이게 한다(화면 간 점수 불일치 제거).
+  const { aiScore, weightedScore, verifiedPassCount, metCount } = buildStockAnalysisCanon(stock);
+  const concordance = classifyScoreConcordance(aiScore, weightedScore);
 
   return (
     <div className="mb-8 space-y-3">
@@ -51,10 +55,10 @@ export function ScoreAlignmentGrid({ stock }: Props) {
         />
         <ScoreCard
           label="최종 점수"
-          value={quantScore}
+          value={weightedScore}
           scale="0~100"
           tone="blue"
-          tooltip="27조건 가중합 정규화 (게이트 미산출 시 신뢰도·AI 대체)"
+          tooltip="검증 가중 (검증=1·AI추정=0.5·미달=0) — 후보 카드 최종점수와 동일 값"
         />
         <ScoreCard
           label="체크리스트"
@@ -76,8 +80,8 @@ export function ScoreAlignmentGrid({ stock }: Props) {
             AI 점수 {concordance.aiScore} [{concordance.tier === 'WEAK' || concordance.tier === 'POOR' ? '⚠ ' : ''}{concordance.label}]
           </div>
           <div className="mt-1 text-[11px] opacity-85">
-            AI: {concordance.aiScore} / 정량: {concordance.quantScore} · 격차 {concordance.gap}점
-            {concordance.gap >= 25 ? ' — Gemini 과대평가 가능' : ' — 정성/정량 방향성 확인'}
+            AI: {concordance.aiScore} / 최종: {concordance.quantScore} · 격차 {concordance.gap}점
+            {concordance.gap >= 25 ? ' — Gemini 과대평가 가능 (검증 부족)' : ' — 정성/검증 방향성 확인'}
           </div>
         </div>
       )}

@@ -44,7 +44,9 @@ export interface StockAnalysisCanon {
   aiScore: number;
   /** 0~100 Quant(게이트) 점수 — gateEvaluation 없으면 confidence/ai 로 fallback (절대 null 아님). */
   quantScore: number;
-  /** 표시용 최종 점수 (= quantScore). */
+  /** 0~100 검증 가중 점수 (검증=1·AI=0.5·미달=0) — AI 부풀림 제거한 정직 점수. */
+  weightedScore: number;
+  /** 표시용 최종 점수 (= weightedScore). 후보카드·deep-analysis 가 같은 값을 쓰도록 통일. */
   finalScore: number;
   concordance: ScoreConcordance;
 }
@@ -81,6 +83,13 @@ export function buildStockAnalysisCanon(stock: StockRecommendation): StockAnalys
   const metCount = all.filter((c) => c.met).length;
   const verifiedPassCount = all.filter((c) => c.status === 'VERIFIED_PASS').length;
 
+  // 전체 검증 가중 점수 (검증=1·AI=0.5·미달=0) — 후보카드·deep-analysis 가 공유하는 단일 최종점수.
+  // 27조건 전부 충족이어도 실데이터 검증 비율만큼만 차오른다(Gemini all-true → 100 부풀림 제거).
+  const weightedScore = all.length
+    ? Math.round((all.reduce((sum, c) =>
+        sum + (c.status === 'VERIFIED_PASS' ? 1 : c.status === 'AI_PASS' ? 0.5 : 0), 0) / all.length) * 100)
+    : 0;
+
   // 가중 점수: 검증통과=1.0 · AI추정통과=0.5 · 미달=0. 검증-only(0/27 빈 레이더)와 truthy
   // (전부 100%) 의 양극단을 피해, AI 추정도 절반은 반영하되 실데이터일수록 더 차오르게 한다.
   const radar: RadarAxis[] = RADAR_CATEGORIES.map((cat) => {
@@ -108,7 +117,8 @@ export function buildStockAnalysisCanon(stock: StockRecommendation): StockAnalys
     radar,
     aiScore,
     quantScore,
-    finalScore: quantScore,
+    weightedScore,
+    finalScore: weightedScore,
     concordance,
   };
 }
