@@ -451,6 +451,11 @@ export interface KisClientOverrides {
   fetchKisMarketProgramTrade?: () => Promise<KisMarketProgramTrade | null>;
   fetchKisDailyShortSale?: (code: string) => Promise<KisDailyShortSale | null>;
   fetchKisShortSaleRanking?: () => Promise<KisShortSaleRankingRow[] | null>;
+  /**
+   * ADR-0548 — KIS chk-holiday(CTCA0903R) override. KisHolidayEntry 는 query.ts 로컬 export
+   * (순환참조 회피를 위해 구조적 타입으로 선언).
+   */
+  fetchKisHolidayCalendar?: (bassDt: string) => Promise<Array<{ bassDt: string; opndYn: string; [k: string]: string }> | null>;
   fetchKisDailyLoanTransaction?: (code: string) => Promise<KisDailyLoanTransaction | null>;
   fetchKisDailyCreditBalance?: (code: string) => Promise<KisDailyCreditBalance | null>;
   fetchKisCreditBalanceRanking?: () => Promise<KisCreditBalanceRankingRow[] | null>;

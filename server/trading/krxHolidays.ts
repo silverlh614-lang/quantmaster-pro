@@ -12,7 +12,7 @@
  * `data/krx-holiday-patch.json` 직접 편집 후 재시작.
  */
 
-import { loadKrxHolidayPatch } from '../persistence/krxHolidayRepo.js';
+import { loadKrxHolidayPatch, appendKrxHolidayPatch } from '../persistence/krxHolidayRepo.js';
 
 /** KRX 공식 휴장일 목록 (YYYY-MM-DD, KST 기준) — 정적 fallback. */
 const STATIC_HOLIDAYS: ReadonlySet<string> = new Set<string>([
@@ -124,4 +124,101 @@ export function addBusinessDaysFromKstDate(
     if (isKrxBusinessDay(formatKstYmd(date), holidays)) added += 1;
   }
   return formatKstYmd(date);
+}
+
+// ─── ADR-0548: KIS chk-holiday(CTCA0903R) L1 휴장 권위 → patch(addedBy:'sync') 동기화 ───
+
+/**
+ * KIS 휴장 권위를 krxHolidayRepo patch(addedBy:sync)로 영속·reload — ENV gate, cron 1회, idempotent.
+ *
+ * ADR-0548. `KIS_HOLIDAY_CALENDAR_ENABLED==='true'` 일 때만 동작(default OFF → byte-equivalent).
+ * 당해+차년도 각각, 이미 충분히 등록된 연도(`MIN_SYNCED_HOLIDAYS_PER_YEAR` 이상)는 KIS 호출
+ * 없이 skip 하여 KIS docstring "가급적 1일 1회 호출" 제약을 강제한다.
+ *
+ * KIS fetch 실패(null) 시 STATIC ∪ patch 안전망 유지(불변식 #6 — provider 장애 ≠ 약세 신호).
+ *
+ * ★ 순환참조 회피: 본 모듈(krxHolidays) → query.ts → marketDayClassifier → krxHolidays 정적
+ *   사이클을 끊기 위해 fetch fetcher 를 비동기 동적 import 로 지연 로딩한다. 동기 휴일 함수
+ *   (`isKrxHoliday` 등)는 무변경.
+ */
+export async function syncKisHolidayCalendar(
+  opts: { now?: Date } = {},
+): Promise<{ added: number; skipped: boolean }> {
+  if (process.env.KIS_HOLIDAY_CALENDAR_ENABLED !== 'true') {
+    return { added: 0, skipped: true };
+  }
+
+  const now = opts.now ?? new Date();
+  const kst = new Date(now.getTime() + 9 * 3_600_000);
+  const baseYear = kst.getUTCFullYear();
+  const targetYears = [baseYear, baseYear + 1];
+
+  // 동적 import — 정적 사이클 회피 + 경량 leaf 직접 로드.
+  // query.js facade 대신 leaf(holidayCalendar)를 직접 import 하여 marketDayClassifier
+  // 경유 사이클(query→marketDayClassifier→krxHolidays)을 원천 차단한다.
+  const { fetchKisHolidayCalendar } = await import('../clients/kisClient/query/holidayCalendar.js');
+
+  let totalAdded = 0;
+  let anyFetched = false;
+
+  for (const year of targetYears) {
+    // 이미 충분히 등록된 연도는 KIS 호출 없이 skip (idempotent + 호출 빈도 가드).
+    if (_countHolidaysInActiveSet(year) >= _MIN_SYNCED_HOLIDAYS_PER_YEAR) {
+      continue;
+    }
+
+    const entries = await fetchKisHolidayCalendar(`${year}0101`);
+    if (!entries) {
+      // KIS 실패/미설정 — STATIC 안전망 유지(불변식 #6). 로깅 후 다음 연도 진행.
+      console.warn(`[KrxHolidays] KIS chk-holiday ${year} 미응답 — STATIC fallback 유지`);
+      continue;
+    }
+    anyFetched = true;
+
+    const patchEntries = entries
+      .filter((e) => e.opndYn === 'N')
+      .map((e) => _kisYmdToDashed(e.bassDt))
+      .filter((d): d is string => d !== null && _isWeekdayYmd(d))
+      .map((date) => ({
+        date,
+        reason: 'KIS chk-holiday',
+        addedBy: 'sync' as const,
+        addedAt: new Date().toISOString(),
+      }));
+
+    if (patchEntries.length > 0) {
+      totalAdded += appendKrxHolidayPatch(patchEntries);
+    }
+  }
+
+  if (anyFetched) {
+    reloadKrxHolidaySet();
+  }
+
+  return { added: totalAdded, skipped: false };
+}
+
+/** 연 단위 KIS 응답이 정상이라면 통상 휴장일 ≥ 이 값. 미만이면 미동기로 간주해 재호출. */
+const _MIN_SYNCED_HOLIDAYS_PER_YEAR = 8;
+
+/** 활성 Set(STATIC ∪ patch)에서 특정 연도 휴장일 개수. */
+function _countHolidaysInActiveSet(year: number): number {
+  let count = 0;
+  const prefix = `${year}-`;
+  for (const ymd of _runtimeSet) {
+    if (ymd.startsWith(prefix)) count += 1;
+  }
+  return count;
+}
+
+/** 'YYYYMMDD'(KIS) → 'YYYY-MM-DD'. 형식 오류 시 null. */
+function _kisYmdToDashed(bassDt: string): string | null {
+  if (!/^\d{8}$/.test(bassDt)) return null;
+  return `${bassDt.slice(0, 4)}-${bassDt.slice(4, 6)}-${bassDt.slice(6, 8)}`;
+}
+
+/** 'YYYY-MM-DD' 가 평일(월~금)인지 — 주말은 patch 등록 대상에서 제외(휴장이 아니라 비영업). */
+function _isWeekdayYmd(ymd: string): boolean {
+  const dow = new Date(`${ymd}T00:00:00.000Z`).getUTCDay();
+  return dow !== 0 && dow !== 6;
 }

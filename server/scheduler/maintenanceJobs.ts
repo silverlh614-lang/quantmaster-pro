@@ -15,7 +15,7 @@ import { updateKrxSectorMap, type UpdateResult } from '../screener/sectorMapUpda
 import { migrateAttributionRecords } from '../persistence/attributionRepo.js';
 import { DATA_DIR } from '../persistence/paths.js';
 // PR-B-2: scheduledJob 래퍼가 wrapJob 메트릭 기록을 흡수.
-import { reloadKrxHolidaySet } from '../trading/krxHolidays.js';
+import { reloadKrxHolidaySet, syncKisHolidayCalendar } from '../trading/krxHolidays.js';
 import { runKrxHolidayAudit } from '../trading/krxHolidayAudit.js';
 // ADR-0128 — 데이터 검증 배치 (정책 #2 주 검증, KST 평일 16:30)
 import { runDataVerificationBatch } from '../data/dataVerificationBatch.js';
@@ -181,6 +181,26 @@ export function registerMaintenanceJobs(): void {
   // PR-B-2: ALWAYS_ON — 12/1 이 KRX 공휴일이어도 발송 (감사 자체는 휴장과 무관).
   scheduledJob('0 0 1 12 *', 'ALWAYS_ON', 'krx_holiday_audit',
     () => runKrxHolidayAudit(), { timezone: 'UTC' });
+
+  // ADR-0548 — KIS chk-holiday(CTCA0903R) opnd_yn L1 휴장 권위 동기화.
+  // 연 1회(매년 1/2 09:00 KST = UTC 1/2 00:00, 당해+차년도 일괄) + 월 1회 재확인(대체·임시공휴일 갱신).
+  // ENV `KIS_HOLIDAY_CALENDAR_ENABLED!=='true'` 면 잡 내부에서 no-op early return(default OFF).
+  // 이미 충분히 등록된 연도는 KIS 호출 없이 skip → 실호출 빈도 ≪ 1일 1회(docstring 제약 강제).
+  // PR-B-2: ALWAYS_ON — 휴장 캘린더 동기화는 휴장 여부와 무관(데이터 등록 전용, 주문 경로 무관).
+  const runKisHolidaySync = async (trigger: string): Promise<void> => {
+    try {
+      const result = await syncKisHolidayCalendar();
+      if (!result.skipped) {
+        console.log(`[KisHolidaySync] trigger=${trigger} added=${result.added}`);
+      }
+    } catch (e) {
+      console.error(`[KisHolidaySync] trigger=${trigger} 실행 오류:`, e);
+    }
+  };
+  scheduledJob('0 0 2 1 *', 'ALWAYS_ON', 'kis_holiday_sync_yearly',
+    () => runKisHolidaySync('yearly'), { timezone: 'UTC' });
+  scheduledJob('0 0 1 * *', 'ALWAYS_ON', 'kis_holiday_sync_monthly',
+    () => runKisHolidaySync('monthly'), { timezone: 'UTC' });
 
   // ADR-454b — Near-Miss Outcome Evaluation (장마감 후 KST 16:10 = UTC 07:10).
   // DATA_BLOCKED_NEAR_MISS / PROBING / SHADOW_ONLY ledger 의 due 3/5/10영업일 horizon 만

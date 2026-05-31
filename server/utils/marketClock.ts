@@ -11,6 +11,9 @@
  */
 
 import type { MarketDataMode } from '../services/aiUniverseTypes.js';
+// ADR-0548 — 평일 휴장 인지(HOLIDAY_CACHE 배선). 동기 휴일 조회 SSOT.
+// 순환참조 없음: krxHolidays → krxHolidayRepo(→ paths) 만 의존, marketClock 미참조.
+import { isKrxHoliday, formatKstYmd } from '../trading/krxHolidays.js';
 
 const KST_OFFSET_MS = 9 * 3_600_000;
 
@@ -72,6 +75,9 @@ export function isPostClosePendingPublish(now: Date = new Date()): boolean {
 export function classifyMarketDataMode(now: Date = new Date()): MarketDataMode {
   if (isMarketOpen(now)) return 'LIVE_TRADING_DAY';
   if (isKstWeekend(now)) return 'WEEKEND_CACHE';
+  // ADR-0548 — 평일 휴장(KRX 휴장 캘린더)은 AFTER_MARKET 이 아니라 HOLIDAY_CACHE.
+  // ENV 와 직교: STATIC ∪ patch Set 기반으로 동작(KIS sync OFF 라도 정밀화).
+  if (isKrxHoliday(formatKstYmd(kstDate(now)))) return 'HOLIDAY_CACHE';
   return 'AFTER_MARKET';
 }
 
