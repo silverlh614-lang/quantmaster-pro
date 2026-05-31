@@ -39,7 +39,7 @@ describe('getRadarData', () => {
     expect(fundamental?.A).toBe(14);
   });
 
-  it('전체 통과 시 A=100', () => {
+  it('전체 true 라도 AI 추정 카테고리는 제외 — 실데이터 검증 tier 만 반영 ("전부 27/27" 부풀림 제거)', () => {
     const allTrue = {
       roeType3: true, earningsSurprise: true, performanceReality: true, ocfQuality: true,
       marginAcceleration: true, interestCoverage: true, economicMoatVerified: true,
@@ -53,7 +53,15 @@ describe('getRadarData', () => {
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = getRadarData(buildStock(allTrue as any));
-    expect(data.every((d) => d.A === 100)).toBe(true);
+    const byName = Object.fromEntries(data.map((d) => [d.subject, d.A]));
+    // conditionSourceTiers 부재 → 휴리스틱 tier. AI 추정 항목(시장 주도력 전부·엘리엇·심리·촉매)은 미검증 제외.
+    expect(byName['기본적 분석']).toBe(100); // 7개 전부 API
+    expect(byName['기술적 분석']).toBe(89);  // 9개 중 8 계산(엘리엇1 AI 제외)
+    expect(byName['수급 분석']).toBe(100);   // 3개 전부 API
+    expect(byName['시장 주도력']).toBe(0);   // 4개 전부 AI 추정 → 미검증
+    expect(byName['전략/심리']).toBe(33);    // 3개 중 mechanicalStop(API) 1
+    // 더 이상 모든 축이 100(전부 27/27)이 아님 — 실데이터 차별화
+    expect(data.every((d) => d.A === 100)).toBe(false);
   });
 });
 

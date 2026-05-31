@@ -64,6 +64,16 @@ function classifyByHeuristic(key: ChecklistKey): ConditionSourceTier {
   return 'AI_INFERRED';
 }
 
+/** 조건의 데이터 출처 tier — 명시 메타 우선, 없으면 휴리스틱. (레이더/검증 카운트 SSOT) */
+export function resolveConditionTier(stock: StockRecommendation, key: ChecklistKey): ConditionSourceTier {
+  return stock.conditionSourceTiers?.[key] ?? classifyByHeuristic(key);
+}
+
+/** AI 추정이 아닌 실데이터 출처(계산·API·지연·수동)인지 — 신뢰 가능한 검증 tier. */
+export function isVerifiedTier(tier: ConditionSourceTier): boolean {
+  return tier !== 'AI_INFERRED';
+}
+
 const ALL_CHECKLIST_KEYS: readonly ChecklistKey[] = [
   ...COMPUTED_KEYS,
   ...API_KEYS,
