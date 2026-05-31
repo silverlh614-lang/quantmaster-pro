@@ -26,6 +26,12 @@ import {
 } from './supplySnapshotStoreReplayAdr0491.js';
 import type { Gate1ScoringAlignmentDryRunGateResult } from './gate1ScoringAlignmentDryRunGateAdr0520.js';
 import { LEGACY_GATE1_REQUIRED_SCORE } from '../gateConfig.js';
+import {
+  computeForwardWindowStats,
+  buildGate1RegimeAwareWindowRollup,
+  formatGate1RegimeAwareWindowLines,
+  type Gate1RegimeAwareWindowRollup,
+} from './gate1RegimeAwareWindowAdr0546.js';
 
 export type Gate1DryRunObservationSource =
   | 'ADR_0471_UNKNOWN_DIAGNOSTIC_ONLY'
@@ -224,6 +230,12 @@ export interface Gate1ThresholdEvidenceSummary {
   liveExecutionImpact: 'NONE';
   thresholdAutoChanged: false;
   operatorApprovalRequired: true;
+  /**
+   * ADR-0546 Phase2 — regime-aware 완화 창([regimeAwareRequired, legacyRequired)) 의 forward 성과 롤업.
+   * "40점 기준이면 통과하지만 70점 기준이라 막힌" 후보들이 실제 D1/D3/D5 에서 어떤 성과를 냈는지
+   * scoreBandTable 과 동일 머신으로 추적한다. liveThresholdAutoChanged=false — 관측 전용, operator 검토 근거.
+   */
+  regimeAwareWindow: Gate1RegimeAwareWindowRollup;
 }
 
 export interface Gate1DryRunObservationBuildInput {
@@ -1270,36 +1282,13 @@ export function buildGate1ThresholdEvidenceSummary(
     bandRows: Gate1DryRunObservationRow[],
     band: '70+' | '65~70' | '60~65' | '55~60' | 'below55',
   ) => {
-    const maturedD1Rows = bandRows.filter((row) => finite(row.forwardReturn1D));
-    const maturedD3Rows = bandRows.filter((row) => finite(row.forwardReturn3D));
-    const maturedD5Rows = bandRows.filter((row) => finite(row.forwardReturn5D));
-    const avgValue = (values: number[]): number | 'N/A' => (values.length > 0
-      ? round1(values.reduce((sum, value) => sum + value, 0) / values.length)
-      : 'N/A');
-    const rateValue = (ok: number, total: number): number | 'N/A' => (total > 0 ? round1((ok / total) * 100) : 'N/A');
-    const d5Returns = maturedD5Rows.map((row) => row.forwardReturn5D as number);
-    const mfeValues = maturedD5Rows
-      .map((row) => row.mfeD5 ?? row.maxFavorableExcursion5D)
-      .filter(finite);
-    const maeValues = maturedD5Rows
-      .map((row) => row.maeD5 ?? row.maxAdverseExcursion5D)
-      .filter(finite);
+    const stats = computeForwardWindowStats(bandRows);
     return {
       band,
       count: bandRows.length,
-      matureD1: maturedD1Rows.length,
-      matureD3: maturedD3Rows.length,
-      matureD5: maturedD5Rows.length,
-      avgReturnD1: avgValue(maturedD1Rows.map((row) => row.forwardReturn1D as number)),
-      avgReturnD3: avgValue(maturedD3Rows.map((row) => row.forwardReturn3D as number)),
-      avgReturnD5: avgValue(d5Returns),
-      winRateD5: rateValue(d5Returns.filter((value) => value > 0).length, d5Returns.length),
-      hitPlus3PctRate: rateValue(d5Returns.filter((value) => value >= 3).length, d5Returns.length),
-      hitMinus3PctRate: rateValue(d5Returns.filter((value) => value <= -3).length, d5Returns.length),
-      avgMFE: avgValue(mfeValues),
-      avgMAE: avgValue(maeValues),
-      expectancyR: avgValue(d5Returns.map((value) => value / 3)),
-      falseNegativeRate: rateValue(d5Returns.filter((value) => value >= 3).length, d5Returns.length),
+      ...stats,
+      // falseNegativeRate: band 내 D5 ≥+3% 비율 — "70 미만이라 막혔지만 실제로는 큰 상승" 추정.
+      falseNegativeRate: stats.hitPlus3PctRate,
     };
   };
   const scoreBandTable = [
@@ -1310,6 +1299,15 @@ export function buildGate1ThresholdEvidenceSummary(
     buildBandSummary(scoreBand(Number.NEGATIVE_INFINITY, 55), 'below55'),
   ];
   const scoreBandCountSum = scoreBandTable.reduce((sum, band) => sum + band.count, 0);
+
+  // ADR-0546 Phase2 — regime-aware 완화 창 롤업. 70+ 대조군 통계는 scoreBandTable 에서 재사용.
+  const b70Stats = scoreBandTable.find((entry) => entry.band === '70+');
+  const regimeAwareWindow = buildGate1RegimeAwareWindowRollup(
+    rows,
+    b70Stats ? b70Stats.matureD5 : 0,
+    b70Stats ? b70Stats.avgReturnD5 : 'N/A',
+  );
+
   return {
     sampleWindow: '1D/3D/5D/10D',
     totalSamples,
@@ -1336,6 +1334,7 @@ export function buildGate1ThresholdEvidenceSummary(
     liveExecutionImpact: 'NONE',
     thresholdAutoChanged: false,
     operatorApprovalRequired: true,
+    regimeAwareWindow,
   };
 }
 
@@ -1432,6 +1431,8 @@ export function formatGate1ThresholdEvidenceSection(
     const band = summary?.scoreBandTable.find((entry) => entry.band === key);
     lines.push(`- ${key}: n=${band ? band.count : 'N/A'}, D5 winRate=${gate1EvidenceCell(band?.winRateD5)}, avgReturn=${gate1EvidenceCell(band?.avgReturnD5)}`);
   }
+  // ADR-0546 Phase2 — regime-aware 완화 창 성과 (legacy 70 vs regime 40 비교 근거). 관측 전용.
+  lines.push(...formatGate1RegimeAwareWindowLines(summary?.regimeAwareWindow));
   lines.push(
     '',
     'Regime Split:',

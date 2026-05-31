@@ -117,6 +117,21 @@ describe('formatGate1ThresholdEvidenceSection — with summary', () => {
     liveExecutionImpact: 'NONE',
     thresholdAutoChanged: false,
     operatorApprovalRequired: true,
+    regimeAwareWindow: {
+      regime: 'R3_EARLY',
+      regimeAwareRequiredScore: 40,
+      legacyRequiredScore: 70,
+      regimeAwareGap: 30,
+      windowSampleCount: 35,
+      regimeAwareRequiredActive: false,
+      verdict: 'WINDOW_UNDERPERFORMS_70PLUS',
+      forward: {
+        matureD1: 35, matureD3: 34, matureD5: 33,
+        avgReturnD1: 0.4, avgReturnD3: 0.9, avgReturnD5: 1.2,
+        winRateD5: 48, hitPlus3PctRate: 18, hitMinus3PctRate: 21,
+        avgMFE: 3.1, avgMAE: -2.8, expectancyR: 0.4,
+      },
+    },
   };
   const text = formatGate1ThresholdEvidenceSection(summary);
 
@@ -129,6 +144,16 @@ describe('formatGate1ThresholdEvidenceSection — with summary', () => {
     expect(text).toContain('count: 100');
     expect(text).toContain('winRateD5: 55');
     expect(text).toContain('expectancyR: 1.1');
+  });
+
+  // ADR-0546 Phase2 — regime-aware 완화 창 성과 블록.
+  it('renders Regime-Aware Window block (legacy70 vs regime-relaxed)', () => {
+    expect(text).toContain('Regime-Aware Window (legacy70 vs regime-relaxed):');
+    expect(text).toContain('- regime: R3_EARLY');
+    expect(text).toContain('- window: [40.0, 70.0) gap=30.0');
+    expect(text).toContain('- windowSampleCount: 35');
+    expect(text).toContain('- verdict: WINDOW_UNDERPERFORMS_70PLUS');
+    expect(text).toContain('- liveThresholdAutoChanged=false (관측 전용, operator 검토 근거)');
   });
 
   it('keeps live-execution safety invariants fixed regardless of summary', () => {
