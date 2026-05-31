@@ -237,7 +237,7 @@ export const SystemInterferencePanel: React.FC<Props> = ({ result }) => {
           {/* 충돌 목록 */}
           {result && result.conflicts.length > 0 && (
             <div className="space-y-2">
-              <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+              <p className="text-[10px] text-gray-400 font-semibold tracking-tight">
                 감지된 충돌 ({total}건)
               </p>
               {result.conflicts.map(conflict => (

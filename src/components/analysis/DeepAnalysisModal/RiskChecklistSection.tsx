@@ -69,7 +69,7 @@ export function RiskChecklistSection({ stock }: Props) {
           {[1, 2, 3].map(gateNum => (
             <div key={gateNum} className="space-y-3">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black text-orange-500/50 uppercase tracking-widest">Gate {gateNum}</span>
+                <span className="text-[10px] font-black text-orange-500/50 tracking-tight">Gate {gateNum}</span>
                 <div className="h-px flex-1 bg-white/5" />
               </div>
               <div className="grid grid-cols-1 gap-2">
@@ -118,7 +118,7 @@ export function RiskChecklistSection({ stock }: Props) {
           {/* Sell Checklist in Deep Analysis */}
           <div className="space-y-3 pt-4">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black text-red-500/50 uppercase tracking-widest">매도 체크리스트</span>
+              <span className="text-[10px] font-black text-red-500/50 tracking-tight">매도 체크리스트</span>
               <div className="h-px flex-1 bg-white/5" />
             </div>
             <div className="grid grid-cols-1 gap-2">

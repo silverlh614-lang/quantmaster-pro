@@ -280,7 +280,7 @@ export function BacktestPage({
         {/* Pie Chart */}
         {portfolios.find(p => p.id === currentPortfolioId) && (
           <Card padding="lg">
-            <CardTitle className="mb-6 uppercase tracking-widest">포트폴리오 비중</CardTitle>
+            <CardTitle className="mb-6 tracking-tight">포트폴리오 비중</CardTitle>
             <PortfolioPieChart items={portfolios.find(p => p.id === currentPortfolioId)!.items} />
           </Card>
         )}
@@ -373,7 +373,7 @@ export function BacktestPage({
                                   initial={{ opacity: 0, y: 10 }}
                                   animate={{ opacity: 1, y: 0 }}
                                   exit={{ opacity: 0 }}
-                                  className="absolute -top-6 left-0 text-[8px] font-black text-green-400 uppercase tracking-widest bg-green-500/20 backdrop-blur-md px-2 py-0.5 rounded-lg border border-green-500/30 z-30"
+                                  className="absolute -top-6 left-0 text-[8px] font-black text-green-400 tracking-tight bg-green-500/20 backdrop-blur-md px-2 py-0.5 rounded-lg border border-green-500/30 z-30"
                                 >
                                   Copied!
                                 </motion.span>
@@ -597,7 +597,7 @@ export function BacktestPage({
                                     initial={{ opacity: 0, y: 10 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     exit={{ opacity: 0 }}
-                                    className="absolute -top-6 left-0 text-[8px] font-black text-green-400 uppercase tracking-widest bg-green-500/20 backdrop-blur-md px-2 py-0.5 rounded-lg border border-green-500/30 z-30"
+                                    className="absolute -top-6 left-0 text-[8px] font-black text-green-400 tracking-tight bg-green-500/20 backdrop-blur-md px-2 py-0.5 rounded-lg border border-green-500/30 z-30"
                                   >
                                     Copied!
                                   </motion.span>

@@ -19,7 +19,7 @@ export function SellChecklistSection({ stock }: Props) {
         </div>
         <div className="flex items-baseline gap-1.5">
           <span className="text-xl font-black text-red-500 tracking-tighter">{stock.sellScore || 0}</span>
-          <span className="text-[9px] font-bold text-white/25 uppercase tracking-widest">Sell Score</span>
+          <span className="text-[9px] font-bold text-white/25 tracking-tight">Sell Score</span>
         </div>
       </div>
 

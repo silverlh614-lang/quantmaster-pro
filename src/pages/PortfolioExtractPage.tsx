@@ -209,7 +209,7 @@ export function PortfolioExtractPage() {
                     [&::-webkit-slider-thumb]:shadow-[0_0_12px_rgba(168,85,247,0.4)] [&::-webkit-slider-thumb]:border-2
                     [&::-webkit-slider-thumb]:border-purple-300 [&::-webkit-slider-thumb]:cursor-pointer"
                 />
-                <div className="flex justify-between text-[10px] font-black text-theme-text-muted uppercase tracking-widest">
+                <div className="flex justify-between text-[10px] font-black text-theme-text-muted tracking-tight">
                   <span>5개</span>
                   <span>20개</span>
                 </div>
@@ -259,7 +259,7 @@ export function PortfolioExtractPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]" />
-                      <span className="text-xs font-black text-theme-text uppercase tracking-wider">Gate 1</span>
+                      <span className="text-xs font-black text-theme-text tracking-tight">Gate 1</span>
                       <span className="text-[10px] font-bold text-theme-text-muted">필수</span>
                     </div>
                     <span className="text-sm font-black text-red-400 font-mono tabular-nums">{gate1Weight}%</span>
@@ -281,7 +281,7 @@ export function PortfolioExtractPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.5)]" />
-                      <span className="text-xs font-black text-theme-text uppercase tracking-wider">Gate 2</span>
+                      <span className="text-xs font-black text-theme-text tracking-tight">Gate 2</span>
                       <span className="text-[10px] font-bold text-theme-text-muted">성장</span>
                     </div>
                     <span className="text-sm font-black text-amber-400 font-mono tabular-nums">{gate2Weight}%</span>
@@ -303,7 +303,7 @@ export function PortfolioExtractPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.5)]" />
-                      <span className="text-xs font-black text-theme-text uppercase tracking-wider">Gate 3</span>
+                      <span className="text-xs font-black text-theme-text tracking-tight">Gate 3</span>
                       <span className="text-[10px] font-bold text-theme-text-muted">타이밍</span>
                     </div>
                     <span className="text-sm font-black text-green-400 font-mono tabular-nums">{gate3Weight}%</span>
@@ -515,7 +515,7 @@ export function PortfolioExtractPage() {
                       transition={{ duration: 0.6, ease: 'easeOut' }}
                     />
                   </div>
-                  <p className="text-center text-[10px] font-black text-theme-text-muted uppercase tracking-widest mt-2">
+                  <p className="text-center text-[10px] font-black text-theme-text-muted tracking-tight mt-2">
                     {currentGate >= 0
                       ? `${GATE_STEPS[currentGate].label} ${GATE_STEPS[currentGate].labelKo} 처리 중...`
                       : '완료'}
@@ -551,7 +551,7 @@ export function PortfolioExtractPage() {
                 >
                   <div className="text-center mb-4">
                     <CheckCircle2 className="w-8 h-8 text-green-400 mx-auto mb-3" />
-                    <p className="text-sm sm:text-base font-black text-green-400 uppercase tracking-wider mb-1">
+                    <p className="text-sm sm:text-base font-black text-green-400 tracking-tight mb-1">
                       추출 완료
                     </p>
                     <p className="text-xs text-theme-text-muted font-bold">

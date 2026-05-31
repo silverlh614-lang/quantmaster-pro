@@ -109,7 +109,7 @@ function DemoSimulator() {
 
   return (
     <div className="mt-4 space-y-4">
-      <h4 className="text-[11px] font-bold text-theme-muted uppercase tracking-wider flex items-center gap-1">
+      <h4 className="text-[11px] font-bold text-theme-muted tracking-tight flex items-center gap-1">
         <Activity className="w-3 h-3" />단계 전환 시뮬레이터
       </h4>
 
@@ -283,10 +283,10 @@ export function PositionLifecyclePanel() {
           <Shield className="w-5 h-5 text-sky-400" />
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm sm:text-base font-black text-theme-text uppercase tracking-wider">
+              <h3 className="text-sm sm:text-base font-black text-theme-text tracking-tight">
                 포지션 생애주기 자동화
               </h3>
-              <span className="text-[10px] font-black px-2 py-0.5 rounded border bg-sky-700/60 border-sky-500/50 text-sky-200 uppercase tracking-widest">
+              <span className="text-[10px] font-black px-2 py-0.5 rounded border bg-sky-700/60 border-sky-500/50 text-sky-200 tracking-tight">
                 5단계
               </span>
             </div>
@@ -313,7 +313,7 @@ export function PositionLifecyclePanel() {
 
           {/* 5단계 흐름 요약 */}
           <div>
-            <h4 className="text-[11px] font-bold text-theme-muted uppercase tracking-wider mb-2 flex items-center gap-1">
+            <h4 className="text-[11px] font-bold text-theme-muted tracking-tight mb-2 flex items-center gap-1">
               <Activity className="w-3 h-3" />5단계 자동화 흐름
             </h4>
             <LifecycleFlowSummary />

@@ -160,11 +160,11 @@ export const BearRegimeSection = React.memo(function BearRegimeSection() {
               {/* Position summary */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 border border-theme-border bg-theme-bg text-center">
-                  <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">현금 비중</p>
+                  <p className="text-[9px] font-black text-theme-text-muted tracking-tight">현금 비중</p>
                   <p className="text-xl font-black font-mono">{vkospiTriggerResult.cashRatio}%</p>
                 </div>
                 <div className="p-3 border border-theme-border bg-theme-bg text-center">
-                  <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">인버스 비중</p>
+                  <p className="text-[9px] font-black text-theme-text-muted tracking-tight">인버스 비중</p>
                   <p className={`text-xl font-black font-mono ${vkospiTriggerResult.inversePosition > 0 ? 'text-red-400' : 'text-theme-text-muted'}`}>
                     {vkospiTriggerResult.inversePosition}%
                   </p>
@@ -174,7 +174,7 @@ export const BearRegimeSection = React.memo(function BearRegimeSection() {
               {/* Inverse ETFs */}
               {vkospiTriggerResult.inverseEtfSuggestions.length > 0 && (
                 <div className="mt-3">
-                  <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-2">방어 ETF 후보</p>
+                  <p className="text-[9px] font-black text-theme-text-muted tracking-tight mb-2">방어 ETF 후보</p>
                   <ul className="space-y-1">
                     {vkospiTriggerResult.inverseEtfSuggestions.map(etf => (
                       <li key={etf} className="text-[10px] text-theme-text-secondary">• {etf}</li>
@@ -186,7 +186,7 @@ export const BearRegimeSection = React.memo(function BearRegimeSection() {
               {/* V-Recovery stocks (HISTORICAL_FEAR only) */}
               {vkospiTriggerResult.dualPositionActive && vkospiTriggerResult.vRecoveryStocks && (
                 <div className="mt-4 p-3 border border-green-500/30 bg-green-900/10">
-                  <p className="text-[9px] font-black text-green-400 uppercase tracking-widest mb-2">
+                  <p className="text-[9px] font-black text-green-400 tracking-tight mb-2">
                     🔄 V자 반등 준비 리스트 (듀얼 포지션)
                   </p>
                   <ul className="space-y-0.5">
@@ -243,19 +243,19 @@ export const BearRegimeSection = React.memo(function BearRegimeSection() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
             <div className="p-3 border border-theme-border bg-theme-bg text-center">
-              <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">Gate -1 임계치 조정</p>
+              <p className="text-[9px] font-black text-theme-text-muted tracking-tight">Gate -1 임계치 조정</p>
               <p className={`text-xl font-black font-mono ${bearSeasonalityResult.gateThresholdAdjustment < 0 ? 'text-red-400' : 'text-theme-text-secondary'}`}>
                 {bearSeasonalityResult.gateThresholdAdjustment < 0 ? `${bearSeasonalityResult.gateThresholdAdjustment}` : '0'}
               </p>
             </div>
             <div className="p-3 border border-theme-border bg-theme-bg text-center">
-              <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">인버스 확률 가중치</p>
+              <p className="text-[9px] font-black text-theme-text-muted tracking-tight">인버스 확률 가중치</p>
               <p className={`text-xl font-black font-mono ${bearSeasonalityResult.inverseEntryWeightPct > 0 ? 'text-red-300' : 'text-theme-text-secondary'}`}>
                 +{bearSeasonalityResult.inverseEntryWeightPct}%
               </p>
             </div>
             <div className="p-3 border border-theme-border bg-theme-bg text-center">
-              <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">VKOSPI 동반 상승</p>
+              <p className="text-[9px] font-black text-theme-text-muted tracking-tight">VKOSPI 동반 상승</p>
               <p className={`text-sm font-black ${bearSeasonalityResult.vkospiRisingConfirmed ? 'text-red-300' : 'text-theme-text-secondary'}`}>
                 {bearSeasonalityResult.vkospiRisingConfirmed ? '확인됨' : '미확인'}
               </p>
@@ -350,7 +350,7 @@ export const BearRegimeSection = React.memo(function BearRegimeSection() {
           {/* ETF Recommendations (STRONG_BEAR only) */}
           {inverseGate1Result.etfRecommendations.length > 0 && (
             <div className="mt-4 p-3 border border-red-600/40 bg-red-900/15">
-              <p className="text-[9px] font-black text-red-400 uppercase tracking-widest mb-2">
+              <p className="text-[9px] font-black text-red-400 tracking-tight mb-2">
                 🔴 STRONG BEAR 시그널 — 방어 ETF 후보
               </p>
               <ul className="space-y-1">

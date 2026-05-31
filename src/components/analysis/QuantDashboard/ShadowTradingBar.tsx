@@ -18,7 +18,7 @@ export function ShadowTradingBar({ result, stockCode, stockName, currentPrice, o
   return (
     <div className="mb-12 p-6 border-2 border-dashed border-violet-400 bg-violet-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
-        <p className="text-[10px] font-black text-violet-500 uppercase tracking-widest mb-1">SHADOW TRADING</p>
+        <p className="text-[10px] font-black text-violet-500 tracking-tight mb-1">SHADOW TRADING</p>
         <p className="text-sm font-bold text-theme-text">
           {stockName} ({stockCode}) — {currentPrice.toLocaleString()}원
         </p>
@@ -32,7 +32,7 @@ export function ShadowTradingBar({ result, stockCode, stockName, currentPrice, o
         onClick={() => onShadowTrade?.(stockCode, stockName, currentPrice)}
         disabled={!onShadowTrade}
         className={cn(
-          'flex items-center gap-2 px-6 py-3 font-black text-sm uppercase tracking-widest border-2 transition-all',
+          'flex items-center gap-2 px-6 py-3 font-black text-sm tracking-tight border-2 transition-all',
           onShadowTrade
             ? 'border-violet-500 bg-violet-500 text-white hover:bg-violet-600 active:scale-95'
             : 'border-gray-300 bg-gray-200 text-gray-400 cursor-not-allowed'

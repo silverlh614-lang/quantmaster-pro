@@ -72,7 +72,7 @@ function DashboardHeader({ count }: { count: number }) {
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+        <div className="flex items-center gap-2 text-[10px] font-black tracking-tight text-slate-400">
           <FileClock className="h-3.5 w-3.5" />
           Pending Wiring Dashboard
         </div>
@@ -218,7 +218,7 @@ function WiringStatusTable({ items }: { items: PendingWiringItem[] }) {
       <CardTitleEyebrow title="Wiring Status Table" eyebrow="Source registry rows" />
       <div className="hidden overflow-x-auto lg:block">
         <table className="min-w-full text-left text-xs">
-          <thead className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+          <thead className="text-[10px] tracking-tight text-slate-500">
             <tr>
               {['Priority', 'Module', 'Status', 'Scope', 'Source', 'Owner', 'Created', 'Due', 'Impact', 'Next action'].map((header) => (
                 <th key={header} className="border-b border-white/10 px-3 py-2 font-black">{header}</th>
@@ -295,7 +295,7 @@ function ScopeList({ item }: { item: PendingWiringItem }) {
 function Metric({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/10 p-3">
-      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{label}</div>
+      <div className="text-[10px] font-black tracking-tight text-slate-500">{label}</div>
       <div className={cn('mt-1 text-2xl font-black', tone)}>{value}</div>
     </div>
   );
@@ -313,7 +313,7 @@ function InfoTerm({ label, value }: { label: string; value: string }) {
 function CardTitleEyebrow({ title, eyebrow }: { title: string; eyebrow: string }) {
   return (
     <div>
-      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{eyebrow}</div>
+      <div className="text-[10px] font-black tracking-tight text-slate-500">{eyebrow}</div>
       <h3 className="mt-1 text-base font-black text-theme-text">{title}</h3>
     </div>
   );

@@ -154,7 +154,7 @@ function ScreenerField({
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">{label}</label>
+      <label className="text-xs font-medium text-gray-500 tracking-tight">{label}</label>
       <input
         type="number"
         name={name}
@@ -176,7 +176,7 @@ function ModeSelect({
 }) {
   return (
     <div className="flex-1 space-y-2">
-      <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Analysis Mode</label>
+      <label className="text-xs font-medium text-gray-500 tracking-tight">Analysis Mode</label>
       <select
         name="mode"
         value={mode}
@@ -509,7 +509,7 @@ function StrengthItem({ title, body }: { title: string; body: string }) {
 function TrendPanel() {
   return (
     <div className="bg-[#151619] border border-white/10 rounded-xl p-6">
-      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Recent Screening Themes</h3>
+      <h3 className="text-sm font-bold text-gray-400 tracking-tight mb-4">Recent Screening Themes</h3>
       <div className="space-y-3">
         {TREND_ITEMS.map(item => (
           <div key={item.label} className="flex items-center justify-between p-3 bg-black/20 rounded-lg border border-white/5">

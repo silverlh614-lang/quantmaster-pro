@@ -108,7 +108,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
             <div className="glass-3d rounded-[2rem] p-8 border border-white/10 space-y-6 bg-indigo-500/5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-white/20 uppercase tracking-widest ml-1">Portfolio Name</label>
+                  <label className="text-[10px] font-black text-white/20 tracking-tight ml-1">Portfolio Name</label>
                   <input
                     type="text"
                     value={newName}
@@ -118,7 +118,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-white/20 uppercase tracking-widest ml-1">Description (Optional)</label>
+                  <label className="text-[10px] font-black text-white/20 tracking-tight ml-1">Description (Optional)</label>
                   <input
                     type="text"
                     value={newDesc}
@@ -253,12 +253,12 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <div className="flex flex-col">
-                        <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">Assets</span>
+                        <span className="text-[9px] font-black text-white/20 tracking-tight">Assets</span>
                         <span className="text-xs font-black text-white">{portfolio.items.length}</span>
                       </div>
                       {portfolio.lastBacktestResult && (
                         <div className="flex flex-col">
-                          <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">Return</span>
+                          <span className="text-[9px] font-black text-white/20 tracking-tight">Return</span>
                           <span className={cn(
                             "text-xs font-black",
                             portfolio.lastBacktestResult.cumulativeReturn >= 0 ? "text-green-400" : "text-red-400"
@@ -268,7 +268,7 @@ export const PortfolioManager: React.FC<PortfolioManagerProps> = ({
                         </div>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-[10px] font-black text-white/20 uppercase tracking-widest">
+                    <div className="flex items-center gap-2 text-[10px] font-black text-white/20 tracking-tight">
                       <Clock className="w-3 h-3" />
                       <span>{new Date(portfolio.createdAt).toLocaleDateString()}</span>
                     </div>

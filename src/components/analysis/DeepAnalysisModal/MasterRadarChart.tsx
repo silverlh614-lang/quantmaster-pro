@@ -31,7 +31,7 @@ export function MasterRadarChart({ stock }: MasterRadarChartProps) {
       <div className="w-full flex items-center justify-between mb-4">
         <div className="flex items-center gap-2.5">
           <Radar className="w-5 h-5 text-orange-500" />
-          <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.25em]">
+          <span className="text-[10px] font-black text-white/30 tracking-tight">
             27단계 마스터 레이더
           </span>
         </div>

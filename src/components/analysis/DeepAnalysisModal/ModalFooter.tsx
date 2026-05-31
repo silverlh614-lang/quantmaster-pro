@@ -16,7 +16,7 @@ export function ModalFooter({ stock, onClose, watchlist, setWatchlist }: ModalFo
 
   return (
     <div className="px-4 py-3 border-t border-white/10 bg-white/5 flex flex-col sm:flex-row items-center justify-between gap-3">
-      <div className="flex items-center gap-3 text-[9px] font-black text-white/20 uppercase tracking-[0.18em] order-2 sm:order-1 flex-wrap justify-center">
+      <div className="flex items-center gap-3 text-[9px] font-black text-white/20 tracking-tight order-2 sm:order-1 flex-wrap justify-center">
         <div className="flex items-center gap-1.5">
           <Globe className="w-3 h-3" />
           <span>Source: {stock.dataSource || 'Institutional Feeds'}</span>

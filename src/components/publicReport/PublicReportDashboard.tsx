@@ -55,7 +55,7 @@ function DataTrustLegend() {
     <div className="rounded-xl border border-white/10 bg-white/[0.025] p-3">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">Data Trust Visibility</p>
+          <p className="text-[10px] font-black tracking-tight text-white/45">Data Trust Visibility</p>
           <p className="mt-1 text-xs leading-relaxed text-white/55">
             Each decision separates calculated data, missing data, stale provider data, and AI-estimated evidence. The badge explains data trust without changing gate scores.
           </p>
@@ -248,7 +248,7 @@ export function PublicReportDashboard({
         <DataTrustLegend />
 
         <div className="rounded-xl border border-blue-400/15 bg-blue-400/[0.04] p-3">
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-blue-100/70">Public report flow</p>
+          <p className="text-[10px] font-black tracking-tight text-blue-100/70">Public report flow</p>
           <p className="mt-1 text-sm font-bold text-white/70">
             {'Market Gate -> Sector Rotation -> Candidate Summary -> Stock Decision -> Buy Block -> Shadow Performance -> Blog Export'}
           </p>
@@ -371,7 +371,7 @@ export function PublicReportDashboard({
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           {stock && (
             <div>
-              <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-white/40">4. Stock Decision</p>
+              <p className="mb-2 text-[10px] font-black tracking-tight text-white/40">4. Stock Decision</p>
               <CandidateDecisionCard model={stock} mode="report" />
             </div>
           )}

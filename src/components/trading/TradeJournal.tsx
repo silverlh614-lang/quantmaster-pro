@@ -190,7 +190,7 @@ export const TradeJournal: React.FC<Props> = ({
           { key: 'SYSTEM_VS_INTUITION' as Tab, label: '시스템 vs 직관' },
         ]).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-xs font-bold uppercase tracking-widest border-b-2 transition-colors ${
+            className={`px-4 py-2 text-xs font-bold tracking-tight border-b-2 transition-colors ${
               tab === t.key ? 'border-black text-black' : 'border-transparent text-gray-400 hover:text-gray-600'
             }`}>{t.label}</button>
         ))}

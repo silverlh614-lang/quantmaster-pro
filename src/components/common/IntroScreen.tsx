@@ -65,7 +65,7 @@ export function IntroScreen() {
 
           {/* 태그라인 */}
           <motion.p
-            className="mt-4 text-xs font-bold uppercase tracking-[0.35em] text-white/30 sm:text-sm"
+            className="mt-4 text-xs font-bold tracking-tight text-white/30 sm:text-sm"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.4 }}
@@ -86,7 +86,7 @@ export function IntroScreen() {
           )}
 
           <motion.span
-            className="absolute bottom-8 text-[10px] font-bold uppercase tracking-widest text-white/20"
+            className="absolute bottom-8 text-[10px] font-bold tracking-tight text-white/20"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 1 }}

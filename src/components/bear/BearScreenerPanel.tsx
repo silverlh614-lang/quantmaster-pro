@@ -134,7 +134,7 @@ export function BearScreenerPanel({
               <TrendingDown className="w-4 h-4 text-red-400" />
               Bear Screener 활성 — 하락 수혜주 자동 탐색
             </h2>
-            <span className="text-[10px] font-black px-2 py-0.5 rounded bg-red-900/60 border border-red-500/50 text-red-300 uppercase tracking-widest">
+            <span className="text-[10px] font-black px-2 py-0.5 rounded bg-red-900/60 border border-red-500/50 text-red-300 tracking-tight">
               {passedCount}/{conditions.length} 조건 충족
             </span>
           </div>

@@ -233,7 +233,7 @@ export function IPSPanel({ ipsResult }: IPSPanelProps) {
           {ipsResult.positionReduceRecommended && (
             <div className="flex items-center gap-1.5 px-3 py-1.5 border border-orange-500 bg-orange-900/20">
               <Zap className="w-3.5 h-3.5 text-orange-400" />
-              <span className="text-[9px] font-black text-orange-300 uppercase tracking-wider">
+              <span className="text-[9px] font-black text-orange-300 tracking-tight">
                 50% 비중 축소 트리거
               </span>
             </div>
@@ -241,7 +241,7 @@ export function IPSPanel({ ipsResult }: IPSPanelProps) {
           {ipsResult.preMortemRequired && (
             <div className="flex items-center gap-1.5 px-3 py-1.5 border border-red-600 bg-red-900/20">
               <Target className="w-3.5 h-3.5 text-red-400" />
-              <span className="text-[9px] font-black text-red-300 uppercase tracking-wider">
+              <span className="text-[9px] font-black text-red-300 tracking-tight">
                 Pre-Mortem 체크리스트 실행
               </span>
             </div>

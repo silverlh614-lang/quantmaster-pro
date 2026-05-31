@@ -124,7 +124,7 @@ function ReportCaptureLayout({ report }: { report: PublicReportModel }) {
     <div id="public-report-capture-layout" className="w-full max-w-[1080px] rounded-2xl border border-white/10 bg-[#06111f] p-6 text-white shadow-2xl">
       <div className="flex items-start justify-between gap-6">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-200/70">QuantMaster Public Report</p>
+          <p className="text-xs font-black tracking-tight text-blue-200/70">QuantMaster Public Report</p>
           <h3 className="mt-2 text-2xl font-black tracking-tight">{report.blogTitle}</h3>
           <p className="mt-2 text-sm text-white/55">snapshot {report.sourceSnapshotId} · {report.reportDate}</p>
         </div>
@@ -230,7 +230,7 @@ export function BlogExportPanel({ report }: BlogExportPanelProps) {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="space-y-4">
           <div id="public-report-telegram-summary" className="scroll-mt-24 rounded-xl border border-white/[0.08] bg-white/[0.025] p-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Blog Title Preview</p>
+            <p className="text-[10px] font-black tracking-tight text-white/40">Blog Title Preview</p>
             <p className="mt-2 text-lg font-black text-white">{report.blogTitle}</p>
             <p className="mt-2 text-sm leading-relaxed text-white/55">{report.oneLineSummary}</p>
           </div>
@@ -238,7 +238,7 @@ export function BlogExportPanel({ report }: BlogExportPanelProps) {
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <div className="rounded-xl border border-white/[0.08] bg-black/20 p-4">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Markdown Preview</p>
+                <p className="text-[10px] font-black tracking-tight text-white/40">Markdown Preview</p>
                 <Badge variant="default" size="sm">{report.blogMarkdown.split('\n').length} lines</Badge>
               </div>
               <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-black/20 p-3 text-xs leading-relaxed text-white/60">
@@ -247,7 +247,7 @@ export function BlogExportPanel({ report }: BlogExportPanelProps) {
             </div>
             <div className="rounded-xl border border-white/[0.08] bg-black/20 p-4">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">HTML Preview</p>
+                <p className="text-[10px] font-black tracking-tight text-white/40">HTML Preview</p>
                 <Badge variant="default" size="sm">Naver paste</Badge>
               </div>
               <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-black/20 p-3 text-xs leading-relaxed text-white/60">
@@ -257,7 +257,7 @@ export function BlogExportPanel({ report }: BlogExportPanelProps) {
           </div>
 
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.025] p-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Naver Tag Suggestions</p>
+            <p className="text-[10px] font-black tracking-tight text-white/40">Naver Tag Suggestions</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {report.blogTags.map((tag) => (
                 <Badge key={tag} variant="default" size="sm">{tag}</Badge>
@@ -266,7 +266,7 @@ export function BlogExportPanel({ report }: BlogExportPanelProps) {
           </div>
 
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.025] p-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Telegram Summary Preview</p>
+            <p className="text-[10px] font-black tracking-tight text-white/40">Telegram Summary Preview</p>
             <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-black/20 p-3 text-xs leading-relaxed text-white/65">{report.telegramSummary}</pre>
           </div>
         </div>
@@ -300,7 +300,7 @@ export function BlogExportPanel({ report }: BlogExportPanelProps) {
           </div>
 
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.025] p-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/40">Public Export Boundary</p>
+            <p className="text-[10px] font-black tracking-tight text-white/40">Public Export Boundary</p>
             <p className="mt-2 text-xs leading-relaxed text-white/55">
               Public export includes market state, top sectors, candidate summary, block reasons, Shadow performance, and data trust. Entry, stop, target, tranche plans, raw provider responses, and execution traces stay out.
             </p>
@@ -328,7 +328,7 @@ export function BlogExportPanel({ report }: BlogExportPanelProps) {
         />
         {selectedSnapshot && (
           <div className="rounded-xl border border-blue-400/20 bg-blue-400/[0.04] p-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-blue-100/70">Selected Snapshot</p>
+            <p className="text-[10px] font-black tracking-tight text-blue-100/70">Selected Snapshot</p>
             <p className="mt-2 text-sm font-black text-white">{selectedSnapshot.blogTitle}</p>
             <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-black/20 p-3 text-xs leading-relaxed text-white/60">
               {previewText(selectedSnapshot.blogMarkdown, 700)}

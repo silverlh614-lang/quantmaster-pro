@@ -31,10 +31,10 @@ export const DynamicWeightsSection: React.FC<DynamicWeightsSectionProps> = React
             <Zap className="w-6 h-6 text-yellow-400" />
             동적 가중치 전략 (Dynamic Weighting)
           </h3>
-          <p className="text-xs font-bold text-white/30 uppercase tracking-widest mt-2">Adaptive Scoring Strategy</p>
+          <p className="text-xs font-bold text-white/30 tracking-tight mt-2">Adaptive Scoring Strategy</p>
         </div>
         <div className="px-4 py-2 bg-yellow-400/10 border border-yellow-400/20 rounded-2xl">
-          <span className="text-[10px] font-black text-yellow-400 uppercase tracking-widest">실시간 최적화 적용 중</span>
+          <span className="text-[10px] font-black text-yellow-400 tracking-tight">실시간 최적화 적용 중</span>
         </div>
       </div>
 
@@ -42,7 +42,7 @@ export const DynamicWeightsSection: React.FC<DynamicWeightsSectionProps> = React
         {Object.entries(weights).map(([id, multiplier]) => (
           <div key={id} className="bg-white/5 p-6 rounded-3xl border border-white/5 flex flex-col gap-3 group hover:bg-white/10 transition-all">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">ID {id}</span>
+              <span className="text-[10px] font-black text-white/20 tracking-tight">ID {id}</span>
               <div className={cn(
                 "w-2 h-2 rounded-full",
                 multiplier > 1.0 ? "bg-red-500 animate-pulse" : multiplier < 1.0 ? "bg-blue-500" : "bg-gray-500"

@@ -407,7 +407,7 @@ function ChartControls({
 }) {
   return (
     <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800">
-      <span className="text-xs font-black text-white/70 uppercase tracking-widest mr-2">{stockName}</span>
+      <span className="text-xs font-black text-white/70 tracking-tight mr-2">{stockName}</span>
       <div className="flex gap-1">
         {RANGE_OPTIONS.map(r => (
           <button key={r} onClick={() => onRangeChange(r)}
@@ -463,7 +463,7 @@ function ChartStatus({
   if (!offHours) return null;
   return (
     <div className="flex flex-col items-center justify-center py-20 text-xs gap-2">
-      <span className="text-orange-400/80 font-bold uppercase tracking-widest">{OFF_HOURS_TITLE}</span>
+      <span className="text-orange-400/80 font-bold tracking-tight">{OFF_HOURS_TITLE}</span>
       <span className="text-white/60">{OFF_HOURS_MESSAGE}</span>
       <OffHoursNextOpen stockCode={stockCode} nextOpenAt={offHours.nextOpenAt} />
     </div>

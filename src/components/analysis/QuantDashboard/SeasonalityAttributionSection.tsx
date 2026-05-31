@@ -21,24 +21,24 @@ export function SeasonalityAttributionSection({ result }: Props) {
           <div className="flex items-center justify-between">
             <div>
               <span className="text-4xl font-black font-mono">{result.seasonality.month}월</span>
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Current Month</span>
+              <span className="text-[10px] font-black text-gray-400 tracking-tight block">Current Month</span>
             </div>
             <div className="text-right">
               <div className="flex gap-4">
                 <div>
                   <span className="text-lg font-black text-green-600">+{result.seasonality.historicalPerformance}%</span>
-                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Avg. Return</span>
+                  <span className="text-[10px] font-black text-gray-400 tracking-tight block">Avg. Return</span>
                 </div>
                 <div>
                   <span className="text-lg font-black text-blue-600">{result.seasonality.winRate}%</span>
-                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Win Rate</span>
+                  <span className="text-[10px] font-black text-gray-400 tracking-tight block">Win Rate</span>
                 </div>
               </div>
             </div>
           </div>
           {result.seasonality.isPeakSeason && (
             <div className="mt-4 p-2 bg-purple-100 border border-purple-200 text-center">
-              <span className="text-[10px] font-black text-purple-700 uppercase tracking-widest">★ PEAK SEASON DETECTED ★</span>
+              <span className="text-[10px] font-black text-purple-700 tracking-tight">★ PEAK SEASON DETECTED ★</span>
             </div>
           )}
         </div>

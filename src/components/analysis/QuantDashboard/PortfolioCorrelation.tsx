@@ -29,7 +29,7 @@ export function PortfolioCorrelation({ result }: Props) {
         </div>
         <div className="text-right">
           <span className="text-2xl font-black font-mono">{score.toFixed(2)}</span>
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Correlation Index</p>
+          <p className="text-[10px] font-black text-gray-400 tracking-tight">Correlation Index</p>
         </div>
       </div>
       <p className="mt-4 text-[10px] italic text-gray-500">

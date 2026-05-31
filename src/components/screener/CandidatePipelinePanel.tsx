@@ -39,7 +39,7 @@ function StageRow({ stage, onDrilldown }: { stage: ClientPipelineStage; onDrilld
         )}
         aria-label={drilldownEnabled ? `${stage.label} 종목 드릴다운` : stage.label}
       >
-        <span className="text-[11px] font-bold uppercase tracking-wider opacity-80">
+        <span className="text-[11px] font-bold tracking-tight opacity-80">
           {stage.label}
         </span>
         <span className="text-base sm:text-lg font-black font-num">

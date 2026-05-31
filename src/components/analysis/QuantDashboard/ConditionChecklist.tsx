@@ -67,7 +67,7 @@ export function ConditionChecklist({ result }: Props) {
 
       {/* Gate 1 conditions */}
       <div className="mb-4">
-        <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 border-b border-gray-200 pb-1">Gate 1 — Survival</p>
+        <p className="text-[9px] font-black text-gray-400 tracking-tight mb-2 border-b border-gray-200 pb-1">Gate 1 — Survival</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {[1, 3, 5, 7, 9].map(id => (
             <ConditionRow key={id} id={id} result={result} passedColor="border-green-200 bg-green-50" barColor="bg-green-500" />
@@ -77,7 +77,7 @@ export function ConditionChecklist({ result }: Props) {
 
       {/* Gate 2 conditions */}
       <div className="mb-4">
-        <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 border-b border-gray-200 pb-1">Gate 2 — Growth</p>
+        <p className="text-[9px] font-black text-gray-400 tracking-tight mb-2 border-b border-gray-200 pb-1">Gate 2 — Growth</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {[4, 6, 8, 10, 11, 12, 13, 14, 15, 16, 21, 24].map(id => (
             <ConditionRow key={id} id={id} result={result} passedColor="border-blue-200 bg-blue-50" barColor="bg-blue-500" />
@@ -87,7 +87,7 @@ export function ConditionChecklist({ result }: Props) {
 
       {/* Gate 3 conditions */}
       <div>
-        <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 border-b border-gray-200 pb-1">Gate 3 — Timing</p>
+        <p className="text-[9px] font-black text-gray-400 tracking-tight mb-2 border-b border-gray-200 pb-1">Gate 3 — Timing</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {[2, 17, 18, 19, 20, 22, 23, 25, 26, 27].map(id => (
             <ConditionRow key={id} id={id} result={result} passedColor="border-orange-200 bg-orange-50" barColor="bg-orange-500" />

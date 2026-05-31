@@ -171,7 +171,7 @@ function ManualHeader() {
       </div>
       <div>
         <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Manual Quant Input</h2>
-        <p className="text-xs font-bold text-white/30 uppercase tracking-widest">Manual Indicator Input & Quant Engine</p>
+        <p className="text-xs font-bold text-white/30 tracking-tight">Manual Indicator Input & Quant Engine</p>
       </div>
     </div>
   );
@@ -185,7 +185,7 @@ function SectionTitle({
   label: string;
 }) {
   return (
-    <h3 className="text-sm font-black text-white/40 uppercase tracking-widest flex items-center gap-2">
+    <h3 className="text-sm font-black text-white/40 tracking-tight flex items-center gap-2">
       {icon} {label}
     </h3>
   );
@@ -193,7 +193,7 @@ function SectionTitle({
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <label className="text-[10px] font-black text-white/20 uppercase tracking-widest ml-2">{children}</label>
+    <label className="text-[10px] font-black text-white/20 tracking-tight ml-2">{children}</label>
   );
 }
 
@@ -422,13 +422,13 @@ function ResultHeader({
       <div>
         <div className="flex items-center gap-3 mb-2">
           <h3 className="text-fluid-4xl font-black text-white tracking-tighter">{stockInfo.name || 'Manual Stock'}</h3>
-          <span className="text-sm font-black text-white/20 uppercase tracking-[0.3em]">{stockInfo.code}</span>
+          <span className="text-sm font-black text-white/20 tracking-tight">{stockInfo.code}</span>
         </div>
-        <p className="text-sm font-bold text-white/40 uppercase tracking-widest">Quant Engine Evaluation Result</p>
+        <p className="text-sm font-bold text-white/40 tracking-tight">Quant Engine Evaluation Result</p>
       </div>
       <div className="flex items-center gap-6">
         <div className="text-right">
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block mb-1">Final Score</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight block mb-1">Final Score</span>
           <div className="text-fluid-5xl font-black text-indigo-400 tracking-tighter">{result.finalScore.toFixed(1)}</div>
         </div>
         <div className={cn(
@@ -453,7 +453,7 @@ function Gate0Card({ result }: { result: EvaluationResult }) {
     <div className={cn('p-6 rounded-[2rem] border mb-8', tone.shell)}>
       <div className="flex items-center gap-3 mb-4">
         <Globe size={18} className={tone.text} />
-        <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Gate 0: Macro Survival Gate</span>
+        <span className="text-[10px] font-black text-white/40 tracking-tight">Gate 0: Macro Survival Gate</span>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Gate0Metric title="MHS Score">
@@ -497,7 +497,7 @@ function Gate0Metric({
 }) {
   return (
     <div>
-      <p className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-1">{title}</p>
+      <p className="text-[10px] font-black text-white/20 tracking-tight mb-1">{title}</p>
       {children}
     </div>
   );
@@ -517,7 +517,7 @@ function GateCard({
       <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
         {icon}
       </div>
-      <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block mb-4">{title}</span>
+      <span className="text-[10px] font-black text-white/20 tracking-tight block mb-4">{title}</span>
       <div className="flex items-center gap-3">
         {passed ? <CheckCircle2 className="text-green-400" /> : <XCircle className="text-red-400" />}
         <span className="text-xl font-black text-white uppercase tracking-tighter">{passed ? 'Passed' : 'Failed'}</span>
@@ -542,11 +542,11 @@ function KellyCard({ result }: { result: EvaluationResult }) {
     <div className="bg-indigo-500/10 p-8 rounded-[2.5rem] border border-indigo-500/20">
       <div className="flex items-center gap-3 mb-6">
         <Wallet className="w-5 h-5 text-indigo-400" />
-        <h4 className="text-sm font-black text-white uppercase tracking-widest">Kelly Criterion Position Sizing</h4>
+        <h4 className="text-sm font-black text-white tracking-tight">Kelly Criterion Position Sizing</h4>
       </div>
       <div className="flex items-end gap-4 mb-4">
         <div className="text-fluid-6xl font-black text-white tracking-tighter">{weight}%</div>
-        <span className="text-sm font-bold text-white/40 uppercase tracking-widest mb-2">Recommended Weight</span>
+        <span className="text-sm font-bold text-white/40 tracking-tight mb-2">Recommended Weight</span>
       </div>
       <p className="text-xs font-medium text-white/40 leading-relaxed">
         Position size is derived from the same quant engine output, then shown as an advisory weight for this manual diagnostic view.
@@ -560,7 +560,7 @@ function RiskRewardCard() {
     <div className="bg-white/5 p-8 rounded-[2.5rem] border border-white/5">
       <div className="flex items-center gap-3 mb-6">
         <BarChart3 className="w-5 h-5 text-purple-400" />
-        <h4 className="text-sm font-black text-white uppercase tracking-widest">Risk/Reward Analysis</h4>
+        <h4 className="text-sm font-black text-white tracking-tight">Risk/Reward Analysis</h4>
       </div>
       <div className="space-y-4">
         <RiskRewardRow label="Risk-Reward Ratio" value="2.5 : 1" className="text-white" />
@@ -582,7 +582,7 @@ function RiskRewardRow({
 }) {
   return (
     <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl">
-      <span className="text-xs font-bold text-white/40 uppercase tracking-widest">{label}</span>
+      <span className="text-xs font-bold text-white/40 tracking-tight">{label}</span>
       <span className={cn('text-lg font-black', className)}>{value}</span>
     </div>
   );

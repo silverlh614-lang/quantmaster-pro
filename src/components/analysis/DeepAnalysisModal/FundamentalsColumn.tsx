@@ -40,7 +40,7 @@ function FundamentalMetricCard({
     <div className="bg-white/5 p-5 rounded-3xl border border-white/5 group/fund hover:bg-white/10 transition-all">
       <div className="flex justify-between items-start mb-2">
         <div>
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] block mb-1">{label}</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight block mb-1">{label}</span>
           <p className="text-[10px] text-white/40 font-bold leading-tight max-w-[200px]">{description}</p>
         </div>
         <span className={cn('text-2xl font-black', valueClassName)}>{value}</span>
@@ -55,7 +55,7 @@ function EconomicMoatCard({ stock }: Props) {
     <div className="bg-blue-500/5 p-5 rounded-3xl border border-blue-500/10 group/moat hover:bg-blue-500/10 transition-all">
       <div className="flex items-center gap-3 mb-2">
         <ShieldCheck className="w-4 h-4 text-blue-400" />
-        <span className="text-[10px] font-black text-blue-400/60 uppercase tracking-widest">Economic Moat: {stock.economicMoat.type}</span>
+        <span className="text-[10px] font-black text-blue-400/60 tracking-tight">Economic Moat: {stock.economicMoat.type}</span>
       </div>
       <p className="text-xs text-white/70 font-bold leading-relaxed">
         {stock.economicMoat.description}
@@ -117,7 +117,7 @@ function RoeAnalysisSection({ stock }: Props) {
   return (
     <div className="space-y-4 border-t border-white/5 pt-6">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">ROE Analysis & DuPont</span>
+        <span className="text-[10px] font-black text-white/20 tracking-tight">ROE Analysis & DuPont</span>
         <span className="text-xs font-black text-orange-400">{stock.roeType}</span>
       </div>
 

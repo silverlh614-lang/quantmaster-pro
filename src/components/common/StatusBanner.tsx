@@ -136,7 +136,7 @@ export function StatusBanner() {
           aria-label={`데이터 연결 ${connCfg.label}`}
         >
           <span className={cn('w-2 h-2 rounded-full', connCfg.dot)} />
-          <span className={cn('flex items-center gap-1 text-[11px] font-black uppercase tracking-[0.12em] font-num', connCfg.color)}>
+          <span className={cn('flex items-center gap-1 text-[11px] font-black tracking-tight font-num', connCfg.color)}>
             {connCfg.icon}
             {connCfg.label}
           </span>
@@ -147,7 +147,7 @@ export function StatusBanner() {
         {/* Market Phase */}
         <div className="flex items-center gap-2 shrink-0">
           <span className={cn('w-2 h-2 rounded-full', phaseConfig.dot)} />
-          <span className={cn('text-[11px] font-black uppercase tracking-[0.12em] font-num', phaseConfig.color)}>
+          <span className={cn('text-[11px] font-black tracking-tight font-num', phaseConfig.color)}>
             {phaseConfig.label}
           </span>
         </div>
@@ -160,7 +160,7 @@ export function StatusBanner() {
           title={positionPct == null ? 'Regime 미정 — 추천 포지션 계산 보류' : undefined}
         >
           <Target className="w-3 h-3 text-theme-text-muted" />
-          <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest hidden sm:inline">포지션</span>
+          <span className="text-[10px] font-black text-theme-text-muted tracking-tight hidden sm:inline">포지션</span>
           <span className={cn(
             'text-[11px] font-black font-num',
             positionPct == null ? 'text-theme-text-muted' : getPositionColor(positionPct)
@@ -174,7 +174,7 @@ export function StatusBanner() {
         {/* Gate Average */}
         <div className="flex items-center gap-1.5 shrink-0">
           <Zap className="w-3 h-3 text-theme-text-muted" />
-          <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest hidden sm:inline">Gate</span>
+          <span className="text-[10px] font-black text-theme-text-muted tracking-tight hidden sm:inline">Gate</span>
           <span className={cn(
             'text-[11px] font-black font-num',
             getAverageScoreColor(avgScore)
@@ -188,7 +188,7 @@ export function StatusBanner() {
         {/* Watchlist Count */}
         <div className="flex items-center gap-1.5 shrink-0">
           <Eye className="w-3 h-3 text-theme-text-muted" />
-          <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest hidden sm:inline">감시</span>
+          <span className="text-[10px] font-black text-theme-text-muted tracking-tight hidden sm:inline">감시</span>
           <span className="text-[11px] font-black text-blue-400 font-num">{watchlistCount}개</span>
         </div>
 
@@ -197,14 +197,14 @@ export function StatusBanner() {
         {/* Open Trades */}
         <div className="flex items-center gap-1.5 shrink-0">
           <TrendingUp className="w-3 h-3 text-theme-text-muted" />
-          <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest hidden sm:inline">보유</span>
+          <span className="text-[10px] font-black text-theme-text-muted tracking-tight hidden sm:inline">보유</span>
           <span className="text-[11px] font-black text-orange-400 font-num">{openTrades}건</span>
         </div>
 
         {/* Candidate decision count - desktop */}
         <div className="hidden md:flex items-center gap-1.5 shrink-0 ml-auto">
           <Activity className="w-3 h-3 text-violet-400" />
-          <span className="text-[10px] font-black text-violet-400 uppercase tracking-widest">
+          <span className="text-[10px] font-black text-violet-400 tracking-tight">
             시스템 후보 {(recommendations || []).length}건
           </span>
         </div>

@@ -21,14 +21,14 @@ export const AiMarketSummarySection: React.FC<AiMarketSummarySectionProps> = ({ 
           <Zap size={24} className="text-indigo-400 animate-pulse" />
         </div>
         <div>
-          <span className="text-[10px] font-black text-indigo-400/60 uppercase tracking-[0.4em] block mb-1">AI Institutional Grade Analysis</span>
+          <span className="text-[10px] font-black text-indigo-400/60 tracking-tight block mb-1">AI Institutional Grade Analysis</span>
           <h2 className="text-2xl font-black text-white uppercase tracking-tighter drop-shadow-2xl">실시간 시장 지능 요약</h2>
         </div>
       </div>
       <p className="text-xl md:text-3xl font-black text-white/90 leading-tight mb-8 max-w-4xl tracking-tighter drop-shadow-lg">
         {summary}
       </p>
-      <div className="flex items-center gap-3 text-[10px] font-black text-white/20 uppercase tracking-widest">
+      <div className="flex items-center gap-3 text-[10px] font-black text-white/20 tracking-tight">
         <Clock size={14} />
         <span>최종 업데이트: {lastUpdated ? new Date(lastUpdated).toLocaleString() : '-'}</span>
       </div>

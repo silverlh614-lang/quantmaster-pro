@@ -62,7 +62,7 @@ export function SectorRotationHeatmap() {
       aria-label="섹터 로테이션"
     >
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-9 flex items-center gap-3 overflow-x-auto">
-        <span className="text-[10px] font-black uppercase tracking-[0.15em] text-white/50 shrink-0 flex items-center gap-1">
+        <span className="text-[10px] font-black tracking-tight text-white/50 shrink-0 flex items-center gap-1">
           <Flame className="w-3 h-3 text-red-400" />
           섹터 로테이션
         </span>

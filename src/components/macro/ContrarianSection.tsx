@@ -81,7 +81,7 @@ export function ContrarianSection({ gate0Result }: Props) {
                   <p className="text-[9px] font-mono mt-1 opacity-60">조건: {signal.condition}</p>
                 </div>
                 <div className="text-center flex-shrink-0">
-                  <p className="text-[9px] font-black opacity-60 uppercase tracking-widest">보너스</p>
+                  <p className="text-[9px] font-black opacity-60 tracking-tight">보너스</p>
                   <p className={`text-2xl font-black font-mono ${isActive ? '' : 'opacity-30'}`}>
                     +{signal.bonus}
                   </p>

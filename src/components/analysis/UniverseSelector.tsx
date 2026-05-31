@@ -215,7 +215,7 @@ export function UniverseSelector({ value, onChange }: UniverseSelectorProps) {
                         </span>
                         <div>
                           <span className={cn(
-                            'text-xs font-black block uppercase tracking-wider',
+                            'text-xs font-black block tracking-tight',
                             isSelected ? preset.color : 'text-theme-text'
                           )}>
                             {preset.label}
@@ -238,7 +238,7 @@ export function UniverseSelector({ value, onChange }: UniverseSelectorProps) {
                     <div key={chip.id} className="space-y-2">
                       <div className="flex items-center gap-2">
                         <span className="text-theme-text-muted">{chip.icon}</span>
-                        <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-wider">
+                        <span className="text-[10px] font-black text-theme-text-muted tracking-tight">
                           {chip.label}
                         </span>
                       </div>

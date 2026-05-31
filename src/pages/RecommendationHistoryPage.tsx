@@ -170,7 +170,7 @@ export function RecommendationHistoryPage() {
         ) : (
           <div className="overflow-x-auto rounded border border-white/10 bg-black/20">
             <table className="w-full text-xs sm:text-sm">
-              <thead className="text-[10px] uppercase tracking-widest text-white/50 bg-white/5">
+              <thead className="text-[10px] tracking-tight text-white/50 bg-white/5">
                 <tr>
                   <th className="text-left p-2 font-black">시그널</th>
                   <th className="text-left p-2 font-black">종목</th>
@@ -222,7 +222,7 @@ function StatBox({ label, value, sub, tone = 'neutral' }: StatBoxProps) {
                       'border-white/10     bg-white/5      text-white/90';
   return (
     <div className={cn('rounded border p-3', cls)}>
-      <div className="text-[10px] uppercase tracking-widest opacity-60 mb-1">{label}</div>
+      <div className="text-[10px] tracking-tight opacity-60 mb-1">{label}</div>
       <div className="text-lg sm:text-xl font-black font-num">{value}</div>
       {sub && <div className="text-[10px] opacity-60 mt-0.5">{sub}</div>}
     </div>

@@ -110,15 +110,15 @@ export const GlobalTrendChart: React.FC<GlobalTrendChartProps> = React.memo(({ i
         <div className="flex gap-6">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
-            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">KOSPI</span>
+            <span className="text-[10px] font-black text-white/40 tracking-tight">KOSPI</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
-            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">NASDAQ</span>
+            <span className="text-[10px] font-black text-white/40 tracking-tight">NASDAQ</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
-            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">S&P 500</span>
+            <span className="text-[10px] font-black text-white/40 tracking-tight">S&P 500</span>
           </div>
         </div>
       </div>
@@ -126,7 +126,7 @@ export const GlobalTrendChart: React.FC<GlobalTrendChartProps> = React.memo(({ i
         {chartData.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-white/40">
             <TrendingUp className="w-8 h-8" />
-            <p className="text-[11px] font-bold uppercase tracking-widest">
+            <p className="text-[11px] font-bold tracking-tight">
               {loading ? '글로벌 지수 히스토리 로딩 중...' : '히스토리 데이터를 불러올 수 없습니다'}
             </p>
             <p className="text-[10px] text-white/30">3개월 시계열을 100 기준으로 정규화하여 표시합니다.</p>

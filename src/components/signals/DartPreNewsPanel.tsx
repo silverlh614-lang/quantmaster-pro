@@ -90,11 +90,11 @@ const DartStockCard: React.FC<{ stock: DartScreenerResult }> = ({ stock }) => {
         {/* 점수 + 긴급도 */}
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <p className="text-[9px] text-gray-500 uppercase tracking-widest">Pre-News</p>
+            <p className="text-[9px] text-gray-500 tracking-tight">Pre-News</p>
             <p className={`text-2xl font-black leading-none ${urgency.color}`}>{stock.preNewsScore}<span className="text-xs">/10</span></p>
           </div>
           <div className="text-right">
-            <p className="text-[9px] text-gray-500 uppercase tracking-widest">Score</p>
+            <p className="text-[9px] text-gray-500 tracking-tight">Score</p>
             <p className="text-2xl font-black text-white leading-none">{stock.totalScore}</p>
           </div>
           <button

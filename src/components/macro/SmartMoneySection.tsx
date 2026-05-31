@@ -41,7 +41,7 @@ export function SmartMoneySection() {
           {/* Score + Signal */}
           <div className="flex items-center gap-6">
             <div className="text-center p-4 border-2 border-theme-text w-28">
-              <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">SMF 점수</p>
+              <p className="text-[9px] font-black text-theme-text-muted tracking-tight">SMF 점수</p>
               <p className="text-fluid-4xl font-black font-mono mt-1">{smartMoney.score}</p>
               <p className="text-[9px] text-theme-text-muted font-mono">/10</p>
             </div>

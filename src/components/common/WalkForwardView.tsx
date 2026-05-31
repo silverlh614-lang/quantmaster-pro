@@ -140,7 +140,7 @@ function RobustnessHero({ analysis }: { analysis: WalkForwardAnalysis }) {
       <div className="absolute top-0 right-0 w-96 h-96 bg-purple-500/10 blur-[100px] -mr-48 -mt-48" />
       <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
         <div className="text-center lg:text-left">
-          <span className="text-[11px] font-black text-purple-400 uppercase tracking-[0.4em] block mb-4">Robustness Score</span>
+          <span className="text-[11px] font-black text-purple-400 tracking-tight block mb-4">Robustness Score</span>
           <div className="text-8xl font-black text-white tracking-tighter mb-6">
             {analysis.robustnessScore}<span className="text-4xl text-white/20">/100</span>
           </div>
@@ -178,7 +178,7 @@ function ScoreDetailCard({
     <div className="bg-white/5 rounded-[2rem] p-8 border border-white/10">
       <div className="flex items-center gap-4 mb-4">
         {icon}
-        <span className="text-[11px] font-black text-white/40 uppercase tracking-widest">{title}</span>
+        <span className="text-[11px] font-black text-white/40 tracking-tight">{title}</span>
       </div>
       {children}
     </div>
@@ -209,7 +209,7 @@ function TextListCard({
     <div className="glass-3d rounded-[3rem] p-10 border border-white/10 shadow-2xl">
       <div className="flex items-center gap-4 mb-8">
         {icon}
-        <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em]">{title}</span>
+        <span className="text-[11px] font-black text-white/20 tracking-tight">{title}</span>
       </div>
       <div className="space-y-4">
         {(items || []).map((item, i) => (
@@ -259,7 +259,7 @@ function metricLabel(key: string): string {
 function MetricsGrid({ analysis }: { analysis: WalkForwardAnalysis }) {
   return (
     <div className="glass-3d rounded-[3rem] p-10 border border-white/10 shadow-2xl">
-      <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em] block mb-10">Performance Metrics (IS vs OOS)</span>
+      <span className="text-[11px] font-black text-white/20 tracking-tight block mb-10">Performance Metrics (IS vs OOS)</span>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {Object.entries(analysis.metrics).map(([key, value]) => {
           const v = value as { inSample: string | number; outOfSample: string | number };
@@ -281,7 +281,7 @@ function MetricCard({
 }) {
   return (
     <div className="bg-white/5 rounded-2xl p-6 border border-white/5">
-      <div className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-4">{label}</div>
+      <div className="text-[10px] font-black text-white/20 tracking-tight mb-4">{label}</div>
       <div className="flex items-center justify-between">
         <div>
           <div className="text-[9px] font-black text-white/10 uppercase mb-1">In-Sample (2025)</div>
@@ -371,7 +371,7 @@ export const WalkForwardView: React.FC = () => {
               <AlertTriangle className="w-5 h-5 text-amber-400" />
             </div>
             <div className="min-w-0">
-              <p className="text-xs sm:text-sm font-black text-amber-400 uppercase tracking-widest">API quota exceeded</p>
+              <p className="text-xs sm:text-sm font-black text-amber-400 tracking-tight">API quota exceeded</p>
               <p className="text-[11px] sm:text-xs text-theme-text-secondary font-bold mt-0.5">
                 Wait ~60s for the Gemini quota to refresh, then retry. The toast disappears but this banner stays so you don't lose context.
               </p>

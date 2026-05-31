@@ -187,7 +187,7 @@ export function WatchlistFilterPanel({
                   <div className="relative group/info">
                     <Info className="w-3.5 h-3.5 text-theme-text-muted hover:text-orange-500 transition-colors cursor-help" />
                     <div className="absolute left-0 top-6 w-80 max-h-[350px] overflow-y-auto p-4 bg-theme-bg backdrop-blur-xl border border-theme-border rounded-2xl shadow-2xl opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all z-50 pointer-events-none">
-                      <h4 className="text-xs font-black text-orange-500 mb-2 uppercase tracking-widest">빈칸 검색 후보 판정 기준 (Top 10)</h4>
+                      <h4 className="text-xs font-black text-orange-500 mb-2 tracking-tight">빈칸 검색 후보 판정 기준 (Top 10)</h4>
                       <ul className="space-y-2">
                         {[
                           { label: "시장 주도주", desc: "현재 시장의 주도 섹터 및 사이클 부합 여부" },
@@ -221,7 +221,7 @@ export function WatchlistFilterPanel({
                 {hasSearchOrFilter && (
                   <button
                     onClick={handleResetScreen}
-                    className="text-xs font-black text-orange-500 hover:text-orange-400 uppercase tracking-widest transition-colors flex items-center gap-1"
+                    className="text-xs font-black text-orange-500 hover:text-orange-400 tracking-tight transition-colors flex items-center gap-1"
                   >
                     <X className="w-3.5 h-3.5" />
                     초기화
@@ -264,7 +264,7 @@ export function WatchlistFilterPanel({
             <div className="flex flex-col gap-3 min-w-[200px]">
               <div className="flex items-center gap-2 px-2">
                 <div className="w-1.5 h-4 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-                <span className="text-xs font-black text-theme-text-muted uppercase tracking-[0.1em]">정렬 기준</span>
+                <span className="text-xs font-black text-theme-text-muted tracking-tight">정렬 기준</span>
               </div>
               <div className="relative group">
                 <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-theme-text-muted group-focus-within:text-orange-500 transition-colors pointer-events-none" />
@@ -290,7 +290,7 @@ export function WatchlistFilterPanel({
                       className="flex items-center gap-2 hover:opacity-70 transition-opacity group"
                     >
                       <Settings className={cn("w-4 h-4 text-theme-text-muted group-hover:text-orange-500 transition-colors", isFilterExpanded && "text-orange-500")} />
-                      <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-[0.2em] group-hover:text-theme-text-secondary transition-colors">필터 및 정밀 검증 설정</span>
+                      <span className="text-[10px] font-black text-theme-text-muted tracking-tight group-hover:text-theme-text-secondary transition-colors">필터 및 정밀 검증 설정</span>
                       {isFilterExpanded ? (
                         <ChevronUp className="w-3 h-3 text-theme-text-muted" />
                       ) : (
@@ -300,7 +300,7 @@ export function WatchlistFilterPanel({
                     {hasActiveFilters && (
                       <button
                         onClick={handleResetScreen}
-                        className="text-[10px] font-black text-orange-500 hover:text-orange-400 uppercase tracking-widest flex items-center gap-1 transition-colors"
+                        className="text-[10px] font-black text-orange-500 hover:text-orange-400 tracking-tight flex items-center gap-1 transition-colors"
                       >
                         <X className="w-3 h-3" />
                         모든 필터 및 검색 초기화
@@ -317,7 +317,7 @@ export function WatchlistFilterPanel({
                   {isFilterExpanded && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mt-4 p-5 glass-3d rounded-2xl border border-theme-border bg-theme-surface">
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest ml-1">Min ROE (%)</label>
+                        <label className="text-[10px] font-black text-theme-text-muted tracking-tight ml-1">Min ROE (%)</label>
                         <input
                           type="number"
                           placeholder="최소 ROE (%)"
@@ -328,7 +328,7 @@ export function WatchlistFilterPanel({
                         <span className="text-[9px] text-theme-text-muted ml-1">자기자본이익률 (수익성)</span>
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest ml-1">Max PER</label>
+                        <label className="text-[10px] font-black text-theme-text-muted tracking-tight ml-1">Max PER</label>
                         <input
                           type="number"
                           placeholder="최대 PER"
@@ -339,7 +339,7 @@ export function WatchlistFilterPanel({
                         <span className="text-[9px] text-theme-text-muted ml-1">주가수익비율 (저평가)</span>
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest ml-1">Max Debt Ratio (%)</label>
+                        <label className="text-[10px] font-black text-theme-text-muted tracking-tight ml-1">Max Debt Ratio (%)</label>
                         <input
                           type="number"
                           placeholder="최대 부채비율 (%)"
@@ -350,7 +350,7 @@ export function WatchlistFilterPanel({
                         <span className="text-[9px] text-theme-text-muted ml-1">부채비율 (재무 건전성)</span>
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest ml-1">Min Market Cap (억)</label>
+                        <label className="text-[10px] font-black text-theme-text-muted tracking-tight ml-1">Min Market Cap (억)</label>
                         <input
                           type="number"
                           placeholder="최소 시총 (억)"
@@ -384,7 +384,7 @@ export function WatchlistFilterPanel({
               <div className="flex flex-wrap gap-3 items-center">
                 {/* Type Filter */}
                 <div className="flex flex-col gap-2">
-                  <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] px-1">판정 유형</span>
+                  <span className="text-[10px] font-black text-white/30 tracking-tight px-1">판정 유형</span>
                   <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner overflow-x-auto no-scrollbar">
                     {['ALL', 'STRONG_BUY', 'BUY', 'STRONG_SELL', 'SELL'].map((type) => (
                       <button
@@ -405,7 +405,7 @@ export function WatchlistFilterPanel({
 
                 {/* Sentiment Filter */}
                 <div className="flex flex-col gap-2">
-                  <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] px-1">시장 심리</span>
+                  <span className="text-[10px] font-black text-white/30 tracking-tight px-1">시장 심리</span>
                   <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner overflow-x-auto no-scrollbar">
                     {[
                       { id: 'ALL', label: '모든 심리' },
@@ -430,7 +430,7 @@ export function WatchlistFilterPanel({
 
                 {/* Pattern Filter */}
                 <div className="flex flex-col gap-2">
-                  <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] px-1">기술적 패턴</span>
+                  <span className="text-[10px] font-black text-white/30 tracking-tight px-1">기술적 패턴</span>
                   <select
                     value={selectedPattern}
                     onChange={(e) => setSelectedPattern(e.target.value)}
@@ -445,7 +445,7 @@ export function WatchlistFilterPanel({
 
                 {/* Price Range Filter */}
                 <div className="flex flex-col gap-2">
-                  <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] px-1">가격 범위 (원)</span>
+                  <span className="text-[10px] font-black text-white/30 tracking-tight px-1">가격 범위 (원)</span>
                   <div className="flex items-center gap-2 bg-white/5 p-1.5 rounded-2xl border border-white/10 shadow-inner">
                     <input
                       type="number"
@@ -472,13 +472,13 @@ export function WatchlistFilterPanel({
             <div className="flex flex-col gap-3 bg-white/[0.02] p-5 rounded-3xl border border-white/5 shadow-inner">
               <div className="flex items-center gap-2 mb-1">
                 <ShieldCheck className="w-4 h-4 text-orange-500/50" />
-                <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-[0.2em]">27단계 마스터 체크리스트 정밀 필터</span>
+                <span className="text-[10px] font-black text-theme-text-muted tracking-tight">27단계 마스터 체크리스트 정밀 필터</span>
               </div>
               <div className="space-y-4 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
                 {[1, 2, 3].map(gateNum => (
                   <div key={gateNum} className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-[9px] font-black text-orange-500/50 uppercase tracking-widest">Gate {gateNum}</span>
+                      <span className="text-[9px] font-black text-orange-500/50 tracking-tight">Gate {gateNum}</span>
                       <div className="h-px flex-1 bg-white/5" />
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -514,7 +514,7 @@ export function WatchlistFilterPanel({
                   </div>
                 ))}
               </div>
-              <p className="text-[9px] text-theme-text-muted font-bold uppercase tracking-widest mt-1">
+              <p className="text-[9px] text-theme-text-muted font-bold tracking-tight mt-1">
                 * 선택한 모든 조건을 동시에 충족하는 종목만 표시됩니다.
               </p>
             </div>
@@ -529,7 +529,7 @@ export function WatchlistFilterPanel({
           >
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">활성 필터:</span>
+                <span className="text-[10px] font-black text-white/20 tracking-tight">활성 필터:</span>
                 <div className="flex gap-1.5">
                   {selectedType !== 'ALL' && <span className="px-2 py-0.5 bg-orange-500/10 text-orange-500 text-[8px] font-black rounded-md border border-orange-500/20">{selectedType}</span>}
                   {selectedSentiment !== 'ALL' && <span className="px-2 py-0.5 bg-blue-500/10 text-blue-500 text-[8px] font-black rounded-md border border-blue-500/20">{selectedSentiment}</span>}
@@ -544,7 +544,7 @@ export function WatchlistFilterPanel({
             </div>
             <button
               onClick={() => setIsFilterExpanded(true)}
-              className="text-[10px] font-black text-white/30 hover:text-white/60 transition-colors uppercase tracking-widest"
+              className="text-[10px] font-black text-white/30 hover:text-white/60 transition-colors tracking-tight"
             >
               필터 펼치기
             </button>

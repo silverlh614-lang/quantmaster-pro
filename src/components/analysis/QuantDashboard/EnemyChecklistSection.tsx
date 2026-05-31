@@ -18,12 +18,12 @@ export function EnemyChecklistSection({ result }: Props) {
       </div>
       <div className="space-y-6">
         <div>
-          <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest block mb-2">Worst Case Scenario</span>
+          <span className="text-[10px] font-black text-orange-500 tracking-tight block mb-2">Worst Case Scenario</span>
           <p className="text-sm italic leading-relaxed text-gray-300">"{result.enemyChecklist.bearCase}"</p>
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <span className="text-[10px] font-black text-red-400 uppercase tracking-widest block mb-2">Risk Factors</span>
+            <span className="text-[10px] font-black text-red-400 tracking-tight block mb-2">Risk Factors</span>
             <ul className="space-y-1">
               {result.enemyChecklist.riskFactors.map((r, i) => (
                 <li key={i} className="text-[10px] flex items-center gap-2">
@@ -33,7 +33,7 @@ export function EnemyChecklistSection({ result }: Props) {
             </ul>
           </div>
           <div>
-            <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-2">Counter Arguments</span>
+            <span className="text-[10px] font-black text-blue-400 tracking-tight block mb-2">Counter Arguments</span>
             <ul className="space-y-1">
               {result.enemyChecklist.counterArguments.map((c, i) => (
                 <li key={i} className="text-[10px] flex items-center gap-2">

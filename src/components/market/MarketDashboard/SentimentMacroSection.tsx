@@ -52,7 +52,7 @@ const SnsSentimentCard = ({ sentiment }: { sentiment: SnsSentiment }) => (
         <MessageSquare className="w-5 h-5 text-indigo-400" />
         SNS 시장 참여자 분위기
       </h3>
-      <div className={cn("px-4 py-1.5 rounded-full text-[10px] font-black border uppercase tracking-widest", getStatusColor(sentiment.status))}>
+      <div className={cn("px-4 py-1.5 rounded-full text-[10px] font-black border tracking-tight", getStatusColor(sentiment.status))}>
         {getStatusLabel(sentiment.status)}
       </div>
     </div>
@@ -76,7 +76,7 @@ const SnsSentimentCard = ({ sentiment }: { sentiment: SnsSentiment }) => (
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-fluid-5xl font-black text-white tracking-tighter">{sentiment.score}</span>
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] mt-1">Sentiment</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight mt-1">Sentiment</span>
         </div>
       </div>
 
@@ -88,7 +88,7 @@ const SnsSentimentCard = ({ sentiment }: { sentiment: SnsSentiment }) => (
         </div>
 
         <div>
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] mb-3 block">실시간 트렌드 키워드</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight mb-3 block">실시간 트렌드 키워드</span>
           {sentiment.trendingKeywords && sentiment.trendingKeywords.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {sentiment.trendingKeywords.map((keyword, idx) => (
@@ -123,7 +123,7 @@ export const SentimentMacroSection: React.FC<SentimentMacroSectionProps> = React
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
         {exchangeRates?.slice(0, 2).map((idx, i) => (
           <div key={`${idx.name}-${i}`} className="bg-white/5 p-4 rounded-2xl border border-white/5">
-            <span className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-1">{idx.name}</span>
+            <span className="text-[9px] font-black text-white/20 tracking-tight block mb-1">{idx.name}</span>
             <div className="flex items-center justify-between">
               <span className="text-lg font-black text-white">{idx.value?.toLocaleString() || '0'}</span>
               <span className={cn("text-[10px] font-black", idx.change >= 0 ? "text-red-400" : "text-blue-400")}>
@@ -134,7 +134,7 @@ export const SentimentMacroSection: React.FC<SentimentMacroSectionProps> = React
         ))}
         {commodities?.map((idx, i) => (
           <div key={`${idx.name}-${i}`} className="bg-white/5 p-4 rounded-2xl border border-white/5">
-            <span className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-1">{idx.name}</span>
+            <span className="text-[9px] font-black text-white/20 tracking-tight block mb-1">{idx.name}</span>
             <div className="flex items-center justify-between">
               <span className="text-lg font-black text-white">{idx.value?.toLocaleString() || '0'}</span>
               <span className={cn("text-[10px] font-black", idx.change >= 0 ? "text-red-400" : "text-blue-400")}>

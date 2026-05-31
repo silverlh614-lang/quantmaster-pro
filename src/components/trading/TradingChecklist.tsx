@@ -137,7 +137,7 @@ export const TradingChecklist: React.FC = () => {
   return (
     <div className="bg-black/40 border border-white/10 rounded-xl p-6 space-y-4">
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-lg font-black text-white uppercase tracking-widest">
+        <h2 className="text-lg font-black text-white tracking-tight">
           자동매매 테스트 체크리스트
         </h2>
         <button

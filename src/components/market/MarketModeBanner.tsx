@@ -79,12 +79,12 @@ export function MarketModeBanner() {
       {/* Compact one-line header (모바일/데스크탑 공통) */}
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-11 flex items-center gap-3">
         <span aria-hidden className="text-base shrink-0">{verdict}</span>
-        <span className={cn('text-[11px] font-black uppercase tracking-[0.15em] shrink-0', style.accent)}>
+        <span className={cn('text-[11px] font-black tracking-tight shrink-0', style.accent)}>
           현재 시장 모드
         </span>
         <div className="w-px h-4 bg-white/10 shrink-0" />
         <span className={cn(
-          'text-[10px] font-black px-2 py-0.5 rounded-md border uppercase tracking-widest shrink-0',
+          'text-[10px] font-black px-2 py-0.5 rounded-md border tracking-tight shrink-0',
           style.chip,
         )}>
           {regime}

@@ -57,7 +57,7 @@ export function StickyMiniHeader() {
       <div className="flex items-center gap-4 overflow-x-auto no-scrollbar">
         {/* Stock Count */}
         <div className="flex items-center gap-1.5 shrink-0">
-          <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">후보</span>
+          <span className="text-[9px] font-black text-theme-text-muted tracking-tight">후보</span>
           <span className="text-[11px] font-black text-violet-400 font-num">{totalCount}건</span>
         </div>
 
@@ -65,7 +65,7 @@ export function StickyMiniHeader() {
 
         {/* Watchlist */}
         <div className="flex items-center gap-1.5 shrink-0">
-          <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">관심</span>
+          <span className="text-[9px] font-black text-theme-text-muted tracking-tight">관심</span>
           <span className="text-[11px] font-black text-blue-400 font-num">{watchlistCount}</span>
         </div>
 
@@ -73,7 +73,7 @@ export function StickyMiniHeader() {
 
         {/* Average Score */}
         <div className="flex items-center gap-1.5 shrink-0">
-          <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">Gate평균</span>
+          <span className="text-[9px] font-black text-theme-text-muted tracking-tight">Gate평균</span>
           <span className={cn(
             'text-[11px] font-black font-num',
             avgScore >= 80 ? 'text-green-400' : avgScore >= 60 ? 'text-yellow-400' : avgScore > 0 ? 'text-red-400' : 'text-theme-text-secondary'
@@ -89,7 +89,7 @@ export function StickyMiniHeader() {
           {syncStatus.isSyncing ? (
             <RefreshCw className="w-3 h-3 text-orange-400 animate-spin" />
           ) : (
-            <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">&#8634;</span>
+            <span className="text-[9px] font-black text-theme-text-muted tracking-tight">&#8634;</span>
           )}
           <span className="text-[11px] font-black text-theme-text-secondary font-num">{updateTime}</span>
         </div>

@@ -109,7 +109,7 @@ export function BearKellyPanel({ bearKellyResult, entryDate, onSetEntryDate }: B
       {/* Kelly Position Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <div className="p-3 border border-theme-border bg-theme-bg text-center">
-          <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-1">반 켈리 권장</p>
+          <p className="text-[9px] font-black text-theme-text-muted tracking-tight mb-1">반 켈리 권장</p>
           <p className={cn(
             'text-2xl font-black font-mono',
             isActive ? 'text-red-400' : 'text-theme-text-muted',
@@ -119,21 +119,21 @@ export function BearKellyPanel({ bearKellyResult, entryDate, onSetEntryDate }: B
           <p className="text-[8px] text-theme-text-muted mt-0.5">실전 권고 비중</p>
         </div>
         <div className="p-3 border border-theme-border bg-theme-bg text-center">
-          <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-1">전체 켈리</p>
+          <p className="text-[9px] font-black text-theme-text-muted tracking-tight mb-1">전체 켈리</p>
           <p className="text-2xl font-black font-mono text-theme-text-secondary">
             {kellyPct.toFixed(1)}<span className="text-sm">%</span>
           </p>
           <p className="text-[8px] text-theme-text-muted mt-0.5">이론 최대치</p>
         </div>
         <div className="p-3 border border-theme-border bg-theme-bg text-center">
-          <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-1">신호 확률 (p)</p>
+          <p className="text-[9px] font-black text-theme-text-muted tracking-tight mb-1">신호 확률 (p)</p>
           <p className="text-2xl font-black font-mono text-theme-text-secondary">
             {(p * 100).toFixed(0)}<span className="text-sm">%</span>
           </p>
           <p className="text-[8px] text-theme-text-muted mt-0.5">Gate -1 충족도</p>
         </div>
         <div className="p-3 border border-theme-border bg-theme-bg text-center">
-          <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-1">기대수익 배수 (b)</p>
+          <p className="text-[9px] font-black text-theme-text-muted tracking-tight mb-1">기대수익 배수 (b)</p>
           <p className="text-2xl font-black font-mono text-theme-text-secondary">
             {b.toFixed(1)}<span className="text-sm">×</span>
           </p>
@@ -173,7 +173,7 @@ export function BearKellyPanel({ bearKellyResult, entryDate, onSetEntryDate }: B
       {/* Entry Date Setting */}
       <div className="flex items-center gap-2 mb-4">
         <div className="flex items-center gap-1.5 flex-1">
-          <label className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest whitespace-nowrap">
+          <label className="text-[9px] font-black text-theme-text-muted tracking-tight whitespace-nowrap">
             진입일 설정
           </label>
           <input
@@ -219,7 +219,7 @@ export function BearKellyPanel({ bearKellyResult, entryDate, onSetEntryDate }: B
         <div className="mt-4 space-y-3">
           {/* Kelly Formula */}
           <div className="p-3 border border-theme-border bg-theme-bg">
-            <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-2">
+            <p className="text-[9px] font-black text-theme-text-muted tracking-tight mb-2">
               켈리 공식 계산 상세
             </p>
             <p className="text-[10px] font-mono text-theme-text leading-relaxed">{formulaNote}</p>
@@ -233,7 +233,7 @@ export function BearKellyPanel({ bearKellyResult, entryDate, onSetEntryDate }: B
               { label: 'q (손실 확률)', value: `${(q * 100).toFixed(1)}%`, desc: '1 − p. Bear 신호 실패 확률.' },
             ].map(item => (
               <div key={item.label} className="p-2 border border-theme-border bg-theme-bg">
-                <p className="text-[8px] font-black text-theme-text-muted uppercase tracking-widest">{item.label}</p>
+                <p className="text-[8px] font-black text-theme-text-muted tracking-tight">{item.label}</p>
                 <p className="text-lg font-black font-mono mt-0.5">{item.value}</p>
                 <p className="text-[8px] text-theme-text-muted mt-1 leading-tight">{item.desc}</p>
               </div>
@@ -242,7 +242,7 @@ export function BearKellyPanel({ bearKellyResult, entryDate, onSetEntryDate }: B
 
           {/* Risk Warning */}
           <div className="p-3 border border-amber-500/30 bg-amber-900/10">
-            <p className="text-[9px] font-black text-amber-400 uppercase tracking-widest mb-1 flex items-center gap-1">
+            <p className="text-[9px] font-black text-amber-400 tracking-tight mb-1 flex items-center gap-1">
               <TrendingDown className="w-3 h-3" /> 인버스 ETF 시간가치 손실 주의
             </p>
             <p className="text-[9px] text-amber-200/70 leading-relaxed">

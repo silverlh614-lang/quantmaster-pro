@@ -159,7 +159,7 @@ export function ConfluenceMeter({ axes, compact = false, className, forceShow }:
       aria-label={`합치도 ${CONFLUENCE_LABEL[overall]}`}
       data-confluence-overall={overall}
     >
-      <div className="flex items-center justify-between text-[10px] uppercase tracking-widest opacity-70">
+      <div className="flex items-center justify-between text-[10px] tracking-tight opacity-70">
         <span className="font-bold">합치도</span>
         <span className="font-black" data-confluence-overall-label>{CONFLUENCE_LABEL[overall]}</span>
       </div>

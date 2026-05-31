@@ -196,12 +196,12 @@ function LastUpdatedInfo({
   if (!lastUpdated) return null;
   return (
     <div className="flex flex-col gap-2">
-      <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-white/25">
+      <p className="flex items-center gap-2 text-xs font-bold tracking-tight text-white/25">
         <Clock className="h-3 w-3" />
         마지막 갱신: {new Date(lastUpdated).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} (KST)
       </p>
       {marketContext?.dataSource && (
-        <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.1em] text-emerald-500/45">
+        <p className="flex items-center gap-2 text-[10px] font-bold tracking-tight text-emerald-500/45">
           <Globe className="h-2.5 w-2.5" />
           출처: {marketContext.dataSource}
         </p>
@@ -242,7 +242,7 @@ function HeroSection({
             <span className="text-gradient-blue">QuantMaster</span>{' '}
             <span className="text-gradient-accent">Pro</span>
           </motion.h2>
-          <motion.p variants={HERO_ITEM} className="mb-6 text-xs font-bold uppercase tracking-[0.15em] text-theme-text-muted sm:mb-10 sm:text-sm sm:tracking-[0.2em] lg:text-base">
+          <motion.p variants={HERO_ITEM} className="mb-6 text-xs font-bold tracking-tight text-theme-text-muted sm:mb-10 sm:text-sm sm:tracking-[0.2em] lg:text-base">
             데이터 기반 국면·신호 분석
           </motion.p>
           <motion.div variants={HERO_ITEM} className="group/info relative mb-10">
@@ -295,7 +295,7 @@ function TopRecommendationHeader() {
       </div>
       <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-theme-surface rounded-xl border border-theme-border">
         <Activity className="w-4 h-4 text-green-400" />
-        <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest">AI scan active</span>
+        <span className="text-[10px] font-black text-theme-text-muted tracking-tight">AI scan active</span>
       </div>
     </div>
   );
@@ -321,14 +321,14 @@ function ScoreTiles({ stock }: { stock: StockRecommendation }) {
   return (
     <div className="grid grid-cols-2 gap-4 mb-8">
       <div className="bg-theme-card rounded-2xl p-4 border border-theme-border">
-        <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest mb-1">AI Score</div>
+        <div className="text-[10px] font-black text-theme-text-muted tracking-tight mb-1">AI Score</div>
         <div className="text-2xl font-black text-orange-500">{stock.aiConvictionScore?.totalScore || 0}</div>
         <div className="text-[10px] text-orange-300/60 mt-1">Gemini conviction</div>
       </div>
       <div className="bg-theme-card rounded-2xl p-4 border border-theme-border">
         {quant ? (
           <>
-            <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest mb-1">Gate</div>
+            <div className="text-[10px] font-black text-theme-text-muted tracking-tight mb-1">Gate</div>
             <div className={cn('text-2xl font-black', quant.pass ? 'text-emerald-400' : 'text-red-400')}>{quant.value.toFixed(1)}/10</div>
             <div className="text-[10px] text-theme-text-muted mt-1">
               {quant.pass ? 'Auto-trade eligible' : 'Auto-trade blocked'} · {quant.regime.replace(/_.+$/, '')} threshold {quant.threshold}
@@ -336,7 +336,7 @@ function ScoreTiles({ stock }: { stock: StockRecommendation }) {
           </>
         ) : (
           <>
-            <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest mb-1">Checklist</div>
+            <div className="text-[10px] font-black text-theme-text-muted tracking-tight mb-1">Checklist</div>
             <div className="text-2xl font-black text-theme-text">{Object.values(stock.checklist || {}).filter(Boolean).length}/27</div>
           </>
         )}
@@ -401,13 +401,13 @@ function TopRecommendationCard({
 
       <div className="mb-8">
         <div className={cn(
-          'text-[10px] font-black uppercase tracking-[0.3em] mb-2',
+          'text-[10px] font-black tracking-tight mb-2',
           (stock.type || '').includes('BUY') ? 'text-red-500' : 'text-blue-500'
         )}>
           {(stock.type || '').replace('_', ' ')}
         </div>
         <h4 className="text-2xl sm:text-3xl font-black text-theme-text tracking-tighter mb-1 truncate" title={stock.name}>{stock.name}</h4>
-        <div className="text-xs sm:text-sm font-black text-theme-text-muted uppercase tracking-widest truncate">{stock.code}</div>
+        <div className="text-xs sm:text-sm font-black text-theme-text-muted tracking-tight truncate">{stock.code}</div>
       </div>
 
       <ScoreTiles stock={stock} />

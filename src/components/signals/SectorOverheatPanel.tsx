@@ -91,7 +91,7 @@ function SectorCard({
           </div>
           <div>
             <p className="text-sm font-black text-theme-text tracking-tight">{match.sectorName}</p>
-            <p className="text-[9px] font-bold text-theme-text-muted uppercase tracking-widest">
+            <p className="text-[9px] font-bold text-theme-text-muted tracking-tight">
               {match.triggeredCount}/4 조건 충족
             </p>
           </div>
@@ -126,7 +126,7 @@ function SectorCard({
           <div className="grid grid-cols-2 gap-2">
             {/* RS Rank */}
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest block">
+              <label className="text-[9px] font-black text-theme-text-muted tracking-tight block">
                 섹터 RS 상위 %
               </label>
               <input
@@ -143,7 +143,7 @@ function SectorCard({
 
             {/* News Phase */}
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest block">
+              <label className="text-[9px] font-black text-theme-text-muted tracking-tight block">
                 뉴스 빈도
               </label>
               <select
@@ -160,7 +160,7 @@ function SectorCard({
 
             {/* Weekly RSI */}
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest block">
+              <label className="text-[9px] font-black text-theme-text-muted tracking-tight block">
                 주봉 RSI
               </label>
               <input
@@ -177,7 +177,7 @@ function SectorCard({
 
             {/* Foreign Buying Weeks */}
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest block">
+              <label className="text-[9px] font-black text-theme-text-muted tracking-tight block">
                 외국인 매수 연속 주
               </label>
               <input
@@ -203,7 +203,7 @@ function SectorCard({
                   ? 'border-orange-500/40 bg-orange-900/10'
                   : 'border-amber-500/40 bg-amber-900/10',
             )}>
-              <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-1 flex items-center gap-1">
+              <p className="text-[9px] font-black text-theme-text-muted tracking-tight mb-1 flex items-center gap-1">
                 <TrendingDown className="w-3 h-3" /> 자동 매칭 인버스 ETF
               </p>
               <p className={cn(
@@ -334,7 +334,7 @@ export function SectorOverheatPanel({ inputs, onInputsChange, result }: SectorOv
 
           {/* Legend */}
           <div className="p-3 border border-theme-border/50 bg-theme-bg/50">
-            <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-2">
+            <p className="text-[9px] font-black text-theme-text-muted tracking-tight mb-2">
               과열 조건 기준
             </p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -345,7 +345,7 @@ export function SectorOverheatPanel({ inputs, onInputsChange, result }: SectorOv
                 { label: '외국인 매수', threshold: '6주 연속 Active 매수' },
               ].map(item => (
                 <div key={item.label} className="flex items-center gap-1.5">
-                  <span className="text-[8px] font-black text-theme-text-muted uppercase tracking-widest">{item.label}:</span>
+                  <span className="text-[8px] font-black text-theme-text-muted tracking-tight">{item.label}:</span>
                   <span className="text-[8px] text-theme-text-secondary">{item.threshold}</span>
                 </div>
               ))}

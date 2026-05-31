@@ -202,7 +202,7 @@ function PyramidLayer({
         x={cx}
         y={midY - 10}
         textAnchor="middle"
-        className="fill-white text-[11px] font-black uppercase tracking-[0.15em]"
+        className="fill-white text-[11px] font-black tracking-tight"
         style={{ fontFamily: 'inherit' }}
       >
         {config.label}: {config.subtitle}
@@ -290,7 +290,7 @@ export function GatePyramidVisualization({ recommendations, totalUniverse }: Gat
                 <h3 className="text-lg sm:text-xl font-black text-theme-text tracking-tight uppercase">
                   3-Gate Pyramid
                 </h3>
-                <p className="text-[10px] sm:text-xs font-bold text-theme-text-muted uppercase tracking-[0.15em]">
+                <p className="text-[10px] sm:text-xs font-bold text-theme-text-muted tracking-tight">
                   27 Conditions Funnel Visualization
                 </p>
               </div>
@@ -370,7 +370,7 @@ export function GatePyramidVisualization({ recommendations, totalUniverse }: Gat
                 x={svgWidth / 2}
                 y={topPadding + 3 * layerHeight + 20}
                 textAnchor="middle"
-                className="text-[10px] font-black uppercase tracking-[0.2em]"
+                className="text-[10px] font-black tracking-tight"
                 fill="white"
                 opacity={0.25}
                 style={{ fontFamily: 'inherit' }}
@@ -405,7 +405,7 @@ export function GatePyramidVisualization({ recommendations, totalUniverse }: Gat
                 <div className={cn("text-xl sm:text-2xl font-black tracking-tighter font-num", item.color)}>
                   {item.value}
                 </div>
-                <div className="text-[9px] sm:text-[10px] font-black text-white/30 uppercase tracking-[0.1em] sm:tracking-[0.15em] mt-1">
+                <div className="text-[9px] sm:text-[10px] font-black text-white/30 tracking-tight sm:tracking-[0.15em] mt-1">
                   {item.label}
                 </div>
               </div>
@@ -414,19 +414,19 @@ export function GatePyramidVisualization({ recommendations, totalUniverse }: Gat
 
           {/* Funnel flow indicator */}
           <div className="flex items-center justify-center gap-1.5 mt-4">
-            <span className="text-[9px] font-black text-white/15 uppercase tracking-widest">
+            <span className="text-[9px] font-black text-white/15 tracking-tight">
               {stats.total}
             </span>
             <span className="text-white/10">&rarr;</span>
-            <span className="text-[9px] font-black text-emerald-500/50 uppercase tracking-widest">
+            <span className="text-[9px] font-black text-emerald-500/50 tracking-tight">
               {stats.gate1}
             </span>
             <span className="text-white/10">&rarr;</span>
-            <span className="text-[9px] font-black text-blue-500/50 uppercase tracking-widest">
+            <span className="text-[9px] font-black text-blue-500/50 tracking-tight">
               {stats.gate2}
             </span>
             <span className="text-white/10">&rarr;</span>
-            <span className="text-[9px] font-black text-orange-500/60 uppercase tracking-widest">
+            <span className="text-[9px] font-black text-orange-500/60 tracking-tight">
               {stats.gate3} Final
             </span>
           </div>
@@ -468,7 +468,7 @@ export function GatePyramidVisualization({ recommendations, totalUniverse }: Gat
                             )} />
                           </div>
                           <div>
-                            <div className="text-xs font-black text-white uppercase tracking-widest">{gate.label}</div>
+                            <div className="text-xs font-black text-white tracking-tight">{gate.label}</div>
                             <div className="text-[10px] font-bold text-white/30">{gate.subtitle}</div>
                           </div>
                         </div>
@@ -492,7 +492,7 @@ export function GatePyramidVisualization({ recommendations, totalUniverse }: Gat
                         </div>
 
                         <div className="mt-3 flex items-center justify-between">
-                          <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">통과</span>
+                          <span className="text-[10px] font-black text-white/20 tracking-tight">통과</span>
                           <span className={cn(
                             "text-lg font-black tracking-tight",
                             gate.id === 1 ? "text-emerald-400" : gate.id === 2 ? "text-blue-400" : "text-orange-400"
@@ -515,7 +515,7 @@ export function GatePyramidVisualization({ recommendations, totalUniverse }: Gat
           <div className="relative z-10 px-6 sm:px-10 pb-8">
             <div className="text-center py-6 border border-dashed border-white/5 rounded-2xl bg-white/[0.01]">
               <Triangle className="w-10 h-10 text-white/10 mx-auto mb-3" />
-              <p className="text-sm font-black text-white/20 uppercase tracking-widest mb-1">Gate 데이터 없음</p>
+              <p className="text-sm font-black text-white/20 tracking-tight mb-1">Gate 데이터 없음</p>
               <p className="text-xs text-white/10 font-bold">분석을 실행하면 Gate 통과 현황이 피라미드로 표시됩니다</p>
             </div>
           </div>

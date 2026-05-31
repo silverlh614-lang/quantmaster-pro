@@ -184,7 +184,7 @@ const TopBanners = ({
 }) => (
   <>
     {isAllGatesPassed && (
-      <div className="bg-gradient-to-r from-yellow-500/90 to-amber-400/90 backdrop-blur-md text-[10px] font-black text-black py-2 px-4 flex items-center justify-center gap-2 z-20 uppercase tracking-[0.2em]">
+      <div className="bg-gradient-to-r from-yellow-500/90 to-amber-400/90 backdrop-blur-md text-[10px] font-black text-black py-2 px-4 flex items-center justify-center gap-2 z-20 tracking-tight">
         <Crown className="w-3.5 h-3.5" />
         BEST · All Gates Passed
       </div>
@@ -193,7 +193,7 @@ const TopBanners = ({
       <WatchedPriceBanner stock={stock} />
     )}
     {isRiskAlert(stock) && (
-      <div className="bg-red-500/90 backdrop-blur-md text-[10px] font-black text-white py-2 px-4 flex items-center justify-center gap-2 z-20 animate-pulse uppercase tracking-[0.2em]">
+      <div className="bg-red-500/90 backdrop-blur-md text-[10px] font-black text-white py-2 px-4 flex items-center justify-center gap-2 z-20 animate-pulse tracking-tight">
         <AlertTriangle className="w-3.5 h-3.5" />
         Risk Alert: -30% Rule Exceeded
       </div>
@@ -293,7 +293,7 @@ const HeaderSection = ({
         event.stopPropagation();
         onDeepAnalysis(stock);
       }}
-      className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 hover:border-orange-500/50 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black text-orange-500 transition-all uppercase tracking-[0.2em] active:scale-[0.98] shadow-[0_0_20px_rgba(249,115,22,0.05)] hover:shadow-[0_0_25px_rgba(249,115,22,0.15)] group/deep"
+      className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 hover:border-orange-500/50 rounded-xl sm:rounded-2xl text-[10px] sm:text-[11px] font-black text-orange-500 transition-all tracking-tight active:scale-[0.98] shadow-[0_0_20px_rgba(249,115,22,0.05)] hover:shadow-[0_0_25px_rgba(249,115,22,0.15)] group/deep"
     >
       <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 group-hover/deep:scale-110 transition-transform" />
       Deep Analysis
@@ -346,7 +346,7 @@ const StockIdentityPanel = ({
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
-                    className="absolute -top-10 left-0 text-[10px] font-black text-green-400 uppercase tracking-widest bg-green-500/20 backdrop-blur-md px-2 py-1 rounded-lg border border-green-500/30 z-30"
+                    className="absolute -top-10 left-0 text-[10px] font-black text-green-400 tracking-tight bg-green-500/20 backdrop-blur-md px-2 py-1 rounded-lg border border-green-500/30 z-30"
                   >
                     Copied!
                   </motion.span>
@@ -410,7 +410,7 @@ const StockIdentityPanel = ({
           <div className="flex items-center gap-2 mt-1">
             <div className="flex items-center gap-2 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20 backdrop-blur-md">
               <TrendingUp className={cn('w-3.5 h-3.5', (stock.chartPattern.type || '').includes('BULLISH') ? 'text-green-400' : 'text-red-400')} />
-              <span className="text-[10px] sm:text-[11px] font-black text-blue-400 uppercase tracking-[0.1em]">
+              <span className="text-[10px] sm:text-[11px] font-black text-blue-400 tracking-tight">
                 Pattern: {stock.chartPattern.name}
               </span>
             </div>
@@ -420,7 +420,7 @@ const StockIdentityPanel = ({
           <div className="flex items-center gap-2 mt-1">
             <div className="flex items-center gap-2 bg-orange-500/10 px-3 py-1 rounded-full border border-orange-500/20 backdrop-blur-md">
               <Zap className="w-3.5 h-3.5 text-orange-500 animate-pulse" />
-              <span className="text-[10px] sm:text-[11px] font-black text-orange-400 uppercase tracking-[0.1em] break-keep">{stock.visualReport.summary}</span>
+              <span className="text-[10px] sm:text-[11px] font-black text-orange-400 tracking-tight break-keep">{stock.visualReport.summary}</span>
             </div>
           </div>
         )}
@@ -439,7 +439,7 @@ const AiScoreBlock = ({
   <>
     {stock.aiConvictionScore && (
       <div className="flex flex-col items-end shrink-0">
-        <span className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-0.5">Model Score</span>
+        <span className="text-[9px] font-black text-white/30 tracking-tight mb-0.5">Model Score</span>
         <span className={cn(
           'text-lg sm:text-xl font-black tracking-tighter font-num',
           stock.aiConvictionScore.totalScore >= 80 ? 'text-orange-500' :
@@ -484,7 +484,7 @@ const AiFactorBar = ({ stock }: { stock: StockRecommendation }) => {
       {stock.aiConvictionScore && (
         <div className="mb-4 sm:mb-6">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">판단 합치도</span>
+            <span className="text-[9px] font-black text-white/30 tracking-tight">판단 합치도</span>
             <span className="text-[11px] font-black text-white/70 font-num">{total}/100</span>
           </div>
           <div className="gate-bar">
@@ -517,18 +517,18 @@ const SignalAndActions = ({
     <div className="flex flex-wrap gap-2 sm:gap-3 items-center min-w-0">
       <SignalBadge signal={stock.type || 'NEUTRAL'} />
       {stock.isLeadingSector && (
-        <span className="bg-orange-500 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest shadow-[0_4px_15px_rgba(249,115,22,0.4)] flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
+        <span className="bg-orange-500 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-1 rounded-full tracking-tight shadow-[0_4px_15px_rgba(249,115,22,0.4)] flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
           <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current" />
           Leading
         </span>
       )}
       {stock.isSectorTopPick && (
-        <span className="bg-blue-500 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest shadow-[0_4px_15px_rgba(59,130,246,0.4)] flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
+        <span className="bg-blue-500 text-white text-[9px] sm:text-[10px] font-black px-2.5 py-1 rounded-full tracking-tight shadow-[0_4px_15px_rgba(59,130,246,0.4)] flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
           <Award className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current" />
           Top Pick
         </span>
       )}
-      <span className="text-[9px] sm:text-[10px] font-black text-white/50 bg-white/10 px-2.5 py-1 rounded-full border border-white/10 uppercase tracking-widest backdrop-blur-md truncate max-w-[100px] sm:max-w-none">
+      <span className="text-[9px] sm:text-[10px] font-black text-white/50 bg-white/10 px-2.5 py-1 rounded-full border border-white/10 tracking-tight backdrop-blur-md truncate max-w-[100px] sm:max-w-none">
         {stock.relatedSectors?.[0] || 'Market'}
       </span>
     </div>
@@ -612,7 +612,7 @@ const ExternalLinksAndPlan = ({ stock }: { stock: StockRecommendation }) => (
       <div className="mb-6 sm:mb-8 bg-orange-500/5 p-4 rounded-2xl border border-orange-500/10 shadow-inner">
         <div className="flex items-center gap-2 mb-3">
           <Target className="w-4 h-4 text-orange-500" />
-          <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Automated Tranche Plan</span>
+          <span className="text-[10px] font-black text-orange-500 tracking-tight">Automated Tranche Plan</span>
         </div>
         <div className="grid grid-cols-3 gap-2">
           {[
@@ -622,7 +622,7 @@ const ExternalLinksAndPlan = ({ stock }: { stock: StockRecommendation }) => (
           ].map((tranche) => (
             <div key={tranche.id} className="flex flex-col gap-1">
               <div className="flex items-center justify-between">
-                <span className="text-[8px] font-black text-white/20 uppercase tracking-widest">T{tranche.id}</span>
+                <span className="text-[8px] font-black text-white/20 tracking-tight">T{tranche.id}</span>
                 <span className="text-[9px] font-black text-orange-500/70">{tranche.data?.size || 0}%</span>
               </div>
               <div className="bg-white/5 p-2 rounded-lg border border-white/5">
@@ -680,7 +680,7 @@ const TechnicalHealthGrid = ({ stock }: { stock: StockRecommendation }) => {
     <div className="grid grid-cols-4 gap-1.5 sm:gap-2 mb-6 sm:mb-8">
       {items.map((item) => (
         <div key={item.label} className={cn('rounded-xl sm:rounded-2xl p-1.5 sm:p-2 border flex flex-col items-center justify-center gap-0.5 sm:gap-1 group/stat transition-all shadow-sm min-w-0 h-14 sm:h-16', item.active ? item.activeClass : 'bg-white/5 border-white/5')}>
-          <span className="text-[6px] sm:text-[7px] font-black text-white/20 uppercase tracking-widest truncate w-full text-center">{item.label}</span>
+          <span className="text-[6px] sm:text-[7px] font-black text-white/20 tracking-tight truncate w-full text-center">{item.label}</span>
           <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
             <item.icon className={cn('w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0', item.active ? item.iconActiveClass : 'text-white/20')} />
             <span className={cn('text-[9px] sm:text-[10px] font-black tracking-tighter truncate', item.active ? 'text-inherit' : 'text-white/70')}>{item.value}</span>
@@ -722,7 +722,7 @@ const PriceStrategySection = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-5 gap-3">
         <div className="flex items-center gap-2">
           <div className="w-1 h-4 bg-orange-500 rounded-full" />
-          <span className="text-[10px] sm:text-[11px] font-black text-white/30 uppercase tracking-[0.2em] sm:tracking-[0.25em]">가격 전략</span>
+          <span className="text-[10px] sm:text-[11px] font-black text-white/30 tracking-tight sm:tracking-[0.25em]">가격 전략</span>
         </div>
         <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 sm:gap-1">
           <div className={cn('flex items-center gap-2 sm:gap-2.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl border shadow-[0_0_15px_rgba(249,115,22,0.1)] transition-all', tone.wrapper)} title={variant.title}>
@@ -734,13 +734,13 @@ const PriceStrategySection = ({
           </div>
           <div className="flex items-center gap-2 mt-1">
             {stock.priceUpdatedAt && (
-              <span className="text-[7px] sm:text-[8px] font-black text-white/20 uppercase tracking-widest flex items-center gap-1">
+              <span className="text-[7px] sm:text-[8px] font-black text-white/20 tracking-tight flex items-center gap-1">
                 <Clock className="w-2 h-2" />
                 {stock.priceUpdatedAt}
               </span>
             )}
             {stock.financialUpdatedAt && (
-              <span className="text-[7px] sm:text-[8px] font-black text-blue-400/40 uppercase tracking-widest flex items-center gap-1">
+              <span className="text-[7px] sm:text-[8px] font-black text-blue-400/40 tracking-tight flex items-center gap-1">
                 <ShieldCheck className="w-2 h-2" />
                 DART: {stock.financialUpdatedAt}
               </span>
@@ -832,7 +832,7 @@ const InsightRow = ({
       <Icon className={cn('w-5 h-5 sm:w-6 sm:h-6', tone === 'blue' ? 'text-blue-400' : 'text-yellow-400')} />
     </div>
     <div className="min-w-0 flex-1">
-      <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">{title}</span>
+      <span className="text-[9px] sm:text-[10px] font-black text-white/20 tracking-tight sm:tracking-[0.2em] block mb-1.5 sm:mb-2">{title}</span>
       <div className="space-y-1.5 sm:space-y-2">
         <div className="flex items-center gap-2">
           <span className={cn('text-[9px] sm:text-[10px] font-black px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-lg sm:rounded-xl shadow-sm inline-block', badgeActive ? (tone === 'blue' ? 'bg-blue-500 text-white' : 'bg-yellow-500 text-black') : 'bg-white/10 text-white/40')}>{badge}</span>
@@ -856,7 +856,7 @@ const ValuationRow = ({ stock }: { stock: StockRecommendation }) => {
         <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-orange-400" />
       </div>
       <div className="min-w-0 flex-1">
-        <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Valuation Matrix</span>
+        <span className="text-[9px] sm:text-[10px] font-black text-white/20 tracking-tight sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Valuation Matrix</span>
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
           <ValuationCell label="P/E" value={per && per > 0 ? `${per.toFixed(1)}x` : 'N/A'} />
           <ValuationCell label="P/B" value={pbr && pbr > 0 ? `${pbr.toFixed(2)}x` : 'N/A'} />
@@ -880,7 +880,7 @@ const LatestNews = ({ stock }: { stock: StockRecommendation }) => (
       <Newspaper className="w-5 h-5 sm:w-6 sm:h-6 text-orange-400" />
     </div>
     <div className="min-w-0 flex-1">
-      <span className="text-[9px] sm:text-[10px] font-black text-white/20 uppercase tracking-[0.15em] sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Latest News</span>
+      <span className="text-[9px] sm:text-[10px] font-black text-white/20 tracking-tight sm:tracking-[0.2em] block mb-1.5 sm:mb-2">Latest News</span>
       <div className="space-y-2">
         {(stock.latestNews || []).slice(0, 5).map((news, index) => (
           <a key={index} href={`https://www.google.com/search?q=${encodeURIComponent(`${news.headline || ''} ${stock.name || ''}`)}`} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="flex flex-col gap-1 p-2 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl transition-all group/news-item cursor-pointer">
@@ -888,7 +888,7 @@ const LatestNews = ({ stock }: { stock: StockRecommendation }) => (
               <span className="text-[11px] sm:text-[12px] font-bold text-white/80 group-hover/news-item:text-orange-400 transition-colors line-clamp-2 leading-tight">{news.headline}</span>
               <ExternalLink className="w-3 h-3 text-white/20 shrink-0" />
             </div>
-            <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">{news.date}</span>
+            <span className="text-[9px] font-black text-white/20 tracking-tight">{news.date}</span>
           </a>
         ))}
       </div>

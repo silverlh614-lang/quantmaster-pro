@@ -182,7 +182,7 @@ export function WeightConfigPanel({ weights, onWeightsChange, vkospi = 18 }: Wei
                 {/* VKOSPI bar */}
                 <div className="flex-1 min-w-0 w-full">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest">VKOSPI 레짐</span>
+                    <span className="text-[10px] font-black text-theme-text-muted tracking-tight">VKOSPI 레짐</span>
                     <span className={cn('text-xs font-black font-mono', vkLabel.color)}>{vkospi.toFixed(1)}</span>
                   </div>
                   <div className="h-2.5 rounded-full overflow-hidden bg-white/5 border border-theme-border relative">
@@ -201,7 +201,7 @@ export function WeightConfigPanel({ weights, onWeightsChange, vkospi = 18 }: Wei
                       transition={{ duration: 0.4 }}
                     />
                   </div>
-                  <div className="flex justify-between mt-1 text-[8px] font-black text-theme-text-muted uppercase tracking-wider">
+                  <div className="flex justify-between mt-1 text-[8px] font-black text-theme-text-muted tracking-tight">
                     <span>ULTRA CALM</span>
                     <span>CALM</span>
                     <span>ELEVATED</span>
@@ -334,7 +334,7 @@ function ConditionWeightCard({ id, weight, recommended, baseWeight, onWeightChan
 
       {/* Recommended badge */}
       <div className="hidden sm:flex flex-col items-center gap-0.5 shrink-0 w-14">
-        <span className="text-[8px] font-black text-theme-text-muted uppercase tracking-wider">권장</span>
+        <span className="text-[8px] font-black text-theme-text-muted tracking-tight">권장</span>
         <span className={cn(
           'text-xs font-black font-mono tabular-nums',
           Math.abs(diffFromRec) < 0.1 ? 'text-green-400' : 'text-amber-400'

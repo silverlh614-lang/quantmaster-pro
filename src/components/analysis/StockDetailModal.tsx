@@ -115,7 +115,7 @@ function ModalHeader({
 
 function LeadingBadge() {
   return (
-    <span className="text-[9px] font-black bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md border border-amber-500/20 uppercase tracking-widest">
+    <span className="text-[9px] font-black bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-md border border-amber-500/20 tracking-tight">
       Leading
     </span>
   );
@@ -144,7 +144,7 @@ function AiConvictionCard({ stock }: { stock: StockRecommendation }) {
   return (
     <div className="glass-3d rounded-xl p-4">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest">AI Conviction</span>
+        <span className="text-[10px] font-black text-theme-text-muted tracking-tight">AI Conviction</span>
         <span className="text-sm font-black text-theme-text font-num">{stock.aiConvictionScore.totalScore}/100</span>
       </div>
       <div className="text-[10px] text-orange-300/60 mb-2">
@@ -257,7 +257,7 @@ function GateMiniStatus({
 }) {
   return (
     <div className="text-center">
-      <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest block">{label}</span>
+      <span className="text-[9px] font-black text-theme-text-muted tracking-tight block">{label}</span>
       <span className={cn('text-[10px] font-black', className)}>{value}</span>
     </div>
   );
@@ -328,7 +328,7 @@ function NewsLink({
         <span className="text-xs font-bold text-theme-text-secondary group-hover/news:text-orange-400 transition-colors line-clamp-2 leading-snug">
           {headline}
         </span>
-        <span className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest block mt-1">{date}</span>
+        <span className="text-[9px] font-black text-theme-text-muted tracking-tight block mt-1">{date}</span>
       </div>
       <ExternalLink className="w-3 h-3 text-theme-text-muted shrink-0 mt-0.5" />
     </a>

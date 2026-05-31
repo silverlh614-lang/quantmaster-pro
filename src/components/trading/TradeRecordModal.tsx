@@ -230,7 +230,7 @@ export function TradeRecordModal({ onRecordTrade }: TradeRecordModalProps) {
             setTradeRecordStock(null);
           }}
           disabled={!tradeFormData.quantity}
-          className="w-full mt-5 sm:mt-6 bg-emerald-500 hover:bg-emerald-400 shadow-[0_8px_30px_rgba(16,185,129,0.25)] uppercase tracking-widest"
+          className="w-full mt-5 sm:mt-6 bg-emerald-500 hover:bg-emerald-400 shadow-[0_8px_30px_rgba(16,185,129,0.25)] tracking-tight"
         >
           매수 기록 저장
         </Button>

@@ -88,7 +88,7 @@ export function RecommendationWarningsBanner({ className = '' }: Props): ReactEl
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon className={`w-4 h-4 ${tone.iconColor}`} />
-          <span className={`text-xs font-black ${tone.badge} uppercase tracking-widest`}>
+          <span className={`text-xs font-black ${tone.badge} tracking-tight`}>
             {tone.label}
           </span>
         </div>

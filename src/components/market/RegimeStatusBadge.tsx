@@ -25,7 +25,7 @@ export function RegimeStatusBadge({ view }: { view: MarketRegimeView }) {
     <div className={cn('inline-flex items-center gap-2 rounded-lg border px-3 py-2', TONE_STYLE[tone])} data-regime-state={view.state}>
       <StatusIcon state={view.state} />
       <div className="leading-tight">
-        <div className="text-xs font-black uppercase tracking-[0.16em] font-num">{view.state}</div>
+        <div className="text-xs font-black tracking-tight font-num">{view.state}</div>
         <div className="text-[10px] font-bold opacity-75">{getRegimeConfidenceLabel(view.confidence)}</div>
       </div>
     </div>

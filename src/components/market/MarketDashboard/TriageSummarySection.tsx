@@ -19,9 +19,9 @@ export const TriageSummarySection: React.FC<TriageSummarySectionProps> = ({ gate
           <Activity size={80} />
         </div>
         <div className="relative z-10">
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] mb-4 block">전체 분석 종목</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight mb-4 block">전체 분석 종목</span>
           <div className="text-fluid-4xl font-black text-white tracking-tighter">{total}</div>
-          <p className="text-[9px] font-bold text-white/40 mt-2 uppercase tracking-widest">Total Monitored Assets</p>
+          <p className="text-[9px] font-bold text-white/40 mt-2 tracking-tight">Total Monitored Assets</p>
         </div>
       </div>
 
@@ -30,7 +30,7 @@ export const TriageSummarySection: React.FC<TriageSummarySectionProps> = ({ gate
           <ShieldAlert size={80} className="text-red-500" />
         </div>
         <div className="relative z-10">
-          <span className="text-[10px] font-black text-red-400/60 uppercase tracking-[0.2em] mb-4 block">Gate 1: 생존 필터 통과</span>
+          <span className="text-[10px] font-black text-red-400/60 tracking-tight mb-4 block">Gate 1: 생존 필터 통과</span>
           <div className="text-fluid-4xl font-black text-red-400 tracking-tighter">{gate1}</div>
           <div className="h-1.5 bg-white/5 rounded-full mt-4 overflow-hidden">
             <div className="h-full bg-red-500" style={{ width: `${(gate1 / safeTotal) * 100}%` }} />
@@ -43,7 +43,7 @@ export const TriageSummarySection: React.FC<TriageSummarySectionProps> = ({ gate
           <TrendingUp size={80} className="text-orange-500" />
         </div>
         <div className="relative z-10">
-          <span className="text-[10px] font-black text-orange-400/60 uppercase tracking-[0.2em] mb-4 block">Gate 2: 성장 검증 통과</span>
+          <span className="text-[10px] font-black text-orange-400/60 tracking-tight mb-4 block">Gate 2: 성장 검증 통과</span>
           <div className="text-fluid-4xl font-black text-orange-400 tracking-tighter">{gate2}</div>
           <div className="h-1.5 bg-white/5 rounded-full mt-4 overflow-hidden">
             <div className="h-full bg-orange-500" style={{ width: `${(gate2 / safeTotal) * 100}%` }} />
@@ -56,7 +56,7 @@ export const TriageSummarySection: React.FC<TriageSummarySectionProps> = ({ gate
           <Zap size={80} className="text-indigo-500" />
         </div>
         <div className="relative z-10">
-          <span className="text-[10px] font-black text-indigo-400/60 uppercase tracking-[0.2em] mb-4 block">Gate 3: 정밀 타이밍 통과</span>
+          <span className="text-[10px] font-black text-indigo-400/60 tracking-tight mb-4 block">Gate 3: 정밀 타이밍 통과</span>
           <div className="text-fluid-4xl font-black text-indigo-400 tracking-tighter">{gate3}</div>
           <div className="h-1.5 bg-white/5 rounded-full mt-4 overflow-hidden">
             <div className="h-full bg-indigo-500" style={{ width: `${(gate3 / safeTotal) * 100}%` }} />

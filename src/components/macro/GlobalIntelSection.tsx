@@ -233,7 +233,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                 {/* Hidden Gems 강조 */}
                 {theme.hiddenGems.length > 0 && (
                   <div className="mb-3 p-3 border-2 border-emerald-300 bg-emerald-50">
-                    <p className="text-[9px] font-black text-emerald-700 uppercase tracking-widest mb-2">
+                    <p className="text-[9px] font-black text-emerald-700 tracking-tight mb-2">
                       HIDDEN GEMS — 시장 미인지 수혜주
                     </p>
                     <div className="space-y-2">

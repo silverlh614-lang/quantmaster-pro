@@ -21,7 +21,7 @@ export function KeyChecklistOverview({ stock }: KeyChecklistOverviewProps) {
     <div className="glass-3d rounded-2xl p-5 sm:p-6 border border-white/10">
       <div className="flex items-center gap-2.5 mb-4">
         <CheckSquare className="w-5 h-5 text-green-400" />
-        <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.25em]">
+        <span className="text-[10px] font-black text-white/30 tracking-tight">
           핵심 체크리스트 현황
         </span>
       </div>
@@ -43,7 +43,7 @@ interface ChecklistGroupProps {
 function ChecklistGroup({ group, stock }: ChecklistGroupProps) {
   return (
     <div className="space-y-1.5">
-      <h5 className="text-[10px] font-black text-white/25 uppercase tracking-widest mb-2 border-b border-white/5 pb-1.5">
+      <h5 className="text-[10px] font-black text-white/25 tracking-tight mb-2 border-b border-white/5 pb-1.5">
         {group.label}
       </h5>
       {group.keys.map((key) => (

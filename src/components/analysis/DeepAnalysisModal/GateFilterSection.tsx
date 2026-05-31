@@ -64,7 +64,7 @@ export function GateFilterSection({ stock }: Props) {
               </h4>
               <div className="flex items-baseline gap-1.5 mb-2">
                 <span className="text-2xl font-black text-white tracking-tighter">{gate?.score || 0}</span>
-                <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Score</span>
+                <span className="text-[10px] font-bold text-white/20 tracking-tight">Score</span>
               </div>
               <p className="text-[11px] text-white/50 leading-relaxed font-bold">
                 {gate?.reason || "Waiting for evaluation..."}

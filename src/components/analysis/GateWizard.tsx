@@ -677,7 +677,7 @@ function WizardBottomNav({
       >
         Previous
       </Button>
-      <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest">
+      <div className="text-[10px] font-black text-theme-text-muted tracking-tight">
         {activeStep + 1} / {STEPS.length}
       </div>
       {activeStep < STEPS.length - 1 ? (

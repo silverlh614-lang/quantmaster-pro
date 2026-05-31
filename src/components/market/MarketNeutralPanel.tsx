@@ -38,7 +38,7 @@ export function MarketNeutralPanel({ marketNeutralResult }: MarketNeutralPanelPr
         {/* Label */}
         <div className="flex items-center gap-2 font-black text-sm shrink-0">
           <Scale className="w-4 h-4 text-purple-400" />
-          <span className="uppercase tracking-widest text-xs text-purple-400">MARKET NEUTRAL</span>
+          <span className="tracking-tight text-xs text-purple-400">MARKET NEUTRAL</span>
         </div>
 
         {/* Allocation pills */}
@@ -50,7 +50,7 @@ export function MarketNeutralPanel({ marketNeutralResult }: MarketNeutralPanelPr
               <span
                 key={leg.type}
                 className={cn(
-                  'flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded border uppercase tracking-widest shrink-0',
+                  'flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded border tracking-tight shrink-0',
                   style.bg, style.border, style.text,
                 )}
               >
@@ -126,19 +126,19 @@ export function MarketNeutralPanel({ marketNeutralResult }: MarketNeutralPanelPr
             <p className="text-xs font-bold text-purple-100 mb-1">{betaNeutralScenario.description}</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
               <div className="text-center">
-                <p className="text-[9px] uppercase tracking-widest opacity-60 mb-0.5">시장 수익률</p>
+                <p className="text-[9px] tracking-tight opacity-60 mb-0.5">시장 수익률</p>
                 <p className="text-sm font-black text-red-300">{betaNeutralScenario.marketReturn}%</p>
               </div>
               <div className="text-center">
-                <p className="text-[9px] uppercase tracking-widest opacity-60 mb-0.5">롱 알파</p>
+                <p className="text-[9px] tracking-tight opacity-60 mb-0.5">롱 알파</p>
                 <p className="text-sm font-black text-emerald-300">+{betaNeutralScenario.longAlpha}%</p>
               </div>
               <div className="text-center">
-                <p className="text-[9px] uppercase tracking-widest opacity-60 mb-0.5">인버스 수익</p>
+                <p className="text-[9px] tracking-tight opacity-60 mb-0.5">인버스 수익</p>
                 <p className="text-sm font-black text-emerald-300">+{betaNeutralScenario.inverseReturn}%</p>
               </div>
               <div className="text-center">
-                <p className="text-[9px] uppercase tracking-widest opacity-60 mb-0.5">포트폴리오 총수익</p>
+                <p className="text-[9px] tracking-tight opacity-60 mb-0.5">포트폴리오 총수익</p>
                 <p className={cn('text-sm font-black', betaNeutralScenario.totalReturn >= 0 ? 'text-emerald-300' : 'text-red-300')}>
                   {betaNeutralScenario.totalReturn >= 0 ? '+' : ''}{betaNeutralScenario.totalReturn}%
                 </p>

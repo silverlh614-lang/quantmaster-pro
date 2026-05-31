@@ -26,7 +26,7 @@ export const HeroChecklist: React.FC<HeroChecklistProps> = ({ steps, onShowCheck
         className="flex items-center gap-3 px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl border border-white/10 transition-all group/toggle mb-6"
       >
         <ShieldCheck className={cn("w-5 h-5 text-orange-500 transition-transform", expanded ? "rotate-180" : "")} />
-        <span className="text-sm font-black text-white/60 uppercase tracking-widest">27단계 마스터 체크리스트 보기</span>
+        <span className="text-sm font-black text-white/60 tracking-tight">27단계 마스터 체크리스트 보기</span>
         <ChevronDown className={cn("w-4 h-4 text-white/20 group-hover/toggle:text-orange-500 transition-transform", expanded ? "rotate-180" : "")} />
       </button>
 

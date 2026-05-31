@@ -23,10 +23,10 @@ export function MasterChecklistModal() {
           <div key={gateNum} className="space-y-3 sm:space-y-4">
             <div className="flex items-center gap-3 mb-3 sm:mb-4">
               <div className="px-3 py-1 bg-orange-500/15 rounded-full border border-orange-500/25">
-                <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Gate {gateNum}</span>
+                <span className="text-[10px] font-black text-orange-500 tracking-tight">Gate {gateNum}</span>
               </div>
               <div className="h-px flex-1 bg-theme-border" />
-              <span className="text-[10px] font-bold text-theme-text-muted uppercase tracking-widest hidden sm:block">
+              <span className="text-[10px] font-bold text-theme-text-muted tracking-tight hidden sm:block">
                 {gateNum === 1 ? '기초 체력 및 사이클 검증' : gateNum === 2 ? '수급 및 실체적 모멘텀 확인' : '추세 가속 및 리스크 관리'}
               </span>
             </div>
@@ -53,10 +53,10 @@ export function MasterChecklistModal() {
         <div className="space-y-3 sm:space-y-4 pt-4 sm:pt-6">
           <div className="flex items-center gap-3 mb-3 sm:mb-4">
             <div className="px-3 py-1 bg-red-500/15 rounded-full border border-red-500/25">
-              <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Sell Checklist</span>
+              <span className="text-[10px] font-black text-red-500 tracking-tight">Sell Checklist</span>
             </div>
             <div className="h-px flex-1 bg-theme-border" />
-            <span className="text-[10px] font-bold text-theme-text-muted uppercase tracking-widest hidden sm:block">매도 원칙 및 리스크 관리</span>
+            <span className="text-[10px] font-bold text-theme-text-muted tracking-tight hidden sm:block">매도 원칙 및 리스크 관리</span>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:gap-3">
             {SELL_CHECKLIST_STEPS.map((step, i) => (

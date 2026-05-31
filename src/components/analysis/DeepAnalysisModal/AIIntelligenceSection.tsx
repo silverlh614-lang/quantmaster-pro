@@ -47,7 +47,7 @@ function AiCardShell({
         <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center border border-orange-500/20">
           {titleIcon}
         </div>
-        <span className="text-[11px] font-black text-white/40 uppercase tracking-widest">{title}</span>
+        <span className="text-[11px] font-black text-white/40 tracking-tight">{title}</span>
       </div>
       {children}
     </div>
@@ -89,13 +89,13 @@ function MarketPhaseAnalysis({ stock }: Props) {
         <div className={cn('px-2 py-0.5 rounded text-[8px] font-black uppercase', resolveMarketPhaseClass(phase))}>
           {phaseInfo.label}
         </div>
-        <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">Phase Analysis</span>
+        <span className="text-[9px] font-black text-white/20 tracking-tight">Phase Analysis</span>
       </div>
 
       <div className="bg-white/5 rounded-xl p-3 border border-white/5 mb-3">
         <div className="flex items-center gap-2 mb-1">
           <Lightbulb className="w-3 h-3 text-yellow-500" />
-          <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">Recommendation</span>
+          <span className="text-[9px] font-black text-white/40 tracking-tight">Recommendation</span>
         </div>
         <p className="text-[11px] text-white/80 font-bold leading-relaxed">
           {phaseInfo.recommendation}
@@ -124,7 +124,7 @@ function AiConvictionCard({ stock }: Props) {
         ⓘ Gemini 정성 평가 — 자동매매 진입 기준 아님
       </div>
       <div className="bg-orange-500/10 p-3 rounded-xl border border-orange-500/20 mb-4">
-        <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest block mb-1">Market Context Weighting</span>
+        <span className="text-[10px] font-black text-orange-500 tracking-tight block mb-1">Market Context Weighting</span>
         <p className="text-[11px] text-orange-400/80 font-bold leading-tight">
           {stock.aiConvictionScore?.description}
         </p>
@@ -146,21 +146,21 @@ function CatalystAnalysisCard({ stock }: Props) {
         <span className="text-4xl font-black text-white tracking-tighter">{stock.catalystDetail?.score || 0}</span>
         <span className="text-sm font-bold text-white/20">/ 20 bonus</span>
         {stock.catalystSummary && (
-          <span className="ml-auto px-3 py-1 rounded-full bg-yellow-500/20 border border-yellow-500/30 text-[10px] font-black text-yellow-500 uppercase tracking-widest">
+          <span className="ml-auto px-3 py-1 rounded-full bg-yellow-500/20 border border-yellow-500/30 text-[10px] font-black text-yellow-500 tracking-tight">
             {stock.catalystSummary}
           </span>
         )}
       </div>
       <div className="space-y-4">
         <div>
-          <span className="text-[10px] font-black text-white/30 uppercase tracking-widest block mb-2">Key Catalyst</span>
+          <span className="text-[10px] font-black text-white/30 tracking-tight block mb-2">Key Catalyst</span>
           <p className="text-xs text-white/70 font-bold leading-relaxed">
             {stock.catalystDetail?.description || '발굴된 촉매제가 없습니다.'}
           </p>
         </div>
         {stock.catalystDetail?.upcomingEvents && stock.catalystDetail.upcomingEvents.length > 0 && (
           <div>
-            <span className="text-[10px] font-black text-white/30 uppercase tracking-widest block mb-2">Upcoming Events</span>
+            <span className="text-[10px] font-black text-white/30 tracking-tight block mb-2">Upcoming Events</span>
             <div className="space-y-1.5">
               {(stock.catalystDetail?.upcomingEvents || []).map((event, i) => (
                 <div key={i} className="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg border border-white/5">
@@ -192,7 +192,7 @@ function VisualGradeRow({
   const filledStars = Math.round(score / 2);
   return (
     <div className="flex items-center justify-between bg-white/5 p-3 rounded-xl border border-white/5">
-      <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{label}</span>
+      <span className="text-[10px] font-black text-white/40 tracking-tight">{label}</span>
       <div className="flex items-center gap-2">
         <div className="flex gap-0.5">
           {[1, 2, 3, 4, 5].map(star => (
@@ -224,7 +224,7 @@ function VisualReportCard({ stock }: Props) {
         <VisualGradeRow label="Supply" grade={stock.visualReport?.supply} color="text-green-400" />
       </div>
       <div className="bg-white/5 p-3 rounded-xl border border-white/5">
-        <span className="text-[10px] font-black text-white/30 uppercase tracking-widest block mb-1">AI Verdict</span>
+        <span className="text-[10px] font-black text-white/30 tracking-tight block mb-1">AI Verdict</span>
         <p className="text-[11px] text-white/70 font-bold leading-tight italic">
           "{stock.visualReport?.summary}"
         </p>
@@ -246,7 +246,7 @@ function SupplyDataStatCard({
 }) {
   return (
     <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
-      <span className="text-[10px] font-black text-white/30 uppercase tracking-widest block mb-1">{label}</span>
+      <span className="text-[10px] font-black text-white/30 tracking-tight block mb-1">{label}</span>
       <span className={cn('text-xl font-black', valueClassName)}>{value}</span>
       <span className="text-[10px] text-white/30 block mt-1">{subLabel}</span>
     </div>
@@ -274,11 +274,11 @@ function SupplyDataCard({ stock }: Props) {
           <TrendingUp className="w-5 h-5 text-blue-400" />
         </div>
         <div>
-          <span className="text-[10px] font-black text-blue-400/60 uppercase tracking-widest block">KIS 수급</span>
+          <span className="text-[10px] font-black text-blue-400/60 tracking-tight block">KIS 수급</span>
           <h3 className="text-sm font-black text-white uppercase tracking-tight">외국인 / 기관 수급</h3>
         </div>
         <span className={cn(
-          'ml-auto text-[9px] font-black px-2 py-1 rounded-lg border uppercase tracking-widest',
+          'ml-auto text-[9px] font-black px-2 py-1 rounded-lg border tracking-tight',
           hasRealFlow
             ? 'text-blue-400/50 bg-blue-500/10 border-blue-500/20'
             : 'text-white/40 bg-white/5 border-white/10',
@@ -329,8 +329,8 @@ function SupplyDataCard({ stock }: Props) {
           {ownRatio != null && (
             <div className="bg-white/5 rounded-2xl p-4 border border-white/10 mb-4">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-black text-white/30 uppercase tracking-widest">외국인 보유율</span>
-                <span className="text-[9px] font-black text-blue-400/60 uppercase tracking-widest">Naver 실데이터</span>
+                <span className="text-[10px] font-black text-white/30 tracking-tight">외국인 보유율</span>
+                <span className="text-[9px] font-black text-blue-400/60 tracking-tight">Naver 실데이터</span>
               </div>
               <span className="text-2xl font-black text-blue-400 block">{ownRatio.toFixed(2)}%</span>
             </div>
@@ -338,7 +338,7 @@ function SupplyDataCard({ stock }: Props) {
           <div className="p-4 rounded-2xl border bg-white/5 border-white/10">
             <div className="flex items-center gap-2 mb-1.5">
               <Info className="w-4 h-4 text-white/30" />
-              <span className="text-xs font-black text-white/40 uppercase tracking-widest">
+              <span className="text-xs font-black text-white/40 tracking-tight">
                 외국인·기관 순매수 미연동
               </span>
             </div>
@@ -369,7 +369,7 @@ function ShortSellingCard({ stock }: Props) {
         <div className="space-y-4">
           <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
             <div>
-              <span className="text-[10px] font-black text-white/30 uppercase tracking-widest block mb-1">공매도 비율</span>
+              <span className="text-[10px] font-black text-white/30 tracking-tight block mb-1">공매도 비율</span>
               <span className="text-2xl font-black text-white">{short.ratio}%</span>
             </div>
             <div className={cn(
@@ -415,11 +415,11 @@ function TenbaggerDnaCard({ stock }: Props) {
         <div className="space-y-4">
           <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
             <div>
-              <span className="text-[10px] font-black text-white/30 uppercase tracking-widest block mb-1">매칭 패턴</span>
+              <span className="text-[10px] font-black text-white/30 tracking-tight block mb-1">매칭 패턴</span>
               <span className="text-sm font-black text-white">{stock.tenbaggerDNA.matchPattern}</span>
             </div>
             <div className="text-right">
-              <span className="text-[10px] font-black text-white/30 uppercase tracking-widest block mb-1">유사도</span>
+              <span className="text-[10px] font-black text-white/30 tracking-tight block mb-1">유사도</span>
               <span className="text-2xl font-black text-blue-400">{stock.tenbaggerDNA.similarity}%</span>
             </div>
           </div>
@@ -461,7 +461,7 @@ function HistoricalAnalogyCard({ stock }: Props) {
           </div>
           <span className="text-xs font-black text-blue-400">{stock.historicalAnalogy?.similarity}%</span>
         </div>
-        <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">Similarity Match</span>
+        <span className="text-[9px] font-black text-white/20 tracking-tight">Similarity Match</span>
       </div>
       <p className="text-[12px] text-white/70 leading-relaxed font-bold break-words">
         {stock.historicalAnalogy?.reason}

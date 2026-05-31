@@ -59,14 +59,14 @@ export function ModalHeader({ stock }: ModalHeaderProps) {
         <div className="flex items-center gap-2">
           <div className="h-0.5 w-16 bg-gradient-to-r from-orange-500 via-orange-500/50 to-transparent rounded-full" />
           <Sparkles className="w-3 h-3 text-orange-500" />
-          <span className="text-[9px] font-black text-orange-500 uppercase tracking-[0.3em]">Institutional Grade AI Analysis</span>
+          <span className="text-[9px] font-black text-orange-500 tracking-tight">Institutional Grade AI Analysis</span>
         </div>
       </div>
 
       {/* Right: compact stats strip */}
       <div className="flex items-stretch gap-0 bg-white/[0.03] rounded-2xl border border-white/10 backdrop-blur-xl overflow-hidden shrink-0">
         <div className="flex flex-col justify-center px-4 py-2.5 min-w-fit">
-          <span className="text-[9px] font-black text-white/30 uppercase tracking-[0.15em] mb-0.5">Current Price</span>
+          <span className="text-[9px] font-black text-white/30 tracking-tight mb-0.5">Current Price</span>
           <div className="flex items-baseline gap-1">
             {/* 가격 정본 SSOT — usePriceCanon hook 단일 통로 */}
             <PriceDisplay
@@ -87,7 +87,7 @@ export function ModalHeader({ stock }: ModalHeaderProps) {
         </div>
         <div className="w-px bg-white/10 self-stretch" />
         <div className="flex flex-col justify-center px-4 py-2.5 min-w-fit">
-          <span className="text-[9px] font-black text-white/30 uppercase tracking-[0.15em] mb-0.5">Value / Momentum</span>
+          <span className="text-[9px] font-black text-white/30 tracking-tight mb-0.5">Value / Momentum</span>
           <div className="flex items-center gap-2">
             <div className="flex items-baseline gap-1">
               <span className="text-lg font-black text-blue-400">{stock.scores?.value || 0}</span>
@@ -102,7 +102,7 @@ export function ModalHeader({ stock }: ModalHeaderProps) {
         </div>
         <div className="w-px bg-white/10 self-stretch" />
         <div className="flex flex-col justify-center px-4 py-2.5 min-w-fit">
-          <span className="text-[9px] font-black text-white/30 uppercase tracking-[0.15em] mb-0.5">AI Conviction</span>
+          <span className="text-[9px] font-black text-white/30 tracking-tight mb-0.5">AI Conviction</span>
           <div className="flex items-baseline gap-1">
             <span className="text-lg sm:text-xl font-black text-orange-500 tracking-tighter">{stock.aiConvictionScore?.totalScore || 0}</span>
             <span className="text-[9px] font-bold text-white/20">/ 100</span>

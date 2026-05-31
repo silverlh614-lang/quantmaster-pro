@@ -103,7 +103,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
           </div>
           <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 border border-green-500/20 rounded-full">
             <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-xs font-bold text-green-400 uppercase tracking-wider">Active Monitoring</span>
+            <span className="text-xs font-bold text-green-400 tracking-tight">Active Monitoring</span>
           </div>
         </div>
 
@@ -173,7 +173,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
                   isDirty ? "bg-amber-400 animate-pulse" : "bg-green-500"
                 )}
               />
-              <span className={cn("font-bold uppercase tracking-widest", isDirty ? "text-amber-300" : "text-green-400")}>
+              <span className={cn("font-bold tracking-tight", isDirty ? "text-amber-300" : "text-green-400")}>
                 {isDirty ? '저장되지 않은 변경사항' : '저장 상태 최신'}
               </span>
               <span className="text-gray-500 font-medium ml-1">선택 {draftSectors.length}개 / 저장 {subscribedSectors.length}개</span>
@@ -338,7 +338,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
           </div>
 
           <div className="bg-gradient-to-br from-amber-600/20 to-orange-600/20 border border-amber-500/20 rounded-xl p-6">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4">구독 시스템 활용 팁</h3>
+            <h3 className="text-sm font-bold text-white tracking-tight mb-4">구독 시스템 활용 팁</h3>
             <ul className="space-y-3">
               <li className="flex gap-2 text-xs text-gray-300">
                 <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1 flex-shrink-0" />

@@ -57,7 +57,7 @@ function TechnicalIndicatorPill({
 }) {
   return (
     <div className="space-y-2">
-      <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block">{label}</span>
+      <span className="text-[10px] font-black text-white/20 tracking-tight block">{label}</span>
       <div className={cn('px-3 py-2 rounded-xl font-black text-center border', textSizeClass, className)}>
         {value}
       </div>
@@ -76,7 +76,7 @@ function CompactMetricRow({
 }) {
   return (
     <div className="bg-white/5 p-3 rounded-xl border border-white/5 flex justify-between items-center">
-      <span className="text-[10px] font-black text-white/30 uppercase tracking-widest">{label}</span>
+      <span className="text-[10px] font-black text-white/30 tracking-tight">{label}</span>
       <span className={cn('text-xs font-black', valueClassName)}>{value}</span>
     </div>
   );
@@ -131,7 +131,7 @@ function ElliottWaveMiniCard({ stock }: Props) {
     <div className="bg-gradient-to-br from-indigo-500/10 to-purple-600/5 rounded-3xl p-5 border border-indigo-500/20">
       <div className="flex items-center gap-3 mb-3">
         <Activity className="w-4 h-4 text-indigo-400" />
-        <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Elliott Wave Status</span>
+        <span className="text-[10px] font-black text-white/40 tracking-tight">Elliott Wave Status</span>
       </div>
       <div className="flex items-center gap-3 mb-2">
         <span className="text-lg font-black text-indigo-400">{formatStatusToken(stock.elliottWaveStatus.wave || '')}</span>
@@ -149,7 +149,7 @@ function ChartPatternMiniCard({ stock }: Props) {
     <div className="bg-gradient-to-br from-emerald-500/10 to-teal-600/5 rounded-3xl p-5 border border-emerald-500/20">
       <div className="flex items-center gap-3 mb-3">
         <Target className="w-4 h-4 text-emerald-400" />
-        <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Chart Pattern</span>
+        <span className="text-[10px] font-black text-white/40 tracking-tight">Chart Pattern</span>
       </div>
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-black text-white uppercase">{stock.chartPattern.name}</span>
@@ -242,7 +242,7 @@ function TechnicalDetailCard({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <div className={cn('w-2 h-2 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.5)]', dotClassName)} />
-          <span className="text-xs font-black text-white/60 uppercase tracking-widest">{title}</span>
+          <span className="text-xs font-black text-white/60 tracking-tight">{title}</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm font-black text-white">{value}</span>
@@ -354,7 +354,7 @@ function ChartPatternAnalysisCard({ stock }: Props) {
               {stock.chartPattern.name} ({formatStatusToken(stock.chartPattern.type || '')})
             </div>
             <div className="flex flex-col items-end">
-              <span className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-1">Reliability</span>
+              <span className="text-[10px] font-black text-white/20 tracking-tight mb-1">Reliability</span>
               <div className="flex items-center gap-2">
                 <div className="w-24 h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
                   <div
@@ -404,7 +404,7 @@ function StrategicInsightCard({ stock }: Props) {
       {stock.strategicInsight ? (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">Cycle Position</span>
+            <span className="text-[10px] font-black text-white/20 tracking-tight">Cycle Position</span>
             <span className={cn('text-xs font-black px-2 py-0.5 rounded-md', resolveCyclePositionClass(stock.strategicInsight.cyclePosition))}>
               {formatStatusToken(stock.strategicInsight.cyclePosition || '')}
             </span>

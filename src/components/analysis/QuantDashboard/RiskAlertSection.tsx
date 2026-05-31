@@ -24,7 +24,7 @@ export function RiskAlertSection({ result }: Props) {
             />
           ))}
         </div>
-        <p className="text-xs font-mono uppercase tracking-widest">
+        <p className="text-xs font-mono tracking-tight">
           {result.euphoriaLevel >= 3
             ? 'WARNING: OVERHEAT DETECTED - PROFIT TAKING RECOMMENDED'
             : 'STABLE: NO EUPHORIA DETECTED'}

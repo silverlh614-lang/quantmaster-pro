@@ -56,7 +56,7 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({ events }) => {
         </div>
         <div className="flex items-center gap-2 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full">
           <Clock className="w-3.5 h-3.5 text-blue-400" />
-          <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Real-time Sync</span>
+          <span className="text-[10px] font-bold text-blue-400 tracking-tight">Real-time Sync</span>
         </div>
       </div>
 
@@ -99,7 +99,7 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({ events }) => {
                     {event.title}
                   </h4>
                   <span className={cn(
-                    "text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-widest",
+                    "text-[10px] font-bold px-2 py-0.5 rounded border tracking-tight",
                     event.type === 'MACRO' ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
                     event.type === 'EARNINGS' ? "bg-purple-500/10 text-purple-400 border-purple-500/20" :
                     "bg-amber-500/10 text-amber-400 border-amber-500/20"
@@ -124,7 +124,7 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({ events }) => {
                     <Target className="w-4 h-4 text-orange-500" />
                   </div>
                   <div>
-                    <div className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-1">전략 자동 조정 제안</div>
+                    <div className="text-[10px] font-black text-orange-500 tracking-tight mb-1">전략 자동 조정 제안</div>
                     <p className="text-sm font-medium text-gray-200">
                       {event.strategyAdjustment}
                     </p>

@@ -170,7 +170,7 @@ function RiskSlot({ stopLoss, entryPrice, invalidation, targetPrice, scenarios, 
       <div className="flex items-center gap-2">
         <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" aria-hidden />
         <div className="flex-1">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-red-300/70">손절가 (감내 손실)</div>
+          <div className="text-[10px] font-bold tracking-tight text-red-300/70">손절가 (감내 손실)</div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-black text-red-100 font-num" data-vcard-risk="stop-loss">
               {formatKrw(stopLoss)}원
@@ -189,7 +189,7 @@ function RiskSlot({ stopLoss, entryPrice, invalidation, targetPrice, scenarios, 
         <div className="flex items-start gap-2 text-amber-200/90">
           <AlertTriangle className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" aria-hidden />
           <div className="flex-1 text-sm" data-vcard-risk="invalidation">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-amber-300/70">무효화 조건</span>
+            <span className="text-[10px] font-bold tracking-tight text-amber-300/70">무효화 조건</span>
             <div className="leading-snug">{invalidation}</div>
           </div>
         </div>

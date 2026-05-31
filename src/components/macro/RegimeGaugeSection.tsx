@@ -130,7 +130,7 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
               <div className="grid grid-cols-2 gap-3">
                 {Object.entries(economicRegime.keyIndicators).map(([k, v]) => (
                   <div key={k} className="p-3 bg-theme-bg border border-theme-border">
-                    <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">
+                    <p className="text-[9px] font-black text-theme-text-muted tracking-tight">
                       {keyIndicatorLabel(k)}
                     </p>
                     <p className="text-sm font-black font-mono mt-1">{v}</p>
@@ -160,7 +160,7 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
                   { label: '리스크', v: gate0Result.details.riskScore },
                 ].map(item => (
                   <div key={item.label} className="p-2 border border-theme-border bg-theme-bg">
-                    <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">{item.label}</p>
+                    <p className="text-[9px] font-black text-theme-text-muted tracking-tight">{item.label}</p>
                     <p className="text-lg font-black font-mono">{item.v}<span className="text-[9px] text-theme-text-muted">/25</span></p>
                   </div>
                 ))}
@@ -176,7 +176,7 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
               </h3>
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 border border-theme-border">
-                  <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-2">환율 레짐</p>
+                  <p className="text-[9px] font-black text-theme-text-muted tracking-tight mb-2">환율 레짐</p>
                   <p className="text-lg font-black">
                     {fxRegimeLabel(gate0Result.fxRegime)}
                   </p>
@@ -185,7 +185,7 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
                   </p>
                 </div>
                 <div className="p-4 border border-theme-border">
-                  <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-2">금리 사이클</p>
+                  <p className="text-[9px] font-black text-theme-text-muted tracking-tight mb-2">금리 사이클</p>
                   <p className="text-lg font-black">
                     {rateCycleLabel(gate0Result.rateCycle)}
                   </p>

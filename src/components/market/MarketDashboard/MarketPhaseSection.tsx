@@ -29,7 +29,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
     <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10 flex flex-col justify-between">
       <div className="flex items-center gap-3 mb-6">
         <Activity className="w-5 h-5 text-purple-400" />
-        <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em]">Market Phase</span>
+        <span className="text-[11px] font-black text-white/20 tracking-tight">Market Phase</span>
       </div>
       <div className="mb-8">
         <div className={cn(
@@ -44,7 +44,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
         </div>
       </div>
       <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-        <span className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-1">Active Strategy</span>
+        <span className="text-[9px] font-black text-white/20 tracking-tight block mb-1">Active Strategy</span>
         <p className="text-sm font-bold text-white/70">{activeStrategy || 'Standard Balanced'}</p>
       </div>
     </div>
@@ -53,7 +53,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
     <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10">
       <div className="flex items-center gap-3 mb-6">
         <Flame className="w-5 h-5 text-orange-500" />
-        <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em]">Euphoria Detector</span>
+        <span className="text-[11px] font-black text-white/20 tracking-tight">Euphoria Detector</span>
       </div>
       <div className="flex items-center gap-6 mb-8">
         <div className="text-fluid-5xl font-black text-white tracking-tighter">{euphoriaSignals?.score ?? 0}</div>
@@ -67,7 +67,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
               style={{ width: `${euphoriaSignals?.score ?? 0}%` }}
             />
           </div>
-          <p className="text-[10px] font-black text-white/30 mt-3 uppercase tracking-widest">
+          <p className="text-[10px] font-black text-white/30 mt-3 tracking-tight">
             {euphoriaSignals?.status || 'Analyzing...'}
           </p>
         </div>
@@ -81,7 +81,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
     <div className="glass-3d p-8 rounded-[2.5rem] border border-white/10">
       <div className="flex items-center gap-3 mb-6">
         <Zap className="w-5 h-5 text-yellow-400" />
-        <span className="text-[11px] font-black text-white/20 uppercase tracking-[0.3em]">Regime Shift Detector</span>
+        <span className="text-[11px] font-black text-white/20 tracking-tight">Regime Shift Detector</span>
       </div>
       <div className="space-y-4">
         <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">

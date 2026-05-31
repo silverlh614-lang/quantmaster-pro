@@ -101,7 +101,7 @@ function DeepAnalysisAiSummary({ reason }: { reason: string }) {
     <div className="mb-5 p-4 sm:p-5 rounded-2xl bg-orange-500/5 border border-orange-500/10 flex gap-3 items-start">
       <Sparkles className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
-        <span className="block text-[10px] font-black text-white/40 uppercase tracking-[0.25em] mb-1.5">판정 근거 요약</span>
+        <span className="block text-[10px] font-black text-white/40 tracking-tight mb-1.5">판정 근거 요약</span>
         <p className="text-white/90 text-sm sm:text-[15px] leading-relaxed font-bold tracking-tight break-words">
           {reason}
         </p>

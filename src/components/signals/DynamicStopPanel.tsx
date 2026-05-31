@@ -110,7 +110,7 @@ export const DynamicStopPanel: React.FC<Props> = ({
       <div className="px-5 pb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
         {/* ATR Stop */}
         <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3">
-          <p className="text-[9px] uppercase tracking-wider text-gray-500 mb-1">ATR 동적 손절</p>
+          <p className="text-[9px] tracking-tight text-gray-500 mb-1">ATR 동적 손절</p>
           <p className="text-base font-black text-white">{r.stopPrice.toLocaleString()}<span className="text-xs text-gray-400">원</span></p>
           <p className="text-[10px] text-red-400">{r.stopPct.toFixed(1)}%</p>
         </div>
@@ -120,7 +120,7 @@ export const DynamicStopPanel: React.FC<Props> = ({
           'border rounded-lg p-3',
           r.trailingActive ? 'bg-emerald-900/20 border-emerald-600' : 'bg-gray-800/50 border-gray-700',
         )}>
-          <p className="text-[9px] uppercase tracking-wider text-gray-500 mb-1">
+          <p className="text-[9px] tracking-tight text-gray-500 mb-1">
             {r.trailingActive ? '트레일링 손절 (활성)' : '현재 손절가'}
           </p>
           <p className={cn('text-base font-black', r.trailingActive ? 'text-emerald-300' : 'text-white')}>
@@ -133,14 +133,14 @@ export const DynamicStopPanel: React.FC<Props> = ({
 
         {/* ATR Multiplier */}
         <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3">
-          <p className="text-[9px] uppercase tracking-wider text-gray-500 mb-1">ATR14</p>
+          <p className="text-[9px] tracking-tight text-gray-500 mb-1">ATR14</p>
           <p className="text-base font-black text-white">{inputs.atr14.toLocaleString()}<span className="text-xs text-gray-400">원</span></p>
           <p className={cn('text-[10px]', regStyle.color)}>배수 {regStyle.mult}</p>
         </div>
 
         {/* Current Return */}
         <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3">
-          <p className="text-[9px] uppercase tracking-wider text-gray-500 mb-1">현재 수익률</p>
+          <p className="text-[9px] tracking-tight text-gray-500 mb-1">현재 수익률</p>
           <p className={cn('text-base font-black', r.currentReturnPct >= 0 ? 'text-emerald-400' : 'text-red-400')}>
             {r.currentReturnPct >= 0 ? '+' : ''}{r.currentReturnPct.toFixed(1)}<span className="text-xs">%</span>
           </p>

@@ -29,7 +29,7 @@ export function SettingsModal() {
       <ModalBody className="space-y-6">
         {/* API Key */}
         <div className="space-y-2">
-          <label className="text-xs font-black text-theme-text-muted uppercase tracking-widest flex items-center gap-2">
+          <label className="text-xs font-black text-theme-text-muted tracking-tight flex items-center gap-2">
             <Key className="w-3.5 h-3.5" />
             API Key
           </label>
@@ -52,7 +52,7 @@ export function SettingsModal() {
 
         {/* Theme */}
         <div className="space-y-2">
-          <label className="text-xs font-black text-theme-text-muted uppercase tracking-widest">테마</label>
+          <label className="text-xs font-black text-theme-text-muted tracking-tight">테마</label>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {THEME_OPTIONS.map((t) => (
               <button
@@ -74,7 +74,7 @@ export function SettingsModal() {
 
         {/* Operator diagnostics — ADR-537 */}
         <div className="space-y-2 rounded-xl border border-theme-border bg-white/[0.03] p-3">
-          <label className="text-xs font-black text-theme-text-muted uppercase tracking-widest flex items-center gap-2">
+          <label className="text-xs font-black text-theme-text-muted tracking-tight flex items-center gap-2">
             <Stethoscope className="w-3.5 h-3.5" />
             Operator Diagnostics
           </label>
@@ -103,7 +103,7 @@ export function SettingsModal() {
 
         {/* UI 정보 밀도 — ADR-0100 (사용자 #12) */}
         <div className="space-y-2">
-          <label className="text-xs font-black text-theme-text-muted uppercase tracking-widest flex items-center gap-2">
+          <label className="text-xs font-black text-theme-text-muted tracking-tight flex items-center gap-2">
             <Layers className="w-3.5 h-3.5" />
             정보 밀도
           </label>

@@ -24,12 +24,12 @@ export function AdvancedQuantSections({ result }: Props) {
             {[result.tranchePlan.tranche1, result.tranchePlan.tranche2, result.tranchePlan.tranche3].map((t, i) => (
               <div key={i} className="flex items-center justify-between p-4 border border-theme-text bg-[#f9f9f9]">
                 <div>
-                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Tranche {i + 1}</span>
+                  <span className="text-[10px] font-black text-gray-400 tracking-tight block mb-1">Tranche {i + 1}</span>
                   <span className="text-sm font-bold">{t?.trigger || '-'}</span>
                 </div>
                 <div className="text-right">
                   <span className="text-lg font-black font-mono">{t?.size || 0}%</span>
-                  <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest block">{t?.status || '-'}</span>
+                  <span className="text-[10px] font-black text-orange-500 tracking-tight block">{t?.status || '-'}</span>
                 </div>
               </div>
             ))}
@@ -47,7 +47,7 @@ export function AdvancedQuantSections({ result }: Props) {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {Object.entries(result.multiTimeframe).filter(([k]) => k !== 'consistency').map(([tf, status]) => (
               <div key={tf} className="p-4 border border-theme-text text-center">
-                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">{tf}</span>
+                <span className="text-[10px] font-black text-gray-400 tracking-tight block mb-2">{tf}</span>
                 <span className={cn(
                   'text-xs font-black px-2 py-1 border border-theme-text',
                   status === 'BULLISH' ? 'bg-green-100 text-green-700' :

@@ -75,7 +75,7 @@ function WatchlistSummaryHeader({
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] sm:text-xs font-black text-blue-300/80 uppercase tracking-[0.25em]">My Watchlist</span>
+              <span className="text-[10px] sm:text-xs font-black text-blue-300/80 tracking-tight">My Watchlist</span>
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
             </div>
             <h2 className="text-2xl sm:text-3xl font-black text-theme-text tracking-tighter">나의 관심 목록</h2>
@@ -86,7 +86,7 @@ function WatchlistSummaryHeader({
         </div>
         <button
           onClick={onBackToDiscover}
-          className="self-start md:self-auto px-4 py-2 rounded-xl border border-theme-border bg-theme-surface text-xs font-black text-theme-text-secondary hover:text-theme-text hover:border-orange-500/40 transition-colors uppercase tracking-widest"
+          className="self-start md:self-auto px-4 py-2 rounded-xl border border-theme-border bg-theme-surface text-xs font-black text-theme-text-secondary hover:text-theme-text hover:border-orange-500/40 transition-colors tracking-tight"
         >
           종목 탐색으로
         </button>
@@ -94,11 +94,11 @@ function WatchlistSummaryHeader({
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mt-6">
         <div className="rounded-2xl border border-theme-border bg-theme-card p-4">
-          <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest mb-1">총 종목</div>
+          <div className="text-[10px] font-black text-theme-text-muted tracking-tight mb-1">총 종목</div>
           <div className="text-2xl font-black text-theme-text font-num">{total}</div>
         </div>
         <div className="rounded-2xl border border-theme-border bg-theme-card p-4">
-          <div className="text-[10px] font-black text-theme-text-muted uppercase tracking-widest mb-1">평균 수익률</div>
+          <div className="text-[10px] font-black text-theme-text-muted tracking-tight mb-1">평균 수익률</div>
           <div className={cn("text-2xl font-black font-num", avgPositive ? "text-green-400" : "text-red-400")}>
             {stats.valid > 0 ? `${avgPositive ? '+' : ''}${avgReturn.toFixed(2)}%` : '-'}
           </div>
@@ -106,14 +106,14 @@ function WatchlistSummaryHeader({
         <div className="rounded-2xl border border-green-500/20 bg-green-500/[0.06] p-4">
           <div className="flex items-center gap-1.5 mb-1">
             <TrendingUp className="w-3 h-3 text-green-400" />
-            <span className="text-[10px] font-black text-green-400/80 uppercase tracking-widest">상승</span>
+            <span className="text-[10px] font-black text-green-400/80 tracking-tight">상승</span>
           </div>
           <div className="text-2xl font-black text-green-400 font-num">{stats.gainers}</div>
         </div>
         <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.06] p-4">
           <div className="flex items-center gap-1.5 mb-1">
             <TrendingDown className="w-3 h-3 text-red-400" />
-            <span className="text-[10px] font-black text-red-400/80 uppercase tracking-widest">하락</span>
+            <span className="text-[10px] font-black text-red-400/80 tracking-tight">하락</span>
           </div>
           <div className="text-2xl font-black text-red-400 font-num">{stats.losers}</div>
         </div>
@@ -236,7 +236,7 @@ export function DiscoverWatchlistPage({
                   <RefreshCw className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400 animate-spin" />
                 </div>
                 <div>
-                  <h4 className="text-xs sm:text-sm font-black text-theme-text uppercase tracking-widest mb-0.5">실시간 동기화 중</h4>
+                  <h4 className="text-xs sm:text-sm font-black text-theme-text tracking-tight mb-0.5">실시간 동기화 중</h4>
                   <p className="text-[10px] sm:text-xs text-theme-text-muted font-bold">
                     {syncStatus.currentStock} 분석 중... ({syncStatus.progress}/{syncStatus.total})
                   </p>
@@ -274,7 +274,7 @@ export function DiscoverWatchlistPage({
                   <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-red-400" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="text-xs sm:text-sm font-black text-red-400 uppercase tracking-widest mb-0.5">시스템 오류</h4>
+                  <h4 className="text-xs sm:text-sm font-black text-red-400 tracking-tight mb-0.5">시스템 오류</h4>
                   <p className="text-xs sm:text-sm text-theme-text-secondary font-bold truncate">{error}</p>
                 </div>
               </div>
@@ -428,7 +428,7 @@ export function DiscoverWatchlistPage({
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400/70" />
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/70" />
                 </div>
-                <span className="text-[11px] sm:text-xs font-black text-blue-200/80 uppercase tracking-[0.2em]">관심종목 전용 창</span>
+                <span className="text-[11px] sm:text-xs font-black text-blue-200/80 tracking-tight">관심종목 전용 창</span>
               </div>
               <span className="text-[10px] sm:text-xs font-bold text-theme-text-muted">총 {displayList.length}개</span>
             </div>
@@ -505,7 +505,7 @@ export function DiscoverWatchlistPage({
           >
             <div className="flex items-center gap-3 mb-4">
               <div className="w-1.5 h-6 bg-orange-500 rounded-full shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
-              <span className="text-[10px] sm:text-xs font-black text-white/40 uppercase tracking-[0.2em]">종목 검색 퀵 네비게이션</span>
+              <span className="text-[10px] sm:text-xs font-black text-white/40 tracking-tight">종목 검색 퀵 네비게이션</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {displayList.map((stock) => (
@@ -528,7 +528,7 @@ export function DiscoverWatchlistPage({
           <div className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-1">
               <div className="flex items-center gap-1">
-                <span className="text-[9px] sm:text-[10px] font-black text-white/30 uppercase tracking-[0.1em] sm:tracking-[0.2em] text-center">시스템 후보 사후 성과 (최근 10회)</span>
+                <span className="text-[9px] sm:text-[10px] font-black text-white/30 tracking-tight sm:tracking-[0.2em] text-center">시스템 후보 사후 성과 (최근 10회)</span>
                 <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
               </div>
               <div className="flex items-end gap-2">
@@ -543,7 +543,7 @@ export function DiscoverWatchlistPage({
               <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 max-h-[250px] overflow-y-auto p-4 bg-theme-card backdrop-blur-xl border border-theme-border rounded-2xl opacity-0 group-hover/stat-1:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-2xl scale-95 group-hover/stat-1:scale-100 origin-top">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-1 h-3 bg-orange-500 rounded-full" />
-                  <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">산출 기준</span>
+                  <span className="text-[10px] font-black text-white/40 tracking-tight">산출 기준</span>
                 </div>
                 <p className="text-[11px] text-white/60 leading-relaxed font-medium">
                   최근 10번의 판정 세션에서 선정된 후보들이 판정 시점 이후 <span className="text-orange-400">5거래일 이내에 +3% 이상의 수익률</span>을 기록한 비율의 평균입니다. 시스템 후보의 사후 성과를 나타냅니다.
@@ -553,7 +553,7 @@ export function DiscoverWatchlistPage({
 
             <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-2">
               <div className="flex items-center gap-1">
-                <span className="text-[9px] sm:text-[10px] font-black text-white/30 uppercase tracking-[0.1em] sm:tracking-[0.2em] text-center">Recent 30-day STRONG_BUY hit rate</span>
+                <span className="text-[9px] sm:text-[10px] font-black text-white/30 tracking-tight sm:tracking-[0.2em] text-center">Recent 30-day STRONG_BUY hit rate</span>
                 <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
               </div>
               <div className="flex items-end gap-2">
@@ -565,7 +565,7 @@ export function DiscoverWatchlistPage({
               <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 max-h-[250px] overflow-y-auto p-4 bg-theme-card backdrop-blur-xl border border-theme-border rounded-2xl opacity-0 group-hover/stat-2:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-2xl scale-95 group-hover/stat-2:scale-100 origin-top">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-1 h-3 bg-indigo-500 rounded-full" />
-                  <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">산출 기준</span>
+                  <span className="text-[10px] font-black text-white/40 tracking-tight">산출 기준</span>
                 </div>
                 <p className="text-[11px] text-white/60 leading-relaxed font-medium">
                   최근 30일간 <span className="text-indigo-400">판정 합치도(Conviction Score)가 85점 이상</span>인 Confirmed Candidate 후보들의 사후 성과입니다. 고합치도 후보에 대한 정밀도를 나타내며, 일반 후보보다 엄격한 기준으로 관리됩니다.
@@ -577,9 +577,9 @@ export function DiscoverWatchlistPage({
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <History className="w-4 h-4 text-white/30" />
-                  <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">최근 판정 히스토리</span>
+                  <span className="text-[10px] font-black text-white/30 tracking-tight">최근 판정 히스토리</span>
                 </div>
-                <span className="text-[9px] font-black text-white/10 uppercase tracking-widest">최근 10개 세션 저장됨</span>
+                <span className="text-[9px] font-black text-white/10 tracking-tight">최근 10개 세션 저장됨</span>
               </div>
               <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                 {recommendationHistory.length > 0 ? (
@@ -599,7 +599,7 @@ export function DiscoverWatchlistPage({
                   ))
                 ) : (
                   <div className="w-full py-4 flex items-center justify-center border border-dashed border-white/5 rounded-2xl">
-                    <span className="text-[10px] font-black text-white/10 uppercase tracking-widest italic">히스토리 데이터 없음</span>
+                    <span className="text-[10px] font-black text-white/10 tracking-tight italic">히스토리 데이터 없음</span>
                   </div>
                 )}
               </div>
@@ -694,7 +694,7 @@ export function DiscoverWatchlistPage({
                       <div className="absolute inset-0 bg-orange-500/10 blur-2xl rounded-full animate-pulse" />
                       <Search className="w-16 h-16 text-white/10 relative z-10" />
                     </div>
-                    <p className="text-white/40 font-black text-lg mb-6 uppercase tracking-widest">
+                    <p className="text-white/40 font-black text-lg mb-6 tracking-tight">
                       {(recommendations || []).length === 0 ? '검색된 종목이 없습니다.' : '조건에 맞는 종목이 없습니다.'}
                     </p>
                     {searchQuery && (
@@ -742,7 +742,7 @@ export function DiscoverWatchlistPage({
             <div className="text-center sm:text-left flex-1 min-w-0">
               <div className="flex items-center justify-center sm:justify-start gap-2 mb-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-                <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-[0.2em]">Export</span>
+                <span className="text-[10px] font-black text-theme-text-muted tracking-tight">Export</span>
               </div>
               <h2 className="text-lg sm:text-xl font-black text-theme-text mb-2 tracking-tight uppercase break-keep">분석 리포트 내보내기</h2>
               <p className="text-xs text-theme-text-muted font-bold leading-relaxed">

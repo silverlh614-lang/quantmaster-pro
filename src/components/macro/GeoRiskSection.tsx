@@ -46,7 +46,7 @@ export function GeoRiskSection() {
               : geoRisk.level === 'RISK' ? 'border-red-600 bg-red-50'
               : 'border-gray-400 bg-theme-bg'
             }`}>
-              <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest">GOS</p>
+              <p className="text-[9px] font-black text-theme-text-muted tracking-tight">GOS</p>
               <p className="text-fluid-4xl font-black font-mono mt-1">{geoRisk.score}</p>
               <p className="text-[9px] text-theme-text-muted font-mono">/10</p>
             </div>

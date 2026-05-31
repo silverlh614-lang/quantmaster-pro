@@ -51,7 +51,7 @@ function AnalystSentimentCard({ stock }: Props) {
       {stock.analystRatings ? (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-black text-white/60 uppercase tracking-widest">Consensus</span>
+            <span className="text-sm font-black text-white/60 tracking-tight">Consensus</span>
             <span className={cn('text-sm px-3 py-1 rounded-full font-black tracking-widest', resolveAnalystConsensusClass(stock.analystRatings.consensus))}>
               {stock.analystRatings.consensus}
             </span>
@@ -99,7 +99,7 @@ function NewsSentimentScore({ score }: { score: number }) {
   return (
     <div className="bg-black/20 p-6 rounded-3xl border border-white/5 relative overflow-hidden">
       <div className="relative z-10 flex flex-col items-center">
-        <span className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Sentiment Score</span>
+        <span className="text-[10px] font-black text-white/40 tracking-tight mb-2">Sentiment Score</span>
         <div className="text-5xl font-black mb-2" style={{
           color: score >= 60 ? '#34d399' : score <= 40 ? '#f87171' : '#9ca3af',
         }}>
@@ -130,7 +130,7 @@ function NewsSentimentCard({ stock }: Props) {
       {stock.newsSentiment ? (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-black text-white/60 uppercase tracking-widest">Status</span>
+            <span className="text-sm font-black text-white/60 tracking-tight">Status</span>
             <span className={cn('text-sm px-3 py-1 rounded-full font-black tracking-widest flex items-center gap-2', resolveNewsStatusClass(stock.newsSentiment.status))}>
               <NewsStatusIcon status={stock.newsSentiment.status} />
               {stock.newsSentiment.status}

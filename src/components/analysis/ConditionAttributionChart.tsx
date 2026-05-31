@@ -123,7 +123,7 @@ export function ConditionAttributionChart({ className }: ConditionAttributionCha
           {sorted.length} 조건 · {data.totalRecords} 레코드
         </span>
       </div>
-      <div className="grid grid-cols-[8rem_1fr_4rem_3.5rem] gap-2 text-[10px] uppercase tracking-widest opacity-50 pb-1 border-b border-white/10 mb-1">
+      <div className="grid grid-cols-[8rem_1fr_4rem_3.5rem] gap-2 text-[10px] tracking-tight opacity-50 pb-1 border-b border-white/10 mb-1">
         <span>조건</span>
         <span className="text-center">기여도</span>
         <span className="text-right">avg</span>

@@ -64,7 +64,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
             </div>
             <div>
               <h2 className="text-fluid-3xl font-black text-white tracking-tight uppercase">Portfolio Comparison</h2>
-              <p className="text-white/40 font-bold text-sm uppercase tracking-widest">Analyzing {portfolios.length} strategies</p>
+              <p className="text-white/40 font-bold text-sm tracking-tight">Analyzing {portfolios.length} strategies</p>
             </div>
           </div>
           <button 
@@ -81,7 +81,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
             <div className="glass-3d rounded-[3rem] p-8 border border-white/5">
               <div className="flex items-center gap-3 mb-8">
                 <TrendingUp className="w-5 h-5 text-orange-400" />
-                <span className="text-xs font-black text-white/40 uppercase tracking-widest">Cumulative Return</span>
+                <span className="text-xs font-black text-white/40 tracking-tight">Cumulative Return</span>
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -106,7 +106,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
             <div className="glass-3d rounded-[3rem] p-8 border border-white/5">
               <div className="flex items-center gap-3 mb-8">
                 <ShieldCheck className="w-5 h-5 text-blue-400" />
-                <span className="text-xs font-black text-white/40 uppercase tracking-widest">Sharpe Ratio</span>
+                <span className="text-xs font-black text-white/40 tracking-tight">Sharpe Ratio</span>
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -127,7 +127,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
             <div className="glass-3d rounded-[3rem] p-8 border border-white/5">
               <div className="flex items-center gap-3 mb-8">
                 <Activity className="w-5 h-5 text-red-400" />
-                <span className="text-xs font-black text-white/40 uppercase tracking-widest">Max Drawdown</span>
+                <span className="text-xs font-black text-white/40 tracking-tight">Max Drawdown</span>
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -148,7 +148,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
             <div className="glass-3d rounded-[3rem] p-8 border border-white/5">
               <div className="flex items-center gap-3 mb-8">
                 <PieChartIcon className="w-5 h-5 text-purple-400" />
-                <span className="text-xs font-black text-white/40 uppercase tracking-widest">Volatility</span>
+                <span className="text-xs font-black text-white/40 tracking-tight">Volatility</span>
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
@@ -172,11 +172,11 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
             <table className="w-full text-left min-w-[600px]">
               <thead>
                 <tr className="bg-white/5">
-                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">Portfolio Name</th>
-                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">Return</th>
-                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">Sharpe</th>
-                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">Max DD</th>
-                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">Allocation</th>
+                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">Portfolio Name</th>
+                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">Return</th>
+                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">Sharpe</th>
+                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">Max DD</th>
+                  <th className="px-3 sm:px-8 py-3 sm:py-6 text-[10px] font-black text-white/20 tracking-tight">Allocation</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -184,7 +184,7 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
                   <tr key={p.id} className="hover:bg-white/[0.02] transition-colors">
                     <td className="px-3 sm:px-8 py-3 sm:py-8">
                       <div className="font-black text-white text-lg">{p.name}</div>
-                      <div className="text-[10px] font-black text-white/20 uppercase tracking-widest mt-1">{p.items?.length || 0} Assets</div>
+                      <div className="text-[10px] font-black text-white/20 tracking-tight mt-1">{p.items?.length || 0} Assets</div>
                     </td>
                     <td className="px-3 sm:px-8 py-3 sm:py-8">
                       <div className={cn(
@@ -200,12 +200,12 @@ export const PortfolioComparison: React.FC<PortfolioComparisonProps> = ({
                     <td className="px-3 sm:px-8 py-3 sm:py-8">
                       <div className="flex flex-wrap gap-2 max-w-xs">
                         {p.items?.slice(0, 3).map((item: { name: string; code: string; weight: number }) => (
-                          <span key={item.code} className="px-3 py-1 bg-white/5 rounded-lg text-[10px] font-black text-white/40 uppercase tracking-widest border border-white/5">
+                          <span key={item.code} className="px-3 py-1 bg-white/5 rounded-lg text-[10px] font-black text-white/40 tracking-tight border border-white/5">
                             {item.name} {item.weight}%
                           </span>
                         ))}
                         {p.items.length > 3 && (
-                          <span className="px-3 py-1 bg-white/5 rounded-lg text-[10px] font-black text-white/40 uppercase tracking-widest border border-white/5">
+                          <span className="px-3 py-1 bg-white/5 rounded-lg text-[10px] font-black text-white/40 tracking-tight border border-white/5">
                             +{p.items.length - 3} more
                           </span>
                         )}

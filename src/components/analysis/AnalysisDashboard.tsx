@@ -145,7 +145,7 @@ function BacktestControls({
         >
           <div className="relative z-10">
             <TrendingDown className="w-8 h-8 text-red-400 mb-4" />
-            <span className="block text-xs font-black text-red-400/60 uppercase tracking-widest mb-1">2022 ?섎씫??/span&gt;</span>
+            <span className="block text-xs font-black text-red-400/60 tracking-tight mb-1">2022 ?섎씫??/span&gt;</span>
             <span className="block text-lg font-black text-white">{BACKTEST_RATE_HIKE_LABEL}</span>
           </div>
           {isAnalyzing && (
@@ -162,7 +162,7 @@ function BacktestControls({
         >
           <div className="relative z-10">
             <ArrowRightLeft className="w-8 h-8 text-blue-400 mb-4" />
-            <span className="block text-xs font-black text-blue-400/60 uppercase tracking-widest mb-1">2024 ?쒗솚留?/span&gt;</span>
+            <span className="block text-xs font-black text-blue-400/60 tracking-tight mb-1">2024 ?쒗솚留?/span&gt;</span>
             <span className="block text-lg font-black text-white">{BACKTEST_RECOVERY_LABEL}</span>
           </div>
         </button>
@@ -182,7 +182,7 @@ function MetricTile({
 }) {
   return (
     <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-      <span className="text-[10px] font-black text-white/20 uppercase tracking-widest block mb-1">{label}</span>
+      <span className="text-[10px] font-black text-white/20 tracking-tight block mb-1">{label}</span>
       <span className={cn("text-xl font-black", valueClassName)}>{value}</span>
     </div>
   );
@@ -193,7 +193,7 @@ function BacktestResultSummary({ result }: { result: AdvancedAnalysisResult }) {
     <div className="bg-white/5 rounded-[2.5rem] p-8 border border-white/10 space-y-6">
       <div className="flex justify-between items-start">
         <div>
-          <span className="text-[10px] font-black text-orange-500 uppercase tracking-[0.2em] block mb-1">Analysis Result</span>
+          <span className="text-[10px] font-black text-orange-500 tracking-tight block mb-1">Analysis Result</span>
           <h3 className="text-2xl font-black text-white tracking-tight">{result.period}</h3>
         </div>
         <div className={cn(
@@ -213,7 +213,7 @@ function BacktestResultSummary({ result }: { result: AdvancedAnalysisResult }) {
       <div className="bg-orange-500/5 p-4 rounded-2xl border border-orange-500/10">
         <div className="flex items-center gap-2 mb-2">
           <Lightbulb className="w-4 h-4 text-orange-500" />
-          <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest">AI Insight</span>
+          <span className="text-[10px] font-black text-orange-500 tracking-tight">AI Insight</span>
         </div>
         <p className="text-xs text-white/70 leading-relaxed font-medium italic">
           {result.description}
@@ -254,11 +254,11 @@ function PerformanceChartCard({
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
-            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{seriesLabel}</span>
+            <span className="text-[10px] font-black text-white/40 tracking-tight">{seriesLabel}</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-white/20" />
-            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Benchmark</span>
+            <span className="text-[10px] font-black text-white/40 tracking-tight">Benchmark</span>
           </div>
         </div>
       </div>
@@ -327,7 +327,7 @@ function ContributionAnalysis({ result }: { result: AdvancedAnalysisResult }) {
                   {i + 1}
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-sm font-black text-white uppercase tracking-wider">{item.name}</span>
+                  <span className="text-sm font-black text-white tracking-tight">{item.name}</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -354,8 +354,8 @@ function ContributionAnalysis({ result }: { result: AdvancedAnalysisResult }) {
           {result.noiseItems?.map((item, i) => (
             <div key={i} className="flex items-center gap-3 p-4 bg-red-500/5 rounded-2xl border border-red-500/10">
               <X className="w-4 h-4 text-red-400" />
-              <span className="text-sm font-black text-white/60 uppercase tracking-wider">{item}</span>
-              <span className="ml-auto text-[10px] font-black text-red-400/30 uppercase tracking-widest">Low Impact</span>
+              <span className="text-sm font-black text-white/60 tracking-tight">{item}</span>
+              <span className="ml-auto text-[10px] font-black text-red-400/30 tracking-tight">Low Impact</span>
             </div>
           ))}
         </div>
@@ -426,13 +426,13 @@ function WalkForwardPeriodCard({
     )}>
       <div className="absolute top-0 right-0 p-4">
         <div className={cn(
-          "px-3 py-1 text-white text-[10px] font-black rounded-full uppercase tracking-widest",
+          "px-3 py-1 text-white text-[10px] font-black rounded-full tracking-tight",
           variant === 'training' ? "bg-blue-500" : "bg-orange-500"
         )}>
           {title}
         </div>
       </div>
-      <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] block mb-2">{period}</span>
+      <span className="text-[10px] font-black text-white/20 tracking-tight block mb-2">{period}</span>
       <span className="text-2xl font-black text-white">{variant === 'training' ? '2025 Full Year' : '2026 Q1 (Recent)'}</span>
       <div className="mt-6 space-y-3">
         <div className="flex justify-between text-[10px] font-semibold tracking-tight">
@@ -454,7 +454,7 @@ function WalkForwardLoading() {
   return (
     <div className="py-20 flex flex-col items-center gap-4">
       <RefreshCw className="w-12 h-12 text-blue-500 animate-spin" />
-      <p className="text-sm font-black text-white/40 uppercase tracking-widest">{WALK_FORWARD_LOADING_LABEL}</p>
+      <p className="text-sm font-black text-white/40 tracking-tight">{WALK_FORWARD_LOADING_LABEL}</p>
     </div>
   );
 }
@@ -565,7 +565,7 @@ function PaperPickCard({
               href={buildNaverFinanceUrl(pick)}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[10px] font-black text-orange-500/40 hover:text-orange-500 transition-colors uppercase tracking-widest"
+              className="text-[10px] font-black text-orange-500/40 hover:text-orange-500 transition-colors tracking-tight"
             >
               {pick.code}
             </a>
@@ -589,15 +589,15 @@ function PaperPickCard({
 
       <div className="space-y-3 mb-6">
         <div className="flex justify-between items-center">
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">Entry</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight">Entry</span>
           <span className="text-sm font-black text-white">{PAPER_ENTRY_DISPLAY}</span>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">Target</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight">Target</span>
           <span className="text-sm font-black text-green-400">{PAPER_TARGET_DISPLAY}</span>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">Stop</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight">Stop</span>
           <span className="text-sm font-black text-red-400">{PAPER_STOP_DISPLAY}</span>
         </div>
       </div>
@@ -605,7 +605,7 @@ function PaperPickCard({
       <div className="pt-4 border-t border-white/5">
         <div className="flex items-center gap-2 mb-2">
           <Zap className="w-3 h-3 text-orange-500" />
-          <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">Catalyst (Step 27)</span>
+          <span className="text-[9px] font-black text-white/30 tracking-tight">Catalyst (Step 27)</span>
         </div>
         <p className="text-[11px] text-white/50 leading-relaxed font-medium italic">
           {pick.catalyst}

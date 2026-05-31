@@ -49,7 +49,7 @@ export function SectorRotationPanel() {
     <div className="glass-3d rounded-2xl p-4 mb-4">
       <div className="flex items-center gap-2 mb-4">
         <div className="w-1 h-4 rounded-full bg-orange-500" />
-        <span className="text-[10px] font-black text-theme-text-muted uppercase tracking-[0.2em]">
+        <span className="text-[10px] font-black text-theme-text-muted tracking-tight">
           섹터 로테이션
         </span>
       </div>

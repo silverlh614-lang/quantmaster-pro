@@ -23,7 +23,7 @@ export function SectorAnalysisSection({ stock }: Props) {
           <div className="bg-white/5 rounded-xl p-4 border border-white/10">
             <div className="flex items-center gap-2 mb-2.5">
               <TrendingUp className="w-4 h-4 text-blue-400" />
-              <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Current Trends</span>
+              <span className="text-[10px] font-black text-white/40 tracking-tight">Current Trends</span>
             </div>
             <ul className="space-y-2">
               {stock.sectorAnalysis?.currentTrends?.map((trend, i) => (
@@ -38,7 +38,7 @@ export function SectorAnalysisSection({ stock }: Props) {
           <div className="bg-white/5 rounded-xl p-4 border border-white/10">
             <div className="flex items-center gap-2 mb-2.5">
               <Zap className="w-4 h-4 text-yellow-400" />
-              <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Sector Catalysts</span>
+              <span className="text-[10px] font-black text-white/40 tracking-tight">Sector Catalysts</span>
             </div>
             <ul className="space-y-2">
               {stock.sectorAnalysis?.catalysts?.map((catalyst, i) => (
@@ -54,7 +54,7 @@ export function SectorAnalysisSection({ stock }: Props) {
             <div className="bg-white/5 rounded-xl p-4 border border-white/10">
               <div className="flex items-center gap-2 mb-3">
                 <Layers className="w-4 h-4 text-purple-400" />
-                <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Related Sectors & Correlation</span>
+                <span className="text-[10px] font-black text-white/40 tracking-tight">Related Sectors & Correlation</span>
               </div>
               <div className="flex flex-wrap gap-2 mb-3">
                 {(stock.relatedSectors || []).map((sector, i) => (
@@ -64,7 +64,7 @@ export function SectorAnalysisSection({ stock }: Props) {
                 ))}
               </div>
               <div className="bg-black/20 px-3 py-2 rounded-lg border border-white/5 flex items-center justify-between">
-                <span className="text-[10px] font-black text-white/30 uppercase tracking-widest">Correlation Group</span>
+                <span className="text-[10px] font-black text-white/30 tracking-tight">Correlation Group</span>
                 <span className="text-xs font-black text-white/80">{stock.correlationGroup}</span>
               </div>
             </div>
@@ -75,7 +75,7 @@ export function SectorAnalysisSection({ stock }: Props) {
         <div className="bg-white/5 rounded-xl p-4 border border-white/10">
           <div className="flex items-center gap-2 mb-2.5">
             <Crown className="w-4 h-4 text-orange-400" />
-            <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Leading Stocks</span>
+            <span className="text-[10px] font-black text-white/40 tracking-tight">Leading Stocks</span>
           </div>
           <div className="space-y-2">
             {(stock.sectorAnalysis?.leadingStocks || []).map((s, i) => (
@@ -86,7 +86,7 @@ export function SectorAnalysisSection({ stock }: Props) {
                 </div>
                 {s.marketCap && (
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">Cap</span>
+                    <span className="text-[9px] font-black text-white/20 tracking-tight">Cap</span>
                     <span className="text-[10px] font-black text-white/60">{s.marketCap}</span>
                   </div>
                 )}
@@ -96,7 +96,7 @@ export function SectorAnalysisSection({ stock }: Props) {
 
           {stock.sectorAnalysis?.riskFactors && stock.sectorAnalysis.riskFactors.length > 0 && (
             <div className="mt-3 pt-3 border-t border-white/5">
-              <span className="text-[10px] font-black text-red-400/40 uppercase tracking-widest block mb-2">Sector Risks</span>
+              <span className="text-[10px] font-black text-red-400/40 tracking-tight block mb-2">Sector Risks</span>
               <div className="space-y-1.5">
                 {(stock.sectorAnalysis.riskFactors || []).map((risk, i) => (
                   <div key={i} className="flex items-center gap-1.5 text-[10px] text-white/50 font-bold">

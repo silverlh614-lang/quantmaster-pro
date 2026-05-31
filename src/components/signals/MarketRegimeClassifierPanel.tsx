@@ -289,10 +289,10 @@ export function MarketRegimeClassifierPanel({
           <Shield className={cn('w-5 h-5', styles.iconColor)} />
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm sm:text-base font-black text-theme-text uppercase tracking-wider">
+              <h3 className="text-sm sm:text-base font-black text-theme-text tracking-tight">
                 시장 레짐 자동 분류기
               </h3>
-              <span className={cn('text-[10px] font-black px-2 py-0.5 rounded border uppercase tracking-widest', styles.badge)}>
+              <span className={cn('text-[10px] font-black px-2 py-0.5 rounded border tracking-tight', styles.badge)}>
                 {styles.icon} {styles.label}
               </span>
             </div>
@@ -318,7 +318,7 @@ export function MarketRegimeClassifierPanel({
 
           {/* Gate 조정 지침 */}
           <div>
-            <h4 className="text-[11px] font-bold text-theme-muted uppercase tracking-wider mb-1 flex items-center gap-1">
+            <h4 className="text-[11px] font-bold text-theme-muted tracking-tight mb-1 flex items-center gap-1">
               <Shield className="w-3 h-3" />Gate 임계값 자동 재조정
             </h4>
             <GateAdjustmentCard result={result} />

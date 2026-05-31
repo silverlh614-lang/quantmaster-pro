@@ -119,7 +119,7 @@ export function WatchlistTable({
       >
         <div className="flex items-center gap-3 mb-4">
           <div className="w-1.5 h-6 bg-orange-500 rounded-full shadow-[0_0_10px_rgba(249,115,22,0.5)]" />
-          <span className="text-[10px] sm:text-xs font-black text-white/40 uppercase tracking-[0.2em]">종목 검색 퀵 네비게이션</span>
+          <span className="text-[10px] sm:text-xs font-black text-white/40 tracking-tight">종목 검색 퀵 네비게이션</span>
         </div>
         <div className="flex flex-wrap gap-2">
           {displayList.map((stock) => (
@@ -141,7 +141,7 @@ export function WatchlistTable({
         <div className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-1">
             <div className="flex items-center gap-1">
-              <span className="text-[9px] sm:text-[10px] font-black text-white/30 uppercase tracking-[0.1em] sm:tracking-[0.2em] text-center">시스템 후보 사후 성과 (최근 10회)</span>
+              <span className="text-[9px] sm:text-[10px] font-black text-white/30 tracking-tight sm:tracking-[0.2em] text-center">시스템 후보 사후 성과 (최근 10회)</span>
               <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
             </div>
             <div className="flex items-end gap-2">
@@ -156,7 +156,7 @@ export function WatchlistTable({
             <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 max-h-[250px] overflow-y-auto p-4 bg-theme-card backdrop-blur-xl border border-theme-border rounded-2xl opacity-0 group-hover/stat-1:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-2xl scale-95 group-hover/stat-1:scale-100 origin-top">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-1 h-3 bg-orange-500 rounded-full" />
-                <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">산출 기준</span>
+                <span className="text-[10px] font-black text-white/40 tracking-tight">산출 기준</span>
               </div>
               <p className="text-[11px] text-white/60 leading-relaxed font-medium">
                 최근 10번의 판정 세션에서 선정된 후보들이 판정 시점 이후 <span className="text-orange-400">5거래일 이내에 +3% 이상의 수익률</span>을 기록한 비율의 평균입니다. 시스템 후보의 사후 성과를 나타냅니다.
@@ -166,7 +166,7 @@ export function WatchlistTable({
 
           <div className="bg-white/5 p-6 rounded-xl sm:rounded-2xl border border-white/10 shadow-inner flex flex-col justify-center items-center gap-2 relative group/stat-2">
             <div className="flex items-center gap-1">
-              <span className="text-[9px] sm:text-[10px] font-black text-white/30 uppercase tracking-[0.1em] sm:tracking-[0.2em] text-center">Recent 30-day STRONG_BUY hit rate</span>
+              <span className="text-[9px] sm:text-[10px] font-black text-white/30 tracking-tight sm:tracking-[0.2em] text-center">Recent 30-day STRONG_BUY hit rate</span>
               <HelpCircle className="w-3 h-3 text-white/10 cursor-help" />
             </div>
             <div className="flex items-end gap-2">
@@ -178,7 +178,7 @@ export function WatchlistTable({
             <div className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-64 max-h-[250px] overflow-y-auto p-4 bg-theme-card backdrop-blur-xl border border-theme-border rounded-2xl opacity-0 group-hover/stat-2:opacity-100 transition-all duration-300 z-50 pointer-events-none shadow-2xl scale-95 group-hover/stat-2:scale-100 origin-top">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-1 h-3 bg-indigo-500 rounded-full" />
-                <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">산출 기준</span>
+                <span className="text-[10px] font-black text-white/40 tracking-tight">산출 기준</span>
               </div>
               <p className="text-[11px] text-white/60 leading-relaxed font-medium">
                 최근 30일간 <span className="text-indigo-400">판정 합치도(Conviction Score)가 85점 이상</span>인 Confirmed Candidate 후보들의 사후 성과입니다. 고합치도 후보에 대한 정밀도를 나타내며, 일반 후보보다 엄격한 기준으로 관리됩니다.
@@ -190,9 +190,9 @@ export function WatchlistTable({
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <History className="w-4 h-4 text-white/30" />
-                <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">최근 판정 히스토리</span>
+                <span className="text-[10px] font-black text-white/30 tracking-tight">최근 판정 히스토리</span>
               </div>
-              <span className="text-[9px] font-black text-white/10 uppercase tracking-widest">최근 10개 세션 저장됨</span>
+              <span className="text-[9px] font-black text-white/10 tracking-tight">최근 10개 세션 저장됨</span>
             </div>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
               {recommendationHistory.length > 0 ? (
@@ -212,7 +212,7 @@ export function WatchlistTable({
                 ))
               ) : (
                 <div className="w-full py-4 flex items-center justify-center border border-dashed border-white/5 rounded-2xl">
-                  <span className="text-[10px] font-black text-white/10 uppercase tracking-widest italic">히스토리 데이터 없음</span>
+                  <span className="text-[10px] font-black text-white/10 tracking-tight italic">히스토리 데이터 없음</span>
                 </div>
               )}
             </div>
@@ -233,7 +233,7 @@ export function WatchlistTable({
             <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 shadow-inner">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <div className="text-[10px] font-black uppercase tracking-[0.18em] text-white/35">Today Candidate Summary</div>
+                  <div className="text-[10px] font-black tracking-tight text-white/35">Today Candidate Summary</div>
                   <div className="mt-1 text-sm font-black text-white">Gate → Data Trust → Block Reason → Shadow Tracking</div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
@@ -323,7 +323,7 @@ export function WatchlistTable({
                     <div className="absolute inset-0 bg-orange-500/10 blur-2xl rounded-full animate-pulse" />
                     <Search className="w-16 h-16 text-white/10 relative z-10" />
                   </div>
-                  <p className="text-white/40 font-black text-lg mb-6 uppercase tracking-widest">
+                  <p className="text-white/40 font-black text-lg mb-6 tracking-tight">
                     {view === 'WATCHLIST' ? '관심 목록이 비어 있습니다.' : (recommendations || []).length === 0 ? '검색된 종목이 없습니다.' : '조건에 맞는 종목이 없습니다.'}
                   </p>
                   {searchQuery && (

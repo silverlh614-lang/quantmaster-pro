@@ -174,7 +174,7 @@ export function RecommendationTimeseriesChart({ className }: RecommendationTimes
         <p className="text-xs opacity-60">시계열 데이터 없음</p>
       ) : (
         <>
-          <div className="grid grid-cols-[5rem_1fr_3rem_3.5rem] gap-2 text-[10px] uppercase tracking-widest opacity-50 pb-1 border-b border-white/10 mb-1">
+          <div className="grid grid-cols-[5rem_1fr_3rem_3.5rem] gap-2 text-[10px] tracking-tight opacity-50 pb-1 border-b border-white/10 mb-1">
             <span>날짜</span>
             <span className="text-center">분포 (승/패)</span>
             <span className="text-right">건수</span>

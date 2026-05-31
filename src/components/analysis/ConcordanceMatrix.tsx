@@ -82,11 +82,11 @@ function MetaRuleBox({ matrix }: { matrix: MatrixData }) {
       <div className="font-semibold">메타 룰 검증 — 정량·정성 일치 시 승률</div>
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <div className="text-[10px] uppercase tracking-wider opacity-70">일치 (대각선)</div>
+          <div className="text-[10px] tracking-tight opacity-70">일치 (대각선)</div>
           <div className="text-sm font-mono">{fmtRate(d.winRate)} ({d.sampleCount}건)</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider opacity-70">불일치</div>
+          <div className="text-[10px] tracking-tight opacity-70">불일치</div>
           <div className="text-sm font-mono">{fmtRate(o.winRate)} ({o.sampleCount}건)</div>
         </div>
       </div>

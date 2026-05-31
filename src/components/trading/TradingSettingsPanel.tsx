@@ -185,7 +185,7 @@ export function TradingSettingsPanel() {
       {/* Section Title + Actions */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-black text-theme-text uppercase tracking-wider">
+          <h3 className="text-sm font-black text-theme-text tracking-tight">
             트레이딩 설정
           </h3>
           <p className="text-[10px] text-theme-text-muted mt-0.5">
@@ -289,7 +289,7 @@ export function TradingSettingsPanel() {
                     `border-${color}-500/20 bg-${color}-500/5`
                   )}
                 >
-                  <span className={`text-[9px] font-black text-${color}-400 uppercase tracking-widest block mb-1`}>
+                  <span className={`text-[9px] font-black text-${color}-400 tracking-tight block mb-1`}>
                     {label}
                   </span>
                   <span className={`text-lg font-black text-${color}-400 font-num`}>
@@ -409,7 +409,7 @@ export function TradingSettingsPanel() {
           <div className="mt-4 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[10px] font-bold text-theme-text-muted uppercase tracking-widest block mb-2">
+                <label className="text-[10px] font-bold text-theme-text-muted tracking-tight block mb-2">
                   시작 시간
                 </label>
                 <input
@@ -421,7 +421,7 @@ export function TradingSettingsPanel() {
                 />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-theme-text-muted uppercase tracking-widest block mb-2">
+                <label className="text-[10px] font-bold text-theme-text-muted tracking-tight block mb-2">
                   종료 시간
                 </label>
                 <input

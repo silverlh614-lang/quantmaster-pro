@@ -18,7 +18,7 @@ export const MarketTicker: React.FC<MarketTickerProps> = ({ data, loading, onRef
       <div className="h-10 bg-black/60 border-b border-white/5 flex items-center justify-center overflow-hidden">
         <div className="flex items-center gap-2 animate-pulse">
           <Activity className="w-3 h-3 text-indigo-400" />
-          <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">실시간 시장 데이터 동기화 중...</span>
+          <span className="text-[10px] font-black text-white/20 tracking-tight">실시간 시장 데이터 동기화 중...</span>
         </div>
       </div>
     );
@@ -28,7 +28,7 @@ export const MarketTicker: React.FC<MarketTickerProps> = ({ data, loading, onRef
     debugWarn('MarketTicker: market data 없음 - ticker 숨김');
     return (
       <div className="h-10 bg-black/60 border-b border-white/5 flex items-center justify-center">
-        <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">시장 데이터 대기 중...</span>
+        <span className="text-[10px] font-black text-white/20 tracking-tight">시장 데이터 대기 중...</span>
       </div>
     );
   }
@@ -59,7 +59,7 @@ export const MarketTicker: React.FC<MarketTickerProps> = ({ data, loading, onRef
           <div key={i} className="flex items-center gap-8">
             {mainIndices.map((idx, j) => (
               <div key={`${i}-${j}`} className="flex items-center gap-3">
-                <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{idx.name}</span>
+                <span className="text-[10px] font-black text-white/40 tracking-tight">{idx.name}</span>
                 <span className="text-xs font-black text-white tracking-tighter font-num">
                   {idx.value?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
@@ -72,7 +72,7 @@ export const MarketTicker: React.FC<MarketTickerProps> = ({ data, loading, onRef
             ))}
             {data.exchangeRates?.slice(0, 1).map((rate, j) => (
               <div key={`rate-${i}-${j}`} className="flex items-center gap-3">
-                <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{rate.name}</span>
+                <span className="text-[10px] font-black text-white/40 tracking-tight">{rate.name}</span>
                 <span className="text-xs font-black text-white tracking-tighter font-num">{rate.value?.toLocaleString()}</span>
                 <TrendIndicator
                   value={rate.changePercent ?? 0}

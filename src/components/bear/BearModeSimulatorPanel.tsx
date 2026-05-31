@@ -92,7 +92,7 @@ function ScenarioCard({ input, index, onInputChange, onRemove, canRemove }: Scen
           <div>
             <p className="text-sm font-black text-theme-text tracking-tight">{input.label}</p>
             {scenario && (
-              <p className="text-[9px] font-bold text-theme-text-muted uppercase tracking-widest">
+              <p className="text-[9px] font-bold text-theme-text-muted tracking-tight">
                 알파 {alphaPositive ? '+' : ''}{scenario.alphaDifference.toFixed(1)}%p
               </p>
             )}
@@ -130,7 +130,7 @@ function ScenarioCard({ input, index, onInputChange, onRemove, canRemove }: Scen
           <div className="grid grid-cols-2 gap-2 pt-3">
             {/* Label */}
             <div className="col-span-2 space-y-1">
-              <label className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest block">
+              <label className="text-[9px] font-black text-theme-text-muted tracking-tight block">
                 시나리오 이름
               </label>
               <input
@@ -143,7 +143,7 @@ function ScenarioCard({ input, index, onInputChange, onRemove, canRemove }: Scen
 
             {/* Bear Start Date */}
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest block">
+              <label className="text-[9px] font-black text-theme-text-muted tracking-tight block">
                 Bear 구간 시작
               </label>
               <input
@@ -156,7 +156,7 @@ function ScenarioCard({ input, index, onInputChange, onRemove, canRemove }: Scen
 
             {/* Gate Detection Date */}
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest block">
+              <label className="text-[9px] font-black text-theme-text-muted tracking-tight block">
                 Gate -1 감지일
               </label>
               <input
@@ -170,7 +170,7 @@ function ScenarioCard({ input, index, onInputChange, onRemove, canRemove }: Scen
 
             {/* Bear End Date */}
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest block">
+              <label className="text-[9px] font-black text-theme-text-muted tracking-tight block">
                 Bear 구간 종료
               </label>
               <input
@@ -183,7 +183,7 @@ function ScenarioCard({ input, index, onInputChange, onRemove, canRemove }: Scen
 
             {/* Market Return */}
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest block">
+              <label className="text-[9px] font-black text-theme-text-muted tracking-tight block">
                 KOSPI 수익률 (%)
               </label>
               <input
@@ -198,7 +198,7 @@ function ScenarioCard({ input, index, onInputChange, onRemove, canRemove }: Scen
 
             {/* Long Portfolio Return */}
             <div className="space-y-1">
-              <label className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest block">
+              <label className="text-[9px] font-black text-theme-text-muted tracking-tight block">
                 롱 포트폴리오 수익률 (%)
               </label>
               <input
@@ -218,7 +218,7 @@ function ScenarioCard({ input, index, onInputChange, onRemove, canRemove }: Scen
               {/* KPI Row */}
               <div className="grid grid-cols-3 gap-2">
                 <div className="p-2 border border-theme-border bg-theme-bg text-center">
-                  <p className="text-[8px] font-black text-theme-text-muted uppercase tracking-widest mb-1">롱 포트폴리오</p>
+                  <p className="text-[8px] font-black text-theme-text-muted tracking-tight mb-1">롱 포트폴리오</p>
                   <p className={cn(
                     'text-xl font-black font-mono',
                     scenario.longReturn < 0 ? 'text-red-400' : 'text-emerald-400',
@@ -228,7 +228,7 @@ function ScenarioCard({ input, index, onInputChange, onRemove, canRemove }: Scen
                   <p className="text-[8px] text-theme-text-muted mt-0.5">Bear 구간 기준</p>
                 </div>
                 <div className="p-2 border border-red-500/40 bg-red-900/10 text-center">
-                  <p className="text-[8px] font-black text-red-400/80 uppercase tracking-widest mb-1">Bear Mode 전환</p>
+                  <p className="text-[8px] font-black text-red-400/80 tracking-tight mb-1">Bear Mode 전환</p>
                   <p className={cn(
                     'text-xl font-black font-mono',
                     scenario.bearModeReturn > 0 ? 'text-emerald-400' : 'text-red-400',
@@ -243,7 +243,7 @@ function ScenarioCard({ input, index, onInputChange, onRemove, canRemove }: Scen
                     ? 'border-amber-500/50 bg-amber-900/15'
                     : 'border-theme-border bg-theme-bg',
                 )}>
-                  <p className="text-[8px] font-black text-theme-text-muted uppercase tracking-widest mb-1">알파 차이</p>
+                  <p className="text-[8px] font-black text-theme-text-muted tracking-tight mb-1">알파 차이</p>
                   <p className={cn(
                     'text-xl font-black font-mono',
                     alphaPositive ? 'text-amber-300' : 'text-theme-text-muted',
@@ -256,7 +256,7 @@ function ScenarioCard({ input, index, onInputChange, onRemove, canRemove }: Scen
 
               {/* Switch Date Info */}
               <div className="p-2 border border-theme-border/50 bg-theme-bg/50 text-[9px] text-theme-text-secondary">
-                <span className="font-black text-theme-text-muted uppercase tracking-widest">D+{scenario.switchDayOffset} 전환일:</span>{' '}
+                <span className="font-black text-theme-text-muted tracking-tight">D+{scenario.switchDayOffset} 전환일:</span>{' '}
                 <span className="font-mono">{scenario.switchDate}</span>
                 {' '}(Gate -1 감지 후 {scenario.switchDayOffset}거래일)
               </div>
@@ -296,7 +296,7 @@ function ComparisonChart({ result }: ComparisonChartProps) {
 
   return (
     <div className="p-3 border border-theme-border bg-theme-card">
-      <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-3 flex items-center gap-1">
+      <p className="text-[9px] font-black text-theme-text-muted tracking-tight mb-3 flex items-center gap-1">
         <BarChart2 className="w-3 h-3" />
         시나리오별 수익률 비교 (롱 vs. Bear Mode)
       </p>
@@ -439,7 +439,7 @@ export function BearModeSimulatorPanel({ inputs, onInputsChange, result }: BearM
           {/* Add Scenario Button */}
           <button
             onClick={handleAdd}
-            className="w-full flex items-center justify-center gap-1.5 py-2 border border-dashed border-theme-border text-[10px] font-black text-theme-text-muted uppercase tracking-widest hover:border-red-500/50 hover:text-red-400 transition-colors"
+            className="w-full flex items-center justify-center gap-1.5 py-2 border border-dashed border-theme-border text-[10px] font-black text-theme-text-muted tracking-tight hover:border-red-500/50 hover:text-red-400 transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
             시나리오 추가
@@ -459,7 +459,7 @@ export function BearModeSimulatorPanel({ inputs, onInputsChange, result }: BearM
 
           {/* Legend */}
           <div className="p-3 border border-theme-border/50 bg-theme-bg/50">
-            <p className="text-[9px] font-black text-theme-text-muted uppercase tracking-widest mb-2">
+            <p className="text-[9px] font-black text-theme-text-muted tracking-tight mb-2">
               시뮬레이션 계산 기준
             </p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -470,7 +470,7 @@ export function BearModeSimulatorPanel({ inputs, onInputsChange, result }: BearM
                 { label: '알파', value: 'Bear Mode 수익 − 롱 포트폴리오' },
               ].map(item => (
                 <div key={item.label} className="flex items-center gap-1.5">
-                  <span className="text-[8px] font-black text-theme-text-muted uppercase tracking-widest">{item.label}:</span>
+                  <span className="text-[8px] font-black text-theme-text-muted tracking-tight">{item.label}:</span>
                   <span className="text-[8px] text-theme-text-secondary">{item.value}</span>
                 </div>
               ))}
