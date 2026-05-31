@@ -3,6 +3,7 @@ import { CheckSquare, CheckCircle2 } from 'lucide-react';
 import { cn } from '../../../ui/cn';
 import { MASTER_CHECKLIST_STEPS } from '../../../constants/checklist';
 import type { StockRecommendation } from '../../../services/stockService';
+import { conditionView } from '../../../services/stock/stockAnalysisCanon';
 
 const KEY_CHECKLIST_GROUPS: Array<{ label: string; keys: string[] }> = [
   { label: '성장성 (Growth)', keys: ['roeType3', 'earningsSurprise', 'performanceReality', 'ocfQuality', 'marginAcceleration'] },
@@ -59,23 +60,26 @@ interface ChecklistRowProps {
 
 function ChecklistRow({ keyId, stock }: ChecklistRowProps) {
   const step = MASTER_CHECKLIST_STEPS.find((s) => s.key === keyId);
-  const isPassed = stock.checklist?.[keyId as keyof StockRecommendation['checklist']];
+  // 3-상태 램프 (정본 stockAnalysisCanon): 검증통과=초록 / AI추정통과=앰버 / 미충족=회색.
+  // Gemini 가 checklist 를 거의 다 true 로 채워 모든 램프가 초록으로 보이던 문제를 제거.
+  const { status } = conditionView(stock, keyId);
+  const lamp =
+    status === 'VERIFIED_PASS'
+      ? { box: 'bg-green-500/20 border-green-500/30 opacity-100', icon: 'text-green-400', text: 'text-white/80', show: true, title: '실데이터 검증 통과' }
+      : status === 'AI_PASS'
+        ? { box: 'bg-amber-500/15 border-amber-500/30 opacity-100', icon: 'text-amber-400', text: 'text-white/55', show: true, title: 'AI 추정 (미검증)' }
+        : { box: 'bg-white/5 border-white/10 opacity-30', icon: '', text: 'text-white/20', show: false, title: '미충족' };
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" title={lamp.title}>
       <div
         className={cn(
           'w-4 h-4 rounded flex items-center justify-center border transition-all shrink-0',
-          isPassed ? 'bg-green-500/20 border-green-500/30' : 'bg-white/5 border-white/10 opacity-30'
+          lamp.box
         )}
       >
-        {isPassed && <CheckCircle2 className="w-2.5 h-2.5 text-green-400" />}
+        {lamp.show && <CheckCircle2 className={cn('w-2.5 h-2.5', lamp.icon)} />}
       </div>
-      <span
-        className={cn(
-          'text-[11px] font-bold transition-colors truncate',
-          isPassed ? 'text-white/80' : 'text-white/20'
-        )}
-      >
+      <span className={cn('text-[11px] font-bold transition-colors truncate', lamp.text)}>
         {step?.title.split(' (')[0]}
       </span>
     </div>

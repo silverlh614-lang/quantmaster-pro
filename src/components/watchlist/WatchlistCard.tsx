@@ -29,6 +29,7 @@ import type { NewsFrequencyScore } from '../../types/quant';
 import type { View } from '../../stores/useSettingsStore';
 import { buildShadowTrade } from '../../services/autoTrading';
 import { classifyScoreConcordance, getQuantGateScore } from '../../utils/recommendationScore';
+import { buildStockAnalysisCanon } from '../../services/stock/stockAnalysisCanon';
 import { buildCandidateDecisionCardModel } from '../../candidate-decision/candidateDecisionModel';
 import { CandidateDecisionCard } from './CandidateDecisionCard';
 
@@ -892,10 +893,9 @@ export function WatchlistCard({
   const lastTriggerSummary = evaluateLastTrigger({ stock, vkospi: macroEnv?.vkospi, recentPositiveDisclosure });
   const enemyChecklistSummary = evaluateEnemyChecklist({ stock, marginBalance5dChange: undefined, weeklyRsi: undefined });
   const quantGateScore = getQuantGateScore(stock);
-  const aiScore = stock.aiConvictionScore?.totalScore ?? null;
-  const concordance = aiScore !== null && quantGateScore
-    ? classifyScoreConcordance(aiScore, quantGateScore.normalized)
-    : null;
+  // 점수/합치도는 분석 표시 정본(SSOT) 사용 — quantScore fallback 포함이라 gateEvaluation 부재
+  // (검색 종목 등)에도 final score/합치도가 표시된다 (직전엔 null 이면 숨김).
+  const concordance = buildStockAnalysisCanon(stock).concordance;
   const sourceSnapshotId = (stock as { sourceSnapshotId?: string; snapshotId?: string }).sourceSnapshotId
     ?? (stock as { sourceSnapshot?: { id?: string; sourceSnapshotId?: string } }).sourceSnapshot?.sourceSnapshotId
     ?? (stock as { sourceSnapshot?: { id?: string; sourceSnapshotId?: string } }).sourceSnapshot?.id

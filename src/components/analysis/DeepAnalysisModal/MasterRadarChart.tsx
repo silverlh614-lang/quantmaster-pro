@@ -9,37 +9,15 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import type { StockRecommendation } from '../../../services/stockService';
-import { isChecklistConditionMet } from '../../../constants/gateConfig';
-import { resolveConditionTier, isVerifiedTier } from '../../../utils/dataQualityClassifier';
+import { buildStockAnalysisCanon } from '../../../services/stock/stockAnalysisCanon';
 
-const RADAR_CATEGORIES: Array<{ name: string; keys: string[] }> = [
-  { name: '기본적 분석', keys: ['roeType3', 'earningsSurprise', 'performanceReality', 'ocfQuality', 'marginAcceleration', 'interestCoverage', 'economicMoatVerified'] },
-  { name: '기술적 분석', keys: ['momentumRanking', 'ichimokuBreakout', 'technicalGoldenCross', 'volumeSurgeVerified', 'turtleBreakout', 'fibonacciLevel', 'elliottWaveVerified', 'vcpPattern', 'divergenceCheck'] },
-  { name: '수급 분석', keys: ['supplyInflow', 'institutionalBuying', 'consensusTarget'] },
-  { name: '시장 주도력', keys: ['cycleVerified', 'riskOnEnvironment', 'notPreviousLeader', 'policyAlignment'] },
-  { name: '전략/심리', keys: ['mechanicalStop', 'psychologicalObjectivity', 'catalystAnalysis'] },
-];
-
-// 조건이 '실데이터로 검증(AI 추정 제외) + 충족' 인지 판정. Gemini 가 27개 체크리스트를 거의
-// 다 true 로 채워 truthy 카운트가 "전부 27/27"로 부풀던 결함을 제거 — AI 추정 항목은 미검증으로
-// 빼서 레이더가 실데이터(DART/KRX/계산) 기반으로만 차오르게 한다.
-function isVerifiedMet(stock: StockRecommendation, key: string): boolean {
-  const k = key as keyof StockRecommendation['checklist'];
-  return isChecklistConditionMet(stock.checklist?.[k]) && isVerifiedTier(resolveConditionTier(stock, k));
-}
-
+// 레이더·카운트는 모두 분석 표시 정본(stockAnalysisCanon)에서 파생 — 위젯 간 소스 통일(SSOT).
 export function getRadarData(stock: StockRecommendation): Array<{ subject: string; A: number; fullMark: number }> {
-  return RADAR_CATEGORIES.map((cat) => {
-    const passed = cat.keys.filter((key) => isVerifiedMet(stock, key)).length;
-    const total = cat.keys.length;
-    return { subject: cat.name, A: Math.round((passed / total) * 100), fullMark: 100 };
-  });
+  return buildStockAnalysisCanon(stock).radar;
 }
 
 export function getPassedConditionCount(stock: StockRecommendation): number {
-  const cl = stock?.checklist;
-  if (!cl) return 0;
-  return Object.keys(cl).filter((key) => isVerifiedMet(stock, key)).length;
+  return buildStockAnalysisCanon(stock).verifiedPassCount;
 }
 
 interface MasterRadarChartProps {
