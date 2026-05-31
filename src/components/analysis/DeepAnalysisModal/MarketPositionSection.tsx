@@ -48,10 +48,21 @@ export function MarketPositionSection({ stock }: Props) {
 
         <div className="bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
           <span className="text-[9px] font-black text-white/25 uppercase tracking-widest mb-1.5">Peak Distance</span>
-          <span className="text-base font-black text-white">₩{stock.peakPrice?.toLocaleString()}</span>
-          <span className="text-[10px] font-black text-red-400 mt-0.5">
-            -{Math.round((1 - (stock.currentPrice / (stock.peakPrice || 1))) * 100)}%
-          </span>
+          {(() => {
+            // peakPrice 미확보(0)·현재가 미만 등 비정상값이면 '—' 로 표기.
+            // (직전엔 peakPrice 0 → ₩0 + (1 - 가격/1)*100 = --72299900% 깨짐)
+            const peak = stock.peakPrice;
+            const valid = typeof peak === 'number' && peak > 0 && stock.currentPrice > 0 && peak >= stock.currentPrice;
+            const pct = valid ? Math.round((1 - stock.currentPrice / peak) * 100) : null;
+            return (
+              <>
+                <span className="text-base font-black text-white">{valid ? `₩${peak.toLocaleString()}` : '—'}</span>
+                <span className="text-[10px] font-black text-red-400 mt-0.5">
+                  {valid ? `-${pct}%` : '데이터 없음'}
+                </span>
+              </>
+            );
+          })()}
         </div>
 
         <div className="bg-white/5 rounded-xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">

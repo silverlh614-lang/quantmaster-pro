@@ -123,6 +123,18 @@ function memoryStorage() {
   };
 }
 
+// 27개 조건 전부 COMPUTED 출처 — "core data is calculated" 시나리오용 (aiEstimated=0 보장).
+const ALL_COMPUTED_TIERS: StockRecommendation['conditionSourceTiers'] = Object.fromEntries(
+  ([
+    'cycleVerified', 'momentumRanking', 'roeType3', 'supplyInflow', 'riskOnEnvironment',
+    'ichimokuBreakout', 'mechanicalStop', 'economicMoatVerified', 'notPreviousLeader',
+    'technicalGoldenCross', 'volumeSurgeVerified', 'institutionalBuying', 'consensusTarget',
+    'earningsSurprise', 'performanceReality', 'policyAlignment', 'psychologicalObjectivity',
+    'turtleBreakout', 'fibonacciLevel', 'elliottWaveVerified', 'ocfQuality', 'marginAcceleration',
+    'interestCoverage', 'relativeStrength', 'vcpPattern', 'divergenceCheck', 'catalystAnalysis',
+  ] as const).map((k) => [k, 'COMPUTED' as const]),
+) as StockRecommendation['conditionSourceTiers'];
+
 describe('public report adapter', () => {
   it('builds sanitized public report cards and exports', () => {
     const report = toPublicReport({
@@ -143,7 +155,10 @@ describe('public report adapter', () => {
     expect(report.stockDecision?.sectorAlignment.sectorAlignment).toBe('LEADING_SECTOR');
     expect(report.stockDecision?.displayDecision).toBe('BUY_CANDIDATE');
     expect(report.stockDecision?.sourceSnapshotId).toBe(report.sourceSnapshotId);
-    expect(report.stockDecision?.dataConfidenceSummary.aiEstimatedIndicatorCount).toBe(1);
+    // checklist 27항목이 정규화(이진 1→pass)로 실제 통과 → conditionSourceTiers 미지정 24항목은
+    // 휴리스틱 분류, 그중 AI_INFERRED 6 + 메타 roeType3(AI_INFERRED) 1 + 가격출처(dataSourceType
+    // 미설정→ai) 1 = 8. (직전엔 1<5 미통과로 아무 항목도 카운트 안 돼 가격출처 1만 잡히던 버그)
+    expect(report.stockDecision?.dataConfidenceSummary.aiEstimatedIndicatorCount).toBe(8);
     expect(report.candidateSummary.buyCandidateCount).toBe(1);
     expect(report.dataConfidenceSummary.marketSignal).toBe(false);
     expect(report.blogMarkdown).toContain('## 투자 유의');
@@ -212,7 +227,7 @@ describe('public report adapter', () => {
 
   it('keeps confirmed candidate only when core data is calculated', () => {
     const report = toPublicReport({
-      recommendations: [stock({ dataSourceType: 'REALTIME', conditionSourceTiers: { cycleVerified: 'COMPUTED', momentumRanking: 'COMPUTED', roeType3: 'COMPUTED' } })],
+      recommendations: [stock({ dataSourceType: 'REALTIME', conditionSourceTiers: ALL_COMPUTED_TIERS })],
       sectorEnergyResult,
       marketContext: {
         kospi: { index: 3000, change: 20, changePercent: 0.7, status: 'BULLISH', analysis: 'risk-on' },

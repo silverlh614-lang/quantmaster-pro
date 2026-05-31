@@ -96,11 +96,14 @@ export async function syncStockPriceKIS(stock: StockRecommendation): Promise<Sto
     const data = await res.json();
     const currentPrice = parseInt(data.output?.stck_prpr || '0', 10);
     if (!currentPrice) throw new Error(`KIS 가격 조회 실패: ${JSON.stringify(data)}`);
+    // KIS inquire-price 는 52주 최고가(w52_hgpr)를 동봉 — Peak Distance 실데이터로 사용.
+    const peak52w = parseInt(data.output?.w52_hgpr || '0', 10);
     const priceLevels = recalculatePriceLevels(stock, currentPrice);
     return {
       ...stock,
       ...priceLevels,
       currentPrice,
+      ...(peak52w > currentPrice ? { peakPrice: peak52w } : {}),
       dataSourceType: 'REALTIME',
       priceUpdatedAt: `${new Date().toLocaleTimeString('ko-KR')} (KIS 실시간)`,
     };

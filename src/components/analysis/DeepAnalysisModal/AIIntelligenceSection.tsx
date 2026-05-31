@@ -185,6 +185,11 @@ function VisualGradeRow({
   grade: number | undefined;
   color: string;
 }) {
+  // visualReport 점수는 0~10 척도에서 '높을수록 우수' (confluenceAxes 와 동일 방향).
+  // 직전엔 `{grade}등급` + `6 - grade` 별 계산이라 1~5 만 가정 → 8·9 점이 별 0개로
+  // 깨져 보이고 "등급" 표기가 1=최고 오해를 유발했다. 명시적 'N/10' + 비례 별로 정정.
+  const score = Math.max(0, Math.min(10, grade ?? 0));
+  const filledStars = Math.round(score / 2);
   return (
     <div className="flex items-center justify-between bg-white/5 p-3 rounded-xl border border-white/5">
       <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{label}</span>
@@ -195,12 +200,12 @@ function VisualGradeRow({
               key={star}
               className={cn(
                 'w-2.5 h-2.5',
-                star <= (6 - (grade || 5)) ? color + ' fill-current' : 'text-white/10',
+                star <= filledStars ? color + ' fill-current' : 'text-white/10',
               )}
             />
           ))}
         </div>
-        <span className={cn('text-xs font-black', color)}>{grade}등급</span>
+        <span className={cn('text-xs font-black', color)}>{score}/10</span>
       </div>
     </div>
   );
@@ -250,6 +255,16 @@ function SupplyDataStatCard({
 
 function SupplyDataCard({ stock }: Props) {
   if (!stock.supplyData) return null;
+  const sd = stock.supplyData;
+  // 순매수(net flow) 측정 소스가 KIS/KRX 일 때만 실데이터. 기본 경로는 Naver snapshot
+  // stub(buildSnapshotSupplyStub — 순매수 0 박제)이므로 그 경우 0주를 '실데이터' 로
+  // 오인시키지 않고 '미연동' 으로 정직 표기한다 (KIS 투자자별 매매동향 배선 시 자동 노출).
+  const hasRealFlow =
+    sd.dataSource === 'KIS' || sd.dataSource === 'KIS_OFFICIAL' || sd.dataSource === 'KRX';
+  // 외국인 보유율 — Naver 모바일 snapshot 실데이터. 5일 순매수(KIS 필요)와 달리 KIS 없이도 가용.
+  const ownRatio = typeof sd.foreignerOwnRatio === 'number' && sd.foreignerOwnRatio > 0
+    ? sd.foreignerOwnRatio
+    : null;
   return (
     <div className="glass-3d rounded-2xl p-8 border border-white/10 mb-6">
       <div className="flex items-center gap-3 mb-6">
@@ -257,86 +272,122 @@ function SupplyDataCard({ stock }: Props) {
           <TrendingUp className="w-5 h-5 text-blue-400" />
         </div>
         <div>
-          <span className="text-[10px] font-black text-blue-400/60 uppercase tracking-widest block">KIS 실계산</span>
+          <span className="text-[10px] font-black text-blue-400/60 uppercase tracking-widest block">KIS 수급</span>
           <h3 className="text-sm font-black text-white uppercase tracking-tight">외국인 / 기관 수급</h3>
         </div>
-        <span className="ml-auto text-[9px] font-black text-blue-400/50 bg-blue-500/10 px-2 py-1 rounded-lg border border-blue-500/20 uppercase tracking-widest">
-          실데이터
+        <span className={cn(
+          'ml-auto text-[9px] font-black px-2 py-1 rounded-lg border uppercase tracking-widest',
+          hasRealFlow
+            ? 'text-blue-400/50 bg-blue-500/10 border-blue-500/20'
+            : 'text-white/40 bg-white/5 border-white/10',
+        )}>
+          {hasRealFlow ? '실데이터' : ownRatio != null ? 'Naver 보유율' : '미연동'}
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <SupplyDataStatCard
-          label="외국인 5일 순매수"
-          value={`${stock.supplyData.foreignNet > 0 ? '+' : ''}${stock.supplyData.foreignNet.toLocaleString()}주`}
-          valueClassName={stock.supplyData.foreignNet > 0 ? 'text-red-400' : 'text-blue-400'}
-          subLabel={`연속 ${stock.supplyData.foreignConsecutive}일 순매수`}
-        />
-        <SupplyDataStatCard
-          label="기관 5일 순매수"
-          value={`${stock.supplyData.institutionNet > 0 ? '+' : ''}${stock.supplyData.institutionNet.toLocaleString()}주`}
-          valueClassName={stock.supplyData.institutionNet > 0 ? 'text-red-400' : 'text-blue-400'}
-          subLabel={`${stock.supplyData.individualNet < 0 ? '개인 매도' : '개인 매수'} 동반`}
-        />
-      </div>
+      {hasRealFlow ? (
+        <>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <SupplyDataStatCard
+              label="외국인 5일 순매수"
+              value={`${sd.foreignNet > 0 ? '+' : ''}${sd.foreignNet.toLocaleString()}주`}
+              valueClassName={sd.foreignNet > 0 ? 'text-red-400' : 'text-blue-400'}
+              subLabel={`연속 ${sd.foreignConsecutive}일 순매수`}
+            />
+            <SupplyDataStatCard
+              label="기관 5일 순매수"
+              value={`${sd.institutionNet > 0 ? '+' : ''}${sd.institutionNet.toLocaleString()}주`}
+              valueClassName={sd.institutionNet > 0 ? 'text-red-400' : 'text-blue-400'}
+              subLabel={`${sd.individualNet < 0 ? '개인 매도' : '개인 매수'} 동반`}
+            />
+          </div>
 
-      <div className={cn(
-        'p-4 rounded-2xl border',
-        stock.supplyData.isPassiveAndActive
-          ? 'bg-red-500/10 border-red-500/20'
-          : 'bg-white/5 border-white/10',
-      )}>
-        <div className="flex items-center gap-2">
-          {stock.supplyData.isPassiveAndActive
-            ? <Zap className="w-4 h-4 text-red-400 fill-current" />
-            : <Info className="w-4 h-4 text-white/30" />
-          }
-          <span className={cn(
-            'text-xs font-black uppercase tracking-widest',
-            stock.supplyData.isPassiveAndActive ? 'text-red-400' : 'text-white/30',
+          <div className={cn(
+            'p-4 rounded-2xl border',
+            sd.isPassiveAndActive ? 'bg-red-500/10 border-red-500/20' : 'bg-white/5 border-white/10',
           )}>
-            {stock.supplyData.isPassiveAndActive
-              ? 'P+A 동반매수 — 가장 강한 수급 신호'
-              : '단일 주체 매수 — 수급 신호 보통'}
-          </span>
-        </div>
-      </div>
+            <div className="flex items-center gap-2">
+              {sd.isPassiveAndActive
+                ? <Zap className="w-4 h-4 text-red-400 fill-current" />
+                : <Info className="w-4 h-4 text-white/30" />
+              }
+              <span className={cn(
+                'text-xs font-black uppercase tracking-widest',
+                sd.isPassiveAndActive ? 'text-red-400' : 'text-white/30',
+              )}>
+                {sd.isPassiveAndActive
+                  ? 'P+A 동반매수 — 가장 강한 수급 신호'
+                  : '단일 주체 매수 — 수급 신호 보통'}
+              </span>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          {ownRatio != null && (
+            <div className="bg-white/5 rounded-2xl p-4 border border-white/10 mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-black text-white/30 uppercase tracking-widest">외국인 보유율</span>
+                <span className="text-[9px] font-black text-blue-400/60 uppercase tracking-widest">Naver 실데이터</span>
+              </div>
+              <span className="text-2xl font-black text-blue-400 block">{ownRatio.toFixed(2)}%</span>
+            </div>
+          )}
+          <div className="p-4 rounded-2xl border bg-white/5 border-white/10">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Info className="w-4 h-4 text-white/30" />
+              <span className="text-xs font-black text-white/40 uppercase tracking-widest">
+                외국인·기관 순매수 미연동
+              </span>
+            </div>
+            <p className="text-[11px] text-white/40 font-bold leading-relaxed">
+              5일 순매수는 KIS 투자자별 매매동향(읽기 전용)이 필요합니다.
+              {ownRatio != null ? ' 위 외국인 보유율은 Naver 실데이터입니다.' : ' (표시되던 0주는 실측값이 아닌 placeholder 였습니다)'}
+            </p>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
 function ShortSellingCard({ stock }: Props) {
+  // ratio 0 은 AI 플레이스홀더(프롬프트가 'shortSelling ratio 0' 지시 — 실측 아님).
+  // 실측 공매도 비중이 들어올 때만 수치 표기하고, 그 외엔 '미수집' 으로 정직 표기한다
+  // (KIS daily-short-sale FHPST04830000 ssts_vol_rlim 배선 시 자동 노출).
+  const short = stock.shortSelling;
+  const hasShortData = !!short && short.ratio > 0;
   return (
     <AiCardShell
       icon={<TrendingDown className="w-12 h-12 text-red-500" />}
       title="Short Selling"
       titleIcon={<TrendingDown className="w-5 h-5 text-red-500" />}
     >
-      {stock.shortSelling ? (
+      {hasShortData ? (
         <div className="space-y-4">
           <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
             <div>
               <span className="text-[10px] font-black text-white/30 uppercase tracking-widest block mb-1">공매도 비율</span>
-              <span className="text-2xl font-black text-white">{stock.shortSelling.ratio}%</span>
+              <span className="text-2xl font-black text-white">{short.ratio}%</span>
             </div>
             <div className={cn(
               'flex items-center gap-2 font-black',
-              stock.shortSelling.trend === 'DECREASING' ? 'text-green-400' : 'text-red-400',
+              short.trend === 'DECREASING' ? 'text-green-400' : 'text-red-400',
             )}>
-              {stock.shortSelling.trend === 'DECREASING'
+              {short.trend === 'DECREASING'
                 ? <ArrowDownRight className="w-5 h-5" />
                 : <ArrowUpRight className="w-5 h-5" />}
-              <span className="text-sm">{stock.shortSelling.trend}</span>
+              <span className="text-sm">{short.trend}</span>
             </div>
           </div>
           <div className="bg-orange-500/10 p-4 rounded-2xl border border-orange-500/20">
             <p className="text-[11px] text-orange-400/90 font-bold leading-relaxed">
-              {stock.shortSelling.implication}
+              {short.implication}
             </p>
           </div>
         </div>
       ) : (
-        <EmptyAnalysisState label="데이터 분석 중..." />
+        <EmptyAnalysisState label="공매도 데이터 미수집" />
       )}
     </AiCardShell>
   );
@@ -424,24 +475,41 @@ function resolveAnomalyClass(type: string | undefined): string {
 }
 
 function AnomalyDetectionCard({ stock }: Props) {
+  const anomaly = stock.anomalyDetection;
+  // type 이 NONE/미정이고 intensity 0 이면 "이상 없음(정상)" 으로 명확히 표기한다.
+  // 직전엔 'NONE' 배지 + '0 Intensity' 만 떠서 카드가 깨졌거나 미연동된 것처럼 보였다.
+  const hasAnomaly = !!anomaly && anomaly.type !== 'NONE' && (anomaly.score ?? 0) > 0;
   return (
     <AiCardShell
       icon={<Radar className="w-12 h-12 text-purple-500" />}
       title="Anomaly Detection"
       titleIcon={<Radar className="w-5 h-5 text-purple-500" />}
     >
-      <div className="mb-4">
-        <div className={cn('inline-block px-3 py-1 rounded-full text-[10px] font-black mb-3 border', resolveAnomalyClass(stock.anomalyDetection?.type))}>
-          {formatToken(stock.anomalyDetection?.type) || 'NONE DETECTED'}
+      {hasAnomaly ? (
+        <>
+          <div className="mb-4">
+            <div className={cn('inline-block px-3 py-1 rounded-full text-[10px] font-black mb-3 border', resolveAnomalyClass(anomaly.type))}>
+              {formatToken(anomaly.type)}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-black text-white tracking-tighter">{anomaly.score}</span>
+              <span className="text-[10px] font-bold text-white/20 uppercase">Intensity</span>
+            </div>
+          </div>
+          <p className="text-[12px] text-white/70 leading-relaxed font-bold break-words">
+            {anomaly.description}
+          </p>
+        </>
+      ) : (
+        <div className="py-2">
+          <div className="inline-block px-3 py-1 rounded-full text-[10px] font-black mb-3 border bg-emerald-500/10 text-emerald-400/80 border-emerald-500/20">
+            정상 — 특이 신호 없음
+          </div>
+          <p className="text-[12px] text-white/50 leading-relaxed font-bold break-words">
+            {anomaly?.description || '펀더멘털·수급 다이버전스 등 이상 징후가 감지되지 않았습니다.'}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-2xl font-black text-white tracking-tighter">{stock.anomalyDetection?.score || 0}</span>
-          <span className="text-[10px] font-bold text-white/20 uppercase">Intensity</span>
-        </div>
-      </div>
-      <p className="text-[12px] text-white/70 leading-relaxed font-bold break-words">
-        {stock.anomalyDetection?.description}
-      </p>
+      )}
     </AiCardShell>
   );
 }

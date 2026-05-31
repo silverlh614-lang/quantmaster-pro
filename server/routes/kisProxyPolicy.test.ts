@@ -36,6 +36,22 @@ describe('kisProxyPolicy — PR-42 M2', () => {
       })).toEqual({ action: 'allow' });
     });
 
+    it('GET inquire-investor + FHKST01010900 (수급 표시용 read-only)', () => {
+      expect(evaluateProxyPolicy({
+        method: 'GET',
+        path: '/uapi/domestic-stock/v1/quotations/inquire-investor',
+        trId: 'FHKST01010900',
+      })).toEqual({ action: 'allow' });
+    });
+
+    it('GET daily-short-sale + FHPST04830000 (공매도 표시용 read-only)', () => {
+      expect(evaluateProxyPolicy({
+        method: 'GET',
+        path: '/uapi/domestic-stock/v1/quotations/daily-short-sale',
+        trId: 'FHPST04830000',
+      })).toEqual({ action: 'allow' });
+    });
+
     it('method 소문자도 정규화되어 통과', () => {
       expect(evaluateProxyPolicy({
         method: 'get',

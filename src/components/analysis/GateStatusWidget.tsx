@@ -18,6 +18,7 @@ import {
   GATE1_IDS, GATE2_IDS, GATE3_IDS,
   GATE1_REQUIRED, GATE2_REQUIRED, GATE3_REQUIRED,
   CONDITION_PASS_THRESHOLD,
+  normalizeChecklistScore,
 } from '../../constants/gateConfig';
 
 // ── 조건 이름 매핑 ───────────────────────────────────────────────────────
@@ -109,7 +110,7 @@ function buildConditionScores(stock: StockRecommendation): Record<number, number
   if (stock.checklist) {
     for (const [key, val] of Object.entries(stock.checklist)) {
       const id = CHECKLIST_TO_ID[key];
-      if (id != null) scores[id] = typeof val === 'number' ? val : (val ? 10 : 0);
+      if (id != null) scores[id] = normalizeChecklistScore(val);
     }
   }
   if (stock.aiConvictionScore?.factors) {

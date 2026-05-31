@@ -23,6 +23,9 @@ export const ALLOWED_PROXY_PATHS: ReadonlySet<string> = new Set([
   '/uapi/domestic-stock/v1/quotations/inquire-price',
   '/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice',
   '/uapi/domestic-stock/v1/quotations/inquire-time-itemconclusion',
+  // 대시보드 detail 모달 수급/공매도 표시용 read-only 시세조회 (주문과 무관, 절대 규칙 #4 미저촉).
+  '/uapi/domestic-stock/v1/quotations/inquire-investor',   // 주식현재가 투자자 (외국인/기관 순매수)
+  '/uapi/domestic-stock/v1/quotations/daily-short-sale',   // 국내주식 공매도 일별추이
   '/uapi/domestic-stock/v1/trading/inquire-balance',
   '/uapi/domestic-stock/v1/trading/inquire-daily-ccld',
   '/uapi/domestic-stock/v1/trading/inquire-psbl-order',

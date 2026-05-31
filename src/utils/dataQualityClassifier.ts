@@ -2,7 +2,7 @@
 
 import type { StockRecommendation } from '../services/stockService';
 import type { DataQualityCount, DataQualityTier, ConditionSourceTier } from '../types/ui';
-import { CONDITION_PASS_THRESHOLD } from '../constants/gateConfig';
+import { isChecklistConditionMet } from '../constants/gateConfig';
 
 type ChecklistKey = keyof StockRecommendation['checklist'];
 
@@ -46,8 +46,7 @@ const AI_INFERRED_KEYS: readonly ChecklistKey[] = [
 ];
 
 function isPassed(value: number | null | undefined): boolean {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return false;
-  return value >= CONDITION_PASS_THRESHOLD;
+  return isChecklistConditionMet(value);
 }
 
 function deriveTier(computed: number, total: number): DataQualityTier {

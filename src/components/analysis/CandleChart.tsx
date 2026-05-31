@@ -1,9 +1,10 @@
-// @responsibility analysis ?곸뿭 CandleChart 而댄룷?뚰듃
+// @responsibility analysis 영역 CandleChart 컴포넌트
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, createSeriesMarkers, CandlestickSeries, LineSeries, HistogramSeries, IChartApi, CandlestickData, LineData, HistogramData, Time } from 'lightweight-charts';
 import { calculateEMA, calculateRSI, calculateBollingerBands } from '../../utils/indicators';
 import { fetchHistoricalData } from '../../services/stock/historicalData';
 import { formatNextOpenKst, nextOpenAtFor } from '../../utils/marketTime';
+import { usePriceCanon } from '../../hooks/usePriceCanon';
 
 interface GateSignal {
   time: string;
@@ -45,12 +46,12 @@ const RANGE_OPTIONS: RangeOption[] = ['3mo', '6mo', '1y'];
 const OVERLAY_OPTIONS: Overlay[] = ['BB', 'EMA20', 'EMA60'];
 const SUB_CHART_OPTIONS: SubChart[] = ['RSI', 'MACD', 'NONE'];
 
-const PRICE_DATA_ERROR = '媛寃??곗씠?곕? 遺덈윭?????놁뒿?덈떎.';
-const CHART_CREATE_ERROR = '李⑦듃 ?앹꽦 ?ㅽ뙣';
-const LOADING_LABEL = '李⑦듃 ?곗씠??濡쒕뵫 以?..';
-const OFF_HOURS_TITLE = '?μ쇅 ?쒓컙';
-const OFF_HOURS_MESSAGE = '?꾩옱 ?μ씠 ?ロ? 李⑦듃媛 媛깆떊?섏? ?딆뒿?덈떎.';
-const NEXT_OPEN_PREFIX = '?ㅼ쓬 媛쒖옣';
+const PRICE_DATA_ERROR = '가격 데이터를 불러올 수 없습니다.';
+const CHART_CREATE_ERROR = '차트 생성 실패';
+const LOADING_LABEL = '차트 데이터 로딩 중...';
+const OFF_HOURS_TITLE = '장외 시간';
+const OFF_HOURS_MESSAGE = '현재 장이 닫혀 차트가 갱신되지 않습니다.';
+const NEXT_OPEN_PREFIX = '다음 개장';
 
 function toChartTime(ts: number): Time {
   const d = new Date(ts * 1000);
@@ -96,17 +97,35 @@ function resetChartRefs({ mainChartRef, subChartRef, resizeObserverRef }: ChartR
   if (subChartRef.current) { subChartRef.current.remove(); subChartRef.current = null; }
 }
 
-function extractValidChartData(data: any): ValidChartData {
+function extractValidChartData(data: any, canonPrice?: number | null): ValidChartData {
   const timestamps: number[] = data.timestamp;
   const quote = data.indicators.quote[0];
-  const opens: number[] = quote.open;
-  const highs: number[] = quote.high;
-  const lows: number[] = quote.low;
-  const closes: number[] = quote.close;
+  let opens: number[] = quote.open;
+  let highs: number[] = quote.high;
+  let lows: number[] = quote.low;
+  let closes: number[] = quote.close;
   const volumes: number[] = quote.volume;
   const validIndices = timestamps.map((_, i) => i).filter(i =>
     opens[i] != null && highs[i] != null && lows[i] != null && closes[i] != null
   );
+
+  // 차트 출처(Yahoo)와 헤더 현재가 정본(usePriceCanon — Naver/KIS) 불일치 보정.
+  // 마지막 유효 종가를 정본가에 맞춰 전체 시계열을 비율 스케일한다 — 모양·지표·거래량은
+  // 보존하고 절대축만 헤더와 일치시킨다. Yahoo 절대값은 split/통화 왜곡으로 신뢰하지
+  // 않으므로 정본가에 앵커. canonPrice 부재 시 no-op(기존 동작 유지).
+  if (typeof canonPrice === 'number' && canonPrice > 0 && validIndices.length > 0) {
+    const lastClose = closes[validIndices[validIndices.length - 1]];
+    if (typeof lastClose === 'number' && lastClose > 0) {
+      const ratio = canonPrice / lastClose;
+      if (Number.isFinite(ratio) && ratio > 0 && Math.abs(ratio - 1) > 0.005) {
+        opens = opens.map(v => (v != null ? v * ratio : v));
+        highs = highs.map(v => (v != null ? v * ratio : v));
+        lows = lows.map(v => (v != null ? v * ratio : v));
+        closes = closes.map(v => (v != null ? v * ratio : v));
+      }
+    }
+  }
+
   const candleData: CandlestickData[] = validIndices.map(i => ({
     time: toChartTime(timestamps[i]),
     open: opens[i],
@@ -310,6 +329,7 @@ function applyNoDataState(
 
 async function buildCandleChart({
   stockCode,
+  canonPrice,
   range,
   height,
   overlays,
@@ -323,6 +343,7 @@ async function buildCandleChart({
   setOffHours,
 }: {
   stockCode: string;
+  canonPrice?: number | null;
   range: RangeOption;
   height: number;
   overlays: Set<Overlay>;
@@ -342,7 +363,7 @@ async function buildCandleChart({
     return;
   }
 
-  const chartData = extractValidChartData(result.data);
+  const chartData = extractValidChartData(result.data, canonPrice);
   const mainChart = createMainChart(mainContainer, height, subChart);
   refs.mainChartRef.current = mainChart;
   const candleSeries = addCandleAndVolumeSeries(mainChart, chartData);
@@ -451,6 +472,9 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
   const [subChart, setSubChart] = useState<SubChart>('RSI');
   const [range, setRange] = useState<RangeOption>('1y');
 
+  // 헤더(ModalHeader)와 동일한 가격 정본 — 차트를 정본가에 앵커해 "현재가 ≠ 차트가" 불일치 제거.
+  const { price: canonPrice } = usePriceCanon(stockCode);
+
   const toggleOverlay = (o: Overlay) => {
     setOverlays((prev: Set<Overlay>) => {
       const next = new Set(prev);
@@ -472,6 +496,7 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
 
     buildCandleChart({
       stockCode,
+      canonPrice,
       range,
       height,
       overlays,
@@ -493,7 +518,7 @@ export const CandleChart: React.FC<Props> = ({ stockCode, stockName, gateSignals
       cancelled = true;
       resetChartRefs(refs);
     };
-  }, [stockCode, range, overlays, subChart, height]);
+  }, [stockCode, canonPrice, range, overlays, subChart, height]);
 
   const hiddenClassName = loading || error || offHours ? 'hidden' : '';
 

@@ -126,7 +126,7 @@ import type { StockRecommendation } from '../../services/stockService';
 import {
   GATE1_IDS, GATE2_IDS, GATE3_IDS,
   GATE1_REQUIRED, GATE2_REQUIRED, GATE3_REQUIRED,
-  CONDITION_PASS_THRESHOLD,
+  isChecklistConditionMet,
 } from '../../constants/gateConfig';
 import { CONDITION_ID_TO_CHECKLIST_KEY } from '../../types/core';
 import type { ConditionId } from '../../types/core';
@@ -134,9 +134,7 @@ import type { ConditionId } from '../../types/core';
 function conditionPasses(stock: StockRecommendation, id: ConditionId): boolean {
   const key = CONDITION_ID_TO_CHECKLIST_KEY[id];
   if (!key) return false;
-  const value = stock.checklist[key as keyof typeof stock.checklist];
-  if (typeof value !== 'number' || !Number.isFinite(value)) return false;
-  return value >= CONDITION_PASS_THRESHOLD;
+  return isChecklistConditionMet(stock.checklist[key as keyof typeof stock.checklist]);
 }
 
 function buildLine(passed: number, required: number): GateLineSummary {
