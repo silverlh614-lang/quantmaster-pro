@@ -25,6 +25,7 @@ import { useDebugWatchers } from './hooks/useDebugWatchers';
 import { useAppEffects } from './hooks/useAppEffects';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 import { useWatchlistSync } from './hooks/useWatchlistSync';
+import { IntroScreen } from './components/common/IntroScreen';
 
 export default function App() {
   const { handleFetchMarketOverview } = useMarketData();
@@ -37,6 +38,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-theme-bg text-theme-text font-sans selection:bg-blue-500/30 selection:text-white antialiased overflow-x-hidden bg-gradient-mesh bg-dot-grid">
+      <IntroScreen />
       <SkipLink />
       <Toaster position="top-center" expand={false} richColors theme="dark" />
 
