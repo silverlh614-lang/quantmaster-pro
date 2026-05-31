@@ -6,7 +6,7 @@ import {
   Search, RefreshCw, Info, Clock, Globe, AlertTriangle,
   Zap, Activity, ArrowUpRight, Crown,
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { cn } from '../../ui/cn';
 import { HeroChecklist } from '../trading/HeroChecklist';
 import { PriceDisplay } from '../common/PriceDisplay';
@@ -76,6 +76,16 @@ function isLastUpdatedStale(lastUpdated: string): boolean {
   return diffMinutes > 30;
 }
 
+// 프리미엄 진입 모션 — 컨테이너 stagger + 아이템 fade-up (easeOutExpo).
+const HERO_STAGGER = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.08, delayChildren: 0.12 } },
+};
+const HERO_ITEM = {
+  hidden: { opacity: 0, y: 16 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] as const } },
+};
+
 function FilterModeButton({
   card,
   active,
@@ -86,23 +96,32 @@ function FilterModeButton({
   onSelect: (mode: StockFilters['mode']) => void;
 }) {
   return (
-    <button
+    <motion.button
       onClick={() => onSelect(card.mode)}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.985 }}
+      transition={{ type: 'spring', stiffness: 420, damping: 26 }}
       className={cn(
-        'flex flex-col items-start gap-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl transition-all border',
-        active ? card.activeClassName : 'bg-white/5 border-white/10 hover:bg-white/10'
+        'group/mode relative flex flex-col items-start gap-1.5 overflow-hidden rounded-2xl border px-4 py-3.5 backdrop-blur-md transition-colors sm:px-5 sm:py-4',
+        active
+          ? `${card.activeClassName} shadow-[0_10px_34px_-10px_rgba(0,0,0,0.5)]`
+          : 'border-white/[0.07] bg-white/[0.025] hover:border-white/15 hover:bg-white/[0.055]'
       )}
     >
+      {/* active 상단 하이라이트 라인 */}
+      {active && (
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-current to-transparent opacity-50" />
+      )}
       <div className="flex items-center gap-2">
-        <card.Icon className={cn('w-4 h-4', active ? `${card.iconClassName} fill-current` : 'text-white/40')} />
-        <span className={cn('text-xs sm:text-sm font-black', active ? card.iconClassName : 'text-white/60')}>
+        <card.Icon className={cn('h-4 w-4 transition-transform duration-300 group-hover/mode:scale-110', active ? `${card.iconClassName} fill-current` : 'text-white/40')} />
+        <span className={cn('text-xs font-black tracking-tight sm:text-sm', active ? card.iconClassName : 'text-white/65')}>
           {card.label}
         </span>
       </div>
-      <span className={cn('text-[10px] font-medium leading-tight', active ? `${card.iconClassName}/60` : 'text-white/25')}>
+      <span className={cn('text-[10px] font-medium leading-tight', active ? `${card.iconClassName}/60` : 'text-white/30')}>
         {card.description}
       </span>
-    </button>
+    </motion.button>
   );
 }
 
@@ -140,23 +159,30 @@ function AnalysisStartButton({
   onFetchStocks: () => void;
 }) {
   return (
-    <button
+    <motion.button
       onClick={onFetchStocks}
       disabled={loading}
+      whileHover={loading ? undefined : { y: -2 }}
+      whileTap={loading ? undefined : { scale: 0.99 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 24 }}
       className={cn(
-        'btn-3d px-8 sm:px-12 py-4 sm:py-5 rounded-2xl font-black text-base sm:text-xl flex items-center gap-3 sm:gap-4 transition-all duration-300 w-full sm:w-auto justify-center border-t',
+        'group/scan relative flex w-full items-center justify-center gap-3 overflow-hidden rounded-2xl border-t px-8 py-4 text-base font-black tracking-tight transition-colors duration-300 sm:w-auto sm:gap-4 sm:px-12 sm:py-5 sm:text-xl',
         loading
-          ? 'bg-gradient-to-br from-cyan-400 via-blue-500 to-blue-700 border-cyan-300/40 shadow-[0_12px_40px_rgba(59,130,246,0.5)] text-white animate-pulse'
-          : 'bg-gradient-to-br from-orange-400 via-orange-500 to-orange-700 hover:from-orange-300 hover:via-orange-400 hover:to-orange-600 border-white/40 shadow-[0_12px_40px_rgba(249,115,22,0.4)] text-white'
+          ? 'animate-pulse border-cyan-300/40 bg-gradient-to-br from-cyan-400 via-blue-500 to-blue-700 text-white shadow-[0_16px_46px_-12px_rgba(59,130,246,0.7)]'
+          : 'border-white/40 bg-gradient-to-br from-orange-400 via-orange-500 to-orange-700 text-white shadow-[0_16px_46px_-12px_rgba(249,115,22,0.65)] hover:shadow-[0_20px_56px_-12px_rgba(249,115,22,0.8)]'
       )}
     >
-      {loading ? (
-        <RefreshCw className="w-6 h-6 sm:w-7 sm:h-7 animate-spin" />
-      ) : (
-        <Search className="w-6 h-6 sm:w-7 sm:h-7" />
+      {/* 호버 시 스며드는 sheen (프리미엄 shimmer) */}
+      {!loading && (
+        <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 ease-out group-hover/scan:translate-x-full" />
       )}
-      <span className="tracking-tighter">{loading ? '분석 진행 중...' : '주도주 스캔 시작'}</span>
-    </button>
+      {loading ? (
+        <RefreshCw className="h-6 w-6 animate-spin sm:h-7 sm:w-7" />
+      ) : (
+        <Search className="h-6 w-6 transition-transform duration-300 group-hover/scan:scale-110 sm:h-7 sm:w-7" />
+      )}
+      <span className="relative">{loading ? '분석 진행 중...' : '주도주 스캔 시작'}</span>
+    </motion.button>
   );
 }
 
@@ -170,20 +196,20 @@ function LastUpdatedInfo({
   if (!lastUpdated) return null;
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs font-bold text-white/20 uppercase tracking-[0.2em] flex items-center gap-2">
-        <Clock className="w-3 h-3" />
-        Last Updated: {new Date(lastUpdated).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} (KST)
+      <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-white/25">
+        <Clock className="h-3 w-3" />
+        마지막 갱신: {new Date(lastUpdated).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} (KST)
       </p>
       {marketContext?.dataSource && (
-        <p className="text-[10px] font-bold text-green-500/40 uppercase tracking-[0.1em] flex items-center gap-2">
-          <Globe className="w-2.5 h-2.5" />
-          Source: {marketContext.dataSource}
+        <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.1em] text-emerald-500/45">
+          <Globe className="h-2.5 w-2.5" />
+          출처: {marketContext.dataSource}
         </p>
       )}
       {isLastUpdatedStale(lastUpdated) && (
-        <p className="text-[10px] font-black text-orange-500/60 uppercase tracking-widest flex items-center gap-2 animate-pulse">
-          <AlertTriangle className="w-2.5 h-2.5" />
-          Data may be stale. Please refresh for real-time analysis.
+        <p className="flex animate-pulse items-center gap-2 text-[10px] font-black uppercase tracking-widest text-orange-500/60">
+          <AlertTriangle className="h-2.5 w-2.5" />
+          데이터가 오래됐을 수 있습니다 — 새로고침 권장
         </p>
       )}
     </div>
@@ -199,45 +225,57 @@ function HeroSection({
   lastUpdated,
   marketContext,
 }: Pick<WatchlistHeaderProps, 'filters' | 'setFilters' | 'setShowMasterChecklist' | 'onFetchStocks' | 'loading' | 'lastUpdated' | 'marketContext'>) {
+  const reduceMotion = useReducedMotion();
   return (
-    <section className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
+    <section className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3 lg:gap-8">
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
-        className="lg:col-span-3 glass-gradient rounded-2xl sm:rounded-3xl p-6 sm:p-10 lg:p-14 relative overflow-hidden group"
+        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        className="group relative overflow-hidden rounded-2xl border border-white/[0.07] glass-gradient p-6 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.7)] sm:rounded-3xl sm:p-10 lg:col-span-3 lg:p-14"
       >
-        <div className="relative z-10">
-          <h2 className="text-3xl sm:text-5xl lg:text-7xl font-bold mb-4 sm:mb-6 leading-[1.1] tracking-tight">
+        {/* 상단 하이라이트 하어라인 — 유리 패널 입체감 */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+
+        <motion.div className="relative z-10" variants={HERO_STAGGER} initial="hidden" animate="show">
+          <motion.h2 variants={HERO_ITEM} className="mb-4 text-3xl font-bold leading-[1.1] tracking-tight [text-shadow:0_2px_30px_rgba(59,130,246,0.25)] sm:mb-6 sm:text-5xl lg:text-7xl">
             <span className="text-gradient-blue">QuantMaster</span>{' '}
             <span className="text-gradient-accent">Pro</span>
-          </h2>
-          <p className="text-xs sm:text-sm lg:text-base font-bold text-theme-text-muted uppercase tracking-[0.15em] sm:tracking-[0.2em] mb-6 sm:mb-10">
+          </motion.h2>
+          <motion.p variants={HERO_ITEM} className="mb-6 text-xs font-bold uppercase tracking-[0.15em] text-theme-text-muted sm:mb-10 sm:text-sm sm:tracking-[0.2em] lg:text-base">
             데이터 기반 국면·신호 분석
-          </p>
-          <div className="relative group/info mb-10">
-            <p className="text-theme-text-muted max-w-xl text-lg sm:text-xl font-medium leading-relaxed">
-              AI 기반 <span className="text-theme-text border-b border-theme-border cursor-help font-bold" onClick={() => setShowMasterChecklist(true)}>27단계 마스터 체크리스트</span>로 주도주 발굴.
+          </motion.p>
+          <motion.div variants={HERO_ITEM} className="group/info relative mb-10">
+            <p className="max-w-xl text-lg font-medium leading-relaxed text-theme-text-muted sm:text-xl">
+              AI 기반 <span className="cursor-help border-b border-theme-border font-bold text-theme-text" onClick={() => setShowMasterChecklist(true)}>27단계 마스터 체크리스트</span>로 주도주 발굴.
             </p>
             <button
               onClick={() => setShowMasterChecklist(true)}
-              className="absolute -right-8 top-0 p-2 text-theme-text-muted hover:text-blue-400 transition-colors"
+              className="absolute -right-8 top-0 p-2 text-theme-text-muted transition-colors hover:text-blue-400"
             >
-              <Info className="w-5 h-5" />
+              <Info className="h-5 w-5" />
             </button>
-          </div>
+          </motion.div>
 
-          <HeroChecklist steps={MASTER_CHECKLIST_STEPS} onShowChecklist={() => setShowMasterChecklist(true)} />
+          <motion.div variants={HERO_ITEM}>
+            <HeroChecklist steps={MASTER_CHECKLIST_STEPS} onShowChecklist={() => setShowMasterChecklist(true)} />
+          </motion.div>
 
-          <div className="flex flex-col gap-5 mb-12">
+          <motion.div variants={HERO_ITEM} className="mb-12 flex flex-col gap-5">
             <FilterModeGrid filters={filters} setFilters={setFilters} />
             <AnalysisStartButton loading={loading} onFetchStocks={onFetchStocks} />
             <LastUpdatedInfo lastUpdated={lastUpdated} marketContext={marketContext} />
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
 
-        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/[0.08] blur-[120px] -mr-32 -mt-32" />
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-500/[0.06] blur-[100px] -ml-32 -mb-32" />
-        <div className="absolute top-1/2 right-1/4 w-48 h-48 bg-cyan-500/[0.04] blur-[80px]" />
+        {/* 앰비언트 글로우 — 깊이감 (브랜드 오렌지 + 쿨톤, 은은한 호흡) */}
+        <motion.div
+          className="pointer-events-none absolute -right-32 -top-32 h-[28rem] w-[28rem] rounded-full bg-blue-500/[0.10] blur-[130px]"
+          animate={reduceMotion ? undefined : { opacity: [0.55, 0.9, 0.55] }}
+          transition={reduceMotion ? undefined : { duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <div className="pointer-events-none absolute -bottom-32 -left-32 h-72 w-72 rounded-full bg-indigo-500/[0.07] blur-[110px]" />
+        <div className="pointer-events-none absolute right-1/3 top-1/3 h-56 w-56 rounded-full bg-orange-500/[0.05] blur-[100px]" />
       </motion.div>
     </section>
   );
