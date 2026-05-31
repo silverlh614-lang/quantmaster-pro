@@ -9,6 +9,7 @@ import { filterStocksBySector } from '../../utils/sectorStockMatch';
 import { classifySectorHeat, SECTOR_HEAT_CSS } from '../../utils/sectorHeatColor';
 import type { StockRecommendation } from '../../services/stockService';
 import type { ShadowTrade } from '../../types/quant';
+import { PriceDisplay } from '../common/PriceDisplay';
 
 interface SectorStocksDrilldownProps {
   sectorName: string;
@@ -140,11 +141,13 @@ export function SectorStocksDrilldown({ sectorName, score, onClose }: SectorStoc
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {typeof stock.currentPrice === 'number' && stock.currentPrice > 0 && (
-                      <span className="font-num text-white/80">
-                        {stock.currentPrice.toLocaleString('ko-KR')}
-                      </span>
-                    )}
+                    {/* 가격 정본 SSOT — usePriceCanon 단일 통로 (CardLikeStock 은 dataSourceType 없음 → fallback 미전달) */}
+                    <PriceDisplay
+                      code={stock.code}
+                      variant="compact"
+                      showBadge={false}
+                      showTrendIcon={false}
+                    />
                     <span className={cn(
                       'text-[10px] font-black px-1.5 py-0.5 rounded border whitespace-nowrap',
                       stock.type === 'STRONG_BUY' ? 'bg-violet-500/20 border-violet-500/40 text-violet-200' :

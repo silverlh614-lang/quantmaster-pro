@@ -4,6 +4,7 @@ import { Award, Sparkles, Info, ExternalLink, ShieldCheck } from 'lucide-react';
 import { cn } from '../../../ui/cn';
 import { getMarketPhaseInfo } from '../../../constants/checklist';
 import type { StockRecommendation } from '../../../services/stockService';
+import { PriceDisplay } from '../../common/PriceDisplay';
 
 interface ModalHeaderProps {
   stock: StockRecommendation;
@@ -67,14 +68,16 @@ export function ModalHeader({ stock }: ModalHeaderProps) {
         <div className="flex flex-col justify-center px-4 py-2.5 min-w-fit">
           <span className="text-[9px] font-black text-white/30 uppercase tracking-[0.15em] mb-0.5">Current Price</span>
           <div className="flex items-baseline gap-1">
-            <span className="text-lg sm:text-xl font-black text-white tracking-tighter">₩{stock.currentPrice?.toLocaleString() || '0'}</span>
+            {/* 가격 정본 SSOT — usePriceCanon hook 단일 통로 */}
+            <PriceDisplay
+              code={stock.code}
+              variant="detail"
+              showBadge={false}
+              showTrendIcon={false}
+              fallbackKisPrice={stock.dataSourceType === 'REALTIME' ? stock.currentPrice : null}
+            />
             <span className="text-[9px] font-bold text-white/20 uppercase">KRW</span>
           </div>
-          {(stock.priceUpdatedAt || stock.dataSource) && (
-            <div className="text-[8px] font-black text-white/30 uppercase tracking-tight mt-0.5 truncate max-w-[180px]">
-              {stock.priceUpdatedAt} {stock.dataSource && `· ${stock.dataSource}`}
-            </div>
-          )}
           {stock.financialUpdatedAt && (
             <div className="text-[8px] font-black text-blue-400/40 uppercase tracking-tight mt-0.5 flex items-center gap-1">
               <ShieldCheck className="w-2 h-2" />

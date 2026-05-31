@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../ui/cn';
 import type { BearScreenerResult, BearScreenerCondition, BearScreenerCategory } from '../../types/quant';
 import type { StockRecommendation } from '../../services/stockService';
+import { PriceDisplay } from '../common/PriceDisplay';
 
 interface BearScreenerPanelProps {
   bearScreenerResult: BearScreenerResult | null;
@@ -283,16 +284,21 @@ export function BearScreenerPanel({
                       </div>
                     </div>
                     <p className="text-[11px] text-gray-400 leading-snug line-clamp-2">{stock.reason}</p>
-                    {stock.currentPrice > 0 && (
-                      <p className="text-xs font-mono text-gray-300 mt-2">
-                        ₩{stock.currentPrice.toLocaleString()}
-                        {stock.targetPrice > 0 && (
-                          <span className="text-emerald-400 ml-2">
-                            → ₩{stock.targetPrice.toLocaleString()}
-                          </span>
-                        )}
-                      </p>
-                    )}
+                    <div className="text-xs font-mono text-gray-300 mt-2 flex items-center gap-2">
+                      {/* 가격 정본 SSOT — usePriceCanon 단일 통로 */}
+                      <PriceDisplay
+                        code={stock.code}
+                        variant="compact"
+                        showBadge={false}
+                        showTrendIcon={false}
+                        fallbackKisPrice={stock.dataSourceType === 'REALTIME' ? stock.currentPrice : null}
+                      />
+                      {stock.targetPrice > 0 && (
+                        <span className="text-emerald-400">
+                          → ₩{stock.targetPrice.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
                     <div className="mt-2 flex items-center gap-1 flex-wrap">
                       {stock.confidenceScore > 0 && (
                         <span className="text-[10px] text-gray-500">판정 합치도 {stock.confidenceScore}%</span>

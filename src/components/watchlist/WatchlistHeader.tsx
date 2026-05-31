@@ -4,12 +4,13 @@
 import React from 'react';
 import {
   Search, RefreshCw, Info, Clock, Globe, AlertTriangle,
-  TrendingUp, Zap, Activity, ArrowUpRight, Crown,
+  Zap, Activity, ArrowUpRight, Crown,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../../ui/cn';
 import { HeroChecklist } from '../trading/HeroChecklist';
-import { ConfidenceBadge } from '../common/ConfidenceBadge';
+import { PriceDisplay } from '../common/PriceDisplay';
+import { usePriceCanon } from '../../hooks/usePriceCanon';
 import { MASTER_CHECKLIST_STEPS } from '../../constants/checklist';
 import type { StockRecommendation, MarketContext, StockFilters } from '../../services/stockService';
 import { getQuantGateScore } from '../../utils/recommendationScore';
@@ -306,45 +307,35 @@ function ScoreTiles({ stock }: { stock: StockRecommendation }) {
   );
 }
 
-function formatUpside(stock: StockRecommendation): string {
-  // currentPrice 가 신뢰 소스(NAVER/REALTIME) 가 아니면 upside 도 무의미 — '-' 노출
-  // (Yahoo 환각 ₩1.86M 같은 값으로 +20%/-88% 가짜 산출 차단)
-  const isTrusted = stock.dataSourceType === 'NAVER' || stock.dataSourceType === 'REALTIME';
-  const targetPrice = Number(stock.targetPrice) || 0;
-  const currentPrice = Number(stock.currentPrice) || 0;
-  if (!isTrusted || targetPrice <= 0 || currentPrice <= 0) return '-';
-  const upside = Math.round((targetPrice / currentPrice - 1) * 100);
-  return upside > 0 ? `+${upside}%` : `${upside}%`;
-}
-
 function PriceAndUpside({ stock }: { stock: StockRecommendation }) {
-  // Render-시점 신뢰 가드: dataSourceType 이 NAVER/REALTIME 만 가격 표시 허용.
-  // 캐시된 stock.currentPrice(LLM 환각·Yahoo 잔재·snapshot stale)는 enrichment
-  // 재실행 전이라도 표시 거부 — "가격 미확보" placeholder (불변식 #7 확장:
-  // L4 AI_ESTIMATED·STALE 등은 live execution 뿐 아니라 표시 가격으로도 금지).
-  const isTrustedSource = stock.dataSourceType === 'NAVER' || stock.dataSourceType === 'REALTIME';
-  const hasPrice = isTrustedSource && typeof stock.currentPrice === 'number' && stock.currentPrice > 0;
+  // PriceDisplay 가 usePriceCanon hook 으로 Naver 정본 단일 조회.
+  // 산재된 가드 로직 제거 — 가격 정본 SSOT 일원화 (불변식 #7 정합).
+  // upside% 도 정본 가격 기반으로 — Yahoo 환각값(₩1.86M) 기반 가짜 +20%/-88% 차단.
+  const fallbackKisPrice = stock.dataSourceType === 'REALTIME'
+    && typeof stock.currentPrice === 'number' && stock.currentPrice > 0
+    ? stock.currentPrice
+    : null;
+  const { price: canonPrice } = usePriceCanon(stock.code, {
+    fallbackPrice: fallbackKisPrice ?? undefined,
+    fallbackSource: 'REALTIME',
+  });
+  const targetPrice = Number(stock.targetPrice) || 0;
+  const upsideText = canonPrice && canonPrice > 0 && targetPrice > 0
+    ? (() => {
+        const upside = Math.round((targetPrice / canonPrice - 1) * 100);
+        return upside > 0 ? `+${upside}%` : `${upside}%`;
+      })()
+    : '-';
   return (
     <div className="flex items-center justify-between">
-      <div className="flex flex-col">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="w-4 h-4 text-green-400" />
-          {hasPrice ? (
-            <span className="text-lg font-black text-theme-text">₩{(stock.currentPrice as number).toLocaleString()}</span>
-          ) : (
-            <span className="text-lg font-black text-theme-text-muted">가격 미확보</span>
-          )}
-          <ConfidenceBadge type={stock.dataSourceType || 'AI'} />
-        </div>
-        {hasPrice && (stock.priceUpdatedAt || stock.dataSource) && (
-          <div className="text-[8px] font-black text-theme-text-muted uppercase tracking-tighter mt-1">
-            {stock.priceUpdatedAt} {stock.dataSource && `via ${stock.dataSource}`}
-          </div>
-        )}
-      </div>
+      <PriceDisplay
+        code={stock.code}
+        variant="card"
+        fallbackKisPrice={fallbackKisPrice}
+      />
       <div className="flex items-center gap-2 text-green-400 font-black text-sm">
         <ArrowUpRight className="w-4 h-4" />
-        {formatUpside(stock)}
+        {upsideText}
       </div>
     </div>
   );

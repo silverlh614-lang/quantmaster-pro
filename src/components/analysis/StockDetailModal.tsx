@@ -15,6 +15,7 @@ import { cn } from '../../ui/cn';
 import { debugWarn } from '../../utils/debug';
 import { GateStatusWidget } from './GateStatusWidget';
 import { TranchePlanCard } from './TranchePlanCard';
+import { PriceDisplay } from '../common/PriceDisplay';
 
 interface StockDetailModalProps {
   stock: StockRecommendation | null;
@@ -89,12 +90,14 @@ function ModalHeader({
           <SignalBadge signal={stock.type || 'NEUTRAL'} />
         </div>
         <div className="flex items-center gap-4 flex-wrap">
-          {/* Render-시점 신뢰 가드 — NAVER/REALTIME 만 표시, 그 외(LLM 환각·Yahoo·STALE)는 "가격 미확보" */}
-          {(stock.dataSourceType === 'NAVER' || stock.dataSourceType === 'REALTIME') && stock.currentPrice && stock.currentPrice > 0 ? (
-            <span className="text-2xl font-black text-theme-text font-num">{formatWon(stock.currentPrice)}</span>
-          ) : (
-            <span className="text-2xl font-black text-theme-text-muted font-num">가격 미확보</span>
-          )}
+          {/* 가격 정본 SSOT — usePriceCanon hook 단일 통로. */}
+          <PriceDisplay
+            code={stock.code}
+            variant="detail"
+            showBadge={false}
+            showTrendIcon={false}
+            fallbackKisPrice={stock.dataSourceType === 'REALTIME' ? stock.currentPrice : null}
+          />
           {stock.isLeadingSector && <LeadingBadge />}
         </div>
       </div>
