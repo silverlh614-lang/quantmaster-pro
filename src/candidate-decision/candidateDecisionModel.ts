@@ -1,7 +1,7 @@
 // @responsibility Candidate Decision Card view model shared by Discover/Watchlist/Public Report.
 
 import {
-  CONDITION_PASS_THRESHOLD,
+  isChecklistConditionMet,
   GATE1_IDS,
   GATE1_REQUIRED,
   GATE2_IDS,
@@ -50,7 +50,7 @@ function conditionPasses(stock: StockRecommendation, id: ConditionId): boolean {
   const key = CONDITION_ID_TO_CHECKLIST_KEY[id];
   if (!key) return false;
   const value = stock.checklist?.[key as keyof StockRecommendation['checklist']];
-  return typeof value === 'number' && Number.isFinite(value) && value >= CONDITION_PASS_THRESHOLD;
+  return isChecklistConditionMet(value);
 }
 
 function buildGateSummary(

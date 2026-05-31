@@ -14,7 +14,7 @@ import { fetchAiUniverseSnapshot, type AiUniverseValuation } from '../../api/aiU
 import { fetchForeignerRatioTrend } from '../../api/foreignerRatioClient';
 import { fetchKrxInvestorTrend } from '../../api/krxInvestorClient';
 import { fetchYahooConsensus } from '../../api/yahooConsensusClient';
-import { CONDITION_PASS_THRESHOLD } from '../../constants/gateConfig';
+import { isChecklistConditionMet } from '../../constants/gateConfig';
 import {
   synthesizeRiskOnEnvironment,
   synthesizeCycleVerified,
@@ -205,14 +205,12 @@ async function fetchKrxValuation(code: string): Promise<KrxValuation | null> {
  */
 function computeGateEvaluation(stock: StockRecommendation): StockRecommendation['gateEvaluation'] {
   const cl = stock.checklist || ({} as StockRecommendation['checklist']);
-  // 27 항목 checklist 점수(0~10)에서 통과 기준 CONDITION_PASS_THRESHOLD (=5) 이상만
-  // 카운트. 직전엔 truthy 체크(`cl[k] ? 1 : 0`)라 1점만 있어도 통과로 잘못 산정,
-  // candidate decision 의 conditionPasses(>=5) 와 임계값 불일치로 UI 모순 발생
-  // (예: 대주전자재료 — G1 SURVIVAL PASS 0/5 + "통과 (5/5 항목 충족)" 동시 표기).
-  const v = (k: keyof typeof cl) => {
-    const val = cl[k];
-    return typeof val === 'number' && Number.isFinite(val) && val >= CONDITION_PASS_THRESHOLD ? 1 : 0;
-  };
+  // 27 항목 checklist 를 0~10 스케일로 정규화(normalizeChecklistScore)한 뒤
+  // CONDITION_PASS_THRESHOLD(=5) 이상만 카운트한다. checklist 는 boolean(AI)·0/1
+  // (enrichment) 으로 채워지므로 정규화 없이 비교하면 true(non-number)·1(<5) 이 모두
+  // 0점 처리되어 전 항목 미충족 → 항상 "FAILED AT GATE 1" 로 박제됐다 (ADR — scale 정합).
+  // candidate decision 의 conditionPasses 와 동일한 isChecklistConditionMet 단일 통로 사용.
+  const v = (k: keyof typeof cl) => (isChecklistConditionMet(cl[k]) ? 1 : 0);
 
   const gate1Keys: (keyof typeof cl)[] = [
     'cycleVerified', 'roeType3', 'riskOnEnvironment', 'mechanicalStop', 'notPreviousLeader',

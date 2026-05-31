@@ -18,6 +18,33 @@ export const GATE3_REQUIRED = 7;
 /** 개별 조건 통과 임계값 (0-10 스케일) */
 export const CONDITION_PASS_THRESHOLD = 5;
 
+/**
+ * 개별 조건 값을 0~10 스케일 점수로 정규화한다.
+ *
+ * `StockRecommendation.checklist` 는 생성 경로에 따라 boolean(Gemini) 또는 0/1
+ * (DART·KRX enrichment) 로 채워지지만, 게이트/후보판정 소비자는 0~10 스케일에서
+ * `CONDITION_PASS_THRESHOLD`(=5) 이상을 통과로 판정한다. 정규화 없이 직접 비교하면
+ * `true`(non-number) 와 `1`(< 5) 이 모두 0점 처리되어 27개 항목 전부 미충족 →
+ * 게이트가 항상 "FAILED AT GATE 1" 로 박제되는 결함이 발생한다. 이 함수가 이진/점수
+ * 두 척도를 0~10 으로 일치시킨다.
+ *   - boolean true              → 10 (통과)
+ *   - 이진 숫자 1 (통과 플래그)  → 10
+ *   - 이미 0~10 점수             → 그대로(clamp)
+ *   - false / 0 / null / 비정상  → 0
+ */
+export function normalizeChecklistScore(value: unknown): number {
+  if (value === true) return 10;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  if (value <= 0) return 0;
+  if (value <= 1) return 10; // 이진 1 = 통과 → 10 으로 승격
+  return Math.min(value, 10); // 0~10 점수 보존(clamp)
+}
+
+/** 조건 통과 여부 — 정규화 점수가 임계값 이상인지. checklist 이진/0~10 모두 안전. */
+export function isChecklistConditionMet(value: unknown): boolean {
+  return normalizeChecklistScore(value) >= CONDITION_PASS_THRESHOLD;
+}
+
 // ─── RAGT — Regime-Aware Gate Threshold ──────────────────────────────────────
 // "시장은 필터링 대상" 페르소나 철학을 레짐 단위로 다층화한다.
 // 강세장은 문턱을 낮춰 기회를 잡고, 약세/위기장은 문턱을 올려 진입을 까다롭게 한다.
