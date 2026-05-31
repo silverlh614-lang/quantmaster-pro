@@ -32,7 +32,7 @@ function StockRow({ entry }: { entry: ClientPipelineStockEntry }) {
         </span>
       )}
       {entry.outcome === 'EXECUTED' && (
-        <span className="ml-auto text-[10px] text-green-300 font-black shrink-0">EXECUTED</span>
+        <span className="ml-auto text-[10px] text-green-300 font-black shrink-0">체결됨</span>
       )}
     </li>
   );

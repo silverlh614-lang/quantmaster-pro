@@ -454,10 +454,10 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
                 }`} style={{ width: `${fsi.compositeScore}%` }} />
               </div>
               <div className="flex justify-between mt-1">
-                <span className="text-[8px] text-theme-text-muted">NORMAL</span>
-                <span className="text-[8px] text-theme-text-muted">CAUTION</span>
-                <span className="text-[8px] text-theme-text-muted">DEFENSIVE</span>
-                <span className="text-[8px] text-theme-text-muted">CRISIS</span>
+                <span className="text-[8px] text-theme-text-muted">정상</span>
+                <span className="text-[8px] text-theme-text-muted">주의</span>
+                <span className="text-[8px] text-theme-text-muted">방어적</span>
+                <span className="text-[8px] text-theme-text-muted">위기</span>
               </div>
             </div>
             <div className={`text-center py-2 mb-4 font-black text-xs ${

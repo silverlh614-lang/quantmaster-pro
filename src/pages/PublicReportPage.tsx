@@ -58,7 +58,7 @@ export function PublicReportPage({ preferredMode, focusSection = 'TOP' }: Public
         actions={(
           <div className="flex flex-wrap items-center gap-2">
             <PublicReportModeToggle value={activeMode} onChange={handleModeChange} />
-            <Badge variant="success" size="md">Shadow Learning ON</Badge>
+            <Badge variant="success" size="md">섀도우 러닝 ON</Badge>
           </div>
         )}
       >
