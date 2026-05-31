@@ -147,6 +147,27 @@ export function buildSectorEnergyQualitySection(input: SectorEnergyQualitySectio
     if (input.sectorEnergyReasons && input.sectorEnergyReasons.length > 0) {
       lines.push(`  • <i>diagnosticLegacyReason=${input.sectorEnergyReasons.slice(0, 2).join('; ')} diagnosticOnly=true</i>`);
     }
+  } else if (
+    sectorCanonical
+    && (sectorCanonical.dataQuality === 'SESSION_NOT_VERIFIABLE'
+      || sectorCanonical.sectorIndexVerifyMode === 'VERIFY_SKIPPED_SESSION_CLOSED')
+  ) {
+    // ADR-0544 follow-up: 휴일/세션닫힘 verify-skip 은 소스 결함(DEGRADED)이 아니므로 실패성 아이콘(❌/🔶)
+    // 대신 중립 SESSION_NOT_VERIFIABLE 표시. 게이팅(promotionCoveragePass=false)은 읽기만 — 무변경.
+    lines.push('🌐 <b>SectorEnergy Summary:</b>');
+    lines.push('  • status=VERIFY_SKIPPED_SESSION_CLOSED');
+    lines.push('  • sourceOfTruth=SectorEnergyCanonicalResolver');
+    lines.push(`  • officialSectorCount=${sectorCanonical.officialSectorCount}`);
+    lines.push('  • verifiedOfficialSectorCount=N/A_SESSION_CLOSED');
+    lines.push('  • promotionCoverage=N/A_SESSION_CLOSED');
+    lines.push('  • promotion=DISABLED_FOR_SESSION');
+    lines.push(`  • shadowLeadershipAllowed=${sectorCanonical.shadowLeadershipAllowed}`);
+    lines.push(`  • counterfactualAllowed=${sectorCanonical.counterfactualAllowed}`);
+    lines.push('  • providerIssue=false');
+    lines.push('  • marketSignal=false');
+    lines.push('  • operatorAction=OBSERVE_NEXT_TRADING_SESSION');
+    lines.push('  • executionImpact=NONE');
+    lines.push('  • <i>비거래일이라 공식 섹터지수 실시간 검증을 생략했습니다. provider failure 아님 — 다음 거래일 verify 예정.</i>');
   } else {
     lines.push('🌐 <b>섹터 에너지 데이터 품질:</b>');
     // ADR-0396 (= 사용자 명시 ADR-0371): 5단계 union — DEGRADED 신규 마커 추가.
