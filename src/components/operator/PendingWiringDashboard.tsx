@@ -304,7 +304,7 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: st
 function InfoTerm({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="font-black uppercase tracking-wider text-slate-500">{label}</dt>
+      <dt className="font-semibold tracking-tight text-slate-500">{label}</dt>
       <dd className="mt-1 break-words">{value}</dd>
     </div>
   );

@@ -77,7 +77,7 @@ export function FSSPanel({ fssResult }: FSSPanelProps) {
       <div className="p-4 sm:p-6 border-2 border-theme-border bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center gap-2 mb-2">
           <Users className="w-3.5 h-3.5 text-theme-text-muted" />
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
             FSS 외국인 수급 방향 전환 스코어
           </h3>
         </div>
@@ -100,12 +100,12 @@ export function FSSPanel({ fssResult }: FSSPanelProps) {
     )}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted flex items-center gap-2">
+        <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted flex items-center gap-2">
           <Users className="w-3.5 h-3.5" />
           FSS 외국인 수급 방향 전환 스코어
         </h3>
         <div className="flex items-center gap-2">
-          <span className={cn('px-2 py-0.5 text-[9px] font-black uppercase tracking-wider', styles.badge)}>
+          <span className={cn('px-2 py-0.5 text-[9px] font-semibold tracking-tight', styles.badge)}>
             {styles.icon} {styles.label}
           </span>
           <button
@@ -131,7 +131,7 @@ export function FSSPanel({ fssResult }: FSSPanelProps) {
       {/* FSS Score Gauge */}
       <div className="mb-5">
         <div className="flex items-end justify-between mb-1">
-          <span className="text-[9px] font-black uppercase tracking-widest text-theme-text-muted">
+          <span className="text-[9px] font-semibold tracking-tight text-theme-text-muted">
             5일 누적 점수
           </span>
           <span className={cn('text-2xl font-black tabular-nums', styles.alertText || 'text-theme-text')}>
@@ -190,7 +190,7 @@ export function FSSPanel({ fssResult }: FSSPanelProps) {
       {/* Daily Breakdown */}
       {expanded && fssResult.dailyScores.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-theme-text-muted mb-2">
+          <p className="text-[9px] font-semibold tracking-tight text-theme-text-muted mb-2">
             최근 {fssResult.dailyScores.length}거래일 일별 내역
           </p>
           {fssResult.dailyScores.map(day => (

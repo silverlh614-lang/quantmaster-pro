@@ -25,12 +25,12 @@ export function ModalHeader({ stock }: ModalHeaderProps) {
           {stock.isSectorTopPick && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-lg">
               <Award className="w-3 h-3" />
-              <span className="text-[9px] font-black uppercase tracking-widest">Sector Top Pick</span>
+              <span className="text-[9px] font-semibold tracking-tight">Sector Top Pick</span>
             </div>
           )}
           {stock.aiConvictionScore?.marketPhase && (
             <div className={cn(
-              "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border flex items-center gap-1.5 whitespace-nowrap",
+              "px-2.5 py-1 rounded-lg text-[9px] font-semibold tracking-tight border flex items-center gap-1.5 whitespace-nowrap",
               stock.aiConvictionScore.marketPhase === 'RISK_ON' || stock.aiConvictionScore.marketPhase === 'BULL' ? "bg-green-500/20 text-green-400 border-green-500/30" :
               stock.aiConvictionScore.marketPhase === 'RISK_OFF' || stock.aiConvictionScore.marketPhase === 'BEAR' ? "bg-red-500/20 text-red-400 border-red-500/30" :
               stock.aiConvictionScore.marketPhase === 'SIDEWAYS' ? "bg-blue-500/20 text-blue-400 border-blue-500/30" :
@@ -52,7 +52,7 @@ export function ModalHeader({ stock }: ModalHeaderProps) {
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 hover:bg-orange-500 hover:text-white border border-white/10 rounded-lg transition-all group/link active:scale-95"
           >
-            <span className="text-[9px] font-black uppercase tracking-widest">Chart</span>
+            <span className="text-[9px] font-semibold tracking-tight">Chart</span>
             <ExternalLink className="w-2.5 h-2.5 group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 transition-transform" />
           </a>
         </div>

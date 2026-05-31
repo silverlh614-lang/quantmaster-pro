@@ -22,7 +22,7 @@ export function ContrarianSection({ gate0Result }: Props) {
   return (
     <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
       <div className="mb-6">
-        <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+        <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
           Contrarian Counter-Cycle Engine — 역발상 카운터사이클
         </h3>
         <p className="text-[9px] font-mono text-theme-text-muted mt-1">

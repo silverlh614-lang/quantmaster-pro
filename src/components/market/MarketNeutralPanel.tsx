@@ -69,7 +69,7 @@ export function MarketNeutralPanel({ marketNeutralResult }: MarketNeutralPanelPr
         {/* Expand toggle */}
         <button
           onClick={() => setExpanded(v => !v)}
-          className="ml-auto flex items-center gap-1 text-[10px] font-black uppercase tracking-widest opacity-70 hover:opacity-100 transition-opacity shrink-0"
+          className="ml-auto flex items-center gap-1 text-[10px] font-semibold tracking-tight opacity-70 hover:opacity-100 transition-opacity shrink-0"
           aria-expanded={expanded}
           aria-label="Market Neutral 상세 정보 보기"
         >
@@ -101,7 +101,7 @@ export function MarketNeutralPanel({ marketNeutralResult }: MarketNeutralPanelPr
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-1.5">
                       <LegIcon className={cn('w-3.5 h-3.5', style.text)} />
-                      <span className={cn('text-[11px] font-black uppercase tracking-widest', style.text)}>
+                      <span className={cn('text-[11px] font-semibold tracking-tight', style.text)}>
                         {leg.label}
                       </span>
                     </div>
@@ -120,7 +120,7 @@ export function MarketNeutralPanel({ marketNeutralResult }: MarketNeutralPanelPr
 
           {/* Beta neutral scenario */}
           <div className="rounded-lg border border-purple-500/30 bg-purple-900/30 p-3">
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-purple-300 mb-2 flex items-center gap-1.5">
+            <h4 className="text-[10px] font-semibold tracking-tight text-purple-300 mb-2 flex items-center gap-1.5">
               <Scale className="w-3 h-3" /> 베타 중립화 시나리오
             </h4>
             <p className="text-xs font-bold text-purple-100 mb-1">{betaNeutralScenario.description}</p>

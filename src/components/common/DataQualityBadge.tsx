@@ -118,7 +118,7 @@ export function DataQualityBadge({ count, compact = true, className, forceShow }
       aria-label="데이터 품질"
     >
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] font-black uppercase tracking-widest opacity-70">데이터 품질</span>
+        <span className="text-[10px] font-semibold tracking-tight opacity-70">데이터 품질</span>
         <span className="text-[10px] font-black">{TIER_LABEL[tier]}</span>
       </div>
       <ul className="space-y-0.5 font-num">

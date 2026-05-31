@@ -163,7 +163,7 @@ export function BacktestPage({
                     key={y}
                     onClick={() => { setBacktestYears(y); feeInputRef.current?.focus(); }}
                     className={cn(
-                      'flex-1 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all border',
+                      'flex-1 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-semibold tracking-tight transition-all border',
                       backtestYears === y
                         ? 'bg-green-500/15 border-green-500/40 text-green-400 shadow-[0_0_12px_rgba(34,197,94,0.12)]'
                         : 'bg-white/5 border-theme-border text-theme-text-muted hover:bg-white/10'
@@ -213,7 +213,7 @@ export function BacktestPage({
                     key={f}
                     onClick={() => setCommissionFee(f)}
                     className={cn(
-                      'flex-1 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all border',
+                      'flex-1 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-semibold tracking-tight transition-all border',
                       commissionFee === f
                         ? 'bg-orange-500/15 border-orange-500/40 text-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.12)]'
                         : 'bg-white/5 border-theme-border text-theme-text-muted hover:bg-white/10'

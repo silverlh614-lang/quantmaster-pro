@@ -119,7 +119,7 @@ export function DataConfidenceBadge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider whitespace-nowrap',
+        'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] font-semibold tracking-tight whitespace-nowrap',
         config.className,
         compact ? 'px-1.5 text-[9px]' : 'py-1',
         confidence === 'AI_ESTIMATED' && 'normal-case',

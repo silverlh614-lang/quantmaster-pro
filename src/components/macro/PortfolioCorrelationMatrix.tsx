@@ -99,7 +99,7 @@ export function PortfolioCorrelationMatrix({ className }: PortfolioCorrelationMa
   if (symbols.length < 2) {
     return (
       <div className={cn('rounded border border-white/10 bg-white/5 p-3 sm:p-4', className)}>
-        <div className="flex items-center gap-1.5 mb-2 text-[10px] font-black uppercase tracking-widest opacity-70">
+        <div className="flex items-center gap-1.5 mb-2 text-[10px] font-semibold tracking-tight opacity-70">
           <GitMerge className="w-3 h-3" />
           <span>보유 종목 상관관계</span>
         </div>
@@ -117,7 +117,7 @@ export function PortfolioCorrelationMatrix({ className }: PortfolioCorrelationMa
       aria-label="보유 종목 상관관계 매트릭스"
     >
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-        <span className="text-[11px] font-black uppercase tracking-widest opacity-70 flex items-center gap-1.5">
+        <span className="text-[11px] font-semibold tracking-tight opacity-70 flex items-center gap-1.5">
           <GitMerge className="w-3 h-3" /> 보유 종목 상관관계
         </span>
         <div className="flex items-center gap-2">

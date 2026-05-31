@@ -69,7 +69,7 @@ export function GlobalCorrelationCard() {
   if (!data) {
     return (
       <div className="rounded border border-white/10 bg-white/5 p-3 sm:p-4 min-h-[120px]">
-        <div className="flex items-center gap-1.5 mb-2 text-[10px] font-black uppercase tracking-widest opacity-70">
+        <div className="flex items-center gap-1.5 mb-2 text-[10px] font-semibold tracking-tight opacity-70">
           <GitMerge className="w-3 h-3" />
           <span>글로벌 상관관계</span>
         </div>
@@ -90,7 +90,7 @@ export function GlobalCorrelationCard() {
       aria-label="글로벌 상관관계"
     >
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest opacity-70">
+        <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-tight opacity-70">
           <GitMerge className="w-3 h-3" />
           <span>글로벌 상관관계</span>
         </div>

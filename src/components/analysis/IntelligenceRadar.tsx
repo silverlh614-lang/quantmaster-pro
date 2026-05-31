@@ -152,7 +152,7 @@ export const IntelligenceRadar: React.FC<Props> = (props) => {
   return (
     <div className="glass-3d p-5 rounded-[2rem] border border-white/10 shadow-2xl">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xs font-black uppercase tracking-widest text-white/80">
+        <h3 className="text-xs font-semibold tracking-tight text-white/80">
           글로벌 인텔리전스 통합 레이더 (A~L)
         </h3>
         <div className="flex items-center gap-3">

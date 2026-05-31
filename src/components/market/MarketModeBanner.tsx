@@ -104,7 +104,7 @@ export function MarketModeBanner() {
         <button
           type="button"
           onClick={() => setExpanded(v => !v)}
-          className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white/80 transition-opacity shrink-0"
+          className="flex items-center gap-1 text-[9px] font-semibold tracking-tight text-white/40 hover:text-white/80 transition-opacity shrink-0"
           aria-expanded={expanded}
           aria-label={expanded ? '시장 모드 정책 접기' : '시장 모드 정책 펼치기'}
         >
@@ -124,7 +124,7 @@ export function MarketModeBanner() {
 
           {/* Allowed */}
           <div className="md:col-span-1">
-            <h4 className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-2 flex items-center gap-1.5">
+            <h4 className="text-[10px] font-semibold tracking-tight opacity-60 mb-2 flex items-center gap-1.5">
               <Shield className="w-3 h-3" /> 허용 전략
             </h4>
             <ul className="space-y-1">
@@ -139,7 +139,7 @@ export function MarketModeBanner() {
 
           {/* Forbidden */}
           <div className="md:col-span-1">
-            <h4 className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-2 flex items-center gap-1.5">
+            <h4 className="text-[10px] font-semibold tracking-tight opacity-60 mb-2 flex items-center gap-1.5">
               <Globe className="w-3 h-3" /> 금지 전략
             </h4>
             <ul className="space-y-1">
@@ -154,7 +154,7 @@ export function MarketModeBanner() {
 
           {/* Headline detail (데스크탑 전용 컬럼) */}
           <div className="hidden md:block">
-            <h4 className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-2">레짐 요약</h4>
+            <h4 className="text-[10px] font-semibold tracking-tight opacity-60 mb-2">레짐 요약</h4>
             <p className={cn('text-xs leading-relaxed font-bold', style.accent)}>
               {regime}
             </p>

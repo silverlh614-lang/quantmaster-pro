@@ -207,7 +207,7 @@ function LastUpdatedInfo({
         </p>
       )}
       {isLastUpdatedStale(lastUpdated) && (
-        <p className="flex animate-pulse items-center gap-2 text-[10px] font-black uppercase tracking-widest text-orange-500/60">
+        <p className="flex animate-pulse items-center gap-2 text-[10px] font-semibold tracking-tight text-orange-500/60">
           <AlertTriangle className="h-2.5 w-2.5" />
           데이터가 오래됐을 수 있습니다 — 새로고침 권장
         </p>

@@ -233,7 +233,7 @@ export function GateStatusWidget({ stock }: GateStatusWidgetProps) {
                   {/* Gate Header */}
                   <div className="flex items-center gap-2 mb-2 pb-1.5 border-b border-theme-border/30">
                     <span className={cn('shrink-0', gate.color)}>{gate.icon}</span>
-                    <span className={cn('text-[10px] font-black uppercase tracking-widest', gate.color)}>
+                    <span className={cn('text-[10px] font-semibold tracking-tight', gate.color)}>
                       {gate.label} — {gate.labelKo}
                     </span>
                     <Badge

@@ -23,7 +23,7 @@ export const BearRegimeSection = React.memo(function BearRegimeSection() {
                 : 'border-green-500'
             }`}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted flex items-center gap-2">
+                <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted flex items-center gap-2">
                   <Shield className="w-3.5 h-3.5" />
                   Gate -1 · Market Regime Detector
                 </h3>
@@ -104,7 +104,7 @@ export const BearRegimeSection = React.memo(function BearRegimeSection() {
                 : 'border-theme-border'
             }`}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted flex items-center gap-2">
+                <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted flex items-center gap-2">
                   <Activity className="w-3.5 h-3.5" />
                   VKOSPI 공포지수 트리거
                 </h3>
@@ -207,7 +207,7 @@ export const BearRegimeSection = React.memo(function BearRegimeSection() {
           bearSeasonalityResult.isBearSeason ? 'border-red-500' : 'border-theme-border'
         }`}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted flex items-center gap-2">
+            <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted flex items-center gap-2">
               <CalendarDays className="w-3.5 h-3.5" />
               Bear Calendar · 계절성 약세 레이어
             </h3>
@@ -230,7 +230,7 @@ export const BearRegimeSection = React.memo(function BearRegimeSection() {
                     : 'border-theme-border bg-theme-bg'
                 }`}
               >
-                <p className={`text-[10px] font-black uppercase tracking-widest ${window.active ? 'text-red-300' : 'text-theme-text-muted'}`}>
+                <p className={`text-[10px] font-semibold tracking-tight ${window.active ? 'text-red-300' : 'text-theme-text-muted'}`}>
                   {window.name}
                 </p>
                 <p className="text-[9px] text-theme-text-muted mt-0.5">{window.period}</p>
@@ -280,7 +280,7 @@ export const BearRegimeSection = React.memo(function BearRegimeSection() {
             : 'border-theme-border'
         }`}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted flex items-center gap-2">
+            <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted flex items-center gap-2">
               <TrendingDown className="w-3.5 h-3.5" />
               Inverse Gate 1 · 인버스 ETF 스코어링 시스템
             </h3>

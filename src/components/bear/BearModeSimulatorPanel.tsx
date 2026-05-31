@@ -381,7 +381,7 @@ export function BearModeSimulatorPanel({ inputs, onInputsChange, result }: BearM
     )}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted flex items-center gap-2">
+        <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted flex items-center gap-2">
           <TrendingDown className="w-3.5 h-3.5" />
           Bear Mode 손익 시뮬레이터 · "인버스 ETF를 샀다면?"
         </h3>

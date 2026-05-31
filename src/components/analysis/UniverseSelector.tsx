@@ -258,7 +258,7 @@ export function UniverseSelector({ value, onChange }: UniverseSelectorProps) {
                                 );
                               }}
                               className={cn(
-                                'px-3 py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider border transition-all',
+                                'px-3 py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-semibold tracking-tight border transition-all',
                                 isActive
                                   ? 'bg-blue-500/15 border-blue-500/40 text-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.1)]'
                                   : 'bg-white/5 border-theme-border text-theme-text-muted hover:bg-white/10'
@@ -289,7 +289,7 @@ export function UniverseSelector({ value, onChange }: UniverseSelectorProps) {
                         type="button"
                         onClick={() => onChange({ ...value, market: opt.market })}
                         className={cn(
-                          'flex-1 py-2 rounded-lg sm:rounded-xl text-xs font-black uppercase tracking-wider border transition-all',
+                          'flex-1 py-2 rounded-lg sm:rounded-xl text-xs font-semibold tracking-tight border transition-all',
                           value.market === opt.market
                             ? 'bg-green-500/15 border-green-500/40 text-green-400'
                             : 'bg-white/5 border-theme-border text-theme-text-muted hover:bg-white/10'

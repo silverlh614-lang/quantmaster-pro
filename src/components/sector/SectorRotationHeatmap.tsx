@@ -90,7 +90,7 @@ export function SectorRotationHeatmap() {
         <button
           type="button"
           onClick={() => setExpanded(v => !v)}
-          className="ml-auto md:ml-0 flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white/80 transition-opacity shrink-0"
+          className="ml-auto md:ml-0 flex items-center gap-1 text-[9px] font-semibold tracking-tight text-white/40 hover:text-white/80 transition-opacity shrink-0"
           aria-expanded={expanded}
           aria-label={expanded ? '섹터 히트맵 접기' : '섹터 히트맵 펼치기'}
         >

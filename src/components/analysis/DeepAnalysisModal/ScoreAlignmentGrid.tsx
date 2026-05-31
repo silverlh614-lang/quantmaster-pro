@@ -24,7 +24,7 @@ function ScoreCard({ label, value, scale, tone, tooltip }: ScoreCardProps) {
     'border-white/10 bg-white/5 text-white/70';
   return (
     <div className={cn('rounded-2xl border p-4 min-w-0', toneClass)} title={tooltip}>
-      <div className="text-[10px] font-black uppercase tracking-widest opacity-70">{label}</div>
+      <div className="text-[10px] font-semibold tracking-tight opacity-70">{label}</div>
       <div className="mt-2 flex items-baseline gap-1">
         <span className="text-2xl font-black tracking-tighter font-num">{value}</span>
         <span className="text-[10px] font-bold opacity-60">{scale}</span>

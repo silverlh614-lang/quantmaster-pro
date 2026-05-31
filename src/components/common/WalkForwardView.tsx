@@ -50,7 +50,7 @@ function HeaderBadge({
   return (
     <div className={cn('px-3 py-1 border rounded-full flex items-center gap-2', className)}>
       <Info className="w-3 h-3" />
-      <span className="text-[10px] font-black uppercase tracking-widest">{label}</span>
+      <span className="text-[10px] font-semibold tracking-tight">{label}</span>
     </div>
   );
 }
@@ -101,7 +101,7 @@ function GuideSection() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
         {GUIDE_ITEMS.map(item => (
           <div key={item.title} className="space-y-2">
-            <div className={cn('text-[11px] font-black uppercase tracking-widest', item.color)}>{item.title}</div>
+            <div className={cn('text-[11px] font-semibold tracking-tight', item.color)}>{item.title}</div>
             <p className="text-xs text-white/60 leading-relaxed font-bold">{item.body}</p>
           </div>
         ))}
@@ -144,7 +144,7 @@ function RobustnessHero({ analysis }: { analysis: WalkForwardAnalysis }) {
           <div className="text-8xl font-black text-white tracking-tighter mb-6">
             {analysis.robustnessScore}<span className="text-4xl text-white/20">/100</span>
           </div>
-          <div className={cn('inline-flex items-center gap-2 px-6 py-2 rounded-2xl text-sm font-black uppercase tracking-widest', robustnessClass(analysis.robustnessScore))}>
+          <div className={cn('inline-flex items-center gap-2 px-6 py-2 rounded-2xl text-sm font-semibold tracking-tight', robustnessClass(analysis.robustnessScore))}>
             {robustnessLabel(analysis.robustnessScore)}
           </div>
         </div>
@@ -381,7 +381,7 @@ export const WalkForwardView: React.FC = () => {
             <button
               type="button"
               onClick={handleWalkForwardAnalysis}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-widest transition-colors"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-semibold tracking-tight transition-colors"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               Retry now

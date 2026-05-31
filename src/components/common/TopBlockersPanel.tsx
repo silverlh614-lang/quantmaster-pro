@@ -70,7 +70,7 @@ export function TopBlockersPanel({ limit = 3, pollMs = 60_000 }: Props) {
   return (
     <div className="bg-[#0d0e11] border border-white/10 rounded-lg p-3 space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+        <span className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
           오늘의 병목 TOP {limit}
         </span>
         {data && (

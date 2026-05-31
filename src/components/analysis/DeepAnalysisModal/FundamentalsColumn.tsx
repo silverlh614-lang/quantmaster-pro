@@ -172,7 +172,7 @@ function PriceActionCard({
 }) {
   return (
     <div className={cn('rounded-2xl p-4 border text-center', className)}>
-      <span className={cn('text-[9px] font-black uppercase tracking-widest block mb-1', labelClassName)}>{label}</span>
+      <span className={cn('text-[9px] font-semibold tracking-tight block mb-1', labelClassName)}>{label}</span>
       <span className={valueClassName}>{value}</span>
       {subValue && <span className={cn('text-[10px] block', subValueClassName)}>{subValue}</span>}
     </div>

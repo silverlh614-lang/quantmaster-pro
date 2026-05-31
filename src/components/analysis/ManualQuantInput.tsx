@@ -435,7 +435,7 @@ function ResultHeader({
           'px-8 py-4 rounded-3xl border-2 flex flex-col items-center justify-center min-w-[160px]',
           passed ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-red-500/10 border-red-500/30 text-red-400'
         )}>
-          <span className="text-[10px] font-black uppercase tracking-widest mb-1">Status</span>
+          <span className="text-[10px] font-semibold tracking-tight mb-1">Status</span>
           <span className="text-2xl font-black uppercase tracking-tighter">{passed ? 'PASS' : 'FAIL'}</span>
         </div>
       </div>

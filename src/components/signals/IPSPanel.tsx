@@ -80,7 +80,7 @@ export function IPSPanel({ ipsResult }: IPSPanelProps) {
       <div className="p-4 sm:p-6 border-2 border-theme-border bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center gap-2 mb-2">
           <Activity className="w-3.5 h-3.5 text-theme-text-muted" />
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
             IPS 통합 변곡점 확률 엔진
           </h3>
         </div>
@@ -107,12 +107,12 @@ export function IPSPanel({ ipsResult }: IPSPanelProps) {
     )}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted flex items-center gap-2">
+        <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted flex items-center gap-2">
           <Activity className="w-3.5 h-3.5" />
           IPS 통합 변곡점 확률 엔진
         </h3>
         <div className="flex items-center gap-2">
-          <span className={cn('px-2 py-0.5 text-[9px] font-black uppercase tracking-wider', styles.badge)}>
+          <span className={cn('px-2 py-0.5 text-[9px] font-semibold tracking-tight', styles.badge)}>
             {styles.icon} {styles.label}
           </span>
           <button
@@ -138,7 +138,7 @@ export function IPSPanel({ ipsResult }: IPSPanelProps) {
       {/* IPS Gauge */}
       <div className="mb-5">
         <div className="flex items-end justify-between mb-1">
-          <span className="text-[9px] font-black uppercase tracking-widest text-theme-text-muted">
+          <span className="text-[9px] font-semibold tracking-tight text-theme-text-muted">
             IPS 점수
           </span>
           <span className={cn('text-2xl font-black tabular-nums', styles.alertText || 'text-theme-text')}>
@@ -178,7 +178,7 @@ export function IPSPanel({ ipsResult }: IPSPanelProps) {
       {/* Signal Breakdown */}
       {expanded && (
         <div className="space-y-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-theme-text-muted mb-2">
+          <p className="text-[9px] font-semibold tracking-tight text-theme-text-muted mb-2">
             신호 구성 (6개 · 합계 100%)
           </p>
           {ipsResult.signals.map(signal => (

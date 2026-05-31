@@ -58,7 +58,7 @@ export function SeasonalityAttributionSection({ result }: Props) {
               { label: 'Alpha', value: result.attribution.alpha, color: 'bg-purple-500' },
             ].map(item => (
               <div key={item.label}>
-                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest mb-1">
+                <div className="flex justify-between text-[10px] font-semibold tracking-tight mb-1">
                   <span>{item.label}</span>
                   <span>{item.value}%</span>
                 </div>

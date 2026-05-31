@@ -90,7 +90,7 @@ export function GateStatusCard({ summary, onExpand, className, forceShow }: Gate
       aria-label={`Gate 0~3 통과 요약 — ${v.label}`}
     >
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Gate 0~3</span>
+        <span className="text-[10px] font-semibold tracking-tight opacity-60">Gate 0~3</span>
         <span className={cn(
           'text-[10px] font-black px-1.5 py-0.5 rounded border whitespace-nowrap',
           v.chip,
@@ -110,7 +110,7 @@ export function GateStatusCard({ summary, onExpand, className, forceShow }: Gate
         <button
           type="button"
           onClick={onExpand}
-          className="mt-1.5 w-full flex items-center justify-center gap-1 text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white/80 transition-colors"
+          className="mt-1.5 w-full flex items-center justify-center gap-1 text-[9px] font-semibold tracking-tight text-white/40 hover:text-white/80 transition-colors"
           aria-label="풀 디테일 보기"
         >
           상세 분석 <ChevronRight className="w-3 h-3" />

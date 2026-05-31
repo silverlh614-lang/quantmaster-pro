@@ -73,7 +73,7 @@ export function BearKellyPanel({ bearKellyResult, entryDate, onSetEntryDate }: B
     )}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted flex items-center gap-2">
+        <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted flex items-center gap-2">
           <Calculator className="w-3.5 h-3.5" />
           Bear Kelly Criterion · 인버스 ETF 최적 포지션
         </h3>
@@ -187,7 +187,7 @@ export function BearKellyPanel({ bearKellyResult, entryDate, onSetEntryDate }: B
         <button
           onClick={handleSetEntry}
           disabled={!dateInput}
-          className="px-3 py-1 text-[10px] font-black uppercase tracking-widest border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors disabled:opacity-40"
+          className="px-3 py-1 text-[10px] font-semibold tracking-tight border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors disabled:opacity-40"
         >
           설정
         </button>

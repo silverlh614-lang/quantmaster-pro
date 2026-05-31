@@ -104,7 +104,7 @@ export function PipelineStageDrilldown({ stage, onClose }: PipelineStageDrilldow
             <>
               {data.passed.length > 0 && (
                 <section>
-                  <h3 className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1.5">
+                  <h3 className="text-[10px] font-semibold tracking-tight opacity-60 mb-1.5">
                     통과 ({data.passed.length})
                   </h3>
                   <ul className="divide-y divide-white/5">
@@ -114,7 +114,7 @@ export function PipelineStageDrilldown({ stage, onClose }: PipelineStageDrilldow
               )}
               {data.dropped.length > 0 && (
                 <section>
-                  <h3 className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1.5">
+                  <h3 className="text-[10px] font-semibold tracking-tight opacity-60 mb-1.5">
                     탈락 ({data.dropped.length})
                   </h3>
                   <ul className="divide-y divide-white/5">

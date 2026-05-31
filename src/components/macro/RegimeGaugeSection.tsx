@@ -78,7 +78,7 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
         <button
           onClick={loadRegime}
           disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-sm font-black uppercase tracking-widest disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-sm font-semibold tracking-tight disabled:opacity-50"
         >
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           {loading ? 'AI 조회 중...' : '레짐 분류 실행'}
@@ -96,7 +96,7 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
 
         {/* 경기 레짐 게이지 */}
         <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted mb-6">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted mb-6">
             경기 레짐 게이지 — Economic Regime Classifier
           </h3>
           <div className="flex gap-2 mb-6">
@@ -112,7 +112,7 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
                       : 'border-theme-border text-theme-text-muted bg-theme-bg'
                   }`}
                 >
-                  <p className="text-[9px] font-black uppercase tracking-widest">{r}</p>
+                  <p className="text-[9px] font-semibold tracking-tight">{r}</p>
                   <p className={`text-base font-black mt-1 ${isActive ? meta.color : 'text-theme-text-muted'}`}>
                     {meta.ko}
                   </p>
@@ -171,7 +171,7 @@ export function RegimeGaugeSection({ gate0Result, externalRegime }: Props) {
           {/* FX + 금리 사이클 인디케이터 */}
           {gate0Result && (
             <div className="p-6 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted mb-4">
+              <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted mb-4">
                 FX · Rate Cycle 임팩트
               </h3>
               <div className="grid grid-cols-2 gap-4">

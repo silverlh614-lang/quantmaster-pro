@@ -53,7 +53,7 @@ export function ConditionChecklist({ result }: Props) {
   return (
     <div className="mb-12 p-6 border border-theme-text bg-white">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-[11px] font-black uppercase tracking-widest">27-Condition Detail</h3>
+        <h3 className="text-[11px] font-semibold tracking-tight">27-Condition Detail</h3>
         {isHighSignal && total > 0 && (
           <span className={`text-[9px] font-black px-2 py-1 border ${
             aiActive / total > 0.5

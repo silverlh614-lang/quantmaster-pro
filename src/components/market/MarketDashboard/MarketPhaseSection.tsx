@@ -33,7 +33,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
       </div>
       <div className="mb-8">
         <div className={cn(
-          "inline-flex items-center gap-3 px-6 py-3 rounded-2xl text-lg font-black uppercase tracking-widest border shadow-2xl",
+          "inline-flex items-center gap-3 px-6 py-3 rounded-2xl text-lg font-semibold tracking-tight border shadow-2xl",
           marketPhase === 'RISK_ON' || marketPhase === 'BULL' ? "bg-green-500/20 text-green-400 border-green-500/30" :
           marketPhase === 'RISK_OFF' || marketPhase === 'BEAR' ? "bg-red-500/20 text-red-400 border-red-500/30" :
           marketPhase === 'SIDEWAYS' ? "bg-blue-500/20 text-blue-400 border-blue-500/30" :
@@ -100,7 +100,7 @@ export const MarketPhaseSection: React.FC<MarketPhaseSectionProps> = React.memo(
         {regimeShiftDetector?.isShiftDetected && (
           <div className="flex items-center gap-2 text-red-400 animate-pulse">
             <ShieldAlert className="w-4 h-4" />
-            <span className="text-[10px] font-black uppercase tracking-widest">Regime Shift Detected!</span>
+            <span className="text-[10px] font-semibold tracking-tight">Regime Shift Detected!</span>
           </div>
         )}
       </div>

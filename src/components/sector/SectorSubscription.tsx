@@ -193,7 +193,7 @@ export const SectorSubscription: React.FC<SectorSubscriptionProps> = ({
                 onClick={handleSave}
                 disabled={!isDirty}
                 className={cn(
-                  "flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all",
+                  "flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold tracking-tight transition-all",
                   isDirty
                     ? "bg-amber-500 text-black hover:bg-amber-400 shadow-[0_4px_14px_rgba(245,158,11,0.35)]"
                     : "bg-white/5 text-gray-500 border border-white/10 cursor-not-allowed"

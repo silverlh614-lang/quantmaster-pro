@@ -211,7 +211,7 @@ function StepNavigationItem({
         <StepStatusIcon step={step} active={active} accessible={accessible} completed={completed} />
         <div className="text-left hidden xs:block">
           <span className={cn(
-            'text-[10px] font-black uppercase tracking-wider block leading-tight',
+            'text-[10px] font-semibold tracking-tight block leading-tight',
             active ? step.color : completed ? step.color : 'text-theme-text-muted'
           )}>
             {step.label}
@@ -283,7 +283,7 @@ function GateProgressPill({ label, passed, total, required, ok, color }: {
 
   return (
     <div className="flex-1 flex items-center gap-2 sm:gap-3">
-      <div className={cn('text-[10px] font-black uppercase tracking-widest shrink-0', c.text)}>
+      <div className={cn('text-[10px] font-semibold tracking-tight shrink-0', c.text)}>
         {label}
       </div>
       <div className={cn('flex-1 h-2 rounded-full overflow-hidden bg-white/5 border', c.ring)}>

@@ -8,7 +8,7 @@ export function TrancheBreakdown({ plan }: { plan: TranchePlanResult | null }) {
   return (
     <div className="mt-2 rounded-lg border border-violet-400/15 bg-violet-400/[0.05] px-2.5 py-2">
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-[9px] font-black uppercase tracking-widest text-violet-300/70">
+        <span className="text-[9px] font-semibold tracking-tight text-violet-300/70">
           분할매수 ({plan.regimeLabel})
         </span>
         <span className="text-[9px] font-bold text-white/35">

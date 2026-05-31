@@ -243,7 +243,7 @@ function ScreenerForm({
 function PipelineExplainer() {
   return (
     <div className="bg-[#0f1012] border border-blue-500/20 rounded-xl p-5">
-      <p className="text-xs font-black uppercase tracking-widest text-blue-400 mb-4">5-step hybrid discovery mode</p>
+      <p className="text-xs font-semibold tracking-tight text-blue-400 mb-4">5-step hybrid discovery mode</p>
       <div className="flex items-start gap-0">
         {PIPELINE_STAGES.map((stage, idx) => (
           <React.Fragment key={stage.label}>

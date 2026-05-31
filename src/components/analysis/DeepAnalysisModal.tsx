@@ -89,7 +89,7 @@ function DeepAnalysisActionButtons({
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 transition-all group active:scale-90 border border-white/10 backdrop-blur-md shadow-lg"
         title="닫기"
       >
-        <span className="text-[10px] font-black uppercase tracking-widest text-white/40 group-hover:text-white transition-colors">Close</span>
+        <span className="text-[10px] font-semibold tracking-tight text-white/40 group-hover:text-white transition-colors">Close</span>
         <X className="w-4 h-4 text-white/50 group-hover:text-white transition-colors" />
       </button>
     </div>

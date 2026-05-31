@@ -52,7 +52,7 @@ function GatePill({ gate }: { gate: GateSummary }) {
   return (
     <div className={cn('rounded-lg border px-2.5 py-2', aiOnly ? GATE_TONE_AI : GATE_TONE[gate.status])}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[9px] font-black uppercase tracking-wider text-white/45">{gate.name.replace(/^Gate\s*/i, 'G')}</span>
+        <span className="text-[9px] font-semibold tracking-tight text-white/45">{gate.name.replace(/^Gate\s*/i, 'G')}</span>
         <span className="text-[9px] font-black">{aiOnly ? 'AI 통과' : gate.status}</span>
       </div>
       <div className="mt-1 text-sm font-black font-num">{gate.passed}/{gate.total}</div>
@@ -81,7 +81,7 @@ function ReasonList({ title, items, tone, limit }: { title: string; items: strin
   const borderClass = tone === 'green' ? 'border-emerald-400/15' : tone === 'red' ? 'border-red-400/15' : 'border-amber-400/15';
   return (
     <div>
-      <div className={cn('mb-1.5 text-[10px] font-black uppercase tracking-wider', titleClass)}>{title}</div>
+      <div className={cn('mb-1.5 text-[10px] font-semibold tracking-tight', titleClass)}>{title}</div>
       {visible.length > 0 ? (
         <ul className="space-y-1.5">
           {visible.map((item) => (
@@ -134,7 +134,7 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
             <span className="text-[11px] font-bold text-white/45">{model.sector}</span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className={cn('rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider', DECISION_TONE[model.finalDecision])}>
+            <span className={cn('rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-tight', DECISION_TONE[model.finalDecision])}>
               {decisionText}
             </span>
             <DataConfidenceBadge confidence={model.dataConfidence.overall} compact source="candidate card" />
@@ -221,7 +221,7 @@ export function CandidateDecisionCard({ model, mode = 'pro', className }: Candid
       </div>
 
       {showDetails && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-wider text-white/40">
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-semibold tracking-tight text-white/40">
           <span>데이터 신뢰</span>
           <DataConfidenceBadge confidence="VERIFIED" label={`VERIFIED ${model.dataConfidence.calculatedIndicatorCount}`} compact showTooltip={false} />
           <DataConfidenceBadge confidence="AI_ESTIMATED" label={`AI ${model.dataConfidence.aiEstimatedIndicatorCount}`} compact />

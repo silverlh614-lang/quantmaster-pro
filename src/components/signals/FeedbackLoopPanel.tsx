@@ -159,7 +159,7 @@ export const FeedbackLoopPanel: React.FC<Props> = ({ result }) => {
       {/* Calibration Details (expanded) */}
       {expanded && calibrationActive && result.calibrations.length > 0 && (
         <div className="px-5 pb-5 border-t border-gray-700/50 pt-4">
-          <p className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-3">
+          <p className="text-[9px] font-semibold tracking-tight text-gray-500 mb-3">
             조건별 가중치 교정 현황
           </p>
 

@@ -480,7 +480,7 @@ function StatisticsSection({ stats }: { stats: AccountStats }) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {items.map((item, i) => (
           <div key={i} className={cn('border rounded-xl p-3 text-center', item.status === 'pass' ? 'border-green-500/30 bg-green-500/[0.04]' : item.status === 'fail' ? 'border-red-500/25 bg-red-500/[0.03]' : 'border-yellow-500/30 bg-yellow-500/[0.04]')}>
-            <p className="text-[9px] font-black uppercase tracking-widest text-theme-text-muted">{item.label}</p>
+            <p className="text-[9px] font-semibold tracking-tight text-theme-text-muted">{item.label}</p>
             <p className={cn('text-base sm:text-lg font-black font-num mt-1', item.status === 'pass' ? 'text-green-400' : item.status === 'fail' ? 'text-red-400' : 'text-yellow-400')}>{item.value}</p>
             <p className="text-[10px] text-theme-text-muted mt-0.5">{item.sub}</p>
           </div>

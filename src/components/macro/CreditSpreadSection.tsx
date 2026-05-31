@@ -19,7 +19,7 @@ export function CreditSpreadSection() {
     <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
             Credit Spread Sentinel — 채권 시장 조기 경보
           </h3>
           {creditSpread && (
@@ -29,7 +29,7 @@ export function CreditSpreadSection() {
         <button
           onClick={load}
           disabled={loading}
-          className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
+          className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-xs font-semibold tracking-tight disabled:opacity-50"
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
           {loading ? '조회 중...' : '크레딧 스프레드 조회'}
@@ -97,7 +97,7 @@ export function CreditSpreadSection() {
                   : 'border-green-400 bg-green-50'
                 }`}
               >
-                <p className="text-[9px] font-black uppercase tracking-widest text-theme-text-muted">{item.label}</p>
+                <p className="text-[9px] font-semibold tracking-tight text-theme-text-muted">{item.label}</p>
                 <p className="text-[8px] text-theme-text-muted mt-0.5">{item.sublabel}</p>
                 <p className={`text-fluid-3xl font-black font-mono mt-3 ${
                   item.danger ? 'text-red-700' : item.warn ? 'text-amber-700' : 'text-green-700'

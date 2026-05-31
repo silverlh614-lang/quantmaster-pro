@@ -21,7 +21,7 @@ export const AnalysisViewButtons: React.FC<{
     <button
       onClick={() => setAnalysisView('STANDARD')}
       className={cn(
-        "px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all",
+        "px-4 py-1.5 rounded-full text-[9px] font-semibold tracking-tight transition-all",
         analysisView === 'STANDARD' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white"
       )}
     >
@@ -30,7 +30,7 @@ export const AnalysisViewButtons: React.FC<{
     <button
       onClick={() => setAnalysisView('QUANT')}
       className={cn(
-        "px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all",
+        "px-4 py-1.5 rounded-full text-[9px] font-semibold tracking-tight transition-all",
         analysisView === 'QUANT' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white"
       )}
     >

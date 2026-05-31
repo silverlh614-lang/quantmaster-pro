@@ -156,7 +156,7 @@ export function WeightConfigPanel({ weights, onWeightsChange, vkospi = 18 }: Wei
           <div className="flex items-center gap-3 text-xs">
             <span className="font-black text-theme-text-muted">VKOSPI</span>
             <span className={cn('font-black font-mono tabular-nums', vkLabel.color)}>{vkospi.toFixed(1)}</span>
-            <span className={cn('text-[10px] font-black uppercase tracking-wider', vkLabel.color)}>{vkLabel.label}</span>
+            <span className={cn('text-[10px] font-semibold tracking-tight', vkLabel.color)}>{vkLabel.label}</span>
           </div>
         </div>
         <motion.div animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
@@ -227,7 +227,7 @@ export function WeightConfigPanel({ weights, onWeightsChange, vkospi = 18 }: Wei
                   type="button"
                   onClick={() => setGroupBy('gate')}
                   className={cn(
-                    'px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all',
+                    'px-3 py-1.5 rounded-lg text-[10px] font-semibold tracking-tight border transition-all',
                     groupBy === 'gate'
                       ? 'bg-orange-500/15 border-orange-500/40 text-orange-400'
                       : 'bg-white/5 border-theme-border text-theme-text-muted hover:bg-white/10'
@@ -239,7 +239,7 @@ export function WeightConfigPanel({ weights, onWeightsChange, vkospi = 18 }: Wei
                   type="button"
                   onClick={() => setGroupBy('all')}
                   className={cn(
-                    'px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all',
+                    'px-3 py-1.5 rounded-lg text-[10px] font-semibold tracking-tight border transition-all',
                     groupBy === 'all'
                       ? 'bg-orange-500/15 border-orange-500/40 text-orange-400'
                       : 'bg-white/5 border-theme-border text-theme-text-muted hover:bg-white/10'
@@ -257,7 +257,7 @@ export function WeightConfigPanel({ weights, onWeightsChange, vkospi = 18 }: Wei
                     {meta && (
                       <div className="flex items-center gap-2 mb-3">
                         <span className={meta.color}>{meta.icon}</span>
-                        <span className={cn('text-[10px] font-black uppercase tracking-widest', meta.color)}>{meta.label}</span>
+                        <span className={cn('text-[10px] font-semibold tracking-tight', meta.color)}>{meta.label}</span>
                         <span className="text-[10px] font-bold text-theme-text-muted">({group.ids.length}개 조건)</span>
                       </div>
                     )}
@@ -311,7 +311,7 @@ function ConditionWeightCard({ id, weight, recommended, baseWeight, onWeightChan
       {/* ID + Name */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
-          <span className={cn('text-[10px] font-black uppercase tracking-wider shrink-0', meta.color)}>
+          <span className={cn('text-[10px] font-semibold tracking-tight shrink-0', meta.color)}>
             {id.toString().padStart(2, '0')}
           </span>
           <span className="text-xs font-black text-theme-text truncate">

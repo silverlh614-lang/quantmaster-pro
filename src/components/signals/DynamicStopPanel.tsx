@@ -189,7 +189,7 @@ export const DynamicStopPanel: React.FC<Props> = ({
       {/* Expanded Inputs */}
       {expanded && (
         <div className="px-5 pb-5 border-t border-gray-700/50 pt-4 space-y-4">
-          <p className="text-[9px] font-black uppercase tracking-widest text-gray-500">입력 설정</p>
+          <p className="text-[9px] font-semibold tracking-tight text-gray-500">입력 설정</p>
 
           <div className="space-y-2">
             <NumInput label="진입가 (원)" value={inputs.entryPrice} onChange={v => update({ entryPrice: v })} step={1000} />

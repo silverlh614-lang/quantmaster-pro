@@ -116,7 +116,7 @@ export function ConditionAttributionChart({ className }: ConditionAttributionCha
       aria-label="조건별 수익률 귀인"
     >
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[11px] font-black uppercase tracking-widest opacity-70 flex items-center gap-1.5">
+        <span className="text-[11px] font-semibold tracking-tight opacity-70 flex items-center gap-1.5">
           <BarChart3 className="w-3 h-3" /> 조건별 수익률 귀인
         </span>
         <span className="text-[10px] text-white/50 font-num">

@@ -73,7 +73,7 @@ function DataTrustLegend() {
             <div key={confidence} className="rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2">
               <div className="flex items-center justify-between gap-2">
                 <DataConfidenceBadge confidence={confidence} compact />
-                <span className="text-[9px] font-black uppercase tracking-wider text-white/30">{config.label}</span>
+                <span className="text-[9px] font-semibold tracking-tight text-white/30">{config.label}</span>
               </div>
               <p className="mt-1 text-[11px] leading-relaxed text-white/50">{config.description}</p>
               <p className="mt-1 text-[10px] leading-relaxed text-white/35">{config.caution}</p>
@@ -94,7 +94,7 @@ function Stat({ label, value, tone }: { label: string; value: React.ReactNode; t
       tone === 'red' && 'border-red-400/20 bg-red-400/[0.04]',
       tone === 'blue' && 'border-blue-400/20 bg-blue-400/[0.04]',
     )}>
-      <p className="text-[10px] font-black uppercase tracking-wider text-white/45">{label}</p>
+      <p className="text-[10px] font-semibold tracking-tight text-white/45">{label}</p>
       <div className="mt-1 text-sm font-black text-white">{value}</div>
     </div>
   );
@@ -280,7 +280,7 @@ export function PublicReportDashboard({
             <div className="mt-4 rounded-lg border border-white/[0.08] bg-black/10 p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-wider text-white/40">Macro Health Score</p>
+                  <p className="text-[10px] font-semibold tracking-tight text-white/40">Macro Health Score</p>
                   <p className="mt-1 text-xl font-black text-white font-num">{market.macroHealthScore} / 100</p>
                 </div>
                 <p className="max-w-[12rem] text-right text-[11px] font-bold text-white/50">{mhsPolicy(market.macroHealthScore)}</p>
@@ -298,15 +298,15 @@ export function PublicReportDashboard({
             <p className="mt-4 text-sm leading-relaxed text-white/65">{market.primaryReason} {market.riskSummary}</p>
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-wider text-white/40">Leading sectors</p>
+                <p className="text-[10px] font-semibold tracking-tight text-white/40">Leading sectors</p>
                 <p className="mt-1 text-sm font-bold text-white">{market.leadingSectorsTop3.join(' / ') || 'Needs verification'}</p>
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-wider text-white/40">Risk sectors</p>
+                <p className="text-[10px] font-semibold tracking-tight text-white/40">Risk sectors</p>
                 <p className="mt-1 text-sm font-bold text-white">{market.weakSectorsTop3.join(' / ') || 'Needs verification'}</p>
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wider text-white/42">
+            <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-semibold tracking-tight text-white/42">
               <span>providerIssue={String(market.providerIssue)}</span>
               <span>marketSignal={String(market.marketSignal)}</span>
               <span>snapshot={market.sourceSnapshotId}</span>
@@ -339,7 +339,7 @@ export function PublicReportDashboard({
               ))}
             </div>
             <div className="mt-4 rounded-lg border border-red-400/15 bg-red-400/[0.04] p-3">
-              <p className="text-[10px] font-black uppercase tracking-wider text-red-100/70">Risk sectors</p>
+              <p className="text-[10px] font-semibold tracking-tight text-red-100/70">Risk sectors</p>
               <p className="mt-1 text-sm font-bold text-white">
                 {sector.weakSectors.slice(0, 3).map((item) => `${item.sectorName} ${item.sectorScore}`).join(' / ') || 'None'}
               </p>
@@ -393,20 +393,20 @@ export function PublicReportDashboard({
                   <Stat label="Outcome Tracking" value={block.postOutcomeTrackingEnabled ? 'ON' : 'OFF'} tone="green" />
                 </div>
                 <div>
-                  <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-yellow-200/70">Block Reasons TOP 5</p>
+                  <p className="mb-2 text-[10px] font-semibold tracking-tight text-yellow-200/70">Block Reasons TOP 5</p>
                   <PanelList items={block.blockedReasons} emptyText="No block reasons" limit={5} />
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                   <div>
-                    <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-red-200/70">Risk Flags</p>
+                    <p className="mb-2 text-[10px] font-semibold tracking-tight text-red-200/70">Risk Flags</p>
                     <PanelList items={block.riskFlags} emptyText="No major risk flags" limit={3} />
                   </div>
                   <div>
-                    <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-blue-200/70">Data Issues</p>
+                    <p className="mb-2 text-[10px] font-semibold tracking-tight text-blue-200/70">Data Issues</p>
                     <PanelList items={block.dataIssues} emptyText="No data issues" limit={3} />
                   </div>
                   <div>
-                    <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-emerald-200/70">Re-entry Conditions</p>
+                    <p className="mb-2 text-[10px] font-semibold tracking-tight text-emerald-200/70">Re-entry Conditions</p>
                     <PanelList items={block.requiredConditionsForReentry} emptyText="No re-entry conditions" limit={3} />
                   </div>
                 </div>
@@ -449,7 +449,7 @@ export function PublicReportDashboard({
         )}
         {viewMode === 'PAID_PREVIEW_MODE' && (
           <div id="public-report-paid-preview" className="scroll-mt-24 rounded-xl border border-violet-400/20 bg-violet-400/[0.04] p-4">
-            <p className="text-xs font-black uppercase tracking-wider text-violet-200">Paid Preview Fields</p>
+            <p className="text-xs font-semibold tracking-tight text-violet-200">Paid Preview Fields</p>
             <p className="mt-2 text-sm text-white/65">
               Full candidate lists, detailed factor scores, entry/stop/target prices, and tranche plans are separated into paidPayload.
               Public cards do not expose private execution planning fields.

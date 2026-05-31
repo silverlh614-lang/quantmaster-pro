@@ -19,7 +19,7 @@ export function GateFilterSection({ stock }: Props) {
           <h3 className="text-base font-black text-white uppercase tracking-tighter">3-Gate Filter Pyramid</h3>
         </div>
         <div className={cn(
-          "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border",
+          "px-3 py-1 rounded-full text-[9px] font-semibold tracking-tight border",
           stock.gateEvaluation.isPassed ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-red-500/20 text-red-400 border-red-500/30"
         )}>
           {stock.gateEvaluation.isPassed ? "Total Pass" : "Failed at Gate " + stock.gateEvaluation.currentGate}

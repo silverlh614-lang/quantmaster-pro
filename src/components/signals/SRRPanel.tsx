@@ -160,7 +160,7 @@ export function SRRPanel({ srrResult, stockName }: SRRPanelProps) {
       <div className="p-4 sm:p-6 border-2 border-theme-border bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center gap-2">
           <BarChart3 className="w-3.5 h-3.5 text-theme-text-muted" />
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
             SRR 섹터 내 상대강도 역전 감지
           </h3>
         </div>
@@ -189,7 +189,7 @@ export function SRRPanel({ srrResult, stockName }: SRRPanelProps) {
       >
         <div className="flex items-center gap-2">
           <BarChart3 className="w-3.5 h-3.5 text-theme-text-muted" />
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
             SRR · 섹터 내 상대강도 역전 감지{stockName ? ` — ${stockName}` : ''}
           </h3>
         </div>

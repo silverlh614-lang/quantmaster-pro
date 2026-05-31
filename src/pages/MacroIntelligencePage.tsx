@@ -25,7 +25,7 @@ function LayerCard({ title, icon, available, children, tone = 'neutral' }: Layer
                       'border-white/10 bg-white/5';
   return (
     <div className={cn('rounded border p-3 sm:p-4 min-h-[120px]', toneCls)} role="region" aria-label={title}>
-      <div className="flex items-center gap-1.5 mb-2 text-[10px] font-black uppercase tracking-widest opacity-70">
+      <div className="flex items-center gap-1.5 mb-2 text-[10px] font-semibold tracking-tight opacity-70">
         {icon}
         <span>{title}</span>
       </div>

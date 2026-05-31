@@ -83,7 +83,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
       {/* ── 글로벌 멀티소스 인텔리전스 (D) ── */}
       <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
             글로벌 멀티소스 인텔리전스 — Fed·China·TSMC·BOJ·ISM
           </h3>
           <button onClick={loadGlobalMultiSource} disabled={multiSourceLoading}
@@ -142,7 +142,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
       {/* ── 글로벌 상관관계 매트릭스 (C) ── */}
       <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
             글로벌 상관관계 매트릭스 — Decoupling / Synchronization Detector
           </h3>
           <button onClick={loadGlobalCorrelation} disabled={correlationLoading}
@@ -190,7 +190,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
       <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+            <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
               섹터-테마 역추적 — Global Theme → Korea Hidden Gems
             </h3>
             <p className="text-[8px] text-theme-text-muted mt-1">글로벌 메가트렌드에서 아직 시장이 연결짓지 못한 한국 숨은 수혜주 발굴</p>
@@ -299,7 +299,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
          ════════════════════════════════════════════════════════════════════ */}
       <div className="border border-theme-border p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xs font-black uppercase tracking-widest text-theme-text">
+          <h3 className="text-xs font-semibold tracking-tight text-theme-text">
             I. 공급망 물동량 인텔리전스
           </h3>
           <button onClick={loadSupplyChain} disabled={supplyChainLoading}
@@ -372,7 +372,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
          ════════════════════════════════════════════════════════════════════ */}
       <div className="border border-theme-border p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xs font-black uppercase tracking-widest text-theme-text">
+          <h3 className="text-xs font-semibold tracking-tight text-theme-text">
             J. 섹터별 글로벌 수주 인텔리전스
           </h3>
           <button onClick={loadSectorOrders} disabled={sectorOrdersLoading}
@@ -429,7 +429,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
          ════════════════════════════════════════════════════════════════════ */}
       <div className="border border-theme-border p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xs font-black uppercase tracking-widest text-theme-text">
+          <h3 className="text-xs font-semibold tracking-tight text-theme-text">
             K. 금융시스템 스트레스 인덱스 (FSI)
           </h3>
           <button onClick={loadFsi} disabled={fsiLoading}
@@ -510,7 +510,7 @@ export const GlobalIntelSection = React.memo(function GlobalIntelSection() {
          ════════════════════════════════════════════════════════════════════ */}
       <div className="border border-theme-border p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xs font-black uppercase tracking-widest text-theme-text">
+          <h3 className="text-xs font-semibold tracking-tight text-theme-text">
             L. FOMC 감성 분석
           </h3>
           <button onClick={loadFomcSentiment} disabled={fomcLoading}

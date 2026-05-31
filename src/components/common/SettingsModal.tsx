@@ -91,7 +91,7 @@ export function SettingsModal() {
             <span className="text-xs font-black">
               {showOperatorDiagnostics ? '운영자 진단 메뉴 표시 중' : '운영자 진단 메뉴 숨김'}
             </span>
-            <span className="text-[10px] font-black uppercase tracking-wider">
+            <span className="text-[10px] font-semibold tracking-tight">
               {showOperatorDiagnostics ? 'ON' : 'OFF'}
             </span>
           </button>

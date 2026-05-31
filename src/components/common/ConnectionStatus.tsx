@@ -85,7 +85,7 @@ export function ConnectionStatus({ label, state, lastUpdated, detail, className 
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-black uppercase tracking-widest whitespace-nowrap',
+        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-semibold tracking-tight whitespace-nowrap',
         style.pill,
         style.text,
         className,

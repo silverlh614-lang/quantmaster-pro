@@ -19,7 +19,7 @@ export function GeoRiskSection() {
     <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
             <Globe size={12} className="inline mr-1" />
             지정학 리스크 스코어링 모듈 (GOS)
           </h3>
@@ -30,7 +30,7 @@ export function GeoRiskSection() {
         <button
           onClick={load}
           disabled={loading}
-          className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
+          className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-xs font-semibold tracking-tight disabled:opacity-50"
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
           {loading ? '조회 중...' : '지정학 리스크 조회'}
@@ -102,7 +102,7 @@ export function GeoRiskSection() {
               { label: '부정', val: geoRisk.toneBreakdown.negative, color: 'text-red-700 bg-red-50 border-red-300' },
             ].map(item => (
               <div key={item.label} className={`p-3 border ${item.color}`}>
-                <p className="text-[9px] font-black uppercase tracking-widest">{item.label}</p>
+                <p className="text-[9px] font-semibold tracking-tight">{item.label}</p>
                 <p className="text-2xl font-black font-mono mt-1">{item.val}%</p>
               </div>
             ))}
@@ -111,7 +111,7 @@ export function GeoRiskSection() {
           {/* Headlines */}
           {geoRisk.headlines.length > 0 && (
             <div className="space-y-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-theme-text-muted">주요 뉴스 헤드라인</p>
+              <p className="text-[9px] font-semibold tracking-tight text-theme-text-muted">주요 뉴스 헤드라인</p>
               {geoRisk.headlines.map((h, i) => (
                 <div key={i} className="flex items-start gap-2 p-2 border border-theme-border bg-theme-bg">
                   <span className="text-[9px] font-black text-theme-text-muted mt-0.5">{i + 1}.</span>

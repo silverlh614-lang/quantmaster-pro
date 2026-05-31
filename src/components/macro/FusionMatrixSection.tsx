@@ -30,13 +30,13 @@ export function FusionMatrixSection({ currentRoeType }: Props) {
         <table className="w-full text-xs font-mono border-collapse">
           <thead>
             <tr>
-              <th className="p-3 border border-theme-border bg-theme-bg text-[9px] font-black uppercase tracking-widest text-left w-36">
+              <th className="p-3 border border-theme-border bg-theme-bg text-[9px] font-semibold tracking-tight text-left w-36">
                 ROE 유형 ↓ / 레짐 →
               </th>
               {REGIMES.map(r => (
                 <th
                   key={r}
-                  className={`p-3 border border-theme-border text-[9px] font-black uppercase tracking-widest text-center ${
+                  className={`p-3 border border-theme-border text-[9px] font-semibold tracking-tight text-center ${
                     r === currentRegime ? REGIME_LABELS[r].bgColor : 'bg-theme-bg'
                   }`}
                 >
@@ -108,7 +108,7 @@ export function FusionMatrixSection({ currentRoeType }: Props) {
             <div className="flex items-start gap-4">
               <ArrowRight size={20} className={`flex-shrink-0 mt-0.5 ${style.text}`} />
               <div>
-                <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${style.text}`}>
+                <p className={`text-[10px] font-semibold tracking-tight mb-1 ${style.text}`}>
                   현재 위치: {REGIME_LABELS[currentRegime]?.ko} + {(ROE_TYPE_LABELS as Record<number, string>)[currentRoeType as number]} → {currentCell.phase}
                 </p>
                 <p className={`text-sm font-bold leading-relaxed ${style.text}`}>

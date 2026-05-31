@@ -85,7 +85,7 @@ export function RecommendationHistoryPage() {
       {/* PR-G: signalType + period 분리 통계 */}
       <section aria-label="기간·시그널별 통계" className="rounded border border-white/10 bg-black/20 p-3 sm:p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[11px] font-black uppercase tracking-widest opacity-70">
+          <span className="text-[11px] font-semibold tracking-tight opacity-70">
             기간·시그널별 적중률
           </span>
           <div role="tablist" className="flex gap-1">
@@ -254,7 +254,7 @@ function BreakdownCard({ label, stats, accent = 'gray' }: BreakdownCardProps) {
   return (
     <div className={cn('rounded border p-3', accentCls)}>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] font-black uppercase tracking-widest opacity-70">{label}</span>
+        <span className="text-[10px] font-semibold tracking-tight opacity-70">{label}</span>
         <span className="text-[10px] font-num text-white/60">{stats.total}건</span>
       </div>
       <div className="grid grid-cols-2 gap-2 text-[11px]">

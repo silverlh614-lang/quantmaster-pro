@@ -213,7 +213,7 @@ function PriceBox({
   const [borderClass, labelClass, valueClass] = toneClass.split(' ');
   return (
     <div className={cn('glass-3d rounded-xl p-4 text-center', borderClass)}>
-      <span className={cn('text-[9px] font-black uppercase tracking-widest block mb-1', labelClass)}>{label}</span>
+      <span className={cn('text-[9px] font-semibold tracking-tight block mb-1', labelClass)}>{label}</span>
       <span className={cn('text-sm font-black font-num', valueClass)}>{value}</span>
     </div>
   );

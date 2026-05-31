@@ -132,7 +132,7 @@ export function ScreenerPage({ onScreen }: ScreenerPageProps) {
             >
               <div className="flex items-center gap-3">
                 <span className={`w-2 h-2 rounded-full ${streamDebug.connected ? 'bg-green-400 shadow-[0_0_6px_rgba(34,197,94,0.6)]' : 'bg-red-400 shadow-[0_0_6px_rgba(239,68,68,0.6)]'}`} />
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                <span className="text-[10px] font-semibold tracking-tight text-gray-400">
                   KIS 실시간
                 </span>
                 <span className={`text-[11px] font-black ${streamDebug.connected ? 'text-green-400' : 'text-red-400'}`}>

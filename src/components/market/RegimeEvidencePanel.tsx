@@ -42,7 +42,7 @@ function EvidenceGroup({ title, items, icon }: { title: string; items: RegimeEvi
   const Icon = icon === 'provider' ? DatabaseZap : icon === 'signal' ? LineChart : icon === 'missing' ? RefreshCcw : MinusCircle;
   return (
     <section className="space-y-2">
-      <h4 className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-white/55">
+      <h4 className="flex items-center gap-1.5 text-[10px] font-semibold tracking-tight text-white/55">
         <Icon className="h-3.5 w-3.5" aria-hidden /> {title} <span className="font-num">({items.length})</span>
       </h4>
       {items.length > 0 ? <ul className="space-y-1.5">{items.map(item => <EvidenceRow key={item.key} item={item} />)}</ul> : <p className="rounded-lg border border-white/10 bg-white/[0.03] p-2 text-xs text-white/35">No entries.</p>}

@@ -254,7 +254,7 @@ export function MIPDashboard({ gate0, ipsResult, fssResult, fullMode = false }: 
       >
         <div className="flex items-center gap-2">
           <Activity className="w-3.5 h-3.5 text-theme-text-muted" />
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
             MIPD · 다차원 변곡점 예측 대시보드
           </h3>
           {!fullMode && (

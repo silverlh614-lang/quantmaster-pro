@@ -70,7 +70,7 @@ export function TranchePlanCard({ plan, className }: TranchePlanCardProps) {
         role="region"
         aria-label="분할매수 계획"
       >
-        <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">
+        <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-tight opacity-60 mb-1">
           <Layers className="w-3 h-3" /> 분할매수 계획
         </div>
         <p className="text-xs opacity-60">분할매수 계획 데이터 없음 (스캔 미실행 또는 단일 진입)</p>
@@ -88,7 +88,7 @@ export function TranchePlanCard({ plan, className }: TranchePlanCardProps) {
       aria-label="분할매수 계획"
     >
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] font-black uppercase tracking-widest opacity-60 flex items-center gap-1.5">
+        <span className="text-[10px] font-semibold tracking-tight opacity-60 flex items-center gap-1.5">
           <Layers className="w-3 h-3" /> 분할매수 계획
         </span>
         <span className="text-[10px] font-num text-white/60">

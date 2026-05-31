@@ -59,7 +59,7 @@ export function AdvancedQuantSections({ result }: Props) {
             ))}
           </div>
           <div className="mt-6 p-4 bg-theme-text text-white text-center">
-            <span className="text-[10px] font-black uppercase tracking-widest">Trend Consistency: </span>
+            <span className="text-[10px] font-semibold tracking-tight">Trend Consistency: </span>
             <span className="text-sm font-bold">{result.multiTimeframe.consistency ? 'SYNCHRONIZED' : 'DIVERGED'}</span>
           </div>
         </div>

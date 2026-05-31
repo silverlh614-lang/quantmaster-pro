@@ -46,7 +46,7 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inve
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-sm font-black text-white">{view.title}</h3>
-            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-white/45">READ-ONLY · DISPLAY-ONLY</span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold tracking-tight text-white/45">READ-ONLY · DISPLAY-ONLY</span>
             <span className="text-[10px] text-white/35">{formatRegimeUpdatedAt(view.updatedAt)}</span>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-white/70">{view.summary}</p>
@@ -60,7 +60,7 @@ export function MarketRegimeBanner({ bearRegimeResult, vkospiTriggerResult, inve
         <button
           type="button"
           onClick={() => setExpanded(value => !value)}
-          className="inline-flex items-center justify-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white/50 transition hover:text-white/80"
+          className="inline-flex items-center justify-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] font-semibold tracking-tight text-white/50 transition hover:text-white/80"
           aria-expanded={expanded}
           aria-controls="market-regime-evidence-panel"
         >

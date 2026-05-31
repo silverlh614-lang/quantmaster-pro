@@ -12,7 +12,7 @@ export function GatePyramid({ result }: Props) {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
       {/* Gate 1 */}
       <div className={`p-8 border border-theme-text relative ${result.gate1Passed ? 'bg-white' : 'bg-red-50'}`}>
-        <div className="absolute -top-3 left-4 bg-theme-bg px-2 text-[10px] font-black uppercase tracking-widest">Gate 1: Survival</div>
+        <div className="absolute -top-3 left-4 bg-theme-bg px-2 text-[10px] font-semibold tracking-tight">Gate 1: Survival</div>
         <div className="flex justify-between items-center mb-6">
           <Shield className={`w-8 h-8 ${result.gate1Passed ? 'text-green-600' : 'text-red-600'}`} />
           <span className="data-value text-2xl font-bold">{result.gate1Passed ? 'PASSED' : 'FAILED'}</span>
@@ -28,7 +28,7 @@ export function GatePyramid({ result }: Props) {
 
       {/* Gate 2 */}
       <div className={`p-8 border border-theme-text relative ${result.gate2Passed ? 'bg-white' : 'bg-gray-100 opacity-50'}`}>
-        <div className="absolute -top-3 left-4 bg-theme-bg px-2 text-[10px] font-black uppercase tracking-widest">Gate 2: Growth</div>
+        <div className="absolute -top-3 left-4 bg-theme-bg px-2 text-[10px] font-semibold tracking-tight">Gate 2: Growth</div>
         <div className="flex justify-between items-center mb-6">
           <Layers className="w-8 h-8 text-blue-600" />
           <span className="data-value text-2xl font-bold">{result.gate2Passed ? 'VERIFIED' : 'PENDING'}</span>
@@ -44,7 +44,7 @@ export function GatePyramid({ result }: Props) {
 
       {/* Gate 3 */}
       <div className={`p-8 border border-theme-text relative ${result.gate3Passed ? 'bg-white' : 'bg-gray-100 opacity-50'}`}>
-        <div className="absolute -top-3 left-4 bg-theme-bg px-2 text-[10px] font-black uppercase tracking-widest">Gate 3: Timing</div>
+        <div className="absolute -top-3 left-4 bg-theme-bg px-2 text-[10px] font-semibold tracking-tight">Gate 3: Timing</div>
         <div className="flex justify-between items-center mb-6">
           <Zap className={`w-8 h-8 ${result.lastTrigger ? 'text-orange-500 animate-pulse' : 'text-gray-400'}`} />
           <span className="data-value text-2xl font-bold">{result.lastTrigger ? 'TRIGGERED' : 'WAITING'}</span>

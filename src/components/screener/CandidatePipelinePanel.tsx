@@ -87,7 +87,7 @@ export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProp
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex flex-col">
-          <span className="text-[11px] font-black uppercase tracking-widest opacity-70 flex items-center gap-1.5">
+          <span className="text-[11px] font-semibold tracking-tight opacity-70 flex items-center gap-1.5">
             <Filter className="w-3 h-3" /> 후보군 파이프라인
           </span>
           <span className="text-[9px] text-white/40 mt-0.5 normal-case tracking-normal font-medium">
@@ -104,7 +104,7 @@ export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProp
             type="button"
             onClick={() => refetch()}
             disabled={isFetching}
-            className="text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white/80 transition-opacity"
+            className="text-[9px] font-semibold tracking-tight text-white/40 hover:text-white/80 transition-opacity"
             aria-label="새로고침"
           >
             {isFetching ? '…' : '↻'}
@@ -112,7 +112,7 @@ export function CandidatePipelinePanel({ className }: CandidatePipelinePanelProp
           <button
             type="button"
             onClick={() => setExpanded(v => !v)}
-            className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white/80 transition-opacity"
+            className="flex items-center gap-1 text-[9px] font-semibold tracking-tight text-white/40 hover:text-white/80 transition-opacity"
             aria-expanded={expanded}
             aria-label={expanded ? '접기' : '펼치기'}
           >

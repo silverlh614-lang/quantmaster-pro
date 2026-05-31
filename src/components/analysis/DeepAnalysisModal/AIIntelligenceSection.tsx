@@ -314,7 +314,7 @@ function SupplyDataCard({ stock }: Props) {
                 : <Info className="w-4 h-4 text-white/30" />
               }
               <span className={cn(
-                'text-xs font-black uppercase tracking-widest',
+                'text-xs font-semibold tracking-tight',
                 sd.isPassiveAndActive ? 'text-red-400' : 'text-white/30',
               )}>
                 {sd.isPassiveAndActive
@@ -399,7 +399,7 @@ function EmptyAnalysisState({ label }: { label: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-8 text-white/20">
       <Info className="w-8 h-8 mb-3 opacity-20" />
-      <p className="text-xs font-black uppercase tracking-widest">{label}</p>
+      <p className="text-xs font-semibold tracking-tight">{label}</p>
     </div>
   );
 }

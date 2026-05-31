@@ -29,7 +29,7 @@ export function MarketOverviewSection({ marketOverview }: Props) {
       {economicRegime && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted mb-4">
+            <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted mb-4">
               허용 섹터 화이트리스트 ({currentRegime} · {regimeMeta.ko})
             </h3>
             <div className="flex flex-wrap gap-2">
@@ -41,7 +41,7 @@ export function MarketOverviewSection({ marketOverview }: Props) {
             </div>
           </div>
           <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted mb-4">
+            <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted mb-4">
               회피 섹터 블랙리스트
             </h3>
             <div className="flex flex-wrap gap-2">
@@ -62,7 +62,7 @@ export function MarketOverviewSection({ marketOverview }: Props) {
       {/* ── Global ETF 자금 흐름 히트맵 ── */}
       {marketOverview?.globalEtfMonitoring && (
         <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted mb-6">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted mb-6">
             글로벌 ETF 자금 흐름 히트맵
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -75,7 +75,7 @@ export function MarketOverviewSection({ marketOverview }: Props) {
                     isInflow ? 'border-green-400 bg-green-50' : 'border-red-400 bg-red-50'
                   }`}
                 >
-                  <p className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">{etf.name}</p>
+                  <p className="text-[10px] font-semibold tracking-tight text-theme-text-muted">{etf.name}</p>
                   <div className={`mt-2 flex items-center justify-center gap-1 font-black ${isInflow ? 'text-green-700' : 'text-red-700'}`}>
                     {isInflow ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                     <span className="text-sm">{isInflow ? '+' : ''}{etf.change?.toFixed(2) ?? '—'}%</span>
@@ -93,7 +93,7 @@ export function MarketOverviewSection({ marketOverview }: Props) {
       {/* ── 수출 모멘텀 섹터 랭킹 ── */}
       {marketOverview?.sectorRotation && (
         <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted mb-6">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted mb-6">
             섹터 모멘텀 랭킹 (수출·자금흐름 기준)
           </h3>
           <div className="space-y-3">

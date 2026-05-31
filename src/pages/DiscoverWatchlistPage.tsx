@@ -306,7 +306,7 @@ export function DiscoverWatchlistPage({
             type="button"
             onClick={() => switchDiscoverTab('overview')}
             className={cn(
-              "flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black uppercase tracking-widest transition-all",
+              "flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold tracking-tight transition-all",
               discoverTab === 'overview'
                 ? "bg-orange-500 text-white shadow-[0_4px_14px_rgba(249,115,22,0.35)]"
                 : "text-theme-text-muted hover:text-theme-text hover:bg-white/[0.06]"
@@ -320,7 +320,7 @@ export function DiscoverWatchlistPage({
             type="button"
             onClick={() => switchDiscoverTab('search')}
             className={cn(
-              "flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black uppercase tracking-widest transition-all",
+              "flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold tracking-tight transition-all",
               discoverTab === 'search'
                 ? "bg-blue-500 text-white shadow-[0_4px_14px_rgba(59,130,246,0.35)]"
                 : "text-theme-text-muted hover:text-theme-text hover:bg-white/[0.06]"
@@ -437,12 +437,12 @@ export function DiscoverWatchlistPage({
               <table className="w-full min-w-[760px]">
                 <thead className="bg-white/5 border-b border-white/10">
                   <tr className="text-left">
-                    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-theme-text-muted">종목</th>
-                    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-theme-text-muted">추가일</th>
-                    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-theme-text-muted">추가 금액</th>
-                    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-theme-text-muted">현재 금액</th>
-                    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-theme-text-muted">변동률</th>
-                    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-theme-text-muted">액션</th>
+                    <th className="px-4 py-3 text-[10px] font-semibold tracking-tight text-theme-text-muted">종목</th>
+                    <th className="px-4 py-3 text-[10px] font-semibold tracking-tight text-theme-text-muted">추가일</th>
+                    <th className="px-4 py-3 text-[10px] font-semibold tracking-tight text-theme-text-muted">추가 금액</th>
+                    <th className="px-4 py-3 text-[10px] font-semibold tracking-tight text-theme-text-muted">현재 금액</th>
+                    <th className="px-4 py-3 text-[10px] font-semibold tracking-tight text-theme-text-muted">변동률</th>
+                    <th className="px-4 py-3 text-[10px] font-semibold tracking-tight text-theme-text-muted">액션</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -534,7 +534,7 @@ export function DiscoverWatchlistPage({
               <div className="flex items-end gap-2">
                 <span className="text-4xl font-black text-orange-500 tracking-tighter font-num">{averageHitRate}%</span>
                 <div className={cn(
-                  "mb-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest",
+                  "mb-1 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-tight",
                   averageHitRate >= 85 ? "bg-green-500/20 text-green-400" : "bg-blue-500/20 text-blue-400"
                 )}>
                   {averageHitRate >= 85 ? "Excellent" : "Stable"}
@@ -558,7 +558,7 @@ export function DiscoverWatchlistPage({
               </div>
               <div className="flex items-end gap-2">
                 <span className="text-4xl font-black text-indigo-400 tracking-tighter font-num">{strongBuyHitRate}%</span>
-                <div className="mb-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest bg-indigo-500/20 text-indigo-400">
+                <div className="mb-1 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-tight bg-indigo-500/20 text-indigo-400">
                   High Precision
                 </div>
               </div>
@@ -635,7 +635,7 @@ export function DiscoverWatchlistPage({
                   <Radar className="w-4 h-4 text-blue-400 flex-shrink-0" />
                 )}
                 <span className={cn(
-                  "text-xs font-black uppercase tracking-widest",
+                  "text-xs font-semibold tracking-tight",
                   lastUsedMode === 'MOMENTUM' ? "text-orange-400" : "text-blue-400"
                 )}>
                   {lastUsedMode === 'MOMENTUM' ? '지금 살 종목' : '미리 볼 종목'} 결과

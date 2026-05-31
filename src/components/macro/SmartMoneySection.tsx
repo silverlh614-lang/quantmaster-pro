@@ -19,7 +19,7 @@ export function SmartMoneySection() {
     <div className="p-4 sm:p-8 border border-theme-text bg-theme-card shadow-[4px_4px_0px_0px_rgba(128,128,128,0.3)]">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+          <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
             Smart Money Radar — 글로벌 ETF 선행 모니터
           </h3>
           {smartMoney && (
@@ -29,7 +29,7 @@ export function SmartMoneySection() {
         <button
           onClick={load}
           disabled={loading}
-          className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-xs font-black uppercase tracking-widest disabled:opacity-50"
+          className="flex items-center gap-2 px-3 py-1.5 border border-theme-text bg-theme-card hover:bg-theme-text hover:text-white transition-colors text-xs font-semibold tracking-tight disabled:opacity-50"
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
           {loading ? '조회 중...' : 'Smart Money 조회'}

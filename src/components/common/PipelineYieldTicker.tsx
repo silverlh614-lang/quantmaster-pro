@@ -56,7 +56,7 @@ function Bar({ label, pct, status, numerator, denominator }: BarProps) {
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between text-[10px]">
-        <span className="font-black uppercase tracking-widest text-theme-text-muted">{label}</span>
+        <span className="font-semibold tracking-tight text-theme-text-muted">{label}</span>
         <span className={cn('font-num font-black', STATUS_TEXT[status])}>
           {pct.toFixed(1)}%
           <span className="text-theme-text-muted ml-1 font-normal">
@@ -97,7 +97,7 @@ export function PipelineYieldTicker() {
   return (
     <div className="bg-[#0d0e11] border border-white/10 rounded-lg p-3 space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">
+        <span className="text-[10px] font-semibold tracking-tight text-theme-text-muted">
           Intraday Pipeline Yield
         </span>
         <span className="text-[9px] text-theme-text-muted/70 font-num">

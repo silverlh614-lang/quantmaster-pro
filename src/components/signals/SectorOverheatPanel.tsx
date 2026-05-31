@@ -41,7 +41,7 @@ function ConditionBadge({ triggered, label, value }: { triggered: boolean; label
         ? 'border-red-500/60 bg-red-900/20 text-red-300'
         : 'border-theme-border bg-theme-bg text-theme-text-muted',
     )}>
-      <span className="font-black uppercase tracking-widest flex items-center gap-1">
+      <span className="font-semibold tracking-tight flex items-center gap-1">
         {triggered ? '🔴' : '🟢'} {label}
       </span>
       <span className="font-mono font-bold ml-2 shrink-0">{value}</span>
@@ -265,7 +265,7 @@ export function SectorOverheatPanel({ inputs, onInputsChange, result }: SectorOv
     )}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted flex items-center gap-2">
+        <h3 className="text-[10px] font-semibold tracking-tight text-theme-text-muted flex items-center gap-2">
           <Flame className="w-3.5 h-3.5" />
           섹터 과열 감지 · 인버스 ETF 자동 매칭
         </h3>

@@ -27,7 +27,7 @@ export function EnemyChecklistCard({ summary, className }: EnemyChecklistCardPro
       aria-label="Enemy 체크리스트"
     >
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[10px] font-black uppercase tracking-widest opacity-60 flex items-center gap-1">
+        <span className="text-[10px] font-semibold tracking-tight opacity-60 flex items-center gap-1">
           <ShieldAlert className="w-3 h-3" /> Enemy Check
         </span>
         <span className={cn('text-[10px] font-black px-1.5 py-0.5 rounded border whitespace-nowrap', v.cls)}>

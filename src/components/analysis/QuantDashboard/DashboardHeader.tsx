@@ -36,7 +36,7 @@ export function DashboardHeader({ result, activeTab, onTabChange }: Props) {
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
             className={cn(
-              'flex items-center gap-2 px-6 py-3 text-[11px] font-black uppercase tracking-widest border-2 border-b-0 transition-all',
+              'flex items-center gap-2 px-6 py-3 text-[11px] font-semibold tracking-tight border-2 border-b-0 transition-all',
               activeTab === tab.id
                 ? 'bg-theme-text text-theme-bg border-theme-text'
                 : 'bg-theme-bg text-theme-text border-theme-text hover:bg-theme-card'

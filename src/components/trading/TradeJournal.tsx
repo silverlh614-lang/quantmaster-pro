@@ -323,7 +323,7 @@ export const TradeJournal: React.FC<Props> = ({
                     {/* Pre-Mortem 무효화 조건 체크리스트 */}
                     {trade.preMortems && trade.preMortems.length > 0 && (
                       <div className="mt-3 border border-gray-200 rounded p-2">
-                        <p className="text-[8px] font-black uppercase tracking-widest text-gray-400 mb-1.5">🧨 Pre-Mortem 무효화 조건</p>
+                        <p className="text-[8px] font-semibold tracking-tight text-gray-400 mb-1.5">🧨 Pre-Mortem 무효화 조건</p>
                         <div className="space-y-1">
                           {trade.preMortems.map(pm => (
                             <div key={pm.id} className={`flex items-center justify-between text-[8px] px-2 py-1 rounded ${pm.triggered ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border border-gray-100'}`}>
@@ -454,7 +454,7 @@ export const TradeJournal: React.FC<Props> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                     {/* 승리 패턴 Top-3 */}
                     <div className="border border-green-200 bg-green-50/50 p-4 rounded-lg">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-green-700 mb-3">
+                      <p className="text-[9px] font-semibold tracking-tight text-green-700 mb-3">
                         귀인 분석 — 승리 조건 Top-3
                       </p>
                       {topWinners.length > 0 ? (
@@ -497,7 +497,7 @@ export const TradeJournal: React.FC<Props> = ({
 
                     {/* 자기진화 현황 */}
                     <div className="border border-gray-200 bg-gray-50/50 p-4 rounded-lg">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-gray-600 mb-3">
+                      <p className="text-[9px] font-semibold tracking-tight text-gray-600 mb-3">
                         자기진화 현황 — Evolution Weights
                       </p>
                       {boosted.length === 0 && reduced.length === 0 ? (

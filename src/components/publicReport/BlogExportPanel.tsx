@@ -133,13 +133,13 @@ function ReportCaptureLayout({ report }: { report: PublicReportModel }) {
 
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
-          <p className="text-[10px] font-black uppercase tracking-wider text-white/45">Market Gate</p>
+          <p className="text-[10px] font-semibold tracking-tight text-white/45">Market Gate</p>
           <p className="mt-2 text-3xl font-black">{market?.marketGateStatus ?? 'GRAY'}</p>
           <p className="mt-1 text-sm text-white/60">MHS {market?.macroHealthScore ?? 0}/100 · {market?.engineMode ?? 'UNKNOWN'}</p>
           <p className="mt-3 text-xs leading-relaxed text-white/55">{market?.primaryReason ?? 'Market data requires verification.'}</p>
         </div>
         <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
-          <p className="text-[10px] font-black uppercase tracking-wider text-white/45">Sector Rotation</p>
+          <p className="text-[10px] font-semibold tracking-tight text-white/45">Sector Rotation</p>
           <div className="mt-3 space-y-2">
             {(sector?.topSectors.slice(0, 3) ?? []).map((item, index) => (
               <div key={item.sectorName} className="flex items-center justify-between gap-3 text-sm">
@@ -151,7 +151,7 @@ function ReportCaptureLayout({ report }: { report: PublicReportModel }) {
           </div>
         </div>
         <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
-          <p className="text-[10px] font-black uppercase tracking-wider text-white/45">Candidate Summary</p>
+          <p className="text-[10px] font-semibold tracking-tight text-white/45">Candidate Summary</p>
           <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
             <span>Watch</span><b className="text-right">{summary.watchCount}</b>
             <span>Wait</span><b className="text-right">{summary.waitPullbackCount}</b>

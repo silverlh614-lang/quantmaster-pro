@@ -152,7 +152,7 @@ export const MHSHistoryChart: React.FC<Props> = ({ records, height = 280 }) => {
   return (
     <div className="border border-gray-200 p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xs font-black uppercase tracking-widest text-gray-700">
+        <h3 className="text-xs font-semibold tracking-tight text-gray-700">
           MHS 히스토리 (Gate 0 Macro Health Score)
         </h3>
         {latest && (

@@ -101,7 +101,7 @@ export function RecommendationTimeseriesChart({ className }: RecommendationTimes
       aria-label="판정 일별 시계열"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <span className="text-[11px] font-black uppercase tracking-widest opacity-70 flex items-center gap-1.5">
+        <span className="text-[11px] font-semibold tracking-tight opacity-70 flex items-center gap-1.5">
           <Calendar className="w-3 h-3" /> 판정 시계열
         </span>
         <div role="tablist" className="flex gap-1">

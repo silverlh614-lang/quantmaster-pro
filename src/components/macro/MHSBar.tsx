@@ -5,7 +5,7 @@ export function MHSBar({ score }: { score: number }) {
   return (
     <div>
       <div className="flex justify-between items-center mb-2">
-        <span className="text-[10px] font-black uppercase tracking-widest text-theme-text-muted">Macro Health Score (MHS)</span>
+        <span className="text-[10px] font-semibold tracking-tight text-theme-text-muted">Macro Health Score (MHS)</span>
         <span className="text-sm font-black font-mono">{score} / 100 — {label}</span>
       </div>
       <div className="h-4 w-full bg-theme-card border border-theme-text relative">

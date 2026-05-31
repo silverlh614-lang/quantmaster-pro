@@ -36,7 +36,7 @@ function SummaryPill({
   }[tone];
   return (
     <div className={cn('rounded-lg border px-3 py-2 text-center', toneClass)}>
-      <div className="text-[9px] font-black uppercase tracking-wider text-white/38">{label}</div>
+      <div className="text-[9px] font-semibold tracking-tight text-white/38">{label}</div>
       <div className="mt-0.5 text-base font-black font-num">{value}</div>
     </div>
   );
@@ -147,7 +147,7 @@ export function WatchlistTable({
             <div className="flex items-end gap-2">
               <span className="text-4xl font-black text-orange-500 tracking-tighter">{averageHitRate}%</span>
               <div className={cn(
-                "mb-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest",
+                "mb-1 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-tight",
                 averageHitRate >= 85 ? "bg-green-500/20 text-green-400" : "bg-blue-500/20 text-blue-400"
               )}>
                 {averageHitRate >= 85 ? "Excellent" : "Stable"}
@@ -171,7 +171,7 @@ export function WatchlistTable({
             </div>
             <div className="flex items-end gap-2">
               <span className="text-4xl font-black text-indigo-400 tracking-tighter">{strongBuyHitRate}%</span>
-              <div className="mb-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest bg-indigo-500/20 text-indigo-400">
+              <div className="mb-1 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-tight bg-indigo-500/20 text-indigo-400">
                 High Precision
               </div>
             </div>
@@ -267,7 +267,7 @@ export function WatchlistTable({
                 <Activity className="w-4 h-4 text-blue-400 flex-shrink-0" />
               )}
               <span className={cn(
-                "text-xs font-black uppercase tracking-widest",
+                "text-xs font-semibold tracking-tight",
                 lastUsedMode === 'MOMENTUM' ? "text-orange-400" : "text-blue-400"
               )}>
                 {lastUsedMode === 'MOMENTUM' ? '지금 살 종목' : '미리 볼 종목'} 결과

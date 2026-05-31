@@ -242,7 +242,7 @@ export function BearScreenerPanel({
             exit={{ opacity: 0 }}
             className="border-t border-red-600/20 px-5 py-4"
           >
-            <h3 className="text-xs font-black uppercase tracking-widest text-red-300 mb-3 flex items-center gap-1.5">
+            <h3 className="text-xs font-semibold tracking-tight text-red-300 mb-3 flex items-center gap-1.5">
               <ShieldAlert className="w-3.5 h-3.5" /> 발굴된 하락 수혜주 ({recommendations.length}종목)
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

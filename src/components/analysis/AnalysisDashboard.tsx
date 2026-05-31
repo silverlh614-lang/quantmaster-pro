@@ -107,7 +107,7 @@ function TabNavigation({
           key={tab.id}
           onClick={() => onChange(tab.id)}
           className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap",
+            "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold tracking-tight transition-all whitespace-nowrap",
             activeTab === tab.id
               ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
               : "text-white/40 hover:text-white/70 hover:bg-white/5"
@@ -435,7 +435,7 @@ function WalkForwardPeriodCard({
       <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] block mb-2">{period}</span>
       <span className="text-2xl font-black text-white">{variant === 'training' ? '2025 Full Year' : '2026 Q1 (Recent)'}</span>
       <div className="mt-6 space-y-3">
-        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+        <div className="flex justify-between text-[10px] font-semibold tracking-tight">
           <span className="text-white/30">Accuracy</span>
           <span className={variant === 'training' ? "text-blue-400" : "text-orange-500"}>{accuracy}%</span>
         </div>
@@ -578,7 +578,7 @@ function PaperPickCard({
           </div>
         </div>
         <div className={cn(
-          "px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest whitespace-nowrap shrink-0",
+          "px-2 py-1 rounded-lg text-[8px] font-semibold tracking-tight whitespace-nowrap shrink-0",
           pick.status === 'PROFIT' ? "bg-green-500 text-white" :
           pick.status === 'LOSS' ? "bg-red-500 text-white" :
           "bg-orange-500 text-white"

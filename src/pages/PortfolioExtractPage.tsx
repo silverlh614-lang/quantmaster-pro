@@ -222,7 +222,7 @@ export function PortfolioExtractPage() {
                     key={n}
                     onClick={() => setStockCount(n)}
                     className={cn(
-                      'flex-1 py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all border',
+                      'flex-1 py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-semibold tracking-tight transition-all border',
                       stockCount === n
                         ? 'bg-purple-500/15 border-purple-500/40 text-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.12)]'
                         : 'bg-white/5 border-theme-border text-theme-text-muted hover:bg-white/10'
@@ -363,7 +363,7 @@ export function PortfolioExtractPage() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <Zap className={cn('w-4 h-4', positionMode === 'kelly' ? 'text-orange-400' : 'text-theme-text-muted')} />
-                      <span className={cn('text-sm font-black uppercase tracking-wider', positionMode === 'kelly' ? 'text-orange-400' : 'text-theme-text')}>
+                      <span className={cn('text-sm font-semibold tracking-tight', positionMode === 'kelly' ? 'text-orange-400' : 'text-theme-text')}>
                         Kelly Formula
                       </span>
                     </div>
@@ -392,7 +392,7 @@ export function PortfolioExtractPage() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <Layers className={cn('w-4 h-4', positionMode === 'equal' ? 'text-blue-400' : 'text-theme-text-muted')} />
-                      <span className={cn('text-sm font-black uppercase tracking-wider', positionMode === 'equal' ? 'text-blue-400' : 'text-theme-text')}>
+                      <span className={cn('text-sm font-semibold tracking-tight', positionMode === 'equal' ? 'text-blue-400' : 'text-theme-text')}>
                         Equal Weight
                       </span>
                     </div>
@@ -460,7 +460,7 @@ export function PortfolioExtractPage() {
                       )}
                       <div>
                         <span className={cn(
-                          'text-[10px] sm:text-xs font-black uppercase tracking-wider block',
+                          'text-[10px] sm:text-xs font-semibold tracking-tight block',
                           isActive ? gate.color : isCompleted ? 'text-green-400' : 'text-theme-text-muted'
                         )}>
                           {gate.label}
@@ -486,7 +486,7 @@ export function PortfolioExtractPage() {
                   <div className="flex items-center gap-2 mb-1.5">
                     <span className={cn("shrink-0", gate.color)}>{gate.icon}</span>
                     <div className="flex flex-col leading-tight">
-                      <span className={cn("text-[10px] sm:text-xs font-black uppercase tracking-wider", gate.color)}>
+                      <span className={cn("text-[10px] sm:text-xs font-semibold tracking-tight", gate.color)}>
                         {gate.label}
                       </span>
                       <span className="text-[10px] sm:text-[11px] font-bold text-theme-text">{gate.labelKo}</span>
@@ -570,9 +570,9 @@ export function PortfolioExtractPage() {
                         <table className="w-full text-left">
                           <thead className="bg-white/5">
                             <tr>
-                              <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-theme-text-muted">#</th>
-                              <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-theme-text-muted">종목</th>
-                              <th className="px-3 py-2 text-[9px] font-black uppercase tracking-widest text-theme-text-muted text-right">AI Score</th>
+                              <th className="px-3 py-2 text-[9px] font-semibold tracking-tight text-theme-text-muted">#</th>
+                              <th className="px-3 py-2 text-[9px] font-semibold tracking-tight text-theme-text-muted">종목</th>
+                              <th className="px-3 py-2 text-[9px] font-semibold tracking-tight text-theme-text-muted text-right">AI Score</th>
                             </tr>
                           </thead>
                           <tbody>
