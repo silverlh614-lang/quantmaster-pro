@@ -17,7 +17,7 @@ import { GateStatusWidget } from './GateStatusWidget';
 import { TranchePlanCard } from './TranchePlanCard';
 import { PriceDisplay } from '../common/PriceDisplay';
 import { usePriceCanon } from '../../hooks/usePriceCanon';
-import { rebaseStrategyToCurrent } from '../../utils/priceStrategy';
+import { computeEntryStrategy } from '../../utils/priceStrategy';
 
 interface StockDetailModalProps {
   stock: StockRecommendation | null;
@@ -189,8 +189,8 @@ function PriceStrategyGrid({ stock }: { stock: StockRecommendation }) {
     fallbackSource: 'REALTIME',
   });
   const current = canonPrice ?? stock.currentPrice ?? 0;
-  const { entry, target, stop, rebased } = rebaseStrategyToCurrent(
-    current, stock.entryPrice ?? 0, stock.targetPrice ?? 0, stock.stopLoss ?? 0,
+  const { entry, target, stop, basis } = computeEntryStrategy(
+    current, stock.entryPrice ?? 0, stock.targetPrice ?? 0, stock.stopLoss ?? 0, stock.technicalSignals?.disparity20,
   );
   return (
     <div>
@@ -199,8 +199,8 @@ function PriceStrategyGrid({ stock }: { stock: StockRecommendation }) {
         <PriceBox tone="green" label="목표" value={target > 0 ? formatWon(target) : fallbackPrice(current, 1.2)} />
         <PriceBox tone="red" label="손절" value={stop > 0 ? formatWon(stop) : fallbackPrice(current, 0.93)} />
       </div>
-      {rebased && (
-        <p className="mt-2 text-[9px] font-black text-amber-400/70">ⓘ 현재가 기준 재계산 — 저장 레벨이 현재가 이탈</p>
+      {basis === 'PULLBACK' && (
+        <p className="mt-2 text-[9px] font-black text-amber-400/70">ⓘ 눌림목(20일선) 진입 — 현재가 추격 대신 되돌림 매수</p>
       )}
     </div>
   );

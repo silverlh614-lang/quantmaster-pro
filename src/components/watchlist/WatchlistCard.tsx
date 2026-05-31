@@ -22,7 +22,7 @@ import { useGlobalIntelStore } from '../../stores';
 import { SignalBadge } from '../../ui/badge';
 import { PriceEditCell } from '../common/PriceEditCell';
 import { usePriceCanon } from '../../hooks/usePriceCanon';
-import { rebaseStrategyToCurrent } from '../../utils/priceStrategy';
+import { computeEntryStrategy } from '../../utils/priceStrategy';
 import { isMarketOpenFor, nextOpenAtFor, formatNextOpenKst } from '../../utils/marketTime';
 import { useMarketMode } from '../../hooks/useMarketMode';
 import { useUIVerbosity } from '../../hooks/useUIVerbosity';
@@ -706,10 +706,11 @@ const PriceStrategySection = ({
     fallbackSource: 'REALTIME',
   });
   const displayPrice = canonPrice ?? stock.currentPrice;
-  // 가격 전략 정본 — 저장된 AI 레벨이 현재가에서 이탈(stale)하면 현재가 앵커링 재계산.
-  // 검색 카드·deep-analysis(FundamentalsColumn) 가 같은 헬퍼를 써 동일 값 표시.
-  const { entry: entryShown, target: targetShown, stop: stopShown, rebased: strategyStale } =
-    rebaseStrategyToCurrent(displayPrice, stock.entryPrice ?? 0, stock.targetPrice ?? 0, stock.stopLoss ?? 0);
+  // 가격 전략 정본 — 주도주 눌림목(20일선) 진입. 가격이 20일선 위면 되돌림 지지선을 진입가로.
+  // 검색 카드·deep-analysis·StockDetailModal 이 같은 헬퍼를 써 동일 값 표시.
+  const { entry: entryShown, target: targetShown, stop: stopShown, basis: entryBasis } =
+    computeEntryStrategy(displayPrice, stock.entryPrice ?? 0, stock.targetPrice ?? 0, stock.stopLoss ?? 0, stock.technicalSignals?.disparity20);
+  const isPullback = entryBasis === 'PULLBACK';
   return (
     <div className="bg-white/[0.03] border-y border-white/10 p-5 sm:p-8 py-5 sm:py-7 relative">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-5 gap-3">
@@ -743,13 +744,13 @@ const PriceStrategySection = ({
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
-        <PriceBox tone="blue" label="진입" primary={formatKrw(entryShown, displayPrice > 0 ? `₩${displayPrice.toLocaleString()}` : '-')} secondary={!strategyStale && stock.entryPrice2 && stock.entryPrice2 > 0 ? `2차 ₩${stock.entryPrice2.toLocaleString()}` : undefined} />
-        <PriceBox tone="green" label="목표" primary={formatKrw(targetShown, displayPrice > 0 ? `₩${Math.round(displayPrice * 1.20).toLocaleString()}` : '-')} secondary={!strategyStale && stock.targetPrice2 && stock.targetPrice2 > 0 ? `2차 ₩${stock.targetPrice2.toLocaleString()}` : undefined} />
+        <PriceBox tone="blue" label="진입" primary={formatKrw(entryShown, displayPrice > 0 ? `₩${displayPrice.toLocaleString()}` : '-')} secondary={!isPullback && stock.entryPrice2 && stock.entryPrice2 > 0 ? `2차 ₩${stock.entryPrice2.toLocaleString()}` : undefined} />
+        <PriceBox tone="green" label="목표" primary={formatKrw(targetShown, displayPrice > 0 ? `₩${Math.round(displayPrice * 1.20).toLocaleString()}` : '-')} secondary={!isPullback && stock.targetPrice2 && stock.targetPrice2 > 0 ? `2차 ₩${stock.targetPrice2.toLocaleString()}` : undefined} />
         <PriceBox tone="red" label="손절" primary={formatKrw(stopShown, displayPrice > 0 ? `₩${Math.round(displayPrice * 0.93).toLocaleString()}` : '-')} />
       </div>
-      {strategyStale && (
+      {isPullback && (
         <p className="mt-2 flex items-center gap-1 text-[9px] font-black text-amber-400/70">
-          ⓘ 현재가 기준 재계산 — 저장된 AI 레벨이 현재가 이탈 (목표/손절 비율 유지)
+          ⓘ 눌림목(20일선) 진입 — 현재가 추격 대신 되돌림 매수 (목표/손절 비율 유지)
         </p>
       )}
     </div>

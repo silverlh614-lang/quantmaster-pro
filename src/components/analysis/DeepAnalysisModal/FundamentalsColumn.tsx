@@ -3,7 +3,7 @@ import React from 'react';
 import { BarChart3, ShieldCheck } from 'lucide-react';
 import { cn } from '../../../ui/cn';
 import { usePriceCanon } from '../../../hooks/usePriceCanon';
-import { rebaseStrategyToCurrent } from '../../../utils/priceStrategy';
+import { computeEntryStrategy } from '../../../utils/priceStrategy';
 import type { StockRecommendation } from '../../../services/stockService';
 
 interface Props {
@@ -185,8 +185,8 @@ function PriceActionCards({ stock }: Props) {
     fallbackSource: 'REALTIME',
   });
   const current = canonPrice ?? stock.currentPrice ?? 0;
-  const { entry, target, stop, rebased } = rebaseStrategyToCurrent(
-    current, stock.entryPrice ?? 0, stock.targetPrice ?? 0, stock.stopLoss ?? 0,
+  const { entry, target, stop, basis } = computeEntryStrategy(
+    current, stock.entryPrice ?? 0, stock.targetPrice ?? 0, stock.stopLoss ?? 0, stock.technicalSignals?.disparity20,
   );
   const pct = (v: number) => (current > 0 && v > 0 ? Math.round((v / current - 1) * 100) : 0);
   return (
@@ -195,7 +195,7 @@ function PriceActionCards({ stock }: Props) {
         <PriceActionCard
           label="진입"
           value={entry > 0 ? `₩${entry.toLocaleString()}` : '---'}
-          subValue={!rebased && stock.entryPrice2 ? `~ ₩${stock.entryPrice2.toLocaleString()}` : undefined}
+          subValue={basis !== 'PULLBACK' && stock.entryPrice2 ? `~ ₩${stock.entryPrice2.toLocaleString()}` : undefined}
           className="bg-blue-500/10 border-blue-500/20"
           labelClassName="text-blue-400/60"
           valueClassName="text-lg font-black text-white"
@@ -220,8 +220,8 @@ function PriceActionCards({ stock }: Props) {
           subValueClassName="text-red-400/50"
         />
       </div>
-      {rebased && (
-        <p className="mt-2 text-[9px] font-black text-amber-400/70">ⓘ 현재가 기준 재계산 — 저장 레벨이 현재가 이탈</p>
+      {basis === 'PULLBACK' && (
+        <p className="mt-2 text-[9px] font-black text-amber-400/70">ⓘ 눌림목(20일선) 진입 — 현재가 추격 대신 되돌림 매수</p>
       )}
     </>
   );
