@@ -138,7 +138,7 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('- paperEntryRecommendedAction=NONE');
     expect(text).toContain('- paperEntryRealSkipReasonResolvedCount=0');
     expect(text).toContain('- paperEntryForensicFallbackReasonCount=0');
-    expect(text).toContain('000660:CREATED:kind=OBSERVATIONAL_PAPER_ENTRY:primary=OBSERVATIONAL_PAPER_ENTRY_CREATED:secondary=SCORE_BELOW_THRESHOLD,GATE2_PENDING,GATE3_PRE_BREAKOUT,SIZING_BLOCKED:score=FAIL:gate1=PASS:gate2=PENDING:gate3=BLOCK:sizing=BLOCKED:executable=false:promotionAllowed=false:liveOrderAllowed=false:paperExecutable=false:learningAllowed=true:executionImpact=NONE');
+    expect(text).toContain('000660:CREATED:kind=OBSERVATIONAL_PAPER_ENTRY:primary=OBSERVATIONAL_PAPER_ENTRY_CREATED:secondary=SCORE_BELOW_THRESHOLD,GATE2_PENDING,GATE3_PRE_BREAKOUT,SIZING_BLOCKED:score=FAIL:gate1=PASS:gate2=PENDING:gate3=BLOCK:sizing=BLOCKED:executable=false:promotionAllowed=false:liveOrderAllowed=false:learningAllowed=true:executionImpact=NONE');
     expect(text).toContain('paperStatisticsSeparation=observationalExcludedFromExecutablePnL:true');
     expect(text).toContain('- Entry Lane Split:');
     expect(text).toContain('  liveCandidates=0');
@@ -258,7 +258,7 @@ describe('scan_blockers candidate pool section', () => {
     expect(text).toContain('- paperEntryCandidateCount=1 paperExecutableCreatedCount=1 paperObservationalCreatedCount=0 paperEntrySkippedCount=0');
     expect(text).toContain('- paperExecutableSymbols=005930');
     expect(text).toContain('- paperObservationalSymbols=-');
-    expect(text).toContain('005930:CREATED:kind=EXECUTABLE_PAPER_ENTRY:primary=EXECUTABLE_PAPER_ENTRY_CREATED:secondary=NONE:score=PASS:gate1=PASS:gate2=PASS:gate3=PASS:sizing=PASS:executable=true:promotionAllowed=true:liveOrderAllowed=false:paperExecutable=true:learningAllowed=true:executionImpact=NONE');
+    expect(text).toContain('005930:CREATED:kind=EXECUTABLE_PAPER_ENTRY:primary=EXECUTABLE_PAPER_ENTRY_CREATED:secondary=NONE:score=PASS:gate1=PASS:gate2=PASS:gate3=PASS:sizing=PASS:executable=true:promotionAllowed=true:liveOrderAllowed=false:learningAllowed=true:executionImpact=NONE');
   });
 
   it('renders SHADOW_ONLY entries as diagnostic lanes, not live buy creation', () => {
