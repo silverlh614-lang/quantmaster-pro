@@ -111,8 +111,20 @@ const FIELD_ALIASES: Record<FinancialField, readonly string[]> = {
     'opCF',
     'ifrs-full_CashFlowsFromUsedInOperatingActivities',
     'ifrs-full_CashFlowsFromOperatingActivities',
+    // DART 확장 taxonomy(dart_ 접두) — 다수 K-IFRS 별도/연결 현금흐름표가 dart_ id 로 보고됨(추출률 보강).
+    'dart_CashFlowsFromUsedInOperatingActivities',
+    'dart_CashFlowsFromOperatingActivities',
   ],
-  interestExpense: ['interestExpense', 'financeCost', 'ifrs-full_FinanceCosts', 'ifrs-full_InterestExpense'],
+  interestExpense: [
+    'interestExpense',
+    'financeCost',
+    'ifrs-full_FinanceCosts',
+    'ifrs-full_InterestExpense',
+    // 이자비용/금융원가 추가 alias(추출률 보강 — ICR 산출용 DART 잔여 필드).
+    'dart_FinanceCosts',
+    'dart_InterestExpense',
+    'ifrs-full_InterestExpenseOnBorrowingsClassifiedAsFinancingActivities',
+  ],
   totalEquity: ['totalEquity', 'equity', 'ifrs-full_Equity', 'ifrs-full_EquityAttributableToOwnersOfParent'],
   totalAssets: ['totalAssets', 'assets', 'ifrs-full_Assets'],
 };
@@ -187,7 +199,10 @@ export function confidenceForDartFinancialStatus(status: DartFinancialProviderSt
 }
 
 function providerIssueForStatus(status: DartFinancialProviderStatus): boolean {
-  return status !== 'OK_WITH_DATA' && status !== 'OK_EMPTY';
+  // FIELD_MISSING(일부 필드 부재 — 예: OCF/이자비용 미추출)은 데이터 완전성 문제이지 provider transport 장애가
+  // 아니다. provider 는 정상 응답했고 데이터만 부분적이다 → providerIssue=false (provider-policy.md 데이터 품질
+  // 강등 ≠ provider 장애 원칙). transport/parse 오류(HTTP/PARSE/RATE/DART_ERROR/UNKNOWN)만 providerIssue=true.
+  return status !== 'OK_WITH_DATA' && status !== 'OK_EMPTY' && status !== 'FIELD_MISSING';
 }
 
 function rowsFromRaw(raw: unknown): Record<string, unknown>[] {
@@ -243,6 +258,9 @@ function statusFromRoot(raw: unknown): DartFinancialProviderStatus | null {
   }
   const status = raw.status;
   if (status != null && String(status) !== '000' && String(status) !== '0' && String(status).toUpperCase() !== 'OK') {
+    // DART '013' = "조회된 데이터가 없습니다" — 미보고/기간 미해당의 정상 빈 응답이지 provider 오류가 아니다
+    // (health 진단도 '013'을 ✅ 로 분류). EMPTY_VALID 로 처리해 DEGRADED+providerIssue 오분류를 막는다.
+    if (String(status) === '013') return 'OK_EMPTY';
     const msg = String(raw.message ?? raw.msg ?? '').toUpperCase();
     if (msg.includes('RATE') || msg.includes('LIMIT')) return 'RATE_LIMITED';
     return 'DART_ERROR_CODE';

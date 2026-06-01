@@ -157,6 +157,8 @@ function resolveGate2ExternalData(sample: unknown): Record<string, unknown> | un
 function dartReason(status: string): string {
   if (status === 'VERIFIED') return 'NONE';
   if (status === 'STAGE_NOT_FETCHED' || status === 'DEFERRED') return 'STAGE_NOT_FETCHED';
+  // PARTIAL = 일부 재무 필드 부재(연결 정상) — provider API_ERROR 가 아니라 데이터 완전성 한정 사유.
+  if (status === 'PARTIAL') return 'PARTIAL_FIELDS_HIGH_CONVICTION_ONLY';
   if (status === 'ERROR' || status === 'DEGRADED') return 'API_ERROR';
   return 'DART_FINANCIALS_MISSING';
 }

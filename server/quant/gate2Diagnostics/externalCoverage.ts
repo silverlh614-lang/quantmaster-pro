@@ -299,6 +299,9 @@ export function dartConfidence(value: unknown): DartFinancialConfidence | null {
 }
 
 export function gate2StatusFromDartProviderStatus(status: DartFinancialProviderStatus | null, confidence: DartFinancialConfidence | null): Gate2ExternalProviderStatus | null {
+  // FIELD_MISSING(일부 필드 부재 — OCF/이자비용 등)은 데이터 완전성 문제이지 transport 장애가 아니다 → PARTIAL(연결 정상).
+  // providerStatus 가 confidence 보다 구체적 신호이므로 confidence=DEGRADED 보다 먼저 평가한다(DEGRADED 오분류 차단).
+  if (status === 'FIELD_MISSING') return 'PARTIAL';
   if (confidence === 'EMPTY_VALID') return 'EMPTY_VALID';
   if (confidence === 'VERIFIED') return 'VERIFIED';
   if (confidence === 'STALE') return 'STALE';
@@ -307,7 +310,8 @@ export function gate2StatusFromDartProviderStatus(status: DartFinancialProviderS
   if (status === 'OK_WITH_DATA') return 'VERIFIED';
   if (status === 'OK_EMPTY') return 'EMPTY_VALID';
   if (status === 'STALE_CACHE') return 'STALE';
-  if (status === 'FIELD_MISSING' || status === 'PARSE_ERROR') return 'DEGRADED';
+  // PARSE_ERROR 는 transport/parse 장애 → DEGRADED 유지.
+  if (status === 'PARSE_ERROR') return 'DEGRADED';
   if (status === 'HTTP_ERROR' || status === 'DART_ERROR_CODE' || status === 'RATE_LIMITED' || status === 'UNKNOWN_ERROR') return 'DEGRADED';
   return null;
 }
@@ -361,7 +365,8 @@ export function resolveDartStatus(input: {
 
 export function providerIssueForDartStatus(required: boolean, status: Gate2ExternalProviderStatus): boolean {
   if (!required) return false;
-  return !['VERIFIED', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
+  // PARTIAL(일부 필드 부재, 연결 정상)은 provider 장애가 아니다 — VERIFIED/EMPTY_VALID 와 함께 providerIssue=false.
+  return !['VERIFIED', 'PARTIAL', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
 }
 
 export function gate2StatusFromBenchmarkProviderStatus(

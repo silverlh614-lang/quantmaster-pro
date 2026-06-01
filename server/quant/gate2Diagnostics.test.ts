@@ -449,10 +449,13 @@ describe('Gate2 wiring diagnostics', () => {
 
     expect(normalized.providerStatus).toBe('FIELD_MISSING');
     expect(normalized.ocfRatio).toBeNull();
+    // 분류 정정(BASELINE-LOCK-001 후속): FIELD_MISSING(OCF 누락)은 데이터 완전성 문제 → PARTIAL(연결 정상),
+    // provider transport 장애가 아니므로 providerIssue=false. (이전엔 DEGRADED+providerIssue=true 오분류)
+    expect(normalized.providerIssue).toBe(false);
     expect(dart).toMatchObject({
-      status: 'DEGRADED',
+      status: 'PARTIAL',
       missingFields: ['operatingCashFlow'],
-      providerIssue: true,
+      providerIssue: false,
       marketSignal: false,
     });
     expect(dart?.rawFieldCoverage.missingFields).toContain('operatingCashFlow');
