@@ -383,3 +383,66 @@ describe('preOrderGuard — Phase 1-② 섹터 노출 선검증', () => {
     expect(r.reason).toContain('선검증 차단');
   });
 });
+
+// ─── P1: ORDER_LOOP 임계 ENV화(오탐 완화) + emergencyStop 사유 추적(가시화) ───
+describe('preOrderGuard — P1 (ORDER_LOOP ENV 임계 + emergencyStop 사유)', () => {
+  let tmpDir: string;
+  const base = {
+    stockCode: '005930', stockName: '삼성전자',
+    quantity: 10, entryPrice: 70000, stopLoss: 66000,
+    totalAssets: 100_000_000,
+  };
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-p1-'));
+    process.env.PERSIST_DATA_DIR = tmpDir;
+    vi.resetModules();
+    vi.doMock('../alerts/telegramClient.js', () => ({ sendTelegramAlert: vi.fn().mockResolvedValue(undefined) }));
+    vi.doMock('../emergency.js', () => ({ cancelAllPendingOrders: vi.fn().mockResolvedValue(undefined) }));
+    vi.doMock('../alerts/contaminationBlastRadius.js', () => ({ sendBlastRadiusReport: vi.fn().mockResolvedValue(true) }));
+  });
+
+  afterEach(() => {
+    delete process.env.PERSIST_DATA_DIR;
+    delete process.env.PRE_ORDER_LOOP_THRESHOLD;
+    delete process.env.PRE_ORDER_LOOP_WINDOW_MIN;
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
+    vi.doUnmock('../alerts/telegramClient.js');
+    vi.doUnmock('../emergency.js');
+    vi.doUnmock('../alerts/contaminationBlastRadius.js');
+  });
+
+  it('PRE_ORDER_LOOP_THRESHOLD=5 상향 시 3·4회 통과, 5회째 throw (정당한 분할매수 오탐 완화)', async () => {
+    process.env.PRE_ORDER_LOOP_THRESHOLD = '5';
+    const { assertSafeOrder, PreOrderGuardError, _resetRecentOrders } = await import('./preOrderGuard.js');
+    _resetRecentOrders();
+    expect(() => assertSafeOrder(base)).not.toThrow();
+    expect(() => assertSafeOrder(base)).not.toThrow();
+    expect(() => assertSafeOrder(base)).not.toThrow(); // 3회 — default 면 throw 였으나 ENV 5 라 통과
+    expect(() => assertSafeOrder(base)).not.toThrow(); // 4회
+    expect(() => assertSafeOrder(base)).toThrow(PreOrderGuardError); // 5회 → ORDER_LOOP
+  });
+
+  it('ENV 무설정 시 default 3 유지 (byte-equivalent)', async () => {
+    const { assertSafeOrder, PreOrderGuardError, _resetRecentOrders } = await import('./preOrderGuard.js');
+    _resetRecentOrders();
+    assertSafeOrder(base);
+    assertSafeOrder(base);
+    expect(() => assertSafeOrder(base)).toThrow(PreOrderGuardError); // 3회 → default 임계 불변
+  });
+
+  it('fireKillSwitch 가 emergencyStop 에 사유/시각 전달 — getEmergencyStopInfo()', async () => {
+    const { assertSafeOrder, _resetRecentOrders } = await import('./preOrderGuard.js');
+    const { getEmergencyStopInfo, setEmergencyStop } = await import('../state.js');
+    setEmergencyStop(false);
+    _resetRecentOrders();
+    assertSafeOrder(base);
+    assertSafeOrder(base);
+    try { assertSafeOrder(base); } catch { /* SDS-ignore: expected ORDER_LOOP throw — 사유 검증용 */ }
+    const info = getEmergencyStopInfo();
+    expect(info.active).toBe(true);
+    expect(info.reason).toBe('PRE_ORDER_GUARD:ORDER_LOOP_SUSPECT');
+    expect(info.at).toBeTruthy();
+    setEmergencyStop(false); // cleanup — 다른 테스트 leak 방지
+  });
+});

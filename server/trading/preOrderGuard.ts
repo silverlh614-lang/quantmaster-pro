@@ -34,11 +34,21 @@ import { sendBlastRadiusReport } from '../alerts/contaminationBlastRadius.js';
 /** 주문 금액이 총자산의 몇 배를 넘으면 비정상 팽창으로 간주할지. */
 const POSITION_EXPLOSION_MULTIPLIER = 1.5;
 
-/** 동일 종목 주문 중복 감지 윈도우 */
-const ORDER_LOOP_WINDOW_MS = 10 * 60 * 1000;
+/** 동일 종목 주문 중복 감지 윈도우(분). ENV PRE_ORDER_LOOP_WINDOW_MIN, default 10. */
+function getOrderLoopWindowMs(): number {
+  const raw = Number(process.env.PRE_ORDER_LOOP_WINDOW_MIN ?? 10);
+  return (Number.isFinite(raw) && raw > 0 ? raw : 10) * 60 * 1000;
+}
 
-/** 윈도우 내 동일 종목 주문 임계치 (이 수 이상이면 loop 의심). */
-const ORDER_LOOP_THRESHOLD = 3;
+/**
+ * 윈도우 내 동일 종목 주문 임계치(이 수 이상이면 loop 의심). ENV PRE_ORDER_LOOP_THRESHOLD, default 3(byte-equivalent).
+ * P1: 정당한 분할매수/트랜치/재시도가 default 3 을 false-positive 로 칠 수 있어 운영자 상향 가능.
+ * 진짜 runaway loop 는 수십 회를 순식간에 발사하므로 상향해도 true-positive 보호는 유지된다.
+ */
+function getOrderLoopThreshold(): number {
+  const raw = Number(process.env.PRE_ORDER_LOOP_THRESHOLD ?? 3);
+  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 3;
+}
 
 // ── 동일 종목 주문 이력 (메모리, 프로세스 재시작 시 초기화) ───────────────────
 
@@ -47,7 +57,7 @@ const _recentOrders = new Map<string, number[]>();  // stockCode → [timestamp.
 function recordOrderTimestamp(stockCode: string, now: number): number {
   const arr = _recentOrders.get(stockCode) ?? [];
   // 윈도우 밖 타임스탬프 제거
-  const cutoff = now - ORDER_LOOP_WINDOW_MS;
+  const cutoff = now - getOrderLoopWindowMs();
   const filtered = arr.filter(t => t >= cutoff);
   filtered.push(now);
   _recentOrders.set(stockCode, filtered);
@@ -150,11 +160,12 @@ export function assertSafeOrder(ctx: PreOrderContext): void {
   }
 
   // 3) 동일 종목 단기 다발 주문 (loop 의심)
+  const orderLoopWindowMs = getOrderLoopWindowMs();
   const count = recordOrderTimestamp(ctx.stockCode, Date.now());
-  if (count >= ORDER_LOOP_THRESHOLD) {
+  if (count >= getOrderLoopThreshold()) {
     fireKillSwitch('ORDER_LOOP_SUSPECT',
-      `${ctx.stockName}(${ctx.stockCode}) 최근 10분간 ${count}회 주문 — 무한 루프 의심`,
-      { stockCode: ctx.stockCode, count, windowMs: ORDER_LOOP_WINDOW_MS },
+      `${ctx.stockName}(${ctx.stockCode}) 최근 ${Math.round(orderLoopWindowMs / 60000)}분간 ${count}회 주문 — 무한 루프 의심`,
+      { stockCode: ctx.stockCode, count, windowMs: orderLoopWindowMs },
     );
   }
 }
@@ -294,8 +305,8 @@ function fireKillSwitch(
   // 1) incident 영속화 (이 시각 이후 Shadow 샘플은 자동 격리)
   const entry = recordIncident('preOrderGuard', message, 'CRITICAL', { reason, ...context });
 
-  // 2) EmergencyStop 설정 — 동기 state 변경
-  setEmergencyStop(true);
+  // 2) EmergencyStop 설정 — 동기 state 변경 (P1: 사유 전달 → 헬스체크 가시화)
+  setEmergencyStop(true, `PRE_ORDER_GUARD:${reason}`);
 
   // 3) 미체결 주문 취소 + 텔레그램 알림 + 오염 반경 리포트 (비동기 fire-and-forget)
   void (async () => {

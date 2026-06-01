@@ -18,10 +18,25 @@ import {
   type PersistentMacroEntryOverrideTarget,
 } from './persistence/macroEntryOverrideRepo.js';
 let EMERGENCY_STOP = false;
+let EMERGENCY_STOP_REASON: string | null = null;
+let EMERGENCY_STOP_AT: string | null = null;
 let DAILY_LOSS_PCT = 0;
 
 export const getEmergencyStop = () => EMERGENCY_STOP;
-export const setEmergencyStop = (v: boolean) => { EMERGENCY_STOP = v; };
+// P1: emergencyStop 사유/발동시각 추적 — 헬스체크·진단 가시화(false-positive 발동 시 운영자 즉시 원인 파악).
+// boolean 동작은 byte-equivalent(EMERGENCY_STOP 불변), reason/at 은 관측 전용 부가 필드. at 은 false→true 전이에만 갱신.
+export const setEmergencyStop = (v: boolean, reason?: string) => {
+  if (v && !EMERGENCY_STOP) EMERGENCY_STOP_AT = new Date().toISOString();
+  EMERGENCY_STOP = v;
+  if (v) {
+    if (reason !== undefined) EMERGENCY_STOP_REASON = reason;
+  } else {
+    EMERGENCY_STOP_REASON = null;
+    EMERGENCY_STOP_AT = null;
+  }
+};
+export const getEmergencyStopInfo = (): { active: boolean; reason: string | null; at: string | null } =>
+  ({ active: EMERGENCY_STOP, reason: EMERGENCY_STOP_REASON, at: EMERGENCY_STOP_AT });
 export const getDailyLossPct = () => DAILY_LOSS_PCT;
 export const setDailyLoss = (pct: number) => { DAILY_LOSS_PCT = pct; };
 

@@ -3,7 +3,7 @@
  */
 import { scheduledJob } from './scheduleGuard.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { getDailyLossPct, getEmergencyStop } from '../state.js';
+import { getDailyLossPct, getEmergencyStop, getEmergencyStopInfo } from '../state.js';
 import { getKisTokenRemainingHours } from '../clients/kisClient.js';
 import { getStreamStatus } from '../clients/kisStreamClient.js';
 import { getKrxOpenApiStatus, isKrxOpenApiHealthy } from '../clients/krxOpenApi.js';
@@ -90,6 +90,11 @@ async function runPipelineHealthCheck(): Promise<void> {
     const watchlist = loadWatchlist();
     const shadows = loadShadowTrades();
     const emergencyStop = getEmergencyStop();
+    // P1: emergencyStop 활성 시 사유/경과시간 노출 — boolean 만으로는 운영자가 원인을 모름(false-positive 추적 gap).
+    const esInfo = getEmergencyStopInfo();
+    const esAgeLabel = (emergencyStop && esInfo.at && Number.isFinite(Date.parse(esInfo.at)))
+      ? ` · ${Math.floor((Date.now() - Date.parse(esInfo.at)) / 3_600_000)}시간째`
+      : '';
     const dailyLossPct = getDailyLossPct();
     const dailyLossLimit = parseFloat(process.env.DAILY_LOSS_LIMIT ?? '5');
     const autoEnabled = process.env.AUTO_TRADE_ENABLED === 'true';
@@ -136,7 +141,7 @@ async function runPipelineHealthCheck(): Promise<void> {
       `Yahoo: ${yahooStatus === 'OK' ? '✅' : yahooStatus === 'DEGRADED' ? '⚠️ 부분장애' : yahooStatus === 'DOWN' ? '❌ 불가' : '?'}\n` +
       `마지막 스캔: ${lastScanAt} | 마지막 신호: ${lastBuyAt}\n` +
       `일일손실: ${dailyLossPct.toFixed(1)}% / 한도 ${dailyLossLimit}%\n` +
-      `비상정지: ${emergencyStop ? '🛑 활성' : '✅ 해제'}\n` +
+      `비상정지: ${emergencyStop ? `🛑 활성${esInfo.reason ? ` (${esInfo.reason})` : ''}${esAgeLabel}` : '✅ 해제'}\n` +
       `R3 Sanity 차단: ${r3Latch.active ? `🛑 활성 (${Math.floor(r3LatchAgeHours)}시간째${r3LatchStuck ? ' ⚠️오래됨 → /r3_unblock' : ''})` : '✅ 해제'}\n` +
       `실시간호가: ${streamStatus.connected ? `✅ ${streamStatus.subscribedCount}종목` : '❌ 미연결'}\n` +
       `학습엔진: ${learning.status} (평가 ${learning.evalLagLbl} / 캘리브레이션 ${learning.calibLagLbl})${learning.heldLbl}\n` +
