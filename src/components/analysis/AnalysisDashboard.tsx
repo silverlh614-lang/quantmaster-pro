@@ -1,4 +1,4 @@
-// @responsibility analysis ?곸뿭 AnalysisDashboard 而댄룷?뚰듃
+// @responsibility analysis 영역 AnalysisDashboard 컴포넌트
 import React, { useState, useEffect } from 'react';
 import {
   History,
@@ -65,25 +65,22 @@ const CHART_TOOLTIP_STYLE = {
 };
 
 const BACKTEST_DESCRIPTION = [
-  '怨쇨굅 ?쒖옣 ?곗씠?곕? ?듯빐 27?④퀎 泥댄겕由ъ뒪?몄쓽 ?좏슚?깆쓣 寃利앺빀?덈떎.',
-  '?섎씫?κ낵 ?쒗솚留??μ꽭?먯꽌??媛以묒튂 蹂?붾? 遺꾩꽍?⑸땲??',
+  '과거 시장 데이터를 통해 27단계 체크리스트의 유효성을 검증합니다.',
+  '하락장과 순환매 장세에서의 가중치 변화를 분석합니다.',
 ].join(' ');
-const BACKTEST_PERIOD_RATE_HIKE = '2022??湲덈━ ?몄긽湲?(?섎씫??';
-const BACKTEST_PERIOD_RECOVERY = '2024???곷컲湲?(?쒗솚留??μ꽭)';
-const BACKTEST_RATE_HIKE_LABEL = '湲덈━ ?몄긽湲?/span>';
-const BACKTEST_RECOVERY_LABEL = '?곷컲湲??μ꽭';
+const BACKTEST_PERIOD_RATE_HIKE = '2022년 금리 인상기 (하락장)';
+const BACKTEST_PERIOD_RECOVERY = '2024년 상반기 (순환매 장세)';
+const BACKTEST_RATE_HIKE_LABEL = '금리 인상기';
+const BACKTEST_RECOVERY_LABEL = '상반기 장세';
 const WALK_FORWARD_DESCRIPTION = [
-  '2025??理쒖쟻??濡쒖쭅??2026??理쒓렐 3媛쒖썡 ?곗씠?곗뿉 ??낇븯??怨쇱턀?곹솕 ?щ?瑜?寃利앺빀?덈떎.',
-  '理쒖떊 ?몃젋??AI 鍮꾩＜???ㅽ넗由ы뀛留? 諛몃쪟??????????곸쓳?μ쓣 ?뺤씤?⑸땲??',
+  '2025년 최적화 로직을 2026년 최근 3개월 데이터에 대입하여 과최적화 여부를 검증합니다.',
+  '최신 트렌드(AI 비주얼 스토리텔링, 밸류업 등)에 대한 적응력을 확인합니다.',
 ].join(' ');
-const WALK_FORWARD_LOADING_LABEL = 'AI ?꾩쭊 遺꾩꽍 ?섑뻾 以?..';
-const PAPER_TRADING_DESCRIPTION = "留ㅼ씪 ?꾩묠 ?쒖뒪?쒖씠 ?좎젙??'留덉뒪???????깃낵瑜?異붿쟻?⑸땲??";
-const PAPER_ENTRY_DISPLAY = "??pick.entryPrice?.toLocaleString() || '0'}";
-const PAPER_TARGET_DISPLAY = "??pick.targetPrice?.toLocaleString() || '0'}";
-const PAPER_STOP_DISPLAY = "??pick.stopLoss?.toLocaleString() || '0'}";
-const NAVER_SEARCH_SUFFIX = '+二쇨?';
-const RATE_LIMIT_ALERT_MESSAGE = 'API ?좊떦?됱씠 珥덇낵?섏뿀?듬땲?? ?좎떆 ???ㅼ떆 ?쒕룄??二쇱꽭??';
-const ANALYSIS_ERROR_PREFIX = '遺꾩꽍 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎';
+const WALK_FORWARD_LOADING_LABEL = 'AI 전진 분석 수행 중...';
+const PAPER_TRADING_DESCRIPTION = "매일 아침 시스템이 선정한 '마스터 픽'의 성과를 추적합니다.";
+const NAVER_SEARCH_SUFFIX = '+주가';
+const RATE_LIMIT_ALERT_MESSAGE = 'API 할당량이 초과되었습니다. 잠시 후 다시 시도해 주세요.';
+const ANALYSIS_ERROR_PREFIX = '분석 중 오류가 발생했습니다';
 
 function isRateLimitError(message: string, status: unknown, code: unknown): boolean {
   return message.includes('429')
@@ -145,7 +142,7 @@ function BacktestControls({
         >
           <div className="relative z-10">
             <TrendingDown className="w-8 h-8 text-red-400 mb-4" />
-            <span className="block text-xs font-black text-red-400/60 tracking-tight mb-1">2022 ?섎씫??/span&gt;</span>
+            <span className="block text-xs font-black text-red-400/60 tracking-tight mb-1">2022 하락장</span>
             <span className="block text-lg font-black text-white">{BACKTEST_RATE_HIKE_LABEL}</span>
           </div>
           {isAnalyzing && (
@@ -162,7 +159,7 @@ function BacktestControls({
         >
           <div className="relative z-10">
             <ArrowRightLeft className="w-8 h-8 text-blue-400 mb-4" />
-            <span className="block text-xs font-black text-blue-400/60 tracking-tight mb-1">2024 ?쒗솚留?/span&gt;</span>
+            <span className="block text-xs font-black text-blue-400/60 tracking-tight mb-1">2024 순환매</span>
             <span className="block text-lg font-black text-white">{BACKTEST_RECOVERY_LABEL}</span>
           </div>
         </button>
@@ -590,15 +587,15 @@ function PaperPickCard({
       <div className="space-y-3 mb-6">
         <div className="flex justify-between items-center">
           <span className="text-[10px] font-black text-white/20 tracking-tight">진입</span>
-          <span className="text-sm font-black text-white">{PAPER_ENTRY_DISPLAY}</span>
+          <span className="text-sm font-black text-white">₩{pick.entryPrice?.toLocaleString() || '0'}</span>
         </div>
         <div className="flex justify-between items-center">
           <span className="text-[10px] font-black text-white/20 tracking-tight">목표</span>
-          <span className="text-sm font-black text-green-400">{PAPER_TARGET_DISPLAY}</span>
+          <span className="text-sm font-black text-green-400">₩{pick.targetPrice?.toLocaleString() || '0'}</span>
         </div>
         <div className="flex justify-between items-center">
           <span className="text-[10px] font-black text-white/20 tracking-tight">손절</span>
-          <span className="text-sm font-black text-red-400">{PAPER_STOP_DISPLAY}</span>
+          <span className="text-sm font-black text-red-400">₩{pick.stopLoss?.toLocaleString() || '0'}</span>
         </div>
       </div>
 
