@@ -32,6 +32,12 @@ export interface UnifiedMacroContext {
   fomcPhase: string;                   // FomcPhase 값 (위 주석 참조)
   macroStateUpdatedAt: string | null;  // macroState.updatedAt (ISO) 또는 null(스테일)
   kospi20dReturn: number | null;       // KOSPI 20일 수익률 (%) — rsScore 교차 집합 계산용
+  /**
+   * ADR-0549: KOSPI 당일 수익률 (%) read-only carry — MacroState.kospiDayReturn 시점 고정 복사.
+   * Market Rally Lens(recommendation read-model) 가 동일 snapshot 에서 소비 (불변식 #3 강화).
+   * 새 판단 출처 아님 — 기존 macroState 값의 carry. 부재/스테일 시 null. optional 로 후방호환.
+   */
+  kospiDayReturn?: number | null;
 }
 
 // ─── 파이프라인 경로 ─────────────────────────────────────────────────────────
