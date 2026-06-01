@@ -732,6 +732,8 @@ export function projectionToQmpDartFinancials(projection: Gate2ExternalProjectio
     ocfRatio: metrics.earningsQualityScore,
     roe: metrics.roe,
     opm: metrics.opm,
+    debtRatio: metrics.debtRatio,
+    currentRatio: metrics.currentRatio,
     opmYoYDelta: metrics.opmYoYAcceleration,
     revenueYoYGrowth: null,
     operatingIncomeYoYGrowth: null,
@@ -1140,6 +1142,13 @@ export async function refreshGate2ExternalData(input: {
     // KIS inquire-price(FHKST01010100)에서 PER 를 독립적으로 가져와 per=UNAVAILABLE 차단.
     // custom fetcher/perFetcher 경로는 그대로 유지 (테스트 하네스 byte-equivalent). executionImpact=NONE.
     const kisPrimaryEnabled = process.env.KIS_FINANCE_PRIMARY_ENABLED === 'true';
+    // ADR-0532 확장: batch refresh 경로도 KIS L1 재무(roe/opm/debtRatio/currentRatio/YoY)를 1차로 머지한다
+    // (직전엔 eval 경로 getGate2DartFinancialsForEvaluation 에만 머지가 있어 batch-populated 캐시는 DART-only 였다).
+    // OCF/ICR 은 DART 잔여(mergeKisPrimaryWithDartResidual 가 보존). flag-off/custom fetcher 시 byte-equivalent.
+    if (kisPrimaryEnabled && !input.fetcher) {
+      const kisFin = await getKisFinancials(symbol).catch(() => null);
+      if (kisFin) dartFin = mergeKisPrimaryWithDartResidual(kisFin, dartFin);
+    }
     const perValuation = dartFin
       ? input.perFetcher
         ? await input.perFetcher(symbol, dartFin)

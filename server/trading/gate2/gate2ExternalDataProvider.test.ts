@@ -7,6 +7,7 @@ import {
   classifyGate2CorpCodeMissingForDiagnostics,
   fetchGate2PerValuation,
   getGate2DartFinancialsForEvaluation,
+  projectionToQmpDartFinancials,
   refreshGate2ExternalData,
 } from './gate2ExternalDataProvider.js';
 import { getGate2ExternalCacheRecord, upsertGate2ExternalCacheRecords } from './gate2ExternalCache.js';
@@ -719,5 +720,53 @@ describe('Gate2 PER snapshot dedup (정본 데이터 SSOT, patch)', () => {
       reason: 'PER_COMPUTED_FROM_KIS_PRICE_EPS',
       perComputedFromPriceAndEps: true,
     });
+  });
+
+  it('round-trips KIS debtRatio/currentRatio through projection cache (ADR-0532 확장)', () => {
+    // KIS-primary 머지 record (debtRatio/currentRatio 는 KIS lblt_rate/crnt_rate)
+    const merged: Gate2DartEvaluationFinancials = {
+      symbol: '005930',
+      corpCode: null,
+      reportDate: null,
+      fiscalYear: '202412',
+      quarter: 'ANNUAL',
+      revenue: 1000,
+      operatingIncome: 150,
+      netIncome: 100,
+      operatingCashFlow: null, // OCF 는 DART 잔여(여기선 미가용)
+      interestExpense: null,
+      totalEquity: null,
+      totalAssets: null,
+      ocfRatio: null,
+      roe: 12.5,
+      opm: 15,
+      debtRatio: 45.6,
+      currentRatio: 210.5,
+      opmYoYDelta: null,
+      revenueYoYGrowth: 10,
+      operatingIncomeYoYGrowth: 18,
+      marginAcceleration: 8,
+      interestCoverageRatio: null,
+      source: 'UNKNOWN',
+      providerStatus: 'OK_WITH_DATA',
+      dataConfidence: 'VERIFIED',
+      providerIssue: false,
+      marketSignal: false,
+      executionImpact: 'DIAGNOSTIC_ONLY',
+    };
+    const projection = buildGate2ExternalProjection({ symbol: '005930', dartFin: merged, per: 12, asOf: '2026-06-01T00:00:00.000Z' });
+    // KIS debtRatio/currentRatio 가 projection.metrics 에 반영
+    expect(projection.metrics.debtRatio).toBe(45.6);
+    expect(projection.metrics.currentRatio).toBe(210.5);
+    // 캐시 round-trip(projectionToQmpDartFinancials)이 KIS 필드를 유실하지 않음 (직전엔 누락)
+    const roundTripped = projectionToQmpDartFinancials(projection);
+    expect(roundTripped.debtRatio).toBe(45.6);
+    expect(roundTripped.currentRatio).toBe(210.5);
+    expect(roundTripped.roe).toBe(12.5);
+    expect(roundTripped.opm).toBe(15);
+    // OCF/ICR 은 DART 잔여 — 미가용 시 null 유지
+    expect(roundTripped.operatingCashFlow).toBeNull();
+    expect(roundTripped.interestCoverageRatio).toBeNull();
+    expect(roundTripped.executionImpact).toBe('DIAGNOSTIC_ONLY');
   });
 });
