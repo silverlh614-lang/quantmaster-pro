@@ -455,6 +455,14 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
         `live execution blocked, Gate diagnostics continue. violation=${r3SanityBlock.violation} ` +
         `regime=${r3SanityBlock.regime} triggeredAt=${r3SanityBlock.triggeredAt}.`,
     );
+    // ADR-0195(드리프트 복원): latch active 시 운영자에게 즉시 해제 경로(/r3_unblock)를 24h cooldown(1일 1회) 텔레그램으로 안내.
+    // OBSERVE_ONLY 강등 리팩터에서 console.info 로만 남아 운영자 가시성이 사라졌던 것을 복원 — 2026-05-26 6일 무경보 재발 방지.
+    void sendTelegramAlert(
+      `🚨 <b>[R3 Sanity Block Active]</b>\n신규 매수 차단(OBSERVE_ONLY) 유지\n위반: ${r3SanityBlock.violation} / ${r3SanityBlock.regime}\n` +
+        `즉시 해제: <code>/r3_unblock</code> (텔레그램, ADR-0195)\n` +
+        `또는 ENV <code>R3_SANITY_ACK_TOKEN=${r3SanityBlock.triggeredAt}</code>`,
+      { priority: 'HIGH', dedupeKey: 'r3_sanity_block_active', cooldownMs: 24 * 60 * 60_000 },
+    ).catch((e) => console.error('[AutoTrade] R3 sanity block alert 전달 실패:', e));
   }
 
   if (isDataStarvedScan()) {
