@@ -786,8 +786,12 @@ export async function getGate2DartFinancialsForEvaluation(symbol: string): Promi
   if (cached?.projection?.financialSnapshot?.confidence && cached.projection.financialSnapshot.confidence !== 'MISSING') {
     // ADR-0532 Phase 3 cache-hit gap: flag-on 시, PER 미보유(legacy DART-only) 캐시는 신뢰하지 않고
     // KIS-primary 로 1회 재산출한다(재산출 후 PER 보유 projection 으로 re-cache → 이후 정상 cache-hit).
+    // 추가(ADR-0532 진단 self-heal): dartLineHealth.kisFinance 진단필드 미보유(진단 추가 전 구 projection)
+    // 캐시도 신뢰하지 않고 1회 재산출 → 재산출 시 classifyDartLineHealth 가 kisFinance 를 채워 re-cache.
     // flag-off 는 항상 cache-hit → byte-equivalent.
-    if (!flagOn || cached.projection.valuation?.per?.per != null) {
+    const cacheTrustedUnderFlag =
+      cached.projection.valuation?.per?.per != null && cached.projection.dartLineHealth?.kisFinance != null;
+    if (!flagOn || cacheTrustedUnderFlag) {
       return projectionToQmpDartFinancials(cached.projection);
     }
   }

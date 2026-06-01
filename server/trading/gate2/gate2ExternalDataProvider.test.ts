@@ -526,6 +526,41 @@ describe('Gate2ExternalDataProvider', () => {
     expect(record?.projection?.profitability?.roe).toBeCloseTo(18);
   });
 
+  // ADR-0532 진단 self-heal: PER 는 보유하지만 dartLineHealth.kisFinance(진단필드 추가 전 구 projection)
+  // 가 없는 캐시는 신뢰하지 않고 1회 재산출 → re-cache 시 kisFinance 채워짐(이후 정상 cache-hit).
+  it('kisFinance self-heal: flag-on recomputes cache lacking dartLineHealth.kisFinance (구 진단 캐시)', async () => {
+    process.env.KIS_APP_KEY = 'test-app-key';
+    process.env.KIS_APP_SECRET = 'test-app-secret';
+    process.env.KIS_FINANCE_PRIMARY_ENABLED = 'true';
+    const stale = buildGate2ExternalProjection({
+      symbol: '553300',
+      dartFin: { symbol: '553300', roe: 9, opm: 8, revenue: 1000, netIncome: 80, dataConfidence: 'VERIFIED', source: 'DART' } as unknown as Gate2DartEvaluationFinancials,
+      per: 10, perSource: 'KIS', perReason: 'PER_ACCEPTABLE',
+    });
+    expect(stale.valuation.per.per).toBe(10);
+    // 진단 추가 전 코드처럼 kisFinance 제거 (구 projection 시뮬레이션).
+    delete (stale.dartLineHealth as { kisFinance?: unknown }).kisFinance;
+    upsertGate2ExternalCacheRecords([{ symbol: '553300', projection: stale, updatedAt: stale.asOf }]);
+
+    let kisCalled = false;
+    setKisClientOverrides({
+      realDataKisGet: async (trId: string) => {
+        kisCalled = true;
+        if (trId === 'FHKST66430300') return { output: [{ roe_val: '20', lblt_rate: '45' }] };
+        if (trId === 'FHKST66430200') return { output: [{ sale_account: '1000', op_prfi: '200', thtr_ntin: '150' }] };
+        if (trId === 'FHKST66430600') return { output: [{ crnt_rate: '180' }] };
+        if (trId === 'FHKST01010100') return { output: { per: '10', stck_prpr: '50000', eps: '5000' } };
+        return {};
+      },
+    });
+
+    await getGate2DartFinancialsForEvaluation('553300');
+    expect(kisCalled).toBe(true); // 구 진단 캐시 → 재산출(KIS 호출)
+    const record = getGate2ExternalCacheRecord('553300');
+    expect(record?.projection?.dartLineHealth?.kisFinance).toBeTruthy(); // re-cache 시 kisFinance 채워짐
+    expect(record?.projection?.dartLineHealth?.kisFinance?.kisMergeApplied).toBe(true); // KIS crnt_rate→currentRatio 반영
+  });
+
   // flag-on + PER 보유 캐시(KIS-primary 산출분)는 정상 cache-hit (재산출 없음 → KIS 미호출).
   it('Phase 3 cache-hit gap: flag-on serves cache-hit when cached projection already has PER (no KIS re-fetch)', async () => {
     process.env.KIS_APP_KEY = 'test-app-key';
