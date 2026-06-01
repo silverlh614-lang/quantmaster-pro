@@ -42,8 +42,17 @@ server/trading/recommendation/
 ├── marketRallyLens.ts          # PR-1: buildMarketRallyLens(input) → MarketRallyLens (read-model only)
 ├── recommendationTypes.ts      # PR-1: MarketRallyLens / RecommendationLabel / RecommendationScore SSOT
 ├── recommendationScore.ts      # PR-2: scoreRecommendationCandidate(...) (GateScore 와 분리)
-└── recommendationUniverse.ts   # PR-2: buildRecommendationUniverse(...) (AutoTrade universe 와 분리)
+└── gate1LaneResult.ts          # PR-2: buildGate1LaneResult(...) (원안 recommendationUniverse.ts 를 lane-split 으로 재명명, AutoTrade universe 와 분리)
 ```
+
+> **PR-2 lane-split 정합 보강 (patch type, 신규 ADR 번호 발급 0건 · INDEX.md 갱신 0건):**
+> 원안 `recommendationUniverse.ts`(단순 universe 빌더)는 PR-2 에서 `gate1LaneResult.ts`(3-lane read-model)로
+> 재명명·재정의된다 — `LIVE_HARD_PASS`(기존 Gate1 hardPass 미러) / `SEARCH_RECOMMENDATION_PASS`(finalScore
+> degrade-safe OR) / `INDEX_RALLY_WATCH_PASS`(rallyLens.enabled 게이트). 신규 불변식 `LIVE_HARD_PASS_BYTE_IDENTICAL`
+> 등재(§3): `liveHardPass === (gate1Passed === true && minSignalScorePassed === true)` —
+> `gate1DryRunObservationLedgerAdr0476.ts:500` 의 `hardPass` 와 동일 boolean 식, 임계(70)·점수식·required
+> 재정의 0줄. `RecommendationScore` 5-tier(STRONG_WATCH/WATCH/SOFT_WATCH/OBSERVE/LOW_PRIORITY)는 PR-1
+> `RecommendationTier` 와 동일. Gate1 평가 파이프라인(signalScanner/gates/gateConfig) 0줄 변경.
 
 > **정적 가드로 강제할 import 금지 규칙** (§5):
 > `server/trading/recommendation/**` 는 다음을 import 할 수 없다 —
@@ -92,6 +101,7 @@ MARKET_RALLY_LENS_ENABLED=false   # default OFF. 미설정/false → buildMarket
 | `INDEX_RALLY_DOES_NOT_OVERRIDE_BREAKOUT_GATE` | 지수 급등(Rally ON)이 종목 Gate1/2/3 통과 여부를 바꾸지 않음 | Rally Lens 가 `gateConfig`/`gate*Result` 를 write 하지 않음 (read-only) |
 | `RALLY_EXECUTION_IMPACT_NONE` | 모든 Rally Lens 산출물 `executionImpact: 'NONE'` 고정 | 타입 리터럴 |
 | `RECOMMENDATION_UNIVERSE_NOT_MIXED_WITH_AUTOTRADE` | recommendation universe 와 autoTrade universe 분리 | `recommendation/**` 가 `signalScanner` buyList/candidate 를 mutate 금지 (read-only) |
+| `LIVE_HARD_PASS_BYTE_IDENTICAL` (PR-2) | `gate1LaneResult.liveHardPass === (gate1Passed && minSignalScorePassed)` — Gate1 hardPass 미러식, 재계산·임계 재정의 0 | 미러식 1줄(`gate1LaneResult.ts`) + 정적 동일성 테스트 T1(`gate1LaneResult.test.ts`)이 `gate1DryRunObservationLedgerAdr0476.ts:500` 정의와 표본별 일치 검증 |
 
 > 신규 정적 가드 `scripts/check_rally_lens_isolation.js` — `recommendation/**` 의 import 문을 파싱하여
 > forbidden 목록과 충돌 시 fail. `validate:all` · `precommit` 등재. **PR-1 에 포함.**
