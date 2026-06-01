@@ -4,6 +4,11 @@
 
 import type { EntryFilterDecomposition, EntryBlocker } from './types.js';
 import { KIS_INVESTOR_FLOW_CANONICAL } from '../gate2KisFlowTraceMetadata.js';
+import {
+  deriveGate2FinancialBaseline,
+  evaluateGate2FinancialBaselineInvariants,
+  type Gate2FinancialBaselineView,
+} from './gate2FinancialBaseline.js';
 
 // §A — canonical runtime resolution(kisInvestorFlow) 의 권위 신호. KIS Router Eligibility 와
 // 동일 SSOT 에서 파생되며, Gate2 Data Line Health KIS_FLOW 표시의 단일 근거가 된다.
@@ -256,6 +261,8 @@ function formatGate2ExternalDataStageSection(d: EntryFilterDecomposition, canoni
     kisFlowLine,
     external,
   }));
+  // Patch BASELINE-LOCK-001 — 재무 연결 정상 기준선 요약 블록.
+  lines.push(...formatGate2FinancialBaselineSection(d, external));
   // §C — VALUATION_PER 종목별 reason 분해.
   lines.push(...formatValuationPerReasonDistribution(d));
   // §E — dominant attribution (DART VERIFIED 면 FUNDAMENTAL_DATA_UNAVAILABLE 로 묶지 않음).
@@ -270,6 +277,7 @@ function formatGate2ExternalDataStageSection(d: EntryFilterDecomposition, canoni
     dartLineStatus,
     programStatus: program.status,
     programProviderIssue: program.providerIssue,
+    external,
   }));
   return lines;
 }
@@ -339,15 +347,19 @@ function formatGate2DataLineHealthSection(input: {
   // ADR-0532 진단 가시화(표시 전용): KIS L1 재무 머지가 Gate2 에 반영됐는지 한 줄 요약.
   // dartLineHealth.kisFinance 우선 → 없으면 항상 carry 되는 stability/profitability 로 파생.
   const kisFinanceLine = formatKisFinanceDataLine(input.external);
+  // Patch BASELINE-LOCK-001 — 연결 정상 상태를 기준선으로 고정한 뷰(표시 전용).
+  const baseline = resolveFinancialBaselineView(input.external);
   return [
     'Gate2 Data Line Health:',
     // §A — KIS_FLOW 는 canonicalRuntimeResolution.kisInvestorFlow(=KIS Router Eligibility 동일 SSOT)
     // 에서 파생. finalRouterUsable && finalGateScoreEligible 면 VERIFIED, gateEligibleRows/provider/
     // apiPath/trId carry. 투자흐름 미가용 시에만 MISSING/DEGRADED.
     `- KIS_FLOW: ${input.kisFlowLine.status} ${input.kisFlowLine.detail} signal=NONE impact=NONE`,
-    `- DART_FINANCIALS: ${dartLineStatus} availableFields=${dartFields.available} missingFields=${dartFields.missing} providerIssue=${boolText(nestedRecord(input.external, 'dartLineHealth')?.providerIssue)}`,
-    kisFinanceLine,
-    `- VALUATION_PER: ${valuationLine} source=${input.valuationSource} reason=${valuationReason} highConvictionOnly=true entryHardBlock=false`,
+    // BASELINE-LOCK-001 — DART partial/empty 도 connectionStatus=CONNECTED_OK (연결 실패 아님).
+    `- DART_FINANCIALS: ${dartLineStatus} connectionStatus=${baseline.dartConnectionStatus} dataStatus=${baseline.dartDataStatus} useScope=${baseline.financialUseScope} availableFields=${dartFields.available} missingFields=${dartFields.missing} providerIssue=${boolText(nestedRecord(input.external, 'dartLineHealth')?.providerIssue)}`,
+    `${kisFinanceLine} connectionStatus=${baseline.kisFinanceConnectionStatus}`,
+    // BASELINE-LOCK-001 — PER 적자는 NOT_MEANINGFUL_DUE_TO_NEGATIVE_EARNINGS(해석), connectionStatus=CONNECTED_OK, providerIssue=false.
+    `- VALUATION_PER: ${valuationLine} connectionStatus=${baseline.perConnectionStatus} interpretation=${baseline.perInterpretation} useScope=HIGH_CONVICTION_ONLY source=${input.valuationSource} reason=${valuationReason} providerIssue=${boolText(baseline.perProviderIssue)} highConvictionOnly=true entryHardBlock=false`,
     `- PROGRAM_TRADE: ${programLine} optional=true diagnosticOnly=true`,
     `- SECTOR_CYCLE: ${sectorLine} sourceTier=${input.sectorSourceTier} diagnosticOnly=true shadowOnly=true`,
     `- LEADER_CYCLE: ${leaderLine} sourceTier=${input.leaderSourceTier} diagnosticOnly=true shadowOnly=true`,
@@ -384,6 +396,59 @@ function formatKisFinanceDataLine(external: Record<string, unknown> | undefined)
     `debtRatio=${pct(debtRatio)} currentRatio=${pct(currentRatio)} roe=${pct(roe)} opm=${pct(opm)} ` +
     `ocfToNi/icr=DART_RESIDUAL financePrimaryEnabled=${boolText(financePrimaryEnabled)} impact=NONE`
   );
+}
+
+// Patch BASELINE-LOCK-001 — 이미 resolve 된 external 진단값에서 재무 기준선 뷰를 파생(표시 전용).
+// DART partial=연결정상, PER 적자=해석(provider 장애 아님), PER 미가용=high-conviction 한정(entry block 아님).
+function resolveFinancialBaselineView(external: Record<string, unknown> | undefined): Gate2FinancialBaselineView {
+  const dartLineHealth = nestedRecord(external, 'dartLineHealth');
+  const kisFinance = nestedRecord(dartLineHealth, 'kisFinance');
+  const stability = nestedRecord(external, 'stability');
+  const per = nestedRecord(nestedRecord(external, 'valuation'), 'per');
+  const isNum = (value: unknown): boolean => typeof value === 'number' && Number.isFinite(value);
+  // kisFinance 진단필드 우선 → 없으면 항상 carry 되는 stability.currentRatio 로 머지 여부 파생.
+  const currentRatio = kisFinance ? kisFinance.currentRatio : stability?.currentRatio;
+  const kisMergeApplied =
+    typeof kisFinance?.kisMergeApplied === 'boolean' ? kisFinance.kisMergeApplied : isNum(currentRatio);
+  const kisFinanceSource = stringValue(
+    kisFinance?.financeSource,
+    isNum(currentRatio) ? 'KIS_PRIMARY' : 'UNAVAILABLE',
+  );
+  return deriveGate2FinancialBaseline({
+    dartLineStatus: statusOf(dartLineHealth, 'NOT_ATTEMPTED'),
+    dartProviderIssue: dartLineHealth?.providerIssue === true,
+    kisFinanceSource,
+    kisMergeApplied,
+    perStatus: statusOf(per, 'UNAVAILABLE'),
+    perReason: stringValue(per?.reason, 'NONE'),
+  });
+}
+
+// Patch BASELINE-LOCK-001 §F — "Gate2 Financial Baseline:" 요약 블록.
+// 대표 표본의 연결 상태 + 후보군 PER 해석 분포 + 잠긴 불변식을 한 곳에서 노출한다.
+// 표시 전용 — Gate2 pass 조건/PER 임계/사이징/주문 무변경, marketSignal=false, executionImpact=NONE.
+function formatGate2FinancialBaselineSection(
+  d: EntryFilterDecomposition,
+  representativeExternal: Record<string, unknown> | undefined,
+): string[] {
+  const baseline = resolveFinancialBaselineView(representativeExternal);
+  // 후보군 전체 PER 해석 분포 (적자/필드부재/유의). 적자는 provider 장애가 아니라 데이터 해석.
+  const perDist = { PER_MEANINGFUL: 0, NOT_MEANINGFUL_DUE_TO_NEGATIVE_EARNINGS: 0, PER_FIELD_MISSING: 0 };
+  for (const trace of d.candidateTraces) {
+    const view = resolveFinancialBaselineView(resolveGate2ExternalData(trace));
+    perDist[view.perInterpretation] += 1;
+  }
+  const invariants = evaluateGate2FinancialBaselineInvariants(baseline);
+  const allLocked = invariants.every(inv => inv.ok);
+  return [
+    'Gate2 Financial Baseline:',
+    `- dartConnectionStatus=${baseline.dartConnectionStatus} dartDataStatus=${baseline.dartDataStatus}`,
+    `- kisFinanceConnectionStatus=${baseline.kisFinanceConnectionStatus}`,
+    `- perInterpretationDistribution: ${Object.entries(perDist).map(([k, v]) => `${k}=${v}`).join(' ')}`,
+    `- perProviderIssue=${boolText(baseline.perProviderIssue)} perEntryHardBlock=${boolText(baseline.perEntryHardBlock)} perHighConvictionOnly=true`,
+    `- financialProviderIssue=${boolText(baseline.financialProviderIssue)} financialUseScope=${baseline.financialUseScope}`,
+    `- financialBaselineInvariant=${allLocked ? 'LOCKED_OK' : 'VIOLATION'} marketSignal=false executionImpact=NONE shadowLearning=true`,
+  ];
 }
 
 // §C — VALUATION_PER unavailable 을 단일 UNAVAILABLE 로 뭉개지 않고 종목별 reason 으로 분해한다.
@@ -540,7 +605,8 @@ function formatGate2ConditionAttributionMatrix(d: EntryFilterDecomposition, domi
   const lines = [
     'Gate2 Condition Attribution Matrix:',
     `gate2Evaluated=${evaluatedCount}/${d.candidateTraces.length}`,
-    'symbol | name | gate1 | gate2EvaluationScope | finalGate2 | upstreamBlocker | gate2DiagnosticPrimary | kisFlow | dart | per | rs | breakout | volume | sector | leader | hardBlock | diagnosticOnly',
+    // BASELINE-LOCK-001 §D — 재무 기준선 컬럼 추가(끝단): dartConnectionStatus..finalGate2UseScope.
+    'symbol | name | gate1 | gate2EvaluationScope | finalGate2 | upstreamBlocker | gate2DiagnosticPrimary | kisFlow | dart | per | rs | breakout | volume | sector | leader | hardBlock | diagnosticOnly | dartConnectionStatus | dartDataStatus | kisFinanceConnectionStatus | perInterpretation | perProviderIssue | perEntryHardBlock | perHighConvictionOnly | financialBaselineInvariant | finalGate2UseScope',
   ];
   for (const trace of rows) {
     const c = conditionMatrixRow(trace);
@@ -561,6 +627,9 @@ function formatGate2ConditionAttributionMatrix(d: EntryFilterDecomposition, domi
     const upstreamBlocker = gate1Failed ? 'GATE1_FAIL' : 'NONE';
     // PER/sector/leader/program 은 entry hard block 아님 → hardBlock 판정에서 제외.
     const hardBlock = ['BREAKOUT_MOMENTUM_NOT_CONFIRMED', 'VOLUME_CONFIRMATION_FAIL', 'RS_FAIL'].includes(blocker);
+    // BASELINE-LOCK-001 §D — 종목별 재무 연결 기준선 컬럼.
+    const fin = resolveFinancialBaselineView(resolveGate2ExternalData(trace));
+    const finInvariant = evaluateGate2FinancialBaselineInvariants(fin).every(inv => inv.ok) ? 'LOCKED_OK' : 'VIOLATION';
     lines.push([
       trace.symbol,
       stringValue(trace.name, '-'),
@@ -573,6 +642,15 @@ function formatGate2ConditionAttributionMatrix(d: EntryFilterDecomposition, domi
       c.sectorCycle, c.leaderCycle,
       hardBlock ? 'true' : 'false',
       gate1Failed || blocker === 'VALUATION_PER_HIGH_CONVICTION_ONLY' ? 'true' : 'false',
+      fin.dartConnectionStatus,
+      fin.dartDataStatus,
+      fin.kisFinanceConnectionStatus,
+      fin.perInterpretation,
+      boolText(fin.perProviderIssue),
+      boolText(fin.perEntryHardBlock),
+      boolText(fin.perHighConvictionOnly),
+      finInvariant,
+      fin.financialUseScope,
     ].join(' | '));
   }
   if (dominant.code === 'NOT_EVALUATED_GATE1_FAIL') {
@@ -588,6 +666,7 @@ function formatGate2DataLineInvariants(input: {
   dartLineStatus: string;
   programStatus: string;
   programProviderIssue: boolean;
+  external?: Record<string, unknown>;
 }): string[] {
   const c = input.canonical;
   const kisCarry = !(c && c.finalGateScoreEligible === true
@@ -600,7 +679,7 @@ function formatGate2DataLineInvariants(input: {
   const perHighConvictionOnly = true;
   const diagnosticMissingNotMarketSignal = providerHealthSeparated;
   const mark = (ok: boolean) => (ok ? 'OK' : 'VIOLATION');
-  return [
+  const lines = [
     'Gate2 DataLine Invariants:',
     `[${mark(kisCarry)}] KIS_FLOW_CARRY`,
     `[${mark(dartCarry)}] DART_STATUS_CARRY`,
@@ -612,6 +691,12 @@ function formatGate2DataLineInvariants(input: {
     `[${mark(shadowContinuity)}] SHADOW_LEARNING_CONTINUITY`,
     `[${mark(shadowContinuity)}] SHADOW_LEARNING_CONTINUES_UNDER_SHADOW_ONLY`,
   ];
+  // Patch BASELINE-LOCK-001 §E — 재무 연결 정상 상태 기준선 불변식 (이후 패치 재오염 방지).
+  const baseline = resolveFinancialBaselineView(input.external);
+  for (const inv of evaluateGate2FinancialBaselineInvariants(baseline)) {
+    lines.push(`[${mark(inv.ok)}] ${inv.name}`);
+  }
+  return lines;
 }
 
 export function mapConservativeCode(code: string): string | null {

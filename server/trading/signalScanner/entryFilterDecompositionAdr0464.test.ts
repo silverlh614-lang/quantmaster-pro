@@ -571,9 +571,16 @@ describe('Gate2 external data Section D/E/G display lanes', () => {
     expect(formatted).toContain('Gate2 Data Line Health:');
     expect(formatted).toContain('- KIS_FLOW: VERIFIED (상세는 KIS Router Eligibility 참조)');
     expect(formatted).toContain(
-      '- DART_FINANCIALS: PARTIAL availableFields=roe,opm missingFields=earningsQuality,icr',
+      '- DART_FINANCIALS: PARTIAL connectionStatus=CONNECTED_OK dataStatus=PARTIAL useScope=HIGH_CONVICTION_ONLY availableFields=roe,opm missingFields=earningsQuality,icr',
     );
-    expect(formatted).toContain('- VALUATION_PER: AVAILABLE source=DART reason=NONE');
+    // BASELINE-LOCK-001 — VALUATION_PER 에 connectionStatus/interpretation/providerIssue carry.
+    expect(formatted).toContain('- VALUATION_PER: AVAILABLE connectionStatus=CONNECTED_OK interpretation=PER_MEANINGFUL');
+    expect(formatted).toContain('source=DART reason=NONE providerIssue=false highConvictionOnly=true entryHardBlock=false');
+    // BASELINE-LOCK-001 — Gate2 Financial Baseline 요약 블록 + 잠긴 불변식.
+    expect(formatted).toContain('Gate2 Financial Baseline:');
+    expect(formatted).toContain('financialBaselineInvariant=LOCKED_OK');
+    expect(formatted).toContain('[OK] DART_CONNECTED_OK');
+    expect(formatted).toContain('[OK] PER_NON_POSITIVE_IS_NOT_PROVIDER_FAILURE');
     // §G — program/leader optional·diagnostic missing 은 OPTIONAL_MISSING/DIAGNOSTIC_MISSING 로 표기.
     expect(formatted).toContain('- PROGRAM_TRADE: OPTIONAL_MISSING optional=true diagnosticOnly=true');
     expect(formatted).toContain('- SECTOR_CYCLE: SHADOW_ONLY sourceTier=INTERNAL_GROUPED_SNAPSHOT');
