@@ -571,17 +571,31 @@ export function getStage1RejectionCounts(): Stage1RejectionCounts {
   };
 }
 
-export function calcStage1Score(q: YahooQuoteExtended): number {
+export function calcStage1Score(q: YahooQuoteExtended, regime?: RegimeLevel | null): number {
+  // Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 — risk-on regime 에서는 모멘텀/주도성을 보상해
+  //   완화 필터로 유입된 리더가 top-N 랭크에 들도록 한다(평시 눌림목 프리미엄과 분기).
+  //   flag OFF / non-risk-on 이면 평시(else) 분기만 실행 → 기존 9개 항과 byte-identical(합산 동일).
+  const riskOnRelax = isStage1RiskOnLeaderCaptureEnabled() && regime != null && RISK_ON_REGIMES.includes(regime);
   let score = 0;
-  score += Math.min(q.changePercent / 10, 1);                            // 상승률 비중 축소 (최대 1점, 기존 2점)
+  // ── 공통 축 (regime 무관) ──
   score += Math.min(q.volume / Math.max(q.avgVolume, 1) - 1, 2);        // 거래량 배수 (최대 2점)
   score += q.price >= q.ma5 ? 0.5 : 0;                                  // 5일선 위
-  score += q.price >= q.high20d * 0.98 ? 1 : 0;                         // 20일 신고가 근접
   score += q.atr > 0 && q.atr20avg > 0 && q.atr < q.atr20avg * 0.7 ? 1 : 0; // VCP
-  score += q.rsi14 >= 40 && q.rsi14 <= 65 ? 1 : 0;                     // RSI 건강구간 (과열 제외)
   score += (q.rsi14 - q.rsi5dAgo) >= 3 ? 1 : 0;                        // RSI 가속 (추세 초기 신호)
-  score += q.return5d < 8 ? 0.5 : 0;                                    // 5일 과급등 아닌 종목 우대
-  if (isPullbackSetup(q)) score += 2;                                    // 눌림목 프리미엄 (모멘텀 부족분 보상)
+  if (riskOnRelax) {
+    // ── 강세장: 모멘텀/주도성 보상 (초기값, counterfactual 튜닝 대상) ──
+    score += Math.min(Math.max(q.changePercent, 0) / 4, 3);            // 당일 상승률 (최대 3점)
+    score += Math.min(Math.max(q.return5d, 0) / 8, 2);                 // 5일 모멘텀 (최대 2점)
+    score += q.rsi14 >= 55 && q.rsi14 <= 80 ? 1 : 0;                   // 강세 모멘텀 RSI 구간
+    score += q.price >= q.high20d * 0.98 ? 1.5 : 0;                    // 신고가 근접 강화
+  } else {
+    // ── 평시: 눌림목/평균회귀 (기존 동작 보존) ──
+    score += Math.min(q.changePercent / 10, 1);                        // 상승률 비중 축소 (최대 1점)
+    score += q.price >= q.high20d * 0.98 ? 1 : 0;                      // 20일 신고가 근접
+    score += q.rsi14 >= 40 && q.rsi14 <= 65 ? 1 : 0;                   // RSI 건강구간 (과열 제외)
+    score += q.return5d < 8 ? 0.5 : 0;                                 // 5일 과급등 아닌 종목 우대
+    if (isPullbackSetup(q)) score += 2;                                // 눌림목 프리미엄 (모멘텀 부족분 보상)
+  }
   return score;
 }
 

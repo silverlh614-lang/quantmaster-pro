@@ -343,7 +343,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
             symbol: tryGetYahooSymbol(code) ?? `${code}.KS`,
             sector: getSectorByCode(code),
             quote,
-            stage1Score: calcStage1Score(quote),
+            stage1Score: calcStage1Score(quote, stage1Regime),
           } as CandidateStock;
         }),
       );
@@ -385,7 +385,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
           symbol: stock.symbol,
           sector: getSectorByCode(stock.code),
           quote,
-          stage1Score: calcStage1Score(quote),
+          stage1Score: calcStage1Score(quote, stage1Regime),
         } as CandidateStock;
       }),
     );
