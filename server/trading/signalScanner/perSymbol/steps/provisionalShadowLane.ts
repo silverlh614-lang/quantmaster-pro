@@ -17,7 +17,7 @@ export async function provisionalShadowLaneDerive(
   const candidate = deriveR3ProvisionalShadowCandidate({
     symbol: stock.code,
     name: stock.name,
-    regime: ctx.regime,
+    regime: ctx.learningRegime ?? ctx.regime,
     gate1Passed: true,
     gate2Passed: false,
     router: routerResult,

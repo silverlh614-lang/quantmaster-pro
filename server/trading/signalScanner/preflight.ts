@@ -400,6 +400,14 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     ? observedRegime
     : 'R4_NEUTRAL' as keyof typeof REGIME_CONFIGS;
   let regimeConfig = REGIME_CONFIGS[regime];
+  // 정합 정정(patch): shadow/learning 레인은 정규 effective regime 을 봐야 한다. marketState.effectiveRegime
+  // 가 R6 상태기계 어휘(R3_NORMAL 등)를 누수하면 위 observedRegime → regime 이 R4_NEUTRAL 로 clamp 되어
+  // R3 provisional/counterfactual 레인이 영구 비활성화된다. regimeDiagnostics.effectiveRegime 는 정규
+  // RegimeLevel 이라 clamp 영향이 없다. live `regime` 불변(byte-equivalent) — 학습/섀도 레인에만 적용.
+  const diagnosticsEffectiveRegime = String(regimeDiagnostics.effectiveRegime);
+  const learningRegime = (Object.prototype.hasOwnProperty.call(REGIME_CONFIGS, diagnosticsEffectiveRegime)
+    ? diagnosticsEffectiveRegime
+    : regime) as keyof typeof REGIME_CONFIGS;
   const macroEntryOverride = getMacroEntryOverrideState();
   let liveEntryBlockedReason: string | undefined;
   let macroDiagnosticOnly = false;
@@ -852,6 +860,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
       activeHoldingValue,
       effectiveMaxPositions,
       regime,
+      learningRegime,
       regimeConfig,
       macroState,
       vixGating,

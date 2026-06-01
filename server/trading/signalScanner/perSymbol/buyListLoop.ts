@@ -405,21 +405,21 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // 시점에만 후보 생성. try/catch 격리 — 영속 실패가 매수 흐름 차단 안 함.
       // KIS 주문 함수 5종 import 0건 (정적 grep 가드). LIVE 매매 본체 0줄 변경.
       try {
-        if (ctx.regime === 'R3_EARLY' && isGate1Survivor && reCheckGate?.outputs) {
+        if ((ctx.learningRegime ?? ctx.regime) === 'R3_EARLY' && isGate1Survivor && reCheckGate?.outputs) {
           // 종목별 Router 결과 — 매크로 게이트 + Gate2 미통과 (gate2Pass=0 가정,
           // gate2Passed=false literal). Router 호출은 후보 단위 lightweight (외부 호출 0).
           const macroState = ctx.macroState;
           // 가장 최근 종목별 Router 평가 — buyListLoop wiring scope 에서는 전체 macro
           // riskFlags 만 활용 (stock 별 liquidity/RRR 은 후속 PR scope).
           const routerResult = deriveGateDecisionRouterResult({
-            regime: ctx.regime,
+            regime: ctx.learningRegime ?? ctx.regime,
             gate1Pass: 1,         // 본 후보 자체가 Gate1 생존
             gate2Pass: 0,         // Gate2 미통과 (provisional 후보 자격)
             riskFlags: {
               emergencyStop: undefined,  // signalScanner preflight 에서 이미 차단됨
               // buyListLoop 진입 자체가 sellOnly 미활성 의미 — preflight 가 사전 차단.
               sellOnly: false,
-              r6Defense: ctx.regime === ('R6_DEFENSE' as unknown as typeof ctx.regime),
+              r6Defense: (ctx.learningRegime ?? ctx.regime) === ('R6_DEFENSE' as unknown as typeof ctx.regime),
             },
             // macroState.sectorEnergyQualityDiagnostic 의 reasons 가 `string[]` 영속 schema —
             // SectorEnergyQualityReason union 과 byte-equivalent 라 cast 안전.

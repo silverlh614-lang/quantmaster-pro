@@ -62,6 +62,11 @@ export interface BuyListLoopContext {
   totalAssets: number;
   effectiveMaxPositions: number;
   regime: keyof typeof REGIME_CONFIGS;
+  /**
+   * 정합 정정(patch): shadow/learning 레인 전용 정규 effective regime. R6 상태기계 어휘(R3_NORMAL)
+   * 누수로 live `regime` 이 R4_NEUTRAL 로 clamp 돼도 R3 섀도 레인이 정상 발화하도록 분리. live 불변.
+   */
+  learningRegime?: keyof typeof REGIME_CONFIGS;
   regimeConfig: FullRegimeConfig;
   macroState: MacroState | null;
   vixGating: { kellyMultiplier: number; noNewEntry?: boolean; reason?: string };

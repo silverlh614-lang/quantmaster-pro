@@ -16,10 +16,10 @@ export async function counterfactualShadowLearning(
   isGate1Survivor: boolean,
 ): Promise<void> {
   try {
-    if (ctx.regime === 'R3_EARLY' && isGate1Survivor && reCheckGate?.outputs) {
+    if ((ctx.learningRegime ?? ctx.regime) === 'R3_EARLY' && isGate1Survivor && reCheckGate?.outputs) {
       const macroStateCf = ctx.macroState;
       const cfRouterResult = deriveGateDecisionRouterResult({
-        regime: ctx.regime,
+        regime: ctx.learningRegime ?? ctx.regime,
         gate1Pass: 1,
         gate2Pass: 0,
         riskFlags: {
@@ -32,7 +32,7 @@ export async function counterfactualShadowLearning(
       const cfCandidate = deriveCounterfactualShadowLearningCandidate({
         symbol: stock.code,
         name: stock.name,
-        regime: ctx.regime,
+        regime: ctx.learningRegime ?? ctx.regime,
         gate1Passed: true,
         gate2Passed: false,
         router: cfRouterResult,
