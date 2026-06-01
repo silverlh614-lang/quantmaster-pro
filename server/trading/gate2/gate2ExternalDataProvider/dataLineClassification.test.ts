@@ -107,6 +107,36 @@ describe('classifyDartLineHealth', () => {
     expect(health.status).toBe('NOT_ATTEMPTED');
   });
 
+  it('kisFinance.kisMergeApplied=true + KIS_PRIMARY when currentRatio present (ADR-0532 진단)', () => {
+    // currentRatio 는 DART 정규화가 산출하지 않고 KIS stability-ratio 만 제공 → KIS 머지 적용 신호.
+    const health = classifyDartLineHealth({
+      metrics: metrics({ roe: 13.5, opm: 28.5, debtRatio: 45.6, currentRatio: 210.5 }),
+      refreshTrace: trace(),
+    });
+    expect(health.kisFinance?.kisMergeApplied).toBe(true);
+    expect(health.kisFinance?.financeSource).toBe('KIS_PRIMARY');
+    expect(health.kisFinance?.debtRatio).toBe(45.6);
+    expect(health.kisFinance?.currentRatio).toBe(210.5);
+    expect(health.kisFinance?.roe).toBe(13.5);
+    expect(health.kisFinance?.opm).toBe(28.5);
+  });
+
+  it('kisFinance DART_OR_DERIVED when roe/opm present but no currentRatio (KIS 미머지)', () => {
+    const health = classifyDartLineHealth({
+      metrics: metrics({ roe: 5.0, opm: 10.8 }),
+      refreshTrace: trace(),
+    });
+    expect(health.kisFinance?.kisMergeApplied).toBe(false);
+    expect(health.kisFinance?.financeSource).toBe('DART_OR_DERIVED');
+    expect(health.kisFinance?.currentRatio).toBeNull();
+  });
+
+  it('kisFinance UNAVAILABLE when no roe/opm/currentRatio', () => {
+    const health = classifyDartLineHealth({ metrics: metrics(), refreshTrace: trace() });
+    expect(health.kisFinance?.kisMergeApplied).toBe(false);
+    expect(health.kisFinance?.financeSource).toBe('UNAVAILABLE');
+  });
+
   it('simple absence (no error) keeps providerIssue=false and marketSignal=false', () => {
     const health = classifyDartLineHealth({
       metrics: metrics({ roe: 0.1 }),

@@ -148,6 +148,12 @@ export function classifyDartLineHealth(input: {
     primaryIssue = `DATA_UNAVAILABLE:${label}`;
   }
 
+  // ADR-0532 확장 진단(표시 전용): KIS L1 재무 머지 반영 여부. currentRatio 는 DART 정규화가
+  // 산출하지 않고 KIS stability-ratio(crnt_rate)만 제공 → non-null 이면 KIS 머지가 적용된 것.
+  const kisMergeApplied = metrics.currentRatio != null;
+  const financeSource: 'KIS_PRIMARY' | 'DART_OR_DERIVED' | 'UNAVAILABLE' =
+    kisMergeApplied ? 'KIS_PRIMARY' : metrics.roe != null || metrics.opm != null ? 'DART_OR_DERIVED' : 'UNAVAILABLE';
+
   return {
     status,
     availableFields,
@@ -156,5 +162,13 @@ export function classifyDartLineHealth(input: {
     providerIssue,
     marketSignal: false,
     executionImpact: 'NONE',
+    kisFinance: {
+      financeSource,
+      kisMergeApplied,
+      debtRatio: metrics.debtRatio,
+      currentRatio: metrics.currentRatio,
+      roe: metrics.roe,
+      opm: metrics.opm,
+    },
   };
 }

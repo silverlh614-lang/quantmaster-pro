@@ -185,6 +185,16 @@ export interface Gate2DartLineHealth {
   providerIssue: boolean;
   marketSignal: false;
   executionImpact: 'NONE';
+  // ADR-0532 확장 진단(표시 전용, 값/판정 무변경): KIS L1 재무 머지가 Gate2 에 반영됐는지 가시화.
+  // currentRatio 는 DART 정규화가 산출하지 않고 KIS stability-ratio 만 제공하므로, non-null 이면 KIS 머지 적용 신호.
+  kisFinance?: {
+    financeSource: 'KIS_PRIMARY' | 'DART_OR_DERIVED' | 'UNAVAILABLE';
+    kisMergeApplied: boolean;
+    debtRatio: number | null;
+    currentRatio: number | null;
+    roe: number | null;
+    opm: number | null;
+  };
 }
 
 export interface Gate2ExternalProjection {
