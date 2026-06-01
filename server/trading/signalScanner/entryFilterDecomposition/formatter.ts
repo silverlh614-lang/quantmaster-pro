@@ -425,28 +425,59 @@ function resolveFinancialBaselineView(external: Record<string, unknown> | undefi
 }
 
 // Patch BASELINE-LOCK-001 §F — "Gate2 Financial Baseline:" 요약 블록.
-// 대표 표본의 연결 상태 + 후보군 PER 해석 분포 + 잠긴 불변식을 한 곳에서 노출한다.
+// 후보군 전체에 대한 연결/데이터 상태 분포 + PER 해석 분포 + 잠긴 불변식을 한 곳에서 노출한다.
+// 대표 1종목이 아니라 분포로 집계 — 일부 종목 DART 장애가 전체를 비관적으로 보이게 하지 않는다(정직성).
 // 표시 전용 — Gate2 pass 조건/PER 임계/사이징/주문 무변경, marketSignal=false, executionImpact=NONE.
 function formatGate2FinancialBaselineSection(
   d: EntryFilterDecomposition,
   representativeExternal: Record<string, unknown> | undefined,
 ): string[] {
-  const baseline = resolveFinancialBaselineView(representativeExternal);
-  // 후보군 전체 PER 해석 분포 (적자/필드부재/유의). 적자는 provider 장애가 아니라 데이터 해석.
+  const bump = (dist: Record<string, number>, key: string): void => {
+    dist[key] = (dist[key] ?? 0) + 1;
+  };
+  const fmtDist = (dist: Record<string, number>): string =>
+    Object.entries(dist).map(([k, v]) => `${k}=${v}`).join(' ') || 'NONE';
+  const dartConnDist: Record<string, number> = {};
+  const dartDataDist: Record<string, number> = {};
+  const kisConnDist: Record<string, number> = {};
+  const useScopeDist: Record<string, number> = {};
   const perDist = { PER_MEANINGFUL: 0, NOT_MEANINGFUL_DUE_TO_NEGATIVE_EARNINGS: 0, PER_FIELD_MISSING: 0 };
+  let financialProviderIssueCount = 0;
+  let allLocked = true;
+  let evaluated = 0;
   for (const trace of d.candidateTraces) {
     const view = resolveFinancialBaselineView(resolveGate2ExternalData(trace));
+    evaluated += 1;
+    bump(dartConnDist, view.dartConnectionStatus);
+    bump(dartDataDist, view.dartDataStatus);
+    bump(kisConnDist, view.kisFinanceConnectionStatus);
+    bump(useScopeDist, view.financialUseScope);
     perDist[view.perInterpretation] += 1;
+    if (view.financialProviderIssue) financialProviderIssueCount += 1;
+    if (!evaluateGate2FinancialBaselineInvariants(view).every(inv => inv.ok)) allLocked = false;
   }
-  const invariants = evaluateGate2FinancialBaselineInvariants(baseline);
-  const allLocked = invariants.every(inv => inv.ok);
+  // 후보군이 비어 있으면 대표 표본으로 폴백(빈 분포 회피).
+  if (evaluated === 0) {
+    const view = resolveFinancialBaselineView(representativeExternal);
+    bump(dartConnDist, view.dartConnectionStatus);
+    bump(dartDataDist, view.dartDataStatus);
+    bump(kisConnDist, view.kisFinanceConnectionStatus);
+    bump(useScopeDist, view.financialUseScope);
+    perDist[view.perInterpretation] += 1;
+    if (view.financialProviderIssue) financialProviderIssueCount += 1;
+    allLocked = evaluateGate2FinancialBaselineInvariants(view).every(inv => inv.ok);
+    evaluated = 1;
+  }
   return [
     'Gate2 Financial Baseline:',
-    `- dartConnectionStatus=${baseline.dartConnectionStatus} dartDataStatus=${baseline.dartDataStatus}`,
-    `- kisFinanceConnectionStatus=${baseline.kisFinanceConnectionStatus}`,
-    `- perInterpretationDistribution: ${Object.entries(perDist).map(([k, v]) => `${k}=${v}`).join(' ')}`,
-    `- perProviderIssue=${boolText(baseline.perProviderIssue)} perEntryHardBlock=${boolText(baseline.perEntryHardBlock)} perHighConvictionOnly=true`,
-    `- financialProviderIssue=${boolText(baseline.financialProviderIssue)} financialUseScope=${baseline.financialUseScope}`,
+    `- candidatesEvaluated=${evaluated}`,
+    `- dartConnectionStatusDistribution: ${fmtDist(dartConnDist)}`,
+    `- dartDataStatusDistribution: ${fmtDist(dartDataDist)}`,
+    `- kisFinanceConnectionStatusDistribution: ${fmtDist(kisConnDist)}`,
+    `- perInterpretationDistribution: ${fmtDist(perDist)}`,
+    `- financialUseScopeDistribution: ${fmtDist(useScopeDist)}`,
+    `- perProviderIssue=false perEntryHardBlock=false perHighConvictionOnly=true`,
+    `- financialProviderIssueCount=${financialProviderIssueCount}/${evaluated} (transport error only; not market signal)`,
     `- financialBaselineInvariant=${allLocked ? 'LOCKED_OK' : 'VIOLATION'} marketSignal=false executionImpact=NONE shadowLearning=true`,
   ];
 }
