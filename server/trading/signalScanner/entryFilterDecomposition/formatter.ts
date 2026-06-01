@@ -337,9 +337,8 @@ function formatGate2DataLineHealthSection(input: {
     ? 'DIAGNOSTIC_MISSING'
     : input.leaderStatus;
   // ADR-0532 진단 가시화(표시 전용): KIS L1 재무 머지가 Gate2 에 반영됐는지 한 줄 요약.
-  // dartLineHealth.kisFinance 에서 파생 — currentRatio non-null 이면 KIS 머지 적용(DART 미산출 필드).
-  const kisFinance = nestedRecord(nestedRecord(input.external, 'dartLineHealth'), 'kisFinance');
-  const kisFinanceLine = formatKisFinanceDataLine(kisFinance);
+  // dartLineHealth.kisFinance 우선 → 없으면 항상 carry 되는 stability/profitability 로 파생.
+  const kisFinanceLine = formatKisFinanceDataLine(input.external);
   return [
     'Gate2 Data Line Health:',
     // §A — KIS_FLOW 는 canonicalRuntimeResolution.kisInvestorFlow(=KIS Router Eligibility 동일 SSOT)
@@ -363,17 +362,26 @@ function boolText(value: unknown): string {
 // ADR-0532 진단(표시 전용): KIS L1 재무 머지 반영 여부를 Gate2 Data Line Health 한 줄로 노출.
 // 값/판정 무변경. financeSource=KIS_PRIMARY + kisMergeApplied=true 면 KIS 재무(부채/유동/ROE/OPM)가
 // Gate2 에 실제 반영된 것. ocfToNi/icr 은 사용자 지시대로 DART 잔여 유지(별도 표기).
-function formatKisFinanceDataLine(kisFinance: Record<string, unknown> | undefined): string {
+// 우선순위: dartLineHealth.kisFinance(신 진단필드) → 없으면 항상 carry 되는 stability/profitability 로
+// 파생(스냅샷 나이 무관, 진단필드 추가 전 스냅샷도 실값 표시). currentRatio non-null = KIS 머지 적용 신호.
+function formatKisFinanceDataLine(external: Record<string, unknown> | undefined): string {
   const pct = (value: unknown): string => (typeof value === 'number' && Number.isFinite(value) ? `${r1(value)}%` : 'N/A');
+  const isNum = (value: unknown): boolean => typeof value === 'number' && Number.isFinite(value);
   const financePrimaryEnabled = process.env.KIS_FINANCE_PRIMARY_ENABLED === 'true';
-  if (!kisFinance) {
-    return `- KIS_FINANCE: source=UNAVAILABLE kisMergeApplied=false financePrimaryEnabled=${boolText(financePrimaryEnabled)} ocfToNi/icr=DART_RESIDUAL impact=NONE`;
-  }
+  const kisFinance = nestedRecord(nestedRecord(external, 'dartLineHealth'), 'kisFinance');
+  const stability = nestedRecord(external, 'stability');
+  const profitability = nestedRecord(external, 'profitability');
+  const debtRatio = kisFinance ? kisFinance.debtRatio : stability?.debtRatio;
+  const currentRatio = kisFinance ? kisFinance.currentRatio : stability?.currentRatio;
+  const roe = kisFinance ? kisFinance.roe : profitability?.roe;
+  const opm = kisFinance ? kisFinance.opm : profitability?.opm;
+  // kisMergeApplied: 진단필드 우선, 없으면 currentRatio 존재로 파생(DART 정규화는 currentRatio 미산출).
+  const kisMergeApplied = typeof kisFinance?.kisMergeApplied === 'boolean' ? kisFinance.kisMergeApplied : isNum(currentRatio);
+  const financeSource = stringValue(kisFinance?.financeSource, '')
+    || (isNum(currentRatio) ? 'KIS_PRIMARY' : isNum(roe) || isNum(opm) ? 'DART_OR_DERIVED' : 'UNAVAILABLE');
   return (
-    `- KIS_FINANCE: source=${stringValue(kisFinance.financeSource, 'UNAVAILABLE')} ` +
-    `kisMergeApplied=${boolText(kisFinance.kisMergeApplied)} ` +
-    `debtRatio=${pct(kisFinance.debtRatio)} currentRatio=${pct(kisFinance.currentRatio)} ` +
-    `roe=${pct(kisFinance.roe)} opm=${pct(kisFinance.opm)} ` +
+    `- KIS_FINANCE: source=${financeSource} kisMergeApplied=${boolText(kisMergeApplied)} ` +
+    `debtRatio=${pct(debtRatio)} currentRatio=${pct(currentRatio)} roe=${pct(roe)} opm=${pct(opm)} ` +
     `ocfToNi/icr=DART_RESIDUAL financePrimaryEnabled=${boolText(financePrimaryEnabled)} impact=NONE`
   );
 }
