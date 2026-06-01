@@ -46,6 +46,8 @@ export interface QmpDartFinancials {
   ocfRatio: number | null;
   roe: number | null;
   opm: number | null;
+  debtRatio?: number | null; // % (KIS lblt_rate; non-gating 표시 metric)
+  currentRatio?: number | null; // % (KIS crnt_rate; non-gating 표시 metric)
   opmYoYDelta: number | null;
   revenueYoYGrowth: number | null;
   operatingIncomeYoYGrowth: number | null;

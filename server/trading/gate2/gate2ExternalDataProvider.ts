@@ -538,7 +538,7 @@ export function calculateGate2DerivedMetrics(input: {
   const ocfRatio = finiteNumber(record.ocfRatio) ?? ratio(snapshot.operatingCashFlow, snapshot.netIncome);
   const netMargin = ratio(snapshot.netIncome, snapshot.revenue);
   const debtRatio = finiteNumber(record.debtRatio) ?? ratio(snapshot.totalDebt, snapshot.equity);
-  const currentRatio = ratio(snapshot.currentAssets, snapshot.currentLiabilities);
+  const currentRatio = finiteNumber(record.currentRatio) ?? ratio(snapshot.currentAssets, snapshot.currentLiabilities);
   const icr = finiteNumber(record.interestCoverageRatio) ?? ratio(snapshot.operatingProfit, snapshot.interestExpense);
   const opmYoYAcceleration = finiteNumber(record.marginAcceleration ?? record.opmYoYDelta);
   return {

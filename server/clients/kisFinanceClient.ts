@@ -1,14 +1,16 @@
 /**
- * kisFinanceClient.ts — KIS 공식 재무 지표(L1) 조회. DART(L2) 펀더멘털 1차 대체 소스 (ADR-0532 Phase 1).
+ * kisFinanceClient.ts — KIS 공식 재무 지표(L1) 조회. DART(L2) 펀더멘털 1차 대체 소스 (ADR-0532).
  *
- * @responsibility KIS finance 엔드포인트(financial-ratio/income-statement)에서 ROE/OPM/부채비율을
- *                 캐시 + 서킷 브레이커로 안정 조회하고 QmpDartFinancials 호환 형태로 정규화한다.
+ * @responsibility KIS finance 엔드포인트(financial-ratio/income-statement/stability-ratio)에서 ROE/OPM/
+ *                 부채비율/유동비율/YoY 성장을 캐시 + 서킷 브레이커로 조회하고 QmpDartFinancials 로 정규화한다.
  *
  * 단일 통로: 모든 KIS 호출은 realDataKisGet(kisClient) 경유. corp_code 불필요(FID_INPUT_ISCD 6자리 직접).
  * KIS_APP_KEY/SECRET(또는 real-data client) 없으면 null. 24h 인메모리 캐시(분기 데이터).
- * Phase 1 = 인프라 + 정규화 + 진단. gate2 read 경로 연결은 ADR-0532 Phase 3 (소비처 미연결).
+ * gate2 read 경로 연결은 ADR-0532 Phase 3 (getGate2DartFinancialsForEvaluation flag-on).
  *
- * 미가용(ADR-0532 한계): ICR(이자비용 미분리) · OCF(현금흐름표 엔드포인트 없음) → DART 잔존 책임.
+ * ADR-0532 확장: financial-ratio 응답의 grs/bsop_prfi_inrt/ntin_inrt(YoY 성장)을 추가 추출(0 추가 호출) +
+ *               stability-ratio 1콜로 유동비율 보강 → roe/opm/debtRatio/currentRatio/netMargin/YoY 모두 KIS.
+ * 미가용(KIS 한계, 사용자 지시로 DART 잔존 유지): ICR(이자비용 미분리) · OCF(현금흐름표 엔드포인트 없음).
  */
 
 import { realDataKisGet } from './kisClient/http.js';
@@ -19,6 +21,7 @@ import type { QmpDartFinancials } from './dartFinancialNormalizer.js';
 
 const FINANCIAL_RATIO = { trId: 'FHKST66430300', path: '/uapi/domestic-stock/v1/finance/financial-ratio' } as const;
 const INCOME_STATEMENT = { trId: 'FHKST66430200', path: '/uapi/domestic-stock/v1/finance/income-statement' } as const;
+const STABILITY_RATIO = { trId: 'FHKST66430600', path: '/uapi/domestic-stock/v1/finance/stability-ratio' } as const;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 // KIS finance API rate guard — 누적 5xx/네트워크 실패 시 1분 차단 (dart 와 동형).
@@ -35,6 +38,10 @@ export interface KisFinancials {
   opm: number | null; // % (income-statement op_prfi / sale_account * 100)
   netMargin: number | null; // % (thtr_ntin / sale_account * 100)
   debtRatio: number | null; // % (financial-ratio lblt_rate)
+  currentRatio: number | null; // % (stability-ratio crnt_rate)
+  revenueYoYGrowth: number | null; // % (financial-ratio grs, 매출액증가율)
+  operatingIncomeYoYGrowth: number | null; // % (financial-ratio bsop_prfi_inrt, 영업이익증가율)
+  marginAcceleration: number | null; // pp (영업이익증가율 - 매출액증가율; non-gating, 부호 기반)
   eps: number | null;
   bps: number | null;
   revenue: number | null; // sale_account
@@ -102,10 +109,15 @@ export async function getKisFinancials(stockCode: string): Promise<KisFinancials
     const ratioRow = await fetchFinanceRow(FINANCIAL_RATIO, symbol, 'GATE2_KIS_FINANCIAL_RATIO');
     const incomeRow = await fetchFinanceRow(INCOME_STATEMENT, symbol, 'GATE2_KIS_INCOME_STATEMENT');
     if (!ratioRow && !incomeRow) return null;
+    // stability-ratio(유동비율)는 보강용 best-effort — 실패해도 핵심 결과를 막지 않는다.
+    const stabilityRow = await fetchFinanceRow(STABILITY_RATIO, symbol, 'GATE2_KIS_STABILITY_RATIO').catch(() => null);
 
     const revenue = cleanNumber(incomeRow?.sale_account);
     const operatingIncome = cleanNumber(incomeRow?.op_prfi);
     const netIncome = cleanNumber(incomeRow?.thtr_ntin);
+    // YoY 성장은 financial-ratio 응답에 이미 포함(grs/bsop_prfi_inrt/ntin_inrt) — 추가 호출 없이 추출.
+    const revenueYoYGrowth = cleanNumber(ratioRow?.grs);
+    const operatingIncomeYoYGrowth = cleanNumber(ratioRow?.bsop_prfi_inrt);
     const result: KisFinancials = {
       symbol,
       fiscalYearMonth: typeof ratioRow?.stac_yymm === 'string' ? ratioRow.stac_yymm
@@ -114,6 +126,11 @@ export async function getKisFinancials(stockCode: string): Promise<KisFinancials
       opm: revenue && revenue !== 0 && operatingIncome != null ? (operatingIncome / revenue) * 100 : null,
       netMargin: revenue && revenue !== 0 && netIncome != null ? (netIncome / revenue) * 100 : null,
       debtRatio: cleanNumber(ratioRow?.lblt_rate),
+      currentRatio: cleanNumber(stabilityRow?.crnt_rate),
+      revenueYoYGrowth,
+      operatingIncomeYoYGrowth,
+      marginAcceleration: revenueYoYGrowth != null && operatingIncomeYoYGrowth != null
+        ? operatingIncomeYoYGrowth - revenueYoYGrowth : null,
       eps: cleanNumber(ratioRow?.eps),
       bps: cleanNumber(ratioRow?.bps),
       revenue,
@@ -124,7 +141,8 @@ export async function getKisFinancials(stockCode: string): Promise<KisFinancials
     _cache.set(symbol, { data: result, exp: Date.now() + CACHE_TTL_MS });
     console.log(
       `[KIS/Fin] ${symbol} ${result.fiscalYearMonth ?? 'N/A'}: ROE=${result.roe?.toFixed(1) ?? 'N/A'}% ` +
-      `OPM=${result.opm?.toFixed(1) ?? 'N/A'}% DR=${result.debtRatio?.toFixed(0) ?? 'N/A'}%`,
+      `OPM=${result.opm?.toFixed(1) ?? 'N/A'}% DR=${result.debtRatio?.toFixed(0) ?? 'N/A'}% ` +
+      `CR=${result.currentRatio?.toFixed(0) ?? 'N/A'}% revYoY=${result.revenueYoYGrowth?.toFixed(1) ?? 'N/A'}%`,
     );
     return result;
   } catch (e) {
@@ -138,8 +156,9 @@ export async function getKisFinancials(stockCode: string): Promise<KisFinancials
 }
 
 /**
- * KisFinancials → QmpDartFinancials 호환 매핑 (ADR-0532 Phase 3 read 경로 swap-in 대비).
+ * KisFinancials → QmpDartFinancials 호환 매핑 (ADR-0532 Phase 3 read 경로).
  * KIS 미가용 축(ocfRatio/interestCoverageRatio/operatingCashFlow/interestExpense)은 null — DART 잔존.
+ * debtRatio/currentRatio/YoY 는 non-gating 표시 metric(%); calculateGate2DerivedMetrics 가 record 에서 우선 소비.
  */
 export function kisFinancialsToQmpDartFinancials(kis: KisFinancials): QmpDartFinancials {
   const present = ['operatingCashFlow', 'netIncome'].filter(f => (f === 'netIncome' ? kis.netIncome != null : false));
@@ -160,10 +179,12 @@ export function kisFinancialsToQmpDartFinancials(kis: KisFinancials): QmpDartFin
     ocfRatio: null,
     roe: kis.roe,
     opm: kis.opm,
+    debtRatio: kis.debtRatio,
+    currentRatio: kis.currentRatio,
     opmYoYDelta: null,
-    revenueYoYGrowth: null,
-    operatingIncomeYoYGrowth: null,
-    marginAcceleration: null,
+    revenueYoYGrowth: kis.revenueYoYGrowth,
+    operatingIncomeYoYGrowth: kis.operatingIncomeYoYGrowth,
+    marginAcceleration: kis.marginAcceleration,
     interestCoverageRatio: null,
     source: 'UNKNOWN',
     providerStatus: hasData ? 'OK_WITH_DATA' : 'FIELD_MISSING',
