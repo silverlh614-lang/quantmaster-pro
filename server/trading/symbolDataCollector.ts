@@ -383,6 +383,11 @@ async function buildMacroContext(): Promise<UnifiedMacroContext> {
       typeof macro?.kospi20dReturn === 'number' && Number.isFinite(macro.kospi20dReturn)
         ? macro.kospi20dReturn
         : null,
+    // ADR-0549: KOSPI 당일 수익률 read-only carry (Market Rally Lens 소비, 불변식 #3 강화).
+    kospiDayReturn:
+      typeof macro?.kospiDayReturn === 'number' && Number.isFinite(macro.kospiDayReturn)
+        ? macro.kospiDayReturn
+        : null,
   };
 }
 
