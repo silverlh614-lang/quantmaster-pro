@@ -317,6 +317,22 @@ export const STAGE1_THRESHOLDS = {
   MAX_RETURN_5D: 15,            // 5일 누적 수익률 상한 (급등주 제외)
 } as const;
 
+// Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 (flag-gated, default OFF) — 강세장 주도주 포착 복구.
+// 문제: risk-on regime(R1/R2/R3_EARLY) 에서 OVERHEAT(+8%)/OVEREXTENDED(+15%/5d) 하드필터가
+//   주도주(당일 급등·주간 강세)를 universe 입구에서 배제 → 소외주 universe → Gate2 NO_LEADERSHIP
+//   (지수 멜트업장에서 관측). 복구: risk-on regime 에서만 두 상한을 완화해 주도주 유입을 허용.
+// ENV `STAGE1_RISK_ON_LEADER_CAPTURE_ENABLED=true` 활성 시에만 적용 — default OFF 면 STAGE1_THRESHOLDS
+//   그대로(byte-identical, ENV 1줄 즉시 롤백). 임계값은 초기값이며 counterfactual 튜닝 대상.
+//   주문/정책/Stage2-3/Gate 무변경 — 후보 유입만 확장(여전히 후속 게이트 통과 필요).
+export function isStage1RiskOnLeaderCaptureEnabled(): boolean {
+  return process.env.STAGE1_RISK_ON_LEADER_CAPTURE_ENABLED === 'true';
+}
+
+const STAGE1_RISK_ON_RELAXED = {
+  MAX_OVERHEAT_PCT: 15, // 강세장 당일 상한 (기존 8)
+  MAX_RETURN_5D: 30,    // 강세장 5일 상한 (기존 15)
+} as const;
+
 /**
  * BUG #1 — Stage 1 rejection reason enum.
  *
@@ -419,8 +435,12 @@ function hasStage1NegativeDayCompensationSignal(quote: YahooQuoteExtended): bool
   );
 }
 
-export function evaluateStage1Filter(quote: YahooQuoteExtended): Stage1FilterResult {
+export function evaluateStage1Filter(quote: YahooQuoteExtended, regime?: RegimeLevel | null): Stage1FilterResult {
   const t = STAGE1_THRESHOLDS;
+  // Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 — risk-on regime 에서만 OVERHEAT/OVEREXTENDED 완화 (flag-gated, default OFF).
+  const riskOnRelax = isStage1RiskOnLeaderCaptureEnabled() && regime != null && RISK_ON_REGIMES.includes(regime);
+  const maxOverheatPct = riskOnRelax ? STAGE1_RISK_ON_RELAXED.MAX_OVERHEAT_PCT : t.MAX_OVERHEAT_PCT;
+  const maxReturn5d = riskOnRelax ? STAGE1_RISK_ON_RELAXED.MAX_RETURN_5D : t.MAX_RETURN_5D;
 
   // ADR-0185 strict 분기 — DATA_MISSING_* 5종 우선 분류
   if (isEmergencyStage1StrictEnabled()) {
@@ -444,7 +464,7 @@ export function evaluateStage1Filter(quote: YahooQuoteExtended): Stage1FilterRes
 
   if (quote.price < t.MIN_PRICE) return { pass: false, reason: 'MIN_PRICE' };
   if (quote.isHighRisk) return { pass: false, reason: 'HIGH_RISK' };
-  if (quote.changePercent >= t.MAX_OVERHEAT_PCT) return { pass: false, reason: 'OVERHEAT' };
+  if (quote.changePercent >= maxOverheatPct) return { pass: false, reason: 'OVERHEAT' };
   if (quote.changePercent < t.MAX_DRAWDOWN_PCT) return { pass: false, reason: 'EXCESSIVE_DRAWDOWN' };
   if (
     quote.changePercent < 0 &&
@@ -474,7 +494,7 @@ export function evaluateStage1Filter(quote: YahooQuoteExtended): Stage1FilterRes
   if (quote.ma20 > 0 && quote.price < quote.ma20 && !pullback) {
     return { pass: false, reason: 'BELOW_MA20' };
   }
-  if (quote.return5d > t.MAX_RETURN_5D) return { pass: false, reason: 'OVEREXTENDED' };
+  if (quote.return5d > maxReturn5d) return { pass: false, reason: 'OVEREXTENDED' };
   return { pass: true };
 }
 
@@ -528,8 +548,8 @@ export function resetStage1RejectionCounts(): void {
 }
 
 /** 단일 quote 평가 + 카운터 자동 증가. 스캐너가 evaluateStage1Filter 대신 이 함수 호출. */
-export function evaluateStage1FilterTracked(quote: YahooQuoteExtended): Stage1FilterResult {
-  const r = evaluateStage1Filter(quote);
+export function evaluateStage1FilterTracked(quote: YahooQuoteExtended, regime?: RegimeLevel | null): Stage1FilterResult {
+  const r = evaluateStage1Filter(quote, regime);
   _stage1Stats.totalEvaluated++;
   if (r.pass) _stage1Stats.totalPassed++;
   else {

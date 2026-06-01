@@ -74,6 +74,8 @@ import { computeEtfSectorBoost } from "../alerts/globalScanAgent.js";
 import { evaluateRegretAsymmetry } from "../trading/regretAsymmetryFilter.js";
 import { STAGE1_CACHE_FILE, ensureDataDir } from "../persistence/paths.js";
 import type { RegimeLevel } from "../../src/types/core.js";
+// Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 — risk-on regime 완화 주입용 canonical regime resolver.
+import { resolveCanonicalRegimeLevel } from "../trading/regime/canonicalRegimeAccess.js";
 import {
   type CandidateStock,
   STOP_RATES,
@@ -230,6 +232,9 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
   const BATCH_SIZE = 5; // 병렬 배치 크기 (Yahoo rate limit 고려, 500개 확장 대비)
   // BUG #1 — Stage 1 탈락 사유 카운터 초기화. evaluateStage1FilterTracked 가 자동 증가.
   resetStage1RejectionCounts();
+  // Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 — risk-on regime 완화용 canonical regime 1회 조회.
+  //   ENV flag OFF(기본)면 evaluateStage1Filter 내부에서 무시 → 기존 동작 byte-identical.
+  const stage1Regime = resolveCanonicalRegimeLevel(loadMacroState());
 
   // ─ KIS 실계좌 데이터: 거래량 + 상승률 순위 병렬 조회 ─
   // 실계좌 데이터 키(KIS_REAL_DATA_APP_KEY) 또는 실계좌 모드(KIS_IS_REAL)일 때 실행
@@ -329,7 +334,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
           // ADR-0443 — SSOT 위임 (양 시장 fallback + ADR-0241 sanity 자동).
           const quote = await fetchKisQuoteFallback(code).catch(() => null);
           if (!quote) return null;
-          if (!evaluateStage1FilterTracked(quote).pass) return null;
+          if (!evaluateStage1FilterTracked(quote, stage1Regime).pass) return null;
 
           return {
             code,
@@ -372,7 +377,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
 
         const quote = await fetchKisQuoteFallback(stock.code).catch(() => null);
         if (!quote || quote.price <= 0) return null;
-        if (!evaluateStage1FilterTracked(quote).pass) return null;
+        if (!evaluateStage1FilterTracked(quote, stage1Regime).pass) return null;
 
         return {
           code: stock.code,
