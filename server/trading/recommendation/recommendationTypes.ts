@@ -133,3 +133,48 @@ export interface RecommendationCandidate {
   recommendationOnly: true;
   // 주문 관련 필드 절대 미포함 (orderId/paperExecutable/shadowBuy 금지).
 }
+
+// ─── 4. Gate1 Lane Split (PR-2) — read-only lane 분류 (재계산 0, 자동매매 무영향) ──
+// LIVE_HARD_PASS_BYTE_IDENTICAL: liveHardPass === (gate1Passed && minSignalScorePassed) 미러.
+// gate1DryRunObservationLedgerAdr0476.ts:500 의 hardPass 와 동일 boolean 식 — 재계산/임계 재정의 금지.
+
+export type Gate1LaneLabel =
+  | 'LIVE_HARD_PASS'              // 기존 Gate1 hardPass 미러 (재계산 0, byte-identical)
+  | 'SEARCH_RECOMMENDATION_PASS' // 검색/추천 lane (finalScore degrade-safe OR)
+  | 'INDEX_RALLY_WATCH_PASS'     // 지수 급등 관측 lane (rallyLens.enabled 게이트)
+  | 'NO_LANE';                   // 어느 lane 도 미해당
+
+export interface Gate1SymbolLaneResult {
+  symbol: string;
+  /** Gate1 평가 점수 read-only (= CandidateSnapshot.gateScore). 부재 시 null. */
+  finalScore: number | null;
+  /** live 70 read-only (minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE). */
+  requiredScore: number;
+  /** finalScore - requiredScore. finalScore 부재 시 null. */
+  scoreGap: number | null;
+  /** = (gate1Passed === true && minSignalScorePassed === true). 미러식, 재계산 금지. */
+  liveHardPass: boolean;
+  searchRecommendationPass: boolean;
+  indexRallyWatchPass: boolean;
+  laneLabels: Gate1LaneLabel[];
+  /** 입력 부재/비변환 사유 라벨 (불변식#6 — bullish/bearish 비변환). */
+  degradeReasons: string[];
+}
+
+export interface Gate1LaneResult {
+  /** ENV OFF / rallyLens.enabled=false 시 false (lane 전부 비활성/undefined 효과). */
+  enabled: boolean;
+  symbols: Gate1SymbolLaneResult[];
+  liveHardPassCount: number;
+  searchRecommendationPassCount: number;
+  indexRallyWatchPassCount: number;
+  /** 항상 false — 리터럴 고정 (lane 은 매수 신호 아님). */
+  buySignal: false;
+  /** 항상 'NONE' — 리터럴 고정. */
+  executionImpact: 'NONE';
+  /** 항상 true — 리터럴 고정. */
+  recommendationOnly: true;
+  /** scan 과 동일 snapshotId (불변식#3). */
+  snapshotId?: string;
+  asOf: string;
+}
