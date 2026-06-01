@@ -34,8 +34,9 @@ describe('R3 sanity block wiring', () => {
   it('preflight retains R3 sanity ACK + ADR-0401 SHADOW_ONLY ephemeral pre-scan wiring', () => {
     // ADR-0147b 분해 후 preflight.ts 는 R3 sanity latch 로드 + ACK 경로를 보존한다.
     // R3 sanity 영속 latch 의 hard-abort 는 제거됐고(아래 테스트), ADR-0401 streak ephemeral 만 별도 유지.
+    // latch 로드는 TTL 자동해제를 적용한 effective 버전(getEffectiveR3SanityBlockState)을 사용 — 영구 stuck 재발 방지.
     const src = read('server/trading/signalScanner/preflight.ts');
-    expect(src).toContain('loadR3SanityBlockState');
+    expect(src).toContain('getEffectiveR3SanityBlockState');
     expect(src).toContain('isR3SanityAckTokenValid');
     expect(src).toContain('acknowledgeR3SanityBlock');
     // ADR-0401 streak ephemeral wiring (별도 메커니즘, r3ViolationStreakRepo) 은 유지.

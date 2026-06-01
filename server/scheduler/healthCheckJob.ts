@@ -12,6 +12,7 @@ import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
+import { getEffectiveR3SanityBlockState } from '../persistence/r3SanityBlockRepo.js';
 import { runPipelineDiagnosis } from '../trading/pipelineDiagnosis.js';
 import { getLearningInterval } from '../learning/adaptiveLearningClock.js';
 import { loadLearningState } from '../learning/learningState.js';
@@ -102,11 +103,23 @@ async function runPipelineHealthCheck(): Promise<void> {
     const krxStatus = getKrxOpenApiStatus();
     const krxHealthy = isKrxOpenApiHealthy();
 
-    const verdict = computeVerdict({
+    // 재발방지 watchdog(P0-2) — R3_SANITY latch 가 N시간↑ effective-active 면 09:05 헬스체크로 경보.
+    // 2026-05-26 latch 가 6일간 무경보로 영구 차단된 사고 재발 방지. ENV R3_STALE_BLOCK_ALERT_HOURS default 12.
+    const r3Latch = getEffectiveR3SanityBlockState();
+    const r3LatchTriggeredTs = r3Latch.active ? Date.parse(r3Latch.triggeredAt) : Number.NaN;
+    const r3LatchAgeHours = Number.isFinite(r3LatchTriggeredTs) ? (Date.now() - r3LatchTriggeredTs) / 3_600_000 : 0;
+    const r3StaleAlertHours = (() => {
+      const n = Number(process.env.R3_STALE_BLOCK_ALERT_HOURS ?? 12);
+      return Number.isFinite(n) && n > 0 ? n : 12;
+    })();
+    const r3LatchStuck = r3Latch.active && r3LatchAgeHours > r3StaleAlertHours;
+
+    let verdict = computeVerdict({
       emergencyStop, dailyLossPct, dailyLossLimit, watchlistLen: watchlist.length,
       autoEnabled, autoMode, kisHours, lastScanTs, yahooStatus,
       krxHealthy, krxConfigured: krxStatus.authKeyConfigured,
     });
+    if (r3LatchStuck && verdict.includes('🟢')) verdict = '🔴 R3_SANITY_STUCK';
     const lastScanAt = lastScanTs > 0 ? toKstHm(lastScanTs) : '미실행';
     const lastBuyAt = lastBuyTs > 0 ? toKstHm(lastBuyTs) : '없음';
     const learning = computeLearningStatus();
@@ -124,6 +137,7 @@ async function runPipelineHealthCheck(): Promise<void> {
       `마지막 스캔: ${lastScanAt} | 마지막 신호: ${lastBuyAt}\n` +
       `일일손실: ${dailyLossPct.toFixed(1)}% / 한도 ${dailyLossLimit}%\n` +
       `비상정지: ${emergencyStop ? '🛑 활성' : '✅ 해제'}\n` +
+      `R3 Sanity 차단: ${r3Latch.active ? `🛑 활성 (${Math.floor(r3LatchAgeHours)}시간째${r3LatchStuck ? ' ⚠️오래됨 → /r3_unblock' : ''})` : '✅ 해제'}\n` +
       `실시간호가: ${streamStatus.connected ? `✅ ${streamStatus.subscribedCount}종목` : '❌ 미연결'}\n` +
       `학습엔진: ${learning.status} (평가 ${learning.evalLagLbl} / 캘리브레이션 ${learning.calibLagLbl})${learning.heldLbl}\n` +
       `학습클럭: ${learning.clock.mode} (L4 트리거 ${learning.clock.calibrateTriggerDays}일) — ${learning.clock.reason}`,

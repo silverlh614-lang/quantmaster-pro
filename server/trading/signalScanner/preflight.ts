@@ -26,7 +26,7 @@ import { loadWatchlist } from '../../persistence/watchlistRepo.js';
 import {
   acknowledgeR3SanityBlock,
   isR3SanityAckTokenValid,
-  loadR3SanityBlockState,
+  getEffectiveR3SanityBlockState,
 } from '../../persistence/r3SanityBlockRepo.js';
 // ADR-0401: R3 Violation streak pre-scan check (SHADOW_ONLY ephemeral 李⑤떒).
 import { getEffectiveR3ViolationStreak, type R3ViolationStreakState } from '../../persistence/r3ViolationStreakRepo.js';
@@ -438,7 +438,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     ...extra,
   });
 
-  const r3SanityBlock = loadR3SanityBlockState();
+  const r3SanityBlock = getEffectiveR3SanityBlockState();
   const r3SanityAckToken = process.env.R3_SANITY_ACK_TOKEN;
   if (r3SanityBlock.active && isR3SanityAckTokenValid(r3SanityBlock, r3SanityAckToken)) {
     acknowledgeR3SanityBlock('preflight_env_ack');
