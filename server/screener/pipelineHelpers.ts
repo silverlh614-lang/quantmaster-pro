@@ -334,6 +334,20 @@ const STAGE1_RISK_ON_RELAXED = {
 } as const;
 
 /**
+ * Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 진단 (display-only, ADR-0550) — scan_blockers 한 줄.
+ * flag(ENV)/regime/적용 임계를 노출해 완화 활성 여부를 운영자가 즉시 확인. 값·판정 무변경, executionImpact=NONE.
+ * regime 은 표시되는 canonical raw regime 을 받는다(screener stage1QuantFilter 의 canonical 해석과 동치).
+ */
+export function formatStage1RiskOnLeaderCaptureStatus(regime: string | null | undefined): string {
+  const enabled = isStage1RiskOnLeaderCaptureEnabled();
+  const riskOnRegime = typeof regime === 'string' && (RISK_ON_REGIMES as readonly string[]).includes(regime);
+  const active = enabled && riskOnRegime;
+  const overheat = active ? STAGE1_RISK_ON_RELAXED.MAX_OVERHEAT_PCT : STAGE1_THRESHOLDS.MAX_OVERHEAT_PCT;
+  const return5d = active ? STAGE1_RISK_ON_RELAXED.MAX_RETURN_5D : STAGE1_THRESHOLDS.MAX_RETURN_5D;
+  return `Stage1 RiskOn Leader Capture (ADR-0550): active=${active} envEnabled=${enabled} regime=${regime ?? 'UNKNOWN'} riskOnRegime=${riskOnRegime} effectiveOVERHEAT=${overheat}% effectiveOVEREXTENDED5D=${return5d}% (env STAGE1_RISK_ON_LEADER_CAPTURE_ENABLED; default OFF; executionImpact=NONE)`;
+}
+
+/**
  * BUG #1 — Stage 1 rejection reason enum.
  *
  * 기존 `passesStage1Filter` 는 boolean 만 반환해 탈락 사유를 추적할 수 없었다.

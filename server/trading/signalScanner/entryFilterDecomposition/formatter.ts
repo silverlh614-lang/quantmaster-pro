@@ -4,6 +4,8 @@
 
 import type { EntryFilterDecomposition, EntryBlocker } from './types.js';
 import { KIS_INVESTOR_FLOW_CANONICAL } from '../gate2KisFlowTraceMetadata.js';
+// Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 — Stage1 완화 flag/임계 상태 한 줄 표시 (display-only, SSOT in pipelineHelpers).
+import { formatStage1RiskOnLeaderCaptureStatus } from '../../../screener/pipelineHelpers.js';
 import {
   deriveGate2FinancialBaseline,
   evaluateGate2FinancialBaselineInvariants,
@@ -805,6 +807,7 @@ export function formatEntryFilterDecompositionSection(
   lines.push('• Regime Context:');
   lines.push(`  - rawRegime=${rawRegime}`);
   lines.push(`  - effectiveRegime=${effectiveRegime}`);
+  lines.push(`  - ${formatStage1RiskOnLeaderCaptureStatus(rawRegime)}`);
   lines.push(`  - displayRegime=${displayRegime}`);
   lines.push(`  - riskOverride=${riskOverride}`);
   lines.push(`  - engineMode=${engineMode}`);
