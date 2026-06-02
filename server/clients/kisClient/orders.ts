@@ -19,8 +19,32 @@ import type { OrderGatewayResult } from './orderGateway/kisOrderTypes.js';
 
 type SellReason = 'STOP_LOSS' | 'TAKE_PROFIT' | 'EUPHORIA' | 'FOMC_DAY_LIQUIDATION';
 
+/**
+ * ADR-0553 — facade 주문 집행 게이트 (순수, 테스트용 export).
+ *
+ * 2축 모델: 실행 ON/OFF(mode) × 계좌 real/모의(kisIsReal). 매수 게이트웨이와 동일 모델로
+ * 정합 — "주문을 낼지(mode)"와 "어느 계좌인지(kisIsReal 라우팅)"를 분리한다.
+ *   - mode !== 'LIVE'                  → 주문 없음 (SHADOW/OFF, 불변).
+ *   - VTS_PAPER_TRADING_ENABLED ON     → mode==='LIVE' 면 집행, 계좌(모의/실)는 kisIsReal 가
+ *                                        라우팅 (모의 매도 대칭 — KIS_IS_REAL=false 면 VTS 계좌).
+ *   - flag OFF (default)               → 기존 동작 byte-identical (kisIsReal && LIVE).
+ */
+export function resolveFacadeOrderExecutionAllowed(input: {
+  mode: string;
+  kisIsReal: boolean;
+  vtsPaperTradingEnabled: boolean;
+}): boolean {
+  if (input.mode !== 'LIVE') return false;
+  if (input.vtsPaperTradingEnabled) return true;
+  return input.kisIsReal;
+}
+
 function isLiveOrderAllowed(): boolean {
-  return KIS_IS_REAL && getTradingMode() === 'LIVE';
+  return resolveFacadeOrderExecutionAllowed({
+    mode: getTradingMode(),
+    kisIsReal: KIS_IS_REAL,
+    vtsPaperTradingEnabled: process.env.VTS_PAPER_TRADING_ENABLED === 'true',
+  });
 }
 
 function reasonDisplay(reason: SellReason): { emoji: string; label: string } {
