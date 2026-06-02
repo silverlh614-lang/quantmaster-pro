@@ -45,6 +45,14 @@ import { DATA_DIR } from '../persistence/paths.js';
 const EFFECTIVE_DYNAMIC_FILE = path.join(DATA_DIR, 'dynamic-universe.json');
 const DYNAMIC_FILE = EFFECTIVE_DYNAMIC_FILE;
 
+// 운영 DATA_DIR 오염 방지: paths.ts 가 module-load 시점에 DATA_DIR 을 확정하므로 PERSIST_DATA_DIR
+// override 가 전체 스위트에서 무력화될 수 있다. 이 경우 테스트가 실제 dynamic-universe.json 에 쓰게 되므로,
+// 원본 상태를 보존했다가 afterAll 에서 반드시 원복해 '가상종목 999001/999002' 가 운영 유니버스로 새지 않게 한다.
+const ORIGINAL_DYNAMIC_EXISTED = fs.existsSync(EFFECTIVE_DYNAMIC_FILE);
+const ORIGINAL_DYNAMIC_CONTENT = ORIGINAL_DYNAMIC_EXISTED
+  ? fs.readFileSync(EFFECTIVE_DYNAMIC_FILE, 'utf-8')
+  : null;
+
 describe('expandOnEmpty — KIS 실패 시 정적 유니버스 폴백', () => {
   beforeEach(() => {
     // 매 케이스 시작 시 dynamic-universe.json을 제거해 상태 격리.
@@ -56,6 +64,14 @@ describe('expandOnEmpty — KIS 실패 시 정적 유니버스 폴백', () => {
   afterAll(() => {
     // 테스트 종료 후 임시 디렉터리 정리.
     try { fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true }); } catch { /* 무시 */ }
+    // 운영 dynamic-universe.json 원복 — 테스트가 남긴 가상종목(999001/999002)이 유니버스로 새지 않게 한다.
+    try {
+      if (ORIGINAL_DYNAMIC_CONTENT != null) {
+        fs.writeFileSync(EFFECTIVE_DYNAMIC_FILE, ORIGINAL_DYNAMIC_CONTENT);
+      } else if (fs.existsSync(EFFECTIVE_DYNAMIC_FILE)) {
+        fs.unlinkSync(EFFECTIVE_DYNAMIC_FILE);
+      }
+    } catch { /* 무시 */ }
   });
 
   it('모든 랭킹 TR이 빈 배열을 반환하면 expandOnEmpty는 0을 돌려주고 throw 하지 않는다', async () => {

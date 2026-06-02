@@ -26,6 +26,26 @@ import { type RankingEntry, type RankingType } from '../clients/kisRankingClient
 import { getShadowSafeRanking } from './shadowDataGate.js';
 import { STOCK_UNIVERSE } from './stockScreener.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { getStockByCode, getMasterSize } from '../persistence/krxStockMasterRepo.js';
+
+// 동적 유니버스 admit 가드: KRX 마스터가 충분히 로드된 환경에서만 멤버십 검증 (미하이드레이트 시
+// 유니버스 과축소 방지). 이 수 미만이면 형식 검증만 적용한다.
+const KRX_MASTER_VALIDATION_MIN = 1500;
+
+/**
+ * 동적으로 발굴된 코드를 후보 유니버스에 admit 해도 되는지 판정한다.
+ * - 6자리 숫자 코드가 아니면 거부 (형식 가드).
+ * - KRX 마스터가 로드된 경우, 마스터에 실재하는 종목만 admit — 합성/테스트 코드(예: 999001 '가상종목')나
+ *   비실재 코드가 신뢰 후보로 새어드는 것을 영구 차단한다 (신뢰 무결성 가드).
+ * 표시/판정 로직 무관 — 유니버스 진입 차단 전용. marketSignal/executionImpact 영향 없음.
+ */
+export function isAdmissibleDynamicCode(code: string): boolean {
+  if (!/^\d{6}$/.test(code)) return false;
+  if (getMasterSize() >= KRX_MASTER_VALIDATION_MIN) {
+    return getStockByCode(code) != null;
+  }
+  return true;
+}
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -494,6 +514,8 @@ export function getExpandedUniverse(): { symbol: string; code: string; name: str
   const expanded = [...STOCK_UNIVERSE];
   for (const d of dynamicStocks) {
     if (staticCodes.has(d.code)) continue;
+    // 신뢰 무결성 가드: KRX 마스터에 실재하지 않는 합성/비실재 코드(예: 999001)는 후보로 admit 하지 않는다.
+    if (!isAdmissibleDynamicCode(d.code)) continue;
     expanded.push({ symbol: d.symbol, code: d.code, name: d.name });
   }
 
