@@ -159,11 +159,28 @@ export function getRegimeAwareGate1RequiredScore(regime?: string): number {
 }
 
 /**
+ * counterfacture_gate Phase D — 학습 임계 provider 주입 seam(역의존 방지).
+ * 기본 미등록(null) → resolveGate1RequiredScore 는 byte-identical(레거시 70).
+ * learning 레이어가 명시 등록할 때만, 그리고 flag ON + operator 승인분이 있을 때만
+ * provider 가 유효값(아니면 null) 을 반환한다 — gateConfig 는 learning 을 import 하지 않는다.
+ */
+export type LearnedGate1ThresholdProvider = (regime: string | undefined) => number | null;
+let learnedGate1ThresholdProvider: LearnedGate1ThresholdProvider | null = null;
+export function registerLearnedGate1ThresholdProvider(provider: LearnedGate1ThresholdProvider | null): void {
+  learnedGate1ThresholdProvider = provider;
+}
+
+/**
  * Gate1 required-score 단일 진입점 (ADR-0546). 플래그 OFF(기본)면 레거시 70,
  * ON 이면 레짐 인식값. Phase 1 에서는 항상 OFF → live/diagnostic 결과 0 변화.
  * 하드코딩 70 을 우회하지 말고 본 함수(또는 LEGACY_GATE1_REQUIRED_SCORE)만 쓴다.
+ *
+ * counterfacture_gate Phase D — provider 가 유효 학습 임계를 반환하면 그 값을 우선한다.
+ * provider 는 자체적으로 flag/승인/window-clamp 를 책임지고, 미충족 시 null → 아래 레거시 경로.
  */
 export function resolveGate1RequiredScore(regime?: string): number {
+  const learned = learnedGate1ThresholdProvider?.(regime);
+  if (typeof learned === 'number' && Number.isFinite(learned)) return learned;
   return isGate1RegimeAwareRequiredEnabled()
     ? getRegimeAwareGate1RequiredScore(regime)
     : LEGACY_GATE1_REQUIRED_SCORE;
