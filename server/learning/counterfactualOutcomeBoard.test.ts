@@ -12,6 +12,7 @@ import {
   formatCounterfactualMissed,
   formatCounterfactualReview,
   formatCounterfactualToday,
+  formatCounterfactualDebug,
   resolveCounterfactualCommandMode,
 } from './counterfactualOutcomeBoard.js';
 
@@ -84,8 +85,9 @@ function counterfactualEntry(): CounterfactualShadowLearningLedgerEntry {
     entryPriceHint: 5_000,
     executionImpact: 'NONE',
     liveOrderSent: false,
+    sourceSnapshotId: 'snapshot-20260602152915',
     candidateSetId: 'candidate-set-20260602152915',
-  } as CounterfactualShadowLearningLedgerEntry & { candidateSetId: string };
+  } as CounterfactualShadowLearningLedgerEntry & { candidateSetId: string; sourceSnapshotId: string };
 }
 
 function lastScanSummary(): ScanSummary {
@@ -180,6 +182,9 @@ describe('counterfactualOutcomeBoard', () => {
     expect(board.executionImpact).toBe('NONE');
     expect(board.thresholdAutoChanged).toBe(false);
     expect(board.operatorApprovalRequired).toBe(true);
+    expect(board.debug.totalRawRows).toBe(3);
+    expect(board.debug.includedRows).toBe(3);
+    expect(board.debug.excludedRows).toBe(0);
     expect(board.safety.counterfactualReportingNonExecutional).toBe(true);
     expect(board.safety.thresholdAutoChangeForbidden).toBe(true);
     expect(board.safety.sourceSnapshotLinked).toBe(true);
@@ -209,5 +214,85 @@ describe('counterfactualOutcomeBoard', () => {
     expect(formatCounterfactualReview(board)).toContain('NO_THRESHOLD_CHANGE');
     expect(resolveCounterfactualCommandMode('/counterfactual_gate2')).toBe('gate2');
     expect(resolveCounterfactualCommandMode('/counterfactual', ['missed'])).toBe('missed');
+  });
+
+  it('excludes replay diagnostic artifacts from debug sample rows and reports reasons', async () => {
+    const replayArtifact = gate1Row({
+      id: 'ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY:2026-06-02',
+      source: 'ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY',
+      observationType: 'SUPPLY_SNAPSHOT_STORE_REPLAY_ADR0491',
+      scanId: undefined,
+      sourceSnapshotId: undefined,
+      candidateSetId: undefined,
+      dryRunScore: undefined,
+      gate2PrimaryBlocker: undefined,
+      gate3Readiness: undefined,
+      entryReferencePrice: undefined,
+    });
+    const board = await buildCounterfactualOutcomeBoard({
+      now: NOW,
+      gate1Rows: [replayArtifact, gate1Row()],
+      counterfactualEntries: [],
+      legacyEntries: [],
+      lastScanSummary: lastScanSummary(),
+    });
+
+    expect(board.rows).toHaveLength(1);
+    expect(board.rows[0]?.counterfactualId).not.toContain('ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY');
+    expect(board.rows[0]?.symbol).toBe('138530');
+    expect(board.rows[0]?.scanId).toBe('scan-eval-20260602152915');
+    expect(board.rows[0]?.sourceSnapshotId).toBe('snapshot-20260602152915');
+    expect(board.rows[0]?.candidateSetId).toBe('candidate-set-20260602152915');
+    expect(board.rows[0]?.gate1Band).toBe('65~70');
+    expect(board.rows[0]?.blockedByPrimary).toBe('BREAKOUT_MOMENTUM_NOT_CONFIRMED');
+    expect(board.safety.sourceSnapshotLinked).toBe(true);
+    expect(board.debug.totalRawRows).toBe(2);
+    expect(board.debug.includedRows).toBe(1);
+    expect(board.debug.excludedRows).toBe(1);
+    expect(board.debug.excludedReasonDistribution.DIAGNOSTIC_REPLAY_ARTIFACT).toBe(1);
+    expect(board.debug.rowTypeDistribution.SUPPLY_SNAPSHOT_STORE_REPLAY).toBe(1);
+    expect(board.debug.idPrefixDistribution.ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY).toBe(1);
+
+    const debug = formatCounterfactualDebug(board);
+    const sampleSection = (debug.split('sampleRows:')[1] ?? debug).split('excludedSampleRows:')[0] ?? debug;
+    expect(sampleSection).not.toContain('ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY');
+    expect(sampleSection).toContain('138530');
+    expect(sampleSection).toContain('scanId=scan-eval-20260602152915');
+    expect(sampleSection).toContain('sourceSnapshotId=snapshot-20260602152915');
+    expect(sampleSection).toContain('candidateSetId=candidate-set-20260602152915');
+    expect(sampleSection).toContain('band=65~70');
+    expect(sampleSection).toContain('blockedBy=BREAKOUT_MOMENTUM_NOT_CONFIRMED');
+    expect(debug).toContain('DIAGNOSTIC_REPLAY_ARTIFACT=1');
+    expect(debug).toContain('executionImpact=NONE');
+    expect(debug).toContain('thresholdAutoChanged=false');
+    expect(debug).toContain('livePermissionUnchanged=true');
+    expect(debug).toContain('shadowLearningContinues=true');
+  });
+
+  it('reports no valid rows when every raw row is excluded', async () => {
+    const board = await buildCounterfactualOutcomeBoard({
+      now: NOW,
+      gate1Rows: [
+        gate1Row({
+          id: 'ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY:only',
+          source: 'ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY',
+          observationType: 'SUPPLY_SNAPSHOT_STORE_REPLAY_ADR0491',
+          scanId: undefined,
+          sourceSnapshotId: undefined,
+          candidateSetId: undefined,
+          entryReferencePrice: undefined,
+        }),
+      ],
+      counterfactualEntries: [],
+      legacyEntries: [],
+      lastScanSummary: lastScanSummary(),
+    });
+
+    expect(board.rows).toHaveLength(0);
+    expect(board.summary.verdict).toBe('NO_VALID_COUNTERFACTUAL_ROWS');
+    expect(board.safety.sourceSnapshotLinked).toBe(false);
+    const debug = formatCounterfactualDebug(board);
+    expect(debug).toContain('includedRows=0');
+    expect(debug).toContain('operatorAction=FIX_ROW_SELECTION_OR_COUNTERFACTUAL_WRITE_PATH');
   });
 });

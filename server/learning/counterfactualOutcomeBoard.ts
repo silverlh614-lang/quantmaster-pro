@@ -18,6 +18,47 @@ export type CounterfactualSourceType =
   | 'COUNTERFACTUAL_LEDGER'
   | 'LEGACY_COUNTERFACTUAL';
 
+export type CounterfactualRowType =
+  | 'GATE_COUNTERFACTUAL'
+  | 'ENTRY_COUNTERFACTUAL'
+  | 'NEAR_MISS'
+  | 'PAPER_OBSERVATIONAL'
+  | 'GATE1_DRY_RUN'
+  | 'GATE2_BLOCKED'
+  | 'GATE3_WAIT'
+  | 'COUNTERFACTUAL_CANDIDATE'
+  | 'DIAGNOSTIC_EVENT'
+  | 'SNAPSHOT_REPLAY'
+  | 'SUPPLY_SNAPSHOT_STORE_REPLAY'
+  | 'PROVIDER_REPLAY'
+  | 'ADR_REPLAY'
+  | 'UNKNOWN';
+
+export type CounterfactualSourceLane =
+  | 'GATE1'
+  | 'GATE2'
+  | 'GATE3'
+  | 'ENTRY_FILTER'
+  | 'PAPER_OBSERVATIONAL'
+  | 'NEAR_MISS'
+  | 'COUNTERFACTUAL'
+  | 'DIAGNOSTIC'
+  | 'SNAPSHOT_REPLAY'
+  | 'PROVIDER_REPLAY'
+  | 'ADR_REPLAY'
+  | 'UNKNOWN';
+
+export type CounterfactualExcludedReason =
+  | 'MISSING_SYMBOL'
+  | 'MISSING_SCAN_ID'
+  | 'MISSING_SOURCE_SNAPSHOT_ID'
+  | 'MISSING_CANDIDATE_SET_ID'
+  | 'MISSING_RECORDED_AT'
+  | 'MISSING_BLOCKER'
+  | 'MISSING_REFERENCE_PRICE'
+  | 'DIAGNOSTIC_REPLAY_ARTIFACT'
+  | 'NOT_A_GATE_COUNTERFACTUAL_ROW';
+
 export type Gate1OutcomeBand = '70+' | '65~70' | '60~65' | '55~60' | 'below55' | 'UNSCORED';
 export type Gate1PassType = 'HARD_PASS' | 'SOFT_PASS' | 'MIN_SIGNAL_PASS' | 'FAIL' | 'DIAGNOSTIC_ONLY';
 export type Gate2OutcomeStatus = 'PASS' | 'FAIL' | 'PENDING' | 'NOT_EVALUATED_GATE1_FAIL';
@@ -42,6 +83,8 @@ export type CounterfactualOutcomeLabel =
 
 export interface CounterfactualOutcomeBoardRow {
   sourceType: CounterfactualSourceType;
+  rowType: CounterfactualRowType;
+  sourceLane: CounterfactualSourceLane;
   counterfactualId: string;
   scanId: string | null;
   sourceSnapshotId: string | null;
@@ -123,7 +166,7 @@ export interface CounterfactualOutcomeSummary {
   correctBlockRateD5: number | null;
   falseNegativeRateD5: number | null;
   dataUnavailableRate: number;
-  verdict: 'INSUFFICIENT_SAMPLE' | 'OBSERVE_MORE' | 'WATCH' | 'KEEP_BLOCKS' | 'REVIEW_WITH_OPERATOR';
+  verdict: 'NO_VALID_COUNTERFACTUAL_ROWS' | 'INSUFFICIENT_SAMPLE' | 'OBSERVE_MORE' | 'WATCH' | 'KEEP_BLOCKS' | 'REVIEW_WITH_OPERATOR';
 }
 
 export interface CounterfactualBandOutcome {
@@ -179,6 +222,38 @@ export interface CounterfactualSafetyChecks {
   gateBlockerAttributionPreserved: boolean;
 }
 
+export interface CounterfactualExcludedRow {
+  sourceType: CounterfactualSourceType;
+  rowType: CounterfactualRowType;
+  sourceLane: CounterfactualSourceLane;
+  counterfactualId: string;
+  symbol: string | null;
+  scanId: string | null;
+  sourceSnapshotId: string | null;
+  candidateSetId: string | null;
+  gate1Score: number | null;
+  gate1Band: Gate1OutcomeBand;
+  gate3Status: Gate3OutcomeStatus;
+  excludedReason: CounterfactualExcludedReason;
+}
+
+export interface CounterfactualDebugSummary {
+  totalRawRows: number;
+  includedRows: number;
+  excludedRows: number;
+  rowTypeDistribution: Record<string, number>;
+  sourceLaneDistribution: Record<string, number>;
+  idPrefixDistribution: Record<string, number>;
+  hasSymbolCount: number;
+  hasScanIdCount: number;
+  hasSourceSnapshotIdCount: number;
+  hasCandidateSetIdCount: number;
+  hasGate1ScoreCount: number;
+  hasBlockedByCount: number;
+  excludedReasonDistribution: Record<string, number>;
+  excludedSampleRows: CounterfactualExcludedRow[];
+}
+
 export interface CounterfactualOutcomeBoard {
   generatedAt: string;
   periodLabel: string;
@@ -191,6 +266,7 @@ export interface CounterfactualOutcomeBoard {
   today: CounterfactualTodaySummary;
   review: CounterfactualReviewSummary;
   safety: CounterfactualSafetyChecks;
+  debug: CounterfactualDebugSummary;
   thresholdAutoChanged: false;
   operatorApprovalRequired: true;
   executionImpact: 'NONE';
@@ -225,6 +301,10 @@ const GATE3_BLOCKERS = [
   'PRE_BREAKOUT_WAIT',
 ] as const;
 
+const INCLUDED_ROW_TYPES = new Set<CounterfactualRowType>(['GATE_COUNTERFACTUAL', 'ENTRY_COUNTERFACTUAL', 'NEAR_MISS', 'PAPER_OBSERVATIONAL', 'GATE1_DRY_RUN', 'GATE2_BLOCKED', 'GATE3_WAIT', 'COUNTERFACTUAL_CANDIDATE']);
+const INCLUDED_SOURCE_LANES = new Set<CounterfactualSourceLane>(['GATE1', 'GATE2', 'GATE3', 'ENTRY_FILTER', 'PAPER_OBSERVATIONAL', 'NEAR_MISS', 'COUNTERFACTUAL']);
+const REPLAY_ARTIFACT_TOKENS = ['ADR_0491_SUPPLY_SNAPSHOT_STORE_REPLAY', 'DIAGNOSTIC_EVENT', 'SNAPSHOT_REPLAY', 'SUPPLY_SNAPSHOT_STORE_REPLAY', 'PROVIDER_REPLAY', 'ADR_REPLAY'] as const;
+
 function finite(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -236,6 +316,111 @@ function positive(value: unknown): number | null {
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function upperText(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toUpperCase() : '';
+}
+
+function hasReplayArtifactToken(values: readonly unknown[]): boolean {
+  const joined = values.map(upperText).filter(Boolean).join('|');
+  return REPLAY_ARTIFACT_TOKENS.some((token) => joined.includes(token));
+}
+
+function sourceRowType(value: unknown): CounterfactualRowType | null {
+  const normalized = upperText(value);
+  if (!normalized) return null;
+  if (normalized === 'GATE_COUNTERFACTUAL') return 'GATE_COUNTERFACTUAL';
+  if (normalized === 'ENTRY_COUNTERFACTUAL') return 'ENTRY_COUNTERFACTUAL';
+  if (normalized === 'NEAR_MISS') return 'NEAR_MISS';
+  if (normalized === 'PAPER_OBSERVATIONAL') return 'PAPER_OBSERVATIONAL';
+  if (normalized === 'GATE1_DRY_RUN') return 'GATE1_DRY_RUN';
+  if (normalized === 'GATE2_BLOCKED') return 'GATE2_BLOCKED';
+  if (normalized === 'GATE3_WAIT') return 'GATE3_WAIT';
+  if (normalized === 'COUNTERFACTUAL_CANDIDATE') return 'COUNTERFACTUAL_CANDIDATE';
+  if (normalized.includes('SUPPLY_SNAPSHOT_STORE_REPLAY')) return 'SUPPLY_SNAPSHOT_STORE_REPLAY';
+  if (normalized.includes('PROVIDER_REPLAY')) return 'PROVIDER_REPLAY';
+  if (normalized.includes('SNAPSHOT_REPLAY')) return 'SNAPSHOT_REPLAY';
+  if (normalized.includes('ADR_REPLAY')) return 'ADR_REPLAY';
+  if (normalized.includes('DIAGNOSTIC')) return 'DIAGNOSTIC_EVENT';
+  return null;
+}
+
+function sourceLane(value: unknown): CounterfactualSourceLane | null {
+  const normalized = upperText(value);
+  if (!normalized) return null;
+  if (normalized === 'GATE1') return 'GATE1';
+  if (normalized === 'GATE2') return 'GATE2';
+  if (normalized === 'GATE3') return 'GATE3';
+  if (normalized === 'ENTRY_FILTER') return 'ENTRY_FILTER';
+  if (normalized === 'PAPER_OBSERVATIONAL') return 'PAPER_OBSERVATIONAL';
+  if (normalized === 'NEAR_MISS') return 'NEAR_MISS';
+  if (normalized === 'COUNTERFACTUAL') return 'COUNTERFACTUAL';
+  if (normalized.includes('SUPPLY_SNAPSHOT_STORE_REPLAY') || normalized.includes('SNAPSHOT_REPLAY')) return 'SNAPSHOT_REPLAY';
+  if (normalized.includes('PROVIDER_REPLAY')) return 'PROVIDER_REPLAY';
+  if (normalized.includes('ADR_REPLAY')) return 'ADR_REPLAY';
+  if (normalized.includes('DIAGNOSTIC')) return 'DIAGNOSTIC';
+  return null;
+}
+
+function inferGate1RowType(row: Gate1DryRunObservationRow): CounterfactualRowType {
+  if (hasReplayArtifactToken([row.id, row.source, row.observationType])) return 'SUPPLY_SNAPSHOT_STORE_REPLAY';
+  if (row.dryRunDecision === 'UNKNOWN_DIAGNOSTIC_ONLY') return 'DIAGNOSTIC_EVENT';
+  if (row.source === 'GATE1_NEAR_MISS') return 'NEAR_MISS';
+  if (row.source === 'COUNTERFACTUAL_UNIVERSE') return 'COUNTERFACTUAL_CANDIDATE';
+  if (row.source === 'GATE1_SCORE_OBSERVATION_V2') return 'GATE1_DRY_RUN';
+  if (row.source.startsWith('ADR_')) return 'DIAGNOSTIC_EVENT';
+  return 'GATE1_DRY_RUN';
+}
+
+function inferGate1SourceLane(row: Gate1DryRunObservationRow, rowType: CounterfactualRowType): CounterfactualSourceLane {
+  if (rowType === 'SUPPLY_SNAPSHOT_STORE_REPLAY' || rowType === 'SNAPSHOT_REPLAY') return 'SNAPSHOT_REPLAY';
+  if (rowType === 'DIAGNOSTIC_EVENT' || rowType === 'ADR_REPLAY') return 'DIAGNOSTIC';
+  if (rowType === 'NEAR_MISS') return 'NEAR_MISS';
+  if (rowType === 'COUNTERFACTUAL_CANDIDATE') return 'COUNTERFACTUAL';
+  return 'GATE1';
+}
+
+function inferLedgerRowType(entry: CounterfactualShadowLearningLedgerEntry): CounterfactualRowType {
+  const source = entry as unknown as Record<string, unknown>;
+  const explicit = sourceRowType(source.rowType);
+  if (explicit) return explicit;
+  if (hasReplayArtifactToken([source.id, source.source, source.sourceLane, entry.eventType, entry.label])) return 'SUPPLY_SNAPSHOT_STORE_REPLAY';
+  if ((entry.blockedBy ?? []).some((blocker) => blocker.includes('GATE3'))) return 'GATE3_WAIT';
+  if ((entry.blockedBy ?? []).some((blocker) => blocker.includes('GATE2'))) return 'GATE2_BLOCKED';
+  return 'ENTRY_COUNTERFACTUAL';
+}
+
+function inferLedgerSourceLane(entry: CounterfactualShadowLearningLedgerEntry, rowType: CounterfactualRowType): CounterfactualSourceLane {
+  const source = entry as unknown as Record<string, unknown>;
+  const explicit = sourceLane(source.sourceLane);
+  if (explicit) return explicit;
+  if (rowType === 'GATE2_BLOCKED') return 'GATE2';
+  if (rowType === 'GATE3_WAIT') return 'GATE3';
+  if (rowType === 'SUPPLY_SNAPSHOT_STORE_REPLAY' || rowType === 'SNAPSHOT_REPLAY') return 'SNAPSHOT_REPLAY';
+  if (rowType === 'DIAGNOSTIC_EVENT' || rowType === 'ADR_REPLAY') return 'DIAGNOSTIC';
+  return 'COUNTERFACTUAL';
+}
+
+function inferLegacyRowType(entry: CounterfactualEntry): CounterfactualRowType {
+  const source = entry as unknown as Record<string, unknown>;
+  const explicit = sourceRowType(source.rowType);
+  if (explicit) return explicit;
+  if (hasReplayArtifactToken([entry.id, source.source, source.sourceLane, source.observationType, entry.skipReason, entry.blockedReason])) {
+    return 'SUPPLY_SNAPSHOT_STORE_REPLAY';
+  }
+  if (entry.skipReason?.includes('NEAR_MISS')) return 'NEAR_MISS';
+  return 'COUNTERFACTUAL_CANDIDATE';
+}
+
+function inferLegacySourceLane(entry: CounterfactualEntry, rowType: CounterfactualRowType): CounterfactualSourceLane {
+  const source = entry as unknown as Record<string, unknown>;
+  const explicit = sourceLane(source.sourceLane);
+  if (explicit) return explicit;
+  if (rowType === 'NEAR_MISS') return 'NEAR_MISS';
+  if (rowType === 'SUPPLY_SNAPSHOT_STORE_REPLAY' || rowType === 'SNAPSHOT_REPLAY') return 'SNAPSHOT_REPLAY';
+  if (rowType === 'DIAGNOSTIC_EVENT' || rowType === 'ADR_REPLAY') return 'DIAGNOSTIC';
+  return 'COUNTERFACTUAL';
 }
 
 function numberFrom(source: Record<string, unknown>, keys: readonly string[]): number | null {
@@ -472,6 +657,8 @@ function finalizeRow(row: Omit<
 
 function rowFromGate1(row: Gate1DryRunObservationRow): CounterfactualOutcomeBoardRow {
   const source = row as unknown as Record<string, unknown>;
+  const rowType = inferGate1RowType(row);
+  const sourceLane = inferGate1SourceLane(row, rowType);
   const gate1Score = finite(row.dryRunScore) ?? finite(row.actualScore) ?? finite(row.finalGate1Score);
   const gate1Required = finite(row.requiredScore) ?? 70;
   const gate1PassType = gate1PassTypeFor({
@@ -516,9 +703,11 @@ function rowFromGate1(row: Gate1DryRunObservationRow): CounterfactualOutcomeBoar
 
   return finalizeRow({
     sourceType: 'GATE1_DRY_RUN_OBSERVATION',
+    rowType,
+    sourceLane,
     counterfactualId: row.id,
-    scanId: row.scanId ?? row.sourceSnapshotId ?? null,
-    sourceSnapshotId: row.sourceSnapshotId ?? row.scanId ?? null,
+    scanId: row.scanId ?? null,
+    sourceSnapshotId: row.sourceSnapshotId ?? null,
     candidateSetId: row.candidateSetId ?? null,
     symbol: row.symbol,
     name: row.name ?? null,
@@ -578,6 +767,8 @@ function rowFromGate1(row: Gate1DryRunObservationRow): CounterfactualOutcomeBoar
 
 function rowFromCounterfactualLedger(entry: CounterfactualShadowLearningLedgerEntry): CounterfactualOutcomeBoardRow {
   const source = entry as unknown as Record<string, unknown>;
+  const rowType = inferLedgerRowType(entry);
+  const sourceLane = inferLedgerSourceLane(entry, rowType);
   const blockerVector = [...(entry.blockedBy ?? []), ...(entry.reasons ?? [])];
   const gate1PassType: Gate1PassType = entry.gate1Passed === true ? 'HARD_PASS' : 'DIAGNOSTIC_ONLY';
   const gate2Status: Gate2OutcomeStatus = entry.gate2Passed === true
@@ -596,9 +787,11 @@ function rowFromCounterfactualLedger(entry: CounterfactualShadowLearningLedgerEn
 
   return finalizeRow({
     sourceType: 'COUNTERFACTUAL_LEDGER',
+    rowType,
+    sourceLane,
     counterfactualId: entry.scanId ? `${entry.scanId}:${entry.symbol}:ADR-0430` : `${entry.createdAtKst}:${entry.symbol}:ADR-0430`,
     scanId: entry.scanId ?? null,
-    sourceSnapshotId: entry.scanId ?? null,
+    sourceSnapshotId: stringFrom(source, ['sourceSnapshotId', 'snapshotId']),
     candidateSetId: stringFrom(source, ['candidateSetId']),
     symbol: entry.symbol,
     name: entry.name ?? null,
@@ -657,6 +850,9 @@ function rowFromCounterfactualLedger(entry: CounterfactualShadowLearningLedgerEn
 }
 
 function rowFromLegacyCounterfactual(entry: CounterfactualEntry): CounterfactualOutcomeBoardRow {
+  const source = entry as unknown as Record<string, unknown>;
+  const rowType = inferLegacyRowType(entry);
+  const sourceLane = inferLegacySourceLane(entry, rowType);
   const blockerVector = [entry.blockedReason ?? entry.skipReason, entry.outcomeLabel, entry.outcomeStatus]
     .filter((value): value is string => typeof value === 'string' && value.length > 0);
   const gate1Score = finite(entry.gateScore);
@@ -668,10 +864,12 @@ function rowFromLegacyCounterfactual(entry: CounterfactualEntry): Counterfactual
     : entry.outcomeStatus === 'LABELED' ? 'MATURE_D5' : 'PENDING';
   return finalizeRow({
     sourceType: 'LEGACY_COUNTERFACTUAL',
+    rowType,
+    sourceLane,
     counterfactualId: entry.id,
-    scanId: entry.sourceCandidateId ?? entry.counterfactualKey ?? null,
-    sourceSnapshotId: entry.sourceCandidateId ?? null,
-    candidateSetId: null,
+    scanId: stringFrom(source, ['scanId']) ?? entry.sourceCandidateId ?? null,
+    sourceSnapshotId: stringFrom(source, ['sourceSnapshotId', 'snapshotId']),
+    candidateSetId: stringFrom(source, ['candidateSetId']),
     symbol: entry.symbol ?? entry.stockCode,
     name: entry.stockName ?? null,
     recordedAt: entry.signalTime,
@@ -680,7 +878,7 @@ function rowFromLegacyCounterfactual(entry: CounterfactualEntry): Counterfactual
     regimeEffective: entry.effectiveRegime ?? entry.entryEffectiveState ?? entry.regime ?? null,
     displayPolicy: entry.engineMode ?? 'COUNTERFACTUAL_ONLY',
     referencePrice,
-    referencePriceSource: referencePrice !== null ? 'LEGACY_COUNTERFACTUAL_REFERENCE' : null,
+    referencePriceSource: referencePrice !== null ? 'LEGACY_COUNTERFACTUAL_REFERENCE' : stringFrom(source, ['referencePriceSource']),
     kospiAtRecord: null,
     kosdaqAtRecord: null,
     gate1Score,
@@ -728,6 +926,68 @@ function rowFromLegacyCounterfactual(entry: CounterfactualEntry): Counterfactual
   });
 }
 
+function hasBlocker(row: CounterfactualOutcomeBoardRow): boolean {
+  return row.blockerVector.length > 0 || row.blockedByPrimary !== null;
+}
+
+function hasReference(row: CounterfactualOutcomeBoardRow): boolean {
+  return row.referencePrice !== null || row.referencePriceSource !== null;
+}
+
+function exclusionReasonFor(row: CounterfactualOutcomeBoardRow): CounterfactualExcludedReason | null {
+  if (
+    !INCLUDED_ROW_TYPES.has(row.rowType) ||
+    !INCLUDED_SOURCE_LANES.has(row.sourceLane) ||
+    hasReplayArtifactToken([row.counterfactualId, row.rowType, row.sourceLane])
+  ) {
+    return row.rowType === 'UNKNOWN' || row.sourceLane === 'UNKNOWN'
+      ? 'NOT_A_GATE_COUNTERFACTUAL_ROW'
+      : 'DIAGNOSTIC_REPLAY_ARTIFACT';
+  }
+  if (!text(row.symbol)) return 'MISSING_SYMBOL';
+  if (!text(row.recordedAt)) return 'MISSING_RECORDED_AT';
+  if (!text(row.scanId)) return 'MISSING_SCAN_ID';
+  if (!text(row.sourceSnapshotId)) return 'MISSING_SOURCE_SNAPSHOT_ID';
+  if (!text(row.candidateSetId)) return 'MISSING_CANDIDATE_SET_ID';
+  if (!hasBlocker(row)) return 'MISSING_BLOCKER';
+  if (!hasReference(row)) return 'MISSING_REFERENCE_PRICE';
+  return null;
+}
+
+function excludedRow(row: CounterfactualOutcomeBoardRow, excludedReason: CounterfactualExcludedReason): CounterfactualExcludedRow {
+  return {
+    sourceType: row.sourceType,
+    rowType: row.rowType,
+    sourceLane: row.sourceLane,
+    counterfactualId: row.counterfactualId,
+    symbol: text(row.symbol),
+    scanId: row.scanId,
+    sourceSnapshotId: row.sourceSnapshotId,
+    candidateSetId: row.candidateSetId,
+    gate1Score: row.gate1Score,
+    gate1Band: row.gate1Band,
+    gate3Status: row.gate3Status,
+    excludedReason,
+  };
+}
+
+function splitCounterfactualRows(rows: readonly CounterfactualOutcomeBoardRow[]): {
+  included: CounterfactualOutcomeBoardRow[];
+  excluded: CounterfactualExcludedRow[];
+} {
+  const included: CounterfactualOutcomeBoardRow[] = [];
+  const excluded: CounterfactualExcludedRow[] = [];
+  for (const row of rows) {
+    const reason = exclusionReasonFor(row);
+    if (reason) {
+      excluded.push(excludedRow(row, reason));
+    } else {
+      included.push(row);
+    }
+  }
+  return { included, excluded };
+}
+
 function scopeRowsByRecentRecordedDates(rows: CounterfactualOutcomeBoardRow[], periodDays: number): CounterfactualOutcomeBoardRow[] {
   const dates = Array.from(new Set(rows.map(recordedDateKey))).sort((a, b) => b.localeCompare(a)).slice(0, periodDays);
   const allowed = new Set(dates);
@@ -745,7 +1005,8 @@ function buildOutcomeSummary(rows: readonly CounterfactualOutcomeBoardRow[]): Co
   const dataUnavailable = rows.filter((row) => blockerTokens(row).some((token) => token.includes('UNAVAILABLE'))).length;
   const missedRate = rate(missed, d5.length);
   const verdict: CounterfactualOutcomeSummary['verdict'] =
-    d5.length < 30 ? 'INSUFFICIENT_SAMPLE'
+    rows.length === 0 ? 'NO_VALID_COUNTERFACTUAL_ROWS'
+      : d5.length < 30 ? 'INSUFFICIENT_SAMPLE'
       : (missedRate ?? 0) >= 0.3 ? 'REVIEW_WITH_OPERATOR'
         : (missedRate ?? 0) >= 0.15 ? 'WATCH'
           : correct >= missed ? 'KEEP_BLOCKS' : 'OBSERVE_MORE';
@@ -869,19 +1130,78 @@ function buildReview(summary: CounterfactualOutcomeSummary, gate2: readonly Coun
   };
 }
 
+function countWith(rows: readonly CounterfactualOutcomeBoardRow[], predicate: (row: CounterfactualOutcomeBoardRow) => boolean): number {
+  return rows.filter(predicate).length;
+}
+
+function linkagePass(count: number, total: number): boolean {
+  return total > 0 && count / total >= 0.95;
+}
+
 function buildSafety(rows: readonly CounterfactualOutcomeBoardRow[]): CounterfactualSafetyChecks {
+  const linkedRows = rows.filter((row) => Boolean(row.scanId) && Boolean(row.sourceSnapshotId) && Boolean(row.candidateSetId)).length;
   return {
     counterfactualReportingNonExecutional: rows.every((row) => row.executionImpact === 'NONE'),
     thresholdAutoChangeForbidden: rows.every((row) => row.thresholdAutoChanged === false),
     livePermissionUnchanged: true,
     shadowLearningContinues: true,
-    sourceSnapshotLinked: rows.length === 0 || rows.every((row) => Boolean(row.scanId) && Boolean(row.sourceSnapshotId) && Boolean(row.candidateSetId)),
+    sourceSnapshotLinked: linkagePass(linkedRows, rows.length),
     outcomeMaturityRequired: rows.every((row) =>
       row.outcomeLabel === 'INSUFFICIENT_MATURITY' ||
       row.maturityStatus === 'MATURE_D5' ||
       row.maturityStatus === 'MATURE_D10' ||
       row.maturityStatus === 'DATA_UNAVAILABLE'),
     gateBlockerAttributionPreserved: rows.length === 0 || rows.every((row) => row.blockerVector.length > 0 || row.blockedByPrimary !== null),
+  };
+}
+
+function incrementDistribution(target: Record<string, number>, key: string | null | undefined): void {
+  const normalized = text(key) ?? 'N/A';
+  target[normalized] = (target[normalized] ?? 0) + 1;
+}
+
+function idPrefix(id: string): string {
+  const upper = id.toUpperCase();
+  const replay = REPLAY_ARTIFACT_TOKENS.find((token) => upper.includes(token));
+  if (replay) return replay;
+  const beforeColon = id.split(':')[0]?.trim();
+  return beforeColon ? beforeColon.slice(0, 64) : 'N/A';
+}
+
+function buildDebugSummary(
+  rawRows: readonly CounterfactualOutcomeBoardRow[],
+  rows: readonly CounterfactualOutcomeBoardRow[],
+  excludedRows: readonly CounterfactualExcludedRow[],
+): CounterfactualDebugSummary {
+  const rowTypeDistribution: Record<string, number> = {};
+  const sourceLaneDistribution: Record<string, number> = {};
+  const idPrefixDistribution: Record<string, number> = {};
+  const excludedReasonDistribution: Record<string, number> = {};
+
+  for (const row of rawRows) {
+    incrementDistribution(rowTypeDistribution, row.rowType);
+    incrementDistribution(sourceLaneDistribution, row.sourceLane);
+    incrementDistribution(idPrefixDistribution, idPrefix(row.counterfactualId));
+  }
+  for (const row of excludedRows) {
+    incrementDistribution(excludedReasonDistribution, row.excludedReason);
+  }
+
+  return {
+    totalRawRows: rawRows.length,
+    includedRows: rows.length,
+    excludedRows: excludedRows.length,
+    rowTypeDistribution,
+    sourceLaneDistribution,
+    idPrefixDistribution,
+    hasSymbolCount: countWith(rows, (row) => Boolean(text(row.symbol))),
+    hasScanIdCount: countWith(rows, (row) => Boolean(row.scanId)),
+    hasSourceSnapshotIdCount: countWith(rows, (row) => Boolean(row.sourceSnapshotId)),
+    hasCandidateSetIdCount: countWith(rows, (row) => Boolean(row.candidateSetId)),
+    hasGate1ScoreCount: countWith(rows, (row) => row.gate1Score !== null || row.gate1Band !== 'UNSCORED'),
+    hasBlockedByCount: countWith(rows, hasBlocker),
+    excludedReasonDistribution,
+    excludedSampleRows: excludedRows.slice(0, 3),
   };
 }
 
@@ -898,7 +1218,8 @@ export async function buildCounterfactualOutcomeBoard(
     ...counterfactualEntries.map(rowFromCounterfactualLedger),
     ...legacyEntries.map(rowFromLegacyCounterfactual),
   ].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
-  const rows = scopeRowsByRecentRecordedDates(normalized, periodDays);
+  const selected = splitCounterfactualRows(normalized);
+  const rows = scopeRowsByRecentRecordedDates(selected.included, periodDays);
   const summary = buildOutcomeSummary(rows);
   const gate1Bands = GATE1_BANDS.map((band) => buildBandOutcome(band, rows.filter((row) => row.gate1Band === band)));
   const gate2Blockers = groupByKnownKeys(rows, GATE2_BLOCKERS, (row) => row.gate2BlockerTop);
@@ -910,6 +1231,7 @@ export async function buildCounterfactualOutcomeBoard(
   const today = buildTodaySummary(rows, now, options.lastScanSummary);
   const review = buildReview(summary, gate2Blockers, gate3Blockers);
   const safety = buildSafety(rows);
+  const debug = buildDebugSummary(normalized, rows, selected.excluded);
   return {
     generatedAt: now.toISOString(),
     periodLabel: `recent ${periodDays} recorded sessions`,
@@ -922,6 +1244,7 @@ export async function buildCounterfactualOutcomeBoard(
     today,
     review,
     safety,
+    debug,
     thresholdAutoChanged: false,
     operatorApprovalRequired: true,
     executionImpact: 'NONE',
@@ -940,6 +1263,14 @@ function safetyLine(ok: boolean, code: string, note: string): string {
   return `[${ok ? 'OK' : 'WARN'}] ${code} - ${note}`;
 }
 
+function distributionLine(title: string, distribution: Record<string, number>, limit = 8): string {
+  const entries = Object.entries(distribution)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([key, count]) => `${key}=${count}`);
+  return `${title}: ${entries.length ? entries.join(', ') : 'none'}`;
+}
+
 export function formatCounterfactualSafetyChecks(board: CounterfactualOutcomeBoard): string {
   const s = board.safety;
   return [
@@ -947,7 +1278,7 @@ export function formatCounterfactualSafetyChecks(board: CounterfactualOutcomeBoa
     safetyLine(s.thresholdAutoChangeForbidden, 'THRESHOLD_AUTO_CHANGE_FORBIDDEN', 'thresholdAutoChanged=false'),
     safetyLine(s.livePermissionUnchanged, 'LIVE_PERMISSION_UNCHANGED', 'live permission is read-only in this board'),
     safetyLine(s.shadowLearningContinues, 'SHADOW_LEARNING_CONTINUES', 'shadow/counterfactual diagnostics remain on'),
-    safetyLine(s.sourceSnapshotLinked, 'SOURCE_SNAPSHOT_LINKED', 'rows carry scan/source/candidate ids when available'),
+    safetyLine(s.sourceSnapshotLinked, 'SOURCE_SNAPSHOT_LINKED', 'included rows carry scan/source/candidate ids at >=95%'),
     safetyLine(s.outcomeMaturityRequired, 'OUTCOME_MATURITY_REQUIRED', 'pre-D5 rows stay insufficient maturity'),
     safetyLine(s.gateBlockerAttributionPreserved, 'GATE_BLOCKER_ATTRIBUTION_PRESERVED', 'primary/secondary blockers are preserved'),
   ].join('\n');
@@ -1059,18 +1390,55 @@ export function formatCounterfactualReview(board: CounterfactualOutcomeBoard): s
 }
 
 export function formatCounterfactualDebug(board: CounterfactualOutcomeBoard): string {
+  const d = board.debug;
   const lines = [
     '[Counterfactual Debug]',
-    `rows=${board.rows.length}`,
+    `totalRawRows=${d.totalRawRows}`,
+    `includedRows=${d.includedRows}`,
+    `excludedRows=${d.excludedRows}`,
     `summaryVerdict=${board.summary.verdict}`,
     `todayRecorded=${board.today.totalRecorded}`,
-    `safety=${JSON.stringify(board.safety)}`,
+    board.summary.verdict === 'NO_VALID_COUNTERFACTUAL_ROWS'
+      ? 'operatorAction=FIX_ROW_SELECTION_OR_COUNTERFACTUAL_WRITE_PATH'
+      : 'operatorAction=OBSERVE_INCLUDED_COUNTERFACTUAL_ROWS',
+    '',
+    'Linkage:',
+    `sourceSnapshotLinked=${board.safety.sourceSnapshotLinked}`,
+    `hasScanId=${d.hasScanIdCount}/${d.includedRows}`,
+    `hasSourceSnapshotId=${d.hasSourceSnapshotIdCount}/${d.includedRows}`,
+    `hasCandidateSetId=${d.hasCandidateSetIdCount}/${d.includedRows}`,
+    `hasSymbol=${d.hasSymbolCount}/${d.includedRows}`,
+    `hasGate1Score=${d.hasGate1ScoreCount}/${d.includedRows}`,
+    `hasBlockedBy=${d.hasBlockedByCount}/${d.includedRows}`,
+    '',
+    'Distributions:',
+    distributionLine('rowTypeDistribution', d.rowTypeDistribution),
+    distributionLine('sourceLaneDistribution', d.sourceLaneDistribution),
+    distributionLine('idPrefixDistribution', d.idPrefixDistribution),
+    '',
+    'Excluded:',
+    distributionLine('excludedReasonDistribution', d.excludedReasonDistribution),
+    '',
     'sampleRows:',
   ];
   for (const row of board.rows.slice(0, 10)) {
-    lines.push(`${row.symbol} id=${row.counterfactualId} scanId=${row.scanId ?? 'N/A'} sourceSnapshotId=${row.sourceSnapshotId ?? 'N/A'} candidateSetId=${row.candidateSetId ?? 'N/A'} gate1=${row.gate1Score ?? 'N/A'} band=${row.gate1Band} gate2=${row.gate2Status} gate3=${row.gate3Status} label=${row.outcomeLabel}`);
+    lines.push(`${row.symbol} id=${row.counterfactualId} rowType=${row.rowType} sourceLane=${row.sourceLane} scanId=${row.scanId ?? 'N/A'} sourceSnapshotId=${row.sourceSnapshotId ?? 'N/A'} candidateSetId=${row.candidateSetId ?? 'N/A'} gate1=${row.gate1Score ?? 'N/A'} band=${row.gate1Band} blockedBy=${row.blockedByPrimary ?? row.blockerVector[0] ?? 'N/A'} gate2=${row.gate2Status} gate3=${row.gate3Status} label=${row.outcomeLabel}`);
   }
-  lines.push('executionImpact=NONE thresholdAutoChanged=false');
+  if (d.excludedSampleRows.length > 0) {
+    lines.push('', 'excludedSampleRows:');
+    for (const row of d.excludedSampleRows) {
+      lines.push(`${row.symbol ?? 'N/A'} id=${row.counterfactualId} rowType=${row.rowType} sourceLane=${row.sourceLane} scanId=${row.scanId ?? 'N/A'} sourceSnapshotId=${row.sourceSnapshotId ?? 'N/A'} candidateSetId=${row.candidateSetId ?? 'N/A'} gate1=${row.gate1Score ?? 'N/A'} band=${row.gate1Band} gate3=${row.gate3Status} excludedReason=${row.excludedReason}`);
+    }
+  }
+  lines.push(
+    '',
+    'Safety:',
+    'executionImpact=NONE',
+    'thresholdAutoChanged=false',
+    `livePermissionUnchanged=${board.safety.livePermissionUnchanged}`,
+    `shadowLearningContinues=${board.safety.shadowLearningContinues}`,
+    `counterfactualReportingNonExecutional=${board.safety.counterfactualReportingNonExecutional}`,
+  );
   return lines.join('\n');
 }
 
