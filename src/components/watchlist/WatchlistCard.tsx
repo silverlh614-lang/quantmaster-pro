@@ -181,13 +181,23 @@ const TopBanners = ({
   stock: StockRecommendation;
   view: string;
   isAllGatesPassed: boolean;
-}) => (
+}) => {
+  // T2/T4: 검증 0(전부 AI 추정)이면 금색 "BEST" 배너를 amber "미검증 통과(관측 전용)"로 톤다운.
+  const topUnverifiedAiOnly = buildStockAnalysisCanon(stock).verifiedPassCount === 0;
+  return (
   <>
     {isAllGatesPassed && (
-      <div className="bg-gradient-to-r from-yellow-500/90 to-amber-400/90 backdrop-blur-md text-[10px] font-black text-black py-2 px-4 flex items-center justify-center gap-2 z-20 tracking-tight">
-        <Crown className="w-3.5 h-3.5" />
-        BEST · 전체 Gate 통과
-      </div>
+      topUnverifiedAiOnly ? (
+        <div className="bg-gradient-to-r from-amber-600/80 to-amber-500/80 backdrop-blur-md text-[10px] font-black text-black py-2 px-4 flex items-center justify-center gap-2 z-20 tracking-tight">
+          <Crown className="w-3.5 h-3.5" />
+          미검증 통과 · 전체 Gate 통과(전부 AI 추정 · 관측 전용)
+        </div>
+      ) : (
+        <div className="bg-gradient-to-r from-yellow-500/90 to-amber-400/90 backdrop-blur-md text-[10px] font-black text-black py-2 px-4 flex items-center justify-center gap-2 z-20 tracking-tight">
+          <Crown className="w-3.5 h-3.5" />
+          BEST · 전체 Gate 통과
+        </div>
+      )
     )}
     {view === 'WATCHLIST' && stock.watchedPrice && stock.watchedPrice > 0 && (
       <WatchedPriceBanner stock={stock} />
@@ -199,7 +209,8 @@ const TopBanners = ({
       </div>
     )}
   </>
-);
+  );
+};
 
 const WatchedPriceBanner = ({ stock }: { stock: StockRecommendation }) => {
   const diff = stock.currentPrice - (stock.watchedPrice ?? 0);
@@ -321,6 +332,9 @@ const StockIdentityPanel = ({
   const alerts = matchingDartAlerts(stock, dartAlerts);
   // Gate 점수(통과 비율)는 AI 충족으로 부풀 수 있어, 실데이터 검증 비율을 함께 표기(정본).
   const { verifiedPassCount, metCount } = buildStockAnalysisCanon(stock);
+  // T2/T4 표시 정직성: 실데이터 검증이 0 이면 통과/점수가 전부 AI 추정에 기반(L4 참조전용, 불변식 #7).
+  // 이 경우 BEST·"매수 적기"·"자동매매 가능" 같은 고확신 표현을 톤다운해 "관측 전용·검증 필요"로 정직화한다.
+  const unverifiedAiOnly = verifiedPassCount === 0;
   return (
     <div className="relative p-4 sm:p-6 bg-white/[0.03] border border-white/[0.07] rounded-2xl overflow-hidden group/name-area shadow-[inset_0_0_20px_rgba(255,255,255,0.02)]">
       <div className="absolute -top-12 -left-12 w-40 h-40 bg-orange-500/5 blur-[80px] rounded-full group-hover/name-area:bg-orange-500/15 transition-all duration-700" />
@@ -376,10 +390,21 @@ const StockIdentityPanel = ({
               </div>
             )}
             {isAllGatesPassed && (
-              <div className="flex items-center gap-1 px-3 py-1 rounded-full text-[9px] font-semibold tracking-tight border shadow-lg backdrop-blur-md shrink-0 bg-yellow-400/20 text-yellow-400 border-yellow-400/40">
-                <Crown className="w-3 h-3" />
-                BEST
-              </div>
+              unverifiedAiOnly ? (
+                // 전체 Gate 통과지만 실데이터 검증 0 → 전부 AI 추정. 금색 BEST 대신 amber "미검증 통과"로 톤다운.
+                <div
+                  className="flex items-center gap-1 px-3 py-1 rounded-full text-[9px] font-semibold tracking-tight border shadow-lg backdrop-blur-md shrink-0 bg-amber-500/15 text-amber-300 border-amber-500/30"
+                  title="전체 Gate 통과지만 실데이터 검증 0 — 전부 AI 추정(관측 전용)"
+                >
+                  <Crown className="w-3 h-3" />
+                  미검증 통과
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 px-3 py-1 rounded-full text-[9px] font-semibold tracking-tight border shadow-lg backdrop-blur-md shrink-0 bg-yellow-400/20 text-yellow-400 border-yellow-400/40">
+                  <Crown className="w-3 h-3" />
+                  BEST
+                </div>
+              )
             )}
             <div className="shrink-0">
               <GateMiniIndicator stock={stock} />
@@ -395,13 +420,18 @@ const StockIdentityPanel = ({
         {quantGateScore && (
           <div className={cn(
             'mt-2 rounded-xl border px-3 py-2 text-[11px] font-bold',
-            quantGateScore.pass
-              ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
-              : 'border-red-500/20 bg-red-500/10 text-red-200',
+            // 검증 0(AI 추정만) 이면 pass 여도 emerald(가능)로 보이지 않게 amber(관측 전용)로 톤다운.
+            quantGateScore.pass && unverifiedAiOnly
+              ? 'border-amber-500/20 bg-amber-500/10 text-amber-200'
+              : quantGateScore.pass
+                ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
+                : 'border-red-500/20 bg-red-500/10 text-red-200',
           )}>
             모델 점수 {stock.aiConvictionScore?.totalScore ?? '-'} | Gate {quantGateScore.value.toFixed(1)}/10{' '}
             <span className="text-white/55">· 검증 {verifiedPassCount}/{metCount}</span>{' '}
-            {quantGateScore.pass ? '자동매매 가능' : '자동매매 차단'}{' '}
+            {quantGateScore.pass
+              ? (unverifiedAiOnly ? '관측 전용 (검증 필요 — 전부 AI 추정)' : '자동매매 가능')
+              : '자동매매 차단'}{' '}
             ({quantGateScore.regime.replace(/_.+$/, '')} 기준 {quantGateScore.threshold}
             {quantGateScore.pass ? '' : ' 미달'})
           </div>
@@ -418,9 +448,20 @@ const StockIdentityPanel = ({
         )}
         {stock.visualReport?.summary && (
           <div className="flex items-center gap-2 mt-1">
-            <div className="flex items-center gap-2 bg-orange-500/10 px-3 py-1 rounded-full border border-orange-500/20 backdrop-blur-md">
-              <Zap className="w-3.5 h-3.5 text-orange-500 animate-pulse" />
-              <span className="text-[10px] sm:text-[11px] font-black text-orange-400 tracking-tight break-keep">{stock.visualReport.summary}</span>
+            <div className={cn(
+              'flex items-center gap-2 px-3 py-1 rounded-full border backdrop-blur-md',
+              // 검증 0(AI 추정만)이면 "매수 적기" 같은 AI 서사를 확신 톤(orange)이 아닌 amber+미검증 경고로.
+              unverifiedAiOnly
+                ? 'bg-amber-500/10 border-amber-500/25'
+                : 'bg-orange-500/10 border-orange-500/20',
+            )}>
+              <Zap className={cn('w-3.5 h-3.5', unverifiedAiOnly ? 'text-amber-400' : 'text-orange-500 animate-pulse')} />
+              <span className={cn(
+                'text-[10px] sm:text-[11px] font-black tracking-tight break-keep',
+                unverifiedAiOnly ? 'text-amber-300' : 'text-orange-400',
+              )}>
+                {unverifiedAiOnly ? `⚠ 미검증(AI 추정) · ${stock.visualReport.summary}` : stock.visualReport.summary}
+              </span>
             </div>
           </div>
         )}
