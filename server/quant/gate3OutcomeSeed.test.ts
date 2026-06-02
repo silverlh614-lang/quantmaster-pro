@@ -79,6 +79,17 @@ describe('Gate3 outcome seed', () => {
     expect(seed.learningLabel).toBe('GATE3_READY_FIRED');
   });
 
+  it('counterfacture_gate Phase F: stamps context.regime; 생략 시 미보유(구 seed 하위호환)', () => {
+    const d = detail();
+    const withRegime = buildGate3OutcomeSeed(d, d.shadowPolicy!, {
+      tradeDate: '2026-05-24',
+      asOf: '2026-05-24T09:00:00.000Z',
+      regime: 'R2_BULL',
+    });
+    expect(withRegime.regime).toBe('R2_BULL');
+    expect(seedFor().regime).toBeUndefined();
+  });
+
   it('creates WAIT, BLOCKED, and DATA_INCOMPLETE seeds too', () => {
     const wait = seedFor({
       timingReadiness: 'WAIT',

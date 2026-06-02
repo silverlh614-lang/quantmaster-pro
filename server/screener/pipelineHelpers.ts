@@ -317,6 +317,36 @@ export const STAGE1_THRESHOLDS = {
   MAX_RETURN_5D: 15,            // 5일 누적 수익률 상한 (급등주 제외)
 } as const;
 
+// Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 (flag-gated, default OFF) — 강세장 주도주 포착 복구.
+// 문제: risk-on regime(R1/R2/R3_EARLY) 에서 OVERHEAT(+8%)/OVEREXTENDED(+15%/5d) 하드필터가
+//   주도주(당일 급등·주간 강세)를 universe 입구에서 배제 → 소외주 universe → Gate2 NO_LEADERSHIP
+//   (지수 멜트업장에서 관측). 복구: risk-on regime 에서만 두 상한을 완화해 주도주 유입을 허용.
+// ENV `STAGE1_RISK_ON_LEADER_CAPTURE_ENABLED=true` 활성 시에만 적용 — default OFF 면 STAGE1_THRESHOLDS
+//   그대로(byte-identical, ENV 1줄 즉시 롤백). 임계값은 초기값이며 counterfactual 튜닝 대상.
+//   주문/정책/Stage2-3/Gate 무변경 — 후보 유입만 확장(여전히 후속 게이트 통과 필요).
+export function isStage1RiskOnLeaderCaptureEnabled(): boolean {
+  return process.env.STAGE1_RISK_ON_LEADER_CAPTURE_ENABLED === 'true';
+}
+
+const STAGE1_RISK_ON_RELAXED = {
+  MAX_OVERHEAT_PCT: 15, // 강세장 당일 상한 (기존 8)
+  MAX_RETURN_5D: 30,    // 강세장 5일 상한 (기존 15)
+} as const;
+
+/**
+ * Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 진단 (display-only, ADR-0550) — scan_blockers 한 줄.
+ * flag(ENV)/regime/적용 임계를 노출해 완화 활성 여부를 운영자가 즉시 확인. 값·판정 무변경, executionImpact=NONE.
+ * regime 은 표시되는 canonical raw regime 을 받는다(screener stage1QuantFilter 의 canonical 해석과 동치).
+ */
+export function formatStage1RiskOnLeaderCaptureStatus(regime: string | null | undefined): string {
+  const enabled = isStage1RiskOnLeaderCaptureEnabled();
+  const riskOnRegime = typeof regime === 'string' && (RISK_ON_REGIMES as readonly string[]).includes(regime);
+  const active = enabled && riskOnRegime;
+  const overheat = active ? STAGE1_RISK_ON_RELAXED.MAX_OVERHEAT_PCT : STAGE1_THRESHOLDS.MAX_OVERHEAT_PCT;
+  const return5d = active ? STAGE1_RISK_ON_RELAXED.MAX_RETURN_5D : STAGE1_THRESHOLDS.MAX_RETURN_5D;
+  return `Stage1 RiskOn Leader Capture (ADR-0550): active=${active} envEnabled=${enabled} regime=${regime ?? 'UNKNOWN'} riskOnRegime=${riskOnRegime} effectiveOVERHEAT=${overheat}% effectiveOVEREXTENDED5D=${return5d}% (env STAGE1_RISK_ON_LEADER_CAPTURE_ENABLED; default OFF; executionImpact=NONE)`;
+}
+
 /**
  * BUG #1 — Stage 1 rejection reason enum.
  *
@@ -419,8 +449,12 @@ function hasStage1NegativeDayCompensationSignal(quote: YahooQuoteExtended): bool
   );
 }
 
-export function evaluateStage1Filter(quote: YahooQuoteExtended): Stage1FilterResult {
+export function evaluateStage1Filter(quote: YahooQuoteExtended, regime?: RegimeLevel | null): Stage1FilterResult {
   const t = STAGE1_THRESHOLDS;
+  // Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 — risk-on regime 에서만 OVERHEAT/OVEREXTENDED 완화 (flag-gated, default OFF).
+  const riskOnRelax = isStage1RiskOnLeaderCaptureEnabled() && regime != null && RISK_ON_REGIMES.includes(regime);
+  const maxOverheatPct = riskOnRelax ? STAGE1_RISK_ON_RELAXED.MAX_OVERHEAT_PCT : t.MAX_OVERHEAT_PCT;
+  const maxReturn5d = riskOnRelax ? STAGE1_RISK_ON_RELAXED.MAX_RETURN_5D : t.MAX_RETURN_5D;
 
   // ADR-0185 strict 분기 — DATA_MISSING_* 5종 우선 분류
   if (isEmergencyStage1StrictEnabled()) {
@@ -444,7 +478,7 @@ export function evaluateStage1Filter(quote: YahooQuoteExtended): Stage1FilterRes
 
   if (quote.price < t.MIN_PRICE) return { pass: false, reason: 'MIN_PRICE' };
   if (quote.isHighRisk) return { pass: false, reason: 'HIGH_RISK' };
-  if (quote.changePercent >= t.MAX_OVERHEAT_PCT) return { pass: false, reason: 'OVERHEAT' };
+  if (quote.changePercent >= maxOverheatPct) return { pass: false, reason: 'OVERHEAT' };
   if (quote.changePercent < t.MAX_DRAWDOWN_PCT) return { pass: false, reason: 'EXCESSIVE_DRAWDOWN' };
   if (
     quote.changePercent < 0 &&
@@ -474,7 +508,7 @@ export function evaluateStage1Filter(quote: YahooQuoteExtended): Stage1FilterRes
   if (quote.ma20 > 0 && quote.price < quote.ma20 && !pullback) {
     return { pass: false, reason: 'BELOW_MA20' };
   }
-  if (quote.return5d > t.MAX_RETURN_5D) return { pass: false, reason: 'OVEREXTENDED' };
+  if (quote.return5d > maxReturn5d) return { pass: false, reason: 'OVEREXTENDED' };
   return { pass: true };
 }
 
@@ -528,8 +562,8 @@ export function resetStage1RejectionCounts(): void {
 }
 
 /** 단일 quote 평가 + 카운터 자동 증가. 스캐너가 evaluateStage1Filter 대신 이 함수 호출. */
-export function evaluateStage1FilterTracked(quote: YahooQuoteExtended): Stage1FilterResult {
-  const r = evaluateStage1Filter(quote);
+export function evaluateStage1FilterTracked(quote: YahooQuoteExtended, regime?: RegimeLevel | null): Stage1FilterResult {
+  const r = evaluateStage1Filter(quote, regime);
   _stage1Stats.totalEvaluated++;
   if (r.pass) _stage1Stats.totalPassed++;
   else {
@@ -551,17 +585,31 @@ export function getStage1RejectionCounts(): Stage1RejectionCounts {
   };
 }
 
-export function calcStage1Score(q: YahooQuoteExtended): number {
+export function calcStage1Score(q: YahooQuoteExtended, regime?: RegimeLevel | null): number {
+  // Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 — risk-on regime 에서는 모멘텀/주도성을 보상해
+  //   완화 필터로 유입된 리더가 top-N 랭크에 들도록 한다(평시 눌림목 프리미엄과 분기).
+  //   flag OFF / non-risk-on 이면 평시(else) 분기만 실행 → 기존 9개 항과 byte-identical(합산 동일).
+  const riskOnRelax = isStage1RiskOnLeaderCaptureEnabled() && regime != null && RISK_ON_REGIMES.includes(regime);
   let score = 0;
-  score += Math.min(q.changePercent / 10, 1);                            // 상승률 비중 축소 (최대 1점, 기존 2점)
+  // ── 공통 축 (regime 무관) ──
   score += Math.min(q.volume / Math.max(q.avgVolume, 1) - 1, 2);        // 거래량 배수 (최대 2점)
   score += q.price >= q.ma5 ? 0.5 : 0;                                  // 5일선 위
-  score += q.price >= q.high20d * 0.98 ? 1 : 0;                         // 20일 신고가 근접
   score += q.atr > 0 && q.atr20avg > 0 && q.atr < q.atr20avg * 0.7 ? 1 : 0; // VCP
-  score += q.rsi14 >= 40 && q.rsi14 <= 65 ? 1 : 0;                     // RSI 건강구간 (과열 제외)
   score += (q.rsi14 - q.rsi5dAgo) >= 3 ? 1 : 0;                        // RSI 가속 (추세 초기 신호)
-  score += q.return5d < 8 ? 0.5 : 0;                                    // 5일 과급등 아닌 종목 우대
-  if (isPullbackSetup(q)) score += 2;                                    // 눌림목 프리미엄 (모멘텀 부족분 보상)
+  if (riskOnRelax) {
+    // ── 강세장: 모멘텀/주도성 보상 (초기값, counterfactual 튜닝 대상) ──
+    score += Math.min(Math.max(q.changePercent, 0) / 4, 3);            // 당일 상승률 (최대 3점)
+    score += Math.min(Math.max(q.return5d, 0) / 8, 2);                 // 5일 모멘텀 (최대 2점)
+    score += q.rsi14 >= 55 && q.rsi14 <= 80 ? 1 : 0;                   // 강세 모멘텀 RSI 구간
+    score += q.price >= q.high20d * 0.98 ? 1.5 : 0;                    // 신고가 근접 강화
+  } else {
+    // ── 평시: 눌림목/평균회귀 (기존 동작 보존) ──
+    score += Math.min(q.changePercent / 10, 1);                        // 상승률 비중 축소 (최대 1점)
+    score += q.price >= q.high20d * 0.98 ? 1 : 0;                      // 20일 신고가 근접
+    score += q.rsi14 >= 40 && q.rsi14 <= 65 ? 1 : 0;                   // RSI 건강구간 (과열 제외)
+    score += q.return5d < 8 ? 0.5 : 0;                                 // 5일 과급등 아닌 종목 우대
+    if (isPullbackSetup(q)) score += 2;                                // 눌림목 프리미엄 (모멘텀 부족분 보상)
+  }
   return score;
 }
 

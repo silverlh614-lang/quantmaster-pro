@@ -10,6 +10,7 @@ import { createHash } from "crypto";
 import dotenv from "dotenv";
 import { tradingOrchestrator } from "./orchestrator/tradingOrchestrator.js";
 import { sendTelegramAlert, setTelegramBotCommands } from "./alerts/telegramClient.js";
+import { resolveAutoTradeStartupGuard } from "./alerts/startupExecutionContext.js";
 import { DATA_DIR, verifyVolumeMount } from "./persistence/paths.js";
 
 // Railway/외부 API(fetch) IPv6 라우팅 이슈 방어: IPv4 lookup 우선.
@@ -21,12 +22,19 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
-// 설정 불일치 조기 감지: LIVE 모드인데 실계좌 TR ID가 꺼져 있으면 즉시 중단
-if (process.env.AUTO_TRADE_MODE === 'LIVE' && process.env.KIS_IS_REAL !== 'true') {
-  throw new Error(
-    '설정 불일치: AUTO_TRADE_MODE=LIVE 이지만 KIS_IS_REAL이 true가 아닙니다. ' +
-    '모의계좌에 실주문이 나가는 것을 막기 위해 서버를 종료합니다.'
-  );
+// ADR-0553 — 자동매매 시동 안전 가드 (2축: 실행 ON/OFF × 계좌 real/모의).
+//   LIVE + 실계좌(KIS_IS_REAL=true) → KIS_REAL_MONEY_ACK=true 필수(실수 실거래 방지 하드가드).
+//   LIVE + 모의(KIS_IS_REAL=false) → VTS_PAPER_TRADING_ENABLED=true 필수(매수만 나가는 비대칭 방지).
+// 기존 'LIVE && KIS_IS_REAL!==true → 즉시 거부' 를 정책 SSOT(startupExecutionContext)로 격상.
+// flag 미설정 시 LIVE+모의 거부는 기존 동작과 byte-equivalent 트리거.
+const autoTradeStartupGuard = resolveAutoTradeStartupGuard();
+if (!autoTradeStartupGuard.allowed) {
+  throw new Error(`[AutoTradeStartupGuard] ${autoTradeStartupGuard.message}`);
+}
+if (autoTradeStartupGuard.decision === 'ALLOW_REAL_MONEY') {
+  console.warn(`🔴 [AutoTradeStartupGuard] ${autoTradeStartupGuard.message}`);
+} else if (autoTradeStartupGuard.decision === 'ALLOW_PAPER_VTS') {
+  console.log(`🧪 [AutoTradeStartupGuard] ${autoTradeStartupGuard.message}`);
 }
 
 // ─── VTS 모드: Mock KIS 클라이언트 주입 ──────────────────────────────────────

@@ -261,6 +261,60 @@ describe('ADR-0476 Gate1 Dry-run Observation Ledger', () => {
     expect(nearMiss?.dryRunDecision).toBe('NEAR_MISS');
   });
 
+  it('counterfacture_gate Phase A: snapshot 가격을 entryReferencePrice 로 stamp 하고 forward-return labeling 을 잠금해제한다', async () => {
+    const priced: CandidateSnapshot[] = [
+      {
+        symbol: '005930',
+        name: 'Samsung',
+        gateScore: 66,
+        minSignalRequiredScore: 70,
+        gate1Passed: false,
+        minSignalScorePassed: false,
+        price: 73500,
+      },
+    ];
+    const observed = buildGate1DryRunObservationRows({
+      forDate: '2026-05-09',
+      regime: 'R3_EARLY',
+      effectiveRegime: 'R3_EARLY',
+      candidateSnapshots: priced,
+      sellOnly: false,
+    }).filter((item) =>
+      item.source === 'GATE1_NEAR_MISS' ||
+      item.source === 'GATE1_SCORE_OBSERVATION_V2' ||
+      item.source === 'COUNTERFACTUAL_UNIVERSE',
+    );
+    // (1) snapshot.price 가 모든 실관측 행에 stamp 된다 — labeler 의 forward-return anchor.
+    expect(observed.length).toBeGreaterThan(0);
+    for (const row of observed) {
+      expect(row.entryReferencePrice).toBe(73500);
+    }
+    // (2) stamp 된 행은 updateGate1DryRunObservationOutcomes 가 forward-return 을 계산한다(더 이상 skip 안 됨).
+    const resolved = await updateGate1DryRunObservationOutcomes({
+      now: new Date('2026-06-01T07:00:00.000Z'),
+      rows: observed,
+      priceFetcher: () => 77175, // +5% vs 73500
+    });
+    expect(resolved.updated).toBeGreaterThan(0);
+    expect(observed.every((row) => Number.isFinite(row.forwardReturn5D))).toBe(true);
+    // (3) 음성 대조 — entryReferencePrice 없는 행(가격 미수신 snapshot)은 skip 되어 미해결로 남는다.
+    const unpriced = buildGate1DryRunObservationRows({
+      forDate: '2026-05-09',
+      candidateSnapshots: [{
+        symbol: '000660', gateScore: 66, minSignalRequiredScore: 70,
+        gate1Passed: false, minSignalScorePassed: false,
+      }],
+      sellOnly: false,
+    }).filter((item) => item.source === 'GATE1_NEAR_MISS');
+    expect(unpriced.every((row) => row.entryReferencePrice === undefined)).toBe(true);
+    const negative = await updateGate1DryRunObservationOutcomes({
+      now: new Date('2026-06-01T07:00:00.000Z'),
+      rows: unpriced,
+      priceFetcher: () => 77175,
+    });
+    expect(negative.updated).toBe(0);
+  });
+
   it('emits Gate1 Score Observation Ledger v2 fields as non-executional evidence', () => {
     const rows = buildGate1DryRunObservationRows({
       forDate: '2026-05-09',

@@ -22,6 +22,15 @@ export const LEADERSHIP_BRIDGE_TTL_HOURS = 4;
 export const LEADERSHIP_MIN_GATE = 4.5;
 export const LEADERSHIP_MIN_MTAS = 6;
 
+/**
+ * ADR-0551 — LeadershipBridge 배선 kill-switch. default OFF → 장중 발굴 리더의
+ * MOMENTUM 편입 경로 비활성(byte-identical, ENV 1줄 즉시 롤백). true 일 때만
+ * intradayScanner 발굴 결과가 메인 watchlist MOMENTUM 레인에 편입된다.
+ */
+export function isLeadershipBridgeEnabled(): boolean {
+  return process.env.LEADERSHIP_BRIDGE_ENABLED === 'true';
+}
+
 export interface LeaderCandidate {
   code: string;
   name: string;

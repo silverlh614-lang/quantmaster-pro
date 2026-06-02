@@ -497,6 +497,9 @@ function rowFromSnapshot(input: {
     : 0;
   const rsPercentile = snapshotNumber(input.snapshot, ['rsRankPct']);
   const priceMomentum = snapshotNumber(input.snapshot, ['return5d', 'return20d', 'marketRelativeReturn']);
+  // counterfacture_gate Phase A — forward-return anchor. updateGate1DryRunObservationOutcomes 는
+  // entryReferencePrice>0 가 없으면 행을 skip(continue)하므로, 미stamp 시 모든 관측이 영구 라벨 불가.
+  const entryReferencePrice = snapshotNumber(input.snapshot, ['price', 'currentPrice', 'priceAtSignal', 'lastPrice', 'close']);
   const hardPass = input.snapshot.gate1Passed === true && input.snapshot.minSignalScorePassed === true;
   const softPass = input.snapshot.gate1Passed === true || input.snapshot.minSignalScorePassed === true;
   const minSignalLivePass = input.snapshot.minSignalScorePassed === true;
@@ -518,6 +521,7 @@ function rowFromSnapshot(input: {
     ...(finite(score) ? { dryRunScore: round1(score) } : {}),
     requiredScore,
     ...(scoreGap !== undefined ? { scoreGap } : {}),
+    ...(finite(entryReferencePrice) && entryReferencePrice > 0 ? { entryReferencePrice } : {}),
     ...(input.sourceSnapshotId ? { sourceSnapshotId: input.sourceSnapshotId } : {}),
     ...(input.scanId ? { scanId: input.scanId } : {}),
     ...(input.candidateSetId ? { candidateSetId: input.candidateSetId } : {}),

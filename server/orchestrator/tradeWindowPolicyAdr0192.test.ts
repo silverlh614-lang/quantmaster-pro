@@ -1,7 +1,8 @@
 /**
  * @responsibility 매매 허용 시간 정책 회귀 테스트 (ADR-0192)
  *
- * 사용자 5/6 요청 — isBuyableKstWindow 진단 윈도 09:30~12:00 + 13:00~15:30. ALWAYS-ON: 시간대 기반 SELL_ONLY 없음.
+ * 사용자 5/6 요청 — isBuyableKstWindow 진단 윈도. ALWAYS-ON: 시간대 기반 SELL_ONLY 없음.
+ * ADR-0552(2026-06-02): 점심 12:00~13:00 휴장 잔재 제거 → 09:30~15:30 연속(KRX 점심 동시호가 폐지 반영).
  *
  * 정적 grep 가드 (drift 차단) + ENV 매트릭스.
  */
@@ -16,9 +17,9 @@ const SCHEDULER_PATH = path.resolve(
 const source = fs.readFileSync(SCHEDULER_PATH, 'utf-8');
 
 describe('ADR-0192 / ALWAYS-ON 정적 가드 — isBuyableKstWindow + decideScan phase', () => {
-  it('isBuyableKstWindow 시간대 (09:30~12:00 + 13:00~15:30) — 진단/경보 윈도 (매매 게이트 아님)', () => {
-    expect(source).toMatch(/t >= 930 && t < 1200/);
-    expect(source).toMatch(/t >= 1300 && t < 1530/);
+  it('isBuyableKstWindow 시간대 (09:30~15:30 연속) — 진단/경보 윈도 (매매 게이트 아님)', () => {
+    // ADR-0552: 점심 12:00~13:00 휴장 잔재 제거 — KRX 연속장(2000 점심 동시호가 폐지) 반영.
+    expect(source).toMatch(/t >= 930 && t < 1530/);
   });
 
   it('isBuyableKstWindow legacy 분기 보존 (ADR-0122 정합)', () => {
@@ -85,7 +86,8 @@ describe('ADR-0192 isBuyableKstWindow 동작 매트릭스', () => {
     if (dow === 0 || dow === 6) return false;
     const t = kst.getUTCHours() * 100 + kst.getUTCMinutes();
     if (legacy) return (t >= 900 && t < 1130) || (t >= 1300 && t < 1430);
-    return (t >= 930 && t < 1200) || (t >= 1300 && t < 1530);
+    // ADR-0552: 점심 휴장 제거 — 09:30~15:30 연속.
+    return t >= 930 && t < 1530;
   }
 
   it('09:30 boundary — 정확히 매수 가능 시작 (default 정책)', () => {
@@ -100,12 +102,12 @@ describe('ADR-0192 isBuyableKstWindow 동작 매트릭스', () => {
     expect(computeBuyableKst(11, 59)).toBe(true);
   });
 
-  it('12:00 — 점심 차단 시작', () => {
-    expect(computeBuyableKst(12, 0)).toBe(false);
+  it('12:00 — 매수 가능 (ADR-0552 점심 휴장 잔재 제거)', () => {
+    expect(computeBuyableKst(12, 0)).toBe(true);
   });
 
-  it('12:30 — 점심 차단 (default 신규 정책)', () => {
-    expect(computeBuyableKst(12, 30)).toBe(false);
+  it('12:30 — 매수 가능 (ADR-0552 점심 휴장 잔재 제거)', () => {
+    expect(computeBuyableKst(12, 30)).toBe(true);
   });
 
   it('13:00 boundary — 오후 매수 시작', () => {

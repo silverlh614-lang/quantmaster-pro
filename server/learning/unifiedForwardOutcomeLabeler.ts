@@ -8,6 +8,7 @@ import {
   loadGate3OutcomeSeeds,
   persistGate3OutcomeSeed,
 } from '../persistence/gate3OutcomeRepo.js';
+import { updateGate2OutcomeForwardReturns } from '../persistence/gate2OutcomeRepo.js';
 import {
   getAllNearMissOutcomes,
   refreshNearMissOutcomeLedger,
@@ -796,6 +797,16 @@ export async function runUnifiedForwardOutcomeLabeler(
       priceFetcher: (symbol, asOf, row) => priceFetcher(symbol, asOf, gate1Row(row, now)),
     });
     const gate1RowsAfter = options.gate1Rows ? gate1Rows : await listGate1DryRunObservationRows();
+
+    // counterfacture_gate Phase G — Gate2 outcome forward-return 성숙(real run 한정, gate1/gate3 동일 priceFetcher).
+    if (persist) {
+      try {
+        const gate2Update = await updateGate2OutcomeForwardReturns({ now, priceFetcher: defaultPriceFetcher });
+        console.log(`[Gate2Outcome] forward-return updated=${gate2Update.updated} pending=${gate2Update.pending} reason=${gate2Update.reason}`);
+      } catch (e) {
+        console.warn('[Gate2Outcome] forward-return 성숙 실패', e);
+      }
+    }
 
     const nearMissUpdate = options.nearMissEntries
       ? { updated: 0, updated3d: 0, updated5d: 0, updated10d: 0, skipped: 0, closed: 0 }

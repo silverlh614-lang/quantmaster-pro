@@ -45,6 +45,8 @@ export interface Gate3OutcomeSeed {
   gate3SnapshotId: string;
   asOf: string;
   tradeDate: string;
+  /** counterfacture_gate Phase F — ROC 레짐 stratify 키. 미보유(구 seed) → 투영 시 'UNKNOWN'. */
+  regime?: string;
   readiness: Gate3Readiness;
   issue: string;
   route: Gate3ShadowRoute;
@@ -73,6 +75,7 @@ export interface Gate3OutcomeSeedContext {
   gate3SnapshotId?: string;
   asOf?: string;
   tradeDate?: string;
+  regime?: string;
 }
 
 export interface Gate3OutcomeTrackingSummary {
@@ -153,6 +156,7 @@ export function buildGate3OutcomeSeed(
     gate3SnapshotId,
     asOf,
     tradeDate,
+    ...(context.regime ? { regime: context.regime } : {}),
     readiness: candidateDetail.readiness,
     issue: candidateDetail.issue,
     route: shadowPolicy.route,

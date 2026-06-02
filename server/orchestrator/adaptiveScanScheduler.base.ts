@@ -103,8 +103,7 @@ function deriveMarketSessionFromKstMinutes(t: number, useLegacy: boolean): Empty
     return 'AFTER_HOURS';
   }
   if (t < 930) return 'OPEN_AUCTION';
-  if (t < 1200) return 'REGULAR';
-  if (t < 1300) return 'LUNCH_BREAK';
+  // ADR-0552: 점심(12:00~13:00) 휴장 제거 — KRX 연속장. 09:30~15:00 단일 REGULAR.
   if (t < 1500) return 'REGULAR';
   if (t < 1530) return 'AFTER_HOURS';
   return 'CLOSED';
@@ -504,7 +503,7 @@ export function decideScan(): ScanDecision {
  *
  * ADR-0192 (사용자 5/6): 09:30~12:00 (오전) + 13:00~15:30 (오후) 정책 적용.
  *   - 시초가 09:00~09:30: 변동성 회피 — SELL_ONLY (신규 진입 차단)
- *   - 점심 12:00~13:00: 차단 (기존 11:30~13:00 → 점심 30분 단축)
+ *   - 점심 12:00~13:00: 매수 허용 (ADR-0552 — KRX 점심 휴장 폐지 반영, 잔재 제거)
  *   - 마감 15:30 까지 신규 매매 허용 (기존 14:30 → 1h 추가)
  *
  * ENV `TRADE_WINDOW_LEGACY_HOURS=true` 우회 → ADR-0122 정합 09:00~14:30 동작 복원.
@@ -518,8 +517,9 @@ function isBuyableKstWindow(now = Date.now()): boolean {
     // Legacy: 09:00~11:30 (오전) + 13:00~14:30 (오후) — ADR-0122 정합.
     return (t >= 900 && t < 1130) || (t >= 1300 && t < 1430);
   }
-  // ADR-0192: 09:30~12:00 + 13:00~15:30 신규 정책.
-  return (t >= 930 && t < 1200) || (t >= 1300 && t < 1530);
+  // ADR-0552: KRX 점심 동시호가 폐지(2000) 반영 — 점심 12:00~13:00 휴장 잔재 제거.
+  // 09:30~15:30 연속 매수 허용 (시초가 09:00~09:30 회피·마감 15:30 만 제외).
+  return t >= 930 && t < 1530;
 }
 
 /**

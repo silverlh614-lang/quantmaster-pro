@@ -110,3 +110,30 @@ describe('leadershipBridge — bridgeLeadersToMomentum', () => {
     expect(list.map((e: { code: string }) => e.code)).toEqual(['000660', '035720']);
   });
 });
+
+describe('leadershipBridge — isLeadershipBridgeEnabled (ADR-0551 kill-switch)', () => {
+  const original = process.env.LEADERSHIP_BRIDGE_ENABLED;
+  beforeEach(() => { vi.resetModules(); });
+  afterEach(() => {
+    if (original === undefined) delete process.env.LEADERSHIP_BRIDGE_ENABLED;
+    else process.env.LEADERSHIP_BRIDGE_ENABLED = original;
+  });
+
+  it('default(미설정) → false — byte-identical 보장', async () => {
+    delete process.env.LEADERSHIP_BRIDGE_ENABLED;
+    const { isLeadershipBridgeEnabled } = await import('./leadershipBridge.js');
+    expect(isLeadershipBridgeEnabled()).toBe(false);
+  });
+
+  it("'true' 일 때만 활성", async () => {
+    process.env.LEADERSHIP_BRIDGE_ENABLED = 'true';
+    const { isLeadershipBridgeEnabled } = await import('./leadershipBridge.js');
+    expect(isLeadershipBridgeEnabled()).toBe(true);
+  });
+
+  it("비-'true' 값('1') → false (명시적 true 만 인정)", async () => {
+    process.env.LEADERSHIP_BRIDGE_ENABLED = '1';
+    const { isLeadershipBridgeEnabled } = await import('./leadershipBridge.js');
+    expect(isLeadershipBridgeEnabled()).toBe(false);
+  });
+});

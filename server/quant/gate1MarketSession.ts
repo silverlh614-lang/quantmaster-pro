@@ -167,7 +167,7 @@ function toKstParts(date: Date | null): KstParts | null {
 
 function sellOnlyWindowForMinutes(minutes: number): Gate1SellOnlyWindow | null {
   if (minutes >= 9 * 60 && minutes < 9 * 60 + 30) return 'OPENING_0900_0930';
-  if (minutes >= 12 * 60 && minutes < 13 * 60) return 'LUNCH_1200_1259';
+  // ADR-0552: 점심 12:00~12:59 sellOnly 제거 — KRX 점심 휴장 폐지 반영(잔재 제거).
   if (minutes >= 15 * 60 + 20 && minutes < 15 * 60 + 30) return 'CLOSING_1520_1530';
   return null;
 }

@@ -163,6 +163,8 @@ import {
 import type { PersistScanResultsOptions } from './persistScanResults/types.js';
 import { upsertGate3OutcomeSeeds } from '../../../persistence/gate3OutcomeRepo.js';
 import { buildGate3EvidenceScore } from '../../../quant/gate3EvidenceScore.js';
+import { buildGate2OutcomeSeeds } from '../../../quant/gate2OutcomeSeed.js';
+import { upsertGate2OutcomeSeeds } from '../../../persistence/gate2OutcomeRepo.js';
 import { buildGate3EvidenceWarmupStatus } from '../../../quant/gate3EvidenceWarmup.js';
 import { buildGate3CompletionScore } from '../../../quant/gate3CompletionScore.js';
 import { buildLiveReadinessScore } from '../../../quant/liveReadinessScore.js';
@@ -1666,6 +1668,25 @@ export async function persistScanResults(
       // gate2 confluence / gate3 closure 정본 스냅샷(스캔-시점, 캐시 미사용) 영속 — full-mode formatter read 용.
       summaryDraft.candidateGate2Confluence = buildCandidateGate2ConfluenceSnapshot(summaryDraft);
       summaryDraft.candidateGate3Closure = buildCandidateGate3ClosureSnapshot(summaryDraft);
+      // counterfacture_gate Phase G — Gate2 confluence outcome seed 영속(forward-return 성숙 대상, executionImpact=NONE).
+      const gate2Confluence = summaryDraft.candidateGate2Confluence;
+      if (gate2Confluence) {
+        try {
+          const gate2PriceBySymbol = new Map<string, number>();
+          for (const snap of scanCandidateSnapshots) {
+            const px = snap.price ?? snap.currentPrice;
+            if (typeof px === 'number' && Number.isFinite(px) && px > 0) gate2PriceBySymbol.set(snap.symbol, px);
+          }
+          upsertGate2OutcomeSeeds(buildGate2OutcomeSeeds(gate2Confluence.results, gate2PriceBySymbol, {
+            sourceSnapshotId,
+            tradeDate: kstNow.toISOString().slice(0, 10),
+            asOf: kstNow.toISOString(),
+            regime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime ?? undefined,
+          }));
+        } catch (e) {
+          emitScanDiagnosticBuildFailedWarn({ sourcePath: 'counterfactureGate.gate2OutcomeCapture', error: e });
+        }
+      }
     }
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildCandidateGateEvaluationViews', error: e });
