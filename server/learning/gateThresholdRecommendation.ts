@@ -30,6 +30,7 @@ import {
 } from './gateScoredOutcomeProjection.js';
 import { resolveGate1RequiredScore } from '../trading/gateConfig.js';
 import { DEFAULT_GATE3_THRESHOLD_CONFIG } from '../quant/gate3EvidenceScore.js';
+import { GATE2_PASS_WEAK_MIN_SCORE } from '../quant/gate2ConfluenceScore.js';
 
 export interface GateThresholdRecommendation {
   gate: GateOutcomeGate;
@@ -54,10 +55,10 @@ export interface GateThresholdRecommendationReport {
 }
 
 /**
- * Gate2 confluence 통과 임계 — gate2ConfluenceScore 의 GATE2_PASS_WEAK 경계
- * (coverageAdjustedScore ≥ 65, 0~100 scale)를 미러. 값 drift 시 양쪽 동기 의무.
+ * Gate2 confluence 통과 임계 — gate2ConfluenceScore 의 GATE2_PASS_WEAK 경계 SSOT 를 직접 read
+ * (coverageAdjustedScore ≥ 65, 0~100 scale). Phase H 에서 미러 제거 → 단일 출처라 drift 불가.
  */
-export const GATE2_PASS_THRESHOLD = 65;
+export const GATE2_PASS_THRESHOLD = GATE2_PASS_WEAK_MIN_SCORE;
 
 /** gate×regime 현재 임계 — 실 SSOT 경유(G1/G3) + G2 confluence 경계 미러. */
 function currentThresholdFor(gate: GateOutcomeGate, regime: string): number | null {

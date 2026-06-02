@@ -596,6 +596,14 @@ function buildFundamentalAxis(external: AnyRecord | null, cacheProjection?: AnyR
   });
 }
 
+/**
+ * Gate2 confluence 통과 경계(coverageAdjustedScore 0~100) — gate2 status 판정 SSOT.
+ * counterfacture_gate Phase C(gateThresholdRecommendation)가 ROC 현재 임계로 본 상수를 read.
+ */
+export const GATE2_PASS_STRONG_MIN_SCORE = 80;
+export const GATE2_PASS_WEAK_MIN_SCORE = 65;
+export const GATE2_WATCH_MIN_SCORE = 50;
+
 export function buildGate2EvaluationResult(input: {
   trace: Record<string, unknown>;
   sourceSnapshotId?: string | null;
@@ -663,9 +671,9 @@ export function buildGate2EvaluationResult(input: {
 
   let gate2Status: Gate2Status = 'DATA_INCOMPLETE';
   if (usableAxisCount < 3 || coverageAdjustedScore == null) gate2Status = 'DATA_INCOMPLETE';
-  else if (coverageAdjustedScore >= 80 && bullishAxisCount >= 3) gate2Status = 'GATE2_PASS_STRONG';
-  else if (coverageAdjustedScore >= 65 && bullishOrAccumulatingAxisCount >= 3) gate2Status = 'GATE2_PASS_WEAK';
-  else if (coverageAdjustedScore >= 50) gate2Status = 'GATE2_WATCH';
+  else if (coverageAdjustedScore >= GATE2_PASS_STRONG_MIN_SCORE && bullishAxisCount >= 3) gate2Status = 'GATE2_PASS_STRONG';
+  else if (coverageAdjustedScore >= GATE2_PASS_WEAK_MIN_SCORE && bullishOrAccumulatingAxisCount >= 3) gate2Status = 'GATE2_PASS_WEAK';
+  else if (coverageAdjustedScore >= GATE2_WATCH_MIN_SCORE) gate2Status = 'GATE2_WATCH';
   else gate2Status = 'GATE2_FAIL';
 
   const confluenceLevel: Gate2ConfluenceLevel = gate2Status === 'GATE2_PASS_STRONG'

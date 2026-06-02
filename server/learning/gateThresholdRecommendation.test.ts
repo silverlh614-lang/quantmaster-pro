@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  GATE2_PASS_THRESHOLD,
   buildGateThresholdRecommendationReport,
   buildGateThresholdRecommendations,
   formatGateThresholdRecommendationLines,
 } from './gateThresholdRecommendation.js';
+import { GATE2_PASS_WEAK_MIN_SCORE } from '../quant/gate2ConfluenceScore.js';
 import type { GateScoredOutcome } from './gateScoredOutcomeProjection.js';
 
 function g1(outcome: 'WIN' | 'LOSS', scalar: number, regime = 'R3_EARLY'): GateScoredOutcome {
@@ -54,6 +56,11 @@ describe('counterfacture_gate Phase C — gateThresholdRecommendation', () => {
     expect(recs[0]).toMatchObject({ gate: 'GATE2' });
     expect(recs[0].shift.currentThreshold).toBe(65);
     expect(recs[0].shift.decision).toBe('insufficient_sample');
+  });
+
+  it('Phase H: Gate2 임계는 gate2ConfluenceScore SSOT 와 단일 출처(drift 불가)', () => {
+    expect(GATE2_PASS_THRESHOLD).toBe(GATE2_PASS_WEAK_MIN_SCORE);
+    expect(GATE2_PASS_THRESHOLD).toBe(65);
   });
 
   it('report builder + formatter — 안전 footer 와 verdict 렌더', async () => {
