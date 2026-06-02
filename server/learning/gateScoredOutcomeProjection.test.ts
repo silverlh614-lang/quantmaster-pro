@@ -53,15 +53,15 @@ describe('counterfacture_gate Phase B — gateScoredOutcomeProjection', () => {
     expect(projected[1]).toMatchObject({ gate: 'GATE1', outcome: 'LOSS', regime: 'R4_NEUTRAL', symbol: 'B' });
   });
 
-  it('projects Gate3 seeds to (scalar=rrr ×1, WIN/LOSS, regime=UNKNOWN) and excludes no-rrr', () => {
+  it('projects Gate3 seeds to (scalar=rrr ×1, regime=seed.regime; 미보유→UNKNOWN) and excludes no-rrr', () => {
     const projected = projectGate3ScoredOutcomes([
-      gate3Seed({ symbol: 'X', rrr: 3.2, forwardReturns: { d1: 1, d3: 2, d5: 4, d10: null } }), // WIN
-      gate3Seed({ symbol: 'Y', rrr: 1.5, forwardReturns: { d1: null, d3: null, d5: 0, d10: null } }), // LOSS
+      gate3Seed({ symbol: 'X', rrr: 3.2, regime: 'R2_BULL', forwardReturns: { d1: 1, d3: 2, d5: 4, d10: null } }), // WIN, regime 보유(Phase F)
+      gate3Seed({ symbol: 'Y', rrr: 1.5, forwardReturns: { d1: null, d3: null, d5: 0, d10: null } }), // LOSS, 구 seed(regime 미보유) → UNKNOWN
       gate3Seed({ symbol: 'Z', rrr: null, forwardReturns: { d1: null, d3: null, d5: 9, d10: null } }), // no scalar → excluded
     ]);
     expect(projected).toHaveLength(2);
-    expect(projected[0]).toMatchObject({ gate: 'GATE3', scalar: 3.2, scale: 1, outcome: 'WIN', regime: 'UNKNOWN', symbol: 'X' });
-    expect(projected[1]).toMatchObject({ gate: 'GATE3', outcome: 'LOSS', symbol: 'Y' });
+    expect(projected[0]).toMatchObject({ gate: 'GATE3', scalar: 3.2, scale: 1, outcome: 'WIN', regime: 'R2_BULL', symbol: 'X' });
+    expect(projected[1]).toMatchObject({ gate: 'GATE3', outcome: 'LOSS', regime: 'UNKNOWN', symbol: 'Y' });
   });
 
   it('Gate2 projection is an empty extension point', () => {

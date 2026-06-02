@@ -86,7 +86,7 @@ export function projectGate1ScoredOutcomes(rows: readonly Gate1DryRunObservation
   return outcomes;
 }
 
-/** Gate3 — outcome seed → scored outcome. scalar=rrr(×1). seed 에 regime 부재 → 'UNKNOWN'. */
+/** Gate3 — outcome seed → scored outcome. scalar=rrr(×1), regime=seed.regime(Phase F; 구 seed 미보유→'UNKNOWN'). */
 export function projectGate3ScoredOutcomes(seeds: readonly Gate3OutcomeSeed[]): GateScoredOutcome[] {
   const outcomes: GateScoredOutcome[] = [];
   for (const seed of seeds) {
@@ -99,7 +99,7 @@ export function projectGate3ScoredOutcomes(seeds: readonly Gate3OutcomeSeed[]): 
       scalar,
       scale: 1,
       outcome,
-      regime: 'UNKNOWN',
+      regime: normalizeRegime(seed.regime),
       forwardReturnD5Pct: d5 as number,
       symbol: seed.symbol,
     });

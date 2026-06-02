@@ -477,6 +477,8 @@ export function buildGateLayerAuditSummary(
     asOf: options.asOf,
     tradeDate: options.tradeDate ?? options.asOf?.slice(0, 10),
     gate3SnapshotId: options.gate3SnapshotId ?? (options.sourceSnapshotId ? `${options.sourceSnapshotId}:gate3` : undefined),
+    // counterfacture_gate Phase F — ROC 레짐 stratify 용 regime stamp(gate3 evidence 와 동일 소스).
+    regime: options.shadowPolicyContext?.macroRegime ?? options.shadowPolicyContext?.effectiveRegime ?? undefined,
   });
   const outcomeTracking = summarizeGate3OutcomeSeeds(outcomeSeeds, {
     tradeDate: options.tradeDate ?? options.asOf?.slice(0, 10),
