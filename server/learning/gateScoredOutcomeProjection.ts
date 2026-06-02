@@ -23,6 +23,8 @@ import {
 } from '../trading/signalScanner/gate1DryRunObservationLedgerAdr0476.js';
 import { loadGate3OutcomeSeeds } from '../persistence/gate3OutcomeRepo.js';
 import type { Gate3OutcomeSeed } from '../quant/gate3OutcomeSeed.js';
+import { loadGate2OutcomeSeeds } from '../persistence/gate2OutcomeRepo.js';
+import type { Gate2OutcomeSeed } from '../quant/gate2OutcomeSeed.js';
 
 // ── WIN 정의 단일 SSOT ───────────────────────────────────────────────────────
 /** WIN 판정 forward-return 임계(%). 산출 임계를 좌우하는 SSOT — 정적 고정. */
@@ -107,12 +109,25 @@ export function projectGate3ScoredOutcomes(seeds: readonly Gate3OutcomeSeed[]): 
   return outcomes;
 }
 
-/**
- * Gate2 — 확장점. Gate2 confluence(coverageAdjustedScore)의 forward-outcome 영속
- * 소스가 아직 없으므로 현재는 빈 배열. 소스 신설 시 본 함수만 채우면 Phase C 가 자동 흡수.
- */
-export function projectGate2ScoredOutcomes(): GateScoredOutcome[] {
-  return [];
+/** Gate2 — outcome seed(Phase G) → scored outcome. scalar=coverageAdjustedScore(0~100), regime=seed.regime. */
+export function projectGate2ScoredOutcomes(seeds: readonly Gate2OutcomeSeed[]): GateScoredOutcome[] {
+  const outcomes: GateScoredOutcome[] = [];
+  for (const seed of seeds) {
+    const scalar = seed.gate2CoverageAdjustedScore;
+    const d5 = seed.forwardReturns?.d5;
+    const outcome = classifyGateOutcome(d5);
+    if (!finite(scalar) || outcome === null) continue;
+    outcomes.push({
+      gate: 'GATE2',
+      scalar,
+      scale: 10,
+      outcome,
+      regime: normalizeRegime(seed.regime),
+      forwardReturnD5Pct: d5 as number,
+      symbol: seed.symbol,
+    });
+  }
+  return outcomes;
 }
 
 export interface GateScoredOutcomeBundle {
@@ -125,12 +140,14 @@ export interface GateScoredOutcomeBundle {
 /** 모든 게이트의 mature scored outcome 수집(read-only). 영속 ledger 로드 + 투영. */
 export async function collectGateScoredOutcomes(input?: {
   gate1Rows?: readonly Gate1DryRunObservationRow[];
+  gate2Seeds?: readonly Gate2OutcomeSeed[];
   gate3Seeds?: readonly Gate3OutcomeSeed[];
 }): Promise<GateScoredOutcomeBundle> {
   const gate1Rows = input?.gate1Rows ?? (await listGate1DryRunObservationRows());
+  const gate2Seeds = input?.gate2Seeds ?? loadGate2OutcomeSeeds();
   const gate3Seeds = input?.gate3Seeds ?? loadGate3OutcomeSeeds();
   const gate1 = projectGate1ScoredOutcomes(gate1Rows);
-  const gate2 = projectGate2ScoredOutcomes();
+  const gate2 = projectGate2ScoredOutcomes(gate2Seeds);
   const gate3 = projectGate3ScoredOutcomes(gate3Seeds);
   return { gate1, gate2, gate3, all: [...gate1, ...gate2, ...gate3] };
 }

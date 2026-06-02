@@ -47,9 +47,13 @@ describe('counterfacture_gate Phase C — gateThresholdRecommendation', () => {
     expect(recs[0].shift.suggestedThreshold).toBeNull();
   });
 
-  it('Gate2 outcome 은 스칼라 임계 미정의라 권고 생성 안 함', () => {
-    const g2: GateScoredOutcome = { gate: 'GATE2', scalar: 7, scale: 10, outcome: 'WIN', regime: 'R3_EARLY', forwardReturnD5Pct: 5, symbol: 'Z' };
-    expect(buildGateThresholdRecommendations([g2])).toHaveLength(0);
+  it('Gate2 — confluence 임계(65) 경유 권고 생성(표본 부족 시 insufficient_sample)', () => {
+    const g2: GateScoredOutcome = { gate: 'GATE2', scalar: 70, scale: 10, outcome: 'WIN', regime: 'R3_EARLY', forwardReturnD5Pct: 5, symbol: 'Z' };
+    const recs = buildGateThresholdRecommendations([g2]);
+    expect(recs).toHaveLength(1);
+    expect(recs[0]).toMatchObject({ gate: 'GATE2' });
+    expect(recs[0].shift.currentThreshold).toBe(65);
+    expect(recs[0].shift.decision).toBe('insufficient_sample');
   });
 
   it('report builder + formatter — 안전 footer 와 verdict 렌더', async () => {

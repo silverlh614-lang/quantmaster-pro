@@ -53,9 +53,16 @@ export interface GateThresholdRecommendationReport {
   executionImpact: 'NONE';
 }
 
-/** gate×regime 현재 임계 — 실 SSOT 경유(하드코딩 70/2 금지). 미정의 게이트(GATE2)는 null. */
+/**
+ * Gate2 confluence 통과 임계 — gate2ConfluenceScore 의 GATE2_PASS_WEAK 경계
+ * (coverageAdjustedScore ≥ 65, 0~100 scale)를 미러. 값 drift 시 양쪽 동기 의무.
+ */
+export const GATE2_PASS_THRESHOLD = 65;
+
+/** gate×regime 현재 임계 — 실 SSOT 경유(G1/G3) + G2 confluence 경계 미러. */
 function currentThresholdFor(gate: GateOutcomeGate, regime: string): number | null {
   if (gate === 'GATE1') return resolveGate1RequiredScore(regime);
+  if (gate === 'GATE2') return GATE2_PASS_THRESHOLD;
   if (gate === 'GATE3') return DEFAULT_GATE3_THRESHOLD_CONFIG.rrrPassMin;
   return null;
 }

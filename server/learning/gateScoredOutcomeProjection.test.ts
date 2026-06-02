@@ -11,6 +11,27 @@ import {
 } from './gateScoredOutcomeProjection.js';
 import type { Gate1DryRunObservationRow } from '../trading/signalScanner/gate1DryRunObservationLedgerAdr0476.js';
 import type { Gate3OutcomeSeed } from '../quant/gate3OutcomeSeed.js';
+import type { Gate2OutcomeSeed } from '../quant/gate2OutcomeSeed.js';
+
+function gate2Seed(partial: Partial<Gate2OutcomeSeed>): Gate2OutcomeSeed {
+  return {
+    id: 'g2-1',
+    symbol: '005930',
+    sourceSnapshotId: 'scan-1',
+    tradeDate: '2026-05-09',
+    asOf: '2026-05-09T07:00:00.000Z',
+    gate2Status: 'GATE2_PASS_WEAK',
+    gate2CoverageAdjustedScore: 70,
+    gate2ConfluenceLevel: 'MODERATE',
+    entryReferencePrice: 10000,
+    forwardReturns: { d1: null, d3: null, d5: null, d10: null },
+    outcomeStatus: 'PENDING',
+    executionImpact: 'NONE',
+    marketSignal: false,
+    providerIssue: false,
+    ...partial,
+  } as Gate2OutcomeSeed;
+}
 
 function gate1Row(partial: Partial<Gate1DryRunObservationRow>): Gate1DryRunObservationRow {
   return {
@@ -64,19 +85,28 @@ describe('counterfacture_gate Phase B — gateScoredOutcomeProjection', () => {
     expect(projected[1]).toMatchObject({ gate: 'GATE3', outcome: 'LOSS', regime: 'UNKNOWN', symbol: 'Y' });
   });
 
-  it('Gate2 projection is an empty extension point', () => {
-    expect(projectGate2ScoredOutcomes()).toEqual([]);
+  it('projects Gate2 seeds to (scalar=coverageAdjustedScore ×10, regime, WIN/LOSS) and excludes immature/no-score', () => {
+    const projected = projectGate2ScoredOutcomes([
+      gate2Seed({ symbol: 'A', gate2CoverageAdjustedScore: 72, regime: 'R2_BULL', forwardReturns: { d1: null, d3: null, d5: 4, d10: null } }), // WIN
+      gate2Seed({ symbol: 'B', gate2CoverageAdjustedScore: 60, forwardReturns: { d1: null, d3: null, d5: -1, d10: null } }), // LOSS, regime 미보유 → UNKNOWN
+      gate2Seed({ symbol: 'C', gate2CoverageAdjustedScore: 70 }), // immature → excluded
+      gate2Seed({ symbol: 'D', gate2CoverageAdjustedScore: null, forwardReturns: { d1: null, d3: null, d5: 8, d10: null } }), // no scalar → excluded
+    ]);
+    expect(projected).toHaveLength(2);
+    expect(projected[0]).toMatchObject({ gate: 'GATE2', scalar: 72, scale: 10, outcome: 'WIN', regime: 'R2_BULL', symbol: 'A' });
+    expect(projected[1]).toMatchObject({ gate: 'GATE2', outcome: 'LOSS', regime: 'UNKNOWN', symbol: 'B' });
   });
 
-  it('collectGateScoredOutcomes bundles injected gate1/gate3 sources without disk I/O', async () => {
+  it('collectGateScoredOutcomes bundles injected gate1/gate2/gate3 sources without disk I/O', async () => {
     const bundle = await collectGateScoredOutcomes({
       gate1Rows: [gate1Row({ symbol: 'A', dryRunScore: 66, forwardReturn5D: 5, effectiveRegime: 'R3_EARLY' })],
+      gate2Seeds: [gate2Seed({ symbol: 'G2', gate2CoverageAdjustedScore: 70, regime: 'R2_BULL', forwardReturns: { d1: null, d3: null, d5: 4, d10: null } })],
       gate3Seeds: [gate3Seed({ symbol: 'X', rrr: 3.2, forwardReturns: { d1: null, d3: null, d5: 4, d10: null } })],
     });
     expect(bundle.gate1).toHaveLength(1);
+    expect(bundle.gate2).toHaveLength(1);
     expect(bundle.gate3).toHaveLength(1);
-    expect(bundle.gate2).toHaveLength(0);
-    expect(bundle.all).toHaveLength(2);
+    expect(bundle.all).toHaveLength(3);
   });
 
   it('groups by gate×regime for the ROC adapter', () => {
