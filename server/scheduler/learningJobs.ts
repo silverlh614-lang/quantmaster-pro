@@ -39,6 +39,7 @@ import {
   isUnifiedForwardOutcomeLabelerEnabled,
   runUnifiedForwardOutcomeLabeler,
 } from '../learning/unifiedForwardOutcomeLabeler.js';
+import { runGateThresholdReadinessAlert } from '../learning/gateThresholdReadinessAlert.js';
 import { scheduledJob } from './scheduleGuard.js';
 
 async function runUnifiedForwardOutcomeLabelerJob(trigger: 'startup' | 'scheduled'): Promise<void> {
@@ -211,6 +212,15 @@ export function registerLearningJobs(): void {
   scheduledJob('36 7 * * *', 'ALWAYS_ON', 'unified_forward_outcome_labeling', async () => {
     await runUnifiedForwardOutcomeLabelerJob('scheduled');
   }, { timezone: 'UTC', enqueueOnSkip: {} });
+
+  // counterfacture_gate Phase J — readiness 알람. labeler 성숙(07:36 UTC) 직후 14분 뒤.
+  // gate×regime ROC 권고가 처음 actionable(≥30표본)로 넘어가면 1회 텔레그램 푸시(dedup 영속,
+  // steady-state 무음). "검증 기간 됐는데 놓침" 방지. read-only — 임계 변경 0, executionImpact=NONE.
+  // ENV `COUNTERFACTURE_GATE_READINESS_ALERT_DISABLED=true` 1줄 즉시 비활성(default ON).
+  scheduledJob('50 7 * * *', 'ALWAYS_ON', 'counterfacture_gate_readiness_alert', async () => {
+    const res = await runGateThresholdReadinessAlert();
+    console.log(`[CounterfactureGateReadiness] enabled=${res.enabled} ready=${res.readyKeys.length} newlyAlerted=${res.newlyAlerted.length} sent=${res.sent}`);
+  }, { timezone: 'UTC' });
 
   // MissedLearningQueue replay: trading-day recovery of skipped learning jobs.
   scheduledJob('30 0 * * 1-5', 'TRADING_DAY_ONLY', 'missed_learning_replay', async () => {
