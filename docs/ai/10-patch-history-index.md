@@ -57,6 +57,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-06-02 · Patch-CounterfactureGate-PhaseA-Gate1EntryReferencePrice · gate1-observation/learning, counterfacture_gate 임계 자기조정 파이프라인 Phase A(keystone) — rowFromSnapshot 이 snapshot 가격(price/currentPrice/priceAtSignal/lastPrice/close)을 entryReferencePrice 로 미stamp 해 updateGate1DryRunObservationOutcomes(line1072 entryPrice null→continue)가 실관측 전 행을 skip(labeler 58스캔/0갱신/0 mature)하던 굶주림 근본정정. snapshotNumber 단일 스탬프 +2줄(ledger 1495→1499 LoC, 1500 한계 내), regime/candidateSnapshots 는 콜러 persistScanResults 1342/1506 이 이미 전달=무변경. 회귀 신규 1건(stamp 검증+labeler forward-return 잠금해제+무가격 음성대조) pass, gate1 ledger suite 12 pass, typecheck+validate:all(23) EXIT=0, Gate1 required score SSOT/score/threshold/live 0줄, executionImpact-NONE
 - 2026-06-02 · Patch-Counterfactual-Outcome-Board · learning/telegram diagnostics, counterfactual outcome board, Gate1 bands, Gate2/Gate3 blockers, today/missed/review commands, executionImpact-NONE
 - 2026-06-02 · Patch-Counterfactual-Autocomplete · telegram autocomplete, counterfactual aliases, setMyCommands extended menu, executionImpact-NONE
 - 2026-06-02 · Patch-Counterfactual-Debug-Row-Selection · learning/telegram diagnostics, replay artifact exclusion, included-row SourceSnapshot linkage, debug distributions, executionImpact-NONE
