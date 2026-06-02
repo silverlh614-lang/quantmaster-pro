@@ -461,6 +461,14 @@ const MENU_ALWAYS_INCLUDE = new Set([
   'buy',
   'cancel',
   'circuits',
+  'counterfactual',
+  'counterfactual_debug',
+  'counterfactual_gate1',
+  'counterfactual_gate2',
+  'counterfactual_gate3',
+  'counterfactual_missed',
+  'counterfactual_review',
+  'counterfactual_today',
   'cron_status',
   'ghost_inspect',
   'governance',
@@ -496,6 +504,16 @@ const MENU_ALWAYS_INCLUDE = new Set([
   'supply_health',
   'watchlist',
   'weight_feedback',
+]);
+
+const MENU_ALIAS_ALWAYS_INCLUDE = new Set([
+  'counterfactual_debug',
+  'counterfactual_gate1',
+  'counterfactual_gate2',
+  'counterfactual_gate3',
+  'counterfactual_missed',
+  'counterfactual_review',
+  'counterfactual_today',
 ]);
 
 const MENU_LOW_VALUE_PATTERNS = [
@@ -545,18 +563,26 @@ export function buildBotMenuCommandsExtended(): BotMenuCommand[] {
   const registryEntries = commandRegistry
     .all()
     .filter((cmd) => cmd.showInMenu !== false)
-    .map((cmd) => {
-      const command = cmd.name.replace(/^\//, '').toLowerCase();
-      if (!/^[a-z0-9_]{1,32}$/.test(command)) return null;
+    .flatMap((cmd) => {
       const desc = (cmd.description ?? '').slice(0, 256).trim();
       const description = desc.length > 0 ? desc : `[${cmd.category}] 명령`;
-      const menuPriority = cmd.menuPriority ?? inferMenuPriority(command, cmd.category, cmd.riskLevel);
-      return {
-        command,
-        description,
-        menuPriority,
-        sortKey: (categoryOrder[cmd.category] ?? 99) * 1000,
-      };
+      const names = [
+        cmd.name,
+        ...(cmd.aliases ?? []).filter((alias) =>
+          MENU_ALIAS_ALWAYS_INCLUDE.has(alias.replace(/^\//, '').toLowerCase()),
+        ),
+      ];
+      return names.map((name) => {
+        const command = name.replace(/^\//, '').toLowerCase();
+        if (!/^[a-z0-9_]{1,32}$/.test(command)) return null;
+        const menuPriority = cmd.menuPriority ?? inferMenuPriority(command, cmd.category, cmd.riskLevel);
+        return {
+          command,
+          description,
+          menuPriority,
+          sortKey: (categoryOrder[cmd.category] ?? 99) * 1000,
+        };
+      });
     })
     .filter((e): e is { command: string; description: string; menuPriority: number; sortKey: number } => e !== null)
     .filter((e) => !seen.has(e.command))

@@ -51,6 +51,22 @@ describe('buildBotMenuCommandsExtended menu curation', () => {
     expect(commandRegistry.all().length).toBeGreaterThan(extended.length - baseLen);
   });
 
+  it('exposes counterfactual outcome board commands for Telegram autocomplete', () => {
+    const extendedCmds = new Set(extended.map((e) => e.command));
+    for (const name of [
+      'counterfactual',
+      'counterfactual_today',
+      'counterfactual_gate1',
+      'counterfactual_gate2',
+      'counterfactual_gate3',
+      'counterfactual_missed',
+      'counterfactual_review',
+      'counterfactual_debug',
+    ]) {
+      expect(extendedCmds.has(name)).toBe(true);
+    }
+  });
+
   it('does not expose aliases as duplicate menu commands', () => {
     const cmds = extended.map((e) => e.command);
     const dupes = cmds.filter((c, i) => cmds.indexOf(c) !== i);
