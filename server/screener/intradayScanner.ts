@@ -35,6 +35,7 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { isPullbackSetup } from './pipelineHelpers.js';
 import { getKstMarketElapsedMinutes, MORNING_VOLUME_DISCOUNT, MORNING_END_MINUTES } from '../trading/entryEngine.js';
 import { evaluateServerGate } from '../quantFilter.js';
+import { bridgeLeadersToMomentum, isLeadershipBridgeEnabled, type LeaderCandidate } from './leadershipBridge.js';
 import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import type { YahooQuoteExtended } from './stockScreener.js';
@@ -210,7 +211,8 @@ function calcIntradayTarget(price: number): number {
  * R6_DEFENSE(gate=99)에서는 사실상 진입 불가.
  */
 async function discoverIntradayCandidates(): Promise<void> {
-  const regime = resolveCanonicalRegimeLevel(loadMacroState()); // ADR-0531: Gate0 정본 레짐
+  const macroState = loadMacroState();
+  const regime = resolveCanonicalRegimeLevel(macroState); // ADR-0531: Gate0 정본 레짐
   const minGate = INTRADAY_GATE_BY_REGIME[regime] ?? 99;
 
   // R6_DEFENSE — 장중 발굴 완전 차단
@@ -260,6 +262,11 @@ async function discoverIntradayCandidates(): Promise<void> {
   const candidates = mergedCandidates.slice(0, MAX_YAHOO_CALLS_PER_DISCOVERY);
   let newCount = 0;
 
+  // ADR-0551 LeadershipBridge — 발굴 리더(quote+gateResult 재사용)를 모아 MOMENTUM 레인에 편입.
+  // flag-gated(default OFF=byte-identical), 새 KIS 호출 0, 기존 발굴 동작 무변경.
+  const bridgeEnabled = isLeadershipBridgeEnabled();
+  const leaderCandidates: LeaderCandidate[] = [];
+
   for (const stock of candidates) {
     try {
       // ADR-0231/0502: code-based SSOT keeps KIS official price first, then Yahoo fallback.
@@ -272,6 +279,18 @@ async function discoverIntradayCandidates(): Promise<void> {
       // 레짐별 Gate 점수 필터 — minGate 미달 종목은 발굴 제외
       const gateResult = evaluateServerGate(quote);
       if (gateResult.gateScore < minGate) continue;
+
+      // ADR-0551: 발굴 리더 후보 수집 — bridge 의 qualifiesAsLeader(gate≥4.5·mtas≥6·RS≥KOSPI)가 최종 판정.
+      if (bridgeEnabled) {
+        leaderCandidates.push({
+          code: stock.code,
+          name: stock.name,
+          gateScore: gateResult.gateScore,
+          mtas: gateResult.mtas,
+          sectorRelativeStrength: quote.changePercent,
+          currentPrice: quote.price,
+        });
+      }
 
       const entryPath = classifyEntryPath(quote);
       const pathLabel = entryPath === 'BREAKOUT' ? '돌파형' : entryPath === 'SUPPLY_DEMAND' ? '수급형' : '눌림목형';
@@ -324,6 +343,20 @@ async function discoverIntradayCandidates(): Promise<void> {
   if (newCount > 0) {
     saveIntradayWatchlist(intradayList);
     console.log(`[IntradayScan] 발굴 완료: ${newCount}개 신규 등록 (총 ${intradayList.length}개)`);
+  }
+
+  // ADR-0551 LeadershipBridge — 발굴 리더를 메인 watchlist MOMENTUM 레인에 편입(4h TTL).
+  // 기존 intraday 발굴/저장 완료 후 실행 + try/catch 격리 → 본체에 영향 0. flag OFF 면 no-op.
+  if (bridgeEnabled && leaderCandidates.length > 0) {
+    try {
+      const kospiDayReturn = macroState?.kospiDayReturn ?? 0;
+      const bridged = bridgeLeadersToMomentum(leaderCandidates, { kospiDayReturn });
+      console.log(
+        `[LeadershipBridge] fed ${leaderCandidates.length} → added ${bridged.added} / refreshed ${bridged.refreshed} / skipped ${bridged.skippedTotal} (ADR-0551)`,
+      );
+    } catch (e) {
+      console.error('[LeadershipBridge] MOMENTUM 편입 오류:', e instanceof Error ? e.message : e);
+    }
   }
 }
 
