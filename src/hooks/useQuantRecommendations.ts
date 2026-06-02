@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useRecommendationStore, useSettingsStore } from '../stores';
 import type { StockRecommendation } from '../services/stockService';
 import { autoTradeApi } from '../api';
+import { useRecommendations } from './useRecommendations';
 
 type HistoryEntry = { date: string; stocks: string[]; hitRate: number; strongBuyHitRate?: number };
 
@@ -36,6 +37,7 @@ export function useQuantRecommendations() {
     selectedSentiment,
     selectedChecklist,
     searchQuery, setSearchQuery,
+    lastSearchedQuery,
     minPrice,
     maxPrice,
     sortBy,
@@ -96,53 +98,24 @@ export function useQuantRecommendations() {
   }, [recommendationHistory]);
 
   // ── Filtered & Sorted Display List ──────────────────────────────────────
-  const searchResultCodes = new Set((searchResults || []).map((s: StockRecommendation) => s.code));
-
-  const filteredRecommendations = [...(recommendations || []), ...(searchResults || [])].filter((stock: StockRecommendation) => {
-    const typeMatch = selectedType === 'ALL' || stock.type === selectedType;
-    const patternMatch = selectedPattern === 'ALL' || (stock.patterns || []).includes(selectedPattern);
-    const sentimentMatch = selectedSentiment === 'ALL' ||
-      (selectedSentiment === 'RISK_ON' && (stock.marketSentiment?.iri ?? 0) < 2.0) ||
-      (selectedSentiment === 'RISK_OFF' && (stock.marketSentiment?.iri ?? 0) >= 2.0);
-    const checklistMatch = selectedChecklist.length === 0 ||
-      selectedChecklist.every((item: string) => stock.checklist?.[item as keyof typeof stock.checklist]);
-    const minP = minPrice === '' ? 0 : parseInt(minPrice);
-    const maxP = maxPrice === '' ? Infinity : parseInt(maxPrice);
-    const priceMatch = (stock.currentPrice ?? 0) >= minP && (stock.currentPrice ?? 0) <= maxP;
-    const searchMatch = searchResultCodes.has(stock.code) || searchQuery === '' ||
-      (stock.name?.toLowerCase().includes(searchQuery?.toLowerCase() || '') ?? false) ||
-      (stock.code?.includes(searchQuery || '') ?? false);
-    return typeMatch && patternMatch && sentimentMatch && checklistMatch && searchMatch && priceMatch;
+  // 단일 원장(useRecommendations) 위임 — 과거 이 자리에 복제돼 있던 인라인 필터/정렬
+  // 로직을 제거하고 순수 훅으로 통합한다. 검색 매칭/정렬 규칙은 useRecommendations.ts
+  // 한 곳에서만 관리(SSOT)해 두 구현 간 drift(예: searchMatch 규칙 불일치)를 차단.
+  const { filteredRecommendations, displayList, allPatterns } = useRecommendations({
+    recommendations,
+    searchResults,
+    watchlist,
+    selectedType,
+    selectedPattern,
+    selectedSentiment,
+    selectedChecklist,
+    searchQuery,
+    lastSearchedQuery,
+    minPrice,
+    maxPrice,
+    sortBy,
+    view,
   });
-
-  const allPatterns: string[] = Array.from(new Set((recommendations || []).flatMap((r: StockRecommendation) => r.patterns ?? [])));
-
-  const displayList = (() => {
-    let list: StockRecommendation[] = [];
-    if (view === 'DISCOVER') {
-      list = filteredRecommendations;
-    } else if (view === 'WATCHLIST') {
-      list = (watchlist || []).filter((stock: StockRecommendation) =>
-        (stock.name?.toLowerCase().includes(searchQuery?.toLowerCase() || '') ?? false) ||
-        (stock.code?.includes(searchQuery || '') ?? false)
-      );
-    } else {
-      return [];
-    }
-    return [...list].sort((a: StockRecommendation, b: StockRecommendation) => {
-      if (sortBy === 'NAME') return (a.name || '').localeCompare(b.name || '');
-      if (sortBy === 'CODE') return (a.code || '').localeCompare(b.code || '');
-      if (sortBy === 'PERFORMANCE') {
-        const getPerf = (s: StockRecommendation) => {
-          if (s.currentPrice > 0 && s.entryPrice && s.entryPrice > 0) return (s.currentPrice / s.entryPrice) - 1;
-          if (s.peakPrice > 0) return (s.currentPrice / s.peakPrice) - 1;
-          return -Infinity;
-        };
-        return getPerf(b) - getPerf(a);
-      }
-      return 0;
-    });
-  })();
 
   return {
     recommendations,

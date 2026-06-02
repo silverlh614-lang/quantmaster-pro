@@ -36,6 +36,10 @@ interface RecommendationState {
   setSelectedChecklist: (v: Updater<string[]>) => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  // 마지막으로 '시장 검색'을 실행한 검색어(trim). searchResults 가 이 검색어의 결과임을
+  // 표시 — 사용자가 입력창에 '다른' 검색어를 타이핑하면 결과에도 텍스트 필터를 적용하기 위함.
+  lastSearchedQuery: string;
+  setLastSearchedQuery: (query: string) => void;
   minPrice: string;
   setMinPrice: (price: string) => void;
   maxPrice: string;
@@ -124,6 +128,8 @@ export const useRecommendationStore = create<RecommendationState>()(
       setSelectedChecklist: (v) => set((s) => ({ selectedChecklist: typeof v === 'function' ? v(s.selectedChecklist) : v })),
       searchQuery: '',
       setSearchQuery: (searchQuery) => set({ searchQuery }),
+      lastSearchedQuery: '',
+      setLastSearchedQuery: (lastSearchedQuery) => set({ lastSearchedQuery }),
       minPrice: '',
       setMinPrice: (minPrice) => set({ minPrice }),
       maxPrice: '',
