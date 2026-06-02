@@ -10,7 +10,7 @@ export function useStockSearch() {
     recommendations, setRecommendations,
     searchResults, setSearchResults,
     screenerRecommendations, setScreenerRecommendations,
-    filters, searchQuery,
+    filters, searchQuery, setLastSearchedQuery,
     selectedType, selectedPattern, selectedSentiment, selectedChecklist,
     minPrice, maxPrice,
     loading, setLoading,
@@ -26,7 +26,7 @@ export function useStockSearch() {
   const [loadingNews, setLoadingNews] = useState(false);
 
   const fetchStocks = async () => {
-    setLoading(true); setSearchResults([]); setRecommendations([]); setError(null);
+    setLoading(true); setSearchResults([]); setLastSearchedQuery(''); setRecommendations([]); setError(null);
     setRecommendationWarnings([]);
     setRecommendationSourceStatus(undefined);
     try {
@@ -85,6 +85,9 @@ export function useStockSearch() {
     clearSearchCache();
     try {
       const results = await searchStock(searchQuery, { type: selectedType, pattern: selectedPattern, sentiment: selectedSentiment, checklist: selectedChecklist, minPrice, maxPrice });
+      // searchResults 가 '이 검색어'의 결과임을 기록 — 이후 입력창에 다른 검색어를 타이핑하면
+      // 결과에도 텍스트 필터가 적용되도록 한다(useRecommendations.searchMatch 참조).
+      setLastSearchedQuery(searchQuery.trim());
       if (results && results.length > 0) {
         setSearchResults((prev: StockRecommendation[]) => {
           if (!searchQuery.trim()) return results.slice(0, 10);

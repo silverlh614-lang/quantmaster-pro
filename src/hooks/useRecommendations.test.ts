@@ -141,6 +141,89 @@ describe('useRecommendations — view 전환', () => {
   });
 });
 
+describe('useRecommendations — 검색어 매칭 (버그 A/B 회귀)', () => {
+  it('빈 검색어 — 시장검색 결과(searchResults)는 무조건 노출', () => {
+    const input: RecommendationFilterInput = {
+      ...baseInput,
+      recommendations: [],
+      searchResults: [stock('A', { name: '에코프로' })],
+      searchQuery: '',
+    };
+    const r = computeRecommendationsDerived(input);
+    expect(r.filteredRecommendations).toHaveLength(1);
+  });
+
+  it('테마 검색 보존 — 검색어 == lastSearchedQuery 이면 이름에 검색어가 없어도 결과 노출', () => {
+    const input: RecommendationFilterInput = {
+      ...baseInput,
+      recommendations: [],
+      searchResults: [stock('A', { name: '에코프로' })],
+      searchQuery: '2차전지',
+      lastSearchedQuery: '2차전지',
+    };
+    const r = computeRecommendationsDerived(input);
+    expect(r.filteredRecommendations).toHaveLength(1);
+    expect(r.filteredRecommendations[0].name).toBe('에코프로');
+  });
+
+  it('타이핑 narrowing — 입력이 lastSearchedQuery 와 다르면 결과에도 텍스트 필터 적용', () => {
+    const input: RecommendationFilterInput = {
+      ...baseInput,
+      recommendations: [],
+      searchResults: [stock('A', { name: '에코프로' })],
+      searchQuery: '현대차',          // 사용자가 다른 검색어로 좁힘
+      lastSearchedQuery: '2차전지',   // 결과는 이전 검색어의 산출물
+    };
+    const r = computeRecommendationsDerived(input);
+    // 에코프로는 '현대차'를 포함하지 않으므로 더 이상 노출되지 않아야 함
+    expect(r.filteredRecommendations).toHaveLength(0);
+  });
+
+  it('타이핑 narrowing — 입력이 결과 이름에 부합하면 노출 유지', () => {
+    const input: RecommendationFilterInput = {
+      ...baseInput,
+      recommendations: [],
+      searchResults: [
+        stock('A', { name: '에코프로' }),
+        stock('B', { name: '에코프로비엠' }),
+      ],
+      searchQuery: '에코프로비엠',
+      lastSearchedQuery: '2차전지',
+    };
+    const r = computeRecommendationsDerived(input);
+    expect(r.filteredRecommendations.map((s) => s.name)).toEqual(['에코프로비엠']);
+  });
+
+  it('trim — 앞/뒤 공백이 있는 검색어도 이름 매칭', () => {
+    const input: RecommendationFilterInput = {
+      ...baseInput,
+      recommendations: [
+        stock('A', { name: '삼성전자' }),
+        stock('B', { name: 'SK하이닉스' }),
+      ],
+      searchQuery: '  삼성  ',
+    };
+    const r = computeRecommendationsDerived(input);
+    expect(r.filteredRecommendations).toHaveLength(1);
+    expect(r.filteredRecommendations[0].name).toBe('삼성전자');
+  });
+
+  it('trim — WATCHLIST 뷰에서도 공백 검색어 매칭', () => {
+    const input: RecommendationFilterInput = {
+      ...baseInput,
+      watchlist: [
+        stock('W1', { name: '삼성전자' }),
+        stock('W2', { name: 'LG화학' }),
+      ],
+      view: 'WATCHLIST',
+      searchQuery: ' LG ',
+    };
+    const r = computeRecommendationsDerived(input);
+    expect(r.displayList).toHaveLength(1);
+    expect(r.displayList[0].name).toBe('LG화학');
+  });
+});
+
 describe('useRecommendations — allPatterns 중복 제거', () => {
   it('recommendations 내 patterns 합집합', () => {
     const input: RecommendationFilterInput = {

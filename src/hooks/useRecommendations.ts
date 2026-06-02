@@ -25,6 +25,8 @@ export interface RecommendationFilterInput {
   selectedSentiment: string;
   selectedChecklist: string[];
   searchQuery: string;
+  /** 마지막 '시장 검색' 실행 검색어(trim). 미지정 시 '' 로 간주. */
+  lastSearchedQuery?: string;
   minPrice: string | number;
   maxPrice: string | number;
   sortBy: RecommendationSort;
@@ -46,11 +48,18 @@ function matchesFilters(
   const minP = typeof p.minPrice === 'string' ? (p.minPrice === '' ? 0 : parseInt(p.minPrice)) : p.minPrice;
   const maxP = typeof p.maxPrice === 'string' ? (p.maxPrice === '' ? Infinity : parseInt(p.maxPrice)) : p.maxPrice;
   const priceMatch = (stock.currentPrice ?? 0) >= minP && (stock.currentPrice ?? 0) <= maxP;
-  const queryLower = (p.searchQuery ?? '').toLowerCase();
+  // 검색어는 trim 후 비교 — 입력창 앞/뒤 공백("삼성전자 ")으로 매칭이 깨지던 버그 차단
+  // (AI 시장검색은 query.trim() 사용하던 것과 일관화).
+  const q = (p.searchQuery ?? '').trim();
+  const ql = q.toLowerCase();
   const nameLower = stock.name?.toLowerCase() ?? '';
-  const searchMatch = searchResultCodes.has(stock.code) || queryLower === '' ||
-    nameLower.includes(queryLower) ||
-    (stock.code?.includes(p.searchQuery) ?? false);
+  const matchesText = q === '' || nameLower.includes(ql) || (stock.code?.includes(q) ?? false);
+  // searchResults(시장검색 결과)는 '그 검색을 실행한 검색어' 그대로일 때만(또는 입력이 비었을 때만)
+  // 텍스트 매칭을 우회해 노출 — 테마 검색(이름에 검색어가 없는 결과)을 보존하면서도,
+  // 사용자가 입력창에 '다른' 검색어를 타이핑해 좁히면 결과에도 텍스트 필터가 적용되도록 한다.
+  const lastQ = (p.lastSearchedQuery ?? '').trim();
+  const isCurrentSearchResult = searchResultCodes.has(stock.code) && (q === '' || q === lastQ);
+  const searchMatch = isCurrentSearchResult || matchesText;
   return typeMatch && patternMatch && sentimentMatch && checklistMatch && searchMatch && priceMatch;
 }
 
@@ -80,43 +89,12 @@ export interface UseRecommendationsResult {
 }
 
 /**
- * 순수 파생 훅 — sideeffect 없음. 입력은 store 값의 스냅샷.
- * useQuantRecommendations 가 이 훅을 호출해 filteredRecommendations/displayList/
- * allPatterns 를 생성한다. 페이지 수준 재사용 시에도 직접 호출 가능.
+ * 단일 원장 — 필터/정렬/파생 리스트 계산의 SSOT. 사이드이펙트 없음.
+ * useRecommendations(훅)·computeRecommendationsDerived(테스트)·useQuantRecommendations
+ * 가 모두 이 함수를 거친다 — 과거 동일 로직이 3중 복제돼 searchMatch 규칙이 drift 하던
+ * 문제를 차단(한 곳만 고치면 전 경로 반영).
  */
-export function useRecommendations(input: RecommendationFilterInput): UseRecommendationsResult {
-  return useMemo(() => {
-    const searchResultCodes = new Set((input.searchResults || []).map((s) => s.code));
-    const pool = [...(input.recommendations || []), ...(input.searchResults || [])];
-    const filteredRecommendations = pool.filter((s) => matchesFilters(s, input, searchResultCodes));
-
-    const allPatterns = Array.from(
-      new Set((input.recommendations || []).flatMap((r) => r.patterns ?? [])),
-    );
-
-    let base: StockRecommendation[] = [];
-    if (input.view === 'DISCOVER') {
-      base = filteredRecommendations;
-    } else if (input.view === 'WATCHLIST') {
-      const query = (input.searchQuery ?? '').toLowerCase();
-      base = (input.watchlist || []).filter((s) =>
-        (s.name?.toLowerCase().includes(query) ?? false) ||
-        (s.code?.includes(input.searchQuery) ?? false),
-      );
-    }
-    const displayList = sortList(base, input.sortBy);
-
-    return { filteredRecommendations, displayList, allPatterns };
-  }, [
-    input.recommendations, input.searchResults, input.watchlist,
-    input.selectedType, input.selectedPattern, input.selectedSentiment,
-    input.selectedChecklist, input.searchQuery, input.minPrice, input.maxPrice,
-    input.sortBy, input.view,
-  ]);
-}
-
-/** 테스트 전용 — useMemo 없이 즉시 계산. */
-export function computeRecommendationsDerived(input: RecommendationFilterInput): UseRecommendationsResult {
+function deriveRecommendations(input: RecommendationFilterInput): UseRecommendationsResult {
   const searchResultCodes = new Set((input.searchResults || []).map((s) => s.code));
   const pool = [...(input.recommendations || []), ...(input.searchResults || [])];
   const filteredRecommendations = pool.filter((s) => matchesFilters(s, input, searchResultCodes));
@@ -129,13 +107,33 @@ export function computeRecommendationsDerived(input: RecommendationFilterInput):
   if (input.view === 'DISCOVER') {
     base = filteredRecommendations;
   } else if (input.view === 'WATCHLIST') {
-    const query = (input.searchQuery ?? '').toLowerCase();
+    const wq = (input.searchQuery ?? '').trim();
+    const wql = wq.toLowerCase();
     base = (input.watchlist || []).filter((s) =>
-      (s.name?.toLowerCase().includes(query) ?? false) ||
-      (s.code?.includes(input.searchQuery) ?? false),
+      (s.name?.toLowerCase().includes(wql) ?? false) ||
+      (s.code?.includes(wq) ?? false),
     );
   }
   const displayList = sortList(base, input.sortBy);
 
   return { filteredRecommendations, displayList, allPatterns };
+}
+
+/**
+ * 순수 파생 훅 — store 값 스냅샷을 입력받아 deriveRecommendations 를 useMemo 로 감싼다.
+ * useQuantRecommendations 가 이 훅을 호출한다.
+ */
+export function useRecommendations(input: RecommendationFilterInput): UseRecommendationsResult {
+  return useMemo(() => deriveRecommendations(input), [
+    input.recommendations, input.searchResults, input.watchlist,
+    input.selectedType, input.selectedPattern, input.selectedSentiment,
+    input.selectedChecklist, input.searchQuery, input.lastSearchedQuery,
+    input.minPrice, input.maxPrice,
+    input.sortBy, input.view,
+  ]);
+}
+
+/** 테스트 전용 — useMemo 없이 즉시 계산(동일 원장 deriveRecommendations 경유). */
+export function computeRecommendationsDerived(input: RecommendationFilterInput): UseRecommendationsResult {
+  return deriveRecommendations(input);
 }

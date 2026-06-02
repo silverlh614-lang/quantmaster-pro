@@ -21,6 +21,7 @@ export function useWatchlistFilters() {
 
   const handleResetScreen = () => {
     useRecommendationStore.getState().setSearchResults([]);
+    useRecommendationStore.getState().setLastSearchedQuery('');
     setSearchQuery('');
     setSelectedType('ALL');
     setSelectedPattern('ALL');
