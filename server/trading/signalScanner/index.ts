@@ -39,6 +39,10 @@ import { getSectorByCode } from '../../screener/sectorMap.js';
 import { injectPerSymbolPriceContext } from './injectPerSymbolPriceContext.js';
 import { injectPerSymbolDartContext } from './injectPerSymbolDartContext.js';
 import { collectUnifiedSnapshot } from '../symbolDataCollector.js';
+import {
+  summarizePerSymbolFreshness,
+  formatPerSymbolFreshnessSummary,
+} from './perSymbolFreshnessSummary.js';
 import { buildScanEvaluationId } from './state/scanEvaluationState.js';
 
 // ─── Feature flag: USE_UNIFIED_SOURCE_SNAPSHOT ───────────────────────────────
@@ -395,6 +399,21 @@ export async function runAutoSignalScan(
           err instanceof Error ? err.message : String(err),
         );
       }
+    }
+    // ADR-0557 Consumer Contract: per-symbol freshness(묶음0) 진단/관찰 전용 소비처.
+    // perSymbol 을 순회해 per-field freshness(DataHealth) 를 카운트로 노출만 한다 —
+    // gate 점수·permission·주문 영향 0(불변식 #5). 로그 실패가 scan 을 멈추면 안 되므로 격리(불변식 #1).
+    try {
+      const freshnessSummary = summarizePerSymbolFreshness(unifiedSnapshot?.perSymbol);
+      if (freshnessSummary.symbolsWithFreshness > 0) {
+        console.info(formatPerSymbolFreshnessSummary(freshnessSummary));
+      }
+    } catch (err) {
+      /* SDS-ignore: freshness 관찰 로그 실패는 매매를 멈추지 못한다(불변식 #1) — 관찰 전용. */
+      console.warn(
+        '[UNIFIED_SNAPSHOT_FRESHNESS] 요약 노출 실패; scan 무중단',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 
