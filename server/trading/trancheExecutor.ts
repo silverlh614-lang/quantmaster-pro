@@ -6,8 +6,7 @@ import { evaluateServerGate } from '../quantFilter.js';
 import { submitBuyOrder, fetchCurrentPrice, fetchAccountBalance } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from './fillMonitor.js';
-import { fetchYahooQuote } from '../screener/stockScreener.js';
-import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
+import { fetchTechnicalQuoteByCode } from '../screener/adapters/technicalQuoteRouter.js';
 import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
@@ -283,7 +282,7 @@ export class TrancheExecutor {
 
         // Gate 1 재검증: 시장 상황 변화 반영 (Yahoo Finance 기반 serverQuantFilter)
         // ADR-0231: KRX 마스터 기반 정확 매핑 → 1회 fetch + fallback.
-        const reCheckQuote = await fetchYahooQuoteByCode(t.stockCode, fetchYahooQuote);
+        const reCheckQuote = await fetchTechnicalQuoteByCode(t.stockCode);
         if (reCheckQuote) {
           const gate = evaluateServerGate(reCheckQuote, loadConditionWeights());
           if (gate.signalType === 'SKIP') {

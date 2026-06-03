@@ -62,15 +62,16 @@ function hasSsotImport(src: string): boolean {
 // ─── Static grep guards: 10 호출자 마이그레이션 정합 ─────────────────────────────
 
 describe('ADR-0443 정적 grep 가드 — 10 호출자 SSOT import 보유', () => {
+  // ADR-0561 ③ KIS-primary 마이그레이션: reportGenerator / stockPickReporter 는 grandfather
+  // burn-down 으로 fetchTechnicalQuoteByCode(code) router funnel 위임으로 치환됨(flag OFF byte-equiv).
+  // → 더 이상 yahooSymbolResolver SSOT 를 직접 import 하지 않으므로 본 SSOT-import 가드 대상에서 제외.
+  // ADR-0443 의도(직접 .KS/.KQ concat 부재 + SSOT 위임 보존)는 router 한 단계 아래에서 그대로 충족.
   const callers = [
     { name: 'historicalClosePrice.ts', path: 'server/clients/historicalClosePrice.ts', expectedSsot: 'tryGetYahooSymbol' },
     { name: 'backtestEngine.ts', path: 'server/learning/backtestEngine.ts', expectedSsot: 'tryGetYahooSymbol' },
     { name: 'lateWinEvaluator.ts', path: 'server/learning/lateWinEvaluator.ts', expectedSsot: 'tryGetYahooSymbol' },
-    { name: 'reportGenerator.ts', path: 'server/alerts/reportGenerator.ts', expectedSsot: 'fetchYahooQuoteByCode' },
-    { name: 'universeScanner.ts', path: 'server/screener/universeScanner.ts', expectedSsot: 'fetchYahooQuoteByCode' },
     { name: 'prefetchedContext.ts', path: 'server/ai/prefetchedContext.ts', expectedSsot: 'tryGetYahooSymbol' },
     { name: 'stockScreener.ts', path: 'server/screener/stockScreener.ts', expectedSsot: 'tryGetYahooSymbol' },
-    { name: 'stockPickReporter.ts', path: 'server/alerts/stockPickReporter.ts', expectedSsot: 'fetchYahooQuoteByCode' },
   ];
 
   for (const { name, path, expectedSsot } of callers) {
@@ -83,6 +84,23 @@ describe('ADR-0443 정적 grep 가드 — 10 호출자 SSOT import 보유', () =
     it(`${name}: ADR-0443 추적 주석 보유`, () => {
       const src = readSrc(path);
       expect(src).toMatch(/ADR-0443/);
+    });
+  }
+
+  // ADR-0561 router-위임 호출자: technicalQuoteRouter import + 직접 concat 부재 검증으로 대체.
+  for (const { name, path } of [
+    { name: 'reportGenerator.ts', path: 'server/alerts/reportGenerator.ts' },
+    { name: 'stockPickReporter.ts', path: 'server/alerts/stockPickReporter.ts' },
+  ]) {
+    it(`${name}: technicalQuoteRouter SSOT 위임 import 보유 (ADR-0561 burn-down)`, () => {
+      const src = readSrc(path);
+      expect(src).toMatch(/from\s+['"][^'"]*technicalQuoteRouter(?:\.js)?['"]/);
+      expect(src).toContain('fetchTechnicalQuoteByCode');
+    });
+
+    it(`${name}: 직접 \`\${code}.KS/.KQ\` concat 부재 (SSOT 위임 보존)`, () => {
+      const src = readSrc(path);
+      expect(hasDirectConcat(src)).toBe(false);
     });
   }
 
@@ -109,10 +127,11 @@ describe('ADR-0443 정적 grep 가드 — universeScanner.ts symbol 필드 격�
 });
 
 describe('ADR-0443 정적 grep 가드 — Category A 호출자 fetchYahooQuoteByCode 사용', () => {
-  it('reportGenerator.ts: fetchYahooQuoteByCode(w.code, fetchYahooQuote) 호출 보유', () => {
+  // ADR-0561 burn-down: reportGenerator 는 fetchTechnicalQuoteByCode(w.code) router funnel 위임으로 치환됨.
+  it('reportGenerator.ts: fetchTechnicalQuoteByCode(w.code) router 위임 호출 보유 (ADR-0561)', () => {
     const src = readSrc('server/alerts/reportGenerator.ts');
     const cleaned = stripComments(src);
-    expect(cleaned).toMatch(/fetchYahooQuoteByCode\s*\(\s*w\.code\s*,\s*fetchYahooQuote\s*\)/);
+    expect(cleaned).toMatch(/fetchTechnicalQuoteByCode\s*\(\s*w\.code\s*\)/);
   });
 
   it('universeScanner.ts: fetchYahooQuoteByCode(code, fetchYahooQuote) 호출 보유', () => {
@@ -136,7 +155,7 @@ describe('ADR-0443 정적 grep 가드 — Category A 호출자 fetchYahooQuoteBy
   });
 });
 
-describe('ADR-0443 정적 grep 가드 — Category B stockPickReporter 양쪽 호출 마이그레이션', () => {
+describe('ADR-0443/0561 정적 grep 가드 — Category B stockPickReporter 양쪽 호출 router 위임', () => {
   it('stockPickReporter.ts: 단일 fetchYahooQuote(`${entry.code}.KS`) 호출 0건 (양쪽 모두 마이그레이션)', () => {
     const src = readSrc('server/alerts/stockPickReporter.ts');
     const cleaned = stripComments(src);
@@ -144,10 +163,11 @@ describe('ADR-0443 정적 grep 가드 — Category B stockPickReporter 양쪽 �
     expect(cleaned).not.toMatch(/fetchYahooQuote\s*\(\s*`\$\{entry\.code\}\.KS`/);
   });
 
-  it('stockPickReporter.ts: fetchYahooQuoteByCode(entry.code, fetchYahooQuote) 호출 ≥2건 (양쪽 분기 모두)', () => {
+  // ADR-0561 burn-down: 양쪽 분기 모두 fetchTechnicalQuoteByCode(entry.code) router funnel 위임으로 치환됨.
+  it('stockPickReporter.ts: fetchTechnicalQuoteByCode(entry.code) router 위임 호출 ≥2건 (양쪽 분기 모두)', () => {
     const src = readSrc('server/alerts/stockPickReporter.ts');
     const cleaned = stripComments(src);
-    const matches = cleaned.match(/fetchYahooQuoteByCode\s*\(\s*entry\.code\s*,\s*fetchYahooQuote\s*\)/g) || [];
+    const matches = cleaned.match(/fetchTechnicalQuoteByCode\s*\(\s*entry\.code\s*\)/g) || [];
     expect(matches.length).toBeGreaterThanOrEqual(2);
   });
 });

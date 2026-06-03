@@ -29,8 +29,8 @@
 import { loadIntradayWatchlist, saveIntradayWatchlist, type IntradayWatchlistEntry } from '../persistence/intradayWatchlistRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { isBlacklisted } from '../persistence/blacklistRepo.js';
-import { fetchYahooQuote, getScreenerCache, STOCK_UNIVERSE } from './stockScreener.js';
-import { fetchYahooQuoteByCode } from './adapters/yahooSymbolResolver.js';
+import { getScreenerCache, STOCK_UNIVERSE } from './stockScreener.js';
+import { fetchTechnicalQuoteByCode } from './adapters/technicalQuoteRouter.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { isPullbackSetup } from './pipelineHelpers.js';
 import { getKstMarketElapsedMinutes, MORNING_VOLUME_DISCOUNT, MORNING_END_MINUTES } from '../trading/entryEngine.js';
@@ -270,7 +270,7 @@ async function discoverIntradayCandidates(): Promise<void> {
   for (const stock of candidates) {
     try {
       // ADR-0231/0502: code-based SSOT keeps KIS official price first, then Yahoo fallback.
-      const quote = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote).catch(() => null);
+      const quote = await fetchTechnicalQuoteByCode(stock.code).catch(() => null);
 
       if (!quote || quote.price <= 0) continue;
 
@@ -377,7 +377,7 @@ async function updateIntradayReadiness(): Promise<void> {
   for (const entry of intradayList) {
     try {
       // ADR-0231: KRX 마스터 기반 정확 매핑 → 1회 fetch + fallback.
-      const quote = await fetchYahooQuoteByCode(entry.code, fetchYahooQuote);
+      const quote = await fetchTechnicalQuoteByCode(entry.code);
 
       if (!quote || quote.price <= 0) continue;
 

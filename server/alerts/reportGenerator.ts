@@ -24,11 +24,10 @@ import { fetchCloses } from '../trading/marketDataRefresh.js';
 import { loadGlobalScanReport } from './globalScanAgent.js';
 import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { getFomcProximity } from '../trading/fomcCalendar.js';
-import { fetchYahooQuote } from '../screener/stockScreener.js';
-// ADR-0443 — yahooSymbolResolver SSOT 위임 — `${code}.KS ?? .KQ` brute-force
-// 패턴 영구 차단. fetchYahooQuoteByCode 가 마스터 매칭 + ADR-0241 sanity 회복
-// (한쪽 시장 STALE_BASE 응답 시 다른 시장 자동 fallback) 자연 적용.
-import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
+// ADR-0561 — technicalQuoteRouter SSOT 위임(byte-equiv funnel) — `${code}.KS ?? .KQ` brute-force
+// 패턴 영구 차단. flag OFF 시 fetchYahooQuoteByCode(code, fetchYahooQuote) funnel 그대로 위임
+// (마스터 매칭 + ADR-0241 sanity 회복: 한쪽 시장 STALE_BASE 시 다른 시장 자동 fallback).
+import { fetchTechnicalQuoteByCode } from '../screener/adapters/technicalQuoteRouter.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { loadAttributionRecords } from '../persistence/attributionRepo.js';
 import { analyzeAttribution } from '../learning/attributionAnalyzer.js';
@@ -540,7 +539,7 @@ function calculateWeeklyTotalPnlPct(closed: ServerShadowTrade[]): number {
 }
 
 type WatchlistBriefingEntry = ReturnType<typeof loadWatchlist>[number];
-type WatchlistBriefingQuote = NonNullable<Awaited<ReturnType<typeof fetchYahooQuoteByCode>>>;
+type WatchlistBriefingQuote = NonNullable<Awaited<ReturnType<typeof fetchTechnicalQuoteByCode>>>;
 
 const WATCHLIST_REGIME_EMOJI: Record<string, string> = {
   R1_TURBO: '🟢',
@@ -618,8 +617,8 @@ async function buildWatchlistBriefingItemLine(
     return `${focusMark}${w.name}  보유중 · 대기목록 제외\n`;
   }
 
-  // Yahoo 시세 조회하여 CS, Gap 판단 (ADR-0443: SSOT 위임, ADR-0241 sanity 자동).
-  const quote = await fetchYahooQuoteByCode(w.code, fetchYahooQuote).catch(() => null);
+  // 시세 조회하여 CS, Gap 판단 (ADR-0561: technicalQuoteRouter funnel 위임, ADR-0241 sanity 자동).
+  const quote = await fetchTechnicalQuoteByCode(w.code).catch(() => null);
   if (quote && quote.price > 0) {
     const focusMark = w.isFocus ? '★ ' : '• ';
     return `${focusMark}${w.name}  ${resolveWatchlistEntryStatus(w, quote)}\n`;

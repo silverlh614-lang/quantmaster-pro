@@ -64,21 +64,12 @@ const WHITELIST = new Set([
  */
 const GRANDFATHER_ALLOWLIST = new Map([
   ['server/screener/stockScreener.ts', { lines: [577], reason: 'MIGRATION_PENDING_ADR0561' }],
-  ['server/trading/buyPipeline.ts', { lines: [111], reason: 'MIGRATION_PENDING_ADR0561' }],
-  ['server/trading/dryRunScanner.ts', { lines: [224], reason: 'MIGRATION_PENDING_ADR0561' }],
-  ['server/trading/trancheExecutor.ts', { lines: [286], reason: 'MIGRATION_PENDING_ADR0561' }],
-  [
-    'server/trading/signalScanner/perSymbol/steps/preBreakoutAccumulation.ts',
-    { lines: [36], reason: 'MIGRATION_PENDING_ADR0561' },
-  ],
-  [
-    'server/trading/signalScanner/perSymbol/steps/kisIntradayCorrection.ts',
-    { lines: [50], reason: 'MIGRATION_PENDING_ADR0561' },
-  ],
-  ['server/screener/intradayScanner.ts', { lines: [273, 380], reason: 'MIGRATION_PENDING_ADR0561' }],
-  // shadowDataGate.ts: ADR-0547 R1 fetchTechnicalQuoteByCode 경유로 치환 완료(burn-down) — 항목 제거.
-  ['server/alerts/stockPickReporter.ts', { lines: [108, 179], reason: 'MIGRATION_PENDING_ADR0561' }],
-  ['server/alerts/reportGenerator.ts', { lines: [622], reason: 'MIGRATION_PENDING_ADR0561' }],
+  // ── burn-down 완료(ADR-0561 ③ KIS-primary 마이그레이션) — fetchTechnicalQuoteByCode 경유로 치환됨 ──
+  // shadowDataGate.ts: ADR-0547 R1 fetchTechnicalQuoteByCode 경유 치환 완료(직전 PR 7ccc8b2).
+  // buyPipeline.ts:111 · dryRunScanner.ts:224 · trancheExecutor.ts:286 ·
+  // preBreakoutAccumulation.ts:36 · kisIntradayCorrection.ts:50 · intradayScanner.ts:273/380 ·
+  // stockPickReporter.ts:108/179 · reportGenerator.ts:622 → flag OFF byte-equiv funnel 위임 치환 완료.
+  // 잔존 grandfather 1건(stockScreener.ts:577)은 별도 PR 처리.
 ]);
 
 function isCommentLine(line) {

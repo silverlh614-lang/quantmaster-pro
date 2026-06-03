@@ -12,8 +12,8 @@ import type {
 import type { ApprovalAction, BuyApprovalRequestResult } from '../telegram/buyApproval.js';
 import type { EnemyCheckResult } from '../clients/enemyCheckClient.js';
 import type { StopLossPlan } from './entryEngine.js';
-import { fetchYahooQuote, fetchKisQuoteFallback, type YahooQuoteExtended } from '../screener/stockScreener.js';
-import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
+import { fetchKisQuoteFallback, type YahooQuoteExtended } from '../screener/stockScreener.js';
+import { fetchTechnicalQuoteByCode } from '../screener/adapters/technicalQuoteRouter.js';
 import { fetchKisInvestorTradeByStockDaily } from '../clients/kisClient.js';
 import type { KisInvestorTradeByStockDaily } from '../clients/kisClient/types.js';
 import { resolveDartFinancialsForEvaluation } from './gate2/gate2DartCanonicalSlot.js';
@@ -108,7 +108,7 @@ export async function fetchGateData(
   dartSlot?: SymbolDartFinancialsSlot | null,
 ): Promise<GateData> {
   const weights = conditionWeights ?? loadConditionWeights();
-  const quote = await fetchYahooQuoteByCode(stockCode, fetchYahooQuote)
+  const quote = await fetchTechnicalQuoteByCode(stockCode)
              ?? await fetchKisQuoteFallback(stockCode).catch(() => null);
 
   if (!quote) return { quote: null, gate: null, kisFlow: null };

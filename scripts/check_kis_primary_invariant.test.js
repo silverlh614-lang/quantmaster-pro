@@ -150,12 +150,13 @@ describe('check_kis_primary_invariant guard', () => {
     expect(isCallLine('  fetchYahooQuote(x);', 'fetchYahooQuote')).toBe(true);
   });
 
-  it('(f) registry shape: ~10 grandfather files, patterns + whitelist non-empty', () => {
+  it('(f) registry shape: grandfather burn-down to 1 file, patterns + whitelist non-empty', () => {
     expect(YAHOO_PRIMARY_PATTERNS).toContain('fetchYahooQuoteByCode');
     expect(YAHOO_PRIMARY_PATTERNS).toContain('fetchYahooQuote');
     expect(WHITELIST.size).toBeGreaterThanOrEqual(3);
-    // ADR-0561 가드 사양 §3 — burn-down 진행: shadowDataGate.ts 치환 완료(ADR-0547 R1) → 9 파일 잔존.
-    expect(GRANDFATHER_ALLOWLIST.size).toBeGreaterThanOrEqual(9);
+    // ADR-0561 가드 사양 §3 — burn-down 완료: 저위험 grandfather 일괄 치환(③ KIS-primary
+    // 마이그레이션) → stockScreener.ts:577 1건만 잔존(별도 PR 처리).
+    expect(GRANDFATHER_ALLOWLIST.size).toBeGreaterThanOrEqual(1);
     for (const [, meta] of GRANDFATHER_ALLOWLIST) {
       expect(meta.reason).toBe('MIGRATION_PENDING_ADR0561');
       expect(Array.isArray(meta.lines)).toBe(true);

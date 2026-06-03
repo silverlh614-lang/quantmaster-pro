@@ -3,14 +3,14 @@
  */
 
 import type { WatchlistEntry } from '../../../../persistence/watchlistRepo.js';
-import { fetchKisQuoteFallback, fetchYahooQuote } from '../../../../screener/stockScreener.js';
-import { fetchYahooQuoteByCode } from '../../../../screener/adapters/yahooSymbolResolver.js';
+import { fetchKisQuoteFallback } from '../../../../screener/stockScreener.js';
+import { fetchTechnicalQuoteByCode } from '../../../../screener/adapters/technicalQuoteRouter.js';
 import { logNoiseDetail } from '../../../../utils/logger.js';
 import { detectPreBreakoutAccumulation } from '../../../preBreakoutAccumulationDetector.js';
 import type { BuyListLoopContext } from '../types.js';
 
 export type PreBreakoutAccumulationQuote =
-  | NonNullable<Awaited<ReturnType<typeof fetchYahooQuoteByCode>>>
+  | NonNullable<Awaited<ReturnType<typeof fetchTechnicalQuoteByCode>>>
   | NonNullable<Awaited<ReturnType<typeof fetchKisQuoteFallback>>>;
 
 export interface PreBreakoutAccumulationDetected {
@@ -33,7 +33,7 @@ export async function detectPreBreakoutAccumulationStep(
       `actionable=false executionImpact=NONE telegram=false`,
   });
 
-  const quote = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote)
+  const quote = await fetchTechnicalQuoteByCode(stock.code)
     ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
   if (
     quote == null ||

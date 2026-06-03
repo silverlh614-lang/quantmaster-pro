@@ -6,8 +6,8 @@ import { fetchKisInvestorTradeByStockDaily } from '../../../../clients/kisClient
 import { applySupplyProviderHealthFromKisFlow } from '../../../../clients/kisClient/investorFlowSupplyHealthBridge.js';
 import { resolveDartFinancialsForEvaluation } from '../../../gate2/gate2DartCanonicalSlot.js';
 import { readCandidateDartSlot } from '../../injectPerSymbolDartContext.js';
-import { fetchYahooQuote, fetchKisQuoteFallback, enrichQuoteWithKisMTAS } from '../../../../screener/stockScreener.js';
-import { fetchYahooQuoteByCode } from '../../../../screener/adapters/yahooSymbolResolver.js';
+import { fetchKisQuoteFallback, enrichQuoteWithKisMTAS } from '../../../../screener/stockScreener.js';
+import { fetchTechnicalQuoteByCode } from '../../../../screener/adapters/technicalQuoteRouter.js';
 import type { WatchlistEntry } from '../../../../persistence/watchlistRepo.js';
 import { recordNearMissOutcome } from '../../../../persistence/nearMissOutcomeLedger.js';
 import { loadGateReclassificationApprovalPlan } from '../../../../learning/gateReclassificationApprovalPlan.js';
@@ -47,7 +47,7 @@ export async function kisIntradayCorrectionStep(
   stock: WatchlistEntry,
   currentPrice: number,
 ): Promise<KisIntradayCorrectionResult> {
-  const reCheckQuoteRaw = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote)
+  const reCheckQuoteRaw = await fetchTechnicalQuoteByCode(stock.code)
                        ?? await fetchKisQuoteFallback(stock.code).catch(() => null);
   const reCheckQuote = reCheckQuoteRaw
     ? await enrichQuoteWithKisMTAS(reCheckQuoteRaw, stock.code)

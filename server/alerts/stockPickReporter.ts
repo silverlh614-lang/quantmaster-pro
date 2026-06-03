@@ -18,11 +18,10 @@
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
-import { fetchYahooQuote } from '../screener/stockScreener.js';
-// ADR-0443 — yahooSymbolResolver SSOT 위임 — `${entry.code}.KS` direct concat
-// 영구 차단. fetchYahooQuoteByCode 가 마스터 매칭 + 양 시장 fallback +
-// ADR-0241 sanity 회복 자연 적용 (기존 단일 .KS 시도 → 양 시장 fallback 격상).
-import { fetchYahooQuoteByCode } from '../screener/adapters/yahooSymbolResolver.js';
+// ADR-0561 — technicalQuoteRouter SSOT 위임(byte-equiv funnel) — `${entry.code}.KS` direct concat
+// 영구 차단. flag OFF 시 fetchYahooQuoteByCode(code, fetchYahooQuote) funnel 그대로 위임
+// (마스터 매칭 + 양 시장 fallback + ADR-0241 sanity 회복 자연 적용).
+import { fetchTechnicalQuoteByCode } from '../screener/adapters/technicalQuoteRouter.js';
 import {
   detectPreBreakoutAccumulation,
   type PreBreakoutInput,
@@ -104,8 +103,8 @@ export async function generateDailyPickReport(): Promise<void> {
 
     for (const entry of trackBEntries) {
       try {
-        // ADR-0443 — SSOT 위임 (마스터 매칭 + 양 시장 fallback + ADR-0241 sanity 자동).
-        const quote = await fetchYahooQuoteByCode(entry.code, fetchYahooQuote);
+        // ADR-0561 — technicalQuoteRouter funnel 위임 (마스터 매칭 + 양 시장 fallback + ADR-0241 sanity 자동).
+        const quote = await fetchTechnicalQuoteByCode(entry.code);
         if (!quote) continue;
         // 거래정지/관리종목/zero-volume 위험 종목은 픽에서 제외 (사용자 피해 방지)
         if (quote.isHighRisk) {
@@ -175,8 +174,8 @@ export async function generateDailyPickReport(): Promise<void> {
 
   for (const entry of notYetTriggered) {
     try {
-      // ADR-0443 — SSOT 위임 (마스터 매칭 + 양 시장 fallback + ADR-0241 sanity 자동).
-      const quote = await fetchYahooQuoteByCode(entry.code, fetchYahooQuote);
+      // ADR-0561 — technicalQuoteRouter funnel 위임 (마스터 매칭 + 양 시장 fallback + ADR-0241 sanity 자동).
+      const quote = await fetchTechnicalQuoteByCode(entry.code);
       if (!quote) continue;
       if (quote.isHighRisk) {
         console.log(`[PickReport] ⏭️ 위험 종목 제외(미리 살): ${entry.name}(${entry.code})`);
