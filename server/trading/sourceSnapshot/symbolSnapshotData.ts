@@ -23,6 +23,8 @@ import type {
 } from '../../clients/kisClient/index.js';
 // ADR-0529: DART 재무 정본 슬롯 payload 는 기존 Gate2 평가 타입을 재사용한다 (별도 정본 타입 신설 0).
 import type { Gate2DartEvaluationFinancials } from '../gate2/gate2ExternalDataProvider/types.js';
+// ADR-0556 D2: per-field freshness 의 공통 어휘는 신규 enum 신설 없이 기존 DataHealth(SSOT) 재사용.
+import type { DataHealth } from '../../../src/types/shadowCase.js';
 
 // ─── 수집 품질 등급 ──────────────────────────────────────────────────────────
 
@@ -130,6 +132,39 @@ export interface SymbolDartFinancialsSlot {
   fetchedAt: string;   // 슬롯 채움 시각 (ISO 8601) — DART 공시일이 아닌 정본 read 시각
 }
 
+// ─── per-field freshness 통합 (ADR-0556 묶음0, DataHealth 공통 어휘) ──────────
+
+/**
+ * ADR-0556 D2/D4: factory 의 필드별 freshness/providerIssue 통합 산출.
+ *
+ * 신규 enum 신설 0 — 공통 어휘는 기존 `DataHealth`(src/types/shadowCase.ts:29) SSOT 를 재사용한다.
+ * 각 도메인 내부 freshness(`SymbolSupplySignal.providerHealth`/`SymbolDataQuality`/
+ * `SymbolDartCadence`)는 그대로 보존되고, 본 요약은 그것을 `DataHealth` 로 *매핑*한 표시/요약 등급이다.
+ *
+ * 불변식 #6 (provider 장애 ≠ market signal): 어떤 필드가 providerIssue 라도 `marketSignal` 은
+ * 항상 false 다. providerHealth 메타는 데이터이지 시장(약세) 신호가 아니다
+ * (`executionPermissionResolver.ts:208 providerIssueIsolated` 패턴 보존).
+ */
+export interface SymbolFieldFreshness {
+  /** 필드별 freshness 등급 (DataHealth 매핑). 부재 필드는 'MISSING'. */
+  quote: DataHealth;
+  technicalIndicators: DataHealth;
+  supply: DataHealth;
+  dartFinancials: DataHealth;
+
+  /**
+   * 한 개 이상의 필드가 STALE/MISSING/DEGRADED 로 격리되었는지 여부.
+   * true 여도 marketSignal 은 변환되지 않는다 (불변식 #6).
+   */
+  providerIssue: boolean;
+
+  /**
+   * 불변식 #6 격리 surface — 항상 false.
+   * provider 장애(providerIssue=true)를 약세(bearish) market signal 로 변환 금지.
+   */
+  marketSignal: false;
+}
+
 // ─── 종목 단위 수집 결과 컨테이너 (최상위 타입) ──────────────────────────────
 
 /**
@@ -158,6 +193,13 @@ export interface SymbolSnapshotData {
 
   // DART 재무 정본 슬롯 (L2, 분기 cadence — ADR-0529). null/미지정 = 정본 미수집 → Gate fallback.
   dartFinancials?: SymbolDartFinancialsSlot | null;
+
+  /**
+   * ADR-0556 묶음0: 필드별 freshness/providerIssue 통합 요약 (DataHealth 공통 어휘).
+   * USE_UNIFIED_SOURCE_SNAPSHOT flag ON 경로에서만 산출 — flag OFF 시 undefined (byte-equivalent).
+   * 각 도메인 내부 freshness enum 은 보존되며, 본 필드는 그 매핑 표시/요약일 뿐이다.
+   */
+  freshness?: SymbolFieldFreshness;
 
   // 수집 메타
   dataQuality: SymbolDataQuality;

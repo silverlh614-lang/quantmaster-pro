@@ -40,7 +40,9 @@ import type {
   SymbolSupplySignal,
   SymbolDataQuality,
   SymbolDartFinancialsSlot,
+  SymbolFieldFreshness,
 } from './sourceSnapshot/symbolSnapshotData.js';
+import type { DataHealth } from '../../src/types/shadowCase.js';
 // ADR-0529: DART 정본 슬롯은 기존 cache-first 통로 위임만 — 새 DART HTTP fetch 신설 0.
 import { buildSymbolDartFinancialsSlot } from './gate2/gate2DartCanonicalSlot.js';
 
@@ -248,6 +250,82 @@ function assessDataQuality(data: {
   return 'MINIMAL';
 }
 
+// ─── per-field freshness 통합 (ADR-0556 묶음0) ───────────────────────────────
+
+/**
+ * ADR-0556 D2: per-field freshness 의 공통 어휘는 신규 enum 신설 없이 `DataHealth` SSOT 재사용.
+ * 본 함수들은 도메인별 freshness 를 `DataHealth` 로 *매핑*만 하며 새 등급을 만들지 않는다.
+ */
+function quoteFreshness(quote: KisStockFullQuote | null): DataHealth {
+  if (quote === null) return 'MISSING';
+  // currentPrice 가 유효하면 VERIFIED, 일부 필드만 결손이면 DEGRADED.
+  if (quote.currentPrice === null) return 'MISSING';
+  if (quote.prevClose === null || quote.volume === null) return 'DEGRADED';
+  return 'VERIFIED';
+}
+
+function technicalsFreshness(ti: SymbolTechnicalIndicators | null): DataHealth {
+  if (ti === null) return 'MISSING';
+  // MA20 산출 가능하면 VERIFIED, 일부 지표만 계산되면 DEGRADED.
+  if (ti.ma20 === null && ti.return20d === null) return 'MISSING';
+  if (ti.ma60 === null || ti.return20d === null) return 'DEGRADED';
+  return 'VERIFIED';
+}
+
+/** SymbolSupplySignal.providerHealth(도메인 enum) → DataHealth(공통 어휘) 매핑. */
+function supplyFreshness(supply: SymbolSupplySignal | null): DataHealth {
+  if (supply === null) return 'MISSING';
+  switch (supply.providerHealth) {
+    case 'VERIFIED':
+      return 'VERIFIED';
+    case 'DEGRADED':
+      return 'DEGRADED';
+    case 'STALE':
+      return 'STALE';
+    case 'MISSING':
+    default:
+      return 'MISSING';
+  }
+}
+
+/** SymbolDartCadence(L2 분기 cadence) → DataHealth 매핑. cadence 메타는 슬롯에 보존(ADR-0529). */
+function dartFreshness(slot: SymbolDartFinancialsSlot | null | undefined): DataHealth {
+  if (!slot || slot.financials === null) return 'MISSING';
+  // QUARTERLY_CACHED 정본 hit — L1 intraday 가 아니라 L2 분기 cadence 임을 STALE 로 표기하지 않는다.
+  // cadence 구분은 slot.cadence 가 보존하므로 여기서는 정본 확보=VERIFIED 로 매핑한다.
+  return slot.cadence === 'QUARTERLY_CACHED' ? 'VERIFIED' : 'MISSING';
+}
+
+/**
+ * ADR-0556 D4: 필드별 freshness/providerIssue 를 통합 산출한다.
+ * quote/technicals/supply/dart 어느 하나라도 VERIFIED 가 아니면 providerIssue=true.
+ * 불변식 #6: providerIssue 여도 marketSignal 은 항상 false (provider 장애 ≠ 약세 신호).
+ */
+function deriveFieldFreshness(parts: {
+  quote: KisStockFullQuote | null;
+  technicalIndicators: SymbolTechnicalIndicators | null;
+  supplySignal: SymbolSupplySignal | null;
+  dartFinancials: SymbolDartFinancialsSlot | null | undefined;
+}): SymbolFieldFreshness {
+  const quote = quoteFreshness(parts.quote);
+  const technicalIndicators = technicalsFreshness(parts.technicalIndicators);
+  const supply = supplyFreshness(parts.supplySignal);
+  const dartFinancials = dartFreshness(parts.dartFinancials);
+
+  const providerIssue = [quote, technicalIndicators, supply, dartFinancials].some(
+    (h) => h !== 'VERIFIED',
+  );
+
+  return {
+    quote,
+    technicalIndicators,
+    supply,
+    dartFinancials,
+    providerIssue,
+    marketSignal: false, // 불변식 #6 — provider 장애를 약세 신호로 변환 금지 (격리 surface)
+  };
+}
+
 // ─── per-symbol 수집 ─────────────────────────────────────────────────────────
 
 /**
@@ -317,6 +395,15 @@ async function collectSymbolData(code: string, krxEntry?: StockMasterEntry): Pro
   const supplySignal = deriveSupplySignal(flow);
   const dataQuality = assessDataQuality({ quote, flow, bars, program });
 
+  // ADR-0556 묶음0: 필드별 freshness/providerIssue 통합 요약 (DataHealth 공통 어휘).
+  // flag ON 경로(collectUnifiedSnapshot)에서만 산출 — 도메인 enum 은 보존, 본 필드는 매핑 요약일 뿐.
+  const freshness = deriveFieldFreshness({
+    quote,
+    technicalIndicators,
+    supplySignal,
+    dartFinancials,
+  });
+
   const resolvedMarket =
     krxEntry && krxEntry.market !== 'OTHER' ? krxEntry.market : 'KOSPI';
 
@@ -331,6 +418,7 @@ async function collectSymbolData(code: string, krxEntry?: StockMasterEntry): Pro
     technicalIndicators,
     supplySignal,
     dartFinancials,
+    freshness,
     dataQuality,
     fetchedAt,
     fetchDurationMs,
@@ -508,6 +596,13 @@ export async function collectUnifiedSnapshot(
         technicalIndicators: null,
         supplySignal: null,
         dartFinancials: null,   // ADR-0529: MISSING 종목은 정본 슬롯도 미수집 → read site fallback.
+        // ADR-0556 묶음0: 전 필드 실패 종목도 throw 없이 freshness 격리 surface 로 반환 (불변식 #1·#6).
+        freshness: deriveFieldFreshness({
+          quote: null,
+          technicalIndicators: null,
+          supplySignal: null,
+          dartFinancials: null,
+        }),
         dataQuality: 'MISSING',
         fetchedAt: new Date().toISOString(),
         fetchDurationMs: 0,
