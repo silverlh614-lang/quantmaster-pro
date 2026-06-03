@@ -164,7 +164,6 @@ describe('check_kis_primary_invariant guard (ADR-0562 확장)', () => {
   it('(d2) ADR-0562 C category grandfather entries are present', () => {
     expect(GRANDFATHER_ALLOWLIST.has('server/learning/lateWinEvaluator.ts')).toBe(true); // C2
     expect(GRANDFATHER_ALLOWLIST.has('server/clients/historicalClosePrice.ts')).toBe(true); // C2
-    expect(GRANDFATHER_ALLOWLIST.has('server/clients/koreanQuoteBridge.ts')).toBe(true); // C3
     expect(GRANDFATHER_ALLOWLIST.has('server/screener/sectorSources.ts')).toBe(true); // C5
     expect(GRANDFATHER_ALLOWLIST.has('server/alerts/reportGenerator.ts')).toBe(true); // C3/C4
     expect(GRANDFATHER_ALLOWLIST.has('server/trading/marketDataRefresh.ts')).toBe(true); // C4
@@ -176,6 +175,12 @@ describe('check_kis_primary_invariant guard (ADR-0562 확장)', () => {
     expect(GRANDFATHER_ALLOWLIST.has('server/trading/exitEngine/helpers/ma60.ts')).toBe(false);
     // 라우터(KIS-first, Yahoo fallback 합법)는 WHITELIST 로 분류 — R1 동형.
     expect(WHITELIST.has('server/trading/exitEngine/helpers/closeSeriesProvider.ts')).toBe(true);
+  });
+
+  it('(d4) ADR-0564 koreanQuoteBridge KIS 2차 삽입: grandfather 제거 + WHITELIST 승격', () => {
+    // KRX→KIS→Yahoo 3단(flag-gated) → Yahoo 최후 fallback 강등 → grandfather 에서 제거(burn-down #1).
+    expect(GRANDFATHER_ALLOWLIST.has('server/clients/koreanQuoteBridge.ts')).toBe(false);
+    expect(WHITELIST.has('server/clients/koreanQuoteBridge.ts')).toBe(true);
   });
 
   // ── (e) false positive 0 ──

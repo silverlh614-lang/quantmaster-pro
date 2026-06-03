@@ -13,6 +13,7 @@ const ORIG_FETCH = globalThis.fetch;
 const BASE_ENV = {
   KRX_OPENAPI_AUTH_KEY: process.env.KRX_OPENAPI_AUTH_KEY,
   KRX_OPENAPI_DISABLED: process.env.KRX_OPENAPI_DISABLED,
+  KIS_OHLCV_PRIMARY_ENABLED: process.env.KIS_OHLCV_PRIMARY_ENABLED,
 };
 
 function krxKospiResponse(code: string, close: number) {
@@ -91,6 +92,8 @@ describe('koreanQuoteBridge — KRX 우선·Yahoo 폴백', () => {
   beforeEach(() => {
     process.env.KRX_OPENAPI_AUTH_KEY = 'test-key';
     delete process.env.KRX_OPENAPI_DISABLED;
+    // ADR-0564: KIS 2차 삽입 flag 기본 OFF — 기존 테스트(KRX→Yahoo)는 byte-equal 경로.
+    delete process.env.KIS_OHLCV_PRIMARY_ENABLED;
     // PR-29 EgressGuard 가 KR 심볼·장외에서 outbound 를 차단하므로 본 테스트는 우회.
     // 본 테스트는 KRX/Yahoo 분기 로직 자체를 검증하며 시장시간과 무관하다.
     process.env.EGRESS_GUARD_DISABLED = 'true';
@@ -100,6 +103,9 @@ describe('koreanQuoteBridge — KRX 우선·Yahoo 폴백', () => {
     globalThis.fetch = ORIG_FETCH;
     process.env.KRX_OPENAPI_AUTH_KEY = BASE_ENV.KRX_OPENAPI_AUTH_KEY;
     process.env.KRX_OPENAPI_DISABLED = BASE_ENV.KRX_OPENAPI_DISABLED;
+    if (BASE_ENV.KIS_OHLCV_PRIMARY_ENABLED === undefined) delete process.env.KIS_OHLCV_PRIMARY_ENABLED;
+    else process.env.KIS_OHLCV_PRIMARY_ENABLED = BASE_ENV.KIS_OHLCV_PRIMARY_ENABLED;
+    vi.doUnmock('../screener/kisChartDataFetcher.js');
     if (ORIG_EGRESS_DISABLED === undefined) delete process.env.EGRESS_GUARD_DISABLED;
     else process.env.EGRESS_GUARD_DISABLED = ORIG_EGRESS_DISABLED;
     vi.restoreAllMocks();
@@ -170,6 +176,63 @@ describe('koreanQuoteBridge — KRX 우선·Yahoo 폴백', () => {
     const quote = await fetchKoreanDailyQuote('005930');
     expect(quote.source).toBe('none');
     expect(quote.close).toBe(0);
+  });
+
+  it('[ADR-0564] flag OFF(default): KRX 실패 시 KIS 건너뛰고 Yahoo (byte-equal)', async () => {
+    process.env.KRX_OPENAPI_DISABLED = 'true';
+    // flag OFF 면 fetchFromKis 블록이 skip 되어야 함 — KIS 가 호출되면 테스트 실패.
+    vi.resetModules();
+    vi.doMock('../screener/kisChartDataFetcher.js', () => ({
+      fetchKisDailyCandles: vi.fn(async () => {
+        throw new Error('flag OFF 인데 KIS 가 호출됨 — byte-equal 위반');
+      }),
+    }));
+    globalThis.fetch = buildFetchMock(async (url) => {
+      if (url.includes('query') && url.includes('005930.KS')) {
+        return { ok: true, status: 200, json: yahooChartResponse('005930.KS', 71000) };
+      }
+      return { ok: false, status: 404 };
+    }) as unknown as typeof fetch;
+
+    const krx = await import('./krxOpenApi.js');
+    krx._resetKrxOpenApiBreaker();
+    krx.resetKrxOpenApiCache();
+    const { fetchKoreanDailyQuote } = await import('./koreanQuoteBridge.js');
+
+    const quote = await fetchKoreanDailyQuote('005930');
+    expect(quote.source).toBe('yahoo'); // KIS skip → 기존 Yahoo 경로(byte-equal)
+    expect(quote.close).toBe(71000);
+  });
+
+  it('[ADR-0564] flag ON: KRX 실패 시 KIS 일봉 2차 → source=kis (Yahoo 앞 강등)', async () => {
+    process.env.KIS_OHLCV_PRIMARY_ENABLED = 'true';
+    process.env.KRX_OPENAPI_DISABLED = 'true';
+    vi.resetModules();
+    const kisMock = vi.fn(async () => [
+      { date: '20260416', open: 70000, high: 71000, low: 69500, close: 70500, volume: 111 },
+      { date: '20260417', open: 70500, high: 72000, low: 70000, close: 71800, volume: 222 },
+    ]);
+    vi.doMock('../screener/kisChartDataFetcher.js', () => ({ fetchKisDailyCandles: kisMock }));
+    // Yahoo 가 호출되면(잘못) 다른 close 값 — KIS 가 먼저 성공해야 하므로 미사용 기대.
+    globalThis.fetch = buildFetchMock(async (url) => {
+      if (url.includes('query')) {
+        return { ok: true, status: 200, json: yahooChartResponse('005930.KS', 99999) };
+      }
+      return { ok: false, status: 404 };
+    }) as unknown as typeof fetch;
+
+    const krx = await import('./krxOpenApi.js');
+    krx._resetKrxOpenApiBreaker();
+    krx.resetKrxOpenApiCache();
+    const { fetchKoreanDailyQuote } = await import('./koreanQuoteBridge.js');
+
+    const quote = await fetchKoreanDailyQuote('005930');
+    expect(quote.source).toBe('kis');
+    expect(quote.close).toBe(71800); // 최신(과거→최신 정렬 마지막) 캔들
+    expect(quote.open).toBe(70500);
+    expect(quote.high).toBe(72000);
+    expect(quote.baseDate).toBe('20260417');
+    expect(kisMock).toHaveBeenCalled();
   });
 
   it('지수: KOSPI alias → KRX 인증 엔드포인트 우선', async () => {

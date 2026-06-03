@@ -30,7 +30,7 @@ import {
 import { guardedFetch } from '../utils/egressGuard.js';
 import { safePctChange } from '../utils/safePctChange.js';
 
-export type QuoteSource = 'krx-openapi' | 'yahoo' | 'none';
+export type QuoteSource = 'krx-openapi' | 'kis' | 'yahoo' | 'none';
 
 export interface KoreanDailyQuote {
   code: string;           // 6자리 종목코드 (지수는 지수명)
@@ -80,11 +80,56 @@ export async function fetchKoreanDailyQuote(code: string): Promise<KoreanDailyQu
     if (krxQuote) return krxQuote;
   }
 
+  // KIS(L1) 2차 (ADR-0564) — KRX 불가 시 Yahoo 앞에서 KIS 일봉(FHKST03010100) 시도해
+  // Yahoo 를 진짜 최후 fallback 으로 강등(절대불변식 ADR-0561). flag OFF default = 블록 skip = byte-equal.
+  if (process.env.KIS_OHLCV_PRIMARY_ENABLED === 'true') {
+    const kisQuote = await fetchFromKis(cleanCode);
+    if (kisQuote) return kisQuote;
+  }
+
   // 폴백: Yahoo. 한국 주식은 .KS(유가증권)·.KQ(코스닥) 접미사 둘 다 시도.
   const yahooQuote = await fetchFromYahoo(cleanCode);
   if (yahooQuote) return yahooQuote;
 
   return emptyQuote(cleanCode);
+}
+
+/**
+ * KIS(L1) 일봉 2차 소스 (ADR-0564) — KRX 실패 시 Yahoo 앞에서 시도.
+ * fetchKisDailyCandles(과거→최신 정렬, closeSeriesProvider 동형) 최신 캔들로 KoreanDailyQuote 구성.
+ * 캔들 0개/close≤0 → null(상위가 Yahoo 로 graceful, 불변식 #6). name 은 KIS 차트 미제공 → ''.
+ *
+ * lazy import — flag ON(이 함수 진입) 시에만 screener kisChartDataFetcher 그래프를 로드한다.
+ * flag OFF 경로(기본)는 본 모듈을 import 하지 않아 import 그래프까지 byte-equal(eager 로드 0).
+ */
+async function fetchFromKis(code: string): Promise<KoreanDailyQuote | null> {
+  const { fetchKisDailyCandles } = await import('../screener/kisChartDataFetcher.js');
+  const candles = await fetchKisDailyCandles(code, 12).catch(() => []);
+  if (candles.length === 0) return null;
+  const latest = candles[candles.length - 1];
+  if (!(latest.close > 0)) return null;
+  const prev = candles.length >= 2 ? candles[candles.length - 2] : null;
+  const change = prev ? parseFloat((latest.close - prev.close).toFixed(4)) : 0;
+  const changePct =
+    prev && prev.close !== 0
+      ? parseFloat(
+          (safePctChange(latest.close, prev.close, { label: 'koreanQuoteBridge.kis.changePct' }) ?? 0).toFixed(4),
+        )
+      : 0;
+  return {
+    code,
+    name: '',
+    close: latest.close,
+    open: latest.open,
+    high: latest.high,
+    low: latest.low,
+    volume: latest.volume ?? 0,
+    change,
+    changePct,
+    baseDate: latest.date,
+    source: 'kis',
+    fetchedAt: isoNow(),
+  };
 }
 
 async function fetchFromKrx(code: string): Promise<KoreanDailyQuote | null> {
