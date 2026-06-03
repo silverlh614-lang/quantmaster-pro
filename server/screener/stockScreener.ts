@@ -51,6 +51,9 @@ import { tryGetYahooSymbol } from './adapters/yahooSymbolResolver.js';
 // flag OFF(KIS_OHLCV_PRIMARY_ENABLED!=='true') 시 fetchYahooQuoteByCode(code, fetchYahooQuote)
 // funnel 로 byte-equivalent 위임(R1, technicalQuoteRouter). flag ON(④)에서만 KIS 일봉 1차.
 import { fetchTechnicalQuoteByCode } from './adapters/technicalQuoteRouter.js';
+// ④ 프로덕션 shadow A/B 계측 — flag KIS_SHADOW_AB_ENABLED OFF(default) 시 dormant(KIS 신규호출 0).
+// top-N survivor 에 KIS-first Gate quote 병행평가·델타 로깅 only — 결정 미반영(executionImpact NONE, 불변식 #8).
+import { ShadowAbCollector } from './shadowAbInstrumentation.js';
 // ADR-0128 §Wiring 1B: 워치리스트 신규 후보 incremental 검증 (WATCHLIST role).
 // 워치리스트 등록 자체는 차단 금지 — alert 보류 + UI 마킹만 영향 (markDataQuarantine).
 import { verifyStockIncremental } from '../data/dataVerificationIncremental.js';
@@ -552,6 +555,8 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
     (screenerSymbols.length > 0 ? ' (KIS 스크리너 캐시 기반)' : ' (정적 유니버스 폴백)') +
     ` | 프리셋: ${preset.phase} (${preset.label})`,
   );
+  // ④ shadow A/B 계측 버퍼(스캔 1회 단위). flag OFF면 add/flush 모두 no-op(dormant, KIS호출 0).
+  const shadowAb = new ShadowAbCollector();
   for (const stock of scanUniverse) {
     if (existingCodes.has(stock.code)) continue;
     if (isYahooStaleQuarantined(stock.code)) {
@@ -691,6 +696,17 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
     };
     const gate = evaluateServerGate(enrichedQuote, presetWeights, macroState?.kospi20dReturn, null, null, regime);
 
+    // ④ shadow A/B 계측 — gate(Yahoo 경로) 결과를 *읽기만* 하여 버퍼에 등재(결정 미반영).
+    // flag OFF면 add() 즉시 no-op(dormant) → byte-equivalent. top-N 선별·KIS dual-eval 은 루프 후 flush.
+    shadowAb.add({
+      code: stock.code,
+      name: stock.name,
+      yahooGate: gate,
+      weights: presetWeights,
+      kospi20dReturn: macroState?.kospi20dReturn,
+      regime,
+    });
+
     // 아이디어 11: Gate 조건 통과/탈락 — 메모리 캐시에만 누적 (루프 후 flushGateAudit으로 파일 저장)
     // ADR-0387/0388: outputs (status 분류 포함) 가 있으면 정밀 audit, 없으면 legacy passedKeys.
     if (gate.outputs && gate.outputs.length > 0) {
@@ -777,6 +793,11 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
     // Yahoo rate limit 방지
     await new Promise(r => setTimeout(r, 300));
   }
+
+  // ④ shadow A/B flush — 루프 종료 후 top-N survivor(gateScore 내림차순)에만 KIS-first dual-eval.
+  // flag OFF면 즉시 return(KIS 신규호출 0, 로그 0). 결과는 *로깅만* — 후보집합/점수/주문 0 영향.
+  // 실패는 throw 하지 않음(불변식 #6) → 스캔 본흐름 무중단(불변식 #1 Trading Engine 상시 가동).
+  await shadowAb.flush();
 
   // 아이디어 11: Gate 감사 플러시 — 루프 종료 후 단일 파일 I/O
   flushGateAudit();
