@@ -152,6 +152,39 @@ const YAHOO_STALE_QUARANTINE_MIN_TTL_MS = 6 * 60 * 60 * 1000;
 const YAHOO_STALE_QUARANTINE_DAYS = 5;
 const _yahooStaleQuarantine = new Map<string, { until: number; lastClose: string; staleDays: number; suffix: string }>();
 
+/**
+ * dead-zone1 봉합 (timestamp-0 price-only-stale): timestamp 결측/0 으로 isoFromCloseIdx 가
+ * fetchTime(now) 로 fallback 하면 ADR-0235 7일 reject + isStaleBase 둘 다 우회한다.
+ * 시간축이 못 잡으면 *가격축* 으로 본다 — closes[] 말미가 동일 값으로 동결된 봉 수가
+ * 임계 이상이면 "날짜는 도는데 close 만 정체" 로 판정 (price-only-stale).
+ *
+ * 임계 5봉: 정상 단기 보합(1~4봉)을 과탐하지 않으면서 Yahoo 갱신지연/결측 plateau 탐지.
+ */
+const YAHOO_PRICE_PLATEAU_STALE_BARS = 5;
+
+/**
+ * dead-zone2 봉합 (mild stale 1~4일): quarantine(5일)·base age(20영업일) grace 밑이라
+ * 진단조차 안 되던 1~4일 stale 을 가시화하는 임계 (영업일/calendar 일 모두 1 이상).
+ * **점수 hard-block 확대 아님** — priceFreshness 진단 마커 + confidence 강등까지만.
+ */
+const YAHOO_MILD_STALE_MIN_DAYS = 1;
+
+/**
+ * closes[] 말미의 *동일 종가* 연속 봉 수 (freeze run length).
+ * Yahoo 가 가격 갱신을 못 한 채 timestamp/거래량만 진행시키는 "price-only-stale" plateau 탐지용.
+ * 마지막 종가와 같은 값이 끝에서부터 몇 봉 연속인지 카운트한다 (마지막 봉 포함).
+ */
+function trailingFrozenCloseBars(closes: readonly number[]): number {
+  if (closes.length === 0) return 0;
+  const last = closes[closes.length - 1];
+  let run = 1;
+  for (let i = closes.length - 2; i >= 0; i--) {
+    if (closes[i] === last) run++;
+    else break;
+  }
+  return run;
+}
+
 function normalizeYahooQuarantineCode(symbolOrCode: string): string {
   const m = (symbolOrCode ?? '').match(/^(\d{6})(?:\.K[SQ])?$/);
   return m ? m[1] : symbolOrCode;
@@ -410,6 +443,52 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
         );
         return null;
       }
+    }
+
+    // ── staleness 탐지층 봉합 (dead-zone1·2) — 진단 마커 산출. 점수 산식 본체 0줄. ──
+    // priceFreshness 는 진단 전용 메타. 봉합1(price-only-stale)·봉합2(mild stale)를
+    // 안전 방향(과거 fresh 오인 → 이제 stale 탐지)으로만 가시화한다. 불변식 #6 준수:
+    // stale=providerIssue(true), marketSignal=false (약세 신호로 변환 0).
+    let priceFreshness: string | undefined;
+
+    // 봉합1: timestamp 결측/0 → isoFromCloseIdx 가 fetchTime fallback 으로 7일reject·
+    // isStaleBase 둘 다 우회. 시간축 부재 시 *가격축* 으로 본다 — closes[] 말미 동결.
+    const timestampsMissing = !(lastTimestamp > 0);
+    if (timestampsMissing) {
+      const frozenBars = trailingFrozenCloseBars(closes);
+      if (frozenBars >= YAHOO_PRICE_PLATEAU_STALE_BARS) {
+        priceFreshness = 'PRICE_ONLY_STALE';
+        console.warn(
+          `[YAHOO_PRICE_ONLY_STALE]\n`
+          + `symbol=${normalizeYahooQuarantineCode(symbol)}\n`
+          + `suffix=${yahooSuffix(symbol)}\n`
+          + `frozenBars=${frozenBars}\n`
+          + `lastClose=${closes[closes.length - 1]}\n`
+          + `reason=timestamp_missing_close_plateau\n`
+          + `executionImpact=NONE\n`
+          + `marketSignal=false\n`
+          + `providerIssue=true`,
+        );
+      }
+    } else if (
+      // 봉합2: timestamp 존재 + lastClose 가 1~4일 stale (quarantine 5일·7일reject grace 밑) →
+      // 진단 가시화만. 점수 hard-block 확대 안 함 — return5d/20d 는 그대로 산출.
+      Number.isFinite(staleDays)
+      && staleDays >= YAHOO_MILD_STALE_MIN_DAYS
+      && staleDays < YAHOO_STALE_QUARANTINE_DAYS
+    ) {
+      priceFreshness = `MILD_STALE_${staleDays}D`;
+      console.warn(
+        `[YAHOO_MILD_STALE]\n`
+        + `symbol=${normalizeYahooQuarantineCode(symbol)}\n`
+        + `suffix=${yahooSuffix(symbol)}\n`
+        + `staleDays=${staleDays}\n`
+        + `lastClose=${lastCloseIso}\n`
+        + `policy=DIAGNOSTIC_ONLY_NO_SCORE_BLOCK\n`
+        + `executionImpact=NONE\n`
+        + `marketSignal=false\n`
+        + `providerIssue=true`,
+      );
     }
 
     // ADR-0028 §모순 보강: Yahoo 가 KRX 종목 일부에 regularMarketPrice=0 응답하는
@@ -774,6 +853,9 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteExtende
       weeklyLaggingSpanUp,
       dailyVolumeDrying,
       isHighRisk,
+      // staleness 탐지층 봉합 (dead-zone1·2) — 진단 전용 마커. 점수 산식 미투입.
+      // undefined = fresh (과탐 0). 'PRICE_ONLY_STALE' / 'MILD_STALE_<n>D' 만 stale 표식.
+      priceFreshness,
       // ADR-0028 §PR-D3-B: 가격 출처+시점 메타 — Yahoo regularMarketTime 우선, 없으면 fetch 시점.
       // ADR-0411: priceSource 동적화 — KIS recovery 시 KIS_REALTIME, 그 외 YAHOO_INTRADAY.
       priceMetadata: {
