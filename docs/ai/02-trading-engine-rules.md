@@ -51,6 +51,11 @@
 R6·SELL_ONLY·HOLIDAY·장전/장후·providerIssue 는 **SourceSnapshot(데이터)을 바꾸지 않고**
 Policy·Confidence·ExecutionPermission·LearningLabel 만 바꾼다.
 
+> **휴장일 SSOT (ADR-0559):** marketSession / liveOrderAllowed 의 휴장일 판정은 **krxHolidays.ts
+> (`KRX_HOLIDAYS` set, +ADR-0548 KIS chk-holiday L1 sync) 데이터 SSOT 경유**가 단일 출처다.
+> `krxTradingCalendar.ts`(preflight `isKrxTradingDay` 등 거래일 walk 헬퍼)는 자체 휴일셋을 갖지 않고
+> krxHolidays 에 위임한다 — 두 원장 divergence 구조적 소멸, LIVE 게이트가 단일 데이터를 본다.
+
 ### 매매 허용 시간 (volumeClock ALWAYS-ON)
 
 - volumeClock SSOT (`server/trading/volumeClock.ts`) 가 매수 허용 시간을 결정한다. 현행 기본은
