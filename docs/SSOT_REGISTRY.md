@@ -25,13 +25,13 @@
 |---|------|-----------------------------|----------------|------------------------|----------|
 | 1 | KRX 휴장일 판정 (데이터 SSOT) | `server/trading/krxHolidays.ts:isKrxHoliday` | `isKrxHoliday` | `server/calendar/krxTradingCalendar.ts` — **위임 re-export** (owner 의 값을 그대로 재노출, 자체 휴일셋 보유 금지) | ADR-0559 / ADR-0045 / ADR-0548 |
 | 2 | 영업일 산술 (휴일 인식) | `server/trading/krxHolidays.ts:addBusinessDaysFromKstDate` | `addBusinessDaysFromKstDate` | `server/learning/futureReturnResolver.ts` / `server/persistence/nearMissOutcomeLedger.ts` / `server/persistence/gate2OutcomeRepo.ts` — owner 로 **수렴 대상(중복정리 #2)**, 통합 후 정당 예외 0 | ADR-0560 (catalog #2) |
-| 2b | 영업일 근사 (주말만, UI 표시) | `server/screener/businessDayApprox.ts:addWeekdaysApprox` | `addWeekdaysApprox` | — (owner 단일, 별도 개념) | ADR-0558 / catalog L3 |
+| 2b | 영업일 근사 (주말만, 학습 라벨) | `server/persistence/businessDayApprox.ts:addWeekdaysApprox` | `addWeekdaysApprox` | — (owner 단일, 별도 개념) | ADR-0558 / catalog #2 |
 | 3 | SourceSnapshot factory (정본 생성) | `server/trading/symbolDataCollector.ts:collectUnifiedSnapshot` | `collectUnifiedSnapshot` | — (factory 단일 진입점) | ADR-0556 / ADR-0519 |
 | 3b | SourceSnapshot projection (gate/policy 투영) | `src/services/autoTrading/ssotPipeline.ts:UnifiedSourceSnapshot` | `UnifiedSourceSnapshot` (projection 타입) | **factory ≠ projection** — 동명이인 분리. server 정본 타입과 src projection 타입은 의도된 별도 책임 | ADR-0556 / ADR-0557 |
 | 4 | 보유 포지션 조회 (엄격 표시/진입 view, 5가드) | `server/persistence/shadowPositionLedger.ts:getOpenPositions` | `getOpenPositions` | `server/persistence/positionTruth.ts:loadOpenPositions` — **divergence 경량 기준선(2가드)**, 필터강도 다른 정당 분리 | ADR-0191 / catalog #4 |
 | 4b | 보유 포지션 조회 (divergence 경량 기준선, 2가드) | `server/persistence/positionTruth.ts:loadOpenPositions` | `loadOpenPositions` | (#4 의 짝 — 두 reader 가 서로의 정당 예외. **신규 3번째 open-position reader 금지**) | ADR-0191 / catalog #4 |
 | 5 | providerIssue ↔ marketSignal 격리 (실행 허가) | `server/runtime/executionPermissionResolver.ts:resolveExecutionPermission` | `resolveExecutionPermission` | `server/.../dartProviderSignalSplit` — provider 메타와 marketSignal 분리 헬퍼 (불변식 #6, 비변환만 수행) | ADR-0555 / 불변식 #6 |
-| 6 | MarketSession 어휘 (canonical) | `server/ssotSnapshot.ts:MarketSession` | `MarketSession` | gate1/entryPolicy/exit/investorFlow 의 파생 세션 타입 = **건별 LEGITIMATE** (이름·멤버 다른 도메인 어휘). **신규 추가는 registry 등재 의무** | catalog #5 |
+| 6 | MarketSession 어휘 (canonical) | `server/ssotSnapshot.ts:MarketSession` | `MarketSession` | `src/services/autoTrading/ssotPipeline.ts` — **동명 projection 세션 타입**(2값 union `'REGULAR'\|'AFTERMARKET'`, 정본은 4값) grandfather 허용. gate1/entryPolicy/exit/investorFlow 의 파생 세션 타입은 *다른 심볼명*(Gate1MarketSession 등) = 건별 LEGITIMATE. **신규 동명 `MarketSession` 추가는 registry 등재 의무** | catalog #5 |
 
 > **#5 표기 주의:** providerIssue↔marketSignal 격리는 "심볼 중복"이 아니라 *불변식 격리*다.
 > guarded 심볼은 `resolveExecutionPermission`(소유) 이며, dartProviderSignalSplit 은 격리 보조 헬퍼다.
@@ -87,7 +87,7 @@ addBusinessDaysFromKstDate:
   allowed = [ ]                                          # 수렴 목표 (현 catalog #2 인라인은 burn-down)
 
 addWeekdaysApprox:
-  owner   = server/screener/businessDayApprox.ts
+  owner   = server/persistence/businessDayApprox.ts
   allowed = [ ]                                          # 별도 개념 (주말만 근사)
 
 collectUnifiedSnapshot:
@@ -108,7 +108,7 @@ loadOpenPositions:
 
 MarketSession:
   owner   = server/ssotSnapshot.ts
-  allowed = [ ]                                          # 파생 세션은 *다른 심볼명* → 충돌 안 함; 동일명 신규는 fail
+  allowed = [ src/services/autoTrading/ssotPipeline.ts ] # 동명 projection 세션(2값, grandfather); 파생은 다른 심볼명; 신규 동명은 fail
 ```
 
 > **grandfather:** 위 `allowed` 가 현재 코드에 존재하는 LEGITIMATE 쌍(krxTradingCalendar 위임,
