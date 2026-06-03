@@ -92,6 +92,32 @@ async function fetchNDayChange(symbol: string, nBusinessDays: number): Promise<n
   return parseFloat(((current - past) / past * 100).toFixed(2));
 }
 
+/**
+ * 국내 종목(.KS/.KQ Yahoo 심볼)의 N거래일 변화율 (ADR-0566 잔존 burn-down #3).
+ * 국내 code 만 KIS(L1) 일봉 종가로 분리 — EWY 등 글로벌 심볼은 본 함수를 거치지 않고
+ * fetchNDayChange(Yahoo)로 유지(B4 KIS 미커버, ADR-0562). flag OFF/비국내/KIS 부족 →
+ * fetchNDayChange 로 위임(byte-equal, idx 산식 동일). lazy import — flag OFF 는 미로드.
+ */
+async function fetchNDayChangeDomestic(yahooSymbol: string, nBusinessDays: number): Promise<number | null> {
+  if (process.env.KIS_OHLCV_PRIMARY_ENABLED === 'true') {
+    const code6 = yahooSymbol.replace(/\.(KS|KQ)$/i, '');
+    if (/^\d{6}$/.test(code6)) {
+      const { fetchKisDailyCandles } = await import('../screener/kisChartDataFetcher.js');
+      const calDays = nBusinessDays + Math.ceil(nBusinessDays / 5) * 2 + 2;
+      const candles = await fetchKisDailyCandles(code6, calDays).catch(() => []);
+      const closes = candles.map((c) => c.close).filter((v) => Number.isFinite(v) && v > 0);
+      if (closes.length >= 2) {
+        const idx = Math.max(0, closes.length - 1 - nBusinessDays);
+        const past = closes[idx];
+        const current = closes[closes.length - 1];
+        if (past && past !== 0) return parseFloat(((current - past) / past * 100).toFixed(2));
+      }
+      // KIS 부족 → Yahoo 위임(불변식 #6).
+    }
+  }
+  return fetchNDayChange(yahooSymbol, nBusinessDays);
+}
+
 // ── 영속성 ────────────────────────────────────────────────────────────────────
 
 export function loadNewsSupplyRecords(): NewsSupplyRecord[] {
@@ -174,7 +200,8 @@ export async function trackPendingRecords(): Promise<void> {
     if (elapsed >= 5 && r.t5StockAvg === undefined) {
       const changes: Record<string, number> = {};
       for (const code of r.koreanStockCodes) {
-        const chg = await fetchNDayChange(code, elapsed).catch(() => null);
+        // 국내 종목만 KIS(L1) 분리(ADR-0566). EWY 등 글로벌 T+1/T+3 은 위 fetchNDayChange 유지.
+        const chg = await fetchNDayChangeDomestic(code, elapsed).catch(() => null);
         if (chg !== null) changes[code] = chg;
       }
       if (Object.keys(changes).length > 0) {

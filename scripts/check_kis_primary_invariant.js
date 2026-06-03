@@ -20,8 +20,8 @@
  *   - D-CLOSES-DOMESTIC : `fetchCloses(` 의 1번 인자가 국내심볼 리터럴(^KS11/^KQ11/KRW=X) 일 때만 위반.
  *                 글로벌심볼(^GSPC/^VIX/DX-Y.NYB/=F/EWY 등)은 위반 아님(B2/B4 심볼셋).
  *   - D-CLOSES-VAR : `fetchCloses(<식별자>)` 변수 인자 — 리터럴 분류 불가한 Yahoo close fetch entry.
- *                 위반후보로 점화 → callsite 파일을 WHITELIST(글로벌 전용 globalScan/preMarket)/
- *                 GRANDFATHER(exit 경로 ma60/priceHistory·learning newsSupplyLogger)로 명시 분류(ADR-0562 §FP).
+ *                 위반후보로 점화 → callsite 파일을 WHITELIST(글로벌 전용 globalScan/preMarket·
+ *                 ADR-0565/0566 KIS-first 분리 후 EWY 글로벌 전용 newsSupplyLogger)/GRANDFATHER 로 명시 분류(ADR-0562 §FP).
  *                 신규 무-분류 변수-인자 fetchCloses 도메인 호출 = EXIT 1(보수적).
  *   - D-YAHOO-CLIENT : `fetchYahooConsensus(`·`fetchYahooIntradayBars(`·`fetchYahooBundle(`·`fetchYahooSector(`
  *                 Yahoo client 직접호출(정의처 owner 는 WHITELIST 면제, 외부 호출만 검사).
@@ -114,6 +114,7 @@ const WHITELIST = new Map([
   ['server/clients/koreanQuoteBridge.ts', 'KRX(L1)+KIS(L1, ADR-0564 flag-gated) 2중 primary + Yahoo 최후 fallback 브릿지(합법, flag OFF byte-equal).'],
   ['server/learning/lateWinEvaluator.ts', '학습 OHLCV — KIS(L1, ADR-0565 #2 flag-gated fetchOHLCVFromKis) 1차 + Yahoo fallback(합법, flag OFF byte-equal).'],
   ['server/clients/historicalClosePrice.ts', '학습 라벨러 단일시점 종가 — fetchKisHistoricalClosePrice(L1) 무조건 1차 + Yahoo 최후 fallback(이미 ADR-0561 충족, #4 정합 정정).'],
+  ['server/learning/newsSupplyLogger.ts', '학습 뉴스-수급 귀인 — 국내는 fetchNDayChangeDomestic(KIS-first, ADR-0566 #3 flag-gated), 잔존 fetchCloses(var)=EWY 글로벌(B4 KIS 미커버, ADR-0562).'],
   ['server/screener/adapters/yahooSymbolResolver.ts', 'fetchYahooQuoteByCode SSOT 위임 본체(.KS/.KQ 합성 SSOT).'],
   ['server/screener/adapters/yahooQuoteAdapter.ts', 'fetchYahooQuote 정의 본체 + per/trailingPE 전용 경로.'],
   ['server/screener/adapters/yahooQuoteSummary.ts', 'PER/PBR/EPS opportunistic enrichment(ENV OFF default, ADR-0536).'],
@@ -142,7 +143,7 @@ const WHITELIST = new Map([
 const GRANDFATHER_ALLOWLIST = new Map([
   // lateWinEvaluator: ADR-0565 #2 KIS(L1) 1차 삽입(fetchOHLCVFromKis flag-gated) → Yahoo fallback 강등 → WHITELIST 승격(grandfather 제거).
   // historicalClosePrice: #4 정합 정정(patch) — fetchHistoricalClosePrice 가 이미 무조건 KIS-first(fetchKisHistoricalClosePrice)·Yahoo 최후 fallback → 이미 ADR-0561 충족(grandfather 과보수) → WHITELIST 승격.
-  ['server/learning/newsSupplyLogger.ts', { lines: [85], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C2' }], // 학습 뉴스-수급 귀인 N일 종가 fetchCloses(var) — 국내 code+EWY 글로벌 혼재(비실행)
+  // newsSupplyLogger: ADR-0566 #3 국내 code 만 fetchNDayChangeDomestic(KIS-first flag-gated) 분리 → 잔존 fetchCloses(var) 는 EWY 글로벌(B4) 전용 → WHITELIST 승격(grandfather 제거).
   // koreanQuoteBridge: ADR-0564 KIS(L1) 2차 삽입(KRX→KIS→Yahoo) → Yahoo 최후 fallback 강등 → WHITELIST 승격(grandfather 제거).
   ['server/screener/sectorSources.ts', { lines: [272, 277], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C5' }], // Yahoo assetProfile 섹터 메타데이터(비실행)
   ['server/alerts/reportGenerator.ts', { lines: [896, 905], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C3/C4' }], // 텔레그램 시황요약 ^KS11/KRW=X 표시(비실행)

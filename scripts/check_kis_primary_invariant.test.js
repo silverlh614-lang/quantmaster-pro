@@ -185,6 +185,9 @@ describe('check_kis_primary_invariant guard (ADR-0562 확장)', () => {
     // #4 historicalClosePrice: 이미 무조건 KIS-first(코드 변경 0, patch 정합 정정) → WHITELIST 승격.
     expect(GRANDFATHER_ALLOWLIST.has('server/clients/historicalClosePrice.ts')).toBe(false);
     expect(WHITELIST.has('server/clients/historicalClosePrice.ts')).toBe(true);
+    // #3 newsSupplyLogger(ADR-0566): 국내 fetchNDayChangeDomestic KIS-first 분리 → 잔존 fetchCloses=EWY 글로벌 → WHITELIST.
+    expect(GRANDFATHER_ALLOWLIST.has('server/learning/newsSupplyLogger.ts')).toBe(false);
+    expect(WHITELIST.has('server/learning/newsSupplyLogger.ts')).toBe(true);
   });
 
   // ── (e) false positive 0 ──
