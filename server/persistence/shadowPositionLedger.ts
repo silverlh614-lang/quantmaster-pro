@@ -51,6 +51,12 @@ export function isShadowPositionLedgerGuardsDisabled(): boolean {
  *
  * 핵심: ADR-0452 SHADOW_NEAR_BREAKOUT 학습 entry 영구 차단. fills 부재 entry
  * (orphan) 도 거부 — BUY fill ≥ 1 의무.
+ *
+ * LEGITIMATE 분리 (중복정리 #3 확정): 본 함수와 positionTruth.loadOpenPositions 는
+ * 동일 shadow-trades.json 영속을 읽되 필터 강도가 다르다 — 본 함수는 표시/진입용
+ * 엄격 view(5가드: open status / NEAR_BREAKOUT 차단 / remainingQty>0 / BUY fill≥1),
+ * loadOpenPositions 는 divergence 검출 기준선용 경량 view(2가드: open status /
+ * remainingQty>0). 통합 금지 — 가드 강도 차이가 분리의 본질이다.
  */
 export function getOpenPositions(): OpenPositionEntry[] {
   const guardsDisabled = isShadowPositionLedgerGuardsDisabled();

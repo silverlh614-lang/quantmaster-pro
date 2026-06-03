@@ -5,7 +5,7 @@
 > - **#1 isKrxHoliday** — 진짜·최우선. ADR-0559 + 통합 구현으로 **해소 완료**(2027 LIVE 구멍 폐쇄).
 > - **#2 addBusinessDays** — 진짜 drift. `nearMissOutcomeLedger:89`·`gate2OutcomeRepo:43` 인라인 구현 vs `krxHolidays.addBusinessDaysFromKstDate` SSOT. `gate3ForwardReturnCron`은 이미 위임(선례). **다음 정리 대상.**
 > - **#3 UnifiedSourceSnapshot** — **과잉분류**. ADR-0556이 이미 "server=factory SSOT / src=projection"으로 결정. "9필드 vs 4필드"는 설계상 의도. 재오픈 불필요.
-> - **#4 getOpenPositions/loadOpenPositions** — 카탈로그는 LEGITIMATE이라 했으나, 사용자 최초 고통(/pos shadow 가시성)과 직결. **액면 수용 금지 — PositionLedger 작업에서 재조사.**
+> - **#4 getOpenPositions/loadOpenPositions** — **재조사 완료 → LEGITIMATE 확정 (중복정리 #3).** 두 함수는 동일 `shadow-trades.json` 영속을 읽되 **필터 강도가 다른 정당 분리**: `getOpenPositions`=표시/진입용 엄격 view(5가드), `loadOpenPositions`=divergence 검출 기준선용 경량 view(2가드). 카탈로그 원문 사유("raw vs view" / "엔진 진입 pool vs 영업일 감시")는 **부정확 → "엄격 표시 view vs divergence 경량 기준선" 으로 정정**(아래 #4 본문). 부수: 가드7(orphan 숨김) 비대칭(ledger 경로에만 적용)을 ShadowTradeRepo·VirtualAccount 표시 경로에도 일관 적용(safe-direction, orphan만 영향, 정상 포지션 불변). 전면 PositionLedger projection 통합은 **Mock 도입 시 ADR (#4-defer)**.
 > - **#5 MarketSession "6개"** — 뉘앙스. 같은 타입 6벌이 아니라 이름·멤버가 다른 6개 세션 어휘(Gate1은 UNKNOWN 포함 등). 무조건 통합 금지, 건별 판단.
 > 원칙(ADR-0558): 진짜 drift는 통합, 정당한 차이는 보존. "16건 전부 통합"이 목표가 아니다.
 
@@ -73,10 +73,11 @@
 | **개념** | "현재 보유 중인 포지션 목록을 반환" |
 | **구현 위치** | • `server/persistence/shadowPositionLedger.ts:55` `getOpenPositions()`<br>  → OpenPositionEntry[] (5중 가드 통과만)<br>  → SHADOW_NEAR_BREAKOUT 학습 entry 차단 (ADR-0452)<br>  → 포지션 qty > 0 & BUY fill ≥ 1 의무<br><br>• `server/persistence/positionTruth.ts:70` `loadOpenPositions()`<br>  → OpenPositionView[] (단순 상태 기반)<br>  → PENDING ~ EUPHORIA_PARTIAL status + qty > 0<br>  → 가드 3/7 생략, catch-fallback 포함 |
 | **서로 import/위임** | ❌ **완전 독립** — 양쪽 export, 상호 비호출<br>positionTruth 는 shadowPositionLedger import 안 함 (로직 완전 별도) |
-| **drift 증거** | ✅ **불일치 실재**<br>• getOpenPositions: ADR-0452 가드 → SHADOW_NEAR_BREAKOUT 차단 → 진짜 Open<br>• loadOpenPositions: 단순 상태 필터 → 학습 entry 미차단 가능<br>• **동일 코드의 2개 보유 포지션 조회가 다른 값 반환 가능** |
-| **LIVE 영향** | ✅ **높음** — positionTruth 는 "영업일 보유 기검 루틴"(ADR-0157)에서 매매 자산 카운트용<br>getOpenPositions 는 "실제 주문 대상 pool"<br>→ 진입 가능 종목 vs 보유 종목 체크 갈림 → 포지션 수 제한 회피 가능성 |
-| **통합 권고** | **유스케이스 분리** (기계적 통합 불가)<br>• shadowPositionLedger::getOpenPositions 는 "매매 엔진용 SSOT"<br>• positionTruth::loadOpenPositions 는 "보유 현황 감시용" (다른 가드 정책)<br>→ **정당한 이중화** 로 재분류 + 명확한 **도메인 주석** 추가<br>   - 내부: shadowLedger 가 진짜 Source<br>   - 외부 감시(Morning Card/health): loadOpenPositions 는 차단되지 않도록 설계 의도<br>→ **코멘트화**: "positionTruth 는 의도적으로 차단 정책 경량, 진입 pool 아님" |
-| **우선순위** | **P2** — 정당성 확인 시 LEGITIMATE, 문서화만 필요 |
+| **drift 증거 (정정)** | ✅ **필터 강도 차이는 실재하나 "drift"가 아닌 의도된 분리**<br>• 둘 다 **동일 `shadow-trades.json` 영속을 읽는다** (데이터 소스 동일 — 카탈로그 원문 "raw vs unified view" 프레임은 부정확)<br>• getOpenPositions: 5가드(open status / NEAR_BREAKOUT 차단(ADR-0452) / remainingQty>0 / BUY fill≥1)<br>• loadOpenPositions: 2가드(open status / remainingQty>0) — **기준선이므로 의도적 경량**<br>• `loadOpenPositions` 를 "엔진 진입 pool" 로 쓰는 코드 경로 0건(grep) — divergence 검출 + 일부 diagnostics 한정 |
+| **LIVE 영향 (정정)** | ❌ **현재 코드상 미발생** — `loadOpenPositions` 는 `detectPositionTruthDivergence` 의 (a) 비교 기준선이며 진입 pool 카운트로 쓰이지 않음. "포지션 수 제한 회피" 우려는 과대평가. executionImpact=NONE |
+| **통합 권고 (정정)** | **LEGITIMATE 확정 — 통합 금지** (중복정리 #3 재조사)<br>• getOpenPositions = **엄격 표시/진입 view** (5가드)<br>• loadOpenPositions = **divergence 경량 기준선** (2가드, ADR-0191)<br>→ 사유를 "raw vs view" / "엔진 진입 pool vs 영업일 감시" 에서 **"엄격 표시 view vs divergence 경량 기준선"** 으로 정정<br>→ 양 함수 상단 주석에 "동일 영속·필터강도 다름·통합 금지" 명시 (완료)<br>→ 부수 정합: 가드7(orphan 숨김)을 ledger 외 표시 경로(ShadowTradeRepo·VirtualAccount)에도 일관 적용(safe-direction, orphan만 영향) |
+| **#4-defer** | 전면 PositionLedger projection 통합(3중 표시 경로 + 죽은 6-reader 우선순위 → 단일 projection)은 **Mock 투자 도입 시 ADR 로 진행**. 현재 paper 소스 부재로 통합 ROI 낮음. 진단: `_workspace/2026-06-03_calendar-ssot/engine-dev/position-ledger-dispersion-diagnosis.md` §E |
+| **우선순위** | **CLOSED** — LEGITIMATE 확정, 주석/카탈로그 정정 완료, projection 통합은 #4-defer |
 
 ---
 
@@ -143,22 +144,19 @@
 
 ---
 
-### L2. `getOpenPositions` vs `loadOpenPositions`
+### L2. `getOpenPositions` vs `loadOpenPositions` — **LEGITIMATE 확정 (중복정리 #3)**
 
-**사유**: 의도적 가드 정책 분리 (ADR-0452 vs 단순 상태)
-- shadowLedger = 매매 엔진 진입용 (엄격한 가드 5중)
-- positionTruth = 영업일 감시용 (경량 필터)
-- **통합 불요**: 도메인 용도가 명확히 다름
+**사유 (정정)**: 동일 `shadow-trades.json` 영속을 읽되 **필터 강도가 다른 정당 분리**
+- shadowLedger.getOpenPositions = **엄격 표시/진입 view** (5가드: open status / NEAR_BREAKOUT 차단(ADR-0452) / remainingQty>0 / BUY fill≥1)
+- positionTruth.loadOpenPositions = **divergence 경량 기준선** (2가드: open status / remainingQty>0, ADR-0191) — 기준선이라 의도적으로 가드를 약하게 둠
+- **통합 금지**: "엄격 표시 view vs divergence 경량 기준선" 의 목적 차이가 분리의 본질. (카탈로그 원문 "엔진 진입 pool vs 영업일 감시" 는 부정확 → 정정됨)
 
-**권고**: 주석 명확화
+**주석 명확화 (완료 — 양 함수 상단에 동일 영속·필터강도 다름·통합 금지 명시)**:
 ```typescript
-// shadowPositionLedger.ts:55
-/** 매매 엔진이 신규 진입 가능한 포지션만 반환 (ADR-0452 가드 5중 통과). */
-export function getOpenPositions(): OpenPositionEntry[] { ... }
-
-// positionTruth.ts:70
-/** 영업일 보유 현황 감시용 — 가드는 경량화 (상태 기반만). 진입 pool과 다름. */
-export function loadOpenPositions(): OpenPositionView[] { ... }
+// shadowPositionLedger.ts getOpenPositions
+//   동일 shadow-trades.json 읽되 필터강도 다름 — 표시용(5가드) vs divergence기준선(2가드), 통합 금지
+// positionTruth.ts loadOpenPositions
+//   divergence 검출 (a) 기준선용 경량 view(2가드). getOpenPositions 와 통합 금지.
 ```
 
 ---

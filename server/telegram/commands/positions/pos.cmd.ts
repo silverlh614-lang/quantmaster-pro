@@ -61,11 +61,18 @@ function createPositionCommand(
     description,
     async execute({ reply, correlationId }) {
       console.info(`[PORTFOLIO_QUERY_STARTED] correlationId=${correlationId ?? 'N/A'} command=${name}`);
-      console.info(`[PORTFOLIO_QUERY_SHADOW_FIRST] correlationId=${correlationId ?? 'N/A'} command=${name} priority=ShadowPositionRegistry>ShadowPositionLedger>ShadowTradeRepo>VirtualAccount>PaperTradeLedger>KISLiveHolding modePreference=SHADOW_FIRST includePending=true executionImpact=NONE`);
+      // NOTE(중복정리 #3, patch type): 표시 목록은 aggregatePositionSources() 의 3중 직접 읽기
+      //   (1) ShadowPositionLedger=getOpenPositions, (2) ShadowTradeRepo 직접 필터,
+      //   (3) VirtualAccount=computeShadowAccount) 가 만든다. 아래 6-reader 우선순위는
+      //   counts/diagnostics + appendAggregatorOnly 전용이며 표시 1차 소스가 아니다.
+      //   ShadowPositionRegistry·PaperTradeLedger 는 미주입 stub (항상 EMPTY) 이라
+      //   실제 등재 0건. 로그가 표시 경로 실태와 일치하도록 displayPath 를 명시한다.
+      console.info(`[PORTFOLIO_QUERY_SHADOW_FIRST] correlationId=${correlationId ?? 'N/A'} command=${name} displayPath=ShadowPositionLedger(getOpenPositions)+ShadowTradeRepo(directFilter)+VirtualAccount(computeShadowAccount) diagnosticsPriority=ShadowPositionRegistry(stub)>ShadowPositionLedger>ShadowTradeRepo>VirtualAccount>PaperTradeLedger(stub)>KISLiveHolding modePreference=SHADOW_FIRST includePending=true executionImpact=NONE`);
       try {
       const snapshot = await aggregatePositionSources();
-      console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=${name} ShadowPositionRegistry=${snapshot.counts.shadowRegistryCount} ShadowPositionLedger=${snapshot.counts.shadowLedgerCount} ShadowTradeRepo=${snapshot.counts.shadowTradeOpenCount} VirtualAccount=${snapshot.counts.virtualHoldingCount} PaperTradeLedger=${snapshot.counts.paperOpenCount} KISLiveHolding=${snapshot.counts.kisLiveCount} finalDisplayedCount=${snapshot.counts.totalCount}`);
-      console.info(`[PORTFOLIO_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=${name} ShadowPositionRegistry=${snapshot.counts.shadowRegistryCount} ShadowPositionLedger=${snapshot.counts.shadowLedgerCount} ShadowTradeRepo=${snapshot.counts.shadowTradeOpenCount} VirtualAccount=${snapshot.counts.virtualHoldingCount} PaperTradeLedger=${snapshot.counts.paperOpenCount} KISLiveHolding=${snapshot.counts.kisLiveCount} finalDisplayedCount=${snapshot.counts.totalCount} executionImpact=NONE`);
+      // ShadowPositionRegistry·PaperTradeLedger 는 미주입 stub (항상 0) — stub 표기로 실태 명시.
+      console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=${name} ShadowPositionRegistry(stub)=${snapshot.counts.shadowRegistryCount} ShadowPositionLedger=${snapshot.counts.shadowLedgerCount} ShadowTradeRepo=${snapshot.counts.shadowTradeOpenCount} VirtualAccount=${snapshot.counts.virtualHoldingCount} PaperTradeLedger(stub)=${snapshot.counts.paperOpenCount} KISLiveHolding=${snapshot.counts.kisLiveCount} finalDisplayedCount=${snapshot.counts.totalCount}`);
+      console.info(`[PORTFOLIO_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=${name} ShadowPositionRegistry(stub)=${snapshot.counts.shadowRegistryCount} ShadowPositionLedger=${snapshot.counts.shadowLedgerCount} ShadowTradeRepo=${snapshot.counts.shadowTradeOpenCount} VirtualAccount=${snapshot.counts.virtualHoldingCount} PaperTradeLedger(stub)=${snapshot.counts.paperOpenCount} KISLiveHolding=${snapshot.counts.kisLiveCount} finalDisplayedCount=${snapshot.counts.totalCount} executionImpact=NONE`);
       const { mode, positions, account } = snapshot;
       const resolution = resolvePositionSource({
         engineMode: mode.modeLabel,

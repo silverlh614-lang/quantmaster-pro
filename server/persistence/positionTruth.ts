@@ -66,6 +66,13 @@ export function isPositionTruthDivergenceCheckDisabled(): boolean {
  * REJECTED / HIT_TARGET / HIT_STOP 자동 제외.
  *
  * 영속 load 실패 시 빈 배열 fallback (안전).
+ *
+ * LEGITIMATE 분리 (중복정리 #3 확정): 본 함수와 shadowPositionLedger.getOpenPositions 는
+ * 동일 shadow-trades.json 영속을 읽되 필터 강도가 다르다 — 본 함수는 divergence 검출
+ * (detectPositionTruthDivergence) 의 (a) 비교 기준선용 경량 view(2가드: open status /
+ * remainingQty>0), getOpenPositions 는 표시/진입용 엄격 view(5가드, NEAR_BREAKOUT·orphan
+ * 차단 포함). 기준선은 의도적으로 가드를 약하게 둬 (b) 이벤트 집계와의 차이를 드러낸다.
+ * 통합 금지 — "엄격 표시 view vs divergence 경량 기준선" 의 목적 차이가 분리의 본질이다.
  */
 export function loadOpenPositions(): OpenPositionView[] {
   let shadows: ServerShadowTrade[] = [];

@@ -2,6 +2,7 @@
 
 import {
   getRemainingQty,
+  isActiveFill,
   loadShadowTrades as loadDefaultShadowTrades,
   type ServerShadowTrade,
 } from '../../../../persistence/shadowTradeRepo.js';
@@ -44,11 +45,16 @@ export async function readShadowTradeRepoPositions(
 
   try {
     const trades = loadShadowTrades();
+    // 중복정리 #3 작업2 (safe-direction): 가드7(BUY fill≥1 orphan 숨김, ADR-0504)을
+    // ShadowTradeRepo reader 에도 일관 적용 — ledger(getOpenPositions) 와 동일 기준.
+    // 누락 시 orphan(BUY fill 부재, legacy quantity 캐시로만 잔량>0) 이 aggregator-only
+    // 경로로 새어 표시될 수 있는 비대칭 차단. 정상 포지션(BUY fill≥1) 영향 없음.
     const openTrades = trades
       .filter((trade) => trade.mode !== 'LIVE')
       .filter((trade) => trade.watchlistSource !== 'SHADOW_NEAR_BREAKOUT')
       .filter((trade) => isShadowDisplayOpenStatus(trade.status))
-      .filter((trade) => getRemainingQty(trade) > 0);
+      .filter((trade) => getRemainingQty(trade) > 0)
+      .filter((trade) => hasActiveBuyFill(trade));
 
     const positions = openTrades
       .map((trade) => normalizePositionDisplay({
@@ -100,4 +106,9 @@ function isShadowDisplayOpenStatus(status: unknown): boolean {
     return false;
   }
   return OPEN_SHADOW_STATUSES.has(normalized);
+}
+
+/** 가드7(ADR-0504) — 활성 BUY fill ≥ 1. orphan 표시 차단을 ledger 경로와 정합. */
+function hasActiveBuyFill(trade: ServerShadowTrade): boolean {
+  return (trade.fills ?? []).some((fill) => fill.type === 'BUY' && isActiveFill(fill));
 }

@@ -3,10 +3,14 @@ import { getExecutionMode } from '../../../state.js';
 import { RegimeResolver, type MarketStateSnapshot } from '../../../trading/marketStateResolver.js';
 import { fetchCurrentPrice } from '../../../clients/kisClient.js';
 import { getRealtimePrice } from '../../../clients/kisStreamClient.js';
-import { getOpenPositions as getShadowLedgerOpenPositions } from '../../../persistence/shadowPositionLedger.js';
+import {
+  getOpenPositions as getShadowLedgerOpenPositions,
+  isShadowPositionLedgerGuardsDisabled,
+} from '../../../persistence/shadowPositionLedger.js';
 import {
   getRemainingQty,
   getTotalRealizedPnl,
+  isActiveFill,
   loadShadowTrades,
   type ServerShadowTrade,
 } from '../../../persistence/shadowTradeRepo.js';
@@ -214,7 +218,23 @@ export async function aggregatePositionSources(): Promise<PositionSourceSnapshot
     .filter(isShadowLikeTrade)
     .filter((trade) => trade.watchlistSource !== 'SHADOW_NEAR_BREAKOUT');
   const ledgerEntries = getShadowLedgerOpenPositions();
-  const openRepoTrades = displayableShadowTrades.filter((trade) => isQueryableOpenTrade(trade));
+  // 중복정리 #3 작업2 (safe-direction): 가드7(BUY fill≥1 orphan 숨김, ADR-0504)을
+  // ShadowTradeRepo 직접 읽기 표시 경로에도 일관 적용한다. ledger 경로(getOpenPositions)는
+  // 이미 가드7을 적용하므로, 적용 누락 시 BUY fill 없는 orphan(legacy quantity 캐시로만
+  // 잔량>0)이 repo 경로로만 새어 표시되는 비대칭이 발생한다. 정상 포지션(BUY fill≥1)은
+  // 영향 없음 — orphan 만 숨김. ENV SHADOW_POSITION_LEDGER_GUARDS_DISABLED 동작 정합을
+  // 위해 ledger 가드 우회 시에는 본 경로도 우회한다.
+  const orphanGuardActive = !isShadowPositionLedgerGuardsDisabled();
+  const openRepoTrades = displayableShadowTrades.filter(
+    (trade) => isQueryableOpenTrade(trade) && (!orphanGuardActive || hasActiveBuyFill(trade)),
+  );
+  // VirtualAccount(computeShadowAccount) 표시 경로 정합: orphan(BUY fill 부재) trade 의
+  // tradeId 집합. computeShadowAccount 는 legacy(fills 없는) trade 를 status 기반으로
+  // open 분류하므로 (shadowAccountRepo:154-157) VirtualAccount openPositions 로도 orphan 이
+  // 샐 수 있다. 동일 가드7 기준으로 표시 경로에서만 차단 (account 계산 본체 불변).
+  const orphanTradeIds = orphanGuardActive
+    ? new Set(displayableShadowTrades.filter((trade) => !hasActiveBuyFill(trade)).map((trade) => trade.id))
+    : new Set<string>();
   const priceLookup = await resolvePriceLookup([...ledgerEntries.map((entry) => entry.trade), ...openRepoTrades], 'POSITION');
   const account = computeAccount(displayableShadowTrades, priceLookup.prices);
   const accountPositionsByTradeId = new Map((account?.openPositions ?? []).map((position) => [position.tradeId, position]));
@@ -253,6 +273,12 @@ export async function aggregatePositionSources(): Promise<PositionSourceSnapshot
 
   for (const holding of account?.openPositions ?? []) {
     if (seenTradeIds.has(holding.tradeId)) {
+      continue;
+    }
+
+    // 가드7 정합: orphan(BUY fill 부재) 은 VirtualAccount 표시 경로에서도 차단.
+    if (orphanTradeIds.has(holding.tradeId)) {
+      seenTradeIds.add(holding.tradeId);
       continue;
     }
 
@@ -786,6 +812,14 @@ function isShadowLikeTrade(trade: ServerShadowTrade): boolean {
 
 function hasSellFill(trade: ServerShadowTrade): boolean {
   return Array.isArray(trade.fills) && trade.fills.some((fill) => fill.type === 'SELL');
+}
+
+/**
+ * 가드7(ADR-0504) — 활성 BUY fill ≥ 1. shadowPositionLedger.getOpenPositions 와 동일 기준.
+ * orphan(BUY fill 부재 + legacy quantity 캐시로만 잔량>0) 을 표시 경로에서 일관 차단.
+ */
+function hasActiveBuyFill(trade: ServerShadowTrade): boolean {
+  return (trade.fills ?? []).some((fill) => fill.type === 'BUY' && isActiveFill(fill));
 }
 
 function sumTodaySellPnl(trades: ServerShadowTrade[]): number {
