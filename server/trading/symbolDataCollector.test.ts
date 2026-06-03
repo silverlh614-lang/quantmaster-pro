@@ -42,6 +42,34 @@ vi.mock('./gate2/gate2DartCanonicalSlot.js', () => ({
   buildSymbolDartFinancialsSlot: () => buildSymbolDartFinancialsSlot(),
 }));
 
+// ADR-0556 묶음4 (V3 흡수): factory 는 provider 단일 함수 resolveMarketProgramFlow() 를 *호출*만 한다.
+// provider 본체(fallback/캐시/격리)는 mock 으로 격리 — factory 가 thin call 임을 검증한다.
+const resolveMarketProgramFlow = vi.fn(async () => ({
+  available: true,
+  source: 'KIS_API' as const,
+  netBuyAmount: 4200,
+  arbitrageNetBuyAmount: 1200,
+  nonArbitrageNetBuyAmount: 3000,
+  fetchedAt: '2026-05-18T02:00:00.000Z',
+  providerIssue: false,
+  marketSignal: 'BULLISH' as const,
+  breakPoint: 'OK_MARKET_PROGRAM_WIRED',
+  executionImpact: 'NONE' as const,
+  marketProgramDataStatus: 'PARSED' as const,
+  kisAttempted: true,
+  kisStatus: 'PARSED' as const,
+  krxFallbackAttempted: false,
+  krxFallbackStatus: 'NOT_ATTEMPTED' as const,
+  cacheFallbackAttempted: false,
+  cacheStatus: 'MISS' as const,
+  programFlowUsedForLiveDecision: false as const,
+  passiveProxyUsedForLiveDecision: false as const,
+  programPenaltyApplied: false as const,
+}));
+vi.mock('./signalScanner/marketProgramFlowProvider.js', () => ({
+  resolveMarketProgramFlow: () => resolveMarketProgramFlow(),
+}));
+
 describe('SymbolDataCollector 수급 출처 통일 (FHPTJ04160001)', () => {
   it('정본 fetchKisInvestorTradeByStockDaily 로 수급을 수집하고 supplySignal 을 도출한다', async () => {
     const { collectUnifiedSnapshot } = await import('./symbolDataCollector.js');
@@ -186,5 +214,56 @@ describe('ADR-0556 묶음0 — per-field freshness 통합 격리', () => {
     expect(sym.dartFinancials).toBeNull();
     // freshness 매핑은 순수 계산이라 OFF 에서도 동일하게 산출(네트워크/quota 무관) — dart 는 MISSING.
     expect(sym.freshness?.dartFinancials).toBe('MISSING');
+  });
+});
+
+// ─── ADR-0556 묶음4 — V3 marketProgramFlowProvider factory 흡수 (생산자측 단일화) ───────
+
+describe('ADR-0556 묶음4 — supply.marketProgram factory 흡수', () => {
+  it('flag OFF byte-equivalent — provider 미호출 + snapshot.marketProgram 필드 미부착(undefined)', async () => {
+    delete process.env.USE_UNIFIED_SOURCE_SNAPSHOT;
+    resolveMarketProgramFlow.mockClear();
+    const { collectUnifiedSnapshot } = await import('./symbolDataCollector.js');
+    const snapshot = await collectUnifiedSnapshot(['005930']);
+
+    // flag OFF: provider 단일 함수 미호출 (KIS/KRX quota 순증 0).
+    expect(resolveMarketProgramFlow).not.toHaveBeenCalled();
+    // 필드 미부착 — 기존 소비 경로 byte-equivalent.
+    expect('marketProgram' in snapshot).toBe(false);
+    expect(snapshot.marketProgram).toBeUndefined();
+  });
+
+  it('flag ON happy path — provider 단일 함수를 1회 호출해 supply.marketProgram 을 byte-equivalent carry', async () => {
+    process.env.USE_UNIFIED_SOURCE_SNAPSHOT = 'true';
+    resolveMarketProgramFlow.mockClear();
+    const { collectUnifiedSnapshot } = await import('./symbolDataCollector.js');
+    const snapshot = await collectUnifiedSnapshot(['005930']);
+
+    // thin call: factory 는 provider 단일 함수를 정확히 1회 호출(로직 복제 0, quota 순증 0).
+    expect(resolveMarketProgramFlow).toHaveBeenCalledTimes(1);
+    // Gate 입력 동일성: provider golden 값(netBuyAmount/arb/nonArb)이 그대로 carry.
+    expect(snapshot.marketProgram?.netBuyAmount).toBe(4200);
+    expect(snapshot.marketProgram?.arbitrageNetBuyAmount).toBe(1200);
+    expect(snapshot.marketProgram?.nonArbitrageNetBuyAmount).toBe(3000);
+    // 불변식 #6 격리 메타 보존 (provider 산출값 그대로).
+    expect(snapshot.marketProgram?.executionImpact).toBe('NONE');
+    expect(snapshot.marketProgram?.programFlowUsedForLiveDecision).toBe(false);
+    delete process.env.USE_UNIFIED_SOURCE_SNAPSHOT;
+  });
+
+  it('불변식 #1 — flag ON 에서 provider 가 throw 해도 undefined 격리·scan 무중단', async () => {
+    process.env.USE_UNIFIED_SOURCE_SNAPSHOT = 'true';
+    resolveMarketProgramFlow.mockClear();
+    resolveMarketProgramFlow.mockRejectedValueOnce(new Error('PROVIDER_DOWN') as never);
+    const { collectUnifiedSnapshot } = await import('./symbolDataCollector.js');
+
+    // throw 전파 없이 snapshot 반환 (불변식 #1).
+    const snapshot = await collectUnifiedSnapshot(['005930']);
+    expect(snapshot).toBeDefined();
+    // 실패는 undefined 로 격리 — 필드 미부착.
+    expect(snapshot.marketProgram).toBeUndefined();
+    // per-symbol 수집은 provider 실패와 독립적으로 보존.
+    expect(snapshot.perSymbol['005930']).toBeDefined();
+    delete process.env.USE_UNIFIED_SOURCE_SNAPSHOT;
   });
 });

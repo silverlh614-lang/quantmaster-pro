@@ -13,6 +13,9 @@
 
 import { randomUUID } from 'crypto';
 import type { SymbolSnapshotData } from './symbolSnapshotData.js';
+// ADR-0556 묶음4 (V3 흡수): 시장 레벨 프로그램 순매수 결과 타입은 marketProgramFlowProvider 정본을
+// 재사용한다 (신규 타입 신설 0). factory 는 그 단일 함수를 호출해 본 필드를 채운다.
+import type { MarketProgramFlowResult } from '../signalScanner/marketProgramFlowProvider.js';
 
 // ─── 매크로 컨텍스트 (macroState 핵심 필드 스냅샷 시점 복사) ────────────────
 
@@ -75,6 +78,16 @@ export interface UnifiedSourceSnapshot {
 
   // 매크로 컨텍스트 (macroState 복사본)
   macroContext: UnifiedMacroContext;
+
+  /**
+   * ADR-0556 묶음4 — supply.marketProgram (시장 레벨 프로그램 순매수 flow).
+   * factory 가 marketProgramFlowProvider 단일 함수(resolveMarketProgramFlow)를 *호출*하여 채운다.
+   * USE_UNIFIED_SOURCE_SNAPSHOT flag ON 경로에서만 산출 — flag OFF 시 undefined (byte-equivalent,
+   * 기존 소비 경로 normalSupplyPreviewRunner/programFlowCarry 동작 불변).
+   * 본 필드는 진단/Gate 입력 carry 용 read-only — executionImpact=NONE, marketSignal 격리 보존(불변식 #6).
+   * 본 묶음에서 소비자 재배선은 하지 않는다 (생산자측 단일화만; 소비자 전환은 묶음3).
+   */
+  marketProgram?: MarketProgramFlowResult;
 
   // 수집 품질 요약
   /**

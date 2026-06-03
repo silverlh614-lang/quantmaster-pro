@@ -45,6 +45,10 @@ import type {
 import type { DataHealth } from '../../src/types/shadowCase.js';
 // ADR-0529: DART 정본 슬롯은 기존 cache-first 통로 위임만 — 새 DART HTTP fetch 신설 0.
 import { buildSymbolDartFinancialsSlot } from './gate2/gate2DartCanonicalSlot.js';
+// ADR-0556 묶음4 (V3 흡수): 시장 레벨 프로그램 flow 의 fallback/캐시/격리 로직은
+// marketProgramFlowProvider 가 단일 소유하며, factory 는 그 단일 함수를 *호출*만 한다(로직 복제 0).
+import { resolveMarketProgramFlow } from './signalScanner/marketProgramFlowProvider.js';
+import type { MarketProgramFlowResult } from './signalScanner/marketProgramFlowProvider.js';
 
 // ─── concurrency helper ──────────────────────────────────────────────────────
 
@@ -450,6 +454,35 @@ async function collectDartFinancialsSlot(code: string): Promise<SymbolDartFinanc
   }
 }
 
+// ─── 시장 레벨 프로그램 flow (ADR-0556 묶음4, V3 흡수) ─────────────────────────
+
+/**
+ * ADR-0556 묶음4: 시장 레벨 program flow(supply.marketProgram)를 flag-gated 로 채운다.
+ *
+ * 흡수 방식 = thin call (로직 복제 0):
+ *   fallback(KIS→KRX→cache→NONE) + freshness + 불변식6 격리 로직은
+ *   marketProgramFlowProvider 가 *단일 소유*하며, factory 는 그 단일 함수
+ *   resolveMarketProgramFlow() 를 *호출*만 한다. 본체 로직은 provider 에 1소유로 잔존.
+ *
+ * flag OFF → undefined (snapshot.marketProgram 미산출). flag OFF 경로의 기존 소비자
+ *   (normalSupplyPreviewRunner / programFlowCarry) 는 본 함수를 거치지 않으므로 byte-equivalent.
+ * provider 장애 시에도 throw 금지 — provider 가 항상 result 객체를 반환하고(불변식 #1),
+ *   providerIssue=true 시 marketSignal 은 provider 내부에서 UNAVAILABLE 격리(불변식 #6).
+ * 예기치 못한 throw 는 collect/scan 무중단을 위해 undefined 격리(불변식 #1).
+ */
+async function collectMarketProgramFlow(): Promise<MarketProgramFlowResult | undefined> {
+  if (process.env.USE_UNIFIED_SOURCE_SNAPSHOT !== 'true') return undefined;
+  try {
+    return await resolveMarketProgramFlow();
+  } catch (err) {
+    logger.warn(
+      '[SymbolDataCollector] 시장 program flow 수집 실패 — undefined 격리 (scan 무중단)',
+      err instanceof Error ? err.message : String(err),
+    );
+    return undefined;
+  }
+}
+
 // ─── 매크로 컨텍스트 ─────────────────────────────────────────────────────────
 
 /**
@@ -563,9 +596,11 @@ export async function collectUnifiedSnapshot(
     getAllStockEntries().map((e) => [e.code, e]),
   );
 
-  // macroContext는 fetch와 병행 수집
-  const [macroContext, rawResults] = await Promise.all([
+  // macroContext + 시장 레벨 program flow(ADR-0556 묶음4)는 per-symbol fetch와 병행 수집.
+  // collectMarketProgramFlow 는 flag OFF 시 undefined·throw 격리 → 한 항목 실패가 전체 중단 안 함.
+  const [macroContext, marketProgram, rawResults] = await Promise.all([
     buildMacroContext(),
+    collectMarketProgramFlow(),
     mapLimit(candidates, concurrency, (code) => collectSymbolData(code, krxMasterMap.get(code))),
   ]);
 
@@ -641,6 +676,9 @@ export async function collectUnifiedSnapshot(
     screenedCandidates: candidates,
     perSymbol: Object.freeze(perSymbol),
     macroContext,
+    // ADR-0556 묶음4: supply.marketProgram (생산자측 단일화). flag OFF → undefined (필드 미부착,
+    // byte-equivalent). 소비자 재배선은 본 묶음 범위 밖(묶음3, V3b).
+    ...(marketProgram !== undefined ? { marketProgram } : {}),
     completionRate,
     dataSourceVersion: '2.0',
     collectorDurationMs,
