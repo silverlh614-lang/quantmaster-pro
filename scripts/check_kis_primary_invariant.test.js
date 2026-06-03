@@ -162,7 +162,6 @@ describe('check_kis_primary_invariant guard (ADR-0562 확장)', () => {
   });
 
   it('(d2) ADR-0562 C category grandfather entries are present', () => {
-    expect(GRANDFATHER_ALLOWLIST.has('server/clients/historicalClosePrice.ts')).toBe(true); // C2
     expect(GRANDFATHER_ALLOWLIST.has('server/screener/sectorSources.ts')).toBe(true); // C5
     expect(GRANDFATHER_ALLOWLIST.has('server/alerts/reportGenerator.ts')).toBe(true); // C3/C4
     expect(GRANDFATHER_ALLOWLIST.has('server/trading/marketDataRefresh.ts')).toBe(true); // C4
@@ -183,6 +182,9 @@ describe('check_kis_primary_invariant guard (ADR-0562 확장)', () => {
     // #2 lateWinEvaluator(ADR-0565): KIS(L1) 1차 fetchOHLCVFromKis(flag-gated) → Yahoo fallback 강등.
     expect(GRANDFATHER_ALLOWLIST.has('server/learning/lateWinEvaluator.ts')).toBe(false);
     expect(WHITELIST.has('server/learning/lateWinEvaluator.ts')).toBe(true);
+    // #4 historicalClosePrice: 이미 무조건 KIS-first(코드 변경 0, patch 정합 정정) → WHITELIST 승격.
+    expect(GRANDFATHER_ALLOWLIST.has('server/clients/historicalClosePrice.ts')).toBe(false);
+    expect(WHITELIST.has('server/clients/historicalClosePrice.ts')).toBe(true);
   });
 
   // ── (e) false positive 0 ──

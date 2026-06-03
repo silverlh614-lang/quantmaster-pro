@@ -113,6 +113,7 @@ const WHITELIST = new Map([
   ['server/trading/exitEngine/helpers/closeSeriesProvider.ts', 'exit 경로 KIS-first 종가 라우터 fallback 위치 Yahoo(합법, ADR-0561 burn-down; flag OFF byte-equal).'],
   ['server/clients/koreanQuoteBridge.ts', 'KRX(L1)+KIS(L1, ADR-0564 flag-gated) 2중 primary + Yahoo 최후 fallback 브릿지(합법, flag OFF byte-equal).'],
   ['server/learning/lateWinEvaluator.ts', '학습 OHLCV — KIS(L1, ADR-0565 #2 flag-gated fetchOHLCVFromKis) 1차 + Yahoo fallback(합법, flag OFF byte-equal).'],
+  ['server/clients/historicalClosePrice.ts', '학습 라벨러 단일시점 종가 — fetchKisHistoricalClosePrice(L1) 무조건 1차 + Yahoo 최후 fallback(이미 ADR-0561 충족, #4 정합 정정).'],
   ['server/screener/adapters/yahooSymbolResolver.ts', 'fetchYahooQuoteByCode SSOT 위임 본체(.KS/.KQ 합성 SSOT).'],
   ['server/screener/adapters/yahooQuoteAdapter.ts', 'fetchYahooQuote 정의 본체 + per/trailingPE 전용 경로.'],
   ['server/screener/adapters/yahooQuoteSummary.ts', 'PER/PBR/EPS opportunistic enrichment(ENV OFF default, ADR-0536).'],
@@ -140,7 +141,7 @@ const WHITELIST = new Map([
  */
 const GRANDFATHER_ALLOWLIST = new Map([
   // lateWinEvaluator: ADR-0565 #2 KIS(L1) 1차 삽입(fetchOHLCVFromKis flag-gated) → Yahoo fallback 강등 → WHITELIST 승격(grandfather 제거).
-  ['server/clients/historicalClosePrice.ts', { lines: [65], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C2' }], // 학습 라벨러 단일시점 종가 — 이미 KIS-first, Yahoo 잔존 fallback
+  // historicalClosePrice: #4 정합 정정(patch) — fetchHistoricalClosePrice 가 이미 무조건 KIS-first(fetchKisHistoricalClosePrice)·Yahoo 최후 fallback → 이미 ADR-0561 충족(grandfather 과보수) → WHITELIST 승격.
   ['server/learning/newsSupplyLogger.ts', { lines: [85], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C2' }], // 학습 뉴스-수급 귀인 N일 종가 fetchCloses(var) — 국내 code+EWY 글로벌 혼재(비실행)
   // koreanQuoteBridge: ADR-0564 KIS(L1) 2차 삽입(KRX→KIS→Yahoo) → Yahoo 최후 fallback 강등 → WHITELIST 승격(grandfather 제거).
   ['server/screener/sectorSources.ts', { lines: [272, 277], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C5' }], // Yahoo assetProfile 섹터 메타데이터(비실행)
