@@ -137,7 +137,106 @@
 5. **MTAS 일봉 다운샘플로 주/월봉 흡수** — 정식 KIS 주/월봉 vs 다운샘플 정확도 트레이드오프.
    Phase 1 보류, Phase 2 후보(quota 추가 절감용).
 
-## References
+---
+
+## R1 Extension (2026-06-03 / architect) — code-진입 byte-equivalent 라우터 진입점
+
+> 본 확장은 ADR-0547 DRAFT 본체를 계승·강화한다(신규 ADR 번호 미발급 — 0547 DRAFT 흡수, INDEX
+> "한 줄" 룰 유지). ADR-0561(KIS-primary 절대불변식)의 grandfather burn-down 을 byte-equivalent
+> 하게 가능케 하는 라우터 진입점 계약을 확정한다. 런타임 .ts 0줄(설계 전용) — 구현은 후속 engine-dev.
+> 근거 진단: `_workspace/2026-06-03_factory-activation/engine-dev/MEMO-step3-router-flagoff-byte-equivalence-VERDICT.md`(case b).
+
+### RX-A. funnel 의 KIS/Yahoo 분할 — 확정 판정
+
+grandfather callsite (`fetchYahooQuoteByCode(code, fetchYahooQuote)` =
+`fetchYahooQuoteWithMarketFallback`, yahooSymbolResolver.ts:63) 의 실제 출처 분할:
+
+| 데이터 | 1차 출처 | 근거 |
+|--------|----------|------|
+| 현재가 price/prevClose/dayOpen/changePercent/volume | **이미 KIS(L1)** | funnel ①단계 `fetchKisQuoteFirst → fetchKisQuoteFallback(code)`(yahooSymbolResolver.ts:80-91) 가 sane 시 그대로 반환. 이 경로의 quote 는 FHKST01010100 라이브 + (sane 시) FHKST03010100 일봉 파생까지 **전부 KIS** (kisQuoteAdapter.ts:278-342). 또한 KIS quote 미sane 으로 Yahoo 분기 진입해도 `fetchYahooQuote` 내부 `fetchKisIntraday` 보정으로 price 한 점은 KIS 우선. |
+| 기술지표 ma/rsi/macd/atr/MTAS/return5d/20d/BB폭 | **KIS sane 시 KIS, 미sane 시 Yahoo(L3) OHLCV 파생** | KIS quote 가 sane(`dataQuality !== 'STALE_BASE'`)이면 `buildExtendedFromKisDaily` 산출값(KIS 일봉)으로 반환. 미sane 이면 `fetcher(resolved=fetchYahooQuote)` → Yahoo chart OHLCV 파생 지표로 fallback. |
+
+**확정:** 현 callsite 의 진짜 L3 의존 = **기술지표(Yahoo OHLCV 파생), 그것도 "KIS quote 미sane 일 때만"**.
+가격은 이미 KIS-primary. 따라서 ADR-0561 가드가 grandfather 를 "Yahoo-first 위반"으로 지목한 정확한
+대상은 **(가격이 아니라) KIS quote 미sane fallback 구간의 기술지표 산출**이다 — 위반은 기술지표 한정.
+
+> 함의: 현 callsite 는 이미 부분적으로 KIS-first 다(가격 + KIS-sane 시 지표). 따라서 R1 의 flag-OFF
+> 위임은 "Yahoo-first 를 그대로 보존"이 아니라 **"이미 funnel 에 내장된 KIS-first(부분) 동작을 byte-equal
+> 보존"** 이다. flag-ON 은 미sane fallback 구간의 Yahoo 기술지표마저 KIS 일봉으로 끌어올린다.
+
+### RX-B. R1 설계 — `fetchTechnicalQuoteByCode` byte-equivalent 진입점
+
+**위치 결정: technicalQuoteRouter.ts 확장**(yahooSymbolResolver 인접 신규 아님).
+근거 — adapter 경계: 라우터(technicalQuoteRouter)는 이미 ADR-0547 이 "기술지표 quote 출처 라우팅"
+단일 책임을 소유한다. code→symbol resolve 위임 funnel(yahooSymbolResolver)과 KIS-first 라우팅은 직교
+책임이며, R1 은 후자(라우팅)의 code-진입 변형이므로 라우터에 귀속한다. yahooSymbolResolver 는 "symbol
+변환 + fetch 폴백 SSOT"(ADR-0231) 책임이 고정되어 KIS-first 라우팅을 추가하면 책임 비대.
+
+**신규 export 계약:**
+
+```ts
+// technicalQuoteRouter.ts
+export async function fetchTechnicalQuoteByCode(
+  code: string,
+  opts?: FetchTechnicalQuoteOptions,   // { kisFirst?: boolean }
+): Promise<YahooQuoteExtended | null>;
+```
+
+- **flag OFF**(`opts?.kisFirst !== true && KIS_OHLCV_PRIMARY_ENABLED !== 'true'`):
+  내부에서 **`fetchYahooQuoteByCode(code, fetchYahooQuote)` 를 그대로 호출·반환** → byte-equal.
+  보장 항목: (1) 호출 수 동일(funnel 1회), (2) 반환 타입 `YahooQuoteExtended` 동일,
+  (3) `yahooFreshnessLedger` 부수효과(ADR-0255) 동일, (4) dataQuality/priceMetadata marker 동일,
+  (5) .KS↔.KQ sanity fallback(ADR-0241) 동일, (6) KIS-first 부분 동작(funnel ①) 동일.
+  → callsite `fetchYahooQuoteByCode(code, fetchYahooQuote)` → `fetchTechnicalQuoteByCode(code)`
+  1줄 치환이 **동작 불변**.
+- **flag ON**: KIS 일봉 OHLCV 로 기술지표 산출(ADR-0547 자산 `fetchKisQuoteFallback` →
+  `buildExtendedFromKisDaily` → `enrichQuoteWithKisMTAS` → `withKisPrimaryMarker` + 6h/휴장 TTL 캐시).
+  가격은 KIS-first 유지, Yahoo 는 KIS 불가(null/봉수부족) 시에만 fallback(ADR-0561 절대불변식).
+  flag ON 경로는 기존 `fetchTechnicalQuote`(symbol-진입)의 KIS-first 분기를 재사용하되, symbol 이
+  필요한 Yahoo fallback 구간에서는 내부에서 `fetchYahooQuoteByCode(code, fetchYahooQuote)` funnel 로
+  위임해 resolve 책임을 호출처에 전가하지 않는다(code-진입 계약 일관성).
+
+**구현 형태(engine-dev 재량 범위 — 의사 계약):**
+```ts
+export async function fetchTechnicalQuoteByCode(code, opts) {
+  const kisFirst = opts?.kisFirst === true || isKisPrimaryEnvEnabled();
+  if (!kisFirst) {
+    return fetchYahooQuoteByCode(code, fetchYahooQuote); // ← byte-equal funnel 위임
+  }
+  // KIS-first: 캐시 → fetchKisQuoteFallback(code) → enrich → marker → 캐시.
+  // KIS 불가 시: fetchYahooQuoteByCode(code, fetchYahooQuote) funnel 로 fallback.
+}
+```
+(`fetchYahooQuoteByCode`·`fetchYahooQuote` import 신규 — 순환 회피: yahooSymbolResolver 는
+yahooQuoteAdapter 를 type-only import 하므로 라우터에서 양쪽 value import 안전.)
+
+### RX-B2. 옵션 R2(라우터 flag-OFF fallback 을 resolver 로 교체) — 기각
+
+R2 는 기존 `fetchTechnicalQuote`(symbol-진입)의 flag-OFF `fetchYahooQuote(symbol)` 2곳(113-116, 154)을
+`fetchYahooQuoteByCode(code, fetchYahooQuote)` 로 치환하는 안. **기각 근거:**
+- 유일 현 소비자 `prefetchedContext.ts:63` 의 flag-OFF 동작을 바꾼다 — 현재 raw `fetchYahooQuote(symbol)`
+  (호출처가 `ref.symbol ?? tryGetYahooSymbol ?? '${code}.KS'` 로 resolve, line 58) → resolver funnel 경로로
+  전환되어 ledger 부수효과·sanity fallback·marker 가 회귀. byte-equivalent 위반(현 소비자 동작 변경).
+- R1 은 신규 export 추가(기존 `fetchTechnicalQuote` 무변경)이므로 prefetchedContext 회귀 0.
+  → R2 기각, R1 채택.
+
+### RX-C. ③ 치환 규약 (grandfather burn-down)
+
+R1 발급 후 grandfather callsite 를 byte-equal 1줄 치환:
+```
+- fetchYahooQuoteByCode(code, fetchYahooQuote)   →   fetchTechnicalQuoteByCode(code)
+```
+- import 도 `yahooSymbolResolver` → `technicalQuoteRouter` 로 1줄 교체.
+- 치환 PR 마다 `scripts/check_kis_primary_invariant.js` 의 `GRANDFATHER_ALLOWLIST` 에서 해당 파일 항목
+  제거(burn-down) → 가드 진행률 추적(현 10 file-entries / 11 invocations).
+- **최고위험 `stockScreener.ts:577`(메인 Gate full-scan quota)는 본 규약 비대상** — quota cache 워밍 +
+  shadow A/B 허용오차 확정 후 별도 PR(ADR-0561 D2/0547 Decision §8 스캔 단계 정책).
+- 저위험 우선 치환 후보(quota 압박 적음·소비 종목 수 적음): `shadowDataGate.ts:70`(shadow 샘플,
+  실거래 무관·불변식 #8 분리), `reportGenerator.ts:622`·`stockPickReporter.ts:108/179`(알림 리포트,
+  Gate 매매결정 비입력). 그다음 `buyPipeline/trancheExecutor/dryRunScanner/kisIntradayCorrection/
+  preBreakoutAccumulation/intradayScanner`(per-symbol, full-scan 아님) 순.
+
+### References
 
 - surface-map: `_workspace/2026-05-31_kis-ohlcv-primary/surface-map.md`
 - patch-plan: `_workspace/2026-05-31_kis-ohlcv-primary/patch-plan.md`
