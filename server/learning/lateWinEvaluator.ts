@@ -54,7 +54,40 @@ function saveRecommendations(recs: RecommendationRecord[]): void {
   fs.writeFileSync(RECOMMENDATIONS_FILE, JSON.stringify(recs.slice(-1000), null, 2));
 }
 
+/** UTC 'YYYYMMDD' (Yahoo OHLCVDay.date 의 UTC slice 규약과 동형). */
+function formatYmdCompact(date: Date): string {
+  return date.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+/**
+ * KIS(L1) 일봉 OHLCV (ADR-0565 잔존 burn-down #2) — flag ON 시 Yahoo 앞 1차 소스.
+ * fetchKisChartData(과거→최신 정렬, 동일 from/to → Yahoo 와 거래일 인덱스 정합) 를
+ * OHLCVDay 로 매핑(date 'YYYYMMDD'→'YYYY-MM-DD' 변환 — Date.parse(hitDay.date) 보존).
+ * 빈 배열/close≤0 → [](상위가 Yahoo 로 graceful, 불변식 #6). lazy import — flag OFF 는 미로드.
+ */
+async function fetchOHLCVFromKis(code: string, from: Date, to: Date): Promise<OHLCVDay[]> {
+  const { fetchKisChartData } = await import('../screener/kisChartDataFetcher.js');
+  const candles = await fetchKisChartData(code, 'D', formatYmdCompact(from), formatYmdCompact(to)).catch(() => []);
+  const days: OHLCVDay[] = [];
+  for (const c of candles) {
+    if (!(Number.isFinite(c.high) && Number.isFinite(c.low) && Number.isFinite(c.close) && c.close > 0)) continue;
+    days.push({
+      date: `${c.date.slice(0, 4)}-${c.date.slice(4, 6)}-${c.date.slice(6, 8)}`,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    });
+  }
+  return days;
+}
+
 async function fetchOHLCV(code: string, from: Date, to: Date): Promise<OHLCVDay[]> {
+  // KIS(L1) 1차 (ADR-0565) — flag ON 시 Yahoo 앞에서 KIS 일봉 시도. flag OFF default = skip = byte-equal.
+  if (process.env.KIS_OHLCV_PRIMARY_ENABLED === 'true') {
+    const kis = await fetchOHLCVFromKis(code, from, to);
+    if (kis.length > 0) return kis;
+  }
+
   const p1 = Math.floor(from.getTime() / 1000);
   const p2 = Math.floor(to.getTime()   / 1000);
   // ADR-0443 — 마스터 매칭 시 정확한 시장 우선 + 부재 시 보수적 양쪽 fallback (그레이스).

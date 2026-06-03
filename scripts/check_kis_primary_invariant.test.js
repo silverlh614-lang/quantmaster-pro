@@ -162,7 +162,6 @@ describe('check_kis_primary_invariant guard (ADR-0562 확장)', () => {
   });
 
   it('(d2) ADR-0562 C category grandfather entries are present', () => {
-    expect(GRANDFATHER_ALLOWLIST.has('server/learning/lateWinEvaluator.ts')).toBe(true); // C2
     expect(GRANDFATHER_ALLOWLIST.has('server/clients/historicalClosePrice.ts')).toBe(true); // C2
     expect(GRANDFATHER_ALLOWLIST.has('server/screener/sectorSources.ts')).toBe(true); // C5
     expect(GRANDFATHER_ALLOWLIST.has('server/alerts/reportGenerator.ts')).toBe(true); // C3/C4
@@ -177,10 +176,13 @@ describe('check_kis_primary_invariant guard (ADR-0562 확장)', () => {
     expect(WHITELIST.has('server/trading/exitEngine/helpers/closeSeriesProvider.ts')).toBe(true);
   });
 
-  it('(d4) ADR-0564 koreanQuoteBridge KIS 2차 삽입: grandfather 제거 + WHITELIST 승격', () => {
-    // KRX→KIS→Yahoo 3단(flag-gated) → Yahoo 최후 fallback 강등 → grandfather 에서 제거(burn-down #1).
+  it('(d4) ADR-0564/0565 KIS 삽입 burn-down: koreanQuoteBridge(#1)·lateWinEvaluator(#2) grandfather 제거 + WHITELIST 승격', () => {
+    // #1 koreanQuoteBridge(ADR-0564): KRX→KIS→Yahoo 3단(flag-gated) → Yahoo 최후 fallback 강등.
     expect(GRANDFATHER_ALLOWLIST.has('server/clients/koreanQuoteBridge.ts')).toBe(false);
     expect(WHITELIST.has('server/clients/koreanQuoteBridge.ts')).toBe(true);
+    // #2 lateWinEvaluator(ADR-0565): KIS(L1) 1차 fetchOHLCVFromKis(flag-gated) → Yahoo fallback 강등.
+    expect(GRANDFATHER_ALLOWLIST.has('server/learning/lateWinEvaluator.ts')).toBe(false);
+    expect(WHITELIST.has('server/learning/lateWinEvaluator.ts')).toBe(true);
   });
 
   // ── (e) false positive 0 ──
