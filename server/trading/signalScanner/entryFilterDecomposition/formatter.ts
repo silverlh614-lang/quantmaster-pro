@@ -275,10 +275,14 @@ function formatGate2ExternalDataStageSection(d: EntryFilterDecomposition, canoni
   lines.push(...formatGate2ConditionAttributionMatrix(d, dominant));
   lines.push(`- dominant=${dominant.code}`);
   // §F — Gate2 Data Line ↔ Wiring invariant 검증.
+  // Patch DART-STATUS-CARRY-FIX-001 — DART_STATUS_CARRY 는 대표 표본 1건이 아니라 후보군 분포로 판정한다
+  // (KIS_FLOW_CARRY 와 동형). 분포에 attempted(NOT_ATTEMPTED 아님) 종목이 1건이라도 있으면 OK,
+  // 전체가 NOT_ATTEMPTED(=DART 배선 완전 단절)일 때만 VIOLATION. 표시/진단 전용, 값/판정 무변경.
   lines.push(...formatGate2DataLineInvariants({
     canonical: canonical?.kisInvestorFlow,
     kisFlowStatus: kisFlowLine.status,
     dartLineStatus,
+    dartAnyAttempted: resolveDartAnyAttempted(d, external),
     programStatus: program.status,
     programProviderIssue: program.providerIssue,
     external,
@@ -694,11 +698,34 @@ function formatGate2ConditionAttributionMatrix(d: EntryFilterDecomposition, domi
   return lines;
 }
 
+// Patch DART-STATUS-CARRY-FIX-001 — DART 배선이 후보군 분포 차원에서 한 번이라도 attempted 됐는지 판정한다.
+// resolveFinancialBaselineView 의 dartConnectionStatus(CONNECTED_OK|CONNECTION_DEGRADED|NOT_ATTEMPTED, 이미
+// formatGate2FinancialBaselineSection 분포 루프가 쓰는 값)를 후보군 전체에 적용해 NOT_ATTEMPTED 가 아닌 종목이
+// 1건이라도 있으면 true. 후보군이 비면 대표 표본 1건으로 폴백(기존 분포 루프 폴백과 동형). 신규 계산/타입 0.
+function resolveDartAnyAttempted(
+  d: EntryFilterDecomposition,
+  representativeExternal: Record<string, unknown> | undefined,
+): boolean {
+  let evaluated = 0;
+  for (const trace of d.candidateTraces) {
+    evaluated += 1;
+    if (resolveFinancialBaselineView(resolveGate2ExternalData(trace)).dartConnectionStatus !== 'NOT_ATTEMPTED') {
+      return true;
+    }
+  }
+  if (evaluated === 0) {
+    return resolveFinancialBaselineView(representativeExternal).dartConnectionStatus !== 'NOT_ATTEMPTED';
+  }
+  return false;
+}
+
 // §F — Gate2 Data Line Health ↔ Wiring Diagnostic 정합 invariant. 위반 시 VIOLATION 표기.
 function formatGate2DataLineInvariants(input: {
   canonical?: Gate2CanonicalKisFlow;
   kisFlowStatus: string;
   dartLineStatus: string;
+  /** Patch DART-STATUS-CARRY-FIX-001 — 후보군 분포 기준 attempted 집계(대표 표본 단건이 아님). */
+  dartAnyAttempted: boolean;
   programStatus: string;
   programProviderIssue: boolean;
   external?: Record<string, unknown>;
@@ -706,7 +733,9 @@ function formatGate2DataLineInvariants(input: {
   const c = input.canonical;
   const kisCarry = !(c && c.finalGateScoreEligible === true
     && input.kisFlowStatus !== 'VERIFIED' && input.kisFlowStatus !== 'PARTIAL_VERIFIED');
-  const dartCarry = !(input.dartLineStatus === 'NOT_ATTEMPTED'); // attempted=true 면 NOT_ATTEMPTED 금지
+  // Patch DART-STATUS-CARRY-FIX-001 — 대표 표본 1건이 NOT_ATTEMPTED 여도, 후보군 분포에 attempted 종목이
+  // 1건이라도 있으면 OK. 전체가 NOT_ATTEMPTED(=DART 배선 완전 단절)일 때만 VIOLATION(진짜 단절 안전망 보존).
+  const dartCarry = input.dartAnyAttempted;
   // program MISSING 은 optional → providerIssue=false 여야 하고 primaryBlocker 로 승격되면 안 된다.
   const optionalProgramNotBlocking = !(input.programStatus === 'MISSING' && input.programProviderIssue === true);
   const providerHealthSeparated = !(c?.marketSignal === true); // providerIssue→bearish 변환 금지
