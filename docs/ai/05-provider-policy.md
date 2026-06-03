@@ -46,6 +46,21 @@
 - provider 결손 시 등급 강등은 **데이터 품질 문제** 로 분류 — market signal 변환 금지.
 - L3 fallback 은 `safePctChange`(ADR-0028) + `isAcceptableKrxDailyBase`(ADR-0190) 통과 후만.
 
+### KIS Primary 절대불변식 (ADR-0561) — KIS-capable 레이어 Yahoo-first 금지
+
+**KIS(L1)가 공급 가능한 레이어에서는 Yahoo(L3)를 primary 로 쓸 수 없다.** Yahoo 는 KIS 로 대체 불가능한
+경우에만 최후 fallback. 위 L1>L3 위계의 *강제 불변식* 형태(ADR-0547 §8 "스캔 Yahoo-first" 개정 근거).
+
+- **금지** — KIS-capable 경로에서 `fetchYahooQuoteByCode`/`fetchYahooQuote` 를 Gate/매매 입력 primary 로 직접 호출.
+  현 Gate quote ~10곳(`stockScreener.ts:577` 등)이 위반 = grandfather→burn-down(마이그레이션 진행 시 allowlist 축소).
+- **허용** — (a) `technicalQuoteRouter` 내 KIS primary 실패 후 Yahoo *fallback*, (b) 진짜 대체불가 케이스
+  (현 후보: `per`(trailingPE) 1개, KIS finance 보강 재검토 대상), (c) `yahooSymbolResolver` SSOT 위임 본체.
+- **quota ≠ 회피 사유** — KIS 일봉 6h+휴장 인지 TTL 캐시·배치·`__kisPurpose:'DISCOVERY'` 버킷·cooldown 으로 해결.
+- **가드** — `check_kis_primary_invariant.js`(후속 engine-dev)가 신규 Yahoo-first 도입 커밋타임 차단(텍스트 정규식,
+  `check_ssot_drift_registry`/`check_ssot_single_funnel` 패턴 재사용, executionImpact=NONE).
+- 현재가 fallback 라우터 SSOT(`KIS_QUOTE > KIS_CACHED > KRX > YAHOO`)는 이미 KIS-first → 본 불변식과 정합.
+- 상세 → `docs/adr/0561-kis-primary-absolute-invariant.md`.
+
 ---
 
 ## KIS RealData 장애 격리 (Patch KIS500 provider health isolation)

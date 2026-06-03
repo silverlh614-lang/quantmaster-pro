@@ -59,6 +59,11 @@ AI 기반 한국 주식 퀀트 트레이딩 시스템. 27개 조건 + 4단계 Ga
 L1 (KIS·KRX 공식 → 매수·매도) / L2 (FRED·ECOS·DART → Gate) / L3 (Yahoo·Naver → fallback) /
 L4 (AI 추정 → 참조 전용, 직접 매매 결정 금지).
 
+**절대불변식 (ADR-0561) — KIS Primary Absolute:** KIS(L1)가 공급 가능한 레이어에서는 Yahoo(L3)를
+primary 로 쓸 수 없다. Yahoo 는 KIS 로 대체 불가능한 경우에만 최후 fallback 으로 차용한다.
+quota 는 Yahoo-first 회피 사유가 아니다 — 캐시·배치·rate 관리(엔지니어링)로 해결한다.
+(현 Gate quote ~10곳 Yahoo-first = grandfather→burn-down 마이그레이션 대상. 진짜 대체불가 케이스만 명시 허용.)
+
 상세 매매엔진 규칙 → `docs/ai/02-trading-engine-rules.md` ·
 SourceSnapshot SSOT → `docs/ai/03-source-snapshot-ssot.md` ·
 Provider 정책 → `docs/ai/05-provider-policy.md`

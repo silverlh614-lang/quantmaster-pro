@@ -83,4 +83,15 @@ KIS(한국투자증권) API 로 실제 주문을 집행한다.
 - L3 fallback 은 stale/sanity 검증 통과 후에만 사용 (ADR-0028 safePctChange, ADR-0190 KRX calendar).
 - provider 결손 시 등급 강등은 데이터 품질 문제로 분류 — market signal 변환 금지 (불변식 #6).
 
+### KIS Primary 절대불변식 (ADR-0561)
+
+**KIS(L1)가 공급 가능한 레이어에서는 Yahoo(L3)를 primary 로 쓸 수 없다.**
+Yahoo 는 KIS 로 *대체 불가능한 경우에만* 최후 fallback 으로 차용한다 (위 L1>L3 위계의 엄격·절대 형태).
+
+- "KIS-capable 레이어에서 Yahoo-first" = 금지 (현 Gate quote ~10곳이 위반 — grandfather→burn-down 마이그레이션 대상).
+- quota 물리 한계는 인정하되 **해법은 Yahoo-first 유지가 아니라 엔지니어링**(KIS 일봉 6h+휴장 TTL 캐시·배치·rate 관리).
+- 진짜 대체불가 케이스(현 후보: `per`(trailingPE), 단 KIS finance 보강 재검토)만 명시 허용 (ADR-0558 정당경계 패턴).
+- 위반 탐지 = 정적 가드(`check_kis_primary_invariant.js`, 후속 engine-dev)가 신규 Yahoo-first 도입 커밋타임 차단.
+- 9대 불변식 VERBATIM 과 별개 — 데이터 신뢰 *절대규칙*. 상세 → `docs/adr/0561-kis-primary-absolute-invariant.md`.
+
 상세 provider 정책 → `docs/ai/05-provider-policy.md`
