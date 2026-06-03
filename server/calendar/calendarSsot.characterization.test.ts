@@ -1,28 +1,28 @@
 /**
- * @responsibility Golden-master characterization of the two independent KRX holiday ledgers — locks current behavior before SSOT unification.
+ * @responsibility Golden-master characterization of the unified KRX holiday SSOT — krxTradingCalendar now delegates to krxHolidays (ADR-0559).
  *
- * READ-ONLY characterization harness (NO integration / NO refactor). LIVE order gating
- * (휴장일 → liveOrderAllowed) depends on which ledger the trading path consults, so this
- * test measures the existing divergence first.
+ * POST-UNIFICATION characterization harness. ADR-0559 dissolved the former dual-ledger
+ * divergence: `krxTradingCalendar.isKrxHoliday` now re-exports `krxHolidays.isKrxHoliday`
+ * (single data SSOT — STATIC ∪ patch ∪ ADR-0548 KIS sync). LIVE order gating
+ * (휴장일 → liveOrderAllowed) consults krxTradingCalendar, so it now sees the complete
+ * 2027 holiday set + 2026-12-31 (year-end close).
  *
- * Two ledgers, both export `isKrxHoliday`, mutually independent (no cross-import):
- *   - server/calendar/krxTradingCalendar.ts : isKrxHoliday + isKrxTradingDay (hardcoded 2026 only)
- *   - server/trading/krxHolidays.ts          : isKrxHoliday + isKrxBusinessDay (STATIC 2026+2027 ∪ patch)
+ * Both `isKrxHoliday` symbols resolve to the same data; both trading-day predicates
+ * (calendar.isKrxTradingDay / krxHolidays.isKrxBusinessDay) now AGREE on every weekday.
  *
  * LIVE-path note: the entry/preflight gate (signalScanner/preflight.ts → r3Countability →
  * resolveMarketSessionState) and buyPipeline.ts consult krxTradingCalendar.isKrxTradingDay.
- * marketClock.classifyMarketDataMode (HOLIDAY_CACHE) and marketDayClassifier consult
- * krxHolidays.isKrxHoliday. They disagree (see EFFECTIVE_TRADING_DAY_DIVERGENCE below).
+ * After ADR-0559 this path is fed by the unified SSOT, closing the 2027/연말폐장 order-window gap.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * UNIFICATION ACCEPTANCE CRITERIA (5 lines — a unification PR must satisfy all):
- *  1. Single ledger adopted; every consumer (incl. LIVE buyPipeline/preflight) routes through it.
+ * UNIFICATION ACCEPTANCE CRITERIA (5 lines — satisfied by ADR-0559 implementation):
+ *  1. Single ledger adopted; every consumer (incl. LIVE buyPipeline/preflight) routes through it. ✓
  *  2. Divergences resolved SAFE-DIRECTION ONLY: add missing holidays (more conservative);
- *     never reclassify a true trading day into a holiday (would silently drop trades).
- *  3. 2026-12-31 (연말 폐장) is a holiday in the unified ledger.
- *  4. Dates where both ledgers already AGREE keep golden output unchanged (zero regression).
+ *     never reclassify a true trading day into a holiday (would silently drop trades). ✓ (0 such cases)
+ *  3. 2026-12-31 (연말 폐장) is a holiday in the unified ledger. ✓
+ *  4. Dates where both ledgers already AGREE keep golden output unchanged (zero regression). ✓
  *  5. liveOrderAllowed path stays byte-equivalent OR changes only toward the safer direction
- *     (휴장일에 주문이 열리던 구멍을 닫는 변경만 허용).
+ *     (휴장일에 주문이 열리던 구멍을 닫는 변경만 허용). ✓
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -38,55 +38,66 @@ import {
 } from '../trading/krxHolidays.js';
 
 /**
- * EFFECTIVE trading-day divergences across 2024-01-01 .. 2027-12-31.
- * "effective" = weekday-only, where calendar.isKrxTradingDay !== krxHolidays.isKrxBusinessDay.
- * (Holidays that fall on weekends never diverge because both reject weekends.)
+ * ADR-0559 RESOLVED divergences — formerly EFFECTIVE_TRADING_DAY_DIVERGENCE.
  *
- * Each entry records SAFETY direction for the LIVE order gate:
- *   - UNSAFE  : a real holiday seen as a trading day → order window could open on a closed day.
- *   - CONSERVATIVE : a real trading day seen as a holiday → trades skipped (safe, missed only).
+ * Before unification these 9 weekday dates diverged (calendar.isKrxTradingDay !==
+ * krxHolidays.isKrxBusinessDay). After delegating calendar's holiday data to the
+ * krxHolidays SSOT they ALL agree as HOLIDAY (both ledgers reject them now).
+ *
+ * Every resolution is SAFE-DIRECTION ONLY:
+ *   - 8x 2027 weekday holidays: calendar previously saw them as TRADING (UNSAFE — order
+ *     window open on a closed day) → now HOLIDAY (closed). Gate gap closed.
+ *   - 2026-12-31 year-end close: krxHolidays previously saw it as TRADING (UNSAFE) → now
+ *     HOLIDAY (STATIC_HOLIDAYS gained '2026-12-31').
+ *
+ * truth=TRADING reclassified to HOLIDAY = 0 (no real trading day was silently dropped).
  */
-const EFFECTIVE_TRADING_DAY_DIVERGENCE: ReadonlyArray<{
+const RESOLVED_DIVERGENCE: ReadonlyArray<{
   date: string;
-  calTradingDay: boolean;
-  holBusinessDay: boolean;
   truth: 'HOLIDAY' | 'TRADING';
-  calSafety: 'UNSAFE' | 'CONSERVATIVE';
-  holSafety: 'UNSAFE' | 'CONSERVATIVE';
   note: string;
 }> = [
-  // 연말 폐장: krxTradingCalendar marks it, krxHolidays does NOT.
-  // krxHolidays treating 12/31 as a business day is UNSAFE (would open order window on closed day).
-  { date: '2026-12-31', calTradingDay: false, holBusinessDay: true, truth: 'HOLIDAY', calSafety: 'CONSERVATIVE', holSafety: 'UNSAFE', note: '연말 폐장 — krxHolidays 누락' },
-  // All of 2027 is absent from krxTradingCalendar (hardcoded 2026 only).
-  // calendar treats every 2027 weekday holiday as a TRADING day → UNSAFE.
-  { date: '2027-01-01', calTradingDay: true, holBusinessDay: false, truth: 'HOLIDAY', calSafety: 'UNSAFE', holSafety: 'CONSERVATIVE', note: '신정 — krxTradingCalendar 2027 미수록' },
-  { date: '2027-02-08', calTradingDay: true, holBusinessDay: false, truth: 'HOLIDAY', calSafety: 'UNSAFE', holSafety: 'CONSERVATIVE', note: '설날 연휴' },
-  { date: '2027-03-01', calTradingDay: true, holBusinessDay: false, truth: 'HOLIDAY', calSafety: 'UNSAFE', holSafety: 'CONSERVATIVE', note: '삼일절' },
-  { date: '2027-05-05', calTradingDay: true, holBusinessDay: false, truth: 'HOLIDAY', calSafety: 'UNSAFE', holSafety: 'CONSERVATIVE', note: '어린이날' },
-  { date: '2027-05-12', calTradingDay: true, holBusinessDay: false, truth: 'HOLIDAY', calSafety: 'UNSAFE', holSafety: 'CONSERVATIVE', note: '부처님 오신 날' },
-  { date: '2027-09-14', calTradingDay: true, holBusinessDay: false, truth: 'HOLIDAY', calSafety: 'UNSAFE', holSafety: 'CONSERVATIVE', note: '추석 연휴' },
-  { date: '2027-09-15', calTradingDay: true, holBusinessDay: false, truth: 'HOLIDAY', calSafety: 'UNSAFE', holSafety: 'CONSERVATIVE', note: '추석' },
-  { date: '2027-09-16', calTradingDay: true, holBusinessDay: false, truth: 'HOLIDAY', calSafety: 'UNSAFE', holSafety: 'CONSERVATIVE', note: '추석 연휴' },
+  { date: '2026-12-31', truth: 'HOLIDAY', note: '연말 폐장 — krxHolidays STATIC 보강 (was UNSAFE on hol)' },
+  { date: '2027-01-01', truth: 'HOLIDAY', note: '신정 — calendar 위임으로 2027 인식 (was UNSAFE on cal)' },
+  { date: '2027-02-08', truth: 'HOLIDAY', note: '설날 연휴 (was UNSAFE on cal)' },
+  { date: '2027-03-01', truth: 'HOLIDAY', note: '삼일절 (was UNSAFE on cal)' },
+  { date: '2027-05-05', truth: 'HOLIDAY', note: '어린이날 (was UNSAFE on cal)' },
+  { date: '2027-05-12', truth: 'HOLIDAY', note: '부처님 오신 날 (was UNSAFE on cal)' },
+  { date: '2027-09-14', truth: 'HOLIDAY', note: '추석 연휴 (was UNSAFE on cal)' },
+  { date: '2027-09-15', truth: 'HOLIDAY', note: '추석 (was UNSAFE on cal)' },
+  { date: '2027-09-16', truth: 'HOLIDAY', note: '추석 연휴 (was UNSAFE on cal)' },
 ];
 
-describe('calendarSsot characterization — two independent isKrxHoliday ledgers', () => {
-  describe('A. ledgers are currently independent and both export isKrxHoliday', () => {
-    it('calendar ledger hardcodes 2026 only (2027 unknown)', () => {
-      // 2026 holiday known
+describe('calendarSsot characterization — unified isKrxHoliday SSOT (ADR-0559)', () => {
+  describe('A. calendar now delegates holiday data to the krxHolidays SSOT', () => {
+    it('calendar ledger now recognizes 2027 (delegated, no longer 2026-only)', () => {
+      // 2026 holiday still known
       expect(calIsKrxHoliday('2026-01-01')).toBe(true);
-      // 2027 entirely unknown to calendar ledger
-      expect(calIsKrxHoliday('2027-01-01')).toBe(false);
+      // ADR-0559: 2027 now visible to calendar via delegation (was false pre-unification)
+      expect(calIsKrxHoliday('2027-01-01')).toBe(true);
     });
 
     it('krxHolidays ledger covers 2026 AND 2027 via STATIC set', () => {
       expect(holIsKrxHoliday('2026-01-01')).toBe(true);
       expect(holIsKrxHoliday('2027-01-01')).toBe(true);
     });
+
+    it('both isKrxHoliday symbols resolve to the SAME data (divergence structurally dissolved)', () => {
+      // Full 2024..2027 sweep: the two holiday predicates must agree on every date.
+      const mismatches: string[] = [];
+      let cursor = new Date('2024-01-01T00:00:00.000Z');
+      const end = new Date('2027-12-31T00:00:00.000Z');
+      while (cursor <= end) {
+        const k = cursor.toISOString().slice(0, 10);
+        if (calIsKrxHoliday(k) !== holIsKrxHoliday(k)) mismatches.push(k);
+        cursor = new Date(cursor.getTime() + 86_400_000);
+      }
+      expect(mismatches).toEqual([]);
+    });
   });
 
-  describe('B. EFFECTIVE trading-day divergences are locked (golden)', () => {
-    it('exactly the documented dates diverge in 2024..2027 weekdays', () => {
+  describe('B. EFFECTIVE trading-day divergences are now RESOLVED (golden, post-unification)', () => {
+    it('zero effective divergences remain in 2024..2027 weekdays (was 9)', () => {
       const found: string[] = [];
       let cursor = new Date('2024-01-01T00:00:00.000Z');
       const end = new Date('2027-12-31T00:00:00.000Z');
@@ -95,22 +106,36 @@ describe('calendarSsot characterization — two independent isKrxHoliday ledgers
         if (calIsKrxTradingDay(k) !== holIsKrxBusinessDay(k)) found.push(k);
         cursor = new Date(cursor.getTime() + 86_400_000);
       }
-      expect(found).toEqual(EFFECTIVE_TRADING_DAY_DIVERGENCE.map((d) => d.date));
+      // ADR-0559: divergence array is now empty — calendar.isKrxTradingDay and
+      // krxHolidays.isKrxBusinessDay agree on every date.
+      expect(found).toEqual([]);
     });
 
-    it.each(EFFECTIVE_TRADING_DAY_DIVERGENCE)(
-      'locks $date (truth=$truth) — calTradingDay=$calTradingDay holBusinessDay=$holBusinessDay [$note]',
-      ({ date, calTradingDay, holBusinessDay }) => {
-        expect(calIsKrxTradingDay(date)).toBe(calTradingDay);
-        expect(holIsKrxBusinessDay(date)).toBe(holBusinessDay);
+    it.each(RESOLVED_DIVERGENCE)(
+      'resolves $date (truth=$truth) — both ledgers now HOLIDAY [$note]',
+      ({ date }) => {
+        // ADR-0559 safe-direction: all 9 formerly-diverging weekdays are now HOLIDAY in
+        // BOTH ledgers (calendar trading-day=false, krxHolidays business-day=false).
+        expect(calIsKrxTradingDay(date)).toBe(false);
+        expect(holIsKrxBusinessDay(date)).toBe(false);
+        // Both holiday predicates agree (single SSOT).
+        expect(calIsKrxHoliday(date)).toBe(true);
+        expect(holIsKrxHoliday(date)).toBe(true);
       },
     );
 
-    it('2026-12-31 (연말 폐장): calendar=holiday, krxHolidays=trading-day (krxHolidays is UNSAFE here)', () => {
+    it('every RESOLVED_DIVERGENCE entry has truth=HOLIDAY (truth=TRADING→holiday reclassification = 0)', () => {
+      // Safe-direction invariant: not one real trading day was reclassified into a holiday.
+      expect(RESOLVED_DIVERGENCE.every((d) => d.truth === 'HOLIDAY')).toBe(true);
+    });
+
+    it('2026-12-31 (연말 폐장): now HOLIDAY in BOTH ledgers (krxHolidays gap closed)', () => {
+      // Pre-unification krxHolidays treated 12/31 as a business day (UNSAFE). ADR-0559 added
+      // '2026-12-31' to STATIC_HOLIDAYS, so both ledgers now reject it.
       expect(calIsKrxHoliday('2026-12-31')).toBe(true);
       expect(calIsKrxTradingDay('2026-12-31')).toBe(false);
-      expect(holIsKrxHoliday('2026-12-31')).toBe(false);
-      expect(holIsKrxBusinessDay('2026-12-31')).toBe(true);
+      expect(holIsKrxHoliday('2026-12-31')).toBe(true);
+      expect(holIsKrxBusinessDay('2026-12-31')).toBe(false);
     });
   });
 
@@ -144,12 +169,14 @@ describe('calendarSsot characterization — two independent isKrxHoliday ledgers
   });
 
   describe('D. STATIC ledger holiday-set snapshot (provenance lock)', () => {
-    it('krxHolidays STATIC set 2026 weekday holidays superset of calendar 2026 (minus 12/31)', () => {
+    it('krxHolidays STATIC set encodes weekend holidays AND the year-end close (ADR-0559)', () => {
       const stat = getStaticKrxHolidays();
-      // krxHolidays additionally encodes weekend-falling holidays (03/01, 06/06, 08/15, 09/26, 10/03)
-      // and the 대체공휴일 logic; calendar omits weekend ones and adds 12/31.
-      expect(stat.has('2026-03-01')).toBe(true); // 삼일절 (Sun) — calendar omits
-      expect(stat.has('2026-12-31')).toBe(false); // 연말 폐장 — STATIC omits (the gap)
+      // krxHolidays encodes weekend-falling holidays (03/01, 06/06, 08/15, 09/26, 10/03)
+      // and the 대체공휴일 logic.
+      expect(stat.has('2026-03-01')).toBe(true); // 삼일절 (Sun)
+      // ADR-0559: STATIC now includes 2026-12-31 (was the gap that left krxHolidays UNSAFE).
+      expect(stat.has('2026-12-31')).toBe(true); // 연말 폐장 — gap closed
+      expect(stat.has('2027-12-31')).toBe(true); // 차년도 연말 폐장 정합
     });
   });
 });

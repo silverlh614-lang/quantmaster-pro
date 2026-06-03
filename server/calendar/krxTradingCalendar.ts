@@ -1,27 +1,14 @@
 /**
- * @responsibility KRX trading-calendar helper for stale-base decisions.
+ * @responsibility KRX trading-day walk / staleness helper layer — delegates holiday data to krxHolidays SSOT (ADR-0559).
  *
- * This is intentionally local/static for emergency stability. It covers weekends,
- * 2026 Korea exchange holidays known to affect near-term stale-base checks, and a
- * small next-trading-day buffer. Extend the holiday table yearly or replace with a
- * KRX/public-data fetcher later.
+ * This module owns the trading-day walk / staleness grace logic (toKstDateKey, addDays,
+ * previousKrxTradingDay, isAcceptable*Base, recommendedDailyStaleWindowDays). Holiday
+ * data is NOT owned here: `isKrxHoliday` re-exports `krxHolidays.isKrxHoliday` (the single
+ * data SSOT — STATIC ∪ patch ∪ ADR-0548 KIS sync), structurally dissolving the former
+ * dual-ledger divergence. Public API signatures are preserved (18 consumers unchanged).
  */
 
-const KRX_HOLIDAYS_BY_YEAR: Record<number, Set<string>> = {
-  2026: new Set([
-    '2026-01-01',
-    '2026-02-16', '2026-02-17', '2026-02-18',
-    '2026-03-02',
-    '2026-05-01',
-    '2026-05-05',
-    '2026-05-25',
-    '2026-06-03', // 제9회 전국동시지방선거 (법정 공휴일 → KRX 휴장)
-    '2026-08-17',
-    '2026-09-24', '2026-09-25',
-    '2026-10-05', '2026-10-09',
-    '2026-12-25', '2026-12-31',
-  ]),
-};
+import { isKrxHoliday as krxHolidaysIsKrxHoliday } from '../trading/krxHolidays.js';
 
 export function toKstDateKey(input: Date | string): string {
   const d = typeof input === 'string' ? new Date(input) : input;
@@ -39,9 +26,14 @@ function addDays(dateKey: string, days: number): string {
   return toKstDateKey(d);
 }
 
+/**
+ * ADR-0559: 휴일 데이터 판정을 krxHolidays SSOT 에 위임 (re-export). 시그니처 보존
+ * (dateKey: 'YYYY-MM-DD'). 자체 하드코딩 휴일셋(KRX_HOLIDAYS_BY_YEAR)을 제거하여
+ * 두 원장의 divergence 를 구조적으로 소멸. isKrxTradingDay/walk 헬퍼는 이 함수를
+ * 호출하므로 위임된 데이터(STATIC ∪ patch ∪ KIS sync)를 자동으로 본다.
+ */
 export function isKrxHoliday(dateKey: string): boolean {
-  const year = Number(dateKey.slice(0, 4));
-  return KRX_HOLIDAYS_BY_YEAR[year]?.has(dateKey) ?? false;
+  return krxHolidaysIsKrxHoliday(dateKey);
 }
 
 export function isKrxTradingDay(dateKey: string): boolean {
