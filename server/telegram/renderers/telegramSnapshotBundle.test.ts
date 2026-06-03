@@ -112,6 +112,51 @@ describe('ADR-0523 Telegram snapshot bundle', () => {
     expect(gate2.nextAction).toBe('Gate3 timing for 13 candidates');
   });
 
+  // P2 묶음2 (V5b): providerHealth 는 정본 스캔 요약 필드의 *pass-through projection* 이다 —
+  // 렌더 시점 provider 직접 조회/재계산/재추론 0 (불변식 #3, ADR-0525/0526). 본 테스트는
+  // 입력 summary 의 providerIssue/marketSignal/providerIssueDistribution 가 byte-equivalent 로
+  // 그대로 투영됨을 잠가, 향후 누군가 렌더 시점 재계산을 끼워넣는 회귀를 차단한다.
+  it('projects providerHealth as canonical pass-through (no render-time re-inference)', () => {
+    const bundle = buildSnapshotBundleFromScanSummary({
+      snapshotId: 'scan-eval-providerhealth',
+      time: '2026-06-03T09:00:00.000Z',
+      candidates: 7,
+      providerIssue: true,
+      marketSignal: false,
+      providerIssueDistribution: { DART_STALE: 3, KIS_SUPPLY_EMPTY: 1 },
+    });
+    expect(bundle.providerHealth?.providerIssue).toBe(true);
+    expect(bundle.providerHealth?.marketSignal).toBe(false);
+    expect(bundle.providerHealth?.topProviderIssue).toBe('DART_STALE');
+  });
+
+  // 불변식 #6: providerIssue 가 있어도 marketSignal 은 격리되어 bearish 로 승격되지 않는다.
+  // snapshotBundle 은 정본 marketSignal 을 그대로 투영할 뿐 providerIssue 로부터 재구성하지 않는다.
+  it('does not derive marketSignal from providerIssue (invariant #6 isolation preserved in projection)', () => {
+    const bundle = buildSnapshotBundleFromScanSummary({
+      snapshotId: 'scan-eval-isolation',
+      time: '2026-06-03T09:00:00.000Z',
+      candidates: 0,
+      providerIssue: true,
+      // 정본이 marketSignal=false 로 격리 → 투영도 false (provider 장애 ≠ market signal).
+      marketSignal: false,
+    });
+    expect(bundle.providerHealth?.providerIssue).toBe(true);
+    expect(bundle.providerHealth?.marketSignal).toBe(false);
+  });
+
+  // 정본에 provider 필드가 전부 부재하면 graceful default(false/none) — 렌더가 죽지 않음(불변식 #1).
+  it('defaults providerHealth gracefully when canonical provider fields absent', () => {
+    const bundle = buildSnapshotBundleFromScanSummary({
+      snapshotId: 'scan-eval-noprovider',
+      time: '2026-06-03T09:00:00.000Z',
+      candidates: 3,
+    });
+    expect(bundle.providerHealth?.providerIssue).toBe(false);
+    expect(bundle.providerHealth?.marketSignal).toBe(false);
+    expect(bundle.providerHealth?.topProviderIssue).toBe('none');
+  });
+
   it('buildSnapshotBundleFromScanSummary projects gate2 from candidateGateAggregate (View), not undefined', () => {
     const bundle = buildSnapshotBundleFromScanSummary({
       snapshotId: 'scan-eval-gate2view',

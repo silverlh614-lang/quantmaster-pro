@@ -77,8 +77,17 @@ const RULES = [
 ];
 
 /**
- * baseline allowlist — 기존 위반(파일 경로 단위). P3~P5 burn-down 예정.
+ * baseline allowlist — 두 종류로 분류된다 (P2 묶음2 분류 작업, ADR-0555):
+ *   (1) BURN_DOWN  — 진짜 projection/단일통로 위반. snapshot factory 완성 후 제거 대상 (V1/V3).
+ *   (2) LEGITIMATE_DIAGNOSTIC — 명령의 *목적 자체가* provider health/회로/raw 응답 진단이거나
+ *       (provider 상태 = 데이터가 아니라 메타, 불변식 #6), 실주문 실행 경로(kisClient 단일통로 정당),
+ *       또는 ledger-truth 읽기다. 시장상태/판단(bullish·bearish·gate결과·후보)을 추론·표시하지 *않는다*.
+ *       → burn-down 대상 아님(영구 허용). 신규 *유사* 진단 명령 복제는 여전히 차단(allowlist 미등재면 fail).
  * 신규 위반은 여기 없으면 즉시 fail. (감사 grep + ADR-0555 §Consequences Grandfather 근거)
+ *
+ * P2 묶음2 분류 결과(2026-06-03): V5/V5-extended telegram callsite 전부 (2) LEGITIMATE_DIAGNOSTIC
+ *   으로 확정 — (1) 진짜 projection 위반 (A) 0건(재배선 없음). 남은 burn-down 대상은 V1/V3
+ *   (candidate-universe·investor-flow provider 직접 fetch)뿐이다.
  */
 const BASELINE_ALLOWLIST = new Map([
   // ── V1 candidate-universe 직접 provider 호출 (P3 burn-down) ──
@@ -96,30 +105,40 @@ const BASELINE_ALLOWLIST = new Map([
 
   // ── V2 providerHealth mixed: 정정 완료(불변식 #6 isolation) → allowlist 제거 (P2 묶음1) ──
 
-  // ── V5 telegram projection 직접 provider 조회 (P5/별건 burn-down) ──
-  ['server/telegram/commands/system/dartProviderHealth.cmd.ts', 'P5 burn-down 예정 / audit V5 (gate2ExternalDataProvider 직접 조회)'],
-  ['server/telegram/renderers/snapshotBundle.ts', 'P5 burn-down 예정 / audit V5 (projection-only — 재계산 금지; import 위반 아님, ADR 명시 grandfather)'],
+  // ── V5 telegram projection (P2 묶음2 분류 완료, ADR-0555) ──
+  //    재배선 대상 (A) projection 위반 0건. 두 callsite 모두 (B) LEGITIMATE_DIAGNOSTIC 으로 확정:
+  //    - dartProviderHealth.cmd: 명령의 *목적 자체가* DART provider/Gate2 cache 건강 진단(메타)이다.
+  //      getGate2DartProviderHealth() 는 apiKey/cache/rateLimit/lastHttpStatus 등 provider 메타만
+  //      반환(executionImpact=NONE) — 시장상태/판단(bullish·bearish·gate·후보) 추론 0. 불변식 #6
+  //      "provider 상태 = 데이터가 아니라 메타". → 영구 허용(burn-down 대상 아님).
+  //    - snapshotBundle.ts:273 은 import 위반이 아니다(provider client import 0). 정본 스캔 요약의
+  //      providerIssue/marketSignal/providerIssueDistribution 를 boolOf/topKey 로 *pass-through
+  //      projection* 할 뿐, 렌더 시점 재계산/재추론 0 (telegramSnapshotBundle.test.ts 로 잠금).
+  ['server/telegram/commands/system/dartProviderHealth.cmd.ts', 'LEGITIMATE_DIAGNOSTIC (영구 허용) / audit V5 — 명령 목적=DART provider health 메타 진단, 시장판단 추론 0 (불변식 #6). 재배선 대상 아님.'],
+  ['server/telegram/renderers/snapshotBundle.ts', 'LEGITIMATE_DIAGNOSTIC (영구 허용) / audit V5 — projection-only pass-through, provider import 0·재계산 0 (ADR-0525/0526, telegramSnapshotBundle.test.ts 잠금).'],
 
-  // ── V5-extended: telegram command provider read (audit grep, P5 burn-down 트랙) ──
-  //    ADR-0555 Rule 2 의 commands/** projection-only 경계상 기존 위반. trade/* 실주문·
-  //    system/* 진단 probe·positions/* ledger truth 읽기 포함 — 신규 복제만 차단, 기존은 grandfather.
-  ['server/telegram/commands/system/gate2ExternalRefresh.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (gate2External 직접 refresh)'],
-  ['server/telegram/commands/system/healthFull.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (krxClient 헬스 직접 조회)'],
-  ['server/telegram/commands/system/programMarket.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (kis program 직접 fetch — 진단)'],
-  ['server/telegram/commands/system/programMarketProbe.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (kis program probe — 진단)'],
-  ['server/telegram/commands/system/programMarketRaw.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (kis program raw — 진단)'],
-  ['server/telegram/commands/system/programToday.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (kis program 직접 fetch — 진단)'],
-  ['server/telegram/commands/system/scanBlockers.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (kisClient health section — 진단)'],
-  ['server/telegram/commands/system/sectorIscdProbe.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (kis sector index probe — 진단)'],
-  ['server/telegram/commands/system/supplyHealth.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (kis supply 직접 fetch — 진단)'],
-  ['server/telegram/commands/trade/cancel.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (kisPost 주문취소 — 실행 경로)'],
-  ['server/telegram/commands/trade/krxScan.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (krxClient 캐시 reset — 진단)'],
-  ['server/telegram/commands/trade/sell.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (placeKisSellOrder — 실행 경로)'],
-  ['server/telegram/commands/watchlist/add.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (kis 현재가/종목명 조회)'],
-  ['server/telegram/commands/learning/circuits.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (kis circuit stats 읽기)'],
-  ['server/telegram/commands/learning/resetCircuits.cmd.ts', 'P5 burn-down 예정 / audit V5-extended (kis circuit reset)'],
-  ['server/telegram/commands/positions/readers/liveKisPositionReader.ts', 'P5 burn-down 예정 / audit V5-extended (live KIS 보유 — ledger truth 읽기, 오탐 가능)'],
-  ['server/telegram/commands/positions/shadowPositionSources.ts', 'P5 burn-down 예정 / audit V5-extended (현재가 — position 표시용, 오탐 가능)'],
+  // ── V5-extended: telegram command provider read (audit grep, P2 묶음2 분류 완료) ──
+  //    ADR-0555 Rule 2 commands/** projection-only 경계상 기존 등재. 분류 결과 전부 (B) — provider
+  //    health/회로 진단(메타) · 실주문 실행(kisClient 단일통로 정당) · ledger-truth 읽기다. 어느 것도
+  //    시장상태/판단을 추론·표시하지 않으므로 LEGITIMATE_DIAGNOSTIC(영구 허용). 신규 *유사* 복제는
+  //    여전히 차단(allowlist 미등재 시 fail).
+  ['server/telegram/commands/system/gate2ExternalRefresh.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — Gate2 external cache 수동 refresh(운영 진단 액션), 시장판단 추론 0.'],
+  ['server/telegram/commands/system/healthFull.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — krxClient/다중 provider 헬스 통합 진단(메타).'],
+  ['server/telegram/commands/system/programMarket.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — KIS program 매매 추이 read-only 진단(메타, 1회).'],
+  ['server/telegram/commands/system/programMarketProbe.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — KIS program 파라미터 조합 read-only probe(메타).'],
+  ['server/telegram/commands/system/programMarketRaw.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — KIS program raw 응답 진단 노출(메타, Patch-004).'],
+  ['server/telegram/commands/system/programToday.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — KIS 종목별 program 매매 read-only 진단(메타, 1회).'],
+  ['server/telegram/commands/system/scanBlockers.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — kisClient health section 진단(메타); 차단 분포는 정본 scan summary projection.'],
+  ['server/telegram/commands/system/sectorIscdProbe.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — KIS sector iscd brute-force read-only probe(메타 검증).'],
+  ['server/telegram/commands/system/supplyHealth.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — 수급 채널 source/freshness/coverage read-only 진단(메타).'],
+  ['server/telegram/commands/trade/cancel.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — kisPost 미체결 주문 취소(실행 경로, kisClient 단일통로 정당).'],
+  ['server/telegram/commands/trade/krxScan.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — krxClient 서킷/캐시 reset 후 발굴 재실행(운영 액션).'],
+  ['server/telegram/commands/trade/sell.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — placeKisSellOrder LIVE 매도(실행 경로, autoTrade/kisClient 단일통로 정당).'],
+  ['server/telegram/commands/watchlist/add.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — 워치리스트 추가용 현재가/종목명 조회(표시 데이터, 시장판단 추론 0).'],
+  ['server/telegram/commands/learning/circuits.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — KIS/KRX 회로 차단 상태 read-only 진단(메타).'],
+  ['server/telegram/commands/learning/resetCircuits.cmd.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — KIS/KRX 회로 즉시 reset(운영 액션).'],
+  ['server/telegram/commands/positions/readers/liveKisPositionReader.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — live KIS 보유 = ledger truth 읽기(position SSOT).'],
+  ['server/telegram/commands/positions/shadowPositionSources.ts', 'LEGITIMATE_DIAGNOSTIC / V5-ext — position 표시용 현재가(표시 데이터, 시장판단 추론 0).'],
 ]);
 
 // import ... from '...'  /  export ... from '...'  /  import('...')  /  await import('...')

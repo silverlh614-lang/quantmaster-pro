@@ -99,7 +99,7 @@ provider/store 를 직접 조회하지 않는다 (불변식 #3·#9). 본 표는 
 | execution / order-intent | `server/trading/orderPipelineSsot.ts` `OrderIntent` 13-stage (mode LIVE\|SHADOW) | autoTradeEngine 단일 통로 | 클라이언트 실주문 | — |
 | position (shadow/live) | shadow: `server/persistence/shadowPositionLedger.ts` (메모리, 미영속) · live: `trade.id` truth | `/pos` 1순위 ShadowPositionRegistry | Telegram 직접 store 조회 | V4 Registry 파일 영속 0 |
 | learning / counterfactual | `counterfactualShadowLearningRepo.ts` · `provisionalShadowLedger.ts` · `personaBalanceLedger.ts` (3-분리, ADR-0430/0329) | scanId+dedup 키 | learning ledger 신설/통합 | — |
-| telegram-projection | `server/telegram/renderers/snapshotBundle.ts` (projection only, ADR-0525/0526) | 정본 읽기·렌더 | 렌더 시점 provider 직접 조회/재계산 | V5 `dartProviderHealth.cmd.ts:8`, `snapshotBundle.ts:273` |
+| telegram-projection | `server/telegram/renderers/snapshotBundle.ts` (projection only, ADR-0525/0526) | 정본 읽기·렌더 | 렌더 시점 provider 직접 조회/재계산 | ~~V5~~ → P2 묶음2 분류 완료: `dartProviderHealth.cmd.ts:8`·`snapshotBundle.ts:273` 모두 **LEGITIMATE_DIAGNOSTIC**(provider health 메타 진단 / 정본 pass-through projection — 재계산 0). 진짜 (A) projection 위반 0건. |
 
 > **decisionId 주의:** 하류 1:N 인과 추적용 `decisionId` 신설은 ADR-0555 범위 밖(P5/별건).
 > Factory(P2) 선행 없이 ID 부터 붙이면 빈 원장에 라벨 다는 꼴 (audit §5).
