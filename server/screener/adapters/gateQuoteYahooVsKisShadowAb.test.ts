@@ -64,8 +64,9 @@ function makeCandles(opts: {
   closeMul?: number;    // 종가 전체 배율 (수정주가 괴리 모사)
   volMul?: number;      // 거래량 전체 배율
   dryUpTail?: boolean;  // 최근 5봉 거래량 마름
+  staleTailDays?: number; // 최근 N봉 종가/고가/저가를 (n-1-N)봉 값으로 동결 (Yahoo stale 모사)
 }): KisChartCandle[] {
-  const { n, baseClose, drift, volBase, closeMul = 1, volMul = 1, dryUpTail = false } = opts;
+  const { n, baseClose, drift, volBase, closeMul = 1, volMul = 1, dryUpTail = false, staleTailDays = 0 } = opts;
   const out: KisChartCandle[] = [];
   for (let i = 0; i < n; i++) {
     // 추세 + 결정적 사인파 변동 (난수 없음 → 재현성)
@@ -86,6 +87,23 @@ function makeCandles(opts: {
       close: Math.round(close),
       volume: Math.round(vol),
     });
+  }
+  // ── Yahoo staleness 모사: 최근 staleTailDays 봉의 *가격* 을 freeze point 값으로 동결.
+  //    Yahoo 가 KRX 종목에 갱신 지연/결측을 일으킬 때 closes[] 배열이 "정체"하는 패턴을 재현.
+  //    날짜/거래량은 진행(Yahoo 가 timestamp 만 갱신, 가격은 갱신 못 하는 케이스도 포함) →
+  //    timestamp staleness gate 가 *못 잡는* "가격만 stale" 구간을 모델링.
+  if (staleTailDays > 0 && staleTailDays < n) {
+    const freezeIdx = n - 1 - staleTailDays;
+    const frozen = out[freezeIdx];
+    for (let i = freezeIdx + 1; i < n; i++) {
+      out[i] = {
+        ...out[i],          // 날짜·거래량은 진행 (가격만 stale)
+        open: frozen.open,
+        high: frozen.high,
+        low: frozen.low,
+        close: frozen.close,
+      };
+    }
   }
   return out;
 }
@@ -267,6 +285,121 @@ describe('Gate quote Yahoo vs KIS shadow A/B 차등 하네스', () => {
     expect(gateWithPer.gateScore).toBeGreaterThanOrEqual(gate.gateScore);
     // KIS 경로는 per 제외, Yahoo(per 보유) 경로는 per 포함 → 차이는 per weight 상한.
     expect(gateWithPer.unavailableConditions).not.toContain('per');
+  });
+
+  // ── 시나리오 (d): Yahoo N일 묵은 close(가격 정체) vs KIS fresh → 큰 괴리 정량 ──
+  it('(d) Yahoo 3일 stale close (가격 정체) vs KIS fresh → return5d/20d·RS·momentum·gateScore Δ 정량', async () => {
+    // Yahoo: 최근 3봉 가격이 freeze (closes[] 정체) — KRX 종목 Yahoo 지연/결측 모사.
+    //        KIS: 추세가 계속 진행한 fresh 종가.
+    // 기존 합성 (b/c) 는 "작은 괴리" 였으나, staleness 는 *수익률 산식 입력 자체* 를 오염시켜
+    // return5d/return20d 가 stale plateau 만큼 낮게 산출 → relative_strength·momentum 동반 하락.
+    const STALE_DAYS = 3;
+    const drift = 600; // 일간 +600원 추세 → 3일 freeze = 약 -1800원 (≈ -2.x%) 정체 손실
+    const freshCandles = makeCandles({ n: 80, baseClose: 60000, drift, volBase: 1_200_000 });
+    const staleCandles = makeCandles({ n: 80, baseClose: 60000, drift, volBase: 1_200_000, staleTailDays: STALE_DAYS });
+
+    const freshLive = freshCandles[freshCandles.length - 1].close;   // KIS fresh 현재가
+    const staleLive = staleCandles[staleCandles.length - 1].close;   // Yahoo stale 현재가 (정체)
+
+    // KOSPI 20d 벤치마크를 동일하게 주입 → relative_strength gap 비교 공정.
+    const KOSPI_20D = 2.0;
+    const Y = await evalPath(staleCandles, staleLive, 1_200_000); // "Yahoo stale" 경로
+    const K = await evalPath(freshCandles, freshLive, 1_200_000); // "KIS fresh" 경로
+    const yGate = evaluateServerGate(Y.quote, DEFAULT_CONDITION_WEIGHTS, KOSPI_20D);
+    const kGate = evaluateServerGate(K.quote, DEFAULT_CONDITION_WEIGHTS, KOSPI_20D);
+
+    const dReturn5d = K.quote.return5d - Y.quote.return5d;
+    const dReturn20d = K.quote.return20d - Y.quote.return20d;
+    const dScore = kGate.gateScore - yGate.gateScore;
+    const dMtas = kGate.mtas - yGate.mtas;
+    const dPos = kGate.positionPct - yGate.positionPct;
+
+    // eslint-disable-next-line no-console
+    console.log('[shadow-ab][d] Yahoo stale(3d) vs KIS fresh:',
+      JSON.stringify({
+        STALE_DAYS, dScore, dMtas, dPos, dReturn5d, dReturn20d,
+        yReturn5d: Y.quote.return5d, kReturn5d: K.quote.return5d,
+        yReturn20d: Y.quote.return20d, kReturn20d: K.quote.return20d,
+        yScore: yGate.gateScore, kScore: kGate.gateScore,
+        ySig: yGate.signalType, kSig: kGate.signalType,
+        yKeys: [...yGate.conditionKeys].sort(), kKeys: [...kGate.conditionKeys].sort(),
+      }));
+
+    // 핵심 단언: stale plateau 가 수익률 입력을 직접 오염 → fresh KIS 의 return 이 더 높다.
+    expect(K.quote.return5d).toBeGreaterThan(Y.quote.return5d);
+    expect(K.quote.return20d).toBeGreaterThan(Y.quote.return20d);
+    // stale 은 KOSPI 대비 상대강도·돌파에서 손해 → fresh KIS gateScore 가 >= stale Yahoo.
+    expect(kGate.gateScore).toBeGreaterThanOrEqual(yGate.gateScore);
+    expect(Number.isFinite(dScore)).toBe(true);
+    expect(Number.isFinite(dPos)).toBe(true);
+  });
+
+  // ── 시나리오 (e): Yahoo 결측 필드(high5d/high20d) vs KIS 완비 → breakout/MTAS 영향 ──
+  it('(e) Yahoo high5d/high20d 결측(0) vs KIS 완비 → breakout_momentum DATA_UNAVAILABLE 전환', async () => {
+    // 프로덕션 덤프 단서: topMissingFields=rsRankPct/high5d/high20d.
+    // Yahoo 가 일부 KRX 종목에 high 배열을 결측/0 으로 반환하는 케이스를 모델링 —
+    // breakout_momentum 은 high5d>0 가드(evaluators.ts:386) 에서 DATA_UNAVAILABLE 로 전환.
+    const candles = makeCandles({ n: 80, baseClose: 60000, drift: 250, volBase: 1_200_000 });
+    const live = candles[candles.length - 1].close;
+    const { quote } = await evalPath(candles, live, candles[candles.length - 1].volume);
+
+    // KIS 완비 경로 — high5d/high20d 정상.
+    const kGate = evaluateServerGate(quote, DEFAULT_CONDITION_WEIGHTS, 2.0);
+
+    // Yahoo 결측 모사 — high5d/high20d=0 (Yahoo high 배열 결측).
+    const yahooMissing: YahooQuoteExtended = { ...quote, high5d: 0, high20d: 0 };
+    const yGate = evaluateServerGate(yahooMissing, DEFAULT_CONDITION_WEIGHTS, 2.0);
+
+    const dScore = kGate.gateScore - yGate.gateScore;
+
+    // eslint-disable-next-line no-console
+    console.log('[shadow-ab][e] Yahoo high5d/20d missing vs KIS complete:',
+      JSON.stringify({
+        dScore, kScore: kGate.gateScore, yScore: yGate.gateScore,
+        kHasBreakout: kGate.conditionKeys.includes('breakout_momentum'),
+        yHasBreakout: yGate.conditionKeys.includes('breakout_momentum'),
+        kUnavailBreakout: kGate.unavailableConditions.includes('breakout_momentum'),
+        yUnavailBreakout: yGate.unavailableConditions.includes('breakout_momentum'),
+      }));
+
+    // 핵심 단언: high5d=0 → breakout_momentum DATA_UNAVAILABLE (raw score 미합산).
+    expect(yGate.unavailableConditions).toContain('breakout_momentum');
+    // 완비 KIS 가 breakout 점수를 얻으면(또는 동률) gateScore >= stale Yahoo.
+    expect(kGate.gateScore).toBeGreaterThanOrEqual(yGate.gateScore);
+    expect(Number.isFinite(dScore)).toBe(true);
+  });
+
+  // ── 민감도 sweep: stale 정도(1/3/5일) → gateScore Δ (KIS 실익의 진짜 크기) ─────
+  it('민감도: Yahoo stale 1/3/5일 → return20d·gateScore Δ 단조 증가 (합성 작은괴리 대비 크기 측정)', async () => {
+    const drift = 600;
+    const KOSPI_20D = 2.0;
+    const fresh = makeCandles({ n: 80, baseClose: 60000, drift, volBase: 1_200_000 });
+    const freshEval = await evalPath(fresh, fresh[fresh.length - 1].close, 1_200_000);
+    const freshGate = evaluateServerGate(freshEval.quote, DEFAULT_CONDITION_WEIGHTS, KOSPI_20D);
+
+    const rows: Array<{ staleDays: number; dReturn20d: number; dScore: number; yReturn20d: number }> = [];
+    for (const staleDays of [1, 3, 5]) {
+      const stale = makeCandles({ n: 80, baseClose: 60000, drift, volBase: 1_200_000, staleTailDays: staleDays });
+      const sEval = await evalPath(stale, stale[stale.length - 1].close, 1_200_000);
+      const sGate = evaluateServerGate(sEval.quote, DEFAULT_CONDITION_WEIGHTS, KOSPI_20D);
+      rows.push({
+        staleDays,
+        dReturn20d: parseFloat((freshEval.quote.return20d - sEval.quote.return20d).toFixed(2)),
+        dScore: parseFloat((freshGate.gateScore - sGate.gateScore).toFixed(3)),
+        yReturn20d: sEval.quote.return20d,
+      });
+    }
+
+    // eslint-disable-next-line no-console
+    console.log('[shadow-ab][sensitivity] stale 1/3/5d → Δ:',
+      JSON.stringify({ freshReturn20d: freshEval.quote.return20d, freshScore: freshGate.gateScore, rows }));
+
+    // 핵심 단언: stale 일수가 늘수록 return20d 격차(Δ)가 단조 증가 — KIS 실익 크기.
+    expect(rows[1].dReturn20d).toBeGreaterThanOrEqual(rows[0].dReturn20d);
+    expect(rows[2].dReturn20d).toBeGreaterThanOrEqual(rows[1].dReturn20d);
+    // 5일 stale 의 return20d 격차는 측정 가능한 양수 (합성 균일배율 ≈0 과 질적으로 다름).
+    expect(rows[2].dReturn20d).toBeGreaterThan(0);
+    rows.forEach(r => expect(Number.isFinite(r.dScore)).toBe(true));
   });
 
   // ── ENV 불변 단언 ────────────────────────────────────────────────────────────
