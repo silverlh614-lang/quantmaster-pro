@@ -76,7 +76,7 @@ const GRANDFATHER_ALLOWLIST = new Map([
     { lines: [50], reason: 'MIGRATION_PENDING_ADR0561' },
   ],
   ['server/screener/intradayScanner.ts', { lines: [273, 380], reason: 'MIGRATION_PENDING_ADR0561' }],
-  ['server/screener/shadowDataGate.ts', { lines: [70], reason: 'MIGRATION_PENDING_ADR0561' }],
+  // shadowDataGate.ts: ADR-0547 R1 fetchTechnicalQuoteByCode 경유로 치환 완료(burn-down) — 항목 제거.
   ['server/alerts/stockPickReporter.ts', { lines: [108, 179], reason: 'MIGRATION_PENDING_ADR0561' }],
   ['server/alerts/reportGenerator.ts', { lines: [622], reason: 'MIGRATION_PENDING_ADR0561' }],
 ]);

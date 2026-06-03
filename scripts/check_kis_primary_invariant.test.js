@@ -154,8 +154,8 @@ describe('check_kis_primary_invariant guard', () => {
     expect(YAHOO_PRIMARY_PATTERNS).toContain('fetchYahooQuoteByCode');
     expect(YAHOO_PRIMARY_PATTERNS).toContain('fetchYahooQuote');
     expect(WHITELIST.size).toBeGreaterThanOrEqual(3);
-    // ADR-0561 가드 사양 §3 — 현존 ~10 파일(12 라인) 등재.
-    expect(GRANDFATHER_ALLOWLIST.size).toBeGreaterThanOrEqual(10);
+    // ADR-0561 가드 사양 §3 — burn-down 진행: shadowDataGate.ts 치환 완료(ADR-0547 R1) → 9 파일 잔존.
+    expect(GRANDFATHER_ALLOWLIST.size).toBeGreaterThanOrEqual(9);
     for (const [, meta] of GRANDFATHER_ALLOWLIST) {
       expect(meta.reason).toBe('MIGRATION_PENDING_ADR0561');
       expect(Array.isArray(meta.lines)).toBe(true);

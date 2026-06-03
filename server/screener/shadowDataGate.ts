@@ -19,8 +19,7 @@
 
 import { getRanking, type RankingEntry, type RankingType } from '../clients/kisRankingClient.js';
 import { STOCK_UNIVERSE } from './stockScreener.js';
-import { fetchYahooQuote } from './stockScreener.js';
-import { fetchYahooQuoteByCode } from './adapters/yahooSymbolResolver.js';
+import { fetchTechnicalQuoteByCode } from './adapters/technicalQuoteRouter.js';
 
 // ── 모드 판별 ─────────────────────────────────────────────────────────────────
 
@@ -67,7 +66,7 @@ async function yahooFallbackRanking(
   maxProbe = 60,
 ): Promise<RankingEntry[]> {
   const samples = STOCK_UNIVERSE.slice(0, maxProbe);
-  const quotes = await Promise.allSettled(samples.map(s => fetchYahooQuoteByCode(s.code, fetchYahooQuote)));
+  const quotes = await Promise.allSettled(samples.map(s => fetchTechnicalQuoteByCode(s.code)));
 
   const rows: Array<{
     code: string;

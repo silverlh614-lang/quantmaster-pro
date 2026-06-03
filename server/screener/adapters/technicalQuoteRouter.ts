@@ -16,6 +16,7 @@
 
 import { fetchYahooQuote, type YahooQuoteExtended } from './yahooQuoteAdapter.js';
 import { fetchKisQuoteFallback, enrichQuoteWithKisMTAS } from './kisQuoteAdapter.js';
+import { fetchYahooQuoteByCode } from './yahooSymbolResolver.js';
 import { isKstWeekend, classifyMarketDataMode } from '../../utils/marketClock.js';
 
 /** 진단용 로컬 출처 태그(서버 전용; src/types 승격 금지 — ADR-0547 Decision §4). */
@@ -152,4 +153,70 @@ export async function fetchTechnicalQuote(
   source = 'YAHOO_CHART';
   void source;
   return fetchYahooQuote(symbol);
+}
+
+/**
+ * 기술지표 quote 출처 라우터 — code-진입 변형 (ADR-0547 R1 Extension / ADR-0561 grandfather burn-down).
+ *
+ * symbol 을 호출처가 resolve 하지 않아도 되는 code-진입 계약. grandfather callsite
+ * `fetchYahooQuoteByCode(code, fetchYahooQuote)` 를 byte-equivalent 하게 치환할 수 있게 한다.
+ *
+ * - flag OFF(`opts?.kisFirst !== true && KIS_OHLCV_PRIMARY_ENABLED !== 'true'`):
+ *   `fetchYahooQuoteByCode(code, fetchYahooQuote)` funnel 을 **그대로 위임·반환** → byte-equal.
+ *   보장 6항(ADR-0547 R1 RX-B): (1) 호출 수 동일(funnel 1회) (2) 반환 타입 YahooQuoteExtended 동일
+ *   (3) yahooFreshnessLedger 부수효과(ADR-0255) 동일 (4) dataQuality/priceMetadata marker 동일
+ *   (5) .KS↔.KQ sanity fallback(ADR-0241) 동일 (6) funnel ① KIS-first 부분동작 동일.
+ * - flag ON: 6h/휴장 TTL 캐시 → `fetchKisQuoteFallback(code)` → enrich → KIS_PRIMARY marker → 캐시.
+ *   KIS 불가(null/throw/봉수부족) 시 `fetchYahooQuoteByCode(code, fetchYahooQuote)` funnel 로 fallback
+ *   (symbol resolve 책임을 호출처에 전가하지 않음 — code-진입 일관성, ADR-0561).
+ *
+ * 출력은 기존 `YahooQuoteExtended`(SSOT) 그대로 — 소비부 무변경, 신규 타입 0.
+ */
+export async function fetchTechnicalQuoteByCode(
+  code: string,
+  opts?: FetchTechnicalQuoteOptions,
+): Promise<YahooQuoteExtended | null> {
+  const kisFirst = opts?.kisFirst === true || isKisPrimaryEnvEnabled();
+
+  if (!kisFirst) {
+    // flag OFF — funnel 그대로 위임(byte-equal: 호출수·타입·ledger·marker·sanity·KIS-first 부분동작 동일).
+    return fetchYahooQuoteByCode(code, fetchYahooQuote);
+  }
+
+  // KIS-first 경로 — 6h/휴장 TTL 캐시 히트 우선(신규 KIS 호출 0콜).
+  let source: TechnicalQuoteSource = 'CACHE';
+  const cached = getKisDailyCached(code);
+  if (cached) {
+    void source;
+    return cached;
+  }
+
+  let kisQuote: YahooQuoteExtended | null = null;
+  try {
+    kisQuote = await fetchKisQuoteFallback(code);
+  } catch (e) {
+    // KIS 일봉 조회 실패는 약세 신호가 아니다(불변식 #6) → Yahoo funnel fallback 으로 graceful 강등.
+    console.warn(`[technicalQuoteRouter] ${code} KIS-first(byCode) 실패 → Yahoo fallback:`, e instanceof Error ? e.message : e);
+    kisQuote = null;
+  }
+
+  if (kisQuote) {
+    source = 'KIS_DAILY';
+    let enriched: YahooQuoteExtended = kisQuote;
+    try {
+      enriched = await enrichQuoteWithKisMTAS(kisQuote, code);
+    } catch (e) {
+      console.warn(`[technicalQuoteRouter] ${code} MTAS 보강 실패(KIS 일봉 유지):`, e instanceof Error ? e.message : e);
+      enriched = kisQuote;
+    }
+    const marked = withKisPrimaryMarker(enriched);
+    setKisDailyCached(code, marked);
+    void source;
+    return marked;
+  }
+
+  // KIS 실패/봉수부족 → Yahoo funnel fallback(code-진입 일관성: symbol resolve 전가 0).
+  source = 'YAHOO_CHART';
+  void source;
+  return fetchYahooQuoteByCode(code, fetchYahooQuote);
 }

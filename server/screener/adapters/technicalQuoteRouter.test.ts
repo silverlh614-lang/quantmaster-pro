@@ -9,6 +9,10 @@ vi.mock('./kisQuoteAdapter.js', () => ({
   // enrich 는 입력 quote 를 그대로 통과시키는 기본 스텁(보강 무영향) — 테스트에서 재정의 가능.
   enrichQuoteWithKisMTAS: vi.fn(async (q: YahooQuoteExtended) => q),
 }));
+// yahooSymbolResolver funnel 위임 검증용 — R1 flag-OFF byte-equivalence 차등 테스트.
+vi.mock('./yahooSymbolResolver.js', () => ({
+  fetchYahooQuoteByCode: vi.fn(),
+}));
 vi.mock('../../utils/marketClock.js', () => ({
   isKstWeekend: vi.fn(() => false),
   classifyMarketDataMode: vi.fn(() => 'LIVE_TRADING_DAY'),
@@ -16,15 +20,18 @@ vi.mock('../../utils/marketClock.js', () => ({
 
 import {
   fetchTechnicalQuote,
+  fetchTechnicalQuoteByCode,
   _clearKisDailyQuoteCache,
 } from './technicalQuoteRouter.js';
 import { fetchYahooQuote } from './yahooQuoteAdapter.js';
 import { fetchKisQuoteFallback, enrichQuoteWithKisMTAS } from './kisQuoteAdapter.js';
+import { fetchYahooQuoteByCode } from './yahooSymbolResolver.js';
 import { isKstWeekend, classifyMarketDataMode } from '../../utils/marketClock.js';
 
 const yahooMock = vi.mocked(fetchYahooQuote);
 const kisMock = vi.mocked(fetchKisQuoteFallback);
 const enrichMock = vi.mocked(enrichQuoteWithKisMTAS);
+const funnelMock = vi.mocked(fetchYahooQuoteByCode);
 const weekendMock = vi.mocked(isKstWeekend);
 const modeMock = vi.mocked(classifyMarketDataMode);
 
@@ -187,5 +194,117 @@ describe('technicalQuoteRouter.fetchTechnicalQuote', () => {
       Date.now = realNow;
       vi.restoreAllMocks();
     }
+  });
+});
+
+// ── R1 (ADR-0547 R1 Extension / ADR-0561 grandfather burn-down) ─────────────────
+// fetchTechnicalQuoteByCode 의 flag-OFF byte-equivalence 차등 증명.
+//
+// 합격 절대조건 #1: flag OFF 에서 `fetchTechnicalQuoteByCode(code)` 의 관측 가능 동작이
+// 직접 `fetchYahooQuoteByCode(code, fetchYahooQuote)`(yahooSymbolResolver funnel) 호출과 동일.
+// funnel 이 ledger 부수효과(ADR-0255)·sanity fallback(ADR-0241)·KIS-first 부분동작(funnel ①)의
+// SSOT 이므로, "funnel 을 동일 인자로 정확히 1회 호출하고 그 반환을 그대로 반환"임을 단언하면
+// 6항(호출수·반환타입/값·ledger·marker·sanity·KIS-first 부분) 동일이 성립한다.
+describe('technicalQuoteRouter.fetchTechnicalQuoteByCode — R1 byte-equivalence (flag OFF)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _clearKisDailyQuoteCache();
+    delete process.env.KIS_OHLCV_PRIMARY_ENABLED;
+    weekendMock.mockReturnValue(false);
+    modeMock.mockReturnValue('LIVE_TRADING_DAY');
+    enrichMock.mockImplementation(async (q: YahooQuoteExtended) => q);
+  });
+
+  afterEach(() => {
+    delete process.env.KIS_OHLCV_PRIMARY_ENABLED;
+  });
+
+  // (1)(2)(4) 호출 수 동일(funnel 1회) + 반환 타입/값(동일 객체 reference) + marker 동일.
+  it('flag OFF: funnel 을 (code, fetchYahooQuote) 인자로 정확히 1회 호출하고 그 반환을 그대로 반환한다', async () => {
+    const funnelReturn = makeQuote({ price: 70500, dataQuality: 'OK', priceProvider: 'YAHOO' });
+    funnelMock.mockResolvedValue(funnelReturn);
+
+    const result = await fetchTechnicalQuoteByCode(CODE);
+
+    // (1) funnel 정확히 1회.
+    expect(funnelMock).toHaveBeenCalledTimes(1);
+    // 인자: (code, fetchYahooQuote) — 두 번째 인자가 yahooQuoteAdapter 의 fetchYahooQuote reference.
+    expect(funnelMock).toHaveBeenCalledWith(CODE, fetchYahooQuote);
+    // (2) 동일 객체 reference 그대로 반환(래핑·복사 없음 → ledger/marker/타입 전부 보존).
+    expect(result).toBe(funnelReturn);
+    // (4) marker 무가공(KIS_PRIMARY 미부착 — funnel 결과 그대로).
+    expect(result?.dataQuality).toBe('OK');
+    expect(result?.priceProvider).toBe('YAHOO');
+    // KIS 경로 0 — 직접 KIS/Yahoo(symbol) 호출 없음(funnel 단일 통로).
+    expect(kisMock).not.toHaveBeenCalled();
+    expect(yahooMock).not.toHaveBeenCalled();
+  });
+
+  // (2) null 반환도 동일하게 전파(차등 0).
+  it('flag OFF: funnel 이 null 이면 null 을 그대로 반환한다', async () => {
+    funnelMock.mockResolvedValue(null);
+
+    const result = await fetchTechnicalQuoteByCode(CODE);
+
+    expect(funnelMock).toHaveBeenCalledTimes(1);
+    expect(result).toBeNull();
+    expect(kisMock).not.toHaveBeenCalled();
+  });
+
+  // (3)(5)(6) ledger 부수효과·sanity fallback·KIS-first 부분동작 동일 — 차등 증명.
+  // 핵심: flag OFF 의 byCode 가 "직접 funnel 호출"과 동일 인자·동일 호출수임을 단언하면,
+  // funnel 내부의 ledger 갱신/sanity fallback/KIS-first 부분동작은 정의상 byte-equal 이다
+  // (byCode 가 funnel 을 우회하거나 추가 호출하지 않으므로 부수효과가 더해지거나 빠지지 않는다).
+  it('flag OFF: 직접 funnel 호출과 동일 인자/호출수 → 부수효과(ledger/sanity/KIS-first) byte-equal', async () => {
+    const funnelReturn = makeQuote({ price: 71200, dataQuality: 'KIS_PRIMARY', priceProvider: 'KIS_PRICE' });
+    funnelMock.mockResolvedValue(funnelReturn);
+
+    // 시나리오 A: 라우터 경유.
+    const viaRouter = await fetchTechnicalQuoteByCode(CODE);
+    const routerCallArgs = funnelMock.mock.calls.map((c) => [...c]);
+    const routerCallCount = funnelMock.mock.calls.length;
+
+    funnelMock.mockClear();
+
+    // 시나리오 B: 직접 funnel 호출(기존 grandfather callsite 와 동치).
+    const direct = await fetchYahooQuoteByCode(CODE, fetchYahooQuote);
+    const directCallArgs = funnelMock.mock.calls.map((c) => [...c]);
+    const directCallCount = funnelMock.mock.calls.length;
+
+    // 호출 수·인자·반환 모두 동일 → byte-equivalent.
+    expect(routerCallCount).toBe(directCallCount);
+    expect(routerCallArgs).toEqual(directCallArgs);
+    expect(viaRouter).toBe(direct);
+    // 라우터가 KIS 경로(추가 부수효과)를 절대 타지 않음.
+    expect(kisMock).not.toHaveBeenCalled();
+    expect(yahooMock).not.toHaveBeenCalled();
+  });
+
+  // flag ON 분기는 funnel 을 우회하고 KIS-first 로 진입함을 확인(flag OFF byte-equal 경계 명확화).
+  it('flag ON(ENV): funnel 위임을 우회하고 KIS-first 로 진입한다', async () => {
+    process.env.KIS_OHLCV_PRIMARY_ENABLED = 'true';
+    kisMock.mockResolvedValue(makeQuote({ price: 73500 }));
+
+    const result = await fetchTechnicalQuoteByCode(CODE);
+
+    expect(kisMock).toHaveBeenCalledTimes(1);
+    expect(kisMock).toHaveBeenCalledWith(CODE);
+    expect(funnelMock).not.toHaveBeenCalled(); // flag ON 정상흐름은 funnel 미경유.
+    expect(result?.dataQuality).toBe('KIS_PRIMARY');
+  });
+
+  // flag ON + KIS 불가 → funnel fallback(code-진입 일관성: symbol resolve 전가 0).
+  it('flag ON 인데 KIS 가 null 이면 funnel(code, fetchYahooQuote) 로 fallback 한다', async () => {
+    process.env.KIS_OHLCV_PRIMARY_ENABLED = 'true';
+    kisMock.mockResolvedValue(null);
+    funnelMock.mockResolvedValue(makeQuote({ price: 69900, dataQuality: 'OK' }));
+
+    const result = await fetchTechnicalQuoteByCode(CODE);
+
+    expect(kisMock).toHaveBeenCalledTimes(1);
+    expect(funnelMock).toHaveBeenCalledTimes(1);
+    expect(funnelMock).toHaveBeenCalledWith(CODE, fetchYahooQuote);
+    expect(yahooMock).not.toHaveBeenCalled(); // symbol-진입 raw Yahoo 미사용(code-진입 일관성).
+    expect(result?.price).toBe(69900);
   });
 });
