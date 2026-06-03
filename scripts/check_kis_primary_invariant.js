@@ -56,21 +56,21 @@ const WHITELIST = new Set([
 ]);
 
 /**
- * GRANDFATHER_ALLOWLIST — 현존 위반 ~10곳(파일:라인 → 사유). ADR-0561 가드 사양 §3.
+ * GRANDFATHER_ALLOWLIST — 현존 위반(파일:라인 → 사유). ADR-0561 가드 사양 §3.
  * 사유 일괄 `MIGRATION_PENDING_ADR0561`. 마이그레이션 PR마다 해당 항목 제거(burn-down).
  * 라인 번호는 burn-down 추적용 진단 정보이며, 매칭은 파일 단위 grandfather 로 한다
  * (파일 내부 줄이동으로 가드가 false-fail 하지 않도록 — drift_registry 의 파일단위 grandfather 패턴).
  * key=relPath, value={ lines:number[], reason }.
+ *
+ * ── burn-down 완료(ADR-0561 ③ KIS-primary 마이그레이션) — grandfather 0건(빈 allowlist) ──
+ * 전 callsite 가 fetchTechnicalQuoteByCode(flag OFF = funnel 위임 byte-equiv) 경유로 치환됨:
+ *   shadowDataGate.ts(7ccc8b2) · buyPipeline.ts · dryRunScanner.ts · trancheExecutor.ts ·
+ *   preBreakoutAccumulation.ts · kisIntradayCorrection.ts · intradayScanner.ts ·
+ *   stockPickReporter.ts · reportGenerator.ts(78cd69f 11곳 일괄) ·
+ *   stockScreener.ts:577(메인 Gate quote, full-scan — 본 PR 최종 치환).
+ * allowlist 가 비어도 가드는 정상 동작 — WHITELIST 외 신규 Yahoo-first 직접호출은 여전히 EXIT 1.
  */
-const GRANDFATHER_ALLOWLIST = new Map([
-  ['server/screener/stockScreener.ts', { lines: [577], reason: 'MIGRATION_PENDING_ADR0561' }],
-  // ── burn-down 완료(ADR-0561 ③ KIS-primary 마이그레이션) — fetchTechnicalQuoteByCode 경유로 치환됨 ──
-  // shadowDataGate.ts: ADR-0547 R1 fetchTechnicalQuoteByCode 경유 치환 완료(직전 PR 7ccc8b2).
-  // buyPipeline.ts:111 · dryRunScanner.ts:224 · trancheExecutor.ts:286 ·
-  // preBreakoutAccumulation.ts:36 · kisIntradayCorrection.ts:50 · intradayScanner.ts:273/380 ·
-  // stockPickReporter.ts:108/179 · reportGenerator.ts:622 → flag OFF byte-equiv funnel 위임 치환 완료.
-  // 잔존 grandfather 1건(stockScreener.ts:577)은 별도 PR 처리.
-]);
+const GRANDFATHER_ALLOWLIST = new Map([]);
 
 function isCommentLine(line) {
   const t = line.trim();

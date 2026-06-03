@@ -150,13 +150,15 @@ describe('check_kis_primary_invariant guard', () => {
     expect(isCallLine('  fetchYahooQuote(x);', 'fetchYahooQuote')).toBe(true);
   });
 
-  it('(f) registry shape: grandfather burn-down to 1 file, patterns + whitelist non-empty', () => {
+  it('(f) registry shape: grandfather burn-down complete (0/empty), patterns + whitelist non-empty', () => {
     expect(YAHOO_PRIMARY_PATTERNS).toContain('fetchYahooQuoteByCode');
     expect(YAHOO_PRIMARY_PATTERNS).toContain('fetchYahooQuote');
     expect(WHITELIST.size).toBeGreaterThanOrEqual(3);
-    // ADR-0561 가드 사양 §3 — burn-down 완료: 저위험 grandfather 일괄 치환(③ KIS-primary
-    // 마이그레이션) → stockScreener.ts:577 1건만 잔존(별도 PR 처리).
-    expect(GRANDFATHER_ALLOWLIST.size).toBeGreaterThanOrEqual(1);
+    // ADR-0561 가드 사양 §3 — burn-down 완료: 전 grandfather 일괄 치환(③ KIS-primary
+    // 마이그레이션, stockScreener.ts:577 최종 포함) → allowlist 빈 상태(grandfather 0).
+    // 빈 allowlist 에서도 가드는 정상 동작(신규 Yahoo-first 여전히 차단 — (b3) E2E 로 보장).
+    expect(GRANDFATHER_ALLOWLIST.size).toBe(0);
+    // 잔존 항목이 있다면(미래 재등재) shape 불변식은 계속 단언.
     for (const [, meta] of GRANDFATHER_ALLOWLIST) {
       expect(meta.reason).toBe('MIGRATION_PENDING_ADR0561');
       expect(Array.isArray(meta.lines)).toBe(true);

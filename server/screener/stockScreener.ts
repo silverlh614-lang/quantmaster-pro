@@ -30,7 +30,6 @@ import { STOCK_UNIVERSE } from './stockUniverse.js';
 import { compactError, emitProviderWarn } from '../observability/providerWarn.js';
 import { type RejectionEntry, setLastRejectionLog } from './rejectionLog.js';
 import {
-  fetchYahooQuote,
   isYahooStaleQuarantined,
   getYahooStaleQuarantineRemainingMs,
   type YahooQuoteExtended,
@@ -47,7 +46,11 @@ import { isKstPreopenDiscoveryWindow, PREOPEN_AUTOPOPULATE_TTL_MS } from '../uti
 // ADR-0443 — yahooSymbolResolver SSOT 위임 — `${s.code}.KS` direct concat 영구
 // 차단. screenerSymbols 의 symbol 필드 마스터 매칭 격상 (정확한 시장) + 부재 시
 // legacy .KS fallback 보존 (그레이스 — 코스닥도 Yahoo 에서 .KS 로 조회 가능).
-import { fetchYahooQuoteByCode, tryGetYahooSymbol } from './adapters/yahooSymbolResolver.js';
+import { tryGetYahooSymbol } from './adapters/yahooSymbolResolver.js';
+// ADR-0561 ③ KIS-primary 마이그레이션(grandfather 1→0) — 메인 Gate quote(full-scan) 진입점.
+// flag OFF(KIS_OHLCV_PRIMARY_ENABLED!=='true') 시 fetchYahooQuoteByCode(code, fetchYahooQuote)
+// funnel 로 byte-equivalent 위임(R1, technicalQuoteRouter). flag ON(④)에서만 KIS 일봉 1차.
+import { fetchTechnicalQuoteByCode } from './adapters/technicalQuoteRouter.js';
 // ADR-0128 §Wiring 1B: 워치리스트 신규 후보 incremental 검증 (WATCHLIST role).
 // 워치리스트 등록 자체는 차단 금지 — alert 보류 + UI 마킹만 영향 (markDataQuarantine).
 import { verifyStockIncremental } from '../data/dataVerificationIncremental.js';
@@ -574,7 +577,7 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
       continue;
     }
 
-    const quote = await fetchYahooQuoteByCode(stock.code, fetchYahooQuote);
+    const quote = await fetchTechnicalQuoteByCode(stock.code);
     if (!quote || quote.price <= 0) {
       rejectionLog.push({ code: stock.code, name: stock.name, reason: '시세조회실패' });
       continue;
