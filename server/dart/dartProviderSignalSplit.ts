@@ -21,10 +21,14 @@ export function splitProviderIssueFromMarketSignal(input: {
   reasons: string[];
   risks: string[];
   fetchProviderIssue?: boolean;
-}): { providerIssue: boolean; marketSignal: boolean; mixed: boolean } {
+}): { providerIssue: boolean; marketSignal: boolean } {
+  // 불변식 #6: provider 장애(providerIssue)는 marketSignal(약세/강세 시장신호)로 변환 금지.
+  //   providerIssue 가 우선하여 marketSignal=false 로 격리한다.
+  //   (server/runtime/executionPermissionResolver.ts:210 providerIssueIsolated 패턴과 동일 의미.)
   const providerIssue = Boolean(input.fetchProviderIssue)
     || input.reasons.some(isProviderIssueReason)
     || input.risks.some(isProviderIssueReason);
-  const marketSignal = input.category !== 'UNKNOWN' && input.category !== 'NEUTRAL_INFO';
-  return { providerIssue, marketSignal, mixed: providerIssue && marketSignal };
+  const categorySignal = input.category !== 'UNKNOWN' && input.category !== 'NEUTRAL_INFO';
+  const marketSignal = providerIssue ? false : categorySignal;
+  return { providerIssue, marketSignal };
 }

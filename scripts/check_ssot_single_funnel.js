@@ -15,7 +15,8 @@
  *       candidatePoolBuilder/aiUniverseService/universeScanner) 외부의 신규 파일에서
  *       동일 provider import 패턴 금지.
  *
- * baseline allowlist: 기존 위반(V1/V2/V3/V5)은 파일 경로 단위로 grandfather → 신규 위반만 EXIT 1.
+ * baseline allowlist: 기존 위반(V1/V3/V5)은 파일 경로 단위로 grandfather → 신규 위반만 EXIT 1.
+ *   (V2 dartProviderSignalSplit 은 불변식 #6 isolation 정정 완료로 P2 묶음1 에서 제거됨.)
  * 위반 발견 시 [FAIL] + 파일:라인 + 위반 규칙 + 허용 경로(SourceSnapshot.<field>) 안내, EXIT 1.
  */
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
@@ -93,8 +94,7 @@ const BASELINE_ALLOWLIST = new Map([
   // ── V3 investor-flow provider 우회 (P3 burn-down) ──
   ['server/trading/signalScanner/marketProgramFlowProvider.ts', 'P3 burn-down 예정 / audit V3 (kis/krx program flow 직접 fetch)'],
 
-  // ── V2 providerHealth mixed (P4 burn-down) ──
-  ['server/dart/dartProviderSignalSplit.ts', 'P4 burn-down 예정 / audit V2 (providerIssue+marketSignal mixed)'],
+  // ── V2 providerHealth mixed: 정정 완료(불변식 #6 isolation) → allowlist 제거 (P2 묶음1) ──
 
   // ── V5 telegram projection 직접 provider 조회 (P5/별건 burn-down) ──
   ['server/telegram/commands/system/dartProviderHealth.cmd.ts', 'P5 burn-down 예정 / audit V5 (gate2ExternalDataProvider 직접 조회)'],
