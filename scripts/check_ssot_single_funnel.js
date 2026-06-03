@@ -17,6 +17,7 @@
  *
  * baseline allowlist: 기존 위반(V1/V3/V5)은 파일 경로 단위로 grandfather → 신규 위반만 EXIT 1.
  *   (V2 dartProviderSignalSplit 은 불변식 #6 isolation 정정 완료로 P2 묶음1 에서 제거됨.)
+ *   (V1 universeScanner 계열은 LEGITIMATE_BUDGET_LAZY 로 영구 허용 재분류 — ADR-0558, burn-down 종결.)
  * 위반 발견 시 [FAIL] + 파일:라인 + 위반 규칙 + 허용 경로(SourceSnapshot.<field>) 안내, EXIT 1.
  */
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
@@ -78,7 +79,10 @@ const RULES = [
 
 /**
  * baseline allowlist — 두 종류로 분류된다 (P2 묶음2 분류 작업, ADR-0555):
- *   (1) BURN_DOWN  — 진짜 projection/단일통로 위반. snapshot factory 완성 후 제거 대상 (V1/V3).
+ *   (1) BURN_DOWN  — 진짜 projection/단일통로 위반. snapshot factory 완성 후 제거 대상 (V3 잔존).
+ *   (1b) LEGITIMATE_BUDGET_LAZY — candidate-universe lazy/budget fetch(quota 절약 정당 분기, ADR-0558).
+ *       factory eager 통합 시 budget 우회·dedup 파괴(불변식 #9)이므로 비-통합이 헌법 정합. 영구 허용
+ *       (V1 universeScanner 계열). burn-down 대상 아님 — 단일 소유는 supply 공유 단일함수로 이미 충족.
  *   (2) LEGITIMATE_DIAGNOSTIC — 명령의 *목적 자체가* provider health/회로/raw 응답 진단이거나
  *       (provider 상태 = 데이터가 아니라 메타, 불변식 #6), 실주문 실행 경로(kisClient 단일통로 정당),
  *       또는 ledger-truth 읽기다. 시장상태/판단(bullish·bearish·gate결과·후보)을 추론·표시하지 *않는다*.
@@ -86,19 +90,26 @@ const RULES = [
  * 신규 위반은 여기 없으면 즉시 fail. (감사 grep + ADR-0555 §Consequences Grandfather 근거)
  *
  * P2 묶음2 분류 결과(2026-06-03): V5/V5-extended telegram callsite 전부 (2) LEGITIMATE_DIAGNOSTIC
- *   으로 확정 — (1) 진짜 projection 위반 (A) 0건(재배선 없음). 남은 burn-down 대상은 V1/V3
- *   (candidate-universe·investor-flow provider 직접 fetch)뿐이다.
+ *   으로 확정 — (1) 진짜 projection 위반 (A) 0건(재배선 없음). V1(candidate-universe)은 ADR-0558 로
+ *   LEGITIMATE_BUDGET_LAZY 영구 허용 종결 → 남은 burn-down 대상은 V3(investor-flow marketProgramFlowProvider)뿐.
  */
 const BASELINE_ALLOWLIST = new Map([
-  // ── V1 candidate-universe 직접 provider 호출 (P3 burn-down) ──
-  ['server/screener/universeScanner.ts', 'P3 burn-down 예정 / audit V1 (provider 직접 fetch, snapshot 입력화 예정)'],
+  // ── V1 candidate-universe lazy/budget fetch (LEGITIMATE_BUDGET_LAZY, 영구 허용 — ADR-0558) ──
+  //   universeScanner Stage1/2 의 provider 직접 호출은 *quota 절약을 위한 정당한 lazy/budget 분기* 다
+  //   (KIS_LOAD_STATE budget max25 universeScanner.ts:187 / 통과 후보만 fetch :509 / 음수 changePercent
+  //   SKIP 제외). factory eager 전수수집(collectUnifiedSnapshot, symbolDataCollector.ts:579) 으로 강제
+  //   통합하면 budget 이전 60개 eager fetch = quota 순증 + SKIP-제외 dedup 경계 파괴(불변식 #9 위반) →
+  //   비-통합이 헌법 정합. supply(fetchKisInvestorTradeByStockDaily, query.ts:901)는 factory 와 *이미*
+  //   동일 단일함수 공유 = 단일 소유 충족. → burn-down 대상 아님(영구 허용). 신규 *유사* lazy/budget
+  //   복제는 여전히 차단(allowlist 미등재 시 fail). V5 LEGITIMATE_DIAGNOSTIC 선례와 동일 패턴(ADR-0558).
+  ['server/screener/universeScanner.ts', 'LEGITIMATE_BUDGET_LAZY (영구 허용, ADR-0558) / audit V1 — quota 절약 lazy/budget fetch(max25, 통과 후보만), supply 는 factory 와 단일함수 공유. factory eager 통합 시 불변식 #9 위반 → 비-통합 정당. burn-down 대상 아님.'],
   // R3 grandfather: 기존 screener provider 통로(quote/technicals SSOT adapter 포함).
   //   universeScanner 패턴의 *신규* 복제만 차단 — 아래 기존 importer 는 candidate/quote 발굴 단일통로 자산.
-  ['server/screener/adapters/kisQuoteAdapter.ts', 'P3 burn-down 검토 / audit V1-extended (quote SSOT adapter — technicalQuoteRouter 소유)'],
-  ['server/screener/adapters/krxScreenerAdapter.ts', 'P3 burn-down 검토 / audit V1-extended (KRX screener adapter — quote/technicals 발굴)'],
-  ['server/screener/dynamicUniverseExpander.ts', 'P3 burn-down 검토 / audit V1-extended (universe 확장 — candidate 발굴)'],
-  ['server/screener/kisChartDataFetcher.ts', 'P3 burn-down 검토 / audit V1-extended (KIS 차트 fetch — technicals 발굴)'],
-  ['server/screener/stockScreener.ts', 'P3 burn-down 검토 / audit V1-extended (스크리너 본체 — candidate 발굴)'],
+  ['server/screener/adapters/kisQuoteAdapter.ts', 'LEGITIMATE_BUDGET_LAZY (영구 허용, ADR-0558) / audit V1-extended (quote SSOT adapter — technicalQuoteRouter 소유, lazy/budget 발굴 자산).'],
+  ['server/screener/adapters/krxScreenerAdapter.ts', 'LEGITIMATE_BUDGET_LAZY (영구 허용, ADR-0558) / audit V1-extended (KRX screener adapter — quote/technicals lazy 발굴).'],
+  ['server/screener/dynamicUniverseExpander.ts', 'LEGITIMATE_BUDGET_LAZY (영구 허용, ADR-0558) / audit V1-extended (universe 확장 — candidate lazy 발굴).'],
+  ['server/screener/kisChartDataFetcher.ts', 'LEGITIMATE_BUDGET_LAZY (영구 허용, ADR-0558) / audit V1-extended (KIS 차트 fetch — technicals lazy 발굴).'],
+  ['server/screener/stockScreener.ts', 'LEGITIMATE_BUDGET_LAZY (영구 허용, ADR-0558) / audit V1-extended (스크리너 본체 — candidate lazy/budget 발굴).'],
 
   // ── V3 investor-flow provider 우회 (P3 burn-down) ──
   ['server/trading/signalScanner/marketProgramFlowProvider.ts', 'P3 burn-down 예정 / audit V3 (kis/krx program flow 직접 fetch)'],
@@ -251,7 +262,8 @@ function main() {
 
   console.log(
     `[SSOTSingleFunnel] [OK] — ${scannedCount}개 파일 검사, 신규 위반 0건 ` +
-      `(grandfather baseline ${grandfathered.length}건 등재됨, P3~P5 burn-down 대상).`,
+      `(allowlist baseline ${grandfathered.length}건: V1 LEGITIMATE_BUDGET_LAZY 영구 허용(ADR-0558) ` +
+      `+ V5 LEGITIMATE_DIAGNOSTIC + V3 burn-down 잔존).`,
   );
 }
 
