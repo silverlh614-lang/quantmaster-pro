@@ -15,6 +15,12 @@
   - **(C) KIS 대체가능 — 마이그레이션 대상**: 5개 사용처 (국내 quote/OHLCV, 국내 historical close, KOSPI/KOSDAQ 지수, USD/KRW, 국내 sector).
   - **(D) 별도 경로 — 의도적 유지**: 1개 (aiUniverseService Tier 3 QUANT, ADR-0011).
 - **최종 판정 (Yahoo 최소화 후 잔존)**: **(B) 4건 + (D) 1건 = 5건**. (C) 5건은 burn-down 대상 → 0 목표.
+- **[2026-06-03 업데이트 — ADR-0563 동결]**: (C) 중 **실행경로(매수·매도·Gate score) burn-down 완료** —
+  C1 국내 quote/OHLCV(grandfather 0, R1 KIS primary) + exit 종가(closeSeriesProvider). 나머지 (C) 사용처
+  (C2 학습 historical/news·C3 KOSPI/KOSDAQ 지수·C4 USD/KRW·C5 섹터)는 전수 재조사 결과 **전부 비실행**
+  (학습 귀인·텔레그램 표시·KRX(L1)-first→Yahoo fallback)이며 closeSeriesProvider 드롭인 0개. → **두더지잡기
+  종료, 잔존 13 hit/7파일을 `FROZEN_NON_EXECUTION_ADR0563` 으로 동결**(추적 유지·신규 Yahoo-first 차단 유지).
+  재활성은 shape 별 deliberate ADR only.
 - **핵심 발견**: KIS overseas `inquire_daily_chartprice` (TR `FHKST03030100`* — *주의: 동일 TR_ID가 국내 투자자흐름에도 쓰임, overseas 는 `fid_cond_mrkt_div_code=N/X/I/S`)는 **N=해외지수(S&P/NASDAQ/Dow만), X=환율, I=국채, S=금선물**만 지원. **VIX·DXY·Nikkei·CSI300·개별 종목세부는 KIS 미커버 → (B) 정당 차용 확정.**
 
 ---

@@ -62,7 +62,8 @@ L4 (AI 추정 → 참조 전용, 직접 매매 결정 금지).
 **절대불변식 (ADR-0561) — KIS Primary Absolute:** KIS(L1)가 공급 가능한 레이어에서는 Yahoo(L3)를
 primary 로 쓸 수 없다. Yahoo 는 KIS 로 대체 불가능한 경우에만 최후 fallback 으로 차용한다.
 quota 는 Yahoo-first 회피 사유가 아니다 — 캐시·배치·rate 관리(엔지니어링)로 해결한다.
-(현 Gate quote ~10곳 Yahoo-first = grandfather→burn-down 마이그레이션 대상. 진짜 대체불가 케이스만 명시 허용.)
+(실행경로 Yahoo burn-down 완료 — Gate quote(C1)·LIVE 청산 종가 grandfather 0, ADR-0563. 잔존 13 hit/7파일은
+전부 비실행(학습 귀인·텔레그램 표시·KRX-fallback)이라 `FROZEN_NON_EXECUTION_ADR0563` 동결. 신규 Yahoo-first 는 차단.)
 
 상세 매매엔진 규칙 → `docs/ai/02-trading-engine-rules.md` ·
 SourceSnapshot SSOT → `docs/ai/03-source-snapshot-ssot.md` ·

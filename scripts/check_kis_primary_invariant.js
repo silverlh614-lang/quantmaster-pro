@@ -4,7 +4,9 @@
  *   URL·.KS/.KQ raw concat·국내심볼 fetchCloses·Yahoo client 직접호출)을 커밋타임 차단(ADR-0561/0562).
  *
  * 사양 SSOT: docs/adr/0562-yahoo-dependency-boundary-lock.md §"가드 확장 사양"(DETECTORS·심볼셋·
- *   WHITELIST(B+D)·GRANDFATHER(C burn-down)) + ADR-0561 §"위반 탐지 가드 사양"(계승·강화).
+ *   WHITELIST(B+D)·GRANDFATHER) + ADR-0561 §"위반 탐지 가드 사양"(계승·강화).
+ *   ADR-0563: 실행경로(매수·매도·Gate score) Yahoo burn-down 완료 선언 → GRANDFATHER 7파일/13 hit
+ *   (전부 비실행: 학습 귀인·텔레그램 표시·KRX-fallback)을 FROZEN_NON_EXECUTION_ADR0563 으로 동결(추적 유지).
  * 검증 모델: check_ssot_drift_registry.js / check_ssot_single_funnel.js / check_yahoo_symbol_resolver.js
  *   (텍스트 정규식, AST 미사용, allowlist/grandfather, checkFile/export 재사용).
  *
@@ -26,9 +28,9 @@
  *   - 주석·import·정의/위임·문자열 리터럴 내부 토큰은 모든 DETECTOR 공통 제외.
  *
  * WHITELIST(영구, ADR-0562 D1 = (B)4 + (D)1 + 라우터/SSOT/policy/research): 파일별 사유 주석. §2 참조.
- * GRANDFATHER_ALLOWLIST(C burn-down, 사유 `MIGRATION_PENDING_ADR0561`): 파일 단위 grandfather
- *   (줄이동 false-fail 방지 — drift_registry 패턴). 라인 번호는 burn-down 추적 진단 메타. §3 참조.
- *   allowlist/whitelist 외 신규 Yahoo-first = EXIT 1. 두더지잡기 종료.
+ * GRANDFATHER_ALLOWLIST(잔존 비실행 동결, 사유 `FROZEN_NON_EXECUTION_ADR0563`): 파일 단위 grandfather
+ *   (줄이동 false-fail 방지 — drift_registry 패턴). 라인 번호는 추적 진단 메타. §3 참조.
+ *   allowlist/whitelist 외 신규 Yahoo-first = EXIT 1. 두더지잡기 종료(systematic 경계 잠금 완료).
  */
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join, dirname } from 'path';
@@ -124,20 +126,24 @@ const WHITELIST = new Map([
 ]);
 
 /**
- * GRANDFATHER_ALLOWLIST — (C) burn-down 현존 위반(파일:라인 → 사유). ADR-0562 §3.
- * 사유 일괄 `MIGRATION_PENDING_ADR0561`. 마이그레이션 PR마다 해당 파일 항목 제거(burn-down).
- * 라인 번호는 burn-down 추적용 진단 메타이며, 매칭은 파일 단위 grandfather 로 한다
+ * GRANDFATHER_ALLOWLIST — 잔존 Yahoo-first 진입(파일:라인 → 사유). ADR-0562 §3 → ADR-0563 동결.
+ * 사유 `FROZEN_NON_EXECUTION_ADR0563` — ADR-0563 이 실행경로(매수·매도·Gate score) Yahoo burn-down
+ * 완료를 선언하고, 잔존 7파일/13 hit(전부 학습 귀인·텔레그램 표시·KRX-fallback quote = 비실행)을
+ * bounded backlog 로 *동결*했다. 두더지잡기 종료 — 일괄·즉흥 마이그레이션 하지 않는다.
+ * 재활성(KIS-first 치환)은 shape 별 deliberate ADR(라우터 신설+shadow A/B+회귀) only.
+ * 라인 번호는 추적용 진단 메타이며, 매칭은 파일 단위 grandfather 로 한다
  * (파일 내부 줄이동으로 가드가 false-fail 하지 않도록 — drift_registry 의 파일단위 grandfather 패턴).
+ * 탐지 로직·EXIT 코드는 무변경 — 신규 Yahoo-first 진입은 여전히 EXIT 1 차단(drift 봉쇄 유지).
  * key=relPath, value={ lines:number[], reason, c }(c=ADR-0562 카탈로그 분류).
  */
 const GRANDFATHER_ALLOWLIST = new Map([
-  ['server/learning/lateWinEvaluator.ts', { lines: [68], reason: 'MIGRATION_PENDING_ADR0561', c: 'C2' }], // 국내 90일 OHLCV 직접 URL
-  ['server/clients/historicalClosePrice.ts', { lines: [65], reason: 'MIGRATION_PENDING_ADR0561', c: 'C2' }], // KIS-first 이나 Yahoo fallback URL 잔존
-  ['server/learning/newsSupplyLogger.ts', { lines: [85], reason: 'MIGRATION_PENDING_ADR0561', c: 'C2' }], // 학습 N일 종가 fetchCloses(var) — 국내 code 경유(EWY 글로벌 혼재)
-  ['server/clients/koreanQuoteBridge.ts', { lines: [142, 154], reason: 'MIGRATION_PENDING_ADR0561', c: 'C3' }], // KOSPI/KOSDAQ .KS/.KQ fallback(fetchYahooSymbol)
-  ['server/screener/sectorSources.ts', { lines: [272, 277], reason: 'MIGRATION_PENDING_ADR0561', c: 'C5' }], // Yahoo assetProfile 섹터(fetchYahooSector)
-  ['server/alerts/reportGenerator.ts', { lines: [896, 905], reason: 'MIGRATION_PENDING_ADR0561', c: 'C3/C4' }], // fetchCloses ^KS11 / KRW=X
-  ['server/trading/marketDataRefresh.ts', { lines: [855], reason: 'MIGRATION_PENDING_ADR0561', c: 'C4' }], // fetchCloses KRW=X — 동 파일 글로벌심볼·fetchDailyBars 정의는 합법(파일단위 통과)
+  ['server/learning/lateWinEvaluator.ts', { lines: [68], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C2' }], // 학습 90일 OHLCV raw URL(learningOrchestrator, 비실행)
+  ['server/clients/historicalClosePrice.ts', { lines: [65], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C2' }], // 학습 라벨러 단일시점 종가 — 이미 KIS-first, Yahoo 잔존 fallback
+  ['server/learning/newsSupplyLogger.ts', { lines: [85], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C2' }], // 학습 뉴스-수급 귀인 N일 종가 fetchCloses(var) — 국내 code+EWY 글로벌 혼재(비실행)
+  ['server/clients/koreanQuoteBridge.ts', { lines: [142, 154], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C3' }], // KRX(L1)-first → Yahoo fallback(.KS/.KQ) — L1 primary 충족
+  ['server/screener/sectorSources.ts', { lines: [272, 277], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C5' }], // Yahoo assetProfile 섹터 메타데이터(비실행)
+  ['server/alerts/reportGenerator.ts', { lines: [896, 905], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C3/C4' }], // 텔레그램 시황요약 ^KS11/KRW=X 표시(비실행)
+  ['server/trading/marketDataRefresh.ts', { lines: [855], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C4' }], // KRW=X 환율 — 이미 ECOS 교차검증(ADR-0071), 표시·매크로(비실행)
 ]);
 
 /**
@@ -343,9 +349,9 @@ function walk(absDir, relDir, out) {
 }
 
 const VIOLATION_GUIDANCE =
-  'Yahoo(L3)-first 금지(ADR-0562/0561). KIS(L1) primary(fetchTechnicalQuote/KIS endpoint)로 전환하거나, ' +
-  'KIS 대체불가 입증 후 WHITELIST 등재(B/D), 또는 마이그레이션 진행 중이면 ' +
-  'GRANDFATHER_ALLOWLIST(MIGRATION_PENDING_ADR0561) 등재.';
+  'Yahoo(L3)-first 금지(ADR-0563/0562/0561). KIS(L1) primary(fetchTechnicalQuote/KIS endpoint)로 전환하거나, ' +
+  'KIS 대체불가 입증 후 WHITELIST 등재(B/D). 실행경로 Yahoo 는 burn-down 완료(ADR-0563); ' +
+  '신규 진입은 GRANDFATHER 동결 대상이 아니라 차단 대상이다.';
 
 function main() {
   const files = [];
@@ -381,7 +387,7 @@ function main() {
   console.log(
     `[KisPrimaryInvariant] [OK] — ${files.length}개 파일 검사, 신규 Yahoo-first 위반 0건 ` +
       `(DETECTORS: D-QUOTE/D-URL/D-SUFFIX/D-CLOSES-DOMESTIC/D-CLOSES-VAR/D-YAHOO-CLIENT; ` +
-      `grandfather ${grandfatheredCount}건 MIGRATION_PENDING_ADR0561 burn-down 대상, ` +
+      `grandfather ${grandfatheredCount}건 FROZEN_NON_EXECUTION_ADR0563 동결(비실행, 실행경로 burn-down 완료), ` +
       `whitelist ${WHITELIST.size}개 owner/fallback/policy 면제).`,
   );
 }

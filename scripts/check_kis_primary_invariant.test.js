@@ -260,7 +260,8 @@ describe('check_kis_primary_invariant guard (ADR-0562 확장)', () => {
     expect(WHITELIST.size).toBeGreaterThanOrEqual(15);
     expect(GRANDFATHER_ALLOWLIST.size).toBeGreaterThan(0);
     for (const [, meta] of GRANDFATHER_ALLOWLIST) {
-      expect(meta.reason).toBe('MIGRATION_PENDING_ADR0561');
+      // ADR-0563: 실행경로 burn-down 완료 → 잔존 비실행 동결로 사유 재분류.
+      expect(meta.reason).toBe('FROZEN_NON_EXECUTION_ADR0563');
       expect(Array.isArray(meta.lines)).toBe(true);
       expect(meta.lines.length).toBeGreaterThan(0);
     }
