@@ -3,6 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { addBusinessDays as nearMissAddBusinessDays } from './nearMissOutcomeLedger.js';
+import { addWeekdaysApprox } from './businessDayApprox.js';
 import { addBusinessDaysFromKstDate, KRX_HOLIDAYS } from '../trading/krxHolidays.js';
 
 /**
@@ -44,6 +45,25 @@ describe('addBusinessDays 의미 특성화 — 인라인(주말만) vs SSOT(주�
     it('금요일 +1영업일 → 월요일', () => {
       expect(nearMissAddBusinessDays('2026-04-24', 1)).toBe('2026-04-27');
     });
+  });
+
+  describe('dedupe(옵션 A) — 공유 helper(addWeekdaysApprox) == 기존 인라인 출력 (byte-equivalent)', () => {
+    // 광범위 동치 스캔: 여러 기준일·지평에서 공유 helper == 기존 인라인(주말만) golden 참조.
+    const bases = [
+      '2026-01-01', '2026-02-13', '2026-04-24', '2026-04-27', '2026-04-30',
+      '2026-05-01', '2026-09-23', '2026-12-31', '2027-01-01',
+    ];
+    const horizons = [1, 2, 3, 5, 10];
+    for (const base of bases) {
+      for (const n of horizons) {
+        it(`${base} +${n}: shared == nearMiss inline == gate2 inline`, () => {
+          const shared = addWeekdaysApprox(base, n);
+          // 공유 helper == nearMiss export(현재 공유 helper 위임) 와 gate2 golden 참조 둘 다 동일
+          expect(shared).toBe(nearMissAddBusinessDays(base, n));
+          expect(shared).toBe(gate2InlineAddBusinessDays(base, n));
+        });
+      }
+    }
   });
 
   describe('SSOT 는 휴일+주말 인식 (KRX_HOLIDAYS 비어있지 않음 확인)', () => {

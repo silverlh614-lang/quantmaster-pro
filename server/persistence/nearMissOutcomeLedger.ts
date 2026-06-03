@@ -8,6 +8,7 @@
 import fs from 'fs';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { ensureDataDir, NEAR_MISS_OUTCOME_LEDGER_FILE } from './paths.js';
+import { addWeekdaysApprox } from './businessDayApprox.js';
 import type { GateScoreCandidateBucket } from '../trading/signalScanner/gateScoreCandidateBucket.js';
 
 export const NEAR_MISS_OUTCOME_HORIZONS = [3, 5, 10] as const;
@@ -86,16 +87,13 @@ function isFinitePositive(value: number): boolean {
   return Number.isFinite(value) && value > 0;
 }
 
+/**
+ * 주말만 건너뛰는 영업일 근사 가산(공휴일 미반영 — 휴일-인식은 별도 마이그레이션 #2-B).
+ * 공유 helper(addWeekdaysApprox)로 위임. 기존 인라인과 byte-equivalent(주말만 스킵).
+ * krxHolidays.addBusinessDaysFromKstDate(휴일+주말 SSOT)와 혼동 금지.
+ */
 export function addBusinessDays(yyyymmdd: string, businessDays: number): string {
-  const [y, m, d] = yyyymmdd.split('-').map(Number);
-  const t = new Date(Date.UTC(y, m - 1, d));
-  let added = 0;
-  while (added < businessDays) {
-    t.setUTCDate(t.getUTCDate() + 1);
-    const dow = t.getUTCDay();
-    if (dow !== 0 && dow !== 6) added += 1;
-  }
-  return t.toISOString().slice(0, 10);
+  return addWeekdaysApprox(yyyymmdd, businessDays);
 }
 
 function loadEntries(): NearMissOutcomeEntry[] {

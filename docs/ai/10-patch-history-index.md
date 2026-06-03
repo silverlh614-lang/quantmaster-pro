@@ -57,6 +57,8 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-06-03 · Patch-Dup2-addBusinessDays-Dedupe-OptionA · persistence(중복정리 #2 옵션A, 행동불변). 인라인 weekend-only 복사본 2개(nearMissOutcomeLedger:96·gate2OutcomeRepo:48)를 신규 공유 helper businessDayApprox.ts `addWeekdaysApprox`로 dedupe(2→1). 명명·@responsibility에 "주말만·휴일 미인식 의도적 근사, krxHolidays SSOT와 혼동금지, 휴일-인식 정정은 #2-B 별도 마이그레이션" 명시(ADR-0558 정당분리 패턴). 행동 불변=golden master 삭제 0줄(기존 인라인vsSSOT 불일치 단언 전부 보존)+dedupe 동치 45케이스 green. byte-equivalent, executionImpact NONE(학습전용), 영속데이터 무손상, 신규 enum 0. lint0/vitest(870 pass)/가드0/responsibility0
+
 - 2026-06-03 · Patch-Dup2-addBusinessDays-Characterization · persistence(중복정리 #2 측정). addBusinessDaysSsot.characterization.test.ts 신규 11 PASS — 0단계 판정 경우 B(인라인 != SSOT). nearMissOutcomeLedger.ts:96·gate2OutcomeRepo.ts:43 인라인은 주말만(dow!==0&&6, "공휴일 미반영 근사" 주석) vs krxHolidays.addBusinessDaysFromKstDate(주말+휴일). 불일치=휴일인접(설날/추석/어린이날 등), 순수위임시 학습 forward-return 라벨 변경→영속 라벨 혼재(표본 일관성 훼손). 버그수정 맞으나 executionImpact NONE(학습전용)·마이그레이션 설계 필요→에스컬레이션. 소스 0줄 test만. lint0/vitest11/가드0/responsibility0
 
 - 2026-06-03 · Patch-CalendarSSOT-Implementation-And-DupConceptCatalog · trading/calendar(ADR-0559 구현)+docs/audits. krxTradingCalendar.ts KRX_HOLIDAYS_BY_YEAR(2026 16건) 제거→isKrxHoliday를 krxHolidays.isKrxHoliday re-export 위임, walk헬퍼 toKstDateKey/grace 보존 휴일판정만 위임(시그니처 7개 불변→소비처 18곳 0줄). krxHolidays STATIC에 2026-12-31+2027-12-31 추가. LIVE 게이트 2027 공휴일 8건+12/31 구멍 폐쇄=안전방향(거래일→휴장 오분류 0건, golden 전수스캔 단언). golden master 40 PASS divergence[], preflight 18-fail pre-existing(stash 대조 동일·r3Sanity mock 무관)=회귀0, lint0/가드0/responsibility0, ADR-0548 sync 무영향. executionImpact MEDIUM(안전방향 전용). + docs/audits 중복개념 카탈로그 16건(검증주석 5건 보정).

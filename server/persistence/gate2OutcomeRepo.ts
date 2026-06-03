@@ -2,6 +2,7 @@
 import fs from 'fs';
 import { GATE2_OUTCOME_LEDGER_FILE, ensureDataDir } from './paths.js';
 import { gate2OutcomeDuplicateKey, type Gate2OutcomeSeed } from '../quant/gate2OutcomeSeed.js';
+import { addWeekdaysApprox } from './businessDayApprox.js';
 
 interface Gate2OutcomeLedgerFile {
   version: 1;
@@ -39,16 +40,12 @@ function pctReturn(entry: number, exit: number): number {
   return Math.round(((exit - entry) / entry) * 1000) / 10;
 }
 
-/** 주말 건너뛴 영업일 가산(공휴일 미반영 근사 — 성숙 지평 판정용). */
+/**
+ * 주말 건너뛴 영업일 가산(공휴일 미반영 근사 — 성숙 지평 판정용). 공유 helper 위임.
+ * 휴일-인식 정정은 별도 마이그레이션(#2-B). krxHolidays.addBusinessDaysFromKstDate 와 혼동 금지.
+ */
 function addBusinessDays(ymd: string, n: number): string {
-  const date = new Date(`${ymd}T00:00:00.000Z`);
-  let added = 0;
-  while (added < n) {
-    date.setUTCDate(date.getUTCDate() + 1);
-    const dow = date.getUTCDay();
-    if (dow !== 0 && dow !== 6) added += 1;
-  }
-  return date.toISOString().slice(0, 10);
+  return addWeekdaysApprox(ymd, n);
 }
 
 function isFile(value: unknown): value is Gate2OutcomeLedgerFile {
