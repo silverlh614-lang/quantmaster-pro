@@ -74,5 +74,38 @@
 - **KRX 거래일 달력** (ADR-0190) — `isAcceptableKrxDailyBase` SSOT 로 휴장일 클러스터의 정상 base 를
   stale 로 오판하지 않게 한다. provider-측 데이터 품질 규칙이므로 상세 → `docs/ai/05-provider-policy.md`.
 
+---
+
+## Information Ownership Registry (ADR-0555 헌법 — 각 정보 → 단 하나의 소유 모듈)
+
+**원칙:** 각 정보 타입은 *단 하나의 소유 모듈(SSOT)* 만 채운다. 소비자는 그 모듈의 출력만 읽고,
+provider/store 를 직접 조회하지 않는다 (불변식 #3·#9). 본 표는 ADR-0555 가 헌법으로 채택한
+*현존하는* 소유 모듈 지도다 (코드 grep 근거). 신규 정보 타입은 본 표에 행을 추가한 뒤 배선한다.
+
+> **"현재 위반" 열은 새 SSOT 가 아니라 기존 SSOT 우회(드리프트)를 가리킨다.** 이를 정적 가드로
+> 막는 것이 ADR-0555 P1·P3 이며, baseline 위반은 allowlist 로 grandfather 후 burn-down.
+
+| 정보 타입 | 소유 모듈(SSOT) | 허용 소비 경로 | 금지 경로 | 현재 위반 |
+|---|---|---|---|---|
+| quote / price | `server/screener/adapters/technicalQuoteRouter.ts` (KIS_QUOTE>KIS_CACHED>KRX>YAHOO, ADR-0547) · 외부데이터 진입 `src/services/stockService.ts` | SourceSnapshot featuresBySymbol carry | Gate evaluator 내 직접 KIS quote fetch | — |
+| investor-flow / supply | `server/trading/signalScanner/investorFlowProviderRouterAdr0477.ts` (ADR-0477/0542) | `injectPerSymbolSupplyContext` carry | signalScanner 자체 fallback 관리 | V3 `marketProgramFlowProvider.ts:78,184` |
+| technicals / OHLCV | `server/screener/adapters/technicalQuoteRouter.ts` (KIS 일봉 L1, ADR-0547) | FeatureSnapshot.technicalIndicators | evaluator 내 OHLCV 직접 fetch | — |
+| fundamentals / DART | `server/trading/signalScanner/injectPerSymbolDartContext.ts` + `gate2/gate2DartCanonicalSlot.ts` (ADR-0529/0532) | Gate2 canonical slot 읽기 | Gate2 내 DART 직접 조회 | — |
+| macro | `server/trading/sourceSnapshot/unifiedSourceSnapshot.ts` `UnifiedMacroContext` (스냅샷 시점 복사) | Gate 는 복사본만 읽음 | `useGlobalIntelStore.macroEnv` 직접 read | 증상R6 regime/display 직접 read |
+| sectorEnergy | `server/trading/signalScanner/sectorEnergyCanonicalState.ts` `deriveSectorEnergyCanonicalState` (ADR-0534/0544/0545) | canonical state 읽기 | provider basket 직접 coverage 산정 | — |
+| providerHealth | `server/data/dataConfidenceRouter.ts` + `server/diagnostics/providerMarketSignalIsolationStep16.ts` (ADR-0499) | confidence/permission 입력 | providerIssue→bearish 변환 | V2 `dartProviderSignalSplit.ts:29` mixed |
+| candidate-universe | 자동매매: `server/services/quantitativeCandidateGenerator.ts` → `candidatePoolBuilder.ts` · AI추천: `server/services/aiUniverseService.ts` (ADR-0011) | candidate carry | Gate stage 내 provider 직접 universe 조회 | V1 `universeScanner.ts:260,335,378,452,517` |
+| gate-decision | `src/candidate-decision/candidateDecisionModel.ts` `buildCandidateDecisionCardModel` (프로덕션) ↔ `src/services/autoTrading/ssotPipeline.ts` (블루프린트, 미배선) | DecisionCardModel 읽기 | 렌더 시점 게이트 재계산 | factory 미구현 드리프트 (§3) |
+| execution / order-intent | `server/trading/orderPipelineSsot.ts` `OrderIntent` 13-stage (mode LIVE\|SHADOW) | autoTradeEngine 단일 통로 | 클라이언트 실주문 | — |
+| position (shadow/live) | shadow: `server/persistence/shadowPositionLedger.ts` (메모리, 미영속) · live: `trade.id` truth | `/pos` 1순위 ShadowPositionRegistry | Telegram 직접 store 조회 | V4 Registry 파일 영속 0 |
+| learning / counterfactual | `counterfactualShadowLearningRepo.ts` · `provisionalShadowLedger.ts` · `personaBalanceLedger.ts` (3-분리, ADR-0430/0329) | scanId+dedup 키 | learning ledger 신설/통합 | — |
+| telegram-projection | `server/telegram/renderers/snapshotBundle.ts` (projection only, ADR-0525/0526) | 정본 읽기·렌더 | 렌더 시점 provider 직접 조회/재계산 | V5 `dartProviderHealth.cmd.ts:8`, `snapshotBundle.ts:273` |
+
+> **decisionId 주의:** 하류 1:N 인과 추적용 `decisionId` 신설은 ADR-0555 범위 밖(P5/별건).
+> Factory(P2) 선행 없이 ID 부터 붙이면 빈 원장에 라벨 다는 꼴 (audit §5).
+
+---
+
 데이터 신뢰 등급(L1~L4)·provider 장애 처리 → `docs/ai/05-provider-policy.md`
 Gate 시스템 상세 → `docs/ai/04-gate-system.md`
+Information Ownership Registry 헌법 근거 → `docs/adr/0555-ssot-single-funnel-enforcement-constitution.md`
