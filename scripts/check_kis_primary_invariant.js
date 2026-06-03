@@ -108,6 +108,7 @@ const WHITELIST = new Map([
   ['server/services/quantitativeCandidateGenerator.ts', 'D1 AI추천 Tier3 OHLCV(ADR-0011, 자동매매 import 금지 분리).'],
   // ── 라우터 / SSOT 위임 / provider adapter / policy (페칭 위임처·정책, ADR-0561 D3 계승) ──
   ['server/screener/adapters/technicalQuoteRouter.ts', 'R1 KIS-first 라우터 fallback 위치 Yahoo(합법, ADR-0547).'],
+  ['server/trading/exitEngine/helpers/closeSeriesProvider.ts', 'exit 경로 KIS-first 종가 라우터 fallback 위치 Yahoo(합법, ADR-0561 burn-down; flag OFF byte-equal).'],
   ['server/screener/adapters/yahooSymbolResolver.ts', 'fetchYahooQuoteByCode SSOT 위임 본체(.KS/.KQ 합성 SSOT).'],
   ['server/screener/adapters/yahooQuoteAdapter.ts', 'fetchYahooQuote 정의 본체 + per/trailingPE 전용 경로.'],
   ['server/screener/adapters/yahooQuoteSummary.ts', 'PER/PBR/EPS opportunistic enrichment(ENV OFF default, ADR-0536).'],
@@ -132,8 +133,6 @@ const WHITELIST = new Map([
 const GRANDFATHER_ALLOWLIST = new Map([
   ['server/learning/lateWinEvaluator.ts', { lines: [68], reason: 'MIGRATION_PENDING_ADR0561', c: 'C2' }], // 국내 90일 OHLCV 직접 URL
   ['server/clients/historicalClosePrice.ts', { lines: [65], reason: 'MIGRATION_PENDING_ADR0561', c: 'C2' }], // KIS-first 이나 Yahoo fallback URL 잔존
-  ['server/trading/exitEngine/helpers/priceHistory.ts', { lines: [29], reason: 'MIGRATION_PENDING_ADR0561', c: 'C2' }], // exit 경로 국내 종가 fetchCloses(var) — RSI
-  ['server/trading/exitEngine/helpers/ma60.ts', { lines: [42], reason: 'MIGRATION_PENDING_ADR0561', c: 'C2' }], // exit 경로 MA60 fetchCloses(var)
   ['server/learning/newsSupplyLogger.ts', { lines: [85], reason: 'MIGRATION_PENDING_ADR0561', c: 'C2' }], // 학습 N일 종가 fetchCloses(var) — 국내 code 경유(EWY 글로벌 혼재)
   ['server/clients/koreanQuoteBridge.ts', { lines: [142, 154], reason: 'MIGRATION_PENDING_ADR0561', c: 'C3' }], // KOSPI/KOSDAQ .KS/.KQ fallback(fetchYahooSymbol)
   ['server/screener/sectorSources.ts', { lines: [272, 277], reason: 'MIGRATION_PENDING_ADR0561', c: 'C5' }], // Yahoo assetProfile 섹터(fetchYahooSector)

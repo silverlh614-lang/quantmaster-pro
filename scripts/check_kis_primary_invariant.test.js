@@ -164,12 +164,18 @@ describe('check_kis_primary_invariant guard (ADR-0562 확장)', () => {
   it('(d2) ADR-0562 C category grandfather entries are present', () => {
     expect(GRANDFATHER_ALLOWLIST.has('server/learning/lateWinEvaluator.ts')).toBe(true); // C2
     expect(GRANDFATHER_ALLOWLIST.has('server/clients/historicalClosePrice.ts')).toBe(true); // C2
-    expect(GRANDFATHER_ALLOWLIST.has('server/trading/exitEngine/helpers/priceHistory.ts')).toBe(true); // C2 exit
-    expect(GRANDFATHER_ALLOWLIST.has('server/trading/exitEngine/helpers/ma60.ts')).toBe(true); // C2 exit
     expect(GRANDFATHER_ALLOWLIST.has('server/clients/koreanQuoteBridge.ts')).toBe(true); // C3
     expect(GRANDFATHER_ALLOWLIST.has('server/screener/sectorSources.ts')).toBe(true); // C5
     expect(GRANDFATHER_ALLOWLIST.has('server/alerts/reportGenerator.ts')).toBe(true); // C3/C4
     expect(GRANDFATHER_ALLOWLIST.has('server/trading/marketDataRefresh.ts')).toBe(true); // C4
+  });
+
+  it('(d3) ADR-0561 exit-path closes burn-down: priceHistory/ma60 grandfather 제거 + 라우터 whitelist', () => {
+    // C2 exit 경로 두 소비처는 fetchCloseSeries 라우터로 치환되어 grandfather 에서 제거됨(burn-down).
+    expect(GRANDFATHER_ALLOWLIST.has('server/trading/exitEngine/helpers/priceHistory.ts')).toBe(false);
+    expect(GRANDFATHER_ALLOWLIST.has('server/trading/exitEngine/helpers/ma60.ts')).toBe(false);
+    // 라우터(KIS-first, Yahoo fallback 합법)는 WHITELIST 로 분류 — R1 동형.
+    expect(WHITELIST.has('server/trading/exitEngine/helpers/closeSeriesProvider.ts')).toBe(true);
   });
 
   // ── (e) false positive 0 ──

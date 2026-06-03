@@ -1,4 +1,4 @@
-// @responsibility Yahoo 심볼 후보 + 가격·RSI 히스토리 비동기 조회 헬퍼
+// @responsibility 심볼 후보 + 종가배열 라우터 경유 가격·RSI 히스토리 비동기 조회 헬퍼
 /**
  * exitEngine/helpers/priceHistory.ts — Yahoo 심볼 후보 + 가격/RSI 히스토리 (ADR-0028).
  *
@@ -8,7 +8,7 @@
  * fetchCloses 가 양 시장 후보 자동 처리).
  */
 
-import { fetchCloses } from '../../marketDataRefresh.js';
+import { fetchCloseSeries } from './closeSeriesProvider.js';
 import { rsiSeries } from './rsiSeries.js';
 
 /** stockCode → Yahoo Finance 심볼 후보 배열. */
@@ -26,7 +26,9 @@ export async function fetchPriceAndRsiHistory(
   // RSI 14 Wilder 평활화를 안정화하려면 최소 14 + bars 관측이 필요.
   const minNeeded = 14 + bars;
   for (const sym of yahooSymbolCandidates(stockCode)) {
-    const closes = await fetchCloses(sym, '60d').catch(() => null);
+    // ADR-0561 grandfather burn-down: flag OFF 시 fetchCloses(sym,'60d') byte-equal,
+    // flag ON 시 KIS 일봉(L1) 종가. 청산 RSI 결정 불변(flag OFF).
+    const closes = await fetchCloseSeries(stockCode, sym, '60d').catch(() => null);
     if (!closes || closes.length < minNeeded) continue;
     const fullRsi = rsiSeries(closes, 14);
     if (fullRsi.length < bars) continue;

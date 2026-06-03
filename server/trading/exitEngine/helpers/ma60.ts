@@ -1,9 +1,9 @@
-// @responsibility MA20·MA60 역배열 판정 + 영업일 계산 + Yahoo 종가 조회 헬퍼
+// @responsibility MA20·MA60 역배열 판정 + 영업일 계산 + 종가배열 라우터 경유 MA 조회 헬퍼
 /**
  * exitEngine/helpers/ma60.ts — 60일선 죽음 판정 + KST 영업일 + 120일 종가 fetch (ADR-0028).
  */
 
-import { fetchCloses } from '../../marketDataRefresh.js';
+import { fetchCloseSeries } from './closeSeriesProvider.js';
 import { yahooSymbolCandidates } from './priceHistory.js';
 
 /**
@@ -39,7 +39,9 @@ export function kstBusinessDateStr(offsetBusinessDays: number): string {
 /** stockCode → MA20·MA60 계산에 충분한 120일 종가 조회 후 (ma20, ma60) 반환. */
 export async function fetchMaFromCloses(stockCode: string): Promise<{ ma20: number; ma60: number } | null> {
   for (const sym of yahooSymbolCandidates(stockCode)) {
-    const closes = await fetchCloses(sym, '120d').catch(() => null);
+    // ADR-0561 grandfather burn-down: flag OFF 시 fetchCloses(sym,'120d') byte-equal,
+    // flag ON 시 KIS 일봉(L1) 종가. MA20/MA60 청산 결정 불변(flag OFF).
+    const closes = await fetchCloseSeries(stockCode, sym, '120d').catch(() => null);
     if (!closes || closes.length < 60) continue;
     const ma20 = simpleMA(closes, 20);
     const ma60 = simpleMA(closes, 60);
