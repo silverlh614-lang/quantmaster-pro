@@ -1,2 +1,8 @@
+# Railway 배포 설정 (config-as-code, 대시보드 설정보다 우선).
+# Builder 를 Nixpacks 로 강제 — Railpack v0.26.0 의 빌드 secret 처리 버그
+# (`failed to solve: secret flag not found`, npm ci 시작 전 실패) 회피. 단계 설정은 nixpacks.toml.
+[build]
+builder = "NIXPACKS"
+
 [deploy]
 startCommand = "npm start"

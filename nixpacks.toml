@@ -1,0 +1,18 @@
+# Railway/Nixpacks 빌드 설정 — Railpack v0.26.0 "secret flag not found" 회피 (deploy infra patch).
+#
+# 배경: Railpack 빌드 드라이버가 `[railpack] hash/loading secrets` 단계에서
+#   `failed to solve: secret flag not found` 로 npm ci 시작 전에 실패한다(railpack 0.26.0 버그).
+#   Railway Builder 를 Nixpacks 로 강제(railway.toml [build] builder="NIXPACKS")하고 본 파일로 단계를 고정.
+#
+# 안전판: 런타임 `npm start` 가 `node --import tsx ...` 로 TS 소스를 직접 실행하므로 tsx(devDep)가
+#   런타임에 필요하다. 또한 build 는 vite(devDep)가 필요하다. Railway 가 NODE_ENV=production 으로
+#   npm ci 를 돌리면 devDeps 가 누락되므로 `--include=dev` 로 강제 설치한다(tsx·vite 보존).
+
+[phases.install]
+cmds = ["npm ci --include=dev"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm start"
