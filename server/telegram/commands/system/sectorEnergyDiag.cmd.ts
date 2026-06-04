@@ -51,6 +51,58 @@ interface SectorEnergyConfidenceDisplay {
   reason?: string;
 }
 
+// ─── ADR-0572 Stage 2 — DISPLAY_ONLY: 레거시 basket 진단 모순 collapse ──────────
+// canonical resolver 가 VERIFIED/promotionCoveragePass=true 일 때, 하단 레거시 basket
+// 진단이 "공식 섹터지수 미가용"으로 오해되는 라인(officialCoverage 0/N · officialIndexCoverage
+// % · breakPoint=OFFICIAL_SECTOR_INDEX_UNAVAILABLE · official unavailable 류)을 *부차
+// diagnostic-only* 로 재라벨/축약한다. 판단·게이팅 값 0 변경(scan_blockers
+// stripStaleSectorEnergyBlockers collapse 패턴 재사용). canonical 이 PASS 가 아닐 때는
+// 레거시 라인을 그대로 둬 진짜 basket fallback·저하 가시성을 보존한다(collapse 는 PASS 조건부).
+
+/**
+ * canonical PASS 시 "공식 섹터지수 미가용"으로 오독되는 레거시 basket 진단 라인 판별 토큰
+ * (정규식, 출력 전용). 라벨 자체가 canonical 11/11 VERIFIED 와 모순으로 읽히므로 percent
+ * 값과 무관하게(0.0% 뿐 아니라 77.8% 등) collapse 대상 — basket 은 canonical PASS 시 *부차
+ * diagnostic-only* 라서 "official 미가용"으로 읽히면 안 된다.
+ */
+const ADR0572_OFFICIAL_UNAVAILABLE_DISPLAY_PATTERNS: readonly RegExp[] = [
+  /OFFICIAL_SECTOR_INDEX_UNAVAILABLE/,
+  /officialCoverage:\s*<b>0\//,
+  // officialIndexCoverage / productionOfficialCoverage 라인은 percent 값과 무관하게 collapse
+  // (라벨이 canonical VERIFIED 와 모순으로 읽힘). canonical 은 별도 상단 블록에서 11/11 표기.
+  /officialIndexCoverage:/i,
+  /productionOfficialCoverage:/i,
+  /officialIndex:\s*unavailable/i,
+];
+
+/**
+ * ADR-0572 Stage 2 (DISPLAY_ONLY): canonical PASS 조건부 레거시 basket 진단 collapse.
+ *   canonicalPass=true  → "공식 미가용"으로 읽히는 모순 라인 제거 + 축약 표기 1줄로 재라벨.
+ *   canonicalPass=false → 입력 라인 그대로 반환(저하 가시성 보존).
+ * 게이팅/판단 값 변경 없음 — 출력만 정합화(scan_blockers collapse 패턴 재사용).
+ */
+export function collapseLegacyBasketDiagnosticForDisplay(
+  canonicalPass: boolean,
+  lines: readonly string[],
+): string[] {
+  if (canonicalPass !== true) return [...lines];
+  const kept: string[] = [];
+  let collapsedCount = 0;
+  for (const line of lines) {
+    if (ADR0572_OFFICIAL_UNAVAILABLE_DISPLAY_PATTERNS.some((re) => re.test(line))) {
+      collapsedCount += 1;
+      continue;
+    }
+    kept.push(line);
+  }
+  if (collapsedCount > 0) {
+    kept.push(
+      `  • <i>secondaryDiagnosticOnly (ADR-0572): ${collapsedCount} legacy basket-derived "official unavailable" line(s) collapsed — canonical official sector index is VERIFIED/PASS; basket is diagnostic-only and does not drive promotion.</i>`,
+    );
+  }
+  return kept;
+}
+
 function classifyConfidenceDisplay(
   value: number,
 ): SectorEnergyConfidenceDisplay['confidenceClass'] {
@@ -335,11 +387,28 @@ export function formatSectorEnergyDiagMessage(): string {
   });
   lines.push(...buildSectorEnergyConfidenceLines(confidenceDisplay));
 
+  // ADR-0572 Stage 2 (DISPLAY_ONLY): canonical PASS 시 하단 레거시 basket 진단을
+  // *부차 diagnostic-only* 로 명시해 "공식 섹터지수 미가용" 오해(0/12 vs 11/11 모순)를 제거한다.
+  // canonical NOT-PASS 면 collapse/배너 미적용 → 진짜 basket fallback·저하 가시성 보존.
+  const canonicalDisplayPass = canonical.promotionCoveragePass === true;
+  if (canonicalDisplayPass) {
+    lines.push('');
+    lines.push(
+      'ℹ️ <i>[secondary diagnostic-only — ADR-0572] canonical official sector index is VERIFIED/PASS. '
+        + 'The legacy basket-derived lines below are diagnostic-only and do NOT mean the official sector index is unavailable.</i>',
+    );
+  }
+
   // ADR-0399 (= 사용자 명시 ADR-0374): KRX 원천 복구 진단 메타.
   // sourceTierAttempts / candidateDates / fallbackReason — 운영자 *어느 layer 가 작동했는지* 추적.
   // 사용자 명시 9 핵심 원칙 #9 — fallback 작동 시 UI 와 diagnostics 에 반드시 표시.
   if (diag) {
-    lines.push(...buildSectorEnergyKrxRecoveryLines(diag, sourceTier));
+    lines.push(
+      ...collapseLegacyBasketDiagnosticForDisplay(
+        canonicalDisplayPass,
+        buildSectorEnergyKrxRecoveryLines(diag, sourceTier),
+      ),
+    );
   }
 
   // ADR-0423 — SectorEnergy 데이터 진실성 진단 (indexCode coverage / symmetry / fallback 분해).
@@ -351,7 +420,12 @@ export function formatSectorEnergyDiagMessage(): string {
     | Parameters<typeof formatSectorEnergyQualityDiagnosticSection>[0]
     | undefined;
   if (qualityDiag) {
-    lines.push(...buildSectorEnergyQualityDiagLines(qualityDiag));
+    lines.push(
+      ...collapseLegacyBasketDiagnosticForDisplay(
+        canonicalDisplayPass,
+        buildSectorEnergyQualityDiagLines(qualityDiag),
+      ),
+    );
   }
 
   // ADR-0398 high-conviction label diagnostics
@@ -365,7 +439,14 @@ export function formatSectorEnergyDiagMessage(): string {
   );
   if (adr0474) {
     lines.push('');
-    lines.push(adr0474);
+    // ADR-0572 Stage 2 (DISPLAY_ONLY): canonical PASS 시 ADR-0474 recovery 섹션 내
+    // "공식 미가용"으로 읽히는 라인도 동일 collapse(섹션은 멀티라인 문자열 → split/join).
+    lines.push(
+      collapseLegacyBasketDiagnosticForDisplay(
+        canonicalDisplayPass,
+        adr0474.split('\n'),
+      ).join('\n'),
+    );
     console.log(
       qualityDiag
         ? '[ADR-0474] SectorEnergy coverage recovery diagnostic appended to /sector_energy_diag'
