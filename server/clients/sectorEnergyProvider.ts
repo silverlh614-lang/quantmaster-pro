@@ -56,6 +56,7 @@ import {
   type SectorEnergySanityViolationState,
 } from './sectorEnergySanityViolationDiagnostic.js';
 import { buildGroupedSectorEnergyFromSnapshotQuotes, type SymbolGroupedEnergyQuote } from './groupedSectorEnergyProvider.js';
+import { getSectorCycleReturnsForBuild, sectorCycleInputFields, type SectorCycleReturn } from './sectorIndexCycleProvider.js'; // ADR-0570(ADR-0423 후속): sectorReturn20d 배선
 
 export type StrategicSector =
   | '반도체'
@@ -923,6 +924,7 @@ function buildInputsFromDeltas(
       return4w: Number(avg(returns).toFixed(2)),
       volumeChangePct: Number(avg(volumes).toFixed(2)),
       foreignConcentration: Number((foreignMap.get(sector) ?? 0).toFixed(1)),
+      ...sectorCycleInputFields(_currentBuildSectorCycleReturns, sector), // ADR-0570 (flag OFF=빈,byte-equal)
     });
   }
   return { inputs, validSectorCount };
@@ -980,8 +982,8 @@ export function __setLastAttemptedTodayDatesForTests(v: string[]): void {
 let _currentBuildSanityState: SectorEnergySanityViolationState | null = null;
 /** ADR-0446: backfill 이전 row 누적 (rowsBeforeBackfill). */
 let _currentBuildRecoveryBefore: RecoveryRowInput[] = [];
-/** ADR-0446: backfill 이후 row 누적 (rowsAfterBackfill, indexCodeSource 포함). */
-let _currentBuildRecoveryAfter: RecoveryRowInput[] = [];
+/** ADR-0446: backfill 이후 row 누적 (rowsAfterBackfill, indexCodeSource 포함). ADR-0570: cycle return per-build. */
+let _currentBuildRecoveryAfter: RecoveryRowInput[] = [], _currentBuildSectorCycleReturns: Map<string, SectorCycleReturn> = new Map();
 
 /**
  * KRX-SECTOR-INDEXCODE-RAW-DIAGNOSTIC-001: per-build KRX raw 스냅샷 (module-local).
@@ -1019,6 +1021,7 @@ export function __getCurrentBuildRecoveryInputsForTests(): {
 async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildResult> {
   // ADR-0446: per-build sanity state + recovery row inputs reset (이전 build 누수 차단).
   resetCurrentBuildPhase2State();
+  _currentBuildSectorCycleReturns = await getSectorCycleReturnsForBuild('LOW'); // ADR-0570(flag OFF=빈Map,KIS콜0)
   const todayCandidates: Array<string | undefined> = [undefined, ...recentBusinessDaysKst(5)];
   const past = businessDaysAgo(20);
   let selectedToday: string | undefined;
