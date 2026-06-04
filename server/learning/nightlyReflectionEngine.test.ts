@@ -273,22 +273,29 @@ describe('Phase 2 — runNightlyReflection FULL flow (mocked Gemini)', () => {
     expect(priming.adjustments).toHaveLength(1);
   });
 
-  it('Gemini 응답 null → GEMINI_FALLBACK + parseFailed 플래그', async () => {
+  it('Gemini 응답 null → GEMINI_FALLBACK + parseFailed 플래그 (유저 리포트엔 실패 라인 미노출)', async () => {
     vi.doMock('../clients/geminiClient.js', () => ({
       callGemini: vi.fn().mockResolvedValue(null),
       getBudgetState: () => ({ pctUsed: 10, spentUsd: 0, budgetUsd: 5 }),
-      getGeminiRuntimeState: () => ({ status: 'FAILED', label: 'reflection', caller: 'test', reason: 'null response', updatedAt: new Date().toISOString() }),
+      getGeminiRuntimeState: () => ({ status: 'FAILED', label: 'reflection', caller: 'test', reason: 'RESOURCE_EXHAUSTED: quota', updatedAt: new Date().toISOString() }),
     }));
     vi.doMock('../rag/localRag.js', () => ({ queryRag: vi.fn().mockResolvedValue([]) }));
-    vi.doMock('../alerts/telegramClient.js', () => ({
-      sendTelegramAlert: vi.fn().mockResolvedValue(undefined),
-    }));
+    const sendTelegramAlert = vi.fn().mockResolvedValue(undefined);
+    vi.doMock('../alerts/telegramClient.js', () => ({ sendTelegramAlert }));
     const { runNightlyReflection } = await import('./nightlyReflectionEngine.js');
     const now = new Date(Date.UTC(2026, 3, 21, 10, 0, 0));
     const res = await runNightlyReflection({ now });
     expect(res.executed).toBe(true);
     expect(res.report?.integrity?.parseFailed).toBe(true);
-    expect(res.report?.keyLessons[0]?.text).toMatch(/Gemini 응답 실패/);
+    // 노이즈 제거: 유저 keyLessons 에 Gemini 실패/RESOURCE_EXHAUSTED 원문이 새지 않는다.
+    const lessons = res.report?.keyLessons ?? [];
+    expect(lessons.some(l => /Gemini 응답 실패|RESOURCE_EXHAUSTED/.test(l.text))).toBe(false);
+    // 대신 조용한 CH4 journal(LOW) 1줄로 강등 — dedupeKey 로 하루 1회.
+    const journalCall = sendTelegramAlert.mock.calls.find(
+      ([, opts]) => opts?.dedupeKey === 'nightly_reflection:gemini_fallback:2026-04-21',
+    );
+    expect(journalCall).toBeDefined();
+    expect(journalCall?.[1]?.priority).toBe('LOW');
   });
 
   it('disableGemini=true → 템플릿 모드 강제', async () => {

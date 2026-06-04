@@ -342,6 +342,29 @@ const SYSTEM_SOURCE = {
   fallback:      'system:gemini_fallback',
 } as const;
 
+/**
+ * Gemini fallback 사실을 유저 리포트가 아닌 조용한 operator trail 로만 남긴다.
+ * raw geminiRuntime.reason(RESOURCE_EXHAUSTED 원문)은 console 진단에만 노출하고,
+ * 텔레그램은 CH4 journal 성격의 LOW(=T3 digest) 1줄로 dedupe 강등(하루 1회).
+ * geminiClient 가 이미 emitProviderWarn(fallbackUsed:true)로 별도 trail 을 남기므로
+ * 본 라인은 reflection 엔진 내부 가시성 보강용 — fire-and-forget, 실패는 무시.
+ */
+function emitGeminiFallbackJournal(date: string, reason: string | null): void {
+  console.warn(
+    `[NightlyReflection] ${date} Gemini 응답 실패 — 템플릿 fallback 으로 리포트 보존` +
+    `${reason ? ` (reason=${reason})` : ''}`,
+  );
+  void sendTelegramAlert(
+    `📒 자기반성 ${date} — Gemini 미응답으로 템플릿 fallback (리포트 정상 발송).`,
+    {
+      priority: 'LOW',
+      category: 'nightly_reflection_journal',
+      dedupeKey: `nightly_reflection:gemini_fallback:${date}`,
+      cooldownMs: 24 * 3600_000,
+    },
+  ).catch(() => { /* SDS-ignore: 조용한 journal 1줄 — 발송 실패가 반성 본체를 막으면 안 됨 */ });
+}
+
 function buildTemplateReport(
   date: string,
   mode: ReflectionMode,
@@ -366,13 +389,17 @@ function buildTemplateReport(
     });
     inputs.knownSourceIds.add(SYSTEM_SOURCE.templateOnly);
   } else {
-    keyLessons.push({
-      text: 'Gemini 응답 실패 — 템플릿 fallback 으로 하루 리포트 보존.',
-      sourceIds: [SYSTEM_SOURCE.fallback],
-    });
+    // GEMINI_FALLBACK — Gemini API 실패. 학습 로직은 정상(geminiClient 가 graceful null
+    // 반환 + emitProviderWarn fallbackUsed:true 로 별도 관측 trail 존재, /aistatus 추적).
+    // 따라서 이 system-apology 라인은 유저-비노출(비-actionable 노이즈).
+    // - 유저 T2 리포트(keyLessons)에 raw geminiRuntime.reason(RESOURCE_EXHAUSTED 원문)
+    //   을 노출하지 않는다 — keyLesson 자체를 push 하지 않아 dispatchReflectionTelegram
+    //   의 💡 라인에 새어나가지 않음.
+    // - SYSTEM_SOURCE.fallback 은 knownSourceIds 에 유지(아래 + line 661 에서 항상 등록)
+    //   하여 sourceId 추적/integrity 정합 보존. 미참조 known source 는 integrity 위반
+    //   아님(filterClaims 는 claim→unknown source 만 차단). 템플릿 리포트 본체는 그대로 발송.
     inputs.knownSourceIds.add(SYSTEM_SOURCE.fallback);
-    keyLessons[keyLessons.length - 1].text =
-      `Gemini 응답 실패${geminiRuntime.reason ? ` (${geminiRuntime.reason})` : ''} — 템플릿 fallback 으로 하루 리포트 보존.`;
+    emitGeminiFallbackJournal(date, geminiRuntime.reason);
   }
 
   return {

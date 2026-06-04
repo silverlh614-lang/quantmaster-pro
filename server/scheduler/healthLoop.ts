@@ -225,6 +225,33 @@ export async function runTier1(now = new Date()): Promise<HealthLoopState> {
       now,
     );
   }
+
+  // KIS 토큰 self-heal — 토큰이 유효(재발급 포함)하면 만료 경보의 미확인 T1 ack 를
+  // 자동 해소한다. auto-refresh cron 으로 재발급돼 kisHours>0 가 됐는데도 ack 가
+  // 안 닫혀 sweep 재발송·에스컬레이션이 무한 반복되던 false-positive 차단.
+  // dedupeKey 형태(alertOnce): `health_loop:kis_token_expired:<YMD>` 및
+  // `health_loop:kis_token_expired_maintenance:<YMD>` — 둘 다 'kis_token_expired'
+  // 부분문자열로 커버. idempotent(해소 대상 없으면 no-op).
+  if (kisHours > 0) {
+    try {
+      const { autoResolvePendingAcks } = await import('../alerts/ackTracker.js');
+      await autoResolvePendingAcks(
+        (e) => {
+          const key = e.dedupeKey ?? '';
+          if (key.includes('kis_token_expired')) return true;
+          // dedupeKey 부재 fallback — category+summary 로 매칭.
+          return e.category === 'health_loop' && /KIS\s*토큰\s*만료/.test(e.summary ?? '');
+        },
+        'KIS 토큰 재발급 — 조건 회복',
+      );
+    } catch (e) {
+      console.warn(
+        '[HealthLoop] KIS 토큰 ack 자동 해소 실패:',
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+
   state.kisTokenLastBucket = kisBucket;
 
   // (b) Master count 50% 감소 즉시 🚨

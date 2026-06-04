@@ -99,6 +99,40 @@ export async function resolveAck(
 }
 
 /**
+ * 조건 self-heal 자동 해소 — 사용자 액션 없이 pending ack 를 닫는다.
+ *
+ * 경보를 유발한 조건이 스스로 회복(예: KIS 토큰 재발급)했을 때, 운영자가
+ * [확인] 버튼을 누르지 않아도 sweep 재발송·에스컬레이션이 계속되지 않도록
+ * 해당 pending 엔트리를 제거하고 원본 메시지를 "자동 해소"로 편집한다.
+ *
+ * resolveAck(사용자 액션) 경로와 독립 — match 가 true 인 엔트리만 닫는다.
+ * 해소 대상이 없으면 no-op (idempotent — 매 tick 안전 호출).
+ *
+ * @returns 해소된 엔트리 수.
+ */
+export async function autoResolvePendingAcks(
+  match: (entry: T1AckEntry) => boolean,
+  reason: string,
+): Promise<number> {
+  const targets = Object.values(pending).filter(match);
+  if (targets.length === 0) return 0;
+
+  for (const entry of targets) {
+    delete pending[entry.ackId];
+  }
+  savePending();
+
+  const stamp = new Date().toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' });
+  for (const entry of targets) {
+    await editMessageText(
+      entry.messageId,
+      `✅ 자동 해소 — ${reason} <i>(${stamp})</i>\n<b>${entry.summary}</b>`,
+    ).catch(() => { /* 편집 실패는 로깅만 — 폐루프는 이미 제거됨 */ });
+  }
+  return targets.length;
+}
+
+/**
  * 콜백 데이터 라우팅 엔드포인트 — webhookHandler에서 호출.
  *
  * callback_data 형식: `t1_ack:<ackId>:<CONFIRMED|RESPONDING>`
