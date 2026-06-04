@@ -175,6 +175,122 @@ describe('scanEvaluationState', () => {
   });
 });
 
+// ADR-0567(patch): holiday-aware wall-clock stale 교정 — default OFF byte-equal.
+// 평일 장중(11:00) 인데 상류 macro 가 stale CLOSED/POST_CLOSE 를 주는 케이스에서,
+// flag OFF=현행유지(CLOSED 고착), flag ON=REGULAR_OPEN 교정. 공휴일/주말/장외는 교정 안 함.
+describe('scanEvaluationState — ADR-0567 holiday-aware wall-clock stale correction', () => {
+  const FLAG = 'SCAN_SESSION_WALLCLOCK_CORRECTION_ENABLED';
+  const withFlag = <T>(value: string | undefined, fn: () => T): T => {
+    const prev = process.env[FLAG];
+    if (value === undefined) delete process.env[FLAG];
+    else process.env[FLAG] = value;
+    try {
+      return fn();
+    } finally {
+      if (prev === undefined) delete process.env[FLAG];
+      else process.env[FLAG] = prev;
+    }
+  };
+
+  // 2026-06-04 (Thu) 11:00 KST — 평일 장중, KRX 거래일. macro 가 stale CLOSED.
+  const weekdayIntradayStaleClosed = {
+    explicitMarketSessionState: 'BUY_ALLOWED',
+    macroGateState: { displaySession: 'CLOSED', canonicalSession: 'CLOSED' } as never,
+    asOf: '2026-06-04T11:00:00.000Z',
+  };
+
+  it('flag OFF: weekday intraday stale CLOSED stays CLOSED (byte-equal to legacy)', () => {
+    const session = withFlag(undefined, () => resolveScanMarketSessionView(weekdayIntradayStaleClosed));
+    expect(session.canonicalSession).toBe('CLOSED');
+    expect(session.marketSessionState).toBe('CLOSED');
+    expect(session.displaySession).toBe('CLOSED_SHADOW_OBSERVE');
+  });
+
+  it('flag OFF (=false): explicit false also keeps legacy CLOSED', () => {
+    const session = withFlag('false', () => resolveScanMarketSessionView(weekdayIntradayStaleClosed));
+    expect(session.canonicalSession).toBe('CLOSED');
+  });
+
+  it('flag ON: weekday intraday stale CLOSED corrected to REGULAR_OPEN', () => {
+    const session = withFlag('true', () => resolveScanMarketSessionView(weekdayIntradayStaleClosed));
+    expect(session.canonicalSession).toBe('REGULAR_OPEN');
+    expect(session.marketSessionState).toBe('BUY_ALLOWED');
+    expect(session.displaySession).toBe('REGULAR_OPEN');
+  });
+
+  it('flag ON: weekday intraday stale POST_CLOSE corrected to REGULAR_OPEN', () => {
+    const session = withFlag('true', () =>
+      resolveScanMarketSessionView({
+        explicitMarketSessionState: 'BUY_ALLOWED',
+        macroGateState: { displaySession: 'POST_CLOSE', canonicalSession: 'POST_CLOSE' } as never,
+        asOf: '2026-06-04T11:00:00.000Z',
+      }),
+    );
+    expect(session.canonicalSession).toBe('REGULAR_OPEN');
+  });
+
+  it('flag ON: KRX holiday (2026-06-03 election) intraday stale CLOSED stays CLOSED (trading-day SSOT blocks)', () => {
+    const session = withFlag('true', () =>
+      resolveScanMarketSessionView({
+        explicitMarketSessionState: 'BUY_ALLOWED',
+        macroGateState: { displaySession: 'CLOSED', canonicalSession: 'CLOSED' } as never,
+        asOf: '2026-06-03T11:00:00.000Z',
+      }),
+    );
+    expect(session.canonicalSession).toBe('CLOSED');
+    expect(session.displaySession).toBe('CLOSED_SHADOW_OBSERVE');
+  });
+
+  it('flag ON: weekend (2026-06-06 Sat) resolves HOLIDAY regardless', () => {
+    const session = withFlag('true', () =>
+      resolveScanMarketSessionView({
+        explicitMarketSessionState: 'BUY_ALLOWED',
+        macroGateState: { displaySession: 'CLOSED', canonicalSession: 'CLOSED' } as never,
+        asOf: '2026-06-06T11:00:00.000Z',
+      }),
+    );
+    expect(session.canonicalSession).toBe('HOLIDAY');
+    expect(session.displaySession).toBe('HOLIDAY_SHADOW_OBSERVE');
+  });
+
+  it('flag ON: real after-market (wallClock POST_CLOSE) keeps stale CLOSED, no correction', () => {
+    // 2026-06-04 16:30 KST → wallClock POST_CLOSE. macro stale CLOSED must NOT be corrected.
+    const session = withFlag('true', () =>
+      resolveScanMarketSessionView({
+        explicitMarketSessionState: 'BUY_ALLOWED',
+        macroGateState: { displaySession: 'CLOSED', canonicalSession: 'CLOSED' } as never,
+        asOf: '2026-06-04T16:30:00.000Z',
+      }),
+    );
+    expect(session.canonicalSession).toBe('CLOSED');
+  });
+
+  it('flag ON: real pre-market (wallClock CLOSED) keeps stale POST_CLOSE, no correction', () => {
+    // 2026-06-04 08:30 KST → wallClock CLOSED. macro stale POST_CLOSE must NOT be corrected.
+    const session = withFlag('true', () =>
+      resolveScanMarketSessionView({
+        explicitMarketSessionState: 'BUY_ALLOWED',
+        macroGateState: { displaySession: 'POST_CLOSE', canonicalSession: 'POST_CLOSE' } as never,
+        asOf: '2026-06-04T08:30:00.000Z',
+      }),
+    );
+    expect(session.canonicalSession).toBe('POST_CLOSE');
+  });
+
+  it('flag ON: genuine REGULAR_OPEN macro session unchanged (no spurious correction path)', () => {
+    const session = withFlag('true', () =>
+      resolveScanMarketSessionView({
+        explicitMarketSessionState: 'BUY_ALLOWED',
+        macroGateState: { displaySession: 'REGULAR_OPEN', canonicalSession: 'REGULAR_OPEN' } as never,
+        timeLabel: '11:00',
+        asOf: '2026-06-04T11:00:00.000Z',
+      }),
+    );
+    expect(session.canonicalSession).toBe('REGULAR_OPEN');
+    expect(session.marketSessionState).toBe('BUY_ALLOWED');
+  });
+});
+
 // ADR-0528 a1/a2 완결: scan-cycle 단일 canonical id 통일 가드.
 // a1/a2 POSITION_POLICY 로그에 주입되는 context.sourceSnapshotId(= buildScanEvaluationId(scanAsOf))
 // 와 소비자 fallback(scanEvaluation.scanId = buildScanEvaluationResult({asOf:scanAsOf}).scanId)
