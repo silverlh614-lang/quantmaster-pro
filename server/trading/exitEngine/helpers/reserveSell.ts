@@ -39,6 +39,7 @@ import {
 } from '../../shadowPositionLifecycle.js';
 import { sellReservationManager } from '../../exit/sellReservation/sellReservationManager.js';
 import type { SellReservationResult } from '../../exit/sellReservation/sellReservationTypes.js';
+import { maybeStampTakeProfitReentryBarrier } from '../../takeProfitReentryGuard.js';
 
 export type ReserveSellResult =
   | { kind: 'SHADOW';  recorded: true;  remainingQty: number; statusPrefix: string; statusSuffix: string }
@@ -130,7 +131,20 @@ export async function placeReservedSellOrder(
     !orderRes.outcome && shadow.mode !== 'LIVE'
       ? { ...orderRes, placed: false, outcome: 'SHADOW_ONLY' }
       : orderRes;
-  return reserveSell(shadow, normalizedOrderRes, fill, evtSubType, flagToClearOnRevert, intent.reservationId);
+  const result = reserveSell(shadow, normalizedOrderRes, fill, evtSubType, flagToClearOnRevert, intent.reservationId);
+  // ADR-0569: 익절(TAKE_PROFIT/EUPHORIA) 전량청산 시 조건부 재진입 barrier stamp.
+  // flag OFF / 익절 아님 / 미체결 / 잔량>0 이면 헬퍼 내부에서 no-op → byte-identical.
+  maybeStampTakeProfitReentryBarrier({
+    stockCode: shadow.stockCode,
+    stockName: shadow.stockName,
+    orderReason: String(orderReason),
+    recorded: result.recorded,
+    remainingQty: result.remainingQty,
+    exitPrice: fill.price,
+    exitGateScore: shadow.entryGateScore ?? null,
+    exitReturnPct: fill.pnlPct ?? null,
+  });
+  return result;
 }
 
 /**

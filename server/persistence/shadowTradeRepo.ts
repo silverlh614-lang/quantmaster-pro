@@ -469,6 +469,13 @@ export interface ServerShadowTrade {
    * 레거시 trade 는 loadShadowTrades 진입 시 lazy 백필로 채워진다.
    */
   sector?: string;
+  /**
+   * ADR-0569: 매수 시점 게이트 점수 (p.gateScore). 진입 후 변경되지 않음.
+   * 익절 전량청산 시 takeProfitExitsRepo 의 exitGateScore 로 stamp 되어
+   * 조건부 재진입 가드(게이트 +1 상향 조건)의 기준이 된다. TAKE_PROFIT_REENTRY_GUARD
+   * 활성 시에만 채워지며, 레거시/비활성 trade 는 undefined.
+   */
+  entryGateScore?: number;
   status:
     | 'PENDING'
     | 'ORDER_SUBMITTED'

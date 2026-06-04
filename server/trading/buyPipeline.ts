@@ -37,6 +37,11 @@ import { isEmergencyBuyPipelineCodeGuardEnabled } from '../dataQuality/emergency
 import { normalizeKrxCode } from '../utils/symbolNormalizer.js';
 import { lastManualExitAtForCode } from '../persistence/manualExitsRepo.js';
 import {
+  checkTakeProfitReentryGuard,
+  isTakeProfitReentryGuardEnabled,
+  type TakeProfitReentryDecision,
+} from './takeProfitReentryGuard.js';
+import {
   decideOrderType,
   isOrderTypeOptimizerEnabled,
 } from './orderTypeOptimizer.js';
@@ -343,6 +348,48 @@ function rejectForManualExitCooldown(
     `최근 수동 청산 후 ${cooldown.remainingHours}h 동안 재매수 차단 — 반복 편향 방지 룰.`,
     severity: 'NORMAL',
     dedupeKey: `cooldown:${p.stockCode}:${cooldown.lastExitAt}`,
+    metadata: { symbol: p.stockCode },
+  }).catch(() => { /* noop */ });
+  return {
+    approvalPromise: Promise.resolve<ApprovalAction>('SKIP'),
+    execute: async () => {
+      p.onRejected?.(p.trade, 'SKIP');
+    },
+  };
+}
+
+function rejectForTakeProfitReentry(
+  p: CreateBuyTaskParams,
+  decision: TakeProfitReentryDecision,
+): LiveBuyTask {
+  const exitPrice = decision.exit?.exitPrice;
+  const exitGate = decision.exit?.exitGateScore;
+  const exitPriceText = exitPrice != null ? exitPrice.toLocaleString() : 'n/a';
+  console.warn(
+    `[BuyPipeline] ${p.stockName}(${p.stockCode}) 익절 재진입 가드 차단 — ` +
+    `청산가 ${exitPriceText}(+5% 미돌파) / 게이트 ${p.gateScore}≤청산 ${exitGate ?? 'n/a'}`,
+  );
+  appendShadowLogSafe({
+    event: 'BUY_BLOCKED_TAKE_PROFIT_REENTRY',
+    code: p.stockCode,
+    price: p.currentPrice,
+    exitPrice,
+    exitGateScore: exitGate,
+    currentGateScore: p.gateScore,
+  }, {
+    tradeId: p.trade.id,
+    stockCode: p.stockCode,
+    event: 'BUY_BLOCKED_TAKE_PROFIT_REENTRY',
+  });
+  p.trade.status = 'REJECTED';
+  emitTelegramEvent({
+    type: 'ORDER_REJECTED',
+    message:
+    `🔒 <b>[익절 재진입 차단]</b> ${p.stockName}(${p.stockCode})\n` +
+    `최근 익절 전량청산(청산가 ${exitPriceText}) 후 재돌파(+5%)·게이트 상향 미충족 — ` +
+    `매도 직후 재매수 방지 룰.`,
+    severity: 'NORMAL',
+    dedupeKey: `tp_reentry:${p.stockCode}:${decision.exit?.exitAt ?? ''}`,
     metadata: { symbol: p.stockCode },
   }).catch(() => { /* noop */ });
   return {
@@ -689,6 +736,17 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
   const cooldown = checkManualExitCooldown(p.stockCode);
   if (cooldown.blocked) {
     return rejectForManualExitCooldown(p, cooldown);
+  }
+
+  // ADR-0569: 익절 전량청산 후 조건부 재진입 가드 (flag ON 시에만 — OFF 면 byte-identical).
+  // 매수 시점 게이트점수를 포지션에 stamp(청산 시 barrier 의 exitGateScore 기준) +
+  // 청산가 +5% 재돌파 OR 게이트 +1 상향 중 하나 충족해야 재매수 허용.
+  if (isTakeProfitReentryGuardEnabled()) {
+    p.trade.entryGateScore = p.gateScore;
+    const reentry = checkTakeProfitReentryGuard(p.stockCode, p.currentPrice, p.gateScore);
+    if (reentry.blocked) {
+      return rejectForTakeProfitReentry(p, reentry);
+    }
   }
 
   const { enemyCheck, preMortem } = await buildPreApprovalContext(p, regime, sector);
