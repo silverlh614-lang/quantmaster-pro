@@ -458,6 +458,9 @@ export async function stage2SectorGateFilter(
       null,
       null,
       regime,
+      undefined,
+      // ADR-0568: sectorEnergyResult thread. 소비는 SECTOR_ENERGY_GATE2_WIRING_ENABLED gate — OFF 면 byte-identical.
+      { sectorEnergyResult: macroState?.sectorEnergyResult },
     );
 
     // 아이디어 #5 rate limit 방지: 종목당 월봉+주봉 2회 호출 후 인터벌 확보
@@ -542,6 +545,9 @@ export async function stage2SectorGateFilter(
           null,
           flow,
           regime,
+          undefined,
+          // ADR-0568: sectorEnergyResult thread. 소비는 SECTOR_ENERGY_GATE2_WIRING_ENABLED gate — OFF 면 byte-identical.
+          { sectorEnergyResult: macroState?.sectorEnergyResult },
         );
         applyGateSnapshotToCandidate(c, refreshedGate);
 

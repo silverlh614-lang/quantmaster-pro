@@ -943,6 +943,42 @@ describe('Gate2 wiring diagnostics', () => {
     });
   });
 
+  it('ADR-0568: SECTOR_ENERGY_GATE2_WIRING_ENABLED gates sectorEnergyResult into the sector axis', () => {
+    const quote = gate2Quote({ symbol: '000660', return20d: 0.18, sector: 'Semiconductor' } as QuotePatch);
+    const sectorEnergyResult = {
+      scores: [
+        { name: 'Semiconductor', sectorReturn20d: 0.12 },
+        { name: 'Bio', sectorReturn20d: -0.03 },
+      ],
+      leadingSectors: [{ name: 'Semiconductor' }],
+    };
+    const prev = process.env.SECTOR_ENERGY_GATE2_WIRING_ENABLED;
+    try {
+      // OFF(default): sectorEnergyResult 무시 → 섹터 수익률/리더십 부재.
+      process.env.SECTOR_ENERGY_GATE2_WIRING_ENABLED = 'false';
+      const off = evaluateGate2({ quote, kospi20dReturn: 0.03, market: 'KOSPI', sectorEnergyResult });
+      const offSector = off.gateLayerSummary?.gate2.externalDataCoverage?.sectorCycle;
+      expect(offSector?.values.sectorReturn20d).toBeNull();
+      expect(offSector?.values.sectorRank20d).toBeNull();
+      expect(off.gateLayerSummary?.gate2.externalDataCoverage?.leaderCycle.isCurrentLeadingSector ?? null).toBeNull();
+
+      // OFF 는 sectorEnergyResult 미전달과 byte-identical 이어야 한다(소비 지점 gate 증명).
+      const offNoSer = evaluateGate2({ quote, kospi20dReturn: 0.03, market: 'KOSPI' });
+      expect(offSector).toEqual(offNoSer.gateLayerSummary?.gate2.externalDataCoverage?.sectorCycle);
+
+      // ON: sectorEnergyResult 가 SECTOR_LEADERSHIP 축으로 흐른다.
+      process.env.SECTOR_ENERGY_GATE2_WIRING_ENABLED = 'true';
+      const on = evaluateGate2({ quote, kospi20dReturn: 0.03, market: 'KOSPI', sectorEnergyResult });
+      const onSector = on.gateLayerSummary?.gate2.externalDataCoverage?.sectorCycle;
+      expect(onSector?.values.sectorReturn20d).toBeCloseTo(0.12, 6);
+      expect(onSector?.values.sectorRank20d).toBe(1);
+      expect(on.gateLayerSummary?.gate2.externalDataCoverage?.leaderCycle.isCurrentLeadingSector).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.SECTOR_ENERGY_GATE2_WIRING_ENABLED;
+      else process.env.SECTOR_ENERGY_GATE2_WIRING_ENABLED = prev;
+    }
+  });
+
   it('classifies crowded leader-cycle diagnostics without using news frequency as a score signal', () => {
     const normalized = normalizeSectorThemeCycleForGate2({
       symbol: '005930',

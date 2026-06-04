@@ -59,6 +59,7 @@ import type {
 } from './types.js';
 import { isBenchmarkInput, isDartInput, isKisInput, unique } from './wiringDiagnostics.js';
 import { buildGate2ExternalProjection } from '../../trading/gate2/gate2ExternalDataProvider.js';
+import { isSectorEnergyGate2WiringEnabled } from '../../trading/gate2/sectorEnergyGate2WiringFlag.js';
 import type { Gate2ExternalRefreshTrace } from '../../trading/gate2/gate2ExternalDataProvider/types.js';
 
 /**
@@ -655,7 +656,10 @@ export function buildGate2ExternalDataCoverage(
     quote: input.quote,
     stockMaster: input.stockMaster,
     sectorThemeCycle: input.sectorThemeCycle,
-    sectorEnergyResult: input.sectorEnergyResult,
+    // ADR-0568 배선 갭 픽스: SECTOR_ENERGY_GATE2_WIRING_ENABLED OFF(default) 면 undefined 로
+    // 무시 → sectorCycle 빌드가 현행과 byte-identical. ON 일 때만 caller(stockScreener/
+    // universeScanner)가 thread 한 macroState.sectorEnergyResult 를 SECTOR_LEADERSHIP 축으로 소비.
+    sectorEnergyResult: isSectorEnergyGate2WiringEnabled() ? input.sectorEnergyResult : undefined,
     benchmarkReturn20d: benchmarkDiagnostic.benchmarkReturn,
     market: input.market,
   });

@@ -694,7 +694,9 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
       vcp:      Math.min(2.0, (baseWeights.vcp      ?? 1.0) * preset.vcpWeightMultiplier),
       pullback: Math.min(2.0, (baseWeights.pullback ?? 1.0) * preset.pullbackWeightMultiplier),
     };
-    const gate = evaluateServerGate(enrichedQuote, presetWeights, macroState?.kospi20dReturn, null, null, regime);
+    // ADR-0568: macroState.sectorEnergyResult 를 Gate2 SECTOR_LEADERSHIP 축으로 thread(8번째 인자).
+    // 소비는 SECTOR_ENERGY_GATE2_WIRING_ENABLED gate(externalCoverage) — OFF 면 무시되어 byte-identical.
+    const gate = evaluateServerGate(enrichedQuote, presetWeights, macroState?.kospi20dReturn, null, null, regime, undefined, { sectorEnergyResult: macroState?.sectorEnergyResult });
 
     // ④ shadow A/B 계측 — gate(Yahoo 경로) 결과를 *읽기만* 하여 버퍼에 등재(결정 미반영).
     // flag OFF면 add() 즉시 no-op(dormant) → byte-equivalent. top-N 선별·KIS dual-eval 은 루프 후 flush.
