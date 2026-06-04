@@ -21,6 +21,10 @@ import {
   type QmpSectorThemeCycle,
 } from '../clients/sectorThemeLeaderCycleNormalizer.js';
 import {
+  publishCanonicalSectorReturns,
+  __resetCanonicalSectorReturnLookupForTests,
+} from '../clients/sectorCanonicalReturnLookup.js';
+import {
   KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS,
   KIS_OFFICIAL_PROGRAM_TRADE_ENDPOINTS,
 } from '../clients/kisClient/kisOfficialEndpointRegistry.js';
@@ -979,6 +983,101 @@ describe('Gate2 wiring diagnostics', () => {
       if (prev === undefined) delete process.env.SECTOR_ENERGY_GATE2_WIRING_ENABLED;
       else process.env.SECTOR_ENERGY_GATE2_WIRING_ENABLED = prev;
     }
+  });
+
+  describe('ADR-0572: per-candidate SECTOR_LEADERSHIP canonical(L1) 우선 데이터원', () => {
+    const FLAG = 'SECTOR_LEADERSHIP_CANONICAL_SOURCE_ENABLED';
+    // sectorEnergyResult.scores[].name 은 canonical KRX 섹터명(한글)과 일치해야 매칭(ADR-0571).
+    const basket = {
+      scores: [
+        { name: '반도체', sectorReturn20d: 0.12 },
+        { name: '바이오/헬스케어', sectorReturn20d: -0.03 },
+        { name: '자동차', sectorReturn20d: 0.01 },
+      ],
+      leadingSectors: [{ name: '바이오/헬스케어' }],
+    };
+    const canonical = [
+      { sectorName: '반도체', sectorReturn20d: 0.30, sectorReturn5d: 0.05 },
+      { sectorName: '바이오/헬스케어', sectorReturn20d: -0.10, sectorReturn5d: -0.02 },
+      { sectorName: '자동차', sectorReturn20d: 0.02, sectorReturn5d: 0.01 },
+    ];
+
+    function withFlag(value: '0572-on' | '0572-off', fn: () => void): void {
+      const prev = process.env[FLAG];
+      try {
+        process.env[FLAG] = value === '0572-on' ? 'true' : 'false';
+        fn();
+      } finally {
+        __resetCanonicalSectorReturnLookupForTests();
+        if (prev === undefined) delete process.env[FLAG];
+        else process.env[FLAG] = prev;
+      }
+    }
+
+    function normalize() {
+      return normalizeSectorThemeCycleForGate2({
+        symbol: '000660',
+        market: 'KOSPI',
+        sectorThemeCycle: { sector: '반도체' },
+        sectorEnergyResult: basket,
+      });
+    }
+
+    it('flag OFF: canonical 미조회 → basket 데이터원 그대로 (byte-identical)', () => {
+      withFlag('0572-off', () => {
+        publishCanonicalSectorReturns(canonical); // OFF 면 publish 됐어도 룩업 null.
+        const out = normalize();
+        // basket(반도체) sectorReturn20d=0.12, leadingSectors=[바이오] → 반도체는 leading 아님.
+        expect(out.sectorReturn20d).toBeCloseTo(0.12, 6);
+        expect(out.sectorRank20d).toBe(1); // basket scores[] 내 반도체 index+1.
+        expect(out.isCurrentLeadingSector).toBe(false);
+      });
+    });
+
+    it('flag ON + canonical present: canonical(L1) 우선 채택 (basket 무시)', () => {
+      withFlag('0572-on', () => {
+        publishCanonicalSectorReturns(canonical);
+        const out = normalize();
+        expect(out.sectorReturn20d).toBeCloseTo(0.30, 6); // canonical 반도체.
+        expect(out.sectorRank20d).toBe(1); // canonical 내림차순(반도체 0.30 최상위).
+        expect(out.isCurrentLeadingSector).toBe(true); // 상위 1/3 안.
+        expect(out.marketSignal).toBe(false);
+      });
+    });
+
+    it('flag ON + canonical null(미발행): basket 으로 graceful fallback', () => {
+      withFlag('0572-on', () => {
+        __resetCanonicalSectorReturnLookupForTests(); // 스냅샷 비움 → 룩업 null.
+        const out = normalize();
+        expect(out.sectorReturn20d).toBeCloseTo(0.12, 6); // basket fallback.
+        expect(out.sectorRank20d).toBe(1);
+        expect(out.isCurrentLeadingSector).toBe(false);
+      });
+    });
+
+    it('flag ON + raw 명시값 존재: raw ?? canonical ?? basket — raw 최우선', () => {
+      withFlag('0572-on', () => {
+        publishCanonicalSectorReturns(canonical);
+        const out = normalizeSectorThemeCycleForGate2({
+          symbol: '000660',
+          market: 'KOSPI',
+          sectorThemeCycle: { sector: '반도체', sectorReturn20d: 0.99 },
+          sectorEnergyResult: basket,
+        });
+        expect(out.sectorReturn20d).toBeCloseTo(0.99, 6); // raw 가 canonical/basket 보다 우선.
+      });
+    });
+
+    it('flag ON + canonical 해당 섹터 결손(null return): basket fallback, bearish 변환 0', () => {
+      withFlag('0572-on', () => {
+        publishCanonicalSectorReturns([
+          { sectorName: '반도체', sectorReturn20d: null, sectorReturn5d: null },
+        ]);
+        const out = normalize();
+        expect(out.sectorReturn20d).toBeCloseTo(0.12, 6); // canonical null → basket.
+        expect(out.marketSignal).toBe(false); // 결손이 bearish 신호로 변환되지 않음(#6).
+      });
+    });
   });
 
   it('classifies crowded leader-cycle diagnostics without using news frequency as a score signal', () => {

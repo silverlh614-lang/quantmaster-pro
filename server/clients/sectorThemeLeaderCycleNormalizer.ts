@@ -1,5 +1,11 @@
 // @responsibility Gate2 sector/theme/leader-cycle diagnostic normalization.
 
+import {
+  canonicalSectorReturn20d,
+  canonicalSectorRank20d,
+  canonicalIsLeadingSector,
+} from './sectorCanonicalReturnLookup.js'; // ADR-0572 Stage 1: canonical(L1) 우선 데이터원 룩업 (의존성-0 leaf, KIS/fs 부작용 0, flag default OFF=null).
+
 export type SectorCycleMarket = 'KOSPI' | 'KOSDAQ' | 'KONEX' | 'UNKNOWN';
 
 export type LeaderCyclePhase =
@@ -317,7 +323,12 @@ export function normalizeSectorThemeCycleForGate2(
 
   const stockReturn20d = numberOrNull(raw.stockReturn20d ?? quote.return20d);
   const stockReturn60d = numberOrNull(raw.stockReturn60d ?? quote.return60d);
-  const sectorReturn20d = numberOrNull(raw.sectorReturn20d ?? sectorEnergyScore.sectorReturn20d ?? sectorEnergyScore.return4w);
+  // ADR-0572 D1: 우선순위 raw → canonical(L1) → basket(diagnostic) fallback.
+  // raw 명시값(numberOrNull)이 있으면 최우선; 없을 때만 canonical 룩업, 그것도 null 이면 기존 basket 체인 그대로.
+  // flag OFF → canonical null → basket 원본 표현식 = byte-identical (raw 의 nullish 체인 의미 보존).
+  const sectorReturn20d = numberOrNull(raw.sectorReturn20d)
+    ?? canonicalSectorReturn20d(sector)
+    ?? numberOrNull(raw.sectorReturn20d ?? sectorEnergyScore.sectorReturn20d ?? sectorEnergyScore.return4w);
   const sectorReturn60d = numberOrNull(raw.sectorReturn60d ?? sectorEnergyScore.sectorReturn60d);
   const benchmarkReturn20d = numberOrNull(raw.benchmarkReturn20d ?? input.benchmarkReturn20d);
   const benchmarkReturn60d = numberOrNull(raw.benchmarkReturn60d ?? input.benchmarkReturn60d);
@@ -325,11 +336,17 @@ export function normalizeSectorThemeCycleForGate2(
   const sectorRelativeReturn60d = numberOrNull(raw.sectorRelativeReturn60d) ?? safeDiff(sectorReturn60d, benchmarkReturn60d);
   const stockVsSectorReturn20d = numberOrNull(raw.stockVsSectorReturn20d) ?? safeDiff(stockReturn20d, sectorReturn20d);
   const stockVsSectorReturn60d = numberOrNull(raw.stockVsSectorReturn60d) ?? safeDiff(stockReturn60d, sectorReturn60d);
-  const sectorRank20d = numberOrNull(raw.sectorRank20d) ?? getSectorRank(input.sectorEnergyResult, sector);
+  // ADR-0572 D1: rank 도 raw → canonical(L1) → basket fallback. flag OFF → canonical null → basket(byte-identical).
+  const sectorRank20d = numberOrNull(raw.sectorRank20d)
+    ?? canonicalSectorRank20d(sector)
+    ?? getSectorRank(input.sectorEnergyResult, sector);
   const sectorRank60d = numberOrNull(raw.sectorRank60d);
   const sectorPercentile20d = clampPercentile(numberOrNull(raw.sectorPercentile20d));
   const sectorPercentile60d = clampPercentile(numberOrNull(raw.sectorPercentile60d));
-  const currentLeadingSector = boolOrNull(raw.isCurrentLeadingSector) ?? isLeadingSector(input.sectorEnergyResult, sector);
+  // ADR-0572 D1: leading 도 raw → canonical(L1) → basket fallback. flag OFF → canonical null → basket(byte-identical).
+  const currentLeadingSector = boolOrNull(raw.isCurrentLeadingSector)
+    ?? canonicalIsLeadingSector(sector)
+    ?? isLeadingSector(input.sectorEnergyResult, sector);
   const sectorLeader = boolOrNull(raw.isSectorLeader)
     ?? (stockVsSectorReturn20d == null ? null : stockVsSectorReturn20d > 0);
   const previousLeader = boolOrNull(raw.isPreviousCycleLeader);
