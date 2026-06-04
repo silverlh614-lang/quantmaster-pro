@@ -177,6 +177,10 @@ export function registerMaintenanceJobs(): void {
     }
   }, { timezone: 'UTC' });
 
+  // 부팅 부트스트랩 — 휘발 data/ 배포 직후 섹터맵 결손/stale self-heal (비차단, flag default ON).
+  // cron(주간/일일 19:00) 전까지의 Gate2 Sector 축 커버리지 급락 갭을 메운다.
+  bootstrapSectorMapIfNeeded();
+
   // PR-D ADR-0045 — KRX 차년도 휴장일 등록 감사. 매년 12/1 09:00 KST = UTC 12/1 00:00.
   // PR-B-2: ALWAYS_ON — 12/1 이 KRX 공휴일이어도 발송 (감사 자체는 휴장과 무관).
   scheduledJob('0 0 1 12 *', 'ALWAYS_ON', 'krx_holiday_audit',
@@ -329,9 +333,9 @@ function shouldRetrySectorMap(): boolean {
   }
 }
 
-/** 섹터맵 갱신 실행 + Telegram 알림. schedule 라벨은 주간/일일 구분용. */
-async function runSectorMapUpdate(schedule: 'weekly' | 'daily-retry'): Promise<void> {
-  const scheduleLabel = schedule === 'weekly' ? '주간' : '일일 재시도';
+/** 섹터맵 갱신 실행 + Telegram 알림. schedule 라벨은 주간/일일/부팅 구분용. */
+async function runSectorMapUpdate(schedule: 'weekly' | 'daily-retry' | 'boot'): Promise<void> {
+  const scheduleLabel = schedule === 'weekly' ? '주간' : schedule === 'boot' ? '부팅 부트스트랩' : '일일 재시도';
   try {
     const result: UpdateResult = await updateKrxSectorMap();
     console.log(
@@ -356,11 +360,44 @@ async function runSectorMapUpdate(schedule: 'weekly' | 'daily-retry'): Promise<v
     console.error(`[SectorMapUpdater] ${scheduleLabel} 갱신 실패:`, msg);
     const nextRetry = schedule === 'weekly'
       ? '내일 04:00 일일 재시도 예정'
-      : '다음 주 월요일 03:00 재시도 예정';
+      : schedule === 'boot'
+        ? '평일 19:00(UTC) 일일 재시도 예정'
+        : '다음 주 월요일 03:00 재시도 예정';
     await sendTelegramAlert(
       `⚠️ <b>[KRX 섹터맵 갱신 실패 — ${scheduleLabel}]</b>\n${msg}\n` +
       `기존 파일이 유지됩니다. ${nextRetry}.`,
       { priority: 'NORMAL', dedupeKey: 'krx_sector_map_fail', cooldownMs: 6 * 60 * 60 * 1000 },
     ).catch(console.error);
   }
+}
+
+/** 부팅 부트스트랩 비활성 여부 — default ON, ENV `SECTOR_MAP_BOOT_BOOTSTRAP_ENABLED=false` 1줄 롤백. */
+function isSectorMapBootBootstrapDisabled(): boolean {
+  return process.env.SECTOR_MAP_BOOT_BOOTSTRAP_ENABLED === 'false';
+}
+
+// 부팅 임계 작업(매매 엔진 기동·KIS 인증)과 KRX 벌크 fetch 경합을 피하기 위한 지연.
+const SECTOR_MAP_BOOT_BOOTSTRAP_DELAY_MS = 30_000;
+
+/**
+ * 부팅 직후 섹터맵 결손/staleness self-heal.
+ *
+ * 배경: data/ 가 영속 볼륨(PERSIST_DATA_DIR) 없이 휘발이면 배포마다 krx-sector-map.json 이 사라져
+ * 다음 cron(주간 일/일일 재시도 19:00) 전까지 getSectorByCode 가 수동맵(188종목)만 알아 Gate2
+ * Sector 축 커버리지가 급락한다. 본 부트스트랩이 그 배포-직후 갭을 메운다.
+ *
+ * 안전: ① shouldRetrySectorMap()(결손/stale/carry-over)일 때만 동작 — 최신(볼륨 영속)이면 no-op.
+ *      ② setTimeout 지연 + 비차단 fire-and-forget — 불변식 #1(매매 엔진 boot 무차단) 보존.
+ *      ③ 기존 4-tier fallback·실패 알림 경로(runSectorMapUpdate) 재사용 — 신규 데이터 통로 0.
+ *      ④ flag default ON, ENV `=false` 즉시 롤백.
+ */
+function bootstrapSectorMapIfNeeded(): void {
+  if (isSectorMapBootBootstrapDisabled()) return;
+  if (!shouldRetrySectorMap()) return; // 최신이면 no-op (볼륨 영속 환경 첫 부팅 이후)
+  const timer = setTimeout(() => {
+    console.log('[SectorMapUpdater] 부팅 부트스트랩 — 섹터맵 결손/stale 감지, 비차단 갱신 시도');
+    void runSectorMapUpdate('boot');
+  }, SECTOR_MAP_BOOT_BOOTSTRAP_DELAY_MS);
+  // 일회성 타이머가 graceful shutdown 을 막지 않도록 unref.
+  if (typeof timer.unref === 'function') timer.unref();
 }
