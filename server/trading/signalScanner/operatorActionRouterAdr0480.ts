@@ -747,6 +747,13 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
     canonical?.promotionCoveragePass === true
     && canonical?.verifiedOfficialSectorCount === 11
     && canonical?.dataQuality === 'VERIFIED';
+  // 표기 정합(불변식 #6): promotionCoveragePass=true(safe-official 100%, promotionAllowed=true)면
+  // 조선/방산/원자력/이차전지 등 by-design 제외 테마 때문에 verifiedOfficialSectorCount<11 이어도
+  // promotion 은 VERIFIED 다. 이때 "Build/repair SectorEnergy index master" P1 액션을 repair 대상으로
+  // 올리면 운영자가 정상 상태를 고장/repair-needed 로 오인한다 → repair-류 소스만 억제.
+  // promotionCoveragePass=false(실제 coverage 미달)면 기존 repair 경고 그대로 emit (false-negative 방지).
+  // 게이팅(promotionCoveragePass/promotionAllowed)은 미접촉 — 표시 조건만 변경, executionImpact=NONE.
+  const sectorEnergyPromotionVerified = canonical?.promotionCoveragePass === true;
   // ADR-0544 follow-up: 휴일/세션닫힘 verify-skip 은 소스 결함(DEGRADED)이 아니므로 SectorEnergy
   // 진단 소스를 push 하지 않는다 — push 하면 REPAIR_SECTOR_INDEX_MASTER action 이 (P3 강등돼도)
   // operator action 리스트에 계속 노출된다. runtimePipelineAudit GAP-C 와 동일 패턴.
@@ -755,6 +762,9 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
     canonical?.dataQuality === 'SESSION_NOT_VERIFIABLE'
     || canonical?.sectorIndexVerifyMode === 'VERIFY_SKIPPED_SESSION_CLOSED';
   const sectorEnergyDiagnosticSuppressed = sectorEnergyCanonicalHealthy || sectorEnergySessionClosed;
+  // repair/지수마스터 류 소스만 억제하는 조건 — promotion VERIFIED(by-design 제외 테마)거나
+  // 세션닫힘/healthy 일 때. promotion 미검증(coverage 미달)이면 false → repair 경고 보존.
+  const sectorEnergyRepairSuppressed = sectorEnergyDiagnosticSuppressed || sectorEnergyPromotionVerified;
   if ((summary.candidates > 0 || summary.gateMisses > 0) && summary.entries === 0 && (summary.waitDistribution?.dataHold ?? 0) > 0) {
     sources.push({ adr: '0465', sectionId: 'scan_blockers', code: 'SUPPLY_DATA_UNAVAILABLE', diagnosticKey: 'investor_flow', diagnosticValue: 'DATA_UNAVAILABLE', severity: 'DATA_UNAVAILABLE' });
   }
@@ -778,13 +788,15 @@ export function collectOperatorActionSourcesFromScanSummaryAdr0480(summary: Scan
   if (summary.supplyRecoveryRuntimeMountAdr0486?.checks.some((check) => check.legacyOutputCode === 'READINESS_AUDIT_EVIDENCE_MISSING')) {
     sources.push({ adr: '0486', sectionId: 'runtime_pipeline_audit', code: 'SUPPLY_READINESS_EVIDENCE_MISSING', diagnosticKey: 'readinessAuditEvidence', diagnosticValue: 'missing', severity: 'ERROR' });
   }
-  // ADR-0544 follow-up: 휴일/세션닫힘도 healthy 와 동일하게 SectorEnergy repair 코드를 필터한다 —
-  // verify-skip 은 소스 결함이 아니므로 REPAIR_SECTOR_INDEX_MASTER 류를 operator action 으로 올리지 않는다.
-  sources.push(...(sectorEnergyDiagnosticSuppressed
+  // ADR-0544 follow-up + 표기 정합: 휴일/세션닫힘/healthy 또는 promotion VERIFIED(by-design 제외 테마)면
+  // SectorEnergy repair 코드를 필터한다 — verify-skip/by-design 제외는 소스 결함이 아니므로
+  // REPAIR_SECTOR_INDEX_MASTER 류를 repair 대상 operator action 으로 올리지 않는다.
+  // promotionCoveragePass=false(실제 coverage 미달)면 repair 경고 그대로 emit.
+  sources.push(...(sectorEnergyRepairSuppressed
     ? collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487).filter((source) =>
       !['SECTOR_DATA_SUPPLY_LINE_MISSING', 'SECTOR_INDEX_MASTER_REPAIR_NEEDED', 'REPAIR_SECTOR_INDEX_MASTER', 'IMPROVE_INDEX_CODE_COVERAGE'].includes(source.code ?? ''))
     : collectOperatorActionSourcesFromFreshDataSupplyAdr0487(summary.freshDataSupplyAdr0487)));
-  sources.push(...(sectorEnergyDiagnosticSuppressed
+  sources.push(...(sectorEnergyRepairSuppressed
     ? collectOperatorActionSourcesFromAdr0488(summary.sectorEnergySupplyUnknownAdr0488).filter((source) =>
       !['REPAIR_SECTOR_INDEX_MASTER', 'IMPROVE_INDEX_CODE_COVERAGE'].includes(source.code ?? ''))
     : collectOperatorActionSourcesFromAdr0488(summary.sectorEnergySupplyUnknownAdr0488)));

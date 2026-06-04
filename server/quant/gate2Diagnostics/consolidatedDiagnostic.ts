@@ -190,6 +190,30 @@ const DART_TRANSPORT_OR_PARSE_PROVIDER_STATUS = new Set([
   'UNKNOWN_ERROR',
 ]);
 
+// 표기 정합(불변식 #6): KIS_FINANCE source=KIS_PRIMARY connectionStatus=CONNECTED_OK 면 재무 레이어는
+// KIS primary 로 커버되는 정상 상태다(DART degraded 는 비차단 supplementary, ocfToNi/icr residual 만).
+// 이때 DART degraded/partial 을 "CHECK_DART_FINANCIALS" repair 액션으로 surface 하면 운영자가 정상을
+// 고장으로 오인한다 → operatorAction 만 advisory-suppress. KIS finance 도 실패하면 false → CHECK 유지.
+// external.dartFinancials.stability(=KIS-머지 재무 projection, currentRatio non-null=KIS primary 적용)는
+// 이미 carry 되는 진단값이다 — 새 입력/네트워크/판정 0, 표시 조건만 파생. providerIssue/marketSignal/
+// executionImpact/health/dataReadiness 무변경.
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+export function isKisFinancePrimaryConnected(dart: Gate2ExternalDataCoverage['dartFinancials']): boolean {
+  const stability = dart.stability ?? null;
+  const profitability = dart.profitability ?? null;
+  const financeSource = typeof stability?.financeSource === 'string'
+    ? stability.financeSource
+    : typeof profitability?.financeSource === 'string'
+      ? profitability.financeSource
+      : '';
+  if (financeSource === 'KIS_PRIMARY' || financeSource === 'DART_OR_DERIVED') return true;
+  // currentRatio non-null = KIS L1 재무 머지 적용 신호(DART 정규화는 currentRatio 미산출). 형식은 formatter SSOT 와 동일.
+  return isFiniteNumber(stability?.currentRatio);
+}
+
 export function isDartPartialAvailability(dart: Gate2ExternalDataCoverage['dartFinancials']): boolean {
   const transportOrParseError =
     typeof dart.providerStatus === 'string'
@@ -446,14 +470,19 @@ export function buildGate2ConsolidatedDiagnostic(input: {
     // 무관, providerIssue→marketSignal 변환 0, executionImpact 별도 표기. operatorAction 은 기존
     // CHECK_DART_FINANCIALS 유지(우선순위·후속 가드 무회귀).
     const dartPartial = isDartPartialAvailability(external.dartFinancials);
+    // 표기 정합: KIS finance(KIS_PRIMARY)가 debt/roe/opm 을 공급하면 재무 레이어는 KIS 로 VERIFIED 다.
+    // DART degraded 는 비차단 supplementary(ocfToNi/icr residual)이므로 CHECK_DART repair 액션을 띄우지
+    // 않는다. health/primaryIssue 분류(데이터 정합)는 무변경 — operatorAction 만 advisory 강등.
+    // KIS finance 도 미연결이면 false → 기존 CHECK_DART_FINANCIALS 그대로(진짜 장애 경고 보존).
+    const kisFinanceConnected = isKisFinancePrimaryConnected(external.dartFinancials);
     if (dartPartial) {
       health = 'DATA_INCOMPLETE';
-      primaryIssue = 'DART_FINANCIALS_PARTIAL';
-      operatorAction = 'CHECK_DART_FINANCIALS';
+      primaryIssue = kisFinanceConnected ? 'DART_FINANCIALS_PARTIAL_KIS_PRIMARY_VERIFIED' : 'DART_FINANCIALS_PARTIAL';
+      operatorAction = kisFinanceConnected ? 'NONE' : 'CHECK_DART_FINANCIALS';
     } else {
       health = isDegradedStatus(external.dartFinancials.status) ? 'DEGRADED' : 'DATA_INCOMPLETE';
-      primaryIssue = 'DART_FINANCIALS_UNAVAILABLE';
-      operatorAction = 'CHECK_DART_FINANCIALS';
+      primaryIssue = kisFinanceConnected ? 'DART_FINANCIALS_UNAVAILABLE_KIS_PRIMARY_VERIFIED' : 'DART_FINANCIALS_UNAVAILABLE';
+      operatorAction = kisFinanceConnected ? 'NONE' : 'CHECK_DART_FINANCIALS';
     }
   } else if (isMissingStatus(external.benchmark.status) || isDegradedStatus(external.benchmark.status)) {
     health = isDegradedStatus(external.benchmark.status) ? 'DEGRADED' : 'DATA_INCOMPLETE';

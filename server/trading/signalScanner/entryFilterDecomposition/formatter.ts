@@ -338,14 +338,26 @@ function formatGate2DataLineHealthSection(input: {
   // §B — dartLineHealth.status 는 합성 refreshTrace 를 통해 실제 상태(VERIFIED/PARTIAL/DEGRADED/
   // EMPTY_VALID)를 반영한다. NOT_ATTEMPTED 는 dartFin 부재(실제 미시도)일 때만 표기된다.
   const dartLineStatus = statusOf(nestedRecord(input.external, 'dartLineHealth'), input.dartStatus);
-  const valuationLine =
-    input.valuationStatus === 'AVAILABLE' || input.valuationStatus === 'VERIFIED'
-      ? 'AVAILABLE'
-      : 'UNAVAILABLE';
   const valuationReason = stringValue(
     nestedRecord(nestedRecord(input.external, 'valuation'), 'per')?.reason,
     'NONE',
   );
+  // 표기 정합(불변식 #6, 표시 전용): PER 미가용이 적자/ETF/우선주 같은 by-design 사유면 "UNAVAILABLE"
+  // 헤드라인이 provider 장애처럼 보인다 → "N/A_BY_DESIGN" 으로 라벨만 정정(non-blocking 명시).
+  // BASELINE-LOCK-001 invariant 필드(connectionStatus/interpretation/providerIssue/entryHardBlock/
+  // highConvictionOnly)는 절대 무변경 — 헤드라인 워딩만. 진짜 결손(PER_FIELD_MISSING)은 UNAVAILABLE 유지.
+  const perReasonUpper = valuationReason.toUpperCase();
+  const perByDesignUnavailable =
+    perReasonUpper.includes('NON_POSITIVE')
+    || perReasonUpper.includes('NEGATIVE')
+    || perReasonUpper.includes('ETF')
+    || perReasonUpper.includes('PREFERRED');
+  const valuationLine =
+    input.valuationStatus === 'AVAILABLE' || input.valuationStatus === 'VERIFIED'
+      ? 'AVAILABLE'
+      : perByDesignUnavailable
+        ? 'N/A_BY_DESIGN'
+        : 'UNAVAILABLE';
   // §D/§G — program/sector/leader 는 optional/diagnosticOnly. entry hard block 으로 승격 금지.
   const programLine = input.programStatus === 'MISSING' ? 'OPTIONAL_MISSING' : input.programStatus;
   const sectorLine = input.sectorStatus === 'MISSING' ? 'DIAGNOSTIC_MISSING' : input.sectorStatus;

@@ -264,4 +264,38 @@ describe('ADR-0480 Operator Action Router & Remediation Queue', () => {
     );
     expect(sources.some((s) => s.code === 'SECTOR_ENERGY_DEGRADED')).toBe(true);
   });
+
+  // 표기 정합 point 1: promotionCoveragePass=true(by-design 제외 테마로 count<11, dataQuality=PARTIAL)면
+  // SectorEnergy repair P1 액션을 emit 하지 않는다. promotion 실패 시에는 그대로 emit (false-negative 방지).
+  const sectorSummaryWithRepairGap = (canonical: Record<string, unknown>): ScanSummary => ({
+    time: 't', candidates: 1, trackB: 0, swing: 0, catalyst: 0, momentum: 0,
+    yahooFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
+    sectorEnergyQuality: 'PARTIAL',
+    sectorEnergySupplyUnknownAdr0488: {
+      sectorEnergyCanonicalState: canonical,
+      // collectOperatorActionSourcesFromAdr0488 가 REPAIR_SECTOR_INDEX_MASTER gap 을 만들도록 status!=FETCH_OK.
+      topGaps: [],
+      sectorEnergyMaster: { status: 'PARTIAL', coveragePct: 0 },
+      supplyUnknownPolicy: { unknownPolicyActive: false, providerIssue: false },
+    },
+  } as unknown as ScanSummary);
+
+  it('33. promotionCoveragePass=true(count<11, PARTIAL) → REPAIR_SECTOR_INDEX_MASTER 미emit (by-design 제외 테마 repair 금지)', () => {
+    const sources = collectOperatorActionSourcesFromScanSummaryAdr0480(
+      sectorSummaryWithRepairGap({ dataQuality: 'PARTIAL', sectorIndexVerifyMode: 'LIVE_VERIFY', verifiedOfficialSectorCount: 9, promotionCoveragePass: true, promotionAllowed: true }),
+    );
+    expect(sources.some((s) => s.code === 'REPAIR_SECTOR_INDEX_MASTER')).toBe(false);
+    expect(sources.some((s) => s.code === 'IMPROVE_INDEX_CODE_COVERAGE')).toBe(false);
+    const actions = buildOperatorActionQueueAdr0480({ sources }).allActions;
+    expect(actions.some((a) => a.rootCause === 'REPAIR_SECTOR_INDEX_MASTER')).toBe(false);
+  });
+
+  it('34. 대조군: promotionCoveragePass=false(실제 coverage 미달) → REPAIR_SECTOR_INDEX_MASTER emit (진짜 장애 경고 보존)', () => {
+    const sources = collectOperatorActionSourcesFromScanSummaryAdr0480(
+      sectorSummaryWithRepairGap({ dataQuality: 'PARTIAL', sectorIndexVerifyMode: 'LIVE_VERIFY', verifiedOfficialSectorCount: 5, promotionCoveragePass: false, promotionAllowed: false }),
+    );
+    expect(sources.some((s) => s.code === 'REPAIR_SECTOR_INDEX_MASTER')).toBe(true);
+    const actions = buildOperatorActionQueueAdr0480({ sources }).allActions;
+    expect(actions.some((a) => a.rootCause === 'REPAIR_SECTOR_INDEX_MASTER')).toBe(true);
+  });
 });
