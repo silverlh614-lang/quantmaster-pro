@@ -2,7 +2,8 @@
  * @responsibility 매매 허용 시간 정책 회귀 테스트 (ADR-0192)
  *
  * 사용자 5/6 요청 — isBuyableKstWindow 진단 윈도. ALWAYS-ON: 시간대 기반 SELL_ONLY 없음.
- * ADR-0552(2026-06-02): 점심 12:00~13:00 휴장 잔재 제거 → 09:30~15:30 연속(KRX 점심 동시호가 폐지 반영).
+ * volumeClock ALWAYS-ON SSOT 정합 — isBuyableKstWindow 09:00~15:20 연속 (시초가/점심 포함, 감점만).
+ * 비-buyable 은 마감 동시호가 준비(15:20~)·장외뿐. (이전 09:30~15:30 ADR-0552 표기 → SSOT 정합 정정.)
  *
  * 정적 grep 가드 (drift 차단) + ENV 매트릭스.
  */
@@ -17,9 +18,9 @@ const SCHEDULER_PATH = path.resolve(
 const source = fs.readFileSync(SCHEDULER_PATH, 'utf-8');
 
 describe('ADR-0192 / ALWAYS-ON 정적 가드 — isBuyableKstWindow + decideScan phase', () => {
-  it('isBuyableKstWindow 시간대 (09:30~15:30 연속) — 진단/경보 윈도 (매매 게이트 아님)', () => {
-    // ADR-0552: 점심 12:00~13:00 휴장 잔재 제거 — KRX 연속장(2000 점심 동시호가 폐지) 반영.
-    expect(source).toMatch(/t >= 930 && t < 1530/);
+  it('isBuyableKstWindow 시간대 (09:00~15:20 연속) — 진단/경보 윈도 (매매 게이트 아님)', () => {
+    // volumeClock ALWAYS-ON 정합: 09:00~15:20 연속 (시초가/점심 포함, 감점만), 15:20~ 비-buyable.
+    expect(source).toMatch(/t >= 900 && t < 1520/);
   });
 
   it('isBuyableKstWindow legacy 분기 보존 (ADR-0122 정합)', () => {
@@ -86,16 +87,16 @@ describe('ADR-0192 isBuyableKstWindow 동작 매트릭스', () => {
     if (dow === 0 || dow === 6) return false;
     const t = kst.getUTCHours() * 100 + kst.getUTCMinutes();
     if (legacy) return (t >= 900 && t < 1130) || (t >= 1300 && t < 1430);
-    // ADR-0552: 점심 휴장 제거 — 09:30~15:30 연속.
-    return t >= 930 && t < 1530;
+    // volumeClock ALWAYS-ON 정합: 09:00~15:20 연속 (시초가/점심 포함, 감점만).
+    return t >= 900 && t < 1520;
   }
 
-  it('09:30 boundary — 정확히 매수 가능 시작 (default 정책)', () => {
-    expect(computeBuyableKst(9, 30)).toBe(true);
+  it('09:00 boundary — 정확히 매수 가능 시작 (volumeClock ALWAYS-ON 정합)', () => {
+    expect(computeBuyableKst(9, 0)).toBe(true);
   });
 
-  it('09:29 — 시초가 차단 (default 정책)', () => {
-    expect(computeBuyableKst(9, 29)).toBe(false);
+  it('09:29 — 시초가 매수 가능 (차단 아님, 감점 구간 — volumeClock ALWAYS-ON 정합)', () => {
+    expect(computeBuyableKst(9, 29)).toBe(true);
   });
 
   it('11:59 — 매수 가능 마지막 분 (오전)', () => {
@@ -114,12 +115,12 @@ describe('ADR-0192 isBuyableKstWindow 동작 매트릭스', () => {
     expect(computeBuyableKst(13, 0)).toBe(true);
   });
 
-  it('15:29 — 매수 가능 마지막 분 (오후, 신규 정책)', () => {
-    expect(computeBuyableKst(15, 29)).toBe(true);
+  it('15:19 — 매수 가능 마지막 분 (오후, volumeClock ALWAYS-ON 정합)', () => {
+    expect(computeBuyableKst(15, 19)).toBe(true);
   });
 
-  it('15:30 — 매수 차단 (마감 동시호가 진입)', () => {
-    expect(computeBuyableKst(15, 30)).toBe(false);
+  it('15:20 — 매수 차단 (마감 동시호가 준비 진입, volumeClock 정합)', () => {
+    expect(computeBuyableKst(15, 20)).toBe(false);
   });
 
   it('Legacy 모드 — 11:00 매수 가능 (11:30 까지)', () => {

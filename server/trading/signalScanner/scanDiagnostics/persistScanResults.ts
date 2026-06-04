@@ -1790,7 +1790,10 @@ export async function persistScanResults(
         (macro?.liveEntryAllowed === false ||
           macro?.brokerLiveOrderAllowed === false ||
           macro?.brokerOrderAllowed === false),
-      openingGuardActive: sessionUpper.includes('OPENING'),
+      // volumeClock ALWAYS-ON 정합: 시초가(09:00~09:30 OPENING)는 매수 차단 guard 가 아니라
+      // 점수 감점 구간이다. 따라서 opening 을 no-entry guard 로 라벨하지 않는다 (진단 false-positive
+      // 억제 제거). 실제 차단 세션은 sessionGuardActive(PRE_MARKET/POST_MARKET/CLOSED/HOLIDAY)만 표시.
+      openingGuardActive: false,
       sessionGuardActive: ['PRE_MARKET', 'POST_MARKET', 'CLOSED', 'HOLIDAY'].includes(sessionUpper),
       slotLimit: counters.waitSizingBlocked > 0 && counters.waitSizingBlocked >= _lastScanSummary.candidates,
       scanCompleted: true,

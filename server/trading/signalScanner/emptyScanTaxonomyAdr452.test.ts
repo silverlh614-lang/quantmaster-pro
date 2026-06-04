@@ -13,10 +13,16 @@ function kstTime(hour: number, minute: number): Date {
 }
 
 describe('ADR-452 KST buy session helper', () => {
-  it('09:00~09:30은 OPENING_GUARD / buySession=false', () => {
+  // volumeClock ALWAYS-ON 정합: 09:00~15:20 전부 buySession=true (시초가/점심 포함, 감점만).
+  // 세션 라벨(OPENING_GUARD/LUNCH_GUARD)은 진단 granularity 위해 유지하되 매수 차단 의미는 없다.
+  it('09:00~09:30은 OPENING_GUARD 라벨 유지 / buySession=true (감점 구간, 차단 아님)', () => {
     const now = kstTime(9, 15);
     expect(getKstIntradaySession(now)).toBe('OPENING_GUARD');
-    expect(isBuySessionKst(now)).toBe(false);
+    expect(isBuySessionKst(now)).toBe(true);
+  });
+
+  it('09:00 boundary — buySession=true (volumeClock ALWAYS-ON 시작)', () => {
+    expect(isBuySessionKst(kstTime(9, 0))).toBe(true);
   });
 
   it('09:30~11:30은 MORNING_BUY / buySession=true', () => {
@@ -25,10 +31,10 @@ describe('ADR-452 KST buy session helper', () => {
     expect(isBuySessionKst(now)).toBe(true);
   });
 
-  it('11:30~13:00은 LUNCH_GUARD / buySession=false', () => {
+  it('11:30~13:00은 LUNCH_GUARD 라벨 유지 / buySession=true (감점 구간, 차단 아님)', () => {
     const now = kstTime(11, 45);
     expect(getKstIntradaySession(now)).toBe('LUNCH_GUARD');
-    expect(isBuySessionKst(now)).toBe(false);
+    expect(isBuySessionKst(now)).toBe(true);
   });
 
   it('13:00~15:20은 AFTERNOON_BUY / buySession=true', () => {
@@ -37,32 +43,49 @@ describe('ADR-452 KST buy session helper', () => {
     expect(isBuySessionKst(now)).toBe(true);
   });
 
-  it('15:20~15:30은 CLOSING_PREP / buySession=false', () => {
+  it('15:19 — 매수 가능 마지막 분 / buySession=true', () => {
+    expect(isBuySessionKst(kstTime(15, 19))).toBe(true);
+  });
+
+  it('15:20~15:30은 CLOSING_PREP / buySession=false (마감 동시호가 준비)', () => {
     const now = kstTime(15, 25);
     expect(getKstIntradaySession(now)).toBe('CLOSING_PREP');
     expect(isBuySessionKst(now)).toBe(false);
   });
+
+  it('15:20 boundary — buySession=false (volumeClock 정합 종료)', () => {
+    expect(isBuySessionKst(kstTime(15, 20))).toBe(false);
+  });
 });
 
 describe('ADR-452 shouldCountEmptyScan', () => {
-  it('NORMAL + BUY 세션에서만 true', () => {
+  it('NORMAL + BUY 세션에서만 true (시초가/점심 포함 — ALWAYS-ON)', () => {
     expect(shouldCountEmptyScan(kstTime(10, 0), 'NORMAL')).toBe(true);
     expect(shouldCountEmptyScan(kstTime(14, 0), 'DEGRADED')).toBe(true);
+    // ALWAYS-ON: 시초가/점심도 buy 세션이므로 NORMAL 이면 카운트한다.
+    expect(shouldCountEmptyScan(kstTime(9, 15), 'NORMAL')).toBe(true);
+    expect(shouldCountEmptyScan(kstTime(11, 45), 'NORMAL')).toBe(true);
   });
 
-  it('SELL_ONLY/session-blocked에서는 false', () => {
+  it('SELL_ONLY/session-blocked(장외·마감준비)에서는 false', () => {
     expect(shouldCountEmptyScan(kstTime(10, 0), 'SELL_ONLY')).toBe(false);
-    expect(shouldCountEmptyScan(kstTime(9, 15), 'NORMAL')).toBe(false);
-    expect(shouldCountEmptyScan(kstTime(11, 45), 'NORMAL')).toBe(false);
-    expect(shouldCountEmptyScan(kstTime(15, 25), 'NORMAL')).toBe(false);
+    expect(shouldCountEmptyScan(kstTime(15, 25), 'NORMAL')).toBe(false); // CLOSING_PREP
+    expect(shouldCountEmptyScan(kstTime(16, 0), 'NORMAL')).toBe(false);  // AFTER_MARKET
   });
 });
 
 describe('ADR-452 classifyEmptyScan', () => {
-  it('session blocked가 true empty보다 우선한다', () => {
-    const r = classifyEmptyScan({ now: kstTime(9, 15), engineMode: 'NORMAL' });
+  it('session blocked(마감준비/장외)가 true empty보다 우선한다', () => {
+    const r = classifyEmptyScan({ now: kstTime(15, 25), engineMode: 'NORMAL' });
     expect(r.type).toBe('SESSION_BLOCKED');
     expect(r.incrementEmptyScan).toBe(false);
+  });
+
+  it('시초가(09:15)는 buy 세션이므로 SESSION_BLOCKED 아님 (ALWAYS-ON, 후보 0 → TRUE_EMPTY)', () => {
+    const r = classifyEmptyScan({ now: kstTime(9, 15), engineMode: 'NORMAL' });
+    expect(r.type).toBe('TRUE_EMPTY');
+    expect(r.buySession).toBe(true);
+    expect(r.incrementEmptyScan).toBe(true);
   });
 
   it('mode blocked가 true empty보다 우선한다', () => {

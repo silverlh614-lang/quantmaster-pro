@@ -499,12 +499,13 @@ export function decideScan(): ScanDecision {
 }
 
 /**
- * 매수 가능 시간대(KST) 판정 — 점심/시초가/마감전 SELL_ONLY/장외 제외.
+ * 매수 가능 시간대(KST) 진단 판정 — volumeClock ALWAYS-ON SSOT 정합 (실주문 게이트 아님).
  *
- * ADR-0192 (사용자 5/6): 09:30~12:00 (오전) + 13:00~15:30 (오후) 정책 적용.
- *   - 시초가 09:00~09:30: 변동성 회피 — SELL_ONLY (신규 진입 차단)
+ * volumeClock SSOT(09:00~15:20 전부 allowEntry=true)에 맞춰 시초가/점심도 buyable 로 본다.
+ * 시초가/점심은 차단이 아니라 점수 감점 구간이며, 비-buyable 은 마감 동시호가 준비(15:20~)·장외뿐.
+ *   - 09:00~09:29: 시초가 — 변동성 감점 (차단 아님)
  *   - 점심 12:00~13:00: 매수 허용 (ADR-0552 — KRX 점심 휴장 폐지 반영, 잔재 제거)
- *   - 마감 15:30 까지 신규 매매 허용 (기존 14:30 → 1h 추가)
+ *   - 15:20 부터: 마감 동시호가 준비 — 진단상 비-buyable (volumeClock 하드 차단 15:21~15:30 정합)
  *
  * ENV `TRADE_WINDOW_LEGACY_HOURS=true` 우회 → ADR-0122 정합 09:00~14:30 동작 복원.
  */
@@ -517,9 +518,8 @@ function isBuyableKstWindow(now = Date.now()): boolean {
     // Legacy: 09:00~11:30 (오전) + 13:00~14:30 (오후) — ADR-0122 정합.
     return (t >= 900 && t < 1130) || (t >= 1300 && t < 1430);
   }
-  // ADR-0552: KRX 점심 동시호가 폐지(2000) 반영 — 점심 12:00~13:00 휴장 잔재 제거.
-  // 09:30~15:30 연속 매수 허용 (시초가 09:00~09:30 회피·마감 15:30 만 제외).
-  return t >= 930 && t < 1530;
+  // volumeClock ALWAYS-ON 정합: 09:00~15:20 연속 매수 허용 (시초가/점심 포함, 감점만).
+  return t >= 900 && t < 1520;
 }
 
 /**
@@ -578,19 +578,14 @@ export function recordScanResult(signalCount: number, opts?: RecordScanResultOpt
       return;
     }
 
-    // ADR-0237 / ADR-0515: volumeClock 매수 차단 구간 (시초가 09:00~09:29 /
-    // 점심 12:00~12:59 (ADR-0192 정합) / 마감 동시호가 15:21~15:30) 의 빈 스캔은
-    // preflight 가 의도적으로 abort 한 것이므로 정상 동작.
-    // consecutiveEmptyScans 증가 + 경고 모두 차단.
-    //   legacy(TRADE_WINDOW_LEGACY_HOURS=true): 점심 11:31~12:59 (ADR-0237).
+    // ADR-0237 / ADR-0515: volumeClock ALWAYS-ON 상 유일한 하드 차단(마감 동시호가 15:21~15:30,
+    // legacy=true 시 09:00~09:29 / 12:00~12:59 추가) 구간의 빈 스캔은 preflight 가 의도적으로
+    // abort 한 것이므로 정상 동작. consecutiveEmptyScans 증가 + 경고 모두 차단.
+    //   legacy(VOLUME_CLOCK_LEGACY_HARD_BLOCK=true): 점심·시초가 추가 차단.
     //
-    // 결함 사유: 기존 코드는 isBuyableKstWindow (09:30~12:00 + 13:00~15:30, ADR-0192)
-    // 만 사용해 *볼륨클록 BLOCKED + 매수창 inside* 영역에서 false positive 경고
-    // ("Gate 임계치 점검 필요") 발생. 사용자 5/6 11:43 보고 — 점심 차단 빈 스캔 →
-    // 잘못된 임계 조정 권유.
-    //
-    // checkVolumeClockWindow.allowEntry=false 시 즉시 return — 카운터 보존 (BLOCKED
-    // 종료 후 매수창 재개 시 이전 누적 그대로 평가).
+    // 게이팅 단일 진실은 checkVolumeClockWindow.allowEntry 다 (isBuyableKstWindow 는 진단 윈도일 뿐).
+    // allowEntry=false 시 즉시 return — 카운터 보존 (차단 종료 후 매수창 재개 시 이전 누적 그대로 평가).
+    // 시초가/점심은 ALWAYS-ON 상 allowEntry=true(감점만)이므로 여기서 차단하지 않는다.
     const volumeClock = checkVolumeClockWindow(coerceRecordScanNow(opts?.now));
     if (!volumeClock.allowEntry) {
       return;
