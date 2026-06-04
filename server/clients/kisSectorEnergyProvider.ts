@@ -8,6 +8,7 @@ import type { KisSectorIndexDaily, KisSectorIndexDailyRow } from './kisClient/ty
 import type { SectorEnergyDataQuality, SectorEnergyInput } from './sectorEnergyProvider.js';
 import type { KisRepresentativeBasketAudit, SectorEnergyCoverageBreakdown } from './sectorEnergyQualityDiagnostic.js';
 import { appendKisSectorIndexPromotionHistoryRecord, type KisSectorIndexPromotionHistoryRecord } from '../persistence/kisSectorIndexPromotionHistoryRepo.js';
+import { emitProviderWarn } from '../observability/providerWarn.js';
 import {
   sectorIndexMappingRegistry,
   setSectorIndexIdxcodeMasterRowsForTests,
@@ -619,6 +620,16 @@ export async function fetchKisSectorIndexRowsDryRun(nowMs = Date.now()): Promise
       const metrics = deriveKisSectorIndexDryRunMetrics(result);
       if (metrics.seriesCount < KIS_SECTOR_INDEX_MIN_SERIES_COUNT) {
         kisSectorIndexNegativeCooldownUntil.set(entry.iscd, nowMs + KIS_SECTOR_INDEX_NEGATIVE_COOLDOWN_MS);
+        // 회귀 가드(ADR 잔여패치 #1): 공식 섹터지수 일봉이 21행 미만이면 official→basket 으로 조용히
+        // 폴백된다(과거 INSUFFICIENT_SERIES 전 섹터 실패의 재발 벡터). 조회 윈도 축소·휴장 다발 시
+        // provider-warn 으로 선표면화한다(executionImpact=NONE 강제, dedup/iscd ttl 300s, marketSignal=false).
+        emitProviderWarn({
+          source: 'SECTOR',
+          message: `KIS sector index daily series too short (${metrics.seriesCount}/${KIS_SECTOR_INDEX_MIN_SERIES_COUNT}); official index degraded — basket fallback. Check KIS_SECTOR_INDEX_DAILY_LOOKBACK_DAYS / holidays.`,
+          dedupKey: `p2:provider:SECTOR:kis-index-insufficient-series:${entry.iscd}`,
+          fallbackUsed: true,
+          details: { sectorKey: entry.sectorKey, iscd: entry.iscd, seriesCount: metrics.seriesCount, minRequired: KIS_SECTOR_INDEX_MIN_SERIES_COUNT },
+        });
         return {
           sectorKey: entry.sectorKey,
           iscd: entry.iscd,
