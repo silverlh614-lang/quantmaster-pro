@@ -944,13 +944,15 @@ describe('Gate2 wiring diagnostics', () => {
   });
 
   it('ADR-0568: SECTOR_ENERGY_GATE2_WIRING_ENABLED gates sectorEnergyResult into the sector axis', () => {
-    const quote = gate2Quote({ symbol: '000660', return20d: 0.18, sector: 'Semiconductor' } as QuotePatch);
+    // ADR-0571: 후보 sectorThemeCycle.sector 는 canonical KRX 섹터명으로 합성되며,
+    // sectorEnergyResult.scores[].name(=CANONICAL_SECTORS, 한글) 과 일치해야 매칭된다.
+    const quote = gate2Quote({ symbol: '000660', return20d: 0.18, sector: '반도체' } as QuotePatch);
     const sectorEnergyResult = {
       scores: [
-        { name: 'Semiconductor', sectorReturn20d: 0.12 },
-        { name: 'Bio', sectorReturn20d: -0.03 },
+        { name: '반도체', sectorReturn20d: 0.12 },
+        { name: '바이오/헬스케어', sectorReturn20d: -0.03 },
       ],
-      leadingSectors: [{ name: 'Semiconductor' }],
+      leadingSectors: [{ name: '반도체' }],
     };
     const prev = process.env.SECTOR_ENERGY_GATE2_WIRING_ENABLED;
     try {

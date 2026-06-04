@@ -60,6 +60,7 @@ import type {
 import { isBenchmarkInput, isDartInput, isKisInput, unique } from './wiringDiagnostics.js';
 import { buildGate2ExternalProjection } from '../../trading/gate2/gate2ExternalDataProvider.js';
 import { isSectorEnergyGate2WiringEnabled } from '../../trading/gate2/sectorEnergyGate2WiringFlag.js';
+import { produceSectorThemeCycleForGate2 } from './sectorThemeCycleProducer.js';
 import type { Gate2ExternalRefreshTrace } from '../../trading/gate2/gate2ExternalDataProvider/types.js';
 
 /**
@@ -651,11 +652,24 @@ export function buildGate2ExternalDataCoverage(
     kospi20dReturn: fieldAvailable(wiring, 'ctx.kospi20dReturn') || typeof input.kospi20dReturn === 'number' && Number.isFinite(input.kospi20dReturn),
     kosdaq20dReturn: typeof input.kosdaq20dReturn === 'number' && Number.isFinite(input.kosdaq20dReturn),
   };
+  // ADR-0571 완결편: 후보별 sectorThemeCycle.sector 합성. repo 전체에 sectorThemeCycle producer 가
+  // 0건이라 sector=UNKNOWN → SECTOR_THEME_CYCLE_MISSING → "Sector 0/25" 였다. flag(ON)일 때만,
+  // 호출자가 명시 제공하지 않은 경우에 한해 quote/stockMaster.sector→canonical 정규화 또는 종목코드
+  // →getSectorByCode 로 canonical 섹터명을 합성한다. 매칭 실패/미분류→undefined(byte-equal graceful).
+  const producedSectorThemeCycle = isSectorEnergyGate2WiringEnabled()
+    ? produceSectorThemeCycleForGate2({
+        symbol: quoteSymbol(input),
+        stockSector:
+          stringOrNull(isRecord(input.quote) ? input.quote.sector : null) ??
+          stringOrNull(isRecord(input.stockMaster) ? input.stockMaster.sector : null),
+        existingSectorThemeCycle: input.sectorThemeCycle,
+      })
+    : undefined;
   const sectorThemeCycleDiagnostic = normalizeSectorThemeCycleForGate2({
     symbol: quoteSymbol(input),
     quote: input.quote,
     stockMaster: input.stockMaster,
-    sectorThemeCycle: input.sectorThemeCycle,
+    sectorThemeCycle: input.sectorThemeCycle ?? producedSectorThemeCycle,
     // ADR-0568 배선 갭 픽스: SECTOR_ENERGY_GATE2_WIRING_ENABLED OFF(default) 면 undefined 로
     // 무시 → sectorCycle 빌드가 현행과 byte-identical. ON 일 때만 caller(stockScreener/
     // universeScanner)가 thread 한 macroState.sectorEnergyResult 를 SECTOR_LEADERSHIP 축으로 소비.
