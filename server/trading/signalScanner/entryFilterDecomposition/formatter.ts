@@ -4,6 +4,7 @@
 
 import type { EntryFilterDecomposition, EntryBlocker } from './types.js';
 import { KIS_INVESTOR_FLOW_CANONICAL } from '../gate2KisFlowTraceMetadata.js';
+import { isKisFinancePrimaryEnabled } from '../../gate2/kisFinancePrimaryFlag.js';
 // Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 — Stage1 완화 flag/임계 상태 한 줄 표시 (display-only, SSOT in pipelineHelpers).
 import { formatStage1RiskOnLeaderCaptureStatus } from '../../../screener/pipelineHelpers.js';
 import {
@@ -399,7 +400,7 @@ function boolText(value: unknown): string {
 function formatKisFinanceDataLine(external: Record<string, unknown> | undefined): string {
   const pct = (value: unknown): string => (typeof value === 'number' && Number.isFinite(value) ? `${r1(value)}%` : 'N/A');
   const isNum = (value: unknown): boolean => typeof value === 'number' && Number.isFinite(value);
-  const financePrimaryEnabled = process.env.KIS_FINANCE_PRIMARY_ENABLED === 'true';
+  const financePrimaryEnabled = isKisFinancePrimaryEnabled();
   const kisFinance = nestedRecord(nestedRecord(external, 'dartLineHealth'), 'kisFinance');
   const stability = nestedRecord(external, 'stability');
   const profitability = nestedRecord(external, 'profitability');
@@ -516,7 +517,7 @@ function classifyPerReason(reason: string, perStatus: string, source: string): s
 }
 
 function formatValuationPerReasonDistribution(d: EntryFilterDecomposition): string[] {
-  const financePrimaryEnabled = process.env.KIS_FINANCE_PRIMARY_ENABLED === 'true';
+  const financePrimaryEnabled = isKisFinancePrimaryEnabled();
   const distribution: Record<string, number> = {
     PER_NON_POSITIVE: 0,
     PER_FIELD_MISSING: 0,

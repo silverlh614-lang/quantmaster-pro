@@ -219,6 +219,7 @@ describe('Gate2ExternalDataProvider', () => {
   });
 
   it('refreshes without throwing when DART data is missing', async () => {
+    process.env.KIS_FINANCE_PRIMARY_ENABLED = 'false'; // OFF 경로 명시 (default 가 ON 으로 승격됨, ADR-0532 Phase 4)
     const result = await refreshGate2ExternalData({
       symbols: ['005930', '000660'],
       fetcher: async () => null,
@@ -588,7 +589,7 @@ describe('Gate2ExternalDataProvider', () => {
   it('Phase 3 cache-hit gap: flag-off serves PER-less cache-hit unchanged (byte-equivalent, no KIS call)', async () => {
     process.env.KIS_APP_KEY = 'test-app-key';
     process.env.KIS_APP_SECRET = 'test-app-secret';
-    // KIS_FINANCE_PRIMARY_ENABLED unset (off).
+    process.env.KIS_FINANCE_PRIMARY_ENABLED = 'false'; // OFF 명시 (default 가 ON 으로 승격됨, ADR-0532 Phase 4)
     const legacy = buildGate2ExternalProjection({
       symbol: '553300',
       dartFin: { symbol: '553300', roe: 9, opm: 7, revenue: 500, netIncome: 40, dataConfidence: 'VERIFIED', source: 'DART' } as unknown as Gate2DartEvaluationFinancials,
@@ -607,7 +608,7 @@ describe('Gate2ExternalDataProvider', () => {
   it('flag OFF: DART-null returns null and does NOT call KIS PER (byte-equivalent)', async () => {
     process.env.KIS_APP_KEY = 'test-app-key';
     process.env.KIS_APP_SECRET = 'test-app-secret';
-    // KIS_FINANCE_PRIMARY_ENABLED unset (off). DART_API_KEY unset → dartFin null.
+    process.env.KIS_FINANCE_PRIMARY_ENABLED = 'false'; // OFF 명시 (default 승격). DART_API_KEY unset → dartFin null.
     let kisCalled = false;
     setKisClientOverrides({
       realDataKisGet: async () => {
