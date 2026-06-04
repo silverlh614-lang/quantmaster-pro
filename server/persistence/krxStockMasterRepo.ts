@@ -107,17 +107,65 @@ function dedupeMasterEntries(entries: StockMasterEntry[]): StockMasterEntry[] {
   return [...byCode.values()].sort((a, b) => a.code.localeCompare(b.code));
 }
 
+/**
+ * 특수종목(ETF/ETN/ELW/SPAC/리츠/우선주/관리·경고) 제외 패턴 SSOT.
+ * `isTradableKrxEquity` 와 watchlistRepo 의 name-only fallback 이 공유한다 (drift 방지).
+ *
+ * 두 그룹으로 분리:
+ *  - SPECIAL_SECURITY_TYPE_PATTERNS — KRX master 의 securityType/stockType/department 까지
+ *    합친 문자열 + name 에 적용 (KRX 공식 분류 기반, 권위 있음).
+ *  - SPECIAL_SECURITY_NAME_PATTERNS — name 만 가지고 판정하는 fallback (master miss / cold-start).
+ *    여기에 ETF 브랜드 prefix 를 추가해 master 없이도 ETF 종목명을 차단한다.
+ */
+const SPECIAL_SECURITY_TYPE_PATTERNS: RegExp[] = [
+  /ETF|ETN|ELW/,
+  /스팩|SPAC|기업인수목적/,
+  /리츠|REIT/,
+  /우선주|종류주|1우|2우|3우|우B|우\)/,
+  /관리|거래정지|정리매매|투자위험|투자경고|투자주의/,
+];
+
+/**
+ * ETF/ETN 브랜드 prefix — KRX master 가 없을 때 종목명만으로 특수종목을 식별하기 위함.
+ * 보통주 종목명에는 거의 등장하지 않는 운용사 브랜드만 포함 (false-exclude 최소화).
+ */
+const ETF_BRAND_NAME_PATTERN =
+  /(?:^|\s)(TIGER|KODEX|KBSTAR|ARIRANG|HANARO|KOSEF|TIMEFOLIO|KIWOOM|마이티|히어로즈|ACE|PLUS|RISE|SOL)\b/i;
+
+/**
+ * 우선주 종목명 suffix — master 의 stockType='우선주' 정보가 없을 때(name-only fallback) 사용.
+ * KRX 우선주 종목명은 관례적으로 '우' / '우B' / '우C' / 'N우' 로 끝난다 (예: 삼성전자우, 현대차2우B).
+ * 보통주가 '우' 로 끝나는 경우는 거의 없으나, 안전을 위해 master 권위가 우선이고
+ * 본 suffix 는 cold-start fallback 에서만 적용된다 (loadWatchlist 가 master 먼저 조회).
+ */
+const PREFERRED_SHARE_NAME_SUFFIX = /[0-9]?우[ABC]?$/;
+
+/**
+ * 종목명(name) 만으로 특수종목 여부를 판정 — master miss / cold-start fallback SSOT.
+ * isTradableKrxEquity 와 동일한 type 패턴을 재사용하고, ETF 브랜드 prefix + 우선주 suffix 만 추가한다.
+ * (market/securityType 정보가 없으므로 보수적으로 동작 — 패턴 미일치 시 false = 보통주 추정.)
+ */
+export function isSpecialSecurityName(name: string): boolean {
+  if (typeof name !== 'string' || name.trim().length === 0) return false;
+  const trimmed = name.trim();
+  const upper = trimmed.toUpperCase();
+  if (ETF_BRAND_NAME_PATTERN.test(trimmed)) return true;
+  if (PREFERRED_SHARE_NAME_SUFFIX.test(trimmed)) return true;
+  for (const re of SPECIAL_SECURITY_TYPE_PATTERNS) {
+    if (re.test(upper)) return true;
+  }
+  return false;
+}
+
 export function isTradableKrxEquity(entry: StockMasterEntry): boolean {
   if (!(entry.market === 'KOSPI' || entry.market === 'KOSDAQ')) return false;
   const joined = [entry.name, entry.securityType, entry.stockType, entry.department]
     .filter(Boolean)
     .join(' ')
     .toUpperCase();
-  if (/ETF|ETN|ELW/.test(joined)) return false;
-  if (/스팩|SPAC|기업인수목적/.test(joined)) return false;
-  if (/리츠|REIT/.test(joined)) return false;
-  if (/우선주|종류주|1우|2우|3우|우B|우\)/.test(joined)) return false;
-  if (/관리|거래정지|정리매매|투자위험|투자경고|투자주의/.test(joined)) return false;
+  for (const re of SPECIAL_SECURITY_TYPE_PATTERNS) {
+    if (re.test(joined)) return false;
+  }
   return true;
 }
 

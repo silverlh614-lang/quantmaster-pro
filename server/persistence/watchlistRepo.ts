@@ -15,6 +15,11 @@ import {
 } from "./watchlistSaturationPolicy.js";
 import { isEmergencyWatchlistCodeGuardEnabled } from "../dataQuality/emergencyDataQualityGuards.js";
 import { normalizeKrxCode } from "../utils/symbolNormalizer.js";
+import {
+  getStockByCode,
+  isTradableKrxEquity,
+  isSpecialSecurityName,
+} from "./krxStockMasterRepo.js";
 import type { GateEvaluationSnapshot } from "../quantFilter.js";
 
 /**
@@ -423,11 +428,76 @@ export interface WatchlistEntry {
   gateLayerSummary?: import('../quantFilter.js').GateLayerSummary;
 }
 
+/**
+ * ETF/ETN/ELW/SPAC/리츠/우선주(특수종목) 제외 — watchlist 단일 funnel.
+ *
+ * 정책 (false-exclude 가 false-include 보다 위험 — 보통주 오제외 0 이 최우선):
+ *   1. KRX master 가 있으면 권위 — `getStockByCode` → `isTradableKrxEquity`.
+ *      master 에 있고 tradable 이면 KEEP, tradable=false(특수종목)면 EXCLUDE.
+ *   2. master miss(cold-start) — name-pattern fallback (`isSpecialSecurityName`,
+ *      krxStockMasterRepo SSOT 재사용). 패턴 일치 시에만 EXCLUDE.
+ *   3. 그 외(master miss + name 보통주) — 안전 기본값 KEEP.
+ *
+ * 패턴 정의는 krxStockMasterRepo SSOT 한 곳뿐 — watchlistRepo 는 복붙 0 (drift 방지).
+ */
+export function isSpecialSecurityWatchlistEntry(entry: {
+  code?: string;
+  name?: string;
+}): boolean {
+  const code = typeof entry.code === "string" ? entry.code : "";
+  const master = code ? getStockByCode(code) : null;
+  if (master) {
+    // master 권위 — tradable 이면 보통주(KEEP), 아니면 특수종목(EXCLUDE).
+    return !isTradableKrxEquity(master);
+  }
+  // master miss / cold-start — 종목명 패턴 fallback. 미일치 시 KEEP(보통주 오제외 금지).
+  return isSpecialSecurityName(typeof entry.name === "string" ? entry.name : "");
+}
+
+/**
+ * 특수종목 제외 활성 여부 — default ON (사용자 요청: 매매 후보·watchlist 에서 제외).
+ * `WATCHLIST_EXCLUDE_SPECIAL_SECURITIES=false` 1줄로 즉시 기존 동작(미제외) 롤백.
+ * 스크리너 유니버스는 이미 무조건 제외(isTradableKrxEquity) 이므로 본 default 와 정합.
+ */
+export function isSpecialSecurityExclusionEnabled(): boolean {
+  return process.env.WATCHLIST_EXCLUDE_SPECIAL_SECURITIES !== "false";
+}
+
+/** 특수종목 entry 를 watchlist 에서 제거 (플래그 비활성 시 원본 그대로 반환). */
+function filterSpecialSecurities(list: WatchlistEntry[]): WatchlistEntry[] {
+  if (!isSpecialSecurityExclusionEnabled()) return list;
+  const kept: WatchlistEntry[] = [];
+  let dropped = 0;
+  for (const entry of list) {
+    if (isSpecialSecurityWatchlistEntry(entry)) {
+      dropped++;
+      console.warn(
+        `[Watchlist/SpecialSecurity] ETF/특수종목 자동 제외 — code="${entry.code}" name="${entry.name ?? "N/A"}"`,
+      );
+      continue;
+    }
+    kept.push(entry);
+  }
+  if (dropped > 0) {
+    console.log(
+      `[WATCHLIST_SPECIAL_SECURITY_EXCLUDED] dropped=${dropped} kept=${kept.length} ` +
+        `executionImpact=NONE marketSignal=false providerIssue=false kisImpact=NONE ` +
+        `tradingLogicChanged=false gateLogicChanged=false orderLogicChanged=false`,
+    );
+  }
+  return kept;
+}
+
 export function loadWatchlist(): WatchlistEntry[] {
   ensureDataDir();
   if (!fs.existsSync(WATCHLIST_FILE)) return [];
   try {
-    return JSON.parse(fs.readFileSync(WATCHLIST_FILE, "utf-8"));
+    const list = JSON.parse(
+      fs.readFileSync(WATCHLIST_FILE, "utf-8"),
+    ) as WatchlistEntry[];
+    // 단일 funnel — 모든 소비처(매매 후보 + 표시 + auto-fill diff)가 특수종목 비노출.
+    // 보유 포지션 청산은 shadowTradeRepo/exitEngine 경로라 본 필터와 무관(매수만 차단).
+    return filterSpecialSecurities(Array.isArray(list) ? list : []);
   } catch {
     return [];
   }
@@ -587,6 +657,11 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
     filtered.push(...list);
   }
   list = filtered;
+
+  // ETF/특수종목 제외 (default ON, WATCHLIST_EXCLUDE_SPECIAL_SECURITIES=false 롤백).
+  // saveWatchlist 단계에서도 차단 — auto-fill(autoPopulateWatchlist)·DART poller·수동 add 등
+  // 모든 영속 경로가 특수종목을 박제하지 못하게 하고, 기존 특수종목 entry 도 다음 save 시 정리.
+  list = filterSpecialSecurities(list);
 
   // PR-3 #8 + ADR-0028 §모순9: 섹션별 soft/hard 두 단계 cap 강제.
   // soft cap 도달 시 composite score 하위를 능동 정리해 deadzone 차단.
