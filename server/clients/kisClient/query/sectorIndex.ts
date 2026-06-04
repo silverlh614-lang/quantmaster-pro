@@ -277,6 +277,17 @@ function emptyProbeAttempt(input: {
   };
 }
 
+/** 기본 조회 윈도(캘린더일). 20일 수익률엔 일봉 21개(KIS_SECTOR_INDEX_MIN_SERIES_COUNT)가 필요한데
+ *  30일(~21영업일)은 5~6월 휴장 다발 구간에서 21행 미만 → 전 섹터 INSUFFICIENT_SERIES → official 섹터지수
+ *  미가용 → shadow-only basket 폴백 → Gate2 SECTOR_LEADERSHIP 미충전이었다. 45일(~30영업일)로 마진 확보.
+ *  롤백/튜닝: ENV `KIS_SECTOR_INDEX_DAILY_LOOKBACK_DAYS` (하한 30 — 21행 보장 최소선). */
+const SECTOR_INDEX_DAILY_LOOKBACK_DAYS_DEFAULT = 45;
+function resolveSectorIndexDailyLookbackDays(): number {
+  const raw = Number(process.env.KIS_SECTOR_INDEX_DAILY_LOOKBACK_DAYS);
+  if (!Number.isFinite(raw)) return SECTOR_INDEX_DAILY_LOOKBACK_DAYS_DEFAULT;
+  return Math.max(30, Math.floor(raw));
+}
+
 /** KST 기준 YYYYMMDD (날짜 helper 의존성 0 — 인라인 계산). */
 function kstYyyymmdd(offsetDays = 0): string {
   const ms = Date.now() + 9 * 60 * 60 * 1000 - offsetDays * 24 * 60 * 60 * 1000;
@@ -295,7 +306,8 @@ function kstYyyymmdd(offsetDays = 0): string {
  * - KIS_APP_KEY 미설정 + 실계좌 클라이언트 부재 → null.
  * - realDataKisGet SSOT 경유 — 회로차단/블랙리스트/jitter 자동 적용 (절대 규칙 #2).
  * - output 필드 다중 키 매칭 — KIS 공식 응답 한글 약어 (bstp_nmix_*).
- * - fromDate/toDate 미지정 시 KST 기준 (today-30d ~ today) 기본 윈도우.
+ * - fromDate/toDate 미지정 시 KST 기준 (today-45d ~ today) 기본 윈도우 — 21행(20d 수익률) 휴장 마진 확보.
+ *   ENV `KIS_SECTOR_INDEX_DAILY_LOOKBACK_DAYS` 로 튜닝(하한 30).
  *
  * @param sectorIscd 업종 상세코드 (KIS_SECTOR_INDEX_ISCD 또는 idxcode.mst 코드)
  */
@@ -311,7 +323,9 @@ export async function fetchKisSectorIndexDaily(
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
   const iscd = (sectorIscd ?? '').trim();
   if (!iscd) return null;
-  const date1 = /^\d{8}$/.test(fromDate ?? '') ? (fromDate as string) : kstYyyymmdd(30);
+  const date1 = /^\d{8}$/.test(fromDate ?? '')
+    ? (fromDate as string)
+    : kstYyyymmdd(resolveSectorIndexDailyLookbackDays());
   const date2 = /^\d{8}$/.test(toDate ?? '') ? (toDate as string) : kstYyyymmdd(0);
   try {
     const data = await realDataKisGet(
