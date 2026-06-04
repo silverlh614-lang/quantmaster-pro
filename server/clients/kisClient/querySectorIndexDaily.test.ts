@@ -152,14 +152,14 @@ describe('fetchKisSectorIndexDaily', () => {
     return Math.round((toMs(date2) - toMs(date1)) / (24 * 60 * 60 * 1000));
   };
 
-  it('defaults to a >=45 calendar-day lookback window (21-row holiday margin)', async () => {
+  it('defaults to a >=60 calendar-day lookback window (21-row holiday margin)', async () => {
     process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
     _realDataKisGet.mockResolvedValue({ output1: [], output2: [] });
     await mod.fetchKisSectorIndexDaily('0001');
     const params = _realDataKisGet.mock.calls[0][2] as Record<string, string>;
     expect(params.FID_INPUT_DATE_1).toMatch(/^\d{8}$/);
     expect(params.FID_INPUT_DATE_2).toMatch(/^\d{8}$/);
-    expect(spanDays(params.FID_INPUT_DATE_1, params.FID_INPUT_DATE_2)).toBeGreaterThanOrEqual(45);
+    expect(spanDays(params.FID_INPUT_DATE_1, params.FID_INPUT_DATE_2)).toBeGreaterThanOrEqual(60);
   });
 
   it('honors KIS_SECTOR_INDEX_DAILY_LOOKBACK_DAYS but floors it at 30 (rollback path)', async () => {
