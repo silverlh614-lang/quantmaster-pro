@@ -28,7 +28,7 @@
 `orderGateway/`, `query/` 에서 TR_ID 를 grep 추출 → 공식 `examples_llm/domestic_stock/<endpoint>/` 예제의
 `tr_id` 와 대조. `real(TTTC/FHKST...)` / `demo(VTTC/...)` 쌍 중 real 기준 표기.
 
-### A. 시세·수급·매크로 (quotation) — 12 TR_ID, 전부 일치 ✅
+### A. 시세·수급·매크로 (quotation) — 12 TR_ID, 10 일치 / 2 드리프트 ⚠️ (2026-06-05 첨부 SDK 재대조)
 
 | 우리 TR_ID | api_path | 공식 예제 dir | 일치 |
 |---|---|---|---|
@@ -36,10 +36,10 @@
 | `FHKST01010300` | `/quotations/inquire-time-itemconclusion` | `inquire_ccnl` | ✅ |
 | `FHKST01010900` | `/quotations/inquire-investor` | `inquire_investor` | ✅ |
 | `FHKST03010100` | `/quotations/inquire-daily-itemchartprice` | `inquire_daily_itemchartprice` | ✅ |
-| `FHKST03030100` | `/quotations/inquire-daily-indexchartprice` | `inquire_daily_chartprice` | ✅ |
+| `FHKST03030100` | `/quotations/inquire-investor` (시장수급 `fetchKisMarketSupply` query.ts:640, ISCD=0001) | 공식 SDK 예제 부재 | ⚠️ 드리프트 |
 | `FHKST17010000` | `/ranking/credit-balance` | `credit_balance` | ✅ |
 | `FHKUP03500100` | `/quotations/inquire-daily-indexchartprice` | `inquire_daily_indexchartprice` | ✅ |
-| `FHPST01710000` | `/ranking/volume` | `volume_rank` | ✅ |
+| `FHPST01710000` | (우리)`/ranking/volume` ↔ (공식)`/quotations/volume-rank` | `volume_rank` | ⚠️ 경로 |
 | `FHPST04760000` | `/quotations/daily-credit-balance` | `daily_credit_balance` | ✅ |
 | `FHPST04820000` | `/ranking/short-sale` | `short_sale` | ✅ |
 | `FHPST04830000` | `/quotations/daily-short-sale` | `daily_short_sale` | ✅ |
@@ -70,11 +70,12 @@
 
 ### 교차대조 결과 요약
 
-- **총 17 TR_ID 검사** — 일치 13 / 드리프트(LEGACY) 4 / 부재(공식 스펙에 없음) 0.
-- 드리프트 4건은 전부 **order/체결 경로**(매수·매도·정정취소·일별체결). api_path 는 모두 일치하며
-  TR_ID 헤더 값만 구 스킴이다.
-- **api_path 불일치 0건** — 우리가 호출하는 모든 trading/quotation 경로는 공식 스펙에 존재한다.
-- `/uapi/custom/*`, `/uapi/x` 등 일부 경로는 테스트 스텁(공식 스펙 대상 아님).
+- **총 17 TR_ID 검사** — 일치 11 / order LEGACY 드리프트 4 / 데이터 경로·TR 드리프트 2(2026-06-05 재대조 신규) / 부재 0.
+- order 드리프트 4건은 **order/체결 경로**(매수·매도·정정취소·일별체결): api_path 일치, TR_ID 만 구 스킴(LEGACY, §B).
+- **2026-06-05 첨부 SDK 재대조 신규 드리프트 2건 (데이터/스크리닝, advisory — 코드레벨, 본 PR 무수정):**
+  1. `FHPST01710000` 거래량순위 — 우리 코드 5경로(`stockScreener.ts:138`·`universeScanner.ts:262`·`kisRankingClient.ts:95,251`·`dynamicUniverseExpander.ts:173`)가 `/ranking/volume` 호출, **공식은 `/quotations/volume-rank`** (api_path 불일치). 유니버스 발굴 영향 가능 → `/ranking/volume` 현재 데이터 반환 여부 라이브 검증 후 flag-gated 경로 정정 권고(behavior 변경).
+  2. `FHKST03030100` 시장수급(`fetchKisMarketSupply` query.ts:640, `/inquire-investor`+ISCD=0001) — 공식 SDK 예제 부재로 TR-경로 짝 검증 불가(공식 `/inquire-investor`=FHKST01010900). market supply 정확도 영향 가능 → KIS 공식 포털 TR 명세 확인 후 판정.
+- ~~api_path 불일치 0건~~ → 위 거래량순위 1건 불일치 확인(2026-06-05). `/uapi/custom/*`, `/uapi/x` 등 일부 경로는 테스트 스텁(공식 스펙 대상 아님).
 
 ### Burn-down (ADR-0555 P-후속, 별도 ADR 필요)
 
