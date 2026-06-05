@@ -72,6 +72,17 @@ describe('stopApproachAlert (3-stage dedupe)', () => {
     expect(shadow.stopApproachStage).toBeUndefined();
     expect(sendPrivateAlert).not.toHaveBeenCalled();
   });
+
+  it('ADR-0573: 모든 단계 opts 에 종목별 ackFamilyKey 전달 (ack 패밀리 흡수)', async () => {
+    const shadow = makeMockShadow({ stopLoss: 90 });
+    // currentPrice 90.5 → distToStop ≈ 0.55% → Stage1/2/3 모두 발동
+    await stopApproachAlert(makeMockCtx({ shadow, currentPrice: 90.5, hardStopLoss: 90 }));
+    expect(sendPrivateAlert).toHaveBeenCalledTimes(3);
+    for (const call of (sendPrivateAlert as unknown as { mock: { calls: unknown[][] } }).mock.calls) {
+      const opts = call[1] as { ackFamilyKey?: string };
+      expect(opts.ackFamilyKey).toBe('stop_approach:005930');
+    }
+  });
 });
 
 describe('classifyStopSource (ADR-0028 보강)', () => {

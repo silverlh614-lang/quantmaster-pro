@@ -23,6 +23,9 @@
  * (CH1) 이 사후 보고하므로 채널 구독자에게는 *결과* 만 노출.
  *
  * 단계별 dedupeKey 로 중복 알림 차단.
+ *
+ * ADR-0573: 손절 접근 단계 ack 를 종목별 familyKey(`stop_approach:CODE`)로 묶어
+ *   다단계 경보의 T1 ack 재발송/에스컬레이션 폭증을 종목당 1건으로 축소.
  */
 
 import type { ExitContext, ExitRuleResult } from '../types.js';
@@ -255,6 +258,7 @@ export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResul
       {
         priority: 'HIGH',
         dedupeKey: `stop_approach_1:${shadow.stockCode}`,
+        ackFamilyKey: `stop_approach:${shadow.stockCode}`,
       },
     ).catch(console.error);
     recordShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_APPROACH', channelType: 'BOT' });
@@ -279,6 +283,7 @@ export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResul
       {
         priority: 'CRITICAL',
         dedupeKey: `stop_approach_2:${shadow.stockCode}`,
+        ackFamilyKey: `stop_approach:${shadow.stockCode}`,
       },
     ).catch(console.error);
     recordShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_CONFIRM_REQUIRED', channelType: 'BOT' });
@@ -303,6 +308,7 @@ export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResul
       {
         priority: 'CRITICAL',
         dedupeKey: `stop_approach_3:${shadow.stockCode}`,
+        ackFamilyKey: `stop_approach:${shadow.stockCode}`,
       },
     ).catch(console.error);
     recordShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_EXECUTION_IMMINENT', channelType: 'BOT' });
