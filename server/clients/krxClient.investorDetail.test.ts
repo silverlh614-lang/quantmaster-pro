@@ -5,10 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('fetchInvestorTradingDetail (ADR-0141 Stage 1)', () => {
   const originalFetch = globalThis.fetch;
+  const originalTimeWindowGating = process.env.KRX_TIME_WINDOW_GATING_DISABLED;
 
   beforeEach(async () => {
     delete process.env.KRX_API_DISABLED;
     delete process.env.KRX_BLD_INVESTOR_DETAIL;
+    // ADR-0256 시간대 게이팅(PRE_DAWN/LUNCH_BREAK/POST_CLOSE_PRE_PUBLISH)은 실시간
+    // `new Date()` 기준이라, 해당 KST 윈도우에 테스트가 돌면 krxPost 가 fetch 호출 없이
+    // null 을 반환해 mock 이 검증되지 않는다. production 이 제공하는 escape hatch 로
+    // 게이팅을 비활성화해 시각 비의존 결정성을 확보한다.
+    process.env.KRX_TIME_WINDOW_GATING_DISABLED = 'true';
     vi.resetModules();
     const mod = await import('./krxClient.js');
     mod.resetKrxCache();
@@ -17,6 +23,8 @@ describe('fetchInvestorTradingDetail (ADR-0141 Stage 1)', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     delete process.env.KRX_BLD_INVESTOR_DETAIL;
+    if (originalTimeWindowGating === undefined) delete process.env.KRX_TIME_WINDOW_GATING_DISABLED;
+    else process.env.KRX_TIME_WINDOW_GATING_DISABLED = originalTimeWindowGating;
     vi.restoreAllMocks();
   });
 
