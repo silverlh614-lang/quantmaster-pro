@@ -1,132 +1,151 @@
-// @responsibility ADR-0115 perSymbolEvaluation wiring 회귀 가드 (정적 grep 검증)
-import { describe, expect, it } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+// @responsibility ADR-0115 wiring 동작 회귀 가드 (behavioral — checkEntryPriceDrift + shouldIncrementFailCount 실호출)
+//
+// ADR-0134 분해로 CORPORATE_ACTION entryPrice 보존 / failCount Critical-only 정책이
+// perSymbol/steps/entryPriceDrift.ts(checkEntryPriceDrift) + signalScanner/failureClassifier.ts
+// (shouldIncrementFailCount) 로 이동. 과거 정적 grep(readFileSync) 가드를 폐기하고
+// 실제 함수를 호출해 상태/카운터/텔레그램 부수효과를 단언한다.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
+import type { BuyListLoopContext } from './perSymbol/types.js';
+import { createScanCounters } from './scanDiagnostics/scanCounterFactory.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-// ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts + intradayLoop.ts.
-// 정적 grep 가드는 두 파일 합친 source 를 검사한다 (byte-equivalent 정합 검증).
-const BUY_LIST_LOOP = path.resolve(__dirname, 'perSymbol/buyListLoop.ts');
-const INTRADAY_LOOP = path.resolve(__dirname, 'perSymbol/intradayLoop.ts');
+// 텔레그램 전송 spy — dedupeKey 정합 + HIGH 알림 호출 단언용.
+const { sendTelegramAlert } = vi.hoisted(() => ({
+  sendTelegramAlert: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+vi.mock('../../alerts/telegramClient.js', () => ({ sendTelegramAlert }));
 
-function readSource(): string {
-  return fs.readFileSync(BUY_LIST_LOOP, 'utf-8') + '\n' + fs.readFileSync(INTRADAY_LOOP, 'utf-8');
+import { checkEntryPriceDrift } from './perSymbol/steps/entryPriceDrift.js';
+import { shouldIncrementFailCount } from './failureClassifier.js';
+
+const ORIGINAL_AUTO_CORRECT = process.env.ENTRY_PRICE_AUTO_CORRECT_DISABLED;
+const ORIGINAL_DAILYBAR_DISABLED = process.env.CORPORATE_ACTION_DAILYBAR_VERIFY_DISABLED;
+const ORIGINAL_FAILCOUNT_DISABLED = process.env.PRE_BREAKOUT_FAILCOUNT_DISABLED;
+
+beforeEach(() => {
+  sendTelegramAlert.mockClear();
+  delete process.env.ENTRY_PRICE_AUTO_CORRECT_DISABLED; // default → IMMUTABLE_REMOVE(RAW 보존)
+  // 일봉 검증 비활성 → GENUINE_RALLY 강등 배제, IMMUTABLE_REMOVE 경로 결정적.
+  process.env.CORPORATE_ACTION_DAILYBAR_VERIFY_DISABLED = 'true';
+  delete process.env.PRE_BREAKOUT_FAILCOUNT_DISABLED; // default → 정책 적용(Non-critical 미증가)
+});
+afterEach(() => {
+  if (ORIGINAL_AUTO_CORRECT === undefined) delete process.env.ENTRY_PRICE_AUTO_CORRECT_DISABLED;
+  else process.env.ENTRY_PRICE_AUTO_CORRECT_DISABLED = ORIGINAL_AUTO_CORRECT;
+  if (ORIGINAL_DAILYBAR_DISABLED === undefined) delete process.env.CORPORATE_ACTION_DAILYBAR_VERIFY_DISABLED;
+  else process.env.CORPORATE_ACTION_DAILYBAR_VERIFY_DISABLED = ORIGINAL_DAILYBAR_DISABLED;
+  if (ORIGINAL_FAILCOUNT_DISABLED === undefined) delete process.env.PRE_BREAKOUT_FAILCOUNT_DISABLED;
+  else process.env.PRE_BREAKOUT_FAILCOUNT_DISABLED = ORIGINAL_FAILCOUNT_DISABLED;
+});
+
+function makeStock(overrides: Partial<WatchlistEntry> & { code: string }): WatchlistEntry {
+  return {
+    name: overrides.code,
+    entryPrice: 12_610,
+    stopLoss: 11_000,
+    targetPrice: 18_000,
+    addedAt: '2026-01-01T00:00:00Z',
+    addedBy: 'AUTO',
+    ...overrides,
+  } as WatchlistEntry;
 }
 
-describe('ADR-0115 perSymbolEvaluation wiring — 정적 회귀 가드', () => {
-  describe('failureClassifier import 정착', () => {
-    it('shouldIncrementFailCount import', () => {
-      const src = readSource();
-      // ADR-0134: import path 깊이 무관 (분해 후 ../failureClassifier.js 가 됨)
-      expect(src).toMatch(/import\s*\{[^}]*shouldIncrementFailCount[^}]*\}\s*from\s*['"][^'"]*failureClassifier\.js['"]/);
-    });
+function makeCtx(watchlist: WatchlistEntry[]): BuyListLoopContext {
+  return {
+    watchlist,
+    scanCounters: createScanCounters(),
+    mutables: { watchlistMutated: { value: false } },
+  } as unknown as BuyListLoopContext;
+}
 
-    it('isEntryPriceAutoCorrectDisabled import', () => {
-      const src = readSource();
-      expect(src).toMatch(/isEntryPriceAutoCorrectDisabled/);
-    });
+describe('ADR-0115 CORPORATE_ACTION — entryPrice 자동 재설정 *제거* (default 정책)', () => {
+  it('IMMUTABLE_REMOVE: entryPrice 보존(RAW immutable) + universe splice 제외', async () => {
+    // 098460 고영 시나리오: entryPrice=12,610 → currentPrice=40,500 (+221% > 80% corp action 의심).
+    const stock = makeStock({ code: '098460', entryPrice: 12_610 });
+    const ctx = makeCtx([stock]);
+    const stageLog: Record<string, string> = {};
+    const trace = vi.fn();
 
-    it('isPreBreakoutFailCountDisabled import (또는 shouldIncrementFailCount 단독 사용 OK)', () => {
-      const src = readSource();
-      // shouldIncrementFailCount 가 내부에서 isPreBreakoutFailCountDisabled 사용하므로 둘 중 하나 import 충분
-      expect(src).toMatch(/(isPreBreakoutFailCountDisabled|shouldIncrementFailCount)/);
-    });
+    const result = await checkEntryPriceDrift(ctx, stock, 40_500, stageLog, trace);
+
+    expect(result).toBe('SKIP');
+    expect(stageLog.drift).toBe('CORPORATE_ACTION_REMOVE');
+    // 사용자 절대 원칙 — entryPrice 자동 보정 금지(RAW immutable).
+    expect(stock.entryPrice).toBe(12_610);
+    expect(stock.corporateActionAdjusted).toBeUndefined();
+    // universe 제외 (watchlist splice).
+    expect(ctx.watchlist.find((w) => w.code === '098460')).toBeUndefined();
+    expect(ctx.mutables.watchlistMutated.value).toBe(true);
+    expect(trace).toHaveBeenCalledTimes(1);
   });
 
-  describe('CORPORATE_ACTION 분기 — entryPrice 자동 재설정 *제거* (ADR-0115 P0 #1)', () => {
-    it('isEntryPriceAutoCorrectDisabled 분기 사용', () => {
-      const src = readSource();
-      expect(src).toMatch(/isEntryPriceAutoCorrectDisabled\(\)/);
-    });
+  it('IMMUTABLE_REMOVE 시 corp_action_immutable dedupeKey 로 HIGH 텔레그램 전송', async () => {
+    const stock = makeStock({ code: '336260', entryPrice: 13_000 });
+    const ctx = makeCtx([stock]);
 
-    it('CORPORATE_ACTION_REMOVE stageLog 신규 사용 (universe 제외)', () => {
-      const src = readSource();
-      expect(src).toContain("'CORPORATE_ACTION_REMOVE'");
-    });
+    await checkEntryPriceDrift(ctx, stock, 40_000, {}, vi.fn());
 
-    it('RAW immutable 정책 명문화 주석 존재', () => {
-      const src = readSource();
-      expect(src).toMatch(/RAW immutable/);
-      expect(src).toMatch(/ADR-0115/);
-    });
-
-    it('정책 활성 (default) 분기에서 stock.entryPrice = currentPrice 미사용', () => {
-      const src = readSource();
-      // 본 정책 분기 (isEntryPriceAutoCorrectDisabled 안) 에서는 entryPrice 자동 재설정 없어야 함.
-      // 레거시 분기 (else) 에서는 그대로 보존.
-      // 정책 분기 위치 추출 후 그 안에 entryPrice 재설정 패턴 부재 검증.
-      const policyMatch = src.match(/if \(isEntryPriceAutoCorrectDisabled\(\)\) \{([\s\S]*?)\} else \{/);
-      expect(policyMatch).not.toBeNull();
-      const policyBlock = policyMatch![1];
-      // 정책 분기에 stock.entryPrice = ... 할당 없어야 함
-      expect(policyBlock).not.toMatch(/stock\.entryPrice\s*=\s*currentPrice/);
-      expect(policyBlock).not.toMatch(/stock\.corporateActionAdjusted\s*=\s*true/);
-    });
-
-    it('레거시 분기 (else) 에는 ADR-0113 동작 보존 (호환성)', () => {
-      const src = readSource();
-      const elseMatch = src.match(/\} else \{[\s\S]*?stock\.entryPrice\s*=\s*currentPrice/);
-      expect(elseMatch).not.toBeNull();
-    });
-
-    it('진단 텔레그램 dedupeKey 정합성 (corp_action_immutable / corp_action 모두 사용)', () => {
-      const src = readSource();
-      expect(src).toMatch(/corp_action_immutable:/);
-      expect(src).toMatch(/corp_action:/);
-    });
-
-    it('정책 분기에서 universe 제외 동작 (watchlist splice)', () => {
-      const src = readSource();
-      const policyBlock = src.match(/if \(isEntryPriceAutoCorrectDisabled\(\)\) \{([\s\S]*?)\} else \{/)![1];
-      expect(policyBlock).toMatch(/ctx\.watchlist\.splice/);
-    });
+    expect(sendTelegramAlert).toHaveBeenCalledTimes(1);
+    const opts = sendTelegramAlert.mock.calls[0][1] as { dedupeKey?: string; priority?: string };
+    expect(opts.dedupeKey).toBe('corp_action_immutable:336260');
+    expect(opts.priority).toBe('HIGH');
   });
 
-  describe('pre-breakout WAIT 분기 — failCount Critical-only (ADR-0115 P1 #4)', () => {
-    it('shouldIncrementFailCount 호출이 PRE_BREAKOUT_MISS 분기에 적용', () => {
-      const src = readSource();
-      expect(src).toMatch(/shouldIncrementFailCount\(['"]PRE_BREAKOUT_MISS['"]\)/);
-    });
+  it('waitDriftCorpAction++ 카운터 증가 (CORPORATE_ACTION 분기)', async () => {
+    const stock = makeStock({ code: '098470', entryPrice: 12_610 });
+    const ctx = makeCtx([stock]);
 
-    it('shouldIncrementFailCount 호출이 ENTRY_PRICE_DEVIATION 분기에 적용', () => {
-      const src = readSource();
-      expect(src).toMatch(/shouldIncrementFailCount\(['"]ENTRY_PRICE_DEVIATION['"]\)/);
-    });
+    await checkEntryPriceDrift(ctx, stock, 40_500, {}, vi.fn());
 
-    it('shouldIncrementFailCount 호출이 GATE_REVALIDATION_FAIL 분기에 적용', () => {
-      const src = readSource();
-      expect(src).toMatch(/shouldIncrementFailCount\(['"]GATE_REVALIDATION_FAIL['"]\)/);
-    });
+    expect(ctx.scanCounters.waitDriftCorpAction).toBe(1);
+    expect(ctx.scanCounters.waitDriftRemove).toBe(0);
+  });
 
-    it('"WAIT" 메시지 출력 — pre-breakout 분기', () => {
-      const src = readSource();
-      expect(src).toMatch(/WAIT.*ADR-0115|ADR-0115.*WAIT/);
-    });
+  it('레거시(AUTO_CORRECT) 분기 보존: ENV 활성 시 entryPrice=currentPrice 재설정 (ADR-0113 호환)', async () => {
+    // 명시 ENV false → isEntryPriceAutoCorrectDisabled=false → 레거시 else 분기.
+    process.env.ENTRY_PRICE_AUTO_CORRECT_DISABLED = 'false';
+    const stock = makeStock({ code: '009900', entryPrice: 12_610 });
+    const ctx = makeCtx([stock]);
+    const stageLog: Record<string, string> = {};
 
-    it('레거시 분기 (else) 보존 — failCount 증가 가능', () => {
-      const src = readSource();
-      // shouldIncrementFailCount 가 false 일 때 (정책 적용) 단순 console.log 만 있고 entryFailCount 증가 없어야 함
-      // 정책+레거시 둘 다 가능하도록 if/else 분기 검증
-      const preBreakoutCount = (src.match(/shouldIncrementFailCount\(/g) ?? []).length;
-      expect(preBreakoutCount).toBeGreaterThanOrEqual(3);
-    });
+    const result = await checkEntryPriceDrift(ctx, stock, 40_500, stageLog, vi.fn());
+
+    expect(result).toBe('SKIP');
+    expect(stageLog.drift).toBe('CORPORATE_ACTION');
+    // 레거시 동작 — entryPrice 현재가로 보정 + adjusted 마커.
+    expect(stock.entryPrice).toBe(40_500);
+    expect(stock.corporateActionAdjusted).toBe(true);
+    // 레거시 분기 dedupeKey 는 corp_action: (immutable 아님).
+    const opts = sendTelegramAlert.mock.calls[0][1] as { dedupeKey?: string };
+    expect(opts.dedupeKey).toBe('corp_action:009900');
   });
 });
 
-describe('ADR-0115 1차 로그 시뮬 가드 — 098460 / 336260 시나리오', () => {
-  it('정책 적용 default — entryPrice 자동 재설정 없음 (RAW immutable)', () => {
-    // 사용자 절대 원칙 검증 — default 정책 분기에는 stock.entryPrice 할당 없어야 함.
-    // 위 정책 분기 검증과 중복이지만 명시적으로 1차 로그 시나리오에 매핑.
-    const src = readSource();
-    const policyMatch = src.match(/if \(isEntryPriceAutoCorrectDisabled\(\)\) \{([\s\S]*?)\} else \{/);
-    expect(policyMatch).not.toBeNull();
-    const block = policyMatch![1];
+describe('ADR-0115 pre-breakout WAIT — failCount Critical-only', () => {
+  // shouldIncrementFailCount 는 preBreakoutEntry / entryRevalidationGate step 의 failCount 증가
+  // 게이트 SSOT. default 정책(PRE_BREAKOUT_FAILCOUNT_DISABLED≠'false') 에서 Non-critical 사유는
+  // false → failCount 미증가. 분기별 호출 site 가 정확한 reason 을 넘기는지는 0118/scanner
+  // 통합 테스트가 카운터로 별도 단언.
+  it('PRE_BREAKOUT_MISS → false (Non-critical, failCount 미증가)', () => {
+    expect(shouldIncrementFailCount('PRE_BREAKOUT_MISS')).toBe(false);
+  });
 
-    // 098460 고영 (entryPrice=12,610 → currentPrice=40,500) 시나리오:
-    //   ADR-0113: entryPrice = 40,500 자동 보정
-    //   ADR-0115: entryPrice = 12,610 보존 + universe 제외
-    expect(block).not.toMatch(/stock\.entryPrice\s*=/);
+  it('ENTRY_PRICE_DEVIATION → false (Non-critical, failCount 미증가)', () => {
+    expect(shouldIncrementFailCount('ENTRY_PRICE_DEVIATION')).toBe(false);
+  });
+
+  it('GATE_REVALIDATION_FAIL → false (Non-critical, failCount 미증가)', () => {
+    expect(shouldIncrementFailCount('GATE_REVALIDATION_FAIL')).toBe(false);
+  });
+
+  it('CORPORATE_ACTION → true (Critical, failCount 증가 — 정책 무관 보존)', () => {
+    expect(shouldIncrementFailCount('CORPORATE_ACTION')).toBe(true);
+  });
+
+  it('레거시 ENV(false) → 모든 사유 true (ADR-0113 동작 복원)', () => {
+    process.env.PRE_BREAKOUT_FAILCOUNT_DISABLED = 'false';
+    expect(shouldIncrementFailCount('PRE_BREAKOUT_MISS')).toBe(true);
+    expect(shouldIncrementFailCount('ENTRY_PRICE_DEVIATION')).toBe(true);
+    expect(shouldIncrementFailCount('GATE_REVALIDATION_FAIL')).toBe(true);
   });
 });
