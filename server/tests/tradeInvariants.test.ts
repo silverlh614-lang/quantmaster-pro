@@ -2,6 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // fs 모킹 — 파일 I/O 없이 순수 로직 테스트
 vi.mock('fs', () => ({ default: { readFileSync: vi.fn(), writeFileSync: vi.fn(), existsSync: vi.fn(() => false), appendFileSync: vi.fn() } }));
+// operationalWarn 모킹 — shadowTradeRepo 트랜시티브 import 가 kisClient barrel 의 eager
+// hydrateFromDisk() 를 실행, 이때 operationalWarn 의존 그래프가 vitest SSR 초기화 순서상
+// TDZ(recordOperationalWarnCount before init) 를 유발한다. 본 단위 테스트는 updateShadow
+// 순수 로직만 검증하므로 warn emitter 를 no-op stub 으로 격리한다 (production 미변경).
+vi.mock('../observability/operationalWarn.js', () => ({
+  emitOperationalWarn: vi.fn(),
+}));
 vi.mock('../persistence/paths.js', () => ({
   SHADOW_FILE: '/mock/shadow-trades.json',
   SHADOW_LOG_FILE: '/mock/shadow-log.json',

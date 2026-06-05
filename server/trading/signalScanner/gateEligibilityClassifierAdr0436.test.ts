@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @responsibility ADR-0436 Gate Eligibility Split — classifyGateEligibility SSOT 회귀.
  *
  * 사용자 명시 13 invariants 정적 grep 가드 + 결정 트리 동작 매트릭스.

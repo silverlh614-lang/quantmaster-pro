@@ -4,7 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../../alerts/telegramClient.js', () => ({ sendTelegramAlert: vi.fn(() => Promise.resolve()) }));
+// ADR-0466 — 알림 경로가 sendTelegramAlert → emitTelegramEvent taxonomy router 로 이관.
+vi.mock('../../../../alerts/telegramEventRouter.js', () => ({ emitTelegramEvent: vi.fn(() => Promise.resolve(1)) }));
 vi.mock('../../../../persistence/shadowTradeRepo.js', async () => {
   const actual = await vi.importActual<any>('../../../../persistence/shadowTradeRepo.js');
   return { ...actual, appendShadowLog: vi.fn() };
@@ -17,7 +18,7 @@ vi.mock('../../../../../src/services/quant/dynamicStopEngine.js', () => ({
 const { atrDynamicStop } = await import('../atrDynamicStop.js');
 const { makeMockShadow, makeMockCtx } = await import('./_testHelpers.js');
 const { evaluateDynamicStop } = await import('../../../../../src/services/quant/dynamicStopEngine.js');
-const { sendTelegramAlert } = await import('../../../../alerts/telegramClient.js');
+const { emitTelegramEvent } = await import('../../../../alerts/telegramEventRouter.js');
 
 describe('atrDynamicStop (BEP / Lock-in 래칫)', () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -51,7 +52,7 @@ describe('atrDynamicStop (BEP / Lock-in 래칫)', () => {
     expect(r.hardStopLossUpdate).toBe(103);
     expect(shadow.hardStopLoss).toBe(103);
     expect(shadow.dynamicStopPrice).toBe(103);
-    expect(sendTelegramAlert).toHaveBeenCalledOnce();
+    expect(emitTelegramEvent).toHaveBeenCalledOnce();
   });
 
   it('BEP 보호 갱신 → hardStopLossUpdate + BEP 알림', async () => {
@@ -62,7 +63,7 @@ describe('atrDynamicStop (BEP / Lock-in 래칫)', () => {
     const shadow = makeMockShadow({ entryATR14: 5, hardStopLoss: 90 });
     const r = await atrDynamicStop(makeMockCtx({ shadow, currentPrice: 105, hardStopLoss: 90 }));
     expect(r.hardStopLossUpdate).toBe(100);
-    expect(sendTelegramAlert).toHaveBeenCalledOnce();
+    expect(emitTelegramEvent).toHaveBeenCalledOnce();
   });
 
   it('trailingActive=true 면 trailingStopPrice 사용', async () => {

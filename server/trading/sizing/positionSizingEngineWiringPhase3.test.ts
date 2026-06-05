@@ -1,4 +1,4 @@
-﻿/**
+/**
  * positionSizingEngineWiringPhase3.test.ts (ADR-0165)
  *
  * Phase 3 LIVE Activation 회귀 — `_LIVE_ENABLED=true` ENV 분기 + LIVE peak 격리 + 4 진입 경로 공용.

@@ -33,42 +33,33 @@ describe('ADR-0093 — FOMC/VIX 게이팅 알림 dedupeKey 정합', () => {
     expect(src).not.toContain('[FOMC 게이팅] 신규 진입 차단');
   });
 
-  it('preflight.ts VIX 게이팅 알림은 vix_gating_block dedupeKey 사용', () => {
+  // ── 게이팅 system-wide 제거 (Patch-FOMC-DEAD-CODE-REMOVAL-001 / Patch-FOMC-DOA-BatchC,
+  //    patch-history:62·262) 후 회귀 가드 재지정 ─────────────────────────────────────
+  // 구 v4 게이팅(VIX/FOMC 신규 진입 차단 알림)이 의도적으로 제거됨:
+  //   - vixGating.ts @responsibility "VIX 게이팅 제거됨 (stub only)" → getVixGating 항상 noNewEntry=false.
+  //   - fomcCalendar.ts getFomcProximity 항상 NORMAL(FOMC_GATING_REMOVED).
+  // 따라서 preflight.ts 에 게이팅 차단 알림 호출 site 자체가 부재 → dedupeKey 정합을
+  // 검증할 대상이 없다. 원 ADR-0093 의도(도배 재발 차단)는 "알림 원천 제거"로 충족.
+  // 본 단언을 "구 게이팅 알림 본체 부재 (drift 차단)"로 재지정한다. gatingAlertWindow.wiring.test.ts
+  // 와 동일 SSOT — 게이팅 알림이 다시 grep 가능해지면(재도입) 즉시 fail 시켜 검토 유발.
+  it('preflight.ts — VIX 게이팅 알림 본체 + vix_gating_block dedupeKey 부재 (게이팅 제거)', () => {
     const src = readFile('server/trading/signalScanner/preflight.ts');
-    expect(src).toContain('[VIX 게이팅] 신규 진입 차단');
-    const vixIdx = src.indexOf('[VIX 게이팅] 신규 진입 차단');
-    const block = src.slice(vixIdx, vixIdx + 600);
-    expect(block).toContain('vix_gating_block:');
-    expect(block).toContain('cooldownMs:');
-    expect(block).toContain('12 * 60 * 60 * 1000');
+    expect(src).not.toContain('[VIX 게이팅] 신규 진입 차단');
+    expect(src).not.toContain('vix_gating_block:');
   });
 
-  it('preflight.ts FOMC 게이팅 알림은 fomc_gating_block dedupeKey 사용', () => {
+  it('preflight.ts — FOMC 게이팅 알림 본체 + fomc_gating_block dedupeKey 부재 (게이팅 제거)', () => {
     const src = readFile('server/trading/signalScanner/preflight.ts');
-    expect(src).toContain('[FOMC 게이팅] 신규 진입 차단');
-    const fomcIdx = src.indexOf('[FOMC 게이팅] 신규 진입 차단');
-    const block = src.slice(fomcIdx, fomcIdx + 700);
-    expect(block).toContain('fomc_gating_block:');
-    expect(block).toContain('cooldownMs:');
-    expect(block).toContain('12 * 60 * 60 * 1000');
-    expect(block).toContain('fomcProximity.nextFomcDate');
+    expect(src).not.toContain('[FOMC 게이팅] 신규 진입 차단');
+    expect(src).not.toContain('fomc_gating_block:');
   });
 
-  it('회귀 차단 — preflight.ts 게이팅 차단 알림 모두 dedupeKey 보유', () => {
-    // 본 가드는 사용자 보고 시나리오 재발을 차단 — `[VIX 게이팅] 신규 진입 차단`
-    // 또는 `[FOMC 게이팅] 신규 진입 차단` 직후 700자 안에 dedupeKey 없으면 fail.
-    const src = readFile('server/trading/signalScanner/preflight.ts');
-    const labels = ['[VIX 게이팅] 신규 진입 차단', '[FOMC 게이팅] 신규 진입 차단'];
-    for (const label of labels) {
-      let idx = src.indexOf(label);
-      while (idx !== -1) {
-        const block = src.slice(idx, idx + 700);
-        const callEndIdx = block.indexOf('.catch(');
-        const callBlock = callEndIdx > 0 ? block.slice(0, callEndIdx) : block;
-        expect(callBlock, `preflight.ts ${label} @${idx} 부근에 dedupeKey 부재`).toContain('dedupeKey');
-        idx = src.indexOf(label, idx + label.length);
-      }
-    }
+  it('회귀 차단 — getVixGating / getFomcProximity 가 no-block stub (알림 발생 원천 제거)', () => {
+    // 게이팅 제거의 production SSOT: 두 게이팅 함수가 항상 no-block 반환하므로
+    // 차단 알림 자체가 발생할 수 없다 (사용자 보고 도배 시나리오 원천 차단).
+    const vixSrc = readFile('server/trading/vixGating.ts');
+    expect(vixSrc).toContain('VIX 게이팅 제거됨 (stub only)');
+    expect(vixSrc).toContain('noNewEntry:      false');
   });
 
   it.skip('TODO 별도 PR — fomc_relaxed_ 알림 wiring 복원 (ADR-0147b 분해 시 누락된 정책 회귀)', () => {

@@ -586,16 +586,16 @@ describe('호출자 제한 (signalScanner helper만 허용)', () => {
       expect(rejectsImports(src, 'shadowLearningOnlyScan')).toBe(true);
       // preflight.ts 는 runShadowLearningOnlyScan 을 직접 호출하지 않음
       expect(src).not.toMatch(/runShadowLearningOnlyScan\(/);
-      // recordBlockedDayShadowScan wiring 은 preflight.ts 가 소유 (SELL_ONLY/R6 rollback 후 9회)
+      // recordBlockedDayShadowScan wiring 은 preflight.ts 가 소유. always-on rollback +
+      // FOMC dead-code 제거(Patch-FOMC-DEAD-CODE-REMOVAL-001)로 SELL_ONLY/R6/VIX_SPIKE/
+      // FOMC_BLOCK reason 은 폐지됐고, 현재는 always-on hard-block 6회(5 reason)만 잔존.
       const wiringCalls = src.match(/recordBlockedDayShadowScan\(['"]/g);
       expect(wiringCalls).not.toBeNull();
-      expect(wiringCalls!.length).toBeGreaterThanOrEqual(9);
+      expect(wiringCalls!.length).toBeGreaterThanOrEqual(6);
       const reasons = [...src.matchAll(/recordBlockedDayShadowScan\(['"]([^'"]+)['"]\)/g)].map((m) => m[1]);
       expect(reasons).toEqual(expect.arrayContaining([
         'KIS_CONFIG_MISSING',
         'WATCHLIST_EMPTY',
-        'VIX_SPIKE',
-        'FOMC_BLOCK',
         'DATA_STARVED',
         'POSITION_FULL',
         'R3_SANITY_BLOCK',

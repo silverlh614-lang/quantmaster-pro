@@ -29,6 +29,7 @@ import {
 } from './kisClient/index.js';
 import { OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS } from '../../src/domain/sector-energy/SectorEnergyCanonicalResolver.js';
 import type { KisApiPriority } from './kisRateLimiter.js';
+import { publishCanonicalSectorReturns } from './sectorCanonicalReturnLookup.js'; // ADR-0577 Stage 0: canonical 룩업 leaf 에 publish (read-only, 신규 fetch 0).
 
 /** StrategicSector(meta.inputs 의 KRX 12-섹터명) → 공식 iscd 매핑 (verifiedMapping SSOT 재사용). */
 export interface SectorCycleReturn {
@@ -104,9 +105,10 @@ interface CycleCacheEntry {
 
 let _cache: CycleCacheEntry | null = null;
 
-/** 테스트 전용 — 캐시 리셋. */
+/** 테스트 전용 — 캐시 리셋 (ADR-0577 canonical leaf 스냅샷 동반 리셋). */
 export function __resetSectorIndexCycleCacheForTests(): void {
   _cache = null;
+  publishCanonicalSectorReturns(null);
 }
 
 /**
@@ -158,6 +160,8 @@ export async function getSectorCycleReturns(
 
   const now = Date.now();
   if (_cache && now - _cache.fetchedAtMs < CACHE_TTL_MS) {
+    // ADR-0577 Stage 0: 캐시 hit 시에도 canonical leaf 에 publish (신규 fetch 0, read-only 재사용).
+    publishCanonicalSectorReturns(_cache.byStrategicSector.values());
     return new Map(_cache.byStrategicSector);
   }
 
@@ -184,6 +188,8 @@ export async function getSectorCycleReturns(
   }
 
   _cache = { fetchedAtMs: now, byStrategicSector: new Map(out) };
+  // ADR-0577 Stage 0: 빌드 결과를 canonical leaf 에 publish (per-candidate 축이 룩업으로 소비).
+  publishCanonicalSectorReturns(out.values());
   return out;
 }
 

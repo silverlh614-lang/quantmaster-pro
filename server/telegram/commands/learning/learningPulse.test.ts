@@ -81,9 +81,19 @@ function makeSuggestAlert(at: string, moduleKey: string, success = true): AlertH
   };
 }
 
-function writeAlertJsonl(tmpDir: string, yyyymm: string, entries: AlertHistoryEntry[]): void {
-  const file = path.join(tmpDir, `alert-history-${yyyymm}.jsonl`);
-  fs.writeFileSync(file, entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
+function monthKey(d: Date): string {
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+// Patch-VITEST-CAT-C: getRecentAlertHistory() 는 실제 wall-clock(new Date()) 기준
+// current/previous 월 파일만 읽고 둘을 merge 한다. 테스트가 고정 `202604` 파일명으로 쓰면
+// wall-clock 이 2026-04/05 를 벗어난 시점부터 영원히 읽히지 않아 suggest7d 가 0 으로 drift 한다.
+// alert 의 `at` 타임스탬프는 NOW 상대(isoNDaysAgo)라 recent() 필터는 그대로 통과하므로,
+// 파일명만 실제 current 월로 써서 repo 가 항상 찾도록 한다(레거시 인자 yyyymm 무시).
+// current 월 단일 파일에만 써서 current+previous merge 로 인한 이중 카운트를 피한다.
+function writeAlertJsonl(tmpDir: string, _yyyymm: string, entries: AlertHistoryEntry[]): void {
+  const body = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
+  fs.writeFileSync(path.join(tmpDir, `alert-history-${monthKey(new Date())}.jsonl`), body);
 }
 
 describe('computeGeminiUseRatio', () => {

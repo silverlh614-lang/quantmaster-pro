@@ -150,7 +150,14 @@ describe('ADR-0481 NAVER Investor Trend Collector Wiring', () => {
     expect(result.rawPayloadPersistenceAllowed).toBe(false);
     expect(semantic.inputSources).toContain('NAVER');
     expect(semantic.materializationDiagnostics.usableForRouter).toBe(true);
-    expect(route.selectedProvider).toBe('NAVER_INVESTOR_TREND');
+    // NAVER 는 router-selectable 이 아니다 (production routeBuilder L112-117 selectShadow:
+    // NAVER_SECONDARY_NOT_ROUTER_SELECTABLE + L534-538 isRouterSelectableMaterializedCandidate 가
+    // NAVER 명시 제외). KIS-primary-absolute(ADR-0561) 정합 — NAVER(L3) 는 selectedProvider 불가,
+    // SHADOW 진단으로만 materialize. NAVER STALE + cache STALE 동반이라 selectedProvider 는 CACHE
+    // fallback 으로 떨어지나 sample 자체는 router-usable 로 materialize 되고 live 는 차단된다.
+    expect(route.selectedProvider).not.toBe('NAVER_INVESTOR_TREND');
+    expect(route.selectedProvider).toBe('CACHE');
+    expect(route.providerStatuses?.NAVER_INVESTOR_TREND).toBe('STALE');
     expect(route.coverage.available).toBeGreaterThan(1);
     expect(route.liveExecutionAllowed).toBe(false);
     expect(route.executionImpact).toBe('NONE');
@@ -200,11 +207,17 @@ describe('ADR-0481 NAVER Investor Trend Collector Wiring', () => {
     expect(result.materializationDiagnostics.safePreview.length).toBeGreaterThan(0);
   });
 
-  it('ADR-0477 can select NAVER only in SHADOW_ONLY diagnostics', () => {
+  // KIS-primary-absolute(ADR-0561) + routeBuilder NAVER_SECONDARY_NOT_ROUTER_SELECTABLE 정책:
+  // NAVER(L3) 는 VERIFIED 여도 router selectedProvider 로 승격되지 않는다 (SHADOW 진단 전용).
+  // 다른 primary 소스가 없으면 selectedProvider=NONE 이 되고 directional signal 도 router 로
+  // 흐르지 않는다. NAVER provider status 는 VERIFIED 로 materialize 되고 policy 는 SHADOW_ONLY,
+  // live 는 항상 차단(executionImpact=NONE/liveExecutionAllowed=false).
+  it('ADR-0477 — NAVER 는 VERIFIED 여도 SHADOW_ONLY 진단 전용 (selectedProvider 승격 없음)', () => {
     const result = positive();
     const route = buildInvestorFlowProviderRouteResultAdr0477({ code: '005930', naverCollectorResultAdr0481: result, kisTriedForInvestorFlow: true });
-    expect(route.selectedProvider).toBe('NAVER_INVESTOR_TREND');
-    expect(route.signal).toBe('BULLISH');
+    expect(route.selectedProvider).not.toBe('NAVER_INVESTOR_TREND');
+    expect(route.selectedProvider).toBe('NONE');
+    expect(route.providerStatuses?.NAVER_INVESTOR_TREND).toBe('VERIFIED');
     expect(route.policyPromotionMode).toBe('SHADOW_ONLY');
     expect(route.executionImpact).toBe('NONE');
     expect(route.liveExecutionAllowed).toBe(false);

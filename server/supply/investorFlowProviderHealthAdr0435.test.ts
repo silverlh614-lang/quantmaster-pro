@@ -7,11 +7,20 @@ describe('ADR-0435 InvestorFlowProviderHealth SSOT', () => {
   let tmpDir: string;
   const originalDataDir = process.env.PERSIST_DATA_DIR;
   const originalKrxDisabled = process.env.KRX_API_DISABLED;
+  const originalTimeWindowGating = process.env.KRX_TIME_WINDOW_GATING_DISABLED;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adr0435-flow-'));
     process.env.PERSIST_DATA_DIR = tmpDir;
     process.env.KRX_API_DISABLED = 'true';
+    // KRX investor-flow 라우터의 `fetchInvestorTrading(ymd)` 는 라우터에 주입된 `now`
+    // 가 아니라 실시간 `new Date()` 기준으로 intraday 세션을 분류한다. 따라서 KST
+    // 장중(09:00~15:30) 밖에서 테스트가 돌면 KRX 가드가 SESSION_CLOSED_NOT_APPLICABLE
+    // → endpointIssueHint=MARKET_CLOSED_NO_PREVIOUS_SAMPLE 로 분류해 parser-empty
+    // 계열 status 기대가 깨진다(시각 의존 flakiness). production 이 제공하는 escape
+    // hatch 로 게이팅을 비활성화해 KRX_API_DISABLED 본연의 parser-empty 경로를
+    // 시각 비의존으로 검증한다.
+    process.env.KRX_TIME_WINDOW_GATING_DISABLED = 'true';
     vi.resetModules();
   });
 
@@ -22,6 +31,8 @@ describe('ADR-0435 InvestorFlowProviderHealth SSOT', () => {
     else process.env.PERSIST_DATA_DIR = originalDataDir;
     if (originalKrxDisabled === undefined) delete process.env.KRX_API_DISABLED;
     else process.env.KRX_API_DISABLED = originalKrxDisabled;
+    if (originalTimeWindowGating === undefined) delete process.env.KRX_TIME_WINDOW_GATING_DISABLED;
+    else process.env.KRX_TIME_WINDOW_GATING_DISABLED = originalTimeWindowGating;
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
     vi.restoreAllMocks();
   });

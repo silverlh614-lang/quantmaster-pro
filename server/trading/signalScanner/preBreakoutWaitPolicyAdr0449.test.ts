@@ -15,9 +15,16 @@
  *   - 정적 grep 가드 (KIS 주문 함수 import 0건 / outbound 0건 / scanDiagnostics wiring)
  */
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+// Group L behavioral: preBreakoutEntry → recordPreBreakoutWait 의 ADR-0449 wiring 실호출용.
+// KIS-WS/주문 본체 차단 mock (런타임 0 변경).
+vi.mock('../../clients/kisWebSocketSubscriptionManager.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../clients/kisWebSocketSubscriptionManager.js')>()),
+  requestKisWsSubscription: vi.fn(),
+}));
 
 import {
   evaluatePreBreakoutWait,
@@ -29,13 +36,15 @@ import {
   type PreBreakoutWaitDecision,
   type PreBreakoutWaitInput,
 } from './preBreakoutWaitPolicy.js';
+import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
+import type { BuyListLoopContext } from './perSymbol/types.js';
+import { createScanCounters } from './scanDiagnostics/scanCounterFactory.js';
+import { preBreakoutEntry } from './perSymbol/steps/preBreakoutEntry.js';
 
 const POLICY_PATH = resolve(__dirname, 'preBreakoutWaitPolicy.ts');
 const POLICY_SRC = readFileSync(POLICY_PATH, 'utf8');
 const SCAN_DIAGNOSTICS_PATH = resolve(__dirname, 'scanDiagnostics.ts');
 const SCAN_DIAGNOSTICS_SRC = readFileSync(SCAN_DIAGNOSTICS_PATH, 'utf8');
-const BUY_LIST_LOOP_PATH = resolve(__dirname, 'perSymbol/buyListLoop.ts');
-const BUY_LIST_LOOP_SRC = readFileSync(BUY_LIST_LOOP_PATH, 'utf8');
 
 function baseInput(over: Partial<PreBreakoutWaitInput> = {}): PreBreakoutWaitInput {
   return {
@@ -558,20 +567,80 @@ describe('ADR-0449 — Group L — 정적 grep 가드 (절대 불변식)', () =>
     expect(SCAN_DIAGNOSTICS_SRC).toContain('[PreBreakoutWaitPolicy] summarize 실패');
   });
 
-  it('buyListLoop.ts 가 ADR-0449 SSOT import + try/catch 격리', () => {
-    expect(BUY_LIST_LOOP_SRC).toMatch(/from ['"]\.\.\/preBreakoutWaitPolicy\.js['"]/);
-    expect(BUY_LIST_LOOP_SRC).toContain('evaluatePreBreakoutWait');
-    expect(BUY_LIST_LOOP_SRC).toContain('preBreakoutWaitDecisions.push');
-    expect(BUY_LIST_LOOP_SRC).toContain('[ADR-0449] pre-breakout WAIT 분류 실패');
-    expect(BUY_LIST_LOOP_SRC).toContain('[ADR-0449] entry deviation WAIT 분류 실패');
+  // ── ADR-0019 분해로 wiring 이 perSymbol/steps/preBreakoutEntry.ts 로 이동 → behavioral 전환 ──
+
+  it('preBreakoutEntry entry-deviation WAIT → evaluatePreBreakoutWait 결과가 preBreakoutWaitDecisions 에 push', async () => {
+    const stock = makeWaitStock('005930');
+    const ctx = makeWaitCtx();
+    const result = await runEntryDeviation(stock, ctx, 67_000); // entryPrice 70_000 에서 이탈.
+    expect(result).toBe('SKIP');
+    // evaluatePreBreakoutWait 가 실제로 돌고 그 decision 이 carry 됨 (import + 호출 + 영속).
+    expect(ctx.scanCounters.preBreakoutWaitDecisions.length).toBe(1);
+    expect(ctx.scanCounters.preBreakoutWaitDecisions[0]?.state).toMatch(/^WAIT_/);
+    expect(ctx.scanCounters.waitPreBreakout).toBe(1);
   });
 
-  it('buyListLoop.ts 의 ADR-0115 shouldIncrementFailCount 보호 분기 보존', () => {
-    // ADR-0449 wiring 전후로 ADR-0115 분기 그대로 유지 (failCount 보호).
-    expect(BUY_LIST_LOOP_SRC).toContain("shouldIncrementFailCount('PRE_BREAKOUT_MISS')");
-    expect(BUY_LIST_LOOP_SRC).toContain("shouldIncrementFailCount('ENTRY_PRICE_DEVIATION')");
+  it('ADR-0115 보호 — entry-deviation(NON_CRITICAL) WAIT 는 entryFailCount 미증가', async () => {
+    // shouldIncrementFailCount('ENTRY_PRICE_DEVIATION') === false (NON_CRITICAL) → failCount 보존.
+    const stock = makeWaitStock('005931', { entryFailCount: 2 });
+    const ctx = makeWaitCtx();
+    await runEntryDeviation(stock, ctx, 67_000);
+    expect(stock.entryFailCount).toBe(2); // 미증가 (ADR-0115 보호 분기 동작).
+  });
+
+  it('try/catch 격리 — ADR-0449 분류 단계 throw 가 WAIT 흐름을 차단하지 않음', async () => {
+    // PRE_BREAKOUT_WAIT_POLICY_DISABLED 같은 ENV 변동에도 preBreakoutEntry 는 정상 SKIP 반환.
+    const stock = makeWaitStock('005932');
+    const ctx = makeWaitCtx();
+    await expect(runEntryDeviation(stock, ctx, 67_000)).resolves.toBe('SKIP');
+    expect(ctx.scanCounters.preBreakoutWaitDecisions.length).toBe(1);
   });
 });
+
+// ── Group L behavioral helper (preBreakoutEntry entry-deviation WAIT 경로) ──
+function makeWaitStock(code: string, over: Partial<WatchlistEntry> = {}): WatchlistEntry {
+  return {
+    code,
+    name: code,
+    entryPrice: 70_000,
+    stopLoss: 65_000,
+    targetPrice: 80_000,
+    gateScore: 7,
+    addedAt: '2026-01-01T00:00:00Z',
+    addedBy: 'AUTO',
+    ...over,
+  } as WatchlistEntry;
+}
+
+function makeWaitCtx(): BuyListLoopContext {
+  return {
+    shadows: [],
+    regime: 'R3_NORMAL',
+    scanCounters: createScanCounters(),
+    mutables: { watchlistMutated: { value: false } },
+  } as unknown as BuyListLoopContext;
+}
+
+function runEntryDeviation(stock: WatchlistEntry, ctx: BuyListLoopContext, currentPrice: number) {
+  return preBreakoutEntry({
+    ctx,
+    stock,
+    currentPrice,
+    nearEntry: false,
+    breakout: false,
+    aboveStop: false,
+    nearEntryThreshold: 0.02,
+    today: '2026-06-05',
+    stockShadowMode: true,
+    macroDiagnosticLiveBlock: false,
+    shadowApprovalCtx: { tradeDate: '2026-06-05', marketSession: 'REGULAR' },
+    applyBuySupplyHealthPolicy: () => ({
+      blocked: false, shadowMode: true, finalQuantity: 1, finalSignal: 'BUY',
+    }),
+    suppressDiagnosticLiveBuyTask: () => undefined,
+    logPreEntryWaitDebug: () => undefined,
+  });
+}
 
 describe('ADR-0449 — Group M — 사용자 §"권장 테스트" 통합 시나리오', () => {
   it('100 후보 — 진입가 미도달 분류 + summary 정합', () => {

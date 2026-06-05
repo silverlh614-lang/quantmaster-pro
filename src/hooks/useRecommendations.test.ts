@@ -142,7 +142,7 @@ describe('useRecommendations — view 전환', () => {
 });
 
 describe('useRecommendations — 검색어 매칭 (버그 A/B 회귀)', () => {
-  it('빈 검색어 — 시장검색 결과(searchResults)는 무조건 노출', () => {
+  it('빈 검색어 — 시장검색 결과(searchResults)는 항상 노출', () => {
     const input: RecommendationFilterInput = {
       ...baseInput,
       recommendations: [],

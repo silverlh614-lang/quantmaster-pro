@@ -245,18 +245,28 @@ describe('formatExposureBudgetLog — 분기 3: verbose ON (10 필드)', () => {
 // ─── 호출자 4 site 정합 정적 가드 (drift 차단) ────────────────────────────
 
 describe('호출자 4 site 정합 — 정적 grep 가드', () => {
-  const buyListLoopSrc = readFileSync(
-    resolve(process.cwd(), 'server/trading/signalScanner/perSymbol/buyListLoop.ts'),
-    'utf-8',
-  );
+  // seed 4452bd3 가 buyListLoop.ts 를 perSymbol/steps/* 로 분해 — 메인 buyList 의
+  // 3 formatExposureBudgetLog 호출(PRE_FOLLOW / PRE 30% / 메인)이 각각 별도 step 으로
+  // 이동했다. 정적 가드를 분해된 step 파일들로 재지정(intent=메인 3 caller 가 SSOT
+  // formatter 만 사용 + pathLabel 정확). intradayLoop 는 미분해 → 기존 경로 유지.
+  const MAIN_BUYLIST_STEP_FILES = [
+    'server/trading/signalScanner/perSymbol/steps/preBreakoutFollowthroughBudget.ts',
+    'server/trading/signalScanner/perSymbol/steps/exposureBudgetCap.ts',
+    'server/trading/signalScanner/perSymbol/steps/preBreakoutEntry.ts',
+  ];
+  const mainStepSrcs = MAIN_BUYLIST_STEP_FILES.map((f) => readFileSync(resolve(process.cwd(), f), 'utf-8'));
+  const mainStepSrcJoined = mainStepSrcs.join('\n');
   const intradayLoopSrc = readFileSync(
     resolve(process.cwd(), 'server/trading/signalScanner/perSymbol/intradayLoop.ts'),
     'utf-8',
   );
 
-  it('buyListLoop.ts — formatExposureBudgetLog import + 3 호출 (PRE_FOLLOW + PRE 30% + 메인)', () => {
-    expect(buyListLoopSrc).toMatch(/import\s*\{[^}]*formatExposureBudgetLog[^}]*\}\s*from\s+'\.\.\/\.\.\/sizing\/regimeExposurePolicy\.js'/);
-    const occurrences = buyListLoopSrc.match(/formatExposureBudgetLog\(/g) ?? [];
+  it('메인 buyList step 파일들 — formatExposureBudgetLog 총 3 호출 (PRE_FOLLOW + PRE 30% + 메인)', () => {
+    // 각 step 이 SSOT formatter import 사용.
+    for (const src of mainStepSrcs) {
+      expect(src).toMatch(/formatExposureBudgetLog/);
+    }
+    const occurrences = mainStepSrcJoined.match(/formatExposureBudgetLog\(/g) ?? [];
     expect(occurrences.length).toBe(3);
   });
 
@@ -266,30 +276,34 @@ describe('호출자 4 site 정합 — 정적 grep 가드', () => {
     expect(occurrences.length).toBe(1);
   });
 
-  it('buyListLoop.ts — 3 pathLabel 정확 (PRE_BREAKOUT_FOLLOWTHROUGH / PRE_BREAKOUT 30% / 메인=undefined)', () => {
-    expect(buyListLoopSrc).toContain("pathLabel: 'PRE_BREAKOUT_FOLLOWTHROUGH'");
-    expect(buyListLoopSrc).toContain("pathLabel: 'PRE_BREAKOUT 30%'");
-    // 메인 buyList 는 pathLabel 미전달 (regime 노출 4 필드 default).
+  it('메인 buyList step — 2 pathLabel 정확 (PRE_BREAKOUT_FOLLOWTHROUGH / PRE_BREAKOUT 30% / 메인=undefined)', () => {
+    expect(mainStepSrcJoined).toContain("pathLabel: 'PRE_BREAKOUT_FOLLOWTHROUGH'");
+    expect(mainStepSrcJoined).toContain("pathLabel: 'PRE_BREAKOUT 30%'");
+    // 메인 buyList(exposureBudgetCap) 는 pathLabel 미전달 (regime 노출 4 필드 default).
   });
 
   it('intradayLoop.ts — pathLabel = INTRADAY_STRONG', () => {
     expect(intradayLoopSrc).toContain("pathLabel: 'INTRADAY_STRONG'");
   });
 
-  it('buyListLoop.ts + intradayLoop.ts — inline `[Sizing-ExposureBudget]` 문자열 합성 부재 (drift 차단)', () => {
-    // 본 PR 후엔 모든 호출 site 가 SSOT formatter 만 사용해야 함.
-    // inline `console.log(\`[Sizing-ExposureBudget]\` ...)` 패턴 차단.
-    const inlineBuyList = buyListLoopSrc.match(/console\.log\(\s*`\[Sizing-ExposureBudget\]/g) ?? [];
+  it('메인 buyList step + intradayLoop.ts — inline `[Sizing-ExposureBudget]` 문자열 합성 부재 (drift 차단)', () => {
+    // 모든 호출 site 가 SSOT formatter 만 사용해야 함.
+    const inlineMain = mainStepSrcJoined.match(/console\.log\(\s*`\[Sizing-ExposureBudget\]/g) ?? [];
     const inlineIntraday = intradayLoopSrc.match(/console\.log\(\s*`\[Sizing-ExposureBudget\]/g) ?? [];
-    expect(inlineBuyList.length).toBe(0);
+    expect(inlineMain.length).toBe(0);
     expect(inlineIntraday.length).toBe(0);
   });
 
-  it('호출자 4 site 모두 ADR-0171 주석 추적성', () => {
-    const buyListAdr = buyListLoopSrc.match(/ADR-0171/g) ?? [];
+  it('intradayLoop.ts ADR-0171 추적성 + formatter SSOT 추적 주석', () => {
+    // 분해로 buyListLoop.ts 의 ADR-0171 site 주석은 SSOT formatter(regimeExposurePolicy.ts)
+    // 로 통합됐다 — 추적성 SSOT 는 formatter 정의부. intradayLoop 는 미분해 유지.
     const intradayAdr = intradayLoopSrc.match(/ADR-0171/g) ?? [];
-    expect(buyListAdr.length).toBeGreaterThanOrEqual(4);  // 1 import + 3 site 주석
     expect(intradayAdr.length).toBeGreaterThanOrEqual(2);  // 1 import + 1 site 주석
+    const formatterSrc = readFileSync(
+      resolve(process.cwd(), 'server/trading/sizing/regimeExposurePolicy.ts'),
+      'utf-8',
+    );
+    expect(formatterSrc).toMatch(/ADR-0171/);
   });
 });
 

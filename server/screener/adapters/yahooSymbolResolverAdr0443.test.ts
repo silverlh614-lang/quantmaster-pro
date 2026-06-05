@@ -134,10 +134,14 @@ describe('ADR-0443 정적 grep 가드 — Category A 호출자 fetchYahooQuoteBy
     expect(cleaned).toMatch(/fetchTechnicalQuoteByCode\s*\(\s*w\.code\s*\)/);
   });
 
-  it('universeScanner.ts: fetchYahooQuoteByCode(code, fetchYahooQuote) 호출 보유', () => {
+  // ADR-0561 KIS Primary Absolute burn-down: universeScanner Stage1 quote fetch 가
+  // fetchYahooQuoteByCode(code, fetchYahooQuote) Yahoo-primary 에서 fetchKisQuoteFallback(code)
+  // KIS-primary funnel 로 치환됨(.KS/.KQ direct concat 부재는 아래 별도 가드가 유지). 원본의
+  // fetchYahooQuoteByCode 호출 기대는 burn-down 이전 패턴으로 DOA → 정본 quote funnel 로 정정.
+  it('universeScanner.ts: fetchKisQuoteFallback(code) KIS-primary quote funnel 호출 보유 (ADR-0561)', () => {
     const src = readSrc('server/screener/universeScanner.ts');
     const cleaned = stripComments(src);
-    expect(cleaned).toMatch(/fetchYahooQuoteByCode\s*\(\s*code\s*,\s*fetchYahooQuote\s*\)/);
+    expect(cleaned).toMatch(/fetchKisQuoteFallback\s*\(\s*code\s*\)/);
   });
 
   it('reportGenerator.ts: legacy `await fetchYahooQuote(.KS) ?? await fetchYahooQuote(.KQ)` 패턴 부재', () => {

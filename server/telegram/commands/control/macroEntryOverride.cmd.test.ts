@@ -13,6 +13,7 @@ import './guards.cmd.js';
 
 const CONTROL_INDEX_PATH = path.resolve(__dirname, 'index.ts');
 const PREFLIGHT_PATH = path.resolve(__dirname, '..', '..', '..', 'trading', 'signalScanner', 'preflight.ts');
+const SCHEDULER_PATH = path.resolve(__dirname, '..', '..', '..', 'orchestrator', 'adaptiveScanScheduler.base.ts');
 
 describe('/macro_unblock operator macro entry override', () => {
   afterEach(() => {
@@ -90,14 +91,23 @@ describe('/macro_unblock operator macro entry override', () => {
     expect(captured).toContain('R6_DEFENSE');
   });
 
-  it('is wired through the control barrel and preflight macro gates', () => {
+  it('is wired through the control barrel and the adaptive scan scheduler macro gate', () => {
+    // 배경(stale 단언 정정): macro entry override gating 이 preflight.ts 인라인에서
+    // adaptiveScanScheduler.base.ts 로 이전됐다. 실제 enforcement = scheduler 가
+    // isMacroEntryOverrideActive('R6_DEFENSE') 를 소비해 R6 에서 SELL_ONLY 해제 + FULL 스캔
+    // (마커 OPERATOR_MACRO_ENTRY_OVERRIDE). preflight 는 override 를 진단으로만 surface
+    // (getMacroEntryOverrideState → macroEntryOverrideActive/Targets). seed 4452bd3 부터
+    // production 과 불일치했던 preflight 인라인 문자열 단언을 현행 enforcement 위치로 정정한다.
     const barrelSrc = fs.readFileSync(CONTROL_INDEX_PATH, 'utf-8');
+    const schedulerSrc = fs.readFileSync(SCHEDULER_PATH, 'utf-8');
     const preflightSrc = fs.readFileSync(PREFLIGHT_PATH, 'utf-8');
 
     expect(barrelSrc).toContain('macroEntryOverride.cmd.js');
-    expect(preflightSrc).toContain("regime === 'R6_DEFENSE' && !r6EntryOverrideActive");
-    expect(preflightSrc).toContain('vixGating.noNewEntry && !vixEntryOverrideActive');
-    expect(preflightSrc).toContain('fomcProximity.noNewEntry && !fomcEntryOverrideActive');
-    expect(preflightSrc).toContain('OPERATOR_MACRO_ENTRY_OVERRIDE');
+    // 실제 enforcement (scheduler): R6_DEFENSE override 소비 → SELL_ONLY 해제 + FULL 스캔.
+    expect(schedulerSrc).toContain("isMacroEntryOverrideActive('R6_DEFENSE')");
+    expect(schedulerSrc).toContain('OPERATOR_MACRO_ENTRY_OVERRIDE');
+    // preflight: override 진단 surface (gating 은 scheduler 로 이전).
+    expect(preflightSrc).toContain('getMacroEntryOverrideState');
+    expect(preflightSrc).toContain('macroEntryOverrideActive');
   });
 });

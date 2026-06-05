@@ -168,13 +168,18 @@ describe('ORDER_BLOCKED — 시스템 차단 5종', () => {
     expect(classifyEmptyScanReason(summary)).toBe('ORDER_BLOCKED');
   });
 
-  it('sellOnlyMode → ORDER_BLOCKED', () => {
+  // always-on rollback: legacy sellOnlyMode 는 더 이상 시스템 차단(ORDER_BLOCKED) 분류 사유가
+  // 아니다 (production emptyScanClassifier.ts §4 sellOnly 분기 제거 + L187 advice "Legacy
+  // SELL_ONLY is ignored by rollback"). sellOnly 단독(다른 분류 신호 없음)은 ORDER_BLOCKED 가
+  // 아니라 fallback UNKNOWN 으로 분류된다. emptyScanLivenessPolicy 의 always-on 방향과 정합.
+  it('sellOnlyMode 단독 → ORDER_BLOCKED 아님 (rollback, UNKNOWN fallback)', () => {
     const summary = makeSummary({
       candidates: 5,
       entries: 0,
       macroGateState: { ...baseMacro, sellOnlyMode: true },
     });
-    expect(classifyEmptyScanReason(summary)).toBe('ORDER_BLOCKED');
+    expect(classifyEmptyScanReason(summary)).not.toBe('ORDER_BLOCKED');
+    expect(classifyEmptyScanReason(summary)).toBe('UNKNOWN');
   });
 
   it('watchlistEmpty + candidates>0 → ORDER_BLOCKED', () => {

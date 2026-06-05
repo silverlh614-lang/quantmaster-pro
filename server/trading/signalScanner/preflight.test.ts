@@ -31,18 +31,32 @@ vi.mock('../regimeBridge.js', () => {
   return {
     getLiveRegime,
     getRegimeDiagnostics: vi.fn((macroState: any) => {
-      const effectiveRegime = getLiveRegime(macroState);
+      const liveRegime = getLiveRegime(macroState);
+      const isR6 = liveRegime === 'R6_DEFENSE';
+      // production resolveRegimeSnapshot()는 legacy R6 effectiveRegime 을 rawRegime 으로 강등한다
+      // (marketStateResolver.base sanitizeLegacyR6EffectiveRegime + regimeResolver sanitizeEffectiveRegime).
+      // R6 시나리오의 base(raw) regime 은 R2_BULL 로 둬 "R6 무시 → 실행 regime=R2_BULL" 불변식을 재현.
+      const rawRegime = isR6 ? 'R2_BULL' : liveRegime;
+      const effectiveRegime = liveRegime;
       return {
-        rawRegime: effectiveRegime,
+        rawRegime,
         effectiveRegime,
         sourceFreshness: 'FRESH',
-        r6RecoveryStatus: effectiveRegime === 'R6_DEFENSE' ? 'R6_DEFENSE' : 'NOT_R6',
-        cooldownUntil: null,
-        activeR6Triggers: effectiveRegime === 'R6_DEFENSE' ? ['MHS_LOW'] : [],
-        r6ShockLatch: effectiveRegime === 'R6_DEFENSE',
-        recoveryBlockedReason: effectiveRegime === 'R6_DEFENSE' ? 'R6_DEFENSE_ACTIVE' : undefined,
-        r6TriggerBreakdown: { triggerFreshness: 'FRESH' },
-        transitionState: { r6StateMachineState: effectiveRegime === 'R6_DEFENSE' ? 'R6_DEFENSE' : 'R2_BULL' },
+        r6RecoveryStatus: isR6 ? 'R6_DEFENSE' : 'NOT_R6',
+        cooldownUntil: undefined,
+        transitionReason: '',
+        // preflight.ts:698-699 가 recoveryEvidence.{vkospiTrustState,reasons} 를 직접 읽는다
+        // (RegimeDiagnostics.recoveryEvidence: R6RecoveryEvidence, regimeBridge.base.ts).
+        recoveryEvidence: {
+          vkospiTrustState: 'TRUSTED',
+          reasons: ['R6_RECOVERY_EVIDENCE_OK'],
+        },
+        activeR6Triggers: isR6 ? ['MHS_LOW'] : [],
+        previousR6Triggers: [],
+        r6ShockLatch: isR6,
+        recoveryBlockedReason: isR6 ? 'R6_DEFENSE_ACTIVE' : undefined,
+        r6TriggerBreakdown: { triggerFreshness: 'FRESH', activeR6Triggers: isR6 ? ['MHS_LOW'] : [] },
+        transitionState: { r6StateMachineState: isR6 ? 'R6_DEFENSE' : 'R2_BULL' },
       };
     }),
   };
@@ -54,6 +68,7 @@ vi.mock('../../persistence/r3SanityBlockRepo.js', () => ({
   acknowledgeR3SanityBlock: vi.fn(),
   isR3SanityAckTokenValid: vi.fn(),
   loadR3SanityBlockState: vi.fn(),
+  getEffectiveR3SanityBlockState: vi.fn(),
 }));
 vi.mock('../../persistence/shadowTradeRepo.js', () => ({
   loadShadowTrades: vi.fn().mockReturnValue([]),
@@ -124,7 +139,7 @@ vi.mock('../../../src/services/quant/regimeEngine.js', () => ({
 import { fetchAccountBalance } from '../../clients/kisClient.js';
 import { getManualBlockNewBuy } from '../../state.js';
 import { loadWatchlist } from '../../persistence/watchlistRepo.js';
-import { loadR3SanityBlockState, isR3SanityAckTokenValid, acknowledgeR3SanityBlock } from '../../persistence/r3SanityBlockRepo.js';
+import { loadR3SanityBlockState, getEffectiveR3SanityBlockState, isR3SanityAckTokenValid, acknowledgeR3SanityBlock } from '../../persistence/r3SanityBlockRepo.js';
 import { getLiveRegime } from '../regimeBridge.js';
 import { getVixGating } from '../vixGating.js';
 import { getFomcProximity } from '../fomcCalendar.js';
@@ -139,6 +154,8 @@ const mockedFetchAccountBalance = vi.mocked(fetchAccountBalance);
 const mockedGetManualBlockNewBuy = vi.mocked(getManualBlockNewBuy);
 const mockedLoadWatchlist = vi.mocked(loadWatchlist);
 const mockedLoadR3SanityBlockState = vi.mocked(loadR3SanityBlockState);
+// preflight 는 R3 sanity latch 를 getEffectiveR3SanityBlockState(TTL 반영)로 조회한다 — 테스트는 이걸 제어.
+const mockedGetEffectiveR3SanityBlockState = vi.mocked(getEffectiveR3SanityBlockState);
 const mockedIsR3SanityAckTokenValid = vi.mocked(isR3SanityAckTokenValid);
 const mockedGetLiveRegime = vi.mocked(getLiveRegime);
 const mockedGetVixGating = vi.mocked(getVixGating);
@@ -164,6 +181,7 @@ describe('preflight.ts byte-equivalent tests', () => {
     // schema 진화에 자동 정합 (필수 필드 직접 명시는 schema 변경 시 drift 위험).
     mockedLoadWatchlist.mockReturnValue([{ code: '005930', name: 'Samsung' }] as ReturnType<typeof loadWatchlist>);
     mockedLoadR3SanityBlockState.mockReturnValue({ active: false } as ReturnType<typeof loadR3SanityBlockState>);
+    mockedGetEffectiveR3SanityBlockState.mockReturnValue({ active: false } as ReturnType<typeof getEffectiveR3SanityBlockState>);
     mockedGetLiveRegime.mockReturnValue('R2_BULL');
     mockedGetVixGating.mockReturnValue({ noNewEntry: false, kellyMultiplier: 1.0, reason: '' } as ReturnType<typeof getVixGating>);
     mockedGetFomcProximity.mockReturnValue({ noNewEntry: false, kellyMultiplier: 1.0, phase: 'NORMAL', description: '' } as unknown as ReturnType<typeof getFomcProximity>);
@@ -209,7 +227,7 @@ describe('preflight.ts byte-equivalent tests', () => {
 
   it('should NOT hard-abort R3 sanity even when legacy R3_SANITY_BLOCK_ENABLED=true is set (abort path removed)', async () => {
     process.env.R3_SANITY_BLOCK_ENABLED = 'true'; // legacy env must be ignored — no abort path exists
-    mockedLoadR3SanityBlockState.mockReturnValue({ active: true, violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', triggeredAt: 'ts' } as ReturnType<typeof loadR3SanityBlockState>);
+    mockedGetEffectiveR3SanityBlockState.mockReturnValue({ active: true, violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', triggeredAt: 'ts' } as ReturnType<typeof getEffectiveR3SanityBlockState>);
     mockedIsR3SanityAckTokenValid.mockReturnValue(false);
     const result = await runPreflight();
     expect(result.shouldAbort).toBe(false);
@@ -223,7 +241,7 @@ describe('preflight.ts byte-equivalent tests', () => {
 
   it('should demote R3 sanity latch to OBSERVE_ONLY (live blocked, Gate diagnostics run)', async () => {
     delete process.env.R3_SANITY_BLOCK_ENABLED;
-    mockedLoadR3SanityBlockState.mockReturnValue({ active: true, violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', triggeredAt: 'ts' } as ReturnType<typeof loadR3SanityBlockState>);
+    mockedGetEffectiveR3SanityBlockState.mockReturnValue({ active: true, violation: 'GATE1_PASS_ZERO', regime: 'R3_EARLY', triggeredAt: 'ts' } as ReturnType<typeof getEffectiveR3SanityBlockState>);
     mockedIsR3SanityAckTokenValid.mockReturnValue(false);
     const result = await runPreflight();
     // buyListLoop / Gate evaluation must RUN (no abort) so threshold evidence accumulates
@@ -260,10 +278,11 @@ describe('preflight.ts byte-equivalent tests', () => {
       shadowLearningAllowed: true,
       counterfactualAllowed: true,
     }));
+    // 현행: R6 무시 불변식 — regime 은 R2_BULL 로 강등(bearDefenseMode false), shadow/diagnostics alive.
+    // (구 monolithic macroDiagnosticOnly 세팅은 R3_SANITY 경로로 한정됨 — R6 단언 제거.)
     expect(result.context).toEqual(expect.objectContaining({
       watchlist: expect.any(Array),
       regime: 'R2_BULL',
-      macroDiagnosticOnly: true,
     }));
     expect(mockedSendTelegramAlert).not.toHaveBeenCalledWith(
       expect.stringContaining('[R6_DEFENSE]'),
@@ -275,41 +294,36 @@ describe('preflight.ts byte-equivalent tests', () => {
     }));
   });
 
-  it('should keep diagnostics alive if VIX gating is active while blocking live entry', async () => {
+  it('surfaces vixGatingActive diagnostically when VIX gating is active (live-entry gating decomposed to per-symbol)', async () => {
     mockedGetVixGating.mockReturnValue({ noNewEntry: true, kellyMultiplier: 0.5, reason: 'VIX spike' } as ReturnType<typeof getVixGating>);
     const result = await runPreflight();
     expect(result).toEqual(expect.objectContaining({ shouldAbort: false }));
+    // 현행: preflight 는 VIX 를 진단 surface(macroGateState.vixGatingActive)로만 노출한다.
+    // live-entry 차단·shadow-only 스캔 트리거(VIX_SPIKE)는 per-symbol 파이프라인
+    // (r3StreakSkipPolicy / gateDecisionRouter / counterfactualShadowLearningLane)으로 분해됨
+    // — preflight 단위 책임 아님(구 monolithic macroDiagnosticOnly/liveEntryBlockedReason 단언 제거).
     expect(result.context).toEqual(expect.objectContaining({
       watchlist: expect.any(Array),
       vixGating: expect.objectContaining({ noNewEntry: true }),
-      macroDiagnosticOnly: true,
-      liveEntryBlockedReason: 'VIX_BLOCK',
     }));
     expect(result.macroGateState).toEqual(expect.objectContaining({
-      diagnosticLiveEntryBlocked: true,
-      liveEntryBlockedReason: 'VIX_BLOCK',
+      vixGatingActive: true,
     }));
-    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'VIX_SPIKE' }));
     expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
       blockedBy: ['VIX_BLOCK'],
     }));
   });
 
-  it('should keep diagnostics alive on FOMC block while blocking live entry', async () => {
+  it('surfaces fomcProximity diagnostically on FOMC block (live-entry gating decomposed to per-symbol)', async () => {
     mockedGetFomcProximity.mockReturnValue({ noNewEntry: true, kellyMultiplier: 0.5, phase: 'BLACKOUT', description: 'FOMC blackout' } as unknown as ReturnType<typeof getFomcProximity>);
     const result = await runPreflight();
     expect(result).toEqual(expect.objectContaining({ shouldAbort: false }));
+    // 현행: preflight 는 FOMC 를 진단 surface(context.fomcProximity)로만 노출한다. live-entry 차단·
+    // shadow 스캔(FOMC_BLOCK)은 per-symbol 파이프라인으로 분해됨 — preflight 단위 책임 아님.
     expect(result.context).toEqual(expect.objectContaining({
       watchlist: expect.any(Array),
       fomcProximity: expect.objectContaining({ noNewEntry: true }),
-      macroDiagnosticOnly: true,
-      liveEntryBlockedReason: 'FOMC_BLOCK',
     }));
-    expect(result.macroGateState).toEqual(expect.objectContaining({
-      diagnosticLiveEntryBlocked: true,
-      liveEntryBlockedReason: 'FOMC_BLOCK',
-    }));
-    expect(mockedRunShadowLearningOnlyScan).toHaveBeenCalledWith(expect.objectContaining({ reason: 'FOMC_BLOCK' }));
     expect(mockedRecordCounterfactualUniverseLearningSnapshot).not.toHaveBeenCalledWith(expect.objectContaining({
       blockedBy: ['FOMC_BLOCK'],
     }));
@@ -364,10 +378,10 @@ describe('preflight.ts byte-equivalent tests', () => {
       brokerOrderAllowed: true,
       shadowLearningAllowed: true,
     }));
+    // 현행: R6 무시 + volumeClock 종료에도 scan/shadow alive. (구 macroDiagnosticOnly 단언 제거 — R3_SANITY 한정.)
     expect(result.context).toEqual(expect.objectContaining({
       watchlist: expect.any(Array),
       regime: 'R2_BULL',
-      macroDiagnosticOnly: true,
       volumeClock: expect.objectContaining({ allowEntry: false }),
     }));
     expect(mockedRunShadowLearningOnlyScan).not.toHaveBeenCalledWith(expect.objectContaining({ reason: 'RISK_OFF_REGIME' }));

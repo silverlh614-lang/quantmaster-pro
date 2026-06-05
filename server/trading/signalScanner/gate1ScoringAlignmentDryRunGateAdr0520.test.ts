@@ -160,9 +160,14 @@ describe('ADR-0520 Gate1 scoring-alignment DRY_RUN observation', () => {
     expect(candidate?.actualScore).toBe(60);
   });
 
-  it('adds per-candidate ADR-0469 dedup + ADR-0470 risk-split deltas from the candidate own penalties', () => {
+  it('adds per-candidate ADR-0469 dedup delta; ADR-0470 REGIME_RISK is sizing-only so risk-split delta is 0', () => {
     // Two duplicate provider penalties (10 + 8) dedup to keep-largest (10), removing 8.
-    // A RISK_PENALTY of 5 caps to ADR-0470's 3-point signal risk move-to-sizing.
+    // RISK_PENALTY 의 risk-split delta 는 0: production 의 resolveRiskSplitDeltaForCandidate 가
+    // buildCandidateRiskDoubleCountTrace 를 rootCause='REGIME_RISK' 로 호출하는데, REGIME_RISK 는
+    // gate1RiskDoubleCount.ts L408/419 에서 effectiveSignalRiskPenalty=0 (signal-score 가 아니라
+    // confidence+Kelly sizing 전용) 로 정의된다. 따라서 scoreIfRiskAtSizingOnly==actualScore →
+    // delta 0. 이는 regime risk 를 signal score 에 double-count 하지 않으려는 ADR-0470 설계와 정합
+    // (과거 3점 가산 기대는 double-count 방지 적용 전 stale 가정).
     const penalties: Gate1ScoreStarvationTrace['penaltyComponents'] = [
       {
         code: 'SUPPLY_CONFLUENCE', normalizedScore: 0, weight: 10, weightedScore: -10, maxScore: 0,
@@ -186,9 +191,9 @@ describe('ADR-0520 Gate1 scoring-alignment DRY_RUN observation', () => {
     });
     const candidate = result.evaluated[0];
     expect(candidate?.dedupPenaltyDelta).toBe(8); // 18 total -> keep largest 10 -> removed 8
-    expect(candidate?.riskSplitPenaltyDelta).toBe(3); // signal risk penalty capped at 3
-    // relaxedScore = 50 + align(16) + dedup(8) + riskSplit(3) = 77.
-    expect(candidate?.dryRunScore).toBe(50 + TRACE_ALIGN_DELTA + 8 + 3);
+    expect(candidate?.riskSplitPenaltyDelta).toBe(0); // REGIME_RISK 는 sizing-only → signal-score delta 0
+    // relaxedScore = 50 + align(16) + dedup(8) + riskSplit(0) = 74.
+    expect(candidate?.dryRunScore).toBe(50 + TRACE_ALIGN_DELTA + 8 + 0);
   });
 
   it('identifies REAL survivor symbols that fail live but pass the relaxed curve', () => {

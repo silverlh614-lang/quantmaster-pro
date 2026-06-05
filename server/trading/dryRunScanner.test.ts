@@ -11,15 +11,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../clients/kisClient.js', () => ({
   fetchCurrentPrice:    vi.fn(async () => 0),
   fetchAccountBalance:  vi.fn(async () => 50_000_000),
+  // seed 4452bd3 후 trancheExecutor LIVE 주문이 submitBuyOrder 헬퍼(kisClient 단일 통로)로
+  // 이관됨 — import-time 해석을 위해 stub 추가 (본 테스트는 호출하지 않음).
+  submitBuyOrder:       vi.fn(async () => ({ kind: 'SUBMITTED', ordNo: 'TEST-ORD' })),
+  placeKisSellOrder:    vi.fn(async () => ({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' })),
 }));
 
 vi.mock('../persistence/watchlistRepo.js', () => ({
   loadWatchlist: vi.fn(() => []),
 }));
 
-vi.mock('../persistence/shadowTradeRepo.js', () => ({
-  loadShadowTrades: vi.fn(() => []),
-}));
+// seed 4452bd3 후 import 그래프 확장(trancheExecutor→reserveSell→shadowTradeRepo)으로
+// loadShadowTrades 외 export 도 import-time 해석 필요 — importOriginal spread 로 보강하되
+// 본 테스트가 의존하는 loadShadowTrades 만 stub override.
+vi.mock('../persistence/shadowTradeRepo.js', async () => {
+  const actual = await vi.importActual<any>('../persistence/shadowTradeRepo.js');
+  return { ...actual, loadShadowTrades: vi.fn(() => []) };
+});
 
 vi.mock('../persistence/macroStateRepo.js', () => ({
   loadMacroState: vi.fn(() => null),
@@ -57,14 +65,25 @@ vi.mock('../quantFilter.js', () => ({
   evaluateServerGate: vi.fn(),
 }));
 
-vi.mock('./regimeBridge.js', () => ({
-  getLiveRegime: vi.fn(() => 'R3_NEUTRAL'),
-}));
+// import 그래프 확장으로 getRegimeDiagnostics 등 추가 export 가 import-time 필요.
+// getLiveRegime 만 R3_NEUTRAL 고정 override, 나머지(getRegimeDiagnostics 등)는 실 구현
+// 사용(importOriginal spread) — diagnostics 가 marketStateResolver 에서 실제로 소비되므로
+// 임의 stub 은 형상 불일치(activeR6Triggers 등) 유발.
+vi.mock('./regimeBridge.js', async () => {
+  const actual = await vi.importActual<any>('./regimeBridge.js');
+  return { ...actual, getLiveRegime: vi.fn(() => 'R3_NEUTRAL') };
+});
 
-vi.mock('../../src/services/quant/regimeEngine.js', () => ({
-  REGIME_CONFIGS: {
-    R3_NEUTRAL: { kellyMultiplier: 1.0, maxPositions: 5 },
-  },
+// ADR-0531: dryRunScanner 는 resolveCanonicalRegimeLevel(macroState) → REGIME_CONFIGS[regime]
+// 로 레짐 설정을 조회한다. macroState=null 일 때 canonical resolver 는 marketState 의
+// EffectiveMarketRegime('R3_NORMAL' 등 — RegimeLevel 보다 넓은 타입)을 그대로 캐스팅해
+// 내보내므로, REGIME_CONFIGS 에 없는 키가 흘러들 수 있다. 본 테스트의 검증 대상은
+// SHADOW/LIVE 계좌 격리(fetchAccountBalance vs computeShadowAccount)이므로, 레짐 plumbing 은
+// 실제 config 키(R4_NEUTRAL)로 결정화한다. REGIME_CONFIGS 는 실 구현을 사용해 kellyMultiplier/
+// maxPositions/stopLoss 형상이 정확하게 유지되도록 한다(임의 partial stub 금지).
+vi.mock('./regime/canonicalRegimeAccess.js', () => ({
+  resolveCanonicalRegimeLevel: vi.fn(() => 'R4_NEUTRAL'),
+  isCanonicalR6Defense: vi.fn(() => false),
 }));
 
 vi.mock('./entryEngine.js', () => ({

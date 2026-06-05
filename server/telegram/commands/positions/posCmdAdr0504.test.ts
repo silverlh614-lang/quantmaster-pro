@@ -4,6 +4,18 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+// Patch-VITEST-CAT-D: 네트워크 차단 — 카드 가격 조회(fetchCurrentPrice/getRealtimePrice)는
+// 본 테스트 관심사 아님(wiring + 카드 포맷만 검증). 미mock 시 실제 KIS REST 호출이 hang →
+// 5000ms 타임아웃. orphanGuardSymmetry.test.ts 와 동일한 정립 패턴.
+vi.mock('../../../clients/kisClient.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  fetchCurrentPrice: vi.fn(async () => null),
+}));
+vi.mock('../../../clients/kisStreamClient.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getRealtimePrice: vi.fn(() => undefined),
+}));
+
 const ORIGINAL_ENV = { ...process.env };
 let TEST_DIR = '';
 

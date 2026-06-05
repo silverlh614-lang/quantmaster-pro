@@ -4,10 +4,16 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../../clients/kisClient.js', () => ({
-  placeKisSellOrder: vi.fn(() => Promise.resolve({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' })),
-}));
-vi.mock('../../../../alerts/telegramClient.js', () => ({ sendTelegramAlert: vi.fn(() => Promise.resolve()) }));
+vi.mock('../../../../clients/kisClient.js', async () => {
+  const actual = await vi.importActual<any>('../../../../clients/kisClient.js');
+  return {
+    ...actual,
+    placeKisSellOrder: vi.fn(() => Promise.resolve({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' })),
+  };
+});
+// ADR-0466 — 알림 경로가 sendTelegramAlert → emitTelegramEvent taxonomy router 로
+// 이관. 테스트는 router 를 mock 해 "알림 발송 + severity" intent 를 검증한다.
+vi.mock('../../../../alerts/telegramEventRouter.js', () => ({ emitTelegramEvent: vi.fn(() => Promise.resolve(1)) }));
 vi.mock('../../../../alerts/channelPipeline.js', () => ({ channelSellSignal: vi.fn(() => Promise.resolve()) }));
 vi.mock('../../../../alerts/stopLossTransparencyReport.js', () => ({ sendStopLossTransparencyReport: vi.fn(() => Promise.resolve()) }));
 vi.mock('../../../../persistence/shadowTradeRepo.js', async () => {
@@ -25,12 +31,17 @@ vi.mock('../../../../persistence/shadowTradeRepo.js', async () => {
 vi.mock('../../../fillMonitor.js', () => ({ addSellOrder: vi.fn() }));
 vi.mock('../../../tradeEventLog.js', () => ({ appendTradeEvent: vi.fn() }));
 vi.mock('../../../../persistence/blacklistRepo.js', () => ({ addToBlacklist: vi.fn() }));
+// FAILED 분기 rollbackFullCloseOnFailure 의 real-fs appendShadowLog 플레이크 차단.
+vi.mock('../../helpers/rollbackFullClose.js', () => ({
+  captureFullCloseSnapshot: vi.fn(() => ({ status: 'ACTIVE', quantity: 100 })),
+  rollbackFullCloseOnFailure: vi.fn(),
+}));
 
 const { cascadeFinal } = await import('../cascadeFinal.js');
 const { makeMockShadow, makeMockCtx, LIVE_FAILED_RESULT } = await import('./_testHelpers.js');
 const { placeKisSellOrder } = await import('../../../../clients/kisClient.js');
 const { addToBlacklist } = await import('../../../../persistence/blacklistRepo.js');
-const { sendTelegramAlert } = await import('../../../../alerts/telegramClient.js');
+const { emitTelegramEvent } = await import('../../../../alerts/telegramEventRouter.js');
 
 describe('cascadeFinal (-25% 전량 / -30% 블랙리스트)', () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -55,8 +66,8 @@ describe('cascadeFinal (-25% 전량 / -30% 블랙리스트)', () => {
     const shadow = makeMockShadow({ quantity: 100 });
     await cascadeFinal(makeMockCtx({ shadow, currentPrice: 70 })); // -30%
     expect(addToBlacklist).toHaveBeenCalledWith('005930', '삼성전자', expect.any(String));
-    // 1: cascade alert + 2: blacklist alert
-    expect(sendTelegramAlert).toHaveBeenCalledTimes(1); // 본문은 channelSellSignal + 블랙리스트 1회 — 메시지 1
+    // -30% SHADOW 성공 → 블랙리스트 SELL_FILLED emit 1회 (FAILED 분기 미진입)
+    expect(emitTelegramEvent).toHaveBeenCalledTimes(1);
   });
 
   it('FAILED outcome → 블랙리스트 등록 차단', async () => {
@@ -64,9 +75,8 @@ describe('cascadeFinal (-25% 전량 / -30% 블랙리스트)', () => {
     const shadow = makeMockShadow({ quantity: 100 });
     await cascadeFinal(makeMockCtx({ shadow, currentPrice: 70 }));
     expect(addToBlacklist).not.toHaveBeenCalled();
-    expect(sendTelegramAlert).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ priority: 'CRITICAL' }),
+    expect(emitTelegramEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'CRITICAL' }),
     );
   });
 

@@ -42,11 +42,25 @@ vi.mock('../regime/regimeResolver.js', () => ({
     riskOverride: 'NONE',
     engineMode: 'NORMAL',
     sourceHealth: 'VERIFIED',
+    providerIssue: false,
     conflicts: [],
+    // preflight.ts:618 가 regimeSnapshot.marketState.macroState.ageSec 를 직접 읽는다
+    // (ResolvedRegimeSnapshot.marketState: MarketStateSnapshot, regimeResolver.ts).
+    // ageSec < ttlSec(300) 으로 둬 macroSnapshotUsableForLiveOrder=true (FRESH 경로 유지).
+    marketState: { macroState: { ageSec: 10, freshness: 'FRESH' } },
     diagnostics: {
       rawRegime: 'R3_EARLY',
       effectiveRegime: 'R3_EARLY',
       recoveryBlockedReason: undefined,
+      cooldownUntil: undefined,
+      // preflight.ts:617 가 regimeDiagnostics.sourceFreshness 를 읽어 live-order usable 판정.
+      sourceFreshness: 'FRESH',
+      // preflight.ts:698-699 가 recoveryEvidence.{vkospiTrustState,reasons} 를 직접 읽는다
+      // (RegimeDiagnostics.recoveryEvidence: R6RecoveryEvidence, regimeBridge.base.ts).
+      recoveryEvidence: {
+        vkospiTrustState: 'TRUSTED',
+        reasons: ['R6_RECOVERY_EVIDENCE_OK'],
+      },
     },
   }),
 }));
@@ -64,6 +78,8 @@ vi.mock('../../persistence/r3SanityBlockRepo.js', () => ({
   acknowledgeR3SanityBlock: vi.fn(),
   isR3SanityAckTokenValid: vi.fn().mockReturnValue(false),
   loadR3SanityBlockState: vi.fn().mockReturnValue({ active: false }),
+  // preflight 는 latch 를 getEffectiveR3SanityBlockState(TTL 반영)로 조회 — 본 파일은 latch 비활성 경로만 검증.
+  getEffectiveR3SanityBlockState: vi.fn().mockReturnValue({ active: false }),
 }));
 vi.mock('../../persistence/r3ViolationStreakRepo.js', () => ({
   getEffectiveR3ViolationStreak: vi.fn(),

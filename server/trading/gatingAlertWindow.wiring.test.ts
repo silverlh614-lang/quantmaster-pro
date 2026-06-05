@@ -28,10 +28,20 @@ describe('ADR-0104 — 게이팅 알림 윈도우 가드 wiring', () => {
     expect(src).not.toContain("from '../utils/gatingAlertWindow.js'");
   });
 
-  it('preflight.ts 가 gatingAlertWindow import', () => {
+  // ADR-0104 게이팅 알림 윈도우 가드는 VIX/FOMC 게이팅 차단 알림을 전제로 한다.
+  // 그러나 두 게이팅이 모두 system-wide 제거됨:
+  //   - VIX: vixGating.ts @responsibility "VIX 게이팅 제거됨 (stub only)" — getVixGating
+  //          항상 noNewEntry=false 반환.
+  //   - FOMC: Patch-FOMC-DEAD-CODE-REMOVAL-001 / Patch-FOMC-DOA-BatchC (system-wide 제거).
+  // → preflight.ts 에 게이팅 차단 알림 블록 자체가 없으므로 windowing 가드도 불필요.
+  // 본 그룹의 "존재 + session 가드" 단언을 "removed (drift 차단)" 단언으로 재지정한다
+  // (기존 signalScanner.ts 부재 단언과 동일 SRP — DOA contract 가 아닌 removal 검증).
+  it('preflight.ts — VIX/FOMC 게이팅 알림 본체 부재 (게이팅 system-wide 제거)', () => {
     const src = readFile('server/trading/signalScanner/preflight.ts');
-    expect(src).toContain("from '../../utils/gatingAlertWindow.js'");
-    expect(src).toContain('getGatingAlertSession');
+    expect(src).not.toContain('[VIX 게이팅] 신규 진입 차단');
+    expect(src).not.toContain('[FOMC 게이팅] 신규 진입 차단');
+    // 게이팅 알림이 없으므로 windowing import 도 불필요.
+    expect(src).not.toContain('getGatingAlertSession');
   });
 
   it('signalScanner.ts — VIX 게이팅 차단 알림 본체 부재 (preflight 위임)', () => {
@@ -44,52 +54,21 @@ describe('ADR-0104 — 게이팅 알림 윈도우 가드 wiring', () => {
     expect(src).not.toContain('[FOMC 게이팅] 신규 진입 차단');
   });
 
-  it('preflight.ts VIX 게이팅 차단 알림이 session 가드 통과', () => {
-    const src = readFile('server/trading/signalScanner/preflight.ts');
-    const vixIdx = src.indexOf('[VIX 게이팅] 신규 진입 차단');
-    expect(vixIdx).toBeGreaterThan(0);
-    const guardBlock = src.slice(Math.max(0, vixIdx - 300), vixIdx);
-    expect(guardBlock).toContain('getGatingAlertSession');
-    expect(guardBlock).toContain('if (session)');
+  it('회귀 차단 — VIX 게이팅 stub 은 noNewEntry=false (게이팅 알림 발생 원천 제거)', () => {
+    // 게이팅 제거의 SSOT 근거: getVixGating 이 항상 no-block 반환 → 게이팅 차단 알림
+    // 자체가 발생하지 않음. (구 ADR-0104 의 14:30 KST 도배 시나리오는 게이팅 알림이
+    // 존재할 때만 의미. 게이팅 제거로 원천 차단.)
+    const src = readFile('server/trading/vixGating.ts');
+    expect(src).toContain('VIX 게이팅 제거됨 (stub only)');
+    expect(src).toContain('noNewEntry:      false');
   });
 
-  it('preflight.ts FOMC 게이팅 차단 알림이 session 가드 통과', () => {
+  it('회귀 차단 — preflight.ts 에 게이팅 알림 라벨 sendTelegramAlert 호출 부재', () => {
+    // 게이팅 알림이 제거되었으므로 어떤 windowing 우회 발송도 존재하면 안 된다.
     const src = readFile('server/trading/signalScanner/preflight.ts');
-    const fomcIdx = src.indexOf('[FOMC 게이팅] 신규 진입 차단');
-    expect(fomcIdx).toBeGreaterThan(0);
-    const guardBlock = src.slice(Math.max(0, fomcIdx - 300), fomcIdx);
-    expect(guardBlock).toContain('getGatingAlertSession');
-    expect(guardBlock).toContain('if (session)');
-  });
-
-  it('preflight.ts 의 dedupeKey 에 :${session.toLowerCase()} suffix 사용', () => {
-    const src = readFile('server/trading/signalScanner/preflight.ts');
-    const vixIdx = src.indexOf('[VIX 게이팅] 신규 진입 차단');
-    const vixBlock = src.slice(vixIdx, vixIdx + 700);
-    expect(vixBlock, 'vix dedupeKey session suffix 부재').toContain(
-      ':${session.toLowerCase()}',
-    );
-    expect(vixBlock).toContain('vix_gating_block:');
-
-    const fomcIdx = src.indexOf('[FOMC 게이팅] 신규 진입 차단');
-    const fomcBlock = src.slice(fomcIdx, fomcIdx + 700);
-    expect(fomcBlock, 'fomc dedupeKey session suffix 부재').toContain(
-      ':${session.toLowerCase()}',
-    );
-    expect(fomcBlock).toContain('fomc_gating_block:');
-  });
-
-  it('회귀 차단 — sendTelegramAlert 호출이 if (session) 블록 안에 위치 (preflight)', () => {
-    // 본 가드는 사용자 보고 (14:30 KST 도배) 재발 차단 —
-    // `[VIX 게이팅]` / `[FOMC 게이팅]` 라벨을 가진 sendTelegramAlert 호출이
-    // session 검증 없이 직접 발송되면 fail.
-    const src = readFile('server/trading/signalScanner/preflight.ts');
-    const labels = ['[VIX 게이팅] 신규 진입 차단', '[FOMC 게이팅] 신규 진입 차단'];
-    for (const label of labels) {
-      const idx = src.indexOf(label);
-      if (idx < 0) continue;
-      const before = src.slice(Math.max(0, idx - 200), idx);
-      expect(before, `preflight.ts ${label}: session 가드 누락`).toContain('if (session)');
-    }
+    expect(src).not.toContain('[VIX 게이팅] 신규 진입 차단');
+    expect(src).not.toContain('[FOMC 게이팅] 신규 진입 차단');
+    expect(src).not.toContain('vix_gating_block:');
+    expect(src).not.toContain('fomc_gating_block:');
   });
 });

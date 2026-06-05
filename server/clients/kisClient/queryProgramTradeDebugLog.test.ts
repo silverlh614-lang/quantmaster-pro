@@ -10,18 +10,31 @@ const _realDataKisGet = vi.fn();
 const _getKisOverrides = vi.fn();
 const _HAS_REAL_DATA_CLIENT = { value: false };
 
-vi.mock('./http.js', () => ({
-  realDataKisGet: (trId: string, path: string, params: Record<string, string>) =>
-    _realDataKisGet(trId, path, params),
-}));
+// seed-4452bd3 이후 query.ts 의 transitive import 가 orderGateway 의 kisPost/kisGet 를 끌어온다.
+// bare stub 은 export 부재로 import 실패하므로 importOriginal spread 로 실 export 보존 후
+// 테스트가 호출하는 realDataKisGet 만 스파이로 교체. (queryHolidayCalendar.test.ts 동일 패턴)
+vi.mock('./http.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./http.js')>();
+  return {
+    ...actual,
+    realDataKisGet: (trId: string, path: string, params: Record<string, string>) =>
+      _realDataKisGet(trId, path, params),
+  };
+});
 
 vi.mock('./overrides.js', () => ({
   getKisOverrides: () => _getKisOverrides(),
 }));
 
-vi.mock('./constants.js', () => ({
-  get HAS_REAL_DATA_CLIENT() { return _HAS_REAL_DATA_CLIENT.value; },
-}));
+// importOriginal spread: transitive orderGateway import 가 KIS_IS_REAL 등 실 상수를 요구하므로
+// 보존하고, 테스트가 토글하는 HAS_REAL_DATA_CLIENT 만 동적 getter 로 override.
+vi.mock('./constants.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./constants.js')>();
+  return {
+    ...actual,
+    get HAS_REAL_DATA_CLIENT() { return _HAS_REAL_DATA_CLIENT.value; },
+  };
+});
 
 let fetchKisStockProgramTrade: typeof import('./query.js').fetchKisStockProgramTrade;
 let fetchKisMarketProgramTrade: typeof import('./query.js').fetchKisMarketProgramTrade;
@@ -141,7 +154,10 @@ describe('DEBUG_PROGRAM_RAW ENV 우회 raw 로깅 (P1 #4 임시 진단 도구)',
       );
       expect(debugCalls).toHaveLength(1);
       expect(debugCalls[0][0]).toBe('[DEBUG_PROGRAM_RAW] market');
-      expect(debugCalls[0][1]).toBe(JSON.stringify(rawResp));
+      // seed-4452bd3(ADR-0144): fetchKisMarketProgramTrade 가 KOSPI('K')+KOSDAQ('Q') 를
+      // Promise.all 로 분리 페치하므로 DEBUG dump 는 단일 raw 가 아니라 { kospiData, kosdaqData }.
+      // mockResolvedValue 는 두 호출 모두 동일 rawResp 를 반환한다.
+      expect(debugCalls[0][1]).toBe(JSON.stringify({ kospiData: rawResp, kosdaqData: rawResp }));
     });
 
     it('ENV=true + null 응답 시에도 로깅', async () => {
@@ -152,7 +168,8 @@ describe('DEBUG_PROGRAM_RAW ENV 우회 raw 로깅 (P1 #4 임시 진단 도구)',
         String(c[0]).includes('[DEBUG_PROGRAM_RAW]'),
       );
       expect(debugCalls).toHaveLength(1);
-      expect(debugCalls[0][1]).toBe('null');
+      // seed-4452bd3(ADR-0144): KOSPI+KOSDAQ 분리 페치 — 둘 다 null 일 때 dump 는 { kospiData: null, kosdaqData: null }.
+      expect(debugCalls[0][1]).toBe(JSON.stringify({ kospiData: null, kosdaqData: null }));
     });
   });
 

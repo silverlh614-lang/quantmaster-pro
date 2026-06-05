@@ -19,24 +19,28 @@ const ROUTER_PATH = join(__dirname, 'gateDecisionRouter.ts');
 const ROUTER_SOURCE = readFileSync(ROUTER_PATH, 'utf-8');
 
 describe('ADR-0425 Gate Decision Router', () => {
-  it('SELL_ONLY + R6_DEFENSE is macro live block, not HARD_BLOCK', () => {
+  // ADR drift (always-on rollback): gateDecisionRouter 가 legacy SELL_ONLY / R6_DEFENSE risk
+  // flag 를 더 이상 live-block reason 으로 승격하지 않는다 (production L185 "Legacy SELL_ONLY is
+  // ignored by the rollback", L188 "Legacy R6 defense is forensic-only and must not become a live
+  // gate block"). 동일 always-on 방향의 SSOT 가 emptyScanLivenessPolicy.ts("legacy SELL_ONLY
+  // ignored by the rollback") 및 scheduler always-on cleanup(커밋 3e7ca19) 와 정합. 따라서 sellOnly/
+  // r6Defense 만 set 된 입력은 reasons 에 매핑되지 않아 분류 데이터 부족 → WATCH_ONLY(UNKNOWN) 로
+  // 떨어진다. live-safety 불변식은 보존됨: liveAllowed=false 유지 (live 는 여전히 열리지 않음).
+  it('legacy SELL_ONLY + R6_DEFENSE 는 forensic-only — live block reason 미승격 (WATCH_ONLY/UNKNOWN, live 차단 유지)', () => {
     const result = deriveGateDecisionRouterResult({
       riskFlags: { sellOnly: true, r6Defense: true },
     });
-    expect(result.severity).toBe('MACRO_LIVE_BLOCK');
+    expect(result.severity).toBe('WATCH_ONLY');
+    expect(result.label).toBe('UNKNOWN');
+    expect(result.reasons).toEqual(['UNKNOWN']);
+    // live-safety 보존 — live/paper 는 차단, shadow/watch 진단은 always-on.
     expect(result.liveAllowed).toBe(false);
     expect(result.paperAllowed).toBe(false);
     expect(result.shadowAllowed).toBe(true);
     expect(result.watchAllowed).toBe(true);
-    expect(result.lanes).toEqual(expect.objectContaining({
-      live: false,
-      paper: false,
-      shadow: true,
-      watch: true,
-      learning: true,
-      counterfactual: true,
-    }));
-    expect(result.reasons).toEqual(expect.arrayContaining(['SELL_ONLY', 'R6_DEFENSE']));
+    // legacy SELL_ONLY / R6 는 reason 으로도 더 이상 emit 되지 않음 (rollback).
+    expect(result.reasons).not.toContain('SELL_ONLY');
+    expect(result.reasons).not.toContain('R6_DEFENSE');
   });
 
   it('R4/R5 live-entry regime flags are macro live blocks with diagnostics still open', () => {
@@ -91,16 +95,20 @@ describe('ADR-0425 Gate Decision Router', () => {
   });
 
   // ────────────────────────────────────────────────────────
-  // §H Test 2: SELL_ONLY → SELL_ONLY
+  // §H Test 2: legacy SELL_ONLY → forensic-only (always-on rollback, 위 §22 와 동일 근거)
+  //   production L185 "Legacy SELL_ONLY is ignored by the rollback" — sellOnly 단독 입력은
+  //   reason 미매핑 → WATCH_ONLY(UNKNOWN). shadow/watch 관측은 always-on, live 차단 유지.
   // ────────────────────────────────────────────────────────
-  it('§H#2: SELL_ONLY → SELL_ONLY + shadow/watch 관측 유지', () => {
+  it('§H#2: legacy SELL_ONLY 단독 → forensic-only (WATCH_ONLY/UNKNOWN) + shadow/watch 관측 유지', () => {
     const result = deriveGateDecisionRouterResult({
       riskFlags: { sellOnly: true },
     });
-    expect(result.severity).toBe('SELL_ONLY');
+    expect(result.severity).toBe('WATCH_ONLY');
+    expect(result.label).toBe('UNKNOWN');
+    expect(result.liveAllowed).toBe(false);
     expect(result.shadowAllowed).toBe(true);
     expect(result.watchAllowed).toBe(true);
-    expect(result.reasons).toContain('SELL_ONLY');
+    expect(result.reasons).not.toContain('SELL_ONLY');
   });
 
   // ────────────────────────────────────────────────────────
@@ -276,9 +284,11 @@ describe('ADR-0425 Gate Decision Router', () => {
   });
 
   // ────────────────────────────────────────────────────────
-  // §H Test 8: HARD_BLOCK 우선 (SELL_ONLY + sectorEnergy STALE)
+  // §H Test 8: legacy SELL_ONLY 가 forensic-only 로 무시되므로 (always-on rollback) sellOnly +
+  //   sectorEnergy STALE 동시 입력은 SELL_ONLY 가 아니라 sectorStale 우세 → SOFT_DEGRADE 로 분류.
+  //   (과거 "SELL_ONLY > SOFT_DEGRADE 우선" 가정은 SELL_ONLY rollback 후 무의미.) live 차단 유지.
   // ────────────────────────────────────────────────────────
-  it('§H#8: HARD_BLOCK 이 SOFT_DEGRADE 보다 우선', () => {
+  it('§H#8: legacy SELL_ONLY forensic-only → sectorEnergy STALE 우세 (SOFT_DEGRADE, live 차단 유지)', () => {
     const result = deriveGateDecisionRouterResult({
       riskFlags: { sellOnly: true },
       sectorEnergyDiagnostic: {
@@ -297,7 +307,9 @@ describe('ADR-0425 Gate Decision Router', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any,
     });
-    expect(result.severity).toBe('SELL_ONLY');
+    expect(result.severity).toBe('SOFT_DEGRADE');
+    expect(result.reasons).toContain('SECTOR_DATA_STALE');
+    expect(result.liveAllowed).toBe(false);
     expect(result.shadowAllowed).toBe(true);
     expect(result.watchAllowed).toBe(true);
   });

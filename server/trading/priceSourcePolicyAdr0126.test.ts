@@ -179,11 +179,17 @@ describe('evaluateDataQualityFromStock — stock + currentPrice 합성 SSOT', ()
 
 describe('PR-2 perSymbolEvaluation wiring 정적 검증', () => {
   // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts + intradayLoop.ts.
+  // seed 4452bd3 후속 분해: dataQuality→sizingTierDecider wiring (evaluateDataQualityFromStock /
+  // mergedDataQuality / final-candidate context / sizingTierDecider 호출)이 buyListLoop 에서
+  // perSymbol/steps/sizingTierDecider.ts(=sizingTierDeciderFinal 스텝)로 이동했다. 정적 가드
+  // source 집합에 분해 step 파일을 추가해 wiring SSOT 를 추적한다.
   const buyListLoopPath = path.resolve(__dirname, 'signalScanner', 'perSymbol', 'buyListLoop.ts');
   const intradayLoopPath = path.resolve(__dirname, 'signalScanner', 'perSymbol', 'intradayLoop.ts');
+  const sizingTierStepPath = path.resolve(__dirname, 'signalScanner', 'perSymbol', 'steps', 'sizingTierDecider.ts');
   const source =
     fs.readFileSync(buyListLoopPath, 'utf-8') + '\n' +
-    fs.readFileSync(intradayLoopPath, 'utf-8');
+    fs.readFileSync(intradayLoopPath, 'utf-8') + '\n' +
+    fs.readFileSync(sizingTierStepPath, 'utf-8');
 
   it('evaluateDataQualityFromStock import 존재', () => {
     // ADR-0134: import path 깊이 무관 (분해 후 ../../ 가 됨)

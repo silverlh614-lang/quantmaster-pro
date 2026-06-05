@@ -17,6 +17,8 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
   afterEach(() => {
     process.env = { ...ORIGINAL_ENV };
     vi.restoreAllMocks();
+    // ADR-0577 Stage 2 테스트가 canonical state ref 를 doMock 하므로 누수 방지로 unmock.
+    vi.doUnmock('../../../trading/signalScanner/sectorEnergyCanonicalStateRef.js');
   });
 
   describe('정적 가드 — 명령 메타데이터 + barrel 등록', () => {
@@ -218,6 +220,202 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       expect(msg).toMatch(/legacyFreshnessDiagnosticOnly.*미수집/);
       expect(msg).toMatch(/High-conviction label diagnostics/);
       expect(msg).toMatch(/unavailable/);
+    });
+  });
+
+  describe('ADR-0577 Stage 2 (DISPLAY_ONLY) — canonical PASS 조건부 레거시 basket 진단 collapse', () => {
+    // 모순 표시(canonical 11/11 VERIFIED vs 레거시 basket "official 0/12 unavailable") 동시 노출을
+    // canonical PASS 시에만 collapse/재라벨한다. canonical NOT-PASS 면 저하 가시성 보존(uncollapsed).
+    function basketDerivedMacroState() {
+      return {
+        sectorEnergyDataQuality: 'PARTIAL',
+        sectorEnergySourceTier: 'KIS_STOCK_BASKET_DERIVED',
+        sectorEnergyFreshness: 'FRESH',
+        sectorEnergyCoverage: 1,
+        sectorEnergyConfidence: 0,
+        sectorEnergyValidSectorCount: 12,
+        sectorEnergyDiagnostics: {
+          finalSourceTier: 'KIS_STOCK_BASKET_DERIVED',
+          coverageBreakdown: {
+            verifiedIndexCodeCoverage: 0,
+            verifiedIndexCodeCount: 0,
+            kisOfficialCoverage: 0,
+            kisOfficialCount: 0,
+            kisBasketCoverage: 1,
+            kisBasketCount: 12,
+            internalProxyCoverage: 0,
+            internalProxyCount: 0,
+            stockDailyFallbackCoverage: 0,
+            stockDailyFallbackCount: 0,
+            totalSectors: 12,
+          },
+          executionImpact: 'NONE',
+        },
+        sectorEnergyQualityDiagnostic: {
+          dataQuality: 'PARTIAL',
+          reasons: ['KIS_STOCK_BASKET_DERIVED'],
+          validSectorCount: 12,
+          expectedSectorCount: 12,
+          indexCodeCoverage: 0.778,
+          officialIndexCoverage: 0.778,
+          missingIndexCodeCount: 0,
+          totalSectorRows: 12,
+          fallbackUsed: 'NONE',
+          symmetryValidationPassed: true,
+          shouldBlockLeadershipConfidence: true,
+          operatorMessage: 'sourceTier=KIS_STOCK_BASKET_DERIVED',
+          representativeBasketAudit: {
+            officialSectorIndexAvailable: false,
+            representativeBasketActualRows: 12,
+            representativeBasketExpectedRows: 12,
+            representativeBasketMissingRows: 0,
+            priceRowsFresh: 12,
+            priceRowsStale: 0,
+            breakPoint: 'OFFICIAL_SECTOR_INDEX_UNAVAILABLE',
+            sectorBoostAllowed: false,
+            strongBuyAllowed: false,
+            executionHardBlock: false,
+            executionImpact: 'NONE',
+            nextAction: 'VERIFY_OFFICIAL_INDEX',
+          },
+        },
+      };
+    }
+
+    function fullCanonicalState(overrides: Record<string, unknown>) {
+      return {
+        sourceOfTruth: 'SectorEnergyCanonicalResolver',
+        universeType: 'OFFICIAL_SECTOR_ONLY',
+        officialSectorCount: 11,
+        verifiedOfficialSectorCount: 11,
+        verifiedOfficialSectorKeys: [],
+        missingOfficialSectorKeys: [],
+        duplicateAliasRowsIgnored: [],
+        verifiedOfficialSectorMappings: [],
+        promotionCoverage: 1,
+        requiredPromotionCoverage: 0.8,
+        promotionCoveragePass: true,
+        promotionAllowed: true,
+        sectorBoostAllowed: true,
+        strongBuyAllowed: true,
+        shadowLeadershipAllowed: true,
+        counterfactualAllowed: true,
+        selectedSourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
+        dataQuality: 'VERIFIED',
+        confidence: 'VERIFIED',
+        status: 'VERIFIED',
+        confidenceLabel: 'VERIFIED',
+        sectorIndexVerifyMode: 'LIVE_VERIFY',
+        excludedThemeTags: ['조선', '방산', '원자력', '이차전지'],
+        executionImpact: 'NONE',
+        reason: 'SECTOR_ENERGY_OFFICIAL_VERIFIED',
+        ...overrides,
+      };
+    }
+
+    function mockCanonical(state: Record<string, unknown>) {
+      vi.doMock('../../../trading/signalScanner/sectorEnergyCanonicalStateRef.js', () => ({
+        getLastSectorEnergyCanonicalState: vi.fn().mockReturnValue(state),
+        setLastSectorEnergyCanonicalState: vi.fn(),
+        resetLastSectorEnergyCanonicalStateForTests: vi.fn(),
+      }));
+    }
+
+    it('(a) canonical VERIFIED/PASS → 모순 라인 collapse + 부차 diagnostic-only 재라벨', async () => {
+      mockCanonical(fullCanonicalState({ promotionCoveragePass: true }));
+      vi.doMock('../../../persistence/macroStateRepo.js', () => ({
+        loadMacroState: vi.fn().mockReturnValue(basketDerivedMacroState()),
+      }));
+      const mod = await import('./sectorEnergyDiag.cmd.js');
+      const msg = mod.formatSectorEnergyDiagMessage();
+
+      // 모순 라인(공식 미가용으로 읽히는 레거시 basket 진단) collapse 단언.
+      expect(msg).not.toContain('officialIndex: unavailable');
+      expect(msg).not.toContain('breakPoint: OFFICIAL_SECTOR_INDEX_UNAVAILABLE');
+      expect(msg).not.toMatch(/officialIndexCoverage:\s*77\.8%/);
+      expect(msg).not.toContain('officialCoverage: <b>0/12</b>');
+      expect(msg).not.toContain('productionOfficialCoverage: <b>0.0%</b>');
+      // 부차 diagnostic-only 배너 + collapse 재라벨 표기.
+      expect(msg).toMatch(/secondary diagnostic-only/);
+      expect(msg).toMatch(/ADR-0577/);
+      expect(msg).toMatch(/diagnostic-only and do NOT mean the official sector index is unavailable/);
+      expect(msg).toMatch(/secondaryDiagnosticOnly \(ADR-0577\):/);
+    });
+
+    it('(b) canonical NOT-PASS (PARTIAL) → 레거시 라인 uncollapsed 유지 (저하 가시성)', async () => {
+      mockCanonical(
+        fullCanonicalState({
+          promotionCoveragePass: false,
+          promotionAllowed: false,
+          sectorBoostAllowed: false,
+          strongBuyAllowed: false,
+          verifiedOfficialSectorCount: 7,
+          promotionCoverage: 7 / 11,
+          dataQuality: 'PARTIAL',
+          confidence: 'PARTIAL',
+          status: 'PARTIAL',
+          confidenceLabel: 'PARTIAL',
+          reason: 'SECTOR_ENERGY_OFFICIAL_PARTIAL',
+        }),
+      );
+      vi.doMock('../../../persistence/macroStateRepo.js', () => ({
+        loadMacroState: vi.fn().mockReturnValue(basketDerivedMacroState()),
+      }));
+      const mod = await import('./sectorEnergyDiag.cmd.js');
+      const msg = mod.formatSectorEnergyDiagMessage();
+
+      // canonical 이 PASS 가 아니므로 진짜 basket fallback·저하가 그대로 보여야 한다.
+      expect(msg).toContain('officialIndex: unavailable');
+      expect(msg).toContain('breakPoint: OFFICIAL_SECTOR_INDEX_UNAVAILABLE');
+      expect(msg).toContain('officialCoverage: <b>0/12</b>');
+      expect(msg).toContain('productionOfficialCoverage: <b>0.0%</b>');
+      expect(msg).toMatch(/officialIndexCoverage:\s*77\.8%/);
+      // collapse 배너/재라벨 미적용.
+      expect(msg).not.toMatch(/secondary diagnostic-only/);
+      expect(msg).not.toMatch(/secondaryDiagnosticOnly \(ADR-0577\)/);
+    });
+
+    it('(c) 판단값(promotion/sectorBoost/strongBuy/coverage) 불변 — collapse 는 DISPLAY_ONLY', async () => {
+      // collapse 헬퍼는 라인 배열만 가공할 뿐 어떤 게이팅/판단 값도 만들거나 바꾸지 않는다.
+      mockCanonical(fullCanonicalState({ promotionCoveragePass: true }));
+      const mod = await import('./sectorEnergyDiag.cmd.js');
+
+      const judgmentLines = [
+        'legacyPromotionAllowedDiagnosticOnly: true',
+        'legacySectorBoostAllowedDiagnosticOnly: false',
+        'strongBuyAllowed: false',
+        'promotionCoverage: 1.0',
+      ];
+      const passKept = mod.collapseLegacyBasketDiagnosticForDisplay(true, judgmentLines);
+      const notPassKept = mod.collapseLegacyBasketDiagnosticForDisplay(false, judgmentLines);
+
+      // 판단값 라인은 collapse 패턴에 매칭되지 않아 PASS/NOT-PASS 모두 그대로 보존.
+      for (const line of judgmentLines) {
+        expect(passKept).toContain(line);
+        expect(notPassKept).toContain(line);
+      }
+      // NOT-PASS 는 입력을 한 줄도 바꾸지 않는다(저하 가시성).
+      expect(notPassKept).toEqual(judgmentLines);
+    });
+
+    it('collapseLegacyBasketDiagnosticForDisplay 단위 — PASS 시 모순 라인만 제거 + 요약 1줄 추가', async () => {
+      const mod = await import('./sectorEnergyDiag.cmd.js');
+      const input = [
+        'officialCoverage: <b>0/12</b>',
+        'basketCoverage: <b>12/12</b>',
+        '  • officialIndex: unavailable',
+        '  • breakPoint: OFFICIAL_SECTOR_INDEX_UNAVAILABLE',
+        '  • officialIndexCoverage: 77.8%',
+        '  • internalProxyCoverage: 80.0%',
+      ];
+      const kept = mod.collapseLegacyBasketDiagnosticForDisplay(true, input);
+      // 모순 라인 4개 제거, 무관 라인 2개 보존, 요약 1줄 추가.
+      expect(kept).toContain('basketCoverage: <b>12/12</b>');
+      expect(kept).toContain('  • internalProxyCoverage: 80.0%');
+      expect(kept.some((l: string) => l.includes('officialIndex: unavailable'))).toBe(false);
+      expect(kept.some((l: string) => l.includes('OFFICIAL_SECTOR_INDEX_UNAVAILABLE'))).toBe(false);
+      expect(kept.some((l: string) => /officialIndexCoverage:/.test(l) && !l.includes('secondaryDiagnosticOnly'))).toBe(false);
+      expect(kept.some((l: string) => l.includes('secondaryDiagnosticOnly (ADR-0577): 4 legacy basket-derived'))).toBe(true);
     });
   });
 

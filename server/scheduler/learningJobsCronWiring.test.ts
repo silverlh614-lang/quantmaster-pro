@@ -142,13 +142,18 @@ describe('ADR-0176 — learningJobs.ts 5 학습 cron `enqueueOnSkip` 옵션 wiri
     expect(replayRegion).not.toMatch(/enqueueOnSkip/);
   });
 
-  // ─── 누적 카운트 검증 — 정확 5건 등장 (화이트리스트 일치) ──────────────────────
+  // ─── 누적 카운트 검증 — 학습-복구 cron 만 enqueueOnSkip (화이트리스트 일치) ─────
 
-  it('11. learningJobs.ts 전체에 `enqueueOnSkip` 등장 정확히 5건 (5 학습 cron 만)', () => {
+  it('11. learningJobs.ts 전체에 `enqueueOnSkip` 등장 정확히 8건 (학습-복구 cron 만)', () => {
+    // output-drift 갱신: seed 4452bd3 production 에 이미 8개 학습-복구 cron 이
+    // enqueueOnSkip 보유 — daily_mini_backtest / nightly_reflection / ghost_portfolio /
+    // counterfactual_resolve / ledger_resolve (ADR-0176 원본 5) + learning_flow_unclog_eod /
+    // learning_flow_unclog_intraday / unified_forward_outcome_labeling (이후 추가된 복구 cron).
+    // 기존 assertion(7)·title(5건)이 production 과 미동기화. 제외 cron 무회귀는 #7~#10 가 보장.
     const src = loadSource();
     const code = stripComments(src);
     const matches = code.match(/enqueueOnSkip/g) || [];
-    expect(matches.length).toBe(7);
+    expect(matches.length).toBe(8);
   });
 
   // ─── ADR-0176 주석 의무화 ────────────────────────────────────────────────────

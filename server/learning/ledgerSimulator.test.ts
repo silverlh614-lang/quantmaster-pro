@@ -5,11 +5,17 @@ import {
   recordUniverseEntries, resolveLedger, getUniverseStats, loadLedgerEntries,
   UNIVERSE_SETTINGS,
 } from './ledgerSimulator.js';
+import { clearShadowPersistenceFallbacks } from '../persistence/shadow/shadowPersistenceFallbackStore.js';
 
 // 원본 복원 — 테스트 병렬 실행 시 다른 suite 가 이 파일을 읽어도 영향을 주지 않도록.
 const _backup = fs.existsSync(LEDGER_FILE) ? fs.readFileSync(LEDGER_FILE, 'utf-8') : null;
 
 function resetLedger() {
+  // setup-drift fix: production shadowPersistenceGateway 가 source 별 in-memory fallback
+  // 캐시를 유지(불변식 #2 — Shadow Learning 은 멈추면 안 됨). 파일만 unlink 하면 load() 가
+  // 직전 테스트의 메모리 fallback 을 DEGRADED_FALLBACK 으로 반환해 엔트리가 누적된다(HIT_TP
+  // 잔존이 HIT_SL 테스트를 오염). gateway 표준 테스트 훅으로 메모리 fallback 도 비운다.
+  clearShadowPersistenceFallbacks();
   if (fs.existsSync(LEDGER_FILE)) fs.unlinkSync(LEDGER_FILE);
 }
 

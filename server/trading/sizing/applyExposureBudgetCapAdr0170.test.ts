@@ -114,15 +114,29 @@ describe('ADR-0170 §4 호출자 정합 정적 가드 — drift 차단', () => {
     expect(src).toMatch(/macroState:\s*MacroState\s*\|\s*null\s*\|\s*undefined/);
   });
 
-  it('buyListLoop.ts — buildExposureBudgetMacroInput import', () => {
-    const src = readSrc('server/trading/signalScanner/perSymbol/buyListLoop.ts');
-    expect(src).toMatch(/buildExposureBudgetMacroInput/);
+  // seed 4452bd3 가 buyListLoop.ts 를 perSymbol/steps/* 로 분해 — 메인 buyList 의
+  // 3 호출자(exposureBudgetCap / preBreakoutFollowthroughBudget / preBreakoutEntry)가
+  // 각각 별도 step 파일로 이동했다. 정적 가드를 분해된 step 파일들로 재지정한다
+  // (intradayLoop 는 별도 caller 로 아래 case 가 커버). intent(=메인 3 caller 모두
+  // buildExposureBudgetMacroInput(ctx.macroState) 로 macro propagate) 보존.
+  const MAIN_BUYLIST_STEP_FILES = [
+    'server/trading/signalScanner/perSymbol/steps/exposureBudgetCap.ts',
+    'server/trading/signalScanner/perSymbol/steps/preBreakoutFollowthroughBudget.ts',
+    'server/trading/signalScanner/perSymbol/steps/preBreakoutEntry.ts',
+  ];
+
+  it('메인 buyList step 파일들 — buildExposureBudgetMacroInput import', () => {
+    for (const f of MAIN_BUYLIST_STEP_FILES) {
+      expect(readSrc(f)).toMatch(/buildExposureBudgetMacroInput/);
+    }
   });
 
-  it('buyListLoop.ts — 3 호출자 모두 macro 전달', () => {
-    const src = readSrc('server/trading/signalScanner/perSymbol/buyListLoop.ts');
-    const matches = src.match(/macro:\s*buildExposureBudgetMacroInput\(ctx\.macroState\)/g) ?? [];
-    expect(matches.length).toBe(3);
+  it('메인 buyList — 3 호출자 모두 macro 전달 (분해된 step 파일 합산)', () => {
+    const total = MAIN_BUYLIST_STEP_FILES.reduce((acc, f) => {
+      const matches = readSrc(f).match(/macro:\s*buildExposureBudgetMacroInput\(ctx\.macroState\)/g) ?? [];
+      return acc + matches.length;
+    }, 0);
+    expect(total).toBe(3);
   });
 
   it('intradayLoop.ts — buildExposureBudgetMacroInput import + 호출', () => {
@@ -156,8 +170,11 @@ describe('ADR-0170 §4 호출자 정합 정적 가드 — drift 차단', () => {
     expect(src).toMatch(/ADR-0170/);
   });
 
-  it('ADR-0170 §M4 추적 주석 존재 — buyListLoop.ts', () => {
-    const src = readSrc('server/trading/signalScanner/perSymbol/buyListLoop.ts');
+  // seed 4452bd3 분해로 buyListLoop.ts 의 ADR-0170 §M4 추적 주석이 macro-input SSOT
+  // 헬퍼(helpers.ts: buildExposureBudgetMacroInput 정의부)로 이동했다. 메인 buyList 의
+  // 3 step caller 가 모두 이 헬퍼를 import 하므로 추적성 SSOT 는 helpers.ts 다.
+  it('ADR-0170 §M4 추적 주석 존재 — perSymbol/helpers.ts (macro-input SSOT)', () => {
+    const src = readSrc('server/trading/signalScanner/perSymbol/helpers.ts');
     expect(src).toMatch(/ADR-0170/);
   });
 

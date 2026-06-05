@@ -22,6 +22,10 @@ describe('entry revalidation policy-blocked logging semantics', () => {
       minGateScore: 999,
       macroRegimeCandidates: ['R3_CAUTION', 'R6_DEFENSE'],
       executionMode: 'SHADOW_ONLY',
+      // 시나리오(NON_TRADING_DAY + POSITION_FULL + SHADOW_ONLY)는 현실적으로 live 진입 불가
+      // 상태다. evaluateEntryRevalidation 의 SKIPPED_POLICY_BLOCK 분기는 liveEntryAllowed=false
+      // 로 구동되며(entryEngine.ts), upstream(entryRevalidationStep)도 이 값을 명시 전달한다.
+      liveEntryAllowed: false,
       marketSessionState: 'NON_TRADING_DAY',
       blockReasons: ['POSITION_FULL', 'KRX_NON_TRADING_DAY'],
     });
@@ -53,6 +57,8 @@ describe('entry revalidation policy-blocked logging semantics', () => {
       minGateScore: 999,
       macroRegimeCandidates: ['R6_DEFENSE'],
       executionMode: 'SHADOW_ONLY',
+      // R6_DEFENSE + KRX_NON_TRADING_DAY 정책차단 컨텍스트 → live 진입 불가(SKIPPED_POLICY_BLOCK).
+      liveEntryAllowed: false,
       blockReasons: ['R6_DEFENSE', 'KRX_NON_TRADING_DAY'],
     });
     expect(r.status).toBe('SKIPPED_POLICY_BLOCK');

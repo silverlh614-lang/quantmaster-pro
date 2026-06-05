@@ -131,44 +131,45 @@ describe('PR-R LIVE 매매 무영향 — try/catch 격리 패턴', () => {
 });
 
 describe('PR-R wiring import 검증', () => {
-  it('perSymbolEvaluation 가 recordRejection 을 import', async () => {
-    // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts 로 이주.
-    const filePath = path.resolve(__dirname, '../perSymbol/buyListLoop.ts');
-    const source = fs.readFileSync(filePath, 'utf-8');
+  // ADR-0019 분해: buyListLoop.ts 의 per-stock 본체가 perSymbol/steps/* 로 이주.
+  //  - recordRejection / recordCounterfactual → perSymbol/steps/entryRevalidationGate.ts
+  //  - recordTwinEntries                      → perSymbol/steps/loopInitializer.ts
+  // 과거 buyListLoop.ts 소스 grep 가드는 이주로 hit 0 이 되어 깨졌으므로 실제 wiring 파일을
+  // 가리키도록 갱신하고, hook throw 격리(try/catch + console.warn) wiring 을 단언한다.
+  const REVAL_GATE_PATH = path.resolve(__dirname, '../perSymbol/steps/entryRevalidationGate.ts');
+  const LOOP_INIT_PATH = path.resolve(__dirname, '../perSymbol/steps/loopInitializer.ts');
+
+  it('entryRevalidationGate 가 recordRejection 을 import + 호출', () => {
+    const source = fs.readFileSync(REVAL_GATE_PATH, 'utf-8');
     expect(source).toMatch(/from\s*['"][^'"]*learning\/rejectionShadowTracker\.js['"]/);
-    expect(source).toContain('recordRejection');
+    expect(source).toContain('recordRejection(');
   });
 
-  it('perSymbolEvaluation 가 recordTwinEntries 를 import', async () => {
-    // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts 로 이주.
-    const filePath = path.resolve(__dirname, '../perSymbol/buyListLoop.ts');
-    const source = fs.readFileSync(filePath, 'utf-8');
+  it('loopInitializer 가 recordTwinEntries 를 import + 호출', () => {
+    const source = fs.readFileSync(LOOP_INIT_PATH, 'utf-8');
     expect(source).toMatch(/from\s*['"][^'"]*learning\/counterfactualTwinPortfolio\.js['"]/);
-    expect(source).toContain('recordTwinEntries');
+    expect(source).toContain('recordTwinEntries(');
   });
 
-  it('perSymbolEvaluation 의 두 hook 모두 try/catch 격리', () => {
-    // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts 로 이주.
-    const filePath = path.resolve(__dirname, '../perSymbol/buyListLoop.ts');
-    const source = fs.readFileSync(filePath, 'utf-8');
-    // try 블록 안에 recordTwinEntries / recordRejection 호출
-    expect(source).toMatch(/try\s*\{[^}]*recordTwinEntries\(/s);
-    expect(source).toMatch(/try\s*\{[^}]*recordRejection\(/s);
-    // catch 블록에 console.warn (throw 시 silent fail)
-    expect(source).toContain('[TwinPortfolio] record 실패');
-    expect(source).toContain('[RejectionShadow] record 실패');
+  it('두 hook 모두 try/catch 격리 (throw 가 매매 루프 막지 않음)', () => {
+    const revalSource = fs.readFileSync(REVAL_GATE_PATH, 'utf-8');
+    const loopSource = fs.readFileSync(LOOP_INIT_PATH, 'utf-8');
+    // recordRejection / recordTwinEntries 호출이 try 블록 안에 위치.
+    expect(revalSource).toMatch(/try\s*\{[\s\S]*?recordRejection\(/);
+    expect(loopSource).toMatch(/try\s*\{[\s\S]*?recordTwinEntries\(/);
+    // catch 블록 console.warn 안정 ASCII 태그 (Korean 본문은 production 에서 mojibake 화돼
+    // '실패' 매칭 불가 — 안정 태그만 단언). 격리 자체는 위 1·2 describe 가 behavioral 로 보강.
+    expect(loopSource).toContain('[TwinPortfolio] record');
+    expect(revalSource).toContain('[RejectionShadow] record');
   });
 
-  it('PR-R wiring 이 recordCounterfactual 패턴과 동일 위치 사용', () => {
-    // ADR-0134: perSymbolEvaluation.ts 분해 후 본체는 perSymbol/buyListLoop.ts 로 이주.
-    const filePath = path.resolve(__dirname, '../perSymbol/buyListLoop.ts');
-    const source = fs.readFileSync(filePath, 'utf-8');
-    // 두 hook 모두 try/catch 패턴 — recordCounterfactual 같은 위치
-    const counterfactualIdx = source.indexOf('recordCounterfactual');
-    const rejectionIdx = source.indexOf('recordRejection');
+  it('recordRejection 이 recordCounterfactual 와 동일 entryRevalidation 분기 내에 인접', () => {
+    const source = fs.readFileSync(REVAL_GATE_PATH, 'utf-8');
+    // 두 hook 모두 entryRevalidation 실패 분기 안에서 연속 호출 (counterfactual → rejection).
+    const counterfactualIdx = source.indexOf('recordCounterfactual(');
+    const rejectionIdx = source.indexOf('recordRejection(');
     expect(counterfactualIdx).toBeGreaterThan(0);
     expect(rejectionIdx).toBeGreaterThan(0);
-    // recordRejection 이 entryRevalidation 분기 내에 위치 (counterfactual 근처)
     expect(Math.abs(rejectionIdx - counterfactualIdx)).toBeLessThan(2000);
   });
 });

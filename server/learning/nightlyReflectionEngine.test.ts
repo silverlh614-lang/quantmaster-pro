@@ -124,10 +124,20 @@ describe('Phase 1 — reflectionBudget.decideReflectionMode', () => {
     vi.doMock('../clients/geminiClient.js', () => ({
       getBudgetState: () => ({ pctUsed: 88, spentUsd: 0, budgetUsd: 20 }),
     }));
-    const { saveReflectionBudget } = await import('../persistence/reflectionRepo.js');
-    saveReflectionBudget({ month: '2026-04', tokensUsed: 1, callCount: 1, lastReflectionDate: '2026-04-20' });
-    const { decideReflectionMode } = await import('./reflectionBudget.js');
-    expect(decideReflectionMode('2026-04-21')).toBe('TEMPLATE_ONLY');
+    // time-drift fix: loadReflectionBudget 은 raw.month !== new Date() 의 현재 월이면
+    // 자동 롤오버해 lastReflectionDate 를 폐기한다. 하드코딩 month '2026-04' 가 실제 실행
+    // 월과 불일치하면(거의 항상) 롤오버되어 격일 로직이 깨진다. 시스템 시계를 2026-04-21 로
+    // 고정해 저장 월/날짜 인자와 정렬, "어제 실행 → 오늘 skip" 의도를 그대로 검증한다.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-21T10:00:00Z'));
+    try {
+      const { saveReflectionBudget } = await import('../persistence/reflectionRepo.js');
+      saveReflectionBudget({ month: '2026-04', tokensUsed: 1, callCount: 1, lastReflectionDate: '2026-04-20' });
+      const { decideReflectionMode } = await import('./reflectionBudget.js');
+      expect(decideReflectionMode('2026-04-21')).toBe('TEMPLATE_ONLY');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('예산 97% + 수요일 → REDUCED_MWF', async () => {
@@ -220,7 +230,10 @@ describe('Phase 1 — runNightlyReflection 기본 흐름', () => {
     expect(__test.kstDate(new Date(Date.UTC(2026, 3, 20, 10, 0, 0)))).toBe('2026-04-20');
     expect(__test.tomorrowKst('2026-04-30')).toBe('2026-05-01');
   });
-});
+  // timeout drift fix: production 모듈 그래프 확장으로 vi.resetModules() 직후 첫
+  // nightlyReflectionEngine dynamic import 의 cold-compile 비용이 기본 5s 를 초과(이후
+  // 테스트는 transform 캐시로 통과). 동작 검증 유지, suite timeout 만 상향.
+}, 20_000);
 
 describe('Phase 2 — runNightlyReflection FULL flow (mocked Gemini)', () => {
   let tmpDir: string;

@@ -185,8 +185,11 @@ describe('ADR-0442 /scan_blockers — kisWsSubscription 섹션 wiring', () => {
     expect(captured).not.toContain('KIS WebSocket Subscription Queue');
   });
 
-  it('buildSubscriptionDiagnosis throw → baseMessage 만 출력 + console.warn (try/catch 격리)', async () => {
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('buildSubscriptionDiagnosis throw → baseMessage 만 출력 + 구조화 경고 로그 (try/catch 격리)', async () => {
+    // Patch-VITEST-CAT-C: 섹션 경고가 raw console.warn → emitReportSectionWarn(구조화 P2)
+    // 로 리팩토링됨. executionImpact=NONE 인 P2 는 console.info 로 라우팅되므로 양쪽 채널을 감시한다.
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(kisWsManager, 'buildSubscriptionDiagnosis').mockImplementation(() => {
       throw new Error('mock buildSubscriptionDiagnosis throw');
     });
@@ -208,10 +211,12 @@ describe('ADR-0442 /scan_blockers — kisWsSubscription 섹션 wiring', () => {
     // baseMessage 는 정상 출력 — kisWs 섹션만 미노출
     expect(captured).toContain('🛡️ baseMessage');
     expect(captured).not.toContain('KIS WebSocket Subscription Queue');
-    // console.warn 호출 (격리 검증)
-    expect(consoleSpy).toHaveBeenCalled();
-    const warnCalls = consoleSpy.mock.calls.map((c) => String(c[0]));
-    expect(warnCalls.some((m) => m.includes('kis-ws subscription'))).toBe(true);
+    // 구조화 경고 로그 호출 (격리 검증) — warn/info 어느 채널이든 메시지가 실려야 한다.
+    const allWarnLines = [
+      ...consoleWarnSpy.mock.calls,
+      ...consoleInfoSpy.mock.calls,
+    ].map((c) => String(c[0]));
+    expect(allWarnLines.some((m) => m.includes('kis-ws subscription'))).toBe(true);
   });
 
 

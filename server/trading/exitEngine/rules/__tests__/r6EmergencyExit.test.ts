@@ -4,11 +4,17 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../../clients/kisClient.js', () => ({
-  placeKisSellOrder: vi.fn(() => Promise.resolve({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' })),
-}));
-vi.mock('../../../../alerts/telegramClient.js', () => ({
-  sendTelegramAlert: vi.fn(() => Promise.resolve()),
+vi.mock('../../../../clients/kisClient.js', async () => {
+  const actual = await vi.importActual<any>('../../../../clients/kisClient.js');
+  return {
+    ...actual,
+    placeKisSellOrder: vi.fn(() => Promise.resolve({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' })),
+  };
+});
+// ADR-0466 — 알림 경로가 sendTelegramAlert → emitTelegramEvent taxonomy router 로 이관.
+// 호출 shape: emitTelegramEvent({ type, message, severity, metadata }) 단일 객체.
+vi.mock('../../../../alerts/telegramEventRouter.js', () => ({
+  emitTelegramEvent: vi.fn(() => Promise.resolve(1)),
 }));
 vi.mock('../../../../persistence/shadowTradeRepo.js', async () => {
   const actual = await vi.importActual<any>('../../../../persistence/shadowTradeRepo.js');
@@ -32,7 +38,7 @@ vi.mock('../../../../persistence/pendingEmergencyExitQueueRepo.js', () => ({
 const { r6EmergencyExit } = await import('../r6EmergencyExit.js');
 const { makeMockShadow, makeMockCtx, LIVE_FAILED_RESULT, makeLiveOrderedResult } = await import('./_testHelpers.js');
 const { placeKisSellOrder } = await import('../../../../clients/kisClient.js');
-const { sendTelegramAlert } = await import('../../../../alerts/telegramClient.js');
+const { emitTelegramEvent } = await import('../../../../alerts/telegramEventRouter.js');
 const { addSellOrder } = await import('../../../fillMonitor.js');
 const { appendFill } = await import('../../../../persistence/shadowTradeRepo.js');
 const { appendPendingEmergencyExit } = await import('../../../../persistence/pendingEmergencyExitQueueRepo.js');
@@ -65,7 +71,7 @@ describe('r6EmergencyExit (R6 30% 1회)', () => {
     expect(placeKisSellOrder).toHaveBeenCalledWith('005930', '삼성전자', 30, 'STOP_LOSS');
     expect(shadow.r6EmergencySold).toBe(true);
     expect(shadow.exitRuleTag).toBe('R6_EMERGENCY_EXIT');
-    expect(sendTelegramAlert).toHaveBeenCalledOnce();
+    expect(emitTelegramEvent).toHaveBeenCalledOnce();
   });
 
   it('R6_DEFENSE ShadowPositionLedger 포지션은 forced exit 대상에서 제외된다', async () => {
@@ -81,9 +87,8 @@ describe('r6EmergencyExit (R6 30% 1회)', () => {
     expect(appendFill).not.toHaveBeenCalled();
     expect(shadow.r6EmergencySold).toBeUndefined();
     expect(shadow.exitRuleTag).toBeUndefined();
-    expect(sendTelegramAlert).not.toHaveBeenCalledWith(
-      expect.stringContaining('[R6 emergency liquidation]'),
-      expect.anything(),
+    expect(emitTelegramEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('[R6 emergency liquidation]') }),
     );
   });
 
@@ -92,10 +97,9 @@ describe('r6EmergencyExit (R6 30% 1회)', () => {
     const shadow = makeMockShadow({ quantity: 100, mode: 'LIVE' });
     await r6EmergencyExit(makeMockCtx({ shadow, currentRegime: 'R6_DEFENSE' as any }));
     expect(shadow.r6EmergencySold).toBe(false); // 롤백
-    // FAILED 시 priority CRITICAL
-    expect(sendTelegramAlert).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ priority: 'CRITICAL' }),
+    // FAILED 시 severity CRITICAL
+    expect(emitTelegramEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'CRITICAL' }),
     );
   });
 
@@ -126,9 +130,11 @@ describe('r6EmergencyExit (R6 30% 1회)', () => {
     }));
     expect(shadow.r6EmergencySold).toBeUndefined();
     expect(shadow.exitRuleTag).toBeUndefined();
-    expect(sendTelegramAlert).toHaveBeenCalledWith(
-      expect.stringContaining('candidate'),
-      expect.objectContaining({ priority: 'HIGH' }),
+    expect(emitTelegramEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('candidate'),
+        severity: 'HIGH',
+      }),
     );
   });
 

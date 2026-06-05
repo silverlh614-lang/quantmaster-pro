@@ -1,4 +1,4 @@
-﻿// @responsibility SELL_ONLY ?덉쇅 梨꾨꼸??liveGate/MTAS 異붽? 寃利?RevalidationStep
+// @responsibility SELL_ONLY ?덉쇅 梨꾨꼸??liveGate/MTAS 異붽? 寃利?RevalidationStep
 
 import type { RevalidationStepResult } from './types.js';
 

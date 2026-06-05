@@ -58,7 +58,11 @@ describe('alertRouter JOURNAL delivery policy ADR-0466', () => {
       dedupeKey: 'journal-default',
     });
 
-    expect(mocks.sendChannelAlertTo).toHaveBeenCalledWith('-100system', 'daily learning journal', {
+    // 출력 드리프트 정정: SYSTEM(CH4 JOURNAL) 카테고리는 decorateMessage 에서 '📒 ' 접두어를
+    // 무조건 부여한다(alertRouter.ts case SYSTEM, L220 문서화된 정책). 본 테스트의 의도는
+    // non-critical SYSTEM 알림이 weekly buffer 가 아니라 *즉시 전송* 됨을 검증하는 것이며,
+    // 접두어는 채널 데코레이션일 뿐 — 기대 메시지에 📒 접두어를 반영한다.
+    expect(mocks.sendChannelAlertTo).toHaveBeenCalledWith('-100system', '📒 daily learning journal', {
       disableNotification: true,
     });
     expect(getChannelFlushStatus().systemWeeklyBufferLength).toBe(0);

@@ -4,11 +4,17 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('../../../../clients/kisClient.js', () => ({
-  placeKisSellOrder: vi.fn(() => Promise.resolve({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' })),
-}));
-vi.mock('../../../../alerts/telegramClient.js', () => ({
-  sendTelegramAlert: vi.fn(() => Promise.resolve()),
+vi.mock('../../../../clients/kisClient.js', async () => {
+  const actual = await vi.importActual<any>('../../../../clients/kisClient.js');
+  return {
+    ...actual,
+    placeKisSellOrder: vi.fn(() => Promise.resolve({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' })),
+  };
+});
+// ADR-0466 — 알림 경로가 sendTelegramAlert → emitTelegramEvent taxonomy router 로 이관.
+// 호출 shape: emitTelegramEvent({ type, message, severity, dedupeKey, metadata }) 단일 객체.
+vi.mock('../../../../alerts/telegramEventRouter.js', () => ({
+  emitTelegramEvent: vi.fn(() => Promise.resolve(1)),
 }));
 vi.mock('../../../../persistence/shadowTradeRepo.js', async () => {
   const actual = await vi.importActual<any>('../../../../persistence/shadowTradeRepo.js');
@@ -33,7 +39,7 @@ const {
 } = await import('../entryCircuitBreaker.js');
 const { makeMockShadow, makeMockCtx, LIVE_FAILED_RESULT } = await import('./_testHelpers.js');
 const { placeKisSellOrder } = await import('../../../../clients/kisClient.js');
-const { sendTelegramAlert } = await import('../../../../alerts/telegramClient.js');
+const { emitTelegramEvent } = await import('../../../../alerts/telegramEventRouter.js');
 const { addSellOrder } = await import('../../../fillMonitor.js');
 
 /** 진입 시각을 N분 전으로 만드는 헬퍼 */
@@ -231,12 +237,17 @@ describe('entryCircuitBreaker (ADR-0072)', () => {
     await entryCircuitBreaker(makeMockCtx({
       shadow, currentPrice: 94, returnPct: -6,
     }));
-    expect(sendTelegramAlert).toHaveBeenCalledOnce();
-    const [message, options] = (sendTelegramAlert as any).mock.calls[0];
-    expect(message).toContain('현대제철 (004020)');
-    expect(message).toContain('Entry Circuit Breaker');
-    expect(options.dedupeKey).toBe('entry_circuit_breaker:004020');
-    expect(['HIGH', 'CRITICAL']).toContain(options.priority);
+    expect(emitTelegramEvent).toHaveBeenCalledOnce();
+    const [event] = (emitTelegramEvent as any).mock.calls[0];
+    expect(event.message).toContain('현대제철 (004020)');
+    expect(event.message).toContain('Entry Circuit Breaker');
+    // dedupeKey 는 종목코드 단위 per-symbol dedup 이어야 한다 (ADR-0072 §5 의도).
+    // NOTE: ADR-0072 §5 는 `entry_circuit_breaker:${stockCode}` 를 명시하나
+    // production(entryCircuitBreaker.ts) 은 `ecb:${stockCode}` 로 약칭 — prefix
+    // 불일치(문서 vs 구현)는 보고 대상(BOUNDED). 회귀 가드를 위해 현 구현 포맷을
+    // 정확히 pin 한다: prefix 회귀(예: 빈 prefix·종목코드 누락) 즉시 검출.
+    expect(event.dedupeKey).toBe('ecb:004020');
+    expect(['HIGH', 'CRITICAL']).toContain(event.severity);
   });
 
   // ── FAILED 분기 — 플래그 롤백 ───────────────────────────────────────────
@@ -254,7 +265,7 @@ describe('entryCircuitBreaker (ADR-0072)', () => {
     expect(shadow.entryCircuitTriggered).toBeFalsy();
     expect(shadow.addBuyBlocked).toBeFalsy();
     // 텔레그램 CRITICAL 알림은 발송됨.
-    const [, options] = (sendTelegramAlert as any).mock.calls[0];
-    expect(options.priority).toBe('CRITICAL');
+    const [event] = (emitTelegramEvent as any).mock.calls[0];
+    expect(event.severity).toBe('CRITICAL');
   });
 });

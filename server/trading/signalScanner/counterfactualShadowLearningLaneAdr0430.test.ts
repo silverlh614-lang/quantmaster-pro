@@ -473,7 +473,11 @@ describe('ADR-0430 — counterfactualShadowLearningRepo 영속 분리', () => {
 // ── §K-11 — Macro live block keeps shadow/watch diagnostics always-on ──────
 
 describe('ADR-0430 — Router learning lane 표시', () => {
-  it('§K-11: SELL_ONLY is live-only block with shadow/watch diagnostics', async () => {
+  // always-on rollback: legacy SELL_ONLY 는 forensic-only (gateDecisionRouter L185) — severity 로
+  // 승격되지 않는다. gate1Pass=1 이 동반되므로 부분 pass 경로 REDUCED_ENTRY_CANDIDATE 로 분류된다.
+  // 본 테스트의 핵심 의도("live 만 차단, shadow/watch 진단 + counterfactual 학습은 always-on")는
+  // REDUCED 경로에서도 동일하게 보존됨 (liveAllowed=false + shadow/watch/learning 모두 살아있음).
+  it('§K-11: legacy SELL_ONLY(forensic) + gate1 survivor → REDUCED, live만 차단·shadow/watch/learning always-on', async () => {
     const { deriveGateDecisionRouterResult, formatGateDecisionRouterSection } = await import(
       './gateDecisionRouter.js'
     );
@@ -482,7 +486,7 @@ describe('ADR-0430 — Router learning lane 표시', () => {
       gate1Pass: 1,
       riskFlags: { sellOnly: true },
     });
-    expect(result.severity).toBe('SELL_ONLY');
+    expect(result.severity).toBe('REDUCED_ENTRY_CANDIDATE');
     expect(result.liveAllowed).toBe(false);
     expect(result.paperAllowed).toBe(false);
     expect(result.shadowAllowed).toBe(true);

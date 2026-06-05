@@ -259,9 +259,11 @@ describe('LOOSEN_GATE 신규 출력 금지 정적 가드 (ADR-0417)', () => {
     expect(src).not.toMatch(/threshold 낮추기 권장/);
   });
 
-  it('adaptiveScanScheduler.ts — recommendedActions 사용 (recommendedAction 단독 미사용)', () => {
+  it('adaptiveScanScheduler.base.ts — recommendedActions 사용 (recommendedAction 단독 미사용)', () => {
+    // adaptiveScanScheduler.ts 는 R6 overlay 박막으로 분해되고 postmortem 소비 로직(권고 출력·
+    // 분리 분모 비율 보고)은 adaptiveScanScheduler.base.ts 로 이주됨 → grep 대상을 base 로 정정.
     const src = fs.readFileSync(
-      path.resolve(__dirname, './adaptiveScanScheduler.ts'),
+      path.resolve(__dirname, './adaptiveScanScheduler.base.ts'),
       'utf-8',
     );
     expect(src).toContain('recommendedActions');

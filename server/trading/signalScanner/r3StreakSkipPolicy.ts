@@ -118,21 +118,43 @@ export interface StreakSkipDecision {
 export function evaluateStreakIncrementAllowed(
   ctx: StreakSkipContext,
 ): StreakSkipDecision {
+  // #1 KRX 비거래일 (ADR-0412)
   if (!ctx.isKrxTradingDay) {
     return { allowed: false, skipReason: 'KRX_NON_TRADING_DAY' };
   }
+  // #2 VolumeClock CLOSED — 점심·장외 시간대 (ADR-0412)
+  if (!ctx.volumeClockAllowsEntry) {
+    return { allowed: false, skipReason: 'VOLUME_CLOCK_CLOSED' };
+  }
+  // #3 운영자 비상정지 (ADR-0419)
   if (ctx.emergencyStop) {
     return { allowed: false, skipReason: 'EMERGENCY_STOP' };
   }
+  // #4 UI 수동 가드 (ADR-0419)
   if (ctx.manualBlockNewBuy || ctx.manualManageOnly) {
     return { allowed: false, skipReason: 'MANUAL_BLOCK_NEW_BUY' };
   }
+  // #5 SELL_ONLY 모드 — 매크로 매도전용 (ADR-0412)
+  if (ctx.sellOnlyMode) {
+    return { allowed: false, skipReason: 'SELL_ONLY_MODE' };
+  }
+  // #6 R6 블랙스완 방어 레짐 (ADR-0419)
+  if (ctx.regime === 'R6_DEFENSE') {
+    return { allowed: false, skipReason: 'R6_DEFENSE_REGIME' };
+  }
+  // #7 VIX 게이팅 (ADR-0419)
   if (ctx.vixGatingActive) {
     return { allowed: false, skipReason: 'VIX_BLOCK' };
   }
+  // #8 FOMC 게이팅 (ADR-0419)
   if (ctx.fomcBlockActive) {
     return { allowed: false, skipReason: 'FOMC_BLOCK' };
   }
+  // #9 bear / 그 외 거시 게이트 fallback (ADR-0412)
+  if (ctx.bearDefenseMode) {
+    return { allowed: false, skipReason: 'BLOCKED_DAY_SCAN' };
+  }
+  // #10 데이터 빈곤 스캔 (ADR-0419)
   if (ctx.dataStarvedScan) {
     return { allowed: false, skipReason: 'DATA_STARVED_SCAN' };
   }

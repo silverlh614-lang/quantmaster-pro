@@ -110,6 +110,38 @@ describe('F2W reflection adjustment', () => {
     }));
     writeJson(path.join(tmpDir, 'attribution-records.json'), records);
 
+    // behavioral-drift fix: runF2WReverseLoop 가 attribution 레코드를 evidence-ledger 의
+    // CORE_ELIGIBLE(LIVE+EXECUTED+CONFIRMED+VERIFIED+NORMAL) 샘플로만 필터링하도록 리팩토링됨
+    // (Evidence Hygiene — active weight 은 LIVE/VERIFIED/OUTCOME_CONFIRMED 만). 따라서 F2W
+    // correlation(=COMBINED 분기)을 발화시키려면 각 tradeId(t0..t9)에 대응하는 CORE_ELIGIBLE
+    // evidence 레코드를 동일 월 ledger 에 영속해야 한다. 없으면 레코드가 전부 필터링돼
+    // REFLECTION_ADJUSTMENT 만 남는다(=현재 실패 원인). correlation 본체 동작 검증은 유지.
+    const { saveAttributionEvidenceForMonth } = await import('../persistence/attributionEvidenceLedgerRepo.js');
+    const month = new Date().toISOString().slice(0, 7);
+    const tradeDate = new Date().toISOString().slice(0, 10);
+    saveAttributionEvidenceForMonth(
+      month,
+      records.map((r, i) => ({
+        evidenceId: `LIVE:${tradeDate}:005930:ev${i}`,
+        tradeDate,
+        symbol: '005930',
+        regime: 'R2_BULL',
+        conditionKeys: ['cond_2'],
+        source: 'LIVE' as const,
+        eligibility: 'CORE_ELIGIBLE' as const,
+        outcomeStatus: 'CONFIRMED' as const,
+        executionStatus: 'EXECUTED' as const,
+        engineMode: 'NORMAL' as const,
+        dataConfidence: 'VERIFIED' as const,
+        positionId: r.tradeId,
+        signalId: r.tradeId,
+        executionImpact: 'NONE' as const,
+        createdAt: `${tradeDate}T00:00:00.000Z`,
+        updatedAt: `${tradeDate}T00:00:00.000Z`,
+        auditTags: [],
+      })),
+    );
+
     const { runF2WReverseLoop } = await import('./failureToWeight.js');
     const result = await runF2WReverseLoop({ dryRun: true });
     const adjusted = result.adjustments.find((a) => a.conditionId === 2)!;

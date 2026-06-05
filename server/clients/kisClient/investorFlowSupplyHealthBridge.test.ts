@@ -312,14 +312,44 @@ describe('ADR-0517 — Group F: 정적 grep 가드 (LIVE 매매 본체 0줄 변�
 });
 
 describe('ADR-0517 — Group G: caller wiring 정적 grep 가드 (4 callsite + 2 snapshot)', () => {
-  it('G1. buyListLoop.ts 가 SSOT 위임 import + 3 callsite (FOLLOWTHROUGH / PRE_BREAKOUT 30% / 메인 buyList) wiring', () => {
-    const callerPath = resolve(__dirnameLocal, '../../trading/signalScanner/perSymbol/buyListLoop.ts');
-    const src = readFileSync(callerPath, 'utf-8');
-    expect(src).toContain('investorFlowSupplyHealthBridge');
-    expect(src).toContain('applySupplyProviderHealthFromKisFlow');
-    // 호출 횟수 ≥3 (3 wiring callsite)
-    const matches = src.match(/applySupplyProviderHealthFromKisFlow\(/g) ?? [];
-    expect(matches.length).toBeGreaterThanOrEqual(3);
+  it('G1. buyList path 가 SSOT 위임 import + 3 callsite (FOLLOWTHROUGH / PRE_BREAKOUT 30% / 메인 buyList) wiring', () => {
+    // seed-4452bd3: signalScanner 분해 후 3 buyList callsite 가 buyListLoop.ts 본체에서
+    // perSymbol/steps/* 모듈로 추출됐다 (byte-equivalent 이주). buyListLoop 가 이들 step 을
+    // 직접/간접(preBreakoutFollowthrough → preBreakoutFollowthroughBudget) orchestrate 한다.
+    //   - kisIntradayCorrection.ts        : 메인 buyList callsite
+    //   - preBreakoutEntry.ts             : PRE_BREAKOUT 30% callsite
+    //   - preBreakoutFollowthroughBudget.ts : FOLLOWTHROUGH callsite
+    // 경로 pin 대신 분해된 실 callsite 위치를 따라가 ≥3 총 callsite 를 behavioral 검증한다.
+    const buyListStepPaths = [
+      '../../trading/signalScanner/perSymbol/steps/kisIntradayCorrection.ts',
+      '../../trading/signalScanner/perSymbol/steps/preBreakoutEntry.ts',
+      '../../trading/signalScanner/perSymbol/steps/preBreakoutFollowthroughBudget.ts',
+    ];
+    let totalCallsites = 0;
+    for (const rel of buyListStepPaths) {
+      const src = readFileSync(resolve(__dirnameLocal, rel), 'utf-8');
+      expect(src).toContain('investorFlowSupplyHealthBridge');
+      const matches = src.match(/applySupplyProviderHealthFromKisFlow\(/g) ?? [];
+      expect(matches.length).toBeGreaterThanOrEqual(1);
+      totalCallsites += matches.length;
+    }
+    // 3 buyList-path callsite 총합 ≥3 (G2 intraday callsite 와 분리).
+    expect(totalCallsites).toBeGreaterThanOrEqual(3);
+
+    // orchestration 정합: buyListLoop 가 메인/PRE_BREAKOUT step 을 직접 import,
+    // FOLLOWTHROUGH budget step 은 preBreakoutFollowthrough 경유로 묶인다.
+    const buyListLoopSrc = readFileSync(
+      resolve(__dirnameLocal, '../../trading/signalScanner/perSymbol/buyListLoop.ts'),
+      'utf-8',
+    );
+    expect(buyListLoopSrc).toMatch(/steps\/kisIntradayCorrection\.js/);
+    expect(buyListLoopSrc).toMatch(/steps\/preBreakoutEntry\.js/);
+    expect(buyListLoopSrc).toMatch(/steps\/preBreakoutFollowthrough\.js/);
+    const followthroughSrc = readFileSync(
+      resolve(__dirnameLocal, '../../trading/signalScanner/perSymbol/steps/preBreakoutFollowthrough.ts'),
+      'utf-8',
+    );
+    expect(followthroughSrc).toMatch(/preBreakoutFollowthroughBudget\.js/);
   });
 
   it('G2. intradayLoop.ts 가 SSOT 위임 import + 1 callsite (INTRADAY) wiring', () => {

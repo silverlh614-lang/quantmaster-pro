@@ -4,8 +4,11 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../../alerts/telegramClient.js', () => ({
-  sendTelegramAlert: vi.fn(() => Promise.resolve()),
+// ADR-0466 — exit rule alert 경로가 sendTelegramAlert 직접 호출에서
+// emitTelegramEvent taxonomy router 로 이관됨. 테스트는 router 를 mock 하여
+// "알림 발송" intent 를 검증한다 (production 동작 보존, 단순 mock 재타겟).
+vi.mock('../../../../alerts/telegramEventRouter.js', () => ({
+  emitTelegramEvent: vi.fn(() => Promise.resolve(1)),
 }));
 vi.mock('../../../../persistence/shadowTradeRepo.js', async () => {
   const actual = await vi.importActual<any>('../../../../persistence/shadowTradeRepo.js');
@@ -14,7 +17,7 @@ vi.mock('../../../../persistence/shadowTradeRepo.js', async () => {
 
 const { cascadeWarn } = await import('../cascadeWarn.js');
 const { makeMockShadow, makeMockCtx } = await import('./_testHelpers.js');
-const { sendTelegramAlert } = await import('../../../../alerts/telegramClient.js');
+const { emitTelegramEvent } = await import('../../../../alerts/telegramEventRouter.js');
 const { appendShadowLog } = await import('../../../../persistence/shadowTradeRepo.js');
 
 describe('cascadeWarn (-7% 추가매수 차단)', () => {
@@ -25,7 +28,7 @@ describe('cascadeWarn (-7% 추가매수 차단)', () => {
     const r = await cascadeWarn(makeMockCtx({ shadow, currentPrice: 95 })); // -5%
     expect(r.skipRest).toBe(false);
     expect(shadow.cascadeStep).toBeUndefined();
-    expect(sendTelegramAlert).not.toHaveBeenCalled();
+    expect(emitTelegramEvent).not.toHaveBeenCalled();
   });
 
   it('returnPct=-7 boundary 미진입 (≤ -7 조건이라 -7 진입)', async () => {
@@ -43,7 +46,7 @@ describe('cascadeWarn (-7% 추가매수 차단)', () => {
     expect(r.skipRest).toBe(true);
     expect(shadow.cascadeStep).toBe(1);
     expect(shadow.addBuyBlocked).toBe(true);
-    expect(sendTelegramAlert).toHaveBeenCalledOnce();
+    expect(emitTelegramEvent).toHaveBeenCalledOnce();
     expect(appendShadowLog).toHaveBeenCalledWith(expect.objectContaining({ event: 'CASCADE_WARN' }));
   });
 
@@ -51,6 +54,6 @@ describe('cascadeWarn (-7% 추가매수 차단)', () => {
     const shadow = makeMockShadow({ cascadeStep: 1 });
     const r = await cascadeWarn(makeMockCtx({ shadow, currentPrice: 90 }));
     expect(r.skipRest).toBe(false);
-    expect(sendTelegramAlert).not.toHaveBeenCalled();
+    expect(emitTelegramEvent).not.toHaveBeenCalled();
   });
 });

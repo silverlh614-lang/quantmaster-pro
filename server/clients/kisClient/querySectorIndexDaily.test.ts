@@ -45,6 +45,7 @@ beforeEach(async () => {
   _HAS_REAL_DATA_CLIENT.value = false;
   delete process.env.KIS_SECTOR_INDEX_DAILY_ENABLED;
   delete process.env.KIS_SECTOR_INDEX_DAILY_TR_ID;
+  delete process.env.KIS_SECTOR_INDEX_DAILY_LOOKBACK_DAYS;
   delete process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED;
   delete process.env.KIS_SECTOR_INDEX_CURRENT_TR_ID;
   delete process.env.KIS_SECTOR_INDEX_VERIFY_MODE;
@@ -58,6 +59,7 @@ afterEach(() => {
   delete process.env.KIS_APP_SECRET;
   delete process.env.KIS_SECTOR_INDEX_DAILY_ENABLED;
   delete process.env.KIS_SECTOR_INDEX_DAILY_TR_ID;
+  delete process.env.KIS_SECTOR_INDEX_DAILY_LOOKBACK_DAYS;
   delete process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED;
   delete process.env.KIS_SECTOR_INDEX_CURRENT_TR_ID;
   delete process.env.KIS_SECTOR_INDEX_VERIFY_MODE;
@@ -141,6 +143,48 @@ describe('fetchKisSectorIndexDaily', () => {
     process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
     _realDataKisGet.mockRejectedValue(new Error('circuit open'));
     await expect(mod.fetchKisSectorIndexDaily('0001')).resolves.toBeNull();
+  });
+
+  // 회귀: 기본 윈도가 21영업일(20d 수익률) 미만이면 휴장 다발 구간(5~6월)에 전 섹터 INSUFFICIENT_SERIES →
+  // official 섹터지수 미가용 → Gate2 SECTOR_LEADERSHIP 미충전. 기본 윈도는 충분한 마진을 가져야 한다.
+  const spanDays = (date1: string, date2: string): number => {
+    const toMs = (s: string) => Date.UTC(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)));
+    return Math.round((toMs(date2) - toMs(date1)) / (24 * 60 * 60 * 1000));
+  };
+
+  it('defaults to a >=60 calendar-day lookback window (21-row holiday margin)', async () => {
+    process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
+    _realDataKisGet.mockResolvedValue({ output1: [], output2: [] });
+    await mod.fetchKisSectorIndexDaily('0001');
+    const params = _realDataKisGet.mock.calls[0][2] as Record<string, string>;
+    expect(params.FID_INPUT_DATE_1).toMatch(/^\d{8}$/);
+    expect(params.FID_INPUT_DATE_2).toMatch(/^\d{8}$/);
+    expect(spanDays(params.FID_INPUT_DATE_1, params.FID_INPUT_DATE_2)).toBeGreaterThanOrEqual(60);
+  });
+
+  it('honors KIS_SECTOR_INDEX_DAILY_LOOKBACK_DAYS but floors it at 30 (rollback path)', async () => {
+    process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
+    process.env.KIS_SECTOR_INDEX_DAILY_LOOKBACK_DAYS = '30';
+    _realDataKisGet.mockResolvedValue({ output1: [], output2: [] });
+    await mod.fetchKisSectorIndexDaily('0001');
+    const params = _realDataKisGet.mock.calls[0][2] as Record<string, string>;
+    expect(spanDays(params.FID_INPUT_DATE_1, params.FID_INPUT_DATE_2)).toBe(30);
+
+    // 병적으로 작은 값은 30으로 floor (21행 보장 최소선).
+    _realDataKisGet.mockClear();
+    process.env.KIS_SECTOR_INDEX_DAILY_LOOKBACK_DAYS = '5';
+    await mod.fetchKisSectorIndexDaily('0001');
+    const floored = _realDataKisGet.mock.calls[0][2] as Record<string, string>;
+    expect(spanDays(floored.FID_INPUT_DATE_1, floored.FID_INPUT_DATE_2)).toBe(30);
+  });
+
+  it('still honors an explicit fromDate over the default window', async () => {
+    process.env.KIS_SECTOR_INDEX_DAILY_ENABLED = 'true';
+    _realDataKisGet.mockResolvedValue({ output1: [], output2: [] });
+    await mod.fetchKisSectorIndexDaily('0001', '20260101', '20260131');
+    const params = _realDataKisGet.mock.calls[0][2] as Record<string, string>;
+    expect(params.FID_INPUT_DATE_1).toBe('20260101');
+    expect(params.FID_INPUT_DATE_2).toBe('20260131');
   });
 });
 

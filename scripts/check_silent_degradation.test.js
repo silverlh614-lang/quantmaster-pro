@@ -33,6 +33,10 @@ function runLint(args = '') {
       cwd: ROOT,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      // 단독 ~25s 소요 스크립트 — full-suite 병렬 CPU 경합 시 30s 한계를 넘겨
+      // execSync 가 ETIMEDOUT/STACK_TRACE 로 던지면 flaky. 120s timeout 으로 경합
+      // 환경에서도 완주 보장 (테스트 강도 무변 — 동일 exitCode/output assertion).
+      timeout: 120_000,
     });
     return { exitCode: 0, output: out };
   } catch (err) {
@@ -54,7 +58,7 @@ describe('check_silent_degradation — baseline', () => {
       expect(result.output).toContain('OK');
       expect(result.output).toContain('신규 위반 0건');
     },
-    30000
+    180000
   );
 
   it('--json 출력 baseline 흡수 + violations 0건', () => {
@@ -69,7 +73,7 @@ describe('check_silent_degradation — baseline', () => {
     // PR-Governance-3-SLA (#510, 2026-05-02): bepGlideTouchAt PR-B1-1 wiring 후 카탈로그
     // 정식 제거 → baseline 흡수 ≥1건 (price7dAgo 만).
     expect(parsed.baselined.length).toBeGreaterThanOrEqual(1);
-  }, 30000);
+  }, 180000);
 
   it('확장된 SCHEMA_FILES 5개 인터페이스 모두 추출 (PR-Governance 후속)', () => {
     const result = runLint('--json');
@@ -80,7 +84,7 @@ describe('check_silent_degradation — baseline', () => {
     expect(schemas.has('WatchlistEntry')).toBe(true);
     expect(schemas.has('ServerAttributionRecord')).toBe(true);
     expect(schemas.has('FailurePatternEntry')).toBe(true);
-  }, 30000);
+  }, 180000);
 
   it('BASELINE_SILENT_DEGRADATION 등재 항목 흡수 — price7dAgo (bepGlideTouchAt PR-B1-1 wiring)', () => {
     // PR-Governance-3-SLA (#510, 2026-05-02): bepGlideTouchAt 는 PR-B1-1 (#509, ADR-0085)
@@ -92,7 +96,7 @@ describe('check_silent_degradation — baseline', () => {
     expect(baselineFields.has('price7dAgo')).toBe(true);
     // bepGlideTouchAt 는 wired 후 baseline 카탈로그에서 정식 제거 — baselined 아님
     expect(baselineFields.has('bepGlideTouchAt')).toBe(false);
-  }, 30000);
+  }, 180000);
 });
 
 describe('stripComments', () => {
