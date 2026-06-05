@@ -254,10 +254,15 @@ function gate2NotEvaluatedWhenGate1Fail(summary?: ScanSummary | null): boolean {
 function legacyR6NotUsedForDecision(summary?: ScanSummary | null): boolean {
   const macro = summary?.macroGateState;
   if (!macro) return true;
+  // 정합 정정(2026-06-05): macroRegimeRaw 가 R6_DEFENSE 면 분류기가 실제 감지한 *정식* raw 레짐이다
+  // (RegimeLevel 에 R6_DEFENSE 포함; resolveScoringEffectiveRegime 도 raw=R6 를 정당히 사용).
+  // genuine raw R6 은 'legacy 누출'이 아니라 진짜 시장 상태이므로 통과한다. 직전 로직은 raw=R6=effective
+  // 인 진짜 R6 방어장에서 false-positive FAIL 을 냈다. 누출은 raw 가 비-R6 인데 stale R6 가 결정
+  // 표면(regime/display)으로 새는 경우만 해당한다.
+  if (macro.macroRegimeRaw === 'R6_DEFENSE') return true;
   const legacyEffective = macro.macroRegimeEffective === 'R6_DEFENSE' || macro.riskOverride === 'R6_DEFENSE';
   if (!legacyEffective) return true;
-  return macro.macroRegimeRaw !== 'R6_DEFENSE' &&
-    macro.regime !== 'R6_DEFENSE' &&
+  return macro.regime !== 'R6_DEFENSE' &&
     macro.displayRegime !== 'R6_DEFENSE';
 }
 

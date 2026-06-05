@@ -317,3 +317,57 @@ describe('Gate1 score accounting diagnostic consistency', () => {
     expect(text).toContain('effectiveGateScoreImpact: 0.0');
   });
 });
+
+describe('LEGACY_R6_NOT_USED_FOR_DECISION invariant — genuine raw R6 정정 (2026-06-05)', () => {
+  function legacyR6Status(macroGateState: Record<string, unknown>): string | undefined {
+    const summary = {
+      time: '2026-06-05T10:00:00.000Z',
+      candidates: 22,
+      entries: 0,
+      positiveScoreStarvation: positiveReport(),
+      macroGateState,
+    } as unknown as ScanSummary;
+    const accounting = buildGate1ScoreAccountingReport({
+      positive: summary.positiveScoreStarvation,
+      summary,
+    });
+    return accounting?.invariants.find((i) => i.code === 'LEGACY_R6_NOT_USED_FOR_DECISION')?.status;
+  }
+
+  it('genuine raw=R6 (raw=effective=R6 실제 방어장) 는 통과한다 — 직전 false-positive FAIL 제거', () => {
+    expect(legacyR6Status({
+      macroRegimeRaw: 'R6_DEFENSE',
+      macroRegimeEffective: 'R6_DEFENSE',
+      regime: 'R6_DEFENSE',
+      displayRegime: 'SHADOW_ONLY',
+      riskOverride: 'SHADOW_ONLY',
+    })).toBe('OK');
+  });
+
+  it('stale R6 누출 (raw=R4 인데 effective=R6 + regime/display 표면에 R6) 은 FAIL', () => {
+    expect(legacyR6Status({
+      macroRegimeRaw: 'R4_NEUTRAL',
+      macroRegimeEffective: 'R6_DEFENSE',
+      regime: 'R6_DEFENSE',
+      displayRegime: 'R6_DEFENSE',
+    })).toBe('FAIL');
+  });
+
+  it('stale R6 가 raw 로 정상 복귀 (raw=R4, effective=R6, regime/display 비-R6) 면 통과', () => {
+    expect(legacyR6Status({
+      macroRegimeRaw: 'R4_NEUTRAL',
+      macroRegimeEffective: 'R6_DEFENSE',
+      regime: 'R4_NEUTRAL',
+      displayRegime: 'SHADOW_ONLY',
+    })).toBe('OK');
+  });
+
+  it('R6 미존재 → 통과', () => {
+    expect(legacyR6Status({
+      macroRegimeRaw: 'R4_NEUTRAL',
+      macroRegimeEffective: 'R4_NEUTRAL',
+      regime: 'R4_NEUTRAL',
+      displayRegime: 'R4_NEUTRAL',
+    })).toBe('OK');
+  });
+});
