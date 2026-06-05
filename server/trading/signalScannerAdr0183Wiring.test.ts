@@ -89,45 +89,44 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
     });
   });
 
-  describe('Always-On early-return site wiring 정합', () => {
-    it('SELL_ONLY → MANUAL_BLOCK', () => {
-      expect(src).toContain("recordBlockedDayShadowScan('MANUAL_BLOCK')");
-    });
+  describe('Always-On hard-block early-return site wiring 정합', () => {
+    // [always-on cleanup 정합] SELL_ONLY / R6_DEFENSE / VIX / FOMC 는 always-on 전환
+    // (3e7ca19 "remove time-of-day SELL_ONLY plumbing", REMOVED_POLICY_INPUT_IGNORED,
+    //  rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED') 으로 *자체 early-return 폐지* →
+    //  매크로 상태가 더 이상 스캔을 차단하지 않으므로 별도 blocked-day shadow scan 미기록.
+    //  따라서 과거 MANUAL_BLOCK / RISK_OFF_REGIME / VIX_SPIKE / FOMC_BLOCK direct-wiring
+    //  + "≥11 site" 카운트 + diagnostic-only marker 코멘트 가드는 *제거됐다*(아래 4개 it):
+    //    - 'SELL_ONLY → MANUAL_BLOCK' / 'R6_DEFENSE → RISK_OFF_REGIME' /
+    //      'VIX → VIX_SPIKE' / 'FOMC → FOMC_BLOCK' / '호출 site ≥11' / diagnostic-only marker 4건
+    //  사유: 런타임에서 삭제된 동작을 assert 하는 stale 가드 → behavioral 의미 없음.
+    //  잔존 *진짜 hard-block early-return* 5개 reason 만 동작 가드로 보존한다.
 
-    it('R6_DEFENSE → RISK_OFF_REGIME', () => {
-      expect(src).toContain("recordBlockedDayShadowScan('RISK_OFF_REGIME')");
-    });
-
-    it('VIX 게이팅 → VIX_SPIKE', () => {
-      expect(src).toContain("recordBlockedDayShadowScan('VIX_SPIKE')");
-    });
-
-    it('FOMC 게이팅 → FOMC_BLOCK', () => {
-      expect(src).toContain("recordBlockedDayShadowScan('FOMC_BLOCK')");
-    });
-
-    it('호출 site 수는 최소 11개 이상 — exact-count drift 방지', () => {
-      const matches = src.match(/recordBlockedDayShadowScan\(['"]/g);
-      expect(matches).toBeDefined();
-      expect(matches!.length).toBeGreaterThanOrEqual(11);
-    });
-
-    it('Always-On 핵심 차단 사유 wiring 포함', () => {
-      const reasons = shadowLearningReasonsFromPreflight();
+    it('genuine hard-block reason 만 preflight 가 직접 wiring (always-on 잔존 차단 사유)', () => {
+      const reasons = new Set(shadowLearningReasonsFromPreflight());
+      // 잔존 hard-block early-return — KIS 설정/워치리스트/데이터/포지션/R3-latch 만 스캔 차단.
       expect(reasons).toEqual(
-        expect.arrayContaining([
+        new Set([
           'KIS_CONFIG_MISSING',
           'WATCHLIST_EMPTY',
-          'MANUAL_BLOCK',
-          'RISK_OFF_REGIME',
-          'VIX_SPIKE',
-          'FOMC_BLOCK',
           'DATA_STARVED',
           'POSITION_FULL',
-          'VOLUME_CLOCK_BLOCK',
           'R3_SANITY_BLOCK',
         ]),
       );
+      // always-on 으로 폐지된 매크로 reason 은 더 이상 preflight direct-wiring 되지 않음.
+      for (const removed of ['MANUAL_BLOCK', 'RISK_OFF_REGIME', 'VIX_SPIKE', 'FOMC_BLOCK']) {
+        expect(reasons.has(removed)).toBe(false);
+      }
+    });
+
+    it('hard-block reason 은 ShadowLearningOnlyScanReason union 에 모두 등재 (타입 정합)', () => {
+      const shadowSrc = fs.readFileSync(
+        path.resolve(__dirname, 'shadowLearningOnlyScan.ts'),
+        'utf-8',
+      );
+      for (const reason of shadowLearningReasonsFromPreflight()) {
+        expect(shadowSrc).toContain(`'${reason}'`);
+      }
     });
 
     it('reserved/low-frequency reason은 union에서 허용하되 preflight direct wiring 강제 대상이 아니다', () => {
@@ -141,46 +140,21 @@ describe('ADR-0183 Phase 3 Stage A — Shadow learning wiring 정적 가드', ()
     });
   });
 
-  describe('LIVE 매매 본체 — diagnostic-only marker 보존 (P3/P4 isolation 정합)', () => {
-    it('SELL_ONLY early-return 직전 호출 (await updateShadowResults 위에)', () => {
-      // SELL_ONLY 만 자체 early-return 보유 — wiring 위치 정합
-      const sellOnlyBlock = src.split("recordBlockedDayShadowScan('MANUAL_BLOCK')")[1];
-      expect(sellOnlyBlock).toBeDefined();
-      const next200 = sellOnlyBlock!.slice(0, 1400);
-      expect(next200).toContain('await updateShadowResults(shadows, regime)');
-      expect(next200).toContain('saveShadowTrades(shadows)');
-      // ADR-0367/0433: context: diagnosticContext(...) 옵셔널 인자 허용 (runtime shape 동일)
-      expect(next200).toMatch(
-        /return \{ shouldAbort: true, skipPersist: true(\s*,\s*context:\s*diagnosticContext\(|\s*\})/,
-      );
-    });
-
-    it('R6_DEFENSE diagnostic-only marker (자체 early-return 없음 — 후속 분기로 위임)', () => {
-      // ADR-0183 Phase 3 Stage A + P3/P4 isolation:
-      // R6_DEFENSE 는 diagnostic-only — 자체 updateShadowResults / early-return 없음
-      // recordBlockedDayShadowScan('RISK_OFF_REGIME') 직전에 diagnostic-only 마커 코멘트 보존
-      const splitParts = src.split("recordBlockedDayShadowScan('RISK_OFF_REGIME')");
-      expect(splitParts.length).toBe(2);
-      const beforeCall = splitParts[0]!.slice(-600);
-      expect(beforeCall).toContain('R6_DEFENSE diagnostic-only live block active; continuing scan diagnostics');
-    });
-
-    it('VIX diagnostic-only marker (자체 early-return 없음 — 후속 분기로 위임)', () => {
-      // ADR-0183 Phase 3 Stage A + P3/P4 isolation:
-      // VIX_BLOCK 은 diagnostic-only — 자체 updateShadowResults / early-return 없음
-      const splitParts = src.split("recordBlockedDayShadowScan('VIX_SPIKE')");
-      expect(splitParts.length).toBe(2);
-      const beforeCall = splitParts[0]!.slice(-600);
-      expect(beforeCall).toContain('VIX_BLOCK diagnostic-only live block active; continuing scan diagnostics');
-    });
-
-    it('FOMC diagnostic-only marker (자체 early-return 없음 — 후속 분기로 위임)', () => {
-      // ADR-0183 Phase 3 Stage A + P3/P4 isolation:
-      // FOMC_BLOCK 은 diagnostic-only — 자체 updateShadowResults / early-return 없음
-      const splitParts = src.split("recordBlockedDayShadowScan('FOMC_BLOCK')");
-      expect(splitParts.length).toBe(2);
-      const beforeCall = splitParts[0]!.slice(-600);
-      expect(beforeCall).toContain('FOMC_BLOCK diagnostic-only live block active; continuing scan diagnostics');
+  describe('LIVE 매매 본체 — hard-block early-return shadow 영속 정합', () => {
+    it('POSITION_FULL hard-block early-return 직전 updateShadowResults + saveShadowTrades 보존', () => {
+      // 잔존 hard-block(POSITION_FULL) 은 자체 early-return 으로 스캔 종료 전 shadow 결과 영속.
+      // ABORT variant(POSITION_FULL_PREFLIGHT_ABORT='true') 의 early-return 직전 영속 보존.
+      const block = src.split("recordBlockedDayShadowScan('POSITION_FULL')").pop();
+      expect(block).toBeDefined();
+      const next1400 = block!.slice(0, 1400);
+      expect(next1400).toContain('await updateShadowResults(shadows, regime)');
+      expect(next1400).toContain('saveShadowTrades(shadows)');
+      // early-return 이 shouldAbort + skipPersist + diagnosticContext 로 스캔 종료 (shadow 학습 미차단).
+      expect(next1400).toContain('shouldAbort: true');
+      expect(next1400).toContain('skipPersist: true');
+      expect(next1400).toContain('context: diagnosticContext(');
+      // ADR-0183 P3/P4: shadow learning early-return 으로 차단되지 않음 (false).
+      expect(next1400).toContain('shouldAbortShadowLearning: false');
     });
   });
 

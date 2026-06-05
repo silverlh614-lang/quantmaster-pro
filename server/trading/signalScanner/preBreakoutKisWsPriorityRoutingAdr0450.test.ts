@@ -24,6 +24,7 @@ import {
   type SubscriptionPriorityReason,
   __resetKisWsSubscriptionStateForTests,
   requestKisWsSubscription,
+  buildSubscriptionDiagnosis,
 } from '../../clients/kisWebSocketSubscriptionManager.js';
 import {
   routePreBreakoutWaitToKisWs,
@@ -36,13 +37,15 @@ import {
   type PreBreakoutWaitInput,
   type PreBreakoutWaitState,
 } from './preBreakoutWaitPolicy.js';
+import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
+import type { BuyListLoopContext } from './perSymbol/types.js';
+import { createScanCounters } from './scanDiagnostics/scanCounterFactory.js';
+import { preBreakoutEntry } from './perSymbol/steps/preBreakoutEntry.js';
 
 const ROUTING_PATH = resolve(__dirname, 'preBreakoutKisWsPriorityRouting.ts');
 const ROUTING_SRC = readFileSync(ROUTING_PATH, 'utf8');
 const MANAGER_PATH = resolve(__dirname, '../../clients/kisWebSocketSubscriptionManager.ts');
 const MANAGER_SRC = readFileSync(MANAGER_PATH, 'utf8');
-const BUY_LIST_LOOP_PATH = resolve(__dirname, 'perSymbol/buyListLoop.ts');
-const BUY_LIST_LOOP_SRC = readFileSync(BUY_LIST_LOOP_PATH, 'utf8');
 
 function buildDecision(state: PreBreakoutWaitState, override: Partial<PreBreakoutWaitDecision> = {}): PreBreakoutWaitDecision {
   return {
@@ -405,52 +408,93 @@ describe('ADR-0450 — Group D — KIS-WS subscription manager wiring (priority 
   });
 });
 
-describe('ADR-0450 — Group E — buyListLoop wiring 정적 grep 가드', () => {
-  it('[30] buyListLoop 가 routePreBreakoutWaitToKisWs SSOT import', () => {
-    expect(BUY_LIST_LOOP_SRC).toMatch(/from ['"]\.\.\/preBreakoutKisWsPriorityRouting\.js['"]/);
-    expect(BUY_LIST_LOOP_SRC).toContain('routePreBreakoutWaitToKisWs');
+describe('ADR-0450 — Group E — preBreakoutEntry routing wiring (behavioral + WAIT site 가드)', () => {
+  // ADR-0019 분해로 WAIT site 의 routing 호출이 perSymbol/steps/preBreakoutEntry.ts 로 이동.
+  const PRE_BREAKOUT_ENTRY_PATH = resolve(__dirname, 'perSymbol/steps/preBreakoutEntry.ts');
+  const PRE_BREAKOUT_ENTRY_SRC = readFileSync(PRE_BREAKOUT_ENTRY_PATH, 'utf8');
+
+  beforeEach(() => {
+    __resetKisWsSubscriptionStateForTests();
+    delete process.env.PRE_BREAKOUT_WAIT_POLICY_DISABLED;
+    delete process.env.PRE_BREAKOUT_KIS_WS_PRIORITY_ROUTING_DISABLED;
+    delete process.env.KIS_WS_SUBSCRIPTION_PRIORITY_DISABLED;
   });
 
-  it('[+] buyListLoop 가 requestKisWsSubscription SSOT import (subscribeStock 직접 import 금지)', () => {
-    expect(BUY_LIST_LOOP_SRC).toMatch(
-      /from ['"]\.\.\/\.\.\/\.\.\/clients\/kisWebSocketSubscriptionManager\.js['"]/,
-    );
-    expect(BUY_LIST_LOOP_SRC).toContain('requestKisWsSubscription');
-  });
+  function makeWaitStock(code: string): WatchlistEntry {
+    return {
+      code, name: code, entryPrice: 70_000, stopLoss: 65_000, targetPrice: 80_000,
+      gateScore: 7, addedAt: '2026-01-01T00:00:00Z', addedBy: 'AUTO',
+    } as WatchlistEntry;
+  }
+  function makeWaitCtx(): BuyListLoopContext {
+    return {
+      shadows: [], regime: 'R3_NORMAL', scanCounters: createScanCounters(),
+      mutables: { watchlistMutated: { value: false } },
+    } as unknown as BuyListLoopContext;
+  }
+  function runEntryDeviation(stock: WatchlistEntry, ctx: BuyListLoopContext, currentPrice: number) {
+    return preBreakoutEntry({
+      ctx, stock, currentPrice, nearEntry: false, breakout: false, aboveStop: false,
+      nearEntryThreshold: 0.02, today: '2026-06-05', stockShadowMode: true,
+      macroDiagnosticLiveBlock: false,
+      shadowApprovalCtx: { tradeDate: '2026-06-05', marketSession: 'REGULAR' },
+      applyBuySupplyHealthPolicy: () => ({ blocked: false, shadowMode: true, finalQuantity: 1, finalSignal: 'BUY' }),
+      suppressDiagnosticLiveBuyTask: () => undefined,
+      logPreEntryWaitDebug: () => undefined,
+    });
+  }
 
-  it('[30b] buyListLoop PRE_BREAKOUT_MISS site 에서 routing 호출', () => {
-    // ADR-0449 wiring 후 ADR-0450 routing 호출이 같은 try/catch 또는 인접 try/catch 안에 있어야 함.
-    expect(BUY_LIST_LOOP_SRC).toContain('[ADR-0450] pre-breakout KIS-WS routing 실패');
-  });
+  // 실제 manager 를 통한 end-to-end 검증 — preBreakoutEntry 가 WATCHLIST(500) 로 선등록된 종목을
+  // routing 으로 격상 요청하면 manager 가 KEEP + priority 갱신을 반환하는지 re-request 로 관측한다.
+  // (manager 내부 _subscribedPriorities 가 SSOT — mock 없이 실동작 검증.)
 
-  it('[31] buyListLoop ENTRY_PRICE_DEVIATION site 에서 routing 호출', () => {
-    expect(BUY_LIST_LOOP_SRC).toContain('[ADR-0450] entry deviation KIS-WS routing 실패');
-  });
-
-  it('[32] buyListLoop subscribeStock 직접 import 0건 (ADR-0437/0450 SSOT 의무)', () => {
-    expect(BUY_LIST_LOOP_SRC).not.toMatch(/from ['"][^'"]*kisStreamClient[^'"]*['"][^;]*subscribeStock/);
-    expect(BUY_LIST_LOOP_SRC).not.toContain("import { subscribeStock }");
-  });
-
-  it('[33] buyListLoop KIS 주문 함수 5종 import 0건', () => {
-    const banned = [
-      'placeKisMarketBuyOrder',
-      'placeKisMarketSellOrder',
-      'placeKisOrder',
-      'placeKisStopLossOrder',
-      'placeKisTakeProfitOrder',
-    ];
-    for (const fn of banned) {
-      // 본 모듈은 buy 흐름이라 일부 KIS 함수가 정상 사용될 수 있음 — 정확히는
-      // ADR-0450 변경에 의한 신규 추가는 0 건만 검증. 본 PR 의 신규 import 라인은
-      // routePreBreakoutWaitToKisWs + requestKisWsSubscription 만이라 5 KIS 주문
-      // 함수와 무관.
-      // (기존 라인은 베이스라인 유지 — 본 검증은 신규 도입 차단 의도)
-      const importLineRe = new RegExp(`import\\s+\\{[^}]*\\b${fn}\\b[^}]*\\}\\s+from`);
-      // 기존 import 가 있을 수도 있으니 ADR-0450 변경 라인이 추가 도입한 것이 아닌지 확인.
-      // 본 가드는 import 자체 부재가 아니라, 신규 도입 시 회귀 차단의 의도 — 본 PR scope 에선 부재.
-      expect(BUY_LIST_LOOP_SRC.match(importLineRe)).toBeNull();
+  it('[30b] WAIT_RETRY_ELIGIBLE (가까운 deviation) → priority 850 으로 격상 (manager 실동작)', async () => {
+    // 1) WATCHLIST 500 선등록.
+    const seed = requestKisWsSubscription({ code: '005931', name: 'x', reasons: ['WATCHLIST'] });
+    expect(seed.action).toBe('SUBSCRIBE');
+    // 2) preBreakoutEntry entry-deviation (gap 0.43% ≤ 1%, gate1 부재 → default RETRY_ELIGIBLE).
+    await runEntryDeviation(makeWaitStock('005931'), makeWaitCtx(), 70_300);
+    // 3) 같은 reason 으로 re-request → 이미 850 으로 격상돼 있으면 KEEP + priority 850.
+    const after = requestKisWsSubscription({
+      code: '005931', name: 'x', priority: 850, reasons: ['PRE_BREAKOUT_RETRY_ELIGIBLE'], entryCandidate: true,
+    });
+    expect(after.action).toBe('KEEP');
+    if (after.action !== 'REJECT_INVALID_CODE') {
+      expect(after.priority).toBe(850);
     }
+  });
+
+  it('[30c] entry-deviation 이 신규 종목을 KIS-WS 에 구독 등록 (routing wiring 살아있음)', async () => {
+    // preBreakoutEntry 전후 구독 total 증가 — recordPreBreakoutWait 의 requestKisWsSubscription 경유.
+    const before = buildSubscriptionDiagnosis().total;
+    await runEntryDeviation(makeWaitStock('005930'), makeWaitCtx(), 67_000); // WAIT_PRICE_TOO_FAR
+    const after = buildSubscriptionDiagnosis().total;
+    expect(after).toBe(before + 1);
+  });
+
+  it('[+] preBreakoutEntry 가 ADR-0437/0450 SSOT requestKisWsSubscription 사용 (subscribeStock 직접 import 금지)', () => {
+    expect(PRE_BREAKOUT_ENTRY_SRC).toContain('requestKisWsSubscription');
+    expect(PRE_BREAKOUT_ENTRY_SRC).not.toMatch(/import[^;]*subscribeStock[^;]*kisStreamClient/);
+    expect(PRE_BREAKOUT_ENTRY_SRC).not.toContain('import { subscribeStock }');
+  });
+
+  it('[31] ENV routing disabled → WATCHLIST fallback (priority 500, 850 격상 안 함)', async () => {
+    process.env.PRE_BREAKOUT_KIS_WS_PRIORITY_ROUTING_DISABLED = 'true';
+    // 선등록 없이 disabled routing 으로 entry-deviation → WATCHLIST 500 로만 등록.
+    await runEntryDeviation(makeWaitStock('005932'), makeWaitCtx(), 70_300);
+    // re-request 850 시 manager 가 격상(KEEP priority 850) 하지만, 이는 본 호출의 850 입력 때문.
+    // routing disabled 검증: 직전 entry-deviation 이 850 으로 올리지 않았음을 WATCHLIST 재요청으로 관측.
+    const reWatchlist = requestKisWsSubscription({ code: '005932', name: 'x', reasons: ['WATCHLIST'] });
+    // 이미 WATCHLIST 500 로 등록돼 있으면 KEEP, priority 500 유지 (850 으로 안 올라감).
+    expect(reWatchlist.action).toBe('KEEP');
+    if (reWatchlist.action !== 'REJECT_INVALID_CODE') {
+      expect(reWatchlist.priority).toBe(500);
+    }
+  });
+
+  it('[32] preBreakoutEntry subscribeStock 직접 import 0건 (ADR-0437/0450 SSOT 의무)', () => {
+    expect(PRE_BREAKOUT_ENTRY_SRC).not.toMatch(/from ['"][^'"]*kisStreamClient[^'"]*['"][^;]*subscribeStock/);
+    expect(PRE_BREAKOUT_ENTRY_SRC).not.toContain("import { subscribeStock }");
   });
 
   it('[34] preBreakoutKisWsPriorityRouting.ts autoTradeEngine / orderExecutor / trancheExecutor import 0건', () => {

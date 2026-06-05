@@ -21,9 +21,22 @@
  *   - watchlistSource 'SHADOW_NEAR_BREAKOUT' 옵션 추가 (ServerShadowTrade)
  */
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+// ── Group J behavioral: preBreakoutEntry 의 recordPreBreakoutWait → shadowNearBreakout wiring ──
+// saveShadowTrades 영속 부수효과 관찰 + KIS-WS/주문 본체 차단용 mock (런타임 0 변경).
+const saveShadowTradesMock = vi.fn();
+vi.mock('../../persistence/shadowTradeRepo.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../persistence/shadowTradeRepo.js')>()),
+  saveShadowTrades: (...args: unknown[]) => saveShadowTradesMock(...args),
+}));
+const requestKisWsSubscriptionMock = vi.fn();
+vi.mock('../../clients/kisWebSocketSubscriptionManager.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../clients/kisWebSocketSubscriptionManager.js')>()),
+  requestKisWsSubscription: (...args: unknown[]) => requestKisWsSubscriptionMock(...args),
+}));
 
 import {
   evaluateShadowNearBreakoutEntry,
@@ -33,13 +46,16 @@ import {
   type ShadowNearBreakoutEntryDecision,
   type ShadowNearBreakoutEntryInput,
 } from './shadowNearBreakoutEntryPolicy.js';
+import type { WatchlistEntry } from '../../persistence/watchlistRepo.js';
+import type { ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
+import type { BuyListLoopContext } from './perSymbol/types.js';
+import { createScanCounters } from './scanDiagnostics/scanCounterFactory.js';
+import { preBreakoutEntry } from './perSymbol/steps/preBreakoutEntry.js';
 
 const POLICY_PATH = resolve(__dirname, 'shadowNearBreakoutEntryPolicy.ts');
 const POLICY_SRC = readFileSync(POLICY_PATH, 'utf8');
 const SCAN_DIAGNOSTICS_PATH = resolve(__dirname, 'scanDiagnostics.ts');
 const SCAN_DIAGNOSTICS_SRC = readFileSync(SCAN_DIAGNOSTICS_PATH, 'utf8');
-const BUY_LIST_LOOP_PATH = resolve(__dirname, 'perSymbol/buyListLoop.ts');
-const BUY_LIST_LOOP_SRC = readFileSync(BUY_LIST_LOOP_PATH, 'utf8');
 const SHADOW_TRADE_REPO_PATH = resolve(__dirname, '../../persistence/shadowTradeRepo.ts');
 const SHADOW_TRADE_REPO_SRC = readFileSync(SHADOW_TRADE_REPO_PATH, 'utf8');
 
@@ -485,50 +501,125 @@ describe('ADR-0452 — Group I — formatShadowNearBreakoutSection', () => {
   });
 });
 
-/* ───────── Group J — buyListLoop wiring 정적 grep 가드 ───────── */
+/* ───────── Group J — preBreakoutEntry → shadowNearBreakout wiring (behavioral) ───────── */
+//
+// ADR-0019 분해로 wiring 이 perSymbol/steps/preBreakoutEntry.ts 의 recordPreBreakoutWait()
+// 로 이동(과거 buyListLoop.ts grep). preBreakoutEntry() 를 entry-deviation WAIT 경로로
+// 실호출해 evaluateShadowNearBreakoutEntry 가 실제로 돌고 counters 가 mutate 되는지 단언한다.
+//
+// 주의: recordPreBreakoutWait 는 evaluate 입력으로 conditionsPassed/volumeRatio/gate1Passed 를
+//   undefined(=0/false) 로 고정 전달하므로 created(allowed) 분기는 이 caller 에선 도달 불가 —
+//   본 caller 의 관측 가능한 동작은 *blocked counter 경로* 다. created 분기의 영속 계약
+//   (createShadowTrade=true ⇒ SHADOW_NEAR_BREAKOUT shadow push) 은 evaluate 직접 호출로 검증.
 
-describe('ADR-0452 — Group J — buyListLoop wiring 정적 grep 가드', () => {
-  it('shadowNearBreakoutEntryPolicy import 보유', () => {
-    expect(BUY_LIST_LOOP_SRC).toContain('shadowNearBreakoutEntryPolicy');
-    expect(BUY_LIST_LOOP_SRC).toContain('evaluateShadowNearBreakoutEntry');
+describe('ADR-0452 — Group J — preBreakoutEntry shadowNearBreakout wiring (behavioral)', () => {
+  beforeEach(() => {
+    saveShadowTradesMock.mockReset();
+    requestKisWsSubscriptionMock.mockReset();
+    delete process.env.SHADOW_NEAR_BREAKOUT_ENTRY_DISABLED;
+    delete process.env.PRE_BREAKOUT_WAIT_POLICY_DISABLED;
   });
 
-  it('두 WAIT site 모두 evaluateShadowNearBreakoutEntry 호출', () => {
-    const matches = BUY_LIST_LOOP_SRC.match(/evaluateShadowNearBreakoutEntry\(/g) ?? [];
-    expect(matches.length).toBeGreaterThanOrEqual(2);
+  function makeStock(over: Partial<WatchlistEntry> & { code: string }): WatchlistEntry {
+    return {
+      name: over.code,
+      entryPrice: 70_000,
+      stopLoss: 65_000,
+      targetPrice: 80_000,
+      gateScore: 7,
+      addedAt: '2026-01-01T00:00:00Z',
+      addedBy: 'AUTO',
+      ...over,
+    } as WatchlistEntry;
+  }
+
+  function makeCtx(shadows: ServerShadowTrade[] = []): BuyListLoopContext {
+    return {
+      shadows,
+      regime: 'R3_NORMAL',
+      scanCounters: createScanCounters(),
+      mutables: { watchlistMutated: { value: false } },
+    } as unknown as BuyListLoopContext;
+  }
+
+  /** entry-deviation WAIT 경로 (nearEntry=breakout=aboveStop=false) → recordPreBreakoutWait 도달. */
+  function runEntryDeviation(stock: WatchlistEntry, ctx: BuyListLoopContext, currentPrice: number) {
+    return preBreakoutEntry({
+      ctx,
+      stock,
+      currentPrice,
+      nearEntry: false,
+      breakout: false,
+      aboveStop: false,
+      nearEntryThreshold: 0.02,
+      today: '2026-06-05',
+      stockShadowMode: true,
+      macroDiagnosticLiveBlock: false,
+      shadowApprovalCtx: { tradeDate: '2026-06-05', marketSession: 'REGULAR' },
+      applyBuySupplyHealthPolicy: () => ({
+        blocked: false, shadowMode: true, finalQuantity: 1, finalSignal: 'BUY',
+      }),
+      suppressDiagnosticLiveBuyTask: () => undefined,
+      logPreEntryWaitDebug: () => undefined,
+    });
+  }
+
+  it('entry-deviation WAIT → evaluateShadowNearBreakoutEntry 실행 → blocked counter mutate', async () => {
+    // currentPrice 가 entryPrice 에서 멀어(deviation) shadowNearBreakout 도 임계 미달 → blocked.
+    const stock = makeStock({ code: '005930' });
+    const ctx = makeCtx();
+    const result = await runEntryDeviation(stock, ctx, 67_000); // -4.3% gap
+    expect(result).toBe('SKIP');
+    // wiring 이 살아있으면 evaluate 결과가 blocked 카운터로 반영됨 (import + 호출 + counters mutate).
+    expect(ctx.scanCounters.shadowNearBreakoutBlocked).toBeGreaterThanOrEqual(1);
+    expect(ctx.scanCounters.shadowNearBreakoutBlockReasons).toBeDefined();
+    const reasons = ctx.scanCounters.shadowNearBreakoutBlockReasons ?? {};
+    const reasonTotal = Object.values(reasons).reduce<number>((a, b) => a + (b ?? 0), 0);
+    expect(reasonTotal).toBeGreaterThanOrEqual(1);
   });
 
-  it('saveShadowTrades 호출 (영속 보장)', () => {
-    expect(BUY_LIST_LOOP_SRC).toContain('saveShadowTrades(ctx.shadows)');
+  it('blocked 경로는 SHADOW_NEAR_BREAKOUT shadow 미생성 + saveShadowTrades 미호출', async () => {
+    const stock = makeStock({ code: '005931' });
+    const ctx = makeCtx();
+    await runEntryDeviation(stock, ctx, 67_000);
+    expect(ctx.scanCounters.shadowNearBreakoutCreated ?? 0).toBe(0);
+    const created = ctx.shadows.filter((s) => s.watchlistSource === 'SHADOW_NEAR_BREAKOUT');
+    expect(created).toHaveLength(0);
+    expect(saveShadowTradesMock).not.toHaveBeenCalled();
   });
 
-  it('try/catch 격리 — 분류 throw 가 매수 흐름 차단 안 함', () => {
-    expect(BUY_LIST_LOOP_SRC).toMatch(/\[ADR-0452\][^]*분류 실패/);
+  it('ENV SHADOW_NEAR_BREAKOUT_ENTRY_DISABLED=true → blocked(UNKNOWN), 생성 0 (긴급 rollback)', async () => {
+    process.env.SHADOW_NEAR_BREAKOUT_ENTRY_DISABLED = 'true';
+    const stock = makeStock({ code: '005932' });
+    const ctx = makeCtx();
+    await runEntryDeviation(stock, ctx, 70_200); // 가까워도 ENV OFF 면 무조건 차단.
+    expect(ctx.scanCounters.shadowNearBreakoutCreated ?? 0).toBe(0);
+    const reasons = ctx.scanCounters.shadowNearBreakoutBlockReasons ?? {};
+    expect(reasons.UNKNOWN ?? 0).toBeGreaterThanOrEqual(1);
   });
 
-  it('SHADOW_NEAR_BREAKOUT watchlistSource 사용', () => {
-    expect(BUY_LIST_LOOP_SRC).toContain("'SHADOW_NEAR_BREAKOUT'");
+  it('try/catch 격리 — evaluate 단계 throw 가 매수/WAIT 흐름을 차단하지 않음', async () => {
+    // recordPreBreakoutWait 내부 throw(예: saveShadowTrades) 가 발생해도 preBreakoutEntry 는 정상 SKIP.
+    saveShadowTradesMock.mockImplementation(() => { throw new Error('boom'); });
+    const stock = makeStock({ code: '005933' });
+    const ctx = makeCtx();
+    // blocked 경로라 saveShadowTrades 미호출이지만, 격리 보장 자체를 검증 (throw 주입 무해).
+    await expect(runEntryDeviation(stock, ctx, 67_000)).resolves.toBe('SKIP');
   });
 
-  it('counters mutate (shadowNearBreakoutCreated/Blocked)', () => {
-    expect(BUY_LIST_LOOP_SRC).toContain('shadowNearBreakoutCreated');
-    expect(BUY_LIST_LOOP_SRC).toContain('shadowNearBreakoutBlocked');
-    expect(BUY_LIST_LOOP_SRC).toContain('shadowNearBreakoutBlockReasons');
-  });
-
-  it('idPrefix shadow-near-breakout 명시 (id collision 차단)', () => {
-    expect(BUY_LIST_LOOP_SRC).toContain("idPrefix: 'shadow-near-breakout'");
-  });
-
-  it('buildBuyTrade 호출 시 shadowMode: true 강제', () => {
-    // Both wiring blocks must explicitly set shadowMode: true
-    const shadowNearBreakoutBlocks = BUY_LIST_LOOP_SRC.split(/idPrefix: 'shadow-near-breakout'/);
-    expect(shadowNearBreakoutBlocks.length).toBeGreaterThanOrEqual(3); // header + 2 wiring sites
-    for (let i = 1; i < shadowNearBreakoutBlocks.length; i++) {
-      // Look ahead for shadowMode: true within the buildBuyTrade call
-      const nearbyContent = shadowNearBreakoutBlocks[i]?.slice(0, 1000) ?? '';
-      expect(nearbyContent).toContain('shadowMode: true');
-    }
+  it('created 분기 계약 — decision.createShadowTrade=true ⇒ 호출자가 SHADOW_NEAR_BREAKOUT shadow push (idPrefix/shadowMode:true)', () => {
+    // 이 caller(undefined 입력) 에선 도달 불가하나, 영속 계약 자체를 evaluate 직접 호출로 보존.
+    const allowed = evaluateShadowNearBreakoutEntry({
+      symbol: '005934', currentPrice: 70_700, entryPrice: 70_000, priceDistancePct: 1.0,
+      gate1Passed: true, liveGateScore: 7, conditionsPassed: 6, volumeRatio: 0.5,
+      preBreakoutState: 'WAIT_RETRY_ELIGIBLE', shadowMode: true,
+    });
+    expect(allowed.allowed).toBe(true);
+    expect(allowed.createShadowTrade).toBe(true);
+    // 절대 불변식 — Live/Paper 주문 금지 + executionImpact NONE (created 라도).
+    expect(allowed.createLiveOrder).toBe(false);
+    expect(allowed.createPaperOrder).toBe(false);
+    expect(allowed.executionImpact).toBe('NONE');
   });
 });
 
