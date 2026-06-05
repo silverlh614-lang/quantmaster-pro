@@ -1,6 +1,7 @@
-// @responsibility buyList candidates per-symbol price context hydration (volume + return5d/20d via KIS)
+// @responsibility buyList candidates per-symbol price context hydration (volume + return5d/20d + 기술지표 ma/rsi/atr via KIS, ADR-0578)
 import { fetchKisStockFullQuote, fetchKisStockDailyBars } from '../../clients/kisClient.js';
 import { createTraceId, logVisibilityEvent, logger } from '../../utils/logger.js';
+import { calcSMA, calcRSI14, calcATR } from '../../screener/adapters/_indicators.js';
 import type { SymbolSnapshotData } from '../sourceSnapshot/symbolSnapshotData.js';
 
 export interface PriceInjectionStats {
@@ -10,6 +11,7 @@ export interface PriceInjectionStats {
   avgVolumeInjected: number;
   return5dInjected: number;
   return20dInjected: number;
+  technicalInjected: number;
   failed: number;
 }
 
@@ -18,7 +20,28 @@ interface ResolvedPriceContext {
   avgVolume: number | null;
   return5d: number | null;
   return20d: number | null;
+  // ADR-0578 — flag ON 시에만 채움. flag OFF 면 undefined → 주입 안 함(byte-equivalent).
+  ma20?: number | null;
+  ma60?: number | null;
+  rsi14?: number | null;
+  atr?: number | null;
+  atr20avg?: number | null;
 }
+
+/**
+ * ADR-0578 — Gate1 기술지표 주입 활성 스위치. default OFF → byte-equivalent.
+ * RS/모멘텀은 featurePack fallback 으로 생존하나 ma20/ma60/rsi14/atr 는 quote/symbolFeatures
+ * 단독 출처라 장후 시세 미수신 시 0 → TECHNICAL_TREND/VOLUME_LIQUIDITY 점수 증발. 본 flag 가
+ * 이미 받아온 일봉 bars 로 그 지표들을 계산해 symbolFeatures 에 주입한다(임계·라이브 게이트 무관).
+ */
+function isTechnicalInjectionEnabled(): boolean {
+  return process.env.GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED === 'true';
+}
+
+/** fetchKisStockDailyBars 는 *역일(calendar day)* lookback. 기본 35(≈24거래일, return20d 충당). */
+const DEFAULT_BAR_LOOKBACK_DAYS = 35;
+/** flag ON: ma60(60거래일) 충당 위해 ~90역일(≈62거래일) 확보. KIS 호출 수 불변(rows만 증가). */
+const TECHNICAL_BAR_LOOKBACK_DAYS = 90;
 
 function normalizeSymbol(value: unknown): string {
   if (typeof value !== 'string') return '';
@@ -44,10 +67,45 @@ function averageBarVolume(bars: ReadonlyArray<{ volume: number | null }>): numbe
   return Math.round(sum / volumes.length);
 }
 
-async function resolvePriceContext(code: string): Promise<ResolvedPriceContext> {
+/**
+ * ADR-0578 — 이미 확보된 일봉(bars)에서 기술지표(ma20/ma60/rsi14/atr/atr20avg)를 계산한다.
+ * bars 는 최신→과거 *내림차순*(bars[0]=최근)이나 _indicators 헬퍼(calcSMA/calcRSI14/calcATR)는
+ * 과거→최신 *오름차순* 을 기대하므로 역순 변환한다. 산식은 kisQuoteAdapter(buildExtendedFromKisDaily)와
+ * 동일(공유 _indicators). KIS 추가 호출 없음 — 호출자가 이미 fetch 한 bars 재사용.
+ * ma/rsi 는 종가만, atr 은 high/low/close 정합 표본만 사용(필드 부재 시 해당 지표만 null).
+ */
+function computeTechnicalIndicators(
+  bars: ReadonlyArray<{ close: number | null; high?: number | null; low?: number | null }>,
+): { ma20: number | null; ma60: number | null; rsi14: number | null; atr: number | null; atr20avg: number | null } {
+  const asc = [...bars].reverse();
+  const closes = asc
+    .map((b) => b.close)
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  const hlc = asc.filter(
+    (b): b is { close: number; high: number; low: number } =>
+      typeof b.close === 'number' && Number.isFinite(b.close) &&
+      typeof b.high === 'number' && Number.isFinite(b.high) &&
+      typeof b.low === 'number' && Number.isFinite(b.low),
+  );
+  const highs = hlc.map((b) => b.high);
+  const lows = hlc.map((b) => b.low);
+  const hcloses = hlc.map((b) => b.close);
+  return {
+    ma20: closes.length >= 20 ? calcSMA(closes, 20) : null,
+    ma60: closes.length >= 60 ? calcSMA(closes, 60) : null,
+    rsi14: closes.length >= 15 ? calcRSI14(closes) : null,
+    atr: hlc.length >= 15 ? calcATR(highs, lows, hcloses, 14) : null,
+    atr20avg: hlc.length >= 21 ? calcATR(highs, lows, hcloses, 20) : null,
+  };
+}
+
+async function resolvePriceContext(
+  code: string,
+  opts: { computeIndicators: boolean; barLookbackDays: number },
+): Promise<ResolvedPriceContext> {
   const [quoteSettled, barsSettled] = await Promise.allSettled([
     fetchKisStockFullQuote(code),
-    fetchKisStockDailyBars(code, 35),
+    fetchKisStockDailyBars(code, opts.barLookbackDays),
   ]);
 
   const quote = quoteSettled.status === 'fulfilled' ? quoteSettled.value : null;
@@ -69,7 +127,12 @@ async function resolvePriceContext(code: string): Promise<ResolvedPriceContext> 
     }
   }
 
-  return { volume, avgVolume, return5d, return20d };
+  const ctx: ResolvedPriceContext = { volume, avgVolume, return5d, return20d };
+  // ADR-0578 — flag ON 시에만 기술지표 계산(추가 fetch 없이 위 bars 재사용).
+  if (opts.computeIndicators && bars.length > 0) {
+    Object.assign(ctx, computeTechnicalIndicators(bars));
+  }
+  return ctx;
 }
 
 /**
@@ -77,11 +140,16 @@ async function resolvePriceContext(code: string): Promise<ResolvedPriceContext> 
  * volume / return5d / return20d 가 이미 채워진 필드는 덮어쓰지 않는다.
  * executionImpact=NONE — 매매 결정에 직접 관여하지 않고 candidatePoolBuilder 진단용 필드 공급.
  * snapshotData 제공 시 KIS fetch 없이 스냅샷에서 직접 파생 (중복 KIS 호출 제거).
+ * ADR-0578 — flag GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED=true 시 동일 bars 로 ma20/ma60/rsi14/atr
+ * 를 계산해 candidate.symbolFeatures 에 주입(기존 값 보존). flag OFF 면 모든 신규 동작 skip → byte-equivalent.
  */
 export async function injectPerSymbolPriceContext<T extends Record<string, unknown>>(
   candidates: T[],
   options?: { snapshotData?: Readonly<Record<string, SymbolSnapshotData>> },
 ): Promise<{ candidates: T[]; stats: PriceInjectionStats }> {
+  const technicalInjectionEnabled = isTechnicalInjectionEnabled();
+  const barLookbackDays = technicalInjectionEnabled ? TECHNICAL_BAR_LOOKBACK_DAYS : DEFAULT_BAR_LOOKBACK_DAYS;
+
   const stats: PriceInjectionStats = {
     totalCandidates: candidates.length,
     uniqueSymbols: 0,
@@ -89,6 +157,7 @@ export async function injectPerSymbolPriceContext<T extends Record<string, unkno
     avgVolumeInjected: 0,
     return5dInjected: 0,
     return20dInjected: 0,
+    technicalInjected: 0,
     failed: 0,
   };
 
@@ -116,9 +185,14 @@ export async function injectPerSymbolPriceContext<T extends Record<string, unkno
         if (close !== null && bars.length >= 21 && bars[20].close > 0) {
           return20d = parseFloat((((close - bars[20].close) / bars[20].close) * 100).toFixed(2));
         }
-        return { sym, ctx: { volume, avgVolume, return5d, return20d } };
+        const ctx: ResolvedPriceContext = { volume, avgVolume, return5d, return20d };
+        // ADR-0578 — 스냅샷 dailyBars(최대 60일)로 기술지표 계산(추가 fetch 없음).
+        if (technicalInjectionEnabled && bars.length > 0) {
+          Object.assign(ctx, computeTechnicalIndicators(bars));
+        }
+        return { sym, ctx };
       }
-      return { sym, ctx: await resolvePriceContext(sym) };
+      return { sym, ctx: await resolvePriceContext(sym, { computeIndicators: technicalInjectionEnabled, barLookbackDays }) };
     }),
   );
 
@@ -153,6 +227,32 @@ export async function injectPerSymbolPriceContext<T extends Record<string, unkno
       (candidate as Record<string, unknown>).return20d = ctx.return20d;
       stats.return20dInjected++;
     }
+
+    // ADR-0578 — 기술지표를 candidate.symbolFeatures 에 주입(스코어러 ma20 읽기 경로 = symbolFeatures?.ma20 ?? quote?.ma20).
+    // 기존 symbolFeatures 값은 보존(덮어쓰기 금지) — full adapter 하이드레이션을 거친 종목은 자기 값 유지.
+    if (technicalInjectionEnabled) {
+      const sf = (candidate.symbolFeatures && typeof candidate.symbolFeatures === 'object')
+        ? (candidate.symbolFeatures as Record<string, unknown>)
+        : {};
+      let injectedAny = false;
+      const fillIfMissing = (key: string, val: number | null | undefined): void => {
+        if (typeof val !== 'number' || !Number.isFinite(val)) return;
+        const cur = sf[key];
+        if (cur == null || !Number.isFinite(cur as number)) {
+          sf[key] = val;
+          injectedAny = true;
+        }
+      };
+      fillIfMissing('ma20', ctx.ma20);
+      fillIfMissing('ma60', ctx.ma60);
+      fillIfMissing('rsi14', ctx.rsi14);
+      fillIfMissing('atr', ctx.atr);
+      fillIfMissing('atr20avg', ctx.atr20avg);
+      if (injectedAny) {
+        (candidate as Record<string, unknown>).symbolFeatures = sf;
+        stats.technicalInjected++;
+      }
+    }
   }
 
   const traceId = createTraceId('price_ctx');
@@ -166,7 +266,9 @@ export async function injectPerSymbolPriceContext<T extends Record<string, unkno
       `totalCandidates=${stats.totalCandidates} uniqueSymbols=${stats.uniqueSymbols} ` +
       `volumeInjected=${stats.volumeInjected} avgVolumeInjected=${stats.avgVolumeInjected} ` +
       `return5dInjected=${stats.return5dInjected} ` +
-      `return20dInjected=${stats.return20dInjected} failed=${stats.failed} executionImpact=NONE`,
+      `return20dInjected=${stats.return20dInjected} ` +
+      `technicalInjected=${stats.technicalInjected} ` +
+      `technicalInjectionEnabled=${technicalInjectionEnabled} failed=${stats.failed} executionImpact=NONE`,
     summary: { ...stats, executionImpact: 'NONE' },
     details: { stats },
     level: 'info',
