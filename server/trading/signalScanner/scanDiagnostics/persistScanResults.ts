@@ -226,7 +226,9 @@ export async function persistScanResults(
     sellOnly: false,
     marketSessionState: 'BUY_ALLOWED',
     engineMode: options.macroGateState?.engineMode === 'SELL_ONLY' ? 'NORMAL' : options.macroGateState?.engineMode,
-    effectiveRegime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime,
+    // ADR-0531 정합: bare macroRegimeEffective 제거(파일 전역 일관). buildScanEvaluationResult 가
+    // buildCanonicalRegimeDiagnostics 로 재정규화(leak-block 이미 수행)하므로 byte-identical.
+    effectiveRegime: options.macroGateState ? resolveScoringEffectiveRegime(options.macroGateState) : undefined,
     macroGateState: options.macroGateState,
     volumeClockAllowsEntry: options.volumeClockAllowsEntry,
     sourcePath: 'scanDiagnosticsCore.persistScanResults',
@@ -256,7 +258,9 @@ export async function persistScanResults(
         : undefined,
       engineMode: options.macroGateState?.engineMode,
       macroRegime: options.macroGateState?.regime,
-      effectiveRegime: options.macroGateState?.macroRegimeEffective,
+      // ADR-0531 정합: bare macroRegimeEffective 제거. 소비자(gateLayerDiagnostics:481/509)가 macroRegime(정본)
+      // 우선이라 본 effectiveRegime fallback 은 prod 무영향(byte-identical) — 일관성/미래 누출 방지.
+      effectiveRegime: options.macroGateState ? resolveScoringEffectiveRegime(options.macroGateState) : undefined,
       riskOverride: options.macroGateState?.riskOverride,
       sellOnlyMode: options.sellOnly === true || options.macroGateState?.sellOnlyMode === true,
       shadowOnlyMode: options.macroGateState?.engineMode === 'SHADOW_ONLY',
@@ -280,7 +284,8 @@ export async function persistScanResults(
       gate3SourceSnapshotId: sourceSnapshotId,
       asOf: scanAsOf,
       engineMode: options.macroGateState?.engineMode,
-      macroRegime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime,
+      // ADR-0531 정합: bare macroRegimeEffective 제거(context.macroRegime 은 buildGate3CompletionScore 미사용 — byte-identical).
+      macroRegime: options.macroGateState ? resolveScoringEffectiveRegime(options.macroGateState) : undefined,
     });
     gateLayerAudit.gate3Consolidated.liveReadinessScore = buildLiveReadinessScore({
       gate3Completion: gateLayerAudit.gate3Consolidated.completionScore,
