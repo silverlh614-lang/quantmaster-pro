@@ -10,6 +10,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 const _markBlocked = vi.fn();
 const _markAutoTradeReady = vi.fn();
@@ -92,7 +95,18 @@ const ENV_KEYS = [
   'ENEMY_INDIVIDUAL_BLOCK',
 ];
 
+let _tmpDataDir: string;
+const _origPersistDataDir = process.env.PERSIST_DATA_DIR;
+
 beforeEach(() => {
+  // 테스트 격리: 파일별 고유 PERSIST_DATA_DIR(tmpdir)로 디스크 영속을 격리한다.
+  // paths.ts DATA_DIR 는 import 시점에 PERSIST_DATA_DIR 을 읽으므로, vi.resetModules()
+  // 후 동적 import 되는 buyPipeline 체인의 비-mock repo(manualExits/macroState/
+  // conditionWeights/takeProfitExits 등)가 공유 <repo>/data/ 대신 빈 tmpdir 을 읽어,
+  // pool:forks 병렬 실행 시 다른 테스트 파일의 디스크 쓰기로 인한 cross-file 오염
+  // (간헐적 승인-전 SKIP → requestBuyApproval 미호출 flake)을 차단한다.
+  _tmpDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'enemyblock-'));
+  process.env.PERSIST_DATA_DIR = _tmpDataDir;
   vi.resetModules();
   for (const k of ENV_KEYS) delete process.env[k];
   _markBlocked.mockReset();
@@ -104,6 +118,9 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const k of ENV_KEYS) delete process.env[k];
+  if (_origPersistDataDir === undefined) delete process.env.PERSIST_DATA_DIR;
+  else process.env.PERSIST_DATA_DIR = _origPersistDataDir;
+  if (_tmpDataDir) fs.rmSync(_tmpDataDir, { recursive: true, force: true });
 });
 
 async function makeShadowTask(opts: {
