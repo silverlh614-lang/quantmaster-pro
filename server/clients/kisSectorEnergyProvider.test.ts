@@ -115,6 +115,35 @@ describe('KIS SectorEnergy provider', () => {
     expect(result.marketSignal).toBe(false);
   });
 
+  it('KIS_SECTOR_NAME_CANONICAL_ENABLED: basket 섹터명을 canonical KrxSectorName 으로 정규화', () => {
+    const series = allBasketSeries();
+    const prev = process.env.KIS_SECTOR_NAME_CANONICAL_ENABLED;
+    try {
+      // OFF(default): KIS basket displayName 유지 — 비-canonical('2차전지'/'바이오'/'화학').
+      process.env.KIS_SECTOR_NAME_CANONICAL_ENABLED = 'false';
+      const offNames = new Set(buildKisSectorEnergyBasketFromSeries(series).map((i) => String(i.name)));
+      expect(offNames.has('2차전지')).toBe(true);
+      expect(offNames.has('바이오')).toBe(true);
+      expect(offNames.has('화학')).toBe(true);
+      expect(offNames.has('이차전지')).toBe(false);
+
+      // ON: sectorKey→canonical 정규화 → gate2 canonical(KRX_SECTOR_CANONICAL)·섹터 boost 와 매칭.
+      process.env.KIS_SECTOR_NAME_CANONICAL_ENABLED = 'true';
+      const onNames = new Set(buildKisSectorEnergyBasketFromSeries(series).map((i) => String(i.name)));
+      expect(onNames.has('이차전지')).toBe(true);       // 2차전지 → 이차전지
+      expect(onNames.has('바이오/헬스케어')).toBe(true); // 바이오 → 바이오/헬스케어
+      expect(onNames.has('에너지/화학')).toBe(true);     // 화학 → 에너지/화학
+      expect(onNames.has('건설/부동산')).toBe(true);     // 건설 → 건설/부동산
+      expect(onNames.has('유통/소비재')).toBe(true);     // 유통 → 유통/소비재
+      expect(onNames.has('2차전지')).toBe(false);
+      // STEEL 은 미매핑 → '철강' 유지(CHEMICAL '에너지/화학' 과 충돌 회피).
+      expect(onNames.has('철강')).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.KIS_SECTOR_NAME_CANONICAL_ENABLED;
+      else process.env.KIS_SECTOR_NAME_CANONICAL_ENABLED = prev;
+    }
+  });
+
 
   it('verifies idxcode master candidates without production wiring', () => {
     const verified = verifySectorIndexCodeWithMaster({

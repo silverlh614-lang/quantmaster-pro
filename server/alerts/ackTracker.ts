@@ -28,6 +28,8 @@ export interface T1AckEntry {
   escalated: boolean;
   category?: string;
   dedupeKey?: string;
+  /** 같은 패밀리(예: 종목별 손절 접근 단계군)의 ack 흡수 키 — 새 ack 가 같은 familyKey 의 이전 pending 을 대체. */
+  familyKey?: string;
 }
 
 const RESEND_AFTER_MS   = 30 * 60 * 1000;  // 30분
@@ -65,6 +67,18 @@ export function registerPendingAck(entry: Omit<T1AckEntry, 'resendCount' | 'esca
     for (const [existingAckId, existing] of Object.entries(pending)) {
       if (existingAckId === entry.ackId) continue;
       if (existing.dedupeKey === entry.dedupeKey) {
+        delete pending[existingAckId];
+      }
+    }
+  }
+
+  // ADR-0573: 같은 familyKey(종목별 손절 접근 단계군 등) 의 이전 pending 을 흡수.
+  // 단계별 dedupeKey 가 서로 달라 dedupeKey 흡수에 안 걸리던 다단계 경보의
+  // 재발송/에스컬레이션 폭증을 종목당 활성 [확인] 1건으로 축소한다.
+  if (entry.familyKey) {
+    for (const [existingAckId, existing] of Object.entries(pending)) {
+      if (existingAckId === entry.ackId) continue;
+      if (existing.familyKey === entry.familyKey) {
         delete pending[existingAckId];
       }
     }

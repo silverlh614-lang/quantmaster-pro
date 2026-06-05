@@ -1,7 +1,7 @@
-// @responsibility ADR-0572 canonical(L1) 섹터 return/rank/leading 룩업 leaf — normalizer 가 KIS/fs 부작용 없이 per-candidate Gate2 축에 소비.
+// @responsibility ADR-0577 canonical(L1) 섹터 return/rank/leading 룩업 leaf — normalizer 가 KIS/fs 부작용 없이 per-candidate Gate2 축에 소비.
 
 /**
- * sectorCanonicalReturnLookup.ts — ADR-0572 Stage 0 데이터원 룩업 leaf.
+ * sectorCanonicalReturnLookup.ts — ADR-0577 Stage 0 데이터원 룩업 leaf.
  *
  * 목적: ADR-0570 `sectorIndexCycleProvider` 가 이미 산출·캐시한 canonical 공식 섹터 index
  *   return(20d/5d, L1 OFFICIAL_KIS_SECTOR_INDEX)을 sector 명으로 동기 룩업하는 헬퍼를
@@ -18,7 +18,7 @@
  *   SECTOR_ENERGY_GATE2_WIRING_ENABLED)와 직교 — 본 flag 는 per-candidate 축의 *데이터원
  *   선택*(basket→canonical)만 정밀 토글한다(A/B).
  *
- * 데이터 위계(ADR-0572 D4): canonical=L1(우선). basket=DIAGNOSTIC_ONLY(normalizer fallback).
+ * 데이터 위계(ADR-0577 D4): canonical=L1(우선). basket=DIAGNOSTIC_ONLY(normalizer fallback).
  *   L4(AI) 미혼입(#7). providerIssue(결손)→bearish 변환 0(#6) — 결손 시 null=중립 반환.
  */
 

@@ -8,6 +8,21 @@ function telegramDedupKey(payload: OperationalWarnPayload): string {
   return `telegram:p0:${payload.code}:${payload.symbol ?? 'GLOBAL'}:${payload.mode ?? 'NA'}`;
 }
 
+/**
+ * ADR-0573 후속: P0 operational warn 의 ack 흡수 패밀리 키.
+ * 한 incident 가 여러 P0 코드(예: assertSettled 의 P0_BUY_SIGNAL_STUCK +
+ * P0_SHADOW_EXECUTION_STUCK)를 동시에 내보내면 telegramDedupKey 가 코드별로 달라
+ * 각각 T1 ack 으로 등록 → 재발송/60분 에스컬레이션이 incident 당 중복 발생한다.
+ * correlationId(tradeId/orderIntentId) 또는 symbol+mode 로 묶어 같은 incident 의
+ * 후속 P0 ack 이 이전 ack 을 흡수(registerPendingAck)하게 한다 → incident 당 활성
+ * [확인] 1건. 식별자 부재(글로벌 P0)면 undefined → 기존 코드별 동작 보존(byte-equivalent).
+ */
+function ackFamilyKeyFor(payload: OperationalWarnPayload): string | undefined {
+  if (payload.correlationId) return `op_warn_p0:corr:${payload.correlationId}`;
+  if (payload.symbol) return `op_warn_p0:sym:${payload.symbol}:${payload.mode ?? 'NA'}`;
+  return undefined;
+}
+
 export function formatTelegramCriticalWarn(payload: OperationalWarnPayload): string {
   return [
     `🚨 ${payload.priority} ${payload.domain}`,
@@ -16,6 +31,18 @@ export function formatTelegramCriticalWarn(payload: OperationalWarnPayload): str
     `impact=${payload.executionImpact}`,
     payload.mode ? `mode=${payload.mode}` : undefined,
   ].filter((line): line is string => Boolean(line)).join('\n');
+}
+
+/**
+ * ADR-0576: SHADOW(=실거래 아님·학습 경로) P0 operational warn 은 T1 ack 폐루프
+ * (재발송 + 60분 CRITICAL 에스컬레이션) 대상에서 제외한다 (불변식 #8 실거래 차단 ≠
+ * Shadow 차단). 1회 발송으로 가시성은 보존하되, 운영자 즉시 대응을 강제하는
+ * 에스컬레이션은 LIVE 경로에만 적용. ENV SHADOW_P0_ACK_LOOP_ENABLED=true 로
+ * 기존 동작(SHADOW 도 ack 루프) 복원.
+ */
+function shadowP0AckLoopDisabled(payload: OperationalWarnPayload): boolean {
+  const isShadow = payload.mode === 'SHADOW' || payload.mode === 'SHADOW_ONLY';
+  return isShadow && process.env.SHADOW_P0_ACK_LOOP_ENABLED !== 'true';
 }
 
 export function emitTelegramCriticalAlert(payload: OperationalWarnPayload): void {
@@ -30,6 +57,9 @@ export function emitTelegramCriticalAlert(payload: OperationalWarnPayload): void
     dedupeKey: dedupKey,
     cooldownMs: payload.ttlSec * 1000,
     category: 'OPERATIONAL_WARN_P0',
+    ackFamilyKey: ackFamilyKeyFor(payload),
+    // ADR-0576: SHADOW P0 는 ack 폐루프/에스컬레이션 제외 (1회 발송만).
+    requireAck: shadowP0AckLoopDisabled(payload) ? false : undefined,
   }).catch((cause) => {
     console.warn('[P2][TELEGRAM][OPERATIONAL_WARN_TELEGRAM_FAILED] P0 compact alert delivery failed', {
       code: 'OPERATIONAL_WARN_TELEGRAM_FAILED',

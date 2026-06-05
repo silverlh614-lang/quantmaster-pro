@@ -885,6 +885,45 @@ function sectorName(sectorKey: string): string {
   return SECTOR_INDEX_MASTER.find((entry) => entry.sectorKey === sectorKey)?.displayName ?? sectorKey;
 }
 
+/**
+ * KIS 섹터키 → canonical KrxSectorName(src/types/sectorEnergy.ts SSOT) 매핑.
+ * KIS displayName('2차전지'·'바이오'·'화학'·'철강'·'건설'·'유통' 등)은 gate2 매칭 기준
+ * canonical('이차전지'·'바이오/헬스케어'·'에너지/화학'·'건설/부동산'·'유통/소비재')과 달라,
+ * 활성 시 SECTOR_LEADERSHIP 축·섹터 boost 가 sectorEnergyResult.scores[].name 을 못 찾았다.
+ * NUCLEAR 는 canonical 12분류상 '방산' 으로 귀속. STEEL·OTHER 는 미매핑(유지) — STEEL 을
+ * '에너지/화학' 으로 접으면 CHEMICAL 과 scores 충돌하므로, 철강 후보는 CHEMICAL 의 '에너지/화학'
+ * 점수에 매칭시킨다(canonical 모델이 철강을 에너지/화학으로 접음). OTHER 는 canonical 없음.
+ */
+const KIS_SECTOR_KEY_TO_CANONICAL: Readonly<Record<string, string>> = Object.freeze({
+  SEMICONDUCTOR: '반도체',
+  BATTERY: '이차전지',
+  BIO_HEALTHCARE: '바이오/헬스케어',
+  IT_INTERNET: '인터넷/플랫폼',
+  AUTOMOTIVE: '자동차',
+  SHIPBUILDING: '조선',
+  DEFENSE: '방산',
+  NUCLEAR: '방산',
+  FINANCE: '금융',
+  CONSUMER_RETAIL: '유통/소비재',
+  CONSTRUCTION: '건설/부동산',
+  CHEMICAL: '에너지/화학',
+});
+
+/**
+ * KIS_SECTOR_NAME_CANONICAL_ENABLED(default OFF) — KIS 섹터 에너지 input.name 을 canonical 로
+ * 정규화할지. ON 시 sectorEnergyResult.scores[].name 이 gate2 canonical(ADR-0571)·섹터 boost/cap
+ * 소비자와 매칭. OFF=현행 displayName 유지(byte-identical). 정확 비교(ADR-0157).
+ */
+function isKisSectorNameCanonicalEnabled(): boolean {
+  return process.env.KIS_SECTOR_NAME_CANONICAL_ENABLED === 'true';
+}
+
+/** flag ON 이면 sectorKey→canonical, 아니면 displayName 유지(미매핑 sectorKey 도 fallback). */
+function kisSectorInputName(sectorKey: string, fallbackDisplayName: string): string {
+  if (!isKisSectorNameCanonicalEnabled()) return fallbackDisplayName;
+  return KIS_SECTOR_KEY_TO_CANONICAL[sectorKey] ?? fallbackDisplayName;
+}
+
 function coverageBreakdown(input: Partial<KisSectorEnergyCoverageBreakdown>): KisSectorEnergyCoverageBreakdown {
   const total = input.totalSectors ?? TOTAL_SECTOR_COUNT;
   const count = (value: number | undefined) => Math.max(0, Math.floor(value ?? 0));
@@ -990,7 +1029,7 @@ function inputFromMetrics(
   const topConstituentMomentum = Math.max(...valid.map((item) => item.return5d));
   const leadingStockCount = valid.filter((item) => item.return5d > 0 && item.above20ma).length;
   return {
-    name: displayName,
+    name: kisSectorInputName(sectorKey, displayName),
     return4w: sectorReturn20d,
     volumeChangePct: turnoverAcceleration,
     foreignConcentration: flowScore,
@@ -1109,7 +1148,7 @@ async function refreshBatteryMissingPriceRows(input: {
 function inputFromOfficialRow(row: KisSectorEnergyIndexRow): SectorEnergyInput {
   const breadth = row.breadthAbove20ma ?? 0;
   return {
-    name: sectorName(row.sectorKey),
+    name: kisSectorInputName(row.sectorKey, sectorName(row.sectorKey)),
     return4w: row.sectorReturn20d,
     volumeChangePct: row.turnoverAcceleration ?? 0,
     foreignConcentration: row.foreignInstitutionFlowAlignment ?? 0,

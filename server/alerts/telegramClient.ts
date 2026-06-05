@@ -175,6 +175,8 @@ export interface TelegramAlertOptions {
    * 명시적으로 false를 설정하면 T1이어도 버튼을 붙이지 않는다 (예: Decision Broker가 자체 3택 사용).
    */
   requireAck?: boolean;
+  /** 같은 ackFamilyKey 의 새 T1 ack 가 이전 pending ack 를 흡수(종목별 손절 접근 단계군 등 다단계 경보의 재발송 폭증 차단). ackTracker.registerPendingAck 로 전달. */
+  ackFamilyKey?: string;
   /** ADR-0468 diagnostic-only noise policy hook. Existing callers are unchanged unless this is supplied. */
   noiseEvent?: AlertNoiseEvent;
   /** Final push taxonomy. Omitted legacy calls keep their existing delivery unless policy suppression applies. */
@@ -763,6 +765,7 @@ async function registerAckIfNeeded(
       sentAt: Date.now(),
       category: opts?.category ?? inferCategory(opts?.dedupeKey),
       dedupeKey: opts?.dedupeKey,
+      familyKey: opts?.ackFamilyKey,
     });
   } catch (e: unknown) {
     console.warn('[Telegram] ACK 등록 실패:', e instanceof Error ? e.message : e);

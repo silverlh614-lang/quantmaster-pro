@@ -17,7 +17,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
   afterEach(() => {
     process.env = { ...ORIGINAL_ENV };
     vi.restoreAllMocks();
-    // ADR-0572 Stage 2 테스트가 canonical state ref 를 doMock 하므로 누수 방지로 unmock.
+    // ADR-0577 Stage 2 테스트가 canonical state ref 를 doMock 하므로 누수 방지로 unmock.
     vi.doUnmock('../../../trading/signalScanner/sectorEnergyCanonicalStateRef.js');
   });
 
@@ -223,7 +223,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
     });
   });
 
-  describe('ADR-0572 Stage 2 (DISPLAY_ONLY) — canonical PASS 조건부 레거시 basket 진단 collapse', () => {
+  describe('ADR-0577 Stage 2 (DISPLAY_ONLY) — canonical PASS 조건부 레거시 basket 진단 collapse', () => {
     // 모순 표시(canonical 11/11 VERIFIED vs 레거시 basket "official 0/12 unavailable") 동시 노출을
     // canonical PASS 시에만 collapse/재라벨한다. canonical NOT-PASS 면 저하 가시성 보존(uncollapsed).
     function basketDerivedMacroState() {
@@ -337,9 +337,9 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       expect(msg).not.toContain('productionOfficialCoverage: <b>0.0%</b>');
       // 부차 diagnostic-only 배너 + collapse 재라벨 표기.
       expect(msg).toMatch(/secondary diagnostic-only/);
-      expect(msg).toMatch(/ADR-0572/);
+      expect(msg).toMatch(/ADR-0577/);
       expect(msg).toMatch(/diagnostic-only and do NOT mean the official sector index is unavailable/);
-      expect(msg).toMatch(/secondaryDiagnosticOnly \(ADR-0572\):/);
+      expect(msg).toMatch(/secondaryDiagnosticOnly \(ADR-0577\):/);
     });
 
     it('(b) canonical NOT-PASS (PARTIAL) → 레거시 라인 uncollapsed 유지 (저하 가시성)', async () => {
@@ -372,7 +372,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       expect(msg).toMatch(/officialIndexCoverage:\s*77\.8%/);
       // collapse 배너/재라벨 미적용.
       expect(msg).not.toMatch(/secondary diagnostic-only/);
-      expect(msg).not.toMatch(/secondaryDiagnosticOnly \(ADR-0572\)/);
+      expect(msg).not.toMatch(/secondaryDiagnosticOnly \(ADR-0577\)/);
     });
 
     it('(c) 판단값(promotion/sectorBoost/strongBuy/coverage) 불변 — collapse 는 DISPLAY_ONLY', async () => {
@@ -415,7 +415,7 @@ describe('ADR-0398 (= 사용자 명시 ADR-0373): /sector_energy_diag 명령', (
       expect(kept.some((l: string) => l.includes('officialIndex: unavailable'))).toBe(false);
       expect(kept.some((l: string) => l.includes('OFFICIAL_SECTOR_INDEX_UNAVAILABLE'))).toBe(false);
       expect(kept.some((l: string) => /officialIndexCoverage:/.test(l) && !l.includes('secondaryDiagnosticOnly'))).toBe(false);
-      expect(kept.some((l: string) => l.includes('secondaryDiagnosticOnly (ADR-0572): 4 legacy basket-derived'))).toBe(true);
+      expect(kept.some((l: string) => l.includes('secondaryDiagnosticOnly (ADR-0577): 4 legacy basket-derived'))).toBe(true);
     });
   });
 

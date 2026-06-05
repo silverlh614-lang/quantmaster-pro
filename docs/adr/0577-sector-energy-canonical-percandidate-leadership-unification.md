@@ -1,4 +1,4 @@
-# ADR-0572 — 섹터에너지 canonical 일원화: per-candidate Gate2 SECTOR_LEADERSHIP 축을 verified official(L1)로 단일화
+# ADR-0577 — 섹터에너지 canonical 일원화: per-candidate Gate2 SECTOR_LEADERSHIP 축을 verified official(L1)로 단일화
 
 - Status: Proposed (설계/ADR 전용 — 런타임 소스 0줄)
 - Date: 2026-06-04
@@ -71,7 +71,7 @@ QuantMaster Pro 섹터에너지 시스템이 **이원화(dual-source)** 되어 �
 - 0571: 후보 `sectorThemeCycle.sector` 합성(producer). **sector 라벨 매칭 해소이지, 그 섹터의
   `sectorReturn20d` 데이터원 일원화는 아니다.**
 
-본 ADR-0572 는 **세 선행 ADR 이 만든 배선 위에서, per-candidate 축의 `sectorReturn20d`(+rank/
+본 ADR-0577 는 **세 선행 ADR 이 만든 배선 위에서, per-candidate 축의 `sectorReturn20d`(+rank/
 leading)의 *데이터 출처* 를 레거시 basket → canonical verified official(L1) 로 단일화**하는
 경계·계약을 확정한다.
 

@@ -985,7 +985,7 @@ describe('Gate2 wiring diagnostics', () => {
     }
   });
 
-  describe('ADR-0572: per-candidate SECTOR_LEADERSHIP canonical(L1) 우선 데이터원', () => {
+  describe('ADR-0577: per-candidate SECTOR_LEADERSHIP canonical(L1) 우선 데이터원', () => {
     const FLAG = 'SECTOR_LEADERSHIP_CANONICAL_SOURCE_ENABLED';
     // sectorEnergyResult.scores[].name 은 canonical KRX 섹터명(한글)과 일치해야 매칭(ADR-0571).
     const basket = {

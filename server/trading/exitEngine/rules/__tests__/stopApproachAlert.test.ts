@@ -14,15 +14,13 @@ const {
   buildAlertSpec,
   buildAlertMessage,
   BEP_TOLERANCE_PCT,
+  computeStopApproachBands,
+  FIXED_STOP_APPROACH_BANDS,
 } = await import('../stopApproachAlert.js');
 const { makeMockShadow, makeMockCtx } = await import('./_testHelpers.js');
 const { sendPrivateAlert } = await import('../../../../alerts/telegramClient.js');
-// stopApproachAlert 은 shadowExitDedup 의 프로세스-전역 in-memory ledger
-// (eventLedger / stopApproachLastSent) 로 중복 알림을 억제한다. 이 ledger 가
-// 케이스 간 누적되면 (동일 mode/tradeDate/symbol/positionId eventId) 후속 테스트가
-// DUPLICATE_EVENT / STOP_APPROACH_COOLDOWN 으로 억제돼 stage 알림 count 가 어긋난다.
-// 모듈이 노출한 표준 test-only reset 훅으로 케이스마다 격리한다 (불변식 #2 무영향 —
-// 런타임 dedup 로직 변경 없이 in-memory 상태만 초기화).
+// 테스트 격리: shadowExitDedup 모듈 레벨 ledger/STOP_APPROACH 쿨다운 Map 이 파일 내
+// 테스트 간 누수되어(동일 심볼 005930) 후속 Stage1 이 쿨다운 억제되던 사전결함 차단.
 const { resetShadowExitDedupStateForTest } = await import('../../../../shadow/shadowExitDedup.js');
 
 describe('stopApproachAlert (3-stage dedupe)', () => {
@@ -73,6 +71,17 @@ describe('stopApproachAlert (3-stage dedupe)', () => {
     await stopApproachAlert(makeMockCtx({ shadow, currentPrice: 89, hardStopLoss: 90 }));
     expect(shadow.stopApproachStage).toBeUndefined();
     expect(sendPrivateAlert).not.toHaveBeenCalled();
+  });
+
+  it('ADR-0573: 모든 단계 opts 에 종목별 ackFamilyKey 전달 (ack 패밀리 흡수)', async () => {
+    const shadow = makeMockShadow({ stopLoss: 90 });
+    // currentPrice 90.5 → distToStop ≈ 0.55% → Stage1/2/3 모두 발동
+    await stopApproachAlert(makeMockCtx({ shadow, currentPrice: 90.5, hardStopLoss: 90 }));
+    expect(sendPrivateAlert).toHaveBeenCalledTimes(3);
+    for (const call of (sendPrivateAlert as unknown as { mock: { calls: unknown[][] } }).mock.calls) {
+      const opts = call[1] as { ackFamilyKey?: string };
+      expect(opts.ackFamilyKey).toBe('stop_approach:005930');
+    }
   });
 });
 
@@ -335,7 +344,6 @@ describe('buildAlertMessage (3 메트릭 동시 노출)', () => {
 });
 
 describe('stopApproachAlert + classifyStopSource 통합 (사용자 보고 시나리오)', () => {
-  // dedup ledger 격리 — 위 dedupe suite 와 동일 stockCode(005930) eventId 충돌 방지.
   beforeEach(() => { vi.clearAllMocks(); resetShadowExitDedupStateForTest(); });
 
   it('hardStop 가 진입가까지 상향된 BEP 케이스 → 알림 메시지가 "BEP 청산선 임박" 라벨', async () => {
@@ -387,5 +395,106 @@ describe('stopApproachAlert + classifyStopSource 통합 (사용자 보고 시나
     expect(stage2Msg).toContain('🟠');
     // pnlPct 음수 표시
     expect(stage2Msg).toContain('-8.00%');
+  });
+});
+
+describe('computeStopApproachBands (ADR-0572 ATR 동적 밴드)', () => {
+  const originalDisabled = process.env.STOP_APPROACH_ATR_BANDS_DISABLED;
+
+  beforeEach(() => {
+    delete process.env.STOP_APPROACH_ATR_BANDS_DISABLED;
+  });
+
+  afterEach(() => {
+    if (originalDisabled === undefined) {
+      delete process.env.STOP_APPROACH_ATR_BANDS_DISABLED;
+    } else {
+      process.env.STOP_APPROACH_ATR_BANDS_DISABLED = originalDisabled;
+    }
+  });
+
+  it('entryATR14 undefined → 고정 {5,3,1} fallback', () => {
+    expect(computeStopApproachBands(10000, undefined)).toEqual({ stage1: 5, stage2: 3, stage3: 1 });
+  });
+
+  it('entryATR14 0/음수/NaN/Infinity → 고정 {5,3,1} fallback', () => {
+    expect(computeStopApproachBands(10000, 0)).toEqual({ stage1: 5, stage2: 3, stage3: 1 });
+    expect(computeStopApproachBands(10000, -100)).toEqual({ stage1: 5, stage2: 3, stage3: 1 });
+    expect(computeStopApproachBands(10000, NaN)).toEqual({ stage1: 5, stage2: 3, stage3: 1 });
+    expect(computeStopApproachBands(10000, Infinity)).toEqual({ stage1: 5, stage2: 3, stage3: 1 });
+  });
+
+  it('currentPrice 0/음수/NaN → 고정 {5,3,1} fallback', () => {
+    expect(computeStopApproachBands(0, 300)).toEqual({ stage1: 5, stage2: 3, stage3: 1 });
+    expect(computeStopApproachBands(-100, 300)).toEqual({ stage1: 5, stage2: 3, stage3: 1 });
+    expect(computeStopApproachBands(NaN, 300)).toEqual({ stage1: 5, stage2: 3, stage3: 1 });
+  });
+
+  it('ENV STOP_APPROACH_ATR_BANDS_DISABLED=true → 유효 ATR 이어도 고정 {5,3,1} (롤백)', () => {
+    process.env.STOP_APPROACH_ATR_BANDS_DISABLED = 'true';
+    // 정상이라면 ATR 밴드(저변동)로 좁혀지겠지만 ENV 롤백으로 고정 복원
+    expect(computeStopApproachBands(80000, 1200)).toEqual({ stage1: 5, stage2: 3, stage3: 1 });
+  });
+
+  it('저변동주 (atrPct=1.5%) → stage1≈3.0 / stage2≈1.5 / stage3≈0.6 (밴드 축소)', () => {
+    // currentPrice=80000, entryATR14=1200 → atrPct = 1.5%
+    const bands = computeStopApproachBands(80000, 1200);
+    expect(bands.stage1).toBeCloseTo(3.0, 6);
+    expect(bands.stage2).toBeCloseTo(1.5, 6);
+    expect(bands.stage3).toBeCloseTo(0.6, 6);
+  });
+
+  it('고변동 cap 동작 (atrPct=10%) → 배수 20/10/4 이지만 cap 으로 {5,3,1} 클램프', () => {
+    // currentPrice=10000, entryATR14=1000 → atrPct=10% → 배수면 20/10/4 이나 cap
+    expect(computeStopApproachBands(10000, 1000)).toEqual({ stage1: 5, stage2: 3, stage3: 1 });
+  });
+
+  it('중간 변동 (atrPct=3%) → stage1=min(6,5)=5 / stage2=min(3,3)=3 / stage3=min(1.2,1)=1', () => {
+    // currentPrice=10000, entryATR14=300 → atrPct=3%
+    const bands = computeStopApproachBands(10000, 300);
+    expect(bands.stage1).toBe(5);
+    expect(bands.stage2).toBe(3);
+    expect(bands.stage3).toBe(1);
+  });
+
+  it('상수 변형 금지 — 매 호출 새 객체 반환, FIXED 상수 불변', () => {
+    const a = computeStopApproachBands(10000, undefined);
+    const b = computeStopApproachBands(10000, undefined);
+    expect(a).not.toBe(b);
+    expect(FIXED_STOP_APPROACH_BANDS).toEqual({ stage1: 5, stage2: 3, stage3: 1 });
+  });
+});
+
+describe('stopApproachAlert ATR 동적 밴드 통합 (ADR-0572 저변동주 과민 해소)', () => {
+  const originalDisabled = process.env.STOP_APPROACH_ATR_BANDS_DISABLED;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetShadowExitDedupStateForTest();
+    delete process.env.STOP_APPROACH_ATR_BANDS_DISABLED;
+  });
+
+  afterEach(() => {
+    if (originalDisabled === undefined) {
+      delete process.env.STOP_APPROACH_ATR_BANDS_DISABLED;
+    } else {
+      process.env.STOP_APPROACH_ATR_BANDS_DISABLED = originalDisabled;
+    }
+  });
+
+  it('저변동주 과민 해소 — distToStop≈2.63% 시 Stage1 만 발동 (고정밴드였다면 Stage2 "손절 임박" 발동했을 것)', async () => {
+    const shadow = makeMockShadow({
+      shadowEntryPrice: 80000,
+      stopLoss: 76000,
+      hardStopLoss: 76000,
+      entryATR14: 1200,
+    });
+    // currentPrice=78000 → distToStop = (78000-76000)/76000 ≈ 2.63%
+    // bands(78000,1200): atrPct=1200/78000≈1.538% → stage1≈3.08, stage2≈1.54, stage3≈0.62
+    // 2.63 < 3.08 → Stage1 발동, 2.63 > 1.54 → Stage2 미발동 (과민 해소)
+    // 고정밴드였다면 2.63 < 3 으로 Stage2 "손절 임박" 까지 발동했을 것.
+    await stopApproachAlert(makeMockCtx({ shadow, currentPrice: 78000, hardStopLoss: 76000 }));
+    expect(shadow.stopApproachStage).toBe(1);
+    expect(sendPrivateAlert).toHaveBeenCalledOnce();
   });
 });
