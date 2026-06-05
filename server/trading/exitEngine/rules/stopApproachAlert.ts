@@ -5,6 +5,11 @@
  *   Stage 2: 청산선까지 -3% 이내 → 임박 경고
  *   Stage 3: 청산선까지 -1% 이내 → 집행 임박 (exitEngine 하드스톱이 곧 발동)
  *
+ * ADR-0572: 위 고정 5/3/1% 는 이제 종목 ATR14 동적 밴드의 *상한(cap)* 이다.
+ *   기본 밴드 = min(배수 × atrPct, 고정 5/3/1%) — 저변동주(저 ATR%)일수록 밴드가
+ *   좁아져 1~3% 소폭 하락 과민 발동을 해소. cap 덕에 어떤 입력도 레거시보다 더
+ *   민감해지지 않는다. ENV STOP_APPROACH_ATR_BANDS_DISABLED=true 로 고정 밴드 복원.
+ *
  * ADR-0028 보강 — 청산선 source 분기 라벨:
  *   hardStopLoss > shadowEntryPrice  → 🟢 [원금 보호선 임박]  (수익 Lock-in 청산)
  *   hardStopLoss ≈ shadowEntryPrice  → 🟡 [BEP 청산선 임박]   (무손실 청산, ±0.5% 허용)
@@ -31,6 +36,44 @@ export type StopSourceCategory = 'PROFIT_LOCK_IN' | 'BEP_PROTECTION' | 'LOSS_STO
 
 /** BEP 정확도 허용 폭. 매수가 대비 ±0.5% 이내면 BEP 청산선으로 간주. */
 export const BEP_TOLERANCE_PCT = 0.5;
+
+/** 기존 고정 밴드(레거시·fallback·상한 cap) — distToStop% 단위. */
+export const FIXED_STOP_APPROACH_BANDS = { stage1: 5, stage2: 3, stage3: 1 } as const;
+/** ATR% 배수 — Stage 별 동적 밴드. 저변동주일수록 밴드 축소. */
+export const ATR_STOP_APPROACH_MULTIPLES = { stage1: 2.0, stage2: 1.0, stage3: 0.4 } as const;
+
+/**
+ * ADR-0572: distToStop% 발동 밴드를 종목 ATR14 기반으로 동적 산출.
+ * - atrPct = entryATR14 / currentPrice * 100
+ * - 각 stage 밴드 = min(배수 × atrPct, 고정밴드)  ← cap: ATR 스케일링은 *좁히기만* 함(절대 더 민감해지지 않음)
+ * - ATR 부재/비유한/<=0, currentPrice 비유한/<=0, 또는 ENV STOP_APPROACH_ATR_BANDS_DISABLED=true → 고정 5/3/1% fallback
+ * 반환: distToStop% 비교용 stage1>stage2>stage3 임계.
+ */
+export function computeStopApproachBands(
+  currentPrice: number,
+  entryATR14: number | undefined,
+): { stage1: number; stage2: number; stage3: number } {
+  if (process.env.STOP_APPROACH_ATR_BANDS_DISABLED === 'true') {
+    return { ...FIXED_STOP_APPROACH_BANDS };
+  }
+  if (
+    !Number.isFinite(entryATR14) ||
+    (entryATR14 as number) <= 0 ||
+    !Number.isFinite(currentPrice) ||
+    currentPrice <= 0
+  ) {
+    return { ...FIXED_STOP_APPROACH_BANDS };
+  }
+  const atrPct = ((entryATR14 as number) / currentPrice) * 100;
+  if (!Number.isFinite(atrPct) || atrPct <= 0) {
+    return { ...FIXED_STOP_APPROACH_BANDS };
+  }
+  return {
+    stage1: Math.min(ATR_STOP_APPROACH_MULTIPLES.stage1 * atrPct, FIXED_STOP_APPROACH_BANDS.stage1),
+    stage2: Math.min(ATR_STOP_APPROACH_MULTIPLES.stage2 * atrPct, FIXED_STOP_APPROACH_BANDS.stage2),
+    stage3: Math.min(ATR_STOP_APPROACH_MULTIPLES.stage3 * atrPct, FIXED_STOP_APPROACH_BANDS.stage3),
+  };
+}
 
 /**
  * ADR-0079 BEP Glide 영역의 BEP_PROTECTION 흡수 비율.
@@ -190,8 +233,10 @@ export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResul
     BEP_TOLERANCE_PCT,
     shadow.entryATR14,
   );
+  // ADR-0572: distToStop% 발동 밴드를 종목 ATR14 기반 동적 밴드로 산출 (cap = 고정 5/3/1%).
+  const bands = computeStopApproachBands(currentPrice, shadow.entryATR14);
 
-  if (distToStop > 0 && distToStop < 5 && stage < 1) {
+  if (distToStop > 0 && distToStop < bands.stage1 && stage < 1) {
     shadow.stopApproachStage = 1;
     shadow.exitRuleTag = 'STOP_APPROACH_ALERT';
     const guard = shouldSendShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_APPROACH', positionStatus: shadow.status, channelType: 'BOT', messageKind: 'STOP_APPROACH_STAGE_1' });
@@ -215,7 +260,7 @@ export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResul
     recordShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_APPROACH', channelType: 'BOT' });
   }
 
-  if (distToStop > 0 && distToStop < 3 && stage < 2) {
+  if (distToStop > 0 && distToStop < bands.stage2 && stage < 2) {
     shadow.stopApproachStage = 2;
     shadow.exitRuleTag = 'STOP_APPROACH_ALERT';
     const guard = shouldSendShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_CONFIRM_REQUIRED', positionStatus: shadow.status, channelType: 'BOT', messageKind: 'STOP_APPROACH_STAGE_2' });
@@ -239,7 +284,7 @@ export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResul
     recordShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_CONFIRM_REQUIRED', channelType: 'BOT' });
   }
 
-  if (distToStop > 0 && distToStop < 1 && stage < 3) {
+  if (distToStop > 0 && distToStop < bands.stage3 && stage < 3) {
     shadow.stopApproachStage = 3;
     shadow.exitRuleTag = 'STOP_APPROACH_ALERT';
     const guard = shouldSendShadowExitNotification({ mode: shadow.mode ?? 'SHADOW', tradeDate: new Date().toISOString().slice(0, 10), symbol: shadow.stockCode, positionId: shadow.id, exitReason: source === 'LOSS_STOP' ? 'STOP_LOSS' : source, exitStage: 'STOP_EXECUTION_IMMINENT', positionStatus: shadow.status, channelType: 'BOT', messageKind: 'STOP_APPROACH_STAGE_3' });
