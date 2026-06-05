@@ -1,6 +1,6 @@
 // @responsibility A1 회귀 — injectPerSymbolPriceContext avgVolume 배선 복구 검증 (bars 평균 주입, 덮어쓰기 금지).
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../clients/kisClient.js', () => ({
   fetchKisStockFullQuote: vi.fn(),
@@ -102,5 +102,73 @@ describe('A1 injectPerSymbolPriceContext — avgVolume 배선 복구', () => {
 
     expect('avgVolume' in out[0]).toBe(false);
     expect(stats.avgVolumeInjected).toBe(0);
+  });
+});
+
+// ADR-0578 — 기술지표(ma/rsi/atr) 주입. 평탄 종가(100)+high101/low99 → ma=100·rsi14=100(평탄)·atr=2(TR=2).
+function barsHLC(n: number, close = 100, high = 101, low = 99): Array<{ date: string; close: number; high: number; low: number; volume: number }> {
+  return Array.from({ length: n }, (_, i) => ({
+    date: `2026-05-${String(1 + (i % 28)).padStart(2, '0')}`,
+    close, high, low, volume: 1000,
+  }));
+}
+
+describe('ADR-0578 injectPerSymbolPriceContext — 기술지표 주입 (flag-gated)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedQuote.mockResolvedValue(null as never);
+    mockedBars.mockResolvedValue([] as never);
+    delete process.env.GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED;
+  });
+  afterEach(() => {
+    delete process.env.GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED;
+  });
+
+  it('flag OFF(기본): 기술지표를 주입하지 않는다 (byte-equivalent)', async () => {
+    const candidates: Array<Record<string, unknown>> = [{ code: '005930' }];
+    const { candidates: out, stats } = await injectPerSymbolPriceContext(candidates, {
+      snapshotData: snapshotData({ '005930': { dailyBars: barsHLC(60) as never } }),
+    });
+    const sf = (out[0].symbolFeatures ?? {}) as Record<string, unknown>;
+    expect('ma20' in sf).toBe(false);
+    expect('rsi14' in sf).toBe(false);
+    expect(stats.technicalInjected).toBe(0);
+  });
+
+  it('flag ON: bars 에서 ma20/ma60/rsi14/atr 을 symbolFeatures 에 주입한다', async () => {
+    process.env.GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED = 'true';
+    const candidates: Array<Record<string, unknown>> = [{ code: '005930' }];
+    const { candidates: out, stats } = await injectPerSymbolPriceContext(candidates, {
+      snapshotData: snapshotData({ '005930': { dailyBars: barsHLC(60) as never } }),
+    });
+    const sf = out[0].symbolFeatures as Record<string, number>;
+    expect(sf.ma20).toBe(100);
+    expect(sf.ma60).toBe(100);
+    expect(sf.rsi14).toBe(100); // 평탄 종가 → avgLoss 0 → RSI 100
+    expect(sf.atr).toBe(2);     // TR = max(101-99, |101-100|, |99-100|) = 2
+    expect(sf.atr20avg).toBe(2);
+    expect(stats.technicalInjected).toBe(1);
+  });
+
+  it('flag ON: 일봉 < 60 이면 ma60 은 주입하지 않는다 (ma20 은 주입)', async () => {
+    process.env.GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED = 'true';
+    const candidates: Array<Record<string, unknown>> = [{ code: '000660' }];
+    const { candidates: out } = await injectPerSymbolPriceContext(candidates, {
+      snapshotData: snapshotData({ '000660': { dailyBars: barsHLC(30) as never } }),
+    });
+    const sf = out[0].symbolFeatures as Record<string, unknown>;
+    expect(sf.ma20).toBe(100);
+    expect('ma60' in sf).toBe(false);
+  });
+
+  it('flag ON: 이미 채워진 symbolFeatures.ma20 은 덮어쓰지 않는다', async () => {
+    process.env.GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED = 'true';
+    const candidates: Array<Record<string, unknown>> = [{ code: '005930', symbolFeatures: { ma20: 555 } }];
+    const { candidates: out } = await injectPerSymbolPriceContext(candidates, {
+      snapshotData: snapshotData({ '005930': { dailyBars: barsHLC(60) as never } }),
+    });
+    const sf = out[0].symbolFeatures as Record<string, number>;
+    expect(sf.ma20).toBe(555); // 보존
+    expect(sf.ma60).toBe(100); // 신규 주입
   });
 });
