@@ -15,6 +15,7 @@
   (https://github.com/koreainvestment/open-trading-api), `examples_llm/domestic_stock/` 엔드포인트별 예제 +
   `MCP/Kis Trading MCP/configs/domestic_stock.json` (기계판독 API 스펙, 74개 엔드포인트).
 - **버전:** 추출 시점 2026-03-18 (`domestic_stock.json` mtime). 갱신 시 본 README §출처 날짜를 함께 갱신.
+- **재대조:** 2026-06-05 — 첨부 공식 SDK(`examples_llm/domestic_stock/`)로 order 경로(order-cash·order-rvsecncl·inquire-daily-ccld) TR_ID 전수 재검증. §B 매수/매도 신행 TR 뒤바뀜 1건 정정(아래 ⚠️ 정정). 나머지(정정취소 TTTC0013U·일별체결 TTTC0081R·잔고 TTTC8434R) 공식 일치 재확인.
 - **이 디렉토리에 둔 것:** `domestic_stock.json` (curated 기계판독 스펙, 166KB) + 본 README.
   **19MB 전체 SDK 는 커밋하지 않는다** (examples_llm/legacy/backtester 등은 `/tmp` 에만 존재).
 - **용도:** `server/clients/kisClient/` 의 TR_ID·api_path·파라미터를 공식 스펙과 대조하는 단일 출처.
@@ -53,13 +54,19 @@
 | 우리 TR_ID (real) | 용도 | api_path | 공식 현행 TR_ID | 상태 | 근거 파일 |
 |---|---|---|---|---|---|
 | `TTTC8434R` | 잔고조회 | `/trading/inquire-balance` | `TTTC8434R` | ✅ MATCH | `holdings.ts:42,83` |
-| `TTTC0802U` | 매수 주문 | `/trading/order-cash` | `TTTC0011U` | ⚠️ LEGACY | `constants.ts:12` |
-| `TTTC0801U` | 매도 주문 | `/trading/order-cash` | `TTTC0012U` | ⚠️ LEGACY | `constants.ts:13` |
+| `TTTC0802U` | 매수 주문 | `/trading/order-cash` | `TTTC0012U` | ⚠️ LEGACY | `constants.ts:12` |
+| `TTTC0801U` | 매도 주문 | `/trading/order-cash` | `TTTC0011U` | ⚠️ LEGACY | `constants.ts:13` |
 | `TTTC0803U` | 정정/취소 | `/trading/order-rvsecncl` | `TTTC0013U` | ⚠️ LEGACY | `orderGateway/kisSellOrderAdapter.ts:38` |
 | `TTTC8001R` | 일별체결조회 | `/trading/inquire-daily-ccld` | `TTTC0081R` | ⚠️ LEGACY | `orderGateway/kisOrderGateway.ts:222` |
 
-> demo(모의) 짝: 우리 `VTTC0802U/0801U/0803U/8001R` ↔ 공식 현행 `VTTC0011U/0012U/0013U/0081R`.
-> `VTTC8434R`(잔고) 는 일치.
+> demo(모의) 짝: 우리 `VTTC0802U(매수)/0801U(매도)/0803U(정정취소)/8001R(체결)` ↔ 공식 현행
+> `VTTC0012U/0011U/0013U/0081R`. `VTTC8434R`(잔고) 는 일치.
+>
+> ⚠️ **정정 (2026-06-05, 첨부 SDK 재대조):** 직전 표는 매수↔매도 신행 TR 을 **뒤바꿔** 기재했었다
+> (매수→`TTTC0011U`, 매도→`TTTC0012U`). 공식 `order_cash.py:104-107` 은 **매도=`TTTC0011U`,
+> 매수=`TTTC0012U`** 다(`ord_dv=="sell"→TTTC0011U`, `"buy"→TTTC0012U`). 이 매핑을 그대로 따라
+> 마이그레이션하면 **매수가 매도 TR 로 전송되는 치명적 오라우팅**이 발생하므로 본 PR 에서 정정한다.
+> (정정취소 `TTTC0013U`·일별체결 `TTTC0081R` 은 공식과 이미 일치 — 재확인 완료.)
 
 ### 교차대조 결과 요약
 
