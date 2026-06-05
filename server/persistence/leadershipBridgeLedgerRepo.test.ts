@@ -77,4 +77,26 @@ describe('leadershipBridgeLedgerRepo (ADR-0551 shadow 검증)', () => {
     expect(s.injectionRate).toBe(0);
     expect(s.sessionsWithInjection).toBe(0);
   });
+
+  it('format — injection 0 → feeder 병목 판정 + flag OFF 라인', async () => {
+    const m = await import('./leadershipBridgeLedgerRepo.js');
+    m.appendLeadershipBridgeLedgerEntry(entry({ added: 0, skippedTotal: 2, skippedByReason: { not_qualified: 2 } }));
+    const lines = m.formatLeadershipBridgeLedgerSummaryLines(m.summarizeLeadershipBridgeLedger(), false);
+    expect(lines.some((l) => l.includes('flag LEADERSHIP_BRIDGE_ENABLED=OFF'))).toBe(true);
+    expect(lines.some((l) => l.includes('병목=feeder'))).toBe(true);
+  });
+
+  it('format — injection>0 → 평가 가능 판정 + flag ON 라인', async () => {
+    const m = await import('./leadershipBridgeLedgerRepo.js');
+    m.appendLeadershipBridgeLedgerEntry(entry({ added: 2, addedCodes: ['A', 'B'] }));
+    const lines = m.formatLeadershipBridgeLedgerSummaryLines(m.summarizeLeadershipBridgeLedger(), true);
+    expect(lines.some((l) => l.includes('flag LEADERSHIP_BRIDGE_ENABLED=ON'))).toBe(true);
+    expect(lines.some((l) => l.includes('주입 발생'))).toBe(true);
+  });
+
+  it('format — 기록 없음 → 데이터 없음 판정', async () => {
+    const m = await import('./leadershipBridgeLedgerRepo.js');
+    const lines = m.formatLeadershipBridgeLedgerSummaryLines(m.summarizeLeadershipBridgeLedger(), false);
+    expect(lines.some((l) => l.includes('데이터 없음'))).toBe(true);
+  });
 });

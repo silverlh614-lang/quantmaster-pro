@@ -122,3 +122,30 @@ export function summarizeLeadershipBridgeLedger(
     executionImpact: 'NONE',
   };
 }
+
+/**
+ * 검증 요약 텍스트(telegram /bridge_stats 표시용, plain text·HTML 무사용). 순수 함수.
+ * injectionRate=0 이면 "병목=feeder" 신호를 명시(설계 §4 1차 게이트 해석).
+ */
+export function formatLeadershipBridgeLedgerSummaryLines(
+  s: LeadershipBridgeLedgerSummary,
+  flagEnabled: boolean,
+): string[] {
+  const pct = (s.injectionRate * 100).toFixed(0);
+  const verdict = s.totalSessions === 0
+    ? '데이터 없음 — flag OFF 이거나 아직 미기록'
+    : s.injectionRate === 0
+      ? '⚠️ 주입 0 → 병목=feeder(자격 리더 발굴 0), 브릿지 아님'
+      : '주입 발생 → Part ii/iii(품질·forward outcome) 평가 가능';
+  return [
+    '🌉 LeadershipBridge 검증 (ADR-0551, read-only)',
+    `flag LEADERSHIP_BRIDGE_ENABLED=${flagEnabled ? 'ON' : 'OFF'}`,
+    `세션 ${s.totalSessions} (주입 ${s.sessionsWithInjection})`,
+    `injectionRate ${pct}%`,
+    `편입 누적 added ${s.totalAdded} / refreshed ${s.totalRefreshed} (avg ${s.avgAddedPerSession.toFixed(1)}/session)`,
+    `스킵 top: ${s.topSkipReasons.length > 0 ? s.topSkipReasons.map((r) => `${r.reason}=${r.count}`).join(', ') : 'NONE'}`,
+    `latest ${s.latestAt ?? 'N/A'}`,
+    `판정: ${verdict}`,
+    'executionImpact=NONE',
+  ];
+}

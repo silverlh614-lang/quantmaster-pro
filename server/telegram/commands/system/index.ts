@@ -36,6 +36,7 @@ import './krxCsvProbe.cmd.js';
 import './krxOpenApiProbe.cmd.js';
 import './krxMasterStatus.cmd.js';
 import './krxMasterRefresh.cmd.js';
+import './leadershipBridgeStats.cmd.js'; // ADR-0551 shadow 검증 — bridge 주입률·스킵사유 read-only.
 import './learningHistory.cmd.js';
 import './learningLoopHealth.cmd.js';
 import './learningStatus.cmd.js';
