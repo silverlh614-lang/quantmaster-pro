@@ -4,6 +4,7 @@ import {
   buildGate0Decision,
   resolveMacroSnapshotFreshness,
   resolveMacroSignalValidity,
+  resolveScoringEffectiveRegime,
 } from './gate0MacroPermissionDecision.js';
 import type { MacroGateState, ScanSummary } from './scanSummaryTypes.js';
 
@@ -213,5 +214,45 @@ describe('Gate0 macro signal validity / permission resolver', () => {
     expect(decision.shadowAllowed).toBe(true);
     expect(decision.diagnosticAllowed).toBe(true);
     expect(decision.executionImpact).toBe('NONE');
+  });
+});
+
+describe('resolveScoringEffectiveRegime — scoring SSOT (ADR-0531 정합)', () => {
+  // persistScanResults Gate1 dry-run 관측 row(:1350/:1352/:1514/:1516)가 폐기된 bare
+  // `macroRegimeEffective ?? regime ?? 'UNKNOWN'` 에서 이 함수로 통일됐다. 아래 케이스가
+  // 비-R6·genuine R6 에서 byte-equivalent 이고 stale-R6 누출만 차단함을 잠근다(swap 안전성 회귀).
+  const legacyExpr = (mg: MacroGateState): string =>
+    mg.macroRegimeEffective ?? mg.regime ?? 'UNKNOWN';
+
+  it('non-R6: scoring SSOT 가 폐기 표현식과 동일 (byte-equivalent)', () => {
+    const mg = macro({ regime: 'R3_EARLY', macroRegimeRaw: 'R3_EARLY', macroRegimeEffective: 'R3_EARLY' });
+    expect(resolveScoringEffectiveRegime(mg)).toBe('R3_EARLY');
+    expect(resolveScoringEffectiveRegime(mg)).toBe(legacyExpr(mg));
+  });
+
+  it('genuine R6(raw=effective=R6, regime=R4 sanitize): R6_DEFENSE 보존 (byte-equivalent)', () => {
+    const mg = macro({
+      regime: 'R4_NEUTRAL',
+      macroRegimeRaw: 'R6_DEFENSE',
+      macroRegimeEffective: 'R6_DEFENSE',
+      displayRegime: 'SHADOW_ONLY',
+      riskOverride: 'SHADOW_ONLY',
+    });
+    expect(resolveScoringEffectiveRegime(mg)).toBe('R6_DEFENSE');
+    expect(resolveScoringEffectiveRegime(mg)).toBe(legacyExpr(mg));
+  });
+
+  it('stale-R6 누출(legacy effective 만 R6, raw 는 회복): raw 로 차단 → 폐기 표현식과 갈라짐', () => {
+    const mg = macro({
+      regime: 'R4_NEUTRAL',
+      macroRegimeRaw: 'R4_NEUTRAL',
+      macroRegimeEffective: 'R6_DEFENSE',
+      displayRegime: 'SHADOW_ONLY',
+      riskOverride: 'SHADOW_ONLY',
+    });
+    expect(resolveScoringEffectiveRegime(mg)).toBe('R4_NEUTRAL');
+    // 폐기 표현식은 stale R6 를 그대로 누출했었다 — 이 패치가 차단하는 버그.
+    expect(legacyExpr(mg)).toBe('R6_DEFENSE');
+    expect(resolveScoringEffectiveRegime(mg)).not.toBe(legacyExpr(mg));
   });
 });

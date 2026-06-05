@@ -1341,15 +1341,20 @@ export async function persistScanResults(
       traces: counters.positiveScoreStarvationTraces,
       alignmentReport: summaryDraft.gate1ScoringAlignment,
     });
+    // ADR-0531 정합(patch): counterfactual 관측 row 의 regime/effectiveRegime 는 scoring SSOT
+    // (resolveScoringEffectiveRegime)로 통일한다. 폐기된 bare macroRegimeEffective(legacy R6-recovery
+    // transition machine)는 stale 시 R6_DEFENSE 를 누출 → 아래 RegimeAwareSurvivor 와 불일치했다.
+    // 비-R6·genuine R6 에선 동일값(byte-equivalent), stale-R6 누출만 raw 로 차단. rawRegime 은 불변.
+    const scoringEffectiveRegime = resolveScoringEffectiveRegime(options.macroGateState);
     const rows = buildGate1DryRunObservationRows({
       now: kstNow,
       forDate: kstNow.toISOString().slice(0, 10),
       sourceSnapshotId,
       scanId: sourceSnapshotId,
       candidateSetId: `candidateSet:${sourceSnapshotId}:${observationSnapshots.length}`,
-      regime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime ?? 'UNKNOWN',
+      regime: scoringEffectiveRegime,
       rawRegime: options.macroGateState?.macroRegimeRaw ?? options.macroGateState?.regime ?? 'UNKNOWN',
-      effectiveRegime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime ?? 'UNKNOWN',
+      effectiveRegime: scoringEffectiveRegime,
       displayRegime: options.macroGateState?.displayRegime ?? options.macroGateState?.engineMode ?? 'UNKNOWN',
       engineMode: options.macroGateState?.engineMode ?? 'UNKNOWN',
       policyView: options.macroGateState?.finalExecutionPolicy ?? options.macroGateState?.engineMode ?? 'UNKNOWN',
@@ -1373,7 +1378,7 @@ export async function persistScanResults(
     // ADR-0546 Phase2 prep — regime 인식 임계로 추가 통과할 후보 관측 (섀도 전용, flag OFF 불변).
     summaryDraft.gate1RegimeAwareSurvivor = buildGate1RegimeAwareSurvivorObservation(
       rows,
-      resolveScoringEffectiveRegime(options.macroGateState),
+      scoringEffectiveRegime,
     );
     logAdrDiagnostic(
       `[ADR-0476] Gate1DryRunObservation rows emitted`,
@@ -1505,15 +1510,17 @@ export async function persistScanResults(
       supplyCoverageReportAdr0496: summaryDraft.investorFlowSampleAdr0489.adr0496SupplyCoverage,
       diagnostics: ['Recorded from ScanSummary diagnostics only; replay is not used by live Gate decisions.'],
     });
+    // ADR-0531 정합(patch): 위 블록과 동일 — counterfactual 관측 regime 을 scoring SSOT 로 통일.
+    const supplyRecoveryScoringRegime = resolveScoringEffectiveRegime(options.macroGateState);
     await saveGate1DryRunObservationRows(buildGate1DryRunObservationRows({
       now: kstNow,
       forDate: kstNow.toISOString().slice(0, 10),
       sourceSnapshotId,
       scanId: sourceSnapshotId,
       candidateSetId: `candidateSet:${sourceSnapshotId}:${(options.candidateSnapshots ?? counters.entryCandidateSnapshots).length}`,
-      regime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime ?? 'UNKNOWN',
+      regime: supplyRecoveryScoringRegime,
       rawRegime: options.macroGateState?.macroRegimeRaw ?? options.macroGateState?.regime ?? 'UNKNOWN',
-      effectiveRegime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime ?? 'UNKNOWN',
+      effectiveRegime: supplyRecoveryScoringRegime,
       displayRegime: options.macroGateState?.displayRegime ?? options.macroGateState?.engineMode ?? 'UNKNOWN',
       engineMode: options.macroGateState?.engineMode ?? 'UNKNOWN',
       policyView: options.macroGateState?.finalExecutionPolicy ?? options.macroGateState?.engineMode ?? 'UNKNOWN',
