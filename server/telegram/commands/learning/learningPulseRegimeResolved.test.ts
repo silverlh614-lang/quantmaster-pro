@@ -80,7 +80,11 @@ describe('Learning Pulse regime resolved-sample fields', () => {
     expect(msg).toContain('regimeDuplicateSuppressedAfterInsert=');
     expect(msg).toContain('marketSession=');
     expect(msg).toContain('nextOpenShadowScanStatus=');
-    expect(msg).toContain('lastShadowScanStartedAt=');
+    // Patch-VITEST-CAT-C: `lastShadowScanStartedAt` 은 collectLearningPulse 가 스냅샷
+    // 데이터 필드로만 산출하고(formatLearningPulseMessage 출력 라인에는 미포함 — 형제
+    // 필드 nextOpenShadowScanStatus/lastShadowScanCandidateCount/lastShadowScanResult 로
+    // scan lifecycle 가시화). 본 assertion 은 seed(4452bd3)부터 production formatter 와
+    // 불일치한 over-assertion 이었다. production 출력 0 변경 원칙상 테스트 기대를 정정한다.
     expect(msg).toContain('lastShadowScanCandidateCount=');
     expect(msg).toContain('lastShadowScanResult=');
     expect(msg).toContain('cohortSnapshotRefreshFailureReason=');

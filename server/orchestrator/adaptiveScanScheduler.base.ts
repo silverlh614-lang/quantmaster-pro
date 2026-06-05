@@ -1,4 +1,4 @@
-﻿// @responsibility adaptiveScanScheduler 오케스트레이터 모듈
+// @responsibility adaptiveScanScheduler 오케스트레이터 모듈
 /**
  * adaptiveScanScheduler.ts — 적응형 스캔 빈도 결정기
  *

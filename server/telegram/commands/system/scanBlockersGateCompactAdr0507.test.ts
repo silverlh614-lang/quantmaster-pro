@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @responsibility ADR-0507 ??Gate1 Forensic Collector Wiring + Gate Mode Compact Split ?뚭?.
  *
  * ?ъ슜??紐낆떆 짠L ?뚭? 留ㅽ듃由?뒪 吏곸젒 諛섏쁺:
@@ -184,7 +184,7 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
     expect(r[0]!.quoteSymbol).toBe('000660');
   });
 
-  it('supplyProviderHealth 怨듯넻 share ??紐⑤뱺 entry ???숈씪 媛앹껜 ?꾨떖', () => {
+  it('supplyProviderHealth 공통 share — 모든 entry 가 입력 health 필드 보존 (enriched)', () => {
     const sph = {
       status: 'VERIFIED',
       providerName: 'KRX',
@@ -201,8 +201,13 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
       supplyProviderHealth: sph,
     });
     expect(r.length).toBe(2);
-    expect(r[0]!.supplyProviderHealth).toBe(sph);
-    expect(r[1]!.supplyProviderHealth).toBe(sph);
+    // Patch-VITEST-CAT-A: collector 는 per-symbol 으로 입력 health 를 derived forensic 필드로
+    // enrich 한 healthRecord(신규 객체)를 전달한다 — 입력 참조(.toBe(sph)) 동일성이 아니다.
+    // (seed 4452bd3 부터 production 이 enrich 했고 본 DOA 테스트만 pre-refactor 참조 동일성을
+    // 기대했다.) 공통 share 의도는 모든 entry 가 입력 health 필드를 보존함으로 검증한다
+    // (production 런타임 0 변경).
+    expect(r[0]!.supplyProviderHealth).toMatchObject({ status: 'VERIFIED', providerName: 'KRX' });
+    expect(r[1]!.supplyProviderHealth).toMatchObject({ status: 'VERIFIED', providerName: 'KRX' });
   });
 
 
@@ -324,12 +329,20 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
   });
 
 
-  it('leaves supplyProviderHealth undefined when it is not provided', () => {
+  it('synthesizes a diagnostic-only supplyProviderHealth (no provider status) when none is provided', () => {
     const r = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
       gate1CandidateTraces: [makeGate1CandidateTrace('005930', 70)],
     });
     expect(r.length).toBe(1);
-    expect((r[0] as { supplyProviderHealth?: unknown }).supplyProviderHealth).toBeUndefined();
+    // Patch-VITEST-CAT-A: collector(mergeActualRowCarryAdr0507)는 입력 health 부재 시에도
+    // 진단 전용 health record 를 합성한다 — 더 이상 undefined 가 아니다(seed 4452bd3 부터
+    // production 이 합성했고 본 DOA 테스트만 pre-enrichment 의 undefined 를 기대했다).
+    // 합성 record 는 실제 provider status/이름을 싣지 않음(diagnostic-only)을 검증한다
+    // (production 런타임 0 변경).
+    const health = (r[0] as { supplyProviderHealth?: Record<string, unknown> }).supplyProviderHealth;
+    expect(health).toBeDefined();
+    expect(health?.status).toBeUndefined();
+    expect(health?.providerName).toBeUndefined();
   });
 });
 

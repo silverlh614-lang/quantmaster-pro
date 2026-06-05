@@ -1,10 +1,10 @@
-﻿/**
- * @responsibility ?ㅼ틪 吏곸쟾 留ㅽ겕濡쑣룹떆?ㅽ뀥 寃뚯씠????KIS쨌manual쨌regime쨌VIX쨌R6쨌FOMC쨌sellOnly ?먯젙
+/**
+ * @responsibility 실전 직전 매크로·스크리닝 게이트(KIS·manual·regime·VIX·R6·FOMC·sellOnly 판정).
  *
- * ADR-0129: macroGateState 11 ?꾨뱶 ?⑹꽦 + persistScanResults propagate (signalScanner/index.ts ?몄텧??
- * ADR-0168: Kelly clamp SSOT (applyKellyClamp + KELLY_FLOOR) ??留ㅼ쭅 ?섎쾭 1.5 吏곸젒 ?ъ슜 湲덉?
- * ADR-0147b: signalScanner Phase 3 遺꾪빐 ??寃뚯씠?끒톝anity쨌sizing wiring ?⑥씪 ?꾩튂 (drift 李⑤떒)
- * ADR-0367: volumeClock abort??/scan_blockers 吏꾨떒 summary瑜??④릿??
+ * ADR-0129: macroGateState 11 필드 합성 + persistScanResults propagate (signalScanner/index.ts 호출부).
+ * ADR-0168: Kelly clamp SSOT (applyKellyClamp + KELLY_FLOOR) — 매직 넘버 1.5 직접 사용 금지.
+ * ADR-0147b: signalScanner Phase 3 분해 — 게이트·sanity·sizing wiring 단일 위치 (drift 차단).
+ * ADR-0367: volumeClock abort 시 /scan_blockers 진단 summary 를 남긴다.
  */
 
 import { fetchAccountBalance } from '../../clients/kisClient.js';

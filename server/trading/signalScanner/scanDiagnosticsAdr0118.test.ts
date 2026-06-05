@@ -1,4 +1,4 @@
-﻿// @responsibility ADR-0118 ScanCounters 확장 + buildMacroGateState + formatScanBlockersMessage 회귀
+// @responsibility ADR-0118 ScanCounters 확장 + buildMacroGateState + formatScanBlockersMessage 회귀
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {

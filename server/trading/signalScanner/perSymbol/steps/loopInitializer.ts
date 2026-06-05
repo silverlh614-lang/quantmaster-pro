@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @responsibility ADR-0019 per-stock buyList loop initialization extracted from buyListLoop.
  */
 

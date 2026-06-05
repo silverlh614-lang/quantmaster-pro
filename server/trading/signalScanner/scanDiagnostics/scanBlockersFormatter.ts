@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @responsibility Telegram scan blockers message formatter.
  * ADR-0001 scan diagnostics core split.
  */

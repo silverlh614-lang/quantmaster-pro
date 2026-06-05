@@ -1,4 +1,4 @@
-﻿// @responsibility ADR-0398 STRONG_BUY 4 조건 OR confidence gate 회귀
+// @responsibility ADR-0398 STRONG_BUY 4 조건 OR confidence gate 회귀
 import { describe, it, expect, afterEach } from 'vitest';
 import {
   CONFIDENCE_GATE_THRESHOLD,

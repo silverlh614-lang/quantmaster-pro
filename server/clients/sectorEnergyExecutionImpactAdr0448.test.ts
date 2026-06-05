@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @responsibility ADR-0448 Phase 0 — SectorEnergy Execution Decoupler 회귀 테스트.
  *
  * 새 framing (사용자 직접 명시): *"Auxiliary Data Must Not Hard-Block Execution"* —

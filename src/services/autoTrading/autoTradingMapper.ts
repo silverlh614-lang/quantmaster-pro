@@ -1,5 +1,5 @@
 // @responsibility autoTradingMapper 서비스 모듈
-﻿import type {
+import type {
   BuyAuditData,
   EngineStatus as ServerEngineStatus,
   KisHolding,

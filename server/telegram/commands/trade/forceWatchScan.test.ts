@@ -52,6 +52,10 @@ vi.mock('../../../trading/regime/canonicalRegimeAccess.js', () => ({
 
 vi.mock('../../../state.js', () => ({
   getEmergencyStop: _getEmergencyStop,
+  // Patch-VITEST-CAT-B: production(전이 import — guards.cmd 경유)이 사용하는 smoke-test
+  // accessor 들을 타입 정합 stub 으로 보강 (state.js mock 전체 교체로 누락 시 throw).
+  getSmokeTestLiveBlocked: () => false,
+  getSmokeTestLastFailedReason: () => null,
 }));
 
 vi.mock('../../commandRegistry.js', () => ({

@@ -1,4 +1,4 @@
-﻿// @responsibility ADR-0415 STALE + PARTIAL_VOLUME high-conviction 진단 동작 + union 격상 회귀 가드
+// @responsibility ADR-0415 STALE + PARTIAL_VOLUME high-conviction 진단 동작 + union 격상 회귀 가드
 /**
  * sectorEnergyStrongBuyGateAdr0415.test.ts (ADR-0415)
  *
