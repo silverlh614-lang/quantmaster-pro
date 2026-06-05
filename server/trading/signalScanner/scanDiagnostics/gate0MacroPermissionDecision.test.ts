@@ -255,4 +255,12 @@ describe('resolveScoringEffectiveRegime — scoring SSOT (ADR-0531 정합)', () 
     expect(legacyExpr(mg)).toBe('R6_DEFENSE');
     expect(resolveScoringEffectiveRegime(mg)).not.toBe(legacyExpr(mg));
   });
+
+  it('null/undefined macro: UNKNOWN 반환 (Gate2 outcome seed 의 undefined 계약 가드 근거)', () => {
+    // resolveScoringEffectiveRegime 는 절대 undefined 를 반환하지 않는다 → persistScanResults
+    // Gate2 outcome seed(:1691)는 `macroGateState ? resolve(...) : undefined` 가드로 기존
+    // undefined 계약을 보존한다(byte-equivalent). no-entry display(:1814)는 'UNKNOWN' fallback 동일.
+    expect(resolveScoringEffectiveRegime(null)).toBe('UNKNOWN');
+    expect(resolveScoringEffectiveRegime(undefined)).toBe('UNKNOWN');
+  });
 });

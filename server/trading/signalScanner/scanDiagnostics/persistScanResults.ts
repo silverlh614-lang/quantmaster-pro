@@ -1688,7 +1688,9 @@ export async function persistScanResults(
             sourceSnapshotId,
             tradeDate: kstNow.toISOString().slice(0, 10),
             asOf: kstNow.toISOString(),
-            regime: options.macroGateState?.macroRegimeEffective ?? options.macroGateState?.regime ?? undefined,
+            // ADR-0531 정합: Gate2 counterfactual outcome seed regime 도 scoring SSOT 로 통일(stale-R6 누출 차단).
+            // macroGateState 부재 시 기존 undefined 계약 보존 → byte-equivalent(비-R6·genuine R6 동일값).
+            regime: options.macroGateState ? resolveScoringEffectiveRegime(options.macroGateState) : undefined,
           }));
         } catch (e) {
           emitScanDiagnosticBuildFailedWarn({ sourcePath: 'counterfactureGate.gate2OutcomeCapture', error: e });
@@ -1811,7 +1813,9 @@ export async function persistScanResults(
         (_lastScanSummary.counterfactualShadowLearning?.created ?? 0) > 0 ||
         _lastScanSummary.gate2SoftLeadershipLane?.counterfactualRecorded === true,
       forceScanCompleted: true,
-      regime: macro?.macroRegimeEffective ?? macro?.regime ?? 'UNKNOWN',
+      // ADR-0531 정합: no-entry streak 표시 regime 도 폐기 bare macroRegimeEffective 대신 scoring
+      // resolver 의 stale-R6 누출 차단 결과 사용(비-R6·genuine R6 동일값, byte-equivalent).
+      regime: resolveScoringEffectiveRegime(macro),
       session,
       now: kstNow,
     };
