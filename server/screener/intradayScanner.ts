@@ -36,6 +36,7 @@ import { isPullbackSetup } from './pipelineHelpers.js';
 import { getKstMarketElapsedMinutes, MORNING_VOLUME_DISCOUNT, MORNING_END_MINUTES } from '../trading/entryEngine.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { bridgeLeadersToMomentum, isLeadershipBridgeEnabled, type LeaderCandidate } from './leadershipBridge.js';
+import { appendLeadershipBridgeLedgerEntry } from '../persistence/leadershipBridgeLedgerRepo.js';
 import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import type { YahooQuoteExtended } from './stockScreener.js';
@@ -354,6 +355,19 @@ async function discoverIntradayCandidates(): Promise<void> {
       console.log(
         `[LeadershipBridge] fed ${leaderCandidates.length} → added ${bridged.added} / refreshed ${bridged.refreshed} / skipped ${bridged.skippedTotal} (ADR-0551)`,
       );
+      // ADR-0551 shadow 검증 계측 — 브릿지 결과 영속(주입률·스킵사유·편입코드 측정). 본 블록은
+      // bridgeEnabled(LEADERSHIP_BRIDGE_ENABLED) 게이트 내라 flag OFF=무기록(byte-identical), executionImpact=NONE.
+      appendLeadershipBridgeLedgerEntry({
+        ts: new Date().toISOString(),
+        fed: leaderCandidates.length,
+        added: bridged.added,
+        refreshed: bridged.refreshed,
+        skippedTotal: bridged.skippedTotal,
+        skippedByReason: bridged.skippedByReason,
+        addedCodes: bridged.addedCodes,
+        refreshedCodes: bridged.refreshedCodes,
+        kospiDayReturn: macroState?.kospiDayReturn ?? null,
+      });
     } catch (e) {
       console.error('[LeadershipBridge] MOMENTUM 편입 오류:', e instanceof Error ? e.message : e);
     }

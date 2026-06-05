@@ -70,6 +70,9 @@ export interface BridgeResult {
   refreshed: number;
   skippedTotal: number;
   skippedByReason: Record<string, number>;
+  /** ADR-0551 shadow 검증 계측 — 신규 편입/갱신된 종목코드(관측 전용, executionImpact=NONE). */
+  addedCodes: string[];
+  refreshedCodes: string[];
 }
 
 function buildEntryFromLeader(c: LeaderCandidate): WatchlistEntry {
@@ -110,6 +113,7 @@ export function bridgeLeadersToMomentum(
   const result: BridgeResult = {
     added: 0, refreshed: 0, skippedTotal: 0,
     skippedByReason: {},
+    addedCodes: [], refreshedCodes: [],
   };
   const bump = (reason: string) => {
     result.skippedByReason[reason] = (result.skippedByReason[reason] ?? 0) + 1;
@@ -132,6 +136,7 @@ export function bridgeLeadersToMomentum(
         existing.expiresAt = new Date(Date.now() + LEADERSHIP_BRIDGE_TTL_HOURS * 3_600_000).toISOString();
         existing.gateScore = raw.gateScore;
         result.refreshed++;
+        result.refreshedCodes.push(code);
         continue;
       }
       // base MOMENTUM 에 이미 있음 — 브릿지가 건드리지 않음 (중복 편입 방지)
@@ -146,6 +151,7 @@ export function bridgeLeadersToMomentum(
     }
     byCode.set(code, entry);
     result.added++;
+    result.addedCodes.push(code);
   }
 
   if (result.added > 0 || result.refreshed > 0) {
