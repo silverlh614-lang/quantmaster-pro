@@ -5,18 +5,32 @@ const _realDataKisGet = vi.fn();
 const _getKisOverrides = vi.fn();
 const _HAS_REAL_DATA_CLIENT = { value: false };
 
-vi.mock('./http.js', () => ({
-  realDataKisGet: (trId: string, path: string, params: Record<string, string>) =>
-    _realDataKisGet(trId, path, params),
-}));
+// seed-4452bd3 이후 query.ts → auth.ts → core/kisAuthManager → ... → kisClient/index → orders.ts
+// → orderGateway 가 '../http.js' 의 kisPost/kisGet 를 import 한다. bare stub 은 그 export 부재로
+// "No kisPost export" 로 import 자체가 실패하므로 importOriginal spread 로 실 export 를 보존하고
+// 테스트가 실제 호출하는 realDataKisGet 만 스파이로 교체한다. (queryHolidayCalendar.test.ts 와 동일 패턴)
+vi.mock('./http.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./http.js')>();
+  return {
+    ...actual,
+    realDataKisGet: (trId: string, path: string, params: Record<string, string>) =>
+      _realDataKisGet(trId, path, params),
+  };
+});
 
 vi.mock('./overrides.js', () => ({
   getKisOverrides: () => _getKisOverrides(),
 }));
 
-vi.mock('./constants.js', () => ({
-  get HAS_REAL_DATA_CLIENT() { return _HAS_REAL_DATA_CLIENT.value; },
-}));
+// importOriginal spread: transitive orderGateway import 가 KIS_IS_REAL 등 실 상수를 요구하므로
+// 보존하고, 테스트가 토글하는 HAS_REAL_DATA_CLIENT 만 동적 getter 로 override.
+vi.mock('./constants.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./constants.js')>();
+  return {
+    ...actual,
+    get HAS_REAL_DATA_CLIENT() { return _HAS_REAL_DATA_CLIENT.value; },
+  };
+});
 
 let fetchKisMarketProgramTrade: typeof import('./query.js').fetchKisMarketProgramTrade;
 
