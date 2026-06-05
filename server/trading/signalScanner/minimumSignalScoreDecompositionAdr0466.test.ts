@@ -100,7 +100,13 @@ describe("ADR-0466 minimum signal score decomposition", () => {
     const total18 = minTrace({ totalGateScore: 18 }).components.find(
       (c) => c.code === "WATCHLIST_UPSTREAM_SCORE",
     );
-    expect(score64?.weightedScore).toBeGreaterThan(6);
+    // watchlistUpstreamScoreResolver SSOT: scaleHint 없는 bare 값은 raw<=27 시 0~27 스케일로
+    // 정규화한다 (watchlistUpstreamScoreResolver.ts L190-196 "normalized from 0~27 scale").
+    // 따라서 stage2Score=6.4 → (6.4/27)*100=23.7 → weightedFromNormalized(_,10)=2.4 (0~10 스케일
+    // 가정의 64/6.4 가 아님). 핵심 의도(컴포넌트가 stage2Score 로부터 0 이 아닌 가중치를 갖고
+    // silently zero 되지 않음)는 보존. normalizeSignalScoreTo100(6.4)=64 단언(위)과는 별개 함수.
+    expect(score64?.weightedScore).toBeCloseTo(2.4, 1);
+    expect(score64?.normalizedScore).toBeCloseTo(23.7, 1);
     expect(score64?.message).toContain("stage2Score");
     expect(total18?.weightedScore).toBeGreaterThan(6.5);
     expect(total18?.message).toContain("totalGateScore");

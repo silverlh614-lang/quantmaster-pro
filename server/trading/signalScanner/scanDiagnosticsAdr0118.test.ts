@@ -208,7 +208,10 @@ describe('formatScanBlockersMessage — 진단 메시지 SSOT', () => {
     expect(msg).toMatch(/R4_NEUTRAL/);
     expect(msg).toMatch(/POST_1/);
     expect(msg).toMatch(/×1\.30/);
-    expect(msg).toMatch(/Gate 재검증 미달: 25개/);
+    // 진단 라벨 wording drift: production scanBlockersMessageSections.ts L218 가 gateFail 을
+    // "Gate 재검증 미완료: N개" 로 표기 (과거 "재검증 미달" 에서 wording 정정 — 진단 텍스트 전용,
+    // 실행 영향 0). 카운트(25)·렌더 위치는 동일.
+    expect(msg).toMatch(/Gate 재검증 미완료: 25개/);
     expect(msg).toMatch(/Pre-breakout WAIT: 7개/);
     expect(msg).toMatch(/💡 .*빈스캔 원인.*TOO_STRICT/);
     expect(msg).toMatch(/EXECUTION_RELAXATION_ENABLED/);

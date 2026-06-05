@@ -16,14 +16,20 @@ const subscribeStock = vi.fn<(code: string) => void>();
 const requestKisWsSubscription = vi.fn();
 const isKisWsSubscriptionPriorityDisabled = vi.fn<() => boolean>();
 
-vi.mock('../../../clients/kisClient.js', () => ({
+// importOriginal 로 실제 kisClient export 를 보존하고 fetchCurrentPrice 만 override.
+// (helpers.js 의 transitive import 가 fetchAccountBalance 등 다른 export 를 요구하므로
+//  전체 stub 으로 대체하면 "No X export" 로 깨진다 — batch wiring 패턴 정합.)
+vi.mock('../../../clients/kisClient.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../clients/kisClient.js')>()),
   fetchCurrentPrice: (code: string) => fetchCurrentPrice(code),
 }));
-vi.mock('../../../clients/kisStreamClient.js', () => ({
+vi.mock('../../../clients/kisStreamClient.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../clients/kisStreamClient.js')>()),
   getRealtimePrice: (code: string) => getRealtimePrice(code),
   subscribeStock: (code: string) => subscribeStock(code),
 }));
-vi.mock('../../../clients/kisWebSocketSubscriptionManager.js', () => ({
+vi.mock('../../../clients/kisWebSocketSubscriptionManager.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../clients/kisWebSocketSubscriptionManager.js')>()),
   requestKisWsSubscription: (...args: unknown[]) => requestKisWsSubscription(...args),
   isKisWsSubscriptionPriorityDisabled: () => isKisWsSubscriptionPriorityDisabled(),
 }));
