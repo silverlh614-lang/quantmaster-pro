@@ -123,6 +123,13 @@ const SETTLED_AFTER_APPROVAL_STATES: ReadonlySet<BuySignalState> = new Set([
   'SHADOW_POSITION_OPENED',
   'SHADOW_REJECTED',
   'FAILED',
+  // 승인 후 도달 가능한 terminal(전이 불가) 종결 상태 — 정체가 아니라 정상 종결.
+  // DUPLICATE_BLOCKED 누락 시: 승인된 SHADOW 매수가 중복으로 정상 차단(shadowBuyExecutor
+  // 'duplicate shadow buy blocked')됐을 때 assertSettled 가 미정착으로 오판해
+  // P0_BUY_SIGNAL_STUCK + P0_SHADOW_EXECUTION_STUCK 를 false-positive 로 발행하던 결함 차단.
+  // EXPIRED 도 동일하게 terminal 종결 상태이므로 정착으로 인정(전이표 변경 대비 방어적 포함).
+  'DUPLICATE_BLOCKED',
+  'EXPIRED',
 ]);
 
 export function canTransitionBuySignal(

@@ -40,6 +40,27 @@ describe('buySignalStateMachine', () => {
     });
   });
 
+  it('treats DUPLICATE_BLOCKED after approval as a settled terminal state (no P0 stuck false-positive)', () => {
+    // 회귀: 승인된 SHADOW 매수가 중복으로 정상 차단되면 상태머신은 DUPLICATE_BLOCKED 로
+    // 전이한다(shadowBuyExecutor:327). 이 terminal 종결 상태가 정착으로 인정되지 않아
+    // P0_BUY_SIGNAL_STUCK + P0_SHADOW_EXECUTION_STUCK 가 false-positive 로 발행되던 결함 차단.
+    const warn = vi.fn<(event: OperationalWarnEvent) => void>();
+    const sm = createBuySignalStateMachine({ mode: 'SHADOW', onWarn: warn });
+
+    sm.transition('APPROVAL_REQUESTED', 'approval card sent');
+    sm.transition('APPROVED', 'approved');
+    expect(sm.transition('DUPLICATE_BLOCKED', 'duplicate shadow buy blocked').ok).toBe(true);
+
+    const result = sm.assertSettled({ mode: 'SHADOW' });
+
+    expect(result).toEqual({
+      ok: true,
+      state: 'DUPLICATE_BLOCKED',
+      emittedCodes: [],
+    });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('blocks impossible transitions and emits the policy violation P0', () => {
     const warn = vi.fn<(event: OperationalWarnEvent) => void>();
     const sm = createBuySignalStateMachine({ mode: 'LIVE', onWarn: warn });
