@@ -11,6 +11,11 @@ import {
 import type { Gate0Decision } from './gate0MacroPermissionDecision.js';
 import type { MacroGateState, ScanSummary } from './scanSummaryTypes.js';
 import { describeEmptyScanReason } from '../emptyScanClassifier.js';
+import {
+  evaluateDefensiveEntryLane,
+  isDefensiveEntryLaneEnabled,
+  type DefensiveRegimeLevel,
+} from '../../defensiveEntryLane.js';
 
 // Append an optional rendered section with a preceding blank-line separator.
 export function pushOptionalSection(lines: string[], section: string | null | undefined): void {
@@ -25,6 +30,81 @@ export function pushOptionalSectionRaw(lines: string[], section: string | null |
   if (section) {
     lines.push(section);
   }
+}
+
+// ── ADR-0575 Phase1b: R6 방어 진입 레인 shadow 관측 섹션 ─────────────────────
+// flag OFF or 비-R6 면 빈 배열(byte-identical). 후보 trace 에서 방어 기준을 *평가만* 하고
+// live·실주문 0. trace 필드 미상 → 평가기 finite() 가 보수적 탈락 처리(오경로도 안전).
+// 경로는 gate2 confluence(buildRsAxis/buildFundamentalAxis)와 동일 trace 키 재사용.
+function defLaneGet(obj: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>(
+    (acc, k) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[k] : undefined),
+    obj,
+  );
+}
+function defLaneNum(obj: unknown, paths: readonly string[]): number | null {
+  for (const p of paths) {
+    const v = defLaneGet(obj, p);
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
+export function buildDefensiveEntryLaneSection(
+  candidateTraces: readonly unknown[],
+  mg: MacroGateState,
+): string[] {
+  if (!isDefensiveEntryLaneEnabled()) return [];
+  const triggers = mg.activeR6Triggers ?? [];
+  const r6Active = mg.regime === 'R6_DEFENSE' || triggers.length > 0;
+  if (!r6Active) return [];
+  const override = String(mg.riskOverride ?? '');
+  const panic = triggers.includes('KOSPI_CRASH') || triggers.includes('BLACK_SWAN')
+    || override === 'KOSPI_CRASH' || override === 'BLACK_SWAN';
+  const regime: DefensiveRegimeLevel = panic ? 'PANIC' : 'DEFENSE';
+
+  const qualifiers: string[] = [];
+  let evaluated = 0;
+  for (const t of candidateTraces) {
+    if (!t || typeof t !== 'object') continue;
+    const external = defLaneGet(t, 'gateLayerSummary.gate2.externalDataCoverage');
+    const currentPrice = defLaneNum(t, ['quote.price', 'quote.currentPrice', 'quote.close']);
+    const high60d = defLaneNum(t, ['quote.high60d']);
+    if (currentPrice == null || high60d == null || high60d <= 0) continue; // 과매도 기준선 부재
+    evaluated++;
+    const rsi14 = defLaneNum(t, ['quote.rsi14']);
+    const relativeReturn20d = defLaneNum(t, ['symbolFeatures.relativeReturn20d', 'relativeReturn20d', 'quote.relativeReturn20d'])
+      ?? defLaneNum(external, ['benchmark.values.relativeReturn20d']);
+    const debtRatio = defLaneNum(external, ['dartFinancials.debtRatio', 'stability.debtRatio', 'kisFinance.debtRatio']);
+    const roe = defLaneNum(external, ['dartFinancials.roe', 'profitability.roe', 'kisFinance.roe']);
+    const verdict = evaluateDefensiveEntryLane({
+      currentPrice, high60d, rsi14, relativeReturn20d, debtRatio, roe, marketCapTier: null, regime,
+    });
+    if (verdict.qualifies) {
+      const symbol = String(defLaneGet(t, 'symbol') ?? defLaneGet(t, 'quote.symbol') ?? '??');
+      const name = String(defLaneGet(t, 'name') ?? '');
+      const dropPct = (currentPrice / high60d - 1) * 100;
+      qualifiers.push(
+        `  • ${symbol}${name ? `(${name})` : ''} 고점${dropPct.toFixed(0)}% ` +
+        `RSI${rsi14 != null ? rsi14.toFixed(0) : '?'} ` +
+        `RS${relativeReturn20d != null ? (relativeReturn20d >= 0 ? '+' : '') + relativeReturn20d.toFixed(1) : '?'} ` +
+        `부채${debtRatio != null ? debtRatio.toFixed(0) : '?'} ROE${roe != null ? roe.toFixed(0) : '?'}`,
+      );
+    }
+  }
+
+  const lines: string[] = [];
+  lines.push('🛡 <b>방어 진입 레인</b> (ADR-0575 Phase1 — shadow 관측, live 미실행):');
+  lines.push(`  • 레짐 R6_${regime} | Kelly ×${regime === 'PANIC' ? '0.15' : '0.30'} | 평가 ${evaluated}/${candidateTraces.length}`);
+  if (qualifiers.length > 0) {
+    lines.push(`  • 방어 적격 ${qualifiers.length}건 (우량 과매도+RS):`);
+    lines.push(...qualifiers.slice(0, 10));
+    if (qualifiers.length > 10) lines.push(`  • … 외 ${qualifiers.length - 10}건`);
+  } else {
+    lines.push('  • 방어 적격 0건 (부채<150·ROE≥0·대형 + 60일고점 −20%·RSI<35 + RS>0)');
+  }
+  lines.push('  • executionImpact=NONE (Phase1 평가만, 기존 모멘텀 레인 무영향)');
+  return lines;
 }
 
 export function buildMacroGateSection(summary: ScanSummary, mg: MacroGateState): string[] {

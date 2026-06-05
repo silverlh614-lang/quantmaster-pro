@@ -4,7 +4,7 @@
 
 ## Status
 
-Accepted (Phase 1 core)
+Accepted (Phase 1 + 1b)
 
 ## Context
 
@@ -31,11 +31,17 @@ KOSPI_INTRADAY_LOW_SHOCK + shockLatch)에서는:
 - ③ RS 방어: 20일 상대수익률(vs KOSPI) > 0(시장보다 덜 빠짐).
 - 사이징: DEFENSE → Kelly ×0.30, PANIC(BLACK_SWAN/KOSPI_CRASH) → ×0.15.
 
-**Phase 1 (본 ADR — shadow 전용)**: 순수 평가기 + flag SSOT(`defensiveEntryLane.ts`) + 단위 테스트.
-live·실주문 0줄, 기존 모멘텀 레인 무영향. **Phase 1b**: 스캔 진단에 read-only 관측 섹션 배선
-(R6+flag 시 방어 적격 후보 표시) — trace의 quote/RS/재무 경로 + PANIC/DEFENSE 판별을 정확히
-잡아 후속. 기존 counterfactual forward-return 추적이 이미 모든 후보를 커버하므로 적격 후보의
-forward 성과를 관측 가능.
+**Phase 1 (shadow 전용)**: 순수 평가기 + flag SSOT(`defensiveEntryLane.ts`) + 단위 테스트.
+live·실주문 0줄, 기존 모멘텀 레인 무영향.
+
+**Phase 1b (완료)**: 스캔 진단에 read-only 관측 섹션 배선 — `buildDefensiveEntryLaneSection`
+(scanBlockersMessageSections)이 R6(`mg.regime==='R6_DEFENSE'` or activeR6Triggers)+flag 시 후보
+trace에서 방어 기준을 평가, `scanBlockersFormatter` 가 macroGate 섹션 뒤에 표시. PANIC =
+activeR6Triggers/riskOverride ∈ {KOSPI_CRASH, BLACK_SWAN}, 아니면 DEFENSE. trace 경로는 gate2
+confluence(buildRsAxis/buildFundamentalAxis)와 동일 키 재사용(quote.price/high60d/rsi14,
+symbolFeatures.relativeReturn20d/external.benchmark, external.dartFinancials.debtRatio/roe). 미상
+필드는 평가기 finite()가 보수적 탈락 → 오경로도 안전. flag OFF/비-R6 = 빈배열 = byte-identical.
+기존 counterfactual forward-return 추적이 모든 후보를 커버하므로 적격 후보 성과 관측 가능.
 
 **Phase 2 (shadow 검증 후, 별도 flag)**: 방어 레인 live 허용 — 축소 사이징 + R6 진입 예외.
 실계좌는 기존 KIS_REAL_MONEY_ACK 하드가드 유지.

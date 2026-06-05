@@ -38,14 +38,14 @@ export const PANIC_KELLY_MULT = 0.15;
 export type DefensiveRegimeLevel = 'DEFENSE' | 'PANIC';
 
 export interface DefensiveEntryInput {
-  /** 현재가. */
-  currentPrice: number;
-  /** 60일 최고가(과매도 기준선). */
-  high60d: number;
-  /** RSI(14). */
-  rsi14: number;
-  /** 20일 상대수익률(vs KOSPI), % 또는 비율 — > RS_DEFENSE_MIN 이면 방어. */
-  relativeReturn20d: number;
+  /** 현재가. null/미상이면 과매도 평가 불가(보수적 탈락). */
+  currentPrice: number | null;
+  /** 60일 최고가(과매도 기준선). null/미상이면 보수적 탈락. */
+  high60d: number | null;
+  /** RSI(14). null/미상이면 과매도 탈락. */
+  rsi14: number | null;
+  /** 20일 상대수익률(vs KOSPI), % 또는 비율 — > RS_DEFENSE_MIN 이면 방어. null=탈락. */
+  relativeReturn20d: number | null;
   /** 부채비율(%) — null 이면 품질 미확인(보수적 탈락). */
   debtRatio: number | null;
   /** ROE(%) — null 이면 품질 미확인(보수적 탈락). */

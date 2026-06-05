@@ -65,6 +65,7 @@ import {
   formatGatePositiveRuntimeAlignmentSection,
 } from '../runtimeResolverTraceStep26.js';
 import {
+  buildDefensiveEntryLaneSection,
   buildEmptyScanReasonSection,
   buildFilterStatusSection,
   buildMacroGateSection,
@@ -937,6 +938,15 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
 
   if (mg) {
     lines.push(...buildMacroGateSection(summary, mg));
+    // ADR-0575 Phase1b: R6 방어 진입 레인 shadow 관측(flag OFF/비-R6=빈배열→push 0=byte-identical).
+    const defensiveLaneLines = buildDefensiveEntryLaneSection(
+      (summary.entryFilterDecomposition?.candidateTraces ?? []) as unknown[],
+      mg,
+    );
+    if (defensiveLaneLines.length > 0) {
+      lines.push('');
+      lines.push(...defensiveLaneLines);
+    }
   }
 
   pushOptionalSection(lines, formatScanEvaluationSection(scanEvaluationForDisplay(summary)));
