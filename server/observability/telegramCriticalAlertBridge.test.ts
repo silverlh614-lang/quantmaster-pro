@@ -40,4 +40,46 @@ describe('telegramCriticalAlertBridge', () => {
       }),
     );
   });
+
+  // ADR-0573 후속: 한 incident 의 여러 P0 코드가 ackFamilyKey 로 묶여 ack/에스컬레이션
+  // 중복을 차단하는지 검증. (사용자 보고: "[T1 60분 미확인 에스컬레이션]" 이중 발생)
+  it('correlationId 가 있으면 incident 단위 ackFamilyKey 를 전파 (코드 달라도 동일 패밀리)', () => {
+    const base = {
+      priority: 'P0' as const,
+      domain: 'EXECUTION' as const,
+      executionImpact: 'SHADOW_EXECUTION_DEGRADED' as const,
+      mode: 'SHADOW' as const,
+      symbol: '011070',
+      dedupKey: 'railway-dedup',
+      ttlSec: 30,
+      correlationId: 'trade-xyz-1',
+    };
+    emitTelegramCriticalAlert({ ...base, code: 'P0_BUY_SIGNAL_STUCK', message: 'stuck' });
+    emitTelegramCriticalAlert({ ...base, code: 'P0_SHADOW_EXECUTION_STUCK', message: 'stuck' });
+
+    // 두 코드는 telegramDedupKey 가 달라 각각 발송되지만, ackFamilyKey 는 동일해야 한다.
+    expect(sendTelegramAlert).toHaveBeenCalledTimes(2);
+    for (const call of vi.mocked(sendTelegramAlert).mock.calls) {
+      expect(call[1]).toMatchObject({ ackFamilyKey: 'op_warn_p0:corr:trade-xyz-1' });
+    }
+  });
+
+  it('correlationId 부재 시 symbol+mode 로 ackFamilyKey 폴백', () => {
+    emitTelegramCriticalAlert({
+      priority: 'P0', domain: 'EXECUTION', code: 'P0_SHADOW_EXECUTION_STUCK',
+      message: 'stuck', executionImpact: 'SHADOW_EXECUTION_DEGRADED', mode: 'SHADOW',
+      symbol: '011070', dedupKey: 'd', ttlSec: 30,
+    });
+    expect(vi.mocked(sendTelegramAlert).mock.calls[0]![1]).toMatchObject({
+      ackFamilyKey: 'op_warn_p0:sym:011070:SHADOW',
+    });
+  });
+
+  it('symbol·correlationId 모두 부재(글로벌 P0) → ackFamilyKey undefined (기존 동작 보존)', () => {
+    emitTelegramCriticalAlert({
+      priority: 'P0', domain: 'EXECUTION', code: 'P0_GLOBAL_THING',
+      message: 'x', executionImpact: 'NONE', dedupKey: 'd', ttlSec: 30,
+    });
+    expect(vi.mocked(sendTelegramAlert).mock.calls[0]![1]!.ackFamilyKey).toBeUndefined();
+  });
 });
