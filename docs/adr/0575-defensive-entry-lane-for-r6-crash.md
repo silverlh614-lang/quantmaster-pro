@@ -4,6 +4,15 @@
 
 ## Status
 
+Withdrawn (2026-06-05) — 기존 `server/trading/signalScanner/r6ShadowCounterfactualEntryPolicy.ts`
+가 이미 R6 (shadow) 매수 엔진을 제공함이 확인되어 본 ADR(병행 레인)은 철회·코드 revert.
+재구축 금지: R6 진입은 그 기존 엔진을 본다. 본 ADR 의 가격 기준(과매도+RS+우량) 평가기 코드는
+git 히스토리(be64af81)에 보존 — 향후 *evidence 기반*으로 기존 엔진의 추가 선정 경로로 통합 가능.
+
+아래는 철회 전 원안(기록 보존용).
+
+## (원안) Status
+
 Accepted (Phase 1 + 1b)
 
 ## Context
