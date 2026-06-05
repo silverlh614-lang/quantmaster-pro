@@ -14,8 +14,6 @@ import {
   getEmergencyStop,
   getTradingMode,
   getMacroEntryOverrideState,
-  type MacroEntryOverrideState,
-  type MacroEntryOverrideTarget,
 } from '../../state.js';
 import { sendTelegramAlert } from '../../alerts/telegramClient.js';
 import { defaultWarnTtlSec, emitOperationalWarn } from '../../observability/operationalWarn.js';
@@ -156,13 +154,6 @@ function isR3Gate1PassZeroHardBlockEnabled(): boolean {
   return process.env.R3_GATE1_PASS_ZERO_HARDBLOCK_ENABLED === 'true';
 }
 
-function macroEntryOverrideApplies(
-  override: MacroEntryOverrideState | null,
-  target: MacroEntryOverrideTarget,
-): override is MacroEntryOverrideState {
-  return override?.targets.includes(target) === true;
-}
-
 function getMacroDiagnosticKellyFloor(): number {
   const parsed = Number(process.env.MACRO_DIAGNOSTIC_KELLY_FLOOR ?? DEFAULT_MACRO_DIAGNOSTIC_KELLY_FLOOR);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MACRO_DIAGNOSTIC_KELLY_FLOOR;
@@ -226,31 +217,6 @@ function applyMacroDiagnosticRegimeConfig(regimeConfig: any): any {
   };
 }
 
-function applyMacroEntryOverrideRegimeConfig(
-  regimeConfig: any,
-  override: MacroEntryOverrideState | null,
-): any {
-  if (!override) return regimeConfig;
-  const caution = (REGIME_CONFIGS as any).R5_CAUTION ?? {};
-  const gate2Ceiling = caution.gate2Required ?? 10;
-  const gate3Ceiling = caution.gate3Required ?? 8;
-  return {
-    ...regimeConfig,
-    gate2Required: Math.min(regimeConfig?.gate2Required ?? gate2Ceiling, gate2Ceiling),
-    gate3Required: Math.min(regimeConfig?.gate3Required ?? gate3Ceiling, gate3Ceiling),
-    kellyMultiplier: Math.max(regimeConfig?.kellyMultiplier ?? 0, override.kellyFloor),
-    maxPositions: Math.max(regimeConfig?.maxPositions ?? 0, override.maxPositionsFloor),
-    allowedSignals:
-      Array.isArray(regimeConfig?.allowedSignals) && regimeConfig.allowedSignals.length > 0
-        ? regimeConfig.allowedSignals
-        : [...MACRO_OVERRIDE_ALLOWED_SIGNALS],
-    trancheStrategy: `${regimeConfig?.trancheStrategy ?? 'operator macro override'} | OPERATOR_MACRO_ENTRY_OVERRIDE`,
-  };
-}
-
-function formatMacroEntryOverrideLog(override: MacroEntryOverrideState): string {
-  return `targets=${override.targets.join(',')} expiresAt=${override.expiresAt} reason=${override.reason}`;
-}
 
 function emitPreflightOperationalWarn(input: {
   code: string;
@@ -411,10 +377,6 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   const macroEntryOverride = getMacroEntryOverrideState();
   let liveEntryBlockedReason: string | undefined;
   let macroDiagnosticOnly = false;
-  const markMacroDiagnosticLiveBlock = (reason: MacroEntryOverrideTarget) => {
-    liveEntryBlockedReason = appendLiveEntryBlockReason(liveEntryBlockedReason, reason);
-    macroDiagnosticOnly = true;
-  };
   // SELL_ONLY_AND_R6_EXECUTION_DISABLED — disabled stub (allow=false = no-op gate)
   const sellOnlyExc = { allow: false, maxSlots: 0, kellyFactor: 1, minLiveGate: 0, minMtas: 0, reason: 'SELL_ONLY_AND_R6_EXECUTION_DISABLED' };
 
