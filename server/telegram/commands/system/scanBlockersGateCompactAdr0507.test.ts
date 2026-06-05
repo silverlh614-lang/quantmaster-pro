@@ -25,6 +25,10 @@ import {
   collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507,
   isGate1ForensicCollectorAdr0507Disabled,
 } from '../../../trading/signalScanner/gate1ForensicInputsCollectorAdr0507.js';
+// 모듈/파일(STORE_FILE) 레벨 supply bySymbol snapshot 격리 — 다른 테스트
+// (injectPerSymbolSupplyContext)가 005930 을 seed 하면 collector 가 입력 health row 대신
+// 그 stale snapshot 을 merge 해 normalizedInvestorRow 가 오염된다. 본 테스트는 매 case 전 clear.
+import { clearSupplyBySymbolPayloadSnapshotsForTest } from '../../../supply/investorFlowBySymbolPayloadSnapshot.js';
 import type { ScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
 import type { Gate1MinimumSignalForensicSummaryAdr0505 } from '../../../trading/signalScanner/gate1MinimumSignalForensicAuditAdr0505.js';
 import type { Gate1CandidateTrace, SupplyProviderHealthTrace } from '../../../trading/signalScanner/entryFilterDecomposition.js';
@@ -141,6 +145,8 @@ function makeGate1CandidateTrace(symbol: string, score: number): Gate1CandidateT
 describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507', () => {
   beforeEach(() => {
     delete process.env.GATE1_FORENSIC_COLLECTOR_ADR_0507_DISABLED;
+    // STORE_FILE/메모리 snapshot 격리 — 입력 health row 가 stale bySymbol snapshot 으로 오염되지 않게.
+    clearSupplyBySymbolPayloadSnapshotsForTest();
   });
 
   it('ENV disabled ??鍮?諛곗뿴', () => {
@@ -330,15 +336,18 @@ describe('ADR-0507 collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507
 
 
   it('synthesizes a diagnostic-only supplyProviderHealth (no provider status) when none is provided', () => {
+    // collector(mergeActualRowCarryAdr0507) 는 입력 supplyProviderHealth 부재 시, bySymbol
+    // carry payload 가 있으면 그것으로 provider status/이름 없는 *진단 전용* health 를 합성한다
+    // (`if (!payload) return base` — base 부재 + payload 존재 → 합성 record). 결정적 검증을 위해
+    // router bySymbol payload 를 명시 제공한다(모듈 snapshot 오염 비의존 — beforeEach 가 clear).
+    // production 런타임 0 변경: bySymbol carry 합성 경로만 검증.
     const r = collectGate1ForensicInputsFromEntryFilterDecompositionAdr0507({
       gate1CandidateTraces: [makeGate1CandidateTrace('005930', 70)],
+      supplyRouterResult: {
+        bySymbol: { '005930': { normalizedInvestorRow: { foreignNetBuy: -19034, institutionNetBuy: 2500, individualNetBuy: 16534 } } },
+      },
     });
     expect(r.length).toBe(1);
-    // Patch-VITEST-CAT-A: collector(mergeActualRowCarryAdr0507)는 입력 health 부재 시에도
-    // 진단 전용 health record 를 합성한다 — 더 이상 undefined 가 아니다(seed 4452bd3 부터
-    // production 이 합성했고 본 DOA 테스트만 pre-enrichment 의 undefined 를 기대했다).
-    // 합성 record 는 실제 provider status/이름을 싣지 않음(diagnostic-only)을 검증한다
-    // (production 런타임 0 변경).
     const health = (r[0] as { supplyProviderHealth?: Record<string, unknown> }).supplyProviderHealth;
     expect(health).toBeDefined();
     expect(health?.status).toBeUndefined();
