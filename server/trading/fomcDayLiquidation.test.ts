@@ -1,24 +1,28 @@
-// @responsibility fomcDayLiquidation.ts 회귀 테스트 (PR-1, ADR-0061)
+// @responsibility fomcDayLiquidation.ts 회귀 테스트 — FOMC 청산 제거(FOMC_LIQUIDATION_REMOVED) 후 stub 계약
 /**
- * fomcDayLiquidation.test.ts — liquidateAllForFomc 5중 가드 / 활성 포지션 0건 분기 /
- * 다중 SHADOW 청산 / dryRun / reserveSell 실패 흡수 / formatLiquidationResultMessage
- * / attribution 부착 / 사전 경보 함수.
+ * fomcDayLiquidation.test.ts
  *
- * vi.mock 으로 외부 의존성 격리:
- *   - placeKisSellOrder (kisClient) — KIS 호출 0건
- *   - reserveSell (exitEngine/helpers) — fill 영속 호출 격리
- *   - sendPrivateAlert (telegramClient) — 텔레그램 발송 격리
- *   - loadShadowTrades / getRemainingQty / appendShadowLog / syncPositionCache /
- *     buildExitAttribution (shadowTradeRepo)
- *   - getEmergencyStop (state)
- *   - addSellOrder (fillMonitor)
- *   - loadMacroState / getLiveRegime
- *   - getFomcProximity / shouldExecuteLiquidationAt 는 vi.mock 으로 분기 강제
+ * 출력/정책 drift 근거 (intent proof — 맹목 갱신 아님):
+ *   1. 패치 이력: docs/ai/10-patch-history-index.md `Patch-FOMC-DEAD-CODE-REMOVAL-001 · FOMC, dead-code`.
+ *   2. production @responsibility: fomcDayLiquidation.ts L1
+ *      "FOMC DAY 청산 모듈 — 제거됨 (FOMC_LIQUIDATION_REMOVED). Stub only."
+ *   3. liquidateAllForFomc 본체(L28~41) → 항상 { executed:false, guardReason:'DISABLED',
+ *      totalActive:0, results:[], dryRun:false } 만 반환 (청산 루프·KIS·telegram 호출 부재).
+ *   4. runFomcDayMorningAlert / runFomcDayPreLiquidationAlert → no-op (L73~82).
+ *   5. cron 진입점 제거: orchestratorJobs.ts:96 "FOMC DAY 자동 청산 cron 제거됨".
+ *
+ * 따라서 구 ADR-0061 5중 가드 / 활성 포지션 청산 / dryRun / reserveSell 실패 흡수 /
+ * 사전 경보 단언은 제거된 동작이므로, 현행 stub 계약을 검증하도록 정정한다.
+ *
+ * 단 formatLiquidationResultMessage 는 여전히 live 함수이므로(L52~68) 실제 출력
+ * (이모지 헤더 없음, "실패 종목 수동 청산 필요" tail) 기준으로 behavioral 검증한다.
+ *
+ * 외부 의존성은 stub 이 호출하지 않으므로 mock 으로 격리만 한다 (KIS/telegram/persistence 0 호출 보장).
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-// ── vi.mock 선언 (호이스팅) ───────────────────────────────────────────────────
+// ── vi.mock 선언 (호이스팅) — stub 이 의존성을 호출하지 않음을 검증하기 위한 격리 ──
 
 vi.mock('../clients/kisClient.js', () => ({
   placeKisSellOrder: vi.fn(),
@@ -55,32 +59,8 @@ vi.mock('../persistence/shadowTradeRepo.js', () => ({
   getRemainingQty: vi.fn((t: { quantity?: number }) => t?.quantity ?? 0),
   appendShadowLog: vi.fn(),
   syncPositionCache: vi.fn(),
-  buildExitAttribution: vi.fn((ruleId: string, conditions: string[], regime: string) => ({
-    ruleId,
-    contributingConditions: conditions,
-    regime,
-    attachedAt: new Date().toISOString(),
-  })),
+  buildExitAttribution: vi.fn(),
 }));
-
-vi.mock('./fomcCalendar.js', async () => {
-  const actual = await vi.importActual<typeof import('./fomcCalendar.js')>('./fomcCalendar.js');
-  return {
-    ...actual,
-    getFomcProximity: vi.fn(() => ({
-      phase: 'DAY',
-      daysUntil: 0,
-      daysAfter: null,
-      nextFomcDate: '2026-04-29',
-      lastFomcDate: null,
-      kellyMultiplier: 0,
-      noNewEntry: true,
-      hedgeSignal: false,
-      description: 'FOMC 발표일',
-    })),
-    shouldExecuteLiquidationAt: vi.fn(() => ({ execute: true, reason: 'OK' })),
-  };
-});
 
 // 실 모듈 import — vi.mock 이후
 import {
@@ -93,38 +73,9 @@ import { placeKisSellOrder } from '../clients/kisClient.js';
 import { placeReservedSellOrder as reserveSell } from './exitEngine/helpers/reserveSell.js';
 import { sendPrivateAlert } from '../alerts/telegramClient.js';
 import { addSellOrder } from './fillMonitor.js';
-import {
-  loadShadowTrades,
-  buildExitAttribution,
-  syncPositionCache,
-  appendShadowLog,
-} from '../persistence/shadowTradeRepo.js';
-import {
-  shouldExecuteLiquidationAt,
-  getFomcProximity,
-} from './fomcCalendar.js';
+import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 
-// ── 픽스처 ────────────────────────────────────────────────────────────────────
-
-function makeMockTrade(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    id: 't-1',
-    stockCode: '005930',
-    stockName: '삼성전자',
-    signalTime: '2026-04-29T00:00:00Z',
-    signalPrice: 70000,
-    shadowEntryPrice: 70000,
-    quantity: 10,
-    stopLoss: 65000,
-    targetPrice: 80000,
-    mode: 'SHADOW',
-    status: 'ACTIVE',
-    fills: [],
-    ...overrides,
-  };
-}
-
-const SAMPLE_DATE_KST = new Date('2026-04-29T05:30:00Z'); // KST 14:30
+const SAMPLE_DATE_KST = new Date('2026-04-29T05:30:00Z'); // KST 14:30 (구 FOMC DAY)
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -134,200 +85,41 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// ── 가드 분기 테스트 ──────────────────────────────────────────────────────────
+// ── liquidateAllForFomc — 제거됨 (stub) ───────────────────────────────────────
 
-describe('liquidateAllForFomc — 5중 가드 분기 (silent return)', () => {
-  it('NOT_DAY_PHASE → executed=false + 결과 빈 배열 + reserveSell 미호출', async () => {
-    vi.mocked(shouldExecuteLiquidationAt).mockReturnValueOnce({
-      execute: false,
-      reason: 'NOT_DAY_PHASE',
-    });
+describe('liquidateAllForFomc — FOMC_LIQUIDATION_REMOVED stub', () => {
+  it('항상 skipped 결과 반환 (executed=false, guardReason=DISABLED, 빈 배열)', async () => {
     const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
     expect(r.executed).toBe(false);
-    expect(r.guardReason).toBe('NOT_DAY_PHASE');
-    expect(r.totalActive).toBe(0);
-    expect(r.results).toEqual([]);
-    expect(reserveSell).not.toHaveBeenCalled();
-    expect(placeKisSellOrder).not.toHaveBeenCalled();
-    expect(sendPrivateAlert).not.toHaveBeenCalled();
-  });
-
-  it('DISABLED → executed=false', async () => {
-    vi.mocked(shouldExecuteLiquidationAt).mockReturnValueOnce({
-      execute: false,
-      reason: 'DISABLED',
-    });
-    const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
     expect(r.guardReason).toBe('DISABLED');
-    expect(reserveSell).not.toHaveBeenCalled();
-  });
-
-  it('AUTO_TRADE_DISABLED → executed=false', async () => {
-    vi.mocked(shouldExecuteLiquidationAt).mockReturnValueOnce({
-      execute: false,
-      reason: 'AUTO_TRADE_DISABLED',
-    });
-    const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
-    expect(r.guardReason).toBe('AUTO_TRADE_DISABLED');
-  });
-
-  it('EMERGENCY_STOP → executed=false', async () => {
-    vi.mocked(shouldExecuteLiquidationAt).mockReturnValueOnce({
-      execute: false,
-      reason: 'EMERGENCY_STOP',
-    });
-    const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
-    expect(r.guardReason).toBe('EMERGENCY_STOP');
-  });
-
-  it('BEFORE_START_TIME → executed=false (cron 일찍 발동된 race)', async () => {
-    vi.mocked(shouldExecuteLiquidationAt).mockReturnValueOnce({
-      execute: false,
-      reason: 'BEFORE_START_TIME',
-    });
-    const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
-    expect(r.guardReason).toBe('BEFORE_START_TIME');
-  });
-});
-
-// ── 활성 포지션 분기 테스트 ───────────────────────────────────────────────────
-
-describe('liquidateAllForFomc — 활성 포지션 처리', () => {
-  it('활성 0건 → executed=true + totalActive=0 + 텔레그램 안내 1회 (CRITICAL 아님)', async () => {
-    vi.mocked(loadShadowTrades).mockReturnValueOnce([]);
-    const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
-    expect(r.executed).toBe(true);
     expect(r.totalActive).toBe(0);
     expect(r.results).toEqual([]);
-    expect(sendPrivateAlert).toHaveBeenCalledTimes(1);
-    const args = vi.mocked(sendPrivateAlert).mock.calls[0];
-    expect(String(args?.[0])).toContain('활성 포지션 0건');
-    // priority 'NORMAL' (활성 0건은 CRITICAL 아님)
-    const opts = args?.[1] as { priority?: string } | undefined;
-    expect(opts?.priority).toBe('NORMAL');
-  });
-
-  it('다중 SHADOW 활성 → reserveSell 각각 호출 + buildExitAttribution 부착 + dispatchAlert 1회 결과', async () => {
-    const t1 = makeMockTrade({ id: 't-1', stockCode: '005930', stockName: '삼성', quantity: 10 });
-    const t2 = makeMockTrade({ id: 't-2', stockCode: '000660', stockName: '하이닉스', quantity: 5 });
-    vi.mocked(loadShadowTrades).mockReturnValueOnce([t1, t2] as never);
-    vi.mocked(placeKisSellOrder).mockResolvedValue({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' });
-    vi.mocked(reserveSell).mockReturnValue({
-      kind: 'SHADOW',
-      recorded: true,
-      remainingQty: 0,
-      statusPrefix: '🎭',
-      statusSuffix: '',
-    } as never);
-
-    const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
-    expect(r.executed).toBe(true);
-    expect(r.totalActive).toBe(2);
-    expect(r.successCount).toBe(2);
+    expect(r.successCount).toBe(0);
     expect(r.failedCount).toBe(0);
-    expect(reserveSell).toHaveBeenCalledTimes(2);
-    expect(reserveSell).toHaveBeenCalledTimes(2);
-    expect(syncPositionCache).toHaveBeenCalledTimes(2);
-    expect(addSellOrder).not.toHaveBeenCalled(); // SHADOW 는 LIVE 폴링 등록 미수행
-    // attribution 부착 검증
-    expect(buildExitAttribution).toHaveBeenCalledWith(
-      'FOMC_DAY_LIQUIDATION',
-      ['fomc_day_force_close'],
-      'R2_BULL',
-    );
-    // appendShadowLog FOMC_DAY_LIQUIDATION event 부착
-    expect(appendShadowLog).toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'FOMC_DAY_LIQUIDATION', regime: 'R2_BULL' }),
-    );
-    // 결과 알림 1회 (HIGH, 실패 0건이라 CRITICAL 아님)
-    expect(sendPrivateAlert).toHaveBeenCalledTimes(1);
-    const opts = vi.mocked(sendPrivateAlert).mock.calls[0]?.[1] as { priority?: string } | undefined;
-    expect(opts?.priority).toBe('HIGH');
+    expect(r.dryRun).toBe(false);
   });
 
-  it('dryRun=true → reserveSell 미호출 + status=SUCCESS + reason=DRY_RUN', async () => {
-    const t1 = makeMockTrade();
-    vi.mocked(loadShadowTrades).mockReturnValueOnce([t1] as never);
-
+  it('dryRunOverride 를 주어도 동일 stub 결과 (옵션 무시)', async () => {
     const r = await liquidateAllForFomc(SAMPLE_DATE_KST, { dryRunOverride: true });
-    expect(r.dryRun).toBe(true);
-    expect(r.successCount).toBe(1);
-    expect(r.results[0]).toEqual(
-      expect.objectContaining({ status: 'SUCCESS', reason: 'DRY_RUN', qty: 10 }),
-    );
-    expect(reserveSell).not.toHaveBeenCalled();
+    expect(r.executed).toBe(false);
+    expect(r.dryRun).toBe(false);
+    expect(r.results).toEqual([]);
+  });
+
+  it('실 청산 부수효과 0 — KIS/reserveSell/addSellOrder/telegram/shadowTrades 미호출', async () => {
+    await liquidateAllForFomc(SAMPLE_DATE_KST);
     expect(placeKisSellOrder).not.toHaveBeenCalled();
-  });
-
-  it('reserveSell FAILED → 결과 status=FAILED + reason 부착 + CRITICAL 알림', async () => {
-    const t1 = makeMockTrade();
-    vi.mocked(loadShadowTrades).mockReturnValueOnce([t1] as never);
-    vi.mocked(placeKisSellOrder).mockResolvedValue({
-      ordNo: null,
-      placed: false,
-      outcome: 'LIVE_FAILED',
-      failureReason: 'KIS 토큰 만료',
-    });
-    vi.mocked(reserveSell).mockReturnValue({
-      kind: 'FAILED',
-      recorded: false,
-      remainingQty: 10,
-      statusPrefix: '❌',
-      statusSuffix: '',
-      reason: 'KIS 토큰 만료',
-    } as never);
-
-    const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
-    expect(r.failedCount).toBe(1);
-    expect(r.results[0]?.status).toBe('FAILED');
-    expect(r.results[0]?.reason).toBe('KIS 토큰 만료');
-    // priority CRITICAL (실패 ≥ 1)
-    const opts = vi.mocked(sendPrivateAlert).mock.calls[0]?.[1] as { priority?: string } | undefined;
-    expect(opts?.priority).toBe('CRITICAL');
-  });
-
-  it('placeKisSellOrder throw → 결과 status=FAILED + reason=Error 메시지', async () => {
-    const t1 = makeMockTrade();
-    vi.mocked(loadShadowTrades).mockReturnValueOnce([t1] as never);
-    vi.mocked(reserveSell).mockRejectedValueOnce(new Error('네트워크 오류'));
-
-    const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
-    expect(r.failedCount).toBe(1);
-    expect(r.results[0]?.status).toBe('FAILED');
-    expect(r.results[0]?.reason).toContain('네트워크 오류');
-  });
-
-  it('LIVE_ORDERED (kind=PENDING) → addSellOrder 호출 + status=SUCCESS', async () => {
-    const t1 = makeMockTrade({ mode: 'LIVE' });
-    vi.mocked(loadShadowTrades).mockReturnValueOnce([t1] as never);
-    vi.mocked(placeKisSellOrder).mockResolvedValue({
-      ordNo: 'ODNO-12345',
-      placed: true,
-      outcome: 'LIVE_ORDERED',
-    });
-    vi.mocked(reserveSell).mockReturnValue({
-      kind: 'PENDING',
-      recorded: true,
-      remainingQty: 0,
-      statusPrefix: '⏳',
-      statusSuffix: '',
-      ordNo: 'ODNO-12345',
-    } as never);
-
-    const r = await liquidateAllForFomc(SAMPLE_DATE_KST);
-    expect(r.successCount).toBe(1);
-    expect(r.failedCount).toBe(0);
-    expect(addSellOrder).toHaveBeenCalledTimes(1);
-    const args = vi.mocked(addSellOrder).mock.calls[0]?.[0] as { ordNo?: string; relatedTradeId?: string };
-    expect(args.ordNo).toBe('ODNO-12345');
-    expect(args.relatedTradeId).toBe('t-1');
+    expect(reserveSell).not.toHaveBeenCalled();
+    expect(addSellOrder).not.toHaveBeenCalled();
+    expect(sendPrivateAlert).not.toHaveBeenCalled();
+    expect(loadShadowTrades).not.toHaveBeenCalled();
   });
 });
 
-// ── 메시지 포맷터 ─────────────────────────────────────────────────────────────
+// ── formatLiquidationResultMessage — 여전히 live (behavioral) ──────────────────
 
 describe('formatLiquidationResultMessage — 분기 (dryRun / 정상 / 실패)', () => {
-  it('dryRun=true 메시지는 "🟢 [FOMC DAY 청산 — dryRun]" + "실행 안 됨"', () => {
+  it('dryRun=true → "[FOMC DAY 청산 — dryRun]" + "실행 안 됨" (이모지 없음)', () => {
     const msg = formatLiquidationResultMessage({
       totalActive: 3,
       results: [],
@@ -335,13 +127,12 @@ describe('formatLiquidationResultMessage — 분기 (dryRun / 정상 / 실패)',
       failedCount: 0,
       dryRun: true,
     });
-    expect(msg).toContain('🟢');
-    expect(msg).toContain('dryRun');
+    expect(msg).toContain('[FOMC DAY 청산 — dryRun]');
     expect(msg).toContain('대상: 3건');
     expect(msg).toContain('실행 안 됨');
   });
 
-  it('정상 완료 (실패 0건) → "🔴 [FOMC DAY 청산 완료]" + ⚠️ 미포함', () => {
+  it('정상 완료 (실패 0건) → "[FOMC DAY 청산 완료]" + 수동 청산 안내 미포함', () => {
     const msg = formatLiquidationResultMessage({
       totalActive: 2,
       results: [],
@@ -349,13 +140,12 @@ describe('formatLiquidationResultMessage — 분기 (dryRun / 정상 / 실패)',
       failedCount: 0,
       dryRun: false,
     });
-    expect(msg).toContain('🔴');
-    expect(msg).toContain('청산 완료');
-    expect(msg).toContain('성공: 2건 / 실패: 0건');
-    expect(msg).not.toContain('⚠️');
+    expect(msg).toContain('[FOMC DAY 청산 완료]');
+    expect(msg).toContain('성공: 2건 / 실패: 0건 (총 2건)');
+    expect(msg).not.toContain('수동 청산 필요');
   });
 
-  it('일부 실패 (failedCount>0) → "일부 실패" 헤더 + "⚠️ 수동 청산 필요" 추가', () => {
+  it('일부 실패 (failedCount>0) → "일부 실패" 헤더 + "실패 종목 수동 청산 필요" 추가', () => {
     const msg = formatLiquidationResultMessage({
       totalActive: 3,
       results: [],
@@ -363,73 +153,29 @@ describe('formatLiquidationResultMessage — 분기 (dryRun / 정상 / 실패)',
       failedCount: 2,
       dryRun: false,
     });
-    expect(msg).toContain('일부 실패');
-    expect(msg).toContain('성공: 1건 / 실패: 2건');
-    expect(msg).toContain('⚠️ 실패 종목 수동 청산 필요');
+    expect(msg).toContain('[FOMC DAY 청산 — 일부 실패]');
+    expect(msg).toContain('성공: 1건 / 실패: 2건 (총 3건)');
+    expect(msg).toContain('실패 종목 수동 청산 필요');
   });
 });
 
-// ── 사전 경보 함수 ────────────────────────────────────────────────────────────
+// ── 사전 경보 함수 — 제거됨 (no-op stub) ──────────────────────────────────────
 
-describe('runFomcDayMorningAlert / runFomcDayPreLiquidationAlert — DAY phase 게이트', () => {
-  it('runFomcDayMorningAlert: DAY phase 면 sendPrivateAlert 1회 + HIGH priority + dedupeKey', async () => {
-    vi.mocked(getFomcProximity).mockReturnValueOnce({
-      phase: 'DAY',
-      daysUntil: 0,
-      daysAfter: null,
-      nextFomcDate: '2026-04-29',
-      lastFomcDate: null,
-      kellyMultiplier: 0,
-      noNewEntry: true,
-      hedgeSignal: false,
-      description: '',
-    });
-    await runFomcDayMorningAlert(SAMPLE_DATE_KST);
-    expect(sendPrivateAlert).toHaveBeenCalledTimes(1);
-    const args = vi.mocked(sendPrivateAlert).mock.calls[0];
-    expect(String(args?.[0])).toContain('FOMC 발표 당일');
-    const opts = args?.[1] as { priority?: string; dedupeKey?: string };
-    expect(opts.priority).toBe('HIGH');
-    expect(opts.dedupeKey).toContain('fomc_day_morning:');
-  });
-
-  it('runFomcDayMorningAlert: 비-DAY phase (NORMAL) 이면 미발송', async () => {
-    vi.mocked(getFomcProximity).mockReturnValueOnce({
-      phase: 'NORMAL',
-      daysUntil: null,
-      daysAfter: null,
-      nextFomcDate: null,
-      lastFomcDate: null,
-      kellyMultiplier: 1.0,
-      noNewEntry: false,
-      hedgeSignal: false,
-      description: '',
-    });
+describe('runFomcDayMorningAlert / runFomcDayPreLiquidationAlert — no-op stub', () => {
+  it('runFomcDayMorningAlert: DAY 시각이어도 telegram 미발송 (stub)', async () => {
     await runFomcDayMorningAlert(SAMPLE_DATE_KST);
     expect(sendPrivateAlert).not.toHaveBeenCalled();
+    expect(loadShadowTrades).not.toHaveBeenCalled();
   });
 
-  it('runFomcDayPreLiquidationAlert: DAY phase + 활성 N건 → 메시지에 카운트 포함', async () => {
-    vi.mocked(getFomcProximity).mockReturnValueOnce({
-      phase: 'DAY',
-      daysUntil: 0,
-      daysAfter: null,
-      nextFomcDate: '2026-04-29',
-      lastFomcDate: null,
-      kellyMultiplier: 0,
-      noNewEntry: true,
-      hedgeSignal: false,
-      description: '',
-    });
-    vi.mocked(loadShadowTrades).mockReturnValueOnce([
-      makeMockTrade({ id: 't-a' }),
-      makeMockTrade({ id: 't-b', status: 'PARTIALLY_FILLED' }),
-      makeMockTrade({ id: 't-c', status: 'HIT_TARGET' }), // closed — 카운트 제외
-    ] as never);
+  it('runFomcDayPreLiquidationAlert: 활성 포지션 조회/알림 부재 (stub)', async () => {
     await runFomcDayPreLiquidationAlert(SAMPLE_DATE_KST);
-    expect(sendPrivateAlert).toHaveBeenCalledTimes(1);
-    const msg = String(vi.mocked(sendPrivateAlert).mock.calls[0]?.[0]);
-    expect(msg).toContain('포지션 2건');
-    expect(msg).toContain('30분 후');
+    expect(sendPrivateAlert).not.toHaveBeenCalled();
+    expect(loadShadowTrades).not.toHaveBeenCalled();
+  });
+
+  it('두 경보 모두 throw 없이 resolve (호출 안전)', async () => {
+    await expect(runFomcDayMorningAlert(SAMPLE_DATE_KST)).resolves.toBeUndefined();
+    await expect(runFomcDayPreLiquidationAlert(SAMPLE_DATE_KST)).resolves.toBeUndefined();
   });
 });

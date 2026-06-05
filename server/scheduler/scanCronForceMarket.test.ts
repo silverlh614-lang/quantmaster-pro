@@ -46,7 +46,19 @@ vi.mock('../alerts/globalScanAgent.js', () => ({ runGlobalScanAgent: _runGlobalS
 vi.mock('../alerts/supplyChainAgent.js', () => ({ runSupplyChainScan: vi.fn() }));
 vi.mock('../learning/newsSupplyLogger.js', () => ({ trackPendingRecords: vi.fn() }));
 vi.mock('../persistence/macroStateRepo.js', () => ({ loadMacroState: () => null }));
-vi.mock('../trading/regimeBridge.js', () => ({ getLiveRegime: () => 'R3_NEUTRAL' }));
+vi.mock('../trading/regimeBridge.js', () => ({
+  getLiveRegime: () => 'R3_NEUTRAL',
+  // mock-drift fix: ADR-0531 canonical 레짐 도입으로 screenerJobs 가 regimeBridge 의
+  // getRegimeDiagnostics 까지 transitively 요구. 단순 고정 진단 stub 추가.
+  getRegimeDiagnostics: () => ({ rawRegime: 'R3_NEUTRAL' }),
+}));
+// mock-drift fix: stage2_3 cron 이 resolveCanonicalRegimeLevel(=resolveRegimeSnapshot
+// 전체 체인) 경유로 레짐을 구함. 테스트 의도는 고정 레짐(R3_NEUTRAL)이므로 단일
+// 접근자를 직접 stub 해 깊은 resolver 체인 의존을 차단한다.
+vi.mock('../trading/regime/canonicalRegimeAccess.js', () => ({
+  resolveCanonicalRegimeLevel: () => 'R3_NEUTRAL',
+  isCanonicalR6Defense: () => false,
+}));
 
 vi.mock('../alerts/dartPoller.js', () => ({ fastDartCheck: vi.fn(), pollDartDisclosures: vi.fn() }));
 vi.mock('../alerts/bearRegimeAlert.js', () => ({ pollBearRegime: vi.fn() }));

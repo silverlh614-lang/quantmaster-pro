@@ -203,9 +203,12 @@ describe('shadowFutureReturnCacheProvider', () => {
   });
 
   it('uses longer range candidates for 20d horizon with target-date matching', async () => {
+    // calendar-drift fix: KRX 휴일 캘린더 갱신(2026-06-03 제9회 지방선거 휴장 등 반영)으로
+    // signalDate 2026-05-08 의 20번째 거래일 target 이 2026-06-08(19번째) → 2026-06-09 로 이동.
+    // 후보 캔들 날짜를 정정한 target(2026-06-09)에 맞춘다. 20d target-date 매칭 의도는 유지.
     mockedGetSnapshot.mockReturnValue(yahooSnapshot());
     mockedParseYahooChartBody.mockReturnValue([
-      point('2026-06-08', 12000),
+      point('2026-06-09', 12000),
     ]);
     const provider = createShadowFutureReturnCachePriceProvider();
 

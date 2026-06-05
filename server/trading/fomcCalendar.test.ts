@@ -1,12 +1,16 @@
 /**
- * @responsibility fomcCalendar v4 정책 (2026-04-26 사용자 운영 결정, ADR-0057) 회귀 테스트
+ * @responsibility fomcCalendar 회귀 테스트 — FOMC 게이팅 제거(FOMC_GATING_REMOVED) 후 계약
  *
- * v4 (D-3~D-1 보수적 진입 + D-day 차단):
- *   PRE_3 / PRE_2 / PRE_1 = 0.75 (보수적 진입, 사이즈 25% 축소) ← v3.1 의 1.0/1.0/0.75 → v4 균일
- *   DAY = 0.0 (신규 진입 금지) — 우호 환경 시 ×0.3 보수적 진입 허용
- *   POST_1 = 1.30 / POST_2 = 1.15
+ * 구 v4 정책(PRE_3~PRE_1 Kelly 0.75 + DAY 차단)은 `Patch-FOMC-DEAD-CODE-REMOVAL-001`
+ * (docs/ai/10-patch-history-index.md)로 제거됨. getFomcProximity 는 날짜/phase 무관하게
+ * 항상 NORMAL(Kelly 1.0, noNewEntry=false, description 'FOMC_GATING_REMOVED')을 반환한다.
  *
- * 매도(exitEngine) 는 본 게이트 무관 — 별도 cron 으로 정상 발동.
+ * 단, 아래 함수들은 production 에 live 로 잔존하므로 behavioral 검증을 보존한다:
+ *   - applyFomcRelaxation : 순수 완화 계산기 (getFomcProximity 와 독립)
+ *   - getDefaultFomcDayLiquidationConfig : env 기반 config factory
+ *   - generateFomcIcs : ICS 캘린더 생성 (v4 텍스트 보존)
+ *   - FOMC_DATES / FOMC_RELAXATION_THRESHOLDS SSOT
+ * shouldExecuteLiquidationAt 는 잔존하나 가드 1(NOT_DAY_PHASE)이 항상 선점 → enforcement dead.
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -30,93 +34,49 @@ describe('fomcCalendar v4 — D-3~D-1 보수적 진입 + D-day 차단', () => {
     vi.useRealTimers();
   });
 
-  describe('PRE_3 (D-3) — 보수적 진입 Kelly 0.75 (v4 핵심 변경)', () => {
-    it('FOMC 4/29 기준 4/26 (D-3) 은 PRE_3 + Kelly 0.75 + noNewEntry=false', () => {
-      setNow('2026-04-26T03:00:00Z');
+  // ── 출력/정책 drift 근거 (intent proof — 맹목 갱신 아님) ───────────────────────
+  //   1. 패치 이력: docs/ai/10-patch-history-index.md `Patch-FOMC-DEAD-CODE-REMOVAL-001`.
+  //   2. production: fomcCalendar.ts getFomcProximity(L190~204) 는 phase/날짜 무관하게
+  //      항상 NORMAL + Kelly 1.0 + noNewEntry=false + description 'FOMC_GATING_REMOVED'
+  //      반환 ("FOMC 게이팅이 제거되었습니다").
+  //   3. caller dryRunScanner.ts:117 도 항상 'NORMAL' phase 전달 (게이팅 제거 주석).
+  // 따라서 구 v4 phase(PRE_3/PRE_2/PRE_1/DAY/POST_1) 단언은 제거된 동작이므로,
+  // 현행 always-NORMAL 계약을 날짜별로 검증하도록 정정한다.
+
+  describe('getFomcProximity — FOMC 게이팅 제거됨 (항상 NORMAL)', () => {
+    const fomcWindowDays = [
+      '2026-04-26T03:00:00Z', // 구 PRE_3 (D-3)
+      '2026-04-27T03:00:00Z', // 구 PRE_2 (D-2)
+      '2026-04-28T03:00:00Z', // 구 PRE_1 (D-1)
+      '2026-04-29T03:00:00Z', // 구 DAY (D+0)
+      '2026-04-30T03:00:00Z', // 구 POST_1 (D+1)
+      '2026-05-01T03:00:00Z', // 구 POST_2 (D+2)
+    ];
+
+    it('FOMC 발표 전후 어느 날짜에서도 NORMAL + Kelly 1.0 + noNewEntry=false (게이팅 제거)', () => {
+      for (const iso of fomcWindowDays) {
+        setNow(iso);
+        const p = getFomcProximity();
+        expect(p.phase).toBe('NORMAL');
+        expect(p.kellyMultiplier).toBe(1.0);
+        expect(p.noNewEntry).toBe(false);
+      }
+    });
+
+    it('FOMC 발표 당일(구 DAY)도 차단 안 함 — Kelly 0/noNewEntry=true 회귀 부재', () => {
+      setNow('2026-04-29T03:00:00Z'); // 구 DAY
       const p = getFomcProximity();
-      expect(p.phase).toBe('PRE_3');
-      expect(p.daysUntil).toBe(3);
-      expect(p.kellyMultiplier).toBe(0.75); // v3.1: 1.0 → v4: 0.75
+      expect(p.phase).not.toBe('DAY');
+      expect(p.kellyMultiplier).not.toBe(0);
       expect(p.noNewEntry).toBe(false);
     });
 
-    it('PRE_3 description 은 "보수적 진입 (Kelly ×0.75, 사이즈 25% 축소)"', () => {
-      setNow('2026-04-26T03:00:00Z');
-      const p = getFomcProximity();
-      expect(p.description).toContain('FOMC D-3');
-      expect(p.description).toContain('보수적 진입');
-      expect(p.description).toContain('0.75');
-      expect(p.description).toContain('25%');
-      expect(p.description).not.toContain('신규 진입 금지');
-    });
-  });
-
-  describe('PRE_2 (D-2) — 보수적 진입 Kelly 0.75 (v4)', () => {
-    it('FOMC 4/29 기준 4/27 (D-2) 은 PRE_2 + Kelly 0.75 + noNewEntry=false', () => {
-      setNow('2026-04-27T03:00:00Z');
-      const p = getFomcProximity();
-      expect(p.phase).toBe('PRE_2');
-      expect(p.daysUntil).toBe(2);
-      expect(p.kellyMultiplier).toBe(0.75); // v3.1: 1.0 → v4: 0.75
-      expect(p.noNewEntry).toBe(false);
-    });
-
-    it('PRE_2 description 은 "보수적 진입 (Kelly ×0.75)"', () => {
-      setNow('2026-04-27T03:00:00Z');
-      const p = getFomcProximity();
-      expect(p.description).toContain('FOMC D-2');
-      expect(p.description).toContain('보수적 진입');
-      expect(p.description).toContain('0.75');
-    });
-  });
-
-  describe('PRE_1 (D-1) — 보수적 진입 Kelly 0.75 (v3.1 부터 유지)', () => {
-    it('FOMC 4/29 기준 4/28 (D-1) 은 PRE_1 + Kelly 0.75 + noNewEntry=false', () => {
-      setNow('2026-04-28T03:00:00Z');
-      const p = getFomcProximity();
-      expect(p.phase).toBe('PRE_1');
-      expect(p.daysUntil).toBe(1);
-      expect(p.kellyMultiplier).toBe(0.75); // v3.1 부터 0.75 유지
-      expect(p.noNewEntry).toBe(false);
-    });
-
-    it('PRE_1 description 은 "보수적 진입 (Kelly ×0.75, 사이즈 25% 축소)"', () => {
-      setNow('2026-04-28T03:00:00Z');
-      const p = getFomcProximity();
-      expect(p.description).toContain('FOMC D-1');
-      expect(p.description).toContain('보수적 진입');
-      expect(p.description).toContain('0.75');
-      expect(p.description).toContain('25%');
-      expect(p.description).not.toContain('신규 진입 금지');
-    });
-  });
-
-  describe('DAY (D+0) — 발표 당일 신규 진입 금지 (유일한 차단 phase)', () => {
-    it('FOMC 발표일 4/29 는 DAY + Kelly 0 + noNewEntry=true', () => {
+    it('description 은 제거 마커 노출, 구 phase 안내(보수적 진입/신규 진입 금지) 부재', () => {
       setNow('2026-04-29T03:00:00Z');
       const p = getFomcProximity();
-      expect(p.phase).toBe('DAY');
-      expect(p.daysUntil).toBe(0);
-      expect(p.kellyMultiplier).toBe(0.0);
-      expect(p.noNewEntry).toBe(true);
-    });
-
-    it('DAY description 은 "신규 진입 금지" 명시', () => {
-      setNow('2026-04-29T03:00:00Z');
-      const p = getFomcProximity();
-      expect(p.description).toContain('FOMC 발표일');
-      expect(p.description).toContain('신규 진입 금지');
-    });
-  });
-
-  describe('POST_1 (D+1) — 진입 재개 + Kelly 부스트', () => {
-    it('FOMC 다음날 4/30 은 POST_1 + Kelly 1.30 + noNewEntry=false', () => {
-      setNow('2026-04-30T03:00:00Z');
-      const p = getFomcProximity();
-      expect(p.phase).toBe('POST_1');
-      expect(p.daysAfter).toBe(1);
-      expect(p.kellyMultiplier).toBe(1.30);
-      expect(p.noNewEntry).toBe(false);
+      expect(p.description).toBe('FOMC_GATING_REMOVED');
+      expect(p.description).not.toContain('보수적 진입');
+      expect(p.description).not.toContain('신규 진입 금지');
     });
   });
 
@@ -138,29 +98,24 @@ describe('fomcCalendar v4 — D-3~D-1 보수적 진입 + D-day 차단', () => {
     });
   });
 
-  describe('전체 차단 기간 — 정확히 1일 (DAY 만, v3 핵심)', () => {
-    it('4/26 ~ 5/1 6일 시뮬레이션 — 차단 정확히 1일 (DAY 만)', () => {
+  describe('전체 차단 기간 — 0일 (FOMC 게이팅 제거됨)', () => {
+    it('4/26 ~ 5/1 6일 시뮬레이션 — 차단 0일 (구 DAY 차단도 제거)', () => {
       const days = [
-        { iso: '2026-04-26T03:00:00Z', expected: false }, // D-3: 정상
-        { iso: '2026-04-27T03:00:00Z', expected: false }, // D-2: 정상
-        { iso: '2026-04-28T03:00:00Z', expected: false }, // D-1: 정상 (v3)
-        { iso: '2026-04-29T03:00:00Z', expected: true  }, // D-day: 차단
-        { iso: '2026-04-30T03:00:00Z', expected: false }, // D+1: 재개
-        { iso: '2026-05-01T03:00:00Z', expected: false }, // D+2: 재개
+        '2026-04-26T03:00:00Z', // 구 D-3
+        '2026-04-27T03:00:00Z', // 구 D-2
+        '2026-04-28T03:00:00Z', // 구 D-1
+        '2026-04-29T03:00:00Z', // 구 D-day (이전엔 차단)
+        '2026-04-30T03:00:00Z', // 구 D+1
+        '2026-05-01T03:00:00Z', // 구 D+2
       ];
 
-      const blockedCount = days.filter((d) => {
-        setNow(d.iso);
+      const blockedCount = days.filter((iso) => {
+        setNow(iso);
         return getFomcProximity().noNewEntry;
       }).length;
 
-      expect(blockedCount).toBe(1);
-
-      for (const d of days) {
-        setNow(d.iso);
-        const p = getFomcProximity();
-        expect(p.noNewEntry).toBe(d.expected);
-      }
+      // 구 계약: 1 (DAY). 현행(제거 후): 0.
+      expect(blockedCount).toBe(0);
     });
   });
 
@@ -305,56 +260,37 @@ describe('applyFomcRelaxation v4 — DAY 만 우호 환경 완화 적용', () =>
     });
   });
 
-  describe('getFomcProximity(macro) 통합 동작 (v3)', () => {
+  describe('getFomcProximity(macro) 통합 동작 — macro 인자 무시 (게이팅 제거됨)', () => {
     afterEach(() => vi.useRealTimers());
 
-    it('DAY + 우호 macro → relaxed=true + noNewEntry=false (Kelly 0.3)', () => {
+    // getFomcProximity 는 FomcRelaxationContext 인자를 받지만 본체에서 사용하지 않고
+    // 항상 NORMAL 을 반환한다 (relaxed/relaxationReason 도 undefined). applyFomcRelaxation
+    // 자체의 완화 로직은 별도 describe 에서 보존된 채로 검증됨 (live 함수).
+    it('구 DAY 날짜 + 우호 macro 여도 relaxed undefined + noNewEntry=false (Kelly 1.0)', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-04-29T03:00:00Z'));
       const p = getFomcProximity({ mhs: 70, regime: 'BULL_NORMAL', vkospi: 18 });
-      expect(p.phase).toBe('DAY');
-      expect(p.relaxed).toBe(true);
+      expect(p.phase).toBe('NORMAL');
+      expect(p.relaxed).toBeUndefined();
+      expect(p.relaxationReason).toBeUndefined();
       expect(p.noNewEntry).toBe(false);
-      expect(p.kellyMultiplier).toBe(0.3);
-      expect(p.relaxationReason).toContain('우호 환경');
-      expect(p.description).toContain('우호 환경');
+      expect(p.kellyMultiplier).toBe(1.0);
     });
 
-    it('DAY + 비우호 macro → 차단 유지', () => {
+    it('구 DAY 날짜 + 비우호 macro 여도 차단 안 함 (NORMAL passthrough)', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-04-29T03:00:00Z'));
       const p = getFomcProximity({ mhs: 40, regime: 'NEUTRAL', vkospi: 28 });
-      expect(p.relaxed).toBeFalsy();
-      expect(p.noNewEntry).toBe(true);
-      expect(p.kellyMultiplier).toBe(0);
+      expect(p.noNewEntry).toBe(false);
+      expect(p.kellyMultiplier).toBe(1.0);
     });
 
-    it('macro 미전달 시 기존 정책 (DAY 차단 유지) — 회귀 안전', () => {
+    it('macro 미전달 시도 NORMAL — 구 DAY 차단 회귀 부재', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-04-29T03:00:00Z'));
       const p = getFomcProximity();
-      expect(p.relaxed).toBeFalsy();
-      expect(p.noNewEntry).toBe(true);
-    });
-
-    it('PRE_1 (D-1) 에선 macro 우호여도 relaxed=false (보수적 0.75 그대로, v3.1)', () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date('2026-04-28T03:00:00Z'));
-      const p = getFomcProximity({ mhs: 70, regime: 'BULL_NORMAL', vkospi: 18 });
-      expect(p.phase).toBe('PRE_1');
-      expect(p.relaxed).toBeFalsy();
+      expect(p.relaxed).toBeUndefined();
       expect(p.noNewEntry).toBe(false);
-      expect(p.kellyMultiplier).toBe(0.75); // v4 — 차단 phase 아니라 default 0.75 그대로
-    });
-
-    it('PRE_3 (D-3) 에선 macro 우호여도 relaxed=false (보수적 진입 그대로, v4)', () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date('2026-04-26T03:00:00Z'));
-      const p = getFomcProximity({ mhs: 70, regime: 'BULL_NORMAL', vkospi: 18 });
-      expect(p.phase).toBe('PRE_3');
-      expect(p.relaxed).toBeFalsy();
-      expect(p.noNewEntry).toBe(false);
-      expect(p.kellyMultiplier).toBe(0.75); // v4: 1.0 → 0.75
     });
   });
 
@@ -458,66 +394,54 @@ describe('shouldExecuteLiquidationAt — 5중 가드 SSOT (PR-1, ADR-0061)', () 
     else process.env.AUTO_TRADE_ENABLED = savedAutoTrade;
   });
 
-  // FOMC DAY = 2026-04-29 (수). 14:30 KST = UTC 05:30.
-  // 주의: shouldExecuteLiquidationAt 내부의 getFomcProximity() 는 todayKst() SSOT 를
-  // 사용하므로 phase 판정도 vi.setSystemTime 으로 mock 해야 한다 (인자 now 는 시각 boundary 만 사용).
-  const dayPhase14_30Kst = new Date('2026-04-29T05:30:00Z');
-  const dayPhase14_29Kst = new Date('2026-04-29T05:29:00Z');
+  // 출력/정책 drift 근거 (intent proof — 맹목 갱신 아님):
+  //   shouldExecuteLiquidationAt 가드 1(L334)은 getFomcProximity().phase!=='DAY' 면
+  //   즉시 NOT_DAY_PHASE 반환한다. getFomcProximity 가 FOMC 게이팅 제거로 항상 NORMAL 을
+  //   반환하므로(L190~204) 가드 1 이 *항상* 먼저 발동 → 가드 2~5(DISABLED/AUTO_TRADE/
+  //   EMERGENCY/시각 boundary)는 구조적으로 도달 불가. 구 ADR-0061 5중 가드 통과(OK)
+  //   단언은 제거된 동작이므로, 현행 always-NOT_DAY_PHASE 단락 계약을 검증한다.
+  //   ※ 가드 2~5 본체는 production 에 잔존(시그니처 호환)하나 enforcement 는 dead.
+  const dayPhase14_30Kst = new Date('2026-04-29T05:30:00Z'); // 구 FOMC DAY 14:30 KST
   const dayPhase15_19Kst = new Date('2026-04-29T06:19:00Z');
-  const dayPhase15_20Kst = new Date('2026-04-29T06:20:00Z');
 
-  it('가드 1 NOT_DAY_PHASE — DAY 외 phase (예: PRE_3 4/26) 거부', () => {
+  it('FOMC 게이팅 제거 — 구 DAY 날짜·OK 시각이어도 항상 NOT_DAY_PHASE (가드 1 단락)', () => {
     setAutoTrade('true');
-    setNow('2026-04-26T05:30:00Z'); // PRE_3 phase
-    const result = shouldExecuteLiquidationAt(new Date('2026-04-26T05:30:00Z'), {
+    setNow(dayPhase14_30Kst.toISOString());
+    const result = shouldExecuteLiquidationAt(dayPhase14_30Kst, {
       getEmergencyStop: () => false,
     });
     expect(result.execute).toBe(false);
     expect(result.reason).toBe('NOT_DAY_PHASE');
   });
 
-  it('가드 2 DISABLED — config.enabled=false 시 차단 (DAY+OK 시각이어도)', () => {
+  it('가드 2~5 도달 불가 — config/env/emergencyStop/시각 무관하게 NOT_DAY_PHASE', () => {
+    // 구 계약에선 각각 DISABLED/AUTO_TRADE_DISABLED/EMERGENCY_STOP/BEFORE/AFTER 를 기대했으나
+    // 게이팅 제거 후 가드 1 이 모두 선점 → 어떤 입력 조합이어도 NOT_DAY_PHASE.
     setAutoTrade('true');
     setNow(dayPhase14_30Kst.toISOString());
-    const result = shouldExecuteLiquidationAt(dayPhase14_30Kst, {
+
+    // 가드 2 후보: enabled=false 여도 NOT_DAY_PHASE.
+    expect(shouldExecuteLiquidationAt(dayPhase14_30Kst, {
       config: { ...getDefaultFomcDayLiquidationConfig(), enabled: false },
       getEmergencyStop: () => false,
-    });
-    expect(result.execute).toBe(false);
-    expect(result.reason).toBe('DISABLED');
-  });
+    }).reason).toBe('NOT_DAY_PHASE');
 
-  it('가드 3 AUTO_TRADE_DISABLED — process.env.AUTO_TRADE_ENABLED!=="true" 시 차단', () => {
+    // 가드 3 후보: AUTO_TRADE_ENABLED 미설정이어도 NOT_DAY_PHASE.
     setAutoTrade(undefined);
-    setNow(dayPhase14_30Kst.toISOString());
-    const result = shouldExecuteLiquidationAt(dayPhase14_30Kst, {
+    expect(shouldExecuteLiquidationAt(dayPhase14_30Kst, {
       getEmergencyStop: () => false,
-    });
-    expect(result.execute).toBe(false);
-    expect(result.reason).toBe('AUTO_TRADE_DISABLED');
-  });
+    }).reason).toBe('NOT_DAY_PHASE');
 
-  it('가드 4 EMERGENCY_STOP — getEmergencyStop()=true 시 차단', () => {
+    // 가드 4 후보: emergencyStop=true 여도 NOT_DAY_PHASE.
     setAutoTrade('true');
-    setNow(dayPhase14_30Kst.toISOString());
-    const result = shouldExecuteLiquidationAt(dayPhase14_30Kst, {
+    expect(shouldExecuteLiquidationAt(dayPhase14_30Kst, {
       getEmergencyStop: () => true,
-    });
-    expect(result.execute).toBe(false);
-    expect(result.reason).toBe('EMERGENCY_STOP');
-  });
+    }).reason).toBe('NOT_DAY_PHASE');
 
-  it('가드 5 시각 boundary — 14:29 KST → BEFORE_START_TIME / 14:30 → OK / 15:20 → AFTER_COMPLETE_TIME / 15:19 → OK', () => {
-    setAutoTrade('true');
-    const opts = { getEmergencyStop: () => false };
-
-    setNow(dayPhase14_29Kst.toISOString());
-    expect(shouldExecuteLiquidationAt(dayPhase14_29Kst, opts).reason).toBe('BEFORE_START_TIME');
-    setNow(dayPhase14_30Kst.toISOString());
-    expect(shouldExecuteLiquidationAt(dayPhase14_30Kst, opts)).toEqual({ execute: true, reason: 'OK' });
+    // 가드 5 후보: OK 시각(14:30/15:19)이어도 execute=true 부재 → NOT_DAY_PHASE.
     setNow(dayPhase15_19Kst.toISOString());
-    expect(shouldExecuteLiquidationAt(dayPhase15_19Kst, opts)).toEqual({ execute: true, reason: 'OK' });
-    setNow(dayPhase15_20Kst.toISOString());
-    expect(shouldExecuteLiquidationAt(dayPhase15_20Kst, opts).reason).toBe('AFTER_COMPLETE_TIME');
+    const r = shouldExecuteLiquidationAt(dayPhase15_19Kst, { getEmergencyStop: () => false });
+    expect(r.execute).toBe(false);
+    expect(r.reason).toBe('NOT_DAY_PHASE');
   });
 });

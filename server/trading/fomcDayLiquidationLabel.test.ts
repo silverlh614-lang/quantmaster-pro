@@ -78,26 +78,29 @@ describe('ADR-0104 — originalReasonLabel 단위 분기', () => {
   });
 });
 
-describe('ADR-0104 — fomcDayLiquidation wiring', () => {
-  it('fomcDayLiquidation.ts 가 placeKisSellOrder 에 FOMC_DAY_LIQUIDATION reason 전달', () => {
+describe('ADR-0104 — fomcDayLiquidation wiring (FOMC 청산 제거 후 stub)', () => {
+  /**
+   * 출력 drift 근거 (intent proof — 맹목 갱신 아님):
+   *   1. 패치 이력: docs/ai/10-patch-history-index.md `Patch-FOMC-DEAD-CODE-REMOVAL-001`.
+   *   2. production @responsibility: fomcDayLiquidation.ts L1
+   *      "FOMC DAY 청산 모듈 — 제거됨 (FOMC_LIQUIDATION_REMOVED). Stub only."
+   *   3. liquidateAllForFomc 본체(L28~41)는 항상 skipped 결과만 반환 — 청산 루프 부재.
+   *   4. cron 진입점 제거: orchestratorJobs.ts:96 "FOMC DAY 자동 청산 cron 제거됨".
+   * 따라서 구 wiring(placeKisSellOrder / addSellOrder reason='FOMC_DAY_LIQUIDATION') 단언은
+   * 제거된 동작이므로 현행 stub 계약(해당 호출 부재)을 검증하도록 정정한다.
+   * 단, originalReasonLabel/타입 union 은 보존됐으므로(아래 describe) 라벨 회귀는 그대로 검증.
+   */
+  it('fomcDayLiquidation.ts 가 청산 호출 stub 화 — placeKisSellOrder 호출 부재', () => {
     const src = readFile('server/trading/fomcDayLiquidation.ts');
-    // placeKisSellOrder 호출 4번째 인자가 'FOMC_DAY_LIQUIDATION'
-    expect(src).toMatch(/placeKisSellOrder\([\s\S]*?'FOMC_DAY_LIQUIDATION'\s*,?\s*\)/);
-    // 회귀 차단 — 이전 'STOP_LOSS' 호출 패턴 부재
-    const placeIdx = src.indexOf('await placeKisSellOrder(');
-    expect(placeIdx).toBeGreaterThan(0);
-    const block = src.slice(placeIdx, placeIdx + 300);
-    expect(block).not.toContain("'STOP_LOSS'");
-    expect(block).toContain("'FOMC_DAY_LIQUIDATION'");
+    // 제거 마커 존재 확인 (stub 회귀 차단).
+    expect(src).toContain('FOMC_LIQUIDATION_REMOVED');
+    // 실 청산 호출(await placeKisSellOrder)이 본체에 없어야 함.
+    expect(src).not.toContain('await placeKisSellOrder(');
   });
 
-  it('fomcDayLiquidation.ts addSellOrder originalReason 도 FOMC_DAY_LIQUIDATION', () => {
+  it('fomcDayLiquidation.ts addSellOrder 등록 부재 (LIVE 폴링 등록도 stub 화)', () => {
     const src = readFile('server/trading/fomcDayLiquidation.ts');
-    const addIdx = src.indexOf('addSellOrder({');
-    expect(addIdx).toBeGreaterThan(0);
-    const block = src.slice(addIdx, addIdx + 400);
-    expect(block).toContain("originalReason: 'FOMC_DAY_LIQUIDATION'");
-    expect(block).not.toContain("originalReason: 'STOP_LOSS'");
+    expect(src).not.toContain('addSellOrder({');
   });
 
   it('회귀 차단 — fomcDayLiquidation.ts 본체에 reason="STOP_LOSS" 직접 사용 패턴 부재', () => {

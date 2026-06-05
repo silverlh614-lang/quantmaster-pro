@@ -13,7 +13,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('../persistence/shadowTradeRepo.js', () => ({
+  // mock-drift fix: production 리팩토링으로 shadowTradeRepo→buyPipeline→liveBuyExecutor 가
+  // 동일 모듈의 appendShadowLog 를 transitively 요구(순환 import). importOriginal spread 는
+  // 무거운 순환 그래프를 실제 로드해 mock override 가 production 인스턴스에 전파되지 않으므로,
+  // 테스트가 쓰는 loadShadowTrades + 체인이 요구하는 appendShadowLog 만 명시 stub 한다.
   loadShadowTrades: vi.fn().mockReturnValue([]),
+  appendShadowLog: vi.fn(),
 }));
 
 vi.mock('../persistence/failurePatternRepo.js', () => ({

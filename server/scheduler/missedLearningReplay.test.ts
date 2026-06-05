@@ -107,6 +107,11 @@ vi.mock('../learning/futureReturnResolver.js', () => ({
 }));
 vi.mock('../clients/kisClient.js', () => ({
   fetchCurrentPrice: async () => null,
+  // mock-drift fix: buyPipeline→liveBuyExecutor 가 transitively 요구하는 kisClient
+  // export 추가(실 네트워크 차단 의도 유지). 테스트 로직은 이들을 호출하지 않음.
+  fetchAccountBalance: async () => null,
+  submitBuyOrder: async () => null,
+  fetchKisInvestorTradeByStockDaily: async () => null,
 }));
 vi.mock('../clients/historicalClosePrice.js', () => ({
   fetchHistoricalClosePrice: async () => null,

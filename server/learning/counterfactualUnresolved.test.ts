@@ -8,6 +8,7 @@ import {
   recordCounterfactual,
   summarizeUnresolvedCounterfactuals,
   loadCounterfactuals,
+  saveCounterfactuals,
 } from './counterfactualShadow.js';
 
 const _backup = fs.existsSync(COUNTERFACTUAL_FILE)
@@ -15,6 +16,11 @@ const _backup = fs.existsSync(COUNTERFACTUAL_FILE)
   : null;
 
 function reset() {
+  // setup-drift fix: production shadowPersistenceGateway 가 source 별 in-memory fallback
+  // 캐시를 유지(불변식 #2 — Shadow Learning 은 멈추면 안 됨). 파일만 unlink 하면 load() 가
+  // 직전 테스트의 메모리 fallback 을 DEGRADED_FALLBACK 으로 반환해 엔트리가 누적된다.
+  // saveCounterfactuals([]) 로 파일 + 메모리 fallback 둘 다 빈 상태로 정규화한다.
+  saveCounterfactuals([]);
   if (fs.existsSync(COUNTERFACTUAL_FILE)) fs.unlinkSync(COUNTERFACTUAL_FILE);
 }
 

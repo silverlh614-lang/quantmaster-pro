@@ -7,6 +7,10 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+// timeout drift fix: production 모듈 그래프 확장(buyPipeline→liveBuyExecutor→ws 매니저 등
+// transitive import 증가)으로 beforeEach 의 vi.resetModules() 직후 첫 dynamic import 의
+// cold-compile 비용이 기본 5s 를 초과한다(이후 테스트는 transform 캐시로 통과). 동작 검증은
+// 그대로 유지하고 suite timeout 만 상향한다.
 describe('coldstartBootstrap — Mini-Bar snapshot', () => {
   let tmpDir: string;
 
@@ -17,9 +21,18 @@ describe('coldstartBootstrap — Mini-Bar snapshot', () => {
     vi.doMock('../clients/kisStreamClient.js', () => ({
       getRealtimePrice: vi.fn(() => 51_000),
       subscribeStock:   vi.fn(),
+      // mock-drift fix: kisWebSocketSubscriptionManager 가 transitively 요구하는
+      // export 추가(MAX_SUBSCRIPTIONS=실값 30, unsubscribeStock). 테스트 미사용.
+      unsubscribeStock: vi.fn(),
+      MAX_SUBSCRIPTIONS: 30,
     }));
     vi.doMock('../clients/kisClient.js', () => ({
       fetchCurrentPrice: vi.fn().mockResolvedValue(51_000),
+      // mock-drift fix: buyPipeline→liveBuyExecutor 가 transitively 요구하는 kisClient
+      // export 추가(실 네트워크 차단 의도 유지). 테스트 로직은 이들을 호출하지 않음.
+      fetchAccountBalance: vi.fn().mockResolvedValue(null),
+      submitBuyOrder: vi.fn().mockResolvedValue(null),
+      fetchKisInvestorTradeByStockDaily: vi.fn().mockResolvedValue(null),
     }));
   });
 
@@ -97,7 +110,7 @@ describe('coldstartBootstrap — Mini-Bar snapshot', () => {
     const snaps = await maybeCaptureSnapshots(trade);
     expect(snaps).toHaveLength(0);
   });
-});
+}, 20_000);
 
 describe('coldstartBootstrap — Cross-Sectional prior', () => {
   let tmpDir: string;
