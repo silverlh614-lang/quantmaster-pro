@@ -129,6 +129,13 @@ const BASELINE_TECHNICAL_DEBT = [
   //   ✅ 2026-05-30 scanBlockersFormatter.ts 1500 한계 자연 통과 (1502→1258 LoC,
   //      `git show HEAD:...scanBlockersFormatter.ts | wc -l` = 1258 동일 재현 확정 — 후속 PR
   //      누적 정리로 한계 미만 회복). 본 점검 PR 무수정 → 카탈로그에서 정식 제거하여 enforcement 복원.
+  // 2026-06-05 governance unblock — kisSectorEnergyProvider.ts 1509 LoC. origin/main
+  //   pre-existing baseline (ADR-0574 KIS 섹터명 canonical 정규화가 1500 초과,
+  //   `git show origin/main:server/clients/kisSectorEnergyProvider.ts | wc -l` = 1509 동일
+  //   재현 확정 — 본 PR(ADR-0576 SHADOW P0 에스컬레이션 제외) 무수정). KIS 섹터 에너지
+  //   provider. ADR-0133/0502c 패턴 정합으로 카탈로그 등재 → validate:complexity EXIT=0
+  //   회복. 분해는 별도 ADR-first 후속 PR (책임 단위 SSOT 분리 + 회귀 테스트 의무).
+  'server/clients/kisSectorEnergyProvider.ts',
   'server/trading/signalScanner/scanDiagnostics/persistScanResults.ts',
 ];
 

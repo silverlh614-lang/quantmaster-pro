@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../alerts/telegramClient.js', () => ({
   sendTelegramAlert: vi.fn(() => Promise.resolve(1)),
@@ -81,5 +81,44 @@ describe('telegramCriticalAlertBridge', () => {
       message: 'x', executionImpact: 'NONE', dedupKey: 'd', ttlSec: 30,
     });
     expect(vi.mocked(sendTelegramAlert).mock.calls[0]![1]!.ackFamilyKey).toBeUndefined();
+  });
+
+  // ADR-0576: SHADOW P0 는 ack 폐루프/60분 에스컬레이션 제외 (불변식 #8).
+  describe('ADR-0576 SHADOW P0 ack 루프 제외', () => {
+    const orig = process.env.SHADOW_P0_ACK_LOOP_ENABLED;
+    afterEach(() => {
+      if (orig === undefined) delete process.env.SHADOW_P0_ACK_LOOP_ENABLED;
+      else process.env.SHADOW_P0_ACK_LOOP_ENABLED = orig;
+    });
+
+    it('SHADOW P0 → requireAck:false (ack 미등록 → 재발송/에스컬레이션 없음)', () => {
+      delete process.env.SHADOW_P0_ACK_LOOP_ENABLED;
+      emitTelegramCriticalAlert({
+        priority: 'P0', domain: 'EXECUTION', code: 'P0_SHADOW_EXECUTION_STUCK',
+        message: 'stuck', executionImpact: 'SHADOW_EXECUTION_DEGRADED', mode: 'SHADOW',
+        symbol: '011070', dedupKey: 'd', ttlSec: 30,
+      });
+      expect(vi.mocked(sendTelegramAlert).mock.calls[0]![1]).toMatchObject({ requireAck: false });
+    });
+
+    it('LIVE P0 → requireAck 미설정(undefined) → 기존 ack 루프 유지', () => {
+      delete process.env.SHADOW_P0_ACK_LOOP_ENABLED;
+      emitTelegramCriticalAlert({
+        priority: 'P0', domain: 'EXECUTION', code: 'P0_LIVE_EXECUTION_STUCK',
+        message: 'stuck', executionImpact: 'LIVE_ORDER_BLOCKED', mode: 'LIVE',
+        symbol: '005930', dedupKey: 'd', ttlSec: 30,
+      });
+      expect(vi.mocked(sendTelegramAlert).mock.calls[0]![1]!.requireAck).toBeUndefined();
+    });
+
+    it('SHADOW_P0_ACK_LOOP_ENABLED=true → SHADOW 도 기존 ack 루프 복원(requireAck 미설정)', () => {
+      process.env.SHADOW_P0_ACK_LOOP_ENABLED = 'true';
+      emitTelegramCriticalAlert({
+        priority: 'P0', domain: 'EXECUTION', code: 'P0_SHADOW_EXECUTION_STUCK',
+        message: 'stuck', executionImpact: 'SHADOW_EXECUTION_DEGRADED', mode: 'SHADOW',
+        symbol: '011070', dedupKey: 'd', ttlSec: 30,
+      });
+      expect(vi.mocked(sendTelegramAlert).mock.calls[0]![1]!.requireAck).toBeUndefined();
+    });
   });
 });
