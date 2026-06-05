@@ -41,20 +41,20 @@ function makeCtx(overrides: Partial<StreakSkipContext> = {}): StreakSkipContext 
 describe('ADR-0419 시나리오 A~F — SHADOW_ONLY pre-scan 발화 가능 여부', () => {
   it('A. SELL_ONLY 모드 → countable=false (SELL_ONLY_MODE)', () => {
     const result = evaluateR3CountableScan(makeCtx({ sellOnlyMode: true }));
-    expect(result.countable).toBe(true);
-    expect(result.skipReason).toBeUndefined();
+    expect(result.countable).toBe(false);
+    expect(result.skipReason).toBe('SELL_ONLY_MODE');
   });
 
   it('B. VolumeClock closed (점심·장외 시간대) → countable=false (VOLUME_CLOCK_CLOSED)', () => {
     const result = evaluateR3CountableScan(makeCtx({ volumeClockAllowsEntry: false }));
-    expect(result.countable).toBe(true);
-    expect(result.skipReason).toBeUndefined();
+    expect(result.countable).toBe(false);
+    expect(result.skipReason).toBe('VOLUME_CLOCK_CLOSED');
   });
 
   it('C. R6_DEFENSE / VIX / FOMC 거시 게이트 활성 → countable=false (개별 reason)', () => {
     const r1 = evaluateR3CountableScan(makeCtx({ regime: 'R6_DEFENSE' }));
-    expect(r1.countable).toBe(true);
-    expect(r1.skipReason).toBeUndefined();
+    expect(r1.countable).toBe(false);
+    expect(r1.skipReason).toBe('R6_DEFENSE_REGIME');
 
     const r2 = evaluateR3CountableScan(makeCtx({ vixGatingActive: true }));
     expect(r2.countable).toBe(false);
@@ -104,7 +104,7 @@ describe('ADR-0419 우선순위 결정 트리 (evaluateStreakIncrementAllowed)',
     const result = evaluateStreakIncrementAllowed(
       makeCtx({ volumeClockAllowsEntry: false, emergencyStop: true, sellOnlyMode: true }),
     );
-    expect(result.skipReason).toBe('EMERGENCY_STOP');
+    expect(result.skipReason).toBe('VOLUME_CLOCK_CLOSED');
   });
 
   it('emergencyStop 이 manualBlock / sellOnly 보다 우선', () => {
@@ -125,14 +125,14 @@ describe('ADR-0419 우선순위 결정 트리 (evaluateStreakIncrementAllowed)',
     const result = evaluateStreakIncrementAllowed(
       makeCtx({ sellOnlyMode: true, regime: 'R6_DEFENSE', vixGatingActive: true, fomcBlockActive: true }),
     );
-    expect(result.skipReason).toBe('VIX_BLOCK');
+    expect(result.skipReason).toBe('SELL_ONLY_MODE');
   });
 
   it('R6_DEFENSE 가 VIX / FOMC 보다 우선', () => {
     const result = evaluateStreakIncrementAllowed(
       makeCtx({ regime: 'R6_DEFENSE', vixGatingActive: true, fomcBlockActive: true }),
     );
-    expect(result.skipReason).toBe('VIX_BLOCK');
+    expect(result.skipReason).toBe('R6_DEFENSE_REGIME');
   });
 
   it('VIX 가 FOMC 보다 우선', () => {
@@ -153,7 +153,7 @@ describe('ADR-0419 우선순위 결정 트리 (evaluateStreakIncrementAllowed)',
     const result = evaluateStreakIncrementAllowed(
       makeCtx({ bearDefenseMode: true, dataStarvedScan: true }),
     );
-    expect(result.skipReason).toBe('DATA_STARVED_SCAN');
+    expect(result.skipReason).toBe('BLOCKED_DAY_SCAN');
   });
 
   it('dataStarvedScan 이 frozenQuote STALE 보다 우선', () => {
@@ -245,12 +245,17 @@ describe('ADR-0419 정적 grep 가드 — preflight.ts wiring', () => {
 describe('ADR-0419 StreakSkipReason union 11종 정합', () => {
   it('11 reason value 모두 evaluateStreakIncrementAllowed 출력으로 도달 가능', () => {
     const reasons = new Set<string>();
+    // 각 컨텍스트는 우선순위상 해당 reason 이 첫 매칭이 되도록 구성 (단독 활성).
     const cases: Array<[Partial<StreakSkipContext>, string]> = [
       [{ isKrxTradingDay: false }, 'KRX_NON_TRADING_DAY'],
+      [{ volumeClockAllowsEntry: false }, 'VOLUME_CLOCK_CLOSED'],
       [{ emergencyStop: true }, 'EMERGENCY_STOP'],
       [{ manualBlockNewBuy: true }, 'MANUAL_BLOCK_NEW_BUY'],
+      [{ sellOnlyMode: true }, 'SELL_ONLY_MODE'],
+      [{ regime: 'R6_DEFENSE' }, 'R6_DEFENSE_REGIME'],
       [{ vixGatingActive: true }, 'VIX_BLOCK'],
       [{ fomcBlockActive: true }, 'FOMC_BLOCK'],
+      [{ bearDefenseMode: true }, 'BLOCKED_DAY_SCAN'],
       [{ dataStarvedScan: true }, 'DATA_STARVED_SCAN'],
       [{ frozenQuoteDataQuality: 'STALE' }, 'FROZEN_QUOTE_STALE'],
     ];
@@ -259,6 +264,6 @@ describe('ADR-0419 StreakSkipReason union 11종 정합', () => {
       expect(result.skipReason).toBe(expected);
       reasons.add(result.skipReason!);
     }
-    expect(reasons.size).toBe(7);
+    expect(reasons.size).toBe(11);
   });
 });
