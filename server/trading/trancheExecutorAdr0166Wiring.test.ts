@@ -118,9 +118,16 @@ describe('audit-PR-520 §M2 — trancheExecutor 노출 예산 cap wiring', () =>
       expect(livePostIdx).toBeGreaterThan(capIdx);
     });
 
-    it('cap 결과 t.quantity 변경 시 LIVE 주문이 변경된 quantity 사용 (ORD_QTY: t.quantity)', () => {
-      // t.quantity 가 LIVE 주문 ORD_QTY 에 그대로 사용되므로 cap 후 t.quantity 변경이 자연 반영
-      expect(SRC).toContain('ORD_QTY:      t.quantity.toString()');
+    it('cap 결과 t.quantity 변경 시 LIVE 주문이 변경된 quantity 사용 (submitBuyOrder quantity: t.quantity)', () => {
+      // LIVE 주문 placement 가 inline kisPost(ORD_QTY: t.quantity.toString()) 에서
+      // submitBuyOrder({ ..., quantity: t.quantity }) 헬퍼(kisClient 단일 통로)로 이관됨.
+      // cap mutation(t.quantity = cappedQty) 이 submitBuyOrder 호출보다 앞서므로
+      // 변경된 t.quantity 가 LIVE 주문 수량으로 자연 반영된다 — intent 동일.
+      const capMutationIdx = SRC.indexOf('t.quantity = cappedQty;');
+      const submitIdx = SRC.indexOf('submitBuyOrder({');
+      expect(capMutationIdx).toBeGreaterThan(0);
+      expect(submitIdx).toBeGreaterThan(capMutationIdx);
+      expect(SRC).toMatch(/submitBuyOrder\(\{[\s\S]*?quantity:\s*t\.quantity/);
     });
   });
 });

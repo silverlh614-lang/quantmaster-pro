@@ -4,8 +4,9 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../../alerts/telegramClient.js', () => ({
-  sendTelegramAlert: vi.fn(() => Promise.resolve()),
+// ADR-0466 — sendTelegramAlert → emitTelegramEvent taxonomy router 이관.
+vi.mock('../../../../alerts/telegramEventRouter.js', () => ({
+  emitTelegramEvent: vi.fn(() => Promise.resolve(1)),
 }));
 vi.mock('../../../../persistence/shadowTradeRepo.js', async () => {
   const actual = await vi.importActual<any>('../../../../persistence/shadowTradeRepo.js');
@@ -19,7 +20,7 @@ vi.mock('../../helpers/ma60.js', () => ({
 
 const { ma60DeathWatch } = await import('../ma60DeathWatch.js');
 const { makeMockShadow, makeMockCtx } = await import('./_testHelpers.js');
-const { sendTelegramAlert } = await import('../../../../alerts/telegramClient.js');
+const { emitTelegramEvent } = await import('../../../../alerts/telegramEventRouter.js');
 const { fetchMaFromCloses, isMA60Death } = await import('../../helpers/ma60.js');
 
 describe('ma60DeathWatch (역배열 최초 감지)', () => {
@@ -63,6 +64,6 @@ describe('ma60DeathWatch (역배열 최초 감지)', () => {
     expect(shadow.ma60DeathDetectedAt).toBeTruthy();
     expect(shadow.ma60ForceExitDate).toBe('2026-05-01');
     expect(shadow.exitRuleTag).toBe('MA60_DEATH_WATCH');
-    expect(sendTelegramAlert).toHaveBeenCalledOnce();
+    expect(emitTelegramEvent).toHaveBeenCalledOnce();
   });
 });

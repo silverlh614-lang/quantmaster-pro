@@ -276,7 +276,13 @@ describe('PATCH-010 §5 buyListLoop wiring 정적 가드', () => {
   it('메인 buyList 경로 — calculateOrderQuantity 가 effectivePositionPct 사용', () => {
     expect(buyListLoopSrc).toContain('resolveCandidatePositionFloor({');
     expect(buyListLoopSrc).toContain('const effectivePositionPct = exposureFloor.effectivePositionPct;');
-    expect(buyListLoopSrc).toMatch(/calculateOrderQuantity\(\{[\s\S]*?positionPct:\s*effectivePositionPct/);
+    // ADR-0075(LAGGING 섹터 포지션 상한)이 effectivePositionPct 와 calculateOrderQuantity
+    // 사이에 삽입됨 — effectivePositionPct 는 sector cap 을 곱한 laggingCappedPositionPct 로
+    // 파생되어 calculateOrderQuantity 의 positionPct 로 전달된다. intent(shadow-bull floor 가
+    // 우회되지 않고 수량 계산에 반영) 보존: (1) effectivePositionPct→laggingCappedPositionPct
+    // 파생, (2) 그 값이 calculateOrderQuantity positionPct 로 전달.
+    expect(buyListLoopSrc).toMatch(/const laggingCappedPositionPct = effectivePositionPct\b/);
+    expect(buyListLoopSrc).toMatch(/calculateOrderQuantity\(\{[\s\S]*?positionPct:\s*laggingCappedPositionPct/);
   });
 
   it('진단 로그 — formatShadowBullFloorLog SSOT 헬퍼 사용 (inline 문자열 조립 금지)', () => {

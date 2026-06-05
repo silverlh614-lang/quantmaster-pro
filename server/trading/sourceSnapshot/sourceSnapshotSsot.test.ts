@@ -62,8 +62,14 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
       policyStatus: 'LIVE_ALLOWED',
       liveBuyAllowed: true,
       liveSellAllowed: true,
-      // R6/SELL_ONLY 제거됨 — live order 허용, 차단 없음
-      liveBlockReason: 'NONE',
+      // R6/SELL_ONLY 제거됨 — 레거시 entryBlockMode/operationMode 가 더 이상 live order 를
+      // 차단하지 않음. 단, 본 케이스 input 의 marketSession='AFTERMARKET' 은 R6/SELL_ONLY 와
+      // *직교*한 정상적 세션 차단 사유다: 장 마감 후 실주문 불가 →
+      // executionPermissionResolver(isMarketSessionLiveBlocked: AFTERMARKET→true)가
+      // liveBlockReason='MARKET_SESSION_BLOCK' 를 부여한다(실행안전 정상 동작, 회귀 아님).
+      // 따라서 liveBlockReason 은 'NONE' 이 아니라 'MARKET_SESSION_BLOCK' 이어야 한다 —
+      // 핵심은 그 사유가 레거시 R6/SELL_ONLY 계열(POLICY_BLOCK/SELL_ONLY_*)이 아니라는 점.
+      liveBlockReason: 'MARKET_SESSION_BLOCK',
       gateEvaluationAllowed: true,
       diagnosticGateEvaluationAllowed: true,
       shadowEvaluationAllowed: true,
@@ -77,6 +83,11 @@ describe('Source Snapshot SSOT common gate and policy split', () => {
       legacyPolicyIgnored: true,
     });
     expect(policy.blockReasons).toEqual([]);
+    // 핵심 회귀 가드: 차단 사유가 세션(MARKET_SESSION_BLOCK)일 뿐 레거시 R6/SELL_ONLY
+    // 계열(POLICY_BLOCK / SELL_ONLY_BLOCK / SHADOW_ONLY_POLICY)이 아님을 명시 단언.
+    expect(policy.liveBlockReason).not.toBe('POLICY_BLOCK');
+    expect(['POLICY_BLOCK', 'SELL_ONLY_BLOCK', 'SHADOW_ONLY_POLICY', 'OBSERVE_ONLY_MODE'])
+      .not.toContain(policy.liveBlockReason);
     // legacyPolicyInputs 는 policyResolver 자체 로직으로 여전히 수집됨 (진단 로깅용)
     expect(policy.legacyPolicyInputs).toEqual(expect.arrayContaining([
       'AFTERMARKET_SELL_ONLY_REMOVED',

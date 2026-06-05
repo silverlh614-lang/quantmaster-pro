@@ -21,6 +21,17 @@ vi.mock('../../persistence/paths.js', () => ({
   ensureDataDir: vi.fn(),
   tradeEventsFile: vi.fn(() => '/mock/events.jsonl'),
 }));
+// seed 4452bd3 후 shadowTradeRepo 전이 import 그래프가 kisClient 단일 통로를 끌어들이고,
+// kisClient/auth.ts 가 import-time 에 hydrateFromDisk()→emitOperationalWarn() 를 호출한다.
+// operationalWarn 의 telegramCriticalAlertBridge→telegramClient 순환 import 가 fs/paths
+// mock 으로 바뀐 init 순서에서 TDZ('__vite_ssr_import before initialization')로 노출된다.
+// 본 테스트(TradeEvent 회계 불변식)는 warn emit 과 무관 → emitOperationalWarn 격리로
+// import-time 순환 부작용만 차단(런타임 단언 대상 동작 변경 0).
+vi.mock('../../observability/operationalWarn.js', () => ({
+  emitOperationalWarn: vi.fn(() => ({ emitted: false })),
+  defaultWarnTtlSec: vi.fn(() => 60),
+  classifyOperationalWarnLogLevel: vi.fn(() => 'warn'),
+}));
 
 import {
   getRemainingQty,

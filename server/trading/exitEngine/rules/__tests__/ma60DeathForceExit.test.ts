@@ -4,10 +4,15 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../../clients/kisClient.js', () => ({
-  placeKisSellOrder: vi.fn(() => Promise.resolve({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' })),
-}));
-vi.mock('../../../../alerts/telegramClient.js', () => ({ sendTelegramAlert: vi.fn(() => Promise.resolve()) }));
+vi.mock('../../../../clients/kisClient.js', async () => {
+  const actual = await vi.importActual<any>('../../../../clients/kisClient.js');
+  return {
+    ...actual,
+    placeKisSellOrder: vi.fn(() => Promise.resolve({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' })),
+  };
+});
+// ADR-0466 — 알림 경로가 sendTelegramAlert → emitTelegramEvent taxonomy router 로 이관.
+vi.mock('../../../../alerts/telegramEventRouter.js', () => ({ emitTelegramEvent: vi.fn(() => Promise.resolve(1)) }));
 vi.mock('../../../../alerts/channelPipeline.js', () => ({ channelSellSignal: vi.fn(() => Promise.resolve()) }));
 vi.mock('../../../../alerts/stopLossTransparencyReport.js', () => ({ sendStopLossTransparencyReport: vi.fn(() => Promise.resolve()) }));
 vi.mock('../../../../persistence/shadowTradeRepo.js', async () => {
@@ -29,12 +34,17 @@ vi.mock('../../helpers/ma60.js', () => ({
   isMA60Death: vi.fn(),
   kstBusinessDateStr: vi.fn(),
 }));
+// FAILED 분기 rollbackFullCloseOnFailure 의 real-fs appendShadowLog 플레이크 차단.
+vi.mock('../../helpers/rollbackFullClose.js', () => ({
+  captureFullCloseSnapshot: vi.fn(() => ({ status: 'ACTIVE', quantity: 100 })),
+  rollbackFullCloseOnFailure: vi.fn(),
+}));
 
 const { ma60DeathForceExit } = await import('../ma60DeathForceExit.js');
 const { makeMockShadow, makeMockCtx, LIVE_FAILED_RESULT } = await import('./_testHelpers.js');
 const { placeKisSellOrder } = await import('../../../../clients/kisClient.js');
 const { fetchMaFromCloses, isMA60Death, kstBusinessDateStr } = await import('../../helpers/ma60.js');
-const { sendTelegramAlert } = await import('../../../../alerts/telegramClient.js');
+const { emitTelegramEvent } = await import('../../../../alerts/telegramEventRouter.js');
 
 describe('ma60DeathForceExit (5영업일 만료 강제청산)', () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -91,9 +101,8 @@ describe('ma60DeathForceExit (5영업일 만료 강제청산)', () => {
     (placeKisSellOrder as any).mockResolvedValueOnce(LIVE_FAILED_RESULT);
     const shadow = makeMockShadow({ quantity: 100, ma60ForceExitDate: '2026-05-01' });
     await ma60DeathForceExit(makeMockCtx({ shadow, currentPrice: 90 }));
-    expect(sendTelegramAlert).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ priority: 'CRITICAL' }),
+    expect(emitTelegramEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'CRITICAL' }),
     );
   });
 });

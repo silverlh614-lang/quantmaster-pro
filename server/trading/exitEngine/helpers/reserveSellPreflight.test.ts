@@ -1,7 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// seed 4452bd3 후 import 그래프 확장(reserveSell → … → buyPipeline → liveBuyExecutor)으로
+// kisClient 단일 통로 배럴에서 placeKisSellOrder 외 fetchAccountBalance/submitBuyOrder 도
+// import-time 에 요구된다.
+// 주의: kisClient.ts 는 `export * from './kisClient/index.js'` 배럴이라 importActual spread
+// 후 placeKisSellOrder 를 덮어써도 re-export binding 이 우선해 실 구현(getTradingMode()=
+// SHADOW → SHADOW_ONLY)이 호출되어 override 가 무시된다(LIVE 경로 단언이 SHADOW 로 오염).
+// → 명시 factory 로 필요한 export 만 vi.fn() stub 한다(placeKisSellOrder 단언 정합 보장).
+// liveBuyExecutor/buyPipeline 은 본 테스트에서 호출되지 않으므로 no-op stub 으로 충분.
 vi.mock('../../../clients/kisClient.js', () => ({
   placeKisSellOrder: vi.fn(),
+  fetchAccountBalance: vi.fn(async () => 0),
+  submitBuyOrder: vi.fn(async () => ({ kind: 'SUBMITTED', ordNo: 'TEST-ORD' })),
 }));
 
 vi.mock('../../../persistence/shadowTradeRepo.js', async () => {

@@ -17,9 +17,16 @@ const {
 } = await import('../stopApproachAlert.js');
 const { makeMockShadow, makeMockCtx } = await import('./_testHelpers.js');
 const { sendPrivateAlert } = await import('../../../../alerts/telegramClient.js');
+// stopApproachAlert 은 shadowExitDedup 의 프로세스-전역 in-memory ledger
+// (eventLedger / stopApproachLastSent) 로 중복 알림을 억제한다. 이 ledger 가
+// 케이스 간 누적되면 (동일 mode/tradeDate/symbol/positionId eventId) 후속 테스트가
+// DUPLICATE_EVENT / STOP_APPROACH_COOLDOWN 으로 억제돼 stage 알림 count 가 어긋난다.
+// 모듈이 노출한 표준 test-only reset 훅으로 케이스마다 격리한다 (불변식 #2 무영향 —
+// 런타임 dedup 로직 변경 없이 in-memory 상태만 초기화).
+const { resetShadowExitDedupStateForTest } = await import('../../../../shadow/shadowExitDedup.js');
 
 describe('stopApproachAlert (3-stage dedupe)', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => { vi.clearAllMocks(); resetShadowExitDedupStateForTest(); });
 
   it('손절가 위 5% 초과 거리 → 어떤 stage 도 발동 안 함', async () => {
     const shadow = makeMockShadow({ stopLoss: 90, hardStopLoss: 90 });
@@ -328,7 +335,8 @@ describe('buildAlertMessage (3 메트릭 동시 노출)', () => {
 });
 
 describe('stopApproachAlert + classifyStopSource 통합 (사용자 보고 시나리오)', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  // dedup ledger 격리 — 위 dedupe suite 와 동일 stockCode(005930) eventId 충돌 방지.
+  beforeEach(() => { vi.clearAllMocks(); resetShadowExitDedupStateForTest(); });
 
   it('hardStop 가 진입가까지 상향된 BEP 케이스 → 알림 메시지가 "BEP 청산선 임박" 라벨', async () => {
     // 사용자 시나리오 그대로: 진입가 32,096 = hardStopLoss 32,096 = BEP, 현재가 32,950 = +2.66% 수익

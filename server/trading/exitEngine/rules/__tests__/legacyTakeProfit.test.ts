@@ -4,10 +4,15 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../../clients/kisClient.js', () => ({
-  placeKisSellOrder: vi.fn(() => Promise.resolve({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' })),
-}));
-vi.mock('../../../../alerts/telegramClient.js', () => ({ sendTelegramAlert: vi.fn(() => Promise.resolve()) }));
+vi.mock('../../../../clients/kisClient.js', async () => {
+  const actual = await vi.importActual<any>('../../../../clients/kisClient.js');
+  return {
+    ...actual,
+    placeKisSellOrder: vi.fn(() => Promise.resolve({ ordNo: null, placed: false, outcome: 'SHADOW_ONLY' })),
+  };
+});
+// ADR-0466 — 알림 경로가 sendTelegramAlert → emitTelegramEvent taxonomy router 로 이관.
+vi.mock('../../../../alerts/telegramEventRouter.js', () => ({ emitTelegramEvent: vi.fn(() => Promise.resolve(1)) }));
 vi.mock('../../../../alerts/channelPipeline.js', () => ({ channelSellSignal: vi.fn(() => Promise.resolve()) }));
 vi.mock('../../../../persistence/shadowTradeRepo.js', async () => {
   const actual = await vi.importActual<any>('../../../../persistence/shadowTradeRepo.js');
@@ -23,11 +28,19 @@ vi.mock('../../../../persistence/shadowTradeRepo.js', async () => {
 });
 vi.mock('../../../fillMonitor.js', () => ({ addSellOrder: vi.fn() }));
 vi.mock('../../../tradeEventLog.js', () => ({ appendTradeEvent: vi.fn() }));
+// FAILED 분기의 rollbackFullCloseOnFailure 는 실제 appendShadowLog(real-fs
+// data/shadow-log.json write)를 호출한다. 병렬 워커 간 torn read/write 로 인한
+// 플레이크를 차단하기 위해 helper 를 stub 한다 — 본 테스트는 telegram CRITICAL
+// 발송만 검증하므로 rollback 내부 효과 단언 없음(behavior 보존).
+vi.mock('../../helpers/rollbackFullClose.js', () => ({
+  captureFullCloseSnapshot: vi.fn(() => ({ status: 'ACTIVE', quantity: 100 })),
+  rollbackFullCloseOnFailure: vi.fn(),
+}));
 
 const { legacyTakeProfit } = await import('../legacyTakeProfit.js');
 const { makeMockShadow, makeMockCtx, LIVE_FAILED_RESULT, makeLiveOrderedResult } = await import('./_testHelpers.js');
 const { placeKisSellOrder } = await import('../../../../clients/kisClient.js');
-const { sendTelegramAlert } = await import('../../../../alerts/telegramClient.js');
+const { emitTelegramEvent } = await import('../../../../alerts/telegramEventRouter.js');
 const { addSellOrder } = await import('../../../fillMonitor.js');
 
 describe('legacyTakeProfit (TARGET_EXIT fallback)', () => {
@@ -60,9 +73,8 @@ describe('legacyTakeProfit (TARGET_EXIT fallback)', () => {
     (placeKisSellOrder as any).mockResolvedValueOnce(LIVE_FAILED_RESULT);
     const shadow = makeMockShadow({ quantity: 100, targetPrice: 120 });
     await legacyTakeProfit(makeMockCtx({ shadow, currentPrice: 125 }));
-    expect(sendTelegramAlert).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ priority: 'CRITICAL' }),
+    expect(emitTelegramEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ severity: 'CRITICAL' }),
     );
   });
 

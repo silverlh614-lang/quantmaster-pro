@@ -26,6 +26,19 @@ vi.mock('../../persistence/paths.js', () => ({
   ensureDataDir: vi.fn(),
   tradeEventsFile: vi.fn(() => '/mock/events.jsonl'),
 }));
+// seed 4452bd3 후 shadowTradeRepo 전이 import 그래프가 kisClient 단일 통로를 끌어들이고,
+// kisClient/auth.ts 가 import-time 에 hydrateFromDisk()→emitKisAuthPersistenceWarn()→
+// emitOperationalWarn() 를 호출한다. operationalWarn 은 telegramCriticalAlertBridge→
+// telegramClient 의 무거운 순환 import 를 거치는데, fs/paths mock 으로 모듈 init 순서가
+// 바뀌며 그 순환이 SSR transform 의 TDZ('__vite_ssr_import before initialization')로
+// 노출된다. 본 테스트(회계 불변식/캐시 정합)는 운영 warn emit 과 무관하므로
+// emitOperationalWarn 을 no-op 으로 격리해 import-time 순환 부작용을 차단한다
+// (런타임 동작 변경 0 — warn 은 본 테스트 단언 대상이 아님).
+vi.mock('../../observability/operationalWarn.js', () => ({
+  emitOperationalWarn: vi.fn(() => ({ emitted: false })),
+  defaultWarnTtlSec: vi.fn(() => 60),
+  classifyOperationalWarnLogLevel: vi.fn(() => 'warn'),
+}));
 
 import {
   appendFill,
