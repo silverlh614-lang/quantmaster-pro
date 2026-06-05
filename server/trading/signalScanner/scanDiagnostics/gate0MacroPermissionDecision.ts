@@ -5,6 +5,7 @@ import type {
   MacroSignalConfidence,
   ScanSummary,
 } from './scanSummaryTypes.js';
+import { resolveStaleLegacyR6 } from './staleLegacyR6.js';
 
 export type Gate0ExecutionImpact = 'NONE' | 'LIVE_BUY_BLOCKED' | 'LIVE_EXIT_ONLY';
 
@@ -441,11 +442,8 @@ export function resolveScoringEffectiveRegime(mg: MacroGateState | null | undefi
   const rawRegime = mg?.macroRegimeRaw ?? mg?.regime ?? 'UNKNOWN';
   const displayRegime = mg?.displayRegime ?? mg?.regime ?? 'UNKNOWN';
   const legacyEffectiveRegime = mg?.macroRegimeEffective ?? mg?.regime ?? rawRegime;
-  const staleLegacyR6Path =
-    legacyEffectiveRegime === 'R6_DEFENSE'
-    && displayRegime !== 'R6_DEFENSE'
-    && mg?.regime !== 'R6_DEFENSE';
-  return staleLegacyR6Path ? rawRegime : legacyEffectiveRegime;
+  // 결정 SSOT: staleLegacyR6 ternary 는 staleLegacyR6.ts 에 단일화(scanEvaluationState 와 공유, drift 방지).
+  return resolveStaleLegacyR6({ legacyEffectiveRegime, displayRegime, regime: mg?.regime, rawRegime }).effectiveRegime;
 }
 
 function activeRiskFlags(mg: MacroGateState | null | undefined): string {

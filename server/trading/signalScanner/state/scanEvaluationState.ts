@@ -6,6 +6,7 @@ import { classifyScanBlockReason } from './scanBlockReasonClassifier.js';
 import { buildGateEvaluationReport } from './gateEvaluationReporter.js';
 import { evaluateQuoteHydration } from './quoteHydrationGuard.js';
 import { isKrxTradingDay } from '../../../calendar/krxTradingCalendar.js';
+import { resolveStaleLegacyR6 } from '../scanDiagnostics/staleLegacyR6.js';
 
 export type ScanEvaluationState =
   | 'NOT_EVALUATED_SELL_ONLY'
@@ -255,11 +256,13 @@ function buildCanonicalRegimeDiagnostics(
     stringField(macro, 'regime') ??
     legacyEffectiveRegime;
   const riskOverride = stringField(macro, 'riskOverride') ?? displayRegime;
-  const staleLegacyR6 =
-    legacyEffectiveRegime === 'R6_DEFENSE' &&
-    displayRegime !== 'R6_DEFENSE' &&
-    stringField(macro, 'regime') !== 'R6_DEFENSE';
-  const canonicalEffectiveRegime = staleLegacyR6 ? rawRegime : legacyEffectiveRegime;
+  // 결정 SSOT: staleLegacyR6 ternary 는 staleLegacyR6.ts 에 단일화(gate0 resolveScoringEffectiveRegime 과 공유, drift 방지).
+  const { effectiveRegime: canonicalEffectiveRegime, staleLegacyR6 } = resolveStaleLegacyR6({
+    legacyEffectiveRegime,
+    displayRegime,
+    regime: stringField(macro, 'regime'),
+    rawRegime,
+  });
   return {
     effectiveRegime: canonicalEffectiveRegime,
     diagnostics: {
