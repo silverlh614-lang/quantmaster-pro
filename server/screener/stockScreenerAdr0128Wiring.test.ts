@@ -38,8 +38,14 @@ describe('ADR-0128 §Wiring 1B — autoPopulateWatchlist WATCHLIST role 검증',
 
   it('try/catch 격리 — verify error 가 워치리스트 등록 차단 안 함', () => {
     const src = readSource();
-    const safeSkipMatches = src.match(/\[autoPopulateWatchlist\] verify error \(skip\)/g) ?? [];
-    expect(safeSkipMatches.length).toBeGreaterThanOrEqual(2);
+    // 출력 드리프트 정정: verify 실패 격리 로그가 console.log('[autoPopulateWatchlist] verify error
+    // (skip)') 에서 중앙 emitProviderWarn(fallbackUsed:true, "continuing auto-populate") 로 이주됨
+    // (log-noise-reduction / provider-warn 중앙화). 격리 *의도*(catch 가 등록을 차단하지 않고
+    // 계속 진행)는 동일 — KIS·Yahoo 두 경로 catch 의 emitProviderWarn 보유를 behavioral 로 검증.
+    const continuingMatches = src.match(/continuing auto-populate/g) ?? [];
+    expect(continuingMatches.length).toBeGreaterThanOrEqual(2); // KIS path + Yahoo path
+    // catch 블록이 emitProviderWarn 으로 격리(throw 재전파 없이 계속)됨을 확인.
+    expect(src).toMatch(/catch\s*\(\s*err\s*\)\s*\{[\s\S]{0,200}emitProviderWarn\([\s\S]{0,300}fallbackUsed:\s*true/);
   });
 });
 

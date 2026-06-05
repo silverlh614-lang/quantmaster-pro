@@ -284,8 +284,10 @@ describe('log noise reduction', () => {
   });
 
   it('gate1 forensic audit는 SUPPLY_SEMANTIC_WIRE 진단을 중앙 logger 게이트 경유한다', () => {
+    // ADR-0505 forensic 모듈 분해 후 SUPPLY_SEMANTIC_WIRE 게이트는 supplyScopeAudit 로 이주됨.
+    // (gate1MinimumSignalForensicAuditAdr0505.ts 는 barrel re-export 만 보유)
     const src = readFileSync(
-      resolve(import.meta.dirname, 'trading/signalScanner/gate1MinimumSignalForensicAuditAdr0505.ts'),
+      resolve(import.meta.dirname, 'trading/signalScanner/gate1MinimumSignalForensic/supplyScopeAudit.ts'),
       'utf-8',
     );
     expect(src).toMatch(/shouldSuppressNoise\('SUPPLY_SEMANTIC_WIRE_DIAGNOSTIC'\)/);
@@ -371,8 +373,9 @@ describe('log noise reduction', () => {
   });
 
   it('buyListLoop ENTRY_PRICE_DEVIATION failCount 증가 로그는 logger.info 위임 + console.log 직접 호출 부재', () => {
+    // perSymbol 추가 분해 후 진입가 이탈 failCount 로그는 steps/preBreakoutEntry 로 이주됨.
     const src = readFileSync(
-      resolve(import.meta.dirname, 'trading/signalScanner/perSymbol/buyListLoop.ts'),
+      resolve(import.meta.dirname, 'trading/signalScanner/perSymbol/steps/preBreakoutEntry.ts'),
       'utf-8',
     );
     // 사용자 명시 PR #910 후속 — console.log → logger.info 교체 (LOG_LEVEL 정합)

@@ -3,6 +3,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SectorStocksDrilldown } from './SectorStocksDrilldown';
 import { useRecommendationStore } from '../../stores';
 import { useShadowTradeStore } from '../../stores/useShadowTradeStore';
@@ -53,6 +54,18 @@ function makeShadow(
   };
 }
 
+// mock/harness drift 보강: 종목 카드가 PriceDisplay → usePriceCanon → useQuery 를 사용하므로
+// QueryClientProvider 가 필요하다. 격리된 QueryClient(재시도 off)로 렌더를 래핑한다.
+function makeClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+}
+
+function renderDrilldown(ui: React.ReactElement) {
+  return render(<QueryClientProvider client={makeClient()}>{ui}</QueryClientProvider>);
+}
+
 describe('SectorStocksDrilldown — shadow trade 매칭 (ADR-0060 §3.2)', () => {
   beforeEach(() => {
     // 각 케이스 격리 — store 초기화
@@ -69,7 +82,7 @@ describe('SectorStocksDrilldown — shadow trade 매칭 (ADR-0060 §3.2)', () =>
     useShadowTradeStore.setState({
       shadowTrades: [makeShadow('005930', '삼성전자', '반도체', 'ACTIVE')],
     });
-    const { getByText, queryByText } = render(
+    const { getByText, queryByText } = renderDrilldown(
       <SectorStocksDrilldown sectorName="반도체" score={70} onClose={() => {}} />,
     );
     expect(getByText('삼성전자')).toBeTruthy();
@@ -87,7 +100,7 @@ describe('SectorStocksDrilldown — shadow trade 매칭 (ADR-0060 §3.2)', () =>
         makeShadow('000660', 'SK하이닉스', '반도체', 'HIT_STOP'),
       ],
     });
-    const { queryByText, getByText } = render(
+    const { queryByText, getByText } = renderDrilldown(
       <SectorStocksDrilldown sectorName="반도체" score={70} onClose={() => {}} />,
     );
     // 두 closed shadow 모두 미노출
@@ -106,7 +119,7 @@ describe('SectorStocksDrilldown — shadow trade 매칭 (ADR-0060 §3.2)', () =>
     useShadowTradeStore.setState({
       shadowTrades: [makeShadow('005930', '삼성전자(보유)', '반도체', 'ACTIVE')],
     });
-    const { container } = render(
+    const { container } = renderDrilldown(
       <SectorStocksDrilldown sectorName="반도체" score={70} onClose={() => {}} />,
     );
     // dedupe 확인 — code=005930 항목이 정확히 1건만 렌더 (li 갯수)
@@ -125,7 +138,7 @@ describe('SectorStocksDrilldown — shadow trade 매칭 (ADR-0060 §3.2)', () =>
     useShadowTradeStore.setState({
       shadowTrades: [makeShadow('035420', 'NAVER', 'IT 서비스', 'ACTIVE')],
     });
-    const { getByText, queryByText } = render(
+    const { getByText, queryByText } = renderDrilldown(
       <SectorStocksDrilldown sectorName="에너지" score={20} onClose={() => {}} />,
     );
     expect(getByText(/"에너지" 섹터에 속한 종목이 없습니다/)).toBeTruthy();

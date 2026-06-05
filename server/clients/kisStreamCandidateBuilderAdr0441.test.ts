@@ -44,6 +44,8 @@ vi.mock('../persistence/shadowTradeRepo.js', () => ({
     if (buyQty > 0) return Math.max(0, buyQty - sellQty);
     return trade.quantity ?? 0;
   }),
+  // mock-drift 보강 — 트랜시티브 import 체인이 appendShadowLog 를 named import 함.
+  appendShadowLog: vi.fn(),
 }));
 
 import {

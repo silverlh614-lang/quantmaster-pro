@@ -82,14 +82,20 @@ describe('recordScanResult — ADR-452b empty scan taxonomy wiring', () => {
     resetScanState();
   });
 
-  it('09:15 KST + signalCount=0 + NORMAL은 session-blocked로 streak를 증가시키지 않는다', () => {
+  // 출력/행동 드리프트 정정 (canonical = emptyScanTaxonomy.getKstIntradaySession/isBuySessionKst):
+  //   ADR-0552(점심 휴장 폐지) + volumeClock ALWAYS-ON 정합으로 isBuySessionKst 는 평일 09:00~15:20
+  //   전부 buyable 로 정의된다. 09:15(OPENING_GUARD)·11:45(LUNCH_GUARD) 는 더이상 session-blocked 가
+  //   아니라 *감점만 있는 매수 허용 구간* → classifyEmptyScan = TRUE_EMPTY(incrementEmptyScan=true).
+  //   따라서 streak 가 1 로 증가한다. 진짜 session-blocked 는 15:20+(CLOSING_PREP, 아래 15:25)·주말뿐.
+  //   원본은 점심·시초가가 차단이던 구(舊) 윈도 기준으로 DOA.
+  it('09:15 KST + signalCount=0 + NORMAL은 OPENING_GUARD(매수 허용)로 TRUE_EMPTY streak를 증가시킨다', () => {
     recordScanResult(0, { now: kstTime(9, 15), engineMode: 'NORMAL' });
-    expect(getScanFeedbackState().consecutiveEmptyScans).toBe(0);
+    expect(getScanFeedbackState().consecutiveEmptyScans).toBe(1);
   });
 
-  it('11:45 KST + signalCount=0 + NORMAL은 session-blocked로 streak를 증가시키지 않는다', () => {
+  it('11:45 KST + signalCount=0 + NORMAL은 LUNCH_GUARD(매수 허용)로 TRUE_EMPTY streak를 증가시킨다', () => {
     recordScanResult(0, { now: kstTime(11, 45), engineMode: 'NORMAL' });
-    expect(getScanFeedbackState().consecutiveEmptyScans).toBe(0);
+    expect(getScanFeedbackState().consecutiveEmptyScans).toBe(1);
   });
 
   it('15:25 KST + signalCount=0 + NORMAL은 session-blocked로 streak를 증가시키지 않는다', () => {

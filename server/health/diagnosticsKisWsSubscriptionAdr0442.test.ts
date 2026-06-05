@@ -33,6 +33,8 @@ import * as intradayYield from '../alerts/intradayYieldTicker.js';
 
 // ADR-0442 SSOT 호출자 — buildSubscriptionDiagnosis throw mock 을 위해 import.
 import * as kisWsManager from '../clients/kisWebSocketSubscriptionManager.js';
+// P3 진단 warn 의 dedup 윈도를 두 collectHealthSnapshot 호출 사이에 초기화하기 위해 import.
+import { clearWarnDedupStore } from '../observability/warnDedupStore.js';
 
 import { collectHealthSnapshot } from './diagnostics.js';
 
@@ -163,18 +165,43 @@ describe('ADR-0442 collectHealthSnapshot — kisWsSubscription wiring', () => {
     expect(s.kisWsSubscription).toBeUndefined();
   });
 
-  it('buildSubscriptionDiagnosis throw → undefined + console.warn (try/catch 격리)', () => {
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('buildSubscriptionDiagnosis throw → undefined (try/catch 격리) + 중앙 P3 diagnostic warn 경유', () => {
+    // 출력 드리프트 정정: safeBuildKisWsSubscriptionDiagnosis 의 catch 가 raw console.warn 에서
+    // emitDiagnosticWarn(priority:'P3', code:'P3_DIAGNOSTIC_SUPPRESSED') 중앙 경로로 이주됨
+    // (diagnostics.ts L342). P3 는 OPERATIONAL_WARN_DEBUG!='true' 시 runtime 출력 억제(노이즈 감축)
+    // 이고, 출력 시 executionImpact='NONE' → classify 'info' → console.info 로 라우팅된다(console.warn 아님).
+    //   핵심 안전 불변(진단 throw 격리 → snapshot 차단 없음 → kisWsSubscription=undefined)은 동일하게 검증.
     vi.spyOn(kisWsManager, 'buildSubscriptionDiagnosis').mockImplementation(() => {
       throw new Error('mock buildSubscriptionDiagnosis throw');
     });
-    const s = collectHealthSnapshot();
-    expect(s.kisWsSubscription).toBeUndefined();
-    expect(consoleSpy).toHaveBeenCalled();
-    const calls = consoleSpy.mock.calls.map((c) => String(c[0]));
-    expect(calls.some((m) => m.includes('kis-ws subscription') || m.includes('Diagnostics'))).toBe(
-      true,
-    );
+
+    // (1) 기본(runtime 억제): throw 가 격리되어 undefined 반환 + snapshot 자체는 정상 생성.
+    const sSuppressed = collectHealthSnapshot();
+    expect(sSuppressed.kisWsSubscription).toBeUndefined();
+
+    // (2) OPERATIONAL_WARN_DEBUG=true: P3 진단 warn 이 중앙 logger(console.info) 로 표면화됨.
+    //     첫 호출이 동일 dedupKey 를 등록했으므로 dedup 윈도를 비워 두 번째 emission 을 보장한다.
+    clearWarnDedupStore();
+    const prevDebug = process.env.OPERATIONAL_WARN_DEBUG;
+    process.env.OPERATIONAL_WARN_DEBUG = 'true';
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      const s = collectHealthSnapshot();
+      expect(s.kisWsSubscription).toBeUndefined();
+      const calls = infoSpy.mock.calls.map((c) => String(c[0]));
+      expect(
+        calls.some(
+          (m) =>
+            m.includes('P3_DIAGNOSTIC_SUPPRESSED') ||
+            m.includes('subscription diagnosis failed') ||
+            m.includes('DIAGNOSTIC'),
+        ),
+      ).toBe(true);
+    } finally {
+      infoSpy.mockRestore();
+      if (prevDebug === undefined) delete process.env.OPERATIONAL_WARN_DEBUG;
+      else process.env.OPERATIONAL_WARN_DEBUG = prevDebug;
+    }
   });
 
   it('HealthSnapshot 타입에 kisWsSubscription? 옵셔널 필드 존재 (정적 grep 가드)', () => {

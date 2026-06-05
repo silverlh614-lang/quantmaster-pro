@@ -19,6 +19,11 @@ vi.mock('../clients/kisClient.js', () => ({
   realDataKisGet: vi.fn(),
   fetchStockName: vi.fn(),
   fetchAccountBalance: vi.fn(),
+  // mock-drift 보강 — ADR-0135 kisClient barrel 분해 후 order 게이트웨이 export 추가됨.
+  // 본 테스트의 트랜시티브 import 체인이 실주문 함수를 named import 하므로 stub 제공.
+  submitBuyOrder: vi.fn(),
+  submitSellOrder: vi.fn(),
+  cancelOrder: vi.fn(),
 }));
 
 vi.mock('../screener/stockScreener.js', () => ({

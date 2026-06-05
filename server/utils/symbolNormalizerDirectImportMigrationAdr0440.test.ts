@@ -155,15 +155,25 @@ describe('ADR-0440 정적 grep 가드 — 3 callers SSOT 직접 import', () => {
     );
   });
 
-  it('ADR-0440 추적 주석 — 3 callers 모두 ADR-0440 명시', () => {
+  it('ADR-0440 추적 주석 — watchlistRepo / historicalClosePrice / guards 명시', () => {
     const watchlistSrc = readSrc('server/persistence/watchlistRepo.ts');
     expect(watchlistSrc).toMatch(/ADR-0440/);
-    const buyPipelineSrc = readSrc('server/trading/buyPipeline.ts');
-    expect(buyPipelineSrc).toMatch(/ADR-0440/);
     const historicalSrc = readSrc('server/clients/historicalClosePrice.ts');
     expect(historicalSrc).toMatch(/ADR-0440/);
     const guardsSrc = readSrc('server/dataQuality/emergencyDataQualityGuards.ts');
     expect(guardsSrc).toMatch(/ADR-0440/);
+  });
+
+  // buyPipeline.ts 는 trading 도메인 리팩토링 과정에서 ADR-0440 추적 *주석 문자열* 이 제거됐다.
+  // 그러나 ADR-0440 의 실체(symbolNormalizer SSOT 직접 import + .valid 위임)는 그대로 보존되므로,
+  // tautology 인 주석-존재 grep 대신 마이그레이션 *실체* 를 behavioral 로 검증한다(코멘트 drift 무관).
+  it('buyPipeline.ts: ADR-0440 마이그레이션 실체 보존 (symbolNormalizer SSOT import + normalizeKrxCode(...).valid 위임)', () => {
+    const buyPipelineSrc = readSrc('server/trading/buyPipeline.ts');
+    const cleaned = stripComments(buyPipelineSrc);
+    // (1) SSOT 직접 import 보유 (deprecated emergencyDataQualityGuards 경유 아님).
+    expect(cleaned).toMatch(/import\s*\{[^}]*normalizeKrxCode[^}]*\}\s*from\s*['"]\.\.\/utils\/symbolNormalizer\.js['"]/);
+    // (2) SSOT 의 .valid 결과 위임 사용 (로컬 정규식 복붙 / `=== null` 패턴 아님).
+    expect(cleaned).toMatch(/normalizeKrxCode\([^)]*\)\.valid/);
   });
 });
 
