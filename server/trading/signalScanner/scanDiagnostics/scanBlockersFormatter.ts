@@ -1130,6 +1130,18 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
 
   pushOptionalSection(lines, formatSectorEnergyQualityDiagnosticSection(sectorEnergyQualityDiagnosticForDisplay(summary)));
 
+  // ADR-0425/0436/0426/0430/0464/0448/0449/0452 — gate routing · shadow lanes ·
+  // entry-filter decomposition · R3 noise · pre-breakout · near-breakout (display-only).
+  appendGateRoutingShadowAndEntryFilterSections(lines, summary, canonicalRuntimeResolution);
+
+  return lines.join('\n');
+}
+
+function appendGateRoutingShadowAndEntryFilterSections(
+  lines: string[],
+  summary: ScanSummary,
+  canonicalRuntimeResolution: CanonicalRuntimeResolutionStep27,
+): void {
   // ADR-0425 — Gate Decision Router (hard block vs soft degrade separation).
   // 사용자 §F — Router 결과 (severity / lanes / reasons / operatorMessage) 노출.
   // Gate threshold 변경 0 — decision semantics 분리만. Shadow/Watch 학습 후보 보존.
@@ -1202,8 +1214,6 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
         >) ?? {},
     }));
   }
-
-  return lines.join('\n');
 }
 
 function formatCanonicalRuntimeResolutionAdoptionSection(
