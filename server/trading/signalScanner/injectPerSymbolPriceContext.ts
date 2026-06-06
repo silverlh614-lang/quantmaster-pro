@@ -29,13 +29,15 @@ interface ResolvedPriceContext {
 }
 
 /**
- * ADR-0578 — Gate1 기술지표 주입 활성 스위치. default OFF → byte-equivalent.
+ * ADR-0578 — Gate1 기술지표 주입 활성 스위치. **default ON** (2026-06-06 승격, ADR-0157 flag 패턴 `!== 'false'`).
  * RS/모멘텀은 featurePack fallback 으로 생존하나 ma20/ma60/rsi14/atr 는 quote/symbolFeatures
  * 단독 출처라 장후 시세 미수신 시 0 → TECHNICAL_TREND/VOLUME_LIQUIDITY 점수 증발. 본 flag 가
- * 이미 받아온 일봉 bars 로 그 지표들을 계산해 symbolFeatures 에 주입한다(임계·라이브 게이트 무관).
+ * 이미 받아온 일봉 bars 로 그 지표들을 계산해 symbolFeatures 에 주입한다(임계 70·게이트 로직 0변경).
+ * executionImpact≠NONE: score 입력 enrich → Gate1 통과 분포 상승 가능(의도된 효과, 비-byte-equivalent).
+ * 롤백: GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED=false 명시 → 신규 동작 skip(byte-equivalent).
  */
 function isTechnicalInjectionEnabled(): boolean {
-  return process.env.GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED === 'true';
+  return process.env.GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED !== 'false';
 }
 
 /** fetchKisStockDailyBars 는 *역일(calendar day)* lookback. 기본 35(≈24거래일, return20d 충당). */
@@ -140,8 +142,8 @@ async function resolvePriceContext(
  * volume / return5d / return20d 가 이미 채워진 필드는 덮어쓰지 않는다.
  * executionImpact=NONE — 매매 결정에 직접 관여하지 않고 candidatePoolBuilder 진단용 필드 공급.
  * snapshotData 제공 시 KIS fetch 없이 스냅샷에서 직접 파생 (중복 KIS 호출 제거).
- * ADR-0578 — flag GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED=true 시 동일 bars 로 ma20/ma60/rsi14/atr
- * 를 계산해 candidate.symbolFeatures 에 주입(기존 값 보존). flag OFF 면 모든 신규 동작 skip → byte-equivalent.
+ * ADR-0578 — flag default ON: 동일 bars 로 ma20/ma60/rsi14/atr 를 계산해 candidate.symbolFeatures 에
+ * 주입(기존 값 보존). GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED=false 명시 시 신규 동작 skip → byte-equivalent.
  */
 export async function injectPerSymbolPriceContext<T extends Record<string, unknown>>(
   candidates: T[],

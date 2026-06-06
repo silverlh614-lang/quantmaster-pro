@@ -37,6 +37,11 @@ describe('A1 injectPerSymbolPriceContext — avgVolume 배선 복구', () => {
     vi.clearAllMocks();
     mockedQuote.mockResolvedValue(null as never);
     mockedBars.mockResolvedValue([] as never);
+    // ADR-0578 default ON 승격 후, avgVolume 전용 회귀는 기술주입 OFF 로 격리(이 블록은 avgVolume 배선만 검증).
+    process.env.GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED = 'false';
+  });
+  afterEach(() => {
+    delete process.env.GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED;
   });
 
   it('snapshotData 의 dailyBars volume 평균을 avgVolume 으로 주입한다', async () => {
@@ -124,7 +129,19 @@ describe('ADR-0578 injectPerSymbolPriceContext — 기술지표 주입 (flag-gat
     delete process.env.GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED;
   });
 
-  it('flag OFF(기본): 기술지표를 주입하지 않는다 (byte-equivalent)', async () => {
+  it('default(미설정): 기술지표를 주입한다 (ADR-0578 default ON 승격)', async () => {
+    const candidates: Array<Record<string, unknown>> = [{ code: '005930' }];
+    const { candidates: out, stats } = await injectPerSymbolPriceContext(candidates, {
+      snapshotData: snapshotData({ '005930': { dailyBars: barsHLC(60) as never } }),
+    });
+    const sf = out[0].symbolFeatures as Record<string, number>;
+    expect(sf.ma20).toBe(100);
+    expect(sf.rsi14).toBe(100);
+    expect(stats.technicalInjected).toBe(1);
+  });
+
+  it('flag OFF(명시 false): 기술지표를 주입하지 않는다 (byte-equivalent 롤백)', async () => {
+    process.env.GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED = 'false';
     const candidates: Array<Record<string, unknown>> = [{ code: '005930' }];
     const { candidates: out, stats } = await injectPerSymbolPriceContext(candidates, {
       snapshotData: snapshotData({ '005930': { dailyBars: barsHLC(60) as never } }),
