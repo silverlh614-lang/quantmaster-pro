@@ -13,7 +13,7 @@ import { Router, Request, Response } from 'express';
 import { discoverUniverse, enrichKnownStock, type AiUniverseMode } from '../services/aiUniverseService.js';
 import { fetchNaverStockSnapshot, type NaverStockSnapshot } from '../clients/naverFinanceClient.js';
 import { fetchYahooQuoteSummary } from '../screener/adapters/yahooQuoteSummary.js';
-import { getStockByCode } from '../persistence/krxStockMasterRepo.js';
+import { getStockByCode, searchStocksByName } from '../persistence/krxStockMasterRepo.js';
 import { getBudgetSnapshot } from '../persistence/aiCallBudgetRepo.js';
 
 const router = Router();
@@ -63,6 +63,32 @@ router.get('/discover', async (req: Request, res: Response) => {
   } catch (e: any) {
     console.error('[aiUniverseRouter] /discover 실패:', e?.message ?? e);
     res.status(500).json({ error: 'universe 발굴 실패', detail: e?.message });
+  }
+});
+
+/**
+ * GET /api/ai-universe/search?q=삼성전기&limit=10
+ * 로컬 KRX 마스터 종목명/코드 부분일치 검색. AI/외부 호출 0 → quota 0·휴장/주말에도 동작.
+ * 종목검색 UI 가 Gemini 의존(429 실패) 대신 본 endpoint 로 name→code 를 해석한다.
+ */
+router.get('/search', (req: Request, res: Response) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (!q) {
+    return res.status(400).json({ error: 'q 파라미터가 필요합니다', query: '', results: [], source: 'KRX_MASTER' });
+  }
+  const limit = req.query.limit !== undefined
+    ? Math.max(1, Math.min(Number(req.query.limit) || 10, 30))
+    : 10;
+  try {
+    const matches = searchStocksByName(q, limit);
+    res.json({
+      query: q,
+      results: matches.map((m) => ({ code: m.code, name: m.name, market: m.market })),
+      source: 'KRX_MASTER',
+    });
+  } catch (e: any) {
+    console.warn('[aiUniverseRouter] /search 실패:', e?.message ?? e);
+    res.status(500).json({ error: '검색 실패', detail: e?.message, query: q, results: [], source: 'KRX_MASTER' });
   }
 });
 

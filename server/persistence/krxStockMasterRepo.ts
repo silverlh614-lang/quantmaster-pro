@@ -337,6 +337,50 @@ export function getStockByName(name: string): StockMasterEntry | null {
 }
 
 /**
+ * 종목명/코드 부분일치 검색 (UI 종목검색용). 로컬 마스터만 사용 → quota 0·휴장/주말에도 동작.
+ * 우선순위: 정확 일치(이름·코드) → prefix → contains. 동일 등급 내 이름 짧은 순.
+ * 숫자 질의는 코드 부분일치(6자리 zero-pad)도 매칭, nameEng(영문명)도 contains 대상.
+ */
+export function searchStocksByName(query: string, limit: number = 10): StockMasterEntry[] {
+  if (!_store) {
+    const disk = loadFromDisk();
+    if (!disk) return [];
+    _store = disk;
+    rebuildIndex(disk);
+  }
+  const q = query.trim();
+  if (!q) return [];
+  const lower = q.toLowerCase();
+  const isCodeLike = /^\d{1,6}$/.test(q);
+  const paddedCode = isCodeLike ? q.padStart(6, '0') : '';
+  const cap = Math.max(1, Math.min(limit, 50));
+
+  const exact: StockMasterEntry[] = [];
+  const prefix: StockMasterEntry[] = [];
+  const contains: StockMasterEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const e of _store.entries) {
+    if (!e || seen.has(e.code)) continue;
+    const name = e.name ?? '';
+    const nameLc = name.toLowerCase();
+    const engLc = (e.nameEng ?? '').toLowerCase();
+    const code = e.code ?? '';
+    if (name === q || code === q || (isCodeLike && code === paddedCode)) {
+      exact.push(e); seen.add(code);
+    } else if (nameLc.startsWith(lower) || (engLc !== '' && engLc.startsWith(lower)) || (isCodeLike && code.startsWith(q))) {
+      prefix.push(e); seen.add(code);
+    } else if (nameLc.includes(lower) || (engLc !== '' && engLc.includes(lower)) || (isCodeLike && code.includes(q))) {
+      contains.push(e); seen.add(code);
+    }
+  }
+  const byNameLen = (a: StockMasterEntry, b: StockMasterEntry) => (a.name?.length ?? 0) - (b.name?.length ?? 0);
+  prefix.sort(byNameLen);
+  contains.sort(byNameLen);
+  return [...exact, ...prefix, ...contains].slice(0, cap);
+}
+
+/**
  * 종목명/문자열 안에서 알려진 종목명을 longest-match 로 추출.
  * 매치된 위치를 placeholder 로 마스킹해 같은 영역의 짧은 이름이 중복 매치되지 않도록 한다.
  * Google Search snippet 파싱 시 사용.

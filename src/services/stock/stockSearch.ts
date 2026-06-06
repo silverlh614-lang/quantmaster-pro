@@ -2,6 +2,7 @@
 import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, withRetry, safeJsonParse } from './aiClient';
 import { enrichStockWithRealData } from './enrichment';
+import { searchStockMaster } from '../../api/aiUniverseClient';
 import { debugLog } from '../../utils/debug';
 import type { StockRecommendation } from './types';
 
@@ -10,6 +11,59 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 export function clearSearchCache() {
   searchCache.clear();
+}
+
+const ZERO_CHECKLIST: StockRecommendation['checklist'] = {
+  cycleVerified: 0, momentumRanking: 0, roeType3: 0, supplyInflow: 0, riskOnEnvironment: 0,
+  ichimokuBreakout: 0, mechanicalStop: 0, economicMoatVerified: 0, notPreviousLeader: 0,
+  technicalGoldenCross: 0, volumeSurgeVerified: 0, institutionalBuying: 0, consensusTarget: 0,
+  earningsSurprise: 0, performanceReality: 0, policyAlignment: 0, psychologicalObjectivity: 0,
+  turtleBreakout: 0, fibonacciLevel: 0, elliottWaveVerified: 0, ocfQuality: 0, marginAcceleration: 0,
+  interestCoverage: 0, relativeStrength: 0, vcpPattern: 0, divergenceCheck: 0, catalystAnalysis: 0,
+};
+
+/**
+ * 로컬 KRX 마스터 {code,name} → 중립 StockRecommendation stub. 가격/밸류/수급은
+ * enrichStockWithRealData(실데이터)가 채운다. AI 판정 필드(type/checklist/score)는 중립값 —
+ * confidenceScore 0 + reason 으로 "AI 판정 보류, 검색 결과" 임을 표시.
+ */
+function buildMasterSearchStub(code: string, name: string): StockRecommendation {
+  return {
+    name,
+    code,
+    reason: '로컬 종목 마스터 검색 결과 — 실시간 데이터로 보강(AI 판정 보류).',
+    type: 'BUY',
+    patterns: [],
+    hotness: 0,
+    roeType: 'UNKNOWN',
+    isLeadingSector: false,
+    momentumRank: 0,
+    supplyQuality: { passive: false, active: false },
+    peakPrice: 0,
+    currentPrice: 0,
+    isPreviousLeader: false,
+    ichimokuStatus: 'INSIDE_CLOUD',
+    relatedSectors: [],
+    valuation: { per: 0, pbr: 0, epsGrowth: 0, debtRatio: 0, perSource: 'UNAVAILABLE' },
+    technicalSignals: {
+      maAlignment: 'NEUTRAL', rsi: 0, macdStatus: 'NEUTRAL', bollingerStatus: 'NEUTRAL',
+      stochasticStatus: 'NEUTRAL', volumeSurge: false, disparity20: 0, macdHistogram: 0, bbWidth: 0, stochRsi: 0,
+    },
+    economicMoat: { type: 'NONE', description: '' },
+    scores: { value: 0, momentum: 0 },
+    marketSentiment: { iri: 0, vkospi: 0 },
+    confidenceScore: 0,
+    marketCap: 0,
+    marketCapCategory: 'MID',
+    correlationGroup: '',
+    aiConvictionScore: { totalScore: 0, factors: [], marketPhase: 'NEUTRAL', description: '' },
+    riskFactors: [],
+    targetPrice: 0,
+    stopLoss: 0,
+    checklist: { ...ZERO_CHECKLIST },
+    visualReport: { financial: 0, technical: 0, supply: 0, summary: '' },
+    dataSource: 'KRX_MASTER',
+  } as unknown as StockRecommendation;
 }
 
 export async function searchStock(query: string, filters?: {
@@ -24,6 +78,34 @@ export async function searchStock(query: string, filters?: {
   const cached = searchCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
     return cached.data;
+  }
+
+  // ── 특정 종목 검색: 로컬 KRX 마스터 우선 (Gemini 미호출 → 휴장·크레딧소진 429 에도 성공) ──
+  // name→code 를 마스터에서 해석하고 enrichStockWithRealData(Naver/DART/Yahoo 실데이터)로 보강.
+  // 마스터 미스(미등록 종목/오탈자)일 때만 기존 AI 검색으로 폴백.
+  const trimmedQuery = query.trim();
+  if (trimmedQuery !== '') {
+    try {
+      const masterHits = await searchStockMaster(trimmedQuery, 8);
+      if (masterHits.length > 0) {
+        debugLog(`master search hit ${masterHits.length} for "${trimmedQuery}" — skipping Gemini`);
+        const enriched: StockRecommendation[] = [];
+        for (const hit of masterHits.slice(0, 6)) {
+          const stub = buildMasterSearchStub(hit.code, hit.name);
+          try {
+            enriched.push(await enrichStockWithRealData(stub));
+          } catch (e) {
+            debugLog(`enrich failed for ${hit.code}: ${e}`);
+            enriched.push(stub);
+          }
+        }
+        searchCache.set(cacheKey, { data: enriched, timestamp: Date.now() });
+        return enriched;
+      }
+      debugLog(`master search miss for "${trimmedQuery}" — falling back to AI`);
+    } catch (e) {
+      debugLog(`master search error, falling back to AI: ${e}`);
+    }
   }
 
   const isMarketSearch = !query || query.trim() === "";

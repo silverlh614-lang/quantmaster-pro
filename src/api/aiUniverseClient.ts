@@ -21,6 +21,13 @@ export interface AiUniverseSnapshotItem {
   marketCapDisplay: string;
 }
 
+/** `/api/ai-universe/search` 결과 항목 — 로컬 KRX 마스터 name→code 해석 (quota 0·휴장 동작). */
+export interface StockMasterSearchItem {
+  code: string;
+  name: string;
+  market: 'KOSPI' | 'KOSDAQ' | 'KONEX' | 'OTHER';
+}
+
 export interface AiUniverseValuation {
   code: string;
   name: string;
@@ -173,6 +180,18 @@ export async function discoverAiUniverse(
 export async function fetchAiUniverseSnapshot(code: string): Promise<AiUniverseValuation | null> {
   if (!/^\d{6}$/.test(code)) return null;
   return getJson<AiUniverseValuation>(`/api/ai-universe/snapshot?code=${code}`);
+}
+
+/**
+ * 로컬 KRX 마스터 종목명/코드 검색 (quota 0·휴장/주말 동작). AI 미사용 — 종목검색 name→code SSOT.
+ */
+export async function searchStockMaster(query: string, limit = 10): Promise<StockMasterSearchItem[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const params = new URLSearchParams({ q });
+  if (limit !== 10) params.set('limit', String(limit));
+  const result = await getJson<{ results: StockMasterSearchItem[] }>(`/api/ai-universe/search?${params.toString()}`);
+  return result?.results ?? [];
 }
 
 /**

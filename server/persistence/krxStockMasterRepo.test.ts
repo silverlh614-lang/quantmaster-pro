@@ -6,6 +6,7 @@ import fs from 'fs';
 import {
   getStockByCode,
   getStockByName,
+  searchStocksByName,
   extractStocksFromText,
   setStockMaster,
   isMasterStale,
@@ -47,6 +48,68 @@ describe('krxStockMasterRepo (ADR-0011)', () => {
     expect(getStockByCode('005930')?.name).toBe('삼성전자');
     expect(getStockByName('SK하이닉스')?.code).toBe('000660');
     expect(getMasterSize()).toBe(2);
+  });
+
+  describe('searchStocksByName (종목검색 master-first)', () => {
+    function seed(): void {
+      setStockMaster([
+        { code: '005930', name: '삼성전자', market: 'KOSPI' },
+        { code: '009150', name: '삼성전기', market: 'KOSPI' },
+        { code: '028260', name: '삼성물산', market: 'KOSPI' },
+        { code: '000660', name: 'SK하이닉스', market: 'KOSPI' },
+        { code: '035720', name: '카카오', market: 'KOSPI' },
+      ]);
+    }
+
+    it('정확 일치(이름)를 최우선 반환', () => {
+      seed();
+      const r = searchStocksByName('삼성전기');
+      expect(r[0]?.code).toBe('009150');
+    });
+
+    it('prefix 매칭 — "삼성"은 삼성전자/삼성전기/삼성물산 3건', () => {
+      seed();
+      const r = searchStocksByName('삼성');
+      const codes = r.map((e) => e.code).sort();
+      expect(codes).toEqual(['005930', '009150', '028260']);
+    });
+
+    it('contains 매칭 — "하이닉스"는 SK하이닉스', () => {
+      seed();
+      const r = searchStocksByName('하이닉스');
+      expect(r.map((e) => e.code)).toEqual(['000660']);
+    });
+
+    it('코드(숫자) zero-pad 정확 매칭', () => {
+      seed();
+      expect(searchStocksByName('660').some((e) => e.code === '000660')).toBe(true); // 660 → 000660
+      expect(searchStocksByName('000660')[0]?.code).toBe('000660');
+    });
+
+    it('코드 prefix 매칭', () => {
+      seed();
+      expect(searchStocksByName('0091').map((e) => e.code)).toContain('009150');
+    });
+
+    it('빈 질의는 빈 배열', () => {
+      seed();
+      expect(searchStocksByName('')).toEqual([]);
+      expect(searchStocksByName('   ')).toEqual([]);
+    });
+
+    it('미등록 종목은 빈 배열', () => {
+      seed();
+      expect(searchStocksByName('없는종목ZZZ')).toEqual([]);
+    });
+
+    it('limit 적용', () => {
+      seed();
+      expect(searchStocksByName('삼성', 2).length).toBe(2);
+    });
+
+    it('마스터 미적재 시 빈 배열(throw 없음)', () => {
+      expect(searchStocksByName('삼성전자')).toEqual([]);
+    });
   });
 
   it('setStockMaster 후 디스크 영속화 + 새 인스턴스에서 로드', () => {
