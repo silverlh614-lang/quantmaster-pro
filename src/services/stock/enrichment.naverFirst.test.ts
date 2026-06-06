@@ -30,7 +30,10 @@ const NAVER_OHLCV = {
 const mockedNaver = vi.fn().mockResolvedValue(NAVER_OHLCV);
 const mockedHistorical = vi.fn().mockResolvedValue(null);
 
-vi.mock('./naverDailyChart', () => ({ fetchNaverDailyChart: (code: string, range?: string) => mockedNaver(code, range) }));
+vi.mock('./naverDailyChart', () => ({
+  fetchNaverDailyChart: (code: string, range?: string) => mockedNaver(code, range),
+  fetchNaverSupply: vi.fn().mockResolvedValue(null),
+}));
 vi.mock('./historicalData', () => ({ fetchHistoricalData: (code: string, range?: string) => mockedHistorical(code, range) }));
 vi.mock('../../api/aiUniverseClient', () => ({ fetchAiUniverseSnapshot: vi.fn().mockResolvedValue(null) }));
 vi.mock('./dartDataFetcher', () => ({ fetchCorpCode: vi.fn().mockResolvedValue(null), fetchDartFinancials: vi.fn().mockResolvedValue(null) }));
@@ -71,7 +74,8 @@ describe('enrichStockWithRealData — OHLCV Naver-first 배선 (장외 기술지
 
     expect(mockedNaver).toHaveBeenCalledWith('009150', '1y');
     expect(mockedHistorical).not.toHaveBeenCalled();
-    expect(result).toBeTruthy();
+    // snapshot 부재 시 Naver 일봉 마지막 종가(129)로 currentPrice 채움(price fallback — 이전 "가격 미확보" 해소).
+    expect(result.currentPrice).toBe(129);
   });
 
   it('Naver 실패(null) 시 Yahoo(/historical-data)로 폴백', async () => {

@@ -10,7 +10,7 @@ import {
 } from "../../utils/indicators";
 import { fetchCorpCode, fetchDartFinancials } from './dartDataFetcher';
 import { fetchHistoricalData } from './historicalData';
-import { fetchNaverDailyChart } from './naverDailyChart';
+import { fetchNaverDailyChart, fetchNaverSupply } from './naverDailyChart';
 import { fetchAiUniverseSnapshot, type AiUniverseValuation } from '../../api/aiUniverseClient';
 import { fetchForeignerRatioTrend } from '../../api/foreignerRatioClient';
 import { fetchKrxInvestorTrend } from '../../api/krxInvestorClient';
@@ -457,15 +457,18 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     // 가용([[naver-first-kr-data]]) + Yahoo 호환 shape({timestamp, indicators.quote[0]}) → 그대로 소비.
     // Naver 실패(비-KR/네트워크/204) 시에만 Yahoo(/historical-data) fallback.
     let data: any = null;
+    let ohlcvSource: 'NAVER' | 'YAHOO' | null = null;
     const baseCodeForChart = stock.code.split('.')[0];
     if (/^\d{6}$/.test(baseCodeForChart)) {
       const naverChart = await fetchNaverDailyChart(baseCodeForChart, '1y');
       if (naverChart?.data?.timestamp?.length && naverChart.data.indicators?.quote?.[0]) {
         data = naverChart.data;
+        ohlcvSource = 'NAVER';
       }
     }
     if (!data) {
       data = await fetchHistoricalData(stock.code, '1y');
+      if (data) ohlcvSource = 'YAHOO';
     }
     if (!data || !data.timestamp || !data.indicators?.quote?.[0]) {
       return await aiFallback();
@@ -534,7 +537,10 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         const r = await fetchYahooConsensus(baseCode);
         if (r) yahooConsensus = { recommendationStrength: r.recommendationStrength, earningsSurpriseAvg: r.earningsSurpriseAvg, source: r.source };
       } catch { /* SDS-ignore: Yahoo 컨센서스 실패 시 fallback */ }
-      kisSupply = buildSnapshotSupplyStub(snap);
+      // 수급: Naver 외인/기관 5일 순매수(장외 가용·실데이터) 우선, 실패 시 snapshot stub(외인보유율만).
+      let naverSupplyDetail: Awaited<ReturnType<typeof fetchNaverSupply>> = null;
+      try { naverSupplyDetail = await fetchNaverSupply(baseCode); } catch { /* SDS-ignore: Naver 수급 실패 시 stub */ }
+      kisSupply = naverSupplyDetail ?? buildSnapshotSupplyStub(snap);
       krxValuation = await fetchKrxValuation(baseCode);
     }
 
@@ -550,9 +556,12 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     //      (UI 가 "가격 미확보" placeholder 표시) — 가짜 값 표시 절대 금지.
     // Yahoo OHLCV(1년 일봉 closes/highs/lows/volumes)는 RSI/MACD/Bollinger/VCP
     // 모양(shape) 기반 기술적 지표 계산에 한해 계속 사용 (절대값 표시 X).
-    const naverPriceCandidate = naverSnap?.closePrice && naverSnap.closePrice > 0
+    // 가격: Naver 모바일 snapshot.closePrice 우선 → 실패 시 Naver 일봉 마지막 종가(ohlcvSource==='NAVER' 일 때만,
+    // 정확 KRX 시세). Yahoo 일봉 종가는 split/통화 왜곡으로 가격엔 미사용(기술지표 shape 계산에만).
+    const naverDailyClose = ohlcvSource === 'NAVER' && closes.length > 0 ? closes[closes.length - 1] : null;
+    const naverPriceCandidate = (naverSnap?.closePrice && naverSnap.closePrice > 0)
       ? naverSnap.closePrice
-      : null;
+      : (naverDailyClose && naverDailyClose > 0 ? naverDailyClose : null);
     const priceFromNaver = naverPriceCandidate !== null;
     const priceFromPreviousKis = !priceFromNaver
       && stock.dataSourceType === 'REALTIME'
