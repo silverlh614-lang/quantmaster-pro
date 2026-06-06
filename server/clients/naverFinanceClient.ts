@@ -77,6 +77,44 @@ function parseNumber(v: unknown): number {
 }
 
 /**
+ * totalInfos 밸류에이션 값 파서 — 한국어 단위 접미사(배·원·주·%) 제거 후 숫자화.
+ * Naver 는 per "165.96배"·pbr "13.52배"·eps "10,587원"·bps "129,912원"·배당 "0.13%" 처럼
+ * 값에 단위를 붙여 보내, 콤마·말미%만 제거하는 parseNumber 로는 NaN→0 으로 떨어졌다
+ * (per/pbr/eps/bps 전 항목 0 결함 — 사용자 prod 보고). 콤마 제거 후 숫자·부호·소수점만
+ * 남겨 Number 화한다. 시총(조/억 복합 표기)은 parseMarketCapWon 으로 별도 처리.
+ */
+function parseUnitNumber(v: unknown): number {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  if (typeof v !== 'string') return 0;
+  const cleaned = v.replace(/,/g, '').replace(/[^0-9.+-]/g, '').trim();
+  if (!cleaned || /^[+\-.]+$/.test(cleaned)) return 0;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * 시가총액 "131조 2,368억" → 원 단위 숫자(131,236,800,000,000). 조=1e12·억=1e8·만=1e4 자리값 합산.
+ * formatMarketCapKr(aiUniverseRouter, 단위:원)·display 와 단위 정합 — 합산 결과 그대로 marketCap 으로
+ * 전달하면 marketCapDisplay 가 "131조 2,368억"로 복원된다. 단위 토큰 부재 시 콤마 제거 숫자 그대로.
+ */
+function parseMarketCapWon(v: unknown): number {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  if (typeof v !== 'string') return 0;
+  const s = v.replace(/,/g, '').replace(/\s+/g, '');
+  if (!s) return 0;
+  let won = 0;
+  let matched = false;
+  const grab = (unit: string, mult: number): void => {
+    const m = s.match(new RegExp(`(\\d+(?:\\.\\d+)?)${unit}`));
+    if (m) { won += parseFloat(m[1]) * mult; matched = true; }
+  };
+  grab('조', 1e12);
+  grab('억', 1e8);
+  grab('만', 1e4);
+  return matched ? won : parseUnitNumber(s);
+}
+
+/**
  * 종목 단건 스냅샷. 6자리 코드 검증 + 예산 가드 + 5분 negative cache.
  * 실패 시 null 반환 (호출자가 fallback 결정).
  */
@@ -129,15 +167,17 @@ export async function fetchNaverStockSnapshot(code: string): Promise<NaverStockS
       name: data.stockName ?? '',
       closePrice,
       changeRate,
-      marketCap: parseNumber(findInfo('marketValue')),
-      per: parseNumber(findInfo('per')),
-      pbr: parseNumber(findInfo('pbr')),
-      eps: parseNumber(findInfo('eps')),
-      bps: parseNumber(findInfo('bps')),
+      // 단위 접미사 처리 — 시총 "131조 2,368억"→원, per/pbr "165.96배"→숫자, eps/bps "10,587원"→숫자
+      // (parseNumber 는 콤마·말미%만 제거해 배/원/조/억 을 0 으로 떨어뜨렸다 — 사용자 prod 보고 결함).
+      marketCap: parseMarketCapWon(findInfo('marketValue')),
+      per: parseUnitNumber(findInfo('per')),
+      pbr: parseUnitNumber(findInfo('pbr')),
+      eps: parseUnitNumber(findInfo('eps')),
+      bps: parseUnitNumber(findInfo('bps')),
       // Naver 통합 totalInfos 실제 코드: 배당수익률=dividendYieldRatio, 외인소진율=foreignRate
       // (기존 'dividendRatio'/'foreignerOwnRatio' 는 코드 불일치로 항상 0 였음 — 키名 정정).
-      dividendYield: parseNumber(findInfo('dividendYieldRatio')),
-      foreignerOwnRatio: parseNumber(findInfo('foreignRate')),
+      dividendYield: parseUnitNumber(findInfo('dividendYieldRatio')),
+      foreignerOwnRatio: parseUnitNumber(findInfo('foreignRate')),
       source: 'NAVER_MOBILE',
     };
     void stockEnd;
@@ -330,7 +370,9 @@ export async function fetchNaverStockSnapshots(codes: string[]): Promise<Map<str
   return out;
 }
 
-// 테스트 전용 — parseNumber 검증
+// 테스트 전용 — 파서 검증
 export const __testOnly = {
   parseNumber,
+  parseUnitNumber,
+  parseMarketCapWon,
 };
