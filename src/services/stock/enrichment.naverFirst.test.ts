@@ -79,6 +79,11 @@ describe('enrichStockWithRealData — OHLCV Naver-first 배선 (장외 기술지
     expect(result.currentPrice).toBe(129);
     // ① 게이트 조건 실데이터 파생: 단조 상승 → 마지막 종가가 20일 고가 → turtleBreakout=1.
     expect(result.checklist.turtleBreakout).toBe(1);
+    // ③ 나머지 게이트 조건 파생(단조 상승·실가격·주도주 아님):
+    expect(result.checklist.mechanicalStop).toBe(1);   // 실가격 확보 → 기계적 손절 설정 가능
+    expect(result.checklist.notPreviousLeader).toBe(1); // STUB isPreviousLeader=false
+    expect(result.checklist.momentumRanking).toBe(1);   // MA20 상회 + 20일 양수 수익
+    expect(result.checklist.divergenceCheck).toBe(1);   // RSI 100(전구간 상승) + 5일 상승
   });
 
   it('kisLive 옵션: KIS 공식 현재가가 Naver 보다 우선(on-demand)', async () => {

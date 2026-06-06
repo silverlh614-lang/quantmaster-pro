@@ -652,6 +652,21 @@ export async function enrichStockWithRealData(stock: StockRecommendation, opts?:
           ? 1 : (stock.checklist?.turtleBreakout ?? 0),
         relativeStrength: (closes.length >= 60 && closes[closes.length - 1] > closes[closes.length - 60])
           ? 1 : (stock.checklist?.relativeStrength ?? 0),
+        // ③ 나머지 게이트 조건 실데이터 파생 (mechanicalStop·notPreviousLeader=Gate1, momentum/divergence/margin=Gate3).
+        //    AI 없이 Gate1/3 충전 — OHLCV 실계산·DART YoY·종목 플래그 기반(AI 전용 4개 catalyst/fib/elliott/psych 제외).
+        // mechanicalStop(#7,Gate1): 추천은 항상 ATR/% 손절선 설정(calculateTranchePlan). 실가격 확보(main-path)면 1.
+        mechanicalStop: currentPrice > 0 ? 1 : (stock.checklist?.mechanicalStop ?? 0),
+        // notPreviousLeader(#9,Gate1): 직전 주도주 플래그 부정. 증거(isPreviousLeader) 없으면 1(주도주 아님).
+        notPreviousLeader: stock.isPreviousLeader ? 0 : 1,
+        // momentumRanking(#2,Gate3): MA20 상회(disparity≥100) + 20일 양수 수익 = 상위 모멘텀.
+        momentumRanking: (closes.length >= 21 && disparity >= 100 && closes[closes.length - 1] > closes[closes.length - 21])
+          ? 1 : (stock.checklist?.momentumRanking ?? 0),
+        // divergenceCheck(#26,Gate3): 약세 다이버전스 부재(건전). RSI 강세권(≥50) + 5일 가격 상승 = 모멘텀 확인.
+        divergenceCheck: (closes.length >= 6 && rsi >= 50 && closes[closes.length - 1] >= closes[closes.length - 6])
+          ? 1 : (stock.checklist?.divergenceCheck ?? 0),
+        // marginAcceleration(#23,Gate3): 영업이익증가율 > 매출증가율(마진 가속, DART YoY). DART 부재 시 보존.
+        marginAcceleration: (dartFinancials?.marginAcceleration ?? 0) > 0
+          ? 1 : (stock.checklist?.marginAcceleration ?? 0),
         roeType3: (dartFinancials?.roe ?? 0) >= 15 ? 1 : 0,
         ocfQuality: dartFinancials?.ocfGreaterThanNetIncome ? 1 : 0,
         interestCoverage: (dartFinancials?.interestCoverageRatio ?? 0) >= 3 ? 1 : 0,

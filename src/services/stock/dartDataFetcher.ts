@@ -61,6 +61,9 @@ export async function fetchDartFinancials(corpCode: string) {
         const netIncome = findValue('당기순이익');
         const priorNetIncome = findPrior('당기순이익');
         const operatingIncome = findValue('영업이익');
+        const priorOperatingIncome = findPrior('영업이익');
+        const revenue = findValue('매출액');
+        const priorRevenue = findPrior('매출액');
         const equity = findValue('자본총계');
         const assets = findValue('자산총계');
         const liabilities = findValue('부채총계');
@@ -75,6 +78,17 @@ export async function fetchDartFinancials(corpCode: string) {
         const epsGrowth = priorNetIncome !== 0
           ? ((netIncome - priorNetIncome) / Math.abs(priorNetIncome)) * 100
           : 0;
+        // 마진 가속(pp) = 영업이익증가율 − 매출증가율. 양수면 매출보다 이익이 빨리 늘어
+        // (비용통제/영업레버리지) 마진이 확대 중 — checklist marginAcceleration(#23, Gate3) 입력.
+        const revenueGrowth = priorRevenue !== 0
+          ? ((revenue - priorRevenue) / Math.abs(priorRevenue)) * 100
+          : 0;
+        const operatingIncomeGrowth = priorOperatingIncome !== 0
+          ? ((operatingIncome - priorOperatingIncome) / Math.abs(priorOperatingIncome)) * 100
+          : 0;
+        const marginAcceleration = (priorRevenue !== 0 && priorOperatingIncome !== 0)
+          ? operatingIncomeGrowth - revenueGrowth
+          : 0;
 
         const result = {
           roe,
@@ -82,6 +96,7 @@ export async function fetchDartFinancials(corpCode: string) {
           interestCoverageRatio,
           netProfitMargin,
           epsGrowth,
+          marginAcceleration,
           ocfGreaterThanNetIncome: ocf > netIncome,
           updatedAt: `${bsnsYear} ${reportCode === '11011' ? '사업보고서' : '3분기보고서'}`
         };
