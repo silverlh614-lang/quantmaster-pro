@@ -7,7 +7,7 @@
  * 본 모듈은 그 AI 단계를 **정량순위 + enrich(실데이터)** 로 대체해 Gemini 없이 후보 카드를 만든다.
  * AI 서술(reason/conviction/news)은 중립 — filters.useAI=true 일 때만 기존 엔진 호출.
  */
-import { discoverAiUniverse, type AiUniverseMode } from '../../api/aiUniverseClient';
+import { discoverAiUniverse, type AiUniverseMode, type AiUniverseSourceStatus } from '../../api/aiUniverseClient';
 import { enrichStockWithRealData } from './enrichment';
 import { flattenCandidates, buildUniverseWarning, type MomentumCandidate } from './momentumRecommendations';
 import { buildBaseRecommendation } from './recommendationStub';
@@ -15,6 +15,35 @@ import { debugLog } from '../../utils/debug';
 import type { StockFilters, RecommendationResponse, StockRecommendation, MarketContext } from './types';
 
 const MAX_CANDIDATES = 12;
+
+/**
+ * KIS 공식 4-TR 스크리너 캐시(`GET /api/auto-trade/screener` → getScreenerCache) 를 후보로 변환.
+ * 서버 stockScreener 가 이미 캐시한 KIS 랭킹 결과를 **읽기만** 한다 → 신규 KIS 호출 0(quota-safe, ADR-0011 무침범).
+ * 비어있음/실패 시 [] → 호출자가 discoverAiUniverse(Naver) 로 폴백. (사용자 지시: KIS 공식 API 우선 참고.)
+ */
+async function fetchKisScreenedCandidates(): Promise<MomentumCandidate[]> {
+  try {
+    const res = await fetch('/api/auto-trade/screener');
+    if (!res.ok) return [];
+    const stocks = await res.json();
+    if (!Array.isArray(stocks)) return [];
+    return stocks
+      .filter((s) => s && typeof s.code === 'string' && /^\d{6}$/.test(s.code) && typeof s.name === 'string')
+      .map((s, i) => ({
+        code: s.code,
+        name: s.name,
+        market: '',
+        changePercent: Number(s.changeRate) || 0,
+        rank: i + 1,
+        source: 'KIS_SCREENER',
+        per: Number(s.per) || 0,
+        pbr: 0,
+        marketCapDisplay: '',
+      }));
+  } catch {
+    return [];
+  }
+}
 
 /** AI 시장분석 비활성 시의 중립 MarketContext (상단 배너는 별도 소스라 무영향). */
 function neutralMarketContext(): MarketContext {
@@ -54,14 +83,34 @@ export function rankCandidates(list: MomentumCandidate[], mode: AiUniverseMode, 
 
 export async function buildRealDataRecommendations(filters?: StockFilters): Promise<RecommendationResponse> {
   const mode = mapToUniverseMode(filters?.mode);
-  let universe = null;
-  try {
-    universe = await discoverAiUniverse(mode, { maxCandidates: 24, enrich: true });
-  } catch (e) {
-    debugLog(`[realData] discover 실패: ${e}`);
+
+  // ── 후보 소스: KIS 공식 4-TR 스크리너 캐시 우선(quota-safe), 비면 discoverAiUniverse(Naver) 폴백 ──
+  // 모멘텀 계열은 KIS 스크리너 캐시가 모드에 부합. QUANT/BEAR 은 모드별 universe 가 필요하므로 discover.
+  let candidates: MomentumCandidate[] = [];
+  let sourceStatus: AiUniverseSourceStatus | undefined;
+  let warning: string | null = null;
+  let usedKis = false;
+
+  if (mode === 'MOMENTUM' || mode === 'EARLY_DETECT' || mode === 'SMALL_MID_CAP') {
+    candidates = await fetchKisScreenedCandidates();
+    usedKis = candidates.length > 0;
+    if (usedKis) debugLog(`[realData] KIS 스크리너 캐시 ${candidates.length}건 사용 (quota-safe)`);
   }
 
-  const ranked = rankCandidates(flattenCandidates(universe), mode, filters).slice(0, MAX_CANDIDATES);
+  if (!usedKis) {
+    let universe = null;
+    try {
+      universe = await discoverAiUniverse(mode, { maxCandidates: 24, enrich: true });
+    } catch (e) {
+      debugLog(`[realData] discover 실패: ${e}`);
+    }
+    candidates = flattenCandidates(universe);
+    const diag = universe?.diagnostics;
+    sourceStatus = diag?.sourceStatus;
+    warning = buildUniverseWarning(sourceStatus, diag?.budgetExceeded ?? false, diag?.tradingDateRef ?? null, diag?.snapshotAgeDays ?? null);
+  }
+
+  const ranked = rankCandidates(candidates, mode, filters).slice(0, MAX_CANDIDATES);
 
   const recommendations: StockRecommendation[] = [];
   for (const c of ranked) {
@@ -70,7 +119,7 @@ export async function buildRealDataRecommendations(filters?: StockFilters): Prom
       pbr: c.pbr,
       changePercent: c.changePercent,
       reason: `실데이터 정량 후보 (출처 ${c.source}) — 실시간 데이터로 보강(AI 판정 보류).`,
-      dataSource: 'REALDATA_UNIVERSE',
+      dataSource: usedKis ? 'KIS_SCREENER' : 'REALDATA_UNIVERSE',
     });
     try {
       recommendations.push(await enrichStockWithRealData(stub));
@@ -80,12 +129,9 @@ export async function buildRealDataRecommendations(filters?: StockFilters): Prom
     }
   }
 
-  const diag = universe?.diagnostics;
-  const sourceStatus = diag?.sourceStatus;
-  const warning = buildUniverseWarning(sourceStatus, diag?.budgetExceeded ?? false, diag?.tradingDateRef ?? null, diag?.snapshotAgeDays ?? null);
   const warnings: string[] = [];
   if (warning) warnings.push(warning);
-  if (recommendations.length === 0) warnings.push('실데이터 후보를 찾지 못했습니다 — universe 가 비어있습니다(소스 점검 필요).');
+  if (recommendations.length === 0) warnings.push('실데이터 후보를 찾지 못했습니다 — KIS 스크리너 캐시·universe 모두 비어있습니다(소스 점검 필요).');
 
   return {
     marketContext: neutralMarketContext(),
