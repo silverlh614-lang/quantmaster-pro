@@ -67,21 +67,31 @@
 
 파일당 1,500줄 한계 (`scripts/check_complexity.js`). 초과 시 ADR 선행 후 분해.
 
-### 잔존 위반 (P0~P2)
+### 잔존 위반 (1,500줄 초과 = BASELINE 카탈로그)
 
-| 파일 | 줄 수 | 우선순위 |
-|------|------:|----------|
-| `server/trading/signalScanner.ts` | 1,820 | P0 — 변동성 최대 (분해 진행 중) |
-| `server/quant/conditions/entryFilterDecomposition.ts` | 1,720 | P1 — ACMA baseline 등재 (분해 ADR 대기) |
-| `server/supply/investorFlowProviderRouterAdr0477.ts` | 1,540 | P1 — ACMA baseline 등재 |
-| `server/trading/signalScanner/minimumSignalScoreTrace.ts` | 1,520 | P2 — ACMA baseline 등재 |
+> **SSOT = `scripts/check_complexity.js` 의 `BASELINE_TECHNICAL_DEBT` 배열 + `npm run validate:complexity`.**
+> 아래는 **2026-06-06 실측 스냅샷** — 수정 전 항상 `validate:complexity` 로 재확인 (줄수는 변동).
+
+| 파일 | 줄 수 | 상태 |
+|------|------:|------|
+| `server/trading/signalScanner/scanDiagnostics/persistScanResults.ts` | 1,990 | baseline — god 함수 1,623줄, 진단블록 분해 보류 |
+| `server/clients/kisSectorEnergyProvider.ts` | 1,521 | baseline — ADR-0574 정규화로 초과, 분해 ADR 미발급 |
+
+### ⚠️ 한계 임박 (다음 커밋에 차단 위험 — 선제 분해 권고)
+
+| 파일 | 줄 수 | 비고 |
+|------|------:|------|
+| `server/clients/sectorEnergyProvider.ts` | 1,500 | 정확히 한계선 (1,501 부터 fail) |
+| `server/trading/signalScanner/gate1DryRunObservationLedgerAdr0476.ts` | 1,500 | 정확히 한계선 |
+| `server/trading/marketDataRefresh.ts` | 1,499 | 1줄 차 |
 
 ### 완료 (분해 사례 — 후속 분해의 참조 패턴)
 
-- `perSymbolEvaluation.ts` 1,617 → 30줄 barrel (ADR-0134, `signalScanner/perSymbol/{index,types,helpers,buyListLoop,intradayLoop}`)
-- `webhookHandler.ts` 1,858 → 155줄 (ADR-0017, `commands/*` 51 cmd 8 디렉토리)
-- `exitEngine.ts` 1,358 → 18줄 barrel (ADR-0028, `exitEngine/{index,types,helpers/×6,rules/×16}`)
-- `stockScreener.ts` 1,573 → 542줄 (ADR-0029, `screener/{stockUniverse,rejectionLog,adapters/×4}`)
-- `krxClient.ts` 2,105 → 1,073줄 (ADR-0502c, 9 모듈 점진 분해)
+- `signalScanner.ts` 1,820 → 35줄 barrel (ADR-0001/0147b, `signalScanner/` 229 모듈)
+- `entryFilterDecomposition.ts` 2,277 → 14줄 barrel (ADR-0464, `signalScanner/entryFilterDecomposition/` 10 모듈)
+- `investorFlowProviderRouterAdr0477.ts` 1,694 → 9줄 barrel (ADR-0477, 7 모듈)
+- `minimumSignalScoreTrace.ts` 1,736 → 1,489줄 (ADR-0524, types/scoring 추출 — 한계 미만 회복)
+- 2026-05 시리즈: `sectorEnergyMasterSupplyUnknownPolicy`(ADR-0521) · `regimeLearningBank`(ADR-0522) · `gate2ExternalDataProvider`(ADR-0523) · `kisClient/query`(ADR-0537) · `scanBlockers`(ADR-0538) · `regimeLearningBackfill`(types/formatters)
+- 초기: `perSymbolEvaluation.ts`(ADR-0134) · `webhookHandler.ts`(ADR-0017) · `exitEngine.ts`(ADR-0028) · `stockScreener.ts`(ADR-0029) · `krxClient.ts` 2,105→1,073줄(ADR-0502c)
 
 분해 워크플로 + ACMA baseline 카탈로그 상세 → `docs/ai/09-refactor-rules.md`

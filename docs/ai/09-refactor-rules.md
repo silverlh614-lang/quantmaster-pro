@@ -76,19 +76,25 @@
 
 ## 현재 복잡도 위반 (분해 우선순위)
 
-| 파일 | 줄수 | 우선순위 |
-|------|------|----------|
-| `signalScanner.ts` | ~1,820 | **P0** |
-| `entryFilterDecomposition.ts` | ~1,720 | P1 |
-| `investorFlowProviderRouterAdr0477.ts` | ~1,540 | P1 |
-| `minimumSignalScoreTrace.ts` | ~1,520 | P2 |
+> **SSOT = `scripts/check_complexity.js` 의 `BASELINE_TECHNICAL_DEBT` + `npm run validate:complexity`.**
+> 아래는 **2026-06-06 실측 스냅샷** — 줄수는 변동하므로 분해 전 항상 `validate:complexity` 재확인.
 
-> 줄수는 변동한다 — 분해 작업 전 `validate:complexity` 로 실측 재확인.
+| 파일 | 줄수 | 상태 |
+|------|------|------|
+| `scanDiagnostics/persistScanResults.ts` | 1,990 | BASELINE (god 함수 1,623줄) |
+| `clients/kisSectorEnergyProvider.ts` | 1,521 | BASELINE (분해 ADR 미발급) |
+| `clients/sectorEnergyProvider.ts` | 1,500 | ⚠️ 한계선 (선제 분해 권고) |
+| `signalScanner/gate1DryRunObservationLedgerAdr0476.ts` | 1,500 | ⚠️ 한계선 |
+| `trading/marketDataRefresh.ts` | 1,499 | ⚠️ 1줄 차 |
 
 ### 완료된 분해 (참조 패턴)
 
-- `perSymbolEvaluation` (ADR-0134) · `webhookHandler` (ADR-0017) · `exitEngine` (ADR-0028) ·
-  `stockScreener` (ADR-0029) · `krxClient` (ADR-0502c).
+- 초기: `perSymbolEvaluation` (ADR-0134) · `webhookHandler` (ADR-0017) · `exitEngine` (ADR-0028) ·
+  `stockScreener` (ADR-0029) · `krxClient` (ADR-0502c) · `signalScanner`→35줄 barrel (ADR-0001/0147b).
+- 2026-05 시리즈: `sectorEnergyMasterSupplyUnknownPolicy` (ADR-0521) · `regimeLearningBank` (ADR-0522) ·
+  `gate2ExternalDataProvider` (ADR-0523) · `minimumSignalScoreTrace` (ADR-0524, 1,736→1,489) ·
+  `kisClient/query` (ADR-0537) · `scanBlockers` (ADR-0538) · `entryFilterDecomposition` (ADR-0464) ·
+  `investorFlowProviderRouterAdr0477` (ADR-0477) · `regimeLearningBackfill` (types/formatters 추출).
 
 ---
 

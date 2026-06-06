@@ -361,7 +361,10 @@ describe('ADR-0424 wiring 정적 가드', () => {
   });
 
   it('SymmetryValidationResult.backfilledCount 옵셔널 필드 존재', () => {
-    const src = readFileSync('server/clients/sectorEnergyProvider.ts', 'utf8');
+    // ADR-0579: SymmetryValidationResult 타입은 sectorEnergyProvider/types.ts 로 추출됨 (ACMA 1500 한계).
+    // 본문 + types 서브모듈을 함께 grep — 향후 이동에도 견고 (ADR-0444 static-grep-guard 패턴).
+    const src = readFileSync('server/clients/sectorEnergyProvider.ts', 'utf8')
+      + readFileSync('server/clients/sectorEnergyProvider/types.ts', 'utf8');
     expect(src).toMatch(/backfilledCount\?:\s*number/);
   });
 
