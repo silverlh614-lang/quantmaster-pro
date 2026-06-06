@@ -2,9 +2,9 @@
 /**
  * adapters/technicalQuoteRouter.ts — 기술지표 OHLCV quote 출처 라우터 (ADR-0547).
  *
- * KIS-first(ENV KIS_OHLCV_PRIMARY_ENABLED='true' 또는 opts.kisFirst) 경로에서는
- * KIS 일봉(L1) 기술지표를 1차로 산출(fetchKisQuoteFallback 재사용)하고, 실패/봉수부족 시
- * Yahoo chart(L3)로 fallback 한다. 기본(OFF)은 기존 Yahoo-first 순서를 그대로 보존(회귀 0).
+ * **default KIS-first**(ENV KIS_OHLCV_PRIMARY_ENABLED!=='false' 또는 opts.kisFirst): KIS 일봉(L1)
+ * 기술지표를 1차로 산출(fetchKisQuoteFallback 재사용)하고, 실패/봉수부족 시 Yahoo chart(L3)로
+ * fallback 한다. `KIS_OHLCV_PRIMARY_ENABLED=false` 로 기존 Yahoo-first 순서 롤백(ADR-0561 KIS-primary).
  *
  * 신규 지표 계산 없음 — fetchKisQuoteFallback/buildExtendedFromKisDaily/enrichQuoteWithKisMTAS
  * 를 재사용. 현재가(quote) fallback 라우터 SSOT(docs/ai/05) 와 직교(시계열 endpoint 별개).
@@ -27,9 +27,13 @@ export interface FetchTechnicalQuoteOptions {
   kisFirst?: boolean;
 }
 
-/** ENV 글로벌 토글(default OFF) — byte-equivalent 롤백(ADR-0547 Decision §5). */
+/**
+ * ENV 글로벌 토글 — **default ON(KIS-first)**. ADR-0157 정확 비교: 'false' 일 때만 비활성(Yahoo-first 롤백).
+ * 2026-06-06: 코드 default 를 KIS-first 로 전환 — 외부 ENV 미설정에도 KIS 1차(Yahoo 의존 축소, ADR-0561
+ * KIS-primary). 롤백은 `KIS_OHLCV_PRIMARY_ENABLED=false` 1줄. KIS 실패/봉수부족 시 Yahoo fallback 보존.
+ */
 function isKisPrimaryEnvEnabled(): boolean {
-  return process.env.KIS_OHLCV_PRIMARY_ENABLED === 'true';
+  return process.env.KIS_OHLCV_PRIMARY_ENABLED !== 'false';
 }
 
 // ── 일봉 6h 캐시 + 휴장 인지 TTL 연장 (ADR-0547 Decision §6) ────────────────────
@@ -97,10 +101,10 @@ function withKisPrimaryMarker(quote: YahooQuoteExtended): YahooQuoteExtended {
 /**
  * 기술지표 quote 출처 라우터.
  *
- * - KIS-first(opts.kisFirst 또는 ENV ON): 6h/휴장 TTL 캐시 히트 우선 → `fetchKisQuoteFallback(code)`
+ * - 기본 KIS-first(opts.kisFirst 또는 ENV≠'false'): 6h/휴장 TTL 캐시 히트 우선 → `fetchKisQuoteFallback(code)`
  *   1차 → 성공 시 BB폭/MTAS 보강(enrichQuoteWithKisMTAS) + KIS_PRIMARY marker → 캐시 저장.
- *   실패/null/봉수부족 시 `fetchYahooQuote(symbol)` fallback(회귀 0).
- * - 기본(OFF): 기존대로 `fetchYahooQuote(symbol)` 먼저(회귀 0).
+ *   실패/null/봉수부족 시 `fetchYahooQuote(symbol)` fallback.
+ * - 롤백(ENV='false'): 기존대로 `fetchYahooQuote(symbol)` 먼저(Yahoo-first).
  *
  * 출력은 기존 `YahooQuoteExtended`(SSOT) 그대로 — 소비부 무변경.
  */
@@ -161,12 +165,12 @@ export async function fetchTechnicalQuote(
  * symbol 을 호출처가 resolve 하지 않아도 되는 code-진입 계약. grandfather callsite
  * `fetchYahooQuoteByCode(code, fetchYahooQuote)` 를 byte-equivalent 하게 치환할 수 있게 한다.
  *
- * - flag OFF(`opts?.kisFirst !== true && KIS_OHLCV_PRIMARY_ENABLED !== 'true'`):
- *   `fetchYahooQuoteByCode(code, fetchYahooQuote)` funnel 을 **그대로 위임·반환** → byte-equal.
+ * - 롤백(`opts?.kisFirst !== true && KIS_OHLCV_PRIMARY_ENABLED === 'false'`):
+ *   `fetchYahooQuoteByCode(code, fetchYahooQuote)` funnel 을 **그대로 위임·반환** → byte-equal(Yahoo-first).
  *   보장 6항(ADR-0547 R1 RX-B): (1) 호출 수 동일(funnel 1회) (2) 반환 타입 YahooQuoteExtended 동일
  *   (3) yahooFreshnessLedger 부수효과(ADR-0255) 동일 (4) dataQuality/priceMetadata marker 동일
  *   (5) .KS↔.KQ sanity fallback(ADR-0241) 동일 (6) funnel ① KIS-first 부분동작 동일.
- * - flag ON: 6h/휴장 TTL 캐시 → `fetchKisQuoteFallback(code)` → enrich → KIS_PRIMARY marker → 캐시.
+ * - 기본 KIS-first(ENV≠'false'): 6h/휴장 TTL 캐시 → `fetchKisQuoteFallback(code)` → enrich → KIS_PRIMARY marker → 캐시.
  *   KIS 불가(null/throw/봉수부족) 시 `fetchYahooQuoteByCode(code, fetchYahooQuote)` funnel 로 fallback
  *   (symbol resolve 책임을 호출처에 전가하지 않음 — code-진입 일관성, ADR-0561).
  *

@@ -123,8 +123,20 @@ describe('technicalQuoteRouter.fetchTechnicalQuote', () => {
     expect(second?.dataQuality).toBe('KIS_PRIMARY');
   });
 
-  // (d) kisFirst=false(기본) → Yahoo-first 순서 유지(회귀).
-  it('kisFirst=false(기본) 시 fetchYahooQuote 만 호출하고 KIS 는 호출하지 않는다', async () => {
+  // (d) 기본(ENV unset) → KIS-first (2026-06-06 default 전환).
+  it('기본(ENV unset) 시 KIS-first 로 동작한다(default KIS)', async () => {
+    kisMock.mockResolvedValue(makeQuote({ price: 68500 }));
+
+    const result = await fetchTechnicalQuote(CODE, SYMBOL);
+
+    expect(kisMock).toHaveBeenCalledTimes(1);
+    expect(yahooMock).not.toHaveBeenCalled();
+    expect(result?.dataQuality).toBe('KIS_PRIMARY');
+  });
+
+  // (d-rollback) ENV='false' → Yahoo-first 롤백.
+  it('KIS_OHLCV_PRIMARY_ENABLED=false 면 Yahoo-first 로 롤백한다(KIS 미호출)', async () => {
+    process.env.KIS_OHLCV_PRIMARY_ENABLED = 'false';
     yahooMock.mockResolvedValue(makeQuote({ price: 68000, dataQuality: 'OK' }));
 
     const result = await fetchTechnicalQuote(CODE, SYMBOL);
@@ -205,11 +217,12 @@ describe('technicalQuoteRouter.fetchTechnicalQuote', () => {
 // funnel 이 ledger 부수효과(ADR-0255)·sanity fallback(ADR-0241)·KIS-first 부분동작(funnel ①)의
 // SSOT 이므로, "funnel 을 동일 인자로 정확히 1회 호출하고 그 반환을 그대로 반환"임을 단언하면
 // 6항(호출수·반환타입/값·ledger·marker·sanity·KIS-first 부분) 동일이 성립한다.
-describe('technicalQuoteRouter.fetchTechnicalQuoteByCode — R1 byte-equivalence (flag OFF)', () => {
+describe('technicalQuoteRouter.fetchTechnicalQuoteByCode — R1 byte-equivalence (rollback ENV=false)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     _clearKisDailyQuoteCache();
-    delete process.env.KIS_OHLCV_PRIMARY_ENABLED;
+    // 2026-06-06 default KIS-first 전환 후, Yahoo funnel 위임(byte-equal)은 ENV='false' 롤백 경로다.
+    process.env.KIS_OHLCV_PRIMARY_ENABLED = 'false';
     weekendMock.mockReturnValue(false);
     modeMock.mockReturnValue('LIVE_TRADING_DAY');
     enrichMock.mockImplementation(async (q: YahooQuoteExtended) => q);
