@@ -53,7 +53,8 @@ export async function searchStock(query: string, filters?: {
         for (const hit of masterHits.slice(0, 6)) {
           const stub = buildMasterSearchStub(hit.code, hit.name);
           try {
-            enriched.push(await enrichStockWithRealData(stub));
+            // 개별 종목 검색 = on-demand → KIS 공식 현재가 우선(quota 소량, 장외엔 Naver 폴백).
+            enriched.push(await enrichStockWithRealData(stub, { kisLive: true }));
           } catch (e) {
             debugLog(`enrich failed for ${hit.code}: ${e}`);
             enriched.push(stub);

@@ -11,6 +11,7 @@ import {
 import { fetchCorpCode, fetchDartFinancials } from './dartDataFetcher';
 import { fetchHistoricalData } from './historicalData';
 import { fetchNaverDailyChart, fetchNaverSupply } from './naverDailyChart';
+import { fetchKisLivePrice } from '../../api/kisLiveClient';
 import { fetchAiUniverseSnapshot, type AiUniverseValuation } from '../../api/aiUniverseClient';
 import { fetchForeignerRatioTrend } from '../../api/foreignerRatioClient';
 import { fetchKrxInvestorTrend } from '../../api/krxInvestorClient';
@@ -315,7 +316,7 @@ export function applyTradingFieldFallbacks<
   };
 }
 
-export async function enrichStockWithRealData(stock: StockRecommendation): Promise<StockRecommendation> {
+export async function enrichStockWithRealData(stock: StockRecommendation, opts?: { kisLive?: boolean }): Promise<StockRecommendation> {
   // Fix 2 + 2026-04-24 추가 — enrich 실패 경로에서 currentPrice 가 0 으로 남는 문제 해소.
   // 사용자 체감: 후보 판정 카드는 보이지만 가격이 모두 "-" 로 표시되어 "표시 안 됨" 으로 인지.
   // 원인: 장외/주말에 fetchHistoricalData 가 null 반환 → aiFallback 진입 → Gemini 가
@@ -558,24 +559,30 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     // 모양(shape) 기반 기술적 지표 계산에 한해 계속 사용 (절대값 표시 X).
     // 가격: Naver 모바일 snapshot.closePrice 우선 → 실패 시 Naver 일봉 마지막 종가(ohlcvSource==='NAVER' 일 때만,
     // 정확 KRX 시세). Yahoo 일봉 종가는 split/통화 왜곡으로 가격엔 미사용(기술지표 shape 계산에만).
+    // 가격: (kisLive 옵션 시) **KIS 공식 현재가 1순위**(장중 실시간·최신뢰; 장외/실패 시 stale→null→폴백) →
+    //   Naver snapshot → Naver 일봉 종가 → 이전 KIS sync → 0. KIS 호출은 개별 종목(검색/카드)에서만(quota 소량).
+    const kisLivePrice = opts?.kisLive ? ((await fetchKisLivePrice(stock.code))?.price ?? null) : null;
     const naverDailyClose = ohlcvSource === 'NAVER' && closes.length > 0 ? closes[closes.length - 1] : null;
     const naverPriceCandidate = (naverSnap?.closePrice && naverSnap.closePrice > 0)
       ? naverSnap.closePrice
       : (naverDailyClose && naverDailyClose > 0 ? naverDailyClose : null);
-    const priceFromNaver = naverPriceCandidate !== null;
-    const priceFromPreviousKis = !priceFromNaver
+    const priceFromKis = kisLivePrice !== null && kisLivePrice > 0;
+    const priceFromNaver = !priceFromKis && naverPriceCandidate !== null;
+    const priceFromPreviousKis = !priceFromKis && !priceFromNaver
       && stock.dataSourceType === 'REALTIME'
       && typeof stock.currentPrice === 'number'
       && stock.currentPrice > 0;
-    const resolvedCurrentPrice = priceFromNaver
-      ? (naverPriceCandidate as number)
-      : priceFromPreviousKis
-        ? (stock.currentPrice as number)
-        : 0; // LLM 환각/Yahoo/snapshot stale 모두 폐기 — UI 가 "가격 미확보" 표시
-    const resolvedSourceType: NonNullable<StockRecommendation['dataSourceType']> = priceFromNaver
-      ? 'NAVER'
-      : priceFromPreviousKis
-        ? 'REALTIME'
+    const resolvedCurrentPrice = priceFromKis
+      ? (kisLivePrice as number)
+      : priceFromNaver
+        ? (naverPriceCandidate as number)
+        : priceFromPreviousKis
+          ? (stock.currentPrice as number)
+          : 0; // LLM 환각/Yahoo/snapshot stale 모두 폐기 — UI 가 "가격 미확보" 표시
+    const resolvedSourceType: NonNullable<StockRecommendation['dataSourceType']> = (priceFromKis || priceFromPreviousKis)
+      ? 'REALTIME'
+      : priceFromNaver
+        ? 'NAVER'
         : 'STALE';
     // applyTradingFieldFallbacks 는 가격이 있을 때만 의미가 있다 (currentPrice=0 시 no-op).
     const resolvedPrice = resolvedCurrentPrice;
@@ -593,11 +600,13 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       entryPrice:   fallbackFields.entryPrice   ?? stock.entryPrice,
       stopLoss:     fallbackFields.stopLoss     ?? stock.stopLoss,
       dataSourceType: resolvedSourceType,
-      priceUpdatedAt: priceFromNaver
-        ? `${new Date().toLocaleTimeString('ko-KR')} (Naver 모바일)`
-        : priceFromPreviousKis
-          ? stock.priceUpdatedAt ?? `${new Date().toLocaleTimeString('ko-KR')} (KIS 이전값)`
-          : `${new Date().toLocaleTimeString('ko-KR')} (가격 미확보 — Naver fetch 실패)`,
+      priceUpdatedAt: priceFromKis
+        ? `${new Date().toLocaleTimeString('ko-KR')} (KIS 현재가)`
+        : priceFromNaver
+          ? `${new Date().toLocaleTimeString('ko-KR')} (Naver 모바일)`
+          : priceFromPreviousKis
+            ? stock.priceUpdatedAt ?? `${new Date().toLocaleTimeString('ko-KR')} (KIS 이전값)`
+            : `${new Date().toLocaleTimeString('ko-KR')} (가격 미확보 — Naver fetch 실패)`,
       supplyData: kisSupply || stock.supplyData,
       shortSelling: kisShort || stock.shortSelling,
       technicalSignals: {
