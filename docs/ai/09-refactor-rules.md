@@ -77,18 +77,19 @@
 ## 현재 복잡도 위반 (분해 우선순위)
 
 > **SSOT = `scripts/check_complexity.js` 의 `BASELINE_TECHNICAL_DEBT` + `npm run validate:complexity`.**
-> 아래는 **2026-06-06 실측 스냅샷** — 줄수는 변동하므로 분해 전 항상 `validate:complexity` 재확인.
+> 아래는 **2026-06-07 실측 스냅샷** — 줄수는 변동하므로 분해 전 항상 `validate:complexity` 재확인.
 
 | 파일 | 줄수 | 상태 |
 |------|------|------|
 | `scanDiagnostics/persistScanResults.ts` | 1,990 | BASELINE (god 함수 1,623줄) |
 | `clients/kisSectorEnergyProvider.ts` | 1,521 | BASELINE (분해 ADR 미발급) |
-| `clients/sectorEnergyProvider.ts` | 1,500 | ⚠️ 한계선 (선제 분해 권고) |
-| `signalScanner/gate1DryRunObservationLedgerAdr0476.ts` | 1,500 | ⚠️ 한계선 |
-| `trading/marketDataRefresh.ts` | 1,499 | ⚠️ 1줄 차 |
+| `signalScanner/minimumSignalScoreTrace.ts` | 1,490 | watch 여유10 (ADR-0524 후 재증가) |
+| `learning/counterfactualOutcomeBoard.ts` | 1,481 | watch 여유19 |
+| `signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts` | 1,479 | watch 여유21 |
 
 ### 완료된 분해 (참조 패턴)
 
+- ACMA 임박 선제분해: `marketDataRefresh`→1,327 (ADR-0580, types+helpers·executionImpact=NONE) · `gate1DryRunObservationLedgerAdr0476`→1,242 · `sectorEnergyProvider`→1,343 (ADR-0579, types).
 - 초기: `perSymbolEvaluation` (ADR-0134) · `webhookHandler` (ADR-0017) · `exitEngine` (ADR-0028) ·
   `stockScreener` (ADR-0029) · `krxClient` (ADR-0502c) · `signalScanner`→35줄 barrel (ADR-0001/0147b).
 - 2026-05 시리즈: `sectorEnergyMasterSupplyUnknownPolicy` (ADR-0521) · `regimeLearningBank` (ADR-0522) ·

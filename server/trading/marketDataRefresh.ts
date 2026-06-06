@@ -31,148 +31,44 @@ import { classifyMacroDataHealth, listMacroDataHealthIssues, summarizeMacroDataH
 import { defaultWarnTtlSec, emitOperationalWarn } from '../observability/operationalWarn.js';
 import { fetchKisMarketSupply, fetchKisMarketProgramTrade } from '../clients/kisClient.js';
 import { tryKrxShortViaKisProxy } from './shortSellingKisProxy.js';
-import { enforceRowInvariant, resolveCombinedSource } from './programMarketSnapshot.js';
+import { resolveCombinedSource } from './programMarketSnapshot.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
 import { fetchLatestUsdKrw, fetchLatestMarginBalance5dChange } from '../clients/ecosClient.js';
 import { fetchDerivativesIndexDaily } from '../clients/krxOpenApi.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
 import { guardedFetch } from '../utils/egressGuard.js';
-import { safePctChange } from '../utils/safePctChange.js';
 import { evaluateCrossSource } from './crossSourceValidator.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { evaluateSectorEnergy } from '../../src/services/quant/sectorEnergyEngine.js';
 import { getSectorEnergyInputs, buildSectorEnergyInputsWithMeta } from '../clients/sectorEnergyProvider.js';
 import { deriveSectorCycle } from './sectorCycleClassifier.js';
+import type {
+  MacroRefreshReason,
+  ProgramMarketFinalStatus,
+  MarketRefreshComputed,
+  ShortSellingSource,
+  ShortSellingResult,
+  DailyBar,
+  YahooHealthSnapshot,
+} from './marketDataRefresh/types.js';
+import {
+  buildProgramMarketSnapshotId,
+  hasSnapshotInvariantViolation,
+  formatEokAmount,
+  buildUnitCandidates,
+  parseKisNumber,
+  selectLatestByBsopHour,
+  normalizeMarketProgramLeg,
+  sumNullablePair,
+  parsePct,
+  sma,
+  nDayReturn,
+} from './marketDataRefresh/helpers.js';
 
-type MacroRefreshReason = 'SCHEDULED' | 'MANUAL' | 'R6_RECOVERY_CHECK';
-type ProgramMarketRawUnitAssumption = 'UNVERIFIED' | 'KRW' | 'KRW_1K' | 'KRW_1M';
-type ProgramMarketFinalStatus =
-  | 'OFFICIAL_PARAMS_VERIFIED'
-  | 'SINGLE_RESPONSE_VERIFIED'
-  | 'SNAPSHOT_INCONSISTENT'
-  | 'UNIT_UNVERIFIED'
-  | 'MAPPING_VERIFIED';
-type MarketRefreshComputed = Partial<MacroState>;
-
-function buildProgramMarketSnapshotId(now = new Date()): string {
-  const ymd = now.toISOString().slice(0, 10).replace(/-/g, '');
-  const hms = now.toISOString().slice(11, 19).replace(/:/g, '');
-  const random6 = Math.random().toString(36).slice(2, 8).padEnd(6, '0');
-  return `mpg_${ymd}_${hms}_${random6}`;
-}
-
-function hasSnapshotInvariantViolation(input: {
-  kospiLen: number;
-  kosdaqLen: number;
-  combinedLen: number;
-  combinedNonZero: number;
-  combinedSource: string;
-  rawTopFirstBsopHour?: string | null;
-  selectedBsopHour?: string | null;
-}): { violated: boolean; reason: string; snapshotMismatch: boolean } {
-  const snapshotMismatch = !!(input.rawTopFirstBsopHour && input.selectedBsopHour && input.rawTopFirstBsopHour !== input.selectedBsopHour);
-  if (input.combinedNonZero > input.combinedLen) return { violated: true, reason: 'combinedNonZeroRows exceeds combinedOutputLength', snapshotMismatch };
-  if (input.combinedLen === 0 && input.combinedNonZero !== 0) return { violated: true, reason: 'combinedOutputLength is 0 but nonZeroRows is non-zero', snapshotMismatch };
-  if (input.kospiLen === 0 && input.kosdaqLen === 0 && input.combinedSource === 'KOSPI_PLUS_KOSDAQ') return { violated: true, reason: 'empty split rows cannot be KOSPI_PLUS_KOSDAQ', snapshotMismatch };
-  if (input.combinedSource === 'KOSPI_PLUS_KOSDAQ' && input.combinedLen !== (input.kospiLen + input.kosdaqLen)) return { violated: true, reason: 'combined length does not match split sum', snapshotMismatch };
-  // snapshotMismatch 는 "동일 스냅샷 불변식 위반"이 아니라
-  // "direct probe vs persisted snapshot 시각 차이" 관측치로만 사용한다.
-  // (raw diagnostic 용 probe 와 macroState snapshot 분리 정책)
-  return { violated: false, reason: 'NONE', snapshotMismatch };
-}
-
-function formatEokAmount(value: number | null, unitAssumption: ProgramMarketRawUnitAssumption): string {
-  if (value === null || !Number.isFinite(value)) return 'N/A';
-  const divisor = unitAssumption === 'KRW_1K' ? 100_000 : unitAssumption === 'KRW_1M' ? 100 : 100_000_000;
-  const displayEok = value / divisor;
-  if (value === 0) return '0억원';
-  if (Math.abs(displayEok) < 0.01) return value < 0 ? '-0.01억원 미만' : '0.01억원 미만';
-  const sign = displayEok > 0 ? '+' : '';
-  return `${sign}${displayEok.toFixed(2)}억원`;
-}
-
-function buildUnitCandidates(rawValue: number | null): { KRW: string; KRW_1K: string; KRW_1M: string } {
-  return {
-    KRW: formatEokAmount(rawValue, 'UNVERIFIED'),
-    KRW_1K: formatEokAmount(rawValue === null ? null : rawValue * 1000, 'UNVERIFIED'),
-    KRW_1M: formatEokAmount(rawValue === null ? null : rawValue * 1_000_000, 'UNVERIFIED'),
-  };
-}
-
-function parseKisNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value !== 'string') return null;
-  const normalized = value.replace(/[,\s]/g, '').trim();
-  if (!normalized) return null;
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function selectLatestByBsopHour(rows: Array<Record<string, unknown>>): Record<string, unknown> | null {
-  if (!rows.length) return null;
-  return rows.reduce<Record<string, unknown> | null>((best, row) => {
-    const cur = String(row.bsop_hour ?? '');
-    if (!best) return row;
-    const prev = String(best.bsop_hour ?? '');
-    return cur >= prev ? row : best;
-  }, null);
-}
-
-function normalizeMarketProgramLeg(leg: {
-  rows: Array<Record<string, unknown>>;
-  selectedRow?: Record<string, unknown> | null;
-}): {
-  rows: Array<Record<string, unknown>>;
-  unitCandidates: { KRW: string; KRW_1K: string; KRW_1M: string } | null;
-  outputLength: number;
-  nonZeroRows: number;
-  selectedRow: Record<string, unknown> | null;
-  selectedBsopHour: string | null;
-  rawWholeNetBuy: number | null;
-  rawArbitrageNetBuy: number | null;
-  rawNonArbitrageNetBuy: number | null;
-  displayWholeNetBuy: string;
-  invariantViolated: boolean;
-  invariantReason: string | null;
-} {
-  const rows = Array.isArray(leg.rows) ? leg.rows : [];
-  const outputLength = rows.length;
-  const nonZeroRows = rows.filter((r) => (parseKisNumber(r.whol_smtn_ntby_tr_pbmn) ?? 0) !== 0).length;
-  if (rows.length === 0) {
-    return {
-      rows,
-      selectedRow: null,
-      outputLength: 0,
-      nonZeroRows: 0,
-      selectedBsopHour: null,
-      rawWholeNetBuy: null,
-      rawArbitrageNetBuy: null,
-      rawNonArbitrageNetBuy: null,
-      displayWholeNetBuy: 'N/A',
-      unitCandidates: null,
-      invariantViolated: false,
-      invariantReason: null,
-    };
-  }
-  const selectedRow = selectLatestByBsopHour(rows);
-  const rawWholeNetBuy = parseKisNumber(selectedRow?.whol_smtn_ntby_tr_pbmn);
-  const rawArbitrageNetBuy = parseKisNumber(selectedRow?.arbt_smtn_ntby_tr_pbmn);
-  const rawNonArbitrageNetBuy = parseKisNumber(selectedRow?.nabt_smtn_ntby_tr_pbmn);
-  return {
-    rows,
-    selectedRow,
-    outputLength,
-    nonZeroRows: enforceRowInvariant(outputLength, nonZeroRows),
-    selectedBsopHour: selectedRow ? String(selectedRow.bsop_hour ?? '') : null,
-    rawWholeNetBuy,
-    rawArbitrageNetBuy,
-    rawNonArbitrageNetBuy,
-    displayWholeNetBuy: formatEokAmount(rawWholeNetBuy, 'UNVERIFIED'),
-    unitCandidates: buildUnitCandidates(rawWholeNetBuy),
-    invariantViolated: false,
-    invariantReason: null,
-  };
-}
+// ADR-0580: 타입 선언 (ShortSellingSource/ShortSellingResult/DailyBar/YahooHealthSnapshot 등)
+// 은 ./marketDataRefresh/types.js 로 추출됐다. 본 모듈을 통한 기존 import 경로 보존을 위해
+// public 타입 표면을 re-export 한다 (byte-equivalent).
+export * from './marketDataRefresh/types.js';
 
 function macroRefreshRuntimeContext(now = new Date()): { marketSession: string; engineMode: string; r6State: string; sellOnly: boolean } {
   try {
@@ -193,11 +89,6 @@ function macroRefreshRuntimeContext(now = new Date()): { marketSession: string; 
       sellOnly: false,
     };
   }
-}
-
-function sumNullablePair(left: number | null, right: number | null): number | null {
-  if (left === null && right === null) return null;
-  return (left ?? 0) + (right ?? 0);
 }
 
 function logMacroRefreshStarted(reason: MacroRefreshReason): void {
@@ -358,28 +249,6 @@ const KRX_SHORT_RATIO_KEYS = [
   'BID_TRDVAL_RATIO',
 ];
 
-/** 필드값(문자열·숫자) → 백분율. 실패 시 null. */
-function parsePct(v: unknown): number | null {
-  if (v == null) return null;
-  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[^\d.\-]/g, ''));
-  return Number.isFinite(n) ? n : null;
-}
-
-/**
- * 공매도 비율 데이터 출처 — Phase 1 운영 가시화. KRX_DIRECT/KRX_OTP(L1) ·
- * KIS_PROXY(L1, ADR-0543 daily-short-sale 프록시 ETF, ENV gated) · KIS_ESTIMATE(L4 휴리스틱, 최후).
- */
-export type ShortSellingSource = 'KRX_DIRECT' | 'KRX_OTP' | 'KIS_PROXY' | 'KIS_ESTIMATE';
-
-export interface ShortSellingResult {
-  /** 공매도 비율 (%) */
-  ratio: number;
-  /** 어느 fallback 단계에서 데이터를 얻었는지 */
-  source: ShortSellingSource;
-  /** 조회 성공 시각 (ISO) — 운영자가 신선도 확인 */
-  fetchedAt: string;
-}
-
 /**
  * KRX 공매도 비율 조회 — 다단계 폴백 체인 (ADR-0543 확장):
  *   1) KRX 공개 JSON(L1)  2) KRX OTP(L1)  3) KIS 프록시 ETF(L1, ENV gated)  4) KIS 추정(L4, 최후)
@@ -529,30 +398,12 @@ async function tryKrxShortViaKisRanking(): Promise<number | null> {
   }
 }
 
-/** Yahoo Finance 일봉 원본 — close / timestamp 정렬쌍. 실패 시 null. */
-export interface DailyBar {
-  /** Unix epoch seconds (Yahoo 원본 단위) */
-  ts: number;
-  close: number;
-  open?: number;
-  high?: number;
-  low?: number;
-}
-
 // ── Yahoo health heartbeat (집계 상태 '?' 회피용) ──────────────────────────
 // scanSummary.candidates===0 일 때도 Yahoo 자체 가용성을 별도로 알 수 있도록
 // 마지막 성공/실패 타임스탬프를 노출한다. /health 가 fallback 으로 참조.
 let _yahooLastSuccessAt = 0;
 let _yahooLastFailureAt = 0;
 let _yahooConsecutiveFailures = 0;
-
-export interface YahooHealthSnapshot {
-  lastSuccessAt: number;     // epoch ms (0 = 미수집)
-  lastFailureAt: number;     // epoch ms (0 = 실패 없음)
-  consecutiveFailures: number;
-  /** 'OK' | 'STALE' | 'DOWN' | 'UNKNOWN' — 호출자 편의를 위해 사전 분류. */
-  status: 'OK' | 'STALE' | 'DOWN' | 'UNKNOWN';
-}
 
 /**
  * 호출 시점 Yahoo 가용성 스냅샷.
@@ -642,28 +493,6 @@ export async function fetchLatestBar(symbol: string, range = '10d'): Promise<Dai
   const bars = await fetchDailyBars(symbol, range);
   if (!bars || bars.length === 0) return null;
   return bars[bars.length - 1];
-}
-
-/** 이동평균 계산 */
-function sma(prices: number[], n: number): number {
-  const slice = prices.slice(-n);
-  if (slice.length < n) return prices[prices.length - 1] ?? 0;
-  return slice.reduce((a, b) => a + b, 0) / n;
-}
-
-/**
- * N일 수익률 (%). ADR-0028 — stale base / sanity bound 위반 시 0 반환 (KOSPI 매크로
- * 지표가 망가져 레짐 분류가 왜곡되는 것을 차단하기 위해 0% 안전값으로 fallback).
- *
- * 기존 구현은 base ≤ 0 가드만 있어 Yahoo OTC 가 수년 전 stale 종가를 반환하면
- * -90% 같은 비현실 값이 macroState 에 그대로 영속화될 수 있었다.
- */
-function nDayReturn(prices: number[], n: number, label?: string): number {
-  if (prices.length < n + 1) return 0;
-  const past    = prices[prices.length - 1 - n];
-  const current = prices[prices.length - 1];
-  const result = safePctChange(current, past, { label: label ?? `nDayReturn:${n}d` });
-  return result ?? 0;
 }
 
 /**

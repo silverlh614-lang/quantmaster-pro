@@ -77,20 +77,24 @@
 | `server/trading/signalScanner/scanDiagnostics/persistScanResults.ts` | 1,990 | baseline — god 함수 1,623줄, 진단블록 분해 보류 |
 | `server/clients/kisSectorEnergyProvider.ts` | 1,521 | baseline — ADR-0574 정규화로 초과, 분해 ADR 미발급 |
 
-### ⚠️ 한계 임박 (다음 커밋에 차단 위험 — 선제 분해 권고)
+### ⚠️ 한계 근접 (watch — 여유 ≤30줄, 2026-06-07 실측)
 
-| 파일 | 줄 수 | 비고 |
+| 파일 | 줄 수 | 여유 |
 |------|------:|------|
-| `server/clients/sectorEnergyProvider.ts` | 1,500 | 정확히 한계선 (1,501 부터 fail) |
-| `server/trading/signalScanner/gate1DryRunObservationLedgerAdr0476.ts` | 1,500 | 정확히 한계선 |
-| `server/trading/marketDataRefresh.ts` | 1,499 | 1줄 차 |
+| `server/trading/signalScanner/minimumSignalScoreTrace.ts` | 1,490 | 10 (ADR-0524 후 재증가) |
+| `server/learning/counterfactualOutcomeBoard.ts` | 1,481 | 19 |
+| `server/trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts` | 1,479 | 21 |
+| `server/clients/krxClient.ts` | 1,475 | 25 |
+
+> 직전 "정확히 1,500/1줄 차" 임박 3건은 ADR-0579/0580 으로 해결(아래 완료) — 현재 차단 임박(≤1줄) 0건.
 
 ### 완료 (분해 사례 — 후속 분해의 참조 패턴)
 
+- `marketDataRefresh.ts` 1,499 → 1,327줄 (ADR-0580, types.ts+helpers.ts, **executionImpact=NONE** · refreshMarketRegimeVars 무접촉)
+- `gate1DryRunObservationLedgerAdr0476.ts` 1,500 → 1,242줄 · `sectorEnergyProvider.ts` 1,499 → 1,343줄 (ADR-0579, types.ts 추출)
 - `signalScanner.ts` 1,820 → 35줄 barrel (ADR-0001/0147b, `signalScanner/` 229 모듈)
-- `entryFilterDecomposition.ts` 2,277 → 14줄 barrel (ADR-0464, `signalScanner/entryFilterDecomposition/` 10 모듈)
-- `investorFlowProviderRouterAdr0477.ts` 1,694 → 9줄 barrel (ADR-0477, 7 모듈)
-- `minimumSignalScoreTrace.ts` 1,736 → 1,489줄 (ADR-0524, types/scoring 추출 — 한계 미만 회복)
+- `entryFilterDecomposition.ts` 2,277 → 14줄 barrel (ADR-0464, 10 모듈) · `investorFlowProviderRouterAdr0477.ts` 1,694 → 9줄 (ADR-0477, 7 모듈)
+- `minimumSignalScoreTrace.ts` 1,736 → 1,490줄 (ADR-0524, types/scoring 추출 — 위 watch 참조)
 - 2026-05 시리즈: `sectorEnergyMasterSupplyUnknownPolicy`(ADR-0521) · `regimeLearningBank`(ADR-0522) · `gate2ExternalDataProvider`(ADR-0523) · `kisClient/query`(ADR-0537) · `scanBlockers`(ADR-0538) · `regimeLearningBackfill`(types/formatters)
 - 초기: `perSymbolEvaluation.ts`(ADR-0134) · `webhookHandler.ts`(ADR-0017) · `exitEngine.ts`(ADR-0028) · `stockScreener.ts`(ADR-0029) · `krxClient.ts` 2,105→1,073줄(ADR-0502c)
 
