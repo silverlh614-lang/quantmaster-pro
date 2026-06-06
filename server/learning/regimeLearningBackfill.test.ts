@@ -7,6 +7,7 @@ import {
   regimeUnknownRepairDryRun,
   regimeUnknownRepairRun,
 } from './regimeLearningBackfill.js';
+import { idEpochTimestamp, timestampOf, timestampSourceOf } from './regimeLearningBackfill/timestampResolver.js';
 import type { LearningGhostCase } from './learningTypes.js';
 import type { CounterfactualEntry } from './counterfactualShadow.js';
 
@@ -366,5 +367,44 @@ describe('Regime Learning backfill', () => {
     expect(dry.priorityDateFailureReason).toBe('UNRECOVERABLE_MISSING_REGIME_SOURCE');
     expect(dry.failureReasonBreakdownAfterDailyFallback.NO_RECONSTRUCTION_SOURCE_FOR_DATE).toBe(1);
     expect(dry.failureSampleKeys[0]).toContain('NO_RECONSTRUCTION_SOURCE_FOR_DATE');
+  });
+});
+
+describe('Regime Learning backfill — timestamp 회복 fallback (Patch 레거시 카운터팩추얼 백로그)', () => {
+  it('signalTime 가 있으면 그대로 사용', () => {
+    const row = { signalTime: '2026-05-17T01:00:00.000Z', signalDate: '2026-05-17' };
+    expect(timestampSourceOf(row)).toBe('SIGNAL_TIME');
+    expect(timestampOf(row)).toBe('2026-05-17T01:00:00.000Z');
+  });
+
+  it('signalTime/signalDate 결손 + tradingDate → TRADING_DATE 회복', () => {
+    const row = { signalTime: '', signalDate: '', tradingDate: '2026-05-17' };
+    expect(timestampSourceOf(row)).toBe('TRADING_DATE');
+    expect(timestampOf(row)).toBe('2026-05-17T00:00:00.000Z');
+  });
+
+  it('모든 날짜필드 결손 + cf_<epoch>_ id → ID_EPOCH 회복(recordCounterfactualCase id 형식)', () => {
+    const ms = Date.parse('2026-05-17T01:00:00.000Z');
+    const row = { id: `cf_${ms}_000660` };
+    expect(timestampSourceOf(row)).toBe('ID_EPOCH');
+    expect(timestampOf(row)).toBe('2026-05-17T01:00:00.000Z');
+    expect(idEpochTimestamp(row.id)).toBe('2026-05-17T01:00:00.000Z');
+  });
+
+  it('snapshotId 기반 id(cf_decision_...)는 오탐 없이 MISSING', () => {
+    const row = { id: 'cf_decision_2026-06-06_000660' };
+    expect(timestampSourceOf(row)).toBe('MISSING');
+    expect(timestampOf(row)).toBeUndefined();
+  });
+
+  it('공백 문자열 signalTime 은 skip → 다음 유효필드(SIGNAL_DATE)로 정합', () => {
+    const row = { signalTime: '   ', signalDate: '2026-05-17' };
+    expect(timestampSourceOf(row)).toBe('SIGNAL_DATE');
+    expect(timestampOf(row)).toBe('2026-05-17T00:00:00.000Z');
+  });
+
+  it('아무 timestamp 도 없으면 MISSING', () => {
+    expect(timestampSourceOf({ id: 'legacy-no-ts' })).toBe('MISSING');
+    expect(timestampOf({ id: 'legacy-no-ts' })).toBeUndefined();
   });
 });

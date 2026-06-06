@@ -49,6 +49,7 @@ import type {
 
 export * from './regimeLearningBackfill/types.js';
 export * from './regimeLearningBackfill/formatters.js';
+import { timestampOf, timestampSourceOf } from './regimeLearningBackfill/timestampResolver.js';
 
 type RegimeBackfillRow = {
   target: RegimeLearningBackfillTarget;
@@ -70,28 +71,7 @@ function inc(record: Record<string, number>, key: string | undefined, amount = 1
   record[safeKey] = (record[safeKey] ?? 0) + amount;
 }
 
-function timestampOf(row: RegimeWritableRow): string | undefined {
-  return row.signalTime
-    ?? row.entryAt
-    ?? row.detectedAt
-    ?? row.createdAt
-    ?? row.closedAt
-    ?? row.updatedAt
-    ?? row.lastUpdatedAt
-    ?? (row.signalDate ? `${row.signalDate}T00:00:00.000Z` : undefined);
-}
-
-function timestampSourceOf(row: RegimeWritableRow): RegimeBackfillTimestampSource {
-  if (row.signalTime) return 'SIGNAL_TIME';
-  if (row.entryAt) return 'ENTRY_AT';
-  if (row.detectedAt) return 'DETECTED_AT';
-  if (row.createdAt) return 'CREATED_AT';
-  if (row.closedAt) return 'CLOSED_AT';
-  if (row.updatedAt) return 'UPDATED_AT';
-  if (row.lastUpdatedAt) return 'LAST_UPDATED_AT';
-  if (row.signalDate) return 'SIGNAL_DATE';
-  return 'MISSING';
-}
+// timestampOf / timestampSourceOf / idEpochTimestamp → ./regimeLearningBackfill/timestampResolver.js (ACMA 1500줄 분리).
 
 function isClosedOutcome(row: RegimeWritableRow): boolean {
   return row.closed === true

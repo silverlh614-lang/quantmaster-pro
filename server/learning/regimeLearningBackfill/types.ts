@@ -66,6 +66,7 @@ export type RegimeWritableRow = {
   priceAtSignal?: number;
   signalTime?: string;
   signalDate?: string;
+  tradingDate?: string;
   lastUpdatedAt?: string;
   quarantinedReason?: string;
 };
@@ -105,6 +106,8 @@ export type RegimeBackfillTimestampSource =
   | 'UPDATED_AT'
   | 'LAST_UPDATED_AT'
   | 'SIGNAL_DATE'
+  | 'TRADING_DATE'
+  | 'ID_EPOCH'
   | 'MISSING';
 
 export type RegimeUnknownReason =
