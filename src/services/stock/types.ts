@@ -515,5 +515,11 @@ export interface StockFilters {
   minMarketCap?: number;
   mode?: 'MOMENTUM' | 'EARLY_DETECT' | 'QUANT_SCREEN' | 'BEAR_SCREEN' | 'SMALL_MID_CAP';
   universe?: UniverseConfig;
+  /**
+   * AI(Gemini) 선정·서술 사용 여부. **기본 false** — 후보발굴은 실데이터 정량후보(discoverAiUniverse
+   * + enrich)로 동작해 Gemini 크레딧/429 와 무관. true 일 때만 기존 AI 엔진(momentum/quant/bear)을
+   * 호출(명시적 요청·버튼). AI 의존도 축소(사용자 결정 2026-06-06).
+   */
+  useAI?: boolean;
 }
 

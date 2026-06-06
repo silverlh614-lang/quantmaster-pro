@@ -11,10 +11,18 @@
 import { getMomentumRecommendations } from './momentumRecommendations';
 import { getBearScreenerRecommendations } from './bearScreenerRecommendations';
 import { runQuantScreenPipeline } from './quantScreenRecommendations';
+import { buildRealDataRecommendations } from './realDataRecommendations';
 import type { StockFilters, RecommendationResponse } from './types';
 
 export async function getStockRecommendations(filters?: StockFilters): Promise<RecommendationResponse | null> {
   const mode = filters?.mode || 'MOMENTUM';
+
+  // AI 의존도 축소(사용자 결정 2026-06-06): **기본은 실데이터 정량 후보**(Gemini 0호출, 429 무관).
+  // 모든 모드(MOMENTUM/EARLY_DETECT/QUANT_SCREEN/BEAR_SCREEN/SMALL_MID_CAP)에 적용.
+  // filters.useAI === true 일 때만 기존 AI 엔진(선정+사유 작성)을 호출한다(명시적 요청·버튼).
+  if (!filters?.useAI) {
+    return buildRealDataRecommendations(filters);
+  }
 
   if (mode === 'QUANT_SCREEN') {
     return runQuantScreenPipeline(filters);

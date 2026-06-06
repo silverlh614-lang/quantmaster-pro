@@ -1,7 +1,8 @@
 // @responsibility searchStock master-first 회귀 — 특정 종목 검색이 로컬 마스터로 해석되어 Gemini(429) 미호출.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../api/aiUniverseClient', () => ({ searchStockMaster: vi.fn() }));
+vi.mock('../../api/aiUniverseClient', () => ({ searchStockMaster: vi.fn(), discoverAiUniverse: vi.fn() }));
+vi.mock('./realDataRecommendations', () => ({ buildRealDataRecommendations: vi.fn(async () => ({ marketContext: {}, recommendations: [], warnings: [] })) }));
 vi.mock('./enrichment', () => ({
   enrichStockWithRealData: vi.fn(async (s: { code: string; name: string }) => ({ ...s, currentPrice: 70000 })),
 }));

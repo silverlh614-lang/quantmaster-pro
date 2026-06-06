@@ -3,6 +3,8 @@ import { AI_MODELS } from "../../constants/aiConfig";
 import { getAI, withRetry, safeJsonParse } from './aiClient';
 import { enrichStockWithRealData } from './enrichment';
 import { searchStockMaster } from '../../api/aiUniverseClient';
+import { buildBaseRecommendation } from './recommendationStub';
+import { buildRealDataRecommendations } from './realDataRecommendations';
 import { debugLog } from '../../utils/debug';
 import type { StockRecommendation } from './types';
 
@@ -13,57 +15,15 @@ export function clearSearchCache() {
   searchCache.clear();
 }
 
-const ZERO_CHECKLIST: StockRecommendation['checklist'] = {
-  cycleVerified: 0, momentumRanking: 0, roeType3: 0, supplyInflow: 0, riskOnEnvironment: 0,
-  ichimokuBreakout: 0, mechanicalStop: 0, economicMoatVerified: 0, notPreviousLeader: 0,
-  technicalGoldenCross: 0, volumeSurgeVerified: 0, institutionalBuying: 0, consensusTarget: 0,
-  earningsSurprise: 0, performanceReality: 0, policyAlignment: 0, psychologicalObjectivity: 0,
-  turtleBreakout: 0, fibonacciLevel: 0, elliottWaveVerified: 0, ocfQuality: 0, marginAcceleration: 0,
-  interestCoverage: 0, relativeStrength: 0, vcpPattern: 0, divergenceCheck: 0, catalystAnalysis: 0,
-};
-
 /**
- * 로컬 KRX 마스터 {code,name} → 중립 StockRecommendation stub. 가격/밸류/수급은
- * enrichStockWithRealData(실데이터)가 채운다. AI 판정 필드(type/checklist/score)는 중립값 —
- * confidenceScore 0 + reason 으로 "AI 판정 보류, 검색 결과" 임을 표시.
+ * 로컬 KRX 마스터 {code,name} → 중립 StockRecommendation stub (실데이터 보강 전 골격).
+ * 공유 buildBaseRecommendation 위임 — AI 판정 보류 표시(confidenceScore 0). enrich 가 실데이터로 채움.
  */
 function buildMasterSearchStub(code: string, name: string): StockRecommendation {
-  return {
-    name,
-    code,
+  return buildBaseRecommendation(code, name, {
     reason: '로컬 종목 마스터 검색 결과 — 실시간 데이터로 보강(AI 판정 보류).',
-    type: 'BUY',
-    patterns: [],
-    hotness: 0,
-    roeType: 'UNKNOWN',
-    isLeadingSector: false,
-    momentumRank: 0,
-    supplyQuality: { passive: false, active: false },
-    peakPrice: 0,
-    currentPrice: 0,
-    isPreviousLeader: false,
-    ichimokuStatus: 'INSIDE_CLOUD',
-    relatedSectors: [],
-    valuation: { per: 0, pbr: 0, epsGrowth: 0, debtRatio: 0, perSource: 'UNAVAILABLE' },
-    technicalSignals: {
-      maAlignment: 'NEUTRAL', rsi: 0, macdStatus: 'NEUTRAL', bollingerStatus: 'NEUTRAL',
-      stochasticStatus: 'NEUTRAL', volumeSurge: false, disparity20: 0, macdHistogram: 0, bbWidth: 0, stochRsi: 0,
-    },
-    economicMoat: { type: 'NONE', description: '' },
-    scores: { value: 0, momentum: 0 },
-    marketSentiment: { iri: 0, vkospi: 0 },
-    confidenceScore: 0,
-    marketCap: 0,
-    marketCapCategory: 'MID',
-    correlationGroup: '',
-    aiConvictionScore: { totalScore: 0, factors: [], marketPhase: 'NEUTRAL', description: '' },
-    riskFactors: [],
-    targetPrice: 0,
-    stopLoss: 0,
-    checklist: { ...ZERO_CHECKLIST },
-    visualReport: { financial: 0, technical: 0, supply: 0, summary: '' },
     dataSource: 'KRX_MASTER',
-  } as unknown as StockRecommendation;
+  });
 }
 
 export async function searchStock(query: string, filters?: {
@@ -109,6 +69,20 @@ export async function searchStock(query: string, filters?: {
   }
 
   const isMarketSearch = !query || query.trim() === "";
+
+  // 시장검색(검색어 없음): AI 의존 제거 — 실데이터 정량 후보(discoverAiUniverse+enrich) 반환. Gemini 0호출.
+  // (AI 의존도 축소, 사용자 결정 2026-06-06. 특정 종목 검색은 위 master-first 가 이미 처리.)
+  if (isMarketSearch) {
+    try {
+      const realData = await buildRealDataRecommendations({ mode: 'MOMENTUM' });
+      searchCache.set(cacheKey, { data: realData.recommendations, timestamp: Date.now() });
+      return realData.recommendations;
+    } catch (e) {
+      debugLog(`market search realData 실패: ${e}`);
+      return [];
+    }
+  }
+
   const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
   const todayDate = now.split(' ')[0];
 
