@@ -1369,6 +1369,9 @@ export async function fetchKisStockFullQuote(stockCode: string): Promise<KisStoc
 
 export interface KisStockDailyBar {
   date: string;
+  open?: number;   // stck_oprc — 가산 OHLC(백테스트 등), close-only 소비자 무영향
+  high?: number;   // stck_hgpr
+  low?: number;    // stck_lwpr
   close: number;
   volume: number | null;
 }
@@ -1376,6 +1379,7 @@ export interface KisStockDailyBar {
 /**
  * FHKST03010100 일봉 시계열을 lookbackCalendarDays 범위만큼 조회한다.
  * bars[0] = 가장 최근 거래일 (내림차순). KIS 미설정 시 빈 배열.
+ * open/high/low(stck_oprc/hgpr/lwpr)는 동일 응답에서 가산 추출 — 추가 호출/quota 0.
  */
 export async function fetchKisStockDailyBars(
   stockCode: string,
@@ -1407,8 +1411,14 @@ export async function fetchKisStockDailyBars(
         const close = parseInt(row.stck_clpr ?? '0', 10);
         if (close <= 0) return null;
         const vol = parseInt(row.acml_vol ?? '0', 10);
+        const open = parseInt(row.stck_oprc ?? '0', 10);
+        const high = parseInt(row.stck_hgpr ?? '0', 10);
+        const low  = parseInt(row.stck_lwpr ?? '0', 10);
         return {
           date: `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`,
+          open:  open > 0 ? open : undefined,
+          high:  high > 0 ? high : undefined,
+          low:   low  > 0 ? low  : undefined,
           close,
           volume: vol > 0 ? vol : null,
         };
