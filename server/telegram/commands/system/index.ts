@@ -26,6 +26,7 @@ import './gateAudit.cmd.js';
 import './gateUx.cmd.js';
 import './gate2ExternalRefresh.cmd.js';
 import './gate2ExternalStatus.cmd.js';
+import './geminiCheck.cmd.js'; // /gemini_check — Gemini 연결 live probe + 크레딧/예산 진단.
 import './ghostForceRun.cmd.js';
 import './health.cmd.js';
 import './healthFull.cmd.js';
