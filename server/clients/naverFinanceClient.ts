@@ -134,8 +134,10 @@ export async function fetchNaverStockSnapshot(code: string): Promise<NaverStockS
       pbr: parseNumber(findInfo('pbr')),
       eps: parseNumber(findInfo('eps')),
       bps: parseNumber(findInfo('bps')),
-      dividendYield: parseNumber(findInfo('dividendRatio')),
-      foreignerOwnRatio: parseNumber(findInfo('foreignerOwnRatio')),
+      // Naver 통합 totalInfos 실제 코드: 배당수익률=dividendYieldRatio, 외인소진율=foreignRate
+      // (기존 'dividendRatio'/'foreignerOwnRatio' 는 코드 불일치로 항상 0 였음 — 키名 정정).
+      dividendYield: parseNumber(findInfo('dividendYieldRatio')),
+      foreignerOwnRatio: parseNumber(findInfo('foreignRate')),
       source: 'NAVER_MOBILE',
     };
     void stockEnd;
