@@ -77,6 +77,8 @@ describe('enrichStockWithRealData — OHLCV Naver-first 배선 (장외 기술지
     expect(mockedHistorical).not.toHaveBeenCalled();
     // snapshot 부재 시 Naver 일봉 마지막 종가(129)로 currentPrice 채움(price fallback — 이전 "가격 미확보" 해소).
     expect(result.currentPrice).toBe(129);
+    // ① 게이트 조건 실데이터 파생: 단조 상승 → 마지막 종가가 20일 고가 → turtleBreakout=1.
+    expect(result.checklist.turtleBreakout).toBe(1);
   });
 
   it('kisLive 옵션: KIS 공식 현재가가 Naver 보다 우선(on-demand)', async () => {

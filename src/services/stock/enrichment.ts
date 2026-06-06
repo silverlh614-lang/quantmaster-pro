@@ -643,6 +643,15 @@ export async function enrichStockWithRealData(stock: StockRecommendation, opts?:
       checklist: {
         ...stock.checklist,
         vcpPattern: vcp ? 1 : 0,
+        // ① 계산된 기술/모멘텀 지표 → checklist 게이트 조건 파생 (AI 없이 Gate2/3 충전, AI-off 카드).
+        //    신호 부재 시 기존값(AI 추정/stub) 보존. 모두 OHLCV 실계산 결과만 사용.
+        technicalGoldenCross: macd.status === 'GOLDEN_CROSS' ? 1 : (stock.checklist?.technicalGoldenCross ?? 0),
+        ichimokuBreakout: ichimoku.status === 'ABOVE_CLOUD' ? 1 : (stock.checklist?.ichimokuBreakout ?? 0),
+        volumeSurgeVerified: vcp ? 1 : (stock.checklist?.volumeSurgeVerified ?? 0),
+        turtleBreakout: (closes.length >= 20 && closes[closes.length - 1] >= Math.max(...closes.slice(-20)))
+          ? 1 : (stock.checklist?.turtleBreakout ?? 0),
+        relativeStrength: (closes.length >= 60 && closes[closes.length - 1] > closes[closes.length - 60])
+          ? 1 : (stock.checklist?.relativeStrength ?? 0),
         roeType3: (dartFinancials?.roe ?? 0) >= 15 ? 1 : 0,
         ocfQuality: dartFinancials?.ocfGreaterThanNetIncome ? 1 : 0,
         interestCoverage: (dartFinancials?.interestCoverageRatio ?? 0) >= 3 ? 1 : 0,
