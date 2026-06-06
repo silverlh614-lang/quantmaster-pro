@@ -1,11 +1,12 @@
 // @responsibility constants 서버 모듈
 // server/constants.ts — 서버 전용 AI 상수 (src/constants/aiConfig.ts 복사본)
-// gemini-2.5-flash: Stable — 장중 고빈도 반복 호출 및 서버사이드 AI에 권장
-// gemini-3-flash-preview는 rate limit이 엄격하고 예고 없이 변경될 수 있어 제외
+// gemini-3.5-flash: GA(2026-05-19, stable) — gemini-3-flash-preview 대체. thinking 모델이라
+//   thinking 토큰이 maxOutputTokens 를 함께 소비하므로 callGeminiText.buildThinkingConfig 가
+//   gemini-3.x 분기에서 thinkingLevel:LOW 로 최소화한다(EMPTY_RESPONSE 방지).
 export const AI_MODELS = {
-  PRIMARY:     'gemini-2.5-flash',  // 장중 고빈도 반복 호출
-  SERVER_SIDE: 'gemini-2.5-flash',  // conditionAuditor, globalScanAgent
-  FAST:        'gemini-2.5-flash',  // 빠른 경량 처리
+  PRIMARY:     'gemini-3.5-flash',  // 장중 고빈도 반복 호출
+  SERVER_SIDE: 'gemini-3.5-flash',  // conditionAuditor, globalScanAgent
+  FAST:        'gemini-3.5-flash',  // 빠른 경량 처리
 } as const;
 
 export const AI_CONFIG = {

@@ -41,9 +41,9 @@ function firstConfig(): Record<string, unknown> {
 }
 
 describe('callGeminiText — thinking 설정 (EMPTY_RESPONSE 방지)', () => {
-  it('gemini-2.x(기본 서버 모델) → thinkingConfig.thinkingBudget=0', async () => {
+  it('gemini-2.x 모델 → thinkingConfig.thinkingBudget=0', async () => {
     generateContentSpy.mockResolvedValue({ text: 'OK', usageMetadata: { totalTokenCount: 3 } });
-    const out = await callGeminiText('ping', { caller: 'test', maxOutputTokens: 16 });
+    const out = await callGeminiText('ping', { caller: 'test', model: 'gemini-2.5-flash', maxOutputTokens: 16 });
     expect(out).toBe('OK');
     expect(firstConfig().thinkingConfig).toEqual({ thinkingBudget: 0 });
     expect(firstConfig().maxOutputTokens).toBe(16);
@@ -52,6 +52,12 @@ describe('callGeminiText — thinking 설정 (EMPTY_RESPONSE 방지)', () => {
   it('gemini-3.x 모델 → thinkingConfig.thinkingLevel=LOW (thinkingBudget 미전달)', async () => {
     generateContentSpy.mockResolvedValue({ text: 'OK', usageMetadata: {} });
     await callGeminiText('ping', { caller: 'test', model: 'gemini-3.5-flash' });
+    expect(firstConfig().thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
+  });
+
+  it('기본 서버 모델(gemini-3.5-flash) → thinkingLevel=LOW', async () => {
+    generateContentSpy.mockResolvedValue({ text: 'OK', usageMetadata: {} });
+    await callGeminiText('ping', { caller: 'test' });
     expect(firstConfig().thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
   });
 

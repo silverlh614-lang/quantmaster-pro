@@ -1,10 +1,19 @@
 // @responsibility stock aiClient 서비스 모듈
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
+import { AI_MODELS } from "../../constants/aiConfig";
 import { debugLog } from '../../utils/debug';
 import { clientWarn } from '../../utils/clientWarn';
 
 // ─── AI Client & 유틸리티 ──────────────────────────────────────────────────────
 // stockService.ts에서 추출된 AI 클라이언트, 캐시, 재시도, JSON 파서 모듈
+
+// gemini-2.x/3.x thinking 모델은 thinking 토큰이 maxOutputTokens 예산을 함께 소비한다 —
+// 끄지 않으면 출력 예산이 사고에 소진돼 빈/잘린 응답이 된다. gemini-2.x=thinkingBudget:0,
+// gemini-3.x(3·3.5+)=thinkingLevel:LOW(3.x 는 thinkingBudget 미지원·level 로 대체).
+function clientThinkingConfig(model?: string): { thinkingBudget?: number; thinkingLevel?: ThinkingLevel } {
+  const m = model ?? AI_MODELS.PRIMARY;
+  return /gemini-3/.test(m) ? { thinkingLevel: ThinkingLevel.LOW } : { thinkingBudget: 0 };
+}
 
 export const getAI = () => {
   // 1. Legacy direct key (k-stock-api-key)
@@ -29,7 +38,19 @@ export const getAI = () => {
     throw new Error("API Key is missing. Please provide an API key in settings.");
   }
 
-  return new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey });
+  // 모든 generateContent 호출에 thinking 최소화 설정을 기본 주입(호출자가 thinkingConfig 를
+  // 명시하면 그대로 보존). 클라엔 단일 통로가 없어 ~40개 호출부를 getAI() 한 곳에서 커버한다.
+  const original = ai.models.generateContent.bind(ai.models);
+  // eslint은 미사용(lint=tsc) — 런타임 주입을 위해 any 캐스팅.
+  (ai.models as any).generateContent = (params: any) => {
+    if (params?.config?.thinkingConfig === undefined) {
+      const thinkingConfig = clientThinkingConfig(params?.model);
+      return original({ ...params, config: { ...(params?.config ?? {}), thinkingConfig } });
+    }
+    return original(params);
+  };
+  return ai;
 };
 
 // ─── AI 응답 캐시 (메모리 + localStorage + 서버 Volume 3층) ────────────────────
