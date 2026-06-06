@@ -2,6 +2,7 @@
 import React from 'react';
 import { cn } from '../../../ui/cn';
 import type { StockRecommendation } from '../../../services/stockService';
+import { formatMarketCapJoWon } from '../../../utils/marketCapFormat';
 
 interface Props {
   stock: StockRecommendation;
@@ -71,7 +72,7 @@ export function MarketPositionSection({ stock }: Props) {
         <div className="bg-white/5 rounded-xl p-4 border border-white/[0.07] flex flex-col items-center justify-center text-center">
           <span className="text-[9px] font-black text-white/25 tracking-tight mb-1.5">시가총액</span>
           <span className="text-sm font-black text-white">{MARKET_CAP_LABEL[stock.marketCapCategory ?? ''] ?? stock.marketCapCategory ?? '-'} 시총</span>
-          <span className="text-[9px] font-bold text-white/40 mt-0.5">₩{(stock.marketCap / 100000000).toFixed(1)}B</span>
+          <span className="text-[9px] font-bold text-white/40 mt-0.5">{formatMarketCapJoWon(stock.marketCap)}</span>
         </div>
       </div>
     </div>

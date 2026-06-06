@@ -14,6 +14,7 @@ import { useAnalysisStore } from '../../stores';
 import { SignalBadge } from '../../ui/badge';
 import { cn } from '../../ui/cn';
 import { debugWarn } from '../../utils/debug';
+import { formatMarketCapJoWon } from '../../utils/marketCapFormat';
 import { GateStatusWidget } from './GateStatusWidget';
 import { TranchePlanCard } from './TranchePlanCard';
 import { PriceDisplay } from '../common/PriceDisplay';
@@ -262,18 +263,6 @@ function GateMiniStatus({
       <span className={cn('text-[10px] font-black', className)}>{value}</span>
     </div>
   );
-}
-
-/**
- * 시가총액 표시(조원). marketCap 단위가 경로별로 혼재한다 — snapshot(Naver/aiUniverse)=원,
- * 일부 레거시/AI 경로=억. 크기로 정규화: 1e8 이상이면 원으로 간주(원→조 = /1e12),
- * 미만이면 억 단위(억→조 = /1e4). 실제 상장 시총 범위에서 두 단위가 겹치지 않아 안전
- * (이전 고정 /10000 은 원 단위 snapshot 값을 1e8 배 크게 표시했다 — 사용자 보고 결함).
- */
-function formatMarketCapJoWon(marketCap: number | undefined): string {
-  if (!marketCap || marketCap <= 0) return 'N/A';
-  const jo = marketCap >= 1e8 ? marketCap / 1e12 : marketCap / 1e4;
-  return `${jo.toFixed(1)}조원`;
 }
 
 function FundamentalsCard({ stock }: { stock: StockRecommendation }) {

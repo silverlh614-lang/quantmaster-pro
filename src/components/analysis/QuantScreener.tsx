@@ -14,6 +14,7 @@ import { motion } from 'motion/react';
 import { StockFilters, StockRecommendation } from '../../services/stockService';
 import type { BearRegimeResult } from '../../types/quant';
 import { cn } from '../../ui/cn';
+import { formatMarketCapTKrw } from '../../utils/marketCapFormat';
 
 interface QuantScreenerProps {
   onScreen: (filters: StockFilters) => Promise<void>;
@@ -101,9 +102,9 @@ function formatPrice(value?: number): string {
   return value === undefined ? 'N/A' : `${value.toLocaleString()} KRW`;
 }
 
-function formatMarketCap(value: number): string {
-  return `${(value / 10000).toFixed(1)}T KRW`;
-}
+// 시총 단위는 경로별 혼재(원/억) — marketCapFormat 가 크기로 정규화 후 조(T) 표시.
+// (이전 고정 /10000 은 원 단위 snapshot 값을 1e8 배 과대표시).
+const formatMarketCap = formatMarketCapTKrw;
 
 function BearModeBanner({
   loading,
