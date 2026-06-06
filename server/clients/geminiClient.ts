@@ -4,7 +4,7 @@
  * 모든 서버 측 Gemini 호출은 이 모듈을 통과한다. 응답은 기본적으로 페르소나
  * 메타 서문이 제거된 상태로 반환된다 (PR-20).
  */
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { AI_MODELS } from '../constants.js';
 import { createCircuitBreaker, CircuitOpenError } from '../utils/circuitBreaker.js';
 import { buildPersonaPrelude, hasPersonaPrelude } from '../persona/personaIdentity.js';
@@ -330,6 +330,28 @@ export interface GeminiTextOptions {
    * JSON 파싱 경로(mainReflection 등)에서 원문이 필요한 경우 false 로 끌 수 있다.
    */
   stripPreamble?: boolean;
+  /**
+   * thinking 토큰 예산 (gemini-2.5/3 thinking 모델 대응). 기본 0 = thinking 비활성.
+   * 2.5/3 thinking 모델은 thinking 토큰이 maxOutputTokens 예산을 함께 소비하므로,
+   * thinking 을 끄지 않으면 작은 maxOutputTokens 호출이 thinking 으로 전부 소진돼
+   * 빈 응답(EMPTY_RESPONSE)이 된다. 추론이 필요한 호출만 양수/-1(AUTOMATIC) 로 override.
+   */
+  thinkingBudget?: number;
+}
+
+/**
+ * 모델군별 thinking 최소화 설정 — thinking 토큰이 maxOutputTokens 예산을 잠식해
+ * 빈 응답(EMPTY_RESPONSE)이 되는 것을 막는다.
+ * - gemini-2.x: `thinkingBudget` 정수 (0 = 완전 비활성).
+ * - gemini-3.x (3 / 3.5+): `thinkingBudget` 가 `thinkingLevel`(enum) 로 대체됨 → LOW 로 최소화.
+ *   (3.x 에 thinkingBudget 을 보내면 무시/거부되므로 모델명으로 분기한다.)
+ */
+function buildThinkingConfig(
+  model: string,
+  budget?: number,
+): { thinkingBudget?: number; thinkingLevel?: ThinkingLevel } {
+  if (/gemini-3/.test(model)) return { thinkingLevel: ThinkingLevel.LOW };
+  return { thinkingBudget: budget ?? 0 };
 }
 
 export async function callGeminiText(prompt: string, opts: GeminiTextOptions = {}): Promise<string | null> {
@@ -346,13 +368,17 @@ export async function callGeminiText(prompt: string, opts: GeminiTextOptions = {
     setRuntimeState('BLOCKED', label, caller, 'BUDGET_BLOCKED');
     return null;
   }
+  const model = opts.model ?? AI_MODELS.SERVER_SIDE;
   return withRetry(label, async () => {
     const res = await ai.models.generateContent({
-      model: opts.model ?? AI_MODELS.SERVER_SIDE,
+      model,
       contents: opts.prependPersona === false ? prompt : withPersona(prompt),
       config: {
         temperature: opts.temperature ?? 0.4,
         maxOutputTokens: opts.maxOutputTokens ?? 2048,
+        // gemini-2.5/3 는 thinking 토큰이 maxOutputTokens 예산을 함께 소비한다 — 끄지 않으면
+        // 작은 출력 예산이 사고 토큰으로 전부 소진돼 빈 응답(EMPTY_RESPONSE)이 된다.
+        thinkingConfig: buildThinkingConfig(model, opts.thinkingBudget),
         ...(opts.useSearch ? { tools: [{ googleSearch: {} }] } : {}),
       } as Parameters<typeof ai.models.generateContent>[0]['config'],
     });

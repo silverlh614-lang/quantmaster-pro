@@ -63,7 +63,11 @@ const geminiCheck: TelegramCommand = {
     // 최소 probe — 차단/서킷/키부재 시 callGeminiText 가 실제 호출 없이 null+사유 반환(불필요 비용 0).
     const probe = await callGeminiText('연결 점검입니다. "OK" 한 단어만 답하세요.', {
       caller: 'gemini_check',
-      maxOutputTokens: 16,
+      // thinking 최소화(thinkingBudget:0 / 3.x 는 thinkingLevel LOW) + 여유 출력 토큰 —
+      // gemini-2.5/3 thinking 모델이 출력 예산을 사고 토큰으로 소진해 EMPTY_RESPONSE 가
+      // 되던 문제 방지. probe 1콜이라 토큰 비용 무시 가능.
+      maxOutputTokens: 512,
+      thinkingBudget: 0,
       temperature: 0,
       prependPersona: false,
     });
