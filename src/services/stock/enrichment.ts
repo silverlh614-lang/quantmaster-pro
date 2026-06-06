@@ -10,6 +10,7 @@ import {
 } from "../../utils/indicators";
 import { fetchCorpCode, fetchDartFinancials } from './dartDataFetcher';
 import { fetchHistoricalData } from './historicalData';
+import { fetchNaverDailyChart } from './naverDailyChart';
 import { fetchAiUniverseSnapshot, type AiUniverseValuation } from '../../api/aiUniverseClient';
 import { fetchForeignerRatioTrend } from '../../api/foreignerRatioClient';
 import { fetchKrxInvestorTrend } from '../../api/krxInvestorClient';
@@ -451,7 +452,21 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
   };
 
   try {
-    const data = await fetchHistoricalData(stock.code, '1y');
+    // KR 종목 OHLCV 는 Naver 일봉 우선 — Yahoo(/historical-data)는 장외에 204 반환 → 기술지표가
+    // 전부 비어 카드 상세가 공란이 된다(종목검색 master-first 카드 포함). Naver 일봉은 장외/주말에도
+    // 가용([[naver-first-kr-data]]) + Yahoo 호환 shape({timestamp, indicators.quote[0]}) → 그대로 소비.
+    // Naver 실패(비-KR/네트워크/204) 시에만 Yahoo(/historical-data) fallback.
+    let data: any = null;
+    const baseCodeForChart = stock.code.split('.')[0];
+    if (/^\d{6}$/.test(baseCodeForChart)) {
+      const naverChart = await fetchNaverDailyChart(baseCodeForChart, '1y');
+      if (naverChart?.data?.timestamp?.length && naverChart.data.indicators?.quote?.[0]) {
+        data = naverChart.data;
+      }
+    }
+    if (!data) {
+      data = await fetchHistoricalData(stock.code, '1y');
+    }
     if (!data || !data.timestamp || !data.indicators?.quote?.[0]) {
       return await aiFallback();
     }
