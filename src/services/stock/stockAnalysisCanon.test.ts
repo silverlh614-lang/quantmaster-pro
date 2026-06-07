@@ -21,6 +21,13 @@ describe('conditionView (3-상태)', () => {
     const s = stock({ checklist: { cycleVerified: true } as any, conditionSourceTiers: { cycleVerified: 'API' } as any });
     expect(conditionView(s, 'cycleVerified').status).toBe('VERIFIED_PASS');
   });
+
+  it('ADR-0582: 본질-AI 항목(촉매·심리·엘리엇)은 verifiability=AI_INTRINSIC', () => {
+    expect(conditionView(stock({ checklist: { catalystAnalysis: true } as any }), 'catalystAnalysis').verifiability).toBe('AI_INTRINSIC');
+    expect(conditionView(stock({ checklist: { psychologicalObjectivity: true } as any }), 'psychologicalObjectivity').verifiability).toBe('AI_INTRINSIC');
+    expect(conditionView(stock({ checklist: { elliottWaveVerified: true } as any }), 'elliottWaveVerified').verifiability).toBe('AI_INTRINSIC');
+    expect(conditionView(stock({ checklist: { roeType3: true } as any }), 'roeType3').verifiability).toBe('VERIFIABLE');
+  });
 });
 
 describe('buildStockAnalysisCanon', () => {
@@ -59,6 +66,20 @@ describe('buildStockAnalysisCanon', () => {
     expect(canon.concordance.quantScore).toBe(50); // 비교 대상 = weightedScore (최종 표시값)
     expect(canon.concordance.gap).toBe(45);
     expect(canon.concordance.tier).toBe('POOR');
+  });
+
+  it('ADR-0582: 본질-AI 는 분모에서 제외 — weightedScore 는 검증가능 항목 기준', () => {
+    // 검증가능 1건(roeType3, API=검증) + 본질-AI 1건(catalystAnalysis, 충족).
+    // 분모 제외 안 하면 (1 + 0.5)/2×100=75. 제외하면 검증가능 1건만 → 100.
+    const s = stock({
+      checklist: { roeType3: true, catalystAnalysis: true } as any,
+      conditionSourceTiers: { roeType3: 'API' } as any,
+    });
+    const canon = buildStockAnalysisCanon(s);
+    expect(canon.evaluableCount).toBe(1);          // roeType3 만 검증가능
+    expect(canon.intrinsicAiCount).toBe(1);        // catalystAnalysis 분리
+    expect(canon.intrinsicAiMetCount).toBe(1);
+    expect(canon.weightedScore).toBe(100);         // 검증가능 1/1 검증 → 100 (정성 페널티 제거)
   });
 
   it('gateEvaluation.finalScore 있으면 그 정규화값 사용', () => {

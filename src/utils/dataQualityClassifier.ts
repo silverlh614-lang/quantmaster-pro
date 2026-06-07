@@ -45,6 +45,22 @@ const AI_INFERRED_KEYS: readonly ChecklistKey[] = [
   'catalystAnalysis',
 ];
 
+/**
+ * 본질적으로 정성·해석 영역이라 시장/재무 데이터로 **객관 검증이 불가능**한 조건 (ADR-0582).
+ * "검증 가능하나 데이터 미수집"(AI fallback) 과 구분하기 위한 정적 분류 — 최종 점수 분모에서
+ * 제외하고 별도 표시한다. (촉매 해석·투자심리·엘리엇 파동 카운팅)
+ */
+export const AI_INTRINSIC_KEYS: readonly ChecklistKey[] = [
+  'catalystAnalysis',
+  'psychologicalObjectivity',
+  'elliottWaveVerified',
+];
+
+/** 조건이 본질-AI(검증 불가)인가 — true 면 검증 가중 점수 분모에서 제외 (ADR-0582). */
+export function isAiIntrinsic(key: ChecklistKey): boolean {
+  return AI_INTRINSIC_KEYS.includes(key);
+}
+
 function isPassed(value: number | null | undefined): boolean {
   return isChecklistConditionMet(value);
 }

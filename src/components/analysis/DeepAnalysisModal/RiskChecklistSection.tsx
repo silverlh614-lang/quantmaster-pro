@@ -15,6 +15,9 @@ export function RiskChecklistSection({ stock }: Props) {
   // 분석 표시 정본(SSOT) — 과거 truthy 카운트(filter(Boolean)=27/27 전부 PASS)가 레이더·
   // 점수카드(검증 5)와 어긋나던 문제 제거. 검증/AI추정/미달 3-상태로 통일.
   const canon = buildStockAnalysisCanon(stock);
+  // ADR-0582: 3-구분 — 검증 / AI(검증가능 미수집) / 정성-AI(분모 제외).
+  const aiFallbackMet = Math.max(0, canon.metCount - canon.verifiedPassCount - canon.intrinsicAiMetCount);
+  const evalFail = Math.max(0, canon.evaluableCount - canon.verifiedPassCount - aiFallbackMet);
   return (
     <div className="lg:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-6">
       <div className="bg-red-500/5 rounded-2xl p-6 border border-red-500/10">
@@ -44,25 +47,26 @@ export function RiskChecklistSection({ stock }: Props) {
         <div className="flex items-center gap-4 mb-2">
           <div className="text-4xl font-black text-green-400">
             {canon.verifiedPassCount}
-            <span className="text-xl text-white/30">/27</span>
+            <span className="text-xl text-white/30">/{canon.evaluableCount}</span>
           </div>
-          {/* 2-색 누적: 검증(green) + AI 추정(amber). 나머지(회색)=미달. */}
-          <div className="flex-1 h-3 bg-white/5 rounded-full overflow-hidden border border-white/5 flex" title={`검증 ${canon.verifiedPassCount} · AI 추정 ${canon.metCount - canon.verifiedPassCount} · 미달 ${27 - canon.metCount}`}>
+          {/* 검증 가능 분모 기준 누적: 검증(green) + AI 검증가능 미수집(amber). 나머지(회색)=미달. */}
+          <div className="flex-1 h-3 bg-white/5 rounded-full overflow-hidden border border-white/5 flex" title={`검증 ${canon.verifiedPassCount} · AI(검증가능 미수집) ${aiFallbackMet} · 미달 ${evalFail} · 정성-AI ${canon.intrinsicAiCount}(분모 제외)`}>
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${(canon.verifiedPassCount / 27) * 100}%` }}
+              animate={{ width: `${canon.evaluableCount ? (canon.verifiedPassCount / canon.evaluableCount) * 100 : 0}%` }}
               className="h-full bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]"
             />
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${((canon.metCount - canon.verifiedPassCount) / 27) * 100}%` }}
+              animate={{ width: `${canon.evaluableCount ? (aiFallbackMet / canon.evaluableCount) * 100 : 0}%` }}
               className="h-full bg-amber-500/70"
             />
           </div>
         </div>
         <p className="text-[10px] font-bold text-white/40 mb-6">
-          검증 {canon.verifiedPassCount} · 충족 {canon.metCount}
-          <span className="text-amber-400/70"> (AI 추정 {canon.metCount - canon.verifiedPassCount})</span>
+          검증 {canon.verifiedPassCount}/{canon.evaluableCount}
+          <span className="text-amber-400/70"> · AI 검증가능 {aiFallbackMet}</span>
+          <span className="text-violet-300/70"> · 정성-AI {canon.intrinsicAiMetCount}/{canon.intrinsicAiCount}(점수 제외)</span>
         </p>
 
         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar max-h-[320px] space-y-6">
@@ -74,12 +78,14 @@ export function RiskChecklistSection({ stock }: Props) {
               </div>
               <div className="grid grid-cols-1 gap-2">
                 {MASTER_CHECKLIST_STEPS.filter(s => s.gate === gateNum).map((step) => {
-                  const status = conditionView(stock, step.key).status;
+                  const view = conditionView(stock, step.key);
+                  const status = view.status;
+                  const intrinsic = view.verifiability === 'AI_INTRINSIC';
                   return (
                     <div
                       key={step.key}
                       className="group/item relative flex flex-col gap-1.5 p-3 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 transition-all cursor-help"
-                      title={status === 'VERIFIED_PASS' ? '검증 통과 — 실데이터(DART/KRX/계산)' : status === 'AI_PASS' ? 'AI 추정 통과 — 미검증(L4)' : '미달'}
+                      title={status === 'VERIFIED_PASS' ? '검증 통과 — 실데이터(DART/KRX/계산)' : intrinsic ? '정성-AI — 시장 데이터로 검증 불가 (점수 분모 제외)' : status === 'AI_PASS' ? 'AI 추정 통과 — 검증 가능하나 데이터 미수집(L4)' : '미달'}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -92,6 +98,11 @@ export function RiskChecklistSection({ stock }: Props) {
                           <div className="flex items-center gap-1.5 text-green-400">
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             <span className="text-[10px] font-black">검증</span>
+                          </div>
+                        ) : intrinsic ? (
+                          <div className="flex items-center gap-1.5 text-violet-300">
+                            <Info className="w-3.5 h-3.5" />
+                            <span className="text-[10px] font-black">{status === 'AI_PASS' ? '정성-AI' : '정성-AI(미달)'}</span>
                           </div>
                         ) : status === 'AI_PASS' ? (
                           <div className="flex items-center gap-1.5 text-amber-400">
@@ -138,7 +149,7 @@ export function RiskChecklistSection({ stock }: Props) {
         </div>
 
         <p className="text-[10px] text-white/40 font-bold leading-relaxed mt-6 pt-4 border-t border-white/[0.07]">
-          <span className="text-green-400">🟢 검증</span>=실데이터(DART·KRX·계산) 확인 · <span className="text-amber-400">🟡 AI 추정</span>=미검증(L4 참조 전용). 시장 사이클·수급·펀더멘털·기술·심리를 종합 점검하며, 충족 15개 이상이면 '강한 후보'로 간주됩니다.
+          <span className="text-green-400">🟢 검증</span>=실데이터(DART·KRX·계산) 확인 · <span className="text-amber-400">🟡 AI 추정</span>=검증 가능하나 데이터 미수집(L4) · <span className="text-violet-300">🟣 정성-AI</span>=촉매·심리·엘리엇 등 본질적 정성 영역(데이터 검증 불가 → 최종 점수 분모에서 제외). 최종 점수는 '검증 가능 항목 중 검증된 비율'입니다.
         </p>
       </div>
     </div>

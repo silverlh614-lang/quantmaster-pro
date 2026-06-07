@@ -84,8 +84,9 @@ describe('candidate decision model', () => {
       stock({ conditionSourceTiers: mostlyAiTiers, dataSourceType: 'STALE' }),
       { sourceSnapshotId: 'x', asOf: '2026-05-25T00:00:00.000Z', engineMode: 'NORMAL', marketGateStatus: 'GREEN' },
     );
-    // 27/27 전부 통과지만 검증 5·AI 22 → 가중 (5 + 22×0.5)/27×100 = 59. 부풀린 100 아님.
-    expect(model.finalScore).toBe(59);
+    // ADR-0582: 본질-AI 3개(촉매·심리·엘리엇) 분모 제외 → 검증가능 24개 기준.
+    // 검증 5 + AI fallback 19×0.5 = 14.5 ÷ 24 × 100 = 60. (정성 항목 페널티 제거)
+    expect(model.finalScore).toBe(60);
     // dataSourceType='STALE' 라도 AI 우세(aiRatio≥0.3)면 AI_ESTIMATED 우선 표기.
     expect(model.dataConfidence.overall).toBe('AI_ESTIMATED');
   });

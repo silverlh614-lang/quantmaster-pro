@@ -264,6 +264,84 @@ export function calculateDisparity(closes: number[], period = 20): number {
   return (lastClose / lastSMA) * 100;
 }
 
+// ─── 객관 계산 검증 헬퍼 (ADR-0582) ───────────────────────────────────────────
+// checklist 의 기술 조건을 Gemini 추정 대신 OHLCV 로 **결정적** 판정한다. 단순화된
+// 규칙이지만 입력이 같으면 결과가 같은(deterministic) 객관 신호이므로 '검증(COMPUTED)'
+// tier 자격이 있다. 데이터 부족 시 false (호출측에서 AI 값 보존).
+
+/** 골든크로스(정배열) — SMA5 > SMA20 > SMA60 단기 상위 정렬. ≥60 종가 필요. */
+export function detectGoldenCross(closes: number[]): boolean {
+  if (closes.length < 60) return false;
+  const sma5 = calculateSMA(closes, 5);
+  const sma20 = calculateSMA(closes, 20);
+  const sma60 = calculateSMA(closes, 60);
+  const a = sma5[sma5.length - 1];
+  const b = sma20[sma20.length - 1];
+  const c = sma60[sma60.length - 1];
+  return a > b && b > c;
+}
+
+/** 거래량 급증 — 최근 종가일 거래량 ≥ 직전 20일 평균 × 1.5. ≥21 표본 필요. */
+export function detectVolumeSurge(volumes: number[]): boolean {
+  if (volumes.length < 21) return false;
+  const last = volumes[volumes.length - 1];
+  const prev20 = volumes.slice(-21, -1);
+  const avg = prev20.reduce((s, v) => s + v, 0) / prev20.length;
+  return avg > 0 && last >= avg * 1.5;
+}
+
+/** 터틀 돌파 — 종가가 직전 20일 최고가를 상향 돌파(Donchian). ≥21 표본 필요. */
+export function detectTurtleBreakout(highs: number[], closes: number[]): boolean {
+  if (highs.length < 21 || closes.length < 1) return false;
+  const prior20High = Math.max(...highs.slice(-21, -1));
+  const lastClose = closes[closes.length - 1];
+  return prior20High > 0 && lastClose >= prior20High;
+}
+
+/**
+ * 피보나치 지지 — 최근 60일 스윙(고-저) 대비 현재가가 23.6~61.8% 되돌림 구간.
+ * 상승 추세 눌림목 매수 지지대. ≥60 표본 필요.
+ */
+export function detectFibonacciSupport(highs: number[], lows: number[], closes: number[]): boolean {
+  if (highs.length < 60 || lows.length < 60 || closes.length < 1) return false;
+  const swingHigh = Math.max(...highs.slice(-60));
+  const swingLow = Math.min(...lows.slice(-60));
+  const range = swingHigh - swingLow;
+  if (range <= 0) return false;
+  const retr = (swingHigh - closes[closes.length - 1]) / range;
+  return retr >= 0.236 && retr <= 0.618;
+}
+
+/** 종가 배열의 롤링 RSI 시계열 (period 이후 인덱스부터). */
+export function calculateRSISeries(closes: number[], period = 14): number[] {
+  const out: number[] = [];
+  for (let i = period; i < closes.length; i++) {
+    out.push(calculateRSI(closes.slice(0, i + 1), period));
+  }
+  return out;
+}
+
+/**
+ * 상승 다이버전스 — 최근 구간 가격은 더 낮은 저점(LL)인데 RSI 는 더 높은 저점(HL).
+ * 단순화: 최근 20일을 전반/후반 10일로 나눠 가격 최저점과 그 시점 RSI 를 비교. ≥34 표본.
+ */
+export function detectBullishDivergence(closes: number[]): boolean {
+  if (closes.length < 34) return false;
+  const rsi = calculateRSISeries(closes, 14); // 길이 = closes.length - 14
+  if (rsi.length < 20) return false;
+  const win = closes.slice(-20);
+  const rsiWin = rsi.slice(-20);
+  const firstHalf = win.slice(0, 10);
+  const secondHalf = win.slice(10);
+  const idxLow1 = firstHalf.indexOf(Math.min(...firstHalf));
+  const idxLow2 = 10 + secondHalf.indexOf(Math.min(...secondHalf));
+  const priceLow1 = win[idxLow1];
+  const priceLow2 = win[idxLow2];
+  const rsiLow1 = rsiWin[idxLow1];
+  const rsiLow2 = rsiWin[idxLow2];
+  return priceLow2 < priceLow1 && rsiLow2 > rsiLow1;
+}
+
 // ─── 멀티타임프레임 확인 함수 ─────────────────────────────────────────────────
 
 /**
