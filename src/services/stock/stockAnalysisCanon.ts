@@ -108,7 +108,11 @@ export function buildStockAnalysisCanon(stock: StockRecommendation): StockAnalys
     : typeof stock?.confidenceScore === 'number'
       ? clamp(stock.confidenceScore)
       : aiScore;
-  const concordance = classifyScoreConcordance(aiScore, quantScore);
+  // 합치도(concordance) 정본 — AI 점수 vs **최종 표시 점수(weightedScore)** 비교.
+  // 화면에 크게 보이는 두 숫자(모델 점수 / 최종 점수)의 격차를 그대로 반영해야 후보 카드
+  // 배지와 deep-analysis(ScoreAlignmentGrid)가 같은 판정을 보인다. 과거엔 quantScore(게이트)
+  // 와 비교해, 최종 41 인데 "합치도 양호" 로 모순돼 보이던 혼란을 제거(표시 정합).
+  const concordance = classifyScoreConcordance(aiScore, weightedScore);
 
   return {
     conditions,

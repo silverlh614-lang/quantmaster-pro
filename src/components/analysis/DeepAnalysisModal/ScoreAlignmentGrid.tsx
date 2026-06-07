@@ -3,7 +3,6 @@ import React from 'react';
 import { cn } from '../../../ui/cn';
 import type { StockRecommendation } from '../../../services/stockService';
 import { buildStockAnalysisCanon } from '../../../services/stock/stockAnalysisCanon';
-import { classifyScoreConcordance } from '../../../utils/recommendationScore';
 
 interface Props {
   stock: StockRecommendation;
@@ -38,10 +37,9 @@ export function ScoreAlignmentGrid({ stock }: Props) {
   // 분석 표시 정본(SSOT) — quantScore/concordance 가 절대 null 이 아니다(게이트 미산출 시
   // 신뢰도→AI fallback). 검색 종목처럼 gateEvaluation 이 없을 때 Gate 가 '-' 로 비고
   // concordance 블록이 통째로 숨겨지던 "final score 표시 안됨" 문제를 제거한다.
-  // 최종 점수 = 검증 가중(weightedScore) — 후보 카드와 동일 정본 값. 합치도는 AI vs 최종(가중)
-  // 비교로 통일해 위젯 내부도 같은 숫자(예: 최종 59)를 보이게 한다(화면 간 점수 불일치 제거).
-  const { aiScore, weightedScore, verifiedPassCount, metCount } = buildStockAnalysisCanon(stock);
-  const concordance = classifyScoreConcordance(aiScore, weightedScore);
+  // 최종 점수 = 검증 가중(weightedScore) — 후보 카드와 동일 정본 값. 합치도(concordance)도
+  // 정본에서 AI vs 최종(가중) 비교로 통일돼, 후보 카드 배지와 동일 판정을 보인다.
+  const { aiScore, weightedScore, verifiedPassCount, metCount, concordance } = buildStockAnalysisCanon(stock);
 
   return (
     <div className="mb-8 space-y-3">

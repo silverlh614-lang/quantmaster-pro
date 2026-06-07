@@ -46,6 +46,21 @@ describe('buildStockAnalysisCanon', () => {
     expect(noGateNoConf.quantScore).toBe(80); // ai fallback
   });
 
+  it('concordance 는 quantScore(게이트) 가 아닌 weightedScore(최종 표시) 와 AI 점수를 비교', () => {
+    // aiScore 95, confidenceScore 90(=quantScore) 이지만 weightedScore 는 AI_PASS 1건 → 50.
+    // 합치도가 quantScore 기준이면 격차 5(EXCELLENT), weightedScore 기준이면 격차 45(POOR).
+    const canon = buildStockAnalysisCanon(stock({
+      aiConvictionScore: { totalScore: 95 } as any,
+      confidenceScore: 90,
+      checklist: { cycleVerified: true } as any, // AI_PASS → weightedScore 50
+    }));
+    expect(canon.weightedScore).toBe(50);
+    expect(canon.quantScore).toBe(90);
+    expect(canon.concordance.quantScore).toBe(50); // 비교 대상 = weightedScore (최종 표시값)
+    expect(canon.concordance.gap).toBe(45);
+    expect(canon.concordance.tier).toBe('POOR');
+  });
+
   it('gateEvaluation.finalScore 있으면 그 정규화값 사용', () => {
     const withGate = buildStockAnalysisCanon(stock({
       aiConvictionScore: { totalScore: 80 } as any,

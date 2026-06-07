@@ -22,7 +22,7 @@ import { useGlobalIntelStore } from '../../stores';
 import { SignalBadge } from '../../ui/badge';
 import { PriceEditCell } from '../common/PriceEditCell';
 import { usePriceCanon } from '../../hooks/usePriceCanon';
-import { computeTranchePlan } from '../../utils/priceStrategy';
+import { computeTranchePlan, deriveSecondaryLevels } from '../../utils/priceStrategy';
 import { TrancheBreakdown } from '../common/TrancheBreakdown';
 import { isMarketOpenFor, nextOpenAtFor, formatNextOpenKst } from '../../utils/marketTime';
 import { useMarketMode } from '../../hooks/useMarketMode';
@@ -758,6 +758,12 @@ const PriceStrategySection = ({
   const targetShown = tranchePlan?.target ?? stock.targetPrice ?? 0;
   const stopShown = tranchePlan?.stop ?? stock.stopLoss ?? 0;
   const isMultiTranche = tranchePlan?.multiTranche ?? false;
+  // 2차(분할) 진입·목표 — stale 절대값 raw 표시 대신 현재가 앵커링 + 정합 가드.
+  // 2차 진입가가 손절선 아래로 표시되던 문제 제거(위반 시 비표시).
+  const secondary = deriveSecondaryLevels({
+    displayPrice, aiEntry: stock.entryPrice ?? 0, entryShown, targetShown, stopShown,
+    aiEntry2: stock.entryPrice2, aiTarget2: stock.targetPrice2,
+  });
   return (
     <div className="bg-white/[0.03] border-y border-white/[0.07] p-5 sm:p-8 py-5 sm:py-7 relative">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-5 gap-3">
@@ -791,8 +797,8 @@ const PriceStrategySection = ({
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
-        <PriceBox tone="blue" label={isMultiTranche ? '진입(평균)' : '진입'} primary={formatKrw(entryShown, displayPrice > 0 ? `₩${displayPrice.toLocaleString()}` : '-')} secondary={!isMultiTranche && stock.entryPrice2 && stock.entryPrice2 > 0 ? `2차 ₩${stock.entryPrice2.toLocaleString()}` : undefined} />
-        <PriceBox tone="green" label="목표" primary={formatKrw(targetShown, displayPrice > 0 ? `₩${Math.round(displayPrice * 1.20).toLocaleString()}` : '-')} secondary={!isMultiTranche && stock.targetPrice2 && stock.targetPrice2 > 0 ? `2차 ₩${stock.targetPrice2.toLocaleString()}` : undefined} />
+        <PriceBox tone="blue" label={isMultiTranche ? '진입(평균)' : '진입'} primary={formatKrw(entryShown, displayPrice > 0 ? `₩${displayPrice.toLocaleString()}` : '-')} secondary={!isMultiTranche && secondary.entry2 ? `2차 ₩${secondary.entry2.toLocaleString()}` : undefined} />
+        <PriceBox tone="green" label="목표" primary={formatKrw(targetShown, displayPrice > 0 ? `₩${Math.round(displayPrice * 1.20).toLocaleString()}` : '-')} secondary={!isMultiTranche && secondary.target2 ? `2차 ₩${secondary.target2.toLocaleString()}` : undefined} />
         <PriceBox tone="red" label="손절" primary={formatKrw(stopShown, displayPrice > 0 ? `₩${Math.round(displayPrice * 0.93).toLocaleString()}` : '-')} />
       </div>
       <TrancheBreakdown plan={tranchePlan} />

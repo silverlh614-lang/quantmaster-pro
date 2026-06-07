@@ -98,6 +98,46 @@ export function computeTranchePlan(
   };
 }
 
+export interface SecondaryLevels {
+  /** 2차 진입가 — 손절 < 값 < 1차 진입 일 때만 (정합 위반 시 undefined). */
+  entry2?: number;
+  /** 2차 목표가 — 1차 목표 초과일 때만 (정합 위반 시 undefined). */
+  target2?: number;
+}
+
+/**
+ * 2차(분할) 진입·목표 — 저장된 절대 L4 값(stale)을 raw 로 표시하지 않고 현재가에 앵커링해
+ * 재산출 + 매매 정합 가드. 단일진입(또는 평균진입) 표시에서 "2차 진입가가 손절선 아래" 로
+ * 보이던 문제를 제거한다(표시 전용). AI 가 제시한 비율(aiEntry2/aiEntry · aiTarget2/aiEntry)을
+ * 현재가에 적용한 뒤, 매매 정합(2차진입 ∈ (손절, 1차진입) · 2차목표 > 1차목표)을 만족할 때만
+ * 노출하고 위반하면 숨긴다(오해 소지 숫자 비표시).
+ */
+export function deriveSecondaryLevels(input: {
+  displayPrice: number;
+  aiEntry: number;
+  entryShown: number;
+  targetShown: number;
+  stopShown: number;
+  aiEntry2?: number;
+  aiTarget2?: number;
+}): SecondaryLevels {
+  const { displayPrice, aiEntry, entryShown, targetShown, stopShown, aiEntry2, aiTarget2 } = input;
+  const out: SecondaryLevels = {};
+  if (!(displayPrice > 0) || !(aiEntry > 0)) return out;
+
+  if (aiEntry2 && aiEntry2 > 0) {
+    const scaled = Math.round(displayPrice * (aiEntry2 / aiEntry));
+    // 2차 진입은 손절 위 + 1차 진입 아래(눌림목 가산매수)일 때만 유효.
+    if (scaled > stopShown && scaled < entryShown) out.entry2 = scaled;
+  }
+  if (aiTarget2 && aiTarget2 > 0) {
+    const scaled = Math.round(displayPrice * (aiTarget2 / aiEntry));
+    // 2차 목표는 1차 목표보다 위(추가 익절선)일 때만 유효.
+    if (scaled > targetShown) out.target2 = scaled;
+  }
+  return out;
+}
+
 /** 기존 TranchePlanCard(분할매수 계획 카드) 표시용 변환. */
 export function toTranchePlan(result: TranchePlanResult): TranchePlan {
   const pad = [...result.levels];
