@@ -37,7 +37,6 @@ import { fetchLatestUsdKrw, fetchLatestMarginBalance5dChange } from '../clients/
 import { fetchDerivativesIndexDaily } from '../clients/krxOpenApi.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
 import { deriveMhsDegrade, type MhsDegradeInfo } from '../engines/mhsDegrade.js';
-import { detectVkospiFlatDuringMove, isVkospiFetchCorrectionEnabled } from './regime/vkospiFreshness.js';
 import { guardedFetch } from '../utils/egressGuard.js';
 import { evaluateCrossSource } from './crossSourceValidator.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -645,11 +644,13 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
   // ── ④-B VKOSPI — KRX OpenAPI 파생상품 지수 일별 우선, Yahoo fallback ───────
   try {
     const rows = await fetchDerivativesIndexDaily();
-    // ADR-0584: 이름 substring 매칭(공식 인덱스코드 검증은 후속) — 다중 매칭 시 모호성 경고로
-    // "엉뚱한 파생지수 행 줍기" 가시화. 선택 자체는 기존과 동일(첫 매칭)이라 byte-equivalent.
+    // VKOSPI(코스피200 변동성지수) 행 선택 — 정밀 이름 매칭. 덤프(2026-06-07) 결과 bare '변동성지수'는
+    // 'KRX 최소변동성지수'(주식 지수 ~14694) 등 동음이의까지 매칭하던 fragility 확인 → VKOSPI 한정으로 좁힘.
+    // 다중 매칭 시 모호성 경고(향후 KRX 행 추가 대비).
     const vkospiMatches = rows.filter((r) =>
       r.indexName.includes('VKOSPI') ||
-      r.indexName.includes('변동성지수') ||
+      r.indexName.includes('코스피 200 변동성지수') ||
+      r.indexName.includes('코스피200변동성지수') ||
       r.indexName.includes('코스피변동성'),
     );
     if (vkospiMatches.length > 1) {
@@ -660,29 +661,11 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     }
     const vkospiRow = vkospiMatches[0];
     if (vkospiRow) {
-      // ADR-0585: flag-gated 교정 — KRX 값이 frozen(KOSPI 급변에도 flat)이면 거부하고 Yahoo 로 폴백.
-      // 안전 판별자(flat-during-move)만 사용 → 진짜 폭락 spike(큰 changePct)는 거부 안 됨. flag OFF=미평가 byte-identical.
-      if (
-        isVkospiFetchCorrectionEnabled() &&
-        detectVkospiFlatDuringMove({
-          kospiCloseReturn: computed.kospiCloseReturn,
-          kospiDayReturn: computed.kospiDayReturn,
-          vkospiDayChange: vkospiRow.changePct,
-        } as MacroState).flat
-      ) {
-        emitMarketDataProviderWarn('VKOSPI_KRX_REJECTED_FROZEN', {
-          value: vkospiRow.close,
-          changePct: vkospiRow.changePct,
-          kospiDayReturn: computed.kospiDayReturn ?? 'N/A',
-          baseDate: vkospiRow.baseDate || 'N/A',
-        });
-        throw new Error('KRX VKOSPI frozen(flat-during-move) — Yahoo fallback');
-      }
       computed.vkospi = vkospiRow.close;
       computed.vkospiPrevClose = vkospiRow.change !== 0 ? vkospiRow.close - vkospiRow.change : vkospiRow.close;
       computed.vkospiDayChangeComputed = vkospiRow.changePct;
       computed.vkospiDayChangeSource = 'KRX_DERIV_INDEX_DAILY';
-      // ADR-0584: 버려지던 거래일(BAS_DD) + fetch 시각 영속 — stale 가시화/판정 입력(다른 지표와 정합).
+      // 거래일(BAS_DD) + fetch 시각 영속 — 신선도 가시화(facts only, ADR-0584 Phase A 유지).
       if (vkospiRow.baseDate) computed.vkospiBaseDate = vkospiRow.baseDate;
       computed.vkospiFetchedAt = new Date().toISOString();
       const ageMs = existing.updatedAt ? Date.now() - Date.parse(existing.updatedAt) : Number.POSITIVE_INFINITY;
@@ -701,19 +684,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     try {
       const vkospiBars = await fetchDailyBars('^VKOSPI', '5d');
       const vkospiComputed = computeVkospiDayChangeFromBars(vkospiBars);
-      // ADR-0585: Yahoo 대체값도 frozen 검증 — Yahoo 가 또 stale(flat)이면 채택 안 함(잘못된 값 교정 안 됨).
-      const yahooFrozen = vkospiComputed != null && isVkospiFetchCorrectionEnabled() && detectVkospiFlatDuringMove({
-        kospiCloseReturn: computed.kospiCloseReturn,
-        kospiDayReturn: computed.kospiDayReturn,
-        vkospiDayChange: vkospiComputed.dayChangePct,
-      } as MacroState).flat;
-      if (vkospiComputed && yahooFrozen) {
-        emitMarketDataProviderWarn('VKOSPI_YAHOO_REJECTED_FROZEN', {
-          value: vkospiComputed.current,
-          changePct: vkospiComputed.dayChangePct,
-          kospiDayReturn: computed.kospiDayReturn ?? 'N/A',
-        });
-      } else if (vkospiComputed) {
+      if (vkospiComputed) {
         computed.vkospi = vkospiComputed.current;
         computed.vkospiPrevClose = vkospiComputed.prevClose;
         computed.vkospiDayChangeComputed = vkospiComputed.dayChangePct;

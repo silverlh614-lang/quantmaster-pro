@@ -15,7 +15,6 @@
  */
 import type { MacroState } from '../../persistence/macroStateRepo.js';
 import type { VkospiSanityVerdict } from '../../../src/types/gate0Regime.js';
-import { isVkospiStaleGuardEnabled, detectVkospiFlatDuringMove } from './vkospiFreshness.js';
 
 /** G3 intraday 비스트레스 임계(%). 장중 패닉 저점이 이보다 깊으면 진짜 스트레스로 간주. */
 const INTRADAY_STRESS_FLOOR_PCT = -3.0;
@@ -82,21 +81,14 @@ export function classifyVkospiSanity(macroState: MacroState | null, _now: Date =
   const g2KospiNotStressed = (kospiDayReturn ?? Number.NEGATIVE_INFINITY) > kospiFloor;
   // G3: 장중 패닉 저점 부재(없으면 비스트레스로 간주).
   const g3IntradayNotStressed = kospiIntradayLowReturn == null || kospiIntradayLowReturn > INTRADAY_STRESS_FLOOR_PCT;
-  const classicTriggered = g1VixDivergence && g2KospiNotStressed && g3IntradayNotStressed;
 
-  // ADR-0584: flag-gated freshness 격리 — VKOSPI 가 KOSPI 급변에도 flat(frozen)이면 G2(KOSPI 스트레스)와
-  // 무관하게 implausible 격리. 폭락일에 stale-high 가 G2(KOSPI 스트레스) 안전판으로 가드를 우회하던 갭을
-  // 닫는다(진짜 폭락 spike 는 큰 vkospiDayChange 라 flat 아님 → 마스킹 안 됨). flag OFF(default)=미평가 byte-identical.
-  const g4StaleFlat = isVkospiStaleGuardEnabled() && detectVkospiFlatDuringMove(macroState).flat;
-
-  const guardTriggered = !isGuardDisabled() && (classicTriggered || g4StaleFlat);
+  const guardTriggered = !isGuardDisabled() && g1VixDivergence && g2KospiNotStressed && g3IntradayNotStressed;
 
   const reasons: string[] = [];
   if (guardTriggered) {
     if (g1VixDivergence) reasons.push('VIX_DIVERGENCE');
     if (g2KospiNotStressed) reasons.push('KOSPI_NOT_STRESSED');
     if (g3IntradayNotStressed) reasons.push('INTRADAY_NOT_STRESSED');
-    if (g4StaleFlat) reasons.push('VKOSPI_STALE_FLAT_DURING_MOVE');
   }
 
   if (guardTriggered) {

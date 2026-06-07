@@ -2,7 +2,6 @@
 // @responsibility: /regime 명령 — 매크로 레짐(MHS·VKOSPI·VIX·USD/KRW·Bear방어) 1메시지 요약.
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import { resolveRegimeSnapshot } from '../../../trading/regime/regimeResolver.js';
-import { classifyVkospiFreshness } from '../../../trading/regime/vkospiFreshness.js';
 import { buildGate0RegimeView } from '../../../trading/regime/gate0RegimeView.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -80,9 +79,6 @@ const regime: TelegramCommand = {
     const mhsAxisLine = formatMhsAxisLine(macro);
     // ADR-0583: MHS 소스 저하(FRED/ECOS 결손) 신뢰도 라인 — silent degradation 가시화.
     const mhsConfidenceLine = formatMhsConfidenceLine(macro);
-    // ADR-0584: VKOSPI stale(KOSPI 급변 중 flat=frozen) 가시화 마커.
-    const vkospiFresh = classifyVkospiFreshness(macro);
-    const vkospiStaleMarker = vkospiFresh.stale ? ` ⚠️STALE(${vkospiFresh.reasons.join(',')})` : '';
     const message =
       `🌐 <b>[매크로 레짐 현황]</b>\n` +
       `━━━━━━━━━━━━━━━━\n` +
@@ -97,7 +93,7 @@ const regime: TelegramCommand = {
       `r6ShockLatch=${regimeDiagnostics.r6ShockLatch} recoveryBlockedReason=${regimeDiagnostics.recoveryBlockedReason ?? 'N/A'}\n` +
       `${formatEngineRuntimePolicy(runtimePolicy)}\n` +
       `vkospiConfidence=${vkospiUntrusted ? 'UNTRUSTED' : regimeDiagnostics.recoveryEvidence.vkospiTrustState ?? 'UNKNOWN'} vkospiUsableForRegime=${vkospiUntrusted ? 'false' : 'true'} vkospiUsableForR6Trigger=${vkospiUntrusted ? 'false' : 'true'} vkospiDisplayMode=${vkospiUntrusted ? 'DIAGNOSTIC_ONLY' : 'NORMAL'} scorePenaltyReason=${vkospiUntrusted ? 'VKOSPI_UNTRUSTED_EXCLUDED_FROM_SCORING' : 'NONE'}\n` +
-      `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}${vkospiStaleMarker}\n` +
+      `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}\n` +
       `vkospiDayChange=${macro.vkospiDayChange?.toFixed(2) ?? 'N/A'} computed=${macro.vkospiDayChangeComputed?.toFixed(2) ?? 'N/A'} prevClose=${macro.vkospiPrevClose?.toFixed(2) ?? 'N/A'} source=${macro.vkospiDayChangeSource ?? 'N/A'} baseDate=${macro.vkospiBaseDate ?? 'N/A'} fetchedAt=${macro.vkospiFetchedAt ?? 'N/A'}\n` +
       `vkospiRecoveryFallbackUsed=${regimeDiagnostics.transitionState.r6RecoveryEvidence.vkospiRecoveryFallbackUsed ? 'true' : 'false'}\n` +
       `📊 VIX: ${macro.vix?.toFixed(1) ?? 'N/A'}\n` +
