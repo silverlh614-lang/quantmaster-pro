@@ -313,12 +313,15 @@ export async function runWeeklyMiniBacktest(): Promise<BacktestSummary | null> {
   const summary: BacktestSummary = { runAt: new Date().toISOString(), period: '최근 7일', ...stats };
 
   console.log(
-    `[MiniBacktest] 완료 — ${stats.totalTrades}건(데이터 ${stats.resolved}) | WIN률 ${stats.winRate}% | Sharpe ${stats.sharpe}`,
+    `[MiniBacktest] 완료 — ${stats.totalTrades}건(데이터 ${stats.resolved}) | WIN률 ${stats.winRate}% | ` +
+    `평균수익 ${stats.avgReturn}% | Sharpe ${stats.sharpe} | MDD ${stats.mdd}%`,
   );
+  // 평균수익%/MDD 동반 노출 — 0승5패 같은 폭락주 결과에서 "방어가 적정했나"(작은 손실 vs 큰 손실) 판독용.
   await sendTelegramAlert(
     `⚡ <b>[주간 미니 백테스트(KIS 일봉)]</b>\n` +
     `최근 7일 ${stats.totalTrades}건 · 승 ${stats.wins} / 패 ${stats.losses} / 만료 ${stats.expired}\n` +
-    `WIN률: <b>${stats.winRate}%</b> | Sharpe: ${stats.sharpe} | PF: ${stats.profitFactor}\n` +
+    `WIN률: <b>${stats.winRate}%</b> | 평균수익: ${stats.avgReturn}% (데이터확보분 기준)\n` +
+    `Sharpe: ${stats.sharpe} | MDD: ${stats.mdd}% | PF: ${stats.profitFactor}\n` +
     `평균 보유: ${stats.avgHoldingDays}일 | ${coverageBadge(stats)}`,
   ).catch(console.error);
 
