@@ -36,6 +36,7 @@ import { fetchFredLatest } from '../clients/fredClient.js';
 import { fetchLatestUsdKrw, fetchLatestMarginBalance5dChange } from '../clients/ecosClient.js';
 import { fetchDerivativesIndexDaily } from '../clients/krxOpenApi.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
+import { deriveMhsDegrade, type MhsDegradeInfo } from '../engines/mhsDegrade.js';
 import { guardedFetch } from '../utils/egressGuard.js';
 import { evaluateCrossSource } from './crossSourceValidator.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -1062,6 +1063,8 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
   // ADR-0107 (사용자 진단 4/29): mhsAxis 4-axis 분해 영속 — 별도 변수로 추출 후 updated 객체에 직접 저장.
   let mhsAxisSnapshot: { interestRate: number; liquidity: number; economy: number; risk: number } | undefined;
   let mhsAxisSnapshotAt: string | undefined;
+  // ADR-0583: MHS 소스 저하(degrade) 영속용 — computeMacroIndex().sourcesOk 도출.
+  let mhsDegradeSnapshot: MhsDegradeInfo | undefined;
   try {
     const vkospiHint    = typeof existing.vkospi === 'number' ? existing.vkospi : undefined;
     const vixHint       = null;  // VIX 는 marketDataRefresh 가 수집하지 않음 — 엔진 기본값 사용
@@ -1075,10 +1078,13 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     computed.mhs = idx.mhs;
     mhsAxisSnapshot = idx.axis;
     mhsAxisSnapshotAt = new Date().toISOString();
+    // ADR-0583: 소스 저하 등급(FULL/PARTIAL/FALLBACK) 도출 — silent degradation 가시화.
+    mhsDegradeSnapshot = deriveMhsDegrade(idx.sourcesOk);
     // regime 필드는 기존에 classifyRegime 이 덮어쓰므로 그대로 두되, MHS 만 반영.
     console.log(
       `[MarketRefresh] MHS 자체 계산 완료 — ${idx.mhs}/100 (${idx.regime}` +
       `${idx.buyingHalted ? ', 매수중단' : ''}) | 소스 ecos=${idx.sourcesOk.ecos} fred=${idx.sourcesOk.fred}` +
+      ` confidence=${mhsDegradeSnapshot.confidence}${mhsDegradeSnapshot.degraded ? ' ⚠️DEGRADED' : ''}` +
       ` | axis 금리=${idx.axis.interestRate} 유동성=${idx.axis.liquidity} 경기=${idx.axis.economy} 리스크=${idx.axis.risk}`,
     );
   } catch (e) {
@@ -1280,6 +1286,14 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       : {}),
     // ADR-0107 mhsAxis 4-axis 영속 — computeMacroIndex 성공 시에만 덮어쓰기.
     ...(mhsAxisSnapshot ? { mhsAxis: mhsAxisSnapshot, mhsAxisUpdatedAt: mhsAxisSnapshotAt } : {}),
+    // ADR-0583 MHS 소스 저하 등급 영속 — computeMacroIndex 성공 시에만 덮어쓰기(실패 시 이전 값 보존).
+    ...(mhsDegradeSnapshot
+      ? {
+          mhsSourcesOk: mhsDegradeSnapshot.sourcesOk,
+          mhsConfidence: mhsDegradeSnapshot.confidence,
+          mhsDegraded: mhsDegradeSnapshot.degraded,
+        }
+      : {}),
     // ADR-0136 fssRecordsAge 진단 영속 — getFssRecordsAge 항상 객체 반환 (MISSING 포함).
     fssRecordsAge: fssRecordsAgeSnapshot,
   };

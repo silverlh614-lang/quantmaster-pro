@@ -19,6 +19,7 @@
 import type { YahooQuoteExtended } from '../screener/stockScreener.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import type { RegimeLevel } from '../../src/types/core.js';
+import { isMhsDegradeGuardEnabled } from '../engines/mhsDegrade.js';
 
 // ── 공개 타입 ─────────────────────────────────────────────────────────────────
 
@@ -375,11 +376,21 @@ function calcMacroScore(macroState: MacroState | null, regime: RegimeLevel): Axi
 
   // MHS 보정
   if (macroState.mhs !== undefined) {
+    // ADR-0583: MHS 소스 저하(fred/ecos 결손) 시 낙관 부스트 억제, 비관 페널티는 보존(보수적).
+    // 근거: FRED 미연결 시 신용/스트레스 리스크축이 default 로 채워져 MHS 가 *낙관 편향* —
+    // 살아있지 않은 소스로 매수 가산점(+8 GREEN)을 주면 안 되지만, 약세(RED) 페널티는
+    // 안전 방향이라 그대로 둔다. flag OFF(default) 또는 mhsDegraded≠true → 기존 분기 byte-identical.
+    const mhsDegradeGuard = isMhsDegradeGuardEnabled() && macroState.mhsDegraded === true;
     if (macroState.mhs >= 70) {
-      score += 8;
-      factors.push(`MHS${macroState.mhs}GREEN`);
+      if (mhsDegradeGuard) {
+        score += 3;
+        factors.push(`MHS${macroState.mhs}GREEN_DEGRADED`);
+      } else {
+        score += 8;
+        factors.push(`MHS${macroState.mhs}GREEN`);
+      }
     } else if (macroState.mhs >= 55) {
-      score += 3;
+      if (!mhsDegradeGuard) score += 3;
     } else if (macroState.mhs < 40) {
       score -= 15;
       factors.push(`MHS${macroState.mhs}RED`);

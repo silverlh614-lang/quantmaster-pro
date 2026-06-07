@@ -19,7 +19,7 @@ vi.mock('../../../../src/services/quant/regimeEngine.js', () => ({
   },
 }));
 
-import { formatMhsAxisLine } from './regime.cmd.js';
+import { formatMhsAxisLine, formatMhsConfidenceLine } from './regime.cmd.js';
 
 describe('formatMhsAxisLine — MHS 4-axis 분해 노출 (ADR-0107)', () => {
   it('mhsAxis 부재 시 안내 라인', () => {
@@ -103,5 +103,35 @@ describe('formatMhsAxisLine — mhsAxisUpdatedAt 신선도 suffix (ADR-0187)', (
     const now = new Date('2026-05-05T10:00:00Z');
     expect(formatMhsAxisLine({ mhsAxisUpdatedAt: '2026-05-05T09:00:00Z' }, now))
       .toBe('🧮 axis: N/A (다음 marketDataRefresh 사이클부터 노출)');
+  });
+});
+
+describe('formatMhsConfidenceLine — MHS 소스 저하 신뢰도 라인 (ADR-0583)', () => {
+  it('mhsConfidence 부재 → 안내 라인 (후방호환)', () => {
+    expect(formatMhsConfidenceLine({})).toBe(
+      '🛰 MHS 신뢰도: N/A (다음 marketDataRefresh 사이클부터 노출)',
+    );
+  });
+
+  it('FULL → 소스 양쪽 ✅', () => {
+    expect(
+      formatMhsConfidenceLine({ mhsConfidence: 'FULL', mhsDegraded: false, mhsSourcesOk: { ecos: true, fred: true } }),
+    ).toBe('🛰 MHS 신뢰도: FULL (ecos=✅ fred=✅)');
+  });
+
+  it('PARTIAL (fred 결손) → ⚠️ + 점수 해석 주의 (실측 시나리오)', () => {
+    expect(
+      formatMhsConfidenceLine({ mhsConfidence: 'PARTIAL', mhsDegraded: true, mhsSourcesOk: { ecos: true, fred: false } }),
+    ).toBe('🛰 MHS 신뢰도: ⚠️ PARTIAL(일부 소스 결손) (ecos=✅ fred=❌) — 점수 해석 주의');
+  });
+
+  it('FALLBACK (전면 결손) → ❌ MHS 50 폴백 표기', () => {
+    expect(
+      formatMhsConfidenceLine({ mhsConfidence: 'FALLBACK', mhsDegraded: true, mhsSourcesOk: { ecos: false, fred: false } }),
+    ).toBe('🛰 MHS 신뢰도: ❌ FALLBACK(소스 전면 결손→MHS 50) (ecos=❌ fred=❌) — 점수 해석 주의');
+  });
+
+  it('sourcesOk 부재 → 소스 라벨 N/A (후방호환)', () => {
+    expect(formatMhsConfidenceLine({ mhsConfidence: 'FULL' })).toBe('🛰 MHS 신뢰도: FULL (N/A)');
   });
 });

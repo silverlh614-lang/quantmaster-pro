@@ -77,11 +77,14 @@ const regime: TelegramCommand = {
     const sectorEnergyLine = formatSectorEnergyLine(macro);
     // ADR-0107 (사용자 진단 4/29 "MHS 70 을 벗어난 적이 없다"): 4-axis 분해 노출.
     const mhsAxisLine = formatMhsAxisLine(macro);
+    // ADR-0583: MHS 소스 저하(FRED/ECOS 결손) 신뢰도 라인 — silent degradation 가시화.
+    const mhsConfidenceLine = formatMhsConfidenceLine(macro);
     const message =
       `🌐 <b>[매크로 레짐 현황]</b>\n` +
       `━━━━━━━━━━━━━━━━\n` +
       `${resolvedMhsEmoji} MHS: ${regimeSnapshot.mhs ?? 'N/A'}\n` +
       `${mhsAxisLine}\n` +
+      `${mhsConfidenceLine}\n` +
       `${authorityBlock}\n` +
       `${liveRegimeLine}\n` +
       `${r6RecoveryLine}\n` +
@@ -329,6 +332,36 @@ export function formatMhsAxisLine(macro: {
         ? ` · 갱신 ${ageHours}h 전`
         : ` · 갱신 ${ageMin}m 전`;
   return base + suffix;
+}
+
+/**
+ * ADR-0583: MHS 소스 저하(degrade) 신뢰도 라인 SSOT.
+ *
+ * 배경: FRED 미연결(배포지 egress 차단) 등 L2 거시 소스가 죽어도 MHS 는 ECOS+default
+ * 합산으로 정상처럼(예: 75 GREEN) 표시되던 silent degradation — 운영자가 소스 결손을
+ * 즉시 인지 못 함. marketDataRefresh 가 deriveMhsDegrade 로 영속한 mhsConfidence/
+ * mhsSourcesOk 를 read 해 어느 소스(ecos/fred)가 살아있는지 + 점수 신뢰도를 1줄로 노출.
+ *
+ * 표시 분기:
+ *   - mhsConfidence 부재 → "N/A (다음 marketDataRefresh 사이클부터 노출)"
+ *   - FULL     → "🛰 MHS 신뢰도: FULL (ecos=✅ fred=✅)"
+ *   - PARTIAL  → "🛰 MHS 신뢰도: ⚠️ PARTIAL(일부 소스 결손) (ecos=✅ fred=❌) — 점수 해석 주의"
+ *   - FALLBACK → "🛰 MHS 신뢰도: ❌ FALLBACK(소스 전면 결손→MHS 50) (ecos=❌ fred=❌) — 점수 해석 주의"
+ */
+export function formatMhsConfidenceLine(macro: {
+  mhsConfidence?: 'FULL' | 'PARTIAL' | 'FALLBACK';
+  mhsDegraded?: boolean;
+  mhsSourcesOk?: { ecos: boolean; fred: boolean };
+}): string {
+  const conf = macro.mhsConfidence;
+  if (!conf) return '🛰 MHS 신뢰도: N/A (다음 marketDataRefresh 사이클부터 노출)';
+  const ok = macro.mhsSourcesOk;
+  const srcLabel = ok ? `ecos=${ok.ecos ? '✅' : '❌'} fred=${ok.fred ? '✅' : '❌'}` : 'N/A';
+  if (conf === 'FULL') return `🛰 MHS 신뢰도: FULL (${srcLabel})`;
+  const tag = conf === 'FALLBACK'
+    ? '❌ FALLBACK(소스 전면 결손→MHS 50)'
+    : '⚠️ PARTIAL(일부 소스 결손)';
+  return `🛰 MHS 신뢰도: ${tag} (${srcLabel}) — 점수 해석 주의`;
 }
 
 commandRegistry.register(regime);

@@ -505,6 +505,18 @@ export interface MacroState {
   };
   /** mhsAxis 마지막 갱신 시각 — `marketDataRefresh` 사이클 종료 시점. */
   mhsAxisUpdatedAt?: string;
+  /**
+   * ADR-0583: MHS 소스 저하(degrade) 가시화 — computeMacroIndex().sourcesOk 영속.
+   * FRED 미연결 등 L2 소스 결손 시에도 MHS 가 정상처럼(예: 75 GREEN) 표시되던 silent
+   * degradation 차단. `marketDataRefresh` 가 매 사이클 deriveMhsDegrade(idx.sourcesOk) 로
+   * 도출 후 영속, `/regime` 표시 + confluence MHS 가드(flag-gated)가 read.
+   *   - mhsSourcesOk : { ecos, fred } 각 소스 응답 여부
+   *   - mhsConfidence: 'FULL'(양쪽) | 'PARTIAL'(한쪽 결손) | 'FALLBACK'(전면 결손→MHS 50)
+   *   - mhsDegraded  : confidence !== 'FULL'
+   */
+  mhsSourcesOk?: { ecos: boolean; fred: boolean };
+  mhsConfidence?: 'FULL' | 'PARTIAL' | 'FALLBACK';
+  mhsDegraded?: boolean;
   /** macroState refresh diagnostics — scheduler/manual refresh observability. */
   lastRefreshAttemptAt?: string;
   lastRefreshSuccessAt?: string;

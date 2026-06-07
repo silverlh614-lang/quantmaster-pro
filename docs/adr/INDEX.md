@@ -14,7 +14,8 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0583`**
+**다음 ADR 번호: `0584`**
+(2026-06-07 기준, 마지막 발급 0583 — mhs-source-degrade-visibility-and-confluence-guard. ADR-0583 — MHS 소스 저하(FRED/ECOS 결손) end-to-end 가시화(Phase A) + flag-gated confluence 가드(Phase B). 배경 = 배포지 FRED hard egress 차단(DNS resolve OK·TCP TIMEOUT, IPv4-only host)으로 fred=false 인데 MHS 는 75(GREEN)로 정상처럼 표시되던 silent degradation(computeMacroIndex 가 sourcesOk 반환하나 영속·노출·소비 0). MHS 는 execution-adjacent(confluence calcMacroScore MHS≥70 +8/55~69 +3 매크로축 부스트 + fomcCalendar 완화 임계). 신규 SSOT server/engines/mhsDegrade.ts(deriveMhsDegrade: FULL/PARTIAL/FALLBACK confidence + degraded + isMhsDegradeGuardEnabled flag). **Phase A 항상-on executionImpact=NONE**: marketDataRefresh 가 매 사이클 idx.sourcesOk→deriveMhsDegrade 도출해 MacroState 영속(mhsSourcesOk/mhsConfidence/mhsDegraded, computeMacroIndex 성공 시에만·실패 시 이전값 보존) + MHS 로그 confidence 태그 + /regime formatMhsConfidenceLine 1줄(어느 소스 살아있는지+신뢰도). **Phase B flag MHS_DEGRADE_GUARD_ENABLED default OFF byte-identical**: ON+mhsDegraded 시에만 calcMacroScore MHS 보정 비대칭 억제 — ≥70 +8→+3(factor GREEN_DEGRADED)·55~69 +3→0(낙관 부스트 생략)·<40 -15 보존(비관 페널티=안전 방향 유지). flag OFF/mhsDegraded≠true=기존 분기 byte-identical. executionImpact: Phase A=NONE / Phase B OFF=NONE·ON=execution-adjacent(confluence signal 영향→shadow A/B 권고). 불변식 #6 정합(FRED 결손=confidence 강등이지 약세 신호 변환 아님)·#9(MacroState read/write only·신규 fetch 0)·VERBATIM 0줄. 테스트 30(진리표·flag·/regime 라인·가드 진리표). 롤백=ENV 제거 byte-equivalent. INDEX 0583→0584 갱신.)
 (2026-06-07 기준, 마지막 발급 0582 — condition-verifiability-3tier-technical-computed-promotion. ADR-0582 — 종목 27조건을 검증가능(24)/본질-AI(3: 촉매·심리·엘리엇)로 정적 분리하고, 본질-AI 를 weightedScore 분모에서 제외(점수=검증가능 항목 중 검증율). 기술 6조건(일목·골든크로스·거래량·터틀·피보나치·다이버전스)을 enrichment main path 에서 OHLCV 결정적 계산으로 checklist 덮어쓰기→COMPUTED 검증 승격, marginAcceleration 은 DART 영업이익률 당기>전기로 API 승격. 검증가능 13→20, 최종 점수 상한 ~74→~92. 표시/진단 전용(서버 autoTradeEngine/SourceSnapshot/Gate/Provider/Telegram/Shadow 무접촉, executionImpact=NONE, 9대 불변식 VERBATIM 0줄). ConditionView.verifiability 필드·canon evaluableCount/intrinsicAiCount/intrinsicAiMetCount 신설, UI 3-구분(검증/AI 검증가능 미수집/정성-AI 분모제외) 노출. 회귀 finalScore 59→60. ※ 최초 0581 발급됐으나 main ADR-0581(shadow→live 가중치 승격)과 번호 충돌 → merge 시 0582 재번호. 후속(상대강도·모멘텀순위 벤치마크 fetch)=별도 ADR. INDEX 0582→0583 갱신.)
 (2026-06-07 기준, 마지막 발급 0581 — shadow-to-live-weight-promotion-pipeline. ADR-0581 — shadow/candidate 검증 조건가중치 → live 승격 파이프라인(phased, flag-gated). **Phase 0~2 구현(전부 byte-equivalent·executionImpact=NONE·live 미도달)**: P0 `LEARNING_WEIGHT_PROMOTION_ENABLED` flag(default OFF) / P1 candidate 레인 read `loadCandidateConditionWeights`+`conditionWeightsCandidateFile`(write-only 갭 해소) / P2 `registerLearnedConditionWeightProvider` seam(미등록=파일직독 byte-identical, gateConfig provider 패턴 동형). **Phase 3~4(candidate→core promoter·governance 영속·rollout·snapshot 복원)는 follow-up, live 전환 전 마무리 예정**. paper→live 신뢰경계 보존(shadow 단독 자동 core write 불가, guardrail NON_LIVE_SOURCE). 70 anchor 무관. seam 테스트 8/8·lint0·complexity OK·responsibility0. INDEX 0580→0581 갱신.)
 (2026-06-07 기준, 마지막 발급 0580 — marketdatarefresh-acma-type-helper-extraction. ADR-0580 — marketDataRefresh.ts(1499→1327, ACMA 1500 한계 1줄 차 선제 분해). 타입 8종→`marketDataRefresh/types.ts` + 순수 leaf 헬퍼 11→`helpers.ts` 추출 + `export *` 재노출(외부 importer 0건). execution-relevant 파일이나 타입+순수함수 재배치라 런타임 byte-equivalent·executionImpact=NONE. 거대함수 refreshMarketRegimeVars(739L) 무접촉. lint0·complexity OK·테스트 9파일/130 통과. INDEX 0579→0580 갱신.)
@@ -188,6 +189,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0583 | MHS 소스 저하(FRED/ECOS 결손) end-to-end 가시화(Phase A always-on·executionImpact=NONE) + flag-gated confluence 가드(Phase B MHS_DEGRADE_GUARD_ENABLED default OFF·byte-identical). 신규 SSOT mhsDegrade.ts(deriveMhsDegrade FULL/PARTIAL/FALLBACK·isMhsDegradeGuardEnabled), marketDataRefresh→MacroState(mhsSourcesOk/mhsConfidence/mhsDegraded) 영속+/regime 신뢰도 라인, Phase B ON+degraded 시 calcMacroScore MHS 낙관부스트 비대칭 억제(≥70 +8→+3·55~69 +3→0·<40 -15 보존). 불변식 #6/#9·VERBATIM 0줄, 테스트 30 | macro / confluence / flag-gated |
 | 0582 | 조건 검증가능성 3-tier 분리 + 기술지표 계산 검증 승격 — VERIFIABLE(24)/AI_INTRINSIC(3:촉매·심리·엘리엇) 분리해 본질-AI 를 weightedScore 분모에서 제외(점수=검증가능 항목 중 검증율), 기술 6조건 OHLCV 결정적 계산으로 checklist 덮어쓰기→COMPUTED 승격 + marginAcceleration DART 영업이익률 추세→API 승격, 검증가능 13→20·상한 ~74→~92, 표시/진단 전용·executionImpact=NONE·9대 불변식 VERBATIM 0줄, UI 3-구분 노출, 회귀 finalScore 59→60 (최초 0581→main 충돌 0582 재번호) | dashboard / scoring / data-trust |
 | 0581 | shadow→live 조건가중치 승격 파이프라인 (phased, flag-gated). Phase 0~2 토대 구현(flag·candidate reader·provider seam, byte-equivalent·executionImpact=NONE); Phase 3~4(promoter·rollout) follow-up·pre-live | learning / promotion / flag-gated |
 | 0580 | marketDataRefresh ACMA 한계 임박 선제 분해 (1499→1327, 타입 8종+순수헬퍼 11→types.ts/helpers.ts, byte-equivalent·executionImpact=NONE, refreshMarketRegimeVars 무접촉) | refactor / complexity |
@@ -605,7 +607,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0581 · 다음 발급 0582** — `node scripts/check_adr_index.js --json` 기준 388 파일 · 371 unique 번호 · 396 index행 (2026-06-07 실측). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0583 · 다음 발급 0584** — `node scripts/check_adr_index.js --json` 기준 390 파일 · 373 unique 번호 (2026-06-07 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
