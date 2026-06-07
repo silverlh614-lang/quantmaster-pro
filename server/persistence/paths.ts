@@ -19,6 +19,14 @@ export function conditionWeightsRegimeFile(regime: string): string {
   return path.join(DATA_DIR, `condition-weights-${safe}.json`);
 }
 /**
+ * ADR-0581 Phase 1: candidate(shadow) 가중치 파일 경로 (예: data/condition-weights-GLOBAL.candidate.json).
+ * signalCalibrator.persistCandidateWeights 가 쓰는 파일과 동일 경로 — read 측 SSOT.
+ */
+export function conditionWeightsCandidateFile(regime: string): string {
+  const safe = regime.replace(/[^A-Za-z0-9_]/g, '_');
+  return path.join(DATA_DIR, `condition-weights-${safe}.candidate.json`);
+}
+/**
  * ADR-0141 Stage 1: FSS 11분류 투자자별 매매 raw 영속 (시장 단위 일자별).
  * Passive/Active 매핑 미적용 — 매핑은 ADR-0142 별도 PR (운영 데이터 1~2주
  * 누적 후 데이터 기반 검증).

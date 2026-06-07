@@ -14,7 +14,8 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0581`**
+**다음 ADR 번호: `0582`**
+(2026-06-07 기준, 마지막 발급 0581 — shadow-to-live-weight-promotion-pipeline. ADR-0581 — shadow/candidate 검증 조건가중치 → live 승격 파이프라인(phased, flag-gated). **Phase 0~2 구현(전부 byte-equivalent·executionImpact=NONE·live 미도달)**: P0 `LEARNING_WEIGHT_PROMOTION_ENABLED` flag(default OFF) / P1 candidate 레인 read `loadCandidateConditionWeights`+`conditionWeightsCandidateFile`(write-only 갭 해소) / P2 `registerLearnedConditionWeightProvider` seam(미등록=파일직독 byte-identical, gateConfig provider 패턴 동형). **Phase 3~4(candidate→core promoter·governance 영속·rollout·snapshot 복원)는 follow-up, live 전환 전 마무리 예정**. paper→live 신뢰경계 보존(shadow 단독 자동 core write 불가, guardrail NON_LIVE_SOURCE). 70 anchor 무관. seam 테스트 8/8·lint0·complexity OK·responsibility0. INDEX 0580→0581 갱신.)
 (2026-06-07 기준, 마지막 발급 0580 — marketdatarefresh-acma-type-helper-extraction. ADR-0580 — marketDataRefresh.ts(1499→1327, ACMA 1500 한계 1줄 차 선제 분해). 타입 8종→`marketDataRefresh/types.ts` + 순수 leaf 헬퍼 11→`helpers.ts` 추출 + `export *` 재노출(외부 importer 0건). execution-relevant 파일이나 타입+순수함수 재배치라 런타임 byte-equivalent·executionImpact=NONE. 거대함수 refreshMarketRegimeVars(739L) 무접촉. lint0·complexity OK·테스트 9파일/130 통과. INDEX 0579→0580 갱신.)
 (2026-06-06 기준, 마지막 발급 0579 — acma-imminent-files-type-extraction-decomposition. ADR-0579 — ACMA 1,500 한계 임박 2파일 선제 type-only 분해: gate1DryRunObservationLedgerAdr0476.ts(1500→1242, SHADOW_ONLY executionImpact=NONE) + sectorEnergyProvider.ts(1499→1343, type-only byte-equivalent). type/interface 선언을 각 `<name>/types.ts` 서브모듈로 추출 + `export *` 재노출(외부 importer 경로 0건). 정적 grep-guard 2건 본문+types 동시 read 로 갱신(ADR-0444). 01/09 복잡도 표·INDEX 푸터 실측 동기화 동반. lint0·complexity OK·responsibility0·gate1 25/25·sector 71/71. INDEX 0578→0579 갱신.)
 (2026-06-05 기준, 마지막 발급 0578 — gate1-technical-indicator-injection. ADR-0578 — Gate1 기술지표 주입 배선(존재-but-미배선). injectPerSymbolPriceContext 가 일봉 bars 를 fetch 해 return/volume 만 주입하고 ma20/ma60/rsi14/atr 미계산 → 스코어러 TECHNICAL_TREND(14)+VOLUME_LIQUIDITY 항상 0 → Gate1 49/70 고착(RS 48/48 vs tech 22/48 비대칭: RS 는 featurePack fallback 생존·기술은 quote 단독). 산식은 kisQuoteAdapter 에 이미 존재. (D1) _indicators 에 calcSMA·calcATR 추가(kisQuoteAdapter 동일 산식, RSI 는 calcRSI14 재사용). (D2) flag GATE1_TECHNICAL_INDICATOR_INJECTION_ENABLED ON 시 동일 bars(역순 변환)로 지표 계산→candidate.symbolFeatures 주입(기존값 보존). (D3) KIS lookback 35→90 역일(ma60용, 호출수 불변 rows만). (D4) technicalInjected 로깅으로 bar-fetch 커버리지 실측. flag OFF default=byte-equivalent. executionImpact OFF=NONE/ON=execution-adjacent(requiredScore 70·×1 게이트 0변경, score 상승으로 Gate1 통과 증가 가능→shadow 검증 권고). providerImpact 호출수 불변. 불변식 #6/#7 보존·스코어러 본체·70 무접촉·VERBATIM 0줄. 롤백 ENV 제거 byte-equivalent. 테스트 +4. INDEX 0578→0579 갱신.)
@@ -186,6 +187,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0581 | shadow→live 조건가중치 승격 파이프라인 (phased, flag-gated). Phase 0~2 토대 구현(flag·candidate reader·provider seam, byte-equivalent·executionImpact=NONE); Phase 3~4(promoter·rollout) follow-up·pre-live | learning / promotion / flag-gated |
 | 0580 | marketDataRefresh ACMA 한계 임박 선제 분해 (1499→1327, 타입 8종+순수헬퍼 11→types.ts/helpers.ts, byte-equivalent·executionImpact=NONE, refreshMarketRegimeVars 무접촉) | refactor / complexity |
 | 0579 | ACMA 1500 한계 임박 파일 선제 type-extraction 분해 (gate1DryRunObservationLedgerAdr0476 1500→1242 · sectorEnergyProvider 1499→1343, types.ts 추출·byte-equivalent) | refactor / complexity |
 | 0578 | gate1 technical indicator injection (ma/rsi/atr 미배선 해소, flag-gated) | engine / signalScanner |
@@ -601,7 +603,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0580 · 다음 발급 0581** — `node scripts/check_adr_index.js --json` 기준 387 파일 · 370 unique 번호 · 395 index행 (2026-06-07 실측). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0581 · 다음 발급 0582** — `node scripts/check_adr_index.js --json` 기준 388 파일 · 371 unique 번호 · 396 index행 (2026-06-07 실측). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

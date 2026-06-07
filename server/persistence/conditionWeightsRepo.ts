@@ -1,12 +1,27 @@
 // @responsibility conditionWeightsRepo 영속화 저장소 모듈
 import fs from 'fs';
-import { CONDITION_WEIGHTS_FILE, conditionWeightsRegimeFile, ensureDataDir } from './paths.js';
+import { CONDITION_WEIGHTS_FILE, conditionWeightsRegimeFile, conditionWeightsCandidateFile, ensureDataDir } from './paths.js';
 import {
   DEFAULT_CONDITION_WEIGHTS,
   type ConditionWeights,
 } from '../quantFilter.js';
 
 export type { ConditionWeights };
+
+/**
+ * ADR-0581 Phase 2 — 학습 가중치 provider 주입 seam (역의존 방지).
+ *
+ * 기본 미등록(null) → loadConditionWeights[ByRegime] 는 byte-identical(파일 직독, 기존 동작).
+ * learning 레이어가 명시 등록(registerLearnedConditionWeightProvider)할 때만, 그리고 자체적으로
+ * flag(LEARNING_WEIGHT_PROMOTION_ENABLED) + governance 승인 + clamp 를 책임진 뒤 유효 가중치(아니면
+ * null)를 반환한다. conditionWeightsRepo 는 learning 을 import 하지 않는다.
+ * (counterfacture_gate Phase D 의 registerLearnedGate1ThresholdProvider 패턴과 동형.)
+ */
+export type LearnedConditionWeightProvider = (regime?: string) => Partial<ConditionWeights> | null;
+let learnedConditionWeightProvider: LearnedConditionWeightProvider | null = null;
+export function registerLearnedConditionWeightProvider(provider: LearnedConditionWeightProvider | null): void {
+  learnedConditionWeightProvider = provider;
+}
 
 export const CONDITION_WEIGHT_REGIMES = [
   'R1_TURBO',
@@ -69,6 +84,9 @@ function backupStamp(now: Date): string {
 }
 
 export function loadConditionWeights(): ConditionWeights {
+  // ADR-0581 Phase 2: provider 미등록(기본)이면 undefined → 아래 파일 경로 byte-identical.
+  const learned = learnedConditionWeightProvider?.(undefined);
+  if (learned) return { ...DEFAULT_CONDITION_WEIGHTS, ...learned };
   ensureDataDir();
   if (!fs.existsSync(CONDITION_WEIGHTS_FILE)) return { ...DEFAULT_CONDITION_WEIGHTS };
   try {
@@ -100,6 +118,9 @@ export function saveConditionWeights(w: ConditionWeights): void {
  * 해당 레짐의 파일이 없으면 전역 가중치를 폴백으로 반환.
  */
 export function loadConditionWeightsByRegime(regime: string): ConditionWeights {
+  // ADR-0581 Phase 2: provider 미등록(기본)이면 undefined → 아래 파일 경로 byte-identical.
+  const learned = learnedConditionWeightProvider?.(regime);
+  if (learned) return { ...DEFAULT_CONDITION_WEIGHTS, ...learned };
   ensureDataDir();
   const file = conditionWeightsRegimeFile(regime);
   if (!fs.existsSync(file)) return loadConditionWeights(); // 전역 폴백
@@ -117,6 +138,24 @@ export function loadConditionWeightsByRegime(regime: string): ConditionWeights {
 export function saveConditionWeightsByRegime(regime: string, w: ConditionWeights): void {
   ensureDataDir();
   fs.writeFileSync(conditionWeightsRegimeFile(regime), JSON.stringify(w, null, 2));
+}
+
+/**
+ * ADR-0581 Phase 1: candidate(shadow) 가중치 read 측.
+ * signalCalibrator.persistCandidateWeights 가 쓰는 `condition-weights-${regime}.candidate.json` 을 읽는다.
+ * 기존엔 write-only(읽는 데 없음)였던 candidate 레인의 read 진입점 — 승격 후보 평가용.
+ * 파일 부재/파싱 실패 시 null. live 스코어링에 직접 쓰이지 않는다(executionImpact=NONE).
+ */
+export function loadCandidateConditionWeights(regime = 'GLOBAL'): Partial<ConditionWeights> | null {
+  ensureDataDir();
+  const file = conditionWeightsCandidateFile(regime);
+  if (!fs.existsSync(file)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<ConditionWeights>;
+  } catch {
+    /* SDS-ignore: invalid candidate weight JSON → null (read-only diagnostic, no live impact) */
+    return null;
+  }
 }
 
 export function resetConditionWeightsToDefault(
