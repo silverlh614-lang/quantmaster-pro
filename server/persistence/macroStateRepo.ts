@@ -34,6 +34,13 @@ export interface MacroState {
   vkospiDayChangeComputed?: number; // 서버 직접 계산 당일 변화율
   vkospiDayChangeSource?: string;   // VKOSPI 당일 변화율 계산 소스 (진단용)
   vkospi5dTrend?: number;           // VKOSPI 5일 추세 (양수=상승)
+  /**
+   * ADR-0584: VKOSPI 신선도 추적 — silent stale 차단(다른 지표엔 *FetchedAt 있으나 VKOSPI만 부재였음).
+   * vkospiBaseDate  = KRX 일별 행의 거래일(BAS_DD, YYYYMMDD) — 기존엔 버려지던 값 영속.
+   * vkospiFetchedAt = 마지막 VKOSPI fetch 성공 시각(ISO). carry-forward(fetch 실패) 시 갱신 안 됨.
+   */
+  vkospiBaseDate?: string;
+  vkospiFetchedAt?: string;
   usdKrw?: number;                  // 원달러 환율
   usdKrw20dChange?: number;         // 원달러 20일 변화율
   usdKrwDayChange?: number;         // 원달러 당일 변화율

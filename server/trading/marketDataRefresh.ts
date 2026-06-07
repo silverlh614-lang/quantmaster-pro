@@ -644,23 +644,35 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
   // ── ④-B VKOSPI — KRX OpenAPI 파생상품 지수 일별 우선, Yahoo fallback ───────
   try {
     const rows = await fetchDerivativesIndexDaily();
-    const vkospiRow = rows.find((r) =>
+    // ADR-0584: 이름 substring 매칭(공식 인덱스코드 검증은 후속) — 다중 매칭 시 모호성 경고로
+    // "엉뚱한 파생지수 행 줍기" 가시화. 선택 자체는 기존과 동일(첫 매칭)이라 byte-equivalent.
+    const vkospiMatches = rows.filter((r) =>
       r.indexName.includes('VKOSPI') ||
       r.indexName.includes('변동성지수') ||
       r.indexName.includes('코스피변동성'),
     );
+    if (vkospiMatches.length > 1) {
+      emitMarketDataProviderWarn('VKOSPI_ROW_AMBIGUOUS', {
+        matchCount: vkospiMatches.length,
+        names: vkospiMatches.slice(0, 5).map((r) => r.indexName),
+      });
+    }
+    const vkospiRow = vkospiMatches[0];
     if (vkospiRow) {
       computed.vkospi = vkospiRow.close;
       computed.vkospiPrevClose = vkospiRow.change !== 0 ? vkospiRow.close - vkospiRow.change : vkospiRow.close;
       computed.vkospiDayChangeComputed = vkospiRow.changePct;
       computed.vkospiDayChangeSource = 'KRX_DERIV_INDEX_DAILY';
+      // ADR-0584: 버려지던 거래일(BAS_DD) + fetch 시각 영속 — stale 가시화/판정 입력(다른 지표와 정합).
+      if (vkospiRow.baseDate) computed.vkospiBaseDate = vkospiRow.baseDate;
+      computed.vkospiFetchedAt = new Date().toISOString();
       const ageMs = existing.updatedAt ? Date.now() - Date.parse(existing.updatedAt) : Number.POSITIVE_INFINITY;
       const shouldKeepClientValue = typeof existing.vkospiDayChange === 'number' && Number.isFinite(ageMs) && ageMs <= 15 * 60_000;
       computed.vkospiDayChange = shouldKeepClientValue ? existing.vkospiDayChange : vkospiRow.changePct;
       console.log(
         `[MarketRefresh] VKOSPI (KRX) source=KRX_DERIV_INDEX_DAILY ` +
         `현재=${vkospiRow.close.toFixed(2)} 전일=${(computed.vkospiPrevClose as number).toFixed(2)} ` +
-        `dayChange=${vkospiRow.changePct.toFixed(2)}%`,
+        `dayChange=${vkospiRow.changePct.toFixed(2)}% baseDate=${vkospiRow.baseDate || 'N/A'}`,
       );
     } else {
       throw new Error('KRX VKOSPI row not found');
@@ -675,9 +687,19 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
         computed.vkospiPrevClose = vkospiComputed.prevClose;
         computed.vkospiDayChangeComputed = vkospiComputed.dayChangePct;
         computed.vkospiDayChangeSource = 'YAHOO_FALLBACK_COMPUTED';
+        computed.vkospiFetchedAt = new Date().toISOString();
         if (typeof existing.vkospiDayChange !== 'number') computed.vkospiDayChange = vkospiComputed.dayChangePct;
       }
     } catch {}
+    // ADR-0584: KRX+Yahoo 모두 실패 → computed.vkospi 미설정 → merge 시 기존 값 silent carry-forward.
+    // 공매도/신용잔고처럼 운영자 경고를 띄워 invisible staleness 차단(불변식 #6: provider 이슈, market signal 아님).
+    if (computed.vkospi === undefined) {
+      emitMarketDataProviderWarn('VKOSPI_CARRY_FORWARD', {
+        reason: 'KRX+Yahoo VKOSPI fetch 모두 실패 — 기존 vkospi 값 유지(carry-forward)',
+        carryForward: true,
+        prevBaseDate: existing.vkospiBaseDate ?? 'N/A',
+      });
+    }
   }
 
   // ── ② USD/KRW (Yahoo `KRW=X` + ECOS 한국은행 공식 교차 검증, ADR-0071) ──────
