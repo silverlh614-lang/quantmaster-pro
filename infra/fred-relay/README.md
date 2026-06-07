@@ -32,9 +32,13 @@ curl "https://fred-relay.<sub>.workers.dev/fred/series/observations?series_id=T1
 
 ## 서버 연결
 
-1. Railway → 해당 서비스 → **Variables** 에 추가(따옴표·끝슬래시 없이):
+> ⚠️ **`<sub>` 는 placeholder다 — 그대로 복사하지 말 것.** 위 배포 3단계에서 대시보드에 표시된
+> *실제* 서브도메인(계정마다 다름)으로 반드시 치환한다. `<`, `>` 가 남아 있으면 URL 파싱 실패로
+> `/macro_source_probe` 가 `CONFIG_ERROR — BAD_FRED_API_BASE` 를 반환한다.
+
+1. Railway → 해당 서비스 → **Variables** 에 추가(따옴표·끝슬래시 없이, `<sub>` → 실제 값):
    ```
-   FRED_API_BASE=https://fred-relay.<sub>.workers.dev
+   FRED_API_BASE=https://fred-relay.your-actual-subdomain.workers.dev
    ```
 2. 서비스 재배포/재시작 (env 반영).
 3. **인밴드 검증** — 텔레그램 `/macro_source_probe`:
