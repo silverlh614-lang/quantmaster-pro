@@ -33,6 +33,7 @@ export async function formatMacroSourceProbe(): Promise<string> {
     '🇺🇸 FRED',
     `  verdict=${verdictFred(fred)}`,
     `  hasKey=${fred.hasKey} disabled=${fred.disabled} base=${fred.base}`,
+    `  dnsV4=${fred.dnsV4.join(',') || 'NONE'} dnsV6=${fred.dnsV6.join(',') || 'NONE'}${fred.dnsError ? ` dnsError=${fred.dnsError}` : ''}`,
     `  series=${fred.seriesId} reachedNetwork=${fred.reachedNetwork} httpStatus=${fred.httpStatus ?? 'N/A'} ok=${fred.ok ?? 'N/A'} elapsedMs=${fred.elapsedMs}`,
     `  observationCount=${fred.observationCount ?? 'N/A'} sampleValue=${fred.sampleValue ?? 'N/A'}`,
     ...(fred.errorBody ? [`  errorBody=${fred.errorBody}`] : []),

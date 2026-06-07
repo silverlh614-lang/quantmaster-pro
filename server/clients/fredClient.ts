@@ -1,4 +1,5 @@
 // @responsibility fredClient 외부 클라이언트 모듈
+import { promises as dnsPromises } from 'node:dns';
 const FRED_BASE = process.env.FRED_API_BASE ?? 'https://api.stlouisfed.org';
 const FRED_DISABLED = process.env.FRED_API_DISABLED === 'true';
 // ADR 0건(hotfix) — FRED 호스트(api.stlouisfed.org) 응답이 배포지에서 8s 초과 hang 하는 사례 대응.
@@ -180,6 +181,9 @@ export interface FredProbeResult {
   disabled: boolean;
   base: string;
   seriesId: string;
+  dnsV4: string[];
+  dnsV6: string[];
+  dnsError: string | null;
   reachedNetwork: boolean;
   httpStatus: number | null;
   ok: boolean | null;
@@ -190,6 +194,18 @@ export interface FredProbeResult {
   elapsedMs: number;
 }
 
+/** host A/AAAA 해석(짧은 타임아웃) — DNS-OK-but-TCP-blocked vs DNS 문제 판별용. */
+async function resolveDnsBrief(host: string, timeoutMs = 4_000): Promise<{ v4: string[]; v6: string[]; dnsError: string | null }> {
+  const cap = <T>(p: Promise<T>): Promise<T | null> =>
+    Promise.race([p.catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), timeoutMs))]);
+  try {
+    const [v4, v6] = await Promise.all([cap(dnsPromises.resolve4(host)), cap(dnsPromises.resolve6(host))]);
+    return { v4: v4 ?? [], v6: v6 ?? [], dnsError: null };
+  } catch (e) {
+    return { v4: [], v6: [], dnsError: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /**
  * FRED 단발 프로브 — fred=false 원인(키 거부 HTTP400 / rate-limit 429 / network timeout / disabled)을 판별.
  * 키는 응답·에러 본문에서 redact 후 반환. 호출 시 1회 실데이터 fetch(quota 미미).
@@ -198,11 +214,16 @@ export async function probeFred(seriesId = 'T10Y2Y'): Promise<FredProbeResult> {
   const apiKey = process.env.FRED_API_KEY?.trim();
   const base: FredProbeResult = {
     source: 'FRED', hasKey: !!apiKey, disabled: FRED_DISABLED, base: FRED_BASE, seriesId,
+    dnsV4: [], dnsV6: [], dnsError: null,
     reachedNetwork: false, httpStatus: null, ok: null,
     observationCount: null, sampleValue: null, errorBody: null, error: null, elapsedMs: 0,
   };
   if (FRED_DISABLED) return { ...base, error: 'FRED_API_DISABLED=true' };
   if (!apiKey) return { ...base, error: 'FRED_API_KEY 미설정' };
+
+  // DNS 해석(배포지 관점) — fetch hang 시에도 "resolve 됐는데 TCP 막힘"인지 확인.
+  const dns = await resolveDnsBrief(new URL(FRED_BASE).hostname);
+  base.dnsV4 = dns.v4; base.dnsV6 = dns.v6; base.dnsError = dns.dnsError;
 
   const url = new URL('/fred/series/observations', FRED_BASE);
   url.searchParams.set('series_id', seriesId);
