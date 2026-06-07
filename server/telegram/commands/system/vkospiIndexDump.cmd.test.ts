@@ -17,6 +17,12 @@ vi.mock('../../../clients/krxOpenApi.js', () => ({
     // 무관 파생지수
     row({ indexCode: 'F001', indexName: '코스피200 선물지수', close: 340, change: -18, changePct: -5.0 }),
   ]),
+  // production 과 동일 SSOT predicate (krxOpenApi.isVkospiIndexName) — 실제 구현과 일치.
+  isVkospiIndexName: (name: string) =>
+    name.includes('VKOSPI') ||
+    name.includes('코스피 200 변동성지수') ||
+    name.includes('코스피200변동성지수') ||
+    name.includes('코스피변동성'),
 }));
 
 vi.mock('../../../persistence/macroStateRepo.js', () => ({ loadMacroState: vi.fn(() => ({ vix: 16.1 })) }));

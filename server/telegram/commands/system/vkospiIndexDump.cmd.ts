@@ -1,11 +1,11 @@
 // @responsibility /vkospi_index_dump — KRX 파생지수 일별 응답 read-only 덤프 (진짜 VKOSPI 행/IDX_IND_CD 식별, executionImpact=NONE).
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
-import { fetchDerivativesIndexDaily, type KrxIndexDailyRow } from '../../../clients/krxOpenApi.js';
+import { fetchDerivativesIndexDaily, isVkospiIndexName, type KrxIndexDailyRow } from '../../../clients/krxOpenApi.js';
 import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 
-const SUBSTRING_MATCH = (name: string): boolean =>
-  name.includes('VKOSPI') || name.includes('변동성지수') || name.includes('코스피변동성');
+// marketDataRefresh 와 동일 SSOT predicate(isVkospiIndexName) 사용 → 🎯 섹션이 production 실제 선택과 일치.
+const SUBSTRING_MATCH = isVkospiIndexName;
 
 function fmtRow(r: KrxIndexDailyRow): string {
   const close = Number.isFinite(r.close) ? r.close.toFixed(2) : 'N/A';

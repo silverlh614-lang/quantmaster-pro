@@ -351,6 +351,22 @@ function mapIndexDailyRow(r: Record<string, string | number>): KrxIndexDailyRow 
   };
 }
 
+/**
+ * VKOSPI(코스피200 변동성지수) 행 식별 SSOT — marketDataRefresh 선택 + /vkospi_index_dump 진단 공용.
+ *
+ * 덤프(2026-06-07) 실측: 이 피드(idx/drvprod_dd_trd)는 IDX_IND_CD 가 비어 있어(모든 행 [?]) 공식
+ * 코드 pin 이 불가 → 이름 매칭이 유일 선택자. bare '변동성지수'는 'KRX 최소변동성지수'(주식 지수
+ * ~14694) 등 동음이의까지 매칭하므로 VKOSPI 정식명으로 한정한다(엉뚱한 행 선택 방지).
+ */
+export function isVkospiIndexName(name: string): boolean {
+  return (
+    name.includes('VKOSPI') ||
+    name.includes('코스피 200 변동성지수') ||
+    name.includes('코스피200변동성지수') ||
+    name.includes('코스피변동성')
+  );
+}
+
 function previousBusinessDayYyyymmdd(yyyymmdd: string): string | null {
   if (!isValidYyyymmdd(yyyymmdd)) return null;
   const y = yyyymmdd.slice(0, 4);

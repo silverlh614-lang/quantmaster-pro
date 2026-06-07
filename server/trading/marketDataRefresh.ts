@@ -34,7 +34,7 @@ import { tryKrxShortViaKisProxy } from './shortSellingKisProxy.js';
 import { resolveCombinedSource } from './programMarketSnapshot.js';
 import { fetchFredLatest } from '../clients/fredClient.js';
 import { fetchLatestUsdKrw, fetchLatestMarginBalance5dChange } from '../clients/ecosClient.js';
-import { fetchDerivativesIndexDaily } from '../clients/krxOpenApi.js';
+import { fetchDerivativesIndexDaily, isVkospiIndexName } from '../clients/krxOpenApi.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
 import { deriveMhsDegrade, type MhsDegradeInfo } from '../engines/mhsDegrade.js';
 import { guardedFetch } from '../utils/egressGuard.js';
@@ -647,12 +647,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     // VKOSPI(코스피200 변동성지수) 행 선택 — 정밀 이름 매칭. 덤프(2026-06-07) 결과 bare '변동성지수'는
     // 'KRX 최소변동성지수'(주식 지수 ~14694) 등 동음이의까지 매칭하던 fragility 확인 → VKOSPI 한정으로 좁힘.
     // 다중 매칭 시 모호성 경고(향후 KRX 행 추가 대비).
-    const vkospiMatches = rows.filter((r) =>
-      r.indexName.includes('VKOSPI') ||
-      r.indexName.includes('코스피 200 변동성지수') ||
-      r.indexName.includes('코스피200변동성지수') ||
-      r.indexName.includes('코스피변동성'),
-    );
+    const vkospiMatches = rows.filter((r) => isVkospiIndexName(r.indexName));
     if (vkospiMatches.length > 1) {
       emitMarketDataProviderWarn('VKOSPI_ROW_AMBIGUOUS', {
         matchCount: vkospiMatches.length,
