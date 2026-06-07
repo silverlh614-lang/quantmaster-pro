@@ -1,7 +1,11 @@
 // @responsibility fredClient 외부 클라이언트 모듈
 const FRED_BASE = process.env.FRED_API_BASE ?? 'https://api.stlouisfed.org';
 const FRED_DISABLED = process.env.FRED_API_DISABLED === 'true';
-const REQUEST_TIMEOUT_MS = 8_000;
+// ADR 0건(hotfix) — FRED 호스트(api.stlouisfed.org) 응답이 배포지에서 8s 초과 hang 하는 사례 대응.
+// env FRED_REQUEST_TIMEOUT_MS 로 조정(차단 vs 단순느림 판별·재배포 없이 추가 상향용). 기본 15s.
+const REQUEST_TIMEOUT_MS = Number(process.env.FRED_REQUEST_TIMEOUT_MS) > 0
+  ? Number(process.env.FRED_REQUEST_TIMEOUT_MS)
+  : 15_000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_FETCH_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 2_000;
