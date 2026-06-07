@@ -3,7 +3,7 @@ import React from 'react';
 import { BarChart3, ShieldCheck } from 'lucide-react';
 import { cn } from '../../../ui/cn';
 import { usePriceCanon } from '../../../hooks/usePriceCanon';
-import { computeTranchePlan } from '../../../utils/priceStrategy';
+import { computeTranchePlan, deriveSecondaryLevels } from '../../../utils/priceStrategy';
 import { TrancheBreakdown } from '../../common/TrancheBreakdown';
 import type { StockRecommendation } from '../../../services/stockService';
 
@@ -194,6 +194,11 @@ function PriceActionCards({ stock }: Props) {
   const target = plan?.target ?? stock.targetPrice ?? 0;
   const stop = plan?.stop ?? stock.stopLoss ?? 0;
   const multi = plan?.multiTranche ?? false;
+  // 2차 진입 — stale 절대값 raw 표시 대신 현재가 앵커링 + 정합 가드(손절 위·1차 진입 아래).
+  const secondary = deriveSecondaryLevels({
+    displayPrice: current, aiEntry: stock.entryPrice ?? 0, entryShown: entry, targetShown: target, stopShown: stop,
+    aiEntry2: stock.entryPrice2, aiTarget2: stock.targetPrice2,
+  });
   const pct = (v: number) => (current > 0 && v > 0 ? Math.round((v / current - 1) * 100) : 0);
   return (
     <>
@@ -201,7 +206,7 @@ function PriceActionCards({ stock }: Props) {
         <PriceActionCard
           label={multi ? '진입(평균)' : '진입'}
           value={entry > 0 ? `₩${entry.toLocaleString()}` : '---'}
-          subValue={!multi && stock.entryPrice2 ? `~ ₩${stock.entryPrice2.toLocaleString()}` : undefined}
+          subValue={!multi && secondary.entry2 ? `~ ₩${secondary.entry2.toLocaleString()}` : undefined}
           className="bg-blue-500/10 border-blue-500/20"
           labelClassName="text-blue-400/60"
           valueClassName="text-lg font-black text-white"
