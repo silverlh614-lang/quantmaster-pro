@@ -499,3 +499,69 @@ export function getEcosStatus(): { base: string; hasKey: boolean; disabled: bool
     cacheKeys: Array.from(_cache.keys()),
   };
 }
+
+// ── 진단 프로브 (read-only, executionImpact=NONE) ─────────────────────────────
+// 단발 테스트 호출(BOK 기준금리)로 키/HTTP/RESULT/timeout 실패 사유를 인밴드 노출. API 키는 절대 출력 안 함.
+
+export interface EcosProbeResult {
+  source: 'ECOS';
+  hasKey: boolean;
+  disabled: boolean;
+  base: string;
+  statCode: string;
+  reachedNetwork: boolean;
+  httpStatus: number | null;
+  ok: boolean | null;
+  rowCount: number | null;
+  resultCode: string | null;
+  resultMessage: string | null;
+  error: string | null;
+  elapsedMs: number;
+}
+
+/**
+ * ECOS 단발 프로브 — 키 거부/RESULT 오류(INFO-100 등)/network timeout/disabled 를 판별.
+ * BOK 기준금리(BOK_RATE) 최근 1개월 일별을 테스트 조회. 키는 응답·에러에서 redact 후 반환.
+ */
+export async function probeEcos(): Promise<EcosProbeResult> {
+  const apiKey = process.env.ECOS_API_KEY;
+  const statCode = ECOS_STAT.BOK_RATE.code;
+  const base: EcosProbeResult = {
+    source: 'ECOS', hasKey: !!apiKey, disabled: ECOS_DISABLED, base: ECOS_BASE, statCode,
+    reachedNetwork: false, httpStatus: null, ok: null, rowCount: null,
+    resultCode: null, resultMessage: null, error: null, elapsedMs: 0,
+  };
+  if (ECOS_DISABLED) return { ...base, error: 'ECOS_API_DISABLED=true' };
+  if (!apiKey) return { ...base, error: 'ECOS_API_KEY 미설정' };
+
+  const end = nowKst();
+  const start = addMonths(end, -1);
+  const url =
+    `${ECOS_BASE}/api/StatisticSearch/${apiKey}/json/kr/1/5/` +
+    `${statCode}/D/${formatDateYYYYMMDD(start)}/${formatDateYYYYMMDD(end)}/${ECOS_STAT.BOK_RATE.item1}`;
+  const redact = (s: string): string => s.split(apiKey).join('***');
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
+  const started = Date.now();
+  try {
+    const res = await fetch(url, { method: 'GET', signal: ac.signal, headers: { Accept: 'application/json' } });
+    const elapsedMs = Date.now() - started;
+    const text = await res.text();
+    let rowCount: number | null = null;
+    let resultCode: string | null = null;
+    let resultMessage: string | null = null;
+    try {
+      const j = JSON.parse(text) as { StatisticSearch?: { row?: unknown[] }; RESULT?: { CODE?: string; MESSAGE?: string } };
+      if (Array.isArray(j?.StatisticSearch?.row)) rowCount = j.StatisticSearch.row.length;
+      resultCode = j?.RESULT?.CODE ?? null;
+      resultMessage = j?.RESULT?.MESSAGE ? redact(j.RESULT.MESSAGE).slice(0, 200) : null;
+    } catch { /* SDS-ignore: probe 응답 파싱 실패는 null 로 보고(비치명) */ }
+    return { ...base, reachedNetwork: true, httpStatus: res.status, ok: res.ok, rowCount, resultCode, resultMessage, elapsedMs };
+  } catch (e) {
+    const elapsedMs = Date.now() - started;
+    const isTimeout = e instanceof Error && e.name === 'AbortError';
+    return { ...base, reachedNetwork: false, error: isTimeout ? `TIMEOUT(${REQUEST_TIMEOUT_MS}ms)` : redact(e instanceof Error ? e.message : String(e)), elapsedMs };
+  } finally {
+    clearTimeout(timer);
+  }
+}

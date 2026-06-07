@@ -166,3 +166,72 @@ export async function fetchFredSnapshot(): Promise<FredSnapshot> {
 
   return snapshot;
 }
+
+// ── 진단 프로브 (read-only, executionImpact=NONE) ─────────────────────────────
+// 단발 테스트 호출로 키/HTTP/timeout 실패 사유를 인밴드 노출한다. API 키는 절대 출력하지 않는다.
+
+export interface FredProbeResult {
+  source: 'FRED';
+  hasKey: boolean;
+  disabled: boolean;
+  base: string;
+  seriesId: string;
+  reachedNetwork: boolean;
+  httpStatus: number | null;
+  ok: boolean | null;
+  observationCount: number | null;
+  sampleValue: string | null;
+  errorBody: string | null;
+  error: string | null;
+  elapsedMs: number;
+}
+
+/**
+ * FRED 단발 프로브 — fred=false 원인(키 거부 HTTP400 / rate-limit 429 / network timeout / disabled)을 판별.
+ * 키는 응답·에러 본문에서 redact 후 반환. 호출 시 1회 실데이터 fetch(quota 미미).
+ */
+export async function probeFred(seriesId = 'T10Y2Y'): Promise<FredProbeResult> {
+  const apiKey = process.env.FRED_API_KEY?.trim();
+  const base: FredProbeResult = {
+    source: 'FRED', hasKey: !!apiKey, disabled: FRED_DISABLED, base: FRED_BASE, seriesId,
+    reachedNetwork: false, httpStatus: null, ok: null,
+    observationCount: null, sampleValue: null, errorBody: null, error: null, elapsedMs: 0,
+  };
+  if (FRED_DISABLED) return { ...base, error: 'FRED_API_DISABLED=true' };
+  if (!apiKey) return { ...base, error: 'FRED_API_KEY 미설정' };
+
+  const url = new URL('/fred/series/observations', FRED_BASE);
+  url.searchParams.set('series_id', seriesId);
+  url.searchParams.set('api_key', apiKey);
+  url.searchParams.set('file_type', 'json');
+  url.searchParams.set('sort_order', 'desc');
+  url.searchParams.set('limit', '1');
+
+  const redact = (s: string): string => s.split(apiKey).join('***');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const started = Date.now();
+  try {
+    const res = await fetch(url.toString(), { signal: controller.signal });
+    const elapsedMs = Date.now() - started;
+    const text = await res.text();
+    if (res.ok) {
+      let observationCount: number | null = null;
+      let sampleValue: string | null = null;
+      try {
+        const j = JSON.parse(text) as { observations?: Array<{ value?: string }> };
+        const obs = Array.isArray(j?.observations) ? j.observations : [];
+        observationCount = obs.length;
+        sampleValue = obs[0]?.value ?? null;
+      } catch { /* SDS-ignore: probe 응답 파싱 실패는 null 로 보고(비치명) */ }
+      return { ...base, reachedNetwork: true, httpStatus: res.status, ok: true, observationCount, sampleValue, elapsedMs };
+    }
+    return { ...base, reachedNetwork: true, httpStatus: res.status, ok: false, errorBody: redact(text).slice(0, 240), elapsedMs };
+  } catch (e) {
+    const elapsedMs = Date.now() - started;
+    const isTimeout = e instanceof Error && e.name === 'AbortError';
+    return { ...base, reachedNetwork: false, error: isTimeout ? `TIMEOUT(${REQUEST_TIMEOUT_MS}ms)` : redact(e instanceof Error ? e.message : String(e)), elapsedMs };
+  } finally {
+    clearTimeout(timer);
+  }
+}
