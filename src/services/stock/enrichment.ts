@@ -6,7 +6,12 @@ import {
   calculateStochastic,
   calculateIchimoku,
   detectVCP,
-  calculateDisparity
+  calculateDisparity,
+  detectGoldenCross,
+  detectVolumeSurge,
+  detectTurtleBreakout,
+  detectFibonacciSupport,
+  detectBullishDivergence,
 } from "../../utils/indicators";
 import { fetchCorpCode, fetchDartFinancials } from './dartDataFetcher';
 import { fetchHistoricalData } from './historicalData';
@@ -64,6 +69,10 @@ interface SourceTierContext {
   hasKisSupply: boolean;
   /** vcpPattern 이 OHLCV 로 실제 계산되었는가. */
   hasVcpComputed: boolean;
+  /** ADR-0582: 기술 조건(일목/골든크로스/거래량/터틀/피보나치/다이버전스)을 OHLCV 로 실계산했는가. */
+  hasTechnicalComputed?: boolean;
+  /** ADR-0582: DART 영업이익률 당기·전기 가용 — #22 marginAcceleration 'API' 격상. */
+  hasMarginTrend?: boolean;
   /** ADR-0152: Naver 외인 추세 (5d 표본 ≥ 6) 가 실제 데이터 반환했는가. */
   hasForeignerTrend?: boolean;
   /** ADR-0153: globalIntel 12 레이어 합성 ctx 가용 (4 필드 중 1+ 비-null). */
@@ -91,6 +100,19 @@ export function buildConditionSourceTiers(ctx: SourceTierContext): Partial<Recor
 
   // COMPUTED — 클라이언트 OHLCV 직접 계산
   if (ctx.hasVcpComputed) meta.vcpPattern = 'COMPUTED';
+
+  // ADR-0582: 기술 6조건 OHLCV 실계산 → COMPUTED 격상 (Gemini 추정 대체).
+  if (ctx.hasTechnicalComputed) {
+    meta.ichimokuBreakout = 'COMPUTED';
+    meta.technicalGoldenCross = 'COMPUTED';
+    meta.volumeSurgeVerified = 'COMPUTED';
+    meta.turtleBreakout = 'COMPUTED';
+    meta.fibonacciLevel = 'COMPUTED';
+    meta.divergenceCheck = 'COMPUTED';
+  }
+
+  // ADR-0582: DART 영업이익률 추세 → #22 marginAcceleration 'API' 격상.
+  if (ctx.hasMarginTrend) meta.marginAcceleration = 'API';
 
   // API — DART 응답 사용 (ADR-0150 Phase 1 마무리: 3 → 5 키 격상)
   if (ctx.hasDartFinancials) {
@@ -405,6 +427,13 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
           (fallbackDart?.netProfitMargin ?? 0) > 5
             ? 1
             : (stock.checklist?.economicMoatVerified ?? 0),
+        // ADR-0582: #22 marginAcceleration — DART 영업이익률 당기 > 전기(마진 개선) 객관 검증.
+        marginAcceleration:
+          fallbackDart?.operatingMargin != null &&
+          fallbackDart?.operatingMarginPrior != null &&
+          fallbackDart.operatingMargin > fallbackDart.operatingMarginPrior
+            ? 1
+            : (stock.checklist?.marginAcceleration ?? 0),
         // ADR-0153: aiFallback 경로도 globalIntel 합성 (#5/#1/#16) — main path 정합.
         // Naver 외인 추세 (#4 supplyInflow) 는 외부 API 호출 회로 부담 차단으로
         // aiFallback 경로 미적용 (stock.checklist 보존). main path 만 격상.
@@ -425,6 +454,9 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         hasDartFinancials: fallbackDart != null,
         hasKisSupply: false,
         hasVcpComputed: false,
+        // aiFallback 은 OHLCV 부재 → 기술 조건 실계산 불가 (AI 값 보존, 검증 미부여).
+        hasTechnicalComputed: false,
+        hasMarginTrend: fallbackDart?.operatingMargin != null && fallbackDart?.operatingMarginPrior != null,
         hasForeignerTrend: false,
         hasGlobalIntelSynth:
           _globalIntelCtx.macroEnv != null ||
@@ -471,6 +503,13 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
     const ichimoku = calculateIchimoku(highs, lows, closes);
     const vcp = detectVCP(closes, volumes);
     const disparity = calculateDisparity(closes);
+    // ADR-0582: 기술 6조건 OHLCV 객관 계산 (Gemini 추정 대체 → COMPUTED 검증).
+    const ichimokuAboveCloud = ichimoku.status === 'ABOVE_CLOUD';
+    const goldenCross = detectGoldenCross(closes);
+    const volSurge = detectVolumeSurge(volumes);
+    const turtleBreak = detectTurtleBreakout(highs, closes);
+    const fibSupport = detectFibonacciSupport(highs, lows, closes);
+    const bullDivergence = detectBullishDivergence(closes);
 
     const currentPrice = closes[closes.length - 1];
 
@@ -610,6 +649,20 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
       checklist: {
         ...stock.checklist,
         vcpPattern: vcp ? 1 : 0,
+        // ADR-0582: 기술 6조건 — OHLCV 객관 계산으로 Gemini 추정값을 덮어쓴다(결정적 → 검증).
+        ichimokuBreakout: ichimokuAboveCloud ? 1 : 0,
+        technicalGoldenCross: goldenCross ? 1 : 0,
+        volumeSurgeVerified: volSurge ? 1 : 0,
+        turtleBreakout: turtleBreak ? 1 : 0,
+        fibonacciLevel: fibSupport ? 1 : 0,
+        divergenceCheck: bullDivergence ? 1 : 0,
+        // ADR-0582: #22 marginAcceleration — DART 영업이익률 당기 > 전기 시 1, 부재 시 AI 보존.
+        marginAcceleration:
+          dartFinancials?.operatingMargin != null &&
+          dartFinancials?.operatingMarginPrior != null &&
+          dartFinancials.operatingMargin > dartFinancials.operatingMarginPrior
+            ? 1
+            : (stock.checklist?.marginAcceleration ?? 0),
         roeType3: (dartFinancials?.roe ?? 0) >= 15 ? 1 : 0,
         ocfQuality: dartFinancials?.ocfGreaterThanNetIncome ? 1 : 0,
         interestCoverage: (dartFinancials?.interestCoverageRatio ?? 0) >= 3 ? 1 : 0,
@@ -695,6 +748,9 @@ export async function enrichStockWithRealData(stock: StockRecommendation): Promi
         hasDartFinancials: dartFinancials != null,
         hasKisSupply: kisSupply != null,
         hasVcpComputed: true,
+        // ADR-0582: main path 는 OHLCV 보유 → 기술 6조건 COMPUTED 검증.
+        hasTechnicalComputed: true,
+        hasMarginTrend: dartFinancials?.operatingMargin != null && dartFinancials?.operatingMarginPrior != null,
         hasForeignerTrend: (foreignerTrend?.sampleSize ?? 0) >= 6,
         hasGlobalIntelSynth:
           _globalIntelCtx.macroEnv != null ||

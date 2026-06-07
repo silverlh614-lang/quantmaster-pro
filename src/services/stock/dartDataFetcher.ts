@@ -61,6 +61,9 @@ export async function fetchDartFinancials(corpCode: string) {
         const netIncome = findValue('당기순이익');
         const priorNetIncome = findPrior('당기순이익');
         const operatingIncome = findValue('영업이익');
+        const priorOperatingIncome = findPrior('영업이익');
+        const revenue = findValue('매출액') || findValue('수익(매출액)') || findValue('영업수익');
+        const priorRevenue = findPrior('매출액') || findPrior('수익(매출액)') || findPrior('영업수익');
         const equity = findValue('자본총계');
         const assets = findValue('자산총계');
         const liabilities = findValue('부채총계');
@@ -75,6 +78,10 @@ export async function fetchDartFinancials(corpCode: string) {
         const epsGrowth = priorNetIncome !== 0
           ? ((netIncome - priorNetIncome) / Math.abs(priorNetIncome)) * 100
           : 0;
+        // ADR-0582: 영업이익률(영업이익/매출액) 당기·전기 — 마진 가속(#22) 객관 검증 입력.
+        // 매출/전기 영업이익 부재 시 null (호출측에서 AI 값 보존).
+        const operatingMargin = revenue > 0 ? (operatingIncome / revenue) * 100 : null;
+        const operatingMarginPrior = priorRevenue > 0 ? (priorOperatingIncome / priorRevenue) * 100 : null;
 
         const result = {
           roe,
@@ -82,6 +89,8 @@ export async function fetchDartFinancials(corpCode: string) {
           interestCoverageRatio,
           netProfitMargin,
           epsGrowth,
+          operatingMargin,
+          operatingMarginPrior,
           ocfGreaterThanNetIncome: ocf > netIncome,
           updatedAt: `${bsnsYear} ${reportCode === '11011' ? '사업보고서' : '3분기보고서'}`
         };

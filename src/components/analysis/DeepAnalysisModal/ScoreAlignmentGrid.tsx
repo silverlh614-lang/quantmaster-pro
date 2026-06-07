@@ -39,7 +39,7 @@ export function ScoreAlignmentGrid({ stock }: Props) {
   // concordance 블록이 통째로 숨겨지던 "final score 표시 안됨" 문제를 제거한다.
   // 최종 점수 = 검증 가중(weightedScore) — 후보 카드와 동일 정본 값. 합치도(concordance)도
   // 정본에서 AI vs 최종(가중) 비교로 통일돼, 후보 카드 배지와 동일 판정을 보인다.
-  const { aiScore, weightedScore, verifiedPassCount, metCount, concordance } = buildStockAnalysisCanon(stock);
+  const { aiScore, weightedScore, verifiedPassCount, evaluableCount, intrinsicAiCount, concordance } = buildStockAnalysisCanon(stock);
 
   return (
     <div className="mb-8 space-y-3">
@@ -56,13 +56,14 @@ export function ScoreAlignmentGrid({ stock }: Props) {
           value={weightedScore}
           scale="0~100"
           tone="blue"
-          tooltip="검증 가중 (검증=1·AI추정=0.5·미달=0) — 후보 카드 최종점수와 동일 값"
+          tooltip={`검증 가능 항목 중 검증된 비율 (검증=1·AI추정=0.5·미달=0) ÷ ${evaluableCount}. 정성-AI ${intrinsicAiCount}개는 분모 제외 — 후보 카드와 동일 값`}
         />
         <ScoreCard
           label="체크리스트"
-          value={`${verifiedPassCount}/${metCount}`}
-          scale="검증/충족"
+          value={`${verifiedPassCount}/${evaluableCount}`}
+          scale="검증/검증가능"
           tone="gray"
+          tooltip={`정성-AI ${intrinsicAiCount}개 별도(점수 분모 제외)`}
         />
       </div>
       {concordance && (

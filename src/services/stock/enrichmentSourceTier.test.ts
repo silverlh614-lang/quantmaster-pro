@@ -77,4 +77,42 @@ describe('buildConditionSourceTiers — ADR-0029 sourceTier 메타 분류', () =
     });
     expect(Object.keys(meta)).toHaveLength(27);
   });
+
+  it('ADR-0582: hasTechnicalComputed → 기술 6조건 COMPUTED 격상', () => {
+    const meta = buildConditionSourceTiers({
+      hasDartFinancials: false,
+      hasKisSupply: false,
+      hasVcpComputed: true,
+      hasTechnicalComputed: true,
+    });
+    expect(meta.ichimokuBreakout).toBe('COMPUTED');
+    expect(meta.technicalGoldenCross).toBe('COMPUTED');
+    expect(meta.volumeSurgeVerified).toBe('COMPUTED');
+    expect(meta.turtleBreakout).toBe('COMPUTED');
+    expect(meta.fibonacciLevel).toBe('COMPUTED');
+    expect(meta.divergenceCheck).toBe('COMPUTED');
+  });
+
+  it('ADR-0582: hasMarginTrend → marginAcceleration API 격상', () => {
+    const meta = buildConditionSourceTiers({
+      hasDartFinancials: true,
+      hasKisSupply: false,
+      hasVcpComputed: false,
+      hasMarginTrend: true,
+    });
+    expect(meta.marginAcceleration).toBe('API');
+  });
+
+  it('ADR-0582: hasTechnicalComputed 부재(aiFallback) → 기술 조건 AI_INFERRED 유지', () => {
+    const meta = buildConditionSourceTiers({
+      hasDartFinancials: true,
+      hasKisSupply: false,
+      hasVcpComputed: false,
+      hasTechnicalComputed: false,
+      hasMarginTrend: false,
+    });
+    expect(meta.ichimokuBreakout).toBe('AI_INFERRED');
+    expect(meta.turtleBreakout).toBe('AI_INFERRED');
+    expect(meta.marginAcceleration).toBe('AI_INFERRED');
+  });
 });

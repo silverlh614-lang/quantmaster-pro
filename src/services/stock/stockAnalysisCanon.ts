@@ -14,16 +14,21 @@
  */
 import type { StockRecommendation } from './types';
 import { isChecklistConditionMet } from '../../constants/gateConfig';
-import { resolveConditionTier, isVerifiedTier } from '../../utils/dataQualityClassifier';
+import { resolveConditionTier, isVerifiedTier, isAiIntrinsic } from '../../utils/dataQualityClassifier';
 import { getQuantGateScore, classifyScoreConcordance, type ScoreConcordance } from '../../utils/recommendationScore';
 
 export type ConditionDisplayStatus = 'VERIFIED_PASS' | 'AI_PASS' | 'FAIL';
+
+/** 검증 가능성 (ADR-0582): VERIFIABLE = 데이터로 객관 검증 가능 / AI_INTRINSIC = 본질적 정성. */
+export type ConditionVerifiability = 'VERIFIABLE' | 'AI_INTRINSIC';
 
 export interface ConditionView {
   key: string;
   met: boolean;
   verified: boolean;
   status: ConditionDisplayStatus;
+  /** 본질-AI(검증 불가)면 'AI_INTRINSIC' — 검증 가중 점수 분모에서 제외 (ADR-0582). */
+  verifiability: ConditionVerifiability;
 }
 
 export interface RadarAxis {
@@ -39,6 +44,12 @@ export interface StockAnalysisCanon {
   metCount: number;
   /** 실데이터 검증+충족 조건 수 (신뢰 가능 헤더 카운트). */
   verifiedPassCount: number;
+  /** 검증 가능 조건 수 (= 전체 − 본질-AI). weightedScore 의 분모 (ADR-0582). */
+  evaluableCount: number;
+  /** 본질-AI(검증 불가) 조건 수 — 점수 분모에서 제외, 별도 표시 (ADR-0582). */
+  intrinsicAiCount: number;
+  /** 본질-AI 조건 중 충족 수 (별도 표시용). */
+  intrinsicAiMetCount: number;
   radar: RadarAxis[];
   /** 0~100 Gemini 정성 점수. */
   aiScore: number;
@@ -70,7 +81,8 @@ export function conditionView(stock: StockRecommendation, key: string): Conditio
   const met = isChecklistConditionMet(stock?.checklist?.[k]);
   const verified = isVerifiedTier(resolveConditionTier(stock, k));
   const status: ConditionDisplayStatus = !met ? 'FAIL' : verified ? 'VERIFIED_PASS' : 'AI_PASS';
-  return { key, met, verified, status };
+  const verifiability: ConditionVerifiability = isAiIntrinsic(k) ? 'AI_INTRINSIC' : 'VERIFIABLE';
+  return { key, met, verified, status, verifiability };
 }
 
 /** 종목 분석 표시 정본 빌드 — 모든 위젯의 단일 소스. */
@@ -83,11 +95,20 @@ export function buildStockAnalysisCanon(stock: StockRecommendation): StockAnalys
   const metCount = all.filter((c) => c.met).length;
   const verifiedPassCount = all.filter((c) => c.status === 'VERIFIED_PASS').length;
 
-  // 전체 검증 가중 점수 (검증=1·AI=0.5·미달=0) — 후보카드·deep-analysis 가 공유하는 단일 최종점수.
-  // 27조건 전부 충족이어도 실데이터 검증 비율만큼만 차오른다(Gemini all-true → 100 부풀림 제거).
-  const weightedScore = all.length
-    ? Math.round((all.reduce((sum, c) =>
-        sum + (c.status === 'VERIFIED_PASS' ? 1 : c.status === 'AI_PASS' ? 0.5 : 0), 0) / all.length) * 100)
+  // ADR-0582: 본질-AI(검증 불가) 조건을 분모에서 분리 — "AI 쓸 수밖에 없는 항목"과
+  // "검증 가능하나 미수집(AI fallback)" 을 구분한다.
+  const verifiable = all.filter((c) => c.verifiability === 'VERIFIABLE');
+  const intrinsic = all.filter((c) => c.verifiability === 'AI_INTRINSIC');
+  const evaluableCount = verifiable.length;
+  const intrinsicAiCount = intrinsic.length;
+  const intrinsicAiMetCount = intrinsic.filter((c) => c.met).length;
+
+  // 검증 가중 점수 (검증=1·AI fallback=0.5·미달=0) ÷ **검증 가능 조건 수**.
+  // 본질-AI 항목은 데이터로 못 올리는 영역이라 분모에서 빼, 점수가 "검증 가능 항목 중
+  // 검증된 비율" 을 정직하게 나타내게 한다(Gemini all-true 부풀림 + 정성항목 페널티 동시 제거).
+  const weightedScore = evaluableCount
+    ? Math.round((verifiable.reduce((sum, c) =>
+        sum + (c.status === 'VERIFIED_PASS' ? 1 : c.status === 'AI_PASS' ? 0.5 : 0), 0) / evaluableCount) * 100)
     : 0;
 
   // 가중 점수: 검증통과=1.0 · AI추정통과=0.5 · 미달=0. 검증-only(0/27 빈 레이더)와 truthy
@@ -118,6 +139,9 @@ export function buildStockAnalysisCanon(stock: StockRecommendation): StockAnalys
     conditions,
     metCount,
     verifiedPassCount,
+    evaluableCount,
+    intrinsicAiCount,
+    intrinsicAiMetCount,
     radar,
     aiScore,
     quantScore,
