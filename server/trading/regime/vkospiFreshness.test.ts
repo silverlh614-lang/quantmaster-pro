@@ -4,12 +4,13 @@ import type { MacroState } from '../../persistence/macroStateRepo.js';
 import {
   detectVkospiFlatDuringMove,
   isVkospiStaleGuardEnabled,
+  isVkospiFetchCorrectionEnabled,
   classifyVkospiFreshness,
 } from './vkospiFreshness.js';
 
 const ms = (o: Partial<MacroState>): MacroState => o as MacroState;
 
-const ENV_KEYS = ['VKOSPI_STALE_GUARD_ENABLED', 'VKOSPI_STALE_MOVE_PCT', 'VKOSPI_STALE_FLAT_EPS'];
+const ENV_KEYS = ['VKOSPI_STALE_GUARD_ENABLED', 'VKOSPI_FETCH_CORRECTION_ENABLED', 'VKOSPI_STALE_MOVE_PCT', 'VKOSPI_STALE_FLAT_EPS'];
 const ORIG: Record<string, string | undefined> = {};
 for (const k of ENV_KEYS) ORIG[k] = process.env[k];
 afterEach(() => {
@@ -67,6 +68,25 @@ describe('isVkospiStaleGuardEnabled — default OFF (ADR-0584)', () => {
   it("'true' → true", () => {
     process.env.VKOSPI_STALE_GUARD_ENABLED = 'true';
     expect(isVkospiStaleGuardEnabled()).toBe(true);
+  });
+});
+
+describe('isVkospiFetchCorrectionEnabled — default OFF, 격리 flag와 독립 (ADR-0585)', () => {
+  it('미설정/임의값 → false', () => {
+    delete process.env.VKOSPI_FETCH_CORRECTION_ENABLED;
+    expect(isVkospiFetchCorrectionEnabled()).toBe(false);
+    process.env.VKOSPI_FETCH_CORRECTION_ENABLED = 'yes';
+    expect(isVkospiFetchCorrectionEnabled()).toBe(false);
+  });
+  it("'true' → true", () => {
+    process.env.VKOSPI_FETCH_CORRECTION_ENABLED = 'true';
+    expect(isVkospiFetchCorrectionEnabled()).toBe(true);
+  });
+  it('STALE_GUARD 와 독립 (한쪽만 켜도 서로 영향 없음)', () => {
+    process.env.VKOSPI_STALE_GUARD_ENABLED = 'true';
+    delete process.env.VKOSPI_FETCH_CORRECTION_ENABLED;
+    expect(isVkospiStaleGuardEnabled()).toBe(true);
+    expect(isVkospiFetchCorrectionEnabled()).toBe(false);
   });
 });
 

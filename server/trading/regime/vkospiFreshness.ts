@@ -11,6 +11,15 @@ export function isVkospiStaleGuardEnabled(): boolean {
   return process.env.VKOSPI_STALE_GUARD_ENABLED === 'true';
 }
 
+/**
+ * ADR-0585 교정 flag — default OFF('true'만 활성). 격리(STALE_GUARD)와 독립.
+ * ON 이면 marketDataRefresh 가 frozen(flat-during-move) KRX VKOSPI 를 거부하고 Yahoo `^VKOSPI`
+ * 대체값(검증 통과 시)을 사용 → stale 값 격리에 그치지 않고 *교정*. OFF면 fetch 경로 byte-identical.
+ */
+export function isVkospiFetchCorrectionEnabled(): boolean {
+  return process.env.VKOSPI_FETCH_CORRECTION_ENABLED === 'true';
+}
+
 function envNumber(name: string, fallback: number): number {
   const v = Number(process.env[name]);
   return Number.isFinite(v) ? v : fallback;

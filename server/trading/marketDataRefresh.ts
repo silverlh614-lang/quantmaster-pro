@@ -37,6 +37,7 @@ import { fetchLatestUsdKrw, fetchLatestMarginBalance5dChange } from '../clients/
 import { fetchDerivativesIndexDaily } from '../clients/krxOpenApi.js';
 import { computeMacroIndex } from '../engines/macroIndexEngine.js';
 import { deriveMhsDegrade, type MhsDegradeInfo } from '../engines/mhsDegrade.js';
+import { detectVkospiFlatDuringMove, isVkospiFetchCorrectionEnabled } from './regime/vkospiFreshness.js';
 import { guardedFetch } from '../utils/egressGuard.js';
 import { evaluateCrossSource } from './crossSourceValidator.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -659,6 +660,24 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     }
     const vkospiRow = vkospiMatches[0];
     if (vkospiRow) {
+      // ADR-0585: flag-gated 교정 — KRX 값이 frozen(KOSPI 급변에도 flat)이면 거부하고 Yahoo 로 폴백.
+      // 안전 판별자(flat-during-move)만 사용 → 진짜 폭락 spike(큰 changePct)는 거부 안 됨. flag OFF=미평가 byte-identical.
+      if (
+        isVkospiFetchCorrectionEnabled() &&
+        detectVkospiFlatDuringMove({
+          kospiCloseReturn: computed.kospiCloseReturn,
+          kospiDayReturn: computed.kospiDayReturn,
+          vkospiDayChange: vkospiRow.changePct,
+        } as MacroState).flat
+      ) {
+        emitMarketDataProviderWarn('VKOSPI_KRX_REJECTED_FROZEN', {
+          value: vkospiRow.close,
+          changePct: vkospiRow.changePct,
+          kospiDayReturn: computed.kospiDayReturn ?? 'N/A',
+          baseDate: vkospiRow.baseDate || 'N/A',
+        });
+        throw new Error('KRX VKOSPI frozen(flat-during-move) — Yahoo fallback');
+      }
       computed.vkospi = vkospiRow.close;
       computed.vkospiPrevClose = vkospiRow.change !== 0 ? vkospiRow.close - vkospiRow.change : vkospiRow.close;
       computed.vkospiDayChangeComputed = vkospiRow.changePct;
@@ -682,7 +701,19 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     try {
       const vkospiBars = await fetchDailyBars('^VKOSPI', '5d');
       const vkospiComputed = computeVkospiDayChangeFromBars(vkospiBars);
-      if (vkospiComputed) {
+      // ADR-0585: Yahoo 대체값도 frozen 검증 — Yahoo 가 또 stale(flat)이면 채택 안 함(잘못된 값 교정 안 됨).
+      const yahooFrozen = vkospiComputed != null && isVkospiFetchCorrectionEnabled() && detectVkospiFlatDuringMove({
+        kospiCloseReturn: computed.kospiCloseReturn,
+        kospiDayReturn: computed.kospiDayReturn,
+        vkospiDayChange: vkospiComputed.dayChangePct,
+      } as MacroState).flat;
+      if (vkospiComputed && yahooFrozen) {
+        emitMarketDataProviderWarn('VKOSPI_YAHOO_REJECTED_FROZEN', {
+          value: vkospiComputed.current,
+          changePct: vkospiComputed.dayChangePct,
+          kospiDayReturn: computed.kospiDayReturn ?? 'N/A',
+        });
+      } else if (vkospiComputed) {
         computed.vkospi = vkospiComputed.current;
         computed.vkospiPrevClose = vkospiComputed.prevClose;
         computed.vkospiDayChangeComputed = vkospiComputed.dayChangePct;
