@@ -7,6 +7,7 @@ import { probeEcos, type EcosProbeResult } from '../../../clients/ecosClient.js'
 function verdictFred(r: FredProbeResult): string {
   if (r.disabled) return 'DISABLED (FRED_API_DISABLED=true)';
   if (!r.hasKey) return 'NO_KEY (FRED_API_KEY 미설정)';
+  if (r.error && r.error.startsWith('BAD_FRED_API_BASE')) return `CONFIG_ERROR — ${r.error}`;
   if (r.error) return `NETWORK_FAIL (${r.error})`;
   if (r.ok === false) return `HTTP_${r.httpStatus} — 키 거부/요청 오류 (errorBody 참조)`;
   if (r.ok && (r.observationCount ?? 0) > 0) return 'OK';
@@ -60,7 +61,13 @@ const macroSourceProbe: TelegramCommand = {
   description: 'Live FRED/ECOS macro-source probe (read-only; HTTP/RESULT/timeout/key diagnosis)',
   usage: '/macro_source_probe',
   async execute({ reply }) {
-    await reply(await formatMacroSourceProbe());
+    // 진단 명령은 어떤 경우에도 침묵하지 않는다 — formatter 가 throw 해도 사유를 인밴드 보고.
+    // (URL 파싱 throw 등은 e.message 에 api_key 미포함이라 출력 안전.)
+    try {
+      await reply(await formatMacroSourceProbe());
+    } catch (e) {
+      await reply(`[macro_source_probe] 진단 실행 실패: ${e instanceof Error ? e.message : String(e)}`);
+    }
   },
 };
 
