@@ -105,6 +105,7 @@ import './twins.cmd.js';
 import './walkForward.cmd.js';
 import './yahooHealthCheck.cmd.js';
 import './macroSourceProbe.cmd.js';
+import './vkospiIndexDump.cmd.js';
 
 export {};
 
