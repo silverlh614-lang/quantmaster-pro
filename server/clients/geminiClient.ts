@@ -493,29 +493,8 @@ export async function callGeminiWithSearch(prompt: string, caller = 'search'): P
     temperature: 0.2,
     maxOutputTokens: 2048,
     useSearch: true,
-  });
-  const ai = getGeminiClient() as GoogleGenAI;
-  if (!ai) {
-    emitProviderWarn({ source: 'GEMINI', message: 'Gemini API key missing; search feature disabled.', dedupKey: `p2:provider:GEMINI:search-missing-key:${caller}`, fallbackUsed: true, details: { caller } });
-    return null;
-  }
-  if (isBudgetBlocked()) {
-    emitProviderWarn({ source: 'GEMINI', message: 'Gemini monthly budget hard block; search call skipped.', dedupKey: `p2:provider:GEMINI:search-budget-block:${caller}`, fallbackUsed: true, details: { caller } });
-    return null;
-  }
-  return withRetry(`callGeminiWithSearch[${caller}]`, async () => {
-    const res = await ai.models.generateContent({
-      model: SEARCH_MODEL,
-      contents: withPersona(prompt),
-      config: {
-        tools: [{ googleSearch: {} }],
-        temperature: 0.2,
-        maxOutputTokens: 2048,
-      } as Parameters<typeof ai.models.generateContent>[0]['config'],
-    });
-    const tokens = (res as { usageMetadata?: { totalTokenCount?: number } })
-      .usageMetadata?.totalTokenCount ?? 0;
-    recordCall(caller, tokens);
-    return res.text ?? null;
+    // gemini-2.5-flash thinking 토큰이 출력 예산을 잠식해 supply-chain 알림 본문이
+    // 문장 중간에서 잘리던 문제 수정 — search 그라운딩과 독립적으로 적용된다.
+    thinkingBudget: 0,
   });
 }

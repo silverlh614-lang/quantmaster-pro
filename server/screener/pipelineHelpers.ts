@@ -777,7 +777,9 @@ async function generateTopReasons(
       model:    AI_MODELS.SERVER_SIDE,
       contents: prompt,
       // 기존 4096 → 1024 (자연어 사유 2~3문장만 필요). temperature 0.4로 약간의 다양성 허용.
-      config:   { temperature: 0.4, maxOutputTokens: 1024 },
+      // thinkingBudget=0 — gemini-2.5-flash thinking 토큰이 1024 예산을 잠식하면 JSON 이
+      // 잘려 파싱 실패→topReasons 통째 누락(silent degradation). 사유 텍스트엔 thinking 불필요.
+      config:   { temperature: 0.4, maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } },
     });
     const text = res.text ?? '';
     const arrStart = text.indexOf('[');
