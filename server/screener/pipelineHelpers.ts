@@ -776,10 +776,10 @@ async function generateTopReasons(
     const res = await ai.models.generateContent({
       model:    AI_MODELS.SERVER_SIDE,
       contents: prompt,
-      // 기존 4096 → 1024 (자연어 사유 2~3문장만 필요). temperature 0.4로 약간의 다양성 허용.
-      // thinkingBudget=0 — gemini-2.5-flash thinking 토큰이 1024 예산을 잠식하면 JSON 이
-      // 잘려 파싱 실패→topReasons 통째 누락(silent degradation). 사유 텍스트엔 thinking 불필요.
-      config:   { temperature: 0.4, maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } },
+      // 자연어 사유 2~3문장. thinking 유지(사유 품질 보존) + maxOutputTokens 4096 으로
+      // thinking 토큰이 JSON 출력 예산을 잠식해도 사유가 잘리지 않게 충분히 확보한다
+      // (BUY 종목·사유 모두 유지). 매수 신호는 드물어 토큰 증액의 비용 영향은 미미.
+      config:   { temperature: 0.4, maxOutputTokens: 4096 },
     });
     const text = res.text ?? '';
     const arrStart = text.indexOf('[');
