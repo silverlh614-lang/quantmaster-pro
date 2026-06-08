@@ -80,6 +80,21 @@ export function stripPersonaPreamble(raw: string): string {
   return remainder.length > 0 ? remainder : raw;
 }
 
+// ── 데이터 신뢰도 태그 제거 (사용자 대면 리포트/다이제스트 전용) ──────────────
+//
+// 페르소나는 모든 주장에 [REALTIME]/[CALCULATED]/[ESTIMATED]/[INFERRED]/[MANUAL]
+// 신뢰도 태그를 붙이도록 지시한다(personaIdentity). 진단·쿼리 응답에선 출처
+// 투명성에 유용하지만, 장마감 종합 같은 사용자 대면 다이제스트 본문에선 노이즈다.
+// 태그만 제거하고 남는 이중 공백·구두점 앞 공백을 정리한다. (레짐 태그 [CRISIS] 등은 보존)
+const RELIABILITY_TAG_PATTERN = /\s?\[(?:REALTIME|CALCULATED|ESTIMATED|INFERRED|MANUAL)\]/g;
+export function stripReliabilityTags(raw: string): string {
+  if (!raw) return raw;
+  return raw
+    .replace(RELIABILITY_TAG_PATTERN, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+([,.!?:)\]])/g, '$1');
+}
+
 // ── Idea 13: 월 예산 하드리밋 회로차단기 ──────────────────────────────────────
 //
 // "손절은 실패가 아니라 운영 비용" 원칙을 비용에 적용:
@@ -325,6 +340,17 @@ export interface GeminiTextOptions {
   useSearch?: boolean;
   prependPersona?: boolean;
   /**
+   * gemini-2.5-flash 의 thinking 토큰이 maxOutputTokens 예산을 잠식해 가시 본문이
+   * 문장 중간에서 잘리는 것을 막는다. 0 이면 thinking 비활성 — 짧은 리포트/다이제스트
+   * 텍스트 전용. 미지정 시 모델 기본(dynamic thinking) 유지 — 해석·reflection 경로 보존.
+   */
+  thinkingBudget?: number;
+  /**
+   * 사용자 대면 리포트/다이제스트에서 페르소나 데이터 신뢰도 태그([REALTIME] 등)를
+   * 제거한다. 기본 false (진단·쿼리 응답은 출처 투명성 위해 태그 유지).
+   */
+  stripReliabilityTags?: boolean;
+  /**
    * PR-20: 응답 상단의 페르소나 메타 서문("QuantMaster 시스템 아키텍트로서…")을
    * 자동 제거할지 여부. 기본 true — 텔레그램 메시지 노이즈 축소 목적.
    * JSON 파싱 경로(mainReflection 등)에서 원문이 필요한 경우 false 로 끌 수 있다.
@@ -353,6 +379,8 @@ export async function callGeminiText(prompt: string, opts: GeminiTextOptions = {
       config: {
         temperature: opts.temperature ?? 0.4,
         maxOutputTokens: opts.maxOutputTokens ?? 2048,
+        // thinkingBudget=0 → 본문 잘림 방지(리포트 경로). 미지정 시 모델 기본 thinking 유지.
+        ...(opts.thinkingBudget !== undefined ? { thinkingConfig: { thinkingBudget: opts.thinkingBudget } } : {}),
         ...(opts.useSearch ? { tools: [{ googleSearch: {} }] } : {}),
       } as Parameters<typeof ai.models.generateContent>[0]['config'],
     });
@@ -366,7 +394,8 @@ export async function callGeminiText(prompt: string, opts: GeminiTextOptions = {
     }
     setRuntimeState('SUCCESS', label, caller, null);
     // PR-20: 기본적으로 페르소나 서문 제거. JSON 응답 경로는 stripPreamble=false.
-    return opts.stripPreamble === false ? raw : stripPersonaPreamble(raw);
+    const preambleStripped = opts.stripPreamble === false ? raw : stripPersonaPreamble(raw);
+    return opts.stripReliabilityTags ? stripReliabilityTags(preambleStripped) : preambleStripped;
   });
 }
 
@@ -381,26 +410,11 @@ export async function callGemini(prompt: string, caller = 'unknown'): Promise<st
     model: AI_MODELS.SERVER_SIDE,
     temperature: 0.4,
     maxOutputTokens: 2048,
-  });
-  const ai = getGeminiClient() as GoogleGenAI;
-  if (!ai) {
-    emitProviderWarn({ source: 'GEMINI', message: 'Gemini API key missing; AI feature disabled.', dedupKey: `p2:provider:GEMINI:missing-key:${caller}`, fallbackUsed: true, details: { caller } });
-    return null;
-  }
-  if (isBudgetBlocked()) {
-    emitProviderWarn({ source: 'GEMINI', message: 'Gemini monthly budget hard block; callGemini skipped.', dedupKey: `p2:provider:GEMINI:budget-block:${caller}`, fallbackUsed: true, details: { caller } });
-    return null;
-  }
-  return withRetry(`callGemini[${caller}]`, async () => {
-    const res = await ai.models.generateContent({
-      model: AI_MODELS.SERVER_SIDE,
-      contents: withPersona(prompt),
-      config: { temperature: 0.4, maxOutputTokens: 2048 },
-    });
-    const tokens = (res as { usageMetadata?: { totalTokenCount?: number } })
-      .usageMetadata?.totalTokenCount ?? 0;
-    recordCall(caller, tokens);
-    return res.text ?? null;
+    // gemini-2.5-flash thinking 토큰이 출력 예산을 잠식해 리포트 본문이 문장 중간에서
+    // 잘리던 문제 수정 — 짧은 한국어 리포트/다이제스트엔 thinking 불필요(비용·지연도 절감).
+    thinkingBudget: 0,
+    // 사용자 대면 리포트/다이제스트에선 [REALTIME]/[CALCULATED] 등 신뢰도 태그 제거.
+    stripReliabilityTags: true,
   });
 }
 
