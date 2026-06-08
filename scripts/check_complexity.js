@@ -139,7 +139,11 @@ const BASELINE_TECHNICAL_DEBT = [
   //      kisSectorEnergyProvider/types.ts(공개 타입 13종) 추출 + import/re-export, byte-equivalent,
   //      lint EXIT=0(client+server), test 68/68, KIS/KRX quota 0 침범, executionImpact=NONE)
   //      → 1500 한계 자연 통과, 카탈로그에서 정식 제거하여 enforcement 복원.
-  'server/trading/signalScanner/scanDiagnostics/persistScanResults.ts',
+  //   ✅ 2026-06-08 persistScanResults.ts 분해 완료 (1989→1316줄 — ADR-0588,
+  //      persistScanResultsMidBlocks.ts(ADR-0477~0527 진단 블록 677줄, summaryDraft 참조 누적
+  //      ctx 추출) + await 호출 치환, byte-equivalent(판단/순서/영속인자 보존),
+  //      lint EXIT=0(client+server), scanDiagnostics test 126/126, executionImpact=NONE)
+  //      → 1500 한계 자연 통과, 카탈로그에서 정식 제거. **BASELINE 0건 — enforcement 완전 복원.**
 ];
 
 function isBaseline(file) {
