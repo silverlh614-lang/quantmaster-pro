@@ -135,7 +135,10 @@ const BASELINE_TECHNICAL_DEBT = [
   //   재현 확정 — 본 PR(ADR-0576 SHADOW P0 에스컬레이션 제외) 무수정). KIS 섹터 에너지
   //   provider. ADR-0133/0502c 패턴 정합으로 카탈로그 등재 → validate:complexity EXIT=0
   //   회복. 분해는 별도 ADR-first 후속 PR (책임 단위 SSOT 분리 + 회귀 테스트 의무).
-  'server/clients/kisSectorEnergyProvider.ts',
+  //   ✅ 2026-06-08 kisSectorEnergyProvider.ts 분해 완료 (1520→1386줄 — ADR-0587,
+  //      kisSectorEnergyProvider/types.ts(공개 타입 13종) 추출 + import/re-export, byte-equivalent,
+  //      lint EXIT=0(client+server), test 68/68, KIS/KRX quota 0 침범, executionImpact=NONE)
+  //      → 1500 한계 자연 통과, 카탈로그에서 정식 제거하여 enforcement 복원.
   'server/trading/signalScanner/scanDiagnostics/persistScanResults.ts',
 ];
 
