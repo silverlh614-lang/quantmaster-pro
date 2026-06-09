@@ -1,4 +1,4 @@
-// @responsibility ADR-0590 kospiTriggerFreshness 순수 SSOT 단위 커버리지 (trade-date 강등 / legacy 폴백 / close-shock 분리 / flag).
+// @responsibility ADR-0592 kospiTriggerFreshness 순수 SSOT 단위 커버리지 (trade-date 강등 / legacy 폴백 / close-shock 분리 / flag).
 import { describe, expect, it, afterEach } from 'vitest';
 import { resolveKospiTriggerFreshness, isTradeDateFreshnessEnabled } from './kospiTriggerFreshness.js';
 
@@ -11,7 +11,7 @@ afterEach(() => {
   delete process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED;
 });
 
-describe('resolveKospiTriggerFreshness (ADR-0590 D1 + Codex 정합 정정: per-trigger 강등)', () => {
+describe('resolveKospiTriggerFreshness (ADR-0592 D1 + Codex 정합 정정: per-trigger 강등)', () => {
   // 케이스 1: trade-date=오늘 → freshness 보존, intraday 트리거 active 유지(무강등).
   it('preserves freshness when trade-date is today (intraday trigger stays active-eligible)', () => {
     const r = resolveKospiTriggerFreshness({ tradeDate: TODAY_KEY, ageFreshness: 'FRESH', now: NOW });
@@ -75,7 +75,7 @@ describe('resolveKospiTriggerFreshness (ADR-0590 D1 + Codex 정합 정정: per-t
   });
 });
 
-describe('isTradeDateFreshnessEnabled (ADR-0590 flag, default OFF)', () => {
+describe('isTradeDateFreshnessEnabled (ADR-0592 flag, default OFF)', () => {
   // 케이스 5: flag default OFF.
   it('returns false when env unset (baseline byte-equivalent)', () => {
     expect(isTradeDateFreshnessEnabled()).toBe(false);

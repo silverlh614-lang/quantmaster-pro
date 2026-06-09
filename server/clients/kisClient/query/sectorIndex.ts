@@ -421,7 +421,7 @@ export async function fetchKisSectorIndexCurrentPrice(
 }
 
 /**
- * ADR-0590: KOSPI 종합지수(0001) intraday quote 노출 — R6 recovery 평가 입력(결함 B).
+ * ADR-0592: KOSPI 종합지수(0001) intraday quote 노출 — R6 recovery 평가 입력(결함 B).
  *
  * 기존 fetchKisSectorIndexCurrentPrice 와 달리 (1) 전용 flag `R6_KOSPI_INTRADAY_QUOTE_ENABLED`
  * 로 게이트(SectorEnergy diagnostic flag 와 독립) + (2) tradeDate(YYYY-MM-DD KST) 반환.

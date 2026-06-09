@@ -242,7 +242,7 @@ function resolveVkospiRecoveryThreshold(macroState: MacroState | null): number {
 }
 
 /**
- * ADR-0590 D1 (+ Codex 정합 정정): 글로벌 trigger freshness(age-only, recovery/latch side-effect 보존) +
+ * ADR-0592 D1 (+ Codex 정합 정정): 글로벌 trigger freshness(age-only, recovery/latch side-effect 보존) +
  * intraday-low per-trigger 강등 여부를 함께 산출.
  *
  * 강등은 글로벌 freshness 를 떨구지 않는다(close-shock/VKOSPI/USDKRW 과소억제 방지) —
@@ -250,7 +250,7 @@ function resolveVkospiRecoveryThreshold(macroState: MacroState | null): number {
  */
 function triggerFreshness(macroState: MacroState | null, now: Date): { freshness: R6TriggerBreakdown['triggerFreshness']; intradayDowngraded: boolean } {
   const ageFreshness = macroFreshnessFromUpdatedAt(macroState, macroState?.kospiTriggerSourceUpdatedAt ?? macroState?.updatedAt, now);
-  // ADR-0590 D1: flag OFF → age-only freshness byte-equivalent. ON → 봉 거래일 기준 intraday-low per-trigger 강등.
+  // ADR-0592 D1: flag OFF → age-only freshness byte-equivalent. ON → 봉 거래일 기준 intraday-low per-trigger 강등.
   if (!isTradeDateFreshnessEnabled()) return { freshness: ageFreshness, intradayDowngraded: false };
   const resolved = resolveKospiTriggerFreshness({ tradeDate: macroState?.kospiTriggerSourceTradeDate, ageFreshness, now });
   if (resolved.intradayDowngraded) {
@@ -263,13 +263,13 @@ function triggerFreshness(macroState: MacroState | null, now: Date): { freshness
   return { freshness: ageFreshness, intradayDowngraded: resolved.intradayDowngraded };
 }
 
-/** ADR-0590 D2 (Codex 정합 정정): intraday quote TTL(초). carry-forward 된 stale 반등값 종일 live-eligible 방지. 기본 900초=15분(marketDataRefresh VKOSPI 패턴 정합). */
+/** ADR-0592 D2 (Codex 정합 정정): intraday quote TTL(초). carry-forward 된 stale 반등값 종일 live-eligible 방지. 기본 900초=15분(marketDataRefresh VKOSPI 패턴 정합). */
 function kospiIntradayQuoteTtlSec(): number {
   return envInt('R6_KOSPI_INTRADAY_QUOTE_TTL_SEC', 900);
 }
 
 /**
- * ADR-0590 D2/D3: recovery 평가용 KOSPI day-return 소스 결정.
+ * ADR-0592 D2/D3: recovery 평가용 KOSPI day-return 소스 결정.
  * flag(R6_INTRADAY_REBOUND_RELEASE_ENABLED) ON + intraday FRESH(오늘 거래일 + fetchedAt TTL 이내) 일 때만
  * 오늘 intraday 수익률을 우선 사용한다. 아니면 기존 close-return ?? day-return 폴백(byte-equivalent).
  * 임계값 무변경 — 입력 소스만 stale 대신 오늘 값으로 정확화한다.
@@ -335,7 +335,7 @@ function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previ
   // 1단계: age-freshness 글로벌 게이팅(기존). FRESH 면 detected 전부 active 후보.
   const ageGatedActive = freshness === 'FRESH' ? detected : [];
   const ageGatedStale = freshness === 'FRESH' ? [] : detected;
-  // 2단계 (ADR-0590 Codex 정합 정정): trade-date 강등은 KOSPI_INTRADAY_LOW_SHOCK 만 per-trigger 제외.
+  // 2단계 (ADR-0592 Codex 정합 정정): trade-date 강등은 KOSPI_INTRADAY_LOW_SHOCK 만 per-trigger 제외.
   // close-shock/VKOSPI_DAY_SPIKE/USDKRW_DAY_SHOCK 는 어제 일봉 intraday-low 와 무관 → active 유지.
   const activeR6Triggers = intradayDowngraded
     ? ageGatedActive.filter((t) => t !== 'KOSPI_INTRADAY_LOW_SHOCK')
@@ -343,7 +343,7 @@ function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previ
   const staleR6Triggers = intradayDowngraded && ageGatedActive.includes('KOSPI_INTRADAY_LOW_SHOCK')
     ? [...ageGatedStale, 'KOSPI_INTRADAY_LOW_SHOCK' as R6TriggerReason]
     : ageGatedStale;
-  // ADR-0590 D4: 진단 가시화 — 봉 거래일이 오늘 KRX 거래일인지(flag ON 시 강등 입력). flag OFF/필드 부재 시 undefined.
+  // ADR-0592 D4: 진단 가시화 — 봉 거래일이 오늘 KRX 거래일인지(flag ON 시 강등 입력). flag OFF/필드 부재 시 undefined.
   const tradeDateIsToday = macroState.kospiTriggerSourceTradeDate
     ? macroState.kospiTriggerSourceTradeDate === toKstDateKey(now)
     : undefined;
@@ -357,7 +357,7 @@ function closeRecoveryEligible(breakdown: R6TriggerBreakdown, macroState: MacroS
   // G2(KOSPI 비스트레스)가 발동 조건이라 진짜 폭락 시엔 격리 안 됨 → kospiCloseReturn/vkospiDayChange gate가 그대로 방어.
   const vkospiImplausible = classifyVkospiSanity(macroState).trustState === 'UNTRUSTED_IMPLAUSIBLE';
   const vkospiLevelOk = vkospiImplausible || (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold;
-  // ADR-0590: flag OFF → breakdown.kospiCloseReturn 그대로(byte-equivalent). ON + intraday FRESH → 오늘 intraday 우선.
+  // ADR-0592: flag OFF → breakdown.kospiCloseReturn 그대로(byte-equivalent). ON + intraday FRESH → 오늘 intraday 우선.
   const dayReturn = resolveRecoveryKospiDayReturn(macroState, now).value ?? breakdown.kospiCloseReturn;
   return (dayReturn ?? Number.NEGATIVE_INFINITY) > -2 && vkospiLevelOk && (breakdown.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 && Math.abs(breakdown.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 && (macroState?.mhs ?? 0) >= 40 && isFreshEnoughForRecoveryWatch(breakdown.triggerFreshness);
 }
@@ -431,7 +431,7 @@ function latchDecayPercent(
   const strongReboundThreshold = Number(process.env.R6_STRONG_REBOUND_THRESHOLD_PCT ?? '3.0');
   const strongReboundFloor = Number(process.env.R6_STRONG_REBOUND_DECAY_FLOOR ?? '70');
 
-  // ADR-0590: flag OFF → macroState.kospiDayReturn 그대로(byte-equivalent). ON + intraday FRESH → 오늘 intraday 우선.
+  // ADR-0592: flag OFF → macroState.kospiDayReturn 그대로(byte-equivalent). ON + intraday FRESH → 오늘 intraday 우선.
   const strongReboundDayReturn = recoveryContext !== undefined && process.env.R6_INTRADAY_REBOUND_RELEASE_ENABLED === 'true'
     ? (resolveRecoveryKospiDayReturn(recoveryContext.macroState, now).value ?? recoveryContext.macroState?.kospiDayReturn ?? 0)
     : (recoveryContext?.macroState?.kospiDayReturn ?? 0);
@@ -571,7 +571,7 @@ function buildR6RecoveryEvidence(
   // implausible 이면 VKOSPI level gate 를 차단 근거에서 제외(vkospiOk=true). 값 자체는 보정/0치환 금지(불변식 #6).
   // 그 외엔 기존 threshold 비교 그대로(TRUSTED/MISSING/STALE 은 legacy 동작 보존).
   const vkospiLevelOk = vkospiImplausible || (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold;
-  // ADR-0590: flag OFF → close-return ?? day-return 그대로(byte-equivalent). ON + intraday FRESH → 오늘 intraday 우선.
+  // ADR-0592: flag OFF → close-return ?? day-return 그대로(byte-equivalent). ON + intraday FRESH → 오늘 intraday 우선.
   const recoveryDayReturnResolved = resolveRecoveryKospiDayReturn(macroState, now);
   const recoveryDayReturn = recoveryDayReturnResolved.value;
   if (recoveryDayReturnResolved.intradayUsed) {
@@ -649,7 +649,7 @@ export function evaluateR6RecoveryTransition(
     biasScore >= -50 &&
     isFreshEnoughForRecoveryWatch(triggerBreakdown.triggerFreshness) &&
     releaseReachedOrNear;
-  // ADR-0590: flag OFF → macroState.kospiDayReturn 그대로(byte-equivalent). ON + intraday FRESH → 오늘 intraday 우선.
+  // ADR-0592: flag OFF → macroState.kospiDayReturn 그대로(byte-equivalent). ON + intraday FRESH → 오늘 intraday 우선.
   const strongReboundExitDayReturn = process.env.R6_INTRADAY_REBOUND_RELEASE_ENABLED === 'true'
     ? (resolveRecoveryKospiDayReturn(macroState, now).value ?? macroState?.kospiDayReturn ?? 0)
     : (macroState?.kospiDayReturn ?? 0);

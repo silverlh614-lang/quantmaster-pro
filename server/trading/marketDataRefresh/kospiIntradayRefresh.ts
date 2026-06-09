@@ -1,6 +1,6 @@
-// @responsibility ADR-0590 — KOSPI 트리거 봉 거래일 영속 + flag-gated KIS intraday quote fetch(carry-forward 경고). marketDataRefresh 순증 격리.
+// @responsibility ADR-0592 — KOSPI 트리거 봉 거래일 영속 + flag-gated KIS intraday quote fetch(carry-forward 경고). marketDataRefresh 순증 격리.
 /**
- * kospiIntradayRefresh.ts — ADR-0590 D2 marketDataRefresh 위임 helper.
+ * kospiIntradayRefresh.ts — ADR-0592 D2 marketDataRefresh 위임 helper.
  *
  * refreshKospiSection 끝에서 호출되어 다음 두 가지를 담당한다(본체 import/줄수 격리):
  *  (a) 트리거 봉 거래일(KRX, YYYY-MM-DD KST) 영속 — kospiTriggerSourceTradeDate (결함 A 입력).
@@ -31,7 +31,7 @@ function emitKospiIntradayWarn(reason: string, details: Record<string, unknown> 
 }
 
 /**
- * ADR-0590: 트리거 봉 거래일 영속 + (flag ON 시) 오늘 intraday KOSPI quote 공급.
+ * ADR-0592: 트리거 봉 거래일 영속 + (flag ON 시) 오늘 intraday KOSPI quote 공급.
  *
  * @param computed  marketDataRefresh 가 MERGE 저장할 partial — 본 helper 가 신규 필드를 채운다.
  * @param latestBar refreshKospiSection 의 마지막 완성 일봉(거래일 도출용). 부재 시 (a) skip.

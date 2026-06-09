@@ -1,4 +1,4 @@
-// @responsibility ADR-0590 regimeBridge wiring 회귀 — trade-date 강등 / intraday recovery 공급 / flag OFF byte-equivalent / KIS 실패 carry-forward.
+// @responsibility ADR-0592 regimeBridge wiring 회귀 — trade-date 강등 / intraday recovery 공급 / flag OFF byte-equivalent / KIS 실패 carry-forward.
 import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import { defaultRegimeTransitionState } from '../persistence/regimeTransitionStateRepo.js';
@@ -57,7 +57,7 @@ function macro(overrides: Partial<MacroState> = {}): MacroState {
   };
 }
 
-describe('ADR-0590 regimeBridge wiring', () => {
+describe('ADR-0592 regimeBridge wiring', () => {
   // 케이스 6: flag ON + intraday FRESH + 오늘 +3% → kospiDayReturnOk=true (결함 B 회귀 방지).
   it('uses today intraday return for recovery evidence when REBOUND_RELEASE flag ON (defect B)', () => {
     process.env.R6_INTRADAY_REBOUND_RELEASE_ENABLED = 'true';

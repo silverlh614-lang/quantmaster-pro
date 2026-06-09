@@ -1,6 +1,6 @@
 // @responsibility KOSPI R6 트리거 freshness 를 봉 거래일(KRX) 기준으로 평가하는 순수 SSOT — age-only 오판 차단, intraday-low per-trigger 강등 산출.
 /**
- * kospiTriggerFreshness.ts — ADR-0590 결함 A 수리 SSOT.
+ * kospiTriggerFreshness.ts — ADR-0592 결함 A 수리 SSOT.
  *
  * 문제: 기존 freshness 는 fetch 시각(age)만 보고 봉의 거래일을 무시 → 어제 폭락 봉의
  *       intraday-low(-5%↓)가 오늘 'FRESH intraday trigger' 로 오인되어 R6 false-latch.
@@ -10,7 +10,7 @@
  * close-shock(어제 종가 -5%)·VKOSPI_DAY_SPIKE·USDKRW_DAY_SHOCK 은 어제 일봉 intraday-low 와
  * 무관(폭락 다음날 아침 정당 방어 신호 / KOSPI 일봉 거래일과 별도 소스)하므로 강등하지 않는다.
  *
- * Codex review 정합 정정(ADR-0590 addendum): 기존엔 글로벌 freshness 를 STALE 로 떨궈
+ * Codex review 정합 정정(ADR-0592 addendum): 기존엔 글로벌 freshness 를 STALE 로 떨궈
  * detected 전체를 일괄 게이팅 → close-shock 과소억제(D1 위반). 이제 글로벌 freshness 는
  * age-only 그대로 보존(recovery/latch side-effect byte-equivalent)하고, trade-date 강등은
  * `intradayDowngraded` boolean 으로만 노출 → 호출자(regimeBridge)가 intraday-low 만 분리 제외.
@@ -34,7 +34,7 @@ function isIntradayActiveFreshness(freshness: TriggerFreshness): boolean {
 }
 
 /**
- * ADR-0590 D1 (+ Codex 정합 정정): 봉 거래일 기준 intraday-low per-trigger 강등 여부.
+ * ADR-0592 D1 (+ Codex 정합 정정): 봉 거래일 기준 intraday-low per-trigger 강등 여부.
  *
  * 글로벌 freshness 는 강등하지 않는다(age-only 그대로 반환) — recovery/latch side-effect 보존.
  * 봉 거래일이 오늘이 아니고 age 가 active 계열(FRESH/SOFT_STALE)이면 `intradayDowngraded=true` 만 산출.
@@ -77,7 +77,7 @@ export function resolveKospiTriggerFreshness(input: {
   };
 }
 
-/** ADR-0590 D1 flag — default OFF. ON 시에만 trade-date 강등이 live freshness 에 적용된다. */
+/** ADR-0592 D1 flag — default OFF. ON 시에만 trade-date 강등이 live freshness 에 적용된다. */
 export function isTradeDateFreshnessEnabled(): boolean {
   return process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED === 'true';
 }

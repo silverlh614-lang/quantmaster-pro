@@ -1,4 +1,4 @@
-# ADR-0590: R6_DEFENSE Trigger Freshness by Trade-Date + Intraday KOSPI Rebound Recognition (Shadow-Gated)
+# ADR-0592: R6_DEFENSE Trigger Freshness by Trade-Date + Intraday KOSPI Rebound Recognition (Shadow-Gated)
 
 @responsibility policy — R6 trigger freshness 를 봉 거래일(KRX) 기준으로 평가하고 오늘 intraday KOSPI 반등을 recovery 평가에 공급 (shadow-gated, default OFF)
 
@@ -117,7 +117,7 @@ recovery 평가가 **오늘 현재가 vs 전일종가 기반 intraday 수익률*
 
 ## Addendum — Codex review 정합 정정 (per-trigger 강등 + intraday TTL)
 
-PR #1374 Codex 자동 리뷰 P1 2건(코드 확인 유효) 정합 정정. ADR-0590 범위 내(신규 ADR 불필요).
+PR #1374 Codex 자동 리뷰 P1 2건(코드 확인 유효) 정합 정정. ADR-0592 범위 내(신규 ADR 불필요).
 
 - **P1-① per-trigger 강등 (D1 설계 보강):** trade-date 강등이 글로벌 freshness 를 STALE 로 떨궈
   `KOSPI_CLOSE_SHOCK`(폭락 다음날 아침 정당 방어)·`VKOSPI_DAY_SPIKE`·`USDKRW_DAY_SHOCK`(KOSPI 일봉
