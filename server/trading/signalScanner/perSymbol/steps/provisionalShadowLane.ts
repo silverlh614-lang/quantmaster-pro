@@ -6,6 +6,7 @@ import type { WatchlistEntry } from '../../../../persistence/watchlistRepo.js';
 import { recordR3ProvisionalShadowCandidate } from '../../../../persistence/provisionalShadowLedger.js';
 import { deriveR3ProvisionalShadowCandidate } from '../../provisionalShadowLane.js';
 import { deriveGateDecisionRouterResult } from '../../gateDecisionRouter.js';
+import { resolveTradingContext } from '../../../../calendar/tradingContext.js';
 import type { BuyListLoopContext } from '../types.js';
 
 export async function provisionalShadowLaneDerive(
@@ -34,7 +35,8 @@ export async function provisionalShadowLaneDerive(
     ctx.scanCounters.provisionalShadowCandidates.push(candidate);
     const recordResult = recordR3ProvisionalShadowCandidate({
       candidate,
-      scanId: `${new Date().toISOString().slice(0, 10)}:${stock.code}`,
+      // ADR-0591 Market Truth Layer 날짜 SSOT — UTC 캘린더 날짜 대신 단일 KST 거래일. SHADOW 한정(executionImpact=NONE).
+      scanId: `${resolveTradingContext().effectiveTradingDate}:${stock.code}`,
       scannedAtKst: new Date().toISOString(),
       metadata: {
         ...(macroState?.sectorEnergyDataQuality !== undefined

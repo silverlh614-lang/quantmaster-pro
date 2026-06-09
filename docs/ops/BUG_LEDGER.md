@@ -143,7 +143,7 @@ severity: P0
 area: Market Truth Layer
 discovered: 2026-05-07
 resolved: null
-related_adrs: [ADR-0412, ADR-0414]
+related_adrs: [ADR-0412, ADR-0414, ADR-0591]
 related_bugs: []
 keywords: [holiday, base-date, trading-context, sector-energy, scanner, watchlist, shadow-learning]
 recurrence_count: 0
@@ -206,8 +206,15 @@ recurrence_count: 0
 
 #### 해결 (Resolution)
 
+- 진행 (2026-06-09, ADR-0591) — **기반 구축 + 신호경로 우선 착수** (status OPEN 유지):
+  - 날짜 SSOT 신규 `server/calendar/tradingContext.ts` `resolveTradingContext()` (effectiveTradingDate/
+    previousTradingDate/nextTradingDate, KRX 거래일 달력 위). 단위 테스트 6종.
+  - 신호생성 shadow lane 3건(counterfactual ×2 / provisional ×1)의 scanId ad-hoc UTC 날짜 →
+    effectiveTradingDate(KST 거래일) 주입. 장전 scanId 전날 박힘 + 동일 스캔 두 scanId 불일치 해소(SHADOW 한정).
+  - 정적 가드 `scripts/check_trading_date_ssot.js` (signalScanner ad-hoc 기준일 baseline 0 강제, validate:all/precommit 통합).
+  - 잔여: 기술지표/수급/섹터에너지/SourceSnapshot 전면 주입(~1,600곳)은 후속 ADR 시리즈로 점진 마이그레이션.
 - 수정 PR:
-- 관련 ADR: ADR-0412, ADR-0414
+- 관련 ADR: ADR-0412, ADR-0414, ADR-0591
 - 검증 방법:
   - 휴장일 기준일 일치 테스트
   - 장중 기준일 일치 테스트
