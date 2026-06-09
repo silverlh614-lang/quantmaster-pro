@@ -229,7 +229,8 @@ function summarize(traces: ScanTrace[]): Metrics {
     if (t.stages.buy === 'SHADOW' || t.stages.buy === 'LIVE') { buyExecuted++; continue; }
     if (t.stages.price?.startsWith('FAIL'))                   { priceFail++;   continue; }
     if (t.stages.rrr?.startsWith('FAIL'))                     { rrrFail++;     continue; }
-    if (t.stages.gate?.startsWith('FAIL(yahoo'))              { yahooFail++;   continue; }
+    // quote(KIS) 실패 — 'FAIL(quote'(신규)+'FAIL(yahoo'(≤7일 레거시 trace backward-compat).
+    if (t.stages.gate?.startsWith('FAIL(quote') || t.stages.gate?.startsWith('FAIL(yahoo')) { yahooFail++;   continue; }
     if (t.stages.gate?.startsWith('FAIL'))                    { gateFail++;    continue; }
   }
   const scanCandidates = traces.length;

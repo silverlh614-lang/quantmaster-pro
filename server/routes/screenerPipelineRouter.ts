@@ -194,7 +194,8 @@ export function partitionTracesByStage(
   for (const t of traces) {
     if (seen.has(t.stock)) continue;
     seen.add(t.stock);
-    const yahooFail = t.stages.gate?.startsWith('FAIL(yahoo') ?? false;
+    // quote(KIS) 실패 — 'FAIL(quote'(신규)+'FAIL(yahoo'(≤7일 레거시 trace backward-compat).
+    const yahooFail = (t.stages.gate?.startsWith('FAIL(quote') || t.stages.gate?.startsWith('FAIL(yahoo')) ?? false;
     const gateFail = !yahooFail && (t.stages.gate?.startsWith('FAIL') ?? false);
     const rrrFail = t.stages.rrr?.startsWith('FAIL') ?? false;
     const buyDone = t.stages.buy === 'SHADOW' || t.stages.buy === 'LIVE';

@@ -12,12 +12,12 @@ describe('yahooAvailabilityStep', () => {
     expect(result.proceed).toBe(true);
   });
 
-  it('reCheckGate=null — Yahoo 조회 실패 차단', () => {
+  it('reCheckGate=null — 시세(quote) 조회 실패 차단', () => {
     const result = yahooAvailabilityStep({ stockName: '삼성전자', reCheckGate: null });
     expect(result.proceed).toBe(false);
     if (result.proceed) return;
-    expect(result.logMessage).toBe('[AutoTrade] 삼성전자 Yahoo 조회 실패 — 재검증 불가, 진입 보류');
-    expect(result.failReasons).toEqual(['yahoo_unavailable']);
-    expect(result.stageLogValue).toBe('FAIL(yahoo_unavailable)');
+    expect(result.logMessage).toBe('[AutoTrade] 삼성전자 시세(quote) 조회 실패 — 재검증 불가, 진입 보류');
+    expect(result.failReasons).toEqual(['quote_unavailable']);
+    expect(result.stageLogValue).toBe('FAIL(quote_unavailable)');
   });
 });

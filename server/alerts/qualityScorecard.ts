@@ -206,7 +206,7 @@ export async function generateQualityScorecard(): Promise<void> {
   const discoveryYield = pctSafe(watchlistCount, universeScanned);
 
   // ② Gate Yield: 장중 스캔에서 Gate 평가 도달 → Gate 통과율
-  //    분모: Gate 평가 도달(yahoo 성공) / 분자: Gate 점수 충족(SKIP 아닌 신호)
+  //    분모: Gate 평가 도달(quote(KIS) 조회 성공) / 분자: Gate 점수 충족(SKIP 아닌 신호)
   const gateYield = pctSafe(gatePassed, gateReached);
 
   // ③ Signal Yield: Gate 통과 → 실제 매수 신호 발생율
