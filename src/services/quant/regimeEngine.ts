@@ -254,6 +254,15 @@ export function classifyRegime(v: RegimeVariables): RegimeLevel {
     return 'R3_EARLY';
   }
 
+  // ── ADR-0593: risk-on fast-upgrade (R6 -5% 블랙스완의 상방 대칭) ───────────────
+  // 폭락 다음날 강반등(오늘 강반등 + VKOSPI 진정 + breadth 우위 3중 AND) 시 provisional
+  // R3_EARLY 승급. 자격 산출은 server buildRegimeVars 가 shouldFastUpgradeToR3Early(SSOT,
+  // flag-gated, default OFF)로 수행해 riskOnFastUpgradeEligible 로 주입(src↔server 경계 준수).
+  // 미설정/false(default OFF 포함) → 분기 미진입 → fall-through R4(byte-equivalent). 캡 = R3_EARLY.
+  if (v.riskOnFastUpgradeEligible === true) {
+    return 'R3_EARLY';
+  }
+
   // ── 기본: R4 Neutral ─────────────────────────────────────────────────────────
   return 'R4_NEUTRAL';
 }

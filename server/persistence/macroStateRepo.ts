@@ -181,6 +181,12 @@ export interface MacroState {
   kospiIntradaySourceTradeDate?: string;
   /** ADR-0592: kospiIntradayReturn 마지막 KIS fetch 성공 시각(ISO). carry-forward 시 갱신 안 됨. */
   kospiIntradayFetchedAt?: string;
+  /** ADR-0593: KOSPI 종합지수(0001) 응답 상승종목수(ascn_issu_cnt) — risk-on fast-upgrade breadth. 부재 시 미설정(보수). */
+  kospiAdvanceCount?: number;
+  /** ADR-0593: KOSPI 종합지수(0001) 응답 하락종목수(down_issu_cnt) — risk-on fast-upgrade breadth. 부재 시 미설정(보수). */
+  kospiDeclineCount?: number;
+  /** ADR-0593: breadth(등락종목수) 마지막 KIS fetch 성공 시각(ISO). intraday quote 와 동일 D2 경로. */
+  kospiBreadthFetchedAt?: string;
   leadingSectorRS?: number;         // 선행 섹터 상대강도 (0~100)
   sectorCycleStage?: 'EARLY' | 'MID' | 'LATE' | 'TURNING'; // 섹터 사이클
   marginBalance5dChange?: number;   // 신용잔고 5일 변화율 (ADR-0139)

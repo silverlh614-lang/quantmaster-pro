@@ -71,10 +71,13 @@ ADR-0592 가 이미 **상방 fast-upgrade 의 입력 인프라를 절반 구축*
    동형 가드 재사용(또는 동일 freshness SSOT 위임).
 2. **VKOSPI 진정:** `vkospiDayChange <= 0` (또는 `mhsScore >= MHS_MIN`) — 공포 미확산 확인.
    하락 trigger(`vkospiDayChange > 30`) 의 상방 대칭. **임계 운영자 확정 필요.**
-3. **시장 breadth 우위:** 상승종목 우세(advance/decline 또는 above-MA20 breadth ratio ≥ 기준).
-   **현 코드베이스에 시장 전체 breadth 필드가 부재**(recommendationTypes.ts:18
-   `MARKET_BREADTH_ADVANCE` "breadth 데이터 없음", sectorEnergy breadth 는 섹터 단위) →
-   breadth 소스·proxy 는 **운영자/engine-dev 확정 필요**(미해결, 아래 §References 후속).
+3. **시장 breadth 우위:** 상승종목 우세(advance/(advance+decline) ratio ≥ 기준, default 0.6).
+   **해소(engine-dev 구현):** 신규 endpoint 불필요 — ADR-0592 D2 `fetchKospiCompositeIntradayQuote`
+   (sectorIndex.ts:434)가 KOSPI 종합지수(0001)를 `inquire-index-price`(FHPUP02100000)로 이미 호출하며,
+   응답 row 에 **`ascn_issu_cnt`(상승종목수)·`down_issu_cnt`(하락종목수)** 가 포함된다. 동일 응답에서
+   2필드만 추가 추출(`extractKisNumberOptional`, KIS 콜 0 추가·quota 0) → macroState
+   `kospiAdvanceCount`/`kospiDeclineCount`/`kospiBreadthFetchedAt` 영속. 파싱 실패/부재 시 undefined
+   (보수 미발동).
 
 3중 동시 충족 시에만 승급 자격 true. breadth 소스 부재/STALE 시 **보수적으로 승급 미발동**
 (데이터 결손 ≠ 승급, 불변식 #6 정합 — providerIssue 를 bullish signal 로 변환 금지).
@@ -153,8 +156,9 @@ if (isRiskOnFastUpgradeEnabled() && evaluateRiskOnFastUpgrade(v) .eligible) retu
 
 - **whipsaw 위험** (반등 후 재폭락 시 잘못된 risk-on) → default OFF + breadth·VKOSPI 동시
   AND 가드 + shadow N영업일 검증으로 봉인 (ADR-0592 D3 패턴).
-- **breadth 데이터 부재** — 시장 전체 advance/decline breadth 가 현 코드에 없음. Phase 0
-  의 breadth 소스 확정(KIS 등락종목수 등)이 선결 과제. 미확정 시 승급 영구 미발동(보수).
+- **breadth 데이터 부재 — 해소(engine-dev).** D2 응답(`fetchKospiCompositeIntradayQuote`)의
+  `ascn_issu_cnt`/`down_issu_cnt` 를 추가 추출해 advance/(advance+decline) ratio 산출. 신규 KIS 콜·
+  endpoint 0(quota 0). breadth/intraday 부재·stale(어제 거래일·TTL 초과) 시 보수적 미발동 유지.
 - 승급 캡 R3_EARLY 로 R3 의 Kelly 0.7·maxExposure 60% 만 활성 — R2/R1 직행 금지로
   과도 노출 차단.
 
@@ -198,9 +202,20 @@ if (isRiskOnFastUpgradeEnabled() && evaluateRiskOnFastUpgrade(v) .eligible) retu
   `server/trading/regimeBridge.base.ts:49` (buildRegimeVars) ·
   `server/screener/pipelineHelpers.ts:643` (RISK_ON_REGIMES 병목)
 
-### 미해결 (운영자/engine-dev 확정 필요)
+### 미해결 (운영자 확정 필요)
 
-1. **임계 T** (`REGIME_RISK_ON_FAST_UPGRADE_THRESHOLD_PCT`) — +3.0% vs +4.0% (counterfactual 튜닝).
-2. **breadth 소스** — KIS 등락종목수 endpoint 존재 여부 + 영속 필드 신설(현 코드 부재).
-3. **VKOSPI 진정 가드 형태** — `vkospiDayChange <= 0` vs `mhsScore >= MHS_MIN` vs 둘 다 AND.
-4. **shadow 관측 N영업일** 수 (ADR-0592 선례 참조).
+1. **임계 T** (`REGIME_RISK_ON_FAST_UPGRADE_THRESHOLD_PCT`) — engine-dev default **3.5**(+3.0~4.0
+   권장 구간 중앙). counterfactual 튜닝으로 운영자 확정. (구현은 ENV 오버라이드 제공.)
+2. ~~**breadth 소스**~~ — **해소.** D2 응답 `ascn_issu_cnt`/`down_issu_cnt` 추출(신규 KIS 콜 0).
+   breadth 우위 비율 default **0.6** (`REGIME_RISK_ON_FAST_UPGRADE_BREADTH_MIN_RATIO`, ENV 오버라이드).
+3. **VKOSPI 진정 가드 형태** — engine-dev 채택 `vkospiDayChange <= 0`(공포 미확산). MHS 추가 AND 여부 운영자 검토.
+4. **shadow 관측 N영업일** 수 (ADR-0592 선례 참조) — 운영자 결정. Phase 0/1 관측 라벨
+   `[REGIME_RISK_ON_FAST_UPGRADE_OBSERVE]`(breadth 공급)/`[REGIME_RISK_ON_FAST_UPGRADE]`(승급) 기록.
+
+### Status 갱신 (engine-dev 구현)
+
+- D1(순수 SSOT `riskOnFastUpgrade.ts`)·D2(classifyRegime 분기, resolved boolean 소비)·D3(타입 확장)·
+  D4(ENV flag default OFF)·D5(진단 로그) 구현 완료. breadth 는 D2 응답 부산물로 확보(KIS 콜 0).
+- **src↔server 경계 준수:** classifyRegime(src)은 server SSOT 를 직접 import 불가 → buildRegimeVars
+  (server)가 `shouldFastUpgradeToR3Early` 로 자격을 산출해 RegimeVariables `riskOnFastUpgradeEligible`
+  resolved boolean 으로 주입(기존 kospiAboveMA20Pct 주입 패턴 동형). classifyRegime 은 boolean 만 소비.

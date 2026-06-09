@@ -49,7 +49,7 @@ export async function applyKospiTriggerProvenance(
   // (b) flag OFF → KIS quote 호출 0, 신규 intraday 필드 미설정(baseline byte-equivalent).
   if (process.env.R6_KOSPI_INTRADAY_QUOTE_ENABLED !== 'true') return;
 
-  let quote: { current: number; changePct: number; tradeDate: string } | null = null;
+  let quote: { current: number; changePct: number; tradeDate: string; advanceCount?: number; declineCount?: number } | null = null;
   try {
     quote = await fetchKospiCompositeIntradayQuote();
   } catch (err) {
@@ -81,4 +81,26 @@ export async function applyKospiTriggerProvenance(
       `sourceTradeDate=${quote.tradeDate} ` +
       'source=KIS_COMPOSITE_0001 executionImpact=NONE',
   );
+
+  // ADR-0593: breadth(등락종목수)는 동일 D2 응답의 부산물 — KIS 콜 0 추가. 부재 시 미설정(보수).
+  if (quote.advanceCount !== undefined && quote.declineCount !== undefined) {
+    computed.kospiAdvanceCount = quote.advanceCount;
+    computed.kospiDeclineCount = quote.declineCount;
+    computed.kospiBreadthFetchedAt = computed.kospiIntradayFetchedAt;
+    const total = quote.advanceCount + quote.declineCount;
+    const ratio = total > 0 ? quote.advanceCount / total : 0;
+    console.info(
+      '[REGIME_RISK_ON_FAST_UPGRADE_OBSERVE] ' +
+        `kospiAdvanceCount=${quote.advanceCount} kospiDeclineCount=${quote.declineCount} ` +
+        `breadthAdvanceRatio=${ratio.toFixed(3)} ` +
+        'source=KIS_COMPOSITE_0001 executionImpact=NONE',
+    );
+  } else {
+    // breadth 결손 — intraday 값은 채우되 breadth 는 미설정(불변식 #6: 결손≠signal). fast-upgrade 미발동.
+    emitKospiIntradayWarn('KOSPI_BREADTH_ABSENT', {
+      reason: 'KIS 종합지수 응답 등락종목수(ascn/down_issu_cnt) 부재 — breadth 미설정(fast-upgrade 보수 미발동)',
+      advanceCountPresent: quote.advanceCount !== undefined,
+      declineCountPresent: quote.declineCount !== undefined,
+    });
+  }
 }
