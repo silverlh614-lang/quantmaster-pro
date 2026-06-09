@@ -53,6 +53,11 @@ regexes = [
   # 위와 동일 클래스의 TypeScript 타입명 오탐. generic-api-key 룰이 `key:` 뒤
   # 타입 식별자(엔트로피 3.64)를 비밀로 오인. 실제 비밀이 아니므로 좁게 화이트리스트.
   '''Gate3ForwardHorizon''',
+  # `process.env.FRED_API_KEY = 'test-key-1234567890'` (server/clients/fredClientProbeBase.test.ts) —
+  # 테스트용 더미 키(접두사 test-key-). generic-api-key 룰이 엔트로피 3.93 으로 오탐.
+  # 같은 테스트 line 34 가 `not.toContain('test-key-1234567890')` 로 키 미노출을 검증하는 의도적
+  # placeholder 이며 실제 비밀이 아니다. CI 가 fetch-depth=0 전체 history 스캔이라 좁게 화이트리스트.
+  '''test-key-1234567890''',
 ]
 
 # ADR-461 livePathSafetyAudit.ts 의 과거 false positive.
