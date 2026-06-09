@@ -58,6 +58,12 @@ export interface R6TriggerBreakdown {
   triggerFreshness: 'FRESH' | 'SOFT_STALE' | 'POST_CLOSE_VALID' | 'EOD_SNAPSHOT_VALID' | 'HARD_STALE' | 'STALE' | 'MISSING';
   staleCarryForward: boolean;
   staleBlockedRecovery: boolean;
+  /** ADR-0590: 트리거 봉의 KRX 거래일(YYYY-MM-DD KST). */
+  kospiTriggerSourceTradeDate?: string;
+  /** ADR-0590: 트리거 봉 거래일이 오늘 KRX 거래일인가. false면 intraday 트리거 강등. */
+  tradeDateIsToday?: boolean;
+  /** ADR-0590: recovery 평가에 오늘 intraday 수익률을 사용했는가(진단). */
+  intradayReturnUsed?: boolean;
 }
 
 export type RegimeTransitionDirection =

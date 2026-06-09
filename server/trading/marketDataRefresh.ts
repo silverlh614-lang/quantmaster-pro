@@ -52,6 +52,7 @@ import type {
   DailyBar,
   YahooHealthSnapshot,
 } from './marketDataRefresh/types.js';
+import { applyKospiTriggerProvenance } from './marketDataRefresh/kospiIntradayRefresh.js';
 import {
   buildProgramMarketSnapshotId,
   hasSnapshotInvariantViolation,
@@ -609,6 +610,7 @@ async function refreshKospiSection(computed: MarketRefreshComputed): Promise<voi
     // ⑧ KOSPI가 MA20 대비 몇 % 위에 있는지 — 레짐 R3 강제 승급 판단용
     computed.kospiAboveMA20Pct = ma20 > 0 ? ((last - ma20) / ma20) * 100 : 0;
     console.log(`[MarketRefresh] KOSPI: 현재=${last.toFixed(0)}, MA20=${ma20.toFixed(0)}, MA20대비=${(computed.kospiAboveMA20Pct as number).toFixed(2)}%, 20d=${(computed.kospi20dReturn as number).toFixed(2)}%`);
+    await applyKospiTriggerProvenance(computed, latestBar); // ADR-0590: 봉 거래일 영속 + flag-gated KIS intraday quote
   } else {
     emitMarketDataProviderWarn('KOSPI_DATA_INSUFFICIENT');
   }

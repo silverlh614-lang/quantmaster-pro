@@ -21,6 +21,8 @@ import { renderPlaybook } from '../alerts/regimePlaybook.js';
 import { resetConditionWeightsForRegime } from '../persistence/conditionWeightsRepo.js';
 import { isForcedRegimeDowngradeActive } from '../learning/learningState.js';
 import { classifyVkospiSanity } from './regime/vkospiSanityGuard.js';
+import { resolveKospiTriggerFreshness, isTradeDateFreshnessEnabled } from './kospiTriggerFreshness.js';
+import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import {
   emptyR6RecoveryEvidence,
   emptyR6TriggerBreakdown,
@@ -240,7 +242,35 @@ function resolveVkospiRecoveryThreshold(macroState: MacroState | null): number {
 }
 
 function triggerFreshness(macroState: MacroState | null, now: Date): R6TriggerBreakdown['triggerFreshness'] {
-  return macroFreshnessFromUpdatedAt(macroState, macroState?.kospiTriggerSourceUpdatedAt ?? macroState?.updatedAt, now);
+  const ageFreshness = macroFreshnessFromUpdatedAt(macroState, macroState?.kospiTriggerSourceUpdatedAt ?? macroState?.updatedAt, now);
+  // ADR-0590 D1: flag OFF → age-only freshness byte-equivalent. ON → 봉 거래일 기준 강등 위임.
+  if (!isTradeDateFreshnessEnabled()) return ageFreshness;
+  const resolved = resolveKospiTriggerFreshness({ tradeDate: macroState?.kospiTriggerSourceTradeDate, ageFreshness, now });
+  if (resolved.downgraded) {
+    console.info(
+      `[R6_TRIGGER_TRADEDATE_STALE] tradeDate=${macroState?.kospiTriggerSourceTradeDate ?? 'N/A'} ` +
+      `today=${toKstDateKey(now)} ageFreshness=${ageFreshness} downgradedTo=${resolved.freshness} ` +
+      'reason=TRIGGER_BAR_NOT_TODAY executionImpact=INTRADAY_TRIGGER_EXCLUDED_FROM_ACTIVE',
+    );
+  }
+  return resolved.freshness;
+}
+
+/**
+ * ADR-0590 D2/D3: recovery 평가용 KOSPI day-return 소스 결정.
+ * flag(R6_INTRADAY_REBOUND_RELEASE_ENABLED) ON + intraday FRESH(오늘 거래일 + 신선) 일 때만
+ * 오늘 intraday 수익률을 우선 사용한다. 아니면 기존 close-return ?? day-return 폴백(byte-equivalent).
+ * 임계값 무변경 — 입력 소스만 stale 대신 오늘 값으로 정확화한다.
+ */
+function resolveRecoveryKospiDayReturn(macroState: MacroState | null, now: Date): { value: number | undefined; intradayUsed: boolean } {
+  const legacy = finiteNumber(macroState?.kospiCloseReturn) ?? finiteNumber(macroState?.kospiDayReturn);
+  if (process.env.R6_INTRADAY_REBOUND_RELEASE_ENABLED !== 'true') return { value: legacy, intradayUsed: false };
+  const intraday = finiteNumber(macroState?.kospiIntradayReturn);
+  if (intraday === undefined) return { value: legacy, intradayUsed: false };
+  const intradayTradeDate = macroState?.kospiIntradaySourceTradeDate;
+  const intradayIsToday = intradayTradeDate !== undefined && intradayTradeDate === toKstDateKey(now);
+  if (!intradayIsToday) return { value: legacy, intradayUsed: false };
+  return { value: intraday, intradayUsed: true };
 }
 
 function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previousState?: RegimeTransitionState): R6TriggerBreakdown {
@@ -269,16 +299,23 @@ function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previ
   if (usdKrwDayChange !== undefined && Math.abs(usdKrwDayChange) > 3) detected.push('USDKRW_DAY_SHOCK');
   const activeR6Triggers = freshness === 'FRESH' ? detected : [];
   const staleR6Triggers = freshness === 'FRESH' ? [] : detected;
-  return { kospiDayReturn, kospiCloseReturn, kospiIntradayLowReturn, kospiIntradayHighReturn, vkospiDayChange, usdKrwDayChange, activeR6Triggers, staleR6Triggers, triggerSourceUpdatedAt: macroState.kospiTriggerSourceUpdatedAt ?? macroState.updatedAt, triggerFreshness: freshness, staleCarryForward: freshness !== 'FRESH' && (detected.length > 0 || previousState?.r6ShockLatch === true), staleBlockedRecovery: isHardStaleForRecovery(freshness) };
+  // ADR-0590 D4: 진단 가시화 — 봉 거래일이 오늘 KRX 거래일인지(flag ON 시 강등 입력). flag OFF/필드 부재 시 undefined.
+  const tradeDateIsToday = macroState.kospiTriggerSourceTradeDate
+    ? macroState.kospiTriggerSourceTradeDate === toKstDateKey(now)
+    : undefined;
+  const intradayReturnUsed = resolveRecoveryKospiDayReturn(macroState, now).intradayUsed;
+  return { kospiDayReturn, kospiCloseReturn, kospiIntradayLowReturn, kospiIntradayHighReturn, vkospiDayChange, usdKrwDayChange, activeR6Triggers, staleR6Triggers, triggerSourceUpdatedAt: macroState.kospiTriggerSourceUpdatedAt ?? macroState.updatedAt, triggerFreshness: freshness, staleCarryForward: freshness !== 'FRESH' && (detected.length > 0 || previousState?.r6ShockLatch === true), staleBlockedRecovery: isHardStaleForRecovery(freshness), kospiTriggerSourceTradeDate: macroState.kospiTriggerSourceTradeDate, tradeDateIsToday, intradayReturnUsed };
 }
 
-function closeRecoveryEligible(breakdown: R6TriggerBreakdown, macroState: MacroState | null): boolean {
+function closeRecoveryEligible(breakdown: R6TriggerBreakdown, macroState: MacroState | null, now: Date = new Date()): boolean {
   const vkospiThreshold = resolveVkospiRecoveryThreshold(macroState);
   // ADR-0530: implausible VKOSPI level은 close-recovery 차단 근거에서 제외(buildR6RecoveryEvidence vkospiOk와 동일 격리).
   // G2(KOSPI 비스트레스)가 발동 조건이라 진짜 폭락 시엔 격리 안 됨 → kospiCloseReturn/vkospiDayChange gate가 그대로 방어.
   const vkospiImplausible = classifyVkospiSanity(macroState).trustState === 'UNTRUSTED_IMPLAUSIBLE';
   const vkospiLevelOk = vkospiImplausible || (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold;
-  return (breakdown.kospiCloseReturn ?? Number.NEGATIVE_INFINITY) > -2 && vkospiLevelOk && (breakdown.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 && Math.abs(breakdown.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 && (macroState?.mhs ?? 0) >= 40 && isFreshEnoughForRecoveryWatch(breakdown.triggerFreshness);
+  // ADR-0590: flag OFF → breakdown.kospiCloseReturn 그대로(byte-equivalent). ON + intraday FRESH → 오늘 intraday 우선.
+  const dayReturn = resolveRecoveryKospiDayReturn(macroState, now).value ?? breakdown.kospiCloseReturn;
+  return (dayReturn ?? Number.NEGATIVE_INFINITY) > -2 && vkospiLevelOk && (breakdown.vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 && Math.abs(breakdown.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5 && (macroState?.mhs ?? 0) >= 40 && isFreshEnoughForRecoveryWatch(breakdown.triggerFreshness);
 }
 
 
@@ -350,12 +387,16 @@ function latchDecayPercent(
   const strongReboundThreshold = Number(process.env.R6_STRONG_REBOUND_THRESHOLD_PCT ?? '3.0');
   const strongReboundFloor = Number(process.env.R6_STRONG_REBOUND_DECAY_FLOOR ?? '70');
 
+  // ADR-0590: flag OFF → macroState.kospiDayReturn 그대로(byte-equivalent). ON + intraday FRESH → 오늘 intraday 우선.
+  const strongReboundDayReturn = recoveryContext !== undefined && process.env.R6_INTRADAY_REBOUND_RELEASE_ENABLED === 'true'
+    ? (resolveRecoveryKospiDayReturn(recoveryContext.macroState, now).value ?? recoveryContext.macroState?.kospiDayReturn ?? 0)
+    : (recoveryContext?.macroState?.kospiDayReturn ?? 0);
   const strongReboundBoost = strongReboundEnabled &&
     recoveryContext !== undefined &&
     recoveryContext.triggerBreakdown.triggerFreshness === 'FRESH' &&
     recoveryContext.triggerBreakdown.activeR6Triggers.length === 0 &&
     (recoveryContext.macroState?.mhs ?? 0) >= 60 &&
-    ((recoveryContext.macroState?.kospiDayReturn ?? 0) >= strongReboundThreshold ||
+    (strongReboundDayReturn >= strongReboundThreshold ||
       (recoveryContext.triggerBreakdown.kospiIntradayHighReturn ?? 0) >= strongReboundThreshold)
       ? strongReboundFloor
       : 0;
@@ -363,7 +404,7 @@ function latchDecayPercent(
   if (strongReboundBoost > 0) {
     console.info(
       `[R6_STRONG_REBOUND_DECAY_BOOST] ` +
-      `kospiDayReturn=${recoveryContext?.macroState?.kospiDayReturn ?? 'N/A'} ` +
+      `kospiDayReturn=${strongReboundDayReturn} ` +
       `threshold=${strongReboundThreshold} ` +
       `decayBoostedTo=${strongReboundFloor} ` +
       `mhs=${recoveryContext?.macroState?.mhs ?? 'N/A'} ` +
@@ -486,10 +527,19 @@ function buildR6RecoveryEvidence(
   // implausible 이면 VKOSPI level gate 를 차단 근거에서 제외(vkospiOk=true). 값 자체는 보정/0치환 금지(불변식 #6).
   // 그 외엔 기존 threshold 비교 그대로(TRUSTED/MISSING/STALE 은 legacy 동작 보존).
   const vkospiLevelOk = vkospiImplausible || (macroState?.vkospi ?? Number.POSITIVE_INFINITY) <= vkospiThreshold;
+  // ADR-0590: flag OFF → close-return ?? day-return 그대로(byte-equivalent). ON + intraday FRESH → 오늘 intraday 우선.
+  const recoveryDayReturnResolved = resolveRecoveryKospiDayReturn(macroState, now);
+  const recoveryDayReturn = recoveryDayReturnResolved.value;
+  if (recoveryDayReturnResolved.intradayUsed) {
+    console.info(
+      `[R6_INTRADAY_REBOUND_OBSERVE] recovery evidence uses intraday kospiReturn=${recoveryDayReturn?.toFixed(2) ?? 'N/A'}% ` +
+      `sourceTradeDate=${macroState?.kospiIntradaySourceTradeDate ?? 'N/A'} executionImpact=RECOVERY_DAY_RETURN_FROM_INTRADAY`,
+    );
+  }
   const evidence: R6RecoveryEvidence = {
     vkospiDayChangeOk: (vkospiDayChange ?? Number.POSITIVE_INFINITY) <= 15 || fallbackLevelStable,
     usdKrwDayChangeOk: Math.abs(macroState?.usdKrwDayChange ?? Number.POSITIVE_INFINITY) <= 1.5,
-    kospiDayReturnOk: ((macroState?.kospiCloseReturn ?? macroState?.kospiDayReturn) ?? Number.NEGATIVE_INFINITY) > -2,
+    kospiDayReturnOk: (recoveryDayReturn ?? Number.NEGATIVE_INFINITY) > -2,
     mhsScoreOk: (macroState?.mhs ?? 0) >= 40,
     vkospiOk: vkospiLevelOk,
     vkospiThresholdApplied: vkospiThreshold,
@@ -555,11 +605,15 @@ export function evaluateR6RecoveryTransition(
     biasScore >= -50 &&
     isFreshEnoughForRecoveryWatch(triggerBreakdown.triggerFreshness) &&
     releaseReachedOrNear;
+  // ADR-0590: flag OFF → macroState.kospiDayReturn 그대로(byte-equivalent). ON + intraday FRESH → 오늘 intraday 우선.
+  const strongReboundExitDayReturn = process.env.R6_INTRADAY_REBOUND_RELEASE_ENABLED === 'true'
+    ? (resolveRecoveryKospiDayReturn(macroState, now).value ?? macroState?.kospiDayReturn ?? 0)
+    : (macroState?.kospiDayReturn ?? 0);
   const strongReboundExitEligible =
     process.env.R6_STRONG_REBOUND_DECAY_ENABLED === 'true' &&
     decayPercent >= 70 &&
     (macroState?.mhs ?? 0) >= 60 &&
-    (macroState?.kospiDayReturn ?? 0) >= Number(process.env.R6_STRONG_REBOUND_THRESHOLD_PCT ?? '3.0') &&
+    strongReboundExitDayReturn >= Number(process.env.R6_STRONG_REBOUND_THRESHOLD_PCT ?? '3.0') &&
     triggerBreakdown.activeR6Triggers.length === 0 &&
     triggerBreakdown.triggerFreshness === 'FRESH';
   const heldByShockLatch = previousState.r6ShockLatch && !latchExpired && activeTriggers.length === 0 && !panicEasingEligible && !strongReboundExitEligible && (!closeEligible || decayPercent < 60);

@@ -35,6 +35,7 @@ Rules:
 
 | ID | Domain | Current use | Detail |
 |----|--------|-------------|--------|
+| ADR-0590 | R6 trigger freshness | trade-date freshness 강등 + intraday KOSPI rebound 인식 (shadow-gated, 3 flag default OFF=byte-equivalent) | `docs/adr/0590-r6-trigger-freshness-tradedate-intraday-rebound.md` (`kospiTriggerFreshness.ts` + `marketDataRefresh/kospiIntradayRefresh.ts`) |
 | ADR-527 | AI context | CLAUDE slimming | `docs/archive/adr/patch-history-full-log.md` |
 | ADR-528 | AI docs router | `docs/ai/00`~`10` boundaries | `docs/archive/adr/patch-history-full-log.md` |
 | ADR-528-B | Multi-agent rules | `AGENTS.md` creation | `docs/archive/adr/patch-history-full-log.md` |
