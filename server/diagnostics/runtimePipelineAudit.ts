@@ -28,6 +28,7 @@ import {
   formatRuntimePipelineDiagnosticEvidenceLineAdr0480,
 } from '../trading/signalScanner/operatorActionRouterAdr0480.js';
 import { formatRuntimePipelineReadinessEvidenceLineAdr0485 } from '../trading/signalScanner/supplyAdvisoryReadinessAdr0485.js';
+import { resolveScanMarketSessionView } from '../trading/signalScanner/state/scanEvaluationState.js';
 import { formatRuntimePipelineMountEvidenceLineAdr0486 } from '../trading/signalScanner/supplyRecoveryRuntimeMountAdr0486.js';
 import { formatRuntimePipelineFreshDataEvidenceLineAdr0487 } from '../trading/signalScanner/freshDataSupplyLayerAdr0487.js';
 import { formatRuntimePipelineAdr0488EvidenceLine } from '../trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
@@ -197,8 +198,17 @@ function resolveCanonicalSourceSnapshotId(
 
 function inferMarketSession(summary: ReturnType<typeof getLastScanSummary>): string {
   if (!summary) return 'UNKNOWN';
-  if (summary.macroGateState?.sellOnlyMode) return 'SELL_ONLY';
-  return 'UNKNOWN';
+  // marketSession 정합 SSOT(ADR-0555 정합): compact/raw/canonical 헤더와 동일 시그니처·동일 입력
+  // (timeLabel: summary.time 포함)으로 resolveScanMarketSessionView 단일 통로를 호출한다.
+  // sellOnlyMode 는 진단 의미 보존을 위해 SSOT 가 UNKNOWN 일 때의 fallback 으로만 잔존.
+  const view = resolveScanMarketSessionView({
+    explicitMarketSessionState: summary.scanEvaluation?.marketSessionState,
+    macroGateState: summary.macroGateState,
+    asOf: summary.scanEvaluation?.asOf,
+    timeLabel: summary.time,
+  });
+  if (view.canonicalSession === 'UNKNOWN' && summary.macroGateState?.sellOnlyMode) return 'SELL_ONLY';
+  return view.marketSessionState;
 }
 
 function countNearMissBuckets(summary: ReturnType<typeof getLastScanSummary>): number {

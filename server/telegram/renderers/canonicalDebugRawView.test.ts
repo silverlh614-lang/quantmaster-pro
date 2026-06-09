@@ -225,7 +225,12 @@ describe('ADR-0525 buildCanonicalDebugRawView gate3 byte-equivalence', () => {
     expect(view.effectiveRegime).toBe('GREEN');
     expect(view.sourceSnapshotId).toBe('scan-eval:debug-raw');
     expect(view.engineMode).toBe('NORMAL');
-    expect(view.marketSession).toBe('REGULAR');
+    // ADR-0555 정합(marketSession 3출처 단일 통로): raw 세션은 이제 canonical 헤더와 동일하게
+    // resolveScanMarketSessionView 를 거친다. fixture 의 timeLabel/asOf(2026-05-25T09:00:00.000Z)는
+    // KST 벽시계 규약상 장외로 해석되어 CLOSED — canonical 헤더·compact 와 byte-equivalent.
+    // (구 기대값 'REGULAR' 는 SSOT 우회 시절 raw 가 macro.canonicalSession 을 verbatim 투영하던
+    //  drift 값이었다. 본 패치가 제거한 불일치.)
+    expect(view.marketSession).toBe('CLOSED');
   });
 
   it('records missing slices instead of silent-dropping (SDS) when summary is null', () => {

@@ -1,6 +1,7 @@
 // @responsibility ADR-0523 Telegram Gate/Execution/Learning snapshot bundle contracts and compact extraction helpers.
 
 import type { QmpGateDetailHeaderView } from './qmpGateDetailHeaderCanonical.js';
+import { resolveScanMarketSessionView } from '../../trading/signalScanner/state/scanEvaluationState.js';
 
 export type TelegramVerbosity = 'COMPACT' | 'DETAIL' | 'FULL_FORENSIC' | 'DEBUG_RAW';
 export type TelegramChannelKind = 'SIGNAL' | 'OPERATOR' | 'DEBUG' | 'DM';
@@ -214,7 +215,16 @@ export function buildSnapshotBundleFromScanSummary(summaryRaw: unknown, override
   const evaluatedGate1 = numberOf(forensic?.evaluatedCandidateCount ?? candidates, candidates);
   const asOf = text(summary?.asOf ?? summary?.time ?? macro?.regimeSnapshotAsOf, new Date(0).toISOString());
   const engineMode = text(summary?.engineMode ?? macro?.engineMode ?? macro?.displayRegime, 'UNKNOWN').toUpperCase();
-  const marketSession = text(summary?.marketSession ?? macro?.canonicalSession ?? macro?.displaySession, 'UNKNOWN').toUpperCase();
+  // marketSession 정합 SSOT(ADR-0555 정합): canonical 헤더(qmpGateDetailHeaderCanonical.resolvePermission)와
+  // 동일 시그니처·동일 입력(timeLabel: summary.time 포함)으로 resolveScanMarketSessionView 단일 통로를 호출한다.
+  // 존재하지 않던 summary.marketSession read + macro 원시 필드 폴백 체인(부재→UNKNOWN 진원) 제거.
+  const scanEvaluationRecord = recordOf(summary?.scanEvaluation);
+  const marketSession = resolveScanMarketSessionView({
+    explicitMarketSessionState: text(scanEvaluationRecord?.marketSessionState, '') || undefined,
+    macroGateState: (macro ?? undefined) as Parameters<typeof resolveScanMarketSessionView>[0]['macroGateState'],
+    asOf: text(scanEvaluationRecord?.asOf, '') || undefined,
+    timeLabel: text(summary?.time, '') || undefined,
+  }).marketSessionState.toUpperCase();
   // 정본 effectiveRegime 은 scanEvaluation(buildCanonicalRegimeDiagnostics) 이 SSOT 다.
   // macroRegimeEffective 는 legacyRegimeNotUsedForDecision(폐기된 R6 transition machine) 이므로
   // 정본/회귀(regime)보다 뒤로 강등한다 — 상단 JSON 이 R6_DEFENSE 로 오표기되는 것을 막는다.
