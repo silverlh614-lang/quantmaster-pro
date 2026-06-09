@@ -17,7 +17,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { getMonthlyStats } from '../learning/recommendationTracker.js';
 import { callGemini } from '../clients/geminiClient.js';
-import { fetchCurrentPrice } from '../clients/kisClient.js';
+import { fetchCurrentPrice, fetchKospiCompositeIntradayQuote } from '../clients/kisClient.js';
 import { sendTelegramAlert } from './telegramClient.js';
 import { channelMarketBriefing, channelPerformance } from './channelPipeline.js';
 import { fetchCloses } from '../trading/marketDataRefresh.js';
@@ -932,21 +932,72 @@ export function formatMacroConfidenceTag(
 }
 
 /** KOSPI 현재가 + 전일대비 변화율 조회 — ADR-0059: stale prev 시 0 fallback. */
-async function fetchKospiSnapshot(): Promise<{ price: number; changePct: number } | null> {
-  const closes = await fetchCloses('^KS11', '5d').catch(() => null);
-  if (!closes || closes.length < 2) return null;
-  const current = closes[closes.length - 1];
-  const prev    = closes[closes.length - 2];
-  return { price: current, changePct: safePctChange(current, prev, { label: 'reportGenerator.kospi' }) ?? 0 };
+// ── KOSPI/USD-KRW 표시 소스 선택 (ADR-0561 KIS Primary) ───────────────────────
+//
+// 장마감 요약의 KOSPI/USD-KRW 는 기존엔 리포트가 직접 Yahoo(`^KS11`/`KRW=X`)에서 받아
+// (frozen non-execution Yahoo use) 글리치 값(+8.18% 8096.93)을 사실처럼 표시했다.
+//   - KOSPI: KIS 종합지수(L1, code 0001 / FHPUP02100000)를 primary 로 — 장마감 시점
+//     intraday quote = 종가. KIS 실패/미가용(flag OFF) 시에만 Yahoo 최후 fallback.
+//   - USD/KRW: KIS 는 FX 미공급(대체불가) → cross-validated macroState(Yahoo+ECOS,
+//     ADR-0071 usdKrwSource)를 primary 로(리포트 raw Yahoo 보다 검증된 값), 부재 시 Yahoo.
+// 둘 다 표시 전용(executionImpact=NONE) · Yahoo 는 최후 fallback 으로만 잔존.
+
+/** KOSPI 표시 소스 선택 — KIS(L1) 우선, 실패/미가용 시 Yahoo(L3) 최후 fallback. */
+export function resolveKospiDisplay(
+  kis: { current: number; changePct: number } | null,
+  yahoo: { price: number; changePct: number } | null,
+): { price: number; changePct: number } | null {
+  if (kis && Number.isFinite(kis.current) && kis.current > 0) {
+    return { price: kis.current, changePct: kis.changePct };
+  }
+  return yahoo && Number.isFinite(yahoo.price) && yahoo.price > 0 ? yahoo : null;
 }
 
-/** USD/KRW 현재 + 전일대비 — ADR-0059: stale prev 시 0 fallback. */
+/** USD/KRW 표시 소스 선택 — cross-validated macroState 우선, 부재 시 Yahoo 최후 fallback. */
+export function resolveUsdKrwDisplay(
+  macroRate: number | null | undefined,
+  macroDayChange: number | null | undefined,
+  yahoo: { rate: number; changePct: number } | null,
+): { rate: number; changePct: number } | null {
+  if (typeof macroRate === 'number' && Number.isFinite(macroRate) && macroRate > 0) {
+    return {
+      rate: macroRate,
+      changePct: typeof macroDayChange === 'number' && Number.isFinite(macroDayChange) ? macroDayChange : 0,
+    };
+  }
+  return yahoo && Number.isFinite(yahoo.rate) && yahoo.rate > 0 ? yahoo : null;
+}
+
+async function fetchKospiSnapshot(): Promise<{ price: number; changePct: number } | null> {
+  // ADR-0561 KIS Primary: KOSPI 종합지수는 KIS(0001)를 primary. flag OFF 시 함수가 null →
+  // Yahoo fallback(기본 byte-equivalent). flag ON 시 KIS 종가/변동률 사용.
+  const kis = await fetchKospiCompositeIntradayQuote('LOW').catch(() => null);
+  let yahoo: { price: number; changePct: number } | null = null;
+  if (!kis) {
+    const closes = await fetchCloses('^KS11', '5d').catch(() => null);
+    if (closes && closes.length >= 2) {
+      const current = closes[closes.length - 1];
+      const prev    = closes[closes.length - 2];
+      yahoo = { price: current, changePct: safePctChange(current, prev, { label: 'reportGenerator.kospi' }) ?? 0 };
+    }
+  }
+  return resolveKospiDisplay(kis, yahoo);
+}
+
+/** USD/KRW 현재 + 전일대비 — cross-validated macroState 우선(ADR-0071), 부재 시 Yahoo(ADR-0059 stale prev→0). */
 async function fetchUsdKrwSnapshot(): Promise<{ rate: number; changePct: number } | null> {
+  const macro = loadMacroState();
+  if (macro && typeof macro.usdKrw === 'number' && Number.isFinite(macro.usdKrw) && macro.usdKrw > 0) {
+    return resolveUsdKrwDisplay(macro.usdKrw, macro.usdKrwDayChange, null);
+  }
   const closes = await fetchCloses('KRW=X', '5d').catch(() => null);
-  if (!closes || closes.length < 2) return null;
-  const current = closes[closes.length - 1];
-  const prev    = closes[closes.length - 2];
-  return { rate: current, changePct: safePctChange(current, prev, { label: 'reportGenerator.usdkrw' }) ?? 0 };
+  let yahoo: { rate: number; changePct: number } | null = null;
+  if (closes && closes.length >= 2) {
+    const current = closes[closes.length - 1];
+    const prev    = closes[closes.length - 2];
+    yahoo = { rate: current, changePct: safePctChange(current, prev, { label: 'reportGenerator.usdkrw' }) ?? 0 };
+  }
+  return resolveUsdKrwDisplay(undefined, undefined, yahoo);
 }
 
 type MacroSnapshot = ReturnType<typeof loadMacroState>;
