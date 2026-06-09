@@ -14,7 +14,10 @@
  */
 
 import type { ScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
-import { formatScanEvaluationCompactLine } from '../../../trading/signalScanner/state/scanEvaluationState.js';
+import {
+  formatScanEvaluationCompactLine,
+  resolveScanMarketSessionView,
+} from '../../../trading/signalScanner/state/scanEvaluationState.js';
 import {
   resolveGate1ForensicNextAction,
   type Gate1MinimumSignalForensicSummaryAdr0505,
@@ -677,14 +680,27 @@ function resolveScanBlockersSessionDisplay(summary: ScanSummary | null | undefin
   blocked: boolean;
 } {
   const inputEntryBlockMode = resolveScanBlockersEntryBlockMode(summary);
-  const rawSession = normalizeMarketSessionLabel(summary?.scanEvaluation?.marketSessionState);
-  const diagnosticSession = normalizeMarketSessionLabel(extractGate1DiagnosticSession(summary));
-  const rawMarketSession = rawSession && rawSession !== 'SELL_ONLY'
-    ? rawSession
-    : diagnosticSession ?? rawSession ?? (summary?.macroGateState?.sellOnlyMode ? 'SELL_ONLY' : 'REGULAR');
-  const marketSession = rawMarketSession === 'SELL_ONLY' ? 'REGULAR' : rawMarketSession;
+  // marketSession 정합 SSOT(ADR-0555 정합): canonical 헤더(qmpGateDetailHeaderCanonical.ts)와 동일
+  // 시그니처·동일 입력(timeLabel: summary.time 포함)으로 resolveScanMarketSessionView 단일 통로를 호출한다.
+  // 기존 raw read + Gate1 session= scrape + displaySession:'REGULAR' 하드코딩 제거.
+  const sessionView = resolveScanMarketSessionView({
+    explicitMarketSessionState: summary?.scanEvaluation?.marketSessionState,
+    macroGateState: summary?.macroGateState,
+    asOf: summary?.scanEvaluation?.asOf,
+    timeLabel: summary?.time,
+  });
+  // SSOT 가 UNKNOWN 일 때에 한해 Gate1 진단 텍스트 scrape 를 최후 fallback 으로만 잔존(없으면 UNKNOWN 유지).
+  const marketSession = sessionView.canonicalSession === 'UNKNOWN'
+    ? (normalizeMarketSessionLabel(extractGate1DiagnosticSession(summary)) ?? sessionView.marketSessionState)
+    : sessionView.marketSessionState;
   const blocked = false;
-  return { marketSession, displaySession: 'REGULAR', entryBlockMode: 'NORMAL', inputEntryBlockMode, blocked };
+  return {
+    marketSession,
+    displaySession: sessionView.displaySession,
+    entryBlockMode: 'NORMAL',
+    inputEntryBlockMode,
+    blocked,
+  };
 }
 
 function isLiveEvaluationSkippedSummary(summary: ScanSummary | null | undefined, entryBlockMode: string): boolean {
