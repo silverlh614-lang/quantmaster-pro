@@ -173,6 +173,14 @@ export interface MacroState {
   kospiIntradayHighReturn?: number;
   /** R6 forensic: KOSPI trigger source freshness timestamp (ISO). */
   kospiTriggerSourceUpdatedAt?: string;
+  /** ADR-0592: R6 trigger 봉의 KRX 거래일(YYYY-MM-DD KST). age-only freshness 오판 차단용. */
+  kospiTriggerSourceTradeDate?: string;
+  /** ADR-0592: 오늘 KOSPI 현재가 vs 전일종가 수익률(%). KIS 종합지수(L1) intraday. flag OFF 시 미설정. */
+  kospiIntradayReturn?: number;
+  /** ADR-0592: kospiIntradayReturn 소스 거래일(YYYY-MM-DD KST) — 오늘 아니면 recovery 미사용. */
+  kospiIntradaySourceTradeDate?: string;
+  /** ADR-0592: kospiIntradayReturn 마지막 KIS fetch 성공 시각(ISO). carry-forward 시 갱신 안 됨. */
+  kospiIntradayFetchedAt?: string;
   leadingSectorRS?: number;         // 선행 섹터 상대강도 (0~100)
   sectorCycleStage?: 'EARLY' | 'MID' | 'LATE' | 'TURNING'; // 섹터 사이클
   marginBalance5dChange?: number;   // 신용잔고 5일 변화율 (ADR-0139)

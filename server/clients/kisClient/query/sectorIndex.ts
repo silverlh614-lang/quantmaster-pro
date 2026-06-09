@@ -420,6 +420,68 @@ export async function fetchKisSectorIndexCurrentPrice(
   }
 }
 
+/**
+ * ADR-0592: KOSPI 종합지수(0001) intraday quote 노출 — R6 recovery 평가 입력(결함 B).
+ *
+ * 기존 fetchKisSectorIndexCurrentPrice 와 달리 (1) 전용 flag `R6_KOSPI_INTRADAY_QUOTE_ENABLED`
+ * 로 게이트(SectorEnergy diagnostic flag 와 독립) + (2) tradeDate(YYYY-MM-DD KST) 반환.
+ * 내부는 기존 realDataKisGet SSOT 경유(절대 규칙 #2, raw KIS REST 금지) + VTS override 재사용.
+ *
+ * tradeDate 는 응답 row 의 거래일 필드(stck_bsop_date/bsop_date, YYYYMMDD)에서 우선 도출하고,
+ * 부재 시 현재 KST 날짜(quote 는 "지금" 시세이므로 응답 시점 거래일)로 폴백한다.
+ * 실패/미설정 시 null → 호출자(kospiIntradayRefresh)가 carry-forward 처리.
+ */
+export async function fetchKospiCompositeIntradayQuote(
+  priority: KisApiPriority = 'LOW',
+): Promise<{ current: number; changePct: number; tradeDate: string } | null> {
+  if (process.env.R6_KOSPI_INTRADAY_QUOTE_ENABLED !== 'true') return null;
+  const overrides = getKisOverrides();
+  // VTS mock 재사용 — 종합지수(0001) 현재가 override.
+  if (overrides.fetchKisSectorIndexCurrentPrice) {
+    const mock = await overrides.fetchKisSectorIndexCurrentPrice(KIS_SECTOR_INDEX_ISCD.KOSPI);
+    if (!mock || mock.currentIndex == null || mock.changePct == null) return null;
+    return {
+      current: mock.currentIndex,
+      changePct: mock.changePct,
+      tradeDate: kospiQuoteTradeDateFallback(),
+    };
+  }
+  if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
+  try {
+    const data = await realDataKisGet(
+      SECTOR_INDEX_CURRENT_TR_ID,
+      SECTOR_INDEX_CURRENT_PATH,
+      {
+        FID_COND_MRKT_DIV_CODE: 'U',
+        FID_INPUT_ISCD: KIS_SECTOR_INDEX_ISCD.KOSPI,
+      },
+      priority,
+    );
+    const buckets = pickKisRowsByBucket(data);
+    const row = buckets.output[0] ?? buckets.output1[0] ?? buckets.output2[0];
+    if (!row) return null;
+    const current = extractKisNumberOptional(row, ['bstp_nmix_prpr', 'prpr']) ?? null;
+    const changePct = extractKisNumberOptional(row, ['bstp_nmix_prdy_ctrt', 'prdy_ctrt']) ?? null;
+    if (current == null || !Number.isFinite(current) || current <= 0 || changePct == null || !Number.isFinite(changePct)) {
+      return null;
+    }
+    const rawBsopDate = String(row.stck_bsop_date ?? row.bsop_date ?? '').trim();
+    const tradeDate = /^\d{8}$/.test(rawBsopDate)
+      ? `${rawBsopDate.slice(0, 4)}-${rawBsopDate.slice(4, 6)}-${rawBsopDate.slice(6, 8)}`
+      : kospiQuoteTradeDateFallback();
+    return { current, changePct, tradeDate };
+  } catch (e) {
+    console.error('[KIS] KOSPI composite intraday quote fetch failed:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+/** 현재 KST 날짜(YYYY-MM-DD) — quote 응답에 거래일 필드 부재 시 폴백(날짜 helper 의존성 0, 인라인 계산). */
+function kospiQuoteTradeDateFallback(): string {
+  const ms = Date.now() + 9 * 60 * 60 * 1000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 function classifyKisSectorIndexFailure(input: {
   httpStatus?: number | null;
   rtCd?: string | null;

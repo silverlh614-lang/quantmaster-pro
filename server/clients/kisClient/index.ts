@@ -109,6 +109,7 @@ export {
   fetchKisStockDailyBars,
   fetchKisSectorIndexDaily,
   fetchKisSectorIndexCurrentPrice,
+  fetchKospiCompositeIntradayQuote,
   fetchKisSectorIndexCurrentPriceProbe,
   isKisSectorIndexDailyDisabled,
   isKisSectorIndexCurrentDisabled,
