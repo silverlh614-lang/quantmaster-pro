@@ -4,7 +4,31 @@
 
 ## Status
 
-Proposed
+Proposed (구현 완료 — default OFF byte-equivalent, shadow-gated)
+
+## 구현 default (engine-dev 확정, 2026-06-09)
+
+D1~D6 구현 시 §미해결 항목에 대해 다음 default 를 확정했다 (전부 ENV 오버라이드 제공, default OFF):
+
+- **모듈:** `server/trading/signalScanner/reversalMomentumCredit.ts` (순수 SSOT, `riskOnFastUpgrade.ts` 동형).
+  `computeReversalMomentumCredit(input): { bonus, applied, reason }` + `buildPriceMomentumReversalApplier`
+  (call-site clamp applier·진단 묶음) + 4 ENV 헬퍼(정확비교·유한성·범위 가드).
+- **flag:** `GATE1_REVERSAL_MOMENTUM_ENABLED` (default OFF, `=== 'true'` 정확 비교).
+- **MAX_BONUS = 8** (`GATE1_REVERSAL_MOMENTUM_MAX_BONUS`) — PRICE_MOMENTUM maxScore 20 내 일부.
+- **T_min = 3.0%** (`GATE1_REVERSAL_MOMENTUM_T_MIN_PCT`) — noise floor, 미만 가산 0.
+- **T_cap = 12.0%** (`GATE1_REVERSAL_MOMENTUM_T_CAP_PCT`) — 초과 과급등은 MAX_BONUS **cap**(가산 미증가,
+  역가산/감쇠 채택 안 함; 추격은 regime-gate 가 이미 차단). §미해결 #2 → cap 확정.
+- **게이트 = §D3 (권장) canonical RISK_ON_REGIMES** (`['R1_TURBO','R2_BULL','R3_EARLY']`, 모듈 내 재선언)
+  — 배선 0·src↔server 경계 무관. 이 집합으로 게이팅하면 ADR-0593 fast-upgrade(breadth+VKOSPI 통과 시에만
+  R3 승급)를 transitively 상속 → breadth/VKOSPI 재게이팅 불필요(이중게이트 회피). §미해결 #3 → canonical 확정.
+- **가산 적용:** PRICE_MOMENTUM weightedScore 에 bonus 직접 가산 후 `clamp(_, 0, 20)` — maxScore 20 천장 불변
+  (ADR-0467 양수 회계). normalizedScore 는 다일집계 기반 그대로(진단 정합). flag OFF/non-risk-on/changePercent
+  부재 → bonus 0 → weightedScore 100% 보존(byte-equivalent, 회귀 테스트 증명).
+- **진단:** PRICE_MOMENTUM rawValue 에 `reversalCreditApplied`/`reversalBonus`/`reversalGateReason`/
+  `reversalTodayChangePercent` additive 필드 + message 가산 노출(silent 금지).
+- **테스트:** `reversalMomentumCredit.test.ts`(진리표 25케이스) +
+  `gate1ReversalMomentumCreditWiringAdr0594.test.ts`(flag OFF byte-equivalent·flag ON 가산·20 clamp·
+  non-risk-on 불가산·changePercent 부재 보수).
 
 ## Context
 
