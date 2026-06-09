@@ -312,21 +312,24 @@ export async function generateQualityScorecard(): Promise<void> {
 
   // ── 6. 병목 자동 진단 (Gemini) ─────────────────────────────────────────────
 
-  // 수율이 극단적으로 낮은 구간을 Gemini가 진단
-  const bottleneckStages: string[] = [];
-  if (discoveryYield < 5 && universeScanned > 0) bottleneckStages.push(`Discovery ${discoveryYield}% (스크리닝 기준 과도?)`);
-  if (gateYield < 20 && gateReached > 0) bottleneckStages.push(`Gate ${gateYield}% (Gate 조건 과다?)`);
-  if (signalYield < 10 && gatePassed > 3) bottleneckStages.push(`Signal ${signalYield}% (진입 조건 과도?)`);
-  if (tradeYield < 30 && todayTradesClosed >= 3) bottleneckStages.push(`Trade ${tradeYield}% (손절 기준 점검 필요?)`);
+  // 추세 상대 감지 — 절대 임계값이 아니라 "자기 7일 평균 대비 급락" 한 단계만 병목으로 본다.
+  const bottleneckStages = detectBottleneckStages([
+    { label: 'Discovery', today: discoveryYield, avg7: avg7Discovery, hasSample: universeScanned > 0, absoluteFloor: 5, hint: '스크리닝 기준 과도?' },
+    { label: 'Gate', today: gateYield, avg7: avg7Gate, hasSample: gateReached > 0, absoluteFloor: 20, hint: 'Gate 조건 과다?' },
+    { label: 'Signal', today: signalYield, avg7: avg7Signal, hasSample: gatePassed > 3, absoluteFloor: 10, hint: '진입 조건 과도?' },
+    { label: 'Trade', today: tradeYield, avg7: avg7Trade, hasSample: todayTradesClosed >= 3, absoluteFloor: 30, hint: '손절 기준 점검 필요?' },
+  ]);
 
   if (bottleneckStages.length > 0) {
     const diagPrompt = [
       '한국 주식 자동매매 시스템의 파이프라인 병목 구간이 감지됐다.',
       `레짐: ${regime}, MHS: ${mhs}`,
-      `병목 구간: ${bottleneckStages.join(' / ')}`,
+      `병목 구간(오늘): ${bottleneckStages.join(' / ')}`,
+      `7일 평균 기준선: Discovery ${avg7Discovery}% / Gate ${avg7Gate}% / Signal ${avg7Signal}% / Trade ${avg7Trade}%`,
       `Stage1 후보: ${stage1Passed}개, 워치리스트: ${watchlistCount}개, 매수: ${buyExecuted}건, 수익: ${todayTradesWon}건`,
       '',
-      '각 병목에 대해 가능한 원인 1개와 개선 방향 1개를 한국어 bullet point로, 150자 이내로 작성하라.',
+      '각 병목은 7일 평균 대비 급락한 단계다. 상시 보수성이 아니라 "오늘 평소 대비 무엇이 바뀌어 급락했는가"(데이터 결측/provider 이슈/레짐 전환 등 일시 원인 포함)에 초점을 맞춰,',
+      '가능한 원인 1개와 개선 방향 1개를 한국어 bullet point로, 150자 이내로 작성하라.',
     ].join('\n');
 
     const diagnosis = await callGemini(diagPrompt, 'quality-scorecard').catch(() => null);
@@ -374,4 +377,54 @@ export function formatGateZeroContext(
     return '🟠 매크로 RED — Gate 평가 차단';
   }
   return 'ℹ️ 평가 도달 0건 — 운영자 진단 필요 (FOMC/VIX 게이팅 또는 스캔 cron 점검)';
+}
+
+// ── 병목 자동 진단 — 추세 상대(trend-relative) 감지 ───────────────────────────
+
+/** 자기 7일 평균의 이 비율 미만으로 하락한 단계만 병목으로 판정 (40%+ 급락). */
+const BOTTLENECK_RELATIVE_FLOOR = 0.6;
+/** 최소 유의 하락폭(%p) — 저베이스 단계(예: Signal)의 미세 변동 노이즈 차단. */
+const BOTTLENECK_MIN_DROP_PP = 2;
+
+export interface StageYieldSnapshot {
+  /** 단계 라벨 (Discovery/Gate/Signal/Trade) */
+  label: string;
+  /** 오늘 수율 (%) */
+  today: number;
+  /** 7일 평균 수율 (%) — 기준선. 0 이면 부트스트랩(이력 부재). */
+  avg7: number;
+  /** 평가 표본 충분 여부 (단계별 카운트 가드) */
+  hasSample: boolean;
+  /** 부트스트랩(평균 부재) 시 폴백할 절대 바닥값 (%) */
+  absoluteFloor: number;
+  /** 부트스트랩 폴백 발화 시 원인 힌트 (프롬프트용) */
+  hint: string;
+}
+
+/**
+ * 병목 단계 판정 (추세 상대).
+ *
+ * 기존 절대 임계값 방식(today < 고정값)은 두 가지 결함이 있었다:
+ *   1) 자기 7일 평균이 임계값보다 구조적으로 낮은 단계(예: Signal 평균 2.3% < 임계 10%)는
+ *      *매일* 발화 → 알림 노이즈가 진짜 병목을 묻는다.
+ *   2) 오늘 평소보다 *좋은데도* 절대값이 낮으면 병목으로 오진 → Gemini 가 "조건 완화"라는
+ *      정반대 처방을 낸다.
+ *
+ * 본 함수는 "자기 7일 평균 대비 40%+ 급락(+ 최소 유의 하락폭)" 한 단계만 병목으로 본다.
+ * 이력이 없는 부트스트랩 구간에서만 절대 바닥값으로 폴백한다.
+ */
+export function detectBottleneckStages(stages: StageYieldSnapshot[]): string[] {
+  const out: string[] = [];
+  for (const s of stages) {
+    if (!s.hasSample) continue;
+    const isRegression =
+      s.avg7 > 0
+        ? s.today < s.avg7 * BOTTLENECK_RELATIVE_FLOOR &&
+          s.avg7 - s.today >= BOTTLENECK_MIN_DROP_PP
+        : s.today < s.absoluteFloor; // 부트스트랩(평균 부재) 폴백
+    if (!isRegression) continue;
+    const reason = s.avg7 > 0 ? `평소 ${s.avg7}% 대비 급락` : s.hint;
+    out.push(`${s.label} ${s.today}% (${reason})`);
+  }
+  return out;
 }
