@@ -241,26 +241,43 @@ function resolveVkospiRecoveryThreshold(macroState: MacroState | null): number {
   return threshold;
 }
 
-function triggerFreshness(macroState: MacroState | null, now: Date): R6TriggerBreakdown['triggerFreshness'] {
+/**
+ * ADR-0590 D1 (+ Codex 정합 정정): 글로벌 trigger freshness(age-only, recovery/latch side-effect 보존) +
+ * intraday-low per-trigger 강등 여부를 함께 산출.
+ *
+ * 강등은 글로벌 freshness 를 떨구지 않는다(close-shock/VKOSPI/USDKRW 과소억제 방지) —
+ * `intradayDowngraded` 만 노출해 buildR6TriggerBreakdown 이 KOSPI_INTRADAY_LOW_SHOCK 만 분리 제외한다.
+ */
+function triggerFreshness(macroState: MacroState | null, now: Date): { freshness: R6TriggerBreakdown['triggerFreshness']; intradayDowngraded: boolean } {
   const ageFreshness = macroFreshnessFromUpdatedAt(macroState, macroState?.kospiTriggerSourceUpdatedAt ?? macroState?.updatedAt, now);
-  // ADR-0590 D1: flag OFF → age-only freshness byte-equivalent. ON → 봉 거래일 기준 강등 위임.
-  if (!isTradeDateFreshnessEnabled()) return ageFreshness;
+  // ADR-0590 D1: flag OFF → age-only freshness byte-equivalent. ON → 봉 거래일 기준 intraday-low per-trigger 강등.
+  if (!isTradeDateFreshnessEnabled()) return { freshness: ageFreshness, intradayDowngraded: false };
   const resolved = resolveKospiTriggerFreshness({ tradeDate: macroState?.kospiTriggerSourceTradeDate, ageFreshness, now });
-  if (resolved.downgraded) {
+  if (resolved.intradayDowngraded) {
     console.info(
       `[R6_TRIGGER_TRADEDATE_STALE] tradeDate=${macroState?.kospiTriggerSourceTradeDate ?? 'N/A'} ` +
-      `today=${toKstDateKey(now)} ageFreshness=${ageFreshness} downgradedTo=${resolved.freshness} ` +
-      'reason=TRIGGER_BAR_NOT_TODAY executionImpact=INTRADAY_TRIGGER_EXCLUDED_FROM_ACTIVE',
+      `today=${toKstDateKey(now)} ageFreshness=${ageFreshness} globalFreshnessPreserved=${ageFreshness} ` +
+      'reason=TRIGGER_BAR_NOT_TODAY executionImpact=ONLY_KOSPI_INTRADAY_LOW_SHOCK_EXCLUDED_FROM_ACTIVE',
     );
   }
-  return resolved.freshness;
+  return { freshness: ageFreshness, intradayDowngraded: resolved.intradayDowngraded };
+}
+
+/** ADR-0590 D2 (Codex 정합 정정): intraday quote TTL(초). carry-forward 된 stale 반등값 종일 live-eligible 방지. 기본 900초=15분(marketDataRefresh VKOSPI 패턴 정합). */
+function kospiIntradayQuoteTtlSec(): number {
+  return envInt('R6_KOSPI_INTRADAY_QUOTE_TTL_SEC', 900);
 }
 
 /**
  * ADR-0590 D2/D3: recovery 평가용 KOSPI day-return 소스 결정.
- * flag(R6_INTRADAY_REBOUND_RELEASE_ENABLED) ON + intraday FRESH(오늘 거래일 + 신선) 일 때만
+ * flag(R6_INTRADAY_REBOUND_RELEASE_ENABLED) ON + intraday FRESH(오늘 거래일 + fetchedAt TTL 이내) 일 때만
  * 오늘 intraday 수익률을 우선 사용한다. 아니면 기존 close-return ?? day-return 폴백(byte-equivalent).
  * 임계값 무변경 — 입력 소스만 stale 대신 오늘 값으로 정확화한다.
+ *
+ * Codex 정합 정정(D2 미달 수리): applyKospiTriggerProvenance 가 KIS 실패 시 기존 필드를
+ * carry-forward(미갱신)하므로, fetchedAt TTL 검사 없이는 아침 1회 성공 후 오후 내내 KIS 실패해도
+ * 아침 stale 반등값이 종일 intradayUsed=true 로 live-eligible → R6 조기해제 falling-knife 위험.
+ * → kospiIntradayFetchedAt 부재/파싱불가/TTL 초과 시 보수적으로 intraday 미사용(legacy 폴백).
  */
 function resolveRecoveryKospiDayReturn(macroState: MacroState | null, now: Date): { value: number | undefined; intradayUsed: boolean } {
   const legacy = finiteNumber(macroState?.kospiCloseReturn) ?? finiteNumber(macroState?.kospiDayReturn);
@@ -270,12 +287,30 @@ function resolveRecoveryKospiDayReturn(macroState: MacroState | null, now: Date)
   const intradayTradeDate = macroState?.kospiIntradaySourceTradeDate;
   const intradayIsToday = intradayTradeDate !== undefined && intradayTradeDate === toKstDateKey(now);
   if (!intradayIsToday) return { value: legacy, intradayUsed: false };
+  // fetchedAt TTL 검사: carry-forward 된 stale 반등값이 종일 live-eligible 되는 것 차단(D2 미달 수리).
+  const fetchedAtMs = macroState?.kospiIntradayFetchedAt ? Date.parse(macroState.kospiIntradayFetchedAt) : NaN;
+  if (!Number.isFinite(fetchedAtMs)) {
+    console.info(
+      `[R6_INTRADAY_REBOUND_STALE_TTL] kospiIntradayFetchedAt=${macroState?.kospiIntradayFetchedAt ?? 'N/A'} ` +
+      'reason=FETCHED_AT_MISSING_OR_UNPARSABLE executionImpact=INTRADAY_REJECTED_LEGACY_FALLBACK',
+    );
+    return { value: legacy, intradayUsed: false };
+  }
+  const ageSec = Math.max(0, Math.floor((now.getTime() - fetchedAtMs) / 1000));
+  const ttlSec = kospiIntradayQuoteTtlSec();
+  if (ageSec > ttlSec) {
+    console.info(
+      `[R6_INTRADAY_REBOUND_STALE_TTL] kospiIntradayFetchedAt=${macroState?.kospiIntradayFetchedAt} ` +
+      `ageSec=${ageSec} ttlSec=${ttlSec} reason=INTRADAY_QUOTE_STALE_TTL_EXCEEDED executionImpact=INTRADAY_REJECTED_LEGACY_FALLBACK`,
+    );
+    return { value: legacy, intradayUsed: false };
+  }
   return { value: intraday, intradayUsed: true };
 }
 
 function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previousState?: RegimeTransitionState): R6TriggerBreakdown {
   if (!macroState) return emptyR6TriggerBreakdown();
-  const freshness = triggerFreshness(macroState, now);
+  const { freshness, intradayDowngraded } = triggerFreshness(macroState, now);
   const kospiDayReturn = finiteNumber(macroState.kospiDayReturn);
   const kospiCloseReturn = finiteNumber(macroState.kospiCloseReturn) ?? kospiDayReturn;
   const kospiIntradayLowReturn = finiteNumber(macroState.kospiIntradayLowReturn);
@@ -297,8 +332,17 @@ function buildR6TriggerBreakdown(macroState: MacroState | null, now: Date, previ
   if (kospiCloseReturn !== undefined && kospiCloseReturn <= -5) detected.push('KOSPI_CLOSE_SHOCK');
   if (vkospiDayChange !== undefined && vkospiDayChange > 30) detected.push('VKOSPI_DAY_SPIKE');
   if (usdKrwDayChange !== undefined && Math.abs(usdKrwDayChange) > 3) detected.push('USDKRW_DAY_SHOCK');
-  const activeR6Triggers = freshness === 'FRESH' ? detected : [];
-  const staleR6Triggers = freshness === 'FRESH' ? [] : detected;
+  // 1단계: age-freshness 글로벌 게이팅(기존). FRESH 면 detected 전부 active 후보.
+  const ageGatedActive = freshness === 'FRESH' ? detected : [];
+  const ageGatedStale = freshness === 'FRESH' ? [] : detected;
+  // 2단계 (ADR-0590 Codex 정합 정정): trade-date 강등은 KOSPI_INTRADAY_LOW_SHOCK 만 per-trigger 제외.
+  // close-shock/VKOSPI_DAY_SPIKE/USDKRW_DAY_SHOCK 는 어제 일봉 intraday-low 와 무관 → active 유지.
+  const activeR6Triggers = intradayDowngraded
+    ? ageGatedActive.filter((t) => t !== 'KOSPI_INTRADAY_LOW_SHOCK')
+    : ageGatedActive;
+  const staleR6Triggers = intradayDowngraded && ageGatedActive.includes('KOSPI_INTRADAY_LOW_SHOCK')
+    ? [...ageGatedStale, 'KOSPI_INTRADAY_LOW_SHOCK' as R6TriggerReason]
+    : ageGatedStale;
   // ADR-0590 D4: 진단 가시화 — 봉 거래일이 오늘 KRX 거래일인지(flag ON 시 강등 입력). flag OFF/필드 부재 시 undefined.
   const tradeDateIsToday = macroState.kospiTriggerSourceTradeDate
     ? macroState.kospiTriggerSourceTradeDate === toKstDateKey(now)

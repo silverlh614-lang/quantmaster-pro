@@ -115,6 +115,23 @@ recovery 평가가 **오늘 현재가 vs 전일종가 기반 intraday 수익률*
 
 모든 flag OFF = 현 baseline byte-equivalent. LIVE 매매 본체(임계값·latch·confirmation) 0줄 변경.
 
+## Addendum — Codex review 정합 정정 (per-trigger 강등 + intraday TTL)
+
+PR #1374 Codex 자동 리뷰 P1 2건(코드 확인 유효) 정합 정정. ADR-0590 범위 내(신규 ADR 불필요).
+
+- **P1-① per-trigger 강등 (D1 설계 보강):** trade-date 강등이 글로벌 freshness 를 STALE 로 떨궈
+  `KOSPI_CLOSE_SHOCK`(폭락 다음날 아침 정당 방어)·`VKOSPI_DAY_SPIKE`·`USDKRW_DAY_SHOCK`(KOSPI 일봉
+  거래일과 무관한 별도 소스)까지 일괄 억제하던 결함 수리. `resolveKospiTriggerFreshness` 는 글로벌
+  freshness 를 age-only 그대로 보존(recovery/latch side-effect byte-equivalent)하고, intraday-low 강등
+  여부를 `intradayDowngraded` boolean 으로만 노출 → `buildR6TriggerBreakdown` 이 `KOSPI_INTRADAY_LOW_SHOCK`
+  만 active 에서 per-trigger 제외. 진단 로그 `[R6_TRIGGER_TRADEDATE_STALE]` 가 "intraday-low 만 제외" 명시.
+- **P1-② intraday TTL (D2 보강):** `resolveRecoveryKospiDayReturn` 에 `kospiIntradayFetchedAt` TTL 검사 추가
+  (신규 ENV `R6_KOSPI_INTRADAY_QUOTE_TTL_SEC`, 기본 900초=15분). KIS 실패 carry-forward 로 아침 stale
+  반등값이 오후 내내 live-eligible 되어 R6 조기해제(falling-knife) 되는 위험 차단. fetchedAt 부재/파싱불가/
+  TTL 초과 시 보수적으로 intraday 미사용(legacy 폴백) + 진단 로그 `[R6_INTRADAY_REBOUND_STALE_TTL]`.
+- R6 임계값(-2/-5/+30/±3/+3%) 무변경. 기존 flag 3개 의미 무변경 + 신규 ENV 1개(TTL, default 900s). flag OFF
+  baseline byte-equivalent 유지.
+
 ## Alternatives Considered
 
 - **A1. marketDataRefresh.ts 안에서 직접 거래일 검증 + KIS quote.** 기각 — 1494/1500 줄, 6줄 여유로 불가.

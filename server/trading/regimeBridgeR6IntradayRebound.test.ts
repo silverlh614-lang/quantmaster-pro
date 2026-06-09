@@ -24,6 +24,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED;
   delete process.env.R6_INTRADAY_REBOUND_RELEASE_ENABLED;
+  delete process.env.R6_KOSPI_INTRADAY_QUOTE_TTL_SEC;
   delete process.env.R6_STRONG_REBOUND_DECAY_ENABLED;
   delete process.env.R6_STRONG_REBOUND_THRESHOLD_PCT;
   delete process.env.R6_STRONG_REBOUND_DECAY_FLOOR;
@@ -65,6 +66,7 @@ describe('ADR-0590 regimeBridge wiring', () => {
       kospiCloseReturn: -4.0,
       kospiIntradayReturn: 3.2,        // 오늘 intraday 반등
       kospiIntradaySourceTradeDate: TODAY_KEY,
+      kospiIntradayFetchedAt: NOW_ISO, // fetchedAt 신선(<TTL)
     });
     const state = evaluateR6RecoveryTransition(
       { ...defaultRegimeTransitionState(NOW_ISO), effectiveRegime: 'R6_DEFENSE', r6RecoveryStatus: 'R6_DEFENSE', r6StateMachineState: 'R6_DEFENSE' },
@@ -140,10 +142,134 @@ describe('ADR-0590 regimeBridge wiring', () => {
       getRawRegime(yesterdayShock, NOW),
       NOW,
     ).r6TriggerBreakdown;
-    expect(breakdown.triggerFreshness).toBe('STALE');
+    // Codex 정합 정정: 글로벌 freshness 는 보존(age-only FRESH), intraday-low 만 per-trigger 제외.
+    expect(breakdown.triggerFreshness).toBe('FRESH');
     expect(breakdown.activeR6Triggers).not.toContain('KOSPI_INTRADAY_LOW_SHOCK');
     expect(breakdown.staleR6Triggers).toContain('KOSPI_INTRADAY_LOW_SHOCK');
     expect(breakdown.tradeDateIsToday).toBe(false);
+  });
+
+  // 케이스 ①-a: TRADEDATE flag ON + 어제 봉 + close-shock(-5%) + intraday-low(-5%)
+  //  → KOSPI_CLOSE_SHOCK active 유지, KOSPI_INTRADAY_LOW_SHOCK 만 stale.
+  it('keeps close-shock active while only excluding intraday-low when TRADEDATE flag ON (defect A1)', () => {
+    process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED = 'true';
+    const yesterdayShock = macro({
+      kospiTriggerSourceTradeDate: YESTERDAY_KEY,
+      kospiIntradayLowReturn: -5.0,
+      kospiCloseReturn: -5.0,         // 어제 종가 -5% (폭락 다음날 아침 정당 방어)
+      kospiDayReturn: -5.0,
+    });
+    const breakdown = evaluateR6RecoveryTransition(
+      defaultRegimeTransitionState(NOW_ISO),
+      yesterdayShock,
+      getRawRegime(yesterdayShock, NOW),
+      NOW,
+    ).r6TriggerBreakdown;
+    expect(breakdown.triggerFreshness).toBe('FRESH');
+    expect(breakdown.activeR6Triggers).toContain('KOSPI_CLOSE_SHOCK');
+    expect(breakdown.activeR6Triggers).not.toContain('KOSPI_INTRADAY_LOW_SHOCK');
+    expect(breakdown.staleR6Triggers).toContain('KOSPI_INTRADAY_LOW_SHOCK');
+  });
+
+  // 케이스 ①-b: TRADEDATE flag ON + 어제 봉 + VKOSPI_DAY_SPIKE(>30) → VKOSPI_DAY_SPIKE active 유지(age-freshness).
+  it('keeps VKOSPI_DAY_SPIKE active under trade-date downgrade (separate source) when TRADEDATE flag ON (defect A2)', () => {
+    process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED = 'true';
+    const vkospiShock = macro({
+      kospiTriggerSourceTradeDate: YESTERDAY_KEY,
+      kospiIntradayLowReturn: -7.0,
+      vkospiDayChange: 35,           // VKOSPI day spike (KOSPI 일봉 거래일과 무관)
+      kospiCloseReturn: -0.3,
+      kospiDayReturn: -0.3,
+    });
+    const breakdown = evaluateR6RecoveryTransition(
+      defaultRegimeTransitionState(NOW_ISO),
+      vkospiShock,
+      getRawRegime(vkospiShock, NOW),
+      NOW,
+    ).r6TriggerBreakdown;
+    expect(breakdown.activeR6Triggers).toContain('VKOSPI_DAY_SPIKE');
+    expect(breakdown.activeR6Triggers).not.toContain('KOSPI_INTRADAY_LOW_SHOCK');
+  });
+
+  // 케이스 ①-c: trade-date 강등이 글로벌 recovery/staleCarryForward 동작을 회귀시키지 않음(기존 보존).
+  //  어제 봉 + 강등 적용이어도 staleBlockedRecovery 는 글로벌 age-freshness(FRESH) 기준 → false 유지.
+  it('does NOT regress global recovery/staleCarryForward via trade-date downgrade (defect A3)', () => {
+    process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED = 'true';
+    const yesterdayShock = macro({
+      kospiTriggerSourceTradeDate: YESTERDAY_KEY,
+      kospiIntradayLowReturn: -7.0,
+      kospiCloseReturn: -0.3,
+      kospiDayReturn: -0.3,
+    });
+    const breakdown = evaluateR6RecoveryTransition(
+      defaultRegimeTransitionState(NOW_ISO),
+      yesterdayShock,
+      getRawRegime(yesterdayShock, NOW),
+      NOW,
+    ).r6TriggerBreakdown;
+    // 글로벌 freshness FRESH → recovery 차단 side-effect 미발동(age-freshness 기반 byte-equivalent).
+    expect(breakdown.triggerFreshness).toBe('FRESH');
+    expect(breakdown.staleBlockedRecovery).toBe(false);
+  });
+
+  // 케이스 ②-a: REBOUND_RELEASE ON + 오늘 거래일 + fetchedAt 신선(<TTL) → intradayUsed=true.
+  it('uses intraday return when fetchedAt is fresh within TTL (defect B TTL ok)', () => {
+    process.env.R6_INTRADAY_REBOUND_RELEASE_ENABLED = 'true';
+    const reboundMacro = macro({
+      kospiDayReturn: -4.0,
+      kospiCloseReturn: -4.0,
+      kospiIntradayReturn: 3.2,
+      kospiIntradaySourceTradeDate: TODAY_KEY,
+      kospiIntradayFetchedAt: new Date(NOW.getTime() - 5 * 60_000).toISOString(), // 5분 전 (<15분)
+    });
+    const state = evaluateR6RecoveryTransition(
+      { ...defaultRegimeTransitionState(NOW_ISO), effectiveRegime: 'R6_DEFENSE', r6RecoveryStatus: 'R6_DEFENSE', r6StateMachineState: 'R6_DEFENSE' },
+      reboundMacro,
+      'R3_EARLY',
+      NOW,
+    );
+    expect(state.r6TriggerBreakdown.intradayReturnUsed).toBe(true);
+    expect(state.r6RecoveryEvidence.kospiDayReturnOk).toBe(true);
+  });
+
+  // 케이스 ②-b: REBOUND_RELEASE ON + 오늘 거래일 + fetchedAt stale(>TTL) → intradayUsed=false, legacy 폴백.
+  it('rejects stale-carry-forward intraday when fetchedAt exceeds TTL (defect B TTL stale)', () => {
+    process.env.R6_INTRADAY_REBOUND_RELEASE_ENABLED = 'true';
+    const staleFetchMacro = macro({
+      kospiDayReturn: -4.0,
+      kospiCloseReturn: -4.0,
+      kospiIntradayReturn: 3.2,        // 아침 stale 반등값 carry-forward
+      kospiIntradaySourceTradeDate: TODAY_KEY,
+      kospiIntradayFetchedAt: new Date(NOW.getTime() - 60 * 60_000).toISOString(), // 60분 전 (>15분 TTL)
+    });
+    const state = evaluateR6RecoveryTransition(
+      { ...defaultRegimeTransitionState(NOW_ISO), effectiveRegime: 'R6_DEFENSE', r6RecoveryStatus: 'R6_DEFENSE', r6StateMachineState: 'R6_DEFENSE' },
+      staleFetchMacro,
+      'R3_EARLY',
+      NOW,
+    );
+    expect(state.r6TriggerBreakdown.intradayReturnUsed).toBe(false);          // TTL 초과 거부
+    expect(state.r6RecoveryEvidence.kospiDayReturnOk).toBe(false);             // -4.0 legacy 폴백
+  });
+
+  // 케이스 ②-c: REBOUND_RELEASE ON + fetchedAt 부재 → 보수적 legacy 폴백.
+  it('falls back to legacy when fetchedAt is absent (defect B conservative)', () => {
+    process.env.R6_INTRADAY_REBOUND_RELEASE_ENABLED = 'true';
+    const noFetchedAtMacro = macro({
+      kospiDayReturn: -4.0,
+      kospiCloseReturn: -4.0,
+      kospiIntradayReturn: 3.2,
+      kospiIntradaySourceTradeDate: TODAY_KEY,
+      // kospiIntradayFetchedAt 부재
+    });
+    const state = evaluateR6RecoveryTransition(
+      { ...defaultRegimeTransitionState(NOW_ISO), effectiveRegime: 'R6_DEFENSE', r6RecoveryStatus: 'R6_DEFENSE', r6StateMachineState: 'R6_DEFENSE' },
+      noFetchedAtMacro,
+      'R3_EARLY',
+      NOW,
+    );
+    expect(state.r6TriggerBreakdown.intradayReturnUsed).toBe(false);
+    expect(state.r6RecoveryEvidence.kospiDayReturnOk).toBe(false); // -4.0 legacy 폴백
   });
 
   // 케이스 10b: TRADEDATE flag ON + 오늘 봉 → freshness 보존, intraday-low active 유지.
