@@ -18,6 +18,7 @@ import {
   conditionTraceValue,
   extractGateLayerBreakoutSignals,
 } from "./gatePositiveFeatureMaterializer.js";
+import { buildPriceMomentumReversalApplier } from "./reversalMomentumCredit.js";
 import type {
   SignalScoreComponentCode,
   SignalScoreComponentConfidence,
@@ -474,13 +475,20 @@ function breakoutScore(trace: CandidateEntryTrace): {
   };
 }
 
-function priceMomentumScore(trace: CandidateEntryTrace): {
+function priceMomentumScore(trace: CandidateEntryTrace, regime?: string): {
   rawValue?: unknown;
   normalizedScore: number;
   weightedScore: number;
   confidence: SignalScoreComponentConfidence;
   message: string;
 } {
+  // ADR-0594: risk-on 국면 한정 오늘 단일일 강세(changePercent) bounded 양수 가산(SSOT 격리).
+  // flag OFF / non-risk-on / changePercent 부재 → bonus 0 (byte-equivalent).
+  const todayChangePercent = resolveNumericTracePath(trace, [
+    "changePercent", "quote.changePercent", "quoteFeatures.changePercent", "prdy_ctrt", "quote.prdy_ctrt",
+  ]).value;
+  const { credit: reversalCredit, apply: applyReversalCredit, diagnostic: reversalDiagnostic } =
+    buildPriceMomentumReversalApplier(todayChangePercent, regime);
   // resolveNumericTracePath 사용으로 first-match sourcePath 를 진단에 노출한다.
   // value 동작은 nestedNumericTraceValue 와 100% 동일(같은 우선순위·같은 first-match 결과).
   const return5dResolution = resolveNumericTracePath(trace, [
@@ -517,8 +525,7 @@ function priceMomentumScore(trace: CandidateEntryTrace): {
     const normalizedScore =
       values.reduce((sum, value) => sum + value, 0) / values.length;
     return {
-      // 진단(behavior-neutral): resolved sourcePath + resolved value 노출.
-      // H1(컴포넌트 MISSING) vs H2(top-level 오염값 우선) 판별용 — 점수 산출 영향 0.
+      // 진단(behavior-neutral): resolved sourcePath + value 노출(H1 MISSING vs H2 오염값 판별, 점수 영향 0).
       rawValue: {
         return5d: r5,
         return20d: r20,
@@ -526,22 +533,25 @@ function priceMomentumScore(trace: CandidateEntryTrace): {
         return5dResolved: return5dResolution.value,
         return20dSourcePath: return20dResolution.sourcePath,
         return20dResolved: return20dResolution.value,
+        ...reversalDiagnostic,
       },
       normalizedScore,
-      weightedScore: weightedFromNormalized(normalizedScore, 20),
+      weightedScore: applyReversalCredit(weightedFromNormalized(normalizedScore, 20)),
       confidence: "VERIFIED",
-      message:
-        "Price momentum computed from candidate return5d/return20d features; gateScore is not used as actualScore override.",
+      message: reversalCredit.applied
+        ? `Price momentum computed from candidate return5d/return20d features; reversal momentum credit +${round1(reversalCredit.bonus)} applied (${reversalCredit.reason}), clamped to maxScore 20.`
+        : "Price momentum computed from candidate return5d/return20d features; gateScore is not used as actualScore override.",
     };
   }
   const normalizedScore = normalizeSignalScoreTo100(gateScore);
   return {
-    rawValue: gateScore,
+    rawValue: { gateScore, ...reversalDiagnostic },
     normalizedScore,
-    weightedScore: weightedFromNormalized(normalizedScore, 20),
+    weightedScore: applyReversalCredit(weightedFromNormalized(normalizedScore, 20)),
     confidence: gateScore === undefined ? "MISSING" : "DEGRADED",
-    message:
-      gateScore === undefined
+    message: reversalCredit.applied
+      ? `Price momentum reversal momentum credit +${round1(reversalCredit.bonus)} applied (${reversalCredit.reason}) over ${gateScore === undefined ? "missing" : "gateScore fallback"} base, clamped to maxScore 20.`
+      : gateScore === undefined
         ? "Price momentum source missing; contribution is 0."
         : "Price momentum uses low-confidence gateScore fallback only as a component source.",
   };
@@ -696,7 +706,7 @@ export function buildMinimumSignalScoreTrace(input: {
   const relativeWeightedScore = relativeStrength.weightedScore;
   const breakout = breakoutScore(input.trace);
   const volumeLiquidity = volumeLiquidityScore(input.trace);
-  const priceMomentum = priceMomentumScore(input.trace);
+  const priceMomentum = priceMomentumScore(input.trace, input.regime);
   const technicalTrend = technicalTrendScore(input.trace);
   const components: SignalScoreComponentTrace[] = [
     component({
