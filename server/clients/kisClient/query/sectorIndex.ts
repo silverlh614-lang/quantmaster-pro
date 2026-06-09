@@ -433,7 +433,7 @@ export async function fetchKisSectorIndexCurrentPrice(
  */
 export async function fetchKospiCompositeIntradayQuote(
   priority: KisApiPriority = 'LOW',
-): Promise<{ current: number; changePct: number; tradeDate: string } | null> {
+): Promise<{ current: number; changePct: number; tradeDate: string; advanceCount?: number; declineCount?: number } | null> {
   if (process.env.R6_KOSPI_INTRADAY_QUOTE_ENABLED !== 'true') return null;
   const overrides = getKisOverrides();
   // VTS mock 재사용 — 종합지수(0001) 현재가 override.
@@ -469,7 +469,13 @@ export async function fetchKospiCompositeIntradayQuote(
     const tradeDate = /^\d{8}$/.test(rawBsopDate)
       ? `${rawBsopDate.slice(0, 4)}-${rawBsopDate.slice(4, 6)}-${rawBsopDate.slice(6, 8)}`
       : kospiQuoteTradeDateFallback();
-    return { current, changePct, tradeDate };
+    // ADR-0593: 동일 응답 row 의 등락종목수(breadth) — KIS 콜 0 추가. 파싱 실패 시 undefined(보수).
+    // inquire-index-price(FHPUP02100000) row 는 ascn_issu_cnt(상승)·down_issu_cnt(하락) 포함.
+    const advanceCountRaw = extractKisNumberOptional(row, ['ascn_issu_cnt']);
+    const declineCountRaw = extractKisNumberOptional(row, ['down_issu_cnt']);
+    const advanceCount = advanceCountRaw != null && Number.isFinite(advanceCountRaw) && advanceCountRaw >= 0 ? advanceCountRaw : undefined;
+    const declineCount = declineCountRaw != null && Number.isFinite(declineCountRaw) && declineCountRaw >= 0 ? declineCountRaw : undefined;
+    return { current, changePct, tradeDate, advanceCount, declineCount };
   } catch (e) {
     console.error('[KIS] KOSPI composite intraday quote fetch failed:', e instanceof Error ? e.message : e);
     return null;

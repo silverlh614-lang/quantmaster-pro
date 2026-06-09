@@ -22,6 +22,7 @@ import { resetConditionWeightsForRegime } from '../persistence/conditionWeightsR
 import { isForcedRegimeDowngradeActive } from '../learning/learningState.js';
 import { classifyVkospiSanity } from './regime/vkospiSanityGuard.js';
 import { resolveKospiTriggerFreshness, isTradeDateFreshnessEnabled } from './kospiTriggerFreshness.js';
+import { shouldFastUpgradeToR3Early, isRegimeRiskOnFastUpgradeEnabled } from './regime/riskOnFastUpgrade.js';
 import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import {
   emptyR6RecoveryEvidence,
@@ -46,7 +47,9 @@ let _previousVkospi: number | null = null;
  * MacroState → RegimeVariables
  * 누락 필드는 보수적 중립값으로 fallback — 판정을 보수적 방향으로 편향.
  */
-export function buildRegimeVars(macroState: MacroState): RegimeVariables {
+export function buildRegimeVars(macroState: MacroState, now: Date = new Date()): RegimeVariables {
+  // ⑨ ADR-0593: 상방 fast-upgrade 입력(today-fresh intraday return + breadth ratio) 결정 + 자격 산출.
+  const fastUpgrade = resolveRiskOnFastUpgradeInputs(macroState, now);
   return {
     // ① 변동성
     vkospi:          macroState.vkospi          ?? 20,
@@ -87,7 +90,73 @@ export function buildRegimeVars(macroState: MacroState): RegimeVariables {
     // ⑧ 레짐 승급 보조
     kospiAboveMA20Pct:        macroState.kospiAboveMA20Pct,
     foreignContinuousBuyDays: macroState.foreignContinuousBuyDays,
+
+    // ⑨ ADR-0593 risk-on fast-upgrade (default OFF → eligible undefined → byte-equivalent)
+    kospiDayReturnToday:        fastUpgrade.kospiDayReturnToday,
+    marketBreadthAdvanceRatio:  fastUpgrade.marketBreadthAdvanceRatio,
+    riskOnFastUpgradeEligible:  fastUpgrade.eligible,
   };
+}
+
+/**
+ * ADR-0593: 상방 fast-upgrade 입력 결정 SSOT 위임.
+ *
+ * (1) today intraday 수익률 — ADR-0592 동형 freshness 가드(오늘 거래일 + fetchedAt TTL)를
+ *     **ADR-0593 자체 flag 하에** 적용(D3 R6_INTRADAY_REBOUND_RELEASE_ENABLED 와 디커플,
+ *     spec #5). stale/부재 시 undefined → 미발동(falling-knife 방지).
+ * (2) breadth ratio — kospiAdvanceCount/(adv+dec), today 거래일 + TTL 동일 가드. 부재 시 undefined.
+ * (3) 자격 — shouldFastUpgradeToR3Early(순수 SSOT, flag-gated)에 위임.
+ *
+ * flag OFF(REGIME_RISK_ON_FAST_UPGRADE_ENABLED!=='true') → eligible 항상 false(byte-equivalent).
+ */
+function resolveRiskOnFastUpgradeInputs(
+  macroState: MacroState,
+  now: Date,
+): { kospiDayReturnToday: number | undefined; marketBreadthAdvanceRatio: number | undefined; eligible: boolean | undefined } {
+  if (!isRegimeRiskOnFastUpgradeEnabled()) {
+    return { kospiDayReturnToday: undefined, marketBreadthAdvanceRatio: undefined, eligible: undefined };
+  }
+
+  const todayKey = toKstDateKey(now);
+  const ttlSec = kospiIntradayQuoteTtlSec();
+
+  // (1) today intraday 수익률 — 오늘 거래일 + fetchedAt TTL 통과 시에만.
+  let kospiDayReturnToday: number | undefined;
+  const intraday = finiteNumber(macroState.kospiIntradayReturn);
+  const intradayIsToday = macroState.kospiIntradaySourceTradeDate === todayKey;
+  if (intraday !== undefined && intradayIsToday && isFetchFresh(macroState.kospiIntradayFetchedAt, now, ttlSec)) {
+    kospiDayReturnToday = intraday;
+  }
+
+  // (2) breadth ratio — 동일 today/TTL 가드(breadth fetchedAt). adv+dec>0 일 때만.
+  let marketBreadthAdvanceRatio: number | undefined;
+  const adv = finiteNumber(macroState.kospiAdvanceCount);
+  const dec = finiteNumber(macroState.kospiDeclineCount);
+  const breadthIsToday = macroState.kospiIntradaySourceTradeDate === todayKey; // breadth 는 intraday quote 부산물 → 동일 거래일
+  if (adv !== undefined && dec !== undefined && adv >= 0 && dec >= 0 && (adv + dec) > 0
+      && breadthIsToday && isFetchFresh(macroState.kospiBreadthFetchedAt, now, ttlSec)) {
+    marketBreadthAdvanceRatio = adv / (adv + dec);
+  }
+
+  const vkospiDayChange = finiteNumber(macroState.vkospiDayChange) ?? 0;
+  const eligible = shouldFastUpgradeToR3Early({ kospiDayReturnToday, vkospiDayChange, marketBreadthAdvanceRatio });
+  if (eligible) {
+    console.info(
+      '[REGIME_RISK_ON_FAST_UPGRADE] ' +
+        `kospiDayReturnToday=${kospiDayReturnToday?.toFixed(2)}% vkospiDayChange=${vkospiDayChange.toFixed(2)}% ` +
+        `breadthAdvanceRatio=${marketBreadthAdvanceRatio?.toFixed(3)} ` +
+        'cap=R3_EARLY executionImpact=NONE',
+    );
+  }
+  return { kospiDayReturnToday, marketBreadthAdvanceRatio, eligible };
+}
+
+/** fetchedAt(ISO)이 now-TTL 이내인가. 부재/파싱불가/초과 → false(보수, carry-forward stale 차단). */
+function isFetchFresh(fetchedAtIso: string | undefined, now: Date, ttlSec: number): boolean {
+  const fetchedAtMs = fetchedAtIso ? Date.parse(fetchedAtIso) : NaN;
+  if (!Number.isFinite(fetchedAtMs)) return false;
+  const ageSec = Math.max(0, Math.floor((now.getTime() - fetchedAtMs) / 1000));
+  return ageSec <= ttlSec;
 }
 
 /** 레짐 순서 (방어 → 공격) — 다운그레이드/업그레이드 판단용 */
@@ -835,7 +904,7 @@ export function getRawRegime(macroState: MacroState | null, now: Date = new Date
   if ((macroState as unknown as { regime?: string } | null)?.regime === 'R6_DEFENSE') return 'R6_DEFENSE';
   const triggerBreakdown = buildR6TriggerBreakdown(macroState, now);
   if (triggerBreakdown.activeR6Triggers.length > 0) return 'R6_DEFENSE';
-  return macroState ? classifyRegime(buildRegimeVars(macroState)) : 'R4_NEUTRAL';
+  return macroState ? classifyRegime(buildRegimeVars(macroState, now)) : 'R4_NEUTRAL';
 }
 
 export function getRegimeDiagnostics(macroState: MacroState | null, now: Date = new Date()): RegimeDiagnostics {

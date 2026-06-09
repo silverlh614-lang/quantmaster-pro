@@ -125,6 +125,16 @@ export interface RegimeVariables {
   // ⑧ 레짐 승급 보조 축 (optional — 존재 시 R3 강제 승급 판단에 사용)
   kospiAboveMA20Pct?: number;        // KOSPI가 MA20 대비 몇 % 위에 있는지
   foreignContinuousBuyDays?: number; // 외국인 연속 순매수 일수
+
+  // ⑨ ADR-0593 risk-on fast-upgrade 보조 축 (optional — 미설정 시 fast-upgrade 미발동, 보수)
+  kospiDayReturnToday?: number;        // 오늘 거래일 freshness-guarded intraday KOSPI 수익률 % (kospiDayReturn 봉종가와 의미 분리)
+  marketBreadthAdvanceRatio?: number;  // 시장 상승종목 비율 0~1 (advance/(advance+decline))
+  /**
+   * ADR-0593: 상방 fast-upgrade 자격(3중 AND 결과). server buildRegimeVars 가
+   * shouldFastUpgradeToR3Early(SSOT, flag-gated) 로 산출해 주입. 미설정/false → 미승급(byte-equivalent).
+   * classifyRegime 은 src↔server 경계상 server SSOT 를 직접 import 할 수 없으므로 resolved boolean 만 소비.
+   */
+  riskOnFastUpgradeEligible?: boolean;
 }
 
 // ─── 레짐별 트레이딩 설정 타입 ───────────────────────────────────────────────
