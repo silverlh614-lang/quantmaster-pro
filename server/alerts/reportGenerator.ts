@@ -891,6 +891,46 @@ function fmtPct(v: number | null | undefined): string {
   return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
 }
 
+// ── 리포트 정직성 마킹 (provider 글리치/저신뢰를 사실처럼 표시하지 않음) ──────────
+//
+// 배경 (2026-06-09 운영자 진단): 장마감 요약이 KOSPI 종가를 Yahoo `^KS11` 에서 받아
+// "+8.18% (8096.93)" 를 *확정 사실처럼* 출력했으나, 같은 시점 Gate0 macro 는
+// macroSignalConfidence=MISSING_OR_PARTIAL · sourceHealth=STALE 였다. provider 데이터
+// 글리치/저하를 캐비엇 없이 권위있게 표시하면 운영자를 오도한다 (9대 불변식 #6:
+// provider 장애 ≠ market signal). 본 헬퍼들은 *표시 전용* 마킹만 한다 — 값 출처·매매·
+// SourceSnapshot 무변경. 정상값은 빈 문자열(byte-equivalent).
+
+/** 일일 변동률이 데이터 글리치로 의심되는 상한 (표시 전용 sanity 경계, 매매 임계 아님). */
+const ANOMALY_CHANGE_PCT_BOUND = { INDEX: 8, FX: 3 } as const;
+
+/**
+ * KOSPI/USD-KRW 당일 변동률이 비현실적으로 클 때 ⚠️ 마킹.
+ * INDEX(지수) ≥ 8% · FX(환율) ≥ 3% 는 정상 거래일에선 거의 나오지 않는 값이라
+ * provider 글리치(예: Yahoo stale candle)일 가능성이 높다 → 사실 대신 "확인 요망" 표시.
+ */
+export function formatQuoteAnomalyTag(
+  changePct: number | null | undefined,
+  kind: 'INDEX' | 'FX',
+): string {
+  if (changePct == null || !Number.isFinite(changePct)) return '';
+  return Math.abs(changePct) >= ANOMALY_CHANGE_PCT_BOUND[kind]
+    ? ' ⚠️ 이례적 변동 — 데이터 확인 요망'
+    : '';
+}
+
+/**
+ * MHS/regime 이 저하(degrade)된 매크로 스냅샷에서 나왔을 때 ⚠️ 저신뢰 마킹 (ADR-0583 SSOT).
+ * mhsConfidence PARTIAL(한쪽 결손)/FALLBACK(전면 결손) 또는 mhsDegraded=true → 저신뢰.
+ * 이 신호는 scan_blockers 의 macroSignalConfidence=MISSING_OR_PARTIAL 에 대응한다.
+ */
+export function formatMacroConfidenceTag(
+  macro: { mhsConfidence?: 'FULL' | 'PARTIAL' | 'FALLBACK'; mhsDegraded?: boolean } | null | undefined,
+): string {
+  if (!macro) return '';
+  const degraded = macro.mhsDegraded === true || macro.mhsConfidence === 'PARTIAL' || macro.mhsConfidence === 'FALLBACK';
+  return degraded ? ` ⚠️ 저신뢰(${macro.mhsConfidence ?? 'DEGRADED'})` : '';
+}
+
 /** KOSPI 현재가 + 전일대비 변화율 조회 — ADR-0059: stale prev 시 0 fallback. */
 async function fetchKospiSnapshot(): Promise<{ price: number; changePct: number } | null> {
   const closes = await fetchCloses('^KS11', '5d').catch(() => null);
@@ -1176,9 +1216,9 @@ function buildPostMarketTelegramMessage(params: PostMarketTelegramMessageParams)
   return (
     `🌇 <b>[장마감 요약] ${new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}</b>\n` +
     `━━━━━━━━━━━━━━━━━\n` +
-    `<b>📊 KOSPI 종가</b>: ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}\n` +
-    `<b>💱 USD/KRW</b>: ${usdKrw ? `${usdKrw.rate.toFixed(0)}원 (${fmtPct(usdKrw.changePct)})` : 'N/A'}\n` +
-    `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n\n` +
+    `<b>📊 KOSPI 종가</b>: ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})${formatQuoteAnomalyTag(kospi.changePct, 'INDEX')}` : 'N/A'}\n` +
+    `<b>💱 USD/KRW</b>: ${usdKrw ? `${usdKrw.rate.toFixed(0)}원 (${fmtPct(usdKrw.changePct)})${formatQuoteAnomalyTag(usdKrw.changePct, 'FX')}` : 'N/A'}\n` +
+    `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})${formatMacroConfidenceTag(macro)}\n\n` +
     `<b>📈 당일 거래 결과</b>\n` +
     `  신호: ${todaySignalsCount}건 | 실현: ${r.realizationCount}건` +
       (r.partialOnlyCount > 0 ? ` (부분 ${r.partialOnlyCount} · 전량 ${r.fullClosedCount})` : '') + `\n` +

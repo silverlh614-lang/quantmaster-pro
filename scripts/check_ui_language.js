@@ -146,7 +146,11 @@ function changedFiles() {
     const out = execSync('git diff --cached --name-only --diff-filter=ACMR', { encoding: 'utf-8' });
     return out
       .split('\n')
-      .filter((n) => n && EXTS.has(extname(n)) && !IGNORED_SUFFIX.some((suf) => n.endsWith(suf)));
+      .filter((n) => n && EXTS.has(extname(n)) && !IGNORED_SUFFIX.some((suf) => n.endsWith(suf)))
+      // ADR-0094 scope SSOT: 정책은 src/ 한정(ROOTS=['src'], 헤더 "src/ 의 string literal").
+      // full 스캔은 src/ 만 walk 하므로, --changed 도 동일 스코프를 따라야 한다 — server/ 등
+      // 정책 범위 밖 staged 파일(예: Telegram 리포트·LLM 프롬프트 문자열)을 잡던 오탐 제거.
+      .filter((n) => ROOTS.some((root) => n.replace(/^\.\//, '').startsWith(root + '/')));
   } catch {
     return [];
   }
