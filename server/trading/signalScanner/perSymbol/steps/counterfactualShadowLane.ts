@@ -7,6 +7,7 @@ import { appendCounterfactualShadowLearningEntry } from '../../../../persistence
 import { evaluateServerGate } from '../../../../quantFilter.js';
 import { deriveCounterfactualShadowLearningCandidate } from '../../counterfactualShadowLearningLane.js';
 import { deriveGateDecisionRouterResult } from '../../gateDecisionRouter.js';
+import { resolveTradingContext } from '../../../../calendar/tradingContext.js';
 import type { BuyListLoopContext } from '../types.js';
 
 export async function counterfactualShadowLearning(
@@ -18,6 +19,10 @@ export async function counterfactualShadowLearning(
   try {
     if ((ctx.learningRegime ?? ctx.regime) === 'R3_EARLY' && isGate1Survivor && reCheckGate?.outputs) {
       const macroStateCf = ctx.macroState;
+      // ADR-0591 Market Truth Layer 날짜 SSOT — UTC 캘린더 날짜(new Date().toISOString().slice) 대신
+      // 단일 KST 거래일(effectiveTradingDate) 사용. 장전(08:40 KST=전날 UTC) scanId 전날 박힘 + 동일 스캔
+      // 내 두 scanId 불일치(UTC midnight cross) 동시 해소. SHADOW 학습 한정(executionImpact=NONE).
+      const effectiveTradingDate = resolveTradingContext().effectiveTradingDate;
       const cfRouterResult = deriveGateDecisionRouterResult({
         regime: ctx.learningRegime ?? ctx.regime,
         gate1Pass: 1,
@@ -42,7 +47,7 @@ export async function counterfactualShadowLearning(
           sellOnly: false,
           r6Defense: false,
         },
-        scanId: `${new Date().toISOString().slice(0, 10)}:${stock.code}`,
+        scanId: `${effectiveTradingDate}:${stock.code}`,
         nowKst: new Date().toISOString(),
       });
       if (cfCandidate !== null) {
@@ -50,7 +55,7 @@ export async function counterfactualShadowLearning(
         ctx.scanCounters.counterfactualShadowCandidates.push(cfCandidate);
         const cfRecordResult = appendCounterfactualShadowLearningEntry({
           candidate: cfCandidate,
-          scanId: `${new Date().toISOString().slice(0, 10)}:${stock.code}`,
+          scanId: `${effectiveTradingDate}:${stock.code}`,
           scannedAtKst: new Date().toISOString(),
         });
         if (cfRecordResult.recorded) {
