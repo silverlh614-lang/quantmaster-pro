@@ -587,35 +587,7 @@ export function computeVkospiDayChangeFromBars(bars: DailyBar[] | null): { curre
   return { current, prevClose, dayChangePct: ((current - prevClose) / prevClose) * 100 };
 }
 
-export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHEDULED'): Promise<MarketRefreshComputed> {
-  const refreshAttemptAt = new Date().toISOString();
-  logMacroRefreshStarted(reason);
-  const existing = loadMacroState();
-  if (!existing) {
-    logMacroRefreshSkipped('MACRO_STATE_MISSING');
-    emitMarketDataProviderWarn('MACRO_STATE_MISSING', {
-      action: 'POST /macro/state required before refresh',
-    });
-    return {};
-  }
-
-  // macro refresh is observational data collection, not trade execution.  It must
-  // continue through R6_DEFENSE / SELL_ONLY / SHADOW_ONLY / OBSERVE_ONLY and when
-  // Keep this path independent from execution state.
-  saveMacroState({
-    ...existing,
-    lastRefreshAttemptAt: refreshAttemptAt,
-    refreshJobEnabled: true,
-    refreshJobLastRunAt: refreshAttemptAt,
-    refreshBlockedReason: 'NONE',
-    writeSucceeded: true,
-    updatedAtChanged: false,
-  });
-
-  try {
-    const computed: MarketRefreshComputed = {};
-
-  // ── ④ KOSPI (^KS11) 60일 — MA, 수익률 ──────────────────────────────────────
+async function refreshKospiSection(computed: MarketRefreshComputed): Promise<void> {
   const kospiBars = await fetchDailyBars('^KS11', '65d');
   const kospi = kospiBars ? kospiBars.map(b => b.close) : null;
   if (kospi && kospi.length >= 22) {
@@ -640,8 +612,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
   } else {
     emitMarketDataProviderWarn('KOSPI_DATA_INSUFFICIENT');
   }
+}
 
-  // ── ④-B VKOSPI — KRX OpenAPI 파생상품 지수 일별 우선, Yahoo fallback ───────
+async function refreshVkospiSection(computed: MarketRefreshComputed, existing: MacroState): Promise<void> {
   try {
     const rows = await fetchDerivativesIndexDaily();
     // VKOSPI(코스피200 변동성지수) 행 선택 — 정밀 이름 매칭. 덤프(2026-06-07) 결과 bare '변동성지수'는
@@ -698,8 +671,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       });
     }
   }
+}
 
-  // ── ② USD/KRW (Yahoo `KRW=X` + ECOS 한국은행 공식 교차 검증, ADR-0071) ──────
+async function refreshUsdKrwSection(computed: MarketRefreshComputed): Promise<void> {
   const [usdkrw, ecosUsdKrw] = await Promise.all([
     fetchCloses('KRW=X', '25d'),
     fetchLatestUsdKrw().catch(() => null),  // ECOS_API_KEY 미설정/throw graceful
@@ -735,8 +709,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       error: xs.message,
     });
   }
+}
 
-  // ── ⑦ S&P500 (^GSPC) 20일 ────────────────────────────────────────────────
+async function refreshSpxSection(computed: MarketRefreshComputed): Promise<void> {
   const spx = await fetchCloses('^GSPC', '25d');
   if (spx && spx.length >= 3) {
     computed.spxDayReturn = nDayReturn(spx, 1);
@@ -745,8 +720,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
   } else {
     emitMarketDataProviderWarn('SPX_DATA_INSUFFICIENT');
   }
+}
 
-  // ── ⑦ DXY (DX-Y.NYB) 5일 ────────────────────────────────────────────────
+async function refreshDxySection(computed: MarketRefreshComputed): Promise<void> {
   const dxy = await fetchCloses('DX-Y.NYB', '10d');
   if (dxy && dxy.length >= 3) {
     computed.dxy5dChange = nDayReturn(dxy, Math.min(5, dxy.length - 1));
@@ -754,204 +730,12 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
   } else {
     emitMarketDataProviderWarn('DXY_DATA_INSUFFICIENT');
   }
+}
 
-  // ── ③ FSS 수급 (서버 로컬 레코드) ────────────────────────────────────────
-  const fssVars = computeFssVars();
-  computed.foreignNetBuy5d  = fssVars.foreignNetBuy5d;
-  computed.passiveActiveBoth = fssVars.passiveActiveBoth;  // ADR-0136: boolean | null
-  computed.foreignContinuousBuyDays = fssVars.foreignContinuousBuyDays;
-  // ADR-0136: fssRecordsAge 영속 — saveMacroState merge 단계에서 spread.
-  const fssRecordsAgeSnapshot = fssVars.fssRecordsAge;
-  // foreignFuturesSellDays — confluenceEngine 의 "외국인 5일+ 매도" 약세 신호 활성화.
-  // 본 필드는 원래 선물 데이터 의도였으나 KIS/KRX 선물 fetch 인프라 부담 회피 위해
-  // FSS 레코드 기반 외국인 *현물 연속 순매도* 일수로 매핑한다 (의미 근사 — 본질은
-  // "외국인이 N일 연속 빠지고 있다" 약세 신호 동일). foreignContinuousBuyDays 와
-  // 상호 배타적 (한쪽이 ≥1 이면 다른 쪽은 0).
-  computed.foreignFuturesSellDays = fssVars.foreignContinuousSellDays;
-  console.log(
-    `[MarketRefresh] 수급: foreignNetBuy5d=${fssVars.foreignNetBuy5d.toFixed(0)}억, ` +
-    `passiveActiveBoth=${fssVars.passiveActiveBoth}, ` +
-    `연속매수=${fssVars.foreignContinuousBuyDays}일, ` +
-    `연속매도=${fssVars.foreignContinuousSellDays}일, ` +
-    `fssRecordsAge=${fssVars.fssRecordsAge.status}` +
-    `${fssVars.fssRecordsAge.ageDays !== null ? `(${fssVars.fssRecordsAge.ageDays}일전)` : '(MISSING)'}`,
-  );
-
-  // ── ③-b KIS 코스피 전체 투자자별 수급 (실시간 보강) ─────────────────────
-  // FSS 레코드가 0이거나 누락 시 KIS API로 당일 실시간 수급 데이터 보강.
-  // KIS 외국인 순매수가 양수이면 FSS 연속매수 일수를 최소 1일로 보정 —
-  // 당일 선행 매수가 포착된 시점에서 R3 강제 승급 판단이 1일 지연되지 않도록.
-  const kisSupply = await fetchKisMarketSupply().catch(() => null);
-  if (kisSupply) {
-    console.log(
-      `[MarketRefresh] KIS 수급 보강: 외국인=${kisSupply.foreignNetBuy.toLocaleString()}주, ` +
-      `기관=${kisSupply.institutionNetBuy.toLocaleString()}주, 개인=${kisSupply.individualNetBuy.toLocaleString()}주`,
-    );
-    if (kisSupply.foreignNetBuy > 0 && fssVars.foreignContinuousBuyDays < 1) {
-      computed.foreignContinuousBuyDays = 1;
-      console.log('[MarketRefresh] KIS 당일 외국인 순매수 양수 — foreignContinuousBuyDays 1일 보정');
-    }
-  }
-
-  // ── ③-c ADR-0138: KIS 시장 종합 프로그램 매매 추이 (코스피 시장 단위) ────
-  // 사용자 12 아이디어 #4 — 시장 단위 프로그램 자금 흐름. KIS 응답은 원 단위 →
-  // macroState 는 *억원* 환산 (foreignNetBuy5d 등 다른 자금 흐름 필드와 단위 정합).
-  // 호출 실패 시 programSource='NONE' 마커 + 기존 값 보존 (silent degradation 차단).
-  const marketProgram = await fetchKisMarketProgramTrade().catch(() => null);
-  if (marketProgram && marketProgram.programNetBuyAmount !== null) {
-    const eokwon = marketProgram.programNetBuyAmount / 100_000_000;
-    const arbEokwon = marketProgram.programArbitrageNetBuy === null
-      ? null
-      : marketProgram.programArbitrageNetBuy / 100_000_000;
-    computed.programNetBuyAmount = eokwon;
-    computed.programArbitrageNetBuy = arbEokwon;
-    computed.programFetchedAt = marketProgram.fetchedAt;
-    computed.programSource = 'KIS_API';
-    const rawWhole = marketProgram.programNetBuyAmount;
-    const rawArb = marketProgram.programArbitrageNetBuy;
-    const rawNonArb = marketProgram.programNonArbitrageNetBuy ?? null;
-    const rawNonZero = [rawWhole, rawArb, rawNonArb].some((v) => typeof v === 'number' && v !== 0);
-    const agg = (marketProgram.aggregateDiagnostic as Record<string, unknown> | undefined) ?? {};
-    const bundle = (agg.rowBreakdownBundle as Record<string, unknown> | undefined) ?? {};
-    const bk = (bundle.kospi as Record<string, unknown> | undefined) ?? {};
-    const bq = (bundle.kosdaq as Record<string, unknown> | undefined) ?? {};
-    const bc = (bundle.combined as Record<string, unknown> | undefined) ?? {};
-    const kospiLen = Number(bk.outputLength ?? marketProgram.kospiDiagnostics?.rowCount ?? 0);
-    const kosdaqLen = Number(bq.outputLength ?? marketProgram.kosdaqDiagnostics?.rowCount ?? 0);
-    const kisRawOutput = (((agg as any)?.output as Array<Record<string, unknown>> | undefined) ?? []);
-    const combinedLen = Number(bc.outputLength ?? kisRawOutput.length ?? (kospiLen + kosdaqLen));
-    const combinedSource = resolveCombinedSource({
-      kospiRequested: true, kosdaqRequested: true, kospiOutputLength: kospiLen, kosdaqOutputLength: kosdaqLen,
-      combinedOutputLength: combinedLen, combinedMatchesSplit: combinedLen === (kospiLen + kosdaqLen), upstreamHint: String(agg.combinedSource ?? ''),
-    });
-    const hasSplitRows = (kospiLen + kosdaqLen) > 0 && combinedLen === (kospiLen + kosdaqLen);
-    const provisionalSplitAvailable = combinedSource === 'KOSPI_PLUS_KOSDAQ' && hasSplitRows;
-    const kospiRows = provisionalSplitAvailable ? (((bundle.kospi as any)?.rows as Array<Record<string, unknown>> | undefined) ?? []) : [];
-    const kosdaqRows = provisionalSplitAvailable ? (((bundle.kosdaq as any)?.rows as Array<Record<string, unknown>> | undefined) ?? []) : [];
-    const combinedRows = provisionalSplitAvailable
-      ? ((((bundle.combined as any)?.rows as Array<Record<string, unknown>> | undefined) ?? [...kospiRows, ...kosdaqRows]))
-      : ((((bundle.combined as any)?.rows as Array<Record<string, unknown>> | undefined) ?? kisRawOutput));
-    const kospiLeg = normalizeMarketProgramLeg({ rows: kospiRows });
-    const kosdaqLeg = normalizeMarketProgramLeg({ rows: kosdaqRows });
-    const combinedLeg = normalizeMarketProgramLeg({ rows: combinedRows });
-    const combinedWholeNetBuy = sumNullablePair(kospiLeg.rawWholeNetBuy, kosdaqLeg.rawWholeNetBuy);
-    const combinedArbitrageNetBuy = sumNullablePair(kospiLeg.rawArbitrageNetBuy, kosdaqLeg.rawArbitrageNetBuy);
-    const combinedNonArbitrageNetBuy = sumNullablePair(kospiLeg.rawNonArbitrageNetBuy, kosdaqLeg.rawNonArbitrageNetBuy);
-    const invariants = hasSnapshotInvariantViolation({
-      kospiLen,
-      kosdaqLen,
-      combinedLen: combinedLeg.outputLength,
-      combinedNonZero: combinedLeg.nonZeroRows,
-      combinedSource,
-      rawTopFirstBsopHour: String((agg as any)?.firstRowSample?.bsop_hour ?? ''),
-      selectedBsopHour: combinedLeg.selectedBsopHour ?? '',
-    });
-    const rowInvariantViolation = [kospiLeg, kosdaqLeg, combinedLeg].find((leg) => (
-      leg.outputLength === 0
-      && (leg.selectedBsopHour !== null
-        || leg.rawWholeNetBuy !== null
-        || leg.rawArbitrageNetBuy !== null
-        || leg.rawNonArbitrageNetBuy !== null
-        || leg.displayWholeNetBuy !== 'N/A')
-    ) || (leg.rawWholeNetBuy !== null && leg.outputLength === 0));
-    const legInvariantViolated = kospiLeg.invariantViolated || kosdaqLeg.invariantViolated || combinedLeg.invariantViolated || Boolean(rowInvariantViolation);
-    const legInvariantReason = rowInvariantViolation ? 'RAW_EXISTS_WITH_EMPTY_ROWS' : (kospiLeg.invariantReason ?? kosdaqLeg.invariantReason ?? combinedLeg.invariantReason);
-    const finalStatus: ProgramMarketFinalStatus = (invariants.violated || legInvariantViolated)
-      ? 'SNAPSHOT_INCONSISTENT'
-      : (provisionalSplitAvailable ? 'OFFICIAL_PARAMS_VERIFIED' : 'SINGLE_RESPONSE_VERIFIED');
-    const resolvedCombinedSource = (invariants.violated || legInvariantViolated) ? 'UNKNOWN' : combinedSource;
-    const splitAvailable = !(invariants.violated || legInvariantViolated) && resolvedCombinedSource === 'KOSPI_PLUS_KOSDAQ';
-    const combinedOnly = !splitAvailable;
-    const snapshotId = buildProgramMarketSnapshotId();
-    const programMarketSnapshot: NonNullable<MacroState['programMarket']> = {
-      status: marketProgram.marketProgramStatus ?? 'OK_NONZERO',
-      rawStatus: marketProgram.marketProgramStatus ?? 'OK_NONZERO',
-      snapshotId,
-      finalStatus,
-      source: marketProgram.source ?? 'KIS_API',
-      paramMode: 'OFFICIAL',
-      asOfKst: marketProgram.fetchedAt,
-      selectedBsopHour: marketProgram.selectedBsopHour ?? '',
-      selectedReason: marketProgram.selectedReason ?? 'LATEST_BY_BSOP_HOUR',
-      raw: {
-        wholeNetBuyTradeAmount: rawWhole,
-        arbitrageNetBuyTradeAmount: rawArb,
-        nonArbitrageNetBuyTradeAmount: rawNonArb,
-        arbitrageSellAmount: marketProgram.programArbitrageSellAmount ?? null,
-        nonArbitrageSellAmount: marketProgram.programNonArbitrageSellAmount ?? null,
-        arbitrageBuyAmount: marketProgram.programArbitrageBuyAmount ?? null,
-        nonArbitrageBuyAmount: marketProgram.programNonArbitrageBuyAmount ?? null,
-      },
-      display: {
-        wholeNetBuy: formatEokAmount(rawWhole, 'KRW_1K'),
-        arbitrageNetBuy: formatEokAmount(rawArb, 'KRW_1K'),
-        nonArbitrageNetBuy: formatEokAmount(rawNonArb, 'KRW_1K'),
-      },
-      unit: { rawUnitAssumption: 'KRW_1K', displayUnit: 'EOK_KRW', mappingConfidence: 'MAPPING_VERIFIED' },
-      unitCandidates: buildUnitCandidates(rawWhole),
-      policy: {
-        scoring: (invariants.violated || legInvariantViolated) ? 'excluded' : 'advisory',
-        useForExecution: false,
-        useForShadow: true,
-        executionImpact: 'NONE',
-        providerIssue: false,
-        marketSignal: false,
-        blockGateUsage: true,
-        blockRegimeUsage: true,
-      },
-      rawNonZero,
-      combinedSource: resolvedCombinedSource,
-      splitAvailable,
-      combinedOnly,
-      snapshotMismatch: invariants.snapshotMismatch,
-      inconsistencyReason: (invariants.violated || legInvariantViolated) ? (legInvariantReason ?? invariants.reason) : null,
-      aggregateDiagnostic: agg as any,
-      rowBreakdown: {
-        kospi: { outputLength: kospiLeg.outputLength, nonZeroRows: kospiLeg.nonZeroRows, selectedBsopHour: kospiLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: kospiLeg.rawWholeNetBuy, rawArbitrageNetBuy: kospiLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: kospiLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: kospiLeg.displayWholeNetBuy, unitCandidates: kospiLeg.unitCandidates },
-        kosdaq: { outputLength: kosdaqLeg.outputLength, nonZeroRows: kosdaqLeg.nonZeroRows, selectedBsopHour: kosdaqLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: kosdaqLeg.rawWholeNetBuy, rawArbitrageNetBuy: kosdaqLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: kosdaqLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: kosdaqLeg.displayWholeNetBuy, unitCandidates: kosdaqLeg.unitCandidates },
-        combined: {
-          outputLength: combinedLeg.outputLength,
-          nonZeroRows: combinedLeg.nonZeroRows,
-          selectedBsopHour: marketProgram.selectedBsopHour ?? combinedLeg.selectedBsopHour ?? 'N/A',
-          rawWholeNetBuy: combinedWholeNetBuy,
-          rawArbitrageNetBuy: combinedArbitrageNetBuy,
-          rawNonArbitrageNetBuy: combinedNonArbitrageNetBuy,
-          displayWholeNetBuy: formatEokAmount(combinedWholeNetBuy, 'KRW_1K'),
-          unitCandidates: buildUnitCandidates(combinedWholeNetBuy),
-        },
-      },
-    };
-    programMarketSnapshot.snapshotSource = resolvedCombinedSource;
-    computed.programMarket = programMarketSnapshot;
-    const structured = `snapshotId=${snapshotId} selectedBsopHour=${programMarketSnapshot.selectedBsopHour || 'NONE'} rawWholeNetBuy=${rawWhole} rawArbitrageNetBuy=${rawArb} rawNonArbitrageNetBuy=${rawNonArb} displayWholeNetBuy=${programMarketSnapshot.display.wholeNetBuy} selectedDisplayUnitAssumption=KRW_1K rawUnitAssumption=KRW_1K mappingConfidence=MAPPING_VERIFIED scoring=advisory useForExecution=false useForShadow=true executionImpact=NONE regimeStatus=DECOUPLED programMarketImpact=NONE`;
-    console.log(`[PROGRAM_MARKET_KIS_OFFICIAL_VERIFIED] ${structured}`);
-    console.log(`[PROGRAM_MARKET_UNIT_UNVERIFIED] ${structured}`);
-    console.log(`[PROGRAM_MARKET_MACROSTATE_PERSISTED] ${structured}`);
-    if (rawNonZero) console.log(`[PROGRAM_MARKET_RAW_NONZERO_PRESERVED] ${structured}`);
-    console.log(`[PROGRAM_MARKET_EXECUTION_IMPACT_NONE] ${structured}`);
-    console.log(`[PROGRAM_MARKET_REGIME_DECOUPLED] ${structured}`);
-    const srcLog = `kospiOutputLength=${marketProgram.kospiDiagnostics?.rowCount ?? 0} kosdaqOutputLength=${marketProgram.kosdaqDiagnostics?.rowCount ?? 0} combinedOutputLength=${programMarketSnapshot.rowBreakdown?.combined.outputLength ?? 0} combinedSource=${combinedSource} splitAvailable=${splitAvailable} combinedOnly=${combinedOnly} mappingConfidence=${programMarketSnapshot.unit.mappingConfidence} scoring=${programMarketSnapshot.policy.scoring} useForExecution=${programMarketSnapshot.policy.useForExecution} executionImpact=${programMarketSnapshot.policy.executionImpact}`;
-    console.log(`[KIS_MARKET_PROGRAM_KOSPI_RESPONSE] ${srcLog}`);
-    console.log(`[KIS_MARKET_PROGRAM_KOSDAQ_RESPONSE] ${srcLog}`);
-    console.log(`[KIS_MARKET_PROGRAM_COMBINED_SOURCE_RESOLVED] ${srcLog}`);
-    if (!splitAvailable) console.log(`[PROGRAM_MARKET_SPLIT_UNAVAILABLE] ${srcLog}`);
-    if (programMarketSnapshot.unit.mappingConfidence === 'UNIT_UNVERIFIED' || combinedSource === 'UNKNOWN') console.log(`[PROGRAM_MARKET_SIGNAL_CANDIDATE_ONLY] ${srcLog}`);
-    console.log(
-      `[MarketRefresh] KIS 시장 프로그램 매매: ` +
-      `${eokwon >= 0 ? '+' : ''}${eokwon.toFixed(1)}억원` +
-      (arbEokwon !== null ? ` (차익 ${arbEokwon >= 0 ? '+' : ''}${arbEokwon.toFixed(1)}억원)` : ' (차익 미수집)'),
-    );
-  } else {
-    computed.programSource = 'NONE';
-    emitMarketDataProviderWarn('PROGRAM_TRADING_QUERY_FAILED', {
-      programSource: 'NONE',
-      carryForward: true,
-    });
-  }
-
-  // ── ⑥ KRX 공매도 비율 (코스피 전체) ──────────────────────────────────────
-  // 8% 초과 시 R5_CAUTION 보조 — regimeEngine.classifyRegime 가 regimeBridge 경유 `> 8` 참조.
-  // source/fetchedAt 도 macroState 영속 → /health 노출.
+// KRX 공매도 비율 헬퍼 (호출부 ⑥ 섹션 헤더 참조).
+// 8% 초과 시 R5_CAUTION 보조 — regimeEngine.classifyRegime 가 regimeBridge 경유 `> 8` 참조.
+// source/fetchedAt 도 macroState 영속 → /health 노출.
+async function refreshShortSellingSection(computed: MarketRefreshComputed): Promise<void> {
   const shortResult = await fetchKrxShortSelling();
   if (shortResult != null) {
     // ADR-0543 소비측 L4 가드(불변식 #7): KIS_ESTIMATE(휴리스틱)·CACHE(수동백필)는 L4 → R5 8%
@@ -973,10 +757,12 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       carryForward: true,
     });
   }
+}
 
-  // ── ⑥-b ADR-0139: ECOS 신용공여잔액 5영업일 변화율 ───────────────────────
-  // 사용자 12 아이디어 #7 — marginBalance5dChange 결손 해소.
-  // 호출 실패 시 marginBalanceSource='NONE' + 기존 값 보존 (silent degradation 차단).
+// ── ⑥-b ADR-0139: ECOS 신용공여잔액 5영업일 변화율 ───────────────────────
+// 사용자 12 아이디어 #7 — marginBalance5dChange 결손 해소.
+// 호출 실패 시 marginBalanceSource='NONE' + 기존 값 보존 (silent degradation 차단).
+async function refreshMarginBalanceSection(computed: MarketRefreshComputed): Promise<void> {
   const marginResult = await fetchLatestMarginBalance5dChange().catch(() => null);
   if (marginResult) {
     computed.marginBalance5dChange = marginResult.changePct;
@@ -993,11 +779,13 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       carryForward: true,
     });
   }
+}
 
-  // ── ⑥-c ADR-0141 Stage 1: KRX 11분류 raw 데이터 영속 ───────────────────
-  // 사용자 후속 보강 P0-2 — FSS 자동 fetcher Stage 1 (raw 만, 매핑 미적용).
-  // Passive/Active 매핑은 ADR-0142 별도 PR (운영 데이터 1~2주 누적 후 데이터 기반 검증).
-  // FSS_DETAIL_FETCHER_DISABLED=true 시 fetch skip (긴급 우회).
+// ── ⑥-c ADR-0141 Stage 1: KRX 11분류 raw 데이터 영속 ───────────────────
+// 사용자 후속 보강 P0-2 — FSS 자동 fetcher Stage 1 (raw 만, 매핑 미적용).
+// Passive/Active 매핑은 ADR-0142 별도 PR (운영 데이터 1~2주 누적 후 데이터 기반 검증).
+// FSS_DETAIL_FETCHER_DISABLED=true 시 fetch skip (긴급 우회).
+async function refreshFssDetailSection(computed: MarketRefreshComputed): Promise<void> {
   if (process.env.FSS_DETAIL_FETCHER_DISABLED !== 'true') {
     try {
       const detailRows = await fetchInvestorTradingDetail();
@@ -1054,9 +842,11 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       });
     }
   }
+}
 
-  // ── ⑧ FRED 거시 지표 (병렬 조회) ────────────────────────────────────────
-  // T10Y2Y: 음수 전환 → 경기침체 6~18개월 선행 / STLFSI4 > 0 = 금융 스트레스
+// ── ⑧ FRED 거시 지표 (병렬 조회) ────────────────────────────────────────
+// T10Y2Y: 음수 전환 → 경기침체 6~18개월 선행 / STLFSI4 > 0 = 금융 스트레스
+async function refreshFredSection(computed: MarketRefreshComputed): Promise<void> {
   const [t10y2y, hySpread, sofr, fsi, wti] = await Promise.all([
     fetchFred('T10Y2Y'),        // 장단기 금리차 (10년-2년)
     fetchFred('BAMLH0A0HYM2'), // US HY 스프레드
@@ -1074,12 +864,18 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     `HY=${hySpread?.toFixed(2) ?? 'N/A'}% | SOFR=${sofr?.toFixed(2) ?? 'N/A'}% | ` +
     `FSI=${fsi?.toFixed(2) ?? 'N/A'} | WTI=$${wti?.toFixed(1) ?? 'N/A'}`
   );
+}
 
-  // ── ⑨ 아이디어 11: ECOS+FRED 기반 MHS 자체 계산 ─────────────────────────
-  // 기존 MHS 는 클라이언트 batchIntel Phase A 가 Gemini 에게 추론시켰지만,
-  // 서버에서 ECOS 실데이터 + FRED 지표만으로 결정적으로 도출한다.
-  // 시장 보조(vkospi/vix/samsungIri)는 이 함수 상단에서 계산된 computed 를 재사용.
-  // ADR-0107 (사용자 진단 4/29): mhsAxis 4-axis 분해 영속 — 별도 변수로 추출 후 updated 객체에 직접 저장.
+// ── ⑨ 아이디어 11: ECOS+FRED 기반 MHS 자체 계산 ─────────────────────────
+// 기존 MHS 는 클라이언트 batchIntel Phase A 가 Gemini 에게 추론시켰지만,
+// 서버에서 ECOS 실데이터 + FRED 지표만으로 결정적으로 도출한다.
+// 시장 보조(vkospi/vix/samsungIri)는 이 함수 상단에서 계산된 computed 를 재사용.
+// ADR-0107 (사용자 진단 4/29): mhsAxis 4-axis 분해 영속 — 별도 변수로 추출 후 updated 객체에 직접 저장.
+async function resolveMhsSection(computed: MarketRefreshComputed, existing: MacroState): Promise<{
+  mhsAxisSnapshot: { interestRate: number; liquidity: number; economy: number; risk: number } | undefined;
+  mhsAxisSnapshotAt: string | undefined;
+  mhsDegradeSnapshot: MhsDegradeInfo | undefined;
+}> {
   let mhsAxisSnapshot: { interestRate: number; liquidity: number; economy: number; risk: number } | undefined;
   let mhsAxisSnapshotAt: string | undefined;
   // ADR-0583: MHS 소스 저하(degrade) 영속용 — computeMacroIndex().sourcesOk 도출.
@@ -1112,11 +908,32 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
       carryForward: true,
     });
   }
+  return { mhsAxisSnapshot, mhsAxisSnapshotAt, mhsDegradeSnapshot };
+}
 
-  // ── ADR-0075 PR-4 wiring: 강세 섹터 Gate Score 가산점 SSOT 영속 ─────────────
-  // ADR-0125 (PR-1) 격상: buildSectorEnergyInputsWithMeta 사용 — dataQuality 4값
-  // (OK/PARTIAL/STALE/FAILED) + validSectorCount + reasons 동시 영속.
-  // applySectorScoreBoost 가 read 후 dataQuality 분기로 boost 강도 분기.
+// ── ADR-0075 PR-4 wiring: 강세 섹터 Gate Score 가산점 SSOT 영속 ─────────────
+// ADR-0125 (PR-1) 격상: buildSectorEnergyInputsWithMeta 사용 — dataQuality 4값
+// (OK/PARTIAL/STALE/FAILED) + validSectorCount + reasons 동시 영속.
+// applySectorScoreBoost 가 read 후 dataQuality 분기로 boost 강도 분기.
+interface SectorEnergyResolved {
+  sectorEnergyResult: ReturnType<typeof evaluateSectorEnergy> | undefined;
+  sectorEnergyUpdatedAt: string | undefined;
+  sectorEnergyInputsResolved: Awaited<ReturnType<typeof buildSectorEnergyInputsWithMeta>>['inputs'] | undefined;
+  sectorEnergyDataQuality: 'OK' | 'PARTIAL' | 'STALE' | 'DEGRADED' | 'FAILED' | undefined;
+  sectorEnergyValidSectorCount: number | undefined;
+  sectorEnergyReasons: string[] | undefined;
+  sectorEnergySourceTier:
+    | 'KIS_OFFICIAL_INDEX' | 'KIS_OFFICIAL_DAILY' | 'KIS_STOCK_BASKET_DERIVED' | 'KRX_OFFICIAL_INDEX'
+    | 'KRX_CODE' | 'STOCK_DAILY' | 'CACHE' | 'YAHOO_GLOBAL_PROXY' | 'YAHOO_ETF' | 'INTERNAL_PROXY'
+    | 'MISSING' | 'FAILED' | undefined;
+  sectorEnergyFreshness: 'FRESH' | 'DEGRADED' | 'EXPIRED' | undefined;
+  sectorEnergyCoverage: number | undefined;
+  sectorEnergyConfidence: number | undefined;
+  sectorEnergyDiagnostics: NonNullable<MacroState['sectorEnergyDiagnostics']> | undefined;
+  sectorEnergyQualityDiagnostic: NonNullable<MacroState['sectorEnergyQualityDiagnostic']> | undefined;
+}
+
+async function resolveSectorEnergySection(existing: MacroState): Promise<SectorEnergyResolved> {
   let sectorEnergyResult: ReturnType<typeof evaluateSectorEnergy> | undefined;
   let sectorEnergyUpdatedAt: string | undefined;
   // ADR-0454: meta.inputs 를 saveMacroState merge scope 까지 노출. ADR-0343 L3 CACHE
@@ -1127,20 +944,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
   let sectorEnergyValidSectorCount: number | undefined;
   let sectorEnergyReasons: string[] | undefined;
   // ADR-0396 4-axis 영속 (사용자 명시 ADR-0371) + ADR-0399 진단 메타 (사용자 명시 ADR-0374).
-  let sectorEnergySourceTier:
-    | 'KIS_OFFICIAL_INDEX'
-    | 'KIS_OFFICIAL_DAILY'
-    | 'KIS_STOCK_BASKET_DERIVED'
-    | 'KRX_OFFICIAL_INDEX'
-    | 'KRX_CODE'
-    | 'STOCK_DAILY'
-    | 'CACHE'
-    | 'YAHOO_GLOBAL_PROXY'
-    | 'YAHOO_ETF'
-    | 'INTERNAL_PROXY'
-    | 'MISSING'
-    | 'FAILED'
-    | undefined;
+  let sectorEnergySourceTier: SectorEnergyResolved['sectorEnergySourceTier'];
   let sectorEnergyFreshness: 'FRESH' | 'DEGRADED' | 'EXPIRED' | undefined;
   let sectorEnergyCoverage: number | undefined;
   let sectorEnergyConfidence: number | undefined;
@@ -1237,23 +1041,221 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     sectorEnergyDataQuality = 'FAILED';
     sectorEnergyReasons = ['buildSectorEnergyInputsWithMeta throw'];
   }
+  return {
+    sectorEnergyResult,
+    sectorEnergyUpdatedAt,
+    sectorEnergyInputsResolved,
+    sectorEnergyDataQuality,
+    sectorEnergyValidSectorCount,
+    sectorEnergyReasons,
+    sectorEnergySourceTier,
+    sectorEnergyFreshness,
+    sectorEnergyCoverage,
+    sectorEnergyConfidence,
+    sectorEnergyDiagnostics,
+    sectorEnergyQualityDiagnostic,
+  };
+}
 
-  // ── 섹터 사이클 분류 (sectorEnergyResult → sectorCycleStage / leadingSectorRS) ─
-  // sectorCycleDashboard / regimeBridge / preflight / sizingTierDecider 가 read.
-  // sectorEnergyResult 가 이번 사이클에 갱신된 경우에만 분류 시도 — 분류 결과가
-  // null (leadingSectors=0) 이면 기존 값 보존 정책 (이전 stage 유지).
-  const cycleClassification = sectorEnergyResult ? deriveSectorCycle(sectorEnergyResult) : null;
-  if (cycleClassification) {
+// KIS 시장 종합 프로그램 매매 헬퍼 (호출부 ③-c 섹션 헤더 참조).
+// 사용자 12 아이디어 #4 — 시장 단위 프로그램 자금 흐름. KIS 응답은 원 단위 →
+// macroState 는 *억원* 환산 (foreignNetBuy5d 등 다른 자금 흐름 필드와 단위 정합).
+// 호출 실패 시 programSource='NONE' 마커 + 기존 값 보존 (silent degradation 차단).
+type KisMarketProgramTrade = NonNullable<Awaited<ReturnType<typeof fetchKisMarketProgramTrade>>>;
+
+/** outputLength=0 인데 raw/selected/display 값이 남아 있는 leg 불변식 위반 판정 (find 술어 SSOT). */
+function hasLegRowInvariantViolation(leg: ReturnType<typeof normalizeMarketProgramLeg>): boolean {
+  return (
+    leg.outputLength === 0
+    && (leg.selectedBsopHour !== null
+      || leg.rawWholeNetBuy !== null
+      || leg.rawArbitrageNetBuy !== null
+      || leg.rawNonArbitrageNetBuy !== null
+      || leg.displayWholeNetBuy !== 'N/A')
+  ) || (leg.rawWholeNetBuy !== null && leg.outputLength === 0);
+}
+
+function computeProgramMarketSnapshot(marketProgram: KisMarketProgramTrade): {
+  programMarketSnapshot: NonNullable<MacroState['programMarket']>;
+  rawWhole: number; rawArb: number | null; rawNonArb: number | null; rawNonZero: boolean;
+  combinedSource: string; splitAvailable: boolean; combinedOnly: boolean; snapshotId: string;
+} {
+    const rawWhole = marketProgram.programNetBuyAmount as number;
+    const rawArb = marketProgram.programArbitrageNetBuy;
+    const rawNonArb = marketProgram.programNonArbitrageNetBuy ?? null;
+    const rawNonZero = [rawWhole, rawArb, rawNonArb].some((v) => typeof v === 'number' && v !== 0);
+    const agg = (marketProgram.aggregateDiagnostic as Record<string, unknown> | undefined) ?? {};
+    const bundle = (agg.rowBreakdownBundle as Record<string, unknown> | undefined) ?? {};
+    const bk = (bundle.kospi as Record<string, unknown> | undefined) ?? {};
+    const bq = (bundle.kosdaq as Record<string, unknown> | undefined) ?? {};
+    const bc = (bundle.combined as Record<string, unknown> | undefined) ?? {};
+    const kospiLen = Number(bk.outputLength ?? marketProgram.kospiDiagnostics?.rowCount ?? 0);
+    const kosdaqLen = Number(bq.outputLength ?? marketProgram.kosdaqDiagnostics?.rowCount ?? 0);
+    const kisRawOutput = (((agg as any)?.output as Array<Record<string, unknown>> | undefined) ?? []);
+    const combinedLen = Number(bc.outputLength ?? kisRawOutput.length ?? (kospiLen + kosdaqLen));
+    const combinedSource = resolveCombinedSource({
+      kospiRequested: true, kosdaqRequested: true, kospiOutputLength: kospiLen, kosdaqOutputLength: kosdaqLen,
+      combinedOutputLength: combinedLen, combinedMatchesSplit: combinedLen === (kospiLen + kosdaqLen), upstreamHint: String(agg.combinedSource ?? ''),
+    });
+    const hasSplitRows = (kospiLen + kosdaqLen) > 0 && combinedLen === (kospiLen + kosdaqLen);
+    const provisionalSplitAvailable = combinedSource === 'KOSPI_PLUS_KOSDAQ' && hasSplitRows;
+    const kospiRows = provisionalSplitAvailable ? (((bundle.kospi as any)?.rows as Array<Record<string, unknown>> | undefined) ?? []) : [];
+    const kosdaqRows = provisionalSplitAvailable ? (((bundle.kosdaq as any)?.rows as Array<Record<string, unknown>> | undefined) ?? []) : [];
+    const combinedRows = provisionalSplitAvailable
+      ? ((((bundle.combined as any)?.rows as Array<Record<string, unknown>> | undefined) ?? [...kospiRows, ...kosdaqRows]))
+      : ((((bundle.combined as any)?.rows as Array<Record<string, unknown>> | undefined) ?? kisRawOutput));
+    const kospiLeg = normalizeMarketProgramLeg({ rows: kospiRows });
+    const kosdaqLeg = normalizeMarketProgramLeg({ rows: kosdaqRows });
+    const combinedLeg = normalizeMarketProgramLeg({ rows: combinedRows });
+    const combinedWholeNetBuy = sumNullablePair(kospiLeg.rawWholeNetBuy, kosdaqLeg.rawWholeNetBuy);
+    const combinedArbitrageNetBuy = sumNullablePair(kospiLeg.rawArbitrageNetBuy, kosdaqLeg.rawArbitrageNetBuy);
+    const combinedNonArbitrageNetBuy = sumNullablePair(kospiLeg.rawNonArbitrageNetBuy, kosdaqLeg.rawNonArbitrageNetBuy);
+    const invariants = hasSnapshotInvariantViolation({
+      kospiLen,
+      kosdaqLen,
+      combinedLen: combinedLeg.outputLength,
+      combinedNonZero: combinedLeg.nonZeroRows,
+      combinedSource,
+      rawTopFirstBsopHour: String((agg as any)?.firstRowSample?.bsop_hour ?? ''),
+      selectedBsopHour: combinedLeg.selectedBsopHour ?? '',
+    });
+    const rowInvariantViolation = [kospiLeg, kosdaqLeg, combinedLeg].find(hasLegRowInvariantViolation);
+    const legInvariantViolated = kospiLeg.invariantViolated || kosdaqLeg.invariantViolated || combinedLeg.invariantViolated || Boolean(rowInvariantViolation);
+    const anyInvariantViolated = invariants.violated || legInvariantViolated;
+    const legInvariantReason = rowInvariantViolation ? 'RAW_EXISTS_WITH_EMPTY_ROWS' : (kospiLeg.invariantReason ?? kosdaqLeg.invariantReason ?? combinedLeg.invariantReason);
+    const finalStatus: ProgramMarketFinalStatus = anyInvariantViolated
+      ? 'SNAPSHOT_INCONSISTENT'
+      : (provisionalSplitAvailable ? 'OFFICIAL_PARAMS_VERIFIED' : 'SINGLE_RESPONSE_VERIFIED');
+    const resolvedCombinedSource = anyInvariantViolated ? 'UNKNOWN' : combinedSource;
+    const splitAvailable = !anyInvariantViolated && resolvedCombinedSource === 'KOSPI_PLUS_KOSDAQ';
+    const combinedOnly = !splitAvailable;
+    const snapshotId = buildProgramMarketSnapshotId();
+    const programMarketSnapshot: NonNullable<MacroState['programMarket']> = {
+      status: marketProgram.marketProgramStatus ?? 'OK_NONZERO',
+      rawStatus: marketProgram.marketProgramStatus ?? 'OK_NONZERO',
+      snapshotId,
+      finalStatus,
+      source: marketProgram.source ?? 'KIS_API',
+      paramMode: 'OFFICIAL',
+      asOfKst: marketProgram.fetchedAt,
+      selectedBsopHour: marketProgram.selectedBsopHour ?? '',
+      selectedReason: marketProgram.selectedReason ?? 'LATEST_BY_BSOP_HOUR',
+      raw: {
+        wholeNetBuyTradeAmount: rawWhole,
+        arbitrageNetBuyTradeAmount: rawArb,
+        nonArbitrageNetBuyTradeAmount: rawNonArb,
+        arbitrageSellAmount: marketProgram.programArbitrageSellAmount ?? null,
+        nonArbitrageSellAmount: marketProgram.programNonArbitrageSellAmount ?? null,
+        arbitrageBuyAmount: marketProgram.programArbitrageBuyAmount ?? null,
+        nonArbitrageBuyAmount: marketProgram.programNonArbitrageBuyAmount ?? null,
+      },
+      display: {
+        wholeNetBuy: formatEokAmount(rawWhole, 'KRW_1K'),
+        arbitrageNetBuy: formatEokAmount(rawArb, 'KRW_1K'),
+        nonArbitrageNetBuy: formatEokAmount(rawNonArb, 'KRW_1K'),
+      },
+      unit: { rawUnitAssumption: 'KRW_1K', displayUnit: 'EOK_KRW', mappingConfidence: 'MAPPING_VERIFIED' },
+      unitCandidates: buildUnitCandidates(rawWhole),
+      policy: {
+        scoring: (invariants.violated || legInvariantViolated) ? 'excluded' : 'advisory',
+        useForExecution: false,
+        useForShadow: true,
+        executionImpact: 'NONE',
+        providerIssue: false,
+        marketSignal: false,
+        blockGateUsage: true,
+        blockRegimeUsage: true,
+      },
+      rawNonZero,
+      combinedSource: resolvedCombinedSource,
+      splitAvailable,
+      combinedOnly,
+      snapshotMismatch: invariants.snapshotMismatch,
+      inconsistencyReason: (invariants.violated || legInvariantViolated) ? (legInvariantReason ?? invariants.reason) : null,
+      aggregateDiagnostic: agg as any,
+      rowBreakdown: {
+        kospi: { outputLength: kospiLeg.outputLength, nonZeroRows: kospiLeg.nonZeroRows, selectedBsopHour: kospiLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: kospiLeg.rawWholeNetBuy, rawArbitrageNetBuy: kospiLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: kospiLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: kospiLeg.displayWholeNetBuy, unitCandidates: kospiLeg.unitCandidates },
+        kosdaq: { outputLength: kosdaqLeg.outputLength, nonZeroRows: kosdaqLeg.nonZeroRows, selectedBsopHour: kosdaqLeg.selectedBsopHour ?? 'N/A', rawWholeNetBuy: kosdaqLeg.rawWholeNetBuy, rawArbitrageNetBuy: kosdaqLeg.rawArbitrageNetBuy, rawNonArbitrageNetBuy: kosdaqLeg.rawNonArbitrageNetBuy, displayWholeNetBuy: kosdaqLeg.displayWholeNetBuy, unitCandidates: kosdaqLeg.unitCandidates },
+        combined: {
+          outputLength: combinedLeg.outputLength,
+          nonZeroRows: combinedLeg.nonZeroRows,
+          selectedBsopHour: marketProgram.selectedBsopHour ?? combinedLeg.selectedBsopHour ?? 'N/A',
+          rawWholeNetBuy: combinedWholeNetBuy,
+          rawArbitrageNetBuy: combinedArbitrageNetBuy,
+          rawNonArbitrageNetBuy: combinedNonArbitrageNetBuy,
+          displayWholeNetBuy: formatEokAmount(combinedWholeNetBuy, 'KRW_1K'),
+          unitCandidates: buildUnitCandidates(combinedWholeNetBuy),
+        },
+      },
+    };
+    programMarketSnapshot.snapshotSource = resolvedCombinedSource;
+  return { programMarketSnapshot, rawWhole, rawArb, rawNonArb, rawNonZero, combinedSource, splitAvailable, combinedOnly, snapshotId };
+}
+
+async function refreshProgramMarketSection(computed: MarketRefreshComputed): Promise<void> {
+  const marketProgram = await fetchKisMarketProgramTrade().catch(() => null);
+  if (marketProgram && marketProgram.programNetBuyAmount !== null) {
+    const eokwon = marketProgram.programNetBuyAmount / 100_000_000;
+    const arbEokwon = marketProgram.programArbitrageNetBuy === null
+      ? null
+      : marketProgram.programArbitrageNetBuy / 100_000_000;
+    computed.programNetBuyAmount = eokwon;
+    computed.programArbitrageNetBuy = arbEokwon;
+    computed.programFetchedAt = marketProgram.fetchedAt;
+    computed.programSource = 'KIS_API';
+    const { programMarketSnapshot, rawWhole, rawArb, rawNonArb, rawNonZero, combinedSource, splitAvailable, combinedOnly, snapshotId } = computeProgramMarketSnapshot(marketProgram);
+    computed.programMarket = programMarketSnapshot;
+    const structured = `snapshotId=${snapshotId} selectedBsopHour=${programMarketSnapshot.selectedBsopHour || 'NONE'} rawWholeNetBuy=${rawWhole} rawArbitrageNetBuy=${rawArb} rawNonArbitrageNetBuy=${rawNonArb} displayWholeNetBuy=${programMarketSnapshot.display.wholeNetBuy} selectedDisplayUnitAssumption=KRW_1K rawUnitAssumption=KRW_1K mappingConfidence=MAPPING_VERIFIED scoring=advisory useForExecution=false useForShadow=true executionImpact=NONE regimeStatus=DECOUPLED programMarketImpact=NONE`;
+    console.log(`[PROGRAM_MARKET_KIS_OFFICIAL_VERIFIED] ${structured}`);
+    console.log(`[PROGRAM_MARKET_UNIT_UNVERIFIED] ${structured}`);
+    console.log(`[PROGRAM_MARKET_MACROSTATE_PERSISTED] ${structured}`);
+    if (rawNonZero) console.log(`[PROGRAM_MARKET_RAW_NONZERO_PRESERVED] ${structured}`);
+    console.log(`[PROGRAM_MARKET_EXECUTION_IMPACT_NONE] ${structured}`);
+    console.log(`[PROGRAM_MARKET_REGIME_DECOUPLED] ${structured}`);
+    const srcLog = `kospiOutputLength=${marketProgram.kospiDiagnostics?.rowCount ?? 0} kosdaqOutputLength=${marketProgram.kosdaqDiagnostics?.rowCount ?? 0} combinedOutputLength=${programMarketSnapshot.rowBreakdown?.combined.outputLength ?? 0} combinedSource=${combinedSource} splitAvailable=${splitAvailable} combinedOnly=${combinedOnly} mappingConfidence=${programMarketSnapshot.unit.mappingConfidence} scoring=${programMarketSnapshot.policy.scoring} useForExecution=${programMarketSnapshot.policy.useForExecution} executionImpact=${programMarketSnapshot.policy.executionImpact}`;
+    console.log(`[KIS_MARKET_PROGRAM_KOSPI_RESPONSE] ${srcLog}`);
+    console.log(`[KIS_MARKET_PROGRAM_KOSDAQ_RESPONSE] ${srcLog}`);
+    console.log(`[KIS_MARKET_PROGRAM_COMBINED_SOURCE_RESOLVED] ${srcLog}`);
+    if (!splitAvailable) console.log(`[PROGRAM_MARKET_SPLIT_UNAVAILABLE] ${srcLog}`);
+    if (programMarketSnapshot.unit.mappingConfidence === 'UNIT_UNVERIFIED' || combinedSource === 'UNKNOWN') console.log(`[PROGRAM_MARKET_SIGNAL_CANDIDATE_ONLY] ${srcLog}`);
     console.log(
-      `[MarketRefresh] sectorCycleStage=${cycleClassification.sectorCycleStage} ` +
-      `· leadingSectorRS=${cycleClassification.leadingSectorRS}`,
+      `[MarketRefresh] KIS 시장 프로그램 매매: ` +
+      `${eokwon >= 0 ? '+' : ''}${eokwon.toFixed(1)}억원` +
+      (arbEokwon !== null ? ` (차익 ${arbEokwon >= 0 ? '+' : ''}${arbEokwon.toFixed(1)}억원)` : ' (차익 미수집)'),
     );
+  } else {
+    computed.programSource = 'NONE';
+    emitMarketDataProviderWarn('PROGRAM_TRADING_QUERY_FAILED', {
+      programSource: 'NONE',
+      carryForward: true,
+    });
   }
+}
 
-  // ── MacroState에 MERGE 저장 ───────────────────────────────────────────────
-  const updatedAt = new Date().toISOString();
-  const updatedAtChanged = updatedAt !== existing.updatedAt;
-  const updated = {
+// ── MacroState MERGE 저장 객체 build SSOT — 조건부 spread 모음. ─────────────
+function buildUpdatedMacroState(input: {
+  existing: MacroState;
+  computed: MarketRefreshComputed;
+  updatedAt: string;
+  updatedAtChanged: boolean;
+  refreshAttemptAt: string;
+  fssRecordsAgeSnapshot: FssRecordsAgeInfo;
+  cycleClassification: ReturnType<typeof deriveSectorCycle>;
+  mhsAxisSnapshot: { interestRate: number; liquidity: number; economy: number; risk: number } | undefined;
+  mhsAxisSnapshotAt: string | undefined;
+  mhsDegradeSnapshot: MhsDegradeInfo | undefined;
+  sectorEnergy: SectorEnergyResolved;
+}) {
+  const {
+    existing, computed, updatedAt, updatedAtChanged, refreshAttemptAt, fssRecordsAgeSnapshot,
+    cycleClassification, mhsAxisSnapshot, mhsAxisSnapshotAt, mhsDegradeSnapshot,
+  } = input;
+  const {
+    sectorEnergyResult, sectorEnergyUpdatedAt, sectorEnergyInputsResolved, sectorEnergyDataQuality,
+    sectorEnergyValidSectorCount, sectorEnergyReasons, sectorEnergySourceTier, sectorEnergyFreshness,
+    sectorEnergyCoverage, sectorEnergyConfidence, sectorEnergyDiagnostics, sectorEnergyQualityDiagnostic,
+  } = input.sectorEnergy;
+  return {
     ...existing,
     ...computed,
     updatedAt,
@@ -1316,6 +1318,138 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     // ADR-0136 fssRecordsAge 진단 영속 — getFssRecordsAge 항상 객체 반환 (MISSING 포함).
     fssRecordsAge: fssRecordsAgeSnapshot,
   };
+}
+
+export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHEDULED'): Promise<MarketRefreshComputed> {
+  const refreshAttemptAt = new Date().toISOString();
+  logMacroRefreshStarted(reason);
+  const existing = loadMacroState();
+  if (!existing) {
+    logMacroRefreshSkipped('MACRO_STATE_MISSING');
+    emitMarketDataProviderWarn('MACRO_STATE_MISSING', {
+      action: 'POST /macro/state required before refresh',
+    });
+    return {};
+  }
+
+  // macro refresh is observational data collection, not trade execution.  It must
+  // continue through R6_DEFENSE / SELL_ONLY / SHADOW_ONLY / OBSERVE_ONLY and when
+  // Keep this path independent from execution state.
+  saveMacroState({
+    ...existing,
+    lastRefreshAttemptAt: refreshAttemptAt,
+    refreshJobEnabled: true,
+    refreshJobLastRunAt: refreshAttemptAt,
+    refreshBlockedReason: 'NONE',
+    writeSucceeded: true,
+    updatedAtChanged: false,
+  });
+
+  try {
+    const computed: MarketRefreshComputed = {};
+
+  // ── ④ KOSPI (^KS11) 60일 — MA, 수익률 ──────────────────────────────────────
+  await refreshKospiSection(computed);
+
+  // ── ④-B VKOSPI — KRX OpenAPI 파생상품 지수 일별 우선, Yahoo fallback ───────
+  await refreshVkospiSection(computed, existing);
+
+  // ── ② USD/KRW (Yahoo `KRW=X` + ECOS 한국은행 공식 교차 검증, ADR-0071) ──────
+  await refreshUsdKrwSection(computed);
+
+  // ── ⑦ S&P500 (^GSPC) 20일 ────────────────────────────────────────────────
+  await refreshSpxSection(computed);
+
+  // ── ⑦ DXY (DX-Y.NYB) 5일 ────────────────────────────────────────────────
+  await refreshDxySection(computed);
+
+  // ── ③ FSS 수급 (서버 로컬 레코드) ────────────────────────────────────────
+  const fssVars = computeFssVars();
+  computed.foreignNetBuy5d  = fssVars.foreignNetBuy5d;
+  computed.passiveActiveBoth = fssVars.passiveActiveBoth;  // ADR-0136: boolean | null
+  computed.foreignContinuousBuyDays = fssVars.foreignContinuousBuyDays;
+  // ADR-0136: fssRecordsAge 영속 — saveMacroState merge 단계에서 spread.
+  const fssRecordsAgeSnapshot = fssVars.fssRecordsAge;
+  // foreignFuturesSellDays — confluenceEngine 의 "외국인 5일+ 매도" 약세 신호 활성화.
+  // 본 필드는 원래 선물 데이터 의도였으나 KIS/KRX 선물 fetch 인프라 부담 회피 위해
+  // FSS 레코드 기반 외국인 *현물 연속 순매도* 일수로 매핑한다 (의미 근사 — 본질은
+  // "외국인이 N일 연속 빠지고 있다" 약세 신호 동일). foreignContinuousBuyDays 와
+  // 상호 배타적 (한쪽이 ≥1 이면 다른 쪽은 0).
+  computed.foreignFuturesSellDays = fssVars.foreignContinuousSellDays;
+  console.log(
+    `[MarketRefresh] 수급: foreignNetBuy5d=${fssVars.foreignNetBuy5d.toFixed(0)}억, ` +
+    `passiveActiveBoth=${fssVars.passiveActiveBoth}, ` +
+    `연속매수=${fssVars.foreignContinuousBuyDays}일, ` +
+    `연속매도=${fssVars.foreignContinuousSellDays}일, ` +
+    `fssRecordsAge=${fssVars.fssRecordsAge.status}` +
+    `${fssVars.fssRecordsAge.ageDays !== null ? `(${fssVars.fssRecordsAge.ageDays}일전)` : '(MISSING)'}`,
+  );
+
+  // ── ③-b KIS 코스피 전체 투자자별 수급 (실시간 보강) ─────────────────────
+  // FSS 레코드가 0이거나 누락 시 KIS API로 당일 실시간 수급 데이터 보강.
+  // KIS 외국인 순매수가 양수이면 FSS 연속매수 일수를 최소 1일로 보정 —
+  // 당일 선행 매수가 포착된 시점에서 R3 강제 승급 판단이 1일 지연되지 않도록.
+  const kisSupply = await fetchKisMarketSupply().catch(() => null);
+  if (kisSupply) {
+    console.log(
+      `[MarketRefresh] KIS 수급 보강: 외국인=${kisSupply.foreignNetBuy.toLocaleString()}주, ` +
+      `기관=${kisSupply.institutionNetBuy.toLocaleString()}주, 개인=${kisSupply.individualNetBuy.toLocaleString()}주`,
+    );
+    if (kisSupply.foreignNetBuy > 0 && fssVars.foreignContinuousBuyDays < 1) {
+      computed.foreignContinuousBuyDays = 1;
+      console.log('[MarketRefresh] KIS 당일 외국인 순매수 양수 — foreignContinuousBuyDays 1일 보정');
+    }
+  }
+
+  // ── ③-c ADR-0138: KIS 시장 종합 프로그램 매매 추이 (코스피 시장 단위) ────
+  await refreshProgramMarketSection(computed);
+
+  // ── ⑥ KRX 공매도 비율 (코스피 전체) ──────────────────────────────────────
+  await refreshShortSellingSection(computed);
+
+  // ── ⑥-b ADR-0139: ECOS 신용공여잔액 5영업일 변화율 ───────────────────────
+  await refreshMarginBalanceSection(computed);
+
+  // ── ⑥-c ADR-0141 Stage 1: KRX 11분류 raw 데이터 영속 ───────────────────
+  await refreshFssDetailSection(computed);
+
+  // ── ⑧ FRED 거시 지표 (병렬 조회) ────────────────────────────────────────
+  await refreshFredSection(computed);
+
+  // ── ⑨ 아이디어 11: ECOS+FRED 기반 MHS 자체 계산 ─────────────────────────
+  const { mhsAxisSnapshot, mhsAxisSnapshotAt, mhsDegradeSnapshot } = await resolveMhsSection(computed, existing);
+
+  // ── ADR-0075 PR-4 wiring: 강세 섹터 Gate Score 가산점 SSOT 영속 ─────────────
+  const sectorEnergy = await resolveSectorEnergySection(existing);
+
+  // ── 섹터 사이클 분류 (sectorEnergyResult → sectorCycleStage / leadingSectorRS) ─
+  // sectorCycleDashboard / regimeBridge / preflight / sizingTierDecider 가 read.
+  // sectorEnergyResult 가 이번 사이클에 갱신된 경우에만 분류 시도 — 분류 결과가
+  // null (leadingSectors=0) 이면 기존 값 보존 정책 (이전 stage 유지).
+  const cycleClassification = sectorEnergy.sectorEnergyResult ? deriveSectorCycle(sectorEnergy.sectorEnergyResult) : null;
+  if (cycleClassification) {
+    console.log(
+      `[MarketRefresh] sectorCycleStage=${cycleClassification.sectorCycleStage} ` +
+      `· leadingSectorRS=${cycleClassification.leadingSectorRS}`,
+    );
+  }
+
+  // ── MacroState에 MERGE 저장 ───────────────────────────────────────────────
+  const updatedAt = new Date().toISOString();
+  const updatedAtChanged = updatedAt !== existing.updatedAt;
+  const updated = buildUpdatedMacroState({
+    existing,
+    computed,
+    updatedAt,
+    updatedAtChanged,
+    refreshAttemptAt,
+    fssRecordsAgeSnapshot,
+    cycleClassification,
+    mhsAxisSnapshot,
+    mhsAxisSnapshotAt,
+    mhsDegradeSnapshot,
+    sectorEnergy,
+  });
   saveMacroState(updated as typeof existing);
   emitMacroDataHealthSummary(updated);
   logMacroRefreshSuccess({ updatedAt, mhs: updated.mhs, vkospi: updated.vkospi, kospiDayReturn: updated.kospiDayReturn, writeSucceeded: true });
