@@ -99,7 +99,6 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | D1 | 0098 ConfluenceMeter | `src/components/common/ConfluenceMeter.tsx` | 2026-05-02 | INFRASTRUCTURE_ONLY | P1 | UI 가시성 — DiscoverWatchlistPage Top 3 시범 임베드 + VerdictCard.Evidence 안 자식 |
 | D2 | 0098 confluenceEngine | `server/learning/walkForwardFramework.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 (신규 모듈) — 백엔드 4축 score 산출 wiring + 결손 사유 자동 생성 (백엔드 데이터 출처 + 결손 패턴 매핑) |
 | D3 | 0097 VerdictCard | `src/components/watchlist/WatchlistCard.tsx` | 2026-05-02 | INFRASTRUCTURE_ONLY | P1 | UI 가시성 — WatchlistCard 마이그레이션 (variant='verdict' 점진 도입). 50+ 컴포넌트 점진 |
-| D4 | 0019 RecommendationSnapshot wiring | `src/services/quant/recommendationSnapshotRepo.ts` | 2026-05-02 | PARTIAL | P1 | UI 가시성 — `createdAt` / `expiresAt` wiring (TimeBand 연동) |
 | D5 | 0096 DataQualityRibbon + IDontKnow | `src/components/common/DataQualityRibbon.tsx` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 — MarketOverviewHeader / DiscoverWatchlistPage 페이지 상단 임베드 |
 | D6 | 0094 UI_LANG.confluence | `src/config/uiLanguage.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 — ConfluenceMeter 4축 라벨 SSOT 격상 (현재 컴포넌트 내부 AXIS_LABEL 상수) |
 | D7 | 0099 Verbosity Wiring | `src/components/common/UIVerbosityToggle.tsx` | 2026-05-02 | PARTIAL | P2 | 운영 데이터 누적 후 — 5 wiring PR 완주 (PR-Z14~Z18) 후 사용처 점진 마이그레이션 |
@@ -127,9 +126,9 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | A. 학습 시리즈 | 14 | 0 | 9 | 5 | 0 |
 | B. 매매 본체 | 12 | 1 | 4 | 7 | 0 |
 | C. 시그널 입력 | 10 | 1 | 1 | 5 | 3 |
-| D. UI Phase | 8 | 0 | 4 | 4 | 0 |
+| D. UI Phase | 7 | 0 | 3 | 4 | 0 |
 | E. 영속/진단 | 10 | 0 | 0 | 4 | 6 |
-| **합계** | **54** | **2** | **18** | **25** | **9** |
+| **합계** | **53** | **2** | **17** | **25** | **9** |
 
 > 주: 위 통계는 active backlog 기준이다. 완료/영구결정 `DECIDED_NOT_WIRING` 15건은 2026-05-25 정리로 active table 에서 제거했다.
 
@@ -170,4 +169,5 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 2026-05-06 | PR-Price-Integrity-Correction-Overlay-Readonly (ADR-0414) | B14 + B15 신규 2 항목 등재 — ADR-0414 Stage 1 Read-Only Mode 인프라만 (호출자 0건 dead code 의도). B14 (Stage 2 Shadow, P1 SLA 만기 2026-06-20) + B15 (Stage 3 Live, P0 SLA 만기 2026-05-27 — Stage 2 검증 후). PriceIntegrityChecker (7 status union + 결정 트리 8 분기) + PriceCorrectionEngine (correctionType 6 union + confidence 3축 가중치 + DROP_GAP_CALCULATION 정책) + PriceCorrectionLineage (ruleVersion `v1-readonly`) 3 SSOT 모듈 신규. ENV `PRICE_CORRECTION_DISABLED=true` 우회 default OFF. **LIVE 매매 본체 0줄 변경** — Stage 1 invariant `usableForLiveEntry=false` 항상 강제 (절대 원칙 #3). 회귀 54 케이스 (PriceIntegrityChecker 16 + PriceCorrectionEngine 14 + PriceCorrectionLineage 6 + Stage 1 통합 7 + 정적 grep 가드 12). KIS/KRX 자동매매 quota 0 침범. 합계 64→66 / B 13→15 / P0 4→5 / P1 19→20. |
 | 2026-05-07 | PR-ADR-0439-Provisional-Cache-Lookup | C19 INFRASTRUCTURE_ONLY → DECIDED_NOT_WIRING 격상 — ADR-0439 (= 사용자 명시 ADR-0434, PENDING_WIRING C19 P2 부채 해소) 발행. provisionalShadowPriceProvider `lookupCachedPrice` 4-tier (INTRADAY/DAILY/MARKET_DATA/READ_ONLY_QUOTE) wiring 활성화 — counterfactualShadowPriceProviderAdapter 헬퍼 (ADR-0434) export 키워드만 추가 (본체 0줄 변경) + horizon → reader 라우팅 매트릭스 (intraday horizons → INTRADAY 우선, daily horizons → DAILY 우선) + SCAN_SNAPSHOT 우선 + ENV `PROVISIONAL_CACHE_LOOKUP_DISABLED` default OFF + maxExternalLookups default 0 그대로 (cache-only 정책 보존, 외부 API 호출 도입 0). 회귀 38 신규 + 인접 111/111 무회귀. **LIVE 매매 본체 0줄 변경** + KIS/KRX/Yahoo/Naver outbound 0 (`getSnapshot` read-only). 외부 API 호출 활성화 (`maxExternalLookups>0`) 는 별도 ADR. C19 P2 SLA 만기 2026-09-04 약 4개월 전 충족. 통계 표 무변경 (status 격상만, 카테고리 / 우선순위 카운트 유지). |
 | 2026-05-25 | Patch-Pending-Wiring-Active-Cleanup-001 | active backlog 에서 `DECIDED_NOT_WIRING` 완료/영구결정 15건 제거 — A3/B1/B11/B12/C7/C8/C9/C10/C11~C14/C15/C19/E5. 진행 통계 68→53, P0 5→1(B15만 유지). 문서 전용, runtime impact 0. |
+| 2026-06-10 | PR-D4-RecommendationSnapshot-TimeBand-Wiring | D4 (ADR-0019 후속 wiring, ADR 발급 0건 patch type) 소진 — 행 삭제. `expiresAt` 단일 출처 selector (`getSnapshotExpiresAt` = recommendedAt + SNAPSHOT_EXPIRY_MS, expireStale 30일과 동일 상수·동일 기점) + TimeBand/VerdictCard props 어댑터 (`toTimeBandWindow` — PENDING/EXPIRED 만 윈도, OPEN/CLOSED null) + store selector (`getTimeBandWindow(stockCode)`). TimeBand remainingPct=0 ↔ repo EXPIRED 전이 동일 시점 기준 cross-module 회귀 테스트 고정 (`TimeBand.snapshotExpiry.test.ts`). persist 스키마 무변경 (파생 selector — 영속 필드 추가 0). **페이지 임베드는 D3 (VerdictCard 실사용처 0건) 가 계속 추적** — D3 임베드 시 본 selector 소비. 통계 D 8→7 / P1 18→17 / 합계 54→53. D4 P1 SLA 만기 2026-06-16 6일 전 충족. |
 | 2026-06-10 | PR-Learning-Wiring-Burndown | 학습 클러스터 5건 (A10/A12/A13/A14/A15, ADR-0173~0176 후속 wiring, ADR 발급 0건 patch type) 소진 — A10+A15 replay dispatcher 실함수 매핑 (기 머지 `missedLearningReplayDispatcher.ts` 회귀 테스트 보강 + 단일 실패 격리 검증) / A12+A13 일일 cron 신규 wiring (`learningJobs.ts` 'safety_gate_attribution' KST 16:40 + 'shadow_live_delta_report' KST 16:45, TRADING_DAY_ONLY + ENV 첫 분기 + scheduleCatalog 등재) / A14 priceFetcher KIS 일봉(L1) wiring 검증 (`fetchHistoricalClosePrice` — 미래 bar 누출 금지 + 실패 null 회귀 테스트). 5건 모두 → BLOCKED (운영자 ENV 명시 활성화만 잔여, SLA 면제 — 2026-06-17 만기 해소). 진행 통계 무변경 (status 격상만, 카테고리/우선순위 카운트 유지). 전 ENV default OFF — flag OFF runtime byte-equivalent. |

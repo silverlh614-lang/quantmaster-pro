@@ -270,3 +270,53 @@ export function getRecentSnapshots(
 export function listConditionIds(): ConditionId[] {
   return Array.from({ length: 27 }, (_, i) => (i + 1) as ConditionId);
 }
+
+// ─── TimeBand 연동 (ADR-0019 후속 wiring — PENDING_WIRING D4) ────────────────
+
+/**
+ * TimeBand / VerdictCard 가 소비하는 시간 윈도 props 계약
+ * (`TimeBand.createdAt` / `TimeBand.expiresAt`).
+ */
+export interface SnapshotTimeBandWindow {
+  /** 추천 발령 시각 (= RecommendationSnapshot.recommendedAt) */
+  createdAt: string;
+  /** 만료 시각 — recommendedAt + SNAPSHOT_EXPIRY_MS 단일 출처 도출 */
+  expiresAt: string;
+}
+
+/**
+ * snapshot 만료 시각 단일 출처 — `recommendedAt + SNAPSHOT_EXPIRY_MS`.
+ *
+ * expireStaleSnapshots 의 30일 EXPIRED 전이와 *정확히 동일 상수·동일 기점*
+ * (이중 기준 금지). 경계 포함성: TimeBand 는 now ≥ expiresAt 에 remainingPct=0
+ * (보수적), repo 전이는 now > expiresAt — UI 가 repo 보다 늦게 만료를 표시하는
+ * 경우는 없다 (1ms 단위 보수 방향 정렬, 회귀 테스트로 고정).
+ *
+ * @returns ISO 문자열. recommendedAt 이 유효하지 않으면 null (TimeBand 미표시).
+ */
+export function getSnapshotExpiresAt(
+  snapshot: Pick<RecommendationSnapshot, 'recommendedAt'>,
+  expiryMs: number = SNAPSHOT_EXPIRY_MS,
+): string | null {
+  const recommendedMs = new Date(snapshot.recommendedAt).getTime();
+  if (!Number.isFinite(recommendedMs)) return null;
+  return new Date(recommendedMs + expiryMs).toISOString();
+}
+
+/**
+ * snapshot → TimeBand/VerdictCard props 어댑터.
+ *
+ * 만료가 적용되는 lifecycle 상태에만 윈도를 노출한다:
+ * - PENDING: 30일 카운트다운 진행 중 → 윈도 노출
+ * - EXPIRED: 이미 만료 → 윈도 노출 (TimeBand remainingPct=0, "재검증 대기")
+ * - OPEN/CLOSED: repo 만료 대상 아님 (사용자 행동 추적 중) → null (띠 미표시 —
+ *   띠가 줄어드는데 상태는 영원히 안 바뀌는 거짓 UI 차단)
+ */
+export function toTimeBandWindow(
+  snapshot: Pick<RecommendationSnapshot, 'recommendedAt' | 'status'>,
+): SnapshotTimeBandWindow | null {
+  if (snapshot.status !== 'PENDING' && snapshot.status !== 'EXPIRED') return null;
+  const expiresAt = getSnapshotExpiresAt(snapshot);
+  if (expiresAt === null) return null;
+  return { createdAt: snapshot.recommendedAt, expiresAt };
+}

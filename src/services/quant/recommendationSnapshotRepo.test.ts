@@ -11,6 +11,8 @@ import {
   expireStaleSnapshots,
   computeSnapshotStats,
   getRecentSnapshots,
+  getSnapshotExpiresAt,
+  toTimeBandWindow,
   canTransition,
   SNAPSHOT_EXPIRY_MS,
   SNAPSHOT_MAX_RETAINED,
@@ -339,6 +341,77 @@ describe('getRecentSnapshots', () => {
     expect(recent).toHaveLength(2);
     expect(recent[0].id).toBe('new');
     expect(recent[1].id).toBe('mid');
+  });
+});
+
+// ─── TimeBand 연동 (ADR-0019 후속 wiring D4) ───────────────────────────────
+
+describe('getSnapshotExpiresAt — expiresAt 단일 출처 도출', () => {
+  it('recommendedAt + SNAPSHOT_EXPIRY_MS 정확히 1개 기준 (이중 기준 금지)', () => {
+    const recommendedAt = '2026-05-01T09:00:00.000Z';
+    const expiresAt = getSnapshotExpiresAt({ recommendedAt });
+    expect(expiresAt).toBe(
+      new Date(new Date(recommendedAt).getTime() + SNAPSHOT_EXPIRY_MS).toISOString(),
+    );
+  });
+
+  it('잘못된 recommendedAt → null (TimeBand 미표시 보수 처리)', () => {
+    expect(getSnapshotExpiresAt({ recommendedAt: 'not-a-date' })).toBeNull();
+    expect(getSnapshotExpiresAt({ recommendedAt: '' })).toBeNull();
+  });
+});
+
+describe('toTimeBandWindow — TimeBand/VerdictCard props 어댑터', () => {
+  const recommendedAt = '2026-05-01T09:00:00.000Z';
+
+  it('PENDING → 윈도 노출 (createdAt=recommendedAt, expiresAt=+30일)', () => {
+    const w = toTimeBandWindow(makeSnapshot({ recommendedAt, status: 'PENDING' }));
+    expect(w).not.toBeNull();
+    expect(w!.createdAt).toBe(recommendedAt);
+    expect(w!.expiresAt).toBe(getSnapshotExpiresAt({ recommendedAt }));
+  });
+
+  it('EXPIRED → 윈도 노출 (TimeBand "재검증 대기" 표시용 — 동일 expiresAt 기준)', () => {
+    const w = toTimeBandWindow(makeSnapshot({ recommendedAt, status: 'EXPIRED' }));
+    expect(w).not.toBeNull();
+    expect(w!.createdAt).toBe(recommendedAt);
+    expect(w!.expiresAt).toBe(getSnapshotExpiresAt({ recommendedAt }));
+  });
+
+  it('OPEN/CLOSED → null (repo 만료 대상 아님 — 거짓 카운트다운 차단)', () => {
+    expect(toTimeBandWindow(makeSnapshot({ recommendedAt, status: 'OPEN' }))).toBeNull();
+    expect(toTimeBandWindow(makeSnapshot({ recommendedAt, status: 'CLOSED' }))).toBeNull();
+  });
+
+  it('잘못된 recommendedAt → null', () => {
+    expect(toTimeBandWindow(makeSnapshot({ recommendedAt: 'bad', status: 'PENDING' }))).toBeNull();
+  });
+});
+
+describe('repo EXPIRED 전이 ↔ getSnapshotExpiresAt — 동일 시점 기준 (이중 기준 금지)', () => {
+  // TimeBand.computeRemainingPct 와의 cross-module 동등성은
+  // src/components/common/TimeBand.snapshotExpiry.test.ts 에서 고정
+  // (tsconfig.server.json 이 본 디렉토리를 포함해 .tsx import 불가).
+  const recommendedAt = '2026-05-01T09:00:00.000Z';
+  const snap = () => makeSnapshot({ recommendedAt, status: 'PENDING' });
+  const expiresAtMs = new Date(getSnapshotExpiresAt({ recommendedAt })!).getTime();
+
+  it('만료 1ms 전 — repo PENDING 유지', () => {
+    const after = expireStaleSnapshots([snap()], new Date(expiresAtMs - 1));
+    expect(after[0].status).toBe('PENDING');
+  });
+
+  it('만료 1ms 후 — repo EXPIRED 전이 (expiresAt 과 동일 기준 시각)', () => {
+    const after = expireStaleSnapshots([snap()], new Date(expiresAtMs + 1));
+    expect(after[0].status).toBe('EXPIRED');
+  });
+
+  it('expiryMs 파라미터 override 시에도 동일 기준 유지 (SNAPSHOT_EXPIRY_MS 기본값 정합)', () => {
+    const customMs = 7 * 24 * 60 * 60 * 1000;
+    const customExpiresAt = getSnapshotExpiresAt({ recommendedAt }, customMs)!;
+    const nowAfter = new Date(customExpiresAt).getTime() + 1;
+    const after = expireStaleSnapshots([snap()], new Date(nowAfter), customMs);
+    expect(after[0].status).toBe('EXPIRED');
   });
 });
 

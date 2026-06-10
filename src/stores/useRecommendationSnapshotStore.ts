@@ -15,6 +15,8 @@ import {
   expireStaleSnapshots as expireImpl,
   computeSnapshotStats,
   getRecentSnapshots,
+  toTimeBandWindow,
+  type SnapshotTimeBandWindow,
 } from '../services/quant/recommendationSnapshotRepo';
 
 interface RecommendationSnapshotState {
@@ -33,6 +35,12 @@ interface RecommendationSnapshotState {
   getStats: () => SnapshotStats;
   /** UI 표시용 최근 N건. */
   getRecent: (limit?: number) => RecommendationSnapshot[];
+  /**
+   * stockCode 의 최신 snapshot 으로부터 TimeBand 윈도 (createdAt/expiresAt) 도출
+   * (ADR-0019 후속 wiring D4). PENDING/EXPIRED 만 윈도 노출 — OPEN/CLOSED 또는
+   * snapshot 부재 시 null (VerdictCard 는 TimeBand 미표시).
+   */
+  getTimeBandWindow: (stockCode: string) => SnapshotTimeBandWindow | null;
 
   /** 테스트용 reset. */
   __resetForTests: () => void;
@@ -65,6 +73,14 @@ export const useRecommendationSnapshotStore = create<RecommendationSnapshotState
 
       getStats: () => computeSnapshotStats(get().snapshots),
       getRecent: (limit = 50) => getRecentSnapshots(get().snapshots, limit),
+
+      getTimeBandWindow: (stockCode) => {
+        // 최신 snapshot (recommendedAt 내림차순 1건) 의 lifecycle 상태가 윈도 결정
+        const latest = get()
+          .snapshots.filter(s => s.stockCode === stockCode)
+          .sort((a, b) => new Date(b.recommendedAt).getTime() - new Date(a.recommendedAt).getTime())[0];
+        return latest ? toTimeBandWindow(latest) : null;
+      },
 
       __resetForTests: () => set({ snapshots: [] }),
     }),
