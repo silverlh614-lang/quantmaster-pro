@@ -48,3 +48,24 @@ jobs:
         with:
           node-version: '20'
       - run: node scripts/check_responsibility.js
+
+  # 2026-06-10 신설 — precommit 은 lint+정적 가드만 실행하고 전체 vitest 를 돌리지 않아,
+  # 소스를 정규식으로 검사하는 cross-file 구조 가드 테스트가 리팩토링 PR 에서 깨진 채
+  # 머지되는 회귀(19건, Patch-Validation-Green-Restore)가 발생했음. CI 가 전체 스위트를
+  # 차단 게이트로 실행해 재발을 막는다.
+  typecheck-and-tests:
+    name: typecheck + vitest full suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      # --testTimeout=30000: 공유 러너 CPU 경합에서 5s 기본 한계가 선존 flake
+      # (dynamicUniverseExpander·scheduleCatalogPersistence 등 execSync 계열)를 유발 —
+      # CI 한정 완화(로컬 기본값·테스트 강도 무변경).
+      - run: npx vitest run --testTimeout=30000
