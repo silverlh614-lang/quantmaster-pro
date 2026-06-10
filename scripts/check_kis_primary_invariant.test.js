@@ -164,7 +164,10 @@ describe('check_kis_primary_invariant guard (ADR-0562 확장)', () => {
   it('(d2) ADR-0562 C category grandfather entries are present', () => {
     expect(GRANDFATHER_ALLOWLIST.has('server/screener/sectorSources.ts')).toBe(true); // C5
     expect(GRANDFATHER_ALLOWLIST.has('server/alerts/reportGenerator.ts')).toBe(true); // C3/C4
-    expect(GRANDFATHER_ALLOWLIST.has('server/trading/marketDataRefresh.ts')).toBe(true); // C4
+    // ADR-0595 분해: C4 동결 Yahoo 코드가 marketDataRefresh.ts → marketDataRefresh/indexMacroSections.ts
+    // 로 byte 동일 이동 — grandfather key 도 경로 이전(신규 등재 아님), 구 경로는 잔존 호출 0건.
+    expect(GRANDFATHER_ALLOWLIST.has('server/trading/marketDataRefresh/indexMacroSections.ts')).toBe(true); // C4
+    expect(GRANDFATHER_ALLOWLIST.has('server/trading/marketDataRefresh.ts')).toBe(false);
   });
 
   it('(d3) ADR-0561 exit-path closes burn-down: priceHistory/ma60 grandfather 제거 + 라우터 whitelist', () => {
