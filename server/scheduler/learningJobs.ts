@@ -30,6 +30,16 @@ import {
   isMissedLearningQueueEnabled,
   replayMissedLearningJobs,
 } from '../learning/missedLearningQueue.js';
+import {
+  computeSafetyGateAttribution,
+  isSafetyGateAttributionEnabled,
+} from '../learning/safetyGateAttribution.js';
+import {
+  computeShadowVsLiveDelta,
+  isShadowVsLiveDeltaEnabled,
+} from '../learning/shadowVsLiveDelta.js';
+import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
+import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import {
   runUpdateGate3ForwardReturnsJob,
@@ -193,6 +203,50 @@ export function registerLearningJobs(): void {
     const res = await runUpdateGate3ForwardReturnsJob();
     console.log(
       `[Gate3ForwardReturn] pending=${res.pending} dueSeeds=${res.seedsWithDueHorizon} symbolsQueried=${res.symbolsQueried} symbolsFailed=${res.symbolsFailed} updated=${res.seedsUpdated}`,
+    );
+  }, { timezone: 'UTC' });
+
+  // Safety Gate Attribution — 평일 KST 16:40 (UTC 07:40). future_return_resolve(16:30) 직후라
+  //   당일 갱신된 futureReturn{1/3/5/20}d 를 입력으로 사용.
+  // ADR-0174 §2.1 (PENDING_WIRING A12 wiring): 7 게이트 사후 효과 (avoidedLoss/missedGain/
+  //   netGateImpact/gatePrecision) 일일 진단 로그 — read-only 분석 SSOT 의 단일 cron 호출자.
+  // executionImpact=NONE — LIVE 주문/SourceSnapshot/Gate 판정 본체 변경 0.
+  // ENV `SAFETY_GATE_ATTRIBUTION_ENABLED=true` default OFF — 운영자 명시 활성화 의무 (첫 분기).
+  // ScheduleClass='TRADING_DAY_ONLY' (ADR-0045) — KRX 휴장일 silent skip. 본 분석은 전체
+  //   영속 위 stateless 재계산이라 skip replay 무의미 — enqueueOnSkip 비전달 (의도).
+  // 9대 불변식 #2 — throw 는 scheduledJob 래퍼가 catch+로그 (상위 스케줄러 무중단).
+  scheduledJob('40 7 * * 1-5', 'TRADING_DAY_ONLY', 'safety_gate_attribution', () => {
+    if (!isSafetyGateAttributionEnabled()) return;
+    const results = computeSafetyGateAttribution(loadShadowLearningOnlySignals());
+    const active = results.filter((r) => r.sampleSize > 0);
+    console.log(
+      `[SafetyGateAttribution] gates=${results.length} active=${active.length}` +
+        (active.length > 0
+          ? ` ${active.map((r) => `${r.gate}:net=${r.netGateImpact.toFixed(2)}|n=${r.sampleSize}`).join(' ')}`
+          : ''),
+    );
+  }, { timezone: 'UTC' });
+
+  // Shadow vs Live Delta — 평일 KST 16:45 (UTC 07:45). safety_gate_attribution(16:40) 직후.
+  // ADR-0174 §2.2 (PENDING_WIRING A13 wiring): 5 카테고리 missedAlpha 일일 진단 로그 —
+  //   read-only 분석 SSOT 의 단일 cron 호출자. LIVE_BUY_SHADOW_BETTER_SIZE 비교 알고리즘은
+  //   Phase 3 잔여 (본 wiring 무접촉 — cron 등록만).
+  // executionImpact=NONE — LIVE 주문/SourceSnapshot/Gate 판정 본체 변경 0.
+  // ENV `SHADOW_LIVE_DELTA_REPORT_ENABLED=true` default OFF — 운영자 명시 활성화 의무 (첫 분기).
+  // ScheduleClass='TRADING_DAY_ONLY' — stateless 재계산이라 enqueueOnSkip 비전달 (의도).
+  // 9대 불변식 #2 — throw 는 scheduledJob 래퍼가 catch+로그 (상위 스케줄러 무중단).
+  scheduledJob('45 7 * * 1-5', 'TRADING_DAY_ONLY', 'shadow_live_delta_report', () => {
+    if (!isShadowVsLiveDeltaEnabled()) return;
+    const results = computeShadowVsLiveDelta({
+      shadowSignals: loadShadowLearningOnlySignals(),
+      liveTrades: loadShadowTrades(),
+    });
+    const active = results.filter((r) => r.sampleSize > 0);
+    console.log(
+      `[ShadowVsLiveDelta] categories=${results.length} active=${active.length}` +
+        (active.length > 0
+          ? ` ${active.map((r) => `${r.category}:alpha=${r.missedAlpha.toFixed(2)}|n=${r.sampleSize}`).join(' ')}`
+          : ''),
     );
   }, { timezone: 'UTC' });
 

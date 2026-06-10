@@ -250,6 +250,35 @@ describe('replayMissedLearningJobs', () => {
     expect(all[0]!.retryCount).toBe(q.MAX_RETRY_COUNT);
   });
 
+  it('단일 job 실패 격리 — dispatcher 가 한 jobName 만 throw 시 해당 job 만 FAILED, 나머지 REPLAYED (전체 replay 무중단)', async () => {
+    process.env[ENV_KEY] = 'true';
+    q.__setMissedLearningReplayDispatcherForTests(async (jobName) => {
+      if (jobName === 'ghost_portfolio') throw new Error('ghost replay boom');
+    });
+    const names = ['nightly_reflection', 'ghost_portfolio', 'daily_mini_backtest'] as const;
+    for (const name of names) {
+      q.enqueueMissedLearningJob({
+        jobName: name,
+        reason: 'KRX_HOLIDAY',
+        skippedAt: '2026-06-09T19:00:00.000Z',
+        replayPolicy: 'SAFE_NEXT_TRADING_DAY',
+        idempotencyKey: `${name}:2026-06-09`,
+      });
+    }
+    const result = await q.replayMissedLearningJobs({ tradingDate: '2026-06-10' });
+    expect(result.replayed).toBe(2);
+    expect(result.failed).toBe(1);
+    expect(result.dropped).toBe(0);
+    const all = repo.loadMissedLearningQueue();
+    const byName = new Map(all.map((j) => [j.jobName, j]));
+    expect(byName.get('nightly_reflection')!.status).toBe('REPLAYED');
+    expect(byName.get('daily_mini_backtest')!.status).toBe('REPLAYED');
+    const failedJob = byName.get('ghost_portfolio')!;
+    expect(failedJob.status).toBe('FAILED');
+    expect(failedJob.retryCount).toBe(1);
+    expect(failedJob.failureReason).toBe('ghost replay boom');
+  });
+
   it('maxJobsPerRun 절삭 — 5 enqueue, maxPerRun=2', async () => {
     process.env[ENV_KEY] = 'true';
     for (let i = 0; i < 5; i++) {

@@ -511,6 +511,7 @@ describe('호출자 0건 정적 grep 가드 — Phase 2a dead code', () => {
       }
     }
     // 허용: 정의/테스트 + read-only endpoint + missed replay + bounded policy feedback
+    // + 일일 cron 호출자 (PENDING_WIRING A12 wiring — learningJobs.ts 'safety_gate_attribution')
     const allowedFiles = matches.filter(
       (m) =>
         m.endsWith('safetyGateAttribution.ts') ||
@@ -519,7 +520,10 @@ describe('호출자 0건 정적 grep 가드 — Phase 2a dead code', () => {
         m.endsWith('learningSanityDashboardRouter.test.ts') ||
         m.endsWith('nightlyReflectionEngine.ts') ||
         m.endsWith('missedLearningReplayDispatcher.ts') ||
-        m.endsWith('safetyGatePolicyFeedback.ts'),
+        m.endsWith('missedLearningReplayDispatcher.test.ts') ||
+        m.endsWith('safetyGatePolicyFeedback.ts') ||
+        m.endsWith(path.join('scheduler', 'learningJobs.ts')) ||
+        m.endsWith(path.join('scheduler', 'learningJobsAttributionCronWiring.test.ts')),
     );
     // 허용 파일 외 결과 0건 검증
     expect(matches.length).toBe(allowedFiles.length);

@@ -58,6 +58,8 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '16:30', label: '일일 종목 픽 리포트', group: 'reports', jobName: 'daily_pick_report' },
   { timeKst: '16:30', label: 'Future Return Resolve (ADR-0175)', group: 'learning', jobName: 'future_return_resolve', silentWhen: 'ENV `FUTURE_RETURN_RESOLVER_ENABLED` 미활성 또는 활성 signal 없으면 무음' },
   { timeKst: '16:35', label: 'Gate3 Forward Return 갱신 (P1-FIX)', group: 'learning', jobName: 'gate3_forward_return_update', silentWhen: 'ENV `GATE3_FORWARD_RETURN_CRON_ENABLED=false` 또는 갱신된 seed 0건이면 무음 — 갱신>0 시에만 LOW 알림' },
+  { timeKst: '16:40', label: 'Safety Gate Attribution (ADR-0174 §2.1)', group: 'learning', jobName: 'safety_gate_attribution', silentWhen: 'ENV `SAFETY_GATE_ATTRIBUTION_ENABLED` 미활성이면 무음 — 내부 학습 분석 로그만, Telegram 송출 없음' },
+  { timeKst: '16:45', label: 'Shadow vs Live Delta (ADR-0174 §2.2)', group: 'learning', jobName: 'shadow_live_delta_report', silentWhen: 'ENV `SHADOW_LIVE_DELTA_REPORT_ENABLED` 미활성이면 무음 — 내부 학습 분석 로그만, Telegram 송출 없음' },
   { timeKst: '16:36', label: 'Unified Forward Outcome Labeler (게이트 ledger forward-return 성숙, counterfacture_gate)', group: 'learning', jobName: 'unified_forward_outcome_labeling', silentWhen: '내부 학습 성숙만 — Telegram 송출 없음 (ENV `UNIFIED_FORWARD_OUTCOME_LABELER_ENABLED=false` 시 비활성)' },
   { timeKst: '16:50', label: 'counterfacture_gate Readiness 알람 (Phase J)', group: 'learning', jobName: 'counterfacture_gate_readiness_alert', silentWhen: 'gate×regime 첫 actionable(≥30표본) 전이 시에만 발송 — 전이 없으면 무음 (ENV `COUNTERFACTURE_GATE_READINESS_ALERT_DISABLED=true` 시 비활성)' },
   { timeKst: '16:40', label: '스캔 회고 리포트', group: 'reports', jobName: 'scan_retrospective' },

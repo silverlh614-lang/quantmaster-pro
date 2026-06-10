@@ -612,14 +612,18 @@ describe('호출자 정적 grep 가드 — 허용된 learning/reporting 경로�
         }
       }
     }
+    // + 일일 cron 호출자 (PENDING_WIRING A13 wiring — learningJobs.ts 'shadow_live_delta_report')
     const allowedFiles = matches.filter(
       (m) =>
         m.endsWith('shadowVsLiveDelta.ts') ||
         m.endsWith('shadowVsLiveDelta.test.ts') ||
         m.endsWith('missedLearningReplayDispatcher.ts') ||
+        m.endsWith('missedLearningReplayDispatcher.test.ts') ||
         m.endsWith('nightlyReflectionEngine.ts') ||
         m.endsWith('learningRouter.ts') ||
-        m.endsWith('learningSanityDashboardRouter.test.ts'),
+        m.endsWith('learningSanityDashboardRouter.test.ts') ||
+        m.endsWith(path.join('scheduler', 'learningJobs.ts')) ||
+        m.endsWith(path.join('scheduler', 'learningJobsAttributionCronWiring.test.ts')),
     );
     expect(matches.length).toBe(allowedFiles.length);
     expect(matches.length).toBeGreaterThanOrEqual(2);
