@@ -19,6 +19,8 @@ import { fetchCurrentPrice, fetchKisInvestorTradeByStockDaily } from '../clients
 import { type YahooQuoteExtended } from '../screener/stockScreener.js';
 // ADR-0547 — 기술지표 OHLCV quote 는 라우터 경유(ENV KIS-first 시 KIS 일봉 1차, Yahoo fallback).
 import { fetchTechnicalQuote } from '../screener/adapters/technicalQuoteRouter.js';
+// ADR-0561 정합 정정 — flag 해석은 kisPrimaryFlag SSOT(미설정=ON) 단일 통로.
+import { isKisOhlcvPrimaryEnabled } from '../clients/kisPrimaryFlag.js';
 import { getDartFinancials, type DartFinancials } from '../clients/dartFinancialClient.js';
 import { fetchPerPbr as krxFetchPerPbr } from '../clients/krxClient.js';
 // ADR-0443 — yahooSymbolResolver SSOT 위임 — `${ref.code}.KS` direct concat 영구
@@ -60,7 +62,7 @@ async function collectAll(ref: StockRef): Promise<CollectedData> {
   const [priceRes, flowRes, yahooRes, dartRes, perPbrRes] = await Promise.allSettled([
     fetchCurrentPrice(ref.code),
     fetchKisInvestorTradeByStockDaily(ref.code),
-    fetchTechnicalQuote(ref.code, symbol, { kisFirst: process.env.KIS_OHLCV_PRIMARY_ENABLED === 'true' }),
+    fetchTechnicalQuote(ref.code, symbol, { kisFirst: isKisOhlcvPrimaryEnabled() }),
     getDartFinancials(ref.code),
     krxFetchPerPbr(),
   ]);

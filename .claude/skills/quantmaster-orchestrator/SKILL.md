@@ -27,8 +27,9 @@ QuantMaster Pro 4-에이전트 팀의 조율 규약. CLAUDE.md의 "하네스" �
 
 1. `_workspace/` 디렉토리에 관련 작업물이 있는지 확인 (부분 재실행 판정)
 2. `ARCHITECTURE.md`를 읽고 영향받는 모듈의 Boundary Rule 식별
-3. `CLAUDE.md` "기존 복잡도 위반" 표에 해당 파일이 있는지 확인 — 있다면 **먼저
-   `server-refactor-orchestrator` 로 분해 후 진행**
+3. `docs/ai/01-architecture-map.md` §"복잡도 위반 현황"(baseline·한계 근접 watch 표)에
+   해당 파일이 있는지 확인 — 있다면 **먼저 `server-refactor-orchestrator` 로 분해 후 진행**
+   (과거 "CLAUDE.md 복잡도 위반 표" 참조는 ADR-527/528 문서 이관으로 위치가 바뀜)
 
 ## Phase 1 — 준비
 
@@ -68,7 +69,7 @@ QuantMaster Pro 4-에이전트 팀의 조율 규약. CLAUDE.md의 "하네스" �
 # 1. 타입 체크
 npm run lint
 
-# 2. 커스텀 검증 5종
+# 2. 커스텀 검증 전체 체인 (validate:* — 목록·개수 SSOT 는 package.json, 2026-06 기준 27종)
 npm run validate:all
 
 # 3. 변경 모듈 테스트
@@ -90,7 +91,8 @@ npm run precommit
 
 ## Phase 5 — 정리
 
-1. **CLAUDE.md 변경 이력** 테이블에 한 줄 추가 (날짜 / 변경 내용 / 대상 / 사유).
+1. **변경 이력 한 줄** 을 `docs/ai/10-patch-history-index.md` Patch Log 에 추가
+   (CLAUDE.md 에는 패치 노트를 누적하지 않는다 — CLAUDE.md §"Forbidden Behavior").
 2. **의미 있는 커밋 메시지** 작성. 템플릿:
 
    ```

@@ -92,8 +92,9 @@ describe('koreanQuoteBridge — KRX 우선·Yahoo 폴백', () => {
   beforeEach(() => {
     process.env.KRX_OPENAPI_AUTH_KEY = 'test-key';
     delete process.env.KRX_OPENAPI_DISABLED;
-    // ADR-0564: KIS 2차 삽입 flag 기본 OFF — 기존 테스트(KRX→Yahoo)는 byte-equal 경로.
-    delete process.env.KIS_OHLCV_PRIMARY_ENABLED;
+    // ADR-0561 정합 정정: kisPrimaryFlag SSOT 는 미설정=ON(KIS 2차 시도). 기존 KRX→Yahoo 경로
+    // 테스트는 ='false' 명시 롤백으로 고정(미설정=ON 경로는 전용 테스트에서 검증).
+    process.env.KIS_OHLCV_PRIMARY_ENABLED = 'false';
     // PR-29 EgressGuard 가 KR 심볼·장외에서 outbound 를 차단하므로 본 테스트는 우회.
     // 본 테스트는 KRX/Yahoo 분기 로직 자체를 검증하며 시장시간과 무관하다.
     process.env.EGRESS_GUARD_DISABLED = 'true';
@@ -178,7 +179,8 @@ describe('koreanQuoteBridge — KRX 우선·Yahoo 폴백', () => {
     expect(quote.close).toBe(0);
   });
 
-  it('[ADR-0564] flag OFF(default): KRX 실패 시 KIS 건너뛰고 Yahoo (byte-equal)', async () => {
+  it("[ADR-0564] flag OFF(='false' 명시 롤백): KRX 실패 시 KIS 건너뛰고 Yahoo (byte-equal)", async () => {
+    process.env.KIS_OHLCV_PRIMARY_ENABLED = 'false';
     process.env.KRX_OPENAPI_DISABLED = 'true';
     // flag OFF 면 fetchFromKis 블록이 skip 되어야 함 — KIS 가 호출되면 테스트 실패.
     vi.resetModules();
@@ -232,6 +234,32 @@ describe('koreanQuoteBridge — KRX 우선·Yahoo 폴백', () => {
     expect(quote.open).toBe(70500);
     expect(quote.high).toBe(72000);
     expect(quote.baseDate).toBe('20260417');
+    expect(kisMock).toHaveBeenCalled();
+  });
+
+  it('[ADR-0561 정합 정정] flag 미설정(undefined) === ON: KRX 실패 시 KIS 2차 → source=kis', async () => {
+    delete process.env.KIS_OHLCV_PRIMARY_ENABLED; // kisPrimaryFlag SSOT — 미설정=ON(KIS-first)
+    process.env.KRX_OPENAPI_DISABLED = 'true';
+    vi.resetModules();
+    const kisMock = vi.fn(async () => [
+      { date: '20260417', open: 70500, high: 72000, low: 70000, close: 71800, volume: 222 },
+    ]);
+    vi.doMock('../screener/kisChartDataFetcher.js', () => ({ fetchKisDailyCandles: kisMock }));
+    globalThis.fetch = buildFetchMock(async (url) => {
+      if (url.includes('query')) {
+        return { ok: true, status: 200, json: yahooChartResponse('005930.KS', 99999) };
+      }
+      return { ok: false, status: 404 };
+    }) as unknown as typeof fetch;
+
+    const krx = await import('./krxOpenApi.js');
+    krx._resetKrxOpenApiBreaker();
+    krx.resetKrxOpenApiCache();
+    const { fetchKoreanDailyQuote } = await import('./koreanQuoteBridge.js');
+
+    const quote = await fetchKoreanDailyQuote('005930');
+    expect(quote.source).toBe('kis'); // 미설정 = ON — Yahoo(99999) 미사용
+    expect(quote.close).toBe(71800);
     expect(kisMock).toHaveBeenCalled();
   });
 

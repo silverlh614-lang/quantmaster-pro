@@ -1,6 +1,6 @@
 ---
 name: server-refactor-orchestrator
-description: "QuantMaster Pro 1,000줄+ 서버 파일(signalScanner, webhookHandler, stockScreener, exitEngine 등) 분해 전용 오케스트레이터. 대형 파일 리팩토링 요청 시 사용한다."
+description: "QuantMaster Pro 1,000줄+ 서버 파일 분해 전용 오케스트레이터. 대상 목록 SSOT 는 docs/ai/01-architecture-map.md 복잡도 위반 현황. 대형 파일 리팩토링 요청 시 사용한다."
 ---
 
 # Server Refactor Orchestrator
@@ -9,14 +9,16 @@ description: "QuantMaster Pro 1,000줄+ 서버 파일(signalScanner, webhookHand
 메인 `quantmaster-orchestrator` 와 다른 점: **구현보다 scaffolding·경계 분리가 선행**되며
 architect가 전체 설계를 먼저 확정한다.
 
-## 현재 대상 (CLAUDE.md 동기화)
+## 현재 대상 — SSOT 는 `docs/ai/01-architecture-map.md`
 
-| 파일 | 줄 수 | 우선순위 | 기대 분해 방향 |
-|------|------:|----------|------------------|
-| `server/trading/signalScanner.ts` | 1,820 | P0 | marketScan / conditionEval / orderDispatch / index |
-| `server/telegram/webhookHandler.ts` | 1,700 | P1 | 명령 라우터 / 버튼 콜백 / 메시지 포매터 / 세션 스토어 |
-| `server/screener/stockScreener.ts` | 1,571 | P1 | universe / scoring / ranking / report |
-| `server/trading/exitEngine.ts` | 1,233 | P2 | trigger / sizing / execution / reconciliation |
+대상 목록을 본 문서에 복제하지 않는다 (과거 표가 분해 완료된 파일을 P0 로 안내하던
+문서 부패 재발 방지 — 2026-06-10 감사). **작업 전 반드시
+`docs/ai/01-architecture-map.md` §"복잡도 위반 현황"(baseline 표 + 한계 근접 watch 표)을
+읽고 실측(`wc -l`)으로 재확인한 뒤 대상을 정한다.**
+
+참고 — 완료된 분해 선례(패턴 참조용)는 같은 문서 §"완료" 목록:
+`signalScanner.ts`(35줄 barrel)·`webhookHandler.ts`·`stockScreener.ts`·`exitEngine.ts`·
+`marketDataRefresh.ts`(ADR-0595)·`minimumSignalScoreTrace.ts`(ADR-0596) 등.
 
 ## Phase 0 — 사전 확인
 

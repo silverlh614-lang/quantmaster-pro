@@ -29,6 +29,9 @@ import { NEWS_SUPPLY_FILE, ensureDataDir } from '../persistence/paths.js';
 import { fetchCloses } from '../trading/marketDataRefresh.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { recordLagObservation, inferLagFromTSeries } from './newsLagBayesian.js';
+// ADR-0561 정합 정정 — flag 해석은 kisPrimaryFlag SSOT(미설정=ON). 의존성 0 모듈이라
+// flag OFF 시 kisChartDataFetcher lazy 미로드(ADR-0566 import 그래프) 그대로 유지.
+import { isKisOhlcvPrimaryEnabled } from '../clients/kisPrimaryFlag.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -99,7 +102,8 @@ async function fetchNDayChange(symbol: string, nBusinessDays: number): Promise<n
  * fetchNDayChange 로 위임(byte-equal, idx 산식 동일). lazy import — flag OFF 는 미로드.
  */
 async function fetchNDayChangeDomestic(yahooSymbol: string, nBusinessDays: number): Promise<number | null> {
-  if (process.env.KIS_OHLCV_PRIMARY_ENABLED === 'true') {
+  // kisPrimaryFlag SSOT — 미설정=ON(KIS 1차), =false 명시 시에만 Yahoo 위임(롤백, ADR-0561 정합 정정).
+  if (isKisOhlcvPrimaryEnabled()) {
     const code6 = yahooSymbol.replace(/\.(KS|KQ)$/i, '');
     if (/^\d{6}$/.test(code6)) {
       const { fetchKisDailyCandles } = await import('../screener/kisChartDataFetcher.js');

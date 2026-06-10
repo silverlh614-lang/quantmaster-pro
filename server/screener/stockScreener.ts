@@ -48,8 +48,9 @@ import { isKstPreopenDiscoveryWindow, PREOPEN_AUTOPOPULATE_TTL_MS } from '../uti
 // legacy .KS fallback 보존 (그레이스 — 코스닥도 Yahoo 에서 .KS 로 조회 가능).
 import { tryGetYahooSymbol } from './adapters/yahooSymbolResolver.js';
 // ADR-0561 ③ KIS-primary 마이그레이션(grandfather 1→0) — 메인 Gate quote(full-scan) 진입점.
-// flag OFF(KIS_OHLCV_PRIMARY_ENABLED!=='true') 시 fetchYahooQuoteByCode(code, fetchYahooQuote)
-// funnel 로 byte-equivalent 위임(R1, technicalQuoteRouter). flag ON(④)에서만 KIS 일봉 1차.
+// flag OFF(KIS_OHLCV_PRIMARY_ENABLED==='false' 명시 롤백, kisPrimaryFlag SSOT) 시
+// fetchYahooQuoteByCode(code, fetchYahooQuote) funnel 로 byte-equivalent 위임(R1,
+// technicalQuoteRouter). flag ON(default — 미설정 포함)에서 KIS 일봉 1차.
 import { fetchTechnicalQuoteByCode } from './adapters/technicalQuoteRouter.js';
 // ④ 프로덕션 shadow A/B 계측 — flag KIS_SHADOW_AB_ENABLED OFF(default) 시 dormant(KIS 신규호출 0).
 // top-N survivor 에 KIS-first Gate quote 병행평가·델타 로깅 only — 결정 미반영(executionImpact NONE, 불변식 #8).

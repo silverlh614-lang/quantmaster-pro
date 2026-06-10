@@ -18,6 +18,7 @@ import { fetchYahooQuote, type YahooQuoteExtended } from './yahooQuoteAdapter.js
 import { fetchKisQuoteFallback, enrichQuoteWithKisMTAS } from './kisQuoteAdapter.js';
 import { fetchYahooQuoteByCode } from './yahooSymbolResolver.js';
 import { isKstWeekend, classifyMarketDataMode } from '../../utils/marketClock.js';
+import { isKisOhlcvPrimaryEnabled } from '../../clients/kisPrimaryFlag.js';
 
 /** 진단용 로컬 출처 태그(서버 전용; src/types 승격 금지 — ADR-0547 Decision §4). */
 type TechnicalQuoteSource = 'KIS_DAILY' | 'YAHOO_CHART' | 'CACHE';
@@ -27,14 +28,9 @@ export interface FetchTechnicalQuoteOptions {
   kisFirst?: boolean;
 }
 
-/**
- * ENV 글로벌 토글 — **default ON(KIS-first)**. ADR-0157 정확 비교: 'false' 일 때만 비활성(Yahoo-first 롤백).
- * 2026-06-06: 코드 default 를 KIS-first 로 전환 — 외부 ENV 미설정에도 KIS 1차(Yahoo 의존 축소, ADR-0561
- * KIS-primary). 롤백은 `KIS_OHLCV_PRIMARY_ENABLED=false` 1줄. KIS 실패/봉수부족 시 Yahoo fallback 보존.
- */
-function isKisPrimaryEnvEnabled(): boolean {
-  return process.env.KIS_OHLCV_PRIMARY_ENABLED !== 'false';
-}
+// ENV 글로벌 토글 — **default ON(KIS-first)**, 'false' 일 때만 비활성(Yahoo-first 롤백).
+// 2026-06-10: 비교 SSOT 를 clients/kisPrimaryFlag.isKisOhlcvPrimaryEnabled 로 승격(전 소비처 통일,
+// ADR-0561 정합 정정 patch) — 본 파일 로컬 비교 제거, 의미론(`!== 'false'`)은 byte-equal.
 
 // ── 일봉 6h 캐시 + 휴장 인지 TTL 연장 (ADR-0547 Decision §6) ────────────────────
 // KIS FHKST03010100 일봉은 휴장·주말에 "마지막 거래일 OHLCV"가 불변이므로, 휴장 구간에서는
@@ -113,7 +109,7 @@ export async function fetchTechnicalQuote(
   symbol: string,
   opts?: FetchTechnicalQuoteOptions,
 ): Promise<YahooQuoteExtended | null> {
-  const kisFirst = opts?.kisFirst === true || isKisPrimaryEnvEnabled();
+  const kisFirst = opts?.kisFirst === true || isKisOhlcvPrimaryEnabled();
 
   if (!kisFirst) {
     // 기본 경로 — 기존 Yahoo-first 동작 보존(회귀 0).
@@ -180,7 +176,7 @@ export async function fetchTechnicalQuoteByCode(
   code: string,
   opts?: FetchTechnicalQuoteOptions,
 ): Promise<YahooQuoteExtended | null> {
-  const kisFirst = opts?.kisFirst === true || isKisPrimaryEnvEnabled();
+  const kisFirst = opts?.kisFirst === true || isKisOhlcvPrimaryEnabled();
 
   if (!kisFirst) {
     // flag OFF — funnel 그대로 위임(byte-equal: 호출수·타입·ledger·marker·sanity·KIS-first 부분동작 동일).

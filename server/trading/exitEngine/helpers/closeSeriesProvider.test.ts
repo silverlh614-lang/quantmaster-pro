@@ -3,9 +3,10 @@
  * closeSeriesProvider.test.ts — ADR-0561 exit 경로 종가 라우터 회귀.
  *
  * 합격 절대조건 검증:
- *   1. flag OFF byte-equivalent: 기존 fetchCloses(symbol, range) 그대로 위임(호출 1회·인자·반환형 동일).
- *      → exit 청산 결정(ma60/RSI) 데이터 불변.
- *   2. flag ON 구현만: KIS 일봉(L1) 종가배열 1차, 실패 시 Yahoo graceful fallback(불변식 #6).
+ *   1. flag OFF(='false' 명시 롤백) byte-equivalent: 기존 fetchCloses(symbol, range) 그대로
+ *      위임(호출 1회·인자·반환형 동일). → exit 청산 결정(ma60/RSI) 데이터 불변.
+ *   2. flag ON(default — 미설정 포함, kisPrimaryFlag SSOT): KIS 일봉(L1) 종가배열 1차,
+ *      실패 시 Yahoo graceful fallback(불변식 #6).
  *   3. KIS 캔들(과거→최신) → number[] 오름차순 매핑이 Yahoo fetchCloses 와 동형.
  */
 
@@ -41,8 +42,9 @@ describe('closeSeriesProvider.fetchCloseSeries', () => {
     delete process.env.KIS_OHLCV_PRIMARY_ENABLED;
   });
 
-  // ── 합격조건 1: flag OFF byte-equivalent ──────────────────────────────
-  it('flag OFF: 기존 fetchCloses(symbol, range) 로 정확히 위임한다 (byte-equal, KIS 미호출)', async () => {
+  // ── 합격조건 1: flag OFF(='false' 명시) byte-equivalent ───────────────
+  it("flag OFF(='false'): 기존 fetchCloses(symbol, range) 로 정확히 위임한다 (byte-equal, KIS 미호출)", async () => {
+    process.env.KIS_OHLCV_PRIMARY_ENABLED = 'false';
     const series = [100, 101, 102];
     yahooMock.mockResolvedValue(series);
 
@@ -55,7 +57,8 @@ describe('closeSeriesProvider.fetchCloseSeries', () => {
     expect(out).toBe(series);
   });
 
-  it('flag OFF: fetchCloses 가 null 이면 그대로 null (byte-equal, 실패 경로)', async () => {
+  it("flag OFF(='false'): fetchCloses 가 null 이면 그대로 null (byte-equal, 실패 경로)", async () => {
+    process.env.KIS_OHLCV_PRIMARY_ENABLED = 'false';
     yahooMock.mockResolvedValue(null);
     const out = await fetchCloseSeries(CODE, SYMBOL, '120d');
     expect(yahooMock).toHaveBeenCalledWith(SYMBOL, '120d');
@@ -63,11 +66,12 @@ describe('closeSeriesProvider.fetchCloseSeries', () => {
     expect(kisMock).not.toHaveBeenCalled();
   });
 
-  it('flag 미설정(undefined) === flag OFF (default byte-equal)', async () => {
-    yahooMock.mockResolvedValue([1, 2]);
-    await fetchCloseSeries(CODE, SYMBOL, '60d');
-    expect(kisMock).not.toHaveBeenCalled();
-    expect(yahooMock).toHaveBeenCalledTimes(1);
+  it('flag 미설정(undefined) === ON — kisPrimaryFlag SSOT default KIS-first (ADR-0561 정합 정정)', async () => {
+    kisMock.mockResolvedValue([candle(1), candle(2)]);
+    const out = await fetchCloseSeries(CODE, SYMBOL, '60d');
+    expect(kisMock).toHaveBeenCalledTimes(1);
+    expect(yahooMock).not.toHaveBeenCalled();
+    expect(out).toEqual([1, 2]);
   });
 
   // ── 합격조건 2/3: flag ON KIS-first (구현만) ──────────────────────────

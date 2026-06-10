@@ -29,6 +29,9 @@ import {
 } from './krxOpenApi.js';
 import { guardedFetch } from '../utils/egressGuard.js';
 import { safePctChange } from '../utils/safePctChange.js';
+// ADR-0561 정합 정정 — flag 해석은 kisPrimaryFlag SSOT(미설정=ON). 의존성 0 모듈이라
+// flag OFF 시 screener 그래프 lazy 미로드(ADR-0564 byte-equal import 그래프) 그대로 유지.
+import { isKisOhlcvPrimaryEnabled } from './kisPrimaryFlag.js';
 
 export type QuoteSource = 'krx-openapi' | 'kis' | 'yahoo' | 'none';
 
@@ -81,8 +84,9 @@ export async function fetchKoreanDailyQuote(code: string): Promise<KoreanDailyQu
   }
 
   // KIS(L1) 2차 (ADR-0564) — KRX 불가 시 Yahoo 앞에서 KIS 일봉(FHKST03010100) 시도해
-  // Yahoo 를 진짜 최후 fallback 으로 강등(절대불변식 ADR-0561). flag OFF default = 블록 skip = byte-equal.
-  if (process.env.KIS_OHLCV_PRIMARY_ENABLED === 'true') {
+  // Yahoo 를 진짜 최후 fallback 으로 강등(절대불변식 ADR-0561). kisPrimaryFlag SSOT:
+  // 미설정=ON(KIS 2차 시도), KIS_OHLCV_PRIMARY_ENABLED=false 명시 시에만 블록 skip(Yahoo-first 롤백).
+  if (isKisOhlcvPrimaryEnabled()) {
     const kisQuote = await fetchFromKis(cleanCode);
     if (kisQuote) return kisQuote;
   }

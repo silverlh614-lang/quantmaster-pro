@@ -26,6 +26,9 @@ import { safePctChange } from '../utils/safePctChange.js';
 // 가 fetchYahooQuoteByCode (YahooQuoteExtended 반환) 와 부적합 — tryGetYahooSymbol
 // 만 사용 + 마스터 부재 시 보수적 양쪽 시도 fallback 보존 (그레이스).
 import { tryGetYahooSymbol } from '../screener/adapters/yahooSymbolResolver.js';
+// ADR-0561 정합 정정 — flag 해석은 kisPrimaryFlag SSOT(미설정=ON). 의존성 0 모듈이라
+// flag OFF 시 kisChartDataFetcher lazy 미로드(ADR-0565 import 그래프) 그대로 유지.
+import { isKisOhlcvPrimaryEnabled } from '../clients/kisPrimaryFlag.js';
 
 const YF_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -82,8 +85,9 @@ async function fetchOHLCVFromKis(code: string, from: Date, to: Date): Promise<OH
 }
 
 async function fetchOHLCV(code: string, from: Date, to: Date): Promise<OHLCVDay[]> {
-  // KIS(L1) 1차 (ADR-0565) — flag ON 시 Yahoo 앞에서 KIS 일봉 시도. flag OFF default = skip = byte-equal.
-  if (process.env.KIS_OHLCV_PRIMARY_ENABLED === 'true') {
+  // KIS(L1) 1차 (ADR-0565) — Yahoo 앞에서 KIS 일봉 시도. kisPrimaryFlag SSOT:
+  // 미설정=ON(KIS 1차), KIS_OHLCV_PRIMARY_ENABLED=false 명시 시에만 skip(Yahoo-first 롤백).
+  if (isKisOhlcvPrimaryEnabled()) {
     const kis = await fetchOHLCVFromKis(code, from, to);
     if (kis.length > 0) return kis;
   }
