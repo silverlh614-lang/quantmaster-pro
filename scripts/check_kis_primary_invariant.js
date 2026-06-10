@@ -147,7 +147,10 @@ const GRANDFATHER_ALLOWLIST = new Map([
   // koreanQuoteBridge: ADR-0564 KIS(L1) 2차 삽입(KRX→KIS→Yahoo) → Yahoo 최후 fallback 강등 → WHITELIST 승격(grandfather 제거).
   ['server/screener/sectorSources.ts', { lines: [272, 277], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C5' }], // Yahoo assetProfile 섹터 메타데이터(비실행)
   ['server/alerts/reportGenerator.ts', { lines: [896, 905], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C3/C4' }], // 텔레그램 시황요약 ^KS11/KRW=X 표시(비실행)
-  ['server/trading/marketDataRefresh.ts', { lines: [855], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C4' }], // KRW=X 환율 — 이미 ECOS 교차검증(ADR-0071), 표시·매크로(비실행)
+  // ADR-0595 분해: marketDataRefresh.ts 의 동결 Yahoo 코드(저수준 fetcher + KRW=X)가 byte 동일하게
+  // marketDataRefresh/indexMacroSections.ts 로 이동 — 신규 진입이 아닌 기존 grandfather 의 경로 이전.
+  // 구 경로 잔존 Yahoo 호출 0건(주석만) 확인 후 key 교체.
+  ['server/trading/marketDataRefresh/indexMacroSections.ts', { lines: [93, 94, 253], reason: 'FROZEN_NON_EXECUTION_ADR0563', c: 'C4' }], // Yahoo chart fetcher 정의 + KRW=X 환율 — 이미 ECOS 교차검증(ADR-0071), 표시·매크로(비실행)
 ]);
 
 /**
