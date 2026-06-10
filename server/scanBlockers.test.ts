@@ -255,9 +255,11 @@ describe('Patch-SCAN-BLOCKERS-GATEDIAG-CARRY-AND-TOPREASON-010', () => {
 
     const text = formatScanBlockersCompactMessage(summary);
 
-    expect(text).toContain('session: CLOSED / REGULAR');
-    expect(text).toContain('marketSession: CLOSED');
-    expect(text).toContain('displaySession: REGULAR');
+    // #1376 (marketSession 3출처 canonical SSOT): 하드코딩 CLOSED/REGULAR 스크레이프 제거 —
+    // 픽스처의 실제 marketSessionState(SELL_ONLY)/canonical displaySession 을 정직 표기.
+    expect(text).toContain('session: SELL_ONLY / REGULAR_OPEN');
+    expect(text).toContain('marketSession: SELL_ONLY');
+    expect(text).toContain('displaySession: REGULAR_OPEN');
     expect(text).toContain('entryBlockMode: NORMAL');
     expect(text).toContain('Legacy defense policy input detected - executionImpact=NONE');
     expect(text).toContain('removedPolicy: LEGACY_DEFENSE_POLICY_REMOVED');

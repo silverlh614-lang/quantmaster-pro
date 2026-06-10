@@ -25,7 +25,8 @@ describe('VKOSPI KRX wiring', () => {
   it('uses KRX derivatives index daily as primary source', () => {
     const src = fs.readFileSync(path.join(process.cwd(), 'server/trading/marketDataRefresh.ts'), 'utf8');
     expect(src).toContain('fetchDerivativesIndexDaily()');
-    expect(src).toContain("r.indexName.includes('VKOSPI')");
+    // ADR-0586: bare includes('VKOSPI') → 정밀 이름 매칭 SSOT(isVkospiIndexName)로 좁힘
+    expect(src).toContain('isVkospiIndexName(r.indexName)');
     expect(src).toContain("computed.vkospiDayChangeSource = 'KRX_DERIV_INDEX_DAILY'");
   });
 });

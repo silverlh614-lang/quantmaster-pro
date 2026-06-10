@@ -5,14 +5,18 @@ import fs from 'fs';
 import path from 'path';
 
 const SOURCE_PATH = path.join(process.cwd(), 'server/trading/marketDataRefresh.ts');
+// ADR-0589 분해: 프로그램 매매 순수 helper(buildUnitCandidates/snapshot 조립)는 추출 모듈로 이동.
+const HELPERS_PATH = path.join(process.cwd(), 'server/trading/marketDataRefresh/helpers.ts');
 
 describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
   let source: string;
+  let helpersSource: string;
 
   beforeAll();
 
   function beforeAll() {
     source = fs.readFileSync(SOURCE_PATH, 'utf-8');
+    helpersSource = fs.readFileSync(HELPERS_PATH, 'utf-8');
   }
 
   it('fetchKisMarketProgramTrade import 존재', () => {
@@ -65,9 +69,9 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
   });
 
   it('unitCandidates 3종(KRW/KRW_1K/KRW_1M) 계산 helper 존재', () => {
-    expect(source).toMatch(/function buildUnitCandidates/);
-    expect(source).toMatch(/KRW_1K:\s*formatEokAmount\(rawValue === null \? null : rawValue \* 1000/);
-    expect(source).toMatch(/KRW_1M:\s*formatEokAmount\(rawValue === null \? null : rawValue \* 1_000_000/);
+    expect(helpersSource).toMatch(/function buildUnitCandidates/);
+    expect(helpersSource).toMatch(/KRW_1K:\s*formatEokAmount\(rawValue === null \? null : rawValue \* 1000/);
+    expect(helpersSource).toMatch(/KRW_1M:\s*formatEokAmount\(rawValue === null \? null : rawValue \* 1_000_000/);
   });
 
   it('raw non-zero 보존 + structured 로그 태그 추가', () => {
@@ -77,7 +81,7 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
   });
 
   it('snapshotId 항상 생성 포맷 (mpg_yyyymmdd_HHmmss_random6)', () => {
-    expect(source).toMatch(/mpg_\$\{ymd\}_\$\{hms\}_\$\{random6\}/);
+    expect(helpersSource).toMatch(/mpg_\$\{ymd\}_\$\{hms\}_\$\{random6\}/);
   });
 
   it('invariant 위반 시 SNAPSHOT_INCONSISTENT + scoring excluded + executionImpact NONE', () => {
@@ -87,14 +91,14 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
   });
 
   it('KOSPI/KOSDAQ 0행이면 KOSPI_PLUS_KOSDAQ 금지 invariant 존재', () => {
-    expect(source).toMatch(/empty split rows cannot be KOSPI_PLUS_KOSDAQ/);
+    expect(helpersSource).toMatch(/empty split rows cannot be KOSPI_PLUS_KOSDAQ/);
   });
 
   it('rows=[] 불변식: selected/raw/display 강제 null\/N\\/A', () => {
-    expect(source).toMatch(/if \(rows\.length === 0\)/);
-    expect(source).toMatch(/selectedBsopHour:\s*null/);
-    expect(source).toMatch(/rawWholeNetBuy:\s*null/);
-    expect(source).toMatch(/displayWholeNetBuy:\s*'N\/A'/);
+    expect(helpersSource).toMatch(/if \(rows\.length === 0\)/);
+    expect(helpersSource).toMatch(/selectedBsopHour:\s*null/);
+    expect(helpersSource).toMatch(/rawWholeNetBuy:\s*null/);
+    expect(helpersSource).toMatch(/displayWholeNetBuy:\s*'N\/A'/);
   });
 
   it('rows=0인데 raw 존재 시 SNAPSHOT_INCONSISTENT 사유 RAW_EXISTS_WITH_EMPTY_ROWS', () => {
@@ -103,7 +107,7 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
   });
 
   it('split 0\/0이면 combinedSource KOSPI_PLUS_KOSDAQ 불가', () => {
-    expect(source).toMatch(/if \(input\.kospiLen === 0 && input\.kosdaqLen === 0 && input\.combinedSource === 'KOSPI_PLUS_KOSDAQ'\)/);
+    expect(helpersSource).toMatch(/if \(input\.kospiLen === 0 && input\.kosdaqLen === 0 && input\.combinedSource === 'KOSPI_PLUS_KOSDAQ'\)/);
   });
 
   it('KIS output 배열을 combined rows에 주입 (split unavailable 시 SINGLE_KIS_RESPONSE)', () => {

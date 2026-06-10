@@ -44,9 +44,11 @@ describe('marketDataRefresh ADR-0139 wiring (정적 grep 가드)', () => {
   });
 
   it('⑥ KRX 공매도 다음, ⑧ FRED 이전 위치 (⑥-b)', () => {
-    const shortIdx = source.indexOf('⑥ KRX 공매도');
-    const marginIdx = source.indexOf('ADR-0139');
-    const fredIdx = source.indexOf('⑧ FRED');
+    // ADR-0589 분해 후 섹션 헬퍼 정의가 본문 상단으로 추출됨 — 호출부(orchestration) 순서는
+    // 마지막 출현 기준으로 검증한다.
+    const shortIdx = source.lastIndexOf('⑥ KRX 공매도');
+    const marginIdx = source.lastIndexOf('ADR-0139');
+    const fredIdx = source.lastIndexOf('⑧ FRED');
     expect(shortIdx).toBeGreaterThan(0);
     expect(marginIdx).toBeGreaterThan(shortIdx);
     expect(fredIdx).toBeGreaterThan(marginIdx);

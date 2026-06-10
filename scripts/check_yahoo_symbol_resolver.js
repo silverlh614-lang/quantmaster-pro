@@ -65,8 +65,14 @@ import { execSync } from 'child_process';
 
 // ─── 설정 ──────────────────────────────────────────────────────────────────
 
-// 검사 대상 디렉토리 — server/ 만 (src/ 는 클라이언트 측, 서버 SSOT 접근 불가)
-const ROOTS = ['server'];
+// 검사 대상 디렉토리 — server/ 만 (src/ 는 클라이언트 측, 서버 SSOT 접근 불가).
+// YAHOO_RESOLVER_EXTRA_SCAN_ROOT: 회귀 테스트 전용 — 위반 픽스처를 라이브 server/ 트리 밖
+// (OS temp)에 두고 검사 경로에만 포함시키는 오버라이드. 픽스처가 server/ 안에 있으면 병렬
+// vitest 워커/다른 validator walker 가 생성·삭제 찰나의 파일을 밟아 ENOENT 크래시·오탐 레이스.
+const ROOTS = [
+  'server',
+  ...(process.env.YAHOO_RESOLVER_EXTRA_SCAN_ROOT ? [process.env.YAHOO_RESOLVER_EXTRA_SCAN_ROOT] : []),
+];
 const EXTS = new Set(['.ts', '.tsx', '.js']);
 const IGNORED_SUFFIX = ['.d.ts', '.test.ts', '.test.tsx', '.spec.ts', '.spec.tsx'];
 

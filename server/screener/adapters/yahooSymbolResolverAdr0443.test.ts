@@ -66,9 +66,10 @@ describe('ADR-0443 정적 grep 가드 — 10 호출자 SSOT import 보유', () =
   // burn-down 으로 fetchTechnicalQuoteByCode(code) router funnel 위임으로 치환됨(flag OFF byte-equiv).
   // → 더 이상 yahooSymbolResolver SSOT 를 직접 import 하지 않으므로 본 SSOT-import 가드 대상에서 제외.
   // ADR-0443 의도(직접 .KS/.KQ concat 부재 + SSOT 위임 보존)는 router 한 단계 아래에서 그대로 충족.
+  // backtestEngine 은 ADR-0563 burn-down 으로 Yahoo OHLCV → KIS 일봉(fetchKisStockDailyBars, L1)
+  // 완전 전환 — Yahoo 심볼 자체를 더 이상 사용하지 않으므로 본 가드 대상에서 제외(아래 KIS 전환 가드로 대체).
   const callers = [
     { name: 'historicalClosePrice.ts', path: 'server/clients/historicalClosePrice.ts', expectedSsot: 'tryGetYahooSymbol' },
-    { name: 'backtestEngine.ts', path: 'server/learning/backtestEngine.ts', expectedSsot: 'tryGetYahooSymbol' },
     { name: 'lateWinEvaluator.ts', path: 'server/learning/lateWinEvaluator.ts', expectedSsot: 'tryGetYahooSymbol' },
     { name: 'prefetchedContext.ts', path: 'server/ai/prefetchedContext.ts', expectedSsot: 'tryGetYahooSymbol' },
     { name: 'stockScreener.ts', path: 'server/screener/stockScreener.ts', expectedSsot: 'tryGetYahooSymbol' },
@@ -208,12 +209,12 @@ describe('ADR-0443 정적 grep 가드 — Category B prefetchedContext / stockSc
 });
 
 describe('ADR-0443 정적 grep 가드 — Category A historical fetcher 그레이스 fallback 보존', () => {
-  // historical fetcher 3개 (historicalClosePrice / backtestEngine / lateWinEvaluator) 는
+  // historical fetcher (historicalClosePrice / lateWinEvaluator) 는
   // tryGetYahooSymbol 만 사용 + 마스터 부재 시 양쪽 시도 fallback 보존 (그레이스).
   // brute-force fallback 자체가 사라지면 마스터 미커버 종목 영구 fetch 실패 위험.
+  // backtestEngine 은 ADR-0563 burn-down 으로 KIS 일봉 전환 — 아래 KIS 전환 가드로 대체.
   for (const { path, name } of [
     { path: 'server/clients/historicalClosePrice.ts', name: 'historicalClosePrice.ts' },
-    { path: 'server/learning/backtestEngine.ts', name: 'backtestEngine.ts' },
     { path: 'server/learning/lateWinEvaluator.ts', name: 'lateWinEvaluator.ts' },
   ]) {
     it(`${name}: 마스터 부재 시 [.KS, .KQ] 그레이스 fallback 보존 (운영 안정성)`, () => {
@@ -227,6 +228,21 @@ describe('ADR-0443 정적 grep 가드 — Category A historical fetcher 그레�
       expect(cleaned).toMatch(/tryGetYahooSymbol\s*\(\s*code\s*\)/);
     });
   }
+});
+
+describe('ADR-0561/0563 burn-down 가드 — backtestEngine KIS 일봉 전환 보존', () => {
+  it('backtestEngine.ts: fetchKisStockDailyBars(KIS L1) import 보유 + Yahoo resolver import 부재', () => {
+    const src = readSrc('server/learning/backtestEngine.ts');
+    const cleaned = stripComments(src);
+    expect(cleaned).toMatch(/from\s+['"][^'"]*kisClient(?:\.js)?['"]/);
+    expect(cleaned).toContain('fetchKisStockDailyBars');
+    expect(cleaned).not.toMatch(/from\s+['"][^'"]*yahooSymbolResolver(?:\.js)?['"]/);
+  });
+
+  it('backtestEngine.ts: 직접 `${code}.KS/.KQ` concat 부재 (Yahoo-first 재유입 차단)', () => {
+    const src = readSrc('server/learning/backtestEngine.ts');
+    expect(hasDirectConcat(src)).toBe(false);
+  });
 });
 
 // ─── 안전 invariants — KIS 주문 함수 / autoTradeEngine import 0건 ──────────────

@@ -98,7 +98,15 @@ function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
     if (name === 'node_modules' || name.startsWith('.')) continue;
     const p = join(dir, name);
-    const s = statSync(p);
+    let s;
+    try {
+      s = statSync(p);
+    } catch (err) {
+      /* SDS-ignore: 병렬 vitest 워커(예: check_yahoo_symbol_resolver.test.js 임시 픽스처)가
+         walk 도중 파일을 삭제하는 레이스 — 사라진 항목은 스캔 대상이 아니므로 스킵 */
+      if (err && err.code === 'ENOENT') continue;
+      throw err;
+    }
     if (s.isDirectory()) walk(p, out);
     else if (EXTS.has(extname(p)) && !IGNORED_SUFFIX.some((suf) => p.endsWith(suf))) out.push(p);
   }
@@ -234,10 +242,17 @@ function main() {
 
   // 전체 source 파일 로드
   const allFiles = ROOTS.flatMap((r) => walk(r));
-  const sources = allFiles.map((p) => ({
-    path: p,
-    src: readFileSync(p, 'utf-8'),
-  }));
+  const sources = [];
+  for (const p of allFiles) {
+    try {
+      sources.push({ path: p, src: readFileSync(p, 'utf-8') });
+    } catch (err) {
+      /* SDS-ignore: walk 와 read 사이에 병렬 테스트 임시 픽스처가 삭제된 레이스 —
+         사라진 파일은 검사 대상이 아니므로 스킵 (그 외 오류는 그대로 전파) */
+      if (err && err.code === 'ENOENT') continue;
+      throw err;
+    }
+  }
 
   const schemaPaths = SCHEMA_FILES.map((p) => p.replace(/\\/g, '/'));
   const excludePaths = sources

@@ -26,12 +26,16 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { execSync } from 'child_process';
 import { writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
+import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = join(__dirname, '..');
-const FIXTURE_DIR = join(ROOT, 'server', 'trading', '__yahoo_symbol_resolver_fixtures__');
+// 픽스처는 라이브 server/ 트리 밖(OS temp)에 두고 YAHOO_RESOLVER_EXTRA_SCAN_ROOT 로만 검사에
+// 포함 — server/ 안에 두면 병렬 vitest 워커/다른 validator walker 가 생성·삭제 찰나의 파일을
+// 밟아 ENOENT 크래시·오탐 레이스 (2026-06-10 full-suite flaky 원인).
+const FIXTURE_DIR = join(tmpdir(), `qmp_yahoo_symbol_resolver_fixtures_${process.pid}`);
 
 function runLint(extraArgs = '') {
   try {
@@ -39,6 +43,7 @@ function runLint(extraArgs = '') {
       cwd: ROOT,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, YAHOO_RESOLVER_EXTRA_SCAN_ROOT: FIXTURE_DIR },
     });
     return { exitCode: 0, output: out };
   } catch (err) {
