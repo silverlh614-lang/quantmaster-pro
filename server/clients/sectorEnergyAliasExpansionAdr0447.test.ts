@@ -23,6 +23,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   classifyMissingReason,
@@ -685,11 +686,12 @@ describe('ADR-0447 Group J — 정적 grep 가드 + 안전 invariant', () => {
     });
 
     // KIS 주문 함수 / autoTradeEngine import 0건 정적 grep 가드 (modular 파일 4종)
+    // 경로는 repo 루트(vitest cwd) 상대 — 절대경로 하드코딩은 CI 러너에서 ENOENT.
     const filesToCheck = [
-      '/home/user/quantmaster-pro/server/clients/sectorEnergyMaster.ts',
-      '/home/user/quantmaster-pro/server/clients/sectorEnergyIndexCodeRecoveryDiagnostic.ts',
-      '/home/user/quantmaster-pro/server/clients/sectorEnergyProvider.ts',
-      '/home/user/quantmaster-pro/server/clients/sectorEnergyQualityDiagnostic.ts',
+      join(process.cwd(), 'server/clients/sectorEnergyMaster.ts'),
+      join(process.cwd(), 'server/clients/sectorEnergyIndexCodeRecoveryDiagnostic.ts'),
+      join(process.cwd(), 'server/clients/sectorEnergyProvider.ts'),
+      join(process.cwd(), 'server/clients/sectorEnergyQualityDiagnostic.ts'),
     ];
     const forbiddenImports = [
       'placeKisMarketOrder',
@@ -718,9 +720,9 @@ describe('ADR-0447 Group J — 정적 grep 가드 + 안전 invariant', () => {
 
   it('J2. 외부 API 호출 추가 0건 (fetch / axios / node-fetch import 0)', () => {
     const filesToCheck = [
-      '/home/user/quantmaster-pro/server/clients/sectorEnergyMaster.ts',
-      '/home/user/quantmaster-pro/server/clients/sectorEnergyIndexCodeRecoveryDiagnostic.ts',
-      '/home/user/quantmaster-pro/server/clients/sectorEnergyQualityDiagnostic.ts',
+      join(process.cwd(), 'server/clients/sectorEnergyMaster.ts'),
+      join(process.cwd(), 'server/clients/sectorEnergyIndexCodeRecoveryDiagnostic.ts'),
+      join(process.cwd(), 'server/clients/sectorEnergyQualityDiagnostic.ts'),
     ];
     const forbiddenPatterns = [
       /from\s+['"]node-fetch['"]/,
