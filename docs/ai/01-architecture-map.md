@@ -77,19 +77,19 @@
 | `server/trading/signalScanner/scanDiagnostics/persistScanResults.ts` | 1,990 | baseline — god 함수 1,623줄, 진단블록 분해 보류 |
 | `server/clients/kisSectorEnergyProvider.ts` | 1,521 | baseline — ADR-0574 정규화로 초과, 분해 ADR 미발급 |
 
-### ⚠️ 한계 근접 (watch — 여유 ≤30줄, 2026-06-07 실측)
+### ⚠️ 한계 근접 (watch — 여유 ≤30줄, 2026-06-10 실측)
 
 | 파일 | 줄 수 | 여유 |
 |------|------:|------|
-| `server/trading/signalScanner/minimumSignalScoreTrace.ts` | 1,490 | 10 (ADR-0524 후 재증가) |
-| `server/learning/counterfactualOutcomeBoard.ts` | 1,481 | 19 |
-| `server/trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts` | 1,479 | 21 |
-| `server/clients/krxClient.ts` | 1,475 | 25 |
+| `server/learning/counterfactualOutcomeBoard.ts` | 1,480 | 20 |
+| `server/trading/signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts` | 1,478 | 22 |
+| `server/clients/krxClient.ts` | 1,474 | 26 |
 
-> 직전 "정확히 1,500/1줄 차" 임박 3건은 ADR-0579/0580 으로 해결(아래 완료) — 현재 차단 임박(≤1줄) 0건.
+> 직전 임박 2건(marketDataRefresh 여유 4줄·minimumSignalScoreTrace 여유 1줄)은 ADR-0595/0596 으로 해결(아래 완료) — 현재 차단 임박(≤1줄) 0건.
 
 ### 완료 (분해 사례 — 후속 분해의 참조 패턴)
 
+- `minimumSignalScoreTrace.ts` 1,500 → 662줄 (ADR-0596, traceFieldResolver/componentScorers/decompositionReport 3모듈 추출 — byte 동일 이동, ADR-0594 reversal credit wiring 보존, 가드 테스트 갱신 0건)
 - `marketDataRefresh.ts` 1,497 → 342줄 오케스트레이터 (ADR-0595, 섹션 5모듈 분해: refreshObservability/indexMacroSections/supplyCreditSections/programMarketSection/sectorEnergySection, **executionImpact=NONE** · 외부 importer 14파일 무수정)
 - `marketDataRefresh.ts` 1,499 → 1,327줄 (ADR-0580, types.ts+helpers.ts, **executionImpact=NONE** · refreshMarketRegimeVars 무접촉)
 - `gate1DryRunObservationLedgerAdr0476.ts` 1,500 → 1,242줄 · `sectorEnergyProvider.ts` 1,499 → 1,343줄 (ADR-0579, types.ts 추출)
