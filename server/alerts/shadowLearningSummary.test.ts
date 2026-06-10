@@ -17,6 +17,16 @@ vi.mock('../learning/counterfactualTwinPortfolio.js', async () => {
   };
 });
 
+// ADR-0124 (PR-H): BE 표기 wiring 이 영속 파일을 읽지 않도록 격리 — 기존 표기
+// 검증은 BE=0 (빈 trades) 기준 그대로. BE>0 케이스는 shadowLearningSummaryBeAdr0124.test.ts.
+vi.mock('../persistence/shadowTradeRepo.js', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('../persistence/shadowTradeRepo.js');
+  return {
+    ...actual,
+    loadShadowTrades: vi.fn(() => []),
+  };
+});
+
 import * as rejectionRepo from '../learning/rejectionShadowTracker.js';
 import * as twinRepo from '../learning/counterfactualTwinPortfolio.js';
 import { buildShadowLearningSummary } from './shadowLearningSummary.js';

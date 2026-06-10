@@ -50,7 +50,6 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | A4 | 0083 walkForwardFramework | `server/learning/walkForwardFramework.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 데이터 6개월 누적 후 — decay='DECAYING' 시 가중치 자동 보수화 |
 | A5 | 0084 conditionLifecyclePolicy | `server/learning/conditionLifecyclePolicy.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 데이터 6개월 누적 후 — 27조건 silent/deprecated 가드 wiring (signalScanner / entryRevalidationStep score 보수화) |
 | A6 | 0123/0124 recommendationTracker | `server/learning/recommendationTracker.ts` | 2026-05-02 | PARTIAL | P1 | 학습 SSOT 변경 회귀 위험 — monthlyStats.winRate fill 단위 격상 (현재 trade 단위 WIN/LOSS 만, fill 수준 BE 분류 미반영) |
-| A7 | 0124 shadowLearningSummary | `server/alerts/shadowLearningSummary.ts` | 2026-05-02 | PARTIAL | P1 | PR-H 후속 — 일일 리포트 라인 BE 표기 추가 |
 | A8 | 0160 learningLoopHealth | `server/learning/learningLoopHealth.ts` | 2026-05-02 | PARTIAL | P2 | commit 2258621 머지 시 508 → 460 LoC 변경 (변경 의도 불명확) — 본 모듈 단위 테스트 보강 + ADR-0160 §3 호출자 wiring 검증 |
 | A9 | 0160 loadReflectionImpactRecords 활용 | `server/learning/failureToWeight.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | ADR-0160 §1 명시 — F2W reflection multiplier 가 `loadRecentReflections` + `loadFailurePatterns` 만 활용 / `loadReflectionImpactRecords` 본 PR scope 외 — silent/deprecated 모듈 자동 가드 wiring 후속 ADR |
 | A10 | 0173 §1 MissedLearningQueue | `server/learning/missedLearningQueue.ts` | 2026-05-03 | BLOCKED | P1 | **운영자 결정 대기 — ENV `MISSED_LEARNING_QUEUE_ENABLED=true` 명시 활성화만 잔여** (PR-Learning-Wiring-Burndown, 2026-06-10): replay dispatcher 실함수 매핑 완료 — `server/learning/missedLearningReplayDispatcher.ts` 가 7 jobName → 실제 학습 복구 함수 dispatch (default dispatcher 결합). 단일 job throw 시 해당 job 만 FAILED + 전체 replay 무중단 (회귀 테스트). SLA 면제 (운영자 결정 — ADR-0158 §면제). |
@@ -123,12 +122,12 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 
 | 카테고리 | 항목 수 | P0 | P1 | P2 | P3 |
 |----------|---------|----|----|----|----|
-| A. 학습 시리즈 | 14 | 0 | 9 | 5 | 0 |
+| A. 학습 시리즈 | 13 | 0 | 8 | 5 | 0 |
 | B. 매매 본체 | 12 | 1 | 4 | 7 | 0 |
 | C. 시그널 입력 | 10 | 1 | 1 | 5 | 3 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
 | E. 영속/진단 | 10 | 0 | 0 | 4 | 6 |
-| **합계** | **53** | **2** | **17** | **25** | **9** |
+| **합계** | **52** | **2** | **16** | **25** | **9** |
 
 > 주: 위 통계는 active backlog 기준이다. 완료/영구결정 `DECIDED_NOT_WIRING` 15건은 2026-05-25 정리로 active table 에서 제거했다.
 
@@ -170,4 +169,5 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 2026-05-07 | PR-ADR-0439-Provisional-Cache-Lookup | C19 INFRASTRUCTURE_ONLY → DECIDED_NOT_WIRING 격상 — ADR-0439 (= 사용자 명시 ADR-0434, PENDING_WIRING C19 P2 부채 해소) 발행. provisionalShadowPriceProvider `lookupCachedPrice` 4-tier (INTRADAY/DAILY/MARKET_DATA/READ_ONLY_QUOTE) wiring 활성화 — counterfactualShadowPriceProviderAdapter 헬퍼 (ADR-0434) export 키워드만 추가 (본체 0줄 변경) + horizon → reader 라우팅 매트릭스 (intraday horizons → INTRADAY 우선, daily horizons → DAILY 우선) + SCAN_SNAPSHOT 우선 + ENV `PROVISIONAL_CACHE_LOOKUP_DISABLED` default OFF + maxExternalLookups default 0 그대로 (cache-only 정책 보존, 외부 API 호출 도입 0). 회귀 38 신규 + 인접 111/111 무회귀. **LIVE 매매 본체 0줄 변경** + KIS/KRX/Yahoo/Naver outbound 0 (`getSnapshot` read-only). 외부 API 호출 활성화 (`maxExternalLookups>0`) 는 별도 ADR. C19 P2 SLA 만기 2026-09-04 약 4개월 전 충족. 통계 표 무변경 (status 격상만, 카테고리 / 우선순위 카운트 유지). |
 | 2026-05-25 | Patch-Pending-Wiring-Active-Cleanup-001 | active backlog 에서 `DECIDED_NOT_WIRING` 완료/영구결정 15건 제거 — A3/B1/B11/B12/C7/C8/C9/C10/C11~C14/C15/C19/E5. 진행 통계 68→53, P0 5→1(B15만 유지). 문서 전용, runtime impact 0. |
 | 2026-06-10 | PR-D4-RecommendationSnapshot-TimeBand-Wiring | D4 (ADR-0019 후속 wiring, ADR 발급 0건 patch type) 소진 — 행 삭제. `expiresAt` 단일 출처 selector (`getSnapshotExpiresAt` = recommendedAt + SNAPSHOT_EXPIRY_MS, expireStale 30일과 동일 상수·동일 기점) + TimeBand/VerdictCard props 어댑터 (`toTimeBandWindow` — PENDING/EXPIRED 만 윈도, OPEN/CLOSED null) + store selector (`getTimeBandWindow(stockCode)`). TimeBand remainingPct=0 ↔ repo EXPIRED 전이 동일 시점 기준 cross-module 회귀 테스트 고정 (`TimeBand.snapshotExpiry.test.ts`). persist 스키마 무변경 (파생 selector — 영속 필드 추가 0). **페이지 임베드는 D3 (VerdictCard 실사용처 0건) 가 계속 추적** — D3 임베드 시 본 selector 소비. 통계 D 8→7 / P1 18→17 / 합계 54→53. D4 P1 SLA 만기 2026-06-16 6일 전 충족. |
+| 2026-06-10 | PR-A7-ShadowLearningSummary-BE | A7 (ADR-0124 PR-H 후속, ADR 발급 0건 patch type) 소진 — 행 삭제. `buildShadowLearningSummary` reportLine/narrativeLine 에 BE 카운트 조건부 표기 (`본절 fill N건`, BE>0 시에만 — 선례 PR-E/F/G 동일 규칙). 데이터 공급: `aggregateFillStats(loadShadowTrades())` SSOT read-only (ADR-0112 분류, WIN_PCT_MIN=1.0 / BE band -0.5~+0.5). `ShadowLearningSummary.beFills?` additive optional (기존 호출자 `reportGenerator.loadDailyShadowLearningLines` 무수정). `BE_CLASSIFICATION_DISABLED=true` 시 SSOT 0 반환 → 자동 silent. 데이터 부족 빈 문자열 byte 보존 (hasAnyData 판정 무변경 — BE 단독 라인 생성 금지). 학습 SSOT (aggregateFillStats/nightlyReflection/biasHeatmap) 0줄 변경. 신규 회귀 6 케이스 (`shadowLearningSummaryBeAdr0124.test.ts`). 통계 A 14→13 / P1 17→16 / 합계 53→52. A7 P1 SLA 만기 2026-06-16 6일 전 충족. |
 | 2026-06-10 | PR-Learning-Wiring-Burndown | 학습 클러스터 5건 (A10/A12/A13/A14/A15, ADR-0173~0176 후속 wiring, ADR 발급 0건 patch type) 소진 — A10+A15 replay dispatcher 실함수 매핑 (기 머지 `missedLearningReplayDispatcher.ts` 회귀 테스트 보강 + 단일 실패 격리 검증) / A12+A13 일일 cron 신규 wiring (`learningJobs.ts` 'safety_gate_attribution' KST 16:40 + 'shadow_live_delta_report' KST 16:45, TRADING_DAY_ONLY + ENV 첫 분기 + scheduleCatalog 등재) / A14 priceFetcher KIS 일봉(L1) wiring 검증 (`fetchHistoricalClosePrice` — 미래 bar 누출 금지 + 실패 null 회귀 테스트). 5건 모두 → BLOCKED (운영자 ENV 명시 활성화만 잔여, SLA 면제 — 2026-06-17 만기 해소). 진행 통계 무변경 (status 격상만, 카테고리/우선순위 카운트 유지). 전 ENV default OFF — flag OFF runtime byte-equivalent. |
