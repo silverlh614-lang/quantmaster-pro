@@ -80,8 +80,10 @@ export function registerReportJobs(): void {
     }
   }, { timezone: 'UTC' });
 
-  // 일일 종목 픽 리포트 — 평일 16:30 KST.
-  scheduledJob('30 7 * * 1-5', 'TRADING_DAY_ONLY', 'daily_pick_report',
+  // 일일 종목 픽 리포트 — 평일 16:20 KST.
+  // 16:30 은 future_return_resolve 무접촉 학습 체인 시작 슬롯 — 비-체인 잡 분리
+  // (cron stagger 감사 2026-06-10). 마감(15:30) 데이터 확보에는 영향 없음.
+  scheduledJob('20 7 * * 1-5', 'TRADING_DAY_ONLY', 'daily_pick_report',
     () => generateDailyPickReport(), { timezone: 'UTC' });
 
   // 오늘 스캔 회고 리포트 — 평일 16:40 KST.
@@ -92,8 +94,10 @@ export function registerReportJobs(): void {
   scheduledJob('5 0 * * 1-5', 'TRADING_DAY_ONLY', 'morning_position_card',
     () => sendPositionMorningCard(), { timezone: 'UTC' });
 
-  // 섹터 사이클 대시보드 — 평일 14:30 KST.
-  scheduledJob('30 5 * * 1-5', 'TRADING_DAY_ONLY', 'sector_cycle_dashboard',
+  // 섹터 사이클 대시보드 — 평일 14:35 KST.
+  // 14:30 macro_sector_alignment 와 동시각 경합 회피 + 14:30 정렬 결과 직후 발행
+  // (cron stagger 감사 2026-06-10).
+  scheduledJob('35 5 * * 1-5', 'TRADING_DAY_ONLY', 'sector_cycle_dashboard',
     () => sendSectorCycleDashboard(), { timezone: 'UTC' });
 
   // 52주 신고가 모멘텀 스캔 — 평일 16:05 KST. 한국 장 마감 직후 → withForcedMarket 으로
@@ -109,9 +113,11 @@ export function registerReportJobs(): void {
   scheduledJob('0 8 * * 5', 'TRADING_DAY_ONLY', 'weekly_quant_insight',
     () => sendWeeklyQuantInsight(), { timezone: 'UTC' });
 
-  // 시장 지표 자동 갱신 — 평일 08:40 KST + 장중 5분 TTL refresh + 15:30 KST.
+  // 시장 지표 자동 갱신 — 평일 08:38 KST + 장중 3분 TTL refresh + 15:30 KST.
   // macro refresh is observation-only and must not be skipped by R6/SELL_ONLY/live-buy blocks.
-  scheduledJob('40 23 * * 0-4', 'TRADING_DAY_ONLY', 'market_regime_refresh_morning',
+  // 08:38 — 08:40 dxy_kr_open 동시각 경합 회피, 08:45 morning_briefing 소비 순서 보존
+  // (cron stagger 감사 2026-06-10).
+  scheduledJob('38 23 * * 0-4', 'TRADING_DAY_ONLY', 'market_regime_refresh_morning',
     () => refreshMarketRegimeVars(), { timezone: 'UTC' });
   scheduledJob('*/3 0-6 * * 1-5', 'TRADING_DAY_ONLY', 'market_regime_refresh_intraday_ttl',
     () => refreshMarketRegimeVars(), { timezone: 'UTC' });
@@ -156,8 +162,9 @@ export function registerReportJobs(): void {
   scheduledJob('35 6 * * 1-5', 'TRADING_DAY_ONLY', 'info_digest_flush',
     () => flushInfoDailyDigest(), { timezone: 'UTC' });
 
-  // SYSTEM 채널 주간 요약 flush (금요일 17:00 KST).
-  scheduledJob('0 8 * * 5', 'TRADING_DAY_ONLY', 'system_weekly_flush',
+  // SYSTEM 채널 주간 요약 flush (금요일 17:10 KST).
+  // 금 17:00 weekly_quant_insight Telegram 과 동시각 경합 회피 (cron stagger 감사 2026-06-10).
+  scheduledJob('10 8 * * 5', 'TRADING_DAY_ONLY', 'system_weekly_flush',
     () => flushSystemWeeklySummary(), { timezone: 'UTC' });
 
   // Mutation Canary: 매시간 정각.

@@ -16,7 +16,9 @@ import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAc
 import { withForcedMarket } from '../utils/forceMarketGuard.js';
 
 export function registerScreenerJobs(): void {
-  scheduledJob('30 7 * * 1-5', 'TRADING_DAY_ONLY', 'stage1_pre_screening',
+  // KST 16:55 — 16:30 은 future_return_resolve 무접촉 학습 체인 시작 슬롯이라 KIS 헤비
+  // 스크리닝을 분리. 익일 08:35 stage2_3 선행 순서는 그대로 (cron stagger 감사 2026-06-10).
+  scheduledJob('55 7 * * 1-5', 'TRADING_DAY_ONLY', 'stage1_pre_screening',
     () => withForcedMarket(() => runStage1PreScreening()), { timezone: 'UTC' });
 
   scheduledJob('35 23 * * 0-4', 'TRADING_DAY_ONLY', 'stage2_3_final_screening', () => withForcedMarket(async () => {
@@ -46,7 +48,8 @@ export function registerScreenerJobs(): void {
   scheduledJob('0 21 * * 0-4', 'ALWAYS_ON', 'global_scan_agent',
     () => withForcedMarket(() => runGlobalScanAgent()), { timezone: 'UTC' });
 
-  scheduledJob('10 0 * * 1-5', 'TRADING_DAY_ONLY', 'news_supply_tracker',
+  // KST 09:12 — 09:10 investor_flow_warmup_open(KRX) 동시각 경합 회피 (cron stagger 감사 2026-06-10).
+  scheduledJob('12 0 * * 1-5', 'TRADING_DAY_ONLY', 'news_supply_tracker',
     () => trackPendingRecords(), { timezone: 'UTC' });
 
   scheduledJob('0 0 * * 6', 'WEEKEND_MAINTENANCE', 'dynamic_universe_expansion',
@@ -57,8 +60,9 @@ export function registerScreenerJobs(): void {
     await runSupplyChainScan();
   }, { timezone: 'UTC' });
 
-  scheduledJob('0 1 * * 6,0', 'WEEKEND_MAINTENANCE', 'supply_chain_scan_10kst', async () => {
-    console.log('[Scheduler] 주말 해외 뉴스 재스캔 (KST 10:00)');
+  // KST 10:10 — 일 10:00 weekly_integrity_report(Telegram) 동시각 경합 회피 (cron stagger 감사 2026-06-10).
+  scheduledJob('10 1 * * 6,0', 'WEEKEND_MAINTENANCE', 'supply_chain_scan_10kst', async () => {
+    console.log('[Scheduler] 주말 해외 뉴스 재스캔 (KST 10:10)');
     await runSupplyChainScan();
   }, { timezone: 'UTC' });
 }

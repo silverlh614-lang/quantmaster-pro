@@ -79,8 +79,10 @@ export function registerOrchestratorJobs(): void {
   // KIS 토큰 강제 갱신 — **12시간 주기, 매일 실행**.
   // 주말도 포함 — 주말 해외 뉴스/공급망 스캔이 KIS 데이터 토큰을 쓰므로 365일 갱신.
   // PR-B-2: ALWAYS_ON — 토요일/일요일/공휴일에도 토큰 신선도 유지.
-  scheduledJob('30 23 * * *', 'ALWAYS_ON', 'kis_token_refresh',
-    () => forceRefreshKisTokenCron('장전 08:30 KST'), { timezone: 'UTC' });
+  // 아침 갱신 08:20 KST — 08:30 동시각 경합(pre_market_card/macro_digest/post_holiday_followup)
+  // 회피 + 08:30 KIS burst 이전 토큰 선갱신 (cron stagger 감사 2026-06-10).
+  scheduledJob('20 23 * * *', 'ALWAYS_ON', 'kis_token_refresh',
+    () => forceRefreshKisTokenCron('장전 08:20 KST'), { timezone: 'UTC' });
   scheduledJob('30 11 * * *', 'ALWAYS_ON', 'kis_token_refresh',
     () => forceRefreshKisTokenCron('장후 20:30 KST'), { timezone: 'UTC' });
 

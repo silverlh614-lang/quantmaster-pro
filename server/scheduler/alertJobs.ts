@@ -49,13 +49,15 @@ export function registerAlertJobs(): void {
   scheduledJob('0 0 * * 1-5', 'TRADING_DAY_ONLY', 'mhs_morning_alert',
     () => pollMhsMorningAlert(), { timezone: 'UTC' });
 
-  // ADR 역산 갭 모니터 — 평일 08:35 KST (UTC 23:35, 일~목). 한국 장 25분 전 → withForcedMarket
+  // ADR 역산 갭 모니터 — 평일 08:32 KST (UTC 23:32, 일~목). 한국 장 28분 전 → withForcedMarket
   // 으로 시간대 게이트 우회 (KIS 회로/블랙리스트는 그대로 보호).
-  scheduledJob('35 23 * * 0-4', 'TRADING_DAY_ONLY', 'adr_gap_scan',
+  // 08:35 stage2_3_final_screening(KIS 헤비) 와 동시각 경합 회피 (cron stagger 감사 2026-06-10).
+  scheduledJob('32 23 * * 0-4', 'TRADING_DAY_ONLY', 'adr_gap_scan',
     () => withForcedMarket(() => runAdrGapScan()), { timezone: 'UTC' });
 
-  // 외국인 수급 선행 경보 — 평일 07:30 KST (UTC 22:30, 일~목).
-  scheduledJob('30 22 * * 0-4', 'TRADING_DAY_ONLY', 'foreign_flow_leading',
+  // 외국인 수급 선행 경보 — 평일 07:35 KST (UTC 22:35, 일~목).
+  // 07:30 post_holiday_kickstart 와 동시각 경합 회피 (cron stagger 감사 2026-06-10).
+  scheduledJob('35 22 * * 0-4', 'TRADING_DAY_ONLY', 'foreign_flow_leading',
     () => checkForeignFlowLeadingAlert(), { timezone: 'UTC' });
 
   // 장전 방향 카드 (홍콩 30분 선행 모델) — 평일 08:30 KST (UTC 23:30, 일~목).
@@ -109,11 +111,13 @@ export function registerAlertJobs(): void {
 
   // PR-X4 (ADR-0040) — CH3 REGIME 매크로 다이제스트 1일 2회 정기 발행.
   // PR-B-2: TRADING_DAY_ONLY — KR 영업일에만 발송 (KR 매크로 컨텍스트).
-  // PRE_OPEN  KST 08:30 (UTC 23:30 일~목) — 장 시작 30분 전.
-  // POST_CLOSE KST 16:00 (UTC 07:00 월~금) — 한국 장 마감 30분 후.
-  scheduledJob('30 23 * * 0-4', 'TRADING_DAY_ONLY', 'macro_digest_pre_open',
+  // PRE_OPEN  KST 08:25 (UTC 23:25 일~목) — 장 시작 35분 전.
+  //   (08:30 pre_market_card/post_holiday_followup Telegram 동시각 경합 회피 — cron stagger 감사 2026-06-10)
+  // POST_CLOSE KST 16:03 (UTC 07:03 월~금) — 한국 장 마감 33분 후.
+  //   (16:00 eod_briefing Telegram 동시각 경합 회피 — cron stagger 감사 2026-06-10)
+  scheduledJob('25 23 * * 0-4', 'TRADING_DAY_ONLY', 'macro_digest_pre_open',
     () => runMacroDigest('PRE_OPEN'), { timezone: 'UTC' });
-  scheduledJob('0 7 * * 1-5', 'TRADING_DAY_ONLY', 'macro_digest_post_close',
+  scheduledJob('3 7 * * 1-5', 'TRADING_DAY_ONLY', 'macro_digest_post_close',
     () => runMacroDigest('POST_CLOSE'), { timezone: 'UTC' });
 
   // PR-X5 (ADR-0041) — CH4 JOURNAL 주간 자기비판 리포트.

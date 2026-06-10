@@ -137,6 +137,7 @@ export function registerInvestorFlowWarmupJobs(): void {
   };
 
   register('10 9 * * 1-5', 'investor_flow_warmup_open');
-  register('30 12 * * 1-5', 'investor_flow_warmup_lunch');
+  // KST 12:35 — 12:30 lunch_briefing(Telegram+데이터) 동시각 경합 회피 (cron stagger 감사 2026-06-10).
+  register('35 12 * * 1-5', 'investor_flow_warmup_lunch');
   register('25 15 * * 1-5', 'investor_flow_warmup_preclose');
 }

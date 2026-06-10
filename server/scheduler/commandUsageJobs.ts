@@ -36,10 +36,11 @@ export async function runDeprecationReport(
 }
 
 export function registerCommandUsageJobs(): void {
-  // 매주 월요일 09:00 KST = UTC 00:00 월요일.
+  // 매주 월요일 09:17 KST = UTC 00:17 월요일.
   // PR-B-2: ALWAYS_ON — 운영 리포트는 KRX 공휴일이어도 발송 가치 있음
   // (월요일이 공휴일이면 후보 분석 결과만 silent 발송).
-  scheduledJob('0 0 * * 1', 'ALWAYS_ON', 'deprecation_report', async () => {
+  // 09:00 장시작 슬롯(mhs/kis_stream_start/macro_sync 등) 경합 회피 (cron stagger 감사 2026-06-10).
+  scheduledJob('17 0 * * 1', 'ALWAYS_ON', 'deprecation_report', async () => {
     const res = await runDeprecationReport();
     console.log(
       `[CommandUsageJobs] 폐기 후보 리포트: ${res.sent ? `발송됨 (${res.candidates}건)` : '후보 0건 — 스킵'}`,

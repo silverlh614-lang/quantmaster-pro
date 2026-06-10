@@ -133,9 +133,10 @@ export function registerMaintenanceJobs(): void {
   scheduledJob('30 14 * * 1-5', 'TRADING_DAY_ONLY', 'daily_reconcile',
     () => runDailyReconciliation(), { timezone: 'UTC' });
 
-  // 장 마감 후 KST 16:05 (UTC 07:05) — fills↔quantity 자동 드라이런.
+  // 장 마감 후 KST 16:07 (UTC 07:07) — fills↔quantity 자동 드라이런.
   // PR-B-2: TRADING_DAY_ONLY — 평일 장 마감 후 정합성 검사.
-  scheduledJob('5 7 * * 1-5', 'TRADING_DAY_ONLY', 'shadow_qty_dryrun_broadcast', async () => {
+  // 16:05 high_52w_scan(KIS 스캔+Telegram) 동시각 경합 회피 (cron stagger 감사 2026-06-10).
+  scheduledJob('7 7 * * 1-5', 'TRADING_DAY_ONLY', 'shadow_qty_dryrun_broadcast', async () => {
     try {
       const result = reconcileShadowQuantities(undefined, { dryRun: true });
       if (result.fixed === 0) {
@@ -147,7 +148,7 @@ export function registerMaintenanceJobs(): void {
       );
       const more = result.details.length > 5 ? `\n...외 ${result.details.length - 5}건` : '';
       await sendTelegramAlert(
-        `🔍 <b>[16:05 Reconcile 점검 — DRY-RUN]</b>\n` +
+        `🔍 <b>[16:07 Reconcile 점검 — DRY-RUN]</b>\n` +
         `검사 ${result.checked}건 | 교정 후보 <b>${result.fixed}건</b>\n` +
         `${sample.join('\n')}${more}\n\n` +
         `💡 적용하려면: <code>/reconcile apply</code>`,
@@ -206,11 +207,12 @@ export function registerMaintenanceJobs(): void {
   scheduledJob('0 0 1 * *', 'ALWAYS_ON', 'kis_holiday_sync_monthly',
     () => runKisHolidaySync('monthly'), { timezone: 'UTC' });
 
-  // ADR-454b — Near-Miss Outcome Evaluation (장마감 후 KST 16:10 = UTC 07:10).
+  // ADR-454b — Near-Miss Outcome Evaluation (장마감 후 KST 16:12 = UTC 07:12).
+  // 16:10 system_daily_flush(Telegram) 동시각 경합 회피 (cron stagger 감사 2026-06-10).
   // DATA_BLOCKED_NEAR_MISS / PROBING / SHADOW_ONLY ledger 의 due 3/5/10영업일 horizon 만
   // 관측한다. executionImpact=NONE 학습/진단 전용이며 live decision/Kelly/Gate/KIS/entryEngine
   // 변경·승격은 절대 수행하지 않는다. 활동이 있는 날만 Telegram T2_REPORT 로 노출한다.
-  scheduledJob('10 7 * * 1-5', 'TRADING_DAY_ONLY', 'near_miss_outcome_evaluation', async () => {
+  scheduledJob('12 7 * * 1-5', 'TRADING_DAY_ONLY', 'near_miss_outcome_evaluation', async () => {
     try {
       const result = await runNearMissOutcomeEvaluationJob();
       console.log(
@@ -230,12 +232,14 @@ export function registerMaintenanceJobs(): void {
     }
   }, { timezone: 'UTC' });
 
-  // ADR-0128 정책 #2 — 데이터 검증 배치 (장 마감 1시간 후, KST 평일 16:30 = UTC 07:30).
+  // ADR-0128 정책 #2 — 데이터 검증 배치 (장 마감 약 1시간 후, KST 평일 16:33 = UTC 07:33).
+  // 16:30 은 future_return_resolve 무접촉 학습 체인 시작 슬롯 — KIS 검증 배치 분리
+  // (cron stagger 감사 2026-06-10).
   // 모든 워치리스트 종목을 KIS daily quote 로 sanity 검증 → 위반 시 verificationQueue 에
   // 누적 + 워치리스트 entry 격리 마커 부착. 3회+ 누적 시 manualReviewState='QUEUED' 격상.
   // ScheduleClass: TRADING_DAY_ONLY (KRX 휴장일 자동 스킵).
   // ENV `DATA_VERIFICATION_BATCH_DISABLED=true` 시 함수 진입부에서 즉시 skipped 반환.
-  scheduledJob('30 7 * * 1-5', 'TRADING_DAY_ONLY', 'data_verification_batch', async () => {
+  scheduledJob('33 7 * * 1-5', 'TRADING_DAY_ONLY', 'data_verification_batch', async () => {
     try {
       const result = await runDataVerificationBatch();
       if (result.skipped) {
@@ -270,11 +274,12 @@ export function registerMaintenanceJobs(): void {
   scheduledJob('0 10 * * 1-5', 'TRADING_DAY_ONLY', 'stock_master_auto_enrichment',
     () => runStockMasterEnrichmentCron('장후 19:00 KST'), { timezone: 'UTC' });
 
-  // ADR-0248: 워치리스트 시장 다양성 모니터 cron — KST 평일 06:30 (UTC 21:30 전일).
-  // ADR-0242 master enrichment 30분 후 — fresh master 위에서 정확한 분포 산출.
+  // ADR-0248: 워치리스트 시장 다양성 모니터 cron — KST 평일 06:35 (UTC 21:35 전일).
+  // ADR-0242 master enrichment 35분 후 — fresh master 위에서 정확한 분포 산출.
+  // 06:30 self_diagnosis(Telegram 진단) 동시각 경합 회피 (cron stagger 감사 2026-06-10).
   // 코스닥 비중 < 30% 또는 마스터 미커버 ≥ 5% → Telegram 알림 (24h dedupe).
   // ENV `WATCHLIST_DIVERSITY_MONITOR_DISABLED=true` 우회.
-  scheduledJob('30 21 * * 0-4', 'TRADING_DAY_ONLY', 'watchlist_diversity_monitor', async () => {
+  scheduledJob('35 21 * * 0-4', 'TRADING_DAY_ONLY', 'watchlist_diversity_monitor', async () => {
     try {
       const report = await runWatchlistDiversityMonitor();
       console.log(

@@ -215,8 +215,9 @@ export function registerHealthCheckJobs(): void {
   scheduledJob('0 0 * * 1-5', 'TRADING_DAY_ONLY', 'daily_data_diagnostic_digest',
     runDailyDataDiagnosticDigest, { timezone: 'UTC' });
 
-  // 평일 KST 09:05 (UTC 00:05) Telegram 자동 전송. PR-B-2: TRADING_DAY_ONLY.
-  scheduledJob('5 0 * * 1-5', 'TRADING_DAY_ONLY', 'pipeline_health_check',
+  // 평일 KST 09:07 (UTC 00:07) Telegram 자동 전송. PR-B-2: TRADING_DAY_ONLY.
+  // 09:05 morning_position_card/kis_stream_watchdog 동시각 경합 회피 (cron stagger 감사 2026-06-10).
+  scheduledJob('7 0 * * 1-5', 'TRADING_DAY_ONLY', 'pipeline_health_check',
     runPipelineHealthCheck, { timezone: 'UTC' });
 
   // 평일 KST 06:30 (UTC 21:30 전일) 파이프라인 치명 이슈 조기 감지.
