@@ -16,7 +16,7 @@ function baseSummary(overrides: Partial<ScanSummary> = {}): ScanSummary {
     swing: 0,
     catalyst: 0,
     momentum: 0,
-    yahooFails: 0,
+    quoteFails: 0,
     gateMisses: 10,
     rrrMisses: 0,
     entries: 0,

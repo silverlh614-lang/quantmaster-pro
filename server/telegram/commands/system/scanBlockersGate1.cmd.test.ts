@@ -23,7 +23,7 @@ describe('/scan_blockers_gate1 command', () => {
       swing: 0,
       catalyst: 0,
       momentum: 0,
-      yahooFails: 0,
+      quoteFails: 0,
       gateMisses: 8,
       rrrMisses: 0,
       entries: 0,

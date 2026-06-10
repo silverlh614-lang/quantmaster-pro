@@ -30,7 +30,7 @@ export function evaluateQuoteHydration(
   const total = finiteCount(totalCandidates);
   const pass = stageStatusCount(counters, ['PASS']);
   const failedByStage = stageStatusCount(counters, ['FAIL', 'DATA_UNAVAILABLE', 'PROVIDER_DEGRADED']);
-  const failed = Math.max(finiteCount(counters.yahooFails), failedByStage);
+  const failed = Math.max(finiteCount(counters.quoteFails), failedByStage);
   const hydrated = Math.max(pass, total > 0 ? Math.max(0, total - failed) : 0);
   const requested = pass + failed;
   const state: QuoteHydrationState =
@@ -51,7 +51,7 @@ export function evaluateQuoteHydration(
       totalCandidates: total,
       priceFetchPass: pass,
       priceFetchFailedByStage: failedByStage,
-      yahooFails: counters.yahooFails,
+      quoteFails: counters.quoteFails,
     },
   };
 }

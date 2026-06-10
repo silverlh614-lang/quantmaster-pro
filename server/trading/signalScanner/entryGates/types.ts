@@ -62,7 +62,7 @@ export type EntryGateResult =
       /** stageLog[key] = value (pushTrace 시 같이 영속). */
       stageLog?: { key: string; value: string };
       /** ScanCounters 의 numeric 카운터 키. */
-      counter?: 'yahooFails' | 'gateMisses' | 'rrrMisses' | 'entries' | 'counterfactualRecordedToday';
+      counter?: 'quoteFails' | 'gateMisses' | 'rrrMisses' | 'entries' | 'counterfactualRecordedToday';
       /** orchestrator 가 pushTrace() 를 호출할지 여부. */
       pushTrace?: boolean;
       /** 옵션 — 차단 시 텔레그램 알림 메시지. orchestrator 가 sendTelegramAlert 일괄 발송. */

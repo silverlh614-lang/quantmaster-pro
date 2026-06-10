@@ -15,7 +15,7 @@ import type { GateLayerAuditAccumulator } from './gateLayerDiagnostics.js';
 import type { PipelineStageName, PipelineStageStatus } from './scanSummaryTypes.js';
 
 export interface ScanCounters {
-  yahooFails: number;
+  quoteFails: number;
   gateMisses: number;
   rrrMisses: number;
   entries: number;

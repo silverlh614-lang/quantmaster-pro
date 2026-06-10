@@ -120,7 +120,7 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
           const currentPrice = await getPrice(stock.code);
           try { recordPipelineStage(ctx.scanCounters, 'PRICE_FETCH', currentPrice ? 'PASS' : 'FAIL'); } catch {}
           if (!currentPrice) {
-            ctx.scanCounters.yahooFails++;
+            ctx.scanCounters.quoteFails++;
             continue;
           }
 

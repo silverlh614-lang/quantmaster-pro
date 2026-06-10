@@ -316,7 +316,7 @@ export async function persistScanResults(
     swing: options.swingListLength,
     catalyst: options.catalystListLength,
     momentum: options.momentumListLength,
-    yahooFails: counters.yahooFails,
+    quoteFails: counters.quoteFails,
     gateMisses: counters.gateMisses,
     rrrMisses: counters.rrrMisses,
     entries: counters.entries,
@@ -1099,7 +1099,7 @@ export async function persistScanResults(
       swingCount: _lastScanSummary.swing,
       catalystCount: _lastScanSummary.catalyst,
       momentumCount: _lastScanSummary.momentum,
-      yahooFailCount: counters.yahooFails,
+      quoteFailCount: counters.quoteFails,
       gateMissCount: counters.gateMisses,
       rrrFailCount: counters.rrrMisses,
       preBreakoutWaitCount: counters.waitPreBreakout,
@@ -1156,7 +1156,7 @@ export async function persistScanResults(
     const noEntryDelivery = evaluateNoEntryTelegramDelivery(noEntryDiagnostic);
     const summaryReasonMapping = mapScanSummaryDisplayReasons({
       scanCycleId: noEntryDiagnostic.scanCycleId,
-      providerFailureCount: counters.yahooFails,
+      providerFailureCount: counters.quoteFails,
       providerFailureExecutionImpact: noEntryDiagnostic.dominantNoEntryReason === 'PROVIDER_FAILURE_WITH_EXECUTION_IMPACT'
         ? noEntryDiagnostic.executionImpact
         : 'NONE',

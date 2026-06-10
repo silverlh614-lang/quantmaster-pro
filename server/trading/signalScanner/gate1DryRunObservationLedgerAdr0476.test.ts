@@ -528,7 +528,7 @@ describe('ADR-0476 Gate1 dry-run observation ledger evidence for ADR-0480', () =
       swing: 0,
       catalyst: 0,
       momentum: 0,
-      yahooFails: 0,
+      quoteFails: 0,
       gateMisses: 1,
       rrrMisses: 0,
       entries: 0,

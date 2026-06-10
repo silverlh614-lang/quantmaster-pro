@@ -65,8 +65,8 @@ export interface ScanTraceSummary {
   priceFail:  number;
   rrrFail:    number;
   gateFail:   number;
-  /** quote(KIS) 조회 실패 카운트. ⚠️ legacy 필드명(yahoo) — 실제 출처는 KIS(ADR-0561/0563). rename 은 후속. */
-  yahooFail:  number;
+  /** quote(KIS) 조회 실패 카운트 — 구 yahooFail(stale 오칭, ADR-0561/0563 정정). */
+  quoteFail:  number;
   otherBlock: number;
   buyExecuted: number;
   lastScanTime: string | null;
@@ -95,7 +95,7 @@ export function summarizeScanTraces(traces: ScanTrace[]): ScanTraceSummary {
   const summary: ScanTraceSummary = {
     totalCandidates: traces.length,
     priceFail: 0, rrrFail: 0, gateFail: 0,
-    yahooFail: 0, otherBlock: 0, buyExecuted: 0,
+    quoteFail: 0, otherBlock: 0, buyExecuted: 0,
     lastScanTime: null,
     reasonCounts: {},
   };
@@ -116,7 +116,7 @@ export function summarizeScanTraces(traces: ScanTrace[]): ScanTraceSummary {
     if (t.stages.price?.startsWith('FAIL'))    { summary.priceFail++;  continue; }
     if (t.stages.rrr?.startsWith('FAIL'))      { summary.rrrFail++;    continue; }
     // quote(KIS) 조회 실패 — 'FAIL(quote'(신규) + 'FAIL(yahoo'(≤7일 레거시 trace backward-compat).
-    if (t.stages.gate?.startsWith('FAIL(quote') || t.stages.gate?.startsWith('FAIL(yahoo')) { summary.yahooFail++; continue; }
+    if (t.stages.gate?.startsWith('FAIL(quote') || t.stages.gate?.startsWith('FAIL(yahoo')) { summary.quoteFail++; continue; }
     if (t.stages.gate?.startsWith('FAIL'))     { summary.gateFail++;   continue; }
     summary.otherBlock++;
   }
@@ -147,7 +147,7 @@ export function formatScanTraceSummary(s: ScanTraceSummary): string {
     `총 후보: ${s.totalCandidates}개\n` +
     `- 가격 조회 실패: ${s.priceFail}개\n` +
     `- RRR 미달: ${s.rrrFail}개\n` +
-    `- 시세조회 실패: ${s.yahooFail}개\n` +
+    `- 시세조회 실패: ${s.quoteFail}개\n` +
     `- Gate 미달: ${s.gateFail}개\n` +
     `- 기타 차단: ${s.otherBlock}개\n` +
     `- 매수 실행: ${s.buyExecuted}개 ✅`

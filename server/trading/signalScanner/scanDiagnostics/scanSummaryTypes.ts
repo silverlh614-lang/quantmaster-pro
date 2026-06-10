@@ -242,8 +242,8 @@ export interface ScanSummary {
   swing: number;
   catalyst: number;
   momentum: number;
-  /** quote(KIS) 조회 실패 카운트(영속 필드). ⚠️ legacy 필드명(yahoo) — 실제 출처 KIS(ADR-0561/0563). 영속 rename 은 후속(backward-compat alias 필요). */
-  yahooFails: number;
+  /** quote(KIS) 조회 실패 카운트 — 구 yahooFails(stale 오칭, ADR-0561/0563 정정). ScanSummary 는 메모리 전용이라 round-trip 호환 불요. */
+  quoteFails: number;
   gateMisses: number;
   rrrMisses: number;
   entries: number;

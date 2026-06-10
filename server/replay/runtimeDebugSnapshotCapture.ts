@@ -209,7 +209,7 @@ async function buildScanDiagnosticBlocks(
         catalyst: summary.catalyst,
         momentum: summary.momentum,
       },
-      yahooFails: summary.yahooFails,
+      quoteFails: summary.quoteFails,
     };
     const blockers: Array<{ reason: string; count: number }> = [];
     if (summary.waitDistribution) {

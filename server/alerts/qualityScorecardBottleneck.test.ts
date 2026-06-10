@@ -10,7 +10,7 @@ vi.mock('../trading/scanTracer.js', () => ({
   loadTodayScanTraces: vi.fn(() => []),
   summarizeScanTraces: vi.fn(() => ({
     totalCandidates: 0,
-    yahooFail: 0,
+    quoteFail: 0,
     gateFail: 0,
     priceFail: 0,
     rrrFail: 0,

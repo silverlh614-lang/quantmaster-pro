@@ -98,7 +98,7 @@ function lastScanSummary(): ScanSummary {
     swing: 0,
     catalyst: 0,
     momentum: 0,
-    yahooFails: 0,
+    quoteFails: 0,
     gateMisses: 0,
     rrrMisses: 0,
     entries: 0,

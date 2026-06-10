@@ -167,16 +167,16 @@ export async function generateQualityScorecard(): Promise<void> {
   const traceSummary = summarizeScanTraces(traces);
 
   const scanCandidates = traceSummary.totalCandidates;
-  const yahooFail = traceSummary.yahooFail;
+  const quoteFail = traceSummary.quoteFail;
   const gateFail = traceSummary.gateFail;
   const priceFail = traceSummary.priceFail;
   const rrrFail = traceSummary.rrrFail;
   const buyExecuted = traceSummary.buyExecuted;
 
   // Gate 통과 = 전체 - (yahoo실패 + gate실패) — 가격/RRR 실패는 Gate 이후 단계
-  // 더 정확하게: Gate까지 도달한 종목 = 전체 - yahooFail
+  // 더 정확하게: Gate까지 도달한 종목 = 전체 - quoteFail
   // Gate 통과 종목 = Gate 도달 - gateFail
-  const gateReached = scanCandidates - yahooFail;
+  const gateReached = scanCandidates - quoteFail;
   const gatePassed = gateReached - gateFail;
 
   // PR-17: Shadow Trades → Trade Yield (fill SSOT 전환).

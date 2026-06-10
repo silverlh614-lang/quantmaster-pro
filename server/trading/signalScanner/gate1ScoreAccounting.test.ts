@@ -180,7 +180,7 @@ describe('Gate1 score accounting diagnostic consistency', () => {
       swing: 0,
       catalyst: 0,
       momentum: 0,
-      yahooFails: 0,
+      quoteFails: 0,
       gateMisses: 21,
       rrrMisses: 0,
       positiveScoreStarvation: positiveReport(),

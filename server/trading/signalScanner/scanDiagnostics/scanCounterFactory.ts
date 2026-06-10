@@ -5,7 +5,7 @@ import { createGateLayerAuditAccumulator } from './gateLayerDiagnostics.js';
 
 export function createScanCounters(): ScanCounters {
   return {
-    yahooFails: 0,
+    quoteFails: 0,
     gateMisses: 0,
     rrrMisses: 0,
     entries: 0,

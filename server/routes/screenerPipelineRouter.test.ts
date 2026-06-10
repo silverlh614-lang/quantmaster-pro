@@ -13,7 +13,7 @@ function makeSummary(overrides: Partial<ScanSummary> = {}): ScanSummary {
     swing: 30,
     catalyst: 20,
     momentum: 50,
-    yahooFails: 10,
+    quoteFails: 10,
     gateMisses: 20,
     rrrMisses: 15,
     entries: 5,
@@ -34,7 +34,7 @@ describe('buildPipelineSummary — ADR-0033 PR-F', () => {
 
   it('정상 입력 → 단계별 카운트 정확 산출', () => {
     const summary = makeSummary({
-      candidates: 100, yahooFails: 10, gateMisses: 20, rrrMisses: 15, entries: 5,
+      candidates: 100, quoteFails: 10, gateMisses: 20, rrrMisses: 15, entries: 5,
     });
     const r = buildPipelineSummary(summary);
 
@@ -50,7 +50,7 @@ describe('buildPipelineSummary — ADR-0033 PR-F', () => {
 
   it('단계별 droppedAtThisStep 정확', () => {
     const summary = makeSummary({
-      candidates: 100, yahooFails: 10, gateMisses: 20, rrrMisses: 15, entries: 5,
+      candidates: 100, quoteFails: 10, gateMisses: 20, rrrMisses: 15, entries: 5,
     });
     const r = buildPipelineSummary(summary);
 
@@ -73,7 +73,7 @@ describe('buildPipelineSummary — ADR-0033 PR-F', () => {
   });
 
   it('음수 입력 → 0 으로 절삭', () => {
-    const summary = { ...makeSummary(), yahooFails: -5, gateMisses: -3 } as ScanSummary;
+    const summary = { ...makeSummary(), quoteFails: -5, gateMisses: -3 } as ScanSummary;
     const r = buildPipelineSummary(summary);
     expect(r.stages.every(s => s.count >= 0)).toBe(true);
   });
@@ -85,8 +85,8 @@ describe('buildPipelineSummary — ADR-0033 PR-F', () => {
     expect(r.totals.entries).toBe(0);
   });
 
-  it('yahooFails > candidates → MOMENTUM_PASS=0 (음수 회피)', () => {
-    const r = buildPipelineSummary(makeSummary({ candidates: 10, yahooFails: 50 }));
+  it('quoteFails > candidates → MOMENTUM_PASS=0 (음수 회피)', () => {
+    const r = buildPipelineSummary(makeSummary({ candidates: 10, quoteFails: 50 }));
     expect(r.stages.find(s => s.id === 'MOMENTUM_PASS')?.count).toBe(0);
     expect(r.stages.find(s => s.id === 'GATE1_PASS')?.count).toBe(0);
     expect(r.stages.find(s => s.id === 'RRR_PASS')?.count).toBe(0);

@@ -706,7 +706,7 @@ const scanBlockers: TelegramCommand = {
 
     let emptyScanRootCauseSectionAdr0500: string | null = null;
     try {
-      if ((summary?.entries ?? 0) === 0 || (summary?.gateMisses ?? 0) > 0 || (summary?.yahooFails ?? 0) > 0) {
+      if ((summary?.entries ?? 0) === 0 || (summary?.gateMisses ?? 0) > 0 || (summary?.quoteFails ?? 0) > 0) {
         const sizingHardBlockCount = scanCanonicalRuntimeResolution.sizing.hardBlockCount;
         const usePersistedRootCause = Boolean(summary?.emptyScanRootCause) && sizingHardBlockCount > 0;
         const dashboard = usePersistedRootCause ? summary!.emptyScanRootCause! : safeBuildEmptyScanRootCauseDashboardAdr0500({
@@ -714,7 +714,7 @@ const scanBlockers: TelegramCommand = {
           events: buildEmptyScanRootCauseEventsFromStringsAdr0500([
             ...(summary?.macroGateState?.sellOnlyMode ? [{ source: 'SCAN_BLOCKER' as const, reason: 'SELL_ONLY', count: 1 }] : []),
             ...((summary?.macroGateState?.bearDefenseMode || summary?.macroGateState?.vixGatingActive || summary?.macroGateState?.mhsBelow30) ? [{ source: 'SCAN_BLOCKER' as const, reason: 'MACRO_RISK_OFF', count: 1 }] : []),
-            ...((summary?.yahooFails ?? 0) > 0 ? [{ source: 'SCAN_BLOCKER' as const, reason: 'PROVIDER_ERROR', count: summary?.yahooFails }] : []),
+            ...((summary?.quoteFails ?? 0) > 0 ? [{ source: 'SCAN_BLOCKER' as const, reason: 'PROVIDER_ERROR', count: summary?.quoteFails }] : []),
             ...(sizingHardBlockCount > 0 ? [{ source: 'SCAN_BLOCKER' as const, reason: 'SIZING', count: sizingHardBlockCount }] : []),
             ...((summary?.waitDistribution?.gateFail ?? 0) > 0 ? [{ source: 'SCAN_BLOCKER' as const, reason: 'THRESHOLD', count: summary?.waitDistribution?.gateFail }] : []),
             ...(summary?.emptyScanReason ? [{ source: 'SCAN_BLOCKER' as const, reason: summary.emptyScanReason, message: 'ADR-0119 empty scan reason' }] : []),
@@ -729,12 +729,12 @@ const scanBlockers: TelegramCommand = {
 
     let weekendReplaySectionAdr0501: string | null = null;
     try {
-      if ((summary?.entries ?? 0) === 0 || (summary?.gateMisses ?? 0) > 0 || (summary?.yahooFails ?? 0) > 0) {
+      if ((summary?.entries ?? 0) === 0 || (summary?.gateMisses ?? 0) > 0 || (summary?.quoteFails ?? 0) > 0) {
         const sizingHardBlockCount = scanCanonicalRuntimeResolution.sizing.hardBlockCount;
         const records = buildWeekendReplayRecordsFromStringsAdr0501([
           ...(summary?.macroGateState?.sellOnlyMode ? [{ source: 'SCAN_SUMMARY' as const, reason: 'SELL_ONLY', replayMode: 'LATEST' as const }] : []),
           ...((summary?.macroGateState?.bearDefenseMode || summary?.macroGateState?.vixGatingActive || summary?.macroGateState?.mhsBelow30) ? [{ source: 'SCAN_SUMMARY' as const, reason: 'MACRO_RISK_OFF', replayMode: 'LATEST' as const }] : []),
-          ...((summary?.yahooFails ?? 0) > 0 ? [{ source: 'SCAN_SUMMARY' as const, reason: 'PROVIDER_ERROR', replayMode: 'LATEST' as const }] : []),
+          ...((summary?.quoteFails ?? 0) > 0 ? [{ source: 'SCAN_SUMMARY' as const, reason: 'PROVIDER_ERROR', replayMode: 'LATEST' as const }] : []),
           ...(sizingHardBlockCount > 0 ? [{ source: 'SCAN_SUMMARY' as const, reason: 'SIZING', replayMode: 'LATEST' as const }] : []),
           ...((summary?.waitDistribution?.gateFail ?? 0) > 0 ? [{ source: 'SCAN_SUMMARY' as const, reason: 'THRESHOLD', replayMode: 'LATEST' as const }] : []),
           ...(summary?.emptyScanReason ? [{ source: 'SCAN_SUMMARY' as const, reason: summary.emptyScanReason, message: 'ADR-0119 empty scan reason', replayMode: 'LATEST' as const }] : []),

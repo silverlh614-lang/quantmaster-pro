@@ -11,7 +11,9 @@ import {
 } from '../../api/screenerPipelineClient';
 
 const DROP_REASON_LABEL: Record<string, string> = {
-  yahoo: 'Yahoo OHLCV 데이터 부재',
+  quote: '시세(KIS quote) 조회 실패',
+  // 'yahoo' 는 구 서버 응답 호환 키 — 실제 출처는 KIS (ADR-0561/0563 stale 오칭 정정).
+  yahoo: '시세(KIS quote) 조회 실패',
   gate: 'Gate 1 진입 검증 탈락',
   rrr: 'RRR 최소값 미달',
   buy_failed: '진입 실패 (호가/사이즈/잔고)',

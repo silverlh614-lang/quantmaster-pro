@@ -111,7 +111,7 @@ describe('scanEvaluationState', () => {
 
   it('separates quote hydration failure from gate reject', () => {
     const counters = createScanCounters();
-    counters.yahooFails = 3;
+    counters.quoteFails = 3;
     recordPipelineStage(counters, 'PRICE_FETCH', 'FAIL');
     recordPipelineStage(counters, 'PRICE_FETCH', 'FAIL');
     recordPipelineStage(counters, 'PRICE_FETCH', 'FAIL');

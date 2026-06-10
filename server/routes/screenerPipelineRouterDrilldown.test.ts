@@ -25,12 +25,12 @@ describe('partitionTracesByStage — PR-J 단계별 분류', () => {
     expect(r.dropped).toHaveLength(0);
   });
 
-  it('MOMENTUM_PASS → yahoo FAIL 만 dropped', () => {
+  it('MOMENTUM_PASS → quote FAIL 만 dropped (레거시 FAIL(yahoo* 입력 호환)', () => {
     const r = partitionTracesByStage(traces, 'MOMENTUM_PASS');
     expect(r.passed.map(p => p.stock).sort()).toEqual(['1', '3', '4', '5', '6']);
     expect(r.dropped).toHaveLength(1);
     expect(r.dropped[0].stock).toBe('2');
-    expect(r.dropped[0].dropReason).toBe('yahoo');
+    expect(r.dropped[0].dropReason).toBe('quote');
   });
 
   it('GATE1_PASS → yahoo OK 중 gate FAIL 만 dropped (이전 단계 dropped 는 미포함)', () => {

@@ -229,7 +229,7 @@ describe('formatGateAuditMessage', () => {
       ...baseInput,
       scan: {
         time: '14:30 KST', candidates: 130, trackB: 80, swing: 60, catalyst: 20,
-        momentum: 30, yahooFails: 5, gateMisses: 95, rrrMisses: 4, entries: 0,
+        momentum: 30, quoteFails: 5, gateMisses: 95, rrrMisses: 4, entries: 0,
         gatePassDistribution: { gate1Pass: 30, gate2Pass: 12, gate3Pass: 3, lastTriggerPass: 0 },
       } as never,
     });

@@ -28,7 +28,7 @@ describe('noEntryStreakDiagnostic', () => {
       swingCount: 12,
       catalystCount: 8,
       momentumCount: 30,
-      yahooFailCount: 0,
+      quoteFailCount: 0,
       gateMissCount: 13,
       rrrFailCount: 2,
       preBreakoutWaitCount: 9,

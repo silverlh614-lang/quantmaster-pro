@@ -18,7 +18,7 @@
  *   2) RISK_ON (R1_TURBO / R2_BULL / R3_EARLY) AND
  *      gateReached > 0 AND (gateFail / gateReached) > 0.95
  *      → PATHOLOGICAL_BLOCK: 시장은 열려있는데 게이트가 닫혀있다.
- *   3) 그 외: 지배 원인(dominantCause)을 산출 — Yahoo 장애, 특정 조건 과도 타이트,
+ *   3) 그 외: 지배 원인(dominantCause)을 산출 — 시세(quote) 조회 장애, 특정 조건 과도 타이트,
  *      RRR 미달 등을 스캔 trace + gate audit top-blocker 교차로 추정.
  */
 
@@ -44,7 +44,7 @@ export type DominantCause =
   | 'PRE_BREAKOUT_WAIT_DOMINANT'
   | 'DATA_UNAVAILABLE_DOMINANT'
   | 'GATE2_TRUE_FAIL_DOMINANT'
-  | 'YAHOO_DOWN'
+  | 'QUOTE_DOWN'
   | 'GATE_TIGHT'
   | 'PRICE_FAIL'
   | 'RRR_INSUFFICIENT'
@@ -110,7 +110,7 @@ export interface PostmortemReport {
     gateReached: number;
     gateFail: number;
     gateFailRatio: number;  // 0~1 (legacy — 분모에 unavailable+error 포함)
-    yahooFail: number;
+    quoteFail: number;
     priceFail: number;
     rrrFail: number;
     buyExecuted: number;
@@ -217,26 +217,26 @@ interface Metrics {
   gateReached:   number;
   gateFail:      number;
   gateFailRatio: number;
-  yahooFail:     number;
+  quoteFail:     number;
   priceFail:     number;
   rrrFail:       number;
   buyExecuted:   number;
 }
 
 function summarize(traces: ScanTrace[]): Metrics {
-  let priceFail = 0, rrrFail = 0, gateFail = 0, yahooFail = 0, buyExecuted = 0;
+  let priceFail = 0, rrrFail = 0, gateFail = 0, quoteFail = 0, buyExecuted = 0;
   for (const t of traces) {
     if (t.stages.buy === 'SHADOW' || t.stages.buy === 'LIVE') { buyExecuted++; continue; }
     if (t.stages.price?.startsWith('FAIL'))                   { priceFail++;   continue; }
     if (t.stages.rrr?.startsWith('FAIL'))                     { rrrFail++;     continue; }
     // quote(KIS) 실패 — 'FAIL(quote'(신규)+'FAIL(yahoo'(≤7일 레거시 trace backward-compat).
-    if (t.stages.gate?.startsWith('FAIL(quote') || t.stages.gate?.startsWith('FAIL(yahoo')) { yahooFail++;   continue; }
+    if (t.stages.gate?.startsWith('FAIL(quote') || t.stages.gate?.startsWith('FAIL(yahoo')) { quoteFail++;   continue; }
     if (t.stages.gate?.startsWith('FAIL'))                    { gateFail++;    continue; }
   }
   const scanCandidates = traces.length;
-  const gateReached    = scanCandidates - yahooFail;
+  const gateReached    = scanCandidates - quoteFail;
   const gateFailRatio  = gateReached > 0 ? gateFail / gateReached : 0;
-  return { scanCandidates, gateReached, gateFail, gateFailRatio, yahooFail, priceFail, rrrFail, buyExecuted };
+  return { scanCandidates, gateReached, gateFail, gateFailRatio, quoteFail, priceFail, rrrFail, buyExecuted };
 }
 
 /**
@@ -586,11 +586,11 @@ export function runPostmortem(): PostmortemReport {
       `gate2ShadowPreserved=${freshGate2?.gate2ShadowPreservedCount ?? 0}, ` +
       `preBreakoutWaitPreserved=${preBreakoutPreserved}. ` +
       'Gate1 survivor/Shadow/Watch 후보가 있어 PATHOLOGICAL_BLOCK 단정 대신 정상 대기/관측으로 분류.';
-  } else if (summary.scanCandidates > 0 && summary.yahooFail === summary.scanCandidates) {
+  } else if (summary.scanCandidates > 0 && summary.quoteFail === summary.scanCandidates) {
     verdict = 'PATHOLOGICAL_BLOCK';
-    cause   = 'YAHOO_DOWN';
+    cause   = 'QUOTE_DOWN';
     primaryAction = 'CHECK_DATA_SOURCE';
-    reason  = 'Yahoo API가 모든 후보에서 실패 — 외부 데이터 소스 장애.';
+    reason  = '시세(KIS quote) 조회가 모든 후보에서 실패 — 데이터 소스 장애.';
   } else if (summary.scanCandidates === 0) {
     // 레짐이 RISK_ON/NEUTRAL인데도 후보 자체가 없음 — Stage1 점검 필요
     verdict = isRiskOn(regime) || regime === 'R4_NEUTRAL' ? 'PATHOLOGICAL_BLOCK' : 'INDETERMINATE';

@@ -62,7 +62,7 @@ describe('ADR-0414 Stage 1 Read-Only 통합', () => {
       swing: 30,
       catalyst: 20,
       momentum: 0,
-      yahooFails: 0,
+      quoteFails: 0,
       gateMisses: 0,
       rrrMisses: 0,
       entries: 0,

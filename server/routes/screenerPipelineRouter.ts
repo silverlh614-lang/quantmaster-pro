@@ -50,7 +50,7 @@ function safeCount(n: number): number {
  *
  * 단계별 카운트 산출:
  *   CANDIDATES   = summary.candidates
- *   MOMENTUM_PASS = candidates − yahooFails
+ *   MOMENTUM_PASS = candidates − quoteFails
  *   GATE1_PASS    = 위 단계 − gateMisses
  *   RRR_PASS      = 위 단계 − rrrMisses
  *   ENTRIES       = summary.entries
@@ -73,12 +73,12 @@ export function buildPipelineSummary(summary: ScanSummary | null): PipelineSumma
   }
 
   const candidates = safeCount(summary.candidates);
-  const yahooFails = safeCount(summary.yahooFails);
+  const quoteFails = safeCount(summary.quoteFails);
   const gateMisses = safeCount(summary.gateMisses);
   const rrrMisses = safeCount(summary.rrrMisses);
   const entries = safeCount(summary.entries);
 
-  const momentumPass = Math.max(0, candidates - yahooFails);
+  const momentumPass = Math.max(0, candidates - quoteFails);
   const gate1Pass = Math.max(0, momentumPass - gateMisses);
   const rrrPass = Math.max(0, gate1Pass - rrrMisses);
 
@@ -98,8 +98,8 @@ export function buildPipelineSummary(summary: ScanSummary | null): PipelineSumma
       id: 'MOMENTUM_PASS',
       label: STAGE_LABELS.MOMENTUM_PASS,
       count: momentumPass,
-      droppedAtThisStep: yahooFails,
-      dropReason: 'Yahoo OHLCV 데이터 부재',
+      droppedAtThisStep: quoteFails,
+      dropReason: '시세(KIS quote) 조회 실패',
     },
     {
       id: 'GATE1_PASS',
@@ -162,7 +162,7 @@ export interface PipelineStockEntry {
   stock: string;
   name: string;
   outcome: 'PASSED' | 'DROPPED' | 'EXECUTED';
-  /** DROPPED 일 때 사유 — "yahoo" / "gate" / "rrr" / "price" 등 */
+  /** DROPPED 일 때 사유 — "quote" / "gate" / "rrr" / "price" 등 ("yahoo" 는 구 명칭) */
   dropReason?: string;
 }
 
@@ -176,8 +176,8 @@ export interface PipelineStocksResponse {
 /**
  * stage 기준 ScanTrace 분류 — 단계별 통과 / 탈락 분리.
  *   CANDIDATES: 전체 (탈락 없음)
- *   MOMENTUM_PASS: yahoo OK / yahoo FAIL 분류
- *   GATE1_PASS: yahoo OK & gate PASS / gate FAIL 분류
+ *   MOMENTUM_PASS: quote OK / quote FAIL 분류
+ *   GATE1_PASS: quote OK & gate PASS / gate FAIL 분류
  *   RRR_PASS: 위 + rrr PASS / rrr FAIL 분류
  *   ENTRIES: buy SHADOW or LIVE 만 / 실패 진입 시도는 dropped
  */
@@ -195,8 +195,8 @@ export function partitionTracesByStage(
     if (seen.has(t.stock)) continue;
     seen.add(t.stock);
     // quote(KIS) 실패 — 'FAIL(quote'(신규)+'FAIL(yahoo'(≤7일 레거시 trace backward-compat).
-    const yahooFail = (t.stages.gate?.startsWith('FAIL(quote') || t.stages.gate?.startsWith('FAIL(yahoo')) ?? false;
-    const gateFail = !yahooFail && (t.stages.gate?.startsWith('FAIL') ?? false);
+    const quoteFail = (t.stages.gate?.startsWith('FAIL(quote') || t.stages.gate?.startsWith('FAIL(yahoo')) ?? false;
+    const gateFail = !quoteFail && (t.stages.gate?.startsWith('FAIL') ?? false);
     const rrrFail = t.stages.rrr?.startsWith('FAIL') ?? false;
     const buyDone = t.stages.buy === 'SHADOW' || t.stages.buy === 'LIVE';
 
@@ -210,27 +210,27 @@ export function partitionTracesByStage(
     }
 
     if (stage === 'MOMENTUM_PASS') {
-      if (yahooFail) dropped.push(entry('DROPPED', 'yahoo'));
+      if (quoteFail) dropped.push(entry('DROPPED', 'quote'));
       else passed.push(entry('PASSED'));
       continue;
     }
 
     if (stage === 'GATE1_PASS') {
-      if (yahooFail) continue; // 이전 단계에서 이미 dropped — 본 단계엔 미포함
+      if (quoteFail) continue; // 이전 단계에서 이미 dropped — 본 단계엔 미포함
       if (gateFail) dropped.push(entry('DROPPED', 'gate'));
       else passed.push(entry('PASSED'));
       continue;
     }
 
     if (stage === 'RRR_PASS') {
-      if (yahooFail || gateFail) continue;
+      if (quoteFail || gateFail) continue;
       if (rrrFail) dropped.push(entry('DROPPED', 'rrr'));
       else passed.push(entry('PASSED'));
       continue;
     }
 
     if (stage === 'ENTRIES') {
-      if (yahooFail || gateFail || rrrFail) continue;
+      if (quoteFail || gateFail || rrrFail) continue;
       if (buyDone) passed.push(entry('EXECUTED'));
       else dropped.push(entry('DROPPED', 'buy_failed'));
     }

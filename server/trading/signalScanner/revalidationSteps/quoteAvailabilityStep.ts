@@ -2,7 +2,7 @@
 
 import type { RevalidationStepResult } from './types.js';
 
-export interface YahooAvailabilityStepInput {
+export interface QuoteAvailabilityStepInput {
   stockName: string;
   reCheckGate: object | null;
 }
@@ -11,16 +11,16 @@ export interface YahooAvailabilityStepInput {
  * ADR-0031 PR-61 — 라인 734-741 의 재검증 quote 가용성 분기를 byte-equivalent 로 추출.
  *
  * BUG-02 fix: 재검증 quote 실패 시 MTAS 검증 우회 방지 — reCheckGate=null 이면 진입 보류.
- * ⚠️ 이름은 'yahoo' 이나 실제 재검증 quote 출처는 KIS(L1) 다 (ADR-0561/0563 KIS-primary
- *    burn-down 이후). stale 오칭으로, stageLog/라벨은 'quote' 로 정정됨(필드명 rename 은 후속).
+ * 구 yahooAvailabilityStep — 실제 재검증 quote 출처는 KIS(L1)라(ADR-0561/0563 burn-down)
+ * stale 오칭을 quote 로 정정. 레거시 trace 의 'FAIL(yahoo*' 는 파서 dual-parse 로 호환.
  * caller 가 fail 시 적용하는 부수효과:
  *   - console.warn(result.logMessage)
- *   - scanCounters.yahooFails++ (= quote 조회 실패 카운트, legacy 필드명)
+ *   - scanCounters.quoteFails++
  *   - stageLog.gate = 'FAIL(quote_unavailable)'
  *   - pushTrace()
  */
-export function yahooAvailabilityStep(
-  input: YahooAvailabilityStepInput,
+export function quoteAvailabilityStep(
+  input: QuoteAvailabilityStepInput,
 ): RevalidationStepResult {
   if (input.reCheckGate) {
     return { proceed: true };

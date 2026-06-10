@@ -430,15 +430,20 @@ export function collectDailyDataDiagnosticDigest(now: Date = new Date()): DailyD
  *   2) heartbeat OK / STALE / DOWN: 1시간/4시간/12시간 또는 5회 연속실패 임계
  *   3) 스캔 후보 = 0: 정상 idle
  *   4) 그 외: UNKNOWN
+ *
+ * ⚠️ 소스 혼합(conflation) — 분기 1 의 `quoteFails` 는 KIS quote 재검증 실패(구 yahooFails
+ * stale 오칭)이고, 분기 2 의 heartbeat 만 진짜 Yahoo provider 다. 즉 분기 1 발 DOWN 은
+ * Yahoo 가 아니라 KIS quote 장애일 수 있다. 분리(quote vs Yahoo heartbeat 별도 status)는
+ * /health·/status 표시 의미가 바뀌는 behavior change 라 본 rename patch 범위 밖 — 후속 검토.
  */
 export function deriveYahooStatus(
   scanSummary: ScanSummary | null,
   heartbeat: YahooHealthSnapshot,
 ): { detail: YahooApiDetail; status: YahooApiStatus } {
   if (scanSummary && scanSummary.candidates > 0) {
-    const failRatio = scanSummary.yahooFails / scanSummary.candidates;
+    const failRatio = scanSummary.quoteFails / scanSummary.candidates;
     const status: YahooApiStatus =
-      scanSummary.yahooFails === scanSummary.candidates
+      scanSummary.quoteFails === scanSummary.candidates
         ? 'DOWN'
         : failRatio > 0.5
           ? 'DEGRADED'

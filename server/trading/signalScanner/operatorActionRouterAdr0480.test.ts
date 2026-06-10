@@ -216,7 +216,7 @@ describe('ADR-0480 Operator Action Router & Remediation Queue', () => {
 
   it('28. ADR-0478 compact output can include Top Operator Actions', () => {
     expect(scanBlockersSrc).toContain('safeFormatOperatorActionCompactSectionAdr0480');
-    const summary = { time: 't', candidates: 1, trackB: 0, swing: 0, catalyst: 0, momentum: 0, yahooFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0, waitDistribution: { dataHold: 1, preBreakout: 0, gateFail: 0, sizingBlocked: 0, driftRemove: 0, corpAction: 0, volumeDrop: 0, other: 0 } } as ScanSummary;
+    const summary = { time: 't', candidates: 1, trackB: 0, swing: 0, catalyst: 0, momentum: 0, quoteFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0, waitDistribution: { dataHold: 1, preBreakout: 0, gateFail: 0, sizingBlocked: 0, driftRemove: 0, corpAction: 0, volumeDrop: 0, other: 0 } } as ScanSummary;
     expect(collectOperatorActionSourcesFromScanSummaryAdr0480(summary).length).toBeGreaterThan(0);
   });
 
@@ -238,7 +238,7 @@ describe('ADR-0480 Operator Action Router & Remediation Queue', () => {
   // ADR-0544 follow-up: 휴일/세션닫힘 SectorEnergy 진단 소스 억제 → REPAIR action 미생성.
   const sectorSummary = (canonical: Record<string, unknown>): ScanSummary => ({
     time: 't', candidates: 1, trackB: 0, swing: 0, catalyst: 0, momentum: 0,
-    yahooFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
+    quoteFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
     sectorEnergyQuality: 'DEGRADED',
     sectorEnergySupplyUnknownAdr0488: {
       sectorEnergyCanonicalState: canonical,
@@ -269,7 +269,7 @@ describe('ADR-0480 Operator Action Router & Remediation Queue', () => {
   // SectorEnergy repair P1 액션을 emit 하지 않는다. promotion 실패 시에는 그대로 emit (false-negative 방지).
   const sectorSummaryWithRepairGap = (canonical: Record<string, unknown>): ScanSummary => ({
     time: 't', candidates: 1, trackB: 0, swing: 0, catalyst: 0, momentum: 0,
-    yahooFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
+    quoteFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
     sectorEnergyQuality: 'PARTIAL',
     sectorEnergySupplyUnknownAdr0488: {
       sectorEnergyCanonicalState: canonical,

@@ -30,7 +30,7 @@ import { recordAiCandidate, buildSignalId } from '../../../persistence/tradeSign
 import { evaluateServerGate } from '../../../quantFilter.js';
 import { fillMonitor } from '../../fillMonitor.js';
 import {
-  yahooAvailabilityStep,
+  quoteAvailabilityStep,
   mtasGateStep,
   sellOnlyExceptionStep,
 } from '../revalidationSteps/index.js';
@@ -456,17 +456,17 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       );
       if (entryRevalidationResult === 'SKIP') continue;
 
-      // ── ADR-0031 PR-61: yahooAvailabilityStep RevalidationStep ──────────
+      // ── ADR-0031 PR-61: quoteAvailabilityStep RevalidationStep ──────────
       // BUG-02 fix: Yahoo 실패 시 MTAS 검증 우회 방지 — 재검증 불가 시 진입 보류
-      const yahooAvail = yahooAvailabilityStep({ stockName: stock.name, reCheckGate });
+      const yahooAvail = quoteAvailabilityStep({ stockName: stock.name, reCheckGate });
       if (!yahooAvail.proceed) {
         console.warn(yahooAvail.logMessage);
-        ctx.scanCounters.yahooFails++;
+        ctx.scanCounters.quoteFails++;
         stageLog.gate = yahooAvail.stageLogValue;
         pushTrace();
         continue;
       }
-      // TypeScript 좁히기: yahooAvailabilityStep 통과 시 reCheckGate non-null 보장 (도달 불가 가드)
+      // TypeScript 좁히기: quoteAvailabilityStep 통과 시 reCheckGate non-null 보장 (도달 불가 가드)
       if (!reCheckGate) continue;
       stageLog.gate = 'PASS';
 

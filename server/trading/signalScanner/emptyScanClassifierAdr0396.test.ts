@@ -6,7 +6,7 @@ import type { ScanSummary } from './scanDiagnostics.js';
 function makeBaseSummary(overrides: Partial<ScanSummary> = {}): ScanSummary {
   return {
     candidates: 5,
-    yahooFails: 0,
+    quoteFails: 0,
     gateMisses: 0,
     rrrMisses: 0,
     entries: 0,

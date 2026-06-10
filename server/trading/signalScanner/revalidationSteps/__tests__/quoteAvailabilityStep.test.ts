@@ -1,11 +1,11 @@
-// @responsibility yahooAvailabilityStep 회귀 테스트
+// @responsibility quoteAvailabilityStep 회귀 테스트
 
 import { describe, expect, it } from 'vitest';
-import { yahooAvailabilityStep } from '../yahooAvailabilityStep.js';
+import { quoteAvailabilityStep } from '../quoteAvailabilityStep.js';
 
-describe('yahooAvailabilityStep', () => {
+describe('quoteAvailabilityStep', () => {
   it('reCheckGate 객체 존재 — proceed=true', () => {
-    const result = yahooAvailabilityStep({
+    const result = quoteAvailabilityStep({
       stockName: '삼성전자',
       reCheckGate: { gateScore: 8 },
     });
@@ -13,7 +13,7 @@ describe('yahooAvailabilityStep', () => {
   });
 
   it('reCheckGate=null — 시세(quote) 조회 실패 차단', () => {
-    const result = yahooAvailabilityStep({ stockName: '삼성전자', reCheckGate: null });
+    const result = quoteAvailabilityStep({ stockName: '삼성전자', reCheckGate: null });
     expect(result.proceed).toBe(false);
     if (result.proceed) return;
     expect(result.logMessage).toBe('[AutoTrade] 삼성전자 시세(quote) 조회 실패 — 재검증 불가, 진입 보류');

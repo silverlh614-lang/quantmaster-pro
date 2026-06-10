@@ -45,7 +45,7 @@ export interface NoEntryStreakDiagnosticInput {
   swingCount?: number;
   catalystCount?: number;
   momentumCount?: number;
-  yahooFailCount?: number;
+  quoteFailCount?: number;
   gateMissCount?: number;
   rrrFailCount?: number;
   preBreakoutWaitCount?: number;
@@ -273,7 +273,7 @@ function resolveDominantReason(input: NoEntryStreakDiagnosticInput): NoEntryDomi
   if (hasCount(input.priceNotConfirmedCount)) return 'PRICE_NOT_CONFIRMED';
   if (hasCount(input.gate2LeadershipNotConfirmedCount)) return 'GATE2_LEADERSHIP_NOT_CONFIRMED';
   if (hasCount(input.gate1ThresholdMissCount) || hasCount(input.gateMissCount)) return 'GATE1_THRESHOLD_NOT_MET';
-  if (input.dataFreshnessStale || hasCount(input.yahooFailCount)) return 'DATA_FRESHNESS_STALE';
+  if (input.dataFreshnessStale || hasCount(input.quoteFailCount)) return 'DATA_FRESHNESS_STALE';
   return 'UNKNOWN';
 }
 
@@ -488,7 +488,7 @@ export function buildNoEntryScanSummaryMessage(
   input: NoEntryStreakDiagnosticInput,
   mapping: ScanSummaryReasonMapping = mapScanSummaryDisplayReasons({
     scanCycleId: diagnostic.scanCycleId,
-    providerFailureCount: input.yahooFailCount ?? 0,
+    providerFailureCount: input.quoteFailCount ?? 0,
     providerFailureExecutionImpact: diagnostic.dominantNoEntryReason === 'PROVIDER_FAILURE_WITH_EXECUTION_IMPACT'
       ? diagnostic.executionImpact
       : 'NONE',

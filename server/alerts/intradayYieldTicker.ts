@@ -97,7 +97,7 @@ export function computeIntradayYield(): IntradayYieldSnapshot {
   const summary  = summarizeScanTraces(traces);
 
   const scanCandidates = summary.totalCandidates;
-  const gateReached    = scanCandidates - summary.yahooFail;
+  const gateReached    = scanCandidates - summary.quoteFail;
   const gatePassed     = Math.max(0, gateReached - summary.gateFail);
   const buyExecuted    = summary.buyExecuted;
 

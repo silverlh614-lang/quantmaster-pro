@@ -27,7 +27,7 @@ describe('scanReviewReport — pickTomorrowCandidates Gate threshold', () => {
 
   const baseSummary = {
     totalCandidates: 10, buyExecuted: 2,
-    yahooFail: 0, gateFail: 5, priceFail: 0, rrrFail: 2, otherBlock: 1,
+    quoteFail: 0, gateFail: 5, priceFail: 0, rrrFail: 2, otherBlock: 1,
     stages: {},
     lastScanTime: '04:30',
     reasonCounts: {}, // scanTracer.ScanTraceSummary 형식 충족

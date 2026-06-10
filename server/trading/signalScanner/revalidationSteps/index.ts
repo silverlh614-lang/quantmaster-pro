@@ -18,9 +18,9 @@ export {
 } from './kisIntradayCorrectionStep.js';
 
 export {
-  yahooAvailabilityStep,
-  type YahooAvailabilityStepInput,
-} from './yahooAvailabilityStep.js';
+  quoteAvailabilityStep,
+  type QuoteAvailabilityStepInput,
+} from './quoteAvailabilityStep.js';
 
 export {
   mtasGateStep,

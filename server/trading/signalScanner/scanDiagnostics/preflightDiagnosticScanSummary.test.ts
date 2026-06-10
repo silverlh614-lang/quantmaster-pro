@@ -101,7 +101,7 @@ describe('preflight diagnostic ScanSummary (Patch)', () => {
       time: '09:48 KST',
       candidates: 6,
       trackB: 0, swing: 0, catalyst: 0, momentum: 0,
-      yahooFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
+      quoteFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
       snapshotId: 'scan-eval-20260526094753',
       scanEvaluation: { sourcePath: 'scanDiagnosticsCore.persistScanResults' },
     } as unknown as ScanSummary;

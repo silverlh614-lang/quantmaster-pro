@@ -39,9 +39,9 @@ describe('createScanCounters — ADR-0118 신규 카운터 초기화', () => {
     expect(c.waitOther).toBe(0);
   });
 
-  it('기존 카운터 (yahooFails/gateMisses/rrrMisses/entries) 보존', () => {
+  it('기존 카운터 (quoteFails/gateMisses/rrrMisses/entries) 보존', () => {
     const c = createScanCounters();
-    expect(c.yahooFails).toBe(0);
+    expect(c.quoteFails).toBe(0);
     expect(c.gateMisses).toBe(0);
     expect(c.rrrMisses).toBe(0);
     expect(c.entries).toBe(0);
@@ -169,7 +169,7 @@ const SUMMARY_BASE: ScanSummary = {
   swing: 6,
   catalyst: 4,
   momentum: 33,
-  yahooFails: 0,
+  quoteFails: 0,
   gateMisses: 25,
   rrrMisses: 0,
   entries: 0,

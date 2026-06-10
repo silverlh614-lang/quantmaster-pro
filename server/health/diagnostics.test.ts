@@ -66,7 +66,7 @@ describe('deriveYahooStatus — 6분기 분류 SSOT', () => {
       swing: 3,
       catalyst: 2,
       momentum: 0,
-      yahooFails: 5,
+      quoteFails: 5,
       gateMisses: 0,
       rrrMisses: 0,
       entries: 0,
@@ -79,7 +79,7 @@ describe('deriveYahooStatus — 6분기 분류 SSOT', () => {
   it('candidates>0 + 50% 초과 실패 → DEGRADED', () => {
     const summary: ScanSummary = {
       time: '10:00 KST', candidates: 10, trackB: 10, swing: 5, catalyst: 5, momentum: 0,
-      yahooFails: 7, gateMisses: 0, rrrMisses: 0, entries: 0,
+      quoteFails: 7, gateMisses: 0, rrrMisses: 0, entries: 0,
     };
     expect(deriveYahooStatus(summary, FRESH_HEARTBEAT).status).toBe('DEGRADED');
   });
@@ -87,7 +87,7 @@ describe('deriveYahooStatus — 6분기 분류 SSOT', () => {
   it('candidates>0 + 50% 이하 실패 → OK', () => {
     const summary: ScanSummary = {
       time: '10:00 KST', candidates: 10, trackB: 10, swing: 5, catalyst: 5, momentum: 0,
-      yahooFails: 3, gateMisses: 0, rrrMisses: 0, entries: 0,
+      quoteFails: 3, gateMisses: 0, rrrMisses: 0, entries: 0,
     };
     expect(deriveYahooStatus(summary, FRESH_HEARTBEAT).status).toBe('OK');
   });
@@ -95,7 +95,7 @@ describe('deriveYahooStatus — 6분기 분류 SSOT', () => {
   it('candidates=0 + heartbeat OK → HEARTBEAT_OK/OK', () => {
     const summary: ScanSummary = {
       time: '10:00 KST', candidates: 0, trackB: 0, swing: 0, catalyst: 0, momentum: 0,
-      yahooFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
+      quoteFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
     };
     const r = deriveYahooStatus(summary, FRESH_HEARTBEAT);
     expect(r.detail).toBe('HEARTBEAT_OK');
@@ -105,7 +105,7 @@ describe('deriveYahooStatus — 6분기 분류 SSOT', () => {
   it('candidates=0 + heartbeat STALE → HEARTBEAT_STALE/STALE', () => {
     const summary: ScanSummary = {
       time: '10:00 KST', candidates: 0, trackB: 0, swing: 0, catalyst: 0, momentum: 0,
-      yahooFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
+      quoteFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
     };
     const r = deriveYahooStatus(summary, STALE_HEARTBEAT);
     expect(r.detail).toBe('HEARTBEAT_STALE');
@@ -121,7 +121,7 @@ describe('deriveYahooStatus — 6분기 분류 SSOT', () => {
   it('candidates=0 + heartbeat UNKNOWN + scan summary candidates=0 → NO_CANDIDATES/OK', () => {
     const summary: ScanSummary = {
       time: '10:00 KST', candidates: 0, trackB: 0, swing: 0, catalyst: 0, momentum: 0,
-      yahooFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
+      quoteFails: 0, gateMisses: 0, rrrMisses: 0, entries: 0,
     };
     const r = deriveYahooStatus(summary, UNKNOWN_HEARTBEAT);
     expect(r.detail).toBe('NO_CANDIDATES');
