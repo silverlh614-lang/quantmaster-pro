@@ -343,8 +343,13 @@ describe('ADR-0399 Sector Energy Source Restoration', () => {
     });
 
     it('marketDataRefresh.ts — diagnostics + 4-axis 영속 wiring', () => {
+      // ADR-0595: resolve 부는 marketDataRefresh/sectorEnergySection.ts 로 이동 (merge spread 는 본체 잔존).
+      // 본문 + 서브모듈을 함께 grep — 향후 이동에도 견고 (ADR-0444 static-grep-guard 패턴).
       const src = fs.readFileSync(
         path.resolve(__dirname, '../trading/marketDataRefresh.ts'),
+        'utf-8',
+      ) + fs.readFileSync(
+        path.resolve(__dirname, '../trading/marketDataRefresh/sectorEnergySection.ts'),
         'utf-8',
       );
       expect(src).toContain('sectorEnergyDiagnostics');

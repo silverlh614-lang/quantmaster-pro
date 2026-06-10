@@ -7,6 +7,9 @@ import path from 'path';
 const SOURCE_PATH = path.join(process.cwd(), 'server/trading/marketDataRefresh.ts');
 // ADR-0589 분해: 프로그램 매매 순수 helper(buildUnitCandidates/snapshot 조립)는 추출 모듈로 이동.
 const HELPERS_PATH = path.join(process.cwd(), 'server/trading/marketDataRefresh/helpers.ts');
+// ADR-0595 분해: 프로그램 매매 섹션 본문(computeProgramMarketSnapshot/refreshProgramMarketSection)은
+// marketDataRefresh/programMarketSection.ts 로 이동 — 본문 + 서브모듈을 함께 grep (ADR-0444 패턴).
+const PROGRAM_PATH = path.join(process.cwd(), 'server/trading/marketDataRefresh/programMarketSection.ts');
 
 describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
   let source: string;
@@ -15,7 +18,7 @@ describe('marketDataRefresh ADR-0138 wiring (정적 grep 가드)', () => {
   beforeAll();
 
   function beforeAll() {
-    source = fs.readFileSync(SOURCE_PATH, 'utf-8');
+    source = fs.readFileSync(SOURCE_PATH, 'utf-8') + fs.readFileSync(PROGRAM_PATH, 'utf-8');
     helpersSource = fs.readFileSync(HELPERS_PATH, 'utf-8');
   }
 

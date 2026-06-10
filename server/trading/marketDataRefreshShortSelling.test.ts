@@ -7,6 +7,9 @@ import { setKisClientOverrides } from '../clients/kisClient.js';
 import type { KisDailyShortSale } from '../clients/kisClient/types.js';
 
 const SOURCE_PATH = path.join(process.cwd(), 'server/trading/marketDataRefresh.ts');
+// ADR-0595 분해: 공매도 폴백 체인은 marketDataRefresh/supplyCreditSections.ts 로 이동 —
+// 본문 + 서브모듈을 함께 grep (ADR-0444 static-grep-guard 패턴).
+const SUPPLY_PATH = path.join(process.cwd(), 'server/trading/marketDataRefresh/supplyCreditSections.ts');
 const PROXY_PATH = path.join(process.cwd(), 'server/trading/shortSellingKisProxy.ts');
 
 /** KRX 두 경로(fetch)를 강제 실패시켜 KIS 폴백 분기로 진입하게 한다. */
@@ -108,7 +111,7 @@ describe('ADR-0543 — 정적 가드 (소비측 L4 격리 + 폴백 배선)', () 
   let source: string;
   let proxy: string;
   beforeEach(() => {
-    source = fs.readFileSync(SOURCE_PATH, 'utf-8');
+    source = fs.readFileSync(SUPPLY_PATH, 'utf-8') + fs.readFileSync(SOURCE_PATH, 'utf-8');
     proxy = fs.readFileSync(PROXY_PATH, 'utf-8');
   });
 

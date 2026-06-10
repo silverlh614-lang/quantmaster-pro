@@ -5,12 +5,15 @@ import fs from 'fs';
 import path from 'path';
 
 const SOURCE_PATH = path.join(process.cwd(), 'server/trading/marketDataRefresh.ts');
+// ADR-0595 분해: 신용잔고(⑥-b) 섹션은 marketDataRefresh/supplyCreditSections.ts 로 이동 —
+// 서브모듈 + 본문(호출 순서 주석 잔존)을 함께 grep (ADR-0444 static-grep-guard 패턴).
+const SUPPLY_PATH = path.join(process.cwd(), 'server/trading/marketDataRefresh/supplyCreditSections.ts');
 
 describe('marketDataRefresh ADR-0139 wiring (정적 grep 가드)', () => {
   let source: string;
 
   beforeAll(() => {
-    source = fs.readFileSync(SOURCE_PATH, 'utf-8');
+    source = fs.readFileSync(SUPPLY_PATH, 'utf-8') + fs.readFileSync(SOURCE_PATH, 'utf-8');
   });
 
   it('fetchLatestMarginBalance5dChange import 존재', () => {

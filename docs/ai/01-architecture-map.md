@@ -90,6 +90,7 @@
 
 ### 완료 (분해 사례 — 후속 분해의 참조 패턴)
 
+- `marketDataRefresh.ts` 1,497 → 342줄 오케스트레이터 (ADR-0595, 섹션 5모듈 분해: refreshObservability/indexMacroSections/supplyCreditSections/programMarketSection/sectorEnergySection, **executionImpact=NONE** · 외부 importer 14파일 무수정)
 - `marketDataRefresh.ts` 1,499 → 1,327줄 (ADR-0580, types.ts+helpers.ts, **executionImpact=NONE** · refreshMarketRegimeVars 무접촉)
 - `gate1DryRunObservationLedgerAdr0476.ts` 1,500 → 1,242줄 · `sectorEnergyProvider.ts` 1,499 → 1,343줄 (ADR-0579, types.ts 추출)
 - `signalScanner.ts` 1,820 → 35줄 barrel (ADR-0001/0147b, `signalScanner/` 229 모듈)

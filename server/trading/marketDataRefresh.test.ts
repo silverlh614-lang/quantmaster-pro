@@ -23,7 +23,10 @@ describe('computeVkospiDayChangeFromBars', () => {
 
 describe('VKOSPI KRX wiring', () => {
   it('uses KRX derivatives index daily as primary source', () => {
-    const src = fs.readFileSync(path.join(process.cwd(), 'server/trading/marketDataRefresh.ts'), 'utf8');
+    // ADR-0595 분해: VKOSPI 섹션은 marketDataRefresh/indexMacroSections.ts 로 이동 —
+    // 본문 + 서브모듈을 함께 grep (ADR-0444 static-grep-guard 패턴).
+    const src = fs.readFileSync(path.join(process.cwd(), 'server/trading/marketDataRefresh.ts'), 'utf8')
+      + fs.readFileSync(path.join(process.cwd(), 'server/trading/marketDataRefresh/indexMacroSections.ts'), 'utf8');
     expect(src).toContain('fetchDerivativesIndexDaily()');
     // ADR-0586: bare includes('VKOSPI') → 정밀 이름 매칭 SSOT(isVkospiIndexName)로 좁힘
     expect(src).toContain('isVkospiIndexName(r.indexName)');

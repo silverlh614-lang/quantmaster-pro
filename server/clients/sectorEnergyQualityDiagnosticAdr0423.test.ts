@@ -526,7 +526,10 @@ describe('ADR-0423 wiring 정적 가드', () => {
   });
 
   it('marketDataRefresh 가 sectorEnergyQualityDiagnostic 영속', () => {
-    const src = readFileSync('server/trading/marketDataRefresh.ts', 'utf8');
+    // ADR-0595: resolve 부는 marketDataRefresh/sectorEnergySection.ts 로 이동 (merge spread 는 본체 잔존).
+    // 본문 + 서브모듈을 함께 grep — 향후 이동에도 견고 (ADR-0444 static-grep-guard 패턴).
+    const src = readFileSync('server/trading/marketDataRefresh.ts', 'utf8')
+      + readFileSync('server/trading/marketDataRefresh/sectorEnergySection.ts', 'utf8');
     expect(src).toMatch(/sectorEnergyQualityDiagnostic/);
     // 옵셔널 spread 패턴 (후방호환)
     expect(src).toMatch(/sectorEnergyQualityDiagnostic !== undefined/);

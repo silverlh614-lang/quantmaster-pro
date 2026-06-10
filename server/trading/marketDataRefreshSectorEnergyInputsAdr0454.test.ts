@@ -24,8 +24,12 @@ import { dirname, resolve } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const MARKET_DATA_REFRESH_PATH = resolve(REPO_ROOT, 'server', 'trading', 'marketDataRefresh.ts');
+// ADR-0595 분해: resolve 부(let sectorEnergyInputsResolved / = meta.inputs)는
+// marketDataRefresh/sectorEnergySection.ts 로 이동, merge spread 는 본체 잔존 —
+// 본문 + 서브모듈을 함께 grep (ADR-0444 static-grep-guard 패턴).
+const SECTOR_ENERGY_SECTION_PATH = resolve(REPO_ROOT, 'server', 'trading', 'marketDataRefresh', 'sectorEnergySection.ts');
 
-const readSource = (): string => readFileSync(MARKET_DATA_REFRESH_PATH, 'utf-8');
+const readSource = (): string => readFileSync(MARKET_DATA_REFRESH_PATH, 'utf-8') + readFileSync(SECTOR_ENERGY_SECTION_PATH, 'utf-8');
 
 describe('ADR-0454 — sectorEnergyInputs writer wiring (정적 grep 가드)', () => {
   it('sectorEnergyInputsResolved 변수 선언 존재 (saveMacroState scope 까지 노출)', () => {
