@@ -209,3 +209,44 @@ describe('sectorConcentrationGate — 차단 counterfactual 기록 (2026-06-11 �
     expect(blocked.pass).toBe(false);
   });
 });
+
+describe('sectorConcentrationGate — ADR-0602 Phase 0 교체 관측 힌트', () => {
+  beforeEach(() => { vi.clearAllMocks(); delete process.env.TRADE_REPLACEMENT_OBSERVE_ENABLED; });
+
+  it('차단 시 gate 우위 보유가 있으면 텔레그램에 교체 관측 1줄 표기 (실집행 없음 명시)', async () => {
+    const { sectorConcentrationGate } = await import('../sectorConcentrationGate.js');
+    const { makeMockCtx, makeMockStock } = await import('./_testHelpers.js');
+    const stock = makeMockStock({ code: '089030', name: '테크윙', sector: '반도체장비', gateScore: 8 });
+    const watchlist = [
+      makeMockStock({ code: '084370', name: '유진테크', sector: '반도체장비', gateScore: 5, entryPrice: 171500 }),
+      makeMockStock({ code: '403870', name: 'HPSP', sector: '반도체장비', gateScore: 7.8, entryPrice: 50000 }),
+    ];
+    const shadows = watchlist.map((w) => ({
+      stockCode: w.code, status: 'ACTIVE', shadowEntryPrice: w.entryPrice, gateScore: w.gateScore,
+    })) as never;
+    const result = await sectorConcentrationGate(makeMockCtx({ stock, watchlist, shadows, currentPrice: 17000 }));
+    expect(result.pass).toBe(false);
+    if (!result.pass) {
+      expect(result.telegramMessage).toContain('교체 관측(ADR-0602 Phase0·실집행 없음)');
+      expect(result.telegramMessage).toContain('유진테크');
+    }
+  });
+
+  it('TRADE_REPLACEMENT_OBSERVE_ENABLED=false → 힌트 미표기 (기존 메시지 byte-equivalent)', async () => {
+    process.env.TRADE_REPLACEMENT_OBSERVE_ENABLED = 'false';
+    const { sectorConcentrationGate } = await import('../sectorConcentrationGate.js');
+    const { makeMockCtx, makeMockStock } = await import('./_testHelpers.js');
+    const stock = makeMockStock({ code: '089030', name: '테크윙', sector: '반도체장비', gateScore: 8 });
+    const watchlist = [
+      makeMockStock({ code: '084370', sector: '반도체장비', gateScore: 5 }),
+      makeMockStock({ code: '403870', sector: '반도체장비', gateScore: 5 }),
+    ];
+    const shadows = watchlist.map((w) => ({ stockCode: w.code, status: 'ACTIVE' })) as never;
+    const result = await sectorConcentrationGate(makeMockCtx({ stock, watchlist, shadows }));
+    expect(result.pass).toBe(false);
+    if (!result.pass) {
+      expect(result.telegramMessage).not.toContain('교체 관측');
+    }
+    delete process.env.TRADE_REPLACEMENT_OBSERVE_ENABLED;
+  });
+});

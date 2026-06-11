@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0602`**
+**다음 ADR 번호: `0603`**
+
+(2026-06-11 기준, 마지막 발급 0602 — same-sector-replacement-observation. **Status: Accepted (Phase 0 구현 — 관측·표시 전용, default ON `!== 'false'`).** ADR-0602 — 운영자 토론(섹터 리미트 해제?)의 코드 추적에서 이중 갭 확정: tradeReplacement(Phase 4-⑦ 교체 엔진)는 운영 호출 0건 미배선 dead 모듈 + proposeReplacement 조건(iii) heldSector!==candSector 로 동일 섹터 내 강자 교체 설계상 불가. 처방=한도 해제 대신 '같은 슬롯 내 약자→강자 교체' 경로의 phased 도입 — Phase 0(구현): 신규 순수 함수 proposeSameSectorReplacement(gate 우위>=1.5 필수, 정체보유 momentumSlowing/수익률<=0 은 score 가중 +5 — 발동 빈도 관측 목적), sectorConcentrationGate 차단 분기에서 평가 후 로그/텔레그램에 '교체 관측(Phase0·실집행 없음)' 1줄 표기(평가 실패 격리·결손 필드 보수 기본값 불변식 #6), flag TRADE_REPLACEMENT_OBSERVE_ENABLED default ON(표시 전용·1줄 롤백). Phase 1(설계만): shadow 교체 집행 flag OFF + 쿨다운·일일 상한, 직전 patch 의 SECTOR_CONCENTRATION_LIMIT counterfactual 라벨 분포로 발동 조건 확정. Phase 2(설계만): live 교체 — shadow 표본 N>=30+교체 우위 통계+운영자 승인+autoTradeEngine 단일통로 2주문 설계 선행(후속 ADR). MAX_SECTOR_CONCENTRATION 무변경·기존 proposeReplacement 의미 무변경. 신규 테스트 4케이스(약자 선택·우위 부족·힌트 표기·flag off byte-equivalent). 계보 토론 20260611/Patch-SectorLimit-Blocked-Counterfactual/ADR-0030/0594/0598. INDEX 0602→0603 갱신.)
 
 (2026-06-11 기준, 마지막 발급 0601 — gate2-kis-native-investor-flow-hydration. **Status: Accepted (D3 구현, default ON `!== 'false'`).** ADR-0601 — ADR-0600 D3 실행: 공식 API 인벤토리로 신규 TR 불필요 확정(kisClient.fetchKisInvestorTradeByStockDaily+kisInvestorFlowEvidence 기존 단일통로) — 갭은 호출 범위(ADR-0477 라우터가 스캔당 대표 1종목만). 신규 scanDiagnostics/gate2InvestorFlowHydrationAdr0601.ts 가 persistScanResults 의 decomposition 직전에 kisInvestorFlow 결손 후보(Gate1 통과 우선)를 보충: quota 3중 관리(일중 캐시 symbol×KST일자 재스캔 fetch 0 + 스캔당 신규 조회 상한 GATE2_INVESTOR_FLOW_HYDRATION_MAX 0~50 default 16 + 당일 실패 재시도 억제), snapshot.gate2ExternalDataCoverage.kisInvestorFlow 주입(hydratedBy 표기)→buildSupplyAxis 기존 경로 소비(gate2ConfluenceScore 0줄), ScanSummary 집계+1줄 로그, 실패 전면 격리(불변식 #1/#2). 우선순위 L1 네이티브>ADR-0600 시맨틱 fallback>missing (ADR-0561 KIS Primary). D4(KOSDAQ 마스터 업종코드→Sector 네이티브)는 Phase 2 — 마스터 고정폭 파서·일캐시·sectorEnergy 통합 별도 단위, 그때까지 동종군 fallback 유지. 신규 테스트 6케이스(ENV 가드·결손만 주입·일중 캐시·상한+gate1 우선·실패 격리·flag off). 계보 0600/0561/0477. INDEX 0601→0602 갱신.)
 
@@ -223,6 +225,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0602 | 동일 섹터 강자 교체 phased 도입 — Phase 0 관측(proposeSameSectorReplacement+가드 차단 시 교체 후보 1줄 표기, 실집행 0, default ON). 교체 엔진 미배선+동일섹터 금지 이중 갭의 출구를 한도 해제 대신 데이터 검증으로. Phase 1 shadow 집행/Phase 2 live 는 설계만 | policy / trading+entryGates |
 | 0601 | Gate2 Supply 축 KIS 네이티브 hydration — 기존 단일통로 investor-flow evidence 를 결손 후보 전체로 확장 주입(일중 캐시·스캔당 상한 16·실패 격리, default ON). L1>시맨틱 fallback>missing 우선순위. D4 KOSDAQ 마스터 업종코드는 Phase 2 | policy / signalScanner+supply |
 | 0600 | Gate2 Supply/Sector 결손 축 보수 fallback — Gate1 시맨틱 수급(78캡)·스캔 동종군 상대수익(62상한) DEGRADED/ADVISORY 소비, BULLISH 민팅 금지·fetch 0·default ON(진단 차선 한정). KIS 네이티브(inquire-investor·KOSDAQ 마스터 업종코드) 1순위 후속 ADR-0601 로드맵 명시 | policy / quant |
 | 0599 | Gate2 confluence 가용 축 비례 요구 — 결손 축이 STRONG/WEAK 절대 개수 조건(bullish>=3)을 역설적으로 강화하는 갭 보정(ceil 60%·<=3), flag default OFF + dry-run 상시 관측(proportionalDryRun). 점수 임계·BULLISH 컷 불변, ADR-0416 정합 완성. 계보 Gate2 추적 20260611/0416/0519 | policy / quant |
@@ -659,7 +662,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0601 · 다음 발급 0602** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0602 · 다음 발급 0603** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

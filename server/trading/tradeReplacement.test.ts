@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
+import { proposeSameSectorReplacement,
   proposeReplacement,
   isInReplacementCooldown,
   markReplacement,
@@ -105,5 +105,30 @@ describe('tradeReplacement — proposeReplacement', () => {
       sectorExposure: { countsBySector: new Map([['반도체', 2]]) },
     });
     expect(d.proposed).toBe(true);
+  });
+});
+
+describe('proposeSameSectorReplacement (ADR-0602 Phase 0 관측)', () => {
+  it('gate 우위 >= 1.5 인 동일 섹터 약자를 교체 후보로 제안 (정체보유 가중)', () => {
+    const decision = proposeSameSectorReplacement({
+      heldSameSector: [
+        { stockCode: '084370', stockName: '유진테크', entryPrice: 171500, currentPrice: 170300, gateScore: 5, sector: '반도체장비' },
+        { stockCode: '403870', stockName: 'HPSP', entryPrice: 50000, currentPrice: 55000, gateScore: 8, sector: '반도체장비' },
+      ],
+      candidate: { stockCode: '089030', stockName: '테크윙', liveGate: 7.5, sector: '반도체장비' },
+    });
+    expect(decision.proposed).toBe(true);
+    expect(decision.targetToExit?.stockCode).toBe('084370'); // 약자(gate 5·수익률<=0 정체) 선택
+    expect(decision.reason).toContain('테크윙');
+    expect(decision.reason).toContain('정체보유');
+  });
+
+  it('gate 우위 부족 시 미제안 · 쿨다운 보유 제외', () => {
+    const held = [{ stockCode: '084370', stockName: '유진테크', entryPrice: 100, currentPrice: 99, gateScore: 7, sector: '반도체장비' }];
+    const weak = proposeSameSectorReplacement({
+      heldSameSector: held,
+      candidate: { stockCode: '089030', stockName: '테크윙', liveGate: 7.9, sector: '반도체장비' },
+    });
+    expect(weak.proposed).toBe(false);
   });
 });

@@ -84,6 +84,47 @@ export function _resetReplacementCooldowns(): void {
  *   - 반환의 proposed=true 이면 targetToExit 의 종목을 약익절하고 candidate 로 교체
  *   - 쿨다운 중이거나 조건 미충족이면 proposed=false 와 reason
  */
+/** ADR-0602 Phase 0 — 섹터 한도 포화 시 "동일 섹터 약자→강자 교체" 관측 제안 (실집행 0).
+ *  기존 proposeReplacement 의 (iii) heldSector!==candSector 조건이 동일 섹터 내 강자 교체를
+ *  설계상 차단하던 갭의 관측판: gate 우위(≥MIN_GATE_DELTA)만 필수, 정체보유(momentumSlowing
+ *  또는 수익률≤0)는 가중치로만 반영해 발동 빈도 자체를 데이터로 수집한다. */
+export function proposeSameSectorReplacement(params: {
+  heldSameSector: HeldPositionView[];
+  candidate: CandidateView;
+  now?: number;
+}): ReplacementDecision {
+  const now = params.now ?? Date.now();
+  const { heldSameSector, candidate } = params;
+  if (!candidate || !Number.isFinite(candidate.liveGate)) {
+    return { proposed: false, reason: 'invalid_candidate', score: 0 };
+  }
+  let best: ReplacementDecision = { proposed: false, reason: 'no_same_sector_advantage', score: 0 };
+  for (const h of heldSameSector) {
+    if (isInReplacementCooldown(h.stockCode, now)) continue;
+    const heldGate = h.gateScore ?? 0;
+    const gateDelta = candidate.liveGate - heldGate;
+    if (gateDelta < TRADE_REPLACEMENT_MIN_GATE_DELTA) continue;
+    const returnPct = h.entryPrice > 0
+      ? safePctChange(h.currentPrice, h.entryPrice, { label: `sameSectorReplacement:${h.stockCode}` })
+      : null;
+    const stagnant = h.momentumSlowing === true || (returnPct !== null && returnPct <= 0);
+    const score = gateDelta * 10 + (stagnant ? 5 : 0);
+    if (score > best.score) {
+      best = {
+        proposed: true,
+        targetToExit: h,
+        reason:
+          `동일섹터 교체 후보: ${h.stockName}(gate ${heldGate}` +
+          `${returnPct !== null ? `, ${returnPct.toFixed(2)}%` : ''}) → ` +
+          `${candidate.stockName}(gate ${candidate.liveGate.toFixed(1)}) | gate Δ+${gateDelta.toFixed(1)}` +
+          `${stagnant ? ', 정체보유' : ''}`,
+        score,
+      };
+    }
+  }
+  return best;
+}
+
 export function proposeReplacement(params: {
   held: HeldPositionView[];
   candidate: CandidateView;
