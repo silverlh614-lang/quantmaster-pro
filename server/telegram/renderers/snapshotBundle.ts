@@ -24,6 +24,9 @@ export interface Gate1Summary {
 export interface Gate2Summary {
   evaluated: number;
   passStrong: number;
+  /** ADR-0599 dry-run (비례 기준 가정 시 STRONG/WEAK 수) — 미탑재 스냅샷이면 undefined. */
+  wouldStrongProportional?: number;
+  wouldWeakProportional?: number;
   passWeak: number;
   watch: number;
   fail: number;
@@ -321,6 +324,8 @@ export function gate2SummaryFromAggregate(raw: unknown): Gate2Summary {
     fundamentalUsable: numberOf(coverage?.fundamentalUsable, 0),
     topPositiveAxis: text(coverage?.topPositiveAxis, 'none'),
     topMissingAxis: text(coverage?.topMissingAxis, 'none'),
+    ...(typeof coverage?.wouldStrongProportional === 'number' ? { wouldStrongProportional: coverage.wouldStrongProportional } : {}),
+    ...(typeof coverage?.wouldWeakProportional === 'number' ? { wouldWeakProportional: coverage.wouldWeakProportional } : {}),
     nextAction: `Gate3 timing for ${passStrong + passWeak} candidates`,
   };
 }
@@ -342,6 +347,8 @@ export function gate2SummaryFromConfluence(raw: unknown): Gate2Summary {
     fundamentalUsable: numberOf(summary?.fundamentalUsable, 0),
     topPositiveAxis: text(summary?.topPositiveAxis, 'none'),
     topMissingAxis: text(summary?.topMissingAxis, 'none'),
+    ...(typeof summary?.wouldStrongProportional === 'number' ? { wouldStrongProportional: numberOf(summary.wouldStrongProportional, 0) } : {}),
+    ...(typeof summary?.wouldWeakProportional === 'number' ? { wouldWeakProportional: numberOf(summary.wouldWeakProportional, 0) } : {}),
     nextAction: `Gate3 timing for ${numberOf(summary?.gate2PassStrong, 0) + numberOf(summary?.gate2PassWeak, 0)} candidates`,
   };
 }

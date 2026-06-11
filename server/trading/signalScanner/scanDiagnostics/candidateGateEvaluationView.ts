@@ -76,6 +76,9 @@ export interface CandidateGate2Coverage {
   fundamentalUsable: number;
   topPositiveAxis: string;
   topMissingAxis: string;
+  /** ADR-0599 dry-run — 비례 기준 적용 시 도달했을 STRONG/WEAK 수 (표시용 보조, 상태 정본 아님). */
+  wouldStrongProportional?: number;
+  wouldWeakProportional?: number;
 }
 
 /**
@@ -401,6 +404,8 @@ export function buildCandidateGate2Coverage(summary: ScanSummary | null): Candid
     fundamentalUsable: confluence.fundamentalUsable,
     topPositiveAxis: String(confluence.topPositiveAxis),
     topMissingAxis: String(confluence.topMissingAxis),
+    ...(typeof confluence.wouldStrongProportional === 'number' ? { wouldStrongProportional: confluence.wouldStrongProportional } : {}),
+    ...(typeof confluence.wouldWeakProportional === 'number' ? { wouldWeakProportional: confluence.wouldWeakProportional } : {}),
   };
 }
 

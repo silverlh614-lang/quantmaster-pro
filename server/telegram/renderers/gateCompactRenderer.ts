@@ -75,6 +75,9 @@ export function renderGate2Compact(bundle: SnapshotBundle): string {
     `snapshot: ${bundle.sourceSnapshotId}`,
     `evaluated: ${evaluated}`,
     `strong: ${g2?.passStrong ?? 0} / weak: ${g2?.passWeak ?? 0} / watch: ${g2?.watch ?? 0} / fail: ${g2?.fail ?? 0}`,
+    ...(g2?.wouldStrongProportional !== undefined
+      ? [`proportionalDryRun: strong=${g2.wouldStrongProportional} weak=${g2.wouldWeakProportional ?? 0} (ADR-0599 flag OFF 관측)`]
+      : []),
     `axis: RS ${g2?.rsUsable ?? 0}/${evaluated} | Supply ${g2?.supplyUsable ?? 0}/${evaluated} | Sector ${g2?.sectorUsable ?? 0}/${evaluated} | Tech ${g2?.technicalUsable ?? 0}/${evaluated} | Fund ${g2?.fundamentalUsable ?? 0}/${evaluated}`,
     `topPositive: ${g2?.topPositiveAxis ?? 'none'}`,
     `topMissing: ${g2?.topMissingAxis ?? 'none'}`,
