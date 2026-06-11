@@ -181,6 +181,7 @@ import { isTradingDay } from '../../../utils/marketDayClassifier.js';
 import { buildGate1ScoreStarvationTraceFromGateResult } from '../gate1PositiveScoreStarvation.js';
 import { buildGate1CrossSectionalShadowReportAdr0597 } from '../gate1CrossSectionalShadowScoreAdr0597.js';
 import { hydrateGate2InvestorFlowAdr0601 } from './gate2InvestorFlowHydrationAdr0601.js';
+import { hydrateGate2SectorCycleAdr0601 } from './gate2SectorCycleHydrationAdr0601.js';
 import { accumulatePositiveScoreStarvation } from './scanCounterAccumulators.js';
 import { persistMidScanDiagnosticBlocksAdr0588 } from './persistScanResultsMidBlocks.js';
 let _lastBuySignalAt = 0;
@@ -695,6 +696,18 @@ export async function persistScanResults(
     });
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.hydrateGate2InvestorFlowAdr0601', error: e });
+  }
+
+  // ADR-0601 D4 — Gate2 Sector 축 KIS 네이티브 hydration. 종목 마스터 업종코드→업종지수 일봉(r20)으로
+  // sectorCycle 결손을 보충한다 (업종코드 단위 일캐시·상한·실패 격리, 진단 차선).
+  try {
+    summaryDraft.gate2SectorCycleHydrationAdr0601 = await hydrateGate2SectorCycleAdr0601({
+      candidateSnapshots: options.candidateSnapshots ?? counters.entryCandidateSnapshots,
+      benchmarkReturn20d: options.macroGateState?.kospi20dReturn ?? null,
+      now: kstNow,
+    });
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.hydrateGate2SectorCycleAdr0601', error: e });
   }
 
   // ADR-0464 — Entry Filter Conservatism Decomposition.

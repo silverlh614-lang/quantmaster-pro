@@ -330,6 +330,8 @@ export interface ScanSummary {
   gate1CrossSectionalShadowAdr0597?: import('../gate1CrossSectionalShadowScoreAdr0597.js').Gate1CrossSectionalShadowReportAdr0597;
   // ADR-0601 — Gate2 Supply 축 KIS 네이티브 hydration 집계 (진단 차선).
   gate2InvestorFlowHydrationAdr0601?: import('./gate2InvestorFlowHydrationAdr0601.js').Gate2InvestorFlowHydrationReportAdr0601;
+  // ADR-0601 D4 — Gate2 Sector 축 KIS 네이티브 hydration 집계 (진단 차선).
+  gate2SectorCycleHydrationAdr0601?: import('./gate2SectorCycleHydrationAdr0601.js').Gate2SectorCycleHydrationReportAdr0601;
   unifiedOutcomeLabeler?: UnifiedForwardOutcomeLabelerSummary;
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult;
   naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult;

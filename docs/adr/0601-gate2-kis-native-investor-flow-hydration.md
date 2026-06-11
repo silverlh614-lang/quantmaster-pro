@@ -4,7 +4,7 @@
 
 ## Status
 
-Accepted (D3 구현 동반 — default ON `!== 'false'` · D4 Phase 2)
+Accepted (D3·D4 구현 — default ON `!== 'false'`)
 
 ## Context
 
@@ -39,12 +39,23 @@ ADR-0600 D3 로드맵의 실행. 공식 open-trading-api 인벤토리로 확인�
 quota bounded (~16콜/스캔, 일중 재스캔 0콜) + `=false` 1줄 롤백. 사용자 명시 지시("공식 API 자료
 빠뜨리지 말 것")의 즉시 반영.
 
-### D4 (Phase 2, 미구현). KOSDAQ 마스터 업종코드 → Sector 축 네이티브
+### D4 (구현). 종목 마스터 업종코드 → Sector 축 네이티브
 
-`stocks_info/kis_kosdaq_code_mst` 마스터파일의 종목별 지수업종 대/중/소분류 코드를 일 1회
-다운로드·캐시해 코스닥 업종 매핑 부재(Sector 21/43 결손 1차 원인)를 해소하고, 업종코드로
-`inquire_index_category_price` 계열 sectorCycle 공급을 확장한다. 마스터 파서(고정폭)·캐시 저장소
-·sectorEnergy provider 통합이 필요해 별도 구현 단위 — 그때까지 ADR-0600 D2 동종군 fallback 유지.
+- `server/sector/StockSectorCodeMasterProvider.ts` — kospi/kosdaq_code.mst(.zip) 일 1회
+  다운로드·디스크 캐시·KST 일자 메모이즈. 고정폭 tail(KOSPI 228B/KOSDAQ 222B, 전부 ASCII —
+  cp949 디코딩 불필요)에서 단축코드+지수업종 대/중/소 코드만 바이트 파싱. 실패 시 캐시 fallback,
+  전멸 시 loaded=false (결손 ≠ 신호 — 소비처 missing 유지).
+- `scanDiagnostics/gate2SectorCycleHydrationAdr0601.ts` — sectorCycle 결손 후보를 마스터
+  중분류 코드 → `fetchKisSectorIndexDaily(iscd)`(kisClient 기존 export, 'LOW') 업종지수 r20 으로
+  보충: `values.stockVsSectorReturn20d`(+벤치마크 가용 시 `sectorRelativeReturn20d`) 산출 후
+  `gate2ExternalDataCoverage.sectorCycle(status=PARTIAL, hydratedBy 표기)` 주입 →
+  buildSectorAxis 기존 경로 소비(confidence DEGRADED·ADVISORY). **공식 11-섹터 이름 매핑 체인을
+  우회** — 코스닥 포함 마스터 코드 보유 전 종목 커버.
+- quota: 업종지수 조회는 심볼이 아니라 **고유 업종코드 단위** — 일중 캐시 + 스캔당 상한
+  (`GATE2_SECTOR_INDEX_FETCH_MAX` 0~30, default 12) + 당일 실패 억제. 마스터 다운로드는
+  KIS REST quota 외 정적 파일 (일 1회).
+- flag `GATE2_SECTOR_CYCLE_NATIVE_HYDRATION_ENABLED` default ON (`!== 'false'`) — D3 동일 근거.
+  OFF 시 ADR-0600 D2 동종군 fallback 만 잔존.
 
 ## Guardrails
 
