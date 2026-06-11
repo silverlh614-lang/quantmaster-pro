@@ -66,3 +66,43 @@ describe('buildGate3PriceConfirmation', () => {
     expect(result.marketSignal).toBe(false);
   });
 });
+
+describe('buildGate3PriceConfirmation — ADR-0598 G2 이격 검증불가 보수화', () => {
+  it('flag OFF(default) + ma20 결손 + 돌파 → BREAKOUT_CONFIRMED 유지 + observe note (byte-equivalent)', () => {
+    const result = buildGate3PriceConfirmation(
+      { currentPrice: 171_500, high20d: 160_000 },
+      {},
+    );
+    expect(result.status).toBe('BREAKOUT_CONFIRMED');
+    expect(result.notes).toContain('EXTENSION_UNVERIFIABLE_MA20_MISSING_OBSERVE');
+    expect(result.missingFields).toContain('ma20');
+  });
+
+  it('flag ON + ma20 결손 + 돌파 → NOT_CONFIRMED (확정 보류, live 차단) + strict note', () => {
+    const result = buildGate3PriceConfirmation(
+      { currentPrice: 171_500, high20d: 160_000 },
+      { GATE3_EXTENSION_GUARD_STRICT_ENABLED: 'true' },
+    );
+    expect(result.status).toBe('NOT_CONFIRMED');
+    expect(result.notes).toContain('BREAKOUT_EXTENSION_UNVERIFIABLE_MA20_MISSING_STRICT_BLOCK');
+    expect(result.missingFields).toContain('ma20');
+    expect(result.marketSignal).toBe(false);
+  });
+
+  it('flag ON + ma20 존재 + 돌파(이격 <12%) → BREAKOUT_CONFIRMED 불변 (보수화는 결손 시에만)', () => {
+    const result = buildGate3PriceConfirmation(
+      { currentPrice: 161_000, high20d: 160_000, ma20: 150_000 },
+      { GATE3_EXTENSION_GUARD_STRICT_ENABLED: 'true' },
+    );
+    expect(result.status).toBe('BREAKOUT_CONFIRMED');
+    expect(result.notes).not.toContain('BREAKOUT_EXTENSION_UNVERIFIABLE_MA20_MISSING_STRICT_BLOCK');
+  });
+
+  it('flag ON + ma20 존재 + 이격 >=12% → 기존 OVEREXTENDED 우선 (strict 분기 미도달)', () => {
+    const result = buildGate3PriceConfirmation(
+      { currentPrice: 171_500, high20d: 160_000, ma20: 150_000 },
+      { GATE3_EXTENSION_GUARD_STRICT_ENABLED: 'true' },
+    );
+    expect(result.status).toBe('OVEREXTENDED');
+  });
+});

@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0598`**
+**다음 ADR 번호: `0599`**
+
+(2026-06-11 기준, 마지막 발급 0598 — entry-chasing-guard-gap-hardening. **Status: Accepted (구현 동반, default OFF byte-equivalent).** ADR-0598 — 유진테크(084370) shadow 매수 추적에서 확정된 과열 추격 가드 갭 2건 봉인. G1: FOMO 쿨다운(5d+15%→48h)이 워치리스트 등록 시점 1회만 평가(universeScanner.ts:780)·진입 시점 cooldownGate 는 기존 cooldownUntil 필드만 확인 → 급등 전 등록 종목은 진입 순간 +20%여도 미발동. 처방=cooldownGate 에 진입 시점 symbolFeatures.return5d(ADR-0578, %단위) 재평가 — flag REGRET_ENTRY_REEVALUATION_ENABLED ON 시 쿨다운 신규 stamp+차단(기존 의미론), OFF(default) 시 [REGRET_ENTRY_REEVAL_OBSERVE] would-cooldown 로그만, 결손→skip(불변식 #6). G2: gate3PriceConfirmation 이 ma20 결손 시 이격(≥12%)·3ATR 체크 단락 + high20d 만으로 BREAKOUT_CONFIRMED→priceReady→live 허용(결손=통과 역설). 처방=flag GATE3_EXTENSION_GUARD_STRICT_ENABLED ON 시 NOT_CONFIRMED(WAIT, status union 신규값 0) 확정 보류, OFF(default) 시 EXTENSION_UNVERIFIABLE_MA20_MISSING_OBSERVE note+missingFields 진단만. shadow 무영향(불변식 #8 — gate3LastTrigger 전 분기 shadowObservableAllowed=true 보존). phased(ADR-0592/0593/0594 선례)·ENV 각 1줄 독립 롤백·fetch 0. 신규 테스트 cooldownGate G1 4케이스+gate3PriceConfirmation G2 4케이스. 계보 유진테크 추적 20260611/ADR-0030/0578/0146. INDEX 0598→0599 갱신.)
 
 (2026-06-11 기준, 마지막 발급 0597 — gate1-cross-sectional-percentile-shadow-score. **Status: Accepted (구현 동반, 관측 전용).** ADR-0597 — Gate1 절대점수의 레짐 의존(약세장 전 종목 동조 하락, 횡단면 요소 RS 10/108 뿐 — 리뷰 2026-06-11 §1.3) 검증용 횡단면 percentile shadow 보조점수. 신규 순수 SSOT server/trading/signalScanner/gate1CrossSectionalShadowScoreAdr0597.ts — canonical 점수(ADR-0541 starvation traces, fetch 0·quota 0)에서 스캔 내 midrank 백분위(동률 0.5 가중·n=1→50)와 시장신호 블록 합(PM/TECH/VOL/RS/WUS/BREAKOUT 6종, 상수/맥락 블록 제외, 컴포넌트 부재 시 null=결손≠0 불변식 #6) 산출. 기록 2경로 — ScanSummary.gate1CrossSectionalShadowAdr0597(additive) + ADR-0476 관측 ledger 행 crossSectionalPercentile/marketBlockScore/marketBlockPercentile stamp(점수 스케일 정합 patch 의 minSignalScoreBySymbol map 경유, 신규 배선 0) → "절대 점수 밴드 × percentile 밴드" 교차 forward 분석 가능. Gate 판정·requiredScore·가중치·정렬 미소비(관측·기록만), ENV 불요 항상-on 진단, 실패 try/catch 격리+warn. 후속(별도 ADR): percentile 보조 임계 live 반영·상수블록 32점 적격성 게이트 분리. 계보 리뷰 20260611/ADR-0541/0546/0476/0467. INDEX 0597→0598 갱신.)
 
@@ -215,6 +217,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0598 | 과열 추격 가드 갭 봉인 — G1 FOMO 쿨다운 진입 시점 재평가(REGRET_ENTRY_REEVALUATION_ENABLED) + G2 Gate3 ma20 결손 시 BREAKOUT_CONFIRMED 보수화(GATE3_EXTENSION_GUARD_STRICT_ENABLED). 둘 다 default OFF byte-equivalent·observe 로그, live 만 보수화·shadow 무영향(불변식 #8). 계보 유진테크 추적 20260611/0030/0578 | policy / signalScanner+quant |
 | 0597 | Gate1 횡단면 percentile shadow 보조점수 — canonical 점수(ADR-0541)에서 스캔 내 midrank 백분위 + 시장신호 블록 합(상수블록 제외) 산출, ScanSummary+ADR-0476 ledger 행 stamp (관측 전용, Gate 판정 미소비, fetch 0). 절대 vs 횡단면 임계 논쟁의 forward 증거 수집 개시. 계보 리뷰 20260611/0541/0546/0476 | policy / signalScanner |
 | 0596 | minimumSignalScoreTrace component decomposition — 점수 컴포넌트 계산(scorer 5종)·trace 경로 해석·집계 리포트를 minimumSignalScoreTrace/ 하위 3모듈(traceFieldResolver/componentScorers/decompositionReport)로 순수 이동, 본체 1,500→~690줄(조립 4종 잔류). re-export byte-equivalent·정책 0변경·advisory-only. 가드 갱신 0건(requiredScore 단언 본체 잔류). 계보 ADR-0524/0466/0594 | refactor / signalScanner |
 | 0595 | marketDataRefresh section-module decomposition — refresh*Section 도메인 그룹(지수거시/수급신용/프로그램매매/섹터에너지)+공유 observability 를 marketDataRefresh/ 하위 5모듈로 순수 이동, 본체 1,497→~375줄(오케스트레이터+MERGE 영속+re-export 잔류). 호출 그래프·순서 불변, 정적 가드 9파일 ADR-0444 concat 패턴 갱신(단언 무수정). 계보 ADR-0580/0589/0592 | refactor / trading |
@@ -647,7 +650,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0597 · 다음 발급 0598** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0598 · 다음 발급 0599** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

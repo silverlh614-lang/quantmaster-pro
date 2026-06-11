@@ -69,6 +69,12 @@ export function evaluateRegretAsymmetry(
   };
 }
 
+/** ADR-0598 G1 — 진입 시점 5거래일 급등 재평가 스위치 (정확 비교, default OFF byte-equivalent).
+ *  OFF: 등록 시점 1회 평가만 (기존 동작) + cooldownGate 가 would-cooldown 관측 로그만 남김. */
+export function isRegretEntryReevaluationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.REGRET_ENTRY_REEVALUATION_ENABLED === 'true';
+}
+
 /**
  * 스캔 시점에 쿨다운 종목의 해제 여부를 평가한다.
  *

@@ -6,11 +6,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../regretAsymmetryFilter.js', () => ({
   checkCooldownRelease: vi.fn(),
+  evaluateRegretAsymmetry: vi.fn(),
+  isRegretEntryReevaluationEnabled: vi.fn(() => false),
+  FOMO_SURGE_THRESHOLD_PCT: 15,
 }));
 
 const { cooldownGate } = await import('../cooldownGate.js');
 const { makeMockCtx, makeMockStock, makeMockMutables } = await import('./_testHelpers.js');
-const { checkCooldownRelease } = await import('../../../regretAsymmetryFilter.js');
+const { checkCooldownRelease, evaluateRegretAsymmetry, isRegretEntryReevaluationEnabled } = await import('../../../regretAsymmetryFilter.js');
 
 describe('cooldownGate', () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -69,5 +72,57 @@ describe('cooldownGate', () => {
     if (!r.pass) {
       expect(r.logMessage).toContain('12,500'); // toLocaleString
     }
+  });
+});
+
+describe('cooldownGate — ADR-0598 G1 진입 시점 재평가', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('flag OFF + 5d>+15% → pass=true (observe 전용, stamp 없음 — byte-equivalent)', async () => {
+    (isRegretEntryReevaluationEnabled as any).mockReturnValue(false);
+    const stock = makeMockStock({ cooldownUntil: undefined, symbolFeatures: { return5d: 22.4 } });
+    const mutables = makeMockMutables();
+    const r = await cooldownGate(makeMockCtx({ stock, mutables }));
+    expect(r.pass).toBe(true);
+    expect(evaluateRegretAsymmetry).not.toHaveBeenCalled();
+    expect(stock.cooldownUntil).toBeUndefined();
+    expect(mutables.watchlistMutated.value).toBe(false);
+  });
+
+  it('flag ON + 5d>+15% → pass=false + 쿨다운 신규 stamp + watchlistMutated', async () => {
+    (isRegretEntryReevaluationEnabled as any).mockReturnValue(true);
+    (evaluateRegretAsymmetry as any).mockReturnValue({
+      isCooldown: true, reason: 'FOMO', cooldownUntil: '2026-06-13T03:30:00.000Z', recentHigh: 171_500,
+    });
+    const stock = makeMockStock({ cooldownUntil: undefined, symbolFeatures: { return5d: 22.4 } });
+    const mutables = makeMockMutables();
+    const r = await cooldownGate(makeMockCtx({ stock, mutables, currentPrice: 171_500 }));
+    expect(r.pass).toBe(false);
+    if (!r.pass) {
+      expect(r.logMessage).toContain('진입 시점 재평가');
+      expect(r.logMessage).toContain('+22.4%');
+    }
+    expect(evaluateRegretAsymmetry).toHaveBeenCalledWith(22.4, 171_500);
+    expect(stock.cooldownUntil).toBe('2026-06-13T03:30:00.000Z');
+    expect(stock.recentHigh).toBe(171_500);
+    expect(mutables.watchlistMutated.value).toBe(true);
+  });
+
+  it('flag ON + 5d<=+15% → pass=true (재평가 미발동)', async () => {
+    (isRegretEntryReevaluationEnabled as any).mockReturnValue(true);
+    const stock = makeMockStock({ cooldownUntil: undefined, symbolFeatures: { return5d: 9.8 } });
+    const r = await cooldownGate(makeMockCtx({ stock }));
+    expect(r.pass).toBe(true);
+    expect(evaluateRegretAsymmetry).not.toHaveBeenCalled();
+  });
+
+  it('flag ON + return5d 결손/NaN → pass=true (결손 ≠ 추격 신호, 불변식 #6)', async () => {
+    (isRegretEntryReevaluationEnabled as any).mockReturnValue(true);
+    for (const symbolFeatures of [undefined, {}, { return5d: Number.NaN }]) {
+      const stock = makeMockStock({ cooldownUntil: undefined, symbolFeatures: symbolFeatures as never });
+      const r = await cooldownGate(makeMockCtx({ stock }));
+      expect(r.pass).toBe(true);
+    }
+    expect(evaluateRegretAsymmetry).not.toHaveBeenCalled();
   });
 });
