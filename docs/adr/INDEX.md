@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0601`**
+**다음 ADR 번호: `0602`**
+
+(2026-06-11 기준, 마지막 발급 0601 — gate2-kis-native-investor-flow-hydration. **Status: Accepted (D3 구현, default ON `!== 'false'`).** ADR-0601 — ADR-0600 D3 실행: 공식 API 인벤토리로 신규 TR 불필요 확정(kisClient.fetchKisInvestorTradeByStockDaily+kisInvestorFlowEvidence 기존 단일통로) — 갭은 호출 범위(ADR-0477 라우터가 스캔당 대표 1종목만). 신규 scanDiagnostics/gate2InvestorFlowHydrationAdr0601.ts 가 persistScanResults 의 decomposition 직전에 kisInvestorFlow 결손 후보(Gate1 통과 우선)를 보충: quota 3중 관리(일중 캐시 symbol×KST일자 재스캔 fetch 0 + 스캔당 신규 조회 상한 GATE2_INVESTOR_FLOW_HYDRATION_MAX 0~50 default 16 + 당일 실패 재시도 억제), snapshot.gate2ExternalDataCoverage.kisInvestorFlow 주입(hydratedBy 표기)→buildSupplyAxis 기존 경로 소비(gate2ConfluenceScore 0줄), ScanSummary 집계+1줄 로그, 실패 전면 격리(불변식 #1/#2). 우선순위 L1 네이티브>ADR-0600 시맨틱 fallback>missing (ADR-0561 KIS Primary). D4(KOSDAQ 마스터 업종코드→Sector 네이티브)는 Phase 2 — 마스터 고정폭 파서·일캐시·sectorEnergy 통합 별도 단위, 그때까지 동종군 fallback 유지. 신규 테스트 6케이스(ENV 가드·결손만 주입·일중 캐시·상한+gate1 우선·실패 격리·flag off). 계보 0600/0561/0477. INDEX 0601→0602 갱신.)
 
 (2026-06-11 기준, 마지막 발급 0600 — gate2-supply-sector-axis-coverage-fallback. **Status: Accepted (D1/D2 구현, default ON `!== 'false'`).** ADR-0600 — Gate2 진단 차선 Supply 28/43·Sector 21/43 결손 축 보전. D1 Supply: KIS 투자자행 결손 시 Gate1 시맨틱 수급(supplyConfluenceState, ADR-0477~0488 라우터 산출 — Gate2 미소비 배선 갭)을 BULLISH 78(ACCUMULATING 캡·BULLISH 민팅 금지)/NEUTRAL 50/BEARISH 30 DEGRADED·ADVISORY 로 소비, UNKNOWN/부재→missing 유지(불변식 #6). D2 Sector: 업종지수 결손(코스닥 매핑 부재) 시 summary 1회 산출 동종군 컨텍스트(섹터 n>=3·return20d 중앙값)로 stockVsPeer20d ≥+3→62(상한)/≤−5→35/그외 50, n<3→missing, fetch 0. default ON 근거: 진단/View 차선 한정(소비처 전수 scanDiagnostics 확인·live 0줄)+보수 캡(STRONG BULLISH 요건 기여 불가)+ADR-0578 선례+1줄 롤백. D3/D4 후속(ADR-0601 예정, ADR-0561 KIS Primary): 공식 API 인벤토리 확정 — inquire-investor(국내주식-012, frgn/orgn_ntby_qty) kisClient 단일통로+Gate1 생존자 한정 hydration+일캐시, KOSDAQ 마스터(kis_kosdaq_code_mst) 지수업종 대/중/소분류 코드로 코스닥 업종 매핑 해소 — 도입 시 fallback 은 최후 보조 강등. 신규 테스트 3케이스(시맨틱 78/UNKNOWN·flag off/동종군 62·35·n<3·BULLISH 불가). 계보 0599/0477~0488/0578/0561/0416. INDEX 0600→0601 갱신.)
 
@@ -221,6 +223,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0601 | Gate2 Supply 축 KIS 네이티브 hydration — 기존 단일통로 investor-flow evidence 를 결손 후보 전체로 확장 주입(일중 캐시·스캔당 상한 16·실패 격리, default ON). L1>시맨틱 fallback>missing 우선순위. D4 KOSDAQ 마스터 업종코드는 Phase 2 | policy / signalScanner+supply |
 | 0600 | Gate2 Supply/Sector 결손 축 보수 fallback — Gate1 시맨틱 수급(78캡)·스캔 동종군 상대수익(62상한) DEGRADED/ADVISORY 소비, BULLISH 민팅 금지·fetch 0·default ON(진단 차선 한정). KIS 네이티브(inquire-investor·KOSDAQ 마스터 업종코드) 1순위 후속 ADR-0601 로드맵 명시 | policy / quant |
 | 0599 | Gate2 confluence 가용 축 비례 요구 — 결손 축이 STRONG/WEAK 절대 개수 조건(bullish>=3)을 역설적으로 강화하는 갭 보정(ceil 60%·<=3), flag default OFF + dry-run 상시 관측(proportionalDryRun). 점수 임계·BULLISH 컷 불변, ADR-0416 정합 완성. 계보 Gate2 추적 20260611/0416/0519 | policy / quant |
 | 0598 | 과열 추격 가드 갭 봉인 — G1 FOMO 쿨다운 진입 시점 재평가(REGRET_ENTRY_REEVALUATION_ENABLED) + G2 Gate3 ma20 결손 시 BREAKOUT_CONFIRMED 보수화(GATE3_EXTENSION_GUARD_STRICT_ENABLED). 둘 다 default OFF byte-equivalent·observe 로그, live 만 보수화·shadow 무영향(불변식 #8). 계보 유진테크 추적 20260611/0030/0578 | policy / signalScanner+quant |
@@ -656,7 +659,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0600 · 다음 발급 0601** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0601 · 다음 발급 0602** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

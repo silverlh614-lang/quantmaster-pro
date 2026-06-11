@@ -180,6 +180,7 @@ import { isTradingDay } from '../../../utils/marketDayClassifier.js';
 // can finally supply minSignalComponents for correct CORE_SIGNAL attribution.
 import { buildGate1ScoreStarvationTraceFromGateResult } from '../gate1PositiveScoreStarvation.js';
 import { buildGate1CrossSectionalShadowReportAdr0597 } from '../gate1CrossSectionalShadowScoreAdr0597.js';
+import { hydrateGate2InvestorFlowAdr0601 } from './gate2InvestorFlowHydrationAdr0601.js';
 import { accumulatePositiveScoreStarvation } from './scanCounterAccumulators.js';
 import { persistMidScanDiagnosticBlocksAdr0588 } from './persistScanResultsMidBlocks.js';
 let _lastBuySignalAt = 0;
@@ -683,6 +684,17 @@ export async function persistScanResults(
     summaryDraft.shadowNearBreakoutCreated = counters.shadowNearBreakoutCreated ?? 0;
     summaryDraft.shadowNearBreakoutBlocked = counters.shadowNearBreakoutBlocked ?? 0;
     summaryDraft.shadowNearBreakoutBlockReasons = counters.shadowNearBreakoutBlockReasons ?? {};
+  }
+
+  // ADR-0601 — Gate2 Supply 축 KIS 네이티브 hydration. decomposition 이전에 후보 스냅샷의
+  // kisInvestorFlow 결손을 단일통로 evidence 로 보충한다 (일중 캐시·상한·실패 격리, 진단 차선).
+  try {
+    summaryDraft.gate2InvestorFlowHydrationAdr0601 = await hydrateGate2InvestorFlowAdr0601({
+      candidateSnapshots: options.candidateSnapshots ?? counters.entryCandidateSnapshots,
+      now: kstNow,
+    });
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.hydrateGate2InvestorFlowAdr0601', error: e });
   }
 
   // ADR-0464 — Entry Filter Conservatism Decomposition.
