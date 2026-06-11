@@ -9,22 +9,22 @@ import {
 describe('counterfactualGateEvidenceBridge', () => {
   it('Gate2 seed — status 밴드 집계 (matureD5/avgD5/win)', () => {
     const text = buildGate2SeedEvidenceLines([
-      { gate2Status: 'GATE2_PASS_WEAK', forwardReturns: { d5: 4 } },
-      { gate2Status: 'GATE2_PASS_WEAK', forwardReturns: { d5: -2 } },
-      { gate2Status: 'GATE2_WATCH', forwardReturns: { d5: null } },
+      { gate2Status: 'GATE2_PASS_WEAK', forwardReturns: { d1: 1.2, d5: 4 } },
+      { gate2Status: 'GATE2_PASS_WEAK', forwardReturns: { d1: -0.4, d5: -2 } },
+      { gate2Status: 'GATE2_WATCH', forwardReturns: { d1: 0.5, d5: null } },
     ]);
     expect(text).toContain('[Gate2 Seed Evidence — native ledger]');
-    expect(text).toContain('GATE2_PASS_WEAK: n=2 matureD5=2 avgD5=1.00% win=50%');
-    expect(text).toContain('GATE2_WATCH: n=1 matureD5=0 avgD5=N/A win=N/A');
+    expect(text).toContain('GATE2_PASS_WEAK: n=2 D1[n=2 avg=0.40% win=50%] D5[n=2 avg=1.00% win=50%]');
+    expect(text).toContain('GATE2_WATCH: n=1 D1[n=1 avg=0.50% win=100%] D5[n=0 avg=N/A win=N/A]');
     expect(text).toContain('rows=3 source=gate2OutcomeRepo executionImpact=NONE');
   });
 
   it('Gate3 evidence — readiness 밴드 집계 + 빈 ledger 정직 표시', () => {
     const text = buildGate3EvidenceLines([
-      { readiness: 'TRIGGER_WAIT', forwardReturns: { d5: 3.5 } },
+      { readiness: 'TRIGGER_WAIT', forwardReturns: { d1: 0.8, d5: 3.5 } },
       { readiness: 'TIMING_FAIL', forwardReturns: { d5: -6 } },
     ]);
-    expect(text).toContain('TRIGGER_WAIT: n=1 matureD5=1 avgD5=3.50% win=100%');
+    expect(text).toContain('TRIGGER_WAIT: n=1 D1[n=1 avg=0.80% win=100%] D5[n=1 avg=3.50% win=100%]');
     expect(text).toContain('TIMING_FAIL: n=1');
     expect(buildGate3EvidenceLines([])).toContain('rows=0 — seed 누적 대기');
   });

@@ -5,12 +5,16 @@ import { loadGate3OutcomeSeeds } from '../persistence/gate3OutcomeRepo.js';
 
 interface EvidenceRow {
   key: string;
+  d1: number | null;
   d5: number | null;
 }
 
 interface EvidenceBand {
   key: string;
   n: number;
+  matureD1: number;
+  avgD1: number | null;
+  winD1: number | null;
   matureD5: number;
   avgD5: number | null;
   winD5: number | null;
@@ -39,16 +43,23 @@ function aggregateBands(rows: readonly EvidenceRow[], keyOrder: readonly string[
     ...keyOrder.filter((key) => byKey.has(key)),
     ...[...byKey.keys()].filter((key) => !keyOrder.includes(key)).sort(),
   ].slice(0, maxKeys);
+  const horizon = (list: EvidenceRow[], pick: (row: EvidenceRow) => number | null) => {
+    const mature = list.map(pick).filter(finite);
+    return {
+      mature: mature.length,
+      avg: mature.length > 0 ? Number((mature.reduce((sum, value) => sum + value, 0) / mature.length).toFixed(2)) : null,
+      win: mature.length > 0 ? Number((mature.filter((value) => value > 0).length / mature.length).toFixed(2)) : null,
+    };
+  };
   return orderedKeys.map((key) => {
     const list = byKey.get(key) ?? [];
-    const mature = list.filter((row) => row.d5 !== null);
-    const avgD5 = mature.length > 0
-      ? Number((mature.reduce((sum, row) => sum + (row.d5 as number), 0) / mature.length).toFixed(2))
-      : null;
-    const winD5 = mature.length > 0
-      ? Number((mature.filter((row) => (row.d5 as number) > 0).length / mature.length).toFixed(2))
-      : null;
-    return { key, n: list.length, matureD5: mature.length, avgD5, winD5 };
+    const d1 = horizon(list, (row) => row.d1);
+    const d5 = horizon(list, (row) => row.d5);
+    return {
+      key, n: list.length,
+      matureD1: d1.mature, avgD1: d1.avg, winD1: d1.win,
+      matureD5: d5.mature, avgD5: d5.avg, winD5: d5.win,
+    };
   });
 }
 
@@ -59,7 +70,7 @@ function bandLines(title: string, source: string, bands: EvidenceBand[], total: 
   return [
     title,
     ...bands.map((band) =>
-      `${band.key}: n=${band.n} matureD5=${band.matureD5} avgD5=${num(band.avgD5)} win=${pct(band.winD5)}`,
+      `${band.key}: n=${band.n} D1[n=${band.matureD1} avg=${num(band.avgD1)} win=${pct(band.winD1)}] D5[n=${band.matureD5} avg=${num(band.avgD5)} win=${pct(band.winD5)}]`,
     ),
     `rows=${total} source=${source} executionImpact=NONE`,
   ].join('\n');
@@ -72,21 +83,23 @@ const GATE3_READINESS_ORDER = [
 
 /** Gate2 confluence seed ledger(스캔별 영속·forward cron 성숙)를 status 밴드로 요약 — 보드 행과 별개의 네이티브 증거. */
 export function buildGate2SeedEvidenceLines(
-  seeds: ReadonlyArray<{ gate2Status: string; forwardReturns?: { d5: number | null } | null }> = loadGate2OutcomeSeeds(),
+  seeds: ReadonlyArray<{ gate2Status: string; forwardReturns?: { d1?: number | null; d5?: number | null } | null }> = loadGate2OutcomeSeeds(),
 ): string {
   const rows: EvidenceRow[] = seeds.map((seed) => ({
     key: String(seed.gate2Status ?? 'UNKNOWN'),
-    d5: finite(seed.forwardReturns?.d5) ? seed.forwardReturns.d5 : null,
+    d1: finite(seed.forwardReturns?.d1) ? (seed.forwardReturns.d1 as number) : null,
+    d5: finite(seed.forwardReturns?.d5) ? (seed.forwardReturns.d5 as number) : null,
   }));
   return bandLines('[Gate2 Seed Evidence — native ledger]', 'gate2OutcomeRepo', aggregateBands(rows, GATE2_STATUS_ORDER), rows.length);
 }
 
 /** Gate3 outcome seed ledger(threshold evidence 원천)를 readiness 밴드로 요약. */
 export function buildGate3EvidenceLines(
-  seeds: ReadonlyArray<{ readiness: string; forwardReturns?: { d5?: number | null } | null }> = loadGate3OutcomeSeeds(),
+  seeds: ReadonlyArray<{ readiness: string; forwardReturns?: { d1?: number | null; d5?: number | null } | null }> = loadGate3OutcomeSeeds(),
 ): string {
   const rows: EvidenceRow[] = seeds.map((seed) => ({
     key: String(seed.readiness ?? 'UNKNOWN'),
+    d1: finite(seed.forwardReturns?.d1) ? (seed.forwardReturns.d1 as number) : null,
     d5: finite(seed.forwardReturns?.d5) ? (seed.forwardReturns.d5 as number) : null,
   }));
   return bandLines('[Gate3 Outcome Evidence — native ledger]', 'gate3OutcomeRepo', aggregateBands(rows, GATE3_READINESS_ORDER), rows.length);
