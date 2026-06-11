@@ -12,7 +12,31 @@
 import { MAX_SECTOR_CONCENTRATION } from '../../riskManager.js';
 import { isOpenShadowStatus } from '../../entryEngine.js';
 import { getSectorByCode } from '../../../screener/sectorMap.js';
+import { recordCounterfactualCase } from '../../../learning/counterfactualShadow.js';
 import type { EntryGate, EntryGateResult } from './types.js';
+
+/** 섹터 한도 차단 counterfactual 기록 (2026-06-11 운영자 토론 처방) — "한도를 풀었다면" 의
+ *  forward 성과를 14일 성숙으로 측정해 MAX_SECTOR_CONCENTRATION 완화 논의를 데이터로 판정.
+ *  기록 실패는 격리(진단이 게이트를 깨지 않음, 불변식 #1) · dedup 은 counterfactualKey 내장.
+ *  regime 은 게이트 컨텍스트에 없어 UNKNOWN — 기존 regime backfill 머신의 복구 대상. */
+function recordSectorLimitCounterfactual(ctx: Parameters<EntryGate>[0]): void {
+  try {
+    recordCounterfactualCase({
+      stockCode: ctx.stock.code,
+      stockName: ctx.stock.name,
+      priceAtSignal: ctx.currentPrice,
+      gateScore: ctx.stock.gateScore ?? 0,
+      regime: 'UNKNOWN',
+      conditionKeys: ctx.stock.conditionKeys ?? [],
+      skipReason: 'SECTOR_CONCENTRATION_LIMIT',
+      blockedReason: 'SECTOR_CONCENTRATION_LIMIT',
+      hypotheticalTargetPrice: ctx.stock.targetPrice,
+      hypotheticalStopPrice: ctx.stock.stopLoss,
+    });
+  } catch (error) {
+    console.warn(`[CorrelationGuard] counterfactual 기록 실패(게이트 동작 무영향): ${String(error)}`);
+  }
+}
 
 export const sectorConcentrationGate: EntryGate = (ctx) => {
   const { stock, watchlist, shadows } = ctx;
@@ -29,6 +53,7 @@ export const sectorConcentrationGate: EntryGate = (ctx) => {
     .filter(Boolean);
   const sectorCount = activeSectorCodes.filter(s => s === candidateSector).length;
   if (sectorCount >= MAX_SECTOR_CONCENTRATION) {
+    recordSectorLimitCounterfactual(ctx);
     return {
       pass: false,
       logMessage:

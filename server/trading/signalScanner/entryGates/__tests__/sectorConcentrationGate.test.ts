@@ -12,6 +12,10 @@ import { makeMockCtx, makeMockStock, makeMockShadow } from './_testHelpers.js';
 import type { WatchlistEntry } from '../../../../persistence/watchlistRepo.js';
 
 // sectorMap mock — 결정적 lookup 으로 fallback 분기 검증.
+vi.mock('../../../../learning/counterfactualShadow.js', () => ({
+  recordCounterfactualCase: vi.fn(() => ({ entry: null, created: true, duplicateSuppressed: false })),
+}));
+
 vi.mock('../../../../screener/sectorMap.js', () => ({
   getSectorByCode: vi.fn((code: string | undefined | null) => {
     if (!code) return '미분류';
@@ -156,5 +160,52 @@ describe('sectorConcentrationGate', () => {
     // stock.sector + 모든 watchlist[].sector 명시 → getSectorByCode 호출 0회.
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+describe('sectorConcentrationGate — 차단 counterfactual 기록 (2026-06-11 처방)', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('한도 초과 차단 시 SECTOR_CONCENTRATION_LIMIT counterfactual 1건 기록', async () => {
+    const { recordCounterfactualCase } = await import('../../../../learning/counterfactualShadow.js');
+    const { sectorConcentrationGate } = await import('../sectorConcentrationGate.js');
+    const { makeMockCtx, makeMockStock } = await import('./_testHelpers.js');
+    const stock = makeMockStock({ code: '089030', name: '테크윙', sector: '반도체장비', targetPrice: 22250, stopLoss: 11089 });
+    const watchlist = [
+      makeMockStock({ code: '084370', sector: '반도체장비' }),
+      makeMockStock({ code: '403870', sector: '반도체장비' }),
+    ];
+    const shadows = watchlist.map((w) => ({ stockCode: w.code, status: 'ACTIVE' })) as never;
+    const result = await sectorConcentrationGate(makeMockCtx({ stock, watchlist, shadows, currentPrice: 17000 }));
+    expect(result.pass).toBe(false);
+    expect(recordCounterfactualCase).toHaveBeenCalledTimes(1);
+    expect(recordCounterfactualCase).toHaveBeenCalledWith(expect.objectContaining({
+      stockCode: '089030',
+      priceAtSignal: 17000,
+      blockedReason: 'SECTOR_CONCENTRATION_LIMIT',
+      hypotheticalTargetPrice: 22250,
+      hypotheticalStopPrice: 11089,
+    }));
+  });
+
+  it('통과 시 기록 0건 · 기록 throw 시에도 게이트 차단 동작 보존 (실패 격리)', async () => {
+    const { recordCounterfactualCase } = await import('../../../../learning/counterfactualShadow.js');
+    const { sectorConcentrationGate } = await import('../sectorConcentrationGate.js');
+    const { makeMockCtx, makeMockStock } = await import('./_testHelpers.js');
+    const passResult = await sectorConcentrationGate(makeMockCtx({
+      stock: makeMockStock({ code: '089030', sector: '반도체장비' }), watchlist: [], shadows: [] as never,
+    }));
+    expect(passResult.pass).toBe(true);
+    expect(recordCounterfactualCase).not.toHaveBeenCalled();
+
+    (recordCounterfactualCase as any).mockImplementationOnce(() => { throw new Error('DISK_FULL'); });
+    const stock = makeMockStock({ code: '089030', sector: '반도체장비' });
+    const watchlist = [
+      makeMockStock({ code: '084370', sector: '반도체장비' }),
+      makeMockStock({ code: '403870', sector: '반도체장비' }),
+    ];
+    const shadows = watchlist.map((w) => ({ stockCode: w.code, status: 'ACTIVE' })) as never;
+    const blocked = await sectorConcentrationGate(makeMockCtx({ stock, watchlist, shadows }));
+    expect(blocked.pass).toBe(false);
   });
 });
