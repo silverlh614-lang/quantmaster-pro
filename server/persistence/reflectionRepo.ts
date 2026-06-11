@@ -13,6 +13,7 @@
  */
 
 import fs from 'fs';
+import { evictWithMaturityPriority } from './outcomeLedgerEviction.js';
 import {
   ensureDataDir,
   ensureReflectionsDir,
@@ -103,7 +104,8 @@ export function saveGhostPortfolio(positions: GhostPosition[]): void {
   ensureDataDir();
   fs.writeFileSync(
     GHOST_PORTFOLIO_FILE,
-    JSON.stringify(positions.slice(-GHOST_MAX), null, 2),
+    // 성숙 우선 eviction — closed ghost 부터 제거, OPEN ghost(학습 진행 중) 보존.
+    JSON.stringify(evictWithMaturityPriority(positions, GHOST_MAX, (position) => position.closed === true), null, 2),
   );
 }
 

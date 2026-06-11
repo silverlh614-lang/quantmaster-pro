@@ -20,6 +20,7 @@
  */
 
 import { COUNTERFACTUAL_FILE, ensureDataDir } from '../persistence/paths.js';
+import { evictWithMaturityPriority } from '../persistence/outcomeLedgerEviction.js';
 import { readShadowJson, writeShadowJson } from '../persistence/shadow/shadowPersistenceGateway.js';
 import { sendSuggestAlert } from './suggestNotifier.js';
 import { safePctChange } from '../utils/safePctChange.js';
@@ -142,7 +143,8 @@ export function buildCounterfactualKey(params: {
   ].map((v) => String(v).replace(/\s+/g, '_')).join('|');
 }
 
-const MAX_RECORDS = 1000;
+// 2026-06-11 retention 결함 처방 — 14일+ 성숙 counterfactual 이 캡 절단에 밀려 labeled=0 영구화 방지.
+const MAX_RECORDS = 3000;
 /** 일별 후보 최대 추적 수 (signalScanner 호출 측이 상위 N개로 제한). */
 export const COUNTERFACTUAL_DAILY_CAP = Number(process.env.COUNTERFACTUAL_DAILY_CAP ?? '5');
 
@@ -163,7 +165,11 @@ export function saveCounterfactuals(entries: CounterfactualEntry[]): void {
   writeShadowJson({
     source: 'CounterfactualShadow',
     filePath: COUNTERFACTUAL_FILE,
-    data: entries.slice(-MAX_RECORDS),
+    // 성숙 우선 eviction — 종결(LABELED/DATA_INSUFFICIENT/QUARANTINED/EXPIRED) 행부터 제거,
+    // PENDING/UNRESOLVED/미표기 행은 14일+ 성숙까지 보존 (outcomeLedgerEviction SSOT).
+    data: evictWithMaturityPriority(entries, MAX_RECORDS, (entry) =>
+      entry.outcomeStatus === 'LABELED' || entry.outcomeStatus === 'DATA_INSUFFICIENT'
+      || entry.outcomeStatus === 'QUARANTINED' || entry.outcomeStatus === 'EXPIRED'),
     writeFailedCode: 'P1_COUNTERFACTUAL_LEARNING_WRITE_FAILED',
     queuedCode: 'P1_SHADOW_LEDGER_WRITE_QUEUED',
   });

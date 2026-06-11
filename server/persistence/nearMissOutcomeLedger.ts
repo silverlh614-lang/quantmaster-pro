@@ -6,6 +6,7 @@
  * 완전 분리된 학습/진단 전용 원장이다.
  */
 import fs from 'fs';
+import { evictWithMaturityPriority } from './outcomeLedgerEviction.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { ensureDataDir, NEAR_MISS_OUTCOME_LEDGER_FILE } from './paths.js';
 import { addWeekdaysApprox } from './businessDayApprox.js';
@@ -111,7 +112,9 @@ function saveEntries(entries: NearMissOutcomeEntry[]): void {
   ensureDataDir();
   fs.writeFileSync(
     NEAR_MISS_OUTCOME_LEDGER_FILE,
-    JSON.stringify(entries.slice(-NEAR_MISS_OUTCOME_LEDGER_MAX), null, 2),
+    // 성숙 우선 eviction — 전 horizon 종결(OBSERVED/SKIPPED) 행부터 제거, PENDING(3/5/10d 대기) 보존.
+    JSON.stringify(evictWithMaturityPriority(entries, NEAR_MISS_OUTCOME_LEDGER_MAX, (entry) =>
+      entry.horizons.every((point) => point.status !== 'PENDING')), null, 2),
   );
 }
 

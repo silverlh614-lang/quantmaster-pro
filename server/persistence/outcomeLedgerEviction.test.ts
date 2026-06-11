@@ -1,6 +1,6 @@
 // @responsibility outcome ledger 성숙 우선 eviction 회귀 — PENDING 보존·캡 절대 준수·강등 경로.
 import { describe, expect, it } from 'vitest';
-import { evictOutcomeSeedsWithMaturityPriority } from './outcomeLedgerEviction.js';
+import { evictOutcomeSeedsWithMaturityPriority, evictWithMaturityPriority } from './outcomeLedgerEviction.js';
 
 function seed(id: number, outcomeStatus: string) {
   return { id, outcomeStatus };
@@ -26,5 +26,13 @@ describe('evictOutcomeSeedsWithMaturityPriority', () => {
     const kept = evictOutcomeSeedsWithMaturityPriority(seeds, 2);
     expect(kept).toHaveLength(2);
     expect(kept.map((s) => s.id)).toEqual([2, 4]);
+  });
+
+  it('제네릭 predicate — closed ghost 우선 제거·OPEN 보존 (reflectionRepo 등 비표준 필드 저장소)', () => {
+    const rows = [
+      { id: 1, closed: true }, { id: 2, closed: false }, { id: 3, closed: true }, { id: 4, closed: false },
+    ];
+    const kept = evictWithMaturityPriority(rows, 2, (row) => row.closed === true);
+    expect(kept.map((r) => r.id)).toEqual([2, 4]);
   });
 });

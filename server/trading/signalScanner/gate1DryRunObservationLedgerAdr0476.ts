@@ -2,6 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import { DATA_DIR, ensureDataDir } from '../../persistence/paths.js';
+import { evictWithMaturityPriority } from '../../persistence/outcomeLedgerEviction.js';
 import type { CandidateSnapshot } from './entryFilterDecomposition.js';
 import { buildFreshDataSupplyObservationRowAdr0487 } from './freshDataSupplyLayerAdr0487.js';
 import { buildAdr0488ObservationRows } from './sectorEnergyMasterSupplyUnknownPolicyAdr0488.js';
@@ -36,7 +37,8 @@ export const GATE1_DRY_RUN_OBSERVATION_LEDGER_FILE = path.join(
   DATA_DIR,
   'gate1-dry-run-observation-ledger.json',
 );
-export const GATE1_DRY_RUN_OBSERVATION_MAX_ROWS = 2_000;
+// 2026-06-11 retention 처방 — TOP_N=50 확장(~147행/일) 기준 D10 성숙(10거래일) 커버.
+export const GATE1_DRY_RUN_OBSERVATION_MAX_ROWS = 4_000;
 
 function round1(value: number): number {
   return Math.round(value * 10) / 10;
@@ -772,7 +774,10 @@ function loadRows(filePath = GATE1_DRY_RUN_OBSERVATION_LEDGER_FILE): Gate1DryRun
 
 function writeRows(rows: Gate1DryRunObservationRow[], filePath = GATE1_DRY_RUN_OBSERVATION_LEDGER_FILE): void {
   ensureDataDir();
-  fs.writeFileSync(filePath, JSON.stringify(rows.slice(-GATE1_DRY_RUN_OBSERVATION_MAX_ROWS), null, 2));
+  // 성숙 우선 eviction — 종결(MATURED_10D/EXPIRED/SKIPPED) 행부터 제거, 미성숙 forward 증거 보존.
+  const trimmed = evictWithMaturityPriority(rows, GATE1_DRY_RUN_OBSERVATION_MAX_ROWS, (row) =>
+    row.status === 'MATURED_10D' || row.status === 'EXPIRED' || row.status === 'SKIPPED');
+  fs.writeFileSync(filePath, JSON.stringify(trimmed));
 }
 
 export async function saveGate1DryRunObservationRows(
