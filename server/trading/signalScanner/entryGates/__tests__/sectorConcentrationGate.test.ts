@@ -227,7 +227,7 @@ describe('sectorConcentrationGate — ADR-0602 Phase 0 교체 관측 힌트', ()
     const result = await sectorConcentrationGate(makeMockCtx({ stock, watchlist, shadows, currentPrice: 17000 }));
     expect(result.pass).toBe(false);
     if (!result.pass) {
-      expect(result.telegramMessage).toContain('교체 관측(ADR-0602 Phase0·실집행 없음)');
+      expect(result.telegramMessage).toContain('교체 관측(ADR-0602·실집행 없음)');
       expect(result.telegramMessage).toContain('유진테크');
     }
   });

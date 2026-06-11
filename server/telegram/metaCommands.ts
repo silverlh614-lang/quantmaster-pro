@@ -502,6 +502,7 @@ const MENU_ALWAYS_INCLUDE = new Set([
   'status',
   'strategy',
   'supply_health',
+  'us_overnight',
   'watchlist',
   'weight_feedback',
 ]);

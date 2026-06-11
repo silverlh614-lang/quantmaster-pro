@@ -8,7 +8,12 @@
 
 import { fetchFredLatest } from '../../clients/fredClient.js';
 import { recordUsOvernightObservation } from '../../learning/usOvernightStratifyLedger.js';
-import { fetchKisOverseasIndexDaily, resolveKisOverseasSpxIscd, resolveKisOverseasNdxIscd } from '../../clients/kisClient/index.js';
+import {
+  fetchKisOverseasIndexDaily,
+  resolveKisOverseasSpxIscd,
+  resolveKisOverseasNdxIscd,
+  resolveKisOverseasSoxIscd,
+} from '../../clients/kisClient/index.js';
 import { fetchLatestUsdKrw } from '../../clients/ecosClient.js';
 import { fetchDerivativesIndexDaily, isVkospiIndexName } from '../../clients/krxOpenApi.js';
 import { computeMacroIndex } from '../../engines/macroIndexEngine.js';
@@ -312,6 +317,14 @@ export async function refreshSpxSection(computed: MarketRefreshComputed): Promis
     computed.ndxDayReturn = kisNdx.dayReturnPct;
     computed.ndx20dReturn = kisNdx.return20dPct ?? undefined;
     console.log(`[MarketRefresh] NDX(KIS, 관측): 1d=${kisNdx.dayReturnPct.toFixed(2)}%, 20d=${kisNdx.return20dPct?.toFixed(2) ?? 'N/A'}%`);
+  }
+  // ADR-0605 — 필라델피아 반도체(SOX): Gate2 반도체 섹터축 proxy 입력. KIS 미지원/실패 시
+  // null 격리(당일 재시도 억제는 fetch 내장) — 결손은 어떤 신호로도 변환되지 않는다.
+  const kisSox = await fetchKisOverseasIndexDaily(resolveKisOverseasSoxIscd()).catch(() => null);
+  if (kisSox && kisSox.dayReturnPct !== null) {
+    computed.soxDayReturn = kisSox.dayReturnPct;
+    computed.sox20dReturn = kisSox.return20dPct ?? undefined;
+    console.log(`[MarketRefresh] SOX(KIS, 관측): 1d=${kisSox.dayReturnPct.toFixed(2)}%, 20d=${kisSox.return20dPct?.toFixed(2) ?? 'N/A'}%`);
   }
   // ADR-0604 2단계 — 야간↔KOSPI stratify 관측 기록 (실패 격리, 게이트 미소비).
   try {

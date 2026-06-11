@@ -1,5 +1,5 @@
 // @responsibility walkForwardFramework 회귀 테스트 — 통계 + Rolling + Regime + Decay + 진입점.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -11,6 +11,15 @@ async function loadFramework() {
 async function loadRepo() {
   return import('../persistence/walkForwardResultsRepo.js');
 }
+
+// warm-up 1회 — 최초 dynamic import 의 transform 비용(>5s)이 첫 테스트의 5s timeout 을
+// 소진하던 선존 flake 수리. vi.resetModules() 는 transform 캐시를 비우지 않으므로
+// 이후 각 테스트의 재import 는 빠르다.
+beforeAll(async () => {
+  await loadFramework();
+  await loadRepo();
+  vi.resetModules();
+}, 60_000);
 
 const ENV_KEYS = [
   'WALK_FORWARD_FRAMEWORK_DISABLED',

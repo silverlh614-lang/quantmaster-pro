@@ -1,5 +1,5 @@
 // @responsibility computeFssVars 회귀 테스트 — ADR-0136 STALE/MISSING 시 passiveActiveBoth=null.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -9,6 +9,24 @@ async function loadModules() {
   const fss = await import('../persistence/fssRepo.js');
   return { refresh, fss };
 }
+
+// warm-up 1회 — 최초 dynamic import 의 transform 비용(>5s)이 첫 테스트의 5s timeout 을
+// 소진하던 선존 flake 수리. 평가 부작용이 실데이터 디렉토리에 닿지 않도록 임시 디렉토리로 격리.
+const warmDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fss-vars-warm-'));
+beforeAll(async () => {
+  const prev = process.env.PERSIST_DATA_DIR;
+  process.env.PERSIST_DATA_DIR = warmDir;
+  try {
+    await loadModules();
+  } finally {
+    if (prev === undefined) delete process.env.PERSIST_DATA_DIR;
+    else process.env.PERSIST_DATA_DIR = prev;
+    vi.resetModules();
+  }
+}, 60_000);
+afterAll(() => {
+  try { fs.rmSync(warmDir, { recursive: true, force: true }); } catch { /* ignore */ }
+});
 
 describe('computeFssVars (ADR-0136)', () => {
   let tmpDir: string;

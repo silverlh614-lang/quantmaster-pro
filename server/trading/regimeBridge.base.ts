@@ -139,12 +139,15 @@ function resolveRiskOnFastUpgradeInputs(
   }
 
   const vkospiDayChange = finiteNumber(macroState.vkospiDayChange) ?? 0;
-  const eligible = shouldFastUpgradeToR3Early({ kospiDayReturnToday, vkospiDayChange, marketBreadthAdvanceRatio });
+  // ADR-0604 보조 AND(default OFF) — SPX 야간(전일 종가 기준 dayReturn). 결손 시 undefined → SSOT 가 보수 미발동.
+  const spxOvernightReturnPct = finiteNumber(macroState.spxDayReturn);
+  const eligible = shouldFastUpgradeToR3Early({ kospiDayReturnToday, vkospiDayChange, marketBreadthAdvanceRatio, spxOvernightReturnPct });
   if (eligible) {
     console.info(
       '[REGIME_RISK_ON_FAST_UPGRADE] ' +
         `kospiDayReturnToday=${kospiDayReturnToday?.toFixed(2)}% vkospiDayChange=${vkospiDayChange.toFixed(2)}% ` +
         `breadthAdvanceRatio=${marketBreadthAdvanceRatio?.toFixed(3)} ` +
+        `spxOvernight=${spxOvernightReturnPct?.toFixed(2) ?? 'N/A'}% ` +
         'cap=R3_EARLY executionImpact=NONE',
     );
   }

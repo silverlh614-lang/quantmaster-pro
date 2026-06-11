@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0605`**
+**다음 ADR 번호: `0606`**
+
+(2026-06-11 기준, 마지막 발급 0605 — us-leading-index-residual-wiring. **Status: Accepted (구현 — 행동 변경 경로 전부 flag default OFF, 수집·표시 즉시 가동).** ADR-0605 — ADR-0604 "미구현 (후속 ADR 후보)" 3건 일괄 이행. D1 fast-upgrade 보조 AND: ADR-0593 3중 AND 에 ④ SPX 야간 비급락 확인(REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_AND_ENABLED === 'true' default OFF, MIN_PCT 가드 [-5,5] default -0.5) — 보조 ON+SPX 부재 시 보수 미발동(예외 가속 경로 한정, 결손→bearish 변환 아님), resolveRiskOnFastUpgradeInputs 가 macroState.spxDayReturn 주입+로그 표기. D2 SOX→Gate2 반도체 proxy 축: 수집(즉시) resolveKisOverseasSoxIscd(ENV 정정 가능 default 'SOX')→refreshSpxSection 에서 macroState.soxDayReturn/sox20dReturn(~1콜/일) + proxy(GATE2_SOX_SECTOR_AXIS_ENABLED === 'true' default OFF) 신규 gate2SoxSemiAxisAdr0605.ts — ADR-0601 hydration 이후 잔존 결손 반도체 후보만 stockVsSectorReturn20d 단독 주입으로 buildSectorAxis 최대 62 자연 캡(currentLeader 민팅 구조적 불가, ADR-0600 동일 보수), 본 모듈 KIS fetch 0. D3 NDX 밴드 분리(표시 전용 즉시): /us_overnight 가 SPX+NDX 5밴드 분리 출력+pairedRows spx/ndx. 신규 테스트 12케이스(보조 AND 진리표·SOX flag/결손/캡·NDX 밴드). 같은 PR 에서 ADR-0602 Phase 1 구현(shadow 교체 집행 TRADE_REPLACEMENT_SHADOW_EXECUTE_ENABLED default OFF·일일 상한 2·LIVE 무접촉·SECTOR_REPLACEMENT_EXIT 태그 — ADR-0602 Status 갱신, 신규 ADR 미발급)과 /us_overnight 자동완성 등재, 선존 flake 3건(walkForward 2·FssVars 1 — 최초 dynamic import transform>5s timeout) warm-up 수리 동반. 계보 0603/0604/0593/0600/0601. INDEX 0605→0606 갱신.)
 
 (2026-06-11 기준, 마지막 발급 0604 — us-overnight-stratify-and-defense. **Status: Accepted (2단계 구현·가동 — 3단계 구현·default OFF).** ADR-0604 — ADR-0603 후속 2·3단계. 2단계(즉시 가동): usOvernightStratifyLedger — KST 일자당 1행 {spx/ndx 야간, kospiDayReturn} (캡 400, 야간=first-write-wins 로 미국 장중 오염 방지·kospi=last-write-wins 종가 수렴), refreshSpxSection 말미 기록(실패 격리), 신규 /us_overnight 명령 — SPX 야간 5밴드별 KOSPI 평균·승률 실측(게이트 미소비 — 활성화 판단 유일 근거, 상관 가정 금지). 3단계(default OFF, US_OVERNIGHT_DEFENSE_ENABLED === 'true'): SPX 야간 < 임계(-2.5 기본, -10~-0.5 가드) 시 ①resolveRecoveryBiasScore derived -12(usOvernightBoost +10 하방 대칭) ②resolveR6RecoveryDecayFloor 0(급락 밤 회복 latch 가속 차단) — flag OFF 양 경로 byte-equivalent(R6 recovery 회귀 green). 활성화 기준 명문화: <-2% 밴드 n>=10+KOSPI 평균 음수 실측. 미구현 후속: fast-upgrade 보조 AND·SOXX 섹터축·NDX 밴드 분리. FOMC/VIX 중복 계상 0(게이트형)·lookahead 0·결손 미발동(불변식 #6). 신규 테스트 4케이스(upsert 의미론·밴드 집계·빈 표본·ENV 가드). 계보 0603/0592/0593. INDEX 0604→0605 갱신.)
 
@@ -229,6 +231,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0605 | 미국 선행지수 연결 잔여 이행 — fast-upgrade 보조 AND(④ SPX 야간 비급락, default OFF) + SOX 수집·Gate2 반도체 proxy 축(stockVsSector 단독 주입 62 캡, default OFF) + /us_overnight NDX 밴드 분리(표시 전용) | policy / regime+gate2+learning |
 | 0604 | 미국 야간↔KOSPI stratify 관측(2단계, /us_overnight 5밴드 실측·게이트 미소비) + 야간 급락 개장 전 보수 강등(3단계 — bias -12·R6 회복 가속 차단, default OFF, usOvernightBoost 하방 대칭). 활성화 기준=밴드 실측 n>=10 | policy / learning+regime |
 | 0603 | 미국 지수 KIS-primary 승격 — SPX Yahoo→KIS 해외지수 일봉(FHKST03030100, 일캐시·fallback 보존·소비식 0줄) + NDX 관측 수집. 미국 선행지수↔한국 레짐 연결 1단계, 2/3단계(야간 stratify→게이트 반영)는 로드맵 | policy / kisClient+marketDataRefresh |
 | 0602 | 동일 섹터 강자 교체 phased 도입 — Phase 0 관측(proposeSameSectorReplacement+가드 차단 시 교체 후보 1줄 표기, 실집행 0, default ON). 교체 엔진 미배선+동일섹터 금지 이중 갭의 출구를 한도 해제 대신 데이터 검증으로. Phase 1 shadow 집행/Phase 2 live 는 설계만 | policy / trading+entryGates |
@@ -668,7 +671,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0604 · 다음 발급 0605** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0605 · 다음 발급 0606** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

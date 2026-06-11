@@ -4,7 +4,8 @@
 
 ## Status
 
-Accepted (Phase 0 구현 — 관측·표시 전용, default ON `!== 'false'` · Phase 1/2 미구현)
+Accepted (Phase 0 구현 — 관측·표시 전용, default ON `!== 'false'` · **Phase 1 구현(2026-06-11)
+— shadow 집행 default OFF** · Phase 2 미구현)
 
 ## Context — 2026-06-11 운영자 토론("섹터 리미트 해제?")의 코드 추적 결과
 
@@ -31,12 +32,19 @@ Accepted (Phase 0 구현 — 관측·표시 전용, default ON `!== 'false'` · 
    집행 위험 0, `=false` 1줄 롤백. 보유 뷰의 결손 필드(currentPrice 등)는 보수 기본값
    (entryPrice 대체 → returnPct 0 중립) — 결손 ≠ 신호 (불변식 #6).
 
-### Phase 1 (미구현 — 설계): shadow 교체 집행
+### Phase 1 (구현 2026-06-11): shadow 교체 집행 — `TRADE_REPLACEMENT_SHADOW_EXECUTE_ENABLED === 'true'` (default OFF)
 
-`TRADE_REPLACEMENT_SHADOW_EXECUTE_ENABLED`(default OFF) — 제안 발생 시 shadow 계좌에서 실제
-교체(약자 shadow 청산 + 신규 shadow 진입) 집행, forward 성과를 보유-유지 counterfactual 과 대조.
-20분 쿨다운(`markReplacement`)·일일 교체 상한 필요. 발동 조건 강화(정체보유 필수 여부)는
-Phase 0 빈도 + SECTOR_CONCENTRATION_LIMIT counterfactual 라벨 분포로 결정.
+신규 `sameSectorShadowReplacement.ts` 단일 진입점. **게이트의 차단 결정(pass=false)은 무변경**
+— flag ON 에서도 live 주문 경로 byte-equivalent, 교체는 shadow 장부 안에서만:
+① 약자 shadow(**mode==='SHADOW' 만** — LIVE 무접촉, 불변식 #8) 전량 청산 fill +
+`exitRuleTag='SECTOR_REPLACEMENT_EXIT'`(자동 평가 루프 비선택 신규 태그, 기존 종결 status 어휘
+재사용) ② 청산 평가액으로 신규 후보 shadow 생성(PENDING — exitEngine 기존
+backfill/ACTIVE 승급 경로 인수) ③ 청산 보유의 "유지했다면" counterfactual
+(`SECTOR_REPLACEMENT_EXITED`) 기록 → 교체 forward(신규 shadow 자체 추적)와 대조.
+가드: 20분 쿨다운(`markReplacement` 보유+후보 양방향)·일일 상한
+`TRADE_REPLACEMENT_DAILY_MAX`(0~10, default 2)·후보 target/stop 결손 시 집행 보류(불변식 #6).
+발동 조건 강화(정체보유 필수 여부)는 Phase 0 빈도 + SECTOR_CONCENTRATION_LIMIT counterfactual
+라벨 분포로 후속 결정.
 
 ### Phase 2 (미구현 — 설계): live 교체
 

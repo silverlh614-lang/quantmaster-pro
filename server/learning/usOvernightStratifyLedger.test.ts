@@ -33,7 +33,18 @@ describe('usOvernightStratifyLedger', () => {
     const text = buildUsOvernightStratifyLines(loadUsOvernightRows(file));
     expect(text).toContain('SPX <-2%: n=2 kospiAvg=-1.00% win=0%');
     expect(text).toContain('SPX +0.5~+2%: n=1 kospiAvg=0.80% win=100%');
-    expect(text).toContain('pairedRows=3');
+    expect(text).toContain('pairedRows: spx=3 ndx=0');
+    expect(text).not.toContain('NDX <-2%'); // ndx 표본 0 → NDX 섹션 생략
+  });
+
+  it('NDX 밴드 분리 — ndx 페어 존재 시 NDX 섹션 출력 (ADR-0604 잔여 이행)', () => {
+    const file = tempFile();
+    recordUsOvernightObservation({ dateKey: '2026-06-10', spxOvernight: -2.8, ndxOvernight: -3.1, kospiDayReturn: -1.4 }, file);
+    recordUsOvernightObservation({ dateKey: '2026-06-11', spxOvernight: 0.2, ndxOvernight: 2.4, kospiDayReturn: 0.5 }, file);
+    const text = buildUsOvernightStratifyLines(loadUsOvernightRows(file));
+    expect(text).toContain('NDX <-2%: n=1 kospiAvg=-1.40% win=0%');
+    expect(text).toContain('NDX >+2%: n=1 kospiAvg=0.50% win=100%');
+    expect(text).toContain('pairedRows: spx=2 ndx=2');
   });
 
   it('표본 0 — 수집 대기 정직 표시 + 게이트 미소비 명시', () => {

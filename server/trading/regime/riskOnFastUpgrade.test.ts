@@ -11,6 +11,8 @@ afterEach(() => {
   delete process.env.REGIME_RISK_ON_FAST_UPGRADE_ENABLED;
   delete process.env.REGIME_RISK_ON_FAST_UPGRADE_THRESHOLD_PCT;
   delete process.env.REGIME_RISK_ON_FAST_UPGRADE_BREADTH_MIN_RATIO;
+  delete process.env.REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_AND_ENABLED;
+  delete process.env.REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_MIN_PCT;
 });
 
 const FULL = { kospiDayReturnToday: 4.0, vkospiDayChange: -2, marketBreadthAdvanceRatio: 0.7 };
@@ -88,5 +90,37 @@ describe('ADR-0593 shouldFastUpgradeToR3Early', () => {
     process.env.REGIME_RISK_ON_FAST_UPGRADE_ENABLED = 'true';
     expect(shouldFastUpgradeToR3Early({ ...FULL, vkospiDayChange: NaN })).toBe(false);
     expect(shouldFastUpgradeToR3Early({ ...FULL, kospiDayReturnToday: NaN })).toBe(false);
+  });
+
+  // ── ADR-0604 잔여 이행 — ④ 미국 야간 보조 AND (default OFF) ──────────────────
+  it('④ 보조 flag OFF(default) → spx 입력 무관 기존 3중 AND 그대로 (byte-equivalent)', () => {
+    process.env.REGIME_RISK_ON_FAST_UPGRADE_ENABLED = 'true';
+    expect(shouldFastUpgradeToR3Early({ ...FULL, spxOvernightReturnPct: -4.2 })).toBe(true);
+    expect(shouldFastUpgradeToR3Early({ ...FULL, spxOvernightReturnPct: undefined })).toBe(true);
+  });
+
+  it('④ 보조 flag ON + SPX 야간 < -0.5(default) → false', () => {
+    process.env.REGIME_RISK_ON_FAST_UPGRADE_ENABLED = 'true';
+    process.env.REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_AND_ENABLED = 'true';
+    expect(shouldFastUpgradeToR3Early({ ...FULL, spxOvernightReturnPct: -0.6 })).toBe(false);
+    expect(shouldFastUpgradeToR3Early({ ...FULL, spxOvernightReturnPct: -0.5 })).toBe(true); // 경계 >= 충족
+    expect(shouldFastUpgradeToR3Early({ ...FULL, spxOvernightReturnPct: 1.2 })).toBe(true);
+  });
+
+  it('④ 보조 flag ON + SPX 부재 → 보수 미발동 (예외 가속 경로 한정)', () => {
+    process.env.REGIME_RISK_ON_FAST_UPGRADE_ENABLED = 'true';
+    process.env.REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_AND_ENABLED = 'true';
+    expect(shouldFastUpgradeToR3Early({ ...FULL, spxOvernightReturnPct: undefined })).toBe(false);
+    expect(shouldFastUpgradeToR3Early({ ...FULL, spxOvernightReturnPct: NaN })).toBe(false);
+  });
+
+  it('④ ENV 임계 오버라이드 + 무효값 가드([-5,5] 밖 → default -0.5)', () => {
+    process.env.REGIME_RISK_ON_FAST_UPGRADE_ENABLED = 'true';
+    process.env.REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_AND_ENABLED = 'true';
+    process.env.REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_MIN_PCT = '0';
+    expect(shouldFastUpgradeToR3Early({ ...FULL, spxOvernightReturnPct: -0.1 })).toBe(false);
+    expect(shouldFastUpgradeToR3Early({ ...FULL, spxOvernightReturnPct: 0 })).toBe(true);
+    process.env.REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_MIN_PCT = '-30';
+    expect(shouldFastUpgradeToR3Early({ ...FULL, spxOvernightReturnPct: -0.6 })).toBe(false); // default -0.5 폴백
   });
 });

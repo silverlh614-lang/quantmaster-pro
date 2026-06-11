@@ -14,6 +14,10 @@ import { isOpenShadowStatus } from '../../entryEngine.js';
 import { getSectorByCode } from '../../../screener/sectorMap.js';
 import { recordCounterfactualCase } from '../../../learning/counterfactualShadow.js';
 import { proposeSameSectorReplacement, type HeldPositionView } from '../../tradeReplacement.js';
+import {
+  executeSameSectorShadowReplacement,
+  isReplacementShadowExecuteEnabled,
+} from '../../sameSectorShadowReplacement.js';
 import type { EntryGate, EntryGateResult } from './types.js';
 
 /** ADR-0602 Phase 0 — 교체 관측 스위치 (default ON `!== 'false'`, 표시·기록 전용·실집행 0). */
@@ -21,7 +25,9 @@ function isReplacementObserveEnabled(env: NodeJS.ProcessEnv = process.env): bool
   return env.TRADE_REPLACEMENT_OBSERVE_ENABLED !== 'false';
 }
 
-/** 같은 섹터 open shadow 보유를 교체 평가 뷰로 투영 — 결손 필드는 보수 기본값 (실집행 없음). */
+/** 같은 섹터 open shadow 보유를 교체 평가 뷰로 투영하고 제안·집행 라인을 산출한다.
+ *  Phase 0(default ON): 관측 1줄. Phase 1(default OFF): shadow 장부 내 교체 집행 1줄 —
+ *  게이트의 차단 결정(pass=false)은 어느 Phase 에서도 불변(LIVE 경로 byte-equivalent). */
 function sameSectorReplacementHint(ctx: Parameters<EntryGate>[0], candidateSector: string): string | null {
   if (!isReplacementObserveEnabled()) return null;
   try {
@@ -47,7 +53,26 @@ function sameSectorReplacementHint(ctx: Parameters<EntryGate>[0], candidateSecto
         sector: candidateSector,
       },
     });
-    return decision.proposed ? decision.reason : null;
+    if (!decision.proposed) return null;
+
+    // ADR-0602 Phase 1 (default OFF) — shadow 장부 내 약자 청산 + 신규 shadow 생성.
+    if (isReplacementShadowExecuteEnabled()) {
+      const exec = executeSameSectorShadowReplacement({
+        decision,
+        candidate: {
+          stockCode: ctx.stock.code,
+          stockName: ctx.stock.name,
+          currentPrice: ctx.currentPrice,
+          gateScore: ctx.stock.gateScore,
+          sector: candidateSector,
+          targetPrice: ctx.stock.targetPrice,
+          stopLoss: ctx.stock.stopLoss,
+        },
+      });
+      if (exec.executed) return `♻️ 교체 집행(Phase1·shadow 전용): ${exec.summary}`;
+      return `${decision.reason} | 집행 보류: ${exec.skipReason}`;
+    }
+    return decision.reason;
   } catch (error) {
     console.warn(`[CorrelationGuard] 교체 관측 평가 실패(게이트 동작 무영향): ${String(error)}`);
     return null;
@@ -105,7 +130,11 @@ export const sectorConcentrationGate: EntryGate = (ctx) => {
         `🚧 <b>[가드] ${stock.name} 진입 보류</b>\n` +
         `섹터: ${candidateSector}\n` +
         `동일 섹터 보유 ${sectorCount}/${MAX_SECTOR_CONCENTRATION}개 → 분산 한도 초과` +
-        (replacementHint ? `\n💡 교체 관측(ADR-0602 Phase0·실집행 없음): ${replacementHint}` : ''),
+        (replacementHint
+          ? replacementHint.startsWith('♻️')
+            ? `\n${replacementHint}`
+            : `\n💡 교체 관측(ADR-0602·실집행 없음): ${replacementHint}`
+          : ''),
     };
   }
   return { pass: true } as EntryGateResult;

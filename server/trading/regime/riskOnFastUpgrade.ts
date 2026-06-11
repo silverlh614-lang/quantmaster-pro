@@ -34,6 +34,17 @@ export function regimeRiskOnFastUpgradeBreadthMinRatio(): number {
   return Number.isFinite(raw) && raw > 0 && raw <= 1 ? raw : 0.6;
 }
 
+/** ADR-0604 잔여 이행 — 미국 야간(SPX) 보조 AND 활성화. 정확 비교(=== 'true'), default OFF. */
+export function isRegimeRiskOnFastUpgradeUsOvernightAndEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_AND_ENABLED === 'true';
+}
+
+/** ADR-0604 보조 AND 최소 SPX 야간 수익(%) — 가드 [-5, 5], default -0.5 (명확한 야간 하락만 차단). */
+export function regimeRiskOnFastUpgradeUsOvernightMinPct(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_MIN_PCT);
+  return Number.isFinite(raw) && raw >= -5 && raw <= 5 ? raw : -0.5;
+}
+
 export interface RiskOnFastUpgradeInput {
   /** 오늘 거래일 + TTL freshness 가드를 통과한 intraday KOSPI 수익률(%). 미통과/부재 시 undefined → 미발동. */
   kospiDayReturnToday?: number;
@@ -41,6 +52,8 @@ export interface RiskOnFastUpgradeInput {
   vkospiDayChange: number;
   /** 시장 상승종목 비율(0~1). advance/(advance+decline). 부재 시 undefined → 미발동(보수). */
   marketBreadthAdvanceRatio?: number;
+  /** ADR-0604 보조 AND — SPX 전일(야간) 수익률(%). 보조 flag ON 시 부재 → 미발동(보수). */
+  spxOvernightReturnPct?: number;
 }
 
 /**
@@ -64,6 +77,15 @@ export function shouldFastUpgradeToR3Early(input: RiskOnFastUpgradeInput): boole
   const ratio = input.marketBreadthAdvanceRatio;
   if (ratio === undefined || !Number.isFinite(ratio)) return false;
   if (ratio < regimeRiskOnFastUpgradeBreadthMinRatio()) return false;
+
+  // ④ (ADR-0604 보조 AND, default OFF) 미국 야간 비급락 확인 — SPX 야간이 명확히 하락한 날의
+  //    fast-upgrade 를 보류. 보조 flag ON 상태에서 부재/비유한 → 미발동(예외 가속 경로 한정 보수,
+  //    결손을 bearish 로 변환하는 것이 아님 — 기본 경로(classifyRegime)는 무영향).
+  if (isRegimeRiskOnFastUpgradeUsOvernightAndEnabled()) {
+    const spx = input.spxOvernightReturnPct;
+    if (spx === undefined || !Number.isFinite(spx)) return false;
+    if (spx < regimeRiskOnFastUpgradeUsOvernightMinPct()) return false;
+  }
 
   return true;
 }

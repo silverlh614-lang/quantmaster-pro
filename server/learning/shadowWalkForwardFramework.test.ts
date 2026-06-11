@@ -1,5 +1,5 @@
 // @responsibility shadowWalkForwardFramework 회귀 — adapter + window metrics + 진입점.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -9,6 +9,13 @@ import type { TwinEntry } from './counterfactualTwinPortfolio.js';
 async function loadFramework() {
   return import('./shadowWalkForwardFramework.js');
 }
+
+// warm-up 1회 — 최초 dynamic import 의 transform 비용(>5s)이 첫 테스트의 5s timeout 을
+// 소진하던 선존 flake 수리 (walkForwardFramework.test.ts 와 동일 패턴).
+beforeAll(async () => {
+  await loadFramework();
+  vi.resetModules();
+}, 60_000);
 
 const ENV_KEYS = [
   'SHADOW_WALK_FORWARD_DISABLED',

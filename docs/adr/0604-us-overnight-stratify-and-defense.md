@@ -36,10 +36,10 @@ ON + `spxDayReturn < US_OVERNIGHT_DEFENSE_THRESHOLD_PCT`(가드 -10~-0.5, defaul
 활성화 기준(운영자): `/us_overnight` 에서 `<-2%` 밴드 n≥10 + KOSPI 평균이 명확한 음수·낮은 승률
 확인 시 ON. 디커플링 구간(밴드 통계 중립화) 관찰 시 OFF 복귀.
 
-### 미구현 (후속 ADR 후보)
+### 미구현 (후속 ADR 후보) — **ADR-0605 로 일괄 이행 (2026-06-11)**
 
-ADR-0593 fast-upgrade 보조 AND(상방) · SOXX→Gate2 반도체 섹터축(해외주식 시세 API 필요) ·
-NDX 밴드 분리 통계(현재 수집만).
+ADR-0593 fast-upgrade 보조 AND(상방) · SOXX→Gate2 반도체 섹터축(SOX 지수로 구현 — 해외지수
+일봉 재사용, 해외주식 시세 API 불필요) · NDX 밴드 분리 통계 → 전부 `0605-us-leading-index-residual-wiring.md`.
 
 ## Guardrails
 

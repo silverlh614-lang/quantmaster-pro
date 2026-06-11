@@ -182,6 +182,7 @@ import { buildGate1ScoreStarvationTraceFromGateResult } from '../gate1PositiveSc
 import { buildGate1CrossSectionalShadowReportAdr0597 } from '../gate1CrossSectionalShadowScoreAdr0597.js';
 import { hydrateGate2InvestorFlowAdr0601 } from './gate2InvestorFlowHydrationAdr0601.js';
 import { hydrateGate2SectorCycleAdr0601 } from './gate2SectorCycleHydrationAdr0601.js';
+import { hydrateGate2SoxSemiAxisAdr0605 } from './gate2SoxSemiAxisAdr0605.js';
 import { accumulatePositiveScoreStarvation } from './scanCounterAccumulators.js';
 import { persistMidScanDiagnosticBlocksAdr0588 } from './persistScanResultsMidBlocks.js';
 let _lastBuySignalAt = 0;
@@ -708,6 +709,16 @@ export async function persistScanResults(
     });
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.hydrateGate2SectorCycleAdr0601', error: e });
+  }
+
+  // ADR-0605 — 반도체 후보의 잔존 sectorCycle 결손을 SOX 글로벌 proxy 로 보충 (default OFF,
+  // 본 모듈 KIS fetch 0 — macroState 일배치 수집 재사용, buildSectorAxis 최대 62 자연 캡).
+  try {
+    summaryDraft.gate2SoxSemiAxisAdr0605 = hydrateGate2SoxSemiAxisAdr0605({
+      candidateSnapshots: options.candidateSnapshots ?? counters.entryCandidateSnapshots,
+    });
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.hydrateGate2SoxSemiAxisAdr0605', error: e });
   }
 
   // ADR-0464 — Entry Filter Conservatism Decomposition.

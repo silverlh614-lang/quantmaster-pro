@@ -385,6 +385,8 @@ export type ExitRuleTag =
   | 'ENTRY_CIRCUIT_BREAKER'      // priority 9.5 — 매수 직후 1h 이내 -5% 급락 50% 즉시 청산 (ADR-0072)
   | 'FOMC_DAY_LIQUIDATION'       // priority 50 — FOMC 발표 당일 14:30 KST 평일 자동 전량 청산 (ADR-0061)
                                  //                fomcDayLiquidation.liquidateAllForFomc() 단일 진입점 — 자동 평가 루프 제외.
+  | 'SECTOR_REPLACEMENT_EXIT'    // priority 98 — ADR-0602 Phase 1 동일섹터 강자 교체 shadow 청산.
+                                 //               자동 평가 루프 제외 — sameSectorShadowReplacement 단일 진입점.
   | 'MANUAL_EXIT';               // priority 99 — "규칙 외" 수동 청산 (Telegram /sell, UI 수동 매도)
                                  //               자동 평가 루프에서 절대 선택되지 않으며, 오직 외부 주입 전용.
 

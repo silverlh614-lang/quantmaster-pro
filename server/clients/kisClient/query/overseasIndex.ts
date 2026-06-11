@@ -35,6 +35,11 @@ export function resolveKisOverseasNdxIscd(env: NodeJS.ProcessEnv = process.env):
   return (env.KIS_OVERSEAS_NDX_ISCD ?? 'NDX').trim();
 }
 
+/** ADR-0605 — 필라델피아 반도체 지수(SOX). KIS 마스터 코드가 다르면 ENV 정정 (미지원 시 null 격리). */
+export function resolveKisOverseasSoxIscd(env: NodeJS.ProcessEnv = process.env): string {
+  return (env.KIS_OVERSEAS_SOX_ISCD ?? 'SOX').trim();
+}
+
 function kstYyyymmdd(daysAgo: number): string {
   const kst = new Date(Date.now() + 9 * 3_600_000 - daysAgo * 86_400_000);
   return kst.toISOString().slice(0, 10).replace(/-/g, '');

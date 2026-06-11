@@ -335,6 +335,8 @@ export interface ScanSummary {
   gate2InvestorFlowHydrationAdr0601?: import('./gate2InvestorFlowHydrationAdr0601.js').Gate2InvestorFlowHydrationReportAdr0601;
   // ADR-0601 D4 — Gate2 Sector 축 KIS 네이티브 hydration 집계 (진단 차선).
   gate2SectorCycleHydrationAdr0601?: import('./gate2SectorCycleHydrationAdr0601.js').Gate2SectorCycleHydrationReportAdr0601;
+  // ADR-0605 — 반도체 후보 SOX 글로벌 proxy 섹터축 보충 집계 (default OFF, 진단 차선).
+  gate2SoxSemiAxisAdr0605?: import('./gate2SoxSemiAxisAdr0605.js').Gate2SoxSemiAxisReportAdr0605;
   unifiedOutcomeLabeler?: UnifiedForwardOutcomeLabelerSummary;
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult;
   naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult;

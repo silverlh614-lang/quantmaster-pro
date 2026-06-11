@@ -55,7 +55,7 @@ export function recordUsOvernightObservation(
   fs.writeFileSync(filePath, JSON.stringify(rows.slice(-MAX_ROWS)));
 }
 
-const SPX_BANDS = [
+const OVERNIGHT_BANDS = [
   { key: '<-2%', match: (v: number) => v < -2 },
   { key: '-2~-0.5%', match: (v: number) => v >= -2 && v < -0.5 },
   { key: '-0.5~+0.5%', match: (v: number) => v >= -0.5 && v <= 0.5 },
@@ -63,24 +63,39 @@ const SPX_BANDS = [
   { key: '>+2%', match: (v: number) => v > 2 },
 ] as const;
 
-/** SPX 야간 밴드별 KOSPI 당일 수익 실측 — 상관을 가정하지 않고 표본으로 판정 (3단계 활성화 근거). */
+function appendBandLines(
+  lines: string[],
+  label: 'SPX' | 'NDX',
+  paired: { overnight: number; kospi: number }[],
+): void {
+  for (const band of OVERNIGHT_BANDS) {
+    const hits = paired.filter((pair) => band.match(pair.overnight));
+    if (hits.length === 0) {
+      lines.push(`${label} ${band.key}: n=0`);
+      continue;
+    }
+    const avg = hits.reduce((sum, pair) => sum + pair.kospi, 0) / hits.length;
+    const win = hits.filter((pair) => pair.kospi > 0).length / hits.length;
+    lines.push(`${label} ${band.key}: n=${hits.length} kospiAvg=${avg.toFixed(2)}% win=${Math.round(win * 100)}%`);
+  }
+}
+
+/** SPX/NDX 야간 밴드별 KOSPI 당일 수익 실측 — 상관을 가정하지 않고 표본으로 판정 (3단계 활성화 근거).
+ *  ADR-0604 잔여 이행: NDX 밴드 분리 통계 (수집만 하던 ndxOvernight 표시 — 게이트 미소비 동일). */
 export function buildUsOvernightStratifyLines(rows: UsOvernightObservationRow[] = loadUsOvernightRows()): string {
-  const paired = rows.filter((row) => finite(row.spxOvernight) && finite(row.kospiDayReturn));
+  const spxPaired = rows
+    .filter((row) => finite(row.spxOvernight) && finite(row.kospiDayReturn))
+    .map((row) => ({ overnight: row.spxOvernight as number, kospi: row.kospiDayReturn as number }));
+  const ndxPaired = rows
+    .filter((row) => finite(row.ndxOvernight) && finite(row.kospiDayReturn))
+    .map((row) => ({ overnight: row.ndxOvernight as number, kospi: row.kospiDayReturn as number }));
   const lines = ['[US Overnight → KOSPI Stratify (ADR-0604 관측)]'];
-  if (paired.length === 0) {
+  if (spxPaired.length === 0 && ndxPaired.length === 0) {
     lines.push(`pairedRows=0 (수집 누적 대기 — 총 기록 ${rows.length}건)`);
   } else {
-    for (const band of SPX_BANDS) {
-      const hits = paired.filter((row) => band.match(row.spxOvernight as number));
-      if (hits.length === 0) {
-        lines.push(`SPX ${band.key}: n=0`);
-        continue;
-      }
-      const avg = hits.reduce((sum, row) => sum + (row.kospiDayReturn as number), 0) / hits.length;
-      const win = hits.filter((row) => (row.kospiDayReturn as number) > 0).length / hits.length;
-      lines.push(`SPX ${band.key}: n=${hits.length} kospiAvg=${avg.toFixed(2)}% win=${Math.round(win * 100)}%`);
-    }
-    lines.push(`pairedRows=${paired.length} / ndxCollected=${rows.filter((row) => finite(row.ndxOvernight)).length}`);
+    appendBandLines(lines, 'SPX', spxPaired);
+    if (ndxPaired.length > 0) appendBandLines(lines, 'NDX', ndxPaired);
+    lines.push(`pairedRows: spx=${spxPaired.length} ndx=${ndxPaired.length}`);
   }
   lines.push('게이트 미소비 — 3단계(개장 전 보수 강등) 활성화 판단 근거. executionImpact=NONE');
   return lines.join('\n');
