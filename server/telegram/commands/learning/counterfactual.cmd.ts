@@ -4,6 +4,7 @@ import {
   formatCounterfactualCommandReply,
   resolveCounterfactualCommandMode,
 } from '../../../learning/counterfactualOutcomeBoard.js';
+import { appendGateEvidenceForMode } from '../../../learning/counterfactualGateEvidenceBridge.js';
 import { getLastScanSummary } from '../../../trading/signalScanner/scanDiagnostics.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
@@ -29,7 +30,9 @@ const counterfactual: TelegramCommand = {
     const board = await buildCounterfactualOutcomeBoard({
       lastScanSummary: getLastScanSummary(),
     });
-    await reply(formatCounterfactualCommandReply(board, mode));
+    // 표시 patch(2026-06-11): gate2/gate3 뷰는 보드 행과 별개로 누적 중인 네이티브 outcome
+    // ledger(Gate2 seed·Gate3 evidence) 요약을 덧붙인다 — 보드 본체(1,499줄 한계) 무접촉.
+    await reply(appendGateEvidenceForMode(mode, formatCounterfactualCommandReply(board, mode)));
   },
 };
 
