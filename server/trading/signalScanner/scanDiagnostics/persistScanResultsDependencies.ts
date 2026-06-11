@@ -33,7 +33,7 @@ export { buildFinalGate1CalibrationAuditReport } from '../gate1FinalCalibration.
 export { buildGate1ScoringAlignmentReport } from '../gate1ScoringAlignmentAdr0472.js';
 export { buildGate1ScoringAlignmentDryRunGate } from '../gate1ScoringAlignmentDryRunGateAdr0520.js';
 export { buildGate1PositiveSourceWiringReport } from '../gate1PositiveSourceWiringAdr0475.js';
-export { buildGate1DryRunObservationRows, saveGate1DryRunObservationRows, summarizeGate1DryRunObservationRows, buildGate1ThresholdEvidenceSummary } from '../gate1DryRunObservationLedgerAdr0476.js';
+export { buildGate1DryRunObservationRows, saveGate1DryRunObservationRows, summarizeGate1DryRunObservationRows, buildGate1ThresholdEvidenceSummary, resolveGate1ObservationTopNEnv } from '../gate1DryRunObservationLedgerAdr0476.js';
 export { buildInvestorFlowProviderRouteResultAdr0477 } from '../investorFlowProviderRouterAdr0477.js';
 export { buildNaverInvestorTrendCollectorResultAdr0481, collectNaverInvestorTrendCollectorResultAdr0481 } from '../naverInvestorTrendCollectorAdr0481.js';
 export { buildSemanticNetBuyNormalizationReportAdr0482 } from '../semanticNetBuyNormalizerAdr0482.js';

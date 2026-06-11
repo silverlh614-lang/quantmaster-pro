@@ -58,6 +58,47 @@ function makeId(row: Pick<Gate1DryRunObservationRow, 'forDate' | 'symbol' | 'sou
   return `adr0476-${row.forDate}-${safeSymbol(row.symbol)}-${row.source}-${row.dryRunScenario}`.slice(0, 180);
 }
 
+interface ResolvedObservationMinSignal {
+  score?: number;
+  requiredScore: number;
+  scoreSource: 'MIN_SIGNAL_TRACE' | 'LEGACY_GATE_SCORE';
+}
+
+/** 관측 행 점수 SSOT 해석 — canonical 최소신호 점수(minSignalScoreBySymbol, requiredScore 와 동일
+ *  스케일) 우선, 부재 시 legacy snapshot.gateScore(27조건 점수 — 스케일 상이) fallback 보존.
+ *  수리 전 결함: legacy 점수(0~10)를 requiredScore 70 과 비교 → 전 행 below55 고착·NEAR_MISS
+ *  영구 미발화 (docs/gate1-scoring-review-20260611.md §4). */
+function resolveObservationMinSignal(
+  input: Gate1DryRunObservationBuildInput,
+  snapshot: CandidateSnapshot,
+): ResolvedObservationMinSignal {
+  const mapped = snapshot.symbol ? input.minSignalScoreBySymbol?.[snapshot.symbol] : undefined;
+  if (mapped && finite(mapped.actualScore)) {
+    return {
+      score: mapped.actualScore,
+      requiredScore: finite(mapped.requiredScore)
+        ? mapped.requiredScore
+        : snapshot.minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE,
+      scoreSource: 'MIN_SIGNAL_TRACE',
+    };
+  }
+  return {
+    score: snapshot.gateScore,
+    requiredScore: snapshot.minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE,
+    scoreSource: 'LEGACY_GATE_SCORE',
+  };
+}
+
+/** GATE1_OBSERVATION_TOP_N — 관측 top-N 확대 ENV. 1~500 정수만 유효, 미설정/무효 시 undefined
+ *  (각 빌더 default 10/5 보존 — byte-equivalent). */
+export function resolveGate1ObservationTopNEnv(env: NodeJS.ProcessEnv = process.env): number | undefined {
+  const raw = env.GATE1_OBSERVATION_TOP_N;
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 500) return undefined;
+  return parsed;
+}
+
 function addBusinessDays(yyyymmdd: string, businessDays: number): string {
   const [y, m, d] = yyyymmdd.split('-').map(Number);
   const t = new Date(Date.UTC(y, m - 1, d));
@@ -228,9 +269,13 @@ function rowFromSnapshot(input: {
   providerIssue: boolean;
   marketSignal: boolean;
   sectorEnergyDiagnosticOnly: boolean;
+  /** resolveObservationMinSignal 결과 — MIN_SIGNAL_TRACE 시 actualScore 를 canonical 점수로 교체. */
+  minSignal?: ResolvedObservationMinSignal;
 }): Gate1DryRunObservationRow {
-  const requiredScore = input.requiredScore ?? input.snapshot.minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE;
-  const actualScore = input.snapshot.gateScore;
+  const requiredScore = input.requiredScore ?? input.minSignal?.requiredScore ?? input.snapshot.minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE;
+  const actualScore = input.minSignal?.scoreSource === 'MIN_SIGNAL_TRACE'
+    ? input.minSignal.score
+    : input.snapshot.gateScore;
   const score = input.dryRunScore ?? actualScore;
   const scoreGap = finite(score) ? round1(score - requiredScore) : undefined;
   const rawPositiveScore = snapshotNumber(input.snapshot, ['gateRawScore', 'totalGateScore', 'gateScore']);
@@ -264,6 +309,7 @@ function rowFromSnapshot(input: {
     ...(finite(score) ? { dryRunScore: round1(score) } : {}),
     requiredScore,
     ...(scoreGap !== undefined ? { scoreGap } : {}),
+    ...(input.minSignal ? { scoreSource: input.minSignal.scoreSource } : {}),
     ...(finite(entryReferencePrice) && entryReferencePrice > 0 ? { entryReferencePrice } : {}),
     ...(input.sourceSnapshotId ? { sourceSnapshotId: input.sourceSnapshotId } : {}),
     ...(input.scanId ? { scanId: input.scanId } : {}),
@@ -450,11 +496,12 @@ function buildScoringAlignmentRowsAdr0520(input: Gate1DryRunObservationBuildInpu
 function buildGate1ScoreObservationV2Rows(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
   const rows = [...(input.candidateSnapshots ?? [])]
     .filter((snapshot) => snapshot.symbol)
-    .sort((a, b) => (b.gateScore ?? Number.NEGATIVE_INFINITY) - (a.gateScore ?? Number.NEGATIVE_INFINITY))
+    .map((snapshot) => ({ snapshot, minSignal: resolveObservationMinSignal(input, snapshot) }))
+    .sort((a, b) => (b.minSignal.score ?? Number.NEGATIVE_INFINITY) - (a.minSignal.score ?? Number.NEGATIVE_INFINITY))
     .slice(0, input.topN ?? 10);
-  return rows.map((snapshot) => {
-    const requiredScore = snapshot.minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE;
-    const score = snapshot.gateScore;
+  return rows.map(({ snapshot, minSignal }) => {
+    const requiredScore = minSignal.requiredScore;
+    const score = minSignal.score;
     const gap = finite(score) ? round1(score - requiredScore) : Number.NEGATIVE_INFINITY;
     return rowFromSnapshot({
       snapshot,
@@ -465,6 +512,7 @@ function buildGate1ScoreObservationV2Rows(input: Gate1DryRunObservationBuildInpu
       dryRunDecision: gap >= 0 ? 'WOULD_PASS_DRY_RUN' : gap >= -10 ? 'NEAR_MISS' : 'WOULD_STILL_FAIL',
       dryRunScore: score,
       requiredScore,
+      minSignal,
       ...observationInputContext(input),
       sellOnly: input.sellOnly === true,
       providerIssue: input.providerIssue === true,
@@ -476,11 +524,11 @@ function buildGate1ScoreObservationV2Rows(input: Gate1DryRunObservationBuildInpu
 
 function buildGateNearMissRows(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {
   const rows = [...(input.candidateSnapshots ?? [])]
-    .filter((snapshot) => finite(snapshot.gateScore))
-    .map((snapshot) => {
-      const requiredScore = snapshot.minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE;
-      const gap = round1((snapshot.gateScore ?? 0) - requiredScore);
-      return { snapshot, requiredScore, gap };
+    .map((snapshot) => ({ snapshot, minSignal: resolveObservationMinSignal(input, snapshot) }))
+    .filter((item) => finite(item.minSignal.score))
+    .map((item) => {
+      const gap = round1((item.minSignal.score ?? 0) - item.minSignal.requiredScore);
+      return { ...item, gap };
     })
     .filter((item) => item.gap >= -10 && item.gap < 0)
     .sort((a, b) => b.gap - a.gap)
@@ -492,8 +540,9 @@ function buildGateNearMissRows(input: Gate1DryRunObservationBuildInput, nowIso: 
     source: 'GATE1_NEAR_MISS',
     scenario: 'ACTUAL_SCORE_GAP_NEAR_MISS',
     dryRunDecision: 'NEAR_MISS',
-    dryRunScore: item.snapshot.gateScore,
-    requiredScore: item.requiredScore,
+    dryRunScore: item.minSignal.score,
+    requiredScore: item.minSignal.requiredScore,
+    minSignal: item.minSignal,
     ...observationInputContext(input),
     sellOnly: input.sellOnly === true,
     providerIssue: input.providerIssue === true,
@@ -507,21 +556,25 @@ function buildCounterfactualUniverseRows(input: Gate1DryRunObservationBuildInput
     .filter((snapshot) => snapshot.symbol)
     .slice(0, input.topN ?? 5);
   if (snapshots.length === 0) return [];
-  return snapshots.map((snapshot) => rowFromSnapshot({
-    snapshot,
-    nowIso,
-    forDate: input.forDate,
-    source: 'COUNTERFACTUAL_UNIVERSE',
-    scenario: 'BEFORE_BUYLIST_LOOP_SNAPSHOT',
-    dryRunDecision: 'WOULD_STILL_FAIL',
-    dryRunScore: snapshot.gateScore,
-    requiredScore: snapshot.minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE,
-    ...observationInputContext(input),
-    sellOnly: input.sellOnly === true,
-    providerIssue: input.providerIssue === true,
-    marketSignal: input.marketSignal === true,
-    sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
-  }));
+  return snapshots.map((snapshot) => {
+    const minSignal = resolveObservationMinSignal(input, snapshot);
+    return rowFromSnapshot({
+      snapshot,
+      nowIso,
+      forDate: input.forDate,
+      source: 'COUNTERFACTUAL_UNIVERSE',
+      scenario: 'BEFORE_BUYLIST_LOOP_SNAPSHOT',
+      dryRunDecision: 'WOULD_STILL_FAIL',
+      dryRunScore: minSignal.score,
+      requiredScore: minSignal.requiredScore,
+      minSignal,
+      ...observationInputContext(input),
+      sellOnly: input.sellOnly === true,
+      providerIssue: input.providerIssue === true,
+      marketSignal: input.marketSignal === true,
+      sectorEnergyDiagnosticOnly: input.sectorEnergyDiagnosticOnly === true,
+    });
+  });
 }
 
 function buildInvestorFlowRouterRows(input: Gate1DryRunObservationBuildInput, nowIso: string): Gate1DryRunObservationRow[] {

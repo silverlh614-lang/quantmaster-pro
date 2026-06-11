@@ -1323,7 +1323,16 @@ function formatBandRows(title: string, rows: readonly CounterfactualBandOutcome[
 }
 
 export function formatCounterfactualGate1(board: CounterfactualOutcomeBoard): string {
-  return formatBandRows('[Counterfactual Gate1 Bands]', board.gate1Bands);
+  // 비가시 탈락 가시화(2026-06-11 리뷰 §4): UNSCORED 밴드·제외 행은 5밴드 출력에 안 잡혀
+  // "전 밴드 0건"의 원인을 숨겼다 — 합계 1줄로 노출 (silent 금지).
+  const unscored = board.rows.filter((row) => row.gate1Band === 'UNSCORED').length;
+  const excludedTotal = Object.values(board.debug.excludedReasonDistribution).reduce((sum, n) => sum + n, 0);
+  const topExcluded = Object.entries(board.debug.excludedReasonDistribution)
+    .sort((a, b) => b[1] - a[1])[0];
+  return [
+    formatBandRows('[Counterfactual Gate1 Bands]', board.gate1Bands),
+    `unscored=${unscored} excludedRows=${excludedTotal} topExcluded=${topExcluded ? `${topExcluded[0]}:${topExcluded[1]}` : 'NONE'}`,
+  ].join('\n');
 }
 
 export function formatCounterfactualGate2(board: CounterfactualOutcomeBoard): string {

@@ -44,6 +44,7 @@ import {
   buildGate1PositiveSourceWiringReport,
   buildGate1DryRunObservationRows,
   buildGate1ThresholdEvidenceSummary,
+  resolveGate1ObservationTopNEnv,
   saveGate1DryRunObservationRows,
   summarizeGate1DryRunObservationRows,
   buildInvestorFlowProviderRouteResultAdr0477,
@@ -500,12 +501,22 @@ export async function persistMidScanDiagnosticBlocksAdr0588(ctx: MidScanDiagnost
     // transition machine)는 stale 시 R6_DEFENSE 를 누출 → 아래 RegimeAwareSurvivor 와 불일치했다.
     // 비-R6·genuine R6 에선 동일값(byte-equivalent), stale-R6 누출만 raw 로 차단. rawRegime 은 불변.
     const scoringEffectiveRegime = resolveScoringEffectiveRegime(options.macroGateState);
+    // 점수 스케일 정합(2026-06-11 리뷰 §4 처방): 관측 행 점수를 snapshot.gateScore(27조건 0~10
+    // 스케일)가 아닌 canonical 최소신호 점수(ADR-0541 starvation trace, requiredScore=70 동일
+    // 스케일)로 기록 — 55~70/70+ 밴드·NEAR_MISS 가 비로소 충전 가능 (ADR-0546 증거 잠금 해소).
+    const minSignalScoreBySymbol = Object.fromEntries(
+      counters.positiveScoreStarvationTraces
+        .filter((trace) => Number.isFinite(trace.actualScore))
+        .map((trace) => [trace.symbol, { actualScore: trace.actualScore, requiredScore: trace.requiredScore }]),
+    );
     const rows = buildGate1DryRunObservationRows({
       now: kstNow,
       forDate: kstNow.toISOString().slice(0, 10),
       sourceSnapshotId,
       scanId: sourceSnapshotId,
       candidateSetId: `candidateSet:${sourceSnapshotId}:${observationSnapshots.length}`,
+      minSignalScoreBySymbol,
+      topN: resolveGate1ObservationTopNEnv(),
       regime: scoringEffectiveRegime,
       rawRegime: options.macroGateState?.macroRegimeRaw ?? options.macroGateState?.regime ?? 'UNKNOWN',
       effectiveRegime: scoringEffectiveRegime,
