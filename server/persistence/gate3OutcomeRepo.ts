@@ -2,6 +2,7 @@
 
 import fs from 'fs';
 import { GATE3_OUTCOME_LEDGER_FILE, ensureDataDir } from './paths.js';
+import { evictOutcomeSeedsWithMaturityPriority } from './outcomeLedgerEviction.js';
 import {
   gate3OutcomeDuplicateKey,
   summarizeGate3OutcomeSeeds,
@@ -30,7 +31,8 @@ export interface Gate3OutcomeBulkUpsertResult {
   summary: Gate3OutcomeTrackingSummary;
 }
 
-const MAX_GATE3_OUTCOME_SEEDS = 5_000;
+// 일일 기록 ~800행 기준 D10(10거래일≈14달력일) 성숙 커버 — 2026-06-11 retention 결함 진단 처방.
+const MAX_GATE3_OUTCOME_SEEDS = 12_000;
 
 function isLedgerFile(value: unknown): value is Gate3OutcomeLedgerFile {
   return Boolean(value && typeof value === 'object' && Array.isArray((value as Gate3OutcomeLedgerFile).seeds));
@@ -51,9 +53,10 @@ function writeLedger(file: Gate3OutcomeLedgerFile, filePath = GATE3_OUTCOME_LEDG
   ensureDataDir();
   const trimmed = {
     version: 1 as const,
-    seeds: file.seeds.slice(-MAX_GATE3_OUTCOME_SEEDS),
+    // 성숙 우선 eviction — 미성숙(PENDING/PARTIAL) forward 증거 보존. compact 직렬화(대용량 IO 절감).
+    seeds: evictOutcomeSeedsWithMaturityPriority(file.seeds, MAX_GATE3_OUTCOME_SEEDS),
   };
-  fs.writeFileSync(filePath, JSON.stringify(trimmed, null, 2));
+  fs.writeFileSync(filePath, JSON.stringify(trimmed));
 }
 
 export function loadGate3OutcomeSeeds(filePath = GATE3_OUTCOME_LEDGER_FILE): Gate3OutcomeSeed[] {

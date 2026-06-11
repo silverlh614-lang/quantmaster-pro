@@ -1,6 +1,7 @@
 // @responsibility counterfacture_gate Phase G — Gate2 outcome ledger 영속 + forward-return 성숙(learning-only, 주문/provider 호출 0).
 import fs from 'fs';
 import { GATE2_OUTCOME_LEDGER_FILE, ensureDataDir } from './paths.js';
+import { evictOutcomeSeedsWithMaturityPriority } from './outcomeLedgerEviction.js';
 import { gate2OutcomeDuplicateKey, type Gate2OutcomeSeed } from '../quant/gate2OutcomeSeed.js';
 import { addWeekdaysApprox } from './businessDayApprox.js';
 
@@ -9,7 +10,8 @@ interface Gate2OutcomeLedgerFile {
   seeds: Gate2OutcomeSeed[];
 }
 
-const MAX_GATE2_OUTCOME_SEEDS = 5_000;
+// 일일 기록 ~800행 기준 D10 성숙 커버 — 2026-06-11 retention 결함 진단 처방.
+const MAX_GATE2_OUTCOME_SEEDS = 12_000;
 
 export type Gate2OutcomePriceFetcher = (
   symbol: string,
@@ -67,7 +69,8 @@ function writeLedger(file: Gate2OutcomeLedgerFile, filePath = GATE2_OUTCOME_LEDG
   ensureDataDir();
   fs.writeFileSync(
     filePath,
-    JSON.stringify({ version: 1 as const, seeds: file.seeds.slice(-MAX_GATE2_OUTCOME_SEEDS) }, null, 2),
+    // 성숙 우선 eviction — 미성숙(PENDING/PARTIAL) forward 증거 보존. compact 직렬화(대용량 IO 절감).
+    JSON.stringify({ version: 1 as const, seeds: evictOutcomeSeedsWithMaturityPriority(file.seeds, MAX_GATE2_OUTCOME_SEEDS) }),
   );
 }
 
