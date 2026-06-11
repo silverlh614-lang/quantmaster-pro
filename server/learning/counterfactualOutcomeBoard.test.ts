@@ -35,6 +35,7 @@ function gate1Row(overrides: Partial<Gate1DryRunObservationRow> = {}): Gate1DryR
     dryRunScenario: 'threshold-minus-5',
     dryRunScore: 68.4,
     requiredScore: 70,
+    scoreSource: 'MIN_SIGNAL_TRACE',
     providerIssue: false,
     marketSignal: false,
     sectorEnergyDiagnosticOnly: false,

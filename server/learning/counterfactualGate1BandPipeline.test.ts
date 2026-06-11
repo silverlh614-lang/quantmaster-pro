@@ -46,7 +46,7 @@ function bandCount(board: Awaited<ReturnType<typeof boardFor>>, key: string): nu
 }
 
 describe('gate1 ledger → counterfactual board band pipeline (점수 스케일 정합)', () => {
-  it('snapshot.gateScore 가 최소신호 스케일이면 전 밴드가 채워진다 (기준선)', async () => {
+  it('map 미주입(LEGACY_GATE_SCORE) 행은 — 점수 스케일과 무관하게 — 밴드 증거에서 제외되고 legacyScaleMixed 로 분리된다', async () => {
     const rows = buildGate1DryRunObservationRows({
       ...buildContext(),
       candidateSnapshots: [
@@ -59,8 +59,9 @@ describe('gate1 ledger → counterfactual board band pipeline (점수 스케일 
     });
     const board = await boardFor(rows);
     for (const key of ['70+', '65~70', '60~65', '55~60', 'below55']) {
-      expect(bandCount(board, key), `band ${key}`).toBeGreaterThan(0);
+      expect(bandCount(board, key), `band ${key}`).toBe(0);
     }
+    expect(board.gate1LegacyScale.count).toBeGreaterThan(0);
   });
 
   it('운영 형상(27조건 gateScore 0~10) 재현: map 미주입 시 전 행 below55 고착 (legacy fallback 보존)', async () => {
@@ -78,10 +79,11 @@ describe('gate1 ledger → counterfactual board band pipeline (점수 스케일 
     expect(rows.every((row) => row.scoreSource === 'LEGACY_GATE_SCORE')).toBe(true);
     expect(rows.some((row) => row.source === 'GATE1_NEAR_MISS')).toBe(false);
     const board = await boardFor(rows);
-    expect(bandCount(board, 'below55')).toBeGreaterThan(0);
-    for (const key of ['70+', '65~70', '60~65', '55~60']) {
+    // 신뢰 필터: legacy 행은 below55 포함 전 밴드에서 제외 — legacyScaleMixed 로만 집계.
+    for (const key of ['70+', '65~70', '60~65', '55~60', 'below55']) {
       expect(bandCount(board, key), `band ${key}`).toBe(0);
     }
+    expect(board.gate1LegacyScale.count).toBeGreaterThan(0);
   });
 
   it('수리: minSignalScoreBySymbol 주입 시 canonical 점수로 밴드 충전 + NEAR_MISS 발화 + scoreSource 표기', async () => {
@@ -116,7 +118,9 @@ describe('gate1 ledger → counterfactual board band pipeline (점수 스케일 
     for (const key of ['70+', '65~70', '60~65', '55~60', 'below55']) {
       expect(bandCount(board, key), `band ${key}`).toBeGreaterThan(0);
     }
+    expect(board.gate1LegacyScale.count).toBe(0);
     const text = formatCounterfactualGate1(board);
+    expect(text).toContain('legacyScaleMixed');
     expect(text).toContain('unscored=');
     expect(text).toContain('excludedRows=');
   });

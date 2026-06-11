@@ -103,6 +103,8 @@ export interface CounterfactualOutcomeBoardRow {
   gate1Score: number | null;
   gate1Required: number | null;
   gate1Band: Gate1OutcomeBand;
+  /** canonical 최소신호 점수 여부 — MIN_SIGNAL_TRACE 행만 밴드 증거로 집계 (구 스케일 혼입 차단). */
+  scoreSource?: 'MIN_SIGNAL_TRACE' | 'LEGACY_GATE_SCORE';
   gate1PassType: Gate1PassType;
   gate2Status: Gate2OutcomeStatus;
   gate3Status: Gate3OutcomeStatus;
@@ -260,6 +262,8 @@ export interface CounterfactualOutcomeBoard {
   rows: CounterfactualOutcomeBoardRow[];
   summary: CounterfactualOutcomeSummary;
   gate1Bands: CounterfactualBandOutcome[];
+  /** 구 스케일/비-canonical 행 별도 집계 — 밴드 증거에서 제외하되 비가시 삭제 금지. */
+  gate1LegacyScale: CounterfactualBandOutcome;
   gate2Blockers: CounterfactualBandOutcome[];
   gate3Blockers: CounterfactualBandOutcome[];
   topMissedOpportunities: CounterfactualOutcomeBoardRow[];
@@ -723,6 +727,7 @@ function rowFromGate1(row: Gate1DryRunObservationRow): CounterfactualOutcomeBoar
     gate1Score,
     gate1Required,
     gate1Band: gate1BandFor(gate1Score),
+    scoreSource: row.scoreSource,
     gate1PassType,
     gate2Status,
     gate3Status,
@@ -1221,7 +1226,10 @@ export async function buildCounterfactualOutcomeBoard(
   const selected = splitCounterfactualRows(normalized);
   const rows = scopeRowsByRecentRecordedDates(selected.included, periodDays);
   const summary = buildOutcomeSummary(rows);
-  const gate1Bands = GATE1_BANDS.map((band) => buildBandOutcome(band, rows.filter((row) => row.gate1Band === band)));
+  // 점수 신뢰 필터(2026-06-11 patch): canonical(scoreSource=MIN_SIGNAL_TRACE) 행만 밴드 증거로
+  // 집계 — 구 스케일(27조건 gateScore) 혼입 행은 legacyScaleMixed 로 분리 표시 (silent 제거 금지).
+  const gate1Bands = GATE1_BANDS.map((band) => buildBandOutcome(band, rows.filter((row) => row.gate1Band === band && row.scoreSource === 'MIN_SIGNAL_TRACE')));
+  const gate1LegacyScale = buildBandOutcome('legacyScaleMixed', rows.filter((row) => row.gate1Band !== 'UNSCORED' && row.scoreSource !== 'MIN_SIGNAL_TRACE'));
   const gate2Blockers = groupByKnownKeys(rows, GATE2_BLOCKERS, (row) => row.gate2BlockerTop);
   const gate3Blockers = groupByKnownKeys(rows, GATE3_BLOCKERS, (row) => row.gate3BlockerTop, true);
   const topMissedOpportunities = rows
@@ -1238,6 +1246,7 @@ export async function buildCounterfactualOutcomeBoard(
     rows,
     summary,
     gate1Bands,
+    gate1LegacyScale,
     gate2Blockers,
     gate3Blockers,
     topMissedOpportunities,
@@ -1331,6 +1340,7 @@ export function formatCounterfactualGate1(board: CounterfactualOutcomeBoard): st
     .sort((a, b) => b[1] - a[1])[0];
   return [
     formatBandRows('[Counterfactual Gate1 Bands]', board.gate1Bands),
+    `legacyScaleMixed(밴드 제외): n=${board.gate1LegacyScale.count} matureD5=${board.gate1LegacyScale.matureD5} avgD5=${num(board.gate1LegacyScale.avgReturnD5, '%')} correctBlock=${pct(board.gate1LegacyScale.correctBlockRateD5)}`,
     `unscored=${unscored} excludedRows=${excludedTotal} topExcluded=${topExcluded ? `${topExcluded[0]}:${topExcluded[1]}` : 'NONE'}`,
   ].join('\n');
 }
