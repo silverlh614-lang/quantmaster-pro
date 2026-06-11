@@ -265,3 +265,58 @@ describe('ADR-0599 coverage-proportional confluence requirement', () => {
     expect(formatGate2ConfluenceCompact(summary)).toContain('proportionalDryRun: strong=1');
   });
 });
+
+describe('ADR-0600 Supply/Sector 결손 축 보수 fallback', () => {
+  afterEach(() => { delete process.env.GATE2_AXIS_COVERAGE_FALLBACK_ENABLED; });
+
+  function supplyMissingTrace(state?: string): Record<string, unknown> {
+    const trace = bullishTrace();
+    const external = trace.gate2ExternalDataCoverage as Record<string, unknown>;
+    delete external.kisInvestorFlow;
+    if (state) trace.supplyConfluenceState = state;
+    return trace;
+  }
+
+  it('D1: KIS 투자자행 결손 + Gate1 시맨틱 BULLISH → DEGRADED/ADVISORY fallback (78, BULLISH 민팅 금지)', () => {
+    const result = buildGate2EvaluationResult({ trace: supplyMissingTrace('BULLISH'), sourceSnapshotId: 'snap:adr0600' });
+    const supply = result.axes.find(axis => axis.axis === 'SUPPLY_CONFLUENCE');
+    expect(supply).toMatchObject({
+      score: 78,
+      status: 'ACCUMULATING',
+      confidence: 'DEGRADED',
+      scoreIncluded: true,
+      source: 'GATE1_SUPPLY_SEMANTIC_FALLBACK',
+    });
+  });
+
+  it('D1: 시맨틱 UNKNOWN/부재 → 기존 missing 유지 (결손 ≠ 신호) · flag=false → fallback 차단', () => {
+    const unknown = buildGate2EvaluationResult({ trace: supplyMissingTrace('UNKNOWN'), sourceSnapshotId: 'snap:adr0600' });
+    expect(unknown.axes.find(axis => axis.axis === 'SUPPLY_CONFLUENCE')?.status).toBe('MISSING');
+    process.env.GATE2_AXIS_COVERAGE_FALLBACK_ENABLED = 'false';
+    const off = buildGate2EvaluationResult({ trace: supplyMissingTrace('BULLISH'), sourceSnapshotId: 'snap:adr0600' });
+    expect(off.axes.find(axis => axis.axis === 'SUPPLY_CONFLUENCE')?.status).toBe('MISSING');
+  });
+
+  it('D2: 업종지수 결손 + 스캔 내 동종군(n>=3) → 상대수익 fallback (최대 62, BULLISH 불가) · n<3 → missing', () => {
+    const peerTrace = (symbol: string, return20d: number, sector = '반도체') => {
+      const trace = bullishTrace({ symbol });
+      const external = trace.gate2ExternalDataCoverage as Record<string, unknown>;
+      delete external.sectorCycle;
+      delete external.leaderCycle;
+      trace.sector = sector;
+      (trace.symbolFeatures as Record<string, unknown>).return20d = return20d;
+      return trace;
+    };
+    const summary = buildGate2ConfluenceSummary({
+      sourceSnapshotId: 'snap:adr0600',
+      traces: [peerTrace('A', 10), peerTrace('B', 2), peerTrace('C', 1), peerTrace('D', -8), peerTrace('E', 5, '단독섹터')],
+    });
+    const axisOf = (symbol: string) => summary.results.find(r => r.symbol === symbol)?.axes.find(a => a.axis === 'SECTOR_LEADERSHIP');
+    expect(axisOf('A')).toMatchObject({ score: 62, scoreIncluded: true, source: 'SCAN_PEER_RELATIVE_FALLBACK' });
+    expect(axisOf('D')?.score).toBe(35);
+    expect(axisOf('E')?.status).toBe('MISSING');
+    for (const symbol of ['A', 'B', 'C', 'D']) {
+      expect(axisOf(symbol)?.status).not.toBe('BULLISH');
+    }
+  });
+});

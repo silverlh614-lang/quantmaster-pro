@@ -397,6 +397,25 @@ function buildRsAxis(trace: AnyRecord, external: AnyRecord | null): Gate2AxisSco
   return missingAxis('RS_RELATIVE_STRENGTH', 'RS_RETURN20D_MISSING', ['benchmark missing is not bearish']);
 }
 
+/** ADR-0600 D1 — KIS 투자자행 결손 시 Gate1 supplyConfluenceState(시맨틱 판정) 보수 fallback.
+ *  BULLISH 78(ACCUMULATING 캡 — BULLISH 민팅 금지)/NEUTRAL 50/BEARISH 30. UNKNOWN/UNAVAILABLE/부재
+ *  → null (기존 missing 유지 — 결손 ≠ 신호, 불변식 #6). */
+function supplySemanticFallbackAxis(trace: AnyRecord): Gate2AxisScore | null {
+  if (!isGate2AxisCoverageFallbackEnabled()) return null;
+  const state = upper(trace.supplyConfluenceState ?? getByPath(trace, 'supplyConfluence.state'), '');
+  if (state !== 'BULLISH' && state !== 'NEUTRAL' && state !== 'BEARISH') return null;
+  const score = state === 'BULLISH' ? 78 : state === 'NEUTRAL' ? 50 : 30;
+  return axisScore({
+    axis: 'SUPPLY_CONFLUENCE',
+    score,
+    status: scoreStatus(score),
+    confidence: 'DEGRADED',
+    promotionStage: 'ADVISORY',
+    evidence: [`gate1SupplySemantic=${state}`, 'fallback=GATE1_SUPPLY_SEMANTIC', 'bullishCapApplied=true'],
+    source: 'GATE1_SUPPLY_SEMANTIC_FALLBACK',
+  });
+}
+
 function buildSupplyAxis(trace: AnyRecord, external: AnyRecord | null): Gate2AxisScore {
   const kis = firstRecord(getByPath(external, 'kisInvestorFlow'), trace.kisInvestorFlow, trace.supplyConfluence);
   const semanticStatus = upper(
@@ -408,7 +427,7 @@ function buildSupplyAxis(trace: AnyRecord, external: AnyRecord | null): Gate2Axi
   const kisStatus = upper(kis?.status ?? kis?.providerStatus, '');
   const missingRow = semanticStatus.includes('NO_ROW_FOUND') || kisStatus === 'MISSING' || kisStatus === 'EMPTY_VALID';
   if (missingRow) {
-    return missingAxis('SUPPLY_CONFLUENCE', 'SUPPLY_ROW_MISSING_NEUTRALIZED', [
+    return supplySemanticFallbackAxis(trace) ?? missingAxis('SUPPLY_CONFLUENCE', 'SUPPLY_ROW_MISSING_NEUTRALIZED', [
       'NO_ROW_FOUND neutralized',
       'marketSignal=false',
       'executionImpact=NONE',
@@ -420,7 +439,7 @@ function buildSupplyAxis(trace: AnyRecord, external: AnyRecord | null): Gate2Axi
   const institutional = firstNumber(kis, ['institutionalNetBuy', 'institutionNetBuy', 'institutionNetBuyAmount'])
     ?? firstNumber(trace, ['supplyProviderHealth.semanticRow.institutionalNetBuy', 'institutionalNetBuy']);
   if (foreign == null && institutional == null) {
-    return missingAxis('SUPPLY_CONFLUENCE', 'SUPPLY_FLOW_MISSING', ['supply missing is not bearish']);
+    return supplySemanticFallbackAxis(trace) ?? missingAxis('SUPPLY_CONFLUENCE', 'SUPPLY_FLOW_MISSING', ['supply missing is not bearish']);
   }
 
   const f = foreign ?? 0;
@@ -447,12 +466,32 @@ function buildSupplyAxis(trace: AnyRecord, external: AnyRecord | null): Gate2Axi
   });
 }
 
-function buildSectorAxis(trace: AnyRecord, external: AnyRecord | null, rsAxis: Gate2AxisScore): Gate2AxisScore {
+function buildSectorAxis(trace: AnyRecord, external: AnyRecord | null, rsAxis: Gate2AxisScore, sectorPeerContext?: ReadonlyMap<string, Gate2SectorPeerStat>): Gate2AxisScore {
   const sector = firstRecord(getByPath(external, 'sectorCycle'), trace.sectorCycle, trace.sectorEnergyResult);
   const leader = firstRecord(getByPath(external, 'leaderCycle'), trace.leaderCycle);
   const status = upper(sector?.status ?? sector?.dataQuality, '');
   const available = status === 'VERIFIED' || status === 'PARTIAL' || sector?.available === true || leader?.isCurrentLeadingSector != null;
   if (!available) {
+    // ADR-0600 D2 — 공식 업종지수 결손(코스닥 매핑 부재 등) 시 스캔 내 동종군(n>=3) 상대수익 fallback.
+    // 최대 62(stockLeader 급) — BULLISH 민팅 금지. 동종군 부족/수익률 결손 → 기존 missing 유지.
+    if (isGate2AxisCoverageFallbackEnabled() && sectorPeerContext) {
+      const sectorName = traceSectorOf(trace);
+      const r20 = traceReturn20dOf(trace);
+      const peer = sectorName ? sectorPeerContext.get(sectorName) : undefined;
+      if (peer && r20 != null) {
+        const vsPeer = round1(r20 - peer.medianReturn20d);
+        const score = vsPeer >= 3 ? 62 : vsPeer <= -5 ? 35 : 50;
+        return axisScore({
+          axis: 'SECTOR_LEADERSHIP',
+          score,
+          status: scoreStatus(score),
+          confidence: 'DEGRADED',
+          promotionStage: 'ADVISORY',
+          evidence: [`peerCount=${peer.peerCount}`, `stockVsPeer20d=${vsPeer}`, 'fallback=SCAN_PEER_RELATIVE', 'bullishCapApplied=true'],
+          source: 'SCAN_PEER_RELATIVE_FALLBACK',
+        });
+      }
+    }
     return missingAxis('SECTOR_LEADERSHIP', 'SECTOR_LEADERSHIP_MISSING', ['sector missing is not bearish']);
   }
 
@@ -624,10 +663,55 @@ export function proportionalRequiredAxisCount(usableAxisCount: number): number {
   return Math.min(3, Math.max(1, Math.ceil(usableAxisCount * 0.6)));
 }
 
+/** ADR-0600 — Supply/Sector 결손 축 보수 fallback 스위치 (default ON, `!== 'false'` — 진단/View
+ *  차선 한정·BULLISH 민팅 금지 캡·1줄 롤백). false 명시 시 기존 missing 동작 100% 보존. */
+export function isGate2AxisCoverageFallbackEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.GATE2_AXIS_COVERAGE_FALLBACK_ENABLED !== 'false';
+}
+
+export interface Gate2SectorPeerStat {
+  peerCount: number;
+  medianReturn20d: number;
+}
+
+function traceSectorOf(trace: AnyRecord): string | undefined {
+  const sector = text(trace.sector ?? getByPath(trace, 'symbolFeatures.sector'), '');
+  return sector || undefined;
+}
+
+function traceReturn20dOf(trace: AnyRecord): number | null {
+  return firstNumber(trace, ['return20d', 'symbolFeatures.return20d', 'quote.return20d']);
+}
+
+/** ADR-0600 D2 — 스캔 내 동종군(섹터별 n>=3) return20d 중앙값. 공식 업종지수 결손 종목의
+ *  SECTOR_LEADERSHIP 축 fallback 입력 (fetch 0 — 스캔 trace 만 사용). */
+export function buildGate2SectorPeerContext(traces: readonly Record<string, unknown>[]): Map<string, Gate2SectorPeerStat> {
+  const bySector = new Map<string, number[]>();
+  for (const trace of traces) {
+    const sector = traceSectorOf(trace as AnyRecord);
+    const r20 = traceReturn20dOf(trace as AnyRecord);
+    if (!sector || r20 == null) continue;
+    const list = bySector.get(sector) ?? [];
+    list.push(r20);
+    bySector.set(sector, list);
+  }
+  const context = new Map<string, Gate2SectorPeerStat>();
+  for (const [sector, returns] of bySector) {
+    if (returns.length < 3) continue;
+    const sorted = [...returns].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const median = sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    context.set(sector, { peerCount: returns.length, medianReturn20d: round1(median) });
+  }
+  return context;
+}
+
 export function buildGate2EvaluationResult(input: {
   trace: Record<string, unknown>;
   sourceSnapshotId?: string | null;
   cacheProjection?: Record<string, unknown> | null;
+  /** ADR-0600 D2 — 스캔 내 동종군 상대수익 fallback 입력 (summary 빌더가 1회 산출·주입). */
+  sectorPeerContext?: ReadonlyMap<string, Gate2SectorPeerStat>;
 }): Gate2EvaluationResult {
   const trace = input.trace as AnyRecord;
   const sourceSnapshotId = text(input.sourceSnapshotId, 'UNKNOWN_SOURCE_SNAPSHOT');
@@ -672,7 +756,7 @@ export function buildGate2EvaluationResult(input: {
   const axes: Gate2AxisScore[] = [
     rs,
     buildSupplyAxis(trace, external),
-    buildSectorAxis(trace, external, rs),
+    buildSectorAxis(trace, external, rs, input.sectorPeerContext),
     buildTechnicalAxis(trace),
     buildFundamentalAxis(external, cacheProjection),
   ];
@@ -805,12 +889,14 @@ function buildCacheProjectionBySymbol(records: readonly Record<string, unknown>[
 export function buildGate2ConfluenceSummary(input: Gate2ConfluenceSummaryInput): Gate2ConfluenceSummary {
   const sourceSnapshotId = text(input.sourceSnapshotId, 'UNKNOWN_SOURCE_SNAPSHOT');
   const projectionBySymbol = buildCacheProjectionBySymbol(input.gate2CacheRecords);
+  const sectorPeerContext = buildGate2SectorPeerContext(input.traces);
   const results = input.traces.map(trace => {
     const symbol = text(trace.symbol ?? getByPath(trace, 'quote.symbol') ?? getByPath(trace, 'quote.code'));
     return buildGate2EvaluationResult({
       trace,
       sourceSnapshotId,
       cacheProjection: symbol ? projectionBySymbol.get(symbol) ?? null : null,
+      sectorPeerContext,
     });
   });
   const evaluatedResults = results.filter(result => result.gate2Status !== 'SKIPPED_BY_GATE1');

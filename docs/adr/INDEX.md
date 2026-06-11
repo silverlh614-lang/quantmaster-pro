@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0600`**
+**다음 ADR 번호: `0601`**
+
+(2026-06-11 기준, 마지막 발급 0600 — gate2-supply-sector-axis-coverage-fallback. **Status: Accepted (D1/D2 구현, default ON `!== 'false'`).** ADR-0600 — Gate2 진단 차선 Supply 28/43·Sector 21/43 결손 축 보전. D1 Supply: KIS 투자자행 결손 시 Gate1 시맨틱 수급(supplyConfluenceState, ADR-0477~0488 라우터 산출 — Gate2 미소비 배선 갭)을 BULLISH 78(ACCUMULATING 캡·BULLISH 민팅 금지)/NEUTRAL 50/BEARISH 30 DEGRADED·ADVISORY 로 소비, UNKNOWN/부재→missing 유지(불변식 #6). D2 Sector: 업종지수 결손(코스닥 매핑 부재) 시 summary 1회 산출 동종군 컨텍스트(섹터 n>=3·return20d 중앙값)로 stockVsPeer20d ≥+3→62(상한)/≤−5→35/그외 50, n<3→missing, fetch 0. default ON 근거: 진단/View 차선 한정(소비처 전수 scanDiagnostics 확인·live 0줄)+보수 캡(STRONG BULLISH 요건 기여 불가)+ADR-0578 선례+1줄 롤백. D3/D4 후속(ADR-0601 예정, ADR-0561 KIS Primary): 공식 API 인벤토리 확정 — inquire-investor(국내주식-012, frgn/orgn_ntby_qty) kisClient 단일통로+Gate1 생존자 한정 hydration+일캐시, KOSDAQ 마스터(kis_kosdaq_code_mst) 지수업종 대/중/소분류 코드로 코스닥 업종 매핑 해소 — 도입 시 fallback 은 최후 보조 강등. 신규 테스트 3케이스(시맨틱 78/UNKNOWN·flag off/동종군 62·35·n<3·BULLISH 불가). 계보 0599/0477~0488/0578/0561/0416. INDEX 0600→0601 갱신.)
 
 (2026-06-11 기준, 마지막 발급 0599 — gate2-coverage-proportional-confluence-requirement. **Status: Accepted (구현 동반, default OFF byte-equivalent).** ADR-0599 — Gate2 STRONG 사상 0건의 산술 원인 봉인: 결손 축이 점수에선 분모 제외(ADR-0416 준수)되나 STRONG/WEAK 의 bullish>=3 이 절대 개수라 가용 5축=3/5(60%) vs 가용 3축=3/3(100%)으로 결손이 요구를 강화(커버리지 Supply 27/43·Sector 21/43·Fund 27/43 + BULLISH 컷 85 결합 시 도달 불가). 처방=proportionalRequiredAxisCount(usable)=clamp(ceil(usable×0.6),1,3) — flag GATE2_PROPORTIONAL_BULLISH_ENABLED ON 시 요구 개수만 교체(점수 임계 80/65/50·BULLISH 85·<3축 DATA_INCOMPLETE·AI_ESTIMATED 분모 제외 불변식 #7 전부 불변), OFF(default) 시 기존 3 고정 + dry-run(wouldPassStrong/WeakProportional·requiredConfluenceAxisCount·summary would*Proportional·compact proportionalDryRun 1줄) 상시 관측. phased Phase0 관측→Phase1 counterfactual 대조→Phase2 ENV ON. 커버리지 결손 1차 원인(KIS 투자자행 NO_ROW_FOUND·코스닥 업종지수 매핑 부재·DART 미수신)은 provider 개선 별도 과제 명시. 계보 Gate2 추적 20260611/ADR-0416/0519/0598. INDEX 0599→0600 갱신.)
 
@@ -219,6 +221,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0600 | Gate2 Supply/Sector 결손 축 보수 fallback — Gate1 시맨틱 수급(78캡)·스캔 동종군 상대수익(62상한) DEGRADED/ADVISORY 소비, BULLISH 민팅 금지·fetch 0·default ON(진단 차선 한정). KIS 네이티브(inquire-investor·KOSDAQ 마스터 업종코드) 1순위 후속 ADR-0601 로드맵 명시 | policy / quant |
 | 0599 | Gate2 confluence 가용 축 비례 요구 — 결손 축이 STRONG/WEAK 절대 개수 조건(bullish>=3)을 역설적으로 강화하는 갭 보정(ceil 60%·<=3), flag default OFF + dry-run 상시 관측(proportionalDryRun). 점수 임계·BULLISH 컷 불변, ADR-0416 정합 완성. 계보 Gate2 추적 20260611/0416/0519 | policy / quant |
 | 0598 | 과열 추격 가드 갭 봉인 — G1 FOMO 쿨다운 진입 시점 재평가(REGRET_ENTRY_REEVALUATION_ENABLED) + G2 Gate3 ma20 결손 시 BREAKOUT_CONFIRMED 보수화(GATE3_EXTENSION_GUARD_STRICT_ENABLED). 둘 다 default OFF byte-equivalent·observe 로그, live 만 보수화·shadow 무영향(불변식 #8). 계보 유진테크 추적 20260611/0030/0578 | policy / signalScanner+quant |
 | 0597 | Gate1 횡단면 percentile shadow 보조점수 — canonical 점수(ADR-0541)에서 스캔 내 midrank 백분위 + 시장신호 블록 합(상수블록 제외) 산출, ScanSummary+ADR-0476 ledger 행 stamp (관측 전용, Gate 판정 미소비, fetch 0). 절대 vs 횡단면 임계 논쟁의 forward 증거 수집 개시. 계보 리뷰 20260611/0541/0546/0476 | policy / signalScanner |
@@ -653,7 +656,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0599 · 다음 발급 0600** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0600 · 다음 발급 0601** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
