@@ -29,7 +29,10 @@ import { dispatchMissedLearningReplay } from './missedLearningReplayDispatcher.j
 
 // ─── 타입 SSOT ────────────────────────────────────────────────────────────────
 
-/** Phase 2 cron wiring 시 7 학습 작업 매핑 대상. */
+/**
+ * Phase 2 cron wiring 시 8 학습 작업 매핑 대상.
+ * daily_eval_fallback — 2026-06-11 EVAL_STALE 인시던트 처방 (L2 일일 평가 보충, KST 17:05 cron).
+ */
 export type MissedLearningJobName =
   | 'counterfactual_resolve'
   | 'ledger_resolve'
@@ -37,7 +40,8 @@ export type MissedLearningJobName =
   | 'nightly_reflection'
   | 'daily_mini_backtest'
   | 'shadow_live_delta_report'
-  | 'safety_gate_attribution';
+  | 'safety_gate_attribution'
+  | 'daily_eval_fallback';
 
 /** 작업이 스킵된 사유 — Phase 2 cron 식별 + 운영자 진단 입력. */
 export type MissedLearningReason =

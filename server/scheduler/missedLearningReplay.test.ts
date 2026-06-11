@@ -292,6 +292,8 @@ describe('ADR-0176 — missed_learning_replay cron 회귀 (Phase 2b-2)', () => {
       'server/scheduler/learningJobs.ts',
       'server/scheduler/missedLearningReplay.test.ts',
       'server/scheduler/learningJobsCronWiring.test.ts',
+      // daily_eval_fallback cron 테스트 — vi.mock 모듈 형태 유지용 export 등장 (실호출 0건)
+      'server/scheduler/dailyEvalFallbackCron.test.ts',
     ];
     for (const file of callerFiles) {
       const normalized = file.replace(/\\/g, '/');

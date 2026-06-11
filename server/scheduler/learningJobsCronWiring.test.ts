@@ -144,16 +144,17 @@ describe('ADR-0176 — learningJobs.ts 5 학습 cron `enqueueOnSkip` 옵션 wiri
 
   // ─── 누적 카운트 검증 — 학습-복구 cron 만 enqueueOnSkip (화이트리스트 일치) ─────
 
-  it('11. learningJobs.ts 전체에 `enqueueOnSkip` 등장 정확히 8건 (학습-복구 cron 만)', () => {
+  it('11. learningJobs.ts 전체에 `enqueueOnSkip` 등장 정확히 9건 (학습-복구 cron 만)', () => {
     // output-drift 갱신: seed 4452bd3 production 에 이미 8개 학습-복구 cron 이
     // enqueueOnSkip 보유 — daily_mini_backtest / nightly_reflection / ghost_portfolio /
     // counterfactual_resolve / ledger_resolve (ADR-0176 원본 5) + learning_flow_unclog_eod /
     // learning_flow_unclog_intraday / unified_forward_outcome_labeling (이후 추가된 복구 cron).
-    // 기존 assertion(7)·title(5건)이 production 과 미동기화. 제외 cron 무회귀는 #7~#10 가 보장.
+    // + daily_eval_fallback (2026-06-11 EVAL_STALE 인시던트 처방, KST 17:05) = 9건.
+    // 제외 cron 무회귀는 #7~#10 가 보장.
     const src = loadSource();
     const code = stripComments(src);
     const matches = code.match(/enqueueOnSkip/g) || [];
-    expect(matches.length).toBe(8);
+    expect(matches.length).toBe(9);
   });
 
   // ─── ADR-0176 주석 의무화 ────────────────────────────────────────────────────
@@ -198,6 +199,19 @@ describe('ADR-0176 — learningJobs.ts 5 학습 cron `enqueueOnSkip` 옵션 wiri
       /scheduledJob\(\s*['"]30 0 \* \* 1-5['"]\s*,\s*['"]TRADING_DAY_ONLY['"]\s*,\s*['"]missed_learning_replay['"]/,
     );
   });
+  it('15-b. daily_eval_fallback cron 등록 — TRADING_DAY_ONLY + 5 8 * * 1-5 (KST 17:05) + enqueueOnSkip (EVAL_STALE 처방)', () => {
+    const src = loadSource();
+    const code = stripComments(src);
+    expect(code).toMatch(
+      /scheduledJob\(\s*['"]5 8 \* \* 1-5['"]\s*,\s*['"]TRADING_DAY_ONLY['"]\s*,\s*['"]daily_eval_fallback['"]/,
+    );
+    // extractCronOptions 는 콜백 내부 `runDailyEvalFallbackIfMissed({...});` 의 `});` 에서
+    // 잘리므로 (future_return_resolve #16 과 동일 한계), 옵션 단언은 거리 제한 정규식으로 직접 수행.
+    const region = extractCronOptions(src, 'daily_eval_fallback');
+    expect(region).toMatch(/runDailyEvalFallbackIfMissed\s*\(\s*\{\s*trigger:\s*'FALLBACK_CRON'/);
+    expect(code).toMatch(/'daily_eval_fallback'[\s\S]{0,800}?enqueueOnSkip\s*:\s*\{\s*\}/);
+  });
+
   it('16. future_return_resolve cron passes historical close priceFetcher', () => {
     const src = loadSource();
     const code = stripComments(src);

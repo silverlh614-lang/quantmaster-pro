@@ -1,12 +1,13 @@
-// @responsibility ADR-0176 Phase 3 — replay dispatcher jobName→실함수 매핑 회귀 (7 union 전수 + 실패 전파)
+// @responsibility ADR-0176 Phase 3 — replay dispatcher jobName→실함수 매핑 회귀 (8 union 전수 + 실패 전파)
 /**
  * missedLearningReplayDispatcher.test.ts (PENDING_WIRING A10+A15 wiring)
  *
- * `dispatchMissedLearningReplay` 의 7 MissedLearningJobName → 실제 학습 복구 함수
+ * `dispatchMissedLearningReplay` 의 8 MissedLearningJobName → 실제 학습 복구 함수
  * 매핑 검증. 모든 학습 모듈은 mock — 실제 영속/KIS 호출 0건.
+ * (daily_eval_fallback — 2026-06-11 EVAL_STALE 인시던트 처방으로 8번째 매핑 추가.)
  *
  * invariant:
- *   1. 7 jobName 전수 매핑 (union exhaustive switch)
+ *   1. 8 jobName 전수 매핑 (union exhaustive switch)
  *   2. 매핑 외 함수 미호출 (cross-call 0건)
  *   3. 본체 함수 reject → dispatch reject (queue 가 FAILED 영속하도록 전파)
  *   4. suggest 보조 평가 reject → swallow + warn (본체 복구 성공 유지)
@@ -37,6 +38,9 @@ vi.mock('../persistence/shadowLearningOnlySignalRepo.js', () => ({
   loadShadowLearningOnlySignals: vi.fn(() => []),
 }));
 vi.mock('../persistence/shadowTradeRepo.js', () => ({ loadShadowTrades: vi.fn(() => []) }));
+vi.mock('./dailyEvalFallback.js', () => ({
+  runDailyEvalFallbackIfMissed: vi.fn(async () => ({ executed: true })),
+}));
 
 import { dispatchMissedLearningReplay } from './missedLearningReplayDispatcher.js';
 import type { MissedLearningJobName } from './missedLearningQueue.js';
@@ -53,6 +57,7 @@ import { computeShadowVsLiveDelta } from './shadowVsLiveDelta.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import { runDailyEvalFallbackIfMissed } from './dailyEvalFallback.js';
 
 const ALL_JOB_NAMES: MissedLearningJobName[] = [
   'counterfactual_resolve',
@@ -62,6 +67,7 @@ const ALL_JOB_NAMES: MissedLearningJobName[] = [
   'daily_mini_backtest',
   'shadow_live_delta_report',
   'safety_gate_attribution',
+  'daily_eval_fallback',
 ];
 
 beforeEach(() => {
@@ -128,7 +134,15 @@ describe('dispatchMissedLearningReplay — jobName → 실함수 매핑', () => 
     expect(computeShadowVsLiveDelta).not.toHaveBeenCalled();
   });
 
-  it('7 jobName union 전수 — 모두 reject 없이 dispatch 가능', async () => {
+  it('daily_eval_fallback → runDailyEvalFallbackIfMissed (MISSED_REPLAY trigger, 동일 가드 공유)', async () => {
+    await dispatchMissedLearningReplay('daily_eval_fallback');
+    expect(runDailyEvalFallbackIfMissed).toHaveBeenCalledTimes(1);
+    expect(runDailyEvalFallbackIfMissed).toHaveBeenCalledWith({ trigger: 'MISSED_REPLAY' });
+    expect(counterfactualResolveDueRun).not.toHaveBeenCalled();
+    expect(resolveLedger).not.toHaveBeenCalled();
+  });
+
+  it('8 jobName union 전수 — 모두 reject 없이 dispatch 가능', async () => {
     for (const name of ALL_JOB_NAMES) {
       await expect(dispatchMissedLearningReplay(name)).resolves.toBeUndefined();
     }
@@ -139,6 +153,11 @@ describe('dispatchMissedLearningReplay — 실패 전파 / 보조 평가 격리'
   it('본체 함수 reject → dispatch reject (queue FAILED 영속 전파)', async () => {
     vi.mocked(refreshGhostPortfolio).mockRejectedValueOnce(new Error('ghost boom'));
     await expect(dispatchMissedLearningReplay('ghost_portfolio')).rejects.toThrow('ghost boom');
+  });
+
+  it('daily_eval_fallback 본체 reject → dispatch reject (단일 실패 격리 보존)', async () => {
+    vi.mocked(runDailyEvalFallbackIfMissed).mockRejectedValueOnce(new Error('eval boom'));
+    await expect(dispatchMissedLearningReplay('daily_eval_fallback')).rejects.toThrow('eval boom');
   });
 
   it('suggest 보조 평가 reject → swallow + warn (본체 복구 성공 유지)', async () => {

@@ -50,6 +50,7 @@ import {
   runUnifiedForwardOutcomeLabeler,
 } from '../learning/unifiedForwardOutcomeLabeler.js';
 import { runGateThresholdReadinessAlert } from '../learning/gateThresholdReadinessAlert.js';
+import { runDailyEvalFallbackIfMissed } from '../learning/dailyEvalFallback.js';
 import { scheduledJob } from './scheduleGuard.js';
 
 async function runUnifiedForwardOutcomeLabelerJob(trigger: 'startup' | 'scheduled'): Promise<void> {
@@ -275,6 +276,27 @@ export function registerLearningJobs(): void {
     const res = await runGateThresholdReadinessAlert();
     console.log(`[CounterfactureGateReadiness] enabled=${res.enabled} ready=${res.readyKeys.length} newlyAlerted=${res.newlyAlerted.length} sent=${res.sent}`);
   }, { timezone: 'UTC' });
+
+  // L2 일일 평가 fallback — 평일 KST 17:05 (UTC 08:05). 2026-06-11 EVAL_STALE 41h 인시던트 처방.
+  // runDailyEval 의 유일 호출(tradingOrchestrator 16:30+ REPORT_ANALYSIS tick, 일일 1회)이 그
+  //   시각 서버 다운/tick 미실행이면 그날 L2 평가가 통째로 누락 — 단일 의존 제거용 보충 cron.
+  // 이중 실행 방지: loadLearningState().lastEvalAt 의 KST 날짜가 오늘이면 no-op 로그 1줄
+  //   (순수 가드 hasDailyEvalRunOnKstDate) — 16:30 정상 실행 시 항상 no-op → 평시 byte-equivalent.
+  // 17:05 슬롯 — cron stagger 인벤토리(2026-06-10) 대조: 17:00/17:10 은 금요일 전용 잡뿐, 평일 무점유.
+  // 9대 불변식 #1·#2 — 내부 try/catch + scheduleGuard 래퍼 이중 방어 (스케줄러 무중단).
+  // 보충 실행 시에만 운영자 대면 NORMAL 1줄 (CH4 noiseEvent, executionImpact=NONE) — 모듈 내부 발송.
+  // ADR-0176 — TRADING_DAY_ONLY silent skip 시 MissedLearningQueue enqueue (ENV gate) →
+  //   missed_learning_replay(익일 09:30) 가 daily_eval_fallback dispatcher 매핑으로 보충.
+  scheduledJob('5 8 * * 1-5', 'TRADING_DAY_ONLY', 'daily_eval_fallback', async () => {
+    try {
+      const res = await runDailyEvalFallbackIfMissed({ trigger: 'FALLBACK_CRON' });
+      console.log(
+        `[DailyEvalFallback] executed=${res.executed}${res.skipReason ? ` skipReason=${res.skipReason}` : ''}`,
+      );
+    } catch (e) {
+      console.error('[DailyEvalFallback] 실행 실패:', e);
+    }
+  }, { timezone: 'UTC', enqueueOnSkip: {} });
 
   // MissedLearningQueue replay: trading-day recovery of skipped learning jobs.
   scheduledJob('30 0 * * 1-5', 'TRADING_DAY_ONLY', 'missed_learning_replay', async () => {

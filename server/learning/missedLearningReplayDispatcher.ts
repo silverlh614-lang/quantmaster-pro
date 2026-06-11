@@ -15,6 +15,7 @@ import { evaluateKellySurfaceSuggestion } from './kellySurfaceMap.js';
 import { evaluateRegimeCoverageSuggestion } from './regimeBalancedSampler.js';
 import { computeSafetyGateAttribution } from './safetyGateAttribution.js';
 import { computeShadowVsLiveDelta } from './shadowVsLiveDelta.js';
+import { runDailyEvalFallbackIfMissed } from './dailyEvalFallback.js';
 import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
@@ -63,6 +64,12 @@ async function runSafetyGateAttributionReplay(): Promise<void> {
   computeSafetyGateAttribution(loadShadowLearningOnlySignals());
 }
 
+async function runDailyEvalFallbackReplay(): Promise<void> {
+  // 동일 가드 공유 — 오늘 KST 날짜에 이미 평가됐으면 내부 no-op (이중 실행 방지).
+  // throw 는 전파 — replayMissedLearningJobs 가 FAILED 영속 (단일 실패 격리 보존).
+  await runDailyEvalFallbackIfMissed({ trigger: 'MISSED_REPLAY' });
+}
+
 export async function dispatchMissedLearningReplay(
   jobName: MissedLearningJobName,
 ): Promise<void> {
@@ -81,5 +88,7 @@ export async function dispatchMissedLearningReplay(
       return runShadowLiveDeltaReportReplay();
     case 'safety_gate_attribution':
       return runSafetyGateAttributionReplay();
+    case 'daily_eval_fallback':
+      return runDailyEvalFallbackReplay();
   }
 }

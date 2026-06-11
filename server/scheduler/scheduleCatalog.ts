@@ -86,6 +86,7 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '16:45', label: 'Shadow vs Live Delta (ADR-0174 §2.2)', group: 'learning', jobName: 'shadow_live_delta_report', silentWhen: 'ENV `SHADOW_LIVE_DELTA_REPORT_ENABLED` 미활성이면 무음 — 내부 학습 분석 로그만, Telegram 송출 없음' },
   { timeKst: '16:36', label: 'Unified Forward Outcome Labeler (게이트 ledger forward-return 성숙, counterfacture_gate)', group: 'learning', jobName: 'unified_forward_outcome_labeling', silentWhen: '내부 학습 성숙만 — Telegram 송출 없음 (ENV `UNIFIED_FORWARD_OUTCOME_LABELER_ENABLED=false` 시 비활성)' },
   { timeKst: '16:50', label: 'counterfacture_gate Readiness 알람 (Phase J)', group: 'learning', jobName: 'counterfacture_gate_readiness_alert', silentWhen: 'gate×regime 첫 actionable(≥30표본) 전이 시에만 발송 — 전이 없으면 무음 (ENV `COUNTERFACTURE_GATE_READINESS_ALERT_DISABLED=true` 시 비활성)' },
+  { timeKst: '17:05', label: 'L2 일일 평가 fallback (2026-06-11 EVAL_STALE 인시던트 처방)', group: 'learning', jobName: 'daily_eval_fallback', silentWhen: '16:30 오케스트레이터가 당일 평가를 이미 실행했으면 no-op 무음 — 누락 보충 실행 시에만 NORMAL 1줄 (CH4)' },
   { timeKst: '16:40', label: '스캔 회고 리포트', group: 'reports', jobName: 'scan_retrospective' },
   { timeKst: '19:00', label: 'Nightly Reflection', group: 'learning', jobName: 'nightly_reflection' },
   { timeKst: '20:30', label: 'KIS 토큰 강제 갱신 (저녁)', group: 'trading', jobName: 'kis_token_refresh', silentWhen: '성공 시 내부 로그만' },

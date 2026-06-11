@@ -517,6 +517,8 @@ describe('정적 grep 가드 — 안전 invariant', () => {
       'server/scheduler/learningJobs.ts',
       'server/scheduler/learningJobsCronWiring.test.ts',
       'server/scheduler/missedLearningReplay.test.ts',
+      // daily_eval_fallback cron 테스트 — missedLearningReplay.test.ts 와 동일한 vi.mock 격리 패턴
+      'server/scheduler/dailyEvalFallbackCron.test.ts',
     ]);
     for (const f of files) {
       expect(allowed.has(f), `예상치 못한 호출자: ${f}`).toBe(true);

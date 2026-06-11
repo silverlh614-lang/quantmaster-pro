@@ -92,7 +92,7 @@ export async function reactToLossStreak(consecLoss: number): Promise<void> {
       `• 자동거래 <b>일시정지</b> (setEmergencyStop=true)\n` +
       `• 레짐 강제 다운그레이드 유지\n` +
       `• 신규 진입 홀드 30분 유지\n\n` +
-      `📌 <b>수동 재개 필요</b> — /emergency off 또는 웹훅 명령으로 해제`,
+      `📌 <b>수동 재개 필요</b> — /reset 으로 해제 (EMERGENCY_RESET_SECRET 설정 시 "/reset 비밀번호" 형식)`,
       { priority: 'CRITICAL', dedupeKey: `circuit_breaker:${consecLoss}` },
     ).catch(console.error);
     await emitResolverOperationalWarn({
