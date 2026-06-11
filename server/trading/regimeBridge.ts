@@ -1,5 +1,6 @@
 // @responsibility regimeBridge R6 recovery decay overlay.
 import type { RegimeLevel } from '../../src/types/core.js';
+import { isUsOvernightDefenseEnabled, resolveUsOvernightDefenseThresholdPct, US_OVERNIGHT_DEFENSE_BIAS_PENALTY } from './usOvernightDefenseAdr0604.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import {
   saveRegimeTransitionState,
@@ -30,7 +31,12 @@ function resolveRecoveryBiasScore(macroState: MacroState | null): number {
   const usdKrwDay = finiteNumber(macroState.usdKrwDayChange) ?? 0;
   const dxy5d = finiteNumber(macroState.dxy5dChange) ?? 0;
   const vix = finiteNumber(macroState.vix) ?? 20;
-  const derived = kospiDay * 12 + kospi20d * 2 + spx20d * 2 + Math.max(-10, Math.min(10, foreign5d / 2500)) - vkospiDay * 1.2 - usdKrwDay * 6 - dxy5d * 2 - Math.max(0, vix - 20) * 1.5;
+  // ADR-0604 3단계 — 미국 야간 급락 시 개장 전 보수 강등 (flag default OFF, usOvernightBoost 의 하방 대칭).
+  const usOvernightDefensePenalty =
+    isUsOvernightDefenseEnabled() && (finiteNumber(macroState.spxDayReturn) ?? 0) < resolveUsOvernightDefenseThresholdPct()
+      ? US_OVERNIGHT_DEFENSE_BIAS_PENALTY
+      : 0;
+  const derived = kospiDay * 12 + kospi20d * 2 + spx20d * 2 + Math.max(-10, Math.min(10, foreign5d / 2500)) - vkospiDay * 1.2 - usdKrwDay * 6 - dxy5d * 2 - Math.max(0, vix - 20) * 1.5 - usOvernightDefensePenalty;
   return Math.round(Math.max(-100, Math.min(100, derived)) * 10) / 10;
 }
 
@@ -42,6 +48,8 @@ function resolveR6RecoveryDecayFloor(state: RegimeTransitionState, macroState: M
   const biasScore = resolveRecoveryBiasScore(macroState);
   const recoveredFresh = breakdown.triggerFreshness === 'FRESH' && breakdown.activeR6Triggers.length === 0 && mhs >= 65 && biasScore >= 0;
   if (!recoveredFresh) return 0;
+  // ADR-0604 3단계 — 미국 야간 급락 밤사이엔 R6 회복 가속(decay floor) 차단 (flag default OFF).
+  if (isUsOvernightDefenseEnabled() && (finiteNumber(macroState?.spxDayReturn) ?? 0) < resolveUsOvernightDefenseThresholdPct()) return 0;
   const expiresAt = state.latchExpiresAt ? Date.parse(state.latchExpiresAt) : NaN;
   if (Number.isFinite(expiresAt) && expiresAt <= now.getTime()) return 100;
   const usOvernightBoost = (finiteNumber(macroState?.spxDayReturn) ?? 0) > 1.5 ? 10 : 0;

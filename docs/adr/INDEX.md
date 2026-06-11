@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0604`**
+**다음 ADR 번호: `0605`**
+
+(2026-06-11 기준, 마지막 발급 0604 — us-overnight-stratify-and-defense. **Status: Accepted (2단계 구현·가동 — 3단계 구현·default OFF).** ADR-0604 — ADR-0603 후속 2·3단계. 2단계(즉시 가동): usOvernightStratifyLedger — KST 일자당 1행 {spx/ndx 야간, kospiDayReturn} (캡 400, 야간=first-write-wins 로 미국 장중 오염 방지·kospi=last-write-wins 종가 수렴), refreshSpxSection 말미 기록(실패 격리), 신규 /us_overnight 명령 — SPX 야간 5밴드별 KOSPI 평균·승률 실측(게이트 미소비 — 활성화 판단 유일 근거, 상관 가정 금지). 3단계(default OFF, US_OVERNIGHT_DEFENSE_ENABLED === 'true'): SPX 야간 < 임계(-2.5 기본, -10~-0.5 가드) 시 ①resolveRecoveryBiasScore derived -12(usOvernightBoost +10 하방 대칭) ②resolveR6RecoveryDecayFloor 0(급락 밤 회복 latch 가속 차단) — flag OFF 양 경로 byte-equivalent(R6 recovery 회귀 green). 활성화 기준 명문화: <-2% 밴드 n>=10+KOSPI 평균 음수 실측. 미구현 후속: fast-upgrade 보조 AND·SOXX 섹터축·NDX 밴드 분리. FOMC/VIX 중복 계상 0(게이트형)·lookahead 0·결손 미발동(불변식 #6). 신규 테스트 4케이스(upsert 의미론·밴드 집계·빈 표본·ENV 가드). 계보 0603/0592/0593. INDEX 0604→0605 갱신.)
 
 (2026-06-11 기준, 마지막 발급 0603 — kis-overseas-index-promotion. **Status: Accepted (1단계 구현, default ON `!== 'false'`).** ADR-0603 — 가능성 검토(미국 선행지수↔한국 연결)의 1단계: 레짐이 이미 소비 중인 SPX(usOvernightBoost MHS+10·합성식 ×2·분류 조건 3곳)의 소스를 Yahoo(L3)→KIS 공식 해외지수 일봉(FHKST03030100, N: 해외지수 — 다우30/나스닥100/S&P500 공식 지원 확인)으로 승격. 신규 kisClient/query/overseasIndex.ts(단일통로 realDataKisGet·지수×KST일자 메모 캐시 ~1콜/일·실패 당일 억제·null→호출측 Yahoo fallback 보존, ISCD ENV 정정 가능) + refreshSpxSection KIS-first(소비식 0줄 변경·source 로그 표기) + NDX 관측 수집(macroState.ndxDayReturn/ndx20dReturn additive — 레짐 미소비, 한국 성장주 상관 실증용). 2/3단계(usOvernight stratify→야간 급락 개장 전 보수 강등·fast-upgrade 보조 AND·SOXX 섹터축)는 로드맵 명시(FOMC/VIX 중복 계상 주의·lookahead 금지). 신규 테스트 3케이스(수익률 산식·결손 제외·ENV 가드). 계보 검토 20260611/ADR-0561/0592/0593. INDEX 0603→0604 갱신.)
 
@@ -227,6 +229,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0604 | 미국 야간↔KOSPI stratify 관측(2단계, /us_overnight 5밴드 실측·게이트 미소비) + 야간 급락 개장 전 보수 강등(3단계 — bias -12·R6 회복 가속 차단, default OFF, usOvernightBoost 하방 대칭). 활성화 기준=밴드 실측 n>=10 | policy / learning+regime |
 | 0603 | 미국 지수 KIS-primary 승격 — SPX Yahoo→KIS 해외지수 일봉(FHKST03030100, 일캐시·fallback 보존·소비식 0줄) + NDX 관측 수집. 미국 선행지수↔한국 레짐 연결 1단계, 2/3단계(야간 stratify→게이트 반영)는 로드맵 | policy / kisClient+marketDataRefresh |
 | 0602 | 동일 섹터 강자 교체 phased 도입 — Phase 0 관측(proposeSameSectorReplacement+가드 차단 시 교체 후보 1줄 표기, 실집행 0, default ON). 교체 엔진 미배선+동일섹터 금지 이중 갭의 출구를 한도 해제 대신 데이터 검증으로. Phase 1 shadow 집행/Phase 2 live 는 설계만 | policy / trading+entryGates |
 | 0601 | Gate2 Supply 축 KIS 네이티브 hydration — 기존 단일통로 investor-flow evidence 를 결손 후보 전체로 확장 주입(일중 캐시·스캔당 상한 16·실패 격리, default ON). L1>시맨틱 fallback>missing 우선순위. D4 KOSDAQ 마스터 업종코드는 Phase 2 | policy / signalScanner+supply |
@@ -665,7 +668,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0603 · 다음 발급 0604** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0604 · 다음 발급 0605** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

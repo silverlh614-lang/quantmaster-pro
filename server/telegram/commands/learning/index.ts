@@ -3,6 +3,7 @@
 import './attributionTrace.cmd.js';
 import './circuits.cmd.js';
 import './counterfactual.cmd.js';
+import './usOvernight.cmd.js';
 import './ghostInspect.cmd.js';
 import './ghostKisDiag.cmd.js';
 import './governance.cmd.js';

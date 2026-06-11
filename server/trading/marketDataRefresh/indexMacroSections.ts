@@ -7,6 +7,7 @@
  */
 
 import { fetchFredLatest } from '../../clients/fredClient.js';
+import { recordUsOvernightObservation } from '../../learning/usOvernightStratifyLedger.js';
 import { fetchKisOverseasIndexDaily, resolveKisOverseasSpxIscd, resolveKisOverseasNdxIscd } from '../../clients/kisClient/index.js';
 import { fetchLatestUsdKrw } from '../../clients/ecosClient.js';
 import { fetchDerivativesIndexDaily, isVkospiIndexName } from '../../clients/krxOpenApi.js';
@@ -311,6 +312,17 @@ export async function refreshSpxSection(computed: MarketRefreshComputed): Promis
     computed.ndxDayReturn = kisNdx.dayReturnPct;
     computed.ndx20dReturn = kisNdx.return20dPct ?? undefined;
     console.log(`[MarketRefresh] NDX(KIS, 관측): 1d=${kisNdx.dayReturnPct.toFixed(2)}%, 20d=${kisNdx.return20dPct?.toFixed(2) ?? 'N/A'}%`);
+  }
+  // ADR-0604 2단계 — 야간↔KOSPI stratify 관측 기록 (실패 격리, 게이트 미소비).
+  try {
+    recordUsOvernightObservation({
+      dateKey: new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10),
+      spxOvernight: computed.spxDayReturn,
+      ndxOvernight: computed.ndxDayReturn,
+      kospiDayReturn: computed.kospiDayReturn,
+    });
+  } catch (error) {
+    console.warn(`[MarketRefresh] usOvernight stratify 기록 실패(무영향): ${String(error)}`);
   }
 }
 
