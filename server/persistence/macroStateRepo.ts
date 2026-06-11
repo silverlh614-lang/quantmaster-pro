@@ -212,6 +212,9 @@ export interface MacroState {
   /** Phase 1 — 마지막 조회 성공 시각 (ISO) — /health 신선도 표시용. */
   shortSellingFetchedAt?: string;
   spxDayReturn?: number;            // S&P500 당일 수익률 (미국 장 마감 기준)
+  // ADR-0603 관측 — 나스닥100 야간 수익률 (레짐 미소비, 한국 성장주 상관 검증 기록 전용).
+  ndxDayReturn?: number;
+  ndx20dReturn?: number;
   nasdaqDayReturn?: number;         // 나스닥 당일 수익률 (미국 장 마감 기준)
   spx20dReturn?: number;            // S&P500 20일 수익률
   dxy5dChange?: number;             // 달러인덱스 5일 변화율

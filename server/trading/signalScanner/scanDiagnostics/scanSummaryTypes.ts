@@ -108,6 +108,9 @@ export interface MacroGateState {
   watchlistEmpty: boolean;
   sellOnlyMode: boolean;
   kospi20dReturn?: number;
+  // ADR-0603 관측 — 나스닥100 야간 수익률 (레짐 미소비, 상관 검증 기록 전용).
+  ndxDayReturn?: number;
+  ndx20dReturn?: number;
   macroEntryOverrideActive?: boolean;
   macroEntryOverrideTargets?: string[];
   diagnosticLiveEntryBlocked?: boolean;

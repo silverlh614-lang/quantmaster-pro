@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0603`**
+**다음 ADR 번호: `0604`**
+
+(2026-06-11 기준, 마지막 발급 0603 — kis-overseas-index-promotion. **Status: Accepted (1단계 구현, default ON `!== 'false'`).** ADR-0603 — 가능성 검토(미국 선행지수↔한국 연결)의 1단계: 레짐이 이미 소비 중인 SPX(usOvernightBoost MHS+10·합성식 ×2·분류 조건 3곳)의 소스를 Yahoo(L3)→KIS 공식 해외지수 일봉(FHKST03030100, N: 해외지수 — 다우30/나스닥100/S&P500 공식 지원 확인)으로 승격. 신규 kisClient/query/overseasIndex.ts(단일통로 realDataKisGet·지수×KST일자 메모 캐시 ~1콜/일·실패 당일 억제·null→호출측 Yahoo fallback 보존, ISCD ENV 정정 가능) + refreshSpxSection KIS-first(소비식 0줄 변경·source 로그 표기) + NDX 관측 수집(macroState.ndxDayReturn/ndx20dReturn additive — 레짐 미소비, 한국 성장주 상관 실증용). 2/3단계(usOvernight stratify→야간 급락 개장 전 보수 강등·fast-upgrade 보조 AND·SOXX 섹터축)는 로드맵 명시(FOMC/VIX 중복 계상 주의·lookahead 금지). 신규 테스트 3케이스(수익률 산식·결손 제외·ENV 가드). 계보 검토 20260611/ADR-0561/0592/0593. INDEX 0603→0604 갱신.)
 
 (2026-06-11 기준, 마지막 발급 0602 — same-sector-replacement-observation. **Status: Accepted (Phase 0 구현 — 관측·표시 전용, default ON `!== 'false'`).** ADR-0602 — 운영자 토론(섹터 리미트 해제?)의 코드 추적에서 이중 갭 확정: tradeReplacement(Phase 4-⑦ 교체 엔진)는 운영 호출 0건 미배선 dead 모듈 + proposeReplacement 조건(iii) heldSector!==candSector 로 동일 섹터 내 강자 교체 설계상 불가. 처방=한도 해제 대신 '같은 슬롯 내 약자→강자 교체' 경로의 phased 도입 — Phase 0(구현): 신규 순수 함수 proposeSameSectorReplacement(gate 우위>=1.5 필수, 정체보유 momentumSlowing/수익률<=0 은 score 가중 +5 — 발동 빈도 관측 목적), sectorConcentrationGate 차단 분기에서 평가 후 로그/텔레그램에 '교체 관측(Phase0·실집행 없음)' 1줄 표기(평가 실패 격리·결손 필드 보수 기본값 불변식 #6), flag TRADE_REPLACEMENT_OBSERVE_ENABLED default ON(표시 전용·1줄 롤백). Phase 1(설계만): shadow 교체 집행 flag OFF + 쿨다운·일일 상한, 직전 patch 의 SECTOR_CONCENTRATION_LIMIT counterfactual 라벨 분포로 발동 조건 확정. Phase 2(설계만): live 교체 — shadow 표본 N>=30+교체 우위 통계+운영자 승인+autoTradeEngine 단일통로 2주문 설계 선행(후속 ADR). MAX_SECTOR_CONCENTRATION 무변경·기존 proposeReplacement 의미 무변경. 신규 테스트 4케이스(약자 선택·우위 부족·힌트 표기·flag off byte-equivalent). 계보 토론 20260611/Patch-SectorLimit-Blocked-Counterfactual/ADR-0030/0594/0598. INDEX 0602→0603 갱신.)
 
@@ -225,6 +227,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0603 | 미국 지수 KIS-primary 승격 — SPX Yahoo→KIS 해외지수 일봉(FHKST03030100, 일캐시·fallback 보존·소비식 0줄) + NDX 관측 수집. 미국 선행지수↔한국 레짐 연결 1단계, 2/3단계(야간 stratify→게이트 반영)는 로드맵 | policy / kisClient+marketDataRefresh |
 | 0602 | 동일 섹터 강자 교체 phased 도입 — Phase 0 관측(proposeSameSectorReplacement+가드 차단 시 교체 후보 1줄 표기, 실집행 0, default ON). 교체 엔진 미배선+동일섹터 금지 이중 갭의 출구를 한도 해제 대신 데이터 검증으로. Phase 1 shadow 집행/Phase 2 live 는 설계만 | policy / trading+entryGates |
 | 0601 | Gate2 Supply 축 KIS 네이티브 hydration — 기존 단일통로 investor-flow evidence 를 결손 후보 전체로 확장 주입(일중 캐시·스캔당 상한 16·실패 격리, default ON). L1>시맨틱 fallback>missing 우선순위. D4 KOSDAQ 마스터 업종코드는 Phase 2 | policy / signalScanner+supply |
 | 0600 | Gate2 Supply/Sector 결손 축 보수 fallback — Gate1 시맨틱 수급(78캡)·스캔 동종군 상대수익(62상한) DEGRADED/ADVISORY 소비, BULLISH 민팅 금지·fetch 0·default ON(진단 차선 한정). KIS 네이티브(inquire-investor·KOSDAQ 마스터 업종코드) 1순위 후속 ADR-0601 로드맵 명시 | policy / quant |
@@ -662,7 +665,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0602 · 다음 발급 0603** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0603 · 다음 발급 0604** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

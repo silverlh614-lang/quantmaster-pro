@@ -152,6 +152,8 @@ export type {
 } from './orderGateway/kisOrderTypes.js';
 
 export { kisHttpClient } from './core/kisHttpClient.js';
+// ADR-0603 — KIS 해외지수 일봉 (SPX/NDX KIS-primary 승격)
+export * from './query/overseasIndex.js';
 export type { KisCoreResult } from './core/kisCoreResultNormalizer.js';
 export {
   classifyKisRequest,

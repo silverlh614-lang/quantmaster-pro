@@ -7,6 +7,7 @@
  */
 
 import { fetchFredLatest } from '../../clients/fredClient.js';
+import { fetchKisOverseasIndexDaily, resolveKisOverseasSpxIscd, resolveKisOverseasNdxIscd } from '../../clients/kisClient/index.js';
 import { fetchLatestUsdKrw } from '../../clients/ecosClient.js';
 import { fetchDerivativesIndexDaily, isVkospiIndexName } from '../../clients/krxOpenApi.js';
 import { computeMacroIndex } from '../../engines/macroIndexEngine.js';
@@ -287,13 +288,29 @@ export async function refreshUsdKrwSection(computed: MarketRefreshComputed): Pro
 }
 
 export async function refreshSpxSection(computed: MarketRefreshComputed): Promise<void> {
-  const spx = await fetchCloses('^GSPC', '25d');
-  if (spx && spx.length >= 3) {
-    computed.spxDayReturn = nDayReturn(spx, 1);
-    computed.spx20dReturn = nDayReturn(spx, Math.min(20, spx.length - 1));
-    console.log(`[MarketRefresh] SPX: 1d=${(computed.spxDayReturn as number).toFixed(2)}%, 20d=${(computed.spx20dReturn as number).toFixed(2)}%`);
+  // ADR-0603 — KIS 해외지수 우선(ADR-0561 KIS-primary, 일캐시로 quota ~1콜/일), 실패 시 기존
+  // Yahoo fallback 보존. 레짐 소비식(spxDayReturn/spx20dReturn)은 무변경 — 소스 등급만 승격.
+  const kisSpx = await fetchKisOverseasIndexDaily(resolveKisOverseasSpxIscd()).catch(() => null);
+  if (kisSpx && kisSpx.dayReturnPct !== null && kisSpx.return20dPct !== null) {
+    computed.spxDayReturn = kisSpx.dayReturnPct;
+    computed.spx20dReturn = kisSpx.return20dPct;
+    console.log(`[MarketRefresh] SPX(KIS): 1d=${kisSpx.dayReturnPct.toFixed(2)}%, 20d=${kisSpx.return20dPct.toFixed(2)}%`);
   } else {
-    emitMarketDataProviderWarn('SPX_DATA_INSUFFICIENT');
+    const spx = await fetchCloses('^GSPC', '25d');
+    if (spx && spx.length >= 3) {
+      computed.spxDayReturn = nDayReturn(spx, 1);
+      computed.spx20dReturn = nDayReturn(spx, Math.min(20, spx.length - 1));
+      console.log(`[MarketRefresh] SPX(YAHOO_FALLBACK): 1d=${(computed.spxDayReturn as number).toFixed(2)}%, 20d=${(computed.spx20dReturn as number).toFixed(2)}%`);
+    } else {
+      emitMarketDataProviderWarn('SPX_DATA_INSUFFICIENT');
+    }
+  }
+  // ADR-0603 관측 — 나스닥100 (한국 성장주 상관 검증용 기록 전용, 레짐 미소비).
+  const kisNdx = await fetchKisOverseasIndexDaily(resolveKisOverseasNdxIscd()).catch(() => null);
+  if (kisNdx && kisNdx.dayReturnPct !== null) {
+    computed.ndxDayReturn = kisNdx.dayReturnPct;
+    computed.ndx20dReturn = kisNdx.return20dPct ?? undefined;
+    console.log(`[MarketRefresh] NDX(KIS, 관측): 1d=${kisNdx.dayReturnPct.toFixed(2)}%, 20d=${kisNdx.return20dPct?.toFixed(2) ?? 'N/A'}%`);
   }
 }
 
