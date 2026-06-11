@@ -51,6 +51,11 @@ export interface Gate2EvaluationResult {
   usableAxisCount: number;
   bullishAxisCount: number;
   accumulatingAxisCount: number;
+  /** ADR-0599 — 적용된 confluence 요구 축 개수 (flag OFF=3 고정, ON=가용 축 비례 ≤3). */
+  requiredConfluenceAxisCount?: number;
+  /** ADR-0599 dry-run — 비례 기준이었다면 STRONG/WEAK 이었을지 (flag 와 무관하게 항상 산출). */
+  wouldPassStrongProportional?: boolean;
+  wouldPassWeakProportional?: boolean;
   missingAxisCount: number;
   aiEstimatedAxisCount: number;
   confidenceCeiling: Gate2ConfidenceCeiling;
@@ -91,6 +96,9 @@ export interface Gate2ConfluenceSummary {
   evaluated: number;
   gate2PassStrong: number;
   gate2PassWeak: number;
+  /** ADR-0599 dry-run — 비례 기준 적용 시 도달했을 STRONG/WEAK 수. */
+  wouldStrongProportional?: number;
+  wouldWeakProportional?: number;
   gate2Watch: number;
   gate2Fail: number;
   dataIncomplete: number;
@@ -604,6 +612,18 @@ export const GATE2_PASS_STRONG_MIN_SCORE = 80;
 export const GATE2_PASS_WEAK_MIN_SCORE = 65;
 export const GATE2_WATCH_MIN_SCORE = 50;
 
+/** ADR-0599 — 결손 축이 STRONG/WEAK 의 절대 개수 조건(≥3)을 역설적으로 강화하는 갭 보정 스위치
+ *  (정확 비교, default OFF byte-equivalent). 가용 5축이면 3/5(60%) 요구인데 결손으로 3축만
+ *  가용이면 3/3(100%)이 되어 결손이 사실상 페널티로 작동한다 (ADR-0416 위배 갭). */
+export function isGate2ProportionalBullishEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.GATE2_PROPORTIONAL_BULLISH_ENABLED === 'true';
+}
+
+/** 가용 축 비례 요구 개수 — ceil(usable×0.6), 1~3 클램프 (5축 가용 시 기존 3 과 동일). */
+export function proportionalRequiredAxisCount(usableAxisCount: number): number {
+  return Math.min(3, Math.max(1, Math.ceil(usableAxisCount * 0.6)));
+}
+
 export function buildGate2EvaluationResult(input: {
   trace: Record<string, unknown>;
   sourceSnapshotId?: string | null;
@@ -669,10 +689,19 @@ export function buildGate2EvaluationResult(input: {
   const rawScore = usableAxisCount > 0 ? round1(weightedSum / 100) : null;
   const coverageAdjustedScore = usableWeight > 0 ? round1(weightedSum / usableWeight) : null;
 
+  // ADR-0599 — flag ON 시 요구 개수를 가용 축 비례로 보정 (OFF=기존 3 고정 byte-equivalent).
+  // dry-run(would*Proportional)은 flag 와 무관하게 항상 산출해 효과 크기를 관측한다.
+  const proportionalRequired = proportionalRequiredAxisCount(usableAxisCount);
+  const requiredConfluenceAxisCount = isGate2ProportionalBullishEnabled() ? proportionalRequired : 3;
+  const wouldPassStrongProportional = coverageAdjustedScore != null && usableAxisCount >= 3
+    && coverageAdjustedScore >= GATE2_PASS_STRONG_MIN_SCORE && bullishAxisCount >= proportionalRequired;
+  const wouldPassWeakProportional = coverageAdjustedScore != null && usableAxisCount >= 3
+    && coverageAdjustedScore >= GATE2_PASS_WEAK_MIN_SCORE && bullishOrAccumulatingAxisCount >= proportionalRequired;
+
   let gate2Status: Gate2Status = 'DATA_INCOMPLETE';
   if (usableAxisCount < 3 || coverageAdjustedScore == null) gate2Status = 'DATA_INCOMPLETE';
-  else if (coverageAdjustedScore >= GATE2_PASS_STRONG_MIN_SCORE && bullishAxisCount >= 3) gate2Status = 'GATE2_PASS_STRONG';
-  else if (coverageAdjustedScore >= GATE2_PASS_WEAK_MIN_SCORE && bullishOrAccumulatingAxisCount >= 3) gate2Status = 'GATE2_PASS_WEAK';
+  else if (coverageAdjustedScore >= GATE2_PASS_STRONG_MIN_SCORE && bullishAxisCount >= requiredConfluenceAxisCount) gate2Status = 'GATE2_PASS_STRONG';
+  else if (coverageAdjustedScore >= GATE2_PASS_WEAK_MIN_SCORE && bullishOrAccumulatingAxisCount >= requiredConfluenceAxisCount) gate2Status = 'GATE2_PASS_WEAK';
   else if (coverageAdjustedScore >= GATE2_WATCH_MIN_SCORE) gate2Status = 'GATE2_WATCH';
   else gate2Status = 'GATE2_FAIL';
 
@@ -712,6 +741,9 @@ export function buildGate2EvaluationResult(input: {
     usableAxisCount,
     bullishAxisCount,
     accumulatingAxisCount,
+    requiredConfluenceAxisCount,
+    wouldPassStrongProportional,
+    wouldPassWeakProportional,
     missingAxisCount,
     aiEstimatedAxisCount,
     confidenceCeiling,
@@ -832,6 +864,9 @@ export function buildGate2ConfluenceSummary(input: Gate2ConfluenceSummaryInput):
     evaluated: evaluatedResults.length,
     gate2PassStrong: results.filter(result => result.gate2Status === 'GATE2_PASS_STRONG').length,
     gate2PassWeak: results.filter(result => result.gate2Status === 'GATE2_PASS_WEAK').length,
+    // ADR-0599 dry-run — 비례 기준 적용 시 도달했을 STRONG/WEAK 수 (flag 무관 관측).
+    wouldStrongProportional: results.filter(result => result.wouldPassStrongProportional === true).length,
+    wouldWeakProportional: results.filter(result => result.wouldPassWeakProportional === true).length,
     gate2Watch: results.filter(result => result.gate2Status === 'GATE2_WATCH').length,
     gate2Fail: results.filter(result => result.gate2Status === 'GATE2_FAIL').length,
     dataIncomplete: results.filter(result => result.gate2Status === 'DATA_INCOMPLETE').length,
@@ -891,6 +926,7 @@ export function formatGate2ConfluenceCompact(summary: Gate2ConfluenceSummary | n
     `evaluated: ${summary.evaluated}/${summary.totalCandidates}`,
     `gate2PassStrong: ${summary.gate2PassStrong}`,
     `gate2PassWeak: ${summary.gate2PassWeak}`,
+    `proportionalDryRun: strong=${summary.wouldStrongProportional ?? 0} weak=${summary.wouldWeakProportional ?? 0} (ADR-0599, flag OFF 시 관측 전용)`,
     `gate2Watch: ${summary.gate2Watch}`,
     `gate2Fail: ${summary.gate2Fail}`,
     `dataIncomplete: ${summary.dataIncomplete}`,

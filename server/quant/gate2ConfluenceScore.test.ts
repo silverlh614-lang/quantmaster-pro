@@ -3,8 +3,12 @@ import { describe, expect, it } from 'vitest';
 import {
   buildGate2ConfluenceSummary,
   buildGate2EvaluationResult,
+  formatGate2ConfluenceCompact,
+  isGate2ProportionalBullishEnabled,
+  proportionalRequiredAxisCount,
   type Gate2EvaluationResult,
 } from './gate2ConfluenceScore.js';
+import { afterEach } from 'vitest';
 
 function bullishTrace(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -210,5 +214,54 @@ describe('ADR-0519 Gate2 confluence score', () => {
       counterfactualRecorded: true,
     });
     expect(summary.executionImpact).toBe('NONE');
+  });
+});
+
+describe('ADR-0599 coverage-proportional confluence requirement', () => {
+  afterEach(() => { delete process.env.GATE2_PROPORTIONAL_BULLISH_ENABLED; });
+
+  function threeAxisTrace(): Record<string, unknown> {
+    const trace = bullishTrace();
+    const external = trace.gate2ExternalDataCoverage as Record<string, unknown>;
+    delete external.sectorCycle;
+    delete external.leaderCycle;
+    return trace;
+  }
+
+  it('proportionalRequiredAxisCount — ceil(60%)·1~3 클램프 (5축 가용 시 기존 3 동일)', () => {
+    expect(proportionalRequiredAxisCount(1)).toBe(1);
+    expect(proportionalRequiredAxisCount(2)).toBe(2);
+    expect(proportionalRequiredAxisCount(3)).toBe(2);
+    expect(proportionalRequiredAxisCount(4)).toBe(3);
+    expect(proportionalRequiredAxisCount(5)).toBe(3);
+    expect(isGate2ProportionalBullishEnabled({})).toBe(false);
+    expect(isGate2ProportionalBullishEnabled({ GATE2_PROPORTIONAL_BULLISH_ENABLED: 'true' })).toBe(true);
+  });
+
+  it('flag OFF: 3축 가용·bullish 2 → 기존 동작(STRONG 미도달) + would-strong dry-run 항상 산출', () => {
+    const result = buildGate2EvaluationResult({ trace: threeAxisTrace(), sourceSnapshotId: 'snap:adr0599' });
+    expect(result.usableAxisCount).toBe(3);
+    expect(result.bullishAxisCount).toBe(2);
+    expect(result.gate2Status).toBe('GATE2_PASS_WEAK');
+    expect(result.requiredConfluenceAxisCount).toBe(3);
+    expect(result.wouldPassStrongProportional).toBe(true);
+    expect(result.wouldPassWeakProportional).toBe(true);
+  });
+
+  it('flag ON: 동일 입력이 STRONG (요구 ceil(3×0.6)=2) — 결손이 요구를 강화하지 않음', () => {
+    process.env.GATE2_PROPORTIONAL_BULLISH_ENABLED = 'true';
+    const result = buildGate2EvaluationResult({ trace: threeAxisTrace(), sourceSnapshotId: 'snap:adr0599' });
+    expect(result.requiredConfluenceAxisCount).toBe(2);
+    expect(result.gate2Status).toBe('GATE2_PASS_STRONG');
+  });
+
+  it('summary dry-run 집계 + compact 출력에 proportionalDryRun 1줄', () => {
+    const summary = buildGate2ConfluenceSummary({
+      sourceSnapshotId: 'snap:adr0599',
+      traces: [threeAxisTrace()],
+    });
+    expect(summary.wouldStrongProportional).toBe(1);
+    expect(summary.gate2PassStrong).toBe(0);
+    expect(formatGate2ConfluenceCompact(summary)).toContain('proportionalDryRun: strong=1');
   });
 });
