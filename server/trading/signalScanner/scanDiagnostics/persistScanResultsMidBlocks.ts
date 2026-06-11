@@ -504,10 +504,25 @@ export async function persistMidScanDiagnosticBlocksAdr0588(ctx: MidScanDiagnost
     // 점수 스케일 정합(2026-06-11 리뷰 §4 처방): 관측 행 점수를 snapshot.gateScore(27조건 0~10
     // 스케일)가 아닌 canonical 최소신호 점수(ADR-0541 starvation trace, requiredScore=70 동일
     // 스케일)로 기록 — 55~70/70+ 밴드·NEAR_MISS 가 비로소 충전 가능 (ADR-0546 증거 잠금 해소).
+    // ADR-0597 — 횡단면 percentile shadow 를 같은 map 으로 동반 주입 (관측 전용, 판정 미소비).
+    const crossSectionalBySymbol = new Map(
+      (summaryDraft.gate1CrossSectionalShadowAdr0597?.scores ?? []).map((score) => [score.symbol, score]),
+    );
     const minSignalScoreBySymbol = Object.fromEntries(
       counters.positiveScoreStarvationTraces
         .filter((trace) => Number.isFinite(trace.actualScore))
-        .map((trace) => [trace.symbol, { actualScore: trace.actualScore, requiredScore: trace.requiredScore }]),
+        .map((trace) => {
+          const crossSectional = crossSectionalBySymbol.get(trace.symbol);
+          return [trace.symbol, {
+            actualScore: trace.actualScore,
+            requiredScore: trace.requiredScore,
+            ...(crossSectional ? {
+              totalPercentile: crossSectional.totalPercentile,
+              ...(crossSectional.marketBlockScore !== null ? { marketBlockScore: crossSectional.marketBlockScore } : {}),
+              ...(crossSectional.marketBlockPercentile !== null ? { marketBlockPercentile: crossSectional.marketBlockPercentile } : {}),
+            } : {}),
+          }];
+        }),
     );
     const rows = buildGate1DryRunObservationRows({
       now: kstNow,

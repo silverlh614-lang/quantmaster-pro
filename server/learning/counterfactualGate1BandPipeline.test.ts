@@ -95,7 +95,7 @@ describe('gate1 ledger → counterfactual board band pipeline (점수 스케일 
         snapshot('000050', 5.0, false),
       ],
       minSignalScoreBySymbol: {
-        '000072': { actualScore: 72, requiredScore: 70 },
+        '000072': { actualScore: 72, requiredScore: 70, totalPercentile: 100, marketBlockScore: 41.2, marketBlockPercentile: 100 },
         '000066': { actualScore: 66, requiredScore: 70 },
         '000062': { actualScore: 62, requiredScore: 70 },
         '000057': { actualScore: 57, requiredScore: 70 },
@@ -105,6 +105,11 @@ describe('gate1 ledger → counterfactual board band pipeline (점수 스케일 
     const v2 = rows.filter((row) => row.source === 'GATE1_SCORE_OBSERVATION_V2');
     expect(v2.every((row) => row.scoreSource === 'MIN_SIGNAL_TRACE')).toBe(true);
     expect(v2.find((row) => row.symbol === '000072')?.dryRunDecision).toBe('WOULD_PASS_DRY_RUN');
+    // ADR-0597 — 횡단면 percentile 동반 stamp (map 에 있을 때만, 없으면 미기록).
+    const top = v2.find((row) => row.symbol === '000072');
+    expect(top?.crossSectionalPercentile).toBe(100);
+    expect(top?.marketBlockScore).toBe(41.2);
+    expect(v2.find((row) => row.symbol === '000066')?.crossSectionalPercentile).toBeUndefined();
     const nearMiss = rows.filter((row) => row.source === 'GATE1_NEAR_MISS');
     expect(nearMiss.map((row) => row.symbol).sort()).toEqual(['000062', '000066']);
     const board = await boardFor(rows);

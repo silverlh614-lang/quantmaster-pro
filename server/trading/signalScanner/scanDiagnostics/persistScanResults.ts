@@ -179,6 +179,7 @@ import { isTradingDay } from '../../../utils/marketDayClassifier.js';
 // canonical minSignalScoreTrace.components (built by buildEntryFilterDecomposition)
 // can finally supply minSignalComponents for correct CORE_SIGNAL attribution.
 import { buildGate1ScoreStarvationTraceFromGateResult } from '../gate1PositiveScoreStarvation.js';
+import { buildGate1CrossSectionalShadowReportAdr0597 } from '../gate1CrossSectionalShadowScoreAdr0597.js';
 import { accumulatePositiveScoreStarvation } from './scanCounterAccumulators.js';
 import { persistMidScanDiagnosticBlocksAdr0588 } from './persistScanResultsMidBlocks.js';
 let _lastBuySignalAt = 0;
@@ -796,6 +797,30 @@ export async function persistScanResults(
     }
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.accumulatePositiveScoreStarvationAdr0541', error: e });
+  }
+
+  // ADR-0597 — Gate1 횡단면 percentile shadow 보조점수 (관측 전용, Gate 판정 미소비).
+  // canonical 점수(위 ADR-0541 traces)에서 스캔 내 상대 순위를 산출해 ScanSummary 와
+  // 관측 ledger(midBlocks 의 minSignalScoreBySymbol 경유)에 기록만 한다. 실패는 격리(불변식 #1/#2).
+  try {
+    const crossSectional = buildGate1CrossSectionalShadowReportAdr0597(
+      counters.positiveScoreStarvationTraces.map((trace) => ({
+        symbol: trace.symbol,
+        name: trace.name,
+        actualScore: trace.actualScore,
+        positiveComponents: trace.positiveComponents,
+      })),
+    );
+    summaryDraft.gate1CrossSectionalShadowAdr0597 = crossSectional;
+    if (crossSectional.candidates > 0) {
+      console.info(
+        `[ADR-0597] Gate1 cross-sectional shadow — candidates=${crossSectional.candidates} ` +
+          `totalMedian=${crossSectional.totalScoreMedian} marketBlockMedian=${crossSectional.marketBlockMedian} ` +
+          `top=${crossSectional.topSymbols.join(',')} executionImpact=NONE`,
+      );
+    }
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildGate1CrossSectionalShadowAdr0597', error: e });
   }
 
   // ADR-0541 (option A) — build the canonical PositiveScoreStarvationReport from the

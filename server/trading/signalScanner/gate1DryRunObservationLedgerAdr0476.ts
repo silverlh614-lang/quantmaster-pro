@@ -62,6 +62,10 @@ interface ResolvedObservationMinSignal {
   score?: number;
   requiredScore: number;
   scoreSource: 'MIN_SIGNAL_TRACE' | 'LEGACY_GATE_SCORE';
+  /** ADR-0597 — 횡단면 percentile shadow 관측 동반 필드 (있으면 행에 stamp). */
+  totalPercentile?: number;
+  marketBlockScore?: number;
+  marketBlockPercentile?: number;
 }
 
 /** 관측 행 점수 SSOT 해석 — canonical 최소신호 점수(minSignalScoreBySymbol, requiredScore 와 동일
@@ -80,6 +84,9 @@ function resolveObservationMinSignal(
         ? mapped.requiredScore
         : snapshot.minSignalRequiredScore ?? LEGACY_GATE1_REQUIRED_SCORE,
       scoreSource: 'MIN_SIGNAL_TRACE',
+      ...(finite(mapped.totalPercentile) ? { totalPercentile: mapped.totalPercentile } : {}),
+      ...(finite(mapped.marketBlockScore) ? { marketBlockScore: mapped.marketBlockScore } : {}),
+      ...(finite(mapped.marketBlockPercentile) ? { marketBlockPercentile: mapped.marketBlockPercentile } : {}),
     };
   }
   return {
@@ -310,6 +317,9 @@ function rowFromSnapshot(input: {
     requiredScore,
     ...(scoreGap !== undefined ? { scoreGap } : {}),
     ...(input.minSignal ? { scoreSource: input.minSignal.scoreSource } : {}),
+    ...(finite(input.minSignal?.totalPercentile) ? { crossSectionalPercentile: input.minSignal.totalPercentile } : {}),
+    ...(finite(input.minSignal?.marketBlockScore) ? { marketBlockScore: input.minSignal.marketBlockScore } : {}),
+    ...(finite(input.minSignal?.marketBlockPercentile) ? { marketBlockPercentile: input.minSignal.marketBlockPercentile } : {}),
     ...(finite(entryReferencePrice) && entryReferencePrice > 0 ? { entryReferencePrice } : {}),
     ...(input.sourceSnapshotId ? { sourceSnapshotId: input.sourceSnapshotId } : {}),
     ...(input.scanId ? { scanId: input.scanId } : {}),

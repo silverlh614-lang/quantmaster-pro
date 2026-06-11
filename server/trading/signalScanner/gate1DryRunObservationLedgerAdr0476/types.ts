@@ -78,6 +78,10 @@ export interface Gate1DryRunObservationRow {
   /** 관측 점수 출처 — MIN_SIGNAL_TRACE(canonical 최소신호 점수, requiredScore 와 동일 스케일) vs
    *  LEGACY_GATE_SCORE(27조건 gateScore fallback, 스케일 상이 가능 — 밴드 귀속 신뢰 불가). */
   scoreSource?: 'MIN_SIGNAL_TRACE' | 'LEGACY_GATE_SCORE';
+  /** ADR-0597 — 스캔 내 횡단면 percentile shadow 관측 (Gate 판정 미소비, 표시·학습 전용). */
+  crossSectionalPercentile?: number;
+  marketBlockScore?: number;
+  marketBlockPercentile?: number;
   sourceSnapshotId?: string; regime?: string; marketSession?: string;
   finalGate1Score?: number; rawPositiveScore?: number; effectivePenaltyScore?: number; diagnosticPenaltyScore?: number;
   scoreBand?: Gate1ObservationScoreBand;
@@ -236,8 +240,15 @@ export interface Gate1DryRunObservationBuildInput {
   marketSessionState?: string;
   candidateSnapshots?: readonly CandidateSnapshot[];
   /** per-symbol canonical Gate1 최소신호 점수 (ADR-0541 starvation trace 유래, requiredScore=70 과
-   *  동일 스케일). 미주입 시 기존 snapshot.gateScore fallback (27조건 점수 — 스케일 상이) 보존. */
-  minSignalScoreBySymbol?: Readonly<Record<string, { actualScore: number; requiredScore: number }>>;
+   *  동일 스케일). 미주입 시 기존 snapshot.gateScore fallback (27조건 점수 — 스케일 상이) 보존.
+   *  percentile/marketBlock 필드는 ADR-0597 횡단면 shadow 관측 (optional additive). */
+  minSignalScoreBySymbol?: Readonly<Record<string, {
+    actualScore: number;
+    requiredScore: number;
+    totalPercentile?: number;
+    marketBlockScore?: number;
+    marketBlockPercentile?: number;
+  }>>;
   finalGate1Calibration?: FinalGate1CalibrationAuditReport | null;
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport | null;
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult | null;

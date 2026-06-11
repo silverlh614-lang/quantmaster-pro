@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0597`**
+**다음 ADR 번호: `0598`**
+
+(2026-06-11 기준, 마지막 발급 0597 — gate1-cross-sectional-percentile-shadow-score. **Status: Accepted (구현 동반, 관측 전용).** ADR-0597 — Gate1 절대점수의 레짐 의존(약세장 전 종목 동조 하락, 횡단면 요소 RS 10/108 뿐 — 리뷰 2026-06-11 §1.3) 검증용 횡단면 percentile shadow 보조점수. 신규 순수 SSOT server/trading/signalScanner/gate1CrossSectionalShadowScoreAdr0597.ts — canonical 점수(ADR-0541 starvation traces, fetch 0·quota 0)에서 스캔 내 midrank 백분위(동률 0.5 가중·n=1→50)와 시장신호 블록 합(PM/TECH/VOL/RS/WUS/BREAKOUT 6종, 상수/맥락 블록 제외, 컴포넌트 부재 시 null=결손≠0 불변식 #6) 산출. 기록 2경로 — ScanSummary.gate1CrossSectionalShadowAdr0597(additive) + ADR-0476 관측 ledger 행 crossSectionalPercentile/marketBlockScore/marketBlockPercentile stamp(점수 스케일 정합 patch 의 minSignalScoreBySymbol map 경유, 신규 배선 0) → "절대 점수 밴드 × percentile 밴드" 교차 forward 분석 가능. Gate 판정·requiredScore·가중치·정렬 미소비(관측·기록만), ENV 불요 항상-on 진단, 실패 try/catch 격리+warn. 후속(별도 ADR): percentile 보조 임계 live 반영·상수블록 32점 적격성 게이트 분리. 계보 리뷰 20260611/ADR-0541/0546/0476/0467. INDEX 0597→0598 갱신.)
 
 (2026-06-10 기준, 마지막 발급 0596 — minimumsignalscoretrace-component-decomposition. ADR-0596 — `signalScanner/minimumSignalScoreTrace.ts` 1,499~1,500줄 ACMA 한계(1,500) 1줄 차 재도달(ADR-0524 분해 후 ADR-0467/0505/0594 누적 재상승) 선제 분해. 점수 컴포넌트 계산층(`priceMomentumScore`/`breakoutScore`/`volumeLiquidityScore`/`technicalTrendScore`/`normalizedRelativeStrength` ~415줄)·trace 경로 해석 유틸(`resolveNumericTracePath`/`breakoutSignalState` 등 ~178줄)·집계 리포트(`buildMinSignalScoreDecompositionReport`/`buildSignalScoreCalibrationResults` ~233줄)를 `minimumSignalScoreTrace/` 하위 신규 3모듈(traceFieldResolver ~205 / componentScorers ~455 / decompositionReport ~265)로 **순수 이동** — 본체는 trace/audit/softFail/riskPenalty 조립 4종만 잔류 ~690줄. public API re-export byte-equivalent(외부 importer 10+ 무수정), 가중치·페널티·confidence 정책 0변경, advisory-only executionImpact=NONE. 정적 가드(operatorActionRouterAdr0480 L180 `requiredScore` 단언)는 본체 잔류 설계로 갱신 0건 — green 재확인 의무. 9대 불변식 #2/#6/#7/#9 보존(scorer 는 trace 입력만, provider 직접 조회 0). 계보 ADR-0524/0466/0467/0594/0444. INDEX 0596→0597 갱신.)
 
@@ -213,6 +215,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0597 | Gate1 횡단면 percentile shadow 보조점수 — canonical 점수(ADR-0541)에서 스캔 내 midrank 백분위 + 시장신호 블록 합(상수블록 제외) 산출, ScanSummary+ADR-0476 ledger 행 stamp (관측 전용, Gate 판정 미소비, fetch 0). 절대 vs 횡단면 임계 논쟁의 forward 증거 수집 개시. 계보 리뷰 20260611/0541/0546/0476 | policy / signalScanner |
 | 0596 | minimumSignalScoreTrace component decomposition — 점수 컴포넌트 계산(scorer 5종)·trace 경로 해석·집계 리포트를 minimumSignalScoreTrace/ 하위 3모듈(traceFieldResolver/componentScorers/decompositionReport)로 순수 이동, 본체 1,500→~690줄(조립 4종 잔류). re-export byte-equivalent·정책 0변경·advisory-only. 가드 갱신 0건(requiredScore 단언 본체 잔류). 계보 ADR-0524/0466/0594 | refactor / signalScanner |
 | 0595 | marketDataRefresh section-module decomposition — refresh*Section 도메인 그룹(지수거시/수급신용/프로그램매매/섹터에너지)+공유 observability 를 marketDataRefresh/ 하위 5모듈로 순수 이동, 본체 1,497→~375줄(오케스트레이터+MERGE 영속+re-export 잔류). 호출 그래프·순서 불변, 정적 가드 9파일 ADR-0444 concat 패턴 갱신(단언 무수정). 계보 ADR-0580/0589/0592 | refactor / trading |
 | 0594 | Gate1 regime-aware reversal momentum credit — risk-on 국면(RISK_ON_REGIMES) 한정 quote.changePercent 를 PRICE_MOMENTUM 에 bounded 양수 가산(T_min~T_cap 선형·MAX_BONUS 상한·maxScore 20 천장 불변·hard-block/감점 무변경). 신규 SSOT signalScanner/reversalMomentumCredit.ts. flag GATE1_REVERSAL_MOMENTUM_ENABLED default OFF=byte-equivalent. 계보 ADR-0593/0592/0550/0546 | trading / gate1 / flag-gated |
@@ -644,7 +647,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0594 · 다음 발급 0595** — `node scripts/check_adr_index.js --json` 기준 (2026-06-10 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0597 · 다음 발급 0598** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

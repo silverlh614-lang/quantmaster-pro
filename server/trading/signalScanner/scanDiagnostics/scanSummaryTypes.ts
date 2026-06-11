@@ -326,6 +326,8 @@ export interface ScanSummary {
   gate1ThresholdEvidence?: Gate1ThresholdEvidenceSummary;
   // ADR-0546 Phase2 prep — regime 인식 임계 survivor 관측(섀도 전용, executionImpact=NONE).
   gate1RegimeAwareSurvivor?: Gate1RegimeAwareSurvivorObservation;
+  // ADR-0597 — 횡단면 percentile shadow 보조점수 (관측 전용, Gate 판정 미소비).
+  gate1CrossSectionalShadowAdr0597?: import('../gate1CrossSectionalShadowScoreAdr0597.js').Gate1CrossSectionalShadowReportAdr0597;
   unifiedOutcomeLabeler?: UnifiedForwardOutcomeLabelerSummary;
   investorFlowProviderRouter?: InvestorFlowProviderRouteResult;
   naverInvestorTrendAdr0481?: NaverInvestorTrendCollectorResult;
