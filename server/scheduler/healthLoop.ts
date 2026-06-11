@@ -2,6 +2,8 @@
 //
 // 정상→정상 무알림 + 정상→비정상 즉시 + 비정상→정상 회복 + 비정상→비정상 dedupe.
 // `collectHealthSnapshot()` SSOT read-only — 외부 KIS/KRX/Yahoo 호출 추가 금지.
+// 예외: KIS 토큰 만료 분기 한정 self-heal refresh 1회 허용 (2026-06-11 인시던트) —
+// snapshot 수집이 아닌 복구 조치이므로 read-only 규칙 위반이 아니다.
 
 import fs from 'fs';
 import { scheduledJob } from './scheduleGuard.js';
@@ -146,6 +148,47 @@ export async function alertOnce(
   return true;
 }
 
+// ─── KIS 토큰 heal-first (2026-06-11 인시던트) ────────────────────────────
+
+/**
+ * 만료 분기 한정 self-heal — CRITICAL 발송 **전에** 토큰 재발급 1회 시도.
+ *
+ * 재배포 직후 휘발 data/ 로 토큰 캐시가 비어 "만료"로 관측돼도 OAuth 재발급이
+ * 가능하면 거짓 긴급 경보 대신 NORMAL self-healed 1건만 남긴다.
+ * single-flight(auth.ts 내장) + Tier 1 5분 주기가 재시도 자연 상한.
+ * 실계좌(realData) 토큰은 HAS_REAL_DATA_CLIENT 시 함께 시도하되 실패는 main
+ * 결과에 영향 없이 로그만 남긴다.
+ *
+ * @returns 재발급 후 main 토큰 잔여 시간(h). 실패 시 0 — 호출자는 기존 CRITICAL
+ *          (휴장일 다운그레이드 포함) 경로로 진행.
+ */
+async function attemptKisTokenHealFirst(): Promise<number> {
+  try {
+    const auth = await import('../clients/kisClient/auth.js');
+    await auth.refreshKisToken();
+    const { HAS_REAL_DATA_CLIENT } = await import('../clients/kisClient/constants.js');
+    if (HAS_REAL_DATA_CLIENT) {
+      try {
+        await auth.refreshRealDataToken();
+      } catch (e) {
+        // realData 토큰 실패는 main self-heal 결과에 영향 없음 — 로그만.
+        console.warn(
+          '[HealthLoop] realData 토큰 self-heal 재발급 실패 (main 무영향):',
+          e instanceof Error ? e.message : e,
+        );
+      }
+    }
+    return auth.getKisTokenRemainingHours();
+  } catch (e) {
+    // 불변식 #1 — heal 실패는 기존 CRITICAL 경보 경로로 진행 (silent catch 아님).
+    console.warn(
+      '[HealthLoop] KIS 토큰 heal-first 재발급 실패 — 기존 만료 경보 경로 진행:',
+      e instanceof Error ? e.message : e,
+    );
+    return 0;
+  }
+}
+
 // ─── Tier 1: 5분 (4 임계) ─────────────────────────────────────────────────
 
 interface KrxMasterInfo {
@@ -206,24 +249,47 @@ export async function runTier1(now = new Date()): Promise<HealthLoopState> {
       now,
     );
   } else if (lastBucket !== undefined && kisHours === 0 && lastBucket >= 0) {
-    const profile = kisTokenAlertProfile(now);
-    await alertOnce(
-      state,
-      downgradeKrxClosed ? 'kis_token_expired_maintenance' : 'kis_token_expired',
-      `${profile.label}\n${profile.suffix}`,
-      {
-        priority: profile.priority,
-        noiseEvent: {
-          eventType: 'KIS_TOKEN_EXPIRED_IMPACTED',
-          channel: 'CH1_TRADE',
-          tokenExpiresInSeconds: 0,
-          status: downgradeKrxClosed ? 'EXPIRED_MARKET_CLOSED' : 'EXPIRED',
-          queryImpacted: !downgradeKrxClosed,
-          executionImpact: downgradeKrxClosed ? 'NONE' : 'QUERY_IMPACT',
+    // 선치유-후경보 (2026-06-11 인시던트) — 재배포 직후 휘발 토큰 캐시가 "만료"로
+    // 관측돼도 재발급 가능하면 거짓 CRITICAL 대신 NORMAL self-healed 1건만 발송.
+    const healedHours = await attemptKisTokenHealFirst();
+    if (healedHours > 0) {
+      await alertOnce(
+        state,
+        'kis_token_self_healed',
+        `🔄 KIS 토큰 만료 감지 → 자동 재발급 완료\n잔여 ${healedHours.toFixed(1)}h — 운영자 조치 불필요 (heal-first).`,
+        {
+          priority: 'NORMAL',
+          noiseEvent: {
+            eventType: 'HEALTH_RECOVERY',
+            channel: 'CH4_JOURNAL',
+            tokenExpiresInSeconds: Math.max(0, Math.round(healedHours * 3600)),
+            status: 'SELF_HEALED',
+            executionImpact: 'NONE',
+            dedupeHint: 'kis_token_self_healed',
+          },
         },
-      },
-      now,
-    );
+        now,
+      );
+    } else {
+      const profile = kisTokenAlertProfile(now);
+      await alertOnce(
+        state,
+        downgradeKrxClosed ? 'kis_token_expired_maintenance' : 'kis_token_expired',
+        `${profile.label}\n${profile.suffix}`,
+        {
+          priority: profile.priority,
+          noiseEvent: {
+            eventType: 'KIS_TOKEN_EXPIRED_IMPACTED',
+            channel: 'CH1_TRADE',
+            tokenExpiresInSeconds: 0,
+            status: downgradeKrxClosed ? 'EXPIRED_MARKET_CLOSED' : 'EXPIRED',
+            queryImpacted: !downgradeKrxClosed,
+            executionImpact: downgradeKrxClosed ? 'NONE' : 'QUERY_IMPACT',
+          },
+        },
+        now,
+      );
+    }
   }
 
   // KIS 토큰 self-heal — 토큰이 유효(재발급 포함)하면 만료 경보의 미확인 T1 ack 를
@@ -235,7 +301,7 @@ export async function runTier1(now = new Date()): Promise<HealthLoopState> {
   if (kisHours > 0) {
     try {
       const { autoResolvePendingAcks } = await import('../alerts/ackTracker.js');
-      await autoResolvePendingAcks(
+      const resolvedCount = await autoResolvePendingAcks(
         (e) => {
           const key = e.dedupeKey ?? '';
           if (key.includes('kis_token_expired')) return true;
@@ -244,6 +310,27 @@ export async function runTier1(now = new Date()): Promise<HealthLoopState> {
         },
         'KIS 토큰 재발급 — 조건 회복',
       );
+      // 회복 가시화 (2026-06-11 인시던트) — 실제 해소 건이 ≥1 일 때만 운영자 대면
+      // 1건 발송. 해소 0건이면 무발송 (평시 무소음 보존).
+      if (resolvedCount >= 1) {
+        await alertOnce(
+          state,
+          'kis_token_expired_ack_recovered',
+          `✅ KIS 토큰 재발급 확인 — 만료 경보 해소\n미확인 만료 경보 ${resolvedCount}건 자동 해소 (잔여 ${kisHours.toFixed(1)}h).`,
+          {
+            priority: 'NORMAL',
+            noiseEvent: {
+              eventType: 'HEALTH_RECOVERY',
+              channel: 'CH4_JOURNAL',
+              tokenExpiresInSeconds: Math.max(0, Math.round(kisHours * 3600)),
+              status: 'SELF_HEALED',
+              executionImpact: 'NONE',
+              dedupeHint: 'kis_token_expired_ack_recovered',
+            },
+          },
+          now,
+        );
+      }
     } catch (e) {
       console.warn(
         '[HealthLoop] KIS 토큰 ack 자동 해소 실패:',

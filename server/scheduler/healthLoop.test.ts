@@ -19,6 +19,16 @@ vi.mock('../health/diagnostics.js', () => ({
   collectHealthSnapshot: vi.fn(),
 }));
 
+// heal-first (2026-06-11 인시던트) — 본 파일 기존 테스트는 "refresh 실패 → 기존
+// CRITICAL 경로 보존"을 전제로 한다. 성공 시나리오는 healthLoopKisTokenHealFirst.test.ts.
+vi.mock('../clients/kisClient/auth.js', () => ({
+  refreshKisToken: vi.fn(async () => {
+    throw new Error('test: OAuth refresh unavailable');
+  }),
+  refreshRealDataToken: vi.fn(),
+  getKisTokenRemainingHours: vi.fn(() => 0),
+}));
+
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'health-loop-'));
   process.env.PERSIST_DATA_DIR = tmpDir;
