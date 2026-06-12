@@ -9,6 +9,7 @@ import {
 import { AlertCategory } from './alertCategories.js';
 import { sendPrivateAlert, type TelegramAlertOptions } from './telegramClient.js';
 import { incrementChannelStat } from '../persistence/channelStatsRepo.js';
+import { resolveShadowChannelRoute } from './shadowQuietRouting.js';
 import {
   appendNotificationLedger,
   updateNotificationLedgerState,
@@ -159,7 +160,11 @@ const DEFAULT_SEVERITY: Record<TelegramEventType, AlertSeverity> = {
 export function routeTelegramEvent(type: TelegramEventType): TelegramEventRoute {
   if (PRIVATE_EVENTS.has(type)) return 'PRIVATE';
   if (EXECUTION_EVENTS.has(type)) return ChannelSemantic.EXECUTION;
-  if (SIGNAL_EVENTS.has(type)) return ChannelSemantic.SIGNAL;
+  if (SIGNAL_EVENTS.has(type)) {
+    // ADR-0607 — LIVE 모드 SHADOW 신호(SHADOW_BUY/SELL_SIGNAL)는 CH4(JOURNAL)로 격리,
+    // CH2(SIGNAL)는 LIVE 신호 전용으로 비운다. ENV OFF/비LIVE 시 SIGNAL 그대로(byte-equivalent).
+    return resolveShadowChannelRoute(ChannelSemantic.SIGNAL, SHADOW_SIGNAL_EVENTS.has(type));
+  }
   if (REGIME_EVENTS.has(type)) return ChannelSemantic.REGIME;
   if (JOURNAL_EVENTS.has(type)) return ChannelSemantic.JOURNAL;
   return ChannelSemantic.JOURNAL;

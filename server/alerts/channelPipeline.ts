@@ -17,6 +17,7 @@
 import { escapeHtml, sendPrivateAlert } from './telegramClient.js';
 import { dispatchAlert } from './alertRouter.js';
 import { AlertCategory, ChannelSemantic, isCategoryEnabled } from './alertCategories.js';
+import { resolveShadowChannelRoute } from './shadowQuietRouting.js';
 import { formatAlert } from './formatAlert.js';
 import type { WatchlistEntry } from '../persistence/watchlistRepo.js';
 import {
@@ -68,7 +69,10 @@ export async function channelBuySignalEmitted(p: ChannelBuySignalParams): Promis
     headerEmoji: '🧪',
     bodyLines,
   });
-  await dispatchAlert(ChannelSemantic.SIGNAL, message).catch(console.error);
+  // ADR-0607 — LIVE 모드일 때 SHADOW 매수 신호는 CH4(JOURNAL)로 격리(CH2 는 LIVE 신호 전용).
+  // ENV OFF(default)/비LIVE 면 SIGNAL 그대로 → byte-equivalent. LIVE 신호(p.mode==='LIVE')는 항상 CH2.
+  const buySignalRoute = resolveShadowChannelRoute(ChannelSemantic.SIGNAL, p.mode === 'SHADOW');
+  await dispatchAlert(buySignalRoute, message).catch(console.error);
 
   if (p.mode === 'SHADOW') {
     const dedupeKey = `SHADOW_BUY_SIGNAL:${p.stockCode}:${new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' })}:${p.price}:${p.quantity}`;
