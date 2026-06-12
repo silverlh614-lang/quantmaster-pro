@@ -124,6 +124,24 @@ describe('gate1 ledger → counterfactual board band pipeline (점수 스케일 
     expect(text).toContain('unscored=');
     expect(text).toContain('excludedRows=');
   });
+
+  it('R1 진단 가시화: 70+ 점수가 scoreSource 격리(legacyScale)로 샐 때 legacyScale70Plus·excludedByReason 로 노출된다', async () => {
+    const rows = buildGate1DryRunObservationRows({
+      ...buildContext(),
+      candidateSnapshots: [
+        snapshot('000072', 72, true), // 70+ 점수, map 미주입 → LEGACY_GATE_SCORE → 명명 밴드 미집계
+        snapshot('000050', 50, false),
+      ],
+    });
+    const board = await boardFor(rows);
+    expect(bandCount(board, '70+')).toBe(0); // canonical 아님 → 70+ 명명 밴드엔 0 (비가시 탈락)
+    const text = formatCounterfactualGate1(board);
+    // S1: 70+ 점수인데 legacyScale 로 격리된 행이 1개 이상 명시 노출 (board.rows 재집계, 신규 산출 0).
+    // n 의 정확값은 ledger 행 생성 개수(구현 세부)에 의존하므로 n>=1 만 단언.
+    expect(text).toMatch(/legacyScale70Plus\(scoreSource 격리\): n=[1-9]/);
+    // S2: 제외 사유 분포 라인 존재 (board.debug.excludedReasonDistribution 재사용).
+    expect(text).toContain('excludedByReason:');
+  });
 });
 
 describe('GATE1_OBSERVATION_TOP_N ENV', () => {

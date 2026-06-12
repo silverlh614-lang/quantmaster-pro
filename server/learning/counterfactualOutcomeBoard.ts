@@ -1332,16 +1332,16 @@ function formatBandRows(title: string, rows: readonly CounterfactualBandOutcome[
 }
 
 export function formatCounterfactualGate1(board: CounterfactualOutcomeBoard): string {
-  // 비가시 탈락 가시화(2026-06-11 리뷰 §4): UNSCORED 밴드·제외 행은 5밴드 출력에 안 잡혀
-  // "전 밴드 0건"의 원인을 숨겼다 — 합계 1줄로 노출 (silent 금지).
-  const unscored = board.rows.filter((row) => row.gate1Band === 'UNSCORED').length;
+  // 비가시 탈락 가시화(2026-06-11 §4 · 2026-06-12 Track A R1): UNSCORED/excluded 행이 5밴드에 안 잡혀
+  // "전 밴드 0건"을 숨긴다 — scoreSource 격리(70+)·제외 사유 분포 명시 노출 (board.debug 재사용; silent 금지).
   const excludedTotal = Object.values(board.debug.excludedReasonDistribution).reduce((sum, n) => sum + n, 0);
-  const topExcluded = Object.entries(board.debug.excludedReasonDistribution)
-    .sort((a, b) => b[1] - a[1])[0];
+  const legacyScale70Plus = board.rows.filter((row) => row.gate1Band === '70+' && row.scoreSource !== 'MIN_SIGNAL_TRACE').length;
   return [
     formatBandRows('[Counterfactual Gate1 Bands]', board.gate1Bands),
     `legacyScaleMixed(밴드 제외): n=${board.gate1LegacyScale.count} matureD5=${board.gate1LegacyScale.matureD5} avgD5=${num(board.gate1LegacyScale.avgReturnD5, '%')} correctBlock=${pct(board.gate1LegacyScale.correctBlockRateD5)}`,
-    `unscored=${unscored} excludedRows=${excludedTotal} topExcluded=${topExcluded ? `${topExcluded[0]}:${topExcluded[1]}` : 'NONE'}`,
+    `legacyScale70Plus(scoreSource 격리): n=${legacyScale70Plus}`,
+    `unscored=${board.rows.filter((row) => row.gate1Band === 'UNSCORED').length} excludedRows=${excludedTotal}`,
+    distributionLine('excludedByReason', board.debug.excludedReasonDistribution),
   ].join('\n');
 }
 
