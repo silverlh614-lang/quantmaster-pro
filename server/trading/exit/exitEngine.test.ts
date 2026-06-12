@@ -71,4 +71,25 @@ describe('split exit engines', () => {
       executionImpact: 'NONE',
     });
   });
+
+  // 중복주문 방어 회귀 (facade) — 이미 R6 긴급청산된 포지션은 정규장 중에도 재주문하지 않는다.
+  // r6EmergencySold=true → policy NO_EXIT → placeKisSellOrder 호출 0회 (KIS 실주문 중복 차단).
+  it('LiveExitEngine does not resubmit a sell for an already-sold R6 position (no duplicate order)', async () => {
+    const submit = vi.fn(async () => ({ ordNo: 'ORD-DUP', placed: true, outcome: 'LIVE_ORDERED' as const }));
+    const result = await evaluateLiveExit({
+      trade: trade('LIVE', { r6EmergencySold: true }),
+      currentRegime: 'R6_DEFENSE',
+      currentPrice: 70000,
+      returnPct: -3,
+      marketSessionState: 'REGULAR',
+      isKrxTradingOpen: true,
+      kisOrderAllowed: true,
+      liveOrderAllowed: true,
+    }, {
+      placeKisSellOrder: submit,
+    });
+
+    expect(result).toEqual({ kind: 'NO_EXIT', reason: 'R6_EMERGENCY_ALREADY_SOLD' });
+    expect(submit).not.toHaveBeenCalled();
+  });
 });

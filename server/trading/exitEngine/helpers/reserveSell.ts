@@ -108,10 +108,10 @@ export function reserveSellIntent(
     shadow,
     reservationFailureReason(reservation),
     reservation.kind === 'DUPLICATE_BLOCKED'
-      ? '?좑툘 [SELL 以묐났 ?덉빟 李⑤떒]'
+      ? '⚠️ [SELL 중복 예약 차단]'
       : reservation.kind === 'INSUFFICIENT_QUANTITY'
-        ? '?좑툘 [SELL ?붾웾 遺議?李⑤떒]'
-        : '?좑툘 [SELL ?덉빟 ?ㅽ뙣]',
+        ? '⚠️ [SELL 잔량 부족 차단]'
+        : '⚠️ [SELL 예약 실패]',
   );
 }
 
