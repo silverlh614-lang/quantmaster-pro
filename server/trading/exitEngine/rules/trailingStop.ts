@@ -21,7 +21,10 @@ export async function trailingStop(ctx: ExitContext): Promise<ExitRuleResult> {
     return NO_OP;
   }
 
-  const trailFloor = shadow.trailingHighWaterMark * (1 - (shadow.trailPct ?? 0.10));
+  // ADR-0606: 러너는 넓은 폭(runnerTrailPct) 우선 — 비러너/flag OFF 는 runnerTrailPct 부재로
+  // 기존 trailPct 경로 그대로 (byte-equivalent).
+  const effectiveTrailPct = shadow.runnerTrailPct ?? shadow.trailPct ?? 0.10;
+  const trailFloor = shadow.trailingHighWaterMark * (1 - effectiveTrailPct);
   if (currentPrice > trailFloor) return NO_OP;
 
   const soldQty = shadow.quantity;
@@ -55,7 +58,7 @@ export async function trailingStop(ctx: ExitContext): Promise<ExitRuleResult> {
   }
   console.log(`[Shadow Close] TRAILING_PROTECTIVE_STOP — ${shadow.stockCode} soldQty=${soldQty} quantity→0`);
   appendShadowLog({ event: 'TRAILING_STOP', ...shadow, soldQty });
-  console.log(`[AutoTrade] 📉 ${shadow.stockName} (${shadow.stockCode}) L3 트레일링 스톱 (HWM×${(1 - (shadow.trailPct ?? 0.10)).toFixed(2)}) @${currentPrice.toLocaleString()}`);
+  console.log(`[AutoTrade] 📉 ${shadow.stockName} (${shadow.stockCode}) L3 트레일링 스톱 (HWM×${(1 - effectiveTrailPct).toFixed(2)}) @${currentPrice.toLocaleString()}`);
   const trailTs = new Date().toISOString();
   const trailReserve = await placeReservedSellOrder(shadow, soldQty, 'TAKE_PROFIT', {
     type: 'SELL', subType: 'TRAILING_TP',

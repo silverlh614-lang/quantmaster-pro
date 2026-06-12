@@ -552,7 +552,7 @@ export interface ServerShadowTrade {
    * 큰 수익(추세) 종목이 분할익절 잔량 전량 트랜치를 스킵하고 넓은 트레일링으로 추세
    * 끝까지 추종하도록 승격된 상태. SHADOW 전용 — RUNNER_MODE_ENABLED ON 일 때만 채워진다.
    * 모두 옵셔널 additive — 기존 영속 스키마 무파괴. 미설정(레거시/flag OFF) = 비러너.
-   * 승격/스킵/트레일링 폭 판정은 src/services/quant/sell/runnerPolicy.ts SSOT.
+   * 승격/스킵/트레일링 폭 판정은 server/trading/exit/policies/runnerPolicy.ts SSOT.
    */
   isRunner?: boolean;             // 러너 승격 여부 (true → 슬롯 카운트 제외 대상)
   runnerActivatedAt?: string;     // 러너 승격 KST ISO 타임스탬프
