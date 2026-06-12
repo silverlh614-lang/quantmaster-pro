@@ -151,6 +151,8 @@ export interface BuildBuyTradeParams {
   regime: string;
   profileType: 'A' | 'B' | 'C' | 'D';
   watchlistSource: ServerShadowTrade['watchlistSource'];
+  /** ADR-0608 진입 임계 모드 라벨 — regime-aware SHADOW 진입 표본 격리(학습 오염 방지). */
+  entryThresholdMode?: ServerShadowTrade['entryThresholdMode'];
   profitTranches: { price: number; ratio: number; taken: boolean }[];
   trailPct: number;
   entryATR14?: number;
@@ -203,6 +205,7 @@ export function buildBuyTrade(p: BuildBuyTradeParams): ServerShadowTrade {
     ...(p.entryConditionScores && Object.keys(p.entryConditionScores).length > 0
       ? { entryConditionScores: p.entryConditionScores }
       : {}),
+    ...(p.entryThresholdMode ? { entryThresholdMode: p.entryThresholdMode } : {}),
     ...(p.sizingSource ? { sizingSource: p.sizingSource } : {}),
     ...(p.sizingEngineSnapshot ? { sizingEngineSnapshot: p.sizingEngineSnapshot } : {}),
     ...(p.rawSignal ? { rawSignal: p.rawSignal } : {}),

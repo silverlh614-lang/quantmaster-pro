@@ -25,6 +25,16 @@ export interface EntryRevalidationSkippedBatchItem {
   reasons: string[];
 }
 
+/**
+ * ADR-0608: 진입 재검증 게이트 결과. decision 은 기존 SKIP/CONTINUE 제어 흐름 보존,
+ * entryThresholdMode 는 proceed(CONTINUE) 시 buildBuyTrade 스탬프용 라벨 carry.
+ * 미설정(후방호환) = LEGACY 표본.
+ */
+export interface EntryRevalidationGateResult {
+  decision: 'SKIP' | 'CONTINUE';
+  entryThresholdMode?: import('../../../gate1ShadowEntryThreshold.js').EntryThresholdMode;
+}
+
 type ReCheckQuote = {
   dayOpen?: number;
   prevClose?: number;
@@ -42,7 +52,10 @@ export async function handleEntryRevalidationGate(
   stageLog: Record<string, string>,
   pushTrace: () => void,
   entryRevalidationSkippedBatch: EntryRevalidationSkippedBatchItem[],
-): Promise<'SKIP' | 'CONTINUE'> {
+  // ADR-0608: stockShadowMode — SHADOW(paper) 진입 경로 식별. ENV ON 시에만 진입 임계
+  // regime-aware 분기. 후방호환: 미전달 시 false → LIVE legacy byte-equivalent.
+  stockShadowMode = false,
+): Promise<EntryRevalidationGateResult> {
   const sectorEnergyResult = ctx.macroState?.sectorEnergyResult ?? null;
   const sectorEnergyDataQuality = ctx.macroState?.sectorEnergyDataQuality;
   // ADR-0060: stock.sector 부재 시 getSectorByCode fallback (sectorConcentrationGate 동일 정책)
@@ -72,6 +85,7 @@ export async function handleEntryRevalidationGate(
     marketElapsedMinutes: getKstMarketElapsedMinutes(),
     sectorBoost,
     sectorBoostReason,
+    isShadow: stockShadowMode,
   });
   if (!revalResult.proceed) {
     const policySkipped = revalResult.stageLogValue === 'SKIPPED_POLICY_BLOCK';
@@ -143,7 +157,8 @@ export async function handleEntryRevalidationGate(
     } catch (e) {
       console.warn(`[RejectionShadow] record ?ㅽ뙣 ${stock.code}:`, e instanceof Error ? e.message : e);
     }
-    return 'SKIP';
+    return { decision: 'SKIP' };
   }
-  return 'CONTINUE';
+  // ADR-0608: proceed 시 진입 임계 모드 라벨 carry → buildBuyTrade 스탬프.
+  return { decision: 'CONTINUE', entryThresholdMode: revalResult.entryThresholdMode };
 }

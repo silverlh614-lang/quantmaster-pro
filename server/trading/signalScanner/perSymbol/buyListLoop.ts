@@ -453,8 +453,12 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         stageLog,
         pushTrace,
         entryRevalidationSkippedBatch,
+        // ADR-0608: 진입 임계 분기용 SHADOW(paper) 식별자 — 게이트 평가 시점 값.
+        stockShadowMode,
       );
-      if (entryRevalidationResult === 'SKIP') continue;
+      if (entryRevalidationResult.decision === 'SKIP') continue;
+      // ADR-0608: 적용된 진입 임계 모드 라벨 — buildBuyTrade → ServerShadowTrade 스탬프.
+      const entryThresholdMode = entryRevalidationResult.entryThresholdMode;
 
       // ── ADR-0031 PR-61: quoteAvailabilityStep RevalidationStep ──────────
       // BUG-02 fix: Yahoo 실패 시 MTAS 검증 우회 방지 — 재검증 불가 시 진입 보류
@@ -719,6 +723,8 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         currentPrice, shadowEntryPrice, quantity: execQty,
         stopLossPlan, targetPrice: stock.targetPrice, shadowMode: stockShadowMode, regime: ctx.regime,
         profileType: profile, watchlistSource: undefined,
+        // ADR-0608: regime-aware SHADOW 진입 표본 격리 라벨 (학습 표본 오염 방지).
+        entryThresholdMode,
         profitTranches: limitTranches.map((t) => ({
           price: shadowEntryPrice * (1 + (t.trigger as number)), ratio: t.ratio, taken: false,
         })),

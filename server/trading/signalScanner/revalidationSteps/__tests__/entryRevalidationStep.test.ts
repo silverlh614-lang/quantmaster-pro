@@ -1,6 +1,6 @@
 // @responsibility entryRevalidationStep PoC 회귀 테스트 — proceed/fail 분기 + diagnostic 형식 검증
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { entryRevalidationStep } from '../entryRevalidationStep.js';
 
 /**
@@ -188,6 +188,74 @@ describe('entryRevalidationStep', () => {
         expect(result.logMessage).not.toMatch(/\[[\w가-힣]+\s[+-]\d+\s\([A-Z]+/);
       }
     });
+  });
+});
+
+describe('ADR-0608 entryRevalidationStep — isShadow 진입 임계 분기', () => {
+  const ENV_KEY = 'GATE1_REGIME_AWARE_SHADOW_ENTRY_ENABLED';
+  let savedEnv: string | undefined;
+
+  beforeEach(() => {
+    savedEnv = process.env[ENV_KEY];
+    delete process.env[ENV_KEY];
+  });
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = savedEnv;
+  });
+
+  // ⚠ 중요(ADR-0116 보존): entryRevalidationStep 은 resolveEntryMinGateScore 결과에
+  //   Math.max(minGateBase - relaxedDelta, 5) 바닥(=5)을 적용한다. 따라서 R3_EARLY(=4)
+  //   regime-aware 값은 step 단계에서 5로 클램프된다. Phase 1 의 산출물은 '분리 seam +
+  //   entryThresholdMode 라벨'이며, getMinGateScore===getEffectiveGateThreshold 인 현 시점에
+  //   step 동작은 ENV ON/OFF 가 byte-identical (불변식 #8 분리 seam 확보가 목적).
+  //
+  // 통과 표본(score 6 ≥ floor 5)으로 라벨 carry 를 검증한다.
+  const passInput = {
+    ...baseInput,
+    regime: 'R3_EARLY',
+    reCheckGate: { gateScore: 6 as number | undefined, signalType: 'NORMAL' as const },
+  };
+
+  it('미전달(후방호환) → LEGACY 경로 + proceed 시 entryThresholdMode=LEGACY', () => {
+    const result = entryRevalidationStep(baseInput); // isShadow 미전달
+    expect(result.proceed).toBe(true);
+    if (!result.proceed) return;
+    expect(result.entryThresholdMode).toBe('LEGACY');
+  });
+
+  it('ENV ON + isShadow + 통과 표본 → proceed + 라벨 REGIME_AWARE_SHADOW carry', () => {
+    process.env[ENV_KEY] = 'true';
+    const result = entryRevalidationStep({ ...passInput, isShadow: true });
+    expect(result.proceed).toBe(true);
+    if (!result.proceed) return;
+    expect(result.entryThresholdMode).toBe('REGIME_AWARE_SHADOW');
+  });
+
+  it('ENV ON + LIVE(isShadow=false) + 통과 표본 → proceed + 라벨 LEGACY (LIVE 표본 격리)', () => {
+    process.env[ENV_KEY] = 'true';
+    const result = entryRevalidationStep({ ...passInput, isShadow: false });
+    expect(result.proceed).toBe(true);
+    if (!result.proceed) return;
+    expect(result.entryThresholdMode).toBe('LEGACY');
+  });
+
+  it('ENV ON/OFF — step minGate 동작 byte-identical (floor=5 클램프 + 동일 SSOT). proceed 동일', () => {
+    // score 4 (< floor 5) 표본: ENV ON SHADOW(regime-aware 4→floor 5) 와 ENV OFF 모두 탈락.
+    const score4 = {
+      ...baseInput,
+      regime: 'R3_EARLY',
+      reCheckGate: { gateScore: 4 as number | undefined, signalType: 'NORMAL' as const },
+    };
+    delete process.env[ENV_KEY];
+    const off = entryRevalidationStep({ ...score4, isShadow: true });
+    process.env[ENV_KEY] = 'true';
+    const on = entryRevalidationStep({ ...score4, isShadow: true });
+    expect(on.proceed).toBe(off.proceed);
+    expect(on.proceed).toBe(false); // floor 5 가 R3_EARLY 4 를 클램프 — 양쪽 모두 탈락
+    if (off.proceed || on.proceed) return;
+    expect(off.failReasons.some((r) => r.includes('Gate 재검증 미달'))).toBe(true);
+    expect(on.failReasons.some((r) => r.includes('Gate 재검증 미달'))).toBe(true);
   });
 });
 

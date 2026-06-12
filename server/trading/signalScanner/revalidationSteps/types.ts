@@ -32,6 +32,13 @@ export interface RevalidationStepFail {
 
 export interface RevalidationStepPass {
   proceed: true;
+  /**
+   * ADR-0608: 진입 임계 모드 라벨. SHADOW(paper) + ENV ON 에서 regime-aware 임계가
+   * 적용된 진입은 'REGIME_AWARE_SHADOW', 그 외(LIVE/ENV OFF/legacy 통과)는 'LEGACY'.
+   * caller(buyListLoop)가 buildBuyTrade → ServerShadowTrade.entryThresholdMode 로 스탬프.
+   * 미설정(후방호환) = 라벨 미부착(LEGACY 표본과 동일 취급).
+   */
+  entryThresholdMode?: import('../../gate1ShadowEntryThreshold.js').EntryThresholdMode;
 }
 
 export type RevalidationStepResult = RevalidationStepPass | RevalidationStepFail;

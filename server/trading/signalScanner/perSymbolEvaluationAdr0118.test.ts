@@ -117,7 +117,7 @@ describe('ADR-0118 분기별 카운터 — handleEntryRevalidationGate 경로', 
     const result = await handleEntryRevalidationGate(
       ctx, stock, { gateScore: 5 } as never, undefined as never, 1_000, null, {}, vi.fn(), [],
     );
-    expect(result).toBe('SKIP');
+    expect(result.decision).toBe('SKIP');
     expect(ctx.scanCounters.waitGateFail).toBe(1);
     expect(ctx.scanCounters.gateMisses).toBe(1);
     expect(ctx.scanCounters.waitDataHold).toBe(0);
@@ -153,7 +153,7 @@ describe('ADR-0118 분기별 카운터 — handleEntryRevalidationGate 경로', 
     const result = await handleEntryRevalidationGate(
       ctx, stock, { gateScore: 9 } as never, undefined as never, 1_000, null, {}, vi.fn(), [],
     );
-    expect(result).toBe('CONTINUE');
+    expect(result.decision).toBe('CONTINUE');
     expect(ctx.scanCounters.waitGateFail).toBe(0);
     expect(ctx.scanCounters.gateMisses).toBe(0);
   });

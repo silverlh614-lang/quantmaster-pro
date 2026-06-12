@@ -1,6 +1,7 @@
 // @responsibility liveGate 재검증 결과를 RevalidationStep 시그니처로 분기하는 PoC 단계
 
-import { evaluateEntryRevalidation, getMinGateScore } from '../../entryEngine.js';
+import { evaluateEntryRevalidation } from '../../entryEngine.js';
+import { resolveEntryMinGateScore } from '../../gate1ShadowEntryThreshold.js';
 import { normalizeMacroRegime, resolveMarketSessionState, type EntryBlockReason } from '../../entryPolicySemantics.js';
 import { isExecutionRelaxationEnabled } from '../failureClassifier.js';
 import type { RevalidationStepResult } from './types.js';
@@ -37,6 +38,13 @@ export interface EntryRevalidationStepInput {
   sectorBoost?: number;
   /** sectorBoost 진단 텍스트 — describeSectorBoost() 결과. 진단 메시지에만 사용. */
   sectorBoostReason?: string;
+  /**
+   * ADR-0608: stockShadowMode — true=SHADOW(paper) 진입 경로.
+   * ENV `GATE1_REGIME_AWARE_SHADOW_ENTRY_ENABLED` ON 시에만 SHADOW 진입 임계를
+   * regime-aware(getEffectiveGateThreshold)로 분기. 미전달/false → LIVE legacy 경로
+   * (getMinGateScore byte-equivalent). 후방호환: 미전달 시 false.
+   */
+  isShadow?: boolean;
 }
 
 /**
@@ -61,10 +69,15 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
   const boost = input.sectorBoost ?? 0;
   const boostedGateScore = typeof rawGateScore === 'number' ? rawGateScore + boost : rawGateScore;
 
+  // ADR-0608: 진입 임계 분기 SSOT. SHADOW(paper)+ENV ON → regime-aware,
+  //   LIVE/ENV OFF → getMinGateScore byte-equivalent. entryThresholdMode 라벨 carry.
+  const { minGateScore: minGateBase, entryThresholdMode } = resolveEntryMinGateScore({
+    regime: input.regime,
+    isShadow: input.isShadow ?? false,
+  });
   // ADR-0116 wiring: ADR-0115 의 EXECUTION_RELAXATION_ENABLED ENV 를 이곳에서 적용.
   // ENV ON 시 minGate -1 (Gate3 7→6) — 사용자 18단계 §12 "임시 완화".
   // 최소 5 보장으로 과도한 완화 차단. default OFF — 회귀 위험 격리.
-  const minGateBase = getMinGateScore(input.regime);
   const relaxedDelta = isExecutionRelaxationEnabled() ? 1 : 0;
   const minGate = Math.max(minGateBase - relaxedDelta, 5);
   const revalidation = evaluateEntryRevalidation({
@@ -87,7 +100,7 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
     marketElapsedMinutes: input.marketElapsedMinutes,
   });
 
-  if (revalidation.ok) return { proceed: true };
+  if (revalidation.ok) return { proceed: true, entryThresholdMode };
 
   // sectorBoost 가 적용되어도 탈락한 경우 — 진단 메시지에 boost 효과 명시.
   const reasons = revalidation.reasons;
