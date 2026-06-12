@@ -159,6 +159,79 @@ describe('ADR-0118 분기별 카운터 — handleEntryRevalidationGate 경로', 
   });
 });
 
+// ── ADR-0608 Phase 2: entryRegime(learningRegime) 교정 + input.regime 무변경 ──
+describe('ADR-0608 Phase 2 — handleEntryRevalidationGate entryRegime 교정', () => {
+  const ENV_KEY = 'GATE1_REGIME_AWARE_SHADOW_ENTRY_ENABLED';
+  let savedEnv: string | undefined;
+
+  beforeEach(() => {
+    savedEnv = process.env[ENV_KEY];
+    delete process.env[ENV_KEY];
+    entryRevalidationStepMock.mockReturnValue({ proceed: true, entryThresholdMode: 'LEGACY' });
+  });
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = savedEnv;
+  });
+
+  function makeR6ClampCtx(stock: WatchlistEntry): BuyListLoopContext {
+    // R6 회복 누수 시나리오: live regime 은 R4_NEUTRAL 로 clamp, learningRegime 은 정규 R3_EARLY.
+    const ctx = makeCtx([stock]) as unknown as { regime: string; learningRegime: string };
+    ctx.regime = 'R4_NEUTRAL';
+    ctx.learningRegime = 'R3_EARLY';
+    return ctx as unknown as BuyListLoopContext;
+  }
+
+  it('ENV ON + SHADOW → entryRegime=learningRegime(R3_EARLY), regime=ctx.regime(R4_NEUTRAL) 무변경', async () => {
+    process.env[ENV_KEY] = 'true';
+    const stock = makeStock({ code: 'P2A' });
+    const ctx = makeR6ClampCtx(stock);
+    await handleEntryRevalidationGate(
+      ctx, stock, { gateScore: 4 } as never, undefined as never, 1_000, null, {}, vi.fn(), [], true,
+    );
+    const arg = entryRevalidationStepMock.mock.calls[0][0];
+    expect(arg.entryRegime).toBe('R3_EARLY'); // 진입 임계는 learningRegime
+    expect(arg.regime).toBe('R4_NEUTRAL');    // macroRegime/진단은 ctx.regime 무변경 (#6)
+    expect(arg.isShadow).toBe(true);
+  });
+
+  it('ENV ON + LIVE → entryRegime=ctx.regime (byte-equivalent, learningRegime 무시)', async () => {
+    process.env[ENV_KEY] = 'true';
+    const stock = makeStock({ code: 'P2B' });
+    const ctx = makeR6ClampCtx(stock);
+    await handleEntryRevalidationGate(
+      ctx, stock, { gateScore: 4 } as never, undefined as never, 1_000, null, {}, vi.fn(), [], false,
+    );
+    const arg = entryRevalidationStepMock.mock.calls[0][0];
+    expect(arg.entryRegime).toBe('R4_NEUTRAL'); // LIVE → ctx.regime
+    expect(arg.regime).toBe('R4_NEUTRAL');
+  });
+
+  it('ENV OFF + SHADOW → entryRegime=ctx.regime (byte-equivalent, learningRegime 무시)', async () => {
+    delete process.env[ENV_KEY];
+    const stock = makeStock({ code: 'P2C' });
+    const ctx = makeR6ClampCtx(stock);
+    await handleEntryRevalidationGate(
+      ctx, stock, { gateScore: 4 } as never, undefined as never, 1_000, null, {}, vi.fn(), [], true,
+    );
+    const arg = entryRevalidationStepMock.mock.calls[0][0];
+    expect(arg.entryRegime).toBe('R4_NEUTRAL'); // ENV OFF → ctx.regime (clamp 그대로)
+    expect(arg.regime).toBe('R4_NEUTRAL');
+  });
+
+  it('ENV ON + SHADOW + learningRegime 부재 → entryRegime=ctx.regime fallback', async () => {
+    process.env[ENV_KEY] = 'true';
+    const stock = makeStock({ code: 'P2D' });
+    const ctx = makeCtx([stock]); // learningRegime 미설정 → ctx.regime=R4_NEUTRAL
+    await handleEntryRevalidationGate(
+      ctx, stock, { gateScore: 4 } as never, undefined as never, 1_000, null, {}, vi.fn(), [], true,
+    );
+    const arg = entryRevalidationStepMock.mock.calls[0][0];
+    expect(arg.entryRegime).toBe('R4_NEUTRAL'); // learningRegime ?? ctx.regime
+    expect(arg.regime).toBe('R4_NEUTRAL');
+  });
+});
+
 describe('ADR-0118 분기별 카운터 — sizingTierDeciderFinal 경로', () => {
   it('waitSizingBlocked++ (sizingTierDecider ok=false → shouldSkip)', async () => {
     sizingTierDeciderMock.mockReturnValue({ ok: false, logMessage: 'tier BLOCKED' });

@@ -169,6 +169,69 @@ regime-aware 임계로 **추가 진입**한 SHADOW 표본을 기존 표본과 �
    라이프사이클이 없고, 승격 시 대규모 신규 인프라(최소 골격 위반). 기존 `buildBuyTrade` 경로 재사용이 최소.
 4. **진입 임계를 전역 완화(LEGACY 70→regime)** — 기각. LIVE 진입까지 완화 → byte-equivalent 위반·실자본 리스크.
 
+## Phase 2 — SHADOW 진입 게이트 regime 교정 + floor 완화 (engine-dev, ENV `GATE1_REGIME_AWARE_SHADOW_ENTRY_ENABLED` 재사용)
+
+### 진단 확정 (file:line — Phase 1 출하 후 SHADOW paper fill 0 의 진짜 차단점)
+
+Phase 1(분리 seam + `entryThresholdMode` 라벨)은 `entryRevalidationStep` 에 `resolveEntryMinGateScore`
+seam 을 만들었으나 **두 결함의 중첩**으로 ENV ON 이어도 SHADOW 진입이 byte-identical 이었다:
+
+1. **regime clamp 누수** — `evaluateEntryRevalidation`(entryEngine.ts:370) 의 minGate 가 clamp 된
+   `ctx.regime = R4_NEUTRAL`(`getEffectiveGateThreshold(R4_NEUTRAL)=5.0`)을 사용 → gateScore×1 ∈[4.0,5.0)
+   (=[40,50]/100) SHADOW 종목 탈락. 실제 시장 `ctx.learningRegime = R3_EARLY`(임계 4.0=40)가 **진입 게이트에
+   wiring 안 됨**. (근본 원인 R6 회복 R5_STABILIZING 누출 → `preflight.ts:365-367` R4_NEUTRAL clamp 는 본 작업 무접촉.)
+2. **floor 5 클램프** — `entryRevalidationStep.ts:82 minGate = Math.max(minGateBase - relaxedDelta, 5)` 의
+   floor 5(ADR-0116)가 R3 의 regime-aware 4.0 을 5.0 으로 클램프 → Phase 1 의 분리 seam 무효화.
+
+### D5. SHADOW 진입 게이트 regime 교정 (learningRegime 우회)
+
+minGate **산출용 regime 만** SHADOW(paper)+ENV ON 일 때 `ctx.learningRegime ?? ctx.regime` 으로 교정한다.
+
+- `entryRevalidationGate.ts`: `entryRegime = isGate1RegimeAwareShadowEntryEnabled() && stockShadowMode
+  ? (ctx.learningRegime ?? ctx.regime) : ctx.regime`. step 신규 옵셔널 필드 `entryRegime` 으로 별도 전달.
+- `entryRevalidationStep.ts`: `resolveEntryMinGateScore({ regime: input.entryRegime ?? input.regime, isShadow })`.
+- **`evaluateEntryRevalidation` 에 흐르는 `input.regime`/`macroRegime`(normalizeMacroRegime) 은 무변경** —
+  진단·정책 표기·다른 소비처(`entryRevalidationStep.ts:98 macroRegime`) 보존. `entryRegime` 은 minGate 산출에만 사용.
+- `learningRegime` 부재 시 `ctx.regime` fallback. LIVE 경로는 항상 `ctx.regime` → byte-equivalent.
+- 선례: `counterfactualShadowLane`/`provisionalShadowLane`/`buyListLoop:408-422` 의 `ctx.learningRegime ?? ctx.regime` 패턴.
+
+### D6. floor 5 SHADOW 완화 (ADR-0116 floor LIVE 전용 보존)
+
+`entryRevalidationStep.ts` 의 floor 5 는 **isShadow(=REGIME_AWARE_SHADOW)일 때만 우회**한다:
+
+```text
+const liveMinGate = Math.max(minGateBase - relaxedDelta, 5);   // ADR-0116 floor 5 LIVE 전용 (정적 가드 텍스트 보존)
+const minGate = entryThresholdMode === 'REGIME_AWARE_SHADOW' ? minGateBase : liveMinGate;
+```
+
+- SHADOW minGate = `minGateBase`(regime-aware, R3_EARLY=4.0) → floor 우회.
+- LIVE/ENV OFF minGate = `liveMinGate`(floor 5) → **byte-equivalent**.
+- **ADR-0116 floor 5 LIVE 전용 보존 근거**: floor 5 는 실자본 진입의 과도완화 차단(18단계 §12)이 목적이다.
+  SHADOW 는 paper-fill 학습 표본 — 실자본 리스크 0 이므로 regime-aware 4.0 을 그대로 써도 #8(LIVE/SHADOW 분리)
+  위반이 아니다. `gate3RelaxationWiring.test.ts` 정적 가드(`Math.max(minGateBase - relaxedDelta, 5)` 텍스트)는
+  `liveMinGate` 식에 보존되어 무파괴.
+
+### D7. 활성 조건 — ENV ON + isShadow
+
+D5·D6 은 **ENV ON && isShadow** 일 때만 발화한다. ENV OFF 또는 LIVE → byte-equivalent.
+`entryThresholdMode === 'REGIME_AWARE_SHADOW'`(= `isGate1RegimeAwareShadowEntryEnabled() && isShadow`)가
+regime 교정·floor 완화 양쪽의 단일 게이트.
+
+### Phase 2 LIVE byte-equivalent 메커니즘 (절대 안 바뀌는 코드)
+
+- `getMinGateScore`(entryEngine.ts:50) / `getEffectiveGateThreshold`(gateConfig.ts:61) /
+  `evaluateEntryRevalidation`(entryEngine.ts:313~) 본체 0줄.
+- LIVE floor 5 유지(`liveMinGate`), LIVE regime = `ctx.regime`(entryRegime 비분기), `input.regime`/`macroRegime` 무변경.
+- 회귀 6건: (1) ENV OFF byte-equiv (2) ENV ON+LIVE byte-equiv(minGate 5.0 유지) (3) ENV ON+SHADOW+R3 → minGate=4.0
+  (4) ENV ON+SHADOW+R3 + gateScore∈[4.0,5.0) → proceed=true(이전 SKIP) (5) learningRegime 부재 → ctx.regime fallback
+  (6) input.regime/macroRegime 무변경(다른 소비처 회귀).
+
+### Phase 2 executionImpact
+
+- ENV OFF / LIVE: **NONE** (byte-equivalent).
+- ENV ON + SHADOW: **execution-adjacent (SHADOW only)** — [4.0,5.0) regime-aware 구간 paper-fill 표본 확대.
+  LIVE 매매 본체 0줄·KIS quota 0·실주문 0.
+
 ## References
 
 - 확정 진입 게이트 사실: `server/trading/entryEngine.ts:313`(evaluateEntryRevalidation) · `:50`(getMinGateScore) ·

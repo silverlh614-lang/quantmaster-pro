@@ -204,11 +204,9 @@ describe('ADR-0608 entryRevalidationStep — isShadow 진입 임계 분기', () 
     else process.env[ENV_KEY] = savedEnv;
   });
 
-  // ⚠ 중요(ADR-0116 보존): entryRevalidationStep 은 resolveEntryMinGateScore 결과에
-  //   Math.max(minGateBase - relaxedDelta, 5) 바닥(=5)을 적용한다. 따라서 R3_EARLY(=4)
-  //   regime-aware 값은 step 단계에서 5로 클램프된다. Phase 1 의 산출물은 '분리 seam +
-  //   entryThresholdMode 라벨'이며, getMinGateScore===getEffectiveGateThreshold 인 현 시점에
-  //   step 동작은 ENV ON/OFF 가 byte-identical (불변식 #8 분리 seam 확보가 목적).
+  // ⚠ ADR-0608 Phase 2: floor 5 는 LIVE 전용. SHADOW(=REGIME_AWARE_SHADOW)는 floor 우회 →
+  //   regime-aware minGate(R3_EARLY=4) 를 그대로 사용한다. LIVE/ENV OFF 는 floor 5 보존(byte-equivalent).
+  //   따라서 Phase 1 과 달리 ENV ON + SHADOW + R3_EARLY + score 4 는 이제 proceed=true (이전 SKIP).
   //
   // 통과 표본(score 6 ≥ floor 5)으로 라벨 carry 를 검증한다.
   const passInput = {
@@ -240,22 +238,58 @@ describe('ADR-0608 entryRevalidationStep — isShadow 진입 임계 분기', () 
     expect(result.entryThresholdMode).toBe('LEGACY');
   });
 
-  it('ENV ON/OFF — step minGate 동작 byte-identical (floor=5 클램프 + 동일 SSOT). proceed 동일', () => {
-    // score 4 (< floor 5) 표본: ENV ON SHADOW(regime-aware 4→floor 5) 와 ENV OFF 모두 탈락.
-    const score4 = {
-      ...baseInput,
-      regime: 'R3_EARLY',
-      reCheckGate: { gateScore: 4 as number | undefined, signalType: 'NORMAL' as const },
-    };
-    delete process.env[ENV_KEY];
-    const off = entryRevalidationStep({ ...score4, isShadow: true });
+  // ── ADR-0608 Phase 2: floor 5 SHADOW 완화 + regime 교정 ────────────────────
+  const score4R3 = {
+    ...baseInput,
+    regime: 'R3_EARLY',
+    reCheckGate: { gateScore: 4 as number | undefined, signalType: 'NORMAL' as const },
+  };
+
+  it('(P2-3+4) ENV ON + SHADOW + R3_EARLY + score 4 → proceed=true (floor 5 우회 → minGate 4)', () => {
     process.env[ENV_KEY] = 'true';
-    const on = entryRevalidationStep({ ...score4, isShadow: true });
-    expect(on.proceed).toBe(off.proceed);
-    expect(on.proceed).toBe(false); // floor 5 가 R3_EARLY 4 를 클램프 — 양쪽 모두 탈락
-    if (off.proceed || on.proceed) return;
-    expect(off.failReasons.some((r) => r.includes('Gate 재검증 미달'))).toBe(true);
-    expect(on.failReasons.some((r) => r.includes('Gate 재검증 미달'))).toBe(true);
+    const result = entryRevalidationStep({ ...score4R3, isShadow: true });
+    // Phase 2: REGIME_AWARE_SHADOW 는 floor 5 우회 → minGate=getEffectiveGateThreshold(R3)=4.
+    // gateScore 4 < 4 === false → minGate 통과(이전 Phase 1 은 floor 5 클램프로 SKIP 이었음).
+    expect(result.proceed).toBe(true);
+    if (!result.proceed) return;
+    expect(result.entryThresholdMode).toBe('REGIME_AWARE_SHADOW');
+  });
+
+  it('(P2-2) ENV ON + LIVE(isShadow=false) + R3_EARLY + score 4 → proceed=false (floor 5 유지 byte-equivalent)', () => {
+    process.env[ENV_KEY] = 'true';
+    const result = entryRevalidationStep({ ...score4R3, isShadow: false });
+    // LIVE: LEGACY → liveMinGate=Math.max(getMinGateScore(R3)=4, 5)=5. 4 < 5 === true → 탈락(floor 5 보존).
+    expect(result.proceed).toBe(false);
+    if (result.proceed) return;
+    expect(result.failReasons.some((r) => r.includes('Gate 재검증 미달'))).toBe(true);
+  });
+
+  it('(P2-1) ENV OFF — score 4 R3_EARLY 는 LIVE/SHADOW 모두 floor 5 → 탈락 (byte-equivalent)', () => {
+    delete process.env[ENV_KEY];
+    const live = entryRevalidationStep({ ...score4R3, isShadow: false });
+    const shadow = entryRevalidationStep({ ...score4R3, isShadow: true });
+    expect(live.proceed).toBe(false);
+    expect(shadow.proceed).toBe(false); // ENV OFF → SHADOW 도 floor 5 클램프
+  });
+
+  it('(P2-5) entryRegime 미전달 → input.regime fallback (후방호환)', () => {
+    process.env[ENV_KEY] = 'true';
+    // entryRegime 없이 regime=R3_EARLY 만 전달 → minGate 산출이 R3 fallback.
+    const result = entryRevalidationStep({ ...score4R3, isShadow: true });
+    expect(result.proceed).toBe(true); // R3 floor 우회 → minGate 4
+  });
+
+  it('(P2-1b) entryRegime 분기 — SHADOW 가 ENV OFF 면 entryRegime 무시(LEGACY floor 5)', () => {
+    delete process.env[ENV_KEY];
+    // entryRegime=R3_EARLY 를 명시해도 ENV OFF → LEGACY → getMinGateScore(R3)=4 → floor 5 클램프.
+    const result = entryRevalidationStep({
+      ...baseInput,
+      regime: 'R4_NEUTRAL',
+      entryRegime: 'R3_EARLY',
+      reCheckGate: { gateScore: 4 as number | undefined, signalType: 'NORMAL' as const },
+      isShadow: true,
+    });
+    expect(result.proceed).toBe(false); // floor 5 → 4 < 5 탈락 (ENV OFF byte-equivalent)
   });
 });
 

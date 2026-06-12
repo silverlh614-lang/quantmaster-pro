@@ -17,6 +17,7 @@ import { getSectorByCode } from '../../../../screener/sectorMap.js';
 import { getKstMarketElapsedMinutes } from '../../../entryEngine.js';
 import { shouldIncrementFailCount } from '../../failureClassifier.js';
 import { entryRevalidationStep } from '../../revalidationSteps/index.js';
+import { isGate1RegimeAwareShadowEntryEnabled } from '../../../gate1ShadowEntryThreshold.js';
 import type { BuyListLoopContext } from '../types.js';
 
 export interface EntryRevalidationSkippedBatchItem {
@@ -74,6 +75,14 @@ export async function handleEntryRevalidationGate(
       )
     : undefined;
 
+  // ADR-0608 Phase 2: minGate 산출 전용 regime. ENV ON && SHADOW(paper) 일 때만
+  // learningRegime(R6 회복 누수로 ctx.regime 이 R4_NEUTRAL 로 clamp 돼도 정규 R3_EARLY)
+  // 을 진입 임계에 적용. 그 외(LIVE 또는 ENV OFF) → ctx.regime 그대로 → byte-equivalent.
+  // entryRegime 만 분기하고 step input.regime(macroRegime/진단)은 ctx.regime 무변경.
+  const entryRegime = isGate1RegimeAwareShadowEntryEnabled() && stockShadowMode
+    ? (ctx.learningRegime ?? ctx.regime)
+    : ctx.regime;
+
   const revalResult = entryRevalidationStep({
     stockName: stock.name,
     currentPrice,
@@ -81,6 +90,7 @@ export async function handleEntryRevalidationGate(
     reCheckQuote,
     reCheckGate: gateResult,
     regime: ctx.regime,
+    entryRegime,
     marketSessionState: ctx.resolvedMarketSessionState,
     marketElapsedMinutes: getKstMarketElapsedMinutes(),
     sectorBoost,

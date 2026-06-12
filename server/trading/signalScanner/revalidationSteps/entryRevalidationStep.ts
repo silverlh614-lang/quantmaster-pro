@@ -45,6 +45,17 @@ export interface EntryRevalidationStepInput {
    * (getMinGateScore byte-equivalent). 후방호환: 미전달 시 false.
    */
   isShadow?: boolean;
+  /**
+   * ADR-0608 Phase 2: minGate 산출 전용 regime. SHADOW(paper) 진입에서 R6 회복 누수로
+   * `regime`(=ctx.regime)가 R4_NEUTRAL 로 clamp 돼도 진입 임계는 정규 learningRegime
+   * (예 R3_EARLY=4)를 쓰도록 호출자가 `ctx.learningRegime ?? ctx.regime` 을 주입.
+   *
+   * **`regime`(macroRegime/진단/정책 표기)은 무변경** — 본 필드는 resolveEntryMinGateScore
+   * 호출에만 쓰이고 evaluateEntryRevalidation 의 macroRegime/normalizeMacroRegime 에는
+   * `regime` 이 그대로 흐른다. 미전달 시 `regime` fallback → 후방호환(byte-equivalent).
+   * LIVE 경로는 호출자가 항상 ctx.regime 을 넘겨 byte-equivalent 보존.
+   */
+  entryRegime?: string;
 }
 
 /**
@@ -71,15 +82,22 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
 
   // ADR-0608: 진입 임계 분기 SSOT. SHADOW(paper)+ENV ON → regime-aware,
   //   LIVE/ENV OFF → getMinGateScore byte-equivalent. entryThresholdMode 라벨 carry.
+  // ADR-0608 Phase 2: minGate 산출 regime 은 entryRegime(SHADOW=learningRegime) 우선,
+  //   미전달 시 input.regime fallback. input.regime(macroRegime/진단)은 무변경.
   const { minGateScore: minGateBase, entryThresholdMode } = resolveEntryMinGateScore({
-    regime: input.regime,
+    regime: input.entryRegime ?? input.regime,
     isShadow: input.isShadow ?? false,
   });
   // ADR-0116 wiring: ADR-0115 의 EXECUTION_RELAXATION_ENABLED ENV 를 이곳에서 적용.
   // ENV ON 시 minGate -1 (Gate3 7→6) — 사용자 18단계 §12 "임시 완화".
   // 최소 5 보장으로 과도한 완화 차단. default OFF — 회귀 위험 격리.
+  // ⚠ ADR-0116 floor 5 는 LIVE 전용(실자본 진입 과도완화 차단). 정적 가드 텍스트 보존.
   const relaxedDelta = isExecutionRelaxationEnabled() ? 1 : 0;
-  const minGate = Math.max(minGateBase - relaxedDelta, 5);
+  const liveMinGate = Math.max(minGateBase - relaxedDelta, 5);
+  // ADR-0608 Phase 2: SHADOW(paper)+ENV ON(=REGIME_AWARE_SHADOW)만 floor 5 우회 →
+  //   regime-aware minGate(R3_EARLY=4) 그대로 사용. LIVE/ENV OFF 는 liveMinGate(floor 5)
+  //   유지 → byte-equivalent. floor 우회는 paper-fill 표본 확대 전용(LIVE 실자본 무영향).
+  const minGate = entryThresholdMode === 'REGIME_AWARE_SHADOW' ? minGateBase : liveMinGate;
   const revalidation = evaluateEntryRevalidation({
     symbol: input.stockName,
     currentPrice: input.currentPrice,
