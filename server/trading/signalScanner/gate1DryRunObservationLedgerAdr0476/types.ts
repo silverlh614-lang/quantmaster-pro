@@ -82,6 +82,10 @@ export interface Gate1DryRunObservationRow {
   crossSectionalPercentile?: number;
   marketBlockScore?: number;
   marketBlockPercentile?: number;
+  /** ADR-0609 — 상수블록 eligibility shadow 판정 (Phase 0 관측 전용, Gate 판정·정렬·entry 미소비). */
+  eligibilityShadowEligible?: boolean;
+  eligibilityShadowMarketOnlyPassed?: boolean;
+  eligibilityShadowPercentilePassed?: boolean;
   sourceSnapshotId?: string; regime?: string; marketSession?: string;
   finalGate1Score?: number; rawPositiveScore?: number; effectivePenaltyScore?: number; diagnosticPenaltyScore?: number;
   scoreBand?: Gate1ObservationScoreBand;
@@ -248,6 +252,10 @@ export interface Gate1DryRunObservationBuildInput {
     totalPercentile?: number;
     marketBlockScore?: number;
     marketBlockPercentile?: number;
+    /** ADR-0609 — 상수블록 eligibility shadow 판정 (관측 전용 additive, Gate 미소비). */
+    eligible?: boolean;
+    marketOnlyPassed?: boolean;
+    percentilePassed?: boolean;
   }>>;
   finalGate1Calibration?: FinalGate1CalibrationAuditReport | null;
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport | null;

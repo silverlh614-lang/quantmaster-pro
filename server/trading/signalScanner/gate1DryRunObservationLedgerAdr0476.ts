@@ -68,6 +68,10 @@ interface ResolvedObservationMinSignal {
   totalPercentile?: number;
   marketBlockScore?: number;
   marketBlockPercentile?: number;
+  /** ADR-0609 — 상수블록 eligibility shadow 판정 동반 필드 (관측 전용, 있으면 행에 stamp). */
+  eligibilityShadowEligible?: boolean;
+  eligibilityShadowMarketOnlyPassed?: boolean;
+  eligibilityShadowPercentilePassed?: boolean;
 }
 
 /** 관측 행 점수 SSOT 해석 — canonical 최소신호 점수(minSignalScoreBySymbol, requiredScore 와 동일
@@ -89,6 +93,9 @@ function resolveObservationMinSignal(
       ...(finite(mapped.totalPercentile) ? { totalPercentile: mapped.totalPercentile } : {}),
       ...(finite(mapped.marketBlockScore) ? { marketBlockScore: mapped.marketBlockScore } : {}),
       ...(finite(mapped.marketBlockPercentile) ? { marketBlockPercentile: mapped.marketBlockPercentile } : {}),
+      ...(typeof mapped.eligible === 'boolean' ? { eligibilityShadowEligible: mapped.eligible } : {}),
+      ...(typeof mapped.marketOnlyPassed === 'boolean' ? { eligibilityShadowMarketOnlyPassed: mapped.marketOnlyPassed } : {}),
+      ...(typeof mapped.percentilePassed === 'boolean' ? { eligibilityShadowPercentilePassed: mapped.percentilePassed } : {}),
     };
   }
   return {
@@ -322,6 +329,9 @@ function rowFromSnapshot(input: {
     ...(finite(input.minSignal?.totalPercentile) ? { crossSectionalPercentile: input.minSignal.totalPercentile } : {}),
     ...(finite(input.minSignal?.marketBlockScore) ? { marketBlockScore: input.minSignal.marketBlockScore } : {}),
     ...(finite(input.minSignal?.marketBlockPercentile) ? { marketBlockPercentile: input.minSignal.marketBlockPercentile } : {}),
+    ...(typeof input.minSignal?.eligibilityShadowEligible === 'boolean' ? { eligibilityShadowEligible: input.minSignal.eligibilityShadowEligible } : {}),
+    ...(typeof input.minSignal?.eligibilityShadowMarketOnlyPassed === 'boolean' ? { eligibilityShadowMarketOnlyPassed: input.minSignal.eligibilityShadowMarketOnlyPassed } : {}),
+    ...(typeof input.minSignal?.eligibilityShadowPercentilePassed === 'boolean' ? { eligibilityShadowPercentilePassed: input.minSignal.eligibilityShadowPercentilePassed } : {}),
     ...(finite(entryReferencePrice) && entryReferencePrice > 0 ? { entryReferencePrice } : {}),
     ...(input.sourceSnapshotId ? { sourceSnapshotId: input.sourceSnapshotId } : {}),
     ...(input.scanId ? { scanId: input.scanId } : {}),

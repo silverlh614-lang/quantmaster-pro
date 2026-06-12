@@ -505,14 +505,20 @@ export async function persistMidScanDiagnosticBlocksAdr0588(ctx: MidScanDiagnost
     // 스케일)가 아닌 canonical 최소신호 점수(ADR-0541 starvation trace, requiredScore=70 동일
     // 스케일)로 기록 — 55~70/70+ 밴드·NEAR_MISS 가 비로소 충전 가능 (ADR-0546 증거 잠금 해소).
     // ADR-0597 — 횡단면 percentile shadow 를 같은 map 으로 동반 주입 (관측 전용, 판정 미소비).
+    // ADR-0609 — 상수블록 eligibility shadow 판정(eligible/marketOnlyPassed/percentilePassed)을
+    // 같은 map 으로 동반 stamp (관측 전용, Gate 판정·정렬·entry·Kelly 미소비 — 소비처 0).
     const crossSectionalBySymbol = new Map(
       (summaryDraft.gate1CrossSectionalShadowAdr0597?.scores ?? []).map((score) => [score.symbol, score]),
+    );
+    const eligibilityBySymbol = new Map(
+      (summaryDraft.gate1EligibilityShadowAdr0609?.judgments ?? []).map((judgment) => [judgment.symbol, judgment]),
     );
     const minSignalScoreBySymbol = Object.fromEntries(
       counters.positiveScoreStarvationTraces
         .filter((trace) => Number.isFinite(trace.actualScore))
         .map((trace) => {
           const crossSectional = crossSectionalBySymbol.get(trace.symbol);
+          const eligibility = eligibilityBySymbol.get(trace.symbol);
           return [trace.symbol, {
             actualScore: trace.actualScore,
             requiredScore: trace.requiredScore,
@@ -520,6 +526,11 @@ export async function persistMidScanDiagnosticBlocksAdr0588(ctx: MidScanDiagnost
               totalPercentile: crossSectional.totalPercentile,
               ...(crossSectional.marketBlockScore !== null ? { marketBlockScore: crossSectional.marketBlockScore } : {}),
               ...(crossSectional.marketBlockPercentile !== null ? { marketBlockPercentile: crossSectional.marketBlockPercentile } : {}),
+            } : {}),
+            ...(eligibility ? {
+              eligible: eligibility.eligible,
+              ...(eligibility.marketOnlyPassed !== null ? { marketOnlyPassed: eligibility.marketOnlyPassed } : {}),
+              percentilePassed: eligibility.percentilePassed,
             } : {}),
           }];
         }),

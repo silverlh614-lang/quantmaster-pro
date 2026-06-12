@@ -180,6 +180,10 @@ import { isTradingDay } from '../../../utils/marketDayClassifier.js';
 // can finally supply minSignalComponents for correct CORE_SIGNAL attribution.
 import { buildGate1ScoreStarvationTraceFromGateResult } from '../gate1PositiveScoreStarvation.js';
 import { buildGate1CrossSectionalShadowReportAdr0597 } from '../gate1CrossSectionalShadowScoreAdr0597.js';
+import {
+  buildGate1EligibilityShadowReportAdr0609,
+  GATE1_ELIGIBILITY_COMPONENT_CODES,
+} from '../gate1EligibilityShadowScoreAdr0609.js';
 import { hydrateGate2InvestorFlowAdr0601 } from './gate2InvestorFlowHydrationAdr0601.js';
 import { hydrateGate2SectorCycleAdr0601 } from './gate2SectorCycleHydrationAdr0601.js';
 import { hydrateGate2SoxSemiAxisAdr0605 } from './gate2SoxSemiAxisAdr0605.js';
@@ -797,12 +801,28 @@ export async function persistScanResults(
   //
   // Build failures are isolated here so a diagnostic problem can never stop the trading
   // engine (invariants #1/#2). Silent catch is forbidden — failures emit a warning.
+  // ADR-0609 — 상수 블록 컴포넌트(WATCHLIST_PRIORITY/MARKET_REGIME/INVESTOR_FLOW)는 ADR-0597
+  // InputRow.positiveComponents(AUDITED_POSITIVE_FEATURES 한정)에 포함되지 않으므로, 여기
+  // canonical minSignal.components 에서 직접 보충해 eligibility shadow 판정에 공급한다 (fetch 0).
+  const eligibilityComponentsBySymbol = new Map<
+    string,
+    Array<{ code: string; weightedScore: number; providerIssue?: boolean }>
+  >();
+  const eligibilityComponentCodeSet = new Set<string>(Object.values(GATE1_ELIGIBILITY_COMPONENT_CODES));
   try {
     const entryFilter = summaryDraft.entryFilterDecomposition;
     if (entryFilter && entryFilter.gate1CandidateTraces.length > 0) {
       for (const g1 of entryFilter.gate1CandidateTraces) {
         const minSignal = g1.minSignalScoreTrace;
         if (!minSignal) continue;
+        if (g1.symbol) {
+          eligibilityComponentsBySymbol.set(
+            g1.symbol,
+            minSignal.components
+              .filter((c) => eligibilityComponentCodeSet.has(c.code) && Number.isFinite(c.weightedScore))
+              .map((c) => ({ code: c.code, weightedScore: c.weightedScore, providerIssue: c.providerIssue })),
+          );
+        }
         const trace = buildGate1ScoreStarvationTraceFromGateResult({
           symbol: g1.symbol,
           name: g1.name,
@@ -857,6 +877,36 @@ export async function persistScanResults(
     }
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildGate1CrossSectionalShadowAdr0597', error: e });
+  }
+
+  // ADR-0609 — Gate1 상수블록 eligibility shadow 판정 (Phase 0, 관측 전용·LIVE 점수 미소비).
+  // ADR-0597 산출물(marketBlockScore/totalPercentile) + 상수 블록 컴포넌트(위 map)로 적격성/
+  // market-only/percentile 판정만 산출해 ScanSummary 와 관측 ledger 에 기록한다. 통과 판정·
+  // 정렬·requiredScore 0 접촉 (소비처 0). 실패는 격리(불변식 #1 — 스캔 본체 중단 금지).
+  try {
+    const crossSectionalScores = summaryDraft.gate1CrossSectionalShadowAdr0597?.scores ?? [];
+    if (crossSectionalScores.length > 0) {
+      const eligibilityShadow = buildGate1EligibilityShadowReportAdr0609(
+        crossSectionalScores.map((score) => ({
+          symbol: score.symbol,
+          name: score.name,
+          marketBlockScore: score.marketBlockScore,
+          totalPercentile: score.totalPercentile,
+          eligibilityComponents: eligibilityComponentsBySymbol.get(score.symbol),
+        })),
+      );
+      summaryDraft.gate1EligibilityShadowAdr0609 = eligibilityShadow;
+      if (eligibilityShadow.candidates > 0) {
+        console.info(
+          `[ADR-0609] Gate1 eligibility shadow — candidates=${eligibilityShadow.candidates} ` +
+            `eligible=${eligibilityShadow.eligibleCount} degraded=${eligibilityShadow.eligibilityDegradedCount} ` +
+            `marketOnlyPass=${eligibilityShadow.marketOnlyPassCount} percentilePass=${eligibilityShadow.percentilePassCount} ` +
+            `executionImpact=NONE`,
+        );
+      }
+    }
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildGate1EligibilityShadowAdr0609', error: e });
   }
 
   // ADR-0541 (option A) — build the canonical PositiveScoreStarvationReport from the
