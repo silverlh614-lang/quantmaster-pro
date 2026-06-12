@@ -302,6 +302,16 @@ export interface ServerShadowTrade {
     confidenceModifier: number;
     snapshotAt: string;
   };
+  /**
+   * ADR-0606 Runner Mode 미러 — 서버 ServerShadowTrade 러너 필드의 브라우저측 거울.
+   * "러너 = 트레일링 활성 + 슬롯 제외" 표시 전용(배지·별도 러너 카운트). drift 차단용 동일 필드.
+   * SHADOW 전용·옵셔널 additive — flag OFF/레거시 trade 는 undefined(비러너).
+   */
+  isRunner?: boolean;
+  runnerActivatedAt?: string;
+  runnerTrailPct?: number;
+  runnerPromotedReturnPct?: number;
+  runnerPromotionReason?: 'FINAL_TRANCHE_REACHED' | 'RETURN_THRESHOLD';
   [extra: string]: unknown;
 }
 

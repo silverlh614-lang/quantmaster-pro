@@ -547,6 +547,18 @@ export interface ServerShadowTrade {
   trailingHighWaterMark?: number; // 트레일링 스톱 고점 기준
   trailPct?: number;              // 트레일링 스톱 낙폭 비율 (예: 0.10 = 10%)
   trailingEnabled?: boolean;      // 전체 LIMIT 트랜치 완료 후 트레일링 활성화
+  /**
+   * ADR-0606 Runner Mode — "러너 = 트레일링 활성 + 슬롯 제외" 단일 개념.
+   * 큰 수익(추세) 종목이 분할익절 잔량 전량 트랜치를 스킵하고 넓은 트레일링으로 추세
+   * 끝까지 추종하도록 승격된 상태. SHADOW 전용 — RUNNER_MODE_ENABLED ON 일 때만 채워진다.
+   * 모두 옵셔널 additive — 기존 영속 스키마 무파괴. 미설정(레거시/flag OFF) = 비러너.
+   * 승격/스킵/트레일링 폭 판정은 src/services/quant/sell/runnerPolicy.ts SSOT.
+   */
+  isRunner?: boolean;             // 러너 승격 여부 (true → 슬롯 카운트 제외 대상)
+  runnerActivatedAt?: string;     // 러너 승격 KST ISO 타임스탬프
+  runnerTrailPct?: number;        // 러너 전용 넓은 트레일링 낙폭 (resolveRunnerTrailPct 산출, >= trailPct)
+  runnerPromotedReturnPct?: number; // 승격 시점 returnPct(%) — 승격 사유·학습 귀인용
+  runnerPromotionReason?: 'FINAL_TRANCHE_REACHED' | 'RETURN_THRESHOLD'; // 승격 사유 라벨
   r6EmergencySold?: boolean;      // R6_DEFENSE 30% 긴급 청산 완료 여부 (중복 방지)
   rrrCollapsePartialSold?: boolean; // RRR 붕괴 50% 익절 완료 여부 (중복 방지)
   /** 하락 다이버전스 부분 익절 완료 여부 (중복 방지) */

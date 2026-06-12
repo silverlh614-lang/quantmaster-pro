@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0606`**
+**다음 ADR 번호: `0607`**
+
+(2026-06-12 기준, 마지막 발급 0606 — runner-mode-trend-following-exit-and-slot-exemption. **Status: Proposed (Phase 0 — 경계·타입·ADR, default OFF byte-equivalent).** ADR-0606 — 익절 엔진 "러너(Runner) 모드" 도입. 단일 개념 "러너 = 트레일링 활성 종목 = 슬롯 카운트 제외"(사용자 확정 2결정 통합). 문제: 트레일링이 모든 LIMIT 트랜치 소화 후에만 활성(trancheTakeProfitLimit.ts:82) + R4_NEUTRAL/R5_CAUTION 트레일링 트랜치 부재(전량 LIMIT) → 큰 러너 구조적 조기 청산. 정책 ① 러너 승격 = 마지막 LIMIT 트랜치 도달 OR returnPct ≥ RUNNER_PROMOTE_RETURN_PCT(가드 [10,40] 기본 18) ② 승격 후 잔량 전량(ratio≥0.999) 트랜치만 스킵(초기 소량 LIMIT 유지) + 넓은 트레일링 resolveRunnerTrailPct=clamp(max(진입trailPct+bonus,floor),진입,0.30)(bonus 0.05/floor 0.15 기본, 항상 진입 이상·타이트화 금지) ③ 슬롯 제외 = slotAccounting.computeSlotConsumption eligible 필터에서 isRunner 제외(단일 SSOT → loopInitializer/preflight/slotSizing 3소비처 자연 전파, 배선 0) + runnerCount additive 진단 필드, regime maxPositions 분모 무변경 ④ ENV 2게이트 독립(RUNNER_MODE_ENABLED·RUNNER_SLOT_EXEMPTION_ENABLED, 각 1줄 롤백) ⑤ SHADOW 전용·LIVE 본체 0줄·byte-equivalent(OFF). 신규 순수 SSOT server/trading/exit/policies/runnerPolicy.ts(evaluateRunnerPromotion/resolveRunnerTrailPct/shouldSkipTrancheForRunner + ENV 헬퍼, provider/store/now 0 — riskOnFastUpgrade.ts 분리 선례). 타입 ServerShadowTrade(server) + 클라이언트 미러(autoTradeClient.ts) 옵셔널 additive 5필드(isRunner/runnerActivatedAt/runnerTrailPct/runnerPromotedReturnPct/runnerPromotionReason). 9대 불변식 #1 liveness(SHADOW 평가 try/catch 격리)·#6(결손→미승격 보수)·#7(KIS L1 returnPct, L4 0)·#8(SHADOW 장부 한정, LIVE 무접촉) 보존. executionImpact: OFF=NONE / 게이트 ON=execution-adjacent(SHADOW only). engine-dev 인계(Phase 1 승격·트랜치 스킵 wiring → Phase 2 슬롯 제외 → Phase 4 운영자 검증). 계보 ADR-0028/0080/0085/0593/0561/0146. INDEX 0606→0607 갱신.)
 
 (2026-06-11 기준, 마지막 발급 0605 — us-leading-index-residual-wiring. **Status: Accepted (구현 — 행동 변경 경로 전부 flag default OFF, 수집·표시 즉시 가동).** ADR-0605 — ADR-0604 "미구현 (후속 ADR 후보)" 3건 일괄 이행. D1 fast-upgrade 보조 AND: ADR-0593 3중 AND 에 ④ SPX 야간 비급락 확인(REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_AND_ENABLED === 'true' default OFF, MIN_PCT 가드 [-5,5] default -0.5) — 보조 ON+SPX 부재 시 보수 미발동(예외 가속 경로 한정, 결손→bearish 변환 아님), resolveRiskOnFastUpgradeInputs 가 macroState.spxDayReturn 주입+로그 표기. D2 SOX→Gate2 반도체 proxy 축: 수집(즉시) resolveKisOverseasSoxIscd(ENV 정정 가능 default 'SOX')→refreshSpxSection 에서 macroState.soxDayReturn/sox20dReturn(~1콜/일) + proxy(GATE2_SOX_SECTOR_AXIS_ENABLED === 'true' default OFF) 신규 gate2SoxSemiAxisAdr0605.ts — ADR-0601 hydration 이후 잔존 결손 반도체 후보만 stockVsSectorReturn20d 단독 주입으로 buildSectorAxis 최대 62 자연 캡(currentLeader 민팅 구조적 불가, ADR-0600 동일 보수), 본 모듈 KIS fetch 0. D3 NDX 밴드 분리(표시 전용 즉시): /us_overnight 가 SPX+NDX 5밴드 분리 출력+pairedRows spx/ndx. 신규 테스트 12케이스(보조 AND 진리표·SOX flag/결손/캡·NDX 밴드). 같은 PR 에서 ADR-0602 Phase 1 구현(shadow 교체 집행 TRADE_REPLACEMENT_SHADOW_EXECUTE_ENABLED default OFF·일일 상한 2·LIVE 무접촉·SECTOR_REPLACEMENT_EXIT 태그 — ADR-0602 Status 갱신, 신규 ADR 미발급)과 /us_overnight 자동완성 등재, 선존 flake 3건(walkForward 2·FssVars 1 — 최초 dynamic import transform>5s timeout) warm-up 수리 동반. 계보 0603/0604/0593/0600/0601. INDEX 0605→0606 갱신.)
 
@@ -231,6 +233,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0606 | 러너(Runner) 모드 — 추세추종 익절(전량 트랜치 스킵 + 넓은 트레일링 resolveRunnerTrailPct floor 0.15) + 슬롯 카운트 제외(computeSlotConsumption 단일 SSOT, runnerCount additive). 승격=마지막 LIMIT 트랜치 OR +18%(ENV). 신규 순수 SSOT runnerPolicy.ts + ServerShadowTrade 옵셔널 5필드(클라 미러 동기). ENV 2게이트 독립 default OFF=byte-equivalent, SHADOW 전용·LIVE 본체 0줄 | trading / exit-engine+slot / flag-gated |
 | 0605 | 미국 선행지수 연결 잔여 이행 — fast-upgrade 보조 AND(④ SPX 야간 비급락, default OFF) + SOX 수집·Gate2 반도체 proxy 축(stockVsSector 단독 주입 62 캡, default OFF) + /us_overnight NDX 밴드 분리(표시 전용) | policy / regime+gate2+learning |
 | 0604 | 미국 야간↔KOSPI stratify 관측(2단계, /us_overnight 5밴드 실측·게이트 미소비) + 야간 급락 개장 전 보수 강등(3단계 — bias -12·R6 회복 가속 차단, default OFF, usOvernightBoost 하방 대칭). 활성화 기준=밴드 실측 n>=10 | policy / learning+regime |
 | 0603 | 미국 지수 KIS-primary 승격 — SPX Yahoo→KIS 해외지수 일봉(FHKST03030100, 일캐시·fallback 보존·소비식 0줄) + NDX 관측 수집. 미국 선행지수↔한국 레짐 연결 1단계, 2/3단계(야간 stratify→게이트 반영)는 로드맵 | policy / kisClient+marketDataRefresh |
@@ -671,7 +674,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0605 · 다음 발급 0606** — `node scripts/check_adr_index.js --json` 기준 (2026-06-11 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0606 · 다음 발급 0607** — `node scripts/check_adr_index.js --json` 기준 (2026-06-12 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
