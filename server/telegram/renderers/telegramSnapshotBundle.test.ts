@@ -112,6 +112,68 @@ describe('ADR-0523 Telegram snapshot bundle', () => {
     expect(gate2.nextAction).toBe('Gate3 timing for 13 candidates');
   });
 
+  // 진단 가시화: aggregate.gate2Coverage 의 등급별 종목 코드를 표시 Summary 로 carry(카운트 무영향).
+  it('gate2SummaryFromAggregate carries per-grade symbol codes from coverage', () => {
+    const gate2 = gate2SummaryFromAggregate({
+      evaluatedCount: { scope: 'ALL_CANDIDATES', value: 28 },
+      gate2PassStrongCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 1 },
+      gate2PassWeakCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 2 },
+      gate2WatchCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 7 },
+      gate2FailCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 18 },
+      gate2DataIncompleteCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 0 },
+      gate2Coverage: {
+        rsUsable: 16, supplyUsable: 14, sectorUsable: 12, technicalUsable: 18, fundamentalUsable: 9,
+        topPositiveAxis: 'SUPPLY_CONFLUENCE', topMissingAxis: 'FUNDAMENTAL_QUALITY',
+        strongSymbols: ['196170'], weakSymbols: ['000660', '290660'], watchSymbols: ['1', '2', '3', '4', '5', '6', '7'],
+      },
+    });
+    // 종목 수가 등급 카운트와 정합.
+    expect(gate2.strongSymbols).toEqual(['196170']);
+    expect(gate2.weakSymbols).toEqual(['000660', '290660']);
+    expect(gate2.strongSymbols?.length).toBe(gate2.passStrong);
+    expect(gate2.weakSymbols?.length).toBe(gate2.passWeak);
+    expect(gate2.watchSymbols?.length).toBe(gate2.watch);
+  });
+
+  // coverage 에 종목 배열이 없으면(레거시 스냅샷) graceful — 필드 부재(카운트만).
+  it('gate2SummaryFromAggregate omits symbol fields when coverage has none', () => {
+    const gate2 = gate2SummaryFromAggregate({
+      evaluatedCount: { scope: 'ALL_CANDIDATES', value: 5 },
+      gate2PassStrongCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 1 },
+      gate2PassWeakCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 2 },
+      gate2WatchCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 1 },
+      gate2FailCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 1 },
+      gate2DataIncompleteCount: { scope: 'GATE2_COVERAGE_SAMPLE', value: 0 },
+      gate2Coverage: {
+        rsUsable: 4, supplyUsable: 3, sectorUsable: 2, technicalUsable: 5, fundamentalUsable: 2,
+        topPositiveAxis: 'SUPPLY_CONFLUENCE', topMissingAxis: 'FUNDAMENTAL_QUALITY',
+      },
+    });
+    expect(gate2.strongSymbols).toBeUndefined();
+    expect(gate2.weakSymbols).toBeUndefined();
+    expect(gate2.passStrong).toBe(1);
+  });
+
+  // confluence 정본(results per-symbol gate2Status)에서 직접 등급별 종목 코드 도출.
+  it('gate2SummaryFromConfluence derives per-grade symbols from results', () => {
+    const gate2 = gate2SummaryFromConfluence({
+      evaluated: 3,
+      gate2PassStrong: 1,
+      gate2PassWeak: 2,
+      gate2Watch: 0,
+      gate2Fail: 0,
+      results: [
+        { symbol: '196170', gate2Status: 'GATE2_PASS_STRONG' },
+        { symbol: '000660', gate2Status: 'GATE2_PASS_WEAK' },
+        { symbol: '290660', gate2Status: 'GATE2_PASS_WEAK' },
+        { symbol: '999999', gate2Status: 'GATE2_FAIL' },
+      ],
+    });
+    expect(gate2.strongSymbols).toEqual(['196170']);
+    expect(gate2.weakSymbols).toEqual(['000660', '290660']);
+    expect(gate2.watchSymbols).toBeUndefined();
+  });
+
   // P2 묶음2 (V5b): providerHealth 는 정본 스캔 요약 필드의 *pass-through projection* 이다 —
   // 렌더 시점 provider 직접 조회/재계산/재추론 0 (불변식 #3, ADR-0525/0526). 본 테스트는
   // 입력 summary 의 providerIssue/marketSignal/providerIssueDistribution 가 byte-equivalent 로

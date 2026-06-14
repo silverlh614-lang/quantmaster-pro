@@ -38,6 +38,10 @@ export interface Gate2Summary {
   fundamentalUsable: number;
   topPositiveAxis: string;
   topMissingAxis: string;
+  /** 등급별 종목 코드(표시용 보조) — 카운트와 동일 roll-up 에서 도출(정합). 미탑재 스냅샷이면 undefined. */
+  strongSymbols?: string[];
+  weakSymbols?: string[];
+  watchSymbols?: string[];
   nextAction: string;
 }
 
@@ -133,6 +137,12 @@ export function getByPath(source: unknown, path: string): unknown {
 
 export function arrayOfRecords(value: unknown): AnyRecord[] {
   return Array.isArray(value) ? value.map(recordOf).filter((item): item is AnyRecord => Boolean(item)) : [];
+}
+
+export function arrayOfStrings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
 }
 
 export function text(value: unknown, fallback = 'UNKNOWN'): string {
@@ -326,6 +336,9 @@ export function gate2SummaryFromAggregate(raw: unknown): Gate2Summary {
     topMissingAxis: text(coverage?.topMissingAxis, 'none'),
     ...(typeof coverage?.wouldStrongProportional === 'number' ? { wouldStrongProportional: coverage.wouldStrongProportional } : {}),
     ...(typeof coverage?.wouldWeakProportional === 'number' ? { wouldWeakProportional: coverage.wouldWeakProportional } : {}),
+    ...(arrayOfStrings(coverage?.strongSymbols).length > 0 ? { strongSymbols: arrayOfStrings(coverage?.strongSymbols) } : {}),
+    ...(arrayOfStrings(coverage?.weakSymbols).length > 0 ? { weakSymbols: arrayOfStrings(coverage?.weakSymbols) } : {}),
+    ...(arrayOfStrings(coverage?.watchSymbols).length > 0 ? { watchSymbols: arrayOfStrings(coverage?.watchSymbols) } : {}),
     nextAction: `Gate3 timing for ${passStrong + passWeak} candidates`,
   };
 }
@@ -333,6 +346,13 @@ export function gate2SummaryFromAggregate(raw: unknown): Gate2Summary {
 export function gate2SummaryFromConfluence(raw: unknown): Gate2Summary {
   const summary = recordOf(raw);
   const evaluated = numberOf(summary?.evaluated, 0);
+  // 등급별 종목 코드는 confluence results(per-symbol gate2Status 정본)에서 직접 도출(표시용 보조, 카운트 무영향).
+  const results = arrayOfRecords(summary?.results);
+  const symbolsByStatus = (status: string): string[] =>
+    results.filter((r) => text(r.gate2Status, '') === status).map((r) => text(r.symbol, '')).filter((s) => s.length > 0);
+  const strongSymbols = symbolsByStatus('GATE2_PASS_STRONG');
+  const weakSymbols = symbolsByStatus('GATE2_PASS_WEAK');
+  const watchSymbols = symbolsByStatus('GATE2_WATCH');
   return {
     evaluated,
     passStrong: numberOf(summary?.gate2PassStrong, 0),
@@ -349,6 +369,9 @@ export function gate2SummaryFromConfluence(raw: unknown): Gate2Summary {
     topMissingAxis: text(summary?.topMissingAxis, 'none'),
     ...(typeof summary?.wouldStrongProportional === 'number' ? { wouldStrongProportional: numberOf(summary.wouldStrongProportional, 0) } : {}),
     ...(typeof summary?.wouldWeakProportional === 'number' ? { wouldWeakProportional: numberOf(summary.wouldWeakProportional, 0) } : {}),
+    ...(strongSymbols.length > 0 ? { strongSymbols } : {}),
+    ...(weakSymbols.length > 0 ? { weakSymbols } : {}),
+    ...(watchSymbols.length > 0 ? { watchSymbols } : {}),
     nextAction: `Gate3 timing for ${numberOf(summary?.gate2PassStrong, 0) + numberOf(summary?.gate2PassWeak, 0)} candidates`,
   };
 }

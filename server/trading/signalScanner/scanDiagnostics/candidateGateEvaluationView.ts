@@ -79,6 +79,13 @@ export interface CandidateGate2Coverage {
   /** ADR-0599 dry-run — 비례 기준 적용 시 도달했을 STRONG/WEAK 수 (표시용 보조, 상태 정본 아님). */
   wouldStrongProportional?: number;
   wouldWeakProportional?: number;
+  /**
+   * 등급별 종목 코드 (표시용 보조 — 카운트와 동일 roll-up loop 에서 수집해 정합). 상태 정본 아님.
+   * 운영자가 어느 종목이 STRONG/WEAK 인지 per-symbol 추적할 수 있도록 동반한다(가산만, 카운트 byte-equivalent).
+   */
+  strongSymbols?: string[];
+  weakSymbols?: string[];
+  watchSymbols?: string[];
 }
 
 /**
@@ -428,12 +435,16 @@ export function aggregateCandidateGateEvaluationViews(
   let gate3Ready = 0;
   let gate3TriggerWait = 0;
   let gate3TimingFail = 0;
+  // 등급별 종목 코드(표시용 보조) — 카운트와 동일 loop·동일 조건에서 수집 → 카운트 byte-equivalent + 종목 정합.
+  const strongSymbols: string[] = [];
+  const weakSymbols: string[] = [];
+  const watchSymbols: string[] = [];
 
   for (const view of views) {
     if (view.gate1.passPermission) gate1Pass += 1;
-    if (view.gate2.status === 'PASS') gate2PassStrong += 1;
-    if (view.gate2.status === 'PASS_WEAK') gate2PassWeak += 1;
-    if (view.gate2.status === 'WATCH') gate2Watch += 1;
+    if (view.gate2.status === 'PASS') { gate2PassStrong += 1; strongSymbols.push(view.symbol); }
+    if (view.gate2.status === 'PASS_WEAK') { gate2PassWeak += 1; weakSymbols.push(view.symbol); }
+    if (view.gate2.status === 'WATCH') { gate2Watch += 1; watchSymbols.push(view.symbol); }
     if (view.gate2.status === 'FAIL') gate2Fail += 1;
     if (view.gate2.status === 'DATA_INCOMPLETE') gate2DataIncomplete += 1;
     if (view.gate3.readiness === 'READY') gate3Ready += 1;
@@ -442,6 +453,16 @@ export function aggregateCandidateGateEvaluationViews(
     const reason = view.topBlockReason || 'NONE';
     topBlockReasonDistribution[reason] = (topBlockReasonDistribution[reason] ?? 0) + 1;
   }
+
+  // 등급별 종목 코드를 표시용 coverage 에 가산 merge — 기존 axis 커버리지 필드는 무변경(carry).
+  const gate2CoverageWithSymbols: CandidateGate2Coverage | undefined = gate2Coverage
+    ? {
+        ...gate2Coverage,
+        ...(strongSymbols.length > 0 ? { strongSymbols } : {}),
+        ...(weakSymbols.length > 0 ? { weakSymbols } : {}),
+        ...(watchSymbols.length > 0 ? { watchSymbols } : {}),
+      }
+    : undefined;
 
   return {
     evaluatedCount: scoped('ALL_CANDIDATES', views.length),
@@ -454,7 +475,7 @@ export function aggregateCandidateGateEvaluationViews(
     gate3ReadyCount: scoped('GATE3_TIMING_SAMPLE', gate3Ready),
     gate3TriggerWaitCount: scoped('GATE3_TIMING_SAMPLE', gate3TriggerWait),
     gate3TimingFailCount: scoped('GATE3_TIMING_SAMPLE', gate3TimingFail),
-    ...(gate2Coverage ? { gate2Coverage } : {}),
+    ...(gate2CoverageWithSymbols ? { gate2Coverage: gate2CoverageWithSymbols } : {}),
     topBlockReasonDistribution,
   };
 }

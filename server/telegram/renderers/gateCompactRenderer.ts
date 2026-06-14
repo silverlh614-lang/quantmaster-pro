@@ -23,6 +23,17 @@ function compactLines(lines: string[], limit = 12): string {
   return lines.slice(0, limit).join('\n');
 }
 
+/**
+ * 등급 카운트 + 종목 코드를 `N (code,code)` 형태로 렌더한다(표시용 — 카운트 무영향).
+ * 텔레그램 길이 보호: 종목 수 > maxCodes 면 top-N + "+K more". 빈 등급(코드 없음)은 카운트만.
+ */
+function formatGradeWithSymbols(count: number, symbols: string[] | undefined, maxCodes = 8): string {
+  if (!symbols || symbols.length === 0) return String(count);
+  if (symbols.length <= maxCodes) return `${count} (${symbols.join(',')})`;
+  const shown = symbols.slice(0, maxCodes).join(',');
+  return `${count} (${shown},+${symbols.length - maxCodes} more)`;
+}
+
 export function renderGateCompactSummary(bundle: SnapshotBundle): string {
   const conflict = checkDisplayContradictions(bundle);
   if (conflict.displayRenderBlocked) return formatDisplayConflict(conflict);
@@ -74,7 +85,8 @@ export function renderGate2Compact(bundle: SnapshotBundle): string {
     '[Gate2 Growth]',
     `snapshot: ${bundle.sourceSnapshotId}`,
     `evaluated: ${evaluated}`,
-    `strong: ${g2?.passStrong ?? 0} / weak: ${g2?.passWeak ?? 0} / watch: ${g2?.watch ?? 0} / fail: ${g2?.fail ?? 0}`,
+    // strong/weak 는 전체 종목 코드 동반(per-symbol 추적 핵심), watch 는 top-3 코드, fail 은 카운트만. 카운트 byte-equivalent.
+    `strong: ${formatGradeWithSymbols(g2?.passStrong ?? 0, g2?.strongSymbols)} / weak: ${formatGradeWithSymbols(g2?.passWeak ?? 0, g2?.weakSymbols)} / watch: ${formatGradeWithSymbols(g2?.watch ?? 0, g2?.watchSymbols, 3)} / fail: ${g2?.fail ?? 0}`,
     ...(g2?.wouldStrongProportional !== undefined
       ? [`proportionalDryRun: strong=${g2.wouldStrongProportional} weak=${g2.wouldWeakProportional ?? 0} (ADR-0599 flag OFF 관측)`]
       : []),

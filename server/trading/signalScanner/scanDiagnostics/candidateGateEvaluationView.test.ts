@@ -219,6 +219,60 @@ describe('ADR-0526 buildCandidateGateEvaluationViews equivalence', () => {
     expect(aggregateCandidateGateEvaluationViews(a)).toEqual(aggregateCandidateGateEvaluationViews(b));
   });
 
+  // 진단 가시화: 등급별 종목 코드를 카운트와 동일 loop·동일 조건에서 수집 → 카운트 byte-equivalent + 종목 정합.
+  it('collects per-grade symbol codes into gate2Coverage, counts stay byte-equivalent', () => {
+    const verdict = (status: 'PASS' | 'PASS_WEAK' | 'WATCH' | 'FAIL') => ({
+      status,
+      passPermission: status === 'PASS' || status === 'PASS_WEAK',
+      topBlockReason: 'NONE',
+    });
+    const view = (symbol: string, gate2: ReturnType<typeof verdict>) => ({
+      symbol,
+      sourceSnapshotId: 'scan-x',
+      asOf: '2026-06-14T00:00:00.000Z',
+      scope: 'ALL_CANDIDATES' as const,
+      gate0: verdict('PASS'),
+      gate1: verdict('PASS'),
+      gate2,
+      gate3: { readiness: 'TRIGGER_WAIT' as const, timingReadyPermission: false, topBlockReason: 'WAIT' },
+      topBlockReason: 'NONE',
+    });
+    const views = [
+      view('196170', verdict('PASS')),
+      view('000660', verdict('PASS_WEAK')),
+      view('290660', verdict('PASS_WEAK')),
+      view('111111', verdict('WATCH')),
+      view('222222', verdict('FAIL')),
+    ];
+    const baseCoverage = {
+      rsUsable: 5, supplyUsable: 4, sectorUsable: 3, technicalUsable: 5, fundamentalUsable: 2,
+      topPositiveAxis: 'SUPPLY_CONFLUENCE', topMissingAxis: 'FUNDAMENTAL_QUALITY',
+    };
+    const aggregate = aggregateCandidateGateEvaluationViews(views, baseCoverage);
+
+    // 카운트 byte-equivalent (coverage 인자 유무와 무관하게 동일).
+    const countsOnly = aggregateCandidateGateEvaluationViews(views);
+    expect(aggregate.gate2PassStrongCount.value).toBe(countsOnly.gate2PassStrongCount.value);
+    expect(aggregate.gate2PassWeakCount.value).toBe(countsOnly.gate2PassWeakCount.value);
+    expect(aggregate.gate2PassStrongCount.value).toBe(1);
+    expect(aggregate.gate2PassWeakCount.value).toBe(2);
+
+    // 종목 코드 수집 + 카운트와 정합.
+    expect(aggregate.gate2Coverage?.strongSymbols).toEqual(['196170']);
+    expect(aggregate.gate2Coverage?.weakSymbols).toEqual(['000660', '290660']);
+    expect(aggregate.gate2Coverage?.watchSymbols).toEqual(['111111']);
+    expect(aggregate.gate2Coverage?.strongSymbols?.length).toBe(aggregate.gate2PassStrongCount.value);
+    // 기존 axis 커버리지 필드 무변경(carry).
+    expect(aggregate.gate2Coverage?.rsUsable).toBe(5);
+  });
+
+  // coverage 인자 부재 시 종목 배열도 부재(graceful — 기존 동작 유지).
+  it('omits symbol arrays when no gate2Coverage is supplied', () => {
+    const views = buildCandidateGateEvaluationViews(buildFixtureSummary());
+    const aggregate = aggregateCandidateGateEvaluationViews(views);
+    expect(aggregate.gate2Coverage).toBeUndefined();
+  });
+
   it('combined topBlockReason follows priority registry — gate1-fail candidate carries gate1 reason', () => {
     const views = buildCandidateGateEvaluationViews(buildFixtureSummary());
     const hynix = views.find(v => v.symbol === '000660')!;

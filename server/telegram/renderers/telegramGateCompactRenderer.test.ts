@@ -109,4 +109,50 @@ describe('ADR-0523 Telegram Gate compact renderer', () => {
     expect(renderGate2Compact(sampleBundle())).toContain('topPositive: SUPPLY_CONFLUENCE');
     expect(renderGate3Compact(sampleBundle())).toContain('rrrComputed: 11/13');
   });
+
+  // 진단 가시화: strong/weak 등급에 종목 코드 동반(per-symbol 추적). 카운트는 byte-equivalent.
+  it('renders Gate2 strong/weak grade symbol codes alongside counts', () => {
+    const text = renderGate2Compact(sampleBundle({
+      gate2: {
+        evaluated: 28, passStrong: 1, passWeak: 2, watch: 7, fail: 18, dataIncomplete: 0,
+        rsUsable: 16, supplyUsable: 14, sectorUsable: 12, technicalUsable: 18, fundamentalUsable: 9,
+        topPositiveAxis: 'SUPPLY_CONFLUENCE', topMissingAxis: 'FUNDAMENTAL_QUALITY',
+        strongSymbols: ['196170'], weakSymbols: ['000660', '290660'],
+        nextAction: 'Gate3 timing for 3 candidates',
+      },
+    }));
+    expect(text).toContain('strong: 1 (196170)');
+    expect(text).toContain('weak: 2 (000660,290660)');
+    expect(text).toContain('fail: 18');
+  });
+
+  // 빈 등급(strong:0)은 코드 없이 카운트만 — graceful.
+  it('renders empty grades as count-only without symbol parens', () => {
+    const text = renderGate2Compact(sampleBundle({
+      gate2: {
+        evaluated: 5, passStrong: 0, passWeak: 0, watch: 0, fail: 5, dataIncomplete: 0,
+        rsUsable: 4, supplyUsable: 3, sectorUsable: 2, technicalUsable: 5, fundamentalUsable: 2,
+        topPositiveAxis: 'SUPPLY_CONFLUENCE', topMissingAxis: 'FUNDAMENTAL_QUALITY',
+        nextAction: 'Gate3 timing for 0 candidates',
+      },
+    }));
+    expect(text).toContain('strong: 0 / weak: 0 / watch: 0 / fail: 5');
+    expect(text).not.toContain('strong: 0 (');
+  });
+
+  // 텔레그램 길이 보호: 종목 수 > 8 이면 top-8 + "+N more".
+  it('truncates grade symbol list beyond 8 with +N more', () => {
+    const many = Array.from({ length: 11 }, (_, i) => String(100000 + i));
+    const text = renderGate2Compact(sampleBundle({
+      gate2: {
+        evaluated: 11, passStrong: 11, passWeak: 0, watch: 0, fail: 0, dataIncomplete: 0,
+        rsUsable: 11, supplyUsable: 9, sectorUsable: 8, technicalUsable: 11, fundamentalUsable: 6,
+        topPositiveAxis: 'SUPPLY_CONFLUENCE', topMissingAxis: 'FUNDAMENTAL_QUALITY',
+        strongSymbols: many,
+        nextAction: 'Gate3 timing for 11 candidates',
+      },
+    }));
+    expect(text).toContain('+3 more)');
+    expect(text).toContain('strong: 11 (100000,');
+  });
 });
