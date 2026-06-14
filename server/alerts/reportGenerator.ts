@@ -407,15 +407,17 @@ interface WeeklyReportMetrics {
   weekEnd: Date;
 }
 
-function buildWeeklyReportMetrics(shadows: ServerShadowTrade[], now: number): WeeklyReportMetrics {
+export function buildWeeklyReportMetrics(shadows: ServerShadowTrade[], now: number): WeeklyReportMetrics {
   const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
   const week = shadows.filter(s => new Date(s.signalTime).getTime() > weekAgo);
   const closed = week.filter(s => s.status !== 'ACTIVE' && s.status !== 'PENDING');
   const wins = closed.filter(s => s.status === 'HIT_TARGET');
   const losses = closed.filter(s => s.status === 'HIT_STOP');
   const winRate = closed.length > 0 ? Math.round(wins.length / closed.length * 100) : 0;
-  const winReturns = wins.map(s => s.returnPct ?? 0);
-  const lossReturns = losses.map(s => s.returnPct ?? 0);
+  // ADR-0561/SSOT: returnPct 는 영속에서 strip 되므로(updateShadow 불변 규칙 1) 직접 읽으면
+  // 항상 0 이다. 청산 실현 수익률은 fills 가중평균(getWeightedPnlPct)이 단일 진실 원천.
+  const winReturns = wins.map(s => getWeightedPnlPct(s));
+  const lossReturns = losses.map(s => getWeightedPnlPct(s));
   const avgWin = winReturns.length > 0
     ? winReturns.reduce((a, b) => a + b, 0) / winReturns.length
     : 0;
@@ -522,19 +524,19 @@ function buildWeeklyTelegramMessage(metrics: WeeklyReportMetrics, top3Lines: str
 
 function pickBestWeeklyTrade(wins: ServerShadowTrade[]): ServerShadowTrade | undefined {
   return wins.length > 0
-    ? wins.reduce((a, b) => (a.returnPct ?? 0) > (b.returnPct ?? 0) ? a : b)
+    ? wins.reduce((a, b) => getWeightedPnlPct(a) > getWeightedPnlPct(b) ? a : b)
     : undefined;
 }
 
 function pickWorstWeeklyTrade(losses: ServerShadowTrade[]): ServerShadowTrade | undefined {
   return losses.length > 0
-    ? losses.reduce((a, b) => (a.returnPct ?? 0) < (b.returnPct ?? 0) ? a : b)
+    ? losses.reduce((a, b) => getWeightedPnlPct(a) < getWeightedPnlPct(b) ? a : b)
     : undefined;
 }
 
 function calculateWeeklyTotalPnlPct(closed: ServerShadowTrade[]): number {
   return closed.length > 0
-    ? closed.reduce((sum, s) => sum + (s.returnPct ?? 0), 0) / closed.length
+    ? closed.reduce((sum, s) => sum + getWeightedPnlPct(s), 0) / closed.length
     : 0;
 }
 
@@ -769,8 +771,8 @@ export async function generateWeeklyReport(): Promise<void> {
     winCount:    metrics.wins.length,
     lossCount:   metrics.losses.length,
     totalPnlPct,
-    bestTrade:   bestShadow  ? { name: bestShadow.stockName,  pnlPct: bestShadow.returnPct  ?? 0 } : undefined,
-    worstTrade:  worstShadow ? { name: worstShadow.stockName, pnlPct: worstShadow.returnPct ?? 0 } : undefined,
+    bestTrade:   bestShadow  ? { name: bestShadow.stockName,  pnlPct: getWeightedPnlPct(bestShadow) } : undefined,
+    worstTrade:  worstShadow ? { name: worstShadow.stockName, pnlPct: getWeightedPnlPct(worstShadow) } : undefined,
   }).catch(console.error);
 
   console.log('[AutoTrade] 주간 리포트 완료 (구조화)');
