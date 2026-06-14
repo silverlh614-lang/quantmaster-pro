@@ -7,6 +7,7 @@ import {
   refreshKisToken,
   fetchAccountBalance,
   submitBuyOrder,
+  fetchCurrentPrice,
 } from '../clients/kisClient.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
@@ -238,6 +239,18 @@ export async function preMarketOrderPrep(): Promise<void> {
       } else {
         // Shadow 모드: Telegram 알림만 (현금 차감 없음). 판단/학습은 유지하고 저장/발송만 idempotent 처리한다.
         orderedCount++;
+        // 표시 정정: 동시호가 예약 메시지의 "예정가" 를 발굴 시점 stale 워치리스트
+        // snapshot(stock.entryPrice) 대신 KIS 실시간 현재가로 노출한다 — 실제 shadow
+        // 진입가는 장 시작 buyListLoop 가 live quote 로 산정하므로(Math.round(currentPrice
+        // ×(1+slippage))), entryPrice 표시는 현재가와 수%의 허위 Gap 을 만들어 운영자
+        // 혼란을 유발했다. KIS Primary(ADR-0561): 현재가 조회 실패 시에만 entryPrice fallback.
+        // ⚠️ 영속/dedup 키(orderKey·fingerprint·ledger payload)는 stale entryPrice/quantity
+        // 로 고정 유지 — 메모리 dedup store 재시작 시 live 가격 지터로 중복 예약/중복 발송이
+        // 생기지 않도록 idempotency 기준은 stable snapshot 으로 보존. LIVE 지정가 경로 무변경.
+        const shadowLivePrice = (await fetchCurrentPrice(stock.code).catch(() => null)) ?? stock.entryPrice;
+        const shadowDisplayGapPct = probe.prevClose && probe.prevClose > 0
+          ? ((shadowLivePrice - probe.prevClose) / probe.prevClose) * 100
+          : probe.gapPct;
         const orderKey = buildShadowAuctionOrderKey({
           tradeDate,
           auctionSession,
@@ -272,8 +285,8 @@ export async function preMarketOrderPrep(): Promise<void> {
           sendMessage: () => sendTelegramAlert(
             `🎭 <b>[SHADOW 동시호가 예약]</b>\n` +
             `종목: ${stock.name} (${stock.code})\n` +
-            `예정가: ${stock.entryPrice.toLocaleString()}원 × ${quantity}주\n` +
-            `GateSnap: ${gateSnapFormatted} | Gap ${formatGapPct(probe.gapPct)}\n` +
+            `예정가(현재가): ${shadowLivePrice.toLocaleString()}원 × ${quantity}주\n` +
+            `GateSnap: ${gateSnapFormatted} | Gap ${formatGapPct(shadowDisplayGapPct)}\n` +
             `⚠️ SHADOW 모드 — 실계좌 잔고 아님`
           ),
         }).catch(console.error);

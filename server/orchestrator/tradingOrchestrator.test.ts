@@ -36,6 +36,7 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
       refreshKisToken: vi.fn().mockResolvedValue('token'),
       kisPost: vi.fn().mockResolvedValue({ output: { odno: null } }),
       fetchAccountBalance: vi.fn().mockResolvedValue(10_000_000),
+      fetchCurrentPrice: vi.fn().mockResolvedValue(70000),
     }));
     vi.doMock('../trading/fillMonitor.js', () => ({
       fillMonitor: { addOrder: vi.fn(), pollFills: vi.fn(), autoCancelAtClose: vi.fn(), getPendingOrders: () => [] },
@@ -199,6 +200,102 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
     await preMarketOrderPrep();
 
     expect(gapSpy).toHaveBeenCalledWith({ stockCode: '005930', entryPrice: 70000 });
+  });
+
+  it('SHADOW 동시호가 예약 메시지 — 예정가를 KIS 실시간 현재가로 표시 (stale entryPrice 아님)', async () => {
+    const sendSpy = vi.fn().mockResolvedValue(undefined);
+    vi.doMock('../alerts/telegramClient.js', () => ({
+      sendTelegramAlert: sendSpy,
+      escapeHtml: (s: string) => s,
+      answerCallbackQuery: vi.fn(),
+      isDigestEnabled: () => false,
+      setDigestEnabled: vi.fn(),
+    }));
+    // 워치리스트 발굴 snapshot entryPrice 70,000 vs KIS 실시간 현재가 68,000,
+    // 전일종가 67,000 → 표시 Gap = (68000-67000)/67000 = +1.5% (현재가 기준).
+    vi.doMock('../clients/kisClient.js', () => ({
+      BUY_TR_ID: 'VTTC0802U',
+      refreshKisToken: vi.fn().mockResolvedValue('token'),
+      kisPost: vi.fn().mockResolvedValue({ output: { odno: null } }),
+      fetchAccountBalance: vi.fn().mockResolvedValue(10_000_000),
+      fetchCurrentPrice: vi.fn().mockResolvedValue(68000),
+    }));
+    const watchlist = [
+      { code: '005930', name: '삼성전자', entryPrice: 70000, stopLoss: 66000, targetPrice: 80000, addedAt: new Date().toISOString(), addedBy: 'AUTO', gateScore: 7 },
+    ];
+    vi.doMock('../persistence/watchlistRepo.js', () => ({
+      loadWatchlist: () => watchlist,
+      saveWatchlist: vi.fn(),
+    }));
+    vi.doMock('../persistence/shadowTradeRepo.js', () => ({
+      loadShadowTrades: () => [],
+    }));
+    vi.doMock('../trading/entryEngine.js', () => ({
+      calculateOrderQuantity: () => ({ quantity: 10, effectiveBudget: 680_000 }),
+      isOpenShadowStatus: () => false,
+    }));
+    vi.doMock('../trading/preMarketGapProbe.js', () => ({
+      probePreMarketGap: vi.fn().mockResolvedValue({
+        stockCode: '005930', prevClose: 67000, gapPct: 4.5, decision: 'WARN',
+      }),
+    }));
+
+    const { preMarketOrderPrep } = await import('./tradingOrchestrator.js');
+    await preMarketOrderPrep();
+
+    const shadowMsg = sendSpy.mock.calls
+      .map((c) => String(c[0]))
+      .find((m) => m.includes('[SHADOW 동시호가 예약]'));
+    expect(shadowMsg).toBeDefined();
+    expect(shadowMsg).toContain('68,000원');      // KIS 실시간 현재가 노출
+    expect(shadowMsg).not.toContain('70,000원');  // stale 워치리스트 entryPrice 미노출
+    expect(shadowMsg).toContain('Gap 1.5%');      // 현재가 vs 전일종가 (stale 4.5% 아님)
+  });
+
+  it('SHADOW 예약 — 현재가 조회 실패 시 stale entryPrice 로 안전 폴백', async () => {
+    const sendSpy = vi.fn().mockResolvedValue(undefined);
+    vi.doMock('../alerts/telegramClient.js', () => ({
+      sendTelegramAlert: sendSpy,
+      escapeHtml: (s: string) => s,
+      answerCallbackQuery: vi.fn(),
+      isDigestEnabled: () => false,
+      setDigestEnabled: vi.fn(),
+    }));
+    vi.doMock('../clients/kisClient.js', () => ({
+      BUY_TR_ID: 'VTTC0802U',
+      refreshKisToken: vi.fn().mockResolvedValue('token'),
+      kisPost: vi.fn().mockResolvedValue({ output: { odno: null } }),
+      fetchAccountBalance: vi.fn().mockResolvedValue(10_000_000),
+      fetchCurrentPrice: vi.fn().mockRejectedValue(new Error('KIS down')),
+    }));
+    const watchlist = [
+      { code: '005930', name: '삼성전자', entryPrice: 70000, stopLoss: 66000, targetPrice: 80000, addedAt: new Date().toISOString(), addedBy: 'AUTO', gateScore: 7 },
+    ];
+    vi.doMock('../persistence/watchlistRepo.js', () => ({
+      loadWatchlist: () => watchlist,
+      saveWatchlist: vi.fn(),
+    }));
+    vi.doMock('../persistence/shadowTradeRepo.js', () => ({
+      loadShadowTrades: () => [],
+    }));
+    vi.doMock('../trading/entryEngine.js', () => ({
+      calculateOrderQuantity: () => ({ quantity: 10, effectiveBudget: 700_000 }),
+      isOpenShadowStatus: () => false,
+    }));
+    vi.doMock('../trading/preMarketGapProbe.js', () => ({
+      probePreMarketGap: vi.fn().mockResolvedValue({
+        stockCode: '005930', prevClose: 67000, gapPct: 4.5, decision: 'WARN',
+      }),
+    }));
+
+    const { preMarketOrderPrep } = await import('./tradingOrchestrator.js');
+    await preMarketOrderPrep();
+
+    const shadowMsg = sendSpy.mock.calls
+      .map((c) => String(c[0]))
+      .find((m) => m.includes('[SHADOW 동시호가 예약]'));
+    expect(shadowMsg).toBeDefined();
+    expect(shadowMsg).toContain('70,000원'); // 현재가 실패 → entryPrice 폴백
   });
 
   it('R6 REPORT_ANALYSIS에서 장후 후보 관찰 스캔을 POST_CLOSE_OBSERVE로 1회 실행한다', async () => {
