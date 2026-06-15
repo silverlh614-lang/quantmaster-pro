@@ -187,6 +187,7 @@ import {
 import { hydrateGate2InvestorFlowAdr0601 } from './gate2InvestorFlowHydrationAdr0601.js';
 import { hydrateGate2SectorCycleAdr0601 } from './gate2SectorCycleHydrationAdr0601.js';
 import { hydrateGate2SoxSemiAxisAdr0605 } from './gate2SoxSemiAxisAdr0605.js';
+import { appendGate2SoxObservation } from './gate2SoxObservationLedgerAdr0605.js';
 import { accumulatePositiveScoreStarvation } from './scanCounterAccumulators.js';
 import { persistMidScanDiagnosticBlocksAdr0588 } from './persistScanResultsMidBlocks.js';
 let _lastBuySignalAt = 0;
@@ -721,6 +722,9 @@ export async function persistScanResults(
     summaryDraft.gate2SoxSemiAxisAdr0605 = hydrateGate2SoxSemiAxisAdr0605({
       candidateSnapshots: options.candidateSnapshots ?? counters.entryCandidateSnapshots,
     });
+    const soxObservation = summaryDraft.gate2SoxSemiAxisAdr0605.observation;
+    // ADR-0605 — 관측 추세 누적(flag 무관 매 스캔 1행). ledger 쓰기 격리(불변식 #1, /* SDS-ignore */ try/catch).
+    if (soxObservation) appendGate2SoxObservation({ observation: soxObservation, scanId: sourceSnapshotId, now: kstNow });
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.hydrateGate2SoxSemiAxisAdr0605', error: e });
   }

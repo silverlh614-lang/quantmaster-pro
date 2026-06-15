@@ -58,6 +58,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-06-15 · Patch-ADR0605-SoxGate2-ObservationMode · gate2-sox-semi-axis observation-only flag-off-byte-equivalent dry-run-score-62-50 observation-ledger activation-basis
 - 2026-06-15 · Patch-ADR0613-CeilingWiringMaxScore-Optional · hotfix tsc-TS2345-TS2741 maxScore-optional byte-equivalent precommit-green
 - 2026-06-15 · ADR-0613 · gate1-ceiling-wiring rs-percentile breakout-structure normalize-100 flag-off-byte-equivalent observation-ledger
 - 2026-06-14 · Patch-ShadowAuctionReservation-LivePriceDisplay (patch type·ADR 0건·telegramImpact=표시정정·executionImpact=NONE·LIVE 본체 0줄) · "[SHADOW 동시호가 예약]" 텔레그램 메시지의 "예정가" 가 발굴 시점 stale 워치리스트 snapshot(stock.entryPrice)을 노출해 KIS 전일종가 대비 4~6% 허위 Gap 으로 운영자 혼란 유발하던 표시 결함 정정(사용자 스크린샷 NAVER Gap 4.3%·로보스타 6.1%). 실제 shadow 진입가는 장 시작 buyListLoop 가 live quote(Math.round(currentPrice×(1+slippage)))로 산정하므로 entryPrice 표시는 현실과 불일치였음. preMarketOrderPrep SHADOW 분기에서만 fetchCurrentPrice(KIS Primary ADR-0561, 실패 시 entryPrice 폴백)로 "예정가(현재가)" 표시 + Gap 을 현재가 vs 전일종가로 재산출. ⚠️ idempotency 키(orderKey·fingerprint)·provisional ledger payload 는 stable entryPrice/quantity 로 고정 — 메모리 dedup store(TTL 90s/6h, 재시작 휘발) 에서 live 가격 지터로 인한 중복 예약/발송 차단. LIVE 지정가 주문 경로 무변경(실주문 가격 안전). 회귀 테스트 2(현재가 표시·실패 폴백) + 인접 4 green, lint(tsc x2)+precommit EXIT=0. 롤백=revert 1커밋.
