@@ -66,6 +66,40 @@ let _yahooLastSuccessAt = 0;
 let _yahooLastFailureAt = 0;
 let _yahooConsecutiveFailures = 0;
 
+// ── Task B (kospiDayReturn outlier sanity, ADR-0604 stratify) ──────────────
+// regime 이 소비하는 computed.kospiDayReturn 값은 byte-identical 보존한다(레짐 무관). Yahoo ^KS11
+// 일봉이 결손이면 last/prev 가 인접 거래일이 아니어서 2일 갭이 1일 수익(+5%대 인플레)으로 계산된다.
+// stratify 기록(recordUsOvernightObservation)에만 sanity 가드를 적용 — 인플레된 값이 밴드 통계에
+// 누적되는 것을 차단(미전달 → 해당 행 미완성 → stratify paired 에서 자동 제외). 동일 refresh 사이클
+// (refreshKospiSection → refreshSpxSection) 내 transient 전달이라 cross-cycle stale 없음(Yahoo heartbeat 동형).
+let _kospiStratifyDayReturn: number | null = null;
+
+/**
+ * 두 일봉(prev, last)이 인접 거래일인지 검증 — 사이에 누락된 거래일(평일) 봉이 있으면 false.
+ * Yahoo ts(epoch seconds) → KST date 환산 후 사이 평일 수가 0 이면 인접(주말/연속). 1 이상이면
+ * 중간 거래일 봉 결손(또는 휴일) → 2일+ 갭이 1일 수익으로 압축됐을 수 있어 stratify 기록 부적격.
+ * 휴일-비인식 근사(주말만 스킵, businessDayApprox 와 동일 보수) — 과소 플래그 쪽으로 안전.
+ */
+export function areKospiBarsAdjacentTradingDays(prevTs: number, lastTs: number): boolean {
+  if (!Number.isFinite(prevTs) || !Number.isFinite(lastTs) || lastTs <= prevTs) return false;
+  const toKstDate = (ts: number): Date => new Date((ts + 9 * 3600) * 1000);
+  const prev = toKstDate(prevTs);
+  const last = toKstDate(lastTs);
+  // 두 봉이 같은 날이면(중복) 인접으로 보지 않는다(비정상).
+  let cursor = new Date(Date.UTC(prev.getUTCFullYear(), prev.getUTCMonth(), prev.getUTCDate()));
+  const lastDay = new Date(Date.UTC(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate()));
+  if (cursor.getTime() === lastDay.getTime()) return false;
+  let weekdaysBetween = 0;
+  // prev 다음 날부터 last 직전 날까지 평일이 있으면 중간 거래일 봉 결손 의심.
+  cursor.setUTCDate(cursor.getUTCDate() + 1);
+  while (cursor.getTime() < lastDay.getTime()) {
+    const dow = cursor.getUTCDay();
+    if (dow !== 0 && dow !== 6) weekdaysBetween += 1;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return weekdaysBetween === 0;
+}
+
 /**
  * 호출 시점 Yahoo 가용성 스냅샷.
  * - 1시간 이내 success: OK
@@ -169,6 +203,7 @@ export function computeVkospiDayChangeFromBars(bars: DailyBar[] | null): { curre
 }
 
 export async function refreshKospiSection(computed: MarketRefreshComputed): Promise<void> {
+  _kospiStratifyDayReturn = null; // Task B — 매 사이클 초기화(이전 사이클 값 cross-cycle 누출 차단).
   const kospiBars = await fetchDailyBars('^KS11', '65d');
   const kospi = kospiBars ? kospiBars.map(b => b.close) : null;
   if (kospi && kospi.length >= 22) {
@@ -184,6 +219,15 @@ export async function refreshKospiSection(computed: MarketRefreshComputed): Prom
       ? ((last - prev) / prev) * 100
       : 0;
     computed.kospiCloseReturn = computed.kospiDayReturn;
+    // Task B — stratify 전용 sanity: last/prev 봉이 인접 거래일일 때만 stratify 기록 적격값으로 보존.
+    // 중간 거래일 봉 결손이면 2일+ 갭이 1일 수익으로 인플레 → 미전달(null)로 밴드 통계 오염 차단.
+    // regime 입력 computed.kospiDayReturn 자체는 무변경(byte-identical) — 별도 transient 만 갱신.
+    const prevBar = kospiBars?.[kospiBars.length - 2];
+    _kospiStratifyDayReturn =
+      latestBar?.ts !== undefined && prevBar?.ts !== undefined
+        && areKospiBarsAdjacentTradingDays(prevBar.ts, latestBar.ts)
+        ? (computed.kospiDayReturn as number)
+        : null;
     if (prev > 0 && latestBar?.low !== undefined) computed.kospiIntradayLowReturn = ((latestBar.low - prev) / prev) * 100;
     if (prev > 0 && latestBar?.high !== undefined) computed.kospiIntradayHighReturn = ((latestBar.high - prev) / prev) * 100;
     computed.kospiTriggerSourceUpdatedAt = new Date().toISOString();
@@ -327,12 +371,15 @@ export async function refreshSpxSection(computed: MarketRefreshComputed): Promis
     console.log(`[MarketRefresh] SOX(KIS, 관측): 1d=${kisSox.dayReturnPct.toFixed(2)}%, 20d=${kisSox.return20dPct?.toFixed(2) ?? 'N/A'}%`);
   }
   // ADR-0604 2단계 — 야간↔KOSPI stratify 관측 기록 (실패 격리, 게이트 미소비).
+  // Task B — kospiDayReturn 은 봉 인접성 sanity 를 통과한 transient(_kospiStratifyDayReturn)만 전달.
+  // 봉 결손/갭으로 인플레된 outlier 는 null 로 미전달 → 행 미완성 → stratify paired 에서 자동 제외.
+  // regime 입력(computed.kospiDayReturn)은 무관 — 본 기록 경로만 가드(불변식 #6: 결손은 신호 아님).
   try {
     recordUsOvernightObservation({
       dateKey: new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10),
       spxOvernight: computed.spxDayReturn,
       ndxOvernight: computed.ndxDayReturn,
-      kospiDayReturn: computed.kospiDayReturn,
+      kospiDayReturn: _kospiStratifyDayReturn ?? undefined,
     });
   } catch (error) {
     console.warn(`[MarketRefresh] usOvernight stratify 기록 실패(무영향): ${String(error)}`);

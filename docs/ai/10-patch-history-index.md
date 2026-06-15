@@ -58,6 +58,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-06-15 · Patch-ADR0604-KospiStratify-BarAdjacencyGuard · indexMacroSections kospiDayReturn outlier yahoo-ks11-gap stratify-record-only regime-byte-identical
 - 2026-06-15 · Patch-ADR0605-SoxGate2-ObservationMode · gate2-sox-semi-axis observation-only flag-off-byte-equivalent dry-run-score-62-50 observation-ledger activation-basis
 - 2026-06-15 · Patch-ADR0613-CeilingWiringMaxScore-Optional · hotfix tsc-TS2345-TS2741 maxScore-optional byte-equivalent precommit-green
 - 2026-06-15 · ADR-0613 · gate1-ceiling-wiring rs-percentile breakout-structure normalize-100 flag-off-byte-equivalent observation-ledger
