@@ -32,6 +32,7 @@ import type {
 } from "./minimumSignalScoreTrace/types.js";
 import {
   round1,
+  clamp,
   weightedFromNormalized,
 } from "./minimumSignalScoreTrace/scoring.js";
 
@@ -44,6 +45,66 @@ export {
   buildMinSignalScoreDecompositionReport,
   buildSignalScoreCalibrationResults,
 } from "./minimumSignalScoreTrace/decompositionReport.js";
+
+/**
+ * ADR-0611 — SECTOR_RELATIVE_STRENGTH 컴포넌트 재활성 스위치 (정확 비교 === 'true', default OFF).
+ * 배경: 본 컴포넌트는 ADR-0467 에서 advisory-only(maxScore:0)로 주차됐는데, 그 결과 활성 maxScore
+ * 합(108)이 requiredScore=70 이 calibrate 된 configuredPositiveMax(116)보다 8점 낮아 상위 8점이
+ * 영구 도달 불가가 됐다(ADR-0467 의 의도치 않은 side effect). 본 flag ON 시 8점 capacity 를 복원한다.
+ * OFF = byte-equivalent(maxScore 0·weightedScore 0). requiredScore 무변경.
+ */
+function isGate1SectorRsComponentEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.GATE1_SECTOR_RS_COMPONENT_ENABLED === 'true';
+}
+
+const SECTOR_RS_COMPONENT_MAX_SCORE = 8;
+
+/**
+ * SECTOR_RELATIVE_STRENGTH 재활성 점수 산출. RS 컴포넌트(시장상대·rsRankPct)와의 이중계상을 피하려
+ * **섹터상대(stock − sector) 입력만** 소비한다(ADR-0469 dedup 정합). 입력 부재 시 weightedScore 0(graceful) —
+ * actualScore 는 weightedScore 합이므로 입력 있는 종목에서만 라이브 점수가 오른다.
+ */
+function resolveSectorRsComponentScore(trace: CandidateEntryTrace): {
+  rawValue: unknown;
+  normalizedScore: number;
+  weightedScore: number;
+  maxScore: number;
+  weight: number;
+  confidence: "VERIFIED" | "DIAGNOSTIC_ONLY" | "MISSING";
+} {
+  const sectorRelative = nestedNumericTraceValue(trace, [
+    "sectorRelativeReturn20d",
+    "featurePack.momentum.sectorRelativeReturn20d",
+    "quoteFeatures.sectorRelativeReturn20d",
+    "gateLayerSummary.gate2.externalDataCoverage.sectorCycle.values.stockVsSectorReturn20d",
+    "gate2ExternalDataCoverage.sectorCycle.values.stockVsSectorReturn20d",
+  ]);
+  // OFF: 기존 advisory-only 동작과 byte-equivalent (maxScore 0·weightedScore 0).
+  if (!isGate1SectorRsComponentEnabled()) {
+    return {
+      rawValue: sectorRelative,
+      normalizedScore: 0,
+      weightedScore: 0,
+      maxScore: 0,
+      weight: 0,
+      confidence: sectorRelative !== undefined ? "DIAGNOSTIC_ONLY" : "MISSING",
+    };
+  }
+  // ON: capacity 복원. 입력 부재 → weightedScore 0(결손 ≠ 페널티, 불변식 #6), maxScore 8 은 denominator 만.
+  if (sectorRelative === undefined) {
+    return { rawValue: undefined, normalizedScore: 0, weightedScore: 0, maxScore: SECTOR_RS_COMPONENT_MAX_SCORE, weight: 1, confidence: "MISSING" };
+  }
+  const pct = Math.abs(sectorRelative) <= 1 ? sectorRelative * 100 : sectorRelative;
+  const normalizedScore = clamp(((pct + 10) / 20) * 100, 0, 100);
+  return {
+    rawValue: { sectorRelativeReturn20d: pct },
+    normalizedScore,
+    weightedScore: weightedFromNormalized(normalizedScore, SECTOR_RS_COMPONENT_MAX_SCORE),
+    maxScore: SECTOR_RS_COMPONENT_MAX_SCORE,
+    weight: 1,
+    confidence: "VERIFIED",
+  };
+}
 
 function component(
   input: Omit<SignalScoreComponentTrace, "contributionPct">,
@@ -106,6 +167,7 @@ export function buildMinimumSignalScoreTrace(input: {
   const volumeLiquidity = volumeLiquidityScore(input.trace);
   const priceMomentum = priceMomentumScore(input.trace, input.regime);
   const technicalTrend = technicalTrendScore(input.trace);
+  const sectorRs = resolveSectorRsComponentScore(input.trace);
   const components: SignalScoreComponentTrace[] = [
     component({
       code: "PRICE_MOMENTUM",
@@ -372,34 +434,19 @@ export function buildMinimumSignalScoreTrace(input: {
     // 입력 필드 없으면 confidence=MISSING, score=0 (graceful missing).
     component({
       code: "SECTOR_RELATIVE_STRENGTH",
-      rawValue: nestedNumericTraceValue(input.trace, [
-        "rsRankPct",
-        "sectorRelativeReturn20d",
-        "featurePack.momentum.rsRankPct",
-        "featurePack.momentum.sectorRelativeReturn20d",
-        "quoteFeatures.rsRankPct",
-        "quoteFeatures.sectorRelativeReturn20d",
-      ]),
-      normalizedScore: 0,
-      weight: 0,
-      weightedScore: 0,
-      maxScore: 0,
-      confidence: (() => {
-        const v = nestedNumericTraceValue(input.trace, [
-          "rsRankPct",
-          "sectorRelativeReturn20d",
-          "featurePack.momentum.rsRankPct",
-          "featurePack.momentum.sectorRelativeReturn20d",
-          "quoteFeatures.rsRankPct",
-          "quoteFeatures.sectorRelativeReturn20d",
-        ]);
-        return v !== undefined ? "DIAGNOSTIC_ONLY" : "MISSING";
-      })(),
+      rawValue: sectorRs.rawValue,
+      normalizedScore: sectorRs.normalizedScore,
+      weight: sectorRs.weight,
+      weightedScore: sectorRs.weightedScore,
+      maxScore: sectorRs.maxScore,
+      confidence: sectorRs.confidence,
       providerIssue: false,
       marketSignal: false,
       penaltyApplied: false,
       message:
-        "SECTOR_RELATIVE_STRENGTH is advisory-only (ADR-0467); score=0, Gate1 hard block 미관여.",
+        sectorRs.maxScore === 0
+          ? "SECTOR_RELATIVE_STRENGTH is advisory-only (ADR-0467); score=0, Gate1 hard block 미관여."
+          : "SECTOR_RELATIVE_STRENGTH re-activated (ADR-0611): sector-relative 20d return capacity 8pt restored.",
     }),
     component({
       code: "GHOST_SIGNAL_STRENGTH",
