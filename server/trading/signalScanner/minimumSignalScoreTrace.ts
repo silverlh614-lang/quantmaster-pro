@@ -35,6 +35,12 @@ import {
   clamp,
   weightedFromNormalized,
 } from "./minimumSignalScoreTrace/scoring.js";
+import {
+  applyRsPercentileWiring,
+  applyBreakoutWiring,
+  applyPositiveMaxNormalization,
+  computeCeilingWiringHypothetical,
+} from "./gate1PositiveCeilingWiringAdr0613.js";
 
 export * from "./minimumSignalScoreTrace/types.js";
 export {
@@ -158,12 +164,19 @@ export function buildMinimumSignalScoreTrace(input: {
     watchlistNormalizedScore,
     10,
   );
-  const relativeStrength = normalizedRelativeStrength(
+  const relativeStrengthBase = normalizedRelativeStrength(
     input.trace,
     input.macroGateState,
   );
+  // ADR-0613 (a) RS percentile 입력 배선 — flag OFF → relativeStrengthBase 그대로(byte-equivalent).
+  const relativeStrength = applyRsPercentileWiring(
+    relativeStrengthBase,
+    input.trace,
+  ) as typeof relativeStrengthBase;
   const relativeWeightedScore = relativeStrength.weightedScore;
-  const breakout = breakoutScore(input.trace);
+  const breakoutBase = breakoutScore(input.trace);
+  // ADR-0613 (b) BREAKOUT_STRUCTURE 배선 — flag OFF → breakoutBase 그대로(byte-equivalent).
+  const breakout = applyBreakoutWiring(breakoutBase, input.trace) as typeof breakoutBase;
   const volumeLiquidity = volumeLiquidityScore(input.trace);
   const priceMomentum = priceMomentumScore(input.trace, input.regime);
   const technicalTrend = technicalTrendScore(input.trace);
@@ -480,9 +493,12 @@ export function buildMinimumSignalScoreTrace(input: {
         "GHOST_SIGNAL_STRENGTH is advisory-only (ADR-0467); score=0, Gate1 hard block 미관여.",
     }),
   ];
-  const computedScore = round1(
+  const rawComputed = round1(
     components.reduce((sum, c) => sum + c.weightedScore, 0),
   );
+  // ADR-0613 (c) positive max→100 정규화 — flag OFF → rawComputed 그대로(byte-equivalent).
+  // 합산식 자체는 무변경: rawComputed 는 Σ weightedScore. flag ON 시에만 positive 합 정규화.
+  const computedScore = round1(applyPositiveMaxNormalization(rawComputed, components));
   const actualScore = computedScore;
   const positiveScoreTotal = round1(
     components
@@ -531,6 +547,22 @@ export function buildMinimumSignalScoreTrace(input: {
   const scoreGap = round1(actualScore - requiredScore);
   const passAt = (delta: number) =>
     round1(actualScore - delta) >= requiredScore;
+  // ADR-0613 관측 ledger stamp — flag 무관 항상 "ON 이면 어땠을지" hypothetical 산출.
+  // try/catch 격리: ledger 실패가 scorer/엔진 정지 유발 금지(불변식 #1). 실패 시 필드 미stamp.
+  let ceilingWiringHypothetical: ReturnType<typeof computeCeilingWiringHypothetical> | undefined;
+  try {
+    ceilingWiringHypothetical = computeCeilingWiringHypothetical({
+      relativeStrengthBase,
+      breakoutBase,
+      trace: input.trace,
+      rawComputed,
+      components,
+      requiredScore,
+    });
+  } catch {
+    /* SDS-ignore: ADR-0613 관측 ledger stamp 실패는 scorer 본체에 영향 0 (불변식 #1). 필드 미stamp 로 graceful. */
+    ceilingWiringHypothetical = undefined;
+  }
   return {
     symbol: input.trace.symbol,
     name: input.trace.name,
@@ -539,6 +571,7 @@ export function buildMinimumSignalScoreTrace(input: {
     scoreGap,
     passed: actualScore >= requiredScore,
     components,
+    ...(ceilingWiringHypothetical ? ceilingWiringHypothetical : {}),
     positiveScoreTotal,
     penaltyTotal,
     unknownPenaltyTotal,

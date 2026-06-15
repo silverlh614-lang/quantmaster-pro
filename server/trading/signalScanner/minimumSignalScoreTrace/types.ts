@@ -72,6 +72,13 @@ export interface MinimumSignalScoreTrace {
   wouldPassIfRiskPenaltyCapped: boolean;
   wouldPassIfSectorPenaltyRemoved: boolean;
   wouldPassIfSoftFailPenaltyRemoved: boolean;
+  // ADR-0613 관측 ledger — flag 무관 항상 stamp 되는 천장 배선 hypothetical(flag ON 가정) delta.
+  // try/catch 격리 실패 시 부재(optional). actualScore/passed 본체에 영향 0 (관측 전용).
+  ceilingWiringRsPercentileDelta?: number;
+  ceilingWiringBreakoutDelta?: number;
+  ceilingWiringNormalizeDelta?: number;
+  ceilingWiringHypotheticalActualScore?: number;
+  ceilingWiringHypotheticalPassed?: boolean;
 }
 
 export type UnknownDataTreatment =
