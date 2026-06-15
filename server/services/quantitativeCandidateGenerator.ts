@@ -50,6 +50,34 @@ interface QuantCandidateOptions {
    * KRX 마스터가 비어있으면 SEED_UNIVERSE 24개로 대체된다.
    */
   universeLimit?: number;
+  /**
+   * 시장(KOSPI) 20거래일 누적 수익률 — *퍼센트* (예: +7.5 = 7.5%, macroState.kospi20dReturn).
+   * UNIVERSE_RS_GATE_ENABLED ON + MOMENTUM 모드일 때 시장상대강도(RS) 필터의 벤치마크로 사용.
+   * 부재(undefined/비유한) 시 RS 필터 미적용(기존 전체 풀) — 결손≠약세 신호 (graceful).
+   *
+   * 단위 주의: computeMomentum 은 `last/first-1` *소수 비율* 을 반환하므로, 본 값(퍼센트)을
+   * 비교 시 100 으로 나눠 소수로 정규화한다 (normalizeBenchmarkToRatio).
+   */
+  benchmarkReturn20d?: number;
+}
+
+/**
+ * 시장상대강도(RS) 게이트 활성화 여부 — 정확 비교(=== 'true'), default OFF.
+ * ON 이면 MOMENTUM 발굴 단계에서 momentum20d ≥ 시장수익률 종목만 필터(시장 이상으로 오른 주도주).
+ * 강세장인데 후보 풀이 낙폭과대 반등주로만 채워지는 결함(절대수익만 보던 발굴)을 교정한다.
+ * OFF 시 모든 분기 byte-equivalent.
+ */
+export function isUniverseRelativeStrengthGateEnabled(): boolean {
+  return process.env.UNIVERSE_RS_GATE_ENABLED === 'true';
+}
+
+/**
+ * 벤치마크 정규화 — kospi20dReturn 은 *퍼센트*(예 7.5), momentum20d 는 *소수 비율*(예 0.075).
+ * 같은 단위(소수)로 맞추기 위해 100 으로 나눈다. 비유한 입력 시 null(필터 미적용 신호).
+ */
+function normalizeBenchmarkToRatio(benchmarkReturn20dPct: number | undefined): number | null {
+  if (benchmarkReturn20dPct === undefined || !Number.isFinite(benchmarkReturn20dPct)) return null;
+  return benchmarkReturn20dPct / 100;
 }
 
 /** 호출 비용 가드 — bucket 기본 한도 50/일. */
@@ -272,20 +300,35 @@ function computeDrawdownFromHigh(bars: YahooBar[], fiftyTwoWeekHigh: number | nu
 function rankCandidates(
   mode: AiUniverseMode,
   metricsByCode: Map<string, { entry: { code: string; name: string; market: 'KOSPI' | 'KOSDAQ' }; metrics: Record<string, number> }>,
+  options: { maxCandidates?: number; benchmarkReturn20d?: number } = {},
 ): QuantitativeCandidate[] {
   const items = Array.from(metricsByCode.values());
 
   if (mode === 'MOMENTUM') {
+    // ── 시장상대강도(RS) 필터 — flag ON + 벤치마크 유한 시 momentum20d ≥ 시장수익률만 통과. ──
+    //   RS = momentum20d − 시장수익률. 시장수익률은 한 스캔 내 *상수* 이므로 단순 재정렬은 no-op
+    //   (전 종목 동일 상수 차감) → 필터(게이트)로만 효과. 랭킹 산식 자체는 무변경(필터만).
+    //   graceful fallback: 필터 후 생존 < max(5, maxCandidates) 면 미적용(전체 풀) — 약세장/결손
+    //   에서 후보 0 방지(불변식 #6: 결손≠약세 신호).
+    let pool = items;
+    if (isUniverseRelativeStrengthGateEnabled()) {
+      const benchmarkRatio = normalizeBenchmarkToRatio(options.benchmarkReturn20d);
+      if (benchmarkRatio !== null) {
+        const survivors = items.filter((it) => (it.metrics.momentum20d ?? -Infinity) >= benchmarkRatio);
+        const minSurvival = Math.max(5, options.maxCandidates ?? 0);
+        if (survivors.length >= minSurvival) pool = survivors;
+      }
+    }
     // 20일 모멘텀 + 평균 거래대금 합산 랭킹
     const ranks = (key: 'momentum20d' | 'avgTurnoverKrw'): Map<string, number> => {
-      const sorted = [...items].sort((a, b) => (b.metrics[key] ?? 0) - (a.metrics[key] ?? 0));
+      const sorted = [...pool].sort((a, b) => (b.metrics[key] ?? 0) - (a.metrics[key] ?? 0));
       const m = new Map<string, number>();
       sorted.forEach((it, idx) => m.set(it.entry.code, idx));
       return m;
     };
     const r1 = ranks('momentum20d');
     const r2 = ranks('avgTurnoverKrw');
-    return items
+    return pool
       .map((it) => ({ it, score: (r1.get(it.entry.code) ?? 0) + (r2.get(it.entry.code) ?? 0) }))
       .sort((a, b) => a.score - b.score)
       .map(({ it }) => ({ ...it.entry, metrics: it.metrics }));
@@ -320,15 +363,15 @@ function rankCandidates(
       else kospi.set(it.entry.code, it);
     }
     return [
-      ...rankCandidates('MOMENTUM', kosdaq),
-      ...rankCandidates('MOMENTUM', kospi),
+      ...rankCandidates('MOMENTUM', kosdaq, options),
+      ...rankCandidates('MOMENTUM', kospi, options),
     ];
   }
 
   // QUANT_SCREEN — Naver enrichment 가 PER/PBR 을 제공해야 본격 정렬 가능.
   // Tier 3 단계에서는 MOMENTUM 정렬을 그대로 사용해 candidates 를 먼저 뽑고,
   // service 가 Naver 보강 후 PER<=15 / PBR<=1.5 필터를 적용하도록 위임.
-  return rankCandidates('MOMENTUM', metricsByCode);
+  return rankCandidates('MOMENTUM', metricsByCode, options);
 }
 
 /**
@@ -347,6 +390,9 @@ export async function generateQuantitativeCandidates(
     return { candidates: [], tradingDateRef: null, stale: true };
   }
 
+  // 시장 벤치마크(소수 비율). 부재 시 null → relativeStrength20d 미설정 + RS 필터 미적용.
+  const benchmarkRatio = normalizeBenchmarkToRatio(options.benchmarkReturn20d);
+
   const metricsByCode = new Map<string, { entry: typeof universe[number]; metrics: Record<string, number> }>();
   let mostRecentTradingDate: string | null = null;
   let successCount = 0;
@@ -363,12 +409,18 @@ export async function generateQuantitativeCandidates(
     }
     if (!bundle || bundle.bars.length < 21) continue;
 
+    const momentum20d = computeMomentum(bundle.bars, 20);
     const metrics: Record<string, number> = {
-      momentum20d: computeMomentum(bundle.bars, 20),
+      momentum20d,
       avgTurnoverKrw: computeAvgTurnover(bundle.bars, 20),
       volatility20d: computeVolatility(bundle.bars, 20),
       drawdownFromHigh: computeDrawdownFromHigh(bundle.bars, bundle.fiftyTwoWeekHigh),
     };
+    // 시장상대강도(소수 비율) — 진단 가시화 전용. 랭킹엔 영향 0 (RS 게이트는 필터로만 사용).
+    // 벤치마크 부재 시 미설정 (결손≠0 — 진단에서 "측정 불가" 구분).
+    if (benchmarkRatio !== null) {
+      metrics.relativeStrength20d = momentum20d - benchmarkRatio;
+    }
     metricsByCode.set(entry.code, { entry, metrics });
     successCount++;
     if (bundle.tradingDate && (!mostRecentTradingDate || bundle.tradingDate > mostRecentTradingDate)) {
@@ -381,7 +433,10 @@ export async function generateQuantitativeCandidates(
     return { candidates: [], tradingDateRef: null, stale: true };
   }
 
-  const ranked = rankCandidates(mode, metricsByCode).slice(0, maxCandidates);
+  const ranked = rankCandidates(mode, metricsByCode, {
+    maxCandidates,
+    benchmarkReturn20d: options.benchmarkReturn20d,
+  }).slice(0, maxCandidates);
   return {
     candidates: ranked,
     tradingDateRef: mostRecentTradingDate,
@@ -399,4 +454,5 @@ export const __testOnly = {
   computeVolatility,
   computeDrawdownFromHigh,
   rankCandidates,
+  normalizeBenchmarkToRatio,
 };

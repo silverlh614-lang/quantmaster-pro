@@ -261,4 +261,62 @@ describe('quantitativeCandidateGenerator (PR-37)', () => {
     expect(r[0].code).toBe('B');
     expect(r[1].code).toBe('A');
   });
+
+  // ── UNIVERSE_RS_GATE (시장상대강도 발굴 필터) ────────────────────────────────
+  describe('UNIVERSE_RS_GATE — MOMENTUM RS 필터', () => {
+    /** RS 필터 검증용 6종목 — 강세장(KOSPI 20d +7.5%) 가정. laggard(낙폭과대 반등주)는 momentum<benchmark. */
+    function rsItems(): Map<string, { entry: { code: string; name: string; market: 'KOSPI' | 'KOSDAQ' }; metrics: Record<string, number> }> {
+      const m = new Map<string, { entry: { code: string; name: string; market: 'KOSPI' | 'KOSDAQ' }; metrics: Record<string, number> }>();
+      // 주도주(leader) — momentum20d(소수) ≥ benchmark 0.075
+      m.set('L1', { entry: { code: 'L1', name: 'leader1', market: 'KOSPI' }, metrics: { momentum20d: 0.20, avgTurnoverKrw: 900 } });
+      m.set('L2', { entry: { code: 'L2', name: 'leader2', market: 'KOSPI' }, metrics: { momentum20d: 0.15, avgTurnoverKrw: 800 } });
+      m.set('L3', { entry: { code: 'L3', name: 'leader3', market: 'KOSPI' }, metrics: { momentum20d: 0.10, avgTurnoverKrw: 700 } });
+      m.set('L4', { entry: { code: 'L4', name: 'leader4', market: 'KOSPI' }, metrics: { momentum20d: 0.08, avgTurnoverKrw: 600 } });
+      m.set('L5', { entry: { code: 'L5', name: 'leader5', market: 'KOSPI' }, metrics: { momentum20d: 0.076, avgTurnoverKrw: 500 } });
+      // laggard(낙폭과대 반등주) — momentum20d < benchmark → RS 필터 ON 시 제외 대상
+      m.set('LAG', { entry: { code: 'LAG', name: 'laggard', market: 'KOSPI' }, metrics: { momentum20d: -0.09, avgTurnoverKrw: 5000 } });
+      return m;
+    }
+
+    afterEach(() => { delete process.env.UNIVERSE_RS_GATE_ENABLED; });
+
+    it('flag ON — momentum20d < 시장수익률 laggard 제외 (생존 ≥ 임계)', () => {
+      process.env.UNIVERSE_RS_GATE_ENABLED = 'true';
+      // benchmark 7.5% (퍼센트) → generator 내부 정규화 0.075. leader 5개 생존 ≥ max(5, maxCandidates 5).
+      const r = __testOnly.rankCandidates('MOMENTUM', rsItems(), { maxCandidates: 5, benchmarkReturn20d: 7.5 });
+      const codes = r.map((c) => c.code);
+      expect(codes).not.toContain('LAG');           // 거래대금 1위지만 RS 미달 → 제외
+      expect(codes).toContain('L1');
+      expect(r.length).toBe(5);
+    });
+
+    it('flag ON — 필터 후 생존 < max(5, maxCandidates) 면 미적용(전체 풀 복귀, 후보 0 방지)', () => {
+      process.env.UNIVERSE_RS_GATE_ENABLED = 'true';
+      // benchmark 50% → 정규화 0.50. leader 전부 momentum<0.5 → 생존 0 < 5 → fallback 전체 풀(LAG 포함).
+      const r = __testOnly.rankCandidates('MOMENTUM', rsItems(), { maxCandidates: 5, benchmarkReturn20d: 50 });
+      const codes = r.map((c) => c.code);
+      expect(codes).toContain('LAG');               // fallback → 전체 풀 유지(LAG 거래대금 1위로 상위)
+      expect(r.length).toBe(6);
+    });
+
+    it('flag OFF — RS 필터 미적용 (laggard 포함, byte-equivalent)', () => {
+      delete process.env.UNIVERSE_RS_GATE_ENABLED;
+      const r = __testOnly.rankCandidates('MOMENTUM', rsItems(), { maxCandidates: 5, benchmarkReturn20d: 7.5 });
+      expect(r.map((c) => c.code)).toContain('LAG'); // flag OFF → benchmark 무시, 전체 풀
+      expect(r.length).toBe(6);
+    });
+
+    it('flag ON + benchmark 부재(undefined) — 필터 미적용 (결손≠약세)', () => {
+      process.env.UNIVERSE_RS_GATE_ENABLED = 'true';
+      const r = __testOnly.rankCandidates('MOMENTUM', rsItems(), { maxCandidates: 5 });
+      expect(r.map((c) => c.code)).toContain('LAG');
+      expect(r.length).toBe(6);
+    });
+
+    it('단위 정합 — normalizeBenchmarkToRatio 퍼센트→소수 (7.5 → 0.075)', () => {
+      expect(__testOnly.normalizeBenchmarkToRatio(7.5)).toBeCloseTo(0.075, 6);
+      expect(__testOnly.normalizeBenchmarkToRatio(undefined)).toBeNull();
+      expect(__testOnly.normalizeBenchmarkToRatio(Number.NaN)).toBeNull();
+    });
+  });
 });

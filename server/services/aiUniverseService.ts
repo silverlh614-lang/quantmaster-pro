@@ -25,6 +25,9 @@ import {
   loadAiUniverseSnapshot,
 } from '../persistence/aiUniverseSnapshotRepo.js';
 import { generateQuantitativeCandidates } from './quantitativeCandidateGenerator.js';
+// UNIVERSE_RS_GATE: MOMENTUM 발굴 RS 필터의 벤치마크(KOSPI 20d %) 주입용 — 로컬 파일 read 만
+// (네트워크 0, KIS/KRX 직접 호출 금지 규칙 정합). flag OFF 시 generator 가 값을 무시 → byte-equivalent.
+import { loadMacroState } from '../persistence/macroStateRepo.js';
 import type {
   AiUniverseMode as AiUniverseModeType,
   AiUniverseSourceStatus as AiUniverseSourceStatusType,
@@ -211,7 +214,11 @@ async function tryTier3Quant(
   ranked: Array<{ entry: StockMasterEntry; sources: Set<string> }>;
   tradingDate: string | null;
 } | null> {
-  const result = await generateQuantitativeCandidates(mode, { maxCandidates, universeLimit: 50 });
+  // UNIVERSE_RS_GATE_ENABLED ON + MOMENTUM 시 시장상대강도(RS) 필터 벤치마크 주입.
+  // kospi20dReturn 은 *퍼센트*(macroState SSOT) — generator 가 내부에서 소수로 정규화한다.
+  // 부재/비유한 시 generator 가 RS 필터 미적용(graceful) — flag OFF 면 어느 경우든 byte-equivalent.
+  const benchmarkReturn20d = loadMacroState()?.kospi20dReturn;
+  const result = await generateQuantitativeCandidates(mode, { maxCandidates, universeLimit: 50, benchmarkReturn20d });
   if (result.stale || result.candidates.length === 0) return null;
   const ranked = result.candidates.map((c) => ({
     entry: { code: c.code, name: c.name, market: c.market } as StockMasterEntry,

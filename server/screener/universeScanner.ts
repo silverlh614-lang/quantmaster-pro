@@ -234,7 +234,12 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
   resetStage1RejectionCounts();
   // Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 — risk-on regime 완화용 canonical regime 1회 조회.
   //   ENV flag OFF(기본)면 evaluateStage1Filter 내부에서 무시 → 기존 동작 byte-identical.
-  const stage1Regime = resolveCanonicalRegimeLevel(loadMacroState());
+  const stage1MacroState = loadMacroState();
+  const stage1Regime = resolveCanonicalRegimeLevel(stage1MacroState);
+  // UNIVERSE_RS_GATE_ENABLED ON + risk-on 분기일 때 calcStage1Score RS 0-floor 보너스 벤치마크.
+  //   kospi20dReturn 은 *퍼센트*(macroState SSOT) — q.return20d 와 동일 단위(정규화 불필요).
+  //   flag OFF / benchmark 부재 시 calcStage1Score 가 보너스 0 → 기존 점수 byte-identical.
+  const stage1BenchmarkReturn20d = stage1MacroState?.kospi20dReturn;
 
   // ─ KIS 실계좌 데이터: 거래량 + 상승률 순위 병렬 조회 ─
   // 실계좌 데이터 키(KIS_REAL_DATA_APP_KEY) 또는 실계좌 모드(KIS_IS_REAL)일 때 실행
@@ -343,7 +348,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
             symbol: tryGetYahooSymbol(code) ?? `${code}.KS`,
             sector: getSectorByCode(code),
             quote,
-            stage1Score: calcStage1Score(quote, stage1Regime),
+            stage1Score: calcStage1Score(quote, stage1Regime, stage1BenchmarkReturn20d),
           } as CandidateStock;
         }),
       );
@@ -385,7 +390,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
           symbol: stock.symbol,
           sector: getSectorByCode(stock.code),
           quote,
-          stage1Score: calcStage1Score(quote, stage1Regime),
+          stage1Score: calcStage1Score(quote, stage1Regime, stage1BenchmarkReturn20d),
         } as CandidateStock;
       }),
     );

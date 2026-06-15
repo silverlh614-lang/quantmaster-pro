@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0612`**
+**다음 ADR 번호: `0613`**
+
+(2026-06-15 기준, 마지막 발급 0612 — universe-relative-strength-gate. **Status: Accepted (구현 — ENV flag default OFF byte-equivalent, 운영자 활성화 대기).** ADR-0612 — 운영자 진단 "강세장(KOSPI 20일 +7.5%)인데 스캔 후보가 주도주가 아니라 낙폭과대 반등주(avgRelativeReturn20d=−9%·median −12%, avgReturn5d +13% vs 20d −1.4%)로 채워짐"의 근본 수리. 원인=유니버스 발굴(quantitativeCandidateGenerator MOMENTUM: 절대 momentum20d+거래대금)·Stage1 점수(calcStage1Score: 절대 changePercent/return5d/high20d, 평시 눌림목 보상)가 전부 절대수익만 보고 시장상대강도(RS)를 안 봄 — RS는 Gate1 채점 컴포넌트로만 존재하고 선정 단계엔 없어 주도주가 후보 풀에 못 들어옴. 핵심 수학 함정: RS=종목20d−시장20d에서 시장값은 스캔 내 상수라 단순 재정렬은 no-op(전 종목 동일 차감) → 필터 또는 0-floor 클램프 비선형으로만 효과. 처방(UNIVERSE_RS_GATE_ENABLED === 'true' default OFF, SSOT isUniverseRelativeStrengthGateEnabled generator 소유): A 발굴=generator MOMENTUM에 momentum20d≥시장수익률 필터(graceful fallback 생존<max(5,maxCandidates) 시 미적용·후보 0 방지)+relativeStrength20d 진단 metric, B Stage1=calcStage1Score risk-on 분기에 clamp(return20d−benchmark,0,3) 0-floor 보너스(시장 못 이김=0 대칭차감 아님→변별). 단위 정합 분리: A momentum20d 소수 vs kospi20dReturn 퍼센트→/100 정규화, B return20d·kospi20dReturn 둘 다 퍼센트→직접차감. 벤치마크=macroState.kospi20dReturn 로컬 read(신규 fetch 0), aiUniverseService.tryTier3Quant·universeScanner.stage1QuantFilter 2곳 wiring. requiredScore=70·Gate·autoTradeEngine·kisClient 0줄, flag OFF byte-equivalent. 신규 테스트 14케이스(generator RS 필터 5 + Stage1 0-floor 9), typecheck EXIT 0·신규+인접 30 PASS·complexity/responsibility/sds OK. 롤백 ENV 1줄. executionImpact: flag OFF NONE(ON 시 유니버스 입력 교정 — Gate 산식 무변경). 계보 0611/0550/0578. INDEX 0612→0613 갱신.)
 
 (2026-06-15 기준, 마지막 발급 0611 — gate1-sector-rs-component-reactivation. **Status: Accepted (구현 — 라이브 점수 동작 변경이나 ENV flag default OFF byte-equivalent, 운영자 활성화 대기).** ADR-0611 — 운영자 진단 "Gate1 점수 천장 묶임"(거래일 avg 55·pass 12/50, forensic observedPositiveMax=55 vs configuredPositiveMax=116·scaleMismatch=true)의 근본 수리. 라이브 스코어러 활성 maxScore 합(108)과 requiredScore=70 이 calibrate 된 configuredPositiveMax(116)의 8점 차 = SECTOR_RELATIVE_STRENGTH 가 ADR-0467 에서 advisory-only(maxScore:0)로 주차된 capacity → 상위 8점 영구 봉인(ADR-0467 의도치 않은 side effect). resolveSectorRsComponentScore 신규 순수 함수: flag(GATE1_SECTOR_RS_COMPONENT_ENABLED === 'true' default OFF) OFF=byte-equivalent(maxScore0·weighted0), ON=8pt 복원·섹터상대수익(stock−sector 20d)만 소비(RS 컴포넌트 시장상대/rsRankPct 와 이중계상 회피 ADR-0469 정합)·((pct+10)/20)×100 정규화·입력 부재 graceful 0(결손≠페널티 불변식 #6). requiredScore=70 무변경(절대 보존)·신규 fetch 0(기존 trace 입력 소비). 현실 lift 점진적: 섹터상대 입력 sparse(gate2 sectorCycle 대부분 SHADOW_ONLY)라 ADR-0600/0601 hydration 성숙 따라 증가 — 천장은 열되 데이터가 채움. 활성화 기준=ADR-0471 freeze 정합 D5 표본 성숙 후 70+ 밴드 winRate 우위 확인. GHOST_SIGNAL_STRENGTH 는 입력 부재(28/28)+학습→라이브 피드백이라 별도 ADR 대상으로 제외. 신규 테스트 6케이스(flag off byte-equiv·on capacity·약/음수 비례·부재 graceful·이중계상 회피·actualScore lift), minimumSignal 회귀 61 PASS. 롤백 ENV 1줄. executionImpact: flag OFF NONE(ON 시 라이브 Gate1 점수 enrich, 의도된 효과). 계보 0467/0469/0471/0546/0578. INDEX 0611→0612 갱신.)
 
@@ -243,6 +245,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0612 | 유니버스 선정 RS 게이트 — 발굴 MOMENTUM momentum20d≥시장 필터(graceful fallback) + Stage1 0-floor RS 보너스(clamp(return20d−KOSPI20d,0,3)). 강세장 laggard 유입 차단, no-op 함정 회피(필터·비선형), default OFF·신규 fetch 0·requiredScore 무변경 | policy / services+screener |
 | 0611 | Gate1 SECTOR_RELATIVE_STRENGTH 재활성 — ADR-0467 advisory 주차로 봉인된 8점 capacity(108 vs configured 116) 복원, 섹터상대수익만 소비(RS 이중계상 회피), default OFF·requiredScore=70 무변경 | policy / signalScanner |
 | 0610 | counterfactualOutcomeBoard format-layer extraction — 1,499~1,500줄 ACMA 한계 고착(R1 net-0·다음 변경 영구 차단) 선제 분해. format(표시) 함수 10종(formatCounterfactual* SafetyChecks/BoardSummary/Gate1/Gate2/Gate3/Missed/Today/Review/Debug/CommandReply)+표시 전용 5헬퍼(pct/num/safetyLine/distributionLine/formatBandRows, grep 확인 build 미사용)+CounterfactualCommandMode/resolveCounterfactualCommandMode 를 신규 counterfactualOutcomeBoardFormat.ts(244줄)로 순수 이동, 본체(1,500→1,279줄)는 build 집계 함수+타입 잔류 + format 심볼 re-export(호출처 import 경로 무변경 byte-equivalent). 순환 회피: format→board 는 import type(런타임 엣지 0)·board→format 값 re-export 1방향. 소비처 3곳 무수정 green. LIVE 무관(learning board 표시층)·executionImpact=NONE·9대 불변식 #1/#2 보존·R1/ADR-0609 무영향. 계보 ADR-0596/0524/0521/0523 | refactor / learning / complexity |
 | 0609 | Gate1 상수블록 eligibility shadow 판정(Phase 0 관측 전용·LIVE 점수 0줄) — 신규 순수 SSOT gate1EligibilityShadowScoreAdr0609.ts buildGate1EligibilityShadowReportAdr0609/judgeGate1EligibilityAdr0609. 입력 ADR-0597 산출물(marketBlockScore·totalPercentile)+상수 컴포넌트, 산출 eligible(WATCHLIST>0&&REGIME>=0&&INVESTOR>=0, 불변식 #6 결손→보류 보수 통과·bearish 변환 0)·marketOnlyPassed(>=42 null→null)·percentilePassed(>=70). 잠정 임계 GATE1_ELIGIBILITY_SHADOW_THRESHOLDS SSOT(Phase 1 보정). 배선 ADR-0597 동형 ScanSummary 집계+ledger stamp(try/catch 격리). 소비처 0(buyList/Gate/entry/Kelly 미소비, 3중 분리). LIVE byte-equivalent minimumSignalScoreTrace D1-D4·gateConfig 70·0fetch | gate1 / scoring-shadow / observation-only |
@@ -689,7 +692,7 @@
 | 0504 | position-card-source-validation | telegram |
 | 0505 | gate1-minimum-signal-forensic-audit | diagnostics |
 
-**최대 발급 0611 · 다음 발급 0612** — `node scripts/check_adr_index.js --json` 기준 (2026-06-15 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0612 · 다음 발급 0613** — `node scripts/check_adr_index.js --json` 기준 (2026-06-15 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

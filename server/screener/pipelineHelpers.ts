@@ -29,8 +29,17 @@ import {
   isEmergencyStage1StrictEnabled,
 } from '../dataQuality/emergencyDataQualityGuards.js';
 import { isPullbackSetup } from './pullbackSetup.js';
+// UNIVERSE_RS_GATE: flag SSOT 는 generator 단일 소유 — 본 모듈은 import 만(중복 정의 금지).
+import { isUniverseRelativeStrengthGateEnabled } from '../services/quantitativeCandidateGenerator.js';
 
 export { isPullbackSetup } from './pullbackSetup.js';
+
+/**
+ * UNIVERSE_RS_GATE — calcStage1Score risk-on 분기의 시장상대강도(RS) 0-floor 보너스 상한(점).
+ * RS = 종목20d − 시장20d. 시장수익률은 한 스캔 내 *상수* 이므로 대칭 차감은 순위 변별 0(no-op).
+ * clamp(RS, 0, CAP) 의 *0-floor* 가 핵심 — 시장 이김=가점, 시장 못 이김=0(차감 아님) → 변별 발생.
+ */
+const RS_BONUS_CAP = 3;
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -585,7 +594,11 @@ export function getStage1RejectionCounts(): Stage1RejectionCounts {
   };
 }
 
-export function calcStage1Score(q: YahooQuoteExtended, regime?: RegimeLevel | null): number {
+export function calcStage1Score(
+  q: YahooQuoteExtended,
+  regime?: RegimeLevel | null,
+  benchmarkReturn20d?: number,
+): number {
   // Patch-STAGE1-RISK-ON-LEADER-CAPTURE-001 — risk-on regime 에서는 모멘텀/주도성을 보상해
   //   완화 필터로 유입된 리더가 top-N 랭크에 들도록 한다(평시 눌림목 프리미엄과 분기).
   //   flag OFF / non-risk-on 이면 평시(else) 분기만 실행 → 기존 9개 항과 byte-identical(합산 동일).
@@ -602,6 +615,18 @@ export function calcStage1Score(q: YahooQuoteExtended, regime?: RegimeLevel | nu
     score += Math.min(Math.max(q.return5d, 0) / 8, 2);                 // 5일 모멘텀 (최대 2점)
     score += q.rsi14 >= 55 && q.rsi14 <= 80 ? 1 : 0;                   // 강세 모멘텀 RSI 구간
     score += q.price >= q.high20d * 0.98 ? 1.5 : 0;                    // 신고가 근접 강화
+    // ── UNIVERSE_RS_GATE — 시장상대강도(RS) 0-floor 보너스 (flag-gated, default OFF) ──
+    //   단위 정합: q.return20d 와 benchmarkReturn20d(macroState.kospi20dReturn) 는 *둘 다 퍼센트*
+    //   (YahooQuoteExtended.return20d 주석 "직전 20거래일 수익률 (%)", core.ts kospi20dReturn "%").
+    //   → 정규화 불필요, 동일 단위 직접 차감. 결손(return20d 부재/비유한·benchmark 비유한) 시 보너스
+    //   0(결손≠페널티). 0-floor clamp → 시장 못 이김 = 0(대칭 차감 아님) → 순위 변별 발생.
+    if (isUniverseRelativeStrengthGateEnabled() && benchmarkReturn20d !== undefined && Number.isFinite(benchmarkReturn20d)) {
+      const stockReturn20d = q.return20d;
+      if (typeof stockReturn20d === 'number' && Number.isFinite(stockReturn20d)) {
+        const rs = stockReturn20d - benchmarkReturn20d;
+        score += Math.min(Math.max(rs, 0), RS_BONUS_CAP);
+      }
+    }
   } else {
     // ── 평시: 눌림목/평균회귀 (기존 동작 보존) ──
     score += Math.min(q.changePercent / 10, 1);                        // 상승률 비중 축소 (최대 1점)
