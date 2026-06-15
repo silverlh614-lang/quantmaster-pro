@@ -11,7 +11,9 @@ export interface CeilingWiringComponentScore {
   rawValue?: unknown;
   normalizedScore: number;
   weightedScore: number;
-  maxScore: number;
+  // maxScore 는 hydrated 출력에서만 set(RS/BREAKOUT=10) — 입력 base 에선 미사용이라 optional.
+  // (component scorer 반환 형태에 maxScore 부재 → 필수 시 TS2345/TS2741, 런타임 무영향).
+  maxScore?: number;
   confidence: string;
   providerIssue?: boolean;
   marketSignal?: boolean;
