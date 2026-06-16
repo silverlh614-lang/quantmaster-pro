@@ -121,6 +121,13 @@ import {
   computeUniverseCompositionBiasObservation,
   appendUniverseCompositionBiasObservation,
 } from "./universeCompositionBiasObservationAdr0616.js";
+// ADR-0617 — 주도주 Stage1 보존(source carry + top-N union). default OFF → carry 미수행·보존 0·append no-op(byte-identical). 신규 fetch 0.
+import {
+  isLeaderUniverseInjectionEnabled,
+  carrySourceTags,
+  applyLeaderPreservation,
+  appendLeaderUniverseInjectionObservation,
+} from "./leaderUniverseInjectionAdr0617.js";
 
 // ─── ADR-0184 (PR-B12-A) — scanner start master guard SSOT ─────────────────
 //
@@ -382,12 +389,17 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
 
   // ─ Yahoo 유니버스 스캔 (VTS 보완 + KIS 미제공 종목) — 5개씩 병렬 배치 ─
   // 아이디어 6: 동적 확장 유니버스 사용 (정적 + 주간 52주신고가/외국인순매수)
-  const { getExpandedUniverse } = await import("./dynamicUniverseExpander.js");
+  const { getExpandedUniverse, getExpandedUniverseSourceMap } = await import("./dynamicUniverseExpander.js");
   const expandedUniverse = getExpandedUniverse();
   const krxFullMasterUniverse = buildKrxFullMasterScannerUniverse();
-  const scanUniverse = krxFullMasterUniverse.length > expandedUniverse.length
+  const baseScanUniverse = krxFullMasterUniverse.length > expandedUniverse.length
     ? krxFullMasterUniverse
     : expandedUniverse;
+  // ADR-0617 — 주도주 source carry. flag OFF → source 전건 undefined(기존 {symbol,code,name} 동치).
+  //   신규 fetch 0(getExpandedUniverseSourceMap 은 cron 영속 read). enabled 일 때만 source map read.
+  const leaderInjectionEnabled = isLeaderUniverseInjectionEnabled();
+  const leaderSourceMap = leaderInjectionEnabled ? getExpandedUniverseSourceMap() : new Map();
+  const scanUniverse = carrySourceTags(baseScanUniverse, leaderSourceMap, leaderInjectionEnabled);
   console.log(
     `[Pipeline/Stage1] KRX_FULL_MASTER raw=${getAllStockEntries().length} ` +
       `tradable=${krxFullMasterUniverse.length} scannerUniverse=${scanUniverse.length}`
@@ -409,6 +421,8 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
           sector: getSectorByCode(stock.code),
           quote,
           stage1Score: calcStage1Score(quote, stage1Regime, stage1BenchmarkReturn20d),
+          // ADR-0617 — carry 된 주도주 source(flag OFF → undefined, 기존 동작 동치).
+          source: stock.source,
         } as CandidateStock;
       }),
     );
@@ -421,9 +435,26 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
     await new Promise((r) => setTimeout(r, 200));
   }
 
-  const result = candidates
-    .sort((a, b) => b.stage1Score - a.stage1Score)
-    .slice(0, 60);
+  // ADR-0617 — top-N 점수컷에서 주도주 강제 보존(union). flag OFF → result === 현행 slice(byte-identical).
+  //   carry 미수행 시 source 전건 undefined → leadersInPool 0 → preserved 0 → topN 그대로.
+  const { result, observation: leaderInjectionObservation } = applyLeaderPreservation(
+    candidates,
+    60,
+    new Date(),
+    leaderInjectionEnabled,
+  );
+  // 관측 ledger append — flag ON 만(opt-in 영속 I/O). try/catch 격리(불변식 #1 — scan 본체 보호).
+  if (leaderInjectionEnabled) {
+    try {
+      appendLeaderUniverseInjectionObservation(leaderInjectionObservation);
+    } catch (e) {
+      // SDS-ignore: 관측 ledger append 실패는 scan 본체에 영향 없음(불변식 #1, ADR-0617). 진단 로그만.
+      console.warn(
+        "[Pipeline/Stage1] ADR-0617 leader injection ledger append 실패(무시):",
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
 
   // BUG #1 — 탈락 사유 분포 로깅 (상위 3개 집중 원인 노출).
   const stats = getStage1RejectionCounts();

@@ -521,3 +521,26 @@ export function getExpandedUniverse(): { symbol: string; code: string; name: str
 
   return expanded;
 }
+
+/**
+ * ADR-0617 — expandedUniverse code→source 맵 (주도주 carry 단일 소스).
+ *
+ * getExpandedUniverse() 가 source 를 노출하지 않으므로(symbol/code/name 만), 동적 확장 종목의
+ * code→source 매핑을 additive 로 제공한다. getExpandedUniverse 와 동일한 만료(purgeExpired)·
+ * admissibility(isAdmissibleDynamicCode) 정책을 적용해 두 결과가 정합(같은 종목 집합)하도록 한다.
+ *   - 정적 STOCK_UNIVERSE 종목은 source 부재 → Map 미포함(carry 시 undefined → 기존 동작 동치).
+ *   - 동일 code 가 복수 source 로 수집된 경우 *먼저 등장한 source* 유지(LEADER 우선 보장 아님 —
+ *     carry 는 식별 전용, 보존 판정은 isLeaderSource 가 별도 수행). 신규 fetch 0(영속 read 만).
+ */
+export function getExpandedUniverseSourceMap(): Map<string, DynamicStock['source']> {
+  const staticCodes = new Set(STOCK_UNIVERSE.map(s => s.code));
+  const dynamicStocks = purgeExpired(loadDynamicUniverse());
+  const sourceByCode = new Map<string, DynamicStock['source']>();
+  for (const d of dynamicStocks) {
+    if (staticCodes.has(d.code)) continue;
+    if (!isAdmissibleDynamicCode(d.code)) continue;
+    if (sourceByCode.has(d.code)) continue;
+    sourceByCode.set(d.code, d.source);
+  }
+  return sourceByCode;
+}

@@ -58,6 +58,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-06-16 · ADR-0617 · leader-universe-stage1-preservation foreign-inst-netbuy-marketcap union-topN dynamicexpander-unneutralize fetch-0 flag-off-byte-equivalent on-execution-adjacent
 - 2026-06-16 · ADR-0616 · universe-composition-bias-observation kospi-kosdaq-split leader-laggard-rs divergence-bias fetch-0 flag-off-byte-equivalent execution-impact-none
 - 2026-06-16 · ADR-0615 · news-lag-entry-window-observation sector-join ci95-classify dead-getOptimalEntryWindow-revival fetch-0 flag-off-byte-equivalent execution-impact-none
 - 2026-06-16 · ADR-0614 · consecutive-netbuy-observation foreign-institution piggyback-fetch-0 rolling-10d flag-off-byte-equivalent execution-impact-none

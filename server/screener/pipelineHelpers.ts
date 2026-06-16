@@ -52,6 +52,11 @@ export interface CandidateStock {
   sector:      string;
   quote:       YahooQuoteExtended;
   stage1Score: number;
+  // ADR-0617 — 주도주 source carry (additive optional). expandedUniverse(외인·기관·시총 상위)
+  //   종목에만 부여, full master 전용 종목은 undefined. flag OFF 시 전건 undefined(기존 동작 동치).
+  //   DynamicStock['source'] union 재사용(두 번째 enum 신설 금지). 관측·강제 보존 식별 전용 —
+  //   Gate score/주문/SourceSnapshot 미소비(불변식 #7 — L4 식별 태그로 매매 결정 직접 사용 금지).
+  source?: import('./dynamicUniverseExpander.js').DynamicStock['source'];
   // Stage 2 이후 추가
   gateScore?:       number;
   gateSignal?:      string;
