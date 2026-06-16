@@ -7,7 +7,11 @@
 import { scheduledJob } from './scheduleGuard.js';
 import { runStage1PreScreening, runStage2_3FinalScreening } from '../screener/universeScanner.js';
 import { cleanupWatchlist } from '../screener/watchlistManager.js';
-import { runDynamicUniverseExpansion } from '../screener/dynamicUniverseExpander.js';
+import {
+  runDynamicUniverseExpansion,
+  runLeaderUniverseDailyRefresh,
+  isLeaderUniverseDailyRefreshEnabled,
+} from '../screener/dynamicUniverseExpander.js';
 import { runGlobalScanAgent } from '../alerts/globalScanAgent.js';
 import { runSupplyChainScan } from '../alerts/supplyChainAgent.js';
 import { trackPendingRecords } from '../learning/newsSupplyLogger.js';
@@ -54,6 +58,16 @@ export function registerScreenerJobs(): void {
 
   scheduledJob('0 0 * * 6', 'WEEKEND_MAINTENANCE', 'dynamic_universe_expansion',
     () => runDynamicUniverseExpansion(), { timezone: 'UTC' });
+
+  // ADR-0618 — 주도주(LEADER_SOURCES) 일일 신선 갱신. KST 08:10 (10 23 * * 0-4 UTC),
+  // stage2_3(08:35)·kis_token_refresh(08:20)·data_completeness_reset(08:00) 와 분 단위 stagger.
+  // TRADING_DAY_ONLY(영업일 전용). Telegram 무음(내부 유니버스 갱신).
+  // 등록은 항상, 콜백 본체만 flag 단락 — OFF 시 랭킹 fetch 0·dynamic-universe.json 미변경(byte-identical),
+  // ENV 1줄(LEADER_DAILY_REFRESH_ENABLED) 즉시 롤백.
+  scheduledJob('10 23 * * 0-4', 'TRADING_DAY_ONLY', 'leader_universe_daily_refresh', () => {
+    if (!isLeaderUniverseDailyRefreshEnabled()) return;
+    return runLeaderUniverseDailyRefresh();
+  }, { timezone: 'UTC' });
 
   scheduledJob('0 17 * * 5,6', 'WEEKEND_MAINTENANCE', 'supply_chain_scan_02kst', async () => {
     console.log('[Scheduler] 주말 해외 뉴스 스캔 (KST 02:00)');
