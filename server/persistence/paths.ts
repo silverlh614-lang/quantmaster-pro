@@ -72,6 +72,8 @@ export const GATE_LEARNED_THRESHOLD_FILE = path.join(DATA_DIR, 'gate-learned-thr
 export const GATE2_OUTCOME_LEDGER_FILE = path.join(DATA_DIR, 'gate2-outcome-ledger.json');
 /** ADR-0605 — Gate2 SOX 반도체 섹터축 dry-run 관측 누적 ledger(진단 전용, 다른 ledger 와 물리 분리). */
 export const GATE2_SOX_OBSERVATION_LEDGER_FILE = path.join(DATA_DIR, 'gate2-sox-observation-ledger-adr0605.json');
+/** ADR-0614 — 외국인/기관 연속 순매수 관측 전용 시계열 ledger(투자자흐름 cache·진단 ledger 와 물리 분리, default OFF). */
+export const CONSECUTIVE_NETBUY_LEDGER_FILE = path.join(DATA_DIR, 'consecutive-netbuy-ledger-adr0614.json');
 export const OCO_ORDERS_FILE          = path.join(DATA_DIR, 'oco-orders.json');
 /** Stage1 Pre-screening 캐시 — 전날 16:30 실행 결과를 저장, 당일 08:35 Stage2+3에서 사용 */
 export const STAGE1_CACHE_FILE        = path.join(DATA_DIR, 'stage1-cache.json');

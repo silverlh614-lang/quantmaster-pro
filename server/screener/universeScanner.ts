@@ -103,6 +103,12 @@ import {
   evaluateKisChartFallbackAllowed,
   formatPreopenKisFallbackSkippedLog,
 } from "../trading/kisChartFallbackGuard.js";
+// ADR-0614 — 외국인/기관 연속 순매수 관측 전용 ledger. default OFF → append no-op(byte-identical).
+import {
+  appendConsecutiveNetBuyObservation,
+  isConsecutiveNetBuyObservationEnabled,
+  todayKst as consecutiveNetBuyTodayKst,
+} from "../trading/signalScanner/consecutiveNetBuyLedgerAdr0614.js";
 
 // ─── ADR-0184 (PR-B12-A) — scanner start master guard SSOT ─────────────────
 //
@@ -686,6 +692,7 @@ export async function stage3AIScreenAndRegister(
   }
 
   // ── DART 조회 후 컨플루언스 재평가 (4축 완전체) ───────────────────────────
+  const consecutiveNetBuyEnabled = isConsecutiveNetBuyObservationEnabled();
   for (const c of candidates) {
     c.confluenceResult = runConfluenceEngine({
       quote: c.quote,
@@ -696,6 +703,19 @@ export async function stage3AIScreenAndRegister(
       gateScore: c.gateScore ?? 0,
       kospiDayReturn: macroState?.kospiDayReturn,
     });
+    // ADR-0614 — runConfluenceEngine 직후 piggyback append(신규 fetch 0, KIS/KRX quota 0).
+    // flag OFF → 진입 자체 skip(byte-identical). semantic OK 일 때만 기록은 ledger 모듈 책임.
+    if (consecutiveNetBuyEnabled && c.kisFlow) {
+      try {
+        appendConsecutiveNetBuyObservation({
+          stockCode: c.code,
+          kisFlow: c.kisFlow,                 // 이미 fetch 된 값 — 신규 호출 0
+          tradingDate: consecutiveNetBuyTodayKst(),
+          provider: "KIS_API",
+          marketCap: null,                    // 가용 경로 확인 전 null (가짜 비율 금지)
+        });
+      } catch { /* SDS-ignore: 관측 append 실패 격리, scan 본체 보호 (불변식 #1) */ }
+    }
   }
   // 결정적 평가 + Gemini는 topReasons만 자연어 생성 (Idea 5).
   // Gemini 호출 실패 시에도 결정적 결과는 유지되므로 파이프라인 안정성 향상.

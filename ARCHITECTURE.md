@@ -47,6 +47,7 @@ When modifying any file, ensure changes stay within the owning module's stated r
 | `server/learning/unifiedForwardOutcomeLabeler.ts` | Normalize Gate3/Gate1/Near-Miss/counterfactual/paper rows and update due forward-return evidence only |
 | `server/telegram/renderers/canonicalDebugRawView.ts` | Project persisted ScanSummary canonical slices into debug_raw view with scope tags — zero recomputation (ADR-0525) |
 | `server/trading/signalScanner/scanDiagnostics/candidateGateEvaluationView.ts` | Per-candidate Gate0/1/2/3 evaluation SSOT — formatters read this view, never re-infer from raw traces (ADR-0526) |
+| `server/trading/signalScanner/consecutiveNetBuyLedgerAdr0614.ts` | Observation-only consecutive/cumulative investor net-buy time-series ledger — piggybacks already-fetched c.kisFlow (zero new fetch), per-stock rolling window, default OFF, NOT wired to Gate score (ADR-0614) |
 | `server/trading/gates/unifiedExecutionContract.ts` | Unified execution-permission contract pins + PositionPolicyDecision SSOT — permission separated from count (ADR-0527) |
 | `server/trading/symbolDataCollector.ts` | SourceSnapshot factory SSOT — orchestrate existing single-channel fetches into UnifiedSourceSnapshot, compute per-field freshness, no new fetch (ADR-0519/0556) |
 | `server/trading/sourceSnapshot/unifiedSourceSnapshot.ts` | UnifiedSourceSnapshot container type + snapshotId — factory output SSOT, the only SourceSnapshot artifact (ADR-0519/0556) |
