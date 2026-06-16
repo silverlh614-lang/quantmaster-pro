@@ -107,6 +107,7 @@ export interface RegimeVariables {
   kospiAbove20MA: boolean;   // KOSPI 20일 이동평균선 위
   kospiAbove60MA: boolean;   // KOSPI 60일 이동평균선 위
   kospi20dReturn: number;    // KOSPI 20일 수익률 %
+  kosdaq20dReturn?: number;  // ADR-0621: KOSDAQ 지수 20일 수익률 % (Gate2 RS 벤치마크 이원화 source)
   kospiDayReturn: number;    // KOSPI 단일일 수익률 %
 
   // ⑤ 사이클 축

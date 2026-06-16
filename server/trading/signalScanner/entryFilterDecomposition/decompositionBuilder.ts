@@ -184,6 +184,9 @@ export function buildEntryFilterDecomposition(
       kospiRelativeReturn: c.kospiRelativeReturn ?? symbolFeatures?.kospiRelativeReturn ?? (quote?.kospiRelativeReturn as number | undefined) ?? (quoteFeatures?.kospiRelativeReturn as number | undefined) ?? gateLayerFeatures.kospiRelativeReturn,
       relativeReturn20d: c.relativeReturn20d ?? symbolFeatures?.relativeReturn20d ?? (quote?.relativeReturn20d as number | undefined) ?? (quoteFeatures?.relativeReturn20d as number | undefined) ?? gateLayerFeatures.relativeReturn20d,
       kospi20dReturn: c.kospi20dReturn ?? symbolFeatures?.kospi20dReturn ?? (quote?.kospi20dReturn as number | undefined) ?? (quoteFeatures?.kospi20dReturn as number | undefined) ?? gateLayerFeatures.kospi20dReturn,
+      // ADR-0621 — KOSDAQ 벤치마크 source + market 구분 carry (kospi20dReturn line 동형).
+      kosdaq20dReturn: c.kosdaq20dReturn ?? symbolFeatures?.kosdaq20dReturn ?? (quote?.kosdaq20dReturn as number | undefined) ?? (quoteFeatures?.kosdaq20dReturn as number | undefined),
+      market: c.market ?? symbolFeatures?.market ?? (quote?.market as string | undefined) ?? (quoteFeatures?.market as string | undefined),
       quote: c.quote,
       quoteFeatures: c.quoteFeatures,
       featurePack: c.featurePack,

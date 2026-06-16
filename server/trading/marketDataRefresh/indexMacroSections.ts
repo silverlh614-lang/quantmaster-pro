@@ -1,4 +1,4 @@
-// @responsibility KOSPI·VKOSPI·USD/KRW·SPX·DXY·FRED·MHS 섹션 갱신 + Yahoo 차트 fetch와 health heartbeat
+// @responsibility KOSPI·KOSDAQ·VKOSPI·USD/KRW·SPX·DXY·FRED·MHS 섹션 갱신 + Yahoo 차트 fetch와 health heartbeat
 /**
  * indexMacroSections.ts — ADR-0595 marketDataRefresh 섹션 모듈 분해.
  *
@@ -15,7 +15,7 @@ import {
   resolveKisOverseasSoxIscd,
 } from '../../clients/kisClient/index.js';
 import { fetchLatestUsdKrw } from '../../clients/ecosClient.js';
-import { fetchDerivativesIndexDaily, isVkospiIndexName } from '../../clients/krxOpenApi.js';
+import { fetchDerivativesIndexDaily, isVkospiIndexName, fetchKosdaqIndexDaily, recentBusinessDaysKst } from '../../clients/krxOpenApi.js';
 import { computeMacroIndex } from '../../engines/macroIndexEngine.js';
 import { deriveMhsDegrade, type MhsDegradeInfo } from '../../engines/mhsDegrade.js';
 import { guardedFetch } from '../../utils/egressGuard.js';
@@ -237,6 +237,62 @@ export async function refreshKospiSection(computed: MarketRefreshComputed): Prom
     await applyKospiTriggerProvenance(computed, latestBar); // ADR-0592: 봉 거래일 영속 + flag-gated KIS intraday quote
   } else {
     emitMarketDataProviderWarn('KOSPI_DATA_INSUFFICIENT');
+  }
+}
+
+/**
+ * ADR-0621 — KOSDAQ 지수 20일 수익률 산출 + MacroState.kosdaq20dReturn 영속.
+ *
+ * Gate2 RS 벤치마크 이원화(KOSDAQ 종목 KOSDAQ 벤치마크)의 source 1건. KOSPI(refreshKospiSection)와
+ * 동형 `nDayReturn(closes, 20)` 헬퍼 재사용 — 두 번째 산식 0.
+ *
+ * 소스 우선순위(ADR-0561 KIS Primary Absolute):
+ *  1) KRX OpenAPI(L1) fetchKosdaqIndexDaily 두 시점(오늘·20영업일 전) 종가 → 신규 fetch 0 목표
+ *     (sector energy 사이클이 이미 같은 날짜를 fetch·캐시). KRX 결손 시
+ *  2) Yahoo ^KQ11(L3) 65d 일봉 → nDayReturn(,20) (KOSPI 의 ^KS11 fallback 과 동형, 최후 fallback).
+ *
+ * 결손은 어떤 신호로도 변환하지 않는다(불변식 #6) — 산출 실패 시 computed.kosdaq20dReturn 미설정
+ * → merge 시 기존 값 carry-forward, 또는 buildRsAxis 가 normalizer 의 KOSPI fallback 사용.
+ */
+export async function refreshKosdaqSection(computed: MarketRefreshComputed): Promise<void> {
+  const KOSDAQ_INDEX_NAME = '코스닥';
+  // 1) KRX(L1) 두 시점 종가 — recentBusinessDaysKst 는 오늘[0]…20영업일전[20] 내림차순 반환.
+  try {
+    const days = recentBusinessDaysKst(21);
+    const todayDate = days[0];
+    const pastDate = days[days.length - 1];
+    if (todayDate && pastDate && todayDate !== pastDate) {
+      const [todayRows, pastRows] = await Promise.all([
+        fetchKosdaqIndexDaily(todayDate).catch(() => []),
+        fetchKosdaqIndexDaily(pastDate).catch(() => []),
+      ]);
+      const pickClose = (rows: { indexName: string; close: number }[]): number | null => {
+        const row = rows.find(r => r.indexName === KOSDAQ_INDEX_NAME)
+          ?? rows.find(r => r.indexName.trim() === KOSDAQ_INDEX_NAME)
+          ?? rows[0];
+        return row && row.close > 0 ? row.close : null;
+      };
+      const todayClose = pickClose(todayRows);
+      const pastClose = pickClose(pastRows);
+      if (todayClose != null && pastClose != null && pastClose > 0) {
+        // nDayReturn 동형 산식 — 2점 종가 직접 차감 (closes 시계열 미보유 경로).
+        computed.kosdaq20dReturn = nDayReturn([pastClose, todayClose], 1, 'kosdaq20dReturn');
+        console.log(`[MarketRefresh] KOSDAQ(KRX): 20d=${(computed.kosdaq20dReturn as number).toFixed(2)}% (today=${todayClose.toFixed(2)}, past=${pastClose.toFixed(2)})`);
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn('[MarketRefresh] KOSDAQ KRX 20d 산출 실패, Yahoo fallback 시도:', err instanceof Error ? err.message : String(err));
+  }
+
+  // 2) Yahoo ^KQ11(L3) fallback — KOSPI ^KS11 경로와 동형(65d 일봉 → nDayReturn(,20)).
+  const kosdaqBars = await fetchDailyBars('^KQ11', '65d');
+  const kosdaq = kosdaqBars ? kosdaqBars.map(b => b.close) : null;
+  if (kosdaq && kosdaq.length >= 22) {
+    computed.kosdaq20dReturn = nDayReturn(kosdaq, 20, 'kosdaq20dReturn');
+    console.log(`[MarketRefresh] KOSDAQ(YAHOO_FALLBACK): 20d=${(computed.kosdaq20dReturn as number).toFixed(2)}%`);
+  } else {
+    emitMarketDataProviderWarn('KOSDAQ_DATA_INSUFFICIENT');
   }
 }
 

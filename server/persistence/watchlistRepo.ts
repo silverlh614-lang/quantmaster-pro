@@ -313,6 +313,10 @@ export interface WatchlistEntry {
     atr?: number;
     atr20avg?: number;
     kospi20dReturn?: number;
+    /** ADR-0621: KOSDAQ 지수 20일 수익률 (%) — Gate2 RS KOSDAQ 벤치마크 carry. */
+    kosdaq20dReturn?: number;
+    /** ADR-0621: 시장 구분(KOSPI/KOSDAQ) — RS 벤치마크 선택 보조 carry. */
+    market?: string;
     sector?: string;
     gateScore?: number;
     stage1Score?: number;
