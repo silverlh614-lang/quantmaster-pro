@@ -1,5 +1,10 @@
 // @responsibility ADR-0519 Gate2 confluence scoring and promotion policy.
 
+import {
+  normalizeBenchmarkReturnForGate2,
+  type BenchmarkKey,
+} from '../clients/benchmarkReturnNormalizer.js';
+
 export type Gate2Axis =
   | 'RS_RELATIVE_STRENGTH'
   | 'SUPPLY_CONFLUENCE'
@@ -23,6 +28,22 @@ export type Gate2FinalStatus = Gate2Status | 'NOT_EVALUATED_DUE_TO_GATE1_FAIL';
 export type Gate2ConfluenceLevel = 'STRONG' | 'MODERATE' | 'WEAK' | 'INCOMPLETE';
 export type Gate2ConfidenceCeiling = 'HIGH' | 'MEDIUM' | 'LOW';
 
+/**
+ * ADR-0621 — KOSDAQ 종목이었다면 KOSDAQ 벤치마크로 RS status/score 가 어떻게 바뀌었을지
+ * 항상 산출하는 dry-run stamp (flag 무관·관측 전용, ADR-0599 `wouldPass*Proportional` 동형).
+ * `benchmarkKey`/`BenchmarkMarket` 은 benchmarkReturnNormalizer enum 재사용 (두 번째 enum 금지).
+ */
+export interface Gate2RsKosdaqBenchmarkDryRun {
+  benchmarkKey: BenchmarkKey;
+  benchmarkReturn20d: number | null;
+  stockReturn20d: number | null;
+  excess: number | null;
+  score: number | null;
+  status: Gate2AxisStatus;          // KOSDAQ 벤치마크 가정 시
+  appliedSource: 'RETURN20D_MINUS_INDEX' | 'RETURN20D_MINUS_KOSDAQ';
+  wouldChangeStatus: boolean;       // 현행 KOSPI 경로 status 대비 변경 여부
+}
+
 export interface Gate2AxisScore {
   axis: Gate2Axis;
   score: number | null;
@@ -33,6 +54,8 @@ export interface Gate2AxisScore {
   missingReason?: string;
   source?: string;
   scoreIncluded: boolean;
+  /** ADR-0621 — RS 축에만 stamp (additive optional, dry-run 관측 전용). */
+  rsKosdaqBenchmarkDryRun?: Gate2RsKosdaqBenchmarkDryRun;
 }
 
 export interface Gate2EvaluationResult {
@@ -56,6 +79,8 @@ export interface Gate2EvaluationResult {
   /** ADR-0599 dry-run — 비례 기준이었다면 STRONG/WEAK 이었을지 (flag 와 무관하게 항상 산출). */
   wouldPassStrongProportional?: boolean;
   wouldPassWeakProportional?: boolean;
+  /** ADR-0621 dry-run — KOSDAQ 벤치마크 가정 시 RS 축 status/score (per-symbol roll-up). */
+  rsKosdaqBenchmarkDryRun?: Gate2RsKosdaqBenchmarkDryRun;
   missingAxisCount: number;
   aiEstimatedAxisCount: number;
   confidenceCeiling: Gate2ConfidenceCeiling;
@@ -99,6 +124,9 @@ export interface Gate2ConfluenceSummary {
   /** ADR-0599 dry-run — 비례 기준 적용 시 도달했을 STRONG/WEAK 수. */
   wouldStrongProportional?: number;
   wouldWeakProportional?: number;
+  /** ADR-0621 dry-run — KOSDAQ 벤치마크였다면 RS 가 BULLISH/WEAK 로 바뀌었을 종목 수 (flag 무관 관측). */
+  wouldStrongIfKosdaqBenchmark?: number;
+  wouldWeakIfKosdaqBenchmark?: number;
   gate2Watch: number;
   gate2Fail: number;
   dataIncomplete: number;
@@ -312,6 +340,67 @@ function resolveGate1Status(trace: AnyRecord): string {
   return 'DIAGNOSTIC_ELIGIBLE';
 }
 
+/**
+ * ADR-0621 — KOSDAQ 벤치마크 dry-run 산출 (flag 무관 항상 호출, 관측 전용).
+ * `normalizeBenchmarkReturnForGate2` 단일 통로로 시장별 벤치마크 선택 + relativeReturn(=excess) 을 얻고,
+ * `rsScoreFromExcess`(현행 구간 그대로) 로 KOSDAQ 벤치마크 가정 시 score/status 를 계산한다.
+ * - KOSDAQ 종목 + kosdaq20dReturn 가용 → benchmarkKey='KOSDAQ', appliedSource='RETURN20D_MINUS_KOSDAQ'.
+ * - KOSDAQ 결손/KOSPI 종목/UNKNOWN → normalizer 의 KOSPI fallback → appliedSource='RETURN20D_MINUS_INDEX'(현행 동치).
+ * 두 번째 RS 공식 신설 0 (rsScoreFromExcess 재사용).
+ */
+function buildRsKosdaqBenchmarkDryRun(
+  trace: AnyRecord,
+  stockReturn20d: number,
+  currentKospiStatus: Gate2AxisStatus,
+): Gate2RsKosdaqBenchmarkDryRun {
+  const kosdaq20dReturn = firstNumber(trace, [
+    'symbolFeatures.kosdaq20dReturn',
+    'kosdaq20dReturn',
+    'quote.kosdaq20dReturn',
+    'macroState.kosdaq20dReturn',
+  ]);
+  const kospi20dReturn = firstNumber(trace, [
+    'symbolFeatures.kospi20dReturn',
+    'kospi20dReturn',
+    'quote.kospi20dReturn',
+    'macroState.kospi20dReturn',
+  ]);
+  const quote = recordOf(trace.quote);
+  // symbol 은 .KQ/.KS suffix 를 가질 수 있어 normalizer 의 market 해석 보조 신호로 쓰인다.
+  const symbol = text(trace.symbol ?? getByPath(trace, 'quote.symbol') ?? getByPath(trace, 'quote.code'), 'UNKNOWN');
+  // market 명시 carry 가 없으면 normalizer 의 marketFromInput 이 quote.market / symbol suffix 로 해석한다.
+  const market = text(trace.market ?? getByPath(trace, 'symbolFeatures.market') ?? getByPath(trace, 'quote.market'), '') || undefined;
+
+  const normalized = normalizeBenchmarkReturnForGate2({
+    symbol,
+    market,
+    quote: quote ?? undefined,
+    stockMaster: recordOf(trace.stockMaster) ?? undefined,
+    kospi20dReturn,
+    kosdaq20dReturn,
+    stockReturn20d,
+    period: '20D',
+  });
+
+  const appliedSource: Gate2RsKosdaqBenchmarkDryRun['appliedSource'] =
+    normalized.benchmarkKey === 'KOSDAQ' && kosdaq20dReturn != null
+      ? 'RETURN20D_MINUS_KOSDAQ'
+      : 'RETURN20D_MINUS_INDEX';
+  const excess = normalized.relativeReturn;
+  const scored = excess != null ? rsScoreFromExcess(excess) : null;
+  const status: Gate2AxisStatus = scored ? scored.status : currentKospiStatus;
+  return {
+    benchmarkKey: normalized.benchmarkKey,
+    benchmarkReturn20d: normalized.benchmarkReturn,
+    stockReturn20d,
+    excess,
+    score: scored ? scored.score : null,
+    status,
+    appliedSource,
+    wouldChangeStatus: scored != null && scored.status !== currentKospiStatus,
+  };
+}
+
 function buildRsAxis(trace: AnyRecord, external: AnyRecord | null): Gate2AxisScore {
   const directScore = firstNumber(trace, [
     'symbolFeatures.rsScore',
@@ -366,16 +455,35 @@ function buildRsAxis(trace: AnyRecord, external: AnyRecord | null): Gate2AxisSco
     'macroState.kospi20dReturn',
   ]) ?? firstNumber(external, ['benchmark.values.benchmarkReturn20d']);
   if (stockReturn20d != null && indexReturn20d != null) {
-    const excess = stockReturn20d - indexReturn20d;
-    const { score, status } = rsScoreFromExcess(excess);
+    // 현행 KOSPI 단일 벤치마크 결과 (flag OFF byte-equivalent SSOT).
+    const kospiExcess = stockReturn20d - indexReturn20d;
+    const kospiResult = rsScoreFromExcess(kospiExcess);
+
+    // ADR-0621 — KOSDAQ 벤치마크 dry-run(flag 무관 항상 산출) — benchmarkReturnNormalizer 단일 통로 재사용.
+    // KOSDAQ 종목 → excess = stockReturn − kosdaq20dReturn / KOSDAQ 결손이면 KOSPI fallback(불변식 #6).
+    const dryRun = buildRsKosdaqBenchmarkDryRun(trace, stockReturn20d, kospiResult.status);
+
+    // flag ON + KOSDAQ 벤치마크 적용 가능 시 RS 축을 KOSDAQ 초과수익으로 재산출. 그 외(OFF·KOSPI·결손
+    // fallback) 는 현행 KOSPI 경로 100% 보존. rsScoreFromExcess 산식·구간 무변경(올바른 excess 만 주입).
+    const applyKosdaq = isGate2RsKosdaqBenchmarkEnabled()
+      && dryRun.appliedSource === 'RETURN20D_MINUS_KOSDAQ'
+      && dryRun.excess != null;
+
+    const excess = applyKosdaq ? (dryRun.excess as number) : kospiExcess;
+    const { score, status } = applyKosdaq ? rsScoreFromExcess(excess) : kospiResult;
+    const benchmarkReturn = applyKosdaq ? dryRun.benchmarkReturn20d : indexReturn20d;
+    const source = applyKosdaq ? 'RETURN20D_MINUS_KOSDAQ' : 'RETURN20D_MINUS_INDEX';
     return axisScore({
       axis: 'RS_RELATIVE_STRENGTH',
       score,
       status,
       confidence: 'VERIFIED',
       promotionStage: 'WEIGHTED',
-      evidence: [`return20d=${round1(stockReturn20d)}`, `indexReturn20d=${round1(indexReturn20d)}`, `excess=${round1(excess)}`],
-      source: 'RETURN20D_MINUS_INDEX',
+      evidence: applyKosdaq
+        ? [`return20d=${round1(stockReturn20d)}`, `kosdaq20dReturn=${round1(benchmarkReturn ?? indexReturn20d)}`, `excess=${round1(excess)}`, `benchmarkKey=${dryRun.benchmarkKey}`]
+        : [`return20d=${round1(stockReturn20d)}`, `indexReturn20d=${round1(indexReturn20d)}`, `excess=${round1(excess)}`],
+      source,
+      rsKosdaqBenchmarkDryRun: dryRun,
     });
   }
 
@@ -669,6 +777,13 @@ export function isGate2AxisCoverageFallbackEnabled(env: NodeJS.ProcessEnv = proc
   return env.GATE2_AXIS_COVERAGE_FALLBACK_ENABLED !== 'false';
 }
 
+/** ADR-0621 — KOSDAQ 종목의 Gate2 RS 축을 KOSPI 대신 KOSDAQ 지수 20일 수익률 벤치마크로 측정하는
+ *  스위치 (default OFF, opt-in ADR-0157). OFF → buildRsAxis 가 현행 KOSPI 단일 벤치마크 경로를
+ *  100% 보존(byte-equivalent). dry-run(rsKosdaqBenchmarkDryRun)은 flag 무관 항상 산출(관측 전용). */
+export function isGate2RsKosdaqBenchmarkEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.GATE2_RS_KOSDAQ_BENCHMARK_ENABLED === 'true';
+}
+
 export interface Gate2SectorPeerStat {
   peerCount: number;
   medianReturn20d: number;
@@ -828,6 +943,7 @@ export function buildGate2EvaluationResult(input: {
     requiredConfluenceAxisCount,
     wouldPassStrongProportional,
     wouldPassWeakProportional,
+    ...(rs.rsKosdaqBenchmarkDryRun ? { rsKosdaqBenchmarkDryRun: rs.rsKosdaqBenchmarkDryRun } : {}),
     missingAxisCount,
     aiEstimatedAxisCount,
     confidenceCeiling,
@@ -953,6 +1069,14 @@ export function buildGate2ConfluenceSummary(input: Gate2ConfluenceSummaryInput):
     // ADR-0599 dry-run — 비례 기준 적용 시 도달했을 STRONG/WEAK 수 (flag 무관 관측).
     wouldStrongProportional: results.filter(result => result.wouldPassStrongProportional === true).length,
     wouldWeakProportional: results.filter(result => result.wouldPassWeakProportional === true).length,
+    // ADR-0621 dry-run — KOSDAQ 벤치마크였다면 RS 가 더 강한 status 로 바뀌었을 종목 수 (flag 무관 관측).
+    wouldStrongIfKosdaqBenchmark: results.filter(result =>
+      result.rsKosdaqBenchmarkDryRun?.wouldChangeStatus === true
+      && result.rsKosdaqBenchmarkDryRun.status === 'BULLISH').length,
+    wouldWeakIfKosdaqBenchmark: results.filter(result =>
+      result.rsKosdaqBenchmarkDryRun?.wouldChangeStatus === true
+      && (result.rsKosdaqBenchmarkDryRun.status === 'ACCUMULATING'
+        || result.rsKosdaqBenchmarkDryRun.status === 'BULLISH')).length,
     gate2Watch: results.filter(result => result.gate2Status === 'GATE2_WATCH').length,
     gate2Fail: results.filter(result => result.gate2Status === 'GATE2_FAIL').length,
     dataIncomplete: results.filter(result => result.gate2Status === 'DATA_INCOMPLETE').length,
@@ -1013,6 +1137,7 @@ export function formatGate2ConfluenceCompact(summary: Gate2ConfluenceSummary | n
     `gate2PassStrong: ${summary.gate2PassStrong}`,
     `gate2PassWeak: ${summary.gate2PassWeak}`,
     `proportionalDryRun: strong=${summary.wouldStrongProportional ?? 0} weak=${summary.wouldWeakProportional ?? 0} (ADR-0599, flag OFF 시 관측 전용)`,
+    `kosdaqBenchmarkDryRun: rsStrong=${summary.wouldStrongIfKosdaqBenchmark ?? 0} rsAccumOrBetter=${summary.wouldWeakIfKosdaqBenchmark ?? 0} (ADR-0621, flag OFF 시 관측 전용)`,
     `gate2Watch: ${summary.gate2Watch}`,
     `gate2Fail: ${summary.gate2Fail}`,
     `dataIncomplete: ${summary.dataIncomplete}`,

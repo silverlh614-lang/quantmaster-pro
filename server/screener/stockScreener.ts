@@ -697,7 +697,13 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
     };
     // ADR-0568: macroState.sectorEnergyResult 를 Gate2 SECTOR_LEADERSHIP 축으로 thread(8번째 인자).
     // 소비는 SECTOR_ENERGY_GATE2_WIRING_ENABLED gate(externalCoverage) — OFF 면 무시되어 byte-identical.
-    const gate = evaluateServerGate(enrichedQuote, presetWeights, macroState?.kospi20dReturn, null, null, regime, undefined, { sectorEnergyResult: macroState?.sectorEnergyResult });
+    // ADR-0621 — KOSDAQ 벤치마크 source + market 구분을 Gate2 진단 input 으로 carry (kospi20dReturn 옆).
+    const gate = evaluateServerGate(enrichedQuote, presetWeights, macroState?.kospi20dReturn, null, null, regime, undefined, {
+      sectorEnergyResult: macroState?.sectorEnergyResult,
+      kosdaq20dReturn: macroState?.kosdaq20dReturn,
+      market: (enrichedQuote as { market?: string }).market,
+      quote: enrichedQuote,
+    });
 
     // ④ shadow A/B 계측 — gate(Yahoo 경로) 결과를 *읽기만* 하여 버퍼에 등재(결정 미반영).
     // flag OFF면 add() 즉시 no-op(dormant) → byte-equivalent. top-N 선별·KIS dual-eval 은 루프 후 flush.
@@ -707,6 +713,9 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
       yahooGate: gate,
       weights: presetWeights,
       kospi20dReturn: macroState?.kospi20dReturn,
+      // ADR-0621 — KOSDAQ 벤치마크 source + market 구분 carry (Gate2 RS 이원화 shadow 관측).
+      kosdaq20dReturn: macroState?.kosdaq20dReturn,
+      market: (enrichedQuote as { market?: string }).market,
       regime,
     });
 

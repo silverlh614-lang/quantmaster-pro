@@ -58,6 +58,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-06-16 · ADR-0621 · gate2-rs-benchmark-dualization-kosdaq kospi-strong-kosdaq-weak-divergence kosdaq-index-relative-strength benchmarkReturnNormalizer-reuse fetch-0 dry-run-observed flag-off-byte-equivalent execution-impact-none
 - 2026-06-16 · ADR-0620 · provisional-shadow-entryprice-measurement-wiring forward-outcome-fix 50of50-insufficient-resolved kis-current-baseline additive-optional no-backfill execution-impact-none
 - 2026-06-16 · ADR-0619 · shadow-only-entry-liberalization gate1-gate3 skipcause-enum prebreakout-bypass band-miss-mtas-only live-byte-identical shadow-learning-starvation-fix
 - 2026-06-16 · Patch-PartialExit-PnL-Regression-Test · partial-tp-then-stoploss PARTIAL_LOSS fills-ssot getWeightedPnlPct label-pnl-consistency test-only no-bug

@@ -96,6 +96,7 @@ import {
 import { isEmergencyMasterGuardScanEnabled } from "../dataQuality/emergencyDataQualityGuards.js";
 import {
   getAllStockEntries,
+  getStockByCode,
   getTradableKrxUniverse,
   updateKrxMasterRuntimeCounts,
 } from "../persistence/krxStockMasterRepo.js";
@@ -918,6 +919,9 @@ export async function stage3AIScreenAndRegister(
         atr: candidate?.quote.atr,
         atr20avg: candidate?.quote.atr20avg,
         kospi20dReturn: macroState?.kospi20dReturn,
+        // ADR-0621 — KOSDAQ 벤치마크 source + market 구분 carry (Gate2 RS 이원화).
+        kosdaq20dReturn: macroState?.kosdaq20dReturn,
+        market: getStockByCode(result.code)?.market,
         sector: result.sector,
         gateScore: candidate?.gateScore,
         stage1Score: candidate?.stage1Score,

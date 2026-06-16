@@ -37,6 +37,10 @@ export interface ShadowAbCandidate {
   /** shadow Gate 재평가가 live 와 동일 조건이 되도록 동일 입력을 보존. */
   weights: ConditionWeights;
   kospi20dReturn?: number | null;
+  /** ADR-0621: KOSDAQ 지수 20일 수익률 (%) — shadow Gate2 RS KOSDAQ 벤치마크 dry-run carry. */
+  kosdaq20dReturn?: number | null;
+  /** ADR-0621: 시장 구분(KOSPI/KOSDAQ) — RS 벤치마크 선택 보조 carry. */
+  market?: string;
   regime?: RegimeLevel | string;
 }
 
@@ -116,6 +120,9 @@ export class ShadowAbCollector {
       null,
       null,
       c.regime,
+      undefined,
+      // ADR-0621 — shadow 경로에도 KOSDAQ 벤치마크 source/market carry (Gate2 RS dry-run 관측 일관성).
+      { kosdaq20dReturn: c.kosdaq20dReturn, market: c.market, quote: kisQuote },
     );
 
     const yahooScore = c.yahooGate.gateScore;
