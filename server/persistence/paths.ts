@@ -78,6 +78,8 @@ export const CONSECUTIVE_NETBUY_LEDGER_FILE = path.join(DATA_DIR, 'consecutive-n
 export const UNIVERSE_COMPOSITION_BIAS_LEDGER_FILE = path.join(DATA_DIR, 'universe-composition-bias-ledger-adr0616.json');
 /** ADR-0617 — 주도주 Stage1 보존 per-scan 관측 ledger(주도주 발견·보존 수·드롭됐을 수·source 태그 분포, 위 ledger 들과 물리 분리, default OFF). */
 export const LEADER_UNIVERSE_INJECTION_LEDGER_FILE = path.join(DATA_DIR, 'leader-universe-injection-ledger-adr0617.json');
+/** ADR-0619 — shadow 진입 개방(Gate1 점수·Gate3 타이밍 완화) per-scan aggregate 관측 ledger(완화 진입수·skipCause 분포, 위 ledger 들과 물리 분리, 관측 전용). */
+export const SHADOW_ENTRY_LIBERALIZATION_LEDGER_FILE = path.join(DATA_DIR, 'shadow-entry-liberalization-ledger-adr0619.json');
 export const OCO_ORDERS_FILE          = path.join(DATA_DIR, 'oco-orders.json');
 /** Stage1 Pre-screening 캐시 — 전날 16:30 실행 결과를 저장, 당일 08:35 Stage2+3에서 사용 */
 export const STAGE1_CACHE_FILE        = path.join(DATA_DIR, 'stage1-cache.json');

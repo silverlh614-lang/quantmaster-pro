@@ -58,6 +58,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-06-16 · ADR-0619 · shadow-only-entry-liberalization gate1-gate3 skipcause-enum prebreakout-bypass band-miss-mtas-only live-byte-identical shadow-learning-starvation-fix
 - 2026-06-16 · Patch-PartialExit-PnL-Regression-Test · partial-tp-then-stoploss PARTIAL_LOSS fills-ssot getWeightedPnlPct label-pnl-consistency test-only no-bug
 - 2026-06-16 · ADR-0618 · leader-universe-daily-refresh foreign-inst-marketcap-only ttl-3d trading-day-cron-0810 stale-leader-fix flag-off-byte-equivalent expandonempty-untouched
 - 2026-06-16 · ADR-0617 · leader-universe-stage1-preservation foreign-inst-netbuy-marketcap union-topN dynamicexpander-unneutralize fetch-0 flag-off-byte-equivalent on-execution-adjacent

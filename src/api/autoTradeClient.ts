@@ -313,11 +313,11 @@ export interface ServerShadowTrade {
   runnerPromotedReturnPct?: number;
   runnerPromotionReason?: 'FINAL_TRANCHE_REACHED' | 'RETURN_THRESHOLD';
   /**
-   * ADR-0608 진입 임계 모드 미러 — 서버 ServerShadowTrade.entryThresholdMode 의 브라우저측 거울.
-   * regime-aware SHADOW 진입 표본 격리 라벨(학습 표본 분리 표시 전용). drift 차단용 동일 필드.
+   * ADR-0608/0619 진입 임계 모드 미러 — 서버 ServerShadowTrade.entryThresholdMode 의 브라우저측 거울.
+   * REGIME_AWARE_SHADOW(점수 완화)·PREBREAKOUT_SHADOW(타이밍 완화) 진입 표본 격리 라벨(표시 전용).
    * SHADOW 전용·옵셔널 additive — flag OFF/레거시 trade 는 undefined(LEGACY 표본과 동일 취급).
    */
-  entryThresholdMode?: 'LEGACY' | 'REGIME_AWARE_SHADOW';
+  entryThresholdMode?: 'LEGACY' | 'REGIME_AWARE_SHADOW' | 'PREBREAKOUT_SHADOW';
   [extra: string]: unknown;
 }
 

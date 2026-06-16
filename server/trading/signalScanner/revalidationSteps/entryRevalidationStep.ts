@@ -1,7 +1,10 @@
 // @responsibility liveGate 재검증 결과를 RevalidationStep 시그니처로 분기하는 PoC 단계
 
 import { evaluateEntryRevalidation } from '../../entryEngine.js';
-import { resolveEntryMinGateScore } from '../../gate1ShadowEntryThreshold.js';
+import {
+  resolveEntryMinGateScore,
+  resolveEntryThresholdModeLabel,
+} from '../../gate1ShadowEntryThreshold.js';
 import { normalizeMacroRegime, resolveMarketSessionState, type EntryBlockReason } from '../../entryPolicySemantics.js';
 import { isExecutionRelaxationEnabled } from '../failureClassifier.js';
 import type { RevalidationStepResult } from './types.js';
@@ -19,6 +22,8 @@ export interface EntryRevalidationStepInput {
   reCheckGate: {
     gateScore?: number;
     signalType?: 'STRONG' | 'NORMAL' | 'SKIP';
+    /** ADR-0619: SKIP 원인 enum carry (quantFilter 정규화). Gate3 타이밍 완화 판정용. */
+    skipCause?: 'BAND_MISS' | 'MTAS_WEAK' | 'VIX_CONSERVATIVE' | 'CONSECUTIVE_LOSS_HOLD' | 'UNKNOWN';
   } | null;
   regime: string;
   liveEntryAllowed?: boolean;
@@ -104,6 +109,9 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
     entryPrice: input.entryPrice,
     quoteGateScore: boostedGateScore,
     quoteSignalType: input.reCheckGate?.signalType,
+    // ADR-0619: Gate3 타이밍 완화 판정용 — skipCause enum + isShadow carry. live/ENV OFF → 무영향.
+    skipCause: input.reCheckGate?.skipCause,
+    isShadow: input.isShadow ?? false,
     dayOpen: input.reCheckQuote?.dayOpen,
     prevClose: input.reCheckQuote?.prevClose,
     volume: input.reCheckQuote?.volume,
@@ -118,7 +126,15 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
     marketElapsedMinutes: input.marketElapsedMinutes,
   });
 
-  if (revalidation.ok) return { proceed: true, entryThresholdMode };
+  if (revalidation.ok) {
+    // ADR-0619: Gate1(점수 완화 REGIME_AWARE_SHADOW) + Gate3(타이밍 완화) 라벨 carry 우선순위 SSOT.
+    //   둘 다 완화 → PREBREAKOUT_SHADOW(보수 층화). Gate3 미완화 → 기존 entryThresholdMode 유지.
+    const finalMode = resolveEntryThresholdModeLabel(
+      entryThresholdMode,
+      revalidation.gate3Liberalized === true,
+    );
+    return { proceed: true, entryThresholdMode: finalMode };
+  }
 
   // sectorBoost 가 적용되어도 탈락한 경우 — 진단 메시지에 boost 효과 명시.
   const reasons = revalidation.reasons;

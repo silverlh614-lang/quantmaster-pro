@@ -215,6 +215,16 @@ export interface ServerGateResult {
   /** ADR-452 — provider degraded로 점수 합산에서 제외/강등된 조건 키. */
   providerDegradedConditions?: string[];
   signalType: 'STRONG' | 'NORMAL' | 'SKIP';
+  /**
+   * ADR-0619: signalType==='SKIP' 산출 원인 enum (details 문자열 파싱 금지 — 산출 시점 동시 반환).
+   *   BAND_MISS            : regime band 점수 미달 (score < band.normal).
+   *   MTAS_WEAK            : MTAS ≤ 3 (구조 약세/데이터 부족).
+   *   VIX_CONSERVATIVE     : VIX 보수모드 신규 진입 일시 중단.
+   *   CONSECUTIVE_LOSS_HOLD: 실시간 연속손절 홀드.
+   *   UNKNOWN              : 미상(보수 차단 — bypass 불가).
+   * SKIP 이 아닐 때(STRONG/NORMAL) → undefined. shadow Gate3 완화는 BAND_MISS/MTAS_WEAK 만 우회.
+   */
+  skipCause?: 'BAND_MISS' | 'MTAS_WEAK' | 'VIX_CONSERVATIVE' | 'CONSECUTIVE_LOSS_HOLD' | 'UNKNOWN';
   positionPct: number;                        // Kelly 기반 포지션 비율
   details: string[];                          // 통과한 조건 레이블
   conditionKeys: string[];                    // 통과한 조건 키 (Signal Calibrator용)
@@ -962,6 +972,25 @@ function calculateMTAS(quote: YahooQuoteExtended): { mtas: number; dataInsuffici
 /**
  * Yahoo Finance 확장 시세 데이터로 Gate 조건 평가.
  */
+/**
+ * ADR-0619: SKIP 원인 enum 산출 SSOT — evaluateServerGate 의 skipCause 분기를 순수 추출.
+ *   precedence(원본 동치): MTAS_WEAK/BAND_MISS(선설정·불변) > VIX_CONSERVATIVE > CONSECUTIVE_LOSS_HOLD.
+ *   VIX/연속손절은 진입 전 signalType 이 비SKIP 였을 때만 SKIP 으로 전환(causedSkip)하므로 우선순위가 후순위.
+ *   SKIP 인데 미분류 → UNKNOWN(보수 차단). 비SKIP → undefined. 새 분기 0, 순수 이동.
+ */
+function resolveSkipCause(
+  finalSignalType: ServerGateResult['signalType'],
+  scoreCause: 'MTAS_WEAK' | 'BAND_MISS' | undefined,
+  vixCausedSkip: boolean,
+  heldCausedSkip: boolean,
+): ServerGateResult['skipCause'] {
+  if (finalSignalType !== 'SKIP') return undefined;
+  if (scoreCause !== undefined) return scoreCause;
+  if (vixCausedSkip) return 'VIX_CONSERVATIVE';
+  if (heldCausedSkip) return 'CONSECUTIVE_LOSS_HOLD';
+  return 'UNKNOWN';
+}
+
 export function evaluateServerGate(
   quote: YahooQuoteExtended,
   weights: ConditionWeights = DEFAULT_CONDITION_WEIGHTS,
@@ -989,9 +1018,14 @@ export function evaluateServerGate(
 
   let signalType: 'STRONG' | 'NORMAL' | 'SKIP';
   let positionPct: number;
+  // ADR-0619: SKIP 원인 enum 동시 산출 (details 텍스트 파싱 금지 — 분류 SSOT 단일화).
+  //   shadow Gate3 완화(BAND_MISS/MTAS_WEAK)와 유지 차단(VIX/연속손절)을 구분하는 carry.
+  //   점수단계 원인(MTAS/band)은 scoreCause carry → 최종 분류는 resolveSkipCause() 단일 통로.
+  let scoreCause: 'MTAS_WEAK' | 'BAND_MISS' | undefined;
 
   if (mtas <= 3) {
     signalType = 'SKIP';
+    scoreCause = 'MTAS_WEAK';
     positionPct = 0;
     details.push(`MTAS ${mtas.toFixed(1)}/10 진입금지`);
   } else {
@@ -1000,6 +1034,7 @@ export function evaluateServerGate(
     signalType = score >= band.strong ? 'STRONG' as const
                : score >= band.normal ? 'NORMAL' as const
                : 'SKIP' as const;
+    if (signalType === 'SKIP') scoreCause = 'BAND_MISS';
     if (regime && (band.strong !== 7 || band.normal !== 5)) {
       details.push(`레짐(${regime}) 밴드 S${band.strong}/N${band.normal}`);
     }
@@ -1022,10 +1057,16 @@ export function evaluateServerGate(
     }
   }
 
+  // ADR-0619: VIX/연속손절 override 는 skipCause 를 직접 쓰지 않고 causedSkip 플래그로 carry → resolveSkipCause() 분류.
+  let vixCausedSkip = false;
+  let heldCausedSkip = false;
+
   if (getVixConservativeMode()) {
     positionPct *= 0.80;
     if (signalType !== 'SKIP') {
       signalType = 'SKIP';
+      // ADR-0619: VIX 보수모드 SKIP 은 매크로 리스크 게이트 — shadow 도 bypass 불가(유지 차단).
+      vixCausedSkip = true;
       details.push('VIX 보수모드 — 신규 진입 일시 중단');
     }
   }
@@ -1033,6 +1074,8 @@ export function evaluateServerGate(
   if (isTradingHeld()) {
     if (signalType !== 'SKIP') {
       signalType = 'SKIP';
+      // ADR-0619: 연속손절 홀드 SKIP 은 리스크 룰 — shadow 도 bypass 불가(유지 차단).
+      heldCausedSkip = true;
       details.push('실시간 연속손절 홀드 — 신규 진입 차단 중');
     }
   }
@@ -1049,10 +1092,15 @@ export function evaluateServerGate(
   gateLayerSummary.gate1.consolidatedDiagnostic = buildGate1ConsolidatedDiagnostic({ gate1: gateLayerSummary.gate1 });
   const gateEvaluation = buildGateEvaluationSnapshot(gateLayerSummary, conditionKeys);
 
+  // ADR-0619: SKIP 원인 분류 SSOT — 점수단계 cause + VIX/연속손절 carry 를 순수 헬퍼로 확정.
+  //   (SKIP·미분류 → UNKNOWN, 비SKIP → undefined; 원본 precedence 동치.)
+  const skipCause = resolveSkipCause(signalType, scoreCause, vixCausedSkip, heldCausedSkip);
+
   return {
     gateScore: score,
     ...scoreHealth,
     signalType,
+    skipCause,
     positionPct,
     details,
     conditionKeys,

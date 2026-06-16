@@ -32,12 +32,38 @@ export function isGate1RegimeAwareShadowEntryEnabled(): boolean {
 }
 
 /**
- * ADR-0608 진입 임계 모드 라벨 — SHADOW 표본 격리용(학습 표본 오염 방지).
- *   'REGIME_AWARE_SHADOW': ENV ON && isShadow 로 regime-aware 임계가 적용된 진입(legacy 였다면 탈락 가능 표본).
+ * ADR-0619 Gate3 타이밍 완화(shadow pre-breakout 진입) 활성화 여부 — 정확 비교(=== 'true'). default OFF.
+ * ADR-0608 Gate1 flag 와 **독립** — 각 ENV 1줄 롤백. OFF: shadowTimingBypass 항상 false →
+ * `(SKIP && !false)===SKIP` byte-equivalent. live(isShadow=false)는 ENV 무관 byte-equivalent.
+ */
+export function isShadowPrebreakoutEntryEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.SHADOW_PREBREAKOUT_ENTRY_ENABLED === 'true';
+}
+
+/**
+ * ADR-0608/0619 진입 임계 모드 라벨 — SHADOW 표본 격리용(학습 표본 오염 방지).
+ *   'REGIME_AWARE_SHADOW': ADR-0608 ENV ON && isShadow 로 regime-aware 점수 임계 완화 진입.
+ *   'PREBREAKOUT_SHADOW' : ADR-0619 Gate3 타이밍 완화(BAND_MISS/MTAS_WEAK SKIP 우회) 진입. Gate1+Gate3 동시 완화 시 우선.
  *   'LEGACY'            : 기존 진입(LIVE 전부 + ENV OFF + SHADOW 의 legacy 임계 통과분). default/후방호환.
  * 라벨은 학습 분리용일 뿐 청산 규칙·사이징·LIVE 판정에 영향 0.
  */
-export type EntryThresholdMode = 'LEGACY' | 'REGIME_AWARE_SHADOW';
+export type EntryThresholdMode = 'LEGACY' | 'REGIME_AWARE_SHADOW' | 'PREBREAKOUT_SHADOW';
+
+/**
+ * ADR-0619 라벨 carry 우선순위 SSOT. Gate1(점수)·Gate3(타이밍) 완화가 동시에 적용된 진입은
+ * 더 약한 신호(타이밍 면제)를 표본 리스크 상한으로 본다 → PREBREAKOUT_SHADOW 우선(보수 층화).
+ * 우선순위: PREBREAKOUT_SHADOW > REGIME_AWARE_SHADOW > LEGACY.
+ * 라벨은 학습 표본 분리 전용 — 청산·사이징·LIVE 판정 영향 0(불변식 #8).
+ */
+export function resolveEntryThresholdModeLabel(
+  base: EntryThresholdMode | undefined,
+  gate3Liberalized: boolean,
+): EntryThresholdMode {
+  if (gate3Liberalized) return 'PREBREAKOUT_SHADOW';
+  return base ?? 'LEGACY';
+}
 
 export interface ResolveEntryMinGateScoreInput {
   /** RegimeLevel 문자열 (예 'R3_EARLY'). 미지원/미전달 → 하류 함수가 R4_NEUTRAL fallback. */
