@@ -253,7 +253,7 @@ export async function buildProvisionalShadowPerformanceReport(
       try {
         const result = await input.priceProvider(entry.symbol, horizon, entry.createdAtKst);
         if (result.available) {
-          // ADR-0617 — entryPrice 정식 타입 read (캐스팅 제거). 부재 시 DATA_UNAVAILABLE.
+          // ADR-0620 — entryPrice 정식 타입 read (캐스팅 제거). 부재 시 DATA_UNAVAILABLE.
           const returnPct = safeReturnPct(entry.entryPrice, result.price);
           if (returnPct === undefined) {
             points.push({

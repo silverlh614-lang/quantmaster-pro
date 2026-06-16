@@ -1,4 +1,4 @@
-# ADR-0617 — Provisional Shadow 측정 기준가(entryPrice) 배선
+# ADR-0620 — Provisional Shadow 측정 기준가(entryPrice) 배선
 
 - Status: Proposed (Phase 0 — 경계·타입·ADR. 측정 정합 정정. 구현은 engine-dev 인계.)
 - Date: 2026-06-16

@@ -30,7 +30,7 @@ export async function provisionalShadowLaneDerive(
       r6Defense: false,
     },
     nowKst: new Date().toISOString(),
-    // ADR-0617 — buyListLoop KIS 게이트 가격(실진입 동일 소스, ADR-0561). positive finite 검증은 derive 내부.
+    // ADR-0620 — buyListLoop KIS 게이트 가격(실진입 동일 소스, ADR-0561). positive finite 검증은 derive 내부.
     entryPrice: currentPrice,
     entryPriceSource: 'KIS_CURRENT',
   });

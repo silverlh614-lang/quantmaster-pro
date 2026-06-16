@@ -379,9 +379,9 @@ describe('ADR-0428 Provisional Shadow Performance Report', () => {
   });
 
   // ────────────────────────────────────────────────────────
-  // ADR-0617: entryPrice 측정 배선 회귀
+  // ADR-0620: entryPrice 측정 배선 회귀
   // ────────────────────────────────────────────────────────
-  describe('ADR-0617 entryPrice measurement wiring', () => {
+  describe('ADR-0620 entryPrice measurement wiring', () => {
     it('entryPrice 있는 신규 엔트리 + forward price → OBSERVED + returnPct 정확', async () => {
       const provider: ProvisionalShadowPriceProvider = async (_symbol, horizon) => {
         const priceMap: Partial<Record<ProvisionalShadowHorizon, number>> = {

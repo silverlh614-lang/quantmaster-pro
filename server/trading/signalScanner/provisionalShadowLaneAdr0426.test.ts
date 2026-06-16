@@ -427,9 +427,9 @@ describe('ADR-0426 Provisional Shadow Lane', () => {
   });
 
   // ────────────────────────────────────────────────────────
-  // ADR-0617: entryPrice measurement carry (positive finite 검증)
+  // ADR-0620: entryPrice measurement carry (positive finite 검증)
   // ────────────────────────────────────────────────────────
-  describe('ADR-0617 entryPrice measurement carry', () => {
+  describe('ADR-0620 entryPrice measurement carry', () => {
     it('positive finite entryPrice → candidate 로 carry + 기본 source KIS_CURRENT', () => {
       const result = deriveR3ProvisionalShadowCandidate(baseInput({ entryPrice: 71500 }));
       expect(result).not.toBeNull();
