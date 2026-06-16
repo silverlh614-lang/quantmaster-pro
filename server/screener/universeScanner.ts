@@ -109,6 +109,12 @@ import {
   isConsecutiveNetBuyObservationEnabled,
   todayKst as consecutiveNetBuyTodayKst,
 } from "../trading/signalScanner/consecutiveNetBuyLedgerAdr0614.js";
+// ADR-0615 — 뉴스시차 진입윈도우 관측 stamp. default OFF → 산출·stamp no-op(byte-identical). 신규 fetch 0.
+import {
+  isNewsLagEntryWindowObservationEnabled,
+  computeNewsLagEntryWindowBySector,
+  loadActiveNewsSupplyRecordsForObservation,
+} from "../learning/newsLagEntryWindowObservationAdr0615.js";
 
 // ─── ADR-0184 (PR-B12-A) — scanner start master guard SSOT ─────────────────
 //
@@ -693,6 +699,14 @@ export async function stage3AIScreenAndRegister(
 
   // ── DART 조회 후 컨플루언스 재평가 (4축 완전체) ───────────────────────────
   const consecutiveNetBuyEnabled = isConsecutiveNetBuyObservationEnabled();
+  // ADR-0615 — flag OFF → null → 산출·stamp no-op(byte-identical). 루프 전 sector별 1회 산출
+  // (영속 read 1회, 신규 fetch 0. 동일 sector 후보 중복 산출 회피).
+  const newsLagEntryWindowBySector = isNewsLagEntryWindowObservationEnabled()
+    ? computeNewsLagEntryWindowBySector(
+        candidates.map((c) => c.sector),
+        loadActiveNewsSupplyRecordsForObservation(),
+      )
+    : null;
   for (const c of candidates) {
     c.confluenceResult = runConfluenceEngine({
       quote: c.quote,
@@ -715,6 +729,13 @@ export async function stage3AIScreenAndRegister(
           marketCap: null,                    // 가용 경로 확인 전 null (가짜 비율 금지)
         });
       } catch { /* SDS-ignore: 관측 append 실패 격리, scan 본체 보호 (불변식 #1) */ }
+    }
+    // ADR-0615 — sector 조인 진입윈도우 관측 stamp(additive). flag OFF → bySector=null → skip(byte-identical).
+    if (newsLagEntryWindowBySector) {
+      try {
+        const obs = newsLagEntryWindowBySector.get(c.sector);
+        if (obs) c.newsLagEntryWindow = obs; // additive stamp, Gate/주문 미배선
+      } catch { /* SDS-ignore: 관측 stamp 실패 격리, scan 본체 보호 (불변식 #1) */ }
     }
   }
   // 결정적 평가 + Gemini는 topReasons만 자연어 생성 (Idea 5).

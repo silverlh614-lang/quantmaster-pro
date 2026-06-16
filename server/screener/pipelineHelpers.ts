@@ -20,6 +20,8 @@ import { getGeminiClient } from '../clients/geminiClient.js';
 import { AI_MODELS } from '../constants.js';
 import type { YahooQuoteExtended } from './stockScreener.js';
 import type { ConfluenceResult } from '../trading/confluenceEngine.js';
+// ADR-0615 — 뉴스시차 진입윈도우 관측 stamp 타입 (additive optional candidate 필드).
+import type { NewsLagEntryWindowObservation } from '../learning/newsLagEntryWindowObservationAdr0615.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 import type { GateEvaluationSnapshot, GateLayerSummary, ServerGateResult } from '../quantFilter.js';
@@ -80,6 +82,8 @@ export interface CandidateStock {
   };
   // Phase 2 컨플루언스 결과 (Stage 2 → Stage 3 전달)
   confluenceResult?: ConfluenceResult;
+  // ADR-0615 — 뉴스시차 진입윈도우 관측 stamp (additive optional, 관측 전용·executionImpact NONE).
+  newsLagEntryWindow?: NewsLagEntryWindowObservation;
 }
 
 export interface GeminiScreenResult {

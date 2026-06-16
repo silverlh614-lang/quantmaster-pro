@@ -58,6 +58,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-06-16 · ADR-0615 · news-lag-entry-window-observation sector-join ci95-classify dead-getOptimalEntryWindow-revival fetch-0 flag-off-byte-equivalent execution-impact-none
 - 2026-06-16 · ADR-0614 · consecutive-netbuy-observation foreign-institution piggyback-fetch-0 rolling-10d flag-off-byte-equivalent execution-impact-none
 - 2026-06-15 · Patch-ADR0604-KospiStratify-BarAdjacencyGuard · indexMacroSections kospiDayReturn outlier yahoo-ks11-gap stratify-record-only regime-byte-identical
 - 2026-06-15 · Patch-ADR0605-SoxGate2-ObservationMode · gate2-sox-semi-axis observation-only flag-off-byte-equivalent dry-run-score-62-50 observation-ledger activation-basis
