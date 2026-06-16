@@ -115,6 +115,12 @@ import {
   computeNewsLagEntryWindowBySector,
   loadActiveNewsSupplyRecordsForObservation,
 } from "../learning/newsLagEntryWindowObservationAdr0615.js";
+// ADR-0616 — 유니버스 구성 편향 per-scan aggregate 관측. default OFF → 산출·append no-op(byte-identical). 신규 fetch 0.
+import {
+  isUniverseCompositionBiasObservationEnabled,
+  computeUniverseCompositionBiasObservation,
+  appendUniverseCompositionBiasObservation,
+} from "./universeCompositionBiasObservationAdr0616.js";
 
 // ─── ADR-0184 (PR-B12-A) — scanner start master guard SSOT ─────────────────
 //
@@ -737,6 +743,17 @@ export async function stage3AIScreenAndRegister(
         if (obs) c.newsLagEntryWindow = obs; // additive stamp, Gate/주문 미배선
       } catch { /* SDS-ignore: 관측 stamp 실패 격리, scan 본체 보호 (불변식 #1) */ }
     }
+  }
+  // ADR-0616 — Stage3 컨플루언스 루프 종료 직후 per-scan aggregate 1회(per-candidate 아님).
+  // benchmark=동 스코프 macroState.kospi20dReturn 재사용(신규 read 0). flag OFF → 진입 skip(byte-identical).
+  if (isUniverseCompositionBiasObservationEnabled()) {
+    try {
+      const obs = computeUniverseCompositionBiasObservation(
+        candidates,
+        macroState?.kospi20dReturn,
+      );
+      appendUniverseCompositionBiasObservation(obs);
+    } catch { /* SDS-ignore: 구성 편향 관측 실패 격리, scan 본체 보호 (불변식 #1) */ }
   }
   // 결정적 평가 + Gemini는 topReasons만 자연어 생성 (Idea 5).
   // Gemini 호출 실패 시에도 결정적 결과는 유지되므로 파이프라인 안정성 향상.

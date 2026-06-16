@@ -74,6 +74,8 @@ export const GATE2_OUTCOME_LEDGER_FILE = path.join(DATA_DIR, 'gate2-outcome-ledg
 export const GATE2_SOX_OBSERVATION_LEDGER_FILE = path.join(DATA_DIR, 'gate2-sox-observation-ledger-adr0605.json');
 /** ADR-0614 — 외국인/기관 연속 순매수 관측 전용 시계열 ledger(투자자흐름 cache·진단 ledger 와 물리 분리, default OFF). */
 export const CONSECUTIVE_NETBUY_LEDGER_FILE = path.join(DATA_DIR, 'consecutive-netbuy-ledger-adr0614.json');
+/** ADR-0616 — 유니버스 구성 편향 per-scan aggregate 관측 ledger(KOSPI/KOSDAQ 비중·leader/laggard RS 분포·시총 tier, 위 ledger 들과 물리 분리, default OFF). */
+export const UNIVERSE_COMPOSITION_BIAS_LEDGER_FILE = path.join(DATA_DIR, 'universe-composition-bias-ledger-adr0616.json');
 export const OCO_ORDERS_FILE          = path.join(DATA_DIR, 'oco-orders.json');
 /** Stage1 Pre-screening 캐시 — 전날 16:30 실행 결과를 저장, 당일 08:35 Stage2+3에서 사용 */
 export const STAGE1_CACHE_FILE        = path.join(DATA_DIR, 'stage1-cache.json');
