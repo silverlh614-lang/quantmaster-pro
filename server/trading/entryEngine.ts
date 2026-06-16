@@ -18,6 +18,7 @@ import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.
 import { callGemini } from '../clients/geminiClient.js';
 import { buildConditionBoostHint } from '../learning/conditionBoostHints.js';
 import { GATE_SCORE_THRESHOLD_BY_REGIME, getEffectiveGateThreshold } from './gateConfig.js';
+import { isShadowPrebreakoutEntryEnabled } from './gate1ShadowEntryThreshold.js';
 import { safePctChange, safePctChangeStrict } from '../utils/safePctChange.js';
 import type { DataQualityInfo, WaitReason } from '../types/dataQuality.js';
 import {
@@ -267,6 +268,16 @@ interface EntryRevalidationInput {
   entryPrice: number;
   quoteGateScore?: number;
   quoteSignalType?: 'STRONG' | 'NORMAL' | 'SKIP';
+  /**
+   * ADR-0619: signalType==='SKIP' 산출 원인(quantFilter 정규화 enum carry). Gate3 타이밍 완화
+   * 판정에만 사용. 미전달/UNKNOWN → bypass 불가(보수 차단, 불변식 #6). live 무영향.
+   */
+  skipCause?: 'BAND_MISS' | 'MTAS_WEAK' | 'VIX_CONSERVATIVE' | 'CONSECUTIVE_LOSS_HOLD' | 'UNKNOWN';
+  /**
+   * ADR-0619: SHADOW(paper) 진입 경로 식별. shadowTimingBypass 의 필수 AND 조건.
+   * live(false)/미전달 → bypass 항상 false → byte-identical. ADR-0608 isShadow 와 동일 의미.
+   */
+  isShadow?: boolean;
   dayOpen?: number;
   prevClose?: number;
   volume?: number;
@@ -308,7 +319,21 @@ export interface EntryRevalidationResult {
   dataQuality?: DataQualityInfo;
   /** ADR-0117: WAIT 분기 사유 (DATA_HOLD 등). */
   waitReason?: WaitReason;
+  /**
+   * ADR-0619: Gate3 타이밍 SKIP 이 shadow 완화로 우회됐는지. true 면 호출자(step)가
+   * entryThresholdMode='PREBREAKOUT_SHADOW' 라벨 스탬프. live/미완화 → false.
+   */
+  gate3Liberalized?: boolean;
 }
+
+/**
+ * ADR-0619: Gate3 타이밍 완화 가능한 SKIP 원인 — band 점수 대기·MTAS 미성숙(타이밍 대기 성격).
+ * VIX/연속손절(리스크 게이트)·UNKNOWN(보수 차단)은 제외. 무차별 개방 금지.
+ */
+const GATE3_LIBERALIZABLE_SKIP_CAUSES = new Set<NonNullable<EntryRevalidationInput['skipCause']>>([
+  'BAND_MISS',
+  'MTAS_WEAK',
+]);
 
 export function evaluateEntryRevalidation(input: EntryRevalidationInput): EntryRevalidationResult {
   const reasons: string[] = [];
@@ -367,9 +392,22 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): EntryR
     };
   }
 
-  if (input.quoteSignalType === 'SKIP' || (input.quoteGateScore ?? minGate) < minGate) {
+  // ADR-0619: Gate3 타이밍 SKIP shadow 완화. 세 조건 AND 일 때만 앞 절(타이밍) 우회.
+  //   1) SHADOW_PREBREAKOUT_ENTRY_ENABLED === 'true'  2) input.isShadow === true
+  //   3) skipCause ∈ {BAND_MISS, MTAS_WEAK} (VIX/연속손절/UNKNOWN/미전달 → 보수 차단).
+  // live(isShadow=false)/ENV OFF → 항상 false → `(SKIP && !false)===SKIP` byte-identical.
+  // 뒤 절 score<minGate·sanity·DATA_HOLD·extensionStrict 는 그대로 평가(두 완화 직교, 불변식 #8).
+  const shadowTimingBypass =
+    isShadowPrebreakoutEntryEnabled() &&
+    input.isShadow === true &&
+    input.skipCause !== undefined &&
+    GATE3_LIBERALIZABLE_SKIP_CAUSES.has(input.skipCause);
+
+  if ((input.quoteSignalType === 'SKIP' && !shadowTimingBypass) || (input.quoteGateScore ?? minGate) < minGate) {
     reasons.push(`Gate 재검증 미달 (${actualGateScore.toFixed(1)}/${formatRequiredScore(minGate, false)})`);
   }
+  // ADR-0619: 타이밍 SKIP 이 실제로 완화돼 진입한 경우(뒤 절·sanity 도 통과)에만 라벨 carry.
+  const gate3Liberalized = shadowTimingBypass && input.quoteSignalType === 'SKIP';
 
   // ADR-0117: extensionPct 산출은 *거래 차단 게이트* — sanity 위반 시 즉시 DATA_HOLD 반환.
   // entryPrice 가 분할 전 값으로 박제되어 currentPrice 와 거대 괴리 시 silent
@@ -460,6 +498,8 @@ export function evaluateEntryRevalidation(input: EntryRevalidationInput): EntryR
     marketSessionState,
     blockReasons: blockReasons.length > 0 ? blockReasons : ['NONE'],
     executionImpact: 'NONE',
+    // ADR-0619: 타이밍 완화 우회 여부 — 호출자(step)가 proceed 시 PREBREAKOUT_SHADOW 라벨 스탬프.
+    gate3Liberalized,
   };
 }
 

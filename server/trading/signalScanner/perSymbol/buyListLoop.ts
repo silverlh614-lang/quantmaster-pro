@@ -125,6 +125,17 @@ import {
   createBuyListLoopRunState,
   loopInitializer,
 } from './steps/loopInitializer.js';
+// ADR-0619 — shadow 진입 개방 관측 ledger (관측 전용, flag ON 만 append, executionImpact NONE).
+import {
+  appendShadowEntryLiberalizationObservation,
+  emptySkipCauseDist,
+  tallySkipCause,
+  todayKst as shadowLiberalizationTodayKst,
+} from '../shadowEntryLiberalizationLedgerAdr0619.js';
+import {
+  isGate1RegimeAwareShadowEntryEnabled,
+  isShadowPrebreakoutEntryEnabled,
+} from '../../gate1ShadowEntryThreshold.js';
 
 function flushEntryRevalidationSkippedSummary(
   items: readonly EntryRevalidationSkippedBatchItem[],
@@ -237,6 +248,12 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
   // LIVE 모드 호출 site 도 동일 propagate 하나 buyPipeline 측 guard 가 SHADOW 분기에서만 발동.
   const loopRunState = createBuyListLoopRunState();
   const entryRevalidationSkippedBatch: EntryRevalidationSkippedBatchItem[] = [];
+  // ADR-0619: shadow 진입 개방 per-scan aggregate 관측 카운터(매수 흐름 무영향).
+  //   skipCauseDist 는 flag 무관 누적(OFF baseline 0 관측). gate1/gate3RelaxedCount 는
+  //   완화 라벨이 실제 스탬프된 진입만. append 는 flag ON 시에만(스캔 종료 후 1회).
+  const shadowLiberalizationSkipCauseDist = emptySkipCauseDist();
+  let shadowGate1RelaxedCount = 0;
+  let shadowGate3RelaxedCount = 0;
   for (const stock of ctx.buyList) {
     // Idea 1 — MOMENTUM 은 AUTO_SHADOW_FROM_MOMENTUM 경로에서 강제 SHADOW 로 귀속된다.
     // LIVE 모드 스캔 중에도 MOMENTUM 후보는 실 자본을 쓰지 않고 학습 표본만 남긴다.
@@ -443,6 +460,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // 가 영속되어 있으면 stock.sector 의 LEADING/LAGGING 분류 결과를 quoteGateScore 에
       // 가산. macroState.sectorEnergyResult 부재 시 boost=0 — 기존 동작과 동일.
       // ADR-0125 (PR-1): dataQuality 4값 분기 추가 — STALE/FAILED 시 boost=0 강제.
+      // ADR-0619: shadow SKIP 후보의 skipCause 분포 관측(완화 가능/유지 차단 모두 — 효과 baseline).
+      //   flag 무관 산출(OFF 시 진입 추가 0이나 분포는 관측). 관측 전용 — 매수 흐름 무영향.
+      if (stockShadowMode && reCheckGate?.signalType === 'SKIP') {
+        tallySkipCause(shadowLiberalizationSkipCauseDist, reCheckGate.skipCause);
+      }
       const entryRevalidationResult = await handleEntryRevalidationGate(
         ctx,
         stock,
@@ -457,8 +479,11 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         stockShadowMode,
       );
       if (entryRevalidationResult.decision === 'SKIP') continue;
-      // ADR-0608: 적용된 진입 임계 모드 라벨 — buildBuyTrade → ServerShadowTrade 스탬프.
+      // ADR-0608/0619: 적용된 진입 임계 모드 라벨 — buildBuyTrade → ServerShadowTrade 스탬프.
       const entryThresholdMode = entryRevalidationResult.entryThresholdMode;
+      // ADR-0619: 완화 라벨이 실제 스탬프된 진입만 카운트(관측 ledger aggregate). 매수 흐름 무영향.
+      if (entryThresholdMode === 'REGIME_AWARE_SHADOW') shadowGate1RelaxedCount += 1;
+      else if (entryThresholdMode === 'PREBREAKOUT_SHADOW') shadowGate3RelaxedCount += 1;
 
       // ── ADR-0031 PR-61: quoteAvailabilityStep RevalidationStep ──────────
       // BUG-02 fix: Yahoo 실패 시 MTAS 검증 우회 방지 — 재검증 불가 시 진입 보류
@@ -813,4 +838,20 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
     }
   }
   flushEntryRevalidationSkippedSummary(entryRevalidationSkippedBatch, ctx);
+
+  // ── ADR-0619: shadow 진입 개방 per-scan 관측 ledger stamp (스캔 종료 후 1회) ──
+  // 두 flag(Gate1/Gate3) 중 하나라도 ON 일 때만 append(관측 효과 측정 대상). 둘 다 OFF →
+  // append 0(baseline). try/catch 격리 — ledger 실패가 스캔/매수 흐름 차단 안 함(불변식 #1).
+  if (isGate1RegimeAwareShadowEntryEnabled() || isShadowPrebreakoutEntryEnabled()) {
+    try {
+      appendShadowEntryLiberalizationObservation({
+        scanDateKey: shadowLiberalizationTodayKst(),
+        gate1RelaxedCount: shadowGate1RelaxedCount,
+        gate3RelaxedCount: shadowGate3RelaxedCount,
+        skipCauseDist: shadowLiberalizationSkipCauseDist,
+      });
+    } catch (e) {
+      console.warn('[Adr0619ShadowLiberalization] ledger append 실패 — 스캔 흐름 무영향:', e instanceof Error ? e.message : e);
+    }
+  }
 }

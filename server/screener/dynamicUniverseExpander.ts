@@ -71,6 +71,24 @@ export interface DynamicStock {
 const DYNAMIC_UNIVERSE_FILE = path.join(DATA_DIR, 'dynamic-universe.json');
 const EXPIRY_DAYS = 14;
 
+// ADR-0618 — LEADER_SOURCES 일일 신선 갱신 단축 TTL(달력 3일). 주말 포함 시 월요일 갱신분이
+// 목요일까지 생존하되, 매 거래일 재갱신으로 사실상 항상 ≤1 거래일 신선. stale leader 자동 만료.
+export const LEADER_REFRESH_TTL_DAYS = 3;
+
+// ── ENV SSOT (ADR-0618 · ADR-0157 정확비교 default OFF) ─────────────────────────
+
+/**
+ * 주도주 일일 신선 갱신 활성화 SSOT. `LEADER_DAILY_REFRESH_ENABLED === 'true'`.
+ * default OFF — OFF 시 신규 cron 콜백이 즉시 단락(랭킹 fetch 0·dynamic-universe.json 미변경),
+ * 주간 expansion·expandOnEmpty·getExpandedUniverse* 현행 byte-identical. ENV 1줄 즉시 롤백.
+ * 두 번째 flag enum/중복 정의 금지(ADR-0618 §3) — 본 함수가 단일 SSOT.
+ */
+export function isLeaderUniverseDailyRefreshEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.LEADER_DAILY_REFRESH_ENABLED === 'true';
+}
+
 // ── 영속화 ────────────────────────────────────────────────────────────────────
 
 export function loadDynamicUniverse(): DynamicStock[] {
@@ -409,42 +427,57 @@ export async function runDynamicUniverseExpansion(): Promise<number> {
   return newCount;
 }
 
-// ── 빈 스캔 트리거 확장 ───────────────────────────────────────────────────────
+// ── 랭킹 수집 공통 헬퍼 (ADR-0618 — expandOnEmpty ↔ 일일 갱신 공유) ──────────────
 
 /**
- * 빈 스캔 연속 감지 시 즉시 호출 — "유니버스 확장" 오버라이드 액션의 구동부.
- *
- * 정기 runDynamicUniverseExpansion()은 주 1회 스케줄이라 운용자가 "지금" 확장하고
- * 싶을 때 기다릴 수 없다. 이 메서드는:
- *   1. KIS API로 52주 신고가 + 외국인 순매수 상위를 즉시 수집
- *   2. TTL을 단축(기본 3일)하여 오버라이드의 일시성을 반영
- *   3. Telegram 알림 없이 조용히 실행 (호출자가 응답 포맷 책임)
- *
- * @param ttlDays 동적 편입 만료 기간 (기본 3일 — 빈 스캔 대응 임시성)
- * @returns 신규 편입 종목 수
+ * 랭킹 키 → DynamicStock source 매핑 + (선택) 클라이언트 레벨 필터 명세.
+ * expandOnEmpty 와 runLeaderUniverseDailyRefresh 가 키 부분집합만 다르게 공유.
  */
-export async function expandOnEmpty(ttlDays = 3): Promise<number> {
-  const staticCodes = new Set(STOCK_UNIVERSE.map(s => s.code));
-  let dynamicStocks = purgeExpired(loadDynamicUniverse());
-  const existingDynamicCodes = new Set(dynamicStocks.map(s => s.code));
+interface RankingSpec {
+  key: RankingType;
+  source: DynamicStock['source'];
+  /** 응답 엔트리 필터 (예: 등락률 +3~+7%·기관 순매수 양수). 미지정 시 전건 통과. */
+  filter?: (e: RankingEntry) => boolean;
+}
 
-  // Phase A + 아이디어 5: 6개 KIS 랭킹 TR을 병렬 호출.
-  // 각 호출은 자체 5분 캐시·시장별 부분 실패 허용·전체 실패 시 빈 배열.
-  // allSettled로 감싸서 한 랭킹이 throw해도 나머지 결과와 정적 유니버스로 자연 폴백.
-  // 기관 순매수/대량거래 상위를 편입함으로써 "지금 뜨는 종목" 질문이 googleSearch 없이 해결.
-  const RANKING_KEYS: RankingType[] = [
-    'volume', 'fluctuation', 'market-cap',
-    'institutional-net-buy', 'large-volume',
-  ];
+/**
+ * 랭킹 발굴 → 정적/기존 동적 dedup 병합 공통 루프 (expandOnEmpty·일일 갱신 공유).
+ *
+ * - specs 순서대로 getShadowSafeRanking 을 allSettled 병렬 수집(부분 실패 흡수 → 빈 배열).
+ * - 같은 code 가 여러 랭킹에 걸쳐도 *첫 등장 source* 만 반영(merged 순서 기준 dedup).
+ * - **refreshExisting=false (expandOnEmpty)**: 정적·기존 동적 code 는 skip(현행 동작 byte-identical).
+ * - **refreshExisting=true  (일일 갱신)**: 기존 동적 code 는 expiresAt 일일 TTL 로 upsert(연장) +
+ *   source LEADER 재기입(신선도 목적). 정적 code 는 여전히 skip.
+ *
+ * @returns { dynamicStocks(병합 결과), counts(키별 수집 수 로그용), newCount, refreshedCount }
+ */
+async function collectRankingDynamicStocks(
+  specs: readonly RankingSpec[],
+  ttlDays: number,
+  refreshExisting: boolean,
+): Promise<{
+  dynamicStocks: DynamicStock[];
+  counts: number[];
+  newCount: number;
+  refreshedCount: number;
+}> {
+  const staticCodes = new Set(STOCK_UNIVERSE.map(s => s.code));
+  const dynamicStocks = purgeExpired(loadDynamicUniverse());
+  const existingDynamicCodes = new Set(dynamicStocks.map(s => s.code));
+  const byCode = new Map<string, DynamicStock>();
+  for (const s of dynamicStocks) byCode.set(s.code, s);
+
   // Phase 1: Shadow-VTS decoupling — Shadow 모드에서 VTS 랭킹이 비어도
   // Yahoo 폴백으로 자동 전환. LIVE 모드에서는 동작 변경 없음.
+  // 각 호출은 자체 5분 캐시·시장별 부분 실패 허용·전체 실패 시 빈 배열.
+  // allSettled로 감싸서 한 랭킹이 throw해도 나머지 결과와 정적 유니버스로 자연 폴백.
   const settled = await Promise.allSettled(
-    RANKING_KEYS.map(k => getShadowSafeRanking(k, { limit: 30 })),
+    specs.map(s => getShadowSafeRanking(s.key, { limit: 30 })),
   );
-  const [volume, fluctuation, marketCap, instNetBuy, largeVolume] = settled.map((r, i) => {
+  const results = settled.map((r, i) => {
     if (r.status === 'fulfilled') return r.value;
     console.warn(
-      `[DynamicExpander] expandOnEmpty ${RANKING_KEYS[i]} 실패 (흡수):`,
+      `[DynamicExpander] 랭킹 ${specs[i].key} 실패 (흡수):`,
       r.reason instanceof Error ? r.reason.message : r.reason,
     );
     return [] as RankingEntry[];
@@ -457,48 +490,131 @@ export async function expandOnEmpty(ttlDays = 3): Promise<number> {
     source,
   });
 
+  const merged: Array<Omit<DynamicStock, 'addedAt' | 'expiresAt'>> = [];
+  for (let i = 0; i < specs.length; i++) {
+    const { source, filter } = specs[i];
+    const entries = filter ? results[i].filter(filter) : results[i];
+    for (const e of entries) merged.push(toDynamic(e, source));
+  }
+
   const now = new Date();
   const expiresAt = new Date(now.getTime() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
   const addedAt = now.toISOString();
   let newCount = 0;
+  let refreshedCount = 0;
 
+  for (const c of merged) {
+    if (staticCodes.has(c.code)) continue;
+    if (existingDynamicCodes.has(c.code)) {
+      if (!refreshExisting) continue; // expandOnEmpty — 기존 동작 byte-identical(skip)
+      // 일일 갱신 — 신선도 목적 upsert: expiresAt 연장 + source LEADER 재기입.
+      const existing = byCode.get(c.code);
+      if (existing) {
+        existing.expiresAt = expiresAt;
+        existing.source = c.source;
+        refreshedCount++;
+      }
+      continue;
+    }
+    const fresh: DynamicStock = { ...c, addedAt, expiresAt };
+    dynamicStocks.push(fresh);
+    byCode.set(c.code, fresh);
+    existingDynamicCodes.add(c.code);
+    newCount++;
+  }
+
+  return { dynamicStocks, counts: results.map(r => r.length), newCount, refreshedCount };
+}
+
+// ── 빈 스캔 트리거 확장 ───────────────────────────────────────────────────────
+
+/**
+ * 빈 스캔 연속 감지 시 즉시 호출 — "유니버스 확장" 오버라이드 액션의 구동부.
+ *
+ * 정기 runDynamicUniverseExpansion()은 주 1회 스케줄이라 운용자가 "지금" 확장하고
+ * 싶을 때 기다릴 수 없다. 이 메서드는:
+ *   1. KIS API로 52주 신고가 + 외국인 순매수 상위를 즉시 수집
+ *   2. TTL을 단축(기본 3일)하여 오버라이드의 일시성을 반영
+ *   3. Telegram 알림 없이 조용히 실행 (호출자가 응답 포맷 책임)
+ *
+ * ADR-0618: 랭킹 수집·dedup 병합은 collectRankingDynamicStocks 공통 헬퍼로 이관.
+ * refreshExisting=false → 기존 dedup skip 동작 byte-identical 보존(5키·MID_RISER 필터·INST 양수 필터).
+ *
+ * @param ttlDays 동적 편입 만료 기간 (기본 3일 — 빈 스캔 대응 임시성)
+ * @returns 신규 편입 종목 수
+ */
+export async function expandOnEmpty(ttlDays = 3): Promise<number> {
   // 5개 랭킹 → 기존 DynamicStock.source 카테고리로 매핑.
   //   volume               → FOREIGN_NET_BUY (거래량 상위 = 수급 유입 근사)
   //   fluctuation          → MID_RISER      (등락률 +3~+7% 필터)
   //   market-cap           → MARKET_CAP
   //   institutional-net-buy → INST_NET_BUY  (기관 순매수 양수만)
   //   large-volume         → LARGE_VOLUME   (대량거래 상위)
-  // 중복은 Set 기반 기존 루프에서 자연 제거 — 같은 코드가 여러 랭킹에 걸쳐도
-  // 첫 등장 source 만 반영 (중복 편입 방지).
-  const merged: Array<Omit<DynamicStock, 'addedAt' | 'expiresAt'>> = [
-    ...volume.map(e => toDynamic(e, 'FOREIGN_NET_BUY')),
-    ...fluctuation
-      // 기존 expandOnEmpty의 +3~+7% 중위권 필터를 클라이언트 레벨로 이관.
-      .filter(e => e.changePercent >= 3 && e.changePercent <= 7)
-      .map(e => toDynamic(e, 'MID_RISER')),
-    ...marketCap.map(e => toDynamic(e, 'MARKET_CAP')),
-    ...instNetBuy
-      // 기관 순매수량(value)이 양수인 종목만 편입.
-      .filter(e => e.value > 0)
-      .map(e => toDynamic(e, 'INST_NET_BUY')),
-    ...largeVolume.map(e => toDynamic(e, 'LARGE_VOLUME')),
-  ];
-
-  for (const c of merged) {
-    if (staticCodes.has(c.code)) continue;
-    if (existingDynamicCodes.has(c.code)) continue;
-    dynamicStocks.push({ ...c, addedAt, expiresAt });
-    existingDynamicCodes.add(c.code);
-    newCount++;
-  }
+  const { dynamicStocks, counts, newCount } = await collectRankingDynamicStocks(
+    [
+      { key: 'volume', source: 'FOREIGN_NET_BUY' },
+      { key: 'fluctuation', source: 'MID_RISER', filter: e => e.changePercent >= 3 && e.changePercent <= 7 },
+      { key: 'market-cap', source: 'MARKET_CAP' },
+      { key: 'institutional-net-buy', source: 'INST_NET_BUY', filter: e => e.value > 0 },
+      { key: 'large-volume', source: 'LARGE_VOLUME' },
+    ],
+    ttlDays,
+    false, // refreshExisting=false — 기존 dedup skip 동작 보존
+  );
+  const [vol, flc, mc, inst, lrgVol] = counts;
 
   saveDynamicUniverse(dynamicStocks);
   console.log(
     `[DynamicExpander] expandOnEmpty 완료 — 신규 ${newCount}개 (TTL ${ttlDays}일), ` +
-    `전체 동적 ${dynamicStocks.length}개 (vol ${volume.length}·flc ${fluctuation.length}·mc ${marketCap.length}` +
-    `·inst ${instNetBuy.length}·lrgVol ${largeVolume.length})`,
+    `전체 동적 ${dynamicStocks.length}개 (vol ${vol}·flc ${flc}·mc ${mc}` +
+    `·inst ${inst}·lrgVol ${lrgVol})`,
   );
   return newCount;
+}
+
+// ── 주도주 일일 신선 갱신 (ADR-0618) ──────────────────────────────────────────
+
+/**
+ * LEADER_SOURCES(FOREIGN_NET_BUY·INST_NET_BUY·MARKET_CAP) 3종만 매 거래일 장전에 신선 갱신.
+ *
+ * expandOnEmpty 의 랭킹 발굴 경로를 LEADER 매핑분만 재사용(공통 헬퍼):
+ *   - market-cap            → MARKET_CAP
+ *   - institutional-net-buy → INST_NET_BUY (value>0 필터)
+ *   - volume                → FOREIGN_NET_BUY (외인 전용 TR 부재 — expandOnEmpty 근사 매핑 재사용)
+ * fluctuation/large-volume/short-balance 키는 호출하지 않음(MID_RISER/LARGE_VOLUME/SHORT_HEAVY 주간 유지).
+ *
+ * - 단축 TTL = LEADER_REFRESH_TTL_DAYS(3일, per-entry expiresAt) — stale leader 자동 만료.
+ * - 같은 code 충돌 시 expiresAt 일일 TTL upsert(연장) + source LEADER 재기입(refreshExisting=true).
+ * - 주간 비주도 엔트리(MID_RISER 등)는 LEADER 키만 수집하므로 일일 수집 결과에 없음 → 보존(무영향).
+ * - try/catch 격리(불변식 #1) — cron 실패가 엔진 무중단. Telegram 무음(내부 갱신만).
+ *
+ * @returns 신규 편입 + 갱신(연장) 종목 수. 실패 시 0(격리).
+ */
+export async function runLeaderUniverseDailyRefresh(): Promise<number> {
+  try {
+    const { dynamicStocks, counts, newCount, refreshedCount } = await collectRankingDynamicStocks(
+      [
+        { key: 'market-cap', source: 'MARKET_CAP' },
+        { key: 'institutional-net-buy', source: 'INST_NET_BUY', filter: e => e.value > 0 },
+        { key: 'volume', source: 'FOREIGN_NET_BUY' },
+      ],
+      LEADER_REFRESH_TTL_DAYS,
+      true, // refreshExisting=true — 신선도 목적 upsert(연장) + source 재기입
+    );
+    const [mc, inst, vol] = counts;
+
+    saveDynamicUniverse(dynamicStocks);
+    console.log(
+      `[DynamicExpander] 주도주 일일 갱신 완료 — 신규 ${newCount}개·연장 ${refreshedCount}개 ` +
+      `(TTL ${LEADER_REFRESH_TTL_DAYS}일), 전체 동적 ${dynamicStocks.length}개 ` +
+      `(mc ${mc}·inst ${inst}·vol ${vol})`,
+    );
+    return newCount + refreshedCount;
+  } catch (e) {
+    // 불변식 #1 — cron 실패가 엔진을 멈추면 안 된다. 격리 후 0 반환.
+    console.error('[DynamicExpander] 주도주 일일 갱신 실패 (격리):', e instanceof Error ? e.message : e);
+    return 0;
+  }
 }
 
 // ── 확장 유니버스 제공 ────────────────────────────────────────────────────────
@@ -520,4 +636,27 @@ export function getExpandedUniverse(): { symbol: string; code: string; name: str
   }
 
   return expanded;
+}
+
+/**
+ * ADR-0617 — expandedUniverse code→source 맵 (주도주 carry 단일 소스).
+ *
+ * getExpandedUniverse() 가 source 를 노출하지 않으므로(symbol/code/name 만), 동적 확장 종목의
+ * code→source 매핑을 additive 로 제공한다. getExpandedUniverse 와 동일한 만료(purgeExpired)·
+ * admissibility(isAdmissibleDynamicCode) 정책을 적용해 두 결과가 정합(같은 종목 집합)하도록 한다.
+ *   - 정적 STOCK_UNIVERSE 종목은 source 부재 → Map 미포함(carry 시 undefined → 기존 동작 동치).
+ *   - 동일 code 가 복수 source 로 수집된 경우 *먼저 등장한 source* 유지(LEADER 우선 보장 아님 —
+ *     carry 는 식별 전용, 보존 판정은 isLeaderSource 가 별도 수행). 신규 fetch 0(영속 read 만).
+ */
+export function getExpandedUniverseSourceMap(): Map<string, DynamicStock['source']> {
+  const staticCodes = new Set(STOCK_UNIVERSE.map(s => s.code));
+  const dynamicStocks = purgeExpired(loadDynamicUniverse());
+  const sourceByCode = new Map<string, DynamicStock['source']>();
+  for (const d of dynamicStocks) {
+    if (staticCodes.has(d.code)) continue;
+    if (!isAdmissibleDynamicCode(d.code)) continue;
+    if (sourceByCode.has(d.code)) continue;
+    sourceByCode.set(d.code, d.source);
+  }
+  return sourceByCode;
 }
