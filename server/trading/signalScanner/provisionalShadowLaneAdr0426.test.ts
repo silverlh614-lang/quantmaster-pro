@@ -425,4 +425,58 @@ describe('ADR-0426 Provisional Shadow Lane', () => {
     expect(formatProvisionalShadowSection(null)).toBeNull();
     expect(formatProvisionalShadowSection(undefined)).toBeNull();
   });
+
+  // ────────────────────────────────────────────────────────
+  // ADR-0617: entryPrice measurement carry (positive finite 검증)
+  // ────────────────────────────────────────────────────────
+  describe('ADR-0617 entryPrice measurement carry', () => {
+    it('positive finite entryPrice → candidate 로 carry + 기본 source KIS_CURRENT', () => {
+      const result = deriveR3ProvisionalShadowCandidate(baseInput({ entryPrice: 71500 }));
+      expect(result).not.toBeNull();
+      expect(result?.entryPrice).toBe(71500);
+      expect(result?.entryPriceSource).toBe('KIS_CURRENT');
+    });
+
+    it('명시 entryPriceSource 전달 시 그대로 보존', () => {
+      const result = deriveR3ProvisionalShadowCandidate(
+        baseInput({ entryPrice: 71500, entryPriceSource: 'SCAN_SNAPSHOT' }),
+      );
+      expect(result?.entryPrice).toBe(71500);
+      expect(result?.entryPriceSource).toBe('SCAN_SNAPSHOT');
+    });
+
+    it('entryPrice=0 → 필드 미설정 (하위호환 INSUFFICIENT 경로)', () => {
+      const result = deriveR3ProvisionalShadowCandidate(baseInput({ entryPrice: 0 }));
+      expect(result).not.toBeNull();
+      expect(result?.entryPrice).toBeUndefined();
+      expect(result?.entryPriceSource).toBeUndefined();
+    });
+
+    it('entryPrice=NaN → 필드 미설정', () => {
+      const result = deriveR3ProvisionalShadowCandidate(baseInput({ entryPrice: Number.NaN }));
+      expect(result?.entryPrice).toBeUndefined();
+      expect(result?.entryPriceSource).toBeUndefined();
+    });
+
+    it('entryPrice 음수 → 필드 미설정', () => {
+      const result = deriveR3ProvisionalShadowCandidate(baseInput({ entryPrice: -71500 }));
+      expect(result?.entryPrice).toBeUndefined();
+      expect(result?.entryPriceSource).toBeUndefined();
+    });
+
+    it('entryPrice=Infinity → 필드 미설정', () => {
+      const result = deriveR3ProvisionalShadowCandidate(
+        baseInput({ entryPrice: Number.POSITIVE_INFINITY }),
+      );
+      expect(result?.entryPrice).toBeUndefined();
+      expect(result?.entryPriceSource).toBeUndefined();
+    });
+
+    it('entryPrice 미전달(legacy) → 필드 미설정 (하위호환)', () => {
+      const result = deriveR3ProvisionalShadowCandidate(baseInput());
+      expect(result).not.toBeNull();
+      expect(result?.entryPrice).toBeUndefined();
+      expect(result?.entryPriceSource).toBeUndefined();
+    });
+  });
 });

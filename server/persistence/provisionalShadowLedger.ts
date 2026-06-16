@@ -21,6 +21,14 @@ export interface ProvisionalShadowLedgerEntry {
   scanId?: string;
   scannedAtKst?: string;
   createdAtKst: string;
+  /**
+   * ADR-0617 — measurement entry reference price at provisional-shadow record time.
+   * Optional/additive: legacy entries without this field stay INSUFFICIENT_DATA (소급 0).
+   * `liveAllowed: false` 유지 — 측정 기준가일 뿐 LIVE 진입가 아님.
+   */
+  entryPrice?: number;
+  /** ADR-0617 — entryPrice 출처. KIS_CURRENT = buyListLoop currentPrice (실진입 게이트 동일 소스, ADR-0561 정합). */
+  entryPriceSource?: 'KIS_CURRENT' | 'SCAN_SNAPSHOT';
   label: ProvisionalShadowLabel;
   reasons: ProvisionalShadowReason[];
   regime: 'R3_EARLY';
@@ -136,6 +144,9 @@ function buildEntry(input: RecordProvisionalShadowInput, nowIso: string): Provis
     ...(input.scanId !== undefined ? { scanId: input.scanId } : {}),
     ...(input.scannedAtKst !== undefined ? { scannedAtKst: input.scannedAtKst } : {}),
     createdAtKst: input.candidate.createdAtKst ?? nowIso,
+    // ADR-0617 — measurement entryPrice/source additive stamp (candidate 에서만, 소급 backfill 0).
+    ...(input.candidate.entryPrice !== undefined ? { entryPrice: input.candidate.entryPrice } : {}),
+    ...(input.candidate.entryPriceSource !== undefined ? { entryPriceSource: input.candidate.entryPriceSource } : {}),
     label: input.candidate.label,
     reasons: input.candidate.reasons,
     regime: 'R3_EARLY',

@@ -426,7 +426,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
             sectorEnergyDiagnostic: macroState?.sectorEnergyQualityDiagnostic as
               Parameters<typeof deriveGateDecisionRouterResult>[0]['sectorEnergyDiagnostic'],
           });
-          await provisionalShadowLaneDerive(ctx, stock, routerResult);
+          await provisionalShadowLaneDerive(ctx, stock, routerResult, currentPrice);
         }
       } catch (e) {
         console.warn('[Adr0427ProvisionalShadow] wiring 실패 — 매수 흐름 무영향:', e);

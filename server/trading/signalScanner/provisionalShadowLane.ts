@@ -70,6 +70,14 @@ export interface ProvisionalShadowCandidate {
   gate2Passed: boolean;
   routerSeverity?: string;
   createdAtKst?: string;
+  /**
+   * ADR-0617 — measurement entry reference price (additive optional).
+   * 측정 기준가일 뿐 LIVE 진입가 아님 — `liveAllowed: false` 불변.
+   * 미전달 시 ledger 에 미기록 → 성과 리포트 INSUFFICIENT_DATA (소급 0).
+   */
+  entryPrice?: number;
+  /** ADR-0617 — entryPrice 출처 (KIS_CURRENT = buyListLoop currentPrice, ADR-0561 정합). */
+  entryPriceSource?: 'KIS_CURRENT' | 'SCAN_SNAPSHOT';
 }
 
 export interface DeriveR3ProvisionalShadowInput {
@@ -96,6 +104,14 @@ export interface DeriveR3ProvisionalShadowInput {
   };
   /** KST ISO 시각 — 미전달 시 호출 시점 자동 합성. */
   nowKst?: string;
+  /**
+   * ADR-0617 — measurement entry reference price (additive optional).
+   * buyListLoop currentPrice (KIS 소스, 실진입 게이트 동일, ADR-0561 정합) 주입.
+   * positive finite 만 candidate 로 carry — 0/NaN/음수/undefined 는 미설정.
+   */
+  entryPrice?: number;
+  /** ADR-0617 — entryPrice 출처 라벨. 기본 'KIS_CURRENT'. */
+  entryPriceSource?: 'KIS_CURRENT' | 'SCAN_SNAPSHOT';
 }
 
 /**
@@ -217,6 +233,11 @@ export function deriveR3ProvisionalShadowCandidate(
     gate2Passed: false,
     ...(input.router?.severity ? { routerSeverity: input.router.severity } : {}),
     ...(input.nowKst ? { createdAtKst: input.nowKst } : {}),
+    // ADR-0617 — measurement entryPrice carry. positive finite 만 (0/NaN/음수/Infinity 거부,
+    // ADR-0431 counterfactual 레인 동형). 거부 시 미설정 → 하위호환 INSUFFICIENT 경로 유지.
+    ...(typeof input.entryPrice === 'number' && Number.isFinite(input.entryPrice) && input.entryPrice > 0
+      ? { entryPrice: input.entryPrice, entryPriceSource: input.entryPriceSource ?? 'KIS_CURRENT' }
+      : {}),
   };
 }
 
