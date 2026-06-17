@@ -80,6 +80,8 @@ export const UNIVERSE_COMPOSITION_BIAS_LEDGER_FILE = path.join(DATA_DIR, 'univer
 export const LEADER_UNIVERSE_INJECTION_LEDGER_FILE = path.join(DATA_DIR, 'leader-universe-injection-ledger-adr0617.json');
 /** ADR-0619 — shadow 진입 개방(Gate1 점수·Gate3 타이밍 완화) per-scan aggregate 관측 ledger(완화 진입수·skipCause 분포, 위 ledger 들과 물리 분리, 관측 전용). */
 export const SHADOW_ENTRY_LIBERALIZATION_LEDGER_FILE = path.join(DATA_DIR, 'shadow-entry-liberalization-ledger-adr0619.json');
+/** ADR-0622 — 발굴 적극성 per-scan aggregate dry-run 관측 ledger(top-N 60→90 추가 편입·RS percentile 끌어올림/laggard 디모트·현행 laggard 비율, 위 ledger 들과 물리 분리, 양 flag 무관 산출·append 만 flag ON). */
+export const UNIVERSE_DISCOVERY_AGGRESSIVENESS_LEDGER_FILE = path.join(DATA_DIR, 'universe-discovery-aggressiveness-ledger-adr0622.json');
 export const OCO_ORDERS_FILE          = path.join(DATA_DIR, 'oco-orders.json');
 /** Stage1 Pre-screening 캐시 — 전날 16:30 실행 결과를 저장, 당일 08:35 Stage2+3에서 사용 */
 export const STAGE1_CACHE_FILE        = path.join(DATA_DIR, 'stage1-cache.json');
