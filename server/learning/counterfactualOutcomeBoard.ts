@@ -12,6 +12,10 @@ import {
   loadCounterfactuals,
   type CounterfactualEntry,
 } from './counterfactualShadow.js';
+import {
+  isKrxTradingDay,
+  toKstDateKey,
+} from '../calendar/krxTradingCalendar.js';
 
 export type CounterfactualSourceType =
   | 'GATE1_DRY_RUN_OBSERVATION'
@@ -256,6 +260,29 @@ export interface CounterfactualDebugSummary {
   excludedSampleRows: CounterfactualExcludedRow[];
 }
 
+export type BandMaturityStallStatus = 'HEALTHY' | 'IMMATURE_WAITING' | 'STALL_SUSPECTED';
+
+/**
+ * 관측 전용 가드 (patch-type, ADR 0건). canonical Gate1 밴드가 충분한 거래일 경과 후에도
+ * matureD5=0 이면 라벨러 write-back / reference price 배선 버그를 의심한다. 판정만 하며
+ * execution / threshold 에 영향 0 (observationOnly).
+ */
+export interface BandMaturityStallGuard {
+  status: BandMaturityStallStatus;
+  oldestBandRowAgeTradingDays: number | null;
+  totalBandMatureD5: number;
+  totalBandRows: number;
+  stallThresholdTradingDays: number;
+  reason: string;
+  recommendedAction:
+    | 'NONE'
+    | 'OBSERVE_MORE'
+    | 'INVESTIGATE_LABELER_WRITEBACK_OR_REFERENCE_PRICE';
+  excludedReferencePriceCount: number;
+  executionImpact: 'NONE';
+  observationOnly: true;
+}
+
 export interface CounterfactualOutcomeBoard {
   generatedAt: string;
   periodLabel: string;
@@ -267,6 +294,7 @@ export interface CounterfactualOutcomeBoard {
   gate2Blockers: CounterfactualBandOutcome[];
   gate3Blockers: CounterfactualBandOutcome[];
   topMissedOpportunities: CounterfactualOutcomeBoardRow[];
+  bandMaturityStallGuard: BandMaturityStallGuard;
   today: CounterfactualTodaySummary;
   review: CounterfactualReviewSummary;
   safety: CounterfactualSafetyChecks;
@@ -286,6 +314,8 @@ export interface CounterfactualOutcomeBoardOptions {
 }
 
 const GATE1_BANDS: Gate1OutcomeBand[] = ['70+', '65~70', '60~65', '55~60', 'below55'];
+/** D5 성숙(5거래일) + grace 2거래일 — false-positive 방지용 STALL 판정 임계. */
+const BAND_MATURITY_STALL_THRESHOLD_TRADING_DAYS = 7;
 const GATE2_BLOCKERS = [
   'BREAKOUT_MOMENTUM_NOT_CONFIRMED',
   'FUNDAMENTAL_UNAVAILABLE',
@@ -1210,6 +1240,89 @@ function buildDebugSummary(
   };
 }
 
+/**
+ * recordedAt(이후, exclusive) → now(포함) 사이의 KRX 거래일 경과수. 주말/공휴일 판정은
+ * krxTradingCalendar(isKrxTradingDay → isKrxHoliday SSOT) 에 위임 — 두 번째 캘린더 산식
+ * 신설 금지(ADR-0559/0591). 산식: oldest 기록일의 다음 일자부터 now 까지 하루씩 walk 하며
+ * 거래일만 카운트. now 가 oldest 보다 앞서거나 같으면 0.
+ */
+function tradingDaysSinceRecorded(oldestRecordedAt: string, now: Date): number | null {
+  const startKey = toKstDateKey(oldestRecordedAt);
+  const endKey = toKstDateKey(now);
+  if (!startKey || !endKey || endKey <= startKey) return startKey && endKey ? 0 : null;
+  let count = 0;
+  let cursorMs = new Date(`${startKey}T03:00:00.000Z`).getTime();
+  const endMs = new Date(`${endKey}T03:00:00.000Z`).getTime();
+  // calendar-day walk 상한(약 1년) — 무한루프 방지. 거래일만 isKrxTradingDay 로 가산.
+  for (let i = 0; i < 400 && cursorMs < endMs; i += 1) {
+    cursorMs += 86_400_000;
+    const cursorKey = toKstDateKey(new Date(cursorMs));
+    if (cursorKey && cursorKey <= endKey && isKrxTradingDay(cursorKey)) count += 1;
+  }
+  return count;
+}
+
+/**
+ * 관측 전용 가드. canonical 밴드 적격 행(included, gate1Band≠UNSCORED, scoreSource=MIN_SIGNAL_TRACE)
+ * 의 matureD5 합이 0 인데 가장 오래된 행이 STALL_THRESHOLD 거래일 이상 늙었으면 STALL_SUSPECTED.
+ * 신규 fetch 0 — 이미 메모리상 included rows + canonical 밴드 집계만 사용.
+ */
+function buildBandMaturityStallGuard(
+  canonicalBands: readonly CounterfactualBandOutcome[],
+  includedRows: readonly CounterfactualOutcomeBoardRow[],
+  excludedReasonDistribution: Record<string, number>,
+  now: Date,
+): BandMaturityStallGuard {
+  const eligibleRows = includedRows.filter(
+    (row) => row.gate1Band !== 'UNSCORED' && row.scoreSource === 'MIN_SIGNAL_TRACE',
+  );
+  const totalBandMatureD5 = canonicalBands.reduce((sum, band) => sum + band.matureD5, 0);
+  const totalBandRows = canonicalBands.reduce((sum, band) => sum + band.count, 0);
+  const excludedReferencePriceCount = excludedReasonDistribution.MISSING_REFERENCE_PRICE ?? 0;
+  const oldestRecordedAt = eligibleRows.reduce<string | null>(
+    (oldest, row) => (oldest === null || row.recordedAt < oldest ? row.recordedAt : oldest),
+    null,
+  );
+  const oldestBandRowAgeTradingDays =
+    oldestRecordedAt !== null ? tradingDaysSinceRecorded(oldestRecordedAt, now) : null;
+
+  let status: BandMaturityStallStatus;
+  let reason: string;
+  let recommendedAction: BandMaturityStallGuard['recommendedAction'];
+  if (totalBandMatureD5 > 0) {
+    status = 'HEALTHY';
+    reason = `canonical bands have matured D5 rows (${totalBandMatureD5}/${totalBandRows}); pipeline write-back is live`;
+    recommendedAction = 'NONE';
+  } else if (
+    oldestBandRowAgeTradingDays !== null &&
+    oldestBandRowAgeTradingDays >= BAND_MATURITY_STALL_THRESHOLD_TRADING_DAYS
+  ) {
+    status = 'STALL_SUSPECTED';
+    reason = `canonical matureD5=0 but oldest band row is ${oldestBandRowAgeTradingDays} trading days old (>=${BAND_MATURITY_STALL_THRESHOLD_TRADING_DAYS}); suspect labeler write-back or reference price wiring (missingRefPrice=${excludedReferencePriceCount})`;
+    recommendedAction = 'INVESTIGATE_LABELER_WRITEBACK_OR_REFERENCE_PRICE';
+  } else {
+    status = 'IMMATURE_WAITING';
+    reason =
+      oldestBandRowAgeTradingDays === null
+        ? 'no canonical band-eligible rows yet; nothing to mature'
+        : `canonical matureD5=0 and oldest band row is ${oldestBandRowAgeTradingDays} trading days old (<${BAND_MATURITY_STALL_THRESHOLD_TRADING_DAYS}); still within normal maturation window`;
+    recommendedAction = 'OBSERVE_MORE';
+  }
+
+  return {
+    status,
+    oldestBandRowAgeTradingDays,
+    totalBandMatureD5,
+    totalBandRows,
+    stallThresholdTradingDays: BAND_MATURITY_STALL_THRESHOLD_TRADING_DAYS,
+    reason,
+    recommendedAction,
+    excludedReferencePriceCount,
+    executionImpact: 'NONE',
+    observationOnly: true,
+  };
+}
+
 export async function buildCounterfactualOutcomeBoard(
   options: CounterfactualOutcomeBoardOptions = {},
 ): Promise<CounterfactualOutcomeBoard> {
@@ -1240,6 +1353,12 @@ export async function buildCounterfactualOutcomeBoard(
   const review = buildReview(summary, gate2Blockers, gate3Blockers);
   const safety = buildSafety(rows);
   const debug = buildDebugSummary(normalized, rows, selected.excluded);
+  const bandMaturityStallGuard = buildBandMaturityStallGuard(
+    gate1Bands,
+    rows,
+    debug.excludedReasonDistribution,
+    now,
+  );
   return {
     generatedAt: now.toISOString(),
     periodLabel: `recent ${periodDays} recorded sessions`,
@@ -1250,6 +1369,7 @@ export async function buildCounterfactualOutcomeBoard(
     gate2Blockers,
     gate3Blockers,
     topMissedOpportunities,
+    bandMaturityStallGuard,
     today,
     review,
     safety,
