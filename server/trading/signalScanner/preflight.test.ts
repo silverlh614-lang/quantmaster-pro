@@ -128,19 +128,36 @@ vi.mock('../../calendar/krxTradingCalendar.js', () => ({
   isKrxTradingDay: vi.fn().mockReturnValue(true),
 }));
 
-vi.mock('../../../src/services/quant/regimeEngine.js', () => ({
-  REGIME_CONFIGS: {
+// REGIME_CONFIGS 는 테스트용 축소 맵으로 mock 하되, toCanonicalRegimeLevel 정규화기는
+// 축소 REGIME_CONFIGS 키 공간에 맞춰 동일 매핑 산식을 재현한다(learningRegime 정합 회귀 보장).
+// vi.mock 팩토리는 hoist 되므로 모든 정의를 팩토리 내부에 둔다(top-level 참조 금지).
+vi.mock('../../../src/services/quant/regimeEngine.js', () => {
+  const TEST_REGIME_CONFIGS: Record<string, unknown> = {
     R2_BULL: { kellyMultiplier: 0.8, maxPositions: 6, sellOnlyException: { enabled: false } },
+    R3_EARLY: { gate2Required: 6, gate3Required: 4, kellyMultiplier: 0.7, maxPositions: 6, allowedSignals: ['STRONG_BUY', 'BUY', 'EARLY_ENTRY'], sellOnlyException: { enabled: false } },
+    R4_NEUTRAL: { gate2Required: 8, gate3Required: 6, kellyMultiplier: 0.5, maxPositions: 4, allowedSignals: ['CONFIRMED_STRONG_BUY', 'STRONG_BUY'], sellOnlyException: { enabled: false } },
     R5_CAUTION: { gate2Required: 10, gate3Required: 8, kellyMultiplier: 0.3, maxPositions: 2, allowedSignals: ['CONFIRMED_STRONG_BUY'], sellOnlyException: { enabled: false } },
     R6_DEFENSE: { gate2Required: 99, gate3Required: 99, kellyMultiplier: 0, maxPositions: 0, allowedSignals: [], sellOnlyException: { enabled: false } },
-  },
-}));
+  };
+  return {
+    REGIME_CONFIGS: TEST_REGIME_CONFIGS,
+    toCanonicalRegimeLevel: (value: unknown): string | undefined => {
+      if (typeof value !== 'string' || value.length === 0) return undefined;
+      if (Object.prototype.hasOwnProperty.call(TEST_REGIME_CONFIGS, value)) return value;
+      const prefixMap: Record<string, string> = {
+        R1: 'R1_TURBO', R2: 'R2_BULL', R3: 'R3_EARLY',
+        R4: 'R4_NEUTRAL', R5: 'R5_CAUTION', R6: 'R6_DEFENSE',
+      };
+      return prefixMap[value.slice(0, 2).toUpperCase()];
+    },
+  };
+});
 
 import { fetchAccountBalance } from '../../clients/kisClient.js';
 import { getManualBlockNewBuy } from '../../state.js';
 import { loadWatchlist } from '../../persistence/watchlistRepo.js';
 import { loadR3SanityBlockState, getEffectiveR3SanityBlockState, isR3SanityAckTokenValid, acknowledgeR3SanityBlock } from '../../persistence/r3SanityBlockRepo.js';
-import { getLiveRegime } from '../regimeBridge.js';
+import { getLiveRegime, getRegimeDiagnostics } from '../regimeBridge.js';
 import { getVixGating } from '../vixGating.js';
 import { getFomcProximity } from '../fomcCalendar.js';
 import { isDataStarvedScan } from '../../screener/dataCompletenessTracker.js';
@@ -158,6 +175,7 @@ const mockedLoadR3SanityBlockState = vi.mocked(loadR3SanityBlockState);
 const mockedGetEffectiveR3SanityBlockState = vi.mocked(getEffectiveR3SanityBlockState);
 const mockedIsR3SanityAckTokenValid = vi.mocked(isR3SanityAckTokenValid);
 const mockedGetLiveRegime = vi.mocked(getLiveRegime);
+const mockedGetRegimeDiagnostics = vi.mocked(getRegimeDiagnostics);
 const mockedGetVixGating = vi.mocked(getVixGating);
 const mockedGetFomcProximity = vi.mocked(getFomcProximity);
 const mockedIsDataStarvedScan = vi.mocked(isDataStarvedScan);
@@ -422,5 +440,82 @@ describe('preflight.ts byte-equivalent tests', () => {
     expect(ctx.regime).toBe('R2_BULL');
     expect(ctx.kellyMultiplier).toBeCloseTo(0.8);
     expect(ctx.effectiveMaxPositions).toBe(6);
+  });
+
+  // ─── learningRegime carry 정합 회귀 (patch) ──────────────────────────────────
+  // regimeDiagnostics.effectiveRegime 가 확장 R6 상태기계 어휘를 누수하면 단순 REGIME_CONFIGS
+  // 키 검사로는 R4_NEUTRAL 로 폴백돼 R3 provisional/counterfactual 레인이 영구 비활성화된다.
+  // toCanonicalRegimeLevel 정규화로 learningRegime 이 canonical RegimeLevel 이 됨을 검증한다.
+  // live `regime`(clamp)은 본 수리와 무관 — byte-equivalent 유지.
+  describe('learningRegime carry 정규화 (확장 effective 어휘 → canonical RegimeLevel)', () => {
+    // diagnostics.effectiveRegime 만 확장 어휘로 강제. rawRegime 은 R2_BULL 로 둬 live `regime`
+    // 파생(resolveMarketState 경유)이 확장 어휘로 누수되지 않게 격리 → live `regime` 불변 보장.
+    function overrideDiagnosticsEffectiveRegime(effectiveRegime: string): void {
+      mockedGetRegimeDiagnostics.mockImplementation((() => ({
+        rawRegime: 'R2_BULL',
+        effectiveRegime,
+        sourceFreshness: 'FRESH',
+        r6RecoveryStatus: 'NOT_R6',
+        cooldownUntil: undefined,
+        transitionReason: '',
+        recoveryEvidence: { vkospiTrustState: 'TRUSTED', reasons: ['OK'] },
+        activeR6Triggers: [],
+        previousR6Triggers: [],
+        r6ShockLatch: false,
+        recoveryBlockedReason: undefined,
+        r6TriggerBreakdown: { triggerFreshness: 'FRESH', activeR6Triggers: [] },
+        transitionState: { r6StateMachineState: 'R2_BULL' },
+      })) as any);
+    }
+
+    it('확장 R3_NORMAL diagnostics → learningRegime=R3_EARLY, live regime 은 R4_NEUTRAL clamp 유지 (분리)', async () => {
+      // 운영 실측 재현: snapshot.effectiveRegime=R3_NORMAL → live `regime` 은 의도된 R4_NEUTRAL clamp.
+      // 패치 전: learningRegime 도 clamp 된 R4_NEUTRAL 로 폴백(R3 레인 영구 비활성) → 버그.
+      // 패치 후: learningRegime 만 canonical R3_EARLY 로 정규화(불변식 #8 분리 복원).
+      overrideDiagnosticsEffectiveRegime('R3_NORMAL');
+      const result = await runPreflight();
+      expect(result.context.learningRegime).toBe('R3_EARLY');
+      // live `regime` clamp(preflight:365-367)은 본 수리 무관 — 의도된 동작 그대로.
+      expect(result.context.regime).toBe('R4_NEUTRAL');
+      expect(result.macroGateState.regime).toBe('R4_NEUTRAL');
+    });
+
+    it('확장 R5_STABILIZING diagnostics → learningRegime=R5_CAUTION', async () => {
+      overrideDiagnosticsEffectiveRegime('R5_STABILIZING');
+      const result = await runPreflight();
+      expect(result.context.learningRegime).toBe('R5_CAUTION');
+    });
+
+    it('확장 R6_RECOVERY_WATCH diagnostics → learningRegime=R6_DEFENSE', async () => {
+      overrideDiagnosticsEffectiveRegime('R6_RECOVERY_WATCH');
+      const result = await runPreflight();
+      expect(result.context.learningRegime).toBe('R6_DEFENSE');
+    });
+
+    it('이미 canonical(R3_EARLY) diagnostics → learningRegime=R3_EARLY (무변경)', async () => {
+      overrideDiagnosticsEffectiveRegime('R3_EARLY');
+      const result = await runPreflight();
+      expect(result.context.learningRegime).toBe('R3_EARLY');
+    });
+
+    it('live `regime` ≠ learningRegime 분리 검증: 확장 어휘에서 regime 은 clamp, learningRegime 은 정규화', async () => {
+      // 핵심 불변식 #8: 실거래 차단(live regime clamp) 과 shadow 차단(learningRegime) 의 분리.
+      const cases: Array<[string, string]> = [
+        ['R3_NORMAL', 'R3_EARLY'],
+        ['R5_STABILIZING', 'R5_CAUTION'],
+        ['R6_RECOVERY_WATCH', 'R6_DEFENSE'],
+      ];
+      for (const [extended, canonical] of cases) {
+        overrideDiagnosticsEffectiveRegime(extended);
+        const result = await runPreflight();
+        // learningRegime 은 canonical 로 정규화되지만 live regime 은 그와 독립적으로 clamp 된다.
+        expect(result.context.learningRegime).toBe(canonical);
+        expect(result.context.regime).not.toBe(extended); // 확장 어휘가 live regime 으로 누수되지 않음
+        expect(Object.prototype.hasOwnProperty.call(
+          { R1_TURBO: 1, R2_BULL: 1, R3_EARLY: 1, R4_NEUTRAL: 1, R5_CAUTION: 1, R6_DEFENSE: 1 },
+          result.context.regime as string,
+        )).toBe(true); // live regime 은 항상 canonical RegimeLevel
+      }
+    });
   });
 });
