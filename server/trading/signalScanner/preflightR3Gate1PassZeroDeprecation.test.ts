@@ -64,13 +64,25 @@ vi.mock('../regime/regimeResolver.js', () => ({
     },
   }),
 }));
-vi.mock('../../../src/services/quant/regimeEngine.js', () => ({
-  REGIME_CONFIGS: {
+vi.mock('../../../src/services/quant/regimeEngine.js', () => {
+  const REGIME_CONFIGS: Record<string, unknown> = {
     R3_EARLY: { kellyMultiplier: 0.7, maxPositions: 5, sellOnlyException: { enabled: false } },
     R4_NEUTRAL: { kellyMultiplier: 0.5, maxPositions: 4, sellOnlyException: { enabled: false } },
     R5_CAUTION: { gate2Required: 10, gate3Required: 8, kellyMultiplier: 0.3, maxPositions: 2, sellOnlyException: { enabled: false } },
-  },
-}));
+  };
+  return {
+    REGIME_CONFIGS,
+    toCanonicalRegimeLevel: (value: unknown): string | undefined => {
+      if (typeof value !== 'string' || value.length === 0) return undefined;
+      if (Object.prototype.hasOwnProperty.call(REGIME_CONFIGS, value)) return value;
+      const prefixMap: Record<string, string> = {
+        R1: 'R1_TURBO', R2: 'R2_BULL', R3: 'R3_EARLY',
+        R4: 'R4_NEUTRAL', R5: 'R5_CAUTION', R6: 'R6_DEFENSE',
+      };
+      return prefixMap[value.slice(0, 2).toUpperCase()];
+    },
+  };
+});
 vi.mock('../../persistence/watchlistRepo.js', () => ({
   loadWatchlist: vi.fn().mockReturnValue([{ code: '005930', name: 'Samsung' }]),
 }));
