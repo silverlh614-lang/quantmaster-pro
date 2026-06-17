@@ -80,9 +80,12 @@ export function formatCounterfactualGate1(board: CounterfactualOutcomeBoard): st
   // "전 밴드 0건"을 숨긴다 — scoreSource 격리(70+)·제외 사유 분포 명시 노출 (board.debug 재사용; silent 금지).
   const excludedTotal = Object.values(board.debug.excludedReasonDistribution).reduce((sum, n) => sum + n, 0);
   const legacyScale70Plus = board.rows.filter((row) => row.gate1Band === '70+' && row.scoreSource !== 'MIN_SIGNAL_TRACE').length;
+  const g = board.bandMaturityStallGuard;
+  const stallPrefix = g.status === 'STALL_SUSPECTED' ? '⚠️ ' : '';
   return [
     formatBandRows('[Counterfactual Gate1 Bands]', board.gate1Bands),
     `legacyScaleMixed(밴드 제외): n=${board.gate1LegacyScale.count} matureD5=${board.gate1LegacyScale.matureD5} avgD5=${num(board.gate1LegacyScale.avgReturnD5, '%')} correctBlock=${pct(board.gate1LegacyScale.correctBlockRateD5)}`,
+    `${stallPrefix}bandMaturityStallGuard: status=${g.status} oldestAgeTradingDays=${g.oldestBandRowAgeTradingDays ?? 'N/A'} totalMatureD5=${g.totalBandMatureD5}/${g.totalBandRows} threshold=${g.stallThresholdTradingDays} missingRefPrice=${g.excludedReferencePriceCount} action=${g.recommendedAction}`,
     `legacyScale70Plus(scoreSource 격리): n=${legacyScale70Plus}`,
     `unscored=${board.rows.filter((row) => row.gate1Band === 'UNSCORED').length} excludedRows=${excludedTotal}`,
     distributionLine('excludedByReason', board.debug.excludedReasonDistribution),
