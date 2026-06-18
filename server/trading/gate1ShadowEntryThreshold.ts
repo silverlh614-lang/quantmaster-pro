@@ -10,6 +10,9 @@
  *   ENV ON && isShadow → { getEffectiveGateThreshold(regime), 'REGIME_AWARE_SHADOW' }
  *   그 외 (LIVE || ENV OFF) → { getMinGateScore(regime),       'LEGACY' }
  *
+ * ADR-0624 D1: 진입 자유화 flag 2개(Gate1 점수·Gate3 타이밍) default ON(opt-out, `!== 'false'`).
+ *   비상 kill-switch(`SHADOW_LIBERALIZATION_KILL='true'`) 발동 시 둘 다 OFF → byte-identical 롤백.
+ *
  * 불변식:
  *   - LIVE 분기(isShadow=false)는 ENV 와 무관하게 항상 getMinGateScore(regime) 1:1 (byte-equivalent).
  *   - 순수 함수 — provider/store/now 호출 0. 실패 가능 분기 없음(상수·산술만) → 불변식 #1 liveness.
@@ -24,22 +27,44 @@ import { getMinGateScore } from './entryEngine.js';
 import { getEffectiveGateThreshold } from './gateConfig.js';
 
 /**
- * ADR-0608 SHADOW 전용 regime-aware 진입 임계 활성화 여부 — 정확 비교(=== 'true'). default OFF.
- * OFF: resolveEntryMinGateScore 가 LIVE/SHADOW 모두 getMinGateScore → 현행 진입 byte-equivalent.
+ * ADR-0624 D1 비상 kill-switch SSOT — `=== 'true'` 일 때만 발동(미설정=정상 가동).
+ * 발동 시 LIVE-안전 shadow 진입 자유화 flag 2개(Gate1 점수·Gate3 타이밍)를 **둘 다 OFF** 로
+ * 강제 → 오늘의 byte-identical 동작으로 1줄 즉시 롤백. shadow 자유화의 유일한 off-switch.
+ * (opt-in flag 2개 → 비상 OFF 1개로 knob 축소. live 경로는 isShadow=false 라 항상 무영향.)
  */
-export function isGate1RegimeAwareShadowEntryEnabled(): boolean {
-  return process.env.GATE1_REGIME_AWARE_SHADOW_ENTRY_ENABLED === 'true';
+export function isShadowLiberalizationKilled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.SHADOW_LIBERALIZATION_KILL === 'true';
 }
 
 /**
- * ADR-0619 Gate3 타이밍 완화(shadow pre-breakout 진입) 활성화 여부 — 정확 비교(=== 'true'). default OFF.
- * ADR-0608 Gate1 flag 와 **독립** — 각 ENV 1줄 롤백. OFF: shadowTimingBypass 항상 false →
- * `(SKIP && !false)===SKIP` byte-equivalent. live(isShadow=false)는 ENV 무관 byte-equivalent.
+ * ADR-0608/0624 D1 SHADOW 전용 regime-aware 진입 임계 활성화 여부 — **default ON(opt-out)**.
+ * ADR-0157 정확 비교 패턴(`!== 'false'`): 미설정/임의값=ON, `='false'` 1줄 롤백.
+ * ADR-0624 비상 kill-switch(`SHADOW_LIBERALIZATION_KILL='true'`) 발동 시 무조건 OFF.
+ * OFF(kill 또는 `='false'`): resolveEntryMinGateScore 가 LIVE/SHADOW 모두 getMinGateScore →
+ * 현행 진입 byte-equivalent. live(isShadow=false)는 ENV/kill 무관 항상 byte-equivalent.
+ */
+export function isGate1RegimeAwareShadowEntryEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (isShadowLiberalizationKilled(env)) return false;
+  return env.GATE1_REGIME_AWARE_SHADOW_ENTRY_ENABLED !== 'false';
+}
+
+/**
+ * ADR-0619/0624 D1 Gate3 타이밍 완화(shadow pre-breakout 진입) 활성화 여부 — **default ON(opt-out)**.
+ * ADR-0157 정확 비교 패턴(`!== 'false'`): 미설정/임의값=ON, `='false'` 1줄 롤백.
+ * ADR-0624 비상 kill-switch(`SHADOW_LIBERALIZATION_KILL='true'`) 발동 시 무조건 OFF.
+ * ADR-0608 Gate1 flag 와 **독립**(각각 `='false'` 가능)하나 kill-switch 1개로 둘 다 정지 가능.
+ * OFF: shadowTimingBypass 항상 false → `(SKIP && !false)===SKIP` byte-identical.
+ * live(isShadow=false)는 ENV/kill 무관 byte-identical.
  */
 export function isShadowPrebreakoutEntryEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return env.SHADOW_PREBREAKOUT_ENTRY_ENABLED === 'true';
+  if (isShadowLiberalizationKilled(env)) return false;
+  return env.SHADOW_PREBREAKOUT_ENTRY_ENABLED !== 'false';
 }
 
 /**
