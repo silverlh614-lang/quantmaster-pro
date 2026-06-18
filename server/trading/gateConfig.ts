@@ -207,3 +207,23 @@ export function resolveGate1RequiredScore(regime?: string): number {
 export function isGate1PositiveCeilingWiringEnabled(): boolean {
   return process.env.GATE1_POSITIVE_CEILING_WIRING_ENABLED === 'true';
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADR-0627 — Gate1 RS percentile 연속 승격 스위치 (default OFF, byte-identical)
+//
+// decompositionBuilder 의 RS percentile→relativeStrengthScore 변환이 연속
+// percentile(rsRankPct 0~100)을 5단 step(0/2/5/8/10)으로 양자화해 p<50 을 전부
+// 0 으로 붕괴시켰다(정보 손실 버그). 본 flag ON 시 step 대신 연속 승격
+// (clamp(rsRankPct/10, 0, 10))으로 이미 계산된 percentile 분해능을 손실 없이
+// 복원한다. maxScore 10·weight 1 무변경 — weight 인상이 아니라 손실 복원.
+// p=100 은 step·연속 동일 10(천장 무변). OFF=byte-identical(기존 step 유지).
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Gate1 RS percentile 연속 승격 스위치. default OFF — byte-identical 보존.
+ * `GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED=true` 정확 비교(ADR-0157 — `'1'`/`'TRUE'`/
+ * `'yes'` 거부). 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
+ */
+export function isGate1RsPercentileContinuousEnabled(): boolean {
+  return process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED === 'true';
+}

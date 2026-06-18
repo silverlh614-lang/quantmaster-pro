@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0627`**
+**다음 ADR 번호: `0628`**
+
+(2026-06-18 기준, 마지막 발급 0627 — gate1-rs-percentile-continuous-and-breakout-ohlcv-field-fix. **Status: Proposed (Phase 0 — 경계·타입·ADR. flag default OFF byte-identical. 구현 engine-dev.)** ADR-0627 — Gate1 positive starvation(finalScoreAvg≈55<70·INSUFFICIENT_POSITIVE_SCORE 81%)의 진짜 wiring 갭 2종 교정. Audit 결론: `SCORE_CEILING_TOO_LOW` 은 오진(configuredPositiveMax 116≫70 천장 충분·observedPositiveMax 16.6 점화율 문제). ADR-0613 은 LIVE 배선 완료(minimumSignalScoreTrace:172/179/501)됐으나 입력 resolver 가 잘못된 필드를 봐 실효 0. GAP-A(RS step 양자화): decompositionBuilder:263~266 가 연속 percentile rsRankPct(0~100)를 5-bucket step(≥90→10·≥80→8·≥60→5·≥50→2·else 0)으로 붕괴→p<50 전부 0·RS avg +2.5/20 의 직접 원인=연속 정보 손실 버그. GAP-B(breakout OHLCV 필드명 불일치): gate1PositiveCeilingWiringAdr0613:97~99 resolveBreakoutOhlcvInput 가 high20/high60 만 보나 trace 카논 필드는 high20d(d접미·decompositionBuilder:217)→hasOhlcv=false 상시→flag ON 에서도 no-op·breakout avg +0.3/7 의 직접 원인. 부수정정: 0613 applyRsPercentileWiring 입력 crossSectionalPercentile 은 production write 0(죽은 필드·실 percentile 은 rsRankPct). 처방: D1 신규 flag GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED default OFF(isGate1RsPercentileContinuousEnabled gateConfig SSOT·===true ADR-0157)→ON 시 decompositionBuilder relativeStrengthScore=clamp(rsRankPct/10,0,10) 연속·OFF→step byte-identical·maxScore 10/weight 1 무변경. D2 기존 flag GATE1_POSITIVE_CEILING_WIRING_ENABLED 재사용·resolveBreakoutOhlcvInput 키에 high20d/quote.high20d/quoteFeatures.high20d(high60·high120 동형) 추가·OFF byte-identical·ADR-0475 resolveBreakoutStructureSource 재사용(두 번째 공식 0). D3 dry-run 상시 관측(0613 breakout hypothetical §2 실효화+신규 rsContinuousPromotionDelta/rsContinuousHypotheticalActualScore/rsContinuousHypotheticalPassed force-ON·관측 전용·try/catch 격리 불변식#1). 채택 안 함: applyPositiveMaxNormalization(116분모 축소 역효과·required 충돌) default OFF 유지·ceiling 인상·required 70 완화·weight 인상·STRONG_BUY/threshold 변경 전부 금지. 절대제약: requiredScore=70 무접촉(validator check_gate1_required_score_ssot FORBIDDEN 무위반)·condition weight 불변·CONDITION_PASS_THRESHOLD=5 불변·thresholdAutoChanged=false. ADR-0471 freezeRule 정합(step→연속=손실 복원·임계 완화 아님·weight 인상 아님·p=100 동일 10 천장 무변). 신규 fetch 0. executionImpact OFF=NONE/ON=Gate1 점수 변화(현 SHADOW_ONLY 안전). 타입 additive optional(hypothetical 3필드·src/types 무수정 server-local). 계보 0467/0468/0471/0475/0613/0546/0157. INDEX 0627→0628 갱신.)
 
 (2026-06-18 기준, 마지막 발급 0626 — shakeout-initial-loss-twobar-shadow. **Status: Proposed (Phase 0 — 경계·타입·ADR. ENV default OFF, LIVE byte-equivalent. 구현 engine-dev.)** ADR-0626(A) — 진입 직후 손실 초기 손절(INITIAL/REGIME)에 wick 즉시청산 대신 2-bar 종가확인 확대(진단 옵션 A·근본원인 #4). 기존 2-bar(ADR-0085)는 `isBepProtection===(stopLossExitType==='PROFIT_PROTECTION')` 일 때만 작동→손실초기 사각지대. seam=`twoBarBepGate.applyTwoBarBepGate` 결정트리 재구조화(1.BEP_DISABLED SKIP·2.isBepProtection 기존 BEP 경로·3.isBepProtection=false∧손실초기 확대게이트 a∧b∧c∧d 충족→evaluateTwoBarConfirmation({isBepProtection:true}) 재사용·4.그외 SKIP byte-equivalent). 게이트: (a)ENV SHAKEOUT_INITIAL_LOSS_TWOBAR_SHADOW_ENABLED==='true' default OFF·(b)getTradingMode()!=='LIVE'[LIVE 절대 우회 금지·불변식 #8·byte-identical]·(c)stopLossExitType∈{INITIAL,REGIME,INITIAL_AND_REGIME}·(d)returnPct>SHAKEOUT_INITIAL_LOSS_DEEP_DROP_BYPASS_PCT(-12.0)[깊은하락 우회·즉시손절 유지]. hardStopLoss.ts 호출부 stopLossExitType·returnPct 2인자 전달만(본체 불변). twoBarConfirmation.ts 0줄(정책함수 재사용·두 번째 산식 0). bepGlideTouchAt 재사용·신규 영속 필드 0. 타입 additive optional(TwoBarBepGateInput stopLossExitType?/returnPct?·src/types 무수정). LIVE byte-equivalent(OFF→SHADOW·LIVE 즉시손절·ON+LIVE→조건b=false SKIP byte-identical·ENV 1줄 롤백). 9대 불변식 #1/#2/#8 보존. 계보 0085/0157/0079/0112/0146. INDEX 0626→0627 갱신.)
 
@@ -732,8 +734,9 @@
 | 0624 | shadow-always-on-by-default-operator-decision-removal | policy / shadow / learning |
 | 0625 | shakeout-stoploss-forward-outcome-labeler | learning / persistence |
 | 0626 | shakeout-initial-loss-twobar-shadow | trading / exit |
+| 0627 | gate1-rs-percentile-continuous-and-breakout-ohlcv-field-fix | trading / gate1-scoring |
 
-**최대 발급 0626 · 다음 발급 0627** — `node scripts/check_adr_index.js --json` 기준 (2026-06-18 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0627 · 다음 발급 0628** — `node scripts/check_adr_index.js --json` 기준 (2026-06-18 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
