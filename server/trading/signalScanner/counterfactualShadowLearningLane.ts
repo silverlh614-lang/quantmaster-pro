@@ -119,6 +119,17 @@ export interface CounterfactualShadowLearningCandidate {
   gate2Passed?: boolean;
   routerSeverity?: string;
   routerLabel?: string;
+  /**
+   * ADR-0632: counterfactual outcome board 표본 위생 — SourceSnapshot 상관 키 carry.
+   * flag `COUNTERFACTUAL_SNAPSHOT_CAPTURE_ENABLED=true` 일 때만 stamp (default 미stamp).
+   * board exclusion gate(MISSING_SOURCE_SNAPSHOT_ID) 해소용 — 결정·실행 분기 사용 금지.
+   */
+  sourceSnapshotId?: string;
+  /**
+   * ADR-0632: 후보 집합 id carry (canonical `candidateSet:${sourceSnapshotId}:${count}`).
+   * flag ON 일 때만 stamp — board exclusion gate(MISSING_CANDIDATE_SET_ID) 해소용.
+   */
+  candidateSetId?: string;
   entryPriceHint?: number;
   entryType?: 'SHADOW_BUY_SIGNAL' | 'R6_COUNTERFACTUAL_BUY' | 'ACCUMULATION_SHADOW_ENTRY';
   sourceSignal?: 'BULLISH' | 'ACCUMULATING' | 'NEUTRAL' | 'BEARISH' | 'UNUSABLE';
@@ -181,6 +192,10 @@ export interface DeriveCounterfactualShadowLearningInput {
     technicalBreakdown?: boolean;
   };
   entryPriceHint?: number;
+  /** ADR-0632: SourceSnapshot 상관 키 (flag ON + non-empty 시에만 stamp). */
+  sourceSnapshotId?: string;
+  /** ADR-0632: 후보 집합 canonical id (flag ON + non-empty 시에만 stamp). */
+  candidateSetId?: string;
   scanId?: string;
   /** KST ISO 시각 — 미전달 시 호출 시점 자동 합성. */
   nowKst?: string;
@@ -189,6 +204,17 @@ export interface DeriveCounterfactualShadowLearningInput {
 /** ENV `COUNTERFACTUAL_SHADOW_LEARNING_DISABLED=true` 정확 비교 (ADR-0157 정합). */
 export function isCounterfactualShadowLearningDisabled(): boolean {
   return process.env.COUNTERFACTUAL_SHADOW_LEARNING_DISABLED === 'true';
+}
+
+/**
+ * ADR-0632: counterfactual outcome board 표본 위생 캡처 게이트 (default OFF, === 'true' 정확 비교).
+ *
+ * ON 일 때만 sourceSnapshotId/candidateSetId/entryPriceHint 를 candidate 에 stamp 한다.
+ * OFF 면 세 필드 모두 미stamp → flag-OFF byte-identical (회귀 1줄 즉시 롤백).
+ * 학습 표본 위생 전용 — live 매매·실행 분기·storage 키 0 변경.
+ */
+export function isCounterfactualSnapshotCaptureEnabled(): boolean {
+  return process.env.COUNTERFACTUAL_SNAPSHOT_CAPTURE_ENABLED === 'true';
 }
 
 /**
@@ -435,6 +461,9 @@ export function deriveCounterfactualShadowLearningCandidate(
     regimeConfidence: input.regimeConfidence,
   });
 
+  // ADR-0632: snapshot 위생 캡처 게이트 (default OFF — flag OFF 시 byte-identical).
+  const snapshotCaptureEnabled = isCounterfactualSnapshotCaptureEnabled();
+
   const candidate: CounterfactualShadowLearningCandidate = {
     symbol: input.symbol,
     ...(input.name !== undefined ? { name: input.name } : {}),
@@ -472,7 +501,22 @@ export function deriveCounterfactualShadowLearningCandidate(
     gate2Passed: false,
     ...(input.router?.severity ? { routerSeverity: input.router.severity } : {}),
     ...(input.router?.label ? { routerLabel: input.router.label } : {}),
-    ...(typeof input.entryPriceHint === 'number' && Number.isFinite(input.entryPriceHint)
+    // ADR-0632: snapshot 위생 캡처 — flag ON + non-empty 일 때만 stamp.
+    // flag OFF → 세 필드(sourceSnapshotId/candidateSetId/entryPriceHint) 전부 미stamp → byte-identical.
+    ...(snapshotCaptureEnabled &&
+    typeof input.sourceSnapshotId === 'string' &&
+    input.sourceSnapshotId.length > 0
+      ? { sourceSnapshotId: input.sourceSnapshotId }
+      : {}),
+    ...(snapshotCaptureEnabled &&
+    typeof input.candidateSetId === 'string' &&
+    input.candidateSetId.length > 0
+      ? { candidateSetId: input.candidateSetId }
+      : {}),
+    ...(snapshotCaptureEnabled &&
+    typeof input.entryPriceHint === 'number' &&
+    Number.isFinite(input.entryPriceHint) &&
+    input.entryPriceHint > 0
       ? { entryPriceHint: input.entryPriceHint }
       : {}),
     ...(Object.keys(sectorSnapshot ?? {}).length > 0

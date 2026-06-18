@@ -2,7 +2,13 @@
 
 import type { CandidateEntryTrace } from "./entryFilterDecomposition.js";
 import { nestedNumericTraceValue } from "./minimumSignalScoreTrace/traceFieldResolver.js";
-import { weightedFromNormalized, clamp, round1, finite } from "./minimumSignalScoreTrace/scoring.js";
+import {
+  weightedFromNormalized,
+  clamp,
+  round1,
+  finite,
+  normalizeSignalScoreTo100,
+} from "./minimumSignalScoreTrace/scoring.js";
 import { resolveBreakoutStructureSource } from "./gate1PositiveSourceWiringAdr0475.js";
 import { isGate1PositiveCeilingWiringEnabled } from "../gateConfig.js";
 
@@ -23,7 +29,12 @@ export interface CeilingWiringComponentScore {
 const RELATIVE_STRENGTH_MAX_SCORE = 10;
 const BREAKOUT_MAX_SCORE = 10;
 
-/** trace 의 ADR-0597 횡단면 percentile(0~100). explicit RS hydration 우선순위 입력. */
+/**
+ * trace 의 ADR-0597 횡단면 percentile(0~100). explicit RS hydration 우선순위 입력.
+ * ADR-0627 GAP-A: `crossSectionalPercentile` 은 production write site 0(죽은 read 입력).
+ * 실 percentile 은 `rsRankPct` 이며 decompositionBuilder 의 연속 승격(GAP-A)이 정답 경로다.
+ * 본 percentile read 경로는 hypothetical/하위호환 잔존이며 GAP-A 가 RS 손실 복원을 대체한다.
+ */
 function resolveCrossSectionalPercentile(trace: CandidateEntryTrace): number | undefined {
   return nestedNumericTraceValue(trace, [
     "crossSectionalPercentile",
@@ -94,9 +105,18 @@ function resolveBreakoutOhlcvInput(trace: CandidateEntryTrace) {
   const currentPrice = nestedNumericTraceValue(trace, [
     "currentPrice", "price", "close", "quote.currentPrice", "quote.price", "quote.close",
   ]);
-  const high20 = nestedNumericTraceValue(trace, ["high20", "quote.high20", "quoteFeatures.high20"]);
-  const high60 = nestedNumericTraceValue(trace, ["high60", "quote.high60", "quoteFeatures.high60"]);
-  const high120 = nestedNumericTraceValue(trace, ["high120", "quote.high120", "quoteFeatures.high120"]);
+  // ADR-0627 GAP-B — 카논 trace 필드는 `high20d`(d접미, decompositionBuilder:217). 기존
+  // `high20`/`high60` resolver 는 이를 미포함해 hasOhlcv=false 상시 → flag ON 에서도 no-op.
+  // d접미 별칭 추가로 재수화 실효화(신규 fetch 0·기존 trace 필드 재사용). flag OFF → transform 미실행.
+  const high20 = nestedNumericTraceValue(trace, [
+    "high20", "high20d", "quote.high20", "quote.high20d", "quoteFeatures.high20", "quoteFeatures.high20d",
+  ]);
+  const high60 = nestedNumericTraceValue(trace, [
+    "high60", "high60d", "quote.high60", "quote.high60d", "quoteFeatures.high60", "quoteFeatures.high60d",
+  ]);
+  const high120 = nestedNumericTraceValue(trace, [
+    "high120", "high120d", "quote.high120", "quote.high120d", "quoteFeatures.high120", "quoteFeatures.high120d",
+  ]);
   const volumeRatio = nestedNumericTraceValue(trace, ["volumeRatio", "quote.volumeRatio", "quoteFeatures.volumeRatio"]);
   const ma20 = nestedNumericTraceValue(trace, ["ma20", "sma20", "quote.ma20", "quote.sma20"]);
   const ma60 = nestedNumericTraceValue(trace, ["ma60", "sma60", "quote.ma60", "quote.sma60"]);
@@ -240,4 +260,64 @@ function rebuildHydratedComponents(
   if (rsDelta !== 0) extra.push({ weightedScore: rsDelta, maxScore: 0 });
   if (breakoutDelta !== 0) extra.push({ weightedScore: breakoutDelta, maxScore: 0 });
   return [...components.map((c) => ({ weightedScore: c.weightedScore, maxScore: c.maxScore })), ...extra];
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADR-0627 D3 — RS 연속 승격 관측 hypothetical (flag 무관 force-ON 산출)
+//
+// decompositionBuilder GAP-A 의 연속 승격이 "wiring 됐다면" Gate1 finalScore/passed
+// 가 어떻게 변했을지를 flag 와 무관하게 관측한다. flag OFF 에서도 효과 크기 측정.
+// actualScore 본체에 영향 0(관측 전용) — minimumSignalScoreTrace 가 try/catch 격리해
+// spread(불변식 #1). 실 percentile 은 `rsRankPct`(GAP-A 와 동일 입력) 재사용.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** ADR-0627 RS 연속 승격 hypothetical — flag 무관 force-ON 관측. actualScore 본체 영향 0. */
+export interface Adr0627RsContinuousHypothetical {
+  /** force-ON 연속 승격 weightedScore − 현행(step 또는 explicit) weightedScore (RELATIVE_STRENGTH). */
+  rsContinuousPromotionDelta: number;
+  /** rsContinuousPromotionDelta 반영 가상 actualScore. */
+  rsContinuousHypotheticalActualScore: number;
+  /** 가상 actualScore >= requiredScore. */
+  rsContinuousHypotheticalPassed: boolean;
+}
+
+const RS_CONTINUOUS_MAX_SCORE = RELATIVE_STRENGTH_MAX_SCORE;
+
+/** trace 의 RS percentile(0~100). GAP-A 와 동일 입력(`rsRankPct`) — 죽은 crossSectionalPercentile 미사용. */
+function resolveRsRankPct(trace: CandidateEntryTrace): number | undefined {
+  return nestedNumericTraceValue(trace, [
+    "rsRankPct",
+    "quote.rsRankPct",
+    "quoteFeatures.rsRankPct",
+    "featurePack.momentum.rsRankPct",
+    "momentumProjection.rsRankPct",
+  ]);
+}
+
+/**
+ * flag-ON 가정 하의 RS 연속 승격 hypothetical 을 순수 산출(force-ON 모드).
+ * relativeStrengthActualWeighted 는 현행(flag OFF) 산출의 RELATIVE_STRENGTH weightedScore.
+ * rsRankPct 부재 → delta 0(graceful·불변식 #6). 관측 전용 — actualScore 본체 영향 0.
+ */
+export function computeRsContinuousHypothetical(input: {
+  trace: CandidateEntryTrace;
+  relativeStrengthActualWeighted: number;
+  actualScore: number;
+  requiredScore: number;
+}): Adr0627RsContinuousHypothetical {
+  const rsRankPct = resolveRsRankPct(input.trace);
+  let promotionDelta = 0;
+  if (finite(rsRankPct)) {
+    // GAP-A 산식 동형: 연속 0~10 → ×10 normalized(scoreRelativeStrength explicit 경로) → weighted.
+    const continuousScore = clamp(rsRankPct / 10, 0, RS_CONTINUOUS_MAX_SCORE);
+    const continuousNormalized = normalizeSignalScoreTo100(continuousScore);
+    const continuousWeighted = weightedFromNormalized(continuousNormalized, RS_CONTINUOUS_MAX_SCORE);
+    promotionDelta = round1(continuousWeighted - input.relativeStrengthActualWeighted);
+  }
+  const hypotheticalActualScore = round1(input.actualScore + promotionDelta);
+  return {
+    rsContinuousPromotionDelta: promotionDelta,
+    rsContinuousHypotheticalActualScore: hypotheticalActualScore,
+    rsContinuousHypotheticalPassed: hypotheticalActualScore >= input.requiredScore,
+  };
 }

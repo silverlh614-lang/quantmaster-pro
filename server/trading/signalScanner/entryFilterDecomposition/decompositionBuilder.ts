@@ -45,6 +45,7 @@ import {
   resolveWatchlistUpstreamScore,
   type ResolvedWatchlistUpstreamScore,
 } from "../watchlistUpstreamScoreResolver.js";
+import { isGate1RsPercentileContinuousEnabled } from "../../gateConfig.js";
 import type { GateConditionResultTrace } from "../gateConditionResultTrace.js";
 import type { SanitizedInvestorFlowSemanticRow } from "../../../supply/investorFlowSemanticAvailability.js";
 import type {
@@ -262,7 +263,12 @@ export function buildEntryFilterDecomposition(
     if (!Number.isFinite(row.trace.rsRankPct as number)) row.trace.rsRankPct = Math.max(0, Math.min(100, Number(pct.toFixed(1))));
     if (!Number.isFinite(row.trace.relativeStrengthScore as number)) {
       const p = row.trace.rsRankPct ?? 0;
-      row.trace.relativeStrengthScore = p >= 90 ? 10 : p >= 80 ? 8 : p >= 60 ? 5 : p >= 50 ? 2 : 0;
+      // ADR-0627 GAP-A — flag ON 시 연속 승격(이미 계산된 percentile 분해능 손실 복원).
+      // 0~10 연속(downstream scoreRelativeStrength explicit 경로가 ×10 normalized 소비).
+      // maxScore 10·weight 1 무변경. p=100 → 10(step 동일·천장 무변). flag OFF → 기존 5단 step.
+      row.trace.relativeStrengthScore = isGate1RsPercentileContinuousEnabled()
+        ? Math.max(0, Math.min(10, p / 10))
+        : p >= 90 ? 10 : p >= 80 ? 8 : p >= 60 ? 5 : p >= 50 ? 2 : 0;
     }
   });
 

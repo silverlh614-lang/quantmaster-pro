@@ -120,6 +120,11 @@ export interface RegimeTransitionState {
   latchDecayPercent?: number;
   latchReleaseEligibleAt?: string;
   recoveryBlockedReason?: string;
+  /**
+   * ADR-0630 D2 — R5_STABILIZING latch 유지 중 raw 강세(R1/R2/R3_EARLY) 연속 복구 tick.
+   * additive optional(legacy json → sanitizer 가 0 정규화). R6_RECOVERY_STUCK_EXIT flag OFF 면 미소비.
+   */
+  consecutiveHealthyRecoveryTicks?: number;
 }
 
 export function emptyR6RecoveryEvidence(
@@ -165,6 +170,7 @@ export function defaultRegimeTransitionState(
     r6StateMachineState: 'R4_CAUTION',
     latchDecayPercent: 0,
     recoveryBlockedReason: undefined,
+    consecutiveHealthyRecoveryTicks: 0,
   };
 }
 
@@ -274,6 +280,11 @@ function sanitizeState(value: unknown): RegimeTransitionState | null {
     latchDecayPercent: typeof record.latchDecayPercent === 'number' && Number.isFinite(record.latchDecayPercent) ? Math.max(0, Math.min(100, record.latchDecayPercent)) : undefined,
     latchReleaseEligibleAt: typeof record.latchReleaseEligibleAt === "string" ? record.latchReleaseEligibleAt : undefined,
     recoveryBlockedReason: typeof record.recoveryBlockedReason === "string" ? record.recoveryBlockedReason : undefined,
+    // ADR-0630 D2 — legacy json(필드 부재) → 0. finite → Math.max(0, …), 아니면 0.
+    consecutiveHealthyRecoveryTicks:
+      typeof record.consecutiveHealthyRecoveryTicks === "number" && Number.isFinite(record.consecutiveHealthyRecoveryTicks)
+        ? Math.max(0, Math.trunc(record.consecutiveHealthyRecoveryTicks))
+        : 0,
   };
 }
 

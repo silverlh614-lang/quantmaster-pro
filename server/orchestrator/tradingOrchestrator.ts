@@ -14,7 +14,7 @@ import { fillMonitor } from '../trading/fillMonitor.js';
 import { trancheExecutor } from '../trading/trancheExecutor.js';
 import { runAutoSignalScan } from '../trading/signalScanner.js';
 import { getTradingMode } from '../state.js';
-import { preScreenStocks, autoPopulateWatchlist, sendWatchlistRejectionReport } from '../screener/stockScreener.js';
+import { preScreenStocks, autoPopulateWatchlist, sendWatchlistRejectionReport, maybeRefreshScreenerIntraday } from '../screener/stockScreener.js';
 import { generateDailyReport } from '../alerts/reportGenerator.js';
 import { isRealTradeReady } from '../learning/recommendationTracker.js';
 import { calculateOrderQuantity, isOpenShadowStatus } from '../trading/entryEngine.js';
@@ -593,6 +593,12 @@ export class TradingDayOrchestrator {
           }).catch(console.error);
           this.markRan('middayRescan');
         }
+
+        // ADR-0628 장중 리더 유니버스 신선화 — flag-gated(default OFF, byte-equiv).
+        // screener.json 을 장중 throttle(12분/하한5분)로 재기록하여 신규 리더가
+        // 발굴 풀(getScreenerCache→intradayScanner)에 즉시 반영되게 함. flag OFF 시
+        // 부작용 0 — 아침 1회 스냅샷 그대로. enabled 가드/시간창은 INTRADAY tick 상속.
+        await maybeRefreshScreenerIntraday().catch(() => false);
 
         // 장중 Watchlist 발굴·갱신 (10분 내부 쓰로틀 — 1분 tick마다 호출 안전)
         await scanAndUpdateIntradayWatchlist().catch(console.error);

@@ -117,6 +117,9 @@ export interface MacroGateState {
   liveEntryBlockedReason?: string;
   macroRegimeRaw?: string;
   macroRegimeEffective?: string;
+  // ADR-0630 D1 — shadow lane 게이트 입력(learningRegime). 진단 noEligibleReason 표시 정합용
+  // (라이브 clamp `regime` 단독 오표시 제거). 게이트 로직 무소비 — display-only carry.
+  learningRegime?: string;
   regimeSnapshotId?: string;
   regimeSnapshotAsOf?: string;
   regimeSnapshotTtlSec?: number;

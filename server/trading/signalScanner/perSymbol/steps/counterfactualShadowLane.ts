@@ -15,6 +15,8 @@ export async function counterfactualShadowLearning(
   stock: WatchlistEntry,
   reCheckGate: ReturnType<typeof evaluateServerGate> | null,
   isGate1Survivor: boolean,
+  // ADR-0632: KIS 게이트 현재가(실진입 동일 소스, ADR-0561 L1). flag ON 시 entryPriceHint 로 stamp.
+  currentPrice: number,
 ): Promise<void> {
   try {
     if ((ctx.learningRegime ?? ctx.regime) === 'R3_EARLY' && isGate1Survivor && reCheckGate?.outputs) {
@@ -49,6 +51,11 @@ export async function counterfactualShadowLearning(
         },
         scanId: `${effectiveTradingDate}:${stock.code}`,
         nowKst: new Date().toISOString(),
+        // ADR-0632: snapshot 위생 carry — derive 내부에서 flag ON + non-empty 시에만 stamp.
+        // 결정·실행 분기 미사용(log/learning carry). ctx 미설정(undefined) 시 graceful 미stamp.
+        ...(ctx.sourceSnapshotId !== undefined ? { sourceSnapshotId: ctx.sourceSnapshotId } : {}),
+        ...(ctx.candidateSetId !== undefined ? { candidateSetId: ctx.candidateSetId } : {}),
+        entryPriceHint: currentPrice,
       });
       if (cfCandidate !== null) {
         ctx.scanCounters.counterfactualShadowEligible += 1;

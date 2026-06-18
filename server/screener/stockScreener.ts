@@ -376,6 +376,80 @@ export async function preScreenStocks(options?: {
 }
 
 
+// ── ADR-0628 장중 리더 유니버스 신선화 ──────────────────────────────────────
+// preScreenStocks 가 screener.json 을 08:45 1회만 기록(tradingOrchestrator)하여
+// 09:00 이후 신규 리더가 발굴 풀(getScreenerCache→intradayScanner)에 부재하던 문제 해소.
+// LeadershipBridge 는 prod 에서 이미 활성(LEADERSHIP_BRIDGE_ENABLED=true) — binding
+// 제약은 발굴 입력의 아침 고정이며, 본 패치(screener 장중 신선화)가 그것을 해소하면
+// 이미 열린 bridge 가 신규 리더를 평가 풀로 전달한다. KIS quota 는 ADR-0561 에 따라
+// rate 관리(throttle + 하한 clamp)로 보호 — Yahoo-first 금지, 기존 preScreenStocks
+// (kisClient 단일 통로) 재호출뿐. flag default-OFF byte-equivalent.
+
+/** 장중 screener.json 신선화 활성 여부 — 정확 비교, 미설정/오타 시 OFF. */
+export function isIntradayScreenerRefreshEnabled(): boolean {
+  return process.env.INTRADAY_SCREENER_REFRESH_ENABLED === 'true';
+}
+
+/**
+ * 장중 신선화 최소 주기(ms). 기본 12분, 하한 5분 clamp.
+ * 파싱 실패/NaN/5 미만 입력은 모두 5분으로 강제(KIS quota 보호, ADR-0561).
+ */
+export function getIntradayScreenerRefreshIntervalMs(): number {
+  const FLOOR_MIN = 5;
+  const DEFAULT_MIN = 12;
+  const raw = process.env.INTRADAY_SCREENER_REFRESH_MIN_INTERVAL_MIN;
+  const parsed = raw === undefined ? DEFAULT_MIN : Number(raw);
+  const minutes = Number.isFinite(parsed) && parsed >= FLOOR_MIN ? parsed : FLOOR_MIN;
+  return minutes * 60 * 1000;
+}
+
+// 모듈 스코프 throttle 상태 — 마지막 장중 신선화 시각(epoch ms). 0 = 미실행.
+let lastIntradayRefreshAt = 0;
+
+// 테스트 seam — 장중 신선화 실행기는 본 객체를 경유한다. 프로덕션은 동일 모듈의
+// preScreenStocks(kisClient 단일 통로) 를 그대로 호출하지만, ESM intra-module 호출은
+// 스파이로 가로챌 수 없으므로 회귀 테스트가 본 indirection 을 override 하여 검증한다.
+// (호출 동작·byte-equivalence 는 프로덕션과 동일 — 기본값이 실 preScreenStocks).
+export const __intradayRefreshDeps = {
+  preScreenStocks: (): Promise<ScreenedStock[]> => preScreenStocks(),
+};
+
+/** 테스트 전용 — throttle 상태 리셋(프로덕션 미사용). */
+export function __resetIntradayRefreshThrottleForTest(value = 0): void {
+  lastIntradayRefreshAt = value;
+}
+
+/**
+ * 장중 screener.json 신선화 게이트 + 실행 wrapper (ADR-0628).
+ *  (a) flag OFF → 즉시 false (부작용 0, byte-equivalent)
+ *  (b) throttle 미충족 → false (preScreenStocks 미호출)
+ *  (c) 충족 → preScreenStocks() 호출 → screener.json 갱신 → 시각 기록 → true
+ * preScreenStocks 실패해도 throw 없이 false 반환(불변식 #1 — 엔진 항상 살아있음).
+ */
+export async function maybeRefreshScreenerIntraday(): Promise<boolean> {
+  if (!isIntradayScreenerRefreshEnabled()) return false;
+
+  const intervalMs = getIntradayScreenerRefreshIntervalMs();
+  if (Date.now() - lastIntradayRefreshAt < intervalMs) return false;
+
+  try {
+    await __intradayRefreshDeps.preScreenStocks();
+    lastIntradayRefreshAt = Date.now();
+    console.log('[Screener] ADR-0628 장중 신선화 완료 — screener.json 갱신');
+    return true;
+  } catch (err) {
+    /* SDS-ignore: 장중 갱신 실패는 다음 주기 재시도, 엔진 비차단 */
+    emitProviderWarn({
+      source: 'SCREENER',
+      message: `Intraday screener refresh failed (ADR-0628): ${compactError(err)}`,
+      dedupKey: 'p2:provider:SCREENER:intraday-refresh-failed',
+      fallbackUsed: true,
+    });
+    return false;
+  }
+}
+
+
 /**
  * Yahoo Finance 기반 자동 워치리스트 채우기 — 아이디어 8: 2-Track 구조
  *

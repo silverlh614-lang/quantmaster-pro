@@ -334,6 +334,10 @@ describe('ADR-0475 Gate1 Positive Source Wiring', () => {
     const index = readFileSync(join(root, 'docs/adr/INDEX.md'), 'utf8');
     expect(existsSync(doc)).toBe(true);
     expect(readFileSync(doc, 'utf8')).toContain('Dry-run');
-    expect(index).toMatch(/다음 ADR 번호: `0[5-9]\d{2}`/);
+    // ADR index must have advanced beyond 0475 — parse the SSOT "다음 발급" number
+    // numerically rather than range-matching (brittle once index crosses 0999).
+    const nextAdrMatch = index.match(/다음 ADR 번호: `(\d{4})`/);
+    expect(nextAdrMatch).not.toBeNull();
+    expect(Number(nextAdrMatch![1])).toBeGreaterThan(475);
   });
 });
