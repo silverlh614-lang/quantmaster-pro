@@ -21,11 +21,12 @@ function splitIds(value: string | undefined): string[] {
 
 export function resolvePromotePermission(ctx: Pick<CommandContext, 'userId'>, action: PromoteAction): boolean {
   if (action === 'status') return true;
-  const userId = ctx.userId;
+  // 봇은 webhookHandler 전역 chat 게이트(TELEGRAM_CHAT_ID)로 단일 인가 chat 만 응답한다 — EMR 제어
+  // 명령(/unblock_buy·/stop 등)과 동일하게 그 전역 게이트에 위임한다. admin 화이트리스트
+  // (TELEGRAM_ADMIN_USER_IDS) 가 명시 설정된 경우에만 추가로 강제(미설정 시 운영자 허용).
   const adminIds = splitIds(process.env.TELEGRAM_ADMIN_USER_IDS);
-  if (adminIds.length) return !!userId && adminIds.includes(userId);
-  if (!userId) return true;
-  return userId === 'admin' || userId === 'system';
+  if (!adminIds.length) return true;
+  return !!ctx.userId && adminIds.includes(ctx.userId);
 }
 
 function formatStatus(): string {
