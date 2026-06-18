@@ -31,6 +31,18 @@ import { scriptWarn } from '../server/observability/scriptWarn.js';
  *        - WIRING_SLA_GRACE_DAYS=N (기본 14, 0~30일 조정, 0 시 즉시 FAIL)
  *        - WIRING_SLA_DISABLED=true (긴급 운영 우회 — 정책 즉시 비활성)
  *
+ *   I) 사용자결정 부채 재검토 (PR-Governance-StaleUserDecision):
+ *      I1 — BLOCKED + reason 에 "사용자 결정" / "SL 이후 추천" 패턴 + 최종 검토일
+ *           (등재일 또는 reason 안 최신 `YYYY-MM-DD`) 이 USER_DECISION_REVIEW_DAYS(기본 30)
+ *           초과 무변동 → WARN (EXIT=0, informational). 방치돼 맥락 휘발된 사용자결정 부채를
+ *           자동 재노출. (운영자 결정·데이터 누적 은 시간·외부 의존이라 대상 아님.)
+ *      self-clearing — 재검토 후 reason 에 `재노출 YYYY-MM-DD` 갱신 시 clock 리셋.
+ *      ENV 우회: USER_DECISION_REVIEW_DAYS=N (1~365) / USER_DECISION_REVIEW_DISABLED=true.
+ *
+ *      배경: C16~C18·E8~E11 처럼 "SL 이후 추천" 으로 무기한 BLOCKED 된 항목이 43일+ 방치되며
+ *      맥락이 휘발(사용자가 존재조차 기억 못 함) → 백로그 추적 목적 무력화. I 카테고리가
+ *      주기적 재노출로 "유지/폐기/진행" 재결정을 강제한다.
+ *
  * 본 PR (Governance 후속): baseline 0건 위반 — 신규 회귀만 차단.
  *
  * 사용:
@@ -99,6 +111,14 @@ const SLA_EXEMPTION_RE =
 // PR-Governance-3-SLA (ADR-0158): 등재일 형식 — YYYY-MM-DD 또는 `—` (em dash) 또는 `-` (단일 hyphen)
 const ENTERED_AT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ENTERED_AT_DASH_RE = /^[—-]$/;
+
+// PR-Governance-StaleUserDecision: 사용자결정 부채 재검토 SSOT
+//   "사용자 결정" / "SL 이후 추천" BLOCKED 항목이 N일 무변동 시 재노출(WARN, EXIT=0).
+//   lastReview = 등재일 + reason 안 최신 `YYYY-MM-DD`(예: "재노출 2026-06-18") 중 최신 →
+//   재검토 후 reason 날짜 갱신 시 clock 리셋(self-clearing).
+const USER_DECISION_RE = /사용자\s*결정|SL\s*이후\s*추천|sl\s*이후\s*추천/;
+const DATE_IN_TEXT_RE = /(\d{4}-\d{2}-\d{2})/g;
+export const DEFAULT_USER_DECISION_REVIEW_DAYS = 30;
 
 /* ───────── PENDING_WIRING 파싱 ───────── */
 
@@ -374,6 +394,90 @@ export function evaluateSla(entry, now, graceDays) {
   return 'FAIL';
 }
 
+/* ───────── PR-Governance-StaleUserDecision: 사용자결정 부채 재검토 헬퍼 ───────── */
+
+/**
+ * isUserDecisionReviewDisabled() — `USER_DECISION_REVIEW_DISABLED=true` ENV 시 I 검사 비활성.
+ */
+export function isUserDecisionReviewDisabled() {
+  const v = process.env.USER_DECISION_REVIEW_DISABLED;
+  return v === 'true' || v === '1';
+}
+
+/**
+ * getUserDecisionReviewDays() — `USER_DECISION_REVIEW_DAYS=N` ENV 우회 (1~365 클램프).
+ *   - 미설정/잘못된 값 → DEFAULT_USER_DECISION_REVIEW_DAYS (30)
+ */
+export function getUserDecisionReviewDays() {
+  const raw = process.env.USER_DECISION_REVIEW_DAYS;
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_USER_DECISION_REVIEW_DAYS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1 || n > 365) return DEFAULT_USER_DECISION_REVIEW_DAYS;
+  return Math.floor(n);
+}
+
+/**
+ * isUserDecisionDebt(entry) — BLOCKED + reason 에 "사용자 결정" / "SL 이후 추천" 패턴 판정.
+ *   (운영자 결정 / 데이터 누적 은 시간·외부 의존이라 대상 아님 — 사용자 재결정 대기만.)
+ */
+export function isUserDecisionDebt(entry) {
+  return (
+    !!entry &&
+    entry.status === 'BLOCKED' &&
+    typeof entry.reason === 'string' &&
+    USER_DECISION_RE.test(entry.reason)
+  );
+}
+
+/**
+ * findLastReviewDate(entry) — 최종 검토일(`YYYY-MM-DD`) = 등재일 + reason 안 최신 날짜 중 최신.
+ *   reason 에 `재노출 2026-06-18` 마커를 넣으면 그게 lastReview (clock 리셋). 유효 날짜 0건 → null.
+ */
+export function findLastReviewDate(entry) {
+  if (!entry) return null;
+  const candidates = [];
+  if (
+    typeof entry.enteredAt === 'string' &&
+    isValidEnteredAt(entry.enteredAt) &&
+    !ENTERED_AT_DASH_RE.test(entry.enteredAt)
+  ) {
+    candidates.push(entry.enteredAt);
+  }
+  if (typeof entry.reason === 'string') {
+    DATE_IN_TEXT_RE.lastIndex = 0;
+    let m;
+    while ((m = DATE_IN_TEXT_RE.exec(entry.reason)) !== null) {
+      if (isValidEnteredAt(m[1])) candidates.push(m[1]);
+    }
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort(); // ISO 문자열 사전순 = 날짜순
+  return candidates[candidates.length - 1];
+}
+
+/**
+ * evaluateUserDecisionStaleness(entry, now, reviewDays) — 사용자결정 부채 재검토 평가.
+ * @returns {{ status: 'NOT_APPLICABLE'|'OK'|'STALE', ageDays: number|null, lastReview: string|null }}
+ */
+export function evaluateUserDecisionStaleness(entry, now, reviewDays) {
+  if (!isUserDecisionDebt(entry)) return { status: 'NOT_APPLICABLE', ageDays: null, lastReview: null };
+  const lastReview = findLastReviewDate(entry);
+  if (lastReview === null) return { status: 'NOT_APPLICABLE', ageDays: null, lastReview: null };
+  const ageDays = computeAgeDays(lastReview, now);
+  if (ageDays === null) return { status: 'NOT_APPLICABLE', ageDays: null, lastReview };
+  const days =
+    typeof reviewDays === 'number' && reviewDays >= 1 ? reviewDays : DEFAULT_USER_DECISION_REVIEW_DAYS;
+  return { status: ageDays > days ? 'STALE' : 'OK', ageDays, lastReview };
+}
+
+/**
+ * toIsoDate(now) — Date|ms → `YYYY-MM-DD` (재노출 마커 안내용). 무효 시 빈 문자열.
+ */
+export function toIsoDate(now) {
+  const d = now instanceof Date ? now : new Date(now);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+}
+
 /**
  * validate(parsed, knownAdrNumbers, options) — 8 카테고리 적용.
  *
@@ -393,6 +497,8 @@ export function validate(parsed, knownAdrNumbers = new Set(), options = {}) {
     now = new Date(),
     graceDays = getWiringSlaGraceDays(),
     slaDisabled = isWiringSlaDisabled(),
+    userDecisionReviewDays = getUserDecisionReviewDays(),
+    userDecisionReviewDisabled = isUserDecisionReviewDisabled(),
   } = options;
 
   // F) ID 형식
@@ -590,6 +696,20 @@ export function validate(parsed, knownAdrNumbers = new Set(), options = {}) {
     }
   }
 
+  // I) 사용자결정 부채 재검토 (PR-Governance-StaleUserDecision) — informational WARN (EXIT=0)
+  //    방치돼 맥락 휘발된 "사용자 결정" / "SL 이후 추천" BLOCKED 항목을 N일(기본 30) 무변동 시 재노출.
+  if (!userDecisionReviewDisabled) {
+    for (const e of entries) {
+      const r = evaluateUserDecisionStaleness(e, now, userDecisionReviewDays);
+      if (r.status === 'STALE') {
+        violations.push({
+          category: 'I_USER_DECISION_STALE',
+          message: `${e.id} (${e.priority} ${e.status}): 사용자결정 부채 ${r.ageDays}일 무변동 (재검토 임계 ${userDecisionReviewDays}일 초과, 최종 검토 ${r.lastReview}) — 재검토 권고. 유지 시 reason 에 "재노출 ${toIsoDate(now)}" 갱신(clock 리셋) / 폐기 시 항목 제거.`,
+        });
+      }
+    }
+  }
+
   return {
     violations,
     summary: {
@@ -606,7 +726,7 @@ export function validate(parsed, knownAdrNumbers = new Set(), options = {}) {
 /* ───────── 메인 ───────── */
 
 // PR-Governance-3-SLA: H_SLA_WARN 은 informational (EXIT=0), 그 외 위반은 FAIL (EXIT=1)
-const WARN_ONLY_CATEGORIES = new Set(['H_SLA_WARN']);
+const WARN_ONLY_CATEGORIES = new Set(['H_SLA_WARN', 'I_USER_DECISION_STALE']);
 
 function main() {
   const args = process.argv.slice(2);
@@ -645,7 +765,7 @@ function main() {
 
   // WARN 만 있고 FAIL 부재 시 informational 모드
   if (fails.length === 0 && warns.length > 0) {
-    scriptWarn(`[PendingWiring] WARN — ${warns.length}건 SLA 임박 (informational, EXIT=0):`);
+    scriptWarn(`[PendingWiring] WARN — ${warns.length}건 (informational, EXIT=0 — SLA 임박 / 사용자결정 재검토):`);
     for (const w of warns.slice(0, 20)) scriptWarn(`  ⚠️  ${w.message}`);
     if (warns.length > 20) scriptWarn(`  ... ${warns.length - 20}건 더`);
     return;
@@ -663,7 +783,7 @@ function main() {
     if (msgs.length > 10) console.error(`    ... ${msgs.length - 10}건 더`);
   }
   if (warns.length > 0) {
-    scriptWarn(`  [H_SLA_WARN] ${warns.length}건 (informational):`);
+    scriptWarn(`  [WARN] ${warns.length}건 (informational — SLA 임박 / 사용자결정 재검토):`);
     for (const w of warns.slice(0, 5)) scriptWarn(`    ⚠️  ${w.message}`);
     if (warns.length > 5) scriptWarn(`    ... ${warns.length - 5}건 더`);
   }
