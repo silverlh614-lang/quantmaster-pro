@@ -124,7 +124,8 @@ describe('ADR-0439 lookupCachedPrice 4-tier wiring', () => {
   // SCAN_SNAPSHOT — entry.metadata.scanQuote 우선 (사용자 §B #2)
   // ────────────────────────────────────────────────────────
   describe('SCAN_SNAPSHOT', () => {
-    it('entry.metadata.scanQuote.lastPrice 양수 → SCAN_SNAPSHOT 반환 (모든 horizon)', () => {
+    it('entry.metadata.scanQuote.lastPrice 양수 → SCAN_SNAPSHOT 반환 (SAME_DAY_CLOSE — coarser 자격 horizon)', () => {
+      // ADR-0621: SCAN_SNAPSHOT 선반환은 !requiresIntradayCandleSource 일 때만. SAME_DAY_CLOSE 로 검증.
       const entry = makeEntry({
         metadata: {
           scanQuote: {
@@ -133,7 +134,7 @@ describe('ADR-0439 lookupCachedPrice 4-tier wiring', () => {
           },
         } as unknown as ProvisionalShadowLedgerEntry['metadata'],
       });
-      const result = lookupCachedPrice(entry, 'T_PLUS_30M');
+      const result = lookupCachedPrice(entry, 'SAME_DAY_CLOSE');
       expect(result).not.toBeNull();
       expect(result?.source).toBe('SCAN_SNAPSHOT');
       expect(result?.price).toBe(71_000);
@@ -146,7 +147,7 @@ describe('ADR-0439 lookupCachedPrice 4-tier wiring', () => {
           scanQuote: undefined,
         } as unknown as ProvisionalShadowLedgerEntry['metadata'],
       });
-      const result = lookupCachedPrice(entry, 'T_PLUS_30M');
+      const result = lookupCachedPrice(entry, 'SAME_DAY_CLOSE');
       // cache 부재 + readOnlyQuote 도 부재 → null
       expect(result).toBeNull();
     });
@@ -157,7 +158,7 @@ describe('ADR-0439 lookupCachedPrice 4-tier wiring', () => {
           scanQuote: { lastPrice: 0 },
         } as unknown as ProvisionalShadowLedgerEntry['metadata'],
       });
-      expect(lookupCachedPrice(entry, 'T_PLUS_30M')).toBeNull();
+      expect(lookupCachedPrice(entry, 'SAME_DAY_CLOSE')).toBeNull();
     });
 
     it('scanQuote.observedAtKst 부재 → entry.createdAtKst fallback', () => {
@@ -166,7 +167,7 @@ describe('ADR-0439 lookupCachedPrice 4-tier wiring', () => {
           scanQuote: { lastPrice: 71_500 },
         } as unknown as ProvisionalShadowLedgerEntry['metadata'],
       });
-      const result = lookupCachedPrice(entry, 'T_PLUS_30M');
+      const result = lookupCachedPrice(entry, 'SAME_DAY_CLOSE');
       expect(result?.observedAtKst).toBe(entry.createdAtKst);
     });
   });
@@ -366,7 +367,8 @@ describe('ADR-0439 lookupCachedPrice 4-tier wiring', () => {
   // READ_ONLY_QUOTE — 마지막 fallback
   // ────────────────────────────────────────────────────────
   describe('READ_ONLY_QUOTE', () => {
-    it('cache 모두 miss + readOnlyQuote.lastPrice 양수 → READ_ONLY_QUOTE', () => {
+    it('cache 모두 miss + readOnlyQuote.lastPrice 양수 → READ_ONLY_QUOTE (SAME_DAY_CLOSE — coarser 자격)', () => {
+      // ADR-0621: READ_ONLY_QUOTE 는 coarser fallback 이라 T+30m/T+1h 는 도달 불가. SAME_DAY_CLOSE 로 검증.
       const entry = makeEntry({
         metadata: {
           readOnlyQuote: {
@@ -375,7 +377,7 @@ describe('ADR-0439 lookupCachedPrice 4-tier wiring', () => {
           },
         } as unknown as ProvisionalShadowLedgerEntry['metadata'],
       });
-      const result = lookupCachedPrice(entry, 'T_PLUS_30M');
+      const result = lookupCachedPrice(entry, 'SAME_DAY_CLOSE');
       expect(result?.source).toBe('READ_ONLY_QUOTE');
       expect(result?.price).toBe(70_500);
       expect(result?.observedAtKst).toBe('2026-05-07T10:30:00+09:00');
@@ -387,7 +389,7 @@ describe('ADR-0439 lookupCachedPrice 4-tier wiring', () => {
           readOnlyQuote: { lastPrice: 0 },
         } as unknown as ProvisionalShadowLedgerEntry['metadata'],
       });
-      expect(lookupCachedPrice(entry, 'T_PLUS_30M')).toBeNull();
+      expect(lookupCachedPrice(entry, 'SAME_DAY_CLOSE')).toBeNull();
     });
 
     it('readOnlyQuote.lastPrice 음수 거부 → null', () => {
@@ -396,7 +398,7 @@ describe('ADR-0439 lookupCachedPrice 4-tier wiring', () => {
           readOnlyQuote: { lastPrice: -100 },
         } as unknown as ProvisionalShadowLedgerEntry['metadata'],
       });
-      expect(lookupCachedPrice(entry, 'T_PLUS_30M')).toBeNull();
+      expect(lookupCachedPrice(entry, 'SAME_DAY_CLOSE')).toBeNull();
     });
 
     it('observedAtKst 부재 → entry.createdAtKst fallback', () => {
@@ -405,7 +407,7 @@ describe('ADR-0439 lookupCachedPrice 4-tier wiring', () => {
           readOnlyQuote: { lastPrice: 70_000 },
         } as unknown as ProvisionalShadowLedgerEntry['metadata'],
       });
-      const result = lookupCachedPrice(entry, 'T_PLUS_30M');
+      const result = lookupCachedPrice(entry, 'SAME_DAY_CLOSE');
       expect(result?.observedAtKst).toBe(entry.createdAtKst);
     });
   });
@@ -428,13 +430,14 @@ describe('ADR-0439 lookupCachedPrice 4-tier wiring', () => {
     });
 
     it('cache hit → OBSERVED + price (source 필드 미노출, 시그니처 변경 0)', async () => {
+      // ADR-0621: READ_ONLY_QUOTE 는 coarser fallback 이라 SAME_DAY_CLOSE 로만 OBSERVED.
       const entry = makeEntry({
         metadata: {
           readOnlyQuote: { lastPrice: 70_500 },
         } as unknown as ProvisionalShadowLedgerEntry['metadata'],
       });
       const provider = createProvisionalShadowPriceProvider({ entries: [entry] });
-      const result = await provider(entry.symbol, 'T_PLUS_30M', entry.createdAtKst);
+      const result = await provider(entry.symbol, 'SAME_DAY_CLOSE', entry.createdAtKst);
       expect(result.available).toBe(true);
       if (result.available) expect(result.price).toBe(70_500);
     });

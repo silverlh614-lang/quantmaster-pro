@@ -33,9 +33,13 @@
 //   6. READ_ONLY_QUOTE — entry.metadata.readOnlyQuote.lastPrice (마지막 fallback)
 //   7. NONE → DATA_UNAVAILABLE / PENDING
 //
-// horizon → reader 라우팅 매트릭스 (ADR-0439 §C):
-//   - T_PLUS_30M / T_PLUS_1H / SAME_DAY_CLOSE → INTRADAY → MARKET_DATA → READ_ONLY_QUOTE
-//   - NEXT_OPEN / T_PLUS_1D_CLOSE / T_PLUS_3D_CLOSE → DAILY → MARKET_DATA → READ_ONLY_QUOTE
+// horizon → reader 라우팅 매트릭스 (ADR-0439 §C, ADR-0621 measurement eligibility 갱신):
+//   - T_PLUS_30M / T_PLUS_1H → INTRADAY 전용 (INTRADAY_CANDLE_CACHE 만 OBSERVED 자격).
+//       intraday miss 시 coarser fallback(MARKET_DATA/READ_ONLY_QUOTE/SCAN/ENTRY) 금지 → null →
+//       DATA_UNAVAILABLE. coarser source 는 same-day-close 단일점이라 30m/1h 를 3중 카운트하는
+//       follow-through 부풀림이므로 ADR-0621 가 OBSERVED 자격 박탈.
+//   - SAME_DAY_CLOSE → INTRADAY → MARKET_DATA → READ_ONLY_QUOTE (종가 근사 coarser fallback 정당, 무변경).
+//   - NEXT_OPEN / T_PLUS_1D_CLOSE / T_PLUS_3D_CLOSE → DAILY → MARKET_DATA → READ_ONLY_QUOTE (무변경)
 
 import {
   isKrxTradingDay,
@@ -366,6 +370,20 @@ function isIntradayHorizon(horizon: ProvisionalShadowHorizon): boolean {
 }
 
 /**
+ * ADR-0621 measurement eligibility 술어 — `isIntradayHorizon` 과 별개 (SRP 분리).
+ *
+ * `isIntradayHorizon` 은 reader 라우팅 책임(INTRADAY reader 우선 시도)을 가지나, 본 술어는
+ * "이 horizon 은 INTRADAY_CANDLE_CACHE 가 아니면 OBSERVED 부적격"이라는 측정 자격 책임을 가진다.
+ *
+ * T_PLUS_30M / T_PLUS_1H 만 true — coarser fallback(MARKET_DATA/READ_ONLY_QUOTE/SCAN/ENTRY)은
+ * same-day-close 단일점이라 follow-through 부풀림을 유발하므로 OBSERVED 자격 박탈.
+ * SAME_DAY_CLOSE 는 의도적으로 false — 종가 근사 coarser fallback 정당(현행 유지).
+ */
+function requiresIntradayCandleSource(horizon: ProvisionalShadowHorizon): boolean {
+  return horizon === 'T_PLUS_30M' || horizon === 'T_PLUS_1H';
+}
+
+/**
  * Cache-only price lookup SSOT (ADR-0439).
  *
  * 결정 트리 (사용자 §C, 절대 변경 금지):
@@ -387,9 +405,13 @@ export function lookupCachedPrice(
 ): { price: number; observedAtKst: string; source: ProvisionalShadowPriceSource } | null {
   if (isProvisionalCacheLookupDisabled()) return null;
 
-  // 1. SCAN_SNAPSHOT — entry creation 시점 캡처 quote 우선
-  const scan = lookupScanSnapshot(entry);
-  if (scan) return scan;
+  // 1. SCAN_SNAPSHOT — entry creation 시점 캡처 quote 우선.
+  //    ADR-0621: T+30m/T+1h 는 entry-time 단일점(SCAN_SNAPSHOT)으로 OBSERVED 되면 follow-through
+  //    부풀림이므로 INTRADAY_CANDLE_CACHE 외 source 자격 박탈 — scan 선반환을 게이트한다.
+  if (!requiresIntradayCandleSource(horizon)) {
+    const scan = lookupScanSnapshot(entry);
+    if (scan) return scan;
+  }
 
   // 2. horizon target time
   const targetAtKst = resolveHorizonTargetTimeKst(entry.createdAtKst, horizon);
@@ -400,7 +422,12 @@ export function lookupCachedPrice(
   // 3. horizon 별 reader 순회
   if (isIntradayHorizon(horizon)) {
     const intraday = provisionalIntradayReader(symbol, targetAtKst);
-    if (intraday) return intraday;
+    if (intraday) return intraday; // source = INTRADAY_CANDLE_CACHE (정당)
+    // ADR-0621: T+30m/T+1h 는 intraday miss 시 coarser fallback 금지 → 즉시 short-circuit.
+    //   MARKET_DATA/READ_ONLY_QUOTE 는 same-day-close 단일점이라 30m/1h 를 3중 카운트하는
+    //   부풀림 — null 반환으로 caller(performance report)가 DATA_UNAVAILABLE 처리.
+    //   SAME_DAY_CLOSE 는 게이트 미적용 → 종가 근사 coarser fallback 계속(현행 유지).
+    if (requiresIntradayCandleSource(horizon)) return null;
   } else {
     const daily = provisionalDailyReader(symbol, targetAtKst);
     if (daily) return daily;

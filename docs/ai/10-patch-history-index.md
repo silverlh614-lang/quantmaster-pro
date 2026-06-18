@@ -58,6 +58,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-06-18 · ADR-0621 · provisional-shadow-intraday-horizon-observed-eligibility 30m-1h-require-intraday-candle coarser-fallback-null winrate-confidence-deinflation measurement-honesty execution-impact-none
 - 2026-06-16 · ADR-0620 · provisional-shadow-entryprice-measurement-wiring forward-outcome-fix 50of50-insufficient-resolved kis-current-baseline additive-optional no-backfill execution-impact-none
 - 2026-06-16 · ADR-0619 · shadow-only-entry-liberalization gate1-gate3 skipcause-enum prebreakout-bypass band-miss-mtas-only live-byte-identical shadow-learning-starvation-fix
 - 2026-06-16 · Patch-PartialExit-PnL-Regression-Test · partial-tp-then-stoploss PARTIAL_LOSS fills-ssot getWeightedPnlPct label-pnl-consistency test-only no-bug
