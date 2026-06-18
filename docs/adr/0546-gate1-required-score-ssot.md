@@ -64,6 +64,7 @@ buy-order drought 의 구조적 원인 — `Gate1 required score` 가 레짐 인
   (`RegimeLevel` R*_TURBO/EARLY vs `MacroRegime` R*_RISK_ON/CAUTION) 정합 — `R3_CAUTION` 은
   `MacroRegime` 의 정규 멤버이므로 **Phase 1 에서 제거하지 않는다**(live 동작 변경 위험). Phase 2 에서
   resolvedRegime 단일 스냅샷 전달 + 분모 폴백(R4=5) 점검과 함께 다룬다.
+- **(상태 갱신, 2026-06-18)** 이중명명/resolvedRegime/R4=5 폴백 정합은 C19 byte-equivalent patch 로 해소(normalizeMacroRegime SSOT 문서화+테스트, resolvedRegime 도메인 분리 명시, R4=5 폴백 회귀 고정). **LIVE flip·R3 Sanity Guard 승격은 잔존 deferred**(운영자 승인+forward-outcome 필요).
 
 ## Consequences
 
