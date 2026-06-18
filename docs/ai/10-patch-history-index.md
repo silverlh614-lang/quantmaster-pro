@@ -35,6 +35,7 @@ Rules:
 
 | ID | Domain | Current use | Detail |
 |----|--------|-------------|--------|
+| patch (test) | adr-index assertion | ADR INDEX "다음 ADR 번호" 검증을 range regex(0599 상한 brittle)→숫자 파싱 비교로 교정 — index 가 0633 으로 진행하며 발생한 0474 테스트 실패 해소 + 0475 동일 클래스 선제 fix (test-only·런타임 0줄·executionImpact NONE) | `server/clients/sectorEnergyCoverageRecoveryAdr0474.test.ts` + `server/trading/signalScanner/gate1PositiveSourceWiringAdr0475.test.ts` |
 | ADR-0628 | intraday universe freshness | 장중 screener.json 재호출(preScreenStocks 12분 쓰로틀) + LeadershipBridge 활성 — 아침 고정 평가 풀(49) 신선화 (유니버스 신선화·채점 불변·양 flag default OFF byte-identical·구현 engine-dev) | `docs/adr/0628-intraday-leader-universe-freshness.md` (`stockScreener.ts` SSOT/throttle + `tradingOrchestrator.ts` INTRADAY tick + `LEADERSHIP_BRIDGE_ENABLED` ON) |
 | ADR-0627 | gate1 positive wiring | RS step 양자화→연속 percentile 승격 + breakout OHLCV resolver 필드명(high20d) 정정 (positive starvation 진짜 갭 2종·requiredScore 70/weight 불변·flag default OFF byte-identical·구현 engine-dev) | `docs/adr/0627-gate1-rs-percentile-continuous-and-breakout-ohlcv-field-fix.md` (`decompositionBuilder.ts:263` + `gate1PositiveCeilingWiringAdr0613.ts:97` + `gateConfig.ts`) |
 | ADR-0626 | shakeout exit (A) | 손실초기 손절 2-bar 종가확인 확대 (shadow-only·LIVE byte-equivalent·깊은하락≤-12% 즉시손절·default OFF) | `docs/adr/0626-shakeout-initial-loss-twobar-shadow.md` (`exitEngine/helpers/twoBarBepGate.ts` 결정트리 + `rules/hardStopLoss.ts` 2인자) |

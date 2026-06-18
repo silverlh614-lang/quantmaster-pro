@@ -303,6 +303,10 @@ describe('ADR-0474 SectorEnergy Coverage Recovery', () => {
 
     expect(existsSync(doc)).toBe(true);
     expect(readFileSync(doc, 'utf8')).toContain('Dry-run');
-    expect(index).toMatch(/다음 ADR 번호: `0[4-9][7-9][5-9]|다음 ADR 번호: `05\d{2}/);
+    // ADR index must have advanced past 0474 — parse the SSOT "다음 발급" number
+    // numerically rather than range-matching (brittle once index crosses 0599).
+    const nextAdrMatch = index.match(/다음 ADR 번호: `(\d{4})`/);
+    expect(nextAdrMatch).not.toBeNull();
+    expect(Number(nextAdrMatch![1])).toBeGreaterThan(474);
   });
 });
