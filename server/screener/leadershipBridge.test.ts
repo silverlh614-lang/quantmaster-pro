@@ -7,6 +7,10 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+// ADR-0628 D5 — leadershipBridge 가 getScreenerCache(stockScreener) 를 import 하게 되어
+// 격리 최초 import warmup 비용 증가. 로직 변경 아님(테스트 인프라 타임아웃 흡수).
+vi.setConfig({ testTimeout: 20_000 });
+
 describe('leadershipBridge — qualifiesAsLeader', () => {
   beforeEach(() => { vi.resetModules(); });
 
