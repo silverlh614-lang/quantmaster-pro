@@ -45,7 +45,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 
 | ID | ADR | 모듈 | 등재일 | 상태 | 우선순위 | 차단 사유 / 다음 액션 |
 |----|-----|------|--------|------|----------|----------------------|
-| A1 | 0030 latentSignalScorer | `server/screener/latentSignalScorer.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 — watchlistManager tag + stockScreener 통합 + VCP_HUNTER section + 외인/기관 5일 z-score 계산 헬퍼 |
+| A1 | 0030 latentSignalScorer | `server/screener/latentSignalScorer.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 — watchlistManager tag + stockScreener 통합 + VCP_HUNTER section. **외인/기관 5일 z-score 통합 목적은 ADR-0614/0617 KIS-native(consecutive net-buy ledger·leader 발굴)로 superseded — 2026-06-18 제거(ADR-0561 KIS-Primary 정합).** VCP score 축만 잔존. |
 | A2 | 0031/0186 orderTypeOptimizer | `server/trading/orderTypeOptimizer.ts` | 2026-05-02 | PARTIAL | P1 | **PR-A2-Wiring-1 (2026-05-05, ADR-0186) 의사결정 가시화 wiring 완료** — `buyPipeline.createBuyTask` 진입부에 `decideOrderType` 호출 + `ServerShadowTrade.orderTypeDecision?` 옵셔널 영속 + 진단 로그. ENV `ORDER_TYPE_OPTIMIZER_ENABLED=true` default OFF (운영자 SHADOW 1주 검증 후 활성화). **실제 placeKisMarketBuyOrder 호출 시 orderType 무변경** (LIMIT 그대로) — LIVE 매매 본체 영향 0. **잔여 P1 wiring**: A2-Wiring-2 (`fillMonitor` 체결 시 `recordSlippageEntry` 호출, 학습 데이터 수집) + A2-Wiring-3 (LIVE 적용 — IOC_MARKET `idempotency='unsafe'` ADR-0014 정합 + AGGRESSIVE_LIMIT chase logic). |
 | A4 | 0083 walkForwardFramework | `server/learning/walkForwardFramework.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 데이터 6개월 누적 후 — decay='DECAYING' 시 가중치 자동 보수화 |
 | A5 | 0084 conditionLifecyclePolicy | `server/learning/conditionLifecyclePolicy.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 데이터 6개월 누적 후 — 27조건 silent/deprecated 가드 wiring (signalScanner / entryRevalidationStep score 보수화) |
@@ -83,7 +83,6 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | C1 | 0137 KIS 종목별 프로그램매매 | `server/clients/kisClient/query.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 1~2주 누적 후 — enrichment 시그널 + signalScanner 가중치 wiring |
 | C2 | 0138 KIS 시장 종합 프로그램매매 | `server/clients/kisClient/query.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 1~2주 누적 후 — regime 가중치 wiring |
 | C3 | 0139 ECOS 신용공여 | `server/clients/ecosClient.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | STAT_CODE 운영 검증 + 데이터 누적 후 — enemyChecklist 활성화 + regime 보수화 wiring |
-| C4 | 0140 Naver 외인 추세 | `server/persistence/foreignerRatioRepo.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 6영업일 누적 후 — enrichment 시그널 + signalScanner 가중치 + enemyChecklist 외인 이탈 플래그 wiring |
 | C5 | 0142 FSS Mapping | `server/persistence/fssMappingPolicy.ts` | 2026-05-02 | BLOCKED | P2 | 운영자 결정 + 1~2주 데이터 누적 후 — `FSS_MAPPING_ENABLED=true` ENV 활성화 결정 대기 (`/fss_mapping` 검증 + 시장 행동 일치도 확인) |
 | C6 | 0136 PR-1 후속 | `server/trading/regimeBridge.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P1 | regime 의사결정 회귀 격리 — `passiveActiveBoth=null → R3_EARLY 트리거 보수화` wiring |
 | C19 | 0546 Gate1 Regime-Aware Required (Phase 2) | `server/trading/gateConfig.ts` | 2026-05-30 | BLOCKED | P0 | **운영자 결정 대기 + forward-outcome 데이터 누적 후** — `resolveGate1RequiredScore` SSOT. Phase 1(ADR-0546)은 SSOT 신설 + 섀도 병행 로깅까지(`GATE1_REGIME_AWARE_REQUIRED=false` 동작 보존). **정합 3건 해소 (C19 patch, 2026-06-18, byte-equivalent)**: `entryRevalidationStep`/`normalizeMacroRegime` regime 라벨 이중명명(RegimeLevel↔MacroRegime) SSOT 문서화+테스트 / resolvedRegime 도메인 분리 명시(`minGateRegime`/`policyRegime`) / 분모 폴백(R4=5) 회귀 고정. **잔여 (LIVE flip P0)**: 3영업일+ forward-outcome 로 `regimeAwareRequired`(R3_EARLY→40~60) 승률 비손상 검증 후 `GATE1_REGIME_AWARE_REQUIRED=true` 전환 + R3 Sanity Guard 입력을 레짐 인식값으로 승격(GATE1_PASS_ZERO 해소). LIVE 매매 활성화 경로 — 검증 후 진행. SLA 면제 (운영자 결정 + 데이터 누적). |
@@ -111,7 +110,6 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | E2 | 0128 dartPoller | `server/alerts/dartPoller.ts` | 2026-05-02 | PARTIAL | P2 | 운영 데이터 누적 후 — `getCorpEventLookback` wiring (corp event 타입별 lookback 차등 90/60/30/14/7일) |
 | E3 | 0128 HELD_POSITION 자동 탐지 | `server/data/dataHoldRolePolicy.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 (별도 ADR) — 현재 호출자가 명시 전달, 자동 분류 SSOT |
 | E4 | 0090 Cache Coherence Auditor | `server/persistence/cacheCoherenceAuditor.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | 운영 데이터 누적 후 — invariant 확장 (WATCHLIST/MACRO_STATE 등) + Phase 2 cron 자동 audit 발행 + Phase 3 자동 수정 도구 |
-| E6 | 0136~0140 dual-source cross-validation | `server/trading/crossSourceValidator.ts` | 2026-05-02 | INFRASTRUCTURE_ONLY | P3 | 외부 의존성 변경 후 — KRX 외인 + Naver / ECOS + KRX 신용공여 dual-source. ADR-0071 패턴 차용한 별도 후속 PR |
 | E7 | 0160 check:learning-boundary validate:all 통합 | `scripts/check_learning_channel_boundary.js` | 2026-05-02 | INFRASTRUCTURE_ONLY | P2 | ADR-0160 §4 명시 — 현재 standalone 명령 (`npm run check:learning-boundary`). `validate:all` 17종 격상으로 precommit 자동 차단 — 회귀 위험 격리를 위해 후속 PR 분리 |
 | E8 | 0395 PR-B `/mode_consistency` 3-state 업그레이드 | `server/telegram/commands/system/modeConsistency.cmd.ts` | 2026-05-06 | BLOCKED | P3 | **사용자 결정 대기 — SL 발생 후 추천 재검토** (사용자 명시 5/6 PR-A 머지 후 "나머지는 부채로 등록 (sl 이후 추천)"). 현재 메시지 (`env AUTO_TRADE_MODE` / `runtime tradingMode` / `KIS_IS_REAL` / kill switch) → `getExecutionMode()` 3-layer (env / persistent / runtime / final) + persistent override 활성 시 강한 경고 + legacy `getTradingMode` 보조 정보 격상. 분류 5 분기 (CONSISTENT / PERSISTENT_OVERRIDE_ACTIVE / RUNTIME_OVERRIDE_ACTIVE / KILL_SWITCH_DOWNGRADED / UNINTENDED_DIVERGENCE). ADR-0395 (PR #664) 영속 override 운영 가시성 갭. SLA 면제 (사용자 결정 패턴). |
 | E9 | 0395 PR-C `/exec_mode_persist` + `/exec_mode_clear` 텔레그램 명령 | `server/telegram/commands/system/` (신규 2 cmd) | 2026-05-06 | BLOCKED | P3 | **사용자 결정 대기 — SL 발생 후 추천 재검토**. `setPersistentExecutionMode(mode, meta?)` + `clearPersistentExecutionMode()` 운영자 텔레그램 직접 제어 진입점. `/exec_mode_persist OFF/PAPER/LIVE` (alias `/emp`) + `/exec_mode_clear` (alias `/emc`). 안전장치 — KIS_IS_REAL=false + LIVE persistent 거부 또는 강한 경고 / 입력 검증 (OFF/PAPER/LIVE 외 거부) / 결과 메시지 finalMode 표시 + 재배포 후에도 유지 안내. ADR-0395 인프라의 운영자 진입점 (현재 코드 또는 직접 fs 편집 만 가능). SLA 면제 (사용자 결정 패턴). |
@@ -124,14 +122,14 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 |----------|---------|----|----|----|----|
 | A. 학습 시리즈 | 13 | 0 | 8 | 5 | 0 |
 | B. 매매 본체 | 12 | 1 | 4 | 7 | 0 |
-| C. 시그널 입력 | 10 | 1 | 1 | 5 | 3 |
+| C. 시그널 입력 | 9 | 1 | 1 | 4 | 3 |
 | D. UI Phase | 7 | 0 | 3 | 4 | 0 |
-| E. 영속/진단 | 10 | 0 | 0 | 4 | 6 |
-| **합계** | **52** | **2** | **16** | **25** | **9** |
+| E. 영속/진단 | 9 | 0 | 0 | 4 | 5 |
+| **합계** | **50** | **2** | **16** | **24** | **8** |
 
 > 주: 위 통계는 active backlog 기준이다. 완료/영구결정 `DECIDED_NOT_WIRING` 15건은 2026-05-25 정리로 active table 에서 제거했다.
 
-> 주: P0 active backlog 는 B15 (PriceCorrection Stage 3 Live, ADR-0414) 1건만 남는다. Stage 2 SHADOW 검증 + 운영자 명시 승인 전까지 LIVE wiring 판단 보류.
+> 주: P0 active backlog 는 B15 (PriceCorrection Stage 3 Live, ADR-0414) + C19 (Gate1 Regime-Aware Required LIVE flip, ADR-0546) 2건. 둘 다 운영자 명시 승인 + 검증 데이터 누적 전까지 LIVE wiring 보류.
 
 ## P0 즉시 wiring 권장
 
@@ -139,7 +137,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 
 ## 진행 중 잔여
 
-- **active backlog 53건** — 완료/영구결정 기록은 active table 에서 제거.
+- **active backlog 50건** — 완료/영구결정 기록은 active table 에서 제거. 2026-06-18 KIS-Primary 충돌 폐기 3건(C4·E6 + A1 외인 z-score 목적) 정리.
 - **정량 격상 후속 0건** — 27 조건 시리즈 데이터 가용 한계 도달 (78%). 잔여 22% 정성 영구 (ADR-0154 §3).
 - **운영자 집중 영역** — Gemini 프롬프트 품질 향상 + AI 추정 가중치 학습 (ADR-0149 매핑 정정 후 30일 누적).
 
@@ -171,3 +169,4 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 | 2026-06-10 | PR-D4-RecommendationSnapshot-TimeBand-Wiring | D4 (ADR-0019 후속 wiring, ADR 발급 0건 patch type) 소진 — 행 삭제. `expiresAt` 단일 출처 selector (`getSnapshotExpiresAt` = recommendedAt + SNAPSHOT_EXPIRY_MS, expireStale 30일과 동일 상수·동일 기점) + TimeBand/VerdictCard props 어댑터 (`toTimeBandWindow` — PENDING/EXPIRED 만 윈도, OPEN/CLOSED null) + store selector (`getTimeBandWindow(stockCode)`). TimeBand remainingPct=0 ↔ repo EXPIRED 전이 동일 시점 기준 cross-module 회귀 테스트 고정 (`TimeBand.snapshotExpiry.test.ts`). persist 스키마 무변경 (파생 selector — 영속 필드 추가 0). **페이지 임베드는 D3 (VerdictCard 실사용처 0건) 가 계속 추적** — D3 임베드 시 본 selector 소비. 통계 D 8→7 / P1 18→17 / 합계 54→53. D4 P1 SLA 만기 2026-06-16 6일 전 충족. |
 | 2026-06-10 | PR-A7-ShadowLearningSummary-BE | A7 (ADR-0124 PR-H 후속, ADR 발급 0건 patch type) 소진 — 행 삭제. `buildShadowLearningSummary` reportLine/narrativeLine 에 BE 카운트 조건부 표기 (`본절 fill N건`, BE>0 시에만 — 선례 PR-E/F/G 동일 규칙). 데이터 공급: `aggregateFillStats(loadShadowTrades())` SSOT read-only (ADR-0112 분류, WIN_PCT_MIN=1.0 / BE band -0.5~+0.5). `ShadowLearningSummary.beFills?` additive optional (기존 호출자 `reportGenerator.loadDailyShadowLearningLines` 무수정). `BE_CLASSIFICATION_DISABLED=true` 시 SSOT 0 반환 → 자동 silent. 데이터 부족 빈 문자열 byte 보존 (hasAnyData 판정 무변경 — BE 단독 라인 생성 금지). 학습 SSOT (aggregateFillStats/nightlyReflection/biasHeatmap) 0줄 변경. 신규 회귀 6 케이스 (`shadowLearningSummaryBeAdr0124.test.ts`). 통계 A 14→13 / P1 17→16 / 합계 53→52. A7 P1 SLA 만기 2026-06-16 6일 전 충족. |
 | 2026-06-10 | PR-Learning-Wiring-Burndown | 학습 클러스터 5건 (A10/A12/A13/A14/A15, ADR-0173~0176 후속 wiring, ADR 발급 0건 patch type) 소진 — A10+A15 replay dispatcher 실함수 매핑 (기 머지 `missedLearningReplayDispatcher.ts` 회귀 테스트 보강 + 단일 실패 격리 검증) / A12+A13 일일 cron 신규 wiring (`learningJobs.ts` 'safety_gate_attribution' KST 16:40 + 'shadow_live_delta_report' KST 16:45, TRADING_DAY_ONLY + ENV 첫 분기 + scheduleCatalog 등재) / A14 priceFetcher KIS 일봉(L1) wiring 검증 (`fetchHistoricalClosePrice` — 미래 bar 누출 금지 + 실패 null 회귀 테스트). 5건 모두 → BLOCKED (운영자 ENV 명시 활성화만 잔여, SLA 면제 — 2026-06-17 만기 해소). 진행 통계 무변경 (status 격상만, 카테고리/우선순위 카운트 유지). 전 ENV default OFF — flag OFF runtime byte-equivalent. |
+| 2026-06-18 | Patch-Backlog-Discard-KIS-Primary-Conflict | 최신 패치 방향(ADR-0561 KIS-Primary·0601/0614/0617 KIS-native 수급) 충돌 잔여작업 폐기 — **C4**(Naver 외인추세 signalScanner/enemyChecklist wiring: L3→매매결정 승격 = ADR-0561 위반, KIS-native superseded, 프로덕션 소비처 0) + **E6**(Naver dual-source cross-validation: L3↔L1 동격 검증 충돌, production 호출자 0) active table 제거. **A1** 외인/기관 z-score 통합 목적 제거(0614/0617 superseded), VCP 축만 잔존. C4 → ADR-0140 §잔여후속PR 2·3 `FROZEN_L3_NON_EXECUTION_ADR0561` 동결(foreignerRatioRepo 는 `/foreigner_trend` 텔레그램 진단 전용 생존). 통계 52→50(C 10→9·E 10→9·P2 25→24·P3 9→8). 문서 전용·runtime 0·코드 0줄. |
