@@ -23,6 +23,7 @@ export function buildMacroGateState(input: {
   liveEntryBlockedReason?: string;
   macroRegimeRaw?: string;
   macroRegimeEffective?: string;
+  learningRegime?: string;
   regimeSnapshotId?: string;
   regimeSnapshotAsOf?: string;
   regimeSnapshotTtlSec?: number;
@@ -92,6 +93,7 @@ export function buildMacroGateState(input: {
     liveEntryBlockedReason: input.liveEntryBlockedReason,
     macroRegimeRaw: input.macroRegimeRaw,
     macroRegimeEffective: input.macroRegimeEffective,
+    learningRegime: input.learningRegime,
     regimeSnapshotId: input.regimeSnapshotId,
     regimeSnapshotAsOf: input.regimeSnapshotAsOf,
     regimeSnapshotTtlSec: input.regimeSnapshotTtlSec,

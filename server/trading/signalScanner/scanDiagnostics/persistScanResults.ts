@@ -600,7 +600,7 @@ export async function persistScanResults(
       } else if ((counters.gate1Pass ?? 0) === 0) {
         reason = 'no Gate1 survivor';
       } else if (routerInput.regime !== 'R3_EARLY') {
-        reason = `regime=${routerInput.regime ?? 'UNKNOWN'} — R3_EARLY 외 차단`;
+        reason = `regime=${routerInput.regime ?? 'UNKNOWN'}/learning=${macroGate?.learningRegime ?? 'UNKNOWN'} — R3_EARLY 외 차단`;
       }
       if (reason !== undefined) {
         summaryDraft.provisionalShadowLane = {
@@ -646,7 +646,7 @@ export async function persistScanResults(
       } else if ((counters.gate1Pass ?? 0) === 0) {
         cfReason = 'no Gate1 survivor';
       } else if (routerInput.regime !== 'R3_EARLY') {
-        cfReason = `regime=${routerInput.regime ?? 'UNKNOWN'} — R3_EARLY 외 비활성`;
+        cfReason = `regime=${routerInput.regime ?? 'UNKNOWN'}/learning=${macroGate?.learningRegime ?? 'UNKNOWN'} — R3_EARLY 외 비활성`;
       } else if (router?.severity === 'TRUE_WEAKNESS') {
         cfReason = 'TRUE_WEAKNESS — 학습 표본 오염 차단';
       } else if (
