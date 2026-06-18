@@ -57,6 +57,7 @@ import './programMarketRaw.cmd.js'; // Patch-PROGRAM-MARKET-EMPTY-OUTPUT-ROUTER-
 import './programToday.cmd.js';
 import './programCaptureWatchlist.cmd.js';
 import './programCaptureStatus.cmd.js';
+import './promotionReadiness.cmd.js'; // ADR-0631 Shadow→Live 승격 준비도 진단 (read-only).
 import './r6Forensic.cmd.js';
 import './refreshMacro.cmd.js';
 import './refreshSectorMap.cmd.js';
