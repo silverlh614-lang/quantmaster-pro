@@ -31,18 +31,26 @@ import {
   computeAgeDays,
   isSlaExempt,
   evaluateSla,
+  // PR-Governance-StaleUserDecision: 사용자결정 부채 재검토 헬퍼
+  DEFAULT_USER_DECISION_REVIEW_DAYS,
+  getUserDecisionReviewDays,
+  isUserDecisionReviewDisabled,
+  isUserDecisionDebt,
+  findLastReviewDate,
+  evaluateUserDecisionStaleness,
 } from './check_pending_wiring.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = join(__dirname, '..');
 
-function runLint(args = '') {
+function runLint(args = '', env = {}) {
   try {
     const out = execSync(`node scripts/check_pending_wiring.js ${args}`.trim(), {
       cwd: ROOT,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, ...env },
     });
     return { exitCode: 0, output: out };
   } catch (err) {
@@ -54,21 +62,32 @@ function runLint(args = '') {
 }
 
 describe('check_pending_wiring — baseline', () => {
-  it('현재 PENDING_WIRING.md 정합 EXIT=0', () => {
-    const result = runLint();
+  // SLA 임박(H) / 사용자결정 재검토(I) 는 informational WARN(EXIT=0)이며 날짜 경과로 변동.
+  // baseline 구조 정합은 시간 의존 WARN 을 끈 상태로 결정적 검증한다.
+  const NO_TIME_WARN_ENV = { WIRING_SLA_DISABLED: 'true', USER_DECISION_REVIEW_DISABLED: 'true' };
+
+  it('현재 PENDING_WIRING.md 구조 정합 EXIT=0 (시간 의존 WARN 제외)', () => {
+    const result = runLint('', NO_TIME_WARN_ENV);
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('OK');
     expect(result.output).toContain('5개 카테고리');
   });
 
-  it('--json 출력 violations 빈 배열', () => {
-    const result = runLint('--json');
+  it('--json 구조 위반 0건 (시간 의존 WARN 제외)', () => {
+    const result = runLint('--json', NO_TIME_WARN_ENV);
     expect(result.exitCode).toBe(0);
     const parsed = JSON.parse(result.output);
     expect(parsed.violations).toEqual([]);
     expect(parsed.summary.entryCount).toBeGreaterThan(20);
     expect(parsed.summary.categoryCount).toBe(5);
     expect(parsed.summary.hasStats).toBe(true);
+  });
+
+  it('실제 백로그 — H/I WARN 이 있어도 FAIL 0 · EXIT=0 (informational)', () => {
+    const result = runLint('--json');
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.output);
+    expect(parsed.fails).toEqual([]); // SLA/사용자결정 WARN 은 fails 아님 → 빌드 무차단
   });
 });
 
@@ -1111,5 +1130,99 @@ describe('SLA 헬퍼 (ADR-0158)', () => {
         )
       ).toBe('INVALID_DATE');
     });
+  });
+});
+
+describe('I — 사용자결정 부채 재검토 (PR-Governance-StaleUserDecision)', () => {
+  const NOW = new Date('2026-06-18T00:00:00Z');
+
+  function build(entries) {
+    return { entries, categories: new Set(['A', 'B', 'C', 'D', 'E']), stats: null };
+  }
+  function udEntry(overrides) {
+    return {
+      id: 'E8', adrRefs: [], module: '`server/x.ts`', modulePaths: ['server/x.ts'],
+      enteredAt: '2026-01-01', status: 'BLOCKED', priority: 'P2', category: 'E',
+      reason: '사용자 결정 — SL 이후 추천. 진단 가시화 부채.',
+      ...overrides,
+    };
+  }
+
+  it('상수/ENV — 기본 30일, 1~365 클램프', () => {
+    expect(DEFAULT_USER_DECISION_REVIEW_DAYS).toBe(30);
+    delete process.env.USER_DECISION_REVIEW_DAYS;
+    expect(getUserDecisionReviewDays()).toBe(30);
+    process.env.USER_DECISION_REVIEW_DAYS = '7';
+    expect(getUserDecisionReviewDays()).toBe(7);
+    process.env.USER_DECISION_REVIEW_DAYS = '9999';
+    expect(getUserDecisionReviewDays()).toBe(30); // 범위 밖 → fallback
+    delete process.env.USER_DECISION_REVIEW_DAYS;
+  });
+
+  it('isUserDecisionReviewDisabled — ENV true/1', () => {
+    delete process.env.USER_DECISION_REVIEW_DISABLED;
+    expect(isUserDecisionReviewDisabled()).toBe(false);
+    process.env.USER_DECISION_REVIEW_DISABLED = 'true';
+    expect(isUserDecisionReviewDisabled()).toBe(true);
+    delete process.env.USER_DECISION_REVIEW_DISABLED;
+  });
+
+  it('isUserDecisionDebt — BLOCKED + 사용자결정 패턴만 true (운영자결정 제외)', () => {
+    expect(isUserDecisionDebt({ status: 'BLOCKED', reason: '사용자 결정 대기 — SL 이후 추천' })).toBe(true);
+    expect(isUserDecisionDebt({ status: 'BLOCKED', reason: 'SL 이후 추천 재검토' })).toBe(true);
+    expect(isUserDecisionDebt({ status: 'BLOCKED', reason: '운영자 결정 + 데이터 누적 후' })).toBe(false);
+    expect(isUserDecisionDebt({ status: 'INFRASTRUCTURE_ONLY', reason: '사용자 결정' })).toBe(false);
+  });
+
+  it('findLastReviewDate — 등재일 + reason 안 최신 날짜 중 최신', () => {
+    expect(findLastReviewDate({ enteredAt: '2026-05-06', reason: '... 재노출 2026-06-18 ...' })).toBe('2026-06-18');
+    expect(findLastReviewDate({ enteredAt: '2026-05-06', reason: '날짜 없음' })).toBe('2026-05-06');
+    expect(findLastReviewDate({ enteredAt: '—', reason: '날짜 없음' })).toBe(null);
+  });
+
+  it('evaluateUserDecisionStaleness — 임계 초과 STALE', () => {
+    const r = evaluateUserDecisionStaleness(udEntry(), NOW, 30);
+    expect(r.status).toBe('STALE');
+    expect(r.ageDays).toBeGreaterThan(30);
+    expect(r.lastReview).toBe('2026-01-01');
+  });
+
+  it('evaluateUserDecisionStaleness — 최근 재노출 마커 시 OK (self-clearing)', () => {
+    const r = evaluateUserDecisionStaleness(
+      udEntry({ reason: '🔁 재노출 2026-06-18 — SL 이후 추천(사용자 결정).' }), NOW, 30);
+    expect(r.status).toBe('OK');
+    expect(r.lastReview).toBe('2026-06-18');
+  });
+
+  it('evaluateUserDecisionStaleness — 운영자결정은 NOT_APPLICABLE', () => {
+    const r = evaluateUserDecisionStaleness(
+      udEntry({ reason: '운영자 결정 + 데이터 누적' }), NOW, 30);
+    expect(r.status).toBe('NOT_APPLICABLE');
+  });
+
+  it('validate — STALE 항목 I_USER_DECISION_STALE WARN 등재', () => {
+    const { violations } = validate(build([udEntry()]), new Set(), { now: NOW, userDecisionReviewDays: 30 });
+    const i = violations.filter((v) => v.category === 'I_USER_DECISION_STALE');
+    expect(i).toHaveLength(1);
+    expect(i[0].message).toContain('E8');
+    expect(i[0].message).toContain('재노출');
+  });
+
+  it('validate — 재노출 마커 갱신 시 STALE 해소 (self-clearing)', () => {
+    const fresh = udEntry({ reason: '🔁 재노출 2026-06-18 — SL 이후 추천(사용자 결정).' });
+    const { violations } = validate(build([fresh]), new Set(), { now: NOW, userDecisionReviewDays: 30 });
+    expect(violations.filter((v) => v.category === 'I_USER_DECISION_STALE')).toHaveLength(0);
+  });
+
+  it('validate — userDecisionReviewDisabled 시 skip', () => {
+    const { violations } = validate(build([udEntry()]), new Set(),
+      { now: NOW, userDecisionReviewDays: 30, userDecisionReviewDisabled: true });
+    expect(violations.filter((v) => v.category === 'I_USER_DECISION_STALE')).toHaveLength(0);
+  });
+
+  it('validate — 운영자결정 BLOCKED 는 I 대상 아님', () => {
+    const op = udEntry({ id: 'C5', category: 'C', reason: '운영자 결정 + 1~2주 데이터 누적 후' });
+    const { violations } = validate(build([op]), new Set(), { now: NOW, userDecisionReviewDays: 30 });
+    expect(violations.filter((v) => v.category === 'I_USER_DECISION_STALE')).toHaveLength(0);
   });
 });
