@@ -366,15 +366,17 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     ? observedRegime
     : 'R4_NEUTRAL' as keyof typeof REGIME_CONFIGS;
   let regimeConfig = REGIME_CONFIGS[regime];
-  // 정합 정정(patch): shadow/learning 레인은 정규 effective regime 을 봐야 한다. marketState.effectiveRegime
-  // 가 R6 상태기계 확장 어휘(R3_NORMAL / R5_STABILIZING / R6_RECOVERY_WATCH 등)를 누수하면 위
-  // observedRegime → regime 이 R4_NEUTRAL 로 clamp 되어 R3 provisional/counterfactual 레인이 영구
-  // 비활성화된다. regimeDiagnostics.effectiveRegime 도 동일 확장 어휘를 담을 수 있으므로(런타임 누수),
-  // 단순 REGIME_CONFIGS 키 존재 검사로는 R3_NORMAL/R5_STABILIZING 등이 통과하지 못해 다시 clamp 된
-  // regime(R4_NEUTRAL)으로 폴백한다. toCanonicalRegimeLevel 로 확장 어휘를 canonical RegimeLevel 로
-  // 정규화한다(R3* → R3_EARLY, R5* → R5_CAUTION, R6* → R6_DEFENSE). 정규화 불가 시에만 regime 폴백.
+  // 정합 정정 v2(patch): learningRegime 은 정본 regimeSnapshot.effectiveRegime(=resolveRegimeSnapshot()
+  // 의 sanitizeEffectiveRegime 결과, ADR-0531 Gate0 레짐 정본)에서 파생한다. 이전 수리는 deprecated
+  // regimeDiagnostics.effectiveRegime(=getRegimeDiagnostics().transitionState.effectiveRegime,
+  // @deprecated ADR-0531)을 입력으로 썼는데, 이건 R6-recovery cap/forced-downgrade 가 적용돼
+  // R4_NEUTRAL 로 강등된 값이라 canonical R3_EARLY 가 R4_NEUTRAL 로 누수돼 R3 provisional/
+  // counterfactual 레인이 영구 비활성화됐다. 정본 snapshot.effectiveRegime 은 R6 강등을 거치지 않는다.
+  // marketState.effectiveRegime 가 R6 상태기계 확장 어휘(R3_NORMAL / R5_STABILIZING 등)를 누수해 위
+  // observedRegime → regime 이 R4_NEUTRAL 로 clamp 돼도, toCanonicalRegimeLevel 로 canonical RegimeLevel
+  // 로 정규화한다(R3* → R3_EARLY, R5* → R5_CAUTION, R6* → R6_DEFENSE). 정규화 불가 시에만 regime 폴백.
   // live `regime` 불변(byte-equivalent) — 학습/섀도 레인 전용(불변식 #8 실거래↔shadow 차단 분리).
-  const learningRegime = (toCanonicalRegimeLevel(regimeDiagnostics.effectiveRegime)
+  const learningRegime = (toCanonicalRegimeLevel(regimeSnapshot.effectiveRegime)
     ?? regime) as keyof typeof REGIME_CONFIGS;
   const macroEntryOverride = getMacroEntryOverrideState();
   let liveEntryBlockedReason: string | undefined;
