@@ -6,6 +6,9 @@ import {
   listAutoActivationLedger,
   resetAutoActivationLedger,
   formatAutoActivationReport,
+  applyOperatorApproval,
+  revokeOperatorApproval,
+  reapplyOperatorApprovals,
   LEVER_REGISTRY,
   type AutoActivationLever,
   type AutoActivationEvaluateInput,
@@ -610,5 +613,118 @@ describe('registry 주입 (테스트용)', () => {
     const report = evaluateAutoActivation(fullySatisfiedInput([PRICE_LEVER]));
     expect(report.decisions).toHaveLength(1);
     expect(report.decisions[0].leverId).toBe('PRICE_CORRECTION_SHADOW_ADR0623');
+  });
+});
+
+// ── ADR-0636 — 운영자 승인 활성화 (LIVE_ADJACENT_REVIEW 전용 · 2중 가드) ────────────
+describe('ADR-0636 — applyOperatorApproval (LIVE_ADJACENT_REVIEW 만)', () => {
+  it('LIVE_ADJACENT_REVIEW → APPROVED, envName=true set, ledger source=OPERATOR_APPROVAL', () => {
+    const before = process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED;
+    expect(before).toBeUndefined();
+    const r = applyOperatorApproval('R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592', 'operator');
+    expect(r.verdict).toBe('APPROVED');
+    expect(r.envName).toBe('R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED');
+    expect(process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED).toBe('true');
+
+    const led = listAutoActivationLedger();
+    const entry = led.find((e) => e.leverId === 'R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592')!;
+    expect(entry.source).toBe('OPERATOR_APPROVAL');
+    expect(entry.approvedBy).toBe('operator');
+  });
+
+  it('LIVE_SAFE → REJECTED_NOT_REVIEWABLE, process.env 무접촉', () => {
+    const r = applyOperatorApproval('PRICE_CORRECTION_SHADOW_ADR0623', 'operator');
+    expect(r.verdict).toBe('REJECTED_NOT_REVIEWABLE');
+    expect(process.env.PRICE_CORRECTION_SHADOW_ENABLED).toBeUndefined();
+    expect(listAutoActivationLedger()).toHaveLength(0);
+  });
+
+  it('EXCLUDED(LIVE_MONEY) → REJECTED_NOT_REVIEWABLE, process.env 무접촉', () => {
+    const r = applyOperatorApproval('LEARNING_WEIGHT_PROMOTION_ADR0581', 'operator');
+    expect(r.verdict).toBe('REJECTED_NOT_REVIEWABLE');
+    expect(process.env.LEARNING_WEIGHT_PROMOTION_ENABLED).toBeUndefined();
+  });
+
+  it('EXCLUDED(ABSOLUTE_PRESERVATION) → REJECTED_NOT_REVIEWABLE, process.env 무접촉', () => {
+    const r = applyOperatorApproval('GATE1_REGIME_AWARE_REQUIRED_ADR0546', 'operator');
+    expect(r.verdict).toBe('REJECTED_NOT_REVIEWABLE');
+    expect(process.env.GATE1_REGIME_AWARE_REQUIRED).toBeUndefined();
+  });
+
+  it('미등재 leverId → NOT_FOUND, process.env 무접촉·ledger 무증가', () => {
+    const r = applyOperatorApproval('NONEXISTENT_LEVER', 'operator');
+    expect(r.verdict).toBe('NOT_FOUND');
+    expect(r.envName).toBeUndefined();
+    expect(listAutoActivationLedger()).toHaveLength(0);
+  });
+
+  it('LIVE master(AUTO_TRADE_ENABLED) → NOT_FOUND(registry 비등재)·LIVE env 절대 무접촉', () => {
+    const autoBefore = process.env.AUTO_TRADE_ENABLED;
+    const kisBefore = process.env.KIS_IS_REAL;
+    const r1 = applyOperatorApproval('AUTO_TRADE_ENABLED', 'operator');
+    const r2 = applyOperatorApproval('KIS_IS_REAL', 'operator');
+    expect(r1.verdict).toBe('NOT_FOUND');
+    expect(r2.verdict).toBe('NOT_FOUND');
+    expect(process.env.AUTO_TRADE_ENABLED).toBe(autoBefore);
+    expect(process.env.KIS_IS_REAL).toBe(kisBefore);
+  });
+});
+
+describe('ADR-0636 — revokeOperatorApproval (env delete)', () => {
+  it('LIVE_ADJACENT_REVIEW → REVOKED, envName delete (set false 아님)', () => {
+    applyOperatorApproval('R6_RECOVERY_STUCK_EXIT_ADR0630', 'operator');
+    expect(process.env.R6_RECOVERY_STUCK_EXIT_ENABLED).toBe('true');
+
+    const r = revokeOperatorApproval('R6_RECOVERY_STUCK_EXIT_ADR0630');
+    expect(r.verdict).toBe('REVOKED');
+    // delete — 미설정 default 복귀 ('false' 아님).
+    expect(process.env.R6_RECOVERY_STUCK_EXIT_ENABLED).toBeUndefined();
+    expect('R6_RECOVERY_STUCK_EXIT_ENABLED' in process.env).toBe(false);
+
+    const led = listAutoActivationLedger();
+    expect(led.some((e) => e.source === 'OPERATOR_REVOKE')).toBe(true);
+  });
+
+  it('미등재 → NOT_FOUND / LIVE_SAFE → REJECTED_NOT_REVIEWABLE', () => {
+    expect(revokeOperatorApproval('NONEXISTENT').verdict).toBe('NOT_FOUND');
+    expect(revokeOperatorApproval('PRICE_CORRECTION_SHADOW_ADR0623').verdict).toBe(
+      'REJECTED_NOT_REVIEWABLE',
+    );
+  });
+});
+
+describe('ADR-0636 — reapplyOperatorApprovals (부팅 재적용)', () => {
+  it('빈 입력 → [] no-op (byte-identical · process.env 무접촉)', () => {
+    const snapshot = LIVE_ADJACENT_ENV_KEYS.map((k) => process.env[k]);
+    const applied = reapplyOperatorApprovals([]);
+    expect(applied).toEqual([]);
+    expect(LIVE_ADJACENT_ENV_KEYS.map((k) => process.env[k])).toEqual(snapshot);
+    for (const k of LIVE_ADJACENT_ENV_KEYS) expect(process.env[k]).toBeUndefined();
+  });
+
+  it('LIVE_ADJACENT_REVIEW leverId → process.env=true 재적용', () => {
+    const applied = reapplyOperatorApprovals([
+      'R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592',
+      'INTRADAY_SCREENER_REFRESH_ADR0628',
+    ]);
+    expect(applied.sort()).toEqual(
+      ['INTRADAY_SCREENER_REFRESH_ADR0628', 'R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592'].sort(),
+    );
+    expect(process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED).toBe('true');
+    expect(process.env.INTRADAY_SCREENER_REFRESH_ENABLED).toBe('true');
+  });
+
+  it('비-T2(LIVE_SAFE·EXCLUDED) + 오염 leverId → 무시 (안전 가드)', () => {
+    const applied = reapplyOperatorApprovals([
+      'PRICE_CORRECTION_SHADOW_ADR0623', // LIVE_SAFE
+      'GATE1_REGIME_AWARE_REQUIRED_ADR0546', // EXCLUDED
+      'LEGACY_POLLUTED_ID', // 미등재
+      'GATE1_RS_PERCENTILE_CONTINUOUS_ADR0627', // T2 — 유일 적용
+    ]);
+    expect(applied).toEqual(['GATE1_RS_PERCENTILE_CONTINUOUS_ADR0627']);
+    expect(process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED).toBe('true');
+    // 非-T2 는 process.env 무접촉.
+    expect(process.env.PRICE_CORRECTION_SHADOW_ENABLED).toBeUndefined();
+    expect(process.env.GATE1_REGIME_AWARE_REQUIRED).toBeUndefined();
   });
 });
