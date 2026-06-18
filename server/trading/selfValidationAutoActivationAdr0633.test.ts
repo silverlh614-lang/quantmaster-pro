@@ -1,4 +1,4 @@
-// @responsibility ADR-0633 evaluator/ledger 회귀 테스트 — master OFF byte-identical, EXCLUDED 영구 금지(불변식 #7/#8), LIVE_SAFE ACTIVATE/HOLD/ALREADY_ACTIVE/DATA_UNAVAILABLE, ledger 생명주기. process.env 격리.
+// @responsibility ADR-0633/0635 evaluator/ledger 회귀 — master OFF byte-identical, EXCLUDED·LIVE_ADJACENT_REVIEW 무접촉, LIVE_SAFE ACTIVATE/HOLD/DATA_UNAVAILABLE, requiresEvidence:false 활성. process.env 격리.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   evaluateAutoActivation,
@@ -19,13 +19,33 @@ const LIVE_SAFE_ENV_KEYS = [
   'PRICE_CORRECTION_SHADOW_ENABLED',
   'TRADE_REPLACEMENT_SHADOW_EXECUTE_ENABLED',
 ];
+// ADR-0635 — requiresEvidence:false T1 측정/관측 인프라 (evidence-독립 자가 활성).
+const LIVE_SAFE_T1_ENV_KEYS = [
+  'FUTURE_RETURN_RESOLVER_ENABLED',
+  'SHAKEOUT_STOP_FORWARD_LABELER_ENABLED',
+  'SAFETY_GATE_ATTRIBUTION_ENABLED',
+  'SHADOW_LIVE_DELTA_REPORT_ENABLED',
+];
+// ADR-0635 — LIVE_ADJACENT_REVIEW T2 (운영자 1-체크포인트 · 자동 활성 금지).
+const LIVE_ADJACENT_ENV_KEYS = [
+  'R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED',
+  'R6_RECOVERY_STUCK_EXIT_ENABLED',
+  'GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED',
+  'INTRADAY_SCREENER_REFRESH_ENABLED',
+];
 const EXCLUDED_ENV_KEYS = [
   'GATE1_REGIME_AWARE_REQUIRED',
   'GATE1_POSITIVE_CEILING_WIRING_ENABLED',
   'LEARNING_WEIGHT_PROMOTION_ENABLED',
   'COUNTERFACTURE_GATE_APPLY_ENABLED',
 ];
-const ALL_MANAGED_KEYS = [MASTER_FLAG, ...LIVE_SAFE_ENV_KEYS, ...EXCLUDED_ENV_KEYS];
+const ALL_MANAGED_KEYS = [
+  MASTER_FLAG,
+  ...LIVE_SAFE_ENV_KEYS,
+  ...LIVE_SAFE_T1_ENV_KEYS,
+  ...LIVE_ADJACENT_ENV_KEYS,
+  ...EXCLUDED_ENV_KEYS,
+];
 
 const NOW = new Date('2026-06-18T00:00:00.000Z');
 
@@ -96,6 +116,14 @@ function fullySatisfiedInput(
 
 const PRICE_LEVER = LEVER_REGISTRY.find(
   (l) => l.leverId === 'PRICE_CORRECTION_SHADOW_ADR0623',
+)!;
+// ADR-0635 — requiresEvidence:false T1 lever (evidence-독립).
+const T1_LEVER = LEVER_REGISTRY.find(
+  (l) => l.leverId === 'FUTURE_RETURN_RESOLVER_ADR0175',
+)!;
+// ADR-0635 — LIVE_ADJACENT_REVIEW T2 lever (자동 활성 금지).
+const T2_LEVER = LEVER_REGISTRY.find(
+  (l) => l.leverId === 'R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592',
 )!;
 
 beforeEach(() => {
@@ -374,6 +402,202 @@ describe('evaluateLeverReadiness — streak 제외 predicate (ADR-0634 helper)',
     const r = evaluateLeverReadiness(PRICE_LEVER, input);
     expect(r.readyExclStreak).toBe(true);
     expect(process.env.PRICE_CORRECTION_SHADOW_ENABLED).toBe(before);
+  });
+});
+
+// ── ADR-0635 — requiresEvidence:false T1 evidence-독립 자가 활성 ──────────────────
+describe('ADR-0635 — requiresEvidence:false T1 (evidence-독립 활성)', () => {
+  it('T1 lever 는 registry 에서 requiresEvidence:false 로 등재돼 있다', () => {
+    expect(T1_LEVER.criteria.requiresEvidence).toBe(false);
+    expect(T1_LEVER.eligibility).toBe('LIVE_SAFE');
+    expect(T1_LEVER.criteria.minMatureSamplesD5).toBe(0);
+  });
+
+  it('evidence 부재(undefined)여도 readyExclStreak=true (evidence-독립)', () => {
+    const r = evaluateLeverReadiness(T1_LEVER, {
+      now: NOW,
+      evidence: undefined,
+      consecutiveReadyDaysByLever: {},
+    });
+    expect(r.matureOk).toBe(true);
+    expect(r.reviewOk).toBe(true);
+    expect(r.perfOk).toBe(true);
+    expect(r.readyExclStreak).toBe(true);
+  });
+
+  it('master ON + evidence 부재 + streak 충족 → ACTIVATE (env=true, ledger append)', () => {
+    process.env[MASTER_FLAG] = 'true';
+    const report = evaluateAutoActivation({
+      now: NOW,
+      evidence: undefined, // evidence 없음 — 활성됨을 증명.
+      consecutiveReadyDaysByLever: { FUTURE_RETURN_RESOLVER_ADR0175: 2 },
+      registry: [T1_LEVER],
+    });
+
+    const d = report.decisions.find((x) => x.leverId === T1_LEVER.leverId)!;
+    expect(d.verdict).toBe('ACTIVATE');
+    expect(d.activated).toBe(true);
+    expect(process.env.FUTURE_RETURN_RESOLVER_ENABLED).toBe('true');
+    expect(report.activatedLeverIds).toContain('FUTURE_RETURN_RESOLVER_ADR0175');
+
+    const led = listAutoActivationLedger();
+    expect(led.map((e) => e.leverId)).toContain('FUTURE_RETURN_RESOLVER_ADR0175');
+  });
+
+  it('master ON + evidence 부재 + streak 부족 → HOLD (env 무접촉)', () => {
+    process.env[MASTER_FLAG] = 'true';
+    const report = evaluateAutoActivation({
+      now: NOW,
+      evidence: undefined,
+      consecutiveReadyDaysByLever: { FUTURE_RETURN_RESOLVER_ADR0175: 1 }, // < minConsecutiveReadyDays(2)
+      registry: [T1_LEVER],
+    });
+
+    const d = report.decisions.find((x) => x.leverId === T1_LEVER.leverId)!;
+    expect(d.verdict).toBe('HOLD');
+    expect(d.activated).toBe(false);
+    expect(d.reasons.some((r) => r.includes('consecutiveReadyDays'))).toBe(true);
+    expect(process.env.FUTURE_RETURN_RESOLVER_ENABLED).toBeUndefined();
+    expect(listAutoActivationLedger()).toHaveLength(0);
+  });
+
+  it('master OFF → T1 도 MASTER_OFF·process.env 무접촉 (byte-identical, evidence-독립이라도 활성 금지)', () => {
+    // master flag 미설정.
+    const before = process.env.FUTURE_RETURN_RESOLVER_ENABLED;
+    const report = evaluateAutoActivation({
+      now: NOW,
+      evidence: undefined,
+      consecutiveReadyDaysByLever: { FUTURE_RETURN_RESOLVER_ADR0175: 99 },
+      registry: [T1_LEVER],
+    });
+
+    const d = report.decisions.find((x) => x.leverId === T1_LEVER.leverId)!;
+    expect(d.verdict).toBe('MASTER_OFF');
+    expect(d.activated).toBe(false);
+    expect(report.activatedLeverIds).toEqual([]);
+    expect(process.env.FUTURE_RETURN_RESOLVER_ENABLED).toBe(before);
+    expect(process.env.FUTURE_RETURN_RESOLVER_ENABLED).toBeUndefined();
+    expect(listAutoActivationLedger()).toHaveLength(0);
+  });
+
+  it('requiresEvidence:true seed + evidence 부재 → 여전히 DATA_UNAVAILABLE (무회귀)', () => {
+    process.env[MASTER_FLAG] = 'true';
+    const report = evaluateAutoActivation({
+      now: NOW,
+      evidence: undefined,
+      consecutiveReadyDaysByLever: { PRICE_CORRECTION_SHADOW_ADR0623: 99 },
+      registry: [PRICE_LEVER],
+    });
+
+    const d = report.decisions.find((x) => x.leverId === PRICE_LEVER.leverId)!;
+    expect(d.verdict).toBe('DATA_UNAVAILABLE');
+    expect(d.activated).toBe(false);
+    expect(process.env.PRICE_CORRECTION_SHADOW_ENABLED).toBeUndefined();
+  });
+});
+
+// ── ADR-0635 — LIVE_ADJACENT_REVIEW T2 (자동 활성 금지 · 불변식 회귀 핵심) ─────────
+describe('ADR-0635 — LIVE_ADJACENT_REVIEW T2 (운영자 검토 · process.env 무접촉)', () => {
+  beforeEach(() => {
+    process.env[MASTER_FLAG] = 'true';
+  });
+
+  it('T2 lever 는 LIVE_ADJACENT_REVIEW 로 등재돼 있다', () => {
+    expect(T2_LEVER.eligibility).toBe('LIVE_ADJACENT_REVIEW');
+  });
+
+  it('master ON + 충족 조건을 줘도 → EXCLUDED, process.env 절대 무접촉', () => {
+    const report = evaluateAutoActivation({
+      now: NOW,
+      promotionReadiness: makePromotionBoard(true),
+      evidence: makeEvidence({ matureSamplesD5: 150, reviewReady: true }),
+      consecutiveReadyDaysByLever: { R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592: 99 },
+      registry: [T2_LEVER],
+    });
+
+    const d = report.decisions.find((x) => x.leverId === T2_LEVER.leverId)!;
+    expect(d.verdict).toBe('EXCLUDED');
+    expect(d.activated).toBe(false);
+    expect(report.activatedLeverIds).not.toContain(T2_LEVER.leverId);
+    expect(process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED).toBeUndefined();
+  });
+
+  it('전체 T2 4종 모두 EXCLUDED·process.env 무접촉', () => {
+    const report = evaluateAutoActivation({
+      now: NOW,
+      promotionReadiness: makePromotionBoard(true),
+      evidence: makeEvidence({ matureSamplesD5: 150, reviewReady: true }),
+    });
+    const t2Levers = LEVER_REGISTRY.filter((l) => l.eligibility === 'LIVE_ADJACENT_REVIEW');
+    expect(t2Levers.length).toBe(4);
+    for (const lever of t2Levers) {
+      const d = report.decisions.find((x) => x.leverId === lever.leverId)!;
+      expect(d.verdict).toBe('EXCLUDED');
+      expect(process.env[lever.envName]).toBeUndefined();
+    }
+  });
+});
+
+// ── ADR-0635 — 실제 LEVER_REGISTRY 통합 (evidence 부재 시나리오) ───────────────────
+describe('ADR-0635 — 실제 LEVER_REGISTRY 통합 (evidence 부재 · streak 누적)', () => {
+  beforeEach(() => {
+    process.env[MASTER_FLAG] = 'true';
+  });
+
+  it('master ON + evidence 부재 + T1 4종 streak 충족 → T1 만 활성 / T2·T3·requiresEvidence:true seed 무접촉 / LIVE env 무접촉', () => {
+    // LIVE master env 가 평가 전 무접촉임을 보장 (실제 LIVE env 절대 무접촉 — 등재조차 안 됨).
+    const liveAutoTradeBefore = process.env.AUTO_TRADE_ENABLED;
+    const kisRealBefore = process.env.KIS_IS_REAL;
+
+    const consecutiveReadyDaysByLever: Record<string, number> = {};
+    for (const k of [
+      'FUTURE_RETURN_RESOLVER_ADR0175',
+      'SHAKEOUT_STOP_FORWARD_LABELER_ADR0625',
+      'SAFETY_GATE_ATTRIBUTION_ADR0174',
+      'SHADOW_LIVE_DELTA_REPORT_ADR0174',
+    ]) {
+      consecutiveReadyDaysByLever[k] = 2; // minConsecutiveReadyDays 충족.
+    }
+
+    const report = evaluateAutoActivation({
+      now: NOW,
+      evidence: undefined, // evidence 부재 — requiresEvidence:true seed 는 DATA_UNAVAILABLE.
+      consecutiveReadyDaysByLever,
+      // registry 미지정 → 실제 LEVER_REGISTRY.
+    });
+
+    // T1 4종 → ACTIVATE.
+    for (const envKey of LIVE_SAFE_T1_ENV_KEYS) {
+      expect(process.env[envKey]).toBe('true');
+    }
+    expect(report.activatedLeverIds.sort()).toEqual(
+      [
+        'FUTURE_RETURN_RESOLVER_ADR0175',
+        'SAFETY_GATE_ATTRIBUTION_ADR0174',
+        'SHADOW_LIVE_DELTA_REPORT_ADR0174',
+        'SHAKEOUT_STOP_FORWARD_LABELER_ADR0625',
+      ].sort(),
+    );
+
+    // requiresEvidence:true seed 2종 → DATA_UNAVAILABLE (evidence 부재 무회귀).
+    for (const lever of LEVER_REGISTRY.filter(
+      (l) => l.eligibility === 'LIVE_SAFE' && l.criteria.requiresEvidence === true,
+    )) {
+      const d = report.decisions.find((x) => x.leverId === lever.leverId)!;
+      expect(d.verdict).toBe('DATA_UNAVAILABLE');
+      expect(process.env[lever.envName]).toBeUndefined();
+    }
+
+    // T2 (LIVE_ADJACENT_REVIEW) + T3 (EXCLUDED) → 모두 process.env 무접촉.
+    for (const lever of LEVER_REGISTRY.filter((l) => l.eligibility !== 'LIVE_SAFE')) {
+      const d = report.decisions.find((x) => x.leverId === lever.leverId)!;
+      expect(d.verdict).toBe('EXCLUDED');
+      expect(process.env[lever.envName]).toBeUndefined();
+    }
+
+    // LIVE master env 절대 무접촉 (registry 비등재).
+    expect(process.env.AUTO_TRADE_ENABLED).toBe(liveAutoTradeBefore);
+    expect(process.env.KIS_IS_REAL).toBe(kisRealBefore);
   });
 });
 
