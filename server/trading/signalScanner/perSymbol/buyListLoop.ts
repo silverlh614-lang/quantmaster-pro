@@ -484,7 +484,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         console.warn('[Adr0427ProvisionalShadow] wiring 실패 — 매수 흐름 무영향:', e);
       }
 
-      await counterfactualShadowLearning(ctx, stock, reCheckGate, isGate1Survivor);
+      await counterfactualShadowLearning(ctx, stock, reCheckGate, isGate1Survivor, currentPrice);
 
       // ── ADR-0031 PR-59 PoC: entryRevalidationStep RevalidationStep 분기 ───
       // step 자체는 외부 mutation·부수효과 0건 — fail 시 caller 가 stock.entryFailCount,
