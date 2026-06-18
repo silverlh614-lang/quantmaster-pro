@@ -49,6 +49,10 @@ import {
   isUnifiedForwardOutcomeLabelerEnabled,
   runUnifiedForwardOutcomeLabeler,
 } from '../learning/unifiedForwardOutcomeLabeler.js';
+import {
+  isShakeoutStopForwardLabelerEnabled,
+  runShakeoutStopForwardLabeler,
+} from '../learning/shakeoutStopForwardLabeler.js';
 import { runGateThresholdReadinessAlert } from '../learning/gateThresholdReadinessAlert.js';
 import { runDailyEvalFallbackIfMissed } from '../learning/dailyEvalFallback.js';
 import { scheduledJob } from './scheduleGuard.js';
@@ -204,6 +208,28 @@ export function registerLearningJobs(): void {
     const res = await runUpdateGate3ForwardReturnsJob();
     console.log(
       `[Gate3ForwardReturn] pending=${res.pending} dueSeeds=${res.seedsWithDueHorizon} symbolsQueried=${res.symbolsQueried} symbolsFailed=${res.symbolsFailed} updated=${res.seedsUpdated}`,
+    );
+  }, { timezone: 'UTC' });
+
+  // Shakeout Stop Forward Labeler — 평일 KST 16:50 (UTC 07:50). gate3_forward_return(16:35)·
+  //   shadow_live_delta(16:45) 이후 stagger. KRX 장 마감 50분 후.
+  // ADR-0624: 실행 청산(HIT_STOP) 포지션의 손절-후 1/3/5/10일 종가를 KIS 일봉(L1, read-only)
+  //   으로 추적 → 청산가 대비 최대 회복률 산출 → 셰이크아웃 여부(+5%) 라벨링 (관측 전용).
+  //   shadow-trades.json 영속 본체 무수정, 라벨은 물리 분리 별도 ledger 영속 (ADR-0445).
+  // executionImpact=NONE — LIVE 주문/SourceSnapshot/Gate 판정 본체 변경 0.
+  // Historical close priceFetcher is required here; do not fall back to current price.
+  //   fetchHistoricalClosePrice(KIS-first) 주입 — KIS quota 보호 (per-symbol 캐시).
+  // 9대 불변식 #2(Shadow 무중단)/#6(종가 결손 시 horizon skip → 다음 cron 재시도, 약세변환 0) 준수.
+  // ENV `SHAKEOUT_STOP_FORWARD_LABELER_ENABLED=true` default OFF — 운영자 명시 활성화 의무.
+  // ScheduleClass='TRADING_DAY_ONLY' (ADR-0045) — KRX 휴장일 자동 silent skip
+  //   (PENDING 라벨은 다음 영업일 cron 호출 시 자연 재시도, enqueue 불필요).
+  scheduledJob('50 7 * * 1-5', 'TRADING_DAY_ONLY', 'shakeout_stop_forward_labeling', async () => {
+    if (!isShakeoutStopForwardLabelerEnabled()) return;
+    const res = await runShakeoutStopForwardLabeler({
+      fetcher: (symbol, asOf) => fetchHistoricalClosePrice(symbol, asOf),
+    });
+    console.log(
+      `[ShakeoutStopForwardLabeler] candidates=${res.totalCandidates} resolved=${res.resolvedNow} pending=${res.pending} shakeout=${res.shakeoutCount} errors=${res.errors} (${res.durationMs}ms)`,
     );
   }, { timezone: 'UTC' });
 

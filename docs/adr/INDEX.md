@@ -14,7 +14,11 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0624`**
+**다음 ADR 번호: `0626`**
+
+(2026-06-18 기준, 마지막 발급 0625 — shakeout-initial-loss-twobar-shadow. **Status: Proposed (Phase 0 — 경계·타입·ADR. ENV default OFF, LIVE byte-equivalent. 구현 engine-dev.)** ADR-0625(A) — 진입 직후 손실 초기 손절(INITIAL/REGIME)에 wick 즉시청산 대신 2-bar 종가확인 확대(진단 옵션 A·근본원인 #4). 기존 2-bar(ADR-0085)는 `isBepProtection===(stopLossExitType==='PROFIT_PROTECTION')` 일 때만 작동→손실초기 사각지대. seam=`twoBarBepGate.applyTwoBarBepGate` 결정트리 재구조화(1.BEP_DISABLED SKIP·2.isBepProtection 기존 BEP 경로·3.isBepProtection=false∧손실초기 확대게이트 a∧b∧c∧d 충족→evaluateTwoBarConfirmation({isBepProtection:true}) 재사용·4.그외 SKIP byte-equivalent). 게이트: (a)ENV SHAKEOUT_INITIAL_LOSS_TWOBAR_SHADOW_ENABLED==='true' default OFF·(b)getTradingMode()!=='LIVE'[LIVE 절대 우회 금지·불변식 #8·byte-identical]·(c)stopLossExitType∈{INITIAL,REGIME,INITIAL_AND_REGIME}·(d)returnPct>SHAKEOUT_INITIAL_LOSS_DEEP_DROP_BYPASS_PCT(-12.0)[깊은하락 우회·즉시손절 유지]. hardStopLoss.ts 호출부 stopLossExitType·returnPct 2인자 전달만(본체 불변). twoBarConfirmation.ts 0줄(정책함수 재사용·두 번째 산식 0). bepGlideTouchAt 재사용·신규 영속 필드 0. 타입 additive optional(TwoBarBepGateInput stopLossExitType?/returnPct?·src/types 무수정). LIVE byte-equivalent(OFF→SHADOW·LIVE 즉시손절·ON+LIVE→조건b=false SKIP byte-identical·ENV 1줄 롤백). 9대 불변식 #1/#2/#8 보존. 계보 0085/0157/0079/0112/0146. INDEX 0625→0626 갱신.)
+
+(2026-06-18 기준, 마지막 발급 0624 — shakeout-stoploss-forward-outcome-labeler. **Status: Proposed (Phase 0 — 경계·타입·ADR. ENV default OFF byte-equivalent. 구현 engine-dev.)** ADR-0624(D) — 실행 포지션 HIT_STOP 청산 후 종목 급등(=셰이크아웃) 정량 학습 부재(진단 Q4·근본원인 #6). 기존 futureReturnResolver(ADR-0175)는 shadow-learning-only signal 대상이라 실행 청산 포지션 미도달. 신규 관측 모듈 `server/learning/shakeoutStopForwardLabeler.ts`(대상=loadShadowTrades HIT_STOP·exitTime·exitOutcome≠BE·exitPrice positive)·horizon 1/3/5/10영업일·청산가 대비 maxRecoveryPct≥SHAKEOUT_RECOVERY_THRESHOLD_PCT(5.0%·모듈 export SSOT)→isShakeout 확정(RESOLVED). 신규 repo `shakeoutStopOutcomeRepo.ts`(atomic tmp→rename·손상 JSON []·upsertLabel tradeId 키 RESOLVED 불변성 skip·loadLabels)·paths.ts SHAKEOUT_STOP_OUTCOME_LEDGER_FILE 1줄(shadow-trades.json 물리 분리 ADR-0445). priceFetcher 주입 seam=fetchHistoricalClosePrice(KIS 일봉 primary·ADR-0561)·미전달 전건 errors++·warn 1회(quota 0). cron shakeout_stop_forward_labeling KST16:50(`50 7 * * 1-5`·TRADING_DAY_ONLY·ENV 단락). ENV SHAKEOUT_STOP_FORWARD_LABELER_ENABLED==='true' default OFF(ADR-0157). 안전 invariant 7종(LIVE 본체 0줄·주문 import 0·KIS read-only·ENV OFF·호출자 1건·원본 불변·providerIssue≠marketSignal). executionImpact NONE(관측 전용·OFF byte-equivalent). src/types 무수정(server-local). 계보 0175/0445/0561/0157/0112/0045/0146. INDEX 0624→0625 갱신.)
 
 (2026-06-18 기준, 마지막 발급 0623 — price-correction-stage2-shadow-activation. **Status: Accepted (Stage 2a 구현 — ENV `PRICE_CORRECTION_SHADOW_ENABLED` default OFF byte-equivalent + Seam A diagnostics 집계 채움). Stage 2b(shadow corrected 치환)는 후속 PR.)** ADR-0623 — ADR-0414 Stage 1 Read-Only(dead-but-tested) 의 직속 후속. Stage 2a 가 채우는 것=ScanSummary `priceIntegrity`/`priceCorrection` diagnostics 집계(buyListLoop Seam A 가 kisIntradayCorrectionStep 직후 이미 보유한 reCheckQuote/currentPrice 로 evaluatePriceIntegrity→evaluatePriceCorrection→accumulatePriceIntegrityCorrection·외부 fetch 0·corrected→LIVE/Shadow 의사결정 미사용·try/catch 격리 불변식 #1). 신규 ENV SSOT isPriceCorrectionShadowEnabled()(priceCorrectionEngine 거주·=== 'true' 정확비교 ADR-0157·PRICE_CORRECTION_DISABLED 우선 게이팅). ScanCounters additive 옵셔널 priceIntegritySamples?/priceCorrectionSamples?(server-local·src/types 무수정·미초기화 시 byte-equivalent). persistScanResults reduce(statusCounts/correctionTypeCounts/averageConfidence/dropGapCalculationCount/shadowOnlySuggestedCount/topAffected). LIVE 무접촉(entryEngine/exitEngine/order executor/kisClient/autoTradeEngine 0줄·정적 grep 가드). Stage 2b(Seam B kisIntradayCorrection 시그니처 변경+corrected 복제 합성)는 본 PR 미구현. 9대 불변식 #1/#4/#8/#9·ADR-0414 invariant 10종 계승+Stage2 4종 보존. 롤백 ENV 1줄. 계보 0414/0412/0436/0608/0619/0157/0185~0189. INDEX 0623→0624 갱신.)
 
@@ -725,8 +729,10 @@
 | 0621 | gate2-rs-benchmark-dualization-kosdaq | quant / gate2 |
 | 0622 | universe-discovery-aggressiveness-topn-rs-percentile | policy / screener |
 | 0623 | price-correction-stage2-shadow-activation | trading / diagnostics |
+| 0624 | shakeout-stoploss-forward-outcome-labeler | learning / persistence |
+| 0625 | shakeout-initial-loss-twobar-shadow | trading / exit |
 
-**최대 발급 0623 · 다음 발급 0624** — `node scripts/check_adr_index.js --json` 기준 (2026-06-17 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0625 · 다음 발급 0626** — `node scripts/check_adr_index.js --json` 기준 (2026-06-18 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

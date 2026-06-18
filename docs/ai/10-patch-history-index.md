@@ -35,6 +35,8 @@ Rules:
 
 | ID | Domain | Current use | Detail |
 |----|--------|-------------|--------|
+| ADR-0625 | shakeout exit (A) | 손실초기 손절 2-bar 종가확인 확대 (shadow-only·LIVE byte-equivalent·깊은하락≤-12% 즉시손절·default OFF) | `docs/adr/0625-shakeout-initial-loss-twobar-shadow.md` (`exitEngine/helpers/twoBarBepGate.ts` 결정트리 + `rules/hardStopLoss.ts` 2인자) |
+| ADR-0624 | shakeout learning (D) | 실행 청산(HIT_STOP) 손절-후 1/3/5/10일 셰이크아웃(+5%) 관측 라벨러 (KIS 일봉 read-only·shadow-trades.json 무수정·default OFF·executionImpact NONE) | `docs/adr/0624-shakeout-stoploss-forward-outcome-labeler.md` (`learning/shakeoutStopForwardLabeler.ts` + `persistence/shakeoutStopOutcomeRepo.ts` + cron) |
 | ADR-0592 | R6 trigger freshness | trade-date freshness 강등 + intraday KOSPI rebound 인식 (shadow-gated, 3 flag default OFF=byte-equivalent) | `docs/adr/0592-r6-trigger-freshness-tradedate-intraday-rebound.md` (`kospiTriggerFreshness.ts` + `marketDataRefresh/kospiIntradayRefresh.ts`) |
 | ADR-527 | AI context | CLAUDE slimming | `docs/archive/adr/patch-history-full-log.md` |
 | ADR-528 | AI docs router | `docs/ai/00`~`10` boundaries | `docs/archive/adr/patch-history-full-log.md` |
