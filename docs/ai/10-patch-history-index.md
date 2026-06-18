@@ -35,6 +35,7 @@ Rules:
 
 | ID | Domain | Current use | Detail |
 |----|--------|-------------|--------|
+| ADR-0627 | gate1 positive wiring | RS step 양자화→연속 percentile 승격 + breakout OHLCV resolver 필드명(high20d) 정정 (positive starvation 진짜 갭 2종·requiredScore 70/weight 불변·flag default OFF byte-identical·구현 engine-dev) | `docs/adr/0627-gate1-rs-percentile-continuous-and-breakout-ohlcv-field-fix.md` (`decompositionBuilder.ts:263` + `gate1PositiveCeilingWiringAdr0613.ts:97` + `gateConfig.ts`) |
 | ADR-0626 | shakeout exit (A) | 손실초기 손절 2-bar 종가확인 확대 (shadow-only·LIVE byte-equivalent·깊은하락≤-12% 즉시손절·default OFF) | `docs/adr/0626-shakeout-initial-loss-twobar-shadow.md` (`exitEngine/helpers/twoBarBepGate.ts` 결정트리 + `rules/hardStopLoss.ts` 2인자) |
 | ADR-0625 | shakeout learning (D) | 실행 청산(HIT_STOP) 손절-후 1/3/5/10일 셰이크아웃(+5%) 관측 라벨러 (KIS 일봉 read-only·shadow-trades.json 무수정·default OFF·executionImpact NONE) | `docs/adr/0625-shakeout-stoploss-forward-outcome-labeler.md` (`learning/shakeoutStopForwardLabeler.ts` + `persistence/shakeoutStopOutcomeRepo.ts` + cron) |
 | ADR-0592 | R6 trigger freshness | trade-date freshness 강등 + intraday KOSPI rebound 인식 (shadow-gated, 3 flag default OFF=byte-equivalent) | `docs/adr/0592-r6-trigger-freshness-tradedate-intraday-rebound.md` (`kospiTriggerFreshness.ts` + `marketDataRefresh/kospiIntradayRefresh.ts`) |

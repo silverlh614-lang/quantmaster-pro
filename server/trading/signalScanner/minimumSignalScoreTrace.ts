@@ -40,6 +40,7 @@ import {
   applyBreakoutWiring,
   applyPositiveMaxNormalization,
   computeCeilingWiringHypothetical,
+  computeRsContinuousHypothetical,
 } from "./gate1PositiveCeilingWiringAdr0613.js";
 
 export * from "./minimumSignalScoreTrace/types.js";
@@ -563,6 +564,20 @@ export function buildMinimumSignalScoreTrace(input: {
     /* SDS-ignore: ADR-0613 관측 ledger stamp 실패는 scorer 본체에 영향 0 (불변식 #1). 필드 미stamp 로 graceful. */
     ceilingWiringHypothetical = undefined;
   }
+  // ADR-0627 D3 RS 연속 승격 관측 hypothetical — flag 무관 force-ON 산출(OFF 에서도 효과 크기 측정).
+  // try/catch 격리(불변식 #1): 실패 시 필드 미stamp. actualScore/passed 본체 영향 0.
+  let rsContinuousHypothetical: ReturnType<typeof computeRsContinuousHypothetical> | undefined;
+  try {
+    rsContinuousHypothetical = computeRsContinuousHypothetical({
+      trace: input.trace,
+      relativeStrengthActualWeighted: relativeWeightedScore,
+      actualScore,
+      requiredScore,
+    });
+  } catch {
+    /* SDS-ignore: ADR-0627 RS 연속 hypothetical stamp 실패는 scorer 본체에 영향 0 (불변식 #1). 필드 미stamp 로 graceful. */
+    rsContinuousHypothetical = undefined;
+  }
   return {
     symbol: input.trace.symbol,
     name: input.trace.name,
@@ -572,6 +587,7 @@ export function buildMinimumSignalScoreTrace(input: {
     passed: actualScore >= requiredScore,
     components,
     ...(ceilingWiringHypothetical ? ceilingWiringHypothetical : {}),
+    ...(rsContinuousHypothetical ? rsContinuousHypothetical : {}),
     positiveScoreTotal,
     penaltyTotal,
     unknownPenaltyTotal,
