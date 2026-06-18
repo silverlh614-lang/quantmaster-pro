@@ -191,17 +191,24 @@ describe('entryRevalidationStep', () => {
   });
 });
 
-describe('ADR-0608 entryRevalidationStep — isShadow 진입 임계 분기', () => {
+describe('ADR-0608/0624 entryRevalidationStep — isShadow 진입 임계 분기', () => {
   const ENV_KEY = 'GATE1_REGIME_AWARE_SHADOW_ENTRY_ENABLED';
+  const KILL_KEY = 'SHADOW_LIBERALIZATION_KILL';
   let savedEnv: string | undefined;
+  let savedKill: string | undefined;
 
   beforeEach(() => {
     savedEnv = process.env[ENV_KEY];
-    delete process.env[ENV_KEY];
+    savedKill = process.env[KILL_KEY];
+    // ADR-0624 D1: default ON 이므로 OFF baseline 은 `='false'` 로 명시(미설정=ON 회피).
+    process.env[ENV_KEY] = 'false';
+    delete process.env[KILL_KEY];
   });
   afterEach(() => {
     if (savedEnv === undefined) delete process.env[ENV_KEY];
     else process.env[ENV_KEY] = savedEnv;
+    if (savedKill === undefined) delete process.env[KILL_KEY];
+    else process.env[KILL_KEY] = savedKill;
   });
 
   // ⚠ ADR-0608 Phase 2: floor 5 는 LIVE 전용. SHADOW(=REGIME_AWARE_SHADOW)는 floor 우회 →
@@ -264,12 +271,27 @@ describe('ADR-0608 entryRevalidationStep — isShadow 진입 임계 분기', () 
     expect(result.failReasons.some((r) => r.includes('Gate 재검증 미달'))).toBe(true);
   });
 
-  it('(P2-1) ENV OFF — score 4 R3_EARLY 는 LIVE/SHADOW 모두 floor 5 → 탈락 (byte-equivalent)', () => {
-    delete process.env[ENV_KEY];
+  it('(P2-1) flag OFF(`=false`) — score 4 R3_EARLY 는 LIVE/SHADOW 모두 floor 5 → 탈락 (byte-equivalent)', () => {
+    process.env[ENV_KEY] = 'false';
     const live = entryRevalidationStep({ ...score4R3, isShadow: false });
     const shadow = entryRevalidationStep({ ...score4R3, isShadow: true });
     expect(live.proceed).toBe(false);
-    expect(shadow.proceed).toBe(false); // ENV OFF → SHADOW 도 floor 5 클램프
+    expect(shadow.proceed).toBe(false); // flag OFF → SHADOW 도 floor 5 클램프
+  });
+
+  it('(P2-1c) ADR-0624 미설정(default ON) + SHADOW + R3_EARLY + score 4 → proceed=true (운영자 미개입 floor 우회)', () => {
+    delete process.env[ENV_KEY];
+    const shadow = entryRevalidationStep({ ...score4R3, isShadow: true });
+    expect(shadow.proceed).toBe(true); // default ON → REGIME_AWARE_SHADOW floor 우회 minGate 4
+    const live = entryRevalidationStep({ ...score4R3, isShadow: false });
+    expect(live.proceed).toBe(false); // live 는 floor 5 byte-equivalent
+  });
+
+  it('(P2-1d) kill-switch ON(미설정 default ON) + SHADOW + R3_EARLY + score 4 → proceed=false (byte-equivalent 롤백)', () => {
+    delete process.env[ENV_KEY];
+    process.env[KILL_KEY] = 'true';
+    const shadow = entryRevalidationStep({ ...score4R3, isShadow: true });
+    expect(shadow.proceed).toBe(false); // kill → LEGACY floor 5 클램프
   });
 
   it('(P2-5) entryRegime 미전달 → input.regime fallback (후방호환)', () => {
@@ -279,9 +301,9 @@ describe('ADR-0608 entryRevalidationStep — isShadow 진입 임계 분기', () 
     expect(result.proceed).toBe(true); // R3 floor 우회 → minGate 4
   });
 
-  it('(P2-1b) entryRegime 분기 — SHADOW 가 ENV OFF 면 entryRegime 무시(LEGACY floor 5)', () => {
-    delete process.env[ENV_KEY];
-    // entryRegime=R3_EARLY 를 명시해도 ENV OFF → LEGACY → getMinGateScore(R3)=4 → floor 5 클램프.
+  it('(P2-1b) entryRegime 분기 — SHADOW 가 flag OFF(`=false`) 면 entryRegime 무시(LEGACY floor 5)', () => {
+    process.env[ENV_KEY] = 'false';
+    // entryRegime=R3_EARLY 를 명시해도 flag OFF → LEGACY → getMinGateScore(R3)=4 → floor 5 클램프.
     const result = entryRevalidationStep({
       ...baseInput,
       regime: 'R4_NEUTRAL',
@@ -289,7 +311,7 @@ describe('ADR-0608 entryRevalidationStep — isShadow 진입 임계 분기', () 
       reCheckGate: { gateScore: 4 as number | undefined, signalType: 'NORMAL' as const },
       isShadow: true,
     });
-    expect(result.proceed).toBe(false); // floor 5 → 4 < 5 탈락 (ENV OFF byte-equivalent)
+    expect(result.proceed).toBe(false); // floor 5 → 4 < 5 탈락 (flag OFF byte-equivalent)
   });
 });
 
