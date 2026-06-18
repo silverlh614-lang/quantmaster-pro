@@ -82,17 +82,17 @@ describe('ADR-0414 §10 정적 grep 가드 — Stage 1 Read-Only invariant', () 
   });
 
   it('테스트 26: signalScanner / entryEngine / exitEngine / order executor 가 corrected 값을 live decision 에 사용하지 않음 (정적 grep)', () => {
-    // 본 PR 에서 priceCorrectionEngine 호출자 0건 — *코드베이스 grep* 기반 검증.
-    // 호출자가 추가되면 본 테스트가 자동 fail 하여 회귀 가드 작동.
-    //
     // entryEngine / exitEngine / order executor 본체가 evaluatePriceCorrection 또는
     // priceCorrectionEngine 모듈을 import 하는지 검사.
+    //
+    // ADR-0623 Stage 2a: buyListLoop 은 Seam A diagnostics 집계 채움(corrected→LIVE/Shadow
+    // 의사결정 미사용)을 위해 본 모듈을 의도적으로 import 한다 → 본 grep 대상에서 제외.
+    // buyListLoop 의 corrected 미사용은 테스트 26b/buyListLoopWiring 회귀가 별도 강제한다.
     const targets = [
       'server/trading/entryEngine.ts',
       'server/trading/signalScanner.ts',
       'server/trading/signalScanner/index.ts',
       'server/trading/signalScanner/preflight.ts',
-      'server/trading/signalScanner/perSymbol/buyListLoop.ts',
       'server/trading/signalScanner/perSymbol/intradayLoop.ts',
       'server/trading/signalScanner/perSymbolEvaluation.ts',
       'server/trading/exitEngine/index.ts',
@@ -218,13 +218,13 @@ describe('ADR-0414 §10 정적 grep 가드 — Stage 1 Read-Only invariant', () 
     expect(src).toMatch(/ADR-0414/);
   });
 
-  it('보너스 3: Stage 1 dead code — 본 PR 신규 모듈 호출자 0건 (검증)', () => {
-    // 코드베이스 전체에서 priceCorrectionEngine 호출자 검사 — 본 PR 에서는 0건 의도
-    // (Stage 2/3 후속 PR 에서 wiring)
+  it('보너스 3: LIVE 본체 모듈 — priceCorrectionEngine 호출자 0건 (ADR-0623 Stage 2a LIVE 무접촉 유지)', () => {
+    // ADR-0623 Stage 2a: buyListLoop 만 Seam A diagnostics 집계용으로 wiring 됨(corrected→LIVE
+    // 미사용). entryEngine/exitEngine/order executor/orchestrator/autoTradeEngine 등 LIVE 매매
+    // 본체는 여전히 priceCorrectionEngine/priceIntegrityChecker 무접촉 — 본 grep 이 영구 강제.
     const callerCandidates = [
       'server/trading/signalScanner/index.ts',
       'server/trading/signalScanner/preflight.ts',
-      'server/trading/signalScanner/perSymbol/buyListLoop.ts',
       'server/trading/signalScanner/perSymbol/intradayLoop.ts',
       'server/trading/signalScanner/perSymbolEvaluation.ts',
       'server/trading/entryEngine.ts',

@@ -46,6 +46,8 @@ export interface ScanCounters {
   shadowNearBreakoutCreated?: number;
   shadowNearBreakoutBlocked?: number;
   shadowNearBreakoutBlockReasons?: Partial<Record<string, number>>;
+  priceIntegritySamples?: unknown;
+  priceCorrectionSamples?: unknown;
 }
 export interface ScanSummary {
   emptyScanRootCause?: EmptyScanRootCauseDashboardAdr0500;
