@@ -64,6 +64,9 @@ afterEach(() => {
   delete process.env.KIS_SECTOR_INDEX_CURRENT_TR_ID;
   delete process.env.KIS_SECTOR_INDEX_VERIFY_MODE;
   delete process.env.KIS_SECTOR_INDEX_VERIFY_SEND_DEBUG_VARIANTS;
+  delete process.env.KIS_SECTOR_INDEX_VERIFY_EGW00201_MAX_RETRIES;
+  delete process.env.KIS_SECTOR_INDEX_VERIFY_EGW00201_BACKOFF_BASE_MS;
+  delete process.env.KIS_SECTOR_INDEX_VERIFY_THROTTLE_MS;
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -468,5 +471,70 @@ describe('fetchKisSectorIndexCurrentPriceProbe', () => {
       exceptionClass: 'AbortError',
     });
     expect(result?.attempts[0]?.exceptionMessageSanitized).toContain('token=<masked>');
+  });
+
+  // ─── EGW00201 (초당 거래건수 초과) 백오프 재시도 회귀 ─────────────────────────────
+  // 운영 실측(2026-06-18): httpStatus=500 rt_cd=1 msg_cd=EGW00201 — 유니버스 49 확장으로
+  // 11개 섹터 verify 가 quote 버스트와 겹쳐 KIS 초당 한도 침범 → 일부 섹터 verify 실패.
+  describe('EGW00201 per-second rate limit backoff', () => {
+    const egwResponse = () => new Response(JSON.stringify({
+      rt_cd: '1', msg_cd: 'EGW00201', msg1: '초당 거래건수를 초과하였습니다.', output: [],
+    }), { status: 500 });
+    const okResponse = () => new Response(JSON.stringify({
+      rt_cd: '0', msg_cd: 'MCA00000', msg1: 'OK',
+      output: [{ hts_kor_isnm: 'chemical', bstp_nmix_prpr: '1234.56' }],
+    }), { status: 200 });
+
+    it('retries after EGW00201 with backoff and succeeds on a later attempt', async () => {
+      process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
+      process.env.KIS_SECTOR_INDEX_VERIFY_EGW00201_BACKOFF_BASE_MS = '10';
+      process.env.KIS_SECTOR_INDEX_VERIFY_THROTTLE_MS = '0';
+      vi.resetModules();
+      mod = await import('./query.js');
+      _fetch
+        .mockResolvedValueOnce(egwResponse())
+        .mockResolvedValueOnce(okResponse());
+
+      const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
+
+      expect(result).toMatchObject({ verified: true, reasonCode: 'VERIFY_SUCCESS', currentIndex: 1234.56 });
+      expect(_fetch).toHaveBeenCalledTimes(2);
+      expect(result?.attempts[0]?.retryCount).toBe(1);
+    });
+
+    it('isolates the sector as KIS_INDEX_API_RATE_LIMIT after backoff is exhausted (no throw, executionImpact=NONE)', async () => {
+      process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
+      process.env.KIS_SECTOR_INDEX_VERIFY_EGW00201_MAX_RETRIES = '2';
+      process.env.KIS_SECTOR_INDEX_VERIFY_EGW00201_BACKOFF_BASE_MS = '10';
+      process.env.KIS_SECTOR_INDEX_VERIFY_THROTTLE_MS = '0';
+      vi.resetModules();
+      mod = await import('./query.js');
+      _fetch.mockImplementation(() => egwResponse());
+
+      const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
+
+      // 백오프 소진 후에도 실패 → 해당 섹터만 RATE_LIMIT 격리(transport, providerIssue), throw 0.
+      expect(result).toMatchObject({
+        verified: false,
+        reasonCode: 'VERIFY_VARIANTS_EXHAUSTED',
+        selectedFailureReason: 'KIS_INDEX_API_RATE_LIMIT',
+      });
+      // 1 (최초) + 2 (재시도) = 3 회.
+      expect(_fetch).toHaveBeenCalledTimes(3);
+      expect(result?.attempts[0]?.retryCount).toBe(2);
+    });
+
+    it('does not retry or delay on a normal rt_cd=0 response (byte-equivalent happy path)', async () => {
+      process.env.KIS_SECTOR_INDEX_CURRENT_ENABLED = 'true';
+      vi.resetModules();
+      mod = await import('./query.js');
+      _fetch.mockResolvedValue(okResponse());
+
+      const result = await mod.fetchKisSectorIndexCurrentPriceProbe(['0000']);
+
+      expect(result).toMatchObject({ verified: true, reasonCode: 'VERIFY_SUCCESS' });
+      expect(_fetch).toHaveBeenCalledTimes(1);
+      expect(result?.attempts[0]?.retryCount).toBe(0);
+    });
   });
 });
