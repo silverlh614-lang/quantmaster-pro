@@ -442,11 +442,13 @@ describe('preflight.ts byte-equivalent tests', () => {
     expect(ctx.effectiveMaxPositions).toBe(6);
   });
 
-  // ─── learningRegime carry 정합 회귀 (patch) ──────────────────────────────────
-  // regimeDiagnostics.effectiveRegime 가 확장 R6 상태기계 어휘를 누수하면 단순 REGIME_CONFIGS
-  // 키 검사로는 R4_NEUTRAL 로 폴백돼 R3 provisional/counterfactual 레인이 영구 비활성화된다.
-  // toCanonicalRegimeLevel 정규화로 learningRegime 이 canonical RegimeLevel 이 됨을 검증한다.
-  // live `regime`(clamp)은 본 수리와 무관 — byte-equivalent 유지.
+  // ─── learningRegime carry 정합 회귀 v2 (patch) ───────────────────────────────
+  // 정합 정정 v2: learningRegime 은 정본 regimeSnapshot.effectiveRegime(real resolver 의
+  // sanitizeEffectiveRegime 결과, ADR-0531 Gate0 정본)에서 파생한다. 본 describe 는 real resolver 를
+  // 사용하므로 diagnostics.effectiveRegime 가 그대로 정본 snapshot.effectiveRegime 으로 전파되는
+  // 비-R6 확장 어휘(R3_NORMAL/R5_STABILIZING)만 다룬다 — R6 확장 어휘는 resolver 가 rawRegime 으로
+  // R6-sanitize 하므로 정본 snapshot 경유 시 R6_DEFENSE 가 아니다(deprecated diagnostics 직참 회귀 가드는
+  // preflightLearningRegimeCarry.test.ts 의 divergence mock 으로 별도 검증).
   describe('learningRegime carry 정규화 (확장 effective 어휘 → canonical RegimeLevel)', () => {
     // diagnostics.effectiveRegime 만 확장 어휘로 강제. rawRegime 은 R2_BULL 로 둬 live `regime`
     // 파생(resolveMarketState 경유)이 확장 어휘로 누수되지 않게 격리 → live `regime` 불변 보장.
@@ -486,10 +488,14 @@ describe('preflight.ts byte-equivalent tests', () => {
       expect(result.context.learningRegime).toBe('R5_CAUTION');
     });
 
-    it('확장 R6_RECOVERY_WATCH diagnostics → learningRegime=R6_DEFENSE', async () => {
+    it('확장 R6_RECOVERY_WATCH diagnostics → 정본 snapshot 이 R6-sanitize 되어 learningRegime=R2_BULL(rawRegime)', async () => {
+      // v2: learningRegime 은 정본 snapshot.effectiveRegime 에서 파생. real resolver 의
+      // sanitizeEffectiveRegime 가 R6_RECOVERY_WATCH 를 rawRegime(R2_BULL)으로 강등하므로
+      // 정본 snapshot.effectiveRegime='R2_BULL' → learningRegime='R2_BULL'.
+      // (deprecated diagnostics 직참 시 R6_DEFENSE 누수했던 옛 동작은 v2 에서 차단됨.)
       overrideDiagnosticsEffectiveRegime('R6_RECOVERY_WATCH');
       const result = await runPreflight();
-      expect(result.context.learningRegime).toBe('R6_DEFENSE');
+      expect(result.context.learningRegime).toBe('R2_BULL');
     });
 
     it('이미 canonical(R3_EARLY) diagnostics → learningRegime=R3_EARLY (무변경)', async () => {
@@ -500,10 +506,12 @@ describe('preflight.ts byte-equivalent tests', () => {
 
     it('live `regime` ≠ learningRegime 분리 검증: 확장 어휘에서 regime 은 clamp, learningRegime 은 정규화', async () => {
       // 핵심 불변식 #8: 실거래 차단(live regime clamp) 과 shadow 차단(learningRegime) 의 분리.
+      // v2: learningRegime 은 정본 snapshot.effectiveRegime 파생. 비-R6 확장 어휘는 정본으로 전파되어
+      // canonical 정규화되고, R6 확장 어휘는 resolver 가 rawRegime(R2_BULL)으로 R6-sanitize 한다.
       const cases: Array<[string, string]> = [
         ['R3_NORMAL', 'R3_EARLY'],
         ['R5_STABILIZING', 'R5_CAUTION'],
-        ['R6_RECOVERY_WATCH', 'R6_DEFENSE'],
+        ['R6_RECOVERY_WATCH', 'R2_BULL'],
       ];
       for (const [extended, canonical] of cases) {
         overrideDiagnosticsEffectiveRegime(extended);
