@@ -1,6 +1,6 @@
-// @responsibility ADR-0624 셰이크아웃 손절-후 N일 outcome 라벨 영속 repo — atomic write, RESOLVED 불변성, 주문/provider 호출 0.
+// @responsibility ADR-0625 셰이크아웃 손절-후 N일 outcome 라벨 영속 repo — atomic write, RESOLVED 불변성, 주문/provider 호출 0.
 /**
- * shakeoutStopOutcomeRepo.ts — ADR-0624 관측 전용 라벨 영속 SSOT.
+ * shakeoutStopOutcomeRepo.ts — ADR-0625 관측 전용 라벨 영속 SSOT.
  *
  * 실행 청산(HIT_STOP) 포지션의 손절-후 N일 수익률 라벨을 `shadow-trades.json`
  * 영속 본체와 *물리 분리*된 별도 ledger 에 영속 (ADR-0445 분리 원칙).
@@ -9,7 +9,7 @@
  *   - atomic write (tmp → rename) — race 안전, 손상 부분쓰기 차단.
  *   - load 시 손상 JSON → 빈 배열 `[]` fallback (시스템 무중단, 불변식 #1).
  *   - upsertLabel: tradeId 키 last-write-wins. 단 *이미 RESOLVED* 라벨은 재기입 skip
- *     (불변성 — ADR-0624 §3-6 RESOLVED 라벨 재방문 차단).
+ *     (불변성 — ADR-0625 §3-6 RESOLVED 라벨 재방문 차단).
  *   - KIS 주문 함수 import 0건 — 학습 관측 전용 (정적 grep 가드).
  */
 
@@ -76,7 +76,7 @@ export interface ShakeoutOutcomeUpsertResult {
 /**
  * tradeId 키 upsert — last-write-wins.
  *
- * 불변성: 기존 라벨이 `maturity==='RESOLVED'` 이면 재기입 skip (ADR-0624 §3-6).
+ * 불변성: 기존 라벨이 `maturity==='RESOLVED'` 이면 재기입 skip (ADR-0625 §3-6).
  * 신규 라벨은 append, PENDING 기존 라벨은 교체.
  */
 export function upsertLabel(

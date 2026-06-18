@@ -1,5 +1,5 @@
 /**
- * @responsibility ADR-0624 shakeoutStopOutcomeRepo 회귀 — atomic write / 손상 fallback / upsert RESOLVED 불변성
+ * @responsibility ADR-0625 shakeoutStopOutcomeRepo 회귀 — atomic write / 손상 fallback / upsert RESOLVED 불변성
  */
 
 import fs from 'fs';
@@ -39,7 +39,7 @@ afterEach(() => {
   } catch { /* ignore */ }
 });
 
-describe('shakeoutStopOutcomeRepo (ADR-0624)', () => {
+describe('shakeoutStopOutcomeRepo (ADR-0625)', () => {
   it('load 부재 → 빈 배열', () => {
     expect(repo.loadLabels()).toEqual([]);
   });

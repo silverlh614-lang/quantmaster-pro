@@ -1,5 +1,5 @@
 /**
- * @responsibility ADR-0624 shakeoutStopForwardLabeler 회귀 — ENV gate / 셰이크아웃 산식 / KIS read-only / 성숙 전이 / 원본 불변
+ * @responsibility ADR-0625 shakeoutStopForwardLabeler 회귀 — ENV gate / 셰이크아웃 산식 / KIS read-only / 성숙 전이 / 원본 불변
  */
 
 import fs from 'fs';
@@ -61,7 +61,7 @@ afterEach(() => {
 // now far enough past exit so all horizons (≤10 business days) reached.
 const NOW = new Date('2026-07-15T08:00:00.000Z');
 
-describe('shakeoutStopForwardLabeler (ADR-0624)', () => {
+describe('shakeoutStopForwardLabeler (ADR-0625)', () => {
   it('labeler_envOff_noop: ENV OFF → fetch 0·repo 미변경·durationMs 0', async () => {
     shadowRepo.saveShadowTrades([makeTrade({})]);
     const fetcher = vi.fn().mockResolvedValue(10600);

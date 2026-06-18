@@ -7,7 +7,7 @@
  * 호출자 (hardStopLoss.ts) 가 사용하는 *액션 판정 + shadow update payload 합성*
  * 단일 SSOT.
  *
- * 우선순위 (결정 트리, ADR-0625 §2.4 재구조화):
+ * 우선순위 (결정 트리, ADR-0626 §2.4 재구조화):
  *   1. ENV `BEP_PROTECTION_DISABLED=true` → SKIP (정책 우회, 즉시 청산 진행)
  *   2. isBepProtection=true → 기존 BEP 2-bar 경로 (BEP_TWO_BAR_LIVE_ENABLED·기존 동작 100% 보존)
  *   3. isBepProtection=false 이고 손실초기 확대 게이트(a∧b∧c∧d) 충족 →
@@ -57,9 +57,9 @@ export interface TwoBarBepGateInput {
   hardStopLoss: number;
   /** stopLossExitType === 'PROFIT_PROTECTION' (ADR-0079 BEP 글라이드 영역) */
   isBepProtection: boolean;
-  /** ADR-0625 — 손실초기 확대 게이트 분류용 (additive). */
+  /** ADR-0626 — 손실초기 확대 게이트 분류용 (additive). */
   stopLossExitType?: 'INITIAL' | 'REGIME' | 'INITIAL_AND_REGIME' | 'PROFIT_PROTECTION';
-  /** ADR-0625 — 깊은하락 우회 판정용 returnPct (additive). */
+  /** ADR-0626 — 깊은하락 우회 판정용 returnPct (additive). */
   returnPct?: number;
 }
 
@@ -68,7 +68,7 @@ export function isBepProtectionPolicyDisabled(): boolean {
 }
 
 /**
- * ADR-0625 §2.4-d — 깊은하락 우회 임계 SSOT (본문 명시·하드코딩 금지·드리프트 차단).
+ * ADR-0626 §2.4-d — 깊은하락 우회 임계 SSOT (본문 명시·하드코딩 금지·드리프트 차단).
  * `returnPct <= -12%` (깊은 하락=진짜 추세반전 가능성) 면 close-confirm 우회 → 즉시 손절 유지.
  */
 export const SHAKEOUT_INITIAL_LOSS_DEEP_DROP_BYPASS_PCT = -12.0;
@@ -83,7 +83,7 @@ export function isInitialLossTwoBarShadowEnabled(): boolean {
 }
 
 /**
- * ADR-0625 §2.4-3 — 손실초기 2-bar 확대 게이트 (a∧b∧c∧d 모두 참이면 true).
+ * ADR-0626 §2.4-3 — 손실초기 2-bar 확대 게이트 (a∧b∧c∧d 모두 참이면 true).
  *   (a) ENV ON, (b) getTradingMode() !== 'LIVE', (c) stopLossExitType ∈ 손실초기,
  *   (d) returnPct > DEEP_DROP_BYPASS_PCT (깊은하락 미발동).
  * 어느 하나라도 거짓이면 false → 호출자는 기존 즉시 청산(SKIP, byte-equivalent).

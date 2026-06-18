@@ -1,17 +1,17 @@
-// @responsibility ADR-0624 실행 청산(HIT_STOP) 포지션 손절-후 N일 수익률 셰이크아웃 라벨러 — 관측 전용, 주문 import 0, ENV default OFF.
+// @responsibility ADR-0625 실행 청산(HIT_STOP) 포지션 손절-후 N일 수익률 셰이크아웃 라벨러 — 관측 전용, 주문 import 0, ENV default OFF.
 /**
- * shakeoutStopForwardLabeler.ts — ADR-0624 손절-후 N일 수익률 outcome 라벨러 (관측 전용).
+ * shakeoutStopForwardLabeler.ts — ADR-0625 손절-후 N일 수익률 outcome 라벨러 (관측 전용).
  *
  * 실행 포지션이 HIT_STOP 으로 청산된 뒤 종목이 급등(=셰이크아웃)했는지를 정량 학습.
  * 대상: `loadShadowTrades()` 중 `status==='HIT_STOP'` && `exitTime` 존재 && `exitOutcome!=='BE'`
- * (BE=PROFIT_PROTECTION 본절은 셰이크아웃 관심사 아님 — ADR-0112/0624).
+ * (BE=PROFIT_PROTECTION 본절은 셰이크아웃 관심사 아님 — ADR-0112/0625).
  *
  * 각 horizon(1/3/5/10 영업일)의 종가를 KIS 일봉(L1, read-only) 으로 추적 →
  * 청산가 대비 최대 회복률(`maxRecoveryPct`) 산출 → `>= SHAKEOUT_RECOVERY_THRESHOLD_PCT(5.0%)`
  * 이면 셰이크아웃(`isShakeout=true`). 라벨은 `shadow-trades.json` 본체와 물리 분리된
  * 별도 ledger(shakeoutStopOutcomeRepo)에 영속 — 원본 무수정.
  *
- * ## 안전 invariant 7종 (ADR-0624 §3)
+ * ## 안전 invariant 7종 (ADR-0625 §3)
  *   1. LIVE 매매 본체 0줄 변경 — signalScanner/entryEngine/exitEngine/kisClient/
  *      orchestrator/autoTradeEngine git diff 0줄.
  *   2. KIS 주문 함수 import 0건 — place/cancel 주문 함수 5종 정적 grep 가드.
@@ -30,17 +30,17 @@
 
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { loadLabels, upsertLabel } from '../persistence/shakeoutStopOutcomeRepo.js';
-// addBusinessDays 는 futureReturnResolver SSOT 재사용 (중복 구현 금지 — ADR-0624 §4-D-3).
+// addBusinessDays 는 futureReturnResolver SSOT 재사용 (중복 구현 금지 — ADR-0625 §4-D-3).
 import { addBusinessDays } from './futureReturnResolver.js';
 
 const KST_OFFSET_MS = 9 * 3_600_000;
 const DAY_MS = 86_400_000;
 
-/** ADR-0624 §1 — 추적 horizon 1/3/5/10 영업일. */
+/** ADR-0625 §1 — 추적 horizon 1/3/5/10 영업일. */
 export const SHAKEOUT_FORWARD_HORIZONS = [1, 3, 5, 10] as const;
 export type ShakeoutForwardHorizon = (typeof SHAKEOUT_FORWARD_HORIZONS)[number];
 
-/** ADR-0624 §1 본문 SSOT — 청산가 대비 +5% 이상 회복 = 셰이크아웃 (하드코딩 금지·드리프트 차단). */
+/** ADR-0625 §1 본문 SSOT — 청산가 대비 +5% 이상 회복 = 셰이크아웃 (하드코딩 금지·드리프트 차단). */
 export const SHAKEOUT_RECOVERY_THRESHOLD_PCT = 5.0;
 
 /** 청산 후 N일 수익률 라벨 — 1 청산 포지션당 1행. 영속: shakeoutStopOutcomeRepo. */
@@ -194,7 +194,7 @@ export async function runShakeoutStopForwardLabeler(
   // fetcher 미전달 가드 — 전건 errors + console.warn 1회 (KIS quota 0 안전 default).
   if (!fetcher) {
     console.warn(
-      '[ShakeoutStopForwardLabeler] fetcher 미전달 — 전건 errors. ADR-0624 §4-D-3 의무 (cron 이 fetchHistoricalClosePrice 주입).',
+      '[ShakeoutStopForwardLabeler] fetcher 미전달 — 전건 errors. ADR-0625 §4-D-3 의무 (cron 이 fetchHistoricalClosePrice 주입).',
     );
     return {
       totalCandidates: candidates.length,

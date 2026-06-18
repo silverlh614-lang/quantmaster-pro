@@ -1,6 +1,6 @@
-// @responsibility ADR-0625 hardStopLoss.ts → applyTwoBarBepGate 손실초기 2인자(stopLossExitType,returnPct) 전달 정적 가드
+// @responsibility ADR-0626 hardStopLoss.ts → applyTwoBarBepGate 손실초기 2인자(stopLossExitType,returnPct) 전달 정적 가드
 /**
- * hardStopLossInitialLossWiring.test.ts — ADR-0625 손실초기 2-bar 확대 wiring 정적 가드.
+ * hardStopLossInitialLossWiring.test.ts — ADR-0626 손실초기 2-bar 확대 wiring 정적 가드.
  * hardStopLoss 본체는 인자 2개 추가만(stopLossExitType·returnPct) — 기존 분기·청산 본체 불변.
  */
 
@@ -13,7 +13,7 @@ const HARDSTOP_SRC = fs.readFileSync(
   'utf8',
 );
 
-describe('hardStopLoss INITIAL_LOSS wiring (ADR-0625, 정적 가드)', () => {
+describe('hardStopLoss INITIAL_LOSS wiring (ADR-0626, 정적 가드)', () => {
   it('applyTwoBarBepGate 호출에 stopLossExitType 인자 전달', () => {
     const call = HARDSTOP_SRC.match(/applyTwoBarBepGate\s*\(\s*\{([\s\S]*?)\}\s*\)/);
     expect(call).not.toBeNull();
@@ -35,7 +35,7 @@ describe('hardStopLoss INITIAL_LOSS wiring (ADR-0625, 정적 가드)', () => {
     expect(HARDSTOP_SRC).toMatch(/const\s*\{[^}]*returnPct[^}]*\}\s*=\s*ctx/);
   });
 
-  it('ADR-0625 주석 명시', () => {
-    expect(HARDSTOP_SRC).toMatch(/ADR-0625/);
+  it('ADR-0626 주석 명시', () => {
+    expect(HARDSTOP_SRC).toMatch(/ADR-0626/);
   });
 });

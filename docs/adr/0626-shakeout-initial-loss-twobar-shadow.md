@@ -1,4 +1,4 @@
-# ADR-0625 — Shakeout Initial-Loss Two-Bar Confirmation (shadow-only)
+# ADR-0626 — Shakeout Initial-Loss Two-Bar Confirmation (shadow-only)
 
 - **Status**: Proposed (Phase 0 — 경계·타입·ADR. ENV default OFF, LIVE byte-equivalent. 구현 engine-dev.)
 - **Date**: 2026-06-18
@@ -33,7 +33,7 @@
 ## 진짜 추세반전 보호장치
 
 - **깊은하락 우회** (조건 d): `returnPct <= -12%` 면 2-bar 우회·즉시 손절 — 셰이크아웃 완충이 손실확대로 변질되는 것을 차단. 임계 `SHAKEOUT_INITIAL_LOSS_DEEP_DROP_BYPASS_PCT = -12.0` (본문 SSOT).
-- **SHADOW 한정** (조건 b): LIVE PnL 0 영향. 효과 검증(ADR-0624 라벨러로 SHADOW 회피율 vs 손실확대) 후에만 운영자 승인 LIVE(별도 PR·범위 밖).
+- **SHADOW 한정** (조건 b): LIVE PnL 0 영향. 효과 검증(ADR-0625 라벨러로 SHADOW 회피율 vs 손실확대) 후에만 운영자 승인 LIVE(별도 PR·범위 밖).
 - **Entry Circuit Breaker / atrDynamicStop 무간섭**: 본 게이트는 `hardStopLoss` 규칙 내부에서만 작동·직교.
 
 ## 9대 불변식 준수

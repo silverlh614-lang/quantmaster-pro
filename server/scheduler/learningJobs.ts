@@ -213,7 +213,7 @@ export function registerLearningJobs(): void {
 
   // Shakeout Stop Forward Labeler — 평일 KST 16:50 (UTC 07:50). gate3_forward_return(16:35)·
   //   shadow_live_delta(16:45) 이후 stagger. KRX 장 마감 50분 후.
-  // ADR-0624: 실행 청산(HIT_STOP) 포지션의 손절-후 1/3/5/10일 종가를 KIS 일봉(L1, read-only)
+  // ADR-0625: 실행 청산(HIT_STOP) 포지션의 손절-후 1/3/5/10일 종가를 KIS 일봉(L1, read-only)
   //   으로 추적 → 청산가 대비 최대 회복률 산출 → 셰이크아웃 여부(+5%) 라벨링 (관측 전용).
   //   shadow-trades.json 영속 본체 무수정, 라벨은 물리 분리 별도 ledger 영속 (ADR-0445).
   // executionImpact=NONE — LIVE 주문/SourceSnapshot/Gate 판정 본체 변경 0.

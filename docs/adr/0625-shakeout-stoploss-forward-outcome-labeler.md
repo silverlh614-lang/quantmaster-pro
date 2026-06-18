@@ -1,4 +1,4 @@
-# ADR-0624 — Shakeout Stop-Loss Forward Outcome Labeler (관측 전용)
+# ADR-0625 — Shakeout Stop-Loss Forward Outcome Labeler (관측 전용)
 
 - **Status**: Proposed (Phase 0 — 경계·타입·ADR. ENV default OFF byte-equivalent. 구현 engine-dev.)
 - **Date**: 2026-06-18

@@ -46,7 +46,7 @@ export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
     currentPrice,
     hardStopLoss,
     isBepProtection: stopLossExitType === 'PROFIT_PROTECTION',
-    // ADR-0625 — 손실초기 2-bar 확대 게이트 분류 인자 (SHADOW 한정·LIVE byte-equivalent).
+    // ADR-0626 — 손실초기 2-bar 확대 게이트 분류 인자 (SHADOW 한정·LIVE byte-equivalent).
     stopLossExitType,
     returnPct,
   });

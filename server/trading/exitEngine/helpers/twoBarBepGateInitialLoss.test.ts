@@ -1,6 +1,6 @@
-// @responsibility ADR-0625 손실초기 손절 2-bar 확대 게이트 회귀 — ENV OFF byte-equiv / LIVE 보존 / SHADOW confirm / 깊은하락 우회 / 결정트리
+// @responsibility ADR-0626 손실초기 손절 2-bar 확대 게이트 회귀 — ENV OFF byte-equiv / LIVE 보존 / SHADOW confirm / 깊은하락 우회 / 결정트리
 /**
- * twoBarBepGateInitialLoss.test.ts — ADR-0625 INITIAL_LOSS 2-bar 확대 (shadow-only) 회귀.
+ * twoBarBepGateInitialLoss.test.ts — ADR-0626 INITIAL_LOSS 2-bar 확대 (shadow-only) 회귀.
  *
  * 기존 BEP 경로(twoBarBepGate.test.ts)는 무회귀 — 본 파일은 신규 확대 게이트만 검증.
  */
@@ -25,7 +25,7 @@ const { kstBusinessDateStr } = await import('../helpers/ma60.js');
 
 const ENV = 'SHAKEOUT_INITIAL_LOSS_TWOBAR_SHADOW_ENABLED';
 
-describe('twoBarBepGate INITIAL_LOSS 확대 (ADR-0625)', () => {
+describe('twoBarBepGate INITIAL_LOSS 확대 (ADR-0626)', () => {
   const ORIG_ENV = { ...process.env };
 
   beforeEach(() => {
