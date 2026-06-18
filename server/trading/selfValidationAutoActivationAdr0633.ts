@@ -227,13 +227,49 @@ export interface AutoActivationEvaluateInput {
 }
 
 /**
+ * lever 준비도 순수 predicate (ADR-0634 helper 추출) — consecutive-READY streak 제외 기준만 판정한다.
+ *
+ * evaluator 와 일별 streak repo 가 **동일 criteria** 를 공유하도록 단일 판정 공식으로 추출한
+ * 것이다(두 번째 판정 공식 발명 금지). streak(`minConsecutiveReadyDays`)은 본 helper 가
+ * 채우는 streak 자체가 입력이라 순환을 끊기 위해 제외한다 — consecutive 게이트는 evaluator 가
+ * 보유한다(`readyExclStreak && consecutiveOk → ACTIVATE`).
+ *
+ * - `now` 의존 0 (input 만 읽음 — 순수).
+ * - EXCLUDED lever 에 호출돼도 무해(criteria 0 값 → 의미 없음). evaluator 가 eligibility 로
+ *   먼저 EXCLUDED 분기하므로 helper 결과는 EXCLUDED lever 에 미사용.
+ */
+export function evaluateLeverReadiness(
+  lever: AutoActivationLever,
+  input: AutoActivationEvaluateInput,
+): { matureOk: boolean; reviewOk: boolean; perfOk: boolean; readyExclStreak: boolean } {
+  const evidence = input.evidence;
+  const matureSamplesD5 =
+    evidence && typeof evidence.matureSamplesD5 === 'number'
+      ? evidence.matureSamplesD5
+      : null;
+  const reviewReady = evidence ? evidence.reviewReady === true : null;
+  // performanceJustified 출처 — ADR-0631 board 전체 신호 (board 존재 + 어떤 lever 든 true).
+  // 새 성과 공식 발명 0 — 기존 board.levers[*].performanceJustified 값만 읽는다.
+  const boardPerformanceJustified =
+    !!input.promotionReadiness &&
+    input.promotionReadiness.levers.some((l) => l.performanceJustified === true);
+  const performanceJustified = input.promotionReadiness ? boardPerformanceJustified : null;
+
+  const c = lever.criteria;
+  const matureOk = matureSamplesD5 !== null && matureSamplesD5 >= c.minMatureSamplesD5;
+  const reviewOk = c.requireReviewReady ? reviewReady === true : true;
+  const perfOk = c.requirePerformanceJustified ? performanceJustified === true : true;
+  const readyExclStreak = matureOk && reviewOk && perfOk;
+
+  return { matureOk, reviewOk, perfOk, readyExclStreak };
+}
+
+/**
  * 순수 evaluator — registry 각 lever 를 평가해 AutoActivationReport 를 반환한다.
  * master OFF → 전 lever MASTER_OFF·process.env 무접촉·byte-identical.
  * LIVE_SAFE + criteria 충족 + 미활성 → ACTIVATE(process.env[envName]='true' set).
  * EXCLUDED → 항상 EXCLUDED·process.env 절대 무접촉.
  * ACTIVATE 시 in-memory ledger 에 append.
- *
- * @throws NOT_IMPLEMENTED — engine-dev 구현 인계.
  */
 export function evaluateAutoActivation(
   input: AutoActivationEvaluateInput,
@@ -354,11 +390,9 @@ export function evaluateAutoActivation(
       continue;
     }
 
-    // criteria 평가.
+    // criteria 평가 — streak 제외 기준은 helper 단일 공식 재사용(두 번째 판정 공식 0).
     const c = lever.criteria;
-    const matureOk = matureSamplesD5 >= c.minMatureSamplesD5;
-    const reviewOk = c.requireReviewReady ? reviewReady === true : true;
-    const perfOk = c.requirePerformanceJustified ? performanceJustified === true : true;
+    const { matureOk, reviewOk, perfOk, readyExclStreak } = evaluateLeverReadiness(lever, input);
     const consecutiveOk = consecutiveReadyDays >= c.minConsecutiveReadyDays;
 
     if (!matureOk) {
@@ -380,7 +414,7 @@ export function evaluateAutoActivation(
       );
     }
 
-    if (matureOk && reviewOk && perfOk && consecutiveOk) {
+    if (readyExclStreak && consecutiveOk) {
       // ACTIVATE — LIVE_SAFE 만 실제 process.env set. ledger append.
       process.env[lever.envName] = 'true';
       activatedLeverIds.push(lever.leverId);
@@ -429,8 +463,6 @@ export function evaluateAutoActivation(
 
 /**
  * in-memory audit ledger 스냅샷 (ACTIVATE 기록). 텔레그램 통지 seam·진단 표시용.
- *
- * @throws NOT_IMPLEMENTED — engine-dev 구현 인계.
  */
 export function listAutoActivationLedger(): readonly AutoActivationLedgerEntry[] {
   return ledger.slice();
@@ -438,8 +470,6 @@ export function listAutoActivationLedger(): readonly AutoActivationLedgerEntry[]
 
 /**
  * in-memory ledger 초기화 (테스트·재시작 정리용).
- *
- * @throws NOT_IMPLEMENTED — engine-dev 구현 인계.
  */
 export function resetAutoActivationLedger(): void {
   ledger = [];
@@ -447,8 +477,6 @@ export function resetAutoActivationLedger(): void {
 
 /**
  * 텔레그램/진단 섹션 렌더 (표시 전용·always-render skeleton).
- *
- * @throws NOT_IMPLEMENTED — engine-dev 구현 인계.
  */
 export function formatAutoActivationReport(report?: AutoActivationReport): string {
   const lines: string[] = [

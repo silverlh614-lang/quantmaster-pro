@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   evaluateAutoActivation,
+  evaluateLeverReadiness,
   listAutoActivationLedger,
   resetAutoActivationLedger,
   formatAutoActivationReport,
@@ -322,6 +323,57 @@ describe('formatAutoActivationReport — always-render skeleton', () => {
     expect(out).toContain('verdict: ACTIVATE');
     expect(out).toContain('liveExecutionUntouched: true');
     expect(out).toContain('requiredScoreUntouched: true');
+  });
+});
+
+describe('evaluateLeverReadiness — streak 제외 predicate (ADR-0634 helper)', () => {
+  it('전부 충족 → matureOk/reviewOk/perfOk/readyExclStreak 모두 true (consecutive 무관)', () => {
+    const input = fullySatisfiedInput();
+    // streak 입력을 0 으로 만들어도 readyExclStreak 는 영향 없어야 한다 (streak 제외 기준).
+    input.consecutiveReadyDaysByLever = {};
+    const r = evaluateLeverReadiness(PRICE_LEVER, input);
+    expect(r).toEqual({ matureOk: true, reviewOk: true, perfOk: true, readyExclStreak: true });
+  });
+
+  it('matureSamplesD5 부족 → matureOk false, readyExclStreak false', () => {
+    const input = fullySatisfiedInput();
+    input.evidence = makeEvidence({ matureSamplesD5: 10, reviewReady: true });
+    const r = evaluateLeverReadiness(PRICE_LEVER, input);
+    expect(r.matureOk).toBe(false);
+    expect(r.readyExclStreak).toBe(false);
+  });
+
+  it('reviewReady false → reviewOk false, readyExclStreak false', () => {
+    const input = fullySatisfiedInput();
+    input.evidence = makeEvidence({ matureSamplesD5: 150, reviewReady: false });
+    const r = evaluateLeverReadiness(PRICE_LEVER, input);
+    expect(r.reviewOk).toBe(false);
+    expect(r.readyExclStreak).toBe(false);
+  });
+
+  it('performanceJustified 부정 → perfOk false, readyExclStreak false', () => {
+    const input = fullySatisfiedInput();
+    input.promotionReadiness = makePromotionBoard(false);
+    const r = evaluateLeverReadiness(PRICE_LEVER, input);
+    expect(r.perfOk).toBe(false);
+    expect(r.readyExclStreak).toBe(false);
+  });
+
+  it('evidence 부재 → matureOk false (null matureSamplesD5), readyExclStreak false', () => {
+    const input = fullySatisfiedInput();
+    input.evidence = undefined;
+    const r = evaluateLeverReadiness(PRICE_LEVER, input);
+    expect(r.matureOk).toBe(false);
+    expect(r.readyExclStreak).toBe(false);
+  });
+
+  it('순수성 — process.env 무접촉 (master OFF 상태에서도 동일 결과)', () => {
+    // master flag 미설정. helper 는 process.env 를 읽지 않으므로 결과 동일.
+    const input = fullySatisfiedInput();
+    const before = process.env.PRICE_CORRECTION_SHADOW_ENABLED;
+    const r = evaluateLeverReadiness(PRICE_LEVER, input);
+    expect(r.readyExclStreak).toBe(true);
+    expect(process.env.PRICE_CORRECTION_SHADOW_ENABLED).toBe(before);
   });
 });
 
