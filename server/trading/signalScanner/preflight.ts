@@ -63,6 +63,16 @@ import { computeEffectiveKelly, formatKellyPolicyBlockedLog } from './kellyPolic
 
 
 
+/**
+ * ADR-0630 D1 — 매수/shadow 게이트 정본 raw 단일화 SSOT flag.
+ * ENV `BUY_GATE_CANONICAL_REGIME_ENABLED` — default OFF (`=== 'true'`, ADR-0157).
+ * OFF → learningRegime 파생 byte-identical. ON → 정본 raw(detectedRegime) 우선.
+ * shadow 전용(불변식 #8) — 라이브 regime/Kelly/권한 무영향.
+ */
+export function isBuyGateCanonicalRegimeEnabled(): boolean {
+  return process.env.BUY_GATE_CANONICAL_REGIME_ENABLED === 'true';
+}
+
 type RegimeStatusSnapshot = {
   effectiveRegime: string;
   riskOverride: string;
@@ -376,8 +386,20 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
   // observedRegime → regime 이 R4_NEUTRAL 로 clamp 돼도, toCanonicalRegimeLevel 로 canonical RegimeLevel
   // 로 정규화한다(R3* → R3_EARLY, R5* → R5_CAUTION, R6* → R6_DEFENSE). 정규화 불가 시에만 regime 폴백.
   // live `regime` 불변(byte-equivalent) — 학습/섀도 레인 전용(불변식 #8 실거래↔shadow 차단 분리).
-  const learningRegime = (toCanonicalRegimeLevel(regimeSnapshot.effectiveRegime)
-    ?? regime) as keyof typeof REGIME_CONFIGS;
+  // ADR-0630 D1: BUY_GATE_CANONICAL_REGIME_ENABLED ON 이면 learningRegime 을 정본 raw
+  // (regimeSnapshot.detectedRegime = diagnostics.rawRegime, R6-recovery R5_STABILIZING override
+  // 미경유)에서 우선 파생한다. snapshot.effectiveRegime 이 R5_STABILIZING latch 로 오염돼도
+  // shadow 게이트 입력 learningRegime 은 R3_EARLY(raw)로 회복 → 두 shadow lane 발화 회복.
+  // detectedRegime 결손 시 현행 effectiveRegime 경로 폴백. flag OFF → 현행 byte-identical.
+  // 라이브 `regime`/Kelly/권한은 본 변경에 무영향(learningRegime 소비 0, 불변식 #8).
+  const learningRegime = (
+    isBuyGateCanonicalRegimeEnabled()
+      ? (toCanonicalRegimeLevel(regimeSnapshot.detectedRegime)
+        ?? toCanonicalRegimeLevel(regimeSnapshot.effectiveRegime)
+        ?? regime)
+      : (toCanonicalRegimeLevel(regimeSnapshot.effectiveRegime)
+        ?? regime)
+  ) as keyof typeof REGIME_CONFIGS;
   const macroEntryOverride = getMacroEntryOverrideState();
   let liveEntryBlockedReason: string | undefined;
   let macroDiagnosticOnly = false;
@@ -666,6 +688,7 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     liveEntryBlockedReason: liveEntryBlockReason,
     macroRegimeRaw: regimeDiagnostics.rawRegime,
     macroRegimeEffective: regimeDiagnostics.effectiveRegime,
+    learningRegime,
     regimeSnapshotId: regimeSnapshot.snapshotId,
     regimeSnapshotAsOf: regimeSnapshot.asOf,
     regimeSnapshotTtlSec: regimeSnapshot.ttlSec,
