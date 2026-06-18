@@ -190,6 +190,7 @@ import { hydrateGate2SoxSemiAxisAdr0605 } from './gate2SoxSemiAxisAdr0605.js';
 import { appendGate2SoxObservation } from './gate2SoxObservationLedgerAdr0605.js';
 import { accumulatePositiveScoreStarvation } from './scanCounterAccumulators.js';
 import { persistMidScanDiagnosticBlocksAdr0588 } from './persistScanResultsMidBlocks.js';
+import { collectIntradayMoverCandidates } from './intradayMoverCandidateSource.js';
 // ADR-0623 Stage 2a — PriceIntegrity/PriceCorrection diagnostics 집계 reduce 용 status/type union (타입 전용).
 import type { PriceIntegrityStatus } from '../priceIntegrityChecker.js';
 import type { PriceCorrectionType } from '../priceCorrectionEngine.js';
@@ -392,6 +393,7 @@ export async function persistScanResults(
         fallbackCandidates.length,
       ),
       existingWatchlist: options.candidatePoolSourceCandidates ?? (scanCandidateSnapshots as unknown as CandidatePoolInputCandidate[]),
+      intradayMovers: collectIntradayMoverCandidates(),   // ADR-0629 — flag OFF 시 [] (byte-identical)
       previousDayTopRankedCandidates: priorCandidates,
       openShadowWatchlist: priorCandidates,
       fallbackBroadUniverse: fallbackCandidates,
