@@ -18,7 +18,7 @@
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { evaluateRecommendations, getRecommendations } from '../learning/recommendationTracker.js';
 import { detectPerformanceAnomaly } from '../learning/anomalyDetector.js';
-import { calibrateSignalWeights } from '../learning/signalCalibrator.js';
+import { calibrateSignalWeights, calibrateShadowCandidateWeights } from '../learning/signalCalibrator.js';
 import { calibrateByRegime } from '../learning/regimeAwareCalibrator.js';
 import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
 import { runConditionAudit } from '../learning/conditionAuditor.js';
@@ -85,6 +85,8 @@ class LearningOrchestrator {
     markEvalRan();
     await detectPerformanceAnomaly().catch((e) => console.error('[L2 anomaly]', e));
     await this.checkFirstCalibThreshold();
+    // ADR-0624 D4 후속 — shadow 증거 기반 candidate 가중치 생성(SHADOW_ONLY 에서도 학습이 candidate 를 만들도록).
+    await calibrateShadowCandidateWeights().catch((e) => console.error('[L2 shadow-candidate-calib]', e));
     markTierRan('L2_DAILY');
     console.log('[LearningOrch L2] 일일 평가 완료');
   }

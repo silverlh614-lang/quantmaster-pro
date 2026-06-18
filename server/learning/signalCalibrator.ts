@@ -34,6 +34,83 @@ function persistCandidateWeights(regime: string, updates: Record<string, number>
   fs.writeFileSync(file, JSON.stringify({ ...prev, ...updates }, null, 2));
 }
 
+/** ADR-0624 D4 후속 — shadow 증거가 이 건수 이상이면 candidate 캘리브레이션 실행. */
+const SHADOW_CANDIDATE_MIN_RECORDS = 10;
+
+/**
+ * ADR-0624 D4 후속 — 단일 조건의 shadow 기반 candidate 가중치 갱신값 계산(순수 함수).
+ * recommendation → 제안 가중치 → guardrail(source='SHADOW' → coreWritable=false·불변식 #7).
+ * MAINTAIN·sample<30 무델타·무변화 → null(candidate 미기록 대상). 충족 시 clamp 된 candidate 값 반환.
+ */
+export function computeShadowCandidateUpdate(
+  attr: { recommendation: string; totalTrades: number; winRate: number; sharpe: number },
+  conditionKey: string,
+  prevWeight: number,
+): number | null {
+  let next = prevWeight;
+  switch (attr.recommendation) {
+    case 'INCREASE_WEIGHT': next = Math.min(1.8, prevWeight * 1.15); break;
+    case 'DECREASE_WEIGHT': next = Math.max(0.3, prevWeight * 0.87); break;
+    case 'SUSPEND':         next = 0.1; break;
+    default: return null;
+  }
+  if (Math.abs(next - prevWeight) <= 0.01) return null;
+  const guard = applyAttributionCalibrationGuardrail({
+    conditionKey,
+    regime: 'GLOBAL',
+    sampleSize: attr.totalTrades,
+    winRate: attr.winRate * 100,
+    sharpe: attr.sharpe,
+    monthsUnderperforming: attr.recommendation === 'DECREASE_WEIGHT' || attr.recommendation === 'SUSPEND' ? 1 : 0,
+    dataConfidence: 'VERIFIED' as DataConfidence,
+    executionMode: 'SHADOW_ONLY' as EngineMode,
+    source: 'SHADOW' as CalibrationSource, // → coreWritable=false (불변식 #7 보존). candidate 만 기록.
+    currentWeight: prevWeight,
+    proposedWeight: next,
+  });
+  if (!guard.candidateWritable) return null;
+  if (Math.abs(guard.approvedWeight - prevWeight) <= 0.01) return null; // sample<30 등 무변화
+  return guard.approvedWeight;
+}
+
+/**
+ * ADR-0624 D4 후속 — shadow 증거 기반 candidate 가중치 생성.
+ *
+ * calibrateSignalWeights 는 CORE-eligible(=LIVE) attribution ≥10 을 요구해(이 파일 records<10 early-return)
+ * SHADOW_ONLY 에선 candidate 를 전혀 못 만든다. 본 함수는 shadow 증거(evidenceBuckets.shadowOnly)로 동일
+ * 분석을 돌려 **candidate 파일에만** 기록한다(core 가중치 0줄·saveConditionWeights 미호출 → 불변식 #7 보존).
+ * 결과는 /promote_learning apply(D4, shadow 즉시 반영)가 소비 — candidate 자체는 데이터일 뿐 apply 전엔
+ * 스코어링 무영향. 워크포워드 동결 시 skip. core 경로(calibrateSignalWeights)와 직교.
+ */
+export async function calibrateShadowCandidateWeights(): Promise<void> {
+  if (loadWalkForwardState()) {
+    console.log('[ShadowCalib] 워크포워드 동결 중 — candidate 캘리브레이션 건너뜀');
+    return;
+  }
+  const month = new Date().toISOString().slice(0, 7);
+  const allRecords = loadAttributionRecords();
+  const buckets = bucketAttributionEvidence(loadAttributionEvidenceForMonth(month));
+  const shadowRecords = filterAttributionRecordsByEvidence(allRecords, buckets.shadowOnly);
+  if (shadowRecords.length < SHADOW_CANDIDATE_MIN_RECORDS) {
+    console.log(`[ShadowCalib] shadow attribution 부족 (${shadowRecords.length} < ${SHADOW_CANDIDATE_MIN_RECORDS}) — candidate 생성 건너뜀`);
+    return;
+  }
+  const baseline = loadConditionWeights() as Record<string, number>;
+  const written: string[] = [];
+  for (const attr of analyzeAttribution(shadowRecords)) {
+    const key = serverConditionKey(attr.conditionId);
+    if (!key) continue; // 서버 미매핑(클라 전용 21조건)은 candidate 대상 아님
+    const prev = baseline[key] ?? 1.0;
+    const approved = computeShadowCandidateUpdate(attr, key, prev);
+    if (approved === null) continue;
+    persistCandidateWeights('GLOBAL', { [key]: approved });
+    written.push(`${attr.conditionName}: ${prev.toFixed(2)}→${approved.toFixed(2)} (WIN ${(attr.winRate * 100).toFixed(0)}%·SR ${attr.sharpe.toFixed(2)})`);
+  }
+  console.log(written.length > 0
+    ? `[ShadowCalib] shadow candidate 가중치 기록 ${written.length}건: ${written.join(' | ')}`
+    : '[ShadowCalib] shadow candidate 변경 없음(샘플/추천 무변화)');
+}
+
 function formatEvidenceInsight(title: string, records: AttributionEvidenceRecord[]): string {
   const top = computeConditionPerformance(records)
     .sort((a, b) => b.avgReturnPct - a.avgReturnPct || b.winRate - a.winRate)
