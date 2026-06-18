@@ -8,12 +8,19 @@ import type { CounterfactualOutcomeBoard } from '../learning/counterfactualOutco
 
 /**
  * lever 자가 활성 자격.
- * - LIVE_SAFE: ON 이 shadow/diagnostic 만 바꿈 → 자가 활성 대상.
- * - LIVE_MONEY_EXCLUDED: LIVE 실주문/사이징/learning→LIVE 가중치 영향 → 자가 활성 영구 금지.
+ * - LIVE_SAFE: ON 이 shadow/diagnostic/관측·측정만 바꿈(LIVE 실주문·SourceSnapshot·Gate 채점·universe·regime·sizing byte-identical) → 자가 활성 대상.
+ * - LIVE_ADJACENT_REVIEW: ON 이 LIVE-인접 동작(R6 트리거 신선도·R6 복구 stuck-exit·Gate1 채점식·intraday universe 신선화)을
+ *   바꿈 → 자가 활성 금지. EXCLUDED 와 달리 "절대 금지"가 아니라 **운영자 1-체크포인트 검토 후 수동 활성** 대상으로 인지·등재(ADR-0635).
+ * - LIVE_MONEY_EXCLUDED: LIVE 실주문/사이징/learning→LIVE 가중치 영향(불변식 #7) → 자가 활성 영구 금지.
  * - ABSOLUTE_PRESERVATION_EXCLUDED: requiredScore=70/CONDITION_PASS_THRESHOLD=5/STRONG_BUY 영향 → 영구 금지.
+ *
+ * 자가 활성(process.env set) 대상은 **`LIVE_SAFE` 단 하나**다. 나머지 셋(`LIVE_ADJACENT_REVIEW`·
+ * `LIVE_MONEY_EXCLUDED`·`ABSOLUTE_PRESERVATION_EXCLUDED`)은 evaluator 가 항상 `EXCLUDED` verdict 만 내고
+ * `process.env` 를 절대 건드리지 않는다(§ADR-0635 — `LIVE_ADJACENT_REVIEW` 도 자동 활성 금지·운영자 결정 영역).
  */
 export type AutoActivationEligibility =
   | 'LIVE_SAFE'
+  | 'LIVE_ADJACENT_REVIEW'
   | 'LIVE_MONEY_EXCLUDED'
   | 'ABSOLUTE_PRESERVATION_EXCLUDED';
 
@@ -49,6 +56,25 @@ export interface LeverCriteria {
   requirePerformanceJustified: boolean;
   /** 호출자가 추적한 일별 READY 연속일수 하한 (anti-flap hysteresis). */
   minConsecutiveReadyDays: number;
+  /**
+   * Gate1/promotion forward-outcome 증거(`evidence`/`promotionReadiness`)를 활성 전제로 요구하는가
+   * (ADR-0635 — evidence-독립 criteria).
+   *
+   * - `true` (기본 의미 — 기존 0633 seed 2건): 증거 부재 시 evaluator 가 `DATA_UNAVAILABLE` 로 막는다
+   *   (forward-outcome 성숙 대기). matureD5·reviewReady·performanceJustified 를 criteria 와 비교한다.
+   *   judgement-of-value(corrected price·trade replacement) lever 는 검증 증거 충족이 활성 전제라 `true`.
+   *
+   * - `false` (ADR-0635 — T1 측정/관측 인프라): "켜는 것 자체가 검증 데이터를 생성하는 인프라"라
+   *   Gate1/promotion evidence 가 없어도(=`DATA_UNAVAILABLE` 여도) 활성 가능해야 한다. evaluator 는
+   *   evidence 부재로 막지 않고, **master ON + consecutive READY streak(`minConsecutiveReadyDays`) 충족만으로
+   *   ACTIVATE** 한다. evidence-게이트 criteria(`minMatureSamplesD5`/`requireReviewReady`/
+   *   `requirePerformanceJustified`)는 0/false 로 두고 streak anti-flap 하나만 게이트로 남긴다.
+   *   (관측 cron 은 executionImpact NONE 라 켜도 LIVE byte-identical — 증거를 기다릴 이유가 없고, 오히려
+   *   켜야 증거가 쌓인다. 닭-달걀 deadlock 해소.)
+   *
+   * 평가 분기 본문(`requiresEvidence===false` 시 DATA_UNAVAILABLE 우회)은 engine-dev 가 구현한다(ADR-0635 §2.1).
+   */
+  requiresEvidence: boolean;
 }
 
 /** registry 의 단일 lever 정의. */
@@ -131,6 +157,8 @@ export const LEVER_REGISTRY: readonly AutoActivationLever[] = [
       requireReviewReady: true,
       requirePerformanceJustified: true,
       minConsecutiveReadyDays: 3,
+      // judgement-of-value(corrected 값 shadow 채택) — forward-outcome 증거 충족이 활성 전제. 현행 동작 보존(ADR-0635).
+      requiresEvidence: true,
     },
     rationale:
       'ADR-0623 Stage 2 — corrected 값을 shadow 판단에만 채택. LIVE byte-equivalent. default OFF.',
@@ -144,9 +172,135 @@ export const LEVER_REGISTRY: readonly AutoActivationLever[] = [
       requireReviewReady: true,
       requirePerformanceJustified: true,
       minConsecutiveReadyDays: 3,
+      // judgement-of-value(shadow 장부 내 교체 집행) — forward-outcome 증거 충족이 활성 전제. 현행 동작 보존(ADR-0635).
+      requiresEvidence: true,
     },
     rationale:
       'ADR-0602 Phase 1 — 교체 집행이 shadow 장부 내에서만. mode=LIVE trade 무접촉(불변식 #8). default OFF.',
+  },
+
+  // ── LIVE_SAFE · evidence-독립 T1 측정/관측 인프라 (ADR-0635 — requiresEvidence:false) ──────
+  // executionImpact=NONE 검증: learningJobs.ts cron 본문이 LIVE 주문/SourceSnapshot/Gate 채점/universe/
+  // regime/sizing 무접촉 — 순수 학습 ledger 갱신 또는 read-only 분석 로그(architect-registry-expansion.md 근거).
+  // requiresEvidence:false → evidence 부재(DATA_UNAVAILABLE) 여도 master ON + consecutive READY streak 만으로
+  // ACTIVATE(켜야 증거가 쌓이는 인프라라 닭-달걀 deadlock 회피). evidence-게이트 criteria 는 0/false.
+  // minConsecutiveReadyDays:2 — 부팅 flap 방지(보수적 하한). evaluator 분기 본문은 engine-dev(ADR-0635 §2.1).
+  {
+    leverId: 'FUTURE_RETURN_RESOLVER_ADR0175',
+    envName: 'FUTURE_RETURN_RESOLVER_ENABLED',
+    eligibility: 'LIVE_SAFE',
+    criteria: {
+      minMatureSamplesD5: 0,
+      requireReviewReady: false,
+      requirePerformanceJustified: false,
+      minConsecutiveReadyDays: 2,
+      requiresEvidence: false,
+    },
+    rationale:
+      'ADR-0175 Phase 2b-1 — ShadowLearningOnlySignal 의 1/3/5/20d future-return 갱신(saveShadowLearningOnlySignals). KIS 종가 read-only·학습 ledger 만 write. executionImpact=NONE(learningJobs.ts:220). 켜야 forward-outcome 증거가 쌓이는 측정 인프라라 requiresEvidence:false. default OFF.',
+  },
+  {
+    leverId: 'SHAKEOUT_STOP_FORWARD_LABELER_ADR0625',
+    envName: 'SHAKEOUT_STOP_FORWARD_LABELER_ENABLED',
+    eligibility: 'LIVE_SAFE',
+    criteria: {
+      minMatureSamplesD5: 0,
+      requireReviewReady: false,
+      requirePerformanceJustified: false,
+      minConsecutiveReadyDays: 2,
+      requiresEvidence: false,
+    },
+    rationale:
+      'ADR-0625 — HIT_STOP 청산 포지션 손절-후 N일 종가 KIS 일봉(L1 read-only) 라벨링(관측 전용·upsertLabel 물리분리 ledger). shadow-trades.json 본체 무수정·주문 import 0. executionImpact=NONE(learningJobs.ts:239). 켜야 라벨 증거가 쌓이는 관측 인프라라 requiresEvidence:false. default OFF.',
+  },
+  {
+    leverId: 'SAFETY_GATE_ATTRIBUTION_ADR0174',
+    envName: 'SAFETY_GATE_ATTRIBUTION_ENABLED',
+    eligibility: 'LIVE_SAFE',
+    criteria: {
+      minMatureSamplesD5: 0,
+      requireReviewReady: false,
+      requirePerformanceJustified: false,
+      minConsecutiveReadyDays: 2,
+      requiresEvidence: false,
+    },
+    rationale:
+      'ADR-0174 §2.1 — 7 게이트 사후효과(avoidedLoss/missedGain/netGateImpact) 일일 진단 로그. 순수 compute(영속 write 0)·console 로그만. executionImpact=NONE(learningJobs.ts:260). 켜야 귀인 관측이 쌓이는 진단 인프라라 requiresEvidence:false. default OFF.',
+  },
+  {
+    leverId: 'SHADOW_LIVE_DELTA_REPORT_ADR0174',
+    envName: 'SHADOW_LIVE_DELTA_REPORT_ENABLED',
+    eligibility: 'LIVE_SAFE',
+    criteria: {
+      minMatureSamplesD5: 0,
+      requireReviewReady: false,
+      requirePerformanceJustified: false,
+      minConsecutiveReadyDays: 2,
+      requiresEvidence: false,
+    },
+    rationale:
+      'ADR-0174 §2.2 — 5 카테고리 missedAlpha 일일 진단 로그. 순수 compute(영속 write 0)·console 로그만. executionImpact=NONE(learningJobs.ts:281). 켜야 delta 관측이 쌓이는 진단 인프라라 requiresEvidence:false. default OFF.',
+  },
+
+  // ── LIVE_ADJACENT_REVIEW (자가 활성 금지 — 운영자 1-체크포인트 검토 영역 · ADR-0635 §2.3 T2) ──
+  // EXCLUDED 와 같이 evaluator 가 항상 EXCLUDED verdict·process.env 무접촉. "절대 금지"가 아니라
+  // LIVE-인접 동작 변경이라 자동 활성하지 않고 운영자가 인지·수동 검토하도록 등재(인지하되 자동화 금지).
+  // criteria 값은 무의미(evaluator 가 eligibility 로 먼저 EXCLUDED 분기 → 미평가). requiresEvidence:true 채움(무의미).
+  {
+    leverId: 'R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592',
+    envName: 'R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED',
+    eligibility: 'LIVE_ADJACENT_REVIEW',
+    criteria: {
+      minMatureSamplesD5: 0,
+      requireReviewReady: false,
+      requirePerformanceJustified: false,
+      minConsecutiveReadyDays: 0,
+      requiresEvidence: true,
+    },
+    rationale:
+      'ADR-0592 — R6 트리거 tradeDate 신선도 게이트. regime/R6 상태 LIVE 경로에 인접 — 자동 활성 금지·운영자 1-체크포인트(ADR-0635 §2.3).',
+  },
+  {
+    leverId: 'R6_RECOVERY_STUCK_EXIT_ADR0630',
+    envName: 'R6_RECOVERY_STUCK_EXIT_ENABLED',
+    eligibility: 'LIVE_ADJACENT_REVIEW',
+    criteria: {
+      minMatureSamplesD5: 0,
+      requireReviewReady: false,
+      requirePerformanceJustified: false,
+      minConsecutiveReadyDays: 0,
+      requiresEvidence: true,
+    },
+    rationale:
+      'ADR-0630 D2 — R6 복구 stuck-exit(Kelly/display regime 정상화). LIVE regime override·exit 위상에 인접 — 자동 활성 금지·운영자 1-체크포인트(ADR-0635 §2.3).',
+  },
+  {
+    leverId: 'GATE1_RS_PERCENTILE_CONTINUOUS_ADR0627',
+    envName: 'GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED',
+    eligibility: 'LIVE_ADJACENT_REVIEW',
+    criteria: {
+      minMatureSamplesD5: 0,
+      requireReviewReady: false,
+      requirePerformanceJustified: false,
+      minConsecutiveReadyDays: 0,
+      requiresEvidence: true,
+    },
+    rationale:
+      'ADR-0627 — Gate1 RS 백분위 연속 채점식. Gate1 채점 경로 변경 성격 — 자동 활성 금지·운영자 1-체크포인트(ADR-0635 §2.3).',
+  },
+  {
+    leverId: 'INTRADAY_SCREENER_REFRESH_ADR0628',
+    envName: 'INTRADAY_SCREENER_REFRESH_ENABLED',
+    eligibility: 'LIVE_ADJACENT_REVIEW',
+    criteria: {
+      minMatureSamplesD5: 0,
+      requireReviewReady: false,
+      requirePerformanceJustified: false,
+      minConsecutiveReadyDays: 0,
+      requiresEvidence: true,
+    },
+    rationale:
+      'ADR-0628 — 장중 리더 universe 신선화(평가 풀 갱신). universe 구성 LIVE 인접 — 자동 활성 금지·운영자 1-체크포인트(ADR-0635 §2.3).',
   },
 
   // ── EXCLUDED (자가 활성 영구 금지 — 명시 등재) ──────────────────────────────
@@ -159,6 +313,7 @@ export const LEVER_REGISTRY: readonly AutoActivationLever[] = [
       requireReviewReady: false,
       requirePerformanceJustified: false,
       minConsecutiveReadyDays: 0,
+      requiresEvidence: true,
     },
     rationale:
       'LIVE Gate1 required-score flip(ADR-0546). requiredScore=70 절대 보존 영역. 운영자 명시 결정만.',
@@ -172,6 +327,7 @@ export const LEVER_REGISTRY: readonly AutoActivationLever[] = [
       requireReviewReady: false,
       requirePerformanceJustified: false,
       minConsecutiveReadyDays: 0,
+      requiresEvidence: true,
     },
     rationale:
       'Gate1 positive-ceiling(ADR-0613) — 채점/통과 판정 영향 가능. 운영자 명시 결정만.',
@@ -185,6 +341,7 @@ export const LEVER_REGISTRY: readonly AutoActivationLever[] = [
       requireReviewReady: false,
       requirePerformanceJustified: false,
       minConsecutiveReadyDays: 0,
+      requiresEvidence: true,
     },
     rationale: 'learning→LIVE 가중치 승격(ADR-0581). 불변식 #7. 운영자 명시 결정만.',
   },
@@ -197,6 +354,7 @@ export const LEVER_REGISTRY: readonly AutoActivationLever[] = [
       requireReviewReady: false,
       requirePerformanceJustified: false,
       minConsecutiveReadyDays: 0,
+      requiresEvidence: true,
     },
     rationale: '학습 Gate1 임계 provider 의 LIVE 반영(ADR-0624). 불변식 #7. 운영자 명시 결정만.',
   },
@@ -256,7 +414,14 @@ export function evaluateLeverReadiness(
   const performanceJustified = input.promotionReadiness ? boardPerformanceJustified : null;
 
   const c = lever.criteria;
-  const matureOk = matureSamplesD5 !== null && matureSamplesD5 >= c.minMatureSamplesD5;
+  // requiresEvidence:false (ADR-0635 T1 측정/관측 인프라) → evidence 부재(matureSamplesD5 null)여도
+  // criteria 가 0/false 로 설정돼 있어 충족으로 처리한다. matureSamplesD5 가 null 일 때는
+  // minMatureSamplesD5<=0(=evidence-게이트 해제) 이면 matureOk=true. evidence 가 실제로 있으면 비교는 그대로.
+  // requiresEvidence:true (기존 seed/T3) → evidence 부재 시 matureSamplesD5 null → matureOk=false (현행 보존).
+  const matureOk =
+    matureSamplesD5 !== null
+      ? matureSamplesD5 >= c.minMatureSamplesD5
+      : c.requiresEvidence === false && c.minMatureSamplesD5 <= 0;
   const reviewOk = c.requireReviewReady ? reviewReady === true : true;
   const perfOk = c.requirePerformanceJustified ? performanceJustified === true : true;
   const readyExclStreak = matureOk && reviewOk && perfOk;
@@ -376,8 +541,10 @@ export function evaluateAutoActivation(
       continue;
     }
 
-    // 증거 부재 → DATA_UNAVAILABLE (process.env 무접촉).
-    if (!evidence || matureSamplesD5 === null) {
+    // 증거 부재 → DATA_UNAVAILABLE (process.env 무접촉) — requiresEvidence:true 만.
+    // requiresEvidence:false (ADR-0635 T1 측정/관측 인프라) → DATA_UNAVAILABLE 우회. 켜야 증거가
+    // 쌓이는 인프라라 evidence 부재로 막지 않고 readyExclStreak + consecutiveOk 만으로 ACTIVATE/HOLD 판정.
+    if (lever.criteria.requiresEvidence === true && (!evidence || matureSamplesD5 === null)) {
       decisions.push({
         leverId: lever.leverId,
         envName: lever.envName,
