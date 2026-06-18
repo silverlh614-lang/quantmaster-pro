@@ -454,7 +454,7 @@ export function buildBotMenuCommands(): BotMenuCommand[] {
 }
 
 const TELEGRAM_MAX_COMMANDS = 100;
-export const TELEGRAM_MENU_SOFT_CAP = 90;
+export const TELEGRAM_MENU_SOFT_CAP = 100;
 
 const MENU_ALWAYS_INCLUDE = new Set([
   'ai_status',
@@ -487,6 +487,7 @@ const MENU_ALWAYS_INCLUDE = new Set([
   'pos',
   'program_market',
   'program_today',
+  'promotion_readiness',
   'regime',
   'report',
   'scan',
