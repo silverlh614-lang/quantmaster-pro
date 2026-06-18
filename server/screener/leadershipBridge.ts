@@ -17,6 +17,13 @@ import {
   loadWatchlist, saveWatchlist, type WatchlistEntry,
 } from '../persistence/watchlistRepo.js';
 import { addToWatchlist } from './watchlistManager.js';
+import { getScreenerCache } from './stockScreener.js';
+import { getOpenPositions } from '../persistence/shadowPositionLedger.js';
+import {
+  isIntradayWeakRotationEnabled,
+  buildWeakRotationEvictionStrategy,
+  type WeakRotationContext,
+} from './intradayWeakRotation.js';
 
 export const LEADERSHIP_BRIDGE_TTL_HOURS = 4;
 export const LEADERSHIP_MIN_GATE = 4.5;
@@ -123,6 +130,35 @@ export function bridgeLeadersToMomentum(
   const list = loadWatchlist();
   const byCode = new Map(list.map((w) => [w.code, w]));
 
+  // ── ADR-0628 D5 — 약세 종목 회전 컨텍스트(flag ON 시 1회 조립, 신규 fetch 0) ──
+  // flag OFF 면 rotationState=null → addToWatchlist 옵션 미주입 → 기존
+  // tryEvictWeakest + momentum_full fallback 그대로(byte-identical).
+  let rotationState: {
+    heldCodes: ReadonlySet<string>;
+    freshChangeRateOf: (code: string) => number | null;
+    evictedThisCycle: number;
+  } | null = null;
+  if (isIntradayWeakRotationEnabled()) {
+    try {
+      const heldCodes = new Set(
+        getOpenPositions().map((p) => p.trade.stockCode).filter(Boolean) as string[],
+      );
+      const freshByCode = new Map<string, number>();
+      for (const s of getScreenerCache()) {
+        if (Number.isFinite(s.changeRate)) freshByCode.set(s.code, s.changeRate);
+      }
+      rotationState = {
+        heldCodes,
+        freshChangeRateOf: (code: string) => freshByCode.has(code) ? freshByCode.get(code)! : null,
+        evictedThisCycle: 0,
+      };
+    } catch (err) {
+      /* SDS-ignore: 회전 컨텍스트 조립 실패는 기존 cap fallback, 엔진 비차단(불변식 #1) */
+      console.error('[WeakRotation] rotationCtx 조립 실패 — 기존 cap fallback', err);
+      rotationState = null;
+    }
+  }
+
   for (const raw of candidates) {
     if (!qualifiesAsLeader(raw, ctx)) { bump('not_qualified'); continue; }
     const code = raw.code.padStart(6, '0');
@@ -144,7 +180,34 @@ export function bridgeLeadersToMomentum(
     }
 
     const entry = buildEntryFromLeader(raw);
-    const addResult = addToWatchlist(list, entry);
+    let addResult;
+    if (rotationState) {
+      // ADR-0628 D5 — flag ON: 신선 리더 강도(sectorRelativeStrength)로 약세 멤버 회전 시도.
+      // evict 실패(margin 미달/상한/적격 후보 없음) 시 strategy 가 null → addResult.added=false
+      // → 기존 momentum_full fallback(byte-identical 의미 보존).
+      const rotationCtx: WeakRotationContext = {
+        kospiDayReturn: ctx.kospiDayReturn ?? 0,
+        leaderStrength: raw.sectorRelativeStrength,
+        heldCodes: rotationState.heldCodes,
+        freshChangeRateOf: rotationState.freshChangeRateOf,
+        evictedThisCycle: rotationState.evictedThisCycle,
+      };
+      try {
+        addResult = addToWatchlist(list, entry, {
+          evictionStrategy: buildWeakRotationEvictionStrategy(rotationCtx),
+        });
+      } catch (err) {
+        /* SDS-ignore: 회전 실패는 기존 cap fallback, 엔진 비차단(불변식 #1) */
+        console.error('[WeakRotation] evict 실패 — 기존 cap fallback', err);
+        addResult = addToWatchlist(list, entry);
+      }
+      // 회전 성공 시 사이클 카운트 갱신(D5.4 상한 적용)
+      if (addResult.added && addResult.evicted) {
+        rotationState.evictedThisCycle++;
+      }
+    } else {
+      addResult = addToWatchlist(list, entry);
+    }
     if (!addResult.added) {
       bump('momentum_full');
       continue;
