@@ -1,4 +1,4 @@
-// @responsibility ADR-0621 intraday horizon honesty 회귀 테스트 — T+30m/T+1h OBSERVED 자격 = INTRADAY_CANDLE_CACHE 한정.
+// @responsibility ADR-0637 intraday horizon honesty 회귀 테스트 — T+30m/T+1h OBSERVED 자격 = INTRADAY_CANDLE_CACHE 한정.
 //
 // T+30m/T+1h 는 coarser fallback(MARKET_DATA/READ_ONLY_QUOTE/SCAN/ENTRY)이 same-day-close 단일점이라
 // follow-through 부풀림을 유발 → INTRADAY_CANDLE_CACHE 없으면 null → DATA_UNAVAILABLE 강등 검증.
@@ -53,7 +53,7 @@ function makeYahooBody(points: Array<{ timestampMs: number; close: number }>): s
   });
 }
 
-describe('ADR-0621 intraday horizon honesty', () => {
+describe('ADR-0637 intraday horizon honesty', () => {
   beforeEach(() => {
     delete process.env.PROVISIONAL_CACHE_LOOKUP_DISABLED;
     delete process.env.PROVISIONAL_SHADOW_PRICE_PROVIDER_DISABLED;

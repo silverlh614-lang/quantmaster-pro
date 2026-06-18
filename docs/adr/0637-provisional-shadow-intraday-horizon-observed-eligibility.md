@@ -1,4 +1,4 @@
-# ADR-0621 — Provisional Shadow Intraday Horizon OBSERVED Eligibility (Follow-Through Inflation 차단)
+# ADR-0637 — Provisional Shadow Intraday Horizon OBSERVED Eligibility (Follow-Through Inflation 차단)
 
 **Status:** Proposed (Phase 0 — 경계·타입·ADR. 측정 자격 규칙 신설. 구현은 engine-dev 인계.)
 **Date:** 2026-06-18
