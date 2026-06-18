@@ -119,7 +119,7 @@ export interface AutoActivationReport {
   requiredScoreUntouched: true;
 }
 
-/** audit ledger 1행 — ACTIVATE(process.env set) 시에만 append. */
+/** audit ledger 1행 — ACTIVATE(process.env set) 또는 운영자 승인/철회(ADR-0636) 시 append. */
 export interface AutoActivationLedgerEntry {
   leverId: string;
   envName: string;
@@ -128,6 +128,13 @@ export interface AutoActivationLedgerEntry {
   criteria: LeverCriteria;
   /** 활성 근거가 된 증거 스냅샷. */
   evidenceSnapshot: AutoActivationLeverDecision['evidenceSnapshot'];
+  /**
+   * append 출처 (ADR-0636). 미설정/'AUTO' = 기존 evaluator ACTIVATE 경로(무회귀).
+   * 'OPERATOR_APPROVAL'/'OPERATOR_REVOKE' = 운영자 승인 활성화/철회 경로.
+   */
+  source?: 'AUTO' | 'OPERATOR_APPROVAL' | 'OPERATOR_REVOKE';
+  /** 운영자 승인/철회 시 행위자 (Telegram userId 또는 'operator'). source!=='AUTO' 일 때만. */
+  approvedBy?: string;
 }
 
 // ── master flag SSOT (ADR-0157 정확 비교) ─────────────────────────────────────
@@ -687,4 +694,153 @@ export function formatAutoActivationReport(report?: AutoActivationReport): strin
   lines.push(`liveExecutionUntouched: ${report ? report.liveExecutionUntouched : true}`);
   lines.push(`requiredScoreUntouched: ${report ? report.requiredScoreUntouched : true}`);
   return lines.join('\n');
+}
+
+// ── ADR-0636 운영자 승인 활성화 (LIVE_ADJACENT_REVIEW 전용) ─────────────────────
+
+/**
+ * 운영자 승인 활성화 결과 (ADR-0636).
+ *
+ * - APPROVED: leverId 가 registry 에 있고 eligibility==='LIVE_ADJACENT_REVIEW' →
+ *   process.env[envName]='true' set + in-memory audit append. 영속 write 는 호출자(cmd)가
+ *   recordApproval 로 수행한다(repo).
+ * - REVOKED: process.env[envName] delete + audit. 영속 삭제는 호출자가 revokeApproval 로.
+ * - REJECTED_NOT_REVIEWABLE: leverId 는 registry 에 있으나 eligibility 가 LIVE_ADJACENT_REVIEW
+ *   가 아님(LIVE_SAFE/LIVE_MONEY_EXCLUDED/ABSOLUTE_PRESERVATION_EXCLUDED). process.env 무접촉.
+ *   T3 EXCLUDED·LIVE master(AUTO_TRADE_ENABLED·KIS_IS_REAL)는 절대 승인 불가의 핵심 가드.
+ * - NOT_FOUND: leverId 가 registry 에 미등재. process.env 무접촉.
+ */
+export interface OperatorApprovalResult {
+  leverId: string;
+  verdict: 'APPROVED' | 'REVOKED' | 'REJECTED_NOT_REVIEWABLE' | 'NOT_FOUND';
+  /** APPROVED/REVOKED 시 set/delete 한 ENV 이름. 거부 시 undefined. */
+  envName?: string;
+  /** 사람이 읽는 결과 사유 (cmd 표시·audit). */
+  reason: string;
+}
+
+/**
+ * 운영자 승인 활성화 (ADR-0636 §2) — LIVE_ADJACENT_REVIEW lever 만 허용.
+ *
+ * 검증: leverId 가 LEVER_REGISTRY 에 있고 **eligibility === 'LIVE_ADJACENT_REVIEW'** 일 때만 허용.
+ *   - 미등재 → NOT_FOUND(process.env 무접촉).
+ *   - 등재됐으나 LIVE_ADJACENT_REVIEW 아님 → REJECTED_NOT_REVIEWABLE(process.env 무접촉).
+ *     (LIVE_SAFE 는 자가 활성 대상이라 수동 승인 불요·LIVE_MONEY/ABSOLUTE_PRESERVATION 은
+ *      영구 EXCLUDED·LIVE master flag 는 registry 비등재라 자동 NOT_FOUND.)
+ *   - 허용 → process.env[envName]='true' set + in-memory audit ledger append
+ *     (source='OPERATOR_APPROVAL'·approvedBy). 영속 write 는 호출자(cmd)가 recordApproval 로.
+ *
+ * (engine-dev) 순수성 최적안 결정: 본 함수는 process.env set + in-memory audit 만.
+ *   영속은 cmd 가 recordApproval 로 수행한다(repo I/O 분리). EXCLUDED/T3/LIVE master 절대
+ *   승인 불가가 핵심.
+ */
+export function applyOperatorApproval(
+  leverId: string,
+  approvedBy: string,
+): OperatorApprovalResult {
+  const lever = LEVER_REGISTRY.find((l) => l.leverId === leverId);
+  if (!lever) {
+    // 미등재 — LIVE master(AUTO_TRADE_ENABLED·KIS_IS_REAL)는 registry 비등재라 여기로 떨어진다(process.env 무접촉).
+    return { leverId, verdict: 'NOT_FOUND', reason: 'registry 미등재 — 승인 불가(process.env 무접촉).' };
+  }
+  if (lever.eligibility !== 'LIVE_ADJACENT_REVIEW') {
+    // LIVE_SAFE/LIVE_MONEY_EXCLUDED/ABSOLUTE_PRESERVATION_EXCLUDED 전부 거부(2중 가드, process.env 무접촉).
+    return {
+      leverId,
+      verdict: 'REJECTED_NOT_REVIEWABLE',
+      envName: lever.envName,
+      reason: `eligibility=${lever.eligibility} — 운영자 승인 불가(LIVE_ADJACENT_REVIEW 전용). T3/LIVE_SAFE/LIVE master 비대상.`,
+    };
+  }
+  // 허용 — process.env set + in-memory audit. 영속 write 는 호출자(cmd)가 recordApproval 로.
+  process.env[lever.envName] = 'true';
+  ledger.push({
+    leverId: lever.leverId,
+    envName: lever.envName,
+    activatedAt: new Date().toISOString(),
+    criteria: lever.criteria,
+    evidenceSnapshot: {
+      matureSamplesD5: null,
+      reviewReady: null,
+      performanceJustified: null,
+      consecutiveReadyDays: null,
+    },
+    source: 'OPERATOR_APPROVAL',
+    approvedBy,
+  });
+  return {
+    leverId,
+    verdict: 'APPROVED',
+    envName: lever.envName,
+    reason: `${lever.envName}=true set (operator approval by ${approvedBy}).`,
+  };
+}
+
+/**
+ * 운영자 승인 철회 (ADR-0636 §2) — process.env[envName] delete + audit.
+ *
+ * 검증은 applyOperatorApproval 과 동형(LIVE_ADJACENT_REVIEW 만). 허용 시 process.env[envName]
+ *   를 delete(set 'false' 아님 — 미설정 default 상태로 복귀) + in-memory audit append.
+ *   영속 삭제는 호출자(cmd)가 revokeApproval 로 수행한다.
+ *   미등재 → NOT_FOUND·non-reviewable → REJECTED_NOT_REVIEWABLE.
+ */
+export function revokeOperatorApproval(leverId: string): OperatorApprovalResult {
+  const lever = LEVER_REGISTRY.find((l) => l.leverId === leverId);
+  if (!lever) {
+    return { leverId, verdict: 'NOT_FOUND', reason: 'registry 미등재 — 철회 불가(process.env 무접촉).' };
+  }
+  if (lever.eligibility !== 'LIVE_ADJACENT_REVIEW') {
+    return {
+      leverId,
+      verdict: 'REJECTED_NOT_REVIEWABLE',
+      envName: lever.envName,
+      reason: `eligibility=${lever.eligibility} — 운영자 철회 불가(LIVE_ADJACENT_REVIEW 전용).`,
+    };
+  }
+  // delete (set 'false' 금지 — 미설정 default 상태로 완전 복귀) + in-memory audit. 영속 삭제는 cmd(revokeApproval).
+  delete process.env[lever.envName];
+  ledger.push({
+    leverId: lever.leverId,
+    envName: lever.envName,
+    activatedAt: new Date().toISOString(),
+    criteria: lever.criteria,
+    evidenceSnapshot: {
+      matureSamplesD5: null,
+      reviewReady: null,
+      performanceJustified: null,
+      consecutiveReadyDays: null,
+    },
+    source: 'OPERATOR_REVOKE',
+  });
+  return {
+    leverId,
+    verdict: 'REVOKED',
+    envName: lever.envName,
+    reason: `${lever.envName} deleted (operator revoke — 미설정 default 복귀).`,
+  };
+}
+
+/**
+ * 부팅 재적용 (ADR-0636 §4) — 영속 승인분을 process.env 에 재적용한다.
+ *
+ * 서버 부팅부에서 `reapplyOperatorApprovals(listApprovedLeverIds())` 1회 호출.
+ *   - 각 leverId 를 registry 교차검증: LEVER_REGISTRY 에 있고 eligibility===
+ *     'LIVE_ADJACENT_REVIEW' 인 것만 process.env[envName]='true' 재적용(legacy/오염
+ *     leverId 무시 — 안전 가드).
+ *   - **승인 ledger 빈 상태(기본)면 입력 빈 배열 → no-op → byte-identical.** 이것이
+ *     default 상태 무변경 보장의 핵심.
+ * @returns 실제로 재적용된 leverId 목록.
+ */
+export function reapplyOperatorApprovals(approvedLeverIds: string[]): string[] {
+  // 빈 입력(승인 0건·기본) → 즉시 [] return = process.env 무접촉 = byte-identical.
+  const applied: string[] = [];
+  for (const id of approvedLeverIds) {
+    const lever = LEVER_REGISTRY.find((l) => l.leverId === id);
+    // registry 교차검증 — LIVE_ADJACENT_REVIEW 인 것만 재적용. legacy/오염 leverId·非T2 는 무시(안전 가드).
+    if (lever && lever.eligibility === 'LIVE_ADJACENT_REVIEW') {
+      process.env[lever.envName] = 'true';
+      applied.push(id);
+    }
+  }
+  return applied;
 }
