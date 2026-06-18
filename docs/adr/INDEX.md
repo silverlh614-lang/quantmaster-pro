@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0624`**
+**다음 ADR 번호: `0625`**
+
+(2026-06-18 기준, 마지막 발급 0624 — shadow-always-on-by-default-operator-decision-removal. **Status: Proposed (Phase 0 — 정책·경계 ADR. 설계 전용·코드 0줄. 구현은 승인 후 engine-dev/quality-guard.)** ADR-0624 — 운영자 지침(2026-06-18: ① 운영자 결정 의존 금지 ② always-on trading 최우선 ③ 기능 과잉=혼란). 진단: shadow 매수 0·학습 정체·게이트 빡빡의 원인=로직 부재 아니라 LIVE-안전 기능까지 `default OFF` 로 잠가 운영자 flag flip 대기(always-on 불변식 #1·#2 진입경로 위반). 오늘 Patch-LearningRegime-CanonicalSource-v2 노트도 "shadow 진입 개방은 ADR-0608/0619 flag ON 별도 필요" 명시(flag OFF 라 regime 고쳐도 안 열림). 처방: LIVE-안전 shadow 레버를 opt-in(default OFF)→opt-out(default ON) 반전 + 운영자 결정점을 SHADOW→LIVE 단일 경계로 축소 + flag 표면 축소(새 임계식·새 불변식·캠페인 레이어 0). D1 shadow 진입 자유화 default ON(ADR-0619 D2+0608 ENV 기본값 반전·live `isShadow=false` byte-identical·비상 kill `SHADOW_LIBERALIZATION_KILL` 1개=opt-in 2개→비상 OFF 1개 knob 축소). D2 shadow 학습 자동 적용(ADR-0581 shadow provider 자동 등록·실돈 무관 #8 이라 승인 불요·`PENDING_REVIEW` 정체 shadow 측 제거·운영자 승인은 SHADOW→LIVE 만). D3 flag 표면 축소(opt-in 2→비상 kill 1·캠페인/단계게이트 미추가). D4 유일 운영자 결정점=SHADOW→LIVE(돈 경계·default OFF 유지·data-triggered 1회 확인·`NON_LIVE_SOURCE`/clamp/canary 보존 #7). D5 본 ADR byte-equivalent(문서·코드 0·runtime 0). 이전 ADR-0624 초안(intelligence-activation-campaign 캠페인 프레이밍)을 운영자 지침 ①③ 충돌로 대체·폐기. 9대 불변식 텍스트 0줄(#1 always-on 강화·#2 default ON 실질보장·#7 LIVE 단일게이트·#8 분리 복원·#3/#4/#5/#6/#9 보존). ADR-0619 Alt(h)/0608/0157 default OFF 관성을 LIVE-safe shadow 한정 명시 override(LIVE 영향 변경은 default OFF 유지). Patch Scope Guard: targetDomain process/policy(0 코드)·allowedFiles(본 ADR·INDEX 다음발급+인덱스 한 줄·10-patch-history 한 줄·_workspace plan)·forbiddenFiles(server/**·src/**·.env*·인용 ADR 본문·00-project-charter 불변식)·executionImpact 문서 NONE/구현 D1·D2 shadow(live byte-identical)·D4 LIVE(default OFF 단일게이트)·rollback 문서 revert+kill-switch/ENV 1줄. 동반 `_workspace/2026-06-18_intelligence-activation/PLAN.md`. 계보 0619/0608/0581/0546/0173/0157/0146. INDEX 0624→0625 갱신.)
 
 (2026-06-18 기준, 마지막 발급 0623 — price-correction-stage2-shadow-activation. **Status: Accepted (Stage 2a 구현 — ENV `PRICE_CORRECTION_SHADOW_ENABLED` default OFF byte-equivalent + Seam A diagnostics 집계 채움). Stage 2b(shadow corrected 치환)는 후속 PR.)** ADR-0623 — ADR-0414 Stage 1 Read-Only(dead-but-tested) 의 직속 후속. Stage 2a 가 채우는 것=ScanSummary `priceIntegrity`/`priceCorrection` diagnostics 집계(buyListLoop Seam A 가 kisIntradayCorrectionStep 직후 이미 보유한 reCheckQuote/currentPrice 로 evaluatePriceIntegrity→evaluatePriceCorrection→accumulatePriceIntegrityCorrection·외부 fetch 0·corrected→LIVE/Shadow 의사결정 미사용·try/catch 격리 불변식 #1). 신규 ENV SSOT isPriceCorrectionShadowEnabled()(priceCorrectionEngine 거주·=== 'true' 정확비교 ADR-0157·PRICE_CORRECTION_DISABLED 우선 게이팅). ScanCounters additive 옵셔널 priceIntegritySamples?/priceCorrectionSamples?(server-local·src/types 무수정·미초기화 시 byte-equivalent). persistScanResults reduce(statusCounts/correctionTypeCounts/averageConfidence/dropGapCalculationCount/shadowOnlySuggestedCount/topAffected). LIVE 무접촉(entryEngine/exitEngine/order executor/kisClient/autoTradeEngine 0줄·정적 grep 가드). Stage 2b(Seam B kisIntradayCorrection 시그니처 변경+corrected 복제 합성)는 본 PR 미구현. 9대 불변식 #1/#4/#8/#9·ADR-0414 invariant 10종 계승+Stage2 4종 보존. 롤백 ENV 1줄. 계보 0414/0412/0436/0608/0619/0157/0185~0189. INDEX 0623→0624 갱신.)
 
@@ -725,8 +727,9 @@
 | 0621 | gate2-rs-benchmark-dualization-kosdaq | quant / gate2 |
 | 0622 | universe-discovery-aggressiveness-topn-rs-percentile | policy / screener |
 | 0623 | price-correction-stage2-shadow-activation | trading / diagnostics |
+| 0624 | shadow-always-on-by-default-operator-decision-removal | policy / shadow / learning |
 
-**최대 발급 0623 · 다음 발급 0624** — `node scripts/check_adr_index.js --json` 기준 (2026-06-17 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0624 · 다음 발급 0625** — `node scripts/check_adr_index.js --json` 기준 (2026-06-18 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
