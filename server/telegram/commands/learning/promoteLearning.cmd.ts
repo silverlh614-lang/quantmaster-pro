@@ -1,17 +1,17 @@
-// @responsibility /promote_learning ADR-0624 D4 — SHADOW→LIVE 학습 승격 단일 확인 게이트(operator-gated, 미적용 byte-identical).
+// @responsibility /promote_learning ADR-0624 D4 — SHADOW→LIVE 학습 승격 게이트(shadow 즉시·LIVE ENV master 게이트·미적용 byte-identical).
 import { commandRegistry } from '../../commandRegistry.js';
 import type { CommandContext, TelegramCommand } from '../_types.js';
 import {
   getLearningWeightPromotionPreview,
   registerLearningWeightPromotion,
   unregisterLearningWeightPromotion,
-  isLearningWeightPromotionApplied,
 } from '../../../learning/learningWeightPromotionApply.js';
 import {
   registerCounterfactureGateApply,
   unregisterCounterfactureGateApply,
   isCounterfactureGateApplyEnabled,
 } from '../../../learning/gateLearnedThresholdApply.js';
+import { getTradingMode } from '../../../state.js';
 
 type PromoteAction = 'status' | 'apply' | 'revert';
 
@@ -31,22 +31,23 @@ export function resolvePromotePermission(ctx: Pick<CommandContext, 'userId'>, ac
 
 function formatStatus(): string {
   const w = getLearningWeightPromotionPreview('GLOBAL');
+  const live = w.tradingMode === 'LIVE';
+  const weightsEffective = w.applied && w.hasCandidate && (!live || w.flagEnabled);
   const gateFlag = isCounterfactureGateApplyEnabled();
-  const applied = isLearningWeightPromotionApplied();
   const topChanges = w.changes
     .filter(c => Number.isFinite(c.candidate) && Math.abs(c.clamped - c.from) > 1e-9)
     .slice(0, 12)
     .map(c => `  ${c.key}: ${c.from} → ${c.clamped}${c.candidate !== c.clamped ? ` (cand ${c.candidate}, clamped)` : ''}`);
   return [
     '[Learning Promotion · SHADOW→LIVE 단일 게이트]',
-    `applied: ${applied ? 'YES (provider 등록됨)' : 'NO (byte-identical)'}`,
-    `condition-weights flag(LEARNING_WEIGHT_PROMOTION_ENABLED): ${w.flagEnabled ? 'ON' : 'OFF'}`,
-    `gate1-threshold flag(COUNTERFACTURE_GATE_APPLY_ENABLED): ${gateFlag ? 'ON' : 'OFF'}`,
+    `tradingMode: ${w.tradingMode} · applied: ${w.applied ? 'YES' : 'NO'}`,
+    `조건가중치 반영 중: ${weightsEffective ? 'YES (학습 가중치 사용)' : 'NO (byte-identical)'}`,
+    `  └ shadow=apply 만으로 즉시 반영 / LIVE=추가로 LEARNING_WEIGHT_PROMOTION_ENABLED 필요(현재 ${w.flagEnabled ? 'ON' : 'OFF'})`,
+    `Gate1 임계: ${gateFlag ? 'ON' : 'OFF'} (COUNTERFACTURE_GATE_APPLY_ENABLED — apply 후에도 이 flag 필요)`,
     `candidate weights(GLOBAL): ${w.hasCandidate ? `${w.changes.length}건` : 'none'}`,
-    topChanges.length ? '변경 미리보기(clamped):' : '변경 없음(또는 flag OFF로 비활성)',
+    topChanges.length ? '변경 미리보기(clamped):' : '변경 없음',
     ...topChanges,
-    'apply = /promote_learning apply (live 가중치 + Gate1 임계 provider 등록) · revert = /promote_learning revert',
-    'executionImpact: 미적용 NONE byte-identical / 적용 시 flag ON 분만 live 반영(clamp 적용·revert 가능)',
+    'apply = /promote_learning apply · revert = /promote_learning revert',
   ].join('\n');
 }
 
@@ -56,7 +57,7 @@ const promoteLearning: TelegramCommand = {
   category: 'LRN',
   visibility: 'ADMIN',
   riskLevel: 2,
-  description: 'SHADOW→LIVE 학습 승격 단일 확인 게이트 (조건가중치 + Gate1 임계 provider 등록/해제)',
+  description: 'SHADOW→LIVE 학습 승격 게이트 (조건가중치 + Gate1 임계 provider 등록/해제)',
   usage: '/promote_learning [status|apply|revert]',
   async execute(ctx) {
     const { args, reply } = ctx;
@@ -69,12 +70,15 @@ const promoteLearning: TelegramCommand = {
         if (op === 'apply') {
           registerLearningWeightPromotion();
           registerCounterfactureGateApply();
+          const live = getTradingMode() === 'LIVE';
           return reply([
             '[Learning Promotion] APPLIED',
-            'condition-weights provider + Gate1 임계 provider 등록됨 (operator 1회 확인).',
-            '※ 각 provider 는 자체 ENV flag ON + clamp 충족분만 live 반영 — flag OFF면 등록돼도 byte-identical.',
-            'revert = /promote_learning revert (즉시 해제)',
-            'executionImpact: flag ON 분 live 반영(clamp 적용·revert 가능).',
+            `tradingMode: ${getTradingMode()}`,
+            live
+              ? '※ LIVE 모드: 조건가중치 반영엔 LEARNING_WEIGHT_PROMOTION_ENABLED=true 필요(현재 OFF면 byte-identical · #7 backstop).'
+              : '※ SHADOW/PAPER 모드: 조건가중치 즉시 반영(clamp 적용·실돈 영향 0).',
+            'Gate1 임계 provider 도 등록 — 단 COUNTERFACTURE_GATE_APPLY_ENABLED=true 여야 반영.',
+            'revert = /promote_learning revert (즉시 해제) · 상태 = /promote_learning status',
           ].join('\n'));
         }
         unregisterLearningWeightPromotion();

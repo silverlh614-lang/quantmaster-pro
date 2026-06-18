@@ -1,15 +1,16 @@
-// @responsibility ADR-0624 D4 — flag-gated·clamped 학습 조건가중치 승격 resolver + provider 등록(operator-gated, default OFF byte-identical).
+// @responsibility ADR-0624 D4 — shadow-즉시·live-게이트 학습 조건가중치 승격 resolver + provider 등록(/promote_learning 전용).
 /**
- * learningWeightPromotionApply.ts (ADR-0624 D4 — SHADOW→LIVE 단일 확인 게이트의 조건가중치 절반)
+ * learningWeightPromotionApply.ts (ADR-0624 D4 — SHADOW→LIVE 학습 승격)
  *
- * shadow/candidate 학습 가중치(loadCandidateConditionWeights)를 live 조건가중치 provider 로
- * 승격하는 유일한 경로. gateLearnedThresholdApply(Gate1 임계, ADR counterfacture Phase D)와 동형 3중 안전:
- *   1. ENV LEARNING_WEIGHT_PROMOTION_ENABLED=true (default OFF, ADR-0157 정확 비교) — 미설정 시 resolver 항상 null.
- *   2. candidate 파일에 학습 가중치가 존재해야 함(없으면 null → 파일 직독 byte-identical).
- *   3. DEFAULT_CONDITION_WEIGHTS 기준 [×CLAMP_LO, ×CLAMP_HI](CORE_FLOOR 하한) 창으로 clamp — pathological 값 차단.
+ * shadow/candidate 학습 가중치(loadCandidateConditionWeights)를 live 조건가중치 provider 로 승격.
+ * 안전 모델 (D1 'shadow 기본 작동·LIVE 만 게이트' 동형):
+ *   1. provider 등록 = operator 1회 확인(/promote_learning apply). 미등록(기본) → null → byte-identical.
+ *   2. **shadow/paper 모드(getTradingMode()!=='LIVE') → apply 만으로 즉시 반영**(실돈 영향 0).
+ *      **LIVE 모드 → ENV LEARNING_WEIGHT_PROMOTION_ENABLED=true 필수**(paper→live 자동차단·불변식 #7 backstop).
+ *   3. DEFAULT_CONDITION_WEIGHTS 기준 [×CLAMP_LO,×CLAMP_HI]·CORE_FLOOR 하한 clamp — pathological 값 차단.
  *
- * register/unregister 는 서버 기동 자동 호출 안 함 — /promote_learning 명령(operator 1회 확인) 전용.
- * 등록돼도 flag OFF 면 resolver 가 null → loadConditionWeights byte-identical(불변식 #7 paper→live 자동 차단 보존).
+ * register/unregister 는 서버 기동 자동배선 안 함 — 명령 전용. revert 로 즉시 해제(byte-identical).
+ * getTradingMode 표준 가드(preflight/dryRunScanner/twoBarBepGate 등과 동일 — ADR-0626 패턴).
  */
 import { DEFAULT_CONDITION_WEIGHTS, type ConditionWeights } from '../quantFilter.js';
 import {
@@ -17,6 +18,7 @@ import {
   registerLearnedConditionWeightProvider,
 } from '../persistence/conditionWeightsRepo.js';
 import { isLearningWeightPromotionEnabled } from './weightPromotionFlag.js';
+import { getTradingMode } from '../state.js';
 
 /** DEFAULT 기준 하한/상한 배수 + 절대 하한(0.30 floor) — pathological 가중치 차단. */
 const CLAMP_LO = 0.4;
@@ -46,6 +48,7 @@ export interface LearningWeightPromotionChange {
 
 export interface LearningWeightPromotionPreview {
   flagEnabled: boolean;
+  tradingMode: string;
   hasCandidate: boolean;
   applied: boolean;
   regime: string;
@@ -53,15 +56,17 @@ export interface LearningWeightPromotionPreview {
 }
 
 /**
- * 조건가중치 학습 승격 resolver. flag OFF / candidate 없음 → null(호출자 파일 직독 byte-identical).
- * 충족 시 candidate 가중치를 DEFAULT 기준 창으로 clamp 한 Partial 반환.
+ * 조건가중치 학습 승격 resolver.
+ * LIVE 모드 + ENV master OFF → null(#7 backstop). shadow/paper → 등록만으로 적용.
+ * candidate 없음 → null(파일 직독 byte-identical). 충족 시 DEFAULT 기준 창으로 clamp.
  * 테스트는 injected.candidate 로 디스크 I/O 우회.
  */
 export function resolveLearnedConditionWeights(
   regime?: string,
   injected?: { candidate?: Partial<ConditionWeights> | null },
 ): Partial<ConditionWeights> | null {
-  if (!isLearningWeightPromotionEnabled()) return null;
+  // LIVE 실행 모드에서만 ENV master 필수(paper→live 자동차단). shadow/paper 는 등록(operator apply)만으로 충분.
+  if (getTradingMode() === 'LIVE' && !isLearningWeightPromotionEnabled()) return null;
   const candidate = injected && 'candidate' in injected
     ? injected.candidate ?? null
     : loadCandidateConditionWeights(regime ?? 'GLOBAL');
@@ -107,6 +112,7 @@ export function getLearningWeightPromotionPreview(regime = 'GLOBAL'): LearningWe
   }
   return {
     flagEnabled: isLearningWeightPromotionEnabled(),
+    tradingMode: getTradingMode(),
     hasCandidate: !!candidate,
     applied: promotionApplied,
     regime,
