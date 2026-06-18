@@ -140,6 +140,63 @@ function sectorIndexVerifyTimeoutMs(): number {
     : 7000;
 }
 
+// ─── EGW00201 (KIS 초당 거래건수 초과) resilience ──────────────────────────────
+// 유니버스 확장(49)으로 11개 섹터 verify 가 quote 버스트와 겹쳐 KIS 초당 한도(EGW00201)를
+// 침범 → 일부 섹터만 verify 실패 → promotionCoverage 하락. providerIssue(transport)일 뿐
+// market signal 이 아니므로(불변식 #6) executionImpact=NONE 유지 + 짧은 지수 백오프 재시도로
+// 흡수한다. 재시도 소진 후에도 실패하면 기존처럼 해당 섹터만 격리(전체 중단 금지, 불변식 #1).
+
+/** EGW00201 백오프 최대 재시도 횟수 (기본 2회 추가 시도 = 총 3회). 상수 — ops 튜닝용 ENV override. */
+const SECTOR_INDEX_VERIFY_EGW00201_MAX_RETRIES = (() => {
+  const raw = Number(process.env.KIS_SECTOR_INDEX_VERIFY_EGW00201_MAX_RETRIES);
+  return Number.isFinite(raw) && raw >= 0 && raw <= 5 ? Math.floor(raw) : 2;
+})();
+
+/** EGW00201 백오프 기준 간격(ms). attempt n(0-base) 대기 = BASE * 2^n → 100/200/400ms. */
+const SECTOR_INDEX_VERIFY_EGW00201_BACKOFF_BASE_MS = (() => {
+  const raw = Number(process.env.KIS_SECTOR_INDEX_VERIFY_EGW00201_BACKOFF_BASE_MS);
+  return Number.isFinite(raw) && raw >= 10 && raw <= 2000 ? Math.floor(raw) : 100;
+})();
+
+/** 11개 섹터 순차 verify 호출 사이 throttle(ms) — 초당 한도 버스트 회피. 정상 경로엔 마지막 호출 뒤 지연 없음. */
+const SECTOR_INDEX_VERIFY_THROTTLE_MS = (() => {
+  const raw = Number(process.env.KIS_SECTOR_INDEX_VERIFY_THROTTLE_MS);
+  return Number.isFinite(raw) && raw >= 0 && raw <= 1000 ? Math.floor(raw) : 90;
+})();
+
+function sleepMs(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+// 11개 섹터를 순차 verify 할 때 직전 실제 네트워크 호출과의 간격을 최소 THROTTLE_MS 이상 벌려
+// KIS 초당 한도 버스트를 회피한다. 첫 호출은 지연 0(byte-equivalent), override/disabled 경로는
+// 진입 전에 return 하므로 영향 없음. throttle=0 이면 완전 비활성.
+let _lastSectorVerifyNetworkCallAt = 0;
+async function throttleSectorVerifyNetworkCall(): Promise<void> {
+  if (SECTOR_INDEX_VERIFY_THROTTLE_MS <= 0) return;
+  const now = Date.now();
+  const elapsed = now - _lastSectorVerifyNetworkCallAt;
+  if (_lastSectorVerifyNetworkCallAt > 0 && elapsed < SECTOR_INDEX_VERIFY_THROTTLE_MS) {
+    await sleepMs(SECTOR_INDEX_VERIFY_THROTTLE_MS - elapsed);
+  }
+  _lastSectorVerifyNetworkCallAt = Date.now();
+}
+
+/**
+ * KIS 초당 거래건수 초과(EGW00201) 감지 — HTTP 500 body 안에 rt_cd=1·msg_cd=EGW00201 로 온다.
+ * msg_cd 우선, 없으면 msg1 의 "초당 거래건수" 문구로도 식별(보수적 fallback).
+ */
+function isKisPerSecondRateLimit(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const root = data as Record<string, unknown>;
+  const rtCd = root.rt_cd != null ? String(root.rt_cd) : '';
+  if (rtCd !== '1') return false;
+  const msgCd = root.msg_cd != null ? String(root.msg_cd).toUpperCase() : '';
+  if (msgCd === 'EGW00201') return true;
+  const msg1 = root.msg1 != null ? String(root.msg1) : '';
+  return /초당\s*거래건수|per[-\s]?second/i.test(msg1);
+}
+
 function sanitizeTransportExceptionMessage(value: unknown): string {
   const raw = value instanceof Error ? value.message : String(value ?? '');
   return raw
@@ -498,6 +555,10 @@ function classifyKisSectorIndexFailure(input: {
   currentIndex?: number | null;
   hasRawResponse: boolean;
 }): string {
+  const rateText = `${input.rtCd ?? ''} ${input.msgCd ?? ''} ${input.msg1 ?? ''}`;
+  // EGW00201(초당 거래건수 초과)은 HTTP 500 body 로 오므로 httpStatus 분기보다 먼저 식별한다.
+  // 백오프 재시도 소진 후 분류 — RATE_LIMIT(transport, providerIssue=true, marketSignal=false, executionImpact=NONE).
+  if (/EGW00201/i.test(rateText) || /초당\s*거래건수/.test(input.msg1 ?? '')) return 'KIS_INDEX_API_RATE_LIMIT';
   if (input.httpStatus === 401 || input.httpStatus === 403) return 'KIS_INDEX_API_AUTH_ERROR';
   if (input.httpStatus === 429) return 'KIS_INDEX_API_RATE_LIMIT';
   if (input.httpStatus != null && (input.httpStatus < 200 || input.httpStatus >= 300)) return 'KIS_INDEX_API_HTTP_ERROR';
@@ -641,6 +702,9 @@ async function fetchKisSectorIndexCurrentPriceProbeAttempt(
     };
   }
 
+  // 직전 실제 verify 네트워크 호출과 최소 간격 확보(초당 한도 버스트 회피). 첫 호출은 지연 0.
+  await throttleSectorVerifyNetworkCall();
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const params = {
@@ -648,51 +712,77 @@ async function fetchKisSectorIndexCurrentPriceProbeAttempt(
     FID_INPUT_ISCD: candidate,
   };
   try {
-    const res = await fetch(`${sectorIndexBaseUrl()}${SECTOR_INDEX_CURRENT_PATH}?${new URLSearchParams(params)}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        appkey: HAS_REAL_DATA_CLIENT ? process.env.KIS_REAL_DATA_APP_KEY! : process.env.KIS_APP_KEY!,
-        appsecret: HAS_REAL_DATA_CLIENT ? process.env.KIS_REAL_DATA_APP_SECRET! : process.env.KIS_APP_SECRET!,
-        tr_id: SECTOR_INDEX_CURRENT_TR_ID,
-        custtype: 'P',
-      },
-      signal: controller.signal,
-    });
-    const text = await res.text();
+    // EGW00201(초당 거래건수 초과)은 HTTP 500 body 로 와도 일시적 transport 한도일 뿐이다 →
+    // 짧은 지수 백오프로 재시도(총 1 + MAX_RETRIES 회). market signal 이 아니므로 executionImpact=NONE 유지.
+    let egw00201Retries = 0;
+    let res!: Awaited<ReturnType<typeof fetch>>;
     let data: unknown = null;
-    if (text.trim()) {
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        return {
-          tokenPresent: true,
-          attempt: {
-            ...emptyProbeAttempt({
-              fidInputIscd: candidate,
-              reasonCode: 'KIS_INDEX_API_SCHEMA_MISMATCH',
-              transportStage: 'PARSE_FAILED',
-              requestBuilt: true,
-              requestSent: true,
-              exceptionClass: exceptionClass(e),
-              exceptionMessageSanitized: sanitizeTransportExceptionMessage(e),
-              timeoutMs,
-            }),
-            httpStatus: res.status,
-          },
-        };
+    for (;;) {
+      res = await fetch(`${sectorIndexBaseUrl()}${SECTOR_INDEX_CURRENT_PATH}?${new URLSearchParams(params)}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          appkey: HAS_REAL_DATA_CLIENT ? process.env.KIS_REAL_DATA_APP_KEY! : process.env.KIS_APP_KEY!,
+          appsecret: HAS_REAL_DATA_CLIENT ? process.env.KIS_REAL_DATA_APP_SECRET! : process.env.KIS_APP_SECRET!,
+          tr_id: SECTOR_INDEX_CURRENT_TR_ID,
+          custtype: 'P',
+        },
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      data = null;
+      if (text.trim()) {
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          return {
+            tokenPresent: true,
+            attempt: {
+              ...emptyProbeAttempt({
+                fidInputIscd: candidate,
+                reasonCode: 'KIS_INDEX_API_SCHEMA_MISMATCH',
+                transportStage: 'PARSE_FAILED',
+                requestBuilt: true,
+                requestSent: true,
+                exceptionClass: exceptionClass(e),
+                exceptionMessageSanitized: sanitizeTransportExceptionMessage(e),
+                timeoutMs,
+              }),
+              httpStatus: res.status,
+              retryCount: egw00201Retries,
+            },
+          };
+        }
       }
+      if (
+        isKisPerSecondRateLimit(data)
+        && egw00201Retries < SECTOR_INDEX_VERIFY_EGW00201_MAX_RETRIES
+      ) {
+        const delay = SECTOR_INDEX_VERIFY_EGW00201_BACKOFF_BASE_MS * 2 ** egw00201Retries;
+        egw00201Retries += 1;
+        console.warn(
+          `[KIS] sector index verify EGW00201 (초당 거래건수 초과) iscd=${candidate} `
+          + `retry=${egw00201Retries}/${SECTOR_INDEX_VERIFY_EGW00201_MAX_RETRIES} backoffMs=${delay} `
+          + 'providerIssue=true marketSignal=false executionImpact=NONE',
+        );
+        await sleepMs(delay);
+        continue;
+      }
+      break;
     }
     return {
       tokenPresent: true,
-      attempt: materializeKisSectorIndexProbeAttempt({
-        data,
-        fidInputIscd: candidate,
-        httpStatus: res.status,
-        requestBuilt: true,
-        requestSent: true,
-      }),
+      attempt: {
+        ...materializeKisSectorIndexProbeAttempt({
+          data,
+          fidInputIscd: candidate,
+          httpStatus: res.status,
+          requestBuilt: true,
+          requestSent: true,
+        }),
+        retryCount: egw00201Retries,
+      },
     };
   } catch (e) {
     const timeoutError = isTimeoutException(e);
