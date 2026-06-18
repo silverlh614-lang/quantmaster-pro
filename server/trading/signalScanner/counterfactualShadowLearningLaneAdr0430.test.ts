@@ -12,6 +12,7 @@ import {
   formatCounterfactualShadowLearningSection,
   summarizeCounterfactualShadowLearningCandidates,
   isCounterfactualShadowLearningDisabled,
+  isCounterfactualSnapshotCaptureEnabled,
   type CounterfactualShadowLearningCandidate,
   type DeriveCounterfactualShadowLearningInput,
 } from './counterfactualShadowLearningLane.js';
@@ -339,6 +340,212 @@ describe('ADR-0430 — Counterfactual Shadow Learning Lane SSOT', () => {
     expect(c?.blockedBy).toContain('ROUTER_HARD_BLOCK');
     expect(c?.label).toBe('R3_COUNTERFACTUAL_UNDER_HARD_BLOCK');
   });
+});
+
+// ── ADR-0632 — counterfactual outcome board 표본 위생 캡처 (flag-gated) ──────
+
+describe('ADR-0632 — snapshot 위생 캡처 (flag default-OFF)', () => {
+  beforeEach(() => {
+    delete process.env.COUNTERFACTUAL_SHADOW_LEARNING_DISABLED;
+    delete process.env.COUNTERFACTUAL_SNAPSHOT_CAPTURE_ENABLED;
+  });
+  afterEach(() => {
+    delete process.env.COUNTERFACTUAL_SHADOW_LEARNING_DISABLED;
+    delete process.env.COUNTERFACTUAL_SNAPSHOT_CAPTURE_ENABLED;
+  });
+
+  const baseInput: DeriveCounterfactualShadowLearningInput = {
+    symbol: '005930',
+    regime: 'R3_EARLY',
+    gate1Passed: true,
+    gate2Passed: false,
+    riskFlags: { sellOnly: true },
+    scanId: 'scan-0632',
+    nowKst: '2026-06-18T15:00:00+09:00',
+  };
+
+  // (1) flag OFF → 3필드 키 부재 + 기존 deep-equal (byte-identical)
+  it('§0632-1: flag OFF — 3필드 미stamp + 입력 무관 byte-identical', () => {
+    expect(isCounterfactualSnapshotCaptureEnabled()).toBe(false);
+    const baseline = deriveCounterfactualShadowLearningCandidate(baseInput);
+    // 동일 입력에 3필드를 추가로 전달해도 flag OFF 면 결과가 byte-identical 해야 한다.
+    const withFields = deriveCounterfactualShadowLearningCandidate({
+      ...baseInput,
+      sourceSnapshotId: 'scanEvaluation:2026-06-18T06:00:00.000Z',
+      candidateSetId: 'candidateSet:scanEvaluation:2026-06-18T06:00:00.000Z:7',
+      entryPriceHint: 71000,
+    });
+    expect(baseline).not.toBeNull();
+    expect(withFields).not.toBeNull();
+    expect(withFields).toEqual(baseline);
+    expect(withFields).not.toHaveProperty('sourceSnapshotId');
+    expect(withFields).not.toHaveProperty('candidateSetId');
+    expect(withFields).not.toHaveProperty('entryPriceHint');
+  });
+
+  // (2) flag ON + 3필드 input → stamp 단언
+  it('§0632-2: flag ON — 3필드 모두 stamp', () => {
+    process.env.COUNTERFACTUAL_SNAPSHOT_CAPTURE_ENABLED = 'true';
+    expect(isCounterfactualSnapshotCaptureEnabled()).toBe(true);
+    const c = deriveCounterfactualShadowLearningCandidate({
+      ...baseInput,
+      sourceSnapshotId: 'scanEvaluation:2026-06-18T06:00:00.000Z',
+      candidateSetId: 'candidateSet:scanEvaluation:2026-06-18T06:00:00.000Z:7',
+      entryPriceHint: 71000,
+    });
+    expect(c).not.toBeNull();
+    expect(c?.sourceSnapshotId).toBe('scanEvaluation:2026-06-18T06:00:00.000Z');
+    expect(c?.candidateSetId).toBe('candidateSet:scanEvaluation:2026-06-18T06:00:00.000Z:7');
+    expect(c?.entryPriceHint).toBe(71000);
+    // 학습 전용 invariant 무변경 — flag ON 도 live/paper/shadow 차단 유지.
+    expect(c?.liveAllowed).toBe(false);
+    expect(c?.paperAllowed).toBe(false);
+    expect(c?.executionShadowAllowed).toBe(false);
+    expect(c?.virtualAccountImpact).toBe('NONE');
+  });
+
+  it("§0632-2b: flag '1'/'TRUE' 거부 (=== 'true' 정확 비교)", () => {
+    process.env.COUNTERFACTUAL_SNAPSHOT_CAPTURE_ENABLED = '1';
+    expect(isCounterfactualSnapshotCaptureEnabled()).toBe(false);
+    process.env.COUNTERFACTUAL_SNAPSHOT_CAPTURE_ENABLED = 'TRUE';
+    expect(isCounterfactualSnapshotCaptureEnabled()).toBe(false);
+  });
+
+  // (3) E2E — 핵심 수용: flag ON candidate → board → INCLUDED 전환,
+  //     flag OFF 동일입력은 MISSING_SOURCE_SNAPSHOT_ID 로 제외.
+  it('§0632-3: E2E — flag ON candidate 가 board 에서 INCLUDED (exclusionReason null) 로 전환', async () => {
+    const { buildCounterfactualOutcomeBoard } = await import(
+      '../../learning/counterfactualOutcomeBoard.js'
+    );
+    const now = new Date('2026-06-18T07:00:00.000Z');
+    const e2eInput: DeriveCounterfactualShadowLearningInput = {
+      ...baseInput,
+      nowKst: '2026-06-18T15:00:00+09:00',
+    };
+
+    // flag OFF — 3필드 미stamp → MISSING_SOURCE_SNAPSHOT_ID 로 제외 (현 상태 baseline).
+    const offCandidate = deriveCounterfactualShadowLearningCandidate(e2eInput);
+    expect(offCandidate).not.toBeNull();
+    const offBoard = await buildCounterfactualOutcomeBoard({
+      now,
+      periodDays: 60,
+      gate1Rows: [],
+      legacyEntries: [],
+      counterfactualEntries: [offCandidate!],
+    });
+    expect(offBoard.debug.includedRows).toBe(0);
+    expect(offBoard.debug.excludedReasonDistribution.MISSING_SOURCE_SNAPSHOT_ID).toBe(1);
+
+    // flag ON — 3필드 stamp → 3관문(sourceSnapshotId/candidateSetId/referencePrice) 통과 → INCLUDED.
+    process.env.COUNTERFACTUAL_SNAPSHOT_CAPTURE_ENABLED = 'true';
+    const onCandidate = deriveCounterfactualShadowLearningCandidate({
+      ...e2eInput,
+      sourceSnapshotId: 'scanEvaluation:2026-06-18T06:00:00.000Z',
+      candidateSetId: 'candidateSet:scanEvaluation:2026-06-18T06:00:00.000Z:7',
+      entryPriceHint: 71000,
+    });
+    expect(onCandidate).not.toBeNull();
+    const onBoard = await buildCounterfactualOutcomeBoard({
+      now,
+      periodDays: 60,
+      gate1Rows: [],
+      legacyEntries: [],
+      counterfactualEntries: [onCandidate!],
+    });
+    expect(onBoard.debug.includedRows).toBe(1);
+    expect(onBoard.debug.excludedRows).toBe(0);
+    expect(onBoard.debug.excludedReasonDistribution.MISSING_SOURCE_SNAPSHOT_ID ?? 0).toBe(0);
+    expect(onBoard.debug.excludedReasonDistribution.MISSING_CANDIDATE_SET_ID ?? 0).toBe(0);
+    expect(onBoard.debug.excludedReasonDistribution.MISSING_REFERENCE_PRICE ?? 0).toBe(0);
+    expect(onBoard.debug.hasSourceSnapshotIdCount).toBe(1);
+    expect(onBoard.debug.hasCandidateSetIdCount).toBe(1);
+  }, 30_000);
+
+  // (4) candidateSetId 부재 시 graceful 미stamp · 예외 0
+  it('§0632-4: flag ON 이어도 candidateSetId 부재 시 graceful 미stamp (예외 0)', () => {
+    process.env.COUNTERFACTUAL_SNAPSHOT_CAPTURE_ENABLED = 'true';
+    const c = deriveCounterfactualShadowLearningCandidate({
+      ...baseInput,
+      sourceSnapshotId: 'scanEvaluation:2026-06-18T06:00:00.000Z',
+      // candidateSetId 미전달
+      entryPriceHint: 71000,
+    });
+    expect(c).not.toBeNull();
+    expect(c?.sourceSnapshotId).toBe('scanEvaluation:2026-06-18T06:00:00.000Z');
+    expect(c).not.toHaveProperty('candidateSetId');
+    // empty string 도 미stamp.
+    const c2 = deriveCounterfactualShadowLearningCandidate({
+      ...baseInput,
+      sourceSnapshotId: '',
+      candidateSetId: '',
+      entryPriceHint: 71000,
+    });
+    expect(c2).not.toHaveProperty('sourceSnapshotId');
+    expect(c2).not.toHaveProperty('candidateSetId');
+  });
+
+  // (5) entryPriceHint NaN/0/음수 미stamp
+  it('§0632-5: flag ON 이어도 entryPriceHint NaN/0/음수 는 미stamp', () => {
+    process.env.COUNTERFACTUAL_SNAPSHOT_CAPTURE_ENABLED = 'true';
+    for (const bad of [Number.NaN, 0, -100]) {
+      const c = deriveCounterfactualShadowLearningCandidate({
+        ...baseInput,
+        sourceSnapshotId: 'scanEvaluation:2026-06-18T06:00:00.000Z',
+        candidateSetId: 'candidateSet:scanEvaluation:2026-06-18T06:00:00.000Z:7',
+        entryPriceHint: bad,
+      });
+      expect(c).not.toBeNull();
+      expect(c).not.toHaveProperty('entryPriceHint');
+    }
+    // 양수 유한값은 stamp.
+    const ok = deriveCounterfactualShadowLearningCandidate({
+      ...baseInput,
+      sourceSnapshotId: 'scanEvaluation:2026-06-18T06:00:00.000Z',
+      candidateSetId: 'candidateSet:scanEvaluation:2026-06-18T06:00:00.000Z:7',
+      entryPriceHint: 71000,
+    });
+    expect(ok?.entryPriceHint).toBe(71000);
+  });
+
+  // (6) DIAGNOSTIC_REPLAY_ARTIFACT (ADR_* 합성 row) 는 flag 무관 여전히 제외 (무회귀)
+  it('§0632-6: replay artifact row 는 flag ON 에서도 여전히 제외 (무회귀)', async () => {
+    process.env.COUNTERFACTUAL_SNAPSHOT_CAPTURE_ENABLED = 'true';
+    const { buildCounterfactualOutcomeBoard } = await import(
+      '../../learning/counterfactualOutcomeBoard.js'
+    );
+    const now = new Date('2026-06-18T07:00:00.000Z');
+    // 합성 replay artifact — label 에 SNAPSHOT_REPLAY 토큰 → rowType REPLAY → 제외.
+    const replayEntry = {
+      symbol: '005930',
+      eventType: 'COUNTERFACTUAL_SHADOW_LEARNING_ENTRY',
+      source: 'ADR_REPLAY',
+      learningOnly: true,
+      provisional: false,
+      executionShadow: false,
+      label: 'SNAPSHOT_REPLAY',
+      reasons: [],
+      blockedBy: ['SELL_ONLY'],
+      liveAllowed: false,
+      paperAllowed: false,
+      executionShadowAllowed: false,
+      virtualAccountImpact: 'NONE',
+      createdAtKst: '2026-06-18T15:00:00+09:00',
+      scanId: 'scan-replay',
+      sourceSnapshotId: 'scanEvaluation:2026-06-18T06:00:00.000Z',
+      candidateSetId: 'candidateSet:scanEvaluation:2026-06-18T06:00:00.000Z:7',
+      entryPriceHint: 71000,
+    } as unknown as CounterfactualShadowLearningCandidate;
+    const board = await buildCounterfactualOutcomeBoard({
+      now,
+      periodDays: 60,
+      gate1Rows: [],
+      legacyEntries: [],
+      counterfactualEntries: [replayEntry],
+    });
+    expect(board.debug.includedRows).toBe(0);
+    expect(board.debug.excludedRows).toBe(1);
+    expect(board.debug.excludedReasonDistribution.DIAGNOSTIC_REPLAY_ARTIFACT).toBe(1);
+  }, 30_000);
 });
 
 // ── 영속 분리 검증 (사용자 §K-7, §K-8) ───────────────────────────

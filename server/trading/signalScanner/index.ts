@@ -380,6 +380,15 @@ export async function runAutoSignalScan(
   // 2. Candidate Select (관심종목 3섹션 및 Intraday 후보군 선정)
   const candidates = await selectCandidates(preflightResult.context, options);
 
+  // ADR-0632: candidateSetId canonical carry (log-only, 결정·실행·storage 키 0 변경).
+  // 포맷은 buildCanonicalForensicIds 와 동일 — `candidateSet:${sourceSnapshotId}:${count}`.
+  // counterfactual outcome board 표본 위생(MISSING_CANDIDATE_SET_ID 해소)용 — ctx 로 carry 만.
+  {
+    const candidateSetCount =
+      (candidates.buyList?.length ?? 0) + (candidates.intradayList?.length ?? 0);
+    preflightResult.context.candidateSetId = `candidateSet:${preflightResult.context.sourceSnapshotId}:${candidateSetCount}`;
+  }
+
   // 2.1 Unified Source Snapshot (feature flag: USE_UNIFIED_SOURCE_SNAPSHOT=true)
   // OFF 시 기존 per-gate 경로 100% 유지 — executionImpact=NONE.
   let unifiedSnapshot: import('../sourceSnapshot/unifiedSourceSnapshot.js').UnifiedSourceSnapshot | undefined;
