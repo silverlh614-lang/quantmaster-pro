@@ -13,6 +13,8 @@ import type { ProvisionalShadowCandidate } from '../provisionalShadowLane.js';
 import type { R6ShadowEntryPolicySummary } from '../r6ShadowCounterfactualEntryPolicy.js';
 import type { GateLayerAuditAccumulator } from './gateLayerDiagnostics.js';
 import type { PipelineStageName, PipelineStageStatus } from './scanSummaryTypes.js';
+import type { PriceCorrectionType } from '../priceCorrectionEngine.js';
+import type { PriceIntegrityStatus } from '../priceIntegrityChecker.js';
 
 export interface ScanCounters {
   quoteFails: number;
@@ -77,4 +79,12 @@ export interface ScanCounters {
   entryCandidateSnapshots: CandidateSnapshot[];
   gateReclassificationDryRunResults: GateReclassificationDryRunResult[];
   positiveScoreStarvationTraces: Gate1ScoreStarvationTrace[];
+  // ADR-0623 Stage 2a — PriceIntegrity/PriceCorrection diagnostics 표본 누적 (additive 옵셔널).
+  // 미초기화 시 누적 미발생 = byte-equivalent. persistScanResults 가 reduce → ScanSummary.priceIntegrity/.priceCorrection.
+  priceIntegritySamples?: Array<{ symbol: string; status: PriceIntegrityStatus }>;
+  priceCorrectionSamples?: Array<{
+    correctionType: PriceCorrectionType;
+    confidence: number;
+    usableForShadow: boolean;
+  }>;
 }
