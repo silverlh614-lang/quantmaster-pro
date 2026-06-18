@@ -270,6 +270,134 @@ describe('counterfactualOutcomeBoard', () => {
     expect(debug).toContain('shadowLearningContinues=true');
   });
 
+  describe('bandMaturityStallGuard', () => {
+    function canonicalImmatureRow(createdAt: string): Gate1DryRunObservationRow {
+      // canonical band-eligible (MIN_SIGNAL_TRACE, score → 65~70) but no D5 return yet.
+      return gate1Row({
+        createdAt,
+        forwardReturn1D: undefined,
+        forwardReturn3D: undefined,
+        forwardReturn5D: undefined,
+        mfeD5: undefined,
+        maeD5: undefined,
+        status: 'PENDING',
+      });
+    }
+
+    it('reports HEALTHY when canonical bands have matured D5 rows', async () => {
+      const board = await buildCounterfactualOutcomeBoard({
+        now: NOW,
+        gate1Rows: [gate1Row()],
+        counterfactualEntries: [],
+        legacyEntries: [],
+        lastScanSummary: lastScanSummary(),
+      });
+      const g = board.bandMaturityStallGuard;
+      expect(g.totalBandMatureD5).toBeGreaterThan(0);
+      expect(g.status).toBe('HEALTHY');
+      expect(g.recommendedAction).toBe('NONE');
+      expect(g.executionImpact).toBe('NONE');
+      expect(g.observationOnly).toBe(true);
+      expect(g.stallThresholdTradingDays).toBe(7);
+    });
+
+    it('reports IMMATURE_WAITING when matureD5=0 and oldest band row is younger than threshold', async () => {
+      const now = new Date('2026-06-30T06:30:00.000Z');
+      const board = await buildCounterfactualOutcomeBoard({
+        now,
+        gate1Rows: [canonicalImmatureRow('2026-06-29T06:00:00.000Z')],
+        counterfactualEntries: [],
+        legacyEntries: [],
+        lastScanSummary: lastScanSummary(),
+      });
+      const g = board.bandMaturityStallGuard;
+      expect(g.totalBandMatureD5).toBe(0);
+      expect(g.totalBandRows).toBeGreaterThan(0);
+      expect(g.oldestBandRowAgeTradingDays).not.toBeNull();
+      expect(g.oldestBandRowAgeTradingDays as number).toBeLessThan(7);
+      expect(g.status).toBe('IMMATURE_WAITING');
+      expect(g.recommendedAction).toBe('OBSERVE_MORE');
+    });
+
+    it('reports STALL_SUSPECTED when matureD5=0 and oldest band row is at/above threshold', async () => {
+      const now = new Date('2026-06-30T06:30:00.000Z');
+      const board = await buildCounterfactualOutcomeBoard({
+        now,
+        gate1Rows: [canonicalImmatureRow('2026-06-02T06:00:00.000Z')],
+        counterfactualEntries: [],
+        legacyEntries: [],
+        lastScanSummary: lastScanSummary(),
+      });
+      const g = board.bandMaturityStallGuard;
+      expect(g.totalBandMatureD5).toBe(0);
+      expect(g.oldestBandRowAgeTradingDays as number).toBeGreaterThanOrEqual(7);
+      expect(g.status).toBe('STALL_SUSPECTED');
+      expect(g.recommendedAction).toBe('INVESTIGATE_LABELER_WRITEBACK_OR_REFERENCE_PRICE');
+      const gate1 = formatCounterfactualGate1(board);
+      expect(gate1).toContain('⚠️ bandMaturityStallGuard:');
+      expect(gate1).toContain('status=STALL_SUSPECTED');
+      expect(gate1).toContain('threshold=7');
+      expect(gate1).toContain('action=INVESTIGATE_LABELER_WRITEBACK_OR_REFERENCE_PRICE');
+    });
+
+    it('excludes weekends/holidays via krxTradingCalendar in the age count', async () => {
+      // 2026-06-02 (Tue) → 2026-06-09 (Tue) is 7 calendar days. KRX has 2026-06-03
+      // (지방선거) and 2026-06-06 (현충일) holidays + one weekend, so trading-day age < 7
+      // → IMMATURE_WAITING (calendar-day count would wrongly trip STALL).
+      const now = new Date('2026-06-09T06:30:00.000Z');
+      const board = await buildCounterfactualOutcomeBoard({
+        now,
+        gate1Rows: [canonicalImmatureRow('2026-06-02T06:00:00.000Z')],
+        counterfactualEntries: [],
+        legacyEntries: [],
+        lastScanSummary: lastScanSummary(),
+      });
+      const g = board.bandMaturityStallGuard;
+      expect(g.oldestBandRowAgeTradingDays as number).toBeLessThan(7);
+      expect(g.status).toBe('IMMATURE_WAITING');
+    });
+
+    it('returns safe defaults (not STALL, NONE) for an empty board without throwing', async () => {
+      const board = await buildCounterfactualOutcomeBoard({
+        now: NOW,
+        gate1Rows: [],
+        counterfactualEntries: [],
+        legacyEntries: [],
+        lastScanSummary: lastScanSummary(),
+      });
+      const g = board.bandMaturityStallGuard;
+      expect(g.status).not.toBe('STALL_SUSPECTED');
+      expect(g.status).toBe('IMMATURE_WAITING');
+      expect(g.recommendedAction).toBe('OBSERVE_MORE');
+      expect(g.totalBandMatureD5).toBe(0);
+      expect(g.totalBandRows).toBe(0);
+      expect(g.oldestBandRowAgeTradingDays).toBeNull();
+      expect(g.executionImpact).toBe('NONE');
+    });
+
+    it('keeps existing band/legacyScaleMixed output byte-equivalent (additive guard only)', async () => {
+      const board = await buildCounterfactualOutcomeBoard({
+        now: NOW,
+        gate1Rows: [gate1Row()],
+        counterfactualEntries: [counterfactualEntry()],
+        legacyEntries: [],
+        lastScanSummary: lastScanSummary(),
+      });
+      const gate1 = formatCounterfactualGate1(board);
+      const lines = gate1.split('\n');
+      const guardIdx = lines.findIndex((l) => l.includes('bandMaturityStallGuard:'));
+      const legacyIdx = lines.findIndex((l) => l.startsWith('legacyScaleMixed(밴드 제외):'));
+      // guard line is inserted immediately after legacyScaleMixed; all other lines unchanged.
+      expect(guardIdx).toBe(legacyIdx + 1);
+      expect(lines[0]).toBe('[Counterfactual Gate1 Bands]');
+      expect(gate1).toContain('thresholdAutoChanged=false');
+      expect(gate1).toContain('legacyScale70Plus(scoreSource 격리):');
+      // removing the single guard line reproduces the prior output exactly.
+      const withoutGuard = lines.filter((_, i) => i !== guardIdx).join('\n');
+      expect(withoutGuard).not.toContain('bandMaturityStallGuard');
+    });
+  });
+
   it('reports no valid rows when every raw row is excluded', async () => {
     const board = await buildCounterfactualOutcomeBoard({
       now: NOW,

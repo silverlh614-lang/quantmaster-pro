@@ -164,6 +164,8 @@ export interface MacroState {
   kospiAbove20MA?: boolean;         // KOSPI 20일선 위
   kospiAbove60MA?: boolean;         // KOSPI 60일선 위
   kospi20dReturn?: number;          // KOSPI 20일 수익률
+  /** ADR-0621: KOSDAQ 지수 20일 수익률 (%) — Gate2 RS 벤치마크 이원화(KOSDAQ 종목 KOSDAQ 벤치마크) source. */
+  kosdaq20dReturn?: number;
   kospiDayReturn?: number;          // KOSPI 당일 수익률
   /** R6 forensic: KOSPI close-to-prev-close return (%). Defaults to kospiDayReturn if absent. */
   kospiCloseReturn?: number;

@@ -65,8 +65,19 @@ import {
   accumulateFreshConditionOutputs,
   accumulateGate2ConditionOutputs,
   accumulateGateEligibility,
+  accumulatePriceIntegrityCorrection,
   recordPipelineStage,
 } from '../scanDiagnostics.js';
+// ADR-0623 Stage 2a — PriceIntegrity/PriceCorrection diagnostics 집계 채움 (Seam A).
+//   이미 보유한 reCheckQuote/stock 만 입력 — 외부 fetch 0. corrected→LIVE/Shadow 의사결정
+//   치환 없음(diagnostics only). try/catch 격리 — 집계 실패가 매수 흐름 차단 0 (불변식 #1).
+import {
+  evaluatePriceIntegrity,
+} from '../priceIntegrityChecker.js';
+import {
+  evaluatePriceCorrection,
+  isPriceCorrectionDisabled,
+} from '../priceCorrectionEngine.js';
 // ADR-0436 — Gate Eligibility Split (LIVE_ELIGIBLE vs SHADOW_OBSERVABLE).
 //   분류 layer 만 — KIS 주문 호출 0건. 결과 ScanCounters 누적 only,
 //   실제 매수 흐름 변경 0 (counterfactual ledger wiring 은 후속 PR scope).
@@ -369,6 +380,30 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       // ADR-0231: KRX 마스터 기반 정확 매핑 → 1회 fetch + KIS fallback.
       const { gateResult: reCheckGate, reCheckQuote } = await kisIntradayCorrectionStep(ctx, stock, currentPrice);
 
+      // ADR-0623 Stage 2a — PriceIntegrity/PriceCorrection diagnostics 집계 (Seam A, diagnostics only).
+      //   이미 보유한 reCheckQuote(price/prevClose)/currentPrice 만 입력 — 외부 fetch 0 (invariant #10).
+      //   corrected 값은 LIVE/Shadow 의사결정에 미사용 (Stage 2a). gate/sizing/order 입력 무접촉 →
+      //   byte-equivalent. PRICE_CORRECTION_DISABLED=true 시 생략. try/catch 격리 (불변식 #1).
+      if (!isPriceCorrectionDisabled()) {
+        try {
+          const integrity = evaluatePriceIntegrity({
+            symbol: stock.code,
+            currentPrice: reCheckQuote?.price ?? currentPrice,
+            previousClose: reCheckQuote?.prevClose,
+          });
+          const correction = evaluatePriceCorrection({
+            integrity,
+            kis: {
+              current: reCheckQuote?.price ?? currentPrice,
+              previousClose: reCheckQuote?.prevClose,
+            },
+          });
+          accumulatePriceIntegrityCorrection(ctx.scanCounters, integrity, correction);
+        } catch (e) {
+          console.warn('[Adr0623PriceCorrection] 집계 실패 — 매수 흐름 무영향:', e);
+        }
+      }
+
       // ADR-0420: Fresh Scan Blocker Attribution 누적 — 단일 후보 outputs 를 conditionKey
       //   별 status bucket 에 가산. persistScanResults 가 build → ScanSummary 영속.
       //   GATE1_PASS_ZERO 발생 시 운영자에게 *조건별 분해* 제공. last 7 days 누적
@@ -449,7 +484,7 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         console.warn('[Adr0427ProvisionalShadow] wiring 실패 — 매수 흐름 무영향:', e);
       }
 
-      await counterfactualShadowLearning(ctx, stock, reCheckGate, isGate1Survivor);
+      await counterfactualShadowLearning(ctx, stock, reCheckGate, isGate1Survivor, currentPrice);
 
       // ── ADR-0031 PR-59 PoC: entryRevalidationStep RevalidationStep 분기 ───
       // step 자체는 외부 mutation·부수효과 0건 — fail 시 caller 가 stock.entryFailCount,

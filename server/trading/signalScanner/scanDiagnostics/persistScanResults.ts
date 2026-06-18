@@ -190,6 +190,10 @@ import { hydrateGate2SoxSemiAxisAdr0605 } from './gate2SoxSemiAxisAdr0605.js';
 import { appendGate2SoxObservation } from './gate2SoxObservationLedgerAdr0605.js';
 import { accumulatePositiveScoreStarvation } from './scanCounterAccumulators.js';
 import { persistMidScanDiagnosticBlocksAdr0588 } from './persistScanResultsMidBlocks.js';
+import { collectIntradayMoverCandidates } from './intradayMoverCandidateSource.js';
+// ADR-0623 Stage 2a — PriceIntegrity/PriceCorrection diagnostics 집계 reduce 용 status/type union (타입 전용).
+import type { PriceIntegrityStatus } from '../priceIntegrityChecker.js';
+import type { PriceCorrectionType } from '../priceCorrectionEngine.js';
 let _lastBuySignalAt = 0;
 let _consecutiveZeroScans = 0;
 let _lastScanSummary: ScanSummary | null = null;
@@ -389,6 +393,7 @@ export async function persistScanResults(
         fallbackCandidates.length,
       ),
       existingWatchlist: options.candidatePoolSourceCandidates ?? (scanCandidateSnapshots as unknown as CandidatePoolInputCandidate[]),
+      intradayMovers: collectIntradayMoverCandidates(),   // ADR-0629 — flag OFF 시 [] (byte-identical)
       previousDayTopRankedCandidates: priorCandidates,
       openShadowWatchlist: priorCandidates,
       fallbackBroadUniverse: fallbackCandidates,
@@ -595,7 +600,7 @@ export async function persistScanResults(
       } else if ((counters.gate1Pass ?? 0) === 0) {
         reason = 'no Gate1 survivor';
       } else if (routerInput.regime !== 'R3_EARLY') {
-        reason = `regime=${routerInput.regime ?? 'UNKNOWN'} — R3_EARLY 외 차단`;
+        reason = `regime=${routerInput.regime ?? 'UNKNOWN'}/learning=${macroGate?.learningRegime ?? 'UNKNOWN'} — R3_EARLY 외 차단`;
       }
       if (reason !== undefined) {
         summaryDraft.provisionalShadowLane = {
@@ -641,7 +646,7 @@ export async function persistScanResults(
       } else if ((counters.gate1Pass ?? 0) === 0) {
         cfReason = 'no Gate1 survivor';
       } else if (routerInput.regime !== 'R3_EARLY') {
-        cfReason = `regime=${routerInput.regime ?? 'UNKNOWN'} — R3_EARLY 외 비활성`;
+        cfReason = `regime=${routerInput.regime ?? 'UNKNOWN'}/learning=${macroGate?.learningRegime ?? 'UNKNOWN'} — R3_EARLY 외 비활성`;
       } else if (router?.severity === 'TRUE_WEAKNESS') {
         cfReason = 'TRUE_WEAKNESS — 학습 표본 오염 차단';
       } else if (
@@ -1168,6 +1173,58 @@ export async function persistScanResults(
     kstNow, timeLabel, totalCandidates, sourceSnapshotId, scanCandidateSnapshots,
     scanEvaluation, gateLayerAudit, summaryDraft, counters, options,
   });
+
+  // ADR-0623 Stage 2a — PriceIntegrity/PriceCorrection diagnostics 집계 채움 (Seam A reduce).
+  //   buyListLoop 가 후보별 표본을 counters.priceIntegritySamples/.priceCorrectionSamples 에 push →
+  //   본 시점에서 ScanSummary.priceIntegrity/.priceCorrection 형태로 reduce. 표본 없으면 미영속
+  //   (byte-equivalent). corrected 값은 LIVE/Shadow 의사결정에 미사용 — 진단 표시 전용.
+  //   try/catch 격리 — 집계 실패가 ScanSummary 영속을 차단하지 않음 (불변식 #1).
+  try {
+    const piSamples = counters.priceIntegritySamples ?? [];
+    if (piSamples.length > 0) {
+      const statusCounts: Record<PriceIntegrityStatus, number> = {
+        OK: 0, SUSPECT: 0, STALE: 0, FROZEN_QUOTE: 0,
+        PRICE_BASE_MISMATCH: 0, REVERSE_GAP_SUSPECT: 0, FAILED: 0,
+      };
+      const topAffected: Array<{ symbol: string; status: PriceIntegrityStatus }> = [];
+      for (const s of piSamples) {
+        statusCounts[s.status] = (statusCounts[s.status] ?? 0) + 1;
+        if (s.status !== 'OK' && topAffected.length < 20) {
+          topAffected.push({ symbol: s.symbol, status: s.status });
+        }
+      }
+      summaryDraft.priceIntegrity = {
+        totalSamples: piSamples.length,
+        statusCounts,
+        topAffected,
+      };
+    }
+    const pcSamples = counters.priceCorrectionSamples ?? [];
+    if (pcSamples.length > 0) {
+      const correctionTypeCounts: Record<PriceCorrectionType, number> = {
+        NONE: 0, USE_KIS_CURRENT: 0, USE_KRX_PREV_CLOSE: 0,
+        USE_RECENT_DAILY_CLOSE: 0, DROP_GAP_CALCULATION: 0, SHADOW_ONLY: 0,
+      };
+      let confidenceSum = 0;
+      let dropGapCalculationCount = 0;
+      let shadowOnlySuggestedCount = 0;
+      for (const s of pcSamples) {
+        correctionTypeCounts[s.correctionType] = (correctionTypeCounts[s.correctionType] ?? 0) + 1;
+        confidenceSum += Number.isFinite(s.confidence) ? s.confidence : 0;
+        if (s.correctionType === 'DROP_GAP_CALCULATION') dropGapCalculationCount += 1;
+        if (s.correctionType === 'SHADOW_ONLY') shadowOnlySuggestedCount += 1;
+      }
+      summaryDraft.priceCorrection = {
+        totalSamples: pcSamples.length,
+        correctionTypeCounts,
+        averageConfidence: confidenceSum / pcSamples.length,
+        dropGapCalculationCount,
+        shadowOnlySuggestedCount,
+      };
+    }
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildPriceIntegrityCorrectionAdr0623', error: e });
+  }
 
   _lastScanSummary = summaryDraft;
   setLastSectorEnergyCanonicalState(summaryDraft.sectorEnergySupplyUnknownAdr0488?.sectorEnergyCanonicalState);

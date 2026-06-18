@@ -52,6 +52,7 @@ import {
 import {
   YF_HEADERS,
   refreshKospiSection,
+  refreshKosdaqSection,
   refreshVkospiSection,
   refreshUsdKrwSection,
   refreshSpxSection,
@@ -198,6 +199,9 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
 
   // ── ④ KOSPI (^KS11) 60일 — MA, 수익률 ──────────────────────────────────────
   await refreshKospiSection(computed);
+
+  // ── ④-A KOSDAQ 20일 수익률 (ADR-0621 Gate2 RS 벤치마크 이원화 source — KRX-first, Yahoo fallback) ──
+  await refreshKosdaqSection(computed);
 
   // ── ④-B VKOSPI — KRX OpenAPI 파생상품 지수 일별 우선, Yahoo fallback ───────
   await refreshVkospiSection(computed, existing);

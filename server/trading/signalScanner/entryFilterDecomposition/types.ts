@@ -207,6 +207,10 @@ export interface Gate1SymbolFeatures {
   atr?: number;
   atr20avg?: number;
   kospi20dReturn?: number;
+  /** ADR-0621: KOSDAQ 지수 20일 수익률 (%) — Gate2 RS KOSDAQ 벤치마크 carry. */
+  kosdaq20dReturn?: number;
+  /** ADR-0621: 시장 구분(KOSPI/KOSDAQ) — RS 벤치마크 선택 보조 carry. */
+  market?: string;
   marketRelativeReturn?: number;
   kospiRelativeReturn?: number;
   relativeReturn20d?: number;
@@ -393,6 +397,10 @@ export interface CandidateEntryTrace {
   kospiRelativeReturn?: number;
   relativeReturn20d?: number;
   kospi20dReturn?: number;
+  /** ADR-0621: KOSDAQ 지수 20일 수익률 (%) — Gate2 RS KOSDAQ 벤치마크 carry. */
+  kosdaq20dReturn?: number;
+  /** ADR-0621: 시장 구분(KOSPI/KOSDAQ) — RS 벤치마크 선택 보조 carry. */
+  market?: string;
   quote?:
     | {
         return20d?: number;
@@ -401,6 +409,8 @@ export interface CandidateEntryTrace {
         kospiRelativeReturn?: number;
         relativeReturn20d?: number;
         kospi20dReturn?: number;
+        kosdaq20dReturn?: number;
+        market?: string;
         rsRankPct?: number;
         symbol?: string;
         code?: string;
@@ -426,7 +436,7 @@ export interface CandidateEntryTrace {
         vol20dAvg?: number;
       }
     | Record<string, unknown>;
-  macroState?: { kospi20dReturn?: number } | Record<string, unknown>;
+  macroState?: { kospi20dReturn?: number; kosdaq20dReturn?: number } | Record<string, unknown>;
   quoteFeatures?: Record<string, unknown>;
   featurePack?: Record<string, unknown>;
   momentumProjection?: Record<string, unknown>;
@@ -686,6 +696,10 @@ export interface CandidateSnapshot {
   kospiRelativeReturn?: number;
   relativeReturn20d?: number;
   kospi20dReturn?: number;
+  /** ADR-0621: KOSDAQ 지수 20일 수익률 (%) — Gate2 RS KOSDAQ 벤치마크 carry. */
+  kosdaq20dReturn?: number;
+  /** ADR-0621: 시장 구분(KOSPI/KOSDAQ) — RS 벤치마크 선택 보조 carry. */
+  market?: string;
   quote?:
     | {
         return20d?: number;
@@ -694,6 +708,8 @@ export interface CandidateSnapshot {
         kospiRelativeReturn?: number;
         relativeReturn20d?: number;
         kospi20dReturn?: number;
+        kosdaq20dReturn?: number;
+        market?: string;
         rsRankPct?: number;
         symbol?: string;
         code?: string;
@@ -719,7 +735,7 @@ export interface CandidateSnapshot {
         vol20dAvg?: number;
       }
     | Record<string, unknown>;
-  macroState?: { kospi20dReturn?: number } | Record<string, unknown>;
+  macroState?: { kospi20dReturn?: number; kosdaq20dReturn?: number } | Record<string, unknown>;
   quoteFeatures?: Record<string, unknown>;
   featurePack?: Record<string, unknown>;
   momentumProjection?: Record<string, unknown>;

@@ -96,6 +96,7 @@ import {
 import { isEmergencyMasterGuardScanEnabled } from "../dataQuality/emergencyDataQualityGuards.js";
 import {
   getAllStockEntries,
+  getStockByCode,
   getTradableKrxUniverse,
   updateKrxMasterRuntimeCounts,
 } from "../persistence/krxStockMasterRepo.js";
@@ -128,6 +129,16 @@ import {
   applyLeaderPreservation,
   appendLeaderUniverseInjectionObservation,
 } from "./leaderUniverseInjectionAdr0617.js";
+// ADR-0622 — 발굴 적극성: ② Stage1 top-N 상향 + ③ RS percentile 우선 정렬 + dry-run 관측.
+//   양 flag default OFF → resolveStage1TopN()===60·정렬 비교자 미주입(현행 byte-identical). 신규 fetch 0.
+import {
+  resolveStage1TopN,
+  isUniverseRsPercentileRankEnabled,
+  computeRsPercentiles,
+  rsPriorityComparator,
+  computeUniverseDiscoveryAggressivenessObservation,
+  appendUniverseDiscoveryAggressivenessObservation,
+} from "./universeDiscoveryAggressivenessAdr0622.js";
 
 // ─── ADR-0184 (PR-B12-A) — scanner start master guard SSOT ─────────────────
 //
@@ -352,9 +363,11 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
     }
 
     // ─ 5개씩 병렬 배치 처리 (순차 대비 ~5× 속도 향상) ─
-    const kisTop60 = kisRows.slice(0, 60);
-    for (let i = 0; i < kisTop60.length; i += BATCH_SIZE) {
-      const batch = kisTop60.slice(i, i + BATCH_SIZE);
+    // ADR-0622 ② — top-N 랭킹 raw 컷. flag OFF → resolveStage1TopN()===60(현행 byte-identical).
+    //   ON → 90(budget lazy: 컷 후 fetch 유지·eager 전수 금지, KIS quote +30/스캔). 변수명은 컷 크기 가변.
+    const kisTopN = kisRows.slice(0, resolveStage1TopN());
+    for (let i = 0; i < kisTopN.length; i += BATCH_SIZE) {
+      const batch = kisTopN.slice(i, i + BATCH_SIZE);
       const batchResults = await Promise.all(
         batch.map(async (row) => {
           const code = row.stck_shrn_iscd ?? "";
@@ -435,13 +448,23 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
     await new Promise((r) => setTimeout(r, 200));
   }
 
+  // ADR-0622 ③ — RS percentile 우선 정렬 비교자(flag ON 시만 주입, 직교 layer — 주도주 union 보존 무영향).
+  //   RS=quote.return20d − stage1BenchmarkReturn20d(ADR-0616 정의 재사용·두 번째 공식 0). 신규 fetch 0.
+  //   flag OFF → 비교자 undefined → applyLeaderPreservation 이 stage1Score 단독 정렬(byte-identical).
+  const rsPercentileEnabled = isUniverseRsPercentileRankEnabled();
+  const rsRanks = computeRsPercentiles(candidates, stage1BenchmarkReturn20d);
+  const topNComparator = rsPercentileEnabled
+    ? rsPriorityComparator(rsRanks)
+    : undefined;
   // ADR-0617 — top-N 점수컷에서 주도주 강제 보존(union). flag OFF → result === 현행 slice(byte-identical).
   //   carry 미수행 시 source 전건 undefined → leadersInPool 0 → preserved 0 → topN 그대로.
+  //   ADR-0622 ② — limit 은 resolveStage1TopN()(OFF=60 byte-identical). ③ 비교자는 직교 주입.
   const { result, observation: leaderInjectionObservation } = applyLeaderPreservation(
     candidates,
-    60,
+    resolveStage1TopN(),
     new Date(),
     leaderInjectionEnabled,
+    topNComparator,
   );
   // 관측 ledger append — flag ON 만(opt-in 영속 I/O). try/catch 격리(불변식 #1 — scan 본체 보호).
   if (leaderInjectionEnabled) {
@@ -454,6 +477,27 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
         e instanceof Error ? e.message : e,
       );
     }
+  }
+
+  // ADR-0622 dry-run — "적극 발굴(top-N 90 / RS percentile)이었다면 후보 집합이 어떻게 달라졌을지" 산출.
+  //   flag 무관 산출(OFF baseline 도 delta 노출). append 만 어느 한쪽 flag ON 시(opt-in 영속 I/O).
+  //   try/catch 격리(불변식 #1 — scan 본체 보호). 신규 fetch 0(rsRanks·candidates 재사용).
+  try {
+    const aggressivenessObservation = computeUniverseDiscoveryAggressivenessObservation(
+      candidates,
+      rsRanks,
+      stage1BenchmarkReturn20d,
+      new Date(),
+    );
+    if (!aggressivenessObservation.observationOnly) {
+      appendUniverseDiscoveryAggressivenessObservation(aggressivenessObservation);
+    }
+  } catch (e) {
+    // SDS-ignore: ADR-0622 dry-run 관측 실패는 scan 본체에 영향 없음(불변식 #1). 진단 로그만.
+    console.warn(
+      "[Pipeline/Stage1] ADR-0622 발굴 적극성 dry-run 관측 실패(무시):",
+      e instanceof Error ? e.message : e,
+    );
   }
 
   // BUG #1 — 탈락 사유 분포 로깅 (상위 3개 집중 원인 노출).
@@ -918,6 +962,9 @@ export async function stage3AIScreenAndRegister(
         atr: candidate?.quote.atr,
         atr20avg: candidate?.quote.atr20avg,
         kospi20dReturn: macroState?.kospi20dReturn,
+        // ADR-0621 — KOSDAQ 벤치마크 source + market 구분 carry (Gate2 RS 이원화).
+        kosdaq20dReturn: macroState?.kosdaq20dReturn,
+        market: getStockByCode(result.code)?.market,
         sector: result.sector,
         gateScore: candidate?.gateScore,
         stage1Score: candidate?.stage1Score,

@@ -199,6 +199,25 @@ function maxImmediateRecoveryRegime(): RegimeLevel {
   return process.env.R6_RECOVERY_MAX_IMMEDIATE_REGIME === 'R4_NEUTRAL' ? 'R4_NEUTRAL' : 'R5_CAUTION';
 }
 
+/**
+ * ADR-0630 D2 — R6 복구 R5_STABILIZING 무한 latch stuck-exit SSOT flag.
+ * ENV `R6_RECOVERY_STUCK_EXIT_ENABLED` — default OFF (`=== 'true'`, ADR-0157).
+ * OFF → exit 함수 신규 tick 분기 미평가(현 mhs 단일 분기 byte-identical).
+ * ON → 모순 지대(mhs 40~64 + raw 강세)에서 raw 강세 N tick 지속 시 R3_NORMAL 강제 탈출.
+ */
+export function isR6RecoveryStuckExitEnabled(): boolean {
+  return process.env.R6_RECOVERY_STUCK_EXIT_ENABLED === 'true';
+}
+
+/**
+ * ADR-0630 D2 — stuck-exit 발동 전 요구되는 raw 강세 연속 복구 tick 임계.
+ * ENV `R6_RECOVERY_STUCK_EXIT_MIN_HEALTHY_TICKS` — default 2, 하한 clamp ≥1
+ * (첫 tick 초기 falling-knife 보호 보장).
+ */
+export function r6RecoveryStuckExitMinHealthyTicks(): number {
+  return Math.max(1, envInt('R6_RECOVERY_STUCK_EXIT_MIN_HEALTHY_TICKS', 2));
+}
+
 function capRecoveryRegime(rawRegime: RegimeLevel): RegimeLevel {
   const rawIdx = REGIME_ORDER.indexOf(rawRegime);
   const capIdx = REGIME_ORDER.indexOf(maxImmediateRecoveryRegime());
@@ -573,10 +592,35 @@ function recoveryWatchEligible(evidence: R6RecoveryEvidence, previousState: Regi
     (!previousState.r6ShockLatch || (Number.isFinite(releaseAt) && releaseAt <= now.getTime()));
 }
 
-function resolveRecoveredStateMachine(rawRegime: RegimeLevel, macroState: MacroState | null): R6StateMachineState {
+/**
+ * ADR-0630 D2 — latchContext: stuck-exit 판정 보조 입력(계산은 호출부 주입, 함수 순수 유지).
+ * - consecutiveHealthyRecoveryTicks: raw 강세(R1/R2/R3_EARLY)가 R5_STABILIZING latch 유지 중 연속된 복구 tick.
+ * - now: 보조(현재 미소비, 향후 시간 기반 탈출 확장 여지).
+ */
+interface RecoveredStateMachineLatchContext {
+  consecutiveHealthyRecoveryTicks: number;
+  now: Date;
+}
+
+function resolveRecoveredStateMachine(
+  rawRegime: RegimeLevel,
+  macroState: MacroState | null,
+  latchContext: RecoveredStateMachineLatchContext,
+): R6StateMachineState {
   const mhs = macroState?.mhs ?? 0;
-  if (mhs >= 70 && (rawRegime === 'R1_TURBO' || rawRegime === 'R2_BULL' || rawRegime === 'R3_EARLY')) return 'R3_NORMAL';
+  const rawHealthy = rawRegime === 'R1_TURBO' || rawRegime === 'R2_BULL' || rawRegime === 'R3_EARLY';
+  // 기존 mhs 단일 탈출 경로 — flag 무관 byte-identical.
+  if (mhs >= 70 && rawHealthy) return 'R3_NORMAL';
   if (mhs >= 65) return 'R4_CAUTION';
+  // ADR-0630 D2(flag ON) — 모순 지대(mhs 40~64 + raw 강세)에서 raw 강세 N tick 지속 시 latch 강제 종료.
+  // 첫 tick~임계 미달은 R5_STABILIZING 유지(초기 falling-knife 보호 불변).
+  if (
+    isR6RecoveryStuckExitEnabled() &&
+    rawHealthy &&
+    latchContext.consecutiveHealthyRecoveryTicks >= r6RecoveryStuckExitMinHealthyTicks()
+  ) {
+    return 'R3_NORMAL';
+  }
   return 'R5_STABILIZING';
 }
 
@@ -797,6 +841,8 @@ export function evaluateR6RecoveryTransition(
       latchDecayPercent: nextDecayPercent,
       latchReleaseEligibleAt: releaseEligibleAt,
       recoveryBlockedReason: heldByShockLatch && (triggerBreakdown.triggerFreshness === 'POST_CLOSE_VALID' || triggerBreakdown.triggerFreshness === 'EOD_SNAPSHOT_VALID') ? 'WAITING_NEXT_TRADING_DAY_CONFIRMATION' : heldByShockLatch && !closeEligible ? 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION' : heldByShockLatch ? 'R6_LATCH_TTL_UNDER_DECAY_THRESHOLD' : 'ACTIVE_R6_TRIGGER_PRESENT',
+      // ADR-0630 D2 — R6 active 재진입(raw 약세) → tick 0 리셋(OFF 경로 sanitizer default 와 동일 = byte-identical).
+      consecutiveHealthyRecoveryTicks: 0,
     };
   }
 
@@ -842,7 +888,15 @@ export function evaluateR6RecoveryTransition(
     const nextDecayPercent = latchDecayPercent(previousState, closeEligible, now, { triggerBreakdown, macroState, biasScore });
     const latchStillActive = !recovered && previousState.r6ShockLatch && !isLatchExpired(previousState, now);
     const recoveryWatch = !recovered && recoveryWatchEligible(evidence, previousState, now, triggerBreakdown.triggerFreshness);
-    const r6StateMachineState: R6StateMachineState = recovered ? (previousState.r6StateMachineState === 'R5_STABILIZING' ? resolveRecoveredStateMachine(rawRegime, macroState) : 'R5_STABILIZING') : recoveryWatch ? 'R6_RECOVERY_WATCH' : 'R6_DEFENSE';
+    // ADR-0630 D2 — raw 강세 연속 복구 tick 카운트(R5_STABILIZING latch 유지 중 raw 강세 지속 횟수).
+    // raw 강세 & 직전 상태기계 R5_STABILIZING latch → prev+1, 아니면(약세 이탈/latch 외 상태) 0 리셋.
+    // legacy json(필드 부재)은 sanitizer 가 0 으로 정규화 → 초기 보호(첫 tick=1)와 일치.
+    const rawHealthyForStuckExit = rawRegime === 'R1_TURBO' || rawRegime === 'R2_BULL' || rawRegime === 'R3_EARLY';
+    const consecutiveHealthyRecoveryTicks =
+      rawHealthyForStuckExit && previousState.r6StateMachineState === 'R5_STABILIZING'
+        ? (previousState.consecutiveHealthyRecoveryTicks ?? 0) + 1
+        : 0;
+    const r6StateMachineState: R6StateMachineState = recovered ? (previousState.r6StateMachineState === 'R5_STABILIZING' ? resolveRecoveredStateMachine(rawRegime, macroState, { consecutiveHealthyRecoveryTicks, now }) : 'R5_STABILIZING') : recoveryWatch ? 'R6_RECOVERY_WATCH' : 'R6_DEFENSE';
     const effectiveRegime = recovered ? applyForcedDowngrade(rawRegime, previousState.effectiveRegime) : (recoveryWatch ? capRecoveryRegime(applyForcedDowngrade(rawRegime, previousState.effectiveRegime)) : 'R6_DEFENSE');
     const status = recovered ? (r6StateMachineState === 'R5_STABILIZING' ? 'R5_STABILIZING' : 'RECOVERED') : isHardStaleForRecovery(triggerBreakdown.triggerFreshness) ? 'STALE_DATA_BLOCKED' : recoveryWatch ? 'R6_RECOVERY_WATCH' : Date.parse(cooldownUntil) <= now.getTime() && evidenceComplete(evidence) ? 'RECOVERY_CANDIDATE' : 'COOLDOWN';
     const decision = r6StateMachineState === 'R6_RECOVERY_WATCH' ? 'TRANSITION_ALLOWED' : recovered ? 'RECOVERED' : 'TRANSITION_BLOCKED';
@@ -895,12 +949,17 @@ export function evaluateR6RecoveryTransition(
       latchDecayPercent: recovered ? 100 : nextDecayPercent,
       latchReleaseEligibleAt: recovered ? undefined : previousState.latchReleaseEligibleAt,
       recoveryBlockedReason: recovered ? undefined : blockedReason,
+      // ADR-0630 D2 — R5_STABILIZING latch 유지 시 누적 tick 영속, 그 외(탈출/약세) 0 리셋.
+      // flag OFF 면 0(sanitizer default 와 동일 — OFF 경로 미소비, byte-identical).
+      consecutiveHealthyRecoveryTicks: isR6RecoveryStuckExitEnabled()
+        ? (r6StateMachineState === 'R5_STABILIZING' ? consecutiveHealthyRecoveryTicks : 0)
+        : 0,
     };
   }
 
   const effectiveRegime = applyForcedDowngrade(rawRegime, previousState.effectiveRegime);
   const r6StateMachineState: R6StateMachineState = effectiveRegime === 'R5_CAUTION' ? 'R4_CAUTION' : 'R3_NORMAL';
-  return { ...previousState, previousRegime: previousState.effectiveRegime, currentRegime: effectiveRegime, rawRegime, effectiveRegime, lastTransitionAt: previousState.effectiveRegime === effectiveRegime ? previousState.lastTransitionAt : nowIso, transitionDirection: transitionDirection(previousState.effectiveRegime, effectiveRegime), transitionReason: previousState.effectiveRegime === effectiveRegime ? 'RAW_REGIME_RECONFIRMED' : 'RAW_REGIME_RECLASSIFIED', r6RecoveryStatus: 'NONE', r6RecoveryEvidence: { ...emptyR6RecoveryEvidence(nowIso), requiredConfirmations }, cooldownUntil: undefined, sourceUpdatedAt: macroState?.updatedAt, recoveryConfirmations: 0, r6TriggerBreakdown: triggerBreakdown, previousR6Triggers: [], r6ShockLatch: false, r6ShockLatchDetail: undefined, r6StateMachineState, r6ShockLatchReason: undefined, latchTriggeredAt: undefined, latchTriggerValue: undefined, latchTriggerSource: undefined, latchExpiresAt: undefined, latchDecayLevel: 'NONE', latchDecayPercent: 0, latchReleaseEligibleAt: undefined, recoveryBlockedReason: undefined };
+  return { ...previousState, previousRegime: previousState.effectiveRegime, currentRegime: effectiveRegime, rawRegime, effectiveRegime, lastTransitionAt: previousState.effectiveRegime === effectiveRegime ? previousState.lastTransitionAt : nowIso, transitionDirection: transitionDirection(previousState.effectiveRegime, effectiveRegime), transitionReason: previousState.effectiveRegime === effectiveRegime ? 'RAW_REGIME_RECONFIRMED' : 'RAW_REGIME_RECLASSIFIED', r6RecoveryStatus: 'NONE', r6RecoveryEvidence: { ...emptyR6RecoveryEvidence(nowIso), requiredConfirmations }, cooldownUntil: undefined, sourceUpdatedAt: macroState?.updatedAt, recoveryConfirmations: 0, r6TriggerBreakdown: triggerBreakdown, previousR6Triggers: [], r6ShockLatch: false, r6ShockLatchDetail: undefined, r6StateMachineState, r6ShockLatchReason: undefined, latchTriggeredAt: undefined, latchTriggerValue: undefined, latchTriggerSource: undefined, latchExpiresAt: undefined, latchDecayLevel: 'NONE', latchDecayPercent: 0, latchReleaseEligibleAt: undefined, recoveryBlockedReason: undefined, consecutiveHealthyRecoveryTicks: 0 };
 }
 
 export function getRawRegime(macroState: MacroState | null, now: Date = new Date()): RegimeLevel {

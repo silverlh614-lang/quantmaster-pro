@@ -51,6 +51,19 @@ export function resolveMacroRegime(candidates: readonly MacroRegime[]): MacroReg
   return MACRO_REGIME_PRIORITY.find((regime) => candidates.includes(regime)) ?? 'R2_NEUTRAL';
 }
 
+/**
+ * RegimeLevel(scoring 도메인) → MacroRegime(정책/진단 라벨 도메인) 단방향 사상 SSOT.
+ * (ADR-0546 §Deferred / C19 정합 — 이 함수가 두 enum 을 잇는 유일한 통로다. 우회 금지.)
+ *
+ *   R6_DEFENSE                          → R6_DEFENSE
+ *   R5_CRISIS | R5_CAUTION              → R5_CRISIS
+ *   R4_RISK_OFF | R4_NEUTRAL            → R4_RISK_OFF
+ *   R3_CAUTION | R3_EARLY               → R3_CAUTION   (R3_CAUTION 은 MacroRegime 정규 멤버 — 제거 금지)
+ *   R1_RISK_ON | R1_TURBO | R2_BULL     → R1_RISK_ON
+ *   (미인식/undefined/R2_NEUTRAL 등)    → R2_NEUTRAL   (default)
+ *
+ * byte-equivalent 계약: 본 사상표는 함수 분기와 1:1 — 테스트(normalizeMacroRegime.test.ts)가 고정한다.
+ */
 export function normalizeMacroRegime(value: unknown): MacroRegime {
   const raw = String(value ?? '').toUpperCase();
   if (raw === 'R6_DEFENSE') return 'R6_DEFENSE';

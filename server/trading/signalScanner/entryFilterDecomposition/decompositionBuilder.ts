@@ -45,6 +45,7 @@ import {
   resolveWatchlistUpstreamScore,
   type ResolvedWatchlistUpstreamScore,
 } from "../watchlistUpstreamScoreResolver.js";
+import { isGate1RsPercentileContinuousEnabled } from "../../gateConfig.js";
 import type { GateConditionResultTrace } from "../gateConditionResultTrace.js";
 import type { SanitizedInvestorFlowSemanticRow } from "../../../supply/investorFlowSemanticAvailability.js";
 import type {
@@ -184,6 +185,9 @@ export function buildEntryFilterDecomposition(
       kospiRelativeReturn: c.kospiRelativeReturn ?? symbolFeatures?.kospiRelativeReturn ?? (quote?.kospiRelativeReturn as number | undefined) ?? (quoteFeatures?.kospiRelativeReturn as number | undefined) ?? gateLayerFeatures.kospiRelativeReturn,
       relativeReturn20d: c.relativeReturn20d ?? symbolFeatures?.relativeReturn20d ?? (quote?.relativeReturn20d as number | undefined) ?? (quoteFeatures?.relativeReturn20d as number | undefined) ?? gateLayerFeatures.relativeReturn20d,
       kospi20dReturn: c.kospi20dReturn ?? symbolFeatures?.kospi20dReturn ?? (quote?.kospi20dReturn as number | undefined) ?? (quoteFeatures?.kospi20dReturn as number | undefined) ?? gateLayerFeatures.kospi20dReturn,
+      // ADR-0621 — KOSDAQ 벤치마크 source + market 구분 carry (kospi20dReturn line 동형).
+      kosdaq20dReturn: c.kosdaq20dReturn ?? symbolFeatures?.kosdaq20dReturn ?? (quote?.kosdaq20dReturn as number | undefined) ?? (quoteFeatures?.kosdaq20dReturn as number | undefined),
+      market: c.market ?? symbolFeatures?.market ?? (quote?.market as string | undefined) ?? (quoteFeatures?.market as string | undefined),
       quote: c.quote,
       quoteFeatures: c.quoteFeatures,
       featurePack: c.featurePack,
@@ -259,7 +263,12 @@ export function buildEntryFilterDecomposition(
     if (!Number.isFinite(row.trace.rsRankPct as number)) row.trace.rsRankPct = Math.max(0, Math.min(100, Number(pct.toFixed(1))));
     if (!Number.isFinite(row.trace.relativeStrengthScore as number)) {
       const p = row.trace.rsRankPct ?? 0;
-      row.trace.relativeStrengthScore = p >= 90 ? 10 : p >= 80 ? 8 : p >= 60 ? 5 : p >= 50 ? 2 : 0;
+      // ADR-0627 GAP-A — flag ON 시 연속 승격(이미 계산된 percentile 분해능 손실 복원).
+      // 0~10 연속(downstream scoreRelativeStrength explicit 경로가 ×10 normalized 소비).
+      // maxScore 10·weight 1 무변경. p=100 → 10(step 동일·천장 무변). flag OFF → 기존 5단 step.
+      row.trace.relativeStrengthScore = isGate1RsPercentileContinuousEnabled()
+        ? Math.max(0, Math.min(10, p / 10))
+        : p >= 90 ? 10 : p >= 80 ? 8 : p >= 60 ? 5 : p >= 50 ? 2 : 0;
     }
   });
 

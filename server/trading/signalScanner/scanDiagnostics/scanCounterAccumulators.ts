@@ -13,6 +13,8 @@ import {
 } from '../gate2LeadershipAttribution.js';
 import type { GatePassDistribution, WaitDistribution } from './scanSummaryTypes.js';
 import type { ScanCounters } from './scanCounterTypes.js';
+import type { PriceIntegrityResult } from '../priceIntegrityChecker.js';
+import type { PriceCorrectionResult } from '../priceCorrectionEngine.js';
 
 export function accumulateFreshConditionOutputs(
   counters: ScanCounters,
@@ -101,4 +103,29 @@ export function accumulatePositiveScoreStarvation(
   trace: Gate1ScoreStarvationTrace | null | undefined,
 ): void {
   if (trace) counters.positiveScoreStarvationTraces.push(trace);
+}
+
+/**
+ * ADR-0623 Stage 2a — PriceIntegrity/PriceCorrection diagnostics 표본 누적 (samples push only).
+ *
+ * 부작용 0 — counters 의 옵셔널 sample 배열에만 push. ScanSummary 집계는 persistScanResults 가
+ * 본 표본을 reduce 하여 build 한다. corrected→LIVE/Shadow 의사결정 치환 없음 (Stage 2a diagnostics only).
+ * 입력은 호출자가 이미 보유한 result 객체만 — 외부 fetch 0 (ADR-0414 invariant #10 계승).
+ */
+export function accumulatePriceIntegrityCorrection(
+  counters: ScanCounters,
+  integrity: PriceIntegrityResult,
+  correction: PriceCorrectionResult,
+): void {
+  if (!counters.priceIntegritySamples) counters.priceIntegritySamples = [];
+  if (!counters.priceCorrectionSamples) counters.priceCorrectionSamples = [];
+  counters.priceIntegritySamples.push({
+    symbol: integrity.symbol,
+    status: integrity.status,
+  });
+  counters.priceCorrectionSamples.push({
+    correctionType: correction.correctionType,
+    confidence: correction.confidence,
+    usableForShadow: correction.usableForShadow,
+  });
 }

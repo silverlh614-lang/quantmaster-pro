@@ -81,6 +81,8 @@ import { foreignerRatioRouter } from './routes/foreignerRatioRouter.js';
 import { krxInvestorRouter } from './routes/krxInvestorRouter.js';
 import { yahooConsensusRouter } from './routes/yahooConsensusRouter.js';
 import { startScheduler } from './scheduler/index.js';
+import { reapplyOperatorApprovals } from './trading/selfValidationAutoActivationAdr0633.js';
+import { listApprovedLeverIds } from './persistence/autoActivationApprovalRepo.js';
 import { resolveStaticAssetsPath } from './staticAssets.js';
 import { globalErrorHandler } from './utils/apiResponse.js';
 import { installGlobalErrorHandlers, setCurrentBootId } from './utils/globalErrorHandlers.js';
@@ -501,6 +503,17 @@ async function startServer() {
 
     // ─── cron 스케줄러 기동 ───────────────────────────────────────────────────
     startScheduler();
+
+    // ─── ADR-0636 운영자 승인 활성화 부팅 재적용 ──────────────────────────────
+    // 영속 승인분(LIVE_ADJACENT_REVIEW)을 process.env 에 1회 재적용. 승인 0건(기본) →
+    // listApprovedLeverIds()=[] → reapplyOperatorApprovals([])=[] → process.env 무접촉 =
+    // byte-identical. try/catch 로 부팅 무중단(불변식 #1).
+    try {
+      const reapplied = reapplyOperatorApprovals(listApprovedLeverIds());
+      console.info(`[OperatorApprovalReapply] reapplied=[${reapplied.join(',') || 'NONE'}] (ADR-0636)`);
+    } catch (e) {
+      console.warn('[OperatorApprovalReapply] skipped:', e instanceof Error ? e.message : e);
+    }
 
     // ─── KIS 토큰 부팅 정책 (ADR-0147) ────────────────────────────────────────
     // 재부팅 시마다 OAuth2 갱신 호출하던 결함 차단. auth.ts 모듈 로드 시 디스크에서

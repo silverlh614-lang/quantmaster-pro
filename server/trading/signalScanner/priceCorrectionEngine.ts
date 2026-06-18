@@ -152,6 +152,18 @@ export function isPriceCorrectionDisabled(): boolean {
 }
 
 /**
+ * ENV `PRICE_CORRECTION_SHADOW_ENABLED` 우회 SSOT — ADR-0623 / ADR-0157 정확 비교 의무.
+ *
+ * default OFF (=> corrected 값을 shadow 판단에 채택하지 않음 = Stage 1 동작 byte-equivalent).
+ * `=true` 시 SHADOW 분기에서만 corrected price/prevClose/gap 을 shadow 평가 입력으로 치환.
+ * **`PRICE_CORRECTION_DISABLED=true` 가 우선** — disabled 시 shadow 활성화도 자동 생략.
+ */
+export function isPriceCorrectionShadowEnabled(): boolean {
+  if (isPriceCorrectionDisabled()) return false; // disabled 우선 (correction 자체 생략)
+  return process.env.PRICE_CORRECTION_SHADOW_ENABLED === 'true';
+}
+
+/**
  * 출처 그룹별 score weight 집계 — 다중 출처 cross-source agreement 분류.
  *
  * 입력 출처 개수 (sourceCount) 와 가격 일치도 (priceAgreement) 기반.

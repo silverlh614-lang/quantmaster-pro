@@ -59,6 +59,11 @@ export function finiteFeature(value: unknown): number | undefined {
     : undefined;
 }
 
+/** ADR-0621 — 비어있지 않은 문자열만 carry (market 구분 등). */
+export function stringFeature(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
 export function quoteFeature(c: CandidateSnapshot, key: string): number | undefined {
   const sources = [c.quoteFeatures, c.quote];
   for (const source of sources) {
@@ -153,6 +158,19 @@ export function buildSymbolFeatures(
       finiteFeature(momentum?.kospi20dReturn) ??
       finiteFeature(momentumProjection?.kospi20dReturn) ??
       finitePositiveFeature(gateLayerFeatures.kospi20dReturn),
+    // ADR-0621 — KOSDAQ 지수 20일 수익률 carry (KOSDAQ 종목 Gate2 RS 벤치마크 source).
+    kosdaq20dReturn:
+      provided.kosdaq20dReturn ??
+      finiteFeature(c.kosdaq20dReturn) ??
+      quoteFeature(c, "kosdaq20dReturn") ??
+      finiteFeature(momentum?.kosdaq20dReturn) ??
+      finiteFeature(momentumProjection?.kosdaq20dReturn),
+    // ADR-0621 — 시장 구분(KOSPI/KOSDAQ) carry (RS 벤치마크 선택 보조).
+    market:
+      provided.market ??
+      stringFeature(c.market) ??
+      stringFeature((c.quote as Record<string, unknown> | undefined)?.market) ??
+      stringFeature((c.symbolFeatures as Record<string, unknown> | undefined)?.market),
     marketRelativeReturn:
       provided.marketRelativeReturn ??
       finiteFeature(c.marketRelativeReturn) ??

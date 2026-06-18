@@ -79,6 +79,11 @@ export interface MinimumSignalScoreTrace {
   ceilingWiringNormalizeDelta?: number;
   ceilingWiringHypotheticalActualScore?: number;
   ceilingWiringHypotheticalPassed?: boolean;
+  // ADR-0627 D3 — RS 연속 승격 관측 hypothetical(flag 무관 force-ON). try/catch 격리 실패 시 부재.
+  // actualScore/passed 본체에 영향 0 (관측 전용). 실 percentile 은 `rsRankPct` 재사용(신규 fetch 0).
+  rsContinuousPromotionDelta?: number;
+  rsContinuousHypotheticalActualScore?: number;
+  rsContinuousHypotheticalPassed?: boolean;
 }
 
 export type UnknownDataTreatment =

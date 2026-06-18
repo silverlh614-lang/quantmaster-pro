@@ -170,6 +170,39 @@ export const REGIME_CONFIGS: Record<RegimeLevel, FullRegimeConfig> = {
   },
 };
 
+// ─── toCanonicalRegimeLevel — 확장 effective 어휘 → canonical RegimeLevel 정규화 ──
+
+/**
+ * marketStateResolver/regimeBridge 가 누수하는 확장 effective regime 어휘
+ * (R3_NORMAL / R4_CAUTION / R5_STABILIZING / R6_PANIC / R6_CONFIRMATION_WAIT /
+ * R6_RECOVERY_WATCH 등)를 REGIME_CONFIGS 의 6단계 canonical RegimeLevel 로 환원한다.
+ *
+ * 매핑(base 숫자 기준 prefix):
+ *   R1* → R1_TURBO, R2* → R2_BULL, R3*(R3_NORMAL 포함) → R3_EARLY,
+ *   R4*(R4_CAUTION 포함) → R4_NEUTRAL, R5*(R5_STABILIZING 포함) → R5_CAUTION,
+ *   R6*(R6_PANIC/CONFIRMATION_WAIT/RECOVERY_WATCH 포함) → R6_DEFENSE.
+ *
+ * canonical 키 정확 일치는 그대로 통과. 정규화 불가 시 undefined (호출부가 폴백 결정).
+ */
+export function toCanonicalRegimeLevel(value: unknown): RegimeLevel | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  // 1) canonical 키 정확 일치 우선 (REGIME_CONFIGS SSOT 기준).
+  if (Object.prototype.hasOwnProperty.call(REGIME_CONFIGS, value)) {
+    return value as RegimeLevel;
+  }
+  // 2) prefix(R1~R6) 기반 확장 어휘 → canonical 환원.
+  const prefixMap: Record<string, RegimeLevel> = {
+    R1: 'R1_TURBO',
+    R2: 'R2_BULL',
+    R3: 'R3_EARLY',
+    R4: 'R4_NEUTRAL',
+    R5: 'R5_CAUTION',
+    R6: 'R6_DEFENSE',
+  };
+  const prefix = value.slice(0, 2).toUpperCase();
+  return prefixMap[prefix];
+}
+
 // ─── classifyRegime — 7축 변수 → 6단계 레짐 분류 ───────────────────────────────
 
 /**

@@ -160,18 +160,25 @@ describe('ADR-0118 분기별 카운터 — handleEntryRevalidationGate 경로', 
 });
 
 // ── ADR-0608 Phase 2: entryRegime(learningRegime) 교정 + input.regime 무변경 ──
-describe('ADR-0608 Phase 2 — handleEntryRevalidationGate entryRegime 교정', () => {
+describe('ADR-0608/0624 Phase 2 — handleEntryRevalidationGate entryRegime 교정', () => {
   const ENV_KEY = 'GATE1_REGIME_AWARE_SHADOW_ENTRY_ENABLED';
+  const KILL_KEY = 'SHADOW_LIBERALIZATION_KILL';
   let savedEnv: string | undefined;
+  let savedKill: string | undefined;
 
   beforeEach(() => {
     savedEnv = process.env[ENV_KEY];
-    delete process.env[ENV_KEY];
+    savedKill = process.env[KILL_KEY];
+    // ADR-0624 D1: default ON 이므로 OFF baseline 은 `='false'` 로 명시(미설정=ON 회피).
+    process.env[ENV_KEY] = 'false';
+    delete process.env[KILL_KEY];
     entryRevalidationStepMock.mockReturnValue({ proceed: true, entryThresholdMode: 'LEGACY' });
   });
   afterEach(() => {
     if (savedEnv === undefined) delete process.env[ENV_KEY];
     else process.env[ENV_KEY] = savedEnv;
+    if (savedKill === undefined) delete process.env[KILL_KEY];
+    else process.env[KILL_KEY] = savedKill;
   });
 
   function makeR6ClampCtx(stock: WatchlistEntry): BuyListLoopContext {
@@ -207,15 +214,40 @@ describe('ADR-0608 Phase 2 — handleEntryRevalidationGate entryRegime 교정', 
     expect(arg.regime).toBe('R4_NEUTRAL');
   });
 
-  it('ENV OFF + SHADOW → entryRegime=ctx.regime (byte-equivalent, learningRegime 무시)', async () => {
-    delete process.env[ENV_KEY];
+  it('flag OFF(`=false`) + SHADOW → entryRegime=ctx.regime (byte-equivalent, learningRegime 무시)', async () => {
+    process.env[ENV_KEY] = 'false';
     const stock = makeStock({ code: 'P2C' });
     const ctx = makeR6ClampCtx(stock);
     await handleEntryRevalidationGate(
       ctx, stock, { gateScore: 4 } as never, undefined as never, 1_000, null, {}, vi.fn(), [], true,
     );
     const arg = entryRevalidationStepMock.mock.calls[0][0];
-    expect(arg.entryRegime).toBe('R4_NEUTRAL'); // ENV OFF → ctx.regime (clamp 그대로)
+    expect(arg.entryRegime).toBe('R4_NEUTRAL'); // flag OFF → ctx.regime (clamp 그대로)
+    expect(arg.regime).toBe('R4_NEUTRAL');
+  });
+
+  it('ADR-0624 미설정(default ON) + SHADOW → entryRegime=learningRegime(R3_EARLY) (운영자 미개입 교정)', async () => {
+    delete process.env[ENV_KEY];
+    const stock = makeStock({ code: 'P2C2' });
+    const ctx = makeR6ClampCtx(stock);
+    await handleEntryRevalidationGate(
+      ctx, stock, { gateScore: 4 } as never, undefined as never, 1_000, null, {}, vi.fn(), [], true,
+    );
+    const arg = entryRevalidationStepMock.mock.calls[0][0];
+    expect(arg.entryRegime).toBe('R3_EARLY'); // default ON → learningRegime 교정 활성
+    expect(arg.regime).toBe('R4_NEUTRAL');    // macroRegime/진단은 ctx.regime 무변경
+  });
+
+  it('kill-switch ON(미설정 default ON) + SHADOW → entryRegime=ctx.regime (byte-equivalent 롤백)', async () => {
+    delete process.env[ENV_KEY];
+    process.env[KILL_KEY] = 'true';
+    const stock = makeStock({ code: 'P2C3' });
+    const ctx = makeR6ClampCtx(stock);
+    await handleEntryRevalidationGate(
+      ctx, stock, { gateScore: 4 } as never, undefined as never, 1_000, null, {}, vi.fn(), [], true,
+    );
+    const arg = entryRevalidationStepMock.mock.calls[0][0];
+    expect(arg.entryRegime).toBe('R4_NEUTRAL'); // kill → ctx.regime (clamp 그대로)
     expect(arg.regime).toBe('R4_NEUTRAL');
   });
 

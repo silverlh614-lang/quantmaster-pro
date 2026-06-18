@@ -89,8 +89,13 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
   //   LIVE/ENV OFF → getMinGateScore byte-equivalent. entryThresholdMode 라벨 carry.
   // ADR-0608 Phase 2: minGate 산출 regime 은 entryRegime(SHADOW=learningRegime) 우선,
   //   미전달 시 input.regime fallback. input.regime(macroRegime/진단)은 무변경.
+  // C19 정합: 두 regime 도메인을 1 input 에서 명시 분기 (값 흐름 무변경, byte-equivalent).
+  //   minGateRegime — minGate 수치 산출용 RegimeLevel (ADR-0608: SHADOW learningRegime 우선).
+  //   policyRegime  — macroRegime 라벨 정규화용. 항상 input.regime (진단/정책 표기 불변).
+  const minGateRegime = input.entryRegime ?? input.regime;
+  const policyRegime = input.regime;
   const { minGateScore: minGateBase, entryThresholdMode } = resolveEntryMinGateScore({
-    regime: input.entryRegime ?? input.regime,
+    regime: minGateRegime,
     isShadow: input.isShadow ?? false,
   });
   // ADR-0116 wiring: ADR-0115 의 EXECUTION_RELAXATION_ENABLED ENV 를 이곳에서 적용.
@@ -121,7 +126,7 @@ export function entryRevalidationStep(input: EntryRevalidationStepInput): Revali
     shadowLearningAllowed: input.shadowLearningAllowed ?? true,
     executionMode: input.executionMode ?? 'NORMAL',
     marketSessionState: resolveMarketSessionState({ marketSessionState: input.marketSessionState }),
-    macroRegime: normalizeMacroRegime(input.regime),
+    macroRegime: normalizeMacroRegime(policyRegime),
     blockReasons: input.blockReasons,
     marketElapsedMinutes: input.marketElapsedMinutes,
   });

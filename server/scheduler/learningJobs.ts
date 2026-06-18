@@ -49,8 +49,32 @@ import {
   isUnifiedForwardOutcomeLabelerEnabled,
   runUnifiedForwardOutcomeLabeler,
 } from '../learning/unifiedForwardOutcomeLabeler.js';
+import {
+  isShakeoutStopForwardLabelerEnabled,
+  runShakeoutStopForwardLabeler,
+} from '../learning/shakeoutStopForwardLabeler.js';
 import { runGateThresholdReadinessAlert } from '../learning/gateThresholdReadinessAlert.js';
 import { runDailyEvalFallbackIfMissed } from '../learning/dailyEvalFallback.js';
+import {
+  evaluateAutoActivation,
+  evaluateLeverReadiness,
+  formatAutoActivationReport,
+  isSelfValidationAutoActivationEnabled,
+  LEVER_REGISTRY,
+  type AutoActivationEvaluateInput,
+} from '../trading/selfValidationAutoActivationAdr0633.js';
+import {
+  loadAutoActivationStreaks,
+  recordLeverReadiness,
+} from '../persistence/autoActivationStreakRepo.js';
+import { buildPromotionReadinessBoard } from '../trading/signalScanner/promotionReadinessAdr0631.js';
+import {
+  listGate1DryRunObservationRows,
+  buildGate1ThresholdEvidenceSummary,
+} from '../trading/signalScanner/gate1DryRunObservationLedgerAdr0476.js';
+import { buildCounterfactualOutcomeBoard } from '../learning/counterfactualOutcomeBoard.js';
+import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { scheduledJob } from './scheduleGuard.js';
 
 async function runUnifiedForwardOutcomeLabelerJob(trigger: 'startup' | 'scheduled'): Promise<void> {
@@ -207,6 +231,28 @@ export function registerLearningJobs(): void {
     );
   }, { timezone: 'UTC' });
 
+  // Shakeout Stop Forward Labeler — 평일 KST 16:50 (UTC 07:50). gate3_forward_return(16:35)·
+  //   shadow_live_delta(16:45) 이후 stagger. KRX 장 마감 50분 후.
+  // ADR-0625: 실행 청산(HIT_STOP) 포지션의 손절-후 1/3/5/10일 종가를 KIS 일봉(L1, read-only)
+  //   으로 추적 → 청산가 대비 최대 회복률 산출 → 셰이크아웃 여부(+5%) 라벨링 (관측 전용).
+  //   shadow-trades.json 영속 본체 무수정, 라벨은 물리 분리 별도 ledger 영속 (ADR-0445).
+  // executionImpact=NONE — LIVE 주문/SourceSnapshot/Gate 판정 본체 변경 0.
+  // Historical close priceFetcher is required here; do not fall back to current price.
+  //   fetchHistoricalClosePrice(KIS-first) 주입 — KIS quota 보호 (per-symbol 캐시).
+  // 9대 불변식 #2(Shadow 무중단)/#6(종가 결손 시 horizon skip → 다음 cron 재시도, 약세변환 0) 준수.
+  // ENV `SHAKEOUT_STOP_FORWARD_LABELER_ENABLED=true` default OFF — 운영자 명시 활성화 의무.
+  // ScheduleClass='TRADING_DAY_ONLY' (ADR-0045) — KRX 휴장일 자동 silent skip
+  //   (PENDING 라벨은 다음 영업일 cron 호출 시 자연 재시도, enqueue 불필요).
+  scheduledJob('50 7 * * 1-5', 'TRADING_DAY_ONLY', 'shakeout_stop_forward_labeling', async () => {
+    if (!isShakeoutStopForwardLabelerEnabled()) return;
+    const res = await runShakeoutStopForwardLabeler({
+      fetcher: (symbol, asOf) => fetchHistoricalClosePrice(symbol, asOf),
+    });
+    console.log(
+      `[ShakeoutStopForwardLabeler] candidates=${res.totalCandidates} resolved=${res.resolvedNow} pending=${res.pending} shakeout=${res.shakeoutCount} errors=${res.errors} (${res.durationMs}ms)`,
+    );
+  }, { timezone: 'UTC' });
+
   // Safety Gate Attribution — 평일 KST 16:40 (UTC 07:40). future_return_resolve(16:30) 직후라
   //   당일 갱신된 futureReturn{1/3/5/20}d 를 입력으로 사용.
   // ADR-0174 §2.1 (PENDING_WIRING A12 wiring): 7 게이트 사후 효과 (avoidedLoss/missedGain/
@@ -306,5 +352,57 @@ export function registerLearningJobs(): void {
     console.log(
       `[MissedLearningReplay] replayed=${result.replayed} failed=${result.failed} dropped=${result.dropped}`,
     );
+  }, { timezone: 'UTC' });
+
+  // ADR-0634 — Shadow Self-Validation Auto-Activation runtime wiring. 평일 KST 17:00 (UTC 08:00).
+  // /promotion_readiness 동일 빌더 재사용(두 번째 측정 공식 0) → LIVE_SAFE lever 일별 READY streak
+  //   멱등 갱신 → ADR-0633 evaluator(두 번째 판정 공식 0)로 자가 활성 판정. ACTIVATE 시 CH4(JOURNAL)
+  //   통지 1회(executionImpact=NONE, CH2 금지). 항상 Railway 로그 1줄.
+  // master OFF(SELF_VALIDATION_AUTO_ACTIVATION_ENABLED!=true) → 첫 줄 early-return = repo/process.env/
+  //   telegram 무접촉 = byte-identical. EXCLUDED lever 는 streak 추적 0(evaluator 항상 EXCLUDED).
+  // throw 는 scheduledJob 래퍼가 catch(불변식 #1 liveness).
+  scheduledJob('0 8 * * 1-5', 'TRADING_DAY_ONLY', 'self_validation_auto_activation', async () => {
+    if (!isSelfValidationAutoActivationEnabled()) return; // master OFF = no-op byte-identical.
+
+    const now = new Date();
+    // (a) 측정 — /promotion_readiness 와 동일 빌더 재사용.
+    const rows = await listGate1DryRunObservationRows();
+    const evidence = rows.length > 0 ? buildGate1ThresholdEvidenceSummary(rows) : undefined;
+    const counterfactual = await buildCounterfactualOutcomeBoard({ gate1Rows: rows });
+    const board = buildPromotionReadinessBoard({ evidence, counterfactual });
+
+    // (b) 영속 streak 갱신 — LIVE_SAFE lever 만, evaluateLeverReadiness 동일 criteria.
+    const dateKey = toKstDateKey(now); // KST 'YYYY-MM-DD' (기존 KRX 캘린더 util 재사용).
+    const baseInput: AutoActivationEvaluateInput = { now, promotionReadiness: board, evidence, counterfactual };
+    for (const lever of LEVER_REGISTRY) {
+      if (lever.eligibility !== 'LIVE_SAFE') continue; // EXCLUDED 는 streak 추적 불요.
+      const { readyExclStreak } = evaluateLeverReadiness(lever, baseInput);
+      recordLeverReadiness(lever.leverId, readyExclStreak, dateKey); // 멱등.
+    }
+
+    // (c) 평가 — ADR-0633 evaluator. 영속 streak 주입.
+    const consecutiveReadyDaysByLever: Record<string, number> = {};
+    const streaks = loadAutoActivationStreaks();
+    for (const [leverId, s] of Object.entries(streaks)) consecutiveReadyDaysByLever[leverId] = s.streak;
+    const report = evaluateAutoActivation({ ...baseInput, consecutiveReadyDaysByLever });
+
+    // (d) 통지(CH4 only) + 항상 Railway 로그.
+    const heldCount = report.decisions.filter((d) => d.verdict === 'HOLD').length;
+    const excludedCount = report.decisions.filter((d) => d.verdict === 'EXCLUDED').length;
+    console.info(
+      `[SelfValidationAutoActivation] master=${report.masterEnabled} ` +
+        `activated=[${report.activatedLeverIds.join(',') || 'NONE'}] ` +
+        `held=${heldCount} excluded=${excludedCount} decisions=${report.decisions.length}`,
+    );
+    if (report.activatedLeverIds.length > 0) {
+      // CH4(JOURNAL) only — sendTelegramAlert 미분류 → 기본 JOURNAL/CH4 라우팅. CH2 금지(ADR-0607).
+      await sendTelegramAlert(formatAutoActivationReport(report), {
+        priority: 'NORMAL',
+        category: 'self_validation_auto_activation',
+        dedupeKey: `self_validation_auto_activation:${report.activatedLeverIds.join(',')}`,
+        cooldownMs: 12 * 60 * 60_000,
+        executionImpact: 'NONE',
+      });
+    }
   }, { timezone: 'UTC' });
 }

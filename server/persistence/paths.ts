@@ -80,6 +80,14 @@ export const UNIVERSE_COMPOSITION_BIAS_LEDGER_FILE = path.join(DATA_DIR, 'univer
 export const LEADER_UNIVERSE_INJECTION_LEDGER_FILE = path.join(DATA_DIR, 'leader-universe-injection-ledger-adr0617.json');
 /** ADR-0619 — shadow 진입 개방(Gate1 점수·Gate3 타이밍 완화) per-scan aggregate 관측 ledger(완화 진입수·skipCause 분포, 위 ledger 들과 물리 분리, 관측 전용). */
 export const SHADOW_ENTRY_LIBERALIZATION_LEDGER_FILE = path.join(DATA_DIR, 'shadow-entry-liberalization-ledger-adr0619.json');
+/** ADR-0622 — 발굴 적극성 per-scan aggregate dry-run 관측 ledger(top-N 60→90 추가 편입·RS percentile 끌어올림/laggard 디모트·현행 laggard 비율, 위 ledger 들과 물리 분리, 양 flag 무관 산출·append 만 flag ON). */
+export const UNIVERSE_DISCOVERY_AGGRESSIVENESS_LEDGER_FILE = path.join(DATA_DIR, 'universe-discovery-aggressiveness-ledger-adr0622.json');
+/** ADR-0625 — 실행 청산(HIT_STOP) 포지션 손절-후 N일 수익률 관측 전용 라벨 ledger(shadow-trades.json 영속 본체와 물리 분리, default OFF). */
+export const SHAKEOUT_STOP_OUTCOME_LEDGER_FILE = path.join(DATA_DIR, 'shakeout-stop-outcome-ledger-adr0625.json');
+/** ADR-0634 — LIVE-safe lever 일별 READY 연속일수(anti-flap streak) 영속. 다른 ledger 와 물리 분리. */
+export const AUTO_ACTIVATION_STREAK_FILE = path.join(DATA_DIR, 'auto-activation-streak-adr0634.json');
+/** ADR-0636 — LIVE_ADJACENT_REVIEW(T2) lever 운영자 승인 활성화 영속 ledger. 위 streak ledger 와 물리 분리. 승인 0건(기본)=byte-identical. */
+export const AUTO_ACTIVATION_APPROVAL_FILE = path.join(DATA_DIR, 'auto-activation-approval-adr0636.json');
 export const OCO_ORDERS_FILE          = path.join(DATA_DIR, 'oco-orders.json');
 /** Stage1 Pre-screening 캐시 — 전날 16:30 실행 결과를 저장, 당일 08:35 Stage2+3에서 사용 */
 export const STAGE1_CACHE_FILE        = path.join(DATA_DIR, 'stage1-cache.json');

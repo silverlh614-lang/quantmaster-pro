@@ -131,18 +131,25 @@ export function carrySourceTags(
  * @param candidates Stage1 필터 통과 후보(source carry 됨, flag ON 시).
  * @param limit 현행 top-N(60).
  * @param enabled flag. false → 보존 0(현행 slice 동치).
+ * @param topNComparator (ADR-0622 ③, 직교 layer) top-N 컷 정렬 비교자 주입(optional).
+ *   미지정 → stage1Score desc 단독(현행 byte-identical). ADR-0622 ③ flag ON 시 universeScanner 가
+ *   rsPriorityComparator 주입(positive-RS 우선·laggard 디모트). 주도주 union 보존(0617)과 직교 —
+ *   비교자는 컷 순서만 바꾸고, union 보존은 컷 후 별도 append 로 그대로 유지.
  * @returns {result, observation} — result=주도주 union 후보, observation=관측 stamp(append 는 호출자).
  * @internal engine-dev: dedup 은 code 기준·topN 우선(점수순) → preserved 는 그 뒤 append.
- *   stage1Score 정렬은 현행과 동일 비교자 재사용(두 번째 정렬식 신설 금지).
+ *   stage1Score 정렬은 현행과 동일 비교자 재사용(두 번째 정렬식 신설 금지·ADR-0622 ③ 는 주입식 직교).
  */
 export function applyLeaderPreservation(
   candidates: readonly CandidateStock[],
   limit: number,
   now: Date = new Date(),
   enabled: boolean = isLeaderUniverseInjectionEnabled(),
+  topNComparator?: (a: CandidateStock, b: CandidateStock) => number,
 ): { result: CandidateStock[]; observation: LeaderUniverseInjectionObservation } {
-  // ── 현행 top-N 컷 (byte-identical 비교자) ──
-  const sorted = [...candidates].sort((a, b) => b.stage1Score - a.stage1Score);
+  // ── top-N 컷 정렬 비교자 — 미주입 시 현행 stage1Score desc(byte-identical) ──
+  //   ADR-0622 ③: flag ON 시 universeScanner 가 rsPriorityComparator 주입(직교 layer, union 보존 무영향).
+  const comparator = topNComparator ?? ((a: CandidateStock, b: CandidateStock) => b.stage1Score - a.stage1Score);
+  const sorted = [...candidates].sort(comparator);
   const topN = sorted.slice(0, limit);
 
   if (!enabled) {
