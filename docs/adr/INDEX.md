@@ -14,7 +14,7 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0634`**
+**다음 ADR 번호: `0635`**
 
 (2026-06-18 기준, 마지막 발급 0633 — **Shadow 자가 검증 후 LIVE-safe ENV 게이트 자동 활성화 엔진**. **Status: Proposed (Phase 0 — architect 경계·타입·lever registry·criteria·master flag/SSOT·audit/telegram seam pin. evaluator/ledger 함수 본문 engine-dev 인계.)** 운영자 지침(①결정 의존 제거·②always-on·③기능 과잉 금지) 후속 — ADR-0631 가 Shadow→Live 승격 준비도를 read-only 진단으로 통합했으나 ENV flip 은 여전히 운영자 수동 행위라 "증거 충족인데도 영구 잠금" 병목 잔존. 처방: LIVE-safe(shadow/diagnostic) ENV 게이트에 한해 Shadow 검증 기준 충족 시 엔진이 런타임 `process.env[envName]='true'` set→기존 `=== 'true'` reader 자동 픽업(실행경로 reader 편집 0). 신규 순수 SSOT `server/trading/selfValidationAutoActivationAdr0633.ts`(provider/store/now/fetch 직접 호출 0 — evaluator 는 now·증거 입력으로 받음 + in-memory audit ledger). master flag `SELF_VALIDATION_AUTO_ACTIVATION_ENABLED` default OFF(ADR-0157 `=== 'true'`·SSOT isSelfValidationAutoActivationEnabled)·master OFF=byte-identical(엔진 미가동·process.env 무접촉). lever registry eligibility 3분류: **LIVE_SAFE 만 자가 활성**(seed: PRICE_CORRECTION_SHADOW_ENABLED[ADR-0623 shadow-only]·TRADE_REPLACEMENT_SHADOW_EXECUTE_ENABLED[ADR-0602 shadow 장부 내]), `LIVE_MONEY_EXCLUDED`(LEARNING_WEIGHT_PROMOTION_ENABLED·COUNTERFACTURE_GATE_APPLY_ENABLED — 불변식 #7)·`ABSOLUTE_PRESERVATION_EXCLUDED`(GATE1_REGIME_AWARE_REQUIRED[required-score flip ADR-0546]·GATE1_POSITIVE_CEILING_WIRING_ENABLED[ADR-0613])는 EXCLUDED 판정만·process.env 절대 무접촉. criteria(minMatureSamplesD5·requireReviewReady·requirePerformanceJustified·minConsecutiveReadyDays anti-flap)=ADR-0631 PromotionReadinessBoard·ADR-0476 Gate1ThresholdEvidenceSummary 산출 재사용(두 번째 판정공식 발명 0). 모든 ACTIVATE→audit ledger append + Telegram 통지 seam(engine-dev wiring·본 모듈 텔레그램 직접 import 0). 9대 불변식 #1(순수 evaluator)·#2(shadow 여는 방향)·#3/#9(provider 직접 조회 0·SourceSnapshot 미접촉)·#7(LIVE_MONEY/required-score flip/learning→LIVE 가중치 EXCLUDED)·#8(LIVE_SAFE 만 자동 ON·LIVE 실주문 byte-identical)·절대보존(requiredScore=70/CONDITION_PASS_THRESHOLD=5/STRONG_BUY ABSOLUTE_PRESERVATION_EXCLUDED) 보존. executionImpact master OFF=NONE / ON=LIVE_SAFE shadow·diagnostic 게이트 자동 ON 만(LIVE 실주문 본체 0줄·kisClient/autoTradeEngine/order 0줄·requiredScore 무변경). Patch Scope Guard(ADR-530): targetDomain self-activation+diagnostics+config-flag(3)·allowedFiles(selfValidationAutoActivationAdr0633.ts 신규·*.test.ts·본 ADR·INDEX 0633→0634·10-patch-history 1줄·.env.example master flag·ARCHITECTURE 1줄·wiring site engine-dev 별도)·forbiddenFiles(autoTradeEngine·buyPipeline·kisClient·SourceSnapshot 생성기·gateConfig·gate1DryRunObservationLedgerAdr0476 본체·counterfactualOutcomeBoard 본체·learningWeightPromotionApply·gateLearnedThresholdApply·EXCLUDED reader 본체·src/**)·rollback master ENV 1줄. engine-dev 인계(evaluateAutoActivation·listAutoActivationLedger·resetAutoActivationLedger·formatAutoActivationReport 본문+wiring·회귀: master OFF byte-identical/LIVE_SAFE 충족 ACTIVATE+set+ledger/미충족 HOLD/EXCLUDED 항상 EXCLUDED process.env 무접촉/anti-flap/이미 ON SKIP/ADR-0157 정확비교). Alternatives: 운영자 수동 flip 유지 기각(지침①)·전 flag 자가활성 기각(#7/#8 위반)·reader 직접 교체 기각(byte 변경·SRP)·새 임계 정의 기각(ADR-0631 재사용)·default ON 기각(opt-in). 계보 0631/0476/0546/0613/0581/0624/0623/0602/0157/0471/0530. INDEX 0633 등재(다음 0633→0634 갱신).)
 
@@ -753,8 +753,9 @@
 | 0631 | shadow-to-live-promotion-readiness-diagnostic-and-safe-procedure | promotion-readiness / diagnostics |
 | 0632 | counterfactual-snapshot-capture | learning / persistence+signalScanner |
 | 0633 | self-validation-auto-activation-engine | trading / self-activation+diagnostics |
+| 0634 | self-validation-auto-activation-runtime-wiring | scheduler / self-activation+persistence |
 
-**최대 발급 0633 · 다음 발급 0634** — `node scripts/check_adr_index.js --json` 기준 (2026-06-18 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0634 · 다음 발급 0635** — `node scripts/check_adr_index.js --json` 기준 (2026-06-18 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

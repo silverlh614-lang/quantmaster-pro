@@ -84,6 +84,8 @@ export const SHADOW_ENTRY_LIBERALIZATION_LEDGER_FILE = path.join(DATA_DIR, 'shad
 export const UNIVERSE_DISCOVERY_AGGRESSIVENESS_LEDGER_FILE = path.join(DATA_DIR, 'universe-discovery-aggressiveness-ledger-adr0622.json');
 /** ADR-0625 — 실행 청산(HIT_STOP) 포지션 손절-후 N일 수익률 관측 전용 라벨 ledger(shadow-trades.json 영속 본체와 물리 분리, default OFF). */
 export const SHAKEOUT_STOP_OUTCOME_LEDGER_FILE = path.join(DATA_DIR, 'shakeout-stop-outcome-ledger-adr0625.json');
+/** ADR-0634 — LIVE-safe lever 일별 READY 연속일수(anti-flap streak) 영속. 다른 ledger 와 물리 분리. */
+export const AUTO_ACTIVATION_STREAK_FILE = path.join(DATA_DIR, 'auto-activation-streak-adr0634.json');
 export const OCO_ORDERS_FILE          = path.join(DATA_DIR, 'oco-orders.json');
 /** Stage1 Pre-screening 캐시 — 전날 16:30 실행 결과를 저장, 당일 08:35 Stage2+3에서 사용 */
 export const STAGE1_CACHE_FILE        = path.join(DATA_DIR, 'stage1-cache.json');
