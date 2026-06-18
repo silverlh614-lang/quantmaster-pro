@@ -745,7 +745,10 @@ export function buildGate1ScoreStarvationTrace(
     wouldPassIfWatchlistScoreImported: watchlistImportedScore >= input.requiredScore,
     wouldPassIfPositiveFeaturesRestored: restoredFeatureScore >= input.requiredScore,
     wouldPassIfPenaltyNotAppliedBeforePositive: noEarlyPenaltyScore >= input.requiredScore,
-    wouldPassIfScoreCeilingFixed: Math.max(actualScore, input.requiredScore) >= input.requiredScore,
+    // The achievable ceiling (max positive − penalty) must reach the threshold for a
+    // ceiling fix to matter. Mirrors the aggregate `requiredScoreReachable` semantics.
+    // (Prev `Math.max(actualScore, requiredScore) >= requiredScore` was unconditionally true.)
+    wouldPassIfScoreCeilingFixed: scoreCeilingEstimate >= input.requiredScore,
   };
 }
 
