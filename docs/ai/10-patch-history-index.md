@@ -68,6 +68,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-06-19 · Patch-LeaderRefresh-Manual-Cmd (patch type·ADR 0건·INDEX 갱신 0·executionImpact=캐시 write only) · /leader_refresh(+/lr) TRD ADMIN r2 명령 신설 — 운영자가 장중 주도주 캐시(dynamic-universe)를 수동 즉시 충전. 기존 runLeaderUniverseDailyRefresh() 본체 0줄 재사용·flag 비게이트(실행 후 injection OFF 경고 표시)·N=0 시 장외 경고(ADR-0009)·escapeHtml·try/catch 격리·emergencyStop 게이트. 신규 로직/타입/ENV 0. KIS Primary(getShadowSafeRanking→getRanking)·Yahoo-first 0. 회귀 9케이스. 롤백=revert 1커밋.
 - 2026-06-19 · ADR-0639 · leader-universe-intraday-refresh cache-empty-root-fix kis-ranking-offhours-skip-adr0009 intraday-cron-0932-1532 reuse-runLeaderUniverseDailyRefresh existing-flag-reuse no-new-env kis-primary execution-impact-none-when-off
 - 2026-06-19 · ADR-0638 · leader-pipeline-funnel-observation cache-freshness stage1-leader-cut-reason overextended-vs-cache-bug-discriminator scan-blockers-section default-off execution-impact-none
 - 2026-06-18 · ADR-0637 · provisional-shadow-intraday-horizon-observed-eligibility 30m-1h-require-intraday-candle coarser-fallback-null winrate-confidence-deinflation measurement-honesty execution-impact-none
