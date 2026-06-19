@@ -14,13 +14,18 @@ import type { CommandContext } from '../_types.js';
 
 const T2_ENV = 'R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED';
 const T2_ID = 'R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592';
-const OP_KEYS = ['TELEGRAM_OPERATOR_USER_IDS', 'TELEGRAM_ADMIN_USER_IDS'];
+const OP_KEYS = ['TELEGRAM_OPERATOR_USER_IDS', 'TELEGRAM_ADMIN_USER_IDS', 'TELEGRAM_CHAT_ID'];
 
-function makeCtx(args: string[], userId?: string): { ctx: CommandContext; replies: string[] } {
+function makeCtx(
+  args: string[],
+  userId?: string,
+  chatId?: string,
+): { ctx: CommandContext; replies: string[] } {
   const replies: string[] = [];
   const ctx: CommandContext = {
     args,
     userId,
+    chatId,
     reply: async (m: string) => {
       replies.push(m);
     },
@@ -66,6 +71,24 @@ describe('/approve_activation — operator 게이팅', () => {
     await approveActivation.execute(ctx);
     expect(replies[0]).not.toContain('UNAUTHORIZED');
     expect(process.env[T2_ENV]).toBe('true');
+  });
+
+  it('allowlist 미설정 + 소유자 chat + 숫자 userId → 인가 통과 (ADR-0636 addendum)', async () => {
+    process.env.TELEGRAM_CHAT_ID = '555';
+    const { ctx, replies } = makeCtx([T2_ID, 'confirm'], '123456789', '555');
+    await approveActivation.execute(ctx);
+    expect(replies[0]).not.toContain('UNAUTHORIZED');
+    expect(replies[0]).toContain('verdict: APPROVED');
+    expect(process.env[T2_ENV]).toBe('true');
+  });
+
+  it('allowlist 미설정 + 비-소유자 chat + 숫자 userId → UNAUTHORIZED, mutate 0', async () => {
+    process.env.TELEGRAM_CHAT_ID = '555';
+    const { ctx, replies } = makeCtx([T2_ID, 'confirm'], '123456789', '111');
+    await approveActivation.execute(ctx);
+    expect(replies[0]).toContain('UNAUTHORIZED_ACTIVATION_ACTION');
+    expect(process.env[T2_ENV]).toBeUndefined();
+    expect(recordApproval).not.toHaveBeenCalled();
   });
 });
 

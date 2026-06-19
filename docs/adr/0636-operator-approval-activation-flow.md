@@ -136,3 +136,21 @@ export function reapplyOperatorApprovals(approvedLeverIds: string[]): string[];
 - ADR-0592/0630/0627/0628 — T2 lever 본체(R6 신선도·R6 stuck-exit·Gate1 RS 연속·intraday 신선화).
 - ADR-0526 — strategy versioning operator/admin 게이팅 메커니즘 재사용.
 - ADR-0157 — ENV `=== 'true'` 정확 비교. ADR-0607 — CH4 JOURNAL 라우팅. ADR-0530 — Patch Scope Guard.
+
+---
+
+## 8. Addendum — 소유자 chat fallback (운영자 게이팅 사용성, patch-type)
+
+라이브에서 운영자가 `/approve_activation` 호출 시 `UNAUTHORIZED` 발생. 근본 원인: 재사용한
+`resolveStrategyPermission` 은 allowlist 미설정 시 `userId === 'operator'/'admin'/'system'` 리터럴만
+통과시켜, 실제 Telegram **숫자 userId** 가 탈락. 단일 소유자 봇에서 allowlist 강제는 불필요한 마찰.
+
+처방 — 활성화 승인/철회 **전용** 게이팅 SSOT `resolveActivationPermission`
+(`server/telegram/commands/system/activationPermission.ts`) 신설:
+1. `TELEGRAM_OPERATOR_USER_IDS`/`TELEGRAM_ADMIN_USER_IDS` 설정 시 → 엄격 allowlist 매칭(불변).
+2. **allowlist 미설정 시 → 소유자 chat(`TELEGRAM_CHAT_ID`) 에서 온 메시지면 운영자 인정** (단일
+   소유자 봇 private 채널 = 본인이라는 강한 신호). 신규 ENV 0.
+3. 레거시 폴백(userId 미상 통과·리터럴) 보존 — 기존 테스트 동치.
+
+**`/strategy`(실거래 apply_live) 는 본 함수를 쓰지 않는다 — 인증 완화는 활성화 승인 경로 한정.**
+allowlist 를 명시 설정하면 fallback 비활성(엄격 모드 우선)이라 보안 후퇴 없음. patch-type(신규 ADR 0건).

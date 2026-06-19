@@ -4,14 +4,14 @@ import {
   LEVER_REGISTRY,
 } from '../../../trading/selfValidationAutoActivationAdr0633.js';
 import { revokeApproval } from '../../../persistence/autoActivationApprovalRepo.js';
-import { resolveStrategyPermission } from '../../commands/learning/strategy.cmd.js';
+import { resolveActivationPermission } from './activationPermission.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { CommandContext, TelegramCommand } from '../_types.js';
 
-/** operator 게이팅 — approve 와 동형 (strategy.cmd resolveStrategyPermission 재사용). */
-function isOperator(ctx: Pick<CommandContext, 'userId'>): boolean {
-  return resolveStrategyPermission(ctx, 'rollback');
+/** operator 게이팅 — approve 와 동형 (resolveActivationPermission, 소유자 chat fallback 포함). */
+function isOperator(ctx: Pick<CommandContext, 'userId' | 'chatId'>): boolean {
+  return resolveActivationPermission(ctx);
 }
 
 function formatConfirmPrompt(leverId: string): string {
