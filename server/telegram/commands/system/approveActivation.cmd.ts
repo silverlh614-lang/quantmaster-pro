@@ -4,18 +4,17 @@ import {
   LEVER_REGISTRY,
 } from '../../../trading/selfValidationAutoActivationAdr0633.js';
 import { recordApproval } from '../../../persistence/autoActivationApprovalRepo.js';
-import { resolveStrategyPermission } from '../../commands/learning/strategy.cmd.js';
+import { resolveActivationPermission } from './activationPermission.js';
 import { sendTelegramAlert } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { CommandContext, TelegramCommand } from '../_types.js';
 
 /**
- * operator 게이팅 — strategy.cmd resolveStrategyPermission('rollback') 재사용
- * (operator OR admin allowlist; allowlist 미설정 시 operator/admin/system/local 폴백).
- * 신규 ENV 0 — 기존 TELEGRAM_OPERATOR_USER_IDS/TELEGRAM_ADMIN_USER_IDS.
+ * operator 게이팅 — resolveActivationPermission (ADR-0636 addendum):
+ * allowlist 우선, 미설정 시 소유자 chat(TELEGRAM_CHAT_ID) fallback. 신규 ENV 0.
  */
-function isOperator(ctx: Pick<CommandContext, 'userId'>): boolean {
-  return resolveStrategyPermission(ctx, 'rollback');
+function isOperator(ctx: Pick<CommandContext, 'userId' | 'chatId'>): boolean {
+  return resolveActivationPermission(ctx);
 }
 
 /** lever 검토 evidence + confirm 안내 (mutate 0). */
