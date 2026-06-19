@@ -34,6 +34,7 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
   { timeKst: '07:35', label: '외국인 수급 선행 경보', group: 'alerts', jobName: 'foreign_flow_leading', silentWhen: 'EWY·DXY·외인 3축 합치하지 않으면 무음' },
   { timeKst: '08:00', label: '데이터 완전성 카운터 리셋', group: 'maintenance', jobName: 'data_completeness_reset', silentWhen: '내부 카운터 리셋만 — Telegram 송출 없음' },
   { timeKst: '08:10', label: '주도주 유니버스 일일 갱신 (ADR-0618)', group: 'screener', jobName: 'leader_universe_daily_refresh', silentWhen: '내부 유니버스 갱신 — Telegram 송출 없음 (ENV `LEADER_DAILY_REFRESH_ENABLED` 미활성 시 콜백 단락, 랭킹 fetch 0)' },
+  { timeKst: '09:32~15:32', label: '주도주 유니버스 장중 갱신 (ADR-0639)', group: 'screener', jobName: 'leader_universe_intraday_refresh', silentWhen: '내부 유니버스 갱신 — Telegram 송출 없음. 매시 32분 장중 호출로 장외 랭킹 [] → 캐시 EMPTY 근본원인 해소 (ENV `LEADER_DAILY_REFRESH_ENABLED` 미활성 시 콜백 단락, 랭킹 fetch 0, dynamic-universe.json byte-identical)' },
   { timeKst: '08:20', label: 'KIS 토큰 강제 갱신 (아침)', group: 'trading', jobName: 'kis_token_refresh', silentWhen: '성공 시 내부 로그만' },
   { timeKst: '08:25', label: '매크로 다이제스트 PRE_OPEN (ADR-0040)', group: 'alerts', jobName: 'macro_digest_pre_open' },
   { timeKst: '08:30', label: '장전 방향 카드', group: 'alerts', jobName: 'pre_market_card', silentWhen: '|Bias Score| < 40 (NEUTRAL) 이면 무음 — BULL/BEAR 일에만 발송' },

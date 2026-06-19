@@ -69,6 +69,19 @@ export function registerScreenerJobs(): void {
     return runLeaderUniverseDailyRefresh();
   }, { timezone: 'UTC' });
 
+  // ADR-0639 — 주도주 유니버스 장중 갱신. 근본원인: leader 캐시를 채우는 cron 이 전부
+  // 장외(08:10 장전·16:55 장후·토)라 kisRankingClient.getRanking 이 장외 스킵→[] 을 반환,
+  // dynamic-universe.json 이 영구 EMPTY. 동일 runLeaderUniverseDailyRefresh() 를 장중에
+  // 주기 호출해 캐시를 충전한다. 매시 32분 KST 09:32~15:32 (32 0-6 UTC) — xx:30 슬롯
+  // (missed_learning_replay·market_regime_refresh_close) 혼잡 회피용 분 stagger.
+  // flag 재사용(LEADER_DAILY_REFRESH_ENABLED) — OFF 시 콜백 단락, 랭킹 fetch 0,
+  // dynamic-universe.json 미변경(byte-identical), ENV 1줄 즉시 롤백. isMarketOpen 이중가드
+  // (getShadowSafeRanking→getRanking 단일통로가 장외 스킵). Telegram 무음(내부 갱신).
+  scheduledJob('32 0-6 * * 1-5', 'TRADING_DAY_ONLY', 'leader_universe_intraday_refresh', () => {
+    if (!isLeaderUniverseDailyRefreshEnabled()) return;
+    return runLeaderUniverseDailyRefresh();
+  }, { timezone: 'UTC' });
+
   scheduledJob('0 17 * * 5,6', 'WEEKEND_MAINTENANCE', 'supply_chain_scan_02kst', async () => {
     console.log('[Scheduler] 주말 해외 뉴스 스캔 (KST 02:00)');
     await runSupplyChainScan();
