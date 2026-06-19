@@ -145,3 +145,19 @@ export function resolveRegimeNotifyDwellMs(): number {
   if (!Number.isFinite(raw) || raw < 0) return 10 * 60_000;
   return Math.min(120, Math.trunc(raw)) * 60_000;
 }
+
+/**
+ * D2 — 장외(마감 후/장전/휴장) 레짐 전환 알림 억제 판정.
+ * 3분 TTL refresh 가 장외에서 intraday 신선도 flapping(R3↔R4)으로 전환을 토글하는 것을 차단.
+ * R6_DEFENSE 진입(블랙스완)은 안전상 항상 통과 — 오버나잇/장전 위기 경보 보존.
+ */
+export function shouldSuppressClosedMarketNotice(args: { marketOpen: boolean; isR6Entry: boolean }): boolean {
+  if (args.marketOpen) return false;
+  if (args.isR6Entry) return false;
+  return true;
+}
+
+/** ENV `REGIME_NOTIFY_WHEN_CLOSED=true` → 장외에도 전환 알림 발송(legacy 복원). 기본 OFF=장외 억제. */
+export function isRegimeNotifyWhenClosedEnabled(): boolean {
+  return process.env.REGIME_NOTIFY_WHEN_CLOSED === 'true';
+}

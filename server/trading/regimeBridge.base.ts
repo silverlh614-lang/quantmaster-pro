@@ -29,8 +29,11 @@ import {
   isOscillationReversal,
   pruneDepartures,
   resolveRegimeNotifyDwellMs,
+  shouldSuppressClosedMarketNotice,
+  isRegimeNotifyWhenClosedEnabled,
   type NotifiedRegimeDeparture,
 } from './regime/regimeTransitionNotice.js';
+import { isMarketOpen } from '../utils/marketClock.js';
 import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import {
   emptyR6RecoveryEvidence,
@@ -1083,6 +1086,23 @@ export async function checkAndNotifyRegimeChange(
 
   // ③ 방향·실질 변화 분류 — 설정(Kelly/한도) 동일이면 "공격 전환" 오라벨 금지.
   const classification = classifyRegimeTransition({ isDowngrade, prevCfg, currCfg });
+
+  // D2 — 장외(마감 후/장전/휴장) 억제. 3분 TTL refresh 가 장외에서 intraday 신선도 flapping
+  //   으로 R3↔R4 전환을 토글하는 churn 차단(카탈로그 "내부 캐시 갱신만·Telegram 송출 없음" 계약 정합).
+  //   R6_DEFENSE 진입(블랙스완)만 예외 — 오버나잇/장전 위기 경보 보존.
+  const isR6Entry = currentRegime === 'R6_DEFENSE' && _previousRegime !== 'R6_DEFENSE';
+  if (
+    !isRegimeNotifyWhenClosedEnabled() &&
+    shouldSuppressClosedMarketNotice({ marketOpen: isMarketOpen(), isR6Entry })
+  ) {
+    console.warn(
+      `[RegimeBridge] 장외 억제: ${_previousRegime} → ${currentRegime} (시장 마감·R6 진입 아님) — 알림 생략`,
+    );
+    _previousRegime = currentRegime;
+    _previousMhs = currentMhs;
+    _previousVkospi = currentVkospi;
+    return;
+  }
 
   // ① 진동(flip-flop) 억제 — 최근 dwell 창 안에서 떠났던 레짐으로 되돌아오면 알림 생략.
   //    되돌림은 거의 노이즈이며, CRITICAL T1 이면 30분 미확인 재발송까지 증폭된다(인시던트 캡처).

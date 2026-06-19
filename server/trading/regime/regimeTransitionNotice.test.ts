@@ -6,6 +6,8 @@ import {
   pruneDepartures,
   buildRegimeTransitionMessage,
   resolveRegimeNotifyDwellMs,
+  shouldSuppressClosedMarketNotice,
+  isRegimeNotifyWhenClosedEnabled,
   type NotifiedRegimeDeparture,
 } from './regimeTransitionNotice.js';
 
@@ -120,6 +122,38 @@ describe('buildRegimeTransitionMessage (② 정직한 사유)', () => {
     expect(msg).not.toContain('거시 지표 변화 없음');
     // r6RecoveryStatus=NONE 이면 복구상태 라인 생략
     expect(msg).not.toContain('복구상태');
+  });
+});
+
+describe('shouldSuppressClosedMarketNotice (D2 장외 억제)', () => {
+  it('장중이면 억제 안 함', () => {
+    expect(shouldSuppressClosedMarketNotice({ marketOpen: true, isR6Entry: false })).toBe(false);
+  });
+
+  it('장외 + R6 진입 아님 → 억제 (마감 후 R3↔R4 churn 차단)', () => {
+    expect(shouldSuppressClosedMarketNotice({ marketOpen: false, isR6Entry: false })).toBe(true);
+  });
+
+  it('장외라도 R6_DEFENSE 진입은 통과 (블랙스완 경보 보존)', () => {
+    expect(shouldSuppressClosedMarketNotice({ marketOpen: false, isR6Entry: true })).toBe(false);
+  });
+});
+
+describe('isRegimeNotifyWhenClosedEnabled (ENV)', () => {
+  const original = process.env.REGIME_NOTIFY_WHEN_CLOSED;
+  afterEach(() => {
+    if (original === undefined) delete process.env.REGIME_NOTIFY_WHEN_CLOSED;
+    else process.env.REGIME_NOTIFY_WHEN_CLOSED = original;
+  });
+
+  it('미설정 → false (기본 장외 억제)', () => {
+    delete process.env.REGIME_NOTIFY_WHEN_CLOSED;
+    expect(isRegimeNotifyWhenClosedEnabled()).toBe(false);
+  });
+
+  it("=true → 장외에도 발송(legacy 복원)", () => {
+    process.env.REGIME_NOTIFY_WHEN_CLOSED = 'true';
+    expect(isRegimeNotifyWhenClosedEnabled()).toBe(true);
   });
 });
 
