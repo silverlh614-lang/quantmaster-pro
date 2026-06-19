@@ -55,6 +55,8 @@ import {
   resolveScanSummaryPermissionView,
 } from './scanSummaryDecisionContext.js';
 import { formatCandidatePoolSection, type CandidateFeatureCoverageDiagnostics, type CandidatePoolResult } from '../../candidatePoolBuilder.js';
+// ADR-0638 — 주도주 파이프라인 funnel 관측 섹션(캐시 신선도 + Stage1 leader 탈락 사유). flag OFF/ledger 미존재 → null.
+import { formatLeaderPipelineFunnelSection, loadLatestLeaderPipelineFunnelRow } from '../../../screener/leaderPipelineFunnelObservationAdr0638.js';
 import {
   buildCanonicalRuntimeResolutionStep27,
   type CanonicalRuntimeResolutionStep27,
@@ -944,6 +946,9 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
   pushOptionalSection(lines, formatCandidatePoolSection(
     withCandidatePoolRuntimeCoverage(summary, canonicalRuntimeResolution),
   ));
+
+  // ADR-0638 — 주도주 파이프라인 funnel 관측(캐시 신선도 + Stage1 leader 탈락 사유). flag OFF/ledger 미존재 → 미출력.
+  pushOptionalSection(lines, formatLeaderPipelineFunnelSection(loadLatestLeaderPipelineFunnelRow()));
 
   lines.push('');
   lines.push(formatRuntimeWiringSummary(summary, canonicalRuntimeResolution));

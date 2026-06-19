@@ -125,10 +125,18 @@ import {
 // ADR-0617 — 주도주 Stage1 보존(source carry + top-N union). default OFF → carry 미수행·보존 0·append no-op(byte-identical). 신규 fetch 0.
 import {
   isLeaderUniverseInjectionEnabled,
+  isLeaderSource,
   carrySourceTags,
   applyLeaderPreservation,
   appendLeaderUniverseInjectionObservation,
 } from "./leaderUniverseInjectionAdr0617.js";
+// ADR-0638 — 주도주 파이프라인 funnel 관측(캐시 신선도 + Stage1 leader 탈락 사유). default OFF → 카운터·분기·append no-op(byte-identical). 신규 fetch 0(이미 carry 된 source × Stage1 reason 재사용).
+import {
+  isLeaderPipelineFunnelObservationEnabled,
+  computeLeaderCacheFreshness,
+  computeLeaderPipelineFunnelObservation,
+  appendLeaderPipelineFunnelLedger,
+} from "./leaderPipelineFunnelObservationAdr0638.js";
 // ADR-0622 — 발굴 적극성: ② Stage1 top-N 상향 + ③ RS percentile 우선 정렬 + dry-run 관측.
 //   양 flag default OFF → resolveStage1TopN()===60·정렬 비교자 미주입(현행 byte-identical). 신규 fetch 0.
 import {
@@ -402,7 +410,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
 
   // ─ Yahoo 유니버스 스캔 (VTS 보완 + KIS 미제공 종목) — 5개씩 병렬 배치 ─
   // 아이디어 6: 동적 확장 유니버스 사용 (정적 + 주간 52주신고가/외국인순매수)
-  const { getExpandedUniverse, getExpandedUniverseSourceMap } = await import("./dynamicUniverseExpander.js");
+  const { getExpandedUniverse, getExpandedUniverseSourceMap, loadDynamicUniverse, purgeExpired } = await import("./dynamicUniverseExpander.js");
   const expandedUniverse = getExpandedUniverse();
   const krxFullMasterUniverse = buildKrxFullMasterScannerUniverse();
   const baseScanUniverse = krxFullMasterUniverse.length > expandedUniverse.length
@@ -417,6 +425,14 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
     `[Pipeline/Stage1] KRX_FULL_MASTER raw=${getAllStockEntries().length} ` +
       `tradable=${krxFullMasterUniverse.length} scannerUniverse=${scanUniverse.length}`
   );
+  // ADR-0638 — 주도주 파이프라인 funnel 관측. flag OFF → 카운터·분기·산출 전부 미실행(:420-449 byte-identical).
+  //   leaderSourceMap(:414, 영속 read) × evaluateStage1FilterTracked().reason 교집합 — 신규 fetch 0.
+  const funnelEnabled = isLeaderPipelineFunnelObservationEnabled();
+  let funnelLeaderEntered = 0;
+  let funnelLeaderPassed = 0;
+  let funnelCutOverextended = 0;
+  let funnelCutOverheat = 0;
+  let funnelCutOther = 0;
   for (let i = 0; i < scanUniverse.length; i += BATCH_SIZE) {
     const batch = scanUniverse.slice(i, i + BATCH_SIZE);
     const batchResults = await Promise.all(
@@ -425,7 +441,20 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
 
         const quote = await fetchKisQuoteFallback(stock.code).catch(() => null);
         if (!quote || quote.price <= 0) return null;
-        if (!evaluateStage1FilterTracked(quote, stage1Regime).pass) return null;
+        // ADR-0638 — flag ON 시에만 reason 재사용 관측(컷 동작 0줄 변경 — result 로 한 번 받아 reason 만 추가).
+        if (funnelEnabled) {
+          const result = evaluateStage1FilterTracked(quote, stage1Regime);
+          if (isLeaderSource(stock.source)) {
+            funnelLeaderEntered += 1;
+            if (result.pass) funnelLeaderPassed += 1;
+            else if (result.reason === "OVEREXTENDED") funnelCutOverextended += 1;
+            else if (result.reason === "OVERHEAT") funnelCutOverheat += 1;
+            else funnelCutOther += 1;
+          }
+          if (!result.pass) return null;
+        } else if (!evaluateStage1FilterTracked(quote, stage1Regime).pass) {
+          return null;
+        }
 
         return {
           code: stock.code,
@@ -474,6 +503,35 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
       // SDS-ignore: 관측 ledger append 실패는 scan 본체에 영향 없음(불변식 #1, ADR-0617). 진단 로그만.
       console.warn(
         "[Pipeline/Stage1] ADR-0617 leader injection ledger append 실패(무시):",
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+
+  // ADR-0638 — 주도주 파이프라인 funnel 관측 append. flag ON 만(opt-in 영속 I/O).
+  //   leadersInPoolCount 는 ADR-0617 observation 재사용(중복 산출 0). cacheFreshness 는 영속 read(신규 fetch 0).
+  //   try/catch 격리(불변식 #1 — scan 본체 보호). 관측 실패가 scan 을 막지 않는다.
+  if (funnelEnabled) {
+    try {
+      const cacheFreshness = computeLeaderCacheFreshness(purgeExpired(loadDynamicUniverse()));
+      const funnelObservation = computeLeaderPipelineFunnelObservation({
+        cacheFreshness,
+        cacheLeaderCodeCount: [...leaderSourceMap.values()].filter(isLeaderSource).length,
+        leaderCodesEnteredStage1: funnelLeaderEntered,
+        leaderCodesPassedStage1: funnelLeaderPassed,
+        leaderStage1Cut: {
+          byOverextended: funnelCutOverextended,
+          byOverheat: funnelCutOverheat,
+          byOther: funnelCutOther,
+        },
+        leaderPreservedIntoPool: leaderInjectionObservation.leadersInPoolCount,
+        enabled: true,
+      });
+      appendLeaderPipelineFunnelLedger(funnelObservation);
+    } catch (e) {
+      // SDS-ignore: ADR-0638 funnel 관측 ledger append 실패는 scan 본체에 영향 없음(불변식 #1). 진단 로그만.
+      console.warn(
+        "[Pipeline/Stage1] ADR-0638 leader pipeline funnel 관측 실패(무시):",
         e instanceof Error ? e.message : e,
       );
     }

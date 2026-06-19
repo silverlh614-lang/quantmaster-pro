@@ -108,7 +108,9 @@ function saveDynamicUniverse(stocks: DynamicStock[]): void {
 
 // ── 만료 정리 ─────────────────────────────────────────────────────────────────
 
-function purgeExpired(stocks: DynamicStock[]): DynamicStock[] {
+// ADR-0638 — 관측 모듈 재사용 위해 additive export(만료 정책 단일 통로 — 두 번째 purge 로직 신설 금지).
+//   기존 호출처(getExpandedUniverse/getExpandedUniverseSourceMap) 동작·시그니처 무변경.
+export function purgeExpired(stocks: DynamicStock[]): DynamicStock[] {
   const now = new Date().toISOString();
   return stocks.filter(s => s.expiresAt > now);
 }
