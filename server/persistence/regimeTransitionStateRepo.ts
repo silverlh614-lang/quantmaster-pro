@@ -125,6 +125,13 @@ export interface RegimeTransitionState {
    * additive optional(legacy json → sanitizer 가 0 정규화). R6_RECOVERY_STUCK_EXIT flag OFF 면 미소비.
    */
   consecutiveHealthyRecoveryTicks?: number;
+  /**
+   * ADR-0641 — 레짐 값 히스테리시스(effectiveRegime 디바운스) 보류 후보·관측 상태.
+   * additive optional. REGIME_HYSTERESIS flag OFF 면 미소비(byte-identical). 정상 경로(R6 외)만 사용.
+   */
+  pendingEffectiveRegime?: RegimeLevel;
+  pendingEffectiveSince?: string;
+  pendingEffectiveCount?: number;
 }
 
 export function emptyR6RecoveryEvidence(
@@ -284,6 +291,13 @@ function sanitizeState(value: unknown): RegimeTransitionState | null {
     consecutiveHealthyRecoveryTicks:
       typeof record.consecutiveHealthyRecoveryTicks === "number" && Number.isFinite(record.consecutiveHealthyRecoveryTicks)
         ? Math.max(0, Math.trunc(record.consecutiveHealthyRecoveryTicks))
+        : 0,
+    // ADR-0641 — 히스테리시스 보류 상태. legacy json/부재 → undefined·0 (flag OFF 미소비).
+    pendingEffectiveRegime: isRegimeLevel(record.pendingEffectiveRegime) ? record.pendingEffectiveRegime : undefined,
+    pendingEffectiveSince: typeof record.pendingEffectiveSince === "string" ? record.pendingEffectiveSince : undefined,
+    pendingEffectiveCount:
+      typeof record.pendingEffectiveCount === "number" && Number.isFinite(record.pendingEffectiveCount)
+        ? Math.max(0, Math.trunc(record.pendingEffectiveCount))
         : 0,
   };
 }
