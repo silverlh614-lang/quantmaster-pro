@@ -30,6 +30,7 @@ import {
   HAS_REAL_DATA_CLIENT,
   KIS_IS_REAL,
   hasKisClientOverrides,
+  getCircuitBreakerStats,
 } from './kisClient.js';
 import { isMarketOpen } from '../utils/marketClock.js';
 
@@ -362,4 +363,62 @@ export function getRankingCacheSnapshot(): Array<{ key: string; size: number; tt
   return Array.from(_cache.entries()).map(([key, v]) => ({
     key, size: v.data.length, ttlMs: Math.max(0, v.expiresAt - now),
   }));
+}
+
+// ── leader 랭킹 진단 프로브 (관측 전용 — /leader_refresh 0건 원인 가시화) ────────
+//   장중 수동 트리거가 "0건"만 토하고 *왜*를 못 보여주던 사각지대 해소.
+//   bypassCache=true 강제로 5분 캐시·ADR-0009 장외 스킵을 우회해 real-data 경로의
+//   실응답 수를 직접 측정한다. 매매 결정 직접 사용 0 — 발굴 캐시 갱신 side effect 만.
+
+/** /leader_refresh 가 fetch 하는 LEADER_SOURCES 3종 랭킹 키 (dynamicUniverseExpander 와 정합). */
+export const LEADER_RANKING_TYPES: readonly RankingType[] = [
+  'market-cap',
+  'institutional-net-buy',
+  'volume',
+] as const;
+
+export interface LeaderRankingProbeRow {
+  type: RankingType;
+  trId: string;
+  /** bypassCache 강제 후 합산 entry 수(KOSPI+KOSDAQ). 0 = real-data 빈 응답/차단. */
+  count: number;
+  /** 해당 trId circuit open 잔여(ms). 0 = 정상. >0 = 차단 중(빈 응답 원인). */
+  circuitOpenForMs: number;
+}
+
+export interface LeaderRankingProbe {
+  marketOpen: boolean;
+  hasRealDataClient: boolean;
+  kisIsReal: boolean;
+  hasOverrides: boolean;
+  rows: LeaderRankingProbeRow[];
+}
+
+/**
+ * leader 랭킹 3종을 bypassCache=true 로 강제 조회해 per-key 실응답 수 + circuit 상태를 반환.
+ * 관측 전용: getRanking 성공 시 5분 캐시 충전 side effect 는 수동 트리거 의도와 정합.
+ * @internal 호출자(텔레그램 /leader_refresh)가 verdict 해석·표시 책임.
+ */
+export async function probeLeaderRanking(): Promise<LeaderRankingProbe> {
+  const stats = getCircuitBreakerStats();
+  const openByTr = new Map(stats.map((s) => [s.trId, s.openFor]));
+  const rows: LeaderRankingProbeRow[] = [];
+  for (const type of LEADER_RANKING_TYPES) {
+    const trId = TR_SPECS[type].trId;
+    let count = 0;
+    try {
+      count = (await getRanking(type, { bypassCache: true, limit: 30 })).length;
+    } catch {
+      // 개별 키 실패는 0 으로 흡수 — 프로브는 throw 없이 전체 결과를 돌려준다.
+      count = 0;
+    }
+    rows.push({ type, trId, count, circuitOpenForMs: openByTr.get(trId) ?? 0 });
+  }
+  return {
+    marketOpen: isMarketOpen(),
+    hasRealDataClient: HAS_REAL_DATA_CLIENT,
+    kisIsReal: KIS_IS_REAL,
+    hasOverrides: hasKisClientOverrides(),
+    rows,
+  };
 }

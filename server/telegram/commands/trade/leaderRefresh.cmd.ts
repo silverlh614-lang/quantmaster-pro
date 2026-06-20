@@ -7,9 +7,56 @@ import {
   loadDynamicUniverse,
 } from '../../../screener/dynamicUniverseExpander.js';
 import { isLeaderUniverseInjectionEnabled } from '../../../screener/leaderUniverseInjectionAdr0617.js';
+import { probeLeaderRanking, type LeaderRankingProbe } from '../../../clients/kisRankingClient.js';
+import { isVtsOnly } from '../../../screener/shadowDataGate.js';
 import { escapeHtml } from '../../../alerts/telegramClient.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
+
+/**
+ * bypassCache 강제 프로브 결과 → /scan_blockers 인접 진단 블록 + verdict.
+ * "0건"의 *원인*(장외 / circuit OPEN / 키 미설정 / 빈 응답 / 정상)을 단일 섹션으로 가리킨다.
+ * 관측 전용 표시 — 빈 응답을 약세 신호로 변환하지 않는다(불변식 #6).
+ */
+function formatRankingProbe(probe: LeaderRankingProbe, vtsOnly: boolean): string {
+  const label: Record<string, string> = {
+    'market-cap': '시총',
+    'institutional-net-buy': '기관',
+    'volume': '거래량',
+  };
+  const rowLines = probe.rows.map((r) => {
+    const circuit = r.circuitOpenForMs > 0
+      ? ` · ⛔circuit ${Math.ceil(r.circuitOpenForMs / 1000)}s`
+      : '';
+    return `· ${escapeHtml(label[r.type] ?? r.type)}(${escapeHtml(r.trId)}): ${r.count}${circuit}`;
+  });
+
+  const anyCircuitOpen = probe.rows.some((r) => r.circuitOpenForMs > 0);
+  const allZero = probe.rows.every((r) => r.count === 0);
+  const anyNonZero = probe.rows.some((r) => r.count > 0);
+
+  let verdict: string;
+  if (!probe.marketOpen) {
+    verdict = '판정→장외. KIS 랭킹 데이터는 장중(09:00~15:30)에만 생성됨(ADR-0009). 장중 재시도.';
+  } else if (anyCircuitOpen) {
+    verdict = '판정→circuit OPEN(반복 실패 차단). /circuits 확인 후 /reset_circuits 로 해제하고 재시도.';
+  } else if (!probe.hasRealDataClient && !probe.kisIsReal && !probe.hasOverrides && vtsOnly) {
+    verdict = '판정→real-data 키 미설정·VTS-only → getRanking 항상 빈 배열. KIS_REAL_DATA_APP_KEY/SECRET 설정 필요(ADR-0561, Yahoo 폴백 차단됨).';
+  } else if (allZero) {
+    verdict = '판정→real-data 호출됐으나 3종 모두 빈 응답. KIS 콘솔에서 랭킹 TR 권한·계좌·엔드포인트 점검.';
+  } else if (anyNonZero) {
+    verdict = '판정→랭킹 정상 응답. leader 캐시 충전됨 — 0건이었다면 5분 캐시/타이밍. /scan_blockers funnel 이 HEALTHY 로 전환되는지 확인.';
+  } else {
+    verdict = '판정→데이터 축적 중.';
+  }
+
+  return [
+    `🔬 <b>진단 (bypassCache 강제)</b>`,
+    `시장: ${probe.marketOpen ? 'OPEN' : 'CLOSED'} · realData: ${probe.hasRealDataClient ? 'ON' : 'OFF'} · KIS_IS_REAL: ${probe.kisIsReal ? 'ON' : 'OFF'} · VTS-only: ${vtsOnly ? 'yes' : 'no'}`,
+    ...rowLines,
+    verdict,
+  ].join('\n');
+}
 
 const leaderRefresh: TelegramCommand = {
   name: '/leader_refresh',
@@ -17,7 +64,7 @@ const leaderRefresh: TelegramCommand = {
   category: 'TRD',
   visibility: 'ADMIN',
   riskLevel: 2,
-  description: '주도주 유니버스 캐시 즉시 갱신 (LEADER_SOURCES 3종 강제 fetch — 장중 전용)',
+  description: '주도주 유니버스 캐시 즉시 갱신 + 0건 원인 진단(bypassCache 프로브 — circuit/키/빈응답 판별)',
   async execute({ reply }) {
     if (getEmergencyStop()) {
       await reply('🔴 비상 정지 상태 — 캐시 갱신 불가. /reset 으로 해제 후 재시도.');
@@ -54,6 +101,15 @@ const leaderRefresh: TelegramCommand = {
         lines.push(
           `⚠️ 캐시는 갱신됐으나 후보 풀 반영은 LEADER_UNIVERSE_INJECTION_ENABLED 의존 (현재 OFF).`,
         );
+      }
+
+      // ADR-0638/0639 후속 — "0건"의 원인을 bypassCache 강제 프로브로 가시화.
+      //   real-data 빈 응답·circuit OPEN·키 미설정을 단일 verdict 로 판별(관측 전용).
+      try {
+        const probe = await probeLeaderRanking();
+        lines.push('', formatRankingProbe(probe, isVtsOnly()));
+      } catch (probeErr) {
+        lines.push('', `🔬 진단 프로브 실패 (격리): ${escapeHtml(probeErr instanceof Error ? probeErr.message : String(probeErr))}`);
       }
 
       await reply(lines.join('\n'));
