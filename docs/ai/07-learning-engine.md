@@ -51,7 +51,11 @@
 - **composite key** (ADR-0006) — `{symbol}_{entryTimestamp}` 복합 키로 진입 시점 조건 스냅샷과
   청산 결과를 정확히 매칭. 같은 종목 재진입 시 표본 혼선 차단.
 - **조건 데이터 출처 보정** (→ `docs/ai/04-gate-system.md`) — COMPUTED(9) ×1.0 / AI_INFERRED(18) ×0.4
-  학습 multiplier (ADR-0149/0020). 추정값 조건이 결정적 조건과 동일 가중치를 갖지 못하게 차단.
+  학습 multiplier (ADR-0020). 추정값 조건이 결정적 조건과 동일 가중치를 갖지 못하게 차단.
+  **위치 (정정):** 이 multiplier 는 **client lane** (`src/services/quant/sourceWeighting.ts` SSOT +
+  `feedbackLoopEngine.ts`) 에 배선돼 가중치 변경 *step* 만 감쇠한다. **server attribution**
+  (`attributionAnalyzer.ts` / `attributionRepo`) 에는 source-tier multiplier 가 의도적으로 없다
+  (lane 분리 — 이중적용 방지). server 측 유일한 가중은 qtyRatio + `LATE_WIN_TIMING_PENALTY`(0.7).
 - `CONDITION_NAMES`(27 ID) + `CONDITION_TO_SERVER_KEY` 매핑 SSOT — 클라이언트
   `evolutionEngine.ALL_CONDITIONS` 와 정합 의무.
 

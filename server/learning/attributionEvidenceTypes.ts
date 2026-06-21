@@ -91,6 +91,9 @@ export interface AttributionEvidenceRecord {
 
   entryPrice?: number;
   exitPrice?: number;
+  /** Patch 2 gap (d): counterfactual/shadow 손절·목표가 메타 (옵셔널, append-only). */
+  stopPrice?: number;
+  targetPrice?: number;
   entryTime?: string;
   exitTime?: string;
 

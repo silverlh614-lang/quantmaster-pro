@@ -50,7 +50,14 @@ QuantMaster Pro 는 **27개 조건 + 4단계 Gate(0/1/2/3)** 를 통과한 종�
 - **API (DART)** — ROE/부채/OCF/이자보상/EPS성장 등 외부 API 수신. Gate 2 입력.
 - **AI_INFERRED (18개)** — Gemini 해석 추정값 (사이클·Risk-On·리더·정책·심리·엘리엇·촉매). 학습 multiplier ×0.4.
 
-서버 매핑 SSOT 는 `attributionAnalyzer.ts:CONDITION_NAMES`(27 ID) + `CONDITION_TO_SERVER_KEY`(ADR-0149).
+> ⚠️ multiplier 위치 (정정): ×1.0/×0.4 학습 multiplier 는 **client lane**
+> (`src/services/quant/sourceWeighting.ts` SSOT + `feedbackLoopEngine.ts`, ADR-0020) 에 배선돼
+> 가중치 변경 *step* 을 감쇠한다. **server attribution**
+> (`attributionAnalyzer.ts`/`attributionRepo.computeAttributionStats`) 에는 source-tier multiplier 가
+> **의도적으로 없다** (lane 분리 — 이중적용 방지). server 의 유일한 가중은 qtyRatio 와
+> `LATE_WIN_TIMING_PENALTY`(0.7) 로 ADR-0020 source multiplier 와 무관한 별개 메커니즘이다.
+
+서버 27조건 ID/키 매핑 SSOT 는 `attributionAnalyzer.ts:CONDITION_NAMES`(27 ID) + `CONDITION_TO_SERVER_KEY`(ADR-0149).
 클라이언트 SSOT (`evolutionEngine.ALL_CONDITIONS` + `CHECKLIST_TO_CONDITION_ID`) 와 정합 의무.
 
 ---

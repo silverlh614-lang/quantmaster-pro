@@ -127,6 +127,17 @@ export interface ServerAttributionRecord {
   returnR?: number;
   maxFavorableExcursionR?: number;
   maxAdverseExcursionR?: number;
+  /**
+   * Patch 2 gap (d): counterfactual/shadow 진입 시 산정된 손절가.
+   * 옵셔널 — 누락 시 undefined (스키마 version bump 불요, append-only).
+   * counterfactual 레코드의 RRR/MFE/MAE 재구성·repair 에 필요한 메타.
+   */
+  stopPrice?: number;
+  /**
+   * Patch 2 gap (d): counterfactual/shadow 진입 시 산정된 목표가.
+   * 옵셔널 — 누락 시 undefined. stopPrice 와 동일 통로로 evidence ledger 동반 전달.
+   */
+  targetPrice?: number;
   canonicalOutcome?: TradeOutcome;
   winRateBucket?: WinRateBucket;
   exitPath?: ExitPath;
@@ -204,9 +215,34 @@ function normalizeAttributionEngineMode(value: unknown, fallbackRegime?: string)
   return 'NORMAL';
 }
 
+/**
+ * counterfactual tradeId prefix 판정.
+ * 명시 prefix(ghost:/counterfactual:) 가 counterfactual lane 의 1차 신호다.
+ */
+function hasCounterfactualPrefix(tradeId: string): boolean {
+  return tradeId.startsWith('ghost:') || tradeId.startsWith('counterfactual:');
+}
+
+/**
+ * Patch 2 gap (a): counterfactual prefix fallback 견고화.
+ *
+ * 우선순위:
+ *   1) evidenceSource 명시 → 그대로 신뢰.
+ *   2) ghost:/counterfactual: prefix → COUNTERFACTUAL.
+ *   3) (보강) prefix 누락이지만 NOT_EXECUTED + signalId/orderId 부재 라는
+ *      명시 신호가 모두 충족 → COUNTERFACTUAL 로 추정(과탐 방지: 명시 신호 모두 충족 시에만).
+ *      LIVE 승격 경로는 건드리지 않음 — COUNTERFACTUAL 표본이 DIAGNOSTIC 로 새는 것만 차단.
+ *   4) 그 외 → DIAGNOSTIC.
+ *
+ * 누수 방지의 핵심은 LIVE 로의 오분류 차단이며, 본 보강은 LIVE 를 절대 산출하지 않는다.
+ */
 function inferEvidenceSource(record: ServerAttributionRecord): AttributionSampleSource {
   if (record.evidenceSource) return record.evidenceSource;
-  if (record.tradeId.startsWith('ghost:') || record.tradeId.startsWith('counterfactual:')) return 'COUNTERFACTUAL';
+  if (hasCounterfactualPrefix(record.tradeId)) return 'COUNTERFACTUAL';
+  // 보강(과탐 방지): prefix 누락이라도 명시적 비실행 신호가 모두 충족되면 COUNTERFACTUAL.
+  const notExecuted = record.evidenceExecutionStatus === 'NOT_EXECUTED';
+  const noLiveLinkage = !record.signalId && !record.orderId && !record.fillId;
+  if (notExecuted && noLiveLinkage) return 'COUNTERFACTUAL';
   if (record.sellOnlyActive || record.hardBlockActive || ATTRIBUTION_DIAGNOSTIC_ENGINE_MODES.has(String(record.engineMode))) return 'DIAGNOSTIC';
   return 'DIAGNOSTIC';
 }
@@ -277,6 +313,8 @@ function recordEvidenceForAttributionRecord(record: ServerAttributionRecord): vo
       counterfactualId: source === 'COUNTERFACTUAL' ? record.tradeId : undefined,
       entryPrice: record.entryPrice,
       exitPrice: record.exitPrice,
+      stopPrice: record.stopPrice,
+      targetPrice: record.targetPrice,
       entryTime: record.entryTime,
       exitTime: record.closedAt,
       returnPct: record.returnPct,
@@ -433,12 +471,27 @@ function weightedWinPct(pairs: Array<{ value: number; weight: number }>): number
  * PR-19: 각 레코드는 qtyRatio 로 가중된다. 전량 청산 1건 = 1.0 (기존 동일 동작),
  * 50% 부분매도 1건 = 0.5 기여. 이렇게 하면 동일 trade 의 여러 부분매도 합이
  * 최대 1.0 을 초과하지 않아 조건별 통계가 과대 계상되지 않는다.
+ *
+ * Patch 2 gap (c): 옵셔널 `opts.regime` 지정 시 해당 레짐 표본만 슬라이스 후 집계.
+ *   - 무인자(`computeAttributionStats()`) → 전 레짐 global pool (현행 동작 100% 보존, byte-equivalent).
+ *   - `opts.regime` 지정 → R6_DEFENSE(방어) outcome 이 R2_BULL 풀에 섞이는 오염 차단.
+ * 레짐 라벨 해석 우선순위는 evidence 통로(`recordEvidenceForAttributionRecord`)와 동일
+ * fallback 체인(`entryRegime ?? effectiveRegime ?? rawRegime`)을 재사용한다.
+ *
+ * measurement-only: 본 함수의 regime 인자 경로는 학습/가중치 경로에 자동 배선되지 않는다
+ * (배선 시 신규 가중 정책 → 별도 ADR 대상).
  */
-export function computeAttributionStats(): AttributionConditionStat[] {
+export function computeAttributionStats(opts?: { regime?: string }): AttributionConditionStat[] {
   // 현행 스키마만 집계 — 혼합 스키마로 인한 NaN/왜곡 방지
   // Phase 2차 C5: incidentFlag 가 붙은 Shadow 거래는 결과 집계에서도 격리.
   const flaggedTradeIds = collectFlaggedTradeIds();
-  const records = loadCurrentSchemaRecords().filter(r => !flaggedTradeIds.has(r.tradeId));
+  let records = loadCurrentSchemaRecords().filter(r => !flaggedTradeIds.has(r.tradeId));
+  if (opts?.regime) {
+    const target = opts.regime;
+    records = records.filter(
+      (r) => (r.entryRegime ?? r.effectiveRegime ?? r.rawRegime) === target,
+    );
+  }
   if (records.length === 0) return [];
 
   const condMap: Record<
@@ -516,20 +569,47 @@ export interface EmitPartialAttributionInput {
  *   - null: conditionScores baseline 없어 기록 스킵
  */
 export function emitPartialAttribution(input: EmitPartialAttributionInput): ServerAttributionRecord | null {
+  const all = loadAttributionRecords();
   let scores = input.conditionScoresOverride;
   if (!scores) {
-    const existing = loadAttributionRecords()
+    const existing = all
       .find((r) => r.tradeId === input.tradeId && (!r.attributionType || r.attributionType === 'FULL_CLOSE'));
     if (existing?.conditionScores) scores = existing.conditionScores;
   }
   if (!scores || Object.keys(scores).length === 0) return null;
+
+  // Patch 2 gap (a): 동일 tradeId PARTIAL fill 들의 qtyRatio 누적 합 ≤1.0 가드.
+  //   - 기존 PARTIAL(같은 fillId 는 dedup 대상이므로 제외) 의 qtyRatio 합을 산출.
+  //   - (기존 합 + 신규 clamp) 가 1.0 초과 시 잔여분만 기록(clamp) — 표본 손실 최소화.
+  //   - 잔여=0(이미 1.0 도달) 이면 과대계상 차단 위해 skip(null).
+  const perFillClamped = Math.max(0, Math.min(1, input.qtyRatio));
+  const priorPartialSum = all
+    .filter((r) => r.tradeId === input.tradeId && r.attributionType === 'PARTIAL' && r.fillId !== input.fillId)
+    .reduce((sum, r) => sum + (r.qtyRatio ?? 0), 0);
+  const remainingCapacity = Math.max(0, 1 - priorPartialSum);
+  const effectiveQtyRatio = Math.min(perFillClamped, remainingCapacity);
+  if (effectiveQtyRatio < perFillClamped) {
+    console.warn(
+      `[ATTRIBUTION_QTYRATIO_CLAMP] tradeId=${input.tradeId} fillId=${input.fillId} `
+      + `requested=${perFillClamped.toFixed(4)} priorPartialSum=${priorPartialSum.toFixed(4)} `
+      + `clampedTo=${effectiveQtyRatio.toFixed(4)} (누적 ≤1.0 가드)`,
+    );
+  }
+  if (effectiveQtyRatio <= 0) {
+    // 이미 1.0 도달 — 과대계상 차단. 표본 라벨/기존 레코드는 무삭제(append-only).
+    console.warn(
+      `[ATTRIBUTION_QTYRATIO_SKIP] tradeId=${input.tradeId} fillId=${input.fillId} `
+      + `priorPartialSum=${priorPartialSum.toFixed(4)} 잔여 capacity=0 → skip`,
+    );
+    return null;
+  }
 
   const rec: ServerAttributionRecord = {
     schemaVersion: CURRENT_ATTRIBUTION_SCHEMA_VERSION,
     tradeId: input.tradeId,
     fillId: input.fillId,
     attributionType: 'PARTIAL',
-    qtyRatio: Math.max(0, Math.min(1, input.qtyRatio)),
+    qtyRatio: effectiveQtyRatio,
     stockCode: input.stockCode,
     stockName: input.stockName,
     closedAt: input.closedAt,
