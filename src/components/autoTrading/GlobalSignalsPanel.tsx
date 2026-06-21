@@ -166,10 +166,12 @@ function DxyCard({ data }: { data: GlobalSignalsResponse['dxy'] }) {
   const biasLabel =
     data.flowBias === 'FOREIGN_OUTFLOW' ? '외국인 이탈'
     : data.flowBias === 'FOREIGN_INFLOW' ? '외국인 복귀'
+    : data.flowBias === 'CONTRADICTED' ? 'DXY 단독·역행'
     : '교차검증 불일치';
   const biasVariant =
     data.flowBias === 'FOREIGN_OUTFLOW' ? 'danger'
     : data.flowBias === 'FOREIGN_INFLOW' ? 'success'
+    : data.flowBias === 'CONTRADICTED' ? 'warning'
     : 'default';
 
   return (
