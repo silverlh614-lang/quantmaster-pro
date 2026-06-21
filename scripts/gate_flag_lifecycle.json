@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "reviewWindowDays": 90,
+  "flags": [
+    {
+      "envFlag": "GATE1_REGIME_AWARE_REQUIRED",
+      "adr": "0546",
+      "title": "Gate1 Regime-Aware Required Score",
+      "introduced": "2026-06-11",
+      "reviewBy": "2026-09-19",
+      "status": "SHADOW_OFF",
+      "activationCriteria": "legacy 70 vs regime-aware required-score pass-rate 델타를 shadow 병행 로깅으로 N세션 관측 + 운영자 승인. requiredScore=70 calibration SSOT(ADR-0467) 무차별 완화 위험이 있어 데이터 검증 필수.",
+      "nextAction": "legacy vs regime-aware pass-rate 델타 누적 관측 → forward-outcome 성숙 확인 → 운영자 승인 후 flip 결정",
+      "notes": "live ×1 임계(getEffectiveGateThreshold)를 ×10 환산한 레짐 인식 required-score. OFF=레거시 70 고정 byte-identical. flip 은 임계 측 calibration 변경이라 데이터 의존 고위험."
+    },
+    {
+      "envFlag": "GATE1_SECTOR_RS_COMPONENT_ENABLED",
+      "adr": "0611",
+      "title": "Gate1 Sector Relative-Strength Component Reactivation",
+      "introduced": "2026-06-15",
+      "reviewBy": "2026-09-19",
+      "status": "SHADOW_OFF",
+      "activationCriteria": "섹터상대(stock-sector 20d) 입력 커버리지(featurePack/gate2 외부데이터)가 충분한지 확인. additive capacity 복원(maxScore 0→8)이라 requiredScore 무변경·결손 시 weightedScore 0(graceful)으로 저위험.",
+      "nextAction": "섹터상대 입력 커버리지 확인 → additive 라 저위험·flip 후보 → flip",
+      "notes": "ADR-0467 advisory-only 주차의 의도치 않은 side effect(활성 maxScore 합 108 < requiredScore calibrate 분모 116) 8점 capacity 복원. OFF=byte-equivalent(maxScore 0·weightedScore 0). 저위험 flip 후보."
+    },
+    {
+      "envFlag": "GATE1_POSITIVE_CEILING_WIRING_ENABLED",
+      "adr": "0613",
+      "title": "Gate1 Positive-Ceiling Wiring Promotion",
+      "introduced": "2026-06-15",
+      "reviewBy": "2026-09-19",
+      "status": "SHADOW_OFF",
+      "activationCriteria": "천장 배선 3종(RS percentile 입력·BREAKOUT_STRUCTURE OHLCV·positive max→100 정규화)의 ceilingWiring shadow hypothetical 델타 + RS/breakout hydration 및 OHLCV 커버리지 성숙 확인. 3종 동시 효과라 관측 더 필요.",
+      "nextAction": "ceilingWiring hypothetical 델타 + OHLCV/RS hydration 커버리지 N세션 관측 → 효과 크기 성숙 후 flip 결정",
+      "notes": "RS percentile·BREAKOUT OHLCV 입력 배선 + positive max→100 정규화 3종 묶음. OFF=byte-equivalent(각 transform 기존 산출 동일). requiredScore 70 무변경. 묶음 효과라 관측 더 필요."
+    },
+    {
+      "envFlag": "GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED",
+      "adr": "0627",
+      "title": "Gate1 RS Percentile Continuous Promotion",
+      "introduced": "2026-06-18",
+      "reviewBy": "2026-09-19",
+      "status": "SHADOW_OFF",
+      "activationCriteria": "rsContinuous shadow hypothetical 로 p<50 percentile 손실 복원 효과를 N세션 관측. 5단 step 양자화가 p<50 을 전부 0 으로 붕괴시킨 정보 손실 버그픽스라 maxScore/weight 무변경·저위험.",
+      "nextAction": "rsContinuous hypothetical 델타 관측 → 손실 복원 버그픽스라 저위험·flip 후보 → flip",
+      "notes": "연속 percentile(rsRankPct 0~100)을 step(0/2/5/8/10) 대신 clamp(rsRankPct/10,0,10)으로 분해능 복원. p=100 동일 10(천장 무변). weight 인상 아닌 손실 복원이라 저위험 flip 후보."
+    },
+    {
+      "envFlag": "GATE1_DENOMINATOR_NORMALIZATION_ENABLED",
+      "adr": "0640",
+      "title": "Gate1 Denominator Normalization",
+      "introduced": "2026-06-21",
+      "reviewBy": "2026-09-19",
+      "status": "SHADOW_OFF",
+      "activationCriteria": "수급/투자자 데이터 파이프 건강 확인 + shadow denomNorm* 4필드 델타 관측 후 회수율 회복·정밀도 무회귀. 0.7× 하한 clamp binding 빈도(catastrophic 동시 결손)도 함께 확인.",
+      "nextAction": "데이터 파이프 건강 확인 → shadow denomNorm 델타 N세션 관측 → flip 결정",
+      "notes": "결손(UNKNOWN/MISSING/STALE) maxScore 분모 제외 + requiredScore 비례 축소(상한=원값·하한 0.7× clamp). 데이터 만성결손 시 게이트 완화 부작용 주의 — 데이터 파이프 건강에 의존."
+    }
+  ]
+}
