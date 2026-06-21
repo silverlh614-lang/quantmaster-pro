@@ -84,6 +84,12 @@ export interface MinimumSignalScoreTrace {
   rsContinuousPromotionDelta?: number;
   rsContinuousHypotheticalActualScore?: number;
   rsContinuousHypotheticalPassed?: boolean;
+  // ADR-0640 — Denominator Normalization 관측(flag 무관 force-ON). try/catch 격리 실패 시 부재.
+  // actualScore 본체 영향 0(관측 전용). flag OFF 에서도 효과 크기 측정.
+  denomNormConfiguredPositiveMax?: number;
+  denomNormAvailableMaxScore?: number;
+  denomNormEffectiveRequiredScore?: number;
+  denomNormHypotheticalPassed?: boolean;
 }
 
 export type UnknownDataTreatment =

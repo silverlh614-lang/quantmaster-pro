@@ -42,6 +42,10 @@ import {
   computeCeilingWiringHypothetical,
   computeRsContinuousHypothetical,
 } from "./gate1PositiveCeilingWiringAdr0613.js";
+import {
+  resolveEffectiveRequiredScore,
+  computeDenominatorNormalizationHypothetical,
+} from "./gate1DenominatorNormalizationAdr0640.js";
 
 export * from "./minimumSignalScoreTrace/types.js";
 export {
@@ -501,6 +505,9 @@ export function buildMinimumSignalScoreTrace(input: {
   // 합산식 자체는 무변경: rawComputed 는 Σ weightedScore. flag ON 시에만 positive 합 정규화.
   const computedScore = round1(applyPositiveMaxNormalization(rawComputed, components));
   const actualScore = computedScore;
+  // ADR-0640 분모 정합 — 결손 maxScore 분모 제외 비례 축소. flag OFF → effective===requiredScore(byte-identical).
+  // requiredScore 필드(configured 70)는 무변경; passed/scoreGap 만 effective 기준으로 평가한다.
+  const effectiveRequiredScore = resolveEffectiveRequiredScore(requiredScore, components);
   const positiveScoreTotal = round1(
     components
       .filter((c) => c.weightedScore > 0)
@@ -545,7 +552,7 @@ export function buildMinimumSignalScoreTrace(input: {
       .filter((c) => c.code === "SOFT_FAIL_PENALTY" && c.weightedScore < 0)
       .reduce((sum, c) => sum + c.weightedScore, 0),
   );
-  const scoreGap = round1(actualScore - requiredScore);
+  const scoreGap = round1(actualScore - effectiveRequiredScore);
   const passAt = (delta: number) =>
     round1(actualScore - delta) >= requiredScore;
   // ADR-0613 관측 ledger stamp — flag 무관 항상 "ON 이면 어땠을지" hypothetical 산출.
@@ -578,16 +585,26 @@ export function buildMinimumSignalScoreTrace(input: {
     /* SDS-ignore: ADR-0627 RS 연속 hypothetical stamp 실패는 scorer 본체에 영향 0 (불변식 #1). 필드 미stamp 로 graceful. */
     rsContinuousHypothetical = undefined;
   }
+  // ADR-0640 분모 정합 관측 hypothetical — flag 무관 force-ON 산출(OFF 에서도 효과 크기 측정).
+  // try/catch 격리(불변식 #1): 실패 시 필드 미stamp. actualScore/passed 본체 영향 0.
+  let denomNormHypothetical: ReturnType<typeof computeDenominatorNormalizationHypothetical> | undefined;
+  try {
+    denomNormHypothetical = computeDenominatorNormalizationHypothetical({ components, requiredScore, actualScore });
+  } catch {
+    /* SDS-ignore: ADR-0640 denom-norm 관측 stamp 실패는 scorer 본체 영향 0 (불변식 #1). 필드 미stamp graceful. */
+    denomNormHypothetical = undefined;
+  }
   return {
     symbol: input.trace.symbol,
     name: input.trace.name,
     requiredScore,
     actualScore: round1(actualScore),
     scoreGap,
-    passed: actualScore >= requiredScore,
+    passed: actualScore >= effectiveRequiredScore,
     components,
     ...(ceilingWiringHypothetical ? ceilingWiringHypothetical : {}),
     ...(rsContinuousHypothetical ? rsContinuousHypothetical : {}),
+    ...(denomNormHypothetical ? denomNormHypothetical : {}),
     positiveScoreTotal,
     penaltyTotal,
     unknownPenaltyTotal,

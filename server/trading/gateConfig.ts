@@ -227,3 +227,16 @@ export function isGate1PositiveCeilingWiringEnabled(): boolean {
 export function isGate1RsPercentileContinuousEnabled(): boolean {
   return process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED === 'true';
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADR-0640 — Gate1 Denominator Normalization 활성 스위치 (default OFF, byte-identical)
+//
+// 결손(UNKNOWN/MISSING/STALE) 컴포넌트의 maxScore 가 분모(configuredPositiveMax)에
+// 남아 requiredScore=70 의 실효 문턱을 올리는 구조를 교정한다. flag ON 시 결손 maxScore 를
+// 분모에서 제외하고 requiredScore 를 가용 분모 비례로 축소(절대 인상 안 함, 하한 0.7× clamp).
+// 불변식 #6 완결(점수 중립화 + 분모 제외). OFF = passed/scoreGap byte-identical(레거시 70 고정).
+// flip 은 Phase 2(운영자 forward-outcome 성숙) 사안 — ENV 1줄 즉시 롤백.
+// ───────────────────────────────────────────────────────────────────────────
+export function isGate1DenominatorNormalizationEnabled(): boolean {
+  return process.env.GATE1_DENOMINATOR_NORMALIZATION_ENABLED === 'true';
+}
