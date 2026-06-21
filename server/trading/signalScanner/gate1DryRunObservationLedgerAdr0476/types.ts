@@ -86,6 +86,21 @@ export interface Gate1DryRunObservationRow {
   eligibilityShadowEligible?: boolean;
   eligibilityShadowMarketOnlyPassed?: boolean;
   eligibilityShadowPercentilePassed?: boolean;
+  /** ADR-0642 — 5개 default-OFF Gate1 flag force-ON hypothetical carry (minimumSignalScoreTrace stamp 유래).
+   *  관측 전용 — Gate 판정·정렬·entry 미소비, executionImpact=NONE. flag flip 0(전부 SHADOW_OFF). */
+  ceilingWiringHypotheticalActualScore?: number;  // ADR-0613
+  ceilingWiringHypotheticalPassed?: boolean;      // ADR-0613
+  rsContinuousHypotheticalActualScore?: number;   // ADR-0627
+  rsContinuousHypotheticalPassed?: boolean;       // ADR-0627
+  denomNormEffectiveRequiredScore?: number;       // ADR-0640
+  denomNormHypotheticalPassed?: boolean;          // ADR-0640
+  sectorRsHypotheticalActualScore?: number;       // ADR-0642 (0611 force-ON)
+  sectorRsHypotheticalPassed?: boolean;           // ADR-0611
+  sectorRsInputPresent?: boolean;                 // ADR-0611 coverage% 분자
+  ceilingWiringInputPresent?: boolean;            // ADR-0613 coverage% 분자 (OHLCV/RS hydration)
+  rsContinuousInputPresent?: boolean;             // ADR-0627 coverage% 분자 (rsRankPct)
+  denomNormDeficitPresent?: boolean;              // ADR-0640 coverage% 분자 (결손 분모 발생)
+  denomNormClampBinding?: boolean;                // ADR-0640 0.7× clamp binding 빈도
   sourceSnapshotId?: string; regime?: string; marketSession?: string;
   finalGate1Score?: number; rawPositiveScore?: number; effectivePenaltyScore?: number; diagnosticPenaltyScore?: number;
   scoreBand?: Gate1ObservationScoreBand;
@@ -256,6 +271,21 @@ export interface Gate1DryRunObservationBuildInput {
     eligible?: boolean;
     marketOnlyPassed?: boolean;
     percentilePassed?: boolean;
+    /** ADR-0642 — 5개 default-OFF Gate1 flag force-ON hypothetical carry (minimumSignalScoreTrace stamp 유래,
+     *  관측 전용 additive·Gate 미소비·executionImpact=NONE). flag flip 0. */
+    ceilingWiringHypotheticalActualScore?: number;
+    ceilingWiringHypotheticalPassed?: boolean;
+    rsContinuousHypotheticalActualScore?: number;
+    rsContinuousHypotheticalPassed?: boolean;
+    denomNormEffectiveRequiredScore?: number;
+    denomNormHypotheticalPassed?: boolean;
+    sectorRsHypotheticalActualScore?: number;
+    sectorRsHypotheticalPassed?: boolean;
+    sectorRsInputPresent?: boolean;
+    ceilingWiringInputPresent?: boolean;
+    rsContinuousInputPresent?: boolean;
+    denomNormDeficitPresent?: boolean;
+    denomNormClampBinding?: boolean;
   }>>;
   finalGate1Calibration?: FinalGate1CalibrationAuditReport | null;
   gate1PositiveSourceWiring?: Gate1PositiveSourceWiringReport | null;

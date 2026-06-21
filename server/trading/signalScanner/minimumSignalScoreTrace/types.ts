@@ -90,6 +90,12 @@ export interface MinimumSignalScoreTrace {
   denomNormAvailableMaxScore?: number;
   denomNormEffectiveRequiredScore?: number;
   denomNormHypotheticalPassed?: boolean;
+  // ADR-0642 — SECTOR_RELATIVE_STRENGTH(0611) force-ON 관측(flag 무관). try/catch 격리 실패 시 부재.
+  // actualScore/passed 본체 영향 0(관측 전용). flag OFF 에서도 8pt capacity 복원 효과 크기 측정.
+  sectorRsForceDelta?: number;
+  sectorRsHypotheticalActualScore?: number;
+  sectorRsHypotheticalPassed?: boolean;
+  sectorRsInputPresent?: boolean;
 }
 
 export type UnknownDataTreatment =

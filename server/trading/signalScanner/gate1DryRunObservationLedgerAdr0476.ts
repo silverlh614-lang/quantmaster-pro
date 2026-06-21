@@ -72,6 +72,20 @@ interface ResolvedObservationMinSignal {
   eligibilityShadowEligible?: boolean;
   eligibilityShadowMarketOnlyPassed?: boolean;
   eligibilityShadowPercentilePassed?: boolean;
+  /** ADR-0642 — 5개 default-OFF Gate1 flag force-ON hypothetical carry (관측 전용, 있으면 행에 stamp). */
+  ceilingWiringHypotheticalActualScore?: number;
+  ceilingWiringHypotheticalPassed?: boolean;
+  rsContinuousHypotheticalActualScore?: number;
+  rsContinuousHypotheticalPassed?: boolean;
+  denomNormEffectiveRequiredScore?: number;
+  denomNormHypotheticalPassed?: boolean;
+  sectorRsHypotheticalActualScore?: number;
+  sectorRsHypotheticalPassed?: boolean;
+  sectorRsInputPresent?: boolean;
+  ceilingWiringInputPresent?: boolean;
+  rsContinuousInputPresent?: boolean;
+  denomNormDeficitPresent?: boolean;
+  denomNormClampBinding?: boolean;
 }
 
 /** 관측 행 점수 SSOT 해석 — canonical 최소신호 점수(minSignalScoreBySymbol, requiredScore 와 동일
@@ -96,6 +110,20 @@ function resolveObservationMinSignal(
       ...(typeof mapped.eligible === 'boolean' ? { eligibilityShadowEligible: mapped.eligible } : {}),
       ...(typeof mapped.marketOnlyPassed === 'boolean' ? { eligibilityShadowMarketOnlyPassed: mapped.marketOnlyPassed } : {}),
       ...(typeof mapped.percentilePassed === 'boolean' ? { eligibilityShadowPercentilePassed: mapped.percentilePassed } : {}),
+      // ADR-0642 — 5개 flag force-ON hypothetical carry (관측 전용, executionImpact=NONE).
+      ...(finite(mapped.ceilingWiringHypotheticalActualScore) ? { ceilingWiringHypotheticalActualScore: mapped.ceilingWiringHypotheticalActualScore } : {}),
+      ...(typeof mapped.ceilingWiringHypotheticalPassed === 'boolean' ? { ceilingWiringHypotheticalPassed: mapped.ceilingWiringHypotheticalPassed } : {}),
+      ...(finite(mapped.rsContinuousHypotheticalActualScore) ? { rsContinuousHypotheticalActualScore: mapped.rsContinuousHypotheticalActualScore } : {}),
+      ...(typeof mapped.rsContinuousHypotheticalPassed === 'boolean' ? { rsContinuousHypotheticalPassed: mapped.rsContinuousHypotheticalPassed } : {}),
+      ...(finite(mapped.denomNormEffectiveRequiredScore) ? { denomNormEffectiveRequiredScore: mapped.denomNormEffectiveRequiredScore } : {}),
+      ...(typeof mapped.denomNormHypotheticalPassed === 'boolean' ? { denomNormHypotheticalPassed: mapped.denomNormHypotheticalPassed } : {}),
+      ...(finite(mapped.sectorRsHypotheticalActualScore) ? { sectorRsHypotheticalActualScore: mapped.sectorRsHypotheticalActualScore } : {}),
+      ...(typeof mapped.sectorRsHypotheticalPassed === 'boolean' ? { sectorRsHypotheticalPassed: mapped.sectorRsHypotheticalPassed } : {}),
+      ...(typeof mapped.sectorRsInputPresent === 'boolean' ? { sectorRsInputPresent: mapped.sectorRsInputPresent } : {}),
+      ...(typeof mapped.ceilingWiringInputPresent === 'boolean' ? { ceilingWiringInputPresent: mapped.ceilingWiringInputPresent } : {}),
+      ...(typeof mapped.rsContinuousInputPresent === 'boolean' ? { rsContinuousInputPresent: mapped.rsContinuousInputPresent } : {}),
+      ...(typeof mapped.denomNormDeficitPresent === 'boolean' ? { denomNormDeficitPresent: mapped.denomNormDeficitPresent } : {}),
+      ...(typeof mapped.denomNormClampBinding === 'boolean' ? { denomNormClampBinding: mapped.denomNormClampBinding } : {}),
     };
   }
   return {
@@ -332,6 +360,20 @@ function rowFromSnapshot(input: {
     ...(typeof input.minSignal?.eligibilityShadowEligible === 'boolean' ? { eligibilityShadowEligible: input.minSignal.eligibilityShadowEligible } : {}),
     ...(typeof input.minSignal?.eligibilityShadowMarketOnlyPassed === 'boolean' ? { eligibilityShadowMarketOnlyPassed: input.minSignal.eligibilityShadowMarketOnlyPassed } : {}),
     ...(typeof input.minSignal?.eligibilityShadowPercentilePassed === 'boolean' ? { eligibilityShadowPercentilePassed: input.minSignal.eligibilityShadowPercentilePassed } : {}),
+    // ADR-0642 — 5개 default-OFF Gate1 flag force-ON hypothetical carry (관측 전용, Gate 판정 미소비, executionImpact=NONE).
+    ...(finite(input.minSignal?.ceilingWiringHypotheticalActualScore) ? { ceilingWiringHypotheticalActualScore: input.minSignal.ceilingWiringHypotheticalActualScore } : {}),
+    ...(typeof input.minSignal?.ceilingWiringHypotheticalPassed === 'boolean' ? { ceilingWiringHypotheticalPassed: input.minSignal.ceilingWiringHypotheticalPassed } : {}),
+    ...(finite(input.minSignal?.rsContinuousHypotheticalActualScore) ? { rsContinuousHypotheticalActualScore: input.minSignal.rsContinuousHypotheticalActualScore } : {}),
+    ...(typeof input.minSignal?.rsContinuousHypotheticalPassed === 'boolean' ? { rsContinuousHypotheticalPassed: input.minSignal.rsContinuousHypotheticalPassed } : {}),
+    ...(finite(input.minSignal?.denomNormEffectiveRequiredScore) ? { denomNormEffectiveRequiredScore: input.minSignal.denomNormEffectiveRequiredScore } : {}),
+    ...(typeof input.minSignal?.denomNormHypotheticalPassed === 'boolean' ? { denomNormHypotheticalPassed: input.minSignal.denomNormHypotheticalPassed } : {}),
+    ...(finite(input.minSignal?.sectorRsHypotheticalActualScore) ? { sectorRsHypotheticalActualScore: input.minSignal.sectorRsHypotheticalActualScore } : {}),
+    ...(typeof input.minSignal?.sectorRsHypotheticalPassed === 'boolean' ? { sectorRsHypotheticalPassed: input.minSignal.sectorRsHypotheticalPassed } : {}),
+    ...(typeof input.minSignal?.sectorRsInputPresent === 'boolean' ? { sectorRsInputPresent: input.minSignal.sectorRsInputPresent } : {}),
+    ...(typeof input.minSignal?.ceilingWiringInputPresent === 'boolean' ? { ceilingWiringInputPresent: input.minSignal.ceilingWiringInputPresent } : {}),
+    ...(typeof input.minSignal?.rsContinuousInputPresent === 'boolean' ? { rsContinuousInputPresent: input.minSignal.rsContinuousInputPresent } : {}),
+    ...(typeof input.minSignal?.denomNormDeficitPresent === 'boolean' ? { denomNormDeficitPresent: input.minSignal.denomNormDeficitPresent } : {}),
+    ...(typeof input.minSignal?.denomNormClampBinding === 'boolean' ? { denomNormClampBinding: input.minSignal.denomNormClampBinding } : {}),
     ...(finite(entryReferencePrice) && entryReferencePrice > 0 ? { entryReferencePrice } : {}),
     ...(input.sourceSnapshotId ? { sourceSnapshotId: input.sourceSnapshotId } : {}),
     ...(input.scanId ? { scanId: input.scanId } : {}),

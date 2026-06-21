@@ -118,6 +118,17 @@ import {
 import { buildCanonicalRuntimeResolutionStep27 } from '../runtimeResolverTraceStep26.js';
 import { resolveScoringEffectiveRegime } from './gate0MacroPermissionDecision.js';
 import { buildGate1RegimeAwareSurvivorObservation } from '../gate1RegimeAwareSurvivorAdr0546.js';
+import {
+  buildGate1FlagShadowEvidenceBoard,
+  extractGate1FlagHypotheticalCarry,
+} from '../gate1FlagShadowEvidenceAdr0642.js';
+import { appendGate1FlagShadowEvidenceSession } from '../gate1FlagShadowEvidenceStoreAdr0642.js';
+import {
+  isGate1RegimeAwareRequiredEnabled,
+  isGate1PositiveCeilingWiringEnabled,
+  isGate1RsPercentileContinuousEnabled,
+  isGate1DenominatorNormalizationEnabled,
+} from '../../gateConfig.js';
 import { isPreflightDiagnosticScanSummary } from './preflightDiagnosticScanSummary.js';
 import { setLastSectorEnergyCanonicalState } from '../sectorEnergyCanonicalStateRef.js';
 import {
@@ -513,12 +524,22 @@ export async function persistMidScanDiagnosticBlocksAdr0588(ctx: MidScanDiagnost
     const eligibilityBySymbol = new Map(
       (summaryDraft.gate1EligibilityShadowAdr0609?.judgments ?? []).map((judgment) => [judgment.symbol, judgment]),
     );
+    // ADR-0642 — 5개 default-OFF Gate1 flag force-ON hypothetical 을 minimumSignalScoreTrace stamp 에서
+    // 추출해 minSignalScoreBySymbol carry 에 합류시킨다. trace 가 carrier (gate1CandidateTraces),
+    // 신규 fetch 0·flag flip 0·executionImpact=NONE. ledger row 로 carry 되어 forward-outcome 인프라 재사용.
+    const hypotheticalBySymbol = new Map(
+      (summaryDraft.entryFilterDecomposition?.gate1CandidateTraces ?? [])
+        .map((t) => t.minSignalScoreTrace)
+        .filter((mt): mt is NonNullable<typeof mt> => Boolean(mt?.symbol))
+        .map((mt) => [mt.symbol, mt] as const),
+    );
     const minSignalScoreBySymbol = Object.fromEntries(
       counters.positiveScoreStarvationTraces
         .filter((trace) => Number.isFinite(trace.actualScore))
         .map((trace) => {
           const crossSectional = crossSectionalBySymbol.get(trace.symbol);
           const eligibility = eligibilityBySymbol.get(trace.symbol);
+          const hyp = hypotheticalBySymbol.get(trace.symbol);
           return [trace.symbol, {
             actualScore: trace.actualScore,
             requiredScore: trace.requiredScore,
@@ -532,6 +553,7 @@ export async function persistMidScanDiagnosticBlocksAdr0588(ctx: MidScanDiagnost
               ...(eligibility.marketOnlyPassed !== null ? { marketOnlyPassed: eligibility.marketOnlyPassed } : {}),
               percentilePassed: eligibility.percentilePassed,
             } : {}),
+            ...(hyp ? extractGate1FlagHypotheticalCarry(hyp) : {}),
           }];
         }),
     );
@@ -571,6 +593,28 @@ export async function persistMidScanDiagnosticBlocksAdr0588(ctx: MidScanDiagnost
       rows,
       scoringEffectiveRegime,
     );
+    // ADR-0642 — 5개 default-OFF Gate1 flag force-ON hypothetical 증거를 ledger carry + survivor 에서
+    // 환원해 세션 누적 레지스트리에 append (관측 전용·flag flip 0·executionImpact=NONE). try/catch 격리
+    // (불변식 #1/#2): 실패해도 scorer·엔진·shadow 수집 무정지. force-ON 은 실채점 미반영(stamp 만 소비).
+    try {
+      const flagShadowEvidence = buildGate1FlagShadowEvidenceBoard({
+        rows,
+        survivor: summaryDraft.gate1RegimeAwareSurvivor,
+        flagActiveByFlagId: {
+          GATE1_REGIME_AWARE_REQUIRED: isGate1RegimeAwareRequiredEnabled(),
+          GATE1_SECTOR_RS_COMPONENT_ENABLED: process.env.GATE1_SECTOR_RS_COMPONENT_ENABLED === 'true',
+          GATE1_POSITIVE_CEILING_WIRING_ENABLED: isGate1PositiveCeilingWiringEnabled(),
+          GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED: isGate1RsPercentileContinuousEnabled(),
+          GATE1_DENOMINATOR_NORMALIZATION_ENABLED: isGate1DenominatorNormalizationEnabled(),
+        },
+        now: kstNow,
+      });
+      summaryDraft.gate1FlagShadowEvidenceAdr0642 = flagShadowEvidence;
+      // distinct 세션 식별자 — sourceSnapshotId(scanId) 우선, 부재 시 generatedAt. 멱등 upsert key.
+      appendGate1FlagShadowEvidenceSession(flagShadowEvidence, sourceSnapshotId ?? flagShadowEvidence.generatedAt);
+    } catch (e) {
+      emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildGate1FlagShadowEvidenceAdr0642', error: e });
+    }
     logAdrDiagnostic(
       `[ADR-0476] Gate1DryRunObservation rows emitted`,
       {

@@ -46,6 +46,7 @@ import {
   resolveEffectiveRequiredScore,
   computeDenominatorNormalizationHypothetical,
 } from "./gate1DenominatorNormalizationAdr0640.js";
+import { computeSectorRsHypothetical } from "./gate1SectorRsHypotheticalAdr0642.js";
 
 export * from "./minimumSignalScoreTrace/types.js";
 export {
@@ -594,6 +595,20 @@ export function buildMinimumSignalScoreTrace(input: {
     /* SDS-ignore: ADR-0640 denom-norm 관측 stamp 실패는 scorer 본체 영향 0 (불변식 #1). 필드 미stamp graceful. */
     denomNormHypothetical = undefined;
   }
+  // ADR-0642 SECTOR_RELATIVE_STRENGTH(0611) force-ON 관측 hypothetical — flag 무관 산출(OFF 에서도 효과 측정).
+  // currentSectorRsWeighted = sectorRs.weightedScore(flag OFF=0). try/catch 격리(불변식 #1): 실패 시 필드 미stamp.
+  let sectorRsHypothetical: ReturnType<typeof computeSectorRsHypothetical> | undefined;
+  try {
+    sectorRsHypothetical = computeSectorRsHypothetical({
+      trace: input.trace,
+      currentSectorRsWeighted: sectorRs.weightedScore,
+      actualScore,
+      requiredScore,
+    });
+  } catch {
+    /* SDS-ignore: ADR-0642 sector-RS 관측 stamp 실패는 scorer 본체 영향 0 (불변식 #1). 필드 미stamp graceful. */
+    sectorRsHypothetical = undefined;
+  }
   return {
     symbol: input.trace.symbol,
     name: input.trace.name,
@@ -605,6 +620,7 @@ export function buildMinimumSignalScoreTrace(input: {
     ...(ceilingWiringHypothetical ? ceilingWiringHypothetical : {}),
     ...(rsContinuousHypothetical ? rsContinuousHypothetical : {}),
     ...(denomNormHypothetical ? denomNormHypothetical : {}),
+    ...(sectorRsHypothetical ? sectorRsHypothetical : {}),
     positiveScoreTotal,
     penaltyTotal,
     unknownPenaltyTotal,

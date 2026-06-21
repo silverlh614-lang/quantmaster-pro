@@ -86,6 +86,8 @@ export const UNIVERSE_DISCOVERY_AGGRESSIVENESS_LEDGER_FILE = path.join(DATA_DIR,
 export const SHAKEOUT_STOP_OUTCOME_LEDGER_FILE = path.join(DATA_DIR, 'shakeout-stop-outcome-ledger-adr0625.json');
 /** ADR-0638 — 주도주 파이프라인 funnel 관측 ledger(캐시 신선도 + Stage1 leader 탈락 사유 per-scan aggregate, 위 ledger 들과 물리 분리, default OFF). */
 export const LEADER_PIPELINE_FUNNEL_LEDGER_FILE = path.join(DATA_DIR, 'leader-pipeline-funnel-ledger-adr0638.json');
+/** ADR-0642 — 5개 default-OFF Gate1 flag shadow 증거 세션 누적 레지스트리(per-scan 5-flag 1행 append, 위 ledger 들과 물리 분리, 관측 전용·flag flip 0·executionImpact=NONE). */
+export const GATE1_FLAG_SHADOW_EVIDENCE_FILE = path.join(DATA_DIR, 'gate1-flag-shadow-evidence.json');
 /** ADR-0634 — LIVE-safe lever 일별 READY 연속일수(anti-flap streak) 영속. 다른 ledger 와 물리 분리. */
 export const AUTO_ACTIVATION_STREAK_FILE = path.join(DATA_DIR, 'auto-activation-streak-adr0634.json');
 /** ADR-0636 — LIVE_ADJACENT_REVIEW(T2) lever 운영자 승인 활성화 영속 ledger. 위 streak ledger 와 물리 분리. 승인 0건(기본)=byte-identical. */

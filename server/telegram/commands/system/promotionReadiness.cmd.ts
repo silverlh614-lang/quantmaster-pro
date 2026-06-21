@@ -8,6 +8,8 @@ import {
   buildPromotionReadinessBoard,
   formatPromotionReadinessSection,
 } from '../../../trading/signalScanner/promotionReadinessAdr0631.js';
+import { formatGate1FlagShadowEvidenceSection } from '../../../trading/signalScanner/gate1FlagShadowEvidenceAdr0642.js';
+import { buildCumulativeGate1FlagShadowEvidenceBoard } from '../../../trading/signalScanner/gate1FlagShadowEvidenceStoreAdr0642.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -24,7 +26,13 @@ const promotionReadiness: TelegramCommand = {
     const evidence = rows.length > 0 ? buildGate1ThresholdEvidenceSummary(rows) : undefined;
     const counterfactual = await buildCounterfactualOutcomeBoard({ gate1Rows: rows });
     const board = buildPromotionReadinessBoard({ evidence, counterfactual });
-    const message = formatPromotionReadinessSection(board);
+    // ADR-0642 — 5개 default-OFF Gate1 flag shadow 증거 섹션 append (세션 누적 레지스트리 load → render).
+    // 관측 전용 read-only — flip 결정은 운영자 승인 필수, force-ON hypothetical 은 실채점 미반영.
+    const flagEvidenceBoard = buildCumulativeGate1FlagShadowEvidenceBoard();
+    const message =
+      formatPromotionReadinessSection(board) +
+      '\n' +
+      formatGate1FlagShadowEvidenceSection(flagEvidenceBoard);
     await reply(message);
     console.info(`[TELEGRAM_REPLY_SENT] correlationId=${correlationId ?? 'N/A'} command=/promotion_readiness bytes=${message.length}`);
   },
