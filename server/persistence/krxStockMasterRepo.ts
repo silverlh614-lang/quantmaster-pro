@@ -128,9 +128,11 @@ const SPECIAL_SECURITY_TYPE_PATTERNS: RegExp[] = [
 /**
  * ETF/ETN 브랜드 prefix — KRX master 가 없을 때 종목명만으로 특수종목을 식별하기 위함.
  * 보통주 종목명에는 거의 등장하지 않는 운용사 브랜드만 포함 (false-exclude 최소화).
+ * 보통주 오제외 0 원칙 — UNICORN/KCGI/TRUSTON/KINDEX/FOCUS 는 KRX ETF 전용 브랜드,
+ * BNK/WON 은 보통주(BNK금융지주 등) 충돌로 의도적 제외.
  */
 const ETF_BRAND_NAME_PATTERN =
-  /(?:^|\s)(TIGER|KODEX|KBSTAR|ARIRANG|HANARO|KOSEF|TIMEFOLIO|KIWOOM|마이티|히어로즈|ACE|PLUS|RISE|SOL)\b/i;
+  /(?:^|\s)(TIGER|KODEX|KBSTAR|ARIRANG|HANARO|KOSEF|TIMEFOLIO|KIWOOM|마이티|히어로즈|ACE|PLUS|RISE|SOL|UNICORN|KCGI|TRUSTON|KINDEX|FOCUS)\b/i;
 
 /**
  * 우선주 종목명 suffix — master 의 stockType='우선주' 정보가 없을 때(name-only fallback) 사용.

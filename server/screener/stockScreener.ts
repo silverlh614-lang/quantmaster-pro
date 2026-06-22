@@ -14,7 +14,7 @@
 
 import fs from 'fs';
 import { SCREENER_FILE, ensureDataDir } from '../persistence/paths.js';
-import { loadWatchlist, saveWatchlist, MOMENTUM_ALERT_THRESHOLD, type WatchlistSection } from '../persistence/watchlistRepo.js';
+import { loadWatchlist, saveWatchlist, MOMENTUM_ALERT_THRESHOLD, isSpecialSecurityWatchlistEntry, isSpecialSecurityExclusionEnabled, type WatchlistSection } from '../persistence/watchlistRepo.js';
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, hasKisClientOverrides } from '../clients/kisClient.js';
@@ -244,9 +244,23 @@ export async function preScreenStocks(options?: {
       return false;
     };
 
+    // ETF/특수종목 제외 (default ON, WATCHLIST_EXCLUDE_SPECIAL_SECURITIES=false 1줄 롤백).
+    // 판정은 watchlistRepo SSOT 재사용 — master 권위(isTradableKrxEquity) → name fallback.
+    // KIS 랭킹 4-TR 진입 경로에 ETF 가 후보로 흘러가는 gap 차단 (buy funnel 의 사전 방어선).
+    const specialExclusionOn = isSpecialSecurityExclusionEnabled();
+    const isSpecialKisRow = (s: Record<string, string>): boolean => {
+      if (!specialExclusionOn) return false;
+      const code = s.stck_shrn_iscd ?? '';
+      const name = s.hts_kor_isnm ?? '';
+      if (!isSpecialSecurityWatchlistEntry({ code, name })) return false;
+      console.warn(`[Screener/SpecialSecurity] ETF/특수종목 제외 — code=${code} name=${name}`);
+      return true;
+    };
+
     // 거래량 상위 매핑
     mergeOutput(volData, 'VOL', (s) => {
       if (isRiskyKisRow(s)) return null;
+      if (isSpecialKisRow(s)) return null;
       return {
       code:          s.stck_shrn_iscd  ?? '',
       name:          s.hts_kor_isnm    ?? '',
@@ -263,6 +277,7 @@ export async function preScreenStocks(options?: {
     // 상승률 상위 매핑
     mergeOutput(riseData, 'RISE', (s) => {
       if (isRiskyKisRow(s)) return null;
+      if (isSpecialKisRow(s)) return null;
       return {
       code:          s.stck_shrn_iscd  ?? '',
       name:          s.hts_kor_isnm    ?? '',
@@ -279,6 +294,7 @@ export async function preScreenStocks(options?: {
     // 52주 신고가 매핑
     mergeOutput(highData, 'HIGH52W', (s) => {
       if (isRiskyKisRow(s)) return null;
+      if (isSpecialKisRow(s)) return null;
       return {
       code:          s.stck_shrn_iscd  ?? '',
       name:          s.hts_kor_isnm    ?? '',
@@ -295,6 +311,7 @@ export async function preScreenStocks(options?: {
     // 외국인 순매수 상위 매핑
     mergeOutput(foreignData, 'FOREIGN', (s) => {
       if (isRiskyKisRow(s)) return null;
+      if (isSpecialKisRow(s)) return null;
       return {
       code:          s.stck_shrn_iscd  ?? '',
       name:          s.hts_kor_isnm    ?? '',

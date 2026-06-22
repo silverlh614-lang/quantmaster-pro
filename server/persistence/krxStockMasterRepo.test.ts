@@ -14,6 +14,7 @@ import {
   refreshKrxStockMaster,
   isLikelyHtmlResponse,
   validateMasterPayload,
+  isSpecialSecurityName,
   MASTER_TTL_MS,
   __testOnly,
   type StockMasterEntry,
@@ -214,6 +215,34 @@ describe('krxStockMasterRepo (ADR-0011)', () => {
       const ok = await refreshKrxStockMaster();
       expect(ok).toBe(false);
       expect(getMasterSize()).toBe(0);
+    });
+  });
+
+  describe('isSpecialSecurityName — ETF 브랜드 + 보통주 오제외 0', () => {
+    it('UNICORN ETF 종목명 → true (트리거 사례)', () => {
+      expect(isSpecialSecurityName('UNICORN SK하이닉스밸류체인액티브')).toBe(true);
+    });
+
+    it('신규 ETF 전용 브랜드 모두 true', () => {
+      for (const name of [
+        'KCGI 코리아밸류업',
+        'TRUSTON 코스피액티브',
+        'KINDEX 미국S&P500',
+        'FOCUS ESG리더스',
+      ]) {
+        expect(isSpecialSecurityName(name)).toBe(true);
+      }
+    });
+
+    it('기존 ETF 브랜드 회귀 유지 — TIGER/KODEX true', () => {
+      expect(isSpecialSecurityName('TIGER 2차전지테마')).toBe(true);
+      expect(isSpecialSecurityName('KODEX 200')).toBe(true);
+    });
+
+    it('보통주 오제외 0 — BNK금융지주/삼성전자/현대차 false', () => {
+      expect(isSpecialSecurityName('BNK금융지주')).toBe(false);
+      expect(isSpecialSecurityName('삼성전자')).toBe(false);
+      expect(isSpecialSecurityName('현대차')).toBe(false);
     });
   });
 });

@@ -35,6 +35,7 @@ import { appendShadowLog } from '../persistence/shadowTradeRepo.js';
 import { getLatestIncidentAt } from '../persistence/incidentLogRepo.js';
 import { isEmergencyBuyPipelineCodeGuardEnabled } from '../dataQuality/emergencyDataQualityGuards.js';
 import { normalizeKrxCode } from '../utils/symbolNormalizer.js';
+import { isSpecialSecurityWatchlistEntry, isSpecialSecurityExclusionEnabled } from '../persistence/watchlistRepo.js';
 import { lastManualExitAtForCode } from '../persistence/manualExitsRepo.js';
 import {
   checkTakeProfitReentryGuard,
@@ -731,6 +732,20 @@ export async function createBuyTask(p: CreateBuyTaskParams): Promise<LiveBuyTask
       `[BuyPipeline/CodeGuard] invalid KRX code 자동 SKIP — code="${p.stockCode}" name="${p.stockName}" (ADR-0185)`,
     );
     markSignalBlockedSafe(p.signalId, 'DATA', `INVALID_KRX_CODE: ${p.stockCode}`);
+    return rejectBuyTask(p);
+  }
+
+  // ETF/특수종목 최종 funnel 가드 — 모든 후보 경로(스캐너 직접 포함)의 마지막 방어선.
+  // 판정은 watchlistRepo SSOT(isSpecialSecurityWatchlistEntry) 재사용. LIVE/SHADOW 공통.
+  // WATCHLIST_EXCLUDE_SPECIAL_SECURITIES=false 1줄로 즉시 기존 동작 롤백(byte-equivalent).
+  if (
+    isSpecialSecurityExclusionEnabled() &&
+    isSpecialSecurityWatchlistEntry({ code: p.stockCode, name: p.stockName })
+  ) {
+    console.warn(
+      `[BuyPipeline/SpecialSecurity] ETF/특수종목 매수 차단 — code=${p.stockCode} name=${p.stockName}`,
+    );
+    markSignalBlockedSafe(p.signalId, 'DATA', `SPECIAL_SECURITY_EXCLUDED: ${p.stockCode}`);
     return rejectBuyTask(p);
   }
 
