@@ -59,14 +59,16 @@ export {
 } from "./minimumSignalScoreTrace/decompositionReport.js";
 
 /**
- * ADR-0611 — SECTOR_RELATIVE_STRENGTH 컴포넌트 재활성 스위치 (정확 비교 === 'true', default OFF).
+ * ADR-0611 — SECTOR_RELATIVE_STRENGTH 컴포넌트 재활성 스위치 (default ON, ADR-0643 burn-down activation).
  * 배경: 본 컴포넌트는 ADR-0467 에서 advisory-only(maxScore:0)로 주차됐는데, 그 결과 활성 maxScore
  * 합(108)이 requiredScore=70 이 calibrate 된 configuredPositiveMax(116)보다 8점 낮아 상위 8점이
  * 영구 도달 불가가 됐다(ADR-0467 의 의도치 않은 side effect). 본 flag ON 시 8점 capacity 를 복원한다.
- * OFF = byte-equivalent(maxScore 0·weightedScore 0). requiredScore 무변경.
+ * `GATE1_SECTOR_RS_COMPONENT_ENABLED=false` 1줄로 maxScore 0·weightedScore 0(advisory-only) baseline 즉시 롤백.
+ * 미설정(unset)·`=true`/`=1`/`=yes` → ON (관용). `!== 'false'` default-ON 패턴(ADR-0578 선례). requiredScore 무변경.
+ * OFF 분기(advisory-only)는 보존 — D4 sunset cleanup 은 별도 후속 패치로 연기(ADR-0643 D2).
  */
 function isGate1SectorRsComponentEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.GATE1_SECTOR_RS_COMPONENT_ENABLED === 'true';
+  return env.GATE1_SECTOR_RS_COMPONENT_ENABLED !== 'false';
 }
 
 const SECTOR_RS_COMPONENT_MAX_SCORE = 8;

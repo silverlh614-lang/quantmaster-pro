@@ -602,7 +602,8 @@ export async function persistMidScanDiagnosticBlocksAdr0588(ctx: MidScanDiagnost
         survivor: summaryDraft.gate1RegimeAwareSurvivor,
         flagActiveByFlagId: {
           GATE1_REGIME_AWARE_REQUIRED: isGate1RegimeAwareRequiredEnabled(),
-          GATE1_SECTOR_RS_COMPONENT_ENABLED: process.env.GATE1_SECTOR_RS_COMPONENT_ENABLED === 'true',
+          // ADR-0643 flip — 라이브 reader(minimumSignalScoreTrace.isGate1SectorRsComponentEnabled)와 동일 default-ON 의미(`!== 'false'`). 관측 전용(executionImpact=NONE).
+          GATE1_SECTOR_RS_COMPONENT_ENABLED: process.env.GATE1_SECTOR_RS_COMPONENT_ENABLED !== 'false',
           GATE1_POSITIVE_CEILING_WIRING_ENABLED: isGate1PositiveCeilingWiringEnabled(),
           GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED: isGate1RsPercentileContinuousEnabled(),
           GATE1_DENOMINATOR_NORMALIZATION_ENABLED: isGate1DenominatorNormalizationEnabled(),

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildEntryFilterDecomposition,
   formatEntryFilterDecompositionSection,
@@ -91,6 +91,23 @@ function minTrace(
 }
 
 describe("ADR-0466 minimum signal score decomposition", () => {
+  // ADR-0643 — 본 블록은 baseline(legacy) Gate1 채점 곡선 불변식(actualScore===componentSum·
+  // scoreGap===actualScore-70·calibration survivor 분포)을 검증한다. 4개 Gate1 flag 가 default-ON 으로
+  // flip(ADR-0643)된 뒤 unset=ON 이므로, baseline 불변식 측정을 위해 명시 =false 로 고정한다
+  // (=false byte-identical 회귀 — flip 전 baseline 과 동일).
+  const GATE1_FLIP_FLAGS = [
+    "GATE1_SECTOR_RS_COMPONENT_ENABLED",
+    "GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED",
+    "GATE1_POSITIVE_CEILING_WIRING_ENABLED",
+    "GATE1_DENOMINATOR_NORMALIZATION_ENABLED",
+  ];
+  beforeEach(() => {
+    for (const f of GATE1_FLIP_FLAGS) process.env[f] = "false";
+  });
+  afterEach(() => {
+    for (const f of GATE1_FLIP_FLAGS) delete process.env[f];
+  });
+
   it("normalizes 0-10 and 0-27 upstream scores for WATCHLIST_UPSTREAM_SCORE", () => {
     expect(normalizeSignalScoreTo100(6.4)).toBe(64);
     expect(Math.round(normalizeSignalScoreTo100(18) * 10) / 10).toBe(66.7);

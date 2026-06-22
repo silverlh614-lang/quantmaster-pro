@@ -52,10 +52,16 @@ Gate1 에 default-OFF 플래그가 5개 영원히 OFF 로 쌓여 shadow 관측�
 | envFlag | ADR | status | reviewBy | 위험도 | 권장 다음 액션 | 분류 |
 |---------|-----|--------|----------|--------|----------------|------|
 | `GATE1_REGIME_AWARE_REQUIRED` | 0546 | SHADOW_OFF | 2026-09-19 | 높음(임계 측·calibration 의존) | legacy vs regime pass-rate 델타 + 운영자 승인 | 데이터 의존 |
-| `GATE1_SECTOR_RS_COMPONENT_ENABLED` | 0611 | SHADOW_OFF | 2026-09-19 | 낮음(additive capacity) | 섹터상대 입력 커버리지 확인 후 flip | **flip 후보** |
-| `GATE1_POSITIVE_CEILING_WIRING_ENABLED` | 0613 | SHADOW_OFF | 2026-09-19 | 중간(3종 묶음 효과) | ceilingWiring hypothetical + OHLCV/RS hydration 커버리지 관측 | 관측 더 필요 |
-| `GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED` | 0627 | SHADOW_OFF | 2026-09-19 | 낮음(손실 복원 버그픽스) | rsContinuous hypothetical 델타 확인 후 flip | **flip 후보** |
-| `GATE1_DENOMINATOR_NORMALIZATION_ENABLED` | 0640 | SHADOW_OFF | 2026-09-19 | 중간~높음(데이터 파이프 의존) | 데이터 파이프 건강 + shadow denomNorm 델타 관측 | 데이터 의존 |
+| `GATE1_SECTOR_RS_COMPONENT_ENABLED` | 0611 | **ON** (ADR-0643) | 2026-09-19 | 낮음(additive capacity) | LIVE ON 관측 성숙 후 D4 cleanup 별도 패치 | **flip 완료** |
+| `GATE1_POSITIVE_CEILING_WIRING_ENABLED` | 0613 | **ON** (ADR-0643) | 2026-09-19 | 중간(3종 묶음 효과) | LIVE ON 1~2세션 집중 관측 → D4 cleanup 별도 패치 | **flip 완료** |
+| `GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED` | 0627 | **ON** (ADR-0643) | 2026-09-19 | 낮음(손실 복원 버그픽스) | LIVE ON 관측 성숙 후 D4 cleanup 별도 패치 | **flip 완료** |
+| `GATE1_DENOMINATOR_NORMALIZATION_ENABLED` | 0640 | **ON** (ADR-0643) | 2026-09-19 | 중간~높음(데이터 파이프 의존) | 통과율 급증+결손률 상승 시 0640 우선 =false → D4 cleanup 별도 패치 | **flip 완료** |
+
+> **ADR-0643 burn-down activation (2026-06-22):** 4개(0611/0627/0613/0640)를 default-ON 으로 flip 했다
+> (reader `=== 'true'` → `!== 'false'`). **unset=ON·`=false` 1줄로 flag 별 baseline byte-identical 즉시 롤백.**
+> OFF 분기 코드는 보존(D4 sunset cleanup 은 별도 후속 패치로 연기 — ADR-0643 D2). **0546 은 무접촉**
+> (SHADOW_OFF 유지 — requiredScore=70 calibration SSOT 고위험). 위 status ON 행은 `validate:flagLifecycle`
+> 의 PAST_DUE 검사(SHADOW_OFF 한정)에서 제외되므로 reviewBy 경과와 무관하게 통과한다.
 
 ### 솔직한 분류 해설
 

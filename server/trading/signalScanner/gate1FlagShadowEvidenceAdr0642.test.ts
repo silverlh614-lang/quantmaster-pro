@@ -82,6 +82,13 @@ describe("ADR-0642 A. 5-flag 증거 집계 정확성", () => {
     expect(f.reviewBy).toBe("2026-09-19");
   });
 
+  it("A6b (ADR-0643) flip 4개(0611/0613/0627/0640) status ON 전사 동기화, 0546 만 SHADOW_OFF", () => {
+    for (const adr of ["0611", "0613", "0627", "0640"]) {
+      expect(board.flags.find((x) => x.adr === adr)!.status).toBe("ON");
+    }
+    expect(board.flags.find((x) => x.adr === "0546")!.status).toBe("SHADOW_OFF");
+  });
+
   it("A7 0546 survivor 재사용 — regimeAwareWouldPassCount 가 delta 로 환원", () => {
     const b = buildGate1FlagShadowEvidenceBoard({
       rows,

@@ -106,13 +106,14 @@ interface FlagLifecycleMeta {
   status: Gate1FlagShadowStatus;
 }
 
-// gate_flag_lifecycle.json 전사 (2026-06-21 기준). flip 시 본 표 + lifecycle JSON 동시 갱신.
+// gate_flag_lifecycle.json 전사 (2026-06-22 기준). flip 시 본 표 + lifecycle JSON 동시 갱신.
+// ADR-0643 burn-down activation: 0611/0613/0627/0640 status SHADOW_OFF→ON. 0546 무변경(SHADOW_OFF).
 const FLAG_LIFECYCLE: Record<string, FlagLifecycleMeta> = {
   "0546": { flagId: "GATE1_REGIME_AWARE_REQUIRED", adr: "0546", reviewBy: "2026-09-19", status: "SHADOW_OFF" },
-  "0611": { flagId: "GATE1_SECTOR_RS_COMPONENT_ENABLED", adr: "0611", reviewBy: "2026-09-19", status: "SHADOW_OFF" },
-  "0613": { flagId: "GATE1_POSITIVE_CEILING_WIRING_ENABLED", adr: "0613", reviewBy: "2026-09-19", status: "SHADOW_OFF" },
-  "0627": { flagId: "GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED", adr: "0627", reviewBy: "2026-09-19", status: "SHADOW_OFF" },
-  "0640": { flagId: "GATE1_DENOMINATOR_NORMALIZATION_ENABLED", adr: "0640", reviewBy: "2026-09-19", status: "SHADOW_OFF" },
+  "0611": { flagId: "GATE1_SECTOR_RS_COMPONENT_ENABLED", adr: "0611", reviewBy: "2026-09-19", status: "ON" },
+  "0613": { flagId: "GATE1_POSITIVE_CEILING_WIRING_ENABLED", adr: "0613", reviewBy: "2026-09-19", status: "ON" },
+  "0627": { flagId: "GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED", adr: "0627", reviewBy: "2026-09-19", status: "ON" },
+  "0640": { flagId: "GATE1_DENOMINATOR_NORMALIZATION_ENABLED", adr: "0640", reviewBy: "2026-09-19", status: "ON" },
 };
 
 function pct(numerator: number, denominator: number): number {

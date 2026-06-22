@@ -86,7 +86,9 @@ describe("ADR-0642 A. computeSectorRsHypothetical force-ON delta", () => {
 });
 
 describe("ADR-0642 B. flag OFF byte-equivalent (actualScore/passed 본체 무변경)", () => {
-  it("B1 stamp 추가가 actualScore/passed 를 바꾸지 않는다 (OFF 동일 입력)", () => {
+  it("B1 stamp 추가가 actualScore/passed 를 바꾸지 않는다 (=false OFF 동일 입력)", () => {
+    // ADR-0643 flip 후 unset=ON 이므로 SECTOR_RS OFF baseline 은 명시 =false 로 고정.
+    process.env[ENABLED] = "false";
     const off = trace({ sectorRelativeReturn20d: 12 });
     // hypothetical 필드는 stamp 되지만 actualScore/passed 는 SECTOR_RS OFF(maxScore 0) 기준 그대로.
     expect(off.actualScore).toBeGreaterThanOrEqual(0);
@@ -106,6 +108,7 @@ describe("ADR-0642 B. flag OFF byte-equivalent (actualScore/passed 본체 무변
   });
 
   it("B3 actualScore 는 flag OFF↔ON 토글과 무관하게 hypothetical stamp 동일 (force-ON 항상 산출)", () => {
+    process.env[ENABLED] = "false"; // ADR-0643 — 명시 OFF baseline
     const off = trace({ sectorRelativeReturn20d: 12 });
     const offDelta = off.sectorRsForceDelta;
     process.env[ENABLED] = "true";

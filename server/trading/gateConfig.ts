@@ -199,13 +199,14 @@ export function resolveGate1RequiredScore(regime?: string): number {
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Gate1 천장 배선 활성 스위치. default OFF — Phase 0 동작 보존.
- * `GATE1_POSITIVE_CEILING_WIRING_ENABLED=true` 정확 비교(ADR-0157 — `'1'`/`'TRUE'`/
- * `'yes'` 거부). flip 은 Phase 2(운영자 승인) 사안 — ENV 1줄 즉시 롤백.
+ * Gate1 천장 배선 활성 스위치. default ON (ADR-0643 burn-down activation).
+ * `GATE1_POSITIVE_CEILING_WIRING_ENABLED=false` 1줄로 baseline byte-identical 즉시 롤백.
+ * 미설정(unset)·`=true`/`=1`/`=yes` → ON (관용). `!== 'false'` default-ON 패턴(ADR-0578 선례).
+ * OFF 분기(transform identity)는 보존 — D4 sunset cleanup 은 별도 후속 패치로 연기(ADR-0643 D2).
  * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
  */
 export function isGate1PositiveCeilingWiringEnabled(): boolean {
-  return process.env.GATE1_POSITIVE_CEILING_WIRING_ENABLED === 'true';
+  return process.env.GATE1_POSITIVE_CEILING_WIRING_ENABLED !== 'false';
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -220,12 +221,14 @@ export function isGate1PositiveCeilingWiringEnabled(): boolean {
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Gate1 RS percentile 연속 승격 스위치. default OFF — byte-identical 보존.
- * `GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED=true` 정확 비교(ADR-0157 — `'1'`/`'TRUE'`/
- * `'yes'` 거부). 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
+ * Gate1 RS percentile 연속 승격 스위치. default ON (ADR-0643 burn-down activation).
+ * `GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED=false` 1줄로 step 양자화 baseline 즉시 롤백.
+ * 미설정(unset)·`=true`/`=1`/`=yes` → ON (관용). `!== 'false'` default-ON 패턴(ADR-0578 선례).
+ * OFF 분기(step 양자화)는 보존 — D4 sunset cleanup 은 별도 후속 패치로 연기(ADR-0643 D2).
+ * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
  */
 export function isGate1RsPercentileContinuousEnabled(): boolean {
-  return process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED === 'true';
+  return process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED !== 'false';
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -235,8 +238,9 @@ export function isGate1RsPercentileContinuousEnabled(): boolean {
 // 남아 requiredScore=70 의 실효 문턱을 올리는 구조를 교정한다. flag ON 시 결손 maxScore 를
 // 분모에서 제외하고 requiredScore 를 가용 분모 비례로 축소(절대 인상 안 함, 하한 0.7× clamp).
 // 불변식 #6 완결(점수 중립화 + 분모 제외). OFF = passed/scoreGap byte-identical(레거시 70 고정).
-// flip 은 Phase 2(운영자 forward-outcome 성숙) 사안 — ENV 1줄 즉시 롤백.
+// default ON (ADR-0643 burn-down activation). `=false` 1줄로 effective===requiredScore(70) 즉시 롤백.
+// 미설정(unset)·`=true`/`=1`/`=yes` → ON (관용). OFF 분기(early-return)는 보존 — D4 cleanup 후속 연기.
 // ───────────────────────────────────────────────────────────────────────────
 export function isGate1DenominatorNormalizationEnabled(): boolean {
-  return process.env.GATE1_DENOMINATOR_NORMALIZATION_ENABLED === 'true';
+  return process.env.GATE1_DENOMINATOR_NORMALIZATION_ENABLED !== 'false';
 }

@@ -1,4 +1,4 @@
-// @responsibility ADR-0613 회귀 — Gate1 천장 배선: flag OFF byte-identical·ON delta·입력 부재 graceful·관측 ledger stamp 격리·requiredScore 70 불변.
+// @responsibility ADR-0613/0643 회귀 — Gate1 천장 배선: flag=false byte-identical·unset(default-ON) delta·입력 부재 graceful·관측 ledger stamp 격리·requiredScore 70 불변.
 import { afterEach, describe, expect, it } from "vitest";
 import { buildMinimumSignalScoreTrace } from "./minimumSignalScoreTrace.js";
 import {
@@ -56,18 +56,22 @@ afterEach(() => {
   delete process.env[ENABLED];
 });
 
-describe("ADR-0613 A. flag-OFF byte-identical", () => {
-  it("A1 flag 미설정 + percentile 존재 → applyRsPercentileWiring 입력 그대로", () => {
+describe("ADR-0613/0643 A. flag=false byte-identical (명시 OFF 롤백, ADR-0643 default-ON 반전)", () => {
+  // ADR-0643 flip 후 unset=ON 이므로 transform identity 회귀는 명시 `=false` 로 고정한다.
+  it("A1 =false + percentile 존재 → applyRsPercentileWiring 입력 그대로", () => {
+    process.env[ENABLED] = "false";
     const out = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never);
     expect(out).toEqual(rsMissingBase);
   });
 
-  it("A2 flag 미설정 + OHLCV 존재 → applyBreakoutWiring 입력 그대로", () => {
+  it("A2 =false + OHLCV 존재 → applyBreakoutWiring 입력 그대로", () => {
+    process.env[ENABLED] = "false";
     const out = applyBreakoutWiring(breakoutMissingBase, { currentPrice: 100, high20: 99, high60: 95 } as never);
     expect(out).toEqual(breakoutMissingBase);
   });
 
-  it("A3 flag 미설정 + positive 합 존재 → applyPositiveMaxNormalization rawComputed 그대로", () => {
+  it("A3 =false + positive 합 존재 → applyPositiveMaxNormalization rawComputed 그대로", () => {
+    process.env[ENABLED] = "false";
     const components = [
       { weightedScore: 20, maxScore: 20 },
       { weightedScore: -5, maxScore: 0 },
@@ -75,7 +79,8 @@ describe("ADR-0613 A. flag-OFF byte-identical", () => {
     expect(applyPositiveMaxNormalization(15, components)).toBe(15);
   });
 
-  it("A4 flag 미설정 + 전체 scorer → actualScore/computedScore/passed/scoreGap baseline 동일", () => {
+  it("A4 =false + 전체 scorer → actualScore/computedScore/passed/scoreGap baseline 동일", () => {
+    process.env[ENABLED] = "false";
     const patch = { rsRankPct: 80, currentPrice: 100, high20: 99, high60: 95, volumeRatio: 1.5, return20d: 12 };
     const off = trace(patch);
     const baseline = trace(patch);
@@ -85,13 +90,21 @@ describe("ADR-0613 A. flag-OFF byte-identical", () => {
     expect(off.requiredScore).toBe(70);
   });
 
-  it("A5 '1'/'TRUE'/'yes' 는 OFF 취급(ADR-0157 정확 비교) → byte-identical", () => {
-    const baseline = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never);
+  it("A5 (ADR-0643 의미 반전) '1'/'TRUE'/'yes'/'on'/unset → ON(배선 적용). 정확 'false' 만 OFF.", () => {
+    // flip 후 `!== 'false'` 관용 비교 — 정확 'false' 만 transform identity, 나머지(unset 포함) 전부 ON(배선).
+    process.env[ENABLED] = "false";
+    const off = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never);
+    expect(off).toEqual(rsMissingBase); // =false → identity
     for (const v of ["1", "TRUE", "yes", "on"]) {
       process.env[ENABLED] = v;
-      expect(applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never)).toEqual(baseline);
+      const on = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never);
+      expect(on.normalizedScore).toBeGreaterThan(rsMissingBase.normalizedScore); // ON → 배선 적용
       delete process.env[ENABLED];
     }
+    // unset(default) → ON.
+    delete process.env[ENABLED];
+    const onUnset = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never);
+    expect(onUnset.normalizedScore).toBeGreaterThan(rsMissingBase.normalizedScore);
   });
 });
 
@@ -178,6 +191,7 @@ describe("ADR-0613 D. 관측 ledger stamp 격리 (불변식 #1)", () => {
 
   it("D3 flag ON + hypothetical delta == 실제 적용 delta (동형성)", () => {
     const patch = { currentPrice: 102, high20: 100, high60: 98, volumeRatio: 1.5 };
+    process.env[ENABLED] = "false";
     const off = trace(patch);
     process.env[ENABLED] = "true";
     const on = trace(patch);
@@ -205,6 +219,36 @@ describe("ADR-0613 E. 절대 보존 가드", () => {
   it("E1 양 flag 상태 + requiredScore 70 불변", () => {
     expect(trace({}).requiredScore).toBe(70);
     process.env[ENABLED] = "true";
+    expect(trace({}).requiredScore).toBe(70);
+  });
+});
+
+describe("ADR-0643 F. default-ON(unset) 신규 동작 + =false baseline 복귀 (flip 회귀)", () => {
+  it("F1 unset(default) → ON: RS percentile 배선 적용(base 대비 normalizedScore 상승)", () => {
+    delete process.env[ENABLED]; // unset = ON (ADR-0643 default 반전)
+    const out = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never);
+    expect(out.normalizedScore).toBeGreaterThan(rsMissingBase.normalizedScore);
+  });
+
+  it("F2 unset(default) → ON: breakout OHLCV 배선 적용", () => {
+    delete process.env[ENABLED];
+    const out = applyBreakoutWiring(breakoutMissingBase, {
+      currentPrice: 102, high20: 100, high60: 98, volumeRatio: 1.5, ma20: 95, ma60: 90,
+    } as never);
+    expect(out.normalizedScore).toBeGreaterThan(0);
+  });
+
+  it("F3 =false → unset(ON) 대비 transform identity baseline 복귀", () => {
+    delete process.env[ENABLED];
+    const onOut = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never);
+    process.env[ENABLED] = "false";
+    const offOut = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never);
+    expect(onOut.normalizedScore).toBeGreaterThan(rsMissingBase.normalizedScore); // ON
+    expect(offOut).toEqual(rsMissingBase); // =false identity
+  });
+
+  it("F4 requiredScore 70 은 default-ON(unset) 에서도 불변", () => {
+    delete process.env[ENABLED];
     expect(trace({}).requiredScore).toBe(70);
   });
 });

@@ -1,4 +1,4 @@
-// @responsibility ADR-0627 회귀 — Gate1 RS percentile 연속 승격(GAP-A)·breakout OHLCV high20d 필드 정정(GAP-B)·D3 관측 hypothetical: 양 flag OFF byte-identical·weight/required/천장 불변.
+// @responsibility ADR-0627/0643 회귀 — Gate1 RS percentile 연속 승격(GAP-A)·breakout OHLCV high20d 필드 정정(GAP-B)·D3 관측 hypothetical: 양 flag=false byte-identical·unset(default-ON) 연속·weight/required/천장 불변.
 import { afterEach, describe, expect, it } from "vitest";
 import { buildEntryFilterDecomposition } from "./entryFilterDecomposition.js";
 import { buildMinimumSignalScoreTrace } from "./minimumSignalScoreTrace.js";
@@ -72,8 +72,9 @@ afterEach(() => {
 // ─────────────────────────────────────────────────────────────────────────
 // (a) 양 flag OFF → step·기존 resolver byte-identical
 // ─────────────────────────────────────────────────────────────────────────
-describe("ADR-0627 (a) flag OFF byte-identical", () => {
-  it("GAP-A OFF → 5단 step(0/2/5/8/10) 유지", () => {
+describe("ADR-0627/0643 (a) flag=false byte-identical (명시 OFF 롤백, default-ON 반전)", () => {
+  it("GAP-A =false → 5단 step(0/2/5/8/10) 유지", () => {
+    process.env[RS_CONTINUOUS] = "false";
     const d = rsScoreByRank(decomposition());
     // rsRankPct 100→step 10, 75→5, 50→2, 25→0, 0→0
     expect(d.U1.rsRankPct).toBeCloseTo(100, 0);
@@ -88,13 +89,20 @@ describe("ADR-0627 (a) flag OFF byte-identical", () => {
     expect(d.U5.relativeStrengthScore).toBe(0);
   });
 
-  it("GAP-A '1'/'TRUE'/'yes' 는 OFF 취급(ADR-0157 정확 비교) → step 유지", () => {
+  it("GAP-A (ADR-0643 의미 반전) '1'/'TRUE'/'yes'/'on'/unset → ON(연속). 정확 'false' 만 step.", () => {
+    // flip 후 `!== 'false'` 관용 비교 — 정확 'false' 만 step, 나머지(unset 포함) 전부 ON(연속).
     for (const v of ["1", "TRUE", "yes", "on"]) {
       process.env[RS_CONTINUOUS] = v;
       const d = rsScoreByRank(decomposition());
-      expect(d.U2.relativeStrengthScore).toBe(5); // step, 연속이면 7.5
+      expect(d.U2.relativeStrengthScore).toBeCloseTo(7.5, 1); // ON 연속 (step 이면 5)
       delete process.env[RS_CONTINUOUS];
     }
+    // unset(default) → ON 연속.
+    delete process.env[RS_CONTINUOUS];
+    expect(rsScoreByRank(decomposition()).U2.relativeStrengthScore).toBeCloseTo(7.5, 1);
+    // 정확 'false' → step.
+    process.env[RS_CONTINUOUS] = "false";
+    expect(rsScoreByRank(decomposition()).U2.relativeStrengthScore).toBe(5);
   });
 });
 
@@ -152,7 +160,8 @@ describe("ADR-0627 (c) GAP-B breakout OHLCV high20d 필드 정정", () => {
     expect(out.confidence).toBe("VERIFIED");
   });
 
-  it("flag OFF + high20d 존재 → byte-identical(transform 미실행)", () => {
+  it("=false + high20d 존재 → byte-identical(transform 미실행)", () => {
+    process.env[CEILING_WIRING] = "false";
     const out = applyBreakoutWiring(breakoutMissingBase, {
       currentPrice: 102, high20d: 100, high60d: 98, volumeRatio: 1.5,
     } as never);
@@ -227,6 +236,10 @@ describe("ADR-0627 (d) D3 RS 연속 hypothetical (flag 무관 force-ON)", () => 
   });
 
   it("hypothetical stamp 가 actualScore/passed 본체에 영향 0", () => {
+    // ADR-0643 — 0613 positive-max 정규화(default-ON)는 actualScore 를 정규화해 raw component 합과
+    // 분리하므로, 본 불변식(actualScore===componentsSum)은 정규화 transform 을 끈 채(=false) 격리 검증한다.
+    // (RS continuous(0627)는 본 테스트의 subject 라 default-ON 유지 — hypothetical 누수만 확인.)
+    process.env[CEILING_WIRING] = "false";
     const out = scoreTrace({ rsRankPct: 45 });
     // actualScore 는 components 합과 정합 — hypothetical 필드는 본체에 가산되지 않는 관측 전용.
     const componentsSum =
@@ -264,11 +277,41 @@ describe("ADR-0627 (e/f) 불변 계약", () => {
   });
 
   it("configuredPositiveMax 합(maxScore) flag ON/OFF 동일(천장 무변)", () => {
+    process.env[RS_CONTINUOUS] = "false";
     const off = scoreTrace({ rsRankPct: 75 });
     process.env[RS_CONTINUOUS] = "true";
     const on = scoreTrace({ rsRankPct: 75 });
     const sumMax = (t: typeof off) =>
       t.components.filter((c) => c.maxScore > 0).reduce((s, c) => s + c.maxScore, 0);
     expect(sumMax(on)).toBe(sumMax(off));
+  });
+});
+
+describe("ADR-0643 (g) default-ON(unset) 신규 동작 + =false baseline 복귀 (flip 회귀)", () => {
+  it("g1 unset(default) → ON: RS 연속 승격(p=75 → 7.5)", () => {
+    delete process.env[RS_CONTINUOUS]; // unset = ON (ADR-0643 default 반전)
+    expect(rsScoreByRank(decomposition()).U2.relativeStrengthScore).toBeCloseTo(7.5, 1);
+  });
+
+  it("g2 =false → unset(ON) 대비 step 양자화 baseline 복귀", () => {
+    delete process.env[RS_CONTINUOUS];
+    const onScore = rsScoreByRank(decomposition()).U2.relativeStrengthScore;
+    process.env[RS_CONTINUOUS] = "false";
+    const offScore = rsScoreByRank(decomposition()).U2.relativeStrengthScore;
+    expect(onScore).toBeCloseTo(7.5, 1); // ON 연속
+    expect(offScore).toBe(5); // =false step 복귀
+  });
+
+  it("g3 unset(default) → CEILING_WIRING ON: breakout high20d 점화", () => {
+    delete process.env[CEILING_WIRING]; // unset = ON
+    const out = applyBreakoutWiring(breakoutMissingBase, {
+      currentPrice: 102, high20d: 100, high60d: 98, volumeRatio: 1.5, ma20: 95, ma60: 90,
+    } as never);
+    expect(out.normalizedScore).toBeGreaterThan(0);
+  });
+
+  it("g4 p=100 천장은 default-ON(unset) 에서도 10 무변", () => {
+    delete process.env[RS_CONTINUOUS];
+    expect(rsScoreByRank(decomposition()).U1.relativeStrengthScore).toBe(10);
   });
 });

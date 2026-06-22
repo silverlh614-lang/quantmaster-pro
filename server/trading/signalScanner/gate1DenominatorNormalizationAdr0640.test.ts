@@ -1,4 +1,4 @@
-// @responsibility ADR-0640 회귀 — Gate1 분모 정합: flag OFF byte-identical·결손 분모 제외·requiredScore 비례 축소(절대 인상 금지·floor clamp)·관측 ledger stamp·불변식 #6.
+// @responsibility ADR-0640/0643 회귀 — Gate1 분모 정합: flag=false byte-identical·unset(default-ON) 결손 분모 제외·requiredScore 비례 축소(절대 인상 금지·floor clamp)·관측 ledger stamp·불변식 #6.
 import { afterEach, describe, expect, it } from "vitest";
 import { buildMinimumSignalScoreTrace } from "./minimumSignalScoreTrace.js";
 import {
@@ -55,16 +55,20 @@ afterEach(() => {
   delete process.env[ENABLED];
 });
 
-describe("ADR-0640 A. flag-OFF byte-identical", () => {
-  it("A1 OFF + full-data → requiredScore 그대로", () => {
+describe("ADR-0640/0643 A. flag=false byte-identical (명시 OFF 롤백, ADR-0643 default-ON 반전)", () => {
+  // ADR-0643 flip 후 unset=ON 이므로 baseline 회귀는 명시 `=false` 로 고정한다.
+  it("A1 =false + full-data → requiredScore 그대로", () => {
+    process.env[ENABLED] = "false";
     expect(resolveEffectiveRequiredScore(70, fullData)).toBe(70);
   });
 
-  it("A2 OFF + 결손-data → requiredScore 그대로 (분모 미축소)", () => {
+  it("A2 =false + 결손-data → requiredScore 그대로 (분모 미축소)", () => {
+    process.env[ENABLED] = "false";
     expect(resolveEffectiveRequiredScore(70, missingData)).toBe(70);
   });
 
-  it("A3 OFF + 전체 scorer → passed/scoreGap/requiredScore baseline 동일", () => {
+  it("A3 =false + 전체 scorer → passed/scoreGap/requiredScore baseline 동일", () => {
+    process.env[ENABLED] = "false";
     const patch = { rsRankPct: 80, currentPrice: 100, high20: 99, return20d: 12 };
     const off = trace(patch);
     const baseline = trace(patch);
@@ -75,12 +79,19 @@ describe("ADR-0640 A. flag-OFF byte-identical", () => {
     expect(off.scoreGap).toBe(Math.round((off.actualScore - 70) * 10) / 10);
   });
 
-  it("A4 '1'/'TRUE'/'yes'/'on' 은 OFF 취급(정확 비교) → requiredScore 그대로", () => {
+  it("A4 (ADR-0643 의미 반전) '1'/'TRUE'/'yes'/'on'/unset → ON(분모 축소). 정확 'false' 만 OFF.", () => {
+    // flip 후 `!== 'false'` 관용 비교 — 정확 'false' 만 OFF, 나머지(unset 포함) 전부 ON.
     for (const v of ["1", "TRUE", "yes", "on"]) {
       process.env[ENABLED] = v;
-      expect(resolveEffectiveRequiredScore(70, missingData)).toBe(70);
+      expect(resolveEffectiveRequiredScore(70, missingData)).toBeLessThan(70); // ON
       delete process.env[ENABLED];
     }
+    // unset(default) → ON.
+    delete process.env[ENABLED];
+    expect(resolveEffectiveRequiredScore(70, missingData)).toBeLessThan(70);
+    // 정확 'false' → OFF(baseline).
+    process.env[ENABLED] = "false";
+    expect(resolveEffectiveRequiredScore(70, missingData)).toBe(70);
   });
 });
 
@@ -202,7 +213,8 @@ describe("ADR-0640 E. 통합(buildMinimumSignalScoreTrace)", () => {
     });
   }
 
-  it("E1 OFF → 결손 종목 passed/scoreGap 가 레거시(actualScore-70)와 동일", () => {
+  it("E1 =false → 결손 종목 passed/scoreGap 가 레거시(actualScore-70)와 동일", () => {
+    process.env[ENABLED] = "false";
     const out = traceMissing({ rsRankPct: 80, currentPrice: 100, high20: 99, return20d: 12 });
     expect(out.requiredScore).toBe(70);
     expect(out.passed).toBe(out.actualScore >= 70);
@@ -229,6 +241,7 @@ describe("ADR-0640 E. 통합(buildMinimumSignalScoreTrace)", () => {
       volume: 5000000, priceChange: 5, technicalScore: 9, trendScore: 9,
       watchlistScore: 90, priceDataFresh: true,
     };
+    process.env[ENABLED] = "false";
     const off = traceMissing(richPatch);
     process.env[ENABLED] = "true";
     const on = traceMissing(richPatch);
@@ -258,5 +271,35 @@ describe("ADR-0640 F. 불변식 #6 — 결손은 문턱을 내릴 뿐 페널티�
     const effective = resolveEffectiveRequiredScore(70, missingData);
     expect(effective).toBeLessThan(70);
     expect(effective).toBeGreaterThanOrEqual(49); // floor 보장
+  });
+});
+
+describe("ADR-0643 G. default-ON(unset) 신규 동작 + =false baseline 복귀 (flip 회귀)", () => {
+  it("G1 unset(default) → ON: 결손 data 분모 축소(effective<70)", () => {
+    delete process.env[ENABLED]; // unset = ON (ADR-0643 default 반전)
+    expect(resolveEffectiveRequiredScore(70, missingData)).toBeLessThan(70);
+  });
+
+  it("G2 unset(default) → available>=configured 면 무변경(인상 0 가드 유지)", () => {
+    delete process.env[ENABLED];
+    expect(resolveEffectiveRequiredScore(70, fullData)).toBe(70);
+  });
+
+  it("G3 unset(default) → catastrophic 결손도 0.7× floor clamp(=49) binding", () => {
+    delete process.env[ENABLED];
+    const catastrophic: DenominatorNormalizationComponent[] = [
+      { weightedScore: 0, maxScore: 100, confidence: "UNKNOWN" },
+      { weightedScore: 0, maxScore: 8, confidence: "VERIFIED" },
+    ];
+    expect(resolveEffectiveRequiredScore(70, catastrophic)).toBe(49);
+  });
+
+  it("G4 =false → unset(ON) 대비 baseline 복귀(byte-identical effective===required)", () => {
+    delete process.env[ENABLED];
+    const onMissing = resolveEffectiveRequiredScore(70, missingData);
+    process.env[ENABLED] = "false";
+    const offMissing = resolveEffectiveRequiredScore(70, missingData);
+    expect(onMissing).toBeLessThan(70); // ON 신규 동작
+    expect(offMissing).toBe(70); // =false baseline 복귀
   });
 });
