@@ -85,10 +85,10 @@
       "title": "Pullback Entry Lane + Overheat Guard + RRR-First (Balanced preset)",
       "introduced": "2026-06-22",
       "reviewBy": "2026-09-20",
-      "status": "SHADOW_OFF",
-      "activationCriteria": "눌림목 레인(B)이 추격 레인(C) 대비 forward 1D/3D/5D return 우월한지 N세션 shadow force-ON hypothetical 관측 + 운영자 승인 필수. flag ON 은 entry-selection behavior change(눌림목 인정 + 5일고점 +6% 추격 거부 + 눌림목 RRR≥2.0) 라, forward-outcome 성숙 전 flip 시 #8 미검증 분포 변경 위험 — 데이터 검증 의존 고위험.",
-      "nextAction": "force-ON hypothetical ledger(pullbackLaneHypotheticalFired·forward 1D/3D/5D return 추격 대조) 누적 관측 → 눌림목 우월성 확인 → 운영자 승인 후 flip 결정",
-      "notes": "GATE_PULLBACK_ENTRY_LANE_ENABLED === 'true' default OFF(ADR-0157). OFF=byte-identical(현행 breakout_momentum 단일 레인·과열 가드/눌림목/RRR 하한 미적용). SSOT isPullbackEntryLaneEnabled() gateConfig.ts 거주. 입력 quoteFeatures 기존(high20d/ma20/volume/avgVolume) 신규 fetch 0. 눌림목은 별도 evaluator 아닌 breakout_momentum 추가 레인 → Gate2 breakoutMomentumFailCount 비누수·hardBlock 아님·marketSignal=false. 현 engineMode=SHADOW_ONLY 라 ON 이어도 live 주문 0. requiredScore=70·ADR-0471 weighted curve FREEZE 무접촉."
+      "status": "ON",
+      "activationCriteria": "눌림목 레인(B)이 추격 레인(C) 대비 forward 1D/3D/5D return 우월한지 N세션 관측이 활성화 근거. flag ON 은 entry-selection behavior change(눌림목 인정 + 5일고점 +6% 추격 거부 + 눌림목 RRR≥2.0). 현 engineMode=SHADOW_ONLY 라 live 주문 0 안전창 — ON 으로 실 레인 shadow forward-return 을 수집(hypothetical 대신 실 점화). 운영자(silverlh614) default-on 승인.",
+      "nextAction": "ADR-0649 flip 완료 — default ON(opt-OUT `!== 'false'`, ADR-0157 거울·ADR-0644/0645/0647 동일 패턴). engineMode live 승격 전 shadow forward-return 으로 눌림목 우월성 재확인·`=false` kill-switch 롤백 상시 가능.",
+      "notes": "2026-06-22 ADR-0648 로 default OFF 도입, ADR-0649 로 default ON flip(opt-OUT `!== 'false'`, ADR-0157 거울). SSOT isPullbackEntryLaneEnabled() gateConfig.ts 거주. 입력 quoteFeatures 기존(high20d/ma20/volume/avgVolume) 신규 fetch 0. 눌림목은 별도 evaluator 아닌 breakout_momentum 추가 레인 → Gate2 breakoutMomentumFailCount 비누수·hardBlock 아님·marketSignal=false(불변식 #6). 현 engineMode=SHADOW_ONLY 라 ON 이어도 live 주문 0. requiredScore=70·ADR-0471 weighted curve FREEZE 무접촉. OFF(=false)=byte-identical(단일 강/약 돌파 레인). shadow hypothetical 은 flag 무관 force-ON 항상 stamp(try/catch 격리)."
     }
   ]
 }

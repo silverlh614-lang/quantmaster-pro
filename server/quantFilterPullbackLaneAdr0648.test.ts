@@ -28,12 +28,18 @@ function pullbackQuote(overrides: Partial<YahooQuoteExtended> = {}): YahooQuoteE
 describe('evaluateServerGate 눌림목 레인 정합 (ADR-0648)', () => {
   afterEach(() => { delete process.env[FLAG]; });
 
-  it('flag OFF → entryLane undefined (byte-identical, 눌림목 레인 미태깅)', () => {
+  it('flag OFF(=false) → entryLane undefined (byte-identical, 눌림목 레인 미태깅)', () => {
+    process.env[FLAG] = 'false';
     const r = evaluateServerGate(pullbackQuote(), DEFAULT_CONDITION_WEIGHTS, 1);
     expect(r.entryLane).toBeUndefined();
   });
 
-  it('flag ON → 눌림목 레인 FIRED 시 entryLane=PULLBACK 태깅', () => {
+  it('flag 미설정(default ON, ADR-0649) → 눌림목 레인 FIRED 시 entryLane=PULLBACK 태깅', () => {
+    const r = evaluateServerGate(pullbackQuote(), DEFAULT_CONDITION_WEIGHTS, 1);
+    expect(r.entryLane).toBe('PULLBACK');
+  });
+
+  it('flag ON(=true) → 눌림목 레인 FIRED 시 entryLane=PULLBACK 태깅', () => {
     process.env[FLAG] = 'true';
     const r = evaluateServerGate(pullbackQuote(), DEFAULT_CONDITION_WEIGHTS, 1);
     expect(r.entryLane).toBe('PULLBACK');
@@ -42,7 +48,8 @@ describe('evaluateServerGate 눌림목 레인 정합 (ADR-0648)', () => {
     expect(breakout?.output?.status).toBe('FIRED');
   });
 
-  it('W5 — force-ON shadow stamp 은 flag 무관 항상 산출 (flag OFF 에서도)', () => {
+  it('W5 — force-ON shadow stamp 은 flag 무관 항상 산출 (flag OFF(=false) 에서도)', () => {
+    process.env[FLAG] = 'false';
     const r = evaluateServerGate(pullbackQuote(), DEFAULT_CONDITION_WEIGHTS, 1);
     expect(r.pullbackLaneShadow).toBeDefined();
     expect(r.pullbackLaneShadow?.pullbackLaneHypotheticalFired).toBe(true);
