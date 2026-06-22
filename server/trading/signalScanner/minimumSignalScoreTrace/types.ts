@@ -90,6 +90,11 @@ export interface MinimumSignalScoreTrace {
   denomNormAvailableMaxScore?: number;
   denomNormEffectiveRequiredScore?: number;
   denomNormHypotheticalPassed?: boolean;
+  // (ADR 후속) VOLUME_LIQUIDITY 배선 복구 관측(flag 무관 force-ON). try/catch 격리 실패 시 부재.
+  // actualScore/passed 본체 영향 0(관측 전용). flag OFF 에서도 raw volume→점수 효과 크기 측정.
+  volumeLiquidityWiringDelta?: number;
+  volumeLiquidityWiringHypotheticalActualScore?: number;
+  volumeLiquidityWiringHypotheticalPassed?: boolean;
 }
 
 export type UnknownDataTreatment =

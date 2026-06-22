@@ -44,9 +44,10 @@ Gate1 에 default-OFF 플래그가 5개 영원히 OFF 로 쌓여 shadow 관측�
 
 > **검사 상태(2026-06-22 갱신):** 점수개선 4종(0611·0613·0627·0640)이 `status: "ON"` 으로 flip 됨
 > (0613/0627/0640 = ADR-0644 safe-lever flip · 0611 = ADR-0645). `check_flag_lifecycle.js` 는 ON 이면
-> `reviewBy` 만료 검사를 면제하므로 이 4개는 검사 대상에서 빠진다. 남은 `SHADOW_OFF` 는 0546 1개뿐이며
-> `reviewBy = 2026-09-19`(미경과)라 `validate:flagLifecycle` 통과. 2026-09-19 경과 후 0546 은
-> flip/sunset/연장 중 하나가 강제된다.
+> `reviewBy` 만료 검사를 면제하므로 이 4개는 검사 대상에서 빠진다. 남은 `SHADOW_OFF` 는 3개 —
+> 0546(regime-aware required·`reviewBy 2026-09-19`)·0643(positive-max-normalization·16/16 과개방 봉인·
+> `reviewBy 2026-09-20`)·0646(volume-liquidity-wiring·`reviewBy 2026-09-20`) — 이며 셋 다 `reviewBy` 미경과라
+> `validate:flagLifecycle` 통과. 각 `reviewBy` 경과 후 해당 flag 는 flip/sunset/연장 중 하나가 강제된다.
 
 ---
 
@@ -59,6 +60,7 @@ Gate1 에 default-OFF 플래그가 5개 영원히 OFF 로 쌓여 shadow 관측�
 | `GATE1_POSITIVE_CEILING_WIRING_ENABLED` | 0613 | **ON** (2026-06-22 flip) | 2026-09-19 | 중간(3종 묶음 효과) | ADR-0644 flip 완료 (16/16 정규화는 ADR-0643 분리·OFF 유지) | **flipped (ADR-0644)** |
 | `GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED` | 0627 | **ON** (2026-06-22 flip) | 2026-09-19 | 낮음(손실 복원 버그픽스) | ADR-0644 flip 완료 | **flipped (ADR-0644)** |
 | `GATE1_DENOMINATOR_NORMALIZATION_ENABLED` | 0640 | **ON** (2026-06-22 flip) | 2026-09-19 | 중간~높음(데이터 파이프 의존) | ADR-0644 flip 완료 · 데이터 파이프 건강 모니터링 지속 | **flipped (ADR-0644)** |
+| `GATE1_VOLUME_LIQUIDITY_WIRING_ENABLED` | 0646 | SHADOW_OFF | 2026-09-20 | 낮음(additive 입력 복원·곡선 무변경·결손 graceful) | raw volume coverage 확인 + shadow hypothetical 델타 N세션 관측 후 flip | **저위험 · flip 후보** |
 
 ### 솔직한 분류 해설
 
@@ -68,6 +70,12 @@ Gate1 에 default-OFF 플래그가 5개 영원히 OFF 로 쌓여 shadow 관측�
     weightedScore 0(graceful)·requiredScore 무변경. 입력 커버리지만 확인되면 flip 안전.
   - **0627(RS Percentile Continuous)** — 5단 step 양자화가 p<50 percentile 을 전부 0 으로 붕괴시킨 **정보 손실
     버그픽스**다. maxScore/weight 무변경(천장 p=100 동일 10), weight 인상이 아닌 손실 복원. flip 후보.
+  - **0646(VOLUME_LIQUIDITY Wiring)** — VOLUME_LIQUIDITY 컴포넌트가 평균거래량을 plain `avgVolume` 경로에서만
+    읽는데 시스템 카논 필드는 `avgVolume20d`/`volumeRatio`(coverage 판정·gate3 materializer 기준)라, production
+    종목이 분기 미진입→fallback→전 종목 weightedScore 0(`RAW_AVAILABLE_SCORE_NOT_PROMOTED`)인 **순수 배선 갭**이다.
+    ON 은 이미 hydrate 된 카논 raw 를 기존 ratio 곡선식(maxScore 12)으로 소비할 뿐(신규 fetch 0·신규 공식 0·
+    곡선/requiredScore 70 무변경·진짜 결손 종목 0 graceful·불변식 #6). additive 입력 복원이라 저위험·flip 후보.
+    단 LIVE 채점 분포 변화이므로 raw volume coverage 확인 + shadow hypothetical 델타 관측 후 flip(default OFF 출하).
 - **데이터 의존 (0640 / 0546):**
   - **0640(Denominator Normalization)** — 수급/투자자 데이터 결손이 분모에 남아 실효 문턱을 올리는 갭을
     교정한다. 데이터 만성 결손 환경에서 게이트 완화 부작용 위험이 있어 **데이터 파이프 건강**에 의존. shadow

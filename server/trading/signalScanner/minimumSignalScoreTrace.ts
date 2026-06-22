@@ -46,6 +46,10 @@ import {
   resolveEffectiveRequiredScore,
   computeDenominatorNormalizationHypothetical,
 } from "./gate1DenominatorNormalizationAdr0640.js";
+import {
+  applyVolumeLiquidityWiring,
+  computeVolumeLiquidityWiringHypothetical,
+} from "./gate1VolumeLiquidityWiringAdr.js";
 
 export * from "./minimumSignalScoreTrace/types.js";
 export {
@@ -184,7 +188,12 @@ export function buildMinimumSignalScoreTrace(input: {
   const breakoutBase = breakoutScore(input.trace);
   // ADR-0613 (b) BREAKOUT_STRUCTURE 배선 — flag OFF → breakoutBase 그대로(byte-equivalent).
   const breakout = applyBreakoutWiring(breakoutBase, input.trace) as typeof breakoutBase;
-  const volumeLiquidity = volumeLiquidityScore(input.trace);
+  const volumeLiquidityBase = volumeLiquidityScore(input.trace);
+  // (ADR 후속) VOLUME_LIQUIDITY 입력 배선 복구 — flag OFF → volumeLiquidityBase 그대로(byte-equivalent).
+  const volumeLiquidity = applyVolumeLiquidityWiring(
+    volumeLiquidityBase,
+    input.trace,
+  );
   const priceMomentum = priceMomentumScore(input.trace, input.regime);
   const technicalTrend = technicalTrendScore(input.trace);
   const sectorRs = resolveSectorRsComponentScore(input.trace);
@@ -596,6 +605,22 @@ export function buildMinimumSignalScoreTrace(input: {
     /* SDS-ignore: ADR-0640 denom-norm 관측 stamp 실패는 scorer 본체 영향 0 (불변식 #1). 필드 미stamp graceful. */
     denomNormHypothetical = undefined;
   }
+  // (ADR 후속) VOLUME_LIQUIDITY 배선 복구 관측 hypothetical — flag 무관 force-ON 산출(OFF 에서도 효과 크기 측정).
+  // try/catch 격리(불변식 #1): 실패 시 필드 미stamp. actualScore/passed 본체 영향 0.
+  let volumeLiquidityWiringHypothetical:
+    | ReturnType<typeof computeVolumeLiquidityWiringHypothetical>
+    | undefined;
+  try {
+    volumeLiquidityWiringHypothetical = computeVolumeLiquidityWiringHypothetical({
+      base: volumeLiquidityBase,
+      trace: input.trace,
+      actualScore,
+      requiredScore,
+    });
+  } catch {
+    /* SDS-ignore: VOLUME_LIQUIDITY 배선 hypothetical stamp 실패는 scorer 본체 영향 0 (불변식 #1). 필드 미stamp graceful. */
+    volumeLiquidityWiringHypothetical = undefined;
+  }
   return {
     symbol: input.trace.symbol,
     name: input.trace.name,
@@ -607,6 +632,7 @@ export function buildMinimumSignalScoreTrace(input: {
     ...(ceilingWiringHypothetical ? ceilingWiringHypothetical : {}),
     ...(rsContinuousHypothetical ? rsContinuousHypothetical : {}),
     ...(denomNormHypothetical ? denomNormHypothetical : {}),
+    ...(volumeLiquidityWiringHypothetical ? volumeLiquidityWiringHypothetical : {}),
     positiveScoreTotal,
     penaltyTotal,
     unknownPenaltyTotal,
