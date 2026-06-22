@@ -159,6 +159,7 @@ import {
   nestedRecord,
   collectOfficialSectorIndexTargets,
   watchlistFallbackCandidates,
+  laneRegimeBlockedForReason,
 } from './persistScanResults/helpers.js';
 import type { PersistScanResultsOptions } from './persistScanResults/types.js';
 import { upsertGate3OutcomeSeeds } from '../../../persistence/gate3OutcomeRepo.js';
@@ -599,7 +600,7 @@ export async function persistScanResults(
         reason = 'TRUE_WEAKNESS — Shadow 학습도 차단';
       } else if ((counters.gate1Pass ?? 0) === 0) {
         reason = 'no Gate1 survivor';
-      } else if (routerInput.regime !== 'R3_EARLY') {
+      } else if (laneRegimeBlockedForReason(macroGate?.learningRegime, routerInput.regime)) {
         reason = `regime=${routerInput.regime ?? 'UNKNOWN'}/learning=${macroGate?.learningRegime ?? 'UNKNOWN'} — R3_EARLY 외 차단`;
       }
       if (reason !== undefined) {
@@ -645,7 +646,7 @@ export async function persistScanResults(
         cfReason = 'disabled (ENV COUNTERFACTUAL_SHADOW_LEARNING_DISABLED=true)';
       } else if ((counters.gate1Pass ?? 0) === 0) {
         cfReason = 'no Gate1 survivor';
-      } else if (routerInput.regime !== 'R3_EARLY') {
+      } else if (laneRegimeBlockedForReason(macroGate?.learningRegime, routerInput.regime)) {
         cfReason = `regime=${routerInput.regime ?? 'UNKNOWN'}/learning=${macroGate?.learningRegime ?? 'UNKNOWN'} — R3_EARLY 외 비활성`;
       } else if (router?.severity === 'TRUE_WEAKNESS') {
         cfReason = 'TRUE_WEAKNESS — 학습 표본 오염 차단';
