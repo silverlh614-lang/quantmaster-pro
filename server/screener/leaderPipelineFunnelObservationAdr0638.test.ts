@@ -253,7 +253,7 @@ describe('ADR-0638 formatLeaderPipelineFunnelSection', () => {
     expect(out).toContain('OVEREXTENDED 5');
   });
 
-  it('cacheEmpty → 가설(b) 힌트 + EMPTY', () => {
+  it('cacheEmpty + refresh ON → 가설(b) 힌트 + EMPTY', () => {
     const row = { ...computeLeaderPipelineFunnelObservation({
       cacheFreshness: computeLeaderCacheFreshness([], NOW),
       cacheLeaderCodeCount: 0,
@@ -264,12 +264,12 @@ describe('ADR-0638 formatLeaderPipelineFunnelSection', () => {
       enabled: true,
       now: NOW,
     }), appendedAt: ISO_NOW };
-    const out = formatLeaderPipelineFunnelSection(row, true);
+    const out = formatLeaderPipelineFunnelSection(row, true, true);
     expect(out).toContain('EMPTY');
     expect(out).toContain('(b)');
   });
 
-  it('cacheStale → 가설(b) 힌트 + STALE', () => {
+  it('cacheStale + refresh ON → 가설(b) 힌트 + STALE', () => {
     const row = { ...computeLeaderPipelineFunnelObservation({
       cacheFreshness: computeLeaderCacheFreshness([leaderStock('005930', 'FOREIGN_NET_BUY', ISO_4D_AGO)], NOW),
       cacheLeaderCodeCount: 1,
@@ -280,8 +280,26 @@ describe('ADR-0638 formatLeaderPipelineFunnelSection', () => {
       enabled: true,
       now: NOW,
     }), appendedAt: ISO_NOW };
-    const out = formatLeaderPipelineFunnelSection(row, true);
+    const out = formatLeaderPipelineFunnelSection(row, true, true);
     expect(out).toContain('STALE');
     expect(out).toContain('(b)');
+  });
+
+  it('cacheEmpty + refresh OFF → 가설(c) 힌트 (충전 cron OFF 식별)', () => {
+    const row = { ...computeLeaderPipelineFunnelObservation({
+      cacheFreshness: computeLeaderCacheFreshness([], NOW),
+      cacheLeaderCodeCount: 0,
+      leaderCodesEnteredStage1: 0,
+      leaderCodesPassedStage1: 0,
+      leaderStage1Cut: { byOverextended: 0, byOverheat: 0, byOther: 0 },
+      leaderPreservedIntoPool: 0,
+      enabled: true,
+      now: NOW,
+    }), appendedAt: ISO_NOW };
+    const out = formatLeaderPipelineFunnelSection(row, true, false);
+    expect(out).toContain('EMPTY');
+    expect(out).toContain('(c)');
+    expect(out).toContain('LEADER_DAILY_REFRESH_ENABLED');
+    expect(out).not.toContain('(b)');
   });
 });

@@ -2,7 +2,12 @@
 
 import fs from 'fs';
 import type { DynamicStock } from './dynamicUniverseExpander.js';
-import { LEADER_REFRESH_TTL_DAYS, purgeExpired, loadDynamicUniverse } from './dynamicUniverseExpander.js';
+import {
+  LEADER_REFRESH_TTL_DAYS,
+  purgeExpired,
+  loadDynamicUniverse,
+  isLeaderUniverseDailyRefreshEnabled,
+} from './dynamicUniverseExpander.js';
 import {
   isLeaderSource,
   todayKst,
@@ -298,10 +303,15 @@ export function __resetLeaderPipelineFunnelLedgerForTests(
 /**
  * 최신 funnel 관측 1행 → /scan_blockers 섹션 문자열(5줄). flag OFF/ledger 미존재 → null(섹션 미출력).
  * 관측 전용 표시 — cacheStale/cacheEmpty 를 약세 신호로 변환하지 않는다(불변식 #6).
+ *
+ * @param refreshEnabled 캐시 충전 cron(ADR-0618/0639) 활성 여부 SSOT(`LEADER_DAILY_REFRESH_ENABLED`).
+ *   캐시 빔/stale 의 원인을 (b)장외 타이밍 vs (c)충전 cron OFF 로 분기하기 위함 — 관측 flag(0638)만
+ *   켜고 충전 flag(0618)는 끈 비대칭 구성을 운영자가 즉시 식별. executionImpact=NONE(표시 전용).
  */
 export function formatLeaderPipelineFunnelSection(
   row: LeaderPipelineFunnelLedgerRow | null,
   enabled: boolean = isLeaderPipelineFunnelObservationEnabled(),
+  refreshEnabled: boolean = isLeaderUniverseDailyRefreshEnabled(),
 ): string | null {
   if (!enabled) return null;
   if (!row) return null;
@@ -320,8 +330,11 @@ export function formatLeaderPipelineFunnelSection(
   }
 
   const cut = row.leaderStage1Cut;
-  const hint = cf.cacheEmpty || cf.cacheStale
-    ? '판정→(b) 캐시 빔/stale (발굴 cron 점검)'
+  const cacheBlank = cf.cacheEmpty || cf.cacheStale;
+  const hint = cacheBlank
+    ? refreshEnabled
+      ? '판정→(b) 캐시 빔/stale (발굴 cron 점검)'
+      : '판정→(c) 충전 cron OFF (LEADER_DAILY_REFRESH_ENABLED 미설정)'
     : row.dominantLeaderCutReason === 'OVEREXTENDED'
       ? '판정→(a) OVEREXTENDED 추격금지 설계 동작 중'
       : '판정→데이터 축적 중';
