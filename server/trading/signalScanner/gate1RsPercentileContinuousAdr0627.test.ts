@@ -72,8 +72,11 @@ afterEach(() => {
 // ─────────────────────────────────────────────────────────────────────────
 // (a) 양 flag OFF → step·기존 resolver byte-identical
 // ─────────────────────────────────────────────────────────────────────────
-describe("ADR-0627 (a) flag OFF byte-identical", () => {
-  it("GAP-A OFF → 5단 step(0/2/5/8/10) 유지", () => {
+// ADR-0644 — RS-percentile-continuous flag 는 default ON 승격. explicit `=false`
+// kill-switch 만 5단 step byte-identical 복귀. 미설정=ON(연속) 케이스는 아래 (a') 블록.
+describe("ADR-0627 (a) flag =false byte-identical (ADR-0644 kill-switch)", () => {
+  it("GAP-A =false → 5단 step(0/2/5/8/10) 유지", () => {
+    process.env[RS_CONTINUOUS] = "false";
     const d = rsScoreByRank(decomposition());
     // rsRankPct 100→step 10, 75→5, 50→2, 25→0, 0→0
     expect(d.U1.rsRankPct).toBeCloseTo(100, 0);
@@ -88,13 +91,31 @@ describe("ADR-0627 (a) flag OFF byte-identical", () => {
     expect(d.U5.relativeStrengthScore).toBe(0);
   });
 
-  it("GAP-A '1'/'TRUE'/'yes' 는 OFF 취급(ADR-0157 정확 비교) → step 유지", () => {
+  it("GAP-A '1'/'TRUE'/'yes'/'on' 은 ON 취급(ADR-0157·0644 — 정확히 'false' 만 OFF) → 연속", () => {
     for (const v of ["1", "TRUE", "yes", "on"]) {
       process.env[RS_CONTINUOUS] = v;
       const d = rsScoreByRank(decomposition());
-      expect(d.U2.relativeStrengthScore).toBe(5); // step, 연속이면 7.5
+      expect(d.U2.relativeStrengthScore).toBeCloseTo(7.5, 1); // 연속 (step 이면 5)
       delete process.env[RS_CONTINUOUS];
     }
+  });
+});
+
+describe("ADR-0644 (a') flag 미설정(default ON) → 연속 승격", () => {
+  it("GAP-A 미설정 → relativeStrengthScore = clamp(rsRankPct/10, 0, 10) 연속", () => {
+    const d = rsScoreByRank(decomposition());
+    expect(d.U1.relativeStrengthScore).toBeCloseTo(10, 1); // p=100 → 10
+    expect(d.U2.relativeStrengthScore).toBeCloseTo(7.5, 1); // p=75 → 7.5 (step 5)
+    expect(d.U3.relativeStrengthScore).toBeCloseTo(5, 1); // p=50 → 5 (step 2)
+    expect(d.U4.relativeStrengthScore).toBeCloseTo(2.5, 1); // p=25 → 2.5 (step 0)
+  });
+
+  it("GAP-A 미설정(default ON) == explicit ='true' byte-identical", () => {
+    const dflt = rsScoreByRank(decomposition());
+    process.env[RS_CONTINUOUS] = "true";
+    const explicitOn = rsScoreByRank(decomposition());
+    expect(dflt.U2.relativeStrengthScore).toBe(explicitOn.U2.relativeStrengthScore);
+    expect(dflt.U4.relativeStrengthScore).toBe(explicitOn.U4.relativeStrengthScore);
   });
 });
 
@@ -152,7 +173,8 @@ describe("ADR-0627 (c) GAP-B breakout OHLCV high20d 필드 정정", () => {
     expect(out.confidence).toBe("VERIFIED");
   });
 
-  it("flag OFF + high20d 존재 → byte-identical(transform 미실행)", () => {
+  it("flag =false + high20d 존재 → byte-identical(transform 미실행, ADR-0644 kill-switch)", () => {
+    process.env[CEILING_WIRING] = "false";
     const out = applyBreakoutWiring(breakoutMissingBase, {
       currentPrice: 102, high20d: 100, high60d: 98, volumeRatio: 1.5,
     } as never);
@@ -247,9 +269,13 @@ describe("ADR-0627 (e/f) 불변 계약", () => {
   it("flag ON 전체 trace → requiredScore 70·passed 비교식 유지", () => {
     process.env[RS_CONTINUOUS] = "true";
     process.env[CEILING_WIRING] = "true";
+    // ADR-0644 — denom-norm 은 default ON 으로 passed 를 effective(<70) 기준 판정한다.
+    // 본 케이스는 RS/ceiling flag 만 검증하므로 denom-norm 은 =false 로 고정해 `>=70` 항등을 유지한다.
+    process.env.GATE1_DENOMINATOR_NORMALIZATION_ENABLED = "false";
     const out = scoreTrace({ rsRankPct: 80, currentPrice: 100, high20d: 99, return20d: 12 });
     expect(out.requiredScore).toBe(70);
     expect(out.passed).toBe(out.actualScore >= 70);
+    delete process.env.GATE1_DENOMINATOR_NORMALIZATION_ENABLED;
   });
 
   it("RELATIVE_STRENGTH maxScore=10 / weight=1 불변(flag ON/OFF 무관)", () => {
@@ -264,8 +290,9 @@ describe("ADR-0627 (e/f) 불변 계약", () => {
   });
 
   it("configuredPositiveMax 합(maxScore) flag ON/OFF 동일(천장 무변)", () => {
+    process.env[RS_CONTINUOUS] = "false";
     const off = scoreTrace({ rsRankPct: 75 });
-    process.env[RS_CONTINUOUS] = "true";
+    delete process.env[RS_CONTINUOUS]; // default ON
     const on = scoreTrace({ rsRankPct: 75 });
     const sumMax = (t: typeof off) =>
       t.components.filter((c) => c.maxScore > 0).reduce((s, c) => s + c.maxScore, 0);

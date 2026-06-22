@@ -576,6 +576,10 @@ describe("ADR-0466 minimum signal score decomposition", () => {
   });
 
   it("records requiredScore, actualScore, scoreGap and component weighted scores", () => {
+    // ADR-0644 — denom-norm 은 default ON 으로 scoreGap 을 effective(<70) 기준으로 계산한다.
+    // 본 케이스는 requiredScore 리터럴(70) 대비 scoreGap 항등을 검증하므로 denom-norm 을
+    // =false 로 고정해 effective===required(70) 를 보장한다(legacy 항등 보존).
+    process.env.GATE1_DENOMINATOR_NORMALIZATION_ENABLED = "false";
     const d = buildEntryFilterDecomposition({
       now,
       universeCandidates: 1,
@@ -602,6 +606,7 @@ describe("ADR-0466 minimum signal score decomposition", () => {
     expect(
       trace.components.every((c) => typeof c.weightedScore === "number"),
     ).toBe(true);
+    delete process.env.GATE1_DENOMINATOR_NORMALIZATION_ENABLED;
   });
 
   it("UNKNOWN supplyConfluence is not BEARISH and provider penalty is separated from market penalty", () => {

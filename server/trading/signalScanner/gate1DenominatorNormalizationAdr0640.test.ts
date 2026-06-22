@@ -55,17 +55,22 @@ afterEach(() => {
   delete process.env[ENABLED];
 });
 
-describe("ADR-0640 A. flag-OFF byte-identical", () => {
-  it("A1 OFF + full-data → requiredScore 그대로", () => {
+// ADR-0644 — denominator-normalization flag 는 default ON 승격. explicit `=false`
+// kill-switch 만 byte-identical OFF(레거시 70 고정). 미설정=ON 케이스는 아래 A' 블록.
+describe("ADR-0640 A. flag explicit =false byte-identical (ADR-0644 kill-switch)", () => {
+  it("A1 =false + full-data → requiredScore 그대로", () => {
+    process.env[ENABLED] = "false";
     expect(resolveEffectiveRequiredScore(70, fullData)).toBe(70);
   });
 
-  it("A2 OFF + 결손-data → requiredScore 그대로 (분모 미축소)", () => {
+  it("A2 =false + 결손-data → requiredScore 그대로 (분모 미축소)", () => {
+    process.env[ENABLED] = "false";
     expect(resolveEffectiveRequiredScore(70, missingData)).toBe(70);
   });
 
-  it("A3 OFF + 전체 scorer → passed/scoreGap/requiredScore baseline 동일", () => {
+  it("A3 =false + 전체 scorer → passed/scoreGap/requiredScore baseline 동일", () => {
     const patch = { rsRankPct: 80, currentPrice: 100, high20: 99, return20d: 12 };
+    process.env[ENABLED] = "false";
     const off = trace(patch);
     const baseline = trace(patch);
     expect(off.passed).toBe(baseline.passed);
@@ -75,12 +80,32 @@ describe("ADR-0640 A. flag-OFF byte-identical", () => {
     expect(off.scoreGap).toBe(Math.round((off.actualScore - 70) * 10) / 10);
   });
 
-  it("A4 '1'/'TRUE'/'yes'/'on' 은 OFF 취급(정확 비교) → requiredScore 그대로", () => {
+  it("A4 '1'/'TRUE'/'yes'/'on' 은 ON 취급(ADR-0157·0644 — 정확히 'false' 만 OFF)", () => {
+    // ADR-0644: `!== 'false'` → 'false' 외 모든 값은 ON → 결손 분모 축소(effective<70).
     for (const v of ["1", "TRUE", "yes", "on"]) {
       process.env[ENABLED] = v;
-      expect(resolveEffectiveRequiredScore(70, missingData)).toBe(70);
+      expect(resolveEffectiveRequiredScore(70, missingData)).toBeLessThan(70);
       delete process.env[ENABLED];
     }
+  });
+});
+
+describe("ADR-0644 A'. flag 미설정(default ON) → 분모 정합 발화", () => {
+  it("A'1 미설정 + full-data → requiredScore 그대로(결손 없음 → 인상 없음)", () => {
+    expect(resolveEffectiveRequiredScore(70, fullData)).toBe(70);
+  });
+
+  it("A'2 미설정 + 결손-data → effective < 70 (분모 축소 발화)", () => {
+    const effective = resolveEffectiveRequiredScore(70, missingData);
+    expect(effective).toBeCloseTo(59.6, 1);
+    expect(effective).toBeLessThan(70);
+  });
+
+  it("A'3 미설정(default ON) == explicit ='true' byte-identical", () => {
+    const dflt = resolveEffectiveRequiredScore(70, missingData);
+    process.env[ENABLED] = "true";
+    const explicitOn = resolveEffectiveRequiredScore(70, missingData);
+    expect(dflt).toBe(explicitOn);
   });
 });
 
@@ -202,7 +227,8 @@ describe("ADR-0640 E. 통합(buildMinimumSignalScoreTrace)", () => {
     });
   }
 
-  it("E1 OFF → 결손 종목 passed/scoreGap 가 레거시(actualScore-70)와 동일", () => {
+  it("E1 =false → 결손 종목 passed/scoreGap 가 레거시(actualScore-70)와 동일", () => {
+    process.env[ENABLED] = "false";
     const out = traceMissing({ rsRankPct: 80, currentPrice: 100, high20: 99, return20d: 12 });
     expect(out.requiredScore).toBe(70);
     expect(out.passed).toBe(out.actualScore >= 70);
@@ -229,9 +255,17 @@ describe("ADR-0640 E. 통합(buildMinimumSignalScoreTrace)", () => {
       volume: 5000000, priceChange: 5, technicalScore: 9, trendScore: 9,
       watchlistScore: 90, priceDataFresh: true,
     };
+    // ADR-0644 — ceiling/RS flag 도 default ON 이라 actualScore 가 70 을 넘어 시나리오
+    // 전제(actualScore ∈ [effective, 70))가 깨진다. denom-norm 단일 효과 격리를 위해
+    // 다른 두 flag 는 =false 로 고정한다(요구사항: 결손 분모 제외만으로 통과 전환 증명).
+    process.env.GATE1_POSITIVE_CEILING_WIRING_ENABLED = "false";
+    process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED = "false";
+    process.env[ENABLED] = "false";
     const off = traceMissing(richPatch);
-    process.env[ENABLED] = "true";
+    delete process.env[ENABLED]; // default ON
     const on = traceMissing(richPatch);
+    delete process.env.GATE1_POSITIVE_CEILING_WIRING_ENABLED;
+    delete process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED;
     // actualScore 본체는 분모 정합과 무관(관측/문턱만 변경) → OFF/ON 동일(불변식 #1·#6).
     expect(on.actualScore).toBe(off.actualScore);
     // 결손으로 effective<70 이고 actualScore 가 그 사이 → OFF 탈락 / ON 통과(핵심).
