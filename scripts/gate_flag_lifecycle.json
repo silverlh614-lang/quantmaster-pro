@@ -67,6 +67,17 @@
       "activationCriteria": "applyPositiveMaxNormalization(positive 합 × 100/configuredPositiveMax)은 dry-run 에서 NORMALIZE_POSITIVE_MAX_TO_100 → survivors 16/16(게이트 과개방·선별력 상실, 운영자 통과율 target 3~7 위반). forward-outcome counterfactual 성숙 + 통과율 target 부합 확인 + 운영자 승인 전 flip 금지. (ADR-0644 default-ON flip 대상에서 명시 제외 — default OFF 유지.)",
       "nextAction": "ceilingWiring hypothetical 델타(force-ON 관측 ledger 상시 stamp) 누적 관측 → 통과율 target 3~7 부합·forward-outcome 성숙 확인 → 운영자 승인 후 flip 또는 sunset 결정",
       "notes": "ADR-0643 이 ADR-0613 단일 flag 번들에서 분리·봉인한 16/16 과개방 정규화. === 'true' default OFF 유지(ADR-0644 default-ON flip 명시 제외). live actualScore 경로(minimumSignalScoreTrace:506) byte-identical 봉인. 관측 ledger hypothetical 은 force-ON 으로 항상 stamp."
+    },
+    {
+      "envFlag": "GATE1_VOLUME_LIQUIDITY_WIRING_ENABLED",
+      "adr": "0646",
+      "title": "Gate1 VOLUME_LIQUIDITY Wiring (canonical avgVolume20d/volumeRatio 입력 복원)",
+      "introduced": "2026-06-22",
+      "reviewBy": "2026-09-20",
+      "status": "SHADOW_OFF",
+      "activationCriteria": "VOLUME_LIQUIDITY 컴포넌트가 plain avgVolume 경로 미진입으로 전 종목 0(RAW_AVAILABLE_SCORE_NOT_PROMOTED)이던 순수 배선 갭. ON 시 이미 hydrate 된 카논 raw(avgVolume20d/volumeRatio)를 기존 ratio 곡선식(maxScore 12)으로 소비해 점수 복원(신규 fetch 0·신규 공식 0·requiredScore 70 무변경·진짜 결손 0 graceful). 저위험 additive 입력 복원이나 LIVE 채점 분포 변화라 raw volume coverage 충분 확인 + shadow hypothetical 델타 N세션 관측 후 flip.",
+      "nextAction": "raw volume coverage 충분 확인 + shadow hypothetical(force-ON stamp) 델타 N세션 누적 관측 → forward-outcome 성숙 후 default-ON flip 또는 ENV ON 결정(별건 PR)",
+      "notes": "배선 갭 — plain avgVolume vs 시스템 카논 avgVolume20d/volumeRatio(coverage 판정·gate3 materializer 기준) 불일치로 분기 미진입→fallback 0. 신규 순수 모듈 gate1VolumeLiquidityWiringAdr.ts(applyVolumeLiquidityWiring+computeVolumeLiquidityWiringHypothetical). default OFF byte-identical(=== 'true' ADR-0157)·ENV `=false` 1줄 롤백. 저위험(additive 입력 복원·곡선/maxScore 12 무변경·결손 graceful 불변식 #6). hypothetical 은 flag 무관 force-ON 항상 stamp(try/catch 격리)."
     }
   ]
 }

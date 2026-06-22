@@ -126,7 +126,7 @@ export function normalizedRelativeStrength(
   return scored;
 }
 
-export function volumeLiquidityScore(trace: CandidateEntryTrace): {
+export type VolumeLiquidityScore = {
   rawValue?: unknown;
   normalizedScore: number;
   weightedScore: number;
@@ -135,7 +135,39 @@ export function volumeLiquidityScore(trace: CandidateEntryTrace): {
   penaltyApplied: boolean;
   penaltyReason?: string;
   message: string;
-} {
+};
+
+/**
+ * VOLUME_LIQUIDITY ratio→score 단일 공식 SSOT (maxScore 12). currentVolume/avgVolume 비율을
+ * 기존 곡선식(ratio>=1: 60+((ratio-1)/0.5)*40, else ((ratio-0.5)/0.5)*60)으로 환산한다.
+ * 본 함수는 in-place scorer 와 flag-gated 배선 복구(wiring) 양쪽의 공통 입력으로 쓰여
+ * 두 번째 점수 공식 신설을 방지한다. 동작은 기존과 byte-identical.
+ */
+export function computeVolumeLiquidityRatioScore(
+  currentVolume: number,
+  avgVolume: number,
+  messageOverride?: string,
+): VolumeLiquidityScore {
+  const ratio = currentVolume / avgVolume;
+  const normalizedScore =
+    ratio >= 1
+      ? clamp(60 + ((ratio - 1) / 0.5) * 40, 0, 100)
+      : clamp(((ratio - 0.5) / 0.5) * 60, 0, 100);
+  return {
+    rawValue: { volume: currentVolume, avgVolume, ratio: round2(ratio) },
+    normalizedScore,
+    weightedScore: weightedFromNormalized(normalizedScore, 12),
+    confidence: "VERIFIED",
+    marketSignal: ratio < 0.5,
+    penaltyApplied: ratio < 0.5,
+    penaltyReason: ratio < 0.5 ? "LIQUIDITY_LOW" : undefined,
+    message:
+      messageOverride ??
+      "Liquidity contribution computed from candidate volume/average-volume ratio.",
+  };
+}
+
+export function volumeLiquidityScore(trace: CandidateEntryTrace): VolumeLiquidityScore {
   const avgVolume = nestedNumericTraceValue(trace, [
     "avgVolume",
     "quote.avgVolume",
@@ -150,22 +182,7 @@ export function volumeLiquidityScore(trace: CandidateEntryTrace): {
     "quoteFeatures.volume",
   ]);
   if (avgVolume !== undefined && avgVolume > 0 && currentVolume !== undefined) {
-    const ratio = currentVolume / avgVolume;
-    const normalizedScore =
-      ratio >= 1
-        ? clamp(60 + ((ratio - 1) / 0.5) * 40, 0, 100)
-        : clamp(((ratio - 0.5) / 0.5) * 60, 0, 100);
-    return {
-      rawValue: { volume: currentVolume, avgVolume, ratio: round2(ratio) },
-      normalizedScore,
-      weightedScore: weightedFromNormalized(normalizedScore, 12),
-      confidence: "VERIFIED",
-      marketSignal: ratio < 0.5,
-      penaltyApplied: ratio < 0.5,
-      penaltyReason: ratio < 0.5 ? "LIQUIDITY_LOW" : undefined,
-      message:
-        "Liquidity contribution computed from candidate volume/average-volume ratio.",
-    };
+    return computeVolumeLiquidityRatioScore(currentVolume, avgVolume);
   }
   const passed = trace.volumeLiquidityPassed;
   return {
