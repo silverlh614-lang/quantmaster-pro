@@ -136,7 +136,7 @@ export interface GlobalSignalsResponse {
     createdAt: string;
     direction: 'STRENGTH' | 'WEAKNESS';
     severity: 'CONFIRMED' | 'PRELIMINARY';
-    flowBias: 'FOREIGN_OUTFLOW' | 'FOREIGN_INFLOW' | 'UNCLEAR';
+    flowBias: 'FOREIGN_OUTFLOW' | 'FOREIGN_INFLOW' | 'CONTRADICTED' | 'UNCLEAR';
     reading: {
       last: number;
       change1d: number;

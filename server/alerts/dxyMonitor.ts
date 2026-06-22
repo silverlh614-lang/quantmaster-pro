@@ -88,7 +88,9 @@ export interface DxyAlertReport {
   reading:     DxyReading;
   direction:   'STRENGTH' | 'WEAKNESS';
   severity:    'CONFIRMED' | 'PRELIMINARY';
-  flowBias:    'FOREIGN_OUTFLOW' | 'FOREIGN_INFLOW' | 'UNCLEAR';
+  // CONTRADICTED (ADR-0642): DXY 함의 방향을 교차지표(KRW·EWY)가 둘 다 정면 반박 —
+  // 단순 미동조(UNCLEAR)와 구분되는 "DXY 단독 신호 반박" 상태.
+  flowBias:    'FOREIGN_OUTFLOW' | 'FOREIGN_INFLOW' | 'CONTRADICTED' | 'UNCLEAR';
   alertSent:   boolean;
 }
 
@@ -134,19 +136,30 @@ function nDayPct(closes: number[], n: number, label?: string): number | null {
 
 // ── 교차 검증 ─────────────────────────────────────────────────────────────────
 
-function determineFlowBias(reading: DxyReading): DxyAlertReport['flowBias'] {
+export function determineFlowBias(reading: DxyReading): DxyAlertReport['flowBias'] {
   const { change1d, krwChange, ewyChange } = reading;
   if (krwChange == null || ewyChange == null) return 'UNCLEAR';
-  // DXY↑ & KRW↑ & EWY↓ → 외국인 이탈
-  if (change1d > 0 && krwChange > 0 && ewyChange < 0) return 'FOREIGN_OUTFLOW';
-  // DXY↓ & KRW↓ & EWY↑ → 외국인 복귀
-  if (change1d < 0 && krwChange < 0 && ewyChange > 0) return 'FOREIGN_INFLOW';
+
+  // ADR-0642: DXY 함의 방향(강세↑=외국인 이탈 / 약세↓=복귀)을 교차지표 2표(KRW·EWY)가
+  // 몇 표 지지/반박하는지로 분류. 둘 다 지지=확정, 둘 다 반박=CONTRADICTED, 그 외=UNCLEAR.
+  if (change1d > 0) {
+    // 함의=이탈. 지지표: KRW↑(원약세)·EWY↓(한국 매도). 반박표: KRW↓·EWY↑.
+    if (krwChange > 0 && ewyChange < 0) return 'FOREIGN_OUTFLOW';
+    if (krwChange < 0 && ewyChange > 0) return 'CONTRADICTED';
+    return 'UNCLEAR';
+  }
+  if (change1d < 0) {
+    // 함의=복귀. 지지표: KRW↓·EWY↑. 반박표: KRW↑·EWY↓.
+    if (krwChange < 0 && ewyChange > 0) return 'FOREIGN_INFLOW';
+    if (krwChange > 0 && ewyChange < 0) return 'CONTRADICTED';
+    return 'UNCLEAR';
+  }
   return 'UNCLEAR';
 }
 
 // ── 메시지 포맷 ──────────────────────────────────────────────────────────────
 
-function formatAlert(report: DxyAlertReport): string {
+export function formatAlert(report: DxyAlertReport): string {
   const { reading, direction, severity, flowBias } = report;
   const arrow  = direction === 'STRENGTH' ? '▲' : '▼';
   const icon   = severity === 'CONFIRMED' ? '🚨' : '⚠️';
@@ -158,6 +171,8 @@ function formatAlert(report: DxyAlertReport): string {
       ? '🔴 <b>외국인 이탈 시그널</b> (DXY↑·KRW↑·EWY↓ 동시)'
       : flowBias === 'FOREIGN_INFLOW'
       ? '🟢 <b>외국인 복귀 시그널</b> (DXY↓·KRW↓·EWY↑ 동시)'
+      : flowBias === 'CONTRADICTED'
+      ? '🟡 <b>DXY 단독 신호 반박</b> (USD/KRW·EWY 정면 역행)'
       : '⚪ 교차 검증 불일치 — DXY 단독 시그널';
 
   const action =
@@ -165,6 +180,10 @@ function formatAlert(report: DxyAlertReport): string {
       ? '신규 진입 홀드 · 수출주(삼성·하이닉스) 비중 축소'
       : flowBias === 'FOREIGN_INFLOW'
       ? 'EWY 동조 대형주 우선 검토 · 외국인 관심 수급주 확인'
+      : flowBias === 'CONTRADICTED'
+      ? (direction === 'STRENGTH'
+          ? 'DXY 강세 비반영 — 원화 강세·EWY 유입 우세, 이탈 신호 신뢰도 낮음 (DXY 단독 추종 금지)'
+          : 'DXY 약세 비반영 — 원화 약세·EWY 이탈 우세, 복귀 신호 신뢰도 낮음 (DXY 단독 추종 금지)')
       : '단독 시그널 — 타 지표 동조 여부 관찰 후 판단';
 
   const krwLbl = reading.krwChange != null ? `${reading.krwChange >= 0 ? '+' : ''}${reading.krwChange.toFixed(2)}%` : 'N/A';
@@ -183,7 +202,11 @@ function formatAlert(report: DxyAlertReport): string {
 // ── 학습 DB 연동 ──────────────────────────────────────────────────────────────
 
 function logToNewsSupply(report: DxyAlertReport): void {
-  if (report.severity !== 'CONFIRMED' || report.flowBias === 'UNCLEAR') return;
+  // ADR-0642: 확정 외국인 이탈/복귀(OUTFLOW/INFLOW)만 학습 DB 에 기록.
+  // CONTRADICTED/UNCLEAR 는 단독·반박 신호라 수급 이벤트로 귀속하지 않는다
+  // (CONFIRMED+CONTRADICTED 가 headline else 분기로 "복귀" 오기록되는 것 차단).
+  if (report.severity !== 'CONFIRMED') return;
+  if (report.flowBias !== 'FOREIGN_OUTFLOW' && report.flowBias !== 'FOREIGN_INFLOW') return;
   const headline =
     report.flowBias === 'FOREIGN_OUTFLOW'
       ? `DXY 급등 ${report.reading.change1d >= 0 ? '+' : ''}${report.reading.change1d}% — 외국인 이탈 시그널`
