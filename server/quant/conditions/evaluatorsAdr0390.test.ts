@@ -207,13 +207,21 @@ describe('breakoutMomentumEvaluator 눌림목 레인 + 과열 가드 (ADR-0648)'
     }));
   }
 
-  it('flag OFF → 눌림목 조건 충족이어도 미FIRED (byte-identical, THRESHOLD_NOT_MET)', () => {
+  it('flag OFF(=false) → 눌림목 조건 충족이어도 미FIRED (byte-identical, THRESHOLD_NOT_MET)', () => {
+    process.env[FLAG] = 'false';
     const r = breakoutMomentumEvaluator.evaluate(pullbackQuote());
     expect(r!.status).toBe('THRESHOLD_NOT_MET');
     expect(r!.detail).not.toMatch(/눌림목/);
   });
 
-  it('flag ON → 눌림목 조건 충족 시 FIRED (w*0.6)', () => {
+  it('flag 미설정(default ON, ADR-0649) → 눌림목 조건 충족 시 FIRED (w*0.6)', () => {
+    const r = breakoutMomentumEvaluator.evaluate(pullbackQuote());
+    expect(r!.status).toBe('FIRED');
+    expect(r!.detail).toMatch(/눌림목 진입/);
+    expect(r!.score).toBeCloseTo(DEFAULT_CONDITION_WEIGHTS.breakout_momentum * 0.6, 5);
+  });
+
+  it('flag ON(=true) → 눌림목 조건 충족 시 FIRED (w*0.6)', () => {
     process.env[FLAG] = 'true';
     const r = breakoutMomentumEvaluator.evaluate(pullbackQuote());
     expect(r!.status).toBe('FIRED');
@@ -291,7 +299,8 @@ describe('breakoutMomentumEvaluator 눌림목 레인 + 과열 가드 (ADR-0648)'
     expect(r!.detail).toMatch(/5일돌파/);
   });
 
-  it('flag OFF — price/high5d=1.10 (과열) 이어도 과열 가드 미적용 → 기존 강돌파 FIRED (byte-identical)', () => {
+  it('flag OFF(=false) — price/high5d=1.10 (과열) 이어도 과열 가드 미적용 → 기존 강돌파 FIRED (byte-identical)', () => {
+    process.env[FLAG] = 'false';
     const r = breakoutMomentumEvaluator.evaluate(ctx(makeQuote({
       high5d: 100, price: 110, volume: 200, avgVolume: 100,
     })));
