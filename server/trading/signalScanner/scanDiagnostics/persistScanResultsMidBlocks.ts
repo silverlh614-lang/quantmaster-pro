@@ -892,6 +892,27 @@ export async function persistMidScanDiagnosticBlocksAdr0588(ctx: MidScanDiagnost
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.buildCandidateGateEvaluationViews', error: e });
   }
 
+  // ADR-0648 W5 — 눌림목 레인 force-ON hypothetical shadow 관측 집계. flag 무관 상시 산출 —
+  // 추격 대비 눌림목 분포를 stamp(추격 FIRED·과열 거부·눌림목 단독). try/catch 격리(불변식 #1·#2 무정지),
+  // marketSignal=false·executionImpact=NONE. live entry-selection 무영향 — 관측 ledger 행에만 기록.
+  try {
+    const { buildPullbackLaneShadowStamp, buildPullbackLaneShadowSummary } =
+      await import('../../../quant/conditions/pullbackLaneShadowObservationAdr0648.js');
+    const stamps = scanCandidateSnapshots.map((snap) => buildPullbackLaneShadowStamp({
+      price: snap.price ?? snap.currentPrice,
+      high5d: snap.high5d,
+      high20d: snap.high20d,
+      ma20: snap.ma20,
+      volume: snap.volume,
+      avgVolume: snap.avgVolume,
+    }));
+    if (stamps.length > 0) {
+      summaryDraft.pullbackLaneShadowAdr0648 = buildPullbackLaneShadowSummary(stamps);
+    }
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.pullbackLaneShadowAdr0648', error: e });
+  }
+
   // ADR-0527 Phase 2a — per-candidate 통합 실행허가 정본 도출·영속 (가산만, 무위험).
   // Phase1 candidateGateViews 가 세팅된 *후* 도출 — gate quality 정본 입력 정합.
   // A(resolveExecutionPermission) 는 LIVE 와 byte-equivalent, B 라벨은 실제 스캔 시각(더미 1970 의존 0)으로 산출.

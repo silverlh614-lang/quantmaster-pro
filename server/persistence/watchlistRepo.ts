@@ -329,6 +329,12 @@ export interface WatchlistEntry {
   sector?: string; // 섹터 정보 (섹터별 성과 분석용)
   rrr?: number; // Risk-Reward Ratio (목표가-진입가) / (진입가-손절가)
   conditionKeys?: string[]; // 진입 당시 통과한 Gate 조건 키 목록
+  /**
+   * ADR-0648 — 진입 레인 태그. 'PULLBACK' 이면 눌림목 레인(breakout_momentum 레인 B)으로
+   * FIRED 된 후보 → rrrGate 에서 effectiveMinRrr = max(RRR_MIN_THRESHOLD, 2.0) 강화 적용.
+   * flag OFF 시 눌림목 레인 비활성 → 항상 undefined(byte-identical, 기본 1.8 임계).
+   */
+  entryLane?: 'PULLBACK';
   /** Gate evaluation snapshot. Undefined means legacy watchlist data and is counted as gate1Unknown. */
   gateEvaluation?: GateEvaluationSnapshot & {
     rawScore?: number;

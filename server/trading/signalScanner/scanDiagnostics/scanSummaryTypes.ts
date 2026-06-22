@@ -375,6 +375,9 @@ export interface ScanSummary {
   executionResolutionAggregate?: UnifiedExecutionPermissionAggregate;
   // main(71e3c29) "split scan blocker entry lanes" — 진입 레인 분리 count.
   entryLaneSplit?: EntryLaneSplitCounts;
+  // ADR-0648 — 눌림목 레인 force-ON hypothetical shadow 관측 집계(진단 전용·marketSignal=false).
+  //   flag OFF 에서도 추격 대비 눌림목 레인 분포를 stamp → flip 결정 데이터 근거.
+  pullbackLaneShadowAdr0648?: import('../../../quant/conditions/pullbackLaneShadowObservationAdr0648.js').PullbackLaneShadowSummary;
 }
 
 export type PaperEntryDecision = 'CREATED' | 'SKIPPED' | 'BLOCKED' | 'ERROR';

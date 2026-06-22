@@ -98,6 +98,8 @@ export async function kisIntradayCorrectionStep(
       conditionResultsTrace,
       ...(conditionResults ? { conditionResults } : {}),
       conditionKeys: reCheckGate.conditionKeys,
+      // ADR-0648 — 인트라데이 재평가 시 눌림목 레인 태그도 동기화(재평가 후 미충족이면 undefined 로 해제).
+      entryLane: reCheckGate.entryLane,
       gateRawScore: reCheckGate.rawScore,
       normalizedGateScore: reCheckGate.normalizedGateScore,
       availableMaxScore: reCheckGate.availableMaxScore,

@@ -17,6 +17,11 @@ import { getVixConservativeMode } from './state.js';
 import { isTradingHeld } from './learning/learningState.js';
 import { getRegimeGateBand } from './trading/gateConfig.js';
 import { defaultRegistry, calculateCompressionScore } from './quant/conditions/index.js';
+// ADR-0648 — 눌림목 레인 force-ON hypothetical shadow 관측(진단 전용·marketSignal=false).
+import {
+  buildPullbackLaneShadowStamp,
+  type PullbackLaneShadowStamp,
+} from './quant/conditions/pullbackLaneShadowObservationAdr0648.js';
 import {
   buildKisOfficialQuoteCoverageFromQuote,
   type KisOfficialDriftDiagnostic,
@@ -257,6 +262,18 @@ export interface ServerGateResult {
    * Diagnostic/persistence data only; never use this to replace live threshold decisions.
    */
   gateEvaluation: GateEvaluationSnapshot;
+  /**
+   * ADR-0648 — 진입 레인 태그. 'PULLBACK' 이면 눌림목 레인(레인 B)으로 breakout_momentum 이
+   * FIRED 된 후보 → Gate3 RRR 하한 강화(effectiveMinRrr = max(RRR_MIN_THRESHOLD, 2.0)).
+   * flag OFF 시 눌림목 레인 자체가 비활성 → 항상 undefined(byte-identical).
+   */
+  entryLane?: 'PULLBACK';
+  /**
+   * ADR-0648 — 눌림목 레인 force-ON hypothetical shadow 관측 stamp(진단 전용·marketSignal=false).
+   * flag 와 무관하게 항상 산출(추격 대비 forward-return 대조용). live entry-selection 무영향.
+   * 산출 실패(try/catch) 시 undefined — Trading Engine 스캔 무정지(불변식 #1).
+   */
+  pullbackLaneShadow?: PullbackLaneShadowStamp;
 }
 
 /** 조건 키 상수 — condition-weights.json의 키와 1:1 매핑 */
@@ -1096,6 +1113,26 @@ export function evaluateServerGate(
   //   (SKIP·미분류 → UNKNOWN, 비SKIP → undefined; 원본 precedence 동치.)
   const skipCause = resolveSkipCause(signalType, scoreCause, vixCausedSkip, heldCausedSkip);
 
+  // ADR-0648 — 눌림목 레인(레인 B) FIRED 후보 태그. breakout_momentum output 의 눌림목 detail 마커로
+  // 검출(별도 conditionKey 신설 0 — Gate2 정합 유지). flag OFF 시 눌림목 레인이 비활성이라 항상 undefined.
+  const entryLane = detectPullbackEntryLane(run.outputs);
+
+  // ADR-0648 W5 — force-ON hypothetical shadow 관측 stamp. flag 무관 상시 산출(추격 대비 대조용).
+  // try/catch 격리(불변식 #1·#2 무정지) — 산출 실패해도 스캔 진행. live entry-selection 무영향.
+  let pullbackLaneShadow: PullbackLaneShadowStamp | undefined;
+  try {
+    pullbackLaneShadow = buildPullbackLaneShadowStamp({
+      price: quote.price,
+      high5d: quote.high5d,
+      high20d: quote.high20d,
+      ma20: quote.ma20,
+      volume: quote.volume,
+      avgVolume: quote.avgVolume,
+    });
+  } catch (err) {
+    console.warn('[ADR-0648] pullbackLaneShadow stamp 산출 실패 (관측 격리, 스캔 진행):', err);
+  }
+
   return {
     gateScore: score,
     ...scoreHealth,
@@ -1109,5 +1146,25 @@ export function evaluateServerGate(
     outputs: run.outputs,
     gateLayerSummary,
     gateEvaluation,
+    entryLane,
+    pullbackLaneShadow,
   };
+}
+
+/**
+ * ADR-0648 — breakout_momentum 평가 outputs 에서 눌림목 레인(레인 B) FIRED 를 검출한다.
+ * 눌림목 레인 detail 은 `눌림목 진입 (...)` 으로 시작(evaluators.ts D1). FIRED + 마커 동시 충족 시
+ * 'PULLBACK'. flag OFF 시 눌림목 레인이 발화하지 않으므로 항상 undefined(byte-identical).
+ */
+function detectPullbackEntryLane(
+  outputs: ServerGateResult['outputs'],
+): 'PULLBACK' | undefined {
+  if (!outputs) return undefined;
+  for (const o of outputs) {
+    if (o.key !== 'breakout_momentum' || !o.output) continue;
+    if (o.output.status === 'FIRED' && (o.output.detail ?? '').startsWith('눌림목 진입')) {
+      return 'PULLBACK';
+    }
+  }
+  return undefined;
 }

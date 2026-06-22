@@ -7,6 +7,8 @@
 
 import type { ConditionEvaluator } from './types.js';
 import { isPullbackSetup } from '../../screener/pullbackSetup.js';
+// ADR-0648 — 눌림목 진입 레인 + 과열 가드 flag SSOT (default OFF, byte-identical).
+import { isPullbackEntryLaneEnabled } from '../../trading/gateConfig.js';
 // ADR-0421 — kisFlow semantic availability checker SSOT (객체 truthy 만으로
 //   available 판정 금지 — required semantic field 검증 의무).
 import { evaluateInvestorFlowSemanticAvailability } from '../../supply/investorFlowSemanticAvailability.js';
@@ -376,11 +378,16 @@ export const relativeStrengthEvaluator: ConditionEvaluator = {
 //   - 강한 돌파: 현재가가 5일 고점의 101% 이상 + 거래량 5일 평균 1.5배  → 만점
 //   - 약한 돌파: 현재가가 5일 고점의 99%~101% + 거래량 1.2배           → 0.6점
 //   - 미달: null
+//
+// ADR-0648 (flag GATE_PULLBACK_ENTRY_LANE_ENABLED ON 일 때만) 멀티 레인 확장:
+//   - 레인 C 과열 가드: price/high5d > 1.06 → 추격거부(THRESHOLD_NOT_MET/OVEREXTENDED)
+//   - 레인 B 눌림목: 0.92 ≤ price/high20d ≤ 0.99 + price ≥ ma20 + 0.5 ≤ vol/avgVol ≤ 0.9 → FIRED(w*0.6)
+//   flag OFF = byte-identical(레인 B·과열 가드 분기 미진입). 같은 conditionKey 라 Gate2 정합 0줄.
 
 export const breakoutMomentumEvaluator: ConditionEvaluator = {
   key: 'breakout_momentum',
-  description: '5일 고점 돌파 + 거래량 확인 — momentum 과 입력 독립 (ADR-0390 status)',
-  inputs: ['quote.high5d', 'quote.price', 'quote.volume', 'quote.avgVolume'],
+  description: '5일 고점 돌파 + 거래량 확인 + (ADR-0648) 눌림목 레인 — momentum 과 입력 독립 (ADR-0390 status)',
+  inputs: ['quote.high5d', 'quote.price', 'quote.volume', 'quote.avgVolume', 'quote.high20d', 'quote.ma20'],
   evaluate({ quote, weights }) {
     // ADR-0387: 4 입력 부재 시 DATA_UNAVAILABLE.
     if (!(quote.high5d > 0 && quote.price > 0 && quote.avgVolume > 0)) {
@@ -400,6 +407,17 @@ export const breakoutMomentumEvaluator: ConditionEvaluator = {
     const posVsHigh = quote.price / quote.high5d;
     const volRatio  = quote.volume / quote.avgVolume;
     const w = weightFor(weights, 'breakout_momentum');
+    const pullbackLaneEnabled = isPullbackEntryLaneEnabled();
+
+    // ADR-0648 D2 과열 가드 (레인 C, flag ON 일 때만): 5일고점 +6% 초과 추격 거부.
+    // 레인 B(눌림목)는 정의상 price/high20d ≤ 0.99 라 과열 불가 → 레인 C 전용.
+    if (pullbackLaneEnabled && posVsHigh > 1.06) {
+      return {
+        score: 0, conditionKey: 'breakout_momentum',
+        detail: `OVEREXTENDED 5일고점 +${((posVsHigh - 1) * 100).toFixed(1)}% > +6.0% 추격거부`,
+        status: 'THRESHOLD_NOT_MET',
+      };
+    }
     if (posVsHigh >= 1.01 && volRatio >= 1.5) {
       return {
         score: w,
@@ -416,6 +434,27 @@ export const breakoutMomentumEvaluator: ConditionEvaluator = {
         status: 'FIRED',
       };
     }
+
+    // ADR-0648 D1 레인 B 눌림목 (flag ON 일 때만): 20일 고점 직하 되돌림 + 추세 유지 + 거래량 마름.
+    // 데이터 가드 미충족(high20d/ma20/avgVolume ≤ 0 또는 volume 비유한) 시 평가 생략 →
+    // 기존 레인 C THRESHOLD_NOT_MET 으로 fallthrough(DATA_UNAVAILABLE 강제 전환 안 함).
+    if (pullbackLaneEnabled && quote.high20d > 0 && quote.ma20 > 0) {
+      const posVsHigh20d = quote.price / quote.high20d;
+      const aboveMa20    = quote.price >= quote.ma20;
+      const volRatioB    = volRatio; // avgVolume>0 + volume 유한 이미 가드됨
+      if (Number.isFinite(posVsHigh20d) && Number.isFinite(volRatioB) &&
+          posVsHigh20d >= 0.92 && posVsHigh20d <= 0.99 &&
+          aboveMa20 &&
+          volRatioB >= 0.5 && volRatioB <= 0.9) {
+        return {
+          score: w * 0.6,
+          conditionKey: 'breakout_momentum',
+          detail: `눌림목 진입 (high20d ${((posVsHigh20d - 1) * 100).toFixed(1)}% / MA20 above / vol ${volRatioB.toFixed(1)}배 dry)`,
+          status: 'FIRED',
+        };
+      }
+    }
+
     return {
       score: 0, conditionKey: 'breakout_momentum',
       detail: `5일고점 위치 ${(posVsHigh * 100).toFixed(1)}% / 거래량 ${volRatio.toFixed(1)}배 임계 미달`,

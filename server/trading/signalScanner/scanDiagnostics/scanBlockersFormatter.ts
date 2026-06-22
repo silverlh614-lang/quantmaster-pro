@@ -33,6 +33,8 @@ import { formatGate1ScoreHealthSection } from '../gate1ScoreAccounting.js';
 import { formatGate1ScoringAlignmentReport } from '../gate1ScoringAlignmentAdr0472.js';
 import { formatGate1PositiveSourceWiringReport } from '../gate1PositiveSourceWiringAdr0475.js';
 import { formatGate1DryRunObservationSummary, formatGate1ThresholdEvidenceSection } from '../gate1DryRunObservationLedgerAdr0476.js';
+// ADR-0648 — 눌림목 레인 force-ON hypothetical shadow 관측 1줄(진단 전용·marketSignal=false).
+import { formatPullbackLaneShadowLine } from '../../../quant/conditions/pullbackLaneShadowObservationAdr0648.js';
 import { formatInvestorFlowProviderRouterAdr0477 } from '../investorFlowProviderRouterAdr0477.js';
 import {
   type PaperEntryCandidateForensic,
@@ -1131,6 +1133,13 @@ export function formatScanBlockersMessage(summary: ScanSummary | null): string {
     pushOptionalSection(lines, formatGate1DryRunObservationSummary(summary.gate1DryRunObservationLedger));
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatGate1DryRunObservationSummary', error: e });
+  }
+
+  // ADR-0648 — 눌림목 레인 force-ON hypothetical shadow 1줄(진단 전용·marketSignal=false). 샘플 0 → 생략.
+  try {
+    pushOptionalSection(lines, formatPullbackLaneShadowLine(summary.pullbackLaneShadowAdr0648));
+  } catch (e) {
+    emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.formatPullbackLaneShadowLine', error: e });
   }
 
   pushOptionalSection(lines, formatSectorEnergyQualityDiagnosticSection(sectorEnergyQualityDiagnosticForDisplay(summary)));
