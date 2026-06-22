@@ -208,6 +208,15 @@ export function isGate1PositiveCeilingWiringEnabled(): boolean {
   return process.env.GATE1_POSITIVE_CEILING_WIRING_ENABLED === 'true';
 }
 
+/**
+ * Gate1 positive-max→100 정규화 스위치. default OFF — ADR-0613 단일 flag 번들에서 분리(ADR-0643).
+ * `GATE1_POSITIVE_MAX_NORMALIZATION_ENABLED=true` 정확 비교(ADR-0157). 16/16 과개방 risk —
+ * forward-outcome 성숙 전 flip 금지. 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
+ */
+export function isGate1PositiveMaxNormalizationEnabled(): boolean {
+  return process.env.GATE1_POSITIVE_MAX_NORMALIZATION_ENABLED === 'true';
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // ADR-0627 — Gate1 RS percentile 연속 승격 스위치 (default OFF, byte-identical)
 //

@@ -50,7 +50,8 @@ describe('evaluateStage1Filter — 사유 분기', () => {
   });
 
   it('HIGH_PER: PER 80이라도 모멘텀/추세 보완 신호가 있으면 통과', () => {
-    expect(evaluateStage1Filter(q({ per: 80, return20d: 6, price: 10_000, ma20: 9_500 }))).toEqual({ pass: true });
+    // ADR-0643 D3 — pass 결과에 projectedVolume stamp 추가됨(toMatchObject 로 pass 만 검증).
+    expect(evaluateStage1Filter(q({ per: 80, return20d: 6, price: 10_000, ma20: 9_500 }))).toMatchObject({ pass: true });
   });
 
   it('HIGH_PER: PER 160이고 보완 신호가 없으면 reject 유지', () => {
@@ -69,8 +70,8 @@ describe('evaluateStage1Filter — 사유 분기', () => {
   });
 
   it('HIGH_PER: PER <= 0은 HIGH_PER reject가 아니다', () => {
-    expect(evaluateStage1Filter(q({ per: 0 }))).toEqual({ pass: true });
-    expect(evaluateStage1Filter(q({ per: -5 }))).toEqual({ pass: true });
+    expect(evaluateStage1Filter(q({ per: 0 }))).toMatchObject({ pass: true });
+    expect(evaluateStage1Filter(q({ per: -5 }))).toMatchObject({ pass: true });
   });
 
   it('OVEREXTENDED: return5d > 15', () => {
@@ -169,7 +170,7 @@ describe('evaluateStage1Filter — 사유 분기', () => {
       price: 10_000,
       ma20: 9_500,
       return20d: 1,
-    }))).toEqual({ pass: true });
+    }))).toMatchObject({ pass: true });
   });
 
   it('NEGATIVE_DAY: 보완 신호가 없으면 reject 유지', () => {
@@ -227,5 +228,39 @@ describe('evaluateStage1FilterTracked — 카운터 누적', () => {
     const s = getStage1RejectionCounts();
     expect(s.totalRejected).toBe(5);
     expect(s.byReason.OVEREXTENDED).toBe(5);
+  });
+});
+
+// ADR-0643 D3 — producer projectedVolume stamp (배선 갭 정정, 신규 산식 0).
+describe('ADR-0643 producer projectedVolume stamp', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('pass 결과에 producer projectedVolume 을 stamp (projectIntradayVolume 재사용 동치)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-11T01:15:00.000Z')); // 10:15 KST — partial 누적
+
+    const quote = q({ volume: 100_000, avgVolume: 100_000, changePercent: 1 });
+    const r = evaluateStage1Filter(quote);
+    expect(r.pass).toBe(true);
+    // 신규 산식 금지 — 동일 projectIntradayVolume 재사용값과 정확히 일치.
+    expect(r.projectedVolume).toBe(projectIntradayVolume(quote.volume));
+    // 장초반 경과율 보정 → projected > partial volume.
+    expect(r.projectedVolume!).toBeGreaterThan(quote.volume);
+  });
+
+  it('reject 결과에는 projectedVolume 미stamp (carry-read ?? fallback graceful)', () => {
+    const r = evaluateStage1Filter(q({ price: 1000 })); // MIN_PRICE
+    expect(r.pass).toBe(false);
+    expect(r.projectedVolume).toBeUndefined();
+  });
+
+  it('volume<=0 (projectedVolume 0) 인 pass 는 projectedVolume 미stamp (read fallback 보존)', () => {
+    // volume 0 → projectIntradayVolume 0 → stamp 생략(부재 시 read 경로 volume fallback).
+    const quote = q({ volume: 0, avgVolume: 0, changePercent: 1 });
+    const r = evaluateStage1Filter(quote);
+    expect(r.pass).toBe(true);
+    expect(r.projectedVolume).toBeUndefined();
   });
 });

@@ -385,7 +385,9 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
           // ADR-0443 — SSOT 위임 (양 시장 fallback + ADR-0241 sanity 자동).
           const quote = await fetchKisQuoteFallback(code).catch(() => null);
           if (!quote) return null;
-          if (!evaluateStage1FilterTracked(quote, stage1Regime).pass) return null;
+          // ADR-0643 D3 — producer projectedVolume stamp(SSOT). result 로 한 번 받아 carry(신규 산식 0).
+          const stage1Result = evaluateStage1FilterTracked(quote, stage1Regime);
+          if (!stage1Result.pass) return null;
 
           return {
             code,
@@ -395,6 +397,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
             sector: getSectorByCode(code),
             quote,
             stage1Score: calcStage1Score(quote, stage1Regime, stage1BenchmarkReturn20d),
+            projectedVolume: stage1Result.projectedVolume,
           } as CandidateStock;
         }),
       );
@@ -442,19 +445,16 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
         const quote = await fetchKisQuoteFallback(stock.code).catch(() => null);
         if (!quote || quote.price <= 0) return null;
         // ADR-0638 — flag ON 시에만 reason 재사용 관측(컷 동작 0줄 변경 — result 로 한 번 받아 reason 만 추가).
-        if (funnelEnabled) {
-          const result = evaluateStage1FilterTracked(quote, stage1Regime);
-          if (isLeaderSource(stock.source)) {
-            funnelLeaderEntered += 1;
-            if (result.pass) funnelLeaderPassed += 1;
-            else if (result.reason === "OVEREXTENDED") funnelCutOverextended += 1;
-            else if (result.reason === "OVERHEAT") funnelCutOverheat += 1;
-            else funnelCutOther += 1;
-          }
-          if (!result.pass) return null;
-        } else if (!evaluateStage1FilterTracked(quote, stage1Regime).pass) {
-          return null;
+        // ADR-0643 D3 — result 를 항상 받아 producer projectedVolume 을 candidate 로 stamp(SSOT, 신규 산식 0).
+        const result = evaluateStage1FilterTracked(quote, stage1Regime);
+        if (funnelEnabled && isLeaderSource(stock.source)) {
+          funnelLeaderEntered += 1;
+          if (result.pass) funnelLeaderPassed += 1;
+          else if (result.reason === "OVEREXTENDED") funnelCutOverextended += 1;
+          else if (result.reason === "OVERHEAT") funnelCutOverheat += 1;
+          else funnelCutOther += 1;
         }
+        if (!result.pass) return null;
 
         return {
           code: stock.code,
@@ -463,6 +463,7 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
           sector: getSectorByCode(stock.code),
           quote,
           stage1Score: calcStage1Score(quote, stage1Regime, stage1BenchmarkReturn20d),
+          projectedVolume: result.projectedVolume,
           // ADR-0617 — carry 된 주도주 source(flag OFF → undefined, 기존 동작 동치).
           source: stock.source,
         } as CandidateStock;

@@ -36,6 +36,8 @@ function trace(patch: Record<string, unknown> = {}) {
 }
 
 const ENABLED = "GATE1_POSITIVE_CEILING_WIRING_ENABLED";
+// ADR-0643 D1 — positive-max→100 정규화 전용 flag(번들 분리).
+const NORMALIZE_ENABLED = "GATE1_POSITIVE_MAX_NORMALIZATION_ENABLED";
 
 const rsMissingBase: CeilingWiringComponentScore = {
   normalizedScore: 0,
@@ -54,6 +56,7 @@ const breakoutMissingBase: CeilingWiringComponentScore = {
 
 afterEach(() => {
   delete process.env[ENABLED];
+  delete process.env[NORMALIZE_ENABLED];
 });
 
 describe("ADR-0613 A. flag-OFF byte-identical", () => {
@@ -125,7 +128,8 @@ describe("ADR-0613 B. flag-ON delta", () => {
   });
 
   it("B4 positive 합 정규화 ×(100/configuredPositiveMax), penalty 불변", () => {
-    process.env[ENABLED] = "true";
+    // ADR-0643 D1 — 정규화는 전용 flag 로 분리됨. ceiling flag 가 아니라 normalize flag 를 켠다.
+    process.env[NORMALIZE_ENABLED] = "true";
     const components = [
       { weightedScore: 58, maxScore: 116 },
       { weightedScore: -8, maxScore: 0 },
@@ -198,6 +202,66 @@ describe("ADR-0613 D. 관측 ledger stamp 격리 (불변식 #1)", () => {
     expect(hyp.ceilingWiringRsPercentileDelta).toBeGreaterThan(0);
     expect(hyp.ceilingWiringBreakoutDelta).toBeGreaterThan(0);
     expect(typeof hyp.ceilingWiringHypotheticalPassed).toBe("boolean");
+  });
+});
+
+describe("ADR-0643 F. positive-max-normalization flag 분리", () => {
+  const components = [
+    { weightedScore: 58, maxScore: 116 },
+    { weightedScore: -8, maxScore: 0 },
+  ];
+  // 단일 flag 시절 동작: positive 58 × (100/116) = 50, + penalty(-8) = 42.
+  const EXPECTED_NORMALIZED = 42;
+  const RAW = 50;
+
+  it("F1 ceiling flag 단독 ON + normalize flag OFF → 정규화 미적용(rawComputed 그대로)", () => {
+    process.env[ENABLED] = "true";
+    // normalize flag 미설정 → breakout/RS 만 켜지고 positive-max-normalization 은 봉인.
+    expect(applyPositiveMaxNormalization(RAW, components)).toBe(RAW);
+  });
+
+  it("F2 normalize flag 단독 ON → 정규화 적용(ceiling flag 무관)", () => {
+    process.env[NORMALIZE_ENABLED] = "true";
+    expect(applyPositiveMaxNormalization(RAW, components)).toBeCloseTo(EXPECTED_NORMALIZED, 1);
+  });
+
+  it("F3 두 flag 동시 ON → 기존 단일 flag ON 동작 byte-identical 재현", () => {
+    process.env[ENABLED] = "true";
+    process.env[NORMALIZE_ENABLED] = "true";
+    expect(applyPositiveMaxNormalization(RAW, components)).toBeCloseTo(EXPECTED_NORMALIZED, 1);
+  });
+
+  it("F4 둘 다 OFF(default) → rawComputed byte-identical", () => {
+    expect(applyPositiveMaxNormalization(RAW, components)).toBe(RAW);
+  });
+
+  it("F5 '1'/'TRUE'/'yes' 는 OFF 취급(ADR-0157 정확 비교)", () => {
+    for (const v of ["1", "TRUE", "yes", "on"]) {
+      process.env[NORMALIZE_ENABLED] = v;
+      expect(applyPositiveMaxNormalization(RAW, components)).toBe(RAW);
+      delete process.env[NORMALIZE_ENABLED];
+    }
+  });
+
+  it("F6 force-ON(관측 ledger hypothetical) 은 두 flag 무관하게 항상 정규화", () => {
+    // computeCeilingWiringHypothetical 경로 — flag OFF 에서도 force-ON 으로 stamp(관측 무회귀).
+    expect(applyPositiveMaxNormalization(RAW, components, true)).toBeCloseTo(EXPECTED_NORMALIZED, 1);
+  });
+
+  it("F7 live trace: ceiling flag ON 단독 → actualScore 에 정규화 미적용(normalize flag 가 켜야만 적용)", () => {
+    const patch = { rsRankPct: 80, currentPrice: 100, high20: 99, high60: 95, volumeRatio: 1.5, return20d: 12 };
+    const off = trace(patch);
+    process.env[ENABLED] = "true";
+    const ceilingOnly = trace(patch);
+    process.env[NORMALIZE_ENABLED] = "true";
+    const bothOn = trace(patch);
+    // 분리 증명: ceiling 단독(normalize OFF)과 두 flag ON(normalize 적용)의 actualScore 가 다르다 —
+    //   즉 ceiling flag 만으로는 positive-max-normalization 이 켜지지 않는다(16/16 번들 봉인).
+    expect(ceilingOnly.actualScore).not.toBe(bothOn.actualScore);
+    // requiredScore 70 리터럴은 전 상태에서 불변(ADR-0471 FREEZE).
+    expect(off.requiredScore).toBe(70);
+    expect(ceilingOnly.requiredScore).toBe(70);
+    expect(bothOn.requiredScore).toBe(70);
   });
 });
 

@@ -10,7 +10,10 @@ import {
   normalizeSignalScoreTo100,
 } from "./minimumSignalScoreTrace/scoring.js";
 import { resolveBreakoutStructureSource } from "./gate1PositiveSourceWiringAdr0475.js";
-import { isGate1PositiveCeilingWiringEnabled } from "../gateConfig.js";
+import {
+  isGate1PositiveCeilingWiringEnabled,
+  isGate1PositiveMaxNormalizationEnabled,
+} from "../gateConfig.js";
 
 /** RELATIVE_STRENGTH / BREAKOUT_STRUCTURE component scorer 의 공통 산출 형태 (배선 입력/출력). */
 export interface CeilingWiringComponentScore {
@@ -189,7 +192,11 @@ export function applyPositiveMaxNormalization(
   components: ReadonlyArray<{ weightedScore: number; maxScore: number }>,
   forceEnabled = false,
 ): number {
-  if (!forceEnabled && !isGate1PositiveCeilingWiringEnabled()) return rawComputed;
+  // ADR-0643 D1 — 단일 flag 번들에서 분리. positive-max→100 정규화는 신규 전용 flag
+  // (GATE1_POSITIVE_MAX_NORMALIZATION_ENABLED) 만 참조한다. breakout(GAP-B)/RS no-op 는
+  // GATE1_POSITIVE_CEILING_WIRING_ENABLED 유지(applyBreakoutWiring/applyRsPercentileWiring).
+  // force-ON(관측 ledger hypothetical) 은 flag 무관 — computeCeilingWiringHypothetical 무영향.
+  if (!forceEnabled && !isGate1PositiveMaxNormalizationEnabled()) return rawComputed;
   const positiveTotal = components
     .filter((c) => c.weightedScore > 0)
     .reduce((sum, c) => sum + c.weightedScore, 0);
