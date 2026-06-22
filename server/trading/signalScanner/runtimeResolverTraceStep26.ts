@@ -954,17 +954,26 @@ export function formatGatePositiveRuntimeAlignmentSection(
       mappingBreakPoint,
     };
   });
+  const macroGateState = summary.macroGateState;
   const staleLegacyR6Path = Boolean(
-    summary.macroGateState?.macroRegimeEffective === 'R6_DEFENSE' &&
-    summary.macroGateState?.displayRegime &&
-    summary.macroGateState.displayRegime !== 'R6_DEFENSE' &&
-    summary.macroGateState?.regime !== 'R6_DEFENSE'
+    macroGateState?.macroRegimeEffective === 'R6_DEFENSE' &&
+    macroGateState?.displayRegime &&
+    macroGateState.displayRegime !== 'R6_DEFENSE' &&
+    macroGateState?.regime !== 'R6_DEFENSE'
+  );
+  // display 가 riskOverride 를 그대로 반영하는 경우(effective=scoring regime vs display=보수적 riskOverride,
+  // 예: effective R3_EARLY / display=riskOverride R5_STABILIZING)는 설계상 정상 분기다 — conflict 아님.
+  // display 가 effective·riskOverride 양쪽과 모두 어긋날 때만(presenter 불일치·예: R6 중 GREEN 표시) 실제 충돌.
+  const riskOverrideExplainsDisplay = Boolean(
+    macroGateState?.riskOverride &&
+    macroGateState?.displayRegime &&
+    macroGateState.riskOverride === macroGateState.displayRegime,
   );
   const regimeDisplayConflict = Boolean(
-    summary.macroGateState?.macroRegimeEffective &&
-    summary.macroGateState?.displayRegime &&
-    summary.macroGateState.macroRegimeEffective !== summary.macroGateState.displayRegime,
-  ) && !staleLegacyR6Path;
+    macroGateState?.macroRegimeEffective &&
+    macroGateState?.displayRegime &&
+    macroGateState.macroRegimeEffective !== macroGateState.displayRegime,
+  ) && !staleLegacyR6Path && !riskOverrideExplainsDisplay;
   const legacyPathUsed = regimeDisplayConflict || canonical.watchlist.conflict;
   const rrInputCount = numberCount(relativeReturn20d);
   const expectedPriceMomentumApplied = canonical.momentum.priceMomentumComputedCount || momentumRows.filter((row) => row.computed).length;
