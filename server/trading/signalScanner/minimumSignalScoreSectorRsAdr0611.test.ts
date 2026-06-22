@@ -37,11 +37,32 @@ describe("ADR-0611 SECTOR_RELATIVE_STRENGTH re-activation", () => {
     delete process.env.GATE1_SECTOR_RS_COMPONENT_ENABLED;
   });
 
-  it("flag OFF (default) → maxScore 0·weightedScore 0 (byte-equivalent advisory-only)", () => {
+  // ADR-0645 — 본 flag 는 default ON 승격. explicit `=false` kill-switch 만 advisory-only(maxScore 0)
+  // byte-equivalent 복귀. 미설정=ON(capacity 복원) 케이스는 아래 default-ON 블록.
+  it("flag =false (ADR-0645 kill-switch) → maxScore 0·weightedScore 0 (byte-equivalent advisory-only)", () => {
+    process.env.GATE1_SECTOR_RS_COMPONENT_ENABLED = "false";
     const c = sectorRsComponent({ sectorRelativeReturn20d: 12 });
     expect(c.maxScore).toBe(0);
     expect(c.weightedScore).toBe(0);
     expect(c.message).toContain("advisory-only (ADR-0467)");
+  });
+
+  it("flag 미설정(default ON, ADR-0645) → 8pt capacity 복원 (== explicit ='true')", () => {
+    const dflt = sectorRsComponent({ sectorRelativeReturn20d: 12 });
+    expect(dflt.maxScore).toBe(8);
+    expect(dflt.weightedScore).toBeCloseTo(8, 1);
+    expect(dflt.confidence).toBe("VERIFIED");
+    process.env.GATE1_SECTOR_RS_COMPONENT_ENABLED = "true";
+    const explicitOn = sectorRsComponent({ sectorRelativeReturn20d: 12 });
+    expect(dflt.weightedScore).toBeCloseTo(explicitOn.weightedScore, 5);
+  });
+
+  it("flag '1'/'TRUE'/'yes'/'on' 은 ON 취급(ADR-0157·0645 — 정확히 'false' 만 OFF)", () => {
+    for (const v of ["1", "TRUE", "yes", "on"]) {
+      process.env.GATE1_SECTOR_RS_COMPONENT_ENABLED = v;
+      expect(sectorRsComponent({ sectorRelativeReturn20d: 12 }).maxScore).toBe(8);
+      delete process.env.GATE1_SECTOR_RS_COMPONENT_ENABLED;
+    }
   });
 
   it("flag ON + 섹터상대수익 존재 → 8pt capacity 복원 + 양수 점수", () => {
@@ -74,7 +95,8 @@ describe("ADR-0611 SECTOR_RELATIVE_STRENGTH re-activation", () => {
     expect(c.weightedScore).toBe(0); // sector-relative 입력만 소비
   });
 
-  it("actualScore 영향 — flag ON 시 섹터상대수익 종목의 라이브 점수가 OFF 대비 상승", () => {
+  it("actualScore 영향 — flag ON 시 섹터상대수익 종목의 라이브 점수가 OFF(=false) 대비 상승", () => {
+    process.env.GATE1_SECTOR_RS_COMPONENT_ENABLED = "false";
     const off = trace({ sectorRelativeReturn20d: 12 }).actualScore;
     process.env.GATE1_SECTOR_RS_COMPONENT_ENABLED = "true";
     const on = trace({ sectorRelativeReturn20d: 12 }).actualScore;
