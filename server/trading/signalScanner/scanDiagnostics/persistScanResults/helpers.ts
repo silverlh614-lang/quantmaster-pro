@@ -11,6 +11,22 @@ import { loadWatchlist } from '../../../../persistence/watchlistRepo.js';
 import type { OfficialSectorIndexTarget } from '../../../../sector/SectorIndexCodeMap.js';
 import { OFFICIAL_SECTOR_ENERGY_BASE_VERIFY_TARGETS } from '../../../../../src/domain/sector-energy/SectorEnergyCanonicalResolver.js';
 
+/**
+ * ADR-0630 follow-up — provisional/counterfactual shadow lane 의 noEligibleReason regime 게이트 판정.
+ *
+ * 실제 lane 게이트(provisionalShadowLane.ts:22 / counterfactualShadowLane.ts:22)는
+ * `ctx.learningRegime ?? ctx.regime` 로 `=== 'R3_EARLY'` 를 본다. 진단 reason 합성도 반드시
+ * 동일 변수로 판정해야, LIVE-clamp 된 `routerInput.regime`(R6 회복 누수 시 R4_NEUTRAL) 단독으로
+ * "R3_EARLY 외 차단/비활성" 을 오표시하지 않는다 (운영자 헛다리/오진 방지 — ADR-0630 §2.3).
+ * 표시 전용 · 게이트 로직 무접촉 · executionImpact=NONE.
+ */
+export function laneRegimeBlockedForReason(
+  learningRegime: string | undefined,
+  routerInputRegime: string | undefined,
+): boolean {
+  return (learningRegime ?? routerInputRegime) !== 'R3_EARLY';
+}
+
 export function finiteNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && value.trim() !== '') {
