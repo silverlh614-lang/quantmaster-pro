@@ -59,18 +59,23 @@ afterEach(() => {
   delete process.env[NORMALIZE_ENABLED];
 });
 
-describe("ADR-0613 A. flag-OFF byte-identical", () => {
-  it("A1 flag 미설정 + percentile 존재 → applyRsPercentileWiring 입력 그대로", () => {
+// ADR-0644 — ceiling-wiring flag 는 default ON 으로 승격. explicit `=false` kill-switch 만
+// byte-identical OFF 복귀. 미설정(default)=ON 케이스는 아래 "ADR-0644 default ON" 블록.
+describe("ADR-0613 A. flag explicit =false byte-identical (ADR-0644 kill-switch)", () => {
+  it("A1 flag=false + percentile 존재 → applyRsPercentileWiring 입력 그대로", () => {
+    process.env[ENABLED] = "false";
     const out = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never);
     expect(out).toEqual(rsMissingBase);
   });
 
-  it("A2 flag 미설정 + OHLCV 존재 → applyBreakoutWiring 입력 그대로", () => {
+  it("A2 flag=false + OHLCV 존재 → applyBreakoutWiring 입력 그대로", () => {
+    process.env[ENABLED] = "false";
     const out = applyBreakoutWiring(breakoutMissingBase, { currentPrice: 100, high20: 99, high60: 95 } as never);
     expect(out).toEqual(breakoutMissingBase);
   });
 
-  it("A3 flag 미설정 + positive 합 존재 → applyPositiveMaxNormalization rawComputed 그대로", () => {
+  it("A3 normalize flag 미설정(default OFF) + positive 합 존재 → applyPositiveMaxNormalization rawComputed 그대로", () => {
+    // positive-max-normalization 은 ADR-0644 와 무관 — default OFF 유지(ADR-0643 봉인).
     const components = [
       { weightedScore: 20, maxScore: 20 },
       { weightedScore: -5, maxScore: 0 },
@@ -78,8 +83,9 @@ describe("ADR-0613 A. flag-OFF byte-identical", () => {
     expect(applyPositiveMaxNormalization(15, components)).toBe(15);
   });
 
-  it("A4 flag 미설정 + 전체 scorer → actualScore/computedScore/passed/scoreGap baseline 동일", () => {
+  it("A4 flag=false + 전체 scorer → actualScore/computedScore/passed/scoreGap baseline 동일", () => {
     const patch = { rsRankPct: 80, currentPrice: 100, high20: 99, high60: 95, volumeRatio: 1.5, return20d: 12 };
+    process.env[ENABLED] = "false";
     const off = trace(patch);
     const baseline = trace(patch);
     expect(off.actualScore).toBe(baseline.actualScore);
@@ -88,13 +94,42 @@ describe("ADR-0613 A. flag-OFF byte-identical", () => {
     expect(off.requiredScore).toBe(70);
   });
 
-  it("A5 '1'/'TRUE'/'yes' 는 OFF 취급(ADR-0157 정확 비교) → byte-identical", () => {
-    const baseline = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never);
+  it("A5 '1'/'TRUE'/'yes'/'on' 은 ON 취급(ADR-0157·0644 — 정확히 'false' 만 OFF)", () => {
+    // ADR-0644: `!== 'false'` → 'false' 외 모든 값은 ON. default ON 산출과 동일.
+    process.env[ENABLED] = "true";
+    const onBaseline = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never);
     for (const v of ["1", "TRUE", "yes", "on"]) {
       process.env[ENABLED] = v;
-      expect(applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never)).toEqual(baseline);
+      expect(applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 90 } as never)).toEqual(onBaseline);
       delete process.env[ENABLED];
     }
+  });
+});
+
+describe("ADR-0644 A'. flag 미설정(default ON) → 천장 배선 점화", () => {
+  it("A'1 미설정 + percentile 존재 → RS 승격(normalizedScore 상승, maxScore 10 불변)", () => {
+    // env 미설정 → default ON → percentile hydration 발화.
+    const out = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 85 } as never);
+    expect(out.normalizedScore).toBeGreaterThan(rsMissingBase.normalizedScore);
+    expect(out.weightedScore).toBeGreaterThan(0);
+    expect(out.maxScore).toBe(10);
+  });
+
+  it("A'2 미설정 + OHLCV(high20 근접) → breakout 점화(normalizedScore>0, maxScore 10 불변)", () => {
+    const out = applyBreakoutWiring(breakoutMissingBase, {
+      currentPrice: 102, high20: 100, high60: 98, volumeRatio: 1.5, ma20: 95, ma60: 90,
+    } as never);
+    expect(out.normalizedScore).toBeGreaterThan(0);
+    expect(out.weightedScore).toBeGreaterThan(0);
+    expect(out.maxScore).toBe(10);
+    expect(out.confidence).toBe("VERIFIED");
+  });
+
+  it("A'3 미설정(default ON) == explicit ='true' byte-identical", () => {
+    const dflt = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 85 } as never);
+    process.env[ENABLED] = "true";
+    const explicitOn = applyRsPercentileWiring(rsMissingBase, { crossSectionalPercentile: 85 } as never);
+    expect(dflt).toEqual(explicitOn);
   });
 });
 
@@ -140,9 +175,13 @@ describe("ADR-0613 B. flag-ON delta", () => {
 
   it("B5 전체 trace flag ON → requiredScore 70 불변, passed 비교식 유지", () => {
     process.env[ENABLED] = "true";
+    // ADR-0644 — denom-norm 은 default ON 으로 passed 를 effective(<70) 기준 판정한다.
+    // 본 케이스는 ceiling flag 만 검증하므로 denom-norm 은 =false 로 고정해 `>=70` 항등을 유지한다.
+    process.env.GATE1_DENOMINATOR_NORMALIZATION_ENABLED = "false";
     const out = trace({ rsRankPct: 80, currentPrice: 100, high20: 99, return20d: 12 });
     expect(out.requiredScore).toBe(70);
     expect(out.passed).toBe(out.actualScore >= 70);
+    delete process.env.GATE1_DENOMINATOR_NORMALIZATION_ENABLED;
   });
 });
 
@@ -166,7 +205,8 @@ describe("ADR-0613 C. 입력 부재 graceful (불변식 #6)", () => {
 });
 
 describe("ADR-0613 D. 관측 ledger stamp 격리 (불변식 #1)", () => {
-  it("D1 flag OFF + 전체 scorer → ceilingWiringHypothetical* 필드 stamp(ON 가정)", () => {
+  it("D1 flag=false + 전체 scorer → ceilingWiringHypothetical* 필드 stamp(ON 가정)", () => {
+    process.env[ENABLED] = "false";
     const out = trace({ currentPrice: 102, high20: 100, high60: 98, volumeRatio: 1.5 });
     expect(typeof out.ceilingWiringBreakoutDelta).toBe("number");
     expect(typeof out.ceilingWiringHypotheticalActualScore).toBe("number");
@@ -175,15 +215,17 @@ describe("ADR-0613 D. 관측 ledger stamp 격리 (불변식 #1)", () => {
 
   it("D2 hypothetical 산출은 actualScore 본체에 영향 0 (관측 전용)", () => {
     const patch = { rsRankPct: 80, currentPrice: 100, high20: 99, return20d: 12 };
+    process.env[ENABLED] = "false";
     const withStamp = trace(patch);
-    // flag OFF actualScore 는 stamp 유무와 무관하게 baseline.
+    // flag=false actualScore 는 stamp 유무와 무관하게 baseline.
     expect(withStamp.actualScore).toBe(trace(patch).actualScore);
   });
 
   it("D3 flag ON + hypothetical delta == 실제 적용 delta (동형성)", () => {
     const patch = { currentPrice: 102, high20: 100, high60: 98, volumeRatio: 1.5 };
+    process.env[ENABLED] = "false";
     const off = trace(patch);
-    process.env[ENABLED] = "true";
+    delete process.env[ENABLED]; // default ON
     const on = trace(patch);
     // hypothetical breakout delta(flag OFF 행) 는 실제 적용 시 actualScore 상승분과 동형.
     expect(off.ceilingWiringBreakoutDelta).toBeGreaterThan(0);

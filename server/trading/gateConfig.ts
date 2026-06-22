@@ -187,25 +187,24 @@ export function resolveGate1RequiredScore(regime?: string): number {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// ADR-0613 — Gate1 Positive-Ceiling Wiring 승격 스위치 (Phase 0, 동작 보존)
+// ADR-0613 — Gate1 Positive-Ceiling Wiring 승격 스위치 (ADR-0644 default ON)
 //
-// 천장 배선 3종(RS percentile 입력·BREAKOUT_STRUCTURE OHLCV·positive max→100
-// 정규화)을 LIVE minimum-signal scorer(buildMinimumSignalScoreTrace)에 연결하되,
-// 본 flag OFF(기본)면 각 transform 이 기존 산출과 byte-equivalent 값을 반환한다.
-// ADR-0546(regime-aware required-score)·ADR-0611(SECTOR_RS 재활성)과 동일 패턴 —
-// "ENV OFF=byte-identical, 항상 관측 계산" 의 Gate1 ENV 게이트 단일 거주지.
-// requiredScore=70(LEGACY_GATE1_REQUIRED_SCORE)·computedScore=ΣweightedScore·
-// passed 판정 라인 무변경. flip 은 Phase 2(운영자 forward-outcome 성숙 후) 사안.
+// 천장 배선 2종(RS percentile 입력·BREAKOUT_STRUCTURE OHLCV)을 LIVE
+// minimum-signal scorer(buildMinimumSignalScoreTrace)에 연결한다. ADR-0644 로
+// default ON 승격 — explicit `=false` kill-switch 로 byte-identical OFF 복귀(ENV 1줄 즉시 롤백).
+// positive max→100 정규화는 ADR-0643 으로 전용 flag(isGate1PositiveMaxNormalizationEnabled,
+// default OFF 유지)로 분리됐다 — 본 flag 와 무관. requiredScore=70(LEGACY_GATE1_REQUIRED_SCORE)·
+// computedScore=ΣweightedScore·passed 판정 라인 무변경.
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Gate1 천장 배선 활성 스위치. default OFF — Phase 0 동작 보존.
- * `GATE1_POSITIVE_CEILING_WIRING_ENABLED=true` 정확 비교(ADR-0157 — `'1'`/`'TRUE'`/
- * `'yes'` 거부). flip 은 Phase 2(운영자 승인) 사안 — ENV 1줄 즉시 롤백.
+ * Gate1 천장 배선 활성 스위치. default ON (explicit `=false` 로 비활성, ADR-0644).
+ * `GATE1_POSITIVE_CEILING_WIRING_ENABLED !== 'false'` (ADR-0157 정합 — 미설정·`'true'`·
+ * 기타값 = ON, 정확히 `'false'` 만 kill-switch OFF). ENV 1줄 즉시 롤백.
  * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
  */
 export function isGate1PositiveCeilingWiringEnabled(): boolean {
-  return process.env.GATE1_POSITIVE_CEILING_WIRING_ENABLED === 'true';
+  return process.env.GATE1_POSITIVE_CEILING_WIRING_ENABLED !== 'false';
 }
 
 /**
@@ -218,34 +217,36 @@ export function isGate1PositiveMaxNormalizationEnabled(): boolean {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// ADR-0627 — Gate1 RS percentile 연속 승격 스위치 (default OFF, byte-identical)
+// ADR-0627 — Gate1 RS percentile 연속 승격 스위치 (ADR-0644 default ON)
 //
 // decompositionBuilder 의 RS percentile→relativeStrengthScore 변환이 연속
 // percentile(rsRankPct 0~100)을 5단 step(0/2/5/8/10)으로 양자화해 p<50 을 전부
 // 0 으로 붕괴시켰다(정보 손실 버그). 본 flag ON 시 step 대신 연속 승격
 // (clamp(rsRankPct/10, 0, 10))으로 이미 계산된 percentile 분해능을 손실 없이
 // 복원한다. maxScore 10·weight 1 무변경 — weight 인상이 아니라 손실 복원.
-// p=100 은 step·연속 동일 10(천장 무변). OFF=byte-identical(기존 step 유지).
+// p=100 은 step·연속 동일 10(천장 무변). explicit `=false`=byte-identical(기존 step 유지).
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Gate1 RS percentile 연속 승격 스위치. default OFF — byte-identical 보존.
- * `GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED=true` 정확 비교(ADR-0157 — `'1'`/`'TRUE'`/
- * `'yes'` 거부). 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
+ * Gate1 RS percentile 연속 승격 스위치. default ON (explicit `=false` 로 비활성, ADR-0644).
+ * `GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED !== 'false'` (ADR-0157 정합 — 미설정·`'true'`·
+ * 기타값 = ON, 정확히 `'false'` 만 kill-switch OFF). 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
  */
 export function isGate1RsPercentileContinuousEnabled(): boolean {
-  return process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED === 'true';
+  return process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED !== 'false';
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// ADR-0640 — Gate1 Denominator Normalization 활성 스위치 (default OFF, byte-identical)
+// ADR-0640 — Gate1 Denominator Normalization 활성 스위치 (ADR-0644 default ON)
 //
 // 결손(UNKNOWN/MISSING/STALE) 컴포넌트의 maxScore 가 분모(configuredPositiveMax)에
 // 남아 requiredScore=70 의 실효 문턱을 올리는 구조를 교정한다. flag ON 시 결손 maxScore 를
 // 분모에서 제외하고 requiredScore 를 가용 분모 비례로 축소(절대 인상 안 함, 하한 0.7× clamp).
-// 불변식 #6 완결(점수 중립화 + 분모 제외). OFF = passed/scoreGap byte-identical(레거시 70 고정).
-// flip 은 Phase 2(운영자 forward-outcome 성숙) 사안 — ENV 1줄 즉시 롤백.
+// 불변식 #6 완결(점수 중립화 + 분모 제외). ADR-0644 로 default ON 승격 —
+// explicit `=false` kill-switch 로 passed/scoreGap byte-identical(레거시 70 고정) 복귀(ENV 1줄 즉시 롤백).
 // ───────────────────────────────────────────────────────────────────────────
+// default ON (explicit `=false` 로 비활성, ADR-0644). `!== 'false'` (ADR-0157 정합 —
+// 미설정·`'true'`·기타값 = ON, 정확히 `'false'` 만 kill-switch OFF). ENV 1줄 즉시 롤백.
 export function isGate1DenominatorNormalizationEnabled(): boolean {
-  return process.env.GATE1_DENOMINATOR_NORMALIZATION_ENABLED === 'true';
+  return process.env.GATE1_DENOMINATOR_NORMALIZATION_ENABLED !== 'false';
 }
