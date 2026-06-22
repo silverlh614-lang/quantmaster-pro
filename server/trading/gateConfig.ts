@@ -273,3 +273,22 @@ export function isGate1DenominatorNormalizationEnabled(): boolean {
 export function isGate1VolumeLiquidityWiringEnabled(): boolean {
   return process.env.GATE1_VOLUME_LIQUIDITY_WIRING_ENABLED !== 'false';
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADR-0648 — 눌림목 진입 레인 + 과열 가드 + RRR-우선 (Balanced 프리셋, default OFF)
+//
+// breakoutMomentumEvaluator 에 레인 B(눌림목: 20일 고점 직하 되돌림 + MA20 추세 유지 +
+// 거래량 마름)와 레인 C 과열 가드(price/high5d > 1.06 추격 거부)를 추가하고, 눌림목 레인
+// FIRED 후보에 Gate3 RRR ≥ 2.0 하한을 정합한다. flag OFF(미설정/임의값) = byte-identical —
+// 기존 단일 강/약 돌파 레인 그대로(레인 B·과열 가드·RRR 하한 미적용). entry-selection
+// behavior change 라 ADR-0644 식 default-ON flip 대상 아님 — shadow forward-return 검증 선행.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * 눌림목 진입 레인 활성 스위치. default OFF — `=== 'true'` 정확 비교(ADR-0157).
+ * 미설정·임의값 = OFF(byte-identical), explicit `=true` 만 멀티 레인 활성.
+ * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
+ */
+export function isPullbackEntryLaneEnabled(): boolean {
+  return process.env.GATE_PULLBACK_ENTRY_LANE_ENABLED === 'true';
+}

@@ -860,6 +860,9 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
       memo: `${gate.signalType} gate=${gate.gateScore.toFixed(1)}/10 ${gate.details.join(', ')}`,
       rrr: parseFloat(((tp - quote.price) / (quote.price - sl || 1)).toFixed(2)),
       conditionKeys: gate.conditionKeys,
+      // ADR-0648 — 눌림목 레인 FIRED 후보 태그 carry (rrrGate effectiveMinRrr 강화 입력).
+      //   flag OFF 시 gate.entryLane 항상 undefined → 스프레드 무영향(byte-identical).
+      ...(gate.entryLane ? { entryLane: gate.entryLane } : {}),
       section,
       track,
       expiresAt: addBusinessDays(new Date(), expireDays).toISOString(),

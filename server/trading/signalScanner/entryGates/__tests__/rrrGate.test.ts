@@ -59,4 +59,32 @@ describe('rrrGate', () => {
       expect(r.stageLog?.value).toMatch(/FAIL\(\d+\.\d+ < \d+(\.\d+)?\)/);
     }
   });
+
+  // ─── ADR-0648 — 눌림목 레인 RRR 하한 강화 (effectiveMinRrr ≥ 2.0) ──────────────
+  describe('눌림목 레인 RRR ≥ 2.0 (ADR-0648)', () => {
+    const effectiveMin = Math.max(RRR_MIN_THRESHOLD, 2.0);
+
+    it('entryLane=PULLBACK + RRR=1.9 (기본 1.8 통과 but 2.0 미달) → pass=false', async () => {
+      // entry=100, stop=90 → risk=10; target=119 → reward=19 → RRR=1.9
+      const stock = makeMockStock({ entryLane: 'PULLBACK', entryPrice: 100, targetPrice: 119, stopLoss: 90 });
+      const r = await rrrGate(makeMockCtx({ stock }));
+      expect(r.pass).toBe(false);
+      if (!r.pass) {
+        expect(r.logMessage).toContain(String(effectiveMin));
+        expect(r.stageLog?.value).toContain(String(effectiveMin));
+      }
+    });
+
+    it('entryLane=PULLBACK + RRR=2.0 (정확히 강화 임계) → pass=true', async () => {
+      const stock = makeMockStock({ entryLane: 'PULLBACK', entryPrice: 100, targetPrice: 120, stopLoss: 90 });
+      const r = await rrrGate(makeMockCtx({ stock }));
+      expect(r.pass).toBe(true);
+    });
+
+    it('entryLane 미태깅(기본 후보) + RRR=1.9 → pass=true (byte-identical, 기본 1.8 임계)', async () => {
+      const stock = makeMockStock({ entryPrice: 100, targetPrice: 119, stopLoss: 90 });
+      const r = await rrrGate(makeMockCtx({ stock }));
+      expect(r.pass).toBe(true);
+    });
+  });
 });
