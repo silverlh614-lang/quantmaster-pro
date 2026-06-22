@@ -14,7 +14,7 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0643`**
+**다음 ADR 번호: `0644`**
 
 (2026-06-21 기준, 마지막 발급 0641 — **Gate Flag 수명주기 거버넌스 + 기존 OFF 플래그 burn-down 감사**. **Status: Proposed (Phase 0 — architect: 거버넌스 정책·기계가독 레지스트리(`scripts/gate_flag_lifecycle.json`)·burn-down 감사 문서(`docs/ai/gate-flag-lifecycle.md`)·ADR·INDEX·패치히스토리. `scripts/check_flag_lifecycle.js` + package.json `validate:flagLifecycle` 배선은 engine-dev 인계.)** 사용자 요청("default-OFF 누적 안티패턴 해소") 후속 — Gate1 에 default-OFF 플래그 5개(0546 regime-aware required·0611 sector RS·0613 positive ceiling wiring·0627 RS continuous·0640 denominator normalization)가 영원히 OFF 로 쌓여 shadow 관측만 하고 아무것도 flip 되지 않는 "플래그 무덤" 안티패턴. 근본: "OFF 출하(byte-identical)→검증→승인 후 flip" 패턴에서 **flip 단계 미제도화** → 출하 안전장치(ADR-0146)가 정체(stasis)로 변질. 처방: **D1** 모든 Gate flag-gated 기능은 기계가독 레지스트리 `scripts/gate_flag_lifecycle.json`(스키마 v1·top-level reviewWindowDays 90·필수 필드 envFlag/adr/title/introduced/reviewBy/status[SHADOW_OFF|ON|SUNSET]/activationCriteria/nextAction/notes) 등재 의무·JSON=SSOT·md 는 해설. **D2** reviewBy(=introduced+90) 경과한 SHADOW_OFF 존재 시 `validate:flagLifecycle`(engine-dev `scripts/check_flag_lifecycle.js`) **하드 실패** → flip/sunset/연장 중 하나 강제(오늘 2026-06-21 기준 5개 전부 reviewBy=2026-09-19 미경과 → 통과). **D3** 연장은 reviewBy 명시 갱신+사유 기록(침묵 드리프트 금지). **D4** ON/SUNSET 전환 시 죽은 OFF 분기 코드 정리 의무(engine-dev/해당도메인). burn-down 분류: flip 후보(0611 additive capacity 복원·0627 정보 손실 버그픽스) / 데이터 의존(0640 데이터 파이프 건강·0546 calibration 임계 측) / 관측 더 필요(0613 3종 묶음). executionImpact **NONE**(메타 거버넌스·문서+JSON 뿐·Gate 채점/requiredScore 70/autoTradeEngine/kisClient/order/SourceSnapshot 0줄·어떤 flag 도 flip 안 함·전부 OFF byte-identical 유지). 9대 불변식 #1/#2/#3/#6/#7/#8 전부 무위반(메타 정책·매매·shadow·provider 경로 무접촉·#8: 어떤 flag 도 flip 안 함). "OFF 출하 byte-identical"(ADR-0146) 안전 규칙을 폐기 아닌 **완결**(출하 안전 + flip 강제 두 축). 신규 ENV 0. Patch Scope Guard(ADR-530): targetDomain governance-meta(1)·allowedFiles(scripts/gate_flag_lifecycle.json 신규·docs/ai/gate-flag-lifecycle.md 신규·본 ADR·INDEX 0641→0642·10-patch-history 1줄)·forbiddenFiles(소스 .ts 전부·scripts/*.js·package.json[engine-dev 담당]·autoTradeEngine·kisClient·gateConfig·minimumSignalScoreTrace·requiredScore=70·src/**)·rollback validate 체인에서 validate:flagLifecycle 제외(메타라 LIVE 롤백 대상 없음). engine-dev 인계(`scripts/check_flag_lifecycle.js` JSON 읽어 reviewBy 만료 검사·SHADOW_OFF+경과 시 비-0 exit + package.json validate:flagLifecycle + validate:all 체인 편입·회귀: 미경과 통과/경과 SHADOW_OFF 실패/ON·SUNSET 면제/스키마 누락 필드 실패/JSON 파싱). Alternatives: 현행 유지(안티패턴 그 자체)·운영자 캘린더(사람 의존 사각)·자동 flip(#8 미검증 분포 변경)·자동 sunset(flip 후보 무차별 폐기)·.ts 상수(SRP·기계가독 JSON 적합)·flag 별 가변 window(YAGNI) 전부 기각. 계보 0146/0157/0530/0546/0611/0613/0627/0640. INDEX 0641 등재(다음 0641→0642 갱신).)
 
@@ -773,8 +773,9 @@
 | 0640 | gate1-denominator-normalization | trading / gate1-scoring |
 | 0641 | gate-flag-lifecycle-governance | governance / flag-lifecycle (meta) |
 | 0642 | dxy-cross-validation-contradicted-classification | alerts / macro-dxy |
+| 0643 | gate1-positive-max-normalization-flag-split | trading / gate1-scoring |
 
-**최대 발급 0642 · 다음 발급 0643** — `node scripts/check_adr_index.js --json` 기준 (2026-06-21 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0643 · 다음 발급 0644** — `node scripts/check_adr_index.js --json` 기준 (2026-06-22 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

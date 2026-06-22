@@ -53,7 +53,7 @@ describe('ADR-0185 evaluateStage1Filter strict 분기', () => {
   describe('default OFF (legacy 동작 보존)', () => {
     it('정상 quote 통과', async () => {
       const { evaluateStage1Filter } = await import('./pipelineHelpers');
-      expect(evaluateStage1Filter(makeQuote())).toEqual({ pass: true });
+      expect(evaluateStage1Filter(makeQuote())).toMatchObject({ pass: true }); // ADR-0643 D3: pass 결과에 projectedVolume stamp 가능
     });
 
     it('NaN price 가 legacy 분기에서 *통과* — strict 활성화가 필요한 결함 (default OFF 보존)', async () => {
@@ -99,7 +99,7 @@ describe('ADR-0185 evaluateStage1Filter strict 분기', () => {
 
     it('정상 quote 는 strict 통과 + legacy 후속 분기 진입', async () => {
       const { evaluateStage1Filter } = await import('./pipelineHelpers');
-      expect(evaluateStage1Filter(makeQuote())).toEqual({ pass: true });
+      expect(evaluateStage1Filter(makeQuote())).toMatchObject({ pass: true }); // ADR-0643 D3: pass 결과에 projectedVolume stamp 가능
     });
 
     it('NaN price → DATA_MISSING_PRICE (LOW_VOLUME 으로 오분류 차단)', async () => {

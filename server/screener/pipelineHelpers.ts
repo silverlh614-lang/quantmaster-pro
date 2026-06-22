@@ -52,6 +52,10 @@ export interface CandidateStock {
   sector:      string;
   quote:       YahooQuoteExtended;
   stage1Score: number;
+  // ADR-0643 D3 — producer projectedVolume carry(SSOT stamp 지점). evaluateStage1Filter 산출값을
+  //   candidate 로 1회 stamp → symbolFeatures:146(c.projectedVolume) → Gate1 volumeLiquidityScore.
+  //   부재 시 read 경로 ?? fallback(volume). 신규 산식 0(재계산 금지, drift·불변식 #3).
+  projectedVolume?: number;
   // ADR-0617 — 주도주 source carry (additive optional). expandedUniverse(외인·기관·시총 상위)
   //   종목에만 부여, full master 전용 종목은 undefined. flag OFF 시 전건 undefined(기존 동작 동치).
   //   DynamicStock['source'] union 재사용(두 번째 enum 신설 금지). 관측·강제 보존 식별 전용 —
@@ -392,6 +396,10 @@ export type Stage1RejectionReason =
 export interface Stage1FilterResult {
   pass: boolean;
   reason?: Stage1RejectionReason;
+  // ADR-0643 D3 — producer 단일 stamp(SSOT). evaluateStage1Filter 가 이미 LOW_VOLUME 판정용으로
+  //   산출하는 projectIntradayVolume(quote.volume) 값을 carry 사슬(symbolFeatures:146 → Gate1
+  //   volumeLiquidityScore)로 전파. 신규 산식 0(재사용). 부재 시 read 경로 ?? fallback graceful.
+  projectedVolume?: number;
 }
 
 /**
@@ -527,7 +535,9 @@ export function evaluateStage1Filter(quote: YahooQuoteExtended, regime?: RegimeL
     return { pass: false, reason: 'BELOW_MA20' };
   }
   if (quote.return5d > maxReturn5d) return { pass: false, reason: 'OVEREXTENDED' };
-  return { pass: true };
+  // ADR-0643 D3 — pass 결과에 producer projectedVolume stamp(재사용, 신규 산식 0). >0 인 경우만
+  //   포함해 부재(미산출=0) 시 read 경로 ?? fallback 을 graceful 보존(불변식 #6).
+  return projectedVolume > 0 ? { pass: true, projectedVolume } : { pass: true };
 }
 
 /**
