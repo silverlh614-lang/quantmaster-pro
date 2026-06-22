@@ -252,22 +252,24 @@ export function isGate1DenominatorNormalizationEnabled(): boolean {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// (ADR 후속) — Gate1 VOLUME_LIQUIDITY 입력 배선 복구 스위치 (default OFF)
+// (ADR-0646 배선 수리 → ADR-0647 default ON flip) — Gate1 VOLUME_LIQUIDITY 입력 배선 복구 스위치
 //
 // volumeLiquidityScore 가 avgVolume 을 `avgVolume`/`quote.avgVolume`/`quoteFeatures.avgVolume`
 // 에서만 읽어, 시스템 카논 필드인 `avgVolume20d`(index.ts:91·quote.avgVolume20d) 와
 // `symbolFeatures.avgVolume20d`/`volumeRatio` 가 적재돼 있어도 ratio 분기에 도달하지 못해
-// 전 종목 0 점으로 붕괴(RAW_AVAILABLE_SCORE_NOT_PROMOTED). flag ON 시에만 이미 존재하는
+// 전 종목 0 점으로 붕괴(RAW_AVAILABLE_SCORE_NOT_PROMOTED). flag ON 시 이미 존재하는
 // raw volume 필드(avgVolume20d/volumeRatio/volume)를 정식 입력으로 소비해 기존 ratio 공식
 // 으로 점수를 복원한다. 신규 fetch 0·신규 점수 공식 0·maxScore 12 무변경. 진짜 결손 종목은
-// 0 graceful(불변식 #6). OFF=byte-identical.
+// 0 graceful(불변식 #6). ADR-0646 으로 OFF 머지 후 운영자 효과 확인(8/24 종목 점수 기여,
+// Gate1 finalScoreAvg 54.1→59.8) → ADR-0647 로 default ON 승격. `=false` kill-switch=byte-identical OFF 복귀.
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Gate1 VOLUME_LIQUIDITY 입력 배선 복구 스위치. default OFF — `=== 'true'` 정확 비교(ADR-0157).
- * 미설정·임의값 = OFF, 정확히 `'true'` 만 ON. ENV 1줄 즉시 롤백(OFF=byte-identical).
+ * Gate1 VOLUME_LIQUIDITY 입력 배선 복구 스위치. default ON since ADR-0647 (explicit `=false` 로
+ * 비활성, ADR-0157 거울 — opt-IN `=== 'true'` 의 거울 대칭 opt-OUT `!== 'false'`). 미설정·임의값 = ON,
+ * 정확히 `'false'` 만 kill-switch OFF. `=false` 1줄 즉시 byte-equivalent 롤백.
  * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
  */
 export function isGate1VolumeLiquidityWiringEnabled(): boolean {
-  return process.env.GATE1_VOLUME_LIQUIDITY_WIRING_ENABLED === 'true';
+  return process.env.GATE1_VOLUME_LIQUIDITY_WIRING_ENABLED !== 'false';
 }

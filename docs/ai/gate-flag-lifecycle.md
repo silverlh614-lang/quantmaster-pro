@@ -42,11 +42,12 @@ Gate1 에 default-OFF 플래그가 5개 영원히 OFF 로 쌓여 shadow 관측�
 
 이로써 "OFF 출하" 안전 규칙은 폐기되지 않고 *완결*된다 — 출하는 여전히 안전하되 flip 결정이 강제된다.
 
-> **검사 상태(2026-06-22 갱신):** 점수개선 4종(0611·0613·0627·0640)이 `status: "ON"` 으로 flip 됨
-> (0613/0627/0640 = ADR-0644 safe-lever flip · 0611 = ADR-0645). `check_flag_lifecycle.js` 는 ON 이면
-> `reviewBy` 만료 검사를 면제하므로 이 4개는 검사 대상에서 빠진다. 남은 `SHADOW_OFF` 는 3개 —
+> **검사 상태(2026-06-22 갱신):** 점수개선 5종(0611·0613·0627·0640·0646)이 `status: "ON"` 으로 flip 됨
+> (0613/0627/0640 = ADR-0644 safe-lever flip · 0611 = ADR-0645 · 0646 = ADR-0647 volume-liquidity-wiring
+> default-ON flip, 운영자 효과확인 8/24 기여·avg 54.1→59.8·hardPass 1→9). `check_flag_lifecycle.js` 는 ON 이면
+> `reviewBy` 만료 검사를 면제하므로 이 5개는 검사 대상에서 빠진다. 남은 `SHADOW_OFF` 는 2개 —
 > 0546(regime-aware required·`reviewBy 2026-09-19`)·0643(positive-max-normalization·16/16 과개방 봉인·
-> `reviewBy 2026-09-20`)·0646(volume-liquidity-wiring·`reviewBy 2026-09-20`) — 이며 셋 다 `reviewBy` 미경과라
+> `reviewBy 2026-09-20`) — 이며 둘 다 `reviewBy` 미경과라
 > `validate:flagLifecycle` 통과. 각 `reviewBy` 경과 후 해당 flag 는 flip/sunset/연장 중 하나가 강제된다.
 
 ---
@@ -60,7 +61,7 @@ Gate1 에 default-OFF 플래그가 5개 영원히 OFF 로 쌓여 shadow 관측�
 | `GATE1_POSITIVE_CEILING_WIRING_ENABLED` | 0613 | **ON** (2026-06-22 flip) | 2026-09-19 | 중간(3종 묶음 효과) | ADR-0644 flip 완료 (16/16 정규화는 ADR-0643 분리·OFF 유지) | **flipped (ADR-0644)** |
 | `GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED` | 0627 | **ON** (2026-06-22 flip) | 2026-09-19 | 낮음(손실 복원 버그픽스) | ADR-0644 flip 완료 | **flipped (ADR-0644)** |
 | `GATE1_DENOMINATOR_NORMALIZATION_ENABLED` | 0640 | **ON** (2026-06-22 flip) | 2026-09-19 | 중간~높음(데이터 파이프 의존) | ADR-0644 flip 완료 · 데이터 파이프 건강 모니터링 지속 | **flipped (ADR-0644)** |
-| `GATE1_VOLUME_LIQUIDITY_WIRING_ENABLED` | 0646 | SHADOW_OFF | 2026-09-20 | 낮음(additive 입력 복원·곡선 무변경·결손 graceful) | raw volume coverage 확인 + shadow hypothetical 델타 N세션 관측 후 flip | **저위험 · flip 후보** |
+| `GATE1_VOLUME_LIQUIDITY_WIRING_ENABLED` | 0646 | **ON** (2026-06-22 flip) | 2026-09-20 | 낮음(additive 입력 복원·곡선 무변경·결손 graceful) | ADR-0647 flip 완료(운영자 효과확인 8/24 기여·avg 54.1→59.8·hardPass 1→9) · 죽은 OFF 분기 정리(후속) | **flipped (ADR-0647)** |
 
 ### 솔직한 분류 해설
 

@@ -50,25 +50,34 @@ describe("Gate1 VOLUME_LIQUIDITY wiring flag reader", () => {
     else process.env[FLAG] = original;
   });
 
-  it("default OFF (미설정) — `=== 'true'` 정확 비교", () => {
+  it("default ON (미설정, ADR-0647) — `!== 'false'` opt-OUT", () => {
     delete process.env[FLAG];
-    expect(isGate1VolumeLiquidityWiringEnabled()).toBe(false);
+    expect(isGate1VolumeLiquidityWiringEnabled()).toBe(true);
   });
 
-  it("정확히 'true' 만 ON, 임의값/'false'/'1' 은 OFF (ADR-0157)", () => {
+  it("explicit 'true' 도 ON (default 와 동일)", () => {
     process.env[FLAG] = "true";
     expect(isGate1VolumeLiquidityWiringEnabled()).toBe(true);
+  });
+
+  it("정확히 'false' 만 kill-switch OFF, 그 외 임의값은 ON (ADR-0157·0647 거울)", () => {
     process.env[FLAG] = "false";
     expect(isGate1VolumeLiquidityWiringEnabled()).toBe(false);
-    process.env[FLAG] = "1";
-    expect(isGate1VolumeLiquidityWiringEnabled()).toBe(false);
-    process.env[FLAG] = "TRUE";
-    expect(isGate1VolumeLiquidityWiringEnabled()).toBe(false);
+    // 정확히 'false' 가 아니면 전부 ON (opt-OUT 거울 대칭)
+    for (const v of ["1", "TRUE", "yes", "on", "False", "0", "off"]) {
+      process.env[FLAG] = v;
+      expect(isGate1VolumeLiquidityWiringEnabled()).toBe(true);
+    }
   });
 });
 
-describe("VOLUME_LIQUIDITY wiring — OFF byte-identical", () => {
+describe("VOLUME_LIQUIDITY wiring — OFF byte-identical (`=false` kill-switch, ADR-0647)", () => {
+  // ADR-0647 로 default 가 ON 으로 flip 됐으므로, legacy OFF byte-identical baseline 의도를
+  // 보존하기 위해 explicit `=false` 로 pin 한다(단언 약화 0). afterEach 로 격리.
   beforeEach(() => {
+    process.env[FLAG] = "false";
+  });
+  afterEach(() => {
     delete process.env[FLAG];
   });
 
@@ -148,8 +157,46 @@ describe("VOLUME_LIQUIDITY wiring — ON raw volume → 양수 점수", () => {
   });
 });
 
+describe("VOLUME_LIQUIDITY wiring — default ON (미설정, ADR-0647) == explicit 'true'", () => {
+  // ADR-0645/0611 default-ON 케이스 모사: 미설정(default ON)이 explicit ='true' 와 동치임을 검증.
+  afterEach(() => {
+    delete process.env[FLAG];
+  });
+
+  it("default(미설정): avgVolume20d+volume → ratio 기반 VERIFIED 양수 점수 복원 (== explicit ='true')", () => {
+    delete process.env[FLAG];
+    const dflt = volComponent({
+      quote: { avgVolume20d: 1_000_000, volume: 1_500_000 },
+    } as Parameters<typeof minTrace>[0]);
+    expect(dflt?.confidence).toBe("VERIFIED");
+    expect(dflt?.normalizedScore).toBe(100);
+    expect(dflt?.weightedScore).toBeGreaterThan(0);
+    expect(dflt?.rawValue).toMatchObject({ volume: 1_500_000, avgVolume: 1_000_000, ratio: 1.5 });
+
+    process.env[FLAG] = "true";
+    const explicitOn = volComponent({
+      quote: { avgVolume20d: 1_000_000, volume: 1_500_000 },
+    } as Parameters<typeof minTrace>[0]);
+    expect(dflt?.weightedScore).toBeCloseTo(explicitOn?.weightedScore ?? -1, 5);
+  });
+
+  it("default(미설정): 입력 진짜 결손 → 0 graceful (페널티 아님, 불변식 #6)", () => {
+    delete process.env[FLAG];
+    const vol = volComponent({});
+    expect(vol?.weightedScore).toBe(0);
+    expect(vol?.confidence).toBe("MISSING");
+    expect(vol?.marketSignal).toBe(false);
+    expect(vol?.penaltyApplied).toBe(false);
+  });
+});
+
 describe("VOLUME_LIQUIDITY wiring — hypothetical 관측 stamp (flag 무관)", () => {
+  // hypothetical stamp 는 flag 와 무관하므로, 원래 "flag OFF" 관측 의도를 보존하기 위해
+  // explicit `=false` 로 pin 한다(ADR-0647 default ON flip 이후 격리).
   beforeEach(() => {
+    process.env[FLAG] = "false";
+  });
+  afterEach(() => {
     delete process.env[FLAG];
   });
 

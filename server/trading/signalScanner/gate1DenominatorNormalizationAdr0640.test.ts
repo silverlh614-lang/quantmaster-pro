@@ -256,16 +256,20 @@ describe("ADR-0640 E. 통합(buildMinimumSignalScoreTrace)", () => {
       watchlistScore: 90, priceDataFresh: true,
     };
     // ADR-0644 — ceiling/RS flag 도 default ON 이라 actualScore 가 70 을 넘어 시나리오
-    // 전제(actualScore ∈ [effective, 70))가 깨진다. denom-norm 단일 효과 격리를 위해
-    // 다른 두 flag 는 =false 로 고정한다(요구사항: 결손 분모 제외만으로 통과 전환 증명).
+    // 전제(actualScore ∈ [effective, 70))가 깨진다. ADR-0647 — VOLUME_LIQUIDITY 배선도
+    // default ON 으로 flip 돼 richPatch 의 volumeRatio/volume 이 점수에 기여(actualScore
+    // 62.7→78.7) 하므로 동일하게 깨진다. denom-norm 단일 효과 격리를 위해 다른 세 flag 는
+    // =false 로 고정한다(요구사항: 결손 분모 제외만으로 통과 전환 증명).
     process.env.GATE1_POSITIVE_CEILING_WIRING_ENABLED = "false";
     process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED = "false";
+    process.env.GATE1_VOLUME_LIQUIDITY_WIRING_ENABLED = "false";
     process.env[ENABLED] = "false";
     const off = traceMissing(richPatch);
     delete process.env[ENABLED]; // default ON
     const on = traceMissing(richPatch);
     delete process.env.GATE1_POSITIVE_CEILING_WIRING_ENABLED;
     delete process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED;
+    delete process.env.GATE1_VOLUME_LIQUIDITY_WIRING_ENABLED;
     // actualScore 본체는 분모 정합과 무관(관측/문턱만 변경) → OFF/ON 동일(불변식 #1·#6).
     expect(on.actualScore).toBe(off.actualScore);
     // 결손으로 effective<70 이고 actualScore 가 그 사이 → OFF 탈락 / ON 통과(핵심).
