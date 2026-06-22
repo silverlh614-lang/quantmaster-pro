@@ -19,10 +19,10 @@
       "title": "Gate1 Sector Relative-Strength Component Reactivation",
       "introduced": "2026-06-15",
       "reviewBy": "2026-09-19",
-      "status": "SHADOW_OFF",
+      "status": "ON",
       "activationCriteria": "섹터상대(stock-sector 20d) 입력 커버리지(featurePack/gate2 외부데이터)가 충분한지 확인. additive capacity 복원(maxScore 0→8)이라 requiredScore 무변경·결손 시 weightedScore 0(graceful)으로 저위험.",
-      "nextAction": "섹터상대 입력 커버리지 확인 → additive 라 저위험·flip 후보 → flip",
-      "notes": "ADR-0467 advisory-only 주차의 의도치 않은 side effect(활성 maxScore 합 108 < requiredScore calibrate 분모 116) 8점 capacity 복원. OFF=byte-equivalent(maxScore 0·weightedScore 0). 저위험 flip 후보."
+      "nextAction": "ADR-0645 flip 완료 — default ON(opt-OUT `!== 'false'`), ENV `=false` 롤백. ADR-0644 가 남긴 마지막 점수개선 lever.",
+      "notes": "ADR-0467 advisory-only 주차의 의도치 않은 side effect(활성 maxScore 합 108 < requiredScore calibrate 분모 116) 8점 capacity 복원. 2026-06-22 ADR-0645 으로 default ON flip(opt-OUT `!== 'false'`, ADR-0644 safe-lever 3종에 이어 4번째). OFF(=false)=byte-equivalent(maxScore 0·weightedScore 0). 저위험(additive)."
     },
     {
       "envFlag": "GATE1_POSITIVE_CEILING_WIRING_ENABLED",

@@ -42,8 +42,11 @@ Gate1 에 default-OFF 플래그가 5개 영원히 OFF 로 쌓여 shadow 관측�
 
 이로써 "OFF 출하" 안전 규칙은 폐기되지 않고 *완결*된다 — 출하는 여전히 안전하되 flip 결정이 강제된다.
 
-> **오늘(2026-06-21) 검사 상태:** 5개 전부 `reviewBy = 2026-09-19`(거버넌스 시작일 + 90일)로 설정 →
-> 미경과라 `validate:flagLifecycle` 통과. 2026-09-19 경과 후엔 flip/sunset/연장 중 하나가 강제된다.
+> **검사 상태(2026-06-22 갱신):** 점수개선 4종(0611·0613·0627·0640)이 `status: "ON"` 으로 flip 됨
+> (0613/0627/0640 = ADR-0644 safe-lever flip · 0611 = ADR-0645). `check_flag_lifecycle.js` 는 ON 이면
+> `reviewBy` 만료 검사를 면제하므로 이 4개는 검사 대상에서 빠진다. 남은 `SHADOW_OFF` 는 0546 1개뿐이며
+> `reviewBy = 2026-09-19`(미경과)라 `validate:flagLifecycle` 통과. 2026-09-19 경과 후 0546 은
+> flip/sunset/연장 중 하나가 강제된다.
 
 ---
 
@@ -51,11 +54,11 @@ Gate1 에 default-OFF 플래그가 5개 영원히 OFF 로 쌓여 shadow 관측�
 
 | envFlag | ADR | status | reviewBy | 위험도 | 권장 다음 액션 | 분류 |
 |---------|-----|--------|----------|--------|----------------|------|
-| `GATE1_REGIME_AWARE_REQUIRED` | 0546 | SHADOW_OFF | 2026-09-19 | 높음(임계 측·calibration 의존) | legacy vs regime pass-rate 델타 + 운영자 승인 | 데이터 의존 |
-| `GATE1_SECTOR_RS_COMPONENT_ENABLED` | 0611 | SHADOW_OFF | 2026-09-19 | 낮음(additive capacity) | 섹터상대 입력 커버리지 확인 후 flip | **flip 후보** |
-| `GATE1_POSITIVE_CEILING_WIRING_ENABLED` | 0613 | SHADOW_OFF | 2026-09-19 | 중간(3종 묶음 효과) | ceilingWiring hypothetical + OHLCV/RS hydration 커버리지 관측 | 관측 더 필요 |
-| `GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED` | 0627 | SHADOW_OFF | 2026-09-19 | 낮음(손실 복원 버그픽스) | rsContinuous hypothetical 델타 확인 후 flip | **flip 후보** |
-| `GATE1_DENOMINATOR_NORMALIZATION_ENABLED` | 0640 | SHADOW_OFF | 2026-09-19 | 중간~높음(데이터 파이프 의존) | 데이터 파이프 건강 + shadow denomNorm 델타 관측 | 데이터 의존 |
+| `GATE1_REGIME_AWARE_REQUIRED` | 0546 | SHADOW_OFF | 2026-09-19 | 높음(임계 측·calibration 의존) | legacy vs regime pass-rate 델타 + 운영자 승인 | 데이터 의존 (flip 제외 — 임계 측) |
+| `GATE1_SECTOR_RS_COMPONENT_ENABLED` | 0611 | **ON** (2026-06-22 flip) | 2026-09-19 | 낮음(additive capacity) | ADR-0645 flip 완료 · 죽은 OFF 분기 정리(후속) | **flipped (ADR-0645)** |
+| `GATE1_POSITIVE_CEILING_WIRING_ENABLED` | 0613 | **ON** (2026-06-22 flip) | 2026-09-19 | 중간(3종 묶음 효과) | ADR-0644 flip 완료 (16/16 정규화는 ADR-0643 분리·OFF 유지) | **flipped (ADR-0644)** |
+| `GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED` | 0627 | **ON** (2026-06-22 flip) | 2026-09-19 | 낮음(손실 복원 버그픽스) | ADR-0644 flip 완료 | **flipped (ADR-0644)** |
+| `GATE1_DENOMINATOR_NORMALIZATION_ENABLED` | 0640 | **ON** (2026-06-22 flip) | 2026-09-19 | 중간~높음(데이터 파이프 의존) | ADR-0644 flip 완료 · 데이터 파이프 건강 모니터링 지속 | **flipped (ADR-0644)** |
 
 ### 솔직한 분류 해설
 
