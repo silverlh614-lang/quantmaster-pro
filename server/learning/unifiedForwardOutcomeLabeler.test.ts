@@ -6,6 +6,7 @@ import type { Gate3OutcomeSeed } from '../quant/gate3OutcomeSeed.js';
 import type { NearMissOutcomeEntry } from '../persistence/nearMissOutcomeLedger.js';
 import type { CounterfactualShadowLearningLedgerEntry } from '../persistence/counterfactualShadowLearningRepo.js';
 import type { Gate1DryRunObservationRow } from '../trading/signalScanner/gate1DryRunObservationLedgerAdr0476.js';
+import type { PullbackLaneObservationRow } from './pullbackLaneObservationTypes.js';
 import {
   formatUnifiedForwardOutcomeLabelerSection,
   horizonIdempotencyKey,
@@ -119,8 +120,28 @@ function counterfactualEntry(): CounterfactualShadowLearningLedgerEntry {
   };
 }
 
+function pullbackObservationRow(overrides: Partial<PullbackLaneObservationRow> = {}): PullbackLaneObservationRow {
+  return {
+    scanId: 'scan:pullback:001',
+    symbol: '005930',
+    asOf: '2026-05-12T00:30:00.000Z',
+    pullbackLaneHypotheticalFired: true,
+    breakoutChaseLaneFired: false,
+    overheatGuardTriggered: false,
+    posVsHigh20d: 0.94,
+    volRatio: 1.3,
+    aboveMa20: true,
+    entryRrr: 2.2,
+    entryLane: 'PULLBACK',
+    maturity: 'PENDING',
+    observationOnly: true,
+    ...overrides,
+  };
+}
+
 afterEach(() => {
   delete process.env.UNIFIED_FORWARD_OUTCOME_LABELER_ENABLED;
+  delete process.env.PULLBACK_LANE_FORWARD_OBSERVATION_ENABLED;
 });
 
 describe('UnifiedForwardOutcomeLabeler', () => {
@@ -295,6 +316,169 @@ describe('UnifiedForwardOutcomeLabeler', () => {
     expect(result.liveExecutionAllowed).toBe(false);
     expect(result.executionImpact).toBe('NONE');
     expect(priceFetcher).not.toHaveBeenCalled();
+  });
+
+  it('declares PULLBACK_LANE source registry as diagnostic-only observation (ADR-0650)', () => {
+    const entry = UNIFIED_FORWARD_OUTCOME_SOURCE_REGISTRY.find((e) => e.sourceType === 'PULLBACK_LANE');
+    expect(entry).toBeDefined();
+    expect(entry?.diagnosticOnly).toBe(true);
+    expect(entry?.includeInExecutablePnL).toBe(false);
+    expect(entry?.includeInForwardEvidence).toBe(true);
+    expect(entry?.includeInGateCalibration).toBe(false);
+    expect(entry?.executionImpact).toBe('NONE');
+  });
+
+  it('normalizes a PENDING PULLBACK_LANE row with D1/D3/D5 supported and D10 UNSUPPORTED', () => {
+    const rows = normalizeUnifiedForwardOutcomeRows({
+      now: NOW,
+      pullbackRows: [pullbackObservationRow()],
+    });
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row.sourceType).toBe('PULLBACK_LANE');
+    expect(row.decisionType).toBe('PULLBACK_LANE');
+    expect(row.decisionLabel).toBe('PULLBACK');
+    expect(row.policyView).toBe('OBSERVATIONAL_ONLY');
+    expect(row.horizonStatusD10).toBe('UNSUPPORTED');
+    expect(row.forwardReturnD10).toBeNull();
+    // D1/D3/D5 due (asOf 2026-05-12, now 2026-05-22) but no return yet → PENDING.
+    expect(row.horizonStatusD1).toBe('PENDING');
+    expect(row.horizonStatusD3).toBe('PENDING');
+    expect(row.horizonStatusD5).toBe('PENDING');
+    expect(row.marketSignal).toBe(false);
+    expect(row.executionImpact).toBe('NONE');
+    expect(row.liveExecutionAllowedAtCreation).toBe(false);
+    expect(row.sourceSnapshotId).toBe('scan:pullback:001');
+  });
+
+  it('matures PULLBACK_LANE D1/D3/D5 forward returns from KIS daily closes (ADR-0650 §D2)', async () => {
+    // entry(asOf 2026-05-12) close=10000; forward closes vary by date → nonzero returns.
+    const closes: Record<string, number> = {
+      '2026-05-12': 10_000, // entry close
+      '2026-05-13': 10_100, // D1 (+1%)
+      '2026-05-15': 10_300, // D3 (+3%)
+      '2026-05-19': 10_500, // D5 (+5%)
+    };
+    const priceFetcher = vi.fn(async (_symbol: string, asOf: Date) => {
+      const ymd = asOf.toISOString().slice(0, 10);
+      return closes[ymd] ?? null;
+    });
+
+    const result = await runUnifiedForwardOutcomeLabeler({
+      now: NOW,
+      persist: false,
+      gate3Seeds: [],
+      gate1Rows: [],
+      nearMissEntries: [],
+      counterfactualEntries: [],
+      paperEntries: [],
+      pullbackRows: [pullbackObservationRow()],
+      priceFetcher,
+    });
+
+    expect(result.unifiedOutcomeLabelerHealthy).toBe(true);
+    expect(result.sourceRowsByType.PULLBACK_LANE).toBe(1);
+    expect(result.rowsUpdatedD1).toBe(1);
+    expect(result.rowsUpdatedD3).toBe(1);
+    expect(result.rowsUpdatedD5).toBe(1);
+    expect(result.rowsUpdatedD10).toBe(0);
+    expect(result.liveExecutionAllowed).toBe(false);
+    expect(result.executionImpact).toBe('NONE');
+    expect(result.thresholdAutoChanged).toBe(false);
+
+    const section = formatUnifiedForwardOutcomeLabelerSection(result);
+    expect(section).toContain('PULLBACK_LANE=1');
+  });
+
+  it('gracefully skips PULLBACK_LANE maturation when forward closes are missing (invariant #6)', async () => {
+    const priceFetcher = vi.fn(async () => null);
+    const result = await runUnifiedForwardOutcomeLabeler({
+      now: NOW,
+      persist: false,
+      gate3Seeds: [],
+      gate1Rows: [],
+      nearMissEntries: [],
+      counterfactualEntries: [],
+      paperEntries: [],
+      pullbackRows: [pullbackObservationRow()],
+      priceFetcher,
+    });
+
+    expect(result.unifiedOutcomeLabelerHealthy).toBe(true);
+    expect(result.rowsUpdatedD1 + result.rowsUpdatedD3 + result.rowsUpdatedD5).toBe(0);
+    expect(result.dataUnavailable).toBeGreaterThan(0);
+    expect(result.sourceRowsByType.PULLBACK_LANE).toBe(1);
+    expect(result.executionImpact).toBe('NONE');
+  });
+
+  it('treats a RESOLVED PULLBACK_LANE row as immutable evidence without refetching', async () => {
+    const priceFetcher = vi.fn(async () => {
+      throw new Error('RESOLVED PULLBACK_LANE row must not refetch prices');
+    });
+    const result = await runUnifiedForwardOutcomeLabeler({
+      now: NOW,
+      persist: false,
+      gate3Seeds: [],
+      gate1Rows: [],
+      nearMissEntries: [],
+      counterfactualEntries: [],
+      paperEntries: [],
+      pullbackRows: [pullbackObservationRow({
+        maturity: 'RESOLVED',
+        forwardReturn1d: 1,
+        forwardReturn3d: 3,
+        forwardReturn5d: 5,
+        maturedAt: '2026-05-19T00:00:00.000Z',
+      })],
+      priceFetcher,
+    });
+
+    expect(result.unifiedOutcomeLabelerHealthy).toBe(true);
+    expect(result.sourceRowsByType.PULLBACK_LANE).toBe(1);
+    expect(result.rowsUpdatedD1 + result.rowsUpdatedD3 + result.rowsUpdatedD5).toBe(0);
+    expect(priceFetcher).not.toHaveBeenCalled();
+  });
+
+  it('does not load PULLBACK_LANE ledger when flag is OFF (byte-equivalent baseline)', async () => {
+    delete process.env.PULLBACK_LANE_FORWARD_OBSERVATION_ENABLED; // default OFF
+    const priceFetcher = vi.fn(async () => 10_500);
+    const result = await runUnifiedForwardOutcomeLabeler({
+      now: NOW,
+      persist: false,
+      gate3Seeds: [gate3Seed()],
+      gate1Rows: [],
+      nearMissEntries: [],
+      counterfactualEntries: [],
+      paperEntries: [],
+      // no pullbackRows injected → flag OFF means ledger is not loaded.
+      priceFetcher,
+    });
+
+    expect(result.unifiedOutcomeLabelerHealthy).toBe(true);
+    expect(result.sourceRowsByType.PULLBACK_LANE ?? 0).toBe(0);
+    expect(result.executionImpact).toBe('NONE');
+  });
+
+  it('keeps existing source types unchanged when PULLBACK_LANE rows are present (no regression)', () => {
+    const rows = normalizeUnifiedForwardOutcomeRows({
+      now: NOW,
+      gate3Seeds: [gate3Seed({ forwardReturns: { d1: 3, d3: 4, d5: 6, d10: null }, outcomeStatus: 'LABELED', outcomeLabel: 'GATE3_READY_FOLLOW_THROUGH' })],
+      gate1Rows: [gate1Row()],
+      nearMissEntries: [nearMissEntry()],
+      counterfactualEntries: [counterfactualEntry()],
+      pullbackRows: [pullbackObservationRow()],
+    });
+    expect(rows.map((row) => row.sourceType)).toEqual([
+      'GATE3_OUTCOME_SEED',
+      'GATE1_DRY_RUN_OBSERVATION',
+      'NEAR_MISS_OUTCOME',
+      'COUNTERFACTUAL_LEDGER',
+      'PULLBACK_LANE',
+    ]);
+    expect(rows.every((row) => row.executionImpact === 'NONE' && row.marketSignal === false)).toBe(true);
+    // Existing Gate3 row still normalized identically.
+    expect(rows[0].horizonStatusD1).toBe('UPDATED');
+    expect(rows[0].priceAtD1).toBe(10_300);
   });
 
   it('is wired to a startup activation and an ALWAYS_ON dedicated scheduler', () => {

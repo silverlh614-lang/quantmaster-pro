@@ -14,8 +14,23 @@ import {
   type ScanSummary,
 } from '../../../trading/signalScanner/scanDiagnostics.js';
 import { getEmergencyStop, getAutoTradePaused, getTradingMode, getKillSwitchLast } from '../../../state.js';
+import {
+  loadObservations,
+  buildPullbackVsChaseComparison,
+} from '../../../persistence/pullbackLaneObservationRepo.js';
+import type { PullbackVsChaseForwardComparison } from '../../../learning/pullbackLaneObservationTypes.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
+
+/** 텔레그램 HTML 정제 — 표시 전용 (verdictHint 등 내부 문자열 안전 escape). */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** number|null → 표시 문자열 (소수 2자리, null=`-`). */
+function fmtNum(v: number | null, digits = 2): string {
+  return v === null ? '-' : v.toFixed(digits);
+}
 
 /** KST(UTC+9) 일자 'YYYY-MM-DD' 추출. 잘못된 입력 → null. */
 export function isoToKstDate(iso: string | undefined | null): string | null {
@@ -301,6 +316,34 @@ function buildGateAuditConditionStatusSection(rows: ConditionStatusRow[] | undef
   return L;
 }
 
+/**
+ * ADR-0650 §D4 — 눌림목 레인 forward vs 추격 비교 섹션 (read-only·표시 전용).
+ * RESOLVED 표본 0 → PENDING/관측중 placeholder. 데이터 부재 시에도 1줄로 관측 상태 노출.
+ * executionImpact=NONE — 표시만, 자동 flag 변경 0.
+ */
+function buildGateAuditPullbackForwardSection(
+  comparison: PullbackVsChaseForwardComparison | undefined,
+): string[] {
+  if (!comparison) return [];
+  const { pullback, chase, verdict, verdictHint } = comparison;
+  const totalSamples = pullback.nD5 + chase.nD5;
+  if (totalSamples === 0) {
+    return [
+      '',
+      '🩹 눌림목 레인 forward(ADR-0650):',
+      '   PENDING — RESOLVED 표본 0건 (관측중·forward-return 성숙 대기)',
+    ];
+  }
+  return [
+    '',
+    '🩹 눌림목 레인 forward(ADR-0650):',
+    `   눌림목 avg 1D/3D/5D=${fmtNum(pullback.avgForwardReturn1d)}/${fmtNum(pullback.avgForwardReturn3d)}/${fmtNum(pullback.avgForwardReturn5d)}% (n=${pullback.nD5})`,
+    `   추격   avg 1D/3D/5D=${fmtNum(chase.avgForwardReturn1d)}/${fmtNum(chase.avgForwardReturn3d)}/${fmtNum(chase.avgForwardReturn5d)}% (n=${chase.nD5})`,
+    `   진입RRR 눌림목 ${fmtNum(pullback.avgEntryRrr)} vs 추격 ${fmtNum(chase.avgEntryRrr)}`,
+    `   판정=${verdict} (${escapeHtml(verdictHint)})`,
+  ];
+}
+
 export interface FormatGateAuditInput {
   windowDays: number;
   buckets: RejectionBucket[];
@@ -321,6 +364,8 @@ export interface FormatGateAuditInput {
   modeConsistency?: 'CONSISTENT' | 'INTENDED_OVERRIDE' | 'UNINTENDED_DIVERGENCE';
   /** ADR-0387/0388 — 조건별 status 분포 (옵셔널 — 데이터 부재 시 섹션 미노출). */
   conditionStatusRows?: ConditionStatusRow[];
+  /** ADR-0650 §D4 — 눌림목 vs 추격 forward 비교 (옵셔널 — flag OFF·데이터 0 시 섹션 미노출). */
+  pullbackForwardComparison?: PullbackVsChaseForwardComparison;
 }
 
 /** 메시지 빌더 SSOT — 6 섹션 (헤더/거시/Top 사유/일별/조건 status/진단). */
@@ -331,6 +376,7 @@ export function formatGateAuditMessage(input: FormatGateAuditInput): string {
   L.push(...buildGateAuditDailySection(input.daily));
   L.push(...buildGateAuditScanSection(input.scan));
   L.push(...buildGateAuditConditionStatusSection(input.conditionStatusRows));
+  L.push(...buildGateAuditPullbackForwardSection(input.pullbackForwardComparison));
 
   L.push('', '🎯 진단:');
   L.push(`   ${input.diagnosticHint}`);
@@ -408,6 +454,19 @@ const gateAudit: TelegramCommand = {
       const gateAuditStore = loadGateAudit();
       const conditionStatusRows = buildConditionStatusRows(gateAuditStore, 8);
 
+      // ADR-0650 §D4 — 눌림목 vs 추격 forward 비교 (read-only·표시 전용). 관측 row 0 건이면
+      // 섹션 미노출(flag OFF baseline byte-equivalent). row 존재 시 RESOLVED 집계로 비교/판정 표시.
+      let pullbackForwardComparison: PullbackVsChaseForwardComparison | undefined;
+      try {
+        const observations = loadObservations();
+        if (observations.length > 0) {
+          pullbackForwardComparison = buildPullbackVsChaseComparison(observations);
+        }
+      } catch (e) {
+        // 관측 ledger read 실패가 /gate_audit 본체를 막지 않도록 격리 (불변식 #1·표시 전용).
+        console.error('[TelegramBot] /gate_audit pullback forward 비교 로드 실패:', e);
+      }
+
       await reply(formatGateAuditMessage({
         windowDays,
         buckets,
@@ -426,6 +485,7 @@ const gateAudit: TelegramCommand = {
         killSwitchReason,
         modeConsistency,
         conditionStatusRows,
+        pullbackForwardComparison,
       }));
     } catch (e) {
       console.error('[TelegramBot] /gate_audit 실패:', e);

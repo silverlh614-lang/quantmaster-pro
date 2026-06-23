@@ -89,6 +89,17 @@
       "activationCriteria": "눌림목 레인(B)이 추격 레인(C) 대비 forward 1D/3D/5D return 우월한지 N세션 관측이 활성화 근거. flag ON 은 entry-selection behavior change(눌림목 인정 + 5일고점 +6% 추격 거부 + 눌림목 RRR≥2.0). 현 engineMode=SHADOW_ONLY 라 live 주문 0 안전창 — ON 으로 실 레인 shadow forward-return 을 수집(hypothetical 대신 실 점화). 운영자(silverlh614) default-on 승인.",
       "nextAction": "ADR-0649 flip 완료 — default ON(opt-OUT `!== 'false'`, ADR-0157 거울·ADR-0644/0645/0647 동일 패턴). engineMode live 승격 전 shadow forward-return 으로 눌림목 우월성 재확인·`=false` kill-switch 롤백 상시 가능.",
       "notes": "2026-06-22 ADR-0648 로 default OFF 도입, ADR-0649 로 default ON flip(opt-OUT `!== 'false'`, ADR-0157 거울). SSOT isPullbackEntryLaneEnabled() gateConfig.ts 거주. 입력 quoteFeatures 기존(high20d/ma20/volume/avgVolume) 신규 fetch 0. 눌림목은 별도 evaluator 아닌 breakout_momentum 추가 레인 → Gate2 breakoutMomentumFailCount 비누수·hardBlock 아님·marketSignal=false(불변식 #6). 현 engineMode=SHADOW_ONLY 라 ON 이어도 live 주문 0. requiredScore=70·ADR-0471 weighted curve FREEZE 무접촉. OFF(=false)=byte-identical(단일 강/약 돌파 레인). shadow hypothetical 은 flag 무관 force-ON 항상 stamp(try/catch 격리)."
+    },
+    {
+      "envFlag": "PULLBACK_LANE_FORWARD_OBSERVATION_ENABLED",
+      "adr": "0650",
+      "title": "Pullback Lane Forward-Return Observation Line (관측 전용)",
+      "introduced": "2026-06-23",
+      "reviewBy": "2026-09-21",
+      "status": "SHADOW_OFF",
+      "activationCriteria": "ADR-0649 default-ON flip 효과(눌림목 레인 B vs 추격 레인 C 의 forward 1D/3D/5D return·진입 RRR 우월성)를 N≥30 forward 성숙 표본으로 검증 + 운영자 승인. 관측 라인 자체는 LIVE 매매 무영향(executionImpact=NONE)이라 저위험이나, 영속 ledger 증식이 운영 리소스 변화라 운영자 명시 활성(ADR-0641 거버넌스).",
+      "nextAction": "운영자 ENV `=true` 활성 → 관측 누적 → /gate_audit 눌림목 vs 추격 비교 판정(N≥30 && 눌림목 avg5D≥추격 → HOLD) → 유지 또는 롤백 결정.",
+      "notes": "SSOT isPullbackLaneForwardObservationEnabled() gateConfig.ts 거주(opt-IN `=== 'true'` default OFF·ADR-0157). 게이트 대상: D1 관측 row 영속(pullbackLaneObservationRepo)+D2 PULLBACK_LANE source(unifiedForwardOutcomeLabeler). 성숙 fetch 는 기존 priceFetcher(KIS 일봉 L1 read-only·ADR-0561/0625) 재사용·신규 fetch 0·신규 cron 0. OFF(미설정·=false)=byte-equivalent(row 0·source 0·/gate_audit 섹션 미노출). stamp *집계*(pullbackLaneShadowAdr0648)는 본 flag 무관 force-ON 유지. executionImpact=NONE·LIVE 본체 0줄·requiredScore=70 무접촉."
     }
   ]
 }

@@ -294,3 +294,23 @@ export function isGate1VolumeLiquidityWiringEnabled(): boolean {
 export function isPullbackEntryLaneEnabled(): boolean {
   return process.env.GATE_PULLBACK_ENTRY_LANE_ENABLED !== 'false';
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADR-0650 — 눌림목 레인 forward-return 관측 라인 활성 스위치 (default OFF)
+//
+// 스캔-시점 force-ON stamp 를 forward-return 성숙 대상 관측 row 로 영속(D1)하고,
+// PULLBACK_LANE sourceType 으로 forward 1D/3D/5D 를 성숙(D2)시키며, /gate_audit 에
+// 눌림목 vs 추격 비교를 표시(D4)하는 관측 라인 전체를 게이트한다. 관측 전용·
+// executionImpact=NONE — flag OFF=byte-equivalent(row 영속 0·source 0·진입/Gate 무변경).
+// stamp *집계* 산출(pullbackLaneShadowAdr0648)은 flag 무관 force-ON 유지(현 동작 무변경).
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * 눌림목 레인 forward-return 관측 활성 스위치. default OFF (ADR-0157 opt-IN `=== 'true'`).
+ * 미설정·임의값 = OFF, 정확히 `'true'` 만 활성. ENV 1줄 즉시 byte-equivalent 롤백.
+ * 게이트 대상: D1 관측 row 영속 + D2 PULLBACK_LANE source enabled. 관측 전용·executionImpact=NONE.
+ * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
+ */
+export function isPullbackLaneForwardObservationEnabled(): boolean {
+  return process.env.PULLBACK_LANE_FORWARD_OBSERVATION_ENABLED === 'true';
+}
