@@ -3,7 +3,8 @@
 import fs from 'fs';
 import path from 'path';
 import { fetchHistoricalClosePrice } from '../clients/historicalClosePrice.js';
-import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
+import { DATA_DIR, ensureDataDir, PULLBACK_LANE_OBSERVATION_LEDGER_FILE } from '../persistence/paths.js';
+import { isPullbackLaneForwardObservationEnabled } from '../trading/gateConfig.js';
 import {
   loadGate3OutcomeSeeds,
   persistGate3OutcomeSeed,
@@ -32,6 +33,11 @@ import { buildGate3EvidenceScore } from '../quant/gate3EvidenceScore.js';
 import { tradingDaysBetween } from '../quant/gate3EvidenceWarmup.js';
 import type { Gate3OutcomeSeed } from '../quant/gate3OutcomeSeed.js';
 import { addBusinessDaysFromKstDate } from '../trading/krxHolidays.js';
+import type { PullbackLaneObservationRow } from './pullbackLaneObservationTypes.js';
+import {
+  loadObservations as loadPullbackLaneObservations,
+  upsertObservation as upsertPullbackLaneObservation,
+} from '../persistence/pullbackLaneObservationRepo.js';
 
 export type UnifiedForwardOutcomeSourceType =
   | 'GATE3_OUTCOME_SEED'
@@ -41,7 +47,8 @@ export type UnifiedForwardOutcomeSourceType =
   | 'COUNTERFACTUAL_LEDGER'
   | 'PAPER_OBSERVATIONAL_ENTRY'
   | 'SHADOW_PROMOTION_AUDIT'
-  | 'PRE_BREAKOUT_OBSERVATION';
+  | 'PRE_BREAKOUT_OBSERVATION'
+  | 'PULLBACK_LANE';
 
 export type UnifiedForwardOutcomeHorizon = 'D1' | 'D3' | 'D5' | 'D10';
 export type UnifiedForwardOutcomeEvidenceStatus = 'PENDING' | 'PARTIAL' | 'LABELED' | 'DATA_INSUFFICIENT';
@@ -159,6 +166,8 @@ export interface UnifiedForwardOutcomeLabelerOptions {
   nearMissEntries?: readonly NearMissOutcomeEntry[];
   counterfactualEntries?: readonly CounterfactualShadowLearningLedgerEntry[];
   paperEntries?: readonly UnifiedPaperObservationalEntry[];
+  /** ADR-0650 §D2 — PULLBACK_LANE 관측 row 주입(테스트/명시 입력). 미주입 시 flag ON 일 때만 loadObservations. */
+  pullbackRows?: readonly PullbackLaneObservationRow[];
   persist?: boolean;
 }
 
@@ -260,6 +269,18 @@ export const UNIFIED_FORWARD_OUTCOME_SOURCE_REGISTRY: readonly UnifiedForwardOut
     includeInNearMissAnalytics: true,
     executionImpact: 'NONE',
   },
+  {
+    // ADR-0650 §D2 — 눌림목 레인 forward-return 관측 (flag 게이트는 합류 지점에서 단락).
+    sourceType: 'PULLBACK_LANE',
+    sourceTableOrRepo: 'pullbackLaneObservationRepo',
+    enabled: true,
+    diagnosticOnly: true,
+    includeInExecutablePnL: false,
+    includeInForwardEvidence: true,
+    includeInGateCalibration: false,
+    includeInNearMissAnalytics: false,
+    executionImpact: 'NONE',
+  },
 ]);
 
 const GATE3_HORIZONS: Array<{ key: Gate3ForwardHorizon; label: UnifiedForwardOutcomeHorizon; days: number }> = [
@@ -272,6 +293,9 @@ const GATE3_HORIZONS: Array<{ key: Gate3ForwardHorizon; label: UnifiedForwardOut
 export function isUnifiedForwardOutcomeLabelerEnabled(): boolean {
   return process.env.UNIFIED_FORWARD_OUTCOME_LABELER_ENABLED !== 'false';
 }
+
+// ADR-0650 §D1/§D2 — flag 게이트(isPullbackLaneForwardObservationEnabled)·ledger 경로
+// (PULLBACK_LANE_OBSERVATION_LEDGER_FILE)는 gateConfig.ts·paths.ts SSOT 를 import 한다(단일 통로).
 
 function positiveFinite(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
@@ -641,6 +665,66 @@ function paperRow(entry: UnifiedPaperObservationalEntry, now: Date): UnifiedForw
   });
 }
 
+/**
+ * ADR-0650 §D2 — PullbackLaneObservationRow → UnifiedForwardOutcomeRow 정규화.
+ * 관측 horizon 은 D1/D3/D5 만 — D10 'UNSUPPORTED' (architect 계약). 두 번째 forward-return 공식 0:
+ * forwardReturn{1,3,5}d 는 성숙 단계(updatePullbackObservations)가 priceFromReturn/priceFetcher 로
+ * 채운 값을 carry 만 한다. marketSignal=false·executionImpact=NONE·liveExecution 0 (불변식 #6/#8).
+ */
+function pullbackRow(row: PullbackLaneObservationRow, now: Date): UnifiedForwardOutcomeRow {
+  const tradeDate = row.asOf.slice(0, 10);
+  const today = nowKstYmd(now);
+  const due = (days: number) => today >= addBusinessDaysFromKstDate(tradeDate, days);
+  const fr1 = finite(row.forwardReturn1d);
+  const fr3 = finite(row.forwardReturn3d);
+  const fr5 = finite(row.forwardReturn5d);
+  const horizonStatusByKey = {
+    D1: horizonStatus(fr1, true, due(1)),
+    D3: horizonStatus(fr3, true, due(3)),
+    D5: horizonStatus(fr5, true, due(5)),
+    D10: 'UNSUPPORTED',
+  } satisfies Record<UnifiedForwardOutcomeHorizon, UnifiedForwardOutcomeHorizonStatus>;
+  const resolved = row.maturity === 'RESOLVED';
+  return completeRow({
+    outcomeId: `${row.scanId}:${row.symbol}:ADR-0650`,
+    sourceType: 'PULLBACK_LANE',
+    sourceLedgerId: `${row.scanId}:${row.symbol}:ADR-0650`,
+    symbol: row.symbol,
+    symbolName: null,
+    // entryLane='PULLBACK' carry (§D3) — 미가용 시 stamp force-ON 가정으로 대체.
+    decisionType: 'PULLBACK_LANE',
+    decisionLabel: row.entryLane ?? (row.pullbackLaneHypotheticalFired ? 'PULLBACK' : null),
+    entryReferencePrice: null,
+    entryReferenceTime: row.asOf,
+    createdAt: row.asOf,
+    tradeDate,
+    sourceSnapshotId: row.scanId,
+    gateScoreInputSnapshotId: null,
+    candidateSetId: null,
+    marketSession: null,
+    engineMode: null,
+    regime: null,
+    policyView: 'OBSERVATIONAL_ONLY',
+    liveExecutionAllowedAtCreation: false,
+    shadowAllowedAtCreation: true,
+    counterfactualAllowedAtCreation: true,
+    horizonStatus: horizonStatusByKey,
+    forwardReturnD1: fr1,
+    forwardReturnD3: fr3,
+    forwardReturnD5: fr5,
+    forwardReturnD10: null,
+    labelD1: fr1 !== null ? 'OBSERVED' : null,
+    labelD3: fr3 !== null ? 'OBSERVED' : null,
+    labelD5: fr5 !== null ? 'OBSERVED' : null,
+    labelD10: null,
+    label: resolved ? 'RESOLVED' : 'PENDING',
+    evidenceStatus: resolved ? 'LABELED' : (fr1 !== null || fr3 !== null || fr5 !== null) ? 'PARTIAL' : 'PENDING',
+    lastUpdatedAt: row.maturedAt ?? null,
+    executionImpact: 'NONE',
+    marketSignal: false,
+  });
+}
+
 export function normalizeUnifiedForwardOutcomeRows(input: {
   now?: Date;
   gate3Seeds?: readonly Gate3OutcomeSeed[];
@@ -648,6 +732,7 @@ export function normalizeUnifiedForwardOutcomeRows(input: {
   nearMissEntries?: readonly NearMissOutcomeEntry[];
   counterfactualEntries?: readonly CounterfactualShadowLearningLedgerEntry[];
   paperEntries?: readonly UnifiedPaperObservationalEntry[];
+  pullbackRows?: readonly PullbackLaneObservationRow[];
 }): UnifiedForwardOutcomeRow[] {
   const now = input.now ?? new Date();
   return [
@@ -656,6 +741,7 @@ export function normalizeUnifiedForwardOutcomeRows(input: {
     ...(input.nearMissEntries ?? []).map(nearMissRow),
     ...(input.counterfactualEntries ?? []).map((entry) => counterfactualRow(entry, now)),
     ...(input.paperEntries ?? []).map((entry) => paperRow(entry, now)),
+    ...(input.pullbackRows ?? []).map((row) => pullbackRow(row, now)),
   ];
 }
 
@@ -696,6 +782,7 @@ function sourceRowsByType(input: {
   nearMissEntries: readonly NearMissOutcomeEntry[];
   counterfactualEntries: readonly CounterfactualShadowLearningLedgerEntry[];
   paperEntries: readonly UnifiedPaperObservationalEntry[];
+  pullbackRows: readonly PullbackLaneObservationRow[];
 }): Partial<Record<UnifiedForwardOutcomeSourceType, number>> {
   return {
     GATE3_OUTCOME_SEED: input.gate3Seeds.length,
@@ -706,6 +793,7 @@ function sourceRowsByType(input: {
     PAPER_OBSERVATIONAL_ENTRY: input.paperEntries.length,
     SHADOW_PROMOTION_AUDIT: 0,
     PRE_BREAKOUT_OBSERVATION: 0,
+    PULLBACK_LANE: input.pullbackRows.length,
   };
 }
 
@@ -763,6 +851,101 @@ async function defaultPriceFetcher(symbol: string, asOf: Date): Promise<number |
   return fetchHistoricalClosePrice(symbol, asOf);
 }
 
+/** forward return % from entry/forward close (priceFromReturn 의 역산 — 두 번째 forward-return 공식 아님·동일 비율식). */
+function returnFromPrices(entryClose: number | null, forwardClose: number | null): number | null {
+  if (entryClose === null || forwardClose === null || entryClose <= 0) return null;
+  return Math.round(((forwardClose / entryClose - 1) * 100) * 10000) / 10000;
+}
+
+const PULLBACK_HORIZONS: Array<{ field: 'forwardReturn1d' | 'forwardReturn3d' | 'forwardReturn5d'; label: 'D1' | 'D3' | 'D5'; days: number }> = [
+  { field: 'forwardReturn1d', label: 'D1', days: 1 },
+  { field: 'forwardReturn3d', label: 'D3', days: 3 },
+  { field: 'forwardReturn5d', label: 'D5', days: 5 },
+];
+
+/**
+ * ADR-0650 §D2 — PULLBACK_LANE PENDING row 성숙.
+ * 기존 헬퍼 재사용: addBusinessDaysFromKstDate(영업일 horizon)·주입 priceFetcher(KIS 일봉 L1 read-only).
+ * 종가 결손/미성숙 = graceful skip(다음 cron 재시도·providerIssue≠bearish·불변식 #6).
+ * 전 horizon(D1/D3/D5) 채워지면 maturity='RESOLVED'·maturedAt 기록 후 upsert(RESOLVED 불변성).
+ * 미성숙은 부분 forwardReturn carry 만(PENDING 유지). 두 번째 forward-return 공식 0.
+ */
+async function updatePullbackObservations(input: {
+  rows: readonly PullbackLaneObservationRow[];
+  now: Date;
+  priceFetcher: UnifiedForwardOutcomePriceFetcher;
+  persist: boolean;
+}): Promise<{
+  rows: PullbackLaneObservationRow[];
+  updatedD1: number;
+  updatedD3: number;
+  updatedD5: number;
+  dataUnavailable: number;
+  resolved: number;
+}> {
+  const today = nowKstYmd(input.now);
+  const outRows: PullbackLaneObservationRow[] = [];
+  let updatedD1 = 0;
+  let updatedD3 = 0;
+  let updatedD5 = 0;
+  let dataUnavailable = 0;
+  let resolved = 0;
+
+  for (const row of input.rows) {
+    if (row.maturity === 'RESOLVED') {
+      outRows.push(row);
+      continue;
+    }
+    const tradeDate = row.asOf.slice(0, 10);
+    const normalized = pullbackRow(row, input.now);
+
+    // 진입(asOf) 종가 — forward return 분모. 결손 시 본 row graceful skip(다음 cron 재시도).
+    let entryClose: number | null = null;
+    const next: PullbackLaneObservationRow = { ...row };
+    let mutated = false;
+    let missing = false;
+
+    for (const horizon of PULLBACK_HORIZONS) {
+      if (finite(next[horizon.field]) !== null) continue; // 이미 성숙 — 재기입 0.
+      const target = addBusinessDaysFromKstDate(tradeDate, horizon.days);
+      if (today < target) continue; // 미도래 — NOT_DUE.
+      if (entryClose === null) {
+        const fetchedEntry = await input.priceFetcher(row.symbol, toUtcDate(tradeDate), normalized);
+        entryClose = positiveFinite(fetchedEntry);
+        if (entryClose === null) { missing = true; break; }
+      }
+      const forwardClose = await input.priceFetcher(row.symbol, toUtcDate(target), normalized);
+      const forwardReturn = returnFromPrices(entryClose, positiveFinite(forwardClose));
+      if (forwardReturn === null) { missing = true; continue; }
+      next[horizon.field] = forwardReturn;
+      mutated = true;
+      if (horizon.label === 'D1') updatedD1 += 1;
+      else if (horizon.label === 'D3') updatedD3 += 1;
+      else updatedD5 += 1;
+    }
+    if (missing) dataUnavailable += 1;
+
+    // 전 horizon 채워졌으면 RESOLVED 전환.
+    const allFilled =
+      finite(next.forwardReturn1d) !== null &&
+      finite(next.forwardReturn3d) !== null &&
+      finite(next.forwardReturn5d) !== null;
+    if (allFilled && next.maturity !== 'RESOLVED') {
+      next.maturity = 'RESOLVED';
+      next.maturedAt = input.now.toISOString();
+      mutated = true;
+      resolved += 1;
+    }
+
+    if (mutated && input.persist) {
+      upsertPullbackLaneObservation(next, PULLBACK_LANE_OBSERVATION_LEDGER_FILE);
+    }
+    outRows.push(next);
+  }
+
+  return { rows: outRows, updatedD1, updatedD3, updatedD5, dataUnavailable, resolved };
+}
+
 export async function runUnifiedForwardOutcomeLabeler(
   options: UnifiedForwardOutcomeLabelerOptions = {},
 ): Promise<UnifiedForwardOutcomeLabelerSummary> {
@@ -773,7 +956,8 @@ export async function runUnifiedForwardOutcomeLabeler(
     options.gate1Rows === undefined &&
     options.nearMissEntries === undefined &&
     options.counterfactualEntries === undefined &&
-    options.paperEntries === undefined
+    options.paperEntries === undefined &&
+    options.pullbackRows === undefined
   );
 
   if (!isUnifiedForwardOutcomeLabelerEnabled()) {
@@ -789,6 +973,37 @@ export async function runUnifiedForwardOutcomeLabeler(
     const nearMissEntriesBefore = [...(options.nearMissEntries ?? getAllNearMissOutcomes())];
     const counterfactualEntries = [...(options.counterfactualEntries ?? loadCounterfactualShadowLearningLedger())];
     const paperEntries = [...(options.paperEntries ?? [])];
+
+    // ADR-0650 §D2 — PULLBACK_LANE source 합류 (flag ON 시에만 ledger load·OFF=byte-equivalent row 0).
+    // 명시 주입(options.pullbackRows)은 flag 무관 소비(테스트). try/catch 격리(불변식 #1 — labeler 무정지).
+    const pullbackEnabled = isPullbackLaneForwardObservationEnabled();
+    let pullbackRows: PullbackLaneObservationRow[] = [];
+    if (options.pullbackRows !== undefined) {
+      pullbackRows = [...options.pullbackRows];
+    } else if (pullbackEnabled) {
+      try {
+        pullbackRows = [...loadPullbackLaneObservations(PULLBACK_LANE_OBSERVATION_LEDGER_FILE)];
+      } catch (e) {
+        console.warn('[PullbackLaneForward] ledger load 실패 — graceful skip', e);
+        pullbackRows = [];
+      }
+    }
+    let pullbackUpdate = { updatedD1: 0, updatedD3: 0, updatedD5: 0, dataUnavailable: 0, resolved: 0 };
+    if (pullbackRows.length > 0) {
+      try {
+        const result = await updatePullbackObservations({
+          rows: pullbackRows,
+          now,
+          priceFetcher,
+          // ledger load 경로(명시 주입 아님)면 persist 따름. 명시 주입은 테스트 격리(영속 0).
+          persist: persist && options.pullbackRows === undefined,
+        });
+        pullbackRows = result.rows; // 성숙 반영분 carry (normalize 정확도).
+        pullbackUpdate = result;
+      } catch (e) {
+        console.warn('[PullbackLaneForward] 성숙 실패 — graceful skip (불변식 #1)', e);
+      }
+    }
 
     const gate3Update = await updateGate3Seeds({ seeds: gate3Seeds, now, priceFetcher, persist });
     const gate1Update = await updateGate1DryRunObservationOutcomes({
@@ -869,6 +1084,7 @@ export async function runUnifiedForwardOutcomeLabeler(
       nearMissEntries: nearMissEntriesAfter,
       counterfactualEntries,
       paperEntries,
+      pullbackRows,
     });
     const idempotencyKeys = new Set<string>();
     let duplicateSuppressed = gate3Update.duplicateSuppressed + gate1Update.duplicateSuppressed;
@@ -885,9 +1101,9 @@ export async function runUnifiedForwardOutcomeLabeler(
     const summary: UnifiedForwardOutcomeLabelerSummary = {
       unifiedOutcomeLabelerHealthy: true,
       sourceRowsScanned: rows.length,
-      rowsUpdatedD1: gate3Update.updatedD1 + gate1Update.updatedD1,
-      rowsUpdatedD3: gate3Update.updatedD3 + gate1Update.updatedD3 + nearMissUpdate.updated3d,
-      rowsUpdatedD5: gate3Update.updatedD5 + gate1Update.updatedD5 + nearMissUpdate.updated5d,
+      rowsUpdatedD1: gate3Update.updatedD1 + gate1Update.updatedD1 + pullbackUpdate.updatedD1,
+      rowsUpdatedD3: gate3Update.updatedD3 + gate1Update.updatedD3 + nearMissUpdate.updated3d + pullbackUpdate.updatedD3,
+      rowsUpdatedD5: gate3Update.updatedD5 + gate1Update.updatedD5 + nearMissUpdate.updated5d + pullbackUpdate.updatedD5,
       rowsUpdatedD10: gate3Update.updatedD10 + gate1Update.updatedD10 + nearMissUpdate.updated10d,
       dataUnavailable: dataUnavailableHorizons(rows),
       duplicateSuppressed,
@@ -899,6 +1115,7 @@ export async function runUnifiedForwardOutcomeLabeler(
         nearMissEntries: nearMissEntriesAfter,
         counterfactualEntries,
         paperEntries,
+        pullbackRows,
       }),
       gate3EvidenceSampleSize,
       gate1CalibrationSampleSize: gate1RowsAfter.length,
@@ -935,6 +1152,7 @@ function formatSourceRowsByType(sourceRowsByType: Partial<Record<UnifiedForwardO
     `NEAR_MISS=${source.NEAR_MISS_OUTCOME ?? 0}`,
     `COUNTERFACTUAL=${source.COUNTERFACTUAL_LEDGER ?? 0}`,
     `PAPER_OBSERVATIONAL=${source.PAPER_OBSERVATIONAL_ENTRY ?? 0}`,
+    `PULLBACK_LANE=${source.PULLBACK_LANE ?? 0}`,
   ].join(', ');
 }
 

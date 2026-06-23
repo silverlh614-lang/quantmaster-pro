@@ -908,6 +908,38 @@ export async function persistMidScanDiagnosticBlocksAdr0588(ctx: MidScanDiagnost
     }));
     if (stamps.length > 0) {
       summaryDraft.pullbackLaneShadowAdr0648 = buildPullbackLaneShadowSummary(stamps);
+
+      // ADR-0650 §D1 — 영속 seam. flag ON 일 때만 per-candidate stamp 를 forward-return 성숙
+      // 대상 관측 row 로 굳힌다. flag OFF=byte-equivalent(row append 0). 위 stamp *집계*는 flag
+      // 무관 force-ON 유지(현 동작 무변경). 영속 실패가 스캔 진행을 막지 않도록 inner try/catch
+      // 격리(불변식 #1). executionImpact=NONE — 진입 selection·Gate 판정·주문 무관.
+      try {
+        const { isPullbackLaneForwardObservationEnabled } = await import('../../gateConfig.js');
+        if (isPullbackLaneForwardObservationEnabled()) {
+          const { upsertObservation, buildObservationRowFromStamp } =
+            await import('../../../persistence/pullbackLaneObservationRepo.js');
+          const asOf = kstNow.toISOString();
+          for (let i = 0; i < scanCandidateSnapshots.length; i += 1) {
+            const snap = scanCandidateSnapshots[i];
+            const stamp = stamps[i];
+            if (!snap || !stamp || !snap.symbol) continue;
+            // entryLane/entryRrr 는 snapshot 에서 가용 시만 carry — 없으면 undefined(계약 정합).
+            const snapRecord = snap as unknown as Record<string, unknown>;
+            const entryLane = snapRecord.entryLane === 'PULLBACK' ? 'PULLBACK' : undefined;
+            const rawRrr = snapRecord.entryRrr ?? snapRecord.rrr;
+            const entryRrr = typeof rawRrr === 'number' && Number.isFinite(rawRrr) ? rawRrr : undefined;
+            upsertObservation(buildObservationRowFromStamp(stamp, {
+              scanId: sourceSnapshotId,
+              symbol: snap.symbol,
+              asOf,
+              entryLane,
+              entryRrr,
+            }));
+          }
+        }
+      } catch (e) {
+        emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.pullbackLaneObservationPersist.adr0650', error: e });
+      }
     }
   } catch (e) {
     emitScanDiagnosticBuildFailedWarn({ sourcePath: 'scanDiagnosticsCore.pullbackLaneShadowAdr0648', error: e });
