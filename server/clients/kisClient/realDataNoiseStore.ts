@@ -361,9 +361,69 @@ export function formatKisRealDataHealthSection(
   return lines.join('\n');
 }
 
+/* ───────── 진단 전용 last-error 레코더 (passive — Patch-LEADER-PROBE-LASTERR-DIAG) ─────────
+ *
+ * 목적: /leader_refresh 프로브가 랭킹 TR 의 *마지막 real-data 실패* HTTP status /
+ *   errorKind 를 표시해 403(권한) vs 5xx(일시장애) 를 구분하게 한다.
+ *
+ * 격리 불변식 (절대 변경 금지):
+ *   - 본 맵은 cooldown / circuit breaker / provider-health 와 완전 분리된 read/stamp 전용.
+ *     기존 recordKisRealDataFailure / recordProviderFailure 호출 빈도·인자 0 변경.
+ *   - stamp 는 passive observation only — 어떤 retry/skip/집계 결정에도 사용되지 않는다.
+ *   - executionImpact=NONE · marketSignal=false. provider 장애 ≠ bearish (불변식 #6).
+ */
+
+export interface RealDataLastErrorDiag {
+  endpoint: string;
+  httpStatus?: number;
+  errorKind: KisRealDataErrorKind;
+  at: string;
+}
+
+const _lastErrorDiagByEndpoint = new Map<string, RealDataLastErrorDiag>();
+
+/**
+ * endpoint(=apiPath, chartContext 없는 비-chart realData GET) 별 마지막 실패 status 를 stamp.
+ * 순수 진단 stamp — cooldown/circuit/provider-health 에 일절 관여하지 않는다.
+ */
+export function recordRealDataLastErrorForDiag(input: {
+  endpoint: string;
+  httpStatus?: number;
+  message?: string;
+  now?: Date;
+}): void {
+  const classification = classifyKisRealDataError({
+    endpoint: input.endpoint,
+    ...(input.httpStatus !== undefined ? { httpStatus: input.httpStatus } : {}),
+    ...(input.message !== undefined ? { message: input.message } : {}),
+  });
+  const entry: RealDataLastErrorDiag = {
+    endpoint: input.endpoint,
+    errorKind: classification.errorKind,
+    at: (input.now ?? new Date()).toISOString(),
+  };
+  if (input.httpStatus !== undefined) entry.httpStatus = input.httpStatus;
+  _lastErrorDiagByEndpoint.set(input.endpoint, entry);
+}
+
+/**
+ * endpoint(apiPath) 의 마지막 진단용 실패 레코드 read (순수). 없으면 null.
+ */
+export function getRealDataLastErrorForDiag(endpoint: string): RealDataLastErrorDiag | null {
+  return _lastErrorDiagByEndpoint.get(endpoint) ?? null;
+}
+
+/**
+ * 성공 응답 시 해당 endpoint 의 진단 last-error stamp 해제 (회복 반영). 순수 read/delete.
+ */
+export function clearRealDataLastErrorForDiag(endpoint: string): void {
+  _lastErrorDiagByEndpoint.delete(endpoint);
+}
+
 /* ───────── test isolation ───────── */
 
 export function __resetKisRealDataNoiseStoreForTests(): void {
   _records.clear();
   _lastSummaryLoggedAt = 0;
+  _lastErrorDiagByEndpoint.clear();
 }

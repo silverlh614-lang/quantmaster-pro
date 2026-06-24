@@ -186,6 +186,97 @@ describe('/leader_refresh 동작', () => {
     expect(replies[1]).toContain('⛔circuit 42s');
   });
 
+  it('진단 프로브: allZero + 403/AUTH_OR_TOKEN → 권한 verdict + last status 표시', async () => {
+    vi.mocked(probeLeaderRanking).mockResolvedValue({
+      marketOpen: true,
+      hasRealDataClient: true,
+      kisIsReal: true,
+      hasOverrides: false,
+      rows: [
+        { type: 'market-cap', trId: 'FHPST01720000', count: 0, circuitOpenForMs: 0, lastErrorKind: 'AUTH_OR_TOKEN', lastHttpStatus: 403 },
+        { type: 'institutional-net-buy', trId: 'FHPST01600000', count: 0, circuitOpenForMs: 0, lastErrorKind: 'AUTH_OR_TOKEN', lastHttpStatus: 403 },
+        { type: 'volume', trId: 'FHPST01710000', count: 0, circuitOpenForMs: 0, lastErrorKind: 'AUTH_OR_TOKEN', lastHttpStatus: 403 },
+      ],
+    });
+    const replies: string[] = [];
+    const reply = async (m: string) => { replies.push(m); };
+
+    const cmd = commandRegistry.resolve('/leader_refresh');
+    await cmd!.execute({ args: [], reply });
+
+    expect(replies[1]).toContain('403/권한');
+    expect(replies[1]).toContain('순위분석 TR 사용신청');
+    expect(replies[1]).toContain('❌last 403/AUTH_OR_TOKEN');
+    // 불변식 #6 — provider 장애는 약세 신호로 변환하지 않음.
+    expect(replies[1]).toContain('marketSignal=false');
+  });
+
+  it('진단 프로브: allZero + 5xx/TRANSIENT_SERVER_500 → 일시장애 verdict(콘솔 조치 불필요)', async () => {
+    vi.mocked(probeLeaderRanking).mockResolvedValue({
+      marketOpen: true,
+      hasRealDataClient: true,
+      kisIsReal: true,
+      hasOverrides: false,
+      rows: [
+        { type: 'market-cap', trId: 'FHPST01720000', count: 0, circuitOpenForMs: 0, lastErrorKind: 'TRANSIENT_SERVER_500', lastHttpStatus: 503 },
+        { type: 'institutional-net-buy', trId: 'FHPST01600000', count: 0, circuitOpenForMs: 0, lastErrorKind: 'TRANSIENT_SERVER_500', lastHttpStatus: 500 },
+        { type: 'volume', trId: 'FHPST01710000', count: 0, circuitOpenForMs: 0, lastErrorKind: 'TRANSIENT_SERVER_500', lastHttpStatus: 500 },
+      ],
+    });
+    const replies: string[] = [];
+    const reply = async (m: string) => { replies.push(m); };
+
+    const cmd = commandRegistry.resolve('/leader_refresh');
+    await cmd!.execute({ args: [], reply });
+
+    expect(replies[1]).toContain('일시장애');
+    expect(replies[1]).toContain('콘솔 조치 불필요');
+    expect(replies[1]).toContain('❌last 503/TRANSIENT_SERVER_500');
+  });
+
+  it('진단 프로브: allZero + 400/BAD_REQUEST_OR_SYMBOL → 파라미터 점검 verdict', async () => {
+    vi.mocked(probeLeaderRanking).mockResolvedValue({
+      marketOpen: true,
+      hasRealDataClient: true,
+      kisIsReal: true,
+      hasOverrides: false,
+      rows: [
+        { type: 'market-cap', trId: 'FHPST01720000', count: 0, circuitOpenForMs: 0, lastErrorKind: 'BAD_REQUEST_OR_SYMBOL', lastHttpStatus: 400 },
+        { type: 'institutional-net-buy', trId: 'FHPST01600000', count: 0, circuitOpenForMs: 0 },
+        { type: 'volume', trId: 'FHPST01710000', count: 0, circuitOpenForMs: 0 },
+      ],
+    });
+    const replies: string[] = [];
+    const reply = async (m: string) => { replies.push(m); };
+
+    const cmd = commandRegistry.resolve('/leader_refresh');
+    await cmd!.execute({ args: [], reply });
+
+    expect(replies[1]).toContain('400/404 파라미터');
+  });
+
+  it('진단 프로브: allZero + lastError 없음 → 기존 "3종 모두 빈 응답" verdict 회귀 유지', async () => {
+    vi.mocked(probeLeaderRanking).mockResolvedValue({
+      marketOpen: true,
+      hasRealDataClient: true,
+      kisIsReal: true,
+      hasOverrides: false,
+      rows: [
+        { type: 'market-cap', trId: 'FHPST01720000', count: 0, circuitOpenForMs: 0 },
+        { type: 'institutional-net-buy', trId: 'FHPST01600000', count: 0, circuitOpenForMs: 0 },
+        { type: 'volume', trId: 'FHPST01710000', count: 0, circuitOpenForMs: 0 },
+      ],
+    });
+    const replies: string[] = [];
+    const reply = async (m: string) => { replies.push(m); };
+
+    const cmd = commandRegistry.resolve('/leader_refresh');
+    await cmd!.execute({ args: [], reply });
+
+    expect(replies[1]).toContain('3종 모두 빈 응답');
+    expect(replies[1]).not.toContain('403/권한');
+  });
+
   it('진단 프로브: real-data 키 미설정·VTS-only → 키 설정 안내 verdict', async () => {
     vi.mocked(isVtsOnly).mockReturnValue(true);
     vi.mocked(probeLeaderRanking).mockResolvedValue({
