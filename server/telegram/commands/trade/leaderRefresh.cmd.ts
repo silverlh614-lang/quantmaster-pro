@@ -28,12 +28,22 @@ function formatRankingProbe(probe: LeaderRankingProbe, vtsOnly: boolean): string
     const circuit = r.circuitOpenForMs > 0
       ? ` · ⛔circuit ${Math.ceil(r.circuitOpenForMs / 1000)}s`
       : '';
-    return `· ${escapeHtml(label[r.type] ?? r.type)}(${escapeHtml(r.trId)}): ${r.count}${circuit}`;
+    // Patch-LEADER-PROBE-LASTERR-DIAG — 마지막 real-data 실패 status/errorKind 표시(관측 전용).
+    const lastErr = r.lastHttpStatus !== undefined || r.lastErrorKind !== undefined
+      ? ` · ❌last ${r.lastHttpStatus ?? '?'}/${escapeHtml(r.lastErrorKind ?? 'UNKNOWN')}`
+      : '';
+    return `· ${escapeHtml(label[r.type] ?? r.type)}(${escapeHtml(r.trId)}): ${r.count}${circuit}${lastErr}`;
   });
 
   const anyCircuitOpen = probe.rows.some((r) => r.circuitOpenForMs > 0);
   const allZero = probe.rows.every((r) => r.count === 0);
   const anyNonZero = probe.rows.some((r) => r.count > 0);
+
+  // allZero 세분용 — 마지막 실패 분류의 우선순위 집계(권한>일시장애>파라미터).
+  //   provider 장애는 providerIssue 이지 bearish/marketSignal 아니다(불변식 #6).
+  const errorKinds = new Set(
+    probe.rows.map((r) => r.lastErrorKind).filter((k): k is NonNullable<typeof k> => k !== undefined),
+  );
 
   let verdict: string;
   if (!probe.marketOpen) {
@@ -42,6 +52,12 @@ function formatRankingProbe(probe: LeaderRankingProbe, vtsOnly: boolean): string
     verdict = '판정→circuit OPEN(반복 실패 차단). /circuits 확인 후 /reset_circuits 로 해제하고 재시도.';
   } else if (!probe.hasRealDataClient && !probe.kisIsReal && !probe.hasOverrides && vtsOnly) {
     verdict = '판정→real-data 키 미설정·VTS-only → getRanking 항상 빈 배열. KIS_REAL_DATA_APP_KEY/SECRET 설정 필요(ADR-0561, Yahoo 폴백 차단됨).';
+  } else if (allZero && errorKinds.has('AUTH_OR_TOKEN')) {
+    verdict = '판정→403/권한. KIS 콘솔에서 국내주식 순위분석 TR 사용신청·승인 필요(실전계좌·custtype 확인). [providerIssue·marketSignal=false]';
+  } else if (allZero && errorKinds.has('TRANSIENT_SERVER_500')) {
+    verdict = '판정→KIS 서버 일시장애(5xx). 콘솔 조치 불필요 — 시간 두고 재시도하면 복구. [providerIssue·marketSignal=false]';
+  } else if (allZero && errorKinds.has('BAD_REQUEST_OR_SYMBOL')) {
+    verdict = '판정→400/404 파라미터·엔드포인트 점검. [providerIssue·marketSignal=false]';
   } else if (allZero) {
     verdict = '판정→real-data 호출됐으나 3종 모두 빈 응답. KIS 콘솔에서 랭킹 TR 권한·계좌·엔드포인트 점검.';
   } else if (anyNonZero) {

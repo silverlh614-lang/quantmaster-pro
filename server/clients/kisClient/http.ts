@@ -32,10 +32,12 @@ import { recordKisProviderFailure, recordKisProviderSuccess } from './core/kisPr
 //   1줄 즉시 기존 retry/log 동작 100% 복원.
 import {
   classifyKisRealDataError,
+  clearRealDataLastErrorForDiag,
   formatKisRealDataNoiseSummaryLine,
   isKisRealDataCooldownActive,
   recordKisRealDataFailure,
   recordKisRealDataSuccess,
+  recordRealDataLastErrorForDiag,
   shouldEmitNoiseSummary,
 } from './realDataNoiseStore.js';
 // Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — circuit breaker state machine (OPEN/HALF_OPEN/
@@ -805,6 +807,13 @@ export function realDataKisGet(
         ) {
           _recordCircuitFailure(trId, res.status);
         }
+        // Patch-LEADER-PROBE-LASTERR-DIAG — passive 마지막-에러 stamp(진단 전용).
+        //   비-chart realData GET 의 status 가 호출자(getRanking→probeLeaderRanking)로
+        //   소실되던 사각지대를 별도 진단 맵에 endpoint(=apiPath) 단위로 보존.
+        //   cooldown/circuit/provider-health 동작 불변 — 순수 관측 stamp.
+        if (!chartContext) {
+          recordRealDataLastErrorForDiag({ endpoint: apiPath, httpStatus: res.status });
+        }
         return null;
       }
 
@@ -819,6 +828,11 @@ export function realDataKisGet(
       recordKisRealDataSuccess(chartContext
         ? { endpoint: chartContext.trId, symbol: `${chartContext.symbol}:${chartContext.period}` }
         : { endpoint: apiPath });
+      // Patch-LEADER-PROBE-LASTERR-DIAG — 성공 시 진단 last-error stamp 해제(비-chart).
+      //   다음 프로브가 회복된 endpoint 를 stale 403/5xx 로 오표시하지 않게 한다.
+      if (!chartContext) {
+        clearRealDataLastErrorForDiag(apiPath);
+      }
       // Patch-KIS500-PROVIDER-HEALTH-ISOLATION-003 — circuit breaker CLOSED 자동 전이.
       //   HALF_OPEN test 성공 시 CLOSED + consecutiveFailures=0 + sliding window 정리.
       recordProviderSuccess();

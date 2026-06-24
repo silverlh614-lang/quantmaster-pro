@@ -32,6 +32,10 @@ import {
   hasKisClientOverrides,
   getCircuitBreakerStats,
 } from './kisClient.js';
+import {
+  getRealDataLastErrorForDiag,
+  type KisRealDataErrorKind,
+} from './kisClient/realDataNoiseStore.js';
 import { isMarketOpen } from '../utils/marketClock.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -384,6 +388,13 @@ export interface LeaderRankingProbeRow {
   count: number;
   /** 해당 trId circuit open 잔여(ms). 0 = 정상. >0 = 차단 중(빈 응답 원인). */
   circuitOpenForMs: number;
+  /**
+   * 비-chart realData GET 의 마지막 *진단용* 실패 분류(passive). 403→AUTH_OR_TOKEN /
+   * 5xx→TRANSIENT_SERVER_500 등. undefined = 실패 stamp 없음(성공/미호출). 관측 전용.
+   */
+  lastErrorKind?: KisRealDataErrorKind;
+  /** 마지막 진단용 실패 HTTP status (403/500/404…). undefined = stamp 없음. */
+  lastHttpStatus?: number;
 }
 
 export interface LeaderRankingProbe {
@@ -404,7 +415,8 @@ export async function probeLeaderRanking(): Promise<LeaderRankingProbe> {
   const openByTr = new Map(stats.map((s) => [s.trId, s.openFor]));
   const rows: LeaderRankingProbeRow[] = [];
   for (const type of LEADER_RANKING_TYPES) {
-    const trId = TR_SPECS[type].trId;
+    const spec = TR_SPECS[type];
+    const trId = spec.trId;
     let count = 0;
     try {
       count = (await getRanking(type, { bypassCache: true, limit: 30 })).length;
@@ -412,7 +424,18 @@ export async function probeLeaderRanking(): Promise<LeaderRankingProbe> {
       // 개별 키 실패는 0 으로 흡수 — 프로브는 throw 없이 전체 결과를 돌려준다.
       count = 0;
     }
-    rows.push({ type, trId, count, circuitOpenForMs: openByTr.get(trId) ?? 0 });
+    // Patch-LEADER-PROBE-LASTERR-DIAG — getRanking 호출 직후 endpoint(apiPath) 의
+    //   passive last-error stamp 를 read. http.ts 가 비-chart 실패 시 status 를 보존.
+    //   성공 시 stamp 가 해제되므로 정상 응답이면 자연히 undefined.
+    const diag = getRealDataLastErrorForDiag(spec.apiPath);
+    rows.push({
+      type,
+      trId,
+      count,
+      circuitOpenForMs: openByTr.get(trId) ?? 0,
+      ...(diag ? { lastErrorKind: diag.errorKind } : {}),
+      ...(diag?.httpStatus !== undefined ? { lastHttpStatus: diag.httpStatus } : {}),
+    });
   }
   return {
     marketOpen: isMarketOpen(),
