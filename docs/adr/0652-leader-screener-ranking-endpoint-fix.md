@@ -33,12 +33,15 @@ bare 404 를 내던 진짜 결함은 **잘못된 path/tr_id/scr 문자열**이�
 `fid_cond_scr_div_code:'16449'`, `fid_input_iscd:` (J/KOSPI='0001' · Q/KOSDAQ='1001'),
 `fid_div_cls_code:'0'`(수량정렬), `fid_rank_sort_cls_code:'0'`(순매수), `fid_etc_cls_code:'2'`(기관).
 
-### 출력 필드 불확실성 (명시)
+### 출력 필드 — KIS 공식 소스로 확정 (2026-06-25)
 
-`foreign-institution-total` 의 출력 필드명은 **KIS docs 로 미확정**이다. 따라서 mapRow 는
-방어적 `??` 체인을 사용한다: code = `mksc_shrn_iscd ?? stck_shrn_iscd` (없으면 null·graceful),
-name = `hts_kor_isnm`, instNet = `parseInt(orgn_ntby_qty ?? orgn_ntby_tr_pbmn ?? ntby_qty ?? '0')`,
-changePercent = `parseFloat(prdy_ctrt ?? '0')`. 배포 후 단일 `/lr` 스캔으로 실응답 필드 정오 확정.
+`foreign-institution-total`(FHPTJ04400000) 출력 필드를 KIS 공식 레포
+`koreainvestment/open-trading-api` 의 `chk_foreign_institution_total.py` COLUMN_MAPPING 으로 확정:
+code = `mksc_shrn_iscd`(유가증권 단축 종목코드), name = `hts_kor_isnm`(HTS 한글 종목명),
+instNet = `orgn_ntby_qty`(**기관계 순매수 수량**), changePercent = `prdy_ctrt`(전일 대비율).
+mapRow 의 방어적 `??` 체인(`orgn_ntby_qty ?? orgn_ntby_tr_pbmn ?? ntby_qty`, code `?? stck_shrn_iscd`)은
+**primary 필드가 공식 확정**되었으므로 그대로 유지(graceful 방어, 회귀 안전). 운영 검증: `/lr`
+bypassCache 프로브가 장외에도 시총 30·기관 60·거래량 30 실데이터 수신(404 소멸) 확인.
 
 ---
 
@@ -78,7 +81,7 @@ executionImpact=NONE 이므로 default ON kill-switch(`!== 'false'`). `LEADER_RA
 - KIS 공식 GitHub 검증 기반이라 추측 0.
 
 ### 비용·위험
-- foreign-institution-total 출력 필드명 미확정 → 방어적 mapRow + 배포 후 1-스캔 확정.
+- foreign-institution-total 출력 필드명 KIS 공식 소스로 확정(orgn_ntby_qty=기관계 순매수 수량) — 방어적 mapRow 유지(회귀 안전).
 - leader/screener 발굴 종목 구성 변동 가능. Gate1/2/3 판정 본문·requiredScore=70 무접촉 →
   **매매 안전성 영향 NONE**.
 
@@ -118,7 +121,7 @@ ADR-0471 곡선 · `src/**` — 전부 무손상.
 - `envFlag`: `LEADER_RANKING_ENDPOINT_FIX_ENABLED`
 - `adr`: `0652`
 - `status`: `ON` (default — kill-switch `!== 'false'`)
-- `reviewBy`: `2026-07-25` (~30일 — foreign-institution-total 출력 필드 정오 배포 후 확정)
+- `reviewBy`: `2026-07-25` (출력 필드는 2026-06-25 KIS 공식 소스로 확정 완료 — 장중 정렬 동작만 운영 모니터링)
 - `rollback`: `LEADER_RANKING_ENDPOINT_FIX_ENABLED=false` 1줄 즉시 구 문자열 복원
 
 ---
