@@ -23,6 +23,9 @@ import path from 'path';
 import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL } from '../clients/kisClient.js';
 import { type RankingEntry, type RankingType } from '../clients/kisRankingClient.js';
+// ADR-0652 — 랭킹 endpoint 정정(volume path / market-cap trId+scr) flag SSOT.
+//   default ON kill-switch; OFF(`=false`) 시 구(broken) 문자열로 byte-identical 롤백.
+import { isLeaderRankingEndpointFixEnabled } from '../trading/gateConfig.js';
 import { getShadowSafeRanking } from './shadowDataGate.js';
 import { STOCK_UNIVERSE } from './stockScreener.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -187,10 +190,14 @@ async function fetchForeignNetBuyStocks(): Promise<Omit<DynamicStock, 'addedAt' 
   try {
     const results: Omit<DynamicStock, 'addedAt' | 'expiresAt'>[] = [];
 
+    // ADR-0652: volume FIX = PATH ONLY (/ranking/volume → /quotations/volume-rank).
+    const volPath = isLeaderRankingEndpointFixEnabled()
+      ? '/uapi/domestic-stock/v1/quotations/volume-rank'
+      : '/uapi/domestic-stock/v1/ranking/volume';
     for (const mrktDiv of ['J', 'Q']) {
       const data = await realDataKisGet(
         'FHPST01710000',
-        '/uapi/domestic-stock/v1/ranking/volume',
+        volPath,
         {
           fid_cond_mrkt_div_code: mrktDiv,
           fid_cond_scr_div_code: '20171',
@@ -307,13 +314,18 @@ async function fetchMarketCapLeaders(): Promise<Omit<DynamicStock, 'addedAt' | '
   try {
     const results: Omit<DynamicStock, 'addedAt' | 'expiresAt'>[] = [];
 
+    // ADR-0652: market-cap FIX = tr_id (FHPST01720000→FHPST01740000) + scr (20172→20174).
+    //   path /ranking/market-cap unchanged. OFF=구값 byte-identical.
+    const mcFixOn = isLeaderRankingEndpointFixEnabled();
+    const mcTrId = mcFixOn ? 'FHPST01740000' : 'FHPST01720000';
+    const mcScr = mcFixOn ? '20174' : '20172';
     for (const mrktDiv of ['J', 'Q']) {
       const data = await realDataKisGet(
-        'FHPST01720000',
+        mcTrId,
         '/uapi/domestic-stock/v1/ranking/market-cap',
         {
           fid_cond_mrkt_div_code: mrktDiv,
-          fid_cond_scr_div_code: '20172',
+          fid_cond_scr_div_code: mcScr,
           fid_input_iscd: '0000',
           fid_div_cls_code: '0',
           fid_input_price_1: '',

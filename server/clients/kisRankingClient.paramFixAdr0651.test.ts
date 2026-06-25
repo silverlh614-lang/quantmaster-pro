@@ -33,9 +33,13 @@ function lastInvestorParams(): Record<string, string> {
 describe('ADR-0651 W2 — leader 랭킹 param 정합 (flag 게이트)', () => {
   const originalForceMarket = process.env.DATA_FETCH_FORCE_MARKET;
   const originalFlag = process.env.LEADER_RANKING_PARAM_FIX_ENABLED;
+  const originalEndpointFlag = process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED;
 
   beforeEach(() => {
     process.env.DATA_FETCH_FORCE_MARKET = 'true';
+    // ADR-0652 — 본 describe 는 구 /ranking/investor path 의 W2 param 분기를 검증하므로
+    //   endpoint-fix 를 명시적으로 OFF(=false) 하여 institutional 이 migration 되지 않게 한다.
+    process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED = 'false';
     resetRankingCache();
     mockedKisGet.mockReset();
     mockedKisGet.mockResolvedValue({ output: [] });
@@ -46,6 +50,8 @@ describe('ADR-0651 W2 — leader 랭킹 param 정합 (flag 게이트)', () => {
     else process.env.DATA_FETCH_FORCE_MARKET = originalForceMarket;
     if (originalFlag === undefined) delete process.env.LEADER_RANKING_PARAM_FIX_ENABLED;
     else process.env.LEADER_RANKING_PARAM_FIX_ENABLED = originalFlag;
+    if (originalEndpointFlag === undefined) delete process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED;
+    else process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED = originalEndpointFlag;
     vi.restoreAllMocks();
   });
 
@@ -114,9 +120,13 @@ describe('ADR-0651 W2 — leader 랭킹 param 정합 (flag 게이트)', () => {
 
 describe('ADR-0651 W3 — circuit 키 격리 (__circuitKey namespacing)', () => {
   const originalForceMarket = process.env.DATA_FETCH_FORCE_MARKET;
+  const originalEndpointFlag = process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED;
 
   beforeEach(() => {
     process.env.DATA_FETCH_FORCE_MARKET = 'true';
+    // ADR-0652 — institutional 이 구 trId(FHPST01600000)로 격리 키를 쓰는지 검증하므로
+    //   endpoint-fix OFF 로 고정(ON 이면 FHPTJ04400000 로 migration). volume trId 는 양쪽 동일.
+    process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED = 'false';
     resetRankingCache();
     mockedKisGet.mockReset();
     mockedKisGet.mockResolvedValue({ output: [] });
@@ -125,6 +135,8 @@ describe('ADR-0651 W3 — circuit 키 격리 (__circuitKey namespacing)', () => 
   afterEach(() => {
     if (originalForceMarket === undefined) delete process.env.DATA_FETCH_FORCE_MARKET;
     else process.env.DATA_FETCH_FORCE_MARKET = originalForceMarket;
+    if (originalEndpointFlag === undefined) delete process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED;
+    else process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED = originalEndpointFlag;
     vi.restoreAllMocks();
   });
 

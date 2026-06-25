@@ -25,10 +25,15 @@ const mockedKisGet = vi.mocked(realDataKisGet);
 
 describe('kisRankingClient — 신규 3종 확장', () => {
   const originalForceMarket = process.env.DATA_FETCH_FORCE_MARKET;
+  const originalEndpointFlag = process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED;
 
   beforeEach(() => {
     // ADR-0009 장외 게이트 우회 — 본 테스트는 KIS 응답 매핑 자체를 검증한다.
     process.env.DATA_FETCH_FORCE_MARKET = 'true';
+    // ADR-0652 — institutional-net-buy 의 J/Q 시장 구분이 fid_cond_mrkt_div_code 로 들어오는
+    //   legacy(/ranking/investor) 동작을 검증하므로 endpoint-fix OFF 고정(ON 은 div_code 'V' 고정).
+    //   ON 의 foreign-institution-total params/mapRow 는 별도 ADR-0652 테스트에서 검증.
+    process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED = 'false';
     resetRankingCache();
     mockedKisGet.mockReset();
   });
@@ -36,6 +41,8 @@ describe('kisRankingClient — 신규 3종 확장', () => {
   afterEach(() => {
     if (originalForceMarket === undefined) delete process.env.DATA_FETCH_FORCE_MARKET;
     else process.env.DATA_FETCH_FORCE_MARKET = originalForceMarket;
+    if (originalEndpointFlag === undefined) delete process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED;
+    else process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED = originalEndpointFlag;
     vi.restoreAllMocks();
   });
 

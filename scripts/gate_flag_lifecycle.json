@@ -110,7 +110,18 @@
       "status": "SHADOW_OFF",
       "activationCriteria": "W1(ADR-0651) 배포 후 /lr(/leader_refresh) 1-스캔으로 institutional-net-buy TR 의 lastKisMsg=정상(rt_cd=0) 확인 + leader count>0 관측 → 운영자 승인. leader 발굴 종목 구성을 바꾸므로 live KIS 응답 가시화 후에만 flip.",
       "nextAction": "W1 가시성 위에서 /lr lastKisMsg 로 KIS 실거부 사유 확인 → 정상이면 운영자 승인 후 default-ON flip(후속 ADR) / 권한거부면 KIS 콘솔 TR 신청 / param 거부면 재조정.",
-      "notes": "SSOT isLeaderRankingParamFixEnabled() gateConfig.ts 거주(opt-IN `=== 'true'` default OFF·ADR-0157). 게이트 대상: kisRankingClient institutional-net-buy params(미검증 기관 sort='2' → 검증된 외국인 sort='1'·cnt_1='40'·vol_cnt='50000', mapRow 는 동일 응답의 orgn_ntby_qty 기관 파생 유지). 신규 KIS 호출 0(기존 investor 응답 재사용·ADR-0477 단일통로). 두 번째 랭킹 공식 신설 0. OFF(미설정·=false)=기존 TR_SPECS param byte-identical. 랭킹=발굴 전용·executionImpact=NONE·LIVE 주문 0줄·SourceSnapshot 무접촉. 빈/파싱 실패 → 빈 배열 graceful(404≠bearish·불변식 #6)."
+      "notes": "SSOT isLeaderRankingParamFixEnabled() gateConfig.ts 거주(opt-IN `=== 'true'` default OFF·ADR-0157). 게이트 대상: kisRankingClient institutional-net-buy params(미검증 기관 sort='2' → 검증된 외국인 sort='1'·cnt_1='40'·vol_cnt='50000', mapRow 는 동일 응답의 orgn_ntby_qty 기관 파생 유지). 신규 KIS 호출 0(기존 investor 응답 재사용·ADR-0477 단일통로). 두 번째 랭킹 공식 신설 0. OFF(미설정·=false)=기존 TR_SPECS param byte-identical. 랭킹=발굴 전용·executionImpact=NONE·LIVE 주문 0줄·SourceSnapshot 무접촉. 빈/파싱 실패 → 빈 배열 graceful(404≠bearish·불변식 #6). ADR-0652 endpoint-fix ON 시 본 W2 분기는 supersede(institutional 은 foreign-institution-total 로 migration·구 /ranking/investor path 에만 본 param 적용)."
+    },
+    {
+      "envFlag": "LEADER_RANKING_ENDPOINT_FIX_ENABLED",
+      "adr": "0652",
+      "title": "Leader/Screener Ranking Endpoint String Fix (volume path · market-cap trId+scr · institutional foreign-institution-total)",
+      "introduced": "2026-06-25",
+      "reviewBy": "2026-07-25",
+      "status": "ON",
+      "activationCriteria": "현 endpoint 가 KIS 공식 GitHub(koreainvestment/open-trading-api) 1:1 검증으로 100% bare-404(검증된 결함)이고 정정이 권위적이며 engineMode SHADOW_ONLY 로 executionImpact=NONE 이라 default ON kill-switch 로 즉시 출하. 검증 완료 — 운영자 standing approval(silverlh614).",
+      "nextAction": "reviewBy(2026-07-25)까지 배포 후 단일 /lr 스캔으로 foreign-institution-total 출력 필드명(orgn_ntby_qty 등) 정오 확정 → 필드 확정이면 mapRow ?? 체인 축약 검토(또는 그대로 방어 유지) · 회귀 시 LEADER_RANKING_ENDPOINT_FIX_ENABLED=false 1줄 kill-switch 롤백.",
+      "notes": "SSOT isLeaderRankingEndpointFixEnabled() gateConfig.ts 거주(kill-switch `!== 'false'` default ON·ADR-0157 정확비교 정신 kill-switch 한정). DRY resolver resolveRankingEndpoint(kisRankingClient.ts) flag 게이트 1지점. 게이트 대상: volume path /ranking/volume→/quotations/volume-rank(PATH ONLY) · market-cap trId FHPST01720000→FHPST01740000+scr 20172→20174 · institutional /ranking/investor+FHPST01600000→/quotations/foreign-institution-total+FHPTJ04400000(params V/16449/0001·1001/etc_cls 2·방어적 mapRow). screener/expander/scanner 인라인 호출도 동일 flag 게이트. ON 시 ADR-0651 W2 institutional sort param 분기 supersede(두 flag 깨끗이 게이트). foreign-institution-total 출력 필드명 KIS docs 미확정 → mapRow ?? 체인 방어. OFF(=false)=구(broken) endpoint 문자열 byte-identical. 랭킹=발굴 전용·executionImpact=NONE·LIVE 0줄·SourceSnapshot 무접촉·404≠bearish(불변식 #6)."
     }
   ]
 }

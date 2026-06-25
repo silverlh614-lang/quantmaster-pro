@@ -18,6 +18,9 @@ import { loadWatchlist, saveWatchlist, MOMENTUM_ALERT_THRESHOLD, isSpecialSecuri
 import { loadConditionWeights } from '../persistence/conditionWeightsRepo.js';
 import { evaluateServerGate } from '../quantFilter.js';
 import { realDataKisGet, HAS_REAL_DATA_CLIENT, KIS_IS_REAL, hasKisClientOverrides } from '../clients/kisClient.js';
+// ADR-0652 — 랭킹 endpoint 정정(volume path / investor→foreign-institution-total) flag SSOT.
+//   default ON kill-switch; OFF(`=false`) 시 구(broken) 문자열로 byte-identical 롤백.
+import { isLeaderRankingEndpointFixEnabled } from '../trading/gateConfig.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { isPullbackSetup, addBusinessDays } from './pipelineHelpers.js';
 import { recordGateAudit, recordGateAuditByStatus, flushGateAudit } from '../persistence/gateAuditRepo.js';
@@ -131,12 +134,19 @@ export async function preScreenStocks(options?: {
     return getScreenerCache();
   }
 
+  // ADR-0652 — endpoint-fix flag(default ON). OFF=구 broken 문자열 byte-identical.
+  const endpointFixOn = isLeaderRankingEndpointFixEnabled();
+  // volume: FIX = PATH ONLY (/ranking/volume → /quotations/volume-rank). tr_id/scr unchanged.
+  const volPath = endpointFixOn
+    ? '/uapi/domestic-stock/v1/quotations/volume-rank'
+    : '/uapi/domestic-stock/v1/ranking/volume';
+
   try {
     // ── 병렬로 4개 TR 동시 호출 ────────────────────────────────
     const [volData, riseData, highData, foreignData] = await Promise.allSettled([
 
       // 1. 거래량 상위 (기존)
-      realDataKisGet('FHPST01710000', '/uapi/domestic-stock/v1/ranking/volume', {
+      realDataKisGet('FHPST01710000', volPath, {
         fid_cond_mrkt_div_code: marketDiv,
         fid_cond_scr_div_code:  '20171',
         fid_input_iscd:         '0000',
@@ -184,22 +194,35 @@ export async function preScreenStocks(options?: {
         __kisPurpose:          'SCREENER',
       }),
 
-      // 4. 외국인 순매수 상위 (신규) — 수급 기반 핵심
-      realDataKisGet('FHPST01600000', '/uapi/domestic-stock/v1/ranking/investor', {
-        fid_cond_mrkt_div_code: marketDiv,
-        fid_cond_scr_div_code:  '20160',
-        fid_input_iscd:         '0000',
-        fid_inqr_dvsn_cls_code: '0',       // 순매수
-        fid_div_cls_code:       '0',
-        fid_rank_sort_cls_code: '1',       // 외국인
-        fid_input_cnt_1:        '40',
-        fid_trgt_cls_code:      '111111111',
-        fid_trgt_exls_cls_code: '000000',
-        fid_vol_cnt:            '50000',
-        fid_input_price_1:      '3000',
-        fid_input_price_2:      '500000',
-        __kisPurpose:          'SCREENER',
-      }),
+      // 4. 외국인/기관 순매수 상위 (신규) — 수급 기반 핵심
+      //   ADR-0652: endpoint-fix ON 시 /ranking/investor(404) → foreign-institution-total 마이그레이션.
+      //   fid_cond_mrkt_div_code:'V' 고정, fid_input_iscd 는 J→'0001'/Q→'1001'.
+      //   OFF 시 구 investor TR param byte-identical.
+      endpointFixOn
+        ? realDataKisGet('FHPTJ04400000', '/uapi/domestic-stock/v1/quotations/foreign-institution-total', {
+          fid_cond_mrkt_div_code: 'V',
+          fid_cond_scr_div_code:  '16449',
+          fid_input_iscd:         marketDiv === 'Q' ? '1001' : '0001',
+          fid_div_cls_code:       '0',       // 0=수량정렬
+          fid_rank_sort_cls_code: '0',       // 0=순매수
+          fid_etc_cls_code:       '2',       // 2=기관 (외국인 순매수는 frgn_ntby_qty 로 함께 내려옴)
+          __kisPurpose:          'SCREENER',
+        })
+        : realDataKisGet('FHPST01600000', '/uapi/domestic-stock/v1/ranking/investor', {
+          fid_cond_mrkt_div_code: marketDiv,
+          fid_cond_scr_div_code:  '20160',
+          fid_input_iscd:         '0000',
+          fid_inqr_dvsn_cls_code: '0',       // 순매수
+          fid_div_cls_code:       '0',
+          fid_rank_sort_cls_code: '1',       // 외국인
+          fid_input_cnt_1:        '40',
+          fid_trgt_cls_code:      '111111111',
+          fid_trgt_exls_cls_code: '000000',
+          fid_vol_cnt:            '50000',
+          fid_input_price_1:      '3000',
+          fid_input_price_2:      '500000',
+          __kisPurpose:          'SCREENER',
+        }),
     ]);
 
     const now = new Date().toISOString();
@@ -308,19 +331,26 @@ export async function preScreenStocks(options?: {
     };
     });
 
-    // 외국인 순매수 상위 매핑
+    // 외국인/기관 순매수 상위 매핑
+    //   ADR-0652: foreign-institution-total 출력 필드명 미확정 — 방어적 ?? 체인.
+    //   code 없으면 mergeOutput 가 자연 skip(graceful). 구 investor TR 응답과도 호환.
     mergeOutput(foreignData, 'FOREIGN', (s) => {
       if (isRiskyKisRow(s)) return null;
       if (isSpecialKisRow(s)) return null;
+      const code = s.mksc_shrn_iscd ?? s.stck_shrn_iscd ?? '';
+      if (!code) return null;
       return {
-      code:          s.stck_shrn_iscd  ?? '',
+      code,
       name:          s.hts_kor_isnm    ?? '',
       currentPrice:  parseInt(s.stck_prpr      ?? '0', 10),
       changeRate:    parseFloat(s.prdy_ctrt    ?? '0'),
       volume:        parseInt(s.acml_vol       ?? '0', 10),
       turnoverRate:  0,
       per:           999,
-      foreignNetBuy: parseInt(s.frgn_ntby_qty  ?? '0', 10),
+      foreignNetBuy: parseInt(
+        s.frgn_ntby_qty ?? s.orgn_ntby_qty ?? s.orgn_ntby_tr_pbmn ?? s.ntby_qty ?? '0',
+        10,
+      ),
       screenedAt:    now,
     };
     });

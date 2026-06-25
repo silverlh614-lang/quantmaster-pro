@@ -334,3 +334,28 @@ export function isPullbackLaneForwardObservationEnabled(): boolean {
 export function isLeaderRankingParamFixEnabled(): boolean {
   return process.env.LEADER_RANKING_PARAM_FIX_ENABLED === 'true';
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADR-0652 — Leader/Screener 랭킹 endpoint 문자열 정정 활성 스위치 (default ON / kill-switch)
+//
+// KIS 공식 GitHub(koreainvestment/open-trading-api) 1:1 검증 결과, 현재 leader/screener
+// 랭킹 endpoint 문자열이 bare 404 를 유발한다(검증된 결함):
+//   - volume          → path 가 /ranking/volume (오) → /quotations/volume-rank (정)
+//   - market-cap      → tr_id FHPST01720000/scr 20172 (오) → FHPST01740000/scr 20174 (정)
+//   - institutional   → /ranking/investor+FHPST01600000 (KIS 미존재 → 404) →
+//                       /quotations/foreign-institution-total + FHPTJ04400000 (정)
+// 현 endpoint 가 100% broken(404) 이므로 default ON kill-switch(`!== 'false'`). `=false` 시
+// 즉시 구(broken) 문자열로 byte-identical 롤백. 랭킹=발굴/관측 전용·engineMode SHADOW_ONLY —
+// executionImpact=NONE(LIVE 매매 무영향). endpoint-fix ON 시 institutional-net-buy 는
+// foreign-institution-total 로 마이그레이션되며 ADR-0651 W2 sort param 분기를 supersede 한다.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Leader/Screener 랭킹 endpoint 정정 활성 스위치. default ON (kill-switch `!== 'false'`).
+ * 정확히 `'false'` 만 OFF(구 broken 문자열로 byte-identical 롤백), 그 외 모두 ON.
+ * 게이트 대상: volume path · market-cap trId+scr · institutional foreign-institution-total 전환.
+ * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
+ */
+export function isLeaderRankingEndpointFixEnabled(): boolean {
+  return process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED !== 'false';
+}
