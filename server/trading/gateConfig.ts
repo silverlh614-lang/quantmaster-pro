@@ -314,3 +314,23 @@ export function isPullbackEntryLaneEnabled(): boolean {
 export function isPullbackLaneForwardObservationEnabled(): boolean {
   return process.env.PULLBACK_LANE_FORWARD_OBSERVATION_ENABLED === 'true';
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADR-0651 W2 — Leader 랭킹 TR param 정합 활성 스위치 (default OFF / SHADOW_OFF)
+//
+// leader institutional-net-buy 를 검증된 외국인 investor 응답(sort='1')에서
+// orgn_ntby_qty>0 파생으로 정합 + volume `fid_div_cls_code:'0'` 보정. leader 발굴
+// 종목 구성을 바꾸므로 ENV flag 뒤에 둔다(ADR-0157 opt-IN `=== 'true'` default OFF).
+// OFF = 기존 kisRankingClient TR_SPECS param byte-identical. 랭킹=발굴 전용·
+// executionImpact=NONE — LIVE 매매 무영향. 신규 KIS 호출 0(기존 investor 응답 재사용).
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Leader 랭킹 param 정합 활성 스위치. default OFF (ADR-0157 opt-IN `=== 'true'`).
+ * 미설정·임의값 = OFF, 정확히 `'true'` 만 활성. ENV 1줄 즉시 byte-identical 롤백.
+ * 게이트 대상: institutional-net-buy(검증된 외국인 sort='1' param) + volume div_cls 보정.
+ * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
+ */
+export function isLeaderRankingParamFixEnabled(): boolean {
+  return process.env.LEADER_RANKING_PARAM_FIX_ENABLED === 'true';
+}

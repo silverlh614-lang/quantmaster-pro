@@ -575,7 +575,14 @@ export function realDataKisGet(
   return scheduleKisCall(priority, `REAL_GET ${trId}`, async () => {
     const chartContext = getKisChartContext(trId, params);
     const chartCooldownKey = chartContext ? kisChartCooldownKey(chartContext) : null;
-    if (_isCircuitOpen(trId)) {
+    // ADR-0651 W3 — circuit 키 격리. wire `tr_id` 헤더는 원본 trId 유지(아래 doFetch),
+    //   circuit state 키만 분리해 leader probe(`__circuitKey: trId#LEADER`)의 404 가
+    //   screener 의 공유 trId circuit(예: FHPST01710000)을 trip/blackhole 하지 않게 한다.
+    //   미지정(screener 등 일반 호출) 시 trId 그대로 — screener circuit byte-equivalent.
+    const circuitKey = typeof params.__circuitKey === 'string' && params.__circuitKey
+      ? params.__circuitKey
+      : trId;
+    if (_isCircuitOpen(circuitKey)) {
       emitKisRealDataOperationalWarn({
         requestPriority: realDataClassification.priority,
         code: realDataClassification.priority.startsWith('P0_') || realDataClassification.priority.startsWith('P1_')
@@ -697,7 +704,7 @@ export function realDataKisGet(
       }
 
       if (res.status >= 500 && res.status < 600) {
-        _recordCircuitFailure(trId, res.status);
+        _recordCircuitFailure(circuitKey, res.status);
         if (chartContext) {
           const cooldownMs = recordKisChartCooldown(chartContext, res.status);
           if (shouldEmitKisChartLog('KIS_CHART_COOLDOWN_SET', chartCooldownKey!)) {
@@ -805,19 +812,39 @@ export function realDataKisGet(
           || res.status === 404
           || res.status === 403
         ) {
-          _recordCircuitFailure(trId, res.status);
+          _recordCircuitFailure(circuitKey, res.status);
         }
         // Patch-LEADER-PROBE-LASTERR-DIAG — passive 마지막-에러 stamp(진단 전용).
         //   비-chart realData GET 의 status 가 호출자(getRanking→probeLeaderRanking)로
         //   소실되던 사각지대를 별도 진단 맵에 endpoint(=apiPath) 단위로 보존.
         //   cooldown/circuit/provider-health 동작 불변 — 순수 관측 stamp.
         if (!chartContext) {
-          recordRealDataLastErrorForDiag({ endpoint: apiPath, httpStatus: res.status });
+          // ADR-0651 W1 — KIS 응답 바디(rt_cd/msg_cd/msg1)를 1회 파싱해 진단 stamp 에 함께 보존.
+          //   실패 경로에서만 body 를 읽는다(성공 경로 :839 무변경). 파싱 실패 graceful(kisMsg 생략).
+          //   cooldown/circuit/provider-health 동작 byte-equivalent — 순수 관측.
+          let kisMsg: string | undefined;
+          try {
+            const errBody = await res.text();
+            if (errBody.trim()) {
+              const parsed = JSON.parse(errBody) as { rt_cd?: string; msg_cd?: string; msg1?: string };
+              const rtCd = parsed.rt_cd;
+              const msgCd = parsed.msg_cd;
+              const msg1 = typeof parsed.msg1 === 'string' ? parsed.msg1.trim() : undefined;
+              if (rtCd !== undefined || msgCd !== undefined || msg1) {
+                kisMsg = `${rtCd ?? '?'}/${msgCd ?? '?'}/${msg1 ?? ''}`.trim();
+              }
+            }
+          } catch { /* SDS-ignore: KIS 비-JSON/빈 바디는 진단 kisMsg 생략 graceful — 매매 무영향 */ }
+          recordRealDataLastErrorForDiag({
+            endpoint: apiPath,
+            httpStatus: res.status,
+            ...(kisMsg !== undefined ? { kisMsg } : {}),
+          });
         }
         return null;
       }
 
-      _recordCircuitSuccess(trId);
+      _recordCircuitSuccess(circuitKey);
       if (chartContext) {
         clearKisChart5xxCooldown(chartContext);
       } else {

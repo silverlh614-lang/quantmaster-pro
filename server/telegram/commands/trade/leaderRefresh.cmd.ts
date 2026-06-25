@@ -32,7 +32,11 @@ function formatRankingProbe(probe: LeaderRankingProbe, vtsOnly: boolean): string
     const lastErr = r.lastHttpStatus !== undefined || r.lastErrorKind !== undefined
       ? ` · ❌last ${r.lastHttpStatus ?? '?'}/${escapeHtml(r.lastErrorKind ?? 'UNKNOWN')}`
       : '';
-    return `· ${escapeHtml(label[r.type] ?? r.type)}(${escapeHtml(r.trId)}): ${r.count}${circuit}${lastErr}`;
+    // ADR-0651 W1 — KIS 실거부 사유(rt_cd/msg_cd/msg1) 표시(관측 전용·표시만·불변식 #6).
+    const kisMsg = r.lastKisMsg !== undefined
+      ? ` · 💬${escapeHtml(r.lastKisMsg)}`
+      : '';
+    return `· ${escapeHtml(label[r.type] ?? r.type)}(${escapeHtml(r.trId)}): ${r.count}${circuit}${lastErr}${kisMsg}`;
   });
 
   const anyCircuitOpen = probe.rows.some((r) => r.circuitOpenForMs > 0);
