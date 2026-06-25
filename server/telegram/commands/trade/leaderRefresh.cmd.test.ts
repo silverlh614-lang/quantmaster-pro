@@ -313,6 +313,33 @@ describe('/leader_refresh 동작', () => {
     expect(replies[1]).toContain('probe boom');
   });
 
+  it('ADR-0651 W1 — probe row lastKisMsg → 💬 KIS 실거부 사유 표시(관측 전용)', async () => {
+    vi.mocked(probeLeaderRanking).mockResolvedValue({
+      marketOpen: true,
+      hasRealDataClient: true,
+      kisIsReal: true,
+      hasOverrides: false,
+      rows: [
+        { type: 'market-cap', trId: 'FHPST01720000', count: 20, circuitOpenForMs: 0 },
+        {
+          type: 'institutional-net-buy', trId: 'FHPST01600000', count: 0, circuitOpenForMs: 0,
+          lastErrorKind: 'AUTH_OR_TOKEN', lastHttpStatus: 403,
+          lastKisMsg: '1/EGW00201/순위분석 권한이 없습니다',
+        },
+        { type: 'volume', trId: 'FHPST01710000', count: 22, circuitOpenForMs: 0 },
+      ],
+    });
+    const replies: string[] = [];
+    const reply = async (m: string) => { replies.push(m); };
+
+    const cmd = commandRegistry.resolve('/leader_refresh');
+    await cmd!.execute({ args: [], reply });
+
+    expect(replies[1]).toContain('💬');
+    expect(replies[1]).toContain('순위분석 권한이 없습니다');
+    expect(replies[1]).toContain('❌last 403/AUTH_OR_TOKEN');
+  });
+
   it('runLeaderUniverseDailyRefresh throw → ❌ 안전 메시지 + 미전파', async () => {
     vi.mocked(runLeaderUniverseDailyRefresh).mockRejectedValue(new Error('refresh boom'));
     const replies: string[] = [];

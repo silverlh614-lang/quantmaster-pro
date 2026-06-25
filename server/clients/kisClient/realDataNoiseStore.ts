@@ -378,6 +378,11 @@ export interface RealDataLastErrorDiag {
   httpStatus?: number;
   errorKind: KisRealDataErrorKind;
   at: string;
+  /**
+   * ADR-0651 W1 additive — KIS 응답 바디의 `${rt_cd}/${msg_cd}/${msg1}` 압축 1줄.
+   * 진단 표시 전용. 어떤 retry/skip/집계/매매 결정에도 미사용(불변식 #6 — 장애≠bearish).
+   */
+  kisMsg?: string;
 }
 
 const _lastErrorDiagByEndpoint = new Map<string, RealDataLastErrorDiag>();
@@ -390,6 +395,8 @@ export function recordRealDataLastErrorForDiag(input: {
   endpoint: string;
   httpStatus?: number;
   message?: string;
+  /** ADR-0651 W1 additive — KIS 바디 압축 1줄(rt_cd/msg_cd/msg1). 진단 stamp 전용. */
+  kisMsg?: string;
   now?: Date;
 }): void {
   const classification = classifyKisRealDataError({
@@ -403,6 +410,7 @@ export function recordRealDataLastErrorForDiag(input: {
     at: (input.now ?? new Date()).toISOString(),
   };
   if (input.httpStatus !== undefined) entry.httpStatus = input.httpStatus;
+  if (input.kisMsg !== undefined) entry.kisMsg = input.kisMsg;
   _lastErrorDiagByEndpoint.set(input.endpoint, entry);
 }
 

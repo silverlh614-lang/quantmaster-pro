@@ -37,6 +37,7 @@ import {
   type KisRealDataErrorKind,
 } from './kisClient/realDataNoiseStore.js';
 import { isMarketOpen } from '../utils/marketClock.js';
+import { isLeaderRankingParamFixEnabled } from '../trading/gateConfig.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -190,20 +191,42 @@ const TR_SPECS: Record<RankingType, TrSpec> = {
   'institutional-net-buy': {
     trId: 'FHPST01600000',
     apiPath: '/uapi/domestic-stock/v1/ranking/investor',
-    params: (mrktDiv) => ({
-      fid_cond_mrkt_div_code: mrktDiv,
-      fid_cond_scr_div_code:  '20160',
-      fid_input_iscd:         '0000',
-      fid_inqr_dvsn_cls_code: '0',       // 0=순매수
-      fid_div_cls_code:       '0',
-      fid_rank_sort_cls_code: '2',       // 2=기관 (KIS 공통 규약 — 1=외국인 / 2=기관 / 0=전체)
-      fid_input_cnt_1:        '30',
-      fid_trgt_cls_code:      '111111111',
-      fid_trgt_exls_cls_code: '000000',
-      fid_vol_cnt:            '10000',
-      fid_input_price_1:      '3000',
-      fid_input_price_2:      '500000',
-    }),
+    // ADR-0651 W2 — flag(LEADER_RANKING_PARAM_FIX_ENABLED) 게이트.
+    //   OFF(default): 기존 미검증 기관 sort='2'·cnt_1='30'·vol_cnt='10000' param byte-identical.
+    //   ON: stockScreener 가 검증한 외국인 sort='1'·cnt_1='40'·vol_cnt='50000' working param 으로
+    //       정합하되, mapRow 는 동일 TR 응답이 함께 내려주는 orgn_ntby_qty(기관)를 그대로 읽어
+    //       기관 leader 를 파생한다(두 번째 랭킹 공식 신설 0·추가 KIS 호출 0·ADR-0477 단일통로).
+    params: (mrktDiv) => (
+      isLeaderRankingParamFixEnabled()
+        ? {
+          fid_cond_mrkt_div_code: mrktDiv,
+          fid_cond_scr_div_code:  '20160',
+          fid_input_iscd:         '0000',
+          fid_inqr_dvsn_cls_code: '0',       // 0=순매수
+          fid_div_cls_code:       '0',
+          fid_rank_sort_cls_code: '1',       // 1=외국인 (검증된 working sort — 응답이 기관 orgn_ntby_qty 도 포함)
+          fid_input_cnt_1:        '40',
+          fid_trgt_cls_code:      '111111111',
+          fid_trgt_exls_cls_code: '000000',
+          fid_vol_cnt:            '50000',
+          fid_input_price_1:      '3000',
+          fid_input_price_2:      '500000',
+        }
+        : {
+          fid_cond_mrkt_div_code: mrktDiv,
+          fid_cond_scr_div_code:  '20160',
+          fid_input_iscd:         '0000',
+          fid_inqr_dvsn_cls_code: '0',       // 0=순매수
+          fid_div_cls_code:       '0',
+          fid_rank_sort_cls_code: '2',       // 2=기관 (KIS 공통 규약 — 1=외국인 / 2=기관 / 0=전체)
+          fid_input_cnt_1:        '30',
+          fid_trgt_cls_code:      '111111111',
+          fid_trgt_exls_cls_code: '000000',
+          fid_vol_cnt:            '10000',
+          fid_input_price_1:      '3000',
+          fid_input_price_2:      '500000',
+        }
+    ),
     mapRow: (row, rank, market) => {
       const code = (row.mksc_shrn_iscd ?? row.stck_shrn_iscd ?? '').trim();
       if (!code || code.length !== 6) return null;
@@ -334,7 +357,15 @@ export async function getRanking(
   await Promise.all(
     markets.map(async ({ div, label }) => {
       try {
-        const resp = await realDataKisGet(spec.trId, spec.apiPath, spec.params(div));
+        // ADR-0651 W3 — circuit 키 격리. leader/발굴 랭킹 경로(본 getRanking 단일 진입)는
+        //   `${trId}#LEADER` namespaced circuit 키로 fetch 해, leader 404 가 동일 trId 를
+        //   직접 쓰는 screener(stockScreener.ts realDataKisGet, __circuitKey 미지정 → 원본 trId)
+        //   circuit 을 trip/blackhole 하지 않게 한다. wire `tr_id` 헤더는 spec.trId 원본 유지.
+        //   probe·cron 양 경로 일관 격리. screener circuit byte-equivalent.
+        const resp = await realDataKisGet(spec.trId, spec.apiPath, {
+          ...spec.params(div),
+          __circuitKey: `${spec.trId}#LEADER`,
+        });
         const output = (resp as { output?: Record<string, string>[] } | null)?.output;
         if (!output || !Array.isArray(output)) return;
 
@@ -395,6 +426,11 @@ export interface LeaderRankingProbeRow {
   lastErrorKind?: KisRealDataErrorKind;
   /** 마지막 진단용 실패 HTTP status (403/500/404…). undefined = stamp 없음. */
   lastHttpStatus?: number;
+  /**
+   * ADR-0651 W1 additive — KIS 응답 바디 압축 1줄(rt_cd/msg_cd/msg1). 403(권한) vs
+   * param 거부를 실거부 사유로 구분. undefined = stamp 없음. 관측·표시 전용(불변식 #6).
+   */
+  lastKisMsg?: string;
 }
 
 export interface LeaderRankingProbe {
@@ -432,9 +468,12 @@ export async function probeLeaderRanking(): Promise<LeaderRankingProbe> {
       type,
       trId,
       count,
-      circuitOpenForMs: openByTr.get(trId) ?? 0,
+      // ADR-0651 W3 — leader 경로는 namespaced circuit 키(`${trId}#LEADER`)를 쓰므로
+      //   probe 도 동일 키로 circuit 잔여를 읽는다(screener 의 원본 trId circuit 과 분리 관측).
+      circuitOpenForMs: openByTr.get(`${trId}#LEADER`) ?? openByTr.get(trId) ?? 0,
       ...(diag ? { lastErrorKind: diag.errorKind } : {}),
       ...(diag?.httpStatus !== undefined ? { lastHttpStatus: diag.httpStatus } : {}),
+      ...(diag?.kisMsg !== undefined ? { lastKisMsg: diag.kisMsg } : {}),
     });
   }
   return {

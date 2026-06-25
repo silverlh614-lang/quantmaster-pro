@@ -53,6 +53,30 @@ describe('realDataNoiseStore — 진단 last-error 레코더 (passive)', () => {
   it('stamp 없는 endpoint → null', () => {
     expect(getRealDataLastErrorForDiag('/no/such/path')).toBeNull();
   });
+
+  // ── ADR-0651 W1 — kisMsg 압축 1줄 round-trip ──────────────────────────────
+  it('W1 — kisMsg(rt_cd/msg_cd/msg1) stamp → read 라운드트립', () => {
+    recordRealDataLastErrorForDiag({
+      endpoint: VOLUME_PATH,
+      httpStatus: 404,
+      kisMsg: '1/EGW00201/순위분석 권한이 없습니다',
+    });
+    const diag = getRealDataLastErrorForDiag(VOLUME_PATH);
+    expect(diag?.httpStatus).toBe(404);
+    expect(diag?.kisMsg).toBe('1/EGW00201/순위분석 권한이 없습니다');
+  });
+
+  it('W1 — kisMsg 미지정 시 진단 entry 에 kisMsg 부재(graceful)', () => {
+    recordRealDataLastErrorForDiag({ endpoint: VOLUME_PATH, httpStatus: 503 });
+    const diag = getRealDataLastErrorForDiag(VOLUME_PATH);
+    expect(diag?.kisMsg).toBeUndefined();
+  });
+
+  it('W1 — clear 후 kisMsg 도 함께 해제(회복 반영)', () => {
+    recordRealDataLastErrorForDiag({ endpoint: VOLUME_PATH, httpStatus: 404, kisMsg: '1/X/Y' });
+    clearRealDataLastErrorForDiag(VOLUME_PATH);
+    expect(getRealDataLastErrorForDiag(VOLUME_PATH)).toBeNull();
+  });
 });
 
 describe('probeLeaderRanking — last-error stamp 반영', () => {
@@ -119,5 +143,34 @@ describe('probeLeaderRanking — last-error stamp 반영', () => {
     const row = probe.rows.find((r) => r.type === 'volume');
     expect(row?.lastErrorKind).toBe('TRANSIENT_SERVER_500');
     expect(row?.lastHttpStatus).toBe(500);
+  });
+
+  // ── ADR-0651 W1 — probe row 에 lastKisMsg 노출 ────────────────────────────
+  it('W1 — kisMsg stamp → probe row lastKisMsg 노출(관측 전용)', async () => {
+    mockedKisGet.mockResolvedValue(null);
+    recordRealDataLastErrorForDiag({
+      endpoint: INVESTOR_PATH,
+      httpStatus: 404,
+      kisMsg: '1/EGW00121/모의투자 미지원',
+    });
+
+    const probe = await probeLeaderRanking();
+    const row = probe.rows.find((r) => r.type === 'institutional-net-buy');
+    expect(row?.lastHttpStatus).toBe(404);
+    expect(row?.lastKisMsg).toBe('1/EGW00121/모의투자 미지원');
+
+    // 다른 TR 은 kisMsg 없음 → undefined (회귀 없음).
+    const volRow = probe.rows.find((r) => r.type === 'volume');
+    expect(volRow?.lastKisMsg).toBeUndefined();
+  });
+
+  it('W1 — kisMsg 없는 정상 stamp 면 lastKisMsg undefined', async () => {
+    mockedKisGet.mockResolvedValue(null);
+    recordRealDataLastErrorForDiag({ endpoint: VOLUME_PATH, httpStatus: 403 });
+
+    const probe = await probeLeaderRanking();
+    const row = probe.rows.find((r) => r.type === 'volume');
+    expect(row?.lastHttpStatus).toBe(403);
+    expect(row?.lastKisMsg).toBeUndefined();
   });
 });
