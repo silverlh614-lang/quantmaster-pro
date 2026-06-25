@@ -146,7 +146,8 @@ function generateMockRankingResponse(trId: string): unknown {
       prdy_ctrt: '2.00',
       acml_vol: (100000 + seedFromCode(code) % 900000).toString(),
       acml_tr_pbmn: (price * 100000).toString(),
-      // ADR-0652: 기관/외국인 순매수 mock 필드 — FHPTJ04400000 mapRow 가 orgn_ntby_qty 를 읽는다.
+      // ADR-0652(+후속): 기관/외국인 순매수 mock 필드 — FHPTJ04400000 mapRow 가
+      //   institutional-net-buy 는 orgn_ntby_qty, foreign-net-buy 는 frgn_ntby_qty 를 읽는다.
       orgn_ntby_qty: flow.institutionalNetBuy.toString(),
       frgn_ntby_qty: flow.foreignNetBuy.toString(),
     };

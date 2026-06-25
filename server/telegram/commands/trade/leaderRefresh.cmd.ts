@@ -22,6 +22,7 @@ function formatRankingProbe(probe: LeaderRankingProbe, vtsOnly: boolean): string
   const label: Record<string, string> = {
     'market-cap': '시총',
     'institutional-net-buy': '기관',
+    'foreign-net-buy': '외국인',
     'volume': '거래량',
   };
   const rowLines = probe.rows.map((r) => {

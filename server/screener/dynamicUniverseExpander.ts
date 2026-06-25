@@ -455,6 +455,18 @@ interface RankingSpec {
 }
 
 /**
+ * FOREIGN_NET_BUY 소스의 랭킹 spec 을 endpoint-fix flag 에 맞춰 돌려준다.
+ *   ON  : 정본 'foreign-net-buy'(실 외국인 순매수 상위, value>0 양수 필터) — 진짜 외인 수급.
+ *   OFF : 구 'volume' 대용(거래량 상위 ≈ 수급 유입 근사, 필터 없음) — byte-identical 롤백.
+ * expandOnEmpty·runLeaderUniverseDailyRefresh 가 단일 지점으로 공유한다.
+ */
+function foreignNetBuySpec(): RankingSpec {
+  return isLeaderRankingEndpointFixEnabled()
+    ? { key: 'foreign-net-buy', source: 'FOREIGN_NET_BUY', filter: e => e.value > 0 }
+    : { key: 'volume', source: 'FOREIGN_NET_BUY' };
+}
+
+/**
  * 랭킹 발굴 → 정적/기존 동적 dedup 병합 공통 루프 (expandOnEmpty·일일 갱신 공유).
  *
  * - specs 순서대로 getShadowSafeRanking 을 allSettled 병렬 수집(부분 실패 흡수 → 빈 배열).
@@ -559,14 +571,14 @@ async function collectRankingDynamicStocks(
  */
 export async function expandOnEmpty(ttlDays = 3): Promise<number> {
   // 5개 랭킹 → 기존 DynamicStock.source 카테고리로 매핑.
-  //   volume               → FOREIGN_NET_BUY (거래량 상위 = 수급 유입 근사)
+  //   FOREIGN_NET_BUY      → foreignNetBuySpec() (ADR-0652 후속: ON=실 외인 순매수 / OFF=volume 대용)
   //   fluctuation          → MID_RISER      (등락률 +3~+7% 필터)
   //   market-cap           → MARKET_CAP
   //   institutional-net-buy → INST_NET_BUY  (기관 순매수 양수만)
   //   large-volume         → LARGE_VOLUME   (대량거래 상위)
   const { dynamicStocks, counts, newCount } = await collectRankingDynamicStocks(
     [
-      { key: 'volume', source: 'FOREIGN_NET_BUY' },
+      foreignNetBuySpec(),
       { key: 'fluctuation', source: 'MID_RISER', filter: e => e.changePercent >= 3 && e.changePercent <= 7 },
       { key: 'market-cap', source: 'MARKET_CAP' },
       { key: 'institutional-net-buy', source: 'INST_NET_BUY', filter: e => e.value > 0 },
@@ -575,12 +587,12 @@ export async function expandOnEmpty(ttlDays = 3): Promise<number> {
     ttlDays,
     false, // refreshExisting=false — 기존 dedup skip 동작 보존
   );
-  const [vol, flc, mc, inst, lrgVol] = counts;
+  const [frgn, flc, mc, inst, lrgVol] = counts;
 
   saveDynamicUniverse(dynamicStocks);
   console.log(
     `[DynamicExpander] expandOnEmpty 완료 — 신규 ${newCount}개 (TTL ${ttlDays}일), ` +
-    `전체 동적 ${dynamicStocks.length}개 (vol ${vol}·flc ${flc}·mc ${mc}` +
+    `전체 동적 ${dynamicStocks.length}개 (frgn ${frgn}·flc ${flc}·mc ${mc}` +
     `·inst ${inst}·lrgVol ${lrgVol})`,
   );
   return newCount;
@@ -594,7 +606,8 @@ export async function expandOnEmpty(ttlDays = 3): Promise<number> {
  * expandOnEmpty 의 랭킹 발굴 경로를 LEADER 매핑분만 재사용(공통 헬퍼):
  *   - market-cap            → MARKET_CAP
  *   - institutional-net-buy → INST_NET_BUY (value>0 필터)
- *   - volume                → FOREIGN_NET_BUY (외인 전용 TR 부재 — expandOnEmpty 근사 매핑 재사용)
+ *   - foreignNetBuySpec()   → FOREIGN_NET_BUY (ADR-0652 후속: endpoint-fix ON=실 외인 순매수 양수 /
+ *                              OFF=volume 대용 byte-identical, expandOnEmpty 와 단일 헬퍼 공유)
  * fluctuation/large-volume/short-balance 키는 호출하지 않음(MID_RISER/LARGE_VOLUME/SHORT_HEAVY 주간 유지).
  *
  * - 단축 TTL = LEADER_REFRESH_TTL_DAYS(3일, per-entry expiresAt) — stale leader 자동 만료.
@@ -610,18 +623,18 @@ export async function runLeaderUniverseDailyRefresh(): Promise<number> {
       [
         { key: 'market-cap', source: 'MARKET_CAP' },
         { key: 'institutional-net-buy', source: 'INST_NET_BUY', filter: e => e.value > 0 },
-        { key: 'volume', source: 'FOREIGN_NET_BUY' },
+        foreignNetBuySpec(),
       ],
       LEADER_REFRESH_TTL_DAYS,
       true, // refreshExisting=true — 신선도 목적 upsert(연장) + source 재기입
     );
-    const [mc, inst, vol] = counts;
+    const [mc, inst, frgn] = counts;
 
     saveDynamicUniverse(dynamicStocks);
     console.log(
       `[DynamicExpander] 주도주 일일 갱신 완료 — 신규 ${newCount}개·연장 ${refreshedCount}개 ` +
       `(TTL ${LEADER_REFRESH_TTL_DAYS}일), 전체 동적 ${dynamicStocks.length}개 ` +
-      `(mc ${mc}·inst ${inst}·vol ${vol})`,
+      `(mc ${mc}·inst ${inst}·frgn ${frgn})`,
     );
     return newCount + refreshedCount;
   } catch (e) {

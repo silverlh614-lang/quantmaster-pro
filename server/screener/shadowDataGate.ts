@@ -101,6 +101,7 @@ async function yahooFallbackRanking(
       break;
     case 'volume':
     case 'institutional-net-buy':
+    case 'foreign-net-buy':
     case 'short-balance':
       sorter = (a, b) => b.volume - a.volume;
       break;

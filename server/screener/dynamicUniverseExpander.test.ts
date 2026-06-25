@@ -54,11 +54,20 @@ const ORIGINAL_DYNAMIC_CONTENT = ORIGINAL_DYNAMIC_EXISTED
   : null;
 
 describe('expandOnEmpty — KIS 실패 시 정적 유니버스 폴백', () => {
+  const originalEndpointFlag = process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED;
+
   beforeEach(() => {
     // 매 케이스 시작 시 dynamic-universe.json을 제거해 상태 격리.
     if (fs.existsSync(DYNAMIC_FILE)) fs.unlinkSync(DYNAMIC_FILE);
     // 기본 impl 재설정 — 빈 배열 반환이 실패 시뮬레이션의 기본.
     vi.mocked(getRanking).mockReset().mockImplementation(async () => []);
+    // 기본 default ON(미설정) — FOREIGN 소스는 foreign-net-buy 정본.
+    delete process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED;
+  });
+
+  afterAll(() => {
+    if (originalEndpointFlag === undefined) delete process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED;
+    else process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED = originalEndpointFlag;
   });
 
   afterAll(() => {
@@ -74,17 +83,31 @@ describe('expandOnEmpty — KIS 실패 시 정적 유니버스 폴백', () => {
     } catch { /* 무시 */ }
   });
 
-  it('모든 랭킹 TR이 빈 배열을 반환하면 expandOnEmpty는 0을 돌려주고 throw 하지 않는다', async () => {
+  it('endpoint-fix ON(default): FOREIGN 소스가 foreign-net-buy 정본으로 호출된다', async () => {
     const count = await expandOnEmpty();
     expect(count).toBe(0);
 
-    // 아이디어 5: 기존 3종(volume/fluctuation/market-cap) + 신규 2종
-    // (institutional-net-buy/large-volume)가 병렬 호출된다.
+    // ADR-0652 후속: FOREIGN_NET_BUY = foreign-net-buy(실 외인) + 4종.
+    const called = vi.mocked(getRanking).mock.calls.map(c => c[0]);
+    expect(called).toEqual(expect.arrayContaining([
+      'foreign-net-buy', 'fluctuation', 'market-cap',
+      'institutional-net-buy', 'large-volume',
+    ]));
+    expect(called).not.toContain('volume'); // ON 시 volume 대용 미사용
+    expect(called.length).toBe(5);
+  });
+
+  it('endpoint-fix OFF(=false): FOREIGN 소스가 volume 대용으로 byte-identical 롤백', async () => {
+    process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED = 'false';
+    const count = await expandOnEmpty();
+    expect(count).toBe(0);
+
     const called = vi.mocked(getRanking).mock.calls.map(c => c[0]);
     expect(called).toEqual(expect.arrayContaining([
       'volume', 'fluctuation', 'market-cap',
       'institutional-net-buy', 'large-volume',
     ]));
+    expect(called).not.toContain('foreign-net-buy'); // OFF 시 정본 type 미호출
     expect(called.length).toBe(5);
   });
 
@@ -117,7 +140,9 @@ describe('expandOnEmpty — KIS 실패 시 정적 유니버스 폴백', () => {
 
   it('정상 랭킹 응답이 있으면 정적 유니버스에 없는 신규 종목을 추가한다', async () => {
     vi.mocked(getRanking).mockImplementation(async (type) => {
-      if (type === 'volume') {
+      // ADR-0652 후속 — default ON 이므로 FOREIGN 소스는 foreign-net-buy 정본.
+      //   value>0 양수 필터를 통과하도록 양수 외인 순매수로 응답.
+      if (type === 'foreign-net-buy') {
         return [
           { code: '999001', name: '가상종목A', rank: 1, value: 1000000, changePercent: 3.5, market: 'KOSPI' },
         ];
