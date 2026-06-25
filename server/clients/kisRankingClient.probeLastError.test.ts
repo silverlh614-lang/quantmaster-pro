@@ -81,9 +81,14 @@ describe('realDataNoiseStore — 진단 last-error 레코더 (passive)', () => {
 
 describe('probeLeaderRanking — last-error stamp 반영', () => {
   const originalForceMarket = process.env.DATA_FETCH_FORCE_MARKET;
+  const originalEndpointFlag = process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED;
 
   beforeEach(() => {
     process.env.DATA_FETCH_FORCE_MARKET = 'true';
+    // ADR-0652 — 본 describe 는 legacy apiPath(`/ranking/volume`·`/ranking/investor`)에
+    //   stamp 한 diag 를 probe 가 read 하는지 검증하므로 endpoint-fix 를 OFF(=false) 로 고정.
+    //   endpoint-fix ON 의 probe diag 경로(resolved path)는 별도 ADR-0652 테스트에서 검증.
+    process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED = 'false';
     resetRankingCache();
     mockedKisGet.mockReset();
     __resetKisRealDataNoiseStoreForTests();
@@ -92,6 +97,8 @@ describe('probeLeaderRanking — last-error stamp 반영', () => {
   afterEach(() => {
     if (originalForceMarket === undefined) delete process.env.DATA_FETCH_FORCE_MARKET;
     else process.env.DATA_FETCH_FORCE_MARKET = originalForceMarket;
+    if (originalEndpointFlag === undefined) delete process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED;
+    else process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED = originalEndpointFlag;
     __resetKisRealDataNoiseStoreForTests();
     vi.restoreAllMocks();
   });

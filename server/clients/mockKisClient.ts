@@ -133,8 +133,12 @@ function generateMockRankingResponse(trId: string): unknown {
   const items = mockCodes.map((code) => {
     const price = generateMockPrice(code);
     const name = generateMockName(code);
+    const flow = generateMockInvestorFlow(code);
     return {
       stck_shrn_iscd: code,
+      // ADR-0652: foreign-institution-total(FHPTJ04400000) 응답은 종목코드를 mksc_shrn_iscd 로
+      //   내려준다 — mapRow 의 방어적 ?? 체인(mksc_shrn_iscd ?? stck_shrn_iscd)이 둘 다 흡수.
+      mksc_shrn_iscd: code,
       hts_kor_isnm: name,
       stck_prpr: price.toString(),
       prdy_vrss: Math.round(price * 0.02).toString(),
@@ -142,6 +146,9 @@ function generateMockRankingResponse(trId: string): unknown {
       prdy_ctrt: '2.00',
       acml_vol: (100000 + seedFromCode(code) % 900000).toString(),
       acml_tr_pbmn: (price * 100000).toString(),
+      // ADR-0652: 기관/외국인 순매수 mock 필드 — FHPTJ04400000 mapRow 가 orgn_ntby_qty 를 읽는다.
+      orgn_ntby_qty: flow.institutionalNetBuy.toString(),
+      frgn_ntby_qty: flow.foreignNetBuy.toString(),
     };
   });
 
@@ -230,8 +237,13 @@ export function createMockKisOverrides(): KisClientOverrides {
         };
       }
 
-      // 순위 TR (거래량/상승률/신고가/외국인)
-      if (['FHPST01710000', 'FHPST01700000', 'FHPST01760000', 'FHPST01600000'].includes(trId)) {
+      // 순위 TR (거래량/상승률/신고가/외국인/시총/기관)
+      //   ADR-0652: market-cap(FHPST01740000)·기관 foreign-institution-total(FHPTJ04400000) 추가 —
+      //   endpoint-fix flag ON 시 정정된 trId 로도 mock 랭킹 응답이 내려가도록 allowlist 확장.
+      if ([
+        'FHPST01710000', 'FHPST01700000', 'FHPST01760000', 'FHPST01600000',
+        'FHPST01740000', 'FHPTJ04400000',
+      ].includes(trId)) {
         return generateMockRankingResponse(trId);
       }
 

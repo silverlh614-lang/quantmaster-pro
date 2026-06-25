@@ -377,14 +377,17 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     nameKo: '거래량 순위 조회',
     category: 'ranking',
     method: 'GET',
-    path: '/uapi/domestic-stock/v1/ranking/volume',
+    // ADR-0652: KIS 공식 거래량 순위 path 는 /quotations/volume-rank (tr_id FHPST01710000).
+    //   구 /ranking/volume 은 KIS 미존재 → bare 404. 검증 출처: koreainvestment/open-trading-api.
+    path: '/uapi/domestic-stock/v1/quotations/volume-rank',
+    trId: 'FHPST01710000',
     requiredParams: [],
     outputBuckets: ['output', 'output1', 'output2'],
     confidenceClass: 'VERIFIED_INTRADAY',
     defaultUseScope: 'ADVISORY',
     executionImpact: 'NONE',
     providerIssueMeansMarketSignal: false,
-    notes: 'Volume ranking endpoint used for candidate discovery. Ranking data must not be treated as direct buy signal.',
+    notes: 'ADR-0652: corrected path /quotations/volume-rank (was /ranking/volume → 404). Ranking data must not be treated as direct buy signal.',
   },
   rankingFluctuation: {
     key: 'rankingFluctuation',
@@ -406,27 +409,34 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'ranking',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/ranking/market-cap',
+    // ADR-0652: KIS 공식 시총 순위 tr_id 는 FHPST01740000 (scr_div_code 20174).
+    //   구 FHPST01720000/20172 는 KIS 미존재 → bare 404. path 는 정상.
+    trId: 'FHPST01740000',
     requiredParams: [],
     outputBuckets: ['output', 'output1', 'output2'],
     confidenceClass: 'VERIFIED_DAILY',
     defaultUseScope: 'ADVISORY',
     executionImpact: 'NONE',
     providerIssueMeansMarketSignal: false,
-    notes: 'Market cap ranking endpoint used for universe filtering.',
+    notes: 'ADR-0652: corrected tr_id FHPST01740000 + scr_div_code 20174 (was FHPST01720000/20172 → 404). Used for universe filtering.',
   },
   rankingInvestor: {
     key: 'rankingInvestor',
     nameKo: '투자자 순위 조회',
     category: 'ranking_supply',
     method: 'GET',
+    // ADR-0652: KIS 에 /ranking/investor 는 존재하지 않음 → bare 404. 권위 경로는
+    //   /quotations/foreign-institution-total (tr_id FHPTJ04400000, foreignInstitutionTotal 엔트리).
+    //   본 path 는 by-path 충돌 회피 위해 레거시값 유지(런타임은 resolveRankingEndpoint 가 정정).
     path: '/uapi/domestic-stock/v1/ranking/investor',
+    trId: 'FHPTJ04400000',
     requiredParams: [],
     outputBuckets: ['output', 'output1', 'output2'],
     confidenceClass: 'VERIFIED_INTRADAY',
     defaultUseScope: 'ADVISORY',
     executionImpact: 'NONE',
     providerIssueMeansMarketSignal: false,
-    notes: 'Investor ranking endpoint. Must be normalized before use in supply scoring.',
+    notes: 'ADR-0652: legacy /ranking/investor → 404. Authoritative endpoint = /quotations/foreign-institution-total (FHPTJ04400000). Migration gated by isLeaderRankingEndpointFixEnabled.',
   },
   inquirePsblRvsecncl: {
     key: 'inquirePsblRvsecncl',

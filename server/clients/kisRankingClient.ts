@@ -3,12 +3,15 @@
  * kisRankingClient.ts — KIS 순위 기반 TR 단일 책임 클라이언트 (Phase A + 아이디어 5)
  *
  * 단일 책임: "순위 → 종목" 방향의 KIS 랭킹 TR 6종을 관리한다.
- *   - volume:              FHPST01710000 (거래량 상위)
+ *   - volume:              FHPST01710000 (거래량 상위, ADR-0652: path /quotations/volume-rank)
  *   - fluctuation:         FHPST01700000 (등락률 상위)
- *   - market-cap:          FHPST01720000 (시가총액 상위)
- *   - institutional-net-buy: FHPST01600000 (기관 순매수 상위)
+ *   - market-cap:          FHPST01740000 (시가총액 상위, ADR-0652: trId/scr 정정)
+ *   - institutional-net-buy: FHPTJ04400000 (기관 순매수, ADR-0652: foreign-institution-total)
  *   - short-balance:       FHPST04020000 (공매도 잔고 상위)
  *   - large-volume:        FHPST01710000 (대량거래 — 거래량 TR, vol_cnt 상향)
+ *
+ * ADR-0652: 위 정정값은 isLeaderRankingEndpointFixEnabled() (default ON kill-switch) 하에서만
+ *   적용된다. `LEADER_RANKING_ENDPOINT_FIX_ENABLED=false` 시 구(broken) 문자열로 byte-identical 롤백.
  *
  * 기존 kisClient.ts의 토큰·헤더 로직은 realDataKisGet 재사용으로 그대로 가져온다.
  * kisClient를 2,000줄짜리 비대 파일로 만들지 않기 위한 분리 — 항후 flow/ws 클라이언트도
@@ -37,7 +40,10 @@ import {
   type KisRealDataErrorKind,
 } from './kisClient/realDataNoiseStore.js';
 import { isMarketOpen } from '../utils/marketClock.js';
-import { isLeaderRankingParamFixEnabled } from '../trading/gateConfig.js';
+import {
+  isLeaderRankingParamFixEnabled,
+  isLeaderRankingEndpointFixEnabled,
+} from '../trading/gateConfig.js';
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -93,6 +99,49 @@ interface TrSpec {
   params: (mrktDiv: 'J' | 'Q') => Record<string, string>;
   /** 응답 row → RankingEntry 매핑. null 반환 시 건너뜀. */
   mapRow: (row: Record<string, string>, rank: number, market: 'KOSPI' | 'KOSDAQ') => RankingEntry | null;
+}
+
+// ── ADR-0652 endpoint 정정 resolver (flag 게이트 단일 지점) ──────────────────
+//   KIS 공식 GitHub 1:1 검증 결과 정정된 path/trId/scr 을 isLeaderRankingEndpointFixEnabled()
+//   하에서만 적용. OFF(`=false`) 시 구(broken) 문자열로 byte-identical. caller inline ENV 금지.
+
+export interface RankingEndpointOverride {
+  trId: string;
+  apiPath: string;
+  /** scr_div 정정이 필요한 TR(market-cap)만 채움. undefined = 기존 scr 유지. */
+  scrDivOverride?: string;
+}
+
+/**
+ * type(+ market div)에 대해 endpoint-fix flag 하의 권위 endpoint 를 돌려준다.
+ * 정정 대상이 아닌 type(fluctuation/short-balance) 은 spec 원본을 그대로 반환한다.
+ */
+export function resolveRankingEndpoint(
+  type: RankingType,
+  _mrktDiv: 'J' | 'Q',
+): RankingEndpointOverride {
+  const base = TR_SPECS[type];
+  const fixOn = isLeaderRankingEndpointFixEnabled();
+  if (!fixOn) {
+    return { trId: base.trId, apiPath: base.apiPath };
+  }
+  switch (type) {
+    case 'volume':
+    case 'large-volume':
+      // FIX = PATH ONLY. tr_id FHPST01710000 unchanged, scr 20171 unchanged.
+      return { trId: base.trId, apiPath: '/uapi/domestic-stock/v1/quotations/volume-rank' };
+    case 'market-cap':
+      // FIX = tr_id + scr. path /ranking/market-cap unchanged.
+      return { trId: 'FHPST01740000', apiPath: base.apiPath, scrDivOverride: '20174' };
+    case 'institutional-net-buy':
+      // FIX = full migration. path + trId (+ params/mapRow handled inline in spec).
+      return {
+        trId: 'FHPTJ04400000',
+        apiPath: '/uapi/domestic-stock/v1/quotations/foreign-institution-total',
+      };
+    default:
+      return { trId: base.trId, apiPath: base.apiPath };
+  }
 }
 
 const TR_SPECS: Record<RankingType, TrSpec> = {
@@ -185,19 +234,28 @@ const TR_SPECS: Record<RankingType, TrSpec> = {
       };
     },
   },
-  // 기관 순매수 상위 — googleSearch "지금 뜨는 종목" 질문을 완전 대체.
-  // tr_id/scr_div_code는 stockScreener 및 mockKisClient와 동일한 FHPST01600000/20160 사용.
-  // 과거 FHPST01620000/20162 는 KIS에 존재하지 않아 404를 유발함.
+  // 기관 순매수 상위.
+  //   trId/apiPath 는 ADR-0652 endpoint-fix flag 하에서 resolveRankingEndpoint 가
+  //   FHPTJ04400000 + /quotations/foreign-institution-total 로 정정한다(아래는 OFF 기준 구값).
   'institutional-net-buy': {
     trId: 'FHPST01600000',
     apiPath: '/uapi/domestic-stock/v1/ranking/investor',
-    // ADR-0651 W2 — flag(LEADER_RANKING_PARAM_FIX_ENABLED) 게이트.
-    //   OFF(default): 기존 미검증 기관 sort='2'·cnt_1='30'·vol_cnt='10000' param byte-identical.
-    //   ON: stockScreener 가 검증한 외국인 sort='1'·cnt_1='40'·vol_cnt='50000' working param 으로
-    //       정합하되, mapRow 는 동일 TR 응답이 함께 내려주는 orgn_ntby_qty(기관)를 그대로 읽어
-    //       기관 leader 를 파생한다(두 번째 랭킹 공식 신설 0·추가 KIS 호출 0·ADR-0477 단일통로).
-    params: (mrktDiv) => (
-      isLeaderRankingParamFixEnabled()
+    // ADR-0652 — endpoint-fix ON 시: foreign-institution-total 권위 param 사용
+    //   (fid_cond_mrkt_div_code:'V' 고정, fid_input_iscd 는 div J→'0001'/Q→'1001',
+    //    fid_etc_cls_code:'2'=기관). 이 분기는 ADR-0651 W2 sort param 분기를 supersede 한다.
+    // OFF(endpoint-fix=false) 시: 기존 ADR-0651 W2 (param-fix flag) 분기 그대로 — byte-identical.
+    params: (mrktDiv): Record<string, string> => {
+      if (isLeaderRankingEndpointFixEnabled()) {
+        return {
+          fid_cond_mrkt_div_code: 'V',                        // foreign-institution-total 고정
+          fid_cond_scr_div_code:  '16449',
+          fid_input_iscd:         mrktDiv === 'Q' ? '1001' : '0001',  // 0001=KOSPI / 1001=KOSDAQ
+          fid_div_cls_code:       '0',                        // 0=수량정렬
+          fid_rank_sort_cls_code: '0',                        // 0=순매수
+          fid_etc_cls_code:       '2',                        // 2=기관
+        };
+      }
+      return isLeaderRankingParamFixEnabled()
         ? {
           fid_cond_mrkt_div_code: mrktDiv,
           fid_cond_scr_div_code:  '20160',
@@ -225,13 +283,17 @@ const TR_SPECS: Record<RankingType, TrSpec> = {
           fid_vol_cnt:            '10000',
           fid_input_price_1:      '3000',
           fid_input_price_2:      '500000',
-        }
-    ),
+        };
+    },
+    // ADR-0652 — foreign-institution-total 출력 필드명은 KIS docs 미확정.
+    //   방어적 ?? 체인: code 없으면 null(graceful). 구 investor TR 응답과도 호환.
     mapRow: (row, rank, market) => {
       const code = (row.mksc_shrn_iscd ?? row.stck_shrn_iscd ?? '').trim();
       if (!code || code.length !== 6) return null;
-      // KIS 투자자 순매수 TR은 orgn_ntby_qty/frgn_ntby_qty를 모두 내려준다.
-      const instNet = parseInt(row.orgn_ntby_qty ?? row.ntby_qty ?? '0', 10);
+      const instNet = parseInt(
+        row.orgn_ntby_qty ?? row.orgn_ntby_tr_pbmn ?? row.ntby_qty ?? '0',
+        10,
+      );
       return {
         code,
         name:          (row.hts_kor_isnm ?? '').trim(),
@@ -357,14 +419,21 @@ export async function getRanking(
   await Promise.all(
     markets.map(async ({ div, label }) => {
       try {
+        // ADR-0652 — endpoint-fix flag 하의 권위 trId/apiPath/scr 해석 (단일 지점 resolver).
+        //   OFF 시 spec 원본과 byte-identical.
+        const ep = resolveRankingEndpoint(type, div);
+        const params = spec.params(div);
+        if (ep.scrDivOverride) {
+          params.fid_cond_scr_div_code = ep.scrDivOverride;
+        }
         // ADR-0651 W3 — circuit 키 격리. leader/발굴 랭킹 경로(본 getRanking 단일 진입)는
         //   `${trId}#LEADER` namespaced circuit 키로 fetch 해, leader 404 가 동일 trId 를
         //   직접 쓰는 screener(stockScreener.ts realDataKisGet, __circuitKey 미지정 → 원본 trId)
-        //   circuit 을 trip/blackhole 하지 않게 한다. wire `tr_id` 헤더는 spec.trId 원본 유지.
+        //   circuit 을 trip/blackhole 하지 않게 한다. wire `tr_id` 헤더는 resolved trId 사용.
         //   probe·cron 양 경로 일관 격리. screener circuit byte-equivalent.
-        const resp = await realDataKisGet(spec.trId, spec.apiPath, {
-          ...spec.params(div),
-          __circuitKey: `${spec.trId}#LEADER`,
+        const resp = await realDataKisGet(ep.trId, ep.apiPath, {
+          ...params,
+          __circuitKey: `${ep.trId}#LEADER`,
         });
         const output = (resp as { output?: Record<string, string>[] } | null)?.output;
         if (!output || !Array.isArray(output)) return;
@@ -452,7 +521,10 @@ export async function probeLeaderRanking(): Promise<LeaderRankingProbe> {
   const rows: LeaderRankingProbeRow[] = [];
   for (const type of LEADER_RANKING_TYPES) {
     const spec = TR_SPECS[type];
-    const trId = spec.trId;
+    // ADR-0652 — probe 도 resolved endpoint(정정된 trId/apiPath)로 circuit·diag 를 읽어
+    //   getRanking 의 실제 fetch 키와 정합한다(OFF 시 spec 원본과 동일).
+    const ep = resolveRankingEndpoint(type, 'J');
+    const trId = ep.trId;
     let count = 0;
     try {
       count = (await getRanking(type, { bypassCache: true, limit: 30 })).length;
@@ -463,7 +535,7 @@ export async function probeLeaderRanking(): Promise<LeaderRankingProbe> {
     // Patch-LEADER-PROBE-LASTERR-DIAG — getRanking 호출 직후 endpoint(apiPath) 의
     //   passive last-error stamp 를 read. http.ts 가 비-chart 실패 시 status 를 보존.
     //   성공 시 stamp 가 해제되므로 정상 응답이면 자연히 undefined.
-    const diag = getRealDataLastErrorForDiag(spec.apiPath);
+    const diag = getRealDataLastErrorForDiag(ep.apiPath);
     rows.push({
       type,
       trId,

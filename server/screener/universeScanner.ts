@@ -62,6 +62,9 @@ import {
   hasKisClientOverrides,
 } from "../clients/kisClient.js";
 import { resolveDartFinancialsForEvaluation } from "../trading/gate2/gate2DartCanonicalSlot.js";
+// ADR-0652 — 랭킹 endpoint 정정(volume path) flag SSOT.
+//   default ON kill-switch; OFF(`=false`) 시 구(broken) 문자열로 byte-identical 롤백.
+import { isLeaderRankingEndpointFixEnabled } from "../trading/gateConfig.js";
 import type { Gate2ExternalCoverageInput } from "../quant/gate2Diagnostics/types.js";
 import { recordDartAttempt } from "./dataCompletenessTracker.js";
 import {
@@ -305,10 +308,14 @@ export async function stage1QuantFilter(): Promise<CandidateStock[]> {
       process.env.KIS_APP_KEY ||
       hasMockOverride)
   ) {
+    // ADR-0652: volume FIX = PATH ONLY (/ranking/volume → /quotations/volume-rank).
+    const volPath = isLeaderRankingEndpointFixEnabled()
+      ? "/uapi/domestic-stock/v1/quotations/volume-rank"
+      : "/uapi/domestic-stock/v1/ranking/volume";
     const [volResult, riseResult] = await Promise.allSettled([
       realDataKisGet(
         "FHPST01710000",
-        "/uapi/domestic-stock/v1/ranking/volume",
+        volPath,
         {
           fid_cond_mrkt_div_code: "J",
           fid_cond_scr_div_code: "20171",
