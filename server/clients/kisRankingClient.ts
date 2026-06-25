@@ -7,6 +7,7 @@
  *   - fluctuation:         FHPST01700000 (등락률 상위)
  *   - market-cap:          FHPST01740000 (시가총액 상위, ADR-0652: trId/scr 정정)
  *   - institutional-net-buy: FHPTJ04400000 (기관 순매수, ADR-0652: foreign-institution-total)
+ *   - foreign-net-buy:     FHPTJ04400000 (외국인 순매수, ADR-0652 후속: foreign-institution-total etc_cls=1)
  *   - short-balance:       FHPST04020000 (공매도 잔고 상위)
  *   - large-volume:        FHPST01710000 (대량거래 — 거래량 TR, vol_cnt 상향)
  *
@@ -52,6 +53,7 @@ export type RankingType =
   | 'fluctuation'
   | 'market-cap'
   | 'institutional-net-buy'
+  | 'foreign-net-buy'
   | 'short-balance'
   | 'large-volume';
 
@@ -134,7 +136,10 @@ export function resolveRankingEndpoint(
       // FIX = tr_id + scr. path /ranking/market-cap unchanged.
       return { trId: 'FHPST01740000', apiPath: base.apiPath, scrDivOverride: '20174' };
     case 'institutional-net-buy':
+    case 'foreign-net-buy':
       // FIX = full migration. path + trId (+ params/mapRow handled inline in spec).
+      //   foreign-net-buy 는 institutional 과 동일 foreign-institution-total TR 을 쓰되
+      //   spec params 의 fid_etc_cls_code 만 1(외국인)/2(기관) 로 분기한다.
       return {
         trId: 'FHPTJ04400000',
         apiPath: '/uapi/domestic-stock/v1/quotations/foreign-institution-total',
@@ -299,6 +304,63 @@ const TR_SPECS: Record<RankingType, TrSpec> = {
         name:          (row.hts_kor_isnm ?? '').trim(),
         rank,
         value:         instNet,
+        changePercent: parseFloat(row.prdy_ctrt ?? '0'),
+        market,
+      };
+    },
+  },
+  // 외국인 순매수 상위 (ADR-0652 후속).
+  //   trId/apiPath 는 endpoint-fix flag 하에서 resolveRankingEndpoint 가
+  //   institutional-net-buy 와 동일하게 FHPTJ04400000 + /quotations/foreign-institution-total 로
+  //   정정한다. institutional 과 유일한 차이는 fid_etc_cls_code:'1'(외국인) + mapRow value=frgn_ntby_qty.
+  //   이 type 은 정본(endpoint-fix ON) 전용 — OFF 시 expander 가 호출하지 않으며(구 volume 대용 유지),
+  //   getRanking 직접 호출 시에도 graceful 하게 구 investor TR(외국인 sort)로 byte-identical 동작.
+  'foreign-net-buy': {
+    trId: 'FHPST01600000',
+    apiPath: '/uapi/domestic-stock/v1/ranking/investor',
+    // ADR-0652 후속 — endpoint-fix ON 시: foreign-institution-total 권위 param (외국인).
+    //   institutional spec 미러링 + fid_etc_cls_code:'1'(외국인).
+    // OFF 시: 기존 investor TR 외국인 sort(rank_sort_cls_code:'1') — graceful byte-identical.
+    params: (mrktDiv): Record<string, string> => {
+      if (isLeaderRankingEndpointFixEnabled()) {
+        return {
+          fid_cond_mrkt_div_code: 'V',                        // foreign-institution-total 고정
+          fid_cond_scr_div_code:  '16449',
+          fid_input_iscd:         mrktDiv === 'Q' ? '1001' : '0001',  // 0001=KOSPI / 1001=KOSDAQ
+          fid_div_cls_code:       '0',                        // 0=수량정렬
+          fid_rank_sort_cls_code: '0',                        // 0=순매수
+          fid_etc_cls_code:       '1',                        // 1=외국인
+        };
+      }
+      return {
+        fid_cond_mrkt_div_code: mrktDiv,
+        fid_cond_scr_div_code:  '20160',
+        fid_input_iscd:         '0000',
+        fid_inqr_dvsn_cls_code: '0',       // 0=순매수
+        fid_div_cls_code:       '0',
+        fid_rank_sort_cls_code: '1',       // 1=외국인
+        fid_input_cnt_1:        '30',
+        fid_trgt_cls_code:      '111111111',
+        fid_trgt_exls_cls_code: '000000',
+        fid_vol_cnt:            '10000',
+        fid_input_price_1:      '3000',
+        fid_input_price_2:      '500000',
+      };
+    },
+    // ADR-0652 후속 — 정본 confirm 필드: value=frgn_ntby_qty(외국인 순매수 수량).
+    //   방어적 ?? 체인(거래대금→ntby_qty fallback). code 없으면 null(graceful).
+    mapRow: (row, rank, market) => {
+      const code = (row.mksc_shrn_iscd ?? row.stck_shrn_iscd ?? '').trim();
+      if (!code || code.length !== 6) return null;
+      const frgnNet = parseInt(
+        row.frgn_ntby_qty ?? row.frgn_ntby_tr_pbmn ?? row.ntby_qty ?? '0',
+        10,
+      );
+      return {
+        code,
+        name:          (row.hts_kor_isnm ?? '').trim(),
+        rank,
+        value:         frgnNet,
         changePercent: parseFloat(row.prdy_ctrt ?? '0'),
         market,
       };
@@ -474,12 +536,26 @@ export function getRankingCacheSnapshot(): Array<{ key: string; size: number; tt
 //   bypassCache=true 강제로 5분 캐시·ADR-0009 장외 스킵을 우회해 real-data 경로의
 //   실응답 수를 직접 측정한다. 매매 결정 직접 사용 0 — 발굴 캐시 갱신 side effect 만.
 
-/** /leader_refresh 가 fetch 하는 LEADER_SOURCES 3종 랭킹 키 (dynamicUniverseExpander 와 정합). */
+/**
+ * /leader_refresh 가 fetch 하는 LEADER_SOURCES 3종 랭킹 키 (dynamicUniverseExpander 와 정합).
+ * endpoint-fix OFF 기준 정적 목록 — FOREIGN 소스가 volume 대용인 구 동작. (back-compat export)
+ */
 export const LEADER_RANKING_TYPES: readonly RankingType[] = [
   'market-cap',
   'institutional-net-buy',
   'volume',
 ] as const;
+
+/**
+ * endpoint-fix flag 에 맞춘 LEADER 랭킹 키 — probe 가 *실제 fetch 키*와 정합하도록.
+ *   ON  : FOREIGN 소스가 정본 'foreign-net-buy'(실 외국인 순매수) 로 발굴(dynamicUniverseExpander 정합).
+ *   OFF : FOREIGN 소스가 'volume' 대용(byte-identical 롤백).
+ * 관측 전용 — 매매 결정 직접 사용 0.
+ */
+export function resolveLeaderRankingTypes(): readonly RankingType[] {
+  const foreignKey: RankingType = isLeaderRankingEndpointFixEnabled() ? 'foreign-net-buy' : 'volume';
+  return ['market-cap', 'institutional-net-buy', foreignKey] as const;
+}
 
 export interface LeaderRankingProbeRow {
   type: RankingType;
@@ -519,7 +595,7 @@ export async function probeLeaderRanking(): Promise<LeaderRankingProbe> {
   const stats = getCircuitBreakerStats();
   const openByTr = new Map(stats.map((s) => [s.trId, s.openFor]));
   const rows: LeaderRankingProbeRow[] = [];
-  for (const type of LEADER_RANKING_TYPES) {
+  for (const type of resolveLeaderRankingTypes()) {
     const spec = TR_SPECS[type];
     // ADR-0652 — probe 도 resolved endpoint(정정된 trId/apiPath)로 circuit·diag 를 읽어
     //   getRanking 의 실제 fetch 키와 정합한다(OFF 시 spec 원본과 동일).

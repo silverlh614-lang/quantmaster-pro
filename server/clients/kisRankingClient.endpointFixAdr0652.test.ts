@@ -99,6 +99,43 @@ describe('ADR-0652 — 랭킹 endpoint 정정 (flag ON default)', () => {
     expect(pJ.fid_div_cls_code).toBe('0');
   });
 
+  it('foreign-net-buy: foreign-institution-total path + trId FHPTJ04400000 + V/etc_cls 1', async () => {
+    await getRanking('foreign-net-buy', { limit: 10 });
+    const callJ = [...mockedKisGet.mock.calls].find(
+      (c) => c[1] === FOREIGN_INST_PATH && (c[2] as Record<string, string>).fid_input_iscd === '0001',
+    );
+    const callQ = [...mockedKisGet.mock.calls].find(
+      (c) => c[1] === FOREIGN_INST_PATH && (c[2] as Record<string, string>).fid_input_iscd === '1001',
+    );
+    expect(callJ).toBeDefined();
+    expect(callQ).toBeDefined();
+    expect(callJ![0]).toBe('FHPTJ04400000');
+    const pJ = callJ![2] as Record<string, string>;
+    expect(pJ.fid_cond_mrkt_div_code).toBe('V');
+    expect(pJ.fid_cond_scr_div_code).toBe('16449');
+    expect(pJ.fid_etc_cls_code).toBe('1'); // 1=외국인 (institutional 의 '2' 와 유일한 차이)
+    expect(pJ.fid_rank_sort_cls_code).toBe('0');
+    expect(pJ.fid_div_cls_code).toBe('0');
+  });
+
+  it('foreign-net-buy 방어적 mapRow: frgn_ntby_qty 우선 + tr_pbmn fallback + missing code → null', async () => {
+    mockedKisGet.mockImplementation(async (_trId, path, params) => {
+      if (path !== FOREIGN_INST_PATH) return { output: [] };
+      const iscd = (params as Record<string, string>).fid_input_iscd;
+      return {
+        output: [
+          { mksc_shrn_iscd: iscd === '0001' ? '005930' : '293490', hts_kor_isnm: 'X', frgn_ntby_qty: '777000', prdy_ctrt: '1.0' },
+          { mksc_shrn_iscd: '000660', hts_kor_isnm: 'Y', frgn_ntby_tr_pbmn: '654321', prdy_ctrt: '0.5' },
+          { hts_kor_isnm: 'Z', frgn_ntby_qty: '999' }, // code 없음 → skip
+        ],
+      };
+    });
+    const rows = await getRanking('foreign-net-buy', { limit: 10 });
+    expect(rows.find((r) => r.code === '005930')?.value).toBe(777000);
+    expect(rows.find((r) => r.code === '000660')?.value).toBe(654321); // fallback 체인
+    expect(rows.every((r) => r.code.length === 6)).toBe(true);
+  });
+
   it('resolveRankingEndpoint(ON) 결과가 권위값과 일치', () => {
     expect(resolveRankingEndpoint('volume', 'J')).toMatchObject({
       trId: 'FHPST01710000', apiPath: VOLUME_RANK_PATH,
@@ -107,6 +144,9 @@ describe('ADR-0652 — 랭킹 endpoint 정정 (flag ON default)', () => {
       trId: 'FHPST01740000', apiPath: MARKET_CAP_PATH, scrDivOverride: '20174',
     });
     expect(resolveRankingEndpoint('institutional-net-buy', 'Q')).toMatchObject({
+      trId: 'FHPTJ04400000', apiPath: FOREIGN_INST_PATH,
+    });
+    expect(resolveRankingEndpoint('foreign-net-buy', 'Q')).toMatchObject({
       trId: 'FHPTJ04400000', apiPath: FOREIGN_INST_PATH,
     });
     // fluctuation 은 무접촉
@@ -180,11 +220,21 @@ describe('ADR-0652 — flag OFF(=false) 구 문자열 byte-identical', () => {
     expect(c.path).toBe(OLD_INVESTOR_PATH);
   });
 
+  it('foreign-net-buy(OFF): 구 /ranking/investor path + FHPST01600000 + 외국인 sort 유지(graceful)', async () => {
+    await getRanking('foreign-net-buy', { limit: 10 });
+    const c = lastCall((_t, p) => p === OLD_INVESTOR_PATH);
+    expect(c.trId).toBe('FHPST01600000');
+    expect(c.path).toBe(OLD_INVESTOR_PATH);
+    expect(c.params.fid_rank_sort_cls_code).toBe('1'); // 1=외국인
+  });
+
   it('resolveRankingEndpoint(OFF) 는 spec 원본 반환', () => {
     expect(resolveRankingEndpoint('volume', 'J').apiPath).toBe(OLD_VOLUME_PATH);
     expect(resolveRankingEndpoint('market-cap', 'J').trId).toBe('FHPST01720000');
     expect(resolveRankingEndpoint('market-cap', 'J').scrDivOverride).toBeUndefined();
     expect(resolveRankingEndpoint('institutional-net-buy', 'J').apiPath).toBe(OLD_INVESTOR_PATH);
     expect(resolveRankingEndpoint('institutional-net-buy', 'J').trId).toBe('FHPST01600000');
+    expect(resolveRankingEndpoint('foreign-net-buy', 'J').apiPath).toBe(OLD_INVESTOR_PATH);
+    expect(resolveRankingEndpoint('foreign-net-buy', 'J').trId).toBe('FHPST01600000');
   });
 });
