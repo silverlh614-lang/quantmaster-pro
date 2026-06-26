@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0655`**
+**다음 ADR 번호: `0656`**
+
+(2026-06-26 기준, 마지막 발급 0655 — **Gate2 Financial-Risk Penalty (FUNDAMENTAL_QUALITY score-cap)**. **Status: Accepted (타입·flag 계약 단계 — architect: ADR·INDEX 0655→0656·타입 SSOT(gate2FinancialRiskTypes.ts)·KisFinancials 필드 계약 확장·gateConfig SSOT flag·flag-lifecycle 1행·HANDOFF. buildFundamentalAxis score-cap 소비 본문·신규 순수 모듈·테스트는 engine-dev 인계.) 사용자 승인 스코프(점수 페널티·하드차단 아님).** Gate2 FUNDAMENTAL_QUALITY 축이 재무 위험종목(ICR<1 이자 미충당 / 부채비율>200% 과다)을 score-cap 으로 강등(WEAK 30 / CRITICAL 15, 위험 1건/2건)한다. **데이터 정밀화 정정:** 착수 가정("KIS stability-ratio 가 ICR·부채 둘 다 제공")은 KIS 공식 chk_*.py 1:1 검증으로 *부정확* — KIS finance ratio 엔드포인트는 이자비용(interestExpense)을 bsop_non_expn(영업외비용)에 묶어 노출해 *ICR 산출 불가*. debtRatio 만 KIS L1(stability-ratio lblt_rate)·ICR 은 DART 잔존(L2 interestExpense) 의존. 임계근거: ICR<1=영업이익으로 이자조차 미충당(좀비기업 국제 경계)·부채>200%=한국 시장 통념 과다(부채=자기자본 2배). 불변식 #6 보존: 재무 위험/결손=데이터 해석 ≠ bearish marketSignal — entryHardBlock=false(Gate2 pass 는 coverageAdjustedScore 로만 판정·본 축 가중 15점)·marketSignal=false·executionImpact=NONE·결손(ICR/부채 null) 시 페널티 미적용 graceful. 신규 ENV `GATE2_FINANCIAL_RISK_PENALTY_ENABLED === 'true'` default OFF(ADR-0157·SSOT isGate2FinancialRiskPenaltyEnabled() gateConfig.ts)·OFF=byte-identical(cap 미적용)·ON+위험0건=byte-identical(scoreCap=null)·flag-lifecycle 신규 1행 SHADOW_OFF. 입력=기존 Gate2ExternalProjection.stability.{icr,debtRatio}(ADR-0529 canonical merge) 재사용·신규 fetch 0. gate2ConfluenceScore.ts(1185줄·1500 근접) 비대화 방지 위해 별도 순수 모듈 gate2FinancialRiskPenaltyAdr0655.ts(engine-dev). requiredScore=70·ADR-0471 Gate1 곡선·ADR-0532 KIS primary 무접촉·현 engineMode=SHADOW_ONLY live 0. Patch Scope Guard(ADR-530): targetDomain gate2-fundamental-axis(1)·allowedFiles(gate2FinancialRiskTypes.ts 신규·gate2FinancialRiskPenaltyAdr0655.ts 신규[engine-dev]·gate2ConfluenceScore.ts buildFundamentalAxis cap seam[engine-dev]·kisFinanceClient.ts KisFinancials 필드 계약·gateConfig.ts SSOT flag·scripts/gate_flag_lifecycle.json 1행·.env.example flag 주석·본 ADR·INDEX 0655→0656·10-patch-history 1줄·HANDOFF)·forbiddenFiles(autoTradeEngine·buyPipeline·kisClient 주문·SourceSnapshot 생성기·Gate1 곡선/requiredScore=70 SSOT·다른 Gate2 축·src/**)·rollback ENV 미설정/`=false` 1줄. Alternatives: 하드차단/태그 기각(불변식 #6·다축 confluence 상쇄 여지)·KIS 로 ICR 산출(bsop_non_expn) 기각(이자 외 항목 혼입·부정확)·gate2ConfluenceScore.ts 인라인 기각(1500 근접)·부채 단일 trigger 기각(ICR=부도 직접 신호 직교 차원). 계보 0519/0529/0532/0641/0471/0157/0146/0530/0561. INDEX 0655 등재(다음 0655→0656 갱신). 코드 구현 engine-dev 인계 — architect 는 ADR·INDEX·타입계약·flag·HANDOFF 까지.)
 
 (2026-06-26 기준, 마지막 발급 0654 — **Order TR NXT Scheme default-ON flip**. **Status: Accepted (운영자 silverlh614 "기본값 default on·환경변수로 off" 승인).** ADR-0653 이 신스킴을 default OFF 로 도입했고, 본 ADR 이 default ON 승격. constants.ts flag 해석 `=== 'true'`(default OFF)→`!== 'false'`(default ON·미설정/임의값=신스킴·ADR-0157 거울)·본체 0줄. kill-switch `KIS_ORDER_TR_NXT_SCHEME_ENABLED=false` 1줄 구 스킴 롤백. 동반: kisProxyPolicy.FORBIDDEN_TR_IDS 에 신스킴 주문 TR 6종(TTTC0012U/0011U/0013U+V) 추가 — 신스킴 default-ON 이라 구 TR 만 막으면 클라이언트가 신 TR 로 프록시 우회 가능(절대 규칙 #4 안전망 정합). 안전: 현 engineMode SHADOW_ONLY→liveEntryAllowed=false→flag ON 이어도 live 주문 0(불변식 #8)·프록시 경로+TR 2겹 차단. executionImpact ON(default)=신스킴(현 live 0)/`=false`=구 스킴 byte-identical. 회귀 kisClient+oco+proxy 402/402 + 신규 default-ON/kill-switch/프록시 신TR 차단 가드. EXCG_ID_DVSN_CD 기본 KRX·NXT/통합 확대 후속 ADR. 계보 0653/0157/0146/절대규칙#4. INDEX 0654 등재(다음 0654→0655 갱신).)
 
@@ -808,8 +810,9 @@
 | 0650 | pullback-lane-forward-return-observation | learning / observation+persistence+telegram |
 | 0651 | leader-ranking-404-root-fix | provider / kis-ranking+diagnostic+circuit-isolation |
 | 0652 | leader-screener-ranking-endpoint-fix | provider / kis-ranking endpoint-string-fix |
+| 0655 | gate2-financial-risk-penalty | gate2 / fundamental-quality score-cap (ICR<1·debtRatio>200%) |
 
-**최대 발급 0654 · 다음 발급 0655** — `node scripts/check_adr_index.js --json` 기준 (2026-06-26 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0655 · 다음 발급 0656** — `node scripts/check_adr_index.js --json` 기준 (2026-06-26 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

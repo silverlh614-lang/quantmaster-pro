@@ -22,6 +22,8 @@ import type { QmpDartFinancials } from './dartFinancialNormalizer.js';
 const FINANCIAL_RATIO = { trId: 'FHKST66430300', path: '/uapi/domestic-stock/v1/finance/financial-ratio' } as const;
 const INCOME_STATEMENT = { trId: 'FHKST66430200', path: '/uapi/domestic-stock/v1/finance/income-statement' } as const;
 const STABILITY_RATIO = { trId: 'FHKST66430600', path: '/uapi/domestic-stock/v1/finance/stability-ratio' } as const;
+// ADR-0655 — profit-ratio: ROE 대체(self_cptl_ntin_inrt 자기자본순이익율)·순이익률 대체(sale_ntin_rate).
+const PROFIT_RATIO = { trId: 'FHKST66430400', path: '/uapi/domestic-stock/v1/finance/profit-ratio' } as const;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 // KIS finance API rate guard — 누적 5xx/네트워크 실패 시 1분 차단 (dart 와 동형).
@@ -31,14 +33,30 @@ export function getKisFinanceCircuitStats() {
   return _kisFinCb.getStats();
 }
 
+/**
+ * ADR-0655 — 재무 metric 별 출처·신뢰 등급 분류 (Gate2 재무위험 trace·텔레그램 표시용).
+ * - KIS_L1: KIS 공식 finance ratio 엔드포인트 직접 필드 (lblt_rate/crnt_rate/roe_val 등).
+ * - KIS_DERIVED: KIS 원천 raw 로 산출 (opm = op_prfi/sale_account 등).
+ * - DART_L2_RESIDUAL: KIS 미가용 축을 DART 잔존 머지로 보강 (interestCoverageRatio — KIS 이자비용 미분리).
+ * - UNAVAILABLE: 결손 (값 null).
+ */
+export type KisFinanceFieldSource = 'KIS_L1' | 'KIS_DERIVED' | 'DART_L2_RESIDUAL' | 'UNAVAILABLE';
+
 export interface KisFinancials {
   symbol: string;
   fiscalYearMonth: string | null; // stac_yymm (결산년월)
-  roe: number | null; // % (financial-ratio roe_val)
-  opm: number | null; // % (income-statement op_prfi / sale_account * 100)
-  netMargin: number | null; // % (thtr_ntin / sale_account * 100)
-  debtRatio: number | null; // % (financial-ratio lblt_rate)
-  currentRatio: number | null; // % (stability-ratio crnt_rate)
+  roe: number | null; // % (financial-ratio roe_val) — source KIS_L1
+  opm: number | null; // % (income-statement op_prfi / sale_account * 100) — source KIS_DERIVED
+  netMargin: number | null; // % (thtr_ntin / sale_account * 100) — source KIS_DERIVED
+  debtRatio: number | null; // % (financial-ratio lblt_rate / stability-ratio lblt_rate) — source KIS_L1
+  currentRatio: number | null; // % (stability-ratio crnt_rate) — source KIS_L1
+  /**
+   * ADR-0655 — 이자보상배율. KIS finance ratio 엔드포인트는 이자비용(interestExpense)을
+   * bsop_non_expn(영업외비용)에 묶어 노출하므로 *분리 불가* → KIS 단독 산출 불가.
+   * 정확한 ICR 은 DART 잔존(QmpDartFinancials.interestCoverageRatio, L2) 머지에서만 온다.
+   * 본 client 산출 시 항상 null (DART_L2_RESIDUAL / UNAVAILABLE). KisFinancials 자체로는 미가용.
+   */
+  interestCoverageRatio: number | null; // source DART_L2_RESIDUAL | UNAVAILABLE (KIS 단독 null)
   revenueYoYGrowth: number | null; // % (financial-ratio grs, 매출액증가율)
   operatingIncomeYoYGrowth: number | null; // % (financial-ratio bsop_prfi_inrt, 영업이익증가율)
   marginAcceleration: number | null; // pp (영업이익증가율 - 매출액증가율; non-gating, 부호 기반)
@@ -47,6 +65,14 @@ export interface KisFinancials {
   revenue: number | null; // sale_account
   operatingIncome: number | null; // op_prfi
   netIncome: number | null; // thtr_ntin
+  /** ADR-0655 — metric 별 출처 분류 (관측 trace, 값 무변경). */
+  fieldSources: {
+    roe: KisFinanceFieldSource;
+    opm: KisFinanceFieldSource;
+    debtRatio: KisFinanceFieldSource;
+    currentRatio: KisFinanceFieldSource;
+    interestCoverageRatio: KisFinanceFieldSource;
+  };
   source: 'KIS_FINANCE';
 }
 
@@ -118,15 +144,31 @@ export async function getKisFinancials(stockCode: string): Promise<KisFinancials
     // YoY 성장은 financial-ratio 응답에 이미 포함(grs/bsop_prfi_inrt/ntin_inrt) — 추가 호출 없이 추출.
     const revenueYoYGrowth = cleanNumber(ratioRow?.grs);
     const operatingIncomeYoYGrowth = cleanNumber(ratioRow?.bsop_prfi_inrt);
+
+    // ADR-0655 — ROE(financial-ratio roe_val) 결손 시에만 profit-ratio 자기자본순이익율(self_cptl_ntin_inrt)로
+    // 보강(best-effort). roe_val 가용 시 추가 호출 0 — 심볼당 과다 호출 방지.
+    let roe = cleanNumber(ratioRow?.roe_val);
+    let roeSource: KisFinanceFieldSource = roe != null ? 'KIS_L1' : 'UNAVAILABLE';
+    if (roe == null) {
+      const profitRow = await fetchFinanceRow(PROFIT_RATIO, symbol, 'GATE2_KIS_PROFIT_RATIO').catch(() => null);
+      const fallbackRoe = cleanNumber(profitRow?.self_cptl_ntin_inrt);
+      if (fallbackRoe != null) {
+        roe = fallbackRoe;
+        roeSource = 'KIS_L1';
+      }
+    }
+
     const result: KisFinancials = {
       symbol,
       fiscalYearMonth: typeof ratioRow?.stac_yymm === 'string' ? ratioRow.stac_yymm
         : typeof incomeRow?.stac_yymm === 'string' ? incomeRow.stac_yymm : null,
-      roe: cleanNumber(ratioRow?.roe_val),
+      roe,
       opm: revenue && revenue !== 0 && operatingIncome != null ? (operatingIncome / revenue) * 100 : null,
       netMargin: revenue && revenue !== 0 && netIncome != null ? (netIncome / revenue) * 100 : null,
-      debtRatio: cleanNumber(ratioRow?.lblt_rate),
+      debtRatio: cleanNumber(ratioRow?.lblt_rate) ?? cleanNumber(stabilityRow?.lblt_rate),
       currentRatio: cleanNumber(stabilityRow?.crnt_rate),
+      // ADR-0655 — KIS 단독으로는 ICR 산출 불가(이자비용 bsop_non_expn 비분리). DART 잔존 머지에서만.
+      interestCoverageRatio: null,
       revenueYoYGrowth,
       operatingIncomeYoYGrowth,
       marginAcceleration: revenueYoYGrowth != null && operatingIncomeYoYGrowth != null
@@ -136,6 +178,14 @@ export async function getKisFinancials(stockCode: string): Promise<KisFinancials
       revenue,
       operatingIncome,
       netIncome,
+      // ADR-0655 — metric 별 출처 분류 (관측 trace). debtRatio 는 ratio/stability 둘 다 lblt_rate(둘 다 KIS_L1).
+      fieldSources: {
+        roe: roeSource,
+        opm: revenue && revenue !== 0 && operatingIncome != null ? 'KIS_DERIVED' : 'UNAVAILABLE',
+        debtRatio: (ratioRow?.lblt_rate != null || stabilityRow?.lblt_rate != null) ? 'KIS_L1' : 'UNAVAILABLE',
+        currentRatio: stabilityRow?.crnt_rate != null ? 'KIS_L1' : 'UNAVAILABLE',
+        interestCoverageRatio: 'UNAVAILABLE', // KIS 단독 미가용 — DART 머지 시 DART_L2_RESIDUAL 로 승격(engine-dev).
+      },
       source: 'KIS_FINANCE',
     };
     _cache.set(symbol, { data: result, exp: Date.now() + CACHE_TTL_MS });

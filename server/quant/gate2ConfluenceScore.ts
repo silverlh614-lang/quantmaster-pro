@@ -4,6 +4,8 @@ import {
   normalizeBenchmarkReturnForGate2,
   type BenchmarkKey,
 } from '../clients/benchmarkReturnNormalizer.js';
+import { isGate2FinancialRiskPenaltyEnabled } from '../trading/gateConfig.js';
+import { assessGate2FinancialRisk } from '../trading/gate2/gate2FinancialRiskPenaltyAdr0655.js';
 
 export type Gate2Axis =
   | 'RS_RELATIVE_STRENGTH'
@@ -724,6 +726,8 @@ function buildFundamentalAxis(external: AnyRecord | null, cacheProjection?: AnyR
     ?? firstNumber(cacheProjection, ['metrics.marginAcceleration', 'metrics.opmYoYDelta']);
   const icr = firstNumber(external, ['dartFinancials.interestCoverageRatio', 'stability.icr'])
     ?? firstNumber(cacheProjection, ['stability.icr', 'metrics.interestCoverageRatio']);
+  const debtRatio = firstNumber(external, ['dartFinancials.debtRatio', 'stability.debtRatio'])
+    ?? firstNumber(cacheProjection, ['stability.debtRatio', 'metrics.debtRatio']);
 
   let score = 55;
   const ocfOk = ocfRatio != null && ocfRatio >= 1;
@@ -735,18 +739,28 @@ function buildFundamentalAxis(external: AnyRecord | null, cacheProjection?: AnyR
   else if (roeOk || opm != null && opm > 0) score = 62;
   else score = 35;
 
+  const evidence = [
+    `ocfRatio=${ocfRatio == null ? 'null' : round1(ocfRatio)}`,
+    `roe=${roe == null ? 'null' : round1(roe)}`,
+    `marginAcceleration=${marginAcceleration == null ? 'null' : round1(marginAcceleration)}`,
+    `interestCoverage=${icr == null ? 'null' : round1(icr)}`,
+  ];
+
+  // ADR-0655 — flag ON 시에만 재무 위험 score-cap 적용 (OFF=byte-identical, 호출 자체 skip).
+  // 평가 로직은 순수 모듈(gate2FinancialRiskPenaltyAdr0655)에 위임 — 본 파일 비대화 방지.
+  if (isGate2FinancialRiskPenaltyEnabled()) {
+    const assessment = assessGate2FinancialRisk({ interestCoverageRatio: icr, debtRatio });
+    if (assessment.scoreCap != null) score = Math.min(score, assessment.scoreCap);
+    evidence.push(...assessment.evidence);
+  }
+
   return axisScore({
     axis: 'FUNDAMENTAL_QUALITY',
     score,
     status: scoreStatus(score),
     confidence: confidenceRaw === 'STALE' ? 'STALE' : 'VERIFIED',
     promotionStage: confidenceRaw === 'STALE' ? 'ADVISORY' : 'WEIGHTED',
-    evidence: [
-      `ocfRatio=${ocfRatio == null ? 'null' : round1(ocfRatio)}`,
-      `roe=${roe == null ? 'null' : round1(roe)}`,
-      `marginAcceleration=${marginAcceleration == null ? 'null' : round1(marginAcceleration)}`,
-      `interestCoverage=${icr == null ? 'null' : round1(icr)}`,
-    ],
+    evidence,
     source: 'DART_FINANCIALS',
   });
 }

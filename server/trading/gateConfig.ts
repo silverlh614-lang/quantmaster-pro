@@ -359,3 +359,32 @@ export function isLeaderRankingParamFixEnabled(): boolean {
 export function isLeaderRankingEndpointFixEnabled(): boolean {
   return process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED !== 'false';
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADR-0655 — Gate2 재무 위험종목 선별 (FUNDAMENTAL_QUALITY 점수 페널티) 활성 스위치
+//            (default OFF / SHADOW_OFF)
+//
+// Gate2 FUNDAMENTAL_QUALITY 축이 재무 위험종목을 점수 페널티로 강등한다(하드차단 아님):
+//   - ICR < 1 (이자보상배율 — 영업이익으로 이자비용 미충당) → 위험 trigger 1
+//   - 부채비율 > 200% (KIS stability-ratio lblt_rate, 한국 시장 통념상 과다) → 위험 trigger 2
+// 위험 1건 → FUNDAMENTAL_QUALITY score ≤ 30(WEAK) / 2건 → ≤ 15(CRITICAL).
+//
+// 불변식 #6 보존: 재무 위험/결손은 데이터 해석이며 bearish market signal 이 아니다 —
+//   entryHardBlock=false(점수 cap 만), marketSignal=false, executionImpact=NONE.
+//   임계 입력 결손(ICR/부채비율 null) 시 페널티 미적용(graceful) — 결손 ≠ 위험.
+//
+// OFF(미설정·임의값) = buildFundamentalAxis 현행 score 산출 byte-identical(cap 미적용).
+// ON 이어도 위험 trigger 0개 종목은 byte-identical(scoreCap=null). ENV 1줄 즉시 롤백.
+// 종목 score 분포를 바꾸므로(위험종목 강등) ADR-0157 opt-IN `=== 'true'` default OFF.
+// 현 engineMode=SHADOW_ONLY 라 live 주문 0 — shadow forward-outcome 으로 강등 타당성 관측 후 flip.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Gate2 재무 위험 페널티 활성 스위치. default OFF (ADR-0157 opt-IN `=== 'true'`).
+ * 미설정·임의값 = OFF(현행 FUNDAMENTAL_QUALITY score byte-identical), 정확히 `'true'` 만 활성.
+ * 게이트 대상: ICR<1 / 부채비율>200% trigger → FUNDAMENTAL_QUALITY score-cap(30/15).
+ * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다. entryHardBlock=false·불변식 #6.
+ */
+export function isGate2FinancialRiskPenaltyEnabled(): boolean {
+  return process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED === 'true';
+}

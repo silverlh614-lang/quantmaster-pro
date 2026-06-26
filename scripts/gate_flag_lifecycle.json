@@ -122,6 +122,17 @@
       "activationCriteria": "현 endpoint 가 KIS 공식 GitHub(koreainvestment/open-trading-api) 1:1 검증으로 100% bare-404(검증된 결함)이고 정정이 권위적이며 engineMode SHADOW_ONLY 로 executionImpact=NONE 이라 default ON kill-switch 로 즉시 출하. 검증 완료 — 운영자 standing approval(silverlh614).",
       "nextAction": "출력 필드 2026-06-25 KIS 공식 소스(chk_foreign_institution_total.py COLUMN_MAPPING)로 확정(orgn_ntby_qty=기관계 순매수 수량·mksc_shrn_iscd·hts_kor_isnm·prdy_ctrt). /lr bypassCache 프로브 시총30·기관60·거래량30 실데이터 확인(404 소멸). mapRow ?? 체인은 회귀 안전 위해 유지. 장중 정렬 동작만 모니터링 · 회귀 시 LEADER_RANKING_ENDPOINT_FIX_ENABLED=false 1줄 kill-switch 롤백.",
       "notes": "SSOT isLeaderRankingEndpointFixEnabled() gateConfig.ts 거주(kill-switch `!== 'false'` default ON·ADR-0157 정확비교 정신 kill-switch 한정). DRY resolver resolveRankingEndpoint(kisRankingClient.ts) flag 게이트 1지점. 게이트 대상: volume path /ranking/volume→/quotations/volume-rank(PATH ONLY) · market-cap trId FHPST01720000→FHPST01740000+scr 20172→20174 · institutional /ranking/investor+FHPST01600000→/quotations/foreign-institution-total+FHPTJ04400000(params V/16449/0001·1001/etc_cls 2·방어적 mapRow). screener/expander/scanner 인라인 호출도 동일 flag 게이트. ON 시 ADR-0651 W2 institutional sort param 분기 supersede(두 flag 깨끗이 게이트). foreign-institution-total 출력 필드명 KIS 공식 소스로 확정(orgn_ntby_qty=기관계 순매수 수량) → mapRow ?? 체인 회귀-안전 유지. OFF(=false)=구(broken) endpoint 문자열 byte-identical. 랭킹=발굴 전용·executionImpact=NONE·LIVE 0줄·SourceSnapshot 무접촉·404≠bearish(불변식 #6)."
+    },
+    {
+      "envFlag": "GATE2_FINANCIAL_RISK_PENALTY_ENABLED",
+      "adr": "0655",
+      "title": "Gate2 Financial-Risk Penalty (FUNDAMENTAL_QUALITY score-cap: ICR<1 / debtRatio>200%)",
+      "introduced": "2026-06-26",
+      "reviewBy": "2026-09-24",
+      "status": "SHADOW_OFF",
+      "activationCriteria": "재무 위험종목(ICR<1 이자 미충당 / 부채비율>200% 과다) 강등이 Gate2 통과 종목의 forward-outcome(부도/급락 회피율)을 개선하는지 N세션 shadow 관측 + 운영자 승인. 종목 score 분포를 바꾸므로(위험종목 FUNDAMENTAL_QUALITY WEAK/CRITICAL 강등) flip 전 데이터 검증 필수. 임계(ICR<1·부채>200%)는 ADR-0655 §임계근거로 고정 — flip 후 ROC 로 재보정 가능.",
+      "nextAction": "운영자 ENV `=true` 활성 → 강등 종목 vs 비강등 종목 forward 5D/20D return·하락 빈도 누적 관측 → 위험 페널티 타당성 확인 → 운영자 승인 후 default-ON flip(후속 ADR) 또는 임계 재보정.",
+      "notes": "SSOT isGate2FinancialRiskPenaltyEnabled() gateConfig.ts 거주(opt-IN `=== 'true'` default OFF·ADR-0157). 게이트 대상: gate2ConfluenceScore.buildFundamentalAxis FUNDAMENTAL_QUALITY score-cap(별도 순수 모듈 gate2FinancialRiskPenaltyAdr0655.ts). 입력 = 기존 Gate2ExternalProjection.stability.{icr,debtRatio}(ADR-0529 canonical merge) 재사용·신규 fetch 0. ICR 은 KIS 미가용(이자비용 bsop_non_expn 비분리)이라 DART 잔존(L2) 머지에서만 — debtRatio 는 KIS stability-ratio lblt_rate(L1). OFF(미설정·=false)=byte-identical(cap 미적용). ON+위험 trigger 0=byte-identical(scoreCap=null). 임계 결손(ICR/부채 null)=페널티 미적용 graceful(결손≠위험≠bearish). entryHardBlock=false(점수 cap 만·Gate2 pass 는 coverageAdjustedScore 로만 판정)·marketSignal=false·executionImpact=NONE(불변식 #6). requiredScore=70·ADR-0471 Gate1 곡선·ADR-0532 KIS primary 무접촉. 현 engineMode=SHADOW_ONLY 라 live 주문 0."
     }
   ]
 }
