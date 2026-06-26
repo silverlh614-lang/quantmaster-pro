@@ -2,7 +2,7 @@
  * @responsibility KIS OCO 주문 어댑터 — 손절·익절 레그를 KIS order-cash 요청 형식으로 변환한다.
  */
 
-import { SELL_TR_ID } from '../constants.js';
+import { SELL_TR_ID, nxtOrderCashParams } from '../constants.js';
 import type { KisOcoOrderIntent } from './kisOrderTypes.js';
 import type { KisOrderRequest } from './kisBuyOrderAdapter.js';
 
@@ -22,6 +22,7 @@ export function buildKisOcoOrderRequest(input: KisOcoOrderIntent): KisOrderReque
       CTAC_TLNO: '',
       MGCO_APTM_ODNO: '',
       ORD_SVR_DVSN_CD: '0',
+      ...nxtOrderCashParams('SELL'), // ADR-0653: flag OFF → {} (byte-equivalent)
     },
   };
 }

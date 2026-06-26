@@ -3,7 +3,7 @@
  */
 
 import { kisGet, kisPost } from '../http.js';
-import { KIS_IS_REAL } from '../constants.js';
+import { KIS_IS_REAL, selectCcldTrId } from '../constants.js';
 import { buildKisBuyOrderRequest } from './kisBuyOrderAdapter.js';
 import { buildKisSellOrderRequest, buildKisCancelOrderRequest } from './kisSellOrderAdapter.js';
 import { buildKisOcoOrderRequest } from './kisOcoOrderAdapter.js';
@@ -219,7 +219,7 @@ export async function queryOrderStatus(
 
   try {
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const raw = await deps.kisGet(deps.isReal ? 'TTTC8001R' : 'VTTC8001R', '/uapi/domestic-stock/v1/trading/inquire-daily-ccld', {
+    const raw = await deps.kisGet(selectCcldTrId(deps.isReal), '/uapi/domestic-stock/v1/trading/inquire-daily-ccld', {
       CANO: process.env.KIS_ACCOUNT_NO ?? '',
       ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PROD ?? '01',
       INQR_STRT_DT: today,

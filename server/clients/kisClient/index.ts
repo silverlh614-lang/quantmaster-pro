@@ -51,6 +51,8 @@ export {
   BUY_TR_ID,
   SELL_TR_ID,
   CCLD_TR_ID,
+  RVSECNCL_TR_ID,
+  KIS_ORDER_TR_NXT_SCHEME_ENABLED,
   HAS_REAL_DATA_CLIENT,
   getKisBase,
 } from './constants.js';
