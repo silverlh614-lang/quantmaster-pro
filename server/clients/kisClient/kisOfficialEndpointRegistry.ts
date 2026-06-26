@@ -124,6 +124,8 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'market_supply',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/quotations/inquire-investor-daily-by-market',
+    // ADR-0653 metadata sync: 공식 SDK inquire_investor_daily_by_market.py tr_id=FHPTJ04040000.
+    trId: 'FHPTJ04040000',
     requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_DATE_1', 'FID_INPUT_DATE_2'],
     outputBuckets: ['output'],
     confidenceClass: 'VERIFIED_DAILY',
@@ -137,6 +139,8 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'market_supply',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/quotations/inquire-investor-time-by-market',
+    // ADR-0653 metadata sync: 공식 SDK inquire_investor_time_by_market.py tr_id=FHPTJ04030000.
+    trId: 'FHPTJ04030000',
     requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_ISCD'],
     outputBuckets: ['output'],
     confidenceClass: 'VERIFIED_INTRADAY',
@@ -150,6 +154,9 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'program',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/quotations/program-trade-by-stock',
+    // ADR-0653 metadata sync: 공식 SDK program_trade_by_stock.py tr_id=FHPPG04650101
+    // (일별 변형 programTradeByStockDaily=FHPPG04650201 과 구분).
+    trId: 'FHPPG04650101',
     requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_ISCD'],
     outputBuckets: ['output'],
     confidenceClass: 'VERIFIED_INTRADAY',
@@ -191,6 +198,9 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'market_program',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/quotations/comp-program-trade-daily',
+    // ADR-0653 metadata sync: 공식 SDK comp_program_trade_daily.py tr_id=FHPPG04600001
+    // (당일 변형 compProgramTradeToday=FHPPG04600101 과 구분).
+    trId: 'FHPPG04600001',
     requiredParams: ['FID_COND_MRKT_DIV_CODE'],
     outputBuckets: ['output'],
     confidenceClass: 'VERIFIED_DAILY',
@@ -204,6 +214,8 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'market_program',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/quotations/investor-program-trade-today',
+    // ADR-0653 metadata sync: 공식 SDK investor_program_trade_today.py tr_id=HHPPG046600C1.
+    trId: 'HHPPG046600C1',
     requiredParams: ['FID_COND_MRKT_DIV_CODE'],
     outputBuckets: ['output'],
     confidenceClass: 'VERIFIED_INTRADAY',
@@ -231,6 +243,8 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'short_selling',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/ranking/short-sale',
+    // ADR-0653 metadata sync: 공식 SDK short_sale.py tr_id=FHPST04820000.
+    trId: 'FHPST04820000',
     requiredParams: ['FID_COND_MRKT_DIV_CODE'],
     outputBuckets: ['output'],
     confidenceClass: 'VERIFIED_DELAYED',
@@ -286,6 +300,9 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'supply',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/quotations/foreign-institution-total',
+    // ADR-0653 metadata sync: 공식 SDK foreign_institution_total.py tr_id=FHPTJ04400000
+    // (rankingInvestor 권위 경로와 동일 trId — 아래 rankingInvestor 노트 참조).
+    trId: 'FHPTJ04400000',
     requiredParams: ['FID_COND_MRKT_DIV_CODE'],
     outputBuckets: ['output'],
     confidenceClass: 'VERIFIED_DAILY',
@@ -313,6 +330,8 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'chart',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice',
+    // ADR-0653 metadata sync: 공식 SDK inquire_daily_indexchartprice.py tr_id=FHKUP03500100.
+    trId: 'FHKUP03500100',
     requiredParams: ['FID_COND_MRKT_DIV_CODE', 'FID_INPUT_ISCD'],
     outputBuckets: ['output1', 'output2'],
     confidenceClass: 'VERIFIED_DAILY',
@@ -395,6 +414,8 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'ranking',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/ranking/fluctuation',
+    // ADR-0653 metadata sync: 공식 SDK fluctuation.py tr_id=FHPST01700000.
+    trId: 'FHPST01700000',
     requiredParams: [],
     outputBuckets: ['output', 'output1', 'output2'],
     confidenceClass: 'VERIFIED_INTRADAY',
@@ -458,6 +479,8 @@ export const KIS_OFFICIAL_ENDPOINTS = {
     category: 'quotation',
     method: 'GET',
     path: '/uapi/domestic-stock/v1/quotations/inquire-time-itemconclusion',
+    // ADR-0653 metadata sync: 공식 SDK inquire_time_itemconclusion.py tr_id=FHPST01060000.
+    trId: 'FHPST01060000',
     requiredParams: [],
     outputBuckets: ['output', 'output1', 'output2'],
     confidenceClass: 'VERIFIED_INTRADAY',
