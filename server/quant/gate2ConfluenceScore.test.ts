@@ -337,12 +337,35 @@ describe('ADR-0655 Gate2 재무 위험 페널티 (buildFundamentalAxis score-cap
   const fundamentalOf = (result: Gate2EvaluationResult) =>
     result.axes.find(axis => axis.axis === 'FUNDAMENTAL_QUALITY');
 
-  it('flag OFF → 위험 종목(ICR<1·부채>200)이어도 score byte-identical (cap 미적용)', () => {
+  it('flag OFF(explicit =false kill-switch) → 위험 종목(ICR<1·부채>200)이어도 score byte-identical (cap 미적용)', () => {
+    // ADR-0656 default ON flip 이후 OFF byte-identical 의도 보존을 위해 explicit `=false` pin.
+    process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED = 'false';
     const trace = riskTrace({ icr: 0.3, debtRatio: 300 });
     const off = fundamentalOf(buildGate2EvaluationResult({ trace, sourceSnapshotId: 'snap:off' }));
     // 위험 평가가 ON 됐다면 ≤15(CRITICAL cap)로 눌렸겠으나, OFF 이므로 현행 score 유지(>15).
     expect(off?.score).toBeGreaterThan(15);
     expect(off?.evidence?.some(e => e.startsWith('gate2FinancialRisk='))).toBe(false);
+  });
+
+  it('ADR-0656 default(미설정)=ON → 위험 종목(ICR<1·부채>200)이 CRITICAL cap ≤15 로 강등', () => {
+    // env 미설정 = default ON (opt-OUT `!== 'false'`). flip 후 위험종목이 cap 적용됨을 확인.
+    delete process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED;
+    const trace = riskTrace({ icr: 0.3, debtRatio: 300 });
+    const fundamental = fundamentalOf(buildGate2EvaluationResult({ trace, sourceSnapshotId: 'snap:default-on' }));
+    expect(fundamental?.score).toBeLessThanOrEqual(15);
+    expect(fundamental?.evidence).toContain('gate2FinancialRisk=CRITICAL');
+    expect(fundamental?.evidence).toContain('riskTriggers=[ICR_BELOW_1,DEBT_RATIO_EXCESS]');
+  });
+
+  it('ADR-0656 default(미설정)=ON + 위험 0건(정상 재무) → byte-identical (scoreCap=null·NONE graceful)', () => {
+    // default ON 이어도 trigger 0개 종목은 byte-identical (불변식 #6 graceful).
+    process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED = 'false';
+    const baseline = fundamentalOf(buildGate2EvaluationResult({ trace: riskTrace({ icr: 3, debtRatio: 50 }), sourceSnapshotId: 'snap:base-off' }))?.score;
+    delete process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED;
+    const on = fundamentalOf(buildGate2EvaluationResult({ trace: riskTrace({ icr: 3, debtRatio: 50 }), sourceSnapshotId: 'snap:default-on-none' }));
+    expect(on?.score).toBe(baseline);
+    expect(on?.evidence).toContain('gate2FinancialRisk=NONE');
+    expect(on?.evidence).toContain('riskScoreCap=null');
   });
 
   it('flag ON + 위험 trigger 0개(정상 재무) → byte-identical (scoreCap=null, score 동일)', () => {
