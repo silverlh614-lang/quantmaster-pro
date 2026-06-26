@@ -11,8 +11,10 @@
  * 레짐 전환 알림: 레짐이 변경되면 즉시 Telegram으로 구조화된 알림 발송.
  */
 
+import fs from 'fs';
 import type { RegimeVariables, RegimeLevel } from '../../src/types/core.js';
 import { classifyRegime, REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
+import { REGIME_NOTIFY_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
@@ -42,6 +44,49 @@ import {
 let _previousRegime: RegimeLevel | null = null;
 let _previousMhs: number | null = null;
 let _previousVkospi: number | null = null;
+
+// ── 마지막으로 *알림한* 레짐 baseline 영속화 ────────────────────────────────
+// 재시작 시 transitionState.previousRegime(직전 전환의 from)을 baseline 으로 쓰면
+// 같은 전환이 매 프로세스 기동마다 재생되어 "매일 아침 동일 알림"이 반복된다
+// (MHS/VKOSPI delta=0 = 재시작 리플레이의 지문). 마지막 알림 regime 을 디스크에
+// 보관해 idempotent 하게 만든다. — Patch-REGIME-NOTIFY-IDEMPOTENT
+interface RegimeNotifyState {
+  regime: RegimeLevel;
+  mhs: number | null;
+  vkospi: number | null;
+  at: string;
+}
+
+function isRegimeLevelValue(value: unknown): value is RegimeLevel {
+  return value === 'R1_TURBO' || value === 'R2_BULL' || value === 'R3_EARLY' ||
+    value === 'R4_NEUTRAL' || value === 'R5_CAUTION' || value === 'R6_DEFENSE';
+}
+
+function loadRegimeNotifyState(): RegimeNotifyState | null {
+  ensureDataDir();
+  if (!fs.existsSync(REGIME_NOTIFY_STATE_FILE)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(REGIME_NOTIFY_STATE_FILE, 'utf-8')) as Partial<RegimeNotifyState>;
+    if (!isRegimeLevelValue(parsed.regime)) return null;
+    return {
+      regime: parsed.regime,
+      mhs: typeof parsed.mhs === 'number' && Number.isFinite(parsed.mhs) ? parsed.mhs : null,
+      vkospi: typeof parsed.vkospi === 'number' && Number.isFinite(parsed.vkospi) ? parsed.vkospi : null,
+      at: typeof parsed.at === 'string' ? parsed.at : new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveRegimeNotifyState(state: RegimeNotifyState): void {
+  ensureDataDir();
+  try {
+    fs.writeFileSync(REGIME_NOTIFY_STATE_FILE, JSON.stringify(state, null, 2));
+  } catch (e) {
+    console.error('[RegimeBridge] regime-notify-state 저장 실패:', e);
+  }
+}
 
 /**
  * MacroState → RegimeVariables
@@ -1013,16 +1058,31 @@ export async function checkAndNotifyRegimeChange(
 ): Promise<void> {
   const diagnostics = getRegimeDiagnostics(macroState);
   const currentRegime = diagnostics.effectiveRegime;
-  const persistedPrevious = diagnostics.transitionState.previousRegime;
   const currentMhs = macroState?.mhs ?? null;
   const currentVkospi = macroState?.vkospi ?? null;
 
-  // 첫 호출/재시작: persistent state 를 이전 레짐 기준으로 복원한다.
+  // 첫 호출/재시작: 마지막으로 *알림한* regime 을 baseline 으로 복원한다.
+  // (transitionState.previousRegime 을 쓰면 직전 전환이 매 재시작마다 재생되는
+  //  유령 알림이 발생한다 — Patch-REGIME-NOTIFY-IDEMPOTENT.)
   if (_previousRegime === null) {
-    _previousRegime = persistedPrevious ?? currentRegime;
-    _previousMhs = currentMhs;
-    _previousVkospi = currentVkospi;
-    if (_previousRegime === currentRegime) return;
+    const notified = loadRegimeNotifyState();
+    if (notified) {
+      _previousRegime = notified.regime;
+      _previousMhs = notified.mhs;
+      _previousVkospi = notified.vkospi;
+    } else {
+      // 알림 이력 없음(최초 배포/파일 부재) → 현재 regime 을 baseline 으로 채택해
+      // 부트스트랩 유령 알림을 억제하고 baseline 을 영속화한다.
+      _previousRegime = currentRegime;
+      _previousMhs = currentMhs;
+      _previousVkospi = currentVkospi;
+      saveRegimeNotifyState({ regime: currentRegime, mhs: currentMhs, vkospi: currentVkospi, at: new Date().toISOString() });
+    }
+    if (_previousRegime === currentRegime) {
+      _previousMhs = currentMhs;
+      _previousVkospi = currentVkospi;
+      return;
+    }
   }
 
   // 레짐 변경 없으면 상태만 갱신
@@ -1063,8 +1123,19 @@ export async function checkAndNotifyRegimeChange(
   const prevCfg = REGIME_CONFIGS[_previousRegime];
   const currCfg = REGIME_CONFIGS[currentRegime];
 
-  const dirEmoji = isDowngrade ? '🔴' : '🟢';
-  const dirLabel = isDowngrade ? '방어 강화' : '공격 전환';
+  // 목적지가 여전히 방어/주의 구간(R5/R6)이면 "공격 전환"이 아니다 — 방향(index)만
+  // 보고 caution 진입을 공격 신호로 둔갑시키면 Playbook GUARD("do not convert caution
+  // regime into a buy ban")의 정반대 오독을 유발한다. 도착지 위험도를 라벨에 반영한다.
+  const cautionTierDest = currentRegime === 'R5_CAUTION' || currentRegime === 'R6_DEFENSE';
+  const dirEmoji = isDowngrade ? '🔴' : cautionTierDest ? '🟡' : '🟢';
+  const dirLabel = isDowngrade ? '방어 강화' : cautionTierDest ? '방어 완화' : '공격 전환';
+
+  // R6 legacy defense rollback 으로 R5↔R6 처럼 정책 config 가 동일한 전환은 운용상 0 변화다.
+  // 이때 "변경사항" 으로 no-op 델타를 나열하면 알림이 거짓 정보를 준다.
+  const policyUnchanged =
+    prevCfg.kellyMultiplier === currCfg.kellyMultiplier &&
+    prevCfg.maxPositions === currCfg.maxPositions &&
+    prevCfg.maxExposurePct === currCfg.maxExposurePct;
 
   // MHS/VKOSPI 변화량
   const mhsDelta = (currentMhs != null && _previousMhs != null)
@@ -1087,13 +1158,12 @@ export async function checkAndNotifyRegimeChange(
 
   // 변경 사항
   msg += `\n<b>변경사항 (${dirLabel}):</b>\n`;
-  msg += `• Kelly 배율: ×${prevCfg.kellyMultiplier} → ×${currCfg.kellyMultiplier} 자동 적용\n`;
-  msg += `• 신규 진입 한도: ${prevCfg.maxPositions}개 → ${currCfg.maxPositions}개\n`;
-
-  if (isDowngrade) {
-    msg += `• 손절 기준: 강화 모드 전환\n`;
+  if (policyUnchanged) {
+    msg += `• 정책 변화 없음 — Kelly ×${currCfg.kellyMultiplier} · 진입한도 ${currCfg.maxPositions}개 유지 (라벨 전환, 진단성)\n`;
   } else {
-    msg += `• 손절 기준: 완화 모드 전환\n`;
+    msg += `• Kelly 배율: ×${prevCfg.kellyMultiplier} → ×${currCfg.kellyMultiplier} 자동 적용\n`;
+    msg += `• 신규 진입 한도: ${prevCfg.maxPositions}개 → ${currCfg.maxPositions}개\n`;
+    msg += isDowngrade ? `• 손절 기준: 강화 모드 전환\n` : `• 손절 기준: 완화 모드 전환\n`;
   }
 
   if (resetNote) {
@@ -1104,6 +1174,8 @@ export async function checkAndNotifyRegimeChange(
 
   if (isDowngrade) {
     msg += `📌 현재 보유 포지션 점검 권고`;
+  } else if (cautionTierDest) {
+    msg += `📌 방어 완화 — 여전히 신중 구간, 관찰 우선`;
   } else {
     msg += `📌 신규 진입 기회 탐색 권고`;
   }
@@ -1127,13 +1199,14 @@ export async function checkAndNotifyRegimeChange(
     _previousRegime,
     currentRegime,
     currentMhs ?? 0,
-    isDowngrade ? '방어 강화' : '공격 전환',
+    dirLabel,
   ).catch(console.error);
 
   console.log(`[RegimeBridge] 레짐 전환 알림: ${_previousRegime} → ${currentRegime}`);
 
-  // 상태 갱신
+  // 상태 갱신 — 마지막 알림 baseline 을 디스크에 영속화해 재시작 후 동일 전환 재생을 차단한다.
   _previousRegime = currentRegime;
   _previousMhs = currentMhs;
   _previousVkospi = currentVkospi;
+  saveRegimeNotifyState({ regime: currentRegime, mhs: currentMhs, vkospi: currentVkospi, at: new Date().toISOString() });
 }
