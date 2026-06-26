@@ -320,3 +320,76 @@ describe('ADR-0600 Supply/Sector 결손 축 보수 fallback', () => {
     }
   });
 });
+
+describe('ADR-0655 Gate2 재무 위험 페널티 (buildFundamentalAxis score-cap seam)', () => {
+  afterEach(() => {
+    delete process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED;
+  });
+
+  // 검증된(weighted) FUNDAMENTAL_QUALITY 축 + 위험/정상 재무를 trace 에 주입.
+  function riskTrace(stability: Record<string, unknown>, dartExtra: Record<string, unknown> = {}): Record<string, unknown> {
+    const trace = bullishTrace();
+    const external = trace.gate2ExternalDataCoverage as Record<string, unknown>;
+    external.dartFinancials = { status: 'VERIFIED', source: 'DART', confidence: 'VERIFIED', ...dartExtra };
+    external.stability = { source: 'DART', ...stability };
+    return trace;
+  }
+  const fundamentalOf = (result: Gate2EvaluationResult) =>
+    result.axes.find(axis => axis.axis === 'FUNDAMENTAL_QUALITY');
+
+  it('flag OFF → 위험 종목(ICR<1·부채>200)이어도 score byte-identical (cap 미적용)', () => {
+    const trace = riskTrace({ icr: 0.3, debtRatio: 300 });
+    const off = fundamentalOf(buildGate2EvaluationResult({ trace, sourceSnapshotId: 'snap:off' }));
+    // 위험 평가가 ON 됐다면 ≤15(CRITICAL cap)로 눌렸겠으나, OFF 이므로 현행 score 유지(>15).
+    expect(off?.score).toBeGreaterThan(15);
+    expect(off?.evidence?.some(e => e.startsWith('gate2FinancialRisk='))).toBe(false);
+  });
+
+  it('flag ON + 위험 trigger 0개(정상 재무) → byte-identical (scoreCap=null, score 동일)', () => {
+    const trace = riskTrace({ icr: 3, debtRatio: 50 });
+    const off = fundamentalOf(buildGate2EvaluationResult({ trace, sourceSnapshotId: 'snap:base' }))?.score;
+    process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED = 'true';
+    const on = fundamentalOf(buildGate2EvaluationResult({ trace, sourceSnapshotId: 'snap:on' }));
+    expect(on?.score).toBe(off);
+    // trace 는 노출되나 cap 은 미적용(NONE).
+    expect(on?.evidence).toContain('gate2FinancialRisk=NONE');
+    expect(on?.evidence).toContain('riskScoreCap=null');
+  });
+
+  it('flag ON + ICR<1 단독 → FUNDAMENTAL_QUALITY score ≤30·status WEAK·evidence riskLevel trace', () => {
+    process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED = 'true';
+    const trace = riskTrace({ icr: 0.5, debtRatio: 80 });
+    const fundamental = fundamentalOf(buildGate2EvaluationResult({ trace, sourceSnapshotId: 'snap:icr' }));
+    expect(fundamental?.score).toBeLessThanOrEqual(30);
+    expect(fundamental?.status).toBe('WEAK');
+    expect(fundamental?.evidence).toContain('gate2FinancialRisk=ELEVATED');
+    expect(fundamental?.evidence).toContain('riskTriggers=[ICR_BELOW_1]');
+  });
+
+  it('flag ON + ICR<1 AND 부채>200 → CRITICAL cap ≤15', () => {
+    process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED = 'true';
+    const trace = riskTrace({ icr: 0.2, debtRatio: 350 });
+    const fundamental = fundamentalOf(buildGate2EvaluationResult({ trace, sourceSnapshotId: 'snap:crit' }));
+    expect(fundamental?.score).toBeLessThanOrEqual(15);
+    expect(fundamental?.evidence).toContain('gate2FinancialRisk=CRITICAL');
+  });
+
+  it('flag ON + 결손(ICR/debtRatio null) → 페널티 미적용 (현행 score 유지, NONE)', () => {
+    const trace = riskTrace({ icr: null, debtRatio: null });
+    const off = fundamentalOf(buildGate2EvaluationResult({ trace, sourceSnapshotId: 'snap:gbase' }))?.score;
+    process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED = 'true';
+    const on = fundamentalOf(buildGate2EvaluationResult({ trace, sourceSnapshotId: 'snap:gnull' }));
+    expect(on?.score).toBe(off);
+    expect(on?.evidence).toContain('gate2FinancialRisk=NONE');
+  });
+
+  it('flag ON + 위험 종목도 entryHardBlock 0 — Gate2 status 는 다축 confluence 로 판정 (executionImpact NONE)', () => {
+    process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED = 'true';
+    const trace = riskTrace({ icr: 0.2, debtRatio: 350 });
+    const result = buildGate2EvaluationResult({ trace, sourceSnapshotId: 'snap:noblock' });
+    // 다축(RS/Supply/Sector bullish)이 살아있어 한 축 cap 만으로 전체 차단되지 않는다.
+    expect(result.gate2Status).not.toBe('GATE2_FAIL');
+    expect(result.executionImpact).toBe('NONE');
+    expect(result.marketSignal).toBe(false);
+  });
+});

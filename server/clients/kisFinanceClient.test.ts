@@ -107,6 +107,41 @@ describe('kisFinanceClient (ADR-0532 Phase 1)', () => {
     expect(qmp.marginAcceleration).toBeCloseTo(4.0); // 9.0 - 5.0
   });
 
+  it('ADR-0655: roe_val 결손 시 profit-ratio self_cptl_ntin_inrt 로 ROE 보강 (fieldSources.roe=KIS_L1)', async () => {
+    process.env.KIS_APP_KEY = 'k';
+    process.env.KIS_APP_SECRET = 's';
+    setKisClientOverrides({
+      realDataKisGet: async (trId: string) => {
+        // financial-ratio 에 roe_val 결손 → profit-ratio fallback 발동.
+        if (trId === 'FHKST66430300') return { output: [{ lblt_rate: '70', grs: '3.0', bsop_prfi_inrt: '4.0' }] };
+        if (trId === 'FHKST66430400') return { output: [{ self_cptl_ntin_inrt: '8.4', sale_ntin_rate: '5.1' }] };
+        if (trId === 'FHKST66430600') return { output: [{ crnt_rate: '120', lblt_rate: '70' }] };
+        return { output: [{ sale_account: '500', op_prfi: '60', thtr_ntin: '25' }] };
+      },
+    });
+    const fin = await getKisFinancials('005930');
+    expect(fin!.roe).toBe(8.4);
+    expect(fin!.fieldSources.roe).toBe('KIS_L1');
+    expect(fin!.debtRatio).toBe(70);
+  });
+
+  it('ADR-0655: roe_val 가용 시 profit-ratio 추가 호출 없음 (호출 빈도 합리적 유지)', async () => {
+    process.env.KIS_APP_KEY = 'k';
+    process.env.KIS_APP_SECRET = 's';
+    let profitRatioCalls = 0;
+    setKisClientOverrides({
+      realDataKisGet: async (trId: string) => {
+        if (trId === 'FHKST66430400') { profitRatioCalls += 1; return { output: [{ self_cptl_ntin_inrt: '8.4' }] }; }
+        if (trId === 'FHKST66430300') return { output: [{ roe_val: '15.2', lblt_rate: '40' }] };
+        if (trId === 'FHKST66430600') return { output: [{ crnt_rate: '180' }] };
+        return { output: [{ sale_account: '500', op_prfi: '60' }] };
+      },
+    });
+    const fin = await getKisFinancials('005930');
+    expect(fin!.roe).toBe(15.2);
+    expect(profitRatioCalls).toBe(0);
+  });
+
   it('returns null when both finance endpoints yield no rows', async () => {
     process.env.KIS_APP_KEY = 'k';
     process.env.KIS_APP_SECRET = 's';
