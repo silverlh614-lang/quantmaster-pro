@@ -43,12 +43,15 @@ export const FORBIDDEN_PROXY_PATHS: ReadonlySet<string> = new Set([
  * 클라이언트 위에서 위 TR 을 명시적으로 지정해 호출하는 경우 차단.
  */
 export const FORBIDDEN_TR_IDS: ReadonlySet<string> = new Set([
-  // 매수 (실/모의)
+  // 구 스킴 (KRX 전용) — 매수/매도/정정취소 (실/모의)
   'TTTC0802U', 'VTTC0802U',
-  // 매도 (실/모의)
   'TTTC0801U', 'VTTC0801U',
-  // 정정/취소 (실/모의)
   'TTTC0803U', 'VTTC0803U',
+  // 신 스킴 (KRX+NXT 통합, ADR-0653/0654) — 매수=...12U / 매도=...11U / 정정취소=...13U.
+  // ⚠️ 신스킴 default-ON 이라 구 스킴만 막으면 클라이언트가 신 TR 로 우회 가능 → 동반 차단 필수.
+  'TTTC0012U', 'VTTC0012U',
+  'TTTC0011U', 'VTTC0011U',
+  'TTTC0013U', 'VTTC0013U',
 ]);
 
 /**

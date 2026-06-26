@@ -9,11 +9,12 @@ export const KIS_IS_REAL = process.env.KIS_IS_REAL === 'true';
 export const KIS_BASE    = KIS_IS_REAL
   ? 'https://openapi.koreainvestment.com:9443'
   : 'https://openapivts.koreainvestment.com:29443';
-// ─── 국내 주문 TR_ID 스킴 (ADR-0653) ──────────────────────────────────────────
+// ─── 국내 주문 TR_ID 스킴 (ADR-0653 도입 / ADR-0654 default-ON flip) ───────────
 // 구 스킴 = KRX 전용(하위호환 동작). 신 스킴 = KRX+NXT 통합(2025 Nextrade 도입).
-// flag default OFF → 구 스킴 = byte-equivalent. ON 활성화는 VTS(모의) 회귀 + 운영자 승인 후.
+// default ON(미설정/임의값=신스킴) — 운영자 silverlh614 승인(ADR-0654). ADR-0157 거울.
+// kill-switch: ENV `KIS_ORDER_TR_NXT_SCHEME_ENABLED=false` 1줄로 구 스킴 즉시 롤백.
 export const KIS_ORDER_TR_NXT_SCHEME_ENABLED =
-  process.env.KIS_ORDER_TR_NXT_SCHEME_ENABLED === 'true';
+  process.env.KIS_ORDER_TR_NXT_SCHEME_ENABLED !== 'false';
 
 // ⚠️ swap 함정 동결: 신스킴 매수=...12U / 매도=...11U
 //    (구스킴 매수=...02U / 매도=...01U 와 끝자리가 반대 — 끝자리 직관 유추 시 매수↔매도 오라우팅).

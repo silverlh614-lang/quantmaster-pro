@@ -104,6 +104,21 @@ describe('kisProxyPolicy — PR-42 M2', () => {
       expect(r.action).toBe('reject');
       expect(r.httpStatus).toBe(403);
     });
+
+    // ADR-0654: 신스킴(KRX+NXT 통합) default-ON 이라 신 주문 TR 도 동반 차단되어야 우회 불가.
+    it.each(['TTTC0012U', 'VTTC0012U', 'TTTC0011U', 'VTTC0011U', 'TTTC0013U', 'VTTC0013U'])(
+      '신스킴 주문 TR %s 도 차단 (우회 방지)',
+      (trId) => {
+        const r = evaluateProxyPolicy({
+          method: 'POST',
+          path: '/uapi/domestic-stock/v1/trading/inquire-balance',
+          trId,
+        });
+        expect(r.action).toBe('reject');
+        expect(r.httpStatus).toBe(403);
+        expect(r.reason).toContain('주문/취소');
+      },
+    );
   });
 
   describe('reject — 입력 검증', () => {
