@@ -121,6 +121,22 @@ async function fetchFinanceRow(
 }
 
 /**
+ * ADR-0655 — ROE(financial-ratio roe_val) 결손 시에만 profit-ratio 자기자본순이익율(self_cptl_ntin_inrt)로
+ * 보강(best-effort). roe_val 가용 시 추가 호출 0 — 심볼당 과다 호출 방지. 단일 통로(fetchFinanceRow→realDataKisGet) 유지.
+ */
+async function resolveRoeWithFallback(
+  ratioRow: Record<string, unknown> | null,
+  symbol: string,
+): Promise<{ roe: number | null; roeSource: KisFinanceFieldSource }> {
+  const roe = cleanNumber(ratioRow?.roe_val);
+  if (roe != null) return { roe, roeSource: 'KIS_L1' };
+  const profitRow = await fetchFinanceRow(PROFIT_RATIO, symbol, 'GATE2_KIS_PROFIT_RATIO').catch(() => null);
+  const fallbackRoe = cleanNumber(profitRow?.self_cptl_ntin_inrt);
+  if (fallbackRoe != null) return { roe: fallbackRoe, roeSource: 'KIS_L1' };
+  return { roe: null, roeSource: 'UNAVAILABLE' };
+}
+
+/**
  * 종목코드로 KIS 재무 핵심 지표 조회 (전년도 연간, financial-ratio + income-statement).
  * KIS_APP_KEY/SECRET 미설정 또는 조회 실패 시 null. 24h 캐시.
  */
@@ -145,18 +161,8 @@ export async function getKisFinancials(stockCode: string): Promise<KisFinancials
     const revenueYoYGrowth = cleanNumber(ratioRow?.grs);
     const operatingIncomeYoYGrowth = cleanNumber(ratioRow?.bsop_prfi_inrt);
 
-    // ADR-0655 — ROE(financial-ratio roe_val) 결손 시에만 profit-ratio 자기자본순이익율(self_cptl_ntin_inrt)로
-    // 보강(best-effort). roe_val 가용 시 추가 호출 0 — 심볼당 과다 호출 방지.
-    let roe = cleanNumber(ratioRow?.roe_val);
-    let roeSource: KisFinanceFieldSource = roe != null ? 'KIS_L1' : 'UNAVAILABLE';
-    if (roe == null) {
-      const profitRow = await fetchFinanceRow(PROFIT_RATIO, symbol, 'GATE2_KIS_PROFIT_RATIO').catch(() => null);
-      const fallbackRoe = cleanNumber(profitRow?.self_cptl_ntin_inrt);
-      if (fallbackRoe != null) {
-        roe = fallbackRoe;
-        roeSource = 'KIS_L1';
-      }
-    }
+    // ADR-0655 — ROE 결손 시 profit-ratio 보강(헬퍼 추출, 동작 무변경).
+    const { roe, roeSource } = await resolveRoeWithFallback(ratioRow, symbol);
 
     const result: KisFinancials = {
       symbol,
