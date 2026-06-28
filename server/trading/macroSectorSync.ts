@@ -36,6 +36,7 @@ import { fetchCloses } from './marketDataRefresh.js';
 import { MACRO_SYNC_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadPrevRegime, savePrevRegime } from '../learning/learningState.js';
 import { calibrateByRegimeSingle } from '../learning/incrementalCalibrator.js';
+import { evaluateRegimeDwell, resolveRegimeDwellConfirmTicks } from './regime/regimeSwitchDwell.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import fs from 'fs';
 
@@ -78,6 +79,9 @@ export interface MacroSyncState {
   conservativeModeActivatedAt: string | null;
   lastAlignmentScore: number;
   consecutiveMisalignments: number;  // 연속 불일치 횟수
+  // 레짐 전환 dwell(연속확인) 게이트 상태 — flapping 억제 (regimeSwitchDwell.ts).
+  pendingRegime?: string | null;     // 확정 대기 중인 후보 레짐
+  pendingRegimeCount?: number;       // 후보 연속 관측 tick 수
 }
 
 // ── 상태 영속화 ───────────────────────────────────────────────────────────────
@@ -379,6 +383,9 @@ export async function initMacroSyncDayOpen(): Promise<void> {
   syncState.consecutiveMisalignments = 0;
   syncState.lastCheckAt = null;
   syncState.conservativeModeActivatedAt = null;
+  // 레짐 dwell 후보는 일별 리셋 — 전날 미확정 후보를 밤새 이월하지 않는다.
+  syncState.pendingRegime = null;
+  syncState.pendingRegimeCount = 0;
 
   // 보수 모드 초기화 (일별 리셋)
   setVixConservativeMode(false);
@@ -436,20 +443,50 @@ export async function macroSectorAlignmentCheck(): Promise<void> {
     const currRegime = updatedMacro ? resolveCanonicalRegimeLevel(updatedMacro) : null;
     const prevRegime = loadPrevRegime();
     if (currRegime && prevRegime && prevRegime !== currRegime) {
-      savePrevRegime(currRegime);
-      console.log(`[MacroSync] 레짐 전환 감지: ${prevRegime} → ${currRegime}`);
-      // 상태 저장이 완전히 반영되도록 30초 지연 후 단일 레짐만 재보정
-      setTimeout(() => {
-        calibrateByRegimeSingle(currRegime)
-          .then(() =>
-            sendTelegramAlert(
-              `🔄 <b>[레짐 전환 학습]</b> ${prevRegime} → ${currRegime}\n` +
-              `해당 레짐 가중치 즉시 재보정 완료`,
-              { priority: 'HIGH', dedupeKey: `regime_switch:${prevRegime}->${currRegime}` },
-            ).catch(console.error),
-          )
-          .catch((e) => console.error('[MacroSync] 레짐 전환 재보정 실패:', e));
-      }, 30_000);
+      // dwell 게이트 — 후보 레짐이 연속 N tick 유지될 때만 전환 확정(flapping 억제).
+      // SourceSnapshot/effectiveRegime 은 건드리지 않는다(이미 resolveCanonicalRegimeLevel 로
+      // 매 스캔 즉시 갱신). 본 디바운스는 알림 + calibrateByRegimeSingle 발사 시점만 지연한다.
+      const dwellTicks = resolveRegimeDwellConfirmTicks();
+      const dwell = evaluateRegimeDwell(
+        prevRegime,
+        currRegime,
+        {
+          pendingRegime: syncState.pendingRegime ?? null,
+          pendingRegimeCount: syncState.pendingRegimeCount ?? 0,
+        },
+        dwellTicks,
+      );
+      syncState.pendingRegime = dwell.nextPending;
+      syncState.pendingRegimeCount = dwell.nextPendingCount;
+      saveMacroSyncState(syncState);
+
+      if (dwell.confirmed) {
+        savePrevRegime(currRegime);
+        console.log(`[MacroSync] 레짐 전환 확정(dwell ${dwellTicks}tick): ${prevRegime} → ${currRegime}`);
+        // 상태 저장이 완전히 반영되도록 30초 지연 후 단일 레짐만 재보정
+        setTimeout(() => {
+          calibrateByRegimeSingle(currRegime)
+            .then(() =>
+              sendTelegramAlert(
+                `🔄 <b>[레짐 전환 학습]</b> ${prevRegime} → ${currRegime}\n` +
+                `해당 레짐 가중치 즉시 재보정 완료`,
+                { priority: 'HIGH', dedupeKey: `regime_switch:${prevRegime}->${currRegime}` },
+              ).catch(console.error),
+            )
+            .catch((e) => console.error('[MacroSync] 레짐 전환 재보정 실패:', e));
+        }, 30_000);
+      } else {
+        console.log(
+          `[MacroSync] 레짐 전환 후보 관찰 중(dwell ${dwell.nextPendingCount}/${dwellTicks}): ${prevRegime} → ${currRegime}`,
+        );
+      }
+    } else if (currRegime && prevRegime && prevRegime === currRegime) {
+      // 후보가 확정 전 원래 레짐으로 원복 → 후보 폐기(진동 1회 무효화).
+      if (syncState.pendingRegime != null || (syncState.pendingRegimeCount ?? 0) !== 0) {
+        syncState.pendingRegime = null;
+        syncState.pendingRegimeCount = 0;
+        saveMacroSyncState(syncState);
+      }
     } else if (currRegime && !prevRegime) {
       // 첫 실행 — 비교 기준만 저장
       savePrevRegime(currRegime);
