@@ -376,6 +376,25 @@ export async function runTier1(now = new Date()): Promise<HealthLoopState> {
       { priority: 'NORMAL' },
       now,
     );
+    // Master Tier 4 self-heal — fallback 탈출 시 master_tier4_enter 미확인 T1 ack 자동 해소.
+    // KIS 토큰 self-heal(2026-06-11)과 동형 패턴: 조건이 스스로 회복(정상 source 복구)했는데
+    // 운영자가 [확인]을 안 눌러 sweepPendingAcks 재발송·에스컬레이션(ack_escalate)이 반복되던
+    // false-positive 차단. master_tier4_enter 는 CRITICAL(T1)이라 ack 가 등록돼 있다.
+    // dedupeKey 형태(alertOnce): `health_loop:master_tier4_enter:<YMD>`.
+    // 회복 메시지는 위 master_tier4_exit alertOnce 가 이미 1건 발송 — 별도 가시화 알림 불필요.
+    // idempotent(해소 대상 없으면 no-op).
+    try {
+      const { autoResolvePendingAcks } = await import('../alerts/ackTracker.js');
+      await autoResolvePendingAcks(
+        (e) => (e.dedupeKey ?? '').includes('master_tier4_enter'),
+        'Master Tier 4 회복 — 조건 회복',
+      );
+    } catch (e) {
+      console.warn(
+        '[HealthLoop] Master Tier 4 ack 자동 해소 실패:',
+        e instanceof Error ? e.message : e,
+      );
+    }
   }
   state.masterTier4Active = master.isFallback;
 
