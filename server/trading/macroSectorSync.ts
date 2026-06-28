@@ -37,6 +37,7 @@ import { MACRO_SYNC_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadPrevRegime, savePrevRegime } from '../learning/learningState.js';
 import { calibrateByRegimeSingle } from '../learning/incrementalCalibrator.js';
 import { evaluateRegimeDwell, resolveRegimeDwellConfirmTicks } from './regime/regimeSwitchDwell.js';
+import { resolveVixConservativeThresholds, resolveVixConservativeTransition } from './regime/vixConservativeHysteresis.js';
 import { safePctChange } from '../utils/safePctChange.js';
 import fs from 'fs';
 
@@ -272,7 +273,16 @@ async function handleVixSpike(
 ): Promise<void> {
   const wasConservative = getVixConservativeMode();
 
-  if (result.vixSpikeDetected && !wasConservative) {
+  // 히스테리시스(Schmitt trigger) — 진입(≥on)/해제(<off) 임계 분리로 +3% 경계 토글 억제.
+  // [off, on) 밴드·데이터 부재(null)는 HOLD. vixSpikeDetected(점수 감점용 ≥3)는 그대로 둔다.
+  const thresholds = resolveVixConservativeThresholds();
+  const transition = resolveVixConservativeTransition(
+    result.layerSnapshot.macro.vixIntradayChangePct,
+    wasConservative,
+    thresholds,
+  );
+
+  if (transition === 'ENTER') {
     // ── 보수 모드 진입 ──────────────────────────────────────────────────
     setVixConservativeMode(true);
     syncState.conservativeModeActivatedAt = new Date().toISOString();
@@ -296,9 +306,9 @@ async function handleVixSpike(
       { priority: 'HIGH', tier: 'T2_REPORT', dedupeKey: 'vix-conservative-on' },
     ).catch(console.error);
 
-    console.log(`[MacroSync] VIX 급등 감지 — 보수 모드 활성화 (VIX +${macro.vixIntradayChangePct?.toFixed(1)}%)`);
+    console.log(`[MacroSync] VIX 급등 감지 — 보수 모드 활성화 (VIX +${macro.vixIntradayChangePct?.toFixed(1)}%, on≥${thresholds.on}%)`);
 
-  } else if (!result.vixSpikeDetected && wasConservative) {
+  } else if (transition === 'EXIT') {
     // ── 보수 모드 해제 ──────────────────────────────────────────────────
     setVixConservativeMode(false);
     syncState.conservativeModeActivatedAt = null;
