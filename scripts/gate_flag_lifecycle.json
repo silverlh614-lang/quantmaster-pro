@@ -133,6 +133,17 @@
       "activationCriteria": "재무 위험종목(ICR<1 이자 미충당 / 부채비율>200% 과다) 강등이 Gate2 통과 종목의 forward-outcome(부도/급락 회피율)을 개선하는지 shadow 관측 + 운영자 승인. 임계(ICR<1·부채>200%)는 ADR-0655 §임계근거로 고정 — flip 후 ROC 로 재보정 가능. 현 engineMode=SHADOW_ONLY 라 live 주문 0 안전창에서 default-ON flip.",
       "nextAction": "ADR-0656 flip 완료 — default ON(opt-OUT `!== 'false'`, ADR-0157 거울·ADR-0645/0647/0649 동일 패턴), 운영자 승인. 회귀/강등 과다 시 explicit GATE2_FINANCIAL_RISK_PENALTY_ENABLED=false 1줄 kill-switch 롤백. shadow forward-outcome 으로 강등 타당성 지속 관측.",
       "notes": "SSOT isGate2FinancialRiskPenaltyEnabled() gateConfig.ts 거주. 2026-06-26 ADR-0656 으로 default OFF→ON flip(opt-OUT `!== 'false'`, ADR-0157 거울 — 미설정/임의값 ON·explicit `=false` 만 OFF kill-switch). 게이트 대상: gate2ConfluenceScore.buildFundamentalAxis FUNDAMENTAL_QUALITY score-cap(별도 순수 모듈 gate2FinancialRiskPenaltyAdr0655.ts). 입력 = 기존 Gate2ExternalProjection.stability.{icr,debtRatio}(ADR-0529 canonical merge) 재사용·신규 fetch 0. ICR 은 KIS 미가용(이자비용 bsop_non_expn 비분리)이라 DART 잔존(L2) 머지에서만 — debtRatio 는 KIS stability-ratio lblt_rate(L1). OFF(=false kill-switch)=byte-identical(cap 미적용). ON+위험 trigger 0=byte-identical(scoreCap=null). 임계 결손(ICR/부채 null)=페널티 미적용 graceful(결손≠위험≠bearish). entryHardBlock=false(점수 cap 만·Gate2 pass 는 coverageAdjustedScore 로만 판정)·marketSignal=false·executionImpact=NONE(불변식 #6). requiredScore=70·ADR-0471 Gate1 곡선·ADR-0532 KIS primary 무접촉. 현 engineMode=SHADOW_ONLY 라 live 주문 0."
+    },
+    {
+      "envFlag": "INTRADAY_MOVER_CANDIDATE_SOURCE_ENABLED",
+      "adr": "0657",
+      "title": "Intraday-Mover Candidate Source (신선 screener 당일 상위 → candidate pool 주입)",
+      "introduced": "2026-06-29",
+      "reviewBy": "2026-09-27",
+      "status": "ON",
+      "activationCriteria": "ADR-0652 leader endpoint 정정으로 복원된 동적 유니버스(218)가 Gate 평가 candidate 풀에 진입 못하던 leader→candidate 배선 갭. 운영자 ENV=true 로 운영 검증 후 default-ON flip — /scan_blockers 실측에서 INTRADAY_MOVER 주입·주도주 candidate 진입·paper observational 생성 확인. engineMode=SHADOW_ONLY 라 live 주문 0 안전창.",
+      "nextAction": "ADR-0657 flip 완료 — default ON(opt-OUT `!== 'false'`, ADR-0157 거울·ADR-0649/0652 동일 패턴), 운영자 /scan_blockers 검증(INTRADAY_MOVER=31·삼성전자/SK하이닉스 candidate 진입·paperObservational 16). 회귀/풀 폭주 시 explicit INTRADAY_MOVER_CANDIDATE_SOURCE_ENABLED=false 1줄 kill-switch 롤백. 하류(Gate1 임계·SHADOW_ONLY)는 별도 forward-outcome 관측.",
+      "notes": "SSOT isIntradayMoverCandidateSourceEnabled() intradayMoverCandidateSource.ts 거주. 2026-06-29 ADR-0657 으로 default OFF→ON flip(opt-OUT `!== 'false'`, ADR-0157 거울 — 미설정/임의값 ON·explicit `=false` 만 OFF kill-switch). collectIntradayMoverCandidates() 가 getScreenerCache() changeRate 내림차순 상위 N(INTRADAY_MOVER_MAX_INJECT 기본 20·상한 50)을 buildCandidatePool intradayMovers 슬롯에 INTRADAY_MOVER 소스로 주입. 신규 fetch 0(캐시 read 만·ADR-0561). 채점/임계 우회 0 — Gate0~3+requiredScore70 그대로 적용(품질 필터 우회 아님·불변식 #7). OFF(=false kill-switch)=구 byte-identical([] 반환·getScreenerCache 미호출). 빈/실패 캐시=graceful [](불변식 #1·#6). executionImpact=NONE(발굴 풀 구성만·SourceSnapshot/autoTradeEngine/buyPipeline 무접촉)·현 engineMode=SHADOW_ONLY 라 live 주문 0."
     }
   ]
 }
