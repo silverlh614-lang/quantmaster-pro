@@ -438,6 +438,12 @@ export function buildRouteResultAdr0477(
     usableForLive: false,
     usableForShadow: true,
     scoreUsage: 'SHADOW_ONLY',
+    // ADR-0657 — 추정수급 SHADOW-only fallback 분류 필드는 flag ON(acc 가 set) 일 때만 emit.
+    // flag OFF 면 acc 미설정 → 전부 unset(undefined) = byte-identical. selectedProvider/CORE 무영향.
+    ...(acc.estimateShadowFallbackUsed !== undefined ? { estimateShadowFallbackUsed: acc.estimateShadowFallbackUsed } : {}),
+    ...(acc.estimateProvider !== undefined ? { estimateProvider: acc.estimateProvider } : {}),
+    ...(acc.estimateUseScope !== undefined ? { estimateUseScope: acc.estimateUseScope } : {}),
+    ...(acc.estimateConfidence !== undefined ? { estimateConfidence: acc.estimateConfidence } : {}),
     inferredSymbolMatched: !selectedSemanticNetBuy?.code && Boolean(input.code),
     selectedProvider: acc.selectedProvider,
     providerTried,

@@ -133,6 +133,17 @@
       "activationCriteria": "재무 위험종목(ICR<1 이자 미충당 / 부채비율>200% 과다) 강등이 Gate2 통과 종목의 forward-outcome(부도/급락 회피율)을 개선하는지 shadow 관측 + 운영자 승인. 임계(ICR<1·부채>200%)는 ADR-0655 §임계근거로 고정 — flip 후 ROC 로 재보정 가능. 현 engineMode=SHADOW_ONLY 라 live 주문 0 안전창에서 default-ON flip.",
       "nextAction": "ADR-0656 flip 완료 — default ON(opt-OUT `!== 'false'`, ADR-0157 거울·ADR-0645/0647/0649 동일 패턴), 운영자 승인. 회귀/강등 과다 시 explicit GATE2_FINANCIAL_RISK_PENALTY_ENABLED=false 1줄 kill-switch 롤백. shadow forward-outcome 으로 강등 타당성 지속 관측.",
       "notes": "SSOT isGate2FinancialRiskPenaltyEnabled() gateConfig.ts 거주. 2026-06-26 ADR-0656 으로 default OFF→ON flip(opt-OUT `!== 'false'`, ADR-0157 거울 — 미설정/임의값 ON·explicit `=false` 만 OFF kill-switch). 게이트 대상: gate2ConfluenceScore.buildFundamentalAxis FUNDAMENTAL_QUALITY score-cap(별도 순수 모듈 gate2FinancialRiskPenaltyAdr0655.ts). 입력 = 기존 Gate2ExternalProjection.stability.{icr,debtRatio}(ADR-0529 canonical merge) 재사용·신규 fetch 0. ICR 은 KIS 미가용(이자비용 bsop_non_expn 비분리)이라 DART 잔존(L2) 머지에서만 — debtRatio 는 KIS stability-ratio lblt_rate(L1). OFF(=false kill-switch)=byte-identical(cap 미적용). ON+위험 trigger 0=byte-identical(scoreCap=null). 임계 결손(ICR/부채 null)=페널티 미적용 graceful(결손≠위험≠bearish). entryHardBlock=false(점수 cap 만·Gate2 pass 는 coverageAdjustedScore 로만 판정)·marketSignal=false·executionImpact=NONE(불변식 #6). requiredScore=70·ADR-0471 Gate1 곡선·ADR-0532 KIS primary 무접촉. 현 engineMode=SHADOW_ONLY 라 live 주문 0."
+    },
+    {
+      "envFlag": "KIS_INVESTOR_TREND_ESTIMATE_SHADOW_FALLBACK_ENABLED",
+      "adr": "0657",
+      "title": "KIS Investor-Trend Estimate (HHPTJ04160200) SHADOW-grade Fallback in ADR-0477 Router",
+      "introduced": "2026-06-29",
+      "reviewBy": "2026-09-27",
+      "status": "SHADOW_OFF",
+      "activationCriteria": "일별 수급(FHPTJ04160001) 미정산 shadow-only 행(09:26 실측 10/46)에 estimate-grade(저신뢰) SHADOW sample 을 채운 효과 — shadow/counterfactual 표본 분포 enrich 가 forward-outcome 귀인 정밀도를 높이는지 N세션 관측 + 운영자 승인. 추정수급은 L4(불변식 #7) 라 live 절대 미진입·gate-score 미진입이므로 저위험이나, shadow 표본 분포 변화라 데이터 검증 후 flip. flip 후에도 selectedProvider 승격은 영구 금지(SHADOW-only 한정·ADR-0561).",
+      "nextAction": "운영자 ENV `=true` 활성 → 라우터가 estimate 로 채운 shadow-only 행 수·confidence 분포 관측 → estimate-grade 귀인 유효성 확인 → 유지(SHADOW-only 영구) 또는 sunset 결정. selectedProvider 승격 ADR 은 발급 금지(불변식 #7).",
+      "notes": "SSOT isKisInvestorTrendEstimateShadowFallbackEnabled() gateConfig.ts 거주(opt-IN `=== 'true'` default OFF·ADR-0157). 게이트 대상: ADR-0477 routeBuilder providerTried 체인에 KIS_INVESTOR_TREND_ESTIMATE 인지 + routeBlocks 신규 applyKisInvestorTrendEstimateBlockAdr0657(일별 미정산 shadow-only 행 estimate 채움). 입력 = 기존 kisOfficialSupplyPack.investorFlowEstimate(이미 수집·confidence ESTIMATED) 재사용·신규 KIS 호출 0·quota 0. OFF(미설정·=false)=byte-identical(providerTried 체인 무변경·estimate 미인지·estimate 필드 unset). ON+일별(FHPTJ04160001) 가용=일별 우선 estimate 미사용(ADR-0561 KIS primary). ON+일별 미정산+estimate 가용=shadow-only 행 채움(useForLive=false·useForGate(live)=false·useForShadow=true·estimateUseScope='SHADOW_ONLY_ESTIMATE'·estimateConfidence='LOW'·selectedProvider 무변경). ON+estimate 미가용=graceful null(결손≠bearish·UNKNOWN 보존·불변식 #6). 추정수급은 selectedProvider/selectedCandidate/actualInvestorRow CORE 결정 입력 진입 영구 금지(불변식 #7). executionImpact=NONE·marketSignal=false·liveExecutionAllowed=false. SourceSnapshot 생성기·autoTradeEngine·kisClient 주문·Gate1 곡선/requiredScore=70·KIS primary 일별수급 선택로직·src/** 무접촉. 라우터/스캔/Gate/Shadow 정지 0(try/catch 격리·불변식 #1/#2)."
     }
   ]
 }

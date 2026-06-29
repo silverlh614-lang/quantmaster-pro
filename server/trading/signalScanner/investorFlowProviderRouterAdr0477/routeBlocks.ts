@@ -54,6 +54,11 @@ import {
   semanticNetBuyDiagnosticCandidate,
   semanticNetBuyFreshCandidate,
 } from './semanticAdapters.js';
+import { isKisInvestorTrendEstimateShadowFallbackEnabled } from '../../gateConfig.js';
+import {
+  buildKisInvestorTrendEstimateShadowSampleAdr0657,
+  readKisInvestorTrendEstimateInputAdr0657,
+} from './kisInvestorTrendEstimateAdapterAdr0657.js';
 
 /**
  * 함수-스코프 mutable 지역상태를 단일 참조 객체로 보유. scalar 는 프로퍼티, 누적 객체/배열은 참조.
@@ -86,6 +91,14 @@ export interface RouteAccumulatorAdr0477 {
   selectedActualNumericStringFieldKeys: string[];
   selectedActualPlaceholderFieldKeys: string[];
   selectedActualWrapperOnly: boolean;
+  /**
+   * ADR-0657 — KIS 추정수급 SHADOW-only fallback 분류 상태. flag OFF/미적용 시 전부 unset(undefined) →
+   * routeResultBuilder 가 result 필드를 emit 하지 않아 byte-identical. selectedProvider/CORE 결정 무영향.
+   */
+  estimateShadowFallbackUsed?: boolean;
+  estimateProvider?: 'KIS_INVESTOR_TREND_ESTIMATE' | null;
+  estimateUseScope?: 'SHADOW_ONLY_ESTIMATE';
+  estimateConfidence?: 'LOW' | 'NONE';
 }
 
 /**
@@ -576,5 +589,67 @@ export function applyFssAndFlagsBlockAdr0477(
     providerTried.push('FSS');
     acc.providerStatuses.FSS = acc.providerStatuses.FSS ?? 'STALE';
     acc.diagnostics.push(`FSS source stale ${input.fssSourceAgeTradingDays} trading days; diagnostic only.`);
+  }
+}
+
+/**
+ * ADR-0657 — KIS 추정수급(HHPTJ04160200) SHADOW-only fallback 블록.
+ * flag OFF 면 즉시 return → 0 mutation(byte-identical). ON 이어도:
+ *   - 일별 수급(FHPTJ04160001) 가 materialized(정산) 면 미적용(ADR-0561 정산 일별 > 추정).
+ *   - 일별 미정산(shadow-only) + estimate 가용일 때만 estimate 분류 필드 채움.
+ *   - estimate 미가용이면 graceful(채우지 않음 · 결손 ≠ bearish · UNKNOWN 보존, 불변식 #6).
+ * selectedProvider/selectedCandidate/actualInvestorRow CORE 결정 무변경 · marketSignal=false ·
+ * useForLive=false(불변식 #7). try/catch 로 격리(불변식 #1·#2 — 라우터/Shadow 정지 0).
+ * providerTried 체인 편입은 routeBuilder 가 flag-gated 로 수행(본 블록은 분류 필드만).
+ */
+export function applyKisInvestorTrendEstimateBlockAdr0657(
+  acc: RouteAccumulatorAdr0477,
+  input: InvestorFlowProviderRouterInput,
+  prologue: RoutePrologueAdr0477,
+): void {
+  if (!isKisInvestorTrendEstimateShadowFallbackEnabled()) return;
+  try {
+    // 일별 수급(FHPTJ04160001) 정산 여부 — materialized 면 primary(추정 미적용, ADR-0561).
+    const dailyMaterialized = acc.materializationDiagnostics.KIS_INVESTOR?.sampleMaterialized === true
+      || acc.providerStatuses.KIS_API === 'VERIFIED'
+      || acc.providerStatuses.KIS_API === 'PARTIAL';
+    const estimate = readKisInvestorTrendEstimateInputAdr0657(input);
+    const estimateSample = dailyMaterialized
+      ? null
+      : buildKisInvestorTrendEstimateShadowSampleAdr0657(estimate, { code: input.code, collectedAt: prologue.collectedAt });
+
+    if (dailyMaterialized) {
+      acc.estimateShadowFallbackUsed = false;
+      acc.estimateProvider = null;
+      acc.estimateConfidence = 'NONE';
+      acc.diagnostics.push('[ADR-0657] KIS daily investor-flow(FHPTJ04160001) materialized; estimate(HHPTJ04160200) NOT used (ADR-0561 daily>estimate); selectedProvider unchanged; executionImpact=NONE.');
+      return;
+    }
+
+    if (!estimateSample) {
+      // estimate 미가용 — graceful null. 결손은 bearish 가 아니다(불변식 #6) — UNKNOWN 보존.
+      acc.estimateShadowFallbackUsed = false;
+      acc.estimateProvider = null;
+      acc.estimateConfidence = 'NONE';
+      acc.diagnostics.push('[ADR-0657] KIS investor-trend estimate unavailable on daily-unsettled row; graceful null; estimate deficit is not bearish; UNKNOWN preserved; selectedProvider unchanged; executionImpact=NONE.');
+      return;
+    }
+
+    // 일별 미정산 + estimate 가용 — SHADOW-only fallback 으로 해당 행 채움(selectedProvider 무변경).
+    acc.samplesByProvider.KIS_INVESTOR_TREND_ESTIMATE = estimateSample;
+    acc.providerStatuses.KIS_INVESTOR_TREND_ESTIMATE = estimateSample.status;
+    acc.providerReasons.KIS_INVESTOR_TREND_ESTIMATE = 'ADR-0657 KIS estimate(HHPTJ04160200) SHADOW-only fallback on daily-unsettled row; useForLive=false; useForGate=false; useForShadow=true; confidence=LOW; selectedProviderCandidate=false; marketSignal=false; executionImpact=NONE.';
+    acc.estimateShadowFallbackUsed = true;
+    acc.estimateProvider = 'KIS_INVESTOR_TREND_ESTIMATE';
+    acc.estimateUseScope = 'SHADOW_ONLY_ESTIMATE';
+    acc.estimateConfidence = 'LOW';
+    acc.diagnostics.push(`[ADR-0657] KIS estimate SHADOW-only fallback used on daily-unsettled row; foreignNetBuy=${estimateSample.foreignNetBuy ?? 'null'} institutionNetBuy=${estimateSample.institutionNetBuy ?? 'null'} useScope=SHADOW_ONLY_ESTIMATE confidence=LOW useForLive=false; selectedProvider unchanged; executionImpact=NONE.`);
+  } catch (error) {
+    /* SDS-ignore: 불변식 #1·#2 — estimate(SHADOW-only) 블록 실패가 라우터/Shadow 를 정지시키면 안 된다.
+       에러 사유는 아래 acc.diagnostics.push 로 보존(진단 가시화)하고 격리한다(swallow 아님). */
+    acc.estimateShadowFallbackUsed = false;
+    acc.estimateProvider = null;
+    acc.estimateConfidence = 'NONE';
+    acc.diagnostics.push(`[ADR-0657] estimate block error isolated (router live preserved); reason=${error instanceof Error ? error.message : String(error)}; selectedProvider unchanged; executionImpact=NONE.`);
   }
 }

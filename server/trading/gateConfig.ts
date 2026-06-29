@@ -389,3 +389,30 @@ export function isLeaderRankingEndpointFixEnabled(): boolean {
 export function isGate2FinancialRiskPenaltyEnabled(): boolean {
   return process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED !== 'false';
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADR-0657 — KIS 추정수급(HHPTJ04160200) ADR-0477 라우터 SHADOW-only fallback 활성 스위치
+//            (default OFF / SHADOW_OFF)
+//
+// 일별 수급(FHPTJ04160001)이 미정산이라 라우터가 수급 row 를 못 채운 shadow-only 행(09:26 실측 10/46)에,
+// 이미 수집된 kisOfficialSupplyPack.investorFlowEstimate(추정-grade)를 SHADOW-only fallback 후보로 공급한다.
+//
+// 절대 제약:
+//   - 불변식 #7: 추정(L4)은 live execution 절대 금지 → useForLive=false·useForGate(live)=false·useForShadow=true.
+//   - 불변식 #6: 추정 ≠ marketSignal → marketSignal=false·executionImpact=NONE·결손 시 UNKNOWN 보존.
+//   - ADR-0561: 정산 일별(FHPTJ04160001) > 추정 — 일별 가용 시 estimate 미사용. selectedProvider 무변경.
+//
+// OFF(미설정·=false)=byte-identical(providerTried 체인 무변경·estimate 미인지). 신규 KIS 호출 0(재사용).
+// ENV 1줄 즉시 롤백. flip 은 estimate-grade shadow 표본 분포 N세션 관측 + 운영자 승인 선행(ADR-0146/0641).
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * KIS 추정수급 SHADOW-only fallback 활성 스위치. default OFF (ADR-0157 opt-IN `=== 'true'`).
+ * 미설정·임의값 = OFF, 정확히 `'true'` 만 활성. ENV 1줄 즉시 byte-identical 롤백.
+ * 게이트 대상: ADR-0477 라우터 providerTried 체인 estimate(KIS_INVESTOR_TREND_ESTIMATE) 인지 +
+ * 일별 미정산 shadow-only 행 estimate 채움(useForLive=false·SHADOW_ONLY_ESTIMATE).
+ * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다. selectedProvider 무변경·불변식 #6/#7·ADR-0561.
+ */
+export function isKisInvestorTrendEstimateShadowFallbackEnabled(): boolean {
+  return process.env.KIS_INVESTOR_TREND_ESTIMATE_SHADOW_FALLBACK_ENABLED === 'true';
+}

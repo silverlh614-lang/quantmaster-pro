@@ -18,6 +18,8 @@ import { buildSanitizedInvestorFlowSemanticRow, hasActualInvestorNumericRow, nor
 export type InvestorFlowProviderId =
   | 'KIS'
   | 'KIS_API'
+  // ADR-0657 — KIS 추정수급(HHPTJ04160200) SHADOW-only fallback. selectedProvider 로 승격 금지(불변식 #7·ADR-0561).
+  | 'KIS_INVESTOR_TREND_ESTIMATE'
   | 'KRX'
   | 'KRX_INVESTOR_FLOW'
   | 'KRX_SYMBOL_INVESTOR_FLOW'
@@ -139,6 +141,18 @@ export interface InvestorFlowProviderRouteResult {
   usableForLive?: false;
   usableForShadow?: true;
   scoreUsage?: 'SHADOW_ONLY';
+  /**
+   * ADR-0657 — KIS 추정수급(HHPTJ04160200) SHADOW-only fallback 분류 필드 (additive · optional).
+   * flag OFF(KIS_INVESTOR_TREND_ESTIMATE_SHADOW_FALLBACK_ENABLED 미설정) 시 전부 unset = byte-identical.
+   * 추정수급은 selectedProvider/selectedCandidate/actualInvestorRow CORE 결정 입력에 진입하지 않는다 —
+   * 일별 수급(FHPTJ04160001) 미정산 shadow-only 행을 추정-grade(저신뢰)로만 채운다.
+   * 불변식 #7(L4 live 금지)·#6(추정≠marketSignal)·ADR-0561(정산 일별 > 추정) 보존:
+   *   useForLive=false · useForGate(live)=false · useForShadow=true · executionImpact='NONE'.
+   */
+  estimateShadowFallbackUsed?: boolean;
+  estimateProvider?: 'KIS_INVESTOR_TREND_ESTIMATE' | null;
+  estimateUseScope?: 'SHADOW_ONLY_ESTIMATE';
+  estimateConfidence?: 'LOW' | 'NONE';
   inferredSymbolMatched?: boolean;
   selectedProvider: InvestorFlowProviderId;
   providerTried: InvestorFlowProviderId[];
