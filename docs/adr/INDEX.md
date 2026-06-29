@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0658`**
+**다음 ADR 번호: `0659`**
+
+(2026-06-29 기준, 마지막 발급 0658 — **Risk-Designation Entry Exclusion (위험·경고 종목 후보 제외)**. **Status: Accepted (운영자 silverlh614 risk-exclusion 명시 요청 — 서산 079650 투자경고 -10% stop shadow 진입 사례).** 근본원인: KIS 위험·경고 지정 검사가 랭킹-TR row(`isRiskyKisRow`)에만 존재하나 랭킹 응답은 지정 필드 미충진 → 사실상 no-op; 권위 소스 inquire-price(FHKST01010100) designation(iscd_stat_cls_code·mrkt_warn_cls_code·short_over_yn·mang_issu_cls_code·trht_yn·sltr_yn)이 fetch 된 뒤 `kisOfficialQuoteMapper` 에서 DROP → downstream entry guard 부재. ADR-0657 INTRADAY_MOVER top-gainer 주입이 노출 증폭. 4-part fix: (1) mapper designation carry(additive optional `NormalizedKisOfficialQuote.designation`·신규 KIS fetch 0·inquire-price 가 이미 반환) (2) 순수 SSOT 분류기 `riskDesignationClassifier.isRiskDesignatedStock`(거래정지/정리매매/관리종목/시장경고 01·02·03/단기과열/위험 iscd_stat 51·52·53·54·56·58·59; benign 미제외 00·55; 결손/미존재→미제외 graceful·불변식 #6) (3) per-symbol chokepoint 가드 `riskDesignationGate`(buyListLoop Gate1 entry candidacy 직전·모든 candidate 소스 INTRADAY_MOVER/WATCHLIST/universeScanner/prior-carry 포괄·silently drop 금지 RISK_DESIGNATION_EXCLUDED 진단 노출·위쪽 counterfactual/provisional 학습 lane 관측 유지·불변식 #2) (4) flag `isRiskDesignationExclusionEnabled()`(default ON kill-switch `!== 'false'`·운영자 명시 요청·SSOT gateConfig.ts). 기존 isRiskyKisRow 랭킹-row 사전필터 그대로 유지. executionImpact=candidate EXCLUSION only(엄격히 더 보수적)·engineMode SHADOW_ONLY live 0·9대 불변식 #1/#2/#6/#7/#8 보존·autoTradeEngine order 본문/buyPipeline order placement/SourceSnapshot 생성기/requiredScore=70/ADR-0471 Gate1 곡선/src/** 무접촉. OFF(`=false`)=byte-identical(제외 미적용). Note: 단기과열도 default 제외(운영자 "위험종목 안건드림") — 대형주 rally-leader 과제외 가능성은 flag-lifecycle nextAction 재검토 대상. 계보 0657/0652/0529/0157/0641/0146/0530. INDEX 0658 등재(다음 0658→0659 갱신). 코드+거버넌스 직접 구현.)
 
 (2026-06-29 기준, 마지막 발급 0657 — **Intraday-Mover Candidate Source default-ON flip**. **Status: Accepted (운영자 silverlh614 "구현시작" 승인 + 운영 `/scan_blockers` 실측 검증).** ADR-0652 가 leader 랭킹 endpoint 404 를 정정해 동적 유니버스(218)를 복원했으나, 추적 결과 복원된 주도주가 Gate 평가 candidate 풀(44)에 진입 못하는 leader→candidate 배선 갭이 드러남(buildCandidatePool 이 watchlist 파생+직전 스캔 carry 자기복제만 read·신선 screener 우물 미read / ADR-0617 주도주 Stage1 보존은 top-60 컷 밖 leader union 인데 풀<60 이라 no-op / ADR-0629 intradayMovers 주입은 flag default OFF 로 비활성). ADR-0629 `INTRADAY_MOVER_CANDIDATE_SOURCE_ENABLED` 를 운영자 ENV=true 검증 후 default-ON kill-switch(`!== 'false'`)로 flip. 운영 실측(2026-06-29 13:22 `/scan_blockers full`): topCandidateSources INTRADAY_MOVER=31 주입·005930 삼성전자/000660 SK하이닉스/010140 삼성중공업/018260 삼성SDS 등 주도주 candidate 진입·paperObservationalCreatedCount=16(주도주 shadow/learning 라인 진입)·대형주 KIS 재무 정상 머지(kisMergeApplied=true roe=11.9% opm=16.1%). executionImpact=NONE(engineMode SHADOW_ONLY·발굴 풀 구성만·채점/임계 우회 0·Gate0~3+requiredScore70 그대로)·신규 fetch 0(getScreenerCache read·ADR-0561)·9대 불변식 #1/#2/#6/#7/#8 보존·autoTradeEngine/buyPipeline/SourceSnapshot/Gate 판정 본문/ADR-0471 곡선/src/** 무접촉. OFF(`=false`)=구 byte-identical([] 반환). flag-lifecycle 신규 1행 ON. Note(본 flip 범위 아님·의도된 하류 게이트): SHADOW_ONLY·Gate1 finalScore 58.5<70(ADR-0471 freeze·forward-outcome 관측)·PRE_BREAKOUT_WAIT/OVEREXTENDED 진입 타이밍 보류. 계보 0629/0628/0652/0617/0157/0641/0146/0530. INDEX 0657 등재(다음 0657→0658 갱신). 코드+거버넌스 직접 구현.)
 
@@ -815,8 +817,9 @@
 | 0655 | gate2-financial-risk-penalty | gate2 / fundamental-quality score-cap (ICR<1·debtRatio>200%) |
 | 0656 | gate2-financial-risk-penalty-default-on-flip | gate2 / fundamental-quality score-cap default OFF→ON flip |
 | 0657 | intraday-mover-candidate-source-default-on-flip | candidate-pool / intraday-mover source default OFF→ON flip |
+| 0658 | risk-designation-entry-exclusion | trading / risk-warning designation entry candidate exclusion |
 
-**최대 발급 0657 · 다음 발급 0658** — `node scripts/check_adr_index.js --json` 기준 (2026-06-29 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0658 · 다음 발급 0659** — `node scripts/check_adr_index.js --json` 기준 (2026-06-29 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 

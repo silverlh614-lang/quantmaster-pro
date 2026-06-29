@@ -53,6 +53,31 @@ describe('KIS official inquire-price quote mapper', () => {
     expect(coverage.marketSignal).toBe(false);
   });
 
+  it('ADR-0658: carries inquire-price designation fields into normalizedQuote', () => {
+    const coverage = normalizeKisOfficialQuotePayload(kisPricePayload({
+      iscd_stat_cls_code: '53',
+      mrkt_warn_cls_code: '02',
+      short_over_yn: 'Y',
+      mang_issu_cls_code: 'N',
+      trht_yn: 'N',
+      sltr_yn: 'N',
+    }), { symbol: '079650' });
+
+    expect(coverage.normalizedQuote.designation).toMatchObject({
+      iscdStatCode: '53',
+      marketWarnCode: '02',
+      shortOverheated: true,
+      managementIssue: false,
+      tradingHalt: false,
+      liquidation: false,
+    });
+  });
+
+  it('ADR-0658: row without designation fields → designation undefined (additive, no break)', () => {
+    const coverage = normalizeKisOfficialQuotePayload(kisPricePayload(), { symbol: '005930' });
+    expect(coverage.normalizedQuote.designation).toBeUndefined();
+  });
+
   it('classifies successful empty KIS output as missing coverage without market signal', () => {
     const coverage = normalizeKisOfficialQuotePayload({
       rt_cd: '0',

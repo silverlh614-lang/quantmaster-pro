@@ -112,6 +112,9 @@ import {
 import { normalizeMacroRegime } from '../../entryPolicySemantics.js';
 import { checkEntryPriceDrift } from './steps/entryPriceDrift.js';
 import { kisIntradayCorrectionStep } from './steps/kisIntradayCorrection.js';
+// ADR-0658 — 위험·경고 지정 진입 제외 게이트 (per-symbol entry chokepoint, Gate1 candidacy 직전).
+import { evaluateRiskDesignationGate } from './steps/riskDesignationGate.js';
+import type { NormalizedKisOfficialQuote } from '../../../clients/kisClient/kisOfficialQuoteMapper.js';
 import { provisionalShadowLaneDerive } from './steps/provisionalShadowLane.js';
 import {
   handleEntryRevalidationGate,
@@ -500,6 +503,27 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       if (stockShadowMode && reCheckGate?.signalType === 'SKIP') {
         tallySkipCause(shadowLiberalizationSkipCauseDist, reCheckGate.skipCause);
       }
+
+      // ── ADR-0658 — 위험·경고 지정 진입 후보 제외 (Gate1 entry candidacy 직전) ──────
+      // reCheckQuote.kisOfficialQuote.designation(KIS inquire-price FHKST01010100) 기반.
+      // 모든 candidate 소스(INTRADAY_MOVER/WATCHLIST/universeScanner/prior-carry)가
+      // hydrated quote 와 함께 통과하는 단일 chokepoint. 제외 시 ENTRY(paper/shadow 포함)
+      // 차단하되 silently drop 금지 — RISK_DESIGNATION_EXCLUDED 진단 노출. 위쪽
+      // counterfactual/provisional 학습 lane 은 이미 실행돼 관측 연속성 유지(불변식 #2).
+      // flag OFF(=false) / designation 결손 → PROCEED(byte-identical·graceful, 불변식 #6).
+      const riskDesignationResult = evaluateRiskDesignationGate({
+        stockCode: stock.code,
+        stockName: stock.name,
+        reCheckQuote: reCheckQuote as { kisOfficialQuote?: NormalizedKisOfficialQuote } | null,
+        scanCounters: ctx.scanCounters,
+      });
+      if (riskDesignationResult.decision === 'EXCLUDE') {
+        if (riskDesignationResult.logMessage) console.log(riskDesignationResult.logMessage);
+        stageLog.gate = riskDesignationResult.blockReason ?? 'RISK_DESIGNATION_EXCLUDED';
+        pushTrace();
+        continue;
+      }
+
       const entryRevalidationResult = await handleEntryRevalidationGate(
         ctx,
         stock,
