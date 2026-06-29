@@ -37,6 +37,27 @@ export interface KisOfficialDriftDiagnostic {
   action: 'DO_NOT_AUTO_REPLACE_REQUIRE_REVIEW';
 }
 
+/**
+ * ADR-0658 — KIS inquire-price(FHKST01010100) 위험·경고 지정 raw 필드를 carry 하는
+ * 부가(additive) 선택 컨테이너. inquire-price 응답이 이미 반환하는 designation 필드를
+ * DROP 하지 않고 downstream(per-symbol entry guard)으로 전달한다. 신규 KIS fetch 0.
+ * 모든 필드 optional — 결손/미존재 시 undefined (결손 ≠ 위험, 불변식 #6).
+ */
+export interface KisOfficialDesignation {
+  /** 종목상태구분 iscd_stat_cls_code (원본 코드 문자열 보존). */
+  iscdStatCode?: string;
+  /** 시장경고코드 mrkt_warn_cls_code (00없음/01투자주의/02투자경고/03투자위험). */
+  marketWarnCode?: string;
+  /** 단기과열여부 short_over_yn='Y' → true. */
+  shortOverheated?: boolean;
+  /** 관리종목여부 mang_issu_cls_code='Y' → true. */
+  managementIssue?: boolean;
+  /** 거래정지 trht_yn='Y' → true. */
+  tradingHalt?: boolean;
+  /** 정리매매 sltr_yn='Y' → true. */
+  liquidation?: boolean;
+}
+
 export interface NormalizedKisOfficialQuote {
   symbol: string | null;
   currentPrice: number | null;
@@ -54,6 +75,11 @@ export interface NormalizedKisOfficialQuote {
   providerStatus: KisProviderStatus;
   dataConfidence: KisOfficialQuoteConfidence;
   marketDivCode: string | null;
+  /**
+   * ADR-0658 — 위험·경고 지정 carry (additive optional). inquire-price 가 채운 경우에만
+   * 존재하며, 어떤 필드도 없으면 designation 자체가 undefined (기존 consumer 무영향).
+   */
+  designation?: KisOfficialDesignation;
 }
 
 export interface KisOfficialQuoteCoverageDiagnostic {
@@ -107,6 +133,17 @@ const KIS_RAW_FIELD_ALIASES = {
   volume: ['acml_vol', 'ACML_VOL'],
   tradingValue: ['acml_tr_pbmn', 'ACML_TR_PBMN'],
   marketDivCode: ['fid_cond_mrkt_div_code', 'FID_COND_MRKT_DIV_CODE', 'marketDivCode'],
+} as const;
+
+// ADR-0658 — inquire-price(FHKST01010100) 위험·경고 지정 raw 필드 alias (KIS 공식
+// chk_inquire_price.py 검증). 랭킹 TR 과 달리 detailed quote 가 이 필드들을 채운다.
+const KIS_DESIGNATION_RAW_ALIASES = {
+  iscdStatCode: ['iscd_stat_cls_code', 'ISCD_STAT_CLS_CODE'],
+  marketWarnCode: ['mrkt_warn_cls_code', 'MRKT_WARN_CLS_CODE'],
+  shortOverYn: ['short_over_yn', 'SHORT_OVER_YN'],
+  mangIssuClsCode: ['mang_issu_cls_code', 'MANG_ISSU_CLS_CODE'],
+  trhtYn: ['trht_yn', 'TRHT_YN'],
+  sltrYn: ['sltr_yn', 'SLTR_YN'],
 } as const;
 
 const QUOTE_FIELD_ALIASES: Record<string, readonly string[]> = {
@@ -163,6 +200,31 @@ function readStringFromAliases(row: Record<string, unknown> | null, aliases: rea
     if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw);
   }
   return null;
+}
+
+/**
+ * ADR-0658 — inquire-price output 의 위험·경고 지정 필드를 추출한다. 어떤 필드도
+ * 존재하지 않으면 undefined 를 반환해(additive·결손≠위험) 기존 consumer 동작을 보존한다.
+ * 'Y' 플래그는 boolean 으로, 코드 필드는 원본 문자열로 보존(분류기가 코드셋 판정).
+ */
+function extractDesignation(row: Record<string, unknown> | null): KisOfficialDesignation | undefined {
+  if (!row) return undefined;
+  const iscdStatCode = readStringFromAliases(row, KIS_DESIGNATION_RAW_ALIASES.iscdStatCode);
+  const marketWarnCode = readStringFromAliases(row, KIS_DESIGNATION_RAW_ALIASES.marketWarnCode);
+  const shortOverYn = readStringFromAliases(row, KIS_DESIGNATION_RAW_ALIASES.shortOverYn);
+  const mangIssuClsCode = readStringFromAliases(row, KIS_DESIGNATION_RAW_ALIASES.mangIssuClsCode);
+  const trhtYn = readStringFromAliases(row, KIS_DESIGNATION_RAW_ALIASES.trhtYn);
+  const sltrYn = readStringFromAliases(row, KIS_DESIGNATION_RAW_ALIASES.sltrYn);
+
+  const designation: KisOfficialDesignation = {};
+  if (iscdStatCode != null) designation.iscdStatCode = iscdStatCode;
+  if (marketWarnCode != null) designation.marketWarnCode = marketWarnCode;
+  if (shortOverYn != null) designation.shortOverheated = shortOverYn.toUpperCase() === 'Y';
+  if (mangIssuClsCode != null) designation.managementIssue = mangIssuClsCode.toUpperCase() === 'Y';
+  if (trhtYn != null) designation.tradingHalt = trhtYn.toUpperCase() === 'Y';
+  if (sltrYn != null) designation.liquidation = sltrYn.toUpperCase() === 'Y';
+
+  return Object.keys(designation).length > 0 ? designation : undefined;
 }
 
 function pickOutput(payload: unknown): Record<string, unknown> | null {
@@ -363,6 +425,8 @@ export function normalizeKisOfficialQuotePayload(
     providerStatus,
     dataConfidence,
     marketDivCode,
+    // ADR-0658 — 위험·경고 지정 carry (additive; 미존재 시 undefined → consumer 무영향).
+    designation: extractDesignation(output),
   };
   const drift = detectKisOfficialQuoteDrift({
     path: options.actualPath,

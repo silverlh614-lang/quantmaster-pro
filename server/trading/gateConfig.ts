@@ -389,3 +389,25 @@ export function isLeaderRankingEndpointFixEnabled(): boolean {
 export function isGate2FinancialRiskPenaltyEnabled(): boolean {
   return process.env.GATE2_FINANCIAL_RISK_PENALTY_ENABLED !== 'false';
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADR-0658 — 위험·경고 지정 종목 진입 후보 제외 활성 스위치 (default ON / kill-switch)
+//
+// KIS inquire-price(FHKST01010100) designation(거래정지/정리매매/관리종목/시장경고
+// 01~03/단기과열/위험 종목상태코드)을 진입(ENTRY) 후보에서 제외한다. 운영자(silverlh614)
+// 가 서산(079650) 투자경고 종목 -10% stop 사례로 위험·경고 지정 제외를 명시 요청 →
+// default ON kill-switch(`!== 'false'`). 후보 EXCLUSION 전용(엄격히 더 보수적) —
+// engineMode SHADOW_ONLY 라 live 주문 0. shadow/learning 관측은 유지(차단≠삭제, 불변식 #2).
+// 결손/미존재 designation → 미제외 graceful(부재 ≠ 위험, 불변식 #6).
+// `=false` 1줄 즉시 byte-identical 롤백(제외 미적용).
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * 위험·경고 지정 진입 제외 활성 스위치. default ON (kill-switch `!== 'false'`).
+ * 정확히 `'false'` 만 OFF(제외 미적용 byte-identical), 그 외 모두 ON (운영자 명시 요청).
+ * 게이트 대상: signalScanner per-symbol entry chokepoint 의 isRiskDesignatedStock 제외.
+ * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
+ */
+export function isRiskDesignationExclusionEnabled(): boolean {
+  return process.env.RISK_DESIGNATION_EXCLUSION_ENABLED !== 'false';
+}

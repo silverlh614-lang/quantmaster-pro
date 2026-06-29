@@ -135,6 +135,17 @@
       "notes": "SSOT isGate2FinancialRiskPenaltyEnabled() gateConfig.ts 거주. 2026-06-26 ADR-0656 으로 default OFF→ON flip(opt-OUT `!== 'false'`, ADR-0157 거울 — 미설정/임의값 ON·explicit `=false` 만 OFF kill-switch). 게이트 대상: gate2ConfluenceScore.buildFundamentalAxis FUNDAMENTAL_QUALITY score-cap(별도 순수 모듈 gate2FinancialRiskPenaltyAdr0655.ts). 입력 = 기존 Gate2ExternalProjection.stability.{icr,debtRatio}(ADR-0529 canonical merge) 재사용·신규 fetch 0. ICR 은 KIS 미가용(이자비용 bsop_non_expn 비분리)이라 DART 잔존(L2) 머지에서만 — debtRatio 는 KIS stability-ratio lblt_rate(L1). OFF(=false kill-switch)=byte-identical(cap 미적용). ON+위험 trigger 0=byte-identical(scoreCap=null). 임계 결손(ICR/부채 null)=페널티 미적용 graceful(결손≠위험≠bearish). entryHardBlock=false(점수 cap 만·Gate2 pass 는 coverageAdjustedScore 로만 판정)·marketSignal=false·executionImpact=NONE(불변식 #6). requiredScore=70·ADR-0471 Gate1 곡선·ADR-0532 KIS primary 무접촉. 현 engineMode=SHADOW_ONLY 라 live 주문 0."
     },
     {
+      "envFlag": "RISK_DESIGNATION_EXCLUSION_ENABLED",
+      "adr": "0658",
+      "title": "Risk-Designation Entry Exclusion (위험·경고 지정 진입 후보 제외: 거래정지/정리/관리/시장경고01~03/단기과열/위험 종목상태)",
+      "introduced": "2026-06-29",
+      "reviewBy": "2026-09-27",
+      "status": "ON",
+      "activationCriteria": "운영자(silverlh614) 가 서산(079650) 투자경고 지정 종목 -10% stop 사례로 위험·경고 지정 진입 제외를 명시 요청 → default ON kill-switch 즉시 출하. 후보 EXCLUSION 전용(엄격히 더 보수적)·engineMode SHADOW_ONLY 라 live 주문 0 안전창.",
+      "nextAction": "/scan_blockers perStageDropoff 에서 RISK_DESIGNATION_EXCLUDED 노출·제외 빈도 관측. 단기과열(short_over_yn) 기본 제외가 대형주 rally-leader(종종 단기과열 지정) 포착을 과도하게 줄이면 운영자가 단기과열 분기만 재검토(분류기 분리/완화) 가능. 회귀/과제외 시 explicit RISK_DESIGNATION_EXCLUSION_ENABLED=false 1줄 kill-switch 롤백.",
+      "notes": "SSOT isRiskDesignationExclusionEnabled() gateConfig.ts 거주(kill-switch `!== 'false'` default ON·ADR-0157 정신). 게이트 대상: signalScanner per-symbol buyListLoop chokepoint(Gate1 entry candidacy 직전) evaluateRiskDesignationGate → isRiskDesignatedStock(순수 모듈 riskDesignationClassifier.ts). 입력 = reCheckQuote.kisOfficialQuote.designation(KIS inquire-price FHKST01010100 carry·kisOfficialQuoteMapper.ts additive). 신규 KIS fetch 0(inquire-price 가 이미 반환). 제외 iscd_stat_cls_code: 51관리·52위험·53경고·54주의·56위험예고·58정지·59단기과열; benign 미제외: 00정상·55신용가능. OFF(=false kill-switch)=byte-identical(제외 미적용). designation 결손/미존재=미제외 graceful(부재≠위험·불변식 #6). silently drop 금지 — RISK_DESIGNATION_EXCLUDED 진단 노출. 위쪽 counterfactual/provisional 학습 lane 관측 유지(불변식 #2). 기존 isRiskyKisRow 랭킹-row 사전필터 그대로 유지. executionImpact=candidate EXCLUSION only·SourceSnapshot/autoTradeEngine/buyPipeline order/requiredScore70/ADR-0471 곡선 무접촉. 현 engineMode=SHADOW_ONLY 라 live 주문 0."
+    },
+    {
       "envFlag": "INTRADAY_MOVER_CANDIDATE_SOURCE_ENABLED",
       "adr": "0657",
       "title": "Intraday-Mover Candidate Source (신선 screener 당일 상위 → candidate pool 주입)",
