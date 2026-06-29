@@ -56,12 +56,22 @@ describe('ADR-0629 — intradayMoverCandidateSource', () => {
     else process.env.INTRADAY_MOVER_MAX_INJECT = ORIGINAL_MAX;
   });
 
-  it('(1) flag OFF → [] + getScreenerCache 미호출 (byte-identical)', async () => {
+  it('(1) flag explicit =false → [] + getScreenerCache 미호출 (ADR-0657 kill-switch byte-identical)', async () => {
+    process.env.INTRADAY_MOVER_CANDIDATE_SOURCE_ENABLED = 'false';
     mockState.screener = [stock('A', 30), stock('B', 10)];
     const { collectIntradayMoverCandidates } = await import('./intradayMoverCandidateSource.js');
     const result = collectIntradayMoverCandidates();
     expect(result).toEqual([]);
     expect(mockState.calls).toBe(0);     // 캐시 read 0 — 부작용 없음
+  });
+
+  it('(1b) flag UNSET → default ON (ADR-0657 flip): 캐시 상위 매핑·getScreenerCache 호출', async () => {
+    // 미설정(=undefined) 은 더 이상 OFF 가 아니라 default ON — 운영자 검증 후 flip.
+    mockState.screener = [stock('A', 30), stock('B', 10)];
+    const { collectIntradayMoverCandidates } = await import('./intradayMoverCandidateSource.js');
+    const result = collectIntradayMoverCandidates();
+    expect(result.map((c) => c.code)).toEqual(['A', 'B']);   // changeRate 내림차순
+    expect(mockState.calls).toBe(1);
   });
 
   it('(2) flag ON + 캐시 N건 → changeRate 내림차순 상위 maxInject 매핑·형태 검증', async () => {

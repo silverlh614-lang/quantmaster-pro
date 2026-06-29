@@ -4,9 +4,15 @@
 import { getScreenerCache, type ScreenedStock } from '../../../screener/stockScreener.js';
 import type { CandidatePoolInputCandidate } from '../../candidatePoolBuilder.js';
 
-/** ADR-0629 — 주입 kill-switch. default OFF → candidate pool byte-identical. */
+/**
+ * ADR-0629 도입(default OFF) → ADR-0657 운영자 검증 후 default-ON flip(kill-switch `!== 'false'`).
+ * 운영 /scan_blockers 실측: INTRADAY_MOVER=31 주입·삼성전자(005930)/SK하이닉스(000660) 등 주도주
+ * 후보 진입·paper observational 16건 생성 확인(반등 주도주 미발굴 funnel 갭 해소).
+ * `INTRADAY_MOVER_CANDIDATE_SOURCE_ENABLED=false` 명시 시 즉시 byte-identical 롤백(구 OFF 동작).
+ * engineMode SHADOW_ONLY → executionImpact=NONE(발굴 풀 구성만 변경·LIVE 주문 0).
+ */
 export function isIntradayMoverCandidateSourceEnabled(): boolean {
-  return process.env.INTRADAY_MOVER_CANDIDATE_SOURCE_ENABLED === 'true';
+  return process.env.INTRADAY_MOVER_CANDIDATE_SOURCE_ENABLED !== 'false';
 }
 
 /** 당일 상위 주입 상한 (기본 20, 하한 0/NaN→20, 상한 50 clamp). */
