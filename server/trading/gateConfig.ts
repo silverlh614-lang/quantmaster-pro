@@ -416,3 +416,14 @@ export function isGate2FinancialRiskPenaltyEnabled(): boolean {
 export function isKisInvestorTrendEstimateShadowFallbackEnabled(): boolean {
   return process.env.KIS_INVESTOR_TREND_ESTIMATE_SHADOW_FALLBACK_ENABLED === 'true';
 }
+
+/**
+ * ADR-0658 — 종목별 투자자매매동향(FHPTJ04160001) 'UN'(통합) 마켓코드 observe-mode probe 활성 스위치.
+ * default OFF (ADR-0157 opt-IN `=== 'true'`). 미설정·임의값 = OFF, 정확히 `'true'` 만 활성.
+ * OFF = byte-identical(추가 KIS 호출 0). ON = J-null shadow-only 행에 한해 UN 추가조회·observe ledger 기록.
+ * **LIVE 'J' 선택·gateEligible 무변경** — fetch 반환값은 영원히 J 결과(불변식 #6/#7·ADR-0561).
+ * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용. live flip 은 N세션 증거 + 운영자 승인 후 별도 PR(ADR-0146/0641).
+ */
+export function isInvestorFlowUnMarketProbeEnabled(): boolean {
+  return process.env.INVESTOR_FLOW_UN_MARKET_PROBE_ENABLED === 'true';
+}

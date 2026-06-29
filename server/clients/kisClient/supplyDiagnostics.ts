@@ -510,7 +510,8 @@ function rootString(data: unknown, key: string): string | undefined {
   return value === undefined || value === null ? undefined : String(value);
 }
 
-function classifyEndpointRootIssue(data: unknown, sourceKind: string): KisEndpointBlockedReason | null {
+// ADR-0658 — UN probe OPSQ2001 분류 재사용 SSOT. 두 번째 OPSQ2001 판정 공식 금지(SRP).
+export function classifyEndpointRootIssue(data: unknown, sourceKind: string): KisEndpointBlockedReason | null {
   const rtCd = rootString(data, 'rt_cd') ?? '';
   const msgCd = rootString(data, 'msg_cd') ?? '';
   const msg1 = rootString(data, 'msg1') ?? '';

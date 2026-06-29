@@ -69,6 +69,11 @@ import {
   hasAnyFinite,
 } from './query/helpers.js';
 import type { KisOutput } from './query/helpers.js';
+import { isInvestorFlowUnMarketProbeEnabled } from '../../trading/gateConfig.js';
+import {
+  probeInvestorFlowUnMarket,
+  stampInvestorFlowUnProbeObservation,
+} from './query/investorFlowUnMarketProbeAdr0658.js';
 
 // ADR-0537 — 섹터 지수 도메인 분해. fetchKisSectorIndexDaily/CurrentPrice/Probe 등
 // 기존 query.js export 경로를 byte-equivalent 로 유지 (index.ts facade + 직접 importer 4종).
@@ -912,14 +917,17 @@ export async function fetchKisInvestorTradeByStockDaily(
   try {
     let rows: KisOutput[] = [];
     let selectedData: unknown = null;
+    let lastJParams: Record<string, string> | undefined;
     const dateCandidates = investorTradeByStockDailyDateCandidates();
     for (let i = 0; i < dateCandidates.length; i += 1) {
       const sourceDate = dateCandidates[i];
       try {
+        // ADR-0658 — UN probe 가 동일 영업일·종목에 재조회하도록 마지막 J params 보존(관찰 전용).
+        lastJParams = buildInvestorTradeByStockDailyParams(safeCode, sourceDate);
         const data = await realDataKisGet(
           INVESTOR_TRADE_BY_STOCK_DAILY_TR_ID,
           INVESTOR_TRADE_BY_STOCK_DAILY_PATH,
-          buildInvestorTradeByStockDailyParams(safeCode, sourceDate),
+          lastJParams,
           priority,
         );
         if (isAcceptedEmptyKisResponse(data)) continue;
@@ -939,6 +947,19 @@ export async function fetchKisInvestorTradeByStockDaily(
           ...payloadClass,
           bucketTrace: traceInvestorFlowBuckets(selectedData),
         });
+      }
+      // ADR-0658 — J(KRX단일) 미materialize(shadow-only) 행에 한해 'UN'(통합) observe-mode probe.
+      // flag OFF=미진입(추가 KIS 호출 0·byte-identical). flag ON=UN 재조회 후 observe ledger stamp.
+      // **LIVE 'J' 무변경** — UN 결과는 ledger 기록만, 여기서 여전히 J 기반으로 null 반환(불변식 #6/#7).
+      if (isInvestorFlowUnMarketProbeEnabled() && lastJParams) {
+        const probeResult = await probeInvestorFlowUnMarket({
+          trId: INVESTOR_TRADE_BY_STOCK_DAILY_TR_ID,
+          apiPath: INVESTOR_TRADE_BY_STOCK_DAILY_PATH,
+          jParams: lastJParams,
+          stockCode: safeCode,
+          priority,
+        });
+        stampInvestorFlowUnProbeObservation(probeResult);
       }
       return null;
     }

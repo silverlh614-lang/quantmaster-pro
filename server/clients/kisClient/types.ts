@@ -207,6 +207,37 @@ export interface KisInvestorTradeByStockDaily {
   actualRows?: KisInvestorFlowRawRow[];
 }
 
+/**
+ * ADR-0658 — 종목별 투자자매매동향(FHPTJ04160001) 'J'(KRX단일)→'UN'(통합) observe-mode probe 결과.
+ * J 호출이 not-materialized(null)인 shadow-only 행에 한해 UN 으로 재조회한 관찰 산출물.
+ * **LIVE 선택·gateEligible 무영향** — fetch 반환값은 영원히 J 결과(J-null 이면 여전히 null).
+ * marketSignal/executionImpact 는 literal 고정(불변식 #6 — UN 미가용/INVALID 를 bearish 변환 금지).
+ * UN 미가용/INVALID(OPSQ2001) 는 providerIssue=true 로만 분류 — 매매 신호 아님.
+ * ledger source key: 'INVESTOR_FLOW_UN_PROBE' (ADR-0476 observe ledger stamp).
+ */
+export interface InvestorFlowUnProbeResultAdr0658 {
+  /** UN 호출 결과가 materialize 되었는가(J 가 놓친 행을 UN 이 잡았나). */
+  unMaterialized: boolean;
+  /** J 가 못 잡은 net-buy 를 UN 이 실제 보유하는가(forward 증거). */
+  jMissedRowRecovered: boolean;
+  /** UN 이 OPSQ2001 INVALID FID_COND_MRKT_DIV_CODE 를 반환했는가(=UN 미지원 확정 증거). */
+  unInvalidOpsq2001: boolean;
+  /** 불변식 #6 — UN probe 는 시장 신호가 아니다. 항상 false. */
+  marketSignal: false;
+  /** 불변식 #6 — UN probe 는 실행에 영향 없다. 항상 'NONE'. */
+  executionImpact: 'NONE';
+  /** UN 미가용/INVALID/throw 시 true(데이터 품질 문제). 매매 신호로 변환 금지. */
+  providerIssue: boolean;
+  /** probe 대상 종목코드(6자리 zero-padded). */
+  stockCode: string;
+  /** UN 재조회에 사용한 영업일(YYYYMMDD). */
+  probedDate?: string;
+  observedAt: string;
+}
+
+/** ADR-0658 — observe ledger / 스캔 진단의 UN probe source key SSOT. */
+export const INVESTOR_FLOW_UN_PROBE_LEDGER_SOURCE = 'INVESTOR_FLOW_UN_PROBE' as const;
+
 export interface KisForeignInstitutionTotal {
   foreignNetBuy?: number;
   institutionalNetBuy?: number;
