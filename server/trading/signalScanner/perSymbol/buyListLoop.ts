@@ -114,6 +114,8 @@ import { checkEntryPriceDrift } from './steps/entryPriceDrift.js';
 import { kisIntradayCorrectionStep } from './steps/kisIntradayCorrection.js';
 // ADR-0658 — 위험·경고 지정 진입 제외 게이트 (per-symbol entry chokepoint, Gate1 candidacy 직전).
 import { evaluateRiskDesignationGate } from './steps/riskDesignationGate.js';
+// ADR-0659 — 펀더멘털 deep-junk floor 진입 제외 게이트 (designation gate 직후, 동일 chokepoint).
+import { evaluateFundamentalFloorGate } from './steps/fundamentalFloorGate.js';
 import type { NormalizedKisOfficialQuote } from '../../../clients/kisClient/kisOfficialQuoteMapper.js';
 import { provisionalShadowLaneDerive } from './steps/provisionalShadowLane.js';
 import {
@@ -520,6 +522,24 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
       if (riskDesignationResult.decision === 'EXCLUDE') {
         if (riskDesignationResult.logMessage) console.log(riskDesignationResult.logMessage);
         stageLog.gate = riskDesignationResult.blockReason ?? 'RISK_DESIGNATION_EXCLUDED';
+        pushTrace();
+        continue;
+      }
+
+      // ── ADR-0659 — 펀더멘털 deep-junk floor 진입 제외 (designation gate 직후, OR 결합) ──
+      // 형식적 KRX 지정이 없으나 ROE 가 깊게 음(-)인 종목(서산 ROE -55.6%)을 ROE floor
+      // (기본 -20%) 으로 추가 제외한다. ROE 는 Gate2 external 캐시에서 reuse-only read —
+      // 신규 KIS/DART fetch 0(/scan_blockers 가 표시한 동일 캐시 소스). designation OR
+      // fundamental-floor → EXCLUDE. flag OFF / ROE 결손 → PROCEED(byte-identical·graceful,
+      // 불변식 #6). silently drop 금지 — RISK_FUNDAMENTAL_FLOOR_EXCLUDED 진단 노출.
+      const fundamentalFloorResult = evaluateFundamentalFloorGate({
+        stockCode: stock.code,
+        stockName: stock.name,
+        scanCounters: ctx.scanCounters,
+      });
+      if (fundamentalFloorResult.decision === 'EXCLUDE') {
+        if (fundamentalFloorResult.logMessage) console.log(fundamentalFloorResult.logMessage);
+        stageLog.gate = fundamentalFloorResult.blockReason ?? 'RISK_FUNDAMENTAL_FLOOR_EXCLUDED';
         pushTrace();
         continue;
       }
