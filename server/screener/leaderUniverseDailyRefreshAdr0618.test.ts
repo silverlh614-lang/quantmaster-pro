@@ -62,9 +62,14 @@ describe('ADR-0618 — 주도주 일일 신선 갱신', () => {
     if (fs.existsSync(DYNAMIC_FILE)) fs.unlinkSync(DYNAMIC_FILE);
     vi.mocked(getRanking).mockReset().mockImplementation(async () => []);
     delete process.env.LEADER_DAILY_REFRESH_ENABLED;
+    // ADR-0652 — LEADER_RANKING_ENDPOINT_FIX_ENABLED 는 default ON(`!== 'false'`)이라
+    // FOREIGN_NET_BUY 소스가 'volume'(구 대용) 대신 정본 'foreign-net-buy' 키를 쓴다.
+    // 프로덕션 default 동작을 결정적으로 검증하기 위해 명시 고정한다.
+    process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED = 'true';
   });
 
   afterAll(() => {
+    delete process.env.LEADER_RANKING_ENDPOINT_FIX_ENABLED;
     try { fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true }); } catch { /* 무시 */ }
     try {
       if (ORIGINAL_CONTENT != null) fs.writeFileSync(DYNAMIC_FILE, ORIGINAL_CONTENT);
@@ -87,11 +92,12 @@ describe('ADR-0618 — 주도주 일일 신선 갱신', () => {
   });
 
   // ── 2. flag ON → LEADER 3키만 수집 ──────────────────────────────────────────
-  it('2. flag ON → LEADER 3키만 수집(market-cap·institutional-net-buy·volume)', async () => {
+  it('2. flag ON → LEADER 3키만 수집(market-cap·institutional-net-buy·foreign-net-buy)', async () => {
     process.env.LEADER_DAILY_REFRESH_ENABLED = 'true';
     await runLeaderUniverseDailyRefresh();
     const called = vi.mocked(getRanking).mock.calls.map(c => c[0]);
-    expect(new Set(called)).toEqual(new Set(['market-cap', 'institutional-net-buy', 'volume']));
+    // ADR-0652 default-ON: FOREIGN_NET_BUY 소스 키 = 'foreign-net-buy'(구 'volume' 대체).
+    expect(new Set(called)).toEqual(new Set(['market-cap', 'institutional-net-buy', 'foreign-net-buy']));
     expect(called.length).toBe(3);
   });
 
@@ -182,8 +188,9 @@ describe('ADR-0618 — 주도주 일일 신선 갱신', () => {
   it('7-b. expandOnEmpty 는 여전히 5키 호출(LEADER 3키로 축소 안 됨)', async () => {
     await expandOnEmpty();
     const called = vi.mocked(getRanking).mock.calls.map(c => c[0]);
+    // ADR-0652 default-ON: FOREIGN_NET_BUY 소스 키 = 'foreign-net-buy'(구 'volume' 대체).
     expect(new Set(called)).toEqual(new Set([
-      'volume', 'fluctuation', 'market-cap', 'institutional-net-buy', 'large-volume',
+      'foreign-net-buy', 'fluctuation', 'market-cap', 'institutional-net-buy', 'large-volume',
     ]));
     expect(called.length).toBe(5);
   });
@@ -193,12 +200,13 @@ describe('ADR-0618 — 주도주 일일 신선 갱신', () => {
     process.env.LEADER_DAILY_REFRESH_ENABLED = 'true';
     vi.mocked(getRanking).mockImplementation(async (type) => {
       if (type === 'market-cap') throw new Error('KIS 일시장애');
-      if (type === 'volume') return [entry('900005')];
+      // ADR-0652 default-ON: FOREIGN_NET_BUY 소스 키 = 'foreign-net-buy'(value>0 필터 통과).
+      if (type === 'foreign-net-buy') return [entry('900005')];
       return [];
     });
     await expect(runLeaderUniverseDailyRefresh()).resolves.toBeGreaterThanOrEqual(0);
     const rows = loadDynamicUniverse();
-    // 실패한 키 외 volume 결과는 보존.
+    // 실패한 market-cap 외 foreign-net-buy 결과는 보존.
     expect(rows.some(x => x.code === '900005')).toBe(true);
   });
 
