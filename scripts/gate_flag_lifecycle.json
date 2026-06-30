@@ -146,6 +146,17 @@
       "notes": "SSOT isRiskDesignationExclusionEnabled() gateConfig.ts 거주(kill-switch `!== 'false'` default ON·ADR-0157 정신). 게이트 대상: signalScanner per-symbol buyListLoop chokepoint(Gate1 entry candidacy 직전) evaluateRiskDesignationGate → isRiskDesignatedStock(순수 모듈 riskDesignationClassifier.ts). 입력 = reCheckQuote.kisOfficialQuote.designation(KIS inquire-price FHKST01010100 carry·kisOfficialQuoteMapper.ts additive). 신규 KIS fetch 0(inquire-price 가 이미 반환). 제외 iscd_stat_cls_code: 51관리·52위험·53경고·54주의·56위험예고·58정지·59단기과열; benign 미제외: 00정상·55신용가능. OFF(=false kill-switch)=byte-identical(제외 미적용). designation 결손/미존재=미제외 graceful(부재≠위험·불변식 #6). silently drop 금지 — RISK_DESIGNATION_EXCLUDED 진단 노출. 위쪽 counterfactual/provisional 학습 lane 관측 유지(불변식 #2). 기존 isRiskyKisRow 랭킹-row 사전필터 그대로 유지. executionImpact=candidate EXCLUSION only·SourceSnapshot/autoTradeEngine/buyPipeline order/requiredScore70/ADR-0471 곡선 무접촉. 현 engineMode=SHADOW_ONLY 라 live 주문 0."
     },
     {
+      "envFlag": "RISK_FUNDAMENTAL_FLOOR_EXCLUSION_ENABLED",
+      "adr": "0659",
+      "title": "Fundamental Deep-Junk Floor Entry Exclusion (펀더멘털 deep-junk floor 진입 후보 제외: ROE≤-20% default·ENV tunable)",
+      "introduced": "2026-06-30",
+      "reviewBy": "2026-09-28",
+      "status": "ON",
+      "activationCriteria": "운영자(silverlh614) '추천'→'구현시작'(Option B 후속·ADR-0658 확장). 형식적 KRX 지정이 없으나 펀더멘털이 깊게 음(-)인 종목(서산 079650 ROE -55.6%·적자·shadow -10% 손실)이 ADR-0658 designation gate 통과하는 갭 → ROE floor(기본 -20%) deep-junk 추가 제외. 후보 EXCLUSION 전용(엄격히 더 보수적)·engineMode SHADOW_ONLY 라 live 주문 0 안전창.",
+      "nextAction": "/scan_blockers perStageDropoff 에서 RISK_FUNDAMENTAL_FLOOR_EXCLUDED 노출·제외 빈도 관측. floor(-20%)가 과제외(흑자전환 직전 성장주 손실)/under-filter 면 운영자가 RISK_FUNDAMENTAL_ROE_FLOOR_PCT 만 재조정([-100,0] clamp·분류기/가드 무변경) 가능. 회귀/과제외 시 explicit RISK_FUNDAMENTAL_FLOOR_EXCLUSION_ENABLED=false 1줄 kill-switch 롤백.",
+      "notes": "SSOT isRiskFundamentalFloorExclusionEnabled()+getRiskFundamentalRoeFloorPct() gateConfig.ts 거주(kill-switch `!== 'false'` default ON·기본 floor -20·[-100,0] clamp·NaN→-20). 게이트 대상: signalScanner per-symbol buyListLoop chokepoint(ADR-0658 designation gate 직후·동일 Gate1 candidacy 직전·designation OR floor) evaluateFundamentalFloorGate → isFundamentalJunkBelowFloor(순수 모듈 riskDesignationClassifier.ts 확장·경계 ≤ 제외·결손/NaN/±Infinity→미제외 graceful 불변식 #6). 입력 = Gate2 external 캐시 getGate2ExternalCacheRecord(stock.code) reuse-only 동기 read(projection.profitability.roe 우선·없으면 metrics.roe — /scan_blockers 가 서산 ROE=-55.60 표시한 동일 캐시). 신규 KIS/DART fetch 0(ADR-0561 정합·디스크 캐시 read). 캐시 부재/ROE 결손/read 실패=PROCEED graceful(데이터 결손≠junk). OFF(=false kill-switch)=byte-identical(제외 미적용). silently drop 금지 — RISK_FUNDAMENTAL_FLOOR_EXCLUDED 진단 노출(perStageDropoff LIVE_ORDER_BLOCKED BLOCKED). 위쪽 counterfactual/provisional 학습 lane 관측 유지(불변식 #2). ADR-0655/0656 Gate2 재무위험 soft 페널티(점수 cap·gate2ConfluenceScore buildFundamentalAxis) 대체 아닌 보완(별도 seam). executionImpact=candidate EXCLUSION only·SourceSnapshot/autoTradeEngine/buyPipeline order/requiredScore70/ADR-0471 곡선/gate2ConfluenceScore 본문 무접촉. 현 engineMode=SHADOW_ONLY 라 live 주문 0."
+    },
+    {
       "envFlag": "INTRADAY_MOVER_CANDIDATE_SOURCE_ENABLED",
       "adr": "0657",
       "title": "Intraday-Mover Candidate Source (신선 screener 당일 상위 → candidate pool 주입)",

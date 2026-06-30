@@ -411,3 +411,43 @@ export function isGate2FinancialRiskPenaltyEnabled(): boolean {
 export function isRiskDesignationExclusionEnabled(): boolean {
   return process.env.RISK_DESIGNATION_EXCLUSION_ENABLED !== 'false';
 }
+
+// ─── ADR-0659 — 펀더멘털 deep-junk floor 진입 제외 (Option B 후속, ADR-0658 확장) ──
+//
+// 형식적 KRX 지정이 없으나 ROE 가 깊게 음(-)인 종목(서산 079650 ROE -55.6%)을 ROE
+// floor(기본 -20%) 기준으로 진입 후보에서 추가 제외한다. 운영자(silverlh614) "추천"→
+// "구현시작"(Option B). default ON kill-switch(`!== 'false'`). 후보 EXCLUSION 전용
+// (엄격히 더 보수적) — engineMode SHADOW_ONLY 라 live 주문 0. shadow/learning 관측 유지
+// (불변식 #2). ROE 결손/NaN → 미제외 graceful(결손 ≠ junk, 불변식 #6).
+// ───────────────────────────────────────────────────────────────────────────
+
+/** ROE floor 기본값(%) — 보수적 deep-junk 컷. -20% 이하만 제외(서산 -55% 잡고 -5% 살림). */
+const RISK_FUNDAMENTAL_ROE_FLOOR_DEFAULT_PCT = -20;
+/** floor clamp 범위 — 음수 영역만 허용([-100, 0]). 흑자(+) floor 는 over-filter 라 금지. */
+const RISK_FUNDAMENTAL_ROE_FLOOR_MIN_PCT = -100;
+const RISK_FUNDAMENTAL_ROE_FLOOR_MAX_PCT = 0;
+
+/**
+ * 펀더멘털 deep-junk floor 진입 제외 활성 스위치. default ON (kill-switch `!== 'false'`).
+ * 정확히 `'false'` 만 OFF(제외 미적용 byte-identical), 그 외 모두 ON (운영자 명시 요청).
+ * 게이트 대상: signalScanner per-symbol entry chokepoint 의 isFundamentalJunkBelowFloor 제외.
+ * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
+ */
+export function isRiskFundamentalFloorExclusionEnabled(): boolean {
+  return process.env.RISK_FUNDAMENTAL_FLOOR_EXCLUSION_ENABLED !== 'false';
+}
+
+/**
+ * ROE floor(%) SSOT getter. `RISK_FUNDAMENTAL_ROE_FLOOR_PCT` 파싱 — 미설정/NaN/비유한 →
+ * 기본 -20. [-100, 0] 으로 clamp(흑자 floor·과도한 음수 방지). 호출자 inline 파싱 금지.
+ */
+export function getRiskFundamentalRoeFloorPct(): number {
+  const raw = process.env.RISK_FUNDAMENTAL_ROE_FLOOR_PCT;
+  if (raw == null || raw.trim() === '') return RISK_FUNDAMENTAL_ROE_FLOOR_DEFAULT_PCT;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return RISK_FUNDAMENTAL_ROE_FLOOR_DEFAULT_PCT;
+  return Math.min(
+    RISK_FUNDAMENTAL_ROE_FLOOR_MAX_PCT,
+    Math.max(RISK_FUNDAMENTAL_ROE_FLOOR_MIN_PCT, parsed),
+  );
+}
