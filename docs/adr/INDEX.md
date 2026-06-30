@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0660`**
+**다음 ADR 번호: `0661`**
+
+(2026-06-30 기준, 마지막 발급 0660 — **RRR Collapse Partial-Exit Minimum-Profit Guard (RRR 붕괴 부분익절 최소 수익률 가드)**. **Status: Accepted (운영자 silverlh614 명시 요청 — "너무 빨리 청산하면 수수료 내고 남는 게 없음").** 근본원인: `exitEngine/rules/rrrCollapseExit.ts` 의 liveRRR<1.0 붕괴 임계는 (hardStopLoss+targetPrice)/2 중간값이라, 진입 RRR 이 낮은(목표·손절 거리 유사) 종목은 진입 직후 +1% 대 미세 상승만으로도 발동 — 실측 시프트업(462870) 진입 33,350·목표 36,684·손절 30,774 → 중간값 33,729(+1.14%)에서 발동, +1.3%·보유 0일에 50% 청산(한국 round-trip 비용 차감 후 실익 0). 기존 가드는 `currentPrice > shadowEntryPrice`(수익 0% 초과)뿐이라 최소 수익 하한·최소 보유시간 부재. fix: returnPct 가 ENV 조정 임계(`RRR_COLLAPSE_MIN_PROFIT_PCT`, 기본 3%) 미만이면 발동 보류 1줄 가드 추가(`currentPrice<=entry` NO_OP 직후·remainingReward 계산 직전). getter `getRrrCollapseMinProfitPct()`(빈값/undefined→기본 3·음수/NaN→3 안전 폴백·SSOT 동일 파일). executionImpact=청산 보류(엄격히 더 보수적 — 조기 매도 억제·HIT_STOP/하드스톱 등 손실 청산 경로 무영향)·`RRR_COLLAPSE_MIN_PROFIT_PCT=0` 설정 시 구 동작(수익 0% 초과면 발동) byte-identical 즉시 롤백·9대 불변식 #1/#2/#7/#8 보존·SourceSnapshot/Gate/requiredScore=70/autoTradeEngine order 본문/buyPipeline/kisClient/src/** 무접촉. 회귀: 임계 미만 보류·임계 이상 발동·ENV=0 롤백·음수/NaN 폴백 4 케이스(rrrCollapseExit.test.ts, 총 10 통과). 계보 0028/0072/0146/0530. INDEX 0660 등재(다음 0660→0661 갱신). 코드+거버넌스 직접 구현.)
 
 (2026-06-30 기준, 마지막 발급 0659 — **Fundamental Deep-Junk Floor Entry Exclusion (펀더멘털 deep-junk floor 후보 제외)**. **Status: Accepted (운영자 silverlh614 "추천"→"구현시작" — Option B 후속, ADR-0658 형식적-지정 제외의 확장).** 근본원인: ADR-0658 은 형식적 KRX 지정(투자경고/위험/관리/단기과열)만 제외하나, 형식적 지정이 없으면서 펀더멘털이 깊게 음(-)인 종목(서산 079650 — `/scan_blockers` 가 Gate2 재무 라인에서 ROE=-55.60·perInterpretation=NOT_MEANINGFUL_DUE_TO_NEGATIVE_EARNINGS 표시·적자·shadow -10% 손실)이 designation gate 를 통과. fix: 보수적 ROE floor(기본 -20%)로 ROE present∧finite∧≤floor deep-junk 만 추가 제외 — 경미·턴어라운드 적자(-5%)·흑자전환 직전 성장주는 살린다. 3-part: (1) 순수 SSOT 분류기 `riskDesignationClassifier.isFundamentalJunkBelowFloor({roePct},floorPct)`(ADR-0658 모듈 family 확장·gate2ConfluenceScore 무관; 경계 ≤ 제외·결손/NaN/±Infinity→미제외 graceful 불변식 #6) (2) per-symbol chokepoint 가드 `fundamentalFloorGate`(buyListLoop designation gate 직후·동일 Gate1 candidacy 직전·designation OR floor; ROE 는 getGate2ExternalCacheRecord reuse-only 동기 read profitability.roe/metrics.roe — /scan_blockers 동일 캐시·신규 KIS/DART fetch 0; silently drop 금지 RISK_FUNDAMENTAL_FLOOR_EXCLUDED 진단 노출·위쪽 학습 lane 관측 유지 불변식 #2; 캐시 부재/ROE 결손→PROCEED graceful) (3) flag `isRiskFundamentalFloorExclusionEnabled()`(default ON kill-switch `!== 'false'`·SSOT gateConfig.ts) + floor getter `getRiskFundamentalRoeFloorPct()`(기본 -20·[-100,0] clamp·NaN→-20·SSOT). executionImpact=candidate EXCLUSION only(엄격히 더 보수적)·engineMode SHADOW_ONLY live 0·9대 불변식 #1/#2/#6/#7/#8 보존·autoTradeEngine order 본문/buyPipeline order placement/SourceSnapshot 생성기/requiredScore=70/ADR-0471 Gate1 곡선/병렬세션 gate2ConfluenceScore buildFundamentalAxis 본문(ADR-0655)/src/** 무접촉. OFF(`=false`)=byte-identical(제외 미적용). Note: ADR-0655/0656 Gate2 재무위험 soft 페널티(점수 cap)를 대체하지 않고 보완(별도 seam)·floor ENV tunable. 계보 0658/0655/0529/0157/0641/0146/0530. INDEX 0659 등재(다음 0659→0660 갱신). 코드+거버넌스 직접 구현.)
 
@@ -821,8 +823,9 @@
 | 0657 | intraday-mover-candidate-source-default-on-flip | candidate-pool / intraday-mover source default OFF→ON flip |
 | 0658 | risk-designation-entry-exclusion | trading / risk-warning designation entry candidate exclusion |
 | 0659 | fundamental-deep-junk-floor-entry-exclusion | trading / ROE deep-junk floor entry candidate exclusion |
+| 0660 | rrr-collapse-min-profit-guard | trading / exit — RRR 붕괴 부분익절 최소 수익률 가드 |
 
-**최대 발급 0659 · 다음 발급 0660** — `node scripts/check_adr_index.js --json` 기준 (2026-06-30 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0660 · 다음 발급 0661** — `node scripts/check_adr_index.js --json` 기준 (2026-06-30 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
