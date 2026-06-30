@@ -115,7 +115,10 @@ function analyzeShadowTrades() {
   for (const t of trades) {
     const fills = Array.isArray(t.fills) ? t.fills : [];
     for (const f of fills) {
-      if (f && f.exitRuleTag === 'RRR_COLLAPSE_PARTIAL' && f.status !== 'REVERTED') {
+      // 실현분만 집계 — PROVISIONAL(LIVE 접수만·CCLD 미확인)·REVERTED 제외.
+      // aggregateFillStats SSOT 동일 정책. 레거시(status 미기록)는 CONFIRMED 간주.
+      const realized = f && (f.status === undefined || f.status === 'CONFIRMED');
+      if (f && f.exitRuleTag === 'RRR_COLLAPSE_PARTIAL' && realized) {
         // 사후 추세: 부분익절가 대비 그 후 도달한 고점(trailingHighWaterMark) / 최종 청산가
         const exitPx = f.price;
         const peak = typeof t.trailingHighWaterMark === 'number' ? t.trailingHighWaterMark : null;
