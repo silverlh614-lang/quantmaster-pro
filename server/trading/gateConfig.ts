@@ -451,3 +451,28 @@ export function getRiskFundamentalRoeFloorPct(): number {
     Math.max(RISK_FUNDAMENTAL_ROE_FLOOR_MIN_PCT, parsed),
   );
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// ADR-0661 — Gate3 재검증 실시간 현재가 재각인 (default ON / kill-switch)
+//
+// kisIntradayCorrectionStep 은 fetchKisIntraday(FHKST01010100)로 fresh 현재가·asOf 를
+// 이미 조회하지만 dayOpen/prevClose 만 반영하고 fresh price/asOf 를 폐기해 왔다. 그 결과
+// 6h 일봉 캐시(technicalQuoteRouter, ADR-0547)의 낡은 asOf 가 Gate3 entry price guard
+// (>60s = ENTRY_PRICE_STALE)에 들어가 신선한 재검증조차 무조건 STALE 로 오차단됐다
+// (scan-eval-20260702114714: entryPriceStaleBlocked 11/11).
+//
+// ON 시 같은 콜이 반환한 price/currentPrice + priceAsOf 타임스탬프를 재검증 quote 에
+// 각인한다 — 신규 KIS fetch 0, guard 로직·60초 임계 무변경, 명시 age 필드 미각인
+// (캐시 공유 객체에 고정 age 가 남아 이후 평가를 오염하는 것 방지 — 타임스탬프만 각인해
+// guard 가 평가 시점마다 나이를 재계산). 현 engineMode=SHADOW_ONLY 라 live 주문 0 안전창.
+// explicit `=false` 1줄 kill-switch (ADR-0658/0652 동일 패턴).
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Gate3 재검증 실시간 현재가 재각인 스위치. default ON (kill-switch `!== 'false'`).
+ * 게이트 대상: kisIntradayCorrectionStep 의 fresh price/priceAsOf 각인.
+ * 호출자 inline ENV 검사 금지 — 본 SSOT 함수만 사용한다.
+ */
+export function isGate3EntryPriceRestampEnabled(): boolean {
+  return process.env.GATE3_ENTRY_PRICE_RESTAMP_ENABLED !== 'false';
+}

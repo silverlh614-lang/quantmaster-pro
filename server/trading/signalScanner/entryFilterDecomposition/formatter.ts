@@ -489,12 +489,19 @@ function formatGate2FinancialBaselineSection(
     allLocked = evaluateGate2FinancialBaselineInvariants(view).every(inv => inv.ok);
     evaluated = 1;
   }
+  // Patch FIN-NOT-ATTEMPTED-INTERPRETATION-001 (표시 전용) — NOT_ATTEMPTED 는 lazy fetch 단계
+  // 미도달(매수 검토 스텝 미진입 → 재무 fetch 자체가 시도되지 않음)이며 연결 실패가 아니다.
+  // 운영자가 P1 provider 장애로 오독하는 것을 막기 위해 분포에 NOT_ATTEMPTED 가 있으면 해석 note 를 붙인다.
+  const notAttemptedCount = (dartConnDist.NOT_ATTEMPTED ?? 0) + (kisConnDist.NOT_ATTEMPTED ?? 0);
   return [
     'Gate2 Financial Baseline:',
     `- candidatesEvaluated=${evaluated}`,
     `- dartConnectionStatusDistribution: ${fmtDist(dartConnDist)}`,
     `- dartDataStatusDistribution: ${fmtDist(dartDataDist)}`,
     `- kisFinanceConnectionStatusDistribution: ${fmtDist(kisConnDist)}`,
+    ...(notAttemptedCount > 0
+      ? ['- note: NOT_ATTEMPTED=재무 fetch 단계 미도달(lazy — 매수 검토 스텝 미진입), 연결 실패 아님. 전 후보 커버리지는 USE_UNIFIED_SOURCE_SNAPSHOT=true 로 확장(ADR-0529).']
+      : []),
     `- perInterpretationDistribution: ${fmtDist(perDist)}`,
     `- financialUseScopeDistribution: ${fmtDist(useScopeDist)}`,
     `- perProviderIssue=false perEntryHardBlock=false perHighConvictionOnly=true`,
