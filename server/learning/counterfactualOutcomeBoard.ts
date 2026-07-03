@@ -16,6 +16,11 @@ import {
   isKrxTradingDay,
   toKstDateKey,
 } from '../calendar/krxTradingCalendar.js';
+import {
+  attachKospiExcessD5ToBand,
+  buildCounterfactualKospiJoinContext,
+  computeBoardKospiContextD5,
+} from './counterfactualKospiJoin.js';
 
 export type CounterfactualSourceType =
   | 'GATE1_DRY_RUN_OBSERVATION'
@@ -189,6 +194,10 @@ export interface CounterfactualBandOutcome {
   correctBlockRateD5: number | null;
   falseNegativeRateD5?: number | null;
   recommendation?: string;
+  /** KOSPI 대비 초과수익 D5 (2026-07-03 patch — display-only additive, counterfactualKospiJoin). */
+  avgExcessD5?: number | null;
+  winVsMarketD5?: number | null;
+  kospiJoinedD5?: number;
 }
 
 export interface CounterfactualTodaySummary {
@@ -299,6 +308,9 @@ export interface CounterfactualOutcomeBoard {
   review: CounterfactualReviewSummary;
   safety: CounterfactualSafetyChecks;
   debug: CounterfactualDebugSummary;
+  /** 관측창 KOSPI 시장 컨텍스트 (display-only additive — join 실패 시 UNAVAILABLE graceful). */
+  kospiAvgD5?: number | null;
+  kospiJoinStatus?: 'JOINED' | 'UNAVAILABLE';
   thresholdAutoChanged: false;
   operatorApprovalRequired: true;
   executionImpact: 'NONE';
@@ -1341,7 +1353,13 @@ export async function buildCounterfactualOutcomeBoard(
   const summary = buildOutcomeSummary(rows);
   // 점수 신뢰 필터(2026-06-11 patch): canonical(scoreSource=MIN_SIGNAL_TRACE) 행만 밴드 증거로
   // 집계 — 구 스케일(27조건 gateScore) 혼입 행은 legacyScaleMixed 로 분리 표시 (silent 제거 금지).
-  const gate1Bands = GATE1_BANDS.map((band) => buildBandOutcome(band, rows.filter((row) => row.gate1Band === band && row.scoreSource === 'MIN_SIGNAL_TRACE')));
+  // KOSPI join (2026-07-03 patch): 표시 전용 초과수익 D5 — 실패 시 UNAVAILABLE graceful
+  // (providerIssue≠marketSignal, Yahoo fallback 금지). 기존 밴드 값 무변경 (additive).
+  const kospiJoin = await buildCounterfactualKospiJoinContext(rows, now);
+  const gate1Bands = GATE1_BANDS.map((band) => {
+    const bandRows = rows.filter((row) => row.gate1Band === band && row.scoreSource === 'MIN_SIGNAL_TRACE');
+    return attachKospiExcessD5ToBand(buildBandOutcome(band, bandRows), bandRows, kospiJoin);
+  });
   const gate1LegacyScale = buildBandOutcome('legacyScaleMixed', rows.filter((row) => row.gate1Band !== 'UNSCORED' && row.scoreSource !== 'MIN_SIGNAL_TRACE'));
   const gate2Blockers = groupByKnownKeys(rows, GATE2_BLOCKERS, (row) => row.gate2BlockerTop);
   const gate3Blockers = groupByKnownKeys(rows, GATE3_BLOCKERS, (row) => row.gate3BlockerTop, true);
@@ -1370,6 +1388,7 @@ export async function buildCounterfactualOutcomeBoard(
     gate3Blockers,
     topMissedOpportunities,
     bandMaturityStallGuard,
+    ...computeBoardKospiContextD5(rows, kospiJoin),
     today,
     review,
     safety,
