@@ -2,10 +2,17 @@
 
 import { fetchKisIntraday } from '../../../screener/stockScreener.js';
 import { reconcileDayOpen } from '../../entryEngine.js';
+import { isGate3EntryPriceRestampEnabled } from '../../gateConfig.js';
 
 export interface KisIntradayCorrectionInput {
   stockCode: string;
-  reCheckQuote: { dayOpen?: number; prevClose?: number } | null;
+  reCheckQuote: {
+    dayOpen?: number;
+    prevClose?: number;
+    price?: number;
+    currentPrice?: number;
+    priceAsOf?: string;
+  } | null;
 }
 
 export interface KisIntradayCorrectionResult {
@@ -59,6 +66,17 @@ export async function kisIntradayCorrectionStep(
   }
   if (kisSnap.prevClose > 0) {
     reCheckQuote.prevClose = kisSnap.prevClose;
+    applied = true;
+  }
+  // ADR-0661 — 같은 콜(FHKST01010100)이 반환한 fresh 현재가·시각을 재검증 quote 에 각인한다.
+  // 각인이 없으면 6h 일봉 캐시의 낡은 asOf 가 Gate3 entry price guard(>60s=STALE)에 들어가
+  // 신선한 재검증조차 ENTRY_PRICE_STALE 로 오차단된다. 신규 fetch 0 · guard 임계 무변경.
+  // 명시 age 필드(entryPriceAgeSec)는 각인하지 않는다 — 캐시 공유 객체에 고정 age 가 남으면
+  // 이후 평가를 오염하므로 priceAsOf 타임스탬프만 각인해 평가 시점마다 나이를 재계산하게 한다.
+  if (isGate3EntryPriceRestampEnabled() && kisSnap.price > 0) {
+    reCheckQuote.price = kisSnap.price;
+    reCheckQuote.currentPrice = kisSnap.price;
+    reCheckQuote.priceAsOf = kisSnap.asOf ?? new Date().toISOString();
     applied = true;
   }
   return { applied, logMessages };
