@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0661`**
+**다음 ADR 번호: `0662`**
+
+(2026-07-03 기준, 마지막 발급 0661 — **DART Gate2 Eval-Path Fetch Unification + Batch Throttle (평가 경로 fetch 통일 + 배치 스로틀)**. **Status: Proposed (Phase 0 — architect: ADR·INDEX 0661→0662·필드 단위 계약(field-contract.md)·flag 스펙까지. 코드 구현·테스트는 engine-dev 인계.)** 근본원인(3일 연속 `missingFields=ocfToNi,icr`·ICR 항상 null·earnings_quality UNAVAILABLE 다수·CONNECTION_DEGRADED=24): ① 평가 경로 `getGate2DartFinancialsForEvaluation`(gate2ExternalDataProvider.ts:784)의 DART leg(:799)가 레거시 `getDartFinancials`(dartFinancialClient.ts — roe/opm/debtRatio/ocfRatio % 4필드만·interestExpense/OCF raw/NI raw 미추출)에 배선 → ICR 구조적 null; ICR 실산출 모듈 B `fetchDartFinancialsForGate2`(:371)는 배치(:1137)에만 배선 ② 단위 함정 — 동일 필드명 `ocfRatio` 가 레거시=OCF/매출×100(%)·모듈 B=OCF/NI(배수) 이중 의미, earningsQualityEvaluator(evaluators.ts:790-824) 임계 >=5.0/>=1.0 은 % 전제·calculateGate2DerivedMetrics(:539-554)는 배수 전제 → 단순 교체 시 스케일 붕괴 + cache-hit 재구성(projectionToQmpDartFinancials:733 `ocfRatio: metrics.earningsQualityScore` 배수)의 현행 잠복 오독 ③ DEGRADED 24 = 재무 배치 rate-limit(운영자 확인 DART 연결·공시 정상 — 불변식 6, 장애≠bearish). fix: §1 신규 flag `GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED === 'true'` default OFF(ADR-0157·SSOT isGate2DartEvalUnifiedFetchEnabled() gate2DartEvalUnifiedFetchFlag.ts 신규·kisFinancePrimaryFlag 동일 스타일)로 평가 경로를 모듈 B + evaluator 경계 단위 어댑터로 통일 — 단위 계약: `ocfRatio`=OCF/매출% **동결**(evaluator 입력·임계 무변경)·**신규 옵셔널 `ocfToNi`**(OCF/NI 배수·기존 스키마에 데이터 필드 부재 확인, 진단 라벨만 존재)·`interestCoverageRatio`=영업이익/이자비용 배수(모듈 B normalizer :340 산출값); mergeKisPrimaryWithDartResidual 잔여 축 4줄 byte-무변경(+ocfToNi carry 1줄 additive)·derived metrics ocfToNi-first(부재 시 기존 식 byte-equivalent)·normalizer 계산식 무변경. §2 배치 스로틀 ≤4req/s + rate-limit(020/021/429) 조기 중단 + 캐시 재사용(반환 타입 무변경·판정 0줄). executionImpact=NONE(entryHardBlockImpact=NO·highConviction ≤ BLOCK_STRONG_BUY_UPGRADE useScope ≤ HIGH_CONVICTION_ONLY·marketSignal=false·불변식 6/7 보존·KIS/KRX quota 0 침범·gate2FinancialBaseline invariant/src/** 무접촉). OFF(default)=레거시 byte-equivalent·롤백 ENV 1줄. Alternatives: 단순 교체 기각(스케일 붕괴)·normalizer ocfRatio 의미 변경 기각(배치 소비자 파급)·임계 재조정 기각(자동 변경 금지)·default ON 기각(0157)·레거시에 interestExpense 추가 기각(이중 산출 고착). 계보 0532/0529/0655/0416/0561/0157/0641/0530/0146. INDEX 0661 등재(다음 0661→0662 갱신). 코드 구현 engine-dev 인계.)
 
 (2026-06-30 기준, 마지막 발급 0660 — **RRR Collapse Partial-Exit Minimum-Profit Guard (RRR 붕괴 부분익절 최소 수익률 가드)**. **Status: Accepted (운영자 silverlh614 명시 요청 — "너무 빨리 청산하면 수수료 내고 남는 게 없음").** 근본원인: `exitEngine/rules/rrrCollapseExit.ts` 의 liveRRR<1.0 붕괴 임계는 (hardStopLoss+targetPrice)/2 중간값이라, 진입 RRR 이 낮은(목표·손절 거리 유사) 종목은 진입 직후 +1% 대 미세 상승만으로도 발동 — 실측 시프트업(462870) 진입 33,350·목표 36,684·손절 30,774 → 중간값 33,729(+1.14%)에서 발동, +1.3%·보유 0일에 50% 청산(한국 round-trip 비용 차감 후 실익 0). 기존 가드는 `currentPrice > shadowEntryPrice`(수익 0% 초과)뿐이라 최소 수익 하한·최소 보유시간 부재. fix: returnPct 가 ENV 조정 임계(`RRR_COLLAPSE_MIN_PROFIT_PCT`, 기본 3%) 미만이면 발동 보류 1줄 가드 추가(`currentPrice<=entry` NO_OP 직후·remainingReward 계산 직전). getter `getRrrCollapseMinProfitPct()`(빈값/undefined→기본 3·음수/NaN→3 안전 폴백·SSOT 동일 파일). executionImpact=청산 보류(엄격히 더 보수적 — 조기 매도 억제·HIT_STOP/하드스톱 등 손실 청산 경로 무영향)·`RRR_COLLAPSE_MIN_PROFIT_PCT=0` 설정 시 구 동작(수익 0% 초과면 발동) byte-identical 즉시 롤백·9대 불변식 #1/#2/#7/#8 보존·SourceSnapshot/Gate/requiredScore=70/autoTradeEngine order 본문/buyPipeline/kisClient/src/** 무접촉. 회귀: 임계 미만 보류·임계 이상 발동·ENV=0 롤백·음수/NaN 폴백 4 케이스(rrrCollapseExit.test.ts, 총 10 통과). 계보 0028/0072/0146/0530. INDEX 0660 등재(다음 0660→0661 갱신). 코드+거버넌스 직접 구현.)
 
@@ -824,8 +826,9 @@
 | 0658 | risk-designation-entry-exclusion | trading / risk-warning designation entry candidate exclusion |
 | 0659 | fundamental-deep-junk-floor-entry-exclusion | trading / ROE deep-junk floor entry candidate exclusion |
 | 0660 | rrr-collapse-min-profit-guard | trading / exit — RRR 붕괴 부분익절 최소 수익률 가드 |
+| 0661 | dart-gate2-eval-fetch-unification | gate2 / dart-provider — 평가 경로 fetch 모듈 B 통일 + 단위 계약(ocfRatio%/ocfToNi배/icr배) + 배치 스로틀 |
 
-**최대 발급 0660 · 다음 발급 0661** — `node scripts/check_adr_index.js --json` 기준 (2026-06-30 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0661 · 다음 발급 0662** — `node scripts/check_adr_index.js --json` 기준 (2026-07-03 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
