@@ -52,7 +52,9 @@ import {
   buildMissingGate2FinancialSnapshot,
   fetchDartFinancialsForGate2,
   getGate2DartFinancialsForEvaluation,
+  paceDartBatchRequest,
   projectionToQmpDartFinancials,
+  resolveDartBatchMinIntervalMs,
 } from './gate2ExternalDataProvider.js';
 import { isGate2DartEvalUnifiedFetchEnabled } from './gate2DartEvalUnifiedFetchFlag.js';
 import { getGate2ExternalCacheRecord, upsertGate2ExternalCacheRecords } from './gate2ExternalCache.js';
@@ -322,5 +324,84 @@ describe('ADR-0661 §1 flag ON — 모듈 B 통일 + evaluator 경계 단위 어
     expect(fin?.roe).toBeCloseTo(9); // 캐시 서빙 그대로
     expect(kisCalled).toBe(false); // 재산출 없음
     expect(dartHttp.calls.length).toBe(0); // 모듈 B 미사용
+  });
+});
+
+describe('ADR-0661 §2 PR-B — DART 배치 스로틀 (판정 0줄)', () => {
+  it('ENV DART_BATCH_MIN_INTERVAL_MS 클램프: 기본 300 · 0~2000 · 비수치 → 기본', () => {
+    delete process.env.DART_BATCH_MIN_INTERVAL_MS; // 명시 인자 undefined 는 ENV default 로 폴백하므로 먼저 제거
+    expect(resolveDartBatchMinIntervalMs(undefined)).toBe(300);
+    expect(resolveDartBatchMinIntervalMs('')).toBe(300);
+    expect(resolveDartBatchMinIntervalMs('abc')).toBe(300);
+    expect(resolveDartBatchMinIntervalMs('120')).toBe(120);
+    expect(resolveDartBatchMinIntervalMs('5000')).toBe(2000); // 상한 클램프
+    expect(resolveDartBatchMinIntervalMs('-10')).toBe(0); // 하한 클램프 (0 = 페이싱 비활성)
+  });
+
+  it('페이서: 최소 간격 미경과 시 잔여분만 대기, 경과 시 대기 0 (주입 시계 결정적 검증)', async () => {
+    const sleeps: number[] = [];
+    let clock = Date.now() + 60_000; // 모듈 전역 lastRequestAt(과거 실측치)보다 항상 미래 → 첫 호출 대기 0
+    const deps = {
+      now: () => clock,
+      sleep: async (ms: number) => { sleeps.push(ms); clock += ms; },
+      minIntervalMs: 100,
+    };
+    const wait1 = await paceDartBatchRequest(deps);
+    expect(wait1).toBe(0);
+    const wait2 = await paceDartBatchRequest(deps); // 동일 시각 재요청 → 100ms 대기
+    expect(wait2).toBe(100);
+    clock += 250; // 간격 초과 경과 → 대기 0
+    const wait3 = await paceDartBatchRequest(deps);
+    expect(wait3).toBe(0);
+    expect(sleeps).toEqual([100]);
+    // 모듈 전역 lastRequestAt 이 주입 시계(미래 60s)로 오염되지 않도록 실측 now 로 리셋 (후속 테스트 hang 방지).
+    await paceDartBatchRequest({ minIntervalMs: 0 });
+  });
+
+  it('fetchDartFinancialsForGate2 요청 간 최소 간격 준수 (실측 타임스탬프)', async () => {
+    process.env.DART_BATCH_MIN_INTERVAL_MS = '60';
+    // 1번째 응답: DART '013'(조회 데이터 없음) → 다음 후보 계속, 2번째 응답: 성공.
+    dartHttp.queue.push({ status: 200, body: { status: '013', list: [] } });
+    dartHttp.queue.push(okBody(dartRows()));
+
+    const { dartFin } = await fetchDartFinancialsForGate2({ symbol: '066110', apiKey: 'k', skipCorpCodeMasterEnsure: true });
+    expect(dartFin).not.toBeNull();
+    expect((dartFin as QmpDartFinancials).interestCoverageRatio).toBe(6);
+    expect(dartHttp.calls.length).toBe(2);
+    expect(dartHttp.calls[1].at - dartHttp.calls[0].at).toBeGreaterThanOrEqual(55); // ~60ms 페이싱 (타이머 오차 여유)
+  });
+
+  it('429 재차 제한 → 백오프 1회 후 잔여 보고서 후보 조기 중단 (trace RATE_LIMITED 기록)', async () => {
+    process.env.DART_BATCH_MIN_INTERVAL_MS = '10'; // 백오프 = 간격×4 = 40ms (테스트 신속)
+    dartHttp.queue.push({ status: 429, body: {} });
+    dartHttp.queue.push({ status: 429, body: {} });
+
+    const { dartFin, trace } = await fetchDartFinancialsForGate2({ symbol: '066111', apiKey: 'k', skipCorpCodeMasterEnsure: true });
+    expect(dartFin).toBeNull();
+    expect(dartHttp.calls.length).toBe(2); // 최초 + 백오프 재시도 1회 — 잔여 후보(최대 6요청) 미시도
+    expect(trace.dartErrorCode).toBe('RATE_LIMITED');
+    expect(trace.dartHttpStatus).toBe(429);
+  });
+
+  it('429 → 백오프 1회 후 재시도 성공하면 정상 진행 (조기 중단 아님)', async () => {
+    process.env.DART_BATCH_MIN_INTERVAL_MS = '10';
+    dartHttp.queue.push({ status: 429, body: {} });
+    dartHttp.queue.push(okBody(dartRows()));
+
+    const { dartFin } = await fetchDartFinancialsForGate2({ symbol: '066112', apiKey: 'k', skipCorpCodeMasterEnsure: true });
+    expect(dartFin).not.toBeNull();
+    expect((dartFin as QmpDartFinancials).ocfToNi).toBeCloseTo(1.4); // normalizer additive 필드 (배치 경로 탑재)
+    expect(dartHttp.calls.length).toBe(2);
+  });
+
+  it('DART status 020(사용한도 초과) 도 rate-limit 으로 감지·조기 중단', async () => {
+    process.env.DART_BATCH_MIN_INTERVAL_MS = '10';
+    dartHttp.queue.push({ status: 200, body: { status: '020', message: '사용한도를 초과하였습니다' } });
+    dartHttp.queue.push({ status: 200, body: { status: '020', message: '사용한도를 초과하였습니다' } });
+
+    const { dartFin, trace } = await fetchDartFinancialsForGate2({ symbol: '066113', apiKey: 'k', skipCorpCodeMasterEnsure: true });
+    expect(dartFin).toBeNull();
+    expect(dartHttp.calls.length).toBe(2);
+    expect(trace.dartErrorCode).toBe('RATE_LIMITED');
   });
 });

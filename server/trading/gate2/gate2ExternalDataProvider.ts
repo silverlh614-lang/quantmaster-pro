@@ -62,6 +62,61 @@ import {
 
 const DART_BASE = 'https://opendart.fss.or.kr/api';
 
+// ── ADR-0661 §2: DART 재무 배치 스로틀 (판정 로직 0줄 — 페이싱·429 백오프 1회·조기 중단만) ──
+const DART_BATCH_MIN_INTERVAL_DEFAULT_MS = 300;
+const DART_BATCH_MIN_INTERVAL_MAX_MS = 2000;
+
+/** ENV DART_BATCH_MIN_INTERVAL_MS — 기본 300ms(≈3.3req/s, ≤4req/s 계약), 0~2000 클램프. 비수치는 기본값. */
+export function resolveDartBatchMinIntervalMs(
+  raw: string | undefined = process.env.DART_BATCH_MIN_INTERVAL_MS,
+): number {
+  if (raw == null || String(raw).trim() === '') return DART_BATCH_MIN_INTERVAL_DEFAULT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return DART_BATCH_MIN_INTERVAL_DEFAULT_MS;
+  return Math.min(DART_BATCH_MIN_INTERVAL_MAX_MS, Math.max(0, Math.round(parsed)));
+}
+
+function sleepMs(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+let _lastDartRequestAt = 0;
+
+/**
+ * 모듈 전역 DART 페이서 — fetchDartFinancialsForGate2 의 모든 요청(평가·배치 심볼 루프 공용)에
+ * 최소 간격을 적용한다 (refreshGate2ExternalData 심볼 루프도 요청 단위로 페이싱됨). 대기한 ms 반환.
+ */
+export async function paceDartBatchRequest(deps?: {
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  minIntervalMs?: number;
+}): Promise<number> {
+  const now = deps?.now ?? Date.now;
+  const sleep = deps?.sleep ?? sleepMs;
+  const interval = deps?.minIntervalMs ?? resolveDartBatchMinIntervalMs();
+  if (interval <= 0) {
+    _lastDartRequestAt = now();
+    return 0;
+  }
+  const waitMs = Math.max(0, _lastDartRequestAt + interval - now());
+  if (waitMs > 0) await sleep(waitMs);
+  _lastDartRequestAt = now();
+  return waitMs;
+}
+
+/** rate-limit 신호: HTTP 429 또는 DART status '020'(사용한도 초과)/'021'(분당 한도 초과). */
+function isDartRateLimitSignal(httpStatus: number | undefined, body: unknown): boolean {
+  if (httpStatus === 429) return true;
+  const status = responseStatusCode(body);
+  return status === '020' || status === '021';
+}
+
+/** 429 백오프 1회 대기 — 최소 간격 ×4 (기본 1200ms). 간격 0(운영자 명시 비활성)이면 0. */
+function dartRateLimitBackoffMs(): number {
+  return resolveDartBatchMinIntervalMs() * 4;
+}
+
 function newTrace(symbol: string): Gate2ExternalRefreshTrace {
   const normalizedSymbol = cleanSymbol(symbol);
   return {
@@ -390,6 +445,9 @@ export async function fetchDartFinancialsForGate2(input: {
   const corpCode = await resolveDartCorpCode(symbol, trace);
   if (!corpCode) return { dartFin: null, trace };
 
+  // ADR-0661 §2: 429/DART 020·021 감지 시 백오프 1회 후 동일 요청 재시도, 재차 제한이면 잔여 보고서
+  // 후보 조기 중단(early-abort) — 실패 누적으로 DEGRADED 를 증폭시키지 않는다. 판정 로직 무변경.
+  let rateLimitBackoffUsed = false;
   for (const candidate of reportCandidates(input.now)) {
     for (const statementType of ['CFS', 'OFS'] as const) {
       const url = `${DART_BASE}/fnlttSinglAcntAll.json`
@@ -400,7 +458,21 @@ export async function fetchDartFinancialsForGate2(input: {
         + `&fs_div=${statementType}`;
       trace.dartRequestAttempted = true;
       try {
-        const { httpStatus, body } = await fetchDartJson(url, 10000);
+        await paceDartBatchRequest(); // ADR-0661 §2 요청 간 최소 간격 (기본 300ms · ENV DART_BATCH_MIN_INTERVAL_MS)
+        let { httpStatus, body } = await fetchDartJson(url, 10000);
+        if (isDartRateLimitSignal(httpStatus, body) && !rateLimitBackoffUsed) {
+          rateLimitBackoffUsed = true;
+          await sleepMs(dartRateLimitBackoffMs());
+          await paceDartBatchRequest();
+          ({ httpStatus, body } = await fetchDartJson(url, 10000));
+        }
+        if (isDartRateLimitSignal(httpStatus, body)) {
+          // 백오프 후에도 rate-limit — 잔여 후보 조기 중단 (trace 기록: silent 아님, provider 장애 ≠ market signal).
+          trace.dartHttpStatus = httpStatus;
+          trace.dartErrorCode = 'RATE_LIMITED';
+          trace.fiscalPeriodStatus = 'NONE';
+          return { dartFin: null, trace };
+        }
         trace.dartHttpStatus = httpStatus;
         const status = responseStatusCode(body);
         if (httpStatus >= 400 || (status && status !== '000' && status !== '0')) {
@@ -430,6 +502,15 @@ export async function fetchDartFinancialsForGate2(input: {
         const classified = classifyFetchError(error);
         trace.dartHttpStatus = classified.httpStatus;
         trace.dartErrorCode = classified.errorCode;
+        if (classified.errorCode === 'RATE_LIMITED') {
+          // ADR-0661 §2: throw 경로(FetchRetryError 429)도 백오프 1회 관용 후 재차 제한이면 조기 중단.
+          if (rateLimitBackoffUsed) {
+            trace.fiscalPeriodStatus = 'NONE';
+            return { dartFin: null, trace };
+          }
+          rateLimitBackoffUsed = true;
+          await sleepMs(dartRateLimitBackoffMs());
+        }
       }
     }
   }
