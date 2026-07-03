@@ -29,6 +29,21 @@ function kospiExcessSuffix(row: CounterfactualBandOutcome, kospiJoinStatus?: 'JO
   return ` excessD5=${signedPct(row.avgExcessD5)} winVsMkt=${pct(row.winVsMarketD5)} (idx n=${row.kospiJoinedD5 ?? 0})`;
 }
 
+function marketBucketPart(label: string, bucket: CounterfactualBandOutcome['marketUpD5']): string {
+  const n = bucket?.n ?? 0;
+  if (n === 0) return `${label} n=0 excess=N/A`;
+  return `${label} n=${n} excess=${signedPct(bucket?.avgExcessD5)} winVsMkt=${pct(bucket?.winVsMarketD5)}`;
+}
+
+/**
+ * 시장 국면 분해 + median 서브라인 (2026-07-03 patch 2 — display-only additive).
+ * JOINED + joined 표본>0 인 gate1 밴드에만 출력 — UNAVAILABLE/gate2/gate3 는 기존 출력 byte 무변경.
+ */
+function kospiMarketSplitSubline(row: CounterfactualBandOutcome, kospiJoinStatus?: 'JOINED' | 'UNAVAILABLE'): string | null {
+  if (kospiJoinStatus !== 'JOINED' || (row.kospiJoinedD5 ?? 0) <= 0) return null;
+  return `  ↳ ${marketBucketPart('mktUp', row.marketUpD5)} | ${marketBucketPart('mktDn', row.marketDownD5)} | medianExcess=${signedPct(row.medianExcessD5)}`;
+}
+
 function safetyLine(ok: boolean, code: string, note: string): string {
   return `[${ok ? 'OK' : 'WARN'}] ${code} - ${note}`;
 }
@@ -87,6 +102,8 @@ function formatBandRows(title: string, rows: readonly CounterfactualBandOutcome[
     lines.push(
       `${row.key}: n=${row.count} matureD5=${row.matureD5} avgD5=${num(row.avgReturnD5, '%')} win=${pct(row.winRateD5)} +3=${pct(row.hitPlus3PctRateD5)} correctBlock=${pct(row.correctBlockRateD5)} missed=${pct(row.missedOpportunityRateD5)} recommendation=${row.recommendation ?? 'OBSERVE_MORE'}${kospiExcessSuffix(row, kospiJoinStatus)}`,
     );
+    const marketSplit = kospiMarketSplitSubline(row, kospiJoinStatus);
+    if (marketSplit !== null) lines.push(marketSplit);
   }
   lines.push('thresholdAutoChanged=false operatorApprovalRequired=true executionImpact=NONE');
   return lines.join('\n');

@@ -39,6 +39,19 @@ export interface KospiBandExcessD5 {
   /** stockD5 > kospiD5 비율 (0~1). */
   winVsMarketD5: number | null;
   kospiJoinedD5: number;
+  /** 시장 상승창 bucket — kospiReturnD5 > 0 인 joined rows. */
+  marketUpD5: KospiMarketBucketExcessD5;
+  /** 시장 하락창 bucket — kospiReturnD5 <= 0 (경계 0 은 하락창 포함, 정의 고정). */
+  marketDownD5: KospiMarketBucketExcessD5;
+  /** 전체 joined 표본 excess 의 median (홀=중앙값, 짝=중앙 2개 평균) — 복권형 평균 왜곡 판별. */
+  medianExcessD5: number | null;
+}
+
+/** 시장 국면 bucket 집계 (2026-07-03 patch 2 — display-only additive). */
+export interface KospiMarketBucketExcessD5 {
+  n: number;
+  avgExcessD5: number | null;
+  winVsMarketD5: number | null;
 }
 
 interface KospiBar {
@@ -163,12 +176,40 @@ export async function buildCounterfactualKospiJoinContext(
   return { status: 'JOINED', reason: 'OK', joinD5 };
 }
 
+interface JoinedD5Pair {
+  stock: number;
+  kospi: number;
+}
+
+function emptyMarketBucket(): KospiMarketBucketExcessD5 {
+  return { n: 0, avgExcessD5: null, winVsMarketD5: null };
+}
+
+function bucketExcessD5(pairs: readonly JoinedD5Pair[]): KospiMarketBucketExcessD5 {
+  if (pairs.length === 0) return emptyMarketBucket();
+  const avgExcess = pairs.reduce((sum, p) => sum + (p.stock - p.kospi), 0) / pairs.length;
+  const wins = pairs.filter((p) => p.stock > p.kospi).length;
+  return {
+    n: pairs.length,
+    avgExcessD5: round2(avgExcess),
+    winVsMarketD5: round2(wins / pairs.length),
+  };
+}
+
+/** 표준 median — 홀수는 중앙값, 짝수는 중앙 2개 평균. 표본 0 이면 null. */
+function medianOf(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return round2(sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2);
+}
+
 /** 밴드 집계 — 양쪽(D5 stock/KOSPI) 존재 row 만 표본. 표본 0 이면 null (N/A 표기). */
 export function computeBandKospiExcessD5(
   rows: readonly KospiJoinRowInput[],
   ctx: KospiJoinContext,
 ): KospiBandExcessD5 {
-  const pairs: Array<{ stock: number; kospi: number }> = [];
+  const pairs: JoinedD5Pair[] = [];
   for (const row of rows) {
     const stock = row.returnD5;
     if (typeof stock !== 'number' || !Number.isFinite(stock)) continue;
@@ -176,13 +217,26 @@ export function computeBandKospiExcessD5(
     if (kospi === null) continue;
     pairs.push({ stock, kospi });
   }
-  if (pairs.length === 0) return { avgExcessD5: null, winVsMarketD5: null, kospiJoinedD5: 0 };
+  if (pairs.length === 0) {
+    return {
+      avgExcessD5: null,
+      winVsMarketD5: null,
+      kospiJoinedD5: 0,
+      marketUpD5: emptyMarketBucket(),
+      marketDownD5: emptyMarketBucket(),
+      medianExcessD5: null,
+    };
+  }
   const avgExcess = pairs.reduce((sum, p) => sum + (p.stock - p.kospi), 0) / pairs.length;
   const wins = pairs.filter((p) => p.stock > p.kospi).length;
   return {
     avgExcessD5: round2(avgExcess),
     winVsMarketD5: round2(wins / pairs.length),
     kospiJoinedD5: pairs.length,
+    // 시장 국면 분해 — 경계 kospiReturnD5 = 0 은 하락창(marketDownD5) 포함 (정의 고정·테스트).
+    marketUpD5: bucketExcessD5(pairs.filter((p) => p.kospi > 0)),
+    marketDownD5: bucketExcessD5(pairs.filter((p) => p.kospi <= 0)),
+    medianExcessD5: medianOf(pairs.map((p) => p.stock - p.kospi)),
   };
 }
 
