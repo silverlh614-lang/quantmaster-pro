@@ -166,6 +166,17 @@
       "activationCriteria": "ADR-0652 leader endpoint 정정으로 복원된 동적 유니버스(218)가 Gate 평가 candidate 풀에 진입 못하던 leader→candidate 배선 갭. 운영자 ENV=true 로 운영 검증 후 default-ON flip — /scan_blockers 실측에서 INTRADAY_MOVER 주입·주도주 candidate 진입·paper observational 생성 확인. engineMode=SHADOW_ONLY 라 live 주문 0 안전창.",
       "nextAction": "ADR-0657 flip 완료 — default ON(opt-OUT `!== 'false'`, ADR-0157 거울·ADR-0649/0652 동일 패턴), 운영자 /scan_blockers 검증(INTRADAY_MOVER=31·삼성전자/SK하이닉스 candidate 진입·paperObservational 16). 회귀/풀 폭주 시 explicit INTRADAY_MOVER_CANDIDATE_SOURCE_ENABLED=false 1줄 kill-switch 롤백. 하류(Gate1 임계·SHADOW_ONLY)는 별도 forward-outcome 관측.",
       "notes": "SSOT isIntradayMoverCandidateSourceEnabled() intradayMoverCandidateSource.ts 거주. 2026-06-29 ADR-0657 으로 default OFF→ON flip(opt-OUT `!== 'false'`, ADR-0157 거울 — 미설정/임의값 ON·explicit `=false` 만 OFF kill-switch). collectIntradayMoverCandidates() 가 getScreenerCache() changeRate 내림차순 상위 N(INTRADAY_MOVER_MAX_INJECT 기본 20·상한 50)을 buildCandidatePool intradayMovers 슬롯에 INTRADAY_MOVER 소스로 주입. 신규 fetch 0(캐시 read 만·ADR-0561). 채점/임계 우회 0 — Gate0~3+requiredScore70 그대로 적용(품질 필터 우회 아님·불변식 #7). OFF(=false kill-switch)=구 byte-identical([] 반환·getScreenerCache 미호출). 빈/실패 캐시=graceful [](불변식 #1·#6). executionImpact=NONE(발굴 풀 구성만·SourceSnapshot/autoTradeEngine/buyPipeline 무접촉)·현 engineMode=SHADOW_ONLY 라 live 주문 0."
+    },
+    {
+      "envFlag": "GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED",
+      "adr": "0661",
+      "title": "Gate2 DART Eval-Path Fetch Unification (평가 경로 fetch 모듈 B 통일 + evaluator 단위 어댑터)",
+      "introduced": "2026-07-03",
+      "reviewBy": "2026-10-01",
+      "status": "SHADOW_OFF",
+      "activationCriteria": "3일 연속 missingFields=ocfToNi,icr 의 근본원인(평가 경로가 레거시 getDartFinancials 배선 — interestExpense/OCF/NI raw 미추출로 ICR 구조적 null)을 모듈 B fetchDartFinancialsForGate2 통일로 수리. ON 은 ICR/ocfToNi 실값 유입으로 HIGH_CONVICTION 판정 데이터화(BLOCK_STRONG_BUY_UPGRADE 해제 가능)라 behavior change — PR-B 스로틀로 DART rate-limit(CONNECTION_DEGRADED 24) 감축을 먼저 관측하고, flag ON 후 /scan_blockers missingFields·earnings_quality UNAVAILABLE 감소 확인 + 운영자 승인 후 flip.",
+      "nextAction": "운영자 ENV =true 관측 → missingFields=ocfToNi,icr 소멸·단위 정합(ocfRatio=OCF/매출% vs ocfToNi=배수 분리) 확인 → default-ON flip 후속 ADR 결정. 회귀 시 ENV 제거/=false 1줄 롤백.",
+      "notes": "SSOT isGate2DartEvalUnifiedFetchEnabled() gate2DartEvalUnifiedFetchFlag.ts 거주(opt-IN `=== 'true'` default OFF·ADR-0157 — 선례 kisFinancePrimaryFlag 는 `!== 'false'` default ON, 부호 방향 다름 주의). 게이트 대상: getGate2DartFinancialsForEvaluation DART leg(:799 레거시 getDartFinancials → 모듈 B fetchDartFinancialsForGate2 + toEvaluatorContractDartFin 단위 어댑터) + cache-hit 재구성 단위 정합(projectionToQmpDartFinancials ocfRatio=OCF/매출% 재산출·ocfToNi=배수 분리 — 배수를 % 임계로 오독하던 잠복 결함 봉인) + 레거시 캐시 self-heal(statementType UNKNOWN 1회 재산출). evaluator 임계(>=5.0/>=1.0 %)·normalizer 산식·mergeKisPrimaryWithDartResidual 잔여 축 4줄 byte-무변경(ocfToNi carry 1줄 additive). KIS_FINANCE_PRIMARY 와 직교(DART leg fetcher 만 교체·KIS 머지 순서 무변경). OFF(미설정/=false)=레거시 경로 byte-equivalent. DART 실패=graceful null(providerIssue=true·marketSignal=false·불변식 #6). entryHardBlockImpact=NO·highConviction ≤ BLOCK_STRONG_BUY_UPGRADE·executionImpact=NONE. PR-B 스로틀(DART_BATCH_MIN_INTERVAL_MS 기본 300·0~2000 클램프·429 백오프 1회·잔여 후보 조기 중단)은 flag 무관 상시(판정 0줄)."
     }
   ]
 }

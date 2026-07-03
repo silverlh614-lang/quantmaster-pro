@@ -3,6 +3,7 @@
 import { getDartFinancials } from '../../clients/dartFinancialClient.js';
 import { getKisFinancials, kisFinancialsToQmpDartFinancials, type KisFinancials } from '../../clients/kisFinanceClient.js';
 import { isKisFinancePrimaryEnabled } from './kisFinancePrimaryFlag.js';
+import { isGate2DartEvalUnifiedFetchEnabled } from './gate2DartEvalUnifiedFetchFlag.js';
 import { normalizeDartFinancials, type QmpDartFinancials } from '../../clients/dartFinancialNormalizer.js';
 import { fetchWithRetry, FetchRetryError } from '../../utils/fetchWithRetry.js';
 import {
@@ -536,7 +537,10 @@ export function calculateGate2DerivedMetrics(input: {
   const snapshot = input.snapshot;
   const roe = finiteNumber(record.roe) ?? ratio(snapshot.netIncome, snapshot.equity);
   const opm = finiteNumber(record.opm) ?? ratio(snapshot.operatingProfit, snapshot.revenue);
+  // ADR-0661 §1: ocfToNi(OCF/NI 배수 명시 필드)-first — 부재(레거시/기존 배치 레코드) 시 기존 식 그대로 = byte-equivalent.
+  const ocfToNi = finiteNumber(record.ocfToNi) ?? null;
   const ocfRatio = finiteNumber(record.ocfRatio) ?? ratio(snapshot.operatingCashFlow, snapshot.netIncome);
+  const earningsQualityScore = ocfToNi ?? ocfRatio;
   const netMargin = ratio(snapshot.netIncome, snapshot.revenue);
   const debtRatio = finiteNumber(record.debtRatio) ?? ratio(snapshot.totalDebt, snapshot.equity);
   const currentRatio = finiteNumber(record.currentRatio) ?? ratio(snapshot.currentAssets, snapshot.currentLiabilities);
@@ -550,8 +554,8 @@ export function calculateGate2DerivedMetrics(input: {
     icr,
     debtRatio,
     currentRatio,
-    earningsQualityScore: ocfRatio,
-    ocfGreaterThanNetIncome: ocfRatio == null ? null : ocfRatio >= 1,
+    earningsQualityScore,
+    ocfGreaterThanNetIncome: earningsQualityScore == null ? null : earningsQualityScore >= 1,
     opmYoYAcceleration,
   };
 }
@@ -717,6 +721,13 @@ export function buildGate2ExternalProjection(input: {
 export function projectionToQmpDartFinancials(projection: Gate2ExternalProjection): QmpDartFinancials {
   const snapshot = projection.financialSnapshot;
   const metrics = projection.metrics;
+  // ADR-0661 §4.4 cache-hit 단위 정합: unified ON 시 ocfRatio 는 snapshot raw 에서 OCF/매출×100(%) 재산출하고,
+  // 배수(earningsQualityScore=OCF/NI)는 ocfToNi 로 분리 운반 — 배수를 % 임계 evaluator 입력으로 전달하던
+  // 현행 잠복 오독을 봉인한다. OFF(default) = 기존 라인 byte-무변경 (byte-equivalent 원칙 우선).
+  const unifiedFetch = isGate2DartEvalUnifiedFetchEnabled();
+  const ocfToSalesPct = snapshot.operatingCashFlow != null && snapshot.revenue != null && snapshot.revenue !== 0
+    ? (snapshot.operatingCashFlow / snapshot.revenue) * 100
+    : null;
   return {
     symbol: snapshot.symbol,
     corpCode: snapshot.corpCode,
@@ -730,7 +741,8 @@ export function projectionToQmpDartFinancials(projection: Gate2ExternalProjectio
     interestExpense: snapshot.interestExpense,
     totalEquity: snapshot.equity,
     totalAssets: snapshot.totalAssets,
-    ocfRatio: metrics.earningsQualityScore,
+    ocfRatio: unifiedFetch ? ocfToSalesPct : metrics.earningsQualityScore,
+    ...(unifiedFetch ? { ocfToNi: metrics.earningsQualityScore } : {}),
     roe: metrics.roe,
     opm: metrics.opm,
     debtRatio: metrics.debtRatio,
@@ -778,11 +790,33 @@ function mergeKisPrimaryWithDartResidual(
     operatingCashFlow: finiteNumber(dartRec.operatingCashFlow) ?? kisQmp.operatingCashFlow,
     interestExpense: finiteNumber(dartRec.interestExpense) ?? kisQmp.interestExpense,
     interestCoverageRatio: finiteNumber(dartRec.interestCoverageRatio) ?? kisQmp.interestCoverageRatio,
+    // ADR-0661 additive carry: kisQmp 는 ocfToNi 미보유(clobber 없음). 부재 시 null — 소비자는 ?? fallback 이라 behavior 무변경.
+    ocfToNi: finiteNumber(dartRec.ocfToNi) ?? null,
   };
+}
+
+/** ADR-0661 §1 단위 계약: 모듈 B(ocfRatio=OCF/NI 배수)를 evaluator 계약(ocfRatio=OCF/매출 %)으로 정규화.
+ *  ocfToNi(배수)는 명시 필드로 분리 운반. icr(interestCoverageRatio)·raw 필드는 pass-through. */
+function toEvaluatorContractDartFin(
+  dartFin: Gate2DartEvaluationFinancials | null,
+): Gate2DartEvaluationFinancials | null {
+  if (!dartFin) return null;
+  const rec = dartFin as unknown as Record<string, unknown>;
+  const revenue = finiteNumber(rec.revenue);
+  const ocf = finiteNumber(rec.operatingCashFlow);
+  const ni = finiteNumber(rec.netIncome);
+  return {
+    ...dartFin,
+    // 동결 계약: OCF/매출 × 100 (%). 결손 시 null — OCF/NI 배수로 fallback 금지 (스케일 붕괴 방지).
+    ocfRatio: ocf != null && revenue != null && revenue !== 0 ? (ocf / revenue) * 100 : null,
+    // 신규 명시 필드: OCF/NI (배수). 모듈 B ocfRatio 원값(=safeRatio(OCF,NI)) 또는 raw 재산출.
+    ocfToNi: finiteNumber(rec.ocfToNi) ?? (ocf != null && ni != null && ni !== 0 ? ocf / ni : null),
+  } as Gate2DartEvaluationFinancials;
 }
 
 export async function getGate2DartFinancialsForEvaluation(symbol: string): Promise<Gate2DartEvaluationFinancials | null> {
   const flagOn = isKisFinancePrimaryEnabled();
+  const unifiedFetch = isGate2DartEvalUnifiedFetchEnabled();
   const cached = getGate2ExternalCacheRecord(symbol);
   if (cached?.projection?.financialSnapshot?.confidence && cached.projection.financialSnapshot.confidence !== 'MISSING') {
     // ADR-0532 Phase 3 cache-hit gap: flag-on 시, PER 미보유(legacy DART-only) 캐시는 신뢰하지 않고
@@ -791,12 +825,23 @@ export async function getGate2DartFinancialsForEvaluation(symbol: string): Promi
     // 캐시도 신뢰하지 않고 1회 재산출 → 재산출 시 classifyDartLineHealth 가 kisFinance 를 채워 re-cache.
     // flag-off 는 항상 cache-hit → byte-equivalent.
     const cacheTrustedUnderFlag =
-      cached.projection.valuation?.per?.per != null && cached.projection.dartLineHealth?.kisFinance != null;
+      cached.projection.valuation?.per?.per != null
+      && cached.projection.dartLineHealth?.kisFinance != null
+      // ADR-0661 §4.6 cache self-heal: unified ON 시 레거시 평가 경로가 심어둔 캐시(raw 필드 부재 →
+      // statementType 'UNKNOWN' → ICR 영구 null)를 1회 재산출. unified OFF 는 단락으로 기존과 byte-equivalent.
+      && (!unifiedFetch || cached.projection.financialSnapshot.statementType !== 'UNKNOWN');
     if (!flagOn || cacheTrustedUnderFlag) {
       return projectionToQmpDartFinancials(cached.projection);
     }
   }
-  const dartFin = await getDartFinancials(symbol).catch(() => null);
+  // ADR-0661 §1: unified ON 시 DART leg 를 모듈 B(fetchDartFinancialsForGate2) + evaluator 경계 단위
+  // 어댑터로 교체 — ICR/ocfToNi 실값 유입. OFF(default) = 레거시 getDartFinancials byte-equivalent.
+  // 실패/null 은 graceful null (providerIssue 경로 기존과 동일 — 불변식 6: marketSignal=false).
+  const dartFin = unifiedFetch
+    ? toEvaluatorContractDartFin(
+      (await fetchDartFinancialsForGate2({ symbol }).catch(() => ({ dartFin: null }))).dartFin,
+    )
+    : await getDartFinancials(symbol).catch(() => null);
   // ADR-0532 Phase 2+3: KIS_FINANCE_PRIMARY_ENABLED 시 KIS L1 재무(ROE/OPM/매출/순이익)를 1차 소스로,
   // PER 는 KIS inquire-price 로, OCF/ICR 만 DART 잔존에서 머지한다 → cache projection 에 주입.
   // KIS 실패 시 DART(기존 경로) fallback. flag-off 시 byte-equivalent(DART null→null, KIS fetch 0). executionImpact=NONE.
