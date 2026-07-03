@@ -1,9 +1,17 @@
 # ADR-0661 — DART Gate2 Eval-Path Fetch Unification + Batch Throttle (평가 경로 fetch 통일 + 배치 스로틀)
 
 ## Status
+Accepted (2026-07-03 — 구현·검증 완료, PR-A `fe278cc`·PR-B `5f5d936`.
+**Amendment 2026-07-03: default ON 승격** — 운영자 명시 지시("default on")로 flag 를
+`!== 'false'` default ON 으로 전환 (kisFinancePrimaryFlag 와 동일 부호 방향). §Decision 의
+"default OFF 출고" 및 Alternatives §4 기각 사유는 운영자 승인으로 대체됨 — ADR-0157 opt-in
+원칙의 예외는 운영자 결정 명시로 충족. 롤백은 ENV `=false` 1줄로 불변.)
+
+<details><summary>이전 Status (Phase 0)</summary>
 Proposed (2026-07-03 — Phase 0. architect: 본 ADR · INDEX 0661→0662 · 필드 단위 계약
 (`_workspace/2026-07-03_dart-icr-ocfni-wiring/architect/field-contract.md`) · flag 스펙까지.
 코드 구현·테스트는 engine-dev 인계. 운영자 진단 요청 기반 — 3일 연속 `missingFields=ocfToNi,icr`.)
+</details>
 
 ## Context
 

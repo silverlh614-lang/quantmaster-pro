@@ -96,7 +96,8 @@ beforeEach(() => {
   dartHttp.legacyJson = null;
   process.env.KIS_FINANCE_PRIMARY_ENABLED = 'false'; // default ON 승격(ADR-0532 Phase 4) — DART leg 격리
   process.env.DART_BATCH_MIN_INTERVAL_MS = '0'; // 테스트 기본: 페이싱 대기 0 (페이싱 테스트에서만 개별 설정)
-  delete process.env.GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED;
+  // 테스트 기본: 레거시 경로 pin — default ON(운영자 승격 2026-07-03)이라 OFF 회귀는 명시 'false' 필요.
+  process.env.GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED = 'false';
   delete process.env.DART_API_KEY;
   delete process.env.OPENDART_API_KEY;
 });
@@ -112,14 +113,14 @@ afterEach(() => {
   delete process.env.KIS_APP_SECRET;
 });
 
-describe('ADR-0661 flag SSOT (default OFF opt-in)', () => {
-  it("미설정/false/임의값 → OFF, 정확히 'true' 만 ON (kisFinancePrimaryFlag !== 'false' 와 부호 방향 다름)", () => {
+describe('ADR-0661 flag SSOT (default ON — 운영자 승격 2026-07-03)', () => {
+  it("미설정/true/임의값 → ON, 정확히 'false' 만 레거시 경로 (kisFinancePrimaryFlag 와 동일 !== 'false' 방향)", () => {
     delete process.env.GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED;
-    expect(isGate2DartEvalUnifiedFetchEnabled()).toBe(false);
+    expect(isGate2DartEvalUnifiedFetchEnabled()).toBe(true);
     process.env.GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED = 'false';
     expect(isGate2DartEvalUnifiedFetchEnabled()).toBe(false);
     process.env.GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED = '1';
-    expect(isGate2DartEvalUnifiedFetchEnabled()).toBe(false);
+    expect(isGate2DartEvalUnifiedFetchEnabled()).toBe(true);
     process.env.GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED = 'true';
     expect(isGate2DartEvalUnifiedFetchEnabled()).toBe(true);
   });
