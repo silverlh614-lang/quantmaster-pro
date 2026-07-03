@@ -62,7 +62,7 @@ import {
 
 const DART_BASE = 'https://opendart.fss.or.kr/api';
 
-// ── ADR-0661 §2: DART 재무 배치 스로틀 (판정 로직 0줄 — 페이싱·429 백오프 1회·조기 중단만) ──
+// ── ADR-0662 §2: DART 재무 배치 스로틀 (판정 로직 0줄 — 페이싱·429 백오프 1회·조기 중단만) ──
 const DART_BATCH_MIN_INTERVAL_DEFAULT_MS = 300;
 const DART_BATCH_MIN_INTERVAL_MAX_MS = 2000;
 
@@ -445,7 +445,7 @@ export async function fetchDartFinancialsForGate2(input: {
   const corpCode = await resolveDartCorpCode(symbol, trace);
   if (!corpCode) return { dartFin: null, trace };
 
-  // ADR-0661 §2: 429/DART 020·021 감지 시 백오프 1회 후 동일 요청 재시도, 재차 제한이면 잔여 보고서
+  // ADR-0662 §2: 429/DART 020·021 감지 시 백오프 1회 후 동일 요청 재시도, 재차 제한이면 잔여 보고서
   // 후보 조기 중단(early-abort) — 실패 누적으로 DEGRADED 를 증폭시키지 않는다. 판정 로직 무변경.
   let rateLimitBackoffUsed = false;
   for (const candidate of reportCandidates(input.now)) {
@@ -458,7 +458,7 @@ export async function fetchDartFinancialsForGate2(input: {
         + `&fs_div=${statementType}`;
       trace.dartRequestAttempted = true;
       try {
-        await paceDartBatchRequest(); // ADR-0661 §2 요청 간 최소 간격 (기본 300ms · ENV DART_BATCH_MIN_INTERVAL_MS)
+        await paceDartBatchRequest(); // ADR-0662 §2 요청 간 최소 간격 (기본 300ms · ENV DART_BATCH_MIN_INTERVAL_MS)
         let { httpStatus, body } = await fetchDartJson(url, 10000);
         if (isDartRateLimitSignal(httpStatus, body) && !rateLimitBackoffUsed) {
           rateLimitBackoffUsed = true;
@@ -503,7 +503,7 @@ export async function fetchDartFinancialsForGate2(input: {
         trace.dartHttpStatus = classified.httpStatus;
         trace.dartErrorCode = classified.errorCode;
         if (classified.errorCode === 'RATE_LIMITED') {
-          // ADR-0661 §2: throw 경로(FetchRetryError 429)도 백오프 1회 관용 후 재차 제한이면 조기 중단.
+          // ADR-0662 §2: throw 경로(FetchRetryError 429)도 백오프 1회 관용 후 재차 제한이면 조기 중단.
           if (rateLimitBackoffUsed) {
             trace.fiscalPeriodStatus = 'NONE';
             return { dartFin: null, trace };
@@ -618,7 +618,7 @@ export function calculateGate2DerivedMetrics(input: {
   const snapshot = input.snapshot;
   const roe = finiteNumber(record.roe) ?? ratio(snapshot.netIncome, snapshot.equity);
   const opm = finiteNumber(record.opm) ?? ratio(snapshot.operatingProfit, snapshot.revenue);
-  // ADR-0661 §1: ocfToNi(OCF/NI 배수 명시 필드)-first — 부재(레거시/기존 배치 레코드) 시 기존 식 그대로 = byte-equivalent.
+  // ADR-0662 §1: ocfToNi(OCF/NI 배수 명시 필드)-first — 부재(레거시/기존 배치 레코드) 시 기존 식 그대로 = byte-equivalent.
   const ocfToNi = finiteNumber(record.ocfToNi) ?? null;
   const ocfRatio = finiteNumber(record.ocfRatio) ?? ratio(snapshot.operatingCashFlow, snapshot.netIncome);
   const earningsQualityScore = ocfToNi ?? ocfRatio;
@@ -802,7 +802,7 @@ export function buildGate2ExternalProjection(input: {
 export function projectionToQmpDartFinancials(projection: Gate2ExternalProjection): QmpDartFinancials {
   const snapshot = projection.financialSnapshot;
   const metrics = projection.metrics;
-  // ADR-0661 §4.4 cache-hit 단위 정합: unified ON 시 ocfRatio 는 snapshot raw 에서 OCF/매출×100(%) 재산출하고,
+  // ADR-0662 §4.4 cache-hit 단위 정합: unified ON 시 ocfRatio 는 snapshot raw 에서 OCF/매출×100(%) 재산출하고,
   // 배수(earningsQualityScore=OCF/NI)는 ocfToNi 로 분리 운반 — 배수를 % 임계 evaluator 입력으로 전달하던
   // 현행 잠복 오독을 봉인한다. OFF(default) = 기존 라인 byte-무변경 (byte-equivalent 원칙 우선).
   const unifiedFetch = isGate2DartEvalUnifiedFetchEnabled();
@@ -871,12 +871,12 @@ function mergeKisPrimaryWithDartResidual(
     operatingCashFlow: finiteNumber(dartRec.operatingCashFlow) ?? kisQmp.operatingCashFlow,
     interestExpense: finiteNumber(dartRec.interestExpense) ?? kisQmp.interestExpense,
     interestCoverageRatio: finiteNumber(dartRec.interestCoverageRatio) ?? kisQmp.interestCoverageRatio,
-    // ADR-0661 additive carry: kisQmp 는 ocfToNi 미보유(clobber 없음). 부재 시 null — 소비자는 ?? fallback 이라 behavior 무변경.
+    // ADR-0662 additive carry: kisQmp 는 ocfToNi 미보유(clobber 없음). 부재 시 null — 소비자는 ?? fallback 이라 behavior 무변경.
     ocfToNi: finiteNumber(dartRec.ocfToNi) ?? null,
   };
 }
 
-/** ADR-0661 §1 단위 계약: 모듈 B(ocfRatio=OCF/NI 배수)를 evaluator 계약(ocfRatio=OCF/매출 %)으로 정규화.
+/** ADR-0662 §1 단위 계약: 모듈 B(ocfRatio=OCF/NI 배수)를 evaluator 계약(ocfRatio=OCF/매출 %)으로 정규화.
  *  ocfToNi(배수)는 명시 필드로 분리 운반. icr(interestCoverageRatio)·raw 필드는 pass-through. */
 function toEvaluatorContractDartFin(
   dartFin: Gate2DartEvaluationFinancials | null,
@@ -908,14 +908,14 @@ export async function getGate2DartFinancialsForEvaluation(symbol: string): Promi
     const cacheTrustedUnderFlag =
       cached.projection.valuation?.per?.per != null
       && cached.projection.dartLineHealth?.kisFinance != null
-      // ADR-0661 §4.6 cache self-heal: unified ON 시 레거시 평가 경로가 심어둔 캐시(raw 필드 부재 →
+      // ADR-0662 §4.6 cache self-heal: unified ON 시 레거시 평가 경로가 심어둔 캐시(raw 필드 부재 →
       // statementType 'UNKNOWN' → ICR 영구 null)를 1회 재산출. unified OFF 는 단락으로 기존과 byte-equivalent.
       && (!unifiedFetch || cached.projection.financialSnapshot.statementType !== 'UNKNOWN');
     if (!flagOn || cacheTrustedUnderFlag) {
       return projectionToQmpDartFinancials(cached.projection);
     }
   }
-  // ADR-0661 §1: unified ON 시 DART leg 를 모듈 B(fetchDartFinancialsForGate2) + evaluator 경계 단위
+  // ADR-0662 §1: unified ON 시 DART leg 를 모듈 B(fetchDartFinancialsForGate2) + evaluator 경계 단위
   // 어댑터로 교체 — ICR/ocfToNi 실값 유입. OFF(default) = 레거시 getDartFinancials byte-equivalent.
   // 실패/null 은 graceful null (providerIssue 경로 기존과 동일 — 불변식 6: marketSignal=false).
   const dartFin = unifiedFetch

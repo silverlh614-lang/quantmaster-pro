@@ -1,4 +1,4 @@
-# ADR-0661 — DART Gate2 Eval-Path Fetch Unification + Batch Throttle (평가 경로 fetch 통일 + 배치 스로틀)
+# ADR-0662 — DART Gate2 Eval-Path Fetch Unification + Batch Throttle (평가 경로 fetch 통일 + 배치 스로틀)
 
 ## Status
 Accepted (2026-07-03 — 구현·검증 완료, PR-A `fe278cc`·PR-B `5f5d936`.

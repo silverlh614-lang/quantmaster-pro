@@ -44,7 +44,7 @@ export interface QmpDartFinancials {
   totalAssets: number | null;
 
   ocfRatio: number | null;
-  ocfToNi?: number | null; // 배수 (OCF/순이익 — ADR-0661 단위 계약. ocfRatio 의 모듈 B 배수 의미를 명시 필드로 분리)
+  ocfToNi?: number | null; // 배수 (OCF/순이익 — ADR-0662 단위 계약. ocfRatio 의 모듈 B 배수 의미를 명시 필드로 분리)
   roe: number | null;
   opm: number | null;
   debtRatio?: number | null; // % (KIS lblt_rate; non-gating 표시 metric)
@@ -332,7 +332,7 @@ export function normalizeDartFinancials(input: NormalizeDartFinancialsInput): Qm
     totalEquity: parsed.totalEquity.value,
     totalAssets: parsed.totalAssets.value,
     ocfRatio: safeRatio(parsed.operatingCashFlow.value, parsed.netIncome.value),
-    ocfToNi: safeRatio(parsed.operatingCashFlow.value, parsed.netIncome.value), // ADR-0661 additive alias (산식 무변경)
+    ocfToNi: safeRatio(parsed.operatingCashFlow.value, parsed.netIncome.value), // ADR-0662 additive alias (산식 무변경)
     roe: safeRatio(parsed.netIncome.value, parsed.totalEquity.value),
     opm,
     opmYoYDelta,

@@ -1,11 +1,11 @@
-// @responsibility ADR-0661 회귀: 평가 경로 DART fetch 통일 flag·단위 계약(ocfRatio % vs ocfToNi 배수)·DART 배치 스로틀 테스트.
+// @responsibility ADR-0662 회귀: 평가 경로 DART fetch 통일 flag·단위 계약(ocfRatio % vs ocfToNi 배수)·DART 배치 스로틀 테스트.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // 영속 캐시(DATA_DIR) 격리 — 다른 테스트 파일 fork 와 data/gate2-external-cache.json 동시 rename 경합 방지.
 // vi.hoisted 는 import(paths.ts DATA_DIR 평가) 이전에 실행되고, vitest fork 격리로 본 파일 프로세스에만 적용된다.
 vi.hoisted(() => {
-  process.env.PERSIST_DATA_DIR = `/tmp/qmp-adr0661-gate2-cache-${process.pid}`;
+  process.env.PERSIST_DATA_DIR = `/tmp/qmp-adr0662-gate2-cache-${process.pid}`;
 });
 
 // ── 모듈 mock (module B fetchDartJson + 레거시 dartFinancialClient 공용 HTTP seam) ──
@@ -113,7 +113,7 @@ afterEach(() => {
   delete process.env.KIS_APP_SECRET;
 });
 
-describe('ADR-0661 flag SSOT (default ON — 운영자 승격 2026-07-03)', () => {
+describe('ADR-0662 flag SSOT (default ON — 운영자 승격 2026-07-03)', () => {
   it("미설정/true/임의값 → ON, 정확히 'false' 만 레거시 경로 (kisFinancePrimaryFlag 와 동일 !== 'false' 방향)", () => {
     delete process.env.GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED;
     expect(isGate2DartEvalUnifiedFetchEnabled()).toBe(true);
@@ -126,7 +126,7 @@ describe('ADR-0661 flag SSOT (default ON — 운영자 승격 2026-07-03)', () =
   });
 });
 
-describe('ADR-0661 §1 flag OFF — 레거시 경로 byte-equivalent', () => {
+describe('ADR-0662 §1 flag OFF — 레거시 경로 byte-equivalent', () => {
   it('OFF + DART_API_KEY 부재 → null (모듈 B fetch 0회 · 레거시 fetch 0회)', async () => {
     seedMissingCache('066101');
     const fin = await getGate2DartFinancialsForEvaluation('066101');
@@ -178,7 +178,7 @@ describe('ADR-0661 §1 flag OFF — 레거시 경로 byte-equivalent', () => {
   });
 });
 
-describe('ADR-0661 §1 flag ON — 모듈 B 통일 + evaluator 경계 단위 어댑터', () => {
+describe('ADR-0662 §1 flag ON — 모듈 B 통일 + evaluator 경계 단위 어댑터', () => {
   it('ON: icr(배수)·ocfToNi(배수) 산출 + ocfRatio 는 OCF/매출(%) 동결 계약, 캐시 projection 반영 + 불변식 유지', async () => {
     process.env.GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED = 'true';
     process.env.DART_API_KEY = 'unified-key';
@@ -328,7 +328,7 @@ describe('ADR-0661 §1 flag ON — 모듈 B 통일 + evaluator 경계 단위 어
   });
 });
 
-describe('ADR-0661 §2 PR-B — DART 배치 스로틀 (판정 0줄)', () => {
+describe('ADR-0662 §2 PR-B — DART 배치 스로틀 (판정 0줄)', () => {
   it('ENV DART_BATCH_MIN_INTERVAL_MS 클램프: 기본 300 · 0~2000 · 비수치 → 기본', () => {
     delete process.env.DART_BATCH_MIN_INTERVAL_MS; // 명시 인자 undefined 는 ENV default 로 폴백하므로 먼저 제거
     expect(resolveDartBatchMinIntervalMs(undefined)).toBe(300);

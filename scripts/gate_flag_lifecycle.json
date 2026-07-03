@@ -169,7 +169,7 @@
     },
     {
       "envFlag": "GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED",
-      "adr": "0661",
+      "adr": "0662",
       "title": "Gate2 DART Eval-Path Fetch Unification (평가 경로 fetch 모듈 B 통일 + evaluator 단위 어댑터)",
       "introduced": "2026-07-03",
       "reviewBy": "2026-10-01",
