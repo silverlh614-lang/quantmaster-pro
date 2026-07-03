@@ -15,8 +15,17 @@ import path from 'path';
 import os from 'os';
 
 // PERSIST_DATA_DIR을 일회용 디렉터리로 지정 — 저장된 JSON 파일이 실제 DATA_DIR을 오염시키지 않는다.
-const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dynuniv-test-'));
-process.env.PERSIST_DATA_DIR = TEST_DATA_DIR;
+// vi.hoisted 로 import hoisting 보다 먼저 env 를 세워, module-load 시점에 DATA_DIR 을 확정하는
+// paths.ts 가 반드시 일회용 디렉터리를 읽게 한다. 이것이 무력화되면 병렬 스위트에서 다른
+// 테스트 파일과 운영 dynamic-universe.json 을 놓고 경합해 플레이크가 난다.
+const TEST_DATA_DIR = await vi.hoisted(async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'dynuniv-test-'));
+  process.env.PERSIST_DATA_DIR = dir;
+  return dir;
+});
 
 // kisRankingClient 전체를 mock — 모든 랭킹 호출이 실패(빈 배열)를 반환하는 시뮬레이션.
 vi.mock('../clients/kisRankingClient.js', () => ({
@@ -29,6 +38,16 @@ vi.mock('../clients/kisRankingClient.js', () => ({
 // 동일 파일의 runDynamicUniverseExpansion 경로가 있어 방어적으로 mock).
 vi.mock('../alerts/telegramClient.js', () => ({
   sendTelegramAlert: vi.fn().mockResolvedValue(undefined),
+}));
+
+// Yahoo 폴백 밀폐 — getShadowSafeRanking 은 Shadow+VTS-only 환경에서 랭킹이 비면
+// technicalQuoteRouter 로 실 네트워크 quote 프로브(정적 유니버스 60종)를 날린다.
+// 유닛 테스트가 네트워크에 의존하지 않도록 quote 라우터를 mock 해 폴백이 즉시
+// 빈 결과([])로 수렴하게 한다 — 기대값(count 0·getRanking 호출 키)은 무변.
+vi.mock('./adapters/technicalQuoteRouter.js', () => ({
+  fetchTechnicalQuote: vi.fn(async () => null),
+  fetchTechnicalQuoteByCode: vi.fn(async () => null),
+  _clearKisDailyQuoteCache: vi.fn(),
 }));
 
 import {
