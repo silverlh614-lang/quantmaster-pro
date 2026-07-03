@@ -9,11 +9,19 @@
  *   5. 동일 날짜 재호출은 메모리 캐시(TTL 10분)로 fetch 재호출 없음.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('krxClient — 네트워크 내성 및 캐시', () => {
   const originalFetch = globalThis.fetch;
   const originalKrxInvestorDetailEnabled = process.env.KRX_INVESTOR_DETAIL_ENABLED;
+
+  // 콜드 스타트 워밍업 — krxClient 모듈 그래프가 커서 변환 캐시가 비어 있으면 첫 import 가
+  // 기본 hookTimeout(10s)을 넘길 수 있다(스케줄 순서 의존 플레이크). 타임아웃으로 import 가
+  // 중단되면 모듈이 반초기화 상태로 남아 이후 모든 케이스가 ReferenceError 로 연쇄 실패하므로,
+  // 여기서 넉넉한 타임아웃으로 한 번 완주시켜 결정적으로 만든다 (테스트 강도 무변).
+  beforeAll(async () => {
+    await import('./krxClient.js');
+  }, 120_000);
 
   beforeEach(async () => {
     // 각 테스트 시작 전 환경변수·캐시 초기화.
@@ -25,7 +33,8 @@ describe('krxClient — 네트워크 내성 및 캐시', () => {
     process.env.KRX_TIME_WINDOW_GATING_DISABLED = 'true';
     const mod = await import('./krxClient.js');
     mod.resetKrxCache();
-  });
+    // vi.resetModules() 사용 케이스 직후에는 그래프 재평가가 발생 — 경합 환경 여유 타임아웃.
+  }, 60_000);
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
