@@ -177,6 +177,17 @@
       "activationCriteria": "scan-eval-20260702114714 에서 Gate3 entryPriceStaleBlocked=11/11 — 6h 일봉 캐시(ADR-0547)의 낡은 asOf 가 entry price guard(>60s=STALE)에 들어가는 배선 갭이 실측 확정. 재검증 스텝(fetchKisIntraday)이 이미 조회한 fresh 값을 각인만 하는 정정이라 신규 fetch 0. 운영자(silverlh614) P0 착수 승인('시작해라') + engineMode=SHADOW_ONLY live 주문 0 안전창 → default ON kill-switch 출하(ADR-0658/0652 동일 패턴).",
       "nextAction": "/scan_blockers Gate3 Timing Readiness 에서 entryPriceFresh STALE 비율·entryPriceStaleBlocked 감소 관측. 재검증 경로 밖(첫 스캔 패스 등)에서 STALE 이 잔존하면 각인 지점 확장은 별도 ADR. 회귀 시 explicit GATE3_ENTRY_PRICE_RESTAMP_ENABLED=false 1줄 kill-switch 롤백.",
       "notes": "SSOT isGate3EntryPriceRestampEnabled() gateConfig.ts 거주(kill-switch `!== 'false'` default ON). 게이트 대상: revalidationSteps/kisIntradayCorrectionStep — 같은 콜(FHKST01010100 fetchKisIntraday)이 반환한 price/currentPrice + priceAsOf 타임스탬프를 재검증 quote 에 각인. 신규 KIS fetch 0. buildGate3EntryPriceGuard(gate3LastTrigger.ts) 로직·60초 임계 무변경 — guard 는 priceAsOf(1순위 키)로 평가 시점마다 나이를 재계산. 명시 age 필드(entryPriceAgeSec) 미각인(6h 캐시 공유 객체에 고정 age 잔존 시 이후 평가 오염 방지). price<=0/스냅 실패=미각인 graceful. OFF(=false kill-switch)=byte-identical(dayOpen/prevClose 보정만·기존 동작). executionImpact=ENTRY_PRICE_STALE false-block 해소(진짜 stale 은 여전히 차단)·SourceSnapshot/autoTradeEngine/requiredScore70 무접촉·현 engineMode=SHADOW_ONLY 라 live 주문 0."
+    },
+    {
+      "envFlag": "GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED",
+      "adr": "0662",
+      "title": "Gate2 DART Eval-Path Fetch Unification (평가 경로 fetch 모듈 B 통일 + evaluator 단위 어댑터)",
+      "introduced": "2026-07-03",
+      "reviewBy": "2026-10-01",
+      "status": "ON",
+      "activationCriteria": "3일 연속 missingFields=ocfToNi,icr 의 근본원인(평가 경로가 레거시 getDartFinancials 배선 — interestExpense/OCF/NI raw 미추출로 ICR 구조적 null)을 모듈 B fetchDartFinancialsForGate2 통일로 수리. ON 은 ICR/ocfToNi 실값 유입으로 HIGH_CONVICTION 판정 데이터화(BLOCK_STRONG_BUY_UPGRADE 해제 가능)라 behavior change — PR-B 스로틀로 DART rate-limit(CONNECTION_DEGRADED 24) 감축을 먼저 관측하고, 운영자 default-ON 승격 완료(2026-07-03 'default on' 지시) — /scan_blockers missingFields=ocfToNi,icr 소멸·earnings_quality UNAVAILABLE 감소를 후속 스캔에서 관측.",
+      "nextAction": "default ON 운영 관측: missingFields=ocfToNi,icr 소멸·단위 정합(ocfRatio=OCF/매출% vs ocfToNi=배수 분리) 확인. 회귀 시 ENV GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED=false 1줄 롤백.",
+      "notes": "SSOT isGate2DartEvalUnifiedFetchEnabled() gate2DartEvalUnifiedFetchFlag.ts 거주(`!== 'false'` default ON — 운영자 승격 2026-07-03, kisFinancePrimaryFlag 와 동일 부호 방향). 게이트 대상: getGate2DartFinancialsForEvaluation DART leg(:799 레거시 getDartFinancials → 모듈 B fetchDartFinancialsForGate2 + toEvaluatorContractDartFin 단위 어댑터) + cache-hit 재구성 단위 정합(projectionToQmpDartFinancials ocfRatio=OCF/매출% 재산출·ocfToNi=배수 분리 — 배수를 % 임계로 오독하던 잠복 결함 봉인) + 레거시 캐시 self-heal(statementType UNKNOWN 1회 재산출). evaluator 임계(>=5.0/>=1.0 %)·normalizer 산식·mergeKisPrimaryWithDartResidual 잔여 축 4줄 byte-무변경(ocfToNi carry 1줄 additive). KIS_FINANCE_PRIMARY 와 직교(DART leg fetcher 만 교체·KIS 머지 순서 무변경). OFF(미설정/=false)=레거시 경로 byte-equivalent. DART 실패=graceful null(providerIssue=true·marketSignal=false·불변식 #6). entryHardBlockImpact=NO·highConviction ≤ BLOCK_STRONG_BUY_UPGRADE·executionImpact=NONE. PR-B 스로틀(DART_BATCH_MIN_INTERVAL_MS 기본 300·0~2000 클램프·429 백오프 1회·잔여 후보 조기 중단)은 flag 무관 상시(판정 0줄)."
     }
   ]
 }

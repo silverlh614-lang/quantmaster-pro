@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0662`**
+**다음 ADR 번호: `0663`**
+
+(2026-07-03 기준, 마지막 발급 0662 — **DART Gate2 Eval-Path Fetch Unification + Batch Throttle (평가 경로 fetch 통일 + 배치 스로틀)**. **Status: Proposed (Phase 0 — architect: ADR·INDEX 발급·필드 단위 계약(field-contract.md)·flag 스펙까지. 코드 구현·테스트는 engine-dev 인계.)** 근본원인(3일 연속 `missingFields=ocfToNi,icr`·ICR 항상 null·earnings_quality UNAVAILABLE 다수·CONNECTION_DEGRADED=24): ① 평가 경로 `getGate2DartFinancialsForEvaluation`(gate2ExternalDataProvider.ts:784)의 DART leg(:799)가 레거시 `getDartFinancials`(dartFinancialClient.ts — roe/opm/debtRatio/ocfRatio % 4필드만·interestExpense/OCF raw/NI raw 미추출)에 배선 → ICR 구조적 null; ICR 실산출 모듈 B `fetchDartFinancialsForGate2`(:371)는 배치(:1137)에만 배선 ② 단위 함정 — 동일 필드명 `ocfRatio` 가 레거시=OCF/매출×100(%)·모듈 B=OCF/NI(배수) 이중 의미, earningsQualityEvaluator(evaluators.ts:790-824) 임계 >=5.0/>=1.0 은 % 전제·calculateGate2DerivedMetrics(:539-554)는 배수 전제 → 단순 교체 시 스케일 붕괴 + cache-hit 재구성(projectionToQmpDartFinancials:733 `ocfRatio: metrics.earningsQualityScore` 배수)의 현행 잠복 오독 ③ DEGRADED 24 = 재무 배치 rate-limit(운영자 확인 DART 연결·공시 정상 — 불변식 6, 장애≠bearish). fix: §1 신규 flag `GATE2_DART_EVAL_UNIFIED_FETCH_ENABLED === 'true'` default OFF(ADR-0157·SSOT isGate2DartEvalUnifiedFetchEnabled() gate2DartEvalUnifiedFetchFlag.ts 신규·kisFinancePrimaryFlag 동일 스타일)로 평가 경로를 모듈 B + evaluator 경계 단위 어댑터로 통일 — 단위 계약: `ocfRatio`=OCF/매출% **동결**(evaluator 입력·임계 무변경)·**신규 옵셔널 `ocfToNi`**(OCF/NI 배수·기존 스키마에 데이터 필드 부재 확인, 진단 라벨만 존재)·`interestCoverageRatio`=영업이익/이자비용 배수(모듈 B normalizer :340 산출값); mergeKisPrimaryWithDartResidual 잔여 축 4줄 byte-무변경(+ocfToNi carry 1줄 additive)·derived metrics ocfToNi-first(부재 시 기존 식 byte-equivalent)·normalizer 계산식 무변경. §2 배치 스로틀 ≤4req/s + rate-limit(020/021/429) 조기 중단 + 캐시 재사용(반환 타입 무변경·판정 0줄). executionImpact=NONE(entryHardBlockImpact=NO·highConviction ≤ BLOCK_STRONG_BUY_UPGRADE useScope ≤ HIGH_CONVICTION_ONLY·marketSignal=false·불변식 6/7 보존·KIS/KRX quota 0 침범·gate2FinancialBaseline invariant/src/** 무접촉). OFF(default)=레거시 byte-equivalent·롤백 ENV 1줄. Alternatives: 단순 교체 기각(스케일 붕괴)·normalizer ocfRatio 의미 변경 기각(배치 소비자 파급)·임계 재조정 기각(자동 변경 금지)·default ON 기각(0157)·레거시에 interestExpense 추가 기각(이중 산출 고착). 계보 0532/0529/0655/0416/0561/0157/0641/0530/0146. INDEX 0662 등재(다음 0662→0663 갱신 — main 병렬 0661 gate3-entry-price-live-restamp 발급으로 0661→0662 재발급, ADR-0606→0611 선례). 코드 구현 engine-dev 인계.)
 
 (2026-07-02 기준, 마지막 발급 0661 — **Gate3 Entry-Price Live Restamp (재검증 fresh 현재가·priceAsOf 각인 — false-STALE 해소)**. Status: Accepted (운영자 silverlh614 P0 착수 승인). 근본원인: 6h 일봉 캐시(ADR-0547)의 낡은 asOf 가 Gate3 entry price guard(>60s=STALE)에 들어가 재검증 후보 전원이 ENTRY_PRICE_STALE 오차단(scan-eval-20260702114714 실측 11/11) — 재검증 스텝(kisIntradayCorrectionStep)의 fetchKisIntraday 가 fresh price/asOf 를 이미 조회하면서 dayOpen/prevClose 만 반영하고 폐기하던 배선 갭. fix: flag ON 시 같은 콜의 price/currentPrice+priceAsOf 타임스탬프 각인(명시 age 필드 미각인 — 캐시 공유 객체 오염 방지). guard 로직·60초 임계 0줄 변경·신규 KIS fetch 0. flag `GATE3_ENTRY_PRICE_RESTAMP_ENABLED` default ON kill-switch(`!== 'false'`, ADR-0658/0652 패턴·SHADOW_ONLY 안전창). `=false` 1줄 byte-identical 롤백. 상세는 이전 발급분 아카이브 규약대로 ADR 파일이 SSOT.)
 
@@ -827,8 +829,9 @@
 | 0659 | fundamental-deep-junk-floor-entry-exclusion | trading / ROE deep-junk floor entry candidate exclusion |
 | 0660 | rrr-collapse-min-profit-guard | trading / exit — RRR 붕괴 부분익절 최소 수익률 가드 |
 | 0661 | gate3-entry-price-live-restamp | trading / gate3 — 재검증 fresh 현재가·priceAsOf 각인 (false-STALE 해소) |
+| 0662 | dart-gate2-eval-fetch-unification | gate2 / dart-provider — 평가 경로 fetch 모듈 B 통일 + 단위 계약(ocfRatio%/ocfToNi배/icr배) + 배치 스로틀 |
 
-**최대 발급 0661 · 다음 발급 0662** — `node scripts/check_adr_index.js --json` 기준 (2026-07-02 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
+**최대 발급 0662 · 다음 발급 0663** — `node scripts/check_adr_index.js --json` 기준 (2026-07-03 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 
 ## 후속 PR — 자동 충돌 검사 정적 스크립트
 
