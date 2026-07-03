@@ -488,4 +488,52 @@ describe('UnifiedForwardOutcomeLabeler', () => {
     expect(source).toContain("scheduledJob('36 7 * * *', 'ALWAYS_ON', 'unified_forward_outcome_labeling'");
     expect(source).not.toContain("scheduledJob('36 7 * * 1-5', 'TRADING_DAY_ONLY', 'unified_forward_outcome_labeling'");
   });
+
+  // Patch LABELER-STALL-VISIBILITY-001 — 2026-07-01~02 lastLabelingRunAt 동결 인시던트 회귀 가드.
+  it('scheduler wrapper must not early-return on disabled flag (labeler stamps its own DISABLED status)', () => {
+    const source = readFileSync(new URL('../scheduler/learningJobs.ts', import.meta.url), 'utf8');
+    const wrapperStart = source.indexOf('async function runUnifiedForwardOutcomeLabelerJob');
+    const wrapperEnd = source.indexOf('export function registerLearningJobs');
+    const wrapper = source.slice(wrapperStart, wrapperEnd);
+
+    // flag OFF 여도 라벨러 본체(내부 disabled-stamp 경로)에 도달해야 한다 — 조기 return 금지.
+    expect(wrapper).not.toContain('if (!isUnifiedForwardOutcomeLabelerEnabled()) return;');
+    expect(wrapper).toContain('await runUnifiedForwardOutcomeLabeler()');
+  });
+
+  it('stamps lastLabelingStartedAt alongside lastLabelingRunAt on the disabled path', async () => {
+    process.env.UNIFIED_FORWARD_OUTCOME_LABELER_ENABLED = 'false';
+    const result = await runUnifiedForwardOutcomeLabeler({
+      now: NOW,
+      persist: false,
+      gate3Seeds: [],
+      gate1Rows: [],
+      nearMissEntries: [],
+      counterfactualEntries: [],
+      paperEntries: [],
+    });
+
+    expect(result.lastLabelingRunAt).toBe(NOW.toISOString());
+    expect(result.lastLabelingStartedAt).toBe(NOW.toISOString());
+    expect(result.lastLabelingErrorSanitized).toBe('UNIFIED_FORWARD_OUTCOME_LABELER_DISABLED');
+  });
+
+  it('stamps lastLabelingStartedAt on a successful run and renders it in the status section', async () => {
+    const result = await runUnifiedForwardOutcomeLabeler({
+      now: NOW,
+      persist: false,
+      gate3Seeds: [gate3Seed()],
+      gate1Rows: [gate1Row()],
+      nearMissEntries: [],
+      counterfactualEntries: [],
+      paperEntries: [],
+      priceFetcher: async () => 10_800,
+    });
+
+    expect(result.lastLabelingStartedAt).toBe(NOW.toISOString());
+    expect(result.lastLabelingRunAt).toBe(NOW.toISOString());
+
+    const section = formatUnifiedForwardOutcomeLabelerSection(result);
+    expect(section).toContain(`lastLabelingStartedAt: ${NOW.toISOString()}`);
+  });
 });

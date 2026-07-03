@@ -78,7 +78,13 @@ import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { scheduledJob } from './scheduleGuard.js';
 
 async function runUnifiedForwardOutcomeLabelerJob(trigger: 'startup' | 'scheduled'): Promise<void> {
-  if (!isUnifiedForwardOutcomeLabelerEnabled()) return;
+  // Patch LABELER-STALL-VISIBILITY-001 — flag OFF 여도 조기 return 하지 않는다. 라벨러 본체가
+  // disabled 상태를 status 파일에 스탬프·영속하도록 설계돼 있는데(운영자 가시성), 이 wrapper 의
+  // 조기 return 이 그 설계를 우회해 "OFF" 와 "정체(hang)/미호출" 이 운영 진단에서 구분 불가였다
+  // (2026-07-01~02 lastLabelingRunAt 동결 인시던트). 본체의 disabled 경로는 fetch 0·즉시 반환.
+  if (!isUnifiedForwardOutcomeLabelerEnabled()) {
+    console.log(`[UnifiedForwardOutcomeLabeler] trigger=${trigger} disabled=true — status 스탬프만 수행 (fetch 0)`);
+  }
   const res = await runUnifiedForwardOutcomeLabeler();
   console.log(
     `[UnifiedForwardOutcomeLabeler] trigger=${trigger} healthy=${res.unifiedOutcomeLabelerHealthy} sourceRowsScanned=${res.sourceRowsScanned} rowsUpdatedD1=${res.rowsUpdatedD1} rowsUpdatedD3=${res.rowsUpdatedD3} rowsUpdatedD5=${res.rowsUpdatedD5} rowsUpdatedD10=${res.rowsUpdatedD10} dataUnavailable=${res.dataUnavailable} duplicateSuppressed=${res.duplicateSuppressed} stalePending=${res.stalePending} gate3EvidenceSampleSize=${res.gate3EvidenceSampleSize} gate1CalibrationSampleSize=${res.gate1CalibrationSampleSize} nearMissEvidenceSampleSize=${res.nearMissEvidenceSampleSize} executionImpact=${res.executionImpact}`,
