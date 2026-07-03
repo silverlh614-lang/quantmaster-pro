@@ -12,6 +12,23 @@ function num(value: number | null | undefined, suffix = ''): string {
   return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)}${suffix}` : 'N/A';
 }
 
+/** 부호 명시 % — 초과수익(alpha) 표기 (+x.xx% / -x.xx%), 부재 시 N/A. */
+function signedPct(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
+    : 'N/A';
+}
+
+/**
+ * KOSPI 초과수익 컬럼 suffix (2026-07-03 patch — display-only additive).
+ * kospiJoinStatus 미전달(gate2/gate3 뷰) 시 '' — 기존 라인 byte 무변경.
+ */
+function kospiExcessSuffix(row: CounterfactualBandOutcome, kospiJoinStatus?: 'JOINED' | 'UNAVAILABLE'): string {
+  if (kospiJoinStatus === undefined) return '';
+  if (kospiJoinStatus === 'UNAVAILABLE') return ' excessD5=N/A(idx=UNAVAILABLE)';
+  return ` excessD5=${signedPct(row.avgExcessD5)} winVsMkt=${pct(row.winVsMarketD5)} (idx n=${row.kospiJoinedD5 ?? 0})`;
+}
+
 function safetyLine(ok: boolean, code: string, note: string): string {
   return `[${ok ? 'OK' : 'WARN'}] ${code} - ${note}`;
 }
@@ -64,11 +81,11 @@ export function formatCounterfactualBoardSummary(board: CounterfactualOutcomeBoa
   ].join('\n');
 }
 
-function formatBandRows(title: string, rows: readonly CounterfactualBandOutcome[]): string {
+function formatBandRows(title: string, rows: readonly CounterfactualBandOutcome[], kospiJoinStatus?: 'JOINED' | 'UNAVAILABLE'): string {
   const lines = [title];
   for (const row of rows) {
     lines.push(
-      `${row.key}: n=${row.count} matureD5=${row.matureD5} avgD5=${num(row.avgReturnD5, '%')} win=${pct(row.winRateD5)} +3=${pct(row.hitPlus3PctRateD5)} correctBlock=${pct(row.correctBlockRateD5)} missed=${pct(row.missedOpportunityRateD5)} recommendation=${row.recommendation ?? 'OBSERVE_MORE'}`,
+      `${row.key}: n=${row.count} matureD5=${row.matureD5} avgD5=${num(row.avgReturnD5, '%')} win=${pct(row.winRateD5)} +3=${pct(row.hitPlus3PctRateD5)} correctBlock=${pct(row.correctBlockRateD5)} missed=${pct(row.missedOpportunityRateD5)} recommendation=${row.recommendation ?? 'OBSERVE_MORE'}${kospiExcessSuffix(row, kospiJoinStatus)}`,
     );
   }
   lines.push('thresholdAutoChanged=false operatorApprovalRequired=true executionImpact=NONE');
@@ -83,12 +100,14 @@ export function formatCounterfactualGate1(board: CounterfactualOutcomeBoard): st
   const g = board.bandMaturityStallGuard;
   const stallPrefix = g.status === 'STALL_SUSPECTED' ? '⚠️ ' : '';
   return [
-    formatBandRows('[Counterfactual Gate1 Bands]', board.gate1Bands),
+    formatBandRows('[Counterfactual Gate1 Bands]', board.gate1Bands, board.kospiJoinStatus ?? 'UNAVAILABLE'),
     `legacyScaleMixed(밴드 제외): n=${board.gate1LegacyScale.count} matureD5=${board.gate1LegacyScale.matureD5} avgD5=${num(board.gate1LegacyScale.avgReturnD5, '%')} correctBlock=${pct(board.gate1LegacyScale.correctBlockRateD5)}`,
     `${stallPrefix}bandMaturityStallGuard: status=${g.status} oldestAgeTradingDays=${g.oldestBandRowAgeTradingDays ?? 'N/A'} totalMatureD5=${g.totalBandMatureD5}/${g.totalBandRows} threshold=${g.stallThresholdTradingDays} missingRefPrice=${g.excludedReferencePriceCount} action=${g.recommendedAction}`,
     `legacyScale70Plus(scoreSource 격리): n=${legacyScale70Plus}`,
     `unscored=${board.rows.filter((row) => row.gate1Band === 'UNSCORED').length} excludedRows=${excludedTotal}`,
     distributionLine('excludedByReason', board.debug.excludedReasonDistribution),
+    // KOSPI 시장 컨텍스트 1줄 (2026-07-03 patch — display-only additive).
+    `kospiD5Avg=${signedPct(board.kospiAvgD5)} joinStatus=${board.kospiJoinStatus ?? 'UNAVAILABLE'}`,
   ].join('\n');
 }
 
