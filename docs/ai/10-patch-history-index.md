@@ -78,6 +78,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-07-03 · Patch-PENDING-WIRING-SLA-SWEEP-001 (patch type·ADR 0건·거버넌스 문서 전용) · SLA 만료 9건+임박 1건(A2/A6/A11/B2/B3/B5/C6/D1/D3/D8) 일괄 운영자 연기 →BLOCKED 항목별 사유·재검토 트리거 명시 SLA 면제 ADR-0158 · validate:pendingWiring 전체 green 복원(plain precommit 차단 해소) · runtime impact 0
 - 2026-07-03 · Patch-PENDING-WIRING-B14-DEFER-001 (patch type·ADR 0건·거버넌스 문서 전용) · B14 PriceCorrection Stage2b PARTIAL→BLOCKED 운영자 연기(correction confidence 0.100<채택게이트 0.5 → no-op·재검토 트리거 avg-confidence≥0.5) SLA 면제 ADR-0158 · runtime impact 0
 - 2026-07-03 · Patch-Labeler-Stall-Visibility-001 (patch type·ADR 0건·진단 가시화) · unified-forward-outcome-labeler lastLabelingRunAt-frozen-since-0630 incident — scheduler wrapper flag 조기 return 제거(라벨러 내부 DISABLED-stamp 설계 복원) + lastLabelingStartedAt run-start heartbeat(hang vs 미호출 판별) · executionImpact=NONE
 - 2026-07-02 · ADR-0661 · gate3-entry-price-live-restamp kisIntradayCorrectionStep fresh-price-priceAsOf-stamp 6h-daily-cache-stale-asof entry-price-false-stale-11of11-fix default-on-kill-switch no-new-fetch guard-threshold-untouched
