@@ -20,6 +20,7 @@ import {
   attachKospiExcessD5ToBand,
   buildCounterfactualKospiJoinContext,
   computeBoardKospiContextD5,
+  type KospiMarketBucketExcessD5,
 } from './counterfactualKospiJoin.js';
 
 export type CounterfactualSourceType =
@@ -198,6 +199,10 @@ export interface CounterfactualBandOutcome {
   avgExcessD5?: number | null;
   winVsMarketD5?: number | null;
   kospiJoinedD5?: number;
+  /** 시장 국면 분해 + median (2026-07-03 patch 2 — 경계 kospiReturnD5=0 은 Down bucket 포함). */
+  marketUpD5?: KospiMarketBucketExcessD5;
+  marketDownD5?: KospiMarketBucketExcessD5;
+  medianExcessD5?: number | null;
 }
 
 export interface CounterfactualTodaySummary {

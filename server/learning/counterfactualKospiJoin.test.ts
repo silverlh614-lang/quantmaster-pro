@@ -219,6 +219,10 @@ describe('counterfactualKospiJoin — 밴드 집계 정합 (양음 혼합)', () 
       avgExcessD5: 2.71,
       winVsMarketD5: 0.5,
       kospiJoinedD5: 2,
+      // 두 row 모두 kospiReturnD5=+2.49 > 0 → 상승창. 짝수(2) median = 중앙 2개 평균 = avg.
+      marketUpD5: { n: 2, avgExcessD5: 2.71, winVsMarketD5: 0.5 },
+      marketDownD5: { n: 0, avgExcessD5: null, winVsMarketD5: null },
+      medianExcessD5: 2.71,
     });
     expect(computeBoardKospiContextD5(rows, ctx)).toEqual({
       kospiAvgD5: 2.49,
@@ -233,7 +237,51 @@ describe('counterfactualKospiJoin — 밴드 집계 정합 (양음 혼합)', () 
       avgExcessD5: null,
       winVsMarketD5: null,
       kospiJoinedD5: 0,
+      marketUpD5: { n: 0, avgExcessD5: null, winVsMarketD5: null },
+      marketDownD5: { n: 0, avgExcessD5: null, winVsMarketD5: null },
+      medianExcessD5: null,
     });
+  });
+});
+
+describe('counterfactualKospiJoin — 시장 국면 bucket 분해 + median (patch 2)', () => {
+  // kospiAtRecord 로 base 를 제어해 kospiReturnD5 부호를 혼합한다 (target=20260610 close 2060).
+  it('mktUp(>0)/mktDn(<=0) bucket n·avg·winVsMkt 정합 — 경계 kospiReturnD5=0 은 mktDn 포함', async () => {
+    installOverride();
+    const ctx = await buildCounterfactualKospiJoinContext([joinRow('2026-06-02T06:00:00.000Z')], NOW);
+    const rows = [
+      joinRow('2026-06-02T06:00:00.000Z', 2000, 5), // kospi +3.00 → Up, excess +2.0 win
+      joinRow('2026-06-02T06:00:00.000Z', 2000, 2), // kospi +3.00 → Up, excess -1.0 lose
+      joinRow('2026-06-02T06:00:00.000Z', 2060, 2), // kospi 0.00 경계 → Dn, excess +2.0 win
+      joinRow('2026-06-02T06:00:00.000Z', 2100, -4), // kospi -1.90 → Dn, excess -2.1 lose
+    ];
+    const agg = computeBandKospiExcessD5(rows, ctx);
+    expect(agg.kospiJoinedD5).toBe(4);
+    expect(agg.marketUpD5).toEqual({ n: 2, avgExcessD5: 0.5, winVsMarketD5: 0.5 });
+    expect(agg.marketDownD5).toEqual({ n: 2, avgExcessD5: -0.05, winVsMarketD5: 0.5 });
+    // 짝수(4) median = 중앙 2개(-1.0, +2.0) 평균 = +0.5.
+    expect(agg.medianExcessD5).toBe(0.5);
+  });
+
+  it('경계 단독 검증 — kospiReturnD5=0 인 row 는 mktUp 이 아니라 mktDn 에만 집계된다', async () => {
+    installOverride();
+    const ctx = await buildCounterfactualKospiJoinContext([joinRow('2026-06-02T06:00:00.000Z')], NOW);
+    const agg = computeBandKospiExcessD5([joinRow('2026-06-02T06:00:00.000Z', 2060, 1)], ctx);
+    expect(agg.marketUpD5).toEqual({ n: 0, avgExcessD5: null, winVsMarketD5: null });
+    expect(agg.marketDownD5).toEqual({ n: 1, avgExcessD5: 1, winVsMarketD5: 1 });
+  });
+
+  it('median 홀수 표본 + 복권형 왜곡 — avgExcessD5 양수인데 medianExcessD5 음수', async () => {
+    installOverride();
+    const ctx = await buildCounterfactualKospiJoinContext([joinRow('2026-06-02T06:00:00.000Z')], NOW);
+    const rows = [
+      joinRow('2026-06-02T06:00:00.000Z', 2000, 13), // excess +10 (복권 1건이 평균을 끌어올림)
+      joinRow('2026-06-02T06:00:00.000Z', 2000, 2), // excess -1
+      joinRow('2026-06-02T06:00:00.000Z', 2000, 1), // excess -2
+    ];
+    const agg = computeBandKospiExcessD5(rows, ctx);
+    expect(agg.avgExcessD5).toBe(2.33); // (10-1-2)/3 — 평균만 보면 양수
+    expect(agg.medianExcessD5).toBe(-1); // 홀수(3) median = 중앙값 — 표본 다수는 음수
   });
 });
 
@@ -258,6 +306,13 @@ describe('counterfactual board + /counterfactual_gate1 렌더 통합', () => {
     // 표본 없는 밴드는 N/A + n=0.
     expect(text).toContain('excessD5=N/A winVsMkt=N/A (idx n=0)');
     expect(text).toContain('kospiD5Avg=+2.49% joinStatus=JOINED');
+    // patch 2: joined 표본>0 밴드 라인 바로 아래 시장 국면 서브라인 1줄 (표본 0 밴드는 서브라인 없음).
+    const lines = text.split('\n');
+    const bandLineIdx = lines.findIndex((line) => line.startsWith('65~70:'));
+    expect(lines[bandLineIdx + 1]).toBe(
+      '  ↳ mktUp n=2 excess=+2.71% winVsMkt=50% | mktDn n=0 excess=N/A | medianExcess=+2.71%',
+    );
+    expect(text.split('↳').length - 1).toBe(1);
   });
 
   it('UNAVAILABLE: excessD5=N/A graceful + 기존 밴드 값 무변경 (additive 검증)', async () => {
@@ -271,7 +326,7 @@ describe('counterfactual board + /counterfactual_gate1 렌더 통합', () => {
     expect(unavailable.kospiAvgD5).toBeNull();
     // kospi additive 필드를 제외하면 밴드 집계가 byte 동일 — 기존 값 무변경.
     const strip = (bands: typeof joined.gate1Bands) =>
-      bands.map(({ avgExcessD5, winVsMarketD5, kospiJoinedD5, ...rest }) => rest);
+      bands.map(({ avgExcessD5, winVsMarketD5, kospiJoinedD5, marketUpD5, marketDownD5, medianExcessD5, ...rest }) => rest);
     expect(strip(unavailable.gate1Bands)).toEqual(strip(joined.gate1Bands));
     expect(unavailable.gate1Bands.every((b) => b.kospiJoinedD5 === 0 && b.avgExcessD5 === null)).toBe(true);
 
@@ -280,6 +335,12 @@ describe('counterfactual board + /counterfactual_gate1 렌더 통합', () => {
     expect(text).toContain('kospiD5Avg=N/A joinStatus=UNAVAILABLE');
     expect(text).not.toContain('winVsMkt=');
     expect(text).toContain('thresholdAutoChanged=false');
+    // patch 2: UNAVAILABLE 이면 시장 국면 서브라인 자체 생략 — kospi additive 필드를 전부 제거한
+    // board 와 렌더 byte 동일 = UNAVAILABLE 경로 기존 출력 무변경 증명.
+    expect(text).not.toContain('↳');
+    expect(text).not.toContain('mktUp');
+    const prePatch2Shape = { ...unavailable, gate1Bands: strip(unavailable.gate1Bands) } as typeof unavailable;
+    expect(formatCounterfactualGate1(prePatch2Shape)).toBe(text);
   });
 
   it('gate2/gate3 뷰(밴드 공용 포매터)는 kospi suffix 미출력 — byte 무변경', async () => {
@@ -288,5 +349,7 @@ describe('counterfactual board + /counterfactual_gate1 렌더 통합', () => {
     const { formatCounterfactualGate2, formatCounterfactualGate3 } = await import('./counterfactualOutcomeBoardFormat.js');
     expect(formatCounterfactualGate2(board)).not.toContain('excessD5=');
     expect(formatCounterfactualGate3(board)).not.toContain('excessD5=');
+    expect(formatCounterfactualGate2(board)).not.toContain('↳');
+    expect(formatCounterfactualGate3(board)).not.toContain('↳');
   });
 });
