@@ -78,6 +78,7 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-07-03 · Patch-Labeler-Stall-Visibility-001 (patch type·ADR 0건·진단 가시화) · unified-forward-outcome-labeler lastLabelingRunAt-frozen-since-0630 incident — scheduler wrapper flag 조기 return 제거(라벨러 내부 DISABLED-stamp 설계 복원) + lastLabelingStartedAt run-start heartbeat(hang vs 미호출 판별) · executionImpact=NONE
 - 2026-07-02 · ADR-0661 · gate3-entry-price-live-restamp kisIntradayCorrectionStep fresh-price-priceAsOf-stamp 6h-daily-cache-stale-asof entry-price-false-stale-11of11-fix default-on-kill-switch no-new-fetch guard-threshold-untouched
 - 2026-07-02 · Patch-Fin-NotAttempted-Interpretation (patch type·ADR 0건·표시 전용) · gate2FinancialBaseline NOT_ATTEMPTED 해석 note(lazy fetch 미도달≠연결 실패) formatter 1줄 + .env.example USE_UNIFIED_SOURCE_SNAPSHOT 재무 커버리지(ADR-0529 DART 슬롯 전 후보 확장) 문서화 · executionImpact=NONE
 

@@ -144,6 +144,12 @@ export interface UnifiedForwardOutcomeLabelerSummary {
   counterfactualEvidenceSampleSize: number;
   paperObservationalEvidenceSampleSize: number;
   lastLabelingRunAt: string | null;
+  /**
+   * Patch LABELER-STALL-VISIBILITY-001 — run *시작* heartbeat (additive optional).
+   * startedAt > lastLabelingRunAt 이면 run 이 시작 후 완료하지 못한 것(hang/크래시)이고,
+   * 둘 다 오래됐으면 run 자체가 호출되지 않은 것 — 운영 진단에서 두 결함을 즉시 구분한다.
+   */
+  lastLabelingStartedAt?: string | null;
   lastLabelingErrorSanitized: string | null;
   liveExecutionAllowed: false;
   executionImpact: 'NONE';
@@ -336,6 +342,7 @@ function defaultSummary(error: string | null = null): UnifiedForwardOutcomeLabel
     counterfactualEvidenceSampleSize: 0,
     paperObservationalEvidenceSampleSize: 0,
     lastLabelingRunAt: null,
+    lastLabelingStartedAt: null,
     lastLabelingErrorSanitized: error,
     liveExecutionAllowed: false,
     executionImpact: 'NONE',
@@ -348,6 +355,20 @@ function defaultSummary(error: string | null = null): UnifiedForwardOutcomeLabel
 function writeStatus(summary: UnifiedForwardOutcomeLabelerSummary): void {
   ensureDataDir();
   fs.writeFileSync(UNIFIED_FORWARD_OUTCOME_LABELER_STATUS_FILE, JSON.stringify(summary, null, 2));
+}
+
+/**
+ * Patch LABELER-STALL-VISIBILITY-001 — run 시작 시 heartbeat 만 스탬프한다.
+ * 직전 summary 를 보존한 채 lastLabelingStartedAt 만 갱신 — 이후 어떤 지점에서 hang 해도
+ * startedAt > lastLabelingRunAt 시그니처가 남는다. 실패는 본 run 을 막지 않는다(불변식 #1).
+ */
+function writeStartHeartbeat(runAt: string): void {
+  try {
+    const base = readStatus() ?? defaultSummary('NO_LABELING_RUN_RECORDED');
+    writeStatus({ ...base, lastLabelingStartedAt: runAt });
+  } catch (e) {
+    console.warn('[UnifiedForwardOutcomeLabeler] start heartbeat 기록 실패 (run 은 계속)', e);
+  }
 }
 
 function readStatus(): UnifiedForwardOutcomeLabelerSummary | null {
@@ -961,10 +982,17 @@ export async function runUnifiedForwardOutcomeLabeler(
   );
 
   if (!isUnifiedForwardOutcomeLabelerEnabled()) {
-    const disabled = { ...defaultSummary('UNIFIED_FORWARD_OUTCOME_LABELER_DISABLED'), lastLabelingRunAt: runAt };
+    const disabled = {
+      ...defaultSummary('UNIFIED_FORWARD_OUTCOME_LABELER_DISABLED'),
+      lastLabelingRunAt: runAt,
+      lastLabelingStartedAt: runAt,
+    };
     if (persist) writeStatus(disabled);
     return disabled;
   }
+
+  // Patch LABELER-STALL-VISIBILITY-001 — 본 작업(대량 ledger load·가격 fetch) 전에 시작 heartbeat.
+  if (persist) writeStartHeartbeat(runAt);
 
   try {
     const priceFetcher = options.priceFetcher ?? defaultPriceFetcher;
@@ -1123,6 +1151,7 @@ export async function runUnifiedForwardOutcomeLabeler(
       counterfactualEvidenceSampleSize: counterfactualEvidenceRows(counterfactualEntries),
       paperObservationalEvidenceSampleSize: paperEntries.length,
       lastLabelingRunAt: runAt,
+      lastLabelingStartedAt: runAt,
       lastLabelingErrorSanitized: 'NONE',
       liveExecutionAllowed: false,
       executionImpact: 'NONE',
@@ -1133,7 +1162,11 @@ export async function runUnifiedForwardOutcomeLabeler(
     if (persist) writeStatus(summary);
     return summary;
   } catch (error) {
-    const summary = { ...defaultSummary(sanitizeError(error)), lastLabelingRunAt: runAt };
+    const summary = {
+      ...defaultSummary(sanitizeError(error)),
+      lastLabelingRunAt: runAt,
+      lastLabelingStartedAt: runAt,
+    };
     if (persist) writeStatus(summary);
     return summary;
   }
@@ -1179,6 +1212,7 @@ export function formatUnifiedForwardOutcomeLabelerSection(
     `counterfactualEvidenceSampleSize: ${summary.counterfactualEvidenceSampleSize ?? 0}`,
     `paperObservationalEvidenceSampleSize: ${summary.paperObservationalEvidenceSampleSize ?? 0}`,
     `lastLabelingRunAt: ${summary.lastLabelingRunAt ?? 'N/A'}`,
+    `lastLabelingStartedAt: ${summary.lastLabelingStartedAt ?? 'N/A'}`,
     `lastLabelingErrorSanitized: ${summary.lastLabelingErrorSanitized ?? 'NONE'}`,
     `liveExecutionAllowed=${summary.liveExecutionAllowed} executionImpact=${summary.executionImpact} shadowLearning=${summary.shadowLearning} counterfactualAllowed=${summary.counterfactualAllowed ?? true} thresholdAutoChanged=${summary.thresholdAutoChanged}`,
   ].join('\n');
