@@ -12,6 +12,7 @@ import {
   type R3NoiseGovernorDecision,
 } from './r3NoiseGovernor.js';
 import type { StreakSkipContext } from './r3StreakSkipPolicy.js';
+import { isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import type { PersistScanResultsOptions, ScanSummary } from './scanDiagnostics.js';
 
 export interface R3NoiseWiringInput {
@@ -38,9 +39,12 @@ export function buildR3NoiseDecision(
     const sectorEnergyDiagnosticBlocked =
       options.sectorEnergyQualityDiagnostic?.shouldBlockLeadershipConfidence === true;
     const macro = options.macroGateState;
+    const todayKstDate = kstNow.toISOString().slice(0, 10);
     const streakSkipContext: StreakSkipContext = {
-      todayKstDate: kstNow.toISOString().slice(0, 10),
-      isKrxTradingDay: true, // persistScanResults 도달 = preflight 통과 = KRX 거래일
+      todayKstDate,
+      // 캘린더 SSOT 실판정 — 휴장일 abort/observe 스캔도 persistScanResults 에 도달함
+      // (인시던트 20260704, 불변식 4/5: preflight 는 휴장일에 abort 하지 않는다).
+      isKrxTradingDay: isKrxTradingDay(todayKstDate),
       volumeClockAllowsEntry: options.volumeClockAllowsEntry ?? true,
       emergencyStop: macro?.emergencyStop ?? false,
       manualBlockNewBuy: false,

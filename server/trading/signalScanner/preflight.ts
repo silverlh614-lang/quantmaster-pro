@@ -39,7 +39,7 @@ import { isDataStarvedScan, getCompletenessSnapshot } from '../../screener/dataC
 import { computeSlotConsumption } from '../slotAccounting.js';
 import { checkVolumeClockWindow } from '../volumeClock.js';
 import { isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
-import { evaluateR3CountableScan } from './r3StreakSkipPolicy.js';
+import { evaluateR3CountableScan, type StreakSkipReason } from './r3StreakSkipPolicy.js';
 import { loadConditionWeights, getConditionWeightsUpdatedAt } from '../../persistence/conditionWeightsRepo.js';
 import { applyFreshnessDecayToNeutralWeightedRecord } from '../../learning/learningFreshnessGuard.js';
 import { isOpenShadowStatus } from '../entryEngine.js';
@@ -514,6 +514,12 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     dataStarvedScan: false,
     frozenQuoteDataQuality: 'OK',
   });
+  // ADR-0412 복원: 호출자(index.ts)가 persistScanResults options.r3StreakSkipped 로 전달.
+  // countable(거래일 정상) 시 undefined — 정상 스캔 ScanSummary 영속 byte-identical 보존.
+  const r3StreakSkipped: { skipped: boolean; reason?: StreakSkipReason } | undefined =
+    r3Countability.countable
+      ? undefined
+      : { skipped: true as const, reason: r3Countability.skipReason };
   const resolvedMarketSessionState = resolveMarketSessionState({
     skipReason: r3Countability.skipReason,
     isKrxTradingDay: todayIsKrxTradingDay,
@@ -850,6 +856,9 @@ export async function runPreflight(options?: RunAutoSignalScanOptions): Promise<
     shouldAbortShadowLearning: false,
     shouldAbortCounterfactual: false,
     macroGateState,
+    // ADR-0412 복원 — 비카운터블(휴장일 등) 시에만 값 존재, countable 시 undefined
+    // (호출부 조건부 스프레드가 흡수 → 거래일 persist options byte-identical).
+    r3StreakSkipped,
     context: {
       shadowMode,
       totalAssets,
