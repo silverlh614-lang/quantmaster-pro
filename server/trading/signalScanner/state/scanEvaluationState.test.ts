@@ -117,6 +117,9 @@ describe('scanEvaluationState', () => {
     recordPipelineStage(counters, 'PRICE_FETCH', 'FAIL');
 
     const result = buildScanEvaluationResult({
+      // 고정 거래일 asOf — 실시계 사용 시 주말/휴장일에 NOT_EVALUATED_NON_TRADING_DAY 가
+      // 우선해 본 케이스의 검증 대상(quote hydration 분리)이 가려진다.
+      asOf: '2026-05-19T01:00:00.000Z',
       counters,
       totalCandidates: 3,
       sourcePath: 'test',
@@ -132,6 +135,8 @@ describe('scanEvaluationState', () => {
     counters.gateMisses = 2;
     counters.waitGateFail = 2;
     const result = buildScanEvaluationResult({
+      // 고정 거래일 asOf — 실시계 의존 시 비거래일에 breakPoint=SESSION_GUARD 로 바뀐다.
+      asOf: '2026-05-19T01:00:00.000Z',
       counters,
       totalCandidates: 2,
       sourcePath: 'test.source',

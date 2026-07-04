@@ -350,6 +350,7 @@ export async function runAutoSignalScan(
       await persistScanResults(counters, {
         sellOnly: options?.sellOnly,
         ...preflightResult.diagnosticData,
+        ...(preflightResult.r3StreakSkipped ? { r3StreakSkipped: preflightResult.r3StreakSkipped } : {}),
         ...(options?.candidateScanTrigger ? { candidateScanTrigger: options.candidateScanTrigger } : {}),
         ...(Array.isArray(preflightResult.context?.watchlist)
           ? { candidatePoolSourceCandidates: preflightResult.context.watchlist }
@@ -567,6 +568,7 @@ export async function runAutoSignalScan(
     // context.sourceSnapshotId(= buildScanEvaluationId(scanAsOf)) 와 byte-identical 보장.
     scanAsOf,
     ...candidates.lengths,
+    ...(preflightResult.r3StreakSkipped ? { r3StreakSkipped: preflightResult.r3StreakSkipped } : {}),
     ...(perSymbolSupplyInjection ? { perSymbolSupplyInjection } : {}),
     ...(investorFlowBySymbolCarry && Object.keys(investorFlowBySymbolCarry).length > 0 ? { investorFlowBySymbolCarry } : {}),
     ...(options?.candidateScanTrigger ? { candidateScanTrigger: options.candidateScanTrigger } : {}),
