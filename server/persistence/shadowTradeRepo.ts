@@ -1171,8 +1171,10 @@ export function computeShadowMonthlyStats(monthISO?: string): ShadowMonthlyStats
   };
 }
 
-// 내부 helper — entryEngine.isOpenShadowStatus 와 동일 로직. 순환 import 회피를 위해 중복 정의.
-function isOpenShadowStatusStatus(status: ServerShadowTrade['status']): boolean {
+// entryEngine.isOpenShadowStatus 와 동일 로직 — 순환 import 회피를 위해 중복 정의.
+// export: positionAggregator 등 persistence-인접 소비자가 entryEngine(무거운 엔진 그래프)
+// 을 끌어오지 않고 open-status 판정을 재사용하기 위함 (2026-07-04).
+export function isOpenShadowStatusStatus(status: ServerShadowTrade['status']): boolean {
   return status === 'PENDING'
       || status === 'ORDER_SUBMITTED'
       || status === 'PARTIALLY_FILLED'
