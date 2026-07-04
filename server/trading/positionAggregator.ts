@@ -16,7 +16,11 @@
  */
 
 import fs from 'fs';
-import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
+import {
+  loadShadowTrades,
+  isOpenShadowStatusStatus,
+  type ServerShadowTrade,
+} from '../persistence/shadowTradeRepo.js';
 import { SHADOW_LOG_FILE } from '../persistence/paths.js';
 
 // ─── 타입 정의 ────────────────────────────────────────────────────────────────
@@ -209,9 +213,11 @@ function snapshotOriginalQuantity(snapshot: any): number {
 }
 
 function snapshotOnlyStage(status: string | undefined): PositionStage {
-  if (status === 'HIT_STOP') return 'CLOSED';
-  if (status === 'HIT_TARGET') return 'CLOSED';
-  return 'ENTRY';
+  if (status === undefined) return 'ENTRY';
+  // terminal(비-open) status 전부 CLOSED — HIT_STOP/HIT_TARGET 만 매핑하던 기존 결함으로
+  // REJECTED/QUARANTINED_BAD_ENTRY/INCONSISTENT 가 '활성'으로 남아 positionTruth
+  // (a) status ledger vs (b) 이벤트 집계 발산을 만들었다 (2026-07-04 인시던트).
+  return isOpenShadowStatusStatus(status as ServerShadowTrade['status']) ? 'ENTRY' : 'CLOSED';
 }
 
 function canInferExitPrice(log: any, entryPrice: number): boolean {
@@ -389,6 +395,21 @@ export function aggregatePosition(
       );
   }
 
+  // 스냅샷 terminal 정렬 (2026-07-04 인시던트) — status ledger 가 이미 종결(REJECTED 등
+  // 비-open)인데 이벤트상 SELL 미기록이면 표시 stage 를 스냅샷 기준 CLOSED 로 정렬.
+  // (a) shadow-trades open vs (b) 이벤트 집계 active 의 positionTruth 발산 차단.
+  // 위 정합성 검증(realizedQty 비교)은 이벤트 기준 stage 로 이미 평가된 뒤라 오탐 없음.
+  if (
+    snapshot?.status !== undefined &&
+    !isOpenShadowStatusStatus(snapshot.status) &&
+    summary.stage !== 'CLOSED'
+  ) {
+    summary.stage = 'CLOSED';
+    summary.integrityIssues.push(
+      `스냅샷 terminal status(${snapshot.status})와 이벤트 미종결(realized ${summary.realizedQty}/${originalQuantity}) 불일치 — stage 를 스냅샷 기준 CLOSED 로 정렬`,
+    );
+  }
+
   return summary;
 }
 
@@ -424,13 +445,16 @@ export function aggregateAllPositions(): PositionSummary[] {
  */
 export function computePositionStats(summaries: PositionSummary[]) {
   const closed = summaries.filter((s) => s.stage === 'CLOSED');
-  const wins = closed.filter((s) => s.totalRealizedPnL > 0);
-  const losses = closed.filter((s) => s.totalRealizedPnL < 0);
+  // 승률·평균수익 분모는 체결 실적 있는 종결(realizedQty>0)만 — terminal 정렬로 CLOSED 에
+  // 편입되는 REJECTED 등 미체결 건이 지표를 희석하지 않게 분리 (2026-07-04).
+  const settled = closed.filter((s) => s.realizedQty > 0);
+  const wins = settled.filter((s) => s.totalRealizedPnL > 0);
+  const losses = settled.filter((s) => s.totalRealizedPnL < 0);
 
   const totalPnL = closed.reduce((sum, s) => sum + s.totalRealizedPnL, 0);
   const avgReturn =
-    closed.length > 0
-      ? closed.reduce((sum, s) => sum + s.weightedReturnPct, 0) / closed.length
+    settled.length > 0
+      ? settled.reduce((sum, s) => sum + s.weightedReturnPct, 0) / settled.length
       : 0;
 
   return {
@@ -439,7 +463,7 @@ export function computePositionStats(summaries: PositionSummary[]) {
     closedPositions: closed.length,
     wins: wins.length,
     losses: losses.length,
-    winRate: closed.length > 0 ? (wins.length / closed.length) * 100 : 0,
+    winRate: settled.length > 0 ? (wins.length / settled.length) * 100 : 0,
     totalRealizedPnL: totalPnL,
     avgReturnPct: avgReturn,
     // 분류별 합계

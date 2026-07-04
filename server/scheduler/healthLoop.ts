@@ -18,6 +18,8 @@ import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js
 export interface HealthLoopState {
   /** KIS 토큰 마지막 6h bucket — Math.floor(hours / 6). 변화 시 알림. */
   kisTokenLastBucket?: number;
+  /** heal-first 마지막 시도 시각 (ISO) — 만료 지속 상태 backoff 재시도 기준. */
+  kisTokenHealLastAttemptAt?: string;
   /** Master 마지막 카운트 — 50% 이상 감소 시 즉시 🚨. */
   masterLastCount?: number;
   /** Master Tier 4 fallback 활성 여부 — 진입/회복 알림. */
@@ -75,6 +77,8 @@ export function loadHealthLoopState(): HealthLoopState {
         typeof obj.kisTokenLastBucket === 'number' && Number.isFinite(obj.kisTokenLastBucket)
           ? obj.kisTokenLastBucket
           : undefined,
+      kisTokenHealLastAttemptAt:
+        typeof obj.kisTokenHealLastAttemptAt === 'string' ? obj.kisTokenHealLastAttemptAt : undefined,
       masterLastCount:
         typeof obj.masterLastCount === 'number' && Number.isFinite(obj.masterLastCount)
           ? obj.masterLastCount
@@ -189,6 +193,37 @@ async function attemptKisTokenHealFirst(): Promise<number> {
   }
 }
 
+/** 만료 지속 상태 heal 재시도 간격 — Tier 1(5분) tick 중 30분마다 1회만 시도. */
+const KIS_TOKEN_HEAL_RETRY_INTERVAL_MS = 30 * 60_000;
+
+/** ENV 1줄 롤백 — `KIS_TOKEN_HEAL_RETRY_DISABLED=true` 시 기존(전이 tick 1회) 동작 복귀. */
+function isKisTokenHealRetryDisabled(): boolean {
+  return process.env.KIS_TOKEN_HEAL_RETRY_DISABLED === 'true';
+}
+
+/**
+ * heal-first 시도 허용 여부 (2026-07-04 인시던트).
+ *
+ * 기존 결함: 발동 조건이 `lastBucket >= 0`(유효→만료 전이 tick)뿐이라 그 1회가 실패하면
+ * bucket 이 -1 로 저장돼 다음 tick 부터 영구 불발 — "5분 주기가 재시도 자연 상한" 주석과
+ * 실동작 불일치. 이미 만료 상태로 부팅(lastBucket=undefined)해도 발동 불가.
+ *
+ * 수리: 전이 tick 은 기존대로 무조건 1회 + 만료 지속/부팅 상태는 30분 backoff 재시도.
+ */
+function shouldAttemptTokenHeal(
+  state: HealthLoopState,
+  lastBucket: number | undefined,
+  now: Date,
+): boolean {
+  // 유효→만료 전이 tick — 기존 동작 그대로 무조건 시도.
+  if (lastBucket !== undefined && lastBucket >= 0) return true;
+  // 만료 지속(-1)·부팅 직후(undefined) — backoff 재시도 (ENV 1줄 롤백 가능).
+  if (isKisTokenHealRetryDisabled()) return false;
+  const last = state.kisTokenHealLastAttemptAt ? Date.parse(state.kisTokenHealLastAttemptAt) : NaN;
+  if (!Number.isFinite(last)) return true;
+  return now.getTime() - last >= KIS_TOKEN_HEAL_RETRY_INTERVAL_MS;
+}
+
 // ─── Tier 1: 5분 (4 임계) ─────────────────────────────────────────────────
 
 interface KrxMasterInfo {
@@ -248,9 +283,12 @@ export async function runTier1(now = new Date()): Promise<HealthLoopState> {
       },
       now,
     );
-  } else if (lastBucket !== undefined && kisHours === 0 && lastBucket >= 0) {
+  } else if (kisHours === 0 && shouldAttemptTokenHeal(state, lastBucket, now)) {
     // 선치유-후경보 (2026-06-11 인시던트) — 재배포 직후 휘발 토큰 캐시가 "만료"로
     // 관측돼도 재발급 가능하면 거짓 CRITICAL 대신 NORMAL self-healed 1건만 발송.
+    // 2026-07-04: 전이 tick 1회 한정이던 발동 조건을 만료 지속/부팅 상태 30분 backoff
+    // 재시도로 확장 (shouldAttemptTokenHeal). 경보는 alertOnce 일일 dedupe 로 무증가.
+    state.kisTokenHealLastAttemptAt = now.toISOString();
     const healedHours = await attemptKisTokenHealFirst();
     if (healedHours > 0) {
       await alertOnce(

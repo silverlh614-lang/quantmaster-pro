@@ -238,3 +238,83 @@ describe('회복 가시화 — ack 자동 해소 시 운영자 대면 메시지'
     expect(sendTelegramAlertMock).not.toHaveBeenCalled();
   });
 });
+
+describe('heal-first 재시도 — 만료 지속/부팅 blind spot (2026-07-04 인시던트)', () => {
+  const origRetryDisabled = process.env.KIS_TOKEN_HEAL_RETRY_DISABLED;
+
+  afterEach(() => {
+    if (origRetryDisabled === undefined) delete process.env.KIS_TOKEN_HEAL_RETRY_DISABLED;
+    else process.env.KIS_TOKEN_HEAL_RETRY_DISABLED = origRetryDisabled;
+  });
+
+  it('(f) 만료 지속: 첫 heal 실패 후 30분 미경과 tick 은 재시도 없음, 30분 경과 tick 은 재시도', async () => {
+    refreshKisTokenMock.mockRejectedValue(new Error('OAuth down'));
+    const { runTier1 } = await importHealthLoop();
+    await mockSnapshots(12, 0, 0, 0);
+    const t0 = new Date('2026-07-06T00:00:00+09:00');
+    const t1 = new Date('2026-07-06T00:05:00+09:00'); // 전이 tick — heal 1회 (기존 동작)
+    const t2 = new Date('2026-07-06T00:10:00+09:00'); // +5분 — backoff 내, 재시도 없음
+    const t3 = new Date('2026-07-06T00:40:00+09:00'); // +35분 — 재시도 1회
+
+    await runTier1(t0);
+    await runTier1(t1);
+    expect(refreshKisTokenMock).toHaveBeenCalledTimes(1);
+    await runTier1(t2);
+    expect(refreshKisTokenMock).toHaveBeenCalledTimes(1);
+    await runTier1(t3);
+    expect(refreshKisTokenMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('(g) 부팅 직후 이미 만료(lastBucket 부재) → heal 시도 발생 (구 blind spot 봉인)', async () => {
+    getKisTokenRemainingHoursMock.mockReturnValue(22);
+    const { runTier1 } = await importHealthLoop();
+    await mockSnapshots(0);
+
+    await runTier1();
+
+    expect(refreshKisTokenMock).toHaveBeenCalledTimes(1);
+    const [msg] = sendTelegramAlertMock.mock.calls[0] as [string, AlertOpts];
+    expect(msg).toMatch(/KIS 토큰 만료 감지 → 자동 재발급 완료/);
+  });
+
+  it('(h) ENV KIS_TOKEN_HEAL_RETRY_DISABLED=true → 전이 1회 후 재시도 없음 (롤백 byte-identical)', async () => {
+    process.env.KIS_TOKEN_HEAL_RETRY_DISABLED = 'true';
+    refreshKisTokenMock.mockRejectedValue(new Error('OAuth down'));
+    const { runTier1 } = await importHealthLoop();
+    await mockSnapshots(12, 0, 0);
+    const t0 = new Date('2026-07-06T00:00:00+09:00');
+    const t1 = new Date('2026-07-06T00:05:00+09:00');
+    const t2 = new Date('2026-07-06T01:05:00+09:00'); // +60분이어도 재시도 없음
+
+    await runTier1(t0);
+    await runTier1(t1);
+    await runTier1(t2);
+
+    expect(refreshKisTokenMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('(i) 재시도 성공 시 self-healed 경보 — 실패 경보는 일일 dedupe 로 무증가', async () => {
+    refreshKisTokenMock.mockRejectedValueOnce(new Error('OAuth down'));
+    getKisTokenRemainingHoursMock.mockReturnValue(22);
+    const { runTier1 } = await importHealthLoop();
+    await mockSnapshots(12, 0, 0);
+    const t0 = new Date('2026-07-06T00:00:00+09:00');
+    const t1 = new Date('2026-07-06T00:05:00+09:00'); // 전이 — heal 실패 → 만료 경보 1건
+    const t2 = new Date('2026-07-06T00:40:00+09:00'); // 재시도 — 성공 → self-healed 1건
+
+    await runTier1(t0);
+    await runTier1(t1);
+    const expiredAlerts = sendTelegramAlertMock.mock.calls.filter(
+      (c) => String(c[0]).includes('KIS 토큰 만료') && !String(c[0]).includes('재발급 완료'),
+    );
+    expect(expiredAlerts.length).toBe(1);
+    sendTelegramAlertMock.mockClear();
+    await runTier1(t2);
+
+    expect(refreshKisTokenMock).toHaveBeenCalledTimes(2);
+    const healed = sendTelegramAlertMock.mock.calls.filter((c) =>
+      String(c[0]).includes('자동 재발급 완료'),
+    );
+    expect(healed.length).toBe(1);
+  });
+});

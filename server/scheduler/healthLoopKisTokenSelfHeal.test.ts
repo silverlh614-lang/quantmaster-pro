@@ -22,6 +22,18 @@ vi.mock('../health/diagnostics.js', () => ({
   collectHealthSnapshot: vi.fn(),
 }));
 
+// 밀폐: kisHours=0 케이스는 heal-first(만료 지속 재시도 포함, 2026-07-04)가 auth 를 동적
+// import 하므로 실 OAuth 호출이 나가지 않게 mock — 본 파일의 검증 대상은 ack 해소뿐.
+vi.mock('../clients/kisClient/auth.js', () => ({
+  refreshKisToken: vi.fn(async () => {
+    throw new Error('mocked: OAuth unavailable');
+  }),
+  refreshRealDataToken: vi.fn(async () => {
+    throw new Error('mocked: OAuth unavailable');
+  }),
+  getKisTokenRemainingHours: vi.fn(() => 0),
+}));
+
 const baseSnapshot = {
   kisConfigured: true,
   kisTokenHours: 12,
