@@ -23,6 +23,17 @@ import { isForcedRegimeDowngradeActive } from '../learning/learningState.js';
 import { classifyVkospiSanity } from './regime/vkospiSanityGuard.js';
 import { resolveKospiTriggerFreshness, isTradeDateFreshnessEnabled } from './kospiTriggerFreshness.js';
 import { shouldFastUpgradeToR3Early, isRegimeRiskOnFastUpgradeEnabled } from './regime/riskOnFastUpgrade.js';
+import {
+  classifyRegimeTransition,
+  buildRegimeTransitionMessage,
+  isOscillationReversal,
+  pruneDepartures,
+  resolveRegimeNotifyDwellMs,
+  shouldSuppressClosedMarketNotice,
+  isRegimeNotifyWhenClosedEnabled,
+  type NotifiedRegimeDeparture,
+} from './regime/regimeTransitionNotice.js';
+import { isMarketOpen } from '../utils/marketClock.js';
 import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import {
   emptyR6RecoveryEvidence,
@@ -42,6 +53,16 @@ import {
 let _previousRegime: RegimeLevel | null = null;
 let _previousMhs: number | null = null;
 let _previousVkospi: number | null = null;
+// ① 진동 억제용 — 최근 dwell 창 안에서 "떠난" 레짐 기록(되돌림 감지). 표시 전용 상태.
+let _recentDepartures: NotifiedRegimeDeparture[] = [];
+
+/** 테스트 전용 — 레짐 알림 모듈 상태 초기화. */
+export function __resetRegimeNotifierStateForTests(): void {
+  _previousRegime = null;
+  _previousMhs = null;
+  _previousVkospi = null;
+  _recentDepartures = [];
+}
 
 /**
  * MacroState → RegimeVariables
@@ -1063,74 +1084,84 @@ export async function checkAndNotifyRegimeChange(
   const prevCfg = REGIME_CONFIGS[_previousRegime];
   const currCfg = REGIME_CONFIGS[currentRegime];
 
-  const dirEmoji = isDowngrade ? '🔴' : '🟢';
-  const dirLabel = isDowngrade ? '방어 강화' : '공격 전환';
+  // ③ 방향·실질 변화 분류 — 설정(Kelly/한도) 동일이면 "공격 전환" 오라벨 금지.
+  const classification = classifyRegimeTransition({ isDowngrade, prevCfg, currCfg });
 
-  // MHS/VKOSPI 변화량
-  const mhsDelta = (currentMhs != null && _previousMhs != null)
-    ? currentMhs - _previousMhs : null;
-  const vkospiDelta = (currentVkospi != null && _previousVkospi != null)
-    ? currentVkospi - _previousVkospi : null;
-
-  let msg =
-    `⚠️ <b>[레짐 전환]</b> ${_previousRegime} → ${currentRegime} ${dirEmoji}\n` +
-    `━━━━━━━━━━━━━━━━\n`;
-
-  // MHS / VKOSPI 변화
-  if (mhsDelta !== null) {
-    msg += `MHS: ${_previousMhs} → ${currentMhs} (${mhsDelta >= 0 ? '+' : ''}${mhsDelta}pt)\n`;
-  }
-  if (vkospiDelta !== null) {
-    msg += `VKOSPI: ${_previousVkospi?.toFixed(1)} → ${currentVkospi?.toFixed(1)} ` +
-           `(${vkospiDelta >= 0 ? '+' : ''}${vkospiDelta.toFixed(1)})\n`;
+  // D2 — 장외(마감 후/장전/휴장) 억제. 3분 TTL refresh 가 장외에서 intraday 신선도 flapping
+  //   으로 R3↔R4 전환을 토글하는 churn 차단(카탈로그 "내부 캐시 갱신만·Telegram 송출 없음" 계약 정합).
+  //   R6_DEFENSE 진입(블랙스완)만 예외 — 오버나잇/장전 위기 경보 보존.
+  const isR6Entry = currentRegime === 'R6_DEFENSE' && _previousRegime !== 'R6_DEFENSE';
+  if (
+    !isRegimeNotifyWhenClosedEnabled() &&
+    shouldSuppressClosedMarketNotice({ marketOpen: isMarketOpen(), isR6Entry })
+  ) {
+    console.warn(
+      `[RegimeBridge] 장외 억제: ${_previousRegime} → ${currentRegime} (시장 마감·R6 진입 아님) — 알림 생략`,
+    );
+    _previousRegime = currentRegime;
+    _previousMhs = currentMhs;
+    _previousVkospi = currentVkospi;
+    return;
   }
 
-  // 변경 사항
-  msg += `\n<b>변경사항 (${dirLabel}):</b>\n`;
-  msg += `• Kelly 배율: ×${prevCfg.kellyMultiplier} → ×${currCfg.kellyMultiplier} 자동 적용\n`;
-  msg += `• 신규 진입 한도: ${prevCfg.maxPositions}개 → ${currCfg.maxPositions}개\n`;
+  // ① 진동(flip-flop) 억제 — 최근 dwell 창 안에서 떠났던 레짐으로 되돌아오면 알림 생략.
+  //    되돌림은 거의 노이즈이며, CRITICAL T1 이면 30분 미확인 재발송까지 증폭된다(인시던트 캡처).
+  const nowMs = Date.now();
+  const dwellMs = resolveRegimeNotifyDwellMs();
+  _recentDepartures = pruneDepartures(_recentDepartures, nowMs, dwellMs);
+  const oscillation = isOscillationReversal(_recentDepartures, currentRegime, nowMs, dwellMs);
+  // 떠나는 레짐을 항상 기록(억제 여부 무관 — 전체 churn 추적).
+  _recentDepartures.push({ regime: _previousRegime, at: nowMs });
 
-  if (isDowngrade) {
-    msg += `• 손절 기준: 강화 모드 전환\n`;
-  } else {
-    msg += `• 손절 기준: 완화 모드 전환\n`;
+  if (oscillation) {
+    console.warn(
+      `[RegimeBridge] 진동 억제: ${_previousRegime} → ${currentRegime} ` +
+      `(dwell ${Math.round(dwellMs / 60_000)}분 내 되돌림) — 알림 생략`,
+    );
+    _previousRegime = currentRegime;
+    _previousMhs = currentMhs;
+    _previousVkospi = currentVkospi;
+    return;
   }
 
-  if (resetNote) {
-    msg += resetNote;
-  }
+  // ② 정직한 본문 — transitionReason / r6RecoveryStatus 노출, 거시 지표 무변화 명시.
+  const msg = buildRegimeTransitionMessage({
+    prevRegime: _previousRegime,
+    currRegime: currentRegime,
+    prevCfg,
+    currCfg,
+    prevMhs: _previousMhs,
+    currMhs: currentMhs,
+    prevVkospi: _previousVkospi,
+    currVkospi: currentVkospi,
+    transitionReason: diagnostics.transitionReason,
+    r6RecoveryStatus: diagnostics.r6RecoveryStatus,
+    classification,
+    resetNote,
+  })
+    // IDEA 5 — 레짐별 구체 행동 가이드 블록 주입
+    + renderPlaybook(currentRegime);
 
-  msg += `━━━━━━━━━━━━━━━━\n`;
-
-  if (isDowngrade) {
-    msg += `📌 현재 보유 포지션 점검 권고`;
-  } else {
-    msg += `📌 신규 진입 기회 탐색 권고`;
-  }
-
-  // IDEA 5 — 레짐별 구체 행동 가이드 블록 주입
-  msg += renderPlaybook(currentRegime);
-
-  // Phase 4: 레짐 변화 차등화 — 나빠짐(downgrade) = T1 즉각 행동, 좋아짐(upgrade) = T2 리포트.
-  // "긍정 변화는 조용히 기록, 부정 변화는 즉각 경보" (참뮌 스펙 #8).
-  //
-  // PR-4 B: dedupeKey 방향 분리. 공통 `regime-change-${regime}` 키는 같은 regime 에서
-  // 짧은 간격 내 up↔down 교차 시 한 방향 알림을 dedupe 가 덮어써 운영자에게 도달하지
-  // 못하는 사례가 있었다. 이제 up/down 이 서로 다른 키를 갖도록 분리한다.
-  await sendTelegramAlert(msg, isDowngrade
-    ? { priority: 'CRITICAL', tier: 'T1_ALARM',  dedupeKey: `regime-change-down-${currentRegime}`, category: 'regime_downgrade' }
-    : { priority: 'HIGH',     tier: 'T2_REPORT', dedupeKey: `regime-change-up-${currentRegime}`,   category: 'regime_upgrade' },
-  ).catch(console.error);
+  // Phase 4: 차등화 — 실질 방어 강화(material downgrade)만 T1 CRITICAL(+미확인 재발송).
+  //   업그레이드/무변화 relabel 은 T2 REPORT(HIGH) — 재발송 에스컬레이션 비대상.
+  // dedupeKey 방향 분리(PR-4 B) 유지 — up↔down 교차 dedupe 누락 방지. 진동 자체는 위 oscillation 가드가 차단.
+  const dispatchOpts =
+    classification.kind === 'DOWNGRADE'
+      ? { priority: 'CRITICAL' as const, tier: 'T1_ALARM' as const,  dedupeKey: `regime-change-down-${currentRegime}`,    category: 'regime_downgrade' }
+      : classification.kind === 'UPGRADE'
+        ? { priority: 'HIGH' as const,   tier: 'T2_REPORT' as const, dedupeKey: `regime-change-up-${currentRegime}`,      category: 'regime_upgrade' }
+        : { priority: 'HIGH' as const,   tier: 'T2_REPORT' as const, dedupeKey: `regime-change-relabel-${currentRegime}`, category: 'regime_relabel' };
+  await sendTelegramAlert(msg, dispatchOpts).catch(console.error);
 
   // 채널: 레짐 변화 경보 (개인 메시지보다 간결하게)
   await channelRegimeChange(
     _previousRegime,
     currentRegime,
     currentMhs ?? 0,
-    isDowngrade ? '방어 강화' : '공격 전환',
+    classification.label,
   ).catch(console.error);
 
-  console.log(`[RegimeBridge] 레짐 전환 알림: ${_previousRegime} → ${currentRegime}`);
+  console.log(`[RegimeBridge] 레짐 전환 알림: ${_previousRegime} → ${currentRegime} (${classification.kind})`);
 
   // 상태 갱신
   _previousRegime = currentRegime;
