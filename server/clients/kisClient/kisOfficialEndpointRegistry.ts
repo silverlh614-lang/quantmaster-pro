@@ -1,6 +1,6 @@
 // @responsibility P0-KIS-OFFICIAL-REGISTRY: official KIS endpoint metadata registry only.
 
-export type KisOfficialConfidenceClass =
+type KisOfficialConfidenceClass =
   | 'VERIFIED_INTRADAY'
   | 'VERIFIED_DAILY'
   | 'VERIFIED_DELAYED'
@@ -8,14 +8,14 @@ export type KisOfficialConfidenceClass =
   | 'ACCOUNT_VERIFIED'
   | 'ORDER_EXECUTION';
 
-export type KisOfficialUseScope =
+type KisOfficialUseScope =
   | 'DIAGNOSTIC_ONLY'
   | 'SHADOW_ONLY'
   | 'ADVISORY'
   | 'WEIGHTED'
   | 'LIVE_ORDER';
 
-export type KisOfficialExecutionImpact =
+type KisOfficialExecutionImpact =
   | 'NONE'
   | 'SCORE_ONLY'
   | 'LIVE_ORDER';
@@ -37,7 +37,7 @@ export interface KisOfficialEndpointSpec {
   notes?: string;
 }
 
-export interface KisOfficialApiInventoryEntry {
+interface KisOfficialApiInventoryEntry {
   apiPath: string;
   method: 'GET' | 'POST';
   trId: string | null;
@@ -558,7 +558,7 @@ export const KIS_OFFICIAL_INQUIRE_PRICE_ENDPOINT = {
   source: 'KIS_OFFICIAL_OPEN_TRADING_API',
 } as const;
 
-export const KIS_OFFICIAL_INQUIRE_INVESTOR_ENDPOINT = {
+const KIS_OFFICIAL_INQUIRE_INVESTOR_ENDPOINT = {
   key: 'INQUIRE_INVESTOR',
   name: 'stock current price investor',
   path: KIS_OFFICIAL_ENDPOINTS.inquireInvestor.path,
@@ -569,7 +569,7 @@ export const KIS_OFFICIAL_INQUIRE_INVESTOR_ENDPOINT = {
   source: 'KIS_OFFICIAL_OPEN_TRADING_API',
 } as const;
 
-export const KIS_OFFICIAL_INVESTOR_TRADE_BY_STOCK_DAILY_ENDPOINT = {
+const KIS_OFFICIAL_INVESTOR_TRADE_BY_STOCK_DAILY_ENDPOINT = {
   key: 'INVESTOR_TRADE_BY_STOCK_DAILY',
   name: 'investor trade by stock daily',
   path: KIS_OFFICIAL_ENDPOINTS.investorTradeByStockDaily.path,
@@ -585,7 +585,7 @@ export const KIS_OFFICIAL_INVESTOR_FLOW_ENDPOINTS = {
   INVESTOR_TRADE_BY_STOCK_DAILY: KIS_OFFICIAL_INVESTOR_TRADE_BY_STOCK_DAILY_ENDPOINT,
 } as const;
 
-export const KIS_OFFICIAL_COMP_PROGRAM_TRADE_TODAY_ENDPOINT = {
+const KIS_OFFICIAL_COMP_PROGRAM_TRADE_TODAY_ENDPOINT = {
   key: 'COMP_PROGRAM_TRADE_TODAY',
   name: 'market program trade aggregate today',
   path: KIS_OFFICIAL_ENDPOINTS.compProgramTradeToday.path,
@@ -597,7 +597,7 @@ export const KIS_OFFICIAL_COMP_PROGRAM_TRADE_TODAY_ENDPOINT = {
   source: 'KIS_OFFICIAL_OPEN_TRADING_API',
 } as const;
 
-export const KIS_OFFICIAL_PROGRAM_TRADE_BY_STOCK_DAILY_ENDPOINT = {
+const KIS_OFFICIAL_PROGRAM_TRADE_BY_STOCK_DAILY_ENDPOINT = {
   key: 'PROGRAM_TRADE_BY_STOCK_DAILY',
   name: 'program trade by stock daily',
   path: KIS_OFFICIAL_ENDPOINTS.programTradeByStockDaily.path,
@@ -625,22 +625,10 @@ function buildKisOfficialEndpointsByPath(): Record<string, KisOfficialEndpointSp
   return byPath;
 }
 
-export const KIS_OFFICIAL_ENDPOINTS_BY_PATH = buildKisOfficialEndpointsByPath();
-
-export const KIS_OFFICIAL_ENDPOINT_PATH_SET = new Set(
-  Object.keys(KIS_OFFICIAL_ENDPOINTS_BY_PATH),
-);
-
-export function getKisOfficialEndpoint(key: string): KisOfficialEndpointSpec | undefined {
-  return (KIS_OFFICIAL_ENDPOINTS as Record<string, KisOfficialEndpointSpec>)[key];
-}
+const KIS_OFFICIAL_ENDPOINTS_BY_PATH = buildKisOfficialEndpointsByPath();
 
 export function findKisOfficialEndpointByPath(path: string): KisOfficialEndpointSpec | undefined {
   return KIS_OFFICIAL_ENDPOINTS_BY_PATH[path];
-}
-
-export function listKisOfficialEndpoints(): KisOfficialEndpointSpec[] {
-  return Object.values(KIS_OFFICIAL_ENDPOINTS);
 }
 
 export function getKisOfficialApiInventory(): KisOfficialApiInventory {

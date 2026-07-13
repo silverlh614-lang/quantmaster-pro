@@ -78,8 +78,3 @@ export async function fetchNaverSupply(code: string): Promise<NaverSupplyDetail 
     return null;
   }
 }
-
-/** 테스트·진단용 캐시 초기화. */
-export function resetNaverDailyCache(): void {
-  _cache.clear();
-}

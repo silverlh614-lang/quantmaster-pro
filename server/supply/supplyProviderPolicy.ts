@@ -36,7 +36,7 @@ export type SupplyProvider =
   | 'CACHE'
   | 'MANUAL_BACKFILL';
 
-export type SupplyProviderStatus =
+type SupplyProviderStatus =
   | 'OK'
   | 'STALE'
   | 'DEGRADED'
@@ -46,7 +46,7 @@ export type SupplyProviderStatus =
   | 'COLLECTION_EMPTY'
   | 'MISSING';
 
-export type SupplyScoringMode =
+type SupplyScoringMode =
   | 'required_real_fields'
   | 'allowed_when_non_empty'
   | 'optional'
@@ -64,7 +64,7 @@ export interface SupplyProviderPolicy {
   notes: string[];
 }
 
-export const SUPPLY_PROVIDER_POLICIES: Record<SupplySignalKey, SupplyProviderPolicy> = {
+const SUPPLY_PROVIDER_POLICIES: Record<SupplySignalKey, SupplyProviderPolicy> = {
   price: {
     key: 'price',
     title: '가격/현재가',
@@ -221,17 +221,4 @@ export const SUPPLY_PROVIDER_POLICIES: Record<SupplySignalKey, SupplyProviderPol
 
 export function getSupplyProviderPolicy(key: SupplySignalKey): SupplyProviderPolicy {
   return SUPPLY_PROVIDER_POLICIES[key];
-}
-
-export function getProviderConfidence(key: SupplySignalKey, provider: SupplyProvider): number {
-  return SUPPLY_PROVIDER_POLICIES[key].confidence[provider] ?? 0;
-}
-
-export function isSupplyStatusScoringExcluded(key: SupplySignalKey, status: SupplyProviderStatus): boolean {
-  return SUPPLY_PROVIDER_POLICIES[key].excludeStatuses.includes(status);
-}
-
-export function describeProviderRoute(key: SupplySignalKey): string {
-  const policy = SUPPLY_PROVIDER_POLICIES[key];
-  return `${policy.title}: primary=${policy.primary.join('>')} / fallback=${policy.fallback.join('>') || 'NONE'} / diagnostic=${policy.diagnostic.join('>') || 'NONE'} / scoring=${policy.scoringMode}`;
 }

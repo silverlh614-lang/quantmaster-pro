@@ -11,14 +11,6 @@ import {
 import { getOptimalEntryWindow } from './newsLagBayesian.js';
 
 // ── 정책 상수 (ADR-0615) ───────────────────────────────────────────────────────
-
-/**
- * 분류 임계 = `getOptimalEntryWindow` 가 이미 노출하는 ci95(μ±1.96σ, n≥3) 사용.
- * (μ±σ 대신 ci95 채택 — bayesian posterior 의 정직한 불확실성 구간이고, 추가 산식·재노출 0.
- *  newsLagBayesian.ts:209-210 가 ci95LowDays/ci95HighDays 를 이미 export 하므로 SSOT 단일.)
- */
-export const NEWS_LAG_ENTRY_WINDOW_CLASSIFIER = 'CI95' as const;
-
 // ── 타입 (HANDOFF (a)) ─────────────────────────────────────────────────────────
 
 /** 진입 윈도우 분류 — 경과 영업일(elapsed) vs posterior ci95 구간 비교. */

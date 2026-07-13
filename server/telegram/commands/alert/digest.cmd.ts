@@ -48,5 +48,3 @@ const digestStatus: TelegramCommand = {
 commandRegistry.register(digestOn);
 commandRegistry.register(digestOff);
 commandRegistry.register(digestStatus);
-
-export { digestOn, digestOff, digestStatus };

@@ -187,16 +187,3 @@ export function getAllModuleStats(
     .map(m => getModuleStats(m, days, now))
     .sort((a, b) => a.impactRate - b.impactRate);
 }
-
-/** 테스트 격리 헬퍼 — 프로덕션 코드는 호출 금지 */
-export function __resetReflectionImpactForTests(): void {
-  if (fs.existsSync(REFLECTION_IMPACT_FILE)) {
-    fs.unlinkSync(REFLECTION_IMPACT_FILE);
-  }
-}
-
-export const REFLECTION_IMPACT_CONSTANTS = {
-  SCHEMA_VERSION,
-  RING_BUFFER_MAX_DAYS,
-  DEFAULT_WINDOW_DAYS: 180,
-} as const;

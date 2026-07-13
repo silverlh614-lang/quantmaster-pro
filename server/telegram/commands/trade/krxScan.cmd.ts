@@ -74,5 +74,3 @@ const krxScan: TelegramCommand = {
 };
 
 commandRegistry.register(krxScan);
-
-export default krxScan;

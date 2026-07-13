@@ -10,14 +10,6 @@
 // 기존 20 자는 한글 본문과 섞이면 일부 기기에서 줄넘김이 발생했다.
 export const CHANNEL_SEPARATOR = '━━━━━━━━━━━━━━━━';
 
-/** KST "HH:MM" 현재 시각. */
-export function kstHHMM(date: Date = new Date()): string {
-  const kst = new Date(date.getTime() + 9 * 3_600_000);
-  const hh = kst.getUTCHours().toString().padStart(2, '0');
-  const mm = kst.getUTCMinutes().toString().padStart(2, '0');
-  return `${hh}:${mm}`;
-}
-
 /** KST "MM/DD" 오늘 날짜. */
 export function kstMMDD(date: Date = new Date()): string {
   const kst = new Date(date.getTime() + 9 * 3_600_000);
@@ -45,13 +37,4 @@ export interface ChannelHeaderOptions {
 export function channelHeader(opts: ChannelHeaderOptions): string {
   const tail = opts.suffix ? ` ${opts.suffix}` : '';
   return `${opts.icon} <b>[${opts.title}]${tail}</b>\n${CHANNEL_SEPARATOR}`;
-}
-
-/**
- * 채널 발송 전역 스위치. CHANNEL_ENABLED='true' 일 때만 채널 쪽 전송을 허용.
- * channelPipeline.ts 가 내부적으로 쓰던 게이트를 공용화하여 신규 브로드캐스트
- * 모듈이 동일 기준을 공유한다.
- */
-export function isChannelEnabled(): boolean {
-  return process.env.CHANNEL_ENABLED === 'true';
 }

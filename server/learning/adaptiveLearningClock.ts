@@ -64,7 +64,7 @@ export function getLearningInterval(): LearningInterval {
  * 마지막 캘리브레이션 이후 경과 일수.
  * 미실행 상태면 Infinity 반환 (첫 실행을 차단하지 않기 위함).
  */
-export function daysSinceLastCalib(): number {
+function daysSinceLastCalib(): number {
   const ts = loadLearningState().lastCalibAt;
   if (!ts) return Infinity;
   return (Date.now() - new Date(ts).getTime()) / 86_400_000;

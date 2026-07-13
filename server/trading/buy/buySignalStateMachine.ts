@@ -24,7 +24,7 @@ export type BuySignalState =
   | 'EXPIRED'
   | 'FAILED';
 
-export type BuyExecutionMode = 'LIVE' | 'SHADOW';
+type BuyExecutionMode = 'LIVE' | 'SHADOW';
 
 export interface BuySignalTransitionRecord {
   from: BuySignalState;
@@ -140,7 +140,7 @@ export function canTransitionBuySignal(
   return ALLOWED_TRANSITIONS[from].includes(to);
 }
 
-export function isBuySignalSettledAfterApproval(state: BuySignalState): boolean {
+function isBuySignalSettledAfterApproval(state: BuySignalState): boolean {
   return SETTLED_AFTER_APPROVAL_STATES.has(state);
 }
 

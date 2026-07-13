@@ -4,7 +4,7 @@
 
 import type { ScreenerConfig } from './quantScreenerTypes.js';
 
-export const DEFAULT_SCREENER_CONFIG: ScreenerConfig = {
+const DEFAULT_SCREENER_CONFIG: ScreenerConfig = {
   minMarketCapKrw: 100_000_000_000,
   minAvgTradingValue20dKrw: 1_000_000_000,
   excludeNegativeEarnings: true,

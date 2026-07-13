@@ -3,7 +3,7 @@ import { formatMarketStateNow, type MarketStateNowContext } from '../marketState
 import type { ResolvedRegimeSnapshot } from './effectiveRegimeSnapshot.js';
 import { normalizeNowDisplay, normalizeR6LatchDisplay } from '../../telegram/nowDisplayNormalizer.js';
 
-export type NowRenderMode = 'COMPACT' | 'DEBUG';
+type NowRenderMode = 'COMPACT' | 'DEBUG';
 
 export interface NowRenderOptions {
   mode: NowRenderMode;
@@ -256,15 +256,4 @@ export function formatRegimeTelegramNow(
   return normalizeNowRenderOptions(options).mode === 'DEBUG'
     ? formatRegimeTelegramNowDebug(snapshot, context)
     : formatRegimeTelegramNowCompact(snapshot, context);
-}
-
-export function formatRegimeSnapshotCompact(snapshot: ResolvedRegimeSnapshot): string {
-  return [
-    `snapshotId=${snapshot.snapshotId}`,
-    `displayRegime=${compactDisplayRegime(snapshot)}`,
-    `effectiveRegime=${compactEffectiveRegime(snapshot)}`,
-    `riskOverride=${compactRiskOverride(snapshot)}`,
-    `engineMode=${compactEngineMode(snapshot)}`,
-    `sourceHealth=${snapshot.sourceHealth}`,
-  ].join(' ');
 }

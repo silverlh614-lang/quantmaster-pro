@@ -28,5 +28,3 @@ const channelFlushStatus: TelegramCommand = {
 };
 
 commandRegistry.register(channelFlushStatus);
-
-export default channelFlushStatus;

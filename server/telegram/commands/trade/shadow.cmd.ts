@@ -36,5 +36,3 @@ const shadow: TelegramCommand = {
 };
 
 commandRegistry.register(shadow);
-
-export default shadow;

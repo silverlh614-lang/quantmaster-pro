@@ -19,10 +19,6 @@ export function getShadowPersistenceFallback<T>(source: string): T | undefined {
   return cloneValue(fallbackStore.get(source) as T);
 }
 
-export function hasShadowPersistenceFallback(source: string): boolean {
-  return fallbackStore.has(source);
-}
-
 export function deleteShadowPersistenceFallback(source: string): void {
   fallbackStore.delete(source);
 }

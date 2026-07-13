@@ -23,5 +23,3 @@ const scan: TelegramCommand = {
 };
 
 commandRegistry.register(scan);
-
-export default scan;

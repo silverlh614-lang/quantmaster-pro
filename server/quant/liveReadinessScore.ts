@@ -2,7 +2,7 @@
 
 import type { Gate3CompletionScore } from './gate3CompletionScore.js';
 
-export type LiveReadinessStatus = 'LIVE_READY' | 'SHADOW_READY' | 'DIAGNOSTIC_READY' | 'NOT_READY';
+type LiveReadinessStatus = 'LIVE_READY' | 'SHADOW_READY' | 'DIAGNOSTIC_READY' | 'NOT_READY';
 
 export interface LiveReadinessScore {
   score: number;

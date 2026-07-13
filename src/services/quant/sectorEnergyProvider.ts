@@ -46,11 +46,6 @@ export async function fetchSectorEnergy(): Promise<SectorEnergyPayload | null> {
   return _inflight;
 }
 
-export function resetSectorEnergyClientCache(): void {
-  _cache = null;
-  _inflight = null;
-}
-
 /**
  * 프롬프트 주입용 한 줄 요약. 결과가 없거나 입력이 빈 상태면 빈 문자열.
  * 예: "주도 섹터: 반도체(72.1), 이차전지(65.4), 방산(61.8) | 소외 섹터: 건설/부동산, 통신/유틸리티, 유통/소비재 | 계절: OCT_NOV"

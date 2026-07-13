@@ -5,7 +5,7 @@ import type {
   FinalDecisionResolverRuntimeInput,
 } from '../trading/gates/finalDecisionResolver.js';
 
-export type OutcomeDecisionType =
+type OutcomeDecisionType =
   | 'LIVE_EXECUTED'
   | 'SHADOW_EXECUTED'
   | 'LIVE_BLOCKED'
@@ -14,7 +14,7 @@ export type OutcomeDecisionType =
   | 'COUNTERFACTUAL_ONLY'
   | 'NO_ACTION';
 
-export type OutcomeStatus =
+type OutcomeStatus =
   | 'PENDING'
   | 'LABELED'
   | 'EXPIRED'
@@ -228,7 +228,7 @@ function decisionTypeFor(decision: ExecutionPermissionDecision): OutcomeDecision
   return 'NO_ACTION';
 }
 
-export function buildOutcomeDedupKey(input: {
+function buildOutcomeDedupKey(input: {
   sourceSnapshotId: string;
   symbol: string;
   entryTimingSignal: string;

@@ -12,7 +12,7 @@ export function getLastNormalSupplyPreview(): NormalSupplyPreview | null {
   return latestNormalSupplyPreview;
 }
 
-export function clearLatestNormalSupplyPreview(): void {
+function clearLatestNormalSupplyPreview(): void {
   latestNormalSupplyPreview = null;
 }
 

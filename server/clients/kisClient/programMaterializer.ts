@@ -7,16 +7,15 @@ export const MARKET_PROGRAM_TRADE_TR_ID = process.env.KIS_MARKET_PROGRAM_TRADE_T
 export const MARKET_PROGRAM_TRADE_PATH =
   process.env.KIS_MARKET_PROGRAM_TRADE_PATH
   ?? '/uapi/domestic-stock/v1/quotations/comp-program-trade-today';
-export const MARKET_PROGRAM_DIV_CODE = process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J';
+const MARKET_PROGRAM_DIV_CODE = process.env.KIS_MARKET_PROGRAM_DIV_CODE ?? 'J';
 export const MARKET_PROGRAM_PARAM_MODE = (process.env.KIS_MARKET_PROGRAM_PARAM_MODE ?? 'OFFICIAL').toUpperCase() === 'LEGACY' ? 'LEGACY' : 'OFFICIAL';
-export const MARKET_PROGRAM_KOSPI_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_KOSPI_CLASS_CODE ?? 'K';
-export const MARKET_PROGRAM_KOSDAQ_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_KOSDAQ_CLASS_CODE ?? 'Q';
+const MARKET_PROGRAM_KOSPI_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_KOSPI_CLASS_CODE ?? 'K';
 export const MARKET_PROGRAM_INDEX_CODE = process.env.KIS_MARKET_PROGRAM_INDEX_CODE ?? '0001';
-export const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1';
-export const MARKET_PROGRAM_SECTION_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0';
-export const MARKET_PROGRAM_INPUT_HOUR_1 = process.env.KIS_MARKET_PROGRAM_INPUT_HOUR_1 ?? '000000';
+const MARKET_PROGRAM_MARKET_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_MARKET_CLASS_CODE ?? '1';
+const MARKET_PROGRAM_SECTION_CLASS_CODE = process.env.KIS_MARKET_PROGRAM_SECTION_CLASS_CODE ?? '0';
+const MARKET_PROGRAM_INPUT_HOUR_1 = process.env.KIS_MARKET_PROGRAM_INPUT_HOUR_1 ?? '000000';
 
-export type MarketProgramStatus =
+type MarketProgramStatus =
   | 'OK_NONZERO'
   | 'OK_RAW_ZERO'
   | 'OK_EMPTY_OUTPUT'
@@ -25,15 +24,15 @@ export type MarketProgramStatus =
   | 'STALE_CACHE'
   | 'MISSING';
 
-export type MarketProgramMaterializerStatus = MarketProgramStatus | 'OK' | 'ACCEPTED_EMPTY' | 'TRUE_EMPTY' | 'FIELD_MISSING';
+type MarketProgramMaterializerStatus = MarketProgramStatus | 'OK' | 'ACCEPTED_EMPTY' | 'TRUE_EMPTY' | 'FIELD_MISSING';
 
-export type MarketProgramSelectedReason =
+type MarketProgramSelectedReason =
   | 'LATEST_BY_BSOP_HOUR'
   | 'LATEST_ROW_ALL_ZERO'
   | 'NO_VALID_ROW'
   | 'EMPTY_OUTPUT';
 
-export interface MarketProgramRow {
+interface MarketProgramRow {
   bsopHour?: string;
   programBuyAmount: number;
   programSellAmount: number;
@@ -47,7 +46,7 @@ export interface MarketProgramRow {
   numericParseFailed: boolean;
 }
 
-export interface MarketProgramAggregateDiagnostic {
+interface MarketProgramAggregateDiagnostic {
   rowCount: number;
   nonZeroRowCount: number;
   sumProgramBuyAmount: number;
@@ -57,7 +56,7 @@ export interface MarketProgramAggregateDiagnostic {
   sumNonArbitrageNetBuy: number;
 }
 
-export interface MarketProgramMaterializerDiagnostics extends MarketProgramAggregateDiagnostic {
+interface MarketProgramMaterializerDiagnostics extends MarketProgramAggregateDiagnostic {
   status: MarketProgramStatus;
   selectedPath: string;
   selectedBsopHour?: string;
@@ -276,7 +275,7 @@ function normalizeBsopHour(value: unknown): string | undefined {
   return digits.length >= 6 ? digits.slice(0, 6) : digits.slice(0, 4);
 }
 
-export function formatBsopHour(value: unknown): string {
+function formatBsopHour(value: unknown): string {
   const h = normalizeBsopHour(value);
   if (!h) return 'N/A';
   if (h.length >= 6) return `${h.slice(0, 2)}:${h.slice(2, 4)}:${h.slice(4, 6)}`;
@@ -308,7 +307,7 @@ function compareBsopHourDesc(a: string | undefined, b: string | undefined): numb
   return (bsopMinutes(b) ?? -1) - (bsopMinutes(a) ?? -1);
 }
 
-export function normalizeMarketProgramRow(raw: KisOutput, index: number): MarketProgramRow {
+function normalizeMarketProgramRow(raw: KisOutput, index: number): MarketProgramRow {
   const directSell = firstPresent(raw, MARKET_PROGRAM_SELL_KEYS);
   const directBuy = firstPresent(raw, MARKET_PROGRAM_BUY_KEYS);
   const arbitrageSell = firstPresent(raw, ['arbt_smtn_seln_tr_pbmn']);
@@ -345,7 +344,7 @@ export function normalizeMarketProgramRow(raw: KisOutput, index: number): Market
   };
 }
 
-export function selectMarketProgramRow(rows: MarketProgramRow[], nowKst: Date): {
+function selectMarketProgramRow(rows: MarketProgramRow[], nowKst: Date): {
   selectedRow: MarketProgramRow | null;
   selectedReason: MarketProgramSelectedReason;
   nonZeroRowCount: number;
@@ -365,7 +364,7 @@ export function selectMarketProgramRow(rows: MarketProgramRow[], nowKst: Date): 
   return { selectedRow: latestRow, selectedReason: 'LATEST_ROW_ALL_ZERO', nonZeroRowCount: nonZeroRows.length, latestRow };
 }
 
-export function aggregateMarketProgramRows(rows: MarketProgramRow[]): MarketProgramAggregateDiagnostic {
+function aggregateMarketProgramRows(rows: MarketProgramRow[]): MarketProgramAggregateDiagnostic {
   return {
     rowCount: rows.length,
     nonZeroRowCount: rows.filter((r) => r.hasNonZeroValue).length,

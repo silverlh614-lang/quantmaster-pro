@@ -80,8 +80,3 @@ export function getLatestIncidentAt(): string | null {
   }
   return null;
 }
-
-/** 특정 시간 범위 안의 incident 목록 — 오염 반경 계산기 전용. */
-export function incidentsBetween(fromIso: string, toIso: string): IncidentEntry[] {
-  return loadInternal().filter(e => e.at >= fromIso && e.at <= toIso);
-}

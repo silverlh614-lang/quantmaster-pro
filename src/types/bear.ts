@@ -4,7 +4,7 @@
 // ─── 아이디어 1: Gate -1 "Market Regime Detector" — Bull/Bear 자동 판별 게이트 ──
 
 /** 3단계 시장 레짐 유형 */
-export type MarketRegimeDetectorType = 'BULL' | 'TRANSITION' | 'BEAR';
+type MarketRegimeDetectorType = 'BULL' | 'TRANSITION' | 'BEAR';
 
 /** Bear Regime 판별 7개 조건 중 하나의 상태 */
 export interface BearRegimeCondition {
@@ -28,13 +28,13 @@ export interface BearRegimeResult {
 
 // ─── 아이디어 11: 계절성 Bear Calendar ───────────────────────────────────────────
 
-export type BearSeasonalityWindowType =
+type BearSeasonalityWindowType =
   | 'AUTUMN_WEAKNESS'
   | 'YEAR_END_CLEARING'
   | 'PRE_Q1_EARNINGS'
   | 'PRE_FOMC';
 
-export interface BearSeasonalityWindow {
+interface BearSeasonalityWindow {
   id: BearSeasonalityWindowType;
   name: string;
   active: boolean;

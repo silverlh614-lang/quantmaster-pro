@@ -16,7 +16,7 @@ export type ChannelStatStatus =
   | 'missingChannelSkipped'
   | 'directDmBypass';
 
-export interface ChannelStatBucket {
+interface ChannelStatBucket {
   emitted: number;
   routed: number;
   sent: number;

@@ -96,7 +96,7 @@ export function formatShadowUniverseMessage(
   return lines.join('\n');
 }
 
-export function buildUniversePriceSourceBreakdown(
+function buildUniversePriceSourceBreakdown(
   snapshots: CounterfactualUniverseLearningSnapshot[],
 ): Record<string, number> {
   const breakdown: Record<string, number> = {};

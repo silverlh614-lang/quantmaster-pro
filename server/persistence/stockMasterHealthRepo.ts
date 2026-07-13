@@ -11,7 +11,7 @@ import { STOCK_MASTER_HEALTH_FILE, ensureDataDir } from './paths.js';
 
 export type StockMasterSource = 'KRX_OPENAPI' | 'KRX_CSV' | 'NAVER_LIST' | 'SHADOW_DB' | 'STATIC_SEED';
 
-export interface SourceRunRecord {
+interface SourceRunRecord {
   ts: number;
   ok: boolean;
   count?: number;
@@ -30,7 +30,7 @@ export interface SourceHealthState {
   recentRuns: SourceRunRecord[];
 }
 
-export interface HealthStore {
+interface HealthStore {
   byCases: Record<StockMasterSource, SourceHealthState>;
   updatedAt: number;
 }

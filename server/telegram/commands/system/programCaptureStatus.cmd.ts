@@ -15,7 +15,7 @@ function registered(command: string): boolean {
   return commandRegistry.resolve(command) !== undefined;
 }
 
-export function buildProgramCaptureStatusMessage(now = new Date()): string {
+function buildProgramCaptureStatusMessage(now = new Date()): string {
   const status = loadProgramAutoCaptureStatus(now);
   const manual = resolveProgramAutoCaptureManualAvailability(now);
   const active = status.schedulerEnabled && !status.disabled;
@@ -83,5 +83,3 @@ const programCaptureStatus: TelegramCommand = {
 };
 
 commandRegistry.register(programCaptureStatus);
-
-export default programCaptureStatus;

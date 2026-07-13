@@ -168,5 +168,3 @@ export const IDontKnow = {
   Stale,
   Conflicted,
 };
-
-export type IDontKnowVariant = 'DELAYED' | 'INSUFFICIENT' | 'STALE' | 'CONFLICTED';

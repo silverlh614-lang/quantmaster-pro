@@ -14,7 +14,7 @@
  */
 import type { TranchePlan } from '../types/core';
 
-export interface TrancheLevel {
+interface TrancheLevel {
   price: number;
   /** 비중 % (3개 합 100). */
   weight: number;

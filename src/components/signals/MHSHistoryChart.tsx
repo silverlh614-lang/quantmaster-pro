@@ -22,27 +22,6 @@ interface Props {
 // ─── Storage helpers ─────────────────────────────────────────────────────────
 
 const MHS_HISTORY_KEY = 'k-stock-mhs-history';
-
-export function loadMHSHistory(): MHSRecord[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(MHS_HISTORY_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
-
-export function saveMHSRecord(record: MHSRecord): MHSRecord[] {
-  const history = loadMHSHistory();
-  // Deduplicate by date
-  const existing = history.findIndex(r => r.date === record.date);
-  if (existing >= 0) history[existing] = record;
-  else history.push(record);
-  // Keep last 365 days
-  const trimmed = history.slice(-365);
-  localStorage.setItem(MHS_HISTORY_KEY, JSON.stringify(trimmed));
-  return trimmed;
-}
-
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export const MHSHistoryChart: React.FC<Props> = ({ records, height = 280 }) => {

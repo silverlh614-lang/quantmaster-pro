@@ -22,7 +22,7 @@ import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { getLatestIncidentAt, listIncidents } from '../persistence/incidentLogRepo.js';
 import { sendTelegramAlert } from './telegramClient.js';
 
-export interface BlastRadiusSnapshot {
+interface BlastRadiusSnapshot {
   incidentAt: string | null;
   nowIso:     string;
   durationMinutes: number;
@@ -42,7 +42,7 @@ function daysInMonth(d: Date): number {
   return new Date(kst.getUTCFullYear(), kst.getUTCMonth() + 1, 0).getDate();
 }
 
-export function computeBlastRadius(fromIso?: string): BlastRadiusSnapshot {
+function computeBlastRadius(fromIso?: string): BlastRadiusSnapshot {
   const now = kstNow();
   const incidentAt = fromIso ?? getLatestIncidentAt();
   if (!incidentAt) {
@@ -99,7 +99,7 @@ export function computeBlastRadius(fromIso?: string): BlastRadiusSnapshot {
   };
 }
 
-export function formatBlastRadius(r: BlastRadiusSnapshot): string {
+function formatBlastRadius(r: BlastRadiusSnapshot): string {
   const hours = Math.floor(r.durationMinutes / 60);
   const mins = r.durationMinutes % 60;
   const activeLines = r.affectedActive.length > 0

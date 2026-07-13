@@ -12,7 +12,7 @@ const PROVIDER_REASONS: ReadonlySet<DartReason> = new Set([
   'DATA_DART_FIELD_UNKNOWN',
 ]);
 
-export function isProviderIssueReason(reason: string): boolean {
+function isProviderIssueReason(reason: string): boolean {
   return PROVIDER_REASONS.has(reason as DartReason);
 }
 

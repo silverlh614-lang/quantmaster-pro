@@ -23,7 +23,7 @@ import { fetchAiUniverseSnapshot } from '../api/aiUniverseClient';
 const STALE_TIME_MS = 5 * 60 * 1000; // 5분 — Naver 예산 보호
 const REFETCH_INTERVAL_MS = 5 * 60 * 1000; // 5분 백그라운드 refresh
 
-export type PriceCanonSource = 'NAVER' | 'REALTIME' | 'NONE';
+type PriceCanonSource = 'NAVER' | 'REALTIME' | 'NONE';
 
 export interface PriceCanonResult {
   /** 정본 가격 (KRW). null = 신뢰 가능한 소스 없음. */

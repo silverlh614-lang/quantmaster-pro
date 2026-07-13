@@ -8,7 +8,7 @@ import type {
 } from '../types/pendingWiring';
 
 export const PENDING_PRIORITIES: PendingPriority[] = ['P0', 'P1', 'P2', 'P3'];
-export const PENDING_STATUSES: PendingWiringStatus[] = [
+const PENDING_STATUSES: PendingWiringStatus[] = [
   'NOT_STARTED',
   'INFRASTRUCTURE_ONLY',
   'PARTIAL',
@@ -21,7 +21,7 @@ export const PENDING_STATUSES: PendingWiringStatus[] = [
   'BLOCKED',
   'DONE',
 ];
-export const PENDING_SCOPES: PendingScope[] = [
+const PENDING_SCOPES: PendingScope[] = [
   'LIVE',
   'SHADOW',
   'UI',
@@ -100,7 +100,7 @@ export function getDueSoonPendingItems(items: PendingWiringItem[], now: Date = n
   });
 }
 
-export function hasLivePartialRisk(items: PendingWiringItem[]): boolean {
+function hasLivePartialRisk(items: PendingWiringItem[]): boolean {
   return items.some(
     (item) =>
       item.scope.includes('LIVE') &&
@@ -108,7 +108,7 @@ export function hasLivePartialRisk(items: PendingWiringItem[]): boolean {
   );
 }
 
-export function hasBlockingImpact(items: PendingWiringItem[]): boolean {
+function hasBlockingImpact(items: PendingWiringItem[]): boolean {
   return items.some((item) => item.executionImpact === 'BLOCKING');
 }
 

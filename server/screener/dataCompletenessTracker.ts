@@ -26,7 +26,7 @@
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
-export interface PerStockCompleteness {
+interface PerStockCompleteness {
   code: string;
   mtasAvailable:  boolean | null;  // null = 아직 시도 없음
   dartAvailable:  boolean | null;
@@ -147,22 +147,6 @@ export function isDataStarvedScan(): boolean {
 export function getStockCompletenessScore(code: string): number | null {
   const e = _perStock.get(code);
   return e ? e.score : null;
-}
-
-/**
- * 워치리스트에서 "가장 데이터 빈곤한" 종목(code)을 돌려준다.
- * 비교할 대상이 없으면 null. 기록이 없는 종목은 무시.
- */
-export function findMostDataStarvedCode(candidates: string[]): { code: string; score: number } | null {
-  let worst: { code: string; score: number } | null = null;
-  for (const code of candidates) {
-    const e = _perStock.get(code);
-    if (!e) continue;
-    if (!worst || e.score < worst.score) {
-      worst = { code, score: e.score };
-    }
-  }
-  return worst;
 }
 
 // ── 리셋 ─────────────────────────────────────────────────────────────────────

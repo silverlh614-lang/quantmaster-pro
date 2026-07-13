@@ -5,7 +5,7 @@
 import { emitLegacyOperationalWarn } from '../../observability/legacyOperationalWarnAdapter.js';
 import type { ExecutionImpact } from '../../observability/executionImpact.js';
 
-export type OperationalWarnSeverity = 'P0' | 'P1' | 'P2' | 'P3' | 'P4' | 'P5';
+type OperationalWarnSeverity = 'P0' | 'P1' | 'P2' | 'P3' | 'P4' | 'P5';
 
 export type BuyP0WarnCode =
   | 'P0_BUY_SIGNAL_STUCK'

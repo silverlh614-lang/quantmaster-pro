@@ -12,7 +12,7 @@ import {
 export const R6_COUNTERFACTUAL_POSITION_QUARANTINE_REASON =
   'R6_COUNTERFACTUAL_ACTIVE_POSITION_WITHOUT_APPROVAL';
 
-export interface R6CounterfactualQuarantineItem {
+interface R6CounterfactualQuarantineItem {
   tradeId: string;
   stockCode: string;
   stockName: string;

@@ -41,5 +41,3 @@ const todaylog: TelegramCommand = {
 };
 
 commandRegistry.register(todaylog);
-
-export default todaylog;

@@ -34,7 +34,7 @@ import { combineRegimeAndFomcKelly } from './regimeFomcCombiner.js';
 import { checkVolumeClockWindow } from './volumeClock.js';
 import { PROFIT_TARGETS } from '../../src/services/quant/sellEngine.js';
 
-export interface DryRunResult {
+interface DryRunResult {
   stock: string;          // "삼성전자(005930)"
   stockCode: string;
   stockName: string;

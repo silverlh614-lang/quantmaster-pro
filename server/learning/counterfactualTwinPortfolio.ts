@@ -38,7 +38,7 @@ export const TWIN_HORIZON_DAYS = 30;
 /** EQUAL_WEIGHT 의 균등 사이즈 (10%) */
 export const TWIN_EQUAL_WEIGHT = 0.10;
 /** FIFO trim hard cap */
-export const TWIN_PORTFOLIO_MAX = 1500;
+const TWIN_PORTFOLIO_MAX = 1500;
 /** 4주 연속 우월 시 promotion 트리거 */
 export const PROMOTION_CONSECUTIVE_WEEKS = 4;
 
@@ -74,7 +74,7 @@ export interface TwinCandidateInput {
   kellyWeight: number;
 }
 
-export interface TwinStats {
+interface TwinStats {
   twin: TwinKey;
   activeCount: number;
   closedCount: number;

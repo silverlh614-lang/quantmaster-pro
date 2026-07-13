@@ -141,6 +141,3 @@ const channelActivity: TelegramCommand = {
 };
 
 commandRegistry.register(channelActivity);
-
-export default channelActivity;
-export { formatChannelActivity, buildLastActivityByCategory };

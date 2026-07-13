@@ -56,7 +56,7 @@ function distributionLine(title: string, distribution: Record<string, number>, l
   return `${title}: ${entries.length ? entries.join(', ') : 'none'}`;
 }
 
-export function formatCounterfactualSafetyChecks(board: CounterfactualOutcomeBoard): string {
+function formatCounterfactualSafetyChecks(board: CounterfactualOutcomeBoard): string {
   const s = board.safety;
   return [
     safetyLine(s.counterfactualReportingNonExecutional, 'COUNTERFACTUAL_REPORTING_NON_EXECUTIONAL', 'outcomes are not connected to trading decisions'),

@@ -36,5 +36,3 @@ const alertHistory: TelegramCommand = {
 };
 
 commandRegistry.register(alertHistory);
-
-export default alertHistory;

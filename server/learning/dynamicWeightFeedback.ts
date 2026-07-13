@@ -10,9 +10,9 @@ import {
 
 export type FactorGroup = 'GATE1' | 'GATE2' | 'GATE3' | 'POLICY' | 'CONFIDENCE';
 export type PromotionStage = 'OBSERVE' | 'SHADOW_SCORE' | 'ADVISORY' | 'WEIGHTED' | 'GATED' | 'CORE';
-export type FactorDataSource = 'KIS' | 'DART' | 'YAHOO' | 'KRX' | 'INTERNAL' | 'AI_ESTIMATED' | 'MIXED';
-export type FactorConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT_SAMPLE';
-export type FactorDirection = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL' | 'UNSTABLE' | 'INSUFFICIENT';
+type FactorDataSource = 'KIS' | 'DART' | 'YAHOO' | 'KRX' | 'INTERNAL' | 'AI_ESTIMATED' | 'MIXED';
+type FactorConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT_SAMPLE';
+type FactorDirection = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL' | 'UNSTABLE' | 'INSUFFICIENT';
 export type SuggestedWeightAction =
   | 'INCREASE'
   | 'DECREASE'
@@ -243,7 +243,7 @@ function factorGroupFor(name: string, registry: readonly FactorDefinition[]): Fa
   return registry.find(def => def.factorName === name)?.factorGroup ?? 'POLICY';
 }
 
-export function buildFactorEvidenceSamples(
+function buildFactorEvidenceSamples(
   seeds: readonly OutcomeSeed[],
   registry: readonly FactorDefinition[] = DEFAULT_FACTOR_REGISTRY,
 ): FactorEvidenceSample[] {

@@ -20,7 +20,7 @@ export interface BlacklistEntry {
   lastSeenAt: number;
 }
 
-export type BlacklistStore = Record<string, BlacklistEntry>;
+type BlacklistStore = Record<string, BlacklistEntry>;
 
 export const WINDOW_MS = 30 * 60 * 1000;
 export const FAILURE_THRESHOLD = 10;

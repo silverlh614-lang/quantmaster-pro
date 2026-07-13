@@ -24,7 +24,7 @@ const GHOST_JOB_NAME = 'ghost_portfolio';
 type Ternary = 'YES' | 'NO' | 'UNKNOWN';
 type HypothesisKey = 'h1_egressGuard' | 'h2_blacklist' | 'h3_rateLimit' | 'h4_deprecated';
 
-export interface GhostKisDiagSnapshot {
+interface GhostKisDiagSnapshot {
   capturedAt: string;
   egress: { blocksGhostCron: Ternary; nowKst: string; isMarketOpenNow: boolean; note: string };
   circuit: {
@@ -55,7 +55,7 @@ function fmtKstHm(date: Date): string {
  * H3 Rate Limit: 토큰 버킷 자연 직렬화 — 큐 적체 시만 YES.
  * H4 Deprecated 엔드포인트: SOFT 회로/softFailures 누적 시 YES (KIS 가 404).
  */
-export function collectGhostKisDiag(now: Date = new Date()): GhostKisDiagSnapshot {
+function collectGhostKisDiag(now: Date = new Date()): GhostKisDiagSnapshot {
   const cs = getCircuitBreakerStats().find((s) => s.trId === GHOST_KIS_TR_ID);
   const circuit = {
     hardOpen: !!cs && cs.lastBlockedBy === 'HARD' && cs.openFor > 0,
@@ -169,7 +169,7 @@ function tokenLine(): string {
   return h > 0 ? `${h}시간 남음` : '만료 또는 미발급';
 }
 
-export function formatGhostKisDiagMessage(snap: GhostKisDiagSnapshot): string {
+function formatGhostKisDiagMessage(snap: GhostKisDiagSnapshot): string {
   const phase = describeMarketPhase(new Date(snap.capturedAt));
   const c = snap.circuit;
   const cooldown = c.openForMs > 0 ? `${Math.floor(c.openForMs / 1000)}초` : '없음';
@@ -244,6 +244,3 @@ const ghostKisDiag: TelegramCommand = {
 };
 
 commandRegistry.register(ghostKisDiag);
-
-export default ghostKisDiag;
-export { GHOST_KIS_FUNCTION, GHOST_KIS_TR_ID, GHOST_KIS_ENDPOINT, GHOST_CRON_KST, GHOST_JOB_NAME };

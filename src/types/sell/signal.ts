@@ -1,7 +1,7 @@
 // @responsibility signal 도메인 타입 정의
 // ─── 매도 신호 타입 ───────────────────────────────────────────────────────────
 
-export type SellAction =
+type SellAction =
   | 'HARD_STOP'         // L1: 기계적 손절 (전량 시장가)
   | 'REVALIDATE_GATE1'  // L1: -7% 경보 → Gate 1 재검증 요청
   | 'PRE_MORTEM'        // L2: 펀더멘털 붕괴 조건 발동
@@ -23,7 +23,7 @@ export interface SellSignal {
 
 // ─── L2 Pre-Mortem 타입 ───────────────────────────────────────────────────────
 
-export type PreMortemType =
+type PreMortemType =
   | 'ROE_DRIFT'         // ROE 유형 3 → 4 이상 전이
   | 'FOREIGN_SELLOUT'   // 외국인 5일 연속 순매도
   | 'MA_DEATH_CROSS'    // 20일선 < 60일선 교차

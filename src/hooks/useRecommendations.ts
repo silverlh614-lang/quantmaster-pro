@@ -13,8 +13,8 @@
 import { useMemo } from 'react';
 import type { StockRecommendation } from '../services/stockService';
 
-export type RecommendationSort = 'NAME' | 'CODE' | 'PERFORMANCE' | 'NONE';
-export type RecommendationView = 'DISCOVER' | 'WATCHLIST' | string;
+type RecommendationSort = 'NAME' | 'CODE' | 'PERFORMANCE' | 'NONE';
+type RecommendationView = 'DISCOVER' | 'WATCHLIST' | string;
 
 export interface RecommendationFilterInput {
   recommendations: StockRecommendation[];

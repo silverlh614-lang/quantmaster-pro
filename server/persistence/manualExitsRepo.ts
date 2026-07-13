@@ -13,7 +13,7 @@ import path from 'path';
 import { DATA_DIR, ensureDataDir } from './paths.js';
 import type { ManualExitContext } from './shadowTradeRepo.js';
 
-export function manualExitsFile(yyyymm: string): string {
+function manualExitsFile(yyyymm: string): string {
   return path.join(DATA_DIR, `manual-exits-${yyyymm}.jsonl`);
 }
 
@@ -52,7 +52,7 @@ export function appendManualExit(record: ManualExitRecord, now = new Date()): vo
  * 주어진 월의 수동 청산 레코드 전체를 읽는다. 파싱 실패 라인은 스킵.
  * 파일이 없으면 빈 배열.
  */
-export function loadManualExitsMonth(yyyymm: string): ManualExitRecord[] {
+function loadManualExitsMonth(yyyymm: string): ManualExitRecord[] {
   const file = manualExitsFile(yyyymm);
   if (!fs.existsSync(file)) return [];
   const out: ManualExitRecord[] = [];
@@ -122,5 +122,3 @@ export function lastManualExitAtForCode(stockCode: string, now = new Date()): st
   if (mine.length === 0) return null;
   return mine[mine.length - 1].context.triggeredAt;
 }
-
-export const __test = { currentYyyymmKst, isoInKstDate };

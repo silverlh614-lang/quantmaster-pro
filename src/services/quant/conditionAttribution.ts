@@ -7,7 +7,7 @@
 import type { TradeRecord } from '../../types/portfolio';
 import type { ConditionId } from '../../types/core';
 
-export type AttributionClass =
+type AttributionClass =
   | 'ALPHA_DRIVER'      // 수익 거래에서 반복 강함
   | 'RISK_PROTECTOR'    // 손실에서도 낮음 — 발동 안 해서 도움
   | 'NOISE_FACTOR'      // 수익/손실과 무관
@@ -31,11 +31,11 @@ export interface ConditionAttribution {
 /** 신뢰 표본 최소 거래 수 (각 그룹). */
 export const ATTRIBUTION_MIN_GROUP = 5;
 /** ALPHA_DRIVER / FALSE_COMFORT 경계 spread */
-export const ATTRIBUTION_SPREAD_THRESHOLD = 2;
+const ATTRIBUTION_SPREAD_THRESHOLD = 2;
 /** ALPHA_DRIVER / FALSE_COMFORT 절대값 임계 */
-export const ATTRIBUTION_ABS_THRESHOLD = 5;
+const ATTRIBUTION_ABS_THRESHOLD = 5;
 /** RISK_PROTECTOR 양쪽 점수 모두 < 임계 */
-export const RISK_PROTECTOR_LOW_THRESHOLD = 3;
+const RISK_PROTECTOR_LOW_THRESHOLD = 3;
 
 function mean(arr: number[]): number {
   return arr.length === 0 ? 0 : arr.reduce((s, v) => s + v, 0) / arr.length;

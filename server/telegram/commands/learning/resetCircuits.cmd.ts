@@ -28,5 +28,3 @@ const resetCircuits: TelegramCommand = {
 };
 
 commandRegistry.register(resetCircuits);
-
-export default resetCircuits;

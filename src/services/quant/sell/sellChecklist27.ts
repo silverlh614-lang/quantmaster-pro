@@ -29,7 +29,7 @@ export const WARNING_EXIT_IDS = [4, 6, 8, 10, 11, 12, 13, 14, 15, 16, 21, 24] as
 /** Precision Exit 10개 — 매수 Gate 3의 역방향. 관측만 (경보). */
 export const PRECISION_EXIT_IDS = [2, 17, 18, 19, 20, 22, 23, 25, 26, 27] as const;
 
-export type SellConditionId =
+type SellConditionId =
   | (typeof SURVIVAL_EXIT_IDS)[number]
   | (typeof WARNING_EXIT_IDS)[number]
   | (typeof PRECISION_EXIT_IDS)[number];

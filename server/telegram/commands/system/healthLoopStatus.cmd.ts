@@ -130,5 +130,3 @@ const healthLoopStatus: TelegramCommand = {
 };
 
 commandRegistry.register(healthLoopStatus);
-
-export default healthLoopStatus;

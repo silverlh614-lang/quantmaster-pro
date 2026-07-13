@@ -93,7 +93,7 @@ export function isSectorClassificationCarryWiringDisabled(): boolean {
  *   • OTHER_FALLBACK — sector 필드 부재 또는 매칭 실패 시 OTHER 섹터로 분류
  *     (12 표준 외 신규 섹터는 발급되지 않음 — sectorEnergyMaster 정합).
  */
-export type SectorClassificationSourceTier = 'WATCHLIST_ALIAS' | 'OTHER_FALLBACK';
+type SectorClassificationSourceTier = 'WATCHLIST_ALIAS' | 'OTHER_FALLBACK';
 
 /**
  * Patch-SECTOR-CLASSIFICATION-CARRY-WIRING-001 — caller-facing carry payload.

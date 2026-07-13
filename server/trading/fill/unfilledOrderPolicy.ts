@@ -16,7 +16,7 @@ export type RiskModeState =
   | 'SELL_ONLY'
   | 'R6_DEFENSE';
 
-export type UnfilledOrderAction =
+type UnfilledOrderAction =
   | 'WAIT'
   | 'REQUERY'
   | 'CANCEL'

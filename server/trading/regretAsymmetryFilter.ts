@@ -26,10 +26,10 @@ export const FOMO_SURGE_THRESHOLD_PCT = 15;
 export const COOLDOWN_DURATION_MS = 48 * 60 * 60 * 1000;
 
 /** 되돌림 해제 하한 (%) — 고점 대비 최소 -5% 하락 */
-export const PULLBACK_RELEASE_MIN_PCT = 5;
+const PULLBACK_RELEASE_MIN_PCT = 5;
 
 /** 되돌림 해제 상한 (%) — 고점 대비 최대 -8% 하락까지만 유효 (그 이하는 과도한 하락) */
-export const PULLBACK_RELEASE_MAX_PCT = 8;
+const PULLBACK_RELEASE_MAX_PCT = 8;
 
 export interface RegretAsymmetryResult {
   /** 현재 쿨다운 상태 여부 */

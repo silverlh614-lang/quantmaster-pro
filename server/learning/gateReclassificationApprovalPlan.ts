@@ -12,18 +12,18 @@ import type {
   GateReclassificationVerdict,
 } from './gateReclassificationProposal.js';
 
-export type GateReclassificationApprovalStatus =
+type GateReclassificationApprovalStatus =
   | 'PENDING_APPROVAL'
   | 'APPROVED'
   | 'REJECTED'
   | 'DEFERRED';
 
-export type GateReclassificationRiskLevel =
+type GateReclassificationRiskLevel =
   | 'LOW'
   | 'MEDIUM'
   | 'HIGH';
 
-export type GateReclassificationApprovalSource =
+type GateReclassificationApprovalSource =
   | 'unavailableConditions'
   | 'thresholdNotMetConditions'
   | 'providerDegradedConditions';

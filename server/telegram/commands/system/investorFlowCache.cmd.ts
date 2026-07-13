@@ -119,7 +119,7 @@ function placeholderFor(index: number): { foreignNetBuy: number; institutionalNe
   return { foreignNetBuy, institutionalNetBuy, individualNetBuy: -(foreignNetBuy + institutionalNetBuy) };
 }
 
-export async function buildInvestorFlowSeedMessage(args: string[]): Promise<string> {
+async function buildInvestorFlowSeedMessage(args: string[]): Promise<string> {
   const parsed = parseSeedRow(args);
   if (!parsed) return `❌ 입력 오류\n${usage()}`;
   upsertParsedSeed(parsed);
@@ -137,7 +137,7 @@ export async function buildInvestorFlowSeedMessage(args: string[]): Promise<stri
   ].join('\n');
 }
 
-export async function buildInvestorFlowBulkSeedMessage(args: string[]): Promise<string> {
+async function buildInvestorFlowBulkSeedMessage(args: string[]): Promise<string> {
   const rowParts = splitBulkRows(args);
   if (rowParts.length === 0) return `❌ 입력 오류\n${usage()}`;
 
@@ -171,7 +171,7 @@ export async function buildInvestorFlowBulkSeedMessage(args: string[]): Promise<
   return lines.join('\n');
 }
 
-export async function buildInvestorFlowSeedTemplateMessage(args: string[]): Promise<string> {
+async function buildInvestorFlowSeedTemplateMessage(args: string[]): Promise<string> {
   const requested = Number.parseInt(args[0] ?? String(DEFAULT_TEMPLATE_LIMIT), 10);
   const limit = Number.isFinite(requested) ? Math.max(1, Math.min(20, requested)) : DEFAULT_TEMPLATE_LIMIT;
   const top = selectTopWatchlist(limit);
@@ -192,12 +192,12 @@ export async function buildInvestorFlowSeedTemplateMessage(args: string[]): Prom
   ].join('\n');
 }
 
-export async function buildInvestorFlowCacheMessage(args: string[]): Promise<string> {
+async function buildInvestorFlowCacheMessage(args: string[]): Promise<string> {
   const code = args[0] ? normalizeCode(args[0]) : undefined;
   return renderRows(listInvestorFlowCacheRows(code), code ? `기관/외인 수급 cache ${code}` : '기관/외인 수급 cache');
 }
 
-export async function buildInvestorFlowCacheClearMessage(args: string[]): Promise<string> {
+async function buildInvestorFlowCacheClearMessage(args: string[]): Promise<string> {
   const code = args[0] ? normalizeCode(args[0]) : undefined;
   const removed = clearInvestorFlowCache(code);
   return `🧹 기관/외인 수급 cache 삭제 완료\ntarget=${code ?? 'ALL'}\nremoved=${removed}`;
@@ -278,5 +278,3 @@ commandRegistry.register(investorFlowBulkSeed);
 commandRegistry.register(investorFlowSeedTemplate);
 commandRegistry.register(investorFlowCache);
 commandRegistry.register(investorFlowCacheClear);
-
-export default investorFlowSeed;

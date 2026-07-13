@@ -19,23 +19,13 @@ export type DataConfidence =
   | 'LLM_INFERRED'
   | 'SEARCH_SUMMARIZED';
 
-export const EXECUTION_ALLOWED_CONFIDENCE: ReadonlySet<DataConfidence> = new Set([
+const EXECUTION_ALLOWED_CONFIDENCE: ReadonlySet<DataConfidence> = new Set([
   'VERIFIED',
   'COMPUTED',
   'API_REPORTED',
   'USER_CONFIRMED',
 ]);
-
-export const EXECUTION_FORBIDDEN_CONFIDENCE: ReadonlySet<DataConfidence> = new Set([
-  'AI_ESTIMATED',
-  'LLM_INFERRED',
-  'SEARCH_SUMMARIZED',
-  'STALE',
-  'MISSING',
-  'DEGRADED',
-]);
-
-export type DataPromotionStage =
+type DataPromotionStage =
   | 'OBSERVE'
   | 'SHADOW_SCORE'
   | 'ADVISORY'

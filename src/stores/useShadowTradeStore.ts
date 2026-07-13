@@ -113,29 +113,3 @@ export const useShadowTradeStore = create<ShadowTradeState>()(
     }
   )
 );
-
-/** 적중률 (HIT_TARGET / 결산 건수) — 값으로 반환 */
-export function useShadowWinRate(): number {
-  return useShadowTradeStore((s) => {
-    const closed = s.shadowTrades.filter(
-      (t) => t.status === 'HIT_TARGET' || t.status === 'HIT_STOP'
-    );
-    if (closed.length === 0) return 0;
-    const wins = closed.filter((t) => t.status === 'HIT_TARGET').length;
-    return Math.round((wins / closed.length) * 100);
-  });
-}
-
-/** 평균 수익률 — 값으로 반환 */
-export function useShadowAvgReturn(): number {
-  return useShadowTradeStore((s) => {
-    const closed = s.shadowTrades.filter(
-      (t) =>
-        (t.status === 'HIT_TARGET' || t.status === 'HIT_STOP') &&
-        t.returnPct !== undefined
-    );
-    if (closed.length === 0) return 0;
-    const sum = closed.reduce((acc, t) => acc + (t.returnPct ?? 0), 0);
-    return parseFloat((sum / closed.length).toFixed(2));
-  });
-}

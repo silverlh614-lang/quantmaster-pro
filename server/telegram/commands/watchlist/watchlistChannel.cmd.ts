@@ -23,5 +23,3 @@ const watchlistChannel: TelegramCommand = {
 };
 
 commandRegistry.register(watchlistChannel);
-
-export default watchlistChannel;

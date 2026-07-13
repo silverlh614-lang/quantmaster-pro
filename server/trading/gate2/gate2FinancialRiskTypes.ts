@@ -21,7 +21,7 @@
  * - ELEVATED: 위험 trigger 1개 (ICR<1 단독 또는 부채비율 과다 단독).
  * - CRITICAL: 위험 trigger 2개 (ICR<1 AND 부채비율 과다).
  */
-export type Gate2FinancialRiskLevel = 'NONE' | 'ELEVATED' | 'CRITICAL';
+type Gate2FinancialRiskLevel = 'NONE' | 'ELEVATED' | 'CRITICAL';
 
 /**
  * 위험 trigger 종류 (관측 trace·텔레그램 표시용 토큰).

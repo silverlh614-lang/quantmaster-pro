@@ -23,12 +23,12 @@ import { isMhsDegradeGuardEnabled } from '../engines/mhsDegrade.js';
 
 // ── 공개 타입 ─────────────────────────────────────────────────────────────────
 
-export type AxisStatus = 'BULLISH' | 'NEUTRAL' | 'BEARISH';
-export type CyclePosition = 'EARLY' | 'MID' | 'LATE';
-export type CatalystGrade = 'A' | 'B' | 'C';
-export type ConfluenceSignal = 'CONFIRMED_STRONG_BUY' | 'BUY' | 'HOLD';
+type AxisStatus = 'BULLISH' | 'NEUTRAL' | 'BEARISH';
+type CyclePosition = 'EARLY' | 'MID' | 'LATE';
+type CatalystGrade = 'A' | 'B' | 'C';
+type ConfluenceSignal = 'CONFIRMED_STRONG_BUY' | 'BUY' | 'HOLD';
 
-export interface AxisScore {
+interface AxisScore {
   score:   number;      // 0~100
   status:  AxisStatus;  // BULLISH ≥ 70, NEUTRAL 50~69, BEARISH ≤ 49
   factors: string[];    // 기여 요소 레이블

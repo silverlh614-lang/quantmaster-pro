@@ -53,7 +53,7 @@ export function computeConditionPerformance(
 
 // ─── Helper: 시스템 vs 직관 통계 ─────────────────────────────────────────────────
 
-export function computeSystemVsIntuition(
+function computeSystemVsIntuition(
   closedTrades: TradeRecord[],
 ): SystemVsIntuitionStats {
   const sys = closedTrades.filter(t => t.followedSystem);

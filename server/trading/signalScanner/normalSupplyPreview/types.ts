@@ -24,9 +24,7 @@ import type {
   SupplySignal,
 } from '../injectPerSymbolSupplyContext.js';
 
-export type NormalSupplyPreviewMode = typeof NORMAL_SUPPLY_DIAGNOSTIC_PREVIEW_MODE;
-export type NormalSupplyPreviewFullMode = typeof NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE;
-
+type NormalSupplyPreviewMode = typeof NORMAL_SUPPLY_DIAGNOSTIC_PREVIEW_MODE;
 export type NormalSupplyPreviewEngineMode =
   | 'NORMAL'
   | 'SELL_ONLY'
@@ -132,7 +130,7 @@ export interface NormalSupplyFieldAvailability {
   selectedCandidateCarriesActualRow: number;
 }
 
-export interface NormalSupplyPreviewSafety {
+interface NormalSupplyPreviewSafety {
   providerIssueAsBearish: false;
   unknownPenaltyApplied: false;
   staleAsBearish: false;

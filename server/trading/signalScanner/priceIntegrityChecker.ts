@@ -61,7 +61,7 @@ export type PriceIntegrityStatus =
  * STALE = currentPriceDate < T-2
  * UNKNOWN = 날짜 정보 부재
  */
-export type PriceDateAlignment = 'MATCH' | 'T_MINUS_1' | 'T_MINUS_2' | 'STALE' | 'UNKNOWN';
+type PriceDateAlignment = 'MATCH' | 'T_MINUS_1' | 'T_MINUS_2' | 'STALE' | 'UNKNOWN';
 
 export interface PriceIntegrityInput {
   /** 종목 코드 (KRX 6자리 또는 .KS/.KQ 접미사) */

@@ -312,4 +312,4 @@ export const VerdictCard = Object.assign(VerdictCardRoot, {
   Risk: RiskSlot,
 });
 
-export type { VerdictCardProps, VerdictSlotProps, EvidenceSlotProps, RiskSlotProps };
+export type { VerdictCardProps };

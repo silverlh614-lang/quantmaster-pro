@@ -27,7 +27,7 @@
 
 /* ───────── 5-value cause union (사용자 §4 정합 — 절대 변경 금지) ───────── */
 
-export type ShadowNearBreakoutEntryCause =
+type ShadowNearBreakoutEntryCause =
   | 'NEAR_ENTRY_PRICE'
   | 'RETRY_ELIGIBLE_WAIT'
   | 'LIVE_WAIT_BUT_SHADOW_OBSERVABLE'
@@ -57,7 +57,7 @@ export type ShadowNearBreakoutBlockReason =
 
 /* ───────── 7-value preBreakoutState union (ADR-0449 정합) ───────── */
 
-export type PreBreakoutWaitStateName =
+type PreBreakoutWaitStateName =
   | 'WAIT_RETRY_ELIGIBLE'
   | 'WAIT_PRICE_TOO_FAR'
   | 'WAIT_VOLUME_WEAK'
@@ -118,7 +118,7 @@ function uniqueReasons(reasons: ShadowNearBreakoutBlockReason[]): ShadowNearBrea
   return Array.from(new Set(reasons));
 }
 
-export function deriveShadowNearBreakoutBlockReasons(input: ShadowNearBreakoutEntryInput): ShadowNearBreakoutBlockReason[] {
+function deriveShadowNearBreakoutBlockReasons(input: ShadowNearBreakoutEntryInput): ShadowNearBreakoutBlockReason[] {
   const reasons: ShadowNearBreakoutBlockReason[] = [];
   if (input.sizingBlocked) reasons.push('SIZING_BLOCKED');
   if (input.quoteStale) reasons.push('SECTOR_DATA_DEGRADED');

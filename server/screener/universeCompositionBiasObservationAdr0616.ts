@@ -49,7 +49,7 @@ export const UNIVERSE_COMPOSITION_BIAS_WINDOW_SCANS = 60 as const;
 export type UniverseMarketCapTier = 'LARGE' | 'MID' | 'SMALL';
 
 /** 시총 tier 분포 — 전 후보 산출 불가 시 상위에서 null 로 SKIP. */
-export interface UniverseMarketCapTierDistribution {
+interface UniverseMarketCapTierDistribution {
   largeCount: number;
   midCount: number;
   smallCount: number;
@@ -60,7 +60,7 @@ export interface UniverseMarketCapTierDistribution {
 }
 
 /** RS 최하위 예시 1건 (진단 표시용). */
-export interface UniverseTopLaggardSample {
+interface UniverseTopLaggardSample {
   code: string;
   rs: number; // candidate.quote.return20d − benchmark (%)
 }

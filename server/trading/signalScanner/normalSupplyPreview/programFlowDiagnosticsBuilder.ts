@@ -158,7 +158,7 @@ export function buildMarketProgramCarryForensicTrace(
   };
 }
 
-export function chooseMarketForensicBreakPoint(input: {
+function chooseMarketForensicBreakPoint(input: {
   sessionGuard: ProgramFlowSessionGuard;
   macro: Record<string, unknown> | null;
   payload: Record<string, unknown> | null;
@@ -182,7 +182,7 @@ export function chooseMarketForensicBreakPoint(input: {
   return input.upstream.breakPoint;
 }
 
-export function isAcceptedEmptyKrxEmptyCacheMiss(marketProgramFlow: ProgramFlowDiagnostic['marketLevel']): boolean {
+function isAcceptedEmptyKrxEmptyCacheMiss(marketProgramFlow: ProgramFlowDiagnostic['marketLevel']): boolean {
   const diagnostics = marketProgramFlow as unknown as Record<string, unknown>;
   return marketProgramFlow.available === false
     && marketProgramFlow.sourceProvider === 'NONE'
@@ -197,7 +197,7 @@ export function isAcceptedEmptyKrxEmptyCacheMiss(marketProgramFlow: ProgramFlowD
     && diagnostics.cacheStatus === 'MISS';
 }
 
-export function isMarketProgramConsumerParseFailure(value: ProgramFlowValueNormalizationResult): boolean {
+function isMarketProgramConsumerParseFailure(value: ProgramFlowValueNormalizationResult): boolean {
   return value.rawKind !== 'null'
     && value.rawKind !== 'undefined'
     && value.reason !== 'PROGRAM_VALUE_NULL'
@@ -252,7 +252,7 @@ export function buildPerStockProgramCarryForensicTrace<T extends CandidateWithSu
   };
 }
 
-export function chooseStockForensicBreakPoint(input: {
+function chooseStockForensicBreakPoint(input: {
   sessionGuard: ProgramFlowSessionGuard;
   latestSnapshot: IntradayProgramFlowSnapshot | null;
   snapshotRowsWithValue: number;
@@ -274,13 +274,13 @@ export function chooseStockForensicBreakPoint(input: {
   return input.upstream.breakPoint;
 }
 
-export function hasIntradayStockRowProgramValue(row: IntradayProgramFlowSnapshot['stockRows'][number]): boolean {
+function hasIntradayStockRowProgramValue(row: IntradayProgramFlowSnapshot['stockRows'][number]): boolean {
   return row.programNetBuyAmount !== null && row.programNetBuyAmount !== undefined
     || row.programNetValue !== null && row.programNetValue !== undefined
     || row.programNetVolume !== null && row.programNetVolume !== undefined;
 }
 
-export function classifyProgramNetBuyNullRootCause(input: {
+function classifyProgramNetBuyNullRootCause(input: {
   sessionGuard: ProgramFlowSessionGuard;
   marketCarryTrace: MarketProgramCarryForensicTrace;
   stockCarryTrace: PerStockProgramCarryForensicTrace;
@@ -304,17 +304,17 @@ export function classifyProgramNetBuyNullRootCause(input: {
   return 'UNKNOWN_DIAGNOSTIC_ONLY';
 }
 
-export function marketClosedProgramDataStatus(marketSession: ProgramFlowSessionGuard['marketSession']): string {
+function marketClosedProgramDataStatus(marketSession: ProgramFlowSessionGuard['marketSession']): string {
   if (marketSession === 'AFTER_MARKET' || marketSession === 'POST_CLOSE' || marketSession === 'CLOSING_SESSION') return 'NOT_EXPECTED_AFTER_MARKET';
   if (marketSession === 'PRE_MARKET' || marketSession === 'WARMUP_SESSION') return 'NOT_EXPECTED_PRE_MARKET';
   return 'NOT_EXPECTED_MARKET_CLOSED';
 }
 
-export function marketClosedProgramReason(): string {
+function marketClosedProgramReason(): string {
   return 'MARKET_CLOSED_NO_INTRADAY_PROGRAM_FLOW_EXPECTED';
 }
 
-export function nextActionForForensicRootCause(
+function nextActionForForensicRootCause(
   rootCause: ProgramFlowNullRootCause,
   marketCarryTrace: MarketProgramCarryForensicTrace,
   stockCarryTrace: PerStockProgramCarryForensicTrace,
@@ -495,14 +495,14 @@ export function buildProgramFlowDiagnostics(
   };
 }
 
-export function isAfterMarketZeroPlaceholderDiagnostic(marketProgramFlow: ProgramFlowDiagnostic['marketLevel']): boolean {
+function isAfterMarketZeroPlaceholderDiagnostic(marketProgramFlow: ProgramFlowDiagnostic['marketLevel']): boolean {
   const diagnostics = marketProgramFlow as unknown as Record<string, unknown>;
   return marketProgramFlow.reason === 'AFTER_MARKET_ZERO_PLACEHOLDER' ||
     diagnostics.marketProgramDataStatus === 'AFTER_MARKET_ZERO_PLACEHOLDER' ||
     diagnostics.breakPoint === 'AFTER_MARKET_ZERO_PLACEHOLDER';
 }
 
-export function displayMarketProgramNetBuyAmount(
+function displayMarketProgramNetBuyAmount(
   marketProgramFlow: ProgramFlowDiagnostic['marketLevel'],
 ): number | 'N/A' {
   if ((marketProgramFlow.sourceProvider ?? 'NONE') === 'NONE') return 'N/A';

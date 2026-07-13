@@ -100,5 +100,3 @@ const walkForward: TelegramCommand = {
 };
 
 commandRegistry.register(walkForward);
-
-export default walkForward;

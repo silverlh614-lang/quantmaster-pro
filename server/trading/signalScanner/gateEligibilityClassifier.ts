@@ -39,8 +39,6 @@ export type GateEligibilityReason =
   | 'DATA_STARVED'
   | 'UNKNOWN';
 
-export type GateEligibilitySource = 'DATA_UNAVAILABLE' | 'PROVIDER_DEGRADED' | 'SOFT_DEGRADE';
-
 export interface GateEligibility {
   liveEligible: boolean;
   shadowObservable: boolean;

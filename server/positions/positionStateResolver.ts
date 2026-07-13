@@ -15,14 +15,14 @@ import type {
   TradeOutcomeClass,
 } from '../trading/tradeLifecycleOutcomeResolver.js';
 
-export type PositionMode =
+type PositionMode =
   | 'LIVE'
   | 'SHADOW'
   | 'PAPER'
   | 'VIRTUAL'
   | 'COUNTERFACTUAL';
 
-export type PositionStatus =
+type PositionStatus =
   | 'NONE'
   | 'ORDER_PENDING'
   | 'OPEN'
@@ -32,14 +32,14 @@ export type PositionStatus =
   | 'REJECTED'
   | 'STALE_NEEDS_RECONCILIATION';
 
-export type PositionStateSource =
+type PositionStateSource =
   | 'KIS_LIVE'
   | 'SHADOW_LEDGER'
   | 'PAPER_LEDGER'
   | 'VIRTUAL_ACCOUNT'
   | 'RECONCILED';
 
-export type PositionStateSourceConfidence =
+type PositionStateSourceConfidence =
   | 'VERIFIED'
   | 'RECONCILED'
   | 'STALE'
@@ -336,25 +336,7 @@ export async function hasOpenPosition(
   return positionExistsInStates(result.states);
 }
 
-export async function hasPendingOrder(
-  symbol: string,
-  modePreference: PositionStateModePreference = 'SHADOW_FIRST',
-  deps: ResolvePositionStateDeps = {},
-): Promise<boolean> {
-  const result = await resolvePositionState({ symbol, modePreference, includePending: true }, deps);
-  return result.states.some((state) => state.status === 'ORDER_PENDING');
-}
-
-export async function getPositionState(
-  symbol: string,
-  modePreference: PositionStateModePreference = 'SHADOW_FIRST',
-  deps: ResolvePositionStateDeps = {},
-): Promise<PositionState[]> {
-  const result = await resolvePositionState({ symbol, modePreference, includePending: true }, deps);
-  return result.states;
-}
-
-export async function getCurrentPositionCount(
+async function getCurrentPositionCount(
   modePreference: PositionStateModePreference = 'SHADOW_FIRST',
   deps: ResolvePositionStateDeps = {},
 ): Promise<number> {

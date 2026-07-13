@@ -44,11 +44,3 @@ export function shouldEmitWarn(dedupKey: string, ttlSec: number, now = nowMs()):
 export function clearWarnDedupStore(): void {
   records.clear();
 }
-
-export function getWarnDedupStoreSnapshot(): Array<{ dedupKey: string; expiresAt: number; suppressedCount: number }> {
-  return Array.from(records.entries()).map(([dedupKey, record]) => ({
-    dedupKey,
-    expiresAt: record.expiresAt,
-    suppressedCount: record.suppressedCount,
-  }));
-}

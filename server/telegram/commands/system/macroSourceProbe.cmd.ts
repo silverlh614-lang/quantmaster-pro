@@ -26,7 +26,7 @@ function verdictEcos(r: EcosProbeResult): string {
   return 'UNKNOWN';
 }
 
-export async function formatMacroSourceProbe(): Promise<string> {
+async function formatMacroSourceProbe(): Promise<string> {
   const [fred, ecos] = await Promise.all([probeFred(), probeEcos()]);
   return [
     '[macro_source_probe] FRED / ECOS 라이브 프로브',
@@ -72,6 +72,3 @@ const macroSourceProbe: TelegramCommand = {
 };
 
 commandRegistry.register(macroSourceProbe);
-
-export { macroSourceProbe };
-export default macroSourceProbe;

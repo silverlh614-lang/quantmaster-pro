@@ -1,6 +1,6 @@
 // @responsibility client-only P4 warning 타입 정의 모듈
 
-export type ClientWarnDomain =
+type ClientWarnDomain =
   | 'UI'
   | 'PRICE_SYNC'
   | 'REPORT_RENDER'
@@ -9,7 +9,7 @@ export type ClientWarnDomain =
   | 'CLIENT_DEBUG'
   | 'CLIENT_DATA';
 
-export type ClientWarnCode =
+type ClientWarnCode =
   | 'P4_CLIENT_DEBUG_WARN'
   | 'P4_CLIENT_SAFE_PCT_CHANGE_DEGRADED'
   | 'P4_PRICE_SYNC_DEGRADED'

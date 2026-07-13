@@ -15,13 +15,13 @@ function isTrueFlag(value: unknown): boolean {
   return value === true || value === 'true' || value === '1' || value === 'yes';
 }
 
-export function isClientWarnDebugEnabled(): boolean {
+function isClientWarnDebugEnabled(): boolean {
   const viteEnv = readImportMetaEnv();
   const processEnv = typeof process !== 'undefined' ? process.env : undefined;
   return isTrueFlag(viteEnv?.VITE_DEBUG_CLIENT_WARN) || isTrueFlag(processEnv?.DEBUG_CLIENT_WARN);
 }
 
-export function isClientWarnProduction(): boolean {
+function isClientWarnProduction(): boolean {
   const viteEnv = readImportMetaEnv();
   const processEnv = typeof process !== 'undefined' ? process.env : undefined;
   const env = processEnv?.NODE_ENV ?? viteEnv?.NODE_ENV ?? viteEnv?.MODE;

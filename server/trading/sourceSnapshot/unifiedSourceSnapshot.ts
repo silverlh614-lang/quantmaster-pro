@@ -49,7 +49,7 @@ export interface UnifiedMacroContext {
  * UNIFIED_SNAPSHOT — USE_UNIFIED_SOURCE_SNAPSHOT=true, SymbolDataCollector 경유
  * LEGACY_PER_SYMBOL — USE_UNIFIED_SOURCE_SNAPSHOT=false, 기존 Gate 내 개별 fetch
  */
-export type SnapshotPipelinePath = 'UNIFIED_SNAPSHOT' | 'LEGACY_PER_SYMBOL';
+type SnapshotPipelinePath = 'UNIFIED_SNAPSHOT' | 'LEGACY_PER_SYMBOL';
 
 // ─── 최상위 컨테이너 ─────────────────────────────────────────────────────────
 
@@ -116,32 +116,4 @@ export interface UnifiedSourceSnapshot {
  */
 export function generateSnapshotId(): string {
   return `snap_${randomUUID()}`;
-}
-
-/**
- * LEGACY_PER_SYMBOL 경로용 최소 스냅샷 생성 헬퍼.
- * USE_UNIFIED_SOURCE_SNAPSHOT=false 시 buyListLoop 가 이 값을 생성하여
- * Gate 에 전달한다 (Gate 인터페이스 통일 목적).
- *
- * perSymbol 은 빈 객체로 생성되므로 Gate 는 기존 fetch 로직을 사용해야 한다.
- */
-export function buildLegacyPlaceholderSnapshot(params: {
-  scanCycleId: string;
-  universeTotalCount: number;
-  screenedCandidates: string[];
-  macroContext: UnifiedMacroContext;
-}): UnifiedSourceSnapshot {
-  return {
-    snapshotId: generateSnapshotId(),
-    createdAt: new Date().toISOString(),
-    scanCycleId: params.scanCycleId,
-    universeTotalCount: params.universeTotalCount,
-    screenedCandidates: params.screenedCandidates,
-    perSymbol: {},
-    macroContext: params.macroContext,
-    completionRate: 0,
-    dataSourceVersion: '2.0',
-    collectorDurationMs: 0,
-    pipelinePath: 'LEGACY_PER_SYMBOL',
-  };
 }

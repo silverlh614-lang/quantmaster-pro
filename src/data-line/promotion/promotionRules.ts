@@ -162,7 +162,3 @@ export function getPromotionRequirements(currentStage: DataLineStage, requestedN
     description: 'Unsupported promotion path is denied by default.',
   };
 }
-
-export function getAllPromotionRequirements(): readonly DataPromotionRequirements[] {
-  return REQUIREMENTS;
-}

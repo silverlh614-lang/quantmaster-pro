@@ -4,7 +4,7 @@
 
 import type { FillQueryOrder, FillQueryResult, NormalizedKisFillRow } from './fillTypes.js';
 
-export interface KisDailyCcldResponse {
+interface KisDailyCcldResponse {
   output?: unknown;
 }
 
@@ -26,7 +26,7 @@ function getString(row: Record<string, unknown>, keys: readonly string[]): strin
   return '';
 }
 
-export function normalizeKisFillRows(raw: unknown): NormalizedKisFillRow[] | null {
+function normalizeKisFillRows(raw: unknown): NormalizedKisFillRow[] | null {
   if (!raw || typeof raw !== 'object') return null;
   const output = (raw as KisDailyCcldResponse).output;
   if (!Array.isArray(output)) return null;

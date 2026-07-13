@@ -2,7 +2,7 @@
 
 export type MarketSession = 'REGULAR' | 'AFTERMARKET' | 'PREMARKET' | 'CLOSED';
 export type ProviderStatus = 'VERIFIED' | 'PARTIAL' | 'MISSING' | 'DEGRADED' | 'NOT_FETCHED';
-export type TechnicalIndicatorStatus = 'COMPUTED' | 'PARTIAL' | 'NOT_COMPUTED' | 'MISSING' | 'STALE';
+type TechnicalIndicatorStatus = 'COMPUTED' | 'PARTIAL' | 'NOT_COMPUTED' | 'MISSING' | 'STALE';
 
 export type TechnicalTrendMissingReason =
   | 'KIS_QUOTE_VERIFIED_BUT_OHLCV_NOT_FETCHED'
@@ -11,19 +11,6 @@ export type TechnicalTrendMissingReason =
   | 'FEATURE_SNAPSHOT_PRESENT_BUT_GATE_MAPPING_DROPPED'
   | 'FIELD_PATH_MISMATCH'
   | 'REAL_TECH_DATA_MISSING';
-
-export interface MarketDataSnapshot {
-  snapshotId: string;
-  asOf: string;
-  marketSession: MarketSession;
-  sourceHealth: ProviderStatus;
-  quoteProviderStatus: ProviderStatus;
-  ohlcvProviderStatus: ProviderStatus;
-  supplyProviderStatus: ProviderStatus;
-  sectorProviderStatus: ProviderStatus;
-  financialProviderStatus: ProviderStatus;
-  macroProviderStatus: ProviderStatus;
-}
 
 export interface CandidateSnapshot {
   snapshotId: string;
@@ -38,7 +25,7 @@ export interface CandidateSnapshot {
   rawCandidateData: Record<string, unknown>;
 }
 
-export interface CandidateFeaturePack {
+interface CandidateFeaturePack {
   sourceSnapshotId: string;
   symbol: string;
   price?: number;

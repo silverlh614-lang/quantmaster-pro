@@ -33,5 +33,3 @@ const ledger: TelegramCommand = {
 };
 
 commandRegistry.register(ledger);
-
-export default ledger;

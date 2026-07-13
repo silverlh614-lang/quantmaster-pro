@@ -91,10 +91,6 @@ export function countShadowCasesByStatus(items: ShadowCaseItem[]): Record<Shadow
   return countByKey(ALL_SHADOW_CASE_STATUS, items, (item) => item.status);
 }
 
-export function countShadowCasesByEngineMode(items: ShadowCaseItem[]): Record<EngineMode, number> {
-  return countByKey(ALL_ENGINE_MODES, items, (item) => item.engineMode);
-}
-
 export function getOpenShadowCases(items: ShadowCaseItem[]): ShadowCaseItem[] {
   return items.filter((item) => item.status === 'OPEN' || item.status === 'NEEDS_REVIEW');
 }
@@ -105,10 +101,6 @@ export function getOutcomePendingCases(items: ShadowCaseItem[]): ShadowCaseItem[
 
 export function getCasesWithExecutionImpactRisk(items: ShadowCaseItem[]): ShadowCaseItem[] {
   return items.filter((item) => item.executionImpact !== 'NONE');
-}
-
-export function hasShadowLearningRisk(items: ShadowCaseItem[]): boolean {
-  return getCasesWithExecutionImpactRisk(items).length > 0;
 }
 
 export function deriveShadowLearningBanner(items: ShadowCaseItem[]): string | null {

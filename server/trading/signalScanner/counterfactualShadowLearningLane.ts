@@ -33,7 +33,7 @@ import { normalizeRegimeContext, type RegimeConfidence, type RegimePhase } from 
  *
  * 일반 shadow buy / ADR-0427 provisional shadow 와 구분 의무 — counterfactual 마커.
  */
-export type CounterfactualShadowLearningLabel =
+type CounterfactualShadowLearningLabel =
   | 'R3_COUNTERFACTUAL_UNDER_SELL_ONLY'
   | 'R3_COUNTERFACTUAL_UNDER_HARD_BLOCK'
   | 'R3_COUNTERFACTUAL_DATA_DEGRADED'
@@ -44,7 +44,7 @@ export type CounterfactualShadowLearningLabel =
   | 'ACCUMULATION_SHADOW_ENTRY';
 
 /** 12-value reason union (사용자 §B 정합, 절대 변경 금지). */
-export type CounterfactualShadowLearningReason =
+type CounterfactualShadowLearningReason =
   | 'SELL_ONLY'
   | 'HARD_BLOCK'
   | 'R3_EARLY'

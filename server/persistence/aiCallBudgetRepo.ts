@@ -9,20 +9,20 @@
 import fs from 'fs';
 import { AI_CALL_BUDGET_FILE, ensureDataDir } from './paths.js';
 
-export interface DailyBudgetState {
+interface DailyBudgetState {
   date: string;
   counters: Record<string, number>;
   /** PR-25-C: 임계 경보 중복 억제 — bucket 별로 이미 통과한 임계값 percent(80/95/100). */
   alertedThresholds?: Record<string, number[]>;
 }
 
-export const ALERT_THRESHOLDS_PCT = [80, 95, 100] as const;
+const ALERT_THRESHOLDS_PCT = [80, 95, 100] as const;
 
 /**
  * 임계 경보 콜백. 같은 bucket 의 같은 임계값은 하루에 한 번만 호출된다.
  * 실제 텔레그램 송신은 server/index.ts 에서 주입 — repo 는 telegram 모듈 의존 없음.
  */
-export type BudgetAlertHook = (payload: {
+type BudgetAlertHook = (payload: {
   bucket: string;
   used: number;
   limit: number;
@@ -30,10 +30,6 @@ export type BudgetAlertHook = (payload: {
 }) => void;
 
 let _alertHook: BudgetAlertHook | null = null;
-export function setBudgetAlertHook(hook: BudgetAlertHook | null): void {
-  _alertHook = hook;
-}
-
 const KST_OFFSET_MS = 9 * 3_600_000;
 
 function todayKstDate(now: number = Date.now()): string {
@@ -155,13 +151,6 @@ export function tryConsume(bucket: string, count: number = 1, now: number = Date
   state.counters[bucket] = (state.counters[bucket] ?? 0) + count;
   scheduleFlush();
   return true;
-}
-
-/** 강제 카운터 증가 — 외부 fetch 가 이미 발생한 후 사후 기록할 때. threshold 알림 없음. */
-export function recordCall(bucket: string, count: number = 1, now: number = Date.now()): void {
-  const state = ensureLoaded(now);
-  state.counters[bucket] = (state.counters[bucket] ?? 0) + count;
-  scheduleFlush();
 }
 
 export function getBudgetSnapshot(now: number = Date.now()): {

@@ -31,5 +31,3 @@ const aiStatus: TelegramCommand = {
 };
 
 commandRegistry.register(aiStatus);
-
-export default aiStatus;

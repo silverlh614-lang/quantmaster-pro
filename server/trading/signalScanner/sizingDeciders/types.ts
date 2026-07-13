@@ -16,9 +16,3 @@ export interface SizingDeciderFail {
   /** caller 가 그대로 console.log 로 출력할 한 줄 메시지. */
   logMessage: string;
 }
-
-export interface SizingDeciderPassBase {
-  ok: true;
-  /** 통과 시 caller 가 출력할 정보·경고 메시지 배열 (없으면 빈 배열). */
-  logMessages: string[];
-}

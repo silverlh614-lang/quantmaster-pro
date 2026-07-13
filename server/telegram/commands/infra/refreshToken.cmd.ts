@@ -29,5 +29,3 @@ const refreshToken: TelegramCommand = {
 };
 
 commandRegistry.register(refreshToken);
-
-export default refreshToken;

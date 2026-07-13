@@ -2,7 +2,7 @@
 
 import type { SnapshotBundle } from './snapshotBundle.js';
 
-export interface DisplayContradiction {
+interface DisplayContradiction {
   reason: string;
   severity: 'WARN' | 'ERROR';
   renderBlocked: boolean;

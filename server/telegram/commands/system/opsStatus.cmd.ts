@@ -253,6 +253,3 @@ const opsStatus: TelegramCommand = {
 };
 
 commandRegistry.register(opsStatus);
-
-export default opsStatus;
-export { formatOpsStatusMessage, deriveLiveExecutionAllowed, formatOpsStatusCompact, formatOpsStatusFull };

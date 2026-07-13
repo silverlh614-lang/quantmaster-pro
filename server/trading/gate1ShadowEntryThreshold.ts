@@ -32,7 +32,7 @@ import { getEffectiveGateThreshold } from './gateConfig.js';
  * 강제 → 오늘의 byte-identical 동작으로 1줄 즉시 롤백. shadow 자유화의 유일한 off-switch.
  * (opt-in flag 2개 → 비상 OFF 1개로 knob 축소. live 경로는 isShadow=false 라 항상 무영향.)
  */
-export function isShadowLiberalizationKilled(
+function isShadowLiberalizationKilled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   return env.SHADOW_LIBERALIZATION_KILL === 'true';

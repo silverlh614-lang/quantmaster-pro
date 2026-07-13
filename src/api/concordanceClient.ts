@@ -17,7 +17,7 @@ export interface ConcordanceCell {
   avgReturnPct: number | null;
 }
 
-export interface ConcordanceStats {
+interface ConcordanceStats {
   sampleCount: number;
   winRate: number | null;
   avgReturnPct: number | null;

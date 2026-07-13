@@ -40,8 +40,6 @@ import {
   type RegimeResolvedStatusRow,
   type RegimeSourceFamilyStats,
 } from './regimeLearningTypes.js';
-
-export { REGIME_LEARNING_PHASES } from './regimeLearningTypes.js';
 export type * from './regimeLearningTypes.js';
 
 import {
@@ -74,8 +72,6 @@ import {
   formatExpectancy,
   patternText,
 } from './regimeLearningBank/analytics.js';
-
-export { R6_MIN_RESOLVED_SAMPLE_FOR_PROMOTION } from './regimeLearningBank/analytics.js';
 
 function buildConditionAttribution(
   regimePhase: RegimePhase,

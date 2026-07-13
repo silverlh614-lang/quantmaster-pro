@@ -1,23 +1,4 @@
 // @responsibility layout 설정 SSOT
-/**
- * Layout constants — mirrors the CSS custom properties in index.css
- * so that JS logic (e.g. responsive checks, inline styles) can reference
- * the same values without magic numbers.
- */
-
-export const LAYOUT = {
-  /** Desktop sidebar width in pixels */
-  SIDEBAR_WIDTH: 220,
-  /** Collapsed sidebar width in pixels */
-  SIDEBAR_COLLAPSED_WIDTH: 64,
-  /** Mobile bottom navigation height in pixels */
-  BOTTOM_NAV_HEIGHT: 64,
-  /** Scroll offset (px) before StickyMiniHeader appears */
-  STICKY_HEADER_SCROLL_THRESHOLD: 200,
-  /** Sector rotation panel width (desktop only) */
-  SECTOR_PANEL_WIDTH: 260,
-} as const;
-
 /** Views that show the sector rotation side-panel on desktop */
 export const SECTOR_PANEL_VIEWS = ['DISCOVER', 'WATCHLIST'] as const;
 

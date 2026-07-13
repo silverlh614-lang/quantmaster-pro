@@ -8,8 +8,8 @@ import { DATA_DIR } from '../../persistence/paths.js';
 import { logVisibilityEvent } from '../../utils/logger.js';
 import { classifyProgramFlowSession } from './programFlowSessionGuard.js';
 
-export type MarketProgramFlowSource = 'KIS_API' | 'KRX_FALLBACK' | 'CACHE' | 'CACHE_STALE' | 'NONE';
-export type MarketProgramFlowStatus =
+type MarketProgramFlowSource = 'KIS_API' | 'KRX_FALLBACK' | 'CACHE' | 'CACHE_STALE' | 'NONE';
+type MarketProgramFlowStatus =
   | 'MISSING'
   | 'ACCEPTED_EMPTY'
   | 'PROVIDER_ERROR'
@@ -17,10 +17,10 @@ export type MarketProgramFlowStatus =
   | 'PARSED'
   | 'AFTER_MARKET_ZERO_PLACEHOLDER'
   | 'EOD_MARKET_PROGRAM_VALID';
-export type MarketProgramProviderStatus = 'NOT_ATTEMPTED' | 'ACCEPTED_EMPTY' | 'ERROR' | 'PARSE_FAILED' | 'PARSED' | 'SUCCESS' | 'EMPTY';
-export type MarketProgramCacheStatus = 'HIT' | 'MISS' | 'STALE';
+type MarketProgramProviderStatus = 'NOT_ATTEMPTED' | 'ACCEPTED_EMPTY' | 'ERROR' | 'PARSE_FAILED' | 'PARSED' | 'SUCCESS' | 'EMPTY';
+type MarketProgramCacheStatus = 'HIT' | 'MISS' | 'STALE';
 
-export interface LastMarketProgramSnapshot {
+interface LastMarketProgramSnapshot {
   source: Exclude<MarketProgramFlowSource, 'NONE' | 'CACHE_STALE'>;
   netBuyAmount: number;
   arbitrageNetBuyAmount: number | null;

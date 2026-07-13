@@ -311,16 +311,3 @@ export function deriveEmergencyState(
     positionManageOnly: newBuyBlocked && !autoTradingPaused,
   };
 }
-
-export function mapAutoTradingDashboard(raw: AutoTradingDashboardState): AutoTradingDashboardState {
-  return {
-    ...raw,
-    orders: raw.orders ?? [],
-    positions: raw.positions ?? [],
-    riskRules: raw.riskRules ?? [],
-    signals: raw.signals ?? [],
-    logs: raw.logs ?? [],
-    broker: raw.broker ?? fallbackBroker,
-    emergency: raw.emergency ?? fallbackEmergency,
-  };
-}

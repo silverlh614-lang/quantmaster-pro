@@ -18,7 +18,7 @@ const FIB_TIME_RATIOS = [0.382, 0.618, 1.0, 1.618, 2.618] as const;
 const TIMEZONE_TOLERANCE_DAYS = 1;
 
 /** 개별 타임존 분석 결과 */
-export interface FibTimeZone {
+interface FibTimeZone {
   /** 피보나치 비율 (0.382, 0.618, 1.0, 1.618, 2.618) */
   ratio: number;
   /** 기준 기간(N) × ratio 로 산출된 목표 거래일 수 */
@@ -30,7 +30,7 @@ export interface FibTimeZone {
 }
 
 /** 시공간 피보나치 교점 (가격 + 시간 동시 피보나치) */
-export interface SpaceTimeConfluence {
+interface SpaceTimeConfluence {
   /** 교점 발생 여부 */
   detected: boolean;
   /** 가격 되돌림 레벨 (e.g., 0.382, 0.618) */
@@ -68,7 +68,7 @@ export interface FibonacciTimeZoneResult {
  * 간이 방식: 주말(토/일)을 제외한 영업일 수.
  * 한국 공휴일은 포함하지 않으므로 근사치이다.
  */
-export function tradingDaysBetweenDates(startDate: Date, endDate: Date): number {
+function tradingDaysBetweenDates(startDate: Date, endDate: Date): number {
   let count = 0;
   const current = new Date(startDate);
   current.setHours(0, 0, 0, 0);

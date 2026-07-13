@@ -104,7 +104,7 @@ export interface StrategyValidationResult {
   validationTimestamp: string;
 }
 
-export interface RolloutPolicy {
+interface RolloutPolicy {
   allowedStages: RolloutStage[];
   currentStage: RolloutStage | null;
   shadowDurationDays: number;
@@ -377,7 +377,7 @@ export function applyGovernanceDraftToConfig(
   return next;
 }
 
-export function defaultRolloutPolicy(): RolloutPolicy {
+function defaultRolloutPolicy(): RolloutPolicy {
   return {
     allowedStages: ['SHADOW', 'CANARY', 'LIVE'],
     currentStage: null,

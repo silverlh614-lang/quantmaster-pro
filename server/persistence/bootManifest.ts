@@ -18,7 +18,7 @@ import os from 'os';
 import { randomUUID } from 'crypto';
 import { BOOT_MANIFEST_FILE, ensureDataDir } from './paths.js';
 
-export type BootStatus = 'unknown' | 'clean' | 'crashed';
+type BootStatus = 'unknown' | 'clean' | 'crashed';
 
 export interface BootEntry {
   /** 이 부팅을 고유 식별. persistentErrorLog 엔트리 bootId 와 연결. */

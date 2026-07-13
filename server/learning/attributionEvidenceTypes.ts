@@ -52,7 +52,7 @@ export type EngineMode =
   | 'OBSERVE_ONLY'
   | 'R6_DEFENSE';
 
-export type AttributionWinLoss =
+type AttributionWinLoss =
   | 'WIN'
   | 'LOSS'
   | 'BREAKEVEN'

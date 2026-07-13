@@ -7,9 +7,9 @@ import type { Gate3OutcomeSeed, Gate3OutcomeTrackingSummary } from './gate3Outco
 import type { Gate3ShadowPolicy, Gate3ShadowRoute, Gate3ShadowRoutingSummary } from './gate3ShadowPolicy.js';
 import type { LiveReadinessScore } from './liveReadinessScore.js';
 
-export type Gate3CompletionStatus = 'COMPLETE' | 'PARTIAL' | 'INCOMPLETE' | 'BROKEN';
+type Gate3CompletionStatus = 'COMPLETE' | 'PARTIAL' | 'INCOMPLETE' | 'BROKEN';
 
-export type Gate3CompletionComponent =
+type Gate3CompletionComponent =
   | 'EVALUATION'
   | 'PRICE_GUARD'
   | 'RRR_BUILDER'
@@ -24,7 +24,7 @@ export type Gate3CompletionComponent =
   | 'POLICY_SEPARATION'
   | 'LEARNING_CONTINUITY';
 
-export interface Gate3CompletionCheck {
+interface Gate3CompletionCheck {
   component: Gate3CompletionComponent;
   passed: boolean;
   score: number;
@@ -465,7 +465,7 @@ export function formatGate3LearningFinalizationSection(summary: Gate3LearningFin
 // transient empty/stale source does not overwrite a previously COMPLETE Gate3 as INCOMPLETE/0.
 // This is presentation/state classification only — Gate scoring, thresholds and promotion are untouched.
 
-export type Gate3EvidenceCurrentStatus =
+type Gate3EvidenceCurrentStatus =
   | 'OK'
   | 'SOURCE_EMPTY'
   | 'SOURCE_STALE'
@@ -473,7 +473,7 @@ export type Gate3EvidenceCurrentStatus =
   | 'QUERY_FAILED'
   | 'UNKNOWN';
 
-export type Gate3DisplayStatus =
+type Gate3DisplayStatus =
   | 'COMPLETE'
   | 'COMPLETE_LAST_VALID'
   | 'INCOMPLETE'

@@ -37,13 +37,6 @@ import {
 const ENTRY_MIN_GATE_SCORE = 5;
 
 /**
- * 아이디어 #7: 레짐별 Gate 임계값 — 약세장일수록 기준 강화.
- * 단일 소스는 gateConfig.GATE_SCORE_THRESHOLD_BY_REGIME — 운용자 오버라이드 연동을 위해
- * 이 상수는 그 모듈을 재수출(re-export)한다. 하드 참조는 금지.
- */
-export const REGIME_GATE_MIN = GATE_SCORE_THRESHOLD_BY_REGIME;
-
-/**
  * 레짐 문자열로부터 실효 Gate 최솟값을 반환.
  * 운용자 오버라이드(gateConfig.setRuntimeThresholdDelta)가 활성이면 완화값을 반영한다.
  * 미전달·미지원 레짐 → 기본값 5.
@@ -104,7 +97,7 @@ export const EXIT_RULE_PRIORITY_TABLE: ReadonlyArray<{
   { priority: 99, rule: 'MANUAL_EXIT', description: '수동 청산(사용자 개입) — 자동 규칙 평가 대상 아님' },
 ] as const;
 
-export const OPEN_SHADOW_STATUSES = new Set<ServerShadowTrade['status']>([
+const OPEN_SHADOW_STATUSES = new Set<ServerShadowTrade['status']>([
   'PENDING',
   'ORDER_SUBMITTED',
   'PARTIALLY_FILLED',
@@ -522,7 +515,7 @@ export interface PreMortemInput {
 }
 
 /** Pre-Mortem Gemini 프롬프트 빌더 — 테스트 및 단독 검증용 export */
-export function buildPreMortemPrompt(input: PreMortemInput): string {
+function buildPreMortemPrompt(input: PreMortemInput): string {
   const stopPct   = ((input.stopLoss  - input.entryPrice) / input.entryPrice) * 100;
   const targetPct = ((input.targetPrice - input.entryPrice) / input.entryPrice) * 100;
   const ctxLine   = input.entryContext ? `\n진입근거: ${input.entryContext}` : '';

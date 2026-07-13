@@ -3,10 +3,10 @@ import fs from 'fs';
 import path from 'path';
 import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
 
-export type SanitizedInvestorFlowRow = Record<string, unknown>;
-export type SupplyBySymbolProviderScope = 'SYMBOL_LEVEL' | 'MARKET_LEVEL' | 'SECTOR_LEVEL' | 'UNKNOWN';
+type SanitizedInvestorFlowRow = Record<string, unknown>;
+type SupplyBySymbolProviderScope = 'SYMBOL_LEVEL' | 'MARKET_LEVEL' | 'SECTOR_LEVEL' | 'UNKNOWN';
 
-export interface SupplyBySymbolPayloadSnapshotEntry {
+interface SupplyBySymbolPayloadSnapshotEntry {
   symbol: string;
   providerScope: SupplyBySymbolProviderScope;
   actualInvestorFlowRows?: SanitizedInvestorFlowRow[];

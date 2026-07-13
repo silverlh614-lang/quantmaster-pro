@@ -117,5 +117,3 @@ const adjustQty: TelegramCommand = {
 };
 
 commandRegistry.register(adjustQty);
-
-export default adjustQty;

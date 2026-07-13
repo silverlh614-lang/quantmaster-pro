@@ -12,7 +12,7 @@ import { classifyMacroDataHealth, listMacroDataHealthIssues, summarizeMacroDataH
 import { defaultWarnTtlSec, emitOperationalWarn } from '../../observability/operationalWarn.js';
 import type { MacroRefreshReason } from './types.js';
 
-export function macroRefreshRuntimeContext(now = new Date()): { marketSession: string; engineMode: string; r6State: string; sellOnly: boolean } {
+function macroRefreshRuntimeContext(now = new Date()): { marketSession: string; engineMode: string; r6State: string; sellOnly: boolean } {
   try {
     const macro = loadMacroState();
     const regimeSnapshot = resolveRegimeSnapshot({ macroState: macro, now });

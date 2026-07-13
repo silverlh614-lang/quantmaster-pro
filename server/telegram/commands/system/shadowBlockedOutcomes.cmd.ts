@@ -106,5 +106,3 @@ const shadowBlockedOutcomes: TelegramCommand = {
 };
 
 commandRegistry.register(shadowBlockedOutcomes);
-
-export default shadowBlockedOutcomes;

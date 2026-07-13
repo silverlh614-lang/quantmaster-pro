@@ -5,7 +5,7 @@ import type { ExecutionImpact } from '../../../observability/executionImpact.js'
 import type { WarnMode } from '../../../observability/operationalWarnTypes.js';
 import type { ScanEvaluationResult } from './scanEvaluationState.js';
 
-export type ScanOperationalWarnCode =
+type ScanOperationalWarnCode =
   | 'P1_SCAN_STATE_UNCLEAR'
   | 'P1_QUOTE_HYDRATION_FAILED'
   | 'P1_GATE_EVALUATION_DEGRADED'
@@ -34,7 +34,7 @@ function toOperationalImpact(impact: ScanEvaluationResult['executionImpact'] | E
   return impact;
 }
 
-export function emitScanOperationalWarn(input: {
+function emitScanOperationalWarn(input: {
   code: ScanOperationalWarnCode;
   message: string;
   result?: ScanEvaluationResult;

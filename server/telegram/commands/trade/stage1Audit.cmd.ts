@@ -50,5 +50,3 @@ const stage1Audit: TelegramCommand = {
 };
 
 commandRegistry.register(stage1Audit);
-
-export default stage1Audit;

@@ -33,7 +33,7 @@ const MISMATCH_THRESHOLD = 2;
 
 // ─── 인터페이스 ───────────────────────────────────────────────────────────────
 
-export interface ReconcileItem {
+interface ReconcileItem {
   positionId: string;
   stockCode: string;
   stockName?: string;
@@ -54,26 +54,6 @@ export interface ReconcileResult {
 }
 
 // ─── 알림 로그 유틸 ──────────────────────────────────────────────────────────
-
-/**
- * 텔레그램 발송 직후 호출하여 notification-log.json에 기록한다.
- * exitEngine, fillMonitor 등에서 청산·진입 알림 발송 시 호출.
- */
-export function logNotification(entry: {
-  type: 'ENTRY' | 'SELL' | 'PARTIAL_SELL';
-  positionId: string;
-  stockCode: string;
-  stockName?: string;
-  ts: string;
-}): void {
-  ensureDataDir();
-  const logs: unknown[] = fs.existsSync(NOTIFICATION_LOG_FILE)
-    ? (() => { try { return JSON.parse(fs.readFileSync(NOTIFICATION_LOG_FILE, 'utf-8')); } catch { return []; } })()
-    : [];
-  logs.push({ ...entry, loggedAt: new Date().toISOString() });
-  fs.writeFileSync(NOTIFICATION_LOG_FILE, JSON.stringify(logs.slice(-1000), null, 2), 'utf-8');
-}
-
 // ─── shadow-log 분석 ──────────────────────────────────────────────────────────
 
 const SHADOW_LOG_CLOSE_EVENTS = new Set([
@@ -317,7 +297,7 @@ export function loadLastReconcileResult(): ReconcileResult | null {
 // 이 함수는 KIS `/inquire-balance` 로 실보유 수량을 조회하여 LIVE shadow 의 fills
 // SSOT 기반 잔량과 대조한다. 2주 이상 차이나면 Telegram HIGH 알림.
 
-export interface KisShadowMismatch {
+interface KisShadowMismatch {
   stockCode: string;
   stockName?: string;
   shadowQty: number;

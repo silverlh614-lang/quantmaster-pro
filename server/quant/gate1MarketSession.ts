@@ -1,6 +1,6 @@
 // @responsibility Gate1 market-session compatibility diagnostics only.
 
-export type Gate1MarketSession =
+type Gate1MarketSession =
   | 'PREMARKET'
   | 'REGULAR'
   | 'SELL_ONLY'
@@ -10,7 +10,7 @@ export type Gate1MarketSession =
   | 'HOLIDAY'
   | 'UNKNOWN';
 
-export type Gate1MarketSessionEngineMode =
+type Gate1MarketSessionEngineMode =
   | 'NORMAL'
   | 'DEGRADED'
   | 'SELL_ONLY'
@@ -18,19 +18,19 @@ export type Gate1MarketSessionEngineMode =
   | 'OBSERVE_ONLY'
   | 'UNKNOWN';
 
-export type Gate1SellOnlyWindow =
+type Gate1SellOnlyWindow =
   | 'OPENING_0900_0930'
   | 'LUNCH_1200_1259'
   | 'CLOSING_1520_1530';
 
-export type Gate1MarketSessionSource =
+type Gate1MarketSessionSource =
   | 'ENGINE_MODE'
   | 'MARKET_CLOCK'
   | 'KIS_HOLIDAY'
   | 'QMP_SESSION'
   | 'UNKNOWN';
 
-export type Gate1MarketSessionSourceStatus =
+type Gate1MarketSessionSourceStatus =
   | 'VERIFIED'
   | 'STALE'
   | 'MISSING'
@@ -88,7 +88,7 @@ function boolOrNull(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null;
 }
 
-export function normalizeGate1MarketSession(value: unknown): Gate1MarketSession {
+function normalizeGate1MarketSession(value: unknown): Gate1MarketSession {
   const raw = String(value ?? '').trim().toUpperCase();
   if (!raw) return 'UNKNOWN';
   if (raw === 'REGULAR' || raw === 'OPEN' || raw === 'MARKET_OPEN' || raw === 'BUY_ALLOWED') return 'REGULAR';

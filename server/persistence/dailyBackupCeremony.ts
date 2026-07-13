@@ -71,7 +71,7 @@ export function runBackupCeremony(retentionDays = 7): BackupCeremonyResult {
   return { snapshotDir, copied, skipped, pruned, totalBytes };
 }
 
-export function pruneSnapshots(snapshotsRoot: string, retentionDays: number): string[] {
+function pruneSnapshots(snapshotsRoot: string, retentionDays: number): string[] {
   if (!fs.existsSync(snapshotsRoot)) return [];
   const pruned: string[] = [];
   const cutoff = Date.now() - retentionDays * 86_400_000;

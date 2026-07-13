@@ -10,7 +10,7 @@ import { clientWarn } from '../../utils/clientWarn';
  * 본문 수치/통계는 결정적 템플릿이 이미 생성하므로 환각 위험 없음.
  * maxOutputTokens 1024 — 자연어 마무리 한 단락만 생성.
  */
-export async function aiToneUp(draft: string): Promise<string> {
+async function aiToneUp(draft: string): Promise<string> {
   if (!draft || draft.trim().length === 0) return draft;
   const prompt =
     `다음은 한국 주식 일일 리포트의 핵심 통계 요약입니다.\n` +

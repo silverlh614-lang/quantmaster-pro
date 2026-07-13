@@ -26,5 +26,3 @@ const dataCompleteness: TelegramCommand = {
 };
 
 commandRegistry.register(dataCompleteness);
-
-export default dataCompleteness;

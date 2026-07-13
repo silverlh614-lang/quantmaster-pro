@@ -1,7 +1,5 @@
 // @responsibility DART 선행공시 후보 타입 SSOT
 export type DartPreNewsStage = 'OBSERVE' | 'SHADOW_SCORE' | 'ADVISORY';
-export type DartExecutionImpact = 'NONE';
-
 export type DartCatalystCategory =
   | 'STRUCTURAL_POSITIVE'
   | 'CYCLICAL_POSITIVE'

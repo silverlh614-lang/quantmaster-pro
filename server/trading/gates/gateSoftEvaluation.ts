@@ -1,19 +1,19 @@
 // @responsibility Simplification Step 3 soft Gate scoring and hard-fail limiting.
 
-export type GateSeverity =
+type GateSeverity =
   | 'PASS'
   | 'WARN'
   | 'SOFT_FAIL'
   | 'HARD_FAIL'
   | 'NOT_AVAILABLE';
 
-export type GateEvaluationName =
+type GateEvaluationName =
   | 'DATA'
   | 'QUALITY'
   | 'RISK_REWARD'
   | 'DIAGNOSTIC';
 
-export type GateExecutionImpact =
+type GateExecutionImpact =
   | 'NONE'
   | 'DATA_REQUIRED_MISSING'
   | 'ORDER_WAIT';
@@ -24,7 +24,7 @@ export type QualityDecision =
   | 'DATA_INCOMPLETE'
   | 'ORDER_NOT_READY';
 
-export interface GateEvaluation {
+interface GateEvaluation {
   gateName: GateEvaluationName;
   severity: GateSeverity;
   scoreContribution: number;

@@ -119,23 +119,6 @@ function updateSeed(
   return file.seeds[index];
 }
 
-export function updateGate3ForwardReturns(
-  id: string,
-  returns: Partial<Gate3ForwardReturns>,
-  filePath = GATE3_OUTCOME_LEDGER_FILE,
-): Gate3OutcomeSeed | null {
-  return updateSeed(id, (seed) => ({
-    ...seed,
-    forwardReturns: {
-      ...seed.forwardReturns,
-      ...returns,
-    },
-    outcomeStatus: 'PARTIAL',
-    marketSignal: false,
-    providerIssue: false,
-  }), filePath);
-}
-
 /**
  * 전체 seed 교체 — forwardReturns 만이 아니라 labeler 가 계산한 maxForwardReturnPct /
  * outcomeStatus / outcomeLabel 등 모든 갱신 필드를 그대로 영속한다. id 미존재 시 null.
@@ -152,21 +135,6 @@ export function persistGate3OutcomeSeed(
   }), filePath);
 }
 
-export function labelGate3Outcome(
-  id: string,
-  label: Gate3OutcomeLabel,
-  status: Gate3OutcomeStatus = 'LABELED',
-  filePath = GATE3_OUTCOME_LEDGER_FILE,
-): Gate3OutcomeSeed | null {
-  return updateSeed(id, (seed) => ({
-    ...seed,
-    outcomeLabel: label,
-    outcomeStatus: status,
-    marketSignal: false,
-    providerIssue: false,
-  }), filePath);
-}
-
 export function findBySymbolAndSnapshot(
   symbol: string,
   sourceSnapshotId: string,
@@ -175,18 +143,4 @@ export function findBySymbolAndSnapshot(
   return loadGate3OutcomeSeeds(filePath).filter((seed) =>
     seed.symbol === symbol && seed.sourceSnapshotId === sourceSnapshotId,
   );
-}
-
-export function summarizeGate3OutcomeLedger(
-  input: { filePath?: string; tradeDate?: string; seedCreatedToday?: number; duplicateSuppressed?: number } = {},
-): Gate3OutcomeTrackingSummary {
-  return summarizeGate3OutcomeSeeds(loadGate3OutcomeSeeds(input.filePath), {
-    tradeDate: input.tradeDate,
-    seedCreatedToday: input.seedCreatedToday,
-    duplicateSuppressed: input.duplicateSuppressed,
-  });
-}
-
-export function __resetGate3OutcomeLedgerForTests(filePath = GATE3_OUTCOME_LEDGER_FILE): void {
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 }

@@ -273,7 +273,7 @@ function resolveKisInvestorFlowFetchTargets(
  * VTS/공통: STOCK_UNIVERSE Yahoo 스캔.
  * 반환: stage1Score 내림차순 상위 60개.
  */
-export async function stage1QuantFilter(): Promise<CandidateStock[]> {
+async function stage1QuantFilter(): Promise<CandidateStock[]> {
   const candidates: CandidateStock[] = [];
   const seenCodes = new Set<string>();
   const BATCH_SIZE = 5; // 병렬 배치 크기 (Yahoo rate limit 고려, 500개 확장 대비)
@@ -775,7 +775,7 @@ export async function stage2SectorGateFilter(
  * Gemini 27조건 배치 평가 → 워치리스트 등록.
  * 레짐별 손절/목표가 자동 계산, RRR ≥ 2.0 검증, 5영업일 만료.
  */
-export async function stage3AIScreenAndRegister(
+async function stage3AIScreenAndRegister(
   candidates: CandidateStock[],
   regime: RegimeLevel,
 ): Promise<number> {

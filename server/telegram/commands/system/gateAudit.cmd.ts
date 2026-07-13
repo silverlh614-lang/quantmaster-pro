@@ -495,5 +495,3 @@ const gateAudit: TelegramCommand = {
 };
 
 commandRegistry.register(gateAudit);
-
-export default gateAudit;

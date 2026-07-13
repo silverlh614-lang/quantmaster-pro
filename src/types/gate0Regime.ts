@@ -5,21 +5,18 @@ import type { RegimeLevel } from './core';
  * ADR-0531: Gate0 정본 출처 식별자 — 정본은 단 하나.
  * canonical = resolveRegimeSnapshot()의 ResolvedRegimeSnapshot.effectiveRegime.
  */
-export type Gate0CanonicalSource = 'REGIME_RESOLVER_SNAPSHOT';
+type Gate0CanonicalSource = 'REGIME_RESOLVER_SNAPSHOT';
 
 /**
  * ADR-0531: legacy effectiveRegime(regimeBridge transitionState)는 표시 전용.
  * deprecated/notUsedForDecision literal 로 의사결정 차단을 컴파일 타임에 강제한다.
  */
-export interface Gate0LegacyRegimeDisplay {
+interface Gate0LegacyRegimeDisplay {
   readonly legacyEffective: RegimeLevel | string;
   readonly deprecated: true;
   readonly notUsedForDecision: true;
   readonly source: 'REGIME_BRIDGE_TRANSITION_STATE';
 }
-
-/** ADR-0531: Gate0 레짐을 소비할 때의 호출 의도 — 마이그레이션 분류표 매핑. */
-export type Gate0ConsumerIntent = 'DECISION' | 'DISPLAY_ONLY' | 'LEARNING_LABEL';
 
 /**
  * ADR-0531: 정본 레짐 + 그 보조 의미. 소비처는 본 view 만 읽는다.

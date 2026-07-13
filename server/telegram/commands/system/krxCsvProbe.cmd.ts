@@ -18,12 +18,7 @@ import type { TelegramCommand } from '../_types.js';
 const PROBE_RATE_LIMIT_MS = 60_000;
 let _lastProbeAt = 0;
 
-/** 테스트 전용 — rate-limit state 초기화. */
-export function __resetKrxCsvProbeRateLimitForTests(): void {
-  _lastProbeAt = 0;
-}
-
-export interface KrxCsvProbeMetrics {
+interface KrxCsvProbeMetrics {
   otpLen: number;
   csvBytes: number;
   lineCount: number;
@@ -37,7 +32,7 @@ export interface KrxCsvProbeMetrics {
  * 진단 결과 라벨 SSOT — 5분기 + OTP 실패 + 정상 fallback.
  * 우선순위: OTP 빈응답 > CSV 빈응답 > HTML > 헤더만 > partial > 컬럼부족 > 인코딩 > 정상.
  */
-export function diagnoseKrxCsvProbe(metrics: KrxCsvProbeMetrics): string {
+function diagnoseKrxCsvProbe(metrics: KrxCsvProbeMetrics): string {
   if (metrics.otpLen === 0) return '❌ OTP 빈 응답 — 헤더/세션/IP 차단 의심 (KRX 측 정책 변경 가능)';
   if (metrics.csvBytes === 0) return '❌ CSV 빈 응답 — KRX API 결함 또는 OTP 거부';
   if (metrics.looksHtml) return '❌ HTML 응답 (rate-limit, IP 차단, 점검 페이지) — Railway IP 점검';
@@ -181,5 +176,3 @@ const krxCsvProbe: TelegramCommand = {
 };
 
 commandRegistry.register(krxCsvProbe);
-
-export default krxCsvProbe;

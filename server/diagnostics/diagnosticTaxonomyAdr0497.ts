@@ -1,6 +1,6 @@
 // @responsibility ADR-0497 Diagnostic taxonomy SSOT; pure diagnostic-only helpers, no live execution wiring.
 
-export type ExecutionImpactAdr0497 = 'NONE';
+type ExecutionImpactAdr0497 = 'NONE';
 
 export interface DiagnosticOnlyPolicyAdr0497 {
   executionImpact: ExecutionImpactAdr0497;
@@ -114,7 +114,7 @@ export function classifyProviderMarketSeparationAdr0497(input: {
   };
 }
 
-export type DataValueStateAdr0497 =
+type DataValueStateAdr0497 =
   | 'VALID_NUMBER'
   | 'ZERO'
   | 'NULL'

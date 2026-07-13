@@ -35,7 +35,7 @@ export function calculateGate3ForwardReturnPct(
   return forwardReturnPct(entry, future);
 }
 
-export function buildGate3ForwardReturns(
+function buildGate3ForwardReturns(
   seed: Gate3OutcomeSeed,
   prices: Partial<Record<Gate3ForwardHorizon, number | null>>,
 ): Gate3ForwardReturns {

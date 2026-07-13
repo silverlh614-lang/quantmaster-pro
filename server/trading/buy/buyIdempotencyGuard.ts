@@ -4,7 +4,7 @@
 
 import type { BuyApprovalMode } from './buyApprovalPolicy.js';
 
-export type BuySide = 'BUY' | 'SELL';
+type BuySide = 'BUY' | 'SELL';
 export type BuyIdempotencyStatus = 'PENDING' | 'OPEN' | 'CLOSED' | 'REJECTED';
 
 export interface BuyDedupIdentity {
@@ -56,7 +56,7 @@ export function buildBuyDedupKey(identity: BuyDedupIdentity): string {
   ].join(':');
 }
 
-export function isBuyIdempotencyStatusActive(status: BuyIdempotencyStatus): boolean {
+function isBuyIdempotencyStatusActive(status: BuyIdempotencyStatus): boolean {
   return ACTIVE_STATUSES.has(status);
 }
 

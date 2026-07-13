@@ -21,13 +21,13 @@ import { resolveCanonicalTradeOutcomeFromShadowTrade } from '../trading/canonica
 // ── 설정 ──────────────────────────────────────────────────────────────────────
 
 /** 월말 캘리브레이션 1회 트리거 목표 표본 수 */
-export const SHADOW_SAMPLE_TARGET = 30;
+const SHADOW_SAMPLE_TARGET = 30;
 
 /** 전체 모니터링 기간(일) — 첫 표본 생성일 기준 잔여 산출에 사용 */
-export const SHADOW_MONITORING_DAYS = 60;
+const SHADOW_MONITORING_DAYS = 60;
 
 /** 표본 정체 판정 윈도우(일) — 이 기간 내 신규 Shadow=0 이면 stall */
-export const SAMPLE_STALL_DAYS = 7;
+const SAMPLE_STALL_DAYS = 7;
 
 // ── 내부 유틸 ────────────────────────────────────────────────────────────────
 
@@ -144,7 +144,7 @@ export interface ShadowProgress {
   partialOnlyCount: number;
 }
 
-export function computeShadowProgress(now: Date = new Date()): ShadowProgress {
+function computeShadowProgress(now: Date = new Date()): ShadowProgress {
   const todayKst = kstDateStr(now);
   const shadows = loadShadowTrades();
 

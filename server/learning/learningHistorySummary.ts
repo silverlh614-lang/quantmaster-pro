@@ -33,7 +33,7 @@ function shiftKstDateString(today: string, deltaDays: number): string {
   return base.toISOString().slice(0, 10);
 }
 
-export interface LearningStatusReflectionSummary {
+interface LearningStatusReflectionSummary {
   date: string;
   generatedAt: string;
   mode: ReflectionMode | null;

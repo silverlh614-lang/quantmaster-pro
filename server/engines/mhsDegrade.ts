@@ -5,7 +5,7 @@
 // 이미 반환하는 sourcesOk({ecos, fred})를 단일 규칙으로 confidence 등급화해 영속·노출하고,
 // flag ON 시 confluence 의 MHS 낙관 부스트를 억제(비관 페널티는 보존)한다.
 
-export type MhsConfidence = 'FULL' | 'PARTIAL' | 'FALLBACK';
+type MhsConfidence = 'FULL' | 'PARTIAL' | 'FALLBACK';
 
 export interface MhsSourcesOk {
   ecos: boolean;

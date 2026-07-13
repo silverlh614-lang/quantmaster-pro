@@ -35,7 +35,7 @@ export const PROBING_MAX_SLOTS_WITH_BANDIT = 3;
 /** 이 ESS 미만인 arm 은 "불확실 → 추가 탐색 가치" 로 판정. */
 export const PROBING_MIN_OBS_FOR_CONFIDENT = 10;
 
-export interface BanditArmStats {
+interface BanditArmStats {
   armKey: string;
   wins: number;
   losses: number;
@@ -250,11 +250,4 @@ export function canReserveBanditProbingSlot(
   banditBudget: number,
 ): boolean {
   return currentProbingCount < banditBudget;
-}
-
-/** 레거시 호환 래퍼 — 테스트 fixture 가 참조하는 shadow-level history 조회. */
-export function getClosedTradesCount(): number {
-  return loadShadowTrades()
-    .filter(t => t.status === 'HIT_TARGET' || t.status === 'HIT_STOP')
-    .length;
 }

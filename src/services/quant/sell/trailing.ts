@@ -31,18 +31,6 @@ export function checkTrailingStop(position: ActivePosition): SellSignal | null {
 }
 
 /** 신고가 갱신 시 트레일링 고점 업데이트. */
-export function updateTrailingHighWaterMark(position: ActivePosition): number {
+function updateTrailingHighWaterMark(position: ActivePosition): number {
   return Math.max(position.trailingHighWaterMark, position.currentPrice);
-}
-
-/**
- * PROFIT_TARGETS 중 TRAILING 타입 항목을 찾아 trailPct와 trailingRemainingRatio를 반환.
- * @returns 트레일링 설정 (없으면 null)
- */
-export function resolveTrailingConfig(
-  regime: RegimeLevel,
-): { trailPct: number; ratio: number } | null {
-  const trailing = PROFIT_TARGETS[regime].find(t => t.type === 'TRAILING');
-  if (!trailing || trailing.trailPct === undefined) return null;
-  return { trailPct: trailing.trailPct, ratio: trailing.ratio };
 }

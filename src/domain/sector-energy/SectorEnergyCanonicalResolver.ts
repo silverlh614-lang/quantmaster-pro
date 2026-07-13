@@ -33,7 +33,7 @@ export type OfficialSectorEnergyKey = (typeof OFFICIAL_SECTOR_ENERGY_11)[number]
 export const OFFICIAL_SECTOR_COUNT = 11 as const;
 
 /** Coverage pass 기본 임계값 (verifiedOfficialSectorCount >= 9 → pass). */
-export const DEFAULT_REQUIRED_PROMOTION_COVERAGE = 0.8;
+const DEFAULT_REQUIRED_PROMOTION_COVERAGE = 0.8;
 
 const OFFICIAL_SECTOR_SET: ReadonlySet<string> = new Set(OFFICIAL_SECTOR_ENERGY_11);
 
@@ -76,14 +76,14 @@ export const SECTOR_THEME_TAG_POLICY: Readonly<Record<ExcludedThemeTag, ThemeTag
 
 // ─── Canonical State 타입 ──────────────────────────────────────────────────────
 
-export type SectorEnergySelectedSourceTier =
+type SectorEnergySelectedSourceTier =
   | 'OFFICIAL_KIS_SECTOR_INDEX'
   | 'OFFICIAL_KRX_SECTOR_INDEX'
   | 'NONE';
 
 export type SectorEnergyDataQuality = 'VERIFIED' | 'PARTIAL' | 'MISSING' | 'SESSION_NOT_VERIFIABLE';
 
-export type SectorEnergyCanonicalReason =
+type SectorEnergyCanonicalReason =
   | 'OFFICIAL_SECTOR_COVERAGE_PASS'
   | 'OFFICIAL_SECTOR_COVERAGE_BELOW_THRESHOLD'
   | 'OFFICIAL_SECTOR_SOURCE_MISSING'
@@ -95,18 +95,18 @@ export type SectorEnergyCanonicalReason =
  * ADR-0544: 표시 전용 세션 분류 enum. 게이팅(promotion/sectorBoost/strongBuy)에는 사용하지 않는다.
  * 휴일/비장중 verify-skip 과 장중 verify 실제 0건을 표시상 구별한다.
  */
-export type SectorEnergyStatus =
+type SectorEnergyStatus =
   | 'AVAILABLE'
   | 'UNAVAILABLE'
   | 'OBSERVE_ONLY_SESSION_CLOSED';
 
-export type SectorEnergyConfidenceLabel =
+type SectorEnergyConfidenceLabel =
   | 'VERIFIED'
   | 'PARTIAL'
   | 'MISSING'
   | 'LAST_KNOWN_OR_OBSERVE_ONLY';
 
-export type SectorEnergySectorIndexVerifyMode =
+type SectorEnergySectorIndexVerifyMode =
   | 'LIVE_VERIFY'
   | 'VERIFY_SKIPPED_SESSION_CLOSED'
   | 'LAST_KNOWN_VALID';
@@ -132,7 +132,7 @@ export interface SectorEnergyLastKnownSnapshotDisplay {
 }
 
 /** 공식 key 별 verify 결과 — render 가 실제 index code/name/값을 보이도록 carry 한다 (N/A canonical-state 금지). */
-export interface SectorEnergyVerifiedMappingEntry {
+interface SectorEnergyVerifiedMappingEntry {
   key: OfficialSectorEnergyKey;
   verified: boolean;
   selectedIndexCode: string;
@@ -200,13 +200,13 @@ export interface SectorEnergyCanonicalState {
  *   - { verifiedCount: number }  (통합 경계 어댑터용 — count → 앞에서부터 N개 공식 key)
  *   - { sectors: Record<key, { verified?: boolean; status?: string }> }
  */
-export interface OfficialSectorIndexObject {
+interface OfficialSectorIndexObject {
   verifiedSectors?: readonly string[];
   verifiedCount?: number;
   sectors?: Record<string, { verified?: boolean; status?: string } | undefined>;
 }
 
-export type OfficialSectorIndexInput = readonly string[] | OfficialSectorIndexObject | null | undefined;
+type OfficialSectorIndexInput = readonly string[] | OfficialSectorIndexObject | null | undefined;
 
 export interface ResolveSectorEnergyCanonicalInput {
   officialKisSectorIndex?: OfficialSectorIndexInput;
@@ -750,7 +750,7 @@ export function missingSectorEnergyCanonicalState(): SectorEnergyCanonicalState 
   };
 }
 
-export function isSectorEnergyCanonicalState(value: unknown): value is SectorEnergyCanonicalState {
+function isSectorEnergyCanonicalState(value: unknown): value is SectorEnergyCanonicalState {
   const record = value && typeof value === 'object' ? value as Record<string, unknown> : null;
   return Boolean(
     record &&
@@ -869,8 +869,6 @@ export function enforceSectorEnergyTopBlockConsistency(
   return next;
 }
 
-export const enforceSectorEnergyTopBlocks = enforceSectorEnergyTopBlockConsistency;
-
 /**
  * canonical 과 TopBlocks 가 모순이면 throw 한다 (테스트·런타임 가드).
  * 금지 조합:
@@ -899,8 +897,6 @@ export const SECTOR_ENERGY_OBSERVE_ONLY_INVARIANTS = [
   'PROMOTION_REQUIRES_OFFICIAL_VERIFIED_COVERAGE',
   'SHADOW_EVIDENCE_CONTINUES_WHEN_PROMOTION_DISABLED',
 ] as const;
-
-export type SectorEnergyObserveOnlyInvariant = (typeof SECTOR_ENERGY_OBSERVE_ONLY_INVARIANTS)[number];
 
 /**
  * SectorEnergy observe-only invariant 5종 + shadow continuity 를 정적 검증한다.
@@ -1037,7 +1033,7 @@ function pct1(value: number): string {
 }
 
 /** Block 1 — SectorEnergy Canonical. */
-export function renderSectorEnergyCanonicalBlock(canonical: SectorEnergyCanonicalState): string {
+function renderSectorEnergyCanonicalBlock(canonical: SectorEnergyCanonicalState): string {
   const mappingByKey = new Map(canonical.verifiedOfficialSectorMappings.map((m) => [m.key, m]));
   const mappingLine = (key: OfficialSectorEnergyKey): string => {
     const verified = canonical.verifiedOfficialSectorKeys.includes(key);
@@ -1129,7 +1125,7 @@ export function renderSectorEnergySourceSeparationBlock(
 }
 
 /** Block 2 — Theme Tags. */
-export function renderSectorEnergyThemeTagsBlock(): string {
+function renderSectorEnergyThemeTagsBlock(): string {
   const lines = ['Theme Tags:'];
   for (const tag of EXCLUDED_THEME_TAGS) {
     lines.push(
@@ -1150,7 +1146,7 @@ export interface SectorEnergyDiagnosticSources {
 }
 
 /** Block 3 — Diagnostic Sources (모두 diagnosticOnly, promotion 판단에 영향 없음). */
-export function renderSectorEnergyDiagnosticSourcesBlock(diag: SectorEnergyDiagnosticSources): string {
+function renderSectorEnergyDiagnosticSourcesBlock(diag: SectorEnergyDiagnosticSources): string {
   const lines = ['Diagnostic Sources:'];
   if (typeof diag.oldOfficialTargetCoverage === 'number') {
     lines.push(`  oldOfficialTargetCoverage=${pct1(diag.oldOfficialTargetCoverage)} diagnosticOnly=true`);

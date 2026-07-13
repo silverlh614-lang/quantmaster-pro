@@ -15,7 +15,7 @@ export type Gate1LiquidityFloorStatus =
  * 상시 유동(20일 평균 통과) 종목이 개장초 현재거래량 미달로 FAIL 되는 오탈락을 방지한다.
  * SPIKE_ONLY 의 대칭: avg 통과 + current 저조 + early session → OPENING_RAMP.
  */
-export interface Gate1LiquiditySessionContext {
+interface Gate1LiquiditySessionContext {
   /** 평가 시점(KST 환산용). marketSession 이 명시되면 우선이지만, early-session 판정엔 시각도 사용. */
   now?: unknown;
   /** 명시적 세션 라벨(REGULAR/OPEN 등). early-session 판정의 보조 입력. */
@@ -24,21 +24,21 @@ export interface Gate1LiquiditySessionContext {
   minutesSinceOpen?: number | null;
 }
 
-export type Gate1LiquiditySource =
+type Gate1LiquiditySource =
   | 'KIS_OFFICIAL'
   | 'QMP_QUOTE'
   | 'YAHOO'
   | 'CACHE'
   | 'UNKNOWN';
 
-export type Gate1LiquiditySourceStatus =
+type Gate1LiquiditySourceStatus =
   | 'VERIFIED'
   | 'STALE'
   | 'MISSING'
   | 'DEGRADED'
   | 'UNKNOWN';
 
-export interface Gate1LiquidityThresholds {
+interface Gate1LiquidityThresholds {
   minVolume: number | null;
   minTradingValue: number | null;
   minAvgVolume20d: number | null;
@@ -81,7 +81,7 @@ export interface NormalizeLiquidityFloorInput {
 }
 
 /** 개장(09:00 KST) 후 이 시간(분) 이내를 early session(개장초 ramp)으로 본다. */
-export const GATE1_OPENING_RAMP_WINDOW_MINUTES = 30;
+const GATE1_OPENING_RAMP_WINDOW_MINUTES = 30;
 const KST_MARKET_OPEN_MINUTES = 9 * 60;
 
 /**
@@ -125,7 +125,7 @@ function isEarlySession(session: Gate1LiquiditySessionContext | null | undefined
     && minutes <= KST_MARKET_OPEN_MINUTES + GATE1_OPENING_RAMP_WINDOW_MINUTES;
 }
 
-export const DEFAULT_GATE1_LIQUIDITY_THRESHOLDS: Gate1LiquidityThresholds = {
+const DEFAULT_GATE1_LIQUIDITY_THRESHOLDS: Gate1LiquidityThresholds = {
   minVolume: 100_000,
   minTradingValue: 1_000_000_000,
   minAvgVolume20d: 50_000,

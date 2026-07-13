@@ -362,7 +362,7 @@ export async function calibrateSignalWeights(): Promise<void> {
  *
  * 알 수 없는 레짐(빈값/오타)은 보수적으로 기본 60일.
  */
-export const REGIME_HALFLIFE_DAYS: Record<string, number> = {
+const REGIME_HALFLIFE_DAYS: Record<string, number> = {
   R1_TURBO:   30,
   R2_BULL:    45,
   R3_EARLY:   50,
@@ -371,7 +371,7 @@ export const REGIME_HALFLIFE_DAYS: Record<string, number> = {
   R6_DEFENSE: 90,
 };
 
-export function regimeHalfLifeDays(regime?: string | null): number {
+function regimeHalfLifeDays(regime?: string | null): number {
   if (!regime) return 60;
   return REGIME_HALFLIFE_DAYS[regime] ?? 60;
 }
@@ -401,7 +401,7 @@ export function timeWeight(signalTime: string, regime?: string | null): number {
 const TIMING_SENSITIVE_SERVER_KEYS = new Set(['momentum', 'turtle_high']);
 const TIMING_SENSITIVE_CONDITION_IDS = new Set([18, 20, 21, 22, 26]);
 
-export function isTimingSensitiveServerKey(key: string): boolean {
+function isTimingSensitiveServerKey(key: string): boolean {
   return TIMING_SENSITIVE_SERVER_KEYS.has(key);
 }
 
@@ -418,10 +418,6 @@ export const LATE_WIN_TIMING_PENALTY = 0.7;
 
 export function latePenaltyForServerKey(lateWin: boolean | undefined, key: string): number {
   return lateWin && isTimingSensitiveServerKey(key) ? LATE_WIN_TIMING_PENALTY : 1.0;
-}
-
-export function latePenaltyForConditionId(lateWin: boolean | undefined, id: number): number {
-  return lateWin && isTimingSensitiveConditionId(id) ? LATE_WIN_TIMING_PENALTY : 1.0;
 }
 
 /**

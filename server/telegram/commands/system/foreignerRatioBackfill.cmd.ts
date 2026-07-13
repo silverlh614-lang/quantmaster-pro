@@ -126,7 +126,7 @@ function placeholderRatio(index: number, offset: number): number {
   return parseFloat((3 + (index % 10) * 0.37 + offset * 0.08).toFixed(2));
 }
 
-export async function buildForeignerRatioSeedTemplateMessage(args: string[]): Promise<string> {
+async function buildForeignerRatioSeedTemplateMessage(args: string[]): Promise<string> {
   const requested = Number.parseInt(args[0] ?? String(DEFAULT_TEMPLATE_LIMIT), 10);
   const limit = Number.isFinite(requested) ? Math.max(1, Math.min(20, requested)) : DEFAULT_TEMPLATE_LIMIT;
   const top = selectTopWatchlist(limit);
@@ -224,5 +224,3 @@ const foreignerRatioSeedTemplate: TelegramCommand = {
 
 commandRegistry.register(foreignerRatioBackfill);
 commandRegistry.register(foreignerRatioSeedTemplate);
-
-export default foreignerRatioBackfill;

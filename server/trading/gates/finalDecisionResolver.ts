@@ -4,7 +4,7 @@ import type { DataConfidence } from '../../data/dataConfidenceRouter.js';
 import type { EngineRuntimePolicy } from '../../runtime/engineRuntimePolicy.js';
 import type { ConvictionLabel } from './simpleDecision.js';
 
-export interface EvidenceItem {
+interface EvidenceItem {
   key: string;
   value: unknown;
   source?: string;
@@ -80,26 +80,7 @@ function isAllowedHardFailGate(gate: GateResult | undefined): boolean {
   return gate.blockers.some((blocker) => ALLOWED_GATE_HARD_FAIL_REASONS.has(blocker));
 }
 
-export type GateName =
-  | 'Gate0Macro'
-  | 'Gate1Survival'
-  | 'Gate2Growth'
-  | 'Gate3Timing'
-  | 'EnemyChecklist';
-
-export function asGateResult(gateName: GateName, result: GateResult): GateResult {
-  return { ...result, gateName };
-}
-
-export const EnemyChecklistEvaluator = Object.freeze({
-  warningCount(result: GateResult): number { return result.warnings.length; },
-});
-
-export const ConfluenceEvaluator = Object.freeze({
-  passed(results: GateResult[]): boolean { return results.every((result) => result.passed); },
-});
-
-export const FinalDecisionResolver = Object.freeze({
+const FinalDecisionResolver = Object.freeze({
   resolve(input: FinalDecisionResolverInput): FinalDecisionResolverOutput {
     const blockers = collect(input.gateResults.map((gate) => gate.blockers));
     const warnings = collect(input.gateResults.map((gate) => gate.warnings));
@@ -201,9 +182,9 @@ export type FinalDecisionEntryTimingSignal =
   | 'DATA_INCOMPLETE';
 
 export type FinalDecisionProviderHealthStatus = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
-export type FinalDecisionDataConfidenceCeiling = 'HIGH' | 'MEDIUM' | 'LOW';
+type FinalDecisionDataConfidenceCeiling = 'HIGH' | 'MEDIUM' | 'LOW';
 export type FinalDecisionShadowMode = 'NORMAL' | 'SHADOW_ONLY' | 'OBSERVE_ONLY';
-export type FinalDecisionRequestedSide = 'BUY' | 'SELL' | 'NONE';
+type FinalDecisionRequestedSide = 'BUY' | 'SELL' | 'NONE';
 
 export interface FinalDecisionResolverRuntimeInput {
   sourceSnapshotId: string;
@@ -232,7 +213,7 @@ export interface FinalDecisionResolverRuntimeInput {
   isDiagnosticOnly: boolean;
 }
 
-export type ExecutionPermissionFinalAction =
+type ExecutionPermissionFinalAction =
   | 'LIVE_BUY_ALLOWED'
   | 'LIVE_SELL_ALLOWED'
   | 'SHADOW_BUY_ALLOWED'
@@ -242,20 +223,20 @@ export type ExecutionPermissionFinalAction =
   | 'BLOCKED'
   | 'NO_ACTION';
 
-export type FinalDecisionExecutionImpact =
+type FinalDecisionExecutionImpact =
   | 'NONE'
   | 'LIVE_BUY_BLOCKED'
   | 'LIVE_SELL_BLOCKED'
   | 'LIVE_ALL_BLOCKED'
   | 'ORDER_BLOCKED_DIAGNOSTIC_ONLY';
 
-export type FinalDecisionConfidenceAdjustment =
+type FinalDecisionConfidenceAdjustment =
   | 'NONE'
   | 'DOWNGRADE_LOW'
   | 'DOWNGRADE_MEDIUM'
   | 'POLICY_BLOCK_ONLY';
 
-export type BlockedDecisionLearningTag =
+type BlockedDecisionLearningTag =
   | 'CASE_ENTRY_READY_LIVE_BLOCKED_SELL_ONLY'
   | 'CASE_ENTRY_READY_LIVE_BLOCKED_R6'
   | 'CASE_ENTRY_READY_OBSERVE_ONLY'
@@ -263,7 +244,7 @@ export type BlockedDecisionLearningTag =
   | 'CASE_PROVIDER_DEGRADED_CONFIDENCE_DOWNGRADE'
   | 'CASE_DIAGNOSTIC_ONLY_ORDER_BLOCKED';
 
-export interface BlockedDecisionLearningCase {
+interface BlockedDecisionLearningCase {
   timestamp: string;
   sourceSnapshotId: string;
   symbol: string;
@@ -628,47 +609,4 @@ function countsText(counts: Record<string, number>): string {
     .filter(([, value]) => value > 0)
     .sort((a, b) => b[1] - a[1]);
   return entries.length > 0 ? entries.map(([key, value]) => `${key}:${value}`).join(',') : 'none';
-}
-
-export function formatFinalDecisionRuntimeAuditCompact(summary: FinalDecisionRuntimeAuditSummary): string {
-  return [
-    '[scan_blockers_execution] Final Decision / Execution Permission',
-    `sourceSnapshotId=${summary.sourceSnapshotId}`,
-    `evaluated: ${summary.evaluated}/${summary.evaluated}`,
-    `entryReady: ${summary.entryReady}`,
-    `liveBuyAllowed: ${summary.liveBuyAllowed}`,
-    `liveBuyBlocked: ${summary.liveBuyBlocked}`,
-    `shadowBuyAllowed: ${summary.shadowBuyAllowed}`,
-    `observeOnly: ${summary.observeOnly}`,
-    `wait: ${summary.wait}`,
-    `blocked: ${summary.blocked}`,
-    `topBlockReason: ${countsText(summary.blockReasonDistribution).split(',')[0] ?? 'none'}`,
-    `providerIssueSeparated: ${summary.providerIssueSeparated}`,
-    `providerIssueConvertedToMarketSignal: ${summary.providerIssueConvertedToMarketSignalCount}`,
-    `diagnosticOnlyBlocked: ${summary.diagnosticOnlyBlocked}`,
-    `shadowLearning: ${summary.shadowLearning}`,
-    `counterfactualRecorded: ${summary.counterfactualRecorded}`,
-    `executionImpact: ${countsText(summary.executionImpactDistribution)}`,
-  ].join('\n');
-}
-
-export function formatFinalDecisionRuntimeAuditFull(summary: FinalDecisionRuntimeAuditSummary): string {
-  return [
-    'Final Decision Runtime Wiring Audit',
-    `policyMatrix: ${countsText(summary.policyMatrixDistribution)}`,
-    `blockReasons: ${countsText(summary.blockReasonDistribution)}`,
-    `gate3Transition: ${countsText(summary.gate3TransitionDistribution)}`,
-    `entryReadyButLiveBlocked: ${summary.entryReadyButLiveBlockedCount}`,
-    `entryReadyShadowAllowed: ${summary.entryReadyShadowAllowedCount}`,
-    `entryReadyObserveOnly: ${summary.entryReadyObserveOnlyCount}`,
-    `gate3LivePermissionLeakDetected: ${summary.gate3LivePermissionLeakDetected}`,
-    `lastTriggerDirectOrderLeakDetected: ${summary.lastTriggerDirectOrderLeakDetected}`,
-    `diagnosticOnlyBrokerOrderLeakDetected: ${summary.diagnosticOnlyBrokerOrderLeakDetected}`,
-    `shadowLearningSuppressed: ${summary.shadowLearningSuppressedCount}`,
-    `blockedBuyRecordedAsLearningCase: ${summary.blockedBuyRecordedAsLearningCaseCount}`,
-    'SampleDecisions:',
-    ...summary.decisions.slice(0, 8).map((decision) =>
-      `- ${decision.symbol} gate=${decision.decisionTrace.gateDecision} final=${decision.finalAction} liveBuy=${decision.liveBuyAllowed} shadowBuy=${decision.shadowBuyAllowed} impact=${decision.executionImpact} reasons=${decision.blockReasons.join('|') || 'none'} trace=${decision.correlationId}`,
-    ),
-  ].join('\n');
 }

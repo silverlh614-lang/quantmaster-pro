@@ -379,5 +379,3 @@ export function ConditionLearningPanel(): React.ReactElement {
     </div>
   );
 }
-
-export default ConditionLearningPanel;

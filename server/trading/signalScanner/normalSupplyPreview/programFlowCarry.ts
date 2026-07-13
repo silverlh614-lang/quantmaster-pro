@@ -190,7 +190,7 @@ export function buildProgramFlowUpstreamPopulation<T extends CandidateWithSupply
   };
 }
 
-export function emptyProgramFlowUpstreamPopulationTrace(carryAttempted: boolean): ProgramFlowUpstreamPopulationTrace {
+function emptyProgramFlowUpstreamPopulationTrace(carryAttempted: boolean): ProgramFlowUpstreamPopulationTrace {
   return {
     stockLevel: {
       programNetBuyAmountFieldCreated: false,
@@ -231,7 +231,7 @@ export function emptyProgramFlowUpstreamPopulationTrace(carryAttempted: boolean)
   };
 }
 
-export const STOCK_PROGRAM_CONTEXT_ALIAS_KEYS = [
+const STOCK_PROGRAM_CONTEXT_ALIAS_KEYS = [
   'stockProgramNetBuyAmount',
   'stockProgramNetBuy',
   'programNetBuy',
@@ -266,7 +266,7 @@ export function wireStockProgramNetBuyContextAliases<T extends CandidateWithSupp
   }
 }
 
-export function candidateStockProgramMatchSymbols(candidate: CandidateWithSupplyContext): string[] {
+function candidateStockProgramMatchSymbols(candidate: CandidateWithSupplyContext): string[] {
   const ctx = candidate.preflight?.supplyContext ?? candidate.supplyContext;
   return Array.from(new Set([
     candidatePreviewSymbol(candidate),
@@ -276,7 +276,7 @@ export function candidateStockProgramMatchSymbols(candidate: CandidateWithSupply
   ].filter(Boolean)));
 }
 
-export function normalizeStockProgramMatchSymbol(value: unknown): string {
+function normalizeStockProgramMatchSymbol(value: unknown): string {
   if (typeof value !== 'string' && typeof value !== 'number') return '';
   const raw = String(value).trim();
   if (!raw) return '';
@@ -284,7 +284,7 @@ export function normalizeStockProgramMatchSymbol(value: unknown): string {
   return digits.length >= 6 ? digits.slice(-6) : digits.padStart(6, '0');
 }
 
-export function candidateProgramContextRecords(
+function candidateProgramContextRecords(
   candidate: CandidateWithSupplyContext,
   supplyContext: PerSymbolSupplyContext,
 ): Record<string, unknown>[] {
@@ -299,7 +299,7 @@ export function candidateProgramContextRecords(
   ]);
 }
 
-export function accumulateStockSourceTrace(
+function accumulateStockSourceTrace(
   trace: ProgramFlowUpstreamPopulationTrace,
   records: Record<string, unknown>[],
   source: 'SNAPSHOT' | 'CACHE' | 'PROGRAM_TRADING',
@@ -321,7 +321,7 @@ export function accumulateStockSourceTrace(
   }
 }
 
-export function toStockCarry(
+function toStockCarry(
   source: ProgramFlowStockCarrySource,
   records: Record<string, unknown>[],
   sourceProvider: ProgramFlowSourceProvider,
@@ -338,7 +338,7 @@ export function toStockCarry(
   };
 }
 
-export function chooseStockPopulationBreakPoint(
+function chooseStockPopulationBreakPoint(
   stock: ProgramFlowUpstreamPopulationTrace['stockLevel'],
 ): ProgramFlowStockEvidenceBreakPoint {
   if (stock.carrySuccessCount > 0) {
@@ -441,7 +441,7 @@ export function buildMarketProgramCarry<T extends CandidateWithSupplyContext>(
   };
 }
 
-export function toMarketCarry(
+function toMarketCarry(
   source: ProgramFlowMarketCarrySource,
   normalized: ProgramFlowValueNormalizationResult & { key: string; value: number },
   sourceProvider: ProgramFlowSourceProvider,
@@ -455,7 +455,7 @@ export function toMarketCarry(
   };
 }
 
-export function chooseMarketPopulationBreakPoint(
+function chooseMarketPopulationBreakPoint(
   market: ProgramFlowUpstreamPopulationTrace['marketLevel'],
 ): ProgramFlowMarketEvidenceBreakPoint {
   if (market.carrySource === 'LATEST_INTRADAY_MARKET_PROGRAM_SNAPSHOT') return 'MARKET_PROGRAM_VALUE_CARRIED_FROM_SNAPSHOT';

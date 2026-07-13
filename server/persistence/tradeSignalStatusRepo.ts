@@ -48,7 +48,7 @@ export type TradeSignalBlockGate =
   | 'EMERGENCY_STOP'
   | 'OTHER';
 
-export interface TradeSignalTransition {
+interface TradeSignalTransition {
   /** null = 초기 진입 (AI_CANDIDATE 첫 등록) */
   from: TradeSignalStatus | null;
   to: TradeSignalStatus;
@@ -78,7 +78,7 @@ export interface TradeSignalRecord {
 // ─── 상수 SSOT ───────────────────────────────────────────────────────────────
 
 export const TRADE_SIGNAL_STATUS_MAX = 1000;
-export const CURRENT_TRADE_SIGNAL_SCHEMA_VERSION = 1 as const;
+const CURRENT_TRADE_SIGNAL_SCHEMA_VERSION = 1 as const;
 const TRANSITIONS_MAX = 32;
 
 export const ALL_TRADE_SIGNAL_STATUSES: readonly TradeSignalStatus[] = [
@@ -434,12 +434,3 @@ export function markBlocked(input: {
 }
 
 // ─── 테스트 격리 헬퍼 ─────────────────────────────────────────────────────────
-
-/** 테스트 전용 — 디스크 파일 삭제. 프로덕션 호출 금지. */
-export function __resetTradeSignalStatusForTests(filePath: string = TRADE_SIGNAL_STATUS_FILE): void {
-  try {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  } catch {
-    /* SDS-ignore: 테스트 격리 실패는 무시 — beforeEach 가 다시 호출 */
-  }
-}

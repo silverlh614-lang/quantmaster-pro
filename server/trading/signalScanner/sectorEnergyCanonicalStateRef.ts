@@ -15,7 +15,3 @@ export function setLastSectorEnergyCanonicalState(
 export function getLastSectorEnergyCanonicalState(): SectorEnergyCanonicalState | null {
   return lastSectorEnergyCanonicalState;
 }
-
-export function resetLastSectorEnergyCanonicalStateForTests(): void {
-  lastSectorEnergyCanonicalState = null;
-}

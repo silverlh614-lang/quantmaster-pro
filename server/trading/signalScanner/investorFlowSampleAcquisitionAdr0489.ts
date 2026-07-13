@@ -8,14 +8,14 @@ import {
   type SupplyCoverageReportAdr0496,
 } from './investorFlowSemanticNetBuyAdr0496.js';
 
-export type InvestorFlowSampleAcquisitionStatusAdr0489 =
+type InvestorFlowSampleAcquisitionStatusAdr0489 =
   | 'SAMPLE_READY'
   | 'EMPTY'
   | 'DATA_UNAVAILABLE'
   | 'PROVIDER_ERROR'
   | 'UNKNOWN';
 
-export type InvestorFlowSampleSignalAdr0489 = 'BULLISH' | 'BEARISH' | 'UNKNOWN';
+type InvestorFlowSampleSignalAdr0489 = 'BULLISH' | 'BEARISH' | 'UNKNOWN';
 
 export interface InvestorFlowSemanticSampleAdr0489 {
   symbol: string;
@@ -220,10 +220,4 @@ export function buildInvestorFlowSampleAcquisitionReportAdr0489(
       `ADR-0496 coverageAfter=${adr0496SupplyCoverage.coverageAfter} normalizedSampleCount=${adr0496SupplyCoverage.normalizedSampleCount} semanticNetBuyCount=${adr0496SupplyCoverage.semanticNetBuyCount}`,
     ],
   };
-}
-
-export function formatInvestorFlowSampleAcquisitionLineAdr0489(
-  report: InvestorFlowSampleAcquisitionReportAdr0489,
-): string {
-  return `ADR-0489 InvestorFlowSample: ${report.status} | samples=${report.samples.length} | selected=${report.selectedSample?.provider ?? 'NONE'} | adr0496CoverageAfter=${report.adr0496SupplyCoverage.coverageAfter} | semanticNetBuy=${report.adr0496SupplyCoverage.semanticNetBuyCount} | impact=${report.executionImpact}`;
 }

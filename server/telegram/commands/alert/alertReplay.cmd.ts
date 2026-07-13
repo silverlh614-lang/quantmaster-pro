@@ -27,4 +27,3 @@ const alertReplay: TelegramCommand = {
   },
 };
 commandRegistry.register(alertReplay);
-export default alertReplay;

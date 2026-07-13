@@ -45,7 +45,7 @@ import {
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
-export interface PipelineYield {
+interface PipelineYield {
   /** 발굴 → Gate1 통과율 (%) */
   discoveryYield: number;
   /** Gate1 → Gate2+3 통과율 (%) */
@@ -56,7 +56,7 @@ export interface PipelineYield {
   tradeYield: number;
 }
 
-export interface ScorecardEntry {
+interface ScorecardEntry {
   date: string;                    // YYYY-MM-DD
   createdAt: string;               // ISO
   // ── 파이프라인 카운트 ───────────────────────────────────────────────────────

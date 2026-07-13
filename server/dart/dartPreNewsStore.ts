@@ -6,7 +6,7 @@ import type { DartPreNewsCandidate } from './dartPreNewsTypes.js';
 
 const DART_PRE_NEWS_FILE = path.join(DATA_DIR, 'dart-pre-news-candidates.json');
 
-export function loadDartPreNewsCandidates(): DartPreNewsCandidate[] {
+function loadDartPreNewsCandidates(): DartPreNewsCandidate[] {
   ensureDataDir();
   if (!fs.existsSync(DART_PRE_NEWS_FILE)) return [];
   try {
@@ -17,7 +17,7 @@ export function loadDartPreNewsCandidates(): DartPreNewsCandidate[] {
   }
 }
 
-export function saveDartPreNewsCandidates(candidates: DartPreNewsCandidate[]): void {
+function saveDartPreNewsCandidates(candidates: DartPreNewsCandidate[]): void {
   ensureDataDir();
   const deduped = dedupeDartPreNewsCandidates(candidates).slice(-500);
   fs.writeFileSync(DART_PRE_NEWS_FILE, JSON.stringify(deduped, null, 2));
@@ -36,15 +36,4 @@ export function dedupeDartPreNewsCandidates(candidates: DartPreNewsCandidate[]):
   const byDisclosureId = new Map<string, DartPreNewsCandidate>();
   for (const candidate of candidates) byDisclosureId.set(candidate.disclosureId, candidate);
   return Array.from(byDisclosureId.values());
-}
-
-export function indexDartPreNewsByStockCode(candidates = loadDartPreNewsCandidates()): Map<string, DartPreNewsCandidate[]> {
-  const index = new Map<string, DartPreNewsCandidate[]>();
-  for (const candidate of candidates) {
-    if (!candidate.stockCode) continue;
-    const bucket = index.get(candidate.stockCode) ?? [];
-    bucket.push(candidate);
-    index.set(candidate.stockCode, bucket);
-  }
-  return index;
 }

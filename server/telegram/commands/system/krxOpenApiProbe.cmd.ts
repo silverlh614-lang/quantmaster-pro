@@ -21,10 +21,6 @@ import { buildSectorEnergyInputsWithMeta } from '../../../clients/sectorEnergyPr
 const PROBE_RATE_LIMIT_MS = 60_000;
 let _lastProbeAt = 0;
 
-export function __resetKrxOpenApiProbeRateLimitForTests(): void {
-  _lastProbeAt = 0;
-}
-
 function shortPreview(s: string | undefined, max = 120): string {
   if (!s) return '';
   const cleaned = s.replace(/\s+/g, ' ').trim();
@@ -125,5 +121,3 @@ const krxOpenApiProbe: TelegramCommand = {
 };
 
 commandRegistry.register(krxOpenApiProbe);
-
-export default krxOpenApiProbe;

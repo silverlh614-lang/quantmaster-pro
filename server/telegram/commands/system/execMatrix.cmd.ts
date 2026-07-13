@@ -80,5 +80,3 @@ const execMatrix: TelegramCommand = {
 };
 
 commandRegistry.register(execMatrix);
-
-export default execMatrix;

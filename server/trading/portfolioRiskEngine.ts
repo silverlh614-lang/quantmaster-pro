@@ -77,7 +77,7 @@ export interface SectorRiskConfig {
   allowLiveSectorAutoAction: boolean;
 }
 
-export const DEFAULT_SECTOR_RISK_CONFIG: SectorRiskConfig = Object.freeze({
+const DEFAULT_SECTOR_RISK_CONFIG: SectorRiskConfig = Object.freeze({
   maxSectorConcentrationByOpenPositionsPct: Number(process.env.MAX_SECTOR_CONCENTRATION_BY_OPEN_POSITIONS_PCT ?? 30),
   maxSectorExposureByCapitalPct: Number(process.env.MAX_SECTOR_EXPOSURE_BY_CAPITAL_PCT ?? 30),
   maxSectorExposureByNavPct: Number(process.env.MAX_SECTOR_EXPOSURE_BY_NAV_PCT ?? 30),
@@ -428,24 +428,6 @@ export function buildSectorObserveOnlyAlert(input: {
     `판정: 초기/소형 SHADOW 포지션 착시`,
     `자동 액션: 없음`,
     `사유: ${reasons.join(', ')}`,
-  ].join('\n');
-}
-
-export function buildShadowProfitProtectionCandidateAlert(input: {
-  target: SectorTighteningMeta;
-  previousStop: number;
-}): string {
-  const pnlSign = input.target.pnlPct >= 0 ? '+' : '';
-  return [
-    `🟡 <b>[SHADOW 수익 보호 후보]</b>`,
-    `종목: ${input.target.stockName}(${input.target.stockCode})`,
-    `현재 수익률: ${pnlSign}${input.target.pnlPct.toFixed(2)}%`,
-    `현재가: ${input.target.currentPrice.toLocaleString()}원`,
-    `기존 손절: ${input.previousStop.toLocaleString()}원`,
-    `트레일링 후보: ${input.target.tightStop.toLocaleString()}원`,
-    ``,
-    `판정: 수익 보호 조건 후보`,
-    `주의: 실계좌 주문 아님 / 섹터 집중도 대응 아님`,
   ].join('\n');
 }
 

@@ -124,7 +124,7 @@ const regime: TelegramCommand = {
 };
 
 
-export function formatMacroHardStaleGuide(snapshot: {
+function formatMacroHardStaleGuide(snapshot: {
   macroFreshness?: string;
   macroAgeSec?: number;
   macroLastRefreshAttemptAt?: string;
@@ -164,7 +164,7 @@ export function formatR6RecoveryLine(input: {
   return `r6RecoveryStatus=${input.r6RecoveryStatus} cooldownUntil=${input.cooldownUntil ?? 'N/A'} confirmations=${confirmations} recoveryEvidence=${reasons} transitionReason=${input.transitionReason}`;
 }
 
-export function formatR6TriggerBreakdownLine(input: { activeR6Triggers: string[]; staleR6Triggers: string[]; kospiDayReturn?: number; kospiCloseReturn?: number; kospiIntradayLowReturn?: number; kospiIntradayHighReturn?: number; vkospiDayChange?: number; usdKrwDayChange?: number; triggerFreshness: string; staleCarryForward: boolean; staleBlockedRecovery: boolean }): string {
+function formatR6TriggerBreakdownLine(input: { activeR6Triggers: string[]; staleR6Triggers: string[]; kospiDayReturn?: number; kospiCloseReturn?: number; kospiIntradayLowReturn?: number; kospiIntradayHighReturn?: number; vkospiDayChange?: number; usdKrwDayChange?: number; triggerFreshness: string; staleCarryForward: boolean; staleBlockedRecovery: boolean }): string {
   const fmt = (value: number | undefined) => value === undefined ? 'N/A' : value.toFixed(2);
   return `r6TriggerBreakdown activeR6Triggers=[${input.activeR6Triggers.join(',') || 'none'}] staleR6Triggers=[${input.staleR6Triggers.join(',') || 'none'}] kospiDayReturn=${fmt(input.kospiDayReturn)} kospiCloseReturn=${fmt(input.kospiCloseReturn)} kospiIntradayLowReturn=${fmt(input.kospiIntradayLowReturn)} kospiIntradayHighReturn=${fmt(input.kospiIntradayHighReturn)} vkospiDayChange=${fmt(input.vkospiDayChange)} usdKrwDayChange=${fmt(input.usdKrwDayChange)} triggerFreshness=${input.triggerFreshness} staleCarryForward=${input.staleCarryForward} staleBlockedRecovery=${input.staleBlockedRecovery}`;
 }
@@ -230,7 +230,7 @@ export function formatLiveRegimeLine(liveRegime: RegimeLevel): string {
  * 사용자가 "환율 1380 vs 실제 1474" 같은 stale 격차를 즉시 인지할 수 있도록
  * 마지막 갱신 시각 + N시간 경과 + ⚠️/❌ 마커 동시 노출.
  */
-export function formatRegimeFreshnessLine(updatedAt?: string): string {
+function formatRegimeFreshnessLine(updatedAt?: string): string {
   if (!updatedAt) return '업데이트: N/A';
   const t = Date.parse(updatedAt);
   if (!Number.isFinite(t)) return '업데이트: N/A';
@@ -365,5 +365,3 @@ export function formatMhsConfidenceLine(macro: {
 }
 
 commandRegistry.register(regime);
-
-export default regime;

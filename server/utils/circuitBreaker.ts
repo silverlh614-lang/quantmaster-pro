@@ -13,7 +13,7 @@
  *   const result = await cb.exec(() => fetch(...));
  */
 
-export type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
 
 export interface CircuitBreakerOptions {
   name: string;

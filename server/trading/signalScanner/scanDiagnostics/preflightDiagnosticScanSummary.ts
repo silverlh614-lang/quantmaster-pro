@@ -130,7 +130,7 @@ export function buildPreflightDiagnosticScanSummary(
 }
 
 /** preflight diagnostic 으로 영속된 ScanSummary 식별 (실제 스캔 summary 와 구분 — setter 가 clobber 회피에 사용). */
-export const PREFLIGHT_DIAGNOSTIC_SOURCE_PATH_PREFIX = 'preflightBlockedScanSummary';
+const PREFLIGHT_DIAGNOSTIC_SOURCE_PATH_PREFIX = 'preflightBlockedScanSummary';
 
 export function isPreflightDiagnosticScanSummary(summary: ScanSummary | null): boolean {
   const sourcePath = summary?.scanEvaluation?.sourcePath;

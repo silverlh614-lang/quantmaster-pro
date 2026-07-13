@@ -5,9 +5,9 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from './telegramClient.js';
 
 /** Bear 알림 재발송 최소 간격 (밀리초): 4시간 */
-export const BEAR_ALERT_COOLDOWN_MS = 4 * 60 * 60 * 1000;
+const BEAR_ALERT_COOLDOWN_MS = 4 * 60 * 60 * 1000;
 
-export interface BearAlertState {
+interface BearAlertState {
   lastSentAt: string;   // ISO — 마지막 알림 발송 시각
   lastRegime: string;   // 마지막 알림 당시 regime
 }

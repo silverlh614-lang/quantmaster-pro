@@ -24,7 +24,7 @@ import {
 
 const DEFAULT_MIN_SAMPLE = 5;
 
-export interface KellyCell {
+interface KellyCell {
   signalType: string;
   regime: string;
   samples: number;
@@ -130,33 +130,6 @@ export function computeKellySurface(history?: RecommendationRecord[]): KellySurf
     convergedCells: cells.filter(c => c.samples >= 20 && c.marginalPrecisionGainForNext10 < 0.01),
     highPriorityCells: cells.filter(c => c.samples < 30 && c.marginalPrecisionGainForNext10 >= 0.02),
   };
-}
-
-export function formatKellySurface(report?: KellySurfaceReport): string {
-  const r = report ?? computeKellySurface();
-  const lines = [
-    '🧮 <b>[Kelly Surface Map — (p, b) 학습 상태]</b>',
-    `전체 추천: ${r.overallSamples}건`,
-    '━━━━━━━━━━━━━━━━',
-  ];
-  const ranked = [...r.cells].sort((a, b) => b.samples - a.samples);
-  for (const c of ranked) {
-    if (c.samples === 0) continue;
-    const p100 = (c.p * 100).toFixed(0);
-    const ci = isFinite(c.pHalfWidth) ? `±${(c.pHalfWidth * 100).toFixed(1)}%p` : 'n/a';
-    const kellyStr = c.kellyStar > 0 ? `Kelly*=${(c.kellyStar * 100).toFixed(1)}%` : 'Kelly*=0';
-    lines.push(
-      `${c.signalType}·${c.regime}: n=${c.samples} · p=${p100}% ${ci} · b=${c.b.toFixed(2)} · ${kellyStr}`,
-    );
-  }
-  lines.push('━━━━━━━━━━━━━━━━');
-  lines.push(`✅ 수렴(1%p 이하 한계효용): ${r.convergedCells.length}개`);
-  lines.push(`🔶 샘플 더 필요(≥2%p 효용): ${r.highPriorityCells.length}개`);
-  if (r.highPriorityCells.length > 0) {
-    const top = r.highPriorityCells[0];
-    lines.push(`   → 우선순위: ${top.signalType}·${top.regime} (+10샘플 시 ±${(top.pHalfWidth*100).toFixed(1)}%p → ±${((top.pHalfWidth - top.marginalPrecisionGainForNext10)*100).toFixed(1)}%p)`);
-  }
-  return lines.join('\n');
 }
 
 /**

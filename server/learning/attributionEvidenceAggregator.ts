@@ -34,7 +34,7 @@ export interface AttributionOutcomeQualitySummary {
   avgR: number;
 }
 
-export function createEmptyAttributionBuckets(): AttributionBuckets {
+function createEmptyAttributionBuckets(): AttributionBuckets {
   return {
     coreEligible: [],
     candidateOnly: [],
@@ -127,7 +127,7 @@ export function isAttributionEvidenceWin(record: AttributionEvidenceRecord): boo
     || (record.winLoss === undefined && (record.returnPct ?? 0) > 0);
 }
 
-export function isAttributionEvidenceLoss(record: AttributionEvidenceRecord): boolean {
+function isAttributionEvidenceLoss(record: AttributionEvidenceRecord): boolean {
   if (record.winRateBucket === 'LOSS') return true;
   if (record.winRateBucket === 'WIN_FULL' || record.winRateBucket === 'WIN_PARTIAL' || record.winRateBucket === 'BREAKEVEN' || record.winRateBucket === 'EXCLUDED') return false;
 

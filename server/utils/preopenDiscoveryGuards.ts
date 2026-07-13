@@ -1,22 +1,4 @@
 // @responsibility PREOPEN discovery-only throttle helpers
-/**
- * PATCH-PREOPEN-DISCOVERY-THROTTLE-001 — shared guards for the KST 08:45~09:00
- * preopen discovery layer.  These helpers intentionally do not affect EXIT,
- * position-management, order, reconcile, shadow-position-management, ledger, or
- * virtual-account paths.
- */
-
-export type KisRealDataPurpose =
-  | 'DISCOVERY'
-  | 'TELEMETRY'
-  | 'SCREENER'
-  | 'EXIT'
-  | 'POSITION_MANAGEMENT'
-  | 'ORDER'
-  | 'RECONCILE'
-  | 'SHADOW_POSITION_MANAGEMENT'
-  | string;
-
 const PREOPEN_START = 845;
 const PREOPEN_END_EXCLUSIVE = 900;
 const DISCOVERY_PURPOSES = new Set(['DISCOVERY', 'TELEMETRY', 'SCREENER']);
@@ -35,14 +17,14 @@ const PREOPEN_REALDATA_GUARDED_TR_IDS = new Set([
 
 export const PREOPEN_AUTOPOPULATE_TTL_MS = 10 * 60 * 1000;
 
-export interface KstClockParts {
+interface KstClockParts {
   yyyymmdd: string;
   hhmm: string;
   t: number;
   dow: number;
 }
 
-export function getKstClockParts(now = new Date()): KstClockParts {
+function getKstClockParts(now = new Date()): KstClockParts {
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   const yyyy = String(kst.getUTCFullYear());
   const mm = String(kst.getUTCMonth() + 1).padStart(2, '0');
@@ -66,7 +48,7 @@ export function normalizeKisPurpose(purpose?: string): string {
   return (purpose ?? 'DISCOVERY').trim().toUpperCase() || 'DISCOVERY';
 }
 
-export function isProtectedKisPurpose(purpose?: string): boolean {
+function isProtectedKisPurpose(purpose?: string): boolean {
   return PROTECTED_PURPOSES.has(normalizeKisPurpose(purpose));
 }
 

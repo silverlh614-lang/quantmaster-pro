@@ -5,7 +5,7 @@
 import { emitLegacyOperationalWarn } from '../../../observability/legacyOperationalWarnAdapter.js';
 import type { ExecutionImpact } from '../../../observability/executionImpact.js';
 
-export type KisOrderP0WarnCode =
+type KisOrderP0WarnCode =
   | 'P0_KIS_BUY_ORDER_BLOCKED'
   | 'P0_KIS_SELL_ORDER_BLOCKED'
   | 'P0_KIS_ORDER_REJECTED'

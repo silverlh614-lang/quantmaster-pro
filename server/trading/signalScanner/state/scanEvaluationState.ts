@@ -73,7 +73,7 @@ function stringField(source: unknown, key: string): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-export type ScanMarketCanonicalSession = 'REGULAR_OPEN' | 'POST_CLOSE' | 'CLOSED' | 'HOLIDAY' | 'UNKNOWN';
+type ScanMarketCanonicalSession = 'REGULAR_OPEN' | 'POST_CLOSE' | 'CLOSED' | 'HOLIDAY' | 'UNKNOWN';
 
 export interface ScanMarketSessionView {
   marketSessionState: string;
@@ -342,10 +342,6 @@ export function buildScanEvaluationResult(
       ...(classification.unmapped ? { unmappedBlockReason: true } : {}),
     },
   };
-}
-
-export function isNotEvaluatedScanState(state: ScanEvaluationState): boolean {
-  return state.startsWith('NOT_EVALUATED_');
 }
 
 function displaySourcePath(sourcePath: string | undefined): string {

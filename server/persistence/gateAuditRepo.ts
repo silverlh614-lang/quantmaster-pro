@@ -35,7 +35,7 @@ import type { ConditionEvalOutput, ConditionEvalStatus } from '../quant/conditio
  *
  * 기존 영속 파일에 `unavailable`/`error` 부재 시 `??= 0` 로 자동 채움.
  */
-export interface GateConditionStats {
+interface GateConditionStats {
   passed: number;
   failed: number;
   unavailable?: number;
@@ -66,17 +66,6 @@ export function saveGateAudit(store: GateAuditStore): void {
   // 이전 동작: file 만 갱신 → 다음 loadGateAudit 호출 시 stale `_auditCache` 반환 →
   // 테스트 간 누적 오염 (`expected 1 to be 2` 패턴). 이제 file + memory 동시 갱신.
   _auditCache = store;
-}
-
-/**
- * ADR-0418 baseline cleanup — `_auditCache` 모듈 상태 명시 reset 헬퍼 (테스트 격리용).
- *
- * `vi.resetModules()` 가 가능한 곳에서는 그것이 우선이지만, 일부 테스트 파일은
- * top-level `import` 로 함수를 가져온 뒤 `saveGateAudit({})` 으로만 격리 시도하던
- * 결함이 있었음. 본 헬퍼는 그 격리 패턴을 보강 (file + cache 동시 reset).
- */
-export function __resetGateAuditCacheForTests(): void {
-  _auditCache = null;
 }
 
 /**
@@ -191,17 +180,4 @@ export function flushGateAudit(): void {
   if (!_auditCache) return;
   saveGateAudit(_auditCache);
   console.log('[GateAudit] 플러시 완료');
-}
-
-/**
- * 여러 종목의 Gate 평가 결과를 한 번의 파일 I/O로 일괄 기록.
- * recordGateAudit + flushGateAudit 패턴을 선호하지만,
- * 외부에서 keys 배열을 직접 넘기고 싶을 때 사용.
- */
-export function recordGateAuditBatch(allPassedKeys: string[][]): void {
-  if (allPassedKeys.length === 0) return;
-  for (const passedKeys of allPassedKeys) {
-    recordGateAudit(passedKeys);
-  }
-  flushGateAudit();
 }

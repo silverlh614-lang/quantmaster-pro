@@ -25,7 +25,7 @@ export interface ClientRecommendationRecord {
   return90d?: number;
 }
 
-export interface ClientMonthlyStats {
+interface ClientMonthlyStats {
   month: string;
   total: number;
   wins: number;

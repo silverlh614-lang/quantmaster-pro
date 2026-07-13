@@ -2,7 +2,7 @@
 import type { OperatorActionSource } from './operatorActionRouterAdr0480.js';
 import { LEGACY_GATE1_REQUIRED_SCORE } from '../gateConfig.js';
 
-export type SupplyRecoveryMountStatus =
+type SupplyRecoveryMountStatus =
   | 'MOUNTED'
   | 'PARTIAL'
   | 'LEGACY_OUTPUT_DETECTED'
@@ -10,7 +10,7 @@ export type SupplyRecoveryMountStatus =
   | 'NOT_MOUNTED'
   | 'UNKNOWN';
 
-export type SupplyRecoveryMountCheckId =
+type SupplyRecoveryMountCheckId =
   | 'ADR_0481_NAVER_COLLECTOR_MOUNT'
   | 'ADR_0482_SEMANTIC_NETBUY_MOUNT'
   | 'ADR_0483_FRESHNESS_MOUNT'
@@ -21,7 +21,7 @@ export type SupplyRecoveryMountCheckId =
   | 'ADR_0479_DETAIL_REGISTRY_MOUNT'
   | 'RUNTIME_PIPELINE_AUDIT_EVIDENCE_MOUNT';
 
-export type SupplyRecoveryLegacyOutputCode =
+type SupplyRecoveryLegacyOutputCode =
   | 'NAVER_NOT_WIRED_LEGACY'
   | 'SEMANTIC_NETBUY_COLLECTOR_NOT_WIRED_LEGACY'
   | 'READINESS_AUDIT_EVIDENCE_MISSING'
@@ -30,7 +30,7 @@ export type SupplyRecoveryLegacyOutputCode =
   | 'RECOVERY_OBSERVATION_ABSENT'
   | 'UNKNOWN_LEGACY_OUTPUT';
 
-export interface SupplyRecoveryMountCheckAdr0486 {
+interface SupplyRecoveryMountCheckAdr0486 {
   id: SupplyRecoveryMountCheckId;
   status: SupplyRecoveryMountStatus;
   expectedRuntimeSignal: string;
@@ -533,7 +533,7 @@ export function formatSupplyRecoveryRuntimeMountCompactAdr0486(report: SupplyRec
   return lines.join('\n');
 }
 
-export function formatSupplyRecoveryRuntimeMountDetailAdr0486(report: SupplyRecoveryRuntimeMountReportAdr0486): string {
+function formatSupplyRecoveryRuntimeMountDetailAdr0486(report: SupplyRecoveryRuntimeMountReportAdr0486): string {
   const lines = [
     'ADR-0486 Supply Recovery Runtime Mount Verification',
     `overallStatus=${report.overallStatus} mounted=${report.mountedCount} partial=${report.partialCount} missingEvidence=${report.missingEvidenceCount} legacy=${report.legacyOutputCount}`,
@@ -574,34 +574,6 @@ export function getSupplyRecoveryRuntimeMountDetailRegistryEntryAdr0486(
     liveExecutionAllowed: false,
     render: () => formatSupplyRecoveryRuntimeMountDetailAdr0486(report),
   };
-}
-
-export function collectOperatorActionSourcesFromSupplyRecoveryRuntimeMountAdr0486(
-  report: SupplyRecoveryRuntimeMountReportAdr0486 | null | undefined,
-): OperatorActionSource[] {
-  if (!report) return [];
-  const sources: OperatorActionSource[] = [];
-  if (report.legacyOutputCount > 0) {
-    sources.push({
-      adr: '0486',
-      sectionId: 'supply_recovery_runtime_mount',
-      code: 'SUPPLY_RECOVERY_RUNTIME_MOUNT_GAP',
-      diagnosticKey: 'RuntimeMount',
-      diagnosticValue: report.topMountGaps.join(',') || 'legacy output detected',
-      severity: 'ERROR',
-    });
-  }
-  if (report.checks.some((check) => check.legacyOutputCode === 'READINESS_AUDIT_EVIDENCE_MISSING')) {
-    sources.push({
-      adr: '0486',
-      sectionId: 'runtime_pipeline_audit',
-      code: 'SUPPLY_READINESS_EVIDENCE_MISSING',
-      diagnosticKey: 'readinessAuditEvidence',
-      diagnosticValue: 'missing',
-      severity: 'ERROR',
-    });
-  }
-  return sources;
 }
 
 export function buildSupplyRecoveryRuntimeMountObservationRowAdr0486(

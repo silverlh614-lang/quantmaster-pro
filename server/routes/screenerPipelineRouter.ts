@@ -9,7 +9,7 @@ import { loadTodayScanTraces, type ScanTrace } from '../trading/scanTracer.js';
 
 const router = Router();
 
-export interface PipelineStage {
+interface PipelineStage {
   id: 'UNIVERSE' | 'CANDIDATES' | 'MOMENTUM_PASS' | 'GATE1_PASS' | 'RRR_PASS' | 'ENTRIES';
   label: string;
   count: number;
@@ -158,7 +158,7 @@ const VALID_STAGES = new Set<PipelineDrilldownStage>([
   'CANDIDATES', 'MOMENTUM_PASS', 'GATE1_PASS', 'RRR_PASS', 'ENTRIES',
 ]);
 
-export interface PipelineStockEntry {
+interface PipelineStockEntry {
   stock: string;
   name: string;
   outcome: 'PASSED' | 'DROPPED' | 'EXECUTED';

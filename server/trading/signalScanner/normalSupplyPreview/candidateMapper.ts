@@ -194,12 +194,12 @@ export function buildMissingContext(symbol: string): PerSymbolSupplyContext {
   };
 }
 
-export function normalizeHealth(value: unknown): SupplyProviderHealth {
+function normalizeHealth(value: unknown): SupplyProviderHealth {
   if (value === 'VERIFIED' || value === 'DEGRADED' || value === 'STALE' || value === 'MISSING') return value;
   return 'UNKNOWN';
 }
 
-export function normalizeSignal(value: unknown): SupplySignal {
+function normalizeSignal(value: unknown): SupplySignal {
   if (
     value === 'BULLISH' ||
     value === 'ACCUMULATING' ||
@@ -351,7 +351,7 @@ export function normalizeMarketProgramFlow(
   };
 }
 
-export function isAfterMarketZeroPlaceholderProgramFlow(input: {
+function isAfterMarketZeroPlaceholderProgramFlow(input: {
   sessionGuard?: ProgramFlowSessionGuard;
   records: Record<string, unknown>[];
   sourceProvider: ProgramFlowSourceProvider;
@@ -369,7 +369,7 @@ export function isAfterMarketZeroPlaceholderProgramFlow(input: {
   return numericValues.length > 0 && numericValues.every((value) => value === 0);
 }
 
-export function collectMarketProgramNumericValues(records: Record<string, unknown>[]): number[] {
+function collectMarketProgramNumericValues(records: Record<string, unknown>[]): number[] {
   const values: number[] = [];
   for (const record of records) {
     for (const key of MARKET_PROGRAM_NUMERIC_KEYS) {
@@ -380,7 +380,7 @@ export function collectMarketProgramNumericValues(records: Record<string, unknow
   return values;
 }
 
-export function hasExplicitEodMarketProgramSnapshot(records: Record<string, unknown>[]): boolean {
+function hasExplicitEodMarketProgramSnapshot(records: Record<string, unknown>[]): boolean {
   for (const record of records) {
     const tokens = [
       record.snapshotKind,
@@ -401,7 +401,7 @@ export function hasExplicitEodMarketProgramSnapshot(records: Record<string, unkn
   return false;
 }
 
-export function hasRegularOrPostCloseFetchedAt(records: Record<string, unknown>[]): boolean {
+function hasRegularOrPostCloseFetchedAt(records: Record<string, unknown>[]): boolean {
   for (const record of records) {
     const fetchedAt = stringValue(firstValueFromRecords([record], ['fetchedAt', 'programFetchedAt', 'capturedAt', 'updatedAt', 'latest']));
     if (!fetchedAt) continue;
@@ -414,7 +414,7 @@ export function hasRegularOrPostCloseFetchedAt(records: Record<string, unknown>[
   return false;
 }
 
-export function pickMarketProgramProviderDiagnostics(root: Record<string, unknown>): Record<string, unknown> {
+function pickMarketProgramProviderDiagnostics(root: Record<string, unknown>): Record<string, unknown> {
   const keys = [
     'marketProgramDataStatus', 'kisAttempted', 'kisStatus', 'krxFallbackAttempted', 'krxFallbackStatus',
     'cacheFallbackAttempted', 'cacheStatus', 'fetchedAt', 'parsedFieldName', 'rawFieldKeys',
@@ -427,7 +427,7 @@ export function pickMarketProgramProviderDiagnostics(root: Record<string, unknow
   return carried;
 }
 
-export function extractStockProgramFlow(
+function extractStockProgramFlow(
   candidate: CandidateWithSupplyContext,
   supplyContext: PerSymbolSupplyContext,
   carry?: ProgramFlowCarryValue,
@@ -519,7 +519,7 @@ export function extractMarketProgramFlowFromCandidates<T extends CandidateWithSu
   return undefined;
 }
 
-export function findMarketProgramEvidence(value: unknown, depth: number, seen: Set<unknown>): Record<string, unknown> | undefined {
+function findMarketProgramEvidence(value: unknown, depth: number, seen: Set<unknown>): Record<string, unknown> | undefined {
   if (depth > 5 || value === null || typeof value !== 'object' || seen.has(value)) return undefined;
   seen.add(value);
   const record = value as Record<string, unknown>;
@@ -538,7 +538,7 @@ export function findMarketProgramEvidence(value: unknown, depth: number, seen: S
   return undefined;
 }
 
-export function selectPassiveProxySignal(
+function selectPassiveProxySignal(
   stockLevel: ProgramFlowDiagnostic['stockLevel'],
   marketLevel: ProgramFlowDiagnostic['marketLevel'],
 ): ProgramFlowSignal {
@@ -549,7 +549,7 @@ export function selectPassiveProxySignal(
 }
 
 
-export function marketSignalFromNetBuy(value: number): ProgramFlowSignal {
+function marketSignalFromNetBuy(value: number): ProgramFlowSignal {
   if (value >= 1000) return 'BULLISH';
   if (value <= -1000) return 'BEARISH';
   return 'NEUTRAL';
@@ -561,11 +561,11 @@ export function signalFromNetBuy(value: number): ProgramFlowSignal {
   return 'NEUTRAL';
 }
 
-export function hasAnyKey(record: Record<string, unknown>, keys: string[]): boolean {
+function hasAnyKey(record: Record<string, unknown>, keys: string[]): boolean {
   return keys.some((key) => record[key] !== undefined && record[key] !== null);
 }
 
-export function normalizeProgramFlowSignal(value: unknown): ProgramFlowSignal | undefined {
+function normalizeProgramFlowSignal(value: unknown): ProgramFlowSignal | undefined {
   if (value === 'BULLISH' || value === 'NEUTRAL' || value === 'BEARISH' || value === 'UNKNOWN' || value === 'UNAVAILABLE') {
     return value;
   }
@@ -603,7 +603,7 @@ export function deriveSupplyScore(ctx: PerSymbolSupplyContext): number {
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
-export function deriveConfidence(ctx: PerSymbolSupplyContext): NormalSupplyPreviewCandidate['confidence'] {
+function deriveConfidence(ctx: PerSymbolSupplyContext): NormalSupplyPreviewCandidate['confidence'] {
   const health = normalizeHealth(ctx.supplyProviderHealth);
   if (health === 'VERIFIED' && ctx.providerIssue !== true) return 'HIGH';
   if (health === 'DEGRADED' || health === 'STALE') return 'MEDIUM';
@@ -611,7 +611,7 @@ export function deriveConfidence(ctx: PerSymbolSupplyContext): NormalSupplyPrevi
   return 'UNKNOWN';
 }
 
-export function hasSemanticRow(
+function hasSemanticRow(
   trace: CandidateWithSupplyContext['supplyProviderHealth'],
   health: SupplyProviderHealth,
 ): boolean {
@@ -625,7 +625,7 @@ export function hasSemanticRow(
   );
 }
 
-export function hasRawInvestorRow(
+function hasRawInvestorRow(
   trace: CandidateWithSupplyContext['supplyProviderHealth'],
   health: SupplyProviderHealth,
 ): boolean {
@@ -641,7 +641,7 @@ export function hasRawInvestorRow(
   );
 }
 
-export function selectedCarriesSemanticRow(
+function selectedCarriesSemanticRow(
   trace: CandidateWithSupplyContext['supplyProviderHealth'],
   health: SupplyProviderHealth,
 ): boolean {
@@ -649,7 +649,7 @@ export function selectedCarriesSemanticRow(
   return Boolean(trace.semanticRow || trace.semanticInvestorRow || trace.supplySemanticRow || trace.materialized === true || health === 'VERIFIED');
 }
 
-export function selectedCarriesActualRow(
+function selectedCarriesActualRow(
   trace: CandidateWithSupplyContext['supplyProviderHealth'],
   health: SupplyProviderHealth,
 ): boolean {
@@ -663,12 +663,12 @@ export function selectedCarriesActualRow(
   );
 }
 
-export function signedAmountScore(value: number | undefined, weight: number): number {
+function signedAmountScore(value: number | undefined, weight: number): number {
   if (value === undefined || value === 0) return 0;
   return value > 0 ? weight : -weight;
 }
 
-export function describeSupplyReason(ctx: PerSymbolSupplyContext, classifiedSignal?: SupplySignal, supplyScore?: number): string {
+function describeSupplyReason(ctx: PerSymbolSupplyContext, classifiedSignal?: SupplySignal, supplyScore?: number): string {
   const health = normalizeHealth(ctx.supplyProviderHealth);
   const signal = classifiedSignal ?? normalizeSignal(ctx.supplySignal);
   if (ctx.providerIssue === true || health !== 'VERIFIED') {
@@ -694,7 +694,7 @@ export function describeSupplyReason(ctx: PerSymbolSupplyContext, classifiedSign
   return `${signal} supply`;
 }
 
-export function summarizeSupplyContext(ctx: PerSymbolSupplyContext): string {
+function summarizeSupplyContext(ctx: PerSymbolSupplyContext): string {
   const health = normalizeHealth(ctx.supplyProviderHealth);
   const signal = normalizeSignal(ctx.supplySignal);
   if (health !== 'VERIFIED') return `${health} provider gap (${ctx.rawStatus ?? 'n/a'})`;

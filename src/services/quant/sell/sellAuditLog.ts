@@ -53,7 +53,7 @@ export interface AuditLogAdapter {
   query(filter?: AuditLogFilter): Promise<SellAuditEntry[]>;
 }
 
-export interface AuditLogFilter {
+interface AuditLogFilter {
   layerId?: string;
   regime?: RegimeLevel;
   since?: number;

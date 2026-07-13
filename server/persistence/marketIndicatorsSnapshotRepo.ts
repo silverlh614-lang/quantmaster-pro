@@ -18,10 +18,10 @@ import { emitMaintenanceWarn } from '../observability/maintenanceWarn.js';
 import { ensureDataDir, MARKET_INDICATORS_SNAPSHOT_FILE } from './paths.js';
 
 /** 가격성 단순 숫자 필드 (가격이 있으면 number, 실패 시 null). */
-export type ScalarField = number | null;
+type ScalarField = number | null;
 
 /** kospi/kosdaq quote 객체 — fetchYahoo 결과 변환된 형태. */
-export interface QuoteFieldValue {
+interface QuoteFieldValue {
   price: number;
   change: number;
   changePct: number;
@@ -43,7 +43,7 @@ export interface MarketIndicatorsFresh {
 }
 
 /** 각 필드별 last-known-good 엔트리 — 값 + 캡처 시각 ISO. */
-export interface SnapshotFieldEntry<T> {
+interface SnapshotFieldEntry<T> {
   value: T;
   capturedAt: string;
 }
@@ -72,7 +72,7 @@ export const MARKET_INDICATOR_FIELDS = [
   'kospi', 'kosdaq', 'ewyReturn', 'mtumReturn',
 ] as const;
 
-export type MarketIndicatorField = typeof MARKET_INDICATOR_FIELDS[number];
+type MarketIndicatorField = typeof MARKET_INDICATOR_FIELDS[number];
 
 /**
  * 디스크 snapshot 로드. 파일 부재/손상 시 빈 객체 — 호출자(라우터)는 fill 단계에서

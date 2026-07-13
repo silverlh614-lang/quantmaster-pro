@@ -93,5 +93,3 @@ const promoteLearning: TelegramCommand = {
 };
 
 commandRegistry.register(promoteLearning);
-
-export default promoteLearning;

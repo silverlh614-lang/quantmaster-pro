@@ -39,7 +39,7 @@ import {
   upsertObservation as upsertPullbackLaneObservation,
 } from '../persistence/pullbackLaneObservationRepo.js';
 
-export type UnifiedForwardOutcomeSourceType =
+type UnifiedForwardOutcomeSourceType =
   | 'GATE3_OUTCOME_SEED'
   | 'GATE3_THRESHOLD_EVIDENCE'
   | 'GATE1_DRY_RUN_OBSERVATION'
@@ -51,8 +51,8 @@ export type UnifiedForwardOutcomeSourceType =
   | 'PULLBACK_LANE';
 
 export type UnifiedForwardOutcomeHorizon = 'D1' | 'D3' | 'D5' | 'D10';
-export type UnifiedForwardOutcomeEvidenceStatus = 'PENDING' | 'PARTIAL' | 'LABELED' | 'DATA_INSUFFICIENT';
-export type UnifiedForwardOutcomeHorizonStatus = 'PENDING' | 'UPDATED' | 'NOT_DUE' | 'UNSUPPORTED';
+type UnifiedForwardOutcomeEvidenceStatus = 'PENDING' | 'PARTIAL' | 'LABELED' | 'DATA_INSUFFICIENT';
+type UnifiedForwardOutcomeHorizonStatus = 'PENDING' | 'UPDATED' | 'NOT_DUE' | 'UNSUPPORTED';
 
 export interface UnifiedForwardOutcomeSourceRegistryEntry {
   sourceType: UnifiedForwardOutcomeSourceType;
@@ -158,7 +158,7 @@ export interface UnifiedForwardOutcomeLabelerSummary {
   thresholdAutoChanged: false;
 }
 
-export type UnifiedForwardOutcomePriceFetcher = (
+type UnifiedForwardOutcomePriceFetcher = (
   symbol: string,
   asOf: Date,
   row: UnifiedForwardOutcomeRow,
@@ -177,7 +177,7 @@ export interface UnifiedForwardOutcomeLabelerOptions {
   persist?: boolean;
 }
 
-export const UNIFIED_FORWARD_OUTCOME_LABELER_STATUS_FILE = path.join(
+const UNIFIED_FORWARD_OUTCOME_LABELER_STATUS_FILE = path.join(
   DATA_DIR,
   'unified-forward-outcome-labeler-status.json',
 );
@@ -381,7 +381,7 @@ function readStatus(): UnifiedForwardOutcomeLabelerSummary | null {
   }
 }
 
-export function getLastUnifiedForwardOutcomeLabelerSummary(): UnifiedForwardOutcomeLabelerSummary | null {
+function getLastUnifiedForwardOutcomeLabelerSummary(): UnifiedForwardOutcomeLabelerSummary | null {
   return readStatus();
 }
 

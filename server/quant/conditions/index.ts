@@ -31,12 +31,6 @@ import {
 import { lastTriggerEvaluator } from './lastTriggerEvaluator.js';
 
 export { ConditionRegistry } from './registry.js';
-export type {
-  ConditionEvaluator,
-  ConditionEvalContext,
-  ConditionEvalOutput,
-  EvaluatorInput,
-} from './types.js';
 export { calculateCompressionScore } from './evaluators.js';
 
 /**

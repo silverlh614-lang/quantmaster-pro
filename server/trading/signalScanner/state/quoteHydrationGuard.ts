@@ -3,7 +3,7 @@
 import type { ScanCounters } from '../scanDiagnostics/scanCounterTypes.js';
 import type { PipelineStageStatus } from '../scanDiagnostics/scanSummaryTypes.js';
 
-export type QuoteHydrationState = 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'NOT_REQUESTED';
+type QuoteHydrationState = 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'NOT_REQUESTED';
 
 export interface QuoteHydrationReport {
   state: QuoteHydrationState;

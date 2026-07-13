@@ -31,7 +31,7 @@
  *   ENV `CORPORATE_ACTION_GAP_THRESHOLD_PCT` → 갭 임계 override (유한 & >0 일 때).
  */
 
-export type CorporateActionType = 'SPLIT' | 'MERGE' | 'RIGHTS' | 'UNKNOWN';
+type CorporateActionType = 'SPLIT' | 'MERGE' | 'RIGHTS' | 'UNKNOWN';
 
 export interface CorporateActionResult {
   detected: boolean;
@@ -182,7 +182,7 @@ export const KRX_DAILY_PRICE_LIMIT_PCT = 30;
 /** corporate action 확정 갭 임계 — KRX ±30% 한계 + 마진. ENV override 가능. */
 export const CORPORATE_ACTION_GAP_THRESHOLD_PCT = 35;
 
-export type DailyBarVerdictStatus = 'CONFIRMED' | 'GENUINE_RALLY' | 'UNVERIFIABLE';
+type DailyBarVerdictStatus = 'CONFIRMED' | 'GENUINE_RALLY' | 'UNVERIFIABLE';
 
 /** 일봉 최소 형태 — date(YYYYMMDD) + close 만 사용. */
 export interface DailyBarLike {

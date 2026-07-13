@@ -105,21 +105,3 @@ export function recordLoss(state: LossStreakState): LossStreakState {
     coolOffUntil,
   };
 }
-
-/**
- * 수익 발생 시 연속 손절 카운터를 초기화한다.
- */
-export function recordWin(state: LossStreakState): LossStreakState {
-  return {
-    consecutiveLosses: 0,
-    lastLossDate: state.lastLossDate,
-    coolOffUntil: null,
-  };
-}
-
-/**
- * 냉각 기간 종료 처리 — coolOffUntil을 null로 초기화한다.
- */
-export function clearCoolOff(state: LossStreakState): LossStreakState {
-  return { ...state, coolOffUntil: null };
-}

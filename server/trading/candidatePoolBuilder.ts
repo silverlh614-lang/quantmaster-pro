@@ -6,7 +6,7 @@ import {
   type SectorEnergyCanonicalState,
 } from '../../src/domain/sector-energy/SectorEnergyCanonicalResolver.js';
 
-export type CandidateSourceTag =
+type CandidateSourceTag =
   | 'WATCHLIST'
   | 'INTRADAY_MOVER'
   | 'BUY_LIST'
@@ -21,7 +21,7 @@ export type CandidateSourceTag =
   | 'FALLBACK_BROAD_UNIVERSE'
   | 'UNKNOWN';
 
-export type CandidateMissingFeature =
+type CandidateMissingFeature =
   | 'RS_SCORE_MISSING'
   | 'BREAKOUT_SCORE_MISSING'
   | 'SUPPLY_MISSING'
@@ -32,7 +32,7 @@ export type CandidateMissingFeature =
   | 'QUOTE_STALE'
   | 'PROVIDER_ISSUE_ISOLATED';
 
-export type CandidateLearningLabel =
+type CandidateLearningLabel =
   | 'CANDIDATE_EVALUATION_ACTIVE'
   | 'LIVE_PERMISSION_SEPARATED'
   | 'SHADOW_CANDIDATE_TRACKING_ON'
@@ -44,10 +44,10 @@ export type CandidateLearningLabel =
   | 'SELL_ONLY_EVALUATION_CONTINUED'
   | 'KELLY_ADVISORY_ONLY';
 
-export type CandidateDataHealth = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'CORRUPTED';
-export type CandidateConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW';
+type CandidateDataHealth = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'CORRUPTED';
+type CandidateConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW';
 
-export interface CandidateConfidence {
+interface CandidateConfidence {
   overall: CandidateConfidenceLevel;
   data: CandidateConfidenceLevel;
   technical: CandidateConfidenceLevel;
@@ -55,7 +55,7 @@ export interface CandidateConfidence {
   provider: CandidateConfidenceLevel;
 }
 
-export interface CandidateFeatureScores {
+interface CandidateFeatureScores {
   liquidityScore: number;
   relativeStrengthScore: number;
   volumeEnergyScore: number;
@@ -68,7 +68,7 @@ export interface CandidateFeatureScores {
   dataConfidenceScore: number;
 }
 
-export interface CandidatePenalties {
+interface CandidatePenalties {
   staleDataPenalty: number;
   missingFeaturePenalty: number;
   R6Penalty: number;
@@ -125,7 +125,7 @@ export interface CandidatePoolInputCandidate {
   gate3Passed?: boolean;
 }
 
-export interface CandidateSnapshot {
+interface CandidateSnapshot {
   sourceSnapshotId: string;
   symbol: string;
   name: string;
@@ -152,7 +152,7 @@ export interface CandidateSnapshot {
   learningLabels: CandidateLearningLabel[];
 }
 
-export interface CandidateCounterfactualRecord {
+interface CandidateCounterfactualRecord {
   sourceSnapshotId: string;
   symbol: string;
   candidateRank: number;
@@ -173,7 +173,7 @@ export interface CandidateCounterfactualRecord {
   learningLabel: 'WATCHLIST_CANDIDATE' | 'FALLBACK_CANDIDATE' | 'BLOCKED_CANDIDATE';
 }
 
-export interface CandidatePoolDiagnostics {
+interface CandidatePoolDiagnostics {
   invalidReasonCounts: Record<string, number>;
   topCandidateSources: Array<{ source: CandidateSourceTag; count: number }>;
   topMissingFeatures: Array<{ feature: CandidateMissingFeature; count: number }>;

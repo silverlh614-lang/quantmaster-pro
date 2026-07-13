@@ -6,13 +6,13 @@
 // (3) PER 미가용을 entry hard block 으로, (4) financialProviderIssue 를 market signal 로 재오염하지 못하게 막는다.
 // 본 모듈은 이미 resolve 된 진단 표시값에서 파생만 한다 — Gate2 pass 조건/임계/사이징/주문 코드는 건드리지 않는다.
 
-export type Gate2FinConnectionStatus = 'CONNECTED_OK' | 'CONNECTION_DEGRADED' | 'NOT_ATTEMPTED';
-export type Gate2DartDataStatus = 'VERIFIED' | 'PARTIAL' | 'EMPTY_VALID' | 'UNAVAILABLE' | 'NOT_ATTEMPTED';
-export type Gate2PerInterpretation =
+type Gate2FinConnectionStatus = 'CONNECTED_OK' | 'CONNECTION_DEGRADED' | 'NOT_ATTEMPTED';
+type Gate2DartDataStatus = 'VERIFIED' | 'PARTIAL' | 'EMPTY_VALID' | 'UNAVAILABLE' | 'NOT_ATTEMPTED';
+type Gate2PerInterpretation =
   | 'PER_MEANINGFUL'
   | 'NOT_MEANINGFUL_DUE_TO_NEGATIVE_EARNINGS'
   | 'PER_FIELD_MISSING';
-export type Gate2FinUseScope = 'GATE2_SCORING' | 'HIGH_CONVICTION_ONLY' | 'DISPLAY_AND_SHADOW_ONLY';
+type Gate2FinUseScope = 'GATE2_SCORING' | 'HIGH_CONVICTION_ONLY' | 'DISPLAY_AND_SHADOW_ONLY';
 
 export interface Gate2FinancialBaselineInput {
   /** dartLineHealth.status (VERIFIED|PARTIAL|DEGRADED|EMPTY_VALID|NOT_ATTEMPTED). */

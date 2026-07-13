@@ -7,7 +7,7 @@ import {
   formatUserActionLabelResolvedLog,
 } from './messageWordingPolicy.js';
 
-export type ThresholdNoEntryReason =
+type ThresholdNoEntryReason =
   | 'POLICY_LIVE_DISABLED_SHADOW_ONLY'
   | 'OPENING_OR_SESSION_GUARD'
   | 'POSITION_SLOT_OR_RESERVATION'
@@ -20,7 +20,7 @@ export type ThresholdNoEntryReason =
   | 'DATA_FRESHNESS_STALE'
   | 'UNKNOWN';
 
-export type ThresholdLoopRecommendation = 'OBSERVE' | 'PROPOSAL_REQUIRES_APPROVAL';
+type ThresholdLoopRecommendation = 'OBSERVE' | 'PROPOSAL_REQUIRES_APPROVAL';
 
 export interface ThresholdLoopDiagnosticInput {
   tradeDate?: string;
@@ -111,7 +111,7 @@ function kstTradeDate(now: Date): string {
   return new Date(now.getTime() + 9 * 3_600_000).toISOString().slice(0, 10);
 }
 
-export function thresholdNoEntryStreakBucket(streak: number): string {
+function thresholdNoEntryStreakBucket(streak: number): string {
   if (streak < 3) return '0~2';
   if (streak < 5) return '3~4';
   if (streak < 8) return '5~7';

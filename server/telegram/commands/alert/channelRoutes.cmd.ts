@@ -165,6 +165,3 @@ const channelRoutes: TelegramCommand = {
 };
 
 commandRegistry.register(channelRoutes);
-
-export default channelRoutes;
-export { formatChannelRoutes, formatChannelRoutesCompact, formatChannelRoutesFull };

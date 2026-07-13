@@ -41,5 +41,3 @@ const risk: TelegramCommand = {
 };
 
 commandRegistry.register(risk);
-
-export default risk;

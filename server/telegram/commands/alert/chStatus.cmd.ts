@@ -88,4 +88,3 @@ const chStatus: TelegramCommand = {
 };
 
 commandRegistry.register(chStatus);
-export default chStatus;

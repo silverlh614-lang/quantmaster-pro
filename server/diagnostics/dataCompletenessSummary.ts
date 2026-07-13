@@ -8,10 +8,10 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { getLastScanSummary } from '../trading/signalScanner/scanDiagnostics.js';
 
-export type DataCompletenessStatus = 'OK' | 'PARTIAL' | 'STALE' | 'MISSING' | 'WAIT' | 'UNKNOWN';
-export type DataCompletenessImpact = 'NONE' | 'SHADOW_OK' | 'LIVE_NOT_READY' | 'OBSERVE_ONLY';
+type DataCompletenessStatus = 'OK' | 'PARTIAL' | 'STALE' | 'MISSING' | 'WAIT' | 'UNKNOWN';
+type DataCompletenessImpact = 'NONE' | 'SHADOW_OK' | 'LIVE_NOT_READY' | 'OBSERVE_ONLY';
 
-export interface DataCompletenessItem {
+interface DataCompletenessItem {
   name: string;
   status: DataCompletenessStatus;
   updatedAt?: string;

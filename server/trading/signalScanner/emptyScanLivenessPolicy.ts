@@ -45,7 +45,7 @@
 
 /* ───────── 6-value cause union (사용자 §4 정합 — 절대 변경 금지) ───────── */
 
-export type EmptyScanCause =
+type EmptyScanCause =
   | 'TRUE_NO_CANDIDATE'
   | 'DATA_UNAVAILABLE_EMPTY'
   | 'GATE_TOO_STRICT_EMPTY'
@@ -55,7 +55,7 @@ export type EmptyScanCause =
 
 /* ───────── 6-value action union (사용자 §4 정합 — 절대 변경 금지) ───────── */
 
-export type EmptyScanLivenessAction =
+type EmptyScanLivenessAction =
   | 'KEEP_ENGINE_ALIVE'
   | 'RETRY_NEXT_SCAN'
   | 'EXPAND_SCAN_INTERVAL'

@@ -76,5 +76,3 @@ const r3Unblock: TelegramCommand = {
 };
 
 commandRegistry.register(r3Unblock);
-
-export default r3Unblock;

@@ -40,5 +40,3 @@ const newsLag: TelegramCommand = {
 };
 
 commandRegistry.register(newsLag);
-
-export default newsLag;

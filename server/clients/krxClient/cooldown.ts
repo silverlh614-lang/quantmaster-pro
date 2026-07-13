@@ -90,7 +90,7 @@ export function recordBldSuccess(bld: string): void {
  * ADR-0259: cooldown 만료 후 30분 이내 → probe mode (1회만 시도).
  * 운영자가 무의미한 재호출을 회피하면서도 회복 감지 가능.
  */
-export function isBldInRecoveryProbe(bld: string): boolean {
+function isBldInRecoveryProbe(bld: string): boolean {
   const s = _bldFailureState.get(bld);
   if (!s) return false;
   const PROBE_WINDOW_MS = 30 * 60 * 1000;

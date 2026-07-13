@@ -144,5 +144,3 @@ const leaderRefresh: TelegramCommand = {
 };
 
 commandRegistry.register(leaderRefresh);
-
-export default leaderRefresh;

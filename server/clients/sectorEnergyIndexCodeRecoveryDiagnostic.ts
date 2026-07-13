@@ -173,10 +173,10 @@ export type SectorIndexRowSourceTier =
   | 'UNKNOWN';
 
 /** ADR-0424 와 정합 + 본 ADR 4-state. */
-export type SectorIndexRecoveryStatus = 'RECOVERED' | 'PARTIAL' | 'STILL_STALE' | 'NOT_NEEDED';
+type SectorIndexRecoveryStatus = 'RECOVERED' | 'PARTIAL' | 'STILL_STALE' | 'NOT_NEEDED';
 
 /** leadership confidence 3-state (사용자 §"진단 원칙"). */
-export type SectorIndexLeadershipConfidence = 'OK' | 'DEGRADED' | 'BLOCKED';
+type SectorIndexLeadershipConfidence = 'OK' | 'DEGRADED' | 'BLOCKED';
 
 /**
  * Phase 2 진단 SSOT — 단일 SectorEnergy build 의 indexCode 복구 분해.
@@ -343,7 +343,7 @@ export function expandAliasCandidates(normalized: string): SectorIndexMasterEntr
 /**
  * 직접 alias 호출 (정확 매칭, getSectorByAlias 위임) — backfilledByNameLookup 분류.
  */
-export function tryDirectNameLookup(rawName: string | null | undefined): SectorIndexMasterEntry | null {
+function tryDirectNameLookup(rawName: string | null | undefined): SectorIndexMasterEntry | null {
   return getSectorByAlias(rawName);
 }
 
@@ -807,7 +807,7 @@ export function isKrxSectorIndexRawDiagnosticDisabled(): boolean {
  * KRX 섹터 indexCode raw 입력의 break point — verifiedIndexCodeCoverage=0% 의 정확한 원인.
  * 결정 트리 first-match 우선순위 (evaluateKrxSectorIndexRawDiagnostic 참조).
  */
-export type KrxSectorIndexRawBreakPoint =
+type KrxSectorIndexRawBreakPoint =
   | 'KRX_ROWS_EMPTY'                          // KRX raw row 0개
   | 'KRX_ROWS_HAVE_NO_INDEX_NAME'             // row 있으나 indexCode + indexName 모두 부재
   | 'KRX_ROWS_HAVE_INDEX_NAME_BUT_ALIAS_MISS' // indexName 있으나 SECTOR_INDEX_MASTER alias 매칭 0

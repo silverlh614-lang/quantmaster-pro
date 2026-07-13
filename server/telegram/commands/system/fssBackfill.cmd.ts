@@ -131,5 +131,3 @@ const fssBackfill: TelegramCommand = {
 };
 
 commandRegistry.register(fssBackfill);
-
-export default fssBackfill;

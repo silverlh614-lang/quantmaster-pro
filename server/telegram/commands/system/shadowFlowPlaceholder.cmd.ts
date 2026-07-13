@@ -4,14 +4,14 @@ import { clampShadowReturnWarmupLimit, runShadowFutureReturnWarmup, SHADOW_RETUR
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
-export function parseShadowFlowLimit(args: string[]): number {
+function parseShadowFlowLimit(args: string[]): number {
   const raw = args[0];
   if (!raw) return SHADOW_RETURN_WARMUP_DEFAULT_LIMIT;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) ? clampShadowReturnWarmupLimit(n) : SHADOW_RETURN_WARMUP_DEFAULT_LIMIT;
 }
 
-export function symbolsFromMissingTargets(rows: string[]): string[] {
+function symbolsFromMissingTargets(rows: string[]): string[] {
   const out: string[] = [];
   for (const row of rows) {
     const symbol = row.split(':')[0]?.trim();
@@ -47,5 +47,3 @@ const shadowFlow: TelegramCommand = {
 };
 
 commandRegistry.register(shadowFlow);
-
-export default shadowFlow;

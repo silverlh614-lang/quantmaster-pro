@@ -36,7 +36,7 @@ export const LOSER_RETURN_THRESHOLD_PCT = -5;
 export const DOMINANCE_RATIO = 1.5;
 export const MIN_RESOLVED_SAMPLE = 5;
 
-export type GateContributionVerdict =
+type GateContributionVerdict =
   | 'POSITIVE'
   | 'NEGATIVE'
   | 'NEUTRAL'
@@ -127,13 +127,4 @@ export function analyzeGateContributions(
 ): GateContribution[] {
   if (isGateContributionAnalyzerDisabled()) return [];
   return patterns.map(p => analyzeGateContribution(entries, p));
-}
-
-/**
- * 영속 store 직접 read 변형 — counterfactualShadow.loadCounterfactuals() 호출.
- * 호출자(후속 PR cron) 의 단순화 헬퍼. 테스트 시 entries 직접 주입 권장.
- */
-export function analyzeGateContributionsFromStore(patterns: string[]): GateContribution[] {
-  if (isGateContributionAnalyzerDisabled()) return [];
-  return analyzeGateContributions(loadCounterfactuals(), patterns);
 }

@@ -28,8 +28,8 @@ import {
   type PrevClose,
 } from '../clients/kisClient/index.js';
 
-export type KisDataConfidence = 'VERIFIED' | 'ESTIMATED' | 'DEGRADED' | 'STALE' | 'MISSING';
-export type KisSupplyUseScope =
+type KisDataConfidence = 'VERIFIED' | 'ESTIMATED' | 'DEGRADED' | 'STALE' | 'MISSING';
+type KisSupplyUseScope =
   | 'CORE_CANDIDATE'
   | 'GATED_CANDIDATE'
   | 'WEIGHTED'

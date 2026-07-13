@@ -16,7 +16,7 @@ export interface DartContextInjectionStats {
 /** 후보 객체에 carry 되는 정본 DART 슬롯 필드명. read site 는 이 키로 슬롯을 읽는다. */
 export const CANDIDATE_DART_SLOT_KEY = '__dartFinancialsSlot';
 
-export interface CandidateWithDartSlot {
+interface CandidateWithDartSlot {
   [CANDIDATE_DART_SLOT_KEY]?: SymbolDartFinancialsSlot | null;
 }
 

@@ -47,7 +47,7 @@ const router = Router();
  * 엔진 상태 스냅샷 빌더 — REST(/engine/status) 와 SSE 브로드캐스트가 같은 형태를
  * 공유하도록 단일 함수로 추출. 외부 의존이 없어 매 tick 호출 부담이 낮다.
  */
-export function buildEngineStatusSnapshot() {
+function buildEngineStatusSnapshot() {
   const autoEnabled = process.env.AUTO_TRADE_ENABLED === 'true';
   const emergencyStop = getEmergencyStop();
   const running = autoEnabled && !emergencyStop;

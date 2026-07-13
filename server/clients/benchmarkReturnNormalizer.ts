@@ -4,7 +4,7 @@ export type BenchmarkMarket = 'KOSPI' | 'KOSDAQ' | 'KONEX' | 'UNKNOWN';
 
 export type BenchmarkKey = 'KOSPI' | 'KOSDAQ' | 'KOSPI200' | 'KRX300' | 'UNKNOWN';
 
-export type BenchmarkPeriod = '5D' | '20D' | '60D' | '120D';
+type BenchmarkPeriod = '5D' | '20D' | '60D' | '120D';
 
 export type BenchmarkReturnSource =
   | 'KIS_INDEX'
@@ -228,7 +228,7 @@ function normalizeProviderStatus(value: unknown): BenchmarkProviderStatus | null
   return null;
 }
 
-export function confidenceForBenchmarkStatus(status: BenchmarkProviderStatus): BenchmarkConfidence {
+function confidenceForBenchmarkStatus(status: BenchmarkProviderStatus): BenchmarkConfidence {
   if (status === 'OK_WITH_DATA') return 'VERIFIED';
   if (status === 'OK_EMPTY') return 'EMPTY_VALID';
   if (status === 'STALE_CACHE') return 'STALE';

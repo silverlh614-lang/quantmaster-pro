@@ -19,7 +19,7 @@ export const R3_SANITY_THRESHOLDS = {
   MIN_CANDIDATES: 1,
 } as const;
 
-export type R3SanityViolationType =
+type R3SanityViolationType =
   | 'NONE'
   | 'GATE1_PASS_ZERO'        // candidates>0 인데 Gate 1 통과 0개
   | 'GATE_PASS_DATA_MISSING' // gatePassDistribution 미수집 (PR-B wiring 미완)

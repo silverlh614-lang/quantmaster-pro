@@ -6,7 +6,7 @@ import type { PositionFill, ServerShadowTrade } from '../../persistence/shadowTr
 import { emitOperationalWarn } from './fillOperationalWarn.js';
 import type { FillQueryResult } from './fillTypes.js';
 
-export type ProvisionalFillReconcileOutcome =
+type ProvisionalFillReconcileOutcome =
   | 'CONFIRMED'
   | 'PARTIAL_CONFIRMED'
   | 'ROLLBACK_REQUIRED'

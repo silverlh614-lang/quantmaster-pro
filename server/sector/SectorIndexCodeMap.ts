@@ -1,13 +1,13 @@
 // @responsibility Official KIS/KRX sector index master name/code mapping for SectorEnergy diagnostics.
 
-export type OfficialSectorEnergySourceTier =
+type OfficialSectorEnergySourceTier =
   | 'OFFICIAL_KRX_SECTOR_INDEX'
   | 'OFFICIAL_KIS_SECTOR_INDEX'
   | 'INTERNAL_GROUPED_SNAPSHOT'
   | 'KIS_STOCK_BASKET_DERIVED'
   | 'NONE';
 
-export type SectorIndexSourceTier = OfficialSectorEnergySourceTier;
+type SectorIndexSourceTier = OfficialSectorEnergySourceTier;
 
 export interface OfficialSectorIndexMasterRow {
   market: 'KOSPI' | 'KOSDAQ' | 'KOSPI200' | 'UNKNOWN';
@@ -31,8 +31,6 @@ export interface OfficialSectorIndexMasterRow {
   selectedOfficialIndexCode?: string;
   verifyInputCandidates?: string[];
 }
-
-export type SectorIndexMasterRow = OfficialSectorIndexMasterRow;
 
 export interface OfficialSectorIndexTarget {
   sectorName: string;

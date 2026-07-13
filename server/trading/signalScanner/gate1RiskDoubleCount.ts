@@ -63,22 +63,6 @@ export interface CandidateRiskDoubleCountTrace {
   executionImpact: 'NONE';
 }
 
-export interface Gate1RiskSplitPolicy {
-  riskRootCause: RiskRootCauseCode;
-  signalEligibilityAction:
-    | 'NO_EFFECT'
-    | 'ADVISORY'
-    | 'SOFT_PENALTY'
-    | 'HARD_BLOCK';
-  sizingAction:
-    | 'NO_EFFECT'
-    | 'KELLY_MULTIPLIER'
-    | 'POSITION_CAP'
-    | 'SIZE_ZERO';
-  allowDoubleCount: boolean;
-  message: string;
-}
-
 export interface RiskMultiplierBreakdown {
   regimeMultiplier: number;
   fomcMultiplier: number;
@@ -99,7 +83,7 @@ export interface RiskMultiplierBreakdown {
   }>;
 }
 
-export type RiskPlacementScenario =
+type RiskPlacementScenario =
   | 'CURRENT'
   | 'RISK_AT_SIGNAL_ONLY'
   | 'RISK_AT_SIZING_ONLY'
@@ -221,51 +205,6 @@ export interface RiskDoubleCountBuildInput {
   finalRiskMultiplier?: number;
   combinedKellyMultiplier?: number;
 }
-
-export const GATE1_RISK_SPLIT_POLICIES: Gate1RiskSplitPolicy[] = [
-  {
-    riskRootCause: 'REGIME_RISK',
-    signalEligibilityAction: 'ADVISORY',
-    sizingAction: 'KELLY_MULTIPLIER',
-    allowDoubleCount: false,
-    message: 'Regime risk should mainly scale position size unless it becomes a severe hard-block regime.',
-  },
-  {
-    riskRootCause: 'MACRO_RISK',
-    signalEligibilityAction: 'SOFT_PENALTY',
-    sizingAction: 'KELLY_MULTIPLIER',
-    allowDoubleCount: false,
-    message: 'General macro risk can be advisory/soft in signal eligibility and primary in sizing.',
-  },
-  {
-    riskRootCause: 'FOMC_RISK',
-    signalEligibilityAction: 'ADVISORY',
-    sizingAction: 'KELLY_MULTIPLIER',
-    allowDoubleCount: false,
-    message: 'FOMC normal phase should not double-count in signal score and Kelly sizing.',
-  },
-  {
-    riskRootCause: 'VOLATILITY_RISK',
-    signalEligibilityAction: 'SOFT_PENALTY',
-    sizingAction: 'POSITION_CAP',
-    allowDoubleCount: false,
-    message: 'Volatility risk may cap size; severe volatility remains a separate hard-block policy.',
-  },
-  {
-    riskRootCause: 'SUPPLY_PROVIDER_UNKNOWN',
-    signalEligibilityAction: 'ADVISORY',
-    sizingAction: 'NO_EFFECT',
-    allowDoubleCount: false,
-    message: 'Provider unknown is not market risk and must not reduce both signal and sizing.',
-  },
-  {
-    riskRootCause: 'SELL_ONLY_SESSION',
-    signalEligibilityAction: 'NO_EFFECT',
-    sizingAction: 'SIZE_ZERO',
-    allowDoubleCount: false,
-    message: 'SELL_ONLY is an execution blocker, not a signal-risk penalty.',
-  },
-];
 
 function round1(value: number): number {
   return Math.round(value * 10) / 10;

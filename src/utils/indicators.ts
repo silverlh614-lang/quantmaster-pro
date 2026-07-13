@@ -132,7 +132,7 @@ export function calculateStochastic(highs: number[], lows: number[], closes: num
   return { k: lastK, d: lastD, status };
 }
 
-export function calculateSMA(data: number[], period: number): number[] {
+function calculateSMA(data: number[], period: number): number[] {
   const sma: number[] = [];
   for (let i = period - 1; i < data.length; i++) {
     const slice = data.slice(i - period + 1, i + 1);
@@ -313,7 +313,7 @@ export function detectFibonacciSupport(highs: number[], lows: number[], closes: 
 }
 
 /** 종가 배열의 롤링 RSI 시계열 (period 이후 인덱스부터). */
-export function calculateRSISeries(closes: number[], period = 14): number[] {
+function calculateRSISeries(closes: number[], period = 14): number[] {
   const out: number[] = [];
   for (let i = period; i < closes.length; i++) {
     out.push(calculateRSI(closes.slice(0, i + 1), period));
@@ -343,96 +343,6 @@ export function detectBullishDivergence(closes: number[]): boolean {
 }
 
 // ─── 멀티타임프레임 확인 함수 ─────────────────────────────────────────────────
-
-/**
- * 월봉: 12개월 EMA 위에서 우상향 중인지 확인
- * @param monthlyCloses - 최근 24개월 이상 월봉 종가
- */
-export function isAboveMonthlyEMA12(monthlyCloses: number[]): boolean {
-  if (monthlyCloses.length < 13) return false;
-  const ema12 = calculateEMA(monthlyCloses, 12);
-  const lastClose = monthlyCloses[monthlyCloses.length - 1];
-  const lastEma = ema12[ema12.length - 1];
-  const prevEma = ema12[ema12.length - 2];
-  return lastClose > lastEma && lastEma > prevEma; // 위에 있고 + EMA 우상향
-}
-
-/**
- * 주봉: 일목 구름대 위 안착 확인
- * @param weeklyHighs/Lows/Closes - 최근 52주 이상 주봉 데이터
- */
-export function isWeeklyAboveCloud(weeklyHighs: number[], weeklyLows: number[], weeklyCloses: number[]): boolean {
-  const ichimoku = calculateIchimoku(weeklyHighs, weeklyLows, weeklyCloses);
-  return ichimoku.status === 'ABOVE_CLOUD';
-}
-
-/**
- * 멀티타임프레임 종합 판단
- */
-export function evaluateMultiTimeframe(
-  monthlyCloses: number[],
-  weeklyHighs: number[], weeklyLows: number[], weeklyCloses: number[],
-  dailyHighs: number[], dailyLows: number[], dailyCloses: number[],
-): { monthly: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; weekly: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; daily: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; consistency: boolean } {
-  // 월봉
-  const monthlyBull = isAboveMonthlyEMA12(monthlyCloses);
-  const monthly = monthlyBull ? 'BULLISH' as const : monthlyCloses.length >= 13 ? 'BEARISH' as const : 'NEUTRAL' as const;
-
-  // 주봉
-  const weeklyBull = isWeeklyAboveCloud(weeklyHighs, weeklyLows, weeklyCloses);
-  const weekly = weeklyBull ? 'BULLISH' as const : weeklyCloses.length >= 52 ? 'BEARISH' as const : 'NEUTRAL' as const;
-
-  // 일봉
-  const dailyIchimoku = calculateIchimoku(dailyHighs, dailyLows, dailyCloses);
-  const dailyMACD = calculateMACD(dailyCloses);
-  const dailyRSI = calculateRSI(dailyCloses);
-  const dailyBull = dailyIchimoku.status === 'ABOVE_CLOUD' && dailyMACD.status !== 'DEAD_CROSS' && dailyRSI > 40 && dailyRSI < 75;
-  const dailyBear = dailyIchimoku.status === 'BELOW_CLOUD' || dailyMACD.status === 'DEAD_CROSS' || dailyRSI < 30;
-  const daily = dailyBull ? 'BULLISH' as const : dailyBear ? 'BEARISH' as const : 'NEUTRAL' as const;
-
-  const consistency = monthly === 'BULLISH' && weekly === 'BULLISH' && daily === 'BULLISH';
-
-  return { monthly, weekly, daily, consistency };
-}
-
-/**
- * TMA (추세 모멘텀 가속도 측정기) — 수익률의 2차 미분(가속도)
- *
- * 물리학 원리 적용: 가격이 최고점이어도 가속도(2차 미분)가 먼저 꺾인다.
- * 가격보다 1~2주 선행하는 수학적 선행 지표.
- *
- * TMA = (오늘 수익률 - N일 전 수익률) / N
- *   TMA < 0   → 감속 경보
- *   TMA < -0.5 → 즉각 대응
- *
- * @param closes - 일봉 종가 배열 (최소 period+2 개)
- * @param period - 가속도 측정 기간 (기본 5일)
- * @returns { tma, returns, alert }
- */
-export function calculateTMA(
-  closes: number[],
-  period = 5,
-): { tma: number; returnToday: number; returnNAgo: number; alert: 'NONE' | 'DECELERATION' | 'IMMEDIATE' } {
-  if (closes.length < period + 2) {
-    return { tma: 0, returnToday: 0, returnNAgo: 0, alert: 'NONE' };
-  }
-
-  // 일별 수익률(%) 계산
-  const returns: number[] = [];
-  for (let i = 1; i < closes.length; i++) {
-    returns.push(((closes[i] - closes[i - 1]) / closes[i - 1]) * 100);
-  }
-
-  const returnToday = returns[returns.length - 1];
-  const returnNAgo = returns[returns.length - 1 - period];
-  const tma = (returnToday - returnNAgo) / period;
-
-  let alert: 'NONE' | 'DECELERATION' | 'IMMEDIATE' = 'NONE';
-  if (tma < -0.5) alert = 'IMMEDIATE';
-  else if (tma < 0) alert = 'DECELERATION';
-
-  return { tma, returnToday, returnNAgo, alert };
-}
 
 /**
  * RSI 모멘텀 가속도 — 최근 n주간 RSI 추이

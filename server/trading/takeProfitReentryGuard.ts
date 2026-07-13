@@ -24,11 +24,11 @@ import {
 } from '../persistence/takeProfitExitsRepo.js';
 
 /** 청산가 대비 재돌파 마진 — currentPrice ≥ exitPrice × (1 + margin). */
-export const TAKE_PROFIT_REENTRY_PRICE_MARGIN = 0.05; // +5%
+const TAKE_PROFIT_REENTRY_PRICE_MARGIN = 0.05; // +5%
 /** 청산 진입 게이트점수 대비 상향 폭 — currentGateScore ≥ exitGateScore + delta. */
-export const TAKE_PROFIT_REENTRY_GATE_DELTA = 1;
+const TAKE_PROFIT_REENTRY_GATE_DELTA = 1;
 /** barrier 조회 lookback(일) — 실무적 backstop. 그 이전은 만료 간주. */
-export const TAKE_PROFIT_REENTRY_LOOKBACK_DAYS = 90;
+const TAKE_PROFIT_REENTRY_LOOKBACK_DAYS = 90;
 
 export function isTakeProfitReentryGuardEnabled(): boolean {
   // default OFF — 명시적으로 'true' 일 때만 활성(ADR-0157 정확 비교).

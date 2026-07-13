@@ -6,8 +6,8 @@ import type { ShadowLearningOnlySignal } from '../trading/shadowLearningOnlyScan
 import { symbolCandidatesForShadowFutureReturnCache } from './shadowFutureReturnCacheProvider.js';
 
 export const SHADOW_RETURN_WARMUP_DEFAULT_LIMIT = 20;
-export const SHADOW_RETURN_WARMUP_MAX_LIMIT = 50;
-export const SHADOW_RETURN_WARMUP_RANGES = ['5d', '1mo', '3mo', '1y'] as const;
+const SHADOW_RETURN_WARMUP_MAX_LIMIT = 50;
+const SHADOW_RETURN_WARMUP_RANGES = ['5d', '1mo', '3mo', '1y'] as const;
 
 export interface ShadowFutureReturnWarmupStats {
   candidateSignals: number;
@@ -36,7 +36,7 @@ export function clampShadowReturnWarmupLimit(limit: number): number {
   return Math.max(1, Math.min(SHADOW_RETURN_WARMUP_MAX_LIMIT, Math.trunc(limit)));
 }
 
-export function collectUnresolvedShadowReturnSymbols(signals: ShadowLearningOnlySignal[]): {
+function collectUnresolvedShadowReturnSymbols(signals: ShadowLearningOnlySignal[]): {
   symbols: string[];
   skippedAlreadyResolved: number;
 } {
@@ -58,7 +58,7 @@ export function collectUnresolvedShadowReturnSymbols(signals: ShadowLearningOnly
   };
 }
 
-export function prioritizeShadowWarmupSymbols(
+function prioritizeShadowWarmupSymbols(
   symbols: string[],
   prioritySymbols: string[] = [],
 ): string[] {
@@ -74,7 +74,7 @@ export function prioritizeShadowWarmupSymbols(
   return out;
 }
 
-export function symbolCandidatesForShadowReturnWarmup(symbol: string): string[] {
+function symbolCandidatesForShadowReturnWarmup(symbol: string): string[] {
   const s = symbol.trim();
   const candidates = symbolCandidatesForShadowFutureReturnCache(s);
   if (/^\d{6}$/.test(s)) {

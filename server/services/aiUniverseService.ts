@@ -35,8 +35,6 @@ import type {
   MarketDataMode,
   AiUniverseSnapshot,
 } from './aiUniverseTypes.js';
-
-export type { MarketDataMode } from './aiUniverseTypes.js';
 export type AiUniverseMode = AiUniverseModeType;
 
 export interface AiUniverseCandidate extends StockMasterEntry {
@@ -50,7 +48,7 @@ export interface AiUniverseCandidate extends StockMasterEntry {
  * universe 응답의 출처 단일 SSOT. 9값 — Tier 1~5 + 진입 실패 사유 4종.
  * PR-25-A 의 6값에서 PR-37 에서 +`FALLBACK_SNAPSHOT`/`FALLBACK_QUANT`/`FALLBACK_NAVER`.
  */
-export type AiUniverseSourceStatus = AiUniverseSourceStatusType;
+type AiUniverseSourceStatus = AiUniverseSourceStatusType;
 
 export interface AiUniverseResult {
   mode: AiUniverseMode;

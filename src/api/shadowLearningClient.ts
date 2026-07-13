@@ -29,7 +29,7 @@ export interface ClientRejectionShadowEntry {
   conditionScores?: Record<number, number>;
 }
 
-export interface ClientRejectionSummary {
+interface ClientRejectionSummary {
   totalCount: number;
   closedCount: number;
   activeCount: number;
@@ -48,7 +48,7 @@ export interface RejectionShadowResponse {
 
 export type ClientTwinKey = 'AGGRESSIVE' | 'DISCIPLINED' | 'EQUAL_WEIGHT';
 
-export interface ClientTwinEntry {
+interface ClientTwinEntry {
   id: string;
   twin: ClientTwinKey;
   stockCode: string;
@@ -65,7 +65,7 @@ export interface ClientTwinEntry {
   exitDate?: string;
 }
 
-export interface ClientTwinStats {
+interface ClientTwinStats {
   twin: ClientTwinKey;
   activeCount: number;
   closedCount: number;
@@ -74,7 +74,7 @@ export interface ClientTwinStats {
   weeklySharpeProxy: number;
 }
 
-export interface ClientTwinComparison {
+interface ClientTwinComparison {
   perTwin: Record<ClientTwinKey, ClientTwinStats>;
   realCumReturnPct: number;
   weekWinning: Record<ClientTwinKey, boolean>;
@@ -87,7 +87,7 @@ export interface TwinPortfolioResponse {
   totalCount: number;
 }
 
-export type ClientShadowConditionClassification =
+type ClientShadowConditionClassification =
   | 'normal'
   | 'over_strict_candidate'
   | 'good_defense_candidate'

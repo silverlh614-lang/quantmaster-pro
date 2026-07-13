@@ -19,7 +19,7 @@ export function addConfidence(summary: DataConfidenceSummary, confidence: DataCo
   return next;
 }
 
-export function confidenceOf<T>(point: ScreenerDataPoint<T> | undefined): DataConfidence {
+function confidenceOf<T>(point: ScreenerDataPoint<T> | undefined): DataConfidence {
   if (!point || point.value === null || point.value === undefined) return 'MISSING';
   return point.confidence ?? 'UNKNOWN';
 }
@@ -50,15 +50,4 @@ export function summarizeItemConfidence(item: ScreenerUniverseItem): DataConfide
     if (missing.trim()) summary = addConfidence(summary, 'MISSING');
   }
   return summary;
-}
-
-export function mergeConfidenceSummaries(a: DataConfidenceSummary, b: DataConfidenceSummary): DataConfidenceSummary {
-  return {
-    verified: a.verified + b.verified,
-    degraded: a.degraded + b.degraded,
-    stale: a.stale + b.stale,
-    missing: a.missing + b.missing,
-    aiEstimated: a.aiEstimated + b.aiEstimated,
-    unknown: a.unknown + b.unknown,
-  };
 }

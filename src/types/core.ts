@@ -43,15 +43,7 @@ export const CHECKLIST_KEY_TO_CONDITION_ID: Readonly<Record<ChecklistKey, Condit
 export const CONDITION_ID_TO_CHECKLIST_KEY: Readonly<Record<ConditionId, ChecklistKey>> = Object.fromEntries(
   (Object.entries(CHECKLIST_KEY_TO_CONDITION_ID) as [ChecklistKey, ConditionId][]).map(([k, v]) => [v, k])
 ) as Readonly<Record<ConditionId, ChecklistKey>>;
-
-export interface Condition {
-  id: ConditionId;
-  name: string;
-  description: string;
-  baseWeight: number;
-}
-
-export type MarketRegimeType = '상승초기' | '변동성' | '횡보' | '하락';
+type MarketRegimeType = '상승초기' | '변동성' | '횡보' | '하락';
 
 // ─── 자동매매 레짐 체계 ───────────────────────────────────────────────────────
 
@@ -141,7 +133,7 @@ export interface RegimeVariables {
 // ─── 레짐별 트레이딩 설정 타입 ───────────────────────────────────────────────
 
 /** 프로파일(A/B/C/D)별 손절 비율 (음수, e.g., -0.12 = -12%) */
-export interface StopLossConfig {
+interface StopLossConfig {
   profileA: number;  // 대형 주도주
   profileB: number;  // 중형 성장주
   profileC: number;  // 소형 모멘텀
@@ -149,7 +141,7 @@ export interface StopLossConfig {
 }
 
 /** 단계적 익절 트랜치 설정 */
-export interface TakeProfitTranche {
+interface TakeProfitTranche {
   trigger: number;   // 수익률 임계값 (e.g., 0.15 = +15%)
   ratio: number;     // 해당 시점 청산 비율 (e.g., 0.3 = 30%)
 }
@@ -316,12 +308,6 @@ export interface StockProfile {
   monitoringCycle: 'WEEKLY' | 'DAILY' | 'REALTIME';
   stopLoss: number; // e.g., -15
   executionDelay: number; // days
-}
-
-export interface EuphoriaSignal {
-  id: string;
-  name: string;
-  active: boolean;
 }
 
 export interface SellCondition {
@@ -566,12 +552,6 @@ export interface SectorRotation {
   leadingSectors?: string[];
 }
 
-export interface EmergencyStopSignal {
-  id: string;
-  name: string;
-  triggered: boolean;
-}
-
 export interface MacroEvent {
   id: string;
   title: string;
@@ -582,16 +562,4 @@ export interface MacroEvent {
   description: string;
   strategyAdjustment: string;
   probability?: number; // e.g., 55 for surprise probability
-}
-
-export interface RecommendationHistory {
-  stockCode: string;
-  stockName: string;
-  recommendedAt: string;      // "2026-03-15"
-  priceAtRecommend: number;   // 245,000
-  type: 'STRONG_BUY' | 'BUY';
-  stopLoss: number;
-  targetPrice: number;
-  outcome: 'WIN' | 'LOSS' | 'PENDING';
-  actualReturn: number;       // +12.3% or -8.5%
 }

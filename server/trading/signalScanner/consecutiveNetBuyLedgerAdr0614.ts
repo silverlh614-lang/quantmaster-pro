@@ -11,7 +11,7 @@ import { evaluateInvestorFlowSemanticAvailability } from '../../supply/investorF
 /** 종목당 보관 거래일 row 수 (rolling FIFO). */
 export const CONSECUTIVE_NETBUY_WINDOW_DAYS = 10;
 /** 글로벌 종목 캡 — 초과 시 가장 오래 갱신 안 된 종목 entry 제거. */
-export const CONSECUTIVE_NETBUY_MAX_CODES = 600;
+const CONSECUTIVE_NETBUY_MAX_CODES = 600;
 
 // ── 타입 (ADR-0614 (a)/(b)) ────────────────────────────────────────────────────
 
@@ -216,10 +216,6 @@ export function loadConsecutiveNetBuyWindow(
   return loadAll(filePath)[normalizeCode(stockCode)] ?? [];
 }
 
-export function countConsecutiveNetBuyCodes(filePath = CONSECUTIVE_NETBUY_LEDGER_FILE): number {
-  return Object.keys(loadAll(filePath)).length;
-}
-
 // ── 순수 산출 (ADR-0614 (b)) ───────────────────────────────────────────────────
 
 /** 최신 dateKey 부터 역순, netBuy>0 깨지는 첫 지점(===0/<0)까지 연속 카운트. append 된 인접 거래일 기준. */
@@ -274,9 +270,4 @@ export function computeConsecutiveNetBuySignal(
     executionImpact: 'NONE',
     observationOnly: true,
   };
-}
-
-/** 테스트 전용 — ledger 파일 초기화. */
-export function __resetConsecutiveNetBuyLedgerForTests(filePath = CONSECUTIVE_NETBUY_LEDGER_FILE): void {
-  try { fs.unlinkSync(filePath); } catch { /* SDS-ignore: 미존재 파일 idempotent */ }
 }

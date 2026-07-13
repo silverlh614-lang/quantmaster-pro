@@ -190,7 +190,7 @@ function normalizeProviderStatus(value: unknown): SectorThemeCycleProviderStatus
   return null;
 }
 
-export function confidenceForSectorThemeCycleStatus(
+function confidenceForSectorThemeCycleStatus(
   status: SectorThemeCycleProviderStatus,
 ): SectorThemeCycleConfidence {
   if (status === 'OK_WITH_DATA') return 'VERIFIED';

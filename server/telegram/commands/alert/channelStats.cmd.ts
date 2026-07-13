@@ -68,5 +68,3 @@ const channelStats: TelegramCommand = {
 };
 
 commandRegistry.register(channelStats);
-
-export default channelStats;

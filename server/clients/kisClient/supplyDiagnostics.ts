@@ -18,7 +18,7 @@ import type { KisApiPriority } from '../kisRateLimiter.js';
 import { isTradingDay } from '../../utils/marketDayClassifier.js';
 import { classifyInvestorFlowPayload, describeKisPayloadStatus, type KisPayloadStatus } from './payloadValidators.js';
 
-export type KisSupplyDiagnosticKind = 'INVESTOR_FLOW' | 'STOCK_PROGRAM' | 'MARKET_PROGRAM';
+type KisSupplyDiagnosticKind = 'INVESTOR_FLOW' | 'STOCK_PROGRAM' | 'MARKET_PROGRAM';
 
 export interface KisRawSupplyDiagnostic {
   kind: KisSupplyDiagnosticKind;

@@ -8,7 +8,7 @@ import { JOB_METRICS_FILE, ensureDataDir } from './paths.js';
  *
  * 재할당 의무: scheduleCatalog.ts 의 JobMetrics 변경 시 본 인터페이스도 동기화.
  */
-export interface JobMetricsEntry {
+interface JobMetricsEntry {
   jobName: string;
   runCount: number;
   successCount: number;

@@ -10,13 +10,13 @@ import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
 
 /** IPS 알림 단계별 재발송 최소 간격 */
-export const IPS_ALERT_COOLDOWN_MS: Record<string, number> = {
+const IPS_ALERT_COOLDOWN_MS: Record<string, number> = {
   WARNING:  2 * 60 * 60 * 1000, // WARNING: 2시간
   CRITICAL: 4 * 60 * 60 * 1000, // CRITICAL: 4시간
   EXTREME:  6 * 60 * 60 * 1000, // EXTREME: 6시간
 };
 
-export interface IpsAlertState {
+interface IpsAlertState {
   lastSentAt: string;  // ISO — 마지막 알림 발송 시각
   lastLevel: string;   // 마지막 발송 단계
   lastIps: number;     // 마지막 발송 IPS 점수

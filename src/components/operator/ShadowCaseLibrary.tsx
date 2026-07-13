@@ -69,7 +69,7 @@ function severityTone(severity: string): 'neutral' | 'safe' | 'warn' | 'danger' 
   return 'danger';
 }
 
-export function ShadowLearningStatusCard({ data }: { data: ShadowCaseLibraryResponse }): React.ReactElement {
+function ShadowLearningStatusCard({ data }: { data: ShadowCaseLibraryResponse }): React.ReactElement {
   const items = data.items;
   const byStatus = countShadowCasesByStatus(items);
   const impactRisk = getCasesWithExecutionImpactRisk(items);
@@ -101,7 +101,7 @@ export function ShadowLearningStatusCard({ data }: { data: ShadowCaseLibraryResp
   );
 }
 
-export function ShadowCaseTypeSummary({ items }: { items: ShadowCaseItem[] }): React.ReactElement {
+function ShadowCaseTypeSummary({ items }: { items: ShadowCaseItem[] }): React.ReactElement {
   const counts = countShadowCasesByType(items);
   const populated = ALL_SHADOW_CASE_TYPES.filter((caseType) => counts[caseType] > 0);
   return (
@@ -177,7 +177,7 @@ function CaseCard({ item }: { item: ShadowCaseItem }): React.ReactElement {
   );
 }
 
-export function ShadowCaseTable({ items }: { items: ShadowCaseItem[] }): React.ReactElement {
+function ShadowCaseTable({ items }: { items: ShadowCaseItem[] }): React.ReactElement {
   return (
     <section className={panelClass()}>
       <h2 className="text-lg font-bold text-zinc-100">Shadow 케이스 표</h2>
@@ -202,7 +202,7 @@ function formatPrice(value?: number): string {
   return value === undefined ? 'N/A' : value.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-export function CounterfactualOutcomeCard({ outcomes }: { outcomes: ShadowCounterfactualOutcome[] }): React.ReactElement {
+function CounterfactualOutcomeCard({ outcomes }: { outcomes: ShadowCounterfactualOutcome[] }): React.ReactElement {
   const rows = outcomes.slice(0, 6);
   return (
     <section className={panelClass()}>
@@ -231,7 +231,7 @@ export function CounterfactualOutcomeCard({ outcomes }: { outcomes: ShadowCounte
   );
 }
 
-export function ProviderMarketSignalSplitCard({ items }: { items: ShadowCaseItem[] }): React.ReactElement {
+function ProviderMarketSignalSplitCard({ items }: { items: ShadowCaseItem[] }): React.ReactElement {
   const split = splitProviderIssueAndMarketSignal(items);
   const groups = [
     ['Provider 이슈', split.providerIssues, 'API/데이터 장애를 시장 해석과 분리해서 다룹니다.'],

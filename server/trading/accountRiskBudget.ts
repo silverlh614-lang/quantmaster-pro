@@ -34,8 +34,6 @@ import {
 } from './budgetPolicy.js';
 
 export type { SignalGrade, BudgetPolicy } from './budgetPolicy.js';
-export { defaultBudgetPolicy, getBudgetPolicy, setBudgetPolicy, withPolicyOverride } from './budgetPolicy.js';
-
 // ── Fractional Kelly 강제 (PR-T: 정책 객체로 이전, 후방호환 const 유지) ──────
 //
 // 풀 Kelly 는 추정 오차 + 비대칭 페이오프 가정으로 인해 장기적으로 파산 확률이 높다.
@@ -45,7 +43,6 @@ export { defaultBudgetPolicy, getBudgetPolicy, setBudgetPolicy, withPolicyOverri
 // PR-T (아이디어 8): SSOT 는 budgetPolicy.ts 로 이전됐다. 본 const 는 이전 호출자
 // (perSymbolEvaluation.ts 의 entryKellySnapshot.fractionalCap 등) 호환을 위한 default
 // 정책 스냅샷이다. 백테스트는 setBudgetPolicy() 로 정책을 갈아끼워 사용한다.
-export const FRACTIONAL_KELLY_CAP: Record<SignalGrade, number> = defaultBudgetPolicy().fractionalKellyCap;
 
 /**
  * 신호 등급에 Fractional Kelly 캡을 적용. 입력 multiplier 가 캡을 넘으면 캡으로 잘라낸다.

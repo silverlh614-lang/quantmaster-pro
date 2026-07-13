@@ -139,7 +139,5 @@ export function evaluatePromotionReadiness(input: DataPromotionAuditInput, optio
   return result;
 }
 
-export { getPromotionRequirements } from './promotionRules';
-export { calculatePromotionScore } from './promotionScore';
-export { createInMemoryPromotionAuditStore, defaultPromotionAuditStore } from './promotionAuditStore';
+export { createInMemoryPromotionAuditStore } from './promotionAuditStore';
 export type { DataPromotionAuditInput, DataPromotionAuditResult } from '../../types/dataPromotion.types';

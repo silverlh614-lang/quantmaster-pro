@@ -77,7 +77,7 @@ export function isKisFirstRebuildMode(): boolean {
   return process.env.KIS_FIRST_REBUILD_MODE === 'true';
 }
 
-export function isKisOnlyRebuildMode(): boolean {
+function isKisOnlyRebuildMode(): boolean {
   return process.env.KIS_ONLY_REBUILD_MODE === 'true';
 }
 

@@ -587,7 +587,7 @@ function indexRowMarket(row: KrxIndexDailyRow): string {
 
 // ADR-0370: indexRowKey 헬퍼 — composite key 합성 SSOT (외부 reference 가능).
 // `${market}:code:${indexCode}` 우선 / useNameFallback=true 시 `${market}:name:${indexName}` fallback.
-export function indexRowKey(row: KrxIndexDailyRow, useNameFallback: boolean): string | null {
+function indexRowKey(row: KrxIndexDailyRow, useNameFallback: boolean): string | null {
   const market = indexRowMarket(row);
   if (row.indexCode) return `${market}:code:${row.indexCode}`;
   if (useNameFallback && row.indexName) return `${market}:name:${row.indexName}`;
@@ -798,7 +798,7 @@ function buildStockDailyFallbackResult(
   };
 }
 
-export async function buildSectorEnergyInputs(): Promise<SectorEnergyInput[]> {
+async function buildSectorEnergyInputs(): Promise<SectorEnergyInput[]> {
   const result = await buildSectorEnergyInputsWithMeta();
   return result.inputs;
 }
@@ -813,11 +813,8 @@ export async function buildSectorEnergyInputsWithMeta(): Promise<SectorEnergyBui
 // ADR-0399: buildSectorEnergyInputsWithMetaRaw 의 attemptedTodayDates 를
 // withFallback wrapper 가 진단 메타에 사용할 수 있도록 export.
 let _lastAttemptedTodayDates: string[] = [];
-export function __getLastAttemptedTodayDatesForTests(): string[] {
+function __getLastAttemptedTodayDatesForTests(): string[] {
   return [..._lastAttemptedTodayDates];
-}
-export function __setLastAttemptedTodayDatesForTests(v: string[]): void {
-  _lastAttemptedTodayDates = [...v];
 }
 
 // ADR-0446 Phase 2: per-build sanity state + recovery row inputs (module-local).
@@ -846,20 +843,6 @@ function resetCurrentBuildPhase2State(): void {
   _currentBuildRecoveryBefore = [];
   _currentBuildRecoveryAfter = [];
   _currentBuildKrxRawSnapshot = null;
-}
-
-export function __getCurrentBuildKrxRawSnapshotForTests(): typeof _currentBuildKrxRawSnapshot {
-  return _currentBuildKrxRawSnapshot;
-}
-
-export function __getCurrentBuildSanityStateForTests(): SectorEnergySanityViolationState | null {
-  return _currentBuildSanityState;
-}
-export function __getCurrentBuildRecoveryInputsForTests(): {
-  before: RecoveryRowInput[];
-  after: RecoveryRowInput[];
-} {
-  return { before: [..._currentBuildRecoveryBefore], after: [..._currentBuildRecoveryAfter] };
 }
 
 async function buildSectorEnergyInputsWithMetaRaw(): Promise<SectorEnergyBuildResult> {
@@ -1291,7 +1274,7 @@ export function isSectorEnergySourceRestorationDisabled(): boolean {
   return process.env.SECTOR_ENERGY_SOURCE_RESTORATION_DISABLED === 'true';
 }
 
-export function isKisSectorEnergyProviderDisabled(): boolean {
+function isKisSectorEnergyProviderDisabled(): boolean {
   if (process.env.KIS_SECTOR_ENERGY_PROVIDER_DISABLED === 'true') return true;
   if (
     (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') &&
@@ -1335,9 +1318,4 @@ export async function getSectorEnergyInputs(force = false): Promise<SectorEnergy
     }
   })();
   return _inflight;
-}
-
-export function resetSectorEnergyCache(): void {
-  _cache = null;
-  _inflight = null;
 }

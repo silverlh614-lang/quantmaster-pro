@@ -46,7 +46,7 @@ export type PreBreakoutWaitState =
 
 /* ───────── 9-value reason union ───────── */
 
-export type PreBreakoutWaitReason =
+type PreBreakoutWaitReason =
   | 'ENTRY_PRICE_NOT_REACHED'
   | 'PRICE_DISTANCE_TOO_FAR'
   | 'VOLUME_BELOW_THRESHOLD'
@@ -59,7 +59,7 @@ export type PreBreakoutWaitReason =
 
 /* ───────── KIS-WS priority adjustment (ADR-0437 연동) ───────── */
 
-export type PreBreakoutKisWsPriorityAdjustment =
+type PreBreakoutKisWsPriorityAdjustment =
   | 'KEEP'
   | 'DOWNGRADE_TO_WATCHLIST'
   | 'DOWNGRADE_TO_OBSERVE_ONLY'

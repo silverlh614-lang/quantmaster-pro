@@ -20,10 +20,10 @@ export const REJECTION_NEAR_MISS_MAX = 17;
 export const REJECTION_GATE_THRESHOLD = 18;
 
 /** 5 영업일 (KST 평일만 카운트, 한국 공휴일 미반영 — 후속 PR) */
-export const TRACK_BUSINESS_DAYS = 5;
+const TRACK_BUSINESS_DAYS = 5;
 
 /** 영속 파일 hard cap (FIFO trim) */
-export const REJECTION_SHADOW_MAX = 500;
+const REJECTION_SHADOW_MAX = 500;
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 

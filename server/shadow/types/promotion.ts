@@ -1,5 +1,5 @@
 // @responsibility Shadow promotion report contracts.
-export type PromotionStatus = 'BLOCKED' | 'OBSERVE' | 'READY_FOR_CANARY' | 'CANARY_ACTIVE' | 'CORE_CANDIDATE';
+type PromotionStatus = 'BLOCKED' | 'OBSERVE' | 'READY_FOR_CANARY' | 'CANARY_ACTIVE' | 'CORE_CANDIDATE';
 
 export interface PromotionReport {
   sampleSize: number;

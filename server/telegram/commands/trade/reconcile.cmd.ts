@@ -236,5 +236,3 @@ const reconcile: TelegramCommand = {
 };
 
 commandRegistry.register(reconcile);
-
-export default reconcile;

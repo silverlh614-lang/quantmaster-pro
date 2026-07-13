@@ -25,12 +25,12 @@ import { ZodError } from 'zod';
 import { CircuitOpenError } from './circuitBreaker.js';
 import { FetchRetryError } from './fetchWithRetry.js';
 
-export interface ApiSuccess<T> {
+interface ApiSuccess<T> {
   ok: true;
   data: T;
 }
 
-export interface ApiError {
+interface ApiError {
   ok: false;
   error: {
     code: string;
@@ -38,8 +38,6 @@ export interface ApiError {
     details?: unknown;
   };
 }
-
-export type ApiEnvelope<T> = ApiSuccess<T> | ApiError;
 
 /** 200 OK + 표준 success envelope */
 export function ok<T>(res: Response, data: T, status = 200): Response {
@@ -91,8 +89,6 @@ export function validate<T>(
 }
 
 export const validateBody  = <T>(schema: ZodSchema<T>): RequestHandler => validate(schema, 'body');
-export const validateQuery = <T>(schema: ZodSchema<T>): RequestHandler => validate(schema, 'query');
-export const validateParams = <T>(schema: ZodSchema<T>): RequestHandler => validate(schema, 'params');
 
 /**
  * 마지막 단계의 글로벌 에러 핸들러.

@@ -121,7 +121,7 @@ function updateRelatedTradeStatus(
   saveShadowTrades(shadows);
 }
 
-export class FillMonitor {
+class FillMonitor {
   /** LIVE 주문 후 호출 — pending-orders.json에 추가 */
   addOrder(order: Omit<PendingOrder, 'pollCount' | 'status'>): void {
     const orders = loadPendingOrders();
@@ -893,6 +893,3 @@ async function reissueAsMarketOrder(order: PendingSellOrder, quantity: number, d
     ).catch(console.error);
   }
 }
-
-export { pollSellFills as pollSellFillsOnce };
-

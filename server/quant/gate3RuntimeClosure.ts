@@ -3,7 +3,7 @@
 import { evaluateGate3LastTrigger } from './gate3LastTrigger.js';
 import type { Gate2Status } from './gate2ConfluenceScore.js';
 
-export type RrrClosureStatus =
+type RrrClosureStatus =
   | 'RRR_STRONG'
   | 'RRR_ACCEPTABLE'
   | 'RRR_WEAK'
@@ -11,7 +11,7 @@ export type RrrClosureStatus =
   | 'RRR_DATA_INCOMPLETE'
   | 'RRR_INVALID';
 
-export type LastTriggerState =
+type LastTriggerState =
   | 'NOT_EVALUATED'
   | 'SETUP_NOT_READY'
   | 'SETUP_READY'
@@ -21,25 +21,25 @@ export type LastTriggerState =
   | 'DATA_UNAVAILABLE'
   | 'INVALIDATED';
 
-export type PriceConfirmationClosureStatus =
+type PriceConfirmationClosureStatus =
   | 'PRICE_CONFIRMED'
   | 'PRICE_WAIT'
   | 'PRICE_REJECTED'
   | 'PRICE_DATA_UNAVAILABLE';
 
-export type VolumeConfirmationClosureStatus =
+type VolumeConfirmationClosureStatus =
   | 'VOLUME_CONFIRMED'
   | 'VOLUME_WEAK'
   | 'VOLUME_DRYUP_WATCH'
   | 'VOLUME_DATA_UNAVAILABLE';
 
-export type FalseBreakoutClosureStatus =
+type FalseBreakoutClosureStatus =
   | 'FALSE_BREAKOUT_PASS'
   | 'FALSE_BREAKOUT_WATCH'
   | 'FALSE_BREAKOUT_BLOCK'
   | 'FALSE_BREAKOUT_DATA_UNAVAILABLE';
 
-export type Gate3RuntimeReadiness =
+type Gate3RuntimeReadiness =
   | 'EXECUTION_READY'
   | 'SHADOW_READY'
   | 'TRIGGER_WAIT'
@@ -49,14 +49,14 @@ export type Gate3RuntimeReadiness =
   | 'INVALIDATED'
   | 'SKIPPED';
 
-export type Gate3CompletionLevel =
+type Gate3CompletionLevel =
   | 'GATE3_READY'
   | 'GATE3_TRIGGER_WAIT'
   | 'GATE3_SETUP_WATCH'
   | 'GATE3_DATA_INCOMPLETE_OR_WEAK'
   | 'GATE3_FAIL';
 
-export type EntryTimingSignal =
+type EntryTimingSignal =
   | 'ENTRY_READY'
   | 'WAIT_TRIGGER'
   | 'WATCH_SETUP'

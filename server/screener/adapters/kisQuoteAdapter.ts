@@ -423,7 +423,7 @@ export function resetKisMtasNoiseSummary(): void {
   _kisMtasNoiseSummary = { scanned: 0, monthlyBull: 0, weeklyBull: 0, bothBull: 0, failed: 0 };
 }
 
-export function getKisMtasNoiseSummary(): KisMtasNoiseSummary {
+function getKisMtasNoiseSummary(): KisMtasNoiseSummary {
   return { ..._kisMtasNoiseSummary };
 }
 

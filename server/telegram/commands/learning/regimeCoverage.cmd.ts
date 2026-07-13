@@ -16,5 +16,3 @@ const regimeCoverage: TelegramCommand = {
 };
 
 commandRegistry.register(regimeCoverage);
-
-export default regimeCoverage;

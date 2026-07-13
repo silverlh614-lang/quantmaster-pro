@@ -29,7 +29,7 @@
  *
  * 의미 필드 부재 시 NEUTRAL 사용 절대 금지 (사용자 명시 핵심 불변식 #2/#3).
  */
-export type InvestorFlowSemanticStatus =
+type InvestorFlowSemanticStatus =
   | 'OK'
   | 'DATA_UNAVAILABLE'
   | 'DEGRADED'
@@ -241,7 +241,7 @@ export function evaluateInvestorFlowSemanticAvailability(
 
 
 
-export interface InvestorFlowSemanticRowAudit {
+interface InvestorFlowSemanticRowAudit {
   rowCount: number;
   investorTypesDetected: string[];
   foreignRowFound: boolean;
@@ -250,9 +250,9 @@ export interface InvestorFlowSemanticRowAudit {
   rowMappingConfidence: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
 }
 
-export type InvestorFlowSampleValueKind = 'number' | 'numericString' | 'empty' | 'placeholder';
+type InvestorFlowSampleValueKind = 'number' | 'numericString' | 'empty' | 'placeholder';
 
-export type InvestorFlowUnwrapReason =
+type InvestorFlowUnwrapReason =
   | 'FOUND_DIRECT_ROW'
   | 'FOUND_NESTED_INVESTOR_FLOW_SEMANTIC_ROW'
   | 'FOUND_NESTED_RAW_ROW'

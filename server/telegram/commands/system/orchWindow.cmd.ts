@@ -71,5 +71,3 @@ const cmd: TelegramCommand = {
 };
 
 commandRegistry.register(cmd);
-export default cmd;
-export { message as formatOrchWindow };

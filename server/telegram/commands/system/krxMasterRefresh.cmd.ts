@@ -21,13 +21,8 @@ const MIN_ACCEPTABLE_FINAL_COUNT = DEFAULT_KRX_MASTER_GUARD.minTotal;
 const REFRESH_RATE_LIMIT_MS = 10 * 60_000; // 10분
 let _lastRefreshAt = 0;
 
-/** 테스트 전용 — rate-limit state 초기화. */
-export function __resetKrxMasterRefreshRateLimitForTests(): void {
-  _lastRefreshAt = 0;
-}
-
 /** 결과 메시지 빌더 SSOT — 단위 테스트 가능. */
-export function formatKrxMasterRefreshMessage(input: {
+function formatKrxMasterRefreshMessage(input: {
   before: number;
   after: number;
   finalSource: string;
@@ -151,5 +146,3 @@ const krxMasterRefresh: TelegramCommand = {
 };
 
 commandRegistry.register(krxMasterRefresh);
-
-export default krxMasterRefresh;

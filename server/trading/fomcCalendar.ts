@@ -250,14 +250,6 @@ export function generateFomcIcs(): string {
 
 // 중복 방지: 오늘 이미 발송한 경우 스킵
 let _lastAlertedDate = '';
-
-/**
- * FOMC 근접 경보 — 제거됨. no-op stub.
- */
-export async function checkFomcProximityAlert(): Promise<void> {
-  // FOMC_GATING_REMOVED — no-op
-}
-
 // ─── FOMC DAY 보유 포지션 강제 청산 정책 (PR-1, ADR-0061) ─────────────────────
 //
 // FOMC 발표 당일(D-day, KST) 14:30~15:20 사이에 활성 LIVE/SHADOW 보유 포지션을

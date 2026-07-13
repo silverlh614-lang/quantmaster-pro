@@ -7,10 +7,6 @@ import type {
 } from './gate1PositiveScoreStarvation.js';
 import type { Gate1ScoreCeilingRepairReport } from './gate1ScoreCeilingRepair.js';
 import type { CanonicalRuntimeResolutionStep27 } from './runtimeResolverTraceStep26.js';
-
-export const ADR_0469_PENALTY_DEDUP_DRY_RUN = true;
-export const ADR_0469_PENALTY_DEDUP_ENABLED = false;
-
 export type PenaltyRootCauseCode =
   | 'SUPPLY_PROVIDER_UNKNOWN'
   | 'INVESTOR_FLOW_SAMPLE_MISSING'
@@ -71,7 +67,7 @@ export interface CandidatePenaltyDedupTrace {
   executionImpact: 'NONE';
 }
 
-export type PenaltyDedupScenario =
+type PenaltyDedupScenario =
   | 'CURRENT'
   | 'KEEP_LARGEST_PER_ROOT_CAUSE'
   | 'CAP_SUPPLY_UNKNOWN_PENALTY_10'

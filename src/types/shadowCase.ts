@@ -23,11 +23,11 @@ export type ShadowCaseType =
   | 'CASE_SCAN_DIAGNOSTIC_SUPPRESSED'
   | 'CASE_UNKNOWN';
 
-export type ShadowExecutionImpact = 'NONE' | 'NEW_BUY_BLOCKED_ONLY' | 'SHADOW_ONLY' | 'DEGRADED' | 'BLOCKING';
-export type ShadowPostOutcome = 'WIN' | 'LOSS' | 'BREAKEVEN' | 'PENDING' | 'INVALIDATED' | 'NOT_TRACKED';
+type ShadowExecutionImpact = 'NONE' | 'NEW_BUY_BLOCKED_ONLY' | 'SHADOW_ONLY' | 'DEGRADED' | 'BLOCKING';
+type ShadowPostOutcome = 'WIN' | 'LOSS' | 'BREAKEVEN' | 'PENDING' | 'INVALIDATED' | 'NOT_TRACKED';
 export type ShadowCaseStatus = 'OPEN' | 'OUTCOME_PENDING' | 'RESOLVED' | 'IGNORED' | 'NEEDS_REVIEW';
 export type DataHealth = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED' | 'UNKNOWN';
-export type ConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW' | 'NOT_APPLICABLE';
+type ConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW' | 'NOT_APPLICABLE';
 export type ShadowCaseSeverity = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
 
 export interface ShadowCaseItem {

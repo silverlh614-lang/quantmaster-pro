@@ -27,13 +27,13 @@ export type SemanticNetBuyStatus =
   | 'NON_TRADING_DAY'
   | 'DISABLED';
 
-export type SemanticNetBuySignal =
+type SemanticNetBuySignal =
   | 'BULLISH'
   | 'NEUTRAL'
   | 'BEARISH'
   | 'UNKNOWN';
 
-export type SemanticNetBuyConfidence =
+type SemanticNetBuyConfidence =
   | 'HIGH'
   | 'MEDIUM'
   | 'LOW'
@@ -467,7 +467,7 @@ export function formatSemanticNetBuyCompactAdr0482(report?: SemanticNetBuyNormal
   return `ADR-0482 SemanticNetBuy: ${report.status} | selected=${report.selectedSample?.provider ?? 'NONE'} | signal=${report.signal} | confidence=${report.confidence} | impact=${report.executionImpact}`;
 }
 
-export function formatSemanticNetBuyDetailAdr0482(report?: SemanticNetBuyNormalizationReportAdr0482 | null): string | null {
+function formatSemanticNetBuyDetailAdr0482(report?: SemanticNetBuyNormalizationReportAdr0482 | null): string | null {
   if (!report) return null;
   const selected = report.selectedSample;
   return [

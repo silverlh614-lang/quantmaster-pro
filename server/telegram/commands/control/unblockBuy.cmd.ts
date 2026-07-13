@@ -37,5 +37,3 @@ const unblockBuy: TelegramCommand = {
 };
 
 commandRegistry.register(unblockBuy);
-
-export default unblockBuy;

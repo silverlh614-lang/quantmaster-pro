@@ -17,10 +17,10 @@ import { isChecklistConditionMet } from '../../constants/gateConfig';
 import { resolveConditionTier, isVerifiedTier, isAiIntrinsic } from '../../utils/dataQualityClassifier';
 import { getQuantGateScore, classifyScoreConcordance, type ScoreConcordance } from '../../utils/recommendationScore';
 
-export type ConditionDisplayStatus = 'VERIFIED_PASS' | 'AI_PASS' | 'FAIL';
+type ConditionDisplayStatus = 'VERIFIED_PASS' | 'AI_PASS' | 'FAIL';
 
 /** 검증 가능성 (ADR-0582): VERIFIABLE = 데이터로 객관 검증 가능 / AI_INTRINSIC = 본질적 정성. */
-export type ConditionVerifiability = 'VERIFIABLE' | 'AI_INTRINSIC';
+type ConditionVerifiability = 'VERIFIABLE' | 'AI_INTRINSIC';
 
 export interface ConditionView {
   key: string;
@@ -31,7 +31,7 @@ export interface ConditionView {
   verifiability: ConditionVerifiability;
 }
 
-export interface RadarAxis {
+interface RadarAxis {
   subject: string;
   /** 0~100 — 카테고리 내 '검증+충족' 비율 (AI 추정 제외). */
   A: number;
@@ -63,7 +63,7 @@ export interface StockAnalysisCanon {
 }
 
 // 레이더 카테고리 → 27조건 매핑 (정본). 기존 MasterRadarChart 정의를 이리로 통일.
-export const RADAR_CATEGORIES: ReadonlyArray<{ name: string; keys: readonly string[] }> = [
+const RADAR_CATEGORIES: ReadonlyArray<{ name: string; keys: readonly string[] }> = [
   { name: '기본적 분석', keys: ['roeType3', 'earningsSurprise', 'performanceReality', 'ocfQuality', 'marginAcceleration', 'interestCoverage', 'economicMoatVerified'] },
   { name: '기술적 분석', keys: ['momentumRanking', 'ichimokuBreakout', 'technicalGoldenCross', 'volumeSurgeVerified', 'turtleBreakout', 'fibonacciLevel', 'elliottWaveVerified', 'vcpPattern', 'divergenceCheck'] },
   { name: '수급 분석', keys: ['supplyInflow', 'institutionalBuying', 'consensusTarget'] },

@@ -23,12 +23,12 @@ export interface Gate2SectorCycleHydrationReportAdr0601 {
 }
 
 /** D4 스위치 (default ON, `!== 'false'`). false 1줄 롤백 → ADR-0600 동종군 fallback 만 잔존. */
-export function isGate2SectorCycleHydrationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+function isGate2SectorCycleHydrationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.GATE2_SECTOR_CYCLE_NATIVE_HYDRATION_ENABLED !== 'false';
 }
 
 /** 스캔당 업종지수 신규 조회 상한 (0~30 정수, 무효/미설정 → 12). 일중 캐시 적중은 미소모. */
-export function resolveGate2SectorIndexFetchMax(env: NodeJS.ProcessEnv = process.env): number {
+function resolveGate2SectorIndexFetchMax(env: NodeJS.ProcessEnv = process.env): number {
   const raw = env.GATE2_SECTOR_INDEX_FETCH_MAX;
   if (raw === undefined || raw.trim() === '') return 12;
   const parsed = Number(raw);

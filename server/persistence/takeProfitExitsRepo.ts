@@ -30,7 +30,7 @@ export interface TakeProfitExitRecord {
   exitAt: string;
 }
 
-export function takeProfitExitsFile(yyyymm: string): string {
+function takeProfitExitsFile(yyyymm: string): string {
   return path.join(DATA_DIR, `take-profit-exits-${yyyymm}.jsonl`);
 }
 
@@ -57,7 +57,7 @@ export function appendTakeProfitExit(record: TakeProfitExitRecord, now = new Dat
 }
 
 /** 주어진 월의 레코드 전체를 읽는다. 파싱 실패 라인은 스킵. 파일 없으면 빈 배열. */
-export function loadTakeProfitExitsMonth(yyyymm: string): TakeProfitExitRecord[] {
+function loadTakeProfitExitsMonth(yyyymm: string): TakeProfitExitRecord[] {
   const file = takeProfitExitsFile(yyyymm);
   if (!fs.existsSync(file)) return [];
   const out: TakeProfitExitRecord[] = [];
@@ -102,5 +102,3 @@ export function lastTakeProfitExitForCode(
   }
   return latest;
 }
-
-export const __test = { currentYyyymmKst };

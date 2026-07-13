@@ -29,13 +29,13 @@ export interface WalkForwardAnalysis {
   recommendations: string[];
 }
 
-export interface NewsArticle {
+interface NewsArticle {
   headline: string;
   date: string;
   url: string;
 }
 
-export interface ChartPattern {
+interface ChartPattern {
   name: string;
   type: 'BULLISH' | 'BEARISH' | 'REVERSAL_BULLISH' | 'REVERSAL_BEARISH' | 'NEUTRAL';
   description: string;
@@ -340,20 +340,20 @@ export interface MarketDataPoint {
   history?: { date: string; value: number }[];
 }
 
-export interface SnsSentiment {
+interface SnsSentiment {
   score: number; // 0 to 100
   status: 'EXTREME_FEAR' | 'FEAR' | 'NEUTRAL' | 'GREED' | 'EXTREME_GREED';
   summary: string;
   trendingKeywords: string[];
 }
 
-export interface EuphoriaSignal {
+interface EuphoriaSignal {
   score: number;
   status: string;
   implication: string;
 }
 
-export interface GlobalEtfMonitoring {
+interface GlobalEtfMonitoring {
   symbol?: string;
   name: string;
   price?: number;
@@ -446,15 +446,6 @@ export interface MarketContext {
     isShiftDetected?: boolean;
   };
   globalEtfMonitoring?: GlobalEtfMonitoring[];
-}
-
-export interface MarketPhaseLog {
-  timestamp: string;
-  phase: 'BULL' | 'BEAR' | 'SIDEWAYS' | 'TRANSITION' | 'NEUTRAL' | 'RISK_ON' | 'RISK_OFF';
-  reason: string;
-  kospiIndex: number;
-  kospi200ma: number;
-  vkospi: number;
 }
 
 export interface RecommendationResponse {

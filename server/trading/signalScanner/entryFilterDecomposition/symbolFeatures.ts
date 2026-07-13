@@ -53,18 +53,18 @@ import {
 } from "../gatePositiveFeatureMaterializer.js";
 import type { CandidateSnapshot, Gate1SymbolFeatures } from './types.js';
 
-export function finiteFeature(value: unknown): number | undefined {
+function finiteFeature(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : undefined;
 }
 
 /** ADR-0621 — 비어있지 않은 문자열만 carry (market 구분 등). */
-export function stringFeature(value: unknown): string | undefined {
+function stringFeature(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-export function quoteFeature(c: CandidateSnapshot, key: string): number | undefined {
+function quoteFeature(c: CandidateSnapshot, key: string): number | undefined {
   const sources = [c.quoteFeatures, c.quote];
   for (const source of sources) {
     if (!source || typeof source !== "object") continue;

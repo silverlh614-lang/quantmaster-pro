@@ -68,5 +68,3 @@ const guards: TelegramCommand = {
 };
 
 commandRegistry.register(guards);
-
-export default guards;

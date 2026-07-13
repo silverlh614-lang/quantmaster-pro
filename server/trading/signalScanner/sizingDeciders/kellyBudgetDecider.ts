@@ -22,7 +22,7 @@ export interface KellyBudgetDeciderInput {
   shadows: ServerShadowTrade[];
 }
 
-export interface KellyBudgetDeciderPass {
+interface KellyBudgetDeciderPass {
   ok: true;
   budget: AccountRiskBudgetSnapshot;
   sized: ReturnType<typeof computeRiskAdjustedSize>;

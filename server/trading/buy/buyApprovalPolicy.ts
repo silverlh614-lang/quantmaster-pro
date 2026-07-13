@@ -10,7 +10,7 @@ import type {
 
 export type BuyApprovalMode = 'LIVE' | 'SHADOW';
 
-export type BuyApprovalPolicyDecision =
+type BuyApprovalPolicyDecision =
   | 'APPROVED'
   | 'REJECTED'
   | 'SKIPPED'
@@ -19,7 +19,7 @@ export type BuyApprovalPolicyDecision =
   | 'MANUAL_REVIEW_REQUIRED'
   | 'EXPIRED';
 
-export type BuyApprovalFailureKind =
+type BuyApprovalFailureKind =
   | 'NONE'
   | 'USER_REJECTED'
   | 'USER_SKIPPED'
@@ -217,10 +217,4 @@ function buildDecisionResult(
     statusWriteFailed: false,
     reason,
   };
-}
-
-export function isTelegramDeliveryFailureAllowedForExecution(
-  mode: BuyApprovalMode,
-): boolean {
-  return mode === 'SHADOW';
 }

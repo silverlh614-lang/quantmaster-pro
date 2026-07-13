@@ -4,7 +4,7 @@ import path from 'path';
 import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
 
 export type ReflectionInjectionBusModule = 'freshnessGuard' | 'safetyGate' | 'shadowLiveDelta';
-export type ReflectionInjectionBusStatus = 'ACTIVE' | 'INACTIVE' | 'ERROR';
+type ReflectionInjectionBusStatus = 'ACTIVE' | 'INACTIVE' | 'ERROR';
 
 export interface ReflectionInjectionBusModuleState {
   enabled: boolean;
@@ -26,8 +26,8 @@ export interface LearningPulseArchiveStatus {
   todayCount: number;
 }
 
-export const REFLECTION_INJECTION_BUS_STATE_FILE = path.join(DATA_DIR, 'reflection-injection-bus-state.json');
-export const LEARNING_PULSE_ARCHIVE_FILE = path.join(DATA_DIR, 'learningPulseArchive.jsonl');
+const REFLECTION_INJECTION_BUS_STATE_FILE = path.join(DATA_DIR, 'reflection-injection-bus-state.json');
+const LEARNING_PULSE_ARCHIVE_FILE = path.join(DATA_DIR, 'learningPulseArchive.jsonl');
 
 function readJson<T>(file: string, fallback: T): T {
   try {

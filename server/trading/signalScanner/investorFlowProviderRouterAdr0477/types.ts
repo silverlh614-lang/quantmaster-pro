@@ -31,15 +31,6 @@ export type InvestorFlowProviderId =
   | 'SEMANTIC_NETBUY'
   | 'UNKNOWN'
   | 'NONE';
-
-export type InvestorFlowProviderRoute =
-  | 'investor_flow'
-  | 'program_trading'
-  | 'market_program'
-  | 'foreign_trend'
-  | 'short_balance'
-  | 'credit_balance';
-
 export type InvestorFlowProviderStatus =
   | 'VERIFIED'
   | 'READY_FOR_SHADOW'

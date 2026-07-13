@@ -6,9 +6,7 @@
 
 export type { ActivePosition } from './sell/position';
 export type {
-  SellAction,
   SellSignal,
-  PreMortemType,
   PreMortemTrigger,
   TakeProfitTarget,
 } from './sell/signal';
@@ -27,6 +25,5 @@ export type {
 export type {
   DynamicStopRegime,
   DynamicStopInput,
-  DynamicStopResult,
-  SellCycleContext,
+  DynamicStopResult
 } from './sell/dynamicStop';

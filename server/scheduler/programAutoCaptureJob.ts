@@ -31,11 +31,11 @@ import { classifyProgramFlowSession, type ProgramFlowMarketSession } from '../tr
 import { getLastNormalSupplyPreview } from '../trading/signalScanner/normalSupplyPreview/previewStore.js';
 import { scheduledJob } from './scheduleGuard.js';
 
-export type ProgramAutoCaptureSlot = 'MORNING' | 'AFTERNOON';
-export type ProgramAutoCaptureRunMode = 'DIAGNOSTIC_ONLY' | 'MANUAL_RUN_NOW';
-export type ProgramAutoCaptureMode = 'PRIORITY_ROTATION';
+type ProgramAutoCaptureSlot = 'MORNING' | 'AFTERNOON';
+type ProgramAutoCaptureRunMode = 'DIAGNOSTIC_ONLY' | 'MANUAL_RUN_NOW';
+type ProgramAutoCaptureMode = 'PRIORITY_ROTATION';
 export type ProgramAutoCaptureTargetMode = 'DEFAULT' | 'BEARISH' | 'ACCUMULATING';
-export type ProgramDeltaDirection =
+type ProgramDeltaDirection =
   | 'PROGRAM_BUY_ACCELERATING'
   | 'PROGRAM_BUY_DECELERATING'
   | 'PROGRAM_SELL_ACCELERATING'
@@ -129,7 +129,7 @@ export interface ProgramAutoCaptureRunSummary {
   topProgramSell: Array<{ symbol: string; name?: string; programNetBuyAmount: number }>;
 }
 
-export interface ProgramAutoCaptureDelta {
+interface ProgramAutoCaptureDelta {
   symbol: string;
   previousSlotValue: number | null;
   currentSlotValue: number | null;
@@ -152,7 +152,7 @@ function envFlag(key: string): boolean {
   return process.env[key] === 'true';
 }
 
-export function isProgramAutoCaptureDisabled(): boolean {
+function isProgramAutoCaptureDisabled(): boolean {
   if (envFlag('PROGRAM_AUTO_CAPTURE_DISABLED')) return true;
   return process.env.PROGRAM_AUTO_CAPTURE_ENABLED !== 'true';
 }
@@ -334,7 +334,7 @@ function refreshProgramAutoCaptureStatusCoverage(
   };
 }
 
-export function computeNextProgramAutoCaptureKst(now = new Date()): string {
+function computeNextProgramAutoCaptureKst(now = new Date()): string {
   const morning = process.env.PROGRAM_AUTO_CAPTURE_MORNING_KST ?? '09:20';
   const afternoon = process.env.PROGRAM_AUTO_CAPTURE_AFTERNOON_KST ?? '13:40';
   const { marketDate, minutes } = kstParts(now);
@@ -383,7 +383,7 @@ function targetModeBoost(bucket: string, targetMode: ProgramAutoCaptureTargetMod
   return 0;
 }
 
-export interface ProgramAutoCaptureTarget {
+interface ProgramAutoCaptureTarget {
   symbol: string;
   name?: string;
   rank: number;
@@ -495,7 +495,7 @@ function previousDeltaExtremeSymbols(status: ProgramAutoCaptureStatus | undefine
     .map((delta) => delta.symbol));
 }
 
-export function selectProgramAutoCaptureTargets(
+function selectProgramAutoCaptureTargets(
   limit = configuredLimit(),
   options: ProgramAutoCaptureTargetSelectionOptions = {},
 ): ProgramAutoCaptureTarget[] {
@@ -705,7 +705,7 @@ export function resolveProgramAutoCaptureManualAvailability(now = new Date()): P
   };
 }
 
-export function resolveProgramAutoCaptureSlotForNow(now = new Date()): ProgramAutoCaptureSlot {
+function resolveProgramAutoCaptureSlotForNow(now = new Date()): ProgramAutoCaptureSlot {
   return kstParts(now).minutes < 12 * 60 ? 'MORNING' : 'AFTERNOON';
 }
 
@@ -733,7 +733,7 @@ function isKisThrottleOrCircuitBreaker(error: unknown): boolean {
     || message.includes('too many');
 }
 
-export async function runProgramAutoCapture(
+async function runProgramAutoCapture(
   slot: ProgramAutoCaptureSlot,
   now = new Date(),
   options: ProgramAutoCaptureRunOptions = {},
@@ -961,7 +961,7 @@ function formatAmount(amount: number): string {
   return `${sign}${Math.round(eok)}억`;
 }
 
-export function formatProgramAutoCaptureSummary(summary: ProgramAutoCaptureRunSummary): string {
+function formatProgramAutoCaptureSummary(summary: ProgramAutoCaptureRunSummary): string {
   const buy = summary.topProgramBuy.length > 0
     ? summary.topProgramBuy.map((r, i) => `${i + 1}. ${r.symbol} ${r.name ?? ''} ${formatAmount(r.programNetBuyAmount)}`.trim()).join('\n')
     : '없음';
@@ -1018,7 +1018,7 @@ export function formatProgramAutoCaptureSummary(summary: ProgramAutoCaptureRunSu
 }
 
 
-export async function runProgramAutoCaptureScheduled(slot: ProgramAutoCaptureSlot, now = new Date()): Promise<string> {
+async function runProgramAutoCaptureScheduled(slot: ProgramAutoCaptureSlot, now = new Date()): Promise<string> {
   if (isProgramAutoCaptureDisabled()) return `program_auto_capture_${slot}:disabled executionImpact=NONE`;
   if (getEmergencyStop()) return `program_auto_capture_${slot}:hard_block_skip executionImpact=NONE`;
   const guard = classifyProgramFlowSession(now);

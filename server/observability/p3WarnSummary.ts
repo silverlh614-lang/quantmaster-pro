@@ -2,7 +2,7 @@
 
 import type { P3WarnPayload } from './maintenanceWarn.js';
 
-export interface P3WarnSummaryRow {
+interface P3WarnSummaryRow {
   source: P3WarnPayload['source'];
   code: string;
   suppressedCount: number;
@@ -38,7 +38,7 @@ export function recordP3WarnSummary(payload: P3WarnPayload, suppressedCount: num
   flushP3WarnSummaryIfDue();
 }
 
-export function flushP3WarnSummaryIfDue(now = Date.now()): void {
+function flushP3WarnSummaryIfDue(now = Date.now()): void {
   if (rows.size === 0 || !shouldPrintSummary(now)) return;
   const summary = Array.from(rows.values()).map(({ source, code, suppressedCount }) => ({
     source,
@@ -48,13 +48,4 @@ export function flushP3WarnSummaryIfDue(now = Date.now()): void {
   console.warn('[P3WarnSummary] windowSec=600 executionImpact=NONE runtimeVisible=summary-only', summary);
   rows.clear();
   nextSummaryAt = now + SUMMARY_WINDOW_MS;
-}
-
-export function getP3WarnSummarySnapshot(): P3WarnSummaryRow[] {
-  return Array.from(rows.values());
-}
-
-export function resetP3WarnSummary(): void {
-  rows.clear();
-  nextSummaryAt = Date.now() + SUMMARY_WINDOW_MS;
 }

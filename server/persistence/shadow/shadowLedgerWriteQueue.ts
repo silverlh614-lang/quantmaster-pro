@@ -93,10 +93,6 @@ export function markShadowLedgerWriteFailed(queueId: string, reason: string): vo
   item.updatedAt = new Date().toISOString();
 }
 
-export function getReplayRequiredShadowLedgerWrites(): ShadowLedgerWriteQueueItem[] {
-  return listShadowLedgerWriteQueue('REPLAY_REQUIRED');
-}
-
 export function __resetShadowLedgerWriteQueueForTests(): void {
   queue.splice(0, queue.length);
 }

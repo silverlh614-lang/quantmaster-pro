@@ -125,10 +125,6 @@ export async function channelBuyFilled(params: {
   await dispatchAlert(ChannelSemantic.EXECUTION, message).catch(console.error);
 }
 
-export async function channelBuySignal(p: ChannelBuySignalParams): Promise<void> {
-  await channelBuySignalEmitted(p);
-}
-
 // ── 1.5. Shadow paper-fill 알림 (Patch-SHADOW-LIFECYCLE-AND-EXECUTION-001) ─────
 // Shadow approval 직후 paper-fill 완료 (status=PENDING→ACTIVE + INITIAL_BUY fill 영속)
 // 시점에 1회만 발송. executeShadowBuy SSOT 의 멱등 가드로 동일 trade 에 대해 한 번만
@@ -600,17 +596,6 @@ export async function channelWatchlistSummary(
 }
 
 // ── 6. 글로벌 스캔 핵심 요약 ─────────────────────────────────────────────────
-
-export async function channelGlobalScan(summary: string): Promise<void> {
-  if (!isSemanticEnabled(ChannelSemantic.REGIME)) return;
-
-  const msg = `🌐 <b>[글로벌 스캔]</b>\n━━━━━━━━━━━━━━━━\n${escapeHtml(summary)}`;
-  await dispatchAlert(ChannelSemantic.REGIME, msg, {
-    disableNotification: true,
-    delivery: 'daily_digest',
-  }).catch(console.error);
-}
-
 // ── 7. 일일/주간 성과 리포트 ─────────────────────────────────────────────────
 
 export interface ChannelPerformanceParams {

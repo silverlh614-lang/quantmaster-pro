@@ -64,7 +64,7 @@ export interface AccountSummary {
 
 const STARTING_CAPITAL = 100_000_000;
 
-export function deriveAccountSummary(balance: KisBalanceRaw | undefined): AccountSummary | null {
+function deriveAccountSummary(balance: KisBalanceRaw | undefined): AccountSummary | null {
   const summary = balance?.output2?.[0];
   if (!summary) return null;
   const totalEvalAmt = Number(summary.tot_evlu_amt ?? 0);

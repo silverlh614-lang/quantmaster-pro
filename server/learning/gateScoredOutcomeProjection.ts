@@ -29,9 +29,6 @@ import type { Gate2OutcomeSeed } from '../quant/gate2OutcomeSeed.js';
 // ── WIN 정의 단일 SSOT ───────────────────────────────────────────────────────
 /** WIN 판정 forward-return 임계(%). 산출 임계를 좌우하는 SSOT — 정적 고정. */
 export const GATE_OUTCOME_WIN_RETURN_PCT = 3;
-/** WIN 판정 성숙 지평 — D5(영업일 5일). 미성숙 표본은 제외된다. */
-export const GATE_OUTCOME_WIN_HORIZON = 'D5' as const;
-
 export type GateOutcomeKind = 'WIN' | 'LOSS';
 export type GateOutcomeGate = 'GATE1' | 'GATE2' | 'GATE3';
 

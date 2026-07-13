@@ -102,7 +102,7 @@ function logPlan(plan: OcoRegistrationPlan, prefix: string): void {
  * 드라이런 등록 — flag off 또는 Shadow 모드에서 사용.
  * 실제 KIS 주문 API 를 호출하지 않고 로그만 남긴다.
  */
-export async function dryRunRegisterOco(plan: OcoRegistrationPlan): Promise<OcoRegistrationResult> {
+async function dryRunRegisterOco(plan: OcoRegistrationPlan): Promise<OcoRegistrationResult> {
   logPlan(plan, '[OcoFillMonitor DRY-RUN]');
   return { status: 'DRY_RUN', reason: 'OCO_AUTO_REGISTER flag off (Shadow/staging)' };
 }
@@ -133,6 +133,3 @@ export async function registerOcoForFill(plan: OcoRegistrationPlan): Promise<Oco
 }
 
 // ── 진단용: TR id 상수 노출 ───────────────────────────────────────────────────
-
-/** 현재 환경(KIS_IS_REAL)에 바인딩된 체결 조회 TR id — OCO 등록 후 확정 루프에 연결. */
-export function getConfirmTrId(): string { return CCLD_TR_ID; }

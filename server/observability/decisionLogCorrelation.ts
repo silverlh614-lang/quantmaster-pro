@@ -33,7 +33,7 @@ export const SHADOW_LIFECYCLE_CHAIN: readonly DecisionStage[] = [
 ] as const;
 
 /** 실행 모드 — orderPipelineSsot.OrderMode 와 동일 의미를 carry (별도 정의 금지, single source). */
-export type DecisionLogMode = OrderMode;
+type DecisionLogMode = OrderMode;
 
 /**
  * ADR-0528 핵심 결정 로그 상관 필드(12종). 모든 핵심 결정 로그가 보유한다.

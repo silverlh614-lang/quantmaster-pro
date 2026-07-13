@@ -6,7 +6,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { DATA_DIR } from './paths.js';
 
-export type NotificationDeliveryState =
+type NotificationDeliveryState =
   | 'CREATED' | 'ROUTED' | 'SENT' | 'PRIVATE_SENT' | 'DIGESTED' | 'BUFFERED'
   | 'SUPPRESSED' | 'COOLDOWN_SKIPPED' | 'DISABLED_SKIPPED' | 'MISSING_CHANNEL_SKIPPED' | 'FAILED';
 
@@ -39,7 +39,7 @@ export async function updateNotificationLedgerState(id: string, patch: Partial<N
   const at = patch.at ? new Date(patch.at) : new Date();
   await appendNotificationLedger({ id, at: at.toISOString(), eventType: patch.eventType ?? 'UNKNOWN', deliveryState: patch.deliveryState ?? 'FAILED', message: patch.message ?? '', ...patch });
 }
-export async function getNotificationLedgerByDate(dateKey: string): Promise<NotificationLedgerEntry[]> { return read(dateKey); }
+
 export async function queryNotificationLedger(filter: { dateKey?: string; keyword?: string; omittedOnly?: boolean } = {}): Promise<NotificationLedgerEntry[]> {
   const rows = await read(filter.dateKey ?? key());
   return rows.filter(r => (!filter.omittedOnly || OMITTED.has(r.deliveryState)) && (!filter.keyword || JSON.stringify(r).toLowerCase().includes(filter.keyword.toLowerCase())));

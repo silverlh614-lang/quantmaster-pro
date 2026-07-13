@@ -37,7 +37,7 @@ function clamp01(n: number): number {
  * 진입가·현재가·손절·목표 기준으로 편향 스코어를 추정한다.
  * 동일 입력 → 동일 출력(순수 함수). 테스트 친화적.
  */
-export function estimateBiasAssessment(
+function estimateBiasAssessment(
   target: ServerShadowTrade,
   currentPrice: number,
   reasonCode: ManualExitContext['reasonCode'],
@@ -98,5 +98,3 @@ export function buildManualExitContext(input: BuildManualExitContextInput): Manu
     userNote,
   };
 }
-
-export const __test = { clamp01 };

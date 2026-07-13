@@ -1,6 +1,6 @@
 // @responsibility Shadow Always-On policy for defensive regimes; no order/KIS/Gate side effects.
 
-export type ShadowAlwaysOnExecutionImpact =
+type ShadowAlwaysOnExecutionImpact =
   | 'NONE'
   | 'NEW_BUY_BLOCKED_ONLY'
   | 'LIVE_BUY_BLOCKED'

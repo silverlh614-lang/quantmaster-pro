@@ -79,5 +79,3 @@ const reconnectWs: TelegramCommand = {
 };
 
 commandRegistry.register(reconnectWs);
-
-export default reconnectWs;

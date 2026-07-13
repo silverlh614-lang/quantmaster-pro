@@ -2,7 +2,7 @@
 
 import type { LiquidationGuardReason } from './fomcCalendar.js';
 
-export interface LiquidationItemResult {
+interface LiquidationItemResult {
   tradeId: string;
   stockCode: string;
   stockName: string;

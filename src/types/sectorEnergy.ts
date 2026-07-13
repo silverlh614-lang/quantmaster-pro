@@ -2,7 +2,7 @@
 // ─── 섹터 에너지 맵 & 로테이션 마스터 게이트 타입 ─────────────────────────────
 
 /** KRX 12개 섹터 목록 */
-export type KrxSectorName =
+type KrxSectorName =
   | '반도체'
   | '이차전지'
   | '바이오/헬스케어'
@@ -19,7 +19,7 @@ export type KrxSectorName =
 /** 계절성 가중치 보정 월 구분 */
 export type SeasonMonth = 'JAN' | 'APR_MAY' | 'OCT_NOV' | 'OTHER';
 
-export type SectorEnergySourceTier =
+type SectorEnergySourceTier =
   | 'KIS_OFFICIAL_INDEX'
   | 'KIS_OFFICIAL_DAILY'
   | 'KIS_STOCK_BASKET_DERIVED'
@@ -34,7 +34,7 @@ export type SectorEnergySourceTier =
   | 'MISSING'
   | 'FAILED';
 
-export type SectorEnergyLeadershipConfidence =
+type SectorEnergyLeadershipConfidence =
   | 'WEIGHTED'
   | 'READY_FOR_SHADOW'
   | 'PARTIAL'
@@ -42,7 +42,7 @@ export type SectorEnergyLeadershipConfidence =
   | 'DIAGNOSTIC_ONLY'
   | 'BLOCKED';
 
-export type SectorEnergyPromotionStage =
+type SectorEnergyPromotionStage =
   | 'OBSERVE'
   | 'SHADOW_SCORE'
   | 'ADVISORY'

@@ -20,16 +20,11 @@ const FORCE_RUN_RATE_LIMIT_MS = 60_000;
 const GHOST_JOB_NAME = 'ghost_portfolio';
 let _lastRunAt = 0;
 
-/** 테스트 전용 — rate-limit state 초기화. */
-export function __resetGhostForceRunRateLimitForTests(): void {
-  _lastRunAt = 0;
-}
-
 /**
  * 실패 사유 별 권장 액션 매핑 — 첫 30자 prefix 매칭.
  * silent catch 수정으로 사유가 분류되어 도착하면 운영자 의사결정이 즉시 가능.
  */
-export function buildFailureRecommendation(reason: string): string | null {
+function buildFailureRecommendation(reason: string): string | null {
   if (/timeout|시간 초과|ETIMEDOUT/i.test(reason)) {
     return 'KIS API 응답 지연 → 직렬→병렬 batch 변경 검토';
   }
@@ -54,7 +49,7 @@ export function buildFailureRecommendation(reason: string): string | null {
   return null;
 }
 
-export interface GhostForceRunMessageInputs {
+interface GhostForceRunMessageInputs {
   durationMs: number;
   updated: number;
   closed: number;
@@ -62,7 +57,7 @@ export interface GhostForceRunMessageInputs {
   failureReasons?: Record<string, number>;
 }
 
-export function formatGhostForceRunMessage(r: GhostForceRunMessageInputs): string {
+function formatGhostForceRunMessage(r: GhostForceRunMessageInputs): string {
   const lines: string[] = [
     '🔄 Ghost Portfolio 강제 실행',
     '',
@@ -162,5 +157,3 @@ const ghostForceRun: TelegramCommand = {
 };
 
 commandRegistry.register(ghostForceRun);
-
-export default ghostForceRun;

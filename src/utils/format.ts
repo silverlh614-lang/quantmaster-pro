@@ -14,13 +14,6 @@ export function fmtKrw(value: unknown, opts?: { suffix?: string; placeholder?: s
   return `${Math.round(n).toLocaleString()}${opts?.suffix ?? ''}`;
 }
 
-/** 주식 수량 포맷. */
-export function fmtQty(value: unknown, opts?: { placeholder?: string }): string {
-  const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(n)) return opts?.placeholder ?? DASH;
-  return `${Math.floor(n).toLocaleString()}주`;
-}
-
 /** 가격(종목 현재가·평단 등). 단위는 호출부에서 붙일 것. */
 export function fmtPrice(value: unknown, opts?: { placeholder?: string }): string {
   const n = typeof value === 'number' ? value : Number(value);

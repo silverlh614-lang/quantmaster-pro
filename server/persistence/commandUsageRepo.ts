@@ -19,7 +19,7 @@ export interface CommandUsageEntry {
   lastUsedAt: string;
 }
 
-export interface CommandUsageState {
+interface CommandUsageState {
   commands: Record<string, CommandUsageEntry>;
   lastWriteAt?: string;
 }

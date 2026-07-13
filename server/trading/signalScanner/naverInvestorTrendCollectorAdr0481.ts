@@ -7,7 +7,7 @@ import {
 } from './investorSampleMaterializationAdr0502.js';
 
 
-export type NaverInvestorTrendCollectorStatus =
+type NaverInvestorTrendCollectorStatus =
   | 'WIRED'
   | 'DATA_AVAILABLE'
   | 'DATA_UNAVAILABLE'
@@ -19,7 +19,7 @@ export type NaverInvestorTrendCollectorStatus =
   | 'NON_TRADING_DAY'
   | 'DISABLED';
 
-export type NaverInvestorTrendSignal =
+type NaverInvestorTrendSignal =
   | 'BULLISH'
   | 'NEUTRAL'
   | 'BEARISH'
@@ -33,7 +33,7 @@ export interface NaverInvestorTrendRawPoint {
   programNetBuy?: number | null;
 }
 
-export interface NaverInvestorTrendNormalizedPoint {
+interface NaverInvestorTrendNormalizedPoint {
   date: string;
   foreignNetBuy: number | null;
   institutionNetBuy: number | null;
@@ -211,7 +211,7 @@ function selectTradingDateWindowAdr0481(
   return (bounded.length > 0 ? bounded : rowsByDate).slice(-requestedDays);
 }
 
-export async function fetchNaverInvestorTrendRawPointsAdr0481(
+async function fetchNaverInvestorTrendRawPointsAdr0481(
   code: string,
   options: NaverInvestorTrendFetchOptionsAdr0481 = {},
 ): Promise<NaverInvestorTrendRawPoint[]> {
@@ -486,7 +486,7 @@ export function formatNaverInvestorTrendCompactAdr0481(result?: NaverInvestorTre
   return `ADR-0481 NAVER InvestorTrend: ${result.status} | signal=${result.signal}${days} | impact=${result.executionImpact}`;
 }
 
-export function formatNaverInvestorTrendDetailAdr0481(result?: NaverInvestorTrendCollectorResult | null): string | null {
+function formatNaverInvestorTrendDetailAdr0481(result?: NaverInvestorTrendCollectorResult | null): string | null {
   if (!result) return null;
   const candidate = result.semanticNetBuyCandidate;
   return [

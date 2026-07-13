@@ -15,7 +15,7 @@ import {
 
 type AnyRecord = Record<string, unknown>;
 
-export type QmpHeaderExecutionImpact = 'NONE' | 'NEW_BUY_BLOCKED_ONLY' | 'LIVE_ORDER_ALLOWED';
+type QmpHeaderExecutionImpact = 'NONE' | 'NEW_BUY_BLOCKED_ONLY' | 'LIVE_ORDER_ALLOWED';
 
 export interface QmpGateDetailHeaderView {
   canonical: {

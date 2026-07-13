@@ -18,9 +18,9 @@
 import { callGemini, callGeminiText } from '../clients/geminiClient.js';
 import { emitProviderWarn } from '../observability/providerWarn.js';
 
-export type ProviderName = 'gemini' | 'openai' | 'groq' | 'self-hosted';
+type ProviderName = 'gemini' | 'openai' | 'groq' | 'self-hosted';
 
-export interface TextOnlyOptions {
+interface TextOnlyOptions {
   /** 호출처 식별자 — 사용량 추적/디버깅용 */
   caller?: string;
   /** 0~1 — 응답 무작위성. Gemini 기본 0.4 */
@@ -116,9 +116,4 @@ export function getAiProvider(): AiProvider {
       _cached = new GeminiProvider();
   }
   return _cached;
-}
-
-/** 테스트용 — 캐시 초기화. */
-export function resetAiProviderCache(): void {
-  _cached = null;
 }

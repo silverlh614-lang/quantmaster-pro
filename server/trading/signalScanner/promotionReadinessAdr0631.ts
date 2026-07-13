@@ -3,9 +3,9 @@ import type { Gate1ThresholdEvidenceSummary } from './gate1DryRunObservationLedg
 import type { CounterfactualOutcomeBoard } from '../../learning/counterfactualOutcomeBoard.js';
 import { isGate1RegimeAwareRequiredEnabled } from '../gateConfig.js';
 
-export type PromotionLeverId = 'REGIME_AWARE_THRESHOLD_ADR0546' | 'CONDITION_WEIGHT_ADR0624';
+type PromotionLeverId = 'REGIME_AWARE_THRESHOLD_ADR0546' | 'CONDITION_WEIGHT_ADR0624';
 
-export type PromotionReadinessVerdict =
+type PromotionReadinessVerdict =
   | 'READY' // 성숙 충족 + 성과 정당화 + flag 아직 OFF → 운영자 검토 가능
   | 'NOT_READY' // 성숙 미충족 또는 성과 미정당화
   | 'ALREADY_ACTIVE' // 해당 레버 flag 가 이미 ON (재판정 불필요·정보용)

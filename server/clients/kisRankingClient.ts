@@ -523,28 +523,10 @@ export function resetRankingCache(): void {
   _cache.clear();
 }
 
-/** 테스트·진단용: 캐시 스냅샷(디버깅). */
-export function getRankingCacheSnapshot(): Array<{ key: string; size: number; ttlMs: number }> {
-  const now = Date.now();
-  return Array.from(_cache.entries()).map(([key, v]) => ({
-    key, size: v.data.length, ttlMs: Math.max(0, v.expiresAt - now),
-  }));
-}
-
 // ── leader 랭킹 진단 프로브 (관측 전용 — /leader_refresh 0건 원인 가시화) ────────
 //   장중 수동 트리거가 "0건"만 토하고 *왜*를 못 보여주던 사각지대 해소.
 //   bypassCache=true 강제로 5분 캐시·ADR-0009 장외 스킵을 우회해 real-data 경로의
 //   실응답 수를 직접 측정한다. 매매 결정 직접 사용 0 — 발굴 캐시 갱신 side effect 만.
-
-/**
- * /leader_refresh 가 fetch 하는 LEADER_SOURCES 3종 랭킹 키 (dynamicUniverseExpander 와 정합).
- * endpoint-fix OFF 기준 정적 목록 — FOREIGN 소스가 volume 대용인 구 동작. (back-compat export)
- */
-export const LEADER_RANKING_TYPES: readonly RankingType[] = [
-  'market-cap',
-  'institutional-net-buy',
-  'volume',
-] as const;
 
 /**
  * endpoint-fix flag 에 맞춘 LEADER 랭킹 키 — probe 가 *실제 fetch 키*와 정합하도록.
@@ -552,12 +534,12 @@ export const LEADER_RANKING_TYPES: readonly RankingType[] = [
  *   OFF : FOREIGN 소스가 'volume' 대용(byte-identical 롤백).
  * 관측 전용 — 매매 결정 직접 사용 0.
  */
-export function resolveLeaderRankingTypes(): readonly RankingType[] {
+function resolveLeaderRankingTypes(): readonly RankingType[] {
   const foreignKey: RankingType = isLeaderRankingEndpointFixEnabled() ? 'foreign-net-buy' : 'volume';
   return ['market-cap', 'institutional-net-buy', foreignKey] as const;
 }
 
-export interface LeaderRankingProbeRow {
+interface LeaderRankingProbeRow {
   type: RankingType;
   trId: string;
   /** bypassCache 강제 후 합산 entry 수(KOSPI+KOSDAQ). 0 = real-data 빈 응답/차단. */

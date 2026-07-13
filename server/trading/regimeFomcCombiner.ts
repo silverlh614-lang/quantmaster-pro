@@ -4,7 +4,7 @@ import type { FomcPhase } from './fomcCalendar.js';
 import type { RegimeLevel } from '../../src/types/core.js';
 
 /** 결합 결정의 어느 입력이 채택됐는지 — 진단 로그용 */
-export type RegimeFomcSource = 'REGIME' | 'FOMC' | 'REGIME_ADJUSTMENT_ONLY' | 'LEGACY_PRODUCT';
+type RegimeFomcSource = 'REGIME' | 'FOMC' | 'REGIME_ADJUSTMENT_ONLY' | 'LEGACY_PRODUCT';
 
 export interface RegimeFomcResult {
   /** 결합된 Kelly 배율 (0 ~ 1.30 범위) */

@@ -225,7 +225,7 @@ export function loadExperimentProposals(): ExperimentProposal[] {
   }
 }
 
-export function saveExperimentProposals(list: ExperimentProposal[]): void {
+function saveExperimentProposals(list: ExperimentProposal[]): void {
   ensureDataDir();
   fs.writeFileSync(
     EXPERIMENT_PROPOSALS_FILE,

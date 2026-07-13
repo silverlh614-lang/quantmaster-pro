@@ -10,7 +10,7 @@ export interface BiasPositionPenalty {
   confidence: 'LOW' | 'MEDIUM' | 'HIGH';
 }
 
-export const BIAS_POSITION_PENALTY_CONSTANTS = {
+const BIAS_POSITION_PENALTY_CONSTANTS = {
   SCORE_THRESHOLD: 0.70,
   TWO_DAY_MULTIPLIER: 0.70,
   THREE_DAY_MULTIPLIER: 0.50,

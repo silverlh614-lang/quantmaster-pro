@@ -16,7 +16,7 @@ export type ExecutionPermissionLiveBlockReason =
   | 'MARKET_SESSION_BLOCK'
   | 'POLICY_BLOCK';
 
-export type ExecutionPermissionImpact =
+type ExecutionPermissionImpact =
   | 'NONE'
   | 'LIVE_ORDER_ALLOWED'
   | 'NEW_BUY_BLOCKED_ONLY';

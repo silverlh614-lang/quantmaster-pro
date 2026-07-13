@@ -18,7 +18,7 @@ interface ParsedProgramCaptureArgs {
   unsupportedForce: boolean;
 }
 
-export function parseProgramCaptureWatchlistArgs(args: string[]): ParsedProgramCaptureArgs {
+function parseProgramCaptureWatchlistArgs(args: string[]): ParsedProgramCaptureArgs {
   let limit = DEFAULT_LIMIT;
   let targetMode: ProgramAutoCaptureTargetMode = 'DEFAULT';
   let unsupportedForce = false;
@@ -46,7 +46,7 @@ export function parseProgramCaptureWatchlistArgs(args: string[]): ParsedProgramC
   return { limit, targetMode, unsupportedForce };
 }
 
-export async function buildProgramCaptureWatchlistMessage(args: string[], now = new Date()): Promise<string> {
+async function buildProgramCaptureWatchlistMessage(args: string[], now = new Date()): Promise<string> {
   const parsed = parseProgramCaptureWatchlistArgs(args);
   const availability = resolveProgramAutoCaptureManualAvailability(now);
 
@@ -164,5 +164,3 @@ const programCaptureWatchlist: TelegramCommand = {
 };
 
 commandRegistry.register(programCaptureWatchlist);
-
-export default programCaptureWatchlist;

@@ -50,10 +50,6 @@ function alert(level: 'WARN' | 'CRITICAL', message: string, dedupeKey: string): 
   }
 }
 
-export type MasterRefreshOutcome =
-  | { source: StockMasterSource; ok: true; count: number; usedFallback: boolean }
-  | { source: 'NONE'; ok: false; reason: string };
-
 export interface MultiSourceRefreshResult {
   finalSource: StockMasterSource | 'NONE';
   finalCount: number;
@@ -294,9 +290,3 @@ export function getMasterDiagnostic(): MasterDiagnostic {
     overallHealth: computeOverallHealth(),
   };
 }
-
-export const __testOnly = {
-  KRX_MIN_VALID_ENTRIES,
-  NAVER_MIN_VALID_ENTRIES,
-  SEED_MIN_ACCEPTABLE,
-};

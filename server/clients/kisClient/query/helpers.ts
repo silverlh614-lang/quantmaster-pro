@@ -183,17 +183,14 @@ function hasAnyFinite(...values: Array<number | undefined | null>): boolean {
 
 export {
   pickKisOutput,
-  rowsFromKisBucket,
   pickKisRowsByBucket,
   pickKisRows,
   pickMaterializedBucket,
   isAcceptedEmptyKisResponse,
-  shiftYmd,
   previousKrxTradingDate,
   investorDailySession,
   extractKisNumber,
   extractKisNumberOptional,
-  sumKisNumbersOptional,
   extractKisString,
   formatKisYmd,
   trendFromChange,

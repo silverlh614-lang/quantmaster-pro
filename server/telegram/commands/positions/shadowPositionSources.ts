@@ -59,7 +59,7 @@ const TELEGRAM_CLOSED_SHADOW_STATUSES = new Set([
   'HIT_STOP',
 ]);
 
-export type PositionSourceName =
+type PositionSourceName =
   | 'ShadowPositionRegistry'
   | 'ShadowPositionLedger'
   | 'ShadowTradeRepo'
@@ -67,7 +67,7 @@ export type PositionSourceName =
   | 'KISLiveHolding'
   | 'PaperTradeLedger';
 
-export type PositionLookupPriceSource =
+type PositionLookupPriceSource =
   | 'REALTIME_WS'
   | 'KIS_REST'
   | 'VIRTUAL_ACCOUNT'
@@ -103,7 +103,7 @@ export interface TelegramPositionEntry {
   status: string;
 }
 
-export interface PositionModeSnapshot {
+interface PositionModeSnapshot {
   modeLabel: string;
   liveTradingEnabled: boolean;
   paperTradingEnabled: boolean;
@@ -111,7 +111,7 @@ export interface PositionModeSnapshot {
   marketState: MarketStateSnapshot | null;
 }
 
-export interface PositionSourceCounts {
+interface PositionSourceCounts {
   shadowRegistryCount: number;
   shadowLedgerCount: number;
   shadowTradeOpenCount: number;
@@ -131,7 +131,7 @@ export interface PositionSourceSnapshot {
   sourceAggregate: PositionSourceAggregate;
 }
 
-export interface PnlSourceCounts {
+interface PnlSourceCounts {
   shadowRealizedCount: number;
   shadowOpenCount: number;
   virtualAccountAvailable: boolean;
@@ -140,7 +140,7 @@ export interface PnlSourceCounts {
   totalPnl: number;
 }
 
-export interface ShadowPnlSummary {
+interface ShadowPnlSummary {
   realizedPnl: number;
   unrealizedPnl: number;
   todayPnl: number;
@@ -171,7 +171,7 @@ interface PriceLookupSnapshot {
   sourceByCode: Map<string, PositionLookupPriceSource>;
 }
 
-export function isShadowDisplayOpenStatus(status: unknown): boolean {
+function isShadowDisplayOpenStatus(status: unknown): boolean {
   const normalized = String(status ?? '').trim().toUpperCase();
   if (normalized.length === 0 || TELEGRAM_CLOSED_SHADOW_STATUSES.has(normalized)) {
     return false;
@@ -180,7 +180,7 @@ export function isShadowDisplayOpenStatus(status: unknown): boolean {
   return TELEGRAM_OPEN_SHADOW_STATUSES.has(normalized);
 }
 
-export function resolveTelegramPositionMode(): PositionModeSnapshot {
+function resolveTelegramPositionMode(): PositionModeSnapshot {
   const engineMode = getExecutionMode();
   let marketState: MarketStateSnapshot | null = null;
 
@@ -446,24 +446,6 @@ export function formatSignedMoney(value: number | undefined | null): string {
   const amount = Math.round(value as number);
   const sign = amount > 0 ? '+' : '';
   return `${sign}${amount.toLocaleString('ko-KR')}원`;
-}
-
-export function formatPercent(value: number | undefined | null): string {
-  if (!Number.isFinite(value)) {
-    return 'N/A';
-  }
-
-  const pct = value as number;
-  const sign = pct > 0 ? '+' : '';
-  return `${sign}${pct.toFixed(2)}%`;
-}
-
-export function formatMultiple(value: number | undefined | null): string {
-  if (!Number.isFinite(value)) {
-    return 'N/A';
-  }
-
-  return `${(value as number).toFixed(2)}R`;
 }
 
 function computeAccount(

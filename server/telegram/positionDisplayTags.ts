@@ -1,12 +1,5 @@
 // @responsibility Telegram position display tag taxonomy.
-
-export type PositionModeTag =
-  | 'LIVE'
-  | 'SHADOW'
-  | 'VIRTUAL'
-  | 'PAPER';
-
-export type PositionContextTag =
+type PositionContextTag =
   | 'NORMAL'
   | 'R6_DEFENSE'
   | 'R6_COUNTERFACTUAL'
@@ -14,18 +7,11 @@ export type PositionContextTag =
   | 'SELL_ONLY'
   | 'SHADOW_ONLY';
 
-export type PriceSourceTag =
+type PriceSourceTag =
   | 'KIS_PRICE'
   | 'CACHE_PRICE'
   | 'STALE_PRICE'
   | 'MISSING_PRICE';
-
-export type ExecutionTag =
-  | 'LIVE_ORDER_SENT'
-  | 'NO_LIVE_ORDER'
-  | 'EXECUTION_IMPACT_NONE'
-  | 'LIVE_POSITION';
-
 export type PositionKind = 'LIVE' | 'SHADOW' | 'VIRTUAL' | 'PAPER';
 
 export type AccountKind =
@@ -86,7 +72,7 @@ export interface PositionDisplayTagTarget extends PositionDisplayTagInput {
   dualPosition?: DualPositionDisplayInfo;
 }
 
-export function normalizePositionContextTag(input: {
+function normalizePositionContextTag(input: {
   effectiveRegime?: string;
   engineMode?: PositionEngineMode;
   entrySource?: string;
@@ -169,7 +155,7 @@ export function formatPositionTagHeader(tags: readonly string[]): string {
   return `[${tags.join(' · ')}]`;
 }
 
-export function toPriceSourceTag(source: NormalizedPositionPriceSource): PriceSourceTag {
+function toPriceSourceTag(source: NormalizedPositionPriceSource): PriceSourceTag {
   if (source === 'KIS') return 'KIS_PRICE';
   if (source === 'CACHE') return 'CACHE_PRICE';
   if (source === 'STALE') return 'STALE_PRICE';

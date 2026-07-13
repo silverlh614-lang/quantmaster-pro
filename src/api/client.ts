@@ -9,7 +9,7 @@
  *  3. UI/훅 레이어가 fetch 시그니처가 아닌 도메인 함수에만 의존하도록 한다.
  */
 
-export class ApiError extends Error {
+class ApiError extends Error {
   readonly status: number;
   readonly url: string;
   readonly body: unknown;

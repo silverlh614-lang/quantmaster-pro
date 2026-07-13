@@ -49,23 +49,6 @@ export interface SectorClassificationSnapshotCoverage {
   executionImpact: 'NONE';
 }
 
-export const STANDARD_SECTOR_KEYS: ReadonlyArray<StandardSectorKey> = Object.freeze([
-  'SEMICONDUCTOR',
-  'BATTERY',
-  'BIO_HEALTHCARE',
-  'FINANCE',
-  'SHIPBUILDING',
-  'DEFENSE',
-  'NUCLEAR',
-  'STEEL',
-  'CHEMICAL',
-  'CONSTRUCTION',
-  'CONSUMER_RETAIL',
-  'IT_INTERNET',
-  'AUTOMOTIVE',
-  'OTHER',
-]);
-
 const REVIEWED_AT = '2026-05-14';
 
 function row(

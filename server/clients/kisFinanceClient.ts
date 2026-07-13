@@ -28,11 +28,6 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 // KIS finance API rate guard — 누적 5xx/네트워크 실패 시 1분 차단 (dart 와 동형).
 const _kisFinCb = createCircuitBreaker({ name: 'kis-finance', failureThreshold: 6, windowMs: 60_000, cooldownMs: 60_000 });
-
-export function getKisFinanceCircuitStats() {
-  return _kisFinCb.getStats();
-}
-
 /**
  * ADR-0655 — 재무 metric 별 출처·신뢰 등급 분류 (Gate2 재무위험 trace·텔레그램 표시용).
  * - KIS_L1: KIS 공식 finance ratio 엔드포인트 직접 필드 (lblt_rate/crnt_rate/roe_val 등).
@@ -40,7 +35,7 @@ export function getKisFinanceCircuitStats() {
  * - DART_L2_RESIDUAL: KIS 미가용 축을 DART 잔존 머지로 보강 (interestCoverageRatio — KIS 이자비용 미분리).
  * - UNAVAILABLE: 결손 (값 null).
  */
-export type KisFinanceFieldSource = 'KIS_L1' | 'KIS_DERIVED' | 'DART_L2_RESIDUAL' | 'UNAVAILABLE';
+type KisFinanceFieldSource = 'KIS_L1' | 'KIS_DERIVED' | 'DART_L2_RESIDUAL' | 'UNAVAILABLE';
 
 export interface KisFinancials {
   symbol: string;

@@ -33,7 +33,7 @@ export interface WatchlistAddPayload {
   targetPrice: number;
 }
 
-export interface EngineHeartbeat {
+interface EngineHeartbeat {
   at: string | null;
   source: string;
   ageMs: number | null;
@@ -94,7 +94,7 @@ export interface EngineGuardsState {
   emergencyStop: boolean;
 }
 
-export interface PendingApprovalEntry {
+interface PendingApprovalEntry {
   tradeId: string;
   stockCode: string;
   stockName: string;
@@ -171,7 +171,7 @@ export interface BuyAuditData {
 
 export type GateAuditData = Record<string, { passed: number; failed: number }>;
 
-export interface OcoOrderPair {
+interface OcoOrderPair {
   id: string;
   stockCode: string;
   stockName: string;
@@ -499,8 +499,6 @@ export interface KisTokenStatus {
   reason?: string;
 }
 
-export interface BuyAuditResponse extends BuyAuditData {}
-
 export const kisApi = {
   getBalance: () => apiFetch<KisBalanceRaw>('/api/kis/balance'),
   getHoldings: () => apiFetch<KisHolding[] | unknown>('/api/kis/holdings'),
@@ -520,26 +518,7 @@ export const systemApi = {
   getBuyAudit: () => apiFetch<BuyAuditData>('/api/system/buy-audit'),
   getGateAudit: () => apiFetch<GateAuditData>('/api/system/gate-audit'),
 };
-
-export interface SessionStateResponse {
-  restored: boolean;
-  savedAt?: string;
-  gateWeights?: Record<string, number>;
-  universeSelection?: string[];
-  initialInvestment?: number;
-}
-
-export const sessionApi = {
-  get: () => apiFetch<SessionStateResponse>('/api/session-state'),
-  save: (state: unknown) =>
-    apiFetch<void>('/api/session-state', { method: 'POST', json: state }),
-};
-
 // Shadow account 는 `/api/shadow/account` 경로 — 자동매매 UI 의 주요 의존처.
-export const shadowApi = {
-  getAccount: <T = unknown>() => apiFetch<T>('/api/shadow/account'),
-};
-
 // ─── Phase 5: Alerts Feed (텔레그램 ↔ UI 동기화) ──────────────────────────
 
 export type AlertFeedPriority = 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW' | 'INFO';

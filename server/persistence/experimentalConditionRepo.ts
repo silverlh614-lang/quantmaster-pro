@@ -13,7 +13,7 @@
 import fs from 'fs';
 import { EXPERIMENTAL_CONDITIONS_FILE, ensureDataDir } from './paths.js';
 
-export type ExperimentalStatus =
+type ExperimentalStatus =
   | 'PROPOSED'
   | 'BACKTESTED_PASSED'
   | 'BACKTESTED_FAILED'
@@ -59,7 +59,7 @@ export function loadExperimentalConditions(): ExperimentalCondition[] {
   }
 }
 
-export function saveExperimentalConditions(list: ExperimentalCondition[]): void {
+function saveExperimentalConditions(list: ExperimentalCondition[]): void {
   ensureDataDir();
   fs.writeFileSync(
     EXPERIMENTAL_CONDITIONS_FILE,

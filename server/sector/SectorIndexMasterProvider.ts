@@ -11,10 +11,10 @@ import {
   type OfficialSectorIndexMasterRow,
 } from './SectorIndexCodeMap.js';
 
-export const KIS_OFFICIAL_SECTOR_INDEX_MASTER_URL =
+const KIS_OFFICIAL_SECTOR_INDEX_MASTER_URL =
   'https://new.real.download.dws.co.kr/common/master/idxcode.mst.zip';
 
-export const KIS_OFFICIAL_SECTOR_INDEX_MASTER_CACHE_FILE = path.join(
+const KIS_OFFICIAL_SECTOR_INDEX_MASTER_CACHE_FILE = path.join(
   DATA_DIR,
   'sector-index-master',
   'idxcode.mst',

@@ -23,7 +23,7 @@ export const SNAPSHOT_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 /** localStorage 1000건 hard cap (FIFO trim) */
 export const SNAPSHOT_MAX_RETAINED = 1000;
 
-export const SNAPSHOT_SCHEMA_VERSION = 1;
+const SNAPSHOT_SCHEMA_VERSION = 1;
 
 // ─── State machine: status 전이 가능성 검사 ──────────────────────────────────
 
@@ -262,13 +262,6 @@ export function getRecentSnapshots(
   return [...snapshots]
     .sort((a, b) => new Date(b.recommendedAt).getTime() - new Date(a.recommendedAt).getTime())
     .slice(0, limit);
-}
-
-/**
- * 27 조건 IDs (1~27) 산출 헬퍼 — 통계 검증용.
- */
-export function listConditionIds(): ConditionId[] {
-  return Array.from({ length: 27 }, (_, i) => (i + 1) as ConditionId);
 }
 
 // ─── TimeBand 연동 (ADR-0019 후속 wiring — PENDING_WIRING D4) ────────────────

@@ -105,31 +105,31 @@ function synthesizeDartRefreshTraceForDisplay(input: {
   };
 }
 
-export function fieldAvailable(wiring: readonly Gate2WiringDiagnostic[], input: string): boolean {
+function fieldAvailable(wiring: readonly Gate2WiringDiagnostic[], input: string): boolean {
   return wiring.some(item => item.availableInputs.includes(input));
 }
 
-export function requiredExternal(wiring: readonly Gate2WiringDiagnostic[], label: string): boolean {
+function requiredExternal(wiring: readonly Gate2WiringDiagnostic[], label: string): boolean {
   return wiring.some(item => item.requiredExternalData.includes(label));
 }
 
-export function externalMissing(wiring: readonly Gate2WiringDiagnostic[], label: string): boolean {
+function externalMissing(wiring: readonly Gate2WiringDiagnostic[], label: string): boolean {
   return wiring.some(item => item.missingExternalData.includes(label));
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-export function numberOrNull(value: unknown): number | null {
+function numberOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-export function stringOrNull(value: unknown): string | null {
+function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-export function statusFromMetadata(value: unknown): Gate2ExternalProviderStatus | null {
+function statusFromMetadata(value: unknown): Gate2ExternalProviderStatus | null {
   if (!isRecord(value)) return null;
   const record = value;
   const raw = String(record.providerStatus ?? record.sourceStatus ?? record.status ?? record.dataQuality ?? '').toUpperCase();
@@ -141,7 +141,7 @@ export function statusFromMetadata(value: unknown): Gate2ExternalProviderStatus 
   return null;
 }
 
-export function providerFromMetadata(value: unknown, defaults: { verified: string; cache: string; unknown: string }): string {
+function providerFromMetadata(value: unknown, defaults: { verified: string; cache: string; unknown: string }): string {
   if (!value || typeof value !== 'object') return defaults.unknown;
   const record = value as Record<string, unknown>;
   const raw = String(record.provider ?? record.source ?? record.dataSource ?? '').toUpperCase();
@@ -154,14 +154,14 @@ export function providerFromMetadata(value: unknown, defaults: { verified: strin
   return defaults.verified;
 }
 
-export function normalizeKisEndpointKey(value: unknown): KisInvestorFlowEndpointKey | 'UNKNOWN' {
+function normalizeKisEndpointKey(value: unknown): KisInvestorFlowEndpointKey | 'UNKNOWN' {
   const raw = String(value ?? '').toUpperCase();
   if (raw === 'INQUIRE_INVESTOR' || raw === 'INQUIREINVESTOR') return 'INQUIRE_INVESTOR';
   if (raw === 'INVESTOR_TRADE_BY_STOCK_DAILY' || raw === 'INVESTORTRADEBYSTOCKDAILY') return 'INVESTOR_TRADE_BY_STOCK_DAILY';
   return 'UNKNOWN';
 }
 
-export function kisProviderStatus(value: unknown): KisInvestorFlowProviderStatus | null {
+function kisProviderStatus(value: unknown): KisInvestorFlowProviderStatus | null {
   if (!isRecord(value)) return null;
   const raw = String(value.providerStatus ?? '').toUpperCase();
   const allowed: KisInvestorFlowProviderStatus[] = [
@@ -179,7 +179,7 @@ export function kisProviderStatus(value: unknown): KisInvestorFlowProviderStatus
   return null;
 }
 
-export function kisConfidence(value: unknown): KisInvestorFlowConfidence | null {
+function kisConfidence(value: unknown): KisInvestorFlowConfidence | null {
   if (!isRecord(value)) return null;
   const raw = String(value.dataConfidence ?? value.confidence ?? '').toUpperCase();
   const allowed: KisInvestorFlowConfidence[] = ['VERIFIED', 'DEGRADED', 'STALE', 'MISSING', 'EMPTY_VALID', 'AI_ESTIMATED'];
@@ -187,7 +187,7 @@ export function kisConfidence(value: unknown): KisInvestorFlowConfidence | null 
   return null;
 }
 
-export function gate2StatusFromKisProviderStatus(status: KisInvestorFlowProviderStatus | null, confidence: KisInvestorFlowConfidence | null): Gate2ExternalProviderStatus | null {
+function gate2StatusFromKisProviderStatus(status: KisInvestorFlowProviderStatus | null, confidence: KisInvestorFlowConfidence | null): Gate2ExternalProviderStatus | null {
   if (confidence === 'EMPTY_VALID') return 'EMPTY_VALID';
   if (confidence === 'VERIFIED') return 'VERIFIED';
   if (confidence === 'STALE') return 'STALE';
@@ -200,7 +200,7 @@ export function gate2StatusFromKisProviderStatus(status: KisInvestorFlowProvider
   return null;
 }
 
-export function kisEndpointMetadata(value: unknown): {
+function kisEndpointMetadata(value: unknown): {
   endpointKey: KisInvestorFlowEndpointKey | 'UNKNOWN';
   endpoint: string | null;
   trId: string | null;
@@ -232,7 +232,7 @@ export function kisEndpointMetadata(value: unknown): {
   };
 }
 
-export function kisRawFieldCoverage(value: unknown, missingFields: string[]): KisInvestorFlowRawFieldCoverage {
+function kisRawFieldCoverage(value: unknown, missingFields: string[]): KisInvestorFlowRawFieldCoverage {
   const record = isRecord(value) ? value : {};
   const embedded = record.rawFieldCoverage;
   if (isRecord(embedded)) {
@@ -251,7 +251,7 @@ export function kisRawFieldCoverage(value: unknown, missingFields: string[]): Ki
   };
 }
 
-export function resolveKisStatus(input: {
+function resolveKisStatus(input: {
   required: boolean;
   fieldsAvailable: boolean;
   missing: boolean;
@@ -269,7 +269,7 @@ export function resolveKisStatus(input: {
   return 'DEGRADED';
 }
 
-export function providerIssueForKisStatus(required: boolean, status: Gate2ExternalProviderStatus): boolean {
+function providerIssueForKisStatus(required: boolean, status: Gate2ExternalProviderStatus): boolean {
   if (!required) return false;
   return !['VERIFIED', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
 }
@@ -292,7 +292,7 @@ export function dartProviderStatus(value: unknown): DartFinancialProviderStatus 
   return null;
 }
 
-export function dartConfidence(value: unknown): DartFinancialConfidence | null {
+function dartConfidence(value: unknown): DartFinancialConfidence | null {
   if (!isRecord(value)) return null;
   const raw = String(value.dataConfidence ?? value.confidence ?? '').toUpperCase();
   const allowed: DartFinancialConfidence[] = ['VERIFIED', 'DEGRADED', 'STALE', 'MISSING', 'EMPTY_VALID', 'AI_ESTIMATED'];
@@ -318,7 +318,7 @@ export function gate2StatusFromDartProviderStatus(status: DartFinancialProviderS
   return null;
 }
 
-export function dartProviderFromMetadata(value: unknown): Gate2ExternalDataCoverage['dartFinancials']['provider'] {
+function dartProviderFromMetadata(value: unknown): Gate2ExternalDataCoverage['dartFinancials']['provider'] {
   if (!isRecord(value)) return 'UNKNOWN';
   const raw = String(value.provider ?? value.source ?? value.dataSource ?? '').toUpperCase();
   if (raw.includes('DART_CACHE')) return 'DART_CACHE';
@@ -327,7 +327,7 @@ export function dartProviderFromMetadata(value: unknown): Gate2ExternalDataCover
   return 'UNKNOWN';
 }
 
-export function dartRawFieldCoverage(value: unknown, missingFields: string[], legacyRequiredField: boolean): DartFinancialRawFieldCoverage {
+function dartRawFieldCoverage(value: unknown, missingFields: string[], legacyRequiredField: boolean): DartFinancialRawFieldCoverage {
   const record = isRecord(value) ? value : {};
   const embedded = record.rawFieldCoverage;
   if (isRecord(embedded)) {
@@ -371,7 +371,7 @@ export function providerIssueForDartStatus(required: boolean, status: Gate2Exter
   return !['VERIFIED', 'PARTIAL', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
 }
 
-export function gate2StatusFromBenchmarkProviderStatus(
+function gate2StatusFromBenchmarkProviderStatus(
   status: BenchmarkProviderStatus | null,
   confidence: BenchmarkConfidence | null,
 ): Gate2ExternalProviderStatus | null {
@@ -388,7 +388,7 @@ export function gate2StatusFromBenchmarkProviderStatus(
   return null;
 }
 
-export function resolveBenchmarkStatus(input: {
+function resolveBenchmarkStatus(input: {
   required: boolean;
   benchmark: QmpBenchmarkReturn;
   missing: boolean;
@@ -403,12 +403,12 @@ export function resolveBenchmarkStatus(input: {
   return 'MISSING';
 }
 
-export function providerIssueForBenchmarkStatus(required: boolean, status: Gate2ExternalProviderStatus): boolean {
+function providerIssueForBenchmarkStatus(required: boolean, status: Gate2ExternalProviderStatus): boolean {
   if (!required) return false;
   return !['VERIFIED', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
 }
 
-export function gate2StatusFromProgramProviderStatus(
+function gate2StatusFromProgramProviderStatus(
   status: KisProgramTradeProviderStatus | null,
   confidence: KisProgramTradeConfidence | null,
 ): Gate2ExternalProviderStatus | null {
@@ -424,7 +424,7 @@ export function gate2StatusFromProgramProviderStatus(
   return null;
 }
 
-export function programStageStatus(value: QmpProgramFlow | null | undefined, evaluationStage?: Gate2EvaluationStage | null): Gate2ExternalProviderStatus {
+function programStageStatus(value: QmpProgramFlow | null | undefined, evaluationStage?: Gate2EvaluationStage | null): Gate2ExternalProviderStatus {
   if (value) {
     return gate2StatusFromProgramProviderStatus(value.providerStatus, value.dataConfidence)
       ?? statusFromMetadata(value)
@@ -433,11 +433,11 @@ export function programStageStatus(value: QmpProgramFlow | null | undefined, eva
   return evaluationStage === 'DISCOVERY_GATE' ? 'STAGE_NOT_FETCHED' : 'MISSING';
 }
 
-export function providerIssueForProgramStatus(status: Gate2ExternalProviderStatus): boolean {
+function providerIssueForProgramStatus(status: Gate2ExternalProviderStatus): boolean {
   return !['VERIFIED', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
 }
 
-export function providerIssueForOptionalProgramFlow(
+function providerIssueForOptionalProgramFlow(
   value: QmpProgramFlow | null | undefined,
   status: Gate2ExternalProviderStatus,
   scopeValid: boolean,
@@ -447,7 +447,7 @@ export function providerIssueForOptionalProgramFlow(
   return providerIssueForProgramStatus(status);
 }
 
-export function programRawFieldCoverage(value: QmpProgramFlow | null | undefined, requiredFields: string[]): KisProgramFlowRawFieldCoverage {
+function programRawFieldCoverage(value: QmpProgramFlow | null | undefined, requiredFields: string[]): KisProgramFlowRawFieldCoverage {
   return value?.rawFieldCoverage ?? {
     requiredFields,
     presentFields: [],
@@ -456,7 +456,7 @@ export function programRawFieldCoverage(value: QmpProgramFlow | null | undefined
   };
 }
 
-export function programProviderFromFlows(
+function programProviderFromFlows(
   marketProgram: QmpProgramFlow | null | undefined,
   stockProgram: QmpProgramFlow | null | undefined,
 ): Gate2ExternalDataCoverage['programTrade']['provider'] {
@@ -467,7 +467,7 @@ export function programProviderFromFlows(
   return 'UNKNOWN';
 }
 
-export function normalizeRiskPressure(value: unknown): Gate2RiskPressure {
+function normalizeRiskPressure(value: unknown): Gate2RiskPressure {
   const raw = String(value ?? '').trim().toUpperCase();
   if (raw === 'HIGH' || raw === 'RISK_HIGH' || raw === 'OVERHEATED' || raw === 'BLOCK') return 'HIGH';
   if (raw === 'MEDIUM' || raw === 'MID' || raw === 'WARN') return 'MEDIUM';
@@ -475,7 +475,7 @@ export function normalizeRiskPressure(value: unknown): Gate2RiskPressure {
   return 'UNKNOWN';
 }
 
-export function pressureFromValue(value: number | null): Gate2RiskPressure {
+function pressureFromValue(value: number | null): Gate2RiskPressure {
   if (value == null) return 'UNKNOWN';
   const abs = Math.abs(value);
   if (abs >= 20) return 'HIGH';
@@ -483,14 +483,14 @@ export function pressureFromValue(value: number | null): Gate2RiskPressure {
   return 'LOW';
 }
 
-export function maxRiskPressure(values: readonly Gate2RiskPressure[]): Gate2RiskPressure {
+function maxRiskPressure(values: readonly Gate2RiskPressure[]): Gate2RiskPressure {
   if (values.includes('HIGH')) return 'HIGH';
   if (values.includes('MEDIUM')) return 'MEDIUM';
   if (values.includes('LOW')) return 'LOW';
   return 'UNKNOWN';
 }
 
-export function riskProviderFromMetadata(value: unknown): Gate2ExternalDataCoverage['riskFlow']['provider'] {
+function riskProviderFromMetadata(value: unknown): Gate2ExternalDataCoverage['riskFlow']['provider'] {
   if (!isRecord(value)) return 'UNKNOWN';
   const raw = String(value.provider ?? value.source ?? value.dataSource ?? '').toUpperCase();
   if (raw.includes('KIS_OFFICIAL')) return 'KIS_OFFICIAL';
@@ -501,7 +501,7 @@ export function riskProviderFromMetadata(value: unknown): Gate2ExternalDataCover
   return 'UNKNOWN';
 }
 
-export function buildGate2RiskFlowCoverage(
+function buildGate2RiskFlowCoverage(
   riskFlow: unknown,
   evaluationStage?: Gate2EvaluationStage | null,
 ): Gate2ExternalDataCoverage['riskFlow'] {
@@ -564,7 +564,7 @@ export function buildGate2RiskFlowCoverage(
   };
 }
 
-export function gate2StatusFromSectorThemeCycle(
+function gate2StatusFromSectorThemeCycle(
   providerStatus: SectorThemeCycleProviderStatus | null,
   confidence: SectorThemeCycleConfidence | null,
 ): Gate2ExternalProviderStatus {
@@ -582,11 +582,11 @@ export function gate2StatusFromSectorThemeCycle(
   return providerStatus ? 'DEGRADED' : 'UNKNOWN';
 }
 
-export function providerIssueForSectorStatus(status: Gate2ExternalProviderStatus): boolean {
+function providerIssueForSectorStatus(status: Gate2ExternalProviderStatus): boolean {
   return !['VERIFIED', 'PARTIAL', 'EMPTY_VALID', 'STAGE_NOT_FETCHED'].includes(status);
 }
 
-export function quoteSymbol(input: Gate2ExternalCoverageInput): string {
+function quoteSymbol(input: Gate2ExternalCoverageInput): string {
   const quote = isRecord(input.quote) ? input.quote : {};
   const stockMaster = isRecord(input.stockMaster) ? input.stockMaster : {};
   return stringOrNull(quote.symbol ?? quote.code ?? stockMaster.symbol ?? stockMaster.code) ?? 'UNKNOWN';

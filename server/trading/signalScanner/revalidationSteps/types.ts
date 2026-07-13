@@ -13,7 +13,7 @@
  *  - 이로써 step 단위 테스트가 외부 mock 0건으로 가능
  */
 
-export interface RevalidationStepFail {
+interface RevalidationStepFail {
   proceed: false;
   /** caller 가 그대로 console.log 로 출력할 한 줄 메시지. */
   logMessage: string;
@@ -30,7 +30,7 @@ export interface RevalidationStepFail {
   waitReason?: import('../../../types/dataQuality.js').WaitReason;
 }
 
-export interface RevalidationStepPass {
+interface RevalidationStepPass {
   proceed: true;
   /**
    * ADR-0608: 진입 임계 모드 라벨. SHADOW(paper) + ENV ON 에서 regime-aware 임계가

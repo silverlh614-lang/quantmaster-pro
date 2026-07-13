@@ -29,7 +29,7 @@ export class MemoryDedupeStore implements DedupeStore {
   }
 }
 
-export const shadowAuctionDedupeStore = new MemoryDedupeStore();
+const shadowAuctionDedupeStore = new MemoryDedupeStore();
 
 export function formatGateSnap(gateSnap: number | string | null | undefined): string {
   const n = Number(gateSnap);

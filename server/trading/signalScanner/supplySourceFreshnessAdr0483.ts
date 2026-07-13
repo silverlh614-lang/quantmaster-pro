@@ -1,12 +1,12 @@
 // @responsibility ADR-0483 supply source freshness dual-clock diagnostics; SHADOW_ONLY refresh recommendations only.
 import { isTradingDay } from '../../utils/marketDayClassifier.js';
 
-export type SupplyFreshnessSourceAdr0483 = 'FSS' | 'SHORT_CREDIT' | 'NAVER' | 'KRX' | 'KIS_PROGRAM' | 'SEMANTIC_NETBUY' | 'CACHE' | 'UNKNOWN';
-export type SupplyFreshnessClockStateAdr0483 = 'FRESH' | 'STALE' | 'MISSING' | 'UNKNOWN';
-export type SupplyFreshnessStatusAdr0483 = 'FRESH' | 'CACHE_ONLY_FRESH' | 'SOURCE_STALE' | 'SOURCE_MISSING' | 'NON_TRADING_DAY' | 'REFRESH_RECOMMENDED' | 'PROVIDER_ERROR' | 'UNKNOWN';
-export type SupplyFreshnessRefreshStatusAdr0483 = 'NOT_NEEDED' | 'RECOMMENDED' | 'DRY_RUN_RECORDED' | 'SKIPPED_NON_TRADING_DAY' | 'PROVIDER_FAILED';
+type SupplyFreshnessSourceAdr0483 = 'FSS' | 'SHORT_CREDIT' | 'NAVER' | 'KRX' | 'KIS_PROGRAM' | 'SEMANTIC_NETBUY' | 'CACHE' | 'UNKNOWN';
+type SupplyFreshnessClockStateAdr0483 = 'FRESH' | 'STALE' | 'MISSING' | 'UNKNOWN';
+type SupplyFreshnessStatusAdr0483 = 'FRESH' | 'CACHE_ONLY_FRESH' | 'SOURCE_STALE' | 'SOURCE_MISSING' | 'NON_TRADING_DAY' | 'REFRESH_RECOMMENDED' | 'PROVIDER_ERROR' | 'UNKNOWN';
+type SupplyFreshnessRefreshStatusAdr0483 = 'NOT_NEEDED' | 'RECOMMENDED' | 'DRY_RUN_RECORDED' | 'SKIPPED_NON_TRADING_DAY' | 'PROVIDER_FAILED';
 
-export interface SupplySourceFreshnessPointAdr0483 {
+interface SupplySourceFreshnessPointAdr0483 {
   source: SupplyFreshnessSourceAdr0483;
   cacheUpdatedAt?: string | Date | null;
   sourceDate?: string | Date | null;
@@ -14,7 +14,7 @@ export interface SupplySourceFreshnessPointAdr0483 {
   refreshDryRunRecorded?: boolean;
 }
 
-export interface SupplySourceFreshnessRowAdr0483 {
+interface SupplySourceFreshnessRowAdr0483 {
   source: SupplyFreshnessSourceAdr0483;
   cacheState: SupplyFreshnessClockStateAdr0483;
   sourceState: SupplyFreshnessClockStateAdr0483;
@@ -176,56 +176,8 @@ export function buildSupplySourceFreshnessReportAdr0483(input: BuildSupplySource
   };
 }
 
-export function safeBuildSupplySourceFreshnessReportAdr0483(input: BuildSupplySourceFreshnessInputAdr0483 = {}): SupplySourceFreshnessReportAdr0483 {
-  try {
-    return buildSupplySourceFreshnessReportAdr0483(input);
-  } catch (error) {
-    return {
-      status: 'PROVIDER_ERROR',
-      rows: [],
-      affectedSources: ['UNKNOWN'],
-      oldestSourceAgeTradingDays: null,
-      refreshStatus: 'PROVIDER_FAILED',
-      diagnostics: ['ADR-0483 freshness diagnostic failed in isolation.', error instanceof Error ? error.message : String(error)],
-      ...ADR_0483_POLICY,
-    };
-  }
-}
-
 export function formatSupplySourceFreshnessCompactAdr0483(report?: SupplySourceFreshnessReportAdr0483 | null): string | null {
   if (!report) return null;
   const affected = report.affectedSources.length > 0 ? report.affectedSources.join('/') : 'NONE';
   return `ADR-0483 SupplyFreshness: ${report.status} | oldest=${report.oldestSourceAgeTradingDays ?? 'NA'}d | affected=${affected} | refresh=${report.refreshStatus} | impact=${report.executionImpact}`;
-}
-
-export function formatSupplySourceFreshnessDetailAdr0483(report?: SupplySourceFreshnessReportAdr0483 | null): string | null {
-  if (!report) return null;
-  return [
-    '🕒 ADR-0483 Supply Source Freshness',
-    `status=${report.status} refresh=${report.refreshStatus} oldest=${report.oldestSourceAgeTradingDays ?? 'NA'}d`,
-    ...report.rows.map((row) => `- ${row.source}: cache=${row.cacheState}(${row.cacheAgeMinutes ?? 'NA'}m) source=${row.sourceState}(${row.sourceAgeTradingDays ?? 'NA'}d) lastUpdated=${row.sourceDate ?? 'none'} expectedFreshnessDays=${row.expectedFreshnessDays} usableForSemantic=${row.usableForSemantic} usableForLive=${row.usableForLive} nextAction=${row.nextAction} refresh=${row.refreshStatus}`),
-    `guardrails: executionImpact=${report.executionImpact}, liveExecutionAllowed=${report.liveExecutionAllowed}, policyPromotionMode=${report.policyPromotionMode}, operatorApprovalRequired=${report.operatorApprovalRequired}`,
-  ].join('\n');
-}
-
-export interface SupplySourceFreshnessDetailRegistryEntryAdr0483 {
-  adr: '0483';
-  sectionId: 'supply_source_freshness';
-  commandHint: '/supply_health_detail';
-  adrTraceHint: '/adr_trace 0483';
-  executionImpact: 'NONE';
-  liveExecutionAllowed: false;
-  render: () => string;
-}
-
-export function getSupplySourceFreshnessDetailRegistryEntryAdr0483(report: SupplySourceFreshnessReportAdr0483): SupplySourceFreshnessDetailRegistryEntryAdr0483 {
-  return {
-    adr: '0483',
-    sectionId: 'supply_source_freshness',
-    commandHint: '/supply_health_detail',
-    adrTraceHint: '/adr_trace 0483',
-    executionImpact: 'NONE',
-    liveExecutionAllowed: false,
-    render: () => formatSupplySourceFreshnessDetailAdr0483(report) ?? '',
-  };
 }

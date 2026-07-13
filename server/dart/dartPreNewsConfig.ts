@@ -14,7 +14,7 @@ export interface DartPreNewsConfig {
   minRiskScoreForRiskAlert: number;
 }
 
-export const DEFAULT_DART_PRE_NEWS_CONFIG: DartPreNewsConfig = {
+const DEFAULT_DART_PRE_NEWS_CONFIG: DartPreNewsConfig = {
   lookbackDays: 3,
   maxDisclosuresPerRun: 100,
   fetchBody: true,

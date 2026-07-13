@@ -1,16 +1,16 @@
 // @responsibility Source Snapshot SSOT common gate evaluator. No session or execution-policy inputs.
 
-export type CommonGateStatus = 'OK' | 'DATA_INCOMPLETE' | 'WARN';
-export type TechnicalLayerStatus = 'COMPUTED' | 'PARTIAL' | 'NOT_COMPUTED' | 'MISSING' | 'UNKNOWN';
+type CommonGateStatus = 'OK' | 'DATA_INCOMPLETE' | 'WARN';
+type TechnicalLayerStatus = 'COMPUTED' | 'PARTIAL' | 'NOT_COMPUTED' | 'MISSING' | 'UNKNOWN';
 
-export interface CandidateSnapshot {
+interface CandidateSnapshot {
   symbol: string;
   quoteStatus?: 'VERIFIED' | 'DEGRADED' | 'MISSING' | 'STALE' | 'UNKNOWN';
   tradabilityStatus?: 'TRADABLE' | 'HALTED' | 'SUSPENDED' | 'UNKNOWN';
   liquidityStatus?: 'PASS' | 'WARN' | 'FAIL' | 'UNKNOWN';
 }
 
-export interface FeatureSnapshot {
+interface FeatureSnapshot {
   technicalIndicators?: {
     status?: TechnicalLayerStatus;
     ma20?: number | null;

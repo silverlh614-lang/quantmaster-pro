@@ -38,7 +38,7 @@ export type GateReclassificationRolloutStage =
   | 'GATED'
   | 'CORE';
 
-export type GateReclassificationRolloutStatus =
+type GateReclassificationRolloutStatus =
   | 'ACTIVE'
   | 'PAUSED'
   | 'REJECTED'

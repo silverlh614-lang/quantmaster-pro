@@ -36,11 +36,3 @@ export function debugWarn(label: string, data?: unknown): void {
     details: data === undefined ? undefined : { data },
   });
 }
-
-/**
- * Debug error - for caught exceptions in development.
- */
-export function debugError(label: string, error?: unknown): void {
-  if (!isDev) return;
-  console.error(`[ERROR] ${label}`, error);
-}

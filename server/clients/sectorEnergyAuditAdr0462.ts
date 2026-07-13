@@ -7,7 +7,7 @@ import { SECTOR_INDEX_MASTER_VERSION } from './sectorIndexMaster.js';
 import type { SectorSymmetryValidationResult } from './sectorSymmetryValidator.js';
 import type { SectorEnergyScorerResult } from './sectorEnergyScorer.js';
 
-export type SectorEnergyCaseTag =
+type SectorEnergyCaseTag =
   | 'CASE_SECTOR_ENERGY_DEGRADED'
   | 'CASE_INDEX_CODE_COVERAGE_LOW'
   | 'CASE_STOCK_DAILY_FALLBACK_DIAGNOSTIC_ONLY'

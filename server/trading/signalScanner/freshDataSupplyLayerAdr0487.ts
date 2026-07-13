@@ -13,7 +13,7 @@ export type FreshDataDomain =
   | 'FUNDAMENTAL'
   | 'UNKNOWN';
 
-export type FreshDataProvider =
+type FreshDataProvider =
   | 'KRX'
   | 'KIS'
   | 'NAVER'
@@ -24,9 +24,9 @@ export type FreshDataProvider =
   | 'INTERNAL'
   | 'UNKNOWN';
 
-export type FreshDataStage = 'OBSERVE' | 'SHADOW_ONLY';
+type FreshDataStage = 'OBSERVE' | 'SHADOW_ONLY';
 
-export type FreshDataLineStatus =
+type FreshDataLineStatus =
   | 'NOT_STARTED'
   | 'OBSERVING'
   | 'FETCH_OK'
@@ -41,7 +41,7 @@ export type FreshDataLineStatus =
   | 'READY_FOR_SHADOW'
   | 'UNKNOWN';
 
-export type FreshDataSourceState =
+type FreshDataSourceState =
   | 'FRESH'
   | 'STALE'
   | 'MISSING'
@@ -52,21 +52,21 @@ export type FreshDataSourceState =
   | 'NON_TRADING_DAY'
   | 'UNKNOWN';
 
-export type FreshDataCacheState =
+type FreshDataCacheState =
   | 'FRESH'
   | 'STALE'
   | 'EMPTY'
   | 'MISSING'
   | 'UNKNOWN';
 
-export type FreshDataReadinessKindAdr0487 =
+type FreshDataReadinessKindAdr0487 =
   | 'REGISTRY_READY'
   | 'PLACEHOLDER_READY'
   | 'MATERIALIZED_SAMPLE'
   | 'CACHE_FALLBACK'
   | 'NO_SAMPLE';
 
-export type FreshDataSourceOfTruthAdr0487 =
+type FreshDataSourceOfTruthAdr0487 =
   | 'FRESH_DATA_STATUS'
   | 'SUPPLY_SNAPSHOT'
   | 'ROUTER_INPUT'
@@ -1150,8 +1150,4 @@ export function formatRuntimePipelineFreshDataEvidenceLineAdr0487(report: FreshD
   const sector = report.domainSummaries.find((summary) => summary.domain === 'SECTOR_ENERGY');
   const supply = report.domainSummaries.find((summary) => summary.domain === 'SUPPLY');
   return `ADR-0487 status=${report.overallStatus} sector=${sector?.status ?? 'UNKNOWN'} supply=${supply?.status ?? 'UNKNOWN'} diagnosticOnly=true executionImpact=${report.executionImpact}`;
-}
-
-export function freshDataSourceIdsAdr0487(): readonly string[] {
-  return SOURCE_IDS;
 }

@@ -1,6 +1,6 @@
 // @responsibility Track compact health for shadow persistence sources.
 
-export type ShadowPersistenceHealthStatus =
+type ShadowPersistenceHealthStatus =
   | 'VERIFIED'
   | 'DEGRADED'
   | 'STALE'
@@ -96,19 +96,6 @@ export function markShadowPersistenceFailed(input: {
 
 export function getShadowPersistenceHealthSnapshot(): ShadowPersistenceHealthRecord[] {
   return Array.from(health.values()).sort((a, b) => a.source.localeCompare(b.source));
-}
-
-export function formatShadowPersistenceHealthCompact(): string {
-  const rows = getShadowPersistenceHealthSnapshot();
-  if (rows.length === 0) return 'ShadowPersistence: no sources observed';
-  return rows.map((row) => [
-    `source=${row.source}`,
-    `status=${row.status}`,
-    `queued=${row.queuedWrites}`,
-    `fallback=${row.fallbackActive}`,
-    row.learningImpact ? `learningImpact=${row.learningImpact}` : undefined,
-    row.reason ? `reason=${row.reason}` : undefined,
-  ].filter(Boolean).join(' ')).join('\n');
 }
 
 export function __resetShadowPersistenceHealthForTests(): void {

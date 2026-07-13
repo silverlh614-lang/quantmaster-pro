@@ -49,7 +49,7 @@ export function buildUnitCandidates(rawValue: number | null): { KRW: string; KRW
   };
 }
 
-export function parseKisNumber(value: unknown): number | null {
+function parseKisNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value !== 'string') return null;
   const normalized = value.replace(/[,\s]/g, '').trim();
@@ -58,7 +58,7 @@ export function parseKisNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function selectLatestByBsopHour(rows: Array<Record<string, unknown>>): Record<string, unknown> | null {
+function selectLatestByBsopHour(rows: Array<Record<string, unknown>>): Record<string, unknown> | null {
   if (!rows.length) return null;
   return rows.reduce<Record<string, unknown> | null>((best, row) => {
     const cur = String(row.bsop_hour ?? '');

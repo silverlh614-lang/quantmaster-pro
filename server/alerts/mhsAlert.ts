@@ -6,7 +6,7 @@ import { sendTelegramAlert } from './telegramClient.js';
 import { dispatchAlert } from './alertRouter.js';
 import { AlertCategory } from './alertCategories.js';
 
-export interface MhsMorningAlertState {
+interface MhsMorningAlertState {
   prevMhs: number;   // 직전 알림 시점의 MHS
   checkedAt: string; // ISO — 마지막 체크 시각
 }

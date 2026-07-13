@@ -149,17 +149,3 @@ export function useBalanceQuery() {
 }
 
 // ── Position Events — on-demand (드로어에서만 fetch) ────────────
-export function usePositionEventsQuery(positionId: string | null) {
-  return useQuery<PositionEvent[]>({
-    queryKey: AUTO_TRADE_KEYS.positionEvents(positionId ?? '__none__'),
-    queryFn: async () => {
-      if (!positionId) return [];
-      const evts = await autoTradeApi.getPositionEvents(positionId);
-      return Array.isArray(evts) ? evts : [];
-    },
-    enabled: Boolean(positionId),
-    staleTime: 30_000,
-    refetchOnWindowFocus: false,
-    retry: 1,
-  });
-}

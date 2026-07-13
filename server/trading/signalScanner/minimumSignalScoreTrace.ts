@@ -53,8 +53,7 @@ import {
 
 export * from "./minimumSignalScoreTrace/types.js";
 export {
-  normalizeSignalScoreTo100,
-  scoreRelativeStrength,
+  normalizeSignalScoreTo100
 } from "./minimumSignalScoreTrace/scoring.js";
 export {
   buildMinSignalScoreDecompositionReport,

@@ -7,7 +7,7 @@
 import type { InlineKeyboardMarkup } from '../metaCommands.js';
 
 /** 명령어 분류 라벨. ADR-0017 §Stage 2 의 디렉토리 구조와 동기화. */
-export type CommandCategory =
+type CommandCategory =
   | 'SYS'  // 시스템 현황 (status/health/regime)
   | 'MKT'  // 시장 (market/dxy/news_lag)
   | 'WL'   // 워치리스트 (watchlist/focus/add/remove)
@@ -29,7 +29,7 @@ export type CommandVisibility = 'MENU' | 'ADMIN' | 'HIDDEN';
  * 위험도 — 0: read-only, 1: 가벼운 mutate (예: digest_on), 2: 매매·돈 흐름.
  * Stage 2 Phase A 는 0 만 이전한다.
  */
-export type CommandRiskLevel = 0 | 1 | 2;
+type CommandRiskLevel = 0 | 1 | 2;
 
 /** webhookHandler 의 reply 헬퍼와 동일 시그니처. */
 export type CommandReplyFn = (

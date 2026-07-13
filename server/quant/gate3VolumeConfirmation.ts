@@ -1,6 +1,6 @@
 // @responsibility Gate3 volume confirmation builder for LastTrigger timing diagnostics.
 
-export type Gate3VolumeConfirmationStatus =
+type Gate3VolumeConfirmationStatus =
   | 'CONFIRMED'
   | 'PARTIAL'
   | 'DRY_UP'

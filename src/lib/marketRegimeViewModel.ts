@@ -6,16 +6,16 @@ export type MarketRegimeState = 'NORMAL' | 'RANGE_BOUND' | 'UNCERTAIN' | 'CRISIS
 
 export type RegimeConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'NOT_AVAILABLE';
 
-export type RegimeExecutionHint =
+type RegimeExecutionHint =
   | 'NORMAL_OPERATION'
   | 'TIGHTEN_GATE_DISPLAY_ONLY'
   | 'REDUCE_CONFIDENCE_DISPLAY_ONLY'
   | 'BUY_STOP_RECOMMENDED_DISPLAY_ONLY'
   | 'OBSERVE_ONLY_DISPLAY';
 
-export type RegimeEvidenceDirection = 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'MIXED' | 'UNKNOWN';
+type RegimeEvidenceDirection = 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'MIXED' | 'UNKNOWN';
 
-export type RegimeEvidenceConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED' | 'UNKNOWN';
+type RegimeEvidenceConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED' | 'UNKNOWN';
 
 export interface RegimeEvidenceItem {
   key: string;
@@ -54,7 +54,7 @@ export interface BuildMarketRegimeViewInput {
   offHoursExpected?: boolean;
 }
 
-export function getMarketRegimeLabel(state: MarketRegimeState): string {
+function getMarketRegimeLabel(state: MarketRegimeState): string {
   switch (state) {
     case 'NORMAL': return '정상 판단 가능 구간';
     case 'RANGE_BOUND': return '박스권 / 추세 부재';
@@ -64,7 +64,7 @@ export function getMarketRegimeLabel(state: MarketRegimeState): string {
   }
 }
 
-export function getMarketRegimeDescription(state: MarketRegimeState): string {
+function getMarketRegimeDescription(state: MarketRegimeState): string {
   switch (state) {
     case 'NORMAL': return '시장 데이터가 비교적 정렬되어 있으며 기존 Gate 판단을 해석할 수 있는 상태입니다.';
     case 'RANGE_BOUND': return '시장 추세가 명확하지 않은 박스권 상태입니다. 돌파 신호의 실패 가능성이 높아 해석에 주의가 필요합니다.';
@@ -85,7 +85,7 @@ export function getMarketRegimeTone(
   return 'stable';
 }
 
-export function deriveRegimeExecutionHint(view: MarketRegimeView): RegimeExecutionHint {
+function deriveRegimeExecutionHint(view: MarketRegimeView): RegimeExecutionHint {
   if (view.state === 'CRISIS') return 'BUY_STOP_RECOMMENDED_DISPLAY_ONLY';
   if (view.state === 'UNKNOWN') return 'OBSERVE_ONLY_DISPLAY';
   if (view.state === 'UNCERTAIN') return 'REDUCE_CONFIDENCE_DISPLAY_ONLY';
@@ -110,10 +110,6 @@ export function splitRegimeEvidence(items: RegimeEvidenceItem[]): {
     missingData: items.filter(item => item.issueType === 'MISSING_DATA' || isUnavailableConfidence(item.confidence)),
     mixedSignals: items.filter(item => item.issueType === 'MIXED_SIGNAL' || item.direction === 'MIXED'),
   };
-}
-
-export function hasLowRegimeConfidence(view: MarketRegimeView): boolean {
-  return view.confidence === 'LOW' || view.confidence === 'NOT_AVAILABLE' || view.state === 'UNKNOWN';
 }
 
 export function formatRegimeUpdatedAt(value?: string): string {
@@ -159,7 +155,7 @@ export function buildMarketRegimeView(input: BuildMarketRegimeViewInput): Market
   return { ...baseView, executionHint: deriveRegimeExecutionHint(baseView) };
 }
 
-export function describeProviderSignalSplit(providerIssue?: boolean, marketSignal?: boolean): string {
+function describeProviderSignalSplit(providerIssue?: boolean, marketSignal?: boolean): string {
   if (providerIssue && marketSignal) return 'Mixed: 일부 데이터 장애와 시장 신호가 동시에 존재합니다.';
   if (providerIssue) return 'Provider issue detected: market signal not confirmed.';
   if (marketSignal) return 'Market risk signal confirmed: provider health normal.';

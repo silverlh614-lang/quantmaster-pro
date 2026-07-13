@@ -9,8 +9,8 @@ export const STEP26_RUNTIME_PATCH_VERSION = 'STEP26_RUNTIME_TRACE_2026_05_21';
 const KRX_MDCSTAT02401_BLD = 'dbms/MDC/STAT/standard/MDCSTAT02401';
 const KRX_MDCSTAT02401_ALLOWED_KEYS = ['bld', 'endDd', 'inqVal', 'isuCd', 'strtDd'];
 const PROVIDER_OK_STATUSES = new Set(['VERIFIED', 'OK', 'READY', 'UP', 'SUCCESS', 'PARTIAL']);
-export const KIS_INVESTOR_FLOW_CANONICAL_API_PATH = '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily';
-export const KIS_INVESTOR_FLOW_CANONICAL_TR_ID = 'FHPTJ04160001';
+const KIS_INVESTOR_FLOW_CANONICAL_API_PATH = '/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily';
+const KIS_INVESTOR_FLOW_CANONICAL_TR_ID = 'FHPTJ04160001';
 
 type RuntimeTraceModuleName =
   | 'scanDiagnosticsCore.persistScanResults'

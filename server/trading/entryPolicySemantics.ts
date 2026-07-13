@@ -36,7 +36,7 @@ export type EntryBlockReason =
   | 'DATA_CONFIDENCE_LOW'
   | 'RISK_LIMIT';
 
-export const INTERNAL_BLOCK_SENTINEL = 999;
+const INTERNAL_BLOCK_SENTINEL = 999;
 
 const MACRO_REGIME_PRIORITY: MacroRegime[] = [
   'R6_DEFENSE',

@@ -105,16 +105,10 @@ export { deriveNormalSupplyPreviewEngineMode } from './normalSupplyPreview/engin
 export { classifySupplySignal } from './normalSupplyPreview/candidateMapper.js';
 
 export {
-  NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE,
-  NORMAL_SUPPLY_DIAGNOSTIC_PREVIEW_MODE,
-  NORMAL_SUPPLY_SCORE_THRESHOLDS,
+  NORMAL_SUPPLY_DIAGNOSTIC_FULL_PREVIEW_MODE
 } from './normalSupplyPreview/constants.js';
 export { normalizeProgramFlowValue } from './normalSupplyPreview/programFlowValueNormalizer.js';
 export {
-  resolveProgramFlowAfterMarketDisplay,
-} from './normalSupplyPreview/programFlowAfterMarketDisplay.js';
-export {
-  buildNormalSupplyPreviewFullSections,
   formatNormalSupplyPreviewFullSections,
   formatNormalSupplyPreviewMissingSection,
   formatNormalSupplyPreviewSection,
@@ -124,40 +118,7 @@ export {
   getLastNormalSupplyPreview,
 } from './normalSupplyPreview/previewStore.js';
 export type {
-  ActivePassiveConfluence,
-  ActivePassiveConfluenceCounts,
-  MarketProgramCarryForensicTrace,
-  PerStockProgramCarryForensicTrace,
-  ProgramFlowCarryValue,
-  ProgramFlowDiagnostic,
-  ProgramFlowDiagnosticsSummary,
-  ProgramFlowDryRunDiagnostic,
-  ProgramFlowEvidenceTrace,
-  ProgramFlowMarketCarrySource,
-  ProgramFlowMarketEvidenceBreakPoint,
-  ProgramFlowMarketEvidenceResult,
-  ProgramFlowMarketProgramDisplayStatus,
-  ProgramFlowNullRootCause,
-  ProgramFlowSignal,
-  ProgramFlowSourceProvider,
-  ProgramFlowStockCarrySource,
-  ProgramFlowStockEvidenceBreakPoint,
-  ProgramFlowStockEvidenceResult,
-  ProgramFlowUpstreamPopulationResult,
-  ProgramFlowUpstreamPopulationTrace,
-  ProgramFlowValueNormalizationResult,
-  ProgramFlowValueReason,
-  ProgramMarketCarryValue,
-} from './normalSupplyPreview/programFlowTypes.js';
-export type {
-  NormalSupplyFieldAvailability,
   NormalSupplyPreview,
-  NormalSupplyPreviewCandidate,
-  NormalSupplyPreviewEngineMode,
-  NormalSupplyPreviewFullMode,
-  NormalSupplyPreviewMode,
-  NormalSupplyPreviewSafety,
-  NormalSupplySignalSourceSplit,
   PersistNormalSupplyPreviewInput,
 } from './normalSupplyPreview/types.js';
 

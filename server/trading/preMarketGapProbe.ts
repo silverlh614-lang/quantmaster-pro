@@ -24,10 +24,10 @@ import { isAcceptableKrxDailyBase } from '../calendar/krxTradingCalendar.js';
 
 // ── 임계값 ────────────────────────────────────────────────────────────────────
 
-export const GAP_WARN_PCT = 2;
-export const GAP_DATA_ERROR_PCT = 30;
+const GAP_WARN_PCT = 2;
+const GAP_DATA_ERROR_PCT = 30;
 /** tradingDate 가 오늘 KST 기준 N영업일 이상 과거면 stale 로 간주. */
-export const MAX_STALENESS_BUSINESS_DAYS = 2;
+const MAX_STALENESS_BUSINESS_DAYS = 2;
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ export interface GapProbeInput {
   entryPrice: number;
 }
 
-export type GapProbeDecision =
+type GapProbeDecision =
   | 'PROCEED'
   | 'WARN'
   | 'SKIP_DATA_ERROR'

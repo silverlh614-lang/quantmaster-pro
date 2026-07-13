@@ -42,7 +42,7 @@ const RECOVERY_WR_THRESHOLD = 0.50;
 const MIN_REGIME_SAMPLES = 5;
 const PHASE_CAP = 0.5;
 
-export interface PhaseMapEntry {
+interface PhaseMapEntry {
   conditionId: number;
   conditionName: string;
   /** 위험 레짐 목록 (현재 cap 적용 중) */

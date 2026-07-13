@@ -71,9 +71,3 @@ export function conditionResultsTraceToMap(
   for (const item of trace) out[item.key] = { ...item };
   return Object.keys(out).length > 0 ? out : undefined;
 }
-
-export function projectGateResultToConditionResultsMap(
-  gate: Pick<ServerGateResult, 'outputs'> | null | undefined,
-): GateConditionResultsTraceMap | undefined {
-  return conditionResultsTraceToMap(projectGateOutputsToConditionResultsTrace(gate?.outputs));
-}

@@ -75,7 +75,7 @@ export interface SymbolTechnicalIndicators {
  * BEARISH       — 외국인 + 기관 순매도 동조
  * UNKNOWN       — 수급 데이터 미확보 (providerHealth MISSING/STALE)
  */
-export type SymbolSupplySignalLabel =
+type SymbolSupplySignalLabel =
   | 'BULLISH'
   | 'ACCUMULATING'
   | 'NEUTRAL'
@@ -116,7 +116,7 @@ export interface SymbolSupplySignal {
  * QUARTERLY_CACHED — gate2ExternalCache 의 cache-first last-good-value (분기 cadence refresh).
  * MISSING          — 정본 DART 미수집 (Gate 는 기존 read 경로로 fallback).
  */
-export type SymbolDartCadence = 'QUARTERLY_CACHED' | 'MISSING';
+type SymbolDartCadence = 'QUARTERLY_CACHED' | 'MISSING';
 
 /**
  * SymbolSnapshotData.dartFinancials 슬롯.

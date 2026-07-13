@@ -7,14 +7,14 @@ export type SurvivalTier = 'OK' | 'WARN' | 'CRITICAL' | 'EMERGENCY';
 export type SectorTier = 'OK' | 'WARN' | 'CRITICAL' | 'NA';
 export type KellyTier = 'OK' | 'WARN' | 'CRITICAL' | 'CALIBRATING';
 
-export interface DailyLossGauge {
+interface DailyLossGauge {
   currentPct: number;
   limitPct: number;
   bufferPct: number;
   tier: SurvivalTier;
 }
 
-export interface SectorConcentrationGauge {
+interface SectorConcentrationGauge {
   hhi: number;
   topSector: string | null;
   topWeight: number;
@@ -22,7 +22,7 @@ export interface SectorConcentrationGauge {
   tier: SectorTier;
 }
 
-export interface KellyConcordanceGauge {
+interface KellyConcordanceGauge {
   ratio: number | null;
   currentAvgKelly: number;
   recommendedKelly: number;

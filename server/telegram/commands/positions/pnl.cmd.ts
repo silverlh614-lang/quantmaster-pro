@@ -76,5 +76,3 @@ function registerOnce(cmd: TelegramCommand): void {
 registerOnce(command);
 registerOnce(createPnlCommand('/pnl_shadow', ['pnl_shadow'], 'SHADOW', 'HIDDEN', 'Shadow 가상 손익 조회'));
 registerOnce(createPnlCommand('/pnl_live', ['pnl_live'], 'LIVE', 'HIDDEN', '실계좌 손익 조회'));
-
-export default command;

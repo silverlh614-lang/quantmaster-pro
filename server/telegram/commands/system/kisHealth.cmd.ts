@@ -29,4 +29,3 @@ const kisHealth: TelegramCommand = {
 };
 
 commandRegistry.register(kisHealth);
-export default kisHealth;

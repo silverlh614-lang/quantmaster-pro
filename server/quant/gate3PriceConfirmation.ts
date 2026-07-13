@@ -1,6 +1,6 @@
 // @responsibility Gate3 price confirmation builder for LastTrigger timing diagnostics.
 
-export type Gate3PriceConfirmationStatus =
+type Gate3PriceConfirmationStatus =
   | 'BREAKOUT_CONFIRMED'
   | 'NEAR_BREAKOUT'
   | 'PULLBACK_ENTRY'
@@ -50,7 +50,7 @@ function pctDistance(value: number | null, reference: number | null): number | n
 
 /** ADR-0598 G2 — 이격 검증불가(ma20 결손) 시 BREAKOUT_CONFIRMED 보수화 스위치
  *  (정확 비교, default OFF byte-equivalent — OFF 시 observe note 만 추가). */
-export function isGate3ExtensionGuardStrictEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+function isGate3ExtensionGuardStrictEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.GATE3_EXTENSION_GUARD_STRICT_ENABLED === 'true';
 }
 

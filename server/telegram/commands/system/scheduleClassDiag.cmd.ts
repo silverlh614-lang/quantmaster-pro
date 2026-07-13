@@ -79,7 +79,7 @@ function parseDowSet(spec: string): Set<number> | null {
   return new Set([single]);
 }
 
-export function analyzeCron(expr: string, anchor: Date = new Date()): CronAnalysis {
+function analyzeCron(expr: string, anchor: Date = new Date()): CronAnalysis {
   const parts = expr.trim().split(/\s+/);
   const out: CronAnalysis = {
     raw: expr,
@@ -110,7 +110,7 @@ export function analyzeCron(expr: string, anchor: Date = new Date()): CronAnalys
   return out;
 }
 
-export function simulatePastDays(scheduleClass: ScheduleClass, anchor: Date, daysBack: number): SimEntry[] {
+function simulatePastDays(scheduleClass: ScheduleClass, anchor: Date, daysBack: number): SimEntry[] {
   const out: SimEntry[] = [];
   for (let i = daysBack; i >= 0; i--) {
     const d = new Date(anchor.getTime() - i * DAY_MS);
@@ -121,7 +121,7 @@ export function simulatePastDays(scheduleClass: ScheduleClass, anchor: Date, day
   return out;
 }
 
-export function classifyDiagnosis(allowCount: number, total: number): {
+function classifyDiagnosis(allowCount: number, total: number): {
   verdict: 'GUARD_BROKEN' | 'GUARD_DEGRADED' | 'GUARD_HEALTHY';
   recommendation: string;
 } {
@@ -145,7 +145,7 @@ export function classifyDiagnosis(allowCount: number, total: number): {
   };
 }
 
-export function buildDiagMessage(jobName: string, now: Date = new Date()): string {
+function buildDiagMessage(jobName: string, now: Date = new Date()): string {
   const known = KNOWN_JOBS[jobName];
   const lines: string[] = [];
   lines.push(`📐 Schedule Class Diagnostics: ${jobName}`);
@@ -243,6 +243,3 @@ const scheduleClassDiag: TelegramCommand = {
 };
 
 commandRegistry.register(scheduleClassDiag);
-
-export default scheduleClassDiag;
-export { KNOWN_JOBS, SIM_LOOKBACK_DAYS, HEALTHY_ALLOW_THRESHOLD };

@@ -135,7 +135,7 @@ export function createRouteAccumulatorAdr0477(input: InvestorFlowProviderRouterI
   };
 }
 
-export function selectShadowAdr0477(
+function selectShadowAdr0477(
   acc: RouteAccumulatorAdr0477,
   provider: InvestorFlowProviderId,
   sample: SemanticNetBuySample,

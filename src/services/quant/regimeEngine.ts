@@ -301,38 +301,3 @@ export function classifyRegime(v: RegimeVariables): RegimeLevel {
 }
 
 // ─── 레짐 전환 감지 헬퍼 ──────────────────────────────────────────────────────
-
-/**
- * 이전 레짐과 현재 레짐을 비교하여 전환 정보를 반환.
- * 자동매매 엔진에서 텔레그램 알림 발송 여부 결정에 사용.
- */
-export function detectRegimeTransition(
-  previous: RegimeLevel,
-  current: RegimeLevel,
-): {
-  changed: boolean;
-  isUpgrade: boolean;   // 방어 → 공격 방향
-  isDowngrade: boolean; // 공격 → 방어 방향
-  message: string;
-} {
-  const ORDER: RegimeLevel[] = [
-    'R6_DEFENSE', 'R5_CAUTION', 'R4_NEUTRAL', 'R3_EARLY', 'R2_BULL', 'R1_TURBO',
-  ];
-  if (previous === current) {
-    return { changed: false, isUpgrade: false, isDowngrade: false, message: '' };
-  }
-  const prevIdx = ORDER.indexOf(previous);
-  const currIdx = ORDER.indexOf(current);
-  const isUpgrade   = currIdx > prevIdx;
-  const isDowngrade = currIdx < prevIdx;
-
-  const cfg = REGIME_CONFIGS[current];
-  const message = [
-    `🔄 레짐 전환: ${previous} → ${current}`,
-    `⚙️  Gate2: ${cfg.gate2Required}개 | Gate3: ${cfg.gate3Required}개`,
-    `📌 포지션 정책: 최대 보유 ${cfg.maxPositions}종목 | executionImpact=NONE`,
-    `📉 일손실 한도: ${(cfg.dailyLossLimit * 100).toFixed(1)}%`,
-  ].join('\n');
-
-  return { changed: true, isUpgrade, isDowngrade, message };
-}

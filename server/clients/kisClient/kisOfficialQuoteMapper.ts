@@ -20,7 +20,7 @@ export type KisOfficialQuoteConfidence =
   | 'MISSING'
   | 'AI_ESTIMATED';
 
-export type KisOfficialQuoteCoverageSource =
+type KisOfficialQuoteCoverageSource =
   | 'KIS_OFFICIAL'
   | 'QMP_QUOTE'
   | 'YAHOO'
@@ -112,7 +112,7 @@ export interface NormalizeKisOfficialQuoteOptions {
   actualTrId?: string | null;
 }
 
-export const KIS_OFFICIAL_QUOTE_REQUIRED_FIELDS = [
+const KIS_OFFICIAL_QUOTE_REQUIRED_FIELDS = [
   'currentPrice',
   'volume',
   'high',
@@ -337,7 +337,7 @@ function coverageFieldsFromQuote(quote: Record<string, unknown>): {
   };
 }
 
-export function mapKisProviderStatusToConfidence(status: KisProviderStatus): KisOfficialQuoteConfidence {
+function mapKisProviderStatusToConfidence(status: KisProviderStatus): KisOfficialQuoteConfidence {
   return status === 'OK_WITH_DATA'
     ? 'VERIFIED'
     : status === 'OK_EMPTY'

@@ -32,7 +32,7 @@ export function nestedNumericTraceValue(
   return resolveNumericTracePath(trace, paths).value;
 }
 
-export function tracePathExists(
+function tracePathExists(
   trace: CandidateEntryTrace,
   paths: readonly string[],
 ): boolean {

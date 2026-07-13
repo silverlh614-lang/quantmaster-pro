@@ -2,9 +2,9 @@
 
 import { KIS_OFFICIAL_PROGRAM_TRADE_ENDPOINTS } from './kisOfficialEndpointRegistry.js';
 
-export type KisProgramFlowEndpointKey = 'COMP_PROGRAM_TRADE_TODAY' | 'PROGRAM_TRADE_BY_STOCK_DAILY';
+type KisProgramFlowEndpointKey = 'COMP_PROGRAM_TRADE_TODAY' | 'PROGRAM_TRADE_BY_STOCK_DAILY';
 
-export type KisProgramFlowScope = 'MARKET' | 'STOCK';
+type KisProgramFlowScope = 'MARKET' | 'STOCK';
 
 export type KisProgramTradeProviderStatus =
   | 'OK_WITH_DATA'
@@ -252,7 +252,7 @@ function normalizeProviderStatus(value: unknown): KisProgramTradeProviderStatus 
   return null;
 }
 
-export function confidenceForKisProgramTradeStatus(status: KisProgramTradeProviderStatus): KisProgramTradeConfidence {
+function confidenceForKisProgramTradeStatus(status: KisProgramTradeProviderStatus): KisProgramTradeConfidence {
   if (status === 'OK_WITH_DATA') return 'VERIFIED';
   if (status === 'OK_EMPTY') return 'EMPTY_VALID';
   if (status === 'FIELD_MISSING' || status === 'PARSE_ERROR') return 'DEGRADED';

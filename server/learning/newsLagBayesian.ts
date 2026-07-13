@@ -32,7 +32,7 @@ import path from 'path';
 import { DATA_DIR } from '../persistence/paths.js';
 
 // ── 디스크 영속화 경로 ───────────────────────────────────────────────────────
-export const NEWS_LAG_POSTERIOR_FILE = path.join(DATA_DIR, 'news-lag-posterior.json');
+const NEWS_LAG_POSTERIOR_FILE = path.join(DATA_DIR, 'news-lag-posterior.json');
 
 // ── 사전 분포 (uninformative-ish prior) ──────────────────────────────────────
 //   μ₀ = 3 영업일 (T+3 가 직관적 중앙값)
@@ -45,7 +45,7 @@ const PRIOR_BETA  = 1.5;
 
 // ── 타입 ─────────────────────────────────────────────────────────────────────
 
-export interface NormalInverseGamma {
+interface NormalInverseGamma {
   /** Posterior mean of μ (current best estimate of the lag in business days) */
   mu: number;
   /** Posterior pseudo-count for μ — 신뢰도 강도 */
@@ -70,7 +70,7 @@ export interface PosteriorEntry {
   totalObservations: number;
 }
 
-export interface PosteriorStore {
+interface PosteriorStore {
   version: 1;
   updatedAt: string;
   entries: Record<string, PosteriorEntry>;
@@ -80,7 +80,7 @@ const EMPTY_STORE: PosteriorStore = { version: 1, updatedAt: new Date(0).toISOSt
 
 // ── I/O ──────────────────────────────────────────────────────────────────────
 
-export function loadPosteriorStore(): PosteriorStore {
+function loadPosteriorStore(): PosteriorStore {
   try {
     if (!fs.existsSync(NEWS_LAG_POSTERIOR_FILE)) return { ...EMPTY_STORE };
     const raw = JSON.parse(fs.readFileSync(NEWS_LAG_POSTERIOR_FILE, 'utf-8'));
@@ -111,7 +111,7 @@ function makeKey(newsType: string, sector: string): string {
  *   α' = α + 0.5
  *   β' = β + (κ · (lag - μ)²) / (2·κ')
  */
-export function updatePosterior(prior: NormalInverseGamma, lag: number): NormalInverseGamma {
+function updatePosterior(prior: NormalInverseGamma, lag: number): NormalInverseGamma {
   const newKappa = prior.kappa + 1;
   const newMu    = (prior.kappa * prior.mu + lag) / newKappa;
   const newAlpha = prior.alpha + 0.5;
@@ -125,7 +125,7 @@ export function updatePosterior(prior: NormalInverseGamma, lag: number): NormalI
  *   X ~ t(2α) with mean μ, scale √(β(κ+1)/(α·κ))
  *   95% 구간 ≈ μ ± 1.96 · scale (대표본 근사). 표본이 5 미만이면 보수적으로 t(2α) 분위 미사용.
  */
-export function predictiveSummary(post: NormalInverseGamma): {
+function predictiveSummary(post: NormalInverseGamma): {
   mean: number;
   std: number;
   ci95Low: number;

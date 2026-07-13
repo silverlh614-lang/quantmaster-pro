@@ -10,7 +10,7 @@ import { getLastScanSummary } from '../trading/signalScanner/scanDiagnostics.js'
 import { SCHEDULE_CATALOG, getJobMetrics, getLastRunByJob } from '../scheduler/scheduleCatalog.js';
 import { tradingOrchestrator, type TradingState } from '../orchestrator/tradingOrchestrator.js';
 
-export interface ScanReadinessCheck {
+interface ScanReadinessCheck {
   name: string;
   status: 'OK' | 'WARN' | 'BLOCK' | 'WAIT';
   label?: string;

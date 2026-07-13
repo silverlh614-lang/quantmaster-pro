@@ -80,5 +80,3 @@ const geminiCheck: TelegramCommand = {
 };
 
 commandRegistry.register(geminiCheck);
-
-export default geminiCheck;

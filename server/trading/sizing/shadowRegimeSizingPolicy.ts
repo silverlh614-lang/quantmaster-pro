@@ -8,9 +8,9 @@ export type ShadowRegimeSizingLevel =
   | 'R2_RISK_ON'
   | 'R1_AGGRESSIVE';
 
-export type ShadowSizingSource = 'SHADOW_REGIME_SIZING_POLICIES';
+type ShadowSizingSource = 'SHADOW_REGIME_SIZING_POLICIES';
 
-export type ShadowRegimeSizingBlockReason =
+type ShadowRegimeSizingBlockReason =
   | 'REGIME_SHADOW_SLOT_BLOCKED'
   | 'REGIME_EXPOSURE_CAP_REACHED'
   | 'VIRTUAL_CASH_EXHAUSTED'

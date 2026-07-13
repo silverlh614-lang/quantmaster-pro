@@ -82,14 +82,6 @@ function persistTokenSafe(slot: 'main' | 'realData', token: string, expiry: numb
   }
 }
 
-/** 테스트 전용 — 메모리 캐시 강제 초기화 (디스크 영향 없음) */
-export function __resetKisAuthCacheForTests(): void {
-  cachedToken = null;
-  cachedRealDataToken = null;
-  inFlightMainTokenRefresh = null;
-  inFlightRealDataTokenRefresh = null;
-}
-
 /**
  * KIS 토큰 응답에서 안전한 오류 정보만 추출. 원본 응답에는 `access_token`·
  * `approval_key` 등 비밀이 섞일 수 있으므로 raw JSON을 로그/에러에 포함하지

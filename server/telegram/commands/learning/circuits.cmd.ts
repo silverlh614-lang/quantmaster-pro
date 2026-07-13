@@ -36,5 +36,3 @@ const circuits: TelegramCommand = {
 };
 
 commandRegistry.register(circuits);
-
-export default circuits;

@@ -69,23 +69,20 @@ import {
   buildGate3ConsolidatedDiagnostic,
   type Gate3ConsolidatedDiagnostic,
 } from './quant/gate3ConsolidatedDiagnostic.js';
-
-export type { Gate1MarketSession } from './quant/gate1MarketSession.js';
-
 export type GateLayerName = 'gate1' | 'gate2' | 'gate3';
 
-export type GateFinalPath = 'LIVE_ELIGIBLE' | 'SHADOW_OBSERVABLE' | 'WATCHLIST_ONLY' | 'BLOCKED';
+type GateFinalPath = 'LIVE_ELIGIBLE' | 'SHADOW_OBSERVABLE' | 'WATCHLIST_ONLY' | 'BLOCKED';
 
-export type Gate1WiringStatus =
+type Gate1WiringStatus =
   | 'FIRED'
   | 'THRESHOLD_NOT_MET'
   | 'DATA_UNAVAILABLE'
   | 'PROVIDER_DEGRADED'
   | 'ERROR';
 
-export type GateLayerDataPath = 'QUOTE_ONLY' | 'KIS' | 'DART' | 'MIXED' | 'UNKNOWN';
+type GateLayerDataPath = 'QUOTE_ONLY' | 'KIS' | 'DART' | 'MIXED' | 'UNKNOWN';
 
-export interface Gate1WiringDiagnostic {
+interface Gate1WiringDiagnostic {
   key: string;
   layer: 'gate1';
   status: Gate1WiringStatus;
@@ -95,7 +92,7 @@ export interface Gate1WiringDiagnostic {
   dataPath: GateLayerDataPath;
 }
 
-export interface Gate1SourceCoverage {
+interface Gate1SourceCoverage {
   conditionCount: number;
   quoteInputCount: number;
   externalRequiredData: string[];
@@ -105,21 +102,21 @@ export interface Gate1SourceCoverage {
   allExternalDataAvailable: boolean;
 }
 
-export type Gate1SurvivalExecutionImpact = 'NONE' | 'LIVE_BUY_BLOCKED_ONLY' | 'DIAGNOSTIC_ONLY';
+type Gate1SurvivalExecutionImpact = 'NONE' | 'LIVE_BUY_BLOCKED_ONLY' | 'DIAGNOSTIC_ONLY';
 
-export type Gate1QuoteFreshnessStatus = 'OK' | 'STALE' | 'MISSING' | 'UNKNOWN';
-export type Gate1TradabilityStatus = 'TRADABLE' | 'HALTED' | 'WARNING' | 'MANAGEMENT' | 'UNKNOWN';
-export type Gate1TradabilitySource = 'KIS_OFFICIAL' | 'QMP_MASTER' | 'UNKNOWN';
-export type Gate1TradabilityMarket = 'KOSPI' | 'KOSDAQ' | 'KONEX' | 'ETF' | 'ETN' | 'REIT' | 'SPAC' | 'PREFERRED' | 'UNKNOWN';
-export type Gate1TradabilityStockType = 'COMMON' | 'PREFERRED' | 'ETF' | 'ETN' | 'REIT' | 'SPAC' | 'OTHER' | 'UNKNOWN';
-export type Gate1TradabilitySourceStatus = 'VERIFIED' | 'STALE' | 'MISSING' | 'DEGRADED' | 'UNKNOWN';
-export type Gate1LiquidityFloorStatus = Gate1LiquidityFloorStatusValue;
-export type Gate1QuoteCoverageSource = 'KIS_OFFICIAL' | 'QMP_QUOTE' | 'YAHOO' | 'CACHE' | 'UNKNOWN';
-export type Gate1QuoteCoverageConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED';
-export type Gate1ShadowEligibilityMode = Gate1ShadowEligibilityModeValue;
-export type Gate1KisProviderStatus = KisProviderStatus;
+type Gate1QuoteFreshnessStatus = 'OK' | 'STALE' | 'MISSING' | 'UNKNOWN';
+type Gate1TradabilityStatus = 'TRADABLE' | 'HALTED' | 'WARNING' | 'MANAGEMENT' | 'UNKNOWN';
+type Gate1TradabilitySource = 'KIS_OFFICIAL' | 'QMP_MASTER' | 'UNKNOWN';
+type Gate1TradabilityMarket = 'KOSPI' | 'KOSDAQ' | 'KONEX' | 'ETF' | 'ETN' | 'REIT' | 'SPAC' | 'PREFERRED' | 'UNKNOWN';
+type Gate1TradabilityStockType = 'COMMON' | 'PREFERRED' | 'ETF' | 'ETN' | 'REIT' | 'SPAC' | 'OTHER' | 'UNKNOWN';
+type Gate1TradabilitySourceStatus = 'VERIFIED' | 'STALE' | 'MISSING' | 'DEGRADED' | 'UNKNOWN';
+type Gate1LiquidityFloorStatus = Gate1LiquidityFloorStatusValue;
+type Gate1QuoteCoverageSource = 'KIS_OFFICIAL' | 'QMP_QUOTE' | 'YAHOO' | 'CACHE' | 'UNKNOWN';
+type Gate1QuoteCoverageConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED';
+type Gate1ShadowEligibilityMode = Gate1ShadowEligibilityModeValue;
+type Gate1KisProviderStatus = KisProviderStatus;
 
-export interface Gate1SurvivalDiagnostic {
+interface Gate1SurvivalDiagnostic {
   quoteFreshness: {
     status: Gate1QuoteFreshnessStatus;
     asOf: string | null;
@@ -164,7 +161,7 @@ export interface Gate1SurvivalDiagnostic {
   shadowEligibility: Gate1ShadowEligibilityDiagnostic;
 }
 
-export interface GateLayerBucket {
+interface GateLayerBucket {
   fired: string[];
   unavailable: string[];
   thresholdNotMet: string[];
@@ -359,19 +356,6 @@ export const GATE_CONDITION_LAYER_MAP: Record<ConditionKey, GateLayerName> = {
   trend_acceleration: 'gate2',
   last_trigger: 'gate3',
 };
-
-export const SERVER_GATE3_EVALUATOR_KEYS = [
-  'momentum',
-  'volume_breakout',
-  'turtle_high',
-  'breakout_momentum',
-  'vcp',
-  'volume_surge',
-  'rsi_zone',
-  'macd_bull',
-  'pullback',
-  'last_trigger',
-] as const satisfies readonly ConditionKey[];
 
 function emptyGateLayerBucket(): GateLayerBucket {
   return {

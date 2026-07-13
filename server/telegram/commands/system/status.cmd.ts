@@ -66,9 +66,6 @@ const status: TelegramCommand = {
 };
 
 commandRegistry.register(status);
-
-export default status;
-
 // ─── 포맷팅 (export for testability) ───────────────────────────────────────
 
 export interface StatusInputs {

@@ -34,19 +34,19 @@ import type {
 } from './counterfactualShadowLearningLane.js';
 import { isOpenShadowStatus } from '../entryEngine.js';
 
-export type R6ShadowEntryType =
+type R6ShadowEntryType =
   | 'SHADOW_BUY_SIGNAL'
   | 'R6_COUNTERFACTUAL_BUY'
   | 'ACCUMULATION_SHADOW_ENTRY';
 
-export type R6ShadowPolicyRegime =
+type R6ShadowPolicyRegime =
   | 'R6_DEFENSE'
   | 'R6_CONFIRMATION_WAIT'
   | 'R6_RECOVERY_WATCH'
   | 'SELL_ONLY'
   | 'SHADOW_ONLY';
 
-export type R6NoShadowEntryReason =
+type R6NoShadowEntryReason =
   | 'DUPLICATE_SAME_SYMBOL_OPEN'
   | 'DUPLICATE_SAME_SYMBOL_PENDING'
   | 'STALE_DEDUP_LOCK'

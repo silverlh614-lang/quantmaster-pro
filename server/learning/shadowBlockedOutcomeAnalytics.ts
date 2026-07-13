@@ -34,11 +34,11 @@ export interface ShadowOutcomeAttributionSummary {
   overBlockedCount: number;
 }
 
-export interface ShadowBlockedOutcomeReasonSummary extends ShadowOutcomeAttributionSummary {
+interface ShadowBlockedOutcomeReasonSummary extends ShadowOutcomeAttributionSummary {
   blockedReason: string;
 }
 
-export interface ShadowPolicyWatchSummary {
+interface ShadowPolicyWatchSummary {
   relaxCandidates: ShadowOutcomeAttributionSummary[];
   keepStrictCandidates: ShadowOutcomeAttributionSummary[];
   needMoreData: string[];

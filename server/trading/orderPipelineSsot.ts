@@ -365,7 +365,7 @@ export function formatVirtualAccountUpdatedLog(input: {
   ].join(' ');
 }
 
-export function formatOrderIntentStatusChangedLog(input: {
+function formatOrderIntentStatusChangedLog(input: {
   orderIntentId: string;
   symbol: string;
   from: OrderIntentStatus;
@@ -382,7 +382,7 @@ export function formatOrderIntentStatusChangedLog(input: {
   ].join(' ');
 }
 
-export function formatPipelineStageGuardFailedLog(input: {
+function formatPipelineStageGuardFailedLog(input: {
   orderIntentId?: string;
   symbol?: string;
   requiredPreviousStage: OrderPipelineStage;

@@ -46,7 +46,7 @@ interface AdrGapState {
 }
 
 // 하위 호환 — 기존 import 경로에서 참조될 수 있으므로 빈 배열로 유지.
-export const DEFAULT_ADR_TARGETS: AdrTarget[] = [];
+const DEFAULT_ADR_TARGETS: AdrTarget[] = [];
 
 /**
  * @deprecated ADR-0004. 항상 null 반환.

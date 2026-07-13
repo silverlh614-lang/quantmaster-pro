@@ -27,7 +27,7 @@ export interface AttributionTraceEntry {
   conditionScoresCount: number;
 }
 
-export function parseTraceArg(args: string[] | undefined): number {
+function parseTraceArg(args: string[] | undefined): number {
   if (!args || args.length === 0) return ARG_DEFAULT;
   const n = Number(args[0]);
   if (!Number.isFinite(n)) return ARG_DEFAULT;
@@ -35,7 +35,7 @@ export function parseTraceArg(args: string[] | undefined): number {
 }
 
 /** status='HIT_TARGET'/'HIT_STOP' 만, exitTime 내림차순 N개. */
-export function selectClosedTrades(
+function selectClosedTrades(
   trades: ServerShadowTrade[],
   n: number,
 ): ServerShadowTrade[] {
@@ -67,7 +67,7 @@ export function buildTraceEntry(
   };
 }
 
-export function getAttributionFileMtime(): string | undefined {
+function getAttributionFileMtime(): string | undefined {
   try {
     return fs.statSync(ATTRIBUTION_FILE).mtime.toISOString();
   } catch {
@@ -75,7 +75,7 @@ export function getAttributionFileMtime(): string | undefined {
   }
 }
 
-export function buildVerdict(present: number, total: number): string {
+function buildVerdict(present: number, total: number): string {
   if (total === 0) return '⚪ 표본 없음 (closed trade 부재)';
   const ratio = present / total;
   if (ratio >= 1) return '🟢 모든 closed trade 에 attribution 존재 — wiring 정상, 표본 적었을 뿐';
@@ -230,5 +230,3 @@ const attributionTrace: TelegramCommand = {
 };
 
 commandRegistry.register(attributionTrace);
-
-export default attributionTrace;

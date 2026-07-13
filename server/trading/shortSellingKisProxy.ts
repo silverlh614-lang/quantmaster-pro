@@ -10,7 +10,7 @@
  * 069500 응답 shape(ETF 가 ssts_tr_pbmn_rlim 를 반환한다는 전제)은 런타임 확증 대상이며,
  * 005930 fallback 으로 위험을 완화한다.
  */
-export const KIS_SHORT_PROXY_CODES = ['069500', '005930'] as const;
+const KIS_SHORT_PROXY_CODES = ['069500', '005930'] as const;
 
 /** 폴백 실패는 null 반환(throw 금지) — 상위 carryForward 정책 유지(불변식 #1/#2). */
 export async function tryKrxShortViaKisProxy(): Promise<number | null> {

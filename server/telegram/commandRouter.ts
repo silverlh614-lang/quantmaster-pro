@@ -60,7 +60,7 @@ export interface CommandDispatchContext {
   reply: (message: string, replyMarkup?: InlineKeyboardMarkup) => Promise<void>;
 }
 
-export function createTelegramCorrelationId(chatId: string, command: string, now: Date = new Date()): string {
+function createTelegramCorrelationId(chatId: string, command: string, now: Date = new Date()): string {
   const stamp = now.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
   const shortRandom = Math.random().toString(36).slice(2, 6);
   return `telegram:${chatId}:${command || 'unknown'}:${stamp}:${shortRandom}`;

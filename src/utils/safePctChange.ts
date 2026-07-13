@@ -98,11 +98,3 @@ export function safePctChange(
 
   return result;
 }
-
-export function isSanePct(pct: number, sanityBoundPct = DEFAULT_SANITY_BOUND_PCT): boolean {
-  return Number.isFinite(pct) && Math.abs(pct) <= sanityBoundPct;
-}
-
-export function __resetSafePctChangeWarnsForTests(): void {
-  _lastWarnAt.clear();
-}

@@ -9,7 +9,7 @@ import { cn } from './cn';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
 /* ---------- Types ---------- */
-export type KpiStatus = 'pass' | 'fail' | 'warn' | 'neutral';
+type KpiStatus = 'pass' | 'fail' | 'warn' | 'neutral';
 
 export interface KpiItem {
   label: string;
@@ -27,7 +27,7 @@ export interface KpiItem {
   ariaLabel?: string;
 }
 
-export interface KpiDetail {
+interface KpiDetail {
   condition: string;
   passed: boolean;
   value?: string;

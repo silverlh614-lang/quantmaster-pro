@@ -10,18 +10,14 @@ export function finitePositiveFeature(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-export function readPath(source: unknown, path: string): unknown {
+function readPath(source: unknown, path: string): unknown {
   return path.split(".").reduce<unknown>((current, part) => {
     const record = asRecord(current);
     return record ? record[part] : undefined;
   }, source);
 }
 
-export function finitePath(source: unknown, path: string): number | undefined {
-  return finitePositiveFeature(readPath(source, path));
-}
-
-export function pickFiniteFeature(...values: unknown[]): number | undefined {
+function pickFiniteFeature(...values: unknown[]): number | undefined {
   for (const value of values) {
     const finite = finitePositiveFeature(value);
     if (finite !== undefined) return finite;

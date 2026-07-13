@@ -9,7 +9,7 @@ interface Tab {
   count?: number;
 }
 
-export type TabsTone = 'blue' | 'amber';
+type TabsTone = 'blue' | 'amber';
 
 interface TabsProps {
   tabs: Tab[];

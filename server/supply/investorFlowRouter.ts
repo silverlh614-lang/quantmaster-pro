@@ -71,7 +71,7 @@ export interface InvestorFlowSample {
   diagnosticActualInvestorRowFromNormalized?: boolean;
 }
 
-export type InvestorFlowAttemptStatus =
+type InvestorFlowAttemptStatus =
   | 'OK'
   | 'PARTIAL'
   | 'NOT_WIRED'

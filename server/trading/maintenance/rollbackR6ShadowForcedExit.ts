@@ -17,7 +17,7 @@ import { R6_FORCED_EXIT_SUSPECT_TAGS } from '../exitEngine/r6ForcedExitPolicy.js
 const DEFAULT_TARGET_CODES = ['017670', '454910'];
 const ROLLBACK_REASON = 'R6_FORCED_EXIT_SHADOW_POLICY_VIOLATION';
 
-export interface R6ShadowForcedExitRollbackItem {
+interface R6ShadowForcedExitRollbackItem {
   tradeId: string;
   stockCode: string;
   stockName: string;
@@ -178,8 +178,6 @@ export function rollbackR6ShadowForcedExitPolicyViolations(
 
   return result;
 }
-
-export { ROLLBACK_REASON as R6_SHADOW_FORCED_EXIT_ROLLBACK_REASON };
 
 export function quarantineR6ShadowForcedExitLearningSamples(
   options: R6ShadowForcedExitRollbackOptions = {},

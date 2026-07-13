@@ -12,7 +12,7 @@ export const ALERT_COOLDOWN_MS = 5 * 60_000;
 
 const STORAGE_PREFIX = 'qm:price-alert:';
 
-export const ALERT_TITLE: Record<Exclude<PriceAlertLevel, 'NORMAL'>, string> = {
+const ALERT_TITLE: Record<Exclude<PriceAlertLevel, 'NORMAL'>, string> = {
   CAUTION: '🟡 손절선 근접',
   DANGER: '🔴 손절가 도달',
   TAKE_PROFIT: '🎯 1차 목표가 도달',
