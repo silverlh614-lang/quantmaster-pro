@@ -8,8 +8,6 @@ import { evaluateAlertNoise, type AlertLevel, type AlertNoiseEvent } from './ale
 
 // 채널 시멘틱 이름 re-export — 호출자가 alertRouter 한 곳만 import 하도록.
 export { ChannelSemantic };
-export type { ChannelSemanticName } from './alertCategories.js';
-
 const fallbackWarned = new Set<string>();
 const categoryCooldown = new Map<string, number>();
 const infoDailyDigestBuffer: Array<{ at: string; message: string; priority: DispatchPriority }> = [];

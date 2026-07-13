@@ -7,10 +7,10 @@ import type {
 } from './gate1PositiveScoreStarvation.js';
 import { resolveWatchlistUpstreamScore, summarizeWatchlistScoreSources } from './watchlistUpstreamScoreResolver.js';
 
-export const ADR_0468_SCORE_CEILING_REPAIR_ENABLED = false;
-export const ADR_0468_SCORE_CEILING_REPAIR_DRY_RUN = true;
+const ADR_0468_SCORE_CEILING_REPAIR_ENABLED = false;
+const ADR_0468_SCORE_CEILING_REPAIR_DRY_RUN = true;
 
-export type Gate1ScoreCeilingRepairScalingMode =
+type Gate1ScoreCeilingRepairScalingMode =
   | 'UNCHANGED'
   | 'NORMALIZE_TO_100'
   | 'RESCALE_COMPONENT_WEIGHTS'
@@ -58,7 +58,7 @@ export interface Gate1PositiveWeightMapAudit {
   scoreCeilingReachable: boolean;
 }
 
-export type WatchlistScoreImportMode =
+type WatchlistScoreImportMode =
   | 'NONE'
   | 'RANK_BASED'
   | 'SCORE_BASED'
@@ -139,7 +139,7 @@ export interface OtherPositiveDecomposition {
   warningIfRemainingTooHigh: boolean;
 }
 
-export type ScoreDifferentiationCompressionCause =
+type ScoreDifferentiationCompressionCause =
   | 'WATCHLIST_SCORE_NOT_IMPORTED'
   | 'SYMBOL_LEVEL_FEATURES_ZERO'
   | 'DEFAULT_SCORE_DOMINATES'
@@ -162,7 +162,7 @@ export interface ScoreDifferentiationAudit {
   compressionCause: ScoreDifferentiationCompressionCause;
 }
 
-export type Gate1ScoreRepairScenario =
+type Gate1ScoreRepairScenario =
   | 'CURRENT'
   | 'IMPORT_WATCHLIST_SCORE'
   | 'RESTORE_RELATIVE_STRENGTH'

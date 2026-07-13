@@ -12,7 +12,7 @@ export type NormalizedPositionSourceTag = 'SHADOW' | 'LIVE' | 'VIRTUAL' | 'PAPER
 
 export type NormalizedPositionMode = 'SHADOW' | 'LIVE';
 
-export type PositionQueryExecutionImpact = 'POSITION_QUERY_DEGRADED';
+type PositionQueryExecutionImpact = 'POSITION_QUERY_DEGRADED';
 
 export interface NormalizedPosition {
   symbol: string;

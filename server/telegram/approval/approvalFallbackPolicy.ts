@@ -3,7 +3,7 @@
 import { emitOperationalWarn } from '../../trading/buy/operationalWarn.js';
 import type { ApprovalDecision, ApprovalMode } from './approvalTypes.js';
 
-export type ApprovalFallbackEvent =
+type ApprovalFallbackEvent =
   | 'DELIVERY_FAILURE'
   | 'TIMEOUT'
   | 'USER_NO_RESPONSE'

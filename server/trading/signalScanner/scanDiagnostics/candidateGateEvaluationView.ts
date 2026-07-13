@@ -6,11 +6,8 @@ import { buildGate3RuntimeClosureSummary, type Gate3RuntimeClosureSummary } from
 import type { Gate3CandidateDetail, Gate3Readiness } from '../../../quant/gate3CandidateDetail.js';
 import { logger } from '../../../utils/logger.js';
 import type { ScanSummary } from './scanSummaryTypes.js';
-
-export type { CanonicalScope, ScopedCount };
-
 /** 게이트 통과 상태 (정본 판정 — formatter 재추론 금지). */
-export type GateEvaluationStatus =
+type GateEvaluationStatus =
   | 'PASS'
   | 'PASS_WEAK'
   | 'WATCH'
@@ -20,7 +17,7 @@ export type GateEvaluationStatus =
   | 'UNKNOWN';
 
 /** Gate3 타이밍 준비 상태 (정본 판정). */
-export type Gate3TimingReadiness =
+type Gate3TimingReadiness =
   | 'READY'
   | 'SETUP_READY'
   | 'TRIGGER_WAIT'
@@ -29,7 +26,7 @@ export type Gate3TimingReadiness =
   | 'SKIPPED';
 
 /** 단일 게이트 판정. permission(boolean) 은 status 와 별도로 명시한다 (ADR-0527 정렬). */
-export interface GateLayerVerdict {
+interface GateLayerVerdict {
   status: GateEvaluationStatus;
   /** 본 게이트를 통과했는가 (정본 boolean). status 와 중복이 아니라 명시적 권한 신호. */
   passPermission: boolean;
@@ -38,7 +35,7 @@ export interface GateLayerVerdict {
 }
 
 /** Gate3 전용 판정 — 타이밍 readiness + permission 분리. */
-export interface Gate3LayerVerdict {
+interface Gate3LayerVerdict {
   readiness: Gate3TimingReadiness;
   /** 타이밍 준비 완료 권한 (boolean). 집계 count 와 이름 분리. */
   timingReadyPermission: boolean;
@@ -170,7 +167,7 @@ function resolveAsOf(summary: AnyRecord): string {
  * gate0 fail > gate1 fail > gate2 fail > gate3 timing fail > none.
  * 코드 상수로 명시한다 (ADR-0526 §Decision.3, 결정론적 도출).
  */
-export const COMBINED_TOP_BLOCK_PRIORITY = ['GATE0', 'GATE1', 'GATE2', 'GATE3', 'NONE'] as const;
+const COMBINED_TOP_BLOCK_PRIORITY = ['GATE0', 'GATE1', 'GATE2', 'GATE3', 'NONE'] as const;
 
 /** Gate2Status → 정본 GateEvaluationStatus 매핑 (gate2ConfluenceScore 의 status 의미를 보존). */
 function mapGate2Status(status: Gate2Status): GateEvaluationStatus {

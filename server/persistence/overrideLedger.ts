@@ -40,7 +40,7 @@ const LEDGER_FILE = path.join(DATA_DIR, 'override-ledger.json');
 const MAX_ENTRIES = 500;
 
 /** 하루 최대 적용 횟수 (REJECTED/NOOP 제외) */
-export const DAILY_LIMIT = 2;
+const DAILY_LIMIT = 2;
 /** 액션 효과 기본 TTL (ms) */
 export const DEFAULT_TTL_MS = 30 * 60_000;
 
@@ -83,7 +83,7 @@ function isTodayKst(iso: string): boolean {
  * 오늘 APPLIED 상태로 기록된 오버라이드 개수.
  * HOLD 액션은 "관망 유지"이므로 카운터에서 제외 — 아무 변경도 없기 때문.
  */
-export function countAppliedToday(): number {
+function countAppliedToday(): number {
   const { entries } = loadLedger();
   return entries.filter(
     e => e.status === 'APPLIED' && e.action !== 'HOLD' && isTodayKst(e.at),

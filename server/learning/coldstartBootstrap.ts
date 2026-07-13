@@ -35,7 +35,7 @@ import { safePctChange } from '../utils/safePctChange.js';
 // ── Mini-Bar Proxy Labeling ─────────────────────────────────────────────────────
 
 const SNAPSHOT_OFFSETS_MIN = [30, 60, 120] as const;
-export type SnapshotOffset = typeof SNAPSHOT_OFFSETS_MIN[number];
+type SnapshotOffset = typeof SNAPSHOT_OFFSETS_MIN[number];
 
 export interface MiniBarSnapshot {
   tradeId: string;
@@ -230,7 +230,7 @@ const K = 10;
 /**
  * 과거 종료 trade 중 candidate 와 유사도 ≥ SIMILARITY_MIN 인 상위 K 건을 반환.
  */
-export function findSimilarClosedTrades(
+function findSimilarClosedTrades(
   cand: CandidateFeatures,
   kLimit = K,
 ): Array<{ trade: ServerShadowTrade; sector: string; similarity: number; returnPct: number }> {
@@ -283,10 +283,3 @@ export function buildBootstrapPrior(cand: CandidateFeatures): BootstrapPrior {
 }
 
 // ── 테스트 유틸 ────────────────────────────────────────────────────────────────
-
-/** 테스트용 — snapshot 파일 초기화. */
-export function _resetColdstartSnapshots(): void {
-  if (fs.existsSync(COLDSTART_SNAPSHOTS_FILE)) {
-    fs.unlinkSync(COLDSTART_SNAPSHOTS_FILE);
-  }
-}

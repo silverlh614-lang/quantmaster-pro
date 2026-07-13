@@ -219,6 +219,3 @@ export function getRagStats(): { builtAt: string; model: string; chunkCount: num
   const sources = Array.from(new Set(store.chunks.map((c) => c.source)));
   return { builtAt: store.builtAt, model: store.model, chunkCount: store.chunks.length, sources };
 }
-
-/** 테스트용 — 메모리 캐시 초기화 */
-export function resetRagMemory(): void { _store = null; }

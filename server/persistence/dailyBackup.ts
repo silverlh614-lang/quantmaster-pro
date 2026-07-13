@@ -76,7 +76,7 @@ export function runDailyBackup(retentionDays = 7): BackupResult {
  * backups/ 하위 YYYY-MM-DD 디렉토리 중 retentionDays 초과분 삭제.
  * 날짜가 아닌 디렉토리는 건드리지 않는다.
  */
-export function pruneBackups(backupsRoot: string, retentionDays: number): string[] {
+function pruneBackups(backupsRoot: string, retentionDays: number): string[] {
   if (!fs.existsSync(backupsRoot)) return [];
   const pruned: string[] = [];
   const cutoff = Date.now() - retentionDays * 86_400_000;

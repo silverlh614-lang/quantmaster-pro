@@ -6,9 +6,9 @@ import { inflateRawSync } from 'node:zlib';
 import { DATA_DIR, ensureDataDir } from '../../persistence/paths.js';
 import { fetchWithRetry, FetchRetryError } from '../../utils/fetchWithRetry.js';
 
-export const DART_CORP_CODE_MASTER_URL = 'https://opendart.fss.or.kr/api/corpCode.xml';
-export const DART_CORP_CODE_MASTER_CACHE_FILE = path.join(DATA_DIR, 'dart-corp-code-master.json');
-export const DEFAULT_DART_CORP_CODE_TTL_HOURS = 72;
+const DART_CORP_CODE_MASTER_URL = 'https://opendart.fss.or.kr/api/corpCode.xml';
+const DART_CORP_CODE_MASTER_CACHE_FILE = path.join(DATA_DIR, 'dart-corp-code-master.json');
+const DEFAULT_DART_CORP_CODE_TTL_HOURS = 72;
 
 export interface DartCorpCodeMasterRow {
   corpCode: string;
@@ -18,7 +18,7 @@ export interface DartCorpCodeMasterRow {
   modifyDate: string;
 }
 
-export interface DartCorpCodeMasterCacheFile {
+interface DartCorpCodeMasterCacheFile {
   version: 1;
   loaded: boolean;
   source: 'DART_CORPCODE_XML' | 'NONE';
@@ -68,7 +68,7 @@ export interface DartCorpCodeCacheStatus {
   executionImpact: 'NONE';
 }
 
-export type DartCorpCodeResolveStatus = 'FOUND' | 'NOT_FOUND' | 'CACHE_MISSING' | 'ERROR';
+type DartCorpCodeResolveStatus = 'FOUND' | 'NOT_FOUND' | 'CACHE_MISSING' | 'ERROR';
 
 export interface DartCorpCodeResolveResult {
   status: DartCorpCodeResolveStatus;
@@ -89,14 +89,14 @@ export interface DartCorpCodeRefreshResult extends DartCorpCodeCacheStatus {
   cacheFile: string;
 }
 
-export interface DartCorpCodeFetchResponse {
+interface DartCorpCodeFetchResponse {
   body: Buffer;
   httpStatus?: number | null;
   contentType?: string | null;
   contentLength?: number | null;
 }
 
-export type DartCorpCodeZipSignature = 'ZIP_FILE' | 'ZIP_EMPTY' | 'ZIP_SPANNED' | 'NOT_ZIP';
+type DartCorpCodeZipSignature = 'ZIP_FILE' | 'ZIP_EMPTY' | 'ZIP_SPANNED' | 'NOT_ZIP';
 
 export interface DartCorpCodeCacheOptions {
   cacheFile?: string;
@@ -196,7 +196,7 @@ interface ZipEntryInfo {
   dataEnd: number;
 }
 
-export interface DartCorpCodeZipExtraction {
+interface DartCorpCodeZipExtraction {
   xml: Buffer;
   zipEntries: string[];
   selectedXmlEntry: string;
@@ -345,7 +345,7 @@ function selectCorpCodeXmlEntry(zipBuffer: Buffer, entries: readonly ZipEntryInf
   return null;
 }
 
-export function extractXmlFromZipBufferWithDiagnostics(zipBuffer: Buffer): DartCorpCodeZipExtraction {
+function extractXmlFromZipBufferWithDiagnostics(zipBuffer: Buffer): DartCorpCodeZipExtraction {
   if (!isZipBuffer(zipBuffer)) throw new Error('DART_CORPCODE_RESPONSE_NOT_ZIP');
   const entries = uniqueZipEntries([
     ...listCentralDirectoryEntries(zipBuffer),
@@ -469,11 +469,11 @@ function loadCacheFile(cacheFile: string): DartCorpCodeMasterCacheFile {
   }
 }
 
-export function loadDartCorpCodeMasterCache(options: DartCorpCodeCacheOptions = {}): DartCorpCodeMasterCacheFile {
+function loadDartCorpCodeMasterCache(options: DartCorpCodeCacheOptions = {}): DartCorpCodeMasterCacheFile {
   return loadCacheFile(cacheFileFrom(options));
 }
 
-export function saveDartCorpCodeMasterCache(
+function saveDartCorpCodeMasterCache(
   cache: DartCorpCodeMasterCacheFile,
   options: DartCorpCodeCacheOptions = {},
 ): DartCorpCodeMasterCacheFile {

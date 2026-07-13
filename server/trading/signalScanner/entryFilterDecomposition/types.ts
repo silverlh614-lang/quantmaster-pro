@@ -51,7 +51,7 @@ import type { SanitizedInvestorFlowSemanticRow } from "../../../supply/investorF
 export const GATE1_PROVIDER_ISSUE_SOFT_FAIL_ENABLED = true;
 export const GATE1_SOFT_FAIL_ACCUMULATION_THRESHOLD = 3;
 
-export type Gate1ConditionCode =
+type Gate1ConditionCode =
   | "MARKET_REGIME_PASS"
   | "TRADING_SESSION_PASS"
   | "AUTO_TRADE_ENABLED_PASS"
@@ -69,7 +69,7 @@ export type Gate1ConditionCode =
   | "SIZING_PRECHECK_PASS"
   | "UNKNOWN_GATE1_CONDITION";
 
-export type Gate1ConditionSeverity =
+type Gate1ConditionSeverity =
   | "INFO"
   | "SOFT_FAIL"
   | "HARD_FAIL"
@@ -90,11 +90,7 @@ export interface Gate1ConditionTrace {
   source?: string;
 }
 
-export type Gate1EvaluationMode =
-  | "SIGNAL_ELIGIBILITY"
-  | "EXECUTION_ELIGIBILITY";
-
-export type SupplyProviderHealthStatus =
+type SupplyProviderHealthStatus =
   | "VERIFIED"
   | "DEGRADED"
   | "STALE"
@@ -298,7 +294,7 @@ export interface Gate1DecompositionReport {
     | "REVIEW_SUPPLY_CONFLUENCE";
 }
 
-export type ExecutionBlockScope =
+type ExecutionBlockScope =
   | "NONE"
   | "NEW_BUY_ONLY"
   | "ALL_EXECUTION";
@@ -319,7 +315,7 @@ export type EntryBlockerCategory =
   | "DATA_QUALITY"
   | "UNKNOWN";
 
-export type EntryBlockerSeverity =
+type EntryBlockerSeverity =
   | "INFO"
   | "SOFT_BLOCK"
   | "HARD_BLOCK"

@@ -63,7 +63,7 @@ import {
 // Schema SSOT — literal types 컴파일 타임 강제
 // ============================================================================
 
-export type SnapshotCaptureKind = 'AFTER_HOURS_RUNTIME_DEBUG_SNAPSHOT';
+type SnapshotCaptureKind = 'AFTER_HOURS_RUNTIME_DEBUG_SNAPSHOT';
 
 /**
  * Per-symbol frozen supply row — preflight merge 경로 주입용.
@@ -111,7 +111,7 @@ export interface SnapshotReplayAdapterMeta {
  *   "15:30 에 신규 provider 호출 금지. replay 에서도 provider 호출 금지.
  *    providerCallsAllowed: false. providerCalls/kisCalls/krxCalls/yahooCalls/naverCalls = 0."
  */
-export interface SnapshotReplayGuard {
+interface SnapshotReplayGuard {
   replayMode: true;
   providerCallsAllowed: false;
   providerCalls: 0;
@@ -129,7 +129,7 @@ export interface SnapshotReplayGuard {
  *    월요일 15:30 성공 저장 후 금요일 snapshot 을 overwrite,
  *    월요일 장 시작 시 금요일 snapshot 을 삭제하면 안 된다."
  */
-export interface SnapshotRetentionPolicy {
+interface SnapshotRetentionPolicy {
   model: 'SINGLE_LATEST_OVERWRITE';
   overwriteOnNextSuccessfulTradingDayCapture: true;
   preservePreviousOnCaptureFailure: true;
@@ -141,7 +141,7 @@ export interface SnapshotRetentionPolicy {
  *   "민감정보 저장 금지 — 계좌번호 / 토큰 / authorization header / 주문번호 /
  *    체결번호 / 원주문번호 / raw API payload 전체 저장 금지."
  */
-export interface SnapshotSanitizationPolicy {
+interface SnapshotSanitizationPolicy {
   applied: true;
   rawPayloadStored: false;
   forbiddenFieldPatternsApplied: number; // 적용된 패턴 수 (15+)
@@ -273,7 +273,7 @@ export interface SanitizedCounterfactualBlock {
   [key: string]: unknown;
 }
 
-export interface SanitizedProviderDiagnosticsBlock {
+interface SanitizedProviderDiagnosticsBlock {
   kis?: Record<string, unknown>;
   krx?: Record<string, unknown>;
   naver?: Record<string, unknown>;
@@ -311,9 +311,9 @@ const FORBIDDEN_FIELD_PATTERNS = [
   /cookie/i,
 ];
 
-export const SANITIZE_FORBIDDEN_PATTERN_COUNT = FORBIDDEN_FIELD_PATTERNS.length;
+const SANITIZE_FORBIDDEN_PATTERN_COUNT = FORBIDDEN_FIELD_PATTERNS.length;
 
-export function isForbiddenSnapshotField(key: string): boolean {
+function isForbiddenSnapshotField(key: string): boolean {
   return FORBIDDEN_FIELD_PATTERNS.some((re) => re.test(key));
 }
 
@@ -369,7 +369,7 @@ function safeReadJson<T>(filePath: string): T | null {
  * Sanitize 미통과 입력을 통과 형태로 정규화 — 민감 키 자동 제거 + literal type 강제.
  * 호출자가 미리 redact 했어도 한 번 더 통과 (방어적).
  */
-export function sanitizeRuntimeDebugSnapshot(
+function sanitizeRuntimeDebugSnapshot(
   input: Partial<RuntimeDebugSnapshot> & Pick<RuntimeDebugSnapshot, 'snapshotId' | 'capturedAt' | 'marketDate'>
 ): RuntimeDebugSnapshot {
   const redacted = redactSensitiveFields(input);
@@ -447,23 +447,6 @@ export function loadLatestRuntimeDebugSnapshot(): RuntimeDebugSnapshot | null {
   return snapshot;
 }
 
-/** 최신 snapshot 존재 여부 (read-only). */
-export function hasLatestRuntimeDebugSnapshot(): boolean {
-  return fs.existsSync(LATEST_RUNTIME_DEBUG_SNAPSHOT_FILE);
-}
-
-/** 테스트 격리 / 운영자 수동 삭제 (예: /snapshot_clear). 정상 운영에서 호출 금지. */
-export function deleteLatestRuntimeDebugSnapshot(): boolean {
-  if (!fs.existsSync(LATEST_RUNTIME_DEBUG_SNAPSHOT_FILE)) return false;
-  try {
-    fs.unlinkSync(LATEST_RUNTIME_DEBUG_SNAPSHOT_FILE);
-    return true;
-  } catch (err) {
-    emitMaintenanceWarn({ domain: 'DATA', code: 'P3_DEBUG_SNAPSHOT_DEGRADED', source: 'DEBUG_REPLAY', message: 'Runtime debug snapshot delete latest failed.', dedupKey: 'p3:debug-snapshot:delete-latest', error: err });
-    return false;
-  }
-}
-
 /**
  * snapshot ID 생성기. 형식: `rds-YYYYMMDD-HHMMSS-NNNN` (Runtime Debug Snapshot).
  * `nnnn` = capturedAtMs % 10000 — 같은 초 안 중복 capture 시도 시 차별.
@@ -491,29 +474,4 @@ export function kstDateString(nowMs: number): string {
   const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
   const dd = String(date.getUTCDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
-}
-
-/** 테스트 격리 헬퍼 — 운영 환경 호출 금지. */
-export function __resetRuntimeDebugSnapshotRepoForTests(): void {
-  if (fs.existsSync(LATEST_RUNTIME_DEBUG_SNAPSHOT_FILE)) {
-    try {
-      fs.unlinkSync(LATEST_RUNTIME_DEBUG_SNAPSHOT_FILE);
-    } catch {
-      // silent — 테스트 격리만
-    }
-  }
-  if (fs.existsSync(REPLAY_DIR)) {
-    try {
-      const entries = fs.readdirSync(REPLAY_DIR);
-      for (const entry of entries) {
-        try {
-          fs.rmSync(path.join(REPLAY_DIR, entry), { recursive: true, force: true });
-        } catch {
-          // silent
-        }
-      }
-    } catch {
-      // silent
-    }
-  }
 }

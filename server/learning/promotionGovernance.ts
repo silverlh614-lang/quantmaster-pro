@@ -28,7 +28,7 @@ export type GovernanceReviewStatus =
   | 'APPLIED'
   | 'ROLLED_BACK';
 
-export interface GovernanceEvidence {
+interface GovernanceEvidence {
   sampleCount: number;
   contributionScore: number | null;
   winRate: number | null;
@@ -61,7 +61,7 @@ export interface GovernanceSimulationResult {
   reason: string[];
 }
 
-export interface GovernanceSimulationSide {
+interface GovernanceSimulationSide {
   passCount: number;
   entryReadyCount: number;
   shadowAllowedCount: number;
@@ -163,11 +163,11 @@ function stageIndex(stage: PromotionStage): number {
   return STAGE_ORDER.indexOf(stage);
 }
 
-export function nextPromotionStage(stage: PromotionStage): PromotionStage {
+function nextPromotionStage(stage: PromotionStage): PromotionStage {
   return STAGE_ORDER[Math.min(STAGE_ORDER.length - 1, stageIndex(stage) + 1)] ?? stage;
 }
 
-export function isSequentialPromotion(current: PromotionStage, proposed: PromotionStage): boolean {
+function isSequentialPromotion(current: PromotionStage, proposed: PromotionStage): boolean {
   if (current === proposed) return true;
   return stageIndex(proposed) - stageIndex(current) === 1;
 }
@@ -446,12 +446,12 @@ export function rejectGovernanceItem(item: GovernanceReviewItem, reason: string)
   return { ...item, status: 'REJECTED', rejectionReason: reason, reviewerNote: reason };
 }
 
-export function deferGovernanceItem(item: GovernanceReviewItem, reason: string): GovernanceReviewItem {
+function deferGovernanceItem(item: GovernanceReviewItem, reason: string): GovernanceReviewItem {
   if (!reason.trim()) throw new Error('DEFER_REASON_REQUIRED');
   return { ...item, status: 'DEFERRED', deferredReason: reason, reviewerNote: reason };
 }
 
-export function quarantineGovernanceItem(item: GovernanceReviewItem, reason: string): GovernanceReviewItem {
+function quarantineGovernanceItem(item: GovernanceReviewItem, reason: string): GovernanceReviewItem {
   if (!reason.trim()) throw new Error('QUARANTINE_REASON_REQUIRED');
   return { ...item, status: 'QUARANTINED', quarantineReason: reason, reviewerNote: reason };
 }
@@ -678,7 +678,7 @@ export class PromotionGovernanceMemoryRepo {
   }
 }
 
-export function summarizeGovernance(items: readonly GovernanceReviewItem[]): {
+function summarizeGovernance(items: readonly GovernanceReviewItem[]): {
   pending: number;
   simulationRequired: number;
   approved: number;

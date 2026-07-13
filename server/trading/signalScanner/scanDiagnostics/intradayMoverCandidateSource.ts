@@ -11,7 +11,7 @@ import type { CandidatePoolInputCandidate } from '../../candidatePoolBuilder.js'
  * `INTRADAY_MOVER_CANDIDATE_SOURCE_ENABLED=false` 명시 시 즉시 byte-identical 롤백(구 OFF 동작).
  * engineMode SHADOW_ONLY → executionImpact=NONE(발굴 풀 구성만 변경·LIVE 주문 0).
  */
-export function isIntradayMoverCandidateSourceEnabled(): boolean {
+function isIntradayMoverCandidateSourceEnabled(): boolean {
   return process.env.INTRADAY_MOVER_CANDIDATE_SOURCE_ENABLED !== 'false';
 }
 

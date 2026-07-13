@@ -109,7 +109,7 @@ export interface ActiveComponentRequiredScorePolicy {
   executionImpact: 'NONE';
 }
 
-export interface FinalGate1ThresholdSweepRow {
+interface FinalGate1ThresholdSweepRow {
   unknownPolicy: UnknownPenaltyPolicyScenario;
   threshold: number;
   survivors: number;

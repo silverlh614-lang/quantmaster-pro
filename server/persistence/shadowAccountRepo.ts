@@ -42,7 +42,7 @@ export interface ActivePosition {
 /**
  * 청산 완료된 포지션 요약.
  */
-export interface ClosedTrade {
+interface ClosedTrade {
   tradeId: string;
   stockCode: string;
   stockName: string;
@@ -369,7 +369,7 @@ export function computeMonthlyShadowTradeStats(
 
 // ─── 재조정 (Reconciler) ──────────────────────────────────────────────────────
 
-export interface ReconcileDetail {
+interface ReconcileDetail {
   id: string;
   stockCode: string;
   stockName: string;

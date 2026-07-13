@@ -58,7 +58,7 @@ export interface FirstPullbackInput {
   state: BreakoutState;
 }
 
-export type FirstPullbackSignal = 'BUY' | 'STOP_LOSS' | 'INVALIDATED' | 'NONE';
+type FirstPullbackSignal = 'BUY' | 'STOP_LOSS' | 'INVALIDATED' | 'NONE';
 
 export interface FirstPullbackResult {
   /** 생성된 신호 */
@@ -297,7 +297,7 @@ export function countTradingDays(startDate: string, endDate: string): number {
  * 현재 KST 시각의 장 시작(09:00) 이후 경과 분을 계산한다.
  * 장 시작 전이면 0을 반환한다.
  */
-export function getMarketMinutesSinceOpen(): number {
+function getMarketMinutesSinceOpen(): number {
   const now = new Date();
   const kstHour = (now.getUTCHours() + 9) % 24;
   const kstMinute = now.getUTCMinutes();
@@ -453,7 +453,7 @@ export interface SniperEntryInput {
   retryCount?: number;
 }
 
-export type SniperDecision = 'FIRE' | 'DELAY' | 'ABORT';
+type SniperDecision = 'FIRE' | 'DELAY' | 'ABORT';
 
 /** Sniper Entry 결과 */
 export interface SniperEntryResult {

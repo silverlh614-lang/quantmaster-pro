@@ -121,5 +121,3 @@ const macroEntryOverride: TelegramCommand = {
 };
 
 commandRegistry.register(macroEntryOverride);
-
-export default macroEntryOverride;

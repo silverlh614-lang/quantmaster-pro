@@ -16,7 +16,7 @@ export interface FeatureValue<T> {
   executionEligible: boolean;
 }
 
-export interface ScoreFeatureInput {
+interface ScoreFeatureInput {
   featureName: string;
   value: unknown;
   score: number;
@@ -80,7 +80,7 @@ export function makeFeatureValue<T>(input: {
   };
 }
 
-export function canUseFeatureForExecution(feature: Pick<FeatureValue<unknown>, 'confidence' | 'executionEligible'>): boolean {
+function canUseFeatureForExecution(feature: Pick<FeatureValue<unknown>, 'confidence' | 'executionEligible'>): boolean {
   return feature.executionEligible === true && isExecutionAllowedConfidence(feature.confidence);
 }
 

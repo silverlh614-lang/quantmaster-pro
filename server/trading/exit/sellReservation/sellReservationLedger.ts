@@ -41,11 +41,3 @@ export function recordSellReservationLedgerEvent(
 
   return event;
 }
-
-export function listSellReservationLedgerEvents(): SellReservationLedgerEvent[] {
-  return [...events];
-}
-
-export function clearSellReservationLedger(): void {
-  events.length = 0;
-}

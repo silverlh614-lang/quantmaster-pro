@@ -59,7 +59,7 @@ export function normalizeCodeAdr0477(value: unknown): string {
   return digits.length >= 6 ? digits.slice(-6) : digits || raw;
 }
 
-export function investorFlowValueKindAdr0477(value: unknown): 'number' | 'numericString' | 'placeholder' | 'other' {
+function investorFlowValueKindAdr0477(value: unknown): 'number' | 'numericString' | 'placeholder' | 'other' {
   if (typeof value === 'number') return Number.isFinite(value) ? 'number' : 'placeholder';
   if (value == null) return 'placeholder';
   if (typeof value !== 'string') return 'other';
@@ -68,7 +68,7 @@ export function investorFlowValueKindAdr0477(value: unknown): 'number' | 'numeri
   return normalizeNumberLikeInvestorFlowValue(trimmed) !== null ? 'numericString' : 'other';
 }
 
-export function sanitizeActualInvestorFlowRowsAdr0477(rows: readonly Record<string, unknown>[]): Array<Record<string, unknown>> {
+function sanitizeActualInvestorFlowRowsAdr0477(rows: readonly Record<string, unknown>[]): Array<Record<string, unknown>> {
   return rows.slice(0, 8).map((row) => {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(row)) {

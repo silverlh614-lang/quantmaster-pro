@@ -1,6 +1,6 @@
 // @responsibility User-facing notification wording tone policy.
 
-export type MessageToneLevel =
+type MessageToneLevel =
   | 'CRITICAL_ALERT'
   | 'ACTION_REQUIRED'
   | 'TRADE_EVENT'
@@ -45,7 +45,7 @@ function boolText(value: boolean): 'true' | 'false' {
   return value ? 'true' : 'false';
 }
 
-export function resolveMessageToneLevel(input: MessageWordingInput): MessageToneLevel {
+function resolveMessageToneLevel(input: MessageWordingInput): MessageToneLevel {
   if (input.debugOnly) return 'DEBUG_ONLY';
   if (input.critical) return 'CRITICAL_ALERT';
   if (input.tradeEvent) return 'TRADE_EVENT';

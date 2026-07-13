@@ -20,5 +20,3 @@ const stop: TelegramCommand = {
 };
 
 commandRegistry.register(stop);
-
-export default stop;

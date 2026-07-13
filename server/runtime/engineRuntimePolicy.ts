@@ -119,7 +119,7 @@ function stripNonExecutionRegimeReasons(reasons: string[] = []): string[] {
   return reasons.filter((reason) => !NON_EXECUTION_REGIME_REASON_CODES.has(reason));
 }
 
-export function isEngineMode(value: unknown): value is EngineMode {
+function isEngineMode(value: unknown): value is EngineMode {
   return value === 'NORMAL'
     || value === 'DEGRADED'
     || value === 'SELL_ONLY'
@@ -135,7 +135,7 @@ export const EngineModeManager = Object.freeze({
   },
 });
 
-export const LearningPolicy = Object.freeze({
+const LearningPolicy = Object.freeze({
   resolve(): Pick<EngineRuntimePolicy, 'shadowBuyAllowed' | 'shadowSellAllowed' | 'shadowLearningAllowed' | 'counterfactualAllowed' | 'diagnosticAllowed' | 'shadowAllowed' | 'learningAllowed'> {
     return SHADOW_LEARNING_ALWAYS_ON;
   },
@@ -238,7 +238,7 @@ function buildPolicy(input: {
   };
 }
 
-export const ExecutionPolicy = Object.freeze({
+const ExecutionPolicy = Object.freeze({
   resolve(input: ResolveEngineRuntimePolicyInput): EngineRuntimePolicy {
     const engineMode = EngineModeManager.normalize(input.engineMode);
     const permission = resolveExecutionPermission({

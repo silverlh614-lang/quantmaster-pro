@@ -11,7 +11,7 @@ function makeDedupKey(input: ClientWarnInput): string {
   return input.dedupKey ?? `${input.domain}:${input.code}:${input.message}`;
 }
 
-export function createClientWarnPayload(input: ClientWarnInput): ClientWarnPayload {
+function createClientWarnPayload(input: ClientWarnInput): ClientWarnPayload {
   return {
     priority: 'P4',
     domain: input.domain,

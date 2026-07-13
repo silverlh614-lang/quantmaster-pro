@@ -5,9 +5,8 @@ import { resolveScanMarketSessionView } from '../../trading/signalScanner/state/
 
 export type TelegramVerbosity = 'COMPACT' | 'DETAIL' | 'FULL_FORENSIC' | 'DEBUG_RAW';
 export type TelegramChannelKind = 'SIGNAL' | 'OPERATOR' | 'DEBUG' | 'DM';
-export type Severity = 'INFO' | 'WATCH' | 'ACTION' | 'BLOCKED' | 'ERROR' | 'DEBUG';
 
-export interface Gate1Summary {
+interface Gate1Summary {
   evaluated: number;
   total: number;
   pass: number;
@@ -96,7 +95,7 @@ export interface LearningSummary {
   nextAction: string;
 }
 
-export interface ProviderHealthSummary {
+interface ProviderHealthSummary {
   providerIssue: boolean;
   marketSignal: boolean;
   topProviderIssue?: string;
@@ -135,11 +134,11 @@ export function getByPath(source: unknown, path: string): unknown {
   return current;
 }
 
-export function arrayOfRecords(value: unknown): AnyRecord[] {
+function arrayOfRecords(value: unknown): AnyRecord[] {
   return Array.isArray(value) ? value.map(recordOf).filter((item): item is AnyRecord => Boolean(item)) : [];
 }
 
-export function arrayOfStrings(value: unknown): string[] {
+function arrayOfStrings(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     : [];
@@ -167,7 +166,7 @@ export function nullableNumber(value: unknown): number | null {
   return null;
 }
 
-export function boolOf(value: unknown, fallback = false): boolean {
+function boolOf(value: unknown, fallback = false): boolean {
   if (typeof value === 'boolean') return value;
   const raw = String(value ?? '').trim().toLowerCase();
   if (raw === 'true' || raw === '1' || raw === 'yes') return true;
@@ -183,16 +182,6 @@ export function topKey(counts: unknown, fallback = 'none'): string {
     .filter(([, value]) => value > 0)
     .sort((a, b) => b[1] - a[1]);
   return top ? top[0] : fallback;
-}
-
-export function topKeyWithCount(counts: unknown, fallback = 'none'): string {
-  const record = recordOf(counts);
-  if (!record) return fallback;
-  const [top] = Object.entries(record)
-    .map(([key, value]) => [key, numberOf(value, 0)] as const)
-    .filter(([, value]) => value > 0)
-    .sort((a, b) => b[1] - a[1]);
-  return top ? `${top[0]}:${top[1]}` : fallback;
 }
 
 export function lineCount(message: string): number {

@@ -4,7 +4,7 @@
 
 import type { FillQueryResult, NormalizedBuyFillState } from './fillTypes.js';
 
-export interface BuyFillMonitorOrder {
+interface BuyFillMonitorOrder {
   ordNo: string;
   symbol: string;
   orderQty: number;

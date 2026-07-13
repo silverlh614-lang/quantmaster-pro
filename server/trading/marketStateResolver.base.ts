@@ -23,21 +23,21 @@ import {
 } from '../shadow/shadowAlwaysOnPolicy.js';
 
 export type BiasLabel = 'BULL' | 'NEUTRAL' | 'BEAR';
-export type MhsLabel = 'GREEN' | 'YELLOW' | 'RED';
-export type RiskOverride =
+type MhsLabel = 'GREEN' | 'YELLOW' | 'RED';
+type RiskOverride =
   | 'NONE'
   | 'BLACK_SWAN'
   | 'CIRCUIT_BREAKER'
   | 'KOSPI_CRASH'
   | 'MANUAL_KILL_SWITCH';
-export type EffectiveMarketRegime = RegimeLevel | 'R6_PANIC' | 'R6_CONFIRMATION_WAIT' | 'R6_RECOVERY_WATCH' | 'R5_STABILIZING' | 'R4_CAUTION' | 'R3_NORMAL';
+type EffectiveMarketRegime = RegimeLevel | 'R6_PANIC' | 'R6_CONFIRMATION_WAIT' | 'R6_RECOVERY_WATCH' | 'R5_STABILIZING' | 'R4_CAUTION' | 'R3_NORMAL';
 export type MarketStateExecutionMode =
   | 'NORMAL'
   | 'DEGRADED'
   | 'SELL_ONLY'
   | 'SHADOW_ONLY'
   | 'OBSERVE_ONLY';
-export type DisplaySeverity = 'OK' | 'CAUTION' | 'DEFENSE' | 'PANIC';
+type DisplaySeverity = 'OK' | 'CAUTION' | 'DEFENSE' | 'PANIC';
 export type ShadowCandidateScanTrigger = 'SCHEDULED' | 'MANUAL' | 'R6_CONFIRMATION_WAIT' | 'BIAS_RECOVERY' | 'POST_CLOSE_OBSERVE' | 'DEGRADED_OBSERVE';
 
 export interface MarketStateSnapshot {
@@ -92,7 +92,7 @@ export interface MarketStateSnapshot {
   };
 }
 
-export type MacroStateFreshness = 'FRESH' | 'SOFT_STALE' | 'POST_CLOSE_VALID' | 'EOD_SNAPSHOT_VALID' | 'HARD_STALE' | 'MISSING';
+type MacroStateFreshness = 'FRESH' | 'SOFT_STALE' | 'POST_CLOSE_VALID' | 'EOD_SNAPSHOT_VALID' | 'HARD_STALE' | 'MISSING';
 
 export interface MacroStateStaleness {
   stale: boolean;

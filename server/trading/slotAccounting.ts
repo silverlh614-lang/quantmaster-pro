@@ -18,7 +18,7 @@ import { getRemainingQty, type ServerShadowTrade } from '../persistence/shadowTr
 import { isOpenShadowStatus } from './entryEngine.js';
 import { isRunnerSlotExemptionEnabled } from './exit/policies/runnerPolicy.js';
 
-export interface SlotDetail {
+interface SlotDetail {
   stockCode: string;
   stockName: string;
   remainingQty: number;

@@ -13,15 +13,15 @@ import {
 import { getOpenPositions } from '../persistence/shadowPositionLedger.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 
-export type ShadowQuoteConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
+type ShadowQuoteConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
 
-export type ShadowQuotePriceBasis =
+type ShadowQuotePriceBasis =
   | 'REALTIME_LAST'
   | 'BID_ASK_MID'
   | 'KIS_CURRENT'
   | 'KRX_CURRENT';
 
-export type ShadowQuoteSource =
+type ShadowQuoteSource =
   | 'KIS_WS'
   | 'KIS_API'
   | 'KRX_CURRENT'
@@ -81,7 +81,7 @@ export type ShadowFillRejectReason =
   | 'ENTRY_ALREADY_BELOW_STOP'
   | 'POSITION_QTY_MISMATCH';
 
-export interface ShadowFillValidationAccepted {
+interface ShadowFillValidationAccepted {
   ok: true;
   fillPrice: number;
   currentPrice: number;
@@ -91,7 +91,7 @@ export interface ShadowFillValidationAccepted {
   maxFillDeviationPct: number;
 }
 
-export interface ShadowFillValidationRejected {
+interface ShadowFillValidationRejected {
   ok: false;
   reason: ShadowFillRejectReason;
   learningTag: ShadowExecutionLearningTag;
@@ -152,7 +152,7 @@ function kstMinutesSinceMidnight(now: Date): number {
   return kst.getUTCHours() * 60 + kst.getUTCMinutes();
 }
 
-export function shadowExecutionQuoteTtlMs(now: Date): number {
+function shadowExecutionQuoteTtlMs(now: Date): number {
   const minutes = kstMinutesSinceMidnight(now);
   return minutes >= 9 * 60 && minutes < 9 * 60 + 10 ? 1_500 : 3_000;
 }
@@ -405,7 +405,7 @@ function openTradesFromMemory(trades: ServerShadowTrade[], excludingTradeId?: st
   });
 }
 
-export function resolveShadowMaxPositions(regime?: string, explicitMaxPositions?: number): number {
+function resolveShadowMaxPositions(regime?: string, explicitMaxPositions?: number): number {
   if (Number.isFinite(explicitMaxPositions) && explicitMaxPositions !== undefined && explicitMaxPositions > 0) {
     return Math.floor(explicitMaxPositions);
   }

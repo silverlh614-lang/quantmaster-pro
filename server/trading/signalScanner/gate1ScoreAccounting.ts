@@ -18,7 +18,7 @@ import {
 
 type InvariantStatus = 'OK' | 'FAIL';
 
-export interface Gate1PenaltyAccounting {
+interface Gate1PenaltyAccounting {
   effectiveOriginalPenaltyAvg: number;
   effectiveDedupedPenaltyAvg: number;
   effectiveRemovedPenaltyAvg: number;
@@ -30,7 +30,7 @@ export interface Gate1PenaltyAccounting {
   diagnosticGroupKey: string;
 }
 
-export interface Gate1SurvivorTaxonomy {
+interface Gate1SurvivorTaxonomy {
   totalCandidates: number;
   gate1Evaluated: number;
   gate1HardPass: number;

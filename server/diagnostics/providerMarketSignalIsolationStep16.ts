@@ -11,7 +11,7 @@ export type ProviderStatus =
   | 'BUDGET_EXCEEDED'
   | 'NOT_APPLICABLE';
 
-export type ProviderIssueType =
+type ProviderIssueType =
   | 'NONE'
   | 'SERVER_ERROR'
   | 'EMPTY_RESPONSE'
@@ -129,7 +129,7 @@ export function inferProviderName(source: string | undefined): ProviderName {
   return 'OTHER';
 }
 
-export function normalizeProviderStatus(rawStatus: string | undefined): ProviderStatus {
+function normalizeProviderStatus(rawStatus: string | undefined): ProviderStatus {
   const normalized = token(rawStatus);
   if (!normalized) return 'MISSING';
   if (VERIFIED_STATUSES.has(normalized)) return 'VERIFIED';
@@ -145,7 +145,7 @@ export function normalizeProviderStatus(rawStatus: string | undefined): Provider
   return 'DEGRADED';
 }
 
-export function providerIssueTypeFromStatus(rawStatus: string | undefined, status: ProviderStatus): ProviderIssueType {
+function providerIssueTypeFromStatus(rawStatus: string | undefined, status: ProviderStatus): ProviderIssueType {
   const normalized = token(rawStatus);
   if (status === 'VERIFIED' || status === 'NOT_APPLICABLE') return 'NONE';
   if (status === 'EMPTY_VALID') return 'EMPTY_RESPONSE';

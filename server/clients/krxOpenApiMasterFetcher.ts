@@ -21,7 +21,7 @@ import { formatRawProbeSummary, probeKrxOpenApiBases } from './krxOpenApiRawProb
 import type { StockMasterEntry } from '../persistence/krxStockMasterRepo.js';
 
 /** OpenAPI 페치 결과 사유 — orchestrator 가 attempts[].reason 에 그대로 노출. */
-export type KrxOpenApiFetchReason =
+type KrxOpenApiFetchReason =
   | 'DISABLED'        // AUTH_KEY 미설정 또는 KRX_OPENAPI_DISABLED=true 또는 서킷 OPEN
   | 'KOSPI_EMPTY'     // KOSDAQ 만 받음
   | 'KOSDAQ_EMPTY'    // KOSPI 만 받음

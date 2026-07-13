@@ -27,7 +27,7 @@ export const OVER_CONSERVATIVE_BUY_RATE = 0.02;
 export const OVER_CONSERVATIVE_SELL_RATE = 0.5;
 export const OVER_AGGRESSIVE_SELL_RATE = 0.8;
 
-export type PersonaBalanceVerdict =
+type PersonaBalanceVerdict =
   | 'HEALTHY'
   | 'OVER_CONSERVATIVE_BUY'
   | 'OVER_AGGRESSIVE_SELL'

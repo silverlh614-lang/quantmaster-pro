@@ -14,59 +14,6 @@ const SHADOW_FORCED_EXIT_EXCLUDED_SOURCES = new Set([
   'VirtualAccount',
 ]);
 
-export interface R6ForcedExitSkipDecision {
-  skip: boolean;
-  reason?: 'SHADOW_EXCLUDED_FROM_R6_FORCED_EXIT';
-  detail?: string;
-}
-
-export interface R6LiveForcedExitSessionInput {
-  marketSessionState?: string;
-  isKrxTradingOpen?: boolean;
-  kisOrderAllowed?: boolean;
-  liveOrderAllowed?: boolean;
-  now?: Date;
-}
-
-export interface R6LiveForcedExitSessionDecision {
-  allowed: boolean;
-  marketSessionState: string;
-  isKrxTradingOpen: boolean;
-  kisOrderAllowed: boolean;
-  liveOrderAllowed: boolean;
-  reason?: 'NON_REGULAR_SESSION' | 'KRX_NOT_OPEN' | 'KIS_ORDER_NOT_ALLOWED' | 'LIVE_ORDER_NOT_ALLOWED';
-}
-
-export function shouldSkipR6ForcedExitForShadow(position: ServerShadowTrade): R6ForcedExitSkipDecision {
-  const candidate = position as ServerShadowTrade & {
-    positionKind?: string;
-    accountKind?: string;
-    origin?: string;
-    source?: string;
-  };
-
-  if (candidate.mode !== 'LIVE') {
-    return { skip: true, reason: 'SHADOW_EXCLUDED_FROM_R6_FORCED_EXIT', detail: 'mode_not_live' };
-  }
-  if (candidate.positionKind && candidate.positionKind !== 'LIVE') {
-    return { skip: true, reason: 'SHADOW_EXCLUDED_FROM_R6_FORCED_EXIT', detail: `positionKind_${candidate.positionKind}` };
-  }
-  if (candidate.accountKind === 'VIRTUAL_SHADOW' || candidate.accountKind === 'PAPER_LEDGER') {
-    return { skip: true, reason: 'SHADOW_EXCLUDED_FROM_R6_FORCED_EXIT', detail: `accountKind_${candidate.accountKind}` };
-  }
-  if (
-    (candidate.source && SHADOW_FORCED_EXIT_EXCLUDED_SOURCES.has(candidate.source)) ||
-    (candidate.origin && SHADOW_FORCED_EXIT_EXCLUDED_SOURCES.has(candidate.origin))
-  ) {
-    return { skip: true, reason: 'SHADOW_EXCLUDED_FROM_R6_FORCED_EXIT', detail: 'shadow_source' };
-  }
-  if (candidate.liveOrderSent === false || candidate.executionImpact === 'NONE') {
-    return { skip: true, reason: 'SHADOW_EXCLUDED_FROM_R6_FORCED_EXIT', detail: 'diagnostic_or_no_live_order' };
-  }
-
-  return { skip: false };
-}
-
 function deriveKstSession(now: Date): string {
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   const day = kst.getUTCDay();
@@ -81,68 +28,7 @@ function isRegularSessionName(session: string): boolean {
   return session === 'REGULAR' || session === 'REGULAR_SESSION' || session === 'OPEN';
 }
 
-export function resolveR6LiveForcedExitSession(
-  input: R6LiveForcedExitSessionInput = {},
-): R6LiveForcedExitSessionDecision {
-  const now = input.now ?? new Date();
-  const derivedSession = deriveKstSession(now);
-  const marketSessionState = input.marketSessionState ?? derivedSession;
-  const derivedOpen = isRegularSessionName(derivedSession);
-  const isKrxTradingOpen = input.isKrxTradingOpen ?? derivedOpen;
-  const kisOrderAllowed = input.kisOrderAllowed ?? isKrxTradingOpen;
-  const liveOrderAllowed = input.liveOrderAllowed ?? isKrxTradingOpen;
-
-  if (!isRegularSessionName(marketSessionState)) {
-    return {
-      allowed: false,
-      marketSessionState,
-      isKrxTradingOpen,
-      kisOrderAllowed,
-      liveOrderAllowed,
-      reason: 'NON_REGULAR_SESSION',
-    };
-  }
-  if (!isKrxTradingOpen) {
-    return {
-      allowed: false,
-      marketSessionState,
-      isKrxTradingOpen,
-      kisOrderAllowed,
-      liveOrderAllowed,
-      reason: 'KRX_NOT_OPEN',
-    };
-  }
-  if (!kisOrderAllowed) {
-    return {
-      allowed: false,
-      marketSessionState,
-      isKrxTradingOpen,
-      kisOrderAllowed,
-      liveOrderAllowed,
-      reason: 'KIS_ORDER_NOT_ALLOWED',
-    };
-  }
-  if (!liveOrderAllowed) {
-    return {
-      allowed: false,
-      marketSessionState,
-      isKrxTradingOpen,
-      kisOrderAllowed,
-      liveOrderAllowed,
-      reason: 'LIVE_ORDER_NOT_ALLOWED',
-    };
-  }
-
-  return {
-    allowed: true,
-    marketSessionState,
-    isKrxTradingOpen,
-    kisOrderAllowed,
-    liveOrderAllowed,
-  };
-}
-
-export function getLastSellFill(trade: ServerShadowTrade): PositionFill | null {
+function getLastSellFill(trade: ServerShadowTrade): PositionFill | null {
   return (trade.fills ?? [])
     .filter(fill => fill.type === 'SELL')
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))

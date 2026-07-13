@@ -1,6 +1,6 @@
 // @responsibility Source Snapshot forensic mismatch detector. Alerts never affect execution.
 
-export type SnapshotForensicReason =
+type SnapshotForensicReason =
   | 'GATE_POLICY_POLLUTION'
   | 'COMMON_GATE_SESSION_LEAKAGE'
   | 'FEATURE_COMPUTED_BUT_GATE_MAPPING_DROPPED'

@@ -2,7 +2,7 @@
 
 export type AlertLevel = 'SILENT' | 'DIGEST' | 'NOTICE' | 'WARNING' | 'CRITICAL';
 
-export type AlertNoiseEventType =
+type AlertNoiseEventType =
   | 'WATCHLIST_SATURATION'
   | 'WATCHLIST_CANDIDATE_REJECTED_CAPACITY'
   | 'KIS_TOKEN_EXPIRY'

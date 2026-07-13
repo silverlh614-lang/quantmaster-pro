@@ -329,6 +329,3 @@ export async function fetchNaverStockSnapshots(codes: string[]): Promise<Map<str
 }
 
 // 테스트 전용 — parseNumber 검증
-export const __testOnly = {
-  parseNumber,
-};

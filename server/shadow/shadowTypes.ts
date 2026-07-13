@@ -13,8 +13,5 @@ export type {
   IntegrityIssue,
   IntegritySeverity,
   ReturnFlowCheck,
-  PromotionReport,
-  PromotionStatus,
-  RegimeConfidence,
-  RegimePhase,
+  PromotionReport
 } from './types/index.js';

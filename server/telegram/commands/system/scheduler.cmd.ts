@@ -33,5 +33,3 @@ const scheduler: TelegramCommand = {
 };
 
 commandRegistry.register(scheduler);
-
-export default scheduler;

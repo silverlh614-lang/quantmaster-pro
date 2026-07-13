@@ -10,9 +10,9 @@
 import fs from 'fs';
 import { GATE_LEARNED_THRESHOLD_FILE, ensureDataDir } from './paths.js';
 
-export type GateLearnedThresholdGate = 'GATE1' | 'GATE2' | 'GATE3';
+type GateLearnedThresholdGate = 'GATE1' | 'GATE2' | 'GATE3';
 
-export interface GateLearnedThresholdBasis {
+interface GateLearnedThresholdBasis {
   sampleSize: number;
   winSample: number;
   lossSample: number;
@@ -60,10 +60,6 @@ function writeFile(file: GateLearnedThresholdFile, filePath = GATE_LEARNED_THRES
   fs.writeFileSync(filePath, JSON.stringify({ version: 1 as const, entries: file.entries }, null, 2));
 }
 
-export function loadGateLearnedThresholds(filePath = GATE_LEARNED_THRESHOLD_FILE): GateLearnedThresholdEntry[] {
-  return readFile(filePath).entries;
-}
-
 /** gate×regime 최신 승인분(가장 뒤에 append 된 것)을 반환. 없으면 null. */
 export function getGateLearnedThreshold(
   gate: string,
@@ -79,7 +75,7 @@ export function getGateLearnedThreshold(
 }
 
 /** operator 승인 기록(append). *자동 호출 금지* — operator 명시 액션 전용. */
-export function approveGateLearnedThreshold(
+function approveGateLearnedThreshold(
   entry: GateLearnedThresholdEntry,
   filePath = GATE_LEARNED_THRESHOLD_FILE,
 ): GateLearnedThresholdEntry {
@@ -87,8 +83,4 @@ export function approveGateLearnedThreshold(
   file.entries.push(entry);
   writeFile(file, filePath);
   return entry;
-}
-
-export function __resetGateLearnedThresholdsForTests(filePath = GATE_LEARNED_THRESHOLD_FILE): void {
-  if (fs.existsSync(filePath)) fs.rmSync(filePath);
 }

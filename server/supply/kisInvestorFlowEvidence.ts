@@ -4,7 +4,7 @@ import { fetchKisForeignInstitutionTotal, fetchKisInvestorTradeByStockDaily } fr
 import { makeInvestorFlowProviderHealth, resolveInvestorFlowSourceDateKst, type InvestorFlowProviderHealth } from './investorFlowProviderHealth.js';
 import type { InvestorFlowSample } from './investorFlowRouter.js';
 
-export interface KisSymbolInvestorFlowSample {
+interface KisSymbolInvestorFlowSample {
   stockCode: string;
   source: 'KIS_API';
   sourceKind: 'INVESTOR_TRADE_BY_STOCK_DAILY' | 'FOREIGN_INSTITUTION_TOTAL' | 'INQUIRE_INVESTOR_QUOTE_LIKE';
@@ -33,7 +33,7 @@ export interface KisInvestorFlowEvidenceResult {
   liveExecutionAllowed: false;
 }
 
-export type KisInvestorFlowPromotionStage =
+type KisInvestorFlowPromotionStage =
   | 'OBSERVE'
   | 'SHADOW_SCORE'
   | 'ADVISORY'
@@ -134,7 +134,7 @@ function sampleFromInvestorFields(input: {
   };
 }
 
-export function getKisInvestorFlowPromotionStage(): KisInvestorFlowPromotionStage {
+function getKisInvestorFlowPromotionStage(): KisInvestorFlowPromotionStage {
   const raw = process.env.KIS_INVESTOR_FLOW_PROMOTION_STAGE;
   if (
     raw === 'OBSERVE'
@@ -149,7 +149,7 @@ export function getKisInvestorFlowPromotionStage(): KisInvestorFlowPromotionStag
   return 'WEIGHTED';
 }
 
-export function isKisSelectableForRouter(stage: KisInvestorFlowPromotionStage): boolean {
+function isKisSelectableForRouter(stage: KisInvestorFlowPromotionStage): boolean {
   return stage === 'WEIGHTED' || stage === 'GATED';
 }
 

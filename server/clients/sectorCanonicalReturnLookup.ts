@@ -33,7 +33,7 @@ export interface CanonicalSectorReturnEntry {
 let _snapshot: ReadonlyMap<string, CanonicalSectorReturnEntry> | null = null;
 
 /** ENV flag — default OFF (ADR-0157 정확 비교). OFF 면 모든 룩업 null = byte-identical. */
-export function isCanonicalSectorSourceDisabled(): boolean {
+function isCanonicalSectorSourceDisabled(): boolean {
   return process.env.SECTOR_LEADERSHIP_CANONICAL_SOURCE_ENABLED !== 'true';
 }
 
@@ -87,11 +87,6 @@ function lookupEntry(sector: string | null): CanonicalSectorReturnEntry | null {
  */
 export function canonicalSectorReturn20d(sector: string | null): number | null {
   return lookupEntry(sector)?.sectorReturn20d ?? null;
-}
-
-/** canonical L1 5d return (sector 명 룩업). 동일 graceful 정책. */
-export function canonicalSectorReturn5d(sector: string | null): number | null {
-  return lookupEntry(sector)?.sectorReturn5d ?? null;
 }
 
 /**

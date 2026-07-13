@@ -28,7 +28,7 @@ export interface ControlCenterState {
   todayPnL: number;
 }
 
-export interface PartialControlCenterState extends ControlCenterState {
+interface PartialControlCenterState extends ControlCenterState {
   status: 'PARTIAL';
   reason: 'BALANCE_API_FAILED';
   lastKnown: ControlCenterState;

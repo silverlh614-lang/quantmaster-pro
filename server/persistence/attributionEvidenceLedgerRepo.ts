@@ -28,7 +28,7 @@ function evidenceHash(parts: unknown[]): string {
   return createHash('sha1').update(parts.map((part) => String(part ?? '')).join('|')).digest('hex').slice(0, 16);
 }
 
-export function generateAttributionEvidenceId(input: {
+function generateAttributionEvidenceId(input: {
   tradeDate?: string;
   symbol?: string;
   source: AttributionSampleSource;

@@ -16,7 +16,7 @@ export type EngineModeForEmptyScan =
   | 'OBSERVE_ONLY'
   | string;
 
-export type EmptyScanType =
+type EmptyScanType =
   | 'TRUE_EMPTY'
   | 'WAIT_TRIGGER'
   | 'DATA_BLOCKED'

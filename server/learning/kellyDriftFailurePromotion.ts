@@ -32,9 +32,9 @@ import { appendFailurePattern } from '../persistence/failurePatternRepo.js';
 import { businessDaysSince, computePositionRiskWeight, REGIME_HALF_LIFE_DAYS, DEFAULT_HALF_LIFE_DAYS } from '../trading/kellyHalfLife.js';
 import { buildEntryConditionScores } from './entryConditionScores.js';
 
-export const HIGH_DECAY_THRESHOLD = 0.5;
+const HIGH_DECAY_THRESHOLD = 0.5;
 export const KELLY_DRIFT_PROMOTION_THRESHOLD = 3;
-export const HORIZON_DAYS = 90;
+const HORIZON_DAYS = 90;
 
 export interface KellyDriftPromotionResult {
   promoted: boolean;

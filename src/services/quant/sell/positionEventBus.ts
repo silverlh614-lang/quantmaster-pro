@@ -44,7 +44,7 @@ export interface PositionEvent {
   payload: PositionEventPayload;
 }
 
-export type PositionEventPayload =
+type PositionEventPayload =
   | { kind: 'SELL_SIGNAL'; signal: SellSignal; position: ActivePosition }
   | { kind: 'LIFECYCLE'; transition: LifecycleTransition; position: ActivePosition }
   | { kind: 'HIGH_WATER_MARK'; newMark: number; previousMark: number; position: ActivePosition }
@@ -122,7 +122,7 @@ export class PositionEventBus {
  * 애플리케이션 전체에서 공유되는 기본 버스.
  * 서버 부팅 시 lifecycleEngine/telegramAdapter/ocoSyncer를 여기에 구독시킨다.
  */
-export const positionEventBus = new PositionEventBus();
+const positionEventBus = new PositionEventBus();
 
 // ─── 헬퍼: SellSignal → PositionEvent 매핑 ───────────────────────────────────
 
@@ -159,39 +159,4 @@ export function publishSellSignals(
   }
 }
 
-/** 생애주기 전환을 이벤트로 발행 */
-export function publishLifecycleTransition(
-  bus: PositionEventBus,
-  position: ActivePosition,
-  transition: LifecycleTransition,
-  now: number = Date.now(),
-): void {
-  bus.publish({
-    type: 'LIFECYCLE_TRANSITION',
-    positionId: position.id,
-    stockCode: position.stockCode,
-    timestamp: now,
-    payload: { kind: 'LIFECYCLE', transition, position },
-  });
-}
-
-/** 신고가 갱신 이벤트 — OCO 재등록 트리거용 */
-export function publishHighWaterMark(
-  bus: PositionEventBus,
-  position: ActivePosition,
-  newMark: number,
-  previousMark: number,
-  now: number = Date.now(),
-): void {
-  if (newMark <= previousMark) return; // 실제 신고가가 아니면 발행 생략
-  bus.publish({
-    type: 'HIGH_WATER_MARK_UPDATED',
-    positionId: position.id,
-    stockCode: position.stockCode,
-    timestamp: now,
-    payload: { kind: 'HIGH_WATER_MARK', newMark, previousMark, position },
-  });
-}
-
 // Re-export for consumers
-export type { LifecycleStage, LifecycleTransition };

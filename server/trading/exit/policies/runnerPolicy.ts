@@ -31,19 +31,19 @@ export function isRunnerSlotExemptionEnabled(env: NodeJS.ProcessEnv = process.en
  * ADR-0606 러너 승격 절대 수익률 임계(%) — ENV RUNNER_PROMOTE_RETURN_PCT, 가드 [10, 40], default 18.
  * 마지막 LIMIT 트랜치 미도달이라도 이 수익률을 넘으면 추세 강도로 보고 승격 자격을 부여한다.
  */
-export function runnerPromoteReturnPct(env: NodeJS.ProcessEnv = process.env): number {
+function runnerPromoteReturnPct(env: NodeJS.ProcessEnv = process.env): number {
   const raw = Number(env.RUNNER_PROMOTE_RETURN_PCT);
   return Number.isFinite(raw) && raw >= 10 && raw <= 40 ? raw : 18;
 }
 
 /** ADR-0606 러너 트레일링 가산폭 — ENV RUNNER_TRAIL_PCT_BONUS, 가드 [0, 0.15], default 0.05. */
-export function runnerTrailPctBonus(env: NodeJS.ProcessEnv = process.env): number {
+function runnerTrailPctBonus(env: NodeJS.ProcessEnv = process.env): number {
   const raw = Number(env.RUNNER_TRAIL_PCT_BONUS);
   return Number.isFinite(raw) && raw >= 0 && raw <= 0.15 ? raw : 0.05;
 }
 
 /** ADR-0606 러너 트레일링 최소폭(바닥) — ENV RUNNER_TRAIL_PCT_FLOOR, 가드 [0.10, 0.30], default 0.15. */
-export function runnerTrailPctFloor(env: NodeJS.ProcessEnv = process.env): number {
+function runnerTrailPctFloor(env: NodeJS.ProcessEnv = process.env): number {
   const raw = Number(env.RUNNER_TRAIL_PCT_FLOOR);
   return Number.isFinite(raw) && raw >= 0.1 && raw <= 0.3 ? raw : 0.15;
 }
@@ -52,7 +52,7 @@ export function runnerTrailPctFloor(env: NodeJS.ProcessEnv = process.env): numbe
 const RUNNER_TRAIL_PCT_HARD_CAP = 0.3;
 
 /** 러너 승급 사유 — 진단/텔레그램/학습 라벨용(호출자가 stamp). */
-export type RunnerPromotionReason =
+type RunnerPromotionReason =
   | 'FINAL_TRANCHE_REACHED' // 마지막 LIMIT 트랜치까지 모두 소화(잔량은 전량 트레일링 트랜치)
   | 'RETURN_THRESHOLD';     // 절대 수익률 임계(returnPct) 도달
 

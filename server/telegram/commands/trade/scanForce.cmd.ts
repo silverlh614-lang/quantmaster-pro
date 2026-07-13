@@ -57,5 +57,3 @@ const scanForce: TelegramCommand = {
 };
 
 commandRegistry.register(scanForce);
-
-export default scanForce;

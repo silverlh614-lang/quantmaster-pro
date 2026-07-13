@@ -59,7 +59,7 @@ function queryOpts(key: string) {
  * macro + regime + extendedRegime + creditSpreads + financialStress + smartMoney
  * 6개 AI 호출 → 1회 Google Search로 통합
  */
-export function useBatchGlobalIntel() {
+function useBatchGlobalIntel() {
   const setMacroEnv = useGlobalIntelStore(s => s.setMacroEnv);
   const addMhsRecord = useGlobalIntelStore(s => s.addMhsRecord);
   const setEconomicRegimeData = useGlobalIntelStore(s => s.setEconomicRegimeData);
@@ -165,7 +165,7 @@ export function useBatchGlobalIntel() {
  * exportMomentum + geoRisk + supplyChain + sectorOrders
  * 4개 AI 호출 → 1회 Google Search로 통합
  */
-export function useBatchSectorIntel() {
+function useBatchSectorIntel() {
   const setExportMomentumData = useGlobalIntelStore(s => s.setExportMomentumData);
   const setGeoRiskData = useGlobalIntelStore(s => s.setGeoRiskData);
   const setSupplyChainData = useGlobalIntelStore(s => s.setSupplyChainData);
@@ -193,7 +193,7 @@ export function useBatchSectorIntel() {
  * globalCorrelation + fomcSentiment
  * 2개 AI 호출 → 1회로 통합
  */
-export function useBatchMarketIntel() {
+function useBatchMarketIntel() {
   const setGlobalCorrelation = useGlobalIntelStore(s => s.setGlobalCorrelation);
   const setFomcSentimentData = useGlobalIntelStore(s => s.setFomcSentimentData);
 
@@ -214,20 +214,6 @@ export function useBatchMarketIntel() {
 // ── Legacy individual hooks (backward compatibility) ───────────────
 // 기존 개별 hooks는 배치 호출이 먼저 캐시를 채우므로
 // 직접 호출 시에도 캐시 히트로 즉각 응답.
-
-export { useBatchGlobalIntel as useMacroEnvironment };
-export { useBatchGlobalIntel as useEconomicRegime };
-export { useBatchGlobalIntel as useExtendedRegime };
-export { useBatchGlobalIntel as useCreditSpreads };
-export { useBatchGlobalIntel as useFinancialStress };
-export { useBatchGlobalIntel as useSmartMoney };
-export { useBatchSectorIntel as useExportMomentum };
-export { useBatchSectorIntel as useGeoRisk };
-export { useBatchSectorIntel as useSupplyChain };
-export { useBatchSectorIntel as useSectorOrders };
-export { useBatchMarketIntel as useGlobalCorrelation };
-export { useBatchMarketIntel as useFomcSentiment };
-
 // ── 아이디어 4: FSS 외국인 수급 스코어 쿼리 ───────────────────────
 
 /**
@@ -235,7 +221,7 @@ export { useBatchMarketIntel as useFomcSentiment };
  * /api/fss/records → computeFSS() → store 갱신.
  * KIS/DART에서 수집된 일별 외국인 수급 데이터 기반.
  */
-export function useFssScore() {
+function useFssScore() {
   const setFssResult = useGlobalIntelStore(s => s.setFssResult);
 
   return useQuery({

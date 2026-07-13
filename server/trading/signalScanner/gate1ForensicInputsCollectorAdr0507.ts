@@ -40,7 +40,7 @@ export function isGate1ForensicCollectorAdr0507Disabled(): boolean {
  * PREFLIGHT-only 회귀 동작 byte-equivalent 복원. DIAGNOSTIC_ONLY — score / threshold /
  * execution / live 무영향 (executionImpact='NONE', usableForGate/Live=false).
  */
-export function isGate1ForensicPerSymbolRowCarryEnabledAdr0514(): boolean {
+function isGate1ForensicPerSymbolRowCarryEnabledAdr0514(): boolean {
   return process.env.GATE1_FORENSIC_PERSYMBOL_ROW_CARRY_ENABLED !== 'false';
 }
 

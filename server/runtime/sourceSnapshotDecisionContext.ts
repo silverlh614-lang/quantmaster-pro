@@ -46,7 +46,7 @@ export type FinalExecutionPolicyDisplayLabel =
  * 시장/스코어링 레짐 권위(위계 2~5단계). 모든 값은 정본 RegimeResolver 출력에서 투영된다.
  * legacyEffectiveRegime 은 진단/비교 전용이며 결정에 절대 사용되지 않는다.
  */
-export interface SourceSnapshotMarketRegimeView {
+interface SourceSnapshotMarketRegimeView {
   /** 위계 4: 순수 시장 국면. 주문 권한 근거 아님. (RegimeResolver detectedRegime / diagnostics.rawRegime) */
   rawRegime: string;
   /** 위계 3: 스코어링/사이징/Kelly 권위. 실주문 권한을 직접 결정하지 않음. */
@@ -71,7 +71,7 @@ export interface SourceSnapshotMarketRegimeView {
  * 위계 1: 최종 주문 권한. ExecutionPermissionResolution 에서 투영.
  * 실주문 가능 여부를 단독 결정하는 유일한 권위다(레짐 이름이 아님).
  */
-export interface SourceSnapshotExecutionPolicyView {
+interface SourceSnapshotExecutionPolicyView {
   /** 4값 DISPLAY 라벨(파생). resolver 2값과 별개. */
   finalExecutionPolicy: FinalExecutionPolicyDisplayLabel;
   /** 실매수 진입 허용. ExecutionPolicy 단독 권한(effectiveRegime 으로부터 true 될 수 없음 — 불변식 #1). */
@@ -105,7 +105,7 @@ export interface SourceSnapshotExecutionPolicyView {
  * (scorePenalty/sizingMultiplier) + RegimePositionPolicy(exposure/maxPositions/positionCap)에서 투영.
  * 어떤 필드도 실주문 권한을 결정하지 않는다.
  */
-export interface SourceSnapshotScoringPolicyView {
+interface SourceSnapshotScoringPolicyView {
   /** resolver.scorePenalty. */
   scorePenalty: number;
   /** resolver.sizingMultiplier. */
@@ -120,7 +120,7 @@ export interface SourceSnapshotScoringPolicyView {
   positionCap: number;
 }
 
-export interface SourceSnapshotFreshnessPolicyView {
+interface SourceSnapshotFreshnessPolicyView {
   snapshotFreshnessForLive: string;
   snapshotFreshnessForShadow: string;
   usableForLiveOrder: boolean;

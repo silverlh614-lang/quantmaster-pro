@@ -152,7 +152,7 @@ export interface KisWsNoiseSummary {
   limitReached: number;
 }
 
-export function summarizeKisWsDecisions(
+function summarizeKisWsDecisions(
   decisions: SubscriptionDecision[],
   active: number,
   limit = KIS_WS_SUBSCRIPTION_LIMIT,

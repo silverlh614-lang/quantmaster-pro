@@ -92,7 +92,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-export function isOperatorNavigationEnabled(settingsShowOperatorDiagnostics = false): boolean {
+function isOperatorNavigationEnabled(settingsShowOperatorDiagnostics = false): boolean {
   const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
   return settingsShowOperatorDiagnostics
     || env?.VITE_QMP_OPERATOR_MODE === 'true'

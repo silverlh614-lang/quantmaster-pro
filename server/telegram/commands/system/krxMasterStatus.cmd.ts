@@ -29,7 +29,7 @@ interface TierEstimate {
 }
 
 /** master size 로 Tier 추정 SSOT. 예상 임계: KRX≥2500 / NAVER≥2000 / SHADOW≥500 / SEED~100. */
-export function estimateTier(size: number): TierEstimate {
+function estimateTier(size: number): TierEstimate {
   if (size === 0) return { tier: null, label: '미수집 (디스크 파일 부재)', warn: true };
   if (size >= 2500) return { tier: 1, label: 'Tier 1 (KRX Open API) — 정상', warn: false };
   if (size >= 2000) return { tier: 2, label: 'Tier 2 (Naver Finance) — fallback', warn: false };
@@ -38,7 +38,7 @@ export function estimateTier(size: number): TierEstimate {
 }
 
 /** market 별 카운트 분류 SSOT. */
-export function countByMarket(entries: StockMasterEntry[]): {
+function countByMarket(entries: StockMasterEntry[]): {
   KOSPI: number;
   KOSDAQ: number;
   KONEX: number;
@@ -73,7 +73,7 @@ function formatKstAge(ms: number | null, now: number = Date.now()): string {
 }
 
 /** 워치리스트 코드 중 master 미등록 종목 식별. */
-export function findWatchlistMissingFromMaster(
+function findWatchlistMissingFromMaster(
   watchlistCodes: Array<{ code: string; name: string }>,
 ): { registered: number; missing: Array<{ code: string; name: string }> } {
   const missing: Array<{ code: string; name: string }> = [];
@@ -86,7 +86,7 @@ export function findWatchlistMissingFromMaster(
   return { registered, missing };
 }
 
-export function resolveKrxMasterProductionBlock(input: {
+function resolveKrxMasterProductionBlock(input: {
   size: number;
   isStale: boolean;
   tier: TierEstimate;
@@ -103,7 +103,7 @@ export function resolveKrxMasterProductionBlock(input: {
 }
 
 /** 진단 메시지 포맷터 SSOT — 단위 테스트 가능. */
-export function formatKrxMasterStatusMessage(input: {
+function formatKrxMasterStatusMessage(input: {
   size: number;
   market: ReturnType<typeof countByMarket>;
   metadata: ReturnType<typeof getKrxMasterMetadata>;
@@ -239,5 +239,3 @@ const krxMasterStatus: TelegramCommand = {
 };
 
 commandRegistry.register(krxMasterStatus);
-
-export default krxMasterStatus;

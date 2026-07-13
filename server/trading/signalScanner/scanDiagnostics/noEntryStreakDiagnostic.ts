@@ -11,7 +11,7 @@ import {
   type ScanSummaryReasonMapping,
 } from './scanSummaryReasonMapping.js';
 
-export type NoEntryDominantReason =
+type NoEntryDominantReason =
   | 'POLICY_BLOCKED'
   | 'SHADOW_ONLY'
   | 'LIVE_DISABLED'
@@ -33,8 +33,8 @@ export type NoEntryDominantReason =
   | 'PIPELINE_ACTUAL_FAILURE'
   | 'UNKNOWN';
 
-export type NoEntryPipelineHealthStatus = 'OK_OR_WAITING' | 'ACTION_REQUIRED';
-export type NoEntryMessageType = 'DIAGNOSTIC' | 'ACTION_REQUIRED';
+type NoEntryPipelineHealthStatus = 'OK_OR_WAITING' | 'ACTION_REQUIRED';
+type NoEntryMessageType = 'DIAGNOSTIC' | 'ACTION_REQUIRED';
 
 export interface NoEntryStreakDiagnosticInput {
   tradeDate?: string;

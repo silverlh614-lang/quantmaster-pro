@@ -205,8 +205,8 @@ export interface BiasHeatmapDailyEntry {
 }
 
 // ── Experiment Proposal (Phase 4 #12) ────────────────────────────────────────
-export type ExperimentTrack = 'YELLOW_AUTO' | 'RED_APPROVE';
-export type ExperimentState =
+type ExperimentTrack = 'YELLOW_AUTO' | 'RED_APPROVE';
+type ExperimentState =
   | 'PROPOSED'
   | 'AUTO_STARTED'
   | 'AWAIT_APPROVAL'

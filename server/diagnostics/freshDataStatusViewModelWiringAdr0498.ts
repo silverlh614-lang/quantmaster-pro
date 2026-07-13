@@ -15,7 +15,7 @@ import {
   normalizeProviderHealthStatusAdr0499,
 } from './providerMarketSignalMigrationAdr0499.js';
 
-export type FreshDataStatusSourceAdr0498 =
+type FreshDataStatusSourceAdr0498 =
   | 'ADR_0487_FRESH_DATA'
   | 'ADR_0488_SECTOR_ENERGY'
   | 'ADR_0489_INVESTOR_FLOW_SAMPLE'

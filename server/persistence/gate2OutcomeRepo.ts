@@ -157,7 +157,3 @@ export async function updateGate2OutcomeForwardReturns(input: {
   const pending = seeds.filter((seed) => seed.outcomeStatus === 'PENDING' || seed.outcomeStatus === 'PARTIAL').length;
   return { updated, updatedD1, updatedD3, updatedD5, updatedD10, pending, reason: updated > 0 ? 'UPDATED' : 'NO_PRICE' };
 }
-
-export function __resetGate2OutcomeLedgerForTests(filePath = GATE2_OUTCOME_LEDGER_FILE): void {
-  if (fs.existsSync(filePath)) fs.rmSync(filePath);
-}

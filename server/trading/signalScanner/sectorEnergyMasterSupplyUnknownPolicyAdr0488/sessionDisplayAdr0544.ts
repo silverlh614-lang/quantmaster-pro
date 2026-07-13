@@ -87,7 +87,7 @@ export function renderSectorEnergyHealthBlockAdr0544(
  * 임을 scan_blockers full 에 명시하는 invariant 라벨 (표시 전용). session-closed 일 때만 노출.
  * 게이팅(promotionAllowed)은 읽기만 — 무변경. shadow/counterfactual 은 계속 ALLOWED.
  */
-export function renderSectorEnergySessionClosedInvariantsAdr0544(
+function renderSectorEnergySessionClosedInvariantsAdr0544(
   canonical: SectorEnergyCanonicalState,
 ): string[] {
   const shadowAllowed = canonical.shadowLeadershipAllowed === true;

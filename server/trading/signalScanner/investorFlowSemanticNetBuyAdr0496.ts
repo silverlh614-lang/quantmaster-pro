@@ -1,6 +1,6 @@
 // @responsibility ADR-0496 Investor Flow semantic net-buy normalization diagnostics.
 
-export type InvestorFlowProviderAdr0496 =
+type InvestorFlowProviderAdr0496 =
   | 'NAVER'
   | 'FSS'
   | 'INTERNAL'
@@ -8,27 +8,13 @@ export type InvestorFlowProviderAdr0496 =
   | 'KIS_API'
   | 'UNKNOWN';
 
-export type InvestorFlowSampleStatusAdr0496 =
+type InvestorFlowSampleStatusAdr0496 =
   | 'FRESH'
   | 'PARTIAL'
   | 'STALE'
   | 'MISSING'
   | 'DATA_UNAVAILABLE'
   | 'PROVIDER_ERROR'
-  | 'UNKNOWN';
-
-export type InvestorTypeAdr0496 =
-  | 'FOREIGN'
-  | 'INSTITUTION'
-  | 'RETAIL'
-  | 'PROGRAM'
-  | 'PENSION'
-  | 'FINANCIAL_INVESTMENT'
-  | 'INSURANCE'
-  | 'TRUST'
-  | 'PRIVATE_EQUITY'
-  | 'BANK'
-  | 'OTHER_FINANCE'
   | 'UNKNOWN';
 
 export interface InvestorFlowSanitizedSampleAdr0496 {

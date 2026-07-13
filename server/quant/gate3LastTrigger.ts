@@ -14,15 +14,15 @@ import {
   type Gate3VolumeConfirmation,
 } from './gate3VolumeConfirmation.js';
 
-export type Gate3LastTriggerStatus =
+type Gate3LastTriggerStatus =
   | 'FIRED'
   | 'THRESHOLD_NOT_MET'
   | 'DATA_UNAVAILABLE'
   | 'PROVIDER_DEGRADED'
   | 'SANITY_REJECTED';
 
-export type Gate3EntryPriceFreshness = 'VERIFIED' | 'FRESH' | 'STALE' | 'MISSING';
-export type Gate3EntryPriceSource =
+type Gate3EntryPriceFreshness = 'VERIFIED' | 'FRESH' | 'STALE' | 'MISSING';
+type Gate3EntryPriceSource =
   | 'KIS_REALTIME'
   | 'KIS_INQUIRE_PRICE'
   | 'KIS_WS'
@@ -30,7 +30,7 @@ export type Gate3EntryPriceSource =
   | 'CACHE'
   | 'UNKNOWN';
 export type Gate3ExecutionImpact = 'NONE' | 'DIAGNOSTIC_ONLY' | 'LIVE_BUY_BLOCKED_ONLY';
-export type Gate3FalseBreakoutRisk = 'LOW' | 'WATCH' | 'HIGH' | 'MISSING' | 'UNKNOWN';
+type Gate3FalseBreakoutRisk = 'LOW' | 'WATCH' | 'HIGH' | 'MISSING' | 'UNKNOWN';
 
 export interface Gate3EntryPriceGuardDiagnostic {
   priceFreshness: Gate3EntryPriceFreshness;
@@ -152,7 +152,7 @@ function ageFromTimestamp(now: Date, value: unknown): number | null {
   return Math.max(0, Math.floor((now.getTime() - ms) / 1000));
 }
 
-export function buildGate3EntryPriceGuard(input: {
+function buildGate3EntryPriceGuard(input: {
   quote: Record<string, unknown>;
   now?: Date;
 }): Gate3EntryPriceGuardDiagnostic {
@@ -218,7 +218,7 @@ export function buildGate3EntryPriceGuard(input: {
   };
 }
 
-export function buildGate3RrrCheck(quote: Record<string, unknown>): Gate3RrrCheckDiagnostic {
+function buildGate3RrrCheck(quote: Record<string, unknown>): Gate3RrrCheckDiagnostic {
   const built = buildGate3RrrInput(quote);
   const passed = built.status === 'PASS';
   const reason = built.status === 'PASS'

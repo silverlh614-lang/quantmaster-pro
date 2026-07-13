@@ -88,7 +88,7 @@ export function detectCloudBreakdown(series: IchimokuSeries): boolean {
  * ② 후행스팬(현재 종가)이 26봉 전 종가를 새로 하향 돌파한 상태.
  * 전일에는 chikou_prev ≥ close_{-27}였는데 오늘 chikou_now < close_{-26}이면 신선 돌파.
  */
-export function detectChikouBreakdown(series: IchimokuSeries): boolean {
+function detectChikouBreakdown(series: IchimokuSeries): boolean {
   const n = series.closes.length;
   if (n < 28) return false;
   const chikouNow   = series.closes[n - 1];

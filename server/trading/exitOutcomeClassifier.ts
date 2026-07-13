@@ -119,7 +119,7 @@ export type TradeLifecycleOutcome =
   | 'FULL_LOSS'
   | 'FORCED_EXIT';
 
-export type TradeLifecycleLearningTag =
+type TradeLifecycleLearningTag =
   | 'TP1_THEN_BREAKEVEN'
   | 'PROFIT_PROTECTION_SUCCESS'
   | 'TRAILING_STOP_TO_ENTRY_SUCCESS'
@@ -194,7 +194,7 @@ export interface TradeLifecycleOptions {
   smallLossPct?: number;
 }
 
-export const TRADE_LIFECYCLE_DEFAULTS = {
+const TRADE_LIFECYCLE_DEFAULTS = {
   breakevenBandPct: 0.5,
   fullWinPct: 1.0,
   smallLossPct: -1.0,

@@ -34,5 +34,3 @@ const operatorActions: TelegramCommand = {
 };
 
 commandRegistry.register(operatorActions);
-
-export default operatorActions;

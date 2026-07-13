@@ -16,7 +16,7 @@ import {
 // §A — canonical runtime resolution(kisInvestorFlow) 의 권위 신호. KIS Router Eligibility 와
 // 동일 SSOT 에서 파생되며, Gate2 Data Line Health KIS_FLOW 표시의 단일 근거가 된다.
 // 표시 전용 — executionImpact/marketSignal 불변, provider 재호출 0.
-export interface Gate2CanonicalKisFlow {
+interface Gate2CanonicalKisFlow {
   selectedProvider: string;
   finalRouterUsable: boolean;
   finalGateScoreEligible: boolean;

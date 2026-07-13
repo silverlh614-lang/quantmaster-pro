@@ -163,7 +163,7 @@ function isFetchFresh(fetchedAtIso: string | undefined, now: Date, ttlSec: numbe
 }
 
 /** 레짐 순서 (방어 → 공격) — 다운그레이드/업그레이드 판단용 */
-export const REGIME_ORDER: RegimeLevel[] = [
+const REGIME_ORDER: RegimeLevel[] = [
   'R6_DEFENSE', 'R5_CAUTION', 'R4_NEUTRAL', 'R3_EARLY', 'R2_BULL', 'R1_TURBO',
 ];
 
@@ -205,7 +205,7 @@ function maxImmediateRecoveryRegime(): RegimeLevel {
  * OFF → exit 함수 신규 tick 분기 미평가(현 mhs 단일 분기 byte-identical).
  * ON → 모순 지대(mhs 40~64 + raw 강세)에서 raw 강세 N tick 지속 시 R3_NORMAL 강제 탈출.
  */
-export function isR6RecoveryStuckExitEnabled(): boolean {
+function isR6RecoveryStuckExitEnabled(): boolean {
   return process.env.R6_RECOVERY_STUCK_EXIT_ENABLED === 'true';
 }
 
@@ -214,7 +214,7 @@ export function isR6RecoveryStuckExitEnabled(): boolean {
  * ENV `R6_RECOVERY_STUCK_EXIT_MIN_HEALTHY_TICKS` — default 2, 하한 clamp ≥1
  * (첫 tick 초기 falling-knife 보호 보장).
  */
-export function r6RecoveryStuckExitMinHealthyTicks(): number {
+function r6RecoveryStuckExitMinHealthyTicks(): number {
   return Math.max(1, envInt('R6_RECOVERY_STUCK_EXIT_MIN_HEALTHY_TICKS', 2));
 }
 

@@ -24,5 +24,3 @@ const leadershipBridgeStats: TelegramCommand = {
 };
 
 commandRegistry.register(leadershipBridgeStats);
-
-export default leadershipBridgeStats;

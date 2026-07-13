@@ -47,8 +47,8 @@ export interface PolicyResult {
   executionPermissionLogTags: string[];
   policyStatus: 'LIVE_ALLOWED' | 'LIVE_BLOCKED_ONLY';
 }
-export interface ExecutionResult { snapshotId: string; executionImpact: 'NONE' | 'NEW_BUY_BLOCKED_ONLY' | 'LIVE_ORDER_ALLOWED'; }
-export interface LearningResult { snapshotId: string; shadowLearning: boolean; counterfactual: boolean; }
+interface ExecutionResult { snapshotId: string; executionImpact: 'NONE' | 'NEW_BUY_BLOCKED_ONLY' | 'LIVE_ORDER_ALLOWED'; }
+interface LearningResult { snapshotId: string; shadowLearning: boolean; counterfactual: boolean; }
 export interface DecisionContext { snapshotId: string; candidateSnapshotId: string; featureSnapshotId: string; gateResult: CommonGateResult; policyResult: PolicyResult; executionResult: ExecutionResult; learningResult: LearningResult; }
 
 function isFeaturePackComputed(feature: FeatureSnapshot): boolean {
@@ -61,7 +61,7 @@ export function evaluateCommonGate(input: { snapshotId: string; candidate: Candi
   return { snapshotId: input.snapshotId, symbol: input.candidate.symbol, gatePassed, technicalTrendMissing, qualityDecision: gatePassed ? 'PASS' : 'FAIL' };
 }
 
-export function resolvePolicy(input: { snapshotId: string; commonGateResult: CommonGateResult; marketSession: MarketSession; entryBlockMode: string; engineMode?: 'LIVE' | 'SHADOW_ONLY'; brokerOrderAllowed?: boolean; operatorOrderAllowed?: boolean; macroLiveAllowed?: boolean; providerIssue?: boolean; marketSignal?: boolean; kellyFraction?: number | null; kellySizingMultiplier?: number | null }): PolicyResult {
+function resolvePolicy(input: { snapshotId: string; commonGateResult: CommonGateResult; marketSession: MarketSession; entryBlockMode: string; engineMode?: 'LIVE' | 'SHADOW_ONLY'; brokerOrderAllowed?: boolean; operatorOrderAllowed?: boolean; macroLiveAllowed?: boolean; providerIssue?: boolean; marketSignal?: boolean; kellyFraction?: number | null; kellySizingMultiplier?: number | null }): PolicyResult {
   const legacyPolicyInputs: string[] = [];
   const liveBuyAllowed = input.commonGateResult.qualityDecision === 'PASS';
   const gatePolicyLiveAllowed = liveBuyAllowed;
@@ -133,7 +133,7 @@ export function resolvePolicy(input: { snapshotId: string; commonGateResult: Com
   };
 }
 
-export function routeExecution(input: { snapshotId: string; gateResult: CommonGateResult; policyResult: PolicyResult }): ExecutionResult {
+function routeExecution(input: { snapshotId: string; gateResult: CommonGateResult; policyResult: PolicyResult }): ExecutionResult {
   if (!input.policyResult.liveBuyAllowed) return { snapshotId: input.snapshotId, executionImpact: 'NEW_BUY_BLOCKED_ONLY' };
   if (!input.policyResult.actualLiveOrderAllowed) return { snapshotId: input.snapshotId, executionImpact: 'NEW_BUY_BLOCKED_ONLY' };
   return { snapshotId: input.snapshotId, executionImpact: input.gateResult.gatePassed ? 'LIVE_ORDER_ALLOWED' : 'NONE' };

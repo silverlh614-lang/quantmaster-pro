@@ -21,14 +21,14 @@ export type InvestorSampleInputSourceKindAdr0502 =
   | 'PLACEHOLDER'
   | 'NONE';
 
-export type InvestorSampleConfidenceLevelAdr0502 =
+type InvestorSampleConfidenceLevelAdr0502 =
   | 'VERIFIED'
   | 'PARTIAL'
   | 'DEGRADED'
   | 'LOW'
   | 'MISSING';
 
-export type InvestorSampleBlockedReasonAdr0502 =
+type InvestorSampleBlockedReasonAdr0502 =
   | 'NONE'
   | 'NO_RAW_SAMPLE'
   | 'NO_NORMALIZED_SAMPLE'
@@ -44,7 +44,7 @@ export type InvestorSampleBlockedReasonAdr0502 =
   | 'PROVIDER_ERROR'
   | 'NOT_ROUTER_USABLE';
 
-export interface InvestorRawSampleAdr0502 {
+interface InvestorRawSampleAdr0502 {
   providerName: InvestorSampleProviderNameAdr0502;
   rawFetched: boolean;
   rawCount: number;
@@ -52,7 +52,7 @@ export interface InvestorRawSampleAdr0502 {
   lastSuccessfulSampleAt: string | null;
 }
 
-export interface InvestorNormalizedSampleAdr0502 extends InvestorRawSampleAdr0502 {
+interface InvestorNormalizedSampleAdr0502 extends InvestorRawSampleAdr0502 {
   normalizedCount: number;
   symbolCoverage: number;
   dateCoverage: string | null;
@@ -60,14 +60,14 @@ export interface InvestorNormalizedSampleAdr0502 extends InvestorRawSampleAdr050
   placeholderDetected: boolean;
 }
 
-export interface InvestorMaterializedSampleAdr0502 extends InvestorNormalizedSampleAdr0502 {
+interface InvestorMaterializedSampleAdr0502 extends InvestorNormalizedSampleAdr0502 {
   materializedCount: number;
   sampleMaterialized: boolean;
   confidenceLevel: InvestorSampleConfidenceLevelAdr0502;
   safePreview: Array<Record<string, string | number | null>>;
 }
 
-export interface RouterUsabilityDiagnosticsAdr0502 {
+interface RouterUsabilityDiagnosticsAdr0502 {
   providerName: InvestorSampleProviderNameAdr0502;
   sampleMaterialized: boolean;
   usableForRouter: boolean;

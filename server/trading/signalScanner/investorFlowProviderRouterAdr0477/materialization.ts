@@ -79,7 +79,7 @@ export interface InvestorFlowDiagnosticUsableCandidateAdr0504 {
   source: 'FRESH_DATA_AGGREGATE' | 'CACHE_LOOKUP' | 'MATERIALIZED_SHADOW';
 }
 
-export function collectInvestorFlowMaterializedCandidates(
+function collectInvestorFlowMaterializedCandidates(
   materializationDiagnostics: Partial<Record<InvestorSampleProviderNameAdr0502, InvestorSampleDiagnosticsAdr0502>>,
   samplesByProvider: Partial<Record<InvestorFlowProviderId, SemanticNetBuySample>>,
   actualRowCarryByProvider: Partial<Record<InvestorFlowProviderId, ActualInvestorFlowCarryAdr0477>> = {},
@@ -164,18 +164,12 @@ export function collectInvestorFlowMaterializedCandidates(
   });
 }
 
-export function rankInvestorFlowMaterializedCandidates(
+function rankInvestorFlowMaterializedCandidates(
   candidates: readonly InvestorFlowMaterializedCandidateAdr0503[],
 ): InvestorFlowMaterializedCandidateAdr0503[] {
   return [...candidates]
     .filter((candidate) => candidate.sampleMaterialized && candidate.usableForRouter && !candidate.placeholderDetected)
     .sort((a, b) => a.selectedPriority - b.selectedPriority || b.materializedCount - a.materializedCount);
-}
-
-export function selectBestInvestorFlowCandidate(
-  candidates: readonly InvestorFlowMaterializedCandidateAdr0503[],
-): InvestorFlowMaterializedCandidateAdr0503 | null {
-  return rankInvestorFlowMaterializedCandidates(candidates)[0] ?? null;
 }
 
 export function buildInvestorFlowMultiSourceMaterialization(

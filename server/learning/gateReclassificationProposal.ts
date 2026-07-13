@@ -18,7 +18,7 @@ export type GateConditionProposedClass =
   | 'WAIT_TRIGGER'
   | 'SCORE_ONLY';
 
-export type GateConditionCurrentClass =
+type GateConditionCurrentClass =
   | 'UNKNOWN'
   | 'HARD_BLOCK'
   | 'SOFT_PENALTY'

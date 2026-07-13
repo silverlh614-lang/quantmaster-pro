@@ -60,5 +60,3 @@ const add: TelegramCommand = {
 };
 
 commandRegistry.register(add);
-
-export default add;

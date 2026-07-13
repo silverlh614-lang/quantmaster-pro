@@ -67,7 +67,6 @@ export function classifyAutoTradeContextFromNow(now: Date = new Date()): AutoTra
 }
 
 // 테스트 결정성 확인용 export — 프로덕션 코드에서 직접 호출 금지.
-export const __MARKET_OPEN_GUARD__ = isMarketOpen;
 
 /**
  * 1분 polling 으로 컨텍스트 변경(08:30 / 09:00 / 15:30 / 16:00) 자동 반영.

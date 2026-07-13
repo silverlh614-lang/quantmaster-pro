@@ -22,7 +22,7 @@ export interface ShadowFuturePriceProviderInput {
   signal: ShadowLearningOnlySignal;
 }
 
-export interface ShadowFuturePricePoint {
+interface ShadowFuturePricePoint {
   price: number;
   observedAt?: string;
 }
@@ -31,7 +31,7 @@ export type ShadowFuturePriceProvider = (
   input: ShadowFuturePriceProviderInput,
 ) => Promise<ShadowFuturePricePoint | null> | ShadowFuturePricePoint | null;
 
-export type ShadowFutureReturnMaturityGate = (
+type ShadowFutureReturnMaturityGate = (
   input: ShadowFuturePriceProviderInput,
 ) => boolean;
 

@@ -68,7 +68,7 @@ export type ProvisionalShadowPriceSource =
   | 'READ_ONLY_QUOTE'
   | 'NONE';
 
-export interface ProvisionalShadowObservedPrice {
+interface ProvisionalShadowObservedPrice {
   symbol: string;
   horizon: ProvisionalShadowHorizon;
   price?: number;

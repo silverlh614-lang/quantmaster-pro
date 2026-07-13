@@ -13,7 +13,7 @@ import {
 
 export type IntradayProgramFlowSourceProvider = 'KIS_API' | 'KRX_API' | 'CACHE' | 'SNAPSHOT' | 'NONE';
 export type IntradayProgramFlowDataStatus = 'VERIFIED' | 'EMPTY_VALID' | 'STALE' | 'MISSING' | 'UNKNOWN';
-export type IntradayProgramFlowSignal = 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'UNKNOWN' | 'UNAVAILABLE';
+type IntradayProgramFlowSignal = 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'UNKNOWN' | 'UNAVAILABLE';
 
 export interface IntradayProgramFlowStockRow {
   symbol: string;
@@ -36,7 +36,7 @@ export interface IntradayProgramFlowStockRow {
   executionImpact?: 'NONE';
 }
 
-export interface IntradayProgramFlowMarketSnapshot {
+interface IntradayProgramFlowMarketSnapshot {
   available: boolean;
   marketProgramNetBuy?: number | null;
   kospiProgramNetBuy?: number | null;
@@ -403,7 +403,7 @@ export function buildIntradayProgramFlowSnapshotFromRuntimeContext(
   });
 }
 
-export function sanitizeIntradayProgramFlowSnapshot(input: Partial<IntradayProgramFlowSnapshot>): IntradayProgramFlowSnapshot {
+function sanitizeIntradayProgramFlowSnapshot(input: Partial<IntradayProgramFlowSnapshot>): IntradayProgramFlowSnapshot {
   const capturedAt = typeof input.capturedAt === 'string' ? input.capturedAt : new Date().toISOString();
   const capturedAtMs = Date.parse(capturedAt);
   const safeCapturedAtMs = Number.isFinite(capturedAtMs) ? capturedAtMs : Date.now();

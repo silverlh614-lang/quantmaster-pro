@@ -60,5 +60,3 @@ const reviewActivations: TelegramCommand = {
 };
 
 commandRegistry.register(reviewActivations);
-
-export default reviewActivations;

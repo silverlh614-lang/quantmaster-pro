@@ -30,5 +30,3 @@ const pause: TelegramCommand = {
 };
 
 commandRegistry.register(pause);
-
-export default pause;

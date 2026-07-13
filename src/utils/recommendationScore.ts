@@ -2,7 +2,7 @@
 import { getRegimeGateScoreBand } from '../constants/gateConfig';
 import type { StockRecommendation } from '../services/stock/types';
 
-export type ScoreConcordanceTier = 'EXCELLENT' | 'GOOD' | 'NEUTRAL' | 'WEAK' | 'POOR';
+type ScoreConcordanceTier = 'EXCELLENT' | 'GOOD' | 'NEUTRAL' | 'WEAK' | 'POOR';
 
 export interface QuantGateScoreView {
   value: number;
@@ -24,13 +24,13 @@ function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
 
-export function normalizeGateFinalScore(finalScore: number): number {
+function normalizeGateFinalScore(finalScore: number): number {
   if (!Number.isFinite(finalScore)) return 0;
   const value = finalScore > 27 ? finalScore / 27 : (finalScore / 27) * 10;
   return clamp(value, 0, 10);
 }
 
-export function inferRegimeForGate(stock: Pick<StockRecommendation, 'aiConvictionScore'>): string {
+function inferRegimeForGate(stock: Pick<StockRecommendation, 'aiConvictionScore'>): string {
   const phase = stock.aiConvictionScore?.marketPhase;
   if (phase === 'RISK_ON' || phase === 'BULL') return 'R3_EARLY';
   if (phase === 'RISK_OFF' || phase === 'BEAR') return 'R5_CAUTION';

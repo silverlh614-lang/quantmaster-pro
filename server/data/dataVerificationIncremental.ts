@@ -36,7 +36,7 @@ import type { DataQualityInfo } from '../types/dataQuality.js';
 
 const SANITY_MAX_ABS_PCT = 90;
 
-export type IncrementalVerificationSource =
+type IncrementalVerificationSource =
   | 'CACHE_RETRY_PENDING'
   | 'CACHE_MANUAL_REVIEW'
   | 'FRESH_KIS'

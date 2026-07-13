@@ -35,7 +35,7 @@ import {
 import { normalizeKrxCode as normalizeKrxCodeSsot } from '../../utils/symbolNormalizer.js';
 
 /** ENV gate SSOT (ADR-0157 정확 비교 의무). */
-export function isCounterfactualUniverseLearningDisabled(): boolean {
+function isCounterfactualUniverseLearningDisabled(): boolean {
   return process.env.COUNTERFACTUAL_UNIVERSE_LEARNING_DISABLED === 'true';
 }
 

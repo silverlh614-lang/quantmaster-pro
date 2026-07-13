@@ -40,7 +40,7 @@ export interface Gate2SoxSemiAxisObservationAdr0605 {
 }
 
 /** dry-run 점수 분포 — buildSectorAxis 호출 없이 순수 재현(점수식 2분기). */
-export interface Gate2SoxScoreDeltaDistributionAdr0605 {
+interface Gate2SoxScoreDeltaDistributionAdr0605 {
   count: number;
   /** baseline(주입 전) SECTOR_LEADERSHIP 은 missingAxis(score=null, scoreIncluded=false)라
    *  confluence 에서 *제외*된다 — 숫자 0 아님(gate2ConfluenceScore.ts L247-257 검증). 관측 핵심은

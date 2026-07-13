@@ -30,7 +30,7 @@ export const STALE_TTL_MS = 5 * 60_000;
 export const HARD_EXPIRY_MS = 30 * 60_000;
 
 /** AI raw 응답 캐시 entry — normalize 적용 전 객체 + 캐시 시각. */
-export interface AiCacheEntry {
+interface AiCacheEntry {
   raw: Record<string, unknown>;
   cachedAt: number;
 }

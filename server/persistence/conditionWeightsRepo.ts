@@ -31,8 +31,6 @@ export const CONDITION_WEIGHT_REGIMES = [
   'R5_CAUTION',
   'R6_DEFENSE',
 ] as const;
-
-export type ConditionWeightRegime = (typeof CONDITION_WEIGHT_REGIMES)[number];
 export type ConditionWeightResetScope = 'global' | 'regime' | 'all';
 
 export interface ConditionWeightResetOptions {

@@ -16,8 +16,8 @@
 
 import { safePctChange } from '../utils/safePctChange.js';
 
-export const TRADE_REPLACEMENT_MIN_PROFIT_PCT = 1.5;
-export const TRADE_REPLACEMENT_MIN_GATE_DELTA = 1.5;
+const TRADE_REPLACEMENT_MIN_PROFIT_PCT = 1.5;
+const TRADE_REPLACEMENT_MIN_GATE_DELTA = 1.5;
 export const TRADE_REPLACEMENT_COOLDOWN_MS   = 20 * 60 * 1000;
 
 export interface HeldPositionView {

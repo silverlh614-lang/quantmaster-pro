@@ -6,7 +6,7 @@
  * This type is intentionally presentation-only: it must not become a source
  * of trading, promotion, or order-path decisions.
  */
-export type DisplayMetricDenominatorLabel =
+type DisplayMetricDenominatorLabel =
   | 'closed_samples'
   | 'active_samples'
   | 'all_shadow_samples'

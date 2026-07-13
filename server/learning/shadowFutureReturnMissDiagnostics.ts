@@ -41,7 +41,7 @@ function buildKey(symbol: string, range: string): string {
   return `${normalizeYahooSymbol(symbol)}:${range}:1d`;
 }
 
-export function buildShadowReturnMissDetails(
+function buildShadowReturnMissDetails(
   signals: ShadowLearningOnlySignal[],
   limit = 20,
 ): ShadowReturnMissDetail[] {

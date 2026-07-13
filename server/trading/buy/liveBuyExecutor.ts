@@ -16,7 +16,7 @@ import type { BuySignalStateMachine } from './buySignalStateMachine.js';
 import { markAutoTradeReady, markOrderPending, type TradeSignalStatusWriteResult } from './tradeSignalStatusWriter.js';
 import { emitOperationalWarn } from './operationalWarn.js';
 
-export type LiveBuyExecutionOutcome = 'LIVE_ORDER_SUBMITTED' | 'LIVE_REJECTED';
+type LiveBuyExecutionOutcome = 'LIVE_ORDER_SUBMITTED' | 'LIVE_REJECTED';
 
 export interface LiveBuyExecutorInput {
   trade: ServerShadowTrade;
@@ -222,10 +222,4 @@ export async function executeLiveBuy(
 
 export function __resetLiveBuyExecutorForTests(): void {
   inflightLiveBuyOrders.clear();
-}
-
-export function mapLiveExecutionOutcomeToApprovalAction(
-  outcome: LiveBuyExecutionOutcome,
-): ApprovalAction {
-  return outcome === 'LIVE_ORDER_SUBMITTED' ? 'APPROVE' : 'SKIP';
 }

@@ -85,7 +85,7 @@ export type SectorEnergySourceTierForDiag =
   | 'MISSING'
   | 'FAILED';
 
-export type SectorEnergyLeadershipConfidenceForDiag =
+type SectorEnergyLeadershipConfidenceForDiag =
   | 'WEIGHTED'
   | 'READY_FOR_SHADOW'
   | 'PARTIAL'
@@ -93,7 +93,7 @@ export type SectorEnergyLeadershipConfidenceForDiag =
   | 'DIAGNOSTIC_ONLY'
   | 'BLOCKED';
 
-export interface SectorEnergyCoverageBreakdownForDiag {
+interface SectorEnergyCoverageBreakdownForDiag {
   totalSectors: number;
   verifiedIndexCodeCount: number;
   verifiedIndexCodeCoverage: number;

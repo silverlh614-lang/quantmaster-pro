@@ -55,7 +55,7 @@ function isShadowExecutionSafeModeEnabledForExit(): boolean {
   return process.env.SHADOW_EXECUTION_SAFE_MODE === 'true';
 }
 
-export type ReserveSellIntentResult =
+type ReserveSellIntentResult =
   | { kind: 'RESERVED'; reservationId: string; reservedQty: number }
   | ReserveSellResult;
 
@@ -90,7 +90,7 @@ function failedReserveSellResult(
   };
 }
 
-export function reserveSellIntent(
+function reserveSellIntent(
   shadow: ServerShadowTrade,
   qty: number,
   evtSubType: TradeEvent['subType'],
@@ -155,7 +155,7 @@ export async function placeReservedSellOrder(
  * @param flagToClearOnRevert  fill 이 REVERTED 로 전환될 때 초기화할 중복 방지 플래그.
  *                              DIVERGENCE/RRR/R6 같은 1회성 경로에서 설정.
  */
-export function reserveSell(
+function reserveSell(
   shadow: ServerShadowTrade,
   orderRes: SellOrderResult,
   fill: SellFillInput,

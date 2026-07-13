@@ -18,7 +18,7 @@ export type ShadowGateAuditTriggerSource =
   | 'COUNTERFACTUAL'
   | 'UNKNOWN';
 
-export type ShadowGateDivergenceReason =
+type ShadowGateDivergenceReason =
   | 'LIVE_MIN_SIGNAL_FEATURE_MISSING'
   | 'SHADOW_GATE_USES_RAW_SCORE'
   | 'SHADOW_APPROVAL_MANUAL'
@@ -295,27 +295,6 @@ export function listShadowGateAuditRecords(opts?: { hydrateLiveMinimum?: boolean
   const records = Array.from(_records.values()).sort((a, b) => Date.parse(b.updatedAtIso) - Date.parse(a.updatedAtIso));
   if (!opts?.hydrateLiveMinimum) return records;
   return records.map((record) => attachLiveMinimum(record, findNearestLiveForensic(record)));
-}
-
-export function getShadowGateAuditStats(): {
-  shadowSignals: number;
-  approved: number;
-  deduped: number;
-  liveOrderPlaced: false;
-  shadowAllowedButLiveFailed: number;
-  latest?: ShadowGateAuditRecord;
-  executionImpact: 'NONE';
-} {
-  const records = listShadowGateAuditRecords({ hydrateLiveMinimum: true });
-  return {
-    shadowSignals: records.filter((r) => r.shadow.approvalCardEmitted).length,
-    approved: records.filter((r) => r.shadow.approvalState === 'APPROVED').length,
-    deduped: records.filter((r) => r.shadow.approvalState === 'DEDUPED' || !r.shadow.approvalCardEmitted).length,
-    liveOrderPlaced: false,
-    shadowAllowedButLiveFailed: records.filter((r) => r.divergence.shadowAllowedButLiveFailed).length,
-    latest: records[0],
-    executionImpact: 'NONE',
-  };
 }
 
 function fmt(value: number | null, digits = 1): string {

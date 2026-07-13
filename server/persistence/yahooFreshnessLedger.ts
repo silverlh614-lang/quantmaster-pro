@@ -22,9 +22,9 @@ import fs from 'fs';
 import { YAHOO_FRESHNESS_LEDGER_FILE, ensureDataDir } from './paths.js';
 import type { YahooQuoteExtended } from '../screener/adapters/yahooQuoteAdapter.js';
 
-export type YahooFreshnessReliability = 'TRUSTED' | 'DEGRADED' | 'UNRELIABLE';
+type YahooFreshnessReliability = 'TRUSTED' | 'DEGRADED' | 'UNRELIABLE';
 
-export interface YahooFreshnessRecord {
+interface YahooFreshnessRecord {
   code: string;
   symbol: string;
   lastFreshAt: string | null;        // 마지막으로 dataQuality='OK' 였던 시각 (ISO)
@@ -142,11 +142,6 @@ export function updateYahooFreshness(
   }
 }
 
-/** 진단 — 단일 종목 record 조회. */
-export function getFreshnessRecord(code: string): YahooFreshnessRecord | null {
-  return loadStore().records[code] ?? null;
-}
-
 /** 진단 — 신뢰도 분포 요약 (예: /health_full 응답). */
 export function summarizeFreshnessLedger(): {
   totalCodes: number;
@@ -175,18 +170,4 @@ export function summarizeFreshnessLedger(): {
     unreliable,
     unreliableSymbols: unreliableSymbols.sort(),
   };
-}
-
-/**
- * UNRELIABLE 종목 여부 진단 — 향후 ADR-0253 (KIS 시계열 합성) 라우팅 입력.
- * 현재 PR scope 에선 호출자 0건 (조회 API 만 노출, 라우팅 변경 X).
- */
-export function isYahooUnreliable(code: string): boolean {
-  const r = getFreshnessRecord(code);
-  return r?.reliability === 'UNRELIABLE';
-}
-
-/** 테스트 격리. */
-export function __resetYahooFreshnessLedgerForTests(): void {
-  _store = null;
 }

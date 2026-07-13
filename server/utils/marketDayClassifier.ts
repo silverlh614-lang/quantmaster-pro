@@ -19,7 +19,7 @@ const SCAN_HORIZON_DAYS = 8;
 /** 비영업 간격이 N일 이상이면 LONG_HOLIDAY 분류. 추석 5/6일 연휴 + 주말 합쳐 일반적으로 ≥3. */
 const LONG_HOLIDAY_GAP_DAYS = 3;
 
-export type MarketDayType =
+type MarketDayType =
   | 'TRADING_DAY'         // KRX 정규 영업일
   | 'WEEKEND'             // 토/일 (KRX 공휴일 아닌)
   | 'KRX_HOLIDAY'         // 평일이지만 KRX 공휴일

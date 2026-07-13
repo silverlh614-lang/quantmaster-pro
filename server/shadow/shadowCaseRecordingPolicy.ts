@@ -12,7 +12,7 @@ import type {
   ShadowCase,
 } from './shadowTypes.js';
 
-export interface ShadowOutcomeHorizonInput {
+interface ShadowOutcomeHorizonInput {
   outcomeLabel?: OutcomeLabel;
   returnPct?: number;
   checkedAt?: string;
@@ -79,7 +79,7 @@ function toConfidenceLevel(confidence?: DataConfidence): ConfidenceLevel {
   return 'CALCULATED';
 }
 
-export function buildShadowCaseForRuntime(input: BuildShadowCaseForRuntimeInput): ShadowCase {
+function buildShadowCaseForRuntime(input: BuildShadowCaseForRuntimeInput): ShadowCase {
   const now = input.timestamp ?? new Date().toISOString();
   const engineMode = toShadowEngineMode(input.runtimePolicy.engineMode);
   const regimeContext = normalizeRegimeContext({

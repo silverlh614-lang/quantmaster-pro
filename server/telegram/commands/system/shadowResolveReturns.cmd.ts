@@ -69,5 +69,3 @@ const shadowResolveReturns: TelegramCommand = {
 };
 
 commandRegistry.register(shadowResolveReturns);
-
-export default shadowResolveReturns;

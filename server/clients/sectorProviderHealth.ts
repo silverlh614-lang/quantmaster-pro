@@ -1,6 +1,6 @@
 // @responsibility ADR-0462 Sector provider health/cache warmup semantics
 
-export type ProviderHealth = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'EMPTY' | 'ERROR';
+type ProviderHealth = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'EMPTY' | 'ERROR';
 
 export interface SectorProviderHealthSnapshot {
   providerHealth: ProviderHealth;
@@ -31,13 +31,4 @@ export function deriveSectorProviderHealth(input: {
     return { providerHealth: 'DEGRADED', cacheEmpty: false, marketSignal: false, reasons: ['PROVIDER_DEGRADED'], updatedAt: now.toISOString() };
   }
   return { providerHealth: 'VERIFIED', cacheEmpty: false, marketSignal: false, reasons: [], updatedAt: now.toISOString() };
-}
-
-export async function warmupSectorProviderCache(warmup: () => Promise<unknown[] | null | undefined>): Promise<SectorProviderHealthSnapshot> {
-  try {
-    const rows = await warmup();
-    return deriveSectorProviderHealth({ cacheSize: rows?.length ?? 0 });
-  } catch (error) {
-    return deriveSectorProviderHealth({ error });
-  }
 }

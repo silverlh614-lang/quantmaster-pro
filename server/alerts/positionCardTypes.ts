@@ -10,10 +10,10 @@
  */
 
 /** Position Card 의 source layer SSOT. 그 외 값 영구 차단. */
-export type PositionSource = 'BROKER_BALANCE' | 'SHADOW_POSITION_LEDGER';
+type PositionSource = 'BROKER_BALANCE' | 'SHADOW_POSITION_LEDGER';
 
 /** Position Card 의 mode (REAL = 실계좌 잔고, SHADOW = Shadow 원장). */
-export type PositionCardMode = 'REAL' | 'SHADOW';
+type PositionCardMode = 'REAL' | 'SHADOW';
 
 /**
  * Position Card 의 cardType:
@@ -28,7 +28,7 @@ export type PositionCardCardType = 'POSITION_MORNING_CARD' | 'POSITION_STATUS_CA
  *   PAPER — PAPER trading 모드 (현재 미구현, 후속 PR scope)
  *   LIVE  — 실계좌 잔고 (BROKER_BALANCE 만)
  */
-export type PositionCardExecutionImpact = 'NONE' | 'PAPER' | 'LIVE';
+type PositionCardExecutionImpact = 'NONE' | 'PAPER' | 'LIVE';
 
 export interface PositionCardPosition {
   stockCode: string;
@@ -51,7 +51,7 @@ export interface PositionCardPayload {
   executionImpact: PositionCardExecutionImpact;
 }
 
-export type PositionCardValidationError =
+type PositionCardValidationError =
   | 'INVALID_SHADOW_POSITION_SOURCE'
   | 'INVALID_REAL_POSITION_SOURCE'
   | 'POSITION_COUNT_MISMATCH'

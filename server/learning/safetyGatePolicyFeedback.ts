@@ -14,7 +14,7 @@ export interface SafetyGatePolicyFeedback {
   reasons: string[];
 }
 
-export const SAFETY_GATE_POLICY_FEEDBACK_CONSTANTS = {
+const SAFETY_GATE_POLICY_FEEDBACK_CONSTANTS = {
   MIN_TOTAL_SAMPLE: 5,
   MIN_GATE_SAMPLE: 3,
   GOOD_DEFENSE_NET_IMPACT: 0.03,
@@ -25,7 +25,7 @@ export const SAFETY_GATE_POLICY_FEEDBACK_CONSTANTS = {
   CAP: 1.05,
 } as const;
 
-export function isSafetyGatePolicyFeedbackEnabled(): boolean {
+function isSafetyGatePolicyFeedbackEnabled(): boolean {
   return process.env.SAFETY_GATE_POLICY_FEEDBACK_ENABLED === 'true';
 }
 

@@ -71,12 +71,9 @@ export function buildDisabledRallyLens(asOf: string): MarketRallyLens {
   };
 }
 
-/** ENV OFF 정적 상수 (asOf 는 epoch — 호출 시점 표기는 buildDisabledRallyLens 사용). */
-export const DISABLED_RALLY_LENS: MarketRallyLens = buildDisabledRallyLens('1970-01-01T00:00:00.000Z');
-
 // ─── 2. RecommendationLabel union (PR-2 가 score 계산을 채움; 타입은 PR-1 SSOT) ──
 
-export type RecommendationLabel =
+type RecommendationLabel =
   | 'MARKET_RALLY_WATCH'
   | 'KOSPI_RALLY_PARTICIPATION'
   | 'INSTITUTION_LED_WATCH'
@@ -120,18 +117,6 @@ export interface RecommendationScore {
   breakdown: RecommendationScoreBreakdown;
   /** 항상 'NONE'. */
   executionImpact: 'NONE';
-}
-
-export interface RecommendationCandidate {
-  symbol: string;
-  name?: string;
-  /** scan 과 동일 snapshotId (불변식#3). */
-  snapshotId?: string;
-  label: RecommendationLabel;
-  score: RecommendationScore;
-  /** 항상 true. */
-  recommendationOnly: true;
-  // 주문 관련 필드 절대 미포함 (orderId/paperExecutable/shadowBuy 금지).
 }
 
 // ─── 4. Gate1 Lane Split (PR-2) — read-only lane 분류 (재계산 0, 자동매매 무영향) ──

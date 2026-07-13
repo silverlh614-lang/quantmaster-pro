@@ -78,9 +78,3 @@ export function appendGate2SoxObservation(input: {
   fs.renameSync(tmp, filePath);
   return row;
 }
-
-export function __resetGate2SoxObservationLedgerForTests(
-  filePath = GATE2_SOX_OBSERVATION_LEDGER_FILE,
-): void {
-  if (fs.existsSync(filePath)) fs.rmSync(filePath);
-}

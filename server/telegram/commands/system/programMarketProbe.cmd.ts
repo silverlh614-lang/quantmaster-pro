@@ -196,7 +196,7 @@ function bestProgress(results: ProbeResult[]): ProbeResult | undefined {
   return [...results].sort((a, b) => progressScore(b) - progressScore(a))[0];
 }
 
-export async function buildProgramMarketProbeMessage(args: string[] = []): Promise<string> {
+async function buildProgramMarketProbeMessage(args: string[] = []): Promise<string> {
   const limit = parseLimit(args);
   const candidates = buildCandidates(limit);
   const results: ProbeResult[] = [];
@@ -272,5 +272,3 @@ const programMarketProbe: TelegramCommand = {
 };
 
 commandRegistry.register(programMarketProbe);
-
-export default programMarketProbe;

@@ -22,9 +22,9 @@ import type {
   KisSectorIndexVerifyVariantPolicy,
 } from '../clients/kisClient/types.js';
 
-export const KIS_SECTOR_INDEX_VERIFY_API_PATH =
+const KIS_SECTOR_INDEX_VERIFY_API_PATH =
   '/uapi/domestic-stock/v1/quotations/inquire-index-price';
-export const KIS_SECTOR_INDEX_VERIFY_TR_ID = 'FHPUP02100000';
+const KIS_SECTOR_INDEX_VERIFY_TR_ID = 'FHPUP02100000';
 
 // ─── D1 (observe-only): verify 실패 타입 분리 → providerIssue/dataQuality 표시 매핑 ─────────
 // ★ 게이팅 무관, executionImpact=NONE, marketSignal=false. 불변식 #6 보존:
@@ -32,7 +32,7 @@ export const KIS_SECTOR_INDEX_VERIFY_TR_ID = 'FHPUP02100000';
 //   index value 0 은 dataQuality=LOW (providerIssue=false). promotion 게이팅은 절대 바꾸지 않는다.
 
 /** verify 실패/품질을 표시상 분류한 라벨 (게이팅 무관, 표시 전용). */
-export type OfficialSectorIndexVerifyDisplayClass =
+type OfficialSectorIndexVerifyDisplayClass =
   | 'VERIFIED'
   | 'SESSION_NOT_VERIFIABLE'
   | 'OFFICIAL_INDEX_VERIFY_FAILED'
@@ -170,7 +170,7 @@ export interface OfficialSectorIndexVerifyResult {
   fetchedAt?: string;
 }
 
-export interface OfficialSectorIndexVerifyAttempt {
+interface OfficialSectorIndexVerifyAttempt {
   sectorName: string;
   rawIdxName?: string | null;
   idxDiv?: string | null;
@@ -207,7 +207,7 @@ export interface OfficialSectorIndexVerifyAttempt {
   reasonCode: string;
 }
 
-export interface SectorIndexCoverageDenominator {
+interface SectorIndexCoverageDenominator {
   internalGroupedSectorCount?: number;
   officialTargetSectorCount: number;
   safePromotionEligibleSectorCount: number;
@@ -216,7 +216,7 @@ export interface SectorIndexCoverageDenominator {
   verifiedSuccessCount: number;
 }
 
-export interface SectorIndexCoverageMetrics {
+interface SectorIndexCoverageMetrics {
   officialIndexCoverageByOfficialTarget: number;
   verifiedCoverageByOfficialTarget: number;
   verifiedCoverageByInternalGrouped?: number;
@@ -224,7 +224,7 @@ export interface SectorIndexCoverageMetrics {
   promotionVerifiedCoverage: number;
 }
 
-export interface SectorIndexUnsafeAliasPolicy {
+interface SectorIndexUnsafeAliasPolicy {
   // ADR-0488: 조선/방산/원자력/이차전지 등은 공식 단일 섹터가 없어 promotion numerator·denominator 모두에서 제외한다.
   includeInPromotionDenominator: false;
   includeInPromotionNumerator: false;
@@ -237,7 +237,7 @@ export interface SectorIndexUnsafeAliasPolicy {
   executionImpact: 'NONE';
 }
 
-export interface SectorIndexPromotionCoveragePolicy {
+interface SectorIndexPromotionCoveragePolicy {
   // ADR-0488: promotion decision은 공식·안전 섹터(unsafe alias 제외) 기준 coverage만 사용한다.
   selectedMetric: 'SAFE_OFFICIAL_VERIFIED_COVERAGE' | 'officialTargetVerifiedCoverage';
   numerator: number;
@@ -252,7 +252,7 @@ export interface SectorIndexPromotionCoveragePolicy {
   executionImpact: 'NONE';
 }
 
-export interface SectorIndexValueQuality {
+interface SectorIndexValueQuality {
   apiVerifiedCount: number;
   apiTransportSuccessCount: number;
   indexValueUsableCount: number;
@@ -268,7 +268,7 @@ export interface SectorIndexValueQuality {
   executionImpact: 'NONE';
 }
 
-export interface SectorIndexQualityResult {
+interface SectorIndexQualityResult {
   sectorName: string;
   rawIdxName?: string | null;
   idxDiv?: string | null;
@@ -285,7 +285,7 @@ export interface SectorIndexQualityResult {
   executionImpact: 'NONE';
 }
 
-export interface SectorIndexPromotionReadiness {
+interface SectorIndexPromotionReadiness {
   officialTargetSectorCount: number;
   safePromotionEligibleSectorCount: number;
   unsafeAliasSectorCount: number;
@@ -318,7 +318,7 @@ export interface SectorIndexPromotionReadiness {
   executionImpact: 'NONE';
 }
 
-export interface VerifyOfficialSectorIndexCodesInput {
+interface VerifyOfficialSectorIndexCodesInput {
   mappingRows: readonly OfficialSectorIndexCodeMappingRow[];
   verifyIndexCode?: (row: OfficialSectorIndexCodeMappingRow) => Promise<OfficialSectorIndexVerifyResult>;
 }
@@ -590,7 +590,7 @@ async function defaultVerifyIndexCode(
   };
 }
 
-export async function verifyOfficialSectorIndexCodes(
+async function verifyOfficialSectorIndexCodes(
   input: VerifyOfficialSectorIndexCodesInput,
 ): Promise<OfficialSectorIndexVerifyResult[]> {
   const verifyIndexCode = input.verifyIndexCode ?? defaultVerifyIndexCode;

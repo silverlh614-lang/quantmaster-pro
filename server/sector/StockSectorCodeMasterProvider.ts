@@ -5,7 +5,7 @@ import path from 'node:path';
 import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
 import { extractMstFromZipBuffer } from './SectorIndexMasterProvider.js';
 
-export const KIS_STOCK_MASTER_URLS = {
+const KIS_STOCK_MASTER_URLS = {
   KOSPI: 'https://new.real.download.dws.co.kr/common/master/kospi_code.mst.zip',
   KOSDAQ: 'https://new.real.download.dws.co.kr/common/master/kosdaq_code.mst.zip',
 } as const;

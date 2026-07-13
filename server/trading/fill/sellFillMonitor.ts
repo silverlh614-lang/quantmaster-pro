@@ -15,9 +15,9 @@ import {
   type RiskModeState,
 } from './unfilledOrderPolicy.js';
 
-export type SellExecutionImpact = SellReissueDecision['executionImpact'];
+type SellExecutionImpact = SellReissueDecision['executionImpact'];
 
-export interface SellFillMonitorOrder {
+interface SellFillMonitorOrder {
   ordNo: string;
   symbol: string;
   orderQty: number;

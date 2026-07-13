@@ -98,8 +98,3 @@ export function formatNextOpenKst(date: Date): string {
   const mm = String(kst.getUTCMinutes()).padStart(2, '0');
   return `${dayLabel} ${hh}:${mm} KST`;
 }
-
-/** 디버깅·배너용 시장 phase 라벨. */
-export function describeMarketPhase(market: MarketId = 'KRX', now: Date = new Date()): 'OPEN' | 'CLOSED' {
-  return isOpenAt(market, now) ? 'OPEN' : 'CLOSED';
-}

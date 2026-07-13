@@ -169,8 +169,6 @@ export function applyLeaderPreservation(
 
 // ── 관측 타입 (ADR-0617) ────────────────────────────────────────────────────────
 
-export type LeaderSourceTag = (typeof LEADER_SOURCES)[number];
-
 /** source 태그별 분포 (주도주 union/보존 카운트). */
 export interface LeaderSourceDistribution {
   FOREIGN_NET_BUY: number;

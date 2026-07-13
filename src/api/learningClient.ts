@@ -4,10 +4,10 @@
 
 /** 서버 LearningStatusSnapshot 동기 사본 (절대 규칙 #3 — 서버↔클라 직접 import 금지). */
 export type DailyVerdict = 'GOOD_DAY' | 'MIXED' | 'BAD_DAY' | 'SILENT';
-export type ReflectionMode =
+type ReflectionMode =
   | 'FULL' | 'REDUCED_EOD' | 'REDUCED_MWF' | 'TEMPLATE_ONLY' | 'SILENCE_MONDAY';
 
-export interface LearningReflectionSummary {
+interface LearningReflectionSummary {
   date: string;
   generatedAt: string;
   mode: ReflectionMode | null;
@@ -23,20 +23,20 @@ export interface LearningReflectionSummary {
   integrityParseFailed: boolean;
 }
 
-export interface LearningBudgetState {
+interface LearningBudgetState {
   mode: ReflectionMode;
   monthly?: { used?: number; limit?: number };
   daily?: { used?: number; limit?: number };
 }
 
-export interface LearningExperimentProposal {
+interface LearningExperimentProposal {
   id: string;
   state: string;
   hypothesis?: string;
   startedAt?: string;
 }
 
-export interface LearningBiasEntry {
+interface LearningBiasEntry {
   bias: string;
   avg?: number;
   recentScores?: number[];

@@ -14,7 +14,7 @@ export type KisChartFallbackPurpose =
   | 'OPEN_POSITION'
   | 'P1_POSITION_MANAGEMENT';
 
-export type KisFallbackSession =
+type KisFallbackSession =
   | 'PRE_OPEN'
   | 'REGULAR_TRADING'
   | 'SELL_ONLY_DIAGNOSTIC'
@@ -42,7 +42,7 @@ function kstMinutesOfDay(now: Date): number {
   return kst.getUTCHours() * 60 + kst.getUTCMinutes();
 }
 
-export function classifyKisFallbackSession(nowKst: Date = new Date()): KisFallbackSession {
+function classifyKisFallbackSession(nowKst: Date = new Date()): KisFallbackSession {
   const mins = kstMinutesOfDay(nowKst);
   if (mins >= 8 * 60 && mins < 9 * 60) return 'PRE_OPEN';
   if (mins >= 9 * 60 && mins <= 15 * 60 + 20) return 'REGULAR_TRADING';

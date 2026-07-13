@@ -44,7 +44,7 @@ import type {
 
 /* ───────── 4-state routing mode union ───────── */
 
-export type PreBreakoutKisWsRoutingMode =
+type PreBreakoutKisWsRoutingMode =
   | 'PROMOTE_TO_PRE_BREAKOUT_RETRY'  // WAIT_RETRY_ELIGIBLE → 850
   | 'KEEP_WATCHLIST'                  // ENV DISABLED fallback → 500
   | 'DOWNGRADE_TO_OBSERVE'            // WAIT_PRICE_TOO_FAR / VOLUME_WEAK / GATE_RECHECK_FAILED / COOLDOWN / SHADOW_ONLY

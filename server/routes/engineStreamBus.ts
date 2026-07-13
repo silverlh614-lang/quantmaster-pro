@@ -14,7 +14,7 @@
 
 import type { Request, Response } from 'express';
 
-export type StreamEventKind = 'engine-status' | 'kill-switch' | 'heartbeat' | 'ping';
+type StreamEventKind = 'engine-status' | 'kill-switch' | 'heartbeat' | 'ping';
 
 interface Subscriber {
   res: Response;
@@ -48,24 +48,9 @@ export function attachEngineStream(req: Request, res: Response): void {
   });
 }
 
-/** 구독자 수 — 운영 진단용. */
-export function getEngineStreamSubscriberCount(): number {
-  return subscribers.size;
-}
-
 /** 엔진 상태 스냅샷 브로드캐스트 — 호출부는 직렬화 가능한 plain object 전달. */
 export function publishEngineStatus(payload: Record<string, unknown>): void {
   broadcast('engine-status', payload);
-}
-
-/** Kill Switch 이벤트 브로드캐스트 — 즉시 UI 경보용. */
-export function publishKillSwitch(payload: Record<string, unknown>): void {
-  broadcast('kill-switch', payload);
-}
-
-/** Heartbeat 단독 브로드캐스트 — 상태 스냅샷보다 가볍게. */
-export function publishHeartbeat(payload: Record<string, unknown>): void {
-  broadcast('heartbeat', payload);
 }
 
 // ── 내부 헬퍼 ──────────────────────────────────────────────────────────────

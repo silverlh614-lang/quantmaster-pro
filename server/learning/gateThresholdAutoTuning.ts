@@ -49,7 +49,7 @@ export interface OptimalThresholdResult {
   confusion: { tp: number; fp: number; fn: number; tn: number } | null;
 }
 
-export type ThresholdShiftDecision =
+type ThresholdShiftDecision =
   | 'hold'
   | 'tighten'
   | 'loosen'

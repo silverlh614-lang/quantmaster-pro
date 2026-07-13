@@ -61,7 +61,7 @@ export interface ScanSummaryDecisionContextBundle {
   staleLegacyR6Path: boolean;
 }
 
-export function parseScanSummaryDate(summary: ScanSummary): Date | null {
+function parseScanSummaryDate(summary: ScanSummary): Date | null {
   const sourceHealth = summary.sourceSnapshotDataHealth as { asOf?: string } | undefined;
   const candidates = [
     summary.scanEvaluation?.asOf,
@@ -121,7 +121,7 @@ export function resolveScanSummaryPermissionView(summary: ScanSummary): ScanSumm
   };
 }
 
-export function buildScanSummaryDecisionContextBundle(
+function buildScanSummaryDecisionContextBundle(
   summary: ScanSummary,
 ): ScanSummaryDecisionContextBundle | null {
   const mg = summary.macroGateState;

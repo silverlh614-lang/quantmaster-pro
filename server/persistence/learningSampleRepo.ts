@@ -4,8 +4,8 @@ import path from 'path';
 import { DATA_DIR, ensureDataDir } from './paths.js';
 import type { LearningSample } from '../learning/supplyHealthLearning.js';
 
-export const LEARNING_SAMPLES_FILE = path.join(DATA_DIR, 'learning-samples.json');
-export const LEARNING_SAMPLES_TRIM_LIMIT = 20_000;
+const LEARNING_SAMPLES_FILE = path.join(DATA_DIR, 'learning-samples.json');
+const LEARNING_SAMPLES_TRIM_LIMIT = 20_000;
 
 function isLearningSample(value: unknown): value is LearningSample {
   if (!value || typeof value !== 'object') return false;
@@ -34,7 +34,7 @@ export function loadLearningSamples(): LearningSample[] {
   }
 }
 
-export function saveLearningSamples(samples: LearningSample[]): void {
+function saveLearningSamples(samples: LearningSample[]): void {
   ensureDataDir();
   const toSave = samples.length > LEARNING_SAMPLES_TRIM_LIMIT
     ? samples.slice(samples.length - LEARNING_SAMPLES_TRIM_LIMIT)

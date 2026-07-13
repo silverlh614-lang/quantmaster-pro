@@ -73,11 +73,3 @@ export function computeManualFrequencyAxis(
   const evidence = `오늘 ${todayCount}회 / 7일 ${r7}회 / 30일 ${r30}회 — ${grade}`;
   return { score, grade, todayCount, rolling7d: r7, rolling30d: r30, evidence };
 }
-
-/** 3 일 연속 grade ≥ WATCH 인지 판정 — followUpActions 자동 제안 근거. */
-export function isChronicManualFrequency(
-  recent3: ManualFrequencyAxisScore[],
-): boolean {
-  if (recent3.length < 3) return false;
-  return recent3.every((s) => s.grade !== 'CALM');
-}

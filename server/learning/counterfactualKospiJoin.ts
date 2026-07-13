@@ -11,7 +11,7 @@
 import { fetchKisSectorIndexDaily } from '../clients/kisClient/query.js';
 
 export type KospiJoinStatus = 'JOINED' | 'UNAVAILABLE';
-export type KospiJoinBaseSource = 'AT_RECORD' | 'DAY_CLOSE';
+type KospiJoinBaseSource = 'AT_RECORD' | 'DAY_CLOSE';
 
 /** 보드 행의 구조적 최소 셰이프 — counterfactualOutcomeBoard 순환 import 회피. */
 export interface KospiJoinRowInput {
@@ -20,7 +20,7 @@ export interface KospiJoinRowInput {
   returnD5: number | null;
 }
 
-export interface KospiRowJoinD5 {
+interface KospiRowJoinD5 {
   /** D+5 거래일 KOSPI 수익률(%) — 시계열 끝을 넘으면(미성숙) null. */
   kospiReturnD5: number | null;
   baseSource: KospiJoinBaseSource | null;

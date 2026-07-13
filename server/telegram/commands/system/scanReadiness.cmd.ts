@@ -21,5 +21,3 @@ const scanReadiness: TelegramCommand = {
 };
 
 commandRegistry.register(scanReadiness);
-
-export default scanReadiness;

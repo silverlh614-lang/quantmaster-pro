@@ -52,7 +52,7 @@ export type DataPromotionSourceType =
   | 'NEWS'
   | 'UNKNOWN';
 
-export type DataPromotionExecutionImpact = 'NONE' | 'DIAGNOSTIC_ONLY' | 'ADVISORY_ONLY' | 'SCORING_ONLY' | 'ORDER' | 'GATE' | 'BLOCK' | 'UNKNOWN';
+type DataPromotionExecutionImpact = 'NONE' | 'DIAGNOSTIC_ONLY' | 'ADVISORY_ONLY' | 'SCORING_ONLY' | 'ORDER' | 'GATE' | 'BLOCK' | 'UNKNOWN';
 
 export interface DataPromotionAuditInput {
   dataLineId: string;

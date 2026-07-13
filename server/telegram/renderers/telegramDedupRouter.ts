@@ -1,6 +1,6 @@
 // @responsibility ADR-0523 display dedup/cooldown for Telegram diagnostic messages.
 
-export type TelegramMessageType = 'GATE_SUMMARY' | 'GATE_BLOCKER' | 'PROVIDER_ISSUE' | 'EXECUTION_READY' | 'LEARNING_PULSE';
+type TelegramMessageType = 'GATE_SUMMARY' | 'GATE_BLOCKER' | 'PROVIDER_ISSUE' | 'EXECUTION_READY' | 'LEARNING_PULSE';
 
 export interface TelegramDedupInput {
   messageType: TelegramMessageType;
@@ -83,5 +83,3 @@ function cooldownFor(type: TelegramMessageType): number {
   if (type === 'LEARNING_PULSE') return 24 * 60 * 60 * 1000;
   return 0;
 }
-
-export const telegramDedupRouter = new TelegramDedupRouter();

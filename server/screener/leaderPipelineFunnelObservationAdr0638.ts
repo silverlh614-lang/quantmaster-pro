@@ -291,13 +291,6 @@ export function loadLatestLeaderPipelineFunnelRow(
   return rows.length > 0 ? rows[rows.length - 1] : null;
 }
 
-/** 테스트 전용 — ledger 파일 초기화. */
-export function __resetLeaderPipelineFunnelLedgerForTests(
-  filePath: string = LEADER_PIPELINE_FUNNEL_LEDGER_FILE,
-): void {
-  try { fs.unlinkSync(filePath); } catch { /* SDS-ignore: 미존재 파일 idempotent */ }
-}
-
 // ── /scan_blockers 1섹션 formatter (출력 budget ADR-0478 — 5~7줄) ──────────────
 
 /**

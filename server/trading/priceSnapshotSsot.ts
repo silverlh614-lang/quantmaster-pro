@@ -4,7 +4,7 @@ import { fetchCurrentPrice } from '../clients/kisClient.js';
 import { getRealtimeQuote } from '../clients/kisStreamClient.js';
 import type { AuthoritativeQuoteSnapshot } from './shadowExecutionSafety.js';
 
-export type PriceSource =
+type PriceSource =
   | 'KIS_REALTIME_QUOTE'
   | 'KIS_DELAYED_QUOTE'
   | 'KIS_OHLCV_LAST'
@@ -13,7 +13,7 @@ export type PriceSource =
   | 'FALLBACK_PREV_CLOSE'
   | 'UNKNOWN';
 
-export type PriceConfidence =
+type PriceConfidence =
   | 'REALTIME'
   | 'DELAYED_VALID'
   | 'EOD_VALID'
@@ -53,7 +53,7 @@ export interface PriceSnapshot {
   reason?: string;
 }
 
-export type TradePlanStatus =
+type TradePlanStatus =
   | 'VALID'
   | 'INVALID_PRICE'
   | 'INVALID_STOP'
@@ -62,17 +62,8 @@ export type TradePlanStatus =
   | 'PRICE_STALE'
   | 'MISSING_PRICE';
 
-export type StopPolicy = 'FIXED_PCT' | 'TECHNICAL_SUPPORT' | 'HYBRID_SIMPLE';
-export type TargetPolicy = 'FIXED_RR' | 'FIXED_PCT' | 'HYBRID_SIMPLE';
-
-export interface ResolvePriceSnapshotInput {
-  symbol: string;
-  purpose: PriceSnapshotPurpose;
-  marketSession: string;
-  snapshotId?: string;
-  now?: Date;
-  quote?: AuthoritativeQuoteSnapshot;
-}
+type StopPolicy = 'FIXED_PCT' | 'TECHNICAL_SUPPORT' | 'HYBRID_SIMPLE';
+type TargetPolicy = 'FIXED_RR' | 'FIXED_PCT' | 'HYBRID_SIMPLE';
 
 export interface TradePlan {
   tradePlanId: string;
@@ -292,60 +283,6 @@ export function priceSnapshotFromAuthoritativeQuote(input: {
   });
 }
 
-export async function resolvePriceSnapshot(input: ResolvePriceSnapshotInput): Promise<PriceSnapshot> {
-  const now = input.now ?? new Date();
-  if (input.quote) {
-    return priceSnapshotFromAuthoritativeQuote({
-      quote: input.quote,
-      purpose: input.purpose,
-      now,
-      marketSession: input.marketSession,
-    });
-  }
-
-  const realtime = getRealtimeQuote(input.symbol);
-  if (realtime && finitePositive(realtime.price)) {
-    return buildPriceSnapshot({
-      snapshotId: input.snapshotId ?? `quote_${input.symbol}_${realtime.updatedAt}`,
-      symbol: input.symbol,
-      marketSession: input.marketSession,
-      now,
-      currentPrice: realtime.price,
-      lastTradePrice: realtime.price,
-      source: 'KIS_REALTIME_QUOTE',
-      confidence: 'REALTIME',
-      asOf: new Date(realtime.updatedAt).toISOString(),
-    });
-  }
-
-  try {
-    const price = await fetchCurrentPrice(input.symbol);
-    return buildPriceSnapshot({
-      snapshotId: input.snapshotId ?? `quote_${input.symbol}_${now.getTime()}`,
-      symbol: input.symbol,
-      marketSession: input.marketSession,
-      now,
-      currentPrice: finitePositive(price) ? price : null,
-      lastTradePrice: finitePositive(price) ? price : null,
-      source: 'KIS_DELAYED_QUOTE',
-      confidence: finitePositive(price) ? 'DELAYED_VALID' : 'MISSING',
-      asOf: now.toISOString(),
-    });
-  } catch (error) {
-    return buildPriceSnapshot({
-      snapshotId: input.snapshotId ?? `quote_${input.symbol}_${now.getTime()}`,
-      symbol: input.symbol,
-      marketSession: input.marketSession,
-      now,
-      currentPrice: null,
-      source: 'UNKNOWN',
-      confidence: 'MISSING',
-      asOf: now.toISOString(),
-      reason: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
 export function resolveEntryPriceFromSnapshot(snapshot: PriceSnapshot, purpose: 'LIVE_ORDER' | 'SHADOW_FILL' | 'COUNTERFACTUAL'): number | null {
   if (purpose === 'SHADOW_FILL') return snapshot.priceUsableForShadowFill ? snapshot.currentPrice : null;
   if (purpose === 'LIVE_ORDER') return snapshot.priceUsableForExecution ? snapshot.currentPrice : null;
@@ -502,8 +439,6 @@ export function computeTradePlan(priceSnapshot: PriceSnapshot, params: TradePlan
     resolvedBy: 'TradePlanResolver',
   };
 }
-
-export const resolveTradePlan = computeTradePlan;
 
 export function checkPriceMismatch(input: {
   referencePrice: number;

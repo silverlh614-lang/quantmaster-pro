@@ -96,5 +96,3 @@ const conditionAttributionShadow: TelegramCommand = {
 };
 
 commandRegistry.register(conditionAttributionShadow);
-
-export default conditionAttributionShadow;

@@ -26,8 +26,8 @@ import {
   isFiniteNumber,
 } from '../utils/nullableFormatters.js';
 
-export type EnemySeverity = 'INFO' | 'WARN' | 'BLOCK';
-export type EnemySource = 'KIS' | 'DART' | 'NAVER' | 'AI_GENERATED' | 'MANUAL' | 'UNKNOWN';
+type EnemySeverity = 'INFO' | 'WARN' | 'BLOCK';
+type EnemySource = 'KIS' | 'DART' | 'NAVER' | 'AI_GENERATED' | 'MANUAL' | 'UNKNOWN';
 
 export interface EnemyCheckItem {
   key: string;
@@ -42,7 +42,7 @@ export interface EnemyCheckItem {
   reason?: string;
 }
 
-export type EnemyDataQualityState = 'OK' | 'N/A' | 'DEGRADED' | 'STALE' | 'AI_ONLY';
+type EnemyDataQualityState = 'OK' | 'N/A' | 'DEGRADED' | 'STALE' | 'AI_ONLY';
 
 export interface EnemyDataQualitySummary {
   PRICE: EnemyDataQualityState;
@@ -115,7 +115,7 @@ function dataQualityForMaterialized(ok: boolean): EnemyDataQualityState {
   return ok ? 'OK' : 'N/A';
 }
 
-export function shouldHideUnmaterializedEnemyItems(): boolean {
+function shouldHideUnmaterializedEnemyItems(): boolean {
   return process.env.CARD_HIDE_UNMATERIALIZED_ENEMY_ITEMS !== 'false'
     || process.env.TELEGRAM_HIDE_UNMATERIALIZED_ENEMY_ITEMS !== 'false';
 }

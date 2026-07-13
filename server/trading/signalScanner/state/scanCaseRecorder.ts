@@ -11,11 +11,3 @@ export function recordScanCase(result: ScanEvaluationResult): void {
     recentScanCases.splice(0, recentScanCases.length - MAX_RECENT_SCAN_CASES);
   }
 }
-
-export function listRecentScanCases(): ScanEvaluationResult[] {
-  return [...recentScanCases];
-}
-
-export function __resetScanCasesForTests(): void {
-  recentScanCases.splice(0, recentScanCases.length);
-}

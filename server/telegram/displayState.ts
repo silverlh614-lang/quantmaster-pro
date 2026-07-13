@@ -1,6 +1,6 @@
 // @responsibility Telegram DisplayState routing/rendering SSOT. No trading decision logic.
 
-export type TelegramSeverity =
+type TelegramSeverity =
   | 'ACTION'
   | 'POSITION'
   | 'SUMMARY'
@@ -8,7 +8,7 @@ export type TelegramSeverity =
   | 'DEBUG'
   | 'NOISE';
 
-export type TelegramAudience =
+type TelegramAudience =
   | 'USER_SIGNAL'
   | 'USER_BOT'
   | 'OPERATOR_DEBUG'
@@ -131,7 +131,7 @@ function isNearBuyWatch(state: DisplayState): boolean {
     && state.finalScore >= 68;
 }
 
-export function resolveTelegramAudience(state: DisplayState): TelegramAudience {
+function resolveTelegramAudience(state: DisplayState): TelegramAudience {
   if (state.audience === 'USER_BOT') return 'USER_BOT';
   if (state.audience === 'INTERNAL_LOG_ONLY') return 'INTERNAL_LOG_ONLY';
   if (state.audience === 'OPERATOR_DEBUG') return 'OPERATOR_DEBUG';
@@ -146,7 +146,7 @@ export function resolveTelegramAudience(state: DisplayState): TelegramAudience {
   return state.audience;
 }
 
-export function buildTelegramMessageKey(state: DisplayState, audience: TelegramAudience, nowMs = Date.now()): string {
+function buildTelegramMessageKey(state: DisplayState, audience: TelegramAudience, nowMs = Date.now()): string {
   const tradingDate = state.tradingDate ?? tradingDateFromNow(nowMs);
   return [
     tradingDate,

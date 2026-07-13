@@ -181,5 +181,3 @@ const sell: TelegramCommand = {
 };
 
 commandRegistry.register(sell);
-
-export default sell;

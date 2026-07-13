@@ -14,14 +14,14 @@ import type {
   Gate2Status,
 } from './gate2ConfluenceScore.js';
 
-export interface Gate2OutcomeForwardReturns {
+interface Gate2OutcomeForwardReturns {
   d1: number | null;
   d3: number | null;
   d5: number | null;
   d10: number | null;
 }
 
-export type Gate2OutcomeStatus = 'PENDING' | 'PARTIAL' | 'LABELED' | 'DATA_INSUFFICIENT';
+type Gate2OutcomeStatus = 'PENDING' | 'PARTIAL' | 'LABELED' | 'DATA_INSUFFICIENT';
 
 export interface Gate2OutcomeSeed {
   id: string;
@@ -58,7 +58,7 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-export function buildGate2OutcomeSeedId(input: { symbol: string; tradeDate: string; sourceSnapshotId: string }): string {
+function buildGate2OutcomeSeedId(input: { symbol: string; tradeDate: string; sourceSnapshotId: string }): string {
   return ['gate2-outcome', safeKey(input.tradeDate), safeKey(input.symbol), safeKey(input.sourceSnapshotId)].join(':').slice(0, 220);
 }
 

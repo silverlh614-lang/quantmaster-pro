@@ -100,5 +100,3 @@ const learningStatus: TelegramCommand = {
 };
 
 commandRegistry.register(learningStatus);
-
-export default learningStatus;

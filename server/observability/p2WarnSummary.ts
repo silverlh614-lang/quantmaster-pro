@@ -26,11 +26,3 @@ export function recordP2WarnSummary(emission: OperationalWarnEmission): void {
     `[P2WarnSummary] key=${key} suppressed=${suppressedCount} windowSec=${emission.payload.ttlSec} executionImpact=NONE`,
   );
 }
-
-export function getP2WarnSummarySnapshot(): Record<string, number> {
-  return Object.fromEntries(suppressedByKey.entries());
-}
-
-export function resetP2WarnSummary(): void {
-  suppressedByKey.clear();
-}

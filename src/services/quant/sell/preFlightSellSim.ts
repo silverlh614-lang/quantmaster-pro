@@ -18,12 +18,9 @@ import {
   type PreFlightScenarioId,
   type PreFlightScenario,
 } from './preFlightScenarios';
-
-export type { PreFlightScenarioId, PreFlightScenario };
-
 // ─── 결과 ────────────────────────────────────────────────────────────────────
 
-export interface PreFlightScenarioResult {
+interface PreFlightScenarioResult {
   scenarioId: PreFlightScenarioId;
   description: string;
   triggeredSignals: readonly SellSignal[];

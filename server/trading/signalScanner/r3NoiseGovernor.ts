@@ -54,7 +54,7 @@ import {
  * Fallback:
  *   - UNKNOWN                       : 분류 불가 — 보수적으로 streak 누적 (기존 동작 보존).
  */
-export type R3Gate1ZeroCause =
+type R3Gate1ZeroCause =
   | 'TRUE_GATE1_ZERO'
   | 'SELL_ONLY_GATE1_ZERO'
   | 'LUNCH_BREAK_GATE1_ZERO'
@@ -64,7 +64,7 @@ export type R3Gate1ZeroCause =
   | 'SHADOW_OBSERVABLE_EXISTS'
   | 'UNKNOWN';
 
-export type R3NoiseGovernorAction =
+type R3NoiseGovernorAction =
   | 'KEEP_COUNTERFACTUAL_LEARNING'
   | 'KEEP_SHADOW_OBSERVATION'
   | 'PATCH_PROVIDER'

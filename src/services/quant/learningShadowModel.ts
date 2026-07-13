@@ -9,7 +9,7 @@ import type { TradeRecord, FeedbackLoopResult, ConditionCalibration } from '../.
 import type { ConditionId } from '../../types/core';
 import { evaluateFeedbackLoop, type FeedbackLoopOptions } from './feedbackLoopEngine';
 
-export interface ConditionDivergence {
+interface ConditionDivergence {
   conditionId: ConditionId;
   liveWeight: number;
   shadowWeight: number;

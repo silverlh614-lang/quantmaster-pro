@@ -9,7 +9,7 @@ function fmt(value: unknown): string {
   return String(value);
 }
 
-export function formatAdminNowDetail(now: Date = new Date()): string {
+function formatAdminNowDetail(now: Date = new Date()): string {
   const resolved = resolveRegimeSnapshot({ now });
   const snapshot = resolved.marketState;
   const diagnostics = resolved.diagnostics;
@@ -58,5 +58,3 @@ const adminNowDetail: TelegramCommand = {
 };
 
 commandRegistry.register(adminNowDetail);
-
-export default adminNowDetail;

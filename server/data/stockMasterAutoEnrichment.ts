@@ -29,7 +29,7 @@ import { refreshMultiSourceMaster } from '../services/multiSourceStockMaster.js'
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 
-export interface MasterEnrichmentChange {
+interface MasterEnrichmentChange {
   code: string;
   name: string;
   oldMarket?: string;       // 갱신 전 시장 — undefined 면 신규 추가

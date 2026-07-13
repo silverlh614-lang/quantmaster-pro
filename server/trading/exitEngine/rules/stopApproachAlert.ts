@@ -43,7 +43,7 @@ export const BEP_TOLERANCE_PCT = 0.5;
 /** 기존 고정 밴드(레거시·fallback·상한 cap) — distToStop% 단위. */
 export const FIXED_STOP_APPROACH_BANDS = { stage1: 5, stage2: 3, stage3: 1 } as const;
 /** ATR% 배수 — Stage 별 동적 밴드. 저변동주일수록 밴드 축소. */
-export const ATR_STOP_APPROACH_MULTIPLES = { stage1: 2.0, stage2: 1.0, stage3: 0.4 } as const;
+const ATR_STOP_APPROACH_MULTIPLES = { stage1: 2.0, stage2: 1.0, stage3: 0.4 } as const;
 
 /**
  * ADR-0572: distToStop% 발동 밴드를 종목 ATR14 기반으로 동적 산출.

@@ -31,7 +31,7 @@ export const REGIME_SAMPLE_TARGETS: Record<string, number> = {
   R6_DEFENSE: 15,
 };
 
-export interface RegimeCoverageEntry {
+interface RegimeCoverageEntry {
   regime: string;
   target: number;
   current: number;
@@ -52,7 +52,7 @@ export interface RegimeCoverageReport {
  * 현재 누적 RecommendationRecord 를 기반으로 레짐별 커버리지를 계산.
  * status 가 PENDING 인 레코드도 샘플로 집계 (단, 수익률 기반 통계는 WIN/LOSS/EXPIRED 만 사용).
  */
-export function regimeCoverage(records?: RecommendationRecord[]): RegimeCoverageReport {
+function regimeCoverage(records?: RecommendationRecord[]): RegimeCoverageReport {
   const data = records ?? getRecommendations();
   const entries: RegimeCoverageEntry[] = [];
   let totalSamples = 0;
@@ -85,17 +85,6 @@ export function regimeCoverage(records?: RecommendationRecord[]): RegimeCoverage
     totalDeficit,
     balanceRatio: totalTarget > 0 ? totalSamples / totalTarget : 0,
   };
-}
-
-/**
- * 후보 스캐너 호출 시 "이 후보가 속한 레짐이 현재 부족 레짐인가" 를 판정.
- * PROBING 슬롯 확장·Shadow 학습 우선도 결정 입력으로 사용 가능 (후크 지점).
- */
-export function isUnderRepresentedRegime(regime: string, report?: RegimeCoverageReport): boolean {
-  const r = report ?? regimeCoverage();
-  const entry = r.entries.find(e => e.regime === regime);
-  if (!entry) return false;
-  return entry.deficit > 0 && entry.current < entry.target * 0.5;
 }
 
 export function formatRegimeCoverage(report?: RegimeCoverageReport): string {
@@ -134,7 +123,7 @@ export function formatRegimeCoverage(report?: RegimeCoverageReport): string {
  *
  * ENV `LEARNING_REGIME_COVERAGE_SUGGEST_DISABLED=true` 비상 우회 — 진단 시 사용.
  */
-export function isRegimeCoverageSuggestDisabled(): boolean {
+function isRegimeCoverageSuggestDisabled(): boolean {
   return process.env.LEARNING_REGIME_COVERAGE_SUGGEST_DISABLED === 'true';
 }
 

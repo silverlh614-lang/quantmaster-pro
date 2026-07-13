@@ -26,5 +26,3 @@ const resume: TelegramCommand = {
 };
 
 commandRegistry.register(resume);
-
-export default resume;

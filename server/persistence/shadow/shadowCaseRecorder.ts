@@ -46,19 +46,6 @@ export function listShadowPersistenceCases(): ShadowPersistenceCase[] {
   return [...cases];
 }
 
-export function formatShadowPersistenceCasesCompact(limit = 5): string {
-  const rows = cases.slice(-limit);
-  if (rows.length === 0) return 'ShadowPersistenceCases: none';
-  return rows.map((row) => [
-    `case=${row.id}`,
-    `source=${row.source}`,
-    `op=${row.operation}`,
-    `learningImpact=${row.learningImpact}`,
-    row.queueId ? `queueId=${row.queueId}` : undefined,
-    `reason=${row.reason}`,
-  ].filter(Boolean).join(' ')).join('\n');
-}
-
 export function __resetShadowPersistenceCasesForTests(): void {
   cases.splice(0, cases.length);
 }

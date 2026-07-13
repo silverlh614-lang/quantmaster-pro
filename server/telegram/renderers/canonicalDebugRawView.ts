@@ -23,7 +23,7 @@ export interface ScopedCount {
 }
 
 /** gate3Consolidated (persisted 정본) 의 직렬화 슬라이스. 순수 추출 — 재계산 0. */
-export interface CanonicalGate3ViewSlice {
+interface CanonicalGate3ViewSlice {
   samples: ScopedCount;
   lastTriggerFiredCount: ScopedCount;
   lastTriggerWaitCount: ScopedCount;
@@ -40,14 +40,14 @@ export interface CanonicalGate3ViewSlice {
 }
 
 /** gate1Survival (persisted 정본) 의 직렬화 슬라이스. */
-export interface CanonicalGate1ViewSlice {
+interface CanonicalGate1ViewSlice {
   samples: ScopedCount;
   liveBuyBlockedCount: ScopedCount;
   shadowAllowedCount: ScopedCount;
 }
 
 /** canonicalRuntimeResolution.sizing 슬라이스 (Step27 정본 추출). */
-export interface CanonicalSizingViewSlice {
+interface CanonicalSizingViewSlice {
   hardBlockCount: ScopedCount;
   advisoryCount: ScopedCount;
   finalKelly: number | null;

@@ -438,15 +438,7 @@ export function firstValueFromRecords(records: Record<string, unknown>[], keys: 
   return undefined;
 }
 
-export function firstNumberFromRecords(records: Record<string, unknown>[], keys: string[]): number | undefined {
-  for (const record of records) {
-    const value = firstNumber(record, keys);
-    if (value !== undefined) return value;
-  }
-  return undefined;
-}
-
-export function firstNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
+function firstNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
   const normalized = firstNormalizedProgramValue(record, keys);
   return normalized?.value;
 }
@@ -483,11 +475,6 @@ export function firstProgramValueNormalization(
   return firstFailure;
 }
 
-export function parseFiniteNumber(value: unknown): number | undefined {
-  const normalized = normalizeProgramFlowValue(value);
-  return normalized.ok ? normalized.value : undefined;
-}
-
 export function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
 }
@@ -496,7 +483,7 @@ export function isStockProgramScanKey(key: string): boolean {
   return STOCK_PROGRAM_SCAN_KEYS.includes(key);
 }
 
-export function hasNestedRecordKey(record: Record<string, unknown> | null, targetKey: string, depth = 0, seen = new Set<unknown>()): boolean {
+function hasNestedRecordKey(record: Record<string, unknown> | null, targetKey: string, depth = 0, seen = new Set<unknown>()): boolean {
   if (!record || depth > 5 || seen.has(record)) return false;
   seen.add(record);
   if (asRecord(record[targetKey])) return true;

@@ -61,6 +61,3 @@ const vkospiIndexDump: TelegramCommand = {
 };
 
 commandRegistry.register(vkospiIndexDump);
-
-export { vkospiIndexDump };
-export default vkospiIndexDump;

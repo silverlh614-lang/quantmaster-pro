@@ -11,7 +11,7 @@
  * stockScreener.autoPopulateWatchlist가 이 프리셋의 값을 읽어 동작.
  */
 
-export type ScanPresetPhase = 'MORNING' | 'MIDDAY' | 'CLOSE' | 'OFFHOURS';
+type ScanPresetPhase = 'MORNING' | 'MIDDAY' | 'CLOSE' | 'OFFHOURS';
 
 export interface ScanPreset {
   phase: ScanPresetPhase;
@@ -128,6 +128,3 @@ export function getCurrentScanPreset(now: Date = new Date()): ScanPreset {
   if (t >= 1430 && t < 1520) return CLOSE;
   return OFFHOURS;
 }
-
-/** 외부에서 특정 프리셋을 직접 참조하고 싶을 때. */
-export const SCAN_PRESETS = { MORNING, MIDDAY, CLOSE, OFFHOURS } as const;

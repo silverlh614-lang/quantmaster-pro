@@ -13,18 +13,18 @@ import type { LossReason, TradeRecord } from '../../types/portfolio';
 /** MACRO_SHOCK: VKOSPI 매수→매도 변화량 (포인트) 임계 */
 export const MACRO_SHOCK_VKOSPI_DELTA = 8;
 /** MACRO_SHOCK: 동시 만족할 returnPct 상한 (음수, %) */
-export const MACRO_SHOCK_RETURN_PCT_MAX = -3;
+const MACRO_SHOCK_RETURN_PCT_MAX = -3;
 
 /** STOP_TOO_TIGHT: 빠른 손절 임계 (일) */
-export const STOP_TOO_TIGHT_HOLDING_DAYS_MAX = 3;
+const STOP_TOO_TIGHT_HOLDING_DAYS_MAX = 3;
 /** STOP_TOO_TIGHT: returnPct 범위 (음수, %) */
-export const STOP_TOO_TIGHT_RETURN_PCT_MIN = -10;
-export const STOP_TOO_TIGHT_RETURN_PCT_MAX = -3;
+const STOP_TOO_TIGHT_RETURN_PCT_MIN = -10;
+const STOP_TOO_TIGHT_RETURN_PCT_MAX = -3;
 
 /** OVERHEATED_ENTRY: holdingDays 임계 (일) */
-export const OVERHEATED_ENTRY_HOLDING_DAYS_MAX = 5;
+const OVERHEATED_ENTRY_HOLDING_DAYS_MAX = 5;
 /** OVERHEATED_ENTRY: 심리적 객관성 조건 17 ≤ 임계 */
-export const OVERHEATED_PSYCHOLOGY_THRESHOLD = 3;
+const OVERHEATED_PSYCHOLOGY_THRESHOLD = 3;
 
 /** STOP_TOO_LOOSE: returnPct 임계 (음수, %) */
 export const STOP_TOO_LOOSE_RETURN_PCT_MAX = -15;

@@ -9,21 +9,21 @@ export type Gate1ShadowEligibilityMode =
   | 'OBSERVE_ONLY'
   | 'DISABLED_UNEXPECTED';
 
-export type Gate1ShadowEligibilitySource =
+type Gate1ShadowEligibilitySource =
   | 'ALWAYS_ON_KERNEL'
   | 'ENGINE_MODE'
   | 'MARKET_SESSION'
   | 'QMP_POLICY'
   | 'UNKNOWN';
 
-export type Gate1ShadowEligibilitySourceStatus =
+type Gate1ShadowEligibilitySourceStatus =
   | 'VERIFIED'
   | 'STALE'
   | 'MISSING'
   | 'DEGRADED'
   | 'UNKNOWN';
 
-export type Gate1LiveExecutionImpact =
+type Gate1LiveExecutionImpact =
   | 'NONE'
   | 'LIVE_BUY_BLOCKED_ONLY'
   | 'LIVE_EXECUTION_BLOCKED';

@@ -2,7 +2,7 @@
 import { emitLegacyOperationalWarn } from '../../../observability/legacyOperationalWarnAdapter.js';
 import type { ExecutionImpact } from '../../../observability/executionImpact.js';
 
-export type PositionP0WarnCode =
+type PositionP0WarnCode =
   | 'P0_POSITION_QUERY_DEGRADED'
   | 'P0_SHADOW_POSITION_SOURCE_FAILED'
   | 'P0_VIRTUAL_ACCOUNT_POSITION_FAILED'

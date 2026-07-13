@@ -35,12 +35,12 @@ export function regimeRiskOnFastUpgradeBreadthMinRatio(): number {
 }
 
 /** ADR-0604 잔여 이행 — 미국 야간(SPX) 보조 AND 활성화. 정확 비교(=== 'true'), default OFF. */
-export function isRegimeRiskOnFastUpgradeUsOvernightAndEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+function isRegimeRiskOnFastUpgradeUsOvernightAndEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_AND_ENABLED === 'true';
 }
 
 /** ADR-0604 보조 AND 최소 SPX 야간 수익(%) — 가드 [-5, 5], default -0.5 (명확한 야간 하락만 차단). */
-export function regimeRiskOnFastUpgradeUsOvernightMinPct(env: NodeJS.ProcessEnv = process.env): number {
+function regimeRiskOnFastUpgradeUsOvernightMinPct(env: NodeJS.ProcessEnv = process.env): number {
   const raw = Number(env.REGIME_RISK_ON_FAST_UPGRADE_US_OVERNIGHT_MIN_PCT);
   return Number.isFinite(raw) && raw >= -5 && raw <= 5 ? raw : -0.5;
 }

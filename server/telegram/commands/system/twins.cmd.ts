@@ -122,5 +122,3 @@ const twins: TelegramCommand = {
 };
 
 commandRegistry.register(twins);
-
-export default twins;

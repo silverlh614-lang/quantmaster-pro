@@ -18,5 +18,3 @@ const report: TelegramCommand = {
 };
 
 commandRegistry.register(report);
-
-export default report;

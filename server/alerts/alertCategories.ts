@@ -20,9 +20,6 @@ export const ChannelSemantic = {
   REGIME: AlertCategory.INFO,
   JOURNAL: AlertCategory.SYSTEM,
 } as const;
-
-export type ChannelSemanticName = keyof typeof ChannelSemantic;
-
 export type AlertCategoryMap = Partial<Record<AlertCategory, string>>;
 
 export function parseChannelMap(raw: string | undefined): AlertCategoryMap {

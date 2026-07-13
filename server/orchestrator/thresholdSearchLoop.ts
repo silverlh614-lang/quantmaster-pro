@@ -16,9 +16,9 @@
  *   - 제안 하향 폭은 1pt 까지 (user spec)
  */
 
-export const THRESHOLD_SEARCH_DRY_DELTA = -0.5;
+const THRESHOLD_SEARCH_DRY_DELTA = -0.5;
 export const THRESHOLD_SEARCH_MAX_TOTAL_DELTA = -1.0;
-export const THRESHOLD_SEARCH_MIN_CAPTURES_FOR_PROPOSAL = 5;
+const THRESHOLD_SEARCH_MIN_CAPTURES_FOR_PROPOSAL = 5;
 
 export interface GateScoreBinCounts {
   '<4': number;

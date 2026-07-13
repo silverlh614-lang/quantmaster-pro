@@ -15,7 +15,7 @@ import {
 
 const DEFAULT_THRESHOLD_DAYS = 30;
 
-export async function runDeprecationReport(
+async function runDeprecationReport(
   thresholdDays: number = DEFAULT_THRESHOLD_DAYS,
   now: number = Date.now(),
 ): Promise<{ sent: boolean; candidates: number }> {

@@ -42,7 +42,7 @@ export type SignalScoreComponentCode =
   | 'SOFT_FAIL_PENALTY'
   | 'OTHER';
 
-export type Gate1ScoreComponentScope =
+type Gate1ScoreComponentScope =
   | 'CORE_SIGNAL'
   | 'ADVISORY_SIGNAL'
   | 'CONFIDENCE_ONLY';
@@ -176,7 +176,7 @@ export interface WatchlistGate1PropagationTrace {
   issueReason?: string;
 }
 
-export type ScoreRangeCompressionCause =
+type ScoreRangeCompressionCause =
   | 'MISSING_SYMBOL_LEVEL_FEATURES'
   | 'DEFAULT_SCORE_USED_FOR_ALL'
   | 'WATCHLIST_SCORE_NOT_IMPORTED'

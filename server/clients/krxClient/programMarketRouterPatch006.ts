@@ -53,7 +53,7 @@ export function isPatch006Disabled(): boolean {
 }
 
 /** 사용자 §7: 8-state final routedStatus + Patch-004 호환 union (절대 변경 금지). */
-export type ProgramMarketRoutedStatusV2 =
+type ProgramMarketRoutedStatusV2 =
   | ProgramMarketRoutedStatus       // 7 from Patch-004: VERIFIED/EMPTY_VALID/UNSUPPORTED/PARAM_MISMATCH/STALE_CACHE/DEGRADED/MISSING
   | 'PARTIAL_VERIFIED'              // 8th — KOSPI 또는 KOSDAQ 한쪽만 KRX 회복
   | 'UNSUPPORTED_INTRADAY'          // 9th — 장중 KRX 미지원 (intraday endpoint 미제공)
@@ -76,7 +76,7 @@ export function isProgramTradingIntradaySession(now: Date | number = Date.now())
 }
 
 /** 사용자 §10 (D variant): Telegram 4-case display branches 라벨. */
-export type ProgramMarketDisplayCase =
+type ProgramMarketDisplayCase =
   | 'A_KRX_RECOVERED'           // KRX fallback 성공
   | 'B_ALL_FAILED'              // 모든 provider empty
   | 'C_UNSUPPORTED_INTRADAY'    // 장중 KRX 미지원
@@ -100,7 +100,7 @@ export interface ProgramMarketAggregateMeta {
   marketsSucceeded: string[];
 }
 
-export interface ProgramMarketShapeProbeMeta {
+interface ProgramMarketShapeProbeMeta {
   confidence: 'EMPTY' | 'SHAPE_CANDIDATE';
   topLevelKeys: string[];
   shapeCandidatePath: string | null;

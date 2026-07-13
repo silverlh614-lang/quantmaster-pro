@@ -18,13 +18,13 @@ import { NO_OP } from '../types.js';
  * RRR 붕괴 익절 최소 수익률 기본 임계(%). returnPct 가 이 값 미만이면 발동 보류.
  * 한국 round-trip 비용(매도 거래세 ~0.18% + 수수료 + 슬리피지) 대비 충분한 실익 확보.
  */
-export const RRR_COLLAPSE_MIN_PROFIT_PCT_DEFAULT = 3;
+const RRR_COLLAPSE_MIN_PROFIT_PCT_DEFAULT = 3;
 
 /**
  * ENV `RRR_COLLAPSE_MIN_PROFIT_PCT` 해석 (숫자%, 기본 3). 0 설정 시 구 동작
  * (수익 0% 초과면 발동)으로 즉시 롤백. 음수·NaN·빈값은 기본값으로 안전 폴백.
  */
-export function getRrrCollapseMinProfitPct(): number {
+function getRrrCollapseMinProfitPct(): number {
   const raw = process.env.RRR_COLLAPSE_MIN_PROFIT_PCT;
   if (raw === undefined || raw.trim() === '') return RRR_COLLAPSE_MIN_PROFIT_PCT_DEFAULT;
   const n = Number(raw);

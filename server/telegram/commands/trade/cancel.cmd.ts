@@ -59,5 +59,3 @@ const cancel: TelegramCommand = {
 };
 
 commandRegistry.register(cancel);
-
-export default cancel;

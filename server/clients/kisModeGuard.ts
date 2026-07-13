@@ -45,27 +45,3 @@ export function assertModeCompatible(trId: string, mode: 'LIVE' | 'VTS'): void {
     throw new ModeIncompatibleError(trId, mode);
   }
 }
-
-/**
- * Express 요청 핸들러를 감싸는 옵션 래퍼. 라우트 레벨에서 쿼리/바디의 trId 를
- * 뽑아 검증한다. 오용 감지 시 400 + 설명 반환.
- */
-export function modeGuardMiddleware(getTrId: (req: unknown) => string | undefined) {
-  return (req: any, res: any, next: any) => {
-    const trId = getTrId(req);
-    if (!trId) return next();
-    const mode: 'LIVE' | 'VTS' = process.env.KIS_IS_REAL === 'true' ? 'LIVE' : 'VTS';
-    try {
-      assertModeCompatible(trId, mode);
-      next();
-    } catch (err) {
-      const e = err as ModeIncompatibleError;
-      res.status(400).json({
-        error: 'MODE_INCOMPATIBLE',
-        trId: e.trId,
-        mode: e.mode,
-        message: e.message,
-      });
-    }
-  };
-}

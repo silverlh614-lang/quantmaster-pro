@@ -81,7 +81,7 @@ export async function fetchCurrentPrice(code: string): Promise<number | null> {
 }
 
 // KIS 실시간 현재가 조회 — dataSourceType: 'REALTIME'
-export async function syncStockPriceKIS(stock: StockRecommendation): Promise<StockRecommendation> {
+async function syncStockPriceKIS(stock: StockRecommendation): Promise<StockRecommendation> {
   try {
     const res = await fetch('/api/kis/proxy', {
       method: 'POST',

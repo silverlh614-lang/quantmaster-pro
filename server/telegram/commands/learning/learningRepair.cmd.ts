@@ -42,4 +42,3 @@ const cmds: TelegramCommand[] = [
   { name: '/gemini_learning_status', category: 'LRN', visibility: 'ADMIN', riskLevel: 0, description: 'Gemini learning reflection 호출률/예약 상태', async execute({ reply }) { const r = scheduleGeminiLearningReflection(); reply(`♊ gemini_learning_status callsThisMonth=${r.callsThisMonth}/${r.tradingDaysThisMonth} utilizationRate=${(r.utilizationRate*100).toFixed(0)}% lastCallAt=${r.lastCallAt ?? 'N/A'} nextScheduledAt=${r.nextScheduledAt ?? 'N/A'} diagnostic=${r.diagnostic} recommendationOnly=${r.recommendationOnly}`); } },
 ];
 for (const c of cmds) commandRegistry.register(c);
-export default cmds;

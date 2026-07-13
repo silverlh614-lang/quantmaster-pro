@@ -44,7 +44,7 @@ export interface TradingSettings {
   updatedAt: string;
 }
 
-export const DEFAULT_TRADING_SETTINGS: TradingSettings = {
+const DEFAULT_TRADING_SETTINGS: TradingSettings = {
   buyCondition: {
     gatePassRequired: true,
     minScoreThreshold: 70,

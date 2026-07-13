@@ -3,7 +3,7 @@ import type { ShadowCaseLedgerStore } from './shadowCaseLedger.js';
 import { normalizeRegimeContext } from './regimeContext.js';
 import type { IntegrityIssue, ShadowCase, ShadowLifecycleState, ShadowStateTransition } from './shadowTypes.js';
 
-export const REQUIRED_FRESH_SAMPLES = 100;
+const REQUIRED_FRESH_SAMPLES = 100;
 
 const NORMAL_PATH: ShadowLifecycleState[] = [
   'CANDIDATE_DETECTED',
@@ -32,7 +32,7 @@ function noRepairMarkers(c: ShadowCase): boolean { return !c.repairRunId && !c.b
 function shadowRuntimeAllowed(c: ShadowCase): boolean {
   return SHADOW_ALWAYS_ON_ENGINE_MODES.has(c.engineMode);
 }
-export function isFreshShadowEligible(c: ShadowCase, transitions: ShadowStateTransition[] = [], now: Date = new Date()): boolean {
+function isFreshShadowEligible(c: ShadowCase, transitions: ShadowStateTransition[] = [], now: Date = new Date()): boolean {
   return today(c.createdAt, now)
     && noRepairMarkers(c)
     && shadowRuntimeAllowed(c)
@@ -42,7 +42,7 @@ export function isFreshShadowEligible(c: ShadowCase, transitions: ShadowStateTra
     && (c.brokerOrdersCreated ?? 0) === 0
     && c.executionImpact === 'NONE';
 }
-export function freshMetadataProblem(c: ShadowCase): 'entryPrice missing' | 'targetPrice missing' | 'stopPrice missing' | 'priceData missing' | undefined {
+function freshMetadataProblem(c: ShadowCase): 'entryPrice missing' | 'targetPrice missing' | 'stopPrice missing' | 'priceData missing' | undefined {
   if (c.dataHealth === 'EMPTY' || c.dataHealth === 'UNAVAILABLE') return 'priceData missing';
   if (!positive(c.entryPriceVirtual)) return 'entryPrice missing';
   if (!positive(c.targetPriceVirtual)) return 'targetPrice missing';
@@ -124,7 +124,7 @@ export function collectFreshShadowStatus(ledger: ShadowCaseLedgerStore, now: Dat
     brokerOrdersCreated: fresh.reduce((s, c) => s + (c.brokerOrdersCreated ?? (c.brokerOrderCreated ? 1 : 0)), 0),
   };
 }
-export type FreshShadowInletNextAction =
+type FreshShadowInletNextAction =
   | 'NO_SCAN_CANDIDATES'
   | 'NO_SHADOW_SIGNALS'
   | 'SHADOW_SIGNAL_NOT_APPROVED'
@@ -140,7 +140,7 @@ export type FreshShadowInletNextAction =
   | 'AFTER_HOURS_OBSERVE'
   | 'AFTER_HOURS_SYNTHETIC_LANE_ACTIVE'
   | 'FRESH_SHADOW_INLET_ACTIVE';
-export type NextOpenShadowScanStatus = 'SCHEDULED' | 'RUNNING' | 'COMPLETED' | 'MISSED';
+type NextOpenShadowScanStatus = 'SCHEDULED' | 'RUNNING' | 'COMPLETED' | 'MISSED';
 
 function kstMarketOpen(now: Date): boolean {
   const kst = new Date(now.getTime() + 9 * 3600000);

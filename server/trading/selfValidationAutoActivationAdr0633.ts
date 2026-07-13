@@ -18,7 +18,7 @@ import type { CounterfactualOutcomeBoard } from '../learning/counterfactualOutco
  * `LIVE_MONEY_EXCLUDED`·`ABSOLUTE_PRESERVATION_EXCLUDED`)은 evaluator 가 항상 `EXCLUDED` verdict 만 내고
  * `process.env` 를 절대 건드리지 않는다(§ADR-0635 — `LIVE_ADJACENT_REVIEW` 도 자동 활성 금지·운영자 결정 영역).
  */
-export type AutoActivationEligibility =
+type AutoActivationEligibility =
   | 'LIVE_SAFE'
   | 'LIVE_ADJACENT_REVIEW'
   | 'LIVE_MONEY_EXCLUDED'
@@ -33,7 +33,7 @@ export type AutoActivationEligibility =
  * - DATA_UNAVAILABLE: 증거 부재(immature·matureD5=0) → process.env 무접촉.
  * - MASTER_OFF: master flag OFF → 평가 자체 미수행(byte-identical).
  */
-export type AutoActivationVerdict =
+type AutoActivationVerdict =
   | 'ACTIVATE'
   | 'HOLD'
   | 'ALREADY_ACTIVE'
@@ -47,7 +47,7 @@ export type AutoActivationVerdict =
  * 자가 활성 임계 — 새 임계 발명 금지. 전부 ADR-0631 PromotionReadinessBoard /
  * ADR-0476 Gate1ThresholdEvidenceSummary 산출물과 비교만 한다.
  */
-export interface LeverCriteria {
+interface LeverCriteria {
   /** Gate1ThresholdEvidenceSummary.matureSamplesD5 하한. */
   minMatureSamplesD5: number;
   /** evidence.reviewReady === true 요구. */
@@ -89,7 +89,7 @@ export interface AutoActivationLever {
 }
 
 /** lever 단건 평가 결과 (report 구성 요소). */
-export interface AutoActivationLeverDecision {
+interface AutoActivationLeverDecision {
   leverId: string;
   envName: string;
   eligibility: AutoActivationEligibility;

@@ -1,8 +1,8 @@
 // @responsibility Read-only operator warning urgency taxonomy and sorting.
 
-export type OperatorWarningPriorityRank = 1 | 2 | 3 | 4 | 5;
+type OperatorWarningPriorityRank = 1 | 2 | 3 | 4 | 5;
 
-export type OperatorWarningDomain =
+type OperatorWarningDomain =
   | 'ORDER_POSITION'
   | 'PRICE_DATA'
   | 'SCAN_GATE'
@@ -10,7 +10,7 @@ export type OperatorWarningDomain =
   | 'PROMOTION_DISPLAY'
   | 'UNKNOWN';
 
-export type OperatorWarningUrgency =
+type OperatorWarningUrgency =
   | 'IMMEDIATE_OPERATOR_REVIEW'
   | 'DATA_TRUST_REVIEW'
   | 'DIAGNOSTIC_REVIEW'

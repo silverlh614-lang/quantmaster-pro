@@ -14,7 +14,7 @@ export type SectorSourceTier =
   | 'INTERNAL_PROXY'
   | 'MISSING';
 
-export type SectorDataConfidence = 'VERIFIED' | 'PARTIAL' | 'DIAGNOSTIC' | 'DEGRADED' | 'STALE' | 'MISSING';
+type SectorDataConfidence = 'VERIFIED' | 'PARTIAL' | 'DIAGNOSTIC' | 'DEGRADED' | 'STALE' | 'MISSING';
 
 export interface SectorIndexMasterItem {
   canonicalSectorId: string;
@@ -39,7 +39,7 @@ function sourceTierForLegacyEntry(entry: (typeof LEGACY_SECTOR_INDEX_MASTER)[num
   return 'STOCK_DAILY_FALLBACK';
 }
 
-export const SECTOR_INDEX_MASTER_ADR0462: ReadonlyArray<SectorIndexMasterItem> = Object.freeze(
+const SECTOR_INDEX_MASTER_ADR0462: ReadonlyArray<SectorIndexMasterItem> = Object.freeze(
   LEGACY_SECTOR_INDEX_MASTER.map((entry) => {
     const sourceTier = sourceTierForLegacyEntry(entry);
     return Object.freeze({
@@ -72,8 +72,4 @@ export function isScoringSourceTier(sourceTier: SectorSourceTier): boolean {
     sourceTier === 'KRX_ETF' ||
     sourceTier === 'YAHOO_PROXY'
   );
-}
-
-export function getTradableSectorIndexMasterItems(): SectorIndexMasterItem[] {
-  return SECTOR_INDEX_MASTER_ADR0462.filter((item) => item.isTradableSector);
 }

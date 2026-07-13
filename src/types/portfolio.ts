@@ -6,7 +6,7 @@ import type { ConditionId, EvaluationResult } from './core';
 // ─── 백테스트 ────────────────────────────────────────────────────────────────
 
 /** 분할 익절 트랜치 — 백테스트 포지션 단위로 저장 */
-export interface BacktestProfitTranche {
+interface BacktestProfitTranche {
   price:  number;   // 절대 익절 가격
   ratio:  number;   // 이 트랜치에서 청산할 비율 (0~1)
   taken:  boolean;  // 이미 실행됐으면 true
@@ -104,19 +104,8 @@ export interface Portfolio {
 
 // ─── 정량 스크리닝 엔진 ──────────────────────────────────────────────────────
 
-/** 정량 스크리닝 1단계: 기본 필터 통과 종목 */
-export interface QuantScreenCandidate {
-  code: string;
-  name: string;
-  marketCap: number;           // 시가총액 (억원)
-  avgTurnover20d: number;      // 20일 평균 거래대금 (억원)
-  price: number;               // 현재가
-  change5d: number;            // 5일 수익률 (%)
-  change20d: number;           // 20일 수익률 (%)
-}
-
 /** 정량 스크리닝 2단계: 이상 신호 감지 결과 */
-export interface AnomalySignal {
+interface AnomalySignal {
   type: 'VOLUME_SURGE' | 'INSTITUTIONAL_ACCUMULATION' | 'NEW_HIGH_APPROACH' | 'VCP_DETECTED' | 'SHORT_DECREASE' | 'INSIDER_BUY' | 'BUYBACK' | 'LARGE_ORDER' | 'CAPEX_SURGE';
   strength: number;            // 0-10 신호 강도
   description: string;
@@ -190,7 +179,7 @@ export interface DartScreenerResult {
 
 // ─── 조용한 매집 감지기 (Silent Accumulation Detector) ────────────────────────
 
-export interface SilentAccumulationSignal {
+interface SilentAccumulationSignal {
   type: 'VWAP_ABOVE_CLOSE'          // VWAP > 종가 & 거래량 감소 (Dark Pool 패턴)
     | 'INSTITUTIONAL_QUIET_BUY'      // 기관 소량 분할 매수 (5일+ 연속)
     | 'SHORT_DECREASE'               // 공매도 잔고 20일 감소율
@@ -218,14 +207,14 @@ export interface SilentAccumulationResult {
 
 // ─── 섹터-테마 역추적 엔진 (Sector-Theme Reverse Tracking) ──────────────────
 
-export interface GlobalMegatrend {
+interface GlobalMegatrend {
   keyword: string;               // 글로벌 트렌드 키워드 (e.g., "SMR 소형모듈원자로")
   source: string;                // 발원지 (e.g., "미국 에너지부 정책")
   momentum: 'EMERGING' | 'ACCELERATING' | 'MATURE' | 'FADING';
   globalMarketSize?: string;     // 글로벌 시장 규모 (e.g., "$120B by 2030")
 }
 
-export interface ValueChainLink {
+interface ValueChainLink {
   company: string;               // 한국 기업명
   code: string;                  // 종목 코드
   role: string;                  // 밸류체인 내 역할 (e.g., "열교환기 부품 공급")

@@ -54,7 +54,7 @@ export interface AccountSizeTier {
 
 // ─── SSOT 테이블 ─────────────────────────────────────────────────────────────
 
-export const ACCOUNT_SIZE_TIERS: AccountSizeTier[] = [
+const ACCOUNT_SIZE_TIERS: AccountSizeTier[] = [
   {
     name: 'MICRO',
     minEquity: 0,

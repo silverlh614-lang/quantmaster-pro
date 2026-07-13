@@ -80,7 +80,7 @@ interface KrxRowRaw {
   [key: string]: unknown;
 }
 
-export const KRX_INTRADAY_SHAPE_CANDIDATE_PATHS = Object.freeze([
+const KRX_INTRADAY_SHAPE_CANDIDATE_PATHS = Object.freeze([
   'output',
   'output1',
   'output2',
@@ -264,33 +264,6 @@ function extractLatestMarketRow(rows: KrxRowRaw[], market: KrxMarketProgramCode)
       ? pickedRow.TRD_DD
       : (typeof pickedRow.trd_dd === 'string' ? pickedRow.trd_dd : undefined),
   };
-}
-
-export async function probeKrxIntradayProgramTradeSingleShape(
-  market: KrxMarketProgramCode,
-  nowMs: number = Date.now(),
-): Promise<KrxIntradayShapeProbe> {
-  const bld = getKrxIntradayMarketProgramBld();
-  if (!isKrxIntradayMarketProgramEnabled()) {
-    return emptyShapeProbe(bld);
-  }
-  const guard = shouldGuardMdcstat00301(nowMs, bld);
-  if (guard) {
-    emitMdcstat00301GuardLog({
-      market,
-      bld,
-      nowMs,
-      sessionState: guard.marketSession,
-      intradaySession: guard.programFlowExpected,
-    });
-    return guardedShapeProbe({ bld, market, nowMs });
-  }
-  try {
-    const raw = await krxPost(bld, { mktId: KRX_MARKET_PROGRAM_CODE_MAP[market] }, { bypassTimeWindow: true });
-    return probeKrxIntradayProgramTradeShape(raw, bld);
-  } catch {
-    return emptyShapeProbe(bld);
-  }
 }
 
 interface IntradaySingleFetchResult {

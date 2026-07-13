@@ -78,7 +78,7 @@ function selectWarmupCodes(limit: number): string[] {
   return codes;
 }
 
-export interface InvestorFlowWarmupSummary {
+interface InvestorFlowWarmupSummary {
   total: number;
   krxOk: number;
   cacheOk: number;
@@ -88,7 +88,7 @@ export interface InvestorFlowWarmupSummary {
   sample: string[];
 }
 
-export async function runInvestorFlowWarmup(limit = investorFlowWarmupLimit()): Promise<InvestorFlowWarmupSummary> {
+async function runInvestorFlowWarmup(limit = investorFlowWarmupLimit()): Promise<InvestorFlowWarmupSummary> {
   const codes = selectWarmupCodes(limit);
   const summary: InvestorFlowWarmupSummary = {
     total: codes.length,

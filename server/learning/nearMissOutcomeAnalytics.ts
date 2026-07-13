@@ -21,7 +21,7 @@ export type NearMissOutcomeStrictnessVerdict =
   | 'MIXED_OR_NEUTRAL'
   | 'INSUFFICIENT_DATA';
 
-export const NEAR_MISS_OUTCOME_ANALYTICS_POLICY = Object.freeze({
+const NEAR_MISS_OUTCOME_ANALYTICS_POLICY = Object.freeze({
   minObservedSamples: 3,
   overStrictAvgReturnPct: 2,
   overStrictWinRate: 0.55,
@@ -38,7 +38,7 @@ export interface NearMissOutcomeReturnStats {
   positiveCount: number;
 }
 
-export interface NearMissOutcomeBucketAnalytics {
+interface NearMissOutcomeBucketAnalytics {
   bucket: NearMissOutcomeTrackedBucket;
   totalEntries: number;
   horizonStats: Record<NearMissOutcomeHorizon, NearMissOutcomeReturnStats>;

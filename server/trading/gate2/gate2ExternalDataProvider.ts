@@ -571,7 +571,7 @@ export function buildMissingGate2FinancialSnapshot(
   };
 }
 
-export function buildGate2FinancialSnapshotFromDartFin(
+function buildGate2FinancialSnapshotFromDartFin(
   symbol: string,
   dartFin: Gate2DartEvaluationFinancials | null | undefined,
   asOf: string = nowIso(),
@@ -609,7 +609,7 @@ export function buildGate2FinancialSnapshotFromDartFin(
   };
 }
 
-export function calculateGate2DerivedMetrics(input: {
+function calculateGate2DerivedMetrics(input: {
   snapshot: Gate2FinancialSnapshot;
   dartFin?: Gate2DartEvaluationFinancials | null;
   per?: number | null;

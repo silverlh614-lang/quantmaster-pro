@@ -17,7 +17,7 @@ export function parseShadowWarmupReturnsLimit(args: string[]): number {
   return clampShadowReturnWarmupLimit(parsed);
 }
 
-export function formatShadowWarmupReturnsStats(stats: ShadowFutureReturnWarmupStats): string {
+function formatShadowWarmupReturnsStats(stats: ShadowFutureReturnWarmupStats): string {
   const lines = [
     '🧪 <b>Shadow Return Warmup</b>',
     '',

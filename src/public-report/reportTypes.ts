@@ -12,10 +12,10 @@ export type DataConfidence =
 
 export type ReportVisibility = 'PUBLIC' | 'PAID' | 'PRIVATE';
 
-export type MarketGateStatus = 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED' | 'GRAY';
-export type SectorGateStatus = 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED' | 'GRAY';
-export type FlowDirection = 'INFLOW' | 'OUTFLOW' | 'NEUTRAL';
-export type TrendChange = 'UP' | 'DOWN' | 'FLAT';
+type MarketGateStatus = 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED' | 'GRAY';
+type SectorGateStatus = 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED' | 'GRAY';
+type FlowDirection = 'INFLOW' | 'OUTFLOW' | 'NEUTRAL';
+type TrendChange = 'UP' | 'DOWN' | 'FLAT';
 export type SectorAlignment =
   | 'LEADING_SECTOR'
   | 'WATCH_SECTOR'

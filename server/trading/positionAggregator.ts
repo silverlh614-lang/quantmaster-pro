@@ -26,7 +26,7 @@ import { SHADOW_LOG_FILE } from '../persistence/paths.js';
 // ─── 타입 정의 ────────────────────────────────────────────────────────────────
 
 /** 실현 손익 계산에 포함되는 매도 이벤트 */
-export const SELL_EVENTS = new Set([
+const SELL_EVENTS = new Set([
   'RRR_COLLAPSE_PARTIAL',
   'PROFIT_TRANCHE',
   'EUPHORIA_PARTIAL',
@@ -42,13 +42,13 @@ export const SELL_EVENTS = new Set([
 ]);
 
 /** 포지션의 현재 생애주기 단계 */
-export type PositionStage =
+type PositionStage =
   | 'ENTRY'       // 진입 완료, 매도 이벤트 없음
   | 'PARTIAL'     // 일부 청산 완료, 잔여 있음
   | 'CLOSED';     // 전량 청산 완료
 
 /** 한 개 매도 이벤트의 요약 */
-export interface ExitEventSummary {
+interface ExitEventSummary {
   ts: string;
   event: string;
   soldQty: number;
@@ -59,7 +59,7 @@ export interface ExitEventSummary {
 }
 
 /** 매도 사유별 분류 집계 */
-export interface ExitBreakdown {
+interface ExitBreakdown {
   /** 이익 확정 매도 (익절) */
   takeProfit: { qty: number; pnl: number };
   /** 손실 손절 (hard stop) */

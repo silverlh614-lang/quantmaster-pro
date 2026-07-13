@@ -19,7 +19,7 @@ import { cn } from '../../ui/cn';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import { usePriceCanon } from '../../hooks/usePriceCanon';
 
-export type PriceDisplayVariant = 'card' | 'detail' | 'compact';
+type PriceDisplayVariant = 'card' | 'detail' | 'compact';
 
 interface PriceDisplayProps {
   /** KRX 6자리 종목 코드 (e.g., '000660'). */

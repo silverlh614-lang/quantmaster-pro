@@ -2,14 +2,14 @@
 
 import type { GateLayerSummary } from '../quantFilter.js';
 
-export type Gate1ConsolidatedHealth =
+type Gate1ConsolidatedHealth =
   | 'OK'
   | 'WARN'
   | 'DEGRADED'
   | 'DATA_INCOMPLETE'
   | 'UNKNOWN';
 
-export type Gate1OperatorAction =
+type Gate1OperatorAction =
   | 'NONE'
   | 'CHECK_QUOTE_PROVIDER'
   | 'CHECK_STOCK_MASTER'
@@ -18,12 +18,12 @@ export type Gate1OperatorAction =
   | 'CHECK_SHADOW_KERNEL'
   | 'REVIEW_GATE1_INPUTS';
 
-export type Gate1ConsolidatedExecutionImpact =
+type Gate1ConsolidatedExecutionImpact =
   | 'NONE'
   | 'DIAGNOSTIC_ONLY'
   | 'LIVE_BUY_BLOCKED_ONLY';
 
-export interface Gate1ConsolidatedDiagnosticSections {
+interface Gate1ConsolidatedDiagnosticSections {
   wiring: string[];
   quote: string[];
   tradability: string[];

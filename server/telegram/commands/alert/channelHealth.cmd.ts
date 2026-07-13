@@ -34,5 +34,3 @@ const channelHealth: TelegramCommand = {
 };
 
 commandRegistry.register(channelHealth);
-
-export default channelHealth;

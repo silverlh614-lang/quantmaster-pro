@@ -11,7 +11,7 @@ import {
 type GateEvaluatorOutput = NonNullable<ServerGateResult['outputs']>[number];
 type Numeric = number | null;
 
-export type Gate3WiringStatus =
+type Gate3WiringStatus =
   | 'FIRED'
   | 'THRESHOLD_NOT_MET'
   | 'DATA_UNAVAILABLE'
@@ -19,7 +19,7 @@ export type Gate3WiringStatus =
   | 'CALCULATION_MISSING'
   | 'ERROR';
 
-export type Gate3DataPath =
+type Gate3DataPath =
   | 'QUOTE_ONLY'
   | 'TECHNICAL'
   | 'INTRADAY'
@@ -28,7 +28,7 @@ export type Gate3DataPath =
   | 'MIXED'
   | 'UNKNOWN';
 
-export type Gate3CoverageStatus =
+type Gate3CoverageStatus =
   | 'VERIFIED'
   | 'PARTIAL'
   | 'DEGRADED'

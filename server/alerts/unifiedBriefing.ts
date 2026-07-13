@@ -15,7 +15,7 @@
  */
 import type { TelegramAlertOptions } from './telegramClient.js';
 
-export interface UnifiedBriefingSession {
+interface UnifiedBriefingSession {
   header: string;
   tier: 'T2_REPORT' | 'T3_DIGEST';
   startedAt: number;

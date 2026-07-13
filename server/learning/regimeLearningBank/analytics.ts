@@ -12,7 +12,7 @@ import type {
 } from '../regimeLearningTypes.js';
 
 export const CLOSED_LABELS = new Set(['WIN', 'LOSS', 'BREAKEVEN', 'EXPIRED']);
-export const RESOLVED_LABELS = new Set([
+const RESOLVED_LABELS = new Set([
   ...CLOSED_LABELS,
   'MISSED_WIN',
   'AVOIDED_LOSS',

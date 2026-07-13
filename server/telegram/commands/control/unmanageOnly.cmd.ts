@@ -62,5 +62,3 @@ const unmanageOnly: TelegramCommand = {
 };
 
 commandRegistry.register(unmanageOnly);
-
-export default unmanageOnly;

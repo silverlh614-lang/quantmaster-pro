@@ -120,5 +120,3 @@ const shortBackfill: TelegramCommand = {
 };
 
 commandRegistry.register(shortBackfill);
-
-export default shortBackfill;

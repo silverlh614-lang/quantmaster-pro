@@ -24,10 +24,10 @@ import { cn } from '../../ui/cn';
 type NoiseSeverity = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
 type NoiseFinalSeverity = NoiseSeverity | 'SUPPRESSED';
 
-export type NoiseExecutionImpact = 'NONE' | 'DEGRADED' | 'BLOCKING';
-export type NoiseChannelMode = 'NORMAL' | 'QUIET' | 'DIGEST' | 'MUTED';
-export type NoiseEngineMode = 'NORMAL' | 'DEGRADED' | 'SELL_ONLY' | 'SHADOW_ONLY' | 'OBSERVE_ONLY';
-export type NoiseRecommendedAction = 'IGNORE' | 'OBSERVE' | 'PATCH_LATER' | 'PATCH_NOW';
+type NoiseExecutionImpact = 'NONE' | 'DEGRADED' | 'BLOCKING';
+type NoiseChannelMode = 'NORMAL' | 'QUIET' | 'DIGEST' | 'MUTED';
+type NoiseEngineMode = 'NORMAL' | 'DEGRADED' | 'SELL_ONLY' | 'SHADOW_ONLY' | 'OBSERVE_ONLY';
+type NoiseRecommendedAction = 'IGNORE' | 'OBSERVE' | 'PATCH_LATER' | 'PATCH_NOW';
 
 export interface NoiseEventView {
   id: string;
@@ -46,7 +46,7 @@ export interface NoiseEventView {
   time?: string;
 }
 
-export interface NoiseChannelImpact {
+interface NoiseChannelImpact {
   channelId: string;
   channelName: string;
   sent: number;
@@ -136,7 +136,7 @@ export function OperatorNoiseCenter({ telemetry, className }: OperatorNoiseCente
   );
 }
 
-export function buildNoiseSummaryViewModel(raw?: NoiseTelemetryRaw | null): NoiseSummaryViewModel {
+function buildNoiseSummaryViewModel(raw?: NoiseTelemetryRaw | null): NoiseSummaryViewModel {
   const events = raw?.events ?? [];
   const channels = raw?.channels ?? groupNoiseByChannel(events);
   const topEvents = [...events]
@@ -171,13 +171,13 @@ export function buildNoiseSummaryViewModel(raw?: NoiseTelemetryRaw | null): Nois
   };
 }
 
-export function deriveNoiseSeverity(event: NoiseEventView): NoiseSeverity {
+function deriveNoiseSeverity(event: NoiseEventView): NoiseSeverity {
   if (event.executionImpact === 'BLOCKING') return 'CRITICAL';
   if (event.executionImpact === 'DEGRADED') return event.originalSeverity === 'INFO' ? 'WARN' : event.originalSeverity;
   return event.originalSeverity;
 }
 
-export function deriveRecommendedAction(event: NoiseEventView): NoiseRecommendedAction {
+function deriveRecommendedAction(event: NoiseEventView): NoiseRecommendedAction {
   if (event.executionImpact === 'BLOCKING') return 'PATCH_NOW';
   if (event.executionImpact === 'DEGRADED') return 'OBSERVE';
   if (event.finalSeverity === 'SUPPRESSED' || event.count >= 10) return 'IGNORE';
@@ -185,7 +185,7 @@ export function deriveRecommendedAction(event: NoiseEventView): NoiseRecommended
   return event.recommendedAction ?? 'OBSERVE';
 }
 
-export function groupNoiseByChannel(events: NoiseEventView[]): NoiseChannelImpact[] {
+function groupNoiseByChannel(events: NoiseEventView[]): NoiseChannelImpact[] {
   const grouped = new Map<string, NoiseChannelImpact>();
 
   for (const event of events) {
@@ -213,7 +213,7 @@ export function groupNoiseByChannel(events: NoiseEventView[]): NoiseChannelImpac
   return Array.from(grouped.values()).sort((a, b) => b.suppressed + b.deduped - (a.suppressed + a.deduped));
 }
 
-export function formatNoiseTimestamp(value?: string): string {
+function formatNoiseTimestamp(value?: string): string {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -225,7 +225,7 @@ export function formatNoiseTimestamp(value?: string): string {
   }).format(date);
 }
 
-export function getNoiseBadgeVariant(status: NoiseExecutionImpact | NoiseChannelMode | NoiseFinalSeverity | NoiseRecommendedAction) {
+function getNoiseBadgeVariant(status: NoiseExecutionImpact | NoiseChannelMode | NoiseFinalSeverity | NoiseRecommendedAction) {
   if (status === 'BLOCKING' || status === 'CRITICAL' || status === 'PATCH_NOW') return 'danger' as const;
   if (status === 'DEGRADED' || status === 'WARN' || status === 'QUIET' || status === 'PATCH_LATER') return 'warning' as const;
   if (status === 'NONE' || status === 'NORMAL' || status === 'INFO' || status === 'IGNORE') return 'default' as const;

@@ -5,8 +5,8 @@ import type { SectorSourceTier } from './sectorIndexMaster.js';
 import type { SectorSymmetryValidationResult } from './sectorSymmetryValidator.js';
 import { applyFallbackContaminationGuard } from './fallbackContaminationGuard.js';
 
-export type SectorEnergyAdr0462DataQuality = 'VERIFIED' | 'DEGRADED_BUT_USABLE' | 'DIAGNOSTIC_ONLY' | 'DEGRADED';
-export type SectorEnergyReason =
+type SectorEnergyAdr0462DataQuality = 'VERIFIED' | 'DEGRADED_BUT_USABLE' | 'DIAGNOSTIC_ONLY' | 'DEGRADED';
+type SectorEnergyReason =
   | 'INDEX_CODE_COVERAGE_LOW'
   | 'SYMMETRY_VALIDATION_FAILED'
   | 'STOCK_DAILY_FALLBACK_USED'

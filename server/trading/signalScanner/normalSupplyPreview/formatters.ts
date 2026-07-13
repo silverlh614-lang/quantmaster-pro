@@ -60,7 +60,7 @@ export function formatReasonDistribution(
     : "none";
 }
 
-export function formatSampleList(samples: string[]): string {
+function formatSampleList(samples: string[]): string {
   return samples.length > 0
     ? samples
         .map((sample, index) => `${index + 1}. "${escapeHtmlText(sample)}"`)
@@ -79,7 +79,7 @@ export function formatStockProgramFieldKeysTop(
     .join(", ");
 }
 
-export function formatAvailabilityLine(
+function formatAvailabilityLine(
   label: string,
   value: number,
   total: number,
@@ -87,7 +87,7 @@ export function formatAvailabilityLine(
   return `  ${label}: ${value}/${total}`;
 }
 
-export function formatAmount(value: number | undefined): string {
+function formatAmount(value: number | undefined): string {
   if (value === undefined || !Number.isFinite(value)) return "N/A";
   return Math.trunc(value).toLocaleString("en-US");
 }
@@ -138,44 +138,6 @@ function legacyMarketProgramStatus(
     usedForShadow: false,
     userMessage: '시장 프로그램매매 display status가 없는 legacy payload입니다. raw breakpoint/reason을 그대로 표시합니다.',
   };
-}
-
-export function nextActionForProgramReason(
-  reason: string,
-): ProgramFlowDiagnosticsSummary["nextAction"] {
-  if (reason === "PROGRAM_FLOW_CONTEXT_NOT_FOUND")
-    return "CHECK_INTRADAY_PROGRAM_SNAPSHOT_PRODUCER";
-  if (reason === "PROGRAM_FLOW_WIRED_BUT_NO_FIELDS")
-    return "CHECK_INTRADAY_PROGRAM_SNAPSHOT_PRODUCER";
-  if (reason === "PROGRAM_FLOW_WIRED_BUT_ALL_NA")
-    return "CHECK_STOCK_PROGRAM_CONSUMER_PARSE";
-  if (reason === "PROGRAM_UPSTREAM_SNAPSHOT_CACHE_MISSING")
-    return "CHECK_INTRADAY_PROGRAM_SNAPSHOT_PRODUCER";
-  if (reason === "PROGRAM_UPSTREAM_VALUE_MISSING")
-    return "CHECK_INTRADAY_PROGRAM_SNAPSHOT_PRODUCER";
-  if (reason === "PROGRAM_SNAPSHOT_VALUE_NULL")
-    return "CHECK_INTRADAY_PROGRAM_SNAPSHOT_PRODUCER";
-  if (reason === "PROGRAM_CACHE_VALUE_NOT_CARRIED")
-    return "CHECK_INTRADAY_PROGRAM_SNAPSHOT_PRODUCER";
-  if (reason === "PROGRAM_TRADING_VALUE_NOT_CARRIED")
-    return "CHECK_INTRADAY_PROGRAM_SNAPSHOT_PRODUCER";
-  if (reason === "MARKET_PROGRAM_AVAILABLE_STOCK_PROGRAM_MISSING")
-    return "OBSERVE_DIAGNOSTIC_ONLY";
-  if (reason === "PROGRAM_VALUE_PLACEHOLDER_ONLY")
-    return "CHECK_INTRADAY_PROGRAM_SNAPSHOT_PRODUCER";
-  if (reason === "PROGRAM_VALUE_UNIT_NORMALIZATION_REQUIRED")
-    return "CHECK_STOCK_PROGRAM_CONSUMER_PARSE";
-  if (reason === "PROGRAM_VALUE_UNSUPPORTED_FORMAT")
-    return "CHECK_STOCK_PROGRAM_CONSUMER_PARSE";
-  if (reason === "PROGRAM_VALUE_NORMALIZATION_REQUIRED")
-    return "CHECK_STOCK_PROGRAM_CONSUMER_PARSE";
-  if (reason === "PROGRAM_CONTEXT_HAS_STATUS_ONLY")
-    return "CHECK_MARKET_PROGRAM_CONSUMER_PARSE";
-  if (reason === "PROGRAM_PROVIDER_ISSUE_DIAGNOSTIC_ONLY")
-    return "CHECK_INTRADAY_PROGRAM_SNAPSHOT_PRODUCER";
-  if (reason === "PROGRAM_FLOW_AVAILABLE_DIAGNOSTIC_ONLY")
-    return "OBSERVE_DIAGNOSTIC_ONLY";
-  return "CHECK_INTRADAY_PROGRAM_SNAPSHOT_PRODUCER";
 }
 
 export function classifyActivePassiveConfluence(input: {
@@ -451,7 +413,7 @@ export function formatNormalSupplyPreviewFullSections(
   return paginateNormalSupplyPreviewSections(sections, options.maxChars ?? 3500);
 }
 
-export function buildNormalSupplyPreviewFullSections(
+function buildNormalSupplyPreviewFullSections(
   preview: NormalSupplyPreview,
   options: { maxTopCandidates?: number } = {},
 ): string[] {

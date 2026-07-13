@@ -7,7 +7,7 @@ import type { KisApiPriority } from '../../clients/kisClient.js';
 import type { FillQueryOrder, FillQueryResult, FillSide } from './fillTypes.js';
 import { emitOperationalWarn } from './fillOperationalWarn.js';
 import { normalizeFillQueryResult } from './fillQueryNormalizer.js';
-export { normalizeFillQueryResult, normalizeKisFillRows } from './fillQueryNormalizer.js';
+export { normalizeFillQueryResult } from './fillQueryNormalizer.js';
 
 export interface KisFillQueryServiceDeps {
   kisGet: typeof kisGet;

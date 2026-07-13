@@ -2,7 +2,7 @@
 import fs from 'fs';
 import { BLACKLIST_FILE, ensureDataDir } from './paths.js';
 
-export interface BlacklistEntry {
+interface BlacklistEntry {
   stockCode: string;
   stockName: string;
   bannedAt: string;    // ISO — 편입 시각
@@ -10,13 +10,13 @@ export interface BlacklistEntry {
   reason: string;      // 예: "Cascade -30%"
 }
 
-export function loadBlacklist(): BlacklistEntry[] {
+function loadBlacklist(): BlacklistEntry[] {
   ensureDataDir();
   if (!fs.existsSync(BLACKLIST_FILE)) return [];
   try { return JSON.parse(fs.readFileSync(BLACKLIST_FILE, 'utf-8')); } catch { return []; }
 }
 
-export function saveBlacklist(list: BlacklistEntry[]): void {
+function saveBlacklist(list: BlacklistEntry[]): void {
   ensureDataDir();
   fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(list, null, 2));
 }

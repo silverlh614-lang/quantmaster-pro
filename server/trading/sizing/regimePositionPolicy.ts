@@ -70,7 +70,7 @@ export const REGIME_POSITION_POLICIES: Record<RegimePositionPolicyKey, RegimePos
   UNKNOWN: makePolicy('UNKNOWN', 3, 20),
 };
 
-export const REGIME_SCORE_ADJUSTMENTS: Record<RegimePositionPolicyKey, RegimeAdjustment> = {
+const REGIME_SCORE_ADJUSTMENTS: Record<RegimePositionPolicyKey, RegimeAdjustment> = {
   R1_STRONG_BULL: {
     regime: 'R1_STRONG_BULL',
     scoreAdjustment: 3,
@@ -129,7 +129,7 @@ export const REGIME_SCORE_ADJUSTMENTS: Record<RegimePositionPolicyKey, RegimeAdj
   },
 };
 
-export function normalizeRegimePositionPolicyKey(regime?: string | null): RegimePositionPolicyKey {
+function normalizeRegimePositionPolicyKey(regime?: string | null): RegimePositionPolicyKey {
   const value = String(regime ?? '').toUpperCase();
   if (value.includes('R1')) return 'R1_STRONG_BULL';
   if (value.includes('R2')) return 'R2_BULL';

@@ -2,7 +2,7 @@
  * @responsibility KIS 주문 에러 분류기 — 응답·예외를 재시도·거부·치명 등 에러 종류로 판별한다.
  */
 
-export type KisOrderErrorKind =
+type KisOrderErrorKind =
   | 'CONFIG_MISSING'
   | 'AUTH_FAILED'
   | 'RATE_LIMITED'

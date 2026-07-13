@@ -27,12 +27,6 @@ import {
   type ManualFrequencyGrade,
 } from '../learning/biasHeatmap.js';
 
-export const MANUAL_OVERRIDE_THRESHOLDS = {
-  WATCH:   MANUAL_FREQ_WATCH,
-  CAUTION: MANUAL_FREQ_CAUTION,
-  ALARM:   MANUAL_FREQ_ALARM,
-} as const;
-
 interface AlertState {
   /** YYYY-MM-DD (KST) → 당일 마지막으로 발송된 최고 등급 */
   lastGradePerDay: Record<string, ManualFrequencyGrade>;
@@ -189,5 +183,3 @@ function actionHint(grade: ManualFrequencyGrade): string {
       return '🧪 수동 개입 사유를 /sell 노트에 명시하는지 점검.';
   }
 }
-
-export const __test = { loadState, saveState, pickMessageStyle, GRADE_RANK };

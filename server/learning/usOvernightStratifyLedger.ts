@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR, ensureDataDir } from '../persistence/paths.js';
 
-export const US_OVERNIGHT_STRATIFY_FILE = path.join(DATA_DIR, 'us-overnight-kospi-stratify.json');
+const US_OVERNIGHT_STRATIFY_FILE = path.join(DATA_DIR, 'us-overnight-kospi-stratify.json');
 const MAX_ROWS = 400; // ~1.5년 — 로그성(당일 완성 행)이라 단순 절단 무해.
 
 export interface UsOvernightObservationRow {

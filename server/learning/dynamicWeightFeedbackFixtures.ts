@@ -17,7 +17,7 @@ export type FixtureKind =
   | 'AVOIDED_LOSS'
   | 'TRUE_NEGATIVE';
 
-export function runtimeInput(overrides: Partial<FinalDecisionResolverRuntimeInput> = {}): FinalDecisionResolverRuntimeInput {
+function runtimeInput(overrides: Partial<FinalDecisionResolverRuntimeInput> = {}): FinalDecisionResolverRuntimeInput {
   return {
     sourceSnapshotId: 'wf:0524',
     symbol: '204320',

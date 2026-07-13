@@ -30,5 +30,3 @@ const pending: TelegramCommand = {
 };
 
 commandRegistry.register(pending);
-
-export default pending;

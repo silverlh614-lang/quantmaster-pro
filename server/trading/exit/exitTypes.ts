@@ -9,9 +9,6 @@ export type ExitDecision =
   | { kind: 'SHADOW_HOLD_R6_DEFENSE'; reason: string; executionImpact: 'NONE' }
   | { kind: 'EXIT_BLOCKED_BY_SESSION'; reason: string }
   | { kind: 'EXIT_FAILED'; reason: string };
-
-export type ExitMode = 'LIVE' | 'SHADOW';
-
 export type ExitMarketSessionState =
   | 'OPEN'
   | 'REGULAR'

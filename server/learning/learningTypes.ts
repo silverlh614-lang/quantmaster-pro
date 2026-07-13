@@ -3,7 +3,7 @@ import type { ExecutionImpact } from '../runtime/engineRuntimePolicy.js';
 import type { GhostPosition } from './reflectionTypes.js';
 import type { RegimePhase } from '../shadow/regimeContext.js';
 
-export type LearningCaseKind = 'ghost' | 'shadow';
+type LearningCaseKind = 'ghost' | 'shadow';
 export type LearningCloseReason =
   | 'VIRTUAL_TAKE_PROFIT'
   | 'VIRTUAL_STOP_LOSS'
@@ -14,7 +14,7 @@ export type LearningCloseReason =
   | 'VIRTUAL_MANUAL_RECONCILE'
   | 'QUARANTINED_DATA_MISSING';
 export type LearningOutcomeLabel = 'WIN' | 'LOSS' | 'BREAKEVEN' | 'ACTIVE' | 'EXPIRED' | 'DATA_CORRUPTED' | 'QUARANTINED' | 'MISSED_WIN' | 'AVOIDED_LOSS' | 'GOOD_BLOCK' | 'BAD_BLOCK' | 'NEUTRAL_BLOCK';
-export type LearningDataQuality = 'OK' | 'STALE' | 'MISSING' | 'CORRUPTED' | 'QUARANTINED';
+type LearningDataQuality = 'OK' | 'STALE' | 'MISSING' | 'CORRUPTED' | 'QUARANTINED';
 export type LearningCohortType =
   | 'FRESH_SHADOW'
   | 'BACKLOG_REPAIR'
@@ -42,7 +42,7 @@ export type RegimeRecoverySource =
   | 'MARKET_SESSION_PHASE'
   | 'UNKNOWN_FALLBACK';
 export type RegimeRecoveryConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
-export type IntegritySeverity = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
+type IntegritySeverity = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
 export type StarvationReason =
   | 'no_close'
   | 'close_without_label'

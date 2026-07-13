@@ -12,8 +12,8 @@ import path from 'path';
 import { DATA_DIR } from './paths.js';
 import type { InvestorFlowSample } from '../supply/investorFlowRouter.js';
 
-export const INVESTOR_FLOW_CACHE_FILE = path.join(DATA_DIR, 'investor-flow-cache.json');
-export const INVESTOR_FLOW_CACHE_MAX_DAYS = 7;
+const INVESTOR_FLOW_CACHE_FILE = path.join(DATA_DIR, 'investor-flow-cache.json');
+const INVESTOR_FLOW_CACHE_MAX_DAYS = 7;
 
 export interface InvestorFlowCacheRow {
   stockCode: string;
@@ -141,8 +141,4 @@ export function clearInvestorFlowCache(code?: string): number {
   delete cache[safe];
   saveAll(cache);
   return removed;
-}
-
-export function __resetInvestorFlowCacheForTests(): void {
-  try { fs.unlinkSync(INVESTOR_FLOW_CACHE_FILE); } catch { /* idempotent */ }
 }

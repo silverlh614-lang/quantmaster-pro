@@ -4,36 +4,6 @@
 
 import { normalizeSectorName, resolveSectorAlias, type SectorIndexMasterRow } from './SectorIndexCodeMap';
 
-export const KIS_OFFICIAL_SECTOR_INDEX_MASTER_URL =
-  'https://new.real.download.dws.co.kr/common/master/idxcode.mst.zip';
-
-export const KIS_SECTOR_INDEX_APIS = Object.freeze({
-  currentPrice: {
-    path: '/uapi/domestic-stock/v1/quotations/inquire-index-price',
-    trId: 'FHPUP02100000',
-  },
-  dailyPrice: {
-    path: '/uapi/domestic-stock/v1/quotations/inquire-index-daily-price',
-    trId: 'FHPUP02120000',
-  },
-  chartPrice: {
-    path: '/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice',
-    trId: 'FHKUP03500100',
-  },
-  categoryPrice: {
-    path: '/uapi/domestic-stock/v1/quotations/inquire-index-category-price',
-    trId: 'FHPUP02140000',
-  },
-} as const);
-
-export const SECTOR_ENERGY_SOURCE_PRIORITY = [
-  'OFFICIAL_KRX_SECTOR_INDEX',
-  'OFFICIAL_KIS_SECTOR_INDEX',
-  'INTERNAL_GROUPED_SNAPSHOT',
-  'KIS_STOCK_BASKET_DERIVED',
-  'NONE',
-] as const;
-
 export interface SectorIndexMasterProviderResult {
   rows: SectorIndexMasterRow[];
   providerIssue: boolean;

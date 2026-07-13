@@ -1,9 +1,9 @@
 // @responsibility ADR-0490 ProgramTrading data line; diagnostic-only program net-buy normalization, no order path changes.
 
-export type ProgramTradingDataLineStatusAdr0490 = 'READY' | 'EMPTY' | 'DATA_UNAVAILABLE' | 'PROVIDER_ERROR' | 'UNKNOWN';
-export type ProgramTradingSignalAdr0490 = 'BULLISH' | 'BEARISH' | 'UNKNOWN';
+type ProgramTradingDataLineStatusAdr0490 = 'READY' | 'EMPTY' | 'DATA_UNAVAILABLE' | 'PROVIDER_ERROR' | 'UNKNOWN';
+type ProgramTradingSignalAdr0490 = 'BULLISH' | 'BEARISH' | 'UNKNOWN';
 
-export interface ProgramTradingDataPointAdr0490 {
+interface ProgramTradingDataPointAdr0490 {
   symbol: string;
   provider: 'KIS' | 'KRX' | 'CACHE' | 'UNKNOWN';
   sourceDate: string | null;

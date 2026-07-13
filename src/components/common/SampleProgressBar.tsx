@@ -2,7 +2,7 @@
 import React from 'react';
 import { cn } from '../../ui/cn';
 
-export interface SampleProgress {
+interface SampleProgress {
   current: number;
   target: number;
   eta?: string | null;

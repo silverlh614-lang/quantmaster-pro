@@ -14,21 +14,11 @@ export interface KellyDampenerState {
   updatedAt: string;
 }
 
-export const IPS_KELLY_TABLE: Array<{ threshold: number; multiplier: number; level: KellyDampenerState['level'] }> = [];
-
 /**
  * IPS Kelly 감쇠 제거됨 — 항상 1.0 반환.
  */
-export function getKellyMultiplier(): number {
+function getKellyMultiplier(): number {
   return 1.0; // IPS_KELLY_DAMPENER_REMOVED
-}
-
-export function isKellyDampenerActive(): boolean {
-  return false; // IPS_KELLY_DAMPENER_REMOVED
-}
-
-export function loadKellyDampenerState(): KellyDampenerState {
-  return { multiplier: 1.0, ips: 0, level: 'NORMAL', activeSince: null, updatedAt: new Date(0).toISOString() };
 }
 
 export function updateKellyDampenerFromIps(_ips: number): {
@@ -39,8 +29,4 @@ export function updateKellyDampenerFromIps(_ips: number): {
   activatedNow: boolean;
 } {
   return { changed: false, prevMultiplier: 1.0, multiplier: 1.0, level: 'NORMAL', activatedNow: false }; // IPS_KELLY_DAMPENER_REMOVED
-}
-
-export function clearKellyDampener(): void {
-  /* SDS-ignore: IPS_KELLY_DAMPENER_REMOVED — stub, no state to clear */
 }

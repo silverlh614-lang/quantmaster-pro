@@ -39,7 +39,7 @@ import { kstBusinessDateStr } from './ma60.js';
 import { getTradingMode } from '../../../state.js';
 import type { ServerShadowTrade } from '../../../persistence/shadowTradeRepo.js';
 
-export type TwoBarBepGateAction = 'CONTINUE_EXIT' | 'WAIT' | 'RESET' | 'SKIP';
+type TwoBarBepGateAction = 'CONTINUE_EXIT' | 'WAIT' | 'RESET' | 'SKIP';
 
 export interface TwoBarBepGateResult {
   action: TwoBarBepGateAction;

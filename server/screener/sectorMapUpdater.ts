@@ -113,7 +113,7 @@ function normalizeSector(raw: string | undefined): string {
 
 // ── 최근 개장일 (KST 기준) ────────────────────────────────────────────────────
 
-export function recentWeekdayYYYYMMDD(now = new Date()): string {
+function recentWeekdayYYYYMMDD(now = new Date()): string {
   // KST = UTC+9. 시스템 로컬 타임존과 무관하게 동작하도록 UTC 기준으로만 계산.
   // now.getTime() 는 epoch ms (타임존 독립) — 9시간 더해 UTC 메서드로 읽으면 KST 달력이 된다.
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);

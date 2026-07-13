@@ -42,10 +42,6 @@ function writeQueue(rows: PendingEmergencyExit[]): void {
   fs.writeFileSync(PENDING_EMERGENCY_EXIT_FILE, JSON.stringify(rows, null, 2));
 }
 
-export function loadPendingEmergencyExits(): PendingEmergencyExit[] {
-  return readQueue();
-}
-
 export function appendPendingEmergencyExit(
   input: Omit<PendingEmergencyExit, 'id' | 'createdAt' | 'scheduledForNextOpen' | 'liveOrderSent' | 'executionImpact'> & {
     createdAt?: string;

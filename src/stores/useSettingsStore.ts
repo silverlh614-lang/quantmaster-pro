@@ -27,7 +27,7 @@ export type View =
   | 'EXECUTION_TRACE'
   | 'RAW_SNAPSHOT';
 export type ThemeMode = 'dark' | 'light' | 'high-contrast' | 'ocean' | 'forest';
-export type PublicReportViewMode = 'OPERATION_MODE' | 'PUBLIC_REPORT_MODE' | 'PAID_PREVIEW_MODE';
+type PublicReportViewMode = 'OPERATION_MODE' | 'PUBLIC_REPORT_MODE' | 'PAID_PREVIEW_MODE';
 /**
  * 점진적 공개(Progressive disclosure) 모드.
  *  - `simple`: 핵심 KPI + 주요 2개 패널만 표시 (초심자/급하게 확인할 때).

@@ -53,13 +53,6 @@ export function loadTodayScanTraces(): ScanTrace[] {
   try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return []; }
 }
 
-/** 특정 날짜(YYYYMMDD)의 스캔 트레이스를 반환한다. */
-export function loadScanTraces(yyyymmdd: string): ScanTrace[] {
-  const file = scanTraceFile(yyyymmdd);
-  if (!fs.existsSync(file)) return [];
-  try { return JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { return []; }
-}
-
 export interface ScanTraceSummary {
   totalCandidates: number;
   priceFail:  number;
@@ -138,20 +131,6 @@ export function topFailureReasons(
     })
     .sort((a, b) => b.count - a.count)
     .slice(0, n);
-}
-
-/** 요약 구조를 사람이 읽기 쉬운 Telegram 문자열로 변환한다. */
-export function formatScanTraceSummary(s: ScanTraceSummary): string {
-  return (
-    `<b>📊 오늘 스캔 의사결정 요약</b>\n` +
-    `총 후보: ${s.totalCandidates}개\n` +
-    `- 가격 조회 실패: ${s.priceFail}개\n` +
-    `- RRR 미달: ${s.rrrFail}개\n` +
-    `- 시세조회 실패: ${s.quoteFail}개\n` +
-    `- Gate 미달: ${s.gateFail}개\n` +
-    `- 기타 차단: ${s.otherBlock}개\n` +
-    `- 매수 실행: ${s.buyExecuted}개 ✅`
-  );
 }
 
 /** 과거 trace 파일 정리 — 7일 이상 된 파일 삭제 */

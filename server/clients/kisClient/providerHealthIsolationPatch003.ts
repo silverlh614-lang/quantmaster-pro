@@ -39,16 +39,16 @@ import {
 /* ─────────────────────────── 1. Schema / literal types ────────────────────────── */
 
 /** Circuit breaker 3-value state machine SSOT. */
-export type ProviderCircuitState = 'CLOSED' | 'HALF_OPEN' | 'OPEN';
+type ProviderCircuitState = 'CLOSED' | 'HALF_OPEN' | 'OPEN';
 
 /** Provider health 4-value union SSOT. */
-export type ProviderHealthStatus = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
+type ProviderHealthStatus = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING';
 
 /** Last Good Value confidence 5-value SSOT (사용자 §J #5). */
-export type LastGoodValueConfidence = 'HIGH' | 'DEGRADED' | 'STALE' | 'LOW' | 'MISSING';
+type LastGoodValueConfidence = 'HIGH' | 'DEGRADED' | 'STALE' | 'LOW' | 'MISSING';
 
 /** Fallback provider 6-value SSOT (사용자 §J #4). */
-export type FallbackProviderId =
+type FallbackProviderId =
   | 'KIS_QUOTE'        // 동일 KIS 의 일반 quote/price endpoint (RealData 가 죽어도 살아있을 수 있음)
   | 'KIS_CACHED'       // Last Good Value cache 사용
   | 'KRX'              // KRX OpenAPI fallback
@@ -57,13 +57,13 @@ export type FallbackProviderId =
   | 'NONE';
 
 /** InvestorFlow 신호 6-value (providerIssue 시 BULLISH/BEARISH → NEUTRAL/UNKNOWN). */
-export type InvestorFlowSignalKind = 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'UNKNOWN' | 'WEAK_BULLISH' | 'WEAK_BEARISH';
+type InvestorFlowSignalKind = 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'UNKNOWN' | 'WEAK_BULLISH' | 'WEAK_BEARISH';
 
 /** Engine mode impact 3-value (사용자 §J #10). */
-export type EngineModeImpact = 'NONE' | 'DEGRADED' | 'SELL_ONLY_CONSIDER';
+type EngineModeImpact = 'NONE' | 'DEGRADED' | 'SELL_ONLY_CONSIDER';
 
 /** Circuit breaker 발동 사유. */
-export type ProviderCircuitTripReason =
+type ProviderCircuitTripReason =
   | 'HTTP_500_BURST_60S'
   | 'HTTP_500_BURST_5MIN'
   | 'CONSECUTIVE_FAILURES';
@@ -717,4 +717,4 @@ export function __setShadowCasesMaxForTests(max: number): void {
 /* ─────────────────────────── 12. Re-export for convenience ─────────────────────── */
 
 export { classifyKisRealDataError };
-export type { KisRealDataErrorKind, KisRealDataNoiseClassification };
+export type { KisRealDataNoiseClassification };

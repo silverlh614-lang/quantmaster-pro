@@ -4,7 +4,7 @@ import { REGIME_CONFIGS } from '../../../../src/services/quant/regimeEngine.js';
 import { CATALYST_FIXED_STOP_PCT } from '../../../screener/watchlistManager.js';
 import { buildStopLossPlan, type StopLossPlan } from '../../entryEngine.js';
 
-export type ProfileKey = 'profileA' | 'profileB' | 'profileC' | 'profileD';
+type ProfileKey = 'profileA' | 'profileB' | 'profileC' | 'profileD';
 
 export interface StopLossPolicyInput {
   profileType?: 'A' | 'B' | 'C' | 'D';

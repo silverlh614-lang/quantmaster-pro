@@ -36,9 +36,9 @@ import { getLastScanSummary, type ScanSummary } from '../trading/signalScanner/s
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
-export type PostmortemVerdict = 'HEALTHY_REJECTION' | 'PATHOLOGICAL_BLOCK' | 'INDETERMINATE';
+type PostmortemVerdict = 'HEALTHY_REJECTION' | 'PATHOLOGICAL_BLOCK' | 'INDETERMINATE';
 
-export type DominantCause =
+type DominantCause =
   | 'REGIME_RISK_OFF'
   | 'NO_LIVE_LEADERSHIP'
   | 'PRE_BREAKOUT_WAIT_DOMINANT'
@@ -87,11 +87,6 @@ export type PostmortemAction =
   // Legacy aliases — 후방호환만, 신규 출력에서 사용 금지 (정적 grep 가드 대상).
   | 'LOOSEN_GATE'
   | 'NONE';
-
-/**
- * @deprecated ADR-0417 에서 `PostmortemAction` 으로 rename. 호출자 점진 마이그레이션.
- */
-export type RecommendedAction = PostmortemAction;
 
 export interface PostmortemReport {
   verdict: PostmortemVerdict;
@@ -682,10 +677,4 @@ export function runPostmortem(): PostmortemReport {
     reason,
     analyzedAt: new Date().toISOString(),
   };
-}
-
-/** 테스트용: 내부 상태 초기화. */
-export function resetPostmortemState(): void {
-  _emptyScanCount = 0;
-  _lastReport = null;
 }

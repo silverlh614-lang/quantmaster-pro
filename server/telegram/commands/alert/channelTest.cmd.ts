@@ -91,5 +91,3 @@ const channelTest: TelegramCommand = {
 };
 
 commandRegistry.register(channelTest);
-
-export default channelTest;

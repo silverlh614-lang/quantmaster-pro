@@ -981,8 +981,7 @@ export async function autoPopulateWatchlist(options: { force?: boolean } = {}): 
 // 심볼들을 분해된 6 파일에서 가져와 그대로 다시 노출한다. 신규 importer 는
 // 어댑터를 직접 import 권장 (성능 동일, 의존성 명시적).
 export { STOCK_UNIVERSE } from './stockUniverse.js';
-export { type RejectionEntry, getLastRejectionLog, setLastRejectionLog } from './rejectionLog.js';
+export { getLastRejectionLog } from './rejectionLog.js';
 export { sendWatchlistRejectionReport } from './watchlistRejectionReport.js';
 export { fetchYahooQuote, type YahooQuoteExtended } from './adapters/yahooQuoteAdapter.js';
 export { fetchKisQuoteFallback, fetchKisIntraday, enrichQuoteWithKisMTAS } from './adapters/kisQuoteAdapter.js';
-export { fetchKrxScreenerFallback } from './adapters/krxScreenerAdapter.js';

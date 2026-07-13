@@ -4,7 +4,7 @@ import {
 } from '../clients/kisClient/http.js';
 import { HAS_REAL_DATA_CLIENT } from '../clients/kisClient/constants.js';
 
-export type KisInquireInvestorTridVariant = 'LEGACY_01010300' | 'OFFICIAL_01010900';
+type KisInquireInvestorTridVariant = 'LEGACY_01010300' | 'OFFICIAL_01010900';
 
 export interface KisInquireInvestorTridCompareInput {
   code: string;
@@ -12,7 +12,7 @@ export interface KisInquireInvestorTridCompareInput {
   dryRun?: boolean;
 }
 
-export interface KisInquireInvestorTridVariantResult {
+interface KisInquireInvestorTridVariantResult {
   variant: KisInquireInvestorTridVariant;
   trId: string;
   path: string;
@@ -66,9 +66,9 @@ export interface KisInquireInvestorTridCompareResult {
   };
 }
 
-export const INQUIRE_INVESTOR_PATH = '/uapi/domestic-stock/v1/quotations/inquire-investor';
-export const LEGACY_TR_ID = 'FHKST01010300';
-export const OFFICIAL_TR_ID = 'FHKST01010900';
+const INQUIRE_INVESTOR_PATH = '/uapi/domestic-stock/v1/quotations/inquire-investor';
+const LEGACY_TR_ID = 'FHKST01010300';
+const OFFICIAL_TR_ID = 'FHKST01010900';
 
 type OutputType = KisInquireInvestorTridVariantResult['outputType'];
 type SemanticCandidateKeys = KisInquireInvestorTridVariantResult['semanticCandidateKeys'];

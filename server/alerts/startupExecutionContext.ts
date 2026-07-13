@@ -20,7 +20,7 @@ import { sendTelegramAlert } from './telegramClient.js';
 //       · VTS_PAPER_TRADING_ENABLED 미설정    → REFUSE (매수만 나가고 매도 차단되는 비대칭 방지;
 //                                              기존 index.ts:25 거부와 byte-equivalent 트리거).
 //       · 설정                                → ALLOW_PAPER_VTS (🧪 모의 — 실제 돈 위험 0).
-export type AutoTradeStartupDecision =
+type AutoTradeStartupDecision =
   | 'ALLOW_NO_EXECUTION'
   | 'ALLOW_REAL_MONEY'
   | 'ALLOW_PAPER_VTS'

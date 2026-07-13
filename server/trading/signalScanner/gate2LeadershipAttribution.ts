@@ -57,15 +57,15 @@ import {
  *   - output null + context.hadRequiredData=false → unavailable++
  *   - output null + 그 외 → failed++ (legacy fallback)
  */
-export type Gate2ConditionStatus = 'PASSED' | 'FAILED' | 'UNAVAILABLE' | 'WAIT' | 'STALE' | 'ERROR';
+type Gate2ConditionStatus = 'PASSED' | 'FAILED' | 'UNAVAILABLE' | 'WAIT' | 'STALE' | 'ERROR';
 
-export type Gate2NearMissBucket =
+type Gate2NearMissBucket =
   | 'PROBING'
   | 'WATCH_ONLY'
   | 'SHADOW_ONLY'
   | 'DATA_BLOCKED_NEAR_MISS';
 
-export interface Gate2ConditionGapTrace {
+interface Gate2ConditionGapTrace {
   code: string;
   status: Gate2ConditionStatus;
   rawValue?: number | string | boolean;
@@ -247,7 +247,7 @@ export type Gate2LeadershipDiagnosis =
   | 'UNKNOWN';
 
 
-export type Gate2LeadershipDominantReason =
+type Gate2LeadershipDominantReason =
   | 'SECTOR_DATA_STALE'
   | 'BREAKOUT_MOMENTUM_NOT_CONFIRMED'
   | 'FUNDAMENTAL_DATA_UNAVAILABLE'
@@ -259,7 +259,7 @@ export type Gate2LeadershipDominantReason =
   | 'MIXED'
   | 'UNKNOWN';
 
-export type Gate2LeadershipBlocker =
+type Gate2LeadershipBlocker =
   | 'OFFICIAL_INDEX_UNAVAILABLE'
   | 'OFFICIAL_INDEX_COVERAGE_BELOW_THRESHOLD'
   | 'SECTOR_STALE'
@@ -270,7 +270,7 @@ export type Gate2LeadershipBlocker =
   | 'VOLUME_CONFIRMATION_FAIL'
   | 'NO_LEADERSHIP_AFTER_ALL_CHECKS';
 
-export interface Gate2LeadershipAttribution {
+interface Gate2LeadershipAttribution {
   gate1Pass: number;
   gate2Pass: number;
   blockedBySectorStaleCount: number;

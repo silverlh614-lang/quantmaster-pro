@@ -46,7 +46,7 @@ function validRecord(row: unknown): row is SectorEnergyVerifiedSnapshotRecord {
 }
 
 /** 전체 verified snapshot 레코드 (tradeDate 오름차순). 파일 부재·파손 시 빈 배열. */
-export function loadSectorEnergyVerifiedSnapshots(): SectorEnergyVerifiedSnapshotRecord[] {
+function loadSectorEnergyVerifiedSnapshots(): SectorEnergyVerifiedSnapshotRecord[] {
   if (!fs.existsSync(SECTOR_ENERGY_VERIFIED_SNAPSHOT_FILE)) return [];
   try {
     const parsed = JSON.parse(fs.readFileSync(SECTOR_ENERGY_VERIFIED_SNAPSHOT_FILE, 'utf-8'));

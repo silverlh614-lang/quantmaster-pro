@@ -25,7 +25,7 @@ import { clamp } from '../../utils/math';
 
 // ─── 닛케이 5분봉 선행 지수화 (Nikkei → KOSPI) ─────────────────────────────────
 
-export const NIKKEI_KOSPI_SECTOR_CORRELATION_TABLE: NikkeiKospiSectorCorrelation[] = [
+const NIKKEI_KOSPI_SECTOR_CORRELATION_TABLE: NikkeiKospiSectorCorrelation[] = [
   { nikkeiSector: 'DEFENSE', kospiSector: 'K-방산', correlation: 0.93, beta: 0.82 },
   { nikkeiSector: 'SEMICONDUCTOR', kospiSector: '반도체', correlation: 0.92, beta: 0.88 },
   { nikkeiSector: 'AUTOMOBILE', kospiSector: '자동차', correlation: 0.91, beta: 0.80 },

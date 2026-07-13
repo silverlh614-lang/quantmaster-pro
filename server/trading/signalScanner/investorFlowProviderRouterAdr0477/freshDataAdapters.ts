@@ -80,7 +80,7 @@ export function freshDataSnapshotUsableForRouterAdr0477(snapshot: FreshDataSnaps
   return freshDataSnapshotMaterializedAdr0477(snapshot) && (snapshot.sourceState === 'FRESH' || snapshot.sourceState === 'STALE');
 }
 
-export function freshDataSnapshotUsableForShadowAdr0477(snapshot: FreshDataSnapshotAdr0487): boolean {
+function freshDataSnapshotUsableForShadowAdr0477(snapshot: FreshDataSnapshotAdr0487): boolean {
   if (typeof snapshot.usableForShadow === 'boolean') return snapshot.usableForShadow;
   return freshDataSnapshotMaterializedAdr0477(snapshot);
 }
@@ -130,7 +130,7 @@ export function freshDataSnapshotSampleAdr0477(
 }
 
 
-export function compactRecordAdr0477(record: Record<string, unknown> | undefined): string {
+function compactRecordAdr0477(record: Record<string, unknown> | undefined): string {
   if (!record) return 'NONE';
   return Object.entries(record).map(([key, value]) => `${key}:${String(value)}`).join(',');
 }
@@ -168,7 +168,7 @@ export function krxDiagnosticStatusAdr0477(status: string | undefined): Investor
   return 'DATA_UNAVAILABLE';
 }
 
-export type KrxEmptyRecoveryKindAdr0477 =
+type KrxEmptyRecoveryKindAdr0477 =
   | 'NOT_EMPTY'
   | 'PARAMETER_MISMATCH'
   | 'ACCEPTED_EMPTY'
@@ -176,7 +176,7 @@ export type KrxEmptyRecoveryKindAdr0477 =
   | 'SCHEMA_OR_FIELD_MISMATCH'
   | 'PROVIDER_EMPTY';
 
-export interface KrxEmptyRecoveryDiagnosticAdr0477 {
+interface KrxEmptyRecoveryDiagnosticAdr0477 {
   kind: KrxEmptyRecoveryKindAdr0477;
   providerIssue: boolean;
   marketSignal: false;
@@ -186,7 +186,7 @@ export interface KrxEmptyRecoveryDiagnosticAdr0477 {
   recoveryAction: string;
 }
 
-export function classifyKrxEmptyRecoveryAdr0477(
+function classifyKrxEmptyRecoveryAdr0477(
   input: NonNullable<InvestorFlowProviderRouterInput['krxInvestorDiagnosticAdr0505']>,
 ): KrxEmptyRecoveryDiagnosticAdr0477 {
   const status = input.parserStatus ?? input.status ?? 'DATA_UNAVAILABLE';

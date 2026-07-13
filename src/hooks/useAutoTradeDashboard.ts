@@ -11,8 +11,5 @@
  */
 
 export {
-  useAutoTradeEngine as useAutoTradeDashboard,
-  deriveAccountSummary,
-  type AccountSummary,
-  type UseAutoTradeEngineReturn as UseAutoTradeDashboardReturn,
+  type AccountSummary
 } from './autoTrade';

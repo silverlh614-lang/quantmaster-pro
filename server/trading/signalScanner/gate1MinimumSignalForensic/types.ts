@@ -231,7 +231,7 @@ export type ConditionResultsBreakPointAdr0510 =
   | 'PRECHECK_ONLY_TRACE'
   | 'UNKNOWN';
 
-export interface WatchlistHydrationAuditAdr0509 {
+interface WatchlistHydrationAuditAdr0509 {
   sourceAvailable: boolean;
   sourceField: string | null;
   scoreImported: boolean;

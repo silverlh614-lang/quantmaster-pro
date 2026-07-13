@@ -176,7 +176,7 @@ function hasPresentPath(root: unknown, path: readonly string[]): boolean {
  *
  * This intentionally does not feed hadRequiredData or evaluator decisions.
  */
-export function isDeclaredInputAvailable(ctx: ConditionEvalContext, input: EvaluatorInput): boolean {
+function isDeclaredInputAvailable(ctx: ConditionEvalContext, input: EvaluatorInput): boolean {
   if (input.startsWith('quote.')) {
     return hasPresentPath(ctx.quote, input.slice('quote.'.length).split('.'));
   }

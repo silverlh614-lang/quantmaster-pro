@@ -23,13 +23,6 @@ export type ExecutionMode =
   | 'REPLAY'
   | 'BLOCKED';
 
-export type WatchlistReason =
-  | 'PENDING_SUPPLY_CONFIRMATION'
-  | 'PENDING_MACRO_CONFIRMATION'
-  | 'PENDING_PRICE_TRIGGER'
-  | 'PENDING_VOLUME_BREAKOUT'
-  | 'PENDING_DATA_RECOVERY';
-
 export interface SourceHealth {
   // ADR-0421 — 'DATA_UNAVAILABLE' 신규 (success=0+missing>0 시점 NEUTRAL 폐기 정합).
   status:
@@ -216,7 +209,7 @@ export function toDataQualityBucket(confidence: number): DataQualityBucket {
   return 'UNSAFE_CONFIDENCE';
 }
 
-export function positionMultiplier(confidence: number): number {
+function positionMultiplier(confidence: number): number {
   if (confidence >= 0.8) return 1.0;
   if (confidence >= 0.6) return 0.7;
   if (confidence >= 0.4) return 0.5;
@@ -322,26 +315,6 @@ export function determineExecutionMode(params: {
   if (isBuySignal(finalSignal)) return 'SHADOW';
   if (finalSignal === 'SELL') return 'LIVE';
   return 'WATCHLIST';
-}
-
-export function deriveWatchlistReason(params: {
-  rawSignal: TradingSignal;
-  finalSignal: TradingSignal;
-  wasDowngradedBySupplyHealth: boolean;
-  snapshot: SupplyHealthSnapshot;
-}): WatchlistReason | null {
-  if (
-    isBuySignal(params.rawSignal) &&
-    params.finalSignal === 'WATCH' &&
-    params.wasDowngradedBySupplyHealth
-  ) {
-    return params.snapshot.criticalFlags.investorFlowDegraded ||
-      params.snapshot.criticalFlags.foreignerTrendDegraded ||
-      params.snapshot.criticalFlags.programTradingMissing
-      ? 'PENDING_SUPPLY_CONFIRMATION'
-      : 'PENDING_DATA_RECOVERY';
-  }
-  return null;
 }
 
 export function createLearningSampleFromDecision(decision: {

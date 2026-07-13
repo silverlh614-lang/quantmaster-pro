@@ -77,7 +77,7 @@ export function useToggleEngineMutation() {
  *   const toggle = useToggleEngineMutation();
  *   const handle = () => toggleEngineWithToast(toggle.mutateAsync, { nextRunning: true });
  */
-export function toggleEngineWithToast(
+function toggleEngineWithToast(
   fire: () => Promise<EngineToggleResponse>,
   meta: { nextRunning: boolean },
 ): Promise<EngineToggleResponse> {
@@ -134,27 +134,4 @@ export function useRunReconcileMutation() {
 }
 
 // ── Shadow Trade 동기화 ─────────────────────────────────────────
-export function useSyncShadowTradeMutation() {
-  const qc = useQueryClient();
-  return useMutation<void, Error, ServerShadowTrade>({
-    mutationFn: (trade) => autoTradeApi.syncShadowTrade(trade),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: AUTO_TRADE_KEYS.shadowTrades });
-    },
-  });
-}
-
 // ── Shadow Trade 강제 입력 (수량 불일치 복구) ───────────────────
-export function useForceUpdateShadowTradeMutation() {
-  const qc = useQueryClient();
-  return useMutation<
-    ShadowForceInputResponse,
-    Error,
-    { id: string; patch: ShadowForceInputPatch }
-  >({
-    mutationFn: ({ id, patch }) => autoTradeApi.forceUpdateShadowTrade(id, patch),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: AUTO_TRADE_KEYS.shadowTrades });
-    },
-  });
-}

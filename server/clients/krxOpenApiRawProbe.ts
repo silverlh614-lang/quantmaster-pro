@@ -73,7 +73,7 @@ function rowKeys(row: unknown): string[] {
   return Object.keys(row as Record<string, unknown>).slice(0, 20);
 }
 
-export async function krxRawProbe(
+async function krxRawProbe(
   endpoint: string,
   params: Record<string, string>,
   base = readKrxOpenApiRawBase(),

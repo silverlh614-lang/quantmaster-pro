@@ -186,8 +186,3 @@ export async function buildStockInterpretContext(ref: StockRef): Promise<string>
       : '',
   ].filter(Boolean).join('\n');
 }
-
-/** 테스트·디버깅용 — collectAll 의 결과를 외부에서 확인. */
-export async function _debugCollect(ref: StockRef): Promise<CollectedData> {
-  return collectAll(ref);
-}

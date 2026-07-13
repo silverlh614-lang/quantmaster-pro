@@ -50,9 +50,9 @@ const HY_EXTREME  = 7.0;
 
 // ── 타입 ─────────────────────────────────────────────────────────────────────
 
-export type MhsRegime = 'BULL' | 'NEUTRAL_HIGH' | 'NEUTRAL_LOW' | 'DEFENSE';
+type MhsRegime = 'BULL' | 'NEUTRAL_HIGH' | 'NEUTRAL_LOW' | 'DEFENSE';
 
-export interface MhsAxisDetails {
+interface MhsAxisDetails {
   interestRate: number; // 0~25
   liquidity:    number;
   economy:      number;

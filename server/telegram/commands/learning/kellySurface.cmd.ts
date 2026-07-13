@@ -23,5 +23,3 @@ const kellySurface: TelegramCommand = {
 };
 
 commandRegistry.register(kellySurface);
-
-export default kellySurface;

@@ -19,7 +19,7 @@ export type DartFinancialConfidence =
   | 'EMPTY_VALID'
   | 'AI_ESTIMATED';
 
-export type QmpDartFinancialSource = 'DART' | 'DART_CACHE' | 'QMP_CACHE' | 'MANUAL' | 'UNKNOWN';
+type QmpDartFinancialSource = 'DART' | 'DART_CACHE' | 'QMP_CACHE' | 'MANUAL' | 'UNKNOWN';
 
 export interface DartFinancialRawFieldCoverage {
   requiredFields: string[];
@@ -188,7 +188,7 @@ function normalizeProviderStatus(value: unknown): DartFinancialProviderStatus | 
   return null;
 }
 
-export function confidenceForDartFinancialStatus(status: DartFinancialProviderStatus): DartFinancialConfidence {
+function confidenceForDartFinancialStatus(status: DartFinancialProviderStatus): DartFinancialConfidence {
   if (status === 'OK_WITH_DATA') return 'VERIFIED';
   if (status === 'OK_EMPTY') return 'EMPTY_VALID';
   if (status === 'STALE_CACHE') return 'STALE';

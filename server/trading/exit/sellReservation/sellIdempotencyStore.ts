@@ -11,10 +11,6 @@ export function buildSellReservationDedupKey(input: SellReservationIdentity): st
   return `sell-reserve:${input.mode}:${input.symbol}:${input.positionId}:${input.reason}:${input.qty}`;
 }
 
-export function getSellReservationByKey(dedupKey: string): SellReservationRecord | undefined {
-  return reservationsByKey.get(dedupKey);
-}
-
 export function getSellReservationById(reservationId: string): SellReservationRecord | undefined {
   return reservationsById.get(reservationId);
 }

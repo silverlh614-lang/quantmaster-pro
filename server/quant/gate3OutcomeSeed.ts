@@ -111,7 +111,7 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-export function buildGate3OutcomeSeedId(input: {
+function buildGate3OutcomeSeedId(input: {
   symbol: string;
   tradeDate: string;
   sourceSnapshotId: string;

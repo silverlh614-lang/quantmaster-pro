@@ -34,12 +34,9 @@ const healthFull: TelegramCommand = {
 };
 
 commandRegistry.register(healthFull);
-
-export default healthFull;
-
 // ─── 텍스트 포맷팅 ────────────────────────────────────────────────────────
 
-export function buildHealthFullMessage(): string {
+function buildHealthFullMessage(): string {
   const lines: string[] = [
     '🔬 <b>QuantMaster Health Full Diagnostics</b>',
     '',

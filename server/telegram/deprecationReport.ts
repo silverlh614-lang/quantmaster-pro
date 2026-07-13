@@ -10,7 +10,7 @@
 import { commandRegistry } from './commandRegistry.js';
 import { getStaleCommands, getTopUsage } from '../persistence/commandUsageRepo.js';
 
-export interface DeprecationCandidate {
+interface DeprecationCandidate {
   name: string;
   category: string;
   daysSinceLastUse: number | null;

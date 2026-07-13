@@ -1,7 +1,7 @@
 // @responsibility DART 선행공시 신뢰도 집계 계산
 import type { DataConfidence, DataConfidenceSummary, DartExtractedFact } from './dartPreNewsTypes.js';
 
-export function emptyConfidenceSummary(): DataConfidenceSummary {
+function emptyConfidenceSummary(): DataConfidenceSummary {
   return { verified: 0, degraded: 0, stale: 0, missing: 0, aiEstimated: 0, unknown: 0 };
 }
 
@@ -11,7 +11,7 @@ export function summarizeDataConfidence(facts: DartExtractedFact[]): DataConfide
   return summary;
 }
 
-export function incrementConfidence(summary: DataConfidenceSummary, confidence: DataConfidence): void {
+function incrementConfidence(summary: DataConfidenceSummary, confidence: DataConfidence): void {
   if (confidence === 'VERIFIED') summary.verified += 1;
   else if (confidence === 'DEGRADED') summary.degraded += 1;
   else if (confidence === 'STALE') summary.stale += 1;

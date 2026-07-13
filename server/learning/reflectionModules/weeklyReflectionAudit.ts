@@ -30,11 +30,6 @@ export interface WeeklyAudit {
   topLessons: Array<{ text: string; count: number }>;
 }
 
-export function auditLastWeek(windowDays = 7): WeeklyAudit {
-  const reports = loadRecentReflections(windowDays);
-  return auditReports(reports, windowDays);
-}
-
 export function auditReports(reports: ReflectionReport[], windowDays: number): WeeklyAudit {
   const modeDist: Record<ReflectionMode, number> = {
     FULL: 0, REDUCED_EOD: 0, REDUCED_MWF: 0, TEMPLATE_ONLY: 0, SILENCE_MONDAY: 0,

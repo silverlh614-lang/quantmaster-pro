@@ -1,9 +1,9 @@
 // @responsibility Gate1/Gate2 diagnostic resolver for upstream watchlist score propagation.
 
-export type WatchlistScoreConfidence = 'VERIFIED' | 'MISSING' | 'UNKNOWN';
-export type WatchlistScoreScaleHint = '0_10' | '0_27' | '0_100';
+type WatchlistScoreConfidence = 'VERIFIED' | 'MISSING' | 'UNKNOWN';
+type WatchlistScoreScaleHint = '0_10' | '0_27' | '0_100';
 
-export type WatchlistScoreSourceField =
+type WatchlistScoreSourceField =
   | 'stage2Score'
   | 'watchlistScore'
   | 'upstreamCandidateScore'

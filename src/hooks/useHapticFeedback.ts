@@ -39,8 +39,3 @@ export function useHapticFeedback() {
     vibrate(PATTERNS[pattern]);
   }, []);
 }
-
-/** 컴포넌트 외부(이벤트 핸들러) 에서도 사용 가능한 직접 호출 헬퍼. */
-export function haptic(pattern: HapticPattern = 'light'): void {
-  vibrate(PATTERNS[pattern]);
-}

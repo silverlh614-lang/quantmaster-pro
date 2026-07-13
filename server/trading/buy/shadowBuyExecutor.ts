@@ -47,7 +47,7 @@ import {
   type ShadowBuyLifecycleStatus,
 } from './shadowDuplicateBuyRegistry.js';
 
-export type ShadowBuyExecutionOutcome =
+type ShadowBuyExecutionOutcome =
   | 'SHADOW_POSITION_OPENED'
   | 'SHADOW_REJECTED';
 

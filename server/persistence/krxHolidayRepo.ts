@@ -113,13 +113,6 @@ export function removeKrxHolidayPatchByDate(date: string): boolean {
   return true;
 }
 
-/** 테스트용 — patch 파일 초기화. */
-export function __resetKrxHolidayPatchForTests(): void {
-  if (fs.existsSync(KRX_HOLIDAY_PATCH_FILE)) {
-    fs.rmSync(KRX_HOLIDAY_PATCH_FILE);
-  }
-}
-
 function isValidDateYmd(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }

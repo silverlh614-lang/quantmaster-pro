@@ -13,8 +13,8 @@ import {
 } from '../clients/kisClient/index.js';
 import type { KisInvestorFlow, KisInvestorTradeByStockDaily } from '../clients/kisClient/types.js';
 
-export type KisEvidenceFreshness = 'FRESH' | 'STALE' | 'MISSING';
-export type KisEvidenceConfidence = 'VERIFIED' | 'DEGRADED' | 'MISSING';
+type KisEvidenceFreshness = 'FRESH' | 'STALE' | 'MISSING';
+type KisEvidenceConfidence = 'VERIFIED' | 'DEGRADED' | 'MISSING';
 
 export interface KisOfficialEvidencePack {
   stockCode: string;

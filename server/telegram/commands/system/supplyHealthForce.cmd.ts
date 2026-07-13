@@ -8,7 +8,7 @@ import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import { __resetSupplyHealthCacheForTests, buildSupplyHealthMessage } from './supplyHealth.cmd.js';
 
-export async function buildSupplyHealthForceMessage(): Promise<string> {
+async function buildSupplyHealthForceMessage(): Promise<string> {
   __resetSupplyHealthCacheForTests();
   return buildSupplyHealthMessage();
 }
@@ -32,4 +32,3 @@ const supplyHealthForce: TelegramCommand = {
 };
 
 commandRegistry.register(supplyHealthForce);
-export default supplyHealthForce;

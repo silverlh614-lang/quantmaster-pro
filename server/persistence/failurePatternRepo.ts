@@ -69,16 +69,7 @@ export function loadFailurePatterns(): FailurePatternEntry[] {
   });
 }
 
-/** TTL 무시하고 파일의 모든 엔트리 로드 (라우터 /failure-patterns/list 등 조회용). */
-export function loadFailurePatternsRaw(): FailurePatternEntry[] {
-  ensureDataDir();
-  if (!fs.existsSync(FAILURE_PATTERN_FILE)) return [];
-  try {
-    return JSON.parse(fs.readFileSync(FAILURE_PATTERN_FILE, 'utf-8')) as FailurePatternEntry[];
-  } catch { return []; }
-}
-
-export function saveFailurePatterns(entries: FailurePatternEntry[]): void {
+function saveFailurePatterns(entries: FailurePatternEntry[]): void {
   ensureDataDir();
   // 최근 500건만 유지
   fs.writeFileSync(FAILURE_PATTERN_FILE, JSON.stringify(entries.slice(-500), null, 2));

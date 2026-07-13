@@ -47,10 +47,3 @@ export interface DynamicStopResult {
 // ─── 매도 사이클 포트폴리오 컨텍스트 ──────────────────────────────────────────
 
 import type { ActivePosition } from './position';
-
-/** runSellCycle() 실행 시 필요한 포트폴리오 수준 상태 */
-export interface SellCycleContext {
-  positions: ActivePosition[];
-  currentRegime: RegimeLevel;
-  todayPnLRate: number;          // 당일 손익률 (e.g., -0.025 = -2.5%)
-}

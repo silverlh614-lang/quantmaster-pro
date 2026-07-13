@@ -146,9 +146,3 @@ export const KNOWN_REFLECTION_MODULES = [
 ] as const;
 
 export type KnownReflectionModule = (typeof KNOWN_REFLECTION_MODULES)[number];
-
-export const REFLECTION_IMPACT_POLICY_CONSTANTS = {
-  ...DEFAULT_OPTIONS,
-} as const;
-
-export { type ModuleStats };

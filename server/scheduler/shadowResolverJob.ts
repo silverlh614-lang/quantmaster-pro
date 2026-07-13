@@ -82,7 +82,7 @@ export function countRecentConsecutiveLosses(shadows: ShadowTrade[]): number {
 // 3단계 서킷브레이커:
 //   2건: 신규 진입 30분 홀드 + 레짐 1단계 강제 다운그레이드(4시간)
 //   3건: 자동거래 완전 정지(setEmergencyStop) + 수동 재개 승인 요청
-export async function reactToLossStreak(consecLoss: number): Promise<void> {
+async function reactToLossStreak(consecLoss: number): Promise<void> {
   if (consecLoss >= 3 && !getCircuitBreakerTrippedAt()) {
     tripCircuitBreaker();
     setEmergencyStop(true);

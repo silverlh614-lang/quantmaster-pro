@@ -7,10 +7,3 @@ export const AI_MODELS = {
   SERVER_SIDE: 'gemini-2.5-flash',  // conditionAuditor, globalScanAgent
   FAST:        'gemini-2.5-flash',  // 빠른 경량 처리
 } as const;
-
-export const AI_CONFIG = {
-  DEFAULT_TEMPERATURE: 0.1,
-  MAX_OUTPUT_TOKENS: 4096,
-  RETRY_COUNT: 2,
-  RETRY_DELAY_MS: 2000,
-} as const;

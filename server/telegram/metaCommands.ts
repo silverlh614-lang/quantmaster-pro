@@ -17,7 +17,7 @@ import {
 } from '../trading/regime/regimeTelegramPresenter.js';
 import { commandRegistry } from './commandRegistry.js';
 
-export interface InlineKeyboardButton {
+interface InlineKeyboardButton {
   text: string;
   callback_data: string;
 }

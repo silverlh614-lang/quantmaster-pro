@@ -101,5 +101,3 @@ const rejected: TelegramCommand = {
 };
 
 commandRegistry.register(rejected);
-
-export default rejected;

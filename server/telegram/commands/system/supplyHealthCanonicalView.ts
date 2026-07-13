@@ -10,7 +10,7 @@ import type { ScanSummary } from '../../../trading/signalScanner/scanDiagnostics
 
 const CANONICAL_PER_CANDIDATE_TOP_N = 8;
 
-export interface CanonicalSupplyPerCandidateView {
+interface CanonicalSupplyPerCandidateView {
   symbol: string;
   source: string;
   foreignNetBuy: number | null;

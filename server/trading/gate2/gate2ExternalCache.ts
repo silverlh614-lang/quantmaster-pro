@@ -84,7 +84,7 @@ export function loadGate2ExternalCache(): Gate2ExternalCacheFile {
   }
 }
 
-export function saveGate2ExternalCache(cache: Gate2ExternalCacheFile): void {
+function saveGate2ExternalCache(cache: Gate2ExternalCacheFile): void {
   ensureDataDir();
   const tmp = `${CACHE_FILE}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(cache, null, 2));

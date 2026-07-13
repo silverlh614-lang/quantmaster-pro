@@ -43,7 +43,7 @@ export interface MacroEnvironment {
 // ─── 닛케이 5분봉 선행 지수화 (Nikkei → KOSPI) ─────────────────────────────────
 
 /** 닛케이 섹터 5분봉 변화율 입력 */
-export interface NikkeiSectorStrength {
+interface NikkeiSectorStrength {
   sector: string;
   changePct: number;
 }
@@ -86,7 +86,7 @@ export interface NikkeiLeadAlphaResult {
 
 // ─── 아이디어 4: Smart Money Radar (글로벌 ETF 선행 모니터) ──────────────────
 
-export interface EtfFlowData {
+interface EtfFlowData {
   ticker: string;          // 'EWY' | 'MTUM' | 'EEMV' | 'IYW' | 'ITA'
   name: string;            // 'iShares MSCI Korea' 등
   flow: 'INFLOW' | 'OUTFLOW' | 'NEUTRAL';
@@ -106,7 +106,7 @@ export interface SmartMoneyData {
 
 // ─── 아이디어 5: 수출 선행지수 섹터 로테이션 엔진 ────────────────────────────
 
-export interface ExportProductData {
+interface ExportProductData {
   product: string;                   // '반도체' | '선박' | '자동차' | '석유화학' | '방산'
   sector: string;                    // 연계 섹터명 (KOSPI 분류)
   yoyGrowth: number;                 // % YoY 수출 증감률

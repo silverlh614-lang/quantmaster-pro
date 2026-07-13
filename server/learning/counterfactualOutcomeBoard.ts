@@ -23,12 +23,12 @@ import {
   type KospiMarketBucketExcessD5,
 } from './counterfactualKospiJoin.js';
 
-export type CounterfactualSourceType =
+type CounterfactualSourceType =
   | 'GATE1_DRY_RUN_OBSERVATION'
   | 'COUNTERFACTUAL_LEDGER'
   | 'LEGACY_COUNTERFACTUAL';
 
-export type CounterfactualRowType =
+type CounterfactualRowType =
   | 'GATE_COUNTERFACTUAL'
   | 'ENTRY_COUNTERFACTUAL'
   | 'NEAR_MISS'
@@ -44,7 +44,7 @@ export type CounterfactualRowType =
   | 'ADR_REPLAY'
   | 'UNKNOWN';
 
-export type CounterfactualSourceLane =
+type CounterfactualSourceLane =
   | 'GATE1'
   | 'GATE2'
   | 'GATE3'
@@ -58,7 +58,7 @@ export type CounterfactualSourceLane =
   | 'ADR_REPLAY'
   | 'UNKNOWN';
 
-export type CounterfactualExcludedReason =
+type CounterfactualExcludedReason =
   | 'MISSING_SYMBOL'
   | 'MISSING_SCAN_ID'
   | 'MISSING_SOURCE_SNAPSHOT_ID'
@@ -69,18 +69,18 @@ export type CounterfactualExcludedReason =
   | 'DIAGNOSTIC_REPLAY_ARTIFACT'
   | 'NOT_A_GATE_COUNTERFACTUAL_ROW';
 
-export type Gate1OutcomeBand = '70+' | '65~70' | '60~65' | '55~60' | 'below55' | 'UNSCORED';
-export type Gate1PassType = 'HARD_PASS' | 'SOFT_PASS' | 'MIN_SIGNAL_PASS' | 'FAIL' | 'DIAGNOSTIC_ONLY';
-export type Gate2OutcomeStatus = 'PASS' | 'FAIL' | 'PENDING' | 'NOT_EVALUATED_GATE1_FAIL';
-export type Gate3OutcomeStatus = 'READY' | 'WAIT' | 'BLOCKED' | 'NOT_EVALUATED';
-export type CounterfactualMaturityStatus =
+type Gate1OutcomeBand = '70+' | '65~70' | '60~65' | '55~60' | 'below55' | 'UNSCORED';
+type Gate1PassType = 'HARD_PASS' | 'SOFT_PASS' | 'MIN_SIGNAL_PASS' | 'FAIL' | 'DIAGNOSTIC_ONLY';
+type Gate2OutcomeStatus = 'PASS' | 'FAIL' | 'PENDING' | 'NOT_EVALUATED_GATE1_FAIL';
+type Gate3OutcomeStatus = 'READY' | 'WAIT' | 'BLOCKED' | 'NOT_EVALUATED';
+type CounterfactualMaturityStatus =
   | 'PENDING'
   | 'MATURE_D1'
   | 'MATURE_D3'
   | 'MATURE_D5'
   | 'MATURE_D10'
   | 'DATA_UNAVAILABLE';
-export type CounterfactualOutcomeLabel =
+type CounterfactualOutcomeLabel =
   | 'GOOD_BLOCK'
   | 'MISSED_OPPORTUNITY'
   | 'NO_EDGE'
@@ -91,7 +91,7 @@ export type CounterfactualOutcomeLabel =
   | 'DATA_BLOCKED_AND_WEAK'
   | 'INSUFFICIENT_MATURITY';
 
-export interface CounterfactualOutcomeBoardRow {
+interface CounterfactualOutcomeBoardRow {
   sourceType: CounterfactualSourceType;
   rowType: CounterfactualRowType;
   sourceLane: CounterfactualSourceLane;
@@ -164,7 +164,7 @@ export interface CounterfactualOutcomeBoardRow {
   operatorApprovalRequired: true;
 }
 
-export interface CounterfactualOutcomeSummary {
+interface CounterfactualOutcomeSummary {
   totalRecorded: number;
   matureD1: number;
   matureD3: number;
@@ -205,7 +205,7 @@ export interface CounterfactualBandOutcome {
   medianExcessD5?: number | null;
 }
 
-export interface CounterfactualTodaySummary {
+interface CounterfactualTodaySummary {
   dateKey: string;
   scanId: string | null;
   sourceSnapshotId: string | null;
@@ -223,7 +223,7 @@ export interface CounterfactualTodaySummary {
   counterfactualAllowed: true;
 }
 
-export interface CounterfactualReviewSummary {
+interface CounterfactualReviewSummary {
   gate1ReviewReady: boolean;
   gate2ReviewReady: boolean;
   gate3ReviewReady: boolean;
@@ -232,7 +232,7 @@ export interface CounterfactualReviewSummary {
   blockers: string[];
 }
 
-export interface CounterfactualSafetyChecks {
+interface CounterfactualSafetyChecks {
   counterfactualReportingNonExecutional: boolean;
   thresholdAutoChangeForbidden: boolean;
   livePermissionUnchanged: boolean;
@@ -242,7 +242,7 @@ export interface CounterfactualSafetyChecks {
   gateBlockerAttributionPreserved: boolean;
 }
 
-export interface CounterfactualExcludedRow {
+interface CounterfactualExcludedRow {
   sourceType: CounterfactualSourceType;
   rowType: CounterfactualRowType;
   sourceLane: CounterfactualSourceLane;
@@ -257,7 +257,7 @@ export interface CounterfactualExcludedRow {
   excludedReason: CounterfactualExcludedReason;
 }
 
-export interface CounterfactualDebugSummary {
+interface CounterfactualDebugSummary {
   totalRawRows: number;
   includedRows: number;
   excludedRows: number;
@@ -274,14 +274,14 @@ export interface CounterfactualDebugSummary {
   excludedSampleRows: CounterfactualExcludedRow[];
 }
 
-export type BandMaturityStallStatus = 'HEALTHY' | 'IMMATURE_WAITING' | 'STALL_SUSPECTED';
+type BandMaturityStallStatus = 'HEALTHY' | 'IMMATURE_WAITING' | 'STALL_SUSPECTED';
 
 /**
  * 관측 전용 가드 (patch-type, ADR 0건). canonical Gate1 밴드가 충분한 거래일 경과 후에도
  * matureD5=0 이면 라벨러 write-back / reference price 배선 버그를 의심한다. 판정만 하며
  * execution / threshold 에 영향 0 (observationOnly).
  */
-export interface BandMaturityStallGuard {
+interface BandMaturityStallGuard {
   status: BandMaturityStallStatus;
   oldestBandRowAgeTradingDays: number | null;
   totalBandMatureD5: number;
@@ -1407,7 +1407,6 @@ export async function buildCounterfactualOutcomeBoard(
 // ADR-0610: 표시(format) 레이어는 counterfactualOutcomeBoardFormat.ts 로 추출됨(byte-equivalent
 // re-export → 호출처 import 경로 무변경). build(집계)/format(표시) SRP 분리 + ACMA 1500 여유 확보.
 export {
-  formatCounterfactualSafetyChecks,
   formatCounterfactualBoardSummary,
   formatCounterfactualGate1,
   formatCounterfactualGate2,
@@ -1419,4 +1418,3 @@ export {
   resolveCounterfactualCommandMode,
   formatCounterfactualCommandReply,
 } from './counterfactualOutcomeBoardFormat.js';
-export type { CounterfactualCommandMode } from './counterfactualOutcomeBoardFormat.js';

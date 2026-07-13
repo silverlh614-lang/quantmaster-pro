@@ -148,7 +148,7 @@ export interface ReflectionInputs {
   manualExitsToday: ManualExitRecord[];
 }
 
-export function collectInputs(date: string): ReflectionInputs {
+function collectInputs(date: string): ReflectionInputs {
   const allTrades = loadShadowTrades();
   const closedTrades = allTrades.filter(
     (t) => (t.status === 'HIT_TARGET' || t.status === 'HIT_STOP') && isoInKstDate(t.exitTime, date),

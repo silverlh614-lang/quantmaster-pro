@@ -18,7 +18,7 @@ export type Gate3Issue =
   | 'LAST_TRIGGER_NOT_FIRED'
   | 'DATA_UNAVAILABLE';
 
-export type Gate3CandidatePriceStatus =
+type Gate3CandidatePriceStatus =
   | 'BREAKOUT_CONFIRMED'
   | 'NEAR_BREAKOUT'
   | 'PULLBACK_ENTRY'
@@ -26,7 +26,7 @@ export type Gate3CandidatePriceStatus =
   | 'OVEREXTENDED'
   | 'DATA_UNAVAILABLE';
 
-export type Gate3CandidateVolumeStatus =
+type Gate3CandidateVolumeStatus =
   | 'CONFIRMED'
   | 'PARTIAL'
   | 'DRY_UP'
@@ -34,7 +34,7 @@ export type Gate3CandidateVolumeStatus =
   | 'SPIKE_RISK'
   | 'DATA_UNAVAILABLE';
 
-export type Gate3CandidateLastTriggerStatus =
+type Gate3CandidateLastTriggerStatus =
   | 'FIRED'
   | 'WAIT'
   | 'THRESHOLD_NOT_MET'
@@ -250,7 +250,7 @@ function iconFor(readiness: Gate3Readiness): string {
   return '⚪';
 }
 
-export function formatGate3CandidateCompactText(detail: Gate3CandidateDetail): string {
+function formatGate3CandidateCompactText(detail: Gate3CandidateDetail): string {
   const common = `${iconFor(detail.readiness)} ${displayName(detail)} ${detail.readiness}`;
   const policy = shadowPolicyText(detail.shadowPolicy);
   const policySegment = policy ? ` | ${policy}` : '';

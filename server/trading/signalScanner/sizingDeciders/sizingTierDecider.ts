@@ -31,7 +31,7 @@ export interface SizingTierDeciderInput {
   dataQuality?: DataQualityInfo;
 }
 
-export interface SizingTierDeciderPass {
+interface SizingTierDeciderPass {
   ok: true;
   tierDecision: SizingTierDecision & { tier: SizingTier };
   logMessages: string[];

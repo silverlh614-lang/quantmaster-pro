@@ -25,9 +25,9 @@ import {
   type WeakRotationContext,
 } from './intradayWeakRotation.js';
 
-export const LEADERSHIP_BRIDGE_TTL_HOURS = 4;
-export const LEADERSHIP_MIN_GATE = 4.5;
-export const LEADERSHIP_MIN_MTAS = 6;
+const LEADERSHIP_BRIDGE_TTL_HOURS = 4;
+const LEADERSHIP_MIN_GATE = 4.5;
+const LEADERSHIP_MIN_MTAS = 6;
 
 /**
  * ADR-0551 — LeadershipBridge 배선 kill-switch. default OFF → 장중 발굴 리더의

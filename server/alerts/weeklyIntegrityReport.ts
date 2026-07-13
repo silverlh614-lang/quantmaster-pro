@@ -46,7 +46,7 @@ function hashFile(relPath: string): string {
 }
 
 /** 핵심 로직 파일들의 짧은 해시를 계산. Shadow 기간 중 누적 변경 여부 판별용. */
-export function computeJudgmentLogicHashes(): Record<string, string> {
+function computeJudgmentLogicHashes(): Record<string, string> {
   const result: Record<string, string> = {};
   for (const f of JUDGMENT_LOGIC_FILES) result[f] = hashFile(f);
   return result;
@@ -79,7 +79,7 @@ export interface WeeklyIntegrityStats {
   stallReason: string;
 }
 
-export function computeWeeklyIntegrityStats(now: Date = new Date()): WeeklyIntegrityStats {
+function computeWeeklyIntegrityStats(now: Date = new Date()): WeeklyIntegrityStats {
   const shadows = loadShadowTrades();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 86_400_000);
   const weekly = shadows.filter(s => new Date(s.signalTime) >= sevenDaysAgo);
@@ -203,42 +203,3 @@ export async function sendWeeklyIntegrityReport(): Promise<void> {
 }
 
 // ── 테스트 편의 ───────────────────────────────────────────────────────────────
-
-export function _computeFromShadows(shadows: ServerShadowTrade[], now: Date): WeeklyIntegrityStats {
-  // computeWeeklyIntegrityStats 를 shadows 주입으로 재구성한 경량 버전 (테스트용).
-  const sevenDaysAgo = new Date(now.getTime() - 7 * 86_400_000);
-  const weekly = shadows.filter(s => new Date(s.signalTime) >= sevenDaysAgo);
-
-  const byDow: Record<number, number> = {};
-  const byHour: Record<number, number> = {};
-  for (const s of weekly) {
-    const kst = new Date(new Date(s.signalTime).getTime() + 9 * 3_600_000);
-    byDow[kst.getUTCDay()] = (byDow[kst.getUTCDay()] ?? 0) + 1;
-    byHour[kst.getUTCHours()] = (byHour[kst.getUTCHours()] ?? 0) + 1;
-  }
-  const winCount  = weekly.filter(s => s.status === 'HIT_TARGET').length;
-  const lossCount = weekly.filter(s => s.status === 'HIT_STOP').length;
-  const closed = winCount + lossCount;
-  const fillAgg = aggregateFillStats(shadows, {
-    fromIso: sevenDaysAgo.toISOString(),
-    toIso: now.toISOString(),
-  });
-
-  return {
-    weekRange: { fromIso: sevenDaysAgo.toISOString(), toIso: now.toISOString() },
-    totalThisWeek: weekly.length,
-    byDow, byHour,
-    activeCount: weekly.filter(s => isOpenShadowStatus(s.status)).length,
-    winCount, lossCount,
-    winRatePct: closed > 0 ? (winCount / closed) * 100 : 0,
-    fillWins: fillAgg.winFills,
-    fillLosses: fillAgg.lossFills,
-    beFills: fillAgg.beFills,
-    fillWeightedReturnPct: fillAgg.weightedReturnPct,
-    fillRealizedKrw: fillAgg.totalRealizedKrw,
-    partialOnlyCount: fillAgg.partialOnlyCount,
-    topPassingConditions: [],
-    logicHashes: {},
-    stallReason: '(테스트)',
-  };
-}

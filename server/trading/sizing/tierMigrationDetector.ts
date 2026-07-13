@@ -14,70 +14,7 @@ import {
 } from './accountSizeTiers.js';
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
-
-export interface TierMigrationEvent {
-  previousTier: AccountTierName;
-  currentTier: AccountTierName;
-  previousEquity: number;
-  currentEquity: number;
-  migratedAt: string;
-  telegramMessage: string;
-}
-
-export interface TierMigrationCheck {
-  migrated: boolean;
-  event?: TierMigrationEvent;
-  currentTier: AccountSizeTier;
-}
-
 // ─── 핵심 함수 ───────────────────────────────────────────────────────────────
-
-/**
- * 직전 계좌 총액과 현재 계좌 총액을 비교하여 티어 전환 여부를 감지한다.
- *
- * @param previousEquity  직전 측정 계좌 총액 (원)
- * @param currentEquity   현재 계좌 총액 (원)
- */
-export function checkTierMigration(
-  previousEquity: number,
-  currentEquity: number,
-): TierMigrationCheck {
-  const prevTier = getAccountSizeTier(previousEquity);
-  const currTier = getAccountSizeTier(currentEquity);
-
-  if (prevTier.name === currTier.name) {
-    return { migrated: false, currentTier: currTier };
-  }
-
-  const event: TierMigrationEvent = {
-    previousTier: prevTier.name,
-    currentTier: currTier.name,
-    previousEquity,
-    currentEquity,
-    migratedAt: new Date().toISOString(),
-    telegramMessage: buildMigrationMessage(prevTier, currTier, currentEquity),
-  };
-
-  return { migrated: true, event, currentTier: currTier };
-}
-
-/**
- * 티어 경계를 돌파했는지 확인한다 (단순 UP/DOWN 방향 불문).
- * nightlyReflectionEngine에서 매일 호출하면 된다.
- */
-export function didCrossThreshold(
-  previousEquity: number,
-  currentEquity: number,
-): boolean {
-  return TIER_THRESHOLDS.some((threshold) => {
-    const wasBelow = previousEquity < threshold;
-    const isAbove  = currentEquity >= threshold;
-    const wasAbove = previousEquity >= threshold;
-    const isBelow  = currentEquity < threshold;
-    return (wasBelow && isAbove) || (wasAbove && isBelow);
-  });
-}
-
 // ─── 알림 메시지 빌더 ────────────────────────────────────────────────────────
 
 function buildMigrationMessage(

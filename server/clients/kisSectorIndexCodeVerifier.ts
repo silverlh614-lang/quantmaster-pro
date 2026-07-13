@@ -19,7 +19,7 @@ export type SectorIndexCodeVerificationMatchedBy =
   | 'MANUAL_REGISTRY'
   | 'NONE';
 
-export interface SectorIndexCodeVerificationCandidate {
+interface SectorIndexCodeVerificationCandidate {
   iscd: string;
   name?: string;
   matchedBy: SectorIndexCodeVerificationMatchedBy;

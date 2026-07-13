@@ -10,11 +10,11 @@ import type { InvestorFlowSanitizedSampleAdr0496, SupplyCoverageReportAdr0496 } 
 import { normalizeInvestorFlowCodeAdr0491, normalizeInvestorFlowSnapshotKeyAdr0491, normalizeInvestorFlowSourceKeyAdr0491, type InvestorFlowSnapshotSourceAdr0491 } from './investorFlowSnapshotKeyNormalizerAdr0491.js';
 import { LEGACY_GATE1_REQUIRED_SCORE } from '../gateConfig.js';
 
-export type SupplySnapshotReplayModeAdr0491 = 'LATEST' | 'PREVIOUS_TRADING_DAY' | 'BY_SCAN_ID' | 'BY_DATE' | 'WINDOW';
-export type SupplySnapshotStatusAdr0491 = 'RECORDED' | 'EMPTY' | 'REPLAY_READY' | 'REPLAY_UNAVAILABLE' | 'CORRUPT_RECOVERED';
-export type SupplySnapshotCacheLookupStatusAdr0491 = 'CACHE_HIT' | 'CACHE_STALE_HIT' | 'STALE_HIT' | 'CACHE_KEY_MISMATCH' | 'CACHE_EMPTY' | 'CORRUPT_RECOVERED';
+type SupplySnapshotReplayModeAdr0491 = 'LATEST' | 'PREVIOUS_TRADING_DAY' | 'BY_SCAN_ID' | 'BY_DATE' | 'WINDOW';
+type SupplySnapshotStatusAdr0491 = 'RECORDED' | 'EMPTY' | 'REPLAY_READY' | 'REPLAY_UNAVAILABLE' | 'CORRUPT_RECOVERED';
+type SupplySnapshotCacheLookupStatusAdr0491 = 'CACHE_HIT' | 'CACHE_STALE_HIT' | 'STALE_HIT' | 'CACHE_KEY_MISMATCH' | 'CACHE_EMPTY' | 'CORRUPT_RECOVERED';
 export type SupplySnapshotDomainAdr0491 = 'SUPPLY' | 'SECTOR' | 'PROGRAM' | 'PROGRAM_TRADING';
-export type SupplySnapshotMismatchHintAdr0491 =
+type SupplySnapshotMismatchHintAdr0491 =
   | 'NO_SUPPLY_ROWS'
   | 'SOURCE_ALIAS_MISMATCH'
   | 'PROVIDER_ALIAS_MISMATCH'
@@ -37,7 +37,7 @@ export interface SupplySnapshotRetainedKeySummaryAdr0491 {
   sampleKeys: string[];
 }
 
-export interface SupplySnapshotRouterLookupDiagnosticAdr0491 {
+interface SupplySnapshotRouterLookupDiagnosticAdr0491 {
   requestedCode: string;
   requestedSymbol?: string;
   normalizedCode: string;
@@ -52,7 +52,7 @@ export interface SupplySnapshotRouterLookupDiagnosticAdr0491 {
   liveExecutionAllowed: false;
 }
 
-export interface SupplySnapshotClosestMatchAdr0491 {
+interface SupplySnapshotClosestMatchAdr0491 {
   code: string;
   symbol: string | null;
   source: string;
@@ -106,7 +106,7 @@ export interface SupplySnapshotCacheLookupAdr0491 {
   rawPayloadPersistenceAllowed: false;
 }
 
-export interface SupplySnapshotStoreAdr0491 {
+interface SupplySnapshotStoreAdr0491 {
   version: 1;
   snapshots: SanitizedSupplySnapshotAdr0491[];
 }
@@ -162,7 +162,7 @@ export interface SupplySnapshotComparisonAdr0491 {
   diagnosticOnly: true;
 }
 
-export const SUPPLY_SNAPSHOT_STORE_FILE_ADR0491 = path.join(DATA_DIR, 'supply-snapshot-store-adr0491.json');
+const SUPPLY_SNAPSHOT_STORE_FILE_ADR0491 = path.join(DATA_DIR, 'supply-snapshot-store-adr0491.json');
 const DEFAULT_MAX_SNAPSHOTS = 120;
 
 function kstDateFromIso(iso: string): string {

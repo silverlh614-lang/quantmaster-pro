@@ -290,11 +290,6 @@ export function checkSectorExposureBefore(
   return { allowed: true, projectedSectorWeight };
 }
 
-/** 테스트용 — 설정 상수 조회. */
-export function _getSectorExposureLimits(): { single: number; group: number } {
-  return { single: SECTOR_WEIGHT_LIMIT, group: CORRELATION_GROUP_LIMIT };
-}
-
 // ── 내부: kill switch 발사 ───────────────────────────────────────────────────
 
 function fireKillSwitch(

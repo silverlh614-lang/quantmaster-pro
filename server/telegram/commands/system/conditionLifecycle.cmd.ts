@@ -101,5 +101,3 @@ const conditionLifecycle: TelegramCommand = {
 };
 
 commandRegistry.register(conditionLifecycle);
-
-export default conditionLifecycle;

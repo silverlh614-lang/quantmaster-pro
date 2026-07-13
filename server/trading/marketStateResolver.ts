@@ -13,9 +13,9 @@ import type {
 export * from './marketStateResolver.base.js';
 
 export type ShadowCandidateScanTrigger = 'SCHEDULED' | 'MANUAL' | 'R6_CONFIRMATION_WAIT' | 'BIAS_RECOVERY' | 'R6_RECOVERY_BIAS_CONFIRMATION' | 'POST_CLOSE_OBSERVE' | 'DEGRADED_OBSERVE';
-export type MacroRefreshResult = 'SUCCESS_UPDATED' | 'SUCCESS_NO_CHANGE' | 'FAILED' | 'SKIPPED';
+type MacroRefreshResult = 'SUCCESS_UPDATED' | 'SUCCESS_NO_CHANGE' | 'FAILED' | 'SKIPPED';
 
-export interface MacroStateStaleness extends BaseMacroStateStaleness {
+interface MacroStateStaleness extends BaseMacroStateStaleness {
   refreshResult?: MacroRefreshResult;
 }
 

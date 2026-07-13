@@ -31,7 +31,7 @@ export function isReplacementShadowExecuteEnabled(env: NodeJS.ProcessEnv = proce
 }
 
 /** 일일 교체 집행 상한 (0~10 정수, 무효/미설정 → 2). 0 은 사실상 OFF. */
-export function resolveReplacementDailyMax(env: NodeJS.ProcessEnv = process.env): number {
+function resolveReplacementDailyMax(env: NodeJS.ProcessEnv = process.env): number {
   const raw = env.TRADE_REPLACEMENT_DAILY_MAX;
   if (raw === undefined || raw.trim() === '') return 2;
   const parsed = Number(raw);
@@ -42,11 +42,6 @@ let _dailyCount = { dateKey: '', count: 0 };
 
 function kstDateKey(now: Date): string {
   return new Date(now.getTime() + 9 * 3_600_000).toISOString().slice(0, 10);
-}
-
-/** 테스트 격리용 — 운영 경로 미사용. */
-export function __resetSameSectorShadowReplacementStateForTest(): void {
-  _dailyCount = { dateKey: '', count: 0 };
 }
 
 export interface ReplacementCandidateInput {

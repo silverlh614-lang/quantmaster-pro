@@ -5,7 +5,7 @@
 import { emitLegacyOperationalWarn } from '../../observability/legacyOperationalWarnAdapter.js';
 import type { ExecutionImpact } from '../../observability/executionImpact.js';
 
-export type FillP0WarnCode =
+type FillP0WarnCode =
   | 'P0_FILL_QUERY_EMPTY'
   | 'P0_FILL_QUERY_FAILED'
   | 'P0_SELL_FILL_MONITOR_DEGRADED'

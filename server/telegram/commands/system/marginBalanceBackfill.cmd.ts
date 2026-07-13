@@ -120,5 +120,3 @@ const marginBalanceBackfill: TelegramCommand = {
 };
 
 commandRegistry.register(marginBalanceBackfill);
-
-export default marginBalanceBackfill;

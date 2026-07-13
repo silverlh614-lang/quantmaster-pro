@@ -77,7 +77,7 @@ export const SWING_GATE_THRESHOLD = 8;
 export const MAX_ENTRY_FAIL_COUNT = 3;
 
 /** @deprecated MAX_CANDIDATE_POOL → MOMENTUM_MAX_SIZE 으로 교체. 하위 호환용. */
-export const MAX_CANDIDATE_POOL = MOMENTUM_MAX_SIZE;
+const MAX_CANDIDATE_POOL = MOMENTUM_MAX_SIZE;
 /** @deprecated FOCUS_LIST_SIZE → SWING_MAX_SIZE 으로 교체. 하위 호환용. (8→10 확대됨) */
 export const FOCUS_LIST_SIZE   = SWING_MAX_SIZE;
 /** @deprecated FOCUS_GATE_THRESHOLD → SWING_GATE_THRESHOLD 으로 교체. 하위 호환용. */

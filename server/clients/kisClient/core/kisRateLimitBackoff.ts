@@ -11,9 +11,3 @@ export function parseRetryAfterMs(headers: Headers | Record<string, string | und
   if (!Number.isFinite(dateMs)) return undefined;
   return Math.max(0, dateMs - Date.now());
 }
-
-export function kisRateLimitBackoffMs(input: { retryAfterMs?: number; attempt: number }): number {
-  if (input.retryAfterMs !== undefined) return input.retryAfterMs;
-  const base = Math.min(30_000, 1_000 * Math.max(1, input.attempt));
-  return base + Math.floor(Math.random() * 250);
-}

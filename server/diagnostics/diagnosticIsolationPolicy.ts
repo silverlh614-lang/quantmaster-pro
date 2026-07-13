@@ -2,7 +2,7 @@
 
 import type { ExecutionImpact } from '../runtime/engineRuntimePolicy.js';
 
-export type DiagnosticPhase =
+type DiagnosticPhase =
   | 'P0_EXECUTION'
   | 'P1_HYDRATION'
   | 'P2_DECISION'

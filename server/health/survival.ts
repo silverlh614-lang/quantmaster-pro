@@ -18,14 +18,14 @@ export type SurvivalTier = 'OK' | 'WARN' | 'CRITICAL' | 'EMERGENCY';
 export type SectorTier = 'OK' | 'WARN' | 'CRITICAL' | 'NA';
 export type KellyTier = 'OK' | 'WARN' | 'CRITICAL' | 'CALIBRATING';
 
-export interface DailyLossGauge {
+interface DailyLossGauge {
   currentPct: number;
   limitPct: number;
   bufferPct: number;
   tier: SurvivalTier;
 }
 
-export interface SectorConcentrationGauge {
+interface SectorConcentrationGauge {
   hhi: number;
   topSector: string | null;
   topWeight: number;
@@ -33,7 +33,7 @@ export interface SectorConcentrationGauge {
   tier: SectorTier;
 }
 
-export interface KellyConcordanceGauge {
+interface KellyConcordanceGauge {
   ratio: number | null;
   currentAvgKelly: number;
   recommendedKelly: number;
@@ -144,7 +144,7 @@ export function composeOverallTier(
  * 활성 포지션의 entryKellySnapshot.effectiveKelly 평균.
  * snapshot 없는 레거시 포지션은 평균 계산에서 제외.
  */
-export function computeActiveKellyAverage(): { avg: number; count: number } {
+function computeActiveKellyAverage(): { avg: number; count: number } {
   const active = loadShadowTrades().filter(
     (t) => isOpenShadowStatus(t.status) && t.entryKellySnapshot != null,
   );
@@ -160,7 +160,7 @@ export function computeActiveKellyAverage(): { avg: number; count: number } {
  * 현재 레짐의 STRONG_BUY+BUY 가중 평균 kellyStar — 단일 권고 Kelly 도출.
  * 현재 레짐 cell 들의 표본 합산이 < KELLY_MIN_SAMPLE 이면 CALIBRATING 처리.
  */
-export function computeRecommendedKelly(currentRegime: string): { recommended: number; samples: number } {
+function computeRecommendedKelly(currentRegime: string): { recommended: number; samples: number } {
   const surface = computeKellySurface();
   const cells = surface.cells.filter((c) => c.regime === currentRegime);
   const totalSamples = cells.reduce((acc, c) => acc + c.samples, 0);

@@ -299,22 +299,6 @@ export function getCanonicalDisplayNames(): string[] {
 // ─── ADR-0424: indexName → indexCode 역변환 SSOT (이름 기반 backfill 전용) ─────
 
 /**
- * ADR-0424: SectorEnergy indexCode 백필 출처 분류 SSOT.
- *
- * `RAW`             — KRX OpenAPI 가 직접 IDX_IND_CD 제공 (HIGH confidence, default 경로).
- * `NAME_LOOKUP`     — KRX 가 indexName 만 제공 + SECTOR_INDEX_MASTER alias 매칭으로 backfill
- *                     (HIGH confidence — KRX 공식 매핑이고 표준 이름과 1:1).
- * `STOCK_DAILY_DERIVED` — STOCK_DAILY fallback 입력에서 sectorName 매칭으로 backfill
- *                         (LOW confidence — synthetic 입력이라 leadership confidence 격하 의무).
- *
- * 핵심 불변식 (사용자 §C 정합):
- *   - STATIC_MAP / NAME_LOOKUP backfill 은 *coverage 격상 효과만* — sourceTier 변경 0.
- *   - sourceTier='STOCK_DAILY' 시 ADR-0423 결정 트리 §C-5 가 dataQuality=PARTIAL 강제 → leadership BLOCKED 유지.
- *   - 정상 KRX_CODE 경로에서 indexName 만 있는 row 도 NAME_LOOKUP 으로 회복 시 *fallback 미발생*.
- */
-export type IndexCodeSource = 'RAW' | 'NAME_LOOKUP' | 'STOCK_DAILY_DERIVED';
-
-/**
  * ADR-0424: indexName 기반 SECTOR_INDEX_MASTER 역변환 SSOT.
  *
  * 동작: `getSectorByAlias(indexName)` 위임 (displayName 정확 매칭 우선 → aliases 부분 매칭).

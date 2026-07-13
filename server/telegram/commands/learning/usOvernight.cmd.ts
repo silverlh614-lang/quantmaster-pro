@@ -17,5 +17,3 @@ const usOvernight: TelegramCommand = {
 };
 
 commandRegistry.register(usOvernight);
-
-export default usOvernight;

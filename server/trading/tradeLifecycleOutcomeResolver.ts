@@ -22,15 +22,6 @@ export type TradeOutcomeClass =
   | 'OPEN'
   | 'UNKNOWN';
 
-export type LifecycleExitStage =
-  | 'ENTRY'
-  | 'TP1_HIT'
-  | 'TP2_HIT'
-  | 'STOP_MOVED_TO_BREAKEVEN'
-  | 'TRAILING_ACTIVE'
-  | 'FINAL_EXIT'
-  | 'CLOSED';
-
 export interface TradeLifecycleState {
   positionId: string;
   symbol: string;
@@ -99,7 +90,7 @@ export interface TradeLifecycleOutcomeResult {
   resolvedAt: string;
 }
 
-export interface TradeLifecycleFillLike {
+interface TradeLifecycleFillLike {
   type?: string;
   subType?: string;
   qty?: number;

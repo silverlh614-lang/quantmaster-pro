@@ -10,7 +10,7 @@
  * ENV 롤백: `BEP_TWO_BAR_CONFIRMATION_DISABLED=true` 시 항상 'PASS' 반환 (정책 우회).
  */
 
-export type TwoBarAction = 'CONFIRM_EXIT' | 'WAIT' | 'RESET' | 'PASS';
+type TwoBarAction = 'CONFIRM_EXIT' | 'WAIT' | 'RESET' | 'PASS';
 
 export interface TwoBarDecision {
   action: TwoBarAction;

@@ -8,9 +8,9 @@ import type {
   Gate3RrrCheckDiagnostic,
 } from './gate3LastTrigger.js';
 
-export type Gate3ConsolidatedHealth = 'OK' | 'WARN' | 'DEGRADED' | 'DATA_INCOMPLETE' | 'TIMING_NOT_CONFIRMED' | 'CONFLICT' | 'UNKNOWN';
-export type Gate3TimingReadiness = 'READY' | 'WAIT' | 'BLOCKED' | 'DATA_INCOMPLETE';
-export type Gate3OperatorAction =
+type Gate3ConsolidatedHealth = 'OK' | 'WARN' | 'DEGRADED' | 'DATA_INCOMPLETE' | 'TIMING_NOT_CONFIRMED' | 'CONFLICT' | 'UNKNOWN';
+type Gate3TimingReadiness = 'READY' | 'WAIT' | 'BLOCKED' | 'DATA_INCOMPLETE';
+type Gate3OperatorAction =
   | 'NONE'
   | 'CHECK_TECHNICAL_INDICATORS'
   | 'CHECK_VOLUME_BASELINE'

@@ -33,20 +33,20 @@
 
 /* ───────── 3층 분리 타입 (사용자 §"새로운 개념" 정합) ───────── */
 
-export type SectorEnergyDiagnosticStatus =
+type SectorEnergyDiagnosticStatus =
   | 'OK'
   | 'DEGRADED'
   | 'STALE'
   | 'BLOCKED'
   | 'DATA_UNAVAILABLE';
 
-export type SectorEnergyScoringImpact =
+type SectorEnergyScoringImpact =
   | 'ALLOW_SECTOR_BOOST'
   | 'ZERO_SECTOR_BOOST'
   | 'SECTOR_SCORE_NEUTRAL'
   | 'SECTOR_PENALTY_ONLY';
 
-export type SectorEnergyExecutionImpact =
+type SectorEnergyExecutionImpact =
   | 'NO_EXECUTION_BLOCK'
   | 'HARD_BLOCK';
 

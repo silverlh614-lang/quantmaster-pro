@@ -67,5 +67,3 @@ const focus: TelegramCommand = {
 };
 
 commandRegistry.register(focus);
-
-export default focus;

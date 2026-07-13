@@ -2,9 +2,9 @@
 
 import type { Gate3OutcomeLabel, Gate3OutcomeSeed } from './gate3OutcomeSeed.js';
 
-export type Gate3EvidenceWindow = 'D3' | 'D5' | 'D10';
+type Gate3EvidenceWindow = 'D3' | 'D5' | 'D10';
 
-export type Gate3ThresholdKey =
+type Gate3ThresholdKey =
   | 'RRR_PASS_MIN'
   | 'RRR_WATCH_MIN'
   | 'VOLUME_CONFIRMED_RATIO'
@@ -15,7 +15,7 @@ export type Gate3ThresholdKey =
   | 'OVEREXTENDED_MA20_PCT'
   | 'RSI_UPPER_BOUND';
 
-export interface Gate3ThresholdSuggestion {
+interface Gate3ThresholdSuggestion {
   key: Gate3ThresholdKey;
   currentValue: number;
   suggestedValue: number;
@@ -53,7 +53,7 @@ export interface Gate3EvidenceScore {
   suggestions: Gate3ThresholdSuggestion[];
 }
 
-export interface Gate3ThresholdConfig {
+interface Gate3ThresholdConfig {
   rrrPassMin: number;
   rrrWatchMin: number;
   volumeConfirmedRatio: number;

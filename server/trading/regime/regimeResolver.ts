@@ -137,8 +137,3 @@ export function resolveRegimeSnapshot(options: ResolveRegimeSnapshotOptions = {}
     throw cause;
   }
 }
-
-export const RegimeResolver = {
-  resolveRegimeSnapshot,
-  resolve: resolveRegimeSnapshot,
-};

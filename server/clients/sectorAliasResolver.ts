@@ -3,7 +3,7 @@
 import type { SectorIndexMasterItem } from './sectorIndexMaster.js';
 import { getSectorIndexMasterItems } from './sectorIndexMaster.js';
 
-export interface SectorAliasResolutionAudit {
+interface SectorAliasResolutionAudit {
   aliasMissing: string[];
   aggregateIgnored: string[];
   recoveredAliases: string[];

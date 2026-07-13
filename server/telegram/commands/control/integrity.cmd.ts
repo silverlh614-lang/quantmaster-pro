@@ -33,5 +33,3 @@ const integrity: TelegramCommand = {
 };
 
 commandRegistry.register(integrity);
-
-export default integrity;

@@ -9,7 +9,7 @@
 import { toast as sonner } from 'sonner';
 
 /** 기본 sonner toast 를 그대로 노출 — 단순 정보/성공/오류 메시지용. */
-export const toast = sonner;
+const toast = sonner;
 
 /**
  * toastProgress — 장시간 작업에 대한 "진행 중 → 완료/실패" 토스트 전환.
@@ -20,7 +20,7 @@ export const toast = sonner;
  * catch (e) { done.error('전송 실패'); }
  * ```
  */
-export function toastProgress(loadingMessage: string) {
+function toastProgress(loadingMessage: string) {
   const id = sonner.loading(loadingMessage);
   return {
     id,
@@ -47,7 +47,7 @@ export function toastProgress(loadingMessage: string) {
  * toastUndo('관심종목에서 삭제됨', () => restoreItem(id));
  * ```
  */
-export function toastUndo(
+function toastUndo(
   message: string,
   onUndo: () => void,
   opts?: { description?: string; duration?: number },
@@ -66,7 +66,7 @@ export function toastUndo(
  * toastPromise — Promise 기반 작업의 상태 전환을 한 번에 관리.
  *  - sonner.promise 의 얇은 래퍼 + 한국어 기본 메시지.
  */
-export function toastPromise<T>(
+function toastPromise<T>(
   promise: Promise<T>,
   messages: {
     loading: string;

@@ -29,7 +29,7 @@ export interface EmptyScanRootCauseEventAdr0500 {
   timestamp?: string;
 }
 
-export interface EmptyScanRootCauseBucketAdr0500 {
+interface EmptyScanRootCauseBucketAdr0500 {
   cause: GateFailureCauseAdr0497;
   count: number;
   pct: number;

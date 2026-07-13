@@ -50,7 +50,7 @@ export function resolveWatchlistConflictReason(
 }
 
 /** `for (const k of keys ?? []) target[k] = (target[k] ?? 0) + 1;` 인라인 tally 루프 SSOT. */
-export function tallyKeys(target: Record<string, number>, keys: ReadonlyArray<string> | undefined): void {
+function tallyKeys(target: Record<string, number>, keys: ReadonlyArray<string> | undefined): void {
   for (const k of keys ?? []) target[k] = (target[k] ?? 0) + 1;
 }
 

@@ -16,4 +16,4 @@ export * from './stock/recommendations';
 export * from './stock/macroIntel';
 export * from './stock/globalIntel';
 export * from './stock/batchIntel';
-export type { Portfolio, BacktestResult, BacktestPosition, BacktestPortfolioState, BacktestDailyLog } from '../types/portfolio';
+export type { Portfolio } from '../types/portfolio';

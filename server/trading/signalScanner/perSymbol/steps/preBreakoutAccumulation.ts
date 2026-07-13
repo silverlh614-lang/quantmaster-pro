@@ -9,7 +9,7 @@ import { logNoiseDetail } from '../../../../utils/logger.js';
 import { detectPreBreakoutAccumulation } from '../../../preBreakoutAccumulationDetector.js';
 import type { BuyListLoopContext } from '../types.js';
 
-export type PreBreakoutAccumulationQuote =
+type PreBreakoutAccumulationQuote =
   | NonNullable<Awaited<ReturnType<typeof fetchTechnicalQuoteByCode>>>
   | NonNullable<Awaited<ReturnType<typeof fetchKisQuoteFallback>>>;
 

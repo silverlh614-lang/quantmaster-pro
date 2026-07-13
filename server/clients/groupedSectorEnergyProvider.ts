@@ -13,19 +13,19 @@ import {
 
 const GROUPED_SECTOR_REPORTING_COUNT = 12;
 
-export type GroupedSectorEnergyStatus =
+type GroupedSectorEnergyStatus =
   | 'GROUPED_ENERGY_OK'
   | 'GROUPED_ENERGY_PARTIAL'
   | 'GROUPED_ENERGY_STALE'
   | 'GROUPED_ENERGY_NOT_EVALUATED';
 
-export type SectorBenchmarkStatus =
+type SectorBenchmarkStatus =
   | 'KRX_BENCHMARK_OK'
   | 'KRX_BENCHMARK_UNAVAILABLE'
   | 'KRX_BENCHMARK_PARTIAL'
   | 'KIS_PROXY_ONLY';
 
-export type GroupedSectorEnergyResult = {
+type GroupedSectorEnergyResult = {
   sectorKey: StandardSectorKey;
   sectorName: string;
   constituentCount: number;
@@ -263,17 +263,6 @@ export function buildGroupedSectorEnergyFromSnapshotQuotes(
   };
 }
 
-export function buildGroupedSectorEnergyFromSectorInputs(input: {
-  symbols: readonly string[];
-  returnBySymbol?: ReadonlyMap<string, Pick<SymbolGroupedEnergyQuote, 'close' | 'previousClose' | 'close5dAgo' | 'close20dAgo' | 'tradingValue' | 'tradingValue20dAvg' | 'volume' | 'volume20dAvg' | 'ma20' | 'high20d'>>;
-}): GroupedSectorEnergySnapshot {
-  const quotes = Array.from(new Set(input.symbols.map(normalizeKrxSymbol))).map((symbol) => ({
-    symbol,
-    ...(input.returnBySymbol?.get(symbol) ?? {}),
-  }));
-  return buildGroupedSectorEnergyFromSnapshotQuotes(quotes);
-}
-
 export function formatGroupedSectorEnergyDiagnosticSection(snapshot: GroupedSectorEnergySnapshot | null | undefined): string | null {
   if (!snapshot) return null;
   const lines: string[] = [];
@@ -303,8 +292,4 @@ export function formatGroupedSectorEnergyDiagnosticSection(snapshot: GroupedSect
   lines.push(`  legacySectorBoostAllowedDiagnosticOnly=${snapshot.sectorBoostAllowed}`);
   lines.push(`  legacyStrongBuyAllowedDiagnosticOnly=${snapshot.strongBuyAllowed}`);
   return lines.join('\n');
-}
-
-export function getSnapshotSectorName(symbol: string): string | undefined {
-  return getSymbolSectorSnapshotRow(symbol)?.sectorName;
 }

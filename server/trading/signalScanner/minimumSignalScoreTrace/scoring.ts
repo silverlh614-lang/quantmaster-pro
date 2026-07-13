@@ -45,7 +45,7 @@ export function weightedFromNormalized(
   return round1((clamp(normalizedScore, 0, 100) / 100) * maxScore);
 }
 
-export function normalizeRelativeReturn20dTo100(value: number): number {
+function normalizeRelativeReturn20dTo100(value: number): number {
   const percentValue = Math.abs(value) <= 1 ? value * 100 : value;
   return clamp(((percentValue + 10) / 20) * 100, 0, 100);
 }

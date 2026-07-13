@@ -1,14 +1,14 @@
 // @responsibility Gate3 reward/risk input builder for LastTrigger diagnostics.
 
 export type Gate3RrrStatus = 'PASS' | 'WATCH' | 'FAIL' | 'MISSING';
-export type Gate3RrrMissingReason =
+type Gate3RrrMissingReason =
   | 'RRR_MISSING_ENTRY'
   | 'RRR_MISSING_STOP'
   | 'RRR_MISSING_TARGET'
   | 'RRR_INVALID_RISK'
   | 'RRR_INVALID_REWARD'
   | 'RRR_PRICE_STALE';
-export type Gate3RrrSource =
+type Gate3RrrSource =
   | 'EXPLICIT'
   | 'FIB_EXT'
   | 'MEASURED_MOVE'

@@ -19,9 +19,9 @@ export type NearMissOutcomeTrackedBucket = Extract<
   'DATA_BLOCKED_NEAR_MISS' | 'PROBING' | 'SHADOW_ONLY'
 >;
 
-export const NEAR_MISS_OUTCOME_LEDGER_MAX = 2_000;
+const NEAR_MISS_OUTCOME_LEDGER_MAX = 2_000;
 
-export interface NearMissOutcomePoint {
+interface NearMissOutcomePoint {
   horizonDays: NearMissOutcomeHorizon;
   targetDate: string;
   status: 'PENDING' | 'OBSERVED' | 'SKIPPED';

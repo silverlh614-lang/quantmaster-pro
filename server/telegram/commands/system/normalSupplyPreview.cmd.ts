@@ -100,8 +100,6 @@ const normalSupplyPreview: TelegramCommand = {
 
 commandRegistry.register(normalSupplyPreview);
 
-export default normalSupplyPreview;
-
 function parseCommandVerbosity(args: string[]): LogVerbosity | undefined {
   if (args.some((arg) => ['trace', '--trace'].includes(arg.toLowerCase()))) return 'trace';
   if (args.some((arg) => ['verbose', '--verbose', 'diagnostic', '--diagnostic'].includes(arg.toLowerCase()))) return 'diagnostic';

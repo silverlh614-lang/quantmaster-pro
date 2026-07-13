@@ -30,7 +30,7 @@ export interface DailyCandle {
 }
 
 /** 개별 시그니처 분석 결과 */
-export interface FootprintSignature {
+interface FootprintSignature {
   id: number;
   name: string;
   detected: boolean;

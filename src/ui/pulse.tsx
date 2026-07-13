@@ -31,7 +31,7 @@ const toneRing: Record<PulseTone, string> = {
   accent: 'ring-orange-500/50',
 };
 
-export function Pulse({ children, trigger, tone = 'info', className }: PulseProps) {
+function Pulse({ children, trigger, tone = 'info', className }: PulseProps) {
   const [pulseKey, setPulseKey] = useState<string | number | null>(null);
 
   useEffect(() => {

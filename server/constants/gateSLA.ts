@@ -59,7 +59,7 @@ export const GATE_PASS_RATE_SLA: Record<string, { min: number; max: number }> = 
 /** 통계 신뢰도 임계 — 표본 N개 이상이어야 SLA 판정 활성. */
 export const GATE_SLA_MIN_SAMPLE = 10;
 
-export type GateSLAStatus =
+type GateSLAStatus =
   | 'OK'
   | 'OVER_CONSERVATIVE'
   | 'OVER_PERMISSIVE'

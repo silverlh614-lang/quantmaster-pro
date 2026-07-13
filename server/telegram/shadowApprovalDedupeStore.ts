@@ -130,15 +130,6 @@ export function getShadowApprovalRecord(dedupeKey: string): ShadowApprovalDedupe
   return _store.get(dedupeKey);
 }
 
-/** 같은 symbol 의 모든 record. 운영자 진단 용도. */
-export function getRecordsBySymbol(symbol: string): ShadowApprovalDedupeRecord[] {
-  const out: ShadowApprovalDedupeRecord[] = [];
-  for (const r of _store.values()) {
-    if (r.symbol === symbol) out.push(r);
-  }
-  return out;
-}
-
 /**
  * PENDING record 생성 또는 갱신.
  *
@@ -310,50 +301,6 @@ export function markShadowApprovalAutoApproved(
   return { transitioned: true, record: updated };
 }
 
-/**
- * dedupe 결과 기록 (DEDUPED state 명시) — 사용자 §F 정합.
- * 이미 record 가 있으면 lastSeenAt 만 갱신 — state 는 보존.
- */
-export function markShadowApprovalDeduped(input: {
-  dedupeKey: string;
-  tradeDate: string;
-  marketSession: string;
-  symbol: string;
-  name?: string;
-  sourceLane: ShadowApprovalSourceLane;
-  approvalKind: ShadowApprovalKind;
-  now?: string;
-}): ShadowApprovalDedupeRecord {
-  const now = input.now ?? new Date().toISOString();
-  const existing = _store.get(input.dedupeKey);
-  if (existing) {
-    const updated: ShadowApprovalDedupeRecord = {
-      ...existing,
-      lastSeenAt: now,
-      liveOrderPlaced: false,
-      executionImpact: 'NONE',
-    };
-    _store.set(input.dedupeKey, updated);
-    return updated;
-  }
-  const fresh: ShadowApprovalDedupeRecord = {
-    dedupeKey: input.dedupeKey,
-    tradeDate: input.tradeDate,
-    marketSession: input.marketSession,
-    symbol: input.symbol,
-    ...(input.name !== undefined ? { name: input.name } : {}),
-    sourceLane: input.sourceLane,
-    approvalKind: input.approvalKind,
-    state: 'DEDUPED',
-    firstSeenAt: now,
-    lastSeenAt: now,
-    liveOrderPlaced: false,
-    executionImpact: 'NONE',
-  };
-  _store.set(input.dedupeKey, fresh);
-  return fresh;
-}
-
 /* ───────── 운영자 진단 SSOT ───────── */
 
 export interface ShadowApprovalDedupeStats {
@@ -433,9 +380,4 @@ export function __resetShadowApprovalDedupeStoreForTests(): void {
   _duplicateSuppressedCount = 0;
   _lastSuppressedSymbol = undefined;
   _lastSuppressedName = undefined;
-}
-
-/** 테스트 격리용 — 내부 Map 직접 접근 (production 호출 금지). */
-export function __getAllShadowApprovalRecordsForTests(): ShadowApprovalDedupeRecord[] {
-  return Array.from(_store.values());
 }

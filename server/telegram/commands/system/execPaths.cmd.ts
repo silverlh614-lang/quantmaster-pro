@@ -89,5 +89,3 @@ const execPaths: TelegramCommand = {
 };
 
 commandRegistry.register(execPaths);
-
-export default execPaths;

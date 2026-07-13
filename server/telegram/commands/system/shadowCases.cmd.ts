@@ -200,6 +200,3 @@ const shadowCases: TelegramCommand = {
 };
 
 commandRegistry.register(shadowCases);
-
-export default shadowCases;
-export { formatShadowCases, formatManualBlockWatch, buildOutcomeMaturityRows, formatShadowCasesCompact, formatShadowCasesFull };

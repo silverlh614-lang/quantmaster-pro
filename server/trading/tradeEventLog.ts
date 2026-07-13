@@ -85,17 +85,3 @@ export function loadTradeEventsForPosition(
   }
   return events.sort((a, b) => a.ts.localeCompare(b.ts));
 }
-
-/**
- * 월 전체 이벤트 로드 (통계·리포트용).
- */
-export function loadTradeEventsByMonth(yyyymm: string): TradeEvent[] {
-  const file = tradeEventsFile(yyyymm);
-  if (!fs.existsSync(file)) return [];
-  const lines = fs.readFileSync(file, 'utf-8').split('\n').filter(Boolean);
-  const events: TradeEvent[] = [];
-  for (const line of lines) {
-    try { events.push(JSON.parse(line)); } catch { /* skip */ }
-  }
-  return events;
-}

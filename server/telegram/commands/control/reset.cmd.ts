@@ -34,5 +34,3 @@ const reset: TelegramCommand = {
 };
 
 commandRegistry.register(reset);
-
-export default reset;

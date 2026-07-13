@@ -38,5 +38,3 @@ const dxy: TelegramCommand = {
 };
 
 commandRegistry.register(dxy);
-
-export default dxy;

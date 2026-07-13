@@ -6,8 +6,8 @@ import {
 } from '../../runtime/executionPermissionResolver.js';
 import type { CommonGateResult } from './commonGateEvaluator.js';
 
-export type PolicyStatus = 'LIVE_ALLOWED' | 'LIVE_BLOCKED_ONLY';
-export type SessionOverlay = 'NONE' | 'AFTERMARKET_BUY_BLOCKED' | 'SELL_ONLY_BUY_BLOCKED';
+type PolicyStatus = 'LIVE_ALLOWED' | 'LIVE_BLOCKED_ONLY';
+type SessionOverlay = 'NONE' | 'AFTERMARKET_BUY_BLOCKED' | 'SELL_ONLY_BUY_BLOCKED';
 
 export interface ResolvePolicyInput {
   snapshotId: string;
@@ -213,7 +213,7 @@ export function resolvePolicy(input: ResolvePolicyInput): PolicyResult {
   return result;
 }
 
-export function formatRemovedPolicyInputIgnoredLog(
+function formatRemovedPolicyInputIgnoredLog(
   policy: Pick<PolicyResult, 'snapshotId' | 'marketSession' | 'legacyPolicyInputs' | 'liveBuyAllowed' | 'realOrderAllowed' | 'liveOrderAllowed' | 'liveBlockReason' | 'shadowSignalAllowed' | 'diagnosticAllowed' | 'counterfactualAllowed' | 'gateEvaluationAllowed' | 'shadowEvaluationAllowed' | 'executionPermissionLogTags'>,
   input: { inputDisplaySession: string; inputEntryBlockMode: string },
 ): string {
@@ -238,8 +238,6 @@ export function formatRemovedPolicyInputIgnoredLog(
     "rollback='SELL_ONLY_AND_R6_EXECUTION_DISABLED'",
   ].join(' ');
 }
-
-export const formatLegacyR6SellOnlyIgnoredLog = formatRemovedPolicyInputIgnoredLog;
 
 export function formatPolicyDiag(policy: PolicyResult): string {
   return [

@@ -134,7 +134,7 @@ export function sanitizeKrxPayload(input: Record<string, unknown>): { payload: R
   return { payload, omittedKeys };
 }
 
-export function requiredKrxPayloadKeys(variant: KrxInvestorEndpointVariant): string[] {
+function requiredKrxPayloadKeys(variant: KrxInvestorEndpointVariant): string[] {
   if (variant.routePurpose === 'SYMBOL_LEVEL') {
     const dateKeys = variant.dateParam === 'strtDd/endDd' ? ['strtDd', 'endDd'] : [variant.dateParam];
     return ['bld', 'isuCd', ...dateKeys, 'inqVal'];
@@ -143,7 +143,7 @@ export function requiredKrxPayloadKeys(variant: KrxInvestorEndpointVariant): str
   return ['bld', 'inqTpCd', dateKey, 'mktId', 'inqVal'];
 }
 
-export function forbiddenKrxPayloadKeys(variant: KrxInvestorEndpointVariant): string[] {
+function forbiddenKrxPayloadKeys(variant: KrxInvestorEndpointVariant): string[] {
   const common = [
     'symbolCode',
     'isuCd2',

@@ -78,7 +78,7 @@ const TIMEOUT_BY_REGIME: Record<RegimeLevel, number> = {
 };
 
 /** 레짐별 타임아웃 조회. 미전달·미지원 레짐 → 기본 3분. */
-export function getAutoApproveTimeoutMs(regime?: string): number {
+function getAutoApproveTimeoutMs(regime?: string): number {
   if (!regime) return AUTO_APPROVE_TIMEOUT_MS;
   const v = TIMEOUT_BY_REGIME[regime as RegimeLevel];
   return v === undefined ? AUTO_APPROVE_TIMEOUT_MS : v;
@@ -128,7 +128,7 @@ export interface BuyApprovalRequestResult {
   statusWriteFailed?: boolean;
 }
 
-export function normalizePreMortemForDisplay(preMortem: string | PreMortem | null | undefined): PreMortem | null {
+function normalizePreMortemForDisplay(preMortem: string | PreMortem | null | undefined): PreMortem | null {
   if (!preMortem) return null;
   if (typeof preMortem !== 'string') return preMortem;
   const lines = preMortem.split('\n').map((line) => line.trim()).filter(Boolean);

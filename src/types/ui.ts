@@ -3,29 +3,6 @@
 import type { RegimeLevel } from './core';
 
 // ─── MarketModeBanner — 시장 모드 정책 박스 ─────────────────────────────────
-
-/**
- * MarketModeBanner 가 한 박스에 표시하는 4축 + 정책 SSOT.
- * 데이터 소스: useGlobalIntelStore.macroEnv + computed gate0Result + bearRegimeResult.
- * 부재 시 banner 자체는 렌더되지 않음 (loading 상태는 호출자가 handle).
- */
-export interface MarketModePolicy {
-  /** 6단계 레짐 식별자 — REGIME_TRADING_POLICY 키와 일치 */
-  regime: RegimeLevel;
-  /** Macro Health Score 0~100 — gate0Result.macroHealthScore */
-  mhs: number;
-  /** VKOSPI 절대값 — macroEnv.vkospi */
-  vkospi: number;
-  /** 원/달러 환율 — macroEnv.usdKrw */
-  usdKrw: number;
-  /** 허용 전략 한국어 텍스트 (3~5개) */
-  allowed: string[];
-  /** 금지 전략 한국어 텍스트 (3~5개) */
-  forbidden: string[];
-  /** 한 줄 verdict 아이콘: 🟢 정상 / 🟡 주의 / 🔴 위험 */
-  verdict: '🟢' | '🟡' | '🔴';
-}
-
 // ─── DataQualityBadge — 데이터 품질 카운트 ─────────────────────────────────
 
 export type DataQualityTier = 'HIGH' | 'MEDIUM' | 'LOW';
@@ -63,13 +40,13 @@ export type PriceAlertLevel = 'NORMAL' | 'CAUTION' | 'DANGER' | 'TAKE_PROFIT';
 
 // ─── PR-D (ADR-0031) — Last Trigger / Enemy Checklist ─────────────────────
 
-export type TriggerCheckId =
+type TriggerCheckId =
   | 'VCP_BREAKOUT'
   | 'VOLUME_SURGE'
   | 'VKOSPI_STABLE'
   | 'POSITIVE_DISCLOSURE';
 
-export type TriggerCheckStatus = 'TRIGGERED' | 'PENDING';
+type TriggerCheckStatus = 'TRIGGERED' | 'PENDING';
 
 export interface LastTriggerCheck {
   id: TriggerCheckId;
@@ -86,9 +63,9 @@ export interface LastTriggerSummary {
   verdict: 'EXECUTE' | 'WATCHLIST' | 'INACTIVE';
 }
 
-export type EnemyFlagId = 'SHORT_INCREASING' | 'MARGIN_OVERHEAT' | 'WEEKLY_RSI_OVERHEAT';
+type EnemyFlagId = 'SHORT_INCREASING' | 'MARGIN_OVERHEAT' | 'WEEKLY_RSI_OVERHEAT';
 
-export type EnemyFlagStatus = 'WARNING' | 'CLEAR';
+type EnemyFlagStatus = 'WARNING' | 'CLEAR';
 
 export interface EnemyChecklistFlag {
   id: EnemyFlagId;
@@ -146,7 +123,7 @@ export interface DataQualityCount {
 
 // ─── GateStatusCard — 압축 Gate 통과 표 ─────────────────────────────────
 
-export type GateVerdict = 'PASS' | 'FAIL';
+type GateVerdict = 'PASS' | 'FAIL';
 export type OverallVerdict = 'STRONG_BUY' | 'BUY' | 'HOLD' | 'CAUTION' | 'AVOID';
 
 export interface GateLineSummary {

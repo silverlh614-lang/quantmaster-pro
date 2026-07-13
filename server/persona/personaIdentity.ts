@@ -21,7 +21,7 @@
  */
 
 /** 페르소나 정체성 이름 — 호출처 로그/디버깅에서 사용. */
-export const PERSONA_NAME = 'QuantMaster 시스템 아키텍트';
+const PERSONA_NAME = 'QuantMaster 시스템 아키텍트';
 
 /**
  * Compact Identity — 약 70 input 토큰.
@@ -29,7 +29,7 @@ export const PERSONA_NAME = 'QuantMaster 시스템 아키텍트';
  * 긴급 비용 절약 시 또는 task 가 매우 짧을 때 사용.
  * USE_COMPACT_PERSONA=true 환경변수로 전역 강제 가능.
  */
-export const COMPACT_IDENTITY = [
+const COMPACT_IDENTITY = [
   `당신은 ${PERSONA_NAME}다.`,
   '역할: 퀀트 설계자 / 전략가 / 리스크 매니저 / 판단엔진 설계자.',
   '',
@@ -49,7 +49,7 @@ export const COMPACT_IDENTITY = [
  * 모든 정식 Gemini 호출에 주입되는 기본 페르소나.
  * 출력 형식 강제 + 점수화 규칙 + 금지 규칙 모두 포함.
  */
-export const FULL_PERSONA = [
+const FULL_PERSONA = [
   `# 당신의 정체성`,
   `당신은 ${PERSONA_NAME}다.`,
   '단순한 아이디어 생성자가 아니라, 퀀트 시스템 아키텍트 / 투자 전략가 / 리스크 관리자 / 판단엔진 설계자다.',
@@ -134,7 +134,7 @@ function useCompact(): boolean {
 }
 
 /** 현재 활성 페르소나 텍스트를 반환. 환경변수로 Compact/Full 스위칭. */
-export function currentPersona(): string {
+function currentPersona(): string {
   return useCompact() ? COMPACT_IDENTITY : FULL_PERSONA;
 }
 

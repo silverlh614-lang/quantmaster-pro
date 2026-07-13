@@ -37,13 +37,13 @@ export const SIGN4_ATR_RATIO_THRESHOLD = 0.015;
 export const PRE_BREAKOUT_MIN_SIGNS = 4;
 
 /** VCP: 거래량 5일 최대값이 20일 평균의 이 비율 이하 = 거래량 마름 */
-export const VCP_VOLUME_DRYUP_RATIO = 0.5;
+const VCP_VOLUME_DRYUP_RATIO = 0.5;
 
 /** VCP: 현재 BB 폭이 최근 20봉 BB 폭 최소값의 이 배수 이하 = 볼밴 수축 */
-export const VCP_BB_SQUEEZE_RATIO = 1.1;
+const VCP_BB_SQUEEZE_RATIO = 1.1;
 
 /** VCP: 최근 10일 고저 범위가 현재가 대비 이 비율 이하 = 타이트 박스 */
-export const VCP_TIGHT_BOX_RATIO = 0.05;
+const VCP_TIGHT_BOX_RATIO = 0.05;
 
 // ─── 인터페이스 ───────────────────────────────────────────────────────────────
 
@@ -68,7 +68,7 @@ export interface PreBreakoutInput {
   bbWidthSeries?: number[];
 }
 
-export interface PreBreakoutSignDetail {
+interface PreBreakoutSignDetail {
   /** 징후 1: 좁은 범위 횡보 (VCP 구조) */
   narrowPriceRange: boolean;
   /** 징후 2: 거래량 3일+ 연속 감소 & 20일 평균의 40% 이하 */
@@ -178,7 +178,7 @@ export function checkContinuousNetBuy(
  *   - 볼린저밴드 수축: 현재 BB 폭이 최근 20봉 BB 폭 최솟값 × 1.1 이하
  *   - 타이트 박스: 최근 10일 고저 범위가 현재가의 5% 이내
  */
-export function detectVCP(
+function detectVCP(
   prices: number[],
   volumes: number[],
   bbWidth: number[],

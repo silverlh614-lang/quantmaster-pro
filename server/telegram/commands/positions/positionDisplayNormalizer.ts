@@ -39,7 +39,7 @@ export function sourceTagForPositionSource(source: PositionSourceName | string):
   return SOURCE_TAG_BY_SOURCE[source as PositionSourceName] ?? 'SHADOW';
 }
 
-export function modeForSourceTag(sourceTag: NormalizedPositionSourceTag): NormalizedPositionMode {
+function modeForSourceTag(sourceTag: NormalizedPositionSourceTag): NormalizedPositionMode {
   return sourceTag === 'LIVE' ? 'LIVE' : 'SHADOW';
 }
 

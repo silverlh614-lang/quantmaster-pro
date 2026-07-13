@@ -2,7 +2,7 @@
  * @responsibility 기여도 보정 가드레일 — 조건 가중치 변경 제안을 안전 한도 내 승인 결정으로 제한한다.
  */
 
-export type CalibrationDecision =
+type CalibrationDecision =
   | 'NO_CHANGE'
   | 'PROBATION_ONLY'
   | 'ADVISORY_DOWNWEIGHT'

@@ -10,7 +10,7 @@ import {
 } from '../../persistence/tradeSignalStatusRepo.js';
 import { emitOperationalWarn } from './operationalWarn.js';
 
-export type TradeSignalStatusWriteAction =
+type TradeSignalStatusWriteAction =
   | 'markAutoTradeReady'
   | 'markOrderPending'
   | 'markFilled'

@@ -24,10 +24,3 @@ export function resetOperationalWarnSummary(): void {
     counts[key] = 0;
   }
 }
-
-export function reportOperationalWarnSummary(): void {
-  console.log(
-    `[OperationalWarnSummary] P0=${counts.P0} P1=${counts.P1} P2=${counts.P2} ` +
-    `P3=${counts.P3} P4=${counts.P4} P5=${counts.P5}`,
-  );
-}

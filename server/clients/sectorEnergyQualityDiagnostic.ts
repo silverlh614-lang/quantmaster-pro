@@ -78,8 +78,8 @@ export type SectorEnergyQualityReason =
 export type SectorEnergyFallbackUsed = 'NONE' | 'STOCK_DAILY' | 'ETF' | 'CACHE';
 
 
-export type SectorEnergyCoverageFreshness = 'FRESH' | 'STALE' | 'MISSING' | 'PARTIAL';
-export type SectorEnergyCoverageReason =
+type SectorEnergyCoverageFreshness = 'FRESH' | 'STALE' | 'MISSING' | 'PARTIAL';
+type SectorEnergyCoverageReason =
   | 'OK'
   | 'NO_REPRESENTATIVE_SYMBOLS'
   | 'PRICE_ROWS_MISSING'
@@ -119,7 +119,7 @@ export interface SectorEnergyCoverageBreakdown {
   executionImpact: 'NONE';
 }
 
-export type KisRepresentativeBasketBreakPoint =
+type KisRepresentativeBasketBreakPoint =
   | 'OFFICIAL_SECTOR_INDEX_UNAVAILABLE'
   | 'REPRESENTATIVE_SYMBOLS_MISSING'
   | 'REPRESENTATIVE_PRICE_ROWS_MISSING'

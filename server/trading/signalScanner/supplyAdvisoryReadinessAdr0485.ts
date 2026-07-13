@@ -4,8 +4,8 @@ import type { OperatorActionQueueReport } from './operatorActionRouterAdr0480.js
 import type { SupplyCoverageRecoveryObservationReportAdr0484, SupplyCoverageRecoveryStatus, SupplyCoverageSnapshotAdr0484 } from './supplyCoverageRecoveryObservationAdr0484.js';
 import { LEGACY_GATE1_REQUIRED_SCORE } from '../gateConfig.js';
 
-export type SupplyAdvisoryReadinessStatus = 'READY' | 'NOT_READY' | 'OBSERVING' | 'INSUFFICIENT_DATA' | 'DEGRADED' | 'UNKNOWN';
-export type SupplyAdvisoryReadinessReason =
+type SupplyAdvisoryReadinessStatus = 'READY' | 'NOT_READY' | 'OBSERVING' | 'INSUFFICIENT_DATA' | 'DEGRADED' | 'UNKNOWN';
+type SupplyAdvisoryReadinessReason =
   | 'COVERAGE_STABLE'
   | 'COVERAGE_IMPROVING'
   | 'SELECTED_PROVIDER_STABLE'
@@ -23,9 +23,9 @@ export type SupplyAdvisoryReadinessReason =
   | 'INSUFFICIENT_OBSERVATIONS'
   | 'OPERATOR_ACTIONS_OPEN'
   | 'READINESS_DEGRADED';
-export type SupplyAdvisoryReadinessWindow = 'LAST_3_SCANS' | 'LAST_5_SCANS' | 'LAST_10_SCANS';
+type SupplyAdvisoryReadinessWindow = 'LAST_3_SCANS' | 'LAST_5_SCANS' | 'LAST_10_SCANS';
 
-export interface SupplyAdvisoryReadinessCriteriaAdr0485 {
+interface SupplyAdvisoryReadinessCriteriaAdr0485 {
   minObservationRows: number;
   minCoverageRatio: number;
   maxSelectedProviderNoneRate: number;
@@ -83,7 +83,7 @@ export interface SupplyAdvisoryReadinessReportAdr0485 {
   diagnostics: string[];
 }
 
-export interface BuildSupplyAdvisoryReadinessEvidenceInputAdr0485 {
+interface BuildSupplyAdvisoryReadinessEvidenceInputAdr0485 {
   window?: SupplyAdvisoryReadinessWindow;
   supplyCoverageRecoveryAdr0484?: SupplyCoverageRecoveryObservationReportAdr0484 | null;
   snapshotsAdr0484?: readonly SupplyCoverageSnapshotAdr0484[] | null;
@@ -100,7 +100,7 @@ export interface BuildSupplyAdvisoryReadinessReportInputAdr0485 extends BuildSup
   generatedAt?: string;
 }
 
-export const DEFAULT_SUPPLY_ADVISORY_READINESS_CRITERIA_ADR0485: SupplyAdvisoryReadinessCriteriaAdr0485 = {
+const DEFAULT_SUPPLY_ADVISORY_READINESS_CRITERIA_ADR0485: SupplyAdvisoryReadinessCriteriaAdr0485 = {
   minObservationRows: 3,
   minCoverageRatio: 0.60,
   maxSelectedProviderNoneRate: 0.30,
@@ -167,7 +167,7 @@ function emptyEvidence(window: SupplyAdvisoryReadinessWindow): SupplyAdvisoryRea
   };
 }
 
-export function buildSupplyAdvisoryReadinessEvidenceAdr0485(input: BuildSupplyAdvisoryReadinessEvidenceInputAdr0485 = {}): SupplyAdvisoryReadinessEvidenceAdr0485 {
+function buildSupplyAdvisoryReadinessEvidenceAdr0485(input: BuildSupplyAdvisoryReadinessEvidenceInputAdr0485 = {}): SupplyAdvisoryReadinessEvidenceAdr0485 {
   try {
     const window = input.window ?? 'LAST_3_SCANS';
     const snapshots = [
@@ -337,7 +337,7 @@ export function formatSupplyAdvisoryReadinessCompactAdr0485(report: SupplyAdviso
   return `🧭 ADR-0485 SupplyReadiness: ${report.status} | score=${report.readinessScore} | rows=${rows} | next=${nextText(report.recommendedNextStep)} | impact=${report.executionImpact}`;
 }
 
-export function formatSupplyAdvisoryReadinessDetailAdr0485(report: SupplyAdvisoryReadinessReportAdr0485): string {
+function formatSupplyAdvisoryReadinessDetailAdr0485(report: SupplyAdvisoryReadinessReportAdr0485): string {
   const e = report.evidence;
   const c = report.criteria;
   return [

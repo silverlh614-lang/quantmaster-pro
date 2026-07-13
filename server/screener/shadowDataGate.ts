@@ -28,7 +28,7 @@ import { fetchTechnicalQuoteByCode } from './adapters/technicalQuoteRouter.js';
  * AUTO_TRADE_MODE=LIVE 가 명시적으로 설정되지 않은 모든 환경은 Shadow로 간주.
  * 이는 signalScanner 의 기존 판정(`process.env.AUTO_TRADE_MODE !== 'LIVE'`)과 일치.
  */
-export function isShadowMode(): boolean {
+function isShadowMode(): boolean {
   return process.env.AUTO_TRADE_MODE !== 'LIVE';
 }
 

@@ -1,6 +1,6 @@
 // @responsibility ADR-0495 Sector Index master/mapping/fallback static seed repair; diagnostic-only, no live execution.
 
-export type SectorIndexCategory =
+type SectorIndexCategory =
   | 'KRX_SECTOR'
   | 'KRX_INDUSTRY'
   | 'KRX_THEME'
@@ -24,7 +24,7 @@ export interface SectorIndexMasterRecord {
   notes?: string;
 }
 
-export type SectorMappingType = 'EXACT' | 'ALIAS' | 'MANUAL' | 'FALLBACK' | 'UNRESOLVED';
+type SectorMappingType = 'EXACT' | 'ALIAS' | 'MANUAL' | 'FALLBACK' | 'UNRESOLVED';
 
 export interface SectorIndexCodeMapping {
   sectorName: string;

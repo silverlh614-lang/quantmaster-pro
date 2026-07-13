@@ -300,7 +300,7 @@ export const sellReservationManager = {
 
 export const reserveSell = sellReservationManager.reserveSell.bind(sellReservationManager);
 export const confirmSellSubmitted = sellReservationManager.confirmSellSubmitted.bind(sellReservationManager);
-export const releaseReservation = sellReservationManager.releaseReservation.bind(sellReservationManager);
+const releaseReservation = sellReservationManager.releaseReservation.bind(sellReservationManager);
 export const markSellFilled = sellReservationManager.markSellFilled.bind(sellReservationManager);
 export const markSellFailed = sellReservationManager.markSellFailed.bind(sellReservationManager);
 export const reconcileOrphanedReservations =

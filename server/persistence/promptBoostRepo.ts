@@ -46,9 +46,3 @@ export function savePromptBoosts(boosts: PromptConditionBoost): void {
   ensureDataDir();
   fs.writeFileSync(PROMPT_BOOSTS_FILE, JSON.stringify(boosts, null, 2));
 }
-
-/** 특정 조건의 현재 boost 값 (없으면 1.0) */
-export function getConditionBoost(conditionId: number): number {
-  const boosts = loadPromptBoosts();
-  return boosts[conditionId] ?? 1.0;
-}

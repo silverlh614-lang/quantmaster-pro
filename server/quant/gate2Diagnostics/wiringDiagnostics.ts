@@ -56,7 +56,7 @@ import type {
   GateEvaluatorOutput,
 } from './types.js';
 
-export const GATE2_STATUS_SET = new Set<Gate2WiringStatus>([
+const GATE2_STATUS_SET = new Set<Gate2WiringStatus>([
   'FIRED',
   'THRESHOLD_NOT_MET',
   'DATA_UNAVAILABLE',
@@ -66,10 +66,6 @@ export const GATE2_STATUS_SET = new Set<Gate2WiringStatus>([
 
 export function unique(values: readonly string[]): string[] {
   return [...new Set(values.filter(Boolean))];
-}
-
-export function hasInput(input: string, prefix: string): boolean {
-  return input === prefix || input.startsWith(`${prefix}.`);
 }
 
 export function isKisInput(input: string): boolean {
@@ -87,14 +83,14 @@ export function isBenchmarkInput(input: string): boolean {
     || input.startsWith('index.');
 }
 
-export function externalLabelForInput(input: string): string | null {
+function externalLabelForInput(input: string): string | null {
   if (isKisInput(input)) return 'KIS_INVESTOR_FLOW';
   if (isDartInput(input)) return 'DART_FINANCIALS';
   if (isBenchmarkInput(input)) return 'BENCHMARK_20D_RETURN';
   return null;
 }
 
-export function contextKeyForExternal(label: string): string | null {
+function contextKeyForExternal(label: string): string | null {
   if (label === 'KIS_INVESTOR_FLOW') return 'kisFlow';
   if (label === 'DART_FINANCIALS') return 'dartFin';
   if (label === 'BENCHMARK_20D_RETURN') return 'kospi20dReturn';
@@ -102,13 +98,13 @@ export function contextKeyForExternal(label: string): string | null {
   return null;
 }
 
-export function normalizeStatus(output: GateEvaluatorOutput): Gate2WiringStatus {
+function normalizeStatus(output: GateEvaluatorOutput): Gate2WiringStatus {
   const raw = output.output?.status
     ?? (output.output ? 'FIRED' : output.context?.hadRequiredData === false ? 'DATA_UNAVAILABLE' : 'THRESHOLD_NOT_MET');
   return GATE2_STATUS_SET.has(raw as Gate2WiringStatus) ? raw as Gate2WiringStatus : 'THRESHOLD_NOT_MET';
 }
 
-export function classifyDataPath(input: {
+function classifyDataPath(input: {
   quoteInputs: string[];
   kisInputs: string[];
   dartInputs: string[];
@@ -131,7 +127,7 @@ export function classifyDataPath(input: {
   return 'MIXED';
 }
 
-export function missingExternalDataFor(
+function missingExternalDataFor(
   inputs: readonly string[],
   missingInputs: readonly string[],
   availableData: Record<string, boolean> | undefined,

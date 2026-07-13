@@ -19,7 +19,7 @@ export interface RegimeResolvedTransitionState {
   recommendationOnly: true;
 }
 
-export function emptyRegimeResolvedTransitionState(): RegimeResolvedTransitionState {
+function emptyRegimeResolvedTransitionState(): RegimeResolvedTransitionState {
   return {
     lastResolvedCount: 0,
     lastResolvedByRegime: {},
@@ -31,7 +31,7 @@ export function emptyRegimeResolvedTransitionState(): RegimeResolvedTransitionSt
   };
 }
 
-export function regimePhaseForCounterfactualEntry(entry: CounterfactualEntry): RegimePhase {
+function regimePhaseForCounterfactualEntry(entry: CounterfactualEntry): RegimePhase {
   const entryRegime = entry.entryRegime ?? entry.regimeAtEntry?.toString() ?? entry.regimeAtSignal?.toString();
   return entry.regimePhase ?? deriveRegimePhase({
     rawRegime: entryRegime ?? entry.rawRegime ?? entry.regime,
@@ -53,7 +53,7 @@ export function loadRegimeResolvedTransitionState(): RegimeResolvedTransitionSta
   };
 }
 
-export function saveRegimeResolvedTransitionState(state: RegimeResolvedTransitionState): void {
+function saveRegimeResolvedTransitionState(state: RegimeResolvedTransitionState): void {
   writeJson(REGIME_RESOLVED_TRANSITION_STATE_FILE, state);
 }
 

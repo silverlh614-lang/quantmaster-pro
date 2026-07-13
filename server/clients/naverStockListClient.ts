@@ -75,9 +75,3 @@ export async function fetchNaverMarketLeaders(): Promise<StockMasterEntry[]> {
 
   return out;
 }
-
-export const __testOnly = {
-  normalizeCode,
-  PAGE_SIZE,
-  MAX_PAGES_PER_MARKET,
-};

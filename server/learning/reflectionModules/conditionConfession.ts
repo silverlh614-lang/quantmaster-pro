@@ -21,9 +21,9 @@
 import type { ServerAttributionRecord } from '../../persistence/attributionRepo.js';
 import type { ConditionConfessionEntry } from '../reflectionTypes.js';
 
-export const HIGH_SCORE_THRESHOLD = 7;
-export const MIN_PASSED_COUNT = 3;
-export const FALSE_SIGNAL_THRESHOLD = 0.6;
+const HIGH_SCORE_THRESHOLD = 7;
+const MIN_PASSED_COUNT = 3;
+const FALSE_SIGNAL_THRESHOLD = 0.6;
 
 /**
  * 오늘의 attribution 레코드에서 조건별 참회록 후보를 추출한다.

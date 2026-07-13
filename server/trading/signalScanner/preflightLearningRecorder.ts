@@ -33,7 +33,7 @@ import { setPreflightDiagnosticScanSummaryIfAbsent } from './scanDiagnostics/per
 import { emitOperationalWarn } from '../../observability/operationalWarn.js';
 import type { WarnMode } from '../../observability/operationalWarnTypes.js';
 
-export type PreflightUniverseLearningStage =
+type PreflightUniverseLearningStage =
   | 'BEFORE_UNIVERSE_BUILD'
   | 'AFTER_UNIVERSE_BUILD'
   | 'AFTER_CANDIDATE_SCAN'

@@ -17,7 +17,7 @@ export type DecisionCaseId =
   | 'VOID'
   | 'MONITORING';
 
-export type VoidCheckKey = 'HIGH_VOLATILITY' | 'ZERO_POSITIONS' | 'ZERO_APPROVALS' | 'MACRO_RISK';
+type VoidCheckKey = 'HIGH_VOLATILITY' | 'ZERO_POSITIONS' | 'ZERO_APPROVALS' | 'MACRO_RISK';
 
 export interface VoidCheck {
   key: VoidCheckKey;

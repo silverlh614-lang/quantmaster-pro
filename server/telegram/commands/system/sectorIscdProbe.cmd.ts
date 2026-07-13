@@ -64,7 +64,7 @@ export async function buildSectorIscdProbeMessage(): Promise<string> {
   return results.join('\n');
 }
 
-export const sectorIscdProbeCommand: TelegramCommand = {
+const sectorIscdProbeCommand: TelegramCommand = {
   name: '/sector_iscd_probe',
   category: 'SYS',
   visibility: 'ADMIN',

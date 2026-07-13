@@ -2,7 +2,7 @@
 
 import type { Gate3OutcomeSeed, Gate3OutcomeTrackingSummary } from './gate3OutcomeSeed.js';
 
-export type Gate3EvidenceWarmupWarning =
+type Gate3EvidenceWarmupWarning =
   | 'WARN_OUTCOME_LABELER_STALLED'
   | 'WARN_DUPLICATE_SUPPRESSION_CHECK'
   | 'WARN_FORWARD_RETURN_UPDATE_MISSING'

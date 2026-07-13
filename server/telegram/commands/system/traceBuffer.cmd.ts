@@ -47,4 +47,3 @@ const traceClear: TelegramCommand = {
 };
 
 for (const command of [traceRecent, traceShow, traceClear]) commandRegistry.register(command);
-export default [traceRecent, traceShow, traceClear];

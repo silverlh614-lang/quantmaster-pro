@@ -198,7 +198,7 @@ function normalizeProviderStatus(value: unknown): KisInvestorFlowProviderStatus 
   return null;
 }
 
-export function confidenceForKisInvestorFlowStatus(status: KisInvestorFlowProviderStatus): KisInvestorFlowConfidence {
+function confidenceForKisInvestorFlowStatus(status: KisInvestorFlowProviderStatus): KisInvestorFlowConfidence {
   if (status === 'OK_WITH_DATA') return 'VERIFIED';
   if (status === 'OK_EMPTY') return 'EMPTY_VALID';
   if (status === 'FIELD_MISSING' || status === 'PARSE_ERROR') return 'DEGRADED';
@@ -288,10 +288,4 @@ export function normalizeKisInvestorFlow(input: NormalizeKisInvestorFlowInput): 
     driftDiagnostics: detectDrift(input),
     fetchedAt: input.fetchedAt ?? null,
   };
-}
-
-export function isQmpInvestorFlow(value: unknown): value is QmpInvestorFlow {
-  return isRecord(value)
-    && ('providerStatus' in value || 'dataConfidence' in value || 'endpointKey' in value || 'rawFieldCoverage' in value)
-    && ('foreignNetBuy' in value || 'institutionalNetBuy' in value);
 }

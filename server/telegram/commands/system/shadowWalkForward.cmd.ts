@@ -90,5 +90,3 @@ const shadowWalkForward: TelegramCommand = {
 };
 
 commandRegistry.register(shadowWalkForward);
-
-export default shadowWalkForward;

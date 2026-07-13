@@ -76,12 +76,6 @@ export function makeMockCtx(overrides: Partial<ExitContext> = {}): ExitContext {
 }
 
 /**
- * SHADOW 모드 SellOrderResult — placeKisSellOrder mock 의 기본 반환.
- * SHADOW 분기에서 reserveSell 이 즉시 CONFIRMED 로 fill 을 기록하도록 한다.
- */
-export const SHADOW_OK_RESULT = { ordNo: null, placed: false, outcome: 'SHADOW_ONLY' as const };
-
-/**
  * LIVE 주문 접수 실패 SellOrderResult — FAILED 분기 회귀 테스트용.
  * reserveSell 이 'FAILED' kind 를 반환해 호출자가 dedupe 플래그 롤백을 수행하는지 검증.
  */

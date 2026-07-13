@@ -34,12 +34,12 @@ export type PreflightScanEvaluationState =
   | 'EVALUATED_PARTIAL'
   | 'EVALUATED_WITH_SURVIVORS';
 
-export type PreflightScanEvaluationExecutionImpact =
+type PreflightScanEvaluationExecutionImpact =
   | 'NONE'
   | 'NEW_BUY_BLOCKED_ONLY'
   | 'SCAN_GATE_DEGRADED';
 
-export interface PreflightScanEvaluationResult {
+interface PreflightScanEvaluationResult {
   scanId: string;
   asOf: string;
   evaluationState: PreflightScanEvaluationState;

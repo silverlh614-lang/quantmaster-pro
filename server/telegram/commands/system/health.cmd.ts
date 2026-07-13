@@ -28,9 +28,6 @@ const health: TelegramCommand = {
 };
 
 commandRegistry.register(health);
-
-export default health;
-
 // ─── 텍스트 포맷팅 ────────────────────────────────────────────────────────
 
 /**
@@ -144,7 +141,7 @@ export function formatKrxMasterUsabilityLine(): { line: string; blocked: boolean
  * 사용자 패치 권장안 — DART status=013 ("데이터 없음") 같이 의미상 정상인 응답이
  * 빨간 ❌ 로 잘못 표시되던 회귀 차단.
  */
-export function formatProbeOutcome(probe: HealthProbeOutcome): string {
+function formatProbeOutcome(probe: HealthProbeOutcome): string {
   const icon =
     probe.severity === 'OK' ? '✅' :
     probe.severity === 'WARN' ? '⚠️' :
@@ -203,7 +200,7 @@ export function formatKrxStatusLine(s: HealthSnapshot): string {
  *   4. KIS_ESTIMATE → ⚠️ KIS 추정값 (KRX 두 경로 모두 실패, 근사값)
  *   + fetchedAt 이 있으면 KST 시각 ("HH:MM") 부착
  */
-export function formatShortSellingSourceLine(s: HealthSnapshot): string {
+function formatShortSellingSourceLine(s: HealthSnapshot): string {
   if (!s.shortSellingSource) return '? 미수집';
   const time = formatShortSellingFetchedAt(s.shortSellingFetchedAt);
   const suffix = time ? ` (${time})` : '';
@@ -236,7 +233,7 @@ export function formatShortSellingSourceLine(s: HealthSnapshot): string {
  *
  * USD/KRW 부재 시 "(N/A)" 표기. 실제 환율과 큰 격차 의심 시 운영자가 즉시 인지 가능.
  */
-export function formatMacroFreshnessLine(s: HealthSnapshot): string {
+function formatMacroFreshnessLine(s: HealthSnapshot): string {
   if (!s.macroStateUpdatedAt) return '? 미수집';
   const t = Date.parse(s.macroStateUpdatedAt);
   if (!Number.isFinite(t)) return '? 잘못된 시각';

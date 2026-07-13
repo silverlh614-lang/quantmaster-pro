@@ -13,7 +13,7 @@ import { isTradingDay } from '../utils/marketDayClassifier.js';
 
 const REJECTED_SAMPLE_LIMIT = 5;
 
-export interface RejectedSample {
+interface RejectedSample {
   recordId: string;
   date: string;
   reason: string;

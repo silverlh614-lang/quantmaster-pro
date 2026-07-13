@@ -20,7 +20,7 @@ export interface Gate1CrossSectionalInputRow {
   positiveComponents?: ReadonlyArray<{ code: string; weightedScore: number }>;
 }
 
-export interface Gate1CrossSectionalSymbolScore {
+interface Gate1CrossSectionalSymbolScore {
   symbol: string;
   name?: string;
   totalScore: number;

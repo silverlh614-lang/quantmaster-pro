@@ -5,7 +5,7 @@
  * endpoint/field mismatch 진단으로 분리하고 materialize 하지 않는다.
  */
 
-export const INVESTOR_FLOW_FIELD_CANDIDATES = [
+const INVESTOR_FLOW_FIELD_CANDIDATES = [
   'frgn_ntby_qty',
   'frgn_ntby_tr_pbmn',
   'orgn_ntby_qty',
@@ -29,7 +29,7 @@ export const INVESTOR_FLOW_FIELD_CANDIDATES = [
   'PRSN_NTBY_TR_PBMN',
 ] as const;
 
-export const QUOTE_LIKE_FIELDS = [
+const QUOTE_LIKE_FIELDS = [
   'stck_prpr',
   'prdy_vrss',
   'prdy_vrss_sign',
@@ -41,7 +41,7 @@ export const QUOTE_LIKE_FIELDS = [
   'tday_rltv',
 ] as const;
 
-export const SHORT_FIELD_CANDIDATES = [
+const SHORT_FIELD_CANDIDATES = [
   'ssts_cntg_qty',
   'ssts_tr_pbmn',
   'shts_cntg_qty',
@@ -88,7 +88,7 @@ export interface KisPayloadClassification {
 
 export type KisPayloadRow = Record<string, unknown>;
 
-export function collectKeys(outputRows: KisPayloadRow[] | null | undefined): string[] {
+function collectKeys(outputRows: KisPayloadRow[] | null | undefined): string[] {
   const keys = new Set<string>();
   for (const row of outputRows ?? []) {
     if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
@@ -97,7 +97,7 @@ export function collectKeys(outputRows: KisPayloadRow[] | null | undefined): str
   return [...keys];
 }
 
-export function countHits(keys: string[], candidates: readonly string[]): number {
+function countHits(keys: string[], candidates: readonly string[]): number {
   const normalized = new Set(keys.flatMap((key) => [key, key.toLowerCase()]));
   return candidates.filter((candidate) => normalized.has(candidate) || normalized.has(candidate.toLowerCase())).length;
 }

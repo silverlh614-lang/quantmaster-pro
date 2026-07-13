@@ -41,7 +41,7 @@ export const UNIVERSE_SETTINGS: Record<UniverseKey, UniverseSetting> = {
   C: { key: 'C', label: 'PROBING    ×0.25 TP+15% SL-6%', kellyFactor: 0.25, targetPct:  0.15, stopLossPct: -0.06 },
 };
 
-export type LedgerStatus = 'OPEN' | 'HIT_TP' | 'HIT_SL' | 'EXPIRED';
+type LedgerStatus = 'OPEN' | 'HIT_TP' | 'HIT_SL' | 'EXPIRED';
 
 export interface LedgerEntry {
   id: string;
@@ -69,7 +69,7 @@ export interface LedgerEntry {
 
 const MAX_RECORDS = 2000;
 /** 해상도 horizon (기본 90 캘린더일). */
-export const LEDGER_HORIZON_DAYS = Number(process.env.LEDGER_HORIZON_DAYS ?? '90');
+const LEDGER_HORIZON_DAYS = Number(process.env.LEDGER_HORIZON_DAYS ?? '90');
 
 function load(): LedgerEntry[] {
   ensureDataDir();

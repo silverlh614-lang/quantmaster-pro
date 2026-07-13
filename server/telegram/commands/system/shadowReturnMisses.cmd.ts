@@ -50,5 +50,3 @@ const shadowReturnMisses: TelegramCommand = {
 };
 
 commandRegistry.register(shadowReturnMisses);
-
-export default shadowReturnMisses;

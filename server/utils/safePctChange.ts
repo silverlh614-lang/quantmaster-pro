@@ -346,7 +346,7 @@ export function isSanePct(pct: number, sanityBoundPct = DEFAULT_SANITY_BOUND_PCT
  *   - 'STALE_BASE_OR_SPLIT_ADJUSTMENT' — sanity bound 위반 (액면분할/병합/조정 누락 의심)
  *   - 'STALE_BASE_AGE' — PriceBase.asOf 가 stale 임계 초과
  */
-export type SafePctChangeReason =
+type SafePctChangeReason =
   | 'OK'
   | 'INVALID_PRICE'
   | 'STALE_BASE_OR_SPLIT_ADJUSTMENT'
@@ -582,7 +582,7 @@ export function __resetSafePctChangeWarnsForTests(): void {
  * default OFF (정책 적용).
  */
 
-export type SafePctStrictStatus =
+type SafePctStrictStatus =
   | 'OK'
   | 'STALE_BASE_OR_SPLIT_ADJUSTMENT'
   | 'ZERO_OR_INVALID_PRICE'

@@ -68,16 +68,16 @@ export const UNIFIED_COMPONENT_KEYS: readonly UnifiedComponentKey[] = Object.fre
   'trendAcceleration',
 ] as const);
 
-export type UnifiedComponentSource =
+type UnifiedComponentSource =
   | 'POSITIVE_COMPONENT'
   | 'PENALTY_COMPONENT'
   | 'MISSING'
   | 'NOT_APPLICABLE'
   | 'DIAGNOSTIC_ONLY';
 
-export type UnifiedComponentConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+type UnifiedComponentConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 
-export interface UnifiedComponentStatus {
+interface UnifiedComponentStatus {
   available: boolean;
   score: number | null;
   source: UnifiedComponentSource;
@@ -89,7 +89,7 @@ export interface UnifiedComponentStatus {
 // SSOT — Data quality 7 booleans
 // ════════════════════════════════════════════════════════════════════════════
 
-export interface UnifiedDataQuality {
+interface UnifiedDataQuality {
   quoteAvailable: boolean;
   symbolFeaturesAvailable: boolean;
   conditionResultsAvailable: boolean;
@@ -113,7 +113,7 @@ export type UnifiedDivergenceReason =
   | 'RS_NOT_USABLE'
   | 'POLICY_DIFFERENCE_ONLY';
 
-export interface UnifiedDivergence {
+interface UnifiedDivergence {
   shadowAllowedButLiveFailed: boolean;
   reason: UnifiedDivergenceReason;
   secondaryReasons: readonly UnifiedDivergenceReason[];

@@ -39,7 +39,7 @@ function clampWeight(key: string, raw: unknown): number {
   return Math.min(Math.max(raw, lo), hi);
 }
 
-export interface LearningWeightPromotionChange {
+interface LearningWeightPromotionChange {
   key: string;
   from: number;
   candidate: number;

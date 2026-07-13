@@ -58,7 +58,7 @@ const STATE_STYLES: Record<ConnectionState, { icon: React.ReactNode; text: strin
 };
 
 /** `lastUpdated` 로부터 'N분 전' 문자열 반환. 값 없으면 빈 문자열. */
-export function formatRelative(lastUpdated?: string | number | Date | null): string {
+function formatRelative(lastUpdated?: string | number | Date | null): string {
   if (lastUpdated == null) return '';
   const ts = typeof lastUpdated === 'string' || typeof lastUpdated === 'number'
     ? new Date(lastUpdated).getTime()

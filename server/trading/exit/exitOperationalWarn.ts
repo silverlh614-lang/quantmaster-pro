@@ -2,7 +2,7 @@
 import { emitLegacyOperationalWarn } from '../../observability/legacyOperationalWarnAdapter.js';
 import type { ExecutionImpact } from '../../observability/executionImpact.js';
 
-export type ExitP0WarnCode =
+type ExitP0WarnCode =
   | 'P0_LIVE_EXIT_BLOCKED'
   | 'P0_LIVE_EXIT_DEFERRED_NON_TRADING'
   | 'P0_R6_LIVE_EXIT_POLICY_FAILED'

@@ -3,7 +3,7 @@
  */
 
 /** 서버 DecisionInputs 동기 사본 (절대 규칙 #3 — 서버↔클라 직접 import 금지). */
-export interface DecisionInputsPendingApproval {
+interface DecisionInputsPendingApproval {
   stockCode: string;
   stockName: string;
   ageMs: number;

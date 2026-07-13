@@ -87,12 +87,3 @@ export async function resolveDartFinancialsForEvaluation(
 function unifiedSnapshotEnabled(): boolean {
   return process.env.USE_UNIFIED_SOURCE_SNAPSHOT === 'true';
 }
-
-/** read site 가 candidate code 로 정본 슬롯을 조회하기 위한 보조 — cleanSymbol 정규화 일치 보장. */
-export function lookupDartSlot(
-  perSymbol: Readonly<Record<string, SymbolDartFinancialsSlot | undefined>> | undefined,
-  code: string,
-): SymbolDartFinancialsSlot | null {
-  if (!perSymbol) return null;
-  return perSymbol[code] ?? perSymbol[cleanSymbol(code)] ?? null;
-}

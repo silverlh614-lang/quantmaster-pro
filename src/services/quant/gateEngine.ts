@@ -40,7 +40,7 @@ import {
 import type { DailyCandle } from './institutionalFootprintEngine';
 
 // ─── evaluateStock 입력 인터페이스 ──────────────────────────────────────────
-export interface EvaluateStockAdvancedContext {
+interface EvaluateStockAdvancedContext {
   smartMoney?: SmartMoneyData;
   exportMomentum?: ExportMomentumData;
   geoRisk?: GeopoliticalRiskData;
@@ -83,7 +83,7 @@ export interface EvaluateStockAdvancedContext {
   indexDailyReturns?: number[];
 }
 
-export interface EvaluateStockExtendedRegimeOptions {
+interface EvaluateStockExtendedRegimeOptions {
   kospi60dVolatility?: number;
   leadingSectorCount?: number;
   foreignFlowDirection?: 'CONSISTENT_BUY' | 'CONSISTENT_SELL' | 'ALTERNATING';
@@ -159,7 +159,7 @@ const GATE3_IDS: ConditionId[] = [2, 17, 18, 19, 20, 22, 23, 25, 26, 27];
 
 // ─── Stock Profile ──────────────────────────────────────────────────────────
 
-export function getStockProfile(type: StockProfileType): StockProfile {
+function getStockProfile(type: StockProfileType): StockProfile {
   switch (type) {
     case 'A': return { type: 'A', monitoringCycle: 'WEEKLY', stopLoss: -15, executionDelay: 3 };
     case 'B': return { type: 'B', monitoringCycle: 'DAILY', stopLoss: -12, executionDelay: 1 };

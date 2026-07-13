@@ -36,5 +36,3 @@ const kelly: TelegramCommand = {
 };
 
 commandRegistry.register(kelly);
-
-export default kelly;

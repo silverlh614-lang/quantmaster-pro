@@ -37,7 +37,7 @@ import { buildKisSectorEnergyInputsWithMeta } from '../clients/kisSectorEnergyPr
 import { fetchKisDailyCandles, type KisChartCandle } from '../screener/kisChartDataFetcher.js';
 import { loadWatchlist, type WatchlistEntry } from '../persistence/watchlistRepo.js';
 
-export type KisOnlyMode = 'KIS_ONLY_REBUILD';
+type KisOnlyMode = 'KIS_ONLY_REBUILD';
 export type KisParserDiagnosticStatus =
   | 'HTTP_OK_BUT_EMPTY'
   | 'HTTP_OK_FIELD_MISMATCH'
@@ -194,7 +194,7 @@ export function isKisOnlyRebuildMode(): boolean {
   return process.env.KIS_ONLY_REBUILD_MODE === 'true';
 }
 
-export function resolveKisOnlyTargets(input?: { targetCodes?: string[]; limit?: number }): string[] {
+function resolveKisOnlyTargets(input?: { targetCodes?: string[]; limit?: number }): string[] {
   const explicit = (input?.targetCodes ?? []).map(normalizeCode).filter(Boolean);
   const targets = explicit.length > 0 ? explicit : sortedWatchlistTargets(input?.limit ?? DEFAULT_TARGET_LIMIT);
   return targets.length > 0 ? targets : [FALLBACK_TARGET];

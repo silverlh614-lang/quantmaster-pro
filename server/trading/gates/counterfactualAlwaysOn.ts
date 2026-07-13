@@ -8,7 +8,7 @@ import type {
 import type { CandidateExposureHistory } from '../candidateDiversityAdjustment.js';
 import type { ProviderHealthSnapshot } from '../../diagnostics/providerMarketSignalIsolationStep16.js';
 
-export type CounterfactualSampleType =
+type CounterfactualSampleType =
   | 'BUY_ALLOWED_COUNTERFACTUAL'
   | 'WATCH_COUNTERFACTUAL'
   | 'LOW_SCORE_COUNTERFACTUAL'
@@ -18,7 +18,7 @@ export type CounterfactualSampleType =
   | 'TRADE_PLAN_INVALID_COUNTERFACTUAL'
   | 'SLOT_FULL_COUNTERFACTUAL';
 
-export type CounterfactualOutcomeStatus =
+type CounterfactualOutcomeStatus =
   | 'PENDING'
   | 'WOULD_WIN'
   | 'WOULD_LOSS'
@@ -165,7 +165,7 @@ function sanitizeIdPart(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'none';
 }
 
-export function sampleTypeFromDecision(decision: TradeDecision): CounterfactualSampleType {
+function sampleTypeFromDecision(decision: TradeDecision): CounterfactualSampleType {
   switch (decision) {
     case 'BUY_ALLOWED':
       return 'BUY_ALLOWED_COUNTERFACTUAL';
@@ -182,7 +182,7 @@ export function sampleTypeFromDecision(decision: TradeDecision): CounterfactualS
   }
 }
 
-export function buildCounterfactualSample(input: RecordCounterfactualInput): CounterfactualSample {
+function buildCounterfactualSample(input: RecordCounterfactualInput): CounterfactualSample {
   const decision = input.decision;
   const asOf = input.asOf ?? new Date().toISOString();
   const tradingDate = input.tradingDate ?? tradingDateFromAsOf(asOf);
@@ -299,7 +299,7 @@ export function buildCounterfactualSample(input: RecordCounterfactualInput): Cou
   };
 }
 
-export function formatCounterfactualSampleRecordedLog(sample: CounterfactualSample): string {
+function formatCounterfactualSampleRecordedLog(sample: CounterfactualSample): string {
   return [
     '[COUNTERFACTUAL_SAMPLE_RECORDED]',
     kv('sampleId', sample.sampleId),
@@ -316,7 +316,7 @@ export function formatCounterfactualSampleRecordedLog(sample: CounterfactualSamp
   ].join(' ');
 }
 
-export function formatCounterfactualAlwaysOnEnforcedLog(sample: CounterfactualSample): string {
+function formatCounterfactualAlwaysOnEnforcedLog(sample: CounterfactualSample): string {
   return [
     '[COUNTERFACTUAL_ALWAYS_ON_ENFORCED]',
     kv('snapshotId', sample.snapshotId),
@@ -327,7 +327,7 @@ export function formatCounterfactualAlwaysOnEnforcedLog(sample: CounterfactualSa
   ].join(' ');
 }
 
-export function formatDataGapCounterfactualRecordedLog(sample: CounterfactualSample): string {
+function formatDataGapCounterfactualRecordedLog(sample: CounterfactualSample): string {
   return [
     '[DATA_GAP_COUNTERFACTUAL_RECORDED]',
     kv('sampleId', sample.sampleId),
@@ -338,7 +338,7 @@ export function formatDataGapCounterfactualRecordedLog(sample: CounterfactualSam
   ].join(' ');
 }
 
-export function formatSlotFullCounterfactualRecordedLog(sample: CounterfactualSample): string {
+function formatSlotFullCounterfactualRecordedLog(sample: CounterfactualSample): string {
   return [
     '[SLOT_FULL_COUNTERFACTUAL_RECORDED]',
     kv('sampleId', sample.sampleId),
@@ -350,7 +350,7 @@ export function formatSlotFullCounterfactualRecordedLog(sample: CounterfactualSa
   ].join(' ');
 }
 
-export function formatCounterfactualRecordedDespiteDedupLog(input: {
+function formatCounterfactualRecordedDespiteDedupLog(input: {
   symbol: string;
   dedupKey?: string;
   sampleId: string;
@@ -364,7 +364,7 @@ export function formatCounterfactualRecordedDespiteDedupLog(input: {
   ].join(' ');
 }
 
-export function formatCounterfactualRecordedDespiteCooldownLog(input: {
+function formatCounterfactualRecordedDespiteCooldownLog(input: {
   symbol: string;
   cooldownKey?: string;
   sampleId: string;

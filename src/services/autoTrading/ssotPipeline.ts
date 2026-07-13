@@ -5,7 +5,7 @@
 export type MarketSession = 'REGULAR' | 'AFTERMARKET';
 export type DisplaySession = 'REGULAR' | 'AFTERMARKET_SELL_ONLY';
 export type EntryBlockMode = 'NORMAL' | 'R6_DEFENSE_SELL_ONLY' | 'SELL_ONLY';
-export type TechnicalIndicatorStatus = 'COMPUTED' | 'PARTIAL' | 'NOT_COMPUTED' | 'MISSING' | 'STALE';
+type TechnicalIndicatorStatus = 'COMPUTED' | 'PARTIAL' | 'NOT_COMPUTED' | 'MISSING' | 'STALE';
 
 export interface CandidateSnapshot {
   snapshotId: string;
@@ -39,15 +39,6 @@ export interface FeatureSnapshot {
     trId?: string;
     outputShape?: string;
   };
-}
-
-export interface UnifiedSourceSnapshot {
-  snapshotId: string;
-  asOf: string;
-  marketSession: MarketSession;
-  displaySession: DisplaySession;
-  candidates: CandidateSnapshot[];
-  featuresBySymbol: Record<string, FeatureSnapshot>;
 }
 
 export interface CommonGateResult {
@@ -98,12 +89,6 @@ export interface PolicyDiagnostics {
   legacyIgnoredReasons?: string[];
   legacyPolicyInputs?: string[];
   legacyPolicyIgnored: true;
-}
-
-export function createSnapshotId(now = new Date()): string {
-  const p = (n: number) => String(n).padStart(2, '0');
-  const base = `${now.getUTCFullYear()}${p(now.getUTCMonth() + 1)}${p(now.getUTCDate())}_${p(now.getUTCHours())}${p(now.getUTCMinutes())}${p(now.getUTCSeconds())}`;
-  return `scan_${base}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 export function evaluateCommonGate(input: { snapshotId: string; candidate: CandidateSnapshot; feature: FeatureSnapshot }): CommonGateResult {

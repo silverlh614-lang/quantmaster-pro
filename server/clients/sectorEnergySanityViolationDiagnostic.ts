@@ -101,7 +101,7 @@ export interface SectorEnergySanityViolation {
 /**
  * 단일 sector violation 집계 (topViolatingSectors 입력).
  */
-export interface SectorViolationSummary {
+interface SectorViolationSummary {
   sector: string;
   pct: number;
   bound: number;
@@ -111,7 +111,7 @@ export interface SectorViolationSummary {
 /**
  * 단일 stock violation 집계 (topViolatingStocks 입력).
  */
-export interface StockViolationSummary {
+interface StockViolationSummary {
   code: string;
   metric: 'stockVolume' | 'stockReturn';
   pct: number;

@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { KIS_SECTOR_INDEX_PROMOTION_HISTORY_FILE } from './paths.js';
 
-export type KisSectorIndexPromotionStage = 'OBSERVE' | 'SHADOW_SCORE' | 'ADVISORY' | 'WEIGHTED' | 'GATED' | 'CORE';
+type KisSectorIndexPromotionStage = 'OBSERVE' | 'SHADOW_SCORE' | 'ADVISORY' | 'WEIGHTED' | 'GATED' | 'CORE';
 
 export interface KisSectorIndexPromotionHistoryRecord {
   date: string;
@@ -41,7 +41,7 @@ function validRecord(row: unknown): row is KisSectorIndexPromotionHistoryRecord 
   return typeof r.date === 'string' && /^\d{8}$/.test(r.date) && typeof r.attempted === 'number';
 }
 
-export function loadKisSectorIndexPromotionHistory(): KisSectorIndexPromotionHistoryRecord[] {
+function loadKisSectorIndexPromotionHistory(): KisSectorIndexPromotionHistoryRecord[] {
   if (!fs.existsSync(KIS_SECTOR_INDEX_PROMOTION_HISTORY_FILE)) return [];
   try {
     const parsed = JSON.parse(fs.readFileSync(KIS_SECTOR_INDEX_PROMOTION_HISTORY_FILE, 'utf-8'));

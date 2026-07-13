@@ -20,9 +20,9 @@ import {
   type SupplySnapshotReplayResultAdr0491,
 } from './supplySnapshotStoreReplayAdr0491.js';
 
-export type OperatorActionPriority = 'P0' | 'P1' | 'P2' | 'P3';
-export type OperatorActionStatus = 'OPEN' | 'IN_PROGRESS' | 'OBSERVING' | 'RESOLVED' | 'BLOCKED';
-export type OperatorActionCategory =
+type OperatorActionPriority = 'P0' | 'P1' | 'P2' | 'P3';
+type OperatorActionStatus = 'OPEN' | 'IN_PROGRESS' | 'OBSERVING' | 'RESOLVED' | 'BLOCKED';
+type OperatorActionCategory =
   | 'SUPPLY_PROVIDER'
   | 'INVESTOR_FLOW'
   | 'SECTOR_ENERGY'
@@ -76,7 +76,7 @@ export interface OperatorActionSource {
   severity: 'INFO' | 'DEGRADED' | 'BLOCKED' | 'DATA_UNAVAILABLE' | 'ERROR';
 }
 
-export interface OperatorActionItem {
+interface OperatorActionItem {
   id: string;
   rootCause: OperatorActionRootCause;
   category: OperatorActionCategory;

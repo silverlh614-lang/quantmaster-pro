@@ -27,7 +27,7 @@ import { safePctChange } from '../utils/safePctChange';
 
 // ─── ECOS 통계표 코드 & 항목 코드 ───────────────────────────────────────────
 
-export const ECOS_STAT = {
+const ECOS_STAT = {
   /** 한국은행 기준금리 */
   BOK_RATE: { code: '722Y001', item1: '0101000' },
   /** 원/달러 환율 (매매기준율) */
@@ -162,7 +162,7 @@ async function fetchEcosData(params: EcosQueryParams): Promise<EcosRawRow[]> {
  * 한국은행 기준금리 조회
  * @param months 조회할 과거 개월 수 (기본 24개월)
  */
-export async function getBokRate(months = 24): Promise<EcosBokRate[]> {
+async function getBokRate(months = 24): Promise<EcosBokRate[]> {
   const cacheKey = `bokRate:${months}`;
   const cached = getCached<EcosBokRate[]>(cacheKey);
   if (cached) return cached;
@@ -206,7 +206,7 @@ export async function getBokRate(months = 24): Promise<EcosBokRate[]> {
  * 원/달러 환율 조회
  * @param months 조회할 과거 개월 수 (기본 6개월)
  */
-export async function getExchangeRate(months = 6): Promise<EcosExchangeRate[]> {
+async function getExchangeRate(months = 6): Promise<EcosExchangeRate[]> {
   const cacheKey = `usdKrw:${months}`;
   const cached = getCached<EcosExchangeRate[]>(cacheKey);
   if (cached) return cached;
@@ -253,7 +253,7 @@ export async function getExchangeRate(months = 6): Promise<EcosExchangeRate[]> {
  * M2 통화량(광의통화) 조회
  * @param months 조회할 과거 개월 수 (기본 24개월)
  */
-export async function getM2MoneySupply(months = 24): Promise<EcosM2Data[]> {
+async function getM2MoneySupply(months = 24): Promise<EcosM2Data[]> {
   const cacheKey = `m2:${months}`;
   const cached = getCached<EcosM2Data[]>(cacheKey);
   if (cached) return cached;
@@ -298,7 +298,7 @@ export async function getM2MoneySupply(months = 24): Promise<EcosM2Data[]> {
  * 실질 GDP 성장률 조회
  * @param years 조회할 과거 년수 (기본 5년)
  */
-export async function getGdpGrowth(years = 5): Promise<EcosGdpData[]> {
+async function getGdpGrowth(years = 5): Promise<EcosGdpData[]> {
   const cacheKey = `gdp:${years}`;
   const cached = getCached<EcosGdpData[]>(cacheKey);
   if (cached) return cached;
@@ -407,7 +407,7 @@ export async function getTradeData(months = 24): Promise<EcosTradeData[]> {
  * YoY 증가율 → MacroEnvironment.bankLendingGrowth 실데이터 소스
  * @param months 조회할 과거 개월 수 (기본 14개월 — YoY 계산에 13개월치 필요)
  */
-export async function getBankLendingGrowth(months = 14): Promise<EcosBankLending[]> {
+async function getBankLendingGrowth(months = 14): Promise<EcosBankLending[]> {
   const cacheKey = `bankLending:${months}`;
   const cached = getCached<EcosBankLending[]>(cacheKey);
   if (cached) return cached;
@@ -539,21 +539,3 @@ export function snapshotToMacroFields(snapshot: EcosMacroSnapshot): Partial<{
 }
 
 // ─── 캐시 관리 ──────────────────────────────────────────────────────────────
-
-/** ECOS 캐시 전체 초기화 */
-export function clearEcosCache(): void {
-  // 메모리 캐시 삭제
-  for (const key of memoryCache.keys()) {
-    if (key.startsWith(CACHE_PREFIX)) memoryCache.delete(key);
-  }
-
-  // localStorage 캐시 삭제
-  if (typeof window !== 'undefined') {
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k?.startsWith(CACHE_PREFIX)) keysToRemove.push(k);
-    }
-    keysToRemove.forEach(k => localStorage.removeItem(k));
-  }
-}

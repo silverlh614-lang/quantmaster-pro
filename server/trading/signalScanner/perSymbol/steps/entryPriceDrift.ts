@@ -35,7 +35,7 @@ export type DailyCandleFetcher = (
 const defaultDailyCandleFetcher: DailyCandleFetcher = (code, days) =>
   fetchKisDailyCandles(code, days, { rawPrices: true });
 
-export type CorporateActionDriftMode = 'IMMUTABLE_REMOVE' | 'AUTO_CORRECT';
+type CorporateActionDriftMode = 'IMMUTABLE_REMOVE' | 'AUTO_CORRECT';
 
 export interface CorporateActionDriftMessageInput {
   name: string;

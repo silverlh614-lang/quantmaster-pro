@@ -32,5 +32,3 @@ const remove: TelegramCommand = {
 };
 
 commandRegistry.register(remove);
-
-export default remove;

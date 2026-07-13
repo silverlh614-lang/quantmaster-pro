@@ -20,7 +20,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { resolveCanonicalRegimeLevel } from './regime/canonicalRegimeAccess.js';
 import { addBusinessDaysFromKstDate, formatKstYmd } from './krxHolidays.js';
 
-export interface TrancheSchedule {
+interface TrancheSchedule {
   id: string;
   parentTradeId: string;
   stockCode: string;
@@ -127,7 +127,7 @@ export function evaluateTrancheRevalidation(input: {
   return { ok: true, dropPct };
 }
 
-export class TrancheExecutor {
+class TrancheExecutor {
   /**
    * STRONG_BUY 1차 진입 직후 호출.
    * 2차(+3 영업일, 30%)·3차(+7 영업일, 20%) 스케줄 등록.

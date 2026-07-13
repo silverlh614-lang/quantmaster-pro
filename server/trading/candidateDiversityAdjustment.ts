@@ -21,14 +21,14 @@ export interface CandidateExposureHistory {
   sector?: string;
 }
 
-export interface SectorExposureState {
+interface SectorExposureState {
   sector: string;
   currentOpenPositions: number;
   candidateCountToday: number;
   grossExposurePct: number;
 }
 
-export interface DiversityAdjustment {
+interface DiversityAdjustment {
   freshnessPenalty: number;
   discoveryBonus: number;
   sectorDiversityAdjustment: number;
@@ -95,7 +95,7 @@ function kv(key: string, value: unknown): string {
   return `${key}=${value === undefined || value === null ? 'none' : String(value)}`;
 }
 
-export function calculateFreshnessPenalty(
+function calculateFreshnessPenalty(
   history: CandidateExposureHistory | null | undefined,
   asOf: string = new Date().toISOString(),
 ): number {
@@ -118,7 +118,7 @@ export function calculateFreshnessPenalty(
   return penalty;
 }
 
-export function calculateSectorDiversityAdjustment(
+function calculateSectorDiversityAdjustment(
   sectorExposure: SectorExposureState | null | undefined,
 ): number {
   if (!sectorExposure) return 0;
@@ -141,7 +141,7 @@ export function calculateSectorDiversityAdjustment(
   return adjustment;
 }
 
-export function calculateDiscoveryBonus(input: {
+function calculateDiscoveryBonus(input: {
   history?: CandidateExposureHistory | null;
   sectorExposure?: SectorExposureState | null;
   volumeExpansionConfirmed?: boolean;

@@ -124,5 +124,3 @@ const debugPositions: TelegramCommand = {
 for (const cmd of [ping, whoami, debugCommand, debugPositions]) {
   if (!commandRegistry.resolve(cmd.name)) commandRegistry.register(cmd);
 }
-
-export { ping, whoami, debugCommand, debugPositions };

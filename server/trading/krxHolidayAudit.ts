@@ -14,7 +14,7 @@ const MIN_NEXT_YEAR_HOLIDAYS = 8;
 
 const KST_OFFSET_MS = 9 * 3_600_000;
 
-export type KrxHolidayAuditReason =
+type KrxHolidayAuditReason =
   | 'NEXT_YEAR_REGISTERED'
   | 'NEXT_YEAR_INSUFFICIENT'
   | 'NEXT_YEAR_MISSING';

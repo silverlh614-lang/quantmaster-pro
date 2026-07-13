@@ -107,5 +107,3 @@ const revokeActivation: TelegramCommand = {
 };
 
 commandRegistry.register(revokeActivation);
-
-export default revokeActivation;

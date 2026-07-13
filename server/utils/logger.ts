@@ -1,5 +1,5 @@
 // @responsibility Runtime logger type definitions.
-export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'silent';
+type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'silent';
 export type LogVisibility = 'ALWAYS' | 'SUMMARY' | 'DIAGNOSTIC' | 'TRACE' | 'SILENT_BY_DEFAULT';
 export type LogVerbosity = 'summary' | 'diagnostic' | 'trace';
 export type TraceCategory =
@@ -56,11 +56,11 @@ function normalizeLogLevel(value: string | undefined): LogLevel {
   return 'info';
 }
 
-export function getCurrentLogLevel(): LogLevel {
+function getCurrentLogLevel(): LogLevel {
   return normalizeLogLevel(process.env.LOG_LEVEL);
 }
 
-export function getLogVerbosity(): LogVerbosity {
+function getLogVerbosity(): LogVerbosity {
   const raw = String(process.env.LOG_VERBOSITY ?? process.env.DEFAULT_COMMAND_VERBOSITY ?? 'summary').toLowerCase();
   if (raw === 'trace') return 'trace';
   if (raw === 'diagnostic' || raw === 'debug' || raw === 'verbose') return 'diagnostic';
@@ -109,7 +109,7 @@ export function createTraceId(prefix = 'trace', now: Date = new Date()): string 
   return `${prefix}_${stamp}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function recordTraceRecord(input: Omit<TraceRecord, 'createdAt' | 'expiresAt'> & { createdAt?: string; expiresAt?: string }): TraceRecord | null {
+function recordTraceRecord(input: Omit<TraceRecord, 'createdAt' | 'expiresAt'> & { createdAt?: string; expiresAt?: string }): TraceRecord | null {
   if (!envBool('TRACE_BUFFER_ENABLED', true)) return null;
   const now = new Date();
   pruneTraceBuffer(now.getTime());
@@ -123,7 +123,7 @@ export function recordTraceRecord(input: Omit<TraceRecord, 'createdAt' | 'expire
   return record;
 }
 
-export function getRecentTraceRecords(limit = 10): TraceRecord[] {
+function getRecentTraceRecords(limit = 10): TraceRecord[] {
   pruneTraceBuffer();
   return traceBuffer.slice(-Math.max(0, limit)).reverse();
 }
@@ -159,13 +159,13 @@ export function formatTraceRecord(record: TraceRecord | undefined): string {
   ].join('\n');
 }
 
-export function isLogLevelEnabled(level: Exclude<LogLevel, 'silent'>): boolean {
+function isLogLevelEnabled(level: Exclude<LogLevel, 'silent'>): boolean {
   const current = getCurrentLogLevel();
   if (current === 'silent') return false;
   return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[current];
 }
 
-export function shouldEmitByVisibility(
+function shouldEmitByVisibility(
   visibility: LogVisibility,
   options: { dedupKey?: string; nowMs?: number; executionImpact?: unknown } = {},
 ): boolean {
@@ -306,7 +306,7 @@ export function classifyOperationalSeverity(event: OperationalEvent): Operationa
   return 'info';
 }
 
-export function inferLogClass(tag: string, payload: Record<string, unknown>): string {
+function inferLogClass(tag: string, payload: Record<string, unknown>): string {
   if (tag.includes('SECTOR')) return 'RISK_OBSERVE';
   if (tag.includes('KIS')) return payload.providerIssue === true ? 'PROVIDER_ISOLATED' : 'PROVIDER';
   if (tag.includes('COUNTERFACTUAL')) return 'DIAGNOSTIC';
@@ -497,7 +497,7 @@ export interface NoiseSummaryInput extends Partial<NoiseCounters> {
   executionImpact?: 'NONE' | string;
 }
 
-export function isNoiseSummaryEnabled(): boolean {
+function isNoiseSummaryEnabled(): boolean {
   return process.env.NOISE_SUMMARY_ENABLED !== 'false';
 }
 
@@ -528,7 +528,7 @@ function getNoiseSummaryIntervalMs(): number {
   return minutes * 60_000;
 }
 
-export function shouldEmitNoiseSummary(nowMs = Date.now()): boolean {
+function shouldEmitNoiseSummary(nowMs = Date.now()): boolean {
   if (!isNoiseSummaryEnabled()) return false;
   if (lastNoiseSummaryEmittedAtMs === 0) return true;
   return nowMs - lastNoiseSummaryEmittedAtMs >= getNoiseSummaryIntervalMs();

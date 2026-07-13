@@ -15,17 +15,10 @@ import type { AlertPriority } from './telegramClient.js';
 export type AlertTier = 'T1_ALARM' | 'T2_REPORT' | 'T3_DIGEST';
 
 /** 티어별 대표 아이콘 — 메시지 선두에 배타적으로 배치된다. */
-export const TIER_ICON: Record<AlertTier, string> = {
+const TIER_ICON: Record<AlertTier, string> = {
   T1_ALARM:  '🚨',
   T2_REPORT: '📊',
   T3_DIGEST: '📋',
-};
-
-/** 티어별 배경 설명 — /help, 알림 감사 리포트에서 사용. */
-export const TIER_LABEL: Record<AlertTier, string> = {
-  T1_ALARM:  '즉각 행동 필요',
-  T2_REPORT: '정기 리포트',
-  T3_DIGEST: '다이제스트 요약',
 };
 
 /**
@@ -38,7 +31,7 @@ export const TIER_LABEL: Record<AlertTier, string> = {
  *
  * 특정 HIGH 경보가 실제로 T1 수준이면 호출부에서 `tier: 'T1_ALARM'`을 명시한다.
  */
-export function priorityToTier(priority?: AlertPriority): AlertTier {
+function priorityToTier(priority?: AlertPriority): AlertTier {
   switch (priority) {
     case 'CRITICAL': return 'T1_ALARM';
     case 'LOW':      return 'T3_DIGEST';

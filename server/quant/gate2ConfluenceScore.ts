@@ -7,16 +7,16 @@ import {
 import { isGate2FinancialRiskPenaltyEnabled } from '../trading/gateConfig.js';
 import { assessGate2FinancialRisk } from '../trading/gate2/gate2FinancialRiskPenaltyAdr0655.js';
 
-export type Gate2Axis =
+type Gate2Axis =
   | 'RS_RELATIVE_STRENGTH'
   | 'SUPPLY_CONFLUENCE'
   | 'SECTOR_LEADERSHIP'
   | 'TECHNICAL_TREND'
   | 'FUNDAMENTAL_QUALITY';
 
-export type Gate2AxisStatus = 'BULLISH' | 'ACCUMULATING' | 'NEUTRAL' | 'WEAK' | 'MISSING';
-export type Gate2AxisConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED';
-export type Gate2PromotionStage = 'OBSERVE' | 'SHADOW_SCORE' | 'ADVISORY' | 'WEIGHTED' | 'GATED' | 'CORE';
+type Gate2AxisStatus = 'BULLISH' | 'ACCUMULATING' | 'NEUTRAL' | 'WEAK' | 'MISSING';
+type Gate2AxisConfidence = 'VERIFIED' | 'DEGRADED' | 'STALE' | 'MISSING' | 'AI_ESTIMATED';
+type Gate2PromotionStage = 'OBSERVE' | 'SHADOW_SCORE' | 'ADVISORY' | 'WEIGHTED' | 'GATED' | 'CORE';
 export type Gate2Status =
   | 'GATE2_PASS_STRONG'
   | 'GATE2_PASS_WEAK'
@@ -24,18 +24,18 @@ export type Gate2Status =
   | 'GATE2_FAIL'
   | 'DATA_INCOMPLETE'
   | 'SKIPPED_BY_GATE1';
-export type Gate2EvaluationScope = 'FULL' | 'DIAGNOSTIC_ONLY';
-export type Gate2FinalStatus = Gate2Status | 'NOT_EVALUATED_DUE_TO_GATE1_FAIL';
+type Gate2EvaluationScope = 'FULL' | 'DIAGNOSTIC_ONLY';
+type Gate2FinalStatus = Gate2Status | 'NOT_EVALUATED_DUE_TO_GATE1_FAIL';
 
 export type Gate2ConfluenceLevel = 'STRONG' | 'MODERATE' | 'WEAK' | 'INCOMPLETE';
-export type Gate2ConfidenceCeiling = 'HIGH' | 'MEDIUM' | 'LOW';
+type Gate2ConfidenceCeiling = 'HIGH' | 'MEDIUM' | 'LOW';
 
 /**
  * ADR-0621 — KOSDAQ 종목이었다면 KOSDAQ 벤치마크로 RS status/score 가 어떻게 바뀌었을지
  * 항상 산출하는 dry-run stamp (flag 무관·관측 전용, ADR-0599 `wouldPass*Proportional` 동형).
  * `benchmarkKey`/`BenchmarkMarket` 은 benchmarkReturnNormalizer enum 재사용 (두 번째 enum 금지).
  */
-export interface Gate2RsKosdaqBenchmarkDryRun {
+interface Gate2RsKosdaqBenchmarkDryRun {
   benchmarkKey: BenchmarkKey;
   benchmarkReturn20d: number | null;
   stockReturn20d: number | null;
@@ -99,7 +99,7 @@ export interface Gate2EvaluationResult {
   counterfactualRecorded: boolean;
 }
 
-export interface Gate2CounterfactualSeed {
+interface Gate2CounterfactualSeed {
   symbol: string;
   sourceSnapshotId: string;
   gate2Status: Gate2Status;
@@ -769,9 +769,9 @@ function buildFundamentalAxis(external: AnyRecord | null, cacheProjection?: AnyR
  * Gate2 confluence 통과 경계(coverageAdjustedScore 0~100) — gate2 status 판정 SSOT.
  * counterfacture_gate Phase C(gateThresholdRecommendation)가 ROC 현재 임계로 본 상수를 read.
  */
-export const GATE2_PASS_STRONG_MIN_SCORE = 80;
+const GATE2_PASS_STRONG_MIN_SCORE = 80;
 export const GATE2_PASS_WEAK_MIN_SCORE = 65;
-export const GATE2_WATCH_MIN_SCORE = 50;
+const GATE2_WATCH_MIN_SCORE = 50;
 
 /** ADR-0599 — 결손 축이 STRONG/WEAK 의 절대 개수 조건(≥3)을 역설적으로 강화하는 갭 보정 스위치
  *  (정확 비교, default OFF byte-equivalent). 가용 5축이면 3/5(60%) 요구인데 결손으로 3축만
@@ -787,7 +787,7 @@ export function proportionalRequiredAxisCount(usableAxisCount: number): number {
 
 /** ADR-0600 — Supply/Sector 결손 축 보수 fallback 스위치 (default ON, `!== 'false'` — 진단/View
  *  차선 한정·BULLISH 민팅 금지 캡·1줄 롤백). false 명시 시 기존 missing 동작 100% 보존. */
-export function isGate2AxisCoverageFallbackEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+function isGate2AxisCoverageFallbackEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.GATE2_AXIS_COVERAGE_FALLBACK_ENABLED !== 'false';
 }
 
@@ -814,7 +814,7 @@ function traceReturn20dOf(trace: AnyRecord): number | null {
 
 /** ADR-0600 D2 — 스캔 내 동종군(섹터별 n>=3) return20d 중앙값. 공식 업종지수 결손 종목의
  *  SECTOR_LEADERSHIP 축 fallback 입력 (fetch 0 — 스캔 trace 만 사용). */
-export function buildGate2SectorPeerContext(traces: readonly Record<string, unknown>[]): Map<string, Gate2SectorPeerStat> {
+function buildGate2SectorPeerContext(traces: readonly Record<string, unknown>[]): Map<string, Gate2SectorPeerStat> {
   const bySector = new Map<string, number[]>();
   for (const trace of traces) {
     const sector = traceSectorOf(trace as AnyRecord);
@@ -975,7 +975,7 @@ export function buildGate2EvaluationResult(input: {
   };
 }
 
-export function buildGate2CounterfactualSeed(result: Gate2EvaluationResult): Gate2CounterfactualSeed {
+function buildGate2CounterfactualSeed(result: Gate2EvaluationResult): Gate2CounterfactualSeed {
   return {
     symbol: result.symbol,
     sourceSnapshotId: result.sourceSnapshotId,

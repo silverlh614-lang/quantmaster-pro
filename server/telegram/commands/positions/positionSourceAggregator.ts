@@ -16,7 +16,7 @@ import type {
 } from './positionSourceTypes.js';
 import { isPositionSourceFailure, isPositionSourceSuccess } from './positionSourceTypes.js';
 
-export type PositionSourceReader = () => Promise<PositionSourceResult> | PositionSourceResult;
+type PositionSourceReader = () => Promise<PositionSourceResult> | PositionSourceResult;
 
 export type PositionSourceReaderMap = Partial<Record<PositionSourceName, PositionSourceReader>>;
 

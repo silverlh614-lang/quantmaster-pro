@@ -78,19 +78,3 @@ export function evaluateYahooTimeseriesGuard(
     staleDays,
   };
 }
-
-export function noFreshExecutionProviderDecision(): {
-  decision: 'NO_SIGNAL';
-  engineMode: 'DEGRADED';
-  executionAllowed: false;
-  shadowAllowed: true;
-  reason: 'NO_FRESH_EXECUTION_PROVIDER';
-} {
-  return {
-    decision: 'NO_SIGNAL',
-    engineMode: 'DEGRADED',
-    executionAllowed: false,
-    shadowAllowed: true,
-    reason: 'NO_FRESH_EXECUTION_PROVIDER',
-  };
-}

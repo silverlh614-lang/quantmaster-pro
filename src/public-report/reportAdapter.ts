@@ -129,7 +129,7 @@ function extractAsOf(input: PublicReportAdapterInput, now: Date): string {
   return now.toISOString();
 }
 
-export const publicDecisionLabel = candidatePublicDecisionLabel;
+const publicDecisionLabel = candidatePublicDecisionLabel;
 
 function statusToScore(status?: string): number {
   const normalized = (status ?? '').toUpperCase();
@@ -816,5 +816,3 @@ export function summarizePublicReportSnapshots(snapshots: PublicReportSnapshot[]
     generatedAt: snapshot.generatedAt,
   }));
 }
-
-export { INVESTMENT_NOTICE };

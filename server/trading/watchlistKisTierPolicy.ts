@@ -25,7 +25,7 @@
  *   MOMENTUM_ACTIVE  — MOMENTUM 상위 N개. 90s TTL, REST 허용.
  *   MOMENTUM_PASSIVE — MOMENTUM 하위 / no-rank. 180s TTL, REST 차단 (WS/cache 만).
  */
-export type WatchlistKisTier =
+type WatchlistKisTier =
   | 'OPEN_POSITION'
   | 'ENTRY_CANDIDATE'
   | 'CATALYST_ACTIVE'
@@ -36,7 +36,7 @@ export type WatchlistKisTier =
 export type KisLoadState = 'GREEN' | 'YELLOW' | 'RED';
 
 /** 워치리스트 섹션 (watchlistRepo.WatchlistSection 과 동일 값 — import 회피용 재선언). */
-export type WatchlistKisSection = 'SWING' | 'CATALYST' | 'MOMENTUM';
+type WatchlistKisSection = 'SWING' | 'CATALYST' | 'MOMENTUM';
 
 export interface WatchlistKisPolicyInput {
   /** watchlistManager.assignSection 결과 — 미상 시 보수 fallback (ENTRY_CANDIDATE). */

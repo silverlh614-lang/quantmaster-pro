@@ -26,5 +26,3 @@ const learningHistory: TelegramCommand = {
 };
 
 commandRegistry.register(learningHistory);
-
-export default learningHistory;

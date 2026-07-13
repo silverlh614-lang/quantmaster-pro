@@ -12,7 +12,7 @@
 
 import { toKstDateKey, isKrxTradingDay, previousKrxTradingDay } from './krxTradingCalendar.js';
 
-export type TradingDateMode = 'TRADING_DAY' | 'HOLIDAY' | 'WEEKEND';
+type TradingDateMode = 'TRADING_DAY' | 'HOLIDAY' | 'WEEKEND';
 
 export interface TradingContext {
   /** 컨텍스트 산출 기준 시각 (ISO). 모든 파생 날짜는 이 시각에서만 도출된다. */

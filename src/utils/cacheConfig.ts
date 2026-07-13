@@ -14,7 +14,7 @@
 const HOUR = 60 * 60 * 1000;
 
 // ── Tiered TTL (장중 기준) ──────────────────────────────────────
-export const CacheTTL = {
+const CacheTTL = {
   QUARTERLY: 24 * HOUR,
   WEEKLY:    12 * HOUR,
   DAILY:      6 * HOUR,
@@ -40,7 +40,7 @@ function getTierTTL(queryKey: string): number {
 }
 
 // ── KRX 장 시간 판별 ────────────────────────────────────────────
-export function isKRXOpen(): boolean {
+function isKRXOpen(): boolean {
   const now = new Date();
   const kst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
   const h = kst.getHours();

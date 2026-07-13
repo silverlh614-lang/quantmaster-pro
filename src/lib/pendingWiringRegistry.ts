@@ -29,7 +29,7 @@ export function loadPendingWiringItems(): PendingWiringItem[] {
   return parsePendingWiringMarkdown(pendingWiringMarkdown);
 }
 
-export function parsePendingWiringMarkdown(markdown: string): PendingWiringItem[] {
+function parsePendingWiringMarkdown(markdown: string): PendingWiringItem[] {
   const items: PendingWiringItem[] = [];
   for (const line of markdown.split('\n')) {
     const item = parsePendingTableRow(line);

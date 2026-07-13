@@ -34,7 +34,7 @@ import type { SectorEnergyQualityDiagnostic } from '../../clients/sectorEnergyQu
  *   HARD_BLOCK > MACRO_LIVE_BLOCK/SELL_ONLY > TRUE_WEAKNESS > SOFT_DEGRADE > WATCH_ONLY >
  *   SHADOW_ENTRY_ALLOWED > REDUCED_ENTRY_CANDIDATE > FULL_ENTRY_CANDIDATE
  */
-export type GateDecisionSeverity =
+type GateDecisionSeverity =
   | 'HARD_BLOCK'
   | 'MACRO_LIVE_BLOCK'
   | 'SELL_ONLY'
@@ -46,7 +46,7 @@ export type GateDecisionSeverity =
   | 'FULL_ENTRY_CANDIDATE';
 
 /** 17-value reason union (사용자 명시, 절대 변경 금지). */
-export type GateDecisionReason =
+type GateDecisionReason =
   | 'EMERGENCY_STOP'
   | 'SELL_ONLY'
   | 'R4_NEUTRAL'
@@ -69,7 +69,7 @@ export type GateDecisionReason =
   | 'UNKNOWN';
 
 /** 8-value label (사용자 명시 §F 출력 정합). */
-export type GateDecisionLabel =
+type GateDecisionLabel =
   | 'BLOCK_RISK'
   | 'BLOCK_TRUE_WEAKNESS'
   | 'SOFT_DEGRADE_DATA'
@@ -79,7 +79,7 @@ export type GateDecisionLabel =
   | 'FULL_CANDIDATE'
   | 'UNKNOWN';
 
-export interface GateDecisionLanes {
+interface GateDecisionLanes {
   live: boolean;
   paper: boolean;
   shadow: boolean;

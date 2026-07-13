@@ -39,7 +39,7 @@ export interface GateThresholdReadinessAlertResult {
 }
 
 /** ENV COUNTERFACTURE_GATE_READINESS_ALERT_DISABLED=true → 끔(default ON, 사용자 요청 기능). */
-export function isGateThresholdReadinessAlertDisabled(): boolean {
+function isGateThresholdReadinessAlertDisabled(): boolean {
   return process.env.COUNTERFACTURE_GATE_READINESS_ALERT_DISABLED === 'true';
 }
 

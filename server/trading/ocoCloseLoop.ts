@@ -39,7 +39,7 @@ import { emitFullCloseAttributionForExit } from './exitEngine/helpers/attributio
  * OCO 복구 진행 상태 — ocoRecoveryAgent 가 채운다.
  * 등록 직후엔 undefined. FAILED 사이드 발견 시 처음으로 채워진다.
  */
-export interface OcoRecoveryState {
+interface OcoRecoveryState {
   /** 시도 횟수 (0..3). 3 도달 후에도 실패하면 fallback 발동. */
   attempts: number;
   /** 마지막 시도 시각 (ISO) — 다음 backoff 계산 기준. */

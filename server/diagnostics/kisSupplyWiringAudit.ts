@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { findKisOfficialEndpointByPath } from '../clients/kisClient/kisOfficialEndpointRegistry';
 
-export interface KisSupplyWiringAuditItem {
+interface KisSupplyWiringAuditItem {
   path: string;
   trId?: string;
   registryKey?: string;

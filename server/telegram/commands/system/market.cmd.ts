@@ -17,5 +17,3 @@ const market: TelegramCommand = {
 };
 
 commandRegistry.register(market);
-
-export default market;

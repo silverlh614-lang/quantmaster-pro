@@ -46,7 +46,7 @@ export type SellReissueDecision =
       reason: string;
     };
 
-export interface SellReissueReservation {
+interface SellReissueReservation {
   dedupKey: string;
   identity: SellReissueIdentity;
   reservedAt: string;

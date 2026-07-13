@@ -4,7 +4,7 @@ import type { RegimeLevel } from "../../src/types/core.js";
 import type { VkospiTrustState } from "../../src/types/gate0Regime.js";
 import { ensureDataDir, REGIME_TRANSITION_STATE_FILE } from "./paths.js";
 
-export type R6RecoveryStatus =
+type R6RecoveryStatus =
   | "NONE"
   | "IN_R6"
   | "R6_PANIC"
@@ -66,7 +66,7 @@ export interface R6TriggerBreakdown {
   intradayReturnUsed?: boolean;
 }
 
-export type RegimeTransitionDirection =
+type RegimeTransitionDirection =
   | "NONE"
   | "UPGRADE"
   | "DOWNGRADE"
@@ -308,10 +308,4 @@ export function saveRegimeTransitionState(state: RegimeTransitionState): void {
     REGIME_TRANSITION_STATE_FILE,
     JSON.stringify(state, null, 2),
   );
-}
-
-export function resetRegimeTransitionStateForTests(
-  state: RegimeTransitionState = defaultRegimeTransitionState(),
-): void {
-  saveRegimeTransitionState(state);
 }

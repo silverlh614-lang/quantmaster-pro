@@ -56,8 +56,6 @@ export const QuantScreenerReason = {
   PendingRelativeStrength: 'PENDING_RELATIVE_STRENGTH_NOT_AVAILABLE',
 } as const;
 
-export type QuantScreenerReasonCode = typeof QuantScreenerReason[keyof typeof QuantScreenerReason];
-
 export interface ScreenerDataPoint<T> {
   value: T | null | undefined;
   confidence: DataConfidence;

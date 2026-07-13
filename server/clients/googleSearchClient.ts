@@ -18,7 +18,7 @@ export const KOREAN_FINANCE_WHITELIST = [
   'infostock.co.kr',
 ];
 
-export interface GoogleSearchItem {
+interface GoogleSearchItem {
   title: string;
   link: string;
   snippet: string;

@@ -2,8 +2,8 @@
 
 import type { ServerShadowTrade } from '../../persistence/shadowTradeRepo.js';
 
-export type ShadowBuyRegistrySide = 'BUY';
-export type ShadowBuyRegistryMode = 'SHADOW';
+type ShadowBuyRegistrySide = 'BUY';
+type ShadowBuyRegistryMode = 'SHADOW';
 export type ShadowBuyLifecycleStatus =
   | 'SIGNAL_APPROVED'
   | 'ORDER_PENDING'
@@ -15,7 +15,7 @@ export type ShadowBuyLifecycleStatus =
   | 'EXPIRED'
   | 'SETTLED';
 
-export interface ShadowBuyLifecycleRegistration {
+interface ShadowBuyLifecycleRegistration {
   key: string;
   symbol: string;
   strategy: string;
@@ -27,7 +27,7 @@ export interface ShadowBuyLifecycleRegistration {
   registeredAt: string;
 }
 
-export interface ShadowDuplicateBuyBlocked {
+interface ShadowDuplicateBuyBlocked {
   ok: false;
   reason: 'SHADOW_DUPLICATE_BUY_BLOCKED';
   key: string;
@@ -37,7 +37,7 @@ export interface ShadowDuplicateBuyBlocked {
   logTags: string[];
 }
 
-export interface ShadowDuplicateBuyRegistered {
+interface ShadowDuplicateBuyRegistered {
   ok: true;
   registration: ShadowBuyLifecycleRegistration;
   logTags: string[];
@@ -75,7 +75,7 @@ function tradeDateFromTrade(trade: ServerShadowTrade, now: Date): string {
   return kstTradeDate(now);
 }
 
-export function mapShadowTradeToBuyLifecycleStatus(
+function mapShadowTradeToBuyLifecycleStatus(
   status: ServerShadowTrade['status'],
 ): ShadowBuyLifecycleStatus {
   if (status === 'PENDING') return 'SIGNAL_APPROVED';
@@ -87,11 +87,11 @@ export function mapShadowTradeToBuyLifecycleStatus(
   return 'REJECTED';
 }
 
-export function isActiveShadowBuyLifecycleStatus(status: ShadowBuyLifecycleStatus): boolean {
+function isActiveShadowBuyLifecycleStatus(status: ShadowBuyLifecycleStatus): boolean {
   return ACTIVE_STATUSES.has(status);
 }
 
-export function buildShadowBuyLifecycleKey(input: {
+function buildShadowBuyLifecycleKey(input: {
   symbol: string;
   strategy?: string;
   tradeDate: string;

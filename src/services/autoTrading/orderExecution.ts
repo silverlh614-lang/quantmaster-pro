@@ -82,7 +82,7 @@ export async function placeKISOrder(
  * KIS VTS는 네이티브 OCO 미지원 → 지정가 매도 2건으로 구현.
  * 먼저 체결되는 쪽이 이기면, 남은 주문은 수동 취소 필요 (향후 웹소켓 모니터링으로 자동화 가능).
  */
-export async function registerOCOAfterFill(trade: FilledOrder): Promise<{
+async function registerOCOAfterFill(trade: FilledOrder): Promise<{
   stopLossOrder: Record<string, unknown>;
   targetOrder: Record<string, unknown>;
 }> {
@@ -188,7 +188,7 @@ async function cancelOrder(orderId: string, stockCode: string, originalQty: stri
  * 3. 완전 체결 → 'FILLED' + OCO 자동 등록
  * 4. 타임아웃 → 잔량 취소 → 'TIMEOUT'
  */
-export async function placeAndConfirmOrder(
+async function placeAndConfirmOrder(
   params: KISOrderParams,
   stockName: string,
   rrr: number,
