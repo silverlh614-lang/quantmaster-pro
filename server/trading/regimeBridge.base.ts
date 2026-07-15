@@ -34,6 +34,12 @@ import {
   type NotifiedRegimeDeparture,
 } from './regime/regimeTransitionNotice.js';
 import { isMarketOpen } from '../utils/marketClock.js';
+import {
+  applyRegimeHysteresis,
+  isRegimeHysteresisEnabled,
+  regimeHysteresisMinDwellMs,
+  regimeHysteresisMinConfirmations,
+} from './regime/regimeHysteresis.js';
 import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import {
   emptyR6RecoveryEvidence,
@@ -990,9 +996,70 @@ export function getRawRegime(macroState: MacroState | null, now: Date = new Date
   return macroState ? classifyRegime(buildRegimeVars(macroState, now)) : 'R4_NEUTRAL';
 }
 
+/** ADR-0664 — 보류 pending 상태 클리어(변경 없음/채택 시). 이미 비어있으면 동일 참조 반환. */
+function clearRegimeHysteresisPending(state: RegimeTransitionState): RegimeTransitionState {
+  if (state.pendingEffectiveRegime === undefined && (state.pendingEffectiveCount ?? 0) === 0) return state;
+  return { ...state, pendingEffectiveRegime: undefined, pendingEffectiveSince: undefined, pendingEffectiveCount: 0 };
+}
+
+/**
+ * ADR-0664 — effectiveRegime 히스테리시스(디바운스) 적용.
+ * 정상 경로(R6 외) 전환만 디바운스: 새 레짐이 dwell 확정 전이면 confirmed 유지(hold).
+ * R6 진입/이탈·R6 복구 flow(r6RecoveryStatus≠NONE) 는 즉시 통과(자체 머신이 관리·안전).
+ * flag OFF → computedState 그대로(byte-identical).
+ */
+function applyRegimeHysteresisToState(
+  previousState: RegimeTransitionState,
+  computedState: RegimeTransitionState,
+  now: Date,
+): RegimeTransitionState {
+  if (!isRegimeHysteresisEnabled()) return computedState;
+
+  const confirmed = previousState.effectiveRegime;
+  const computed = computedState.effectiveRegime;
+  // R6 즉시 예외 — 디바운스 미적용(블랙스완/복구는 지연 금지).
+  if (computedState.r6RecoveryStatus !== 'NONE') return clearRegimeHysteresisPending(computedState);
+  if (computed === 'R6_DEFENSE' || confirmed === 'R6_DEFENSE') return clearRegimeHysteresisPending(computedState);
+  if (computed === confirmed) return clearRegimeHysteresisPending(computedState);
+
+  const result = applyRegimeHysteresis({
+    computedEffective: computed,
+    confirmedEffective: confirmed,
+    pendingRegime: previousState.pendingEffectiveRegime,
+    pendingSince: previousState.pendingEffectiveSince,
+    pendingCount: previousState.pendingEffectiveCount,
+    nowMs: now.getTime(),
+    minDwellMs: regimeHysteresisMinDwellMs(),
+    minConfirmations: regimeHysteresisMinConfirmations(),
+  });
+
+  if (!result.held) {
+    // 채택 — pending 클리어, computedState(effective=computed) 그대로.
+    return clearRegimeHysteresisPending(computedState);
+  }
+
+  // 보류 — effective 를 confirmed 로 되돌리고 pending 기록(전환 미발생).
+  const r6StateMachineState: R6StateMachineState = confirmed === 'R5_CAUTION' ? 'R4_CAUTION' : 'R3_NORMAL';
+  return {
+    ...computedState,
+    previousRegime: previousState.previousRegime,
+    currentRegime: confirmed,
+    effectiveRegime: confirmed,
+    transitionDirection: 'NONE',
+    transitionReason: `REGIME_HYSTERESIS_HOLD:${computed}`,
+    lastTransitionAt: previousState.lastTransitionAt,
+    r6StateMachineState,
+    pendingEffectiveRegime: result.pendingRegime,
+    pendingEffectiveSince: result.pendingSince,
+    pendingEffectiveCount: result.pendingCount,
+  };
+}
+
 export function getRegimeDiagnostics(macroState: MacroState | null, now: Date = new Date()): RegimeDiagnostics {
   const rawRegime = getRawRegime(macroState, now);
-  const transitionState = evaluateR6RecoveryTransition(loadRegimeTransitionState(), macroState, rawRegime, now);
+  const previousState = loadRegimeTransitionState();
+  const computedState = evaluateR6RecoveryTransition(previousState, macroState, rawRegime, now);
+  const transitionState = applyRegimeHysteresisToState(previousState, computedState, now);
   saveRegimeTransitionState(transitionState);
   return {
     rawRegime,
