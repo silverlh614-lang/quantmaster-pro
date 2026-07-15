@@ -11,7 +11,7 @@ vi.mock('../persistence/tradingSettingsRepo.js', async (importActual) => ({
 import { getRegimeDiagnostics, getRawRegime } from './regimeBridge.js';
 import {
   defaultRegimeTransitionState,
-  resetRegimeTransitionStateForTests,
+  saveRegimeTransitionState,
 } from '../persistence/regimeTransitionStateRepo.js';
 
 const NOW = new Date('2026-06-19T02:00:00.000Z'); // 11:00 KST
@@ -24,7 +24,8 @@ beforeEach(() => {
   process.env.REGIME_RISK_ON_FAST_UPGRADE_ENABLED = 'true';
   process.env.R6_KOSPI_INTRADAY_QUOTE_TTL_SEC = '3600';
   // confirmed = R4_NEUTRAL 로 초기화.
-  resetRegimeTransitionStateForTests(defaultRegimeTransitionState(NOW_ISO));
+  // 구 resetRegimeTransitionStateForTests(alias)는 main export sweep(d1eed58)에서 제거 — save 직접 사용.
+  saveRegimeTransitionState(defaultRegimeTransitionState(NOW_ISO));
 });
 
 afterEach(() => {
@@ -33,7 +34,7 @@ afterEach(() => {
   delete process.env.REGIME_HYSTERESIS_ENABLED;
   delete process.env.REGIME_HYSTERESIS_MIN_DWELL_MIN;
   delete process.env.REGIME_HYSTERESIS_MIN_CONFIRMATIONS;
-  resetRegimeTransitionStateForTests(defaultRegimeTransitionState());
+  saveRegimeTransitionState(defaultRegimeTransitionState());
   settingsMock.loadTradingSettings.mockReset();
 });
 

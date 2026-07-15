@@ -6,15 +6,15 @@
 - **Date**: 2026-06-19
 - **Domain**: regime layer (`server/trading/regime/regimeHysteresis.ts` 신규 순수 SSOT · `regimeBridge.base.ts:getRegimeDiagnostics` wiring · `regimeTransitionStateRepo.ts` 영속 pending)
 - **Execution adjacency**: ⚠️ **execution-adjacent** — effectiveRegime 은 라이브 Kelly·maxPositions·노출 예산에 영향. 따라서 flag default OFF(opt-in), ON 시 LIVE 동작 변경(thrash 감소 방향).
-- **계보**: 0640 / 0593 / 0630 / 0531 / 0157 / 0530
+- **계보**: 0663 / 0593 / 0630 / 0531 / 0157 / 0530
 
 ---
 
 ## 0. 운영자 보고 (수용)
 
-> "레짐이 너무 왔다갔다함." (ADR-0640 알림 수정 후속 — 알림이 아니라 **레짐 값 자체**의 진동 지적.)
+> "레짐이 너무 왔다갔다함." (ADR-0663 알림 수정 후속 — 알림이 아니라 **레짐 값 자체**의 진동 지적.)
 
-ADR-0640 은 **알림 계층**(전환 알림 진동 억제·장외 게이트)을 고쳤다. 그러나 `effectiveRegime` **값 자체**가
+ADR-0663 은 **알림 계층**(전환 알림 진동 억제·장외 게이트)을 고쳤다. 그러나 `effectiveRegime` **값 자체**가
 3분 TTL refresh 마다 R3↔R4 로 재계산되어 토글되는 근본은 남아 있었다(장중이면 Kelly/한도가 실제로 떨림).
 
 ## 1. Context — 값 flapping 메커니즘
@@ -69,7 +69,7 @@ ENV(전부 SSOT co-locate): `REGIME_HYSTERESIS_ENABLED`(default OFF·`=== 'true'
 
 ## 5. Alternatives (기각)
 
-- **알림 계층만(ADR-0640)으로 종결** 기각 — 값 자체가 떨려 장중 사이징 thrash 잔존(운영자가 값 진동 명시 지적).
+- **알림 계층만(ADR-0663)으로 종결** 기각 — 값 자체가 떨려 장중 사이징 thrash 잔존(운영자가 값 진동 명시 지적).
 - **rawRegime/classifyRegime 에 히스테리시스** 기각 — raw 는 정본 시장분류(검증·shadow 정합 기준), 디바운스는 effective(소비) 측이 정당.
 - **fast-upgrade freshness 만 latch** 기각 — flapping 원인이 fast-upgrade 단일이라는 보장 없음(forced-upgrade/earlySignals jitter 도 동형). effective 디바운스가 모든 입력 jitter 를 일괄 흡수.
 - **default ON** 기각 — execution-adjacent(라이브 사이징). ADR-0157 opt-in + 운영자 활성화.
