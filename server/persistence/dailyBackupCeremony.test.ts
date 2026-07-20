@@ -65,4 +65,43 @@ describe('dailyBackupCeremony — 일일 전체 스냅샷', () => {
     expect(r.copied.some(n => n.includes('snapshots'))).toBe(false);
     expect(r.skipped.some(n => n.includes('snapshots'))).toBe(false);
   });
+
+  it('고가치 서브디렉토리(reflections·attribution/evidence-ledger)의 *.json 도 스냅샷', async () => {
+    // reflections/2026-07-19.json
+    fs.mkdirSync(path.join(tmpDir, 'reflections'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'reflections', '2026-07-19.json'), JSON.stringify({ wr: 0.6 }));
+    // attribution/evidence-ledger/202607.json (2-depth)
+    fs.mkdirSync(path.join(tmpDir, 'attribution', 'evidence-ledger'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'attribution', 'evidence-ledger', '202607.json'), JSON.stringify([{ id: 'a' }]));
+
+    const { runBackupCeremony } = await import('./dailyBackupCeremony.js');
+    const r = runBackupCeremony(7);
+
+    const relRefl = path.join('reflections', '2026-07-19.json');
+    const relEvid = path.join('attribution', 'evidence-ledger', '202607.json');
+    expect(r.copied).toContain(relRefl);
+    expect(r.copied).toContain(relEvid);
+    // 원본 상대구조가 스냅샷 디렉토리에 그대로 복원돼야 함
+    expect(fs.existsSync(path.join(r.snapshotDir, relRefl))).toBe(true);
+    expect(fs.existsSync(path.join(r.snapshotDir, relEvid))).toBe(true);
+  });
+
+  it('서브디렉토리의 빈 파일/비-json 은 스냅샷 제외 (flat 계약과 동일 규칙)', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'reflections'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'reflections', 'empty.json'), '');
+    fs.writeFileSync(path.join(tmpDir, 'reflections', 'note.txt'), 'skip');
+
+    const { runBackupCeremony } = await import('./dailyBackupCeremony.js');
+    const r = runBackupCeremony(7);
+    expect(r.copied).not.toContain(path.join('reflections', 'empty.json'));
+    expect(r.skipped).toContain(path.join('reflections', 'empty.json'));
+    expect(r.skipped).toContain(path.join('reflections', 'note.txt'));
+  });
+
+  it('서브디렉토리 부재 시 no-op (flat *.json 스냅샷 기존 동작 무회귀)', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'macro-state.json'), JSON.stringify({ regime: 'R2_BULL' }));
+    const { runBackupCeremony } = await import('./dailyBackupCeremony.js');
+    const r = runBackupCeremony(7);
+    expect(r.copied).toEqual(['macro-state.json']);
+  });
 });
