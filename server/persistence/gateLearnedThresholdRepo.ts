@@ -74,8 +74,8 @@ export function getGateLearnedThreshold(
   return null;
 }
 
-/** operator 승인 기록(append). *자동 호출 금지* — operator 명시 액션 전용. */
-function approveGateLearnedThreshold(
+/** operator 승인 기록(append). *자동 호출 금지* — operator 명시 액션 전용(Phase L seam). */
+export function approveGateLearnedThreshold(
   entry: GateLearnedThresholdEntry,
   filePath = GATE_LEARNED_THRESHOLD_FILE,
 ): GateLearnedThresholdEntry {
@@ -83,4 +83,11 @@ function approveGateLearnedThreshold(
   file.entries.push(entry);
   writeFile(file, filePath);
   return entry;
+}
+
+/** 전체 승인분(append 순) 반환 — status 표시 전용(read-only). */
+export function listGateLearnedThresholds(
+  filePath = GATE_LEARNED_THRESHOLD_FILE,
+): GateLearnedThresholdEntry[] {
+  return readFile(filePath).entries;
 }
