@@ -39,6 +39,7 @@ import { getMonthlyStats } from '../learning/recommendationTracker.js';
 import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { computeSafetyGateAttribution } from '../learning/safetyGateAttribution.js';
+import { computeSafetyGatePolicyFeedback } from '../learning/safetyGatePolicyFeedback.js';
 import { computeShadowVsLiveDelta } from '../learning/shadowVsLiveDelta.js';
 // ADR-0179 — Phase 4-B-2-a MissedLearningQueue stats endpoint
 import { loadMissedLearningQueue } from '../persistence/missedLearningQueueRepo.js';
@@ -480,6 +481,24 @@ router.get('/safety-gate-attribution', (req: Request, res: Response) => {
   } catch (e) {
     console.error('[learningRouter] /safety-gate-attribution 실패:', e);
     res.status(500).json({ error: 'safety_gate_attribution_failed' });
+  }
+});
+
+/**
+ * SafetyGate policy feedback — 사후효과(netGateImpact) → 사이징 배수 권고 read-only 노출.
+ *
+ * **관측 전용** — 사이징 적용 소비자 0건(PENDING_WIRING A16). `envEnabled=false` 면
+ * multiplier 는 preview(켰다면 산출될 값)이며 실제 사이징에 반영되지 않는다.
+ * ENV OFF 에서도 preview 를 보여야 운영자가 활성화 여부를 판단할 수 있어 ignoreEnvGate 사용
+ * (`/safety-gate-attribution` 의 options.ignoreEnvGate 동일 관용구).
+ */
+router.get('/safety-gate-policy-feedback', (_req: Request, res: Response) => {
+  try {
+    const feedback = computeSafetyGatePolicyFeedback(new Date(), undefined, { ignoreEnvGate: true });
+    res.json({ ...feedback, appliedToSizing: false, executionImpact: 'NONE' });
+  } catch (e) {
+    console.error('[learningRouter] /safety-gate-policy-feedback 실패:', e);
+    res.status(500).json({ error: 'safety_gate_policy_feedback_failed' });
   }
 });
 

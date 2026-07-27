@@ -31,6 +31,28 @@ describe('computeSafetyGatePolicyFeedback', () => {
     ]);
     expect(result.active).toBe(false);
     expect(result.multiplier).toBe(1);
+    expect(result.envEnabled).toBe(false);
+  });
+
+  it('ENV OFF + ignoreEnvGate -> preview 산출(envEnabled=false 정직 표기)', () => {
+    const result = computeSafetyGatePolicyFeedback(
+      new Date('2026-05-03T00:00:00Z'),
+      [gate({ gate: 'VIX', netGateImpact: 0.08, sampleSize: 5 })],
+      { ignoreEnvGate: true },
+    );
+    // 켰다면 산출될 값이 보여야 관측 표면이 의미를 갖는다.
+    expect(result.multiplier).toBeCloseTo(0.95, 6);
+    expect(result.active).toBe(true);
+    // 실제 ENV 는 여전히 OFF — preview 임을 소비자가 구분할 수 있어야 한다.
+    expect(result.envEnabled).toBe(false);
+  });
+
+  it('ENV ON -> envEnabled=true', () => {
+    process.env[ENV_KEY] = 'true';
+    const result = computeSafetyGatePolicyFeedback(new Date('2026-05-03T00:00:00Z'), [
+      gate({ gate: 'VIX', netGateImpact: 0.08, sampleSize: 5 }),
+    ]);
+    expect(result.envEnabled).toBe(true);
   });
 
   it('sample 부족 -> neutral', () => {
