@@ -282,8 +282,8 @@ export function registerLearningJobs(): void {
 
   // Shadow vs Live Delta — 평일 KST 16:45 (UTC 07:45). safety_gate_attribution(16:40) 직후.
   // ADR-0174 §2.2 (PENDING_WIRING A13 wiring): 5 카테고리 missedAlpha 일일 진단 로그 —
-  //   read-only 분석 SSOT 의 단일 cron 호출자. LIVE_BUY_SHADOW_BETTER_SIZE 비교 알고리즘은
-  //   Phase 3 잔여 (본 wiring 무접촉 — cron 등록만).
+  //   read-only 분석 SSOT 의 단일 cron 호출자. LIVE_BUY_SHADOW_BETTER_SIZE 사이징 델타
+  //   (basePct 미감쇠 vs finalPositionPct 실적용)는 Phase 3 완성 — 본 cron 은 결과 로그만.
   // executionImpact=NONE — LIVE 주문/SourceSnapshot/Gate 판정 본체 변경 0.
   // ENV `SHADOW_LIVE_DELTA_REPORT_ENABLED=true` default OFF — 운영자 명시 활성화 의무 (첫 분기).
   // ScheduleClass='TRADING_DAY_ONLY' — stateless 재계산이라 enqueueOnSkip 비전달 (의도).

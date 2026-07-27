@@ -1,25 +1,25 @@
-// @responsibility ADR-0174 §2.2 ShadowVsLiveDelta — 5 카테고리 missedAlpha 분석 SSOT (Phase 2a 호출자 0건 dead code)
+// @responsibility ADR-0174 §2.2 ShadowVsLiveDelta — 5 카테고리 missedAlpha 분석 SSOT (관측 전용 ENV OFF·사이징 델타 Phase 3 완성)
 /**
  * shadowVsLiveDelta.ts (ADR-0174 §2.2) — Phase 2a 영속 분석 SSOT.
  *
  * Phase 1 영속 (ShadowLearningOnlySignal) + LIVE 영속 (ServerShadowTrade) 비교 →
  * 5 카테고리 missedAlpha 측정 — *Shadow 가 샀더라면 vs 실제 LIVE 결과* 의 차이.
  *
- * Phase 2a dead code:
- *   - 호출자 0건 (Phase 4 Dashboard / Phase 2b cron read 호출 예정)
+ * wiring(관측 전용):
+ *   - 호출자 = learningJobs cron / nightlyReflectionEngine / missedLearningReplayDispatcher /
+ *     learningRouter — 전부 read-only 리포트·학습 귀인 (LIVE 판정 미반영, ENV OFF 시 빈 배열)
  *   - signalScanner / entryEngine / exitEngine 본체 무수정
  *   - LIVE 매매 본체 0줄 변경
  *
- * 안전 invariant 5종 (ADR-0174 §3):
+ * 안전 invariant 4종 (ADR-0174 §3):
  *   1. LIVE 매매 본체 0줄 변경
  *   2. KIS 주문 함수 import 0건 (정적 grep 가드)
  *   3. 외부 의존성 0 (fs/외부 API/zustand store 미사용 — 순수 함수)
- *   4. ENV `SHADOW_LIVE_DELTA_REPORT_ENABLED` default OFF (`=== 'true'` 정확 비교)
- *   5. 호출자 0건 Phase 2a dead code (정적 grep 가드)
+ *   4. ENV `SHADOW_LIVE_DELTA_REPORT_ENABLED` default OFF (`=== 'true'` 정확 비교) → 소비자 미반영
  *
  * 5 카테고리 분류 SSOT (ADR-0174 §2.2):
  *   - SHADOW_BUY_LIVE_BLOCKED       — Shadow 샀는데 Live 못 산 (signal.wouldHaveBought=true AND LIVE trade 부재)
- *   - LIVE_BUY_SHADOW_BETTER_SIZE   — Live 샀는데 Shadow 더 좋은 사이징 (Phase 1 plumbing only)
+ *   - LIVE_BUY_SHADOW_BETTER_SIZE   — Live 샀는데 Shadow 더 좋은 사이징 (basePct 미감쇠 vs finalPositionPct 실적용 델타)
  *   - EXPOSURE_CAP_REDUCED          — Exposure cap 으로 줄어든 (cappedByBudget=true 옵셔널)
  *   - MACRO_GATE_BLOCKED            — Macro gate 막힌 (FOMC/VIX/RISK_OFF/R0/R1)
  *   - LIQUIDITY_GATE_BLOCKED        — Liquidity gate 막힌 (LIQUIDITY_BLOCK)
@@ -47,9 +47,9 @@ export type DeltaCategory =
 export interface DeltaCategoryResult {
   category: DeltaCategory;
   sampleSize: number;
-  /** Shadow 가정 수익률 합산 (signal.futureReturn{horizon}d). */
+  /** Shadow 가정 수익률 합산. 대부분 signal.futureReturn{horizon}d, LIVE_BUY_SHADOW_BETTER_SIZE 는 returnPct×shadowSize(basePct). */
   shadowReturnSum: number;
-  /** 실제 LIVE 수익률 합산 (Phase 1 plumbing — Phase 3 정확 산출). */
+  /** LIVE 수익률 합산. LIVE_BUY_SHADOW_BETTER_SIZE 는 size-weighted(returnPct×liveSize), 그 외는 raw future/return 합. */
   liveReturnSum: number;
   /** shadowReturn - liveReturn. */
   missedAlpha: number;
@@ -190,6 +190,22 @@ function getCappedByBudget(trade: ServerShadowTrade): boolean {
   return value === true;
 }
 
+/**
+ * sizingEngineSnapshot 에서 shadow(감쇠 전 basePct) / live(감쇠 후 finalPositionPct) 사이징 추출.
+ * 두 값 모두 fraction(0.10 = 10%). 스냅샷 부재 또는 어느 하나라도 non-finite → null
+ * (호출자 분류 제외 — 회귀 안전, 기존 "부재→sampleSize=0" 계약 보존).
+ */
+function getSizingShadowLivePct(
+  trade: ServerShadowTrade,
+): { shadowPct: number; livePct: number } | null {
+  const snap = trade.sizingEngineSnapshot;
+  if (snap === undefined) return null;
+  const shadowPct = snap.basePct;
+  const livePct = snap.finalPositionPct;
+  if (!Number.isFinite(shadowPct) || !Number.isFinite(livePct)) return null;
+  return { shadowPct, livePct };
+}
+
 // ─── 진입점 ───────────────────────────────────────────────────────────────────
 
 /**
@@ -311,14 +327,18 @@ export function computeShadowVsLiveDelta(
       }
     }
 
-    // LIVE_BUY_SHADOW_BETTER_SIZE — sizingEngineSnapshot 정의된 trade 카운트 (plumbing only)
-    if (trade.sizingEngineSnapshot !== undefined) {
+    // LIVE_BUY_SHADOW_BETTER_SIZE — 사이징 감쇠 미실행(shadow) vs 실적용(live) 델타 (Phase 3 완성).
+    //   shadowSize = basePct(리스크 배수 감쇠 전 기본 티어 사이징)
+    //   liveSize   = finalPositionPct(감쇠 후 실제 적용)
+    //   기여 = returnPct × size(둘 다 fraction) → missedAlpha = returnPct × (shadowSize - liveSize).
+    //   감쇠로 줄인 승자 → missedAlpha>0(과소사이징 기회손실) / 패자 → <0(감쇠가 손실 방어).
+    const sizing = getSizingShadowLivePct(trade);
+    if (sizing !== null) {
       const bucket = buckets.get('LIVE_BUY_SHADOW_BETTER_SIZE');
       if (bucket) {
         bucket.sampleSize += 1;
-        bucket.liveReturnSum += liveReturn;
-        // shadowReturn — Phase 3 wiring 후 sizingEngineSnapshot 의 finalPositionPct 로
-        //   `sizingShadowExpected = futureReturn × (shadowSize - liveSize)` 산출. 본 PR 은 0 fallback.
+        bucket.liveReturnSum += liveReturn * sizing.livePct;
+        bucket.shadowReturnSum += liveReturn * sizing.shadowPct;
       }
     }
   }
