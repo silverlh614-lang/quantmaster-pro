@@ -1,4 +1,15 @@
-// @responsibility SafetyGateAttribution closed-loop bounded policy feedback
+// @responsibility SafetyGateAttribution closed-loop bounded policy feedback (관측 전용 — 사이징 적용 소비자 0건)
+/**
+ * safetyGatePolicyFeedback.ts — 안전게이트 사후효과(netGateImpact)를 사이징 배수 권고로 변환.
+ *
+ * 폐루프 방향: 게이트가 손실을 잘 막고 있으면(net≥+0.03) 시장이 위험 → 0.95× 축소 /
+ * 과보호로 승자를 놓치고 있으면(net≤-0.03) → 1.03× 확대. 최종 [0.80, 1.05] clamp.
+ *
+ * **적용 소비자 0건 (관측 전용)** — 본 모듈 산출은 read-only 표면(`/safety_gate_policy`
+ * 텔레그램 · `/api/learning/safety-gate-policy-feedback`)에만 노출된다. 사이징 엔진/
+ * autoTradeEngine 배선은 운영자 검증 후 별도 PR (PENDING_WIRING A16).
+ * 실 사이징 적용은 실제 돈에 영향 → ENV + 운영자 승인 이중 게이트 의무.
+ */
 
 import { loadShadowLearningOnlySignals } from '../persistence/shadowLearningOnlySignalRepo.js';
 import {
@@ -12,6 +23,21 @@ export interface SafetyGatePolicyFeedback {
   multiplier: number;
   sampleSize: number;
   reasons: string[];
+  /**
+   * ENV `SAFETY_GATE_POLICY_FEEDBACK_ENABLED` 실제 상태 — 정직 표기.
+   * false + multiplier≠1 = preview(관측 전용·실제 미적용, ignoreEnvGate 호출).
+   */
+  envEnabled: boolean;
+}
+
+/** 순수 함수 옵션. ignoreEnvGate 는 *read-only 관측 표면 전용* — 실제 소비자는 전달 금지. */
+export interface SafetyGatePolicyFeedbackOptions {
+  /**
+   * ENV 게이트를 우회해 "켰다면 어떤 배수가 나올지" 산출(preview).
+   * `computeSafetyGateAttribution(..., { ignoreEnvGate: true })` 동일 관용구.
+   * 본 플래그는 값 산출만 바꾸며 적용 경로를 만들지 않는다(소비자 0건 — 관측 전용).
+   */
+  ignoreEnvGate?: boolean;
 }
 
 const SAFETY_GATE_POLICY_FEEDBACK_CONSTANTS = {
@@ -39,14 +65,17 @@ function clampMultiplier(value: number): number {
 export function computeSafetyGatePolicyFeedback(
   now: Date = new Date(),
   results?: GateAttributionResult[],
+  options?: SafetyGatePolicyFeedbackOptions,
 ): SafetyGatePolicyFeedback {
-  if (!isSafetyGatePolicyFeedbackEnabled()) {
+  const envEnabled = isSafetyGatePolicyFeedbackEnabled();
+  if (!envEnabled && options?.ignoreEnvGate !== true) {
     return {
       generatedAt: now.toISOString(),
       active: false,
       multiplier: 1,
       sampleSize: 0,
       reasons: ['disabled by SAFETY_GATE_POLICY_FEEDBACK_ENABLED'],
+      envEnabled,
     };
   }
 
@@ -62,6 +91,7 @@ export function computeSafetyGatePolicyFeedback(
       multiplier: 1,
       sampleSize: totalSample,
       reasons: [`insufficient safety gate samples (${totalSample})`],
+      envEnabled,
     };
   }
 
@@ -85,5 +115,6 @@ export function computeSafetyGatePolicyFeedback(
     multiplier: adjusted,
     sampleSize: totalSample,
     reasons: reasons.length > 0 ? reasons : ['no actionable safety gate attribution'],
+    envEnabled,
   };
 }
