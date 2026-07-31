@@ -333,6 +333,36 @@ describe('LIVE_BUY_SHADOW_BETTER_SIZE — 사이징 델타 (Phase 3 완성)', ()
     expect(r.missedAlpha).toBeLessThan(0);
   });
 
+  it('returnPct 미해소(미청산) → 집계 제외 + unresolvedExcluded 카운트 (운영 실측 n=12·합 0 원인)', () => {
+    const result = computeShadowVsLiveDelta({
+      shadowSignals: [],
+      liveTrades: [
+        // 사이징 스냅샷은 있으나 아직 실현 수익률 없음 (ACTIVE 포지션)
+        makeTrade({ stockCode: '005930', returnPct: undefined, sizingEngineSnapshot: sizingSnapshot(0.12, 0.10) }),
+        makeTrade({ stockCode: '000660', returnPct: Number.NaN, sizingEngineSnapshot: sizingSnapshot(0.12, 0.10) }),
+      ],
+    });
+    const r = findResult(result, 'LIVE_BUY_SHADOW_BETTER_SIZE');
+    // 0 으로 대체해 "효과 없음" 처럼 보이면 안 된다 — 표본에서 빠지고 별도 카운트돼야 한다.
+    expect(r.sampleSize).toBe(0);
+    expect(r.unresolvedExcluded).toBe(2);
+    expect(r.missedAlpha).toBe(0);
+  });
+
+  it('해소/미해소 혼재 → 해소분만 집계, 미해소는 별도 카운트', () => {
+    const result = computeShadowVsLiveDelta({
+      shadowSignals: [],
+      liveTrades: [
+        makeTrade({ stockCode: '005930', returnPct: 0.025, sizingEngineSnapshot: sizingSnapshot(0.12, 0.10) }),
+        makeTrade({ stockCode: '000660', returnPct: undefined, sizingEngineSnapshot: sizingSnapshot(0.12, 0.10) }),
+      ],
+    });
+    const r = findResult(result, 'LIVE_BUY_SHADOW_BETTER_SIZE');
+    expect(r.sampleSize).toBe(1);
+    expect(r.unresolvedExcluded).toBe(1);
+    expect(r.missedAlpha).toBeCloseTo(0.0005, 6); // 0.025×(0.12-0.10)
+  });
+
   it('sizingEngineSnapshot 부재 → sampleSize=0 (회귀 안전)', () => {
     const result = computeShadowVsLiveDelta({
       shadowSignals: [],

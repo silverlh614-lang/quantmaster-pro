@@ -55,6 +55,12 @@ export interface DeltaCategoryResult {
   missedAlpha: number;
   /** 평균 — sampleSize=0 시 0. */
   missedAlphaAvg: number;
+  /**
+   * 조건은 만족했으나 `returnPct` 미해소(미청산·결손)라 집계에서 *제외* 된 표본 수.
+   * sampleSize 와 별개 — >0 이면 "결과 대기 중" 이지 "효과 0" 이 아니다 (정직 표기).
+   * signal 기반 카테고리는 futureReturn 부재 시 애초에 스킵되므로 항상 0.
+   */
+  unresolvedExcluded: number;
 }
 
 export interface ShadowVsLiveDeltaInput {
@@ -170,13 +176,17 @@ function getFutureReturn(
 }
 
 /**
- * trade 의 returnPct 추출 (LIVE 결과 수익률).
- * undefined / NaN / Infinity 시 0 fallback (Phase 2a plumbing — Phase 3 정확 산출).
+ * trade 의 returnPct 추출 (LIVE 결과 수익률). **미해소(미청산·결손) → null.**
+ *
+ * 구 `getTradeReturn` 은 값 부재를 0 으로 대체했는데, 그러면 "아직 결과가 없음" 이
+ * "수익률 0%" 으로 둔갑해 missedAlpha=0 이 *산출된 답* 처럼 보였다 (silent degradation).
+ * 운영 실측에서 LIVE_BUY_SHADOW_BETTER_SIZE n=12 인데 양쪽 합이 정확히 0 이던 원인.
+ * 호출자는 null 표본을 집계에서 제외하고 `unresolvedExcluded` 로 별도 노출한다.
  */
-function getTradeReturn(trade: ServerShadowTrade): number {
+function resolveTradeReturn(trade: ServerShadowTrade): number | null {
   const value = trade.returnPct;
-  if (value === undefined || value === null) return 0;
-  if (!Number.isFinite(value)) return 0;
+  if (value === undefined || value === null) return null;
+  if (!Number.isFinite(value)) return null;
   return value;
 }
 
@@ -234,10 +244,10 @@ export function computeShadowVsLiveDelta(
   // 5 DeltaCategory 누적기 초기화 (sampleSize=0 dead 일관성)
   const buckets = new Map<
     DeltaCategory,
-    { sampleSize: number; shadowReturnSum: number; liveReturnSum: number }
+    { sampleSize: number; shadowReturnSum: number; liveReturnSum: number; unresolvedExcluded: number }
   >();
   for (const cat of ALL_DELTA_CATEGORIES) {
-    buckets.set(cat, { sampleSize: 0, shadowReturnSum: 0, liveReturnSum: 0 });
+    buckets.set(cat, { sampleSize: 0, shadowReturnSum: 0, liveReturnSum: 0, unresolvedExcluded: 0 });
   }
 
   // lookback cutoff
@@ -315,15 +325,21 @@ export function computeShadowVsLiveDelta(
   // EXPOSURE_CAP_REDUCED: cappedByBudget=true (ADR-0166 영속 부재 시 빈 결과 fallback)
   // LIVE_BUY_SHADOW_BETTER_SIZE: sizingEngineSnapshot 정의된 trade 만 plumbing 카운트
   for (const [, trade] of liveTradeIndex) {
-    const liveReturn = getTradeReturn(trade);
+    // 미해소(미청산·결손) → null. 0 으로 대체하지 않는다 — "결과 대기" 를 "수익률 0" 으로
+    // 둔갑시키면 missedAlpha=0 이 산출된 답처럼 보인다 (silent degradation 금지).
+    const liveReturn = resolveTradeReturn(trade);
 
     // EXPOSURE_CAP_REDUCED — cappedByBudget=true
     if (getCappedByBudget(trade)) {
       const bucket = buckets.get('EXPOSURE_CAP_REDUCED');
       if (bucket) {
-        bucket.sampleSize += 1;
-        bucket.liveReturnSum += liveReturn;
-        // shadowReturn — 본 PR plumbing only, 후속 PR 에서 정확 산출
+        if (liveReturn === null) {
+          bucket.unresolvedExcluded += 1;
+        } else {
+          bucket.sampleSize += 1;
+          bucket.liveReturnSum += liveReturn;
+          // shadowReturn — 본 PR plumbing only, 후속 PR 에서 정확 산출
+        }
       }
     }
 
@@ -336,9 +352,14 @@ export function computeShadowVsLiveDelta(
     if (sizing !== null) {
       const bucket = buckets.get('LIVE_BUY_SHADOW_BETTER_SIZE');
       if (bucket) {
-        bucket.sampleSize += 1;
-        bucket.liveReturnSum += liveReturn * sizing.livePct;
-        bucket.shadowReturnSum += liveReturn * sizing.shadowPct;
+        if (liveReturn === null) {
+          // 사이징 스냅샷은 있으나 아직 실현 수익률이 없다 — 집계 제외 + 별도 카운트.
+          bucket.unresolvedExcluded += 1;
+        } else {
+          bucket.sampleSize += 1;
+          bucket.liveReturnSum += liveReturn * sizing.livePct;
+          bucket.shadowReturnSum += liveReturn * sizing.shadowPct;
+        }
       }
     }
   }
@@ -354,6 +375,7 @@ export function computeShadowVsLiveDelta(
         liveReturnSum: 0,
         missedAlpha: 0,
         missedAlphaAvg: 0,
+        unresolvedExcluded: 0,
       };
     }
     const missedAlpha = bucket.shadowReturnSum - bucket.liveReturnSum;
@@ -366,6 +388,7 @@ export function computeShadowVsLiveDelta(
       liveReturnSum: bucket.liveReturnSum,
       missedAlpha,
       missedAlphaAvg,
+      unresolvedExcluded: bucket.unresolvedExcluded,
     };
   });
 }
