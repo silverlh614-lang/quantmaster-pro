@@ -209,7 +209,8 @@ describe('ADR-0177 Learning Sanity Dashboard endpoint', () => {
     it('정상 응답 — 5 DeltaCategory entry array', () => {
       const fakeResults: DeltaCategoryResult[] = [
         { category: 'SHADOW_BUY_LIVE_BLOCKED', sampleSize: 3,
-          shadowReturnSum: 15, liveReturnSum: 0, missedAlpha: 15, missedAlphaAvg: 5 },
+          shadowReturnSum: 15, liveReturnSum: 0, missedAlpha: 15, missedAlphaAvg: 5,
+          unresolvedExcluded: 0 },
       ];
       mockedLoadSignals.mockReturnValue([makeSignal()]);
       mockedLoadTrades.mockReturnValue([makeTrade()]);
