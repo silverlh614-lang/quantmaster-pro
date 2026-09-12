@@ -52,6 +52,7 @@ function Evidence({ evidence, policy }: { evidence: PaperStrategyEvidence; polic
       <div className="space-y-2 px-3 pb-3">
         <p>{cohortLabels[evidence.cohort]} · 근거 기준 시각 {timestamp(evidence.cutoffAt)} KST</p>
         <p className="text-slate-400">D1·D3·D5 결과가 모두 확인된 동일 표본으로 기간을 비교합니다.</p>
+        {evidence.historicalSampleCount !== undefined && <p>새 기준 실험 {evidence.baselineSampleCount ?? 0}건 · 과거 종가 재현 {evidence.historicalSampleCount}건</p>}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[440px] text-left">
             <caption className="sr-only">진입 판단에 사용한 기간별 성과</caption>

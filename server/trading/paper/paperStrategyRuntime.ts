@@ -5,6 +5,7 @@ import { loadPaperStrategyLedger, savePaperStrategyLedger } from '../../persiste
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { capturePaperCostModel } from './paperExperimentPolicy.js';
 import { buildPaperStrategyView, evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
+import { getHistoricalPaperSamples } from './paperResearchRuntime.js';
 
 export interface PaperStrategyState { ledger: PaperStrategyLedger | null; error?: string }
 let lastFailure: string | undefined;
@@ -23,7 +24,7 @@ export function advancePaperStrategy(
   try {
     if (!state.ledger) throw new Error(state.error ?? '전략 기록 없음');
     const ledger = evaluatePaperStrategyScan(state.ledger, experiments, snapshot, (symbol) =>
-      capturePaperCostModel(getStockByCode(symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI'));
+      capturePaperCostModel(getStockByCode(symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI'), getHistoricalPaperSamples());
     savePaperStrategyLedger(ledger);
     lastFailure = undefined;
     return ledger.lastRun!;

@@ -1,5 +1,6 @@
 // @responsibility Define independent Shadow experiment records.
 import type { PaperStrategyScanResult, PaperStrategyView } from './paperStrategy';
+import type { PaperResearchView } from './paperResearch';
 
 export interface PaperNewsObservation {
   id: string;
@@ -107,4 +108,5 @@ export interface PaperExperimentView {
   groups: PaperLearningGroup[];
   experiments: PaperExperiment[];
   strategy?: PaperStrategyView;
+  research?: PaperResearchView;
 }

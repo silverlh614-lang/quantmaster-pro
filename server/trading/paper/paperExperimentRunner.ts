@@ -7,10 +7,13 @@ import {
   buildPaperExperimentView, capturePaperCostModel, createPaperExperiment, paperExperimentId, updatePaperOutcomes,
 } from './paperExperimentPolicy.js';
 import { advancePaperStrategy, loadPaperStrategyState, readPaperStrategyView } from './paperStrategyRuntime.js';
+import { refreshPaperResearch, getPaperResearchView } from './paperResearchRuntime.js';
 
 let running: Promise<PaperScanResult> | null = null;
 
 async function scan(): Promise<PaperScanResult> {
+  // Local historical research can proceed even if the following market-data collection fails.
+  refreshPaperResearch();
   const ledger = loadPaperExperimentLedger();
   const strategy = loadPaperStrategyState();
   const openSymbols = [...new Set([
@@ -59,5 +62,5 @@ export function runPaperExperimentScan(): Promise<PaperScanResult> {
 }
 
 export function getPaperExperimentView(): PaperExperimentView {
-  return { ...buildPaperExperimentView(loadPaperExperimentLedger()), strategy: readPaperStrategyView() };
+  return { ...buildPaperExperimentView(loadPaperExperimentLedger()), strategy: readPaperStrategyView(), research: getPaperResearchView() };
 }

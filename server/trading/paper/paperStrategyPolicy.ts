@@ -7,6 +7,7 @@ import type {
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { toKstDateKey, isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { calculatePaperReturn } from './paperAccounting.js';
+import type { HistoricalPaperSample } from '../../../src/types/paperResearch.js';
 import { buildPaperStrategyEvidence, PAPER_STRATEGY_POLICY, paperStrategyCohort, scheduledPaperClose } from './paperStrategyEvidence.js';
 
 function decision(
@@ -18,7 +19,7 @@ function decision(
     action, reasonCode, reason, cohort: evidence?.cohort ?? null, evidence, tradeId };
 }
 
-function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, experiments: PaperExperiment[]): PaperStrategyDecision {
+function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, experiments: PaperExperiment[], historical: HistoricalPaperSample[]): PaperStrategyDecision {
   const wait = (code: PaperStrategyReasonCode, reason: string, evidence: PaperStrategyEvidence | null = null) =>
     decision(snapshot, observation, 'WAIT', code, reason, evidence);
   const now = Date.parse(snapshot.asOf);
@@ -33,7 +34,7 @@ function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, e
   }
   const cohort = paperStrategyCohort(observation, snapshot.asOf);
   if (!cohort) return wait('TREND_UNKNOWN', '20일선 위치를 확인할 수 없어 진입 대기');
-  const evidence = buildPaperStrategyEvidence(experiments, cohort, snapshot.asOf);
+  const evidence = buildPaperStrategyEvidence(experiments, cohort, snapshot.asOf, PAPER_STRATEGY_POLICY, historical);
   if (evidence.sampleCount < PAPER_STRATEGY_POLICY.minimumSamples) {
     return wait('INSUFFICIENT_MATURE_SAMPLES', `동일 뉴스·추세의 성숙 표본 ${evidence.sampleCount}/${PAPER_STRATEGY_POLICY.minimumSamples}건으로 진입 대기`, evidence);
   }
@@ -71,6 +72,7 @@ function closeDecision(trade: PaperStrategyTrade, snapshot: PaperSnapshot, obser
 export function evaluatePaperStrategyScan(
   input: PaperStrategyLedger, experiments: PaperExperiment[], snapshot: PaperSnapshot,
   costForSymbol: (symbol: string) => PaperCostModel,
+  historical: HistoricalPaperSample[] = [],
 ): PaperStrategyLedger {
   const ledger = structuredClone(input);
   const observations = new Map(snapshot.observations.map((item) => [item.symbol, item]));
@@ -87,7 +89,7 @@ export function evaluatePaperStrategyScan(
       decisions.push(decision(snapshot, observation, 'WAIT', 'ALREADY_ENTERED_TODAY', '오늘 이미 진입한 종목으로 중복 진입 대기', null, today.id));
       continue;
     }
-    const result = entryDecision(snapshot, observation, experiments);
+    const result = entryDecision(snapshot, observation, experiments, historical);
     if (result.action === 'BUY' && result.evidence?.selectedHorizon) {
       const horizon = result.evidence.selectedHorizon;
       const scheduledExitDate = addBusinessDaysFromKstDate(snapshot.tradingDate, horizon);

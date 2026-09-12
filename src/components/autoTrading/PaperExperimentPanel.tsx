@@ -8,6 +8,7 @@ import { Stack } from '../../layout/Stack';
 import { PageHeader, LoadingState } from '../../ui';
 import { Section } from '../../ui/section';
 import { PaperStrategyPanel } from './PaperStrategyPanel';
+import { PaperResearchPanel } from './PaperResearchPanel';
 
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-200 transition hover:bg-sky-500/20 disabled:cursor-wait disabled:opacity-50';
 const groupLabels: Record<string, string> = {
@@ -186,6 +187,7 @@ export function PaperExperimentPanel() {
       {scan.isError && <p role="alert" className="rounded-lg bg-red-500/10 p-4 text-sm text-red-200">스캔에 실패했습니다. {scan.error instanceof Error ? scan.error.message : '잠시 후 다시 시도해 주세요.'}</p>}
       {query.isError && <p role="alert" className="rounded-lg bg-amber-500/10 p-4 text-sm text-amber-200">실험 기록을 불러오지 못했습니다. {query.data ? '마지막으로 불러온 기록을 표시합니다.' : '새로고침으로 다시 시도해 주세요.'}</p>}
       {query.isPending && <LoadingState message="독립 Shadow 실험 기록을 불러오는 중입니다..." />}
+      <PaperResearchPanel view={query.data?.research} />
       {query.data && <PaperExperimentResults view={query.data} />}
     </Stack>
   );

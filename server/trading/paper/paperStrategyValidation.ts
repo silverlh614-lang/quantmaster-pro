@@ -12,7 +12,7 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
   return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value;
 });
 const horizon = z.union([z.literal(1), z.literal(3), z.literal(5)]);
-const version = z.literal('news-trend-v1');
+const version = z.enum(['news-trend-v1', 'news-trend-v2']);
 const symbol = z.string().regex(/^\d{6}$/);
 const cohort = z.enum(['NEWS_RECENT_ABOVE_MA20', 'NEWS_RECENT_BELOW_MA20', 'NEWS_ABSENT_ABOVE_MA20', 'NEWS_ABSENT_BELOW_MA20']);
 const policy = z.object({ version, newsLookbackHours: finite.positive(), minimumSamples: finite.int().positive(),
@@ -20,6 +20,7 @@ const policy = z.object({ version, newsLookbackHours: finite.positive(), minimum
 const evidence = z.object({
   cutoffAt: timestamp, cohort, sampleCount: finite.int().nonnegative(), entryDateCount: finite.int().nonnegative(),
   experimentIds: z.array(z.string()), selectedHorizon: horizon.nullable(),
+  historicalSampleCount: finite.int().nonnegative().optional(), baselineSampleCount: finite.int().nonnegative().optional(),
   horizons: z.array(z.object({ horizon, count: finite.int().nonnegative(), meanNetReturnPct: finite.nullable(),
     meanDailyNetReturnPct: finite.nullable(), winRatePct: finite.min(0).max(100).nullable() })).length(3),
 });
@@ -47,6 +48,10 @@ const ledgerSchema = z.object({ schemaVersion: z.literal(1), trades: z.array(tra
 
 function consistentEvidence(value: PaperStrategyEvidence): boolean {
   const { sampleCount, entryDateCount, experimentIds, horizons } = value;
+  if (value.historicalSampleCount !== undefined || value.baselineSampleCount !== undefined) {
+    if ((value.historicalSampleCount ?? 0) + (value.baselineSampleCount ?? 0) !== sampleCount
+      || value.historicalSampleCount !== experimentIds.filter((id) => id.startsWith('historical-close:')).length) return false;
+  }
   if (experimentIds.length !== sampleCount || new Set(experimentIds).size !== sampleCount
     || experimentIds.some((id) => !id.trim()) || entryDateCount > sampleCount
     || (sampleCount === 0 ? entryDateCount !== 0 : entryDateCount === 0)

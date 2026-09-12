@@ -14,9 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0668`**
+**다음 ADR 번호: `0669`**
 
-최근 발급: 2026-09-12, [0667 — 뉴스·추세 성과 기반 Shadow 전략](0667-news-trend-shadow-strategy.md), Accepted. 선행 0666은 무조건 기준 실험, 0665는 진입 사이징 경로 정리이며 아래 0664 설명은 이전 발급 기록이다.
+최근 발급: 2026-09-13, [0668 — 저장 자료 Shadow 학습·연구](0668-archived-data-shadow-research.md), Accepted. 선행 0667은 뉴스·추세 전략, 0666은 기준 실험이다.
 
 상세 결정은 해당 ADR, 과거 구현 내역은 Git에서 조회한다. 이 파일에는 발급 번호와 검색 목록만 남긴다.
 
@@ -594,6 +594,7 @@
 | 0665 | entry-sizing-single-path | 진입 수량·노출 계산 경로 통일 및 비활성 Kelly 호출 제거 |
 | 0666 | shadow-first-experiments | 레짐·Kelly·Gate·승인 제약 없는 기본 Shadow 기준 실험 |
 | 0667 | news-trend-shadow-strategy | 기준 실험 성과로 조건부 Shadow 진입과 사전 고정 예약 종가 청산 실행 |
+| 0668 | archived-data-shadow-research | 저장 가격·뉴스 보존, 과거 재현과 후반 검증, Shadow 초기 근거 연결 |
 
 **최대 발급 0664 · 다음 발급 0665** — `node scripts/check_adr_index.js --json` 기준 (2026-07-13 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 

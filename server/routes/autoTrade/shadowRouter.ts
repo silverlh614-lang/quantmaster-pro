@@ -28,8 +28,15 @@ import { fetchCurrentPrice } from '../../clients/kisClient.js';
 import { getRealtimePrice } from '../../clients/kisStreamClient.js';
 import { getSectorByCode } from '../../screener/sectorMap.js';
 import { getPaperExperimentView, runPaperExperimentScan } from '../../trading/paper/paperExperimentRunner.js';
+import { refreshPaperResearch, getPaperResearchView } from '../../trading/paper/paperResearchRuntime.js';
 
 const router = Router();
+
+router.post('/shadow/research', (_req, res) => {
+  refreshPaperResearch([], true);
+  const view = getPaperResearchView();
+  res.status(view?.error ? 500 : 200).json(view);
+});
 
 router.get('/shadow/experiments', async (_req: any, res: any) => {
   try {

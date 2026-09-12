@@ -4,9 +4,11 @@ import type { PaperStrategyCohort, PaperStrategyEvidence, PaperStrategyPolicy } 
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { toKstDateKey, isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { calculatePaperReturn } from './paperAccounting.js';
+import type { HistoricalPaperSample } from '../../../src/types/paperResearch.js';
+import { historicalSampleUsable } from './paperResearch.js';
 
 export const PAPER_STRATEGY_POLICY: Readonly<PaperStrategyPolicy> = Object.freeze({
-  version: 'news-trend-v1', newsLookbackHours: 72, minimumSamples: 10, minimumEntryDates: 3,
+  version: 'news-trend-v2', newsLookbackHours: 72, minimumSamples: 10, minimumEntryDates: 3,
   horizonSelection: 'MEAN_NET_RETURN_PER_DAY', exitModel: 'SCHEDULED_CLOSE',
 });
 export const STRATEGY_HORIZONS = [1, 3, 5] as const;
@@ -32,6 +34,7 @@ export function scheduledPaperClose(tradingDate: string): string {
 export function buildPaperStrategyEvidence(
   experiments: PaperExperiment[], cohort: PaperStrategyCohort, cutoffAt: string,
   policy: PaperStrategyPolicy = PAPER_STRATEGY_POLICY,
+  historical: HistoricalPaperSample[] = [],
 ): PaperStrategyEvidence {
   const cutoff = Date.parse(cutoffAt);
   const seen = new Set<string>();
@@ -65,6 +68,16 @@ export function buildPaperStrategyEvidence(
     seen.add(key);
     rows.push({ id: experiment.id, date: experiment.tradingDate, returns });
   }
+  const baselineSampleCount = rows.length;
+  for (const sample of historical) {
+    const key = `${sample.symbol}:${sample.tradingDate}`;
+    if (seen.has(key) || sample.cohort !== cohort || !sample.newsIds.length || !historicalSampleUsable(sample, cutoffAt)) continue;
+    const expected = `NEWS_RECENT_${sample.aboveMa20 ? 'ABOVE' : 'BELOW'}_MA20`;
+    if (sample.cohort !== expected) continue;
+    seen.add(key);
+    rows.push({ id: sample.id, date: sample.tradingDate, returns: STRATEGY_HORIZONS.map((horizon) =>
+      calculatePaperReturn(sample.entryPrice, sample.outcomes.find((item) => item.horizon === horizon)!.exitPrice, sample.costModel).netReturnPct) });
+  }
   const horizons = STRATEGY_HORIZONS.map((horizon, index) => {
     const values = rows.map((row) => row.returns[index]);
     const mean = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
@@ -75,5 +88,6 @@ export function buildPaperStrategyEvidence(
   const ranked = [...horizons].sort((a, b) =>
     (b.meanDailyNetReturnPct ?? -Infinity) - (a.meanDailyNetReturnPct ?? -Infinity) || a.horizon - b.horizon);
   return { cutoffAt, cohort, sampleCount: rows.length, entryDateCount: new Set(rows.map((row) => row.date)).size,
-    experimentIds: rows.map((row) => row.id), horizons, selectedHorizon: rows.length ? ranked[0].horizon : null };
+    experimentIds: rows.map((row) => row.id), horizons, selectedHorizon: rows.length ? ranked[0].horizon : null,
+    baselineSampleCount, historicalSampleCount: rows.length - baselineSampleCount };
 }

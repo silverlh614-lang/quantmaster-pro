@@ -9,7 +9,7 @@ export type PaperStrategyCohort =
   | 'NEWS_ABSENT_BELOW_MA20';
 
 export interface PaperStrategyPolicy {
-  version: 'news-trend-v1';
+  version: 'news-trend-v1' | 'news-trend-v2';
   newsLookbackHours: number;
   minimumSamples: number;
   minimumEntryDates: number;
@@ -33,6 +33,8 @@ export interface PaperStrategyEvidence {
   experimentIds: string[];
   horizons: PaperStrategyHorizonEvidence[];
   selectedHorizon: PaperStrategyHorizon | null;
+  historicalSampleCount?: number;
+  baselineSampleCount?: number;
 }
 
 export type PaperStrategyReasonCode =
@@ -77,7 +79,7 @@ export interface PaperStrategyExit {
 
 export interface PaperStrategyTrade {
   id: string;
-  strategyVersion: 'news-trend-v1';
+  strategyVersion: 'news-trend-v1' | 'news-trend-v2';
   symbol: string;
   name: string;
   status: 'OPEN' | 'CLOSED';
@@ -121,7 +123,7 @@ export interface PaperStrategyPerformance {
 }
 
 export interface PaperStrategyView {
-  strategyVersion: 'news-trend-v1';
+  strategyVersion: 'news-trend-v1' | 'news-trend-v2';
   mode: 'SHADOW';
   policy: PaperStrategyPolicy;
   totalCount: number;
