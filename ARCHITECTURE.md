@@ -328,4 +328,4 @@ current file continues to own the listed responsibility above.
 | `server/screener/stockScreener.ts` | 1,571 | TBD (P1) | — |
 | ~~`server/trading/exitEngine.ts`~~ | 18 (barrel) | [ADR-0028](./docs/adr/0028-exitEngine-decomposition.md) ✅ | `exitEngine/{index,types,helpers/*,rules/*}` 분해 완료 (PR-53) |
 
-When implementing a decomposition, follow `.claude/skills/server-refactor-orchestrator/SKILL.md` 6-Phase flow and update this table.
+For structural changes, follow AGENTS.md and docs/ai/09-refactor-rules.md; record only the changed module boundary.

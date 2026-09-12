@@ -1,34 +1,8 @@
-# AGENTS.md — QuantMaster Pro (General AI Coding Agent Rules)
+# QuantMaster Pro — 작업 규칙
 
-> **Scope:** Execution rules for general AI coding agents (Codex, OpenAI agents, VS Code / Copilot-style agents).
-> Claude Code reads `CLAUDE.md`; both files share the **same invariants** and the **same `docs/ai/` reference router**.
-> Keep this file short. Detailed rules live in `docs/ai/00`~`10` — read only the one document your task needs.
-> Do **not** accumulate patch notes here (history → `docs/ai/10-patch-history-index.md`).
+공통 규칙은 이 파일 한 곳에서 관리한다. src는 화면·공유 타입, server는 매매·데이터·학습 엔진이다. 사용자 지시가 우선한다.
 
----
-
-## 1. Project Identity
-
-QuantMaster Pro is an AI-driven Korean-stock quant trading system. It emits a signal only for
-tickers that pass **27 conditions + a 4-stage Gate (0/1/2/3)** filter, and executes real orders
-through the KIS (Korea Investment & Securities) API.
-
-- `src/` — frontend + shared types/services (Vite + React 19 + Zustand + TanStack Query)
-- `server/` — Express backend (KIS client, trading engine, screener, Telegram)
-- `scripts/` — self-validation pipeline (complexity / responsibility / exposure / sds / gemini)
-- `docs/` — incident playbook, ADRs (`docs/adr/`), and the `docs/ai/` reference documents
-
-Identity · the 9 invariants · data-trust grades (full detail) → `docs/ai/00-project-charter.md`
-
----
-
-## 2. Non-Negotiable Rules
-
-### 2.1 Nine Invariants (VERBATIM — never delete or alter)
-
-These are the system's constitution. No ADR or patch may violate them. The Korean text below is
-**canonical** (byte-identical to `CLAUDE.md` and `docs/ai/00-project-charter.md`). If an English gloss
-ever seems to disagree with the Korean, the Korean wins.
+## 9대 불변식
 
 1. Trading Engine은 항상 살아 있어야 한다.
 2. Shadow Learning은 어떤 상황에서도 멈추면 안 된다.
@@ -40,145 +14,36 @@ ever seems to disagree with the Korean, the Korean wins.
 8. 실거래 차단과 Shadow 판단 차단은 분리한다.
 9. SourceSnapshot을 우회하여 Gate 내부에서 provider를 직접 조회하지 않는다.
 
-**English gloss (Korean above is authoritative):** (1) the trading engine must always stay alive;
-(2) shadow learning must never stop; (3) every decision starts from a single SourceSnapshot;
-(4) R6 / SELL_ONLY / HOLIDAY / pre-&-post-market / providerIssue must not mutate the SourceSnapshot;
-(5) those states change only Policy, Confidence, ExecutionPermission, LearningLabel; (6) a provider
-outage is not a market signal; (7) AI_ESTIMATED (L4) data must never feed live execution; (8) blocking
-real trades and blocking shadow judgement are separate concerns; (9) never bypass the SourceSnapshot to
-query a provider directly inside a Gate.
+## 필수 경계
 
-### 2.2 Single-Channel Rules
+- KIS 호출은 server/clients/kisClient.ts, 실주문은 서버 autoTradeEngine 단일 통로로 처리한다. 클라이언트 실주문 금지.
+- 자동매매·스크리너 데이터는 stockService, AI 추천 종목 발굴은 aiUniverseService 경유. Gate 내부 provider 직접 조회 금지.
+- 데이터 신뢰: L1(KIS/KRX) 매매, L2(FRED/ECOS/DART) Gate, L3(Yahoo/Naver) 신선도 확인 후 최후 fallback, L4(AI 추정) 참조 전용. KIS가 제공 가능한 데이터의 Yahoo 우선 사용 금지.
+- 신규 소스 파일 상단 20줄 내 @responsibility 25단어 이하. 파일 1,500줄 한도. 사유 없는 silent catch 금지.
+- 기존 거래 원장·실주문 안전장치·공급자 경계는 문서/정리 작업에서 변경하지 않는다.
 
-1. **@responsibility tag** — every new file declares its responsibility (≤25 words) within the top 20 lines (`scripts/check_responsibility.js`).
-2. **kisClient single channel** — all KIS API calls go through `server/clients/kisClient.ts`. No raw KIS REST.
-3. **stockService / aiUniverseService single channel** — auto-trade & server-screener external data only via `src/services/stockService.ts`; AI-recommendation universe discovery only via `server/services/aiUniverseService.ts` (no direct KIS/KRX; ADR-0011; auto-trade paths must not import it).
-4. **autoTradeEngine single channel** — with `AUTO_TRADE_ENABLED=true`, only the server-side `autoTradeEngine` places real orders. No client-side real orders.
-5. **ARCHITECTURE.md boundaries** — re-confirm a module's Single Responsibility before editing it.
-6. **Complexity limit** — 1,500 lines per file (`scripts/check_complexity.js`). Split on overflow (ADR first).
-7. **precommit required** — never bypass hooks (`--no-verify`).
+## 최소 작업 절차
 
-### 2.3 Data Trust Grades
+1. 기본은 에이전트 하나다. 역할별 에이전트·하네스·인계 문서를 자동 생성하지 않는다. 병렬 위임은 사용자가 요청할 때만 한다.
+2. rg로 관련 파일과 구간만 읽는다. 이미 읽은 규칙을 반복 로드하거나 인덱스·이력 전체를 읽지 않는다. ARCHITECTURE.md도 대상 모듈만 확인한다.
+3. 수정 전 범위·동작 영향·검증·복구 방법을 짧게 정한다. 별도 계획서/보고서/작업 폴더는 기본적으로 만들지 않는다.
+4. 필요한 변경만 한다. 설명용 계층·타입·flag·별칭·작은 파일을 불필요하게 추가하지 않는다. 계산값과 긴 설명의 중복 저장을 피한다.
+5. 새 매매 정책·안전 경계·모듈 경계 결정만 간결한 ADR로 남긴다. 단순 수정·문서 정리는 ADR 없이 진행한다. 번호는 docs/adr/INDEX.md의 다음 발급을 따른다.
+6. 기록은 docs/ai/10-patch-history-index.md 한 줄과 Git 커밋을 기본으로 한다. 최근 20건만 간결히 유지하며 오래된 상세는 Git에서 조회한다. 별도 보고서·중복 로그 사본은 요청 또는 복구에 필요한 경우에만 남긴다.
+7. 변경에 맞는 검사·테스트를 실행한다. 소스 변경 시 lint와 관련 테스트, 커밋 전 validate:all, 실제 precommit 훅을 통과한다. 실패 은폐·훅 우회 금지. 통과한 검사를 이유 없이 반복하지 않는다.
+8. 검증 후 커밋하고 설정된 원격 추적 브랜치로 푸시한다(사용자 상시 승인, 2026-09-12). 원격 반영을 확인한다. 결과는 변경·검증·남은 문제만 짧게 보고한다.
 
-L1 (KIS·KRX official → buy/sell decisions) / L2 (FRED·ECOS·DART → Gate input) /
-L3 (Yahoo·Naver → fallback only after stale/sanity check) /
-L4 (AI estimate → reference only, **never** a live trade decision — invariant #7).
+## 필요할 때만 읽기
 
----
-
-## 3. Agent Workflow
-
-**세션 공통 완료 규칙 (사용자 지시, 2026-09-12):** 이 저장소에서 작업을 마치면 검증 후 변경사항을 커밋하고 설정된 원격 추적 브랜치로 푸시한다. 커밋·푸시는 상시 승인된 작업이므로 매번 다시 확인하지 않는다. 원격 반영을 확인하고 결과를 보고한다. 해당 작업에 대한 사용자의 별도 지시가 있으면 그 지시를 우선한다.
-
-Before editing code:
-
-1. Identify the target domain.
-2. From §5 Reference Docs Router, read **only** the one relevant `docs/ai/` document.
-3. Do not modify unrelated files.
-4. Prefer small, reversible patches — diff only, no broad rewrites.
-5. Preserve every QuantMaster Pro invariant (§2.1).
-6. Run the smallest relevant validation command (§7).
-7. Report changed files, impact, and remaining risks (§8).
-
-Complex work (a new Gate condition, decomposing `signalScanner`, trading-engine changes) should follow
-the orchestrator/harness flow described in `docs/ai/01-architecture-map.md`. Simple questions
-("what does this function do?", "fix one type error") need no harness — answer directly.
-
----
-
-## 4. Patch Scope Rule
-
-- **Diff only** — output only the changed lines; full output only for newly created files.
-- **Standard PR prompt** — file / one-sentence task / scope (allowed vs off-limits) / ADR / constraints.
-- **ADR vs patch type** — a new boundary or policy issues an ADR (`docs/adr/INDEX.md` "다음 발급" is the
-  single source of the next number) and updates `INDEX.md`. A hotfix / consistency fix / diagnostic
-  visibility change is patch type (0 ADRs issued, 0 INDEX edits).
-- **One change-history line** — every PR appends exactly one row to `docs/ai/10-patch-history-index.md`.
-- **byte-equivalent principle** — LIVE trading body 0-line change + 1-line ENV rollback + regression
-  test + 0 KIS/KRX quota impact, whenever you touch anything near the live path.
-
-### 4.1 Patch Scope Guard (ADR-530)
-
-Before editing code, declare (full template → links below): `targetDomain` · `allowedFiles` ·
-`forbiddenFiles` · `expectedBehaviorChange` · `sourceSnapshotImpact` · `executionImpact` ·
-`shadowLearningImpact` · `telegramImpact` · `providerImpact` · `testsRequired` · `rollbackPlan`.
-
-- If a patch touches more than 3 domains, split it (separate ADRs).
-- Documentation-only tasks must not edit source code (`src/`, `server/`, `scripts/`).
-- Warning-cleanup tasks must not change runtime behavior unless explicitly required.
-- If the patch touches Trading Engine, SourceSnapshot, Gate, Provider, Telegram, or Shadow Learning, read the relevant `docs/ai/` document first.
-
-Detail → `docs/ai/08-testing-checklist.md` (validation by patch type · PR self-review) ·
-`docs/ai/09-refactor-rules.md` (Patch Scope Guard detail) · templates:
-`docs/ai/templates/patch-plan-template.md` · `docs/ai/templates/patch-report-template.md`
-
----
-
-## 5. Reference Docs Router
-
-Read the one document whose trigger keywords match your task. All paths are under `docs/ai/`.
-Each document's header carries "Read this file only when working on:" / "Do not read this file for:"
-sections — those are the authoritative SRP boundaries.
-
-| Trigger keywords | Doc |
-|------------------|-----|
-| project identity · 9 invariants · L1~L4 trust philosophy | `00-project-charter.md` |
-| directories · module boundaries · agents · complexity status · harness workflow | `01-architecture-map.md` |
-| Trading Engine · engineMode · executionAllowed · shadowAllowed · SELL_ONLY · R6 · SHADOW_ONLY · FOMC · sizing | `02-trading-engine-rules.md` |
-| SourceSnapshot · providerIssue · marketSignal · confidence · ExecutionPermission · carry wiring · single channel | `03-source-snapshot-ssot.md` |
-| Gate0/1/2/3 · scan_blockers · requiredScore · STRONG_BUY · RRR · VCP · candidateSnapshots · LastTrigger | `04-gate-system.md` |
-| KIS/KRX/DART/Yahoo · fallback · stale · empty · circuit breaker · Last Good Value · provider health | `05-provider-policy.md` |
-| Telegram Bot · channel routing CH1~4 · dedup · command registry · HTML sanitize · diagnostic output | `06-telegram-policy.md` |
-| Shadow Learning · Counterfactual · Ghost Portfolio · LearningLabel · attribution · nightlyReflection | `07-learning-engine.md` |
-| typecheck · test · validate:* · precommit · PR self-review · static guards | `08-testing-checklist.md` |
-| refactor · file split · SRP · 1,500-line limit · baseline catalog · ADR INDEX SLA · **Patch Scope Guard / Patch Plan·Report** | `09-refactor-rules.md` (+ `templates/patch-plan-template.md` · `templates/patch-report-template.md`) |
-| past ADR/patch history index — keyword-search rows only, **do not load the whole file** | `10-patch-history-index.md` |
-
-External SSOT (outside `docs/ai/`): requirements/domain `README.md` · module-boundary single-responsibility
-`ARCHITECTURE.md` · operations/incidents `docs/incident-playbook.md` · AI-collaboration & token policy
-`CLAUDE_patch_section.md`.
-
----
-
-## 6. Forbidden Behavior
-
-- Violating any of the 9 invariants (§2.1) — stopping the Trading Engine, stopping Shadow Learning, or bypassing the SourceSnapshot.
-- raw KIS REST calls outside `kisClient.ts`.
-- client-side real orders — real orders flow only through the server `autoTradeEngine`.
-- using AI_ESTIMATED (L4) data for a live trade decision.
-- converting a provider outage into a bearish market signal (`providerIssue` ≠ bearish).
-- silent catch — swallowing an error with no reason; an intentional ignore must be marked `/* SDS-ignore: <reason> */`.
-- bypassing hooks (`--no-verify`) · leaving any file over the 1,500-line limit.
-- accumulating patch notes in this file or `CLAUDE.md` (history belongs in `docs/ai/10-patch-history-index.md`).
-- copying long Gate / Telegram / KIS / Shadow implementation detail into this file — link to `docs/ai/` instead.
-
----
-
-## 7. Validation Rules
-
-Run the smallest command that covers your change; never bypass precommit.
-
-- `npm run lint` — typecheck (client + server `tsc`).
-- the relevant `*.test.ts` — regression for the modules you touched.
-- `npm run validate:all` — the full self-validation gate, required before commit.
-- targeted guards as needed: `validate:complexity` (1,500-line limit), `validate:responsibility`,
-  `validate:sds` (silent catch), `validate:exposure`, plus boundary / `dataTrust` guards.
-  Full pipeline → `docs/ai/08-testing-checklist.md`.
-
-**ADR-0146 PR self-review (5 categories):** (1) LIVE-trade safety (KIS/KRX quota · ENV rollback ·
-regression) (2) wiring complete vs infra-only (3) ADR integrity (4) regression adequacy
-(5) no policy-violation baseline regression.
-
----
-
-## 8. Reporting Format
-
-After a change, report:
-
-1. **Changed files** — an explicit list; confirm no unrelated files were touched.
-2. **Impact** — what behavior changes; when you claim it, confirm the LIVE trading body is unchanged.
-3. **Validation** — which commands ran and their results. State failures honestly; do not hide a skip.
-4. **Remaining risks / follow-ups** — open items, the 1-line ENV rollback, any pending wiring.
-
-> **ONE-LINE PRINCIPLE:** tokens cost money — diff only, one pass, Telegram first.
-> Shared invariants and all detail live in `docs/ai/`; read only what your task needs.
+| 작업 | 참고 |
+|---|---|
+| 원칙·데이터 신뢰 | docs/ai/00-project-charter.md |
+| 경계·구조 | ARCHITECTURE.md, docs/ai/01-architecture-map.md |
+| 엔진·실행·사이징 | docs/ai/02-trading-engine-rules.md |
+| Snapshot | docs/ai/03-source-snapshot-ssot.md |
+| Gate | docs/ai/04-gate-system.md |
+| Provider | docs/ai/05-provider-policy.md |
+| Telegram | docs/ai/06-telegram-policy.md |
+| 학습 | docs/ai/07-learning-engine.md |
+| 검증·리팩터링 | docs/ai/08-testing-checklist.md, docs/ai/09-refactor-rules.md |
+| 장애 대응 | docs/incident-playbook.md |

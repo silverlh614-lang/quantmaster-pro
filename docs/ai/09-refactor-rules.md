@@ -1,120 +1,14 @@
-# 09 · Refactor Rules (복잡도 한계·분해 워크플로·baseline 카탈로그)
+# 리팩터링
 
-**Read this file only when working on:**
-- **Patch Scope Guard · Patch Plan/Report** (코드 수정 전 범위·영향도 선언)
-- 1,500줄 한계에 근접/초과한 파일 분해 · 대형 서버 파일(1,000줄+) 모듈 분리
-- SRP 준수 · no broad rewrite · patch scope 제한 · warning cleanup
-- BASELINE_TECHNICAL_DEBT 카탈로그 · 복잡도 위반 우선순위
-- ADR INDEX `다음 발급` SSOT · pending wiring SLA 갱신
+[AGENTS.md](../../AGENTS.md)를 먼저 따른다. 이 문서는 코드 구조를 바꿀 때만 읽는다.
 
-**Do not read this file for:**
-- 검증 파이프라인·precommit·PR 자가 review → `08-testing-checklist.md`
-- 현재 복잡도 위반 파일 목록(요약)·모듈 경계 → `01-architecture-map.md`
-- PR 범위·diff 출력·ADR vs patch type → `CLAUDE.md` §5
+- 범위·동작 영향·필요한 검증·복구 방법을 짧게 정하고 대상 모듈 책임을 확인한다. 별도 템플릿 파일은 필요 없다.
+- 동작 변경 요청이 없으면 결과를 보존한다. 문서 정리에서 src/server/scripts를 수정하지 않는다.
+- 기존 resolver/router/scheduler를 중복 만들지 않는다. 내부 파일 정리를 새 정책·계층·flag 추가로 확대하지 않는다.
+- 파일별 1,500줄 한도와 기존 예외는 scripts/check_complexity.js를 따른다. 오래된 줄 수 표를 복제하지 않는다.
+- 이동/통합 전 import와 공개 계약, 관련 테스트를 확인한다. 신규 모듈 경계나 정책 결정만 ADR로 기록한다.
+- Provider 장애를 시장 신호로 바꾸거나 SourceSnapshot을 우회하지 않는다. 경고 삭제로 오류를 숨기지 않는다.
+- 변경한 동작과 경계를 검증한다. 통과한 검사는 추가 수정·실패·미해결 우려가 있을 때만 다시 실행한다.
+- 완료 기록은 짧은 변경 이력 한 줄과 Git 커밋이다. 별도 계획서·역할별 인계서·중복 보고서는 기본 생성하지 않는다.
 
----
-
-## Patch Scope Guard (ADR-530)
-
-**모든 패치는 코드 수정 전 Patch Plan 으로 시작한다.** 템플릿 →
-`docs/ai/templates/patch-plan-template.md` · 완료 후 `docs/ai/templates/patch-report-template.md`.
-
-필수 선언 필드: `ADR` · `targetDomain` · `intent` · `allowedFiles` · `forbiddenFiles` ·
-`expectedBehaviorChange` · `sourceSnapshotImpact` · `executionImpact` · `shadowLearningImpact` ·
-`telegramImpact` · `providerImpact` · `learningImpact` · `riskLevel` · `testsRequired` · `rollbackPlan`.
-
-### 규칙
-
-1. 무관한 도메인을 수정하지 않는다 — `allowedFiles` 밖은 건드리지 않는다.
-2. 영향 도메인이 **3개를 초과하면 ADR 을 분리**한다.
-3. **문서 전용 패치**는 `src/` · `server/` · `scripts/` 코드(서비스/엔진/provider/telegram/gate)를 수정하지 않는다.
-4. **warning cleanup** 은 명시되지 않는 한 매매 의미(trading semantics)를 바꾸지 않는다 — behavior change 와 섞지 않는다.
-5. **refactor** 패치는 외부 동작(byte-equivalent)을 보존한다.
-6. 테스트나 호환 계층 없이 broad rewrite 금지.
-7. resolver · router · scheduler · lifecycle engine 을 **중복 생성하지 않는다** (기존 SSOT 위임).
-8. SourceSnapshot 을 우회하지 않는다 (불변식 #3·#9).
-9. providerIssue 를 marketSignal 로 변환하지 않는다 (불변식 #6).
-10. taxonomy 분류 없이 에러를 silent 처리하지 않는다 (`/* SDS-ignore: <사유> */`).
-
-> 사고 방지 대상: "Gate 수정인 줄 알았는데 Provider 를 건드림 / Telegram 표시 수정인 줄 알았는데
-> Engine policy 를 바꿈 / warning 제거인 줄 알았는데 runtime semantics 를 바꿈 / 문서 정리인 줄
-> 알았는데 src 코드까지 수정함." → Patch Plan 의 `allowedFiles`/`forbiddenFiles` 로 차단.
-
-### Warning Cleanup ≠ Behavior Change (ADR-531)
-
-**경고는 없애는 게 아니라 분류한다.** warning cleanup 패치는 명시되지 않는 한 runtime semantics 를 바꾸지 않는다.
-
-- ❌ `console.warn(...)` 단순 삭제 / `console.warn` → `console.log` 무작정 치환.
-- ✅ severity·category·executionImpact·userFacing 을 명시해 **의미를 부여**한다 (taxonomy SSOT 위임).
-- providerIssue 를 marketSignal 로 변환 금지 (불변식 #6). 정책 상태(SELL_ONLY/R6/HOLIDAY)를 장애로 표시 금지.
-- executionImpact=NONE 이벤트를 사용자-facing 경고로 승격 금지.
-- severity taxonomy·매핑·정책상태/Telegram 표시 규칙 SSOT → `docs/archive/adr/adr-531-warning-error-taxonomy.md`.
-
-패치 유형별 최소 검증 기준 → `docs/ai/08-testing-checklist.md`.
-
----
-
-## 복잡도 한계 (절대 규칙 #6)
-
-- **파일당 1,500줄** (`scripts/check_complexity.js` 강제). 초과 시 즉시 분할 — **ADR 선행**.
-- 분해는 단일 책임(Single Responsibility) 기준 — `ARCHITECTURE.md` 모듈 경계 재확인 후.
-- 분해 전 해당 모듈의 책임을 ADR 에 명시 → 추출 대상 함수/타입 경계 확정 → 추출 → 회귀 테스트.
-
----
-
-## 분해 워크플로 (ADR-first)
-
-1. **ADR 발급** — 분해 대상·새 경계·추출 모듈 책임 명시 (`docs/adr/INDEX.md` `다음 발급` SSOT + 갱신).
-2. **architect 위임** — `src/types/` 확정 + ADR 작성 (`validate:responsibility` 통과).
-3. **추출** — `server-refactor-orchestrator` 스킬로 1,000줄+ 서버 파일 분해 (engine-dev).
-4. **회귀** — 추출 전후 동작 byte-equivalent 검증 + 해당 `*.test.ts` 통과.
-5. **변경 이력** — `docs/ai/10-patch-history-index.md` 한 줄.
-
-전용 스킬: `server-refactor-orchestrator` (1,000줄+ 서버 파일 분해).
-
----
-
-## 현재 복잡도 위반 (분해 우선순위)
-
-> **SSOT = `scripts/check_complexity.js` 의 `BASELINE_TECHNICAL_DEBT` + `npm run validate:complexity`.**
-> 아래는 **2026-06-07 실측 스냅샷** — 줄수는 변동하므로 분해 전 항상 `validate:complexity` 재확인.
-
-| 파일 | 줄수 | 상태 |
-|------|------|------|
-| `scanDiagnostics/persistScanResults.ts` | 1,990 | BASELINE (god 함수 1,623줄) |
-| `clients/kisSectorEnergyProvider.ts` | 1,521 | BASELINE (분해 ADR 미발급) |
-| `signalScanner/minimumSignalScoreTrace.ts` | 1,490 | watch 여유10 (ADR-0524 후 재증가) |
-| `learning/counterfactualOutcomeBoard.ts` | 1,481 | watch 여유19 |
-| `signalScanner/sectorEnergyMasterSupplyUnknownPolicyAdr0488.ts` | 1,479 | watch 여유21 |
-
-### 완료된 분해 (참조 패턴)
-
-- ACMA 임박 선제분해: `marketDataRefresh`→1,327 (ADR-0580, types+helpers·executionImpact=NONE) · `gate1DryRunObservationLedgerAdr0476`→1,242 · `sectorEnergyProvider`→1,343 (ADR-0579, types).
-- 초기: `perSymbolEvaluation` (ADR-0134) · `webhookHandler` (ADR-0017) · `exitEngine` (ADR-0028) ·
-  `stockScreener` (ADR-0029) · `krxClient` (ADR-0502c) · `signalScanner`→35줄 barrel (ADR-0001/0147b).
-- 2026-05 시리즈: `sectorEnergyMasterSupplyUnknownPolicy` (ADR-0521) · `regimeLearningBank` (ADR-0522) ·
-  `gate2ExternalDataProvider` (ADR-0523) · `minimumSignalScoreTrace` (ADR-0524, 1,736→1,489) ·
-  `kisClient/query` (ADR-0537) · `scanBlockers` (ADR-0538) · `entryFilterDecomposition` (ADR-0464) ·
-  `investorFlowProviderRouterAdr0477` (ADR-0477) · `regimeLearningBackfill` (types/formatters 추출).
-
----
-
-## BASELINE_TECHNICAL_DEBT 카탈로그 (ADR-0133)
-
-- **baseline 카탈로그** — 알려진 기술 부채를 명시 등록. 신규 위반과 기존 baseline 을 구분.
-- **무회귀 원칙** — PR 은 baseline 위반 수를 **늘리지 않는다** (ADR-0146 카테고리 5).
-  baseline 항목 해소는 가산점, 신규 위반 추가는 차단.
-- 1,500줄 초과 파일은 baseline 등록 + 분해 ADR 예약 — 방치 금지 (절대 규칙 #6).
-
----
-
-## ADR INDEX / pending wiring SLA
-
-- **ADR INDEX SSOT** (ADR-0148) — `docs/adr/INDEX.md` `다음 발급` 번호 단조 증가. 중복/건너뜀 차단.
-- **pending wiring SLA** (ADR-0158/0159) — 인프라만 추가하고 호출 연결을 미룬 항목은 SLA 추적.
-  dead wiring(코드 있으나 호출 없음) 장기 방치 차단 (`validate:pendingWiring`).
-- **ADR type vs patch type** (→ `CLAUDE.md` §5) — 신규 경계/정책만 ADR 발급. hotfix/정합 정정/
-  진단 가시화는 patch type (ADR 0건, INDEX 갱신 0건).
-
-복잡도 현황 상세 → `docs/ai/01-architecture-map.md` · 검증 파이프라인 → `docs/ai/08-testing-checklist.md`
-PR 범위·ADR 규칙 → `CLAUDE.md` §5 · 과거 변경 이력 → `docs/ai/10-patch-history-index.md`
+검증 상세: [08-testing-checklist.md](08-testing-checklist.md). 실패/알려진 예외는 사실대로 보고하며 훅을 우회하지 않는다.

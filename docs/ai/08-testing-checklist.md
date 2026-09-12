@@ -8,7 +8,7 @@
 
 **Do not read this file for:**
 - 파일 분해 워크플로 · baseline 카탈로그 · 복잡도 한계 → `09-refactor-rules.md`
-- PR 범위·diff 출력·ADR vs patch type 규칙 → `CLAUDE.md` §5
+- PR 범위·diff 출력·ADR vs patch type 규칙 → `AGENTS.md`.
 - 모듈 경계·에이전트 DoD → `01-architecture-map.md`
 
 ---
@@ -76,8 +76,7 @@ severity/diagnostic/telegram-display 패치 시 다음을 만족해야 한다 (S
 6. Telegram signal 채널에 DIAGNOSTIC/DEBUG/SUPPRESSED 직접 노출 안 됨.
 7. Shadow lifecycle failure → WARN/ERROR 유지.
 
-상세 Patch Scope Guard·Patch Plan/Report 템플릿 → `docs/ai/09-refactor-rules.md` ·
-`docs/ai/templates/patch-plan-template.md` · `docs/ai/templates/patch-report-template.md`.
+범위·영향·검증·복구 방법은 AGENTS.md에 따라 짧게 정한다. 별도 계획서/보고서 양식은 만들지 않는다.
 
 ---
 
@@ -149,14 +148,14 @@ LIVE 매매 본체 **0줄 변경** + ENV **1줄 즉시 롤백** + 회귀 테스�
 - ADR INDEX `다음 발급` 번호 SSOT 단조 증가 (중복/건너뜀 차단).
 - ADR 파일 ↔ INDEX 행 정합 (orphan ADR / orphan INDEX 행 차단).
 - pending wiring 항목 SLA 초과 추적 (ADR-0158/0159).
-- 변경 이력 한 줄 누락 차단 — 모든 PR 은 `docs/ai/10-patch-history-index.md` ## 색인 한 줄 (ADR-529 형식).
+- 완료한 변경은 `docs/ai/10-patch-history-index.md`에 짧은 한 줄로 기록한다.
 
 ---
 
 ## 변경 이력 의무
 
-- 모든 PR 은 `docs/ai/10-patch-history-index.md` **## 색인** 에 **한 줄** 추가 (ADR-529 형식); 구조/거버넌스 ADR 은 ## 핵심 ADR 요약 7-필드 블록 추가.
-- CLAUDE.md / AGENTS.md 에는 패치 노트 누적 금지 (→ `CLAUDE.md` §4 Forbidden). 상세는 `docs/archive/adr/`.
+- 완료한 변경은 `docs/ai/10-patch-history-index.md`에 짧은 한 줄만 남긴다. 최근 20건을 유지하며 상세는 Git에서 조회한다.
+- CLAUDE.md / AGENTS.md에는 패치 노트를 누적하지 않는다.
 
 복잡도 한계·분해 워크플로 → `docs/ai/09-refactor-rules.md` · 과거 변경 이력 → `docs/ai/10-patch-history-index.md`
-PR 범위 규칙 → `CLAUDE.md` §5 Patch Scope Rule
+작업 범위·기록 규칙 → `AGENTS.md`

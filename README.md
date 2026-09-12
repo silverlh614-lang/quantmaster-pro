@@ -299,10 +299,10 @@ npm run precommit         # 커밋 전 필수 (훅 우회 금지)
 
 ## 거버넌스 · 문서
 
-- **`CLAUDE.md`** — AI 실행 규칙 SSOT (9대 불변식 · 7대 단일 통로 · 데이터 신뢰 등급)
+- **`AGENTS.md`** — 공통 AI 작업 규칙. `CLAUDE.md`도 이를 참조한다. 단일 에이전트·최소 기록·필요한 구간만 읽기를 기본으로 한다.
 - **`ARCHITECTURE.md`** — 모듈 경계 · 단일 책임
 - **`docs/ai/00`~`10`** — 도메인별 상세 규칙 (Gate · SourceSnapshot · Provider · Telegram · Learning)
-- **`docs/adr/`** — Architecture Decision Record (ADR 0001~0586 발급 · 393건 보존, INDEX.md 가 발급 SSOT)
+- **`docs/adr/`** — 설계 결정. INDEX.md는 번호 발급·검색 목록만 관리한다.
 - **`docs/incident-playbook.md`** — 운영·인시던트 대응
 
 ---

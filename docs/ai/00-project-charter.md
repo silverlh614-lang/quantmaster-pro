@@ -30,7 +30,7 @@ KIS(한국투자증권) API 로 실제 주문을 집행한다.
 - 모듈 경계 → `ARCHITECTURE.md`
 - 운영·인시던트 → `docs/incident-playbook.md`
 - 환경/비밀 분리 → `.env.example`
-- AI 협업 전체 지침 → `CLAUDE_patch_section.md`
+- 공통 AI 작업 지침 → `AGENTS.md`
 
 ---
 

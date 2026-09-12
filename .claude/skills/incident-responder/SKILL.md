@@ -73,7 +73,7 @@ description: "QuantMaster Pro 운영 인시던트 진단 보조. Telegram CRITIC
 1. 해당 파일의 @responsibility 태그 확인 → 경계 위반 여부
 2. 유사 패턴이 다른 모듈에 있는지 Grep
 3. `scripts/silent_degradation_sentinel.js` 가 놓친 swallowed catch 가 있는지 확인
-4. 근본 원인이 드러나면 `quantmaster-orchestrator` 로 인계하여 수정 PR 착수
+4. 근본 원인이 드러나면 AGENTS.md의 일반 작업 절차로 필요한 수정을 진행한다
 
 ## Phase 4 — 실행 (승인 필수)
 
