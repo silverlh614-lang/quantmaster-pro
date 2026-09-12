@@ -68,6 +68,8 @@ L4 (AI estimate → reference only, **never** a live trade decision — invarian
 
 ## 3. Agent Workflow
 
+**세션 공통 완료 규칙 (사용자 지시, 2026-09-12):** 이 저장소에서 작업을 마치면 검증 후 변경사항을 커밋하고 설정된 원격 추적 브랜치로 푸시한다. 커밋·푸시는 상시 승인된 작업이므로 매번 다시 확인하지 않는다. 원격 반영을 확인하고 결과를 보고한다. 해당 작업에 대한 사용자의 별도 지시가 있으면 그 지시를 우선한다.
+
 Before editing code:
 
 1. Identify the target domain.

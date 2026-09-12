@@ -73,6 +73,8 @@ Provider 정책 → `docs/ai/05-provider-policy.md`
 
 ## 3. Agent Workflow
 
+**세션 공통 완료 규칙 (사용자 지시, 2026-09-12):** 이 저장소에서 작업을 마치면 검증 후 변경사항을 커밋하고 설정된 원격 추적 브랜치로 푸시한다. 커밋·푸시는 상시 승인된 작업이므로 매번 다시 확인하지 않는다. 원격 반영을 확인하고 결과를 보고한다. 해당 작업에 대한 사용자의 별도 지시가 있으면 그 지시를 우선한다.
+
 **하네스 트리거:** 매매 엔진 / 퀀트 필터(Gate 0~3) / 대시보드 / 변곡점 모듈(THS/VDA/FSS/IPS) /
 서버 리팩토링 작업 요청 시 `.claude/skills/quantmaster-orchestrator` 스킬 사용.
 전용 스킬: `server-refactor-orchestrator` (1,000줄+ 서버 파일 분해), `incident-responder` (Telegram/로그 진단).
