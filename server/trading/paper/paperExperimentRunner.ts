@@ -1,0 +1,55 @@
+// @responsibility Run the default Shadow experiment cycle.
+import type { PaperExperimentView, PaperScanResult } from '../../../src/types/paperExperiment.js';
+import { loadPaperExperimentLedger, savePaperExperimentLedger } from '../../persistence/paperExperimentRepo.js';
+import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
+import { collectPaperExperimentSnapshot } from './paperExperimentCollector.js';
+import {
+  buildPaperExperimentView, capturePaperCostModel, createPaperExperiment, paperExperimentId, updatePaperOutcomes,
+} from './paperExperimentPolicy.js';
+
+let running: Promise<PaperScanResult> | null = null;
+
+async function scan(): Promise<PaperScanResult> {
+  const ledger = loadPaperExperimentLedger();
+  const snapshot = await collectPaperExperimentSnapshot(ledger.experiments.filter((item) => item.status === 'OPEN').map((item) => item.symbol));
+  const observations = new Map(snapshot.observations.map((item) => [item.symbol, item]));
+  let completedCount = 0;
+  ledger.experiments = ledger.experiments.map((experiment) => {
+    const observation = observations.get(experiment.symbol);
+    if (!observation) return experiment;
+    const updated = updatePaperOutcomes(experiment, observation, snapshot.asOf);
+    if (experiment.status === 'OPEN' && updated.status === 'COMPLETED') completedCount++;
+    return updated;
+  });
+  const ids = new Set(ledger.experiments.map((item) => item.id));
+  let openedCount = 0;
+  for (const observation of snapshot.observations) {
+    if (ids.has(paperExperimentId(observation.symbol, snapshot.tradingDate))) continue;
+    const market = getStockByCode(observation.symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+    const experiment = createPaperExperiment(snapshot, observation, capturePaperCostModel(market));
+    if (!experiment) continue;
+    ledger.experiments.push(experiment);
+    ids.add(experiment.id);
+    openedCount++;
+  }
+  const result: PaperScanResult = {
+    snapshotId: snapshot.id, asOf: snapshot.asOf, candidateCount: snapshot.observations.length,
+    observedCount: snapshot.observations.filter((item) => item.price !== null).length,
+    openedCount, completedCount,
+    missingPriceCount: snapshot.observations.filter((item) => item.price === null).length,
+    marketOpen: snapshot.marketOpen,
+    issues: snapshot.observations.flatMap((item) => item.issue ? [`${item.symbol}:${item.issue}`] : []),
+  };
+  ledger.lastRun = result;
+  savePaperExperimentLedger(ledger);
+  return result;
+}
+
+export function runPaperExperimentScan(): Promise<PaperScanResult> {
+  if (!running) running = scan().finally(() => { running = null; });
+  return running;
+}
+
+export function getPaperExperimentView(): PaperExperimentView {
+  return buildPaperExperimentView(loadPaperExperimentLedger());
+}

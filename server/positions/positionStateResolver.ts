@@ -8,7 +8,7 @@ import type {
   NormalizedPosition,
   PositionSourceAggregate,
 } from '../telegram/commands/positions/positionSourceTypes.js';
-import { calculateRegimePositionSizing } from '../trading/sizing/regimePositionPolicy.js';
+import { calculateEntryPositionSizing } from '../trading/sizing/entrySizingPolicy.js';
 import type {
   TradeLifecycleOutcome,
   TradeLifecycleState,
@@ -351,13 +351,13 @@ export async function calculatePositionSlotsBySsot(input: {
   sourceAggregate?: PositionSourceAggregate;
   readers?: PositionSourceReaderMap;
   now?: Date;
-}): Promise<ReturnType<typeof calculateRegimePositionSizing>> {
+}): Promise<ReturnType<typeof calculateEntryPositionSizing>> {
   const currentPositions = await getCurrentPositionCount(input.modePreference ?? 'SHADOW_FIRST', {
     sourceAggregate: input.sourceAggregate,
     readers: input.readers,
     now: input.now,
   });
-  const sizing = calculateRegimePositionSizing({
+  const sizing = calculateEntryPositionSizing({
     regime: input.regime,
     totalEquity: input.totalEquity,
     currentPositions,

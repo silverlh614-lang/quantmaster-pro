@@ -18,7 +18,6 @@ import {
 import { FAILURE_BLOCK_THRESHOLD_PCT } from '../helpers.js';
 import type { BuyListLoopContext } from '../types.js';
 import {
-  calculateRegimePositionSizing,
   formatKellyRemovedIgnoredLog,
   formatPositionPolicySimpleAppliedLog,
 } from '../../../sizing/regimePositionPolicy.js';
@@ -26,6 +25,7 @@ import {
   calculatePositionSlotsBySsot,
   hasOpenPosition,
 } from '../../../../positions/positionStateResolver.js';
+import { calculateEntryPositionSizing } from '../../../sizing/entrySizingPolicy.js';
 import { logDecisionEvent } from '../../../../observability/decisionLogCorrelation.js';
 
 export type SizingTierFinalDecision = Extract<ReturnType<typeof sizingTierDecider>, { ok: true }>['tierDecision'];
@@ -84,7 +84,7 @@ export async function sizingTierDeciderFinal(
     regime: ctx.regime,
     totalEquity: ctx.totalAssets,
     modePreference: 'SHADOW_FIRST',
-  }).catch(() => calculateRegimePositionSizing({
+  }).catch(() => calculateEntryPositionSizing({
     regime: ctx.regime,
     totalEquity: ctx.totalAssets,
     currentPositions: params.currentActive + ctx.mutables.reservedSlots.value,

@@ -17,7 +17,6 @@ import { applySupplyProviderHealthFromKisFlow } from '../../../clients/kisClient
 import { verifyStockIncremental } from '../../../data/dataVerificationIncremental.js';
 import {
   isOpenShadowStatus,
-  calculateOrderQuantity,
 } from '../../entryEngine.js';
 import {
   MAX_INTRADAY_POSITIONS,
@@ -27,18 +26,22 @@ import {
 } from '../../../screener/intradayScanner.js';
 import { type ApprovalAction } from '../../../telegram/buyApproval.js';
 import { setLastBuySignalAt, recordPipelineStage } from '../scanDiagnostics.js';
-import { getPrice, buildExposureBudgetMacroInput, computeSizingLiquidityInputs } from './helpers.js';
+import { getPrice, buildExposureBudgetMacroInput } from './helpers.js';
+import {
+  calculateOrderQuantity,
+  ENTRY_SIZING_SOURCE,
+  calculateEntryPositionSizing,
+  applyExposureBudgetCap,
+} from '../../sizing/entrySizingPolicy.js';
+import { resolveCandidatePositionFloor, formatShadowBullFloorLog } from '../../sizing/shadowBullExposureProfile.js';
 import type { IntradayLoopContext } from './types.js';
 // ADR-0163 Phase 2-D Extension — INTRADAY_STRONG 경로 SHADOW only 사이징 엔진 wiring.
 // ADR-0166 — Exposure Budget cap 추가 (default OFF).
 // ADR-0167 — currentEquityExposureAmount 정확 산출 (default OFF, ENV `POSITION_SIZING_ACCURATE_EXPOSURE_ENABLED=true`).
-import { applyPositionSizingEngine, applyExposureBudgetCap } from '../../sizing/positionSizingEngineWiring.js';
 import { resolveCurrentEquityExposure } from '../../sizing/currentEquityExposure.js';
-import { calculateRegimePositionSizing } from '../../sizing/regimePositionPolicy.js';
 // ADR-0171 — 10 필드 SSOT formatter (default OFF, ENV `SIZING_EXPOSURE_BUDGET_VERBOSE_LOG=true`).
 import { formatExposureBudgetLog } from '../../sizing/regimeExposurePolicy.js';
 // PATCH-010 후속 — Shadow Bull Exposure Floor (INTRADAY 경로 wiring, ENV default OFF).
-import { resolveCandidatePositionFloor, formatShadowBullFloorLog } from '../../sizing/shadowBullExposureProfile.js';
 // P3-1 (shadow-exec-singlepath): INTRADAY SHADOW paper-fill 은 5-event 정본 경로
 //   (buyPipeline.executeShadowBuyOrder)가 단독 수행. onApproved 재호출(no-op)은 제거됨.
 import {
@@ -161,7 +164,7 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             : Math.round(shadowEntryPrice * (1 + INTRADAY_TARGET_PCT));
 
           // Simplification Step 2: intraday also uses regime-only position sizing.
-          const simpleIntradaySizing = calculateRegimePositionSizing({
+          const simpleIntradaySizing = calculateEntryPositionSizing({
             regime: ctx.regime,
             totalEquity: ctx.totalAssets,
             currentPositions: currentIntradayActive,
@@ -192,33 +195,11 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             positionPct: effectivePositionPct,
             price: shadowEntryPrice,
             remainingSlots,
-            accountKellyMultiplier: 1.0,
           });
 
           if (legacyIntradayQty < 1) continue;
 
-          // ── ADR-0163 (Phase 2-D Extension): INTRADAY_STRONG 경로 wiring ──
-          // BUY 매핑 (장중 강세 = 보수적 진입) + 100% (분할 없음).
-          // ADR-0172: currentSectorWeight 실데이터 교체.
-          // INTRADAY 는 rrr=0 → rrrMultiplier=0 → engine blocked → legacy fallback 경로 유지.
-          // avgDailyVolume20d: INTRADAY 는 실시간 quote 미조회 — 큰 수 fallback 유지 (universe 차단 회피).
-          const _sizingInputIntra = computeSizingLiquidityInputs(
-            null,           // INTRADAY 경로는 Yahoo quote 미조회 — avgVolume fallback 유지
-            stock.code,
-            stock.sector,
-            ctx.shadows,
-          );
-          const sizingApplyIntra = applyPositionSizingEngine(ctx.shadowMode, {
-            totalAssets: ctx.totalAssets, shadowEntryPrice, stopLoss: intradayStop,
-            signalGrade: 'BUY', regimeKelly: 1.0, confidenceModifier: 1.0,
-            rrr: 0,  // INTRADAY 는 RRR 평가 부재 — 본 모듈 rrrMultiplier=0 → engine 차단 → legacy fallback
-            marketCap: 1_000_000_000_000_000, avgDailyVolume20d: 1_000_000_000_000_000,
-            currentSectorWeight: _sizingInputIntra.currentSectorWeight, // ADR-0172
-            isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
-            enemyChecklistPassed: true, highDataReliability: true, gate1AllPassed: true,
-            notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
-          });
-          const baseIntradayQty = sizingApplyIntra.applied ? sizingApplyIntra.quantity : legacyIntradayQty;
+          const baseIntradayQty = legacyIntradayQty;
           // ── ADR-0166: INTRADAY_STRONG 노출 예산 cap (default OFF) ──
           const exposureCapIntra = applyExposureBudgetCap({
             rawQuantity: baseIntradayQty,
@@ -284,19 +265,8 @@ export async function evaluateIntradayList(ctx: IntradayLoopContext): Promise<vo
             quantityAfterHealth = Math.max(0, Math.floor(intradayHealthDecision.positionSizeAfterHealth ?? quantity));
             if (quantityAfterHealth < 1) continue;
           }
-          const sizingSourceIntra = sizingApplyIntra.sizingSource;
-          const sizingEngineSnapshotIntra = sizingApplyIntra.applied && sizingApplyIntra.result ? {
-            tierName: sizingApplyIntra.result.tier.name, basePct: sizingApplyIntra.result.basePct,
-            finalPositionPct: sizingApplyIntra.result.finalPositionPct, finalPositionKrw: sizingApplyIntra.result.finalPosition,
-            drawdownMultiplier: sizingApplyIntra.result.drawdownMultiplier, lossStreakMultiplier: sizingApplyIntra.result.lossStreakMultiplier,
-            liquidityMultiplier: sizingApplyIntra.result.liquidityMultiplier, sectorExposureMultiplier: sizingApplyIntra.result.sectorExposureMultiplier,
-            expectedStopLossDamagePct: sizingApplyIntra.result.expectedStopLossDamagePct,
-            signalPriorityApplied: sizingApplyIntra.result.signalPriorityApplied,
-            adjustmentReasons: sizingApplyIntra.result.adjustmentReasons, snapshotAt: new Date().toISOString(),
-          } : undefined;
-          if (sizingApplyIntra.applied) {
-            console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} (INTRADAY_STRONG) → tier=${sizingEngineSnapshotIntra!.tierName} qty=${quantityAfterHealth} (legacy=${legacyIntradayQty})`);
-          }
+          const sizingSourceIntra = ENTRY_SIZING_SOURCE;
+          const sizingEngineSnapshotIntra = undefined;
 
           // C3 수정: regimeStopLoss = intradayStop → exitEngine 일관된 손절 계산
           const intradayStopPlan = {

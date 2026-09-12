@@ -245,18 +245,8 @@ export const touchHeartbeat = (source: string) => {
 };
 
 // ─── 런타임 운영 모드 — Kill Switch Cascade 로 강등 가능 ─────────────────────────
-// 기본값은 env 의 AUTO_TRADE_MODE. 강등 발생 시 메모리 상에서 SHADOW 로 덮어쓴다.
-// 재시작 시 env 값으로 복원 — 스냅샷(Phase 5) 도입 시 영속화 예정.
+// Legacy names map to the canonical execution mode below.
 type TradingMode = 'LIVE' | 'PAPER' | 'SHADOW' | 'MANUAL';
-let RUNTIME_MODE: TradingMode | null = null;
-
-function readEnvMode(): TradingMode {
-  const raw = (process.env.AUTO_TRADE_MODE ?? 'SHADOW').toUpperCase();
-  if (raw === 'LIVE') return 'LIVE';
-  if (raw === 'PAPER' || raw === 'VTS') return 'PAPER';
-  if (raw === 'SHADOW') return 'SHADOW';
-  return 'MANUAL';
-}
 
 // ─── ADR-0393 P1 — ExecutionMode 3-state SSOT ───────────────────────────────
 //
@@ -299,11 +289,9 @@ let RUNTIME_EXECUTION_MODE: ExecutionMode | null = null;
  * MANUAL 반환 케이스 사라짐 — 기존 readEnvMode 가 unrecognized env value fallback 으로
  * 'MANUAL' 반환했지만 호출자 0건 (audit 검증). ADR-0393 안전 invariant 정합.
  *
- * RUNTIME_MODE (legacy) 가 있으면 우선 — 기존 setTradingMode 호출 (engineSnapshotRepo /
- * killSwitch 의 SHADOW 강등) 동작 보존. 둘 다 미설정 시 ExecutionMode SSOT 로 derive.
+ * ADR-0666: ExecutionMode 한 곳에서 파생한다. 별도 legacy override가 화면과 실제 실행을 갈라놓지 않는다.
  */
 export const getTradingMode = (): TradingMode => {
-  if (RUNTIME_MODE !== null) return RUNTIME_MODE;
   // ExecutionMode SSOT 에서 derive
   const exec = getExecutionMode();
   if (exec === 'LIVE') return 'LIVE';
@@ -314,7 +302,7 @@ export const getTradingMode = (): TradingMode => {
 /**
  * @deprecated Use {@link setExecutionMode} instead.
  *
- * ADR-0393 P1 — RUNTIME_MODE (legacy) + RUNTIME_EXECUTION_MODE 동시 동기화.
+ * ADR-0666 — legacy setter도 RUNTIME_EXECUTION_MODE 한 곳만 갱신한다.
  * 기존 호출자 (engineSnapshotRepo:99, killSwitch:152) 가 SHADOW 강등 시 ExecutionMode 도
  * OFF 로 자동 매핑. 신규 호출자는 setExecutionMode 직접 사용.
  *
@@ -325,7 +313,6 @@ export const getTradingMode = (): TradingMode => {
  *   TradingMode 'MANUAL' → ExecutionMode 'OFF' (legacy MANUAL 통합)
  */
 export const setTradingMode = (mode: TradingMode): void => {
-  RUNTIME_MODE = mode;
   // ExecutionMode 동기화 — ADR-0393 SSOT 일관성.
   if (mode === 'LIVE') RUNTIME_EXECUTION_MODE = 'LIVE';
   else if (mode === 'PAPER') RUNTIME_EXECUTION_MODE = 'PAPER';

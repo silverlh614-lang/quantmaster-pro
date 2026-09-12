@@ -10,6 +10,13 @@ import { requestKisWsSubscription } from '../../../../clients/kisWebSocketSubscr
 import { verifyStockIncremental } from '../../../../data/dataVerificationIncremental.js';
 import { buildEntryConditionScores } from '../../../../learning/entryConditionScores.js';
 import { addRecommendation } from '../../../../learning/recommendationTracker.js';
+import {
+  calculateOrderQuantity,
+  ENTRY_SIZING_SOURCE,
+  calculateEntryPositionSizing,
+  applyExposureBudgetCap,
+} from '../../../sizing/entrySizingPolicy.js';
+import { resolveCandidatePositionFloor, formatShadowBullFloorLog } from '../../../sizing/shadowBullExposureProfile.js';
 import type { TradingSignal } from '../../../../learning/supplyHealthLearning.js';
 import { isBlacklisted } from '../../../../persistence/blacklistRepo.js';
 import type { ServerShadowTrade } from '../../../../persistence/shadowTradeRepo.js';
@@ -28,19 +35,12 @@ import {
 import { getExecutionCostConfig } from '../../../executionCosts.js';
 import {
   buildStopLossPlan,
-  calculateOrderQuantity,
   formatStopLossBreakdown,
   isOpenShadowStatus,
 } from '../../../entryEngine.js';
 import { getRegimeGateBand } from '../../../gateConfig.js';
-import { applyExposureBudgetCap, applyPositionSizingEngine } from '../../../sizing/positionSizingEngineWiring.js';
 import { resolveCurrentEquityExposure } from '../../../sizing/currentEquityExposure.js';
 import { formatExposureBudgetLog } from '../../../sizing/regimeExposurePolicy.js';
-import {
-  formatShadowBullFloorLog,
-  resolveCandidatePositionFloor,
-} from '../../../sizing/shadowBullExposureProfile.js';
-import { calculateRegimePositionSizing } from '../../../sizing/regimePositionPolicy.js';
 import { shouldIncrementFailCount } from '../../failureClassifier.js';
 import { routePreBreakoutWaitToKisWs } from '../../preBreakoutKisWsPriorityRouting.js';
 import { evaluatePreBreakoutWait } from '../../preBreakoutWaitPolicy.js';
@@ -50,7 +50,6 @@ import {
 } from '../../shadowNearBreakoutEntryPolicy.js';
 import {
   buildExposureBudgetMacroInput,
-  computeSizingLiquidityInputs,
   getAdaptiveProfitTargets,
 } from '../helpers.js';
 import type { BuyListLoopContext } from '../types.js';
@@ -292,7 +291,7 @@ export async function preBreakoutEntry(input: PreBreakoutEntryInput): Promise<'S
           s.watchlistSource !== 'INTRADAY' &&
           s.watchlistSource !== 'PRE_BREAKOUT',
         ).length + ctx.mutables.reservedSlots.value;
-        const simpleSizingPb = calculateRegimePositionSizing({
+        const simpleSizingPb = calculateEntryPositionSizing({
           regime: ctx.regime,
           totalEquity: ctx.totalAssets,
           currentPositions: activePbPositions,
@@ -322,44 +321,10 @@ export async function preBreakoutEntry(input: PreBreakoutEntryInput): Promise<'S
           positionPct: effPosPctPb,
           price: pbEntryPrice,
           remainingSlots: remSlotsPb,
-          accountKellyMultiplier: 1.0,
         });
-        const _sizingInputPb = computeSizingLiquidityInputs(
-          accumulation.quote ?? null,
-          stock.code,
-          stock.sector,
-          ctx.shadows,
-        );
-        const sizingApplyPb = applyPositionSizingEngine(ctx.shadowMode, {
-          totalAssets: ctx.totalAssets, shadowEntryPrice: pbEntryPrice, stopLoss: stock.stopLoss,
-          signalGrade: 'BUY', regimeKelly: 1.0, confidenceModifier: 1.0,
-          rrr: stock.rrr ?? 0,
-          marketCap: 1_000_000_000_000_000,
-          avgDailyVolume20d: _sizingInputPb.avgDailyVolume20d,
-          currentSectorWeight: _sizingInputPb.currentSectorWeight,
-          isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
-          enemyChecklistPassed: true, highDataReliability: true, gate1AllPassed: true,
-          notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
-        });
-        const fullPbQty = sizingApplyPb.applied ? sizingApplyPb.quantity : legacyFullPbQty;
-        const sizingSourcePb = sizingApplyPb.sizingSource;
-        const sizingEngineSnapshotPb = sizingApplyPb.applied && sizingApplyPb.result ? {
-          tierName: sizingApplyPb.result.tier.name,
-          basePct: sizingApplyPb.result.basePct,
-          finalPositionPct: sizingApplyPb.result.finalPositionPct,
-          finalPositionKrw: sizingApplyPb.result.finalPosition,
-          drawdownMultiplier: sizingApplyPb.result.drawdownMultiplier,
-          lossStreakMultiplier: sizingApplyPb.result.lossStreakMultiplier,
-          liquidityMultiplier: sizingApplyPb.result.liquidityMultiplier,
-          sectorExposureMultiplier: sizingApplyPb.result.sectorExposureMultiplier,
-          expectedStopLossDamagePct: sizingApplyPb.result.expectedStopLossDamagePct,
-          signalPriorityApplied: sizingApplyPb.result.signalPriorityApplied,
-          adjustmentReasons: sizingApplyPb.result.adjustmentReasons,
-          snapshotAt: new Date().toISOString(),
-        } : undefined;
-        if (sizingApplyPb.applied) {
-          console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} (PRE_BREAKOUT 30%) → tier=${sizingEngineSnapshotPb!.tierName} qty=${fullPbQty} (legacy=${legacyFullPbQty})`);
-        }
+        const fullPbQty = legacyFullPbQty;
+        const sizingSourcePb = ENTRY_SIZING_SOURCE;
+        const sizingEngineSnapshotPb = undefined;
         const pbQtyRaw = Math.max(1, Math.floor(fullPbQty * 0.3));
         const exposureCapPb = applyExposureBudgetCap({
           rawQuantity: pbQtyRaw,

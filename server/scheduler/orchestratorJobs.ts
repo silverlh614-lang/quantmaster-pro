@@ -7,12 +7,15 @@ import { tradingOrchestrator } from '../orchestrator/tradingOrchestrator.js';
 import { checkDailyLossLimit } from '../emergency.js';
 import { runKillSwitchCheck } from '../trading/killSwitch.js';
 import { forceRefreshKisTokens } from '../clients/kisClient.js';
-import { getAutoTradePaused, getEmergencyStop, touchHeartbeat } from '../state.js';
+import { getAutoTradePaused, getEmergencyStop, getTradingMode, touchHeartbeat } from '../state.js';
+import { runAutoSignalScan } from '../trading/scanDispatcher.js';
 import { scheduledJob } from './scheduleGuard.js';
 
 let kisTokenRefreshFailureStreak = 0;
 
 async function runOrchestratorTick(): Promise<void> {
+  // Shadow has one independent schedule; legacy market policy never drives its experiments.
+  if (getTradingMode() === 'SHADOW') return;
   touchHeartbeat('orchestrator');
   if (getEmergencyStop()) { console.warn('[Orchestrator] 비상 정지 — tick 건너뜀'); return; }
   if (getAutoTradePaused()) { console.warn('[Orchestrator] 소프트 일시정지 — tick 건너뜀'); return; }
@@ -20,6 +23,16 @@ async function runOrchestratorTick(): Promise<void> {
   if (process.env.AUTO_TRADE_ENABLED === 'true') {
     await checkDailyLossLimit().catch(console.error);
     await runKillSwitchCheck().catch(console.error);
+  }
+}
+
+async function runPaperExperimentTick(): Promise<void> {
+  if (getTradingMode() !== 'SHADOW' || getAutoTradePaused()) return;
+  touchHeartbeat('paper_experiments');
+  try {
+    await runAutoSignalScan();
+  } catch (error) {
+    console.warn('[PaperExperiments] scan failed:', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -76,6 +89,9 @@ async function forceRefreshKisTokenCron(label: string): Promise<void> {
 }
 
 export function registerOrchestratorJobs(): void {
+  // Observation/outcome processing continues independently of LIVE enable, regime and holidays.
+  scheduledJob('* * * * *', 'ALWAYS_ON', 'paper_experiments', runPaperExperimentTick, { timezone: 'UTC' });
+
   // KIS 토큰 강제 갱신 — **12시간 주기, 매일 실행**.
   // 주말도 포함 — 주말 해외 뉴스/공급망 스캔이 KIS 데이터 토큰을 쓰므로 365일 갱신.
   // PR-B-2: ALWAYS_ON — 토요일/일요일/공휴일에도 토큰 신선도 유지.

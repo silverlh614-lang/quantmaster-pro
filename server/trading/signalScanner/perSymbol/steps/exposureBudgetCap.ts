@@ -3,7 +3,7 @@
  */
 
 import type { WatchlistEntry } from '../../../../persistence/watchlistRepo.js';
-import { applyExposureBudgetCap } from '../../../sizing/positionSizingEngineWiring.js';
+import { applyExposureBudgetCap } from '../../../sizing/entrySizingPolicy.js';
 import { resolveCurrentEquityExposure } from '../../../sizing/currentEquityExposure.js';
 import { formatExposureBudgetLog } from '../../../sizing/regimeExposurePolicy.js';
 import { buildExposureBudgetMacroInput } from '../helpers.js';

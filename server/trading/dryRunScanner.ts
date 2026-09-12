@@ -5,6 +5,7 @@
  * 실제 주문 없이 현재 파이프라인 상태에서 어떤 종목에 어떤 신호가 발생하는지
  * 평가한다. runAutoSignalScan()의 핵심 의사결정 로직을 부작용 없이 재현한다.
  */
+import { calculateOrderQuantity } from './sizing/entrySizingPolicy.js';
 import { loadWatchlist } from '../persistence/watchlistRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
@@ -21,7 +22,6 @@ import { resolveCanonicalRegimeLevel } from './regime/canonicalRegimeAccess.js';
 import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import {
   isOpenShadowStatus,
-  calculateOrderQuantity,
   reconcileDayOpen,
   evaluateEntryRevalidation,
   buildStopLossPlan,

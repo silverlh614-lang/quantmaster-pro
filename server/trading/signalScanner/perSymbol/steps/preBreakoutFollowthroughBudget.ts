@@ -2,24 +2,25 @@
  * @responsibility ADR-0019 pre-breakout followthrough budget sizing extracted from buyListLoop.
  */
 
+import {
+  calculateOrderQuantity,
+  ENTRY_SIZING_SOURCE,
+  calculateEntryPositionSizing,
+  applyExposureBudgetCap,
+} from '../../../sizing/entrySizingPolicy.js';
+import { resolveCandidatePositionFloor, formatShadowBullFloorLog } from '../../../sizing/shadowBullExposureProfile.js';
 import type { ServerShadowTrade } from '../../../../persistence/shadowTradeRepo.js';
 import type { WatchlistEntry } from '../../../../persistence/watchlistRepo.js';
 import { applySupplyProviderHealthFromKisFlow } from '../../../../clients/kisClient/investorFlowSupplyHealthBridge.js';
 import { RRR_MIN_THRESHOLD, calcRRR } from '../../../riskManager.js';
 import { getExecutionCostConfig } from '../../../executionCosts.js';
-import { isOpenShadowStatus, calculateOrderQuantity } from '../../../entryEngine.js';
+import { isOpenShadowStatus } from '../../../entryEngine.js';
 import {
   fetchGateData,
 } from '../../../buyPipeline.js';
-import { buildExposureBudgetMacroInput, computeSizingLiquidityInputs } from '../helpers.js';
-import { applyExposureBudgetCap, applyPositionSizingEngine } from '../../../sizing/positionSizingEngineWiring.js';
+import { buildExposureBudgetMacroInput } from '../helpers.js';
 import { resolveCurrentEquityExposure } from '../../../sizing/currentEquityExposure.js';
 import { formatExposureBudgetLog } from '../../../sizing/regimeExposurePolicy.js';
-import {
-  formatShadowBullFloorLog,
-  resolveCandidatePositionFloor,
-} from '../../../sizing/shadowBullExposureProfile.js';
-import { calculateRegimePositionSizing } from '../../../sizing/regimePositionPolicy.js';
 import { readCandidateDartSlot } from '../../injectPerSymbolDartContext.js';
 import type { BuyListLoopContext } from '../types.js';
 
@@ -69,7 +70,7 @@ export async function preBreakoutFollowthroughBudget(
     s.watchlistSource !== 'INTRADAY' &&
     s.watchlistSource !== 'PRE_BREAKOUT',
   ).length + ctx.mutables.reservedSlots.value;
-  const simpleSizingFollow = calculateRegimePositionSizing({
+  const simpleSizingFollow = calculateEntryPositionSizing({
     regime: ctx.regime,
     totalEquity: ctx.totalAssets,
     currentPositions: activeFollowPositions,
@@ -100,47 +101,11 @@ export async function preBreakoutFollowthroughBudget(
     positionPct: effPosPctFollow,
     price: followEntryPrice,
     remainingSlots: remSlots,
-    accountKellyMultiplier: 1.0,
   });
 
-  const _sizingInputFollow = computeSizingLiquidityInputs(
-    reCheckQuoteFollow ?? null,
-    stock.code,
-    stock.sector,
-    ctx.shadows,
-  );
-  const sizingApplyFollow = applyPositionSizingEngine(ctx.shadowMode, {
-    totalAssets: ctx.totalAssets, shadowEntryPrice: followEntryPrice, stopLoss: stock.stopLoss,
-    signalGrade: 'BUY', regimeKelly: 1.0, confidenceModifier: 1.0,
-    rrr: stock.rrr ?? 0,
-    marketCap: 1_000_000_000_000_000,
-    avgDailyVolume20d: _sizingInputFollow.avgDailyVolume20d,
-    currentSectorWeight: _sizingInputFollow.currentSectorWeight,
-    isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
-    enemyChecklistPassed: true, highDataReliability: true, gate1AllPassed: true,
-    notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
-  });
-  const fullQty = sizingApplyFollow.applied ? sizingApplyFollow.quantity : legacyFullQty;
-  const sizingSourceFollow = sizingApplyFollow.sizingSource;
-  const sizingEngineSnapshotFollow = sizingApplyFollow.applied && sizingApplyFollow.result ? {
-    tierName: sizingApplyFollow.result.tier.name,
-    basePct: sizingApplyFollow.result.basePct,
-    finalPositionPct: sizingApplyFollow.result.finalPositionPct,
-    finalPositionKrw: sizingApplyFollow.result.finalPosition,
-    drawdownMultiplier: sizingApplyFollow.result.drawdownMultiplier,
-    lossStreakMultiplier: sizingApplyFollow.result.lossStreakMultiplier,
-    liquidityMultiplier: sizingApplyFollow.result.liquidityMultiplier,
-    sectorExposureMultiplier: sizingApplyFollow.result.sectorExposureMultiplier,
-    expectedStopLossDamagePct: sizingApplyFollow.result.expectedStopLossDamagePct,
-    signalPriorityApplied: sizingApplyFollow.result.signalPriorityApplied,
-    adjustmentReasons: sizingApplyFollow.result.adjustmentReasons,
-    snapshotAt: new Date().toISOString(),
-  } : undefined;
-  if (sizingApplyFollow.applied) {
-    console.log(
-      `[Sizing-NewEngine] ${stock.code} ${stock.name} (PRE_BREAKOUT_FOLLOWTHROUGH) → tier=${sizingEngineSnapshotFollow!.tierName} qty=${fullQty} (legacy=${legacyFullQty})`,
-    );
-  }
+  const fullQty = legacyFullQty;
+  const sizingSourceFollow = ENTRY_SIZING_SOURCE;
+  const sizingEngineSnapshotFollow = undefined;
 
   const followQtyRaw = Math.max(1, Math.ceil(fullQty * 0.7));
   const exposureCapFollow = applyExposureBudgetCap({

@@ -13,6 +13,11 @@
 
 import { logNoiseDetail, logVisibilityEvent } from '../../../utils/logger.js';
 
+import {
+  calculateOrderQuantity,
+  ENTRY_SIZING_SOURCE,
+} from '../../sizing/entrySizingPolicy.js';
+import { resolveCandidatePositionFloor, formatShadowBullFloorLog } from '../../sizing/shadowBullExposureProfile.js';
 import type { WatchlistEntry } from '../../../persistence/watchlistRepo.js';
 import {
   MAX_SECTOR_CONCENTRATION,
@@ -51,7 +56,6 @@ import { verifyStockIncremental } from '../../../data/dataVerificationIncrementa
 // ADR-0191 §Wiring 2 — 자기 보유 가드 SSOT (positionTruth) — 동일 종목 12회 매수 (물타기) 차단.
 import {
   isOpenShadowStatus,
-  calculateOrderQuantity,
 } from '../../entryEngine.js';
 import { checkCooldownRelease } from '../../regretAsymmetryFilter.js';
 import { getKstIntradaySession } from '../emptyScanTaxonomy.js';
@@ -96,16 +100,13 @@ import { deriveGateDecisionRouterResult } from '../gateDecisionRouter.js';
 //   onApproved 콜백이 ctx.shadows.push 만 하고 saveShadowTrades 미호출하던 결함 차단.
 //   status PENDING → ACTIVE 전이 + INITIAL_BUY fill 영속 + [Shadow 체결] Telegram + 멱등 가드.
 //   LIVE 매매 본체 0줄 변경 — SHADOW path 만 영향 (mode='LIVE' 시 NOT_SHADOW skip).
-import { getAdaptiveProfitTargets, computeSizingLiquidityInputs, type SymbolExitContext } from './helpers.js';
+import { getAdaptiveProfitTargets, type SymbolExitContext } from './helpers.js';
 import type { BuyListLoopContext } from './types.js';
 // ADR-0516 — Watchlist Tier 정책: KIS REST 호출 빈도 차등화 SSOT.
 //   MOMENTUM_PASSIVE / KIS_LOAD_STATE=RED 등 tier 정책이 REST fallback 을 차단하면
 //   getPrice 가 null 반환 → FAIL 아닌 SKIP_TIER_PASSIVE_NO_REST 로 처리 (DATA_VACUUM /
 //   providerIssue / marketSignal / NEW_BUY_BLOCKED 으로 격상 금지).
-// ADR-0162 Phase 2-D — SHADOW only 사이징 엔진 wiring (default OFF, ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 활성화).
-import { applyPositionSizingEngine } from '../../sizing/positionSizingEngineWiring.js';
 // PATCH-010 — Shadow Bull Exposure Floor (default OFF, ENV `SHADOW_BULL_EXPOSURE_FLOOR_ENABLED=true` 명시 활성화).
-import { resolveCandidatePositionFloor, formatShadowBullFloorLog } from '../../sizing/shadowBullExposureProfile.js';
 import {
   type TradingSignal,
 } from '../../../learning/supplyHealthLearning.js';
@@ -702,72 +703,15 @@ export async function evaluateBuyList(ctx: BuyListLoopContext): Promise<void> {
         positionPct: laggingCappedPositionPct,
         price: shadowEntryPrice,
         remainingSlots,
-        accountKellyMultiplier: 1.0,
       });
 
       if (legacyQuantity < 1) continue;
 
-      // ── ADR-0162 Phase 2-D: 신규 6 티어 × 7축 사이징 엔진 (SHADOW only, ENV default OFF) ──
-      // 활성 조건: stockShadowMode=true + ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true`.
-      // LIVE 모드는 본 분기 자동 skip — 기존 SSOT 결과 (legacyQuantity) 100% 보존.
-      // 매핑 실패 / engine blocked / quantity<1 시 안전 fallback (legacyQuantity 사용).
-      // ADR-0172: reCheckQuote 실데이터로 유동성·섹터 입력 교체.
-      const _sizingInputMain = computeSizingLiquidityInputs(
-        reCheckQuote ?? null,
-        stock.code,
-        stock.sector,
-        ctx.shadows,
-      );
-      const sizingApply = applyPositionSizingEngine(stockShadowMode, {
-        totalAssets: ctx.totalAssets,
-        shadowEntryPrice,
-        stopLoss: stock.stopLoss,
-        signalGrade: 'BUY',
-        regimeKelly: 1.0,
-        confidenceModifier,
-        rrr: stock.rrr ?? 0,
-        // marketCap: Yahoo Finance chart API 에서 미제공 — universe 차단 회피 위해 큰 수 유지.
-        // 후속 PR: KIS 기업 정보 API (CTPF1002R) 결합 후 실값 전달 예정.
-        marketCap: 1_000_000_000_000_000,
-        avgDailyVolume20d: _sizingInputMain.avgDailyVolume20d,   // ADR-0172: reCheckQuote.vol20dAvg × price
-        currentSectorWeight: _sizingInputMain.currentSectorWeight, // ADR-0172: shadows 기준 동일 섹터 비중
-        isNormalRegime: ctx.regime === 'R1_TURBO' || ctx.regime === 'R2_BULL' || ctx.regime === 'R3_EARLY',
-        enemyChecklistPassed: true,        // 도달 시점 enemyAutoBlock 통과 확정
-        highDataReliability: true,         // 안전 default — 후속 PR 에서 sourceTier 결합
-        gate1AllPassed: true,              // 도달 시점 entryRevalidation 통과 확정 (Gate1 만점)
-        notInDowntrend: ctx.regime !== 'R6_DEFENSE' && ctx.regime !== 'R5_CAUTION',
-      });
-
-      const baseQuantity = sizingApply.applied ? sizingApply.quantity : legacyQuantity;
+      const baseQuantity = legacyQuantity;
 
       const finalQuantity = exposureBudgetCap(ctx, stock, shadowEntryPrice, baseQuantity);
-      const sizingSource = sizingApply.sizingSource;
-      const sizingEngineSnapshot = sizingApply.applied && sizingApply.result ? {
-        tierName:               sizingApply.result.tier.name,
-        basePct:                sizingApply.result.basePct,
-        finalPositionPct:       sizingApply.result.finalPositionPct,
-        finalPositionKrw:       sizingApply.result.finalPosition,
-        drawdownMultiplier:     sizingApply.result.drawdownMultiplier,
-        lossStreakMultiplier:   sizingApply.result.lossStreakMultiplier,
-        liquidityMultiplier:    sizingApply.result.liquidityMultiplier,
-        sectorExposureMultiplier: sizingApply.result.sectorExposureMultiplier,
-        expectedStopLossDamagePct: sizingApply.result.expectedStopLossDamagePct,
-        signalPriorityApplied:  sizingApply.result.signalPriorityApplied,
-        adjustmentReasons:      sizingApply.result.adjustmentReasons,
-        snapshotAt:             new Date().toISOString(),
-      } : undefined;
-
-      if (sizingApply.applied) {
-        console.log(
-          `[Sizing-NewEngine] ${stock.code} ${stock.name} → tier=${sizingEngineSnapshot!.tierName} ` +
-          `qty=${finalQuantity} (legacy=${legacyQuantity}) ` +
-          `pct=${(sizingEngineSnapshot!.finalPositionPct * 100).toFixed(2)}% ` +
-          `damage=${(sizingEngineSnapshot!.expectedStopLossDamagePct * 100).toFixed(2)}%`,
-        );
-      } else if (sizingApply.skipReason && sizingApply.skipReason !== 'ENV_DISABLED' && sizingApply.skipReason !== 'LIVE_MODE') {
-        // ENV_DISABLED / LIVE_MODE 는 정상 운영 경로 — 로그 노이즈 차단.
-        console.log(`[Sizing-NewEngine] ${stock.code} ${stock.name} → skip ${sizingApply.skipReason} (legacy 사용)`);
-      }
+      const sizingSource = ENTRY_SIZING_SOURCE;
+      const sizingEngineSnapshot = undefined;
 
       const rawSignalLevel: TradingSignal = 'BUY';
       const supplyRouting = supplyHealthRouting({

@@ -14,6 +14,8 @@
 import type { ServerShadowTrade } from '../persistence/shadowTradeRepo.js';
 import type { ExitRuleTag } from '../persistence/shadowTradeRepo.js';
 import type { DynamicStopRegime } from '../../src/types/sell.js';
+import type { EntryOrderSizingInput, EntryOrderSizingResult } from '../../src/types/entrySizing.js';
+import { calculateOrderQuantity as calculateEntryOrderQuantity } from './sizing/entrySizingPolicy.js';
 import { evaluateDynamicStop } from '../../src/services/quant/dynamicStopEngine.js';
 import { callGemini } from '../clients/geminiClient.js';
 import { buildConditionBoostHint } from '../learning/conditionBoostHints.js';
@@ -195,27 +197,14 @@ export function formatStopLossBreakdown(plan: StopLossPlan): string {
 
 // ── Position Sizing ────────────────────────────────────────────────────────────
 
-export interface PositionSizingInput {
-  totalAssets: number;
-  orderableCash: number;
-  positionPct: number;
-  price: number;
-  remainingSlots: number;
+/** Compatibility input; accountKellyMultiplier has no effect on allocation. */
+export interface PositionSizingInput extends EntryOrderSizingInput {
   accountKellyMultiplier?: number;
 }
 
-export function calculateOrderQuantity(input: PositionSizingInput): { quantity: number; effectiveBudget: number } {
-  if (input.price <= 0 || input.remainingSlots <= 0 || input.orderableCash <= 0) {
-    return { quantity: 0, effectiveBudget: 0 };
-  }
-  // Simplification Step 2: accountKellyMultiplier is legacy compatibility only.
-  const targetBudget = Math.max(0, input.totalAssets * input.positionPct);
-  const slotBudget = input.orderableCash / input.remainingSlots;
-  const effectiveBudget = Math.max(0, Math.min(input.orderableCash, targetBudget, slotBudget));
-  return {
-    quantity: Math.floor(effectiveBudget / input.price),
-    effectiveBudget,
-  };
+/** @deprecated Active entry callers use sizing/entrySizingPolicy. */
+export function calculateOrderQuantity(input: PositionSizingInput): EntryOrderSizingResult {
+  return calculateEntryOrderQuantity(input);
 }
 
 // ── Entry Revalidation ─────────────────────────────────────────────────────────

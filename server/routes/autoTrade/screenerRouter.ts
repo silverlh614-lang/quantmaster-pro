@@ -21,11 +21,12 @@ import {
 import { loadWatchlist } from '../../persistence/watchlistRepo.js';
 import { getDartAlerts } from '../../persistence/dartRepo.js';
 import { pollDartDisclosures } from '../../alerts/dartPoller.js';
+import { getTradingMode } from '../../state.js';
 
 const router = Router();
 
 router.post('/auto-trade/scan', async (_req: any, res: any) => {
-  if (process.env.AUTO_TRADE_ENABLED !== 'true') {
+  if (getTradingMode() !== 'SHADOW' && process.env.AUTO_TRADE_ENABLED !== 'true') {
     return res.status(403).json({ error: 'AUTO_TRADE_ENABLED=true 필요' });
   }
   try {

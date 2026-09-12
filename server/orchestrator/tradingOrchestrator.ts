@@ -1,5 +1,6 @@
 // @responsibility tradingOrchestrator 오케스트레이터 모듈
 import fs from 'fs';
+import { calculateOrderQuantity } from '../trading/sizing/entrySizingPolicy.js';
 import { ORCHESTRATOR_STATE_FILE, ensureDataDir } from '../persistence/paths.js';
 import { loadWatchlist, saveWatchlist } from '../persistence/watchlistRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
@@ -17,7 +18,7 @@ import { getTradingMode } from '../state.js';
 import { preScreenStocks, autoPopulateWatchlist, sendWatchlistRejectionReport, maybeRefreshScreenerIntraday } from '../screener/stockScreener.js';
 import { generateDailyReport } from '../alerts/reportGenerator.js';
 import { isRealTradeReady } from '../learning/recommendationTracker.js';
-import { calculateOrderQuantity, isOpenShadowStatus } from '../trading/entryEngine.js';
+import { isOpenShadowStatus } from '../trading/entryEngine.js';
 import { decideScan, recordScanResult } from './adaptiveScanScheduler.js';
 import { learningOrchestrator } from './learningOrchestrator.js';
 import { shouldRunMonthlyEvolution, getLearningInterval } from '../learning/adaptiveLearningClock.js';

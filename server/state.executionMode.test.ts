@@ -6,6 +6,7 @@ import {
   readEnvExecutionMode,
   __resetExecutionModeForTests,
   getTradingMode,
+  setTradingMode,
   type ExecutionMode,
 } from './state.js';
 
@@ -108,6 +109,21 @@ describe('getExecutionMode + setExecutionMode (ADR-0393 §P1-1)', () => {
 });
 
 describe('getTradingMode deprecated wrapper (ADR-0393 §P1-1)', () => {
+  it('uses the canonical mode after a legacy Shadow override', () => {
+    setTradingMode('SHADOW');
+    expect(getTradingMode()).toBe('SHADOW');
+    setExecutionMode('LIVE');
+    expect(getExecutionMode()).toBe('LIVE');
+    expect(getTradingMode()).toBe('LIVE');
+    setExecutionMode('PAPER');
+    expect(getTradingMode()).toBe('PAPER');
+  });
+
+  it('maps the legacy MANUAL alias to the same non-broker mode', () => {
+    setTradingMode('MANUAL');
+    expect(getExecutionMode()).toBe('OFF');
+    expect(getTradingMode()).toBe('SHADOW');
+  });
   it('ExecutionMode LIVE → TradingMode LIVE', () => {
     setExecutionMode('LIVE');
     expect(getTradingMode()).toBe('LIVE');

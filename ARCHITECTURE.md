@@ -7,6 +7,18 @@ When modifying any file, ensure changes stay within the owning module's stated r
 
 ## Module Boundaries
 
+### Default Shadow experiments (ADR-0666)
+
+The public scan dispatcher selects `server/trading/paper/paperExperimentRunner.ts` in SHADOW mode before legacy preflight or Gate evaluation. The scheduler and manual API use the same runner; the Shadow screen reads its experiment view. The runner owns collection, independent one-share entries, exact-date D1/D3/D5 outcomes and persistence in `paper-experiments.json`. `src/types/paperExperiment.ts` defines the contract. Legacy regime, Kelly, approval, account-slot and global learning policies are outside this path. Existing LIVE/PAPER execution and historical trade ledgers remain separate.
+
+News and price trends are entry-time observations for comparison, not initial eligibility filters. Independent experiment returns are not account portfolio returns. Missing or future prices cannot become completed outcomes. No automatic promotion or broker-order dependency belongs in this module.
+
+### Entry sizing boundary (ADR-0665)
+
+`server/trading/sizing/entrySizingPolicy.ts` owns active entry quantity and exposure budget calculations. Standard, intraday, pre-breakout, followthrough, pre-market and dry-run consumers use this boundary; tranche exposure uses the same cap. `src/types/entrySizing.ts` defines its quantity contract without Kelly inputs. The current regime allocation table remains an explicitly named legacy policy adapter. The old `entryEngine.calculateOrderQuantity` and wiring exposure exports delegate to this boundary for compatibility.
+
+The disabled tier/Kelly engine has no place in those four scanner entry paths. Historical `EntryKellySnapshot`, `sizingSource` and optional sizing snapshots remain compatible. Gate/exit regime policy, broker execution and learning writers retain their existing ownership; this boundary does not claim to consolidate them.
+
 > **Path note**: `src/` contains frontend and shared source; `server/` (root-level) contains the standalone Express server (routes, clients).
 
 | Module | Single Responsibility (<= 25 words) |

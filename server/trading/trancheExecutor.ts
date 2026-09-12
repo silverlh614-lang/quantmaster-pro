@@ -11,7 +11,7 @@ import { loadShadowTrades, type ServerShadowTrade } from '../persistence/shadowT
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import { computeShadowAccount } from '../persistence/shadowAccountRepo.js';
 import { getTradingMode } from '../state.js';
-import { applyExposureBudgetCap } from './sizing/positionSizingEngineWiring.js';
+import { applyExposureBudgetCap } from './sizing/entrySizingPolicy.js';
 import { resolveCurrentEquityExposure } from './sizing/currentEquityExposure.js';
 import { requestBuyApproval } from '../telegram/buyApproval.js';
 import { deriveShadowApprovalContext } from '../telegram/shadowApprovalDedupeStore.js';

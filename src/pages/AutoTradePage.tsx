@@ -35,6 +35,7 @@ import { AutoTradeContextualLayout } from '../components/autoTrading/AutoTradeCo
 import { AccountSurvivalGauge } from '../components/autoTrading/AccountSurvivalGauge';
 import { TodayOneDecisionCard } from '../components/autoTrading/TodayOneDecisionCard';
 import { NightlyReflectionCard } from '../components/autoTrading/NightlyReflectionCard';
+import { PaperExperimentPanel } from '../components/autoTrading/PaperExperimentPanel';
 import { useAutoTradingDashboard } from '../hooks/useAutoTradingDashboard';
 import { useAutoTradeEngine } from '../hooks/autoTrade';
 import { useEngineArming } from '../hooks/autoTrade/useEngineArming';
@@ -43,8 +44,31 @@ import { useKillSwitchStatus } from '../hooks/autoTrade/useKillSwitchStatus';
 import { useEngineStream } from '../hooks/autoTrade/useEngineStream';
 import { useAlertsFeed } from '../hooks/autoTrade/useAlertsFeed';
 import { useSettingsStore } from '../stores/useSettingsStore';
+import { useEngineStatusQuery } from '../hooks/autoTrade/queries';
 
 export function AutoTradePage() {
+  const modeQuery = useEngineStatusQuery();
+  useEngineStream();
+
+  if (!modeQuery.data) {
+    if (modeQuery.isError) {
+      return (
+        <EmptyState
+          variant="error"
+          title="매매 모드를 확인할 수 없습니다"
+          description="서버 연결을 확인한 뒤 다시 시도해 주세요."
+          cta={{ label: '다시 시도', onClick: () => { void modeQuery.refetch(); }, variant: 'secondary' }}
+        />
+      );
+    }
+    return <LoadingState message="서버의 매매 모드를 확인하는 중입니다..." />;
+  }
+
+  if (modeQuery.data.mode === 'SHADOW') return <PaperExperimentPanel />;
+  return <LegacyAutoTradePage />;
+}
+
+function LegacyAutoTradePage() {
   const {
     data,
     loading,
@@ -79,8 +103,6 @@ export function AutoTradePage() {
 
   const heartbeat = useEngineHeartbeat();
   const killSwitch = useKillSwitchStatus();
-  // SSE 실시간 엔진 스트림 — 연결되면 5초 폴링은 cache-hit 로 흡수되어 무해.
-  useEngineStream();
   const { engineStatus, buyAudit, gateAudit, serverShadowTrades } = useAutoTradeEngine();
   const alertsFeed = useAlertsFeed();
 

@@ -5,10 +5,10 @@
  * ADR-0147 Phase B 마이그레이션 완료.
  * 기존의 거대한 1,820줄 로직은 signalScanner/ 폴더 내 6단계 오케스트레이터로
  * 완벽히 이식되었으며, 본 파일은 외부 모듈과의 하위 호환성을 유지하기 위한
- * Barrel re-export 역할만 담당합니다.
+ * ADR-0666: 공개 스캔은 SHADOW 실험과 기존 브로커 실행을 dispatcher에서 선택합니다.
  */
 
-export { runAutoSignalScan } from './signalScanner/index.js';
+export { runAutoSignalScan } from './scanDispatcher.js';
 
 export type {
   StopLossPlan,

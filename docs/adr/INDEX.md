@@ -14,7 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0665`**
+**다음 ADR 번호: `0667`**
+
+최근 발급: 2026-09-12, [0666 — Shadow 기준 실험으로 재시작](0666-shadow-first-experiments.md), Accepted. 같은 작업의 0665는 진입 사이징 경로 정리이며 아래 0664 설명은 이전 발급 기록이다.
 
 (2026-07-13 기준(원 작성 2026-06-19), 마지막 발급 0664 — **레짐 값 히스테리시스: effectiveRegime 디바운스**. **Status: Accepted (flag `REGIME_HYSTERESIS_ENABLED` default OFF byte-identical·구현 완료).** 운영자 후속 "레짐이 너무 왔다갔다함"(ADR-0663 알림 수정 후속 — 알림이 아니라 effectiveRegime 값 자체 진동) 근본 수리. 원인: getRegimeDiagnostics 정상 경로(R6 외) effectiveRegime=applyForcedDowngrade(rawRegime)로 raw 즉시 추종(regimeBridge.base.ts:981)·rawRegime 의 riskOnFastUpgradeEligible 이 isFetchFresh(now) TTL 경계 flap → R3 fast-upgrade 분기(regimeEngine.ts:295) 토글 → R3↔R4 즉시 진동(장중 Kelly/한도 thrash). 처방: 신규 순수 SSOT server/trading/regime/regimeHysteresis.ts applyRegimeHysteresis — 새 effective 후보가 minDwellMs(기본15분)+minConfirmations(기본2) 연속 충족 시만 채택·그 전 confirmed 유지(held)·교차 flap 은 pending 리셋되어 확정값 머무름(안정). getRegimeDiagnostics 가 evaluateR6RecoveryTransition 직후 applyRegimeHysteresisToState 후처리: 즉시 예외(r6RecoveryStatus≠NONE·computed/confirmed R6_DEFENSE → 디바운스 미적용, 블랙스완/복구 지연 금지)·정상 밴드만 디바운스(held 시 effective=confirmed·transitionReason=REGIME_HYSTERESIS_HOLD:<후보>·영속 pending). 영속 additive optional pendingEffectiveRegime/Since/Count(sanitizer default undefined·0 legacy 하위호환). ENV REGIME_HYSTERESIS_ENABLED(OFF·===true ADR-0157)·MIN_DWELL_MIN(15·상한120)·MIN_CONFIRMATIONS(2·하한1·상한20). flag OFF→computedState 그대로=byte-identical. 9대 불변식 #1(순수·throw0·R6 즉시 예외 방어 지연0)·#3/#9(raw 기존 파생·신규 fetch0·provider 직접조회0)·#4/#5(SourceSnapshot 불변·effective 만 안정화)·#6(freshness flap 디바운스 흡수·stale→신호 변환 아님)·#8(autoTradeEngine/kisClient/order 0줄·OFF byte-identical) 보존. executionImpact OFF=NONE/ON=effective 안정화(라이브 Kelly·maxPositions thrash 감소). Patch Scope Guard(ADR-530): targetDomain regime(1)·allowedFiles(regimeHysteresis.ts 신규·regimeBridge.base.ts import+helper+getRegimeDiagnostics 후처리·regimeTransitionStateRepo additive 3필드+sanitizer·regimeHysteresis.test.ts·regimeBridgeHysteresisAdr0664.test.ts·본 ADR·INDEX 0664→0665·10-patch-history·.env.example 3 ENV)·forbiddenFiles(SourceSnapshot·autoTradeEngine·kisClient·Gate0~3 채점·requiredScore=70·classifyRegime/buildRegimeVars 본체·evaluateR6RecoveryTransition R6 분기·applyForcedDowngrade/capRecoveryRegime·marketStateResolver·src/**)·rollback ENV 1줄(REGIME_HYSTERESIS_ENABLED=false). 검증: 신규 13 테스트(디바운스 6+ENV 3+wiring 4) PASS·인접 regime 144 PASS(flag OFF byte-identical)·lint EXIT0·complexity(regimeBridge.base 1227·regimeHysteresis 88<1500)·responsibility 0. Alternatives: 알림 계층만 종결 기각(값 thrash 잔존)·raw/classifyRegime 디바운스 기각(raw 는 정본·effective 측이 정당)·fast-upgrade freshness latch 기각(원인 단일 보장 없음·effective 디바운스가 모든 jitter 흡수)·default ON 기각(execution-adjacent opt-in)·downgrade 지연 우려 R6 즉시 예외로 해소. 계보 0663/0593/0630/0531/0157/0530. INDEX 0664 등재(다음 0664→0665 갱신 — 구 0641 발급이 main 병렬 0641 gate-flag-lifecycle-governance 와 충돌하여 0664 재발급).)
 
@@ -837,6 +839,8 @@
 | 0662 | dart-gate2-eval-fetch-unification | gate2 / dart-provider — 평가 경로 fetch 모듈 B 통일 + 단위 계약(ocfRatio%/ocfToNi배/icr배) + 배치 스로틀 |
 | 0663 | regime-transition-notice-anti-oscillation | regime notification (구 0640 재발급 — main 병렬 발급 충돌 해소) |
 | 0664 | regime-value-hysteresis | regime value stabilization (구 0641 재발급 — main 병렬 발급 충돌 해소) |
+| 0665 | entry-sizing-single-path | 진입 수량·노출 계산 경로 통일 및 비활성 Kelly 호출 제거 |
+| 0666 | shadow-first-experiments | 레짐·Kelly·Gate·승인 제약 없는 기본 Shadow 기준 실험 |
 
 **최대 발급 0664 · 다음 발급 0665** — `node scripts/check_adr_index.js --json` 기준 (2026-07-13 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 

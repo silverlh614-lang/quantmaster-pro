@@ -27,8 +27,25 @@ import { loadTradingSettings } from '../../persistence/tradingSettingsRepo.js';
 import { fetchCurrentPrice } from '../../clients/kisClient.js';
 import { getRealtimePrice } from '../../clients/kisStreamClient.js';
 import { getSectorByCode } from '../../screener/sectorMap.js';
+import { getPaperExperimentView, runPaperExperimentScan } from '../../trading/paper/paperExperimentRunner.js';
 
 const router = Router();
+
+router.get('/shadow/experiments', async (_req: any, res: any) => {
+  try {
+    res.json(await getPaperExperimentView());
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+router.post('/shadow/experiments/scan', async (_req: any, res: any) => {
+  try {
+    res.json(await runPaperExperimentScan());
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
 
 router.get('/auto-trade/shadow-trades', (_req: any, res: any) => {
   res.json(getShadowTrades());

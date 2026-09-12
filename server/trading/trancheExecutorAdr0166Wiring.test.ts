@@ -27,7 +27,7 @@ describe('audit-PR-520 §M2 — trancheExecutor 노출 예산 cap wiring', () =>
   describe('정적 grep 가드 — drift 차단', () => {
     it('applyExposureBudgetCap import 보유', () => {
       expect(SRC).toMatch(
-        /import\s+\{[^}]*\bapplyExposureBudgetCap\b[^}]*\}\s+from\s+['"]\.\/sizing\/positionSizingEngineWiring\.js['"]/,
+        /import\s+\{[^}]*\bapplyExposureBudgetCap\b[^}]*\}\s+from\s+['"]\.\/sizing\/entrySizingPolicy\.js['"]/,
       );
     });
 

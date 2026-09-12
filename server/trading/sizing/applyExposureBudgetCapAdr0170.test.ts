@@ -11,6 +11,7 @@ import {
   applyExposureBudgetCap,
   type ApplyExposureBudgetCapInput,
 } from './positionSizingEngineWiring.js';
+import { applyExposureBudgetCap as activeExposureBudgetCap } from './entrySizingPolicy.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -145,18 +146,18 @@ describe('ADR-0170 §4 호출자 정합 정적 가드 — drift 차단', () => {
     expect(src).toMatch(/macro:\s*buildExposureBudgetMacroInput\(ctx\.macroState\)/);
   });
 
-  it('positionSizingEngineWiring.ts — mapInternalToExposureRegimeWithMacro import', () => {
-    const src = readSrc('server/trading/sizing/positionSizingEngineWiring.ts');
+  it('entrySizingPolicy.ts — mapInternalToExposureRegimeWithMacro import', () => {
+    const src = readSrc('server/trading/sizing/entrySizingPolicy.ts');
     expect(src).toMatch(/import\s+\{[\s\S]*?\bmapInternalToExposureRegimeWithMacro\b[\s\S]*?\}\s+from\s+['"]\.\/regimeExposurePolicy\.js['"]/);
   });
 
-  it('positionSizingEngineWiring.ts — macro 전달 시 With Macro 경로 사용', () => {
-    const src = readSrc('server/trading/sizing/positionSizingEngineWiring.ts');
+  it('entrySizingPolicy.ts — macro 전달 시 With Macro 경로 사용', () => {
+    const src = readSrc('server/trading/sizing/entrySizingPolicy.ts');
     expect(src).toContain('mapInternalToExposureRegimeWithMacro(input.regime, input.macro)');
   });
 
-  it('positionSizingEngineWiring.ts — macro 부재 시 기존 매핑 fallback (회귀 안전)', () => {
-    const src = readSrc('server/trading/sizing/positionSizingEngineWiring.ts');
+  it('entrySizingPolicy.ts — macro 부재 시 기존 매핑 fallback (회귀 안전)', () => {
+    const src = readSrc('server/trading/sizing/entrySizingPolicy.ts');
     expect(src).toMatch(/input\.macro[\s\S]*?mapInternalToExposureRegimeWithMacro[\s\S]*?:\s*mapInternalToExposureRegime\(input\.regime\)/);
   });
 
@@ -165,8 +166,8 @@ describe('ADR-0170 §4 호출자 정합 정적 가드 — drift 차단', () => {
     expect(src).toMatch(/ADR-0170/);
   });
 
-  it('ADR-0170 §M4 추적 주석 존재 — positionSizingEngineWiring.ts', () => {
-    const src = readSrc('server/trading/sizing/positionSizingEngineWiring.ts');
+  it('ADR-0170 §M4 추적 주석 존재 — entrySizingPolicy.ts', () => {
+    const src = readSrc('server/trading/sizing/entrySizingPolicy.ts');
     expect(src).toMatch(/ADR-0170/);
   });
 

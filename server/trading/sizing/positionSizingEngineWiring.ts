@@ -1,15 +1,8 @@
 /**
- * @responsibility ADR-0162+0163+0164+0165 통합 wiring SSOT — ENV 우회 + 입력 매핑 + LIVE 활성화 진입점
- *
- * 호출자 (4 진입 경로): buyListLoop.ts 3 곳 (메인 + PRE_BREAKOUT_FOLLOWTHROUGH + PRE_BREAKOUT 30%) + intradayLoop.ts 1 곳.
- *
- * 절대 규칙:
- * 1. SHADOW 모드 활성: ENV `POSITION_SIZING_ENGINE_SHADOW_APPLY=true` 명시 (default OFF).
- * 2. LIVE 모드 활성 (ADR-0165): ENV `POSITION_SIZING_ENGINE_LIVE_ENABLED=true` 명시 (default OFF, 운영자 의무).
- *    - LIVE 활성 시 SHADOW APPLY 도 자동 활성 (LIVE only 모드 부재).
- *    - LIVE 모드 시 peakEquityMode='LIVE' 자동 매핑 → SHADOW peak 와 영속 격리.
- * 3. 입력 매핑 실패 (NaN/누락) → null 반환 = 기존 SSOT 사용 (안전 fallback).
- * 4. 본 모듈 결과 quantity < 1 → 기존 quantity 사용 (사이즈 0 진입 차단).
+ * @responsibility Preserve disabled legacy sizing compatibility.
+ * ADR-0665: active entry paths use entrySizingPolicy.ts.
+ * The legacy Kelly sizing switch always returns false regardless of ENV.
+ * Exposure-cap exports below delegate to the active entry sizing boundary.
  */
 
 import {
@@ -24,31 +17,10 @@ import {
   updatePeakEquityIfHigher,
   type PeakEquityMode,
 } from '../../persistence/peakEquityRepo.js';
-import {
-  computePortfolioExposureBudget,
-  applyPortfolioExposureCap,
-  isExposureBudgetEnabled,
-  mapInternalToExposureRegime,
-  mapInternalToExposureRegimeWithMacro,
-  type MarketRegimeLevel,
-  type ExposureRegimeMacroInput,
-  type PortfolioExposureBudget,
-  type ApplyPortfolioExposureCapResult,
-} from './regimeExposurePolicy.js';
-import type { RegimeLevel } from '../../../src/types/core.js';
 
 // ─── ENV 우회 SSOT ──────────────────────────────────────────────────────────
 
-/**
- * 본 모듈 적용 여부 결정 — ENV + 모드 분기 SSOT.
- *
- * 활성 조건 (모드별 OR):
- *   - SHADOW: `shadowMode === true` AND `POSITION_SIZING_ENGINE_SHADOW_APPLY === 'true'`
- *   - LIVE (ADR-0165): `shadowMode === false` AND `isLivePositionSizingEngineEnabled() === true`
- *     (LIVE ENV 활성 시 SHADOW ENV 자동 활성 — LIVE only 모드 부재)
- *
- * default 둘 다 OFF — PR 머지 후 운영자가 명시 활성화 의무.
- */
+/** Legacy compatibility switch; always disabled regardless of mode or ENV. */
 export function shouldApplyPositionSizingEngine(shadowMode: boolean): boolean {
   void shadowMode;
   // Simplification Step 2: Kelly/probability-based sizing engine is disabled.
@@ -56,17 +28,7 @@ export function shouldApplyPositionSizingEngine(shadowMode: boolean): boolean {
   return false;
 }
 
-/**
- * ADR-0165 — LIVE 모드 활성화 정책 (ENV 기반 동적 결정).
- *
- * 활성 조건: `process.env.POSITION_SIZING_ENGINE_LIVE_ENABLED === 'true'`.
- * default OFF — 운영자가 SHADOW 1주 검증 후 명시 활성화 의무.
- *
- * 활성 시 효과:
- * - LIVE 모드에서도 본 모듈 결정 사용 (사이징 직접 영향)
- * - LIVE peak 자동 갱신 (`livePeakEquity` 영속 활성)
- * - 사용자 자본 (LIVE 시 재확인) 정확한 6 티어 매트릭스 적용
- */
+/** Read the legacy diagnostic ENV flag; this does not activate entry sizing. */
 export function isLivePositionSizingEngineEnabled(): boolean {
   return process.env.POSITION_SIZING_ENGINE_LIVE_ENABLED === 'true';
 }
@@ -262,107 +224,6 @@ export function applyPositionSizingEngine(
 // ADR-0166 — 레짐 노출 예산 통합 진입점 (positionSizingEngine 상위 계층)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export interface ApplyExposureBudgetCapInput {
-  /** sizing 단계 결과 quantity (applyPositionSizingEngine.quantity 또는 legacy quantity) */
-  rawQuantity: number;
-  /** 매수가 (rawQuantity × shadowEntryPrice = rawPositionAmount) */
-  shadowEntryPrice: number;
-  /** 계좌 총액 */
-  accountEquity: number;
-  /** 현재 보유 주식 평가금액 총합 (호출자 ctx 에서 수집) */
-  currentEquityExposureAmount: number;
-  /** 현재 현금 (UI/진단용) */
-  currentCashAmount: number;
-  /** 시장 레짐 (기존 RegimeLevel — 매핑 자동 적용) */
-  regime: RegimeLevel;
-  /** 신규 매수 vs 추매 (호출자 분류) */
-  isAddOnBuy: boolean;
-  /** 호출자 명시 매핑 — 미전달 시 mapInternalToExposureRegimeWithMacro 자동 적용 (ADR-0170) */
-  exposureRegime?: MarketRegimeLevel;
-  /**
-   * ADR-0170 §M4 — 매크로 신호 입력 (R1_DEFENSIVE 자동 격상용).
-   * 미전달 시 기존 mapInternalToExposureRegime 매핑 그대로 (회귀 위험 격리).
-   */
-  macro?: ExposureRegimeMacroInput;
-}
-
-export interface ApplyExposureBudgetCapResult {
-  /** 본 cap 적용 여부 — false 면 호출자가 rawQuantity 그대로 사용 */
-  applied: boolean;
-  /** 적용 시 cap 후 quantity (주식 수) — applied=false 면 rawQuantity 그대로 */
-  finalQuantity: number;
-  /** 본 cap 결과 — 진단/UI 용 */
-  capResult?: ApplyPortfolioExposureCapResult;
-  /** 본 cap 입력 — 진단/UI 용 */
-  budget?: PortfolioExposureBudget;
-  /** 미적용 사유 (진단 로그용) */
-  skipReason?: 'ENV_DISABLED' | 'INPUT_MISSING';
-}
-
-/**
- * ADR-0166 통합 진입점 — sizing 결과 quantity 에 레짐 노출 예산 cap 적용.
- *
- * 4 분기:
- *   1. ENV OFF (default) → applied=false / skipReason='ENV_DISABLED' / rawQuantity 그대로
- *   2. 입력 누락 (currentEquityExposureAmount NaN) → applied=false / skipReason='INPUT_MISSING'
- *   3. 정상 → computePortfolioExposureBudget + applyPortfolioExposureCap → finalQuantity 산출
- *   4. cap 결과 finalPositionAmount=0 → applied=true / finalQuantity=0 (차단)
- *
- * 호출자 패턴:
- *   const sizingApply = applyPositionSizingEngine(shadowMode, ctx);
- *   const baseQty = sizingApply.applied ? sizingApply.quantity : legacyQuantity;
- *   const exposureCap = applyExposureBudgetCap({ rawQuantity: baseQty, ... });
- *   const finalQty = exposureCap.applied ? exposureCap.finalQuantity : baseQty;
- */
-export function applyExposureBudgetCap(input: ApplyExposureBudgetCapInput): ApplyExposureBudgetCapResult {
-  if (!isExposureBudgetEnabled()) {
-    return {
-      applied: false,
-      finalQuantity: input.rawQuantity,
-      skipReason: 'ENV_DISABLED',
-    };
-  }
-
-  // 입력 검증
-  if (
-    !Number.isFinite(input.accountEquity) || input.accountEquity <= 0 ||
-    !Number.isFinite(input.currentEquityExposureAmount) || input.currentEquityExposureAmount < 0 ||
-    !Number.isFinite(input.shadowEntryPrice) || input.shadowEntryPrice <= 0 ||
-    !Number.isFinite(input.rawQuantity) || input.rawQuantity < 0
-  ) {
-    return {
-      applied: false,
-      finalQuantity: input.rawQuantity,
-      skipReason: 'INPUT_MISSING',
-    };
-  }
-
-  // ADR-0170 §M4 — 매크로 신호 입력 시 R1_DEFENSIVE 자동 격상 (R5_CAUTION + bearDefenseMode/VIX/VKOSPI)
-  const exposureRegime = input.exposureRegime
-    ?? (input.macro
-      ? mapInternalToExposureRegimeWithMacro(input.regime, input.macro)
-      : mapInternalToExposureRegime(input.regime));
-
-  const budget = computePortfolioExposureBudget({
-    accountEquity: input.accountEquity,
-    currentEquityExposureAmount: input.currentEquityExposureAmount,
-    currentCashAmount: input.currentCashAmount,
-    regime: exposureRegime,
-  });
-
-  const rawPositionAmount = input.rawQuantity * input.shadowEntryPrice;
-  const capResult = applyPortfolioExposureCap({
-    rawPositionAmount,
-    exposureBudget: budget,
-    isAddOnBuy: input.isAddOnBuy,
-  });
-
-  const finalQuantity = Math.floor(capResult.finalPositionAmount / input.shadowEntryPrice);
-
-  return {
-    applied: true,
-    finalQuantity,
-    capResult,
-    budget,
-  };
-}
+// ADR-0665: compatibility exports; active exposure implementation lives in entrySizingPolicy.
+export { applyExposureBudgetCap } from './entrySizingPolicy.js';
+export type { ApplyExposureBudgetCapInput, ApplyExposureBudgetCapResult } from './entrySizingPolicy.js';
