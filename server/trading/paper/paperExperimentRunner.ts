@@ -6,12 +6,18 @@ import { collectPaperExperimentSnapshot } from './paperExperimentCollector.js';
 import {
   buildPaperExperimentView, capturePaperCostModel, createPaperExperiment, paperExperimentId, updatePaperOutcomes,
 } from './paperExperimentPolicy.js';
+import { advancePaperStrategy, loadPaperStrategyState, readPaperStrategyView } from './paperStrategyRuntime.js';
 
 let running: Promise<PaperScanResult> | null = null;
 
 async function scan(): Promise<PaperScanResult> {
   const ledger = loadPaperExperimentLedger();
-  const snapshot = await collectPaperExperimentSnapshot(ledger.experiments.filter((item) => item.status === 'OPEN').map((item) => item.symbol));
+  const strategy = loadPaperStrategyState();
+  const openSymbols = [...new Set([
+    ...ledger.experiments.filter((item) => item.status === 'OPEN').map((item) => item.symbol),
+    ...(strategy.ledger?.trades ?? []).filter((item) => item.status === 'OPEN').map((item) => item.symbol),
+  ])];
+  const snapshot = await collectPaperExperimentSnapshot(openSymbols);
   const observations = new Map(snapshot.observations.map((item) => [item.symbol, item]));
   let completedCount = 0;
   ledger.experiments = ledger.experiments.map((experiment) => {
@@ -42,6 +48,8 @@ async function scan(): Promise<PaperScanResult> {
   };
   ledger.lastRun = result;
   savePaperExperimentLedger(ledger);
+  // Baseline is durable before strategy work; strategy failures never discard observations.
+  result.strategy = advancePaperStrategy(strategy, ledger.experiments, snapshot);
   return result;
 }
 
@@ -51,5 +59,5 @@ export function runPaperExperimentScan(): Promise<PaperScanResult> {
 }
 
 export function getPaperExperimentView(): PaperExperimentView {
-  return buildPaperExperimentView(loadPaperExperimentLedger());
+  return { ...buildPaperExperimentView(loadPaperExperimentLedger()), strategy: readPaperStrategyView() };
 }

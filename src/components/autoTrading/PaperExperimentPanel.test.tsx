@@ -53,6 +53,21 @@ describe('PaperExperimentPanel', () => {
     expect(screen.getByText('미실행')).toBeTruthy();
     expect(screen.getByText('관측 뉴스 없음')).toBeTruthy();
     expect(screen.getByText(/계좌 수익률을 뜻하지 않습니다/)).toBeTruthy();
+    expect(screen.queryByText('뉴스·추세 매매 전략')).toBeNull();
+  });
+
+  it('renders the optional strategy independently while baseline outcomes remain available on strategy failure', () => {
+    render(<PaperExperimentResults view={{ ...emptyView, strategy: {
+      strategyVersion: 'news-trend-v1', mode: 'SHADOW',
+      policy: { version: 'news-trend-v1', newsLookbackHours: 72, minimumSamples: 10, minimumEntryDates: 3, horizonSelection: 'MEAN_NET_RETURN_PER_DAY', exitModel: 'SCHEDULED_CLOSE' },
+      totalCount: 0, openCount: 0,
+      performance: { closedCount: 0, meanNetReturnPct: null, winRatePct: null, totalNetPnl: null },
+      lastRun: null, latestDecisions: [], trades: [], error: 'strategy ledger unavailable',
+    } }} />);
+    expect(screen.getByText('뉴스·추세 매매 전략')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('전략 기록 확인 불가');
+    expect(screen.getByText('D1 평균 순수익률')).toBeTruthy();
+    expect(screen.getByText('누적 실험')).toBeTruthy();
   });
 
   it('renders stored experiment evidence and D1 net outcome without inventing D3/D5', () => {

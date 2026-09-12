@@ -2,6 +2,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaperExperimentLedger, PaperSnapshot } from '../../../src/types/paperExperiment.js';
 const state = vi.hoisted(() => ({ ledger: { schemaVersion: 1, experiments: [], lastRun: null } as PaperExperimentLedger, collect: vi.fn() }));
+vi.mock('./paperStrategyRuntime.js', () => ({
+  loadPaperStrategyState: () => ({ ledger: { trades: [] } }),
+  advancePaperStrategy: () => ({ openedCount: 0, closedCount: 0, waitingCount: 1, holdingCount: 0 }),
+  readPaperStrategyView: () => undefined,
+}));
 vi.mock('../../persistence/paperExperimentRepo.js', () => ({
   loadPaperExperimentLedger: () => structuredClone(state.ledger),
   savePaperExperimentLedger: (ledger: PaperExperimentLedger) => { state.ledger = structuredClone(ledger); },

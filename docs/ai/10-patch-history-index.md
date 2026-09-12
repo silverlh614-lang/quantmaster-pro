@@ -78,6 +78,8 @@ Rules:
 
 Append the current PR row here. When this list grows past roughly 60 rows, move older rows to an archive bucket.
 
+- 2026-09-12 · ADR-0667 · 기본 Shadow 표본 수집을 유지하며 최근 뉴스·20일선 조합의 성숙 D1/D3/D5 성과를 조건부 1주 진입과 사전 확정 종가 청산에 연결한다. 별도 전략 원장·판단 근거·화면, 시각/중복/비용 검증과 장애 격리를 추가하며 LIVE/PAPER 정책은 유지한다. [설계](../adr/0667-news-trend-shadow-strategy.md).
+
 - 2026-09-12 · docs · 사용자 세션 공통 지시를 AGENTS/CLAUDE에 반영: 작업 완료 후 검증·커밋·원격 푸시와 반영 확인까지 수행한다. 런타임 변경 없음.
 
 - 2026-09-12 · ADR-0665/0666 · 사이징 경로 정리 후 기본 SHADOW를 독립 1주 실험으로 교체: 레짐·Kelly·Gate·슬롯·섹터·승인·자동 승격을 제외하고 진입 당시 뉴스·추세와 정확한 D1/D3/D5 성과를 별도 원장에 기록한다. [Shadow 설계](../adr/0666-shadow-first-experiments.md), [사이징 경계](../adr/0665-entry-sizing-single-path.md).

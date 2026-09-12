@@ -13,6 +13,12 @@ The public scan dispatcher selects `server/trading/paper/paperExperimentRunner.t
 
 News and price trends are entry-time observations for comparison, not initial eligibility filters. Independent experiment returns are not account portfolio returns. Missing or future prices cannot become completed outcomes. No automatic promotion or broker-order dependency belongs in this module.
 
+### Empirical Shadow strategy (ADR-0667)
+
+`src/types/paperStrategy.ts` defines evidence, explicit BUY/WAIT/HOLD/EXIT decisions, scheduled-close virtual trades and their separate read model. `server/trading/paper/paperStrategyEvidence.ts` owns pure news/MA20 cohort classification, strictly prior complete baseline evidence and horizon selection. `paperStrategyPolicy.ts` owns frozen entry decisions and precommitted exact-date closing fills; `paperAccounting.ts` owns the shared entry-frozen cost calculation. `paperStrategyRuntime.ts` owns strategy cycle/read-model orchestration and failure isolation, while `paperStrategyValidation.ts` validates restored records. `server/persistence/paperStrategyRepo.ts` owns the independent `paper-strategy.json` ledger. The existing paper runner collects one shared snapshot and persists unconditional baseline experiments first. Strategy history never feeds baseline evidence or global learning weights.
+
+The strategy freezes policy, evidence, costs and its D1/D3/D5 close schedule at entry. Scheduled-close fills distinguish effective close time from observation and decision times; missing closes remain pending. The Shadow UI renders server decisions and separates baseline results from realized strategy returns, without recomputing eligibility or selecting horizons. No new broker orders, provider path, legacy Gate/regime/Kelly policy or automatic LIVE promotion belongs in this boundary.
+
 ### Entry sizing boundary (ADR-0665)
 
 `server/trading/sizing/entrySizingPolicy.ts` owns active entry quantity and exposure budget calculations. Standard, intraday, pre-breakout, followthrough, pre-market and dry-run consumers use this boundary; tranche exposure uses the same cap. `src/types/entrySizing.ts` defines its quantity contract without Kelly inputs. The current regime allocation table remains an explicitly named legacy policy adapter. The old `entryEngine.calculateOrderQuantity` and wiring exposure exports delegate to this boundary for compatibility.

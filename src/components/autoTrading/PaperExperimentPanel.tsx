@@ -7,6 +7,7 @@ import type { PaperExperiment, PaperExperimentView, PaperLearningGroup } from '.
 import { Stack } from '../../layout/Stack';
 import { PageHeader, LoadingState } from '../../ui';
 import { Section } from '../../ui/section';
+import { PaperStrategyPanel } from './PaperStrategyPanel';
 
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-200 transition hover:bg-sky-500/20 disabled:cursor-wait disabled:opacity-50';
 const groupLabels: Record<string, string> = {
@@ -73,6 +74,7 @@ export function PaperExperimentResults({ view }: { view: PaperExperimentView }) 
   const recent = [...view.experiments].sort((a, b) => b.entryAt.localeCompare(a.entryAt)).slice(0, 30);
   return (
     <>
+      {view.strategy && <PaperStrategyPanel view={view.strategy} />}
       <Section title="최근 관측" variant="neo">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-300">
           <span>마지막 스캔: {timestamp(last?.asOf)}</span>
@@ -100,7 +102,7 @@ export function PaperExperimentResults({ view }: { view: PaperExperimentView }) 
         )}
       </Section>
 
-      <Section title="거래일별 학습 결과" subtitle="진입 이후 D1·D3·D5 종가 기준. 비용을 반영한 독립 실험의 평균입니다." variant="neo">
+      <Section title="기본 관측 실험 · 거래일별 학습 결과" subtitle="조건 없이 수집한 관측 실험의 진입 이후 D1·D3·D5 종가 기준. 비용을 반영한 독립 실험의 평균입니다." variant="neo">
         <dl className="grid gap-3 sm:grid-cols-3">
           {([1, 3, 5] as const).map(horizon => {
             const result = view.outcomes.find(item => item.horizon === horizon);
@@ -168,7 +170,7 @@ export function PaperExperimentPanel() {
     <Stack gap="xl">
       <PageHeader
         title="Shadow 실험실"
-        subtitle="종목당 1주를 가상 매수하고 뉴스·가격 추세에 따른 결과를 관찰합니다."
+        subtitle="종목당 1주 관측 실험과 뉴스·추세 성과로 선택한 가상 매매 전략을 함께 확인합니다."
         accentColor="bg-gradient-to-b from-sky-400 to-indigo-500"
         actions={
           <div className="flex flex-wrap gap-2">

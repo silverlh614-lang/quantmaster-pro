@@ -6,6 +6,7 @@ import type {
 } from '../../../src/types/paperExperiment.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { getExecutionCostConfig, type Market } from '../executionCosts.js';
+import { calculatePaperReturn } from './paperAccounting.js';
 
 export const PAPER_STRATEGY_VERSION = 'shadow-baseline-v1' as const;
 const HORIZONS = [1, 3, 5] as const;
@@ -75,16 +76,9 @@ export function updatePaperOutcomes(
     if (!close) continue;
     const entry = experiment.entryPrice;
     const exit = close.close;
-    const cost = experiment.costModel;
-    // Same additive cost convention as executionCosts.computeNetPnL, with entry-frozen rates.
-    const gross = exit - entry;
-    const netPnl = gross - entry * (cost.buyFeeRate + cost.slippageRate)
-      - exit * (cost.sellFeeRate + cost.sellTaxRate + cost.slippageRate);
     const outcome: PaperOutcome = {
       horizon, tradingDate, availableAt: close.availableAt, exitPrice: exit,
-      grossReturnPct: gross / entry * 100,
-      netReturnPct: netPnl / entry * 100,
-      netPnl,
+      ...calculatePaperReturn(entry, exit, experiment.costModel),
     };
     outcomes.push(outcome);
   }

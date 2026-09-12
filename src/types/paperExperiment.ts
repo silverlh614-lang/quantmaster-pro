@@ -1,4 +1,5 @@
 // @responsibility Define independent Shadow experiment records.
+import type { PaperStrategyScanResult, PaperStrategyView } from './paperStrategy';
 
 export interface PaperNewsObservation {
   id: string;
@@ -79,6 +80,7 @@ export interface PaperScanResult {
   missingPriceCount: number;
   marketOpen: boolean;
   issues: string[];
+  strategy?: PaperStrategyScanResult;
 }
 
 export interface PaperExperimentLedger {
@@ -104,4 +106,5 @@ export interface PaperExperimentView {
   outcomes: Array<PaperLearningGroup & { horizon: 1 | 3 | 5 }>;
   groups: PaperLearningGroup[];
   experiments: PaperExperiment[];
+  strategy?: PaperStrategyView;
 }
