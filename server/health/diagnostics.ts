@@ -223,8 +223,8 @@ export function collectHealthSnapshot(): HealthSnapshot {
   const autoTradeEnabled = process.env.AUTO_TRADE_ENABLED === 'true';
   const autoTradeMode = process.env.AUTO_TRADE_MODE ?? 'SHADOW';
   const kisConfigured = !!process.env.KIS_APP_KEY;
-  const telegramBotToken = !!process.env.TELEGRAM_BOT_TOKEN;
-  const telegramChatId = !!process.env.TELEGRAM_CHAT_ID;
+  const telegramBotToken = !!process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const telegramChatId = !!process.env.TELEGRAM_CHAT_ID?.trim();
   const kisTokenHours = getKisTokenRemainingHours();
   const realDataTokenHours = getRealDataTokenRemainingHours();
   const kisTokenValid = kisConfigured && (autoTradeMode !== 'LIVE' || kisTokenHours > 0);

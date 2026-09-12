@@ -111,7 +111,9 @@ ADR-531 taxonomy 를 Telegram 출력에 적용. **이미 구현된 라우팅을 
 | `/sizing_debug` `/sd` | 사이징 프로파일 매트릭스 (→ `docs/ai/02-trading-engine-rules.md`) |
 | `/snapshot_latest` `/snapshot_status` | runtime debug snapshot (18:00 KST capture, replayOnly) |
 | `/learning_status` `/learning_history` `/learning_loop_health` | 학습 진단 (→ `docs/ai/07-learning-engine.md`) |
-| `/channel_test` | 4 채널 동시 헬스체크 (ADR-0042) |
+| `/channel_test` (`/channel_health` 별칭) | 활성 채널 시험 발송. 동일 채팅방은 1회, 결과는 요약 1건. |
 
 알림 채널 철학 → `docs/ai/00-project-charter.md` · Provider 진단 → `docs/ai/05-provider-policy.md`
 학습 진단 명령 → `docs/ai/07-learning-engine.md`
+
+연결 확인: 설정 유무는 발송 성공이 아니다. 웹 테스트는 Telegram 메시지 ID를 받은 경우에만 성공으로 표시한다. 서버 기동 시 개인 요약 1건만 보내며 채널 시험 발송은 하지 않는다.

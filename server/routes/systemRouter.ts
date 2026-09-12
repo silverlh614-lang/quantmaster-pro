@@ -11,7 +11,7 @@ import {
   getDailyLossPct, setDailyLoss,
 } from '../state.js';
 import { cancelAllPendingOrders, checkDailyLossLimit } from '../emergency.js';
-import { sendTelegramAlert } from '../alerts/telegramClient.js';
+import { sendTelegramPlainText } from '../alerts/telegramClient.js';
 import { handleTelegramWebhook } from '../telegram/webhookHandler.js';
 import { getApiUsageStats, getGeminiCircuitStats, getGeminiRuntimeState, getBudgetState } from '../clients/geminiClient.js';
 import { getDartCircuitStats } from '../clients/dartFinancialClient.js';
@@ -112,19 +112,19 @@ router.post('/send-email', (_req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────
 
 router.post('/telegram/test', async (_req: Request, res: Response) => {
-  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
+  if (!process.env.TELEGRAM_BOT_TOKEN?.trim() || !process.env.TELEGRAM_CHAT_ID?.trim()) {
     return res.status(400).json({ error: 'TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 미설정' });
   }
   try {
-    await sendTelegramAlert(
-      `✅ <b>[QuantMaster Pro] Telegram 연결 테스트</b>\n` +
-      `서버 시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST\n` +
-      `모드: ${process.env.KIS_IS_REAL === 'true' ? '🔴 실거래' : '🟡 모의투자'}\n` +
-      `비상정지: ${getEmergencyStop() ? '🛑 활성' : '✅ 해제'}`
+    const messageId = await sendTelegramPlainText(
+      `✅ QuantMaster Pro 연결 테스트 · ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST`,
     );
-    res.json({ ok: true, message: 'Telegram 메시지 전송 완료' });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    if (messageId === undefined) {
+      return res.status(502).json({ ok: false, error: '텔레그램 발송 확인 실패. 봇 토큰·채팅 ID·봇 차단 여부를 확인하세요.' });
+    }
+    res.json({ ok: true, messageId, message: 'Telegram 메시지 전송 확인 완료' });
+  } catch {
+    res.status(502).json({ ok: false, error: '텔레그램 연결 요청에 실패했습니다.' });
   }
 });
 

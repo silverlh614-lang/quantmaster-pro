@@ -5,7 +5,7 @@
  * 휴리스틱을 픽스처 문자열로 검증. 실제 스크립트 실행 검증은
  * npm run validate:sensitiveAlerts 가 담당.
  *
- * 또한 sendPrivateAlert export 존재 + sendTelegramBroadcast deprecated 표시 검증.
+ * 또한 개인 DM 발송 경계 검증.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -23,7 +23,7 @@ describe('check_sensitive_alerts script — 통합 실행', () => {
   });
 });
 
-describe('sendPrivateAlert / sendTelegramBroadcast 시그니처', () => {
+describe('sendPrivateAlert 시그니처', () => {
   const clientSrc = readFileSync(
     resolve(process.cwd(), 'server/alerts/telegramClient.ts'),
     'utf-8',
@@ -38,14 +38,6 @@ describe('sendPrivateAlert / sendTelegramBroadcast 시그니처', () => {
     expect(clientSrc).toMatch(/(절대 발송되지 않|never reaches channel)/);
   });
 
-  it('sendTelegramBroadcast 에 @deprecated JSDoc 표시', () => {
-    expect(clientSrc).toMatch(/@deprecated/);
-  });
-
-  it('sendTelegramBroadcast deprecated 메시지가 마이그레이션 경로 안내', () => {
-    expect(clientSrc).toMatch(/sendPrivateAlert/);
-    expect(clientSrc).toMatch(/dispatchAlert/);
-  });
 });
 
 describe('check_sensitive_alerts 패턴 검증', () => {

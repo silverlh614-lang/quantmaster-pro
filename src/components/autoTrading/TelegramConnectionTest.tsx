@@ -52,12 +52,12 @@ export function TelegramConnectionTest() {
     try {
       const res = await fetch('/api/telegram/test', { method: 'POST' });
       const json = await res.json().catch(() => ({}));
-      if (res.ok) {
+      if (res.ok && json?.ok === true && typeof json?.messageId === 'number') {
         setStatus('success');
         setMessage(json?.message ?? 'Telegram 메시지 전송 완료');
       } else {
         setStatus('error');
-        setMessage(json?.error ?? `HTTP ${res.status}`);
+        setMessage(json?.error ?? '텔레그램 발송을 확인하지 못했습니다.');
       }
     } catch (e) {
       setStatus('error');

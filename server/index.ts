@@ -558,47 +558,14 @@ async function startServer() {
       }
     })().catch(console.error);
 
-    // Telegram 봇 명령어 메뉴 등록 + 기동 통합 알림 (fire-and-forget).
-    // 기존 '🧪 채널 헬스'(별도) + '🟢 서버 기동'(별도) 2개 발송을 *단일 기동 요약* 1개로 통합 —
-    // 매 재부팅마다 동일류 기동 메시지가 여러 개 뜨던 번잡함 제거. 채널 헬스 실패해도 기동 알림은 발송.
-    setTelegramBotCommands()
-      .catch((e) => { console.error('[Boot] setTelegramBotCommands 실패:', e instanceof Error ? e.message : e); })
-      .then(async () => {
-        const bootLines = [
-          `🟢 <b>[QuantMaster Pro] 서버 기동</b>`,
-          `시간: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} KST`,
-          `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? '🟡 [SHADOW]' : '🔴 LIVE'}`,
-          `KIS: ${process.env.KIS_IS_REAL === 'true' ? '실거래' : '모의투자'}`,
-        ];
-        let healthLines: string[];
-        try {
-          const { checkTelegramChannelConfig, runChannelHealthCheck } = await import('./alerts/alertRouter.js');
-          await checkTelegramChannelConfig();
-          const result = await runChannelHealthCheck();
-          const ordered = ['TRADE', 'ANALYSIS', 'INFO', 'SYSTEM'] as const;
-          healthLines = ordered.map((category) => {
-            const item = result[category];
-            const icon = item.ok ? '✅' : '❌';
-            const reason = item.reason ? ` (${item.reason})` : '';
-            const enabled = item.enabled ? '' : ' [disabled]';
-            const configured = item.configured ? '' : ' [unconfigured]';
-            return `${category}: ${icon}${enabled}${configured}${reason}`;
-          });
-        } catch (e) {
-          console.error('[Boot] 채널 헬스 체크 실패:', e instanceof Error ? e.message : e);
-          healthLines = ['(채널 헬스 체크 실패 — 로그 참조)'];
-        }
-        await sendTelegramAlert(
-          [...bootLines, '━━━━━━━━━━━━━━━━', '🧪 <b>채널 상태</b>', ...healthLines].join('\n'),
-          {
-            priority: 'HIGH',
-            dedupeKey: `server_boot:${new Date().toISOString().slice(0, 10)}`,
-            cooldownMs: 5 * 60_000,
-            category: 'server_boot',
-          },
-        ).catch(console.error);
-      })
-      .catch((e) => { console.error('[Boot] 기동 통합 알림 실패:', e instanceof Error ? e.message : e); });
+    // 재기동은 개인 요약 1건만 보낸다. 채널 시험 발송은 /channel_test 요청 시에만 실행한다.
+    void setTelegramBotCommands().catch(console.error);
+    void sendTelegramAlert(
+      '🟢 <b>QuantMaster Pro 서버 기동</b>\n' +
+      `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? 'SHADOW' : 'LIVE'} · ` +
+      new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
+      { priority: 'HIGH', dedupeKey: 'server_boot', cooldownMs: 5 * 60_000, category: 'server_boot' },
+    ).catch(console.error);
 
     // P2-A: 부팅 30초 후 LIVE reconcile dry-run — Railway 재배포 직후 mismatch 조기 감지.
     // 컨테이너 초기화 + KIS 토큰 선행 갱신이 완료되기를 대기. fire-and-forget.

@@ -1,8 +1,8 @@
-// @responsibility channelTest.cmd 4채널 동시 헬스체크 + 실패 시 운영자 보고
-// @responsibility: /channel_test — 4채널(EXECUTION/SIGNAL/REGIME/JOURNAL) 동시 발송으로 환경변수·봇 권한·채널 ID 검증 (ADR-0042).
+// @responsibility channelTest.cmd 활성 채널 시험 발송과 결과 요약
+// @responsibility: /channel_test — 활성 채팅방마다 한 번 발송으로 환경변수·봇 권한·채널 ID 검증 (ADR-0042).
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
-import { runChannelHealthCheck, ChannelSemantic, type ChannelHealthItem } from '../../../alerts/alertRouter.js';
+import { runChannelHealthCheck, type ChannelHealthItem } from '../../../alerts/alertRouter.js';
 import { AlertCategory } from '../../../alerts/alertCategories.js';
 
 /** AlertCategory enum 값 → 사용자 시멘틱 라벨 (CH1/CH2/CH3/CH4 + 별칭) */
@@ -51,7 +51,7 @@ export function formatChannelHealthCheckResult(
         lines.push(`❌ ${label} — 채널 ID 미설정 (${CATEGORY_ENV[cat]})`);
         failedEnvs.push(CATEGORY_ENV[cat]);
       } else if (!item.enabled) {
-        lines.push(`⏸️ ${label} — 비활성 (CHANNEL_ENABLED 미설정)`);
+        lines.push(`⏸️ ${label} — 비활성 (CHANNEL_ENABLED 설정)`);
       } else {
         lines.push(`❌ ${label} — 발송 실패 (${item.reason ?? 'unknown'})`);
       }
@@ -72,14 +72,12 @@ export function formatChannelHealthCheckResult(
 
 const channelTest: TelegramCommand = {
   name: '/channel_test',
+  aliases: ['/channel_health'],
   category: 'ALR',
   visibility: 'ADMIN',
   riskLevel: 1,
-  description: '4채널(EXECUTION/SIGNAL/REGIME/JOURNAL) 헬스체크 + 미설정 진단',
+  description: '활성 채널 시험 발송 + 연결 결과 요약',
   async execute({ reply }) {
-    void ChannelSemantic; // import 보존 (시멘틱 별칭은 본 명령의 분류 SSOT)
-    await reply('🔍 <b>4채널 동시 헬스체크 시작...</b>\n각 채널로 테스트 메시지를 발송합니다.');
-
     try {
       const result = await runChannelHealthCheck();
       const message = formatChannelHealthCheckResult(result);

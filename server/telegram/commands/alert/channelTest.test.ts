@@ -74,7 +74,7 @@ describe('formatChannelHealthCheckResult', () => {
     };
     const msg = formatChannelHealthCheckResult(result);
     expect(msg).toMatch(/⏸️.*비활성/);
-    expect(msg).toContain('CHANNEL_ENABLED 미설정');
+    expect(msg).toContain('CHANNEL_ENABLED 설정');
     expect(msg).toContain('요약:</b> 0/4 채널 정상');
   });
 

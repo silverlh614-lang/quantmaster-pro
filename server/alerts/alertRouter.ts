@@ -80,34 +80,6 @@ export function getResolvedChannelMap(): Record<AlertCategory, string | undefine
   return resolveCategoryChannelMap();
 }
 
-/**
- * @responsibility checkTelegramChannelConfig 채널 설정 부팅 진단 SSOT
- */
-export async function checkTelegramChannelConfig(): Promise<void> {
-  const map = getResolvedChannelMap();
-  const mapFromEnv = parseChannelMap(process.env.CHANNEL_MAP);
-  const configured = (value: string | undefined): string => value ?? '❌ 미설정';
-  const fallback = (category: AlertCategory, envName: string): string => {
-    if (mapFromEnv[category]) return mapFromEnv[category];
-    if (process.env[envName]?.trim()) return map[category] ?? process.env[envName]?.trim();
-    return '❌ 미설정 → TRADE 폴백';
-  };
-  const message = [
-    '🔧 [채널 설정 점검]',
-    `CH1 EXECUTION(TRADE):  ${configured(map[AlertCategory.TRADE])}`,
-    `CH2 SIGNAL(ANALYSIS):  ${configured(map[AlertCategory.ANALYSIS])}`,
-    `CH3 REGIME(INFO):      ${fallback(AlertCategory.INFO, 'TELEGRAM_INFO_CHANNEL_ID')}`,
-    `CH4 JOURNAL(SYSTEM):   ${fallback(AlertCategory.SYSTEM, 'TELEGRAM_SYSTEM_CHANNEL_ID')}`,
-    `CHANNEL_ENABLED:       ${process.env.CHANNEL_ENABLED ?? '미설정'}`,
-  ].join('\n');
-
-  const { sendPrivateAlert } = await import('./telegramClient.js');
-  await sendPrivateAlert(message, {
-    dedupeKey: 'boot_channel_check',
-    priority: 'HIGH',
-  });
-}
-
 export interface DispatchAlertOptions {
   disableNotification?: boolean;
   priority?: DispatchPriority;
@@ -436,10 +408,15 @@ export async function runChannelHealthCheck(): Promise<Record<AlertCategory, Cha
   const categories = Object.values(AlertCategory);
   const kstNow = new Date(Date.now() + 9 * 3_600_000).toISOString().replace('T', ' ').slice(0, 19);
   const result = {} as Record<AlertCategory, ChannelHealthItem>;
+  const checked = new Map<string, number | undefined>();
 
   for (const category of categories) {
     const enabled = isCategoryEnabled(category);
     const channelId = map[category];
+    if (!enabled) {
+      result[category] = { ok: false, enabled, configured: Boolean(channelId), channelId, reason: 'disabled' };
+      continue;
+    }
     if (!channelId) {
       result[category] = {
         ok: false,
@@ -454,7 +431,10 @@ export async function runChannelHealthCheck(): Promise<Record<AlertCategory, Cha
       `* <b>[${category}] channel health check</b>\n` +
       `--------------------\n` +
       `${kstNow} KST`;
-    const messageId = await sendChannelAlertTo(channelId, message, { disableNotification: true });
+    if (!checked.has(channelId)) {
+      checked.set(channelId, await sendChannelAlertTo(channelId, message, { disableNotification: true }));
+    }
+    const messageId = checked.get(channelId);
     result[category] = messageId !== undefined
       ? { ok: true, enabled, configured: true, channelId, messageId }
       : { ok: false, enabled, configured: true, channelId, reason: 'send failed' };

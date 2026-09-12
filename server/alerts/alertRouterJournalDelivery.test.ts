@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AlertCategory } from './alertCategories.js';
 
 const mocks = vi.hoisted(() => ({
-  sendChannelAlertTo: vi.fn(async () => 777),
+  sendChannelAlertTo: vi.fn(async (): Promise<number | undefined> => 777),
   incrementChannelStat: vi.fn(),
   appendAlertHistory: vi.fn(),
 }));
@@ -19,7 +19,37 @@ vi.mock('../persistence/alertHistoryRepo.js', () => ({
   appendAlertHistory: mocks.appendAlertHistory,
 }));
 
-const { dispatchAlert, getChannelFlushStatus } = await import('./alertRouter.js');
+const { dispatchAlert, getChannelFlushStatus, runChannelHealthCheck } = await import('./alertRouter.js');
+
+describe('channel connection test', () => {
+  beforeEach(() => {
+    vi.stubEnv('CHANNEL_ENABLED', 'true');
+    for (const category of Object.values(AlertCategory)) vi.stubEnv(`${category}_CHANNEL_ENABLED`, 'true');
+    vi.stubEnv('CHANNEL_MAP', JSON.stringify({ TRADE: 'same', ANALYSIS: 'same', INFO: 'same', SYSTEM: 'same' }));
+    mocks.sendChannelAlertTo.mockResolvedValue(777);
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('sends once when categories share a destination', async () => {
+    const result = await runChannelHealthCheck();
+    expect(mocks.sendChannelAlertTo).toHaveBeenCalledTimes(1);
+    expect(Object.values(result).every(item => item.ok && item.messageId === 777)).toBe(true);
+  });
+
+  it('does not send to disabled channels', async () => {
+    for (const category of Object.values(AlertCategory)) vi.stubEnv(`${category}_CHANNEL_ENABLED`, 'false');
+    const result = await runChannelHealthCheck();
+    expect(mocks.sendChannelAlertTo).not.toHaveBeenCalled();
+    expect(Object.values(result).every(item => !item.ok && !item.enabled)).toBe(true);
+  });
+
+  it('a shared destination failure is checked once and reported for every category', async () => {
+    mocks.sendChannelAlertTo.mockResolvedValue(undefined);
+    const result = await runChannelHealthCheck();
+    expect(mocks.sendChannelAlertTo).toHaveBeenCalledTimes(1);
+    expect(Object.values(result).every(item => !item.ok && item.reason === 'send failed')).toBe(true);
+  });
+});
 
 const originalSystemEnabled = process.env.SYSTEM_CHANNEL_ENABLED;
 const originalSystemChannel = process.env.TELEGRAM_SYSTEM_CHANNEL_ID;
@@ -29,6 +59,7 @@ const originalChannelEnabled = process.env.CHANNEL_ENABLED;
 
 beforeEach(() => {
   mocks.sendChannelAlertTo.mockClear();
+  mocks.sendChannelAlertTo.mockResolvedValue(777);
   mocks.incrementChannelStat.mockClear();
   mocks.appendAlertHistory.mockClear();
   process.env.SYSTEM_CHANNEL_ENABLED = 'true';

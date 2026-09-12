@@ -48,6 +48,7 @@ export async function setTelegramBotCommands(): Promise<void> {
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
       method: 'POST',
+      signal: AbortSignal.timeout(10_000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commands }),
     });
@@ -143,9 +144,6 @@ interface AlertCooldownEntry {
 
 const alertCooldown = new Map<string, AlertCooldownEntry>();
 
-const telegramIdempotency = new Map<string, number>();
-const telegramSenderRegistry = new Set<string>();
-const telegramInstanceId = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 
 const COOLDOWN_BY_PRIORITY: Record<AlertPriority, number> = {
   CRITICAL: 0,           // 항상 발송 (비상정지·손절)
@@ -380,8 +378,8 @@ async function sendTelegramAlertRaw(
   message: string,
   replyMarkup?: Record<string, unknown>,
 ): Promise<number | undefined> {
-  const token  = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const token  = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const chatId = process.env.TELEGRAM_CHAT_ID?.trim();
   if (!token || !chatId) {
     console.warn(
       `[TELEGRAM_PRIVATE_SEND_SKIPPED] reason=MISSING_CONFIG ` +
@@ -408,6 +406,7 @@ async function sendTelegramAlertRaw(
 
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
+      signal: AbortSignal.timeout(10_000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
@@ -424,6 +423,7 @@ async function sendTelegramAlertRaw(
         if (markup) plain.reply_markup = markup;
         const fb = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: 'POST',
+          signal: AbortSignal.timeout(10_000),
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(plain),
         });
@@ -777,28 +777,13 @@ async function sendImmediateAlert(
   ack: AckContext,
   opts?: TelegramAlertOptions,
 ): Promise<number | undefined> {
-  const channelId = process.env.TELEGRAM_CHAT_ID ?? 'default';
-  const senderKey = `${channelId}`;
-  if (!telegramSenderRegistry.has(senderKey)) {
-    telegramSenderRegistry.add(senderKey);
-    console.log(`[TELEGRAM_SENDER_REGISTERED] instanceId=${telegramInstanceId} channelId=${channelId} alreadyRegistered=false`);
-  } else if (process.env.TELEGRAM_SENDER_DEBUG === 'true') {
-    console.log(`[TELEGRAM_SENDER_DUPLICATE_BLOCKED] instanceId=${telegramInstanceId} channelId=${channelId} reason=ALREADY_REGISTERED`);
-  }
-  const msgHash = Buffer.from(payload.finalMessage).toString('base64').slice(0, 16);
-  const idempotencyKey = `${channelId}:${opts?.category ?? 'UNKNOWN'}:${opts?.dedupeKey ?? 'NO_KEY'}:${msgHash}`;
-  const last = telegramIdempotency.get(idempotencyKey);
-  if (last && Date.now() - last < 10 * 60 * 1000) {
-    console.log(`[TELEGRAM_IDEMPOTENCY_SUPPRESSED] channelId=${channelId} alertType=REGIME_STATUS effectiveRegime=R6_DEFENSE messageHash=${msgHash} ttl=10m telegramSent=false`);
-    return undefined;
-  }
   if (!shouldSendAlert(opts)) {
     console.log(`[Telegram] 쿨다운 중 — 발송 생략 (key=${opts?.dedupeKey})`);
     return undefined;
   }
 
   const msgId = await sendTelegramAlertRaw(payload.finalMessage, ack.effectiveReplyMarkup);
-  recordAlertSent(opts);
+  if (msgId !== undefined) recordAlertSent(opts);
   await appendAlertFeedBestEffort(payload.finalMessage, opts?.priority ?? 'NORMAL', opts?.dedupeKey);
   if (payload.hasTierIntent) {
     appendAlertAudit({
@@ -876,14 +861,15 @@ export async function sendTelegramPlainText(
     return;
   }
 
-  const token  = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const token  = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const chatId = process.env.TELEGRAM_CHAT_ID?.trim();
   if (!token || !chatId) return;
 
   async function sendPlainChunk(text: string): Promise<number | undefined> {
     try {
       const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: 'POST',
+        signal: AbortSignal.timeout(10_000),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: chatId, text }), // parse_mode 미지정
       });
@@ -903,7 +889,8 @@ export async function sendTelegramPlainText(
   const parts = splitHtmlSafeChunks(message, TELEGRAM_MAX_MESSAGE_LEN);
   for (const part of parts) {
     const msgId = await sendPlainChunk(part);
-    if (msgId !== undefined) lastMsgId = msgId;
+    if (msgId === undefined) return undefined;
+    lastMsgId = msgId;
     if (parts.length > 1) await new Promise(r => setTimeout(r, 300));
   }
   recordAlertSent(opts);
@@ -923,6 +910,7 @@ export async function answerCallbackQuery(
   try {
     await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
       method: 'POST',
+      signal: AbortSignal.timeout(10_000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         callback_query_id: callbackQueryId,
@@ -943,8 +931,8 @@ export async function editMessageText(
   text: string,
   replyMarkup?: Record<string, unknown>,
 ): Promise<void> {
-  const token  = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const token  = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const chatId = process.env.TELEGRAM_CHAT_ID?.trim();
   if (!token || !chatId) return;
 
   try {
@@ -958,6 +946,7 @@ export async function editMessageText(
 
     await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
       method: 'POST',
+      signal: AbortSignal.timeout(10_000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
@@ -967,26 +956,6 @@ export async function editMessageText(
 }
 
 // ─── 채널 알림 (TELEGRAM_CHAT_ID) ────────────────────────────────────────────
-
-/**
- * Telegram 채널에 알림 전송.
- * TELEGRAM_CHAT_ID 환경변수에 채팅 chat_id 설정 필요 — 별도의 채널 변수는 사용하지 않는다.
- * (공개 채널: "@채널이름", 비공개 채널/DM: "-100xxxxxxxxxx" 또는 숫자 chat_id)
- *
- * - 쿨다운/다이제스트 없이 즉시 전송
- * - replyMarkup 미지원 (채널 메시지에는 인라인 키보드 제외)
- */
-export async function sendChannelAlert(
-  message: string,
-  opts?: { disableNotification?: boolean },
-): Promise<number | undefined> {
-  const channelId = process.env.TELEGRAM_CHAT_ID;
-  if (!channelId) {
-    console.log('[Telegram] TELEGRAM_CHAT_ID 미설정 — 채널 전송 스킵');
-    return;
-  }
-  return sendChannelAlertTo(channelId, message, opts);
-}
 
 export async function sendChannelAlertTo(
   channelId: string,
@@ -1008,6 +977,7 @@ export async function sendChannelAlertTo(
 
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
+      signal: AbortSignal.timeout(10_000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
@@ -1154,29 +1124,6 @@ export async function sendEmptyScanDecisionBroker(
 export async function sendPrivateAlert(
   message: string,
   opts?: TelegramAlertOptions,
-): Promise<number | undefined> {
-  return sendTelegramAlert(message, opts);
-}
-
-/**
- * 브로드캐스트 전송.
- *
- * @deprecated PR-X2 (ADR-0038) — `TELEGRAM_CHAT_ID` 단일 변수 운영 환경에서는 이미
- * `sendTelegramAlert` 와 동일 동작을 한다. 명칭이 "broadcast" 로 오해 소지 있어
- * 신규 코드는 다음 중 하나로 마이그레이션:
- *   - 개인 DM 전용 (잔고/자산/오류) → `sendPrivateAlert(...)`
- *   - 채널 발송 (매매/픽/레짐/리포트) → `dispatchAlert(category, ...)`
- *
- * 기존 9개 호출자(weeklyConditionScorecard / supplyChainAgent / foreignFlowLeadingAlert
- * / stopLossTransparencyReport / newHighMomentumScanner / positionMorningCard /
- * sectorCycleDashboard / weeklyQuantInsight / scanReviewReport) 는 PR-X3 에서 일괄
- * 마이그레이션 예정. 본 PR 은 표시만.
- *
- * @returns 개인 채팅 메시지 ID
- */
-export async function sendTelegramBroadcast(
-  message: string,
-  opts?: TelegramAlertOptions & { disableChannelNotification?: boolean },
 ): Promise<number | undefined> {
   return sendTelegramAlert(message, opts);
 }

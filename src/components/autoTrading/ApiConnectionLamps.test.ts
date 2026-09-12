@@ -11,10 +11,10 @@ describe('deriveTelegram — PR-P', () => {
     expect(r.state).toBe('unknown');
   });
 
-  it('telegramConfigured=true → ok', () => {
+  it('설정만으로 발송 성공을 표시하지 않음', () => {
     const r = deriveTelegram({ telegramConfigured: true });
-    expect(r.state).toBe('ok');
-    expect(r.detail).toContain('설정됨');
+    expect(r.state).toBe('warn');
+    expect(r.detail).toContain('발송 확인 필요');
   });
 
   it('telegramBotTokenOnly=true → warn (CHAT_ID 미설정)', () => {

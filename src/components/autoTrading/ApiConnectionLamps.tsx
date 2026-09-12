@@ -147,7 +147,7 @@ function deriveYahoo(h: PipelineHealth | null): LampInfo {
 export function deriveTelegram(h: PipelineHealth | null): LampInfo {
   if (!h) return { label: 'Telegram', state: 'unknown', detail: '상태 조회 중' };
   if (h.telegramConfigured) {
-    return { label: 'Telegram', state: 'ok', detail: 'BOT_TOKEN + CHAT_ID 설정됨' };
+    return { label: 'Telegram', state: 'warn', detail: '설정됨 · 발송 확인 필요' };
   }
   if (h.telegramBotTokenOnly) {
     return { label: 'Telegram', state: 'warn', detail: 'CHAT_ID 미설정 — 발송 불가' };
