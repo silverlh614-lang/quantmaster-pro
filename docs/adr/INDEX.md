@@ -14,9 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0671`**
+**다음 ADR 번호: `0672`**
 
-최근 발급: 2026-09-13, [0670 — Shadow 워크스페이스와 가벼운 화면 조회](0670-shadow-workspace-ui.md), Accepted.
+최근 발급: 2026-09-13, [0671 — 현재 Shadow 기록을 사용하는 Telegram 봇](0671-shadow-telegram-bot.md), Accepted.
 
 상세 결정은 해당 ADR, 과거 구현 내역은 Git에서 조회한다. 이 파일에는 발급 번호와 검색 목록만 남긴다.
 
@@ -597,6 +597,7 @@
 | 0668 | archived-data-shadow-research | 저장 가격·뉴스 보존, 과거 재현과 후반 검증, Shadow 초기 근거 연결 |
 | 0669 | shadow-feature-research | OHLCV·시장 지수로 7개 조건 독립 연구, 후반 대조군 비교, 총점·레짐 제한 없음 |
 | 0670 | shadow-workspace-ui | 5개 화면으로 탐색 통합, 요약 API·상세 지연 로딩·활성 화면 조회, 브라우저 캐시 직렬화 제거 |
+| 0671 | shadow-telegram-bot | 중복 정기 보고 제거, 새 Shadow 요약·변화 알림, 전송 원장·재시도·현재 봇 메뉴 |
 
 **최대 발급 0664 · 다음 발급 0665** — `node scripts/check_adr_index.js --json` 기준 (2026-07-13 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 

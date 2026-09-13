@@ -23,6 +23,8 @@ const _runGlobalScan = vi.fn(async (): Promise<void> => undefined);
 const _runAdrGap = vi.fn(async (): Promise<void> => undefined);
 const _runSectorEtf = vi.fn(async (): Promise<void> => undefined);
 const _sendNewHigh = vi.fn(async (): Promise<void> => undefined);
+const _paperBotTick = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('../alerts/paperBot.js', () => ({ runPaperBotTick: _paperBotTick }));
 
 vi.mock('./scheduleGuard.js', () => ({
   scheduledJob: (...args: MockCron) => _scheduledJob(...args),
@@ -201,16 +203,18 @@ describe('alertJobs — 2 스캔 cron 콜백이 withForcedMarket wrap', () => {
   });
 });
 
-describe('reportJobs — high_52w_scan 콜백이 withForcedMarket wrap', () => {
+describe('reportJobs — current Shadow notifications', () => {
   beforeEach(async () => {
     const { registerReportJobs } = await import('./reportJobs.js');
     registerReportJobs();
   });
 
-  it('high_52w_scan 콜백 호출 시 withForcedMarket + sendNewHighMomentumScan', async () => {
-    const cb = findCallback('high_52w_scan');
+  it('replaces report-only scans with one coordinator while keeping internal refresh jobs', async () => {
+    const names = _scheduledJob.mock.calls.map(call => call[2]);
+    expect(names).toEqual(['paper_bot', 'circuit_auto_reset', 'market_regime_refresh_morning', 'market_regime_refresh_intraday_ttl', 'market_regime_refresh_close', 'hourly_canary']);
+    const cb = findCallback('paper_bot');
     await cb();
-    expect(_withForcedMarket).toHaveBeenCalledOnce();
-    expect(_sendNewHigh).toHaveBeenCalledOnce();
+    expect(_paperBotTick).toHaveBeenCalledOnce();
+    expect(_sendNewHigh).not.toHaveBeenCalled();
   });
 });

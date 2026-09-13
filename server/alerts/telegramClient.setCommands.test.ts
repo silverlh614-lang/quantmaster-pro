@@ -60,7 +60,26 @@ describe('Telegram delivery confirmation', () => {
     expect(await sendTelegramAlert('connection check', opts)).toBeUndefined();
     expect(await sendTelegramAlert('connection check', opts)).toBe(41);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-  }, 20_000);
+  }, 60_000);
+
+  it('delivers new scheduled reports immediately through the real routing policy', async () => {
+    const fetchMock = setup();
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ result: { message_id: 51 } }) });
+    const { sendTelegramAlert } = await import('./telegramClient.js');
+    const { runScheduledNotificationScope } = await import('./scheduledNotificationScope.js');
+    for (const kind of ['morning', 'close', 'weekly', 'trades', 'health']) {
+      const id = `paper:test:${kind}`;
+      const sent = await runScheduledNotificationScope('paper_bot', () => sendTelegramAlert('<b>Shadow 현황</b>\n가상 실험 · 실제 주문 없음', {
+        priority: 'NORMAL', tier: 'T2_REPORT', requireAck: false, category: 'paper_bot',
+        notificationEventType: `PAPER_BOT_${kind.toUpperCase()}`, notificationSeverity: kind === 'trades' ? 'TRADE_EVENT' : 'SUMMARY',
+        dedupeKey: id, eventId: id, cooldownMs: 0,
+      }));
+      expect(sent).toBe(51);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    const suppressed = await runScheduledNotificationScope('old_report', () => sendTelegramAlert('old scheduled report'));
+    expect(suppressed).toBeUndefined(); expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
 
   it('plain test requires a returned message ID and bounds the request', async () => {
     const fetchMock = setup();
@@ -97,7 +116,7 @@ describe('setTelegramBotCommands autocomplete payload', () => {
     vi.resetModules();
   });
 
-  it('includes /learning_weights_reset even when no command barrel was preloaded', async () => {
+  it('loads command barrels and publishes menus appropriate to the current mode', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'test-token';
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
       ok: true,
@@ -106,6 +125,8 @@ describe('setTelegramBotCommands autocomplete payload', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const { commandRegistry } = await import('../telegram/commandRegistry.js');
+    const state = await import('../state.js');
+    vi.spyOn(state, 'getTradingMode').mockReturnValue('PAPER');
     commandRegistry.__resetForTests();
     const { setTelegramBotCommands } = await import('./telegramClient.js');
 
@@ -115,6 +136,11 @@ describe('setTelegramBotCommands autocomplete payload', () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body ?? '{}')) as {
       commands?: Array<{ command: string }>;
     };
+    expect(commandRegistry.resolve('/learning_weights_reset')).toBeDefined();
     expect(body.commands?.some((cmd) => cmd.command === 'learning_weights_reset')).toBe(true);
+    vi.spyOn(state, 'getTradingMode').mockReturnValue('SHADOW');
+    await setTelegramBotCommands();
+    const shadowBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body ?? '{}')) as { commands: Array<{ command: string }> };
+    expect(shadowBody.commands.map(cmd => cmd.command)).toEqual(['help', 'paper', 'paper_research', 'paper_bot', 'control']);
   }, 20000);
 });

@@ -1,4 +1,5 @@
 // @responsibility telegramClient 알림 모듈
+import { suppressRetiredRoutineNotification } from './scheduledNotificationScope.js';
 
 const TELEGRAM_SUPPRESSED_NOISE_TYPES = new Set([
   'PRE_ENTRY_WAIT',
@@ -809,6 +810,7 @@ export async function sendTelegramAlert(
   message: string,
   opts?: TelegramAlertOptions,
 ): Promise<number | undefined> {
+  if (suppressRetiredRoutineNotification(opts)) return undefined;
   const noisePolicy = applyInferredNoisePolicyToAlert(message, opts);
   if (noisePolicy.suppressed) return undefined;
   opts = noisePolicy.opts;
@@ -856,6 +858,7 @@ export async function sendTelegramPlainText(
   message: string,
   opts?: Pick<TelegramAlertOptions, 'priority' | 'dedupeKey' | 'cooldownMs'>,
 ): Promise<number | undefined> {
+  if (suppressRetiredRoutineNotification(opts)) return undefined;
   if (!shouldSendAlert(opts)) {
     console.log(`[Telegram] plain 쿨다운 중 — 발송 생략 (key=${opts?.dedupeKey})`);
     return;

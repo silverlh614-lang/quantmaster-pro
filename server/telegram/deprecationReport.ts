@@ -2,9 +2,8 @@
  * @responsibility ADR-0017 §Stage 3 — 30일 이상 미사용 명령어 폐기 후보 자동 리포트 빌더 (PR-48).
  *
  * commandRegistry.all() 의 unique 명령어 목록과 commandUsageRepo.getStaleCommands()
- * 를 결합해 운영자에게 주간 텔레그램 알림으로 발송될 리포트를 생성한다.
- * 본 모듈은 부수효과 없는 순수 함수만 노출 — 실제 cron / 텔레그램 송신은
- * server/scheduler/commandUsageJobs.ts 가 담당.
+ * 를 결합해 필요할 때 조회할 진단 자료를 생성한다.
+ * 본 모듈은 부수효과 없는 순수 함수만 노출하며 정기 발송은 하지 않는다.
  */
 
 import { commandRegistry } from './commandRegistry.js';

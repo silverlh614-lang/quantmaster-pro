@@ -10,6 +10,7 @@
  */
 
 import cron from 'node-cron';
+import { runScheduledNotificationScope } from '../alerts/scheduledNotificationScope.js';
 import { recordScheduleRun } from './scheduleCatalog.js';
 import { getMarketDayContext } from '../utils/marketDayClassifier.js';
 import {
@@ -209,7 +210,7 @@ export function scheduledJob(
 
     const t0 = Date.now();
     try {
-      await fn();
+      await runScheduledNotificationScope(jobName, fn);
       // ADR-0132: success 시 edge-trigger Map entry 제거 — 다음 SKIP 시 재로깅
       // (skipped → success → skipped 사이클 가시화).
       clearSkipEdgeState(jobName);

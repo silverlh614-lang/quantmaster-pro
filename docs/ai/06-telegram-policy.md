@@ -19,11 +19,11 @@
   `commands/*/*.cmd.ts` 파일이 import 시점에 `commandRegistry.register(cmd)` 자체 호출 (side-effect).
 - **8 카테고리 디렉토리** — `commands/{system,watchlist,positions,alert,learning,control,trade,infra}/`.
   51+ cmd 객체. 새 명령 추가 = 파일 1개 + barrel 1줄.
-- **메뉴 압축 (Stage 1)** — `setMyCommands` 노출 메뉴 8개 메타 명령 (`/help /status /now /watch
-  /positions /learning /control /admin`). 51 alias 는 직접 입력 + 자동완성 노출.
-- **사용량 텔레메트리 (Stage 3)** — `commandUsageRepo` 사용량 집계 + 폐기 후보 주간 리포트 + `/help` 개인 Top 5.
-- **메뉴 자동 동기화** — `buildBotMenuCommands()` 가 META_COMMAND_REGISTRY 키에서 자동 파생.
-  drift 차단 가드 (META_COMMAND_REGISTRY ↔ MENU_DESCRIPTIONS 키 불일치 시 throw).
+- **현재 SHADOW 메뉴 (ADR-0671)** — `/help /paper /paper_research /paper_bot /control`. 기존 진단 명령은 직접 입력용으로 유지한다. `/paper`는 새 관측·전략 원장, `/paper_research`는 저장 자료 연구, `/paper_bot`은 실제 발송 결과를 읽는다.
+- **예약 발송** — 거래일 08:45 준비·16:10 마감, 일요일 19:00 연구. 한국 시간 기준이며 `paperBot.ts`가 매분 예정 보고와 새 가상 매매·운영 상태 변화를 확인한다. 중복 보고 cron 20개와 폐기 후보 주간 발송은 제거했다.
+- **발송 기록** — `paper-bot.json`에 ID가 확인된 성공과 재시도·실패·만료를 분리한다. 재시작 시 기존 매매를 다시 알리지 않는다. 수집·학습은 알림과 독립적으로 계속한다.
+- **출력 범위** — SHADOW에서 기존 예약 작업의 일반 Telegram 출력은 제외한다. 새 봇·직접 명령 응답·실제 주문 영향·긴급 알림은 보존한다. AsyncLocalStorage를 사용해 동시 실행 중인 수동 명령을 막지 않는다.
+- **메뉴 자동 동기화** — SHADOW는 5개 메뉴, 다른 모드는 기존 META_COMMAND_REGISTRY와 설명 키의 drift 가드를 유지한다. 사용량 집계는 진단용으로 보존한다.
 
 ---
 
@@ -43,7 +43,7 @@
 - **개인 회선 분리 (ADR-0038)** — `sendPrivateAlert` 는 개인 DM 전용 (잔고/자산/손절 카운트다운).
   채널 발송(`dispatchAlert`)에 잔고 키워드(총자산/주문가능현금/평가손익 등) 누출 금지 — `validate:sensitiveAlerts` 차단.
 - **채널 ID boundary** — `process.env.TELEGRAM_*_CHANNEL_ID` 직접 접근은 alertRouter 만 (`validate:channelBoundary`).
-- **정기 다이제스트** — CH3 매크로 (08:30+16:00 KST, ADR-0040), CH4 주간 자기비판 리포트 (일 19:00, ADR-0041).
+- **기존 채널 다이제스트** — 자동 발송 예약은 제거했다. 필요할 때 관리 명령으로 수동 조회·발송할 수 있다.
 - **손절 카운트다운** — CH1 채널 아닌 개인 DM 만 (`sendPrivateAlert`, ADR-0042) — 패닉 매도 차단.
 
 ---

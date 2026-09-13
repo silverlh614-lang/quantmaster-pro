@@ -4,7 +4,8 @@
 // commands than that, so the bot menu should expose a curated control surface
 // while /help and direct command dispatch still use the full registry.
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+import * as state from '../state.js';
 
 // Explicit barrel imports populate commandRegistry in the test environment.
 import '../telegram/commands/system/index.js';
@@ -29,6 +30,7 @@ describe('buildBotMenuCommandsExtended menu curation', () => {
   let baseLen: number;
 
   beforeAll(() => {
+    vi.spyOn(state, 'getTradingMode').mockReturnValue('PAPER');
     extended = buildBotMenuCommandsExtended();
     baseLen = buildBotMenuCommands().length;
   });

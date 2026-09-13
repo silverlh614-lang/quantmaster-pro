@@ -3,6 +3,7 @@ import fs from 'fs';
 import { IPS_ALERT_FILE, ensureDataDir } from '../persistence/paths.js';
 import { type MacroState, loadMacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from './telegramClient.js';
+import { getTradingMode } from '../state.js';
 import { dispatchAlert } from './alertRouter.js';
 import { AlertCategory } from './alertCategories.js';
 import { updateKellyDampenerFromIps } from '../trading/kellyDampener.js';
@@ -102,7 +103,7 @@ export async function pollIpsAlert(): Promise<void> {
     const openShadowCount = loadShadowTrades().filter((s) => isOpenShadowStatus(s.status)).length;
     const direction = dampener.multiplier < dampener.prevMultiplier ? '강화' : '완화';
     const arrow = `×${dampener.prevMultiplier.toFixed(2)} → ×${dampener.multiplier.toFixed(2)}`;
-    await sendTelegramAlert(
+    if (getTradingMode() !== 'SHADOW') await sendTelegramAlert(
       `🔔 <b>[변곡 감지 알림]</b> IPS ${ips}% (${dampener.level})\n` +
       `━━━━━━━━━━━━━━━━\n` +
       `• Kelly 감쇠 ${direction}: <b>${arrow}</b>\n` +

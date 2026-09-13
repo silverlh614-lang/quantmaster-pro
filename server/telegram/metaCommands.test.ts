@@ -26,6 +26,7 @@ import * as regimeRepo from '../persistence/regimeTransitionStateRepo.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.spyOn(state, 'getTradingMode').mockReturnValue('PAPER');
   // 기본값: 정상 운영 (verdict = 🟢 OK)
   vi.spyOn(state, 'getEmergencyStop').mockReturnValue(false);
   vi.spyOn(state, 'getDataIntegrityBlocked').mockReturnValue(false);

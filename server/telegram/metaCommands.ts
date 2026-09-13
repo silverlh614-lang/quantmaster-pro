@@ -16,6 +16,8 @@ import {
   type NowRenderOptionsInput,
 } from '../trading/regime/regimeTelegramPresenter.js';
 import { commandRegistry } from './commandRegistry.js';
+import { getTradingMode } from '../state.js';
+import { PAPER_BOT_SCHEDULES } from '../alerts/paperBotMessages.js';
 
 interface InlineKeyboardButton {
   text: string;
@@ -321,6 +323,17 @@ export interface HelpTopEntry {
 }
 
 export function buildHelpMessage(topUsage?: HelpTopEntry[]): string {
+  if (getTradingMode() === 'SHADOW') return [
+    '<b>QuantMaster Pro · Shadow 봇</b>',
+    '/paper — 관측·가상 진입·청산 현황',
+    '/paper_research — 저장 자료 연구·조건별 검증',
+    '/paper_bot — 알림 일정·발송 성공·실패',
+    '/control — 일시정지·재개 제어',
+    '/admin_help — 기존 진단 명령 안내', '',
+    '<b>자동 알림 · 한국 시간</b>', ...PAPER_BOT_SCHEDULES.map(item => item.label),
+    '새 가상 진입·청산과 관측 중단·복구는 매분 확인합니다.',
+    '가상 실험 기록이며 실제 주문 알림이 아닙니다.',
+  ].join('\n');
   const topSection =
     topUsage && topUsage.length > 0
       ? `<b>📊 자주 쓰는 명령 Top ${Math.min(topUsage.length, 5)}</b>\n` +
@@ -349,15 +362,17 @@ export function buildHelpMessage(topUsage?: HelpTopEntry[]): string {
     `<i>기존 51개 명령어 (/watchlist /pos /pause 등) 도 직접 입력 가능합니다.</i>\n` +
     `\n` +
     `⏰ <b>자동 리포트</b>\n` +
-    `  08:30 — 장전 시장 브리핑\n` +
-    `  12:00 — 장중 시장 현황\n` +
-    `  15:35 — 장마감 시장 요약\n` +
+    `  Shadow 전용 일정은 /paper_bot에서 확인\n` +
     `\n` +
     `<i>ADR-0017 Stage 1+2+3 — 메뉴 압축 + 모듈 분해 + 사용량 텔레메트리 적용 중.</i>`
   );
 }
 
 export function buildHelpKeyboard(nonce: string = newNonce()): InlineKeyboardMarkup {
+  if (getTradingMode() === 'SHADOW') return { inline_keyboard: [
+    [{ text: '관측·매매', callback_data: encodeMetaCallback('/paper', nonce) }, { text: '연구', callback_data: encodeMetaCallback('/paper_research', nonce) }],
+    [{ text: '알림 상태', callback_data: encodeMetaCallback('/paper_bot', nonce) }, { text: '제어', callback_data: encodeMetaCallback('/control', nonce) }],
+  ] };
   return {
     inline_keyboard: [
       [
@@ -422,6 +437,13 @@ const META_MENU_DESCRIPTIONS: Record<string, string> = {
 };
 
 export function buildBotMenuCommands(): BotMenuCommand[] {
+  if (getTradingMode() === 'SHADOW') return [
+    { command: 'help', description: 'Shadow 봇 도움말' },
+    { command: 'paper', description: 'Shadow 관측·가상 매매 현황' },
+    { command: 'paper_research', description: '저장 자료 연구·조건별 검증' },
+    { command: 'paper_bot', description: '알림 일정·발송 성공·실패 확인' },
+    { command: 'control', description: '일시정지·재개 제어' },
+  ];
   const metaKeys = Object.keys(META_COMMAND_REGISTRY).sort();
   const descKeys = Object.keys(META_MENU_DESCRIPTIONS).sort();
   if (metaKeys.length !== descKeys.length || metaKeys.some((k, i) => k !== descKeys[i])) {
@@ -550,6 +572,7 @@ function inferMenuPriority(command: string, category: string, riskLevel: number)
 
 export function buildBotMenuCommandsExtended(): BotMenuCommand[] {
   const base = buildBotMenuCommands();
+  if (getTradingMode() === 'SHADOW') return base;
   const seen = new Set(base.map((e) => e.command));
   const categoryOrder: Record<string, number> = {
     SYS: 0,

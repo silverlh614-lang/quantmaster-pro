@@ -3,6 +3,7 @@
 최근 20건만 한 줄씩 유지한다. 상세는 Git log/show와 [ADR 목록](../adr/INDEX.md)에서 조회한다.
 이 파일 전체를 기본 컨텍스트로 읽지 않는다. 필요한 날짜·키워드만 검색한다.
 
+- 2026-09-13 · ADR-0671 · Telegram 정기 보고 20개 정리, 현재 Shadow 요약·변화 알림·전송 원장·메뉴 재편.
 - 2026-09-13 · ADR-0670 · Shadow 대시보드 5개 화면 재편, 요약 조회·상세 지연 로딩·기록 필터로 웹 UI 경량화.
 - 2026-09-13 · ADR-0669 · 저장 OHLCV·지수로 7개 Gate 관측값 독립 연구, 후반 대조군 비교 및 결과 화면.
 - 2026-09-13 · ADR-0668 · 저장 가격·뉴스 보존 및 과거 재현 연구, 후반 기간 검증, Shadow v2 초기 학습 연결.
@@ -22,4 +23,3 @@
 - 2026-07-03 · Patch-PENDING-WIRING-B14-DEFER-001
 - 2026-07-03 · Patch-Labeler-Stall-Visibility-001
 - 2026-07-02 · ADR-0661
-- 2026-07-02 · Patch-Fin-NotAttempted-Interpretation

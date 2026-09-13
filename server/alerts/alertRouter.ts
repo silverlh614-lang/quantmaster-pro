@@ -1,4 +1,5 @@
 // @responsibility alertRouter 4채널 발송 SSOT + 진동 정책 + 디지스트 라우팅
+import { suppressRetiredRoutineNotification } from './scheduledNotificationScope.js';
 import { AlertCategory, ChannelSemantic, isCategoryEnabled, parseChannelMap } from './alertCategories.js';
 import { sendChannelAlertTo } from './telegramClient.js';
 import { incrementChannelStat } from '../persistence/channelStatsRepo.js';
@@ -224,25 +225,6 @@ function kstDateKey(iso: string): string {
   return new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 }
 
-function nextKstTimeIso(hour: number, minute: number): string {
-  const now = new Date();
-  const kst = new Date(now.getTime() + 9 * 3_600_000);
-  const candidateKstMs = Date.UTC(
-    kst.getUTCFullYear(),
-    kst.getUTCMonth(),
-    kst.getUTCDate(),
-    hour,
-    minute,
-    0,
-    0,
-  );
-  const candidateUtcMs = candidateKstMs - 9 * 3_600_000;
-  const adjustedUtcMs = candidateUtcMs >= now.getTime()
-    ? candidateUtcMs
-    : candidateUtcMs + 24 * 3_600_000;
-  return new Date(adjustedUtcMs).toISOString();
-}
-
 export interface ChannelFlushStatus {
   infoDailyDigestBufferLength: number;
   systemDailyBufferLength: number;
@@ -262,8 +244,8 @@ export function getChannelFlushStatus(): ChannelFlushStatus {
     lastInfoFlushAt,
     lastSystemDailyFlushAt,
     lastSystemWeeklyFlushAt,
-    nextScheduledFlushAt: nextKstTimeIso(16, 10),
-    flushJobEnabled: true,
+    nextScheduledFlushAt: 'NONE (manual only)',
+    flushJobEnabled: false,
   };
 }
 
@@ -663,6 +645,7 @@ export async function dispatchAlert(
   message: string,
   options?: DispatchAlertOptions,
 ): Promise<number | undefined> {
+  if (suppressRetiredRoutineNotification({ ...options, category })) return undefined;
   const routedMessage = normalizeChannelMessage(category, message);
   const noiseResult = applyNoisePolicyToDispatch(category, routedMessage, options);
   if (noiseResult.handled) return undefined;

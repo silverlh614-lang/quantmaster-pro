@@ -21,7 +21,6 @@ import { registerKisStreamJobs } from './kisStreamJobs.js';
 import { registerLearningJobs } from './learningJobs.js';
 import { registerTradeFlowJobs } from './tradeFlowJobs.js';
 import { registerMaintenanceJobs } from './maintenanceJobs.js';
-import { registerCommandUsageJobs } from './commandUsageJobs.js';
 import { registerBugLedgerSummaryJob } from './bugLedgerSummaryJob.js';
 import { registerBugCandidateJob } from './bugCandidateJob.js';
 import { registerRuntimeDebugSnapshotJob } from './runtimeDebugSnapshotJob.js';
@@ -45,7 +44,6 @@ const SCHEDULE_CATALOG_EXTENSION_JOB_NAMES = [
   'investor_flow_warmup_open',
   'investor_flow_warmup_lunch',
   'investor_flow_warmup_preclose',
-  'system_daily_flush',
   'program_auto_capture_morning',
   'program_auto_capture_afternoon',
 ];
@@ -75,7 +73,6 @@ export function startScheduler(): void {
   registerLearningJobs();
   registerTradeFlowJobs();
   registerMaintenanceJobs();
-  registerCommandUsageJobs();
   registerBugLedgerSummaryJob();  // PR #669/#670/#671/#672/#673 후속 P2-B — 매월 1일 10:00 KST
   registerBugCandidateJob();       // PR #669~#674 후속 P3 — 매일 09:30 KST CRITICAL 패턴 검출
   registerRuntimeDebugSnapshotJob(); // Patch-AFTER-HOURS-RUNTIME-DEBUG-SNAPSHOT-001/002/003 — 매 평일 15:30 KST market-close runtime debug snapshot capture (장후 KIS/KRX 400/500 회피, ESM-safe, 15:19 시스템 폐기)

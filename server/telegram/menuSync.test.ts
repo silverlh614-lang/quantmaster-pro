@@ -1,12 +1,24 @@
 // @responsibility: telegram setMyCommands 자동 동기화 가드 — META_COMMAND_REGISTRY ↔ MENU_DESCRIPTIONS drift 차단.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as state from '../state.js';
+beforeEach(() => { vi.spyOn(state, 'getTradingMode').mockReturnValue('PAPER'); });
 
 import {
   buildBotMenuCommands,
+  buildBotMenuCommandsExtended,
+  buildHelpMessage,
+  buildHelpKeyboard,
   META_COMMAND_REGISTRY,
 } from './metaCommands.js';
 
 describe('buildBotMenuCommands — Telegram 메뉴 자동 동기화 SSOT', () => {
+  it('uses the current five-command Shadow menu and matching report schedule', () => {
+    vi.spyOn(state, 'getTradingMode').mockReturnValue('SHADOW');
+    expect(buildBotMenuCommandsExtended().map(item => item.command)).toEqual(['help', 'paper', 'paper_research', 'paper_bot', 'control']);
+    expect(buildHelpMessage()).toContain('08:45'); expect(buildHelpMessage()).toContain('16:10');
+    expect(buildHelpMessage()).not.toContain('지금 매수');
+    expect(buildHelpKeyboard('test').inline_keyboard.flat().map(item => item.callback_data)).toContain('meta:paper:test');
+  });
   it('현재 노출 메뉴는 8개 (메타 5 + /help /status /now)', () => {
     const cmds = buildBotMenuCommands();
     expect(cmds).toHaveLength(8);
