@@ -1,5 +1,7 @@
 # 04 · Gate System (27 조건·Gate 0/1/2/3·진단)
 
+> **기존 Gate 구현의 유지보수 참고 문서다.** 현행 Shadow(ADR-0666~0669)는 이 문서의 27개 조건·Gate 0/1/2/3·70점·레짐 제한을 사용하지 않는다. 과거 조건은 개별 연구 자료로 활용하며, 새 Shadow의 필수 통과 조건으로 복원하지 않는다. 현행 규칙은 [AGENTS.md](../../AGENTS.md)와 [07-learning-engine.md](07-learning-engine.md)를 따른다.
+
 **Read this file only when working on:**
 - 새 Gate 조건 추가 · 기존 조건 가중치 변경 · 27 조건 출처 분류
 - Gate 0/1/2/3 통과 판정 로직 · minimum signal score
@@ -17,7 +19,7 @@
 
 ## 27 조건 + 4단계 Gate
 
-QuantMaster Pro 는 **27개 조건 + 4단계 Gate(0/1/2/3)** 를 통과한 종목에만 신호를 출력한다.
+기존 Gate 기반 구현은 **27개 조건 + 4단계 Gate(0/1/2/3)** 를 통과한 종목에만 신호를 출력한다. 현행 Shadow에는 적용하지 않는다.
 
 - **Gate 0** — 시장 레짐 분류 (R1_TURBO ~ R6_DEFENSE). 매크로 게이트 (FOMC·VIX·SELL_ONLY·R6).
 - **Gate 1** — 최소 신호 점수 (minimum signal score). requiredScore=70 (절대 변경 금지).

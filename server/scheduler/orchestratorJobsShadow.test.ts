@@ -3,10 +3,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   mode: 'SHADOW', paused: false, emergency: true,
-  scheduled: vi.fn(), scan: vi.fn(), tick: vi.fn(), heartbeat: vi.fn(),
+  scheduled: vi.fn(), cron: vi.fn(), recordRun: vi.fn(),
+  scan: vi.fn(), tick: vi.fn(), heartbeat: vi.fn(),
   dailyLoss: vi.fn(), killSwitch: vi.fn(),
 }));
-vi.mock('./scheduleGuard.js', () => ({ scheduledJob: mocks.scheduled }));
+vi.mock('node-cron', () => ({ default: { schedule: mocks.cron } }));
+vi.mock('./scheduleCatalog.js', () => ({ recordScheduleRun: mocks.recordRun }));
+vi.mock('../learning/missedLearningQueue.js', () => ({
+  enqueueMissedLearningJob: vi.fn(), isMissedLearningQueueEnabled: () => false,
+}));
+vi.mock('./scheduleGuard.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./scheduleGuard.js')>();
+  return { ...actual, scheduledJob: mocks.scheduled.mockImplementation(actual.scheduledJob) };
+});
 vi.mock('../state.js', () => ({
   getTradingMode: () => mocks.mode,
   getAutoTradePaused: () => mocks.paused,
@@ -65,13 +74,26 @@ describe('Shadow schedule', () => {
     expect(mocks.scan).not.toHaveBeenCalled();
   });
 
-  it('contains a paper failure without invoking a legacy fallback', async () => {
-    mocks.scan.mockRejectedValue(new Error('collector failed'));
-    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('records a failed Shadow scan and resumes next tick without a legacy fallback', async () => {
+    mocks.scan.mockRejectedValueOnce(new Error('collector failed'));
+    const registration = mocks.cron.mock.calls.find(call => call[0] === '* * * * *');
+    expect(registration).toBeDefined();
+    const tick = registration![1] as () => Promise<void>;
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      await expect(callback('paper_experiments')()).resolves.toBeUndefined();
-      expect(warning).toHaveBeenCalledWith('[PaperExperiments] scan failed:', 'collector failed');
+      await expect(tick()).resolves.toBeUndefined();
+      expect(mocks.recordRun).toHaveBeenLastCalledWith(expect.objectContaining({
+        jobName: 'paper_experiments', status: 'failure', note: 'collector failed',
+      }));
+      await expect(tick()).resolves.toBeUndefined();
+      expect(mocks.recordRun).toHaveBeenLastCalledWith(expect.objectContaining({
+        jobName: 'paper_experiments', status: 'success',
+      }));
+      expect(mocks.recordRun).toHaveBeenCalledTimes(2);
+      expect(mocks.scan).toHaveBeenCalledTimes(2);
       expect(mocks.tick).not.toHaveBeenCalled();
-    } finally { warning.mockRestore(); }
+      expect(mocks.dailyLoss).not.toHaveBeenCalled();
+      expect(mocks.killSwitch).not.toHaveBeenCalled();
+    } finally { errorLog.mockRestore(); }
   });
 });

@@ -29,11 +29,7 @@ async function runOrchestratorTick(): Promise<void> {
 async function runPaperExperimentTick(): Promise<void> {
   if (getTradingMode() !== 'SHADOW' || getAutoTradePaused()) return;
   touchHeartbeat('paper_experiments');
-  try {
-    await runAutoSignalScan();
-  } catch (error) {
-    console.warn('[PaperExperiments] scan failed:', error instanceof Error ? error.message : String(error));
-  }
+  await runAutoSignalScan();
 }
 
 async function forceRefreshKisTokenCron(label: string): Promise<void> {
