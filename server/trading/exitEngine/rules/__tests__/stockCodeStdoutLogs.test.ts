@@ -88,15 +88,14 @@ describe('exitEngine 청산 규칙 stdout stockCode 포함 (2026-04-27 진단 �
     expect(line).toContain('하드 스톱');
   });
 
-  it('r6EmergencyExit: stockCode 포함', async () => {
+  it('retired r6EmergencyExit emits no liquidation log', async () => {
     const shadow = makeMockShadow({ stockCode: '006490', stockName: '인스코비', quantity: 100, mode: 'LIVE' });
     await r6EmergencyExit(makeMockCtx({
       shadow, currentPrice: 95, currentRegime: 'R6_DEFENSE' as any,
     }));
     const line = findAutoTradeLogLine(logSpy);
-    expect(line).toBeDefined();
-    expect(line).toContain('인스코비 (006490)');
-    expect(line).toContain('R6 emergency liquidation');
+    expect(line).toBeUndefined();
+    expect(shadow.quantity).toBe(100);
   });
 
   it('cascadeFinal: stockCode 포함', async () => {

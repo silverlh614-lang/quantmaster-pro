@@ -1,230 +1,89 @@
-/**
- * @responsibility forceWatchScan.cmd 회귀 테스트 (PR-EG3 ADR-0058 §Migration & Compat + Patch-VITEST-CAT-C-CARRY-OVER-002)
- *
- * 검증:
- *   - light 모드: autoPopulateWatchlist 만 호출, runGuardedFullDiscoveryPipeline 미호출
- *   - full 모드: runGuardedFullDiscoveryPipeline + autoPopulateWatchlist 순서 호출
- *   - rate-limit 60s 차단
- *   - AUTO_TRADE_ENABLED=false 차단
- *   - emergencyStop=true 차단
- *   - autoPopulateWatchlist throw 시 에러 메시지 응답 + rate-limit 갱신 유지
- *
- * Patch-VITEST-CAT-C-CARRY-OVER-002: forceWatchScan.cmd 가 dynamic import 로
- * guardedDiscoveryPipeline.runGuardedFullDiscoveryPipeline 을 호출하므로,
- * 테스트 mock 도 동일 모듈을 mock 해야 한다. universeScanner.runFullDiscoveryPipeline
- * 은 더 이상 직접 호출되지 않고 guardedDiscoveryPipeline 이 내부적으로 재호출함.
- */
-
+// @responsibility 수동 스캔 명령이 모든 모드에서 현재 dispatcher를 호출하고 재호출 제한·비상정지·오류 처리를 유지하는지 검증한다.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const _runGuardedFullDiscoveryPipeline = vi.fn(
-  async (_regime: string, _macro: unknown): Promise<{ ok: boolean; status: string; reason?: string }> => ({
-    ok: true,
-    status: 'OK',
-  }),
-);
-const _autoPopulateWatchlist = vi.fn(async (): Promise<number> => 7);
-const _loadWatchlist = vi.fn(() => [{ code: '005930' }, { code: '000660' }]);
-const _loadMacroState = vi.fn(() => null);
-// ADR-0531: forceWatchScan.cmd 가 정본 레짐 accessor 로 마이그레이션 — mock 경계도 동일하게 이동.
-const _resolveCanonicalRegimeLevel = vi.fn(() => 'R4_NEUTRAL');
-const _getEmergencyStop = vi.fn(() => false);
-
-vi.mock('../../../screener/guardedDiscoveryPipeline.js', () => ({
-  runGuardedFullDiscoveryPipeline: _runGuardedFullDiscoveryPipeline,
+const mocks = vi.hoisted(() => ({
+  scan: vi.fn(async () => ({})), emergency: vi.fn(() => false), mode: vi.fn(() => 'LIVE'),
+  regime: vi.fn(() => { throw new Error('REGIME_RETIRED'); }),
+  legacyDiscovery: vi.fn(() => { throw new Error('REGIME_RETIRED'); }),
 }));
+vi.mock('../../../state.js', () => ({ getEmergencyStop: mocks.emergency, getTradingMode: mocks.mode }));
+vi.mock('../../../trading/scanDispatcher.js', () => ({ runAutoSignalScan: mocks.scan }));
+vi.mock('../../../trading/regime/canonicalRegimeAccess.js', () => ({ resolveCanonicalRegimeLevel: mocks.regime }));
+vi.mock('../../../screener/guardedDiscoveryPipeline.js', () => ({ runGuardedFullDiscoveryPipeline: mocks.legacyDiscovery }));
+vi.mock('../../metaCommands.js', () => ({ composeNowVerdict: () => '현재 관측·매매 현황' }));
+vi.mock('../../commandRegistry.js', () => ({ commandRegistry: { register: vi.fn() } }));
+import forceWatchScan, { __resetForceWatchScanRateLimitForTests } from './forceWatchScan.cmd.js';
+import krxScan from './krxScan.cmd.js';
 
-vi.mock('../../../screener/stockScreener.js', () => ({
-  autoPopulateWatchlist: _autoPopulateWatchlist,
-}));
-
-vi.mock('../../../persistence/watchlistRepo.js', () => ({
-  loadWatchlist: _loadWatchlist,
-}));
-
-vi.mock('../../../persistence/macroStateRepo.js', () => ({
-  loadMacroState: _loadMacroState,
-}));
-
-vi.mock('../../../trading/regime/canonicalRegimeAccess.js', () => ({
-  resolveCanonicalRegimeLevel: _resolveCanonicalRegimeLevel,
-}));
-
-vi.mock('../../../state.js', () => ({
-  getEmergencyStop: _getEmergencyStop,
-  // Patch-VITEST-CAT-B: production(전이 import — guards.cmd 경유)이 사용하는 smoke-test
-  // accessor 들을 타입 정합 stub 으로 보강 (state.js mock 전체 교체로 누락 시 throw).
-  getSmokeTestLiveBlocked: () => false,
-  getSmokeTestLastFailedReason: () => null,
-}));
-
-vi.mock('../../commandRegistry.js', () => ({
-  commandRegistry: { register: vi.fn() },
-}));
-
-// 동적 import — vi.mock 이 적용된 후 본 모듈을 로드
-let forceWatchScan: typeof import('./forceWatchScan.cmd.js').default;
-let __resetForceWatchScanRateLimitForTests: typeof import('./forceWatchScan.cmd.js').__resetForceWatchScanRateLimitForTests;
-
-beforeEach(async () => {
-  const mod = await import('./forceWatchScan.cmd.js');
-  forceWatchScan = mod.default;
-  __resetForceWatchScanRateLimitForTests = mod.__resetForceWatchScanRateLimitForTests;
+const originalAutoTrade = process.env.AUTO_TRADE_ENABLED;
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.scan.mockResolvedValue({});
+  mocks.emergency.mockReturnValue(false);
+  mocks.mode.mockReturnValue('LIVE');
   __resetForceWatchScanRateLimitForTests();
-
-  process.env.AUTO_TRADE_ENABLED = 'true';
-  _runGuardedFullDiscoveryPipeline.mockClear();
-  _runGuardedFullDiscoveryPipeline.mockResolvedValue({ ok: true, status: 'OK' });
-  _autoPopulateWatchlist.mockClear();
-  _autoPopulateWatchlist.mockResolvedValue(7);
-  _loadWatchlist.mockClear();
-  _loadWatchlist.mockReturnValue([{ code: '005930' }, { code: '000660' }]);
-  _loadMacroState.mockClear();
-  _resolveCanonicalRegimeLevel.mockClear();
-  _getEmergencyStop.mockClear();
-  _getEmergencyStop.mockReturnValue(false);
 });
-
 afterEach(() => {
-  delete process.env.AUTO_TRADE_ENABLED;
+  if (originalAutoTrade === undefined) delete process.env.AUTO_TRADE_ENABLED;
+  else process.env.AUTO_TRADE_ENABLED = originalAutoTrade;
 });
 
-describe('/force_watch_scan — light 모드', () => {
-  it('인자 없으면 autoPopulateWatchlist 만 호출, runGuardedFullDiscoveryPipeline 미호출', async () => {
-    const reply = vi.fn<(message: string) => Promise<void>>(async () => undefined);
+for (const command of [forceWatchScan, krxScan]) {
+  describe(command.name, () => {
+    it.each(['LIVE', 'PAPER', 'SHADOW'])('%s에서도 구 레짐 발굴 없이 현재 시그널을 실행한다', async (mode) => {
+      mocks.mode.mockReturnValue(mode);
+      delete process.env.AUTO_TRADE_ENABLED;
+      const reply = vi.fn(async (_message: string) => undefined);
+      await command.execute({ args: [], reply });
+      expect(mocks.scan).toHaveBeenCalledOnce();
+      expect(mocks.regime).not.toHaveBeenCalled();
+      expect(mocks.legacyDiscovery).not.toHaveBeenCalled();
+      expect(reply).toHaveBeenCalledWith('현재 관측·매매 현황');
+    });
+    it('비상정지 상태에서는 수동 스캔을 실행하지 않는다', async () => {
+      mocks.emergency.mockReturnValue(true);
+      const reply = vi.fn(async (_message: string) => undefined);
+      await command.execute({ args: [], reply });
+      expect(mocks.scan).not.toHaveBeenCalled();
+      expect(reply.mock.calls[0]![0]).toMatch(/비상\s?정지/);
+    });
+    it('스캔 오류를 HTML 이스케이프하여 응답한다', async () => {
+      mocks.scan.mockRejectedValueOnce(new Error('<가격 조회 실패>'));
+      const reply = vi.fn(async (_message: string) => undefined);
+      await command.execute({ args: [], reply });
+      expect(reply).toHaveBeenCalledOnce();
+      expect(reply.mock.calls[0]![0]).toContain('스캔 실패');
+      expect(reply.mock.calls[0]![0]).toContain('&lt;가격 조회 실패&gt;');
+    });
+  });
+}
+
+describe('/force_watch_scan 호환성과 호출 제한', () => {
+  it.each(['full', 'FULL'])('과거 %s 인자도 현재 시그널 경로로 연결한다', async (arg) => {
+    const reply = vi.fn(async (_message: string) => undefined);
+    await forceWatchScan.execute({ args: [arg], reply });
+    expect(mocks.scan).toHaveBeenCalledOnce();
+    expect(mocks.legacyDiscovery).not.toHaveBeenCalled();
+  });
+  it('60초 이내 재호출을 차단하고 대기 시간을 안내한다', async () => {
+    const reply = vi.fn(async (_message: string) => undefined);
     await forceWatchScan.execute({ args: [], reply });
-
-    expect(_runGuardedFullDiscoveryPipeline).not.toHaveBeenCalled();
-    expect(_autoPopulateWatchlist).toHaveBeenCalledOnce();
-
-    // reply 두 번 호출: 시작 / 결과
-    const startMsg = reply.mock.calls[0]![0];
-    expect(startMsg).toContain('LIGHT');
-    const resultMsg = reply.mock.calls[1]![0];
-    expect(resultMsg).toContain('완료');
-    expect(resultMsg).toContain('7건');
-    expect(resultMsg).not.toContain('universe 발굴');
-  });
-});
-
-describe('/force_watch_scan — full 모드', () => {
-  it("'full' 인자 → runGuardedFullDiscoveryPipeline + autoPopulateWatchlist 순서 호출", async () => {
-    const reply = vi.fn<(message: string) => Promise<void>>(async () => undefined);
-    await forceWatchScan.execute({ args: ['full'], reply });
-
-    expect(_runGuardedFullDiscoveryPipeline).toHaveBeenCalledOnce();
-    expect(_autoPopulateWatchlist).toHaveBeenCalledOnce();
-
-    // 호출 순서 검증 (mock invocation order)
-    const fullCallOrder = _runGuardedFullDiscoveryPipeline.mock.invocationCallOrder[0]!;
-    const populateCallOrder = _autoPopulateWatchlist.mock.invocationCallOrder[0]!;
-    expect(fullCallOrder).toBeLessThan(populateCallOrder);
-
-    const startMsg = reply.mock.calls[0]![0];
-    expect(startMsg).toContain('FULL');
-    const resultMsg = reply.mock.calls[1]![0];
-    expect(resultMsg).toContain('universe 발굴');
-  });
-
-  it("'FULL' 대문자 인자도 동일하게 인식 (toLowerCase 정규화)", async () => {
-    const reply = vi.fn<(message: string) => Promise<void>>(async () => undefined);
-    await forceWatchScan.execute({ args: ['FULL'], reply });
-
-    expect(_runGuardedFullDiscoveryPipeline).toHaveBeenCalledOnce();
-    expect(_autoPopulateWatchlist).toHaveBeenCalledOnce();
-  });
-});
-
-describe('/force_watch_scan — 안전 가드', () => {
-  it('60s 이내 재호출 → 차단 + 카운트다운 안내', async () => {
-    const reply1 = vi.fn<(message: string) => Promise<void>>(async () => undefined);
-    await forceWatchScan.execute({ args: [], reply: reply1 });
-    expect(_autoPopulateWatchlist).toHaveBeenCalledOnce();
-
-    const reply2 = vi.fn<(message: string) => Promise<void>>(async () => undefined);
-    await forceWatchScan.execute({ args: [], reply: reply2 });
-
-    // 두 번째 호출은 차단 메시지 1번만
-    expect(reply2).toHaveBeenCalledOnce();
-    expect(reply2.mock.calls[0]![0]).toContain('60초 이내');
-    expect(reply2.mock.calls[0]![0]).toMatch(/\d+초 후/);
-
-    // autoPopulate 는 첫 호출만 — 두 번째 호출에서 추가 진입 없음
-    expect(_autoPopulateWatchlist).toHaveBeenCalledOnce();
-  });
-
-  it('AUTO_TRADE_ENABLED=false 시 차단', async () => {
-    process.env.AUTO_TRADE_ENABLED = 'false';
-    const reply = vi.fn<(message: string) => Promise<void>>(async () => undefined);
     await forceWatchScan.execute({ args: [], reply });
-
-    expect(reply).toHaveBeenCalledOnce();
-    expect(reply.mock.calls[0]![0]).toContain('AUTO_TRADE_ENABLED=false');
-    expect(_autoPopulateWatchlist).not.toHaveBeenCalled();
-    expect(_runGuardedFullDiscoveryPipeline).not.toHaveBeenCalled();
+    expect(mocks.scan).toHaveBeenCalledOnce();
+    expect(reply.mock.calls[1]![0]).toMatch(/60초 이내.*\d+초 후/);
   });
-
-  it('AUTO_TRADE_ENABLED 미설정 시 차단', async () => {
-    delete process.env.AUTO_TRADE_ENABLED;
-    const reply = vi.fn<(message: string) => Promise<void>>(async () => undefined);
+  it('실패한 호출도 제한하여 반복 실행을 막는다', async () => {
+    mocks.scan.mockRejectedValueOnce(new Error('실패'));
+    const reply = vi.fn(async (_message: string) => undefined);
     await forceWatchScan.execute({ args: [], reply });
-
-    expect(reply).toHaveBeenCalledOnce();
-    expect(reply.mock.calls[0]![0]).toContain('AUTO_TRADE_ENABLED=false');
-    expect(_autoPopulateWatchlist).not.toHaveBeenCalled();
-  });
-
-  it('emergencyStop=true 시 차단', async () => {
-    _getEmergencyStop.mockReturnValue(true);
-    const reply = vi.fn<(message: string) => Promise<void>>(async () => undefined);
     await forceWatchScan.execute({ args: [], reply });
-
-    expect(reply).toHaveBeenCalledOnce();
-    expect(reply.mock.calls[0]![0]).toContain('비상정지');
-    expect(_autoPopulateWatchlist).not.toHaveBeenCalled();
-    expect(_runGuardedFullDiscoveryPipeline).not.toHaveBeenCalled();
+    expect(mocks.scan).toHaveBeenCalledOnce();
+    expect(reply.mock.calls[1]![0]).toContain('60초 이내');
   });
-});
-
-describe('/force_watch_scan — 에러 처리', () => {
-  it('autoPopulateWatchlist throw → 에러 메시지 응답', async () => {
-    _autoPopulateWatchlist.mockRejectedValueOnce(new Error('스크리너 실패'));
-    const reply = vi.fn<(message: string) => Promise<void>>(async () => undefined);
-    await forceWatchScan.execute({ args: [], reply });
-
-    // reply 두 번 호출: 시작 / 에러
-    expect(reply).toHaveBeenCalledTimes(2);
-    expect(reply.mock.calls[1]![0]).toContain('재스캔 실패');
-    expect(reply.mock.calls[1]![0]).toContain('스크리너 실패');
-  });
-
-  it('throw 후에도 rate-limit 갱신 유지 (재시도 폭주 차단)', async () => {
-    _autoPopulateWatchlist.mockRejectedValueOnce(new Error('실패'));
-    const reply1 = vi.fn<(message: string) => Promise<void>>(async () => undefined);
-    await forceWatchScan.execute({ args: [], reply: reply1 });
-
-    const reply2 = vi.fn<(message: string) => Promise<void>>(async () => undefined);
-    await forceWatchScan.execute({ args: [], reply: reply2 });
-
-    // 두 번째 호출은 차단 메시지
-    expect(reply2.mock.calls[0]![0]).toContain('60초 이내');
-  });
-});
-
-describe('TelegramCommand 메타데이터 정합', () => {
-  it('name + aliases 양쪽 등록', () => {
+  it('명령 이름·별칭과 관리자 권한을 유지한다', () => {
     expect(forceWatchScan.name).toBe('/force_watch_scan');
     expect(forceWatchScan.aliases).toContain('/force_scan');
-  });
-
-  it('category=TRD, riskLevel=1, visibility=ADMIN', () => {
-    expect(forceWatchScan.category).toBe('TRD');
-    expect(forceWatchScan.riskLevel).toBe(1);
-    expect(forceWatchScan.visibility).toBe('ADMIN');
-  });
-
-  it('description + usage 노출', () => {
-    expect(forceWatchScan.description).toBeTruthy();
+    expect(forceWatchScan).toMatchObject({ category: 'TRD', riskLevel: 1, visibility: 'ADMIN' });
     expect(forceWatchScan.usage).toContain('/force_watch_scan');
+    expect(krxScan).toMatchObject({ category: 'TRD', riskLevel: 2, visibility: 'ADMIN' });
   });
 });

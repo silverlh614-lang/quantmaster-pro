@@ -1,52 +1,11 @@
-// @responsibility /r6_forensic command — R6 trigger/latch/recovery forensic diagnostics.
-import { loadMacroState } from '../../../persistence/macroStateRepo.js';
-import { getRegimeDiagnostics } from '../../../trading/regimeBridge.js';
+// @responsibility 폐기한 레짐 진단 명령을 현재 Shadow 모델로 안내한다.
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
-import { formatEngineRuntimePolicy, resolveEngineRuntimePolicy } from '../../../runtime/engineRuntimePolicy.js';
-
-function fmt(value: number | undefined): string { return value === undefined ? 'N/A' : value.toFixed(2); }
-
 const r6Forensic: TelegramCommand = {
-  name: '/r6_forensic', aliases: ['/r6f'], category: 'SYS', visibility: 'ADMIN', riskLevel: 0,
-  description: 'R6 trigger/latch/recovery forensic diagnostics',
-  async execute({ reply }) {
-    const macro = loadMacroState();
-    const diagnostics = getRegimeDiagnostics(macro);
-    const state = diagnostics.transitionState;
-    const b = diagnostics.r6TriggerBreakdown;
-    const latchAgeMinutes = state.latchTriggeredAt ? Math.max(0, Math.floor((Date.now() - Date.parse(state.latchTriggeredAt)) / 60_000)) : 'N/A';
-    const runtimePolicy = resolveEngineRuntimePolicy({
-      engineMode: 'NORMAL',
-      macroRegime: diagnostics.effectiveRegime,
-      liveBuyGateAllowed: true,
-      reasonCodes: [],
-    });
-    await reply([
-      '🧯 <b>[R6 Forensic]</b>', '━━━━━━━━━━━━━━━━',
-      `r6Active=${diagnostics.effectiveRegime === 'R6_DEFENSE'}`,
-      `rawRegime=${diagnostics.rawRegime}`, `effectiveRegime=${diagnostics.effectiveRegime}`,
-      `r6RecoveryStatus=${diagnostics.r6RecoveryStatus}`,
-      `activeR6Triggers=[${b.activeR6Triggers.join(',') || 'none'}]`,
-      `previousR6Triggers=[${state.previousR6Triggers.join(',') || 'none'}]`,
-      `kospiIntradayLowReturn=${fmt(b.kospiIntradayLowReturn)}`, `kospiCloseReturn=${fmt(b.kospiCloseReturn)}`,
-      `vkospiDayChange=${fmt(b.vkospiDayChange)}`, `usdKrwDayChange=${fmt(b.usdKrwDayChange)}`,
-      `vkospi=${fmt(macro?.vkospi)}`,
-      `vkospiDayChangeComputed=${fmt(macro?.vkospiDayChangeComputed)}`,
-      `vkospiPrevClose=${fmt(macro?.vkospiPrevClose)}`,
-      `vkospiDayChangeSource=${macro?.vkospiDayChangeSource ?? 'N/A'}`,
-      `vkospiRecoveryFallbackUsed=${diagnostics.transitionState.r6RecoveryEvidence.vkospiRecoveryFallbackUsed ? 'true' : 'false'}`,
-      `mhsScore=${macro?.mhs ?? 'N/A'}`, `sourceFreshness=${diagnostics.sourceFreshness}`,
-      `r6ShockLatch=${state.r6ShockLatch}`, `latchTriggeredAt=${state.latchTriggeredAt ?? 'N/A'}`,
-      `latchTriggerValue=${state.latchTriggerValue ?? 'N/A'}`, `latchAgeMinutes=${latchAgeMinutes}`,
-      `recoveryBlockedReason=${state.recoveryBlockedReason ?? 'N/A'}`,
-      `recoveryEvidence=${state.r6RecoveryEvidence.reasons.join(', ')}`,
-      `nextRecoveryCheckAt=${state.cooldownUntil ?? 'next fresh macro refresh'}`,
-      `cooldownUntil=${state.cooldownUntil ?? 'N/A'}`,
-      `confirmations=${state.recoveryConfirmations}/${state.r6RecoveryEvidence.requiredConfirmations}`,
-      formatEngineRuntimePolicy(runtimePolicy),
-    ].join('\\n'));
-  },
+  name: '/r6_forensic', aliases: ["/r6f"],
+  category: 'SYS', visibility: 'ADMIN', riskLevel: 0,
+  description: '폐기한 레짐 기능 안내',
+  async execute({ reply }) { await reply("레짐 기반 기능은 폐기되었습니다. 새 모델 현황은 /paper, 학습·연구는 /paper_research에서 확인하세요."); },
 };
 commandRegistry.register(r6Forensic);
 export default r6Forensic;

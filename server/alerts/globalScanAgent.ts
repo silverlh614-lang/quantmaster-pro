@@ -420,8 +420,7 @@ export async function runGlobalScanAgent(): Promise<void> {
       await sendTelegramAlert(
         `📈 <b>[VIX 반등 신호]</b>\n` +
         `VIX 30 초과 이후 3거래일 연속 하락 감지\n` +
-        `현재 VIX: ${vix.toFixed(1)}\n` +
-        `리스크 온 전환 검토 — 보수적 재진입 허용 (Kelly ×0.70)`
+        `현재 VIX: ${vix.toFixed(1)}`
       ).catch(console.error);
     }
   }

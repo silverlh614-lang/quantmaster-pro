@@ -1,5 +1,5 @@
 /**
- * @responsibility KIS 국내업종 지수 조회 — daily·current·probe (default-OFF, diagnostic-only).
+ * @responsibility KIS 국내업종 지수와 코스피 장중 시세를 공식 데이터 통로로 조회한다.
  *
  * ADR-0537 — kisClient/query.ts 분해 시 섹터 지수 도메인 격리.
  * 모든 fetch 는 overrides.ts (VTS mock) 우선 + http.ts realDataKisGet 경유 (절대 규칙 #2).
@@ -478,20 +478,18 @@ export async function fetchKisSectorIndexCurrentPrice(
 }
 
 /**
- * ADR-0592: KOSPI 종합지수(0001) intraday quote 노출 — R6 recovery 평가 입력(결함 B).
+ * KOSPI 종합지수(0001) 장중 시세와 거래일을 수집한다.
  *
- * 기존 fetchKisSectorIndexCurrentPrice 와 달리 (1) 전용 flag `R6_KOSPI_INTRADAY_QUOTE_ENABLED`
- * 로 게이트(SectorEnergy diagnostic flag 와 독립) + (2) tradeDate(YYYY-MM-DD KST) 반환.
+ * 레짐 설정과 무관하게 조회하며 tradeDate(YYYY-MM-DD KST)를 함께 반환한다.
  * 내부는 기존 realDataKisGet SSOT 경유(절대 규칙 #2, raw KIS REST 금지) + VTS override 재사용.
  *
  * tradeDate 는 응답 row 의 거래일 필드(stck_bsop_date/bsop_date, YYYYMMDD)에서 우선 도출하고,
  * 부재 시 현재 KST 날짜(quote 는 "지금" 시세이므로 응답 시점 거래일)로 폴백한다.
- * 실패/미설정 시 null → 호출자(kospiIntradayRefresh)가 carry-forward 처리.
+ * 자격증명 부재/조회 실패 시 null → 호출자(kospiIntradayRefresh)가 기존 값과 시각을 유지한다.
  */
 export async function fetchKospiCompositeIntradayQuote(
   priority: KisApiPriority = 'LOW',
 ): Promise<{ current: number; changePct: number; tradeDate: string; advanceCount?: number; declineCount?: number } | null> {
-  if (process.env.R6_KOSPI_INTRADAY_QUOTE_ENABLED !== 'true') return null;
   const overrides = getKisOverrides();
   // VTS mock 재사용 — 종합지수(0001) 현재가 override.
   if (overrides.fetchKisSectorIndexCurrentPrice) {

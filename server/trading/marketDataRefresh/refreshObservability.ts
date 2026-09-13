@@ -6,43 +6,12 @@
  * 전 섹션 모듈이 공유하는 emitMarketDataProviderWarn 을 형제 모듈로 격리해 순환 import 를 차단한다.
  */
 
-import { loadMacroState } from '../../persistence/macroStateRepo.js';
-import { resolveRegimeSnapshot } from '../regime/regimeResolver.js';
 import { classifyMacroDataHealth, listMacroDataHealthIssues, summarizeMacroDataHealth } from '../regime/macroDataHealthRouter.js';
 import { defaultWarnTtlSec, emitOperationalWarn } from '../../observability/operationalWarn.js';
 import type { MacroRefreshReason } from './types.js';
 
-function macroRefreshRuntimeContext(now = new Date()): { marketSession: string; engineMode: string; r6State: string; sellOnly: boolean } {
-  try {
-    const macro = loadMacroState();
-    const regimeSnapshot = resolveRegimeSnapshot({ macroState: macro, now });
-    const r6State = regimeSnapshot.diagnostics.transitionState.r6StateMachineState ?? regimeSnapshot.effectiveRegime;
-    return {
-      marketSession: process.env.MARKET_SESSION ?? process.env.NODE_ENV ?? 'UNKNOWN',
-      engineMode: regimeSnapshot.engineMode,
-      r6State,
-      sellOnly: false,
-    };
-  } catch (e) {
-    return {
-      marketSession: process.env.MARKET_SESSION ?? process.env.NODE_ENV ?? 'UNKNOWN',
-      engineMode: 'UNKNOWN',
-      r6State: 'UNKNOWN',
-      sellOnly: false,
-    };
-  }
-}
-
 export function logMacroRefreshStarted(reason: MacroRefreshReason): void {
-  const ctx = macroRefreshRuntimeContext();
-  console.info(
-    '[MACRO_REFRESH_STARTED] ' +
-    `reason=${reason} ` +
-    `marketSession=${ctx.marketSession} ` +
-    `engineMode=${ctx.engineMode} ` +
-    `r6State=${ctx.r6State} ` +
-    `sellOnly=${ctx.sellOnly}`,
-  );
+  console.info(`[MACRO_REFRESH_STARTED] reason=${reason} marketSession=${process.env.MARKET_SESSION ?? 'UNKNOWN'}`);
 }
 
 export function logMacroRefreshSuccess(input: { updatedAt: string; mhs?: number; vkospi?: number; kospiDayReturn?: number; writeSucceeded: boolean }): void {
@@ -79,21 +48,17 @@ export function logMacroRefreshFailed(input: { error: unknown; provider: string;
 }
 
 export function logMacroRefreshSkipped(reason: string): void {
-  const ctx = macroRefreshRuntimeContext();
   emitOperationalWarn({
     priority: 'P1',
     domain: 'DATA',
-    code: 'P1_REGIME_DATA_HEALTH_STALE',
+    code: 'P1_MACRO_STATE_STALE',
     message: '[MACRO_REFRESH_SKIPPED] macro refresh skipped',
     executionImpact: 'NONE',
     mode: 'DEGRADED',
-    dedupKey: `macro-refresh-skipped:${reason}:${ctx.r6State}`,
+    dedupKey: `macro-refresh-skipped:${reason}`,
     ttlSec: defaultWarnTtlSec('P1'),
     details: {
       reason,
-      engineMode: ctx.engineMode,
-      r6State: ctx.r6State,
-      shouldNotSkipInR6: true,
       providerIssue: true,
       marketSignal: false,
     },
@@ -111,7 +76,7 @@ export function emitMacroDataHealthSummary(updated: unknown): void {
     priority: 'P1',
     domain: 'DATA',
     code: sourceHealth === 'STALE'
-      ? (hasMacroStateStale ? 'P1_MACRO_STATE_STALE' : (staleOnlyShortSelling ? 'P1_SHORT_SELLING_DATA_STALE' : 'P1_REGIME_DATA_HEALTH_STALE'))
+      ? (hasMacroStateStale ? 'P1_MACRO_STATE_STALE' : (staleOnlyShortSelling ? 'P1_SHORT_SELLING_DATA_STALE' : 'P1_MACRO_STATE_STALE'))
       : 'P1_MACRO_DATA_HEALTH_DEGRADED',
     message: `[MACRO_DATA_HEALTH] sourceHealth=${sourceHealth}`,
     executionImpact: 'NONE',

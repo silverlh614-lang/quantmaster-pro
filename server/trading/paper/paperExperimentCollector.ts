@@ -1,6 +1,7 @@
 // @responsibility Collect paper experiment observations.
 import { randomUUID } from 'node:crypto';
 import type { PaperNewsObservation, PaperObservation, PaperSnapshot } from '../../../src/types/paperExperiment.js';
+import { getExpandedUniverse } from '../../screener/dynamicUniverseExpander.js';
 import { loadWatchlist } from '../../persistence/watchlistRepo.js';
 import { loadDartAlerts } from '../../persistence/dartRepo.js';
 import { loadNewsSupplyRecords } from '../../learning/newsSupplyLogger.js';
@@ -31,7 +32,8 @@ export async function collectPaperExperimentSnapshot(openSymbols: string[]): Pro
     if (!items.some((existing) => existing.id === item.id)) items.push(item);
     news.set(code, items);
   };
-  for (const item of loadWatchlist()) {
+  // Candidate admission is independent of the retired regime/Gate watchlist pipeline.
+  for (const item of [...getExpandedUniverse(), ...loadWatchlist()]) {
     const code = codeOf(item.code);
     if (code) names.set(code, item.name);
   }

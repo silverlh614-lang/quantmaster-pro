@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../trading/regimeBridge.js', () => ({
+  getRegimeDiagnostics: vi.fn(() => { throw new Error('CURRENT_REGIME_MUST_NOT_RUN'); }),
+}));
 import {
   collectRegimeLearningBank,
   collectRegimeLearningConsistency,
@@ -59,6 +63,37 @@ function cf(symbol: string, patch: Partial<CounterfactualShadowLearningLedgerEnt
 }
 
 describe('Regime Learning Bank', () => {
+  it('reads all historical cohorts without a current classifier or invented regime', () => {
+    const rows = [
+      shadow('historical-r1', { effectiveRegime: 'R1_TURBO', outcomeLabel: 'WIN', returnR: 1 }),
+      shadow('historical-r6', { effectiveRegime: 'R6_DEFENSE', outcomeLabel: 'LOSS', returnR: -0.5 }),
+    ];
+    const bank = collectRegimeLearningBank({
+      shadowCases: rows, counterfactualEntries: [], includePersistedSources: false,
+    });
+    expect(bank.activeRegime).toBe('HISTORICAL_ALL');
+    expect(bank.activeRegimePhase).toBeNull();
+    expect(bank.rawRegime).toBe('NOT_APPLICABLE');
+    expect(bank.effectiveRegime).toBe('NOT_APPLICABLE');
+    expect(bank.regimeLearningSampleSize).toBe(2);
+    expect(bank.stats.map((row) => row.regimePhase)).toEqual(['R1_RECOVERY', 'R6_DEFENSE']);
+    expect(rows[0].effectiveRegime).toBe('R1_TURBO');
+    expect(rows[1].effectiveRegime).toBe('R6_DEFENSE');
+    expect(formatRegimeLearningSummary(bank)).toContain('historyView=HISTORICAL_ALL');
+    expect(formatRegimeLearningSummary(bank)).not.toContain('liveEntryAllowed=');
+  });
+
+  it('selects a supplied historical tag without filling the other tag from current diagnostics', () => {
+    const bank = collectRegimeLearningBank({
+      effectiveRegime: 'R6_DEFENSE',
+      shadowCases: [shadow('selected-r6', { effectiveRegime: 'R6_DEFENSE', outcomeLabel: 'LOSS' })],
+      counterfactualEntries: [], includePersistedSources: false,
+    });
+    expect(bank.activeRegimePhase).toBe('R6_DEFENSE');
+    expect(bank.rawRegime).toBe('R6_DEFENSE');
+    expect(bank.activeRegimeSampleSize).toBe(1);
+  });
+
   it('separates R1/R6 Shadow cases into regime-specific stats', () => {
     const bank = collectRegimeLearningBank({
       rawRegime: 'R6_DEFENSE',
@@ -214,7 +249,8 @@ describe('Regime Learning Bank', () => {
     expect(summary).toContain('Regime Learning Bank');
     expect(summary).toContain('R6_DEFENSE');
     expect(summary).toContain('promotionAllowed=false');
-    expect(summary).toContain('liveEntryAllowed=');
+    expect(summary).toContain('runtimeRegime=RETIRED');
+    expect(summary).not.toContain('liveEntryAllowed=');
     expect(summary).toContain('brokerOrdersCreated=0');
     expect(detail).toContain('Regime Learning Detail: R6_DEFENSE');
     expect(detail).toContain('recommendationOnly=true');

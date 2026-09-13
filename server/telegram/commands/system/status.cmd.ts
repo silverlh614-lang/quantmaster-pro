@@ -1,10 +1,5 @@
-// @responsibility status.cmd 텔레그램 모듈
-// @responsibility: /status 명령 — 모드/비상정지/MHS/포지션/오늘 결산/KIS/Yahoo/스캐너 1메시지 요약.
-import { loadMacroState } from '../../../persistence/macroStateRepo.js';
-import { getRemainingQty } from '../../../persistence/shadowTradeRepo.js';
-import { getShadowTrades } from '../../../orchestrator/tradingOrchestrator.js';
-import { collectHealthSnapshot } from '../../../health/diagnostics.js';
-import { resolveRegimeSnapshot } from '../../../trading/regime/regimeResolver.js';
+// @responsibility 현재 Shadow 관측·매매·알림 건강 현황을 보여주고 과거 포맷 API를 보존한다.
+import { composeNowVerdict } from '../../metaCommands.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -13,55 +8,9 @@ const status: TelegramCommand = {
   category: 'SYS',
   visibility: 'MENU',
   riskLevel: 0,
-  description: '시스템 현황 요약 (모드/비상정지/MHS/활성 포지션/오늘 결산)',
+  description: 'Shadow 관측·가상 매매·봇 건강 현황',
   async execute({ reply }) {
-    const macro = loadMacroState();
-    const regimeSnapshot = resolveRegimeSnapshot({ macroState: macro });
-    const shadows = getShadowTrades();
-    const snapshot = collectHealthSnapshot();
-
-    const active = shadows.filter((s) => {
-      const st = (s as { status?: string }).status;
-      const open =
-        st === 'PENDING' ||
-        st === 'ORDER_SUBMITTED' ||
-        st === 'PARTIALLY_FILLED' ||
-        st === 'ACTIVE' ||
-        st === 'EUPHORIA_PARTIAL';
-      return open && getRemainingQty(s) > 0;
-    });
-    const today = new Date().toISOString().split('T')[0];
-    const closed = shadows.filter((s) => {
-      const r = s as { status?: string; signalTime?: string };
-      return (r.status === 'HIT_TARGET' || r.status === 'HIT_STOP') && r.signalTime?.startsWith(today);
-    });
-    const pnl = closed.reduce(
-      (sum, s) => sum + ((s as { returnPct?: number }).returnPct ?? 0),
-      0,
-    );
-
-    await reply(formatStatusMessage({
-      verdict: snapshot.verdict,
-      autoTradeMode: snapshot.autoTradeMode,
-      autoTradeEnabled: snapshot.autoTradeEnabled,
-      emergencyStop: snapshot.emergencyStop,
-      mhs: regimeSnapshot.mhs ?? undefined,
-      regime: regimeSnapshot.displayRegime,
-      effectiveRegime: regimeSnapshot.effectiveRegime,
-      regimeSnapshotId: regimeSnapshot.snapshotId,
-      activeCount: active.length,
-      maxPositions: parseInt(process.env.MAX_CONVICTION_POSITIONS ?? '8', 10),
-      closedCount: closed.length,
-      pnlSum: pnl,
-      kisTokenHours: snapshot.kisTokenHours,
-      kisConfigured: snapshot.kisConfigured,
-      watchlistCount: snapshot.watchlistCount,
-      lastScanTs: snapshot.lastScanTs,
-      lastBuyTs: snapshot.lastBuyTs,
-      dailyLossPct: snapshot.dailyLossPct,
-      dailyLossLimit: snapshot.dailyLossLimit,
-      yahooStatus: snapshot.yahoo.status,
-    }));
+    await reply(composeNowVerdict());
   },
 };
 

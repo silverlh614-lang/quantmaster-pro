@@ -31,8 +31,6 @@ const LIVE_SAFE_T1_ENV_KEYS = [
 ];
 // ADR-0635 — LIVE_ADJACENT_REVIEW T2 (운영자 1-체크포인트 · 자동 활성 금지).
 const LIVE_ADJACENT_ENV_KEYS = [
-  'R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED',
-  'R6_RECOVERY_STUCK_EXIT_ENABLED',
   'GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED',
   'INTRADAY_SCREENER_REFRESH_ENABLED',
 ];
@@ -108,7 +106,6 @@ function fullySatisfiedInput(
     consecutiveReadyDaysByLever: {
       PRICE_CORRECTION_SHADOW_ADR0623: 5,
       TRADE_REPLACEMENT_SHADOW_EXECUTE_ADR0602: 5,
-      GATE1_REGIME_AWARE_REQUIRED_ADR0546: 99,
       GATE1_POSITIVE_CEILING_WIRING_ADR0613: 99,
       LEARNING_WEIGHT_PROMOTION_ADR0581: 99,
       COUNTERFACTURE_GATE_APPLY_ADR0624: 99,
@@ -126,7 +123,7 @@ const T1_LEVER = LEVER_REGISTRY.find(
 )!;
 // ADR-0635 — LIVE_ADJACENT_REVIEW T2 lever (자동 활성 금지).
 const T2_LEVER = LEVER_REGISTRY.find(
-  (l) => l.leverId === 'R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592',
+  (l) => l.leverId === 'GATE1_RS_PERCENTILE_CONTINUOUS_ADR0627',
 )!;
 
 beforeEach(() => {
@@ -258,12 +255,12 @@ describe('evaluateAutoActivation — EXCLUDED (불변식 #7/#8, 영구 금지)',
     }
   });
 
-  it('GATE1_REGIME_AWARE_REQUIRED_ADR0546 (ABSOLUTE_PRESERVATION) → EXCLUDED, env 미설정', () => {
+  it('retired regime-required lever is absent from automatic evaluation', () => {
     const report = evaluateAutoActivation(fullySatisfiedInput());
     const d = report.decisions.find(
       (x) => x.leverId === 'GATE1_REGIME_AWARE_REQUIRED_ADR0546',
-    )!;
-    expect(d.verdict).toBe('EXCLUDED');
+    );
+    expect(d).toBeUndefined();
     expect(process.env.GATE1_REGIME_AWARE_REQUIRED).toBeUndefined();
   });
 });
@@ -514,7 +511,7 @@ describe('ADR-0635 — LIVE_ADJACENT_REVIEW T2 (운영자 검토 · process.env 
       now: NOW,
       promotionReadiness: makePromotionBoard(true),
       evidence: makeEvidence({ matureSamplesD5: 150, reviewReady: true }),
-      consecutiveReadyDaysByLever: { R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592: 99 },
+      consecutiveReadyDaysByLever: { GATE1_RS_PERCENTILE_CONTINUOUS_ADR0627: 99 },
       registry: [T2_LEVER],
     });
 
@@ -522,7 +519,7 @@ describe('ADR-0635 — LIVE_ADJACENT_REVIEW T2 (운영자 검토 · process.env 
     expect(d.verdict).toBe('EXCLUDED');
     expect(d.activated).toBe(false);
     expect(report.activatedLeverIds).not.toContain(T2_LEVER.leverId);
-    expect(process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED).toBeUndefined();
+    expect(process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED).toBeUndefined();
   });
 
   it('전체 T2 4종 모두 EXCLUDED·process.env 무접촉', () => {
@@ -532,7 +529,7 @@ describe('ADR-0635 — LIVE_ADJACENT_REVIEW T2 (운영자 검토 · process.env 
       evidence: makeEvidence({ matureSamplesD5: 150, reviewReady: true }),
     });
     const t2Levers = LEVER_REGISTRY.filter((l) => l.eligibility === 'LIVE_ADJACENT_REVIEW');
-    expect(t2Levers.length).toBe(4);
+    expect(t2Levers.length).toBe(2);
     for (const lever of t2Levers) {
       const d = report.decisions.find((x) => x.leverId === lever.leverId)!;
       expect(d.verdict).toBe('EXCLUDED');
@@ -619,15 +616,15 @@ describe('registry 주입 (테스트용)', () => {
 // ── ADR-0636 — 운영자 승인 활성화 (LIVE_ADJACENT_REVIEW 전용 · 2중 가드) ────────────
 describe('ADR-0636 — applyOperatorApproval (LIVE_ADJACENT_REVIEW 만)', () => {
   it('LIVE_ADJACENT_REVIEW → APPROVED, envName=true set, ledger source=OPERATOR_APPROVAL', () => {
-    const before = process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED;
+    const before = process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED;
     expect(before).toBeUndefined();
-    const r = applyOperatorApproval('R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592', 'operator');
+    const r = applyOperatorApproval('GATE1_RS_PERCENTILE_CONTINUOUS_ADR0627', 'operator');
     expect(r.verdict).toBe('APPROVED');
-    expect(r.envName).toBe('R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED');
-    expect(process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED).toBe('true');
+    expect(r.envName).toBe('GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED');
+    expect(process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED).toBe('true');
 
     const led = listAutoActivationLedger();
-    const entry = led.find((e) => e.leverId === 'R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592')!;
+    const entry = led.find((e) => e.leverId === 'GATE1_RS_PERCENTILE_CONTINUOUS_ADR0627')!;
     expect(entry.source).toBe('OPERATOR_APPROVAL');
     expect(entry.approvedBy).toBe('operator');
   });
@@ -646,9 +643,9 @@ describe('ADR-0636 — applyOperatorApproval (LIVE_ADJACENT_REVIEW 만)', () => 
   });
 
   it('EXCLUDED(ABSOLUTE_PRESERVATION) → REJECTED_NOT_REVIEWABLE, process.env 무접촉', () => {
-    const r = applyOperatorApproval('GATE1_REGIME_AWARE_REQUIRED_ADR0546', 'operator');
+    const r = applyOperatorApproval('GATE1_POSITIVE_CEILING_WIRING_ADR0613', 'operator');
     expect(r.verdict).toBe('REJECTED_NOT_REVIEWABLE');
-    expect(process.env.GATE1_REGIME_AWARE_REQUIRED).toBeUndefined();
+    expect(process.env.GATE1_POSITIVE_CEILING_WIRING_ENABLED).toBeUndefined();
   });
 
   it('미등재 leverId → NOT_FOUND, process.env 무접촉·ledger 무증가', () => {
@@ -672,14 +669,14 @@ describe('ADR-0636 — applyOperatorApproval (LIVE_ADJACENT_REVIEW 만)', () => 
 
 describe('ADR-0636 — revokeOperatorApproval (env delete)', () => {
   it('LIVE_ADJACENT_REVIEW → REVOKED, envName delete (set false 아님)', () => {
-    applyOperatorApproval('R6_RECOVERY_STUCK_EXIT_ADR0630', 'operator');
-    expect(process.env.R6_RECOVERY_STUCK_EXIT_ENABLED).toBe('true');
+    applyOperatorApproval('INTRADAY_SCREENER_REFRESH_ADR0628', 'operator');
+    expect(process.env.INTRADAY_SCREENER_REFRESH_ENABLED).toBe('true');
 
-    const r = revokeOperatorApproval('R6_RECOVERY_STUCK_EXIT_ADR0630');
+    const r = revokeOperatorApproval('INTRADAY_SCREENER_REFRESH_ADR0628');
     expect(r.verdict).toBe('REVOKED');
     // delete — 미설정 default 복귀 ('false' 아님).
-    expect(process.env.R6_RECOVERY_STUCK_EXIT_ENABLED).toBeUndefined();
-    expect('R6_RECOVERY_STUCK_EXIT_ENABLED' in process.env).toBe(false);
+    expect(process.env.INTRADAY_SCREENER_REFRESH_ENABLED).toBeUndefined();
+    expect('INTRADAY_SCREENER_REFRESH_ENABLED' in process.env).toBe(false);
 
     const led = listAutoActivationLedger();
     expect(led.some((e) => e.source === 'OPERATOR_REVOKE')).toBe(true);
@@ -704,13 +701,13 @@ describe('ADR-0636 — reapplyOperatorApprovals (부팅 재적용)', () => {
 
   it('LIVE_ADJACENT_REVIEW leverId → process.env=true 재적용', () => {
     const applied = reapplyOperatorApprovals([
-      'R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592',
+      'GATE1_RS_PERCENTILE_CONTINUOUS_ADR0627',
       'INTRADAY_SCREENER_REFRESH_ADR0628',
     ]);
     expect(applied.sort()).toEqual(
-      ['INTRADAY_SCREENER_REFRESH_ADR0628', 'R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592'].sort(),
+      ['INTRADAY_SCREENER_REFRESH_ADR0628', 'GATE1_RS_PERCENTILE_CONTINUOUS_ADR0627'].sort(),
     );
-    expect(process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED).toBe('true');
+    expect(process.env.GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED).toBe('true');
     expect(process.env.INTRADAY_SCREENER_REFRESH_ENABLED).toBe('true');
   });
 
@@ -726,5 +723,33 @@ describe('ADR-0636 — reapplyOperatorApprovals (부팅 재적용)', () => {
     // 非-T2 는 process.env 무접촉.
     expect(process.env.PRICE_CORRECTION_SHADOW_ENABLED).toBeUndefined();
     expect(process.env.GATE1_REGIME_AWARE_REQUIRED).toBeUndefined();
+  });
+});
+
+
+// Historical approval rows remain readable but may never recreate retired regime configuration.
+describe('retired regime activation levers', () => {
+  const retired = [
+    ['R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592', 'R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED'],
+    ['R6_RECOVERY_STUCK_EXIT_ADR0630', 'R6_RECOVERY_STUCK_EXIT_ENABLED'],
+    ['GATE1_REGIME_AWARE_REQUIRED_ADR0546', 'GATE1_REGIME_AWARE_REQUIRED'],
+  ] as const;
+
+  it.each(retired)('%s cannot reactivate through evaluator, operator approval, or boot replay', (id, envName) => {
+    const previous = process.env[envName];
+    delete process.env[envName];
+    try {
+      process.env[MASTER_FLAG] = 'true';
+      const report = evaluateAutoActivation(fullySatisfiedInput());
+      expect(report.decisions.some((decision) => decision.leverId === id)).toBe(false);
+      expect(applyOperatorApproval(id, 'operator').verdict).toBe('NOT_FOUND');
+      expect(revokeOperatorApproval(id).verdict).toBe('NOT_FOUND');
+      expect(reapplyOperatorApprovals([id])).toEqual([]);
+      expect(process.env[envName]).toBeUndefined();
+      expect(listAutoActivationLedger().some((entry) => entry.leverId === id)).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env[envName];
+      else process.env[envName] = previous;
+    }
   });
 });

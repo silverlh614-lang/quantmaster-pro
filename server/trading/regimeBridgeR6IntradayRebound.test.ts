@@ -9,7 +9,7 @@ vi.mock('../persistence/tradingSettingsRepo.js', async (importActual) => ({
   loadTradingSettings: settingsMock.loadTradingSettings,
 }));
 
-import { evaluateR6RecoveryTransition, getRawRegime } from './regimeBridge.js';
+import { evaluateR6RecoveryTransition, getHistoricalRegime as getRawRegime } from './regimeBridge.js';
 
 // 2026-06-09(화) 11:00 KST = KRX 거래일. 어제 = 2026-06-08(월) 거래일.
 const NOW = new Date('2026-06-09T02:00:00.000Z');
@@ -292,8 +292,8 @@ describe('ADR-0592 regimeBridge wiring', () => {
     expect(breakdown.tradeDateIsToday).toBe(true);
   });
 
-  // 케이스 10c: TRADEDATE flag OFF + 어제 봉 → 강등 안 됨(byte-equivalent, intraday-low active 유지).
-  it('does NOT downgrade yesterday bar when TRADEDATE flag OFF (byte-equivalent)', () => {
+  // Retiring the regime flag does not retire source-date validation, including historical replay.
+  it('validates yesterday bars even after the obsolete TRADEDATE flag is removed', () => {
     const yesterdayShock = macro({
       kospiTriggerSourceTradeDate: YESTERDAY_KEY,
       kospiIntradayLowReturn: -7.0,
@@ -307,6 +307,7 @@ describe('ADR-0592 regimeBridge wiring', () => {
       NOW,
     ).r6TriggerBreakdown;
     expect(breakdown.triggerFreshness).toBe('FRESH');
-    expect(breakdown.activeR6Triggers).toContain('KOSPI_INTRADAY_LOW_SHOCK');
+    expect(breakdown.activeR6Triggers).not.toContain('KOSPI_INTRADAY_LOW_SHOCK');
+    expect(breakdown.tradeDateIsToday).toBe(false);
   });
 });

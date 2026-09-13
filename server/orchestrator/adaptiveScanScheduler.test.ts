@@ -1,7 +1,19 @@
-import { describe, expect, it, beforeEach } from 'vitest';
-import fs from 'fs';
-import path from 'path';
-import { recordScanResult, getScanFeedbackState, resetScanState } from './adaptiveScanScheduler.js';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { decideScan, recordScanResult, getScanFeedbackState, resetScanState, requestImmediateRescan } from './adaptiveScanScheduler.js';
+
+const market = vi.hoisted(() => ({ regime: 'R6_DEFENSE', vkospiDayChange: 0, activePositions: 0 }));
+vi.mock('../persistence/macroStateRepo.js', () => ({
+  loadMacroState: () => ({ regime: market.regime, vkospiDayChange: market.vkospiDayChange }),
+}));
+vi.mock('../persistence/shadowTradeRepo.js', () => ({
+  loadShadowTrades: () => Array.from({ length: market.activePositions }, () => ({ status: 'ACTIVE', watchlistSource: 'MANUAL' })),
+}));
+vi.mock('../trading/regime/canonicalRegimeAccess.js', () => ({
+  resolveCanonicalRegimeLevel: () => { throw new Error('retired regime classifier must not execute'); },
+}));
+vi.mock('../trading/regimeBridge.js', () => ({
+  getRegimeDiagnostics: () => { throw new Error('retired regime diagnostics must not execute'); },
+}));
 
 function kstTime(hour: number, minute: number): Date {
   return new Date(Date.UTC(2026, 4, 8, hour - 9, minute, 0)); // 2026-05-08 Friday
@@ -9,8 +21,6 @@ function kstTime(hour: number, minute: number): Date {
 
 const buyAllowedNow = kstTime(10, 0);
 const trueEmptyOpts = { now: buyAllowedNow, engineMode: 'NORMAL' as const };
-const schedulerSource = fs.readFileSync(path.resolve(__dirname, 'adaptiveScanScheduler.ts'), 'utf-8');
-const schedulerBaseSource = fs.readFileSync(path.resolve(__dirname, 'adaptiveScanScheduler.base.ts'), 'utf-8');
 
 describe('recordScanResult — 피드백 루프', () => {
   beforeEach(() => {
@@ -121,21 +131,53 @@ describe('recordScanResult — ADR-452b empty scan taxonomy wiring', () => {
 
 
 
-describe('R6 macro_unblock override scan wiring (ADR-R6-OVERRIDE-SCAN-001)', () => {
-  it('keeps SELL_ONLY default and enables FULL path when override is active', () => {
-    expect(schedulerBaseSource).toContain("const r6OverrideActive = isMacroEntryOverrideActive('R6_DEFENSE')");
-    expect(schedulerBaseSource).toContain("priority:        'SELL_ONLY'");
-    expect(schedulerBaseSource).toContain("priority:        'FULL'");
-    expect(schedulerBaseSource).toContain('[R6_DEFENSE_OVERRIDE_SCAN] macro_unblock active');
+describe('regime-free observation cadence', () => {
+  beforeEach(() => {
+    resetScanState();
+    market.regime = 'R6_DEFENSE';
+    market.vkospiDayChange = 0;
+    market.activePositions = 0;
+    vi.useFakeTimers();
+    vi.setSystemTime(buyAllowedNow);
+    vi.stubEnv('MAX_CONVICTION_POSITIONS', '10');
+    vi.stubEnv('TRADE_WINDOW_LEGACY_HOURS', 'false');
   });
-});
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 
-describe('R6 confirmation/recovery shadow scan trigger wiring', () => {
-  it('routes R6 confirmation wait and bias recovery triggers to FULL shadow candidate scans', () => {
-    expect(schedulerSource).toContain("emitShadowCandidateScanTrigger('R6_CONFIRMATION_WAIT')");
-    expect(schedulerSource).toContain("emitShadowCandidateScanTrigger('BIAS_RECOVERY')");
-    expect(schedulerSource).toContain("priority: 'FULL'");
-    expect(schedulerSource).toContain('candidateScanTrigger: recoveryShadowTrigger');
-    expect(schedulerSource).toContain('executionImpact=NONE, legacy defense policy ignored');
+  it.each(['R1_TURBO', 'R6_DEFENSE'])('keeps the existing morning cadence regardless of stale %s metadata', (regime) => {
+    market.regime = regime;
+    expect(decideScan()).toMatchObject({ shouldScan: true, intervalMinutes: 2, priority: 'FULL' });
+    vi.setSystemTime(new Date(buyAllowedNow.getTime() + 90_000));
+    expect(decideScan()).toMatchObject({ shouldScan: false, intervalMinutes: 2 });
+    vi.setSystemTime(new Date(buyAllowedNow.getTime() + 120_000));
+    expect(decideScan()).toMatchObject({ shouldScan: true, intervalMinutes: 2 });
+  });
+
+  it('preserves position-based cadence adjustment against the existing four-position fallback', () => {
+    market.activePositions = 3;
+    expect(decideScan()).toMatchObject({ shouldScan: true, intervalMinutes: 4 });
+  });
+
+  it('preserves raw VKOSPI spike observation and its cooldown', () => {
+    expect(decideScan().shouldScan).toBe(true);
+    market.vkospiDayChange = 7;
+    vi.setSystemTime(new Date(buyAllowedNow.getTime() + 1_000));
+    expect(decideScan()).toMatchObject({ shouldScan: true, intervalMinutes: 0, priority: 'FULL' });
+    vi.setSystemTime(new Date(buyAllowedNow.getTime() + 2_000));
+    expect(decideScan().shouldScan).toBe(false);
+  });
+
+  it('preserves immediate rescan requests without querying a regime', () => {
+    decideScan();
+    vi.setSystemTime(new Date(buyAllowedNow.getTime() + 1_000));
+    requestImmediateRescan('position resolved');
+    expect(decideScan()).toMatchObject({ shouldScan: true, priority: 'FULL' });
+  });
+
+  it('retains empty-scan backoff without old Gate/region policy alerts', () => {
+    for (let i = 0; i < 5; i++) recordScanResult(0, trueEmptyOpts);
+    expect(getScanFeedbackState().backoffMultiplier).toBe(2);
+    vi.setSystemTime(new Date(buyAllowedNow.getTime() + 240_000));
+    expect(decideScan()).toMatchObject({ shouldScan: true, intervalMinutes: 4, priority: 'FULL' });
   });
 });

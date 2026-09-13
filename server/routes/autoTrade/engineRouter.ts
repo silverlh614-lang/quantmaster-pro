@@ -9,9 +9,9 @@
  *   GET  /alerts/feed                      — UI 벨 아이콘용 알림 피드
  */
 import { Router } from 'express';
-import { loadShadowTrades } from '../../persistence/shadowTradeRepo.js';
-import { collectTodayBuyEvents, collectTodayRealizations } from '../../alerts/reportGenerator.js';
-import { getLastScanAt } from '../../orchestrator/adaptiveScanScheduler.js';
+import { loadPaperExperimentLedger } from '../../persistence/paperExperimentRepo.js';
+import { loadPaperStrategyLedger } from '../../persistence/paperStrategyRepo.js';
+import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import {
   getEmergencyStop,
   setEmergencyStop,
@@ -37,8 +37,6 @@ import { getLatestPreMarketReport } from '../../alerts/preMarketSignal.js';
 import { getLatestDxyReport } from '../../alerts/dxyMonitor.js';
 import { getLatestSectorEtfReport } from '../../alerts/sectorEtfMomentum.js';
 import { tradingOrchestrator } from '../../orchestrator/tradingOrchestrator.js';
-import { isOpenShadowStatus } from '../../trading/entryEngine.js';
-import { getLastBuySignalAt } from '../../trading/signalScanner.js';
 import { isStreamConnected } from '../../clients/kisStreamClient.js';
 
 const router = Router();
@@ -47,34 +45,52 @@ const router = Router();
  * 엔진 상태 스냅샷 빌더 — REST(/engine/status) 와 SSE 브로드캐스트가 같은 형태를
  * 공유하도록 단일 함수로 추출. 외부 의존이 없어 매 tick 호출 부담이 낮다.
  */
-function buildEngineStatusSnapshot() {
+export function buildEngineStatusSnapshot(now = new Date()) {
   const autoEnabled = process.env.AUTO_TRADE_ENABLED === 'true';
   const emergencyStop = getEmergencyStop();
   const running = autoEnabled && !emergencyStop;
 
   const orchStatus = tradingOrchestrator.getStatus();
-  const handlerRanAt = orchStatus.handlerRanAt ?? {};
-  const lastRunTs = Object.values(handlerRanAt).sort().pop() ?? null;
+  const activityErrors: string[] = [];
+  let experiments: ReturnType<typeof loadPaperExperimentLedger> | null = null;
+  let strategy: ReturnType<typeof loadPaperStrategyLedger> | null = null;
+  try { experiments = loadPaperExperimentLedger(); }
+  catch { activityErrors.push('PAPER_EXPERIMENT_LEDGER_UNREADABLE'); }
+  try { strategy = loadPaperStrategyLedger(); }
+  catch { activityErrors.push('PAPER_STRATEGY_LEDGER_UNREADABLE'); }
 
-  const lastScanTs = getLastScanAt();
-  const lastScanAt = lastScanTs > 0 ? new Date(lastScanTs).toISOString() : null;
-  const lastBuyTs = getLastBuySignalAt();
-  const lastBuySignalAt = lastBuyTs > 0 ? new Date(lastBuyTs).toISOString() : null;
-
-  // PR-17: signalTime 이 아닌 fill timestamp 기준으로 오늘 매수/실현 건수 산출.
-  // 기존 로직은 ① 어제 signaled → 오늘 tranche 체결 누락, ② 오늘 부분매도 익절 누락.
-  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-  const shadows = loadShadowTrades();
-  const todayBuys = collectTodayBuyEvents(shadows, todayStr).length;
-  const todayExits = collectTodayRealizations(shadows, todayStr).length;
-  const todayScans = Object.keys(handlerRanAt).length;
-
+  const validTimestamp = (value: string | null | undefined): string | null =>
+    value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
+  const lastRunTs = validTimestamp(experiments?.lastRun?.asOf);
+  const lastScanAt = lastRunTs;
+  const lastBuySignalAt = (strategy?.trades ?? []).map((trade) => validTimestamp(trade.entryAt))
+    .filter((value): value is string => value !== null).sort().pop() ?? null;
+  const today = toKstDateKey(now);
+  const isToday = (value: string | undefined) => Boolean(value && Number.isFinite(Date.parse(value))
+    && toKstDateKey(new Date(value)) === today);
+  const todayBuys = strategy ? strategy.trades.filter((trade) => isToday(trade.entryAt)).length : null;
+  const todayExits = strategy ? strategy.trades.filter((trade) => trade.status === 'CLOSED' && isToday(trade.exit?.effectiveAt)).length : null;
+  const observationAgeMs = lastScanAt ? now.getTime() - Date.parse(lastScanAt) : null;
+  const observationsPaused = getAutoTradePaused();
+  // The observation scheduler is independent of the live engine toggle. A recent
+  // completed ledger snapshot proves activity; no saved scan counter exists.
+  const observationsRunning = !observationsPaused && observationAgeMs !== null
+    && observationAgeMs >= 0 && observationAgeMs <= 10 * 60_000;
+  const observationStatus = observationsPaused ? 'PAUSED'
+    : !experiments ? 'UNAVAILABLE'
+      : !lastScanAt ? 'WAITING'
+        : observationsRunning ? 'ACTIVE' : 'STALE';
   const heartbeatAt = getLastHeartbeat();
   const killSwitch = getKillSwitchLast();
   const killSwitchAssessment = assessKillSwitch();
 
   return {
     running,
+    observationsRunning,
+    observationStatus,
+    observationAgeMs,
+    activitySource: 'PAPER_STRATEGY' as const,
+    activityErrors,
     autoTradeEnabled: autoEnabled,
     emergencyStop,
     // 실시간 호가 WebSocket 연결 상태 — UI의 "브로커 연결" 판정은 이 값이 진실.
@@ -88,13 +104,13 @@ function buildEngineStatusSnapshot() {
     heartbeat: {
       at: heartbeatAt > 0 ? new Date(heartbeatAt).toISOString() : null,
       source: getLastHeartbeatSource(),
-      ageMs: heartbeatAt > 0 ? Date.now() - heartbeatAt : null,
+      ageMs: heartbeatAt > 0 ? now.getTime() - heartbeatAt : null,
     },
     killSwitch: {
       last: killSwitch,
       current: killSwitchAssessment,
     },
-    todayStats: { scans: todayScans, buys: todayBuys, exits: todayExits },
+    todayStats: { scans: null, scanCountAvailable: false, buys: todayBuys, exits: todayExits },
   };
 }
 

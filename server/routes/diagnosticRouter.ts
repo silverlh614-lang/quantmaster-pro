@@ -25,11 +25,6 @@ import { loadGateAudit } from '../persistence/gateAuditRepo.js';
 import { listRecentBoots, getLastBoot } from '../persistence/bootManifest.js';
 import { listRecentErrors, summarizeErrors } from '../persistence/persistentErrorLog.js';
 import { listIncidents } from '../persistence/incidentLogRepo.js';
-import {
-  runPostmortem,
-  getLastPostmortemReport,
-  getEmptyScanCount,
-} from '../orchestrator/emptyScanPostmortem.js';
 import { getCompletenessSnapshot } from '../screener/dataCompletenessTracker.js';
 
 const router = express.Router();
@@ -428,22 +423,12 @@ router.get('/diagnostics/top-blockers', (req, res) => {
 
 // ─── 엔드포인트 6: 빈 스캔 포스트모템 ────────────────────────────────────────
 //
-// 현재 시점의 레짐 + 최근 scan traces + gate audit를 근거로
-// 빈 스캔이 "기능인지(HEALTHY_REJECTION) 버그인지(PATHOLOGICAL_BLOCK)"를 판정.
-// 자동 트리거(3회 누적)가 아직 돌지 않아도 운용자가 수동 조회 가능.
-
+// ADR-0673: 이 진단은 구 레짐/Gate 판정 전용이다. 현재 관측은 새 모델 API로 조회한다.
 router.get('/diagnostics/empty-scan-postmortem', (_req, res) => {
-  try {
-    const report = runPostmortem();
-    res.json({
-      ...report,
-      consecutiveEmptyScans: getEmptyScanCount(),
-      cachedLast: getLastPostmortemReport(),
-    });
-  } catch (e: any) {
-    console.error('[Diagnostic postmortem] 오류:', e);
-    res.status(500).json({ error: e.message });
-  }
+  res.status(410).json({
+    error: 'REGIME_RETIRED',
+    message: '레짐 기반 빈 스캔 진단은 폐기되었습니다. 현재 시장 관측·전략 결과를 확인하세요.',
+  });
 });
 
 // ─── 엔드포인트 7: 데이터 완성도 스냅샷 ────────────────────────────────────

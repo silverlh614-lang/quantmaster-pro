@@ -11,8 +11,6 @@ import {
   resolveLedger,
   evaluateLedgerSuggestion,
 } from './ledgerSimulator.js';
-import { evaluateKellySurfaceSuggestion } from './kellySurfaceMap.js';
-import { evaluateRegimeCoverageSuggestion } from './regimeBalancedSampler.js';
 import { computeSafetyGateAttribution } from './safetyGateAttribution.js';
 import { computeShadowVsLiveDelta } from './shadowVsLiveDelta.js';
 import { runDailyEvalFallbackIfMissed } from './dailyEvalFallback.js';
@@ -32,12 +30,6 @@ async function runLedgerResolveReplay(): Promise<void> {
   await resolveLedger((code) => fetchCurrentPrice(code).catch(() => null));
   await evaluateLedgerSuggestion().catch((e) => {
     console.warn('[MissedLearningReplay][Ledger][suggest] failed:', e);
-  });
-  await evaluateKellySurfaceSuggestion({}).catch((e) => {
-    console.warn('[MissedLearningReplay][KellySurface][suggest] failed:', e);
-  });
-  await evaluateRegimeCoverageSuggestion().catch((e) => {
-    console.warn('[MissedLearningReplay][RegimeCoverage][suggest] failed:', e);
   });
 }
 

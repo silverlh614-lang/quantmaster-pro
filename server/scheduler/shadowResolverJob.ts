@@ -9,24 +9,19 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { loadShadowTrades, saveShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { updateShadowResults } from '../trading/exitEngine.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
-import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { setEmergencyStop } from '../state.js';
 import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import type { OperationalWarnPayload } from '../observability/operationalWarnTypes.js';
 import {
   getCircuitBreakerTrippedAt,
   getCircuitBreakerClearedAt,
-  isForcedRegimeDowngradeActive,
   isTradingHeld,
-  setForcedRegimeDowngrade,
   setTradingHold,
   tripCircuitBreaker,
 } from '../learning/learningState.js';
 
 const FOUR_H_MS = 4 * 60 * 60 * 1000;
 const HOLD_MS = 30 * 60 * 1000;
-const FORCED_DOWNGRADE_MS = 4 * 60 * 60 * 1000;
 
 type ShadowTrade = ReturnType<typeof loadShadowTrades>[number];
 
@@ -80,7 +75,7 @@ export function countRecentConsecutiveLosses(shadows: ShadowTrade[]): number {
 }
 
 // 3단계 서킷브레이커:
-//   2건: 신규 진입 30분 홀드 + 레짐 1단계 강제 다운그레이드(4시간)
+//   2건: 신규 진입 30분 홀드 (레짐에 따른 추가 제약 없음)
 //   3건: 자동거래 완전 정지(setEmergencyStop) + 수동 재개 승인 요청
 async function reactToLossStreak(consecLoss: number): Promise<void> {
   if (consecLoss >= 3 && !getCircuitBreakerTrippedAt()) {
@@ -90,7 +85,6 @@ async function reactToLossStreak(consecLoss: number): Promise<void> {
       `🛑 <b>[서킷브레이커 발동]</b> 연속손절 ${consecLoss}건\n` +
       `━━━━━━━━━━━━━━━━\n` +
       `• 자동거래 <b>일시정지</b> (setEmergencyStop=true)\n` +
-      `• 레짐 강제 다운그레이드 유지\n` +
       `• 신규 진입 홀드 30분 유지\n\n` +
       `📌 <b>수동 재개 필요</b> — /reset 으로 해제 (EMERGENCY_RESET_SECRET 설정 시 "/reset 비밀번호" 형식)`,
       { priority: 'CRITICAL', dedupeKey: `circuit_breaker:${consecLoss}` },
@@ -108,13 +102,11 @@ async function reactToLossStreak(consecLoss: number): Promise<void> {
     return;
   }
 
-  if (consecLoss >= 2 && !isForcedRegimeDowngradeActive()) {
-    setForcedRegimeDowngrade(FORCED_DOWNGRADE_MS);
+  if (consecLoss >= 2 && !isTradingHeld()) {
     setTradingHold(HOLD_MS);
     await sendTelegramAlert(
       `🚨 <b>[실시간 연속손절]</b> ${consecLoss}건 연속\n` +
-      `• 신규 진입 30분 홀드\n` +
-      `• 레짐 1단계 강제 다운그레이드 (4시간) — 포지션 한도/Kelly 축소`,
+      `• 신규 진입 30분 홀드`,
       { priority: 'CRITICAL', dedupeKey: `streak_hold:${consecLoss}` },
     ).catch(console.error);
     await emitResolverOperationalWarn({
@@ -130,9 +122,6 @@ async function reactToLossStreak(consecLoss: number): Promise<void> {
     return;
   }
 
-  if (consecLoss >= 2 && !isTradingHeld()) {
-    setTradingHold(HOLD_MS);
-  }
 }
 
 async function runShadowResolverTick(): Promise<void> {
@@ -143,8 +132,8 @@ async function runShadowResolverTick(): Promise<void> {
   const shadows = loadShadowTrades();
   if (!shadows.some((s) => isOpenShadowStatus(s.status))) return;
   try {
-    // ADR-0531: Gate0 정본 레짐
-    await updateShadowResults(shadows, resolveCanonicalRegimeLevel(loadMacroState()));
+    // Resolve saved entry plans from verified prices without classifying the market.
+    await updateShadowResults(shadows);
     saveShadowTrades(shadows);
     await reactToLossStreak(countRecentConsecutiveLosses(shadows));
   } catch (e) {

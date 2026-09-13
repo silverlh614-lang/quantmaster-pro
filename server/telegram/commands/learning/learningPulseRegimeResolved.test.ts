@@ -17,15 +17,16 @@ describe('Learning Pulse regime resolved-sample fields', () => {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
   });
 
-  it('prints R2/R3/R6 resolved sample sizes and active regime reliability fields', async () => {
+  it('prints all stored cohorts as historical statistics without a current regime', async () => {
     const { collectLearningPulse, formatLearningPulseMessage } = await import('./learningPulse.cmd.js');
     const msg = formatLearningPulseMessage(collectLearningPulse(new Date('2026-04-30T06:00:00Z')));
 
-    expect(msg).toContain('Regime Learning v6');
-    expect(msg).toContain('activeRegimeResolvedSampleSize=');
-    expect(msg).toContain('activeRegimePendingCounterfactualCount=');
-    expect(msg).toContain('activeRegimeAttributableSampleSize=');
-    expect(msg).toContain('activeRegimeWhyNotReliable=');
+    expect(msg).toContain('Historical Regime Learning Bank');
+    expect(msg).toContain('historyView=HISTORICAL_ALL');
+    expect(msg).toContain('runtimeRegime=RETIRED');
+    expect(msg).not.toContain('activeRegimeResolvedSampleSize=');
+    expect(msg).not.toContain('activeRegime=HISTORICAL_ALL');
+    expect(msg).not.toContain('LOW_RESOLVED_REGIME_SAMPLE');
     expect(msg).toContain('R2ResolvedSampleSize=');
     expect(msg).toContain('R2PendingCounterfactual=');
     expect(msg).toContain('R3ResolvedSampleSize=');
@@ -91,4 +92,23 @@ describe('Learning Pulse regime resolved-sample fields', () => {
     expect(msg).toContain('recommendationOnly=true');
     expect(msg).toContain('promotionAllowed=false');
   }, 20000);
+  it('displays total resolved and pending history rather than zero unselected active counts', async () => {
+    const { collectLearningPulse, formatLearningPulseMessage } = await import('./learningPulse.cmd.js');
+    const pulse = collectLearningPulse(new Date('2026-04-30T06:00:00Z'));
+    const { collectRegimeLearningBank } = await import('../../../learning/regimeLearningBank.js');
+    pulse.regimeLearning = collectRegimeLearningBank({
+      includePersistedSources: false, counterfactualEntries: [],
+      shadowCases: [
+        { caseId: 'closed-r1', signalId: 's1', symbol: '005930', detectedAt: '2026-04-30T00:00:00Z', effectiveRegime: 'R1_TURBO', outcomeLabel: 'WIN', returnR: 1 },
+        { caseId: 'open-r6', signalId: 's2', symbol: '000660', detectedAt: '2026-04-30T00:00:00Z', effectiveRegime: 'R6_DEFENSE' },
+      ] as any,
+    });
+    expect(pulse.regimeLearning.activeRegimeResolvedSampleSize).toBe(0);
+    const message = formatLearningPulseMessage(pulse);
+    expect(message).toContain('historyView=ALL / runtimeRegime=RETIRED / total=2 / resolved=1 / pending=1');
+    expect(message).not.toContain('resolved=0/100');
+    expect(message).toContain('R1_RECOVERY: totalSampleSize=1');
+    expect(message).toContain('R6_DEFENSE: totalSampleSize=1');
+  }, 20000);
+
 });

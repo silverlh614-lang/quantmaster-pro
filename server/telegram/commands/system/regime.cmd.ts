@@ -1,125 +1,17 @@
-// @responsibility regime.cmd 텔레그램 모듈
-// @responsibility: /regime 명령 — 매크로 레짐(MHS·VKOSPI·VIX·USD/KRW·Bear방어) 1메시지 요약.
-import { loadMacroState } from '../../../persistence/macroStateRepo.js';
-import { resolveRegimeSnapshot } from '../../../trading/regime/regimeResolver.js';
-import { buildGate0RegimeView } from '../../../trading/regime/gate0RegimeView.js';
+// @responsibility 폐기한 레짐 명령을 새 모델로 안내하고 과거 기록의 순수 포맷터를 보존한다.
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import type { RegimeLevel } from '../../../../src/types/core.js';
-import { formatEngineRuntimePolicy, resolveEngineRuntimePolicy } from '../../../runtime/engineRuntimePolicy.js';
 import { getRegimePositionPolicy } from '../../../trading/sizing/regimePositionPolicy.js';
-import {
-  buildSourceSnapshotDecisionContext,
-  formatDecisionContextAuthorityBlock,
-} from '../../../runtime/sourceSnapshotDecisionContextBuilder.js';
 
 const regime: TelegramCommand = {
   name: '/regime',
   category: 'SYS',
   visibility: 'ADMIN',
   riskLevel: 0,
-  description: '매크로 레짐 + 매매 레짐(R1~R6) + MHS + VKOSPI + USD/KRW + Bear방어 현황',
+  description: '폐기한 레짐 기능 안내',
   async execute({ reply, correlationId }) {
-    console.info(`[REGIME_QUERY_STARTED] correlationId=${correlationId ?? 'N/A'} command=/regime`);
-    const macro = loadMacroState();
-    if (!macro) {
-      const message = '❌ 매크로 상태 데이터 없음';
-      console.info(`[RESPONSE_FORMATTED] correlationId=${correlationId ?? 'N/A'} command=/regime bytes=${message.length}`);
-      await reply(message);
-      console.info(`[TELEGRAM_REPLY_SENT] correlationId=${correlationId ?? 'N/A'} command=/regime`);
-      return;
-    }
-    const mhsEmoji = (macro.mhs ?? 0) >= 60 ? '🟢' : (macro.mhs ?? 0) >= 40 ? '🟡' : '🔴';
-    const regimeSnapshot = resolveRegimeSnapshot({ macroState: macro });
-    const macroState = regimeSnapshot.marketState.macroState;
-    const macroFreshness = macroState.freshness;
-    const regimeReleaseBlockedReason = macroFreshness === 'HARD_STALE' ? 'MACRO_HARD_STALE' : macroFreshness === 'MISSING' ? 'MACRO_MISSING' : 'NONE';
-    console.info(`[SOURCE_QUERY_RESULT] correlationId=${correlationId ?? 'N/A'} command=/regime snapshotId=${regimeSnapshot.snapshotId} asOf=${regimeSnapshot.asOf} detectedRegime=${regimeSnapshot.detectedRegime} effectiveRegime=${regimeSnapshot.effectiveRegime} displayRegime=${regimeSnapshot.displayRegime} riskOverride=${regimeSnapshot.riskOverride} mhs=${regimeSnapshot.mhs ?? 'N/A'} rawMhs=${regimeSnapshot.marketState.mhsLabel} macroFreshness=${macroFreshness} staleSources=${regimeSnapshot.marketState.staleSources.join(',') || 'none'}`);
-    const resolvedMhsEmoji = regimeSnapshot.riskOverride === 'R6_DEFENSE' ? '🔴' : mhsEmoji;
-    const freshnessLine = formatRegimeFreshnessLine(macro.updatedAt);
-    // ADR-0071: USD/KRW 출처 + 격차 표시 — 사용자 신뢰도 즉시 인지
-    const usdKrwLine = formatUsdKrwLine(macro);
-    // ADR-0074: macroState.regime (GREEN/YELLOW/RED) vs getLiveRegime (R1~R6) 두 SSOT 동시 노출.
-    // 매매 결정에 실제 사용되는 RegimeLevel + position policy를 1줄로 요약.
-    const regimeDiagnostics = regimeSnapshot.diagnostics;
-    // ADR-0531: Gate0 정본 = resolveRegimeSnapshot().effectiveRegime. legacy transitionState
-    // (regimeDiagnostics.effectiveRegime)은 정본과 다를 때만 deprecated 라벨로만 노출한다.
-    const gate0View = buildGate0RegimeView(regimeSnapshot);
-    const liveRegime = regimeSnapshot.effectiveRegime as RegimeLevel;
-    const liveRegimeLine = formatLiveRegimeLine(liveRegime);
-    const r6RecoveryLine = formatR6RecoveryLine(regimeDiagnostics);
-    const r6TriggerLine = formatR6TriggerBreakdownLine(regimeDiagnostics.r6TriggerBreakdown);
-    const macroReleaseBlockLine = regimeSnapshot.macroReleaseBlockMessage
-      ? `${regimeSnapshot.macroReleaseBlockMessage} ageSec=${regimeSnapshot.macroReleaseBlockDetails?.ageSec ?? 'N/A'} lastRefreshAttemptAt=${regimeSnapshot.macroReleaseBlockDetails?.lastRefreshAttemptAt ?? 'N/A'} refreshJobLastRunAt=${regimeSnapshot.macroReleaseBlockDetails?.refreshJobLastRunAt ?? 'N/A'}`
-      : undefined;
-    const runtimePolicy = resolveEngineRuntimePolicy({
-      engineMode: regimeSnapshot.engineMode,
-      macroRegime: gate0View.effectiveRegime,
-      asOf: regimeSnapshot.asOf,
-      ttlSec: regimeSnapshot.ttlSec,
-      sourceFreshness: regimeDiagnostics.sourceFreshness,
-      snapshotAgeSec: macroState.ageSec,
-      macroPolicy: regimeSnapshot.riskOverride,
-      riskOverride: regimeSnapshot.riskOverride,
-      liveBuyGateAllowed: true,
-      reasonCodes: [],
-    });
-    const vkospiUntrusted = String(regimeDiagnostics.recoveryEvidence.vkospiTrustState ?? '').startsWith('UNTRUSTED');
-    // ADR-0535: 권위 위계 read-model 투영 — 정본(regimeSnapshot/gate0View/runtimePolicy/positionPolicy)에서 재계산 없이 매핑.
-    const decisionContext = buildSourceSnapshotDecisionContext({
-      regimeSnapshot,
-      gate0View,
-      executionPolicy: runtimePolicy,
-      regimePositionPolicy: getRegimePositionPolicy(liveRegime),
-    });
-    const authorityBlock = formatDecisionContextAuthorityBlock(decisionContext).join('\n');
-    // ADR-0075 PR-4 wiring: 강세/소외 섹터 1줄 노출 — 운영자가 Gate +2/-1 부스트 영향 즉시 인지
-    const sectorEnergyLine = formatSectorEnergyLine(macro);
-    // ADR-0107 (사용자 진단 4/29 "MHS 70 을 벗어난 적이 없다"): 4-axis 분해 노출.
-    const mhsAxisLine = formatMhsAxisLine(macro);
-    // ADR-0583: MHS 소스 저하(FRED/ECOS 결손) 신뢰도 라인 — silent degradation 가시화.
-    const mhsConfidenceLine = formatMhsConfidenceLine(macro);
-    const message =
-      `🌐 <b>[매크로 레짐 현황]</b>\n` +
-      `━━━━━━━━━━━━━━━━\n` +
-      `${resolvedMhsEmoji} MHS: ${regimeSnapshot.mhs ?? 'N/A'}\n` +
-      `${mhsAxisLine}\n` +
-      `${mhsConfidenceLine}\n` +
-      `${authorityBlock}\n` +
-      `${liveRegimeLine}\n` +
-      `${r6RecoveryLine}\n` +
-      `${r6TriggerLine}\n` +
-      `${macroReleaseBlockLine ? `${macroReleaseBlockLine}\n` : ''}` +
-      `r6ShockLatch=${regimeDiagnostics.r6ShockLatch} recoveryBlockedReason=${regimeDiagnostics.recoveryBlockedReason ?? 'N/A'}\n` +
-      `${formatEngineRuntimePolicy(runtimePolicy)}\n` +
-      `vkospiConfidence=${vkospiUntrusted ? 'UNTRUSTED' : regimeDiagnostics.recoveryEvidence.vkospiTrustState ?? 'UNKNOWN'} vkospiUsableForRegime=${vkospiUntrusted ? 'false' : 'true'} vkospiUsableForR6Trigger=${vkospiUntrusted ? 'false' : 'true'} vkospiDisplayMode=${vkospiUntrusted ? 'DIAGNOSTIC_ONLY' : 'NORMAL'} scorePenaltyReason=${vkospiUntrusted ? 'VKOSPI_UNTRUSTED_EXCLUDED_FROM_SCORING' : 'NONE'}\n` +
-      `📊 VKOSPI: ${macro.vkospi?.toFixed(1) ?? 'N/A'}\n` +
-      `vkospiDayChange=${macro.vkospiDayChange?.toFixed(2) ?? 'N/A'} computed=${macro.vkospiDayChangeComputed?.toFixed(2) ?? 'N/A'} prevClose=${macro.vkospiPrevClose?.toFixed(2) ?? 'N/A'} source=${macro.vkospiDayChangeSource ?? 'N/A'} baseDate=${macro.vkospiBaseDate ?? 'N/A'} fetchedAt=${macro.vkospiFetchedAt ?? 'N/A'}\n` +
-      `vkospiRecoveryFallbackUsed=${regimeDiagnostics.transitionState.r6RecoveryEvidence.vkospiRecoveryFallbackUsed ? 'true' : 'false'}\n` +
-      `📊 VIX: ${macro.vix?.toFixed(1) ?? 'N/A'}\n` +
-      `💱 USD/KRW: ${usdKrwLine}\n` +
-      `📉 MHS추세: ${macro.mhsTrend ?? 'N/A'}\n` +
-      `🐻 Bear방어: ${macro.bearDefenseMode ? '🔴 ON' : '🟢 OFF'}\n` +
-      `📈 FSS경보: ${macro.fssAlertLevel ?? 'N/A'}\n` +
-      `${sectorEnergyLine}\n` +
-      `sourceFreshness=${regimeDiagnostics.sourceFreshness}\n` +
-      `━━━━━━━━━━━━━━━━\n` +
-      freshnessLine +
-      formatMacroHardStaleGuide({
-        macroFreshness,
-        macroAgeSec: macroState.ageSec,
-        macroLastRefreshAttemptAt: macroState.lastRefreshAttemptAt,
-        macroRefreshJobLastRunAt: macroState.refreshJobLastRunAt,
-        mhs: regimeSnapshot.mhs,
-        regimeReleaseAllowed: regimeReleaseBlockedReason === 'NONE',
-        regimeReleaseBlockedReason,
-        providerIssue: regimeSnapshot.providerIssue,
-        marketSignal: regimeSnapshot.marketSignal,
-        executionImpact: macroState.executionImpact,
-      });
-    console.info(`[RESPONSE_FORMATTED] correlationId=${correlationId ?? 'N/A'} command=/regime bytes=${message.length}`);
-    await reply(message);
-    console.info(`[TELEGRAM_REPLY_SENT] correlationId=${correlationId ?? 'N/A'} command=/regime`);
+    await reply("레짐 기반 기능은 폐기되었습니다. 새 모델 현황은 /paper, 학습·연구는 /paper_research에서 확인하세요.");
   },
 };
 

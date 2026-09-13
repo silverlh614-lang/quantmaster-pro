@@ -17,7 +17,8 @@ export interface ExitContext {
   shadow: ServerShadowTrade;
   currentPrice: number;
   returnPct: number;
-  currentRegime: RegimeLevel;
+  /** Historical rule replay only; current evaluation uses the saved exit plan. */
+  currentRegime?: RegimeLevel;
   initialStopLoss: number;
   regimeStopLoss: number;
   /** ATR 동적 갱신 후 값. 후속 규칙은 이 값을 손절 임계로 사용. */

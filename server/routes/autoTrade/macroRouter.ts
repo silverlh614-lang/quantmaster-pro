@@ -1,19 +1,17 @@
 /**
- * @responsibility Macro 시장 상태(MHS·Regime)와 FSS 외국인 수급 점수의 저장·조회·갱신 엔드포인트 제공
+ * @responsibility 시장 원자료 API 제공
  *
  * 엔드포인트:
  *   GET  /macro/state    — 현재 MacroState
  *   GET  /macro/refresh  — KOSPI/SPX/DXY/USD-KRW + FSS 자동 갱신
- *   POST /macro/state    — MHS·regime + 보조 지표 머지 저장
+ *   POST /macro/state    — 레짐 저장 폐기(410)
  *   GET  /fss/records    — 일별 외국인 수급 기록
  *   POST /fss/records    — 일별 기록 추가/갱신
  *   GET  /fss/score      — 최근 5일 FSS 점수 계산
  */
 import { Router } from 'express';
-import { loadMacroState, saveMacroState, type MacroState } from '../../persistence/macroStateRepo.js';
+import { loadMacroState, saveMacroState } from '../../persistence/macroStateRepo.js';
 import { loadFssRecords, upsertFssRecord } from '../../persistence/fssRepo.js';
-import { pollBearRegime } from '../../alerts/bearRegimeAlert.js';
-import { pollIpsAlert } from '../../alerts/ipsAlert.js';
 import { refreshMarketRegimeVars } from '../../trading/marketDataRefresh.js';
 
 const router = Router();
@@ -65,8 +63,9 @@ router.get('/fss/score', (_req: any, res: any) => {
 
 router.get('/macro/state', (_req: any, res: any) => {
   const state = loadMacroState();
-  if (!state) return res.json({ mhs: null, regime: 'UNKNOWN', updatedAt: null });
-  res.json(state);
+  if (!state) return res.json({ updatedAt: null, regimeStatus: 'RETIRED' });
+  const { regime: _regime, bearDefenseMode: _bear, bearRegimeTriggeredCount: _count, ips: _ips, ...data } = state;
+  res.json({ ...data, regimeStatus: 'RETIRED' });
 });
 
 /** 시장 지표 자동 갱신 — KOSPI/SPX/DXY/USD-KRW Yahoo Finance + FSS 수급 계산 */
@@ -80,67 +79,9 @@ router.get('/macro/refresh', async (_req: any, res: any) => {
   }
 });
 
-router.post('/macro/state', (req: any, res: any) => {
-  const b = req.body;
-  if (typeof b.mhs !== 'number' || b.mhs < 0 || b.mhs > 100) {
-    return res.status(400).json({ error: 'mhs는 0~100 사이 숫자여야 합니다' });
-  }
-  const validRegimes = ['GREEN', 'YELLOW', 'RED'];
-  const finalRegime = validRegimes.includes(b.regime) ? b.regime
-    : (b.mhs >= 60 ? 'GREEN' : b.mhs >= 30 ? 'YELLOW' : 'RED');
-
-  // ── 기존 상태와 MERGE — 서버 시장데이터 갱신 결과를 프론트 POST로 덮어쓰지 않음 ──
-  const existing = loadMacroState() ?? {} as MacroState;
-  const state: MacroState = { ...existing, mhs: b.mhs, regime: finalRegime, updatedAt: new Date().toISOString() };
-
-  // ─── Bear Regime / IPS 보조 지표 ─────────────────────────────────────────
-  const num  = (k: string) => typeof b[k] === 'number';
-  const bool = (k: string) => typeof b[k] === 'boolean';
-  if (num('vkospi'))                 state.vkospi                 = b.vkospi;
-  if (num('foreignFuturesSellDays')) state.foreignFuturesSellDays = b.foreignFuturesSellDays;
-  if (num('iri'))                    state.iri                    = b.iri;
-  if (num('vix'))                    state.vix                    = b.vix;
-  if (num('oeciCliKorea'))           state.oeciCliKorea           = b.oeciCliKorea;
-  if (num('exportGrowth3mAvg'))      state.exportGrowth3mAvg      = b.exportGrowth3mAvg;
-  if (num('bearRegimeTriggeredCount')) state.bearRegimeTriggeredCount = b.bearRegimeTriggeredCount;
-  if (num('ips'))                    state.ips                    = b.ips;
-  if (bool('vkospiRising'))          state.vkospiRising           = b.vkospiRising;
-  if (bool('bearDefenseMode'))       state.bearDefenseMode        = b.bearDefenseMode;
-  if (bool('dxyBullish'))            state.dxyBullish             = b.dxyBullish;
-  if (bool('kospiBelow120ma'))       state.kospiBelow120ma        = b.kospiBelow120ma;
-  if (b.mhsTrend === 'IMPROVING' || b.mhsTrend === 'STABLE' || b.mhsTrend === 'DETERIORATING')
-    state.mhsTrend = b.mhsTrend;
-  if (b.fssAlertLevel === 'NORMAL' || b.fssAlertLevel === 'CAUTION' || b.fssAlertLevel === 'HIGH_ALERT')
-    state.fssAlertLevel = b.fssAlertLevel;
-  if (num('fss')) state.fss = b.fss;
-
-  // ─── RegimeVariables 7축 — classifyRegime()이 필요로 하는 필드 ────────────
-  if (num('vkospiDayChange'))        state.vkospiDayChange        = b.vkospiDayChange;
-  if (num('vkospi5dTrend'))          state.vkospi5dTrend          = b.vkospi5dTrend;
-  if (num('usdKrw'))                 state.usdKrw                 = b.usdKrw;
-  if (num('usdKrw20dChange'))        state.usdKrw20dChange        = b.usdKrw20dChange;
-  if (num('usdKrwDayChange'))        state.usdKrwDayChange        = b.usdKrwDayChange;
-  if (num('foreignNetBuy5d'))        state.foreignNetBuy5d        = b.foreignNetBuy5d;
-  if (bool('passiveActiveBoth'))     state.passiveActiveBoth      = b.passiveActiveBoth;
-  if (bool('kospiAbove20MA'))        state.kospiAbove20MA         = b.kospiAbove20MA;
-  if (bool('kospiAbove60MA'))        state.kospiAbove60MA         = b.kospiAbove60MA;
-  if (num('kospi20dReturn'))         state.kospi20dReturn         = b.kospi20dReturn;
-  if (num('kospiDayReturn'))         state.kospiDayReturn         = b.kospiDayReturn;
-  if (num('spxDayReturn'))           state.spxDayReturn           = b.spxDayReturn;
-  if (num('leadingSectorRS'))        state.leadingSectorRS        = b.leadingSectorRS;
-  if (b.sectorCycleStage === 'EARLY' || b.sectorCycleStage === 'MID' ||
-      b.sectorCycleStage === 'LATE'  || b.sectorCycleStage === 'TURNING')
-    state.sectorCycleStage = b.sectorCycleStage;
-  if (num('marginBalance5dChange'))  state.marginBalance5dChange  = b.marginBalance5dChange;
-  if (num('shortSellingRatio'))      state.shortSellingRatio      = b.shortSellingRatio;
-  if (num('spx20dReturn'))           state.spx20dReturn           = b.spx20dReturn;
-  if (num('dxy5dChange'))            state.dxy5dChange            = b.dxy5dChange;
-
-  saveMacroState(state);
-  console.log(`[Macro] MHS 업데이트: ${b.mhs} (${finalRegime})`);
-  pollBearRegime().catch(console.error);
-  pollIpsAlert().catch(console.error);
-  res.json({ ok: true, ...state });
+// The old client wrote a market regime and triggered Bear/IPS policy. That API is retired.
+router.post('/macro/state', (_req: any, res: any) => {
+  res.status(410).json({ error: 'REGIME_RETIRED', message: '레짐 판정·정책 저장은 폐기되었습니다. 시장 데이터는 /macro/refresh에서 수집합니다.' });
 });
 
 export default router;

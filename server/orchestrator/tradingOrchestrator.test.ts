@@ -44,7 +44,7 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
     vi.doMock('../trading/trancheExecutor.js', () => ({
       trancheExecutor: { checkPendingTranches: vi.fn().mockResolvedValue(undefined) },
     }));
-    vi.doMock('../trading/signalScanner.js', () => ({
+    vi.doMock('../trading/scanDispatcher.js', () => ({
       runAutoSignalScan: vi.fn().mockResolvedValue({}),
     }));
     vi.doMock('../screener/stockScreener.js', () => ({
@@ -82,20 +82,10 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
       runPreMarketSmokeTest: vi.fn(),
     }));
 
-    // 레짐: maxPositions 작게 (테스트 편의)
-    // ADR-0531: tradingOrchestrator 는 canonicalRegimeAccess 정본 통로로 레짐을 읽는다.
-    vi.doMock('../trading/regimeBridge.js', () => ({
-      getLiveRegime: () => 'R2_BULL',
-    }));
+    // Retired access must never be called, even during pre-market preparation.
     vi.doMock('../trading/regime/canonicalRegimeAccess.js', () => ({
-      resolveCanonicalRegimeLevel: () => 'R2_BULL',
-      isCanonicalR6Defense: () => false,
-    }));
-    vi.doMock('../../src/services/quant/regimeEngine.js', () => ({
-      REGIME_CONFIGS: { R2_BULL: { maxPositions: 3 } },
-    }));
-    vi.doMock('../persistence/macroStateRepo.js', () => ({
-      loadMacroState: () => null,
+      resolveCanonicalRegimeLevel: () => { throw new Error('REGIME_RETIRED'); },
+      isCanonicalR6Defense: () => { throw new Error('REGIME_RETIRED'); },
     }));
   });
 
@@ -117,7 +107,7 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
     const watchlist = [
       { code: '005930', name: '삼성전자', entryPrice: 70000, stopLoss: 66000, targetPrice: 80000, addedAt: new Date().toISOString(), addedBy: 'AUTO' },
     ];
-    const shadows = Array.from({ length: 3 }).map((_, i) => ({
+    const shadows = Array.from({ length: 4 }).map((_, i) => ({
       id: `t${i}`, stockCode: `00000${i}`, stockName: `T${i}`,
       signalTime: new Date().toISOString(), signalPrice: 100, shadowEntryPrice: 100,
       quantity: 1, stopLoss: 95, targetPrice: 110, status: 'ACTIVE',
@@ -298,7 +288,7 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
     expect(shadowMsg).toContain('70,000원'); // 현재가 실패 → entryPrice 폴백
   });
 
-  it('R6 REPORT_ANALYSIS에서 장후 후보 관찰 스캔을 POST_CLOSE_OBSERVE로 1회 실행한다', async () => {
+  it('레짐 조회 없이 REPORT_ANALYSIS에서 장후 후보 관찰 스캔을 POST_CLOSE_OBSERVE로 1회 실행한다', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-15T07:10:00.000Z')); // 2026-05-15 16:10 KST
     process.env.AUTO_TRADE_ENABLED = 'true';
@@ -307,7 +297,7 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
     const recordScanResultMock = vi.fn();
     const withForcedMarketMock = vi.fn(async (fn: () => Promise<unknown> | unknown) => fn());
 
-    vi.doMock('../trading/signalScanner.js', () => ({
+    vi.doMock('../trading/scanDispatcher.js', () => ({
       runAutoSignalScan: runAutoSignalScanMock,
     }));
     vi.doMock('./adaptiveScanScheduler.js', () => ({
@@ -316,17 +306,6 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
     }));
     vi.doMock('../utils/forceMarketGuard.js', () => ({
       withForcedMarket: withForcedMarketMock,
-    }));
-    vi.doMock('../trading/regimeBridge.js', () => ({
-      getLiveRegime: () => 'R6_DEFENSE',
-    }));
-    // ADR-0531: isR6DefenseRegime 는 canonicalRegimeAccess.isCanonicalR6Defense 를 사용한다.
-    vi.doMock('../trading/regime/canonicalRegimeAccess.js', () => ({
-      resolveCanonicalRegimeLevel: () => 'R6_DEFENSE',
-      isCanonicalR6Defense: () => true,
-    }));
-    vi.doMock('../persistence/macroStateRepo.js', () => ({
-      loadMacroState: () => ({ regime: 'R6_DEFENSE', mhs: 25 }),
     }));
     vi.doMock('../persistence/shadowTradeRepo.js', () => ({
       loadShadowTrades: vi.fn().mockReturnValue([]),
@@ -344,6 +323,6 @@ describe('tradingOrchestrator — preMarketOrderPrep 가드', () => {
       positionFull: false,
       now: expect.any(Date),
     }));
-    expect(orchestrator._testOnly_getHandlerRanAt()).toHaveProperty('r6PostCloseCandidateScan');
+    expect(orchestrator._testOnly_getHandlerRanAt()).toHaveProperty('postCloseCandidateScan');
   });
 });

@@ -27,7 +27,7 @@ import { type RankingEntry, type RankingType } from '../clients/kisRankingClient
 //   default ON kill-switch; OFF(`=false`) 시 구(broken) 문자열로 byte-identical 롤백.
 import { isLeaderRankingEndpointFixEnabled } from '../trading/gateConfig.js';
 import { getShadowSafeRanking } from './shadowDataGate.js';
-import { STOCK_UNIVERSE } from './stockScreener.js';
+import { STOCK_UNIVERSE } from './stockUniverse.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { getStockByCode, getMasterSize } from '../persistence/krxStockMasterRepo.js';
 

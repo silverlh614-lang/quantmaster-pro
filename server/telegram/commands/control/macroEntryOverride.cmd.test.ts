@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
@@ -13,11 +13,16 @@ import './guards.cmd.js';
 
 const CONTROL_INDEX_PATH = path.resolve(__dirname, 'index.ts');
 const PREFLIGHT_PATH = path.resolve(__dirname, '..', '..', '..', 'trading', 'signalScanner', 'preflight.ts');
-const SCHEDULER_PATH = path.resolve(__dirname, '..', '..', '..', 'orchestrator', 'adaptiveScanScheduler.base.ts');
 
 describe('/macro_unblock operator macro entry override', () => {
   afterEach(() => {
     __resetMacroEntryOverrideForTests();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.doUnmock('../../../persistence/macroStateRepo.js');
+    vi.doUnmock('../../../persistence/shadowTradeRepo.js');
+    vi.doUnmock('../../../trading/regime/canonicalRegimeAccess.js');
   });
 
   it('registers command and aliases', () => {
@@ -91,23 +96,41 @@ describe('/macro_unblock operator macro entry override', () => {
     expect(captured).toContain('R6_DEFENSE');
   });
 
-  it('is wired through the control barrel and the adaptive scan scheduler macro gate', () => {
-    // 배경(stale 단언 정정): macro entry override gating 이 preflight.ts 인라인에서
-    // adaptiveScanScheduler.base.ts 로 이전됐다. 실제 enforcement = scheduler 가
-    // isMacroEntryOverrideActive('R6_DEFENSE') 를 소비해 R6 에서 SELL_ONLY 해제 + FULL 스캔
-    // (마커 OPERATOR_MACRO_ENTRY_OVERRIDE). preflight 는 override 를 진단으로만 surface
-    // (getMacroEntryOverrideState → macroEntryOverrideActive/Targets). seed 4452bd3 부터
-    // production 과 불일치했던 preflight 인라인 문자열 단언을 현행 enforcement 위치로 정정한다.
+  it('keeps legacy command diagnostics without requiring an override for regime-free scan cadence', async () => {
     const barrelSrc = fs.readFileSync(CONTROL_INDEX_PATH, 'utf-8');
-    const schedulerSrc = fs.readFileSync(SCHEDULER_PATH, 'utf-8');
     const preflightSrc = fs.readFileSync(PREFLIGHT_PATH, 'utf-8');
-
     expect(barrelSrc).toContain('macroEntryOverride.cmd.js');
-    // 실제 enforcement (scheduler): R6_DEFENSE override 소비 → SELL_ONLY 해제 + FULL 스캔.
-    expect(schedulerSrc).toContain("isMacroEntryOverrideActive('R6_DEFENSE')");
-    expect(schedulerSrc).toContain('OPERATOR_MACRO_ENTRY_OVERRIDE');
-    // preflight: override 진단 surface (gating 은 scheduler 로 이전).
     expect(preflightSrc).toContain('getMacroEntryOverrideState');
     expect(preflightSrc).toContain('macroEntryOverrideActive');
+
+    const retiredRegime = vi.fn(() => { throw new Error('REGIME_RETIRED'); });
+    vi.doMock('../../../persistence/macroStateRepo.js', () => ({
+      loadMacroState: () => ({ regime: 'R6_DEFENSE', vkospiDayChange: 0 }),
+    }));
+    vi.doMock('../../../persistence/shadowTradeRepo.js', () => ({ loadShadowTrades: () => [] }));
+    vi.doMock('../../../trading/regime/canonicalRegimeAccess.js', () => ({
+      resolveCanonicalRegimeLevel: retiredRegime,
+    }));
+    const scheduler = await import('../../../orchestrator/adaptiveScanScheduler.js');
+    const state = await import('../../../state.js');
+    const overrideLookup = vi.spyOn(state, 'isMacroEntryOverrideActive');
+    const now = new Date('2026-05-08T01:00:00.000Z'); // Friday 10:00 KST
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    vi.stubEnv('MAX_CONVICTION_POSITIONS', '10');
+    vi.stubEnv('TRADE_WINDOW_LEGACY_HOURS', 'false');
+    scheduler.resetScanState();
+    const withoutOverride = scheduler.decideScan();
+    expect(withoutOverride).toMatchObject({ shouldScan: true, intervalMinutes: 2, priority: 'FULL' });
+
+    setMacroEntryOverride({ targets: ['R6_DEFENSE'], reason: 'legacy state compatibility', now });
+    scheduler.resetScanState();
+    expect(scheduler.decideScan()).toEqual(withoutOverride);
+    vi.setSystemTime(new Date(now.getTime() + 60_000));
+    expect(scheduler.decideScan()).toMatchObject({ shouldScan: false, intervalMinutes: 2 });
+    vi.setSystemTime(new Date(now.getTime() + 120_000));
+    expect(scheduler.decideScan()).toMatchObject({ shouldScan: true, intervalMinutes: 2, priority: 'FULL' });
+    expect(overrideLookup).not.toHaveBeenCalled();
+    expect(retiredRegime).not.toHaveBeenCalled();
   });
 });

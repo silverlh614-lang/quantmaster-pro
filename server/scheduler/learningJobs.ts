@@ -19,8 +19,6 @@ import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
 import { evaluateCounterfactualSuggestion } from '../learning/counterfactualShadow.js';
 import { counterfactualResolveDueRun } from '../learning/learningSampleQuality.js';
 import { resolveLedger, evaluateLedgerSuggestion } from '../learning/ledgerSimulator.js';
-import { evaluateKellySurfaceSuggestion } from '../learning/kellySurfaceMap.js';
-import { evaluateRegimeCoverageSuggestion } from '../learning/regimeBalancedSampler.js';
 import {
   resolveFutureReturns,
   isFutureReturnResolverEnabled,
@@ -53,7 +51,6 @@ import {
   isShakeoutStopForwardLabelerEnabled,
   runShakeoutStopForwardLabeler,
 } from '../learning/shakeoutStopForwardLabeler.js';
-import { runGateThresholdReadinessAlert } from '../learning/gateThresholdReadinessAlert.js';
 import { runDailyEvalFallbackIfMissed } from '../learning/dailyEvalFallback.js';
 import {
   evaluateAutoActivation,
@@ -196,10 +193,8 @@ export function registerLearningJobs(): void {
     } catch (e) {
       console.error('[Ledger] 실행 실패:', e);
     }
-    // PR-22 / ADR-0007 — 같은 16:15 cron 안에서 suggest 평가 + kellySurface/regimeCoverage 일일 스윕.
+    // 기존 원장의 가격성과 평가와 대안 비교는 계속한다.
     await evaluateLedgerSuggestion().catch((e) => console.warn('[Ledger][suggest] 평가 실패:', e));
-    await evaluateKellySurfaceSuggestion({}).catch((e) => console.warn('[KellySurface][suggest] 평가 실패:', e));
-    await evaluateRegimeCoverageSuggestion().catch((e) => console.warn('[RegimeCoverage][suggest] 평가 실패:', e));
   }, { timezone: 'UTC', enqueueOnSkip: {} });
 
   // Future Return Resolver — 평일 KST 16:30 (UTC 07:30). KRX 장 마감 30분 후.
@@ -319,15 +314,6 @@ export function registerLearningJobs(): void {
   scheduledJob('36 7 * * *', 'ALWAYS_ON', 'unified_forward_outcome_labeling', async () => {
     await runUnifiedForwardOutcomeLabelerJob('scheduled');
   }, { timezone: 'UTC', enqueueOnSkip: {} });
-
-  // counterfacture_gate Phase J — readiness 알람. labeler 성숙(07:36 UTC) 직후 14분 뒤.
-  // gate×regime ROC 권고가 처음 actionable(≥30표본)로 넘어가면 1회 텔레그램 푸시(dedup 영속,
-  // steady-state 무음). "검증 기간 됐는데 놓침" 방지. read-only — 임계 변경 0, executionImpact=NONE.
-  // ENV `COUNTERFACTURE_GATE_READINESS_ALERT_DISABLED=true` 1줄 즉시 비활성(default ON).
-  scheduledJob('50 7 * * *', 'ALWAYS_ON', 'counterfacture_gate_readiness_alert', async () => {
-    const res = await runGateThresholdReadinessAlert();
-    console.log(`[CounterfactureGateReadiness] enabled=${res.enabled} ready=${res.readyKeys.length} newlyAlerted=${res.newlyAlerted.length} sent=${res.sent}`);
-  }, { timezone: 'UTC' });
 
   // L2 일일 평가 fallback — 평일 KST 17:05 (UTC 08:05). 2026-06-11 EVAL_STALE 41h 인시던트 처방.
   // runDailyEval 의 유일 호출(tradingOrchestrator 16:30+ REPORT_ANALYSIS tick, 일일 1회)이 그

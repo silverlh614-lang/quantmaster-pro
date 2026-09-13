@@ -1,38 +1,12 @@
-// @responsibility Legacy /kelly command compatibility.
-import { loadTradingSettings } from '../../../persistence/tradingSettingsRepo.js';
-import { loadMacroState } from '../../../persistence/macroStateRepo.js';
-import { resolveCanonicalRegimeLevel } from '../../../trading/regime/canonicalRegimeAccess.js';
-import { calculateRegimePositionSizing } from '../../../trading/sizing/regimePositionPolicy.js';
+// @responsibility 기존 사이징 명령에 현재 Shadow의 실험 수량과 매매 현황을 안내한다.
+import { composeNowVerdict } from '../../metaCommands.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
-
 const kelly: TelegramCommand = {
-  name: '/kelly',
-  category: 'LRN',
-  visibility: 'ADMIN',
-  riskLevel: 0,
-  description: 'Legacy probability sizing command; current regime position policy shown',
+  name: '/kelly', category: 'LRN', visibility: 'ADMIN', riskLevel: 0,
+  description: 'Kelly 폐기 안내·현재 매매 현황',
   async execute({ reply }) {
-    const settings = loadTradingSettings();
-    const totalEquity = settings.startingCapital ?? 0;
-    const regime = resolveCanonicalRegimeLevel(loadMacroState()); // ADR-0531: Gate0 정본 레짐
-    const sizing = calculateRegimePositionSizing({
-      regime,
-      totalEquity,
-      currentPositions: 0,
-    });
-
-    await reply([
-      '<b>Legacy probability sizing disabled</b>',
-      'sizingPolicy=REGIME_GROSS_EXPOSURE_DIVIDED_BY_MAX_POSITIONS',
-      `regime=${sizing.policy.regime}`,
-      `maxPositions=${sizing.policy.maxPositions}`,
-      `maxGrossExposurePct=${sizing.policy.maxGrossExposurePct}`,
-      `perPositionPct=${sizing.policy.perPositionPct}`,
-      `positionAmount=${Math.round(sizing.positionAmount).toLocaleString()} KRW`,
-      'executionImpact=NONE',
-    ].join('\n'));
+    await reply('LIVE·PAPER·SHADOW 모든 모드에서 Kelly를 사용하지 않습니다. 현재 Shadow는 실험당 1주를 기록하며 실제 주문을 하지 않습니다.\n\n' + composeNowVerdict());
   },
 };
-
 commandRegistry.register(kelly);

@@ -68,6 +68,7 @@ export type PositionPolicyMode = 'DIAGNOSTIC' | 'LIVE';
 
 /** 포지션 사이징 tier (regime × current positions). */
 export type PositionPolicyTier =
+  | 'FIXED_BUDGET'
   | 'R1_STRONG_BULL'
   | 'R2_BULL'
   | 'R3_EARLY'

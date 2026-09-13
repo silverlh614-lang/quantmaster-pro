@@ -11,7 +11,7 @@ vi.mock("../persistence/tradingSettingsRepo.js", async (importActual) => ({
   loadTradingSettings: settingsMock.loadTradingSettings,
 }));
 
-import { evaluateR6RecoveryTransition, getRawRegime } from "./regimeBridge.js";
+import { evaluateR6RecoveryTransition, getHistoricalRegime as getRawRegime } from "./regimeBridge.js";
 
 // 기본: fast-track OFF(enabled=false) → 기존 16 케이스는 cooldown 시간벽 동작 그대로(byte-equivalent).
 // fast-track 케이스만 enabled=true 로 override 한다.

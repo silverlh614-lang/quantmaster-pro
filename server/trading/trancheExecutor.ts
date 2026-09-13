@@ -16,8 +16,6 @@ import { resolveCurrentEquityExposure } from './sizing/currentEquityExposure.js'
 import { requestBuyApproval } from '../telegram/buyApproval.js';
 import { deriveShadowApprovalContext } from '../telegram/shadowApprovalDedupeStore.js';
 import { safePctChange } from '../utils/safePctChange.js';
-import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { resolveCanonicalRegimeLevel } from './regime/canonicalRegimeAccess.js';
 import { addBusinessDaysFromKstDate, formatKstYmd } from './krxHolidays.js';
 
 interface TrancheSchedule {
@@ -52,7 +50,6 @@ function saveTranches(list: TrancheSchedule[]): void {
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const TRANCHE_MAX_DROP_PCT = -3;
-const REGIME_BLOCK_SET = new Set(['R5_BEAR']);
 
 // 영업일 계산은 krxHolidays.ts SSOT 에 위임. 기존 import 경로 정합을 위해 재export.
 export { addBusinessDaysFromKstDate };
@@ -67,13 +64,6 @@ function kstDateStr(offsetDays = 0): string {
   return addBusinessDaysFromKstDate(kstTodayYmd(), offsetDays);
 }
 
-function regimeRiskRank(regime: string | undefined): number {
-  if (!regime) return 4;
-  const m = regime.match(/^R([1-6])_/);
-  if (!m) return 4;
-  return Number(m[1]);
-}
-
 function isOpenShadowStatus(status: ServerShadowTrade['status']): boolean {
   return status === 'PENDING'
     || status === 'ORDER_SUBMITTED'
@@ -86,12 +76,14 @@ export function evaluateTrancheRevalidation(input: {
   currentPrice: number;
   entryPrice: number;
   stopLoss: number;
-  currentRegime: string;
+  currentRegime?: string; // Historical input only; never used for revalidation.
   entryRegime?: string;
   cascadeStep?: 0 | 1 | 2;
   addBuyBlocked?: boolean;
 }): { ok: boolean; reason?: string; dropPct: number } {
-  // ADR-0059: stale currentPrice/entryPrice 시 0 fallback — 트랜치 재검증 결정 보호.
+  if (![input.currentPrice, input.entryPrice, input.stopLoss].every((value) => Number.isFinite(value) && value > 0)) {
+    return { ok: false, reason: '가격·손절선 확인 필요', dropPct: 0 };
+  }
   const dropPct = safePctChange(input.currentPrice, input.entryPrice, {
     label: 'trancheExecutor.dropPct',
   }) ?? 0;
@@ -114,14 +106,6 @@ export function evaluateTrancheRevalidation(input: {
   }
   if ((input.cascadeStep ?? 0) > 0) {
     return { ok: false, reason: `Cascade 단계 진입(cascadeStep=${input.cascadeStep ?? 0})`, dropPct };
-  }
-
-  if (REGIME_BLOCK_SET.has(input.currentRegime)) {
-    return { ok: false, reason: `레짐 악화(${input.currentRegime})`, dropPct };
-  }
-
-  if (regimeRiskRank(input.currentRegime) > regimeRiskRank(input.entryRegime)) {
-    return { ok: false, reason: `진입 레짐(${input.entryRegime ?? 'N/A'}) 대비 악화(${input.currentRegime})`, dropPct };
   }
 
   return { ok: true, dropPct };
@@ -193,9 +177,9 @@ class TrancheExecutor {
     const isLive = getTradingMode() === 'LIVE';
     let changed = false;
     const allShadows = loadShadowTrades();
+    const accountTrades = allShadows.filter((trade) => (trade.mode === 'LIVE') === isLive);
     const shadowsById = new Map(allShadows.map((s) => [s.id, s]));
-    // ADR-0531: Gate0 정본 레짐(노출 예산/재검증 입력). kill-switch GATE0_CANONICAL_REGIME_DISABLED=true 즉시 롤백.
-    const currentRegime = resolveCanonicalRegimeLevel(loadMacroState());
+    const settings = loadTradingSettings();
 
     // ADR-0166 §M2 (audit-PR-520) — 추매 진입점 노출 예산 cap 입력 합성.
     // checkPendingTranches batch 처리이므로 accountSnapshot 함수 진입부 1회 fetch + 캐싱.
@@ -204,18 +188,23 @@ class TrancheExecutor {
     let orderableCash = 0;
     if (isLive) {
       const balance = await fetchAccountBalance().catch(() => null);
-      totalAssets = Number(process.env.AUTO_TRADE_ASSETS || 0) || (balance ?? 30_000_000);
-      orderableCash = balance ?? totalAssets;
+      if (balance === null || !Number.isFinite(balance) || balance < 0) {
+        console.warn('[Tranche] LIVE 현금 잔고 미확인 — 예약 수량 유지 후 다음 실행으로 연기');
+        return;
+      }
+      const configuredCapital = Number(process.env.AUTO_TRADE_ASSETS || 0);
+      totalAssets = Number.isFinite(configuredCapital) && configuredCapital > 0 ? configuredCapital : balance;
+      orderableCash = balance;
     } else {
-      const settings = loadTradingSettings();
       const startingCapital = Number(process.env.AUTO_TRADE_ASSETS || settings.startingCapital);
-      const account = computeShadowAccount(allShadows, startingCapital);
+      const account = computeShadowAccount(accountTrades, startingCapital);
       totalAssets = account.totalAssets;
       orderableCash = Math.max(0, account.cashBalance);
     }
-    const currentEquityExposureAmount = resolveCurrentEquityExposure(totalAssets, orderableCash, allShadows);
+    let currentEquityExposureAmount = resolveCurrentEquityExposure(totalAssets, orderableCash, accountTrades);
 
     // parentTradeId별로 취소 여부를 캐싱 (현재가는 한 번만 조회)
+    const reservedBySymbol = new Map<string, number>();
     const cancelledParents = new Set<string>();
     const priceCache: Record<string, number | null> = {};
     const cancelParentPending = (parentTradeId: string, reason: string): void => {
@@ -259,13 +248,11 @@ class TrancheExecutor {
           continue;
         }
 
-        // 2·3차 실행 전 엄격 재검증 (손절선, 캐스케이드, 레짐 악화, 상승형 피라미딩)
+        // 2·3차 실행 전 엄격 재검증 (손절선, 캐스케이드, 상승형 피라미딩)
         const revalidation = evaluateTrancheRevalidation({
           currentPrice,
           entryPrice: t.entryPrice,
           stopLoss: t.stopLoss,
-          currentRegime,
-          entryRegime: parentTrade.entryRegime,
           cascadeStep: parentTrade.cascadeStep,
           addBuyBlocked: parentTrade.addBuyBlocked,
         });
@@ -327,30 +314,30 @@ class TrancheExecutor {
           }
         }
 
-        // ADR-0166 §M2 (audit-PR-520) — 추매 진입점 노출 예산 cap 적용.
-        // ENV `POSITION_SIZING_EXPOSURE_BUDGET_ENABLED=true` 활성 시에만 작동.
-        // isAddOnBuy=true 명시 → regimeExposurePolicy.allowAddOnBuys 정책 활성화 (R3+ 추매 허용).
-        // cap 결과 finalQuantity=0 → 트랜치 취소 + 운영자 알림.
-        // cap 결과 0 < finalQuantity < t.quantity → 수량 축소 후 진행 + 알림.
-        // cap 결과 ≥ t.quantity → 그대로 진행 (정상 통과).
+        // 예약 수량을 늘리지 않고 실제 현금·계좌·사용자 종목별 한도로 축소한다.
+        const currentPositionAmount = accountTrades
+          .filter((trade) => trade.stockCode === t.stockCode && isOpenShadowStatus(trade.status))
+          .reduce((sum, trade) => sum + Math.max(0, trade.quantity) * currentPrice, reservedBySymbol.get(t.stockCode) ?? 0);
         const exposureCap = applyExposureBudgetCap({
           rawQuantity: t.quantity,
           shadowEntryPrice: currentPrice,
           accountEquity: totalAssets,
           currentEquityExposureAmount,
           currentCashAmount: orderableCash,
-          regime: currentRegime,
+          maxPositionAmount: settings.positionLimit.enabled
+            ? totalAssets * settings.positionLimit.maxSingleStockPercent / 100 : undefined,
+          currentPositionAmount,
           isAddOnBuy: true,
         });
         const cappedQty = exposureCap.applied ? Math.min(exposureCap.finalQuantity, t.quantity) : t.quantity;
         if (exposureCap.applied && cappedQty <= 0) {
           t.status = 'CANCELLED';
-          t.cancelReason = `노출 예산 cap (regime=${currentRegime}, exposure=${currentEquityExposureAmount.toLocaleString()}원)`;
+          t.cancelReason = `계좌 자금 한도 (보유=${currentEquityExposureAmount.toLocaleString()}원)`;
           changed = true;
           console.warn(`[Tranche] ${t.stockName}(${t.stockCode}) ${t.trancheNumber}차 취소 — 노출 예산 cap 차단`);
           await sendTelegramAlert(
             `🚫 <b>[분할 매수 ${t.trancheNumber}차 취소]</b> ${t.stockName}(${t.stockCode})\n` +
-            `노출 예산 cap — 보유 ${(currentEquityExposureAmount / 1_0000).toFixed(0)}만원 / 자산 ${(totalAssets / 1_0000).toFixed(0)}만원 (regime ${currentRegime})`
+            `노출 예산 cap — 보유 ${(currentEquityExposureAmount / 1_0000).toFixed(0)}만원 / 자산 ${(totalAssets / 1_0000).toFixed(0)}만원`
           ).catch(console.error);
           continue;
         }
@@ -358,7 +345,7 @@ class TrancheExecutor {
           console.log(`[Tranche] ${t.stockName}(${t.stockCode}) ${t.trancheNumber}차 수량 축소 ${t.quantity}→${cappedQty}주 (노출 예산 cap)`);
           await sendTelegramAlert(
             `⚠️ <b>[분할 매수 ${t.trancheNumber}차 수량 축소]</b> ${t.stockName}(${t.stockCode})\n` +
-            `${t.quantity}주 → ${cappedQty}주 (노출 예산 cap, regime ${currentRegime})`
+            `${t.quantity}주 → ${cappedQty}주 (계좌 자금 한도)`
           ).catch(console.error);
           t.quantity = cappedQty;
         }
@@ -386,6 +373,10 @@ class TrancheExecutor {
           console.log(`[Tranche] LIVE ${t.trancheNumber}차 주문 — ${t.stockName} ${t.quantity}주 result=${orderResult.kind}`);
         }
 
+        // 같은 점검 회차의 다음 예약이 이미 배정한 현금을 다시 쓰지 못하게 한다.
+        orderableCash = Math.max(0, orderableCash - t.quantity * currentPrice);
+        currentEquityExposureAmount += t.quantity * currentPrice;
+        reservedBySymbol.set(t.stockCode, (reservedBySymbol.get(t.stockCode) ?? 0) + t.quantity * currentPrice);
         t.status     = 'EXECUTED';
         t.executedAt = new Date().toISOString();
         changed = true;

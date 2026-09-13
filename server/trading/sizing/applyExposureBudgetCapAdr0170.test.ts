@@ -44,59 +44,25 @@ function makeInput(overrides: Partial<ApplyExposureBudgetCapInput> = {}): ApplyE
   };
 }
 
-describe('ADR-0170 §3 applyExposureBudgetCap macro 옵셔널 입력', () => {
-  it('macro 미전달 → 기존 매핑 (R5_CAUTION → R2_WEAK 정책 적용)', () => {
+describe('retired macro inputs at the active exposure boundary', () => {
+  it.each([
+    {}, { macro: { bearDefenseMode: true } }, { macro: { vix: 35 } },
+    { macro: { vix: 15, bearDefenseMode: false } },
+    { exposureRegime: 'R3_NEUTRAL', macro: { bearDefenseMode: true } },
+    { regime: 'R6_DEFENSE', macro: { bearDefenseMode: false, vix: 10 } },
+  ])('ignores historical regime and macro labels %j', (overrides) => {
     process.env.POSITION_SIZING_EXPOSURE_BUDGET_ENABLED = 'true';
-    const result = applyExposureBudgetCap(makeInput());
-    expect(result.applied).toBe(true);
-    expect(result.budget?.regime).toBe('R2_WEAK');
+    const result = applyExposureBudgetCap(makeInput(overrides));
+    expect(result).toMatchObject({ applied: true, finalQuantity: 100 });
+    expect(result.budget).toBeUndefined();
   });
-
-  it('macro 전달 + bearDefenseMode=true → R1_DEFENSIVE 자동 격상 적용', () => {
-    process.env.POSITION_SIZING_EXPOSURE_BUDGET_ENABLED = 'true';
-    const result = applyExposureBudgetCap(makeInput({ macro: { bearDefenseMode: true } }));
-    expect(result.applied).toBe(true);
-    expect(result.budget?.regime).toBe('R1_DEFENSIVE');
-  });
-
-  it('macro 전달 + vix>30 → R1_DEFENSIVE', () => {
-    process.env.POSITION_SIZING_EXPOSURE_BUDGET_ENABLED = 'true';
-    const result = applyExposureBudgetCap(makeInput({ macro: { vix: 35 } }));
-    expect(result.budget?.regime).toBe('R1_DEFENSIVE');
-  });
-
-  it('macro 전달 + 신호 없음 → 기존 매핑 R2_WEAK', () => {
-    process.env.POSITION_SIZING_EXPOSURE_BUDGET_ENABLED = 'true';
-    const result = applyExposureBudgetCap(makeInput({ macro: { vix: 15, bearDefenseMode: false } }));
-    expect(result.budget?.regime).toBe('R2_WEAK');
-  });
-
-  it('exposureRegime 명시 우선 — macro 무시', () => {
-    process.env.POSITION_SIZING_EXPOSURE_BUDGET_ENABLED = 'true';
-    const result = applyExposureBudgetCap(makeInput({
-      exposureRegime: 'R3_NEUTRAL',
-      macro: { bearDefenseMode: true },
-    }));
-    expect(result.budget?.regime).toBe('R3_NEUTRAL');
-  });
-
-  it('R6_DEFENSE → R0_CRISIS — macro 무관 (자본 보호)', () => {
-    process.env.POSITION_SIZING_EXPOSURE_BUDGET_ENABLED = 'true';
-    const result = applyExposureBudgetCap(makeInput({
-      regime: 'R6_DEFENSE',
-      macro: { bearDefenseMode: false, vix: 10 },
-    }));
-    expect(result.budget?.regime).toBe('R1_DEFENSIVE');
-  });
-
-  it('ENV 비활성 (POSITION_SIZING_EXPOSURE_BUDGET_ENABLED 미설정) → applied=false', () => {
+  it('legacy import delegates to the current cash/capital boundary', () => {
+    expect(applyExposureBudgetCap).toBe(activeExposureBudgetCap);
     delete process.env.POSITION_SIZING_EXPOSURE_BUDGET_ENABLED;
-    const result = applyExposureBudgetCap(makeInput({ macro: { bearDefenseMode: true } }));
-    expect(result.applied).toBe(false);
-    expect(result.skipReason).toBe('ENV_DISABLED');
+    expect(applyExposureBudgetCap(makeInput({ currentCashAmount: 15000 })))
+      .toMatchObject({ applied: true, finalQuantity: 1 });
   });
 });
-
 describe('ADR-0170 §4 호출자 정합 정적 가드 — drift 차단', () => {
   it('helpers.ts — buildExposureBudgetMacroInput export 보유', () => {
     const src = readSrc('server/trading/signalScanner/perSymbol/helpers.ts');
@@ -146,19 +112,20 @@ describe('ADR-0170 §4 호출자 정합 정적 가드 — drift 차단', () => {
     expect(src).toMatch(/macro:\s*buildExposureBudgetMacroInput\(ctx\.macroState\)/);
   });
 
-  it('entrySizingPolicy.ts — mapInternalToExposureRegimeWithMacro import', () => {
+  it('entrySizingPolicy.ts does not import live regime mappers', () => {
     const src = readSrc('server/trading/sizing/entrySizingPolicy.ts');
-    expect(src).toMatch(/import\s+\{[\s\S]*?\bmapInternalToExposureRegimeWithMacro\b[\s\S]*?\}\s+from\s+['"]\.\/regimeExposurePolicy\.js['"]/);
+    expect(src).not.toContain('mapInternalToExposureRegime');
   });
 
-  it('entrySizingPolicy.ts — macro 전달 시 With Macro 경로 사용', () => {
+  it('entrySizingPolicy.ts does not consume historical macro arguments', () => {
     const src = readSrc('server/trading/sizing/entrySizingPolicy.ts');
-    expect(src).toContain('mapInternalToExposureRegimeWithMacro(input.regime, input.macro)');
+    expect(src).not.toContain('input.macro');
   });
 
-  it('entrySizingPolicy.ts — macro 부재 시 기존 매핑 fallback (회귀 안전)', () => {
+  it('entrySizingPolicy.ts does not select any substitute regime', () => {
     const src = readSrc('server/trading/sizing/entrySizingPolicy.ts');
-    expect(src).toMatch(/input\.macro[\s\S]*?mapInternalToExposureRegimeWithMacro[\s\S]*?:\s*mapInternalToExposureRegime\(input\.regime\)/);
+    expect(src).not.toContain('input.regime');
+    expect(src).not.toContain('input.exposureRegime');
   });
 
   it('ADR-0170 §M4 추적 주석 존재 — regimeExposurePolicy.ts', () => {
@@ -166,9 +133,9 @@ describe('ADR-0170 §4 호출자 정합 정적 가드 — drift 차단', () => {
     expect(src).toMatch(/ADR-0170/);
   });
 
-  it('ADR-0170 §M4 추적 주석 존재 — entrySizingPolicy.ts', () => {
+  it('entrySizingPolicy.ts labels current calculations as fixed budget', () => {
     const src = readSrc('server/trading/sizing/entrySizingPolicy.ts');
-    expect(src).toMatch(/ADR-0170/);
+    expect(src).toContain('FIXED_BUDGET');
   });
 
   // seed 4452bd3 분해로 buyListLoop.ts 의 ADR-0170 §M4 추적 주석이 macro-input SSOT

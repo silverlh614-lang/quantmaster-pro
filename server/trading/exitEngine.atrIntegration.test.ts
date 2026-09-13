@@ -42,7 +42,7 @@ vi.mock('./riskManager.js', () => ({
 }));
 
 import { updateShadowResults } from './exitEngine.js';
-import { fetchCurrentPrice } from '../clients/kisClient.js';
+import { fetchCurrentPrice, placeKisSellOrder } from '../clients/kisClient.js';
 
 const mockFetchCurrentPrice = vi.mocked(fetchCurrentPrice);
 
@@ -95,7 +95,7 @@ describe('exitEngine — ATR 동적 손절 갱신', () => {
     const shadow = makeShadow(); // entryATR14 미설정
     mockFetchCurrentPrice.mockResolvedValue(52000);
 
-    await updateShadowResults([shadow], 'R2_BULL');
+    await updateShadowResults([shadow]);
 
     expect(shadow.hardStopLoss).toBe(45000);
   });
@@ -112,7 +112,7 @@ describe('exitEngine — ATR 동적 손절 갱신', () => {
     // 현재가 51000 (+2%) — 트레일링 미활성
     mockFetchCurrentPrice.mockResolvedValue(51000);
 
-    await updateShadowResults([shadow], 'R2_BULL');
+    await updateShadowResults([shadow]);
 
     // 기본 동적 손절 47000 ≤ hardStopLoss 47000 → 변경 없음
     expect(shadow.hardStopLoss).toBe(47000);
@@ -128,7 +128,7 @@ describe('exitEngine — ATR 동적 손절 갱신', () => {
     // trailingStopPrice = round(50000 - 0.5 × 1500) = 49250 (이전: 50000 단순 점프)
     mockFetchCurrentPrice.mockResolvedValue(52500);
 
-    await updateShadowResults([shadow], 'R2_BULL');
+    await updateShadowResults([shadow]);
 
     // 49250 > 47000 → hardStopLoss 상향 (ATR 750원 마진으로 noise 흡수)
     expect(shadow.hardStopLoss).toBe(49250);
@@ -145,7 +145,7 @@ describe('exitEngine — ATR 동적 손절 갱신', () => {
     // trailingStopPrice = round(50000 × 1.03) = 51500
     mockFetchCurrentPrice.mockResolvedValue(55000);
 
-    await updateShadowResults([shadow], 'R2_BULL');
+    await updateShadowResults([shadow]);
 
     expect(shadow.hardStopLoss).toBe(51500);
     expect(shadow.dynamicStopPrice).toBe(51500);
@@ -161,13 +161,13 @@ describe('exitEngine — ATR 동적 손절 갱신', () => {
     // 현재가 51000 (+2%) — 트레일링 미활성, 기본 동적 손절 47000
     mockFetchCurrentPrice.mockResolvedValue(51000);
 
-    await updateShadowResults([shadow], 'R2_BULL');
+    await updateShadowResults([shadow]);
 
     // 47000 < 50000 → 래칫에 의해 변경 없음
     expect(shadow.hardStopLoss).toBe(50000);
   });
 
-  it('레짐 변경 시 ATR 배수 반영 (CRISIS ×1.0 → 더 타이트한 기본 손절)', async () => {
+  it('ignores legacy regime arguments and preserves the saved stop', async () => {
     // ATR = 1500, R5_CAUTION → CRISIS ×1.0
     // 기본 동적 손절 = 50000 - 1500×1.0 = 48500
     const shadow = makeShadow({
@@ -180,9 +180,9 @@ describe('exitEngine — ATR 동적 손절 갱신', () => {
 
     await updateShadowResults([shadow], 'R5_CAUTION');
 
-    // CRISIS 기본 손절 48500 > 47000 → 상향
-    expect(shadow.hardStopLoss).toBe(48500);
-    expect(shadow.dynamicStopPrice).toBe(48500);
+    // Regime policy is retired: the original 47000 stop remains unchanged.
+    expect(shadow.hardStopLoss).toBe(47000);
+    expect(shadow.dynamicStopPrice).toBe(47000);
   });
 
   it('PROFIT_PROTECTION exit type: ATR 트레일링이 초기/레짐 손절보다 높으면 HIT_STOP 시 PROFIT_PROTECTION', async () => {
@@ -194,12 +194,12 @@ describe('exitEngine — ATR 동적 손절 갱신', () => {
 
     // 1차 호출: +10% → Lock-in으로 hardStopLoss 51500으로 상향
     mockFetchCurrentPrice.mockResolvedValue(55000);
-    await updateShadowResults([shadow], 'R2_BULL');
+    await updateShadowResults([shadow]);
     expect(shadow.hardStopLoss).toBe(51500);
 
     // 2차 호출: 가격이 51500 이하로 하락 → HIT_STOP
     mockFetchCurrentPrice.mockResolvedValue(51400);
-    await updateShadowResults([shadow], 'R2_BULL');
+    await updateShadowResults([shadow]);
 
     expect(shadow.status).toBe('HIT_STOP');
     // hardStopLoss(51500) > initialStopLoss(45000) && > regimeStopLoss(45000)
@@ -211,7 +211,7 @@ describe('exitEngine — ATR 동적 손절 갱신', () => {
     const shadow = makeShadow({ entryATR14: 0 });
     mockFetchCurrentPrice.mockResolvedValue(52000);
 
-    await updateShadowResults([shadow], 'R2_BULL');
+    await updateShadowResults([shadow]);
 
     expect(shadow.hardStopLoss).toBe(45000);
   });
@@ -233,4 +233,26 @@ describe('exitEngine — ATR 동적 손절 갱신', () => {
     expect(shadow.shadowExitDeferredReason).toBe('SHADOW_EXIT_DEFERRED_NON_TRADING');
     expect(shadow.shadowExitDeferredSession).toBe('PRE_MARKET');
   });
+
+  it('does not force a LIVE position out or tighten its stop because an old caller supplied R6', async () => {
+    const shadow = makeShadow({ mode: 'LIVE', entryATR14: 1500, entryRegime: 'R2_BULL' });
+    mockFetchCurrentPrice.mockResolvedValue(50500);
+    await updateShadowResults([shadow], 'R6_DEFENSE');
+    expect(shadow.status).toBe('ACTIVE');
+    expect(shadow.quantity).toBe(10);
+    expect(shadow.hardStopLoss).toBe(45000);
+    expect(shadow.entryRegime).toBe('R2_BULL');
+    expect(placeKisSellOrder).not.toHaveBeenCalled();
+  });
+
+  it('continues resolving a saved target from its observed market price without a regime argument', async () => {
+    const shadow = makeShadow({ mode: 'SHADOW', entryRegime: 'R5_CAUTION' });
+    mockFetchCurrentPrice.mockResolvedValue(66000);
+    await updateShadowResults([shadow]);
+    expect(shadow.status).toBe('HIT_TARGET');
+    expect(shadow.exitPrice).toBe(66000);
+    expect(shadow.quantity).toBe(0);
+    expect(shadow.entryRegime).toBe('R5_CAUTION');
+  });
+
 });

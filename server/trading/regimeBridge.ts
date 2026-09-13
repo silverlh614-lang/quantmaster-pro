@@ -1,14 +1,12 @@
-// @responsibility regimeBridge R6 recovery decay overlay.
+// @responsibility Expose the retired regime API boundary.
 import type { RegimeLevel } from '../../src/types/core.js';
 import { isUsOvernightDefenseEnabled, resolveUsOvernightDefenseThresholdPct, US_OVERNIGHT_DEFENSE_BIAS_PENALTY } from './usOvernightDefenseAdr0604.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
 import {
-  saveRegimeTransitionState,
   type RegimeTransitionState,
   type R6TriggerBreakdown,
 } from '../persistence/regimeTransitionStateRepo.js';
 import * as base from './regimeBridge.base.js';
-import type { RegimeDiagnostics } from './regimeBridge.base.js';
 
 export * from './regimeBridge.base.js';
 
@@ -74,26 +72,6 @@ function applyR6RecoveryDecayBoost(state: RegimeTransitionState, macroState: Mac
   };
 }
 
-function persistBoostedDiagnostics(macroState: MacroState | null, now: Date = new Date()): RegimeDiagnostics {
-  const diagnostics = base.getRegimeDiagnostics(macroState, now);
-  const transitionState = applyR6RecoveryDecayBoost(diagnostics.transitionState, macroState, now);
-  if (transitionState !== diagnostics.transitionState) saveRegimeTransitionState(transitionState);
-  return {
-    ...diagnostics,
-    effectiveRegime: transitionState.effectiveRegime,
-    r6RecoveryStatus: transitionState.r6RecoveryStatus,
-    cooldownUntil: transitionState.cooldownUntil,
-    transitionReason: transitionState.transitionReason,
-    recoveryEvidence: transitionState.r6RecoveryEvidence,
-    transitionState,
-    r6TriggerBreakdown: transitionState.r6TriggerBreakdown,
-    activeR6Triggers: transitionState.r6TriggerBreakdown.activeR6Triggers,
-    previousR6Triggers: transitionState.previousR6Triggers,
-    r6ShockLatch: transitionState.r6ShockLatch,
-    recoveryBlockedReason: transitionState.recoveryBlockedReason,
-  };
-}
-
 export function evaluateR6RecoveryTransition(
   previousState: RegimeTransitionState,
   macroState: MacroState | null,
@@ -103,22 +81,4 @@ export function evaluateR6RecoveryTransition(
 ): RegimeTransitionState {
   const state = base.evaluateR6RecoveryTransition(previousState, macroState, rawRegime, now, triggerBreakdown);
   return applyR6RecoveryDecayBoost(state, macroState, now);
-}
-
-export function getRegimeDiagnostics(macroState: MacroState | null, now: Date = new Date()): RegimeDiagnostics {
-  return persistBoostedDiagnostics(macroState, now);
-}
-
-/**
- * @deprecated ADR-0531: Gate0 레짐 정본은 resolveRegimeSnapshot().effectiveRegime 다.
- * 본 함수는 legacy R6-recovery transitionState 의 effectiveRegime 으로, 의사결정·표시 1차
- * 출처로 쓰지 말 것(정본과 다를 수 있음). 신규/마이그레이션 코드는 buildGate0RegimeView 사용.
- */
-export function getLiveRegime(macroState: MacroState | null): RegimeLevel {
-  return getRegimeDiagnostics(macroState).effectiveRegime;
-}
-
-export async function checkAndNotifyRegimeChange(macroState: MacroState | null): Promise<void> {
-  await base.checkAndNotifyRegimeChange(macroState);
-  persistBoostedDiagnostics(macroState);
 }

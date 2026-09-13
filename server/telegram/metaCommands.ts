@@ -1,23 +1,15 @@
-// @responsibility metaCommands 텔레그램 모듈
-// @responsibility: Telegram 메타 명령어 (/now /watch /positions /learning /control /admin) 핸들러,
-// 인라인 키보드 빌더, callback 파서, Telegram 메뉴 생성 SSOT.
-
-import { getRemainingQty } from '../persistence/shadowTradeRepo.js';
-import { getShadowTrades } from '../orchestrator/tradingOrchestrator.js';
-import { getLastBuySignalAt, getLastScanSummary } from '../trading/signalScanner.js';
-import type { ShadowActivitySnapshot } from '../trading/marketStateResolver.js';
-import { resolveRegimeSnapshot } from '../trading/regime/regimeResolver.js';
+// @responsibility Telegram 메타 메뉴와 현재 Shadow 관측·매매·봇 건강 현황을 제공한다.
 import {
-  formatRegimeTelegramNow,
-  normalizeNowRenderOptions,
-  NOW_COMPACT_RENDER_OPTIONS,
-  NOW_DEBUG_RENDER_OPTIONS,
-  type NowRenderOptions,
-  type NowRenderOptionsInput,
+  normalizeNowRenderOptions, NOW_COMPACT_RENDER_OPTIONS, NOW_DEBUG_RENDER_OPTIONS,
+  type NowRenderOptions, type NowRenderOptionsInput,
 } from '../trading/regime/regimeTelegramPresenter.js';
 import { commandRegistry } from './commandRegistry.js';
-import { getTradingMode } from '../state.js';
-import { PAPER_BOT_SCHEDULES } from '../alerts/paperBotMessages.js';
+import { getAutoTradePaused, getEmergencyStop, getTradingMode } from '../state.js';
+import { PAPER_BOT_SCHEDULES, formatPaperReport, formatPaperBotStatus } from '../alerts/paperBotMessages.js';
+import { getPaperExperimentView } from '../trading/paper/paperExperimentRunner.js';
+import { loadPaperBotState } from '../persistence/paperBotRepo.js';
+import { recentPaperNews } from '../alerts/paperBot.js';
+import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 
 interface InlineKeyboardButton {
   text: string;
@@ -82,7 +74,7 @@ export const META_COMMAND_REGISTRY: Record<string, MetaCommandSpec> = {
     description: '자기학습 이력·포지션 정책·서킷·리스크 예산을 모두 모았습니다.',
     rows: [
       ['/learning_status', '/learning_history'],
-      ['/kelly', '/kelly_surface'],
+      ['/paper', '/paper_research'],
       ['/regime_coverage', '/ledger'],
       ['/counterfactual', '/risk'],
       ['/circuits', '/reset_circuits', '/ai_status'],
@@ -103,7 +95,7 @@ export const META_COMMAND_REGISTRY: Record<string, MetaCommandSpec> = {
     title: '🔧 진단·관리',
     description: '시장 리포트·채널 점검·다이제스트 등 일상 운영용 명령어 모음입니다.',
     rows: [
-      ['/health', '/regime', '/market'],
+      ['/health', '/paper_bot', '/market'],
       ['/scheduler', '/report', '/shadow'],
       ['/dxy', '/todaylog'],
       ['/channel_health', '/channel_stats'],
@@ -154,62 +146,6 @@ export function parseMetaCallback(
 }
 
 
-function isOpenShadowStatus(status: unknown): boolean {
-  return status === 'PENDING' || status === 'ORDER_SUBMITTED' || status === 'PARTIALLY_FILLED' || status === 'ACTIVE' || status === 'EUPHORIA_PARTIAL';
-}
-
-function toKstHmFromIsoOrLabel(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const parsed = Date.parse(value);
-  if (Number.isFinite(parsed)) return formatKstHm(new Date(parsed));
-  return value;
-}
-
-function buildShadowActivitySnapshot(shadows: ReturnType<typeof getShadowTrades>, now: Date, macroFreshness?: string): ShadowActivitySnapshot {
-  const summary = getLastScanSummary();
-  const today = now.toISOString().slice(0, 10);
-  const openShadowPositions = shadows.filter((trade) => isOpenShadowStatus((trade as { status?: string }).status) && getRemainingQty(trade) > 0).length;
-  const lastShadowSignalAt = shadows
-    .map((trade) => Date.parse(String((trade as { signalTime?: string }).signalTime ?? '')))
-    .filter(Number.isFinite)
-    .sort((a, b) => b - a)[0];
-  const paperFillCount = shadows.filter((trade) => {
-    const record = trade as { status?: string; entryTime?: string; signalTime?: string };
-    const at = record.entryTime ?? record.signalTime ?? '';
-    return isOpenShadowStatus(record.status) && at.startsWith(today);
-  }).length;
-  const macroHardStale = macroFreshness === 'HARD_STALE' || macroFreshness === 'MISSING';
-  const lastBlockReason = macroHardStale
-    ? `MACRO_STATE_${macroFreshness}`
-    : summary?.macroGateState?.sellOnlyMode
-      ? 'SELL_ONLY'
-      : summary?.emptyScanReason ?? undefined;
-  const candidateScanStatus = macroHardStale
-    ? 'SKIPPED'
-    : summary?.time
-      ? 'RAN'
-      : 'NOT_RUN';
-
-  return {
-    scanAllowed: true,
-    lastScanAt: macroHardStale ? undefined : toKstHmFromIsoOrLabel(summary?.time),
-    evaluatedCount: macroHardStale ? 0 : summary?.candidates ?? 0,
-    candidateCount: macroHardStale ? 0 : summary?.candidates ?? 0,
-    buySignalCount: macroHardStale ? 0 : summary?.entries ?? 0,
-    sellCheckCount: openShadowPositions,
-    paperFillCount,
-    openShadowPositions,
-    lastShadowSignalAt: Number.isFinite(lastShadowSignalAt) ? formatKstHm(new Date(lastShadowSignalAt)) : undefined,
-    lastBlockReason,
-    candidateScanStatus,
-    candidateScanTrigger: summary?.candidateScanTrigger ?? (summary?.time ? 'SCHEDULED' : undefined),
-    candidateSkipReason: (macroHardStale || (summary?.candidates ?? 0) === 0) ? lastBlockReason : undefined,
-    accumulatingCandidates: summary?.r6ShadowEntryPolicy?.accumulatingCandidates,
-    r6CounterfactualEntries: summary?.r6ShadowEntryPolicy?.r6CounterfactualEntries,
-    noShadowEntryReason: summary?.r6ShadowEntryPolicy?.noShadowEntryReason,
-  };
-}
-
 const NOW_DEBUG_EMPTY_PAYLOAD_MESSAGE =
   '⚠️ NOW DEBUG render failed: empty payload. Snapshot resolver returned no content.';
 
@@ -224,52 +160,18 @@ export function ensureNowReplyPayload(text: string | null | undefined, options: 
 }
 
 export function composeNowVerdict(now: Date = new Date(), options: NowRenderOptionsInput = NOW_COMPACT_RENDER_OPTIONS): string {
-  const shadows = getShadowTrades();
-  const active = shadows.filter((s) => {
-    const status = (s as { status?: string }).status;
-    if (
-      status !== 'PENDING' &&
-      status !== 'ORDER_SUBMITTED' &&
-      status !== 'PARTIALLY_FILLED' &&
-      status !== 'ACTIVE' &&
-      status !== 'EUPHORIA_PARTIAL'
-    ) {
-      return false;
-    }
-    return getRemainingQty(s) > 0;
-  });
-
-  const maxPositions = Number(process.env.MAX_CONVICTION_POSITIONS ?? '8');
-  const lastSignalAt = getLastBuySignalAt();
-  const lastSignalLabel = lastSignalAt > 0
-    ? formatKstHm(new Date(lastSignalAt))
-    : '없음';
-  const snapshot = resolveRegimeSnapshot({ now });
-  const renderOptions = normalizeNowRenderOptions(options);
-
-  console.info(
-    '[TELEGRAM_RENDER_MARKET_STATE] ' +
-    `snapshotId=${snapshot.snapshotId} ` +
-    'template=NOW ' +
-    `displayRegime=${snapshot.displayRegime} ` +
-    `effectiveRegime=${snapshot.effectiveRegime} ` +
-    `riskOverride=${snapshot.riskOverride}`,
-  );
-  console.info(`[TELEGRAM_NOW_RENDERED] mode=${renderOptions.mode} snapshotId=${snapshot.snapshotId}`);
-
-  return formatRegimeTelegramNow(snapshot, {
-    activePositions: active.length,
-    maxPositions,
-    lastSignalLabel,
-    shadowActivity: buildShadowActivitySnapshot(shadows, now, snapshot.marketState.macroState.freshness),
-  }, renderOptions);
-}
-
-function formatKstHm(d: Date): string {
-  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-  const hh = kst.getUTCHours().toString().padStart(2, '0');
-  const mm = kst.getUTCMinutes().toString().padStart(2, '0');
-  return `${hh}:${mm} KST`;
+  const view = getPaperExperimentView(true);
+  const bot = loadPaperBotState();
+  const mode = getTradingMode();
+  const observation = getAutoTradePaused() ? '일시정지' : '활성';
+  const title = normalizeNowRenderOptions(options).mode === 'DEBUG' ? '[NOW DEBUG]' : '[NOW]';
+  return [
+    '<b>' + title + '</b>',
+    '현재 모드 ' + mode + ' · 자동 관측 ' + observation,
+    '실주문 비상정지 ' + (getEmergencyStop() ? 'ON' : 'OFF'),
+    formatPaperReport(view, 'status', toKstDateKey(now), recentPaperNews()),
+    '', formatPaperBotStatus(bot),
+  ].join('\n');
 }
 
 export async function handleMetaCommand(

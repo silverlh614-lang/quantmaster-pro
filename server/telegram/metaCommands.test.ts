@@ -19,6 +19,10 @@ import * as macroRepo from '../persistence/macroStateRepo.js';
 import * as orchestrator from '../orchestrator/tradingOrchestrator.js';
 import * as scanner from '../trading/signalScanner.js';
 import * as regimeRepo from '../persistence/regimeTransitionStateRepo.js';
+import * as paperRunner from '../trading/paper/paperExperimentRunner.js';
+import * as paperBotRepo from '../persistence/paperBotRepo.js';
+import * as paperBot from '../alerts/paperBot.js';
+import * as regimeResolver from '../trading/regime/regimeResolver.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // composeNowVerdict 테스트는 외부 모듈을 spy 로 stub. 각 it 마다 reset.
@@ -27,6 +31,17 @@ import * as regimeRepo from '../persistence/regimeTransitionStateRepo.js';
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(state, 'getTradingMode').mockReturnValue('PAPER');
+  vi.spyOn(paperRunner, 'getPaperExperimentView').mockReturnValue({
+    mode: 'SHADOW', strategyVersion: 'shadow-baseline-v1', totalCount: 4, openCount: 2, completedCount: 2,
+    experiments: [], groups: [], outcomes: [],
+    lastRun: { snapshotId: 'snapshot-test', asOf: '2026-04-25T00:23:00.000Z', candidateCount: 10, observedCount: 8, missingPriceCount: 2,
+      openedCount: 4, completedCount: 2, marketOpen: true, issues: [] },
+  });
+  vi.spyOn(paperBotRepo, 'loadPaperBotState').mockReturnValue({
+    schemaVersion: 1, initializedAt: null, lastCheckedAt: null, health: 'OK', notifiedHealth: 'OK', seenEvents: {}, messages: [],
+  });
+  vi.spyOn(paperBot, 'recentPaperNews').mockReturnValue([]);
+
   // 기본값: 정상 운영 (verdict = 🟢 OK)
   vi.spyOn(state, 'getEmergencyStop').mockReturnValue(false);
   vi.spyOn(state, 'getDataIntegrityBlocked').mockReturnValue(false);
@@ -160,100 +175,46 @@ describe('META_COMMAND_REGISTRY', () => {
   });
 });
 
-describe('composeNowVerdict — priority chain', () => {
-  it('🔴 STOP when emergency stop ON (highest priority)', () => {
+describe('composeNowVerdict — 현재 Shadow 관측·건강 상태', () => {
+  beforeEach(() => { vi.spyOn(state, 'getTradingMode').mockReturnValue('SHADOW'); });
+  it('실주문 비상정지와 독립 관측 상태를 함께 표시한다', () => {
     vi.spyOn(state, 'getEmergencyStop').mockReturnValue(true);
-    vi.spyOn(state, 'getDataIntegrityBlocked').mockReturnValue(true); // also blocked
-    vi.spyOn(state, 'getAutoTradePaused').mockReturnValue(true); // also paused
-    const verdict = composeNowVerdict();
-    expect(verdict).toContain('[NOW]');
-    expect(verdict).toContain('Live Buy: BLOCKED');
+    const text = composeNowVerdict();
+    expect(text).toContain('실주문 비상정지 ON');
+    expect(text).toContain('자동 관측 활성');
+    expect(text).toContain('후보 10');
   });
-
-  it('🔴 BLOCK when only data integrity blocked', () => {
+  it('기존 데이터 게이트가 신규 관측 기록을 숨기지 않는다', () => {
     vi.spyOn(state, 'getDataIntegrityBlocked').mockReturnValue(true);
-    expect(composeNowVerdict()).toContain('Live Buy: BLOCKED');
+    expect(composeNowVerdict()).toContain('현재가 확인 8');
   });
-
-  it('🟡 PAUSE when only soft pause set', () => {
+  it('사용자의 관측 일시정지를 표시한다', () => {
     vi.spyOn(state, 'getAutoTradePaused').mockReturnValue(true);
-    expect(composeNowVerdict()).toContain('Live Buy: BLOCKED');
+    expect(composeNowVerdict()).toContain('자동 관측 일시정지');
   });
-
-  it('🟡 SHADOW_ONLY / HOLD when raw R6_DEFENSE condition is active (live buy blocked)', () => {
-    // ADR-0535 authority hierarchy: raw R6 surfaces via display/riskOverride=SHADOW_ONLY and blocks
-    // live buy; effectiveRegime stays the separate scoring regime (R6 is never the effective regime).
-    vi.spyOn(macroRepo, 'loadMacroState').mockReturnValue({
-      regime: 'R6_DEFENSE',
-      mhs: 25,
-    } as ReturnType<typeof macroRepo.loadMacroState>);
-    const verdict = composeNowVerdict();
-    expect(verdict).toContain('SHADOW_ONLY / HOLD');
-    expect(verdict).toContain('Live Buy: BLOCKED');
-    expect(verdict).toContain('RAW_R6_DEFENSE_CONDITION_ACTIVE');
+  it('폐기한 레짐 resolver를 호출하지 않는다', () => {
+    vi.spyOn(regimeResolver, 'resolveRegimeSnapshot').mockImplementation(() => { throw new Error('REGIME_RETIRED'); });
+    expect(composeNowVerdict()).toContain('Shadow 현재 현황');
+    expect(regimeResolver.resolveRegimeSnapshot).not.toHaveBeenCalled();
   });
-
-  it('🟢 OK on default normal state', () => {
-    const verdict = composeNowVerdict();
-    expect(verdict).toContain('[NOW]');
-    expect(verdict).toContain('Display regime:');
-    expect(verdict).toContain('Effective regime:');
-    expect(verdict).toContain('MHS: 67');
-    expect(verdict).not.toContain('Raw trend:');
-    expect(verdict).not.toContain('macroState:');
+  it('현재 관측 수와 봇 건강 상태를 표시한다', () => {
+    const text = composeNowVerdict();
+    expect(text).toContain('누적 4');
+    expect(text).toContain('관측 상태 정상');
+    expect(text).not.toContain('Effective regime:');
   });
-
-  it('NOW separates the raw R6 trigger from the (downgraded) effective regime and blocks live buy', () => {
-    vi.spyOn(macroRepo, 'loadMacroState').mockReturnValue({
-      regime: 'R3_BULL_TREND',
-      mhs: 70,
-      updatedAt: new Date().toISOString(),
-      vkospiDayChange: 31,
-    } as ReturnType<typeof macroRepo.loadMacroState>);
-
-    const verdict = composeNowVerdict();
-
-    expect(verdict).not.toContain('Raw trend:');
-    // Raw R6 trigger is acknowledged (reason chain) while the effective scoring regime is NOT R6
-    // (sanitizeEffectiveRegime keeps R6 out of effective). Live buy blocked, shadow continues.
-    expect(verdict).toContain('ACTIVE_R6_TRIGGER_PRESENT');
-    expect(verdict).not.toMatch(/Effective regime: R6_/);
-    expect(verdict).toContain('Live Buy: BLOCKED');
-    expect(verdict).toContain('Shadow: ON');
+  it('오래된 R6 매크로 기록을 현재 매매 제한으로 표시하지 않는다', () => {
+    vi.spyOn(macroRepo, 'loadMacroState').mockReturnValue({ regime: 'R6_DEFENSE', mhs: 20 } as any);
+    expect(composeNowVerdict()).not.toContain('R6_DEFENSE');
+    expect(macroRepo.loadMacroState).not.toHaveBeenCalled();
   });
-
-  it('NOW renders market state and diagnostics from one macro snapshot, not mixed cache reads', () => {
-    const now = new Date('2026-05-19T06:00:00.000Z');
-    vi.spyOn(macroRepo, 'loadMacroState')
-      .mockReturnValueOnce({
-        regime: 'R3_BULL_TREND',
-        mhs: 70,
-        updatedAt: now.toISOString(),
-        vkospiDayChange: 31,
-      } as ReturnType<typeof macroRepo.loadMacroState>)
-      .mockReturnValue({
-        regime: 'R3_BULL_TREND',
-        mhs: 67,
-        updatedAt: now.toISOString(),
-      } as ReturnType<typeof macroRepo.loadMacroState>);
-
-    const verdict = composeNowVerdict(now);
-
-    // Single snapshot: raw R6 trigger acknowledged, live buy blocked, effective never R6/R3_NORMAL.
-    expect(verdict).toContain('ACTIVE_R6_TRIGGER_PRESENT');
-    expect(verdict).toContain('Live Buy: BLOCKED');
-    expect(verdict).not.toMatch(/Effective regime: R6_/);
-    expect(verdict).not.toContain('Effective regime: R3_NORMAL');
-    expect(verdict).not.toContain('BUY_ALLOWED');
-    expect(macroRepo.loadMacroState).toHaveBeenCalledTimes(1);
+  it('하나의 현재 원장 조회에서 보고서를 만든다', () => {
+    composeNowVerdict();
+    expect(paperRunner.getPaperExperimentView).toHaveBeenCalledExactlyOnceWith(true);
+    expect(paperBotRepo.loadPaperBotState).toHaveBeenCalledOnce();
   });
-
-  it('마지막 신호 KST 시각이 포맷되어 노출', () => {
-    // 2026-04-25T00:23:00Z = KST 09:23
-    vi.spyOn(scanner, 'getLastBuySignalAt').mockReturnValue(
-      new Date('2026-04-25T00:23:00Z').getTime(),
-    );
-    expect(composeNowVerdict(new Date(), { mode: 'DEBUG', includeRaw: true })).toContain('09:23 KST');
+  it('마지막 관측의 한국 시각을 표시한다', () => {
+    expect(composeNowVerdict(new Date(), { mode: 'DEBUG', includeRaw: true })).toContain('09:23');
   });
 });
 
@@ -276,7 +237,7 @@ describe('handleMetaCommand', () => {
     await handleMetaCommand('/now', fn);
     expect(calls).toHaveLength(1);
     expect(calls[0].text).toContain('[NOW]');
-    expect(calls[0].text).toContain('Live Buy:');
+    expect(calls[0].text).toContain('현재가 확인 8');
     expect(calls[0].text).not.toContain('rawData:');
     expect(calls[0].text).not.toContain('macroState:');
     expect(calls[0].markup?.inline_keyboard[0]).toHaveLength(3);
@@ -287,8 +248,8 @@ describe('handleMetaCommand', () => {
     await handleMetaCommand('/now_debug', fn);
     expect(calls).toHaveLength(1);
     expect(calls[0].text).toContain('[NOW DEBUG]');
-    expect(calls[0].text).toContain('DEBUG VIEW - raw fields included');
-    expect(calls[0].text).toContain('rawData:');
+    expect(calls[0].text).toContain('Shadow 알림 봇');
+    expect(calls[0].text).toContain('관측 상태 정상');
     expect(calls[0].text.trim().length).toBeGreaterThan(0);
     expect(calls[0].markup?.inline_keyboard[0]).toHaveLength(3);
   });

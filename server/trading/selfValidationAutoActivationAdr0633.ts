@@ -9,7 +9,7 @@ import type { CounterfactualOutcomeBoard } from '../learning/counterfactualOutco
 /**
  * lever 자가 활성 자격.
  * - LIVE_SAFE: ON 이 shadow/diagnostic/관측·측정만 바꿈(LIVE 실주문·SourceSnapshot·Gate 채점·universe·regime·sizing byte-identical) → 자가 활성 대상.
- * - LIVE_ADJACENT_REVIEW: ON 이 LIVE-인접 동작(R6 트리거 신선도·R6 복구 stuck-exit·Gate1 채점식·intraday universe 신선화)을
+ * - LIVE_ADJACENT_REVIEW: ON 이 LIVE-인접 동작(Gate1 채점식·intraday universe 신선화)을
  *   바꿈 → 자가 활성 금지. EXCLUDED 와 달리 "절대 금지"가 아니라 **운영자 1-체크포인트 검토 후 수동 활성** 대상으로 인지·등재(ADR-0635).
  * - LIVE_MONEY_EXCLUDED: LIVE 실주문/사이징/learning→LIVE 가중치 영향(불변식 #7) → 자가 활성 영구 금지.
  * - ABSOLUTE_PRESERVATION_EXCLUDED: requiredScore=70/CONDITION_PASS_THRESHOLD=5/STRONG_BUY 영향 → 영구 금지.
@@ -254,34 +254,6 @@ export const LEVER_REGISTRY: readonly AutoActivationLever[] = [
   // LIVE-인접 동작 변경이라 자동 활성하지 않고 운영자가 인지·수동 검토하도록 등재(인지하되 자동화 금지).
   // criteria 값은 무의미(evaluator 가 eligibility 로 먼저 EXCLUDED 분기 → 미평가). requiresEvidence:true 채움(무의미).
   {
-    leverId: 'R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592',
-    envName: 'R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED',
-    eligibility: 'LIVE_ADJACENT_REVIEW',
-    criteria: {
-      minMatureSamplesD5: 0,
-      requireReviewReady: false,
-      requirePerformanceJustified: false,
-      minConsecutiveReadyDays: 0,
-      requiresEvidence: true,
-    },
-    rationale:
-      'ADR-0592 — R6 트리거 tradeDate 신선도 게이트. regime/R6 상태 LIVE 경로에 인접 — 자동 활성 금지·운영자 1-체크포인트(ADR-0635 §2.3).',
-  },
-  {
-    leverId: 'R6_RECOVERY_STUCK_EXIT_ADR0630',
-    envName: 'R6_RECOVERY_STUCK_EXIT_ENABLED',
-    eligibility: 'LIVE_ADJACENT_REVIEW',
-    criteria: {
-      minMatureSamplesD5: 0,
-      requireReviewReady: false,
-      requirePerformanceJustified: false,
-      minConsecutiveReadyDays: 0,
-      requiresEvidence: true,
-    },
-    rationale:
-      'ADR-0630 D2 — R6 복구 stuck-exit(Kelly/display regime 정상화). LIVE regime override·exit 위상에 인접 — 자동 활성 금지·운영자 1-체크포인트(ADR-0635 §2.3).',
-  },
-  {
     leverId: 'GATE1_RS_PERCENTILE_CONTINUOUS_ADR0627',
     envName: 'GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED',
     eligibility: 'LIVE_ADJACENT_REVIEW',
@@ -311,20 +283,6 @@ export const LEVER_REGISTRY: readonly AutoActivationLever[] = [
   },
 
   // ── EXCLUDED (자가 활성 영구 금지 — 명시 등재) ──────────────────────────────
-  {
-    leverId: 'GATE1_REGIME_AWARE_REQUIRED_ADR0546',
-    envName: 'GATE1_REGIME_AWARE_REQUIRED',
-    eligibility: 'ABSOLUTE_PRESERVATION_EXCLUDED',
-    criteria: {
-      minMatureSamplesD5: 0,
-      requireReviewReady: false,
-      requirePerformanceJustified: false,
-      minConsecutiveReadyDays: 0,
-      requiresEvidence: true,
-    },
-    rationale:
-      'LIVE Gate1 required-score flip(ADR-0546). requiredScore=70 절대 보존 영역. 운영자 명시 결정만.',
-  },
   {
     leverId: 'GATE1_POSITIVE_CEILING_WIRING_ADR0613',
     envName: 'GATE1_POSITIVE_CEILING_WIRING_ENABLED',

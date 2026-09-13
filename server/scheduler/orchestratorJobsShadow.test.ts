@@ -22,7 +22,7 @@ vi.mock('../state.js', () => ({
   getEmergencyStop: () => mocks.emergency,
   touchHeartbeat: mocks.heartbeat,
 }));
-vi.mock('../trading/scanDispatcher.js', () => ({ runAutoSignalScan: mocks.scan }));
+vi.mock('../trading/paper/paperExperimentRunner.js', () => ({ runPaperExperimentScan: mocks.scan }));
 vi.mock('../orchestrator/tradingOrchestrator.js', () => ({ tradingOrchestrator: { tick: mocks.tick } }));
 vi.mock('../alerts/telegramClient.js', () => ({ sendTelegramAlert: vi.fn() }));
 vi.mock('../alerts/alertNoisePolicy.js', () => ({ evaluateAlertNoise: vi.fn() }));
@@ -68,10 +68,13 @@ describe('Shadow schedule', () => {
     expect(mocks.scan).not.toHaveBeenCalled();
   });
 
-  it.each(['LIVE', 'PAPER'])('does not create experiments from the %s schedule', async mode => {
+  it.each(['LIVE', 'PAPER'])('preserves virtual signals and research in %s without invoking broker orchestration', async mode => {
     mocks.mode = mode;
     await callback('paper_experiments')();
-    expect(mocks.scan).not.toHaveBeenCalled();
+    expect(mocks.scan).toHaveBeenCalledOnce();
+    expect(mocks.tick).not.toHaveBeenCalled();
+    expect(mocks.dailyLoss).not.toHaveBeenCalled();
+    expect(mocks.killSwitch).not.toHaveBeenCalled();
   });
 
   it('records a failed Shadow scan and resumes next tick without a legacy fallback', async () => {

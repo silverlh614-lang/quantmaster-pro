@@ -1,4 +1,4 @@
-// @responsibility 계좌 생존 게이지 SSOT — 일일손실/섹터집중도/Kelly정합도 3 게이지를 단일 스냅샷으로 합성
+// @responsibility Summarize account risk.
 //
 // ADR-0050 — Account Survival Gauge.
 // 외부 호출 0건 — killSwitch + portfolioRiskEngine + kellySurfaceMap + shadowTradeRepo + macroState 만 read.
@@ -6,11 +6,8 @@
 
 import { assessKillSwitch } from '../trading/killSwitch.js';
 import { evaluatePortfolioRisk } from '../trading/portfolioRiskEngine.js';
-import { computeKellySurface } from '../learning/kellySurfaceMap.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
 import { isOpenShadowStatus } from '../trading/entryEngine.js';
-import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 
 // ─── 타입 ────────────────────────────────────────────────────────────────
 
@@ -34,6 +31,7 @@ interface SectorConcentrationGauge {
 }
 
 interface KellyConcordanceGauge {
+  status?: 'RETIRED';
   ratio: number | null;
   currentAvgKelly: number;
   recommendedKelly: number;
@@ -140,35 +138,6 @@ export function composeOverallTier(
 
 // ─── 데이터 수집 ────────────────────────────────────────────────────────
 
-/**
- * 활성 포지션의 entryKellySnapshot.effectiveKelly 평균.
- * snapshot 없는 레거시 포지션은 평균 계산에서 제외.
- */
-function computeActiveKellyAverage(): { avg: number; count: number } {
-  const active = loadShadowTrades().filter(
-    (t) => isOpenShadowStatus(t.status) && t.entryKellySnapshot != null,
-  );
-  if (active.length === 0) return { avg: 0, count: 0 };
-  const sum = active.reduce(
-    (acc, t) => acc + (t.entryKellySnapshot?.effectiveKelly ?? 0),
-    0,
-  );
-  return { avg: sum / active.length, count: active.length };
-}
-
-/**
- * 현재 레짐의 STRONG_BUY+BUY 가중 평균 kellyStar — 단일 권고 Kelly 도출.
- * 현재 레짐 cell 들의 표본 합산이 < KELLY_MIN_SAMPLE 이면 CALIBRATING 처리.
- */
-function computeRecommendedKelly(currentRegime: string): { recommended: number; samples: number } {
-  const surface = computeKellySurface();
-  const cells = surface.cells.filter((c) => c.regime === currentRegime);
-  const totalSamples = cells.reduce((acc, c) => acc + c.samples, 0);
-  if (totalSamples === 0) return { recommended: 0, samples: 0 };
-  const weighted = cells.reduce((acc, c) => acc + c.kellyStar * c.samples, 0);
-  return { recommended: weighted / totalSamples, samples: totalSamples };
-}
-
 function topSectorEntry(weights: Record<string, number>): { sector: string | null; weight: number } {
   let topSector: string | null = null;
   let topWeight = 0;
@@ -217,24 +186,17 @@ export async function collectSurvivalSnapshot(now: Date = new Date()): Promise<S
     tier: classifySectorTier(hhi, activePositions, unknownOnly),
   };
 
-  const macroState = loadMacroState();
-  const currentRegime = resolveCanonicalRegimeLevel(macroState); // ADR-0531: Gate0 정본 레짐
-  const { recommended, samples } = computeRecommendedKelly(currentRegime);
-  const { avg: currentAvgKelly } = computeActiveKellyAverage();
-  const ratio = recommended > 0 && currentAvgKelly >= 0 ? currentAvgKelly / recommended : null;
+  // Retired response fields remain only for older clients; no Kelly computation runs.
   const kellyConcordance: KellyConcordanceGauge = {
-    ratio,
-    currentAvgKelly,
-    recommendedKelly: recommended,
-    sampleSize: samples,
-    tier: classifyKellyTier(ratio, recommended, samples),
+    status: 'RETIRED', ratio: null, currentAvgKelly: 0, recommendedKelly: 0, sampleSize: 0,
+    tier: 'CALIBRATING', // Existing display contract; excluded from the account-risk verdict below.
   };
 
   return {
     dailyLoss,
     sectorConcentration,
     kellyConcordance,
-    overallTier: composeOverallTier(dailyLoss.tier, sectorConcentration.tier, kellyConcordance.tier),
+    overallTier: composeOverallTier(dailyLoss.tier, sectorConcentration.tier, 'CALIBRATING'),
     capturedAt: now.toISOString(),
   };
 }

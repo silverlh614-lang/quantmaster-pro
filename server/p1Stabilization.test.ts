@@ -20,78 +20,20 @@ afterEach(() => {
   __resetWatchlistSaturationStateForTests();
 });
 
-describe('P1 macro HARD_STALE stabilization', () => {
-  it('macroFreshness=HARD_STALE with MHS 70 under R6 blocks release but keeps shadow learning and marketSignal=false', async () => {
+describe('P1 retired macro snapshot boundary', () => {
+  it('rejects stale macro classification without running retired diagnostics or market policy', async () => {
     vi.resetModules();
-    vi.doMock('./trading/marketStateResolver.js', () => ({
-      resolveMarketState: () => ({
-        snapshotId: 'mkt-hard-stale',
-        asOf: '2026-05-18T05:56:19.000Z',
-        ttlSec: 300,
-        biasScore: 10,
-        biasLabel: 'NEUTRAL',
-        mhs: 70,
-        mhsLabel: 'GREEN',
-        detectedRegime: 'R3_EARLY',
-        rawTrend: 'GREEN',
-        riskOverride: 'NONE',
-        effectiveRegime: 'R6_DEFENSE',
-        liveNewBuyAllowed: false,
-        liveSellAllowed: true,
-        positionManagementAllowed: true,
-        shadowLearningAllowed: true,
-        shadowScanAllowed: true,
-        shadowPaperFillAllowed: true,
-        executionMode: 'NORMAL',
-        displaySeverity: 'DEFENSE',
-        displayTitle: 'R6_DEFENSE',
-        displayEmoji: '🔴',
-        reasonCodes: ['R6_DEFENSE'],
-        stale: true,
-        staleSources: ['macroState'],
-        macroState: {
-          stale: true,
-          freshness: 'HARD_STALE',
-          updatedAt: '2026-05-18T05:56:19.000Z',
-          ageSec: 7421,
-          ttlSec: 300,
-          softStaleSec: 900,
-          hardStaleSec: 900,
-          staleReason: 'HARD_STALE',
-          lastRefreshAttemptAt: '2026-05-18T06:55:00.000Z',
-          refreshJobLastRunAt: '2026-05-18T06:55:00.000Z',
-          refreshBlockedReason: 'NONE',
-          executionImpact: 'REGIME_RELEASE_BLOCKED_ONLY',
-        },
-      }),
-      formatMarketStateNow: () => 'legacy',
-    }));
-    vi.doMock('./trading/regimeBridge.js', () => ({
-      getRegimeDiagnostics: () => ({
-        rawRegime: 'R3_EARLY',
-        effectiveRegime: 'R6_DEFENSE',
-        sourceFreshness: 'HARD_STALE',
-        r6RecoveryStatus: 'BLOCKED',
-        r6ShockLatch: true,
-        recoveryBlockedReason: 'MACRO_HARD_STALE',
-        transitionReason: 'test',
-        recoveryEvidence: { reasons: ['MACRO_HARD_STALE'], confirmations: 0, requiredConfirmations: 2 },
-        r6TriggerBreakdown: { activeR6Triggers: [], staleR6Triggers: [], triggerFreshness: 'HARD_STALE', staleCarryForward: true, staleBlockedRecovery: true },
-      }),
-    }));
-    vi.doMock('./observability/operationalWarn.js', () => ({
-      defaultWarnTtlSec: () => 60,
-      emitOperationalWarn: vi.fn(),
-    }));
-
+    const resolveMarketState = vi.fn();
+    const getRegimeDiagnostics = vi.fn();
+    vi.doMock('./trading/marketStateResolver.js', () => ({ resolveMarketState }));
+    vi.doMock('./trading/regimeBridge.js', () => ({ getRegimeDiagnostics }));
     const { resolveRegimeSnapshot } = await import('./trading/regime/regimeResolver.js');
-    const snapshot = resolveRegimeSnapshot({ macroState: { mhs: 70, regime: 'GREEN', updatedAt: '2026-05-18T05:56:19.000Z' } as never, now: NOW });
-
-    expect(snapshot.marketState.macroState.freshness).toBe('HARD_STALE');
-    expect(snapshot.marketState.macroState.freshness !== 'HARD_STALE').toBe(false);
-    expect(snapshot.marketState.macroState.freshness === 'HARD_STALE' ? 'MACRO_HARD_STALE' : 'NONE').toBe('MACRO_HARD_STALE');
-    expect(snapshot.marketState.shadowLearningAllowed).toBe(true);
-    expect(snapshot.marketSignal).toBe(false);
+    expect(() => resolveRegimeSnapshot({
+      macroState: { mhs: 70, regime: 'GREEN', updatedAt: '2026-05-18T05:56:19.000Z' } as never,
+      now: NOW,
+    })).toThrow('REGIME_RETIRED');
+    expect(resolveMarketState).not.toHaveBeenCalled();
+    expect(getRegimeDiagnostics).not.toHaveBeenCalled();
   });
 });
 

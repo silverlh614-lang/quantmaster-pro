@@ -8,7 +8,7 @@ import { checkDailyLossLimit } from '../emergency.js';
 import { runKillSwitchCheck } from '../trading/killSwitch.js';
 import { forceRefreshKisTokens } from '../clients/kisClient.js';
 import { getAutoTradePaused, getEmergencyStop, getTradingMode, touchHeartbeat } from '../state.js';
-import { runAutoSignalScan } from '../trading/scanDispatcher.js';
+import { runPaperExperimentScan } from '../trading/paper/paperExperimentRunner.js';
 import { scheduledJob } from './scheduleGuard.js';
 
 let kisTokenRefreshFailureStreak = 0;
@@ -27,9 +27,10 @@ async function runOrchestratorTick(): Promise<void> {
 }
 
 async function runPaperExperimentTick(): Promise<void> {
-  if (getTradingMode() !== 'SHADOW' || getAutoTradePaused()) return;
+  if (getAutoTradePaused()) return;
   touchHeartbeat('paper_experiments');
-  await runAutoSignalScan();
+  // This runner only writes virtual experiments/research and coalesces overlapping calls.
+  await runPaperExperimentScan();
 }
 
 async function forceRefreshKisTokenCron(label: string): Promise<void> {

@@ -1,5 +1,7 @@
 # 02 · Trading Engine Rules (liveness·실행 권한·상태 정책)
 
+> ADR-0673: LIVE·PAPER·SHADOW의 레짐·Kelly 분류·사이징·전이·경고·정책 갱신을 폐기한다. 아래 R1~R6 설명은 과거 구현·원장 해석용이며 새 모델의 운영 조건으로 복원하지 않는다. 실제 가격 수집, 성과 보완, 주문 안전 경계는 유지한다.
+
 > **현행 Shadow 적용 범위 (ADR-0666~0667):** `scanDispatcher → paperExperimentRunner`의 독립 관측·전략 경로를 사용한다. 아래 기존 레짐·Gate·Kelly·FOMC·시간대 점수 및 `runShadowLearningOnlyScan` 규칙을 새 Shadow에 적용하지 않는다. 실제 가격·시각 검증과 실주문 안전 경계는 유지하며, 현행 학습은 [07-learning-engine.md](07-learning-engine.md)를 따른다.
 
 **Read this file only when working on:**

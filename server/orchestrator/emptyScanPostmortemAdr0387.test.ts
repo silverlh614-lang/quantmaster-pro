@@ -1,27 +1,23 @@
-// @responsibility ADR-0387 P0-4 emptyScanPostmortem findTopBlocker unavailable 분리 회귀
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
-
-const TMP_DATA = mkdtempSync(join(tmpdir(), 'postmortem-adr0387-'));
-const ORIGINAL_DATA_DIR = process.env.PERSIST_DATA_DIR;
-process.env.PERSIST_DATA_DIR = TMP_DATA;
-
-afterAll(() => {
-  rmSync(TMP_DATA, { recursive: true, force: true });
-  if (ORIGINAL_DATA_DIR === undefined) delete process.env.PERSIST_DATA_DIR;
-  else process.env.PERSIST_DATA_DIR = ORIGINAL_DATA_DIR;
-});
-
-import { saveGateAudit, loadGateAudit } from '../persistence/gateAuditRepo.js';
+// @responsibility Preserve historical failed/unavailable audit aggregation with an isolated archived regime fixture.
+// ADR-0673: the current diagnostic endpoint returns 410. This unit replays old audit records only;
+// its test-local regime fixture must never become a production fallback or current classifier.
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+const archive = vi.hoisted(() => ({ audit: {} as Record<string, unknown> }));
+vi.mock('../persistence/gateAuditRepo.js', () => ({
+  saveGateAudit: vi.fn((audit: Record<string, unknown>) => { archive.audit = audit; }),
+  loadGateAudit: vi.fn(() => archive.audit),
+}));
+vi.mock('../trading/regime/canonicalRegimeAccess.js', () => ({
+  resolveCanonicalRegimeLevel: vi.fn(() => 'R2_BULL'),
+}));
+import { saveGateAudit } from '../persistence/gateAuditRepo.js';
 import { runPostmortem } from './emptyScanPostmortem.js';
 
 beforeEach(() => {
   saveGateAudit({});
 });
 
-describe('runPostmortem topBlocker — failRate vs unavailableRate 분리 (ADR-0387)', () => {
+describe('historical runPostmortem topBlocker — failed versus unavailable audit records (ADR-0387)', () => {
   it('PER 100 unavailable → topUnavailableCondition=per, topBlockerFailRate=0', () => {
     saveGateAudit({
       per: { passed: 0, failed: 0, unavailable: 100 }, // 100% 데이터 부재

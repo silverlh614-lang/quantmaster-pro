@@ -8,7 +8,7 @@ vi.mock('../persistence/tradingSettingsRepo.js', async (importActual) => ({
   loadTradingSettings: settingsMock.loadTradingSettings,
 }));
 
-import { buildRegimeVars, getRawRegime } from './regimeBridge.js';
+import { buildRegimeVars, getHistoricalRegime as getRawRegime } from './regimeBridge.js';
 import { classifyRegime } from '../../src/services/quant/regimeEngine.js';
 
 // 2026-06-09(화) 11:00 KST. 어제 폭락(2026-06-08), 오늘 강반등 시나리오.

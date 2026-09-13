@@ -1,14 +1,12 @@
 /**
- * @responsibility 외부 시그널 알림 cron(DART / Bear Regime / IPS / MHS / DXY / 섹터 ETF / ADR 갭 / 장전 방향 카드)을 등록한다.
+ * @responsibility 외부 시그널 알림 cron(DART / MHS / DXY / 섹터 ETF / ADR 갭 / 장전 방향 카드)을 등록한다.
  *
  * 오케스트레이터와 독립적으로 동작 (AUTO_TRADE_ENABLED 무관).
  * PR-B-2 ADR-0043: 평일 KR 영업일 의존 cron 은 TRADING_DAY_ONLY,
- * IPS·DXY 인트라데이·ACK 폐루프 등 24/7 글로벌 cron 은 ALWAYS_ON.
+ * DXY 인트라데이·ACK 폐루프 등 24/7 글로벌 cron 은 ALWAYS_ON.
  */
 import { scheduledJob } from './scheduleGuard.js';
 import { fastDartCheck, pollDartDisclosures } from '../alerts/dartPoller.js';
-import { pollBearRegime } from '../alerts/bearRegimeAlert.js';
-import { pollIpsAlert } from '../alerts/ipsAlert.js';
 import { pollMhsMorningAlert } from '../alerts/mhsAlert.js';
 import { runAdrGapScan } from '../alerts/adrGapCalculator.js';
 import { runPreMarketSignal } from '../alerts/preMarketSignal.js';
@@ -17,7 +15,6 @@ import { runSectorEtfMomentumScan } from '../alerts/sectorEtfMomentum.js';
 import { tickIntradayYield } from '../alerts/intradayYieldTicker.js';
 import { sweepPendingAcks } from '../alerts/ackTracker.js';
 import { checkForeignFlowLeadingAlert } from '../alerts/foreignFlowLeadingAlert.js';
-import { runHolidayResumeAlert } from '../trading/holidayResumeAlert.js';
 import { runHolidayEnterAlert } from '../trading/holidayEnterAlert.js';
 import { withForcedMarket } from '../utils/forceMarketGuard.js';
 
@@ -31,17 +28,6 @@ export function registerAlertJobs(): void {
     () => fastDartCheck(), { timezone: 'UTC' });
   scheduledJob('* 0-9 * * 1-5', 'TRADING_DAY_ONLY', 'dart_fast_check',
     () => fastDartCheck(), { timezone: 'UTC' });
-
-  // Bear Regime Push 알림 — 15분 간격 폴링, 장중 KST 08:00~17:00.
-  scheduledJob('*/15 23 * * 0-4', 'TRADING_DAY_ONLY', 'bear_regime_pre',
-    () => pollBearRegime(), { timezone: 'UTC' });
-  scheduledJob('*/15 0-8 * * 1-5', 'TRADING_DAY_ONLY', 'bear_regime',
-    () => pollBearRegime(), { timezone: 'UTC' });
-
-  // IPS 변곡점 경보 — 15분 간격 24/7 폴링 (장 외 시간 포함).
-  // PR-B-2: ALWAYS_ON — 변곡점은 KR 휴장 무관 글로벌 신호.
-  scheduledJob('*/15 * * * *', 'ALWAYS_ON', 'ips_alert',
-    () => pollIpsAlert(), { timezone: 'UTC' });
 
   // MHS 임계값 모닝 알림 — 평일 오전 09:00 KST (UTC 00:00 Mon-Fri).
   scheduledJob('0 0 * * 1-5', 'TRADING_DAY_ONLY', 'mhs_morning_alert',
@@ -96,11 +82,6 @@ export function registerAlertJobs(): void {
   // PR-B-2: ALWAYS_ON — ACK 트래킹은 24/7 (KR 휴장 무관).
   scheduledJob('*/5 * * * *', 'ALWAYS_ON', 'ack_sweep',
     () => sweepPendingAcks(), { timezone: 'UTC' });
-
-  // PR-C ADR-0044 — 연휴 복귀 보수 매매 모드 알림. 평일 09:05 KST (UTC 00:05 월~금).
-  // PR-B-2: TRADING_DAY_ONLY — 활성 정책은 함수 내부에서 결정, 비활성 시 silent.
-  scheduledJob('5 0 * * 1-5', 'TRADING_DAY_ONLY', 'holiday_resume_alert',
-    () => runHolidayResumeAlert(), { timezone: 'UTC' });
 
   // ADR-0132 — 휴장 진입 직전 알림. 평일 15:15 KST (UTC 06:15 월~금).
   // 본일 영업일 + 다음 영업일까지 ≥ 3일 비영업 간격 시 1회 발송. 단순 금→월 silent.

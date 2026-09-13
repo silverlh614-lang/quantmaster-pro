@@ -1,9 +1,8 @@
-// @responsibility marketDataRefresh 매매 엔진 모듈
+// @responsibility Refresh observed market data without trading policy decisions.
 /**
- * marketDataRefresh.ts — 서버사이드 RegimeVariables 시장데이터 자동 갱신
+ * marketDataRefresh.ts — 서버사이드 시장데이터 자동 갱신
  *
- * Yahoo Finance에서 4개 지수를 fetch해 classifyRegime()이 필요로 하는
- * 시장 지표를 계산하고 MacroState에 MERGE 저장한다.
+ * 기존 공급자 통로에서 시장 지표를 수집하고 MacroState에 MERGE 저장한다.
  *
  * 커버하는 필드:
  *  ② 거시:   usdKrw, usdKrw20dChange, usdKrwDayChange
@@ -13,14 +12,13 @@
  *  ⑦ 글로벌: spx20dReturn, dxy5dChange
  *
  * 커버하지 않는 필드 (별도 데이터 소스 필요):
- *  ① 변동성: vkospiDayChange, vkospi5dTrend  — regimeBridge가 vkospiRising 대용
+ *  ① 변동성: vkospiDayChange, vkospi5dTrend
  *  ⑤ 사이클: leadingSectorRS, sectorCycleStage — 섹터 데이터 별도 필요
  *  ⑥ 신용:   marginBalance5dChange — KRX 데이터 별도 필요
  */
 
 import { loadMacroState, saveMacroState, type MacroState } from '../persistence/macroStateRepo.js';
 import type { FssRecordsAgeInfo } from '../persistence/fssRepo.js';
-import { checkAndNotifyRegimeChange } from './regimeBridge.js';
 import { defaultWarnTtlSec, emitOperationalWarn } from '../observability/operationalWarn.js';
 import { fetchKisMarketSupply } from '../clients/kisClient.js';
 import type { MhsDegradeInfo } from '../engines/mhsDegrade.js';
@@ -181,9 +179,7 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
     return {};
   }
 
-  // macro refresh is observational data collection, not trade execution.  It must
-  // continue through R6_DEFENSE / SELL_ONLY / SHADOW_ONLY / OBSERVE_ONLY and when
-  // Keep this path independent from execution state.
+  // Market-data refresh runs independently of trade execution.
   saveMacroState({
     ...existing,
     lastRefreshAttemptAt: refreshAttemptAt,
@@ -306,9 +302,6 @@ export async function refreshMarketRegimeVars(reason: MacroRefreshReason = 'SCHE
   emitMacroDataHealthSummary(updated);
   logMacroRefreshSuccess({ updatedAt, mhs: updated.mhs, vkospi: updated.vkospi, kospiDayReturn: updated.kospiDayReturn, writeSucceeded: true });
   console.log(`[MarketRefresh] MacroState 갱신 완료 — ${Object.keys(computed).length}개 필드`);
-
-  // ── 레짐 전환 감지 + 즉시 알림 ─────────────────────────────────────────────
-  await checkAndNotifyRegimeChange(updated as typeof existing).catch(console.error);
 
     return computed;
   } catch (e) {

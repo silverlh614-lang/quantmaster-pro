@@ -350,7 +350,7 @@ export async function channelSellSignal(p: ChannelSellSignalParams): Promise<voi
 // ── 3. 장 전 시장 브리핑 ─────────────────────────────────────────────────────
 
 export interface ChannelMarketBriefingParams {
-  regime: string;
+  regime?: string;
   mhs: number;
   vkospi?: number;
   kospiChange?: number;
@@ -364,11 +364,7 @@ export interface ChannelMarketBriefingParams {
 export async function channelMarketBriefing(p: ChannelMarketBriefingParams): Promise<void> {
   if (!isSemanticEnabled(ChannelSemantic.REGIME)) return;
 
-  const regimeEmoji: Record<string, string> = {
-    R1_TURBO: '🚀', R2_BULL: '📈', R3_EARLY: '🌱',
-    R4_NEUTRAL: '⚖️', R5_CAUTION: '⚠️', R6_DEFENSE: '🔴',
-  };
-  const emoji = regimeEmoji[p.regime] ?? '📊';
+  const emoji = '📊';
 
   const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
   const days   = ['일', '월', '화', '수', '목', '금', '토'];
@@ -377,7 +373,7 @@ export async function channelMarketBriefing(p: ChannelMarketBriefingParams): Pro
   const lines = [
     `${emoji} <b>[${dateStr} 장 전 브리핑]</b>`,
     `━━━━━━━━━━━━━━━━`,
-    `🗺️ 레짐: <b>${p.regime}</b> | MHS: ${p.mhs.toFixed(0)}`,
+    `MHS: ${p.mhs.toFixed(0)}`,
     p.vkospi    !== undefined ? `😨 VKOSPI: ${p.vkospi.toFixed(1)}` : '',
     p.kospiChange !== undefined
       ? `🇰🇷 KOSPI: ${p.kospiChange >= 0 ? '+' : ''}${p.kospiChange.toFixed(2)}%`
@@ -462,7 +458,7 @@ export async function channelWatchlistAdded(
     `━━━━━━━━━━━━━━━━\n` +
     `${lines}\n` +
     `━━━━━━━━━━━━━━━━\n` +
-    `🗺️ 레짐: ${regime}`;
+    '관측 결과를 기준으로 확인하세요.';
 
   // 동일 종목 세트의 반복 편입 알림 dedup — entryPrice 가 drift 게이트(예: GENUINE_RALLY
   // benign REMOVE)로 매 스캔 제거되면 클라이언트가 stale entryPrice 로 재등록 → "추가" 알림이

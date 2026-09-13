@@ -3,16 +3,39 @@
  *
  * 사용자 5/27: always-on — 장중 전 시간 매수 허용. 시간대(시초가/점심/마감) 기반 SELL_ONLY 제거,
  * 볼륨클록은 가/감점 전용. decideScan 의 시간 구간은 스캔 *빈도* 만 조정하고 매매를 차단하지 않는다.
- * 안전 SELL_ONLY(R6 방어/긴급정지/수동/VKOSPI 급등)는 유지 (별도 분기).
+ * R6 정책은 폐기한다. 실측 VKOSPI 급등은 관측을 앞당기며 기존 시간대별 스캔 빈도는 유지한다.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import { decideScan, resetScanState } from './adaptiveScanScheduler.js';
+
+const market = vi.hoisted(() => ({ vkospiDayChange: 0 }));
+const retiredRegime = vi.hoisted(() => vi.fn(() => { throw new Error('REGIME_RETIRED'); }));
+vi.mock('../persistence/macroStateRepo.js', () => ({
+  loadMacroState: () => ({ regime: 'R6_DEFENSE', vkospiDayChange: market.vkospiDayChange }),
+}));
+vi.mock('../persistence/shadowTradeRepo.js', () => ({ loadShadowTrades: () => [] }));
+vi.mock('../trading/regime/canonicalRegimeAccess.js', () => ({ resolveCanonicalRegimeLevel: retiredRegime }));
+
+function kstTime(hour: number, minute: number): Date {
+  return new Date(Date.UTC(2026, 4, 8, hour - 9, minute)); // Friday
+}
 
 describe('ALWAYS-ON 시간대 정책 — decideScan 시간대 기반 SELL_ONLY 제거', () => {
   const sourcePath = path.resolve(__dirname, 'adaptiveScanScheduler.base.ts');
   const source = fs.readFileSync(sourcePath, 'utf-8');
+
+  beforeEach(() => {
+    resetScanState();
+    market.vkospiDayChange = 0;
+    retiredRegime.mockClear();
+    vi.useFakeTimers();
+    vi.stubEnv('MAX_CONVICTION_POSITIONS', '10');
+    vi.stubEnv('TRADE_WINDOW_LEGACY_HOURS', 'false');
+  });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 
   it('시간대 기반 forceSellOnly = true 가 존재하지 않는다', () => {
     expect(source).not.toMatch(/forceSellOnly = true/);
@@ -41,9 +64,30 @@ describe('ALWAYS-ON 시간대 정책 — decideScan 시간대 기반 SELL_ONLY �
     expect(source).toMatch(/lastLunchBlockSeenAt = now/);
   });
 
-  it('안전 SELL_ONLY 경로(R6/VKOSPI) 는 유지 (시간대 제거가 안전장치를 건드리지 않음)', () => {
-    // VKOSPI 급등·R6_DEFENSE 분기는 decideScan 상단에서 그대로 유지된다.
-    expect(source).toMatch(/VKOSPI/);
-    expect(source).toMatch(/R6_DEFENSE/);
+  it.each([
+    [9, 10, 4],
+    [12, 10, 9],
+    [15, 10, 1],
+  ])('%i:%i KST 관측은 stale R6와 무관하게 기존 %i분 주기로 실행한다', (hour, minute, intervalMinutes) => {
+    const now = kstTime(hour, minute);
+    vi.setSystemTime(now);
+    expect(decideScan()).toMatchObject({ shouldScan: true, intervalMinutes, priority: 'FULL' });
+    vi.setSystemTime(new Date(now.getTime() + intervalMinutes * 60_000 - 1));
+    expect(decideScan()).toMatchObject({ shouldScan: false, intervalMinutes, priority: 'SKIP' });
+    vi.setSystemTime(new Date(now.getTime() + intervalMinutes * 60_000));
+    expect(decideScan()).toMatchObject({ shouldScan: true, intervalMinutes, priority: 'FULL' });
+    expect(retiredRegime).not.toHaveBeenCalled();
+  });
+
+  it('실측 VKOSPI 급등은 즉시 FULL 관측하고 다음 tick에는 기존 쿨다운을 적용한다', () => {
+    const now = kstTime(10, 0);
+    vi.setSystemTime(now);
+    expect(decideScan()).toMatchObject({ shouldScan: true, intervalMinutes: 2, priority: 'FULL' });
+    market.vkospiDayChange = 6;
+    vi.setSystemTime(new Date(now.getTime() + 1_000));
+    expect(decideScan()).toMatchObject({ shouldScan: true, intervalMinutes: 0, priority: 'FULL' });
+    vi.setSystemTime(new Date(now.getTime() + 2_000));
+    expect(decideScan()).toMatchObject({ shouldScan: false, intervalMinutes: 2, priority: 'SKIP' });
+    expect(retiredRegime).not.toHaveBeenCalled();
   });
 });

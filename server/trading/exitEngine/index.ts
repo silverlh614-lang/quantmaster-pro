@@ -53,7 +53,6 @@ import {
   verifyShadowPositionQuantityForAutoExit,
 } from '../shadowExecutionSafety.js';
 import { atrDynamicStop } from './rules/atrDynamicStop.js';
-import { r6EmergencyExit } from './rules/r6EmergencyExit.js';
 import { ma60DeathForceExit } from './rules/ma60DeathForceExit.js';
 import { hardStopLoss } from './rules/hardStopLoss.js';
 import { cascadeFinal } from './rules/cascadeFinal.js';
@@ -81,7 +80,6 @@ import { resolveShadowPaperExitSessionPolicy } from '../exit/policies/shadowPape
  */
 const EXIT_RULES_IN_ORDER: ExitRule[] = [
   atrDynamicStop,           // 1. ATR 동적 손절 갱신 (BEP / Lock-in)
-  r6EmergencyExit,          // 2. R6 긴급 30%
   ma60DeathForceExit,       // 3. MA60 역배열 5영업일 만료 시 전량
   hardStopLoss,             // 4. 고정/레짐/Profit Protection 손절
   cascadeFinal,             // 5. -25% 전량 / -30% 블랙리스트
@@ -108,21 +106,21 @@ const EXIT_RULES_IN_ORDER: ExitRule[] = [
 // 간단한 in-memory 플래그로 직렬화 — 한 쪽이 끝날 때까지 다른 쪽은 skip.
 let _exitRunning = false;
 
-/** Shadow 진행 중 거래 결과 업데이트 — Macro/포지션 제한 시에도 재사용 */
-export async function updateShadowResults(shadows: ServerShadowTrade[], currentRegime: RegimeLevel): Promise<void> {
+/** Resolve saved positions without current regime policy. The optional second argument is ignored for old callers. */
+export async function updateShadowResults(shadows: ServerShadowTrade[], _retiredRegime?: RegimeLevel): Promise<void> {
   if (_exitRunning) {
     console.warn('[ExitEngine] 이미 updateShadowResults 실행 중 — 중복 진입 skip (concurrent tick 가드)');
     return;
   }
   _exitRunning = true;
   try {
-    return await _updateShadowResultsImpl(shadows, currentRegime);
+    return await _updateShadowResultsImpl(shadows);
   } finally {
     _exitRunning = false;
   }
 }
 
-async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentRegime: RegimeLevel): Promise<void> {
+async function _updateShadowResultsImpl(shadows: ServerShadowTrade[]): Promise<void> {
   // L1 학습 훅 (아이디어 1) — 이번 루프에서 HIT_TARGET/HIT_STOP으로 전환된 stockCode를 수집하여
   // 루프 종료 후 setImmediate로 learningOrchestrator.onShadowResolved() 일괄 트리거.
   const resolvedNow = new Set<string>();
@@ -345,13 +343,12 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
         reason: shadowExitSession.reason,
         guardReason: shadowExitSession.guardReason,
         marketSessionState: shadowExitSession.marketSessionState,
-        currentRegime,
         liveOrderSent: false,
         executionImpact: 'NONE',
       });
       console.info(
         `[SHADOW_EXIT_DEFERRED_NON_TRADING] symbol=${shadow.stockCode} ` +
-        `regime=${currentRegime} marketSessionState=${shadowExitSession.marketSessionState} ` +
+        `marketSessionState=${shadowExitSession.marketSessionState} ` +
         `reason=${shadowExitSession.guardReason ?? shadowExitSession.reason} ` +
         'liveOrderSent=false executionImpact=NONE',
       );
@@ -379,7 +376,6 @@ async function _updateShadowResultsImpl(shadows: ServerShadowTrade[], currentReg
         shadow,
         currentPrice,
         returnPct,
-        currentRegime,
         initialStopLoss,
         regimeStopLoss,
         hardStopLoss: hardStopLossValue,
