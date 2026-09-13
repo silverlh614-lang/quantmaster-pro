@@ -7,7 +7,8 @@ import { loadNewsSupplyRecords } from '../learning/newsSupplyLogger.js';
 import { loadDartAlerts } from '../persistence/dartRepo.js';
 import { loadPaperBotState, savePaperBotState, type PaperBotHealth, type PaperBotMessage, type PaperBotState } from '../persistence/paperBotRepo.js';
 import { sendTelegramAlert } from './telegramClient.js';
-import { PAPER_BOT_SCHEDULES, formatPaperReport, formatPaperResearch, formatPaperTrades, paperTradeEvents } from './paperBotMessages.js';
+import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
+import { PAPER_BOT_SCHEDULES, formatPaperReport, formatPaperResearch, formatPaperTrades, formatPaperTradeAnalysis, paperTradeEvents } from './paperBotMessages.js';
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 
 const MINUTE = 60_000;
@@ -41,7 +42,8 @@ export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentV
     if (state.messages.some(item => item.id === id)) continue;
     const expiresAt = new Date(Date.parse(`${date}T00:00:00+09:00`) + (slot.minute + slot.graceMinutes) * MINUTE).toISOString();
     const message = slot.kind === 'weekly' ? formatPaperResearch(view) : formatPaperReport(view, slot.kind, date, news());
-    enqueue(state, { id, kind: slot.kind, message, createdAt: now.toISOString(), expiresAt });
+    const channel = slot.kind === 'morning' ? ChannelSemantic.REGIME : ChannelSemantic.JOURNAL;
+    enqueue(state, { id, kind: slot.kind, channel, message, createdAt: now.toISOString(), expiresAt });
   }
 }
 
@@ -50,8 +52,21 @@ export function enqueuePaperTradeChanges(state: PaperBotState, view: PaperExperi
   const events = paperTradeEvents(view.strategy.trades).filter(item => Date.parse(item.at) >= now.getTime() - 7 * DAY && Date.parse(item.at) <= now.getTime());
   const added = events.filter(item => !state.seenEvents[item.id]).sort((a, b) => a.at.localeCompare(b.at));
   if (state.initializedAt && added.length) {
-    const hash = createHash('sha256').update(added.map(item => item.id).sort().join('|')).digest('hex').slice(0, 20);
-    enqueue(state, { id: `paper:trades:${hash}`, kind: 'trades', message: formatPaperTrades(added), createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 6 * 3_600_000).toISOString() });
+    // Bound both channel payloads; every event is included, even in a large scan.
+    for (let offset = 0; offset < added.length;) {
+      const batch = added.slice(offset, offset + 5);
+      while (batch.length > 1 && Math.max(formatPaperTrades(batch).length, formatPaperTradeAnalysis(batch).length) > 3500) batch.pop();
+      offset += batch.length;
+      const hash = createHash('sha256').update(batch.map(item => item.id).sort().join('|')).digest('hex').slice(0, 20);
+      const createdAt = now.toISOString();
+      const expiresAt = new Date(now.getTime() + 6 * 3_600_000).toISOString();
+      for (const [channel, message] of [
+        [ChannelSemantic.EXECUTION, formatPaperTrades(batch)],
+        [ChannelSemantic.SIGNAL, formatPaperTradeAnalysis(batch)],
+      ] as const) {
+        enqueue(state, { id: `paper:trades:${hash}:${channel}`, kind: 'trades', channel, message, createdAt, expiresAt });
+      }
+    }
   }
   for (const event of events) state.seenEvents[event.id] = event.at;
 }
@@ -95,7 +110,11 @@ async function deliverPending(state: PaperBotState, now: Date): Promise<void> {
     savePaperBotState(state);
     let messageId: number | undefined;
     try {
-      messageId = await sendTelegramAlert(message.message, { priority: 'NORMAL', tier: 'T2_REPORT', requireAck: false,
+      messageId = message.channel ? await dispatchAlert(message.channel, message.message, {
+        priority: 'NORMAL', delivery: 'immediate', eventType: `PAPER_BOT_${message.kind.toUpperCase()}`,
+        // The durable bot ledger owns dedup. A failed transport must remain retryable.
+        dedupeKey: message.id, cooldownMs: 0,
+      }) : await sendTelegramAlert(message.message, { priority: 'NORMAL', tier: 'T2_REPORT', requireAck: false,
         category: 'paper_bot', notificationEventType: `PAPER_BOT_${message.kind.toUpperCase()}`,
         notificationSeverity: message.kind === 'trades' ? 'TRADE_EVENT' : 'SUMMARY',
         dedupeKey: message.id, eventId: message.id, cooldownMs: 0,
@@ -116,7 +135,7 @@ async function tick(now: Date): Promise<void> {
   if (getTradingMode() !== 'SHADOW') return;
   const state = loadPaperBotState();
   let view: PaperExperimentView | undefined;
-  try { view = getPaperExperimentView(); }
+  try { view = getPaperExperimentView(true); }
   catch (error) { console.error('[PaperBot] 관측 원장 조회 실패:', error instanceof Error ? error.name : 'unknown error'); }
   enqueuePaperHealth(state, classifyPaperBotHealth(view, getAutoTradePaused(), now, processStartedAt, state.health), now);
   if (view) {

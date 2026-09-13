@@ -27,6 +27,18 @@ describe('bot persistence', () => {
     expect(repo.loadPaperBotState()).toEqual(state);
     expect(fs.readdirSync(testDataDir)).toEqual(['paper-bot.json']);
   });
+  it('preserves separate channel delivery alongside existing private records', () => {
+    const state = repo.loadPaperBotState();
+    const source = state.messages[0];
+    state.messages.push({ ...source, id: 'channel-signal', channel: 'TRADE' as NonNullable<typeof source.channel> },
+      { ...source, id: 'channel-analysis', channel: 'ANALYSIS' as NonNullable<typeof source.channel>, state: 'PENDING', messageId: undefined });
+    repo.savePaperBotState(state);
+    const restored = repo.loadPaperBotState();
+    expect(restored.messages.map(item => item.channel)).toEqual([undefined, 'TRADE', 'ANALYSIS']);
+    expect(restored.messages[2].state).toBe('PENDING');
+    fs.writeFileSync(repo.PAPER_BOT_FILE, JSON.stringify({ ...state, messages: [{ ...source, channel: 'UNKNOWN' }] }));
+    expect(() => repo.loadPaperBotState()).toThrow('PAPER_BOT_STATE_INVALID');
+  });
   it('does not erase a corrupt ledger and replay notifications', () => {
     fs.writeFileSync(repo.PAPER_BOT_FILE, '{broken');
     expect(() => repo.loadPaperBotState()).toThrow();

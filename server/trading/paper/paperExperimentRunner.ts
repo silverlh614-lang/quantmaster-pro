@@ -61,6 +61,9 @@ export function runPaperExperimentScan(): Promise<PaperScanResult> {
   return running;
 }
 
-export function getPaperExperimentView(): PaperExperimentView {
-  return { ...buildPaperExperimentView(loadPaperExperimentLedger()), strategy: readPaperStrategyView(), research: getPaperResearchView() };
+export function getPaperExperimentView(includeAllRecords = false): PaperExperimentView {
+  const ledger = loadPaperExperimentLedger();
+  const view = buildPaperExperimentView(ledger);
+  if (includeAllRecords) view.experiments = [...ledger.experiments].reverse();
+  return { ...view, strategy: readPaperStrategyView(includeAllRecords), research: getPaperResearchView() };
 }

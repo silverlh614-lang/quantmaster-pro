@@ -35,7 +35,10 @@ export function advancePaperStrategy(
   }
 }
 
-export function readPaperStrategyView() {
+export function readPaperStrategyView(includeAllRecords = false) {
   const state = loadPaperStrategyState();
-  return buildPaperStrategyView(state.ledger ?? { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null }, state.error ?? lastFailure);
+  const ledger: PaperStrategyLedger = state.ledger ?? { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null };
+  const view = buildPaperStrategyView(ledger, state.error ?? lastFailure);
+  if (includeAllRecords) view.trades = [...ledger.trades].reverse();
+  return view;
 }

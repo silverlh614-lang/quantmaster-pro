@@ -23,6 +23,10 @@ News and price trends are entry-time observations for comparison, not initial el
 
 The strategy freezes policy, evidence, costs and its D1/D3/D5 close schedule at entry. Scheduled-close fills distinguish effective close time from observation and decision times; missing closes remain pending. The Shadow UI renders server decisions and separates baseline results from realized strategy returns, without recomputing eligibility or selecting horizons. No new broker orders, provider path, legacy Gate/regime/Kelly policy or automatic LIVE promotion belongs in this boundary.
 
+### Shadow signal notifications (ADR-0672)
+
+`paperBot.ts` projects saved strategy events into bounded CH1 signal and CH2 entry-evidence/exit-review messages, routes morning context to CH3 and closing/research reports to CH4 through `alertRouter.dispatchAlert`, and retains private operational alerts. `paperBotMessages.ts` formats entry-frozen evidence and matching outcomes without recomputing eligibility or modifying learning. `paperBotRepo.ts` persists each channel delivery independently; pre-existing messages without a destination retain private delivery. The bot requests complete records from the existing experiment/strategy read views so older exits and daily totals survive the UI-only 200-record cap. The strategy, provider collection and LIVE order paths remain unchanged.
+
 ### Entry sizing boundary (ADR-0665)
 
 `server/trading/sizing/entrySizingPolicy.ts` owns active entry quantity and exposure budget calculations. Standard, intraday, pre-breakout, followthrough, pre-market and dry-run consumers use this boundary; tranche exposure uses the same cap. `src/types/entrySizing.ts` defines its quantity contract without Kelly inputs. The current regime allocation table remains an explicitly named legacy policy adapter. The old `entryEngine.calculateOrderQuantity` and wiring exposure exports delegate to this boundary for compatibility.

@@ -1,6 +1,7 @@
 // @responsibility Format current Shadow bot reports.
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperStrategyTrade } from '../../src/types/paperStrategy.js';
+import type { PaperStrategyCohort } from '../../src/types/paperStrategy.js';
 import type { PaperBotState } from '../persistence/paperBotRepo.js';
 
 export const PAPER_BOT_SCHEDULES = [
@@ -49,7 +50,11 @@ export function formatPaperResearch(view: PaperExperimentView): string {
     const difference = item.status === 'EVALUATED' && item.matchedDifferencePct !== null ? `${item.matchedDifferencePct > 0 ? '+' : ''}${item.matchedDifferencePct.toFixed(2)}%p` : '비교 대기';
     lines.push(`• ${escape(item.label)}: ${difference} · ${item.testCount}건/${item.testSymbolCount}종목/${item.testDateCount}진입일`);
   }
-  lines.push('', '같은 날짜·뉴스·추세·보유기간을 맞춘 탐색 결과입니다. 매매에 자동 적용하지 않습니다.', '/paper · /paper_bot');
+  const strategy = view.strategy;
+  if (strategy && !strategy.error && !strategy.lastRun?.error) lines.push('', '<b>연결된 시그널 성과</b>',
+    `뉴스·추세 전략 가상 청산 ${num(strategy.performance.closedCount)}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`);
+  lines.push('', '시그널은 진입 당시 뉴스·추세 학습 근거를 고정하고, 청산 결과를 별도 기록합니다.',
+    '위 7개 조건은 같은 날짜·뉴스·추세·보유기간을 맞춘 탐색 연구이며 매매에 자동 적용하지 않습니다.', '/paper · /paper_bot');
   return lines.filter(line => line !== '').join('\n');
 }
 
@@ -64,19 +69,59 @@ export function formatPaperTrades(events: PaperBotTradeEvent[]): string {
   for (const event of events.slice(0, 10)) {
     const trade = event.trade;
     lines.push(event.side === 'BUY'
-      ? `• 진입 ${escape(trade.name.slice(0, 30))}(${trade.symbol}) · 1주/${num(trade.entryPrice)}원 · D${trade.horizon} · 청산 예정 ${trade.scheduledExitDate}`
-      : `• 청산 ${escape(trade.name.slice(0, 30))}(${trade.symbol}) · 평가일 ${trade.scheduledExitDate} · 순수익률 ${pct(trade.exit?.netReturnPct)}`);
+      ? `• 진입 ${escape(trade.name.slice(0, 30))}(${trade.symbol}) · 1주/${num(trade.entryPrice)}원 · D${trade.horizon} · 청산 예정 ${trade.scheduledExitDate} · 기록 ${trade.tradingDate}`
+      : `• 청산 ${escape(trade.name.slice(0, 30))}(${trade.symbol}) · 평가일 ${trade.scheduledExitDate} · 순수익률 ${pct(trade.exit?.netReturnPct)} · 진입 기록 ${trade.tradingDate}`);
   }
   if (events.length > 10) lines.push(`외 ${events.length - 10}건 · 전체 내역은 대시보드에서 확인`);
-  lines.push(`판단 시각 ${stamp(events[events.length - 1]?.at)}`, '/paper');
+  lines.push(`판단 시각 ${stamp(events[events.length - 1]?.at)}`, '같은 종목·진입일의 학습 근거와 결과는 분석 채널에서 확인합니다.', '/paper');
   return lines.join('\n');
 }
+const COHORT_LABELS: Record<PaperStrategyCohort, string> = {
+  NEWS_RECENT_ABOVE_MA20: '최근 뉴스 있음 · 20일선 위', NEWS_RECENT_BELOW_MA20: '최근 뉴스 있음 · 20일선 아래',
+  NEWS_ABSENT_ABOVE_MA20: '최근 뉴스 미관측 · 20일선 위', NEWS_ABSENT_BELOW_MA20: '최근 뉴스 미관측 · 20일선 아래',
+};
+
+/** Only entry-frozen evidence and the matching exit; never re-evaluate a signal. */
+export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
+  const lines = ['<b>Shadow 시그널 근거·성과</b>', '가상 실험 · 실제 주문 없음'];
+  for (const event of events.slice(0, 5)) {
+    const trade = event.trade;
+    const evidence = trade.entryDecision.evidence;
+    const selected = evidence?.horizons.find(item => item.horizon === trade.horizon);
+    lines.push('', `<b>${event.side === 'BUY' ? '진입 근거' : '청산 복기'} · ${escape(trade.name.slice(0, 30))}(${trade.symbol})</b>`,
+      `연결 기록 ${trade.symbol} · ${trade.tradingDate} · D${trade.horizon}`, `진입 ${num(trade.entryPrice)}원 · 예정 청산 ${trade.scheduledExitDate}`);
+    if (evidence) {
+      lines.push(COHORT_LABELS[evidence.cohort],
+        `동일 유형 ${num(evidence.sampleCount)}건 · ${num(evidence.entryDateCount)}개 진입일`,
+        `기본 관측 ${evidence.baselineSampleCount ?? '미기록'}건 · 과거 재현 ${evidence.historicalSampleCount ?? '미기록'}건`,
+        `진입 당시 D${trade.horizon} 평균 순수익률 ${pct(selected?.meanNetReturnPct)} · 승률 ${pct(selected?.winRatePct)}`,
+        `D1·D3·D5 중 거래일당 평균 성과로 보유기간 선택 · 근거 기준 ${stamp(evidence.cutoffAt)}`);
+    } else lines.push('진입 당시 학습 근거 미기록');
+    const entryMs = Date.parse(trade.entryAt);
+    const headline = trade.entryObservation.news.filter(item => Date.parse(item.observedAt) <= entryMs
+      && Date.parse(item.observedAt) >= entryMs - trade.policy.newsLookbackHours * 3_600_000)
+      .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
+    if (headline) lines.push(`당시 뉴스: ${escape(headline.headline.slice(0, 70))}`);
+    if (event.side === 'EXIT') lines.push(`해당 시그널 청산 순수익률 ${pct(trade.exit?.netReturnPct)} · 결과는 전략 원장에 별도 누적`);
+  }
+  lines.push('', '유형별 과거 평균이며 개별 종목의 수익 예측이 아닙니다.',
+    '기본 관측으로 학습하고 전략 성과는 별도 검증합니다. 7개 조건 연구는 자동 매매 규칙이 아닙니다.', '/paper · /paper_research');
+  return lines.join('\n');
+}
+
 export function formatPaperBotStatus(state: PaperBotState): string {
   const sent = state.messages.filter(item => item.state === 'SENT').sort((a, b) => (b.sentAt ?? '').localeCompare(a.sentAt ?? ''))[0];
   const health = { OK: '정상', PAUSED: '일시정지', STALE: '관측 지연', UNAVAILABLE: '원장 조회 오류', PRICE_MISSING: '장중 가격 미확인', STRATEGY_ERROR: '전략 갱신 오류' }[state.health] ?? '점검 대기';
-  return ['<b>Shadow 알림 봇</b>', ...PAPER_BOT_SCHEDULES.map(item => item.label), '매분 · 새 전략 진입/청산, 관측 중단/복구 확인', '',
+  const channels = { TRADE: 'signal', ANALYSIS: '분석', INFO: '정보', SYSTEM: '시스템', DM: '개인 DM' };
+  const delivery = Object.entries(channels).map(([channel, label]) => {
+    const messages = state.messages.filter(item => (item.channel ?? 'DM') === channel);
+    return `${label}: 성공 ${messages.filter(item => item.state === 'SENT').length} · 대기 ${messages.filter(item => item.state === 'PENDING').length} · 실패 ${messages.filter(item => item.state === 'FAILED').length}`;
+  });
+  return ['<b>Shadow 알림 봇</b>', ...PAPER_BOT_SCHEDULES.map(item => item.label), '매분 · 새 전략 진입/청산, 관측 중단/복구 확인',
+    'signal: 진입·청산 / 분석: 시그널 학습 근거·청산 복기',
+    '정보: 08:45 준비 / 시스템: 16:10 성과·일요일 연구 / 개인 DM: 운영 상태', '',
     `관측 상태 ${health}`,
     `마지막 점검 ${stamp(state.lastCheckedAt)}`, `마지막 확인된 발송 ${stamp(sent?.sentAt)}`,
     `최근 14일: 발송 대기 ${state.messages.filter(item => item.state === 'PENDING').length} · 실패 ${state.messages.filter(item => item.state === 'FAILED').length} · 만료 ${state.messages.filter(item => item.state === 'EXPIRED').length}`,
-    'Telegram 메시지 ID를 받은 경우에만 발송 성공으로 기록합니다.', '/paper · /paper_research'].join('\n');
+    ...delivery, 'Telegram 메시지 ID를 받은 경우에만 발송 성공으로 기록합니다.', '/paper · /paper_research'].join('\n');
 }
