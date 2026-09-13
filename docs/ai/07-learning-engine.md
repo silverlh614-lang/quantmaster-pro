@@ -1,5 +1,7 @@
 # 07 · Learning Engine (Shadow Learning·학습 라벨·attribution)
 
+> ADR-0673: LIVE·PAPER·SHADOW의 레짐·Kelly 분류·사이징·전이·경고·정책 갱신을 폐기한다. 아래 R1~R6 설명은 과거 구현·원장 해석용이며 새 모델의 운영 조건으로 복원하지 않는다. 실제 가격 수집, 성과 보완, 주문 안전 경계는 유지한다.
+
 **Read this file only when working on:**
 - Shadow Learning 표본 수집/판단 경로 · Shadow lifecycle 6-state · virtual(paper) fills
 - LearningLabel · Counterfactual(반사실) · Ghost Portfolio

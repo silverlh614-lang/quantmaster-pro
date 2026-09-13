@@ -15,17 +15,10 @@
  * │  14:55~15:20 :  2분 (마감 동시호가 준비 — exitEngine 전용)       │
  * └─────────────────────────────────────────────────────────────────┘
  *
- * ┌─ 2. 레짐 배율 ───────────────────────────────────────────────────┐
- * │  R1_TURBO / R3_EARLY : ×0.5  (더 자주)                          │
- * │  R2_BULL             : ×1.0  (기준)                              │
- * │  R4_NEUTRAL          : ×1.5                                      │
- * │  R5_CAUTION          : ×2.0                                      │
- * │  R6_DEFENSE          : 매도 전용 2분 고정                         │
- * │    └ macro_unblock 활성 시: FULL 스캔으로 전환 (override 우선)    │
- * └─────────────────────────────────────────────────────────────────┘
+ * 레짐 배율·회복 분기는 제거했다. 기존 시간대, 실측 변동성, 포지션, 빈스캔 주기는 유지한다.
  *
  * ┌─ 3. VKOSPI 급변 ─────────────────────────────────────────────────┐
- * │  당일 +5% 이상 급등 → 즉시 SELL_ONLY 강제 실행 (30분 쿨다운)     │
+ * │  당일 +5% 이상 급등 → 즉시 관측 실행 (30분 쿨다운)     │
  * └─────────────────────────────────────────────────────────────────┘
  *
  * ┌─ 4. 보유 포지션 수 ──────────────────────────────────────────────┐
@@ -37,26 +30,14 @@ import { emitDiagnosticWarn } from '../observability/diagnosticWarn.js';
 import { logger } from '../utils/logger.js';
 import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadShadowTrades } from '../persistence/shadowTradeRepo.js';
-import { getRegimeDiagnostics, type RegimeDiagnostics } from '../trading/regimeBridge.js';
-import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
-import type { ShadowCandidateScanTrigger, BiasLabel } from '../trading/marketStateResolver.js';
-import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
-import { sendEmptyScanDecisionBroker, sendTelegramAlert } from '../alerts/telegramClient.js';
-import { getEffectiveGateThreshold } from '../trading/gateConfig.js';
-import { canApplyToday } from '../persistence/overrideLedger.js';
-import { notifyEmptyScan, resetEmptyScanCounter } from './emptyScanPostmortem.js';
+import type { ShadowCandidateScanTrigger } from '../trading/marketStateResolver.js';
+import { resetEmptyScanCounter } from './emptyScanPostmortem.js';
 import { checkVolumeClockWindow } from '../trading/volumeClock.js';
 import {
   classifyEmptyScan,
   shouldCountEmptyScan,
   type EngineModeForEmptyScan,
 } from '../trading/signalScanner/emptyScanTaxonomy.js';
-import {
-  buildThresholdProposal, formatGateHistogram,
-  alreadyExecutedThisSession, markSessionExecuted,
-} from './thresholdSearchLoop.js';
-import { loadWatchlist } from '../persistence/watchlistRepo.js';
-import { isMacroEntryOverrideActive } from '../state.js';
 import {
   evaluateEmptyScanLiveness,
   isEmptyScanLivenessPolicyDisabled,
@@ -120,8 +101,6 @@ let lastVkospikSpikeAt = 0;  // ms timestamp
  */
 let immediateRescanRequested = false;
 let lastLunchBlockSeenAt     = 0;  // 11:30~13:00 구간 진입 최근 시각 (점심 해제 감지용)
-let lastR6ConfirmationScanKey: string | null = null;
-let lastBiasLabel: BiasLabel | null = null;
 
 /**
  * 외부 모듈(exitEngine 등)이 "지금 즉시 다음 tick 부터 스캔하라" 고 요청할 수 있는 훅.
@@ -150,99 +129,8 @@ let consecutiveEmptyScans = 0;
 const EMPTY_SCAN_BACKOFF_THRESHOLD = 5;  // 5회 연속 빈 스캔 → 다음 사이클 스킵 (3→5 완화: Gate 미달 구간 복귀 대응)
 const EMPTY_SCAN_MAX_MULTIPLIER    = 3;  // 최대 3배까지 간격 확대
 
-// ── 레짐 배율 맵 ─────────────────────────────────────────────────────────────
-
-const REGIME_MULTIPLIER: Record<string, number> = {
-  R1_TURBO:   0.5,
-  R3_EARLY:   0.5,
-  R2_BULL:    1.0,
-  R4_NEUTRAL: 1.5,
-  R5_CAUTION: 2.0,
-  R6_DEFENSE: 99,  // 내부 분기로 처리
-};
-
-REGIME_MULTIPLIER.R6_DEFENSE = 1.0;
-
 const VKOSPI_SPIKE_THRESHOLD  = 5;           // %
 const VKOSPI_SPIKE_COOLDOWN   = 30 * 60_000; // 30분
-
-function finiteNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-}
-
-function resolveSchedulerBiasScore(macroState: Record<string, unknown> | null | undefined): number {
-  if (!macroState) return 0;
-  for (const key of ['biasScore', 'directionBiasScore', 'preMarketBiasScore', 'marketBiasScore', 'globalBiasScore', 'riskBiasScore', 'bias']) {
-    const explicit = finiteNumber(macroState[key]);
-    if (explicit !== undefined) return Math.max(-100, Math.min(100, explicit));
-  }
-  return 0;
-}
-
-function resolveSchedulerBiasLabel(score: number): BiasLabel {
-  if (score <= -20) return 'BEAR';
-  if (score >= 20) return 'BULL';
-  return 'NEUTRAL';
-}
-
-function isR6ConfirmationWaitDiagnostics(diagnostics: RegimeDiagnostics): boolean {
-  return diagnostics.activeR6Triggers.length === 0 &&
-    diagnostics.r6TriggerBreakdown.triggerFreshness === 'FRESH' &&
-    diagnostics.r6ShockLatch === true &&
-    diagnostics.recoveryBlockedReason === 'WAITING_FOR_CLOSE_OR_NEXT_TRADING_DAY_CONFIRMATION';
-}
-
-function resolveR6ConfirmationScanKey(diagnostics: RegimeDiagnostics): string {
-  return diagnostics.transitionState.latchTriggeredAt ??
-    diagnostics.transitionState.r6ShockLatchDetail?.triggeredAt ??
-    diagnostics.transitionState.latchReleaseEligibleAt ??
-    diagnostics.transitionState.latchExpiresAt ??
-    'R6_CONFIRMATION_WAIT';
-}
-
-function emitShadowCandidateScanTrigger(trigger: ShadowCandidateScanTrigger): void {
-  const line = `[SHADOW_CANDIDATE_SCAN_TRIGGER] trigger=${trigger} executionImpact=NONE livePermission=GATE_DATA_ONLY realOrderPermission=GATE_DATA_ONLY rollback=SELL_ONLY_AND_R6_EXECUTION_DISABLED`;
-  console.info(line);
-  sendTelegramAlert(
-    `🧪 <b>[Shadow candidate scan trigger]</b>
-` +
-    `trigger: <code>${trigger}</code>
-` +
-    `executionImpact: <code>NONE</code>
-` +
-    `legacy defense policy ignored; buy permission uses Gate/data quality only`,
-    { priority: 'NORMAL', dedupeKey: `shadow_candidate_scan:${trigger}`, cooldownMs: 30 * 60_000 },
-  ).catch(console.error);
-}
-
-function shouldTriggerRecoveryShadowScan(input: {
-  diagnostics: RegimeDiagnostics;
-  macroState: Record<string, unknown> | null | undefined;
-  mhs: number;
-  biasLabel: BiasLabel;
-  now: number;
-}): ShadowCandidateScanTrigger | undefined {
-  const shadowLearningAllowed = true;
-  const shadowScanAllowed = true;
-  if (!shadowLearningAllowed || !shadowScanAllowed) return undefined;
-  const macroFresh = input.diagnostics.r6TriggerBreakdown.triggerFreshness === 'FRESH';
-  const noActiveR6 = input.diagnostics.activeR6Triggers.length === 0;
-  if (isR6ConfirmationWaitDiagnostics(input.diagnostics) && macroFresh && noActiveR6) {
-    const key = resolveR6ConfirmationScanKey(input.diagnostics);
-    if (lastR6ConfirmationScanKey !== key) {
-      lastR6ConfirmationScanKey = key;
-      emitShadowCandidateScanTrigger('R6_CONFIRMATION_WAIT');
-      return 'R6_CONFIRMATION_WAIT';
-    }
-  }
-
-  const recoveredFromBear = lastBiasLabel === 'BEAR' && (input.biasLabel === 'BULL' || input.biasLabel === 'NEUTRAL');
-  if (recoveredFromBear && input.mhs >= 60 && macroFresh && noActiveR6) {
-    emitShadowCandidateScanTrigger('BIAS_RECOVERY');
-    return 'BIAS_RECOVERY';
-  }
-  return undefined;
-}
 
 // ── 메인 결정 함수 ────────────────────────────────────────────────────────────
 
@@ -258,19 +146,6 @@ export function decideScan(): ScanDecision {
   const t          = h * 100 + m;
 
   const macroState = loadMacroState();
-  const regimeDiagnostics = getRegimeDiagnostics(macroState);
-  // ADR-0531: Gate0 레짐 정본은 resolveRegimeSnapshot().effectiveRegime (legacy regimeDiagnostics 고착 제거).
-  const regime     = resolveCanonicalRegimeLevel(macroState);
-  const biasScore = resolveSchedulerBiasScore(macroState as Record<string, unknown> | null);
-  const biasLabel = resolveSchedulerBiasLabel(biasScore);
-  const recoveryShadowTrigger = shouldTriggerRecoveryShadowScan({
-    diagnostics: regimeDiagnostics,
-    macroState: macroState as Record<string, unknown> | null,
-    mhs: macroState?.mhs ?? 0,
-    biasLabel,
-    now,
-  });
-  lastBiasLabel = biasLabel;
   const shadows    = loadShadowTrades();
   const activePositions = shadows.filter(
     (s) =>
@@ -281,23 +156,10 @@ export function decideScan(): ScanDecision {
   ).length;
   // signalScanner.ts 의 effectiveMaxPositions 와 동일 식.
   // env MAX_CONVICTION_POSITIONS 가 낮게 설정된 경우에도 스캐너와 decideScan 이 일관된 한도를 쓴다.
-  const rawRegimeMax = REGIME_CONFIGS[regime]?.maxPositions ?? 4;
   const convictionCap = Number(process.env.MAX_CONVICTION_POSITIONS ?? '10');
-  const maxPositions = Math.max(0, Math.min(convictionCap, rawRegimeMax));
+  const maxPositions = Math.max(0, Math.min(convictionCap, 4)); // 기존 fallback 한도 유지
 
-  if (recoveryShadowTrigger) {
-    lastScanAt = now;
-    immediateRescanRequested = false;
-    return {
-      shouldScan: true,
-      intervalMinutes: 0,
-      reason: `${recoveryShadowTrigger} - shadow candidate scan (executionImpact=NONE, legacy defense policy ignored)`,
-      priority: 'FULL',
-      candidateScanTrigger: recoveryShadowTrigger,
-    };
-  }
-
-  // ── 1. VKOSPI 급등 감지 → 즉시 SELL_ONLY 강제 실행 ──────────────────────
+  // ── 1. VKOSPI 급등 감지 → 즉시 관측 실행 ──────────────────────
   const vkospiDayChange = macroState?.vkospiDayChange ?? 0;
   if (
     vkospiDayChange > VKOSPI_SPIKE_THRESHOLD &&
@@ -309,64 +171,6 @@ export function decideScan(): ScanDecision {
       shouldScan:      true,
       intervalMinutes: 0,
       reason:          `VKOSPI 급등 +${vkospiDayChange.toFixed(1)}% — 즉시 매도 모니터링`,
-      priority:        'FULL',
-    };
-  }
-
-  // ── 2. R6_DEFENSE: 매도 전용, 2분 고정 ───────────────────────────────────
-  if (regime === 'R6_DEFENSE') {
-    const effectiveInterval = 2;
-
-    // ── ADR-R6-OVERRIDE-SCAN-001 ───────────────────────────────────────────
-    // macro_unblock(r6) 활성 시 SELL_ONLY 강제를 해제하고 FULL 스캔으로 전환.
-    // preflight.ts 의 r6EntryOverrideActive 로직이 실제 매수 허용 여부를
-    // 최종 판단하므로, decideScan 은 문을 열어주기만 하면 된다.
-    //
-    // 안전 invariant:
-    //   - macro_unblock 미설정 시 기존 동작 100% 보존
-    //   - VKOSPI 급등(섹션 1) 이후 강제 SELL_ONLY는 이 블록보다 먼저 실행되므로
-    //     VKOSPI 급등 상황에서는 override가 적용되지 않음 (의도된 동작)
-    //   - exitEngine·포지션 관리는 FULL/SELL_ONLY 무관하게 항상 실행됨
-    // ──────────────────────────────────────────────────────────────────────
-    const r6OverrideActive = isMacroEntryOverrideActive('R6_DEFENSE');
-
-    if (r6OverrideActive) {
-      // override 활성: FULL 스캔 허용 — preflight가 실제 매수 여부 최종 판단
-      if (now - lastScanAt < effectiveInterval * 60_000) {
-        return {
-          shouldScan:      false,
-          intervalMinutes: effectiveInterval,
-          reason:          `R6 DEFENSE (OVERRIDE ACTIVE) — ${((now - lastScanAt) / 60_000).toFixed(1)}분 경과 (목표: ${effectiveInterval}분)`,
-          priority:        'SKIP',
-        };
-      }
-      lastScanAt = now;
-      console.info(
-        '[R6_DEFENSE_OVERRIDE_SCAN] macro_unblock active — SELL_ONLY 해제, FULL 스캔 실행 ' +
-        'executionImpact=OPERATOR_OVERRIDE liveEntryDeterminedByPreflight=true',
-      );
-      return {
-        shouldScan:      true,
-        intervalMinutes: effectiveInterval,
-        reason:          'R6 DEFENSE — OPERATOR_MACRO_ENTRY_OVERRIDE active, FULL scan',
-        priority:        'FULL',
-      };
-    }
-
-    // override 없음: 기존 동작 (SELL_ONLY 고정)
-    if (now - lastScanAt < effectiveInterval * 60_000) {
-      return {
-        shouldScan:      false,
-        intervalMinutes: effectiveInterval,
-        reason:          `R6 DEFENSE — ${((now - lastScanAt) / 60_000).toFixed(1)}분 경과 (목표: ${effectiveInterval}분)`,
-        priority:        'SKIP',
-      };
-    }
-    lastScanAt = now;
-    return {
-      shouldScan:      true,
-      intervalMinutes: effectiveInterval,
-      reason:          'R6 DEFENSE — 포지션 모니터링',
       priority:        'FULL',
     };
   }
@@ -400,22 +204,17 @@ export function decideScan(): ScanDecision {
     else               { baseInterval = 2;  phase = '마감(관찰)'; }
   }
 
-  // ── 4. 레짐 배율 적용 (시간대 기반 SELL_ONLY 없음 — VKOSPI/R6/긴급정지 등 안전 SELL_ONLY 만 위 섹션에서 처리) ──
-
-
-  const multiplier = REGIME_MULTIPLIER[regime] ?? 1.0;
-
   // ── 5. 포지션 조정: 양방향 보상 ───────────────────────────────────────────
   //   포지션 ≥ maxPositions × 0.7 → +1분 (매도 모니터링 우선)
   //   포지션 ≤ maxPositions × 0.5 → -1분 (슬롯 여유 구간 빠른 재스캔)
-  //   maxPositions=0 (R6_DEFENSE) 는 비교를 건너뜀.
+  //   maxPositions=0 이면 비교를 건너뜀.
   let positionAdj = 0;
   if (maxPositions > 0) {
     if (activePositions >= maxPositions * 0.7)      positionAdj = 1;
     else if (activePositions <= maxPositions * 0.5) positionAdj = -1;
   }
 
-  const effectiveInterval = Math.max(1, Math.round(baseInterval * multiplier) + positionAdj);
+  const effectiveInterval = Math.max(1, baseInterval + positionAdj);
 
   // ── 6. 피드백 루프: 빈 스캔 연속 시 간격 확대 ───────────────────────────
   //   5회 연속 빈 스캔 → 다음 사이클 1회 스킵 (Yahoo Finance 레이트 리밋 절약)
@@ -444,7 +243,7 @@ export function decideScan(): ScanDecision {
       shouldScan:      false,
       intervalMinutes: finalInterval,
       reason: (
-        `${phase} / ${regime}(×${multiplier})` +
+        `${phase}` +
         (emptyBackoff > 1 ? ` / 빈스캔×${emptyBackoff} (interval expanded)` : '') +
         ` — ${elapsedMin.toFixed(1)}분 경과 (목표: ${finalInterval}분)`
       ),
@@ -486,7 +285,7 @@ export function decideScan(): ScanDecision {
     shouldScan:      true,
     intervalMinutes: finalInterval,
     reason: (
-      `${phase} | ${regime}(×${multiplier})` +
+      `${phase}` +
       backoffLabel +
       (triggeredByImmediate ? ' | ⚡즉시요청' : '') +
       ` | 포지션 ${activePositions}/${maxPositions}` +
@@ -592,31 +391,6 @@ export function recordScanResult(signalCount: number, opts?: RecordScanResultOpt
     }
 
     consecutiveEmptyScans++;
-    // ── 포스트모템 자가판별: 3회 누적마다 "기능 vs 버그" 판정 ─────────────
-    // 단순 백오프 확대보다 먼저 돌아서, 레짐이 정당히 거부한 것인지
-    // 게이트가 병리적으로 닫힌 것인지를 엔진이 스스로 결론낸다.
-    const postmortem = notifyEmptyScan();
-    if (postmortem && postmortem.verdict === 'PATHOLOGICAL_BLOCK' && isBuyableKstWindow()) {
-      // ADR-0417 — 다중 권고 액션 표시 (CHECK_DATA_SOURCE / PATCH_EVALUATOR / REVIEW_GATE_THRESHOLD).
-      // 단일 `recommendedAction` 은 후방호환 alias (배열 첫 element).
-      sendTelegramAlert(
-        `🔬 <b>[빈스캔 포스트모템] PATHOLOGICAL_BLOCK</b>\n` +
-        `레짐: ${postmortem.regime} | 원인: ${postmortem.dominantCause}\n` +
-        `Gate 실패율: ${(postmortem.metrics.gateFailRatio * 100).toFixed(1)}% ` +
-        `(${postmortem.metrics.gateFail}/${postmortem.metrics.gateReached})\n` +
-        // ADR-0417 — 분리 분모 비율 보고 (unavailable + error 제외 trueFailRate).
-        `📊 합산: trueFail=${(postmortem.metrics.trueFailRate * 100).toFixed(1)}% / ` +
-        `unavailable=${(postmortem.metrics.unavailableRate * 100).toFixed(1)}% / ` +
-        `error=${(postmortem.metrics.errorRate * 100).toFixed(1)}%\n` +
-        (postmortem.topBlockerCondition
-          ? `최대 병목: ${postmortem.topBlockerCondition} ` +
-            `(legacy ${(postmortem.topBlockerFailRate * 100).toFixed(1)}%)\n`
-          : '') +
-        `권고: ${postmortem.recommendedActions.join(' + ')}\n` +
-        `${postmortem.reason}`,
-      ).catch(console.error);
-    }
-
     if (consecutiveEmptyScans >= EMPTY_SCAN_BACKOFF_THRESHOLD) {
       const multiplier = Math.min(
         EMPTY_SCAN_MAX_MULTIPLIER,
@@ -627,58 +401,6 @@ export function recordScanResult(signalCount: number, opts?: RecordScanResultOpt
         logger.debug(`${msg} (legacy SELL_ONLY ignored by rollback; session observation only)`);
       } else {
         emitDiagnosticWarn({ code: 'P2_SCHEDULER_DIAGNOSTIC_DEGRADED', message: 'Adaptive scheduler observed consecutive empty scans in buyable window.', dedupKey: 'p2:scheduler:adaptive-empty-scans', details: { consecutiveEmptyScans, multiplier } });
-        if (consecutiveEmptyScans === EMPTY_SCAN_BACKOFF_THRESHOLD) {
-          // 단일 임계 도달 시점에만 1회 알림 (spam 방지).
-          // 단순 경보가 아닌 3택 Decision Broker로 전환 — 운용자가 "도구를 든 판단자"로 서도록.
-          const regime = resolveCanonicalRegimeLevel(loadMacroState());
-          const usage = canApplyToday();
-          const currentThreshold = getEffectiveGateThreshold(regime);
-          const thresholdDiagnostic: NonNullable<
-            Parameters<typeof sendEmptyScanDecisionBroker>[0]['thresholdDiagnostic']
-          > = {};
-
-          // Phase 5-⑪: Threshold Search Loop — notification-only diagnostic, no threshold mutation.
-          if (!alreadyExecutedThisSession()) {
-            markSessionExecuted();
-            try {
-              const watchlist = loadWatchlist();
-              const scores = watchlist
-                .map((w) => w.gateScore ?? 0)
-                .filter((s) => Number.isFinite(s));
-              // 누적 delta — getEffectiveGateThreshold 에 이미 반영돼 있으므로 0 으로 가정해도 무관하나,
-              // 정확한 한도 제어를 위해 baseline 과의 차이를 계산한다.
-              const proposal = buildThresholdProposal({
-                scores, baselineThreshold: currentThreshold, currentDelta: 0,
-              });
-              const hist = formatGateHistogram(proposal.histogram, proposal.total);
-              const gatePassCount = scores.filter((score) => Number.isFinite(score) && score >= currentThreshold).length;
-              Object.assign(thresholdDiagnostic, {
-                gateScores: scores,
-                gatePassCount,
-                gate1ThresholdMissCount: proposal.shouldPropose ? proposal.projectedCaptures : 0,
-                dominantNoEntryReason: proposal.shouldPropose ? 'GATE1_THRESHOLD_NOT_MET' : undefined,
-              });
-              console.log(
-                `[THRESHOLD_SEARCH_LOOP_DIAGNOSTIC] telegramSent=false thresholdChanged=false ` +
-                `thresholdAutoChanged=false actualThresholdChanged=false executionImpact=NONE ` +
-                `marketSignal=false providerIssue=false tradingLogicChanged=false gateLogicChanged=false ` +
-                `orderLogicChanged=false notificationOnly=true diagnosticOnly=true ` +
-                `reason=${proposal.reason}\n${hist}`,
-              );
-            } catch (e) {
-              console.error('[ThresholdSearchLoop] 실행 실패:', e instanceof Error ? e.message : e);
-            }
-          }
-
-          sendEmptyScanDecisionBroker({
-            consecutiveEmptyScans,
-            regime,
-            currentThreshold,
-            usedToday: usage.used,
-            dailyLimit: usage.limit,
-            thresholdDiagnostic,
-          }).catch(console.error);
-        }
       }
     }
   } else {
@@ -710,6 +432,4 @@ export function resetScanState(): void {
   consecutiveEmptyScans    = 0;
   immediateRescanRequested = false;
   lastLunchBlockSeenAt     = 0;
-  lastR6ConfirmationScanKey = null;
-  lastBiasLabel             = null;
 }

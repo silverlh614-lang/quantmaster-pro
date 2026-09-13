@@ -14,9 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0673`**
+**다음 ADR 번호: `0674`**
 
-최근 발급: 2026-09-13, [0672 — 매매 시그널과 학습·연구 채널 연결](0672-shadow-signal-learning-channels.md), Accepted.
+최근 발급: 2026-09-13, [0673 — 운영 레짐 제거](0673-retire-runtime-regime.md), Accepted.
 
 상세 결정은 해당 ADR, 과거 구현 내역은 Git에서 조회한다. 이 파일에는 발급 번호와 검색 목록만 남긴다.
 
@@ -599,6 +599,7 @@
 | 0670 | shadow-workspace-ui | 5개 화면으로 탐색 통합, 요약 API·상세 지연 로딩·활성 화면 조회, 브라우저 캐시 직렬화 제거 |
 | 0671 | shadow-telegram-bot | 중복 정기 보고 제거, 새 Shadow 요약·변화 알림, 전송 원장·재시도·현재 봇 메뉴 |
 | 0672 | shadow-signal-learning-channels | Shadow 진입·청산 시그널 유지, 고정 학습 근거·성과와 4채널 연결, 목적지별 재시도 |
+| 0673 | retire-runtime-regime | LIVE/PAPER 레짐·Kelly 제거·원자료·시그널·학습 보존 |
 
 **최대 발급 0664 · 다음 발급 0665** — `node scripts/check_adr_index.js --json` 기준 (2026-07-13 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 

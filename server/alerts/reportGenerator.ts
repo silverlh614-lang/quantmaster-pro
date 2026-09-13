@@ -22,7 +22,6 @@ import { sendTelegramAlert } from './telegramClient.js';
 import { channelMarketBriefing, channelPerformance } from './channelPipeline.js';
 import { fetchCloses } from '../trading/marketDataRefresh.js';
 import { loadGlobalScanReport } from './globalScanAgent.js';
-import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { getFomcProximity } from '../trading/fomcCalendar.js';
 // ADR-0561 — technicalQuoteRouter SSOT 위임(byte-equiv funnel) — `${code}.KS ?? .KQ` brute-force
 // 패턴 영구 차단. flag OFF 시 fetchYahooQuoteByCode(code, fetchYahooQuote) funnel 그대로 위임
@@ -315,7 +314,7 @@ function buildDailyBaseReport(params: {
       ? `Position lifecycle: FULL_WIN ${r.lifecycleBreakdown.FULL_WIN} / PARTIAL_WIN ${r.partialWins} / WIN_BREAKEVEN ${r.winBreakevens} / BREAKEVEN ${r.breakevens} / LOSS ${r.lifecycleBreakdown.SMALL_LOSS + r.lifecycleBreakdown.FULL_LOSS + r.lifecycleBreakdown.FORCED_EXIT}`
       : '',
     dailyStatsLine,
-    `▶ MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})`,
+    `▶ MHS: ${macro?.mhs ?? 'N/A'}`,
     `▶ 워치리스트: ${watchlistCount}개`,
     shadowReportLine ? `▶ ${shadowReportLine}` : '',
     '',
@@ -356,7 +355,7 @@ function buildDailyDataBlock(params: {
     `당일 신호: ${todaySignalsCount}건 | 실현 이벤트 ${r.realizationCount}건 (익 ${r.wins} / 손 ${r.losses})`,
     `부분매도 ${r.partialOnlyCount}건 · 전량청산 ${r.fullClosedCount}건`,
     `일일 P&L(가중 평균): ${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%  |  실현 원화: ${Math.round(r.totalRealizedKrw).toLocaleString()}원`,
-    `MHS: ${macro?.mhs ?? 'N/A'} | 레짐: ${macro?.regime ?? 'N/A'}`,
+    `MHS: ${macro?.mhs ?? 'N/A'}`,
     `워치리스트: ${watchlist.length}개 (${watchlist.slice(0, 5).map(w => w.name).join(', ')}${watchlist.length > 5 ? ' 외' : ''})`,
     `월간 통계 (${stats.month}): 전체 ${stats.total}건 / WIN률 ${stats.winRate.toFixed(1)}% / 평균수익 ${stats.avgReturn.toFixed(2)}%`,
     `STRONG_BUY 적중률: ${stats.strongBuyWinRate.toFixed(1)}%`,
@@ -471,16 +470,7 @@ function buildWeeklyActionLines(params: {
   rrr: number;
 }): string[] {
   const { macroNow, winRate, closedCount, rrr } = params;
-  const regimeNow = resolveCanonicalRegimeLevel(macroNow); // ADR-0531: Gate0 정본 레짐
-  const fomc = getFomcProximity(
-    macroNow
-      ? {
-          mhs: macroNow.mhs,
-          regime: regimeNow ?? macroNow.regime,
-          vkospi: macroNow.vkospi,
-        }
-      : undefined,
-  );
+  const fomc = getFomcProximity();
   const actionLines: string[] = [];
   if (fomc.nextFomcDate) {
     const daysUntil = fomc.daysUntil ?? 999;
@@ -489,11 +479,6 @@ function buildWeeklyActionLines(params: {
     } else if (daysUntil <= 14) {
       actionLines.push(`📅 2주 내 FOMC: ${fomc.nextFomcDate} (D-${daysUntil}) — 포지션 롤오버 시 유의`);
     }
-  }
-  if (regimeNow === 'R5_CAUTION' || regimeNow === 'R6_DEFENSE') {
-    actionLines.push(`🔴 현재 레짐 ${regimeNow} — 신규 진입 자제, 기존 포지션 점검 우선`);
-  } else if (regimeNow === 'R1_TURBO' || regimeNow === 'R2_BULL') {
-    actionLines.push(`🟢 현재 레짐 ${regimeNow} — 주도주 집중도 강화, Kelly 배율 정상화`);
   }
   if (winRate < 40 && closedCount >= 5) {
     actionLines.push(`⚠️ 지난주 WIN률 ${winRate}% — 손절 기준·필터 재점검 권고`);
@@ -543,14 +528,7 @@ function calculateWeeklyTotalPnlPct(closed: ServerShadowTrade[]): number {
 type WatchlistBriefingEntry = ReturnType<typeof loadWatchlist>[number];
 type WatchlistBriefingQuote = NonNullable<Awaited<ReturnType<typeof fetchTechnicalQuoteByCode>>>;
 
-const WATCHLIST_REGIME_EMOJI: Record<string, string> = {
-  R1_TURBO: '🟢',
-  R2_BULL: '🟢',
-  R3_EARLY: '🟡',
-  R4_NEUTRAL: '⚪',
-  R5_CAUTION: '🟠',
-  R6_DEFENSE: '🔴',
-};
+
 
 function buildOpenShadowCodes(): Set<string> {
   return new Set(
@@ -561,7 +539,6 @@ function buildOpenShadowCodes(): Set<string> {
 }
 
 function buildWatchlistBriefingHeader(
-  regime: string,
   macro: ReturnType<typeof loadMacroState>,
 ): string {
   const now = new Date(Date.now() + 9 * 60 * 60 * 1000);
@@ -570,7 +547,6 @@ function buildWatchlistBriefingHeader(
 
   return `🌅 <b>[${hh}:${mm} 장전 브리핑]</b>\n` +
     `━━━━━━━━━━━━━━━━\n` +
-    `레짐: <b>${regime}</b> ${WATCHLIST_REGIME_EMOJI[regime] ?? '⚪'}  ` +
     `MHS: ${macro?.mhs ?? 'N/A'}  ` +
     `VKOSPI: ${macro?.vkospi?.toFixed(1) ?? 'N/A'}\n` +
     `━━━━━━━━━━━━━━━━\n`;
@@ -650,14 +626,7 @@ function buildWatchlistBriefingFooter(fomc: ReturnType<typeof getFomcProximity>)
     msg += `⚠️ 오늘 주의: ${fomc.description}\n`;
   }
 
-  const kellyNote = fomc.kellyMultiplier !== 1.0
-    ? `Kelly ×${fomc.kellyMultiplier.toFixed(2)} 자동 적용`
-    : null;
-  if (kellyNote) {
-    msg += `📌 ${kellyNote}\n`;
-  }
-
-  if (fomc.phase === 'NORMAL' && !kellyNote) {
+  if (fomc.phase === 'NORMAL') {
     msg += `<i>오늘도 원칙대로 ✊</i>\n`;
   }
   return msg;
@@ -790,20 +759,10 @@ export async function sendWatchlistBriefing(): Promise<void> {
   const list = loadWatchlist();
   const openCodes = buildOpenShadowCodes();
   const macro = loadMacroState();
-  const regime = resolveCanonicalRegimeLevel(macro); // ADR-0531: Gate0 정본 레짐
-  // v3.1 (2026-04-26): macro snapshot 전달해 우호 환경 완화 일관성 확보.
-  const fomc = getFomcProximity(
-    macro
-      ? {
-          mhs: macro.mhs,
-          regime: regime ?? macro.regime,
-          vkospi: macro.vkospi,
-        }
-      : undefined,
-  );
+  const fomc = getFomcProximity();
 
   const msg =
-    buildWatchlistBriefingHeader(regime, macro) +
+    buildWatchlistBriefingHeader(macro) +
     (await buildWatchlistBriefingRows(list, openCodes)) +
     buildWatchlistBriefingFooter(fomc);
 
@@ -877,7 +836,7 @@ export async function sendIntradayCheckIn(type: 'midday' | 'preclose'): Promise<
     `활성 포지션: ${active.length}개\n` +
     positionLines.join('\n') + '\n\n' +
     `오늘 신호: ${todaySignals.length}건\n` +
-    `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})`;
+    `MHS: ${macro?.mhs ?? 'N/A'}`;
 
   await sendTelegramAlert(msg).catch(console.error);
   console.log(`[AutoTrade] 장중 점검 알림 완료 (${type})`);
@@ -1042,7 +1001,7 @@ function buildPreMarketAiPrompt(
     `데이터: S&P500 ${fmtPct(global.sp500?.changePct)}, 나스닥 ${fmtPct(global.ndx?.changePct)}, ` +
     `VIX ${global.vixData?.price ?? 'N/A'}, EWY ${fmtPct(global.ewy?.changePct)}, ` +
     `USD/KRW ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원(${fmtPct(usdKrw?.changePct)}), ` +
-    `MHS ${macro?.mhs ?? 'N/A'}(${macro?.regime ?? 'N/A'}).\n` +
+    `MHS ${macro?.mhs ?? 'N/A'}.\n` +
     `KOSPI 예상 방향 + 핵심 근거를 한국어 2문장으로 답하라.`
   );
 }
@@ -1079,7 +1038,7 @@ function formatPreMarketMacroLines(macro: MacroSnapshot, usdKrw: UsdKrwSnapshot)
   const crudeLine = macro?.wtiCrude !== undefined ? `  WTI: $${macro.wtiCrude.toFixed(1)}\n` : '';
   return (
     `<b>📊 거시 지표</b>\n` +
-    `  MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n` +
+    `  MHS: ${macro?.mhs ?? 'N/A'}\n` +
     `  USD/KRW: ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원 (${fmtPct(usdKrw?.changePct)})\n` +
     yieldLine +
     crudeLine
@@ -1145,10 +1104,8 @@ export async function sendPreMarketReport(): Promise<void> {
   await sendTelegramAlert(msg).catch(console.error);
 
   // 채널: 구독자 대상 간결 브리핑 (자산/잔고 제외)
-  const regime = macro?.regime ?? 'R4_NEUTRAL';
   const focusCodes = watchlist.filter(w => w.isFocus);
   await channelMarketBriefing({
-    regime,
     mhs:            macro?.mhs ?? 0,
     vkospi:         global.vixData?.price ?? undefined,
     kospiChange:    macro?.kospiDayReturn,
@@ -1204,7 +1161,7 @@ export async function sendIntradayMarketReport(): Promise<void> {
     `━━━━━━━━━━━━━━━━━\n` +
     `<b>📊 KOSPI</b>: ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}\n` +
     `<b>💱 USD/KRW</b>: ${usdKrw ? `${usdKrw.rate.toFixed(0)}원 (${fmtPct(usdKrw.changePct)})` : 'N/A'}\n` +
-    `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})\n\n` +
+    `MHS: ${macro?.mhs ?? 'N/A'}\n\n` +
     `<b>📈 오전 거래 요약</b>\n` +
     `  오늘 신호: ${todaySignals.length}건\n` +
     `  실현 이벤트: ${r.realizationCount}건 (익 ${r.wins} / 손 ${r.losses})` +
@@ -1244,7 +1201,7 @@ function buildPostMarketAiPrompt(
   return (
     `오늘 한국 주식시장 마감 후 요약 + 내일 전망 (2~3문장).\n` +
     `데이터: KOSPI ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})` : 'N/A'}, ` +
-    `USD/KRW ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원, MHS ${macro?.mhs ?? 'N/A'}(${macro?.regime ?? 'N/A'}), ` +
+    `USD/KRW ${usdKrw?.rate?.toFixed(0) ?? 'N/A'}원, MHS ${macro?.mhs ?? 'N/A'}, ` +
     `오늘 실현 ${r.realizationCount}건 (익 ${r.wins}/손 ${r.losses}) WIN률 ${r.winRate}% P&L(가중) ${r.weightedReturnPct >= 0 ? '+' : ''}${r.weightedReturnPct.toFixed(2)}%.\n` +
     `주의: "실현" 에는 부분매도 익절도 포함되어 있으니 "손실만 있었다" 고 단정 짓지 말고 P&L 가중치 부호와 각 실현 항목 부호를 그대로 따라 서술하라.\n` +
     `오늘 시장을 1문장으로 요약 + 내일 주의사항 1~2개 bullet으로 한국어 답변하라.`
@@ -1271,7 +1228,7 @@ function buildPostMarketTelegramMessage(params: PostMarketTelegramMessageParams)
     `━━━━━━━━━━━━━━━━━\n` +
     `<b>📊 KOSPI 종가</b>: ${kospi ? `${kospi.price.toFixed(2)} (${fmtPct(kospi.changePct)})${formatQuoteAnomalyTag(kospi.changePct, 'INDEX')}` : 'N/A'}\n` +
     `<b>💱 USD/KRW</b>: ${usdKrw ? `${usdKrw.rate.toFixed(0)}원 (${fmtPct(usdKrw.changePct)})${formatQuoteAnomalyTag(usdKrw.changePct, 'FX')}` : 'N/A'}\n` +
-    `MHS: ${macro?.mhs ?? 'N/A'} (${macro?.regime ?? 'N/A'})${formatMacroConfidenceTag(macro)}\n\n` +
+    `MHS: ${macro?.mhs ?? 'N/A'}${formatMacroConfidenceTag(macro)}\n\n` +
     `<b>📈 당일 거래 결과</b>\n` +
     `  신호: ${todaySignalsCount}건 | 실현: ${r.realizationCount}건` +
       (r.partialOnlyCount > 0 ? ` (부분 ${r.partialOnlyCount} · 전량 ${r.fullClosedCount})` : '') + `\n` +

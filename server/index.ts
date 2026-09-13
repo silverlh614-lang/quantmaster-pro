@@ -541,22 +541,7 @@ async function startServer() {
         .catch((e) => console.warn('[KIS] 부팅 토큰 진단 실패:', e));
     }
 
-    console.log('[AutoTrade] 오케스트레이터 + DART 폴링 + Bear Regime 알림 + MHS 모닝 알림 + IPS 변곡점 경보 가동 완료');
-
-    // 아이디어 2 — 워치리스트 부트스트랩: 장 중 재배포 감지 → 긴급 autoPopulate
-    ;(async () => {
-      const { loadWatchlist } = await import('./persistence/watchlistRepo.js');
-      const { autoPopulateWatchlist } = await import('./screener/stockScreener.js');
-      const kst = new Date(Date.now() + 9 * 3_600_000);
-      const h = kst.getUTCHours(), m = kst.getUTCMinutes();
-      const t = h * 100 + m, dow = kst.getUTCDay();
-      const isTradingHour = dow >= 1 && dow <= 5 && t >= 900 && t <= 1530;
-      if (loadWatchlist().length === 0 && isTradingHour) {
-        console.warn('[Bootstrap] 장 중 재배포 감지 — 워치리스트 긴급 복구 시작');
-        await autoPopulateWatchlist().catch(console.error);
-        await sendTelegramAlert('⚠️ 재배포 감지 — 워치리스트 긴급 복구 완료').catch(console.error);
-      }
-    })().catch(console.error);
+    console.log('[AutoTrade] Shadow 관측 + 시장자료 갱신 + DART 폴링 + MHS 모닝 알림 가동 완료');
 
     // 재기동은 개인 요약 1건만 보낸다. 채널 시험 발송은 /channel_test 요청 시에만 실행한다.
     void setTelegramBotCommands().catch(console.error);
@@ -586,26 +571,22 @@ async function startServer() {
         .catch((e) => console.error('[BootReconcile] 모듈 로드 실패:', e));
     }, 30_000);
 
-    // Patch-SHADOW-APPROVAL-DEDUP-001 (follow-up) — 부팅 60초 후 1회 /scan 실행.
-    //   사용자 요청: "재부팅하면 /scan 을 시행하도록 수정"
-    //   ENV `BOOT_SCAN_TRIGGER_DISABLED=true` (default OFF, ADR-0157 정확 비교) 시 비활성.
-    //   기존 SHADOW/LIVE 분기는 runAutoSignalScan 본체 정책 그대로 — sellOnly 가드 / 시간대
-    //   가드 / R6_DEFENSE 등 invariants 모두 적용. fire-and-forget try/catch 격리.
-    //   30초 후 bootReconcile 직후 발화 (KIS 토큰 갱신 완료 시점 보장).
+    // ADR-0673: 부팅 60초 후 새 모델의 시장 관측/연구 스캔을 1회 실행한다.
+    // 빈 구 워치리스트 복구 대신 collector의 전체 종목 후보와 기존 열린 관측을 사용한다.
+    // 기존 부팅 스캔 비활성화 설정과 30초 계좌 reconcile 순서는 유지한다.
     if (process.env.BOOT_SCAN_TRIGGER_DISABLED !== 'true') {
       setTimeout(() => {
-        import('./trading/signalScanner.js')
-          .then(({ runAutoSignalScan }) => runAutoSignalScan())
+        import('./trading/paper/paperExperimentRunner.js')
+          .then(({ runPaperExperimentScan }) => runPaperExperimentScan())
           .then((result) => {
-            const summary = (result && typeof result === 'object' && 'summary' in result)
-              ? (result as { summary?: { candidates?: number; entries?: number } }).summary
-              : undefined;
             console.log(
-              `[BootScan] Patch-SHADOW-APPROVAL-DEDUP-001 부팅 후 1회 /scan 실행 — ` +
-                `candidates=${summary?.candidates ?? 'n/a'} entries=${summary?.entries ?? 'n/a'}`,
+              `[BootScan] 부팅 시장 관측 완료 — snapshot=${result.snapshotId} ` +
+                `candidates=${result.candidateCount} observed=${result.observedCount} ` +
+                `opened=${result.openedCount} completed=${result.completedCount} ` +
+                `missingPrice=${result.missingPriceCount} issues=${result.issues.length}`,
             );
           })
-          .catch((e) => console.error('[BootScan] runAutoSignalScan 실패 (live trading 영향 0):', e));
+          .catch((e) => console.error('[BootScan] 시장 관측 실패:', e));
       }, 60_000);
     } else {
       console.log('[BootScan] BOOT_SCAN_TRIGGER_DISABLED=true — 부팅 /scan skip');

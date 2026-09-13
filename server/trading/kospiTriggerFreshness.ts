@@ -15,7 +15,7 @@
  * age-only 그대로 보존(recovery/latch side-effect byte-equivalent)하고, trade-date 강등은
  * `intradayDowngraded` boolean 으로만 노출 → 호출자(regimeBridge)가 intraday-low 만 분리 제외.
  *
- * 순수 함수 — provider/store 호출 0. flag 게이트는 호출자(regimeBridge)가 적용한다.
+ * 순수 함수 — provider/store 호출 0. 거래일 검증은 환경변수로 끌 수 없다.
  * 거래일 SSOT = krxTradingCalendar(isKrxTradingDay/toKstDateKey, ADR-0559).
  */
 
@@ -75,9 +75,4 @@ export function resolveKospiTriggerFreshness(input: {
     tradeDateIsToday: false,
     intradayDowngraded: isIntradayActiveFreshness(ageFreshness),
   };
-}
-
-/** ADR-0592 D1 flag — default OFF. ON 시에만 trade-date 강등이 live freshness 에 적용된다. */
-export function isTradeDateFreshnessEnabled(): boolean {
-  return process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED === 'true';
 }

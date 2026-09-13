@@ -121,10 +121,10 @@ function formatCatalog(rules, errors) {
   out += `> 자동 생성 — \`npm run build:exit-catalog\` (스크립트: \`scripts/generate_exit_rules_catalog.js\`)\n`;
   out += `> Schema: [docs/EXIT_RULE_HEADER.md](./EXIT_RULE_HEADER.md)\n`;
   out += `> Generated: ${now}\n\n`;
-  out += `**총 ${sorted.length}개 매도 규칙** (priority 오름차순).\n\n`;
+  out += `**@rule 헤더 등록 ${sorted.length}개** (priority 오름차순).\n\n`;
 
   if (sorted.length === 0) {
-    out += '_매도 규칙이 검출되지 않았습니다 — `@rule` 헤더 추가 후 재실행하세요._\n\n';
+    out += '_등록된 `@rule` 헤더가 없습니다. 실제 가격 손절·목표·청산 규칙은 [exitEngine/index.ts](../server/trading/exitEngine/index.ts)의 실행 목록을 확인하세요._\n\n';
   } else {
     out += '| # | rule | priority | action | ratio | trigger | rationale | source |\n';
     out += '|---|------|---------:|--------|------:|---------|-----------|--------|\n';

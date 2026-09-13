@@ -3,7 +3,7 @@ import { describe, expect, it, afterEach } from 'vitest';
 import type { MacroState } from '../../persistence/macroStateRepo.js';
 import { defaultRegimeTransitionState } from '../../persistence/regimeTransitionStateRepo.js';
 import { classifyVkospiSanity } from './vkospiSanityGuard.js';
-import { evaluateR6RecoveryTransition, getRawRegime } from '../regimeBridge.js';
+import { evaluateR6RecoveryTransition, getHistoricalRegime as getRawRegime } from '../regimeBridge.js';
 
 /** 가드 입력에 필요한 필드만 채운 최소 MacroState. */
 function macro(overrides: Partial<MacroState> = {}): MacroState {

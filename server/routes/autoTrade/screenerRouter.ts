@@ -3,32 +3,26 @@
  *
  * 엔드포인트:
  *   POST /auto-trade/scan             — 즉시 수동 스캔 트리거
- *   POST /auto-trade/dry-run          — 매수 시뮬레이션 드라이런
+ *   POST /auto-trade/dry-run          — 현행 관측·전략 상태 조회
  *   GET  /auto-trade/screener         — 스크리너 캐시 조회
- *   POST /auto-trade/screener/run     — 스크리너 수동 실행
- *   POST /auto-trade/populate         — Yahoo 기반 워치리스트 자동 채우기
+ *   POST /auto-trade/screener/run     — 현행 관측·전략 스캔 실행
+ *   POST /auto-trade/populate         — 현행 관측 스캔 실행과 기존 워치리스트 조회
  *   GET  /auto-trade/dart-alerts      — DART 알림 조회
  *   POST /auto-trade/dart-alerts/poll — DART 수동 폴링
  */
 import { Router } from 'express';
 import { runAutoSignalScan } from '../../trading/signalScanner.js';
-import { runDryRunScan } from '../../trading/dryRunScanner.js';
+import { getPaperExperimentView } from '../../trading/paper/paperExperimentRunner.js';
 import {
   getScreenerCache,
-  preScreenStocks,
-  autoPopulateWatchlist,
 } from '../../screener/stockScreener.js';
 import { loadWatchlist } from '../../persistence/watchlistRepo.js';
 import { getDartAlerts } from '../../persistence/dartRepo.js';
 import { pollDartDisclosures } from '../../alerts/dartPoller.js';
-import { getTradingMode } from '../../state.js';
 
 const router = Router();
 
 router.post('/auto-trade/scan', async (_req: any, res: any) => {
-  if (getTradingMode() !== 'SHADOW' && process.env.AUTO_TRADE_ENABLED !== 'true') {
-    return res.status(403).json({ error: 'AUTO_TRADE_ENABLED=true 필요' });
-  }
   try {
     await runAutoSignalScan();
     res.json({ ok: true, ts: new Date().toISOString() });
@@ -39,7 +33,7 @@ router.post('/auto-trade/scan', async (_req: any, res: any) => {
 
 router.post('/auto-trade/dry-run', async (_req: any, res: any) => {
   try {
-    const result = await runDryRunScan();
+    const result = getPaperExperimentView();
     res.json(result);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -52,17 +46,17 @@ router.get('/auto-trade/screener', (_req: any, res: any) => {
 
 router.post('/auto-trade/screener/run', async (_req: any, res: any) => {
   try {
-    const results = await preScreenStocks();
-    res.json({ ok: true, count: results.length, stocks: results });
+    const result = await runAutoSignalScan();
+    res.json({ ok: true, model: 'PAPER_NEWS_MA20', result });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
 });
 
-router.post('/auto-trade/populate', async (req: any, res: any) => {
+router.post('/auto-trade/populate', async (_req: any, res: any) => {
   try {
-    const added = await autoPopulateWatchlist({ force: req.body?.force === true || req.query?.force === 'true' });
-    res.json({ ok: true, added, watchlist: loadWatchlist() });
+    const result = await runAutoSignalScan();
+    res.json({ ok: true, model: 'PAPER_NEWS_MA20', result, watchlist: loadWatchlist() });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

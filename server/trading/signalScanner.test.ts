@@ -193,7 +193,6 @@ describe('buildStopLossPlan', () => {
 describe('EXIT_RULE_PRIORITY_TABLE', () => {
   it('keeps liquidation priority policy fixed in code order', () => {
     expect(EXIT_RULE_PRIORITY_TABLE.map((r) => r.rule)).toEqual([
-      'R6_EMERGENCY_EXIT',
       'HARD_STOP',
       'MA60_DEATH_FORCE_EXIT',
       'CASCADE_FINAL',
@@ -217,7 +216,10 @@ describe('EXIT_RULE_PRIORITY_TABLE', () => {
     const tableRules = EXIT_RULE_PRIORITY_TABLE.map((r) => r.rule);
     // TypeScript: 아래 assignment가 컴파일되면 tableRules 는 ExitRuleTag[] 와 호환됨을 의미
     const _typed: ExitRuleTag[] = tableRules;
-    expect(_typed).toHaveLength(15);
+    expect(_typed).toHaveLength(14);
+    // Historical ledgers retain this tag, but it cannot be a current executable exit rule.
+    const archivedTag: ExitRuleTag = 'R6_EMERGENCY_EXIT';
+    expect(_typed).not.toContain(archivedTag);
   });
 
   it('MANUAL_EXIT is registered at priority 99 ("규칙 외") and never competes with automatic rules', () => {

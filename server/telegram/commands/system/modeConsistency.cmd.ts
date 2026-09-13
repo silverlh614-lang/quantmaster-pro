@@ -13,7 +13,6 @@
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 import { getTradingMode, getKillSwitchLast } from '../../../state.js';
-import { resolveMarketState } from '../../../trading/marketStateResolver.js';
 
 export type ModeConsistencyState = 'CONSISTENT' | 'INTENDED_OVERRIDE' | 'UNINTENDED_DIVERGENCE';
 
@@ -82,22 +81,11 @@ const modeConsistency: TelegramCommand = {
     const killSwitch = getKillSwitchLast();
     const isReal = process.env.KIS_IS_REAL === 'true';
 
-    const marketState = resolveMarketState();
-    const macroReleaseBlock = marketState.macroState.freshness === 'HARD_STALE'
-      ? {
-        message: 'MHS는 회복권이나 Macro snapshot이 HARD_STALE이라 R6 해제를 보류합니다.',
-        ageSec: marketState.macroState.ageSec,
-        lastRefreshAttemptAt: marketState.macroState.lastRefreshAttemptAt,
-        refreshJobLastRunAt: marketState.macroState.refreshJobLastRunAt,
-      }
-      : undefined;
-
     const message = formatModeConsistencyMessage({
       envMode,
       runtimeMode,
       isReal,
       killSwitch,
-      macroReleaseBlock,
     });
 
     await reply(message);

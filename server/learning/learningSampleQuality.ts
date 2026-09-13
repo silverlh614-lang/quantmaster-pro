@@ -1,7 +1,7 @@
 // @responsibility Learning sample quality metadata recovery diagnostics.
 import fs from 'fs';
 import { loadGhostPortfolio, saveGhostPortfolio } from '../persistence/reflectionRepo.js';
-import { MACRO_STATE_FILE, REGIME_TRANSITION_STATE_FILE, scanTraceFile } from '../persistence/paths.js';
+import { scanTraceFile } from '../persistence/paths.js';
 import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { buildCounterfactualKey, recordCounterfactualCase, loadCounterfactuals, saveCounterfactuals, type CounterfactualEntry } from './counterfactualShadow.js';
 import { LEARNING_DEFAULT_MAX_HOLDING_MINUTES, LEARNING_DEFAULT_STOP_RETURN_PCT, LEARNING_DEFAULT_TARGET_RETURN_PCT } from './learningConstants.js';
@@ -23,14 +23,6 @@ const MINUTES_PER_CALENDAR_DAY = 24 * 60;
 
 type MaybeEntry = { stockCode?: string; stockName?: string; priceAtSignal?: number; gateScore?: number; regime?: string; conditionKeys?: string[]; skipReason?: string; label?: CounterfactualLabel; signalTime?: string; signalDate?: string };
 type CounterfactualMaturityWindow = '1D' | '3D' | '5D' | 'TARGET_HIT' | 'STOP_HIT' | 'BREAKEVEN' | 'EXPIRED';
-type CurrentRegimeSnapshot = {
-  rawRegime?: string;
-  effectiveRegime?: string;
-  effectiveState?: string;
-  r6RecoveryStatus?: string;
-  r6LatchDecay?: number | string;
-};
-
 function num(v: unknown): number | undefined { return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined; }
 function finiteDiagnosticNumber(v: unknown): number | undefined { return typeof v === 'number' && Number.isFinite(v) ? v : undefined; }
 function avg(xs: number[]): number { return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0; }
@@ -41,25 +33,6 @@ export function learningEntryPrice(g: LearningGhostCase): number | undefined { r
 function finalReturnR(g: LearningGhostCase): number | undefined { return typeof g.returnR === 'number' && Number.isFinite(g.returnR) ? g.returnR : undefined; }
 function isCounterfactualLabel(label: unknown): boolean { return ['MISSED_WIN', 'AVOIDED_LOSS', 'GOOD_BLOCK', 'BAD_BLOCK', 'NEUTRAL_BLOCK'].includes(String(label)); }
 export function hasMissingLearningMetadata(g: LearningGhostCase): boolean { return !learningEntryPrice(g) || !num(g.targetPrice) || !num(g.stopPrice); }
-
-function readRawJsonObject(file: string): Record<string, unknown> | undefined {
-  try {
-    if (!fs.existsSync(file)) return undefined;
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function stringFrom(row: Record<string, unknown> | undefined, keys: string[]): string | undefined {
-  if (!row) return undefined;
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
-  }
-  return undefined;
-}
 
 function numberOrStringFrom(row: Record<string, unknown> | undefined, keys: string[]): number | string | undefined {
   if (!row) return undefined;
@@ -72,27 +45,6 @@ function numberOrStringFrom(row: Record<string, unknown> | undefined, keys: stri
   return undefined;
 }
 
-function currentRegimeSnapshot(): CurrentRegimeSnapshot {
-  const transition = readRawJsonObject(REGIME_TRANSITION_STATE_FILE);
-  if (transition) {
-    return {
-      rawRegime: stringFrom(transition, ['rawRegime', 'previousRegime']),
-      effectiveRegime: stringFrom(transition, ['effectiveRegime', 'currentRegime']),
-      effectiveState: stringFrom(transition, ['r6RecoveryStatus', 'r6StateMachineState', 'effectiveRegime', 'currentRegime']),
-      r6RecoveryStatus: stringFrom(transition, ['r6RecoveryStatus', 'r6StateMachineState']),
-      r6LatchDecay: numberOrStringFrom(transition, ['latchDecayPercent', 'latchDecayLevel']),
-    };
-  }
-  const macro = readRawJsonObject(MACRO_STATE_FILE);
-  return {
-    rawRegime: stringFrom(macro, ['macroRegimeRaw', 'rawRegime', 'regime']),
-    effectiveRegime: stringFrom(macro, ['macroRegimeEffective', 'effectiveRegime', 'regime']),
-    effectiveState: stringFrom(macro, ['r6RecoveryStatus', 'macroRegimeEffective', 'effectiveRegime', 'regime']),
-    r6RecoveryStatus: stringFrom(macro, ['r6RecoveryStatus']),
-    r6LatchDecay: numberOrStringFrom(macro, ['latchDecayPercent', 'r6LatchDecayPercent', 'latchDecayLevel']),
-  };
-}
-
 function appendTransitionPath(existing: string[] | undefined, ...values: Array<string | undefined>): string[] {
   const out: string[] = [];
   for (const value of [...(existing ?? []), ...values]) {
@@ -101,12 +53,6 @@ function appendTransitionPath(existing: string[] | undefined, ...values: Array<s
     if (!out.includes(normalized)) out.push(normalized);
   }
   return out;
-}
-
-function meaningfulRegimeState(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const trimmed = value.trim();
-  return trimmed && trimmed !== 'NONE' ? trimmed : undefined;
 }
 
 function counterfactualEntryRegime(e: CounterfactualEntry): string {
@@ -992,35 +938,8 @@ function resolveCounterfactualOutcome(
   };
 }
 
-function applyCounterfactualOutcomeRegimeMetadata(
-  e: CounterfactualEntry,
-  snapshot: CurrentRegimeSnapshot,
-  nowIso: string,
-): void {
-  const entryRegime = counterfactualEntryRegime(e);
-  const entryEffectiveState = counterfactualEntryEffectiveState(e);
-  const exitRegime = meaningfulRegimeState(snapshot.r6RecoveryStatus)
-    ?? meaningfulRegimeState(snapshot.effectiveState)
-    ?? meaningfulRegimeState(snapshot.effectiveRegime)
-    ?? e.exitRegime
-    ?? e.regimeAtOutcome?.toString()
-    ?? entryRegime;
-  const transitionPath = appendTransitionPath(e.transitionPath, entryRegime, snapshot.r6RecoveryStatus, snapshot.effectiveState, snapshot.effectiveRegime);
-  e.entryRegime = entryRegime;
-  e.entryEffectiveState = entryEffectiveState;
-  e.regimeAtEntry = e.regimeAtEntry ?? entryRegime;
-  e.exitRegime = exitRegime;
-  e.regimeAtExit = exitRegime;
-  e.regimeAtOutcome = exitRegime;
-  e.transitionPath = transitionPath;
-  e.resolvedAfterRegimeTransition = entryRegime !== exitRegime || transitionPath.some((phase) => phase !== entryRegime);
-  e.resolvedAt = nowIso;
-  e.r6LatchDecayAtEntry = e.r6LatchDecayAtEntry ?? snapshot.r6LatchDecay;
-}
-
 function counterfactualResolve(now: Date, write: boolean, dueOnly = false) {
   const all = normalizeCounterfactuals();
-  const regimeSnapshot: CurrentRegimeSnapshot = write ? currentRegimeSnapshot() : {};
   const nowIso = now.toISOString();
   let resolvableNow = 0, labeled = 0, waitingForHoldingPeriod = 0, dataInsufficient = 0, quarantined = 0;
   let missingEntryPrice = 0, missingTargetPrice = 0, missingStopPrice = 0, missingPricePath = 0, missingCreatedAt = 0;
@@ -1101,7 +1020,8 @@ function counterfactualResolve(now: Date, write: boolean, dueOnly = false) {
       e.maturityStatus = maturity.maturityStatus;
       e.currentAgeMinutes = maturity.currentAgeMinutes;
       e.remainingMinutesToMaturity = maturity.remainingMinutesToMaturity ?? undefined;
-      applyCounterfactualOutcomeRegimeMetadata(e, regimeSnapshot, nowIso);
+      // 과거 진입 메타데이터는 보존하고 폐기된 현재 레짐은 결과에 덧붙이지 않는다.
+      e.resolvedAt = nowIso;
       if (e.targetStopRecovered) {
         e.labelSource = 'RECOVERED_TARGET_STOP';
         e.diagnosticOnly = true;

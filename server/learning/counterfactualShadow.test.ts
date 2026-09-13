@@ -286,7 +286,7 @@ describe('counterfactualShadow', () => {
     expect(entries[0].return30d).toBeCloseTo(10, 1);
   });
 
-  it('R6 counterfactual outcome tracking keeps entry regime after recovery transition', () => {
+  it.each([false, true])('counterfactual outcomes preserve historical metadata and ignore stale current regime (historical exit=%s)', (hasHistoricalExit) => {
     const signal = new Date('2026-05-18T00:00:00Z');
     recordCounterfactualCase({
       stockCode: '017670', stockName: 'SK Telecom', priceAtSignal: 50_000,
@@ -307,6 +307,12 @@ describe('counterfactualShadow', () => {
       { at: '2026-05-18T00:02:00Z', price: 51_000, high: 51_500, low: 49_500 },
       { at: '2026-05-18T00:04:00Z', price: 53_200, high: 53_200, low: 50_500 },
     ];
+    if (hasHistoricalExit) {
+      rows[0].exitRegime = 'R6_RECOVERY_WATCH';
+      rows[0].regimeAtExit = 'R6_RECOVERY_WATCH';
+      rows[0].regimeAtOutcome = 'R6_RECOVERY_WATCH';
+      rows[0].resolvedAfterRegimeTransition = true;
+    }
     fs.writeFileSync(COUNTERFACTUAL_FILE, JSON.stringify(rows, null, 2));
     fs.writeFileSync(REGIME_TRANSITION_STATE_FILE, JSON.stringify({
       currentRegime: 'R5_CAUTION',
@@ -323,9 +329,13 @@ describe('counterfactualShadow', () => {
     const saved = loadCounterfactuals()[0];
     expect(saved.entryRegime).toBe('R6_DEFENSE');
     expect(saved.entryEffectiveState).toBe('R6_DEFENSE');
-    expect(saved.exitRegime).toBe('R5_STABILIZING');
-    expect(saved.resolvedAfterRegimeTransition).toBe(true);
-    expect(saved.transitionPath).toEqual(['R6_DEFENSE', 'R6_RECOVERY_WATCH', 'R5_STABILIZING', 'R5_CAUTION']);
+    const historicalExit = hasHistoricalExit ? 'R6_RECOVERY_WATCH' : undefined;
+    expect(saved.exitRegime).toBe(historicalExit);
+    expect(saved.regimeAtExit).toBe(historicalExit);
+    expect(saved.regimeAtOutcome).toBe(historicalExit);
+    expect(saved.resolvedAfterRegimeTransition).toBe(hasHistoricalExit ? true : undefined);
+    expect(saved.transitionPath).toEqual(['R6_DEFENSE', 'R6_RECOVERY_WATCH']);
+    expect(saved.r6LatchDecayAtEntry).toBe(0);
     expect(saved.mhsAtEntry).toBe(70);
     expect(saved.biasAtEntry).toBe('BULL');
     expect(saved.supplyScoreAtEntry).toBe(77);

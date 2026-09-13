@@ -1,138 +1,100 @@
-// @responsibility Own active entry sizing calculations.
-// ADR-0665: the legacy regime allocation remains a pure adapter; Kelly is not an order input.
+// @responsibility 계좌 자금과 명시 배분 한도로 주문 수량을 계산한다.
 import type { EntryOrderSizingInput, EntryOrderSizingResult } from '../../../src/types/entrySizing.js';
-import {
-  computePortfolioExposureBudget,
-  applyPortfolioExposureCap,
-  isExposureBudgetEnabled,
-  mapInternalToExposureRegime,
-  mapInternalToExposureRegimeWithMacro,
-  type MarketRegimeLevel,
-  type ExposureRegimeMacroInput,
-  type PortfolioExposureBudget,
-  type ApplyPortfolioExposureCapResult,
-} from './regimeExposurePolicy.js';
-import type { RegimeLevel } from '../../../src/types/core.js';
+import type { PositionPolicySizingResult } from './regimePositionPolicy.js';
+import type { PortfolioExposureBudget, ApplyPortfolioExposureCapResult } from './regimeExposurePolicy.js';
 
-export {
-  calculateRegimePositionSizing as calculateEntryPositionSizing,
-} from './regimePositionPolicy.js';
-
-/** Existing persisted trade marker; a path migration must not relabel historical semantics. */
+/** Persisted historical trade marker; retained for ledger compatibility. */
 export const ENTRY_SIZING_SOURCE = 'LEGACY_SSOT' as const;
 
+export interface EntryPositionSizingInput {
+  totalEquity: number;
+  currentPositions?: number;
+  /** Historical caller compatibility only; never used in allocation. */
+  regime?: string | null;
+  /** Existing trading settings default: maximum fifteen percent per stock. */
+  positionSizePct?: number;
+  maxPositions?: number;
+  maxGrossExposurePct?: number;
+}
+
+export function calculateEntryPositionSizing(input: EntryPositionSizingInput): PositionPolicySizingResult {
+  const positionSizePct = Number.isFinite(input.positionSizePct ?? 15)
+    ? Math.max(0, Math.min(100, input.positionSizePct ?? 15)) : 0;
+  const maxGrossExposurePct = Number.isFinite(input.maxGrossExposurePct ?? 100)
+    ? Math.max(0, Math.min(100, input.maxGrossExposurePct ?? 100)) : 0;
+  const derivedSlots = positionSizePct > 0 ? Math.floor(maxGrossExposurePct / positionSizePct) : 0;
+  const maxPositions = Number.isFinite(input.maxPositions ?? derivedSlots)
+    ? Math.max(0, Math.floor(input.maxPositions ?? derivedSlots)) : 0;
+  const currentPositions = Number.isFinite(input.currentPositions ?? 0)
+    ? Math.max(0, Math.floor(input.currentPositions ?? 0)) : maxPositions;
+  const totalEquity = Number.isFinite(input.totalEquity) && input.totalEquity > 0 ? input.totalEquity : 0;
+  return {
+    policy: { regime: 'FIXED_BUDGET', maxPositions, maxGrossExposurePct, perPositionPct: positionSizePct },
+    currentPositions, remainingSlots: Math.max(0, maxPositions - currentPositions),
+    positionSizePct, positionAmount: totalEquity * positionSizePct / 100,
+    kellyDisabled: true, kellyIgnoredReason: 'REMOVED_BY_SIMPLIFICATION_POLICY',
+  };
+}
+
 export function calculateOrderQuantity(input: EntryOrderSizingInput): EntryOrderSizingResult {
-  if (input.price <= 0 || input.remainingSlots <= 0 || input.orderableCash <= 0) {
+  if (![input.totalAssets, input.orderableCash, input.positionPct, input.price, input.remainingSlots].every(Number.isFinite)
+    || input.price <= 0 || input.remainingSlots <= 0 || input.orderableCash <= 0 || input.totalAssets <= 0) {
     return { quantity: 0, effectiveBudget: 0 };
   }
-  const targetBudget = Math.max(0, input.totalAssets * input.positionPct);
+  const targetBudget = Math.max(0, input.totalAssets * Math.min(1, input.positionPct));
   const slotBudget = input.orderableCash / input.remainingSlots;
   const effectiveBudget = Math.max(0, Math.min(input.orderableCash, targetBudget, slotBudget));
-  return {
-    quantity: Math.floor(effectiveBudget / input.price),
-    effectiveBudget,
-  };
+  return { quantity: Math.floor(effectiveBudget / input.price), effectiveBudget };
 }
 
 export interface ApplyExposureBudgetCapInput {
-  /** Quantity after the entry path has applied its current position policy. */
   rawQuantity: number;
-  /** 매수가 (rawQuantity × shadowEntryPrice = rawPositionAmount) */
   shadowEntryPrice: number;
-  /** 계좌 총액 */
   accountEquity: number;
-  /** 현재 보유 주식 평가금액 총합 (호출자 ctx 에서 수집) */
   currentEquityExposureAmount: number;
-  /** 현재 현금 (UI/진단용) */
   currentCashAmount: number;
-  /** 시장 레짐 (기존 RegimeLevel — 매핑 자동 적용) */
-  regime: RegimeLevel;
-  /** 신규 매수 vs 추매 (호출자 분류) */
   isAddOnBuy: boolean;
-  /** 호출자 명시 매핑 — 미전달 시 mapInternalToExposureRegimeWithMacro 자동 적용 (ADR-0170) */
-  exposureRegime?: MarketRegimeLevel;
-  /**
-   * ADR-0170 §M4 — 매크로 신호 입력 (R1_DEFENSIVE 자동 격상용).
-   * 미전달 시 기존 mapInternalToExposureRegime 매핑 그대로 (회귀 위험 격리).
-   */
-  macro?: ExposureRegimeMacroInput;
+  maxGrossExposurePct?: number;
+  maxPositionAmount?: number;
+  currentPositionAmount?: number;
+  /** Historical arguments retained solely to accept old callers; none are read. */
+  regime?: string;
+  exposureRegime?: string;
+  macro?: unknown;
 }
 
 export interface ApplyExposureBudgetCapResult {
-  /** 본 cap 적용 여부 — false 면 호출자가 rawQuantity 그대로 사용 */
   applied: boolean;
-  /** 적용 시 cap 후 quantity (주식 수) — applied=false 면 rawQuantity 그대로 */
   finalQuantity: number;
-  /** 본 cap 결과 — 진단/UI 용 */
   capResult?: ApplyPortfolioExposureCapResult;
-  /** 본 cap 입력 — 진단/UI 용 */
+  /** Historical result compatibility only. New calculations never synthesize a regime budget. */
   budget?: PortfolioExposureBudget;
-  /** 미적용 사유 (진단 로그용) */
-  skipReason?: 'ENV_DISABLED' | 'INPUT_MISSING';
+  skipReason?: 'INPUT_MISSING';
 }
 
-/**
- * ADR-0166 통합 진입점 — sizing 결과 quantity 에 레짐 노출 예산 cap 적용.
- *
- * 4 분기:
- *   1. ENV OFF (default) → applied=false / skipReason='ENV_DISABLED' / rawQuantity 그대로
- *   2. 입력 누락 (currentEquityExposureAmount NaN) → applied=false / skipReason='INPUT_MISSING'
- *   3. 정상 → computePortfolioExposureBudget + applyPortfolioExposureCap → finalQuantity 산출
- *   4. cap 결과 finalPositionAmount=0 → applied=true / finalQuantity=0 (차단)
- *
- * 호출자 패턴:
- *   const exposureCap = applyExposureBudgetCap({ rawQuantity: baseQty, ... });
- *   const finalQty = exposureCap.applied ? exposureCap.finalQuantity : baseQty;
- */
+/** Cap the requested quantity; no policy may multiply it or substitute missing account data. */
 export function applyExposureBudgetCap(input: ApplyExposureBudgetCapInput): ApplyExposureBudgetCapResult {
-  if (!isExposureBudgetEnabled()) {
-    return {
-      applied: false,
-      finalQuantity: input.rawQuantity,
-      skipReason: 'ENV_DISABLED',
-    };
+  const values = [input.rawQuantity, input.shadowEntryPrice, input.accountEquity,
+    input.currentEquityExposureAmount, input.currentCashAmount];
+  const grossPct = input.maxGrossExposurePct ?? 100;
+  const currentPositionAmount = input.currentPositionAmount ?? 0;
+  const invalid = !values.every(Number.isFinite) || input.accountEquity <= 0 || input.shadowEntryPrice <= 0
+    || input.rawQuantity < 0 || input.currentCashAmount < 0 || input.currentEquityExposureAmount < 0
+    || !Number.isFinite(grossPct) || grossPct < 0 || !Number.isFinite(currentPositionAmount) || currentPositionAmount < 0
+    || (input.maxPositionAmount !== undefined && (!Number.isFinite(input.maxPositionAmount) || input.maxPositionAmount < 0));
+  if (invalid) {
+    return { applied: true, finalQuantity: 0, skipReason: 'INPUT_MISSING',
+      capResult: { finalPositionAmount: 0, cappedByExposureBudget: true, blockReason: '가격·계좌 자금 확인 필요' } };
   }
-
-  // 입력 검증
-  if (
-    !Number.isFinite(input.accountEquity) || input.accountEquity <= 0 ||
-    !Number.isFinite(input.currentEquityExposureAmount) || input.currentEquityExposureAmount < 0 ||
-    !Number.isFinite(input.shadowEntryPrice) || input.shadowEntryPrice <= 0 ||
-    !Number.isFinite(input.rawQuantity) || input.rawQuantity < 0
-  ) {
-    return {
-      applied: false,
-      finalQuantity: input.rawQuantity,
-      skipReason: 'INPUT_MISSING',
-    };
-  }
-
-  // ADR-0170 §M4 — 매크로 신호 입력 시 R1_DEFENSIVE 자동 격상 (R5_CAUTION + bearDefenseMode/VIX/VKOSPI)
-  const exposureRegime = input.exposureRegime
-    ?? (input.macro
-      ? mapInternalToExposureRegimeWithMacro(input.regime, input.macro)
-      : mapInternalToExposureRegime(input.regime));
-
-  const budget = computePortfolioExposureBudget({
-    accountEquity: input.accountEquity,
-    currentEquityExposureAmount: input.currentEquityExposureAmount,
-    currentCashAmount: input.currentCashAmount,
-    regime: exposureRegime,
-  });
-
-  const rawPositionAmount = input.rawQuantity * input.shadowEntryPrice;
-  const capResult = applyPortfolioExposureCap({
-    rawPositionAmount,
-    exposureBudget: budget,
-    isAddOnBuy: input.isAddOnBuy,
-  });
-
-  const finalQuantity = Math.floor(capResult.finalPositionAmount / input.shadowEntryPrice);
-
-  return {
-    applied: true,
-    finalQuantity,
-    capResult,
-    budget,
-  };
+  const capitalLimit = input.accountEquity * Math.min(100, grossPct) / 100;
+  const capitalRemaining = Math.max(0, capitalLimit - input.currentEquityExposureAmount);
+  const positionRemaining = input.maxPositionAmount === undefined ? capitalLimit
+    : Math.max(0, input.maxPositionAmount - currentPositionAmount);
+  const requested = Math.floor(input.rawQuantity);
+  const amount = Math.min(requested * input.shadowEntryPrice, input.currentCashAmount, capitalRemaining, positionRemaining);
+  const finalQuantity = Math.min(requested, Math.floor(Math.max(0, amount) / input.shadowEntryPrice));
+  const capped = finalQuantity < requested;
+  return { applied: true, finalQuantity,
+    capResult: { finalPositionAmount: finalQuantity * input.shadowEntryPrice, cappedByExposureBudget: capped,
+      ...(capped ? { blockReason: '현금·계좌·종목별 자금 한도' } : {}) } };
 }

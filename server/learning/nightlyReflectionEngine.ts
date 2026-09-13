@@ -73,7 +73,6 @@ import type {
   ActiveFailurePatternSummary,
   MainReflectionInputs,
 } from './reflectionModules/mainReflection.js';
-import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { getGeminiRuntimeState } from '../clients/geminiClient.js';
 import { isKstWeekend } from '../utils/marketClock.js';
@@ -585,7 +584,6 @@ export async function runNightlyReflection(
     // ── Phase 4 #11 Bias Heatmap — Gemini 호출 없음 ────────────────────────
     // PR-16: Bias Heatmap 의 "오늘 청산" 입력을 fill SSOT 기반 요약으로 확장한다.
     // 부분익절이 있는 날에 "악손실 편향" 만 감지돼 왜곡된 heatmap 이 누적되지 않도록.
-    const macro = loadMacroState();
     const activePositions = loadShadowTrades().filter((t) => t.status === 'ACTIVE');
     const realizationSummary = summarizeTodaysRealizationsForLearning(inputs);
     const biasScores = computeBiasHeatmap({
@@ -596,7 +594,6 @@ export async function runNightlyReflection(
       partialRealizationsToday: inputs.partialRealizationsToday,
       attributionToday: inputs.attributionToday,
       missedSignalCount: inputs.missedSignals.length,
-      currentRegime: macro?.regime,
       watchlistCount: inputs.missedSignals.length, // proxy — watchlist 접근 없이 근사
       availableSlots: Math.max(0, 10 - activePositions.length), // 기본 10 슬롯 가정
     });
@@ -693,10 +690,8 @@ export async function runNightlyReflection(
   if (mode !== 'SILENCE_MONDAY' && mode !== 'TEMPLATE_ONLY' && !geminiDisabled) {
     const remain = callsBudget - callsSpent;
     if (remain >= 1) {
-      const macro = loadMacroState();
       const ghostCmp = compareGhostVsReal(0); // 실제 수익률 주입 없음 → 중립 verdict
       const richNarrative = await generateSystemNarrative(report, {
-        regime: macro?.regime,
         ghostVerdict: ghostCmp.ghostCount > 0 ? `${ghostCmp.verdict} (ghost ${ghostCmp.ghostAvgReturnPct}%)` : undefined,
       }, { maxGeminiCalls: remain, onCall: trackCall });
       if (richNarrative) report.narrative = richNarrative;
@@ -771,7 +766,7 @@ export async function runNightlyReflection(
     try {
       const { applyFreshnessDecay, ageDaysFromDateLike } = await import('./learningFreshnessGuard.js');
       const { recordReflectionInjectionBusRun } = await import('./reflectionInjectionBusState.js');
-      const currentRegime = loadMacroState()?.regime;
+      // 현재 레짐은 폐기했다. 교훈의 경과 시간만 반영한다.
       const freshnessLessons = [
         ...buildRecentReflectionContexts(date, 7).map((lesson) => ({
           weight: 1,
@@ -781,7 +776,6 @@ export async function runNightlyReflection(
         ...(report.conditionConfession ?? []).map(() => ({
           weight: 1,
           ageDays: ageDaysFromDateLike(date, now) ?? 0,
-          regime: currentRegime,
         })),
         ...loadBiasHeatmap().flatMap((entry) =>
           entry.scores.map(() => ({
@@ -793,7 +787,6 @@ export async function runNightlyReflection(
         ...(report.counterfactual ? [{
           weight: 1,
           ageDays: ageDaysFromDateLike(date, now) ?? 0,
-          regime: currentRegime,
         }] : []),
         ...inputs.attributionToday.map((lesson) => ({
           weight: 1,
@@ -807,7 +800,7 @@ export async function runNightlyReflection(
         })),
       ];
       const decayedCount = freshnessLessons
-        .map((lesson) => applyFreshnessDecay(lesson, currentRegime, now))
+        .map((lesson) => applyFreshnessDecay(lesson, undefined, now))
         .filter((lesson, index) => lesson.weight !== freshnessLessons[index].weight)
         .length;
       recordReflectionInjectionBusRun('freshnessGuard', {

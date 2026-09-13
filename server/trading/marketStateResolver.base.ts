@@ -1,6 +1,7 @@
 // @responsibility Market state resolver base policy derivation.
 import type { RegimeLevel } from '../../src/types/core.js';
-import { loadMacroState, type MacroState } from '../persistence/macroStateRepo.js';
+import { RetiredRegimeError } from './regime/canonicalRegimeAccess.js';
+import type { MacroState } from '../persistence/macroStateRepo.js';
 import {
   getAutoTradePaused,
   getDataIntegrityBlocked,
@@ -9,7 +10,7 @@ import {
   getManualBlockNewBuy,
   getManualManageOnly,
 } from '../state.js';
-import { getRegimeDiagnostics, type RegimeDiagnostics } from './regimeBridge.js';
+import type { RegimeDiagnostics } from './regimeBridge.js';
 import { getJobMetrics } from '../scheduler/scheduleCatalog.js';
 import { defaultWarnTtlSec, emitOperationalWarn } from '../observability/operationalWarn.js';
 import {
@@ -870,72 +871,9 @@ function logSnapshot(snapshot: MarketStateSnapshot): void {
   logShadowAlwaysOnPolicy(snapshot);
 }
 
-export function resolveMarketState(now: Date = new Date(), options: ResolveMarketStateOptions = {}): MarketStateSnapshot {
-  const macro = options.macroState !== undefined ? options.macroState : loadMacroState();
-  const diagnostics = options.diagnostics ?? getRegimeDiagnostics(macro, now);
-  const ttlSec = resolveTtlSec();
-  const asOf = resolveAsOf(macro, now);
-  const mhs = finiteNumber(macro?.mhs) ?? 50;
-  const mhsLabel = resolveMhsLabel(mhs, macro);
-  const biasScore = resolveBiasScore(macro);
-  const biasLabel = resolveBiasLabel(biasScore);
-  const riskOverride = resolveRiskOverride(diagnostics, macro);
-  let effectiveRegime = resolveEffectiveRegime(diagnostics, riskOverride);
-  if (effectiveRegime === 'R6_RECOVERY_WATCH' && diagnostics.r6RecoveryStatus === 'RECOVERY_CANDIDATE' && mhs >= 65 && biasScore >= -20 && !diagnostics.r6ShockLatch) {
-    effectiveRegime = 'R5_STABILIZING';
-  }
-  const detectedRegime = diagnostics.rawRegime;
-  const rawTrend = readStringField(macro, ['regime', 'rawTrend', 'trend']) ?? detectedRegime;
-  const snapshotId = buildSnapshotId({
-    asOf,
-    mhs,
-    biasScore,
-    riskOverride,
-    detectedRegime,
-    effectiveRegime,
-  });
-  const staleness = resolveStaleness(macro, asOf, now, ttlSec, diagnostics);
-  const displaySeverity = baseDisplaySeverity(effectiveRegime, riskOverride, mhsLabel);
-  const chrome = resolveDisplayChrome(effectiveRegime, displaySeverity);
-  const execution = resolveExecution({ effectiveRegime, riskOverride });
-  const snapshot = applyConflictRules({
-    snapshotId,
-    asOf,
-    ttlSec,
-    biasScore,
-    biasLabel,
-    mhs,
-    mhsLabel,
-    rawMhs: mhs,
-    rawMhsLabel: mhsLabel,
-    mhsDisplayLabel: mhsLabel,
-    detectedRegime,
-    rawTrend,
-    riskOverride,
-    effectiveRegime,
-    ...execution,
-    displayRegime: effectiveRegime,
-    displaySeverity,
-    ...chrome,
-    displayLabel: `${chrome.displayEmoji} ${chrome.displayTitle}`,
-    reasonCodes: buildReasonCodes(diagnostics, riskOverride, biasLabel, mhsLabel),
-    ...staleness,
-    r6Latch: diagnostics.r6ShockLatch || diagnostics.transitionState.r6ShockLatchDetail ? {
-      active: diagnostics.r6ShockLatch,
-      triggerType: diagnostics.transitionState.r6ShockLatchDetail?.triggerType ?? diagnostics.transitionState.r6ShockLatchReason,
-      triggeredAt: diagnostics.transitionState.r6ShockLatchDetail?.triggeredAt ?? diagnostics.transitionState.latchTriggeredAt,
-      expiresAt: diagnostics.transitionState.r6ShockLatchDetail?.expiresAt ?? diagnostics.transitionState.latchExpiresAt,
-      severity: diagnostics.transitionState.r6ShockLatchDetail?.severity ?? diagnostics.transitionState.latchTriggerValue,
-      decayLevel: diagnostics.transitionState.r6ShockLatchDetail?.decayLevel ?? diagnostics.transitionState.latchDecayPercent ?? 0,
-      decayBlockedReason: resolveR6LatchDecayBlockedReason(diagnostics, staleness.macroState, now),
-      releaseEligibleAt: diagnostics.transitionState.r6ShockLatchDetail?.releaseEligibleAt ?? diagnostics.transitionState.latchReleaseEligibleAt,
-      activeTriggers: diagnostics.activeR6Triggers,
-      previousTriggers: diagnostics.previousR6Triggers,
-    } : undefined,
-  });
-
-  logSnapshot(snapshot);
-  return snapshot;
+/** Retired live entrypoint: never derive execution permission from legacy regime data. */
+export function resolveMarketState(_now: Date = new Date(), _options: ResolveMarketStateOptions = {}): MarketStateSnapshot {
+  throw new RetiredRegimeError();
 }
 
 export const RegimeResolver = {

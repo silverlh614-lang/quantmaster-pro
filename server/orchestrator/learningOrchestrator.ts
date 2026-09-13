@@ -10,7 +10,7 @@
  *                   + 첫 캘리브레이션 임계값(10건) 체크
  *   L3 (주간)     : 매주 월요일 07:00 KST 경량 캘리브레이션 + 주간 미니 백테스트
  *   L4 (월간)     : 월말 28일+ WalkForward → calibrateSignalWeights →
- *                   calibrateByRegime → runConditionAudit
+ *                   runConditionAudit
  *
  * 모든 티어는 learningState에 마지막 실행 시각을 기록하여 health-check에서 추적.
  */
@@ -19,14 +19,12 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { evaluateRecommendations, getRecommendations } from '../learning/recommendationTracker.js';
 import { detectPerformanceAnomaly } from '../learning/anomalyDetector.js';
 import { calibrateSignalWeights, calibrateShadowCandidateWeights } from '../learning/signalCalibrator.js';
-import { calibrateByRegime } from '../learning/regimeAwareCalibrator.js';
 import { runWalkForwardValidation } from '../learning/walkForwardValidator.js';
 import { runConditionAudit } from '../learning/conditionAuditor.js';
 import { runBacktest, runWeeklyMiniBacktest } from '../learning/backtestEngine.js';
 import { bootstrapAttributionFromRecommendations } from '../learning/synergyBootstrap.js';
 import { reEvaluateExpired } from '../learning/lateWinEvaluator.js';
 import { runExperimentalConditionBacktest } from '../learning/experimentalConditionTester.js';
-import { updatePhaseMapAndCaps } from '../learning/phaseMapCalibrator.js';
 import { updateShadowRealDrift } from '../learning/shadowRealDriftDetector.js';
 import {
   runIncrementalCalibration,
@@ -135,7 +133,6 @@ class LearningOrchestrator {
    * tradingOrchestrator REPORT_ANALYSIS (월 28일+ 16:45+) 에서 위임.
    *   1. WalkForward — 과최적화 감지 시 이후 캘리브레이션 동결
    *   2. calibrateSignalWeights — 전역 가중치 재보정 (동결 시 내부 skip)
-   *   3. calibrateByRegime — 레짐별 독립 가중치
    *   4. runConditionAudit — 조건 감사 + Gemini 신규 조건 후보
    */
   async runMonthlyEvolution(): Promise<void> {
@@ -152,10 +149,6 @@ class LearningOrchestrator {
     await runWalkForwardValidation().catch((e) => console.error('[L4 wf]', e));
     await calibrateSignalWeights().catch((e) => console.error('[L4 signal]', e));
     markCalibRan();
-    await calibrateByRegime().catch((e) => console.error('[L4 regime]', e));
-    // 아이디어 9 (Phase 5): 레짐별 위상 맵 — 위험 레짐에 cap 0.5 적용.
-    // calibrateByRegime 직후에 실행하여 regime별 가중치 조정 결과 위에 cap 적용.
-    await updatePhaseMapAndCaps().catch((e) => console.error('[L4 phase-map]', e));
     await runConditionAudit().catch((e) => console.error('[L4 audit]', e));
     // 아이디어 6 (Phase 3): 이전 월 PROPOSED 조건들의 A/B 백테스트 후 상태 전이.
     // runConditionAudit 내부 proposeNewConditions 가 이번 월 신규 PROPOSED 를
@@ -178,11 +171,10 @@ class LearningOrchestrator {
     try {
       await calibrateSignalWeights();
       markCalibRan();
-      await calibrateByRegime();
       markFirstCalibrationDone();
       await sendTelegramAlert(
         `🎓 <b>[첫 학습 완료]</b> Resolution ${resolved.length}건 달성\n` +
-        `초기 캘리브레이션(전역 + 레짐별) 실행 완료 — 이후 주간 L3·월간 L4 사이클로 전환`,
+        `초기 전역 캘리브레이션 실행 완료 — 이후 주간 L3·월간 L4 사이클로 전환`,
       ).catch(console.error);
     } catch (e) {
       console.error('[LearningOrch] 첫 캘리브레이션 실패:', e);

@@ -38,7 +38,7 @@ beforeEach(async () => {
   _HAS_REAL_DATA_CLIENT.value = false;
   process.env.KIS_APP_KEY = 'test-key';
   process.env.KIS_APP_SECRET = 'test-secret';
-  process.env.R6_KOSPI_INTRADAY_QUOTE_ENABLED = 'true';
+  delete process.env.R6_KOSPI_INTRADAY_QUOTE_ENABLED;
   mod = await import('./sectorIndex.js');
 });
 
@@ -49,7 +49,8 @@ afterEach(() => {
 });
 
 describe('ADR-0593 fetchKospiCompositeIntradayQuote breadth extraction', () => {
-  it('응답 row 의 ascn_issu_cnt / down_issu_cnt 를 advanceCount / declineCount 로 추출', async () => {
+  it.each([undefined, 'false', 'true'])('레짐 환경변수 %s와 무관하게 코스피 시세와 등락 종목 수를 추출', async (value) => {
+    if (value !== undefined) process.env.R6_KOSPI_INTRADAY_QUOTE_ENABLED = value;
     _realDataKisGet.mockResolvedValue({
       output: [{
         bstp_nmix_prpr: '2800.5',
@@ -65,6 +66,7 @@ describe('ADR-0593 fetchKospiCompositeIntradayQuote breadth extraction', () => {
     expect(quote?.declineCount).toBe(210);
     expect(quote?.changePct).toBeCloseTo(4.2, 5);
     expect(quote?.tradeDate).toBe('2026-06-09');
+    expect(_realDataKisGet).toHaveBeenCalledTimes(1);
   });
 
   it('등락종목수 필드 부재 → advanceCount/declineCount undefined (보수), current/changePct 정상', async () => {

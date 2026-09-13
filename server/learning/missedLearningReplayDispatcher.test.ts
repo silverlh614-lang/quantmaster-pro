@@ -82,12 +82,12 @@ describe('dispatchMissedLearningReplay — jobName → 실함수 매핑', () => 
     expect(resolveLedger).not.toHaveBeenCalled();
   });
 
-  it('ledger_resolve → resolveLedger + 3 suggest 스윕 (원본 cron 정합)', async () => {
+  it('ledger_resolve keeps outcome recovery without regime coverage suggestions', async () => {
     await dispatchMissedLearningReplay('ledger_resolve');
     expect(resolveLedger).toHaveBeenCalledTimes(1);
     expect(evaluateLedgerSuggestion).toHaveBeenCalledTimes(1);
-    expect(evaluateKellySurfaceSuggestion).toHaveBeenCalledTimes(1);
-    expect(evaluateRegimeCoverageSuggestion).toHaveBeenCalledTimes(1);
+    expect(evaluateKellySurfaceSuggestion).not.toHaveBeenCalled();
+    expect(evaluateRegimeCoverageSuggestion).not.toHaveBeenCalled();
     expect(counterfactualResolveDueRun).not.toHaveBeenCalled();
   });
 

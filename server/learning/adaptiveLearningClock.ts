@@ -2,8 +2,8 @@
 /**
  * adaptiveLearningClock.ts — 학습 주기 가속/감속 적응 스위치.
  *
- * 시장 변동성(VIX)과 레짐에 따라 학습 주기를 동적으로 조정한다.
- *   R5_CAUTION/R6_DEFENSE 또는 VIX > 30 → 가속 (7일 주기 L4)
+ * 시장 변동성(VIX)에 따라 학습 주기를 동적으로 조정한다.
+ *   VIX > 30 → 가속 (7일 주기 L4)
  *   VIX > 20                             → 중간 (14일 주기 L4)
  *   그 외                                 → 표준 (28일 주기 L4)
  *
@@ -12,7 +12,6 @@
  */
 
 import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { loadLearningState } from './learningState.js';
 
 export interface LearningInterval {
@@ -33,15 +32,13 @@ export interface LearningInterval {
 export function getLearningInterval(): LearningInterval {
   const macroState = loadMacroState();
   const vix        = macroState?.vix ?? 15;
-  // ADR-0531: Gate0 정본 레짐
-  const regime     = macroState ? resolveCanonicalRegimeLevel(macroState) : 'R4_NEUTRAL';
 
-  if (vix > 30 || regime === 'R5_CAUTION' || regime === 'R6_DEFENSE') {
+  if (vix > 30) {
     return {
       evaluateIntervalHours: 2,
       calibrateTriggerDays:  7,
       mode:                  'FAST',
-      reason:                `VIX ${vix.toFixed(1)} / ${regime} — 고변동성 구간`,
+      reason:                `VIX ${vix.toFixed(1)} — 고변동성 구간`,
     };
   }
   if (vix > 20) {
@@ -56,7 +53,7 @@ export function getLearningInterval(): LearningInterval {
     evaluateIntervalHours: 24,
     calibrateTriggerDays:  28,
     mode:                  'STANDARD',
-    reason:                `VIX ${vix.toFixed(1)} / ${regime} — 안정 구간`,
+    reason:                `VIX ${vix.toFixed(1)} — 안정 구간`,
   };
 }
 

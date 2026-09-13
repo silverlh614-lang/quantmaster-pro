@@ -12,8 +12,8 @@ vi.mock('../../../persistence/autoActivationApprovalRepo.js', () => ({ recordApp
 import approveActivation from './approveActivation.cmd.js';
 import type { CommandContext } from '../_types.js';
 
-const T2_ENV = 'R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED';
-const T2_ID = 'R6_TRIGGER_TRADEDATE_FRESHNESS_ADR0592';
+const T2_ENV = 'GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED';
+const T2_ID = 'GATE1_RS_PERCENTILE_CONTINUOUS_ADR0627';
 const OP_KEYS = ['TELEGRAM_OPERATOR_USER_IDS', 'TELEGRAM_ADMIN_USER_IDS', 'TELEGRAM_CHAT_ID'];
 
 function makeCtx(

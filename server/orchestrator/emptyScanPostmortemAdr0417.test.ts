@@ -31,6 +31,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+  vi.doUnmock('../trading/regime/canonicalRegimeAccess.js');
+  vi.doUnmock('../persistence/macroStateRepo.js');
+  vi.doUnmock('../persistence/shadowTradeRepo.js');
   delete process.env.PERSIST_DATA_DIR;
   if (_tmpDataDir && fs.existsSync(_tmpDataDir)) {
     fs.rmSync(_tmpDataDir, { recursive: true, force: true });
@@ -259,19 +265,37 @@ describe('LOOSEN_GATE 신규 출력 금지 정적 가드 (ADR-0417)', () => {
     expect(src).not.toMatch(/threshold 낮추기 권장/);
   });
 
-  it('adaptiveScanScheduler.base.ts — recommendedActions 사용 (recommendedAction 단독 미사용)', () => {
-    // adaptiveScanScheduler.ts 는 R6 overlay 박막으로 분해되고 postmortem 소비 로직(권고 출력·
-    // 분리 분모 비율 보고)은 adaptiveScanScheduler.base.ts 로 이주됨 → grep 대상을 base 로 정정.
-    const src = fs.readFileSync(
-      path.resolve(__dirname, './adaptiveScanScheduler.base.ts'),
-      'utf-8',
-    );
-    expect(src).toContain('recommendedActions');
-    expect(src).toMatch(/postmortem\.recommendedActions\.join/);
-    // ADR-0417 분리 분모 표시 의무.
-    expect(src).toMatch(/trueFailRate/);
-    expect(src).toMatch(/unavailableRate/);
-    expect(src).toMatch(/errorRate/);
+  it('빈 스캔 카운터와 backoff는 유지하고 폐기된 레짐·Gate 권고는 실행하지 않는다', async () => {
+    const retiredRegime = vi.fn(() => { throw new Error('REGIME_RETIRED'); });
+    vi.doMock('../trading/regime/canonicalRegimeAccess.js', () => ({
+      resolveCanonicalRegimeLevel: retiredRegime,
+    }));
+    vi.doMock('../persistence/macroStateRepo.js', () => ({
+      loadMacroState: () => ({ regime: 'R6_DEFENSE', vkospiDayChange: 0 }),
+    }));
+    vi.doMock('../persistence/shadowTradeRepo.js', () => ({ loadShadowTrades: () => [] }));
+    const postmortem = await import('./emptyScanPostmortem.js');
+    const notifyEmptyScan = vi.spyOn(postmortem, 'notifyEmptyScan').mockImplementation(() => {
+      throw new Error('retired Gate policy notification must not run');
+    });
+    const scheduler = await import('./adaptiveScanScheduler.js');
+    const now = new Date('2026-05-08T01:00:00.000Z'); // Friday 10:00 KST
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    vi.stubEnv('MAX_CONVICTION_POSITIONS', '10');
+    vi.stubEnv('TRADE_WINDOW_LEGACY_HOURS', 'false');
+    vi.stubEnv('VOLUME_CLOCK_LEGACY_HARD_BLOCK', 'false');
+    scheduler.resetScanState();
+
+    for (let i = 0; i < 10; i++) {
+      scheduler.recordScanResult(0, { now, engineMode: 'NORMAL' });
+    }
+    expect(scheduler.getScanFeedbackState()).toEqual({ consecutiveEmptyScans: 10, backoffMultiplier: 3 });
+    expect(scheduler.decideScan()).toMatchObject({ shouldScan: true, intervalMinutes: 6, priority: 'FULL' });
+    scheduler.recordScanResult(2, { now, engineMode: 'NORMAL' });
+    expect(scheduler.getScanFeedbackState()).toEqual({ consecutiveEmptyScans: 0, backoffMultiplier: 1 });
+    expect(notifyEmptyScan).not.toHaveBeenCalled();
+    expect(retiredRegime).not.toHaveBeenCalled();
   });
 });
 

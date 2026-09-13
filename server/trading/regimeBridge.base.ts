@@ -1,51 +1,17 @@
-// @responsibility regimeBridge 매매 엔진 모듈
-/**
- * regimeBridge.ts — MacroState → RegimeVariables 변환 + 라이브 레짐 판정
- *
- * 역할: 서버 측 MacroState(지속적으로 축적되는 거시 지표)를
- *       프론트엔드 classifyRegime()이 요구하는 RegimeVariables 7축으로 매핑.
- *
- * 효과: backtestPortfolio()와 라이브 signalScanner가 동일한 classifyRegime()를
- *       공유 → 검증한 것과 실행하는 것이 일치하는 시스템.
- *
- * 레짐 전환 알림: 레짐이 변경되면 즉시 Telegram으로 구조화된 알림 발송.
- */
-
+// @responsibility Preserve archival regime replay calculations behind a retired runtime boundary.
 import type { RegimeVariables, RegimeLevel } from '../../src/types/core.js';
-import { classifyRegime, REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
+import { classifyRegime } from '../../src/services/quant/regimeEngine.js';
 import type { MacroState } from '../persistence/macroStateRepo.js';
+import { RetiredRegimeError } from './regime/canonicalRegimeAccess.js';
 import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
-import { sendTelegramAlert } from '../alerts/telegramClient.js';
-import { channelRegimeChange } from '../alerts/channelPipeline.js';
-import { renderPlaybook } from '../alerts/regimePlaybook.js';
-import { resetConditionWeightsForRegime } from '../persistence/conditionWeightsRepo.js';
 import { isForcedRegimeDowngradeActive } from '../learning/learningState.js';
 import { classifyVkospiSanity } from './regime/vkospiSanityGuard.js';
-import { resolveKospiTriggerFreshness, isTradeDateFreshnessEnabled } from './kospiTriggerFreshness.js';
+import { resolveKospiTriggerFreshness } from './kospiTriggerFreshness.js';
 import { shouldFastUpgradeToR3Early, isRegimeRiskOnFastUpgradeEnabled } from './regime/riskOnFastUpgrade.js';
-import {
-  classifyRegimeTransition,
-  buildRegimeTransitionMessage,
-  isOscillationReversal,
-  pruneDepartures,
-  resolveRegimeNotifyDwellMs,
-  shouldSuppressClosedMarketNotice,
-  isRegimeNotifyWhenClosedEnabled,
-  type NotifiedRegimeDeparture,
-} from './regime/regimeTransitionNotice.js';
-import { isMarketOpen } from '../utils/marketClock.js';
-import {
-  applyRegimeHysteresis,
-  isRegimeHysteresisEnabled,
-  regimeHysteresisMinDwellMs,
-  regimeHysteresisMinConfirmations,
-} from './regime/regimeHysteresis.js';
 import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import {
   emptyR6RecoveryEvidence,
   emptyR6TriggerBreakdown,
-  loadRegimeTransitionState,
-  saveRegimeTransitionState,
   type RegimeTransitionState,
   type R6RecoveryEvidence,
   type R6TriggerBreakdown,
@@ -53,22 +19,6 @@ import {
   type R6ShockLatch,
   type R6StateMachineState,
 } from '../persistence/regimeTransitionStateRepo.js';
-
-// ── 레짐 전환 감지용 모듈 상태 ──────────────────────────────────────────────
-
-let _previousRegime: RegimeLevel | null = null;
-let _previousMhs: number | null = null;
-let _previousVkospi: number | null = null;
-// ① 진동 억제용 — 최근 dwell 창 안에서 "떠난" 레짐 기록(되돌림 감지). 표시 전용 상태.
-let _recentDepartures: NotifiedRegimeDeparture[] = [];
-
-/** 테스트 전용 — 레짐 알림 모듈 상태 초기화. */
-export function __resetRegimeNotifierStateForTests(): void {
-  _previousRegime = null;
-  _previousMhs = null;
-  _previousVkospi = null;
-  _recentDepartures = [];
-}
 
 /**
  * MacroState → RegimeVariables
@@ -369,7 +319,6 @@ function resolveVkospiRecoveryThreshold(macroState: MacroState | null): number {
 function triggerFreshness(macroState: MacroState | null, now: Date): { freshness: R6TriggerBreakdown['triggerFreshness']; intradayDowngraded: boolean } {
   const ageFreshness = macroFreshnessFromUpdatedAt(macroState, macroState?.kospiTriggerSourceUpdatedAt ?? macroState?.updatedAt, now);
   // ADR-0592 D1: flag OFF → age-only freshness byte-equivalent. ON → 봉 거래일 기준 intraday-low per-trigger 강등.
-  if (!isTradeDateFreshnessEnabled()) return { freshness: ageFreshness, intradayDowngraded: false };
   const resolved = resolveKospiTriggerFreshness({ tradeDate: macroState?.kospiTriggerSourceTradeDate, ageFreshness, now });
   if (resolved.intradayDowngraded) {
     console.info(
@@ -989,249 +938,30 @@ export function evaluateR6RecoveryTransition(
   return { ...previousState, previousRegime: previousState.effectiveRegime, currentRegime: effectiveRegime, rawRegime, effectiveRegime, lastTransitionAt: previousState.effectiveRegime === effectiveRegime ? previousState.lastTransitionAt : nowIso, transitionDirection: transitionDirection(previousState.effectiveRegime, effectiveRegime), transitionReason: previousState.effectiveRegime === effectiveRegime ? 'RAW_REGIME_RECONFIRMED' : 'RAW_REGIME_RECLASSIFIED', r6RecoveryStatus: 'NONE', r6RecoveryEvidence: { ...emptyR6RecoveryEvidence(nowIso), requiredConfirmations }, cooldownUntil: undefined, sourceUpdatedAt: macroState?.updatedAt, recoveryConfirmations: 0, r6TriggerBreakdown: triggerBreakdown, previousR6Triggers: [], r6ShockLatch: false, r6ShockLatchDetail: undefined, r6StateMachineState, r6ShockLatchReason: undefined, latchTriggeredAt: undefined, latchTriggerValue: undefined, latchTriggerSource: undefined, latchExpiresAt: undefined, latchDecayLevel: 'NONE', latchDecayPercent: 0, latchReleaseEligibleAt: undefined, recoveryBlockedReason: undefined, consecutiveHealthyRecoveryTicks: 0 };
 }
 
-export function getRawRegime(macroState: MacroState | null, now: Date = new Date()): RegimeLevel {
+/** Offline historical replay only. No production consumer may use this to decide trades. */
+export function getHistoricalRegime(macroState: MacroState | null, now: Date = new Date()): RegimeLevel {
   if ((macroState as unknown as { regime?: string } | null)?.regime === 'R6_DEFENSE') return 'R6_DEFENSE';
   const triggerBreakdown = buildR6TriggerBreakdown(macroState, now);
   if (triggerBreakdown.activeR6Triggers.length > 0) return 'R6_DEFENSE';
   return macroState ? classifyRegime(buildRegimeVars(macroState, now)) : 'R4_NEUTRAL';
 }
 
-/** ADR-0664 — 보류 pending 상태 클리어(변경 없음/채택 시). 이미 비어있으면 동일 참조 반환. */
-function clearRegimeHysteresisPending(state: RegimeTransitionState): RegimeTransitionState {
-  if (state.pendingEffectiveRegime === undefined && (state.pendingEffectiveCount ?? 0) === 0) return state;
-  return { ...state, pendingEffectiveRegime: undefined, pendingEffectiveSince: undefined, pendingEffectiveCount: 0 };
+/** The current engine has no regime. These signatures only identify obsolete integrations. */
+export function getRawRegime(_macroState: MacroState | null, _now: Date = new Date()): RegimeLevel {
+  throw new RetiredRegimeError();
 }
 
-/**
- * ADR-0664 — effectiveRegime 히스테리시스(디바운스) 적용.
- * 정상 경로(R6 외) 전환만 디바운스: 새 레짐이 dwell 확정 전이면 confirmed 유지(hold).
- * R6 진입/이탈·R6 복구 flow(r6RecoveryStatus≠NONE) 는 즉시 통과(자체 머신이 관리·안전).
- * flag OFF → computedState 그대로(byte-identical).
- */
-function applyRegimeHysteresisToState(
-  previousState: RegimeTransitionState,
-  computedState: RegimeTransitionState,
-  now: Date,
-): RegimeTransitionState {
-  if (!isRegimeHysteresisEnabled()) return computedState;
-
-  const confirmed = previousState.effectiveRegime;
-  const computed = computedState.effectiveRegime;
-  // R6 즉시 예외 — 디바운스 미적용(블랙스완/복구는 지연 금지).
-  if (computedState.r6RecoveryStatus !== 'NONE') return clearRegimeHysteresisPending(computedState);
-  if (computed === 'R6_DEFENSE' || confirmed === 'R6_DEFENSE') return clearRegimeHysteresisPending(computedState);
-  if (computed === confirmed) return clearRegimeHysteresisPending(computedState);
-
-  const result = applyRegimeHysteresis({
-    computedEffective: computed,
-    confirmedEffective: confirmed,
-    pendingRegime: previousState.pendingEffectiveRegime,
-    pendingSince: previousState.pendingEffectiveSince,
-    pendingCount: previousState.pendingEffectiveCount,
-    nowMs: now.getTime(),
-    minDwellMs: regimeHysteresisMinDwellMs(),
-    minConfirmations: regimeHysteresisMinConfirmations(),
-  });
-
-  if (!result.held) {
-    // 채택 — pending 클리어, computedState(effective=computed) 그대로.
-    return clearRegimeHysteresisPending(computedState);
-  }
-
-  // 보류 — effective 를 confirmed 로 되돌리고 pending 기록(전환 미발생).
-  const r6StateMachineState: R6StateMachineState = confirmed === 'R5_CAUTION' ? 'R4_CAUTION' : 'R3_NORMAL';
-  return {
-    ...computedState,
-    previousRegime: previousState.previousRegime,
-    currentRegime: confirmed,
-    effectiveRegime: confirmed,
-    transitionDirection: 'NONE',
-    transitionReason: `REGIME_HYSTERESIS_HOLD:${computed}`,
-    lastTransitionAt: previousState.lastTransitionAt,
-    r6StateMachineState,
-    pendingEffectiveRegime: result.pendingRegime,
-    pendingEffectiveSince: result.pendingSince,
-    pendingEffectiveCount: result.pendingCount,
-  };
+export function getRegimeDiagnostics(_macroState: MacroState | null, _now: Date = new Date()): RegimeDiagnostics {
+  throw new RetiredRegimeError();
 }
 
-export function getRegimeDiagnostics(macroState: MacroState | null, now: Date = new Date()): RegimeDiagnostics {
-  const rawRegime = getRawRegime(macroState, now);
-  const previousState = loadRegimeTransitionState();
-  const computedState = evaluateR6RecoveryTransition(previousState, macroState, rawRegime, now);
-  const transitionState = applyRegimeHysteresisToState(previousState, computedState, now);
-  saveRegimeTransitionState(transitionState);
-  return {
-    rawRegime,
-    effectiveRegime: transitionState.effectiveRegime,
-    r6RecoveryStatus: transitionState.r6RecoveryStatus,
-    cooldownUntil: transitionState.cooldownUntil,
-    transitionReason: transitionState.transitionReason,
-    recoveryEvidence: transitionState.r6RecoveryEvidence,
-    transitionState,
-    sourceFreshness: sourceFreshness(macroState, now),
-    r6TriggerBreakdown: transitionState.r6TriggerBreakdown,
-    activeR6Triggers: transitionState.r6TriggerBreakdown.activeR6Triggers,
-    previousR6Triggers: transitionState.previousR6Triggers,
-    r6ShockLatch: transitionState.r6ShockLatch,
-    recoveryBlockedReason: transitionState.recoveryBlockedReason,
-  };
+export function getLiveRegime(_macroState: MacroState | null): RegimeLevel {
+  throw new RetiredRegimeError();
 }
 
-export function getLiveRegime(macroState: MacroState | null): RegimeLevel {
-  return getRegimeDiagnostics(macroState).effectiveRegime;
+export async function checkAndNotifyRegimeChange(_macroState: MacroState | null): Promise<void> {
+  throw new RetiredRegimeError();
 }
 
-// ── 레짐 전환 즉시 알림 ──────────────────────────────────────────────────────
-
-/**
- * 레짐 전환 감지 + 즉시 Telegram 알림 발송.
- *
- * getLiveRegime() 호출 후 이 함수를 호출하면,
- * 이전 레짐과 비교하여 변경 시 구조화된 알림을 발송한다.
- *
- * 알림 내용:
- *  ① 전환 방향 (업그레이드/다운그레이드)
- *  ② MHS, VKOSPI 변화량
- *  ③ Kelly 배율, 최대 보유, 손절 기준 변경사항
- *  ④ 보유 포지션 점검 권고
- */
-export async function checkAndNotifyRegimeChange(
-  macroState: MacroState | null,
-): Promise<void> {
-  const diagnostics = getRegimeDiagnostics(macroState);
-  const currentRegime = diagnostics.effectiveRegime;
-  const persistedPrevious = diagnostics.transitionState.previousRegime;
-  const currentMhs = macroState?.mhs ?? null;
-  const currentVkospi = macroState?.vkospi ?? null;
-
-  // 첫 호출/재시작: persistent state 를 이전 레짐 기준으로 복원한다.
-  if (_previousRegime === null) {
-    _previousRegime = persistedPrevious ?? currentRegime;
-    _previousMhs = currentMhs;
-    _previousVkospi = currentVkospi;
-    if (_previousRegime === currentRegime) return;
-  }
-
-  // 레짐 변경 없으면 상태만 갱신
-  if (_previousRegime === currentRegime) {
-    _previousMhs = currentMhs;
-    _previousVkospi = currentVkospi;
-    return;
-  }
-
-  // ── 레짐 전환 감지! ──────────────────────────────────────────────────────
-  const prevIdx = REGIME_ORDER.indexOf(_previousRegime);
-  const currIdx = REGIME_ORDER.indexOf(currentRegime);
-  const isDowngrade = currIdx < prevIdx;
-  // 아이디어 2: 2단계 이상 급변 시 새 레짐의 학습 가중치 즉시 리셋.
-  // 예: R2_BULL(idx=4) → R5_CAUTION(idx=1) → |diff|=3 → 리셋.
-  const stepDelta = Math.abs(prevIdx - currIdx);
-  const isAbruptShift = stepDelta >= 2;
-  let resetNote = '';
-  if (isAbruptShift) {
-    const prevWeights = resetConditionWeightsForRegime(currentRegime);
-    const movedKeys = prevWeights
-      ? Object.entries(prevWeights)
-          .filter(([, v]) => Math.abs(v - 1.0) > 0.05)
-          .map(([k]) => k)
-      : [];
-    resetNote =
-      `\n🧬 <b>가중치 자동 리셋</b>\n` +
-      `• ${currentRegime} condition-weights 초기값 1.0 복원 (${stepDelta}단계 급변)\n` +
-      (movedKeys.length > 0
-        ? `• 리셋된 키: ${movedKeys.slice(0, 6).join(', ')}${movedKeys.length > 6 ? ` 외 ${movedKeys.length - 6}` : ''}\n`
-        : '• 이전 저장 없음 — 신규 파일 생성\n') +
-      `• 원칙: 직전 장세 주도주는 신장세 주도주가 아니다\n`;
-    console.log(
-      `[RegimeBridge] ${stepDelta}단계 급변(${_previousRegime}→${currentRegime}) — ${currentRegime} 가중치 리셋`,
-    );
-  }
-
-  const prevCfg = REGIME_CONFIGS[_previousRegime];
-  const currCfg = REGIME_CONFIGS[currentRegime];
-
-  // ③ 방향·실질 변화 분류 — 설정(Kelly/한도) 동일이면 "공격 전환" 오라벨 금지.
-  const classification = classifyRegimeTransition({ isDowngrade, prevCfg, currCfg });
-
-  // D2 — 장외(마감 후/장전/휴장) 억제. 3분 TTL refresh 가 장외에서 intraday 신선도 flapping
-  //   으로 R3↔R4 전환을 토글하는 churn 차단(카탈로그 "내부 캐시 갱신만·Telegram 송출 없음" 계약 정합).
-  //   R6_DEFENSE 진입(블랙스완)만 예외 — 오버나잇/장전 위기 경보 보존.
-  const isR6Entry = currentRegime === 'R6_DEFENSE' && _previousRegime !== 'R6_DEFENSE';
-  if (
-    !isRegimeNotifyWhenClosedEnabled() &&
-    shouldSuppressClosedMarketNotice({ marketOpen: isMarketOpen(), isR6Entry })
-  ) {
-    console.warn(
-      `[RegimeBridge] 장외 억제: ${_previousRegime} → ${currentRegime} (시장 마감·R6 진입 아님) — 알림 생략`,
-    );
-    _previousRegime = currentRegime;
-    _previousMhs = currentMhs;
-    _previousVkospi = currentVkospi;
-    return;
-  }
-
-  // ① 진동(flip-flop) 억제 — 최근 dwell 창 안에서 떠났던 레짐으로 되돌아오면 알림 생략.
-  //    되돌림은 거의 노이즈이며, CRITICAL T1 이면 30분 미확인 재발송까지 증폭된다(인시던트 캡처).
-  const nowMs = Date.now();
-  const dwellMs = resolveRegimeNotifyDwellMs();
-  _recentDepartures = pruneDepartures(_recentDepartures, nowMs, dwellMs);
-  const oscillation = isOscillationReversal(_recentDepartures, currentRegime, nowMs, dwellMs);
-  // 떠나는 레짐을 항상 기록(억제 여부 무관 — 전체 churn 추적).
-  _recentDepartures.push({ regime: _previousRegime, at: nowMs });
-
-  if (oscillation) {
-    console.warn(
-      `[RegimeBridge] 진동 억제: ${_previousRegime} → ${currentRegime} ` +
-      `(dwell ${Math.round(dwellMs / 60_000)}분 내 되돌림) — 알림 생략`,
-    );
-    _previousRegime = currentRegime;
-    _previousMhs = currentMhs;
-    _previousVkospi = currentVkospi;
-    return;
-  }
-
-  // ② 정직한 본문 — transitionReason / r6RecoveryStatus 노출, 거시 지표 무변화 명시.
-  const msg = buildRegimeTransitionMessage({
-    prevRegime: _previousRegime,
-    currRegime: currentRegime,
-    prevCfg,
-    currCfg,
-    prevMhs: _previousMhs,
-    currMhs: currentMhs,
-    prevVkospi: _previousVkospi,
-    currVkospi: currentVkospi,
-    transitionReason: diagnostics.transitionReason,
-    r6RecoveryStatus: diagnostics.r6RecoveryStatus,
-    classification,
-    resetNote,
-  })
-    // IDEA 5 — 레짐별 구체 행동 가이드 블록 주입
-    + renderPlaybook(currentRegime);
-
-  // Phase 4: 차등화 — 실질 방어 강화(material downgrade)만 T1 CRITICAL(+미확인 재발송).
-  //   업그레이드/무변화 relabel 은 T2 REPORT(HIGH) — 재발송 에스컬레이션 비대상.
-  // dedupeKey 방향 분리(PR-4 B) 유지 — up↔down 교차 dedupe 누락 방지. 진동 자체는 위 oscillation 가드가 차단.
-  const dispatchOpts =
-    classification.kind === 'DOWNGRADE'
-      ? { priority: 'CRITICAL' as const, tier: 'T1_ALARM' as const,  dedupeKey: `regime-change-down-${currentRegime}`,    category: 'regime_downgrade' }
-      : classification.kind === 'UPGRADE'
-        ? { priority: 'HIGH' as const,   tier: 'T2_REPORT' as const, dedupeKey: `regime-change-up-${currentRegime}`,      category: 'regime_upgrade' }
-        : { priority: 'HIGH' as const,   tier: 'T2_REPORT' as const, dedupeKey: `regime-change-relabel-${currentRegime}`, category: 'regime_relabel' };
-  await sendTelegramAlert(msg, dispatchOpts).catch(console.error);
-
-  // 채널: 레짐 변화 경보 (개인 메시지보다 간결하게)
-  await channelRegimeChange(
-    _previousRegime,
-    currentRegime,
-    currentMhs ?? 0,
-    classification.label,
-  ).catch(console.error);
-
-  console.log(`[RegimeBridge] 레짐 전환 알림: ${_previousRegime} → ${currentRegime} (${classification.kind})`);
-
-  // 상태 갱신
-  _previousRegime = currentRegime;
-  _previousMhs = currentMhs;
-  _previousVkospi = currentVkospi;
-}
+/** No notifier state remains; retained for historical test setup compatibility. */
+export function __resetRegimeNotifierStateForTests(): void {}

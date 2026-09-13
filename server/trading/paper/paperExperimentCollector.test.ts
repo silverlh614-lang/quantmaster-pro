@@ -1,6 +1,7 @@
 // @responsibility Verify paper observation provenance.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ watchlist: vi.fn(), news: vi.fn(), dart: vi.fn(), collect: vi.fn() }));
+const mocks = vi.hoisted(() => ({ universe: vi.fn(), watchlist: vi.fn(), news: vi.fn(), dart: vi.fn(), collect: vi.fn() }));
+vi.mock('../../screener/dynamicUniverseExpander.js', () => ({ getExpandedUniverse: mocks.universe }));
 vi.mock('../../persistence/watchlistRepo.js', () => ({ loadWatchlist: mocks.watchlist }));
 vi.mock('../../learning/newsSupplyLogger.js', () => ({ loadNewsSupplyRecords: mocks.news }));
 vi.mock('../../persistence/dartRepo.js', () => ({ loadDartAlerts: mocks.dart }));
@@ -10,6 +11,7 @@ import { collectPaperExperimentSnapshot, isPaperMarketOpen } from './paperExperi
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-09-18T01:00:00Z'));
+  mocks.universe.mockReturnValue([]);
   mocks.watchlist.mockReturnValue([{ code: '005930', name: 'Samsung', section: 'MOMENTUM' }]);
   mocks.news.mockReturnValue([]);
   mocks.dart.mockReturnValue([]);
@@ -34,6 +36,15 @@ describe('paper observation collector', () => {
       { id: 'n1', headline: 'news', observedAt: '2026-09-18T00:00:00Z', source: 'SUPPLY_CHAIN' },
     ]);
     expect(JSON.stringify(result)).not.toContain('t5StockAvg');
+  });
+
+  it('observes the expanded universe even when the legacy watchlist has no admitted stocks', async () => {
+    mocks.watchlist.mockReturnValue([]);
+    mocks.universe.mockReturnValue([{ code: '000660', name: 'SK Hynix' }, { code: '005930', name: 'Samsung' }]);
+    const result = await collectPaperExperimentSnapshot(['005930']);
+    expect(mocks.collect.mock.calls[0][0]).toEqual(['000660', '005930']);
+    expect(result.observations).toHaveLength(2);
+    expect(result.observations.every(item => item.price === 10000)).toBe(true);
   });
 
   it('keeps completed historical bars and excludes current intraday/future closes', async () => {

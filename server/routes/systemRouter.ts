@@ -15,20 +15,13 @@ import { sendTelegramPlainText } from '../alerts/telegramClient.js';
 import { handleTelegramWebhook } from '../telegram/webhookHandler.js';
 import { getApiUsageStats, getGeminiCircuitStats, getGeminiRuntimeState, getBudgetState } from '../clients/geminiClient.js';
 import { getDartCircuitStats } from '../clients/dartFinancialClient.js';
-import { loadWatchlist } from '../persistence/watchlistRepo.js';
-import { computeFocusCodes } from '../screener/watchlistManager.js';
-import { getLastRejectionLog } from '../screener/stockScreener.js';
-import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
-import { getVixGating } from '../trading/vixGating.js';
-import { getFomcProximity } from '../trading/fomcCalendar.js';
-import { getLastScanAt } from '../orchestrator/adaptiveScanScheduler.js';
 import { loadGateAudit } from '../persistence/gateAuditRepo.js';
 import { getCacheEntry, setCacheEntry, deleteCacheEntry, getAiCacheSnapshot } from '../persistence/aiCacheRepo.js';
 import { buildRagIndex, queryRag, generateAdvice, getRagStats } from '../rag/localRag.js';
 import { collectHealthSnapshot } from '../health/diagnostics.js';
 import { runCoherenceAudit } from '../persistence/cacheCoherenceAuditor.js';
 import fs from 'fs';
+import { getPaperExperimentView } from '../trading/paper/paperExperimentRunner.js';
 
 const router = Router();
 
@@ -42,6 +35,7 @@ router.get('/health', (_req: Request, res: Response) => {
   const commitSha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown';
   res.json({
     status: 'ok',
+    regimeStatus: 'RETIRED',
     commit: commitSha.slice(0, 7),
     emergencyStop: getEmergencyStop(),
     dailyLossPct: getDailyLossPct(),
@@ -229,47 +223,9 @@ router.get('/system/rag/advice', async (req: Request, res: Response) => {
 // 아이디어 10: 실시간 진단 대시보드 — "왜 매수 안 되는가" 엔드포인트
 // ─────────────────────────────────────────────────────────────
 router.get('/system/buy-audit', (_req: Request, res: Response) => {
-  const watchlist = loadWatchlist();
-  const focusCodes = computeFocusCodes(watchlist);
-  const buyList = watchlist.filter(
-    (w) => w.addedBy === 'MANUAL' || focusCodes.has(w.code),
-  );
-
-  const macroState = loadMacroState();
-  const regime = resolveCanonicalRegimeLevel(macroState); // ADR-0531: Gate0 정본 레짐
-  const vixGating = getVixGating(macroState?.vix, macroState?.vixHistory);
-  const fomcGating = getFomcProximity();
-
-  const lastScanTs = getLastScanAt();
-  const lastScanAt = lastScanTs > 0 ? new Date(lastScanTs).toISOString() : null;
-
-  const rejectedStocks = getLastRejectionLog().slice(0, 50);
-
-  res.json({
-    watchlistCount: watchlist.length,
-    focusCount: focusCodes.size,
-    buyListCount: buyList.length,
-    regime,
-    vixGating: {
-      noNewEntry: vixGating.noNewEntry,
-      kellyMultiplier: vixGating.kellyMultiplier,
-      reason: vixGating.reason,
-    },
-    fomcGating: {
-      noNewEntry: fomcGating.noNewEntry,
-      phase: fomcGating.phase,
-      kellyMultiplier: fomcGating.kellyMultiplier,
-      description: fomcGating.description,
-      nextFomcDate: fomcGating.nextFomcDate,
-      // FOMC 차단 해제 시점: FOMC 당일(DAY) 다음 날 KST 09:00 (장 시작)
-      unblockAt: fomcGating.noNewEntry && fomcGating.nextFomcDate
-        ? new Date(new Date(fomcGating.nextFomcDate).getTime() + 24 * 60 * 60 * 1000).toISOString()
-        : null,
-    },
-    emergencyStop: getEmergencyStop(),
-    lastScanAt,
-    rejectedStocks,
-  });
+  const view = getPaperExperimentView();
+  res.json({ regimeStatus: 'RETIRED', model: 'PAPER_NEWS_MA20',
+    lastRun: view.lastRun, strategy: view.strategy, emergencyStop: getEmergencyStop() });
 });
 
 // ─────────────────────────────────────────────────────────────

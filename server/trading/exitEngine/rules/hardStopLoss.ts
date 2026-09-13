@@ -16,11 +16,10 @@ import { captureFullCloseSnapshot, rollbackFullCloseOnFailure } from '../helpers
 import { emitFullCloseAttributionForExit } from '../helpers/attribution.js';
 import { applyTwoBarBepGate } from '../helpers/twoBarBepGate.js';
 import { matchExitInvalidation, promoteInvalidationPatternIfRepeated } from '../../preMortemStructured.js';
-import { promoteKellyDriftPattern } from '../../../learning/kellyDriftFailurePromotion.js';
 import { classifyExitOutcome } from '../../exitOutcomeClassifier.js';
 
 export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
-  const { shadow, currentPrice, returnPct, currentRegime, initialStopLoss, regimeStopLoss, hardStopLoss } = ctx;
+  const { shadow, currentPrice, returnPct, initialStopLoss, regimeStopLoss, hardStopLoss } = ctx;
 
   if (currentPrice > hardStopLoss) return NO_OP;
 
@@ -101,7 +100,6 @@ export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
   {
     const match = matchExitInvalidation(shadow, {
       currentPrice,
-      currentRegime,
       mtas: undefined,
       ma60: undefined,
       volume: undefined,
@@ -112,13 +110,6 @@ export async function hardStopLoss(ctx: ExitContext): Promise<ExitRuleResult> {
         id: match.id, matchedAt: new Date().toISOString(), observedValue: match.observedValue,
       };
       promoteInvalidationPatternIfRepeated(shadow);
-      // Idea 10 — Kelly decay × invalidation 의 2차원 패턴도 병렬 승급 평가.
-      // I/O 실패가 exit 경로를 막지 않도록 try/catch.
-      try {
-        promoteKellyDriftPattern(shadow);
-      } catch (e) {
-        console.warn('[KellyDrift] 승급 평가 실패:', e instanceof Error ? e.message : e);
-      }
     }
   }
   console.log(`[AutoTrade] ❌ ${shadow.stockName} (${shadow.stockCode}) 하드 스톱(${stopLossExitType}) ${returnPct.toFixed(2)}% @${currentPrice.toLocaleString()}`);

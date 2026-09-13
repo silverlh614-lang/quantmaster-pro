@@ -1,13 +1,10 @@
-// @responsibility Regime-specific Shadow Learning Bank (diagnostic/read-only).
+// @responsibility Read historical Shadow learning cohorts without a current regime policy.
 import { loadCounterfactualShadowLearningLedger } from '../persistence/counterfactualShadowLearningRepo.js';
-import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { loadGhostPortfolio } from '../persistence/reflectionRepo.js';
 import { loadAttributionRecords, type ServerAttributionRecord } from '../persistence/attributionRepo.js';
-import { getRegimeDiagnostics } from '../trading/regimeBridge.js';
 import { deriveRegimePhase, normalizeRegimeContext } from '../shadow/regimeContext.js';
 import { shadowCaseLedger, type ShadowCaseLedgerStore } from '../shadow/shadowCaseLedger.js';
 import type { ShadowCase } from '../shadow/shadowTypes.js';
-import { formatEngineRuntimePolicy, resolveEngineRuntimePolicy } from '../runtime/engineRuntimePolicy.js';
 import { loadCounterfactuals, type CounterfactualEntry } from './counterfactualShadow.js';
 import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { LEARNING_DEFAULT_MAX_HOLDING_MINUTES } from './learningConstants.js';
@@ -788,17 +785,13 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     duplicateSource,
     duplicateKeySample,
   } = collectCases(input, ledger);
-  const diagnostics = input.rawRegime && input.effectiveRegime
-    ? undefined
-    : getRegimeDiagnostics(loadMacroState());
-  const rawRegime = input.rawRegime ?? diagnostics?.rawRegime ?? 'UNKNOWN';
-  const effectiveRegime = input.effectiveRegime ?? diagnostics?.effectiveRegime ?? rawRegime;
-  const activeContext = normalizeRegimeContext({
-    rawRegime,
-    effectiveRegime,
-    sourceFreshness: diagnostics?.sourceFreshness,
-    regimeConfidence: diagnostics?.sourceFreshness === 'FRESH' ? 'VERIFIED' : diagnostics?.sourceFreshness,
-  });
+  // An explicit tag selects a historical cohort. The default is all history;
+  // it must never resolve today's regime or substitute a neutral regime.
+  const rawRegime = input.rawRegime ?? input.effectiveRegime ?? 'NOT_APPLICABLE';
+  const effectiveRegime = input.effectiveRegime ?? input.rawRegime ?? 'NOT_APPLICABLE';
+  const activeContext = input.rawRegime || input.effectiveRegime
+    ? normalizeRegimeContext({ rawRegime, effectiveRegime })
+    : undefined;
 
   const byPhase = new Map<RegimePhase, { cases: ShadowCase[]; counterfactuals: RegimeCounterfactualEntry[] }>();
   for (const phase of REGIME_LEARNING_PHASES) byPhase.set(phase, { cases: [], counterfactuals: [] });
@@ -810,11 +803,11 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
       const group = byPhase.get(phase)!;
       return buildStatsForPhase(phase, group.cases, group.counterfactuals);
     })
-    .filter((s) => s.sampleSize > 0 || s.regimePhase === activeContext.regimePhase);
+    .filter((s) => s.sampleSize > 0 || s.regimePhase === activeContext?.regimePhase);
   const nonEmpty = stats.filter((s) => s.closedCount > 0 && s.regimePhase !== 'UNKNOWN');
   const best = [...nonEmpty].sort((a, b) => b.expectancyR - a.expectancyR)[0];
   const worst = [...nonEmpty].sort((a, b) => a.expectancyR - b.expectancyR)[0];
-  const active = stats.find((s) => s.regimePhase === activeContext.regimePhase) ?? buildStatsForPhase(activeContext.regimePhase, [], []);
+  const active = activeContext ? stats.find((s) => s.regimePhase === activeContext.regimePhase) : undefined;
   const regimeLearningSampleSize = stats.reduce((sum, row) => sum + row.sampleSize, 0);
   const unknownRegimeCount = stats.find((row) => row.regimePhase === 'UNKNOWN')?.sampleSize ?? 0;
   const recoveredLowConfidenceRegimeCount = stats.reduce((sum, row) => sum + (row.sourceConfidenceBreakdown.LOW ?? 0), 0);
@@ -948,23 +941,23 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
   const phaseSum = stats.reduce((sum, row) => sum + row.sampleSize, 0);
 
   return {
-    activeRegime: activeContext.regimePhase,
+    activeRegime: activeContext?.regimePhase ?? 'HISTORICAL_ALL',
     rawRegime,
     effectiveRegime,
     shadowLearningAllowed: true,
     stats,
     bestRegimeByExpectancy: best?.regimePhase,
     worstRegimeByExpectancy: worst?.regimePhase,
-    activeRegimePhase: activeContext.regimePhase,
-    activeRegimeSampleSize: active.sampleSize,
-    activeRegimeTotalSampleSize: active.totalSampleSize,
-    activeRegimeResolvedSampleSize: active.resolvedSampleSize,
-    activeRegimePendingCounterfactualCount: active.pendingCounterfactualCount,
-    activeRegimeAttributableSampleSize: active.attributableSampleSize,
-    activeRegimeExpectancyR: active.expectancyR,
-    activeRegimeTopPattern: active.bestPattern ?? active.bestConditionCombo ?? active.topSector ?? 'N/A',
-    activeRegimeLearningNeed: active.nextLearningNeed,
-    activeRegimeWhyNotReliable: active.whyNotReliable,
+    activeRegimePhase: activeContext?.regimePhase ?? null,
+    activeRegimeSampleSize: active?.sampleSize ?? 0,
+    activeRegimeTotalSampleSize: active?.totalSampleSize ?? 0,
+    activeRegimeResolvedSampleSize: active?.resolvedSampleSize ?? 0,
+    activeRegimePendingCounterfactualCount: active?.pendingCounterfactualCount ?? 0,
+    activeRegimeAttributableSampleSize: active?.attributableSampleSize ?? 0,
+    activeRegimeExpectancyR: active?.expectancyR ?? 0,
+    activeRegimeTopPattern: active?.bestPattern ?? active?.bestConditionCombo ?? active?.topSector ?? 'N/A',
+    activeRegimeLearningNeed: active?.nextLearningNeed ?? 'READ_HISTORICAL_COHORTS',
+    activeRegimeWhyNotReliable: active?.whyNotReliable ?? 'NO_CURRENT_REGIME',
     regimeLearningSampleSize,
     regimeAssignedCount,
     unknownRegimeCount,
@@ -979,7 +972,7 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     trueUnknownRatio,
     regimeRatioDenominator: 'regimeLearningSampleSize',
     regimeRatioDenominatorValue: regimeLearningSampleSize,
-    activeRegimeQualityStatus: active.qualityStatus,
+    activeRegimeQualityStatus: active?.qualityStatus ?? 'NO_SAMPLE',
     regimeBankConsistency: phaseSum === regimeLearningSampleSize ? 'OK' : 'MISMATCH',
     duplicateCaseCount,
     regimeDuplicateCandidates: duplicateCaseCount,
@@ -1058,8 +1051,8 @@ export function collectRegimeLearningBank(input: CollectRegimeLearningInput = {}
     R6PendingCounterfactualCount: r6.pendingCounterfactualCount,
     nextRegimeMaturityAt,
     regimesNeedingAttributionRecalc,
-    regimeLearningNextAction: active.nextLearningNeed,
-    nextRegimeLearningAction: active.nextLearningNeed,
+    regimeLearningNextAction: active?.nextLearningNeed ?? 'READ_HISTORICAL_COHORTS',
+    nextRegimeLearningAction: active?.nextLearningNeed ?? 'READ_HISTORICAL_COHORTS',
     unknownReductionNeeded: unknownRegimeCount > 0,
     recommendationOnly: true,
     promotionAllowed: false,
@@ -1292,14 +1285,8 @@ export function formatRegimeLearningQuality(bank: RegimeLearningBank = collectRe
 export function formatRegimeLearningSummary(bank: RegimeLearningBank = collectRegimeLearningBank()): string {
   const rows = [...bank.stats].sort((a, b) => b.sampleSize - a.sampleSize);
   return [
-    '<b>[Regime Learning Bank]</b>',
-    `activeRegime=${bank.activeRegime} rawRegime=${bank.rawRegime} effectiveRegime=${bank.effectiveRegime}`,
-    formatEngineRuntimePolicy(resolveEngineRuntimePolicy({
-      engineMode: bank.activeRegime === 'SELL_ONLY' ? 'SELL_ONLY' : bank.activeRegime === 'SHADOW_ONLY' ? 'SHADOW_ONLY' : bank.activeRegime === 'OBSERVE_ONLY' ? 'OBSERVE_ONLY' : 'NORMAL',
-      macroRegime: bank.effectiveRegime,
-      liveBuyGateAllowed: false,
-      reasonCodes: ['REGIME_LEARNING_DIAGNOSTIC'],
-    })),
+    '<b>[Historical Regime Learning Bank]</b>',
+    `historyView=${bank.activeRegime} historicalRawRegime=${bank.rawRegime} historicalEffectiveRegime=${bank.effectiveRegime} runtimeRegime=RETIRED`,
     `shadowLearningAllowed=${bank.shadowLearningAllowed} recommendationOnly=${bank.recommendationOnly} promotionAllowed=${bank.promotionAllowed} executionImpact=${bank.executionImpact} brokerOrdersCreated=${bank.brokerOrdersCreated}`,
     `regimeLearningSampleSize=${bank.regimeLearningSampleSize} regimeAssignedCount=${bank.regimeAssignedCount} unknownRegimeCount=${bank.unknownRegimeCount} unknownRatioRaw=${bank.unknownRatioRaw} recoveredLowConfidenceRegimeCount=${bank.recoveredLowConfidenceRegimeCount} recoveredLowConfidenceRegimeRatio=${bank.recoveredLowConfidenceRegimeRatio} trueUnknownRegimeCount=${bank.trueUnknownRegimeCount} trueUnknownRatio=${bank.trueUnknownRatio} regimeRatioDenominator=${bank.regimeRatioDenominator} regimeRatioDenominatorValue=${bank.regimeRatioDenominatorValue} regimeBankConsistency=${bank.regimeBankConsistency}`,
     `regimeBackfillTargetUnknownCount=${bank.regimeBackfillTargetUnknownCount} regimeBackfillAttemptedTotal=${bank.regimeBackfillAttemptedTotal} regimeBackfillAttemptedUnique=${bank.regimeBackfillAttemptedUnique} regimeBackfillAttemptedDuplicates=${bank.regimeBackfillAttemptedDuplicates} attemptedOverTargetReason=${bank.attemptedOverTargetReason} regimeBackfillRecovered=${bank.regimeBackfillRecovered} regimeBackfillFailed=${bank.regimeBackfillFailed} regimeBackfillRecoveredBySource=${JSON.stringify(bank.regimeBackfillRecoveredBySource)} regimeBackfillRecoveredByConfidence=${JSON.stringify(bank.regimeBackfillRecoveredByConfidence)} regimeBackfillFailedAfterDailyFallback=${bank.regimeBackfillFailedAfterDailyFallback} regimeBackfillFailureTopReasonsAfterDailyFallback=${JSON.stringify(bank.regimeBackfillFailureTopReasonsAfterDailyFallback)} regimeBackfillFailureTopReasons=${JSON.stringify(bank.regimeBackfillFailureTopReasons)} regimeBackfillFailureBySourceLane=${JSON.stringify(bank.regimeBackfillFailureBySourceLane)} regimeBackfillFailureByTimestampSource=${JSON.stringify(bank.regimeBackfillFailureByTimestampSource)} regimeBackfillFailureByTradingDate=${JSON.stringify(bank.regimeBackfillFailureByTradingDate)} regimeSnapshotCoverageByTradingDate=${JSON.stringify(bank.regimeSnapshotCoverageByTradingDate)} missingRegimeSnapshotDates=${JSON.stringify(bank.missingRegimeSnapshotDates)} dailyRegimeFallbackStatus=${bank.dailyRegimeFallbackStatus} regimeSnapshotReconstructionAttemptedDates=${JSON.stringify(bank.regimeSnapshotReconstructionAttemptedDates)} regimeSnapshotReconstructionSucceededDates=${JSON.stringify(bank.regimeSnapshotReconstructionSucceededDates)} regimeSnapshotReconstructionFailedDates=${JSON.stringify(bank.regimeSnapshotReconstructionFailedDates)} regimeSnapshotReconstructionSourceBreakdown=${JSON.stringify(bank.regimeSnapshotReconstructionSourceBreakdown)} regimeSnapshotReconstructionConfidenceBreakdown=${JSON.stringify(bank.regimeSnapshotReconstructionConfidenceBreakdown)} regimeSourceInventoryByDate=${JSON.stringify(bank.regimeSourceInventoryByDate)} regimeSourceInventoryTopAvailable=${JSON.stringify(bank.regimeSourceInventoryTopAvailable)} regimeSourceInventoryMissingSources=${JSON.stringify(bank.regimeSourceInventoryMissingSources)} regimeSourceInventoryAuditStatus=${bank.regimeSourceInventoryAuditStatus} regimeSnapshotReconstructionPriorityDate=${bank.regimeSnapshotReconstructionPriorityDate} priorityDateReconstructionStatus=${bank.priorityDateReconstructionStatus} priorityDateRecoveredSampleCount=${bank.priorityDateRecoveredSampleCount} priorityDateFailureReason=${bank.priorityDateFailureReason} postReconstructionTrueUnknownRatio=${bank.postReconstructionTrueUnknownRatio} regimePromotionStillBlocked=${bank.regimePromotionStillBlocked} regimePromotionBlockReason=${bank.regimePromotionBlockReason} regimeBackfillFailureSampleKeys=${JSON.stringify(bank.regimeBackfillFailureSampleKeys)}`,

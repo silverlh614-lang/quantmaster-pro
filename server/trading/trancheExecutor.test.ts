@@ -35,7 +35,7 @@ describe('evaluateTrancheRevalidation', () => {
     expect(result.reason).toContain('차단');
   });
 
-  it('rejects tranche when regime has deteriorated from entry', () => {
+  it('ignores historical regime deterioration when price and plan remain valid', () => {
     const result = evaluateTrancheRevalidation({
       currentPrice: 10_300,
       entryPrice: 10_000,
@@ -44,8 +44,8 @@ describe('evaluateTrancheRevalidation', () => {
       entryRegime: 'R2_BULL',
     });
 
-    expect(result.ok).toBe(false);
-    expect(result.reason).toContain('진입 레짐');
+    expect(result.ok).toBe(true);
+    expect(result.reason).toBeUndefined();
   });
 
   it('passes when tranche conditions are healthy', () => {

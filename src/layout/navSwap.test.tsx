@@ -26,35 +26,35 @@ function SwapRouter() {
 }
 
 beforeEach(() => {
-  useSettingsStore.getState().setView('DISCOVER');
+  useSettingsStore.getState().setView('DASHBOARD');
 });
 
 afterEach(() => cleanup());
 
 describe('AnimatePresence mode="wait" 페이지 스왑', () => {
-  it('Trade → Watchlist 연속 전환 시 마지막 view 가 렌더된다 (스왑 멈춤 없음)', async () => {
+  it('전략 판단 → 저장 자료 연구 연속 전환 시 마지막 view 가 렌더된다 (스왑 멈춤 없음)', async () => {
     const { getByLabelText, getByTestId } = render(
       <>
         <SwapRouter />
         <BottomNav />
       </>,
     );
-    expect(getByTestId('page').textContent).toBe('DISCOVER');
+    expect(getByTestId('page').textContent).toBe('DASHBOARD');
 
     await act(async () => {
-      fireEvent.click(getByLabelText('매매'));
+      fireEvent.click(getByLabelText('전략 판단'));
     });
     await act(async () => {
       await new Promise((r) => setTimeout(r, 300));
     });
-    expect(getByTestId('page').textContent).toBe('AUTO_TRADE');
+    expect(getByTestId('page').textContent).toBe('PAPER_STRATEGY');
 
     await act(async () => {
-      fireEvent.click(getByLabelText('관심종목'));
+      fireEvent.click(getByLabelText('저장 자료 연구'));
     });
     await act(async () => {
       await new Promise((r) => setTimeout(r, 300));
     });
-    expect(getByTestId('page').textContent).toBe('WATCHLIST');
+    expect(getByTestId('page').textContent).toBe('PAPER_RESEARCH');
   });
 });

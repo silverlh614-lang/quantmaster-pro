@@ -80,8 +80,7 @@ export const EXIT_RULE_PRIORITY_TABLE: ReadonlyArray<{
   rule: ExitRuleTag;
   description: string;
 }> = [
-  { priority: 1, rule: 'R6_EMERGENCY_EXIT', description: 'R6_DEFENSE 긴급 부분 청산(30%)' },
-  { priority: 2, rule: 'HARD_STOP', description: '하드 스톱(고정 손절/레짐 손절) 전량 청산' },
+  { priority: 2, rule: 'HARD_STOP', description: '저장된 하드 스톱 가격 전량 청산' },
   { priority: 3, rule: 'MA60_DEATH_FORCE_EXIT', description: 'MA60 역배열 5영업일 유예 만료 — 좀비 포지션 강제 청산' },
   { priority: 4, rule: 'CASCADE_FINAL', description: 'Cascade -25%/-30% 최종 청산' },
   { priority: 5, rule: 'LIMIT_TRANCHE_TAKE_PROFIT', description: 'LIMIT 분할 익절' },

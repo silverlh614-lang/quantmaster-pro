@@ -7,7 +7,7 @@ vi.mock('./paper/paperExperimentRunner.js', () => ({ runPaperExperimentScan: moc
 vi.mock('./signalScanner/index.js', () => ({ runAutoSignalScan: mocks.legacy }));
 import { runAutoSignalScan } from './scanDispatcher.js';
 
-describe('Shadow-first scan dispatch', () => {
+describe('regime-free scan dispatch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.mode = 'SHADOW';
@@ -23,12 +23,12 @@ describe('Shadow-first scan dispatch', () => {
     expect(mocks.legacy).not.toHaveBeenCalled();
   });
 
-  it.each(['LIVE', 'PAPER', 'MANUAL'])('preserves the existing %s route', async mode => {
+  it.each(['LIVE', 'PAPER', 'MANUAL'])('keeps %s signals running without the retired regime/Kelly scanner', async mode => {
     mocks.mode = mode;
     const options = { forceBuyCodes: ['005930'] };
-    expect(await runAutoSignalScan(options)).toEqual({ positionFull: true });
-    expect(mocks.legacy).toHaveBeenCalledWith(options);
-    expect(mocks.paper).not.toHaveBeenCalled();
+    expect(await runAutoSignalScan(options)).toEqual({ paperExperiment: { snapshotId: 'paper-1', openedCount: 2 } });
+    expect(mocks.legacy).not.toHaveBeenCalled();
+    expect(mocks.paper).toHaveBeenCalledOnce();
   });
 
   it('reports paper failures without falling back to broker execution', async () => {

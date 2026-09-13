@@ -70,7 +70,7 @@ describe('paper experiment API registration', () => {
     const view = { mode: 'SHADOW', totalCount: 0, outcomes: [{ horizon: 1, count: 0, meanNetReturnPct: null }] };
     mocks.view.mockReturnValue(view);
     const res = response();
-    await handler(shadowRouter, 'get', '/shadow/experiments')({}, res);
+    await handler(shadowRouter, 'get', '/shadow/experiments')({ query: {} }, res);
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual(view);
     expect(mocks.legacyRead).not.toHaveBeenCalled();
@@ -94,7 +94,7 @@ describe('paper experiment API registration', () => {
   it('surfaces unreadable records instead of returning an empty success', async () => {
     mocks.view.mockImplementation(() => { throw new Error('PAPER_LEDGER_UNREADABLE'); });
     const res = response();
-    await handler(shadowRouter, 'get', '/shadow/experiments')({}, res);
+    await handler(shadowRouter, 'get', '/shadow/experiments')({ query: {} }, res);
     expect(res.statusCode).toBe(500);
     expect(res.body).toEqual({ error: 'PAPER_LEDGER_UNREADABLE' });
   });
@@ -115,13 +115,16 @@ describe('paper experiment API registration', () => {
     expect(mocks.publicScan).toHaveBeenCalledOnce();
   });
 
-  it.each(['LIVE', 'PAPER'])('retains the existing automation guard in %s mode', async mode => {
+  it.each(['LIVE', 'PAPER'])('continues observation scans in %s mode with broker automation disabled', async mode => {
     mocks.mode = mode;
     const res = response();
     await handler(screenerRouter, 'post', '/auto-trade/scan')({}, res);
-    expect(res.statusCode).toBe(403);
-    expect(mocks.publicScan).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ ok: true });
+    expect(mocks.publicScan).toHaveBeenCalledOnce();
     expect(mocks.paperScan).not.toHaveBeenCalled();
+    expect(mocks.legacySave).not.toHaveBeenCalled();
+    expect(mocks.brokerQuote).not.toHaveBeenCalled();
   });
 
   it('forwards an enabled broker-mode manual scan to the public dispatcher', async () => {

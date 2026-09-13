@@ -211,7 +211,8 @@ export interface RegimeLearningBank {
   stats: RegimeLearningStats[];
   bestRegimeByExpectancy?: RegimePhase;
   worstRegimeByExpectancy?: RegimePhase;
-  activeRegimePhase: RegimePhase;
+  /** Historical selection only; null means all stored cohorts, with no current regime. */
+  activeRegimePhase: RegimePhase | null;
   activeRegimeSampleSize: number;
   activeRegimeTotalSampleSize: number;
   activeRegimeResolvedSampleSize: number;
@@ -342,6 +343,7 @@ export interface CollectRegimeLearningInput {
   pulseArchiveRegimeSnapshots?: RegimeDailySnapshot[];
   reconstructionLogEntries?: RegimeSnapshotReconstructionLogEntry[];
   includePersistedSources?: boolean;
+  /** Optional historical cohort selector; never inferred from current market state. */
   rawRegime?: string;
   effectiveRegime?: string;
 }

@@ -60,6 +60,12 @@ export interface KillSwitchRecordDto {
 
 export interface EngineStatus {
   running: boolean;
+  /** Recent completed observations are independent of live order controls. */
+  observationsRunning?: boolean;
+  observationStatus?: 'ACTIVE' | 'PAUSED' | 'WAITING' | 'STALE' | 'UNAVAILABLE';
+  observationAgeMs?: number | null;
+  activitySource?: 'PAPER_STRATEGY';
+  activityErrors?: string[];
   autoTradeEnabled: boolean;
   emergencyStop: boolean;
   /**
@@ -79,7 +85,7 @@ export interface EngineStatus {
     last: KillSwitchRecordDto | null;
     current: KillSwitchAssessmentDto;
   };
-  todayStats: { scans: number; buys: number; exits: number };
+  todayStats: { scans: number | null; scanCountAvailable?: boolean; buys: number | null; exits: number | null };
 }
 
 export interface EngineToggleResponse {

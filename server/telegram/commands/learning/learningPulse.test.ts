@@ -615,7 +615,7 @@ describe('Regime Promotion Split Blocker Normalization', () => {
       counterfactualLabeledInputSamples: 0,
       counterfactual: { ...snap.counterfactual, labeledCount: 0 },
     } as ReturnType<typeof collectLearningPulse>;
-    const splitLine = line(formatLearningPulseMessage(overridden), 'Regime Promotion Split:');
+    const splitLine = line(formatLearningPulseMessage(overridden), 'Historical Regime Promotion Split:');
     expect(splitLine).toContain('corePromotionBlocker=NO_LABELED_COUNTERFACTUAL');
     expect(splitLine).not.toContain('corePromotionBlocker=NO_FRESH_SAMPLE');
     expect(splitLine).toContain('rawDiagnosticBlockers=["NO_FRESH_SAMPLE"]');

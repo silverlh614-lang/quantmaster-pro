@@ -128,7 +128,7 @@ export function buildPreMortemStructured(
 
 export interface ExitContext {
   currentPrice: number;
-  currentRegime: string;
+  currentRegime?: string;
   mtas?: number;
   ma60?: number;
   volume?: number;

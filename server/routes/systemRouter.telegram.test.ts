@@ -2,7 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Request, Response } from 'express';
 
-vi.mock('../state.js', () => ({}));
+vi.mock('../state.js', () => ({ getEmergencyStop: () => false }));
+vi.mock('../trading/paper/paperExperimentRunner.js', () => ({ getPaperExperimentView: () => ({ lastRun: { candidateCount: 2 }, strategy: { openCount: 1 } }) }));
 vi.mock('../emergency.js', () => ({}));
 vi.mock('../telegram/webhookHandler.js', () => ({ handleTelegramWebhook: vi.fn() }));
 vi.mock('../alerts/telegramClient.js', () => ({ sendTelegramPlainText: vi.fn() }));
@@ -73,5 +74,16 @@ describe('POST /telegram/test', () => {
     const res = await run();
     expect(res.status).toHaveBeenCalledWith(502);
     expect(JSON.stringify(res.json.mock.calls)).not.toContain('secret-token');
+  });
+});
+
+
+describe('current buy audit', () => {
+  it('returns current paper signals without requiring any regime or legacy gate module', async () => {
+    const audit = router.stack.find(layer => layer.route?.path === '/system/buy-audit')?.route;
+    const res = { json: vi.fn() };
+    await audit!.stack[0]!.handle({} as Request, res as unknown as Response, vi.fn());
+    expect(res.json).toHaveBeenCalledWith({ regimeStatus: 'RETIRED', model: 'PAPER_NEWS_MA20',
+      lastRun: { candidateCount: 2 }, strategy: { openCount: 1 }, emergencyStop: false });
   });
 });

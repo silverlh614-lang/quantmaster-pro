@@ -24,8 +24,6 @@ import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { calcConditionSharpe, timeWeight } from './signalCalibrator.js';
 import { CONDITION_AUDIT_FILE, ensureDataDir } from '../persistence/paths.js';
 import type { ConditionWeights } from '../quantFilter.js';
-import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import {
   appendExperimentalCondition,
   type ExperimentalCondition,
@@ -122,13 +120,10 @@ export async function runConditionAudit(options: ConditionAuditOptions = {}): Pr
     { wWins: number; wTotal: number; returns: number[]; total: number }
   > = {};
 
-  // 아이디어 4 (Phase 2): 현재 라이브 레짐의 반감기로 감사 전체를 감쇠.
-  // rec 각자의 entryRegime 이 아닌 "지금 시점의 학습 속도"로 일관 처리한다.
-  // ADR-0531: Gate0 정본 레짐
-  const liveRegime = resolveCanonicalRegimeLevel(loadMacroState());
+  // 모든 과거 표본에 같은 시간 감쇠를 적용한다.
 
   for (const rec of allRecs) {
-    const tw = timeWeight(evidenceTime(rec), liveRegime);
+    const tw = timeWeight(evidenceTime(rec));
     for (const key of rec.conditionKeys ?? []) {
       if (!condStats[key]) condStats[key] = { wWins: 0, wTotal: 0, returns: [], total: 0 };
       condStats[key].wTotal += tw;

@@ -249,6 +249,8 @@ describe('Phase 2 — runNightlyReflection FULL flow (mocked Gemini)', () => {
     vi.doUnmock('../clients/geminiClient.js');
     vi.doUnmock('../rag/localRag.js');
     vi.doUnmock('../alerts/telegramClient.js');
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it('FULL 모드 — Gemini 성공 응답 → 리포트에 keyLessons + counterfactual 포함', async () => {
@@ -267,6 +269,15 @@ describe('Phase 2 — runNightlyReflection FULL flow (mocked Gemini)', () => {
       sendTelegramAlert: vi.fn().mockResolvedValue(undefined),
     }));
 
+    vi.stubEnv('LEARNING_FRESHNESS_GUARD_ENABLED', 'true');
+    fs.writeFileSync(path.join(tmpDir, 'macro-state.json'), JSON.stringify({ regime: 'R6_DEFENSE' }));
+    const freshness = await import('./learningFreshnessGuard.js');
+    const decaySpy = vi.spyOn(freshness, 'applyFreshnessDecay');
+    const bias = await import('./reflectionModules/biasHeatmap.js');
+    const biasSpy = vi.spyOn(bias, 'computeBiasHeatmap');
+    const narrative = await import('./reflectionModules/narrativeGenerator.js');
+    const narrativeSpy = vi.spyOn(narrative, 'generateSystemNarrative');
+
     // pre-populate watchlist so knownSourceIds contains 'pre1'
     fs.writeFileSync(path.join(tmpDir, 'watchlist.json'), JSON.stringify([{ code: 'pre1', name: 'TEST', isFocus: false }]));
 
@@ -281,6 +292,12 @@ describe('Phase 2 — runNightlyReflection FULL flow (mocked Gemini)', () => {
     expect(res.report?.counterfactual).toBeDefined();
     expect(res.report?.narrative).toBeTruthy();
     expect(res.report?.narrative?.length).toBeLessThanOrEqual(300);
+    expect(biasSpy).toHaveBeenCalled();
+    expect(biasSpy.mock.calls[0][0].currentRegime).toBeUndefined();
+    expect(narrativeSpy).toHaveBeenCalled();
+    expect(narrativeSpy.mock.calls[0][1].regime).toBeUndefined();
+    expect(decaySpy).toHaveBeenCalled();
+    expect(decaySpy.mock.calls.every(([, currentRegime]) => currentRegime === undefined)).toBe(true);
     // priming 에 내일 조정이 주입됨
     const priming = JSON.parse(fs.readFileSync(path.join(tmpDir, 'tomorrow-priming.json'), 'utf-8'));
     expect(priming.adjustments).toHaveLength(1);

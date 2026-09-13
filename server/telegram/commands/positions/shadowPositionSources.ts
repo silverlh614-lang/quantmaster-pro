@@ -1,6 +1,6 @@
 // @responsibility Telegram position source aggregation.
 import { getExecutionMode } from '../../../state.js';
-import { RegimeResolver, type MarketStateSnapshot } from '../../../trading/marketStateResolver.js';
+import type { MarketStateSnapshot } from '../../../trading/marketStateResolver.js';
 import { fetchCurrentPrice } from '../../../clients/kisClient.js';
 import { getRealtimePrice } from '../../../clients/kisStreamClient.js';
 import {
@@ -182,28 +182,13 @@ function isShadowDisplayOpenStatus(status: unknown): boolean {
 
 function resolveTelegramPositionMode(): PositionModeSnapshot {
   const engineMode = getExecutionMode();
-  let marketState: MarketStateSnapshot | null = null;
-
-  try {
-    marketState = RegimeResolver.resolveMarketState();
-  } catch (error) {
-    console.warn('[POSITION_MODE_RESOLVE_WARN]', error);
-  }
-
-  const r6Mode =
-    marketState?.effectiveRegime === 'R6_DEFENSE' ||
-    marketState?.effectiveRegime === 'R6_RECOVERY_WATCH'
-      ? marketState.effectiveRegime
-      : null;
-  const modeLabel = r6Mode ?? marketState?.executionMode ?? (engineMode === 'LIVE' ? 'LIVE' : 'SHADOW_ONLY');
-  const liveTradingEnabled = engineMode === 'LIVE' && marketState?.liveNewBuyAllowed !== false && modeLabel !== 'SHADOW_ONLY';
-
+  // 이 과거 원장 조회 경로는 레짐 계산을 재개하거나 실계좌 fallback을 활성화하지 않는다.
   return {
-    modeLabel,
-    liveTradingEnabled,
-    paperTradingEnabled: engineMode === 'PAPER' || modeLabel === 'SHADOW_ONLY',
-    shadowLearningEnabled: marketState?.shadowLearningAllowed ?? true,
-    marketState,
+    modeLabel: engineMode === 'LIVE' ? 'LIVE_READ_ONLY' : 'SHADOW_ONLY',
+    liveTradingEnabled: false,
+    paperTradingEnabled: engineMode !== 'LIVE',
+    shadowLearningEnabled: true,
+    marketState: null,
   };
 }
 

@@ -9,7 +9,7 @@ When modifying any file, ensure changes stay within the owning module's stated r
 
 ### Default Shadow experiments (ADR-0666)
 
-The public scan dispatcher selects `server/trading/paper/paperExperimentRunner.ts` in SHADOW mode before legacy preflight or Gate evaluation. The scheduler and manual API use the same runner; the Shadow screen reads its experiment view. The runner owns collection, independent one-share entries, exact-date D1/D3/D5 outcomes and persistence in `paper-experiments.json`. `src/types/paperExperiment.ts` defines the contract. Legacy regime, Kelly, approval, account-slot and global learning policies are outside this path. Existing LIVE/PAPER execution and historical trade ledgers remain separate.
+The public scan dispatcher selects `server/trading/paper/paperExperimentRunner.ts` for every trading mode without legacy preflight or Gate evaluation. The scheduler and manual API use the same runner; the Shadow screen reads its experiment view. The runner owns collection, independent one-share entries, exact-date D1/D3/D5 outcomes and persistence in `paper-experiments.json`. `src/types/paperExperiment.ts` defines the contract. Legacy regime, Kelly, approval, account-slot and global learning policies are outside this path. Virtual results are never promoted to broker orders; existing fill/OCO management and historical ledgers remain separate.
 
 News and price trends are entry-time observations for comparison, not initial eligibility filters. Independent experiment returns are not account portfolio returns. Missing or future prices cannot become completed outcomes. No automatic promotion or broker-order dependency belongs in this module.
 
@@ -23,15 +23,21 @@ News and price trends are entry-time observations for comparison, not initial el
 
 The strategy freezes policy, evidence, costs and its D1/D3/D5 close schedule at entry. Scheduled-close fills distinguish effective close time from observation and decision times; missing closes remain pending. The Shadow UI renders server decisions and separates baseline results from realized strategy returns, without recomputing eligibility or selecting horizons. No new broker orders, provider path, legacy Gate/regime/Kelly policy or automatic LIVE promotion belongs in this boundary.
 
+### Runtime regime retirement (ADR-0673)
+
+LIVE, PAPER and SHADOW no longer use regime or Kelly. Current classification, transition persistence, regime/Kelly alerts, learning policy updates, R6 exits and regime-based stop adjustments are retired. Saved price stops, targets, quantity checks, cash limits and OCO/fill management remain active. Historical ledgers and pure replay calculations remain archival. Paper observations consume the expanded candidate universe directly; KIS index/price collection and timestamp checks remain independent. The existing signal/evidence channels, research and stored-price outcome processing remain active.
+
+Production remains SHADOW. Its independent paper schedule never calls the legacy LIVE/PAPER orchestrator. The two old discovery calls (`autoPopulateWatchlist`, `scanAndUpdateIntradayWatchlist`) remain deferred; they must be migrated before enabling that orchestrator for LIVE/PAPER operation. KIS authentication, market-data APIs, fill interfaces and local paper accounting are unchanged. Current paper fills use KIS observed prices and exact-date daily closes, not KIS VTS fills or an order-book simulation.
+
 ### Shadow signal notifications (ADR-0672)
 
 `paperBot.ts` projects saved strategy events into bounded CH1 signal and CH2 entry-evidence/exit-review messages, routes morning context to CH3 and closing/research reports to CH4 through `alertRouter.dispatchAlert`, and retains private operational alerts. `paperBotMessages.ts` formats entry-frozen evidence and matching outcomes without recomputing eligibility or modifying learning. `paperBotRepo.ts` persists each channel delivery independently; pre-existing messages without a destination retain private delivery. The bot requests complete records from the existing experiment/strategy read views so older exits and daily totals survive the UI-only 200-record cap. The strategy, provider collection and LIVE order paths remain unchanged.
 
 ### Entry sizing boundary (ADR-0665)
 
-`server/trading/sizing/entrySizingPolicy.ts` owns active entry quantity and exposure budget calculations. Standard, intraday, pre-breakout, followthrough, pre-market and dry-run consumers use this boundary; tranche exposure uses the same cap. `src/types/entrySizing.ts` defines its quantity contract without Kelly inputs. The current regime allocation table remains an explicitly named legacy policy adapter. The old `entryEngine.calculateOrderQuantity` and wiring exposure exports delegate to this boundary for compatibility.
+`server/trading/sizing/entrySizingPolicy.ts` owns active entry quantity and exposure budget calculations. Standard, intraday, pre-breakout, followthrough, pre-market and dry-run consumers use this boundary; tranche exposure uses the same cap. `src/types/entrySizing.ts` defines its quantity contract without Kelly inputs. Active sizing uses explicit allocation, actual cash and existing account limits. Regime allocation tables remain historical-only; no regime or Kelly input affects current quantities. The old `entryEngine.calculateOrderQuantity` and wiring exposure exports delegate to this boundary for compatibility.
 
-The disabled tier/Kelly engine has no place in those four scanner entry paths. Historical `EntryKellySnapshot`, `sizingSource` and optional sizing snapshots remain compatible. Gate/exit regime policy, broker execution and learning writers retain their existing ownership; this boundary does not claim to consolidate them.
+The disabled tier/Kelly engine has no place in those four scanner entry paths. Historical `EntryKellySnapshot`, `sizingSource` and optional sizing snapshots remain compatible. Historical types preserve ledger readability; active price exits and broker safety keep their own ownership.
 
 > **Path note**: `src/` contains frontend and shared source; `server/` (root-level) contains the standalone Express server (routes, clients).
 

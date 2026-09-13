@@ -1,3 +1,5 @@
+// @responsibility Replay isolated historical preflight contracts while the current public scan uses the paper dispatcher.
+// ADR-0673: fixture snapshots below exist only in this test; production resolution stays REGIME_RETIRED.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runPreflight } from './preflight.js';
 
@@ -33,7 +35,7 @@ vi.mock('../regimeBridge.js', () => {
     getRegimeDiagnostics: vi.fn((macroState: any) => {
       const liveRegime = getLiveRegime(macroState);
       const isR6 = liveRegime === 'R6_DEFENSE';
-      // production resolveRegimeSnapshot()는 legacy R6 effectiveRegime 을 rawRegime 으로 강등한다
+      // 과거 snapshot fixture는 legacy R6 effectiveRegime 을 rawRegime 으로 강등한다
       // (marketStateResolver.base sanitizeLegacyR6EffectiveRegime + regimeResolver sanitizeEffectiveRegime).
       // R6 시나리오의 base(raw) regime 은 R2_BULL 로 둬 "R6 무시 → 실행 regime=R2_BULL" 불변식을 재현.
       const rawRegime = isR6 ? 'R2_BULL' : liveRegime;
@@ -57,6 +59,26 @@ vi.mock('../regimeBridge.js', () => {
         recoveryBlockedReason: isR6 ? 'R6_DEFENSE_ACTIVE' : undefined,
         r6TriggerBreakdown: { triggerFreshness: 'FRESH', activeR6Triggers: isR6 ? ['MHS_LOW'] : [] },
         transitionState: { r6StateMachineState: isR6 ? 'R6_DEFENSE' : 'R2_BULL' },
+      };
+    }),
+  };
+});
+// Recorded pre-retirement snapshot shape. The old scanner may be unit-tested against archive
+// inputs without restoring the runtime classifier, transition writes, or a neutral fallback.
+vi.mock('../regime/regimeResolver.js', async () => {
+  const { getRegimeDiagnostics } = await import('../regimeBridge.js');
+  return {
+    resolveRegimeSnapshot: vi.fn(({ macroState }: { macroState: unknown }) => {
+      const diagnostics = getRegimeDiagnostics(macroState as never);
+      const effectiveRegime = diagnostics.effectiveRegime.startsWith('R6')
+        ? diagnostics.rawRegime
+        : diagnostics.effectiveRegime;
+      return {
+        snapshotId: 'archived-preflight-snapshot', asOf: '2026-05-18T00:00:00.000Z', ttlSec: 300,
+        detectedRegime: diagnostics.rawRegime, effectiveRegime, displayRegime: effectiveRegime,
+        riskOverride: 'NONE', engineMode: 'NORMAL', sourceHealth: 'VERIFIED',
+        conflicts: [], providerIssue: false, marketSignal: false, macroState, diagnostics,
+        marketState: { macroState: { ageSec: 0, freshness: 'FRESH' } },
       };
     }),
   };
@@ -185,7 +207,7 @@ const mockedRunShadowLearningOnlyScan = vi.mocked(runShadowLearningOnlyScan);
 const mockedRecordCounterfactualUniverseLearningSnapshot = vi.mocked(recordCounterfactualUniverseLearningSnapshot);
 const mockedSendTelegramAlert = vi.mocked(sendTelegramAlert);
 
-describe('preflight.ts byte-equivalent tests', () => {
+describe('historical preflight behavior with isolated archived snapshots', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
@@ -443,8 +465,8 @@ describe('preflight.ts byte-equivalent tests', () => {
   });
 
   // ─── learningRegime carry 정합 회귀 v2 (patch) ───────────────────────────────
-  // 정합 정정 v2: learningRegime 은 정본 regimeSnapshot.effectiveRegime(real resolver 의
-  // sanitizeEffectiveRegime 결과, ADR-0531 Gate0 정본)에서 파생한다. 본 describe 는 real resolver 를
+  // 정합 정정 v2: learningRegime 은 정본 regimeSnapshot.effectiveRegime(archive fixture의
+  // sanitizeEffectiveRegime 결과, ADR-0531 Gate0 정본)에서 파생한다. 본 describe 는 테스트 전용 archive fixture를
   // 사용하므로 diagnostics.effectiveRegime 가 그대로 정본 snapshot.effectiveRegime 으로 전파되는
   // 비-R6 확장 어휘(R3_NORMAL/R5_STABILIZING)만 다룬다 — R6 확장 어휘는 resolver 가 rawRegime 으로
   // R6-sanitize 하므로 정본 snapshot 경유 시 R6_DEFENSE 가 아니다(deprecated diagnostics 직참 회귀 가드는
@@ -489,7 +511,7 @@ describe('preflight.ts byte-equivalent tests', () => {
     });
 
     it('확장 R6_RECOVERY_WATCH diagnostics → 정본 snapshot 이 R6-sanitize 되어 learningRegime=R2_BULL(rawRegime)', async () => {
-      // v2: learningRegime 은 정본 snapshot.effectiveRegime 에서 파생. real resolver 의
+      // v2: learningRegime 은 정본 snapshot.effectiveRegime 에서 파생. archive fixture의
       // sanitizeEffectiveRegime 가 R6_RECOVERY_WATCH 를 rawRegime(R2_BULL)으로 강등하므로
       // 정본 snapshot.effectiveRegime='R2_BULL' → learningRegime='R2_BULL'.
       // (deprecated diagnostics 직참 시 R6_DEFENSE 누수했던 옛 동작은 v2 에서 차단됨.)
@@ -525,5 +547,12 @@ describe('preflight.ts byte-equivalent tests', () => {
         )).toBe(true); // live regime 은 항상 canonical RegimeLevel
       }
     });
+  });
+});
+
+describe('current regime resolver retirement contract', () => {
+  it('keeps actual runtime resolution retired independently of archive fixtures', async () => {
+    const actual = await vi.importActual<typeof import('../regime/regimeResolver.js')>('../regime/regimeResolver.js');
+    expect(() => actual.resolveRegimeSnapshot({ macroState: null })).toThrow('REGIME_RETIRED');
   });
 });

@@ -29,7 +29,7 @@ export interface PositionPolicySizingInput {
 }
 
 export interface PositionPolicySizingResult {
-  policy: RegimePositionPolicy;
+  policy: Omit<RegimePositionPolicy, 'regime'> & { regime: RegimePositionPolicyKey | 'FIXED_BUDGET' };
   currentPositions: number;
   remainingSlots: number;
   positionSizePct: number;

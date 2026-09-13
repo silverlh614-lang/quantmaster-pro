@@ -1,5 +1,7 @@
 # 04 · Gate System (27 조건·Gate 0/1/2/3·진단)
 
+> ADR-0673: LIVE·PAPER·SHADOW의 레짐·Kelly 분류·사이징·전이·경고·정책 갱신을 폐기한다. 아래 R1~R6 설명은 과거 구현·원장 해석용이며 새 모델의 운영 조건으로 복원하지 않는다. 실제 가격 수집, 성과 보완, 주문 안전 경계는 유지한다.
+
 > **기존 Gate 구현의 유지보수 참고 문서다.** 현행 Shadow(ADR-0666~0669)는 이 문서의 27개 조건·Gate 0/1/2/3·70점·레짐 제한을 사용하지 않는다. 과거 조건은 개별 연구 자료로 활용하며, 새 Shadow의 필수 통과 조건으로 복원하지 않는다. 현행 규칙은 [AGENTS.md](../../AGENTS.md)와 [07-learning-engine.md](07-learning-engine.md)를 따른다.
 
 **Read this file only when working on:**

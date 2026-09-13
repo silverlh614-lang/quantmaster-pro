@@ -5,7 +5,6 @@
  * 미국장 cron(US 장 시작/종료 시각)은 ALWAYS_ON (KR 휴장과 무관).
  */
 import { scheduledJob } from './scheduleGuard.js';
-import { runStage1PreScreening, runStage2_3FinalScreening } from '../screener/universeScanner.js';
 import { cleanupWatchlist } from '../screener/watchlistManager.js';
 import {
   runDynamicUniverseExpansion,
@@ -15,22 +14,10 @@ import {
 import { runGlobalScanAgent } from '../alerts/globalScanAgent.js';
 import { runSupplyChainScan } from '../alerts/supplyChainAgent.js';
 import { trackPendingRecords } from '../learning/newsSupplyLogger.js';
-import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { resolveCanonicalRegimeLevel } from '../trading/regime/canonicalRegimeAccess.js';
 import { withForcedMarket } from '../utils/forceMarketGuard.js';
 
 export function registerScreenerJobs(): void {
-  // KST 16:55 — 16:30 은 future_return_resolve 무접촉 학습 체인 시작 슬롯이라 KIS 헤비
-  // 스크리닝을 분리. 익일 08:35 stage2_3 선행 순서는 그대로 (cron stagger 감사 2026-06-10).
-  scheduledJob('55 7 * * 1-5', 'TRADING_DAY_ONLY', 'stage1_pre_screening',
-    () => withForcedMarket(() => runStage1PreScreening()), { timezone: 'UTC' });
-
-  scheduledJob('35 23 * * 0-4', 'TRADING_DAY_ONLY', 'stage2_3_final_screening', () => withForcedMarket(async () => {
-    const macroState = loadMacroState();
-    const regime = resolveCanonicalRegimeLevel(macroState); // ADR-0531: Gate0 정본 레짐
-    await runStage2_3FinalScreening(regime, macroState);
-  }), { timezone: 'UTC' });
-
+  // Paper observations consume the expanded universe directly; regime/Gate screening is retired.
   scheduledJob('0 7 * * 1-5', 'TRADING_DAY_ONLY', 'cleanup_watchlist',
     () => cleanupWatchlist(), { timezone: 'UTC' });
 

@@ -1,6 +1,6 @@
 // @responsibility ADR-0592 kospiTriggerFreshness 순수 SSOT 단위 커버리지 (trade-date 강등 / legacy 폴백 / close-shock 분리 / flag).
-import { describe, expect, it, afterEach } from 'vitest';
-import { resolveKospiTriggerFreshness, isTradeDateFreshnessEnabled } from './kospiTriggerFreshness.js';
+import { describe, expect, it, afterEach, vi } from 'vitest';
+import { resolveKospiTriggerFreshness } from './kospiTriggerFreshness.js';
 
 // 2026-06-09(화) 는 KRX 거래일. 2026-06-08(월) 도 거래일(어제 봉). 2026-06-06(현충일)·주말 회피.
 const NOW = new Date('2026-06-09T02:00:00.000Z'); // 11:00 KST 거래일
@@ -8,7 +8,7 @@ const TODAY_KEY = '2026-06-09';
 const YESTERDAY_KEY = '2026-06-08';
 
 afterEach(() => {
-  delete process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED;
+  vi.unstubAllEnvs();
 });
 
 describe('resolveKospiTriggerFreshness (ADR-0592 D1 + Codex 정합 정정: per-trigger 강등)', () => {
@@ -75,16 +75,10 @@ describe('resolveKospiTriggerFreshness (ADR-0592 D1 + Codex 정합 정정: per-t
   });
 });
 
-describe('isTradeDateFreshnessEnabled (ADR-0592 flag, default OFF)', () => {
-  // 케이스 5: flag default OFF.
-  it('returns false when env unset (baseline byte-equivalent)', () => {
-    expect(isTradeDateFreshnessEnabled()).toBe(false);
-  });
-
-  it('returns true only when env === "true"', () => {
-    process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED = 'true';
-    expect(isTradeDateFreshnessEnabled()).toBe(true);
-    process.env.R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED = '1';
-    expect(isTradeDateFreshnessEnabled()).toBe(false);
+describe('거래일 검증은 폐기한 레짐 환경변수와 독립', () => {
+  it.each([undefined, 'false', 'true'])('환경변수 %s에서도 어제 봉을 오늘 장중 데이터로 쓰지 않는다', (value) => {
+    vi.stubEnv('R6_TRIGGER_TRADEDATE_FRESHNESS_ENABLED', value);
+    const result = resolveKospiTriggerFreshness({ tradeDate: YESTERDAY_KEY, ageFreshness: 'FRESH', now: NOW });
+    expect(result).toEqual({ freshness: 'FRESH', tradeDateIsToday: false, intradayDowngraded: true });
   });
 });

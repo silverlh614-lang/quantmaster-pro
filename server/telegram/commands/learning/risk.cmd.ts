@@ -1,12 +1,9 @@
-// @responsibility /risk /risk_budget account risk and simplified regime position policy.
+// @responsibility /risk /risk_budget account risk and current Shadow sizing.
 import { loadTradingSettings } from '../../../persistence/tradingSettingsRepo.js';
-import { loadMacroState } from '../../../persistence/macroStateRepo.js';
 import {
   getAccountRiskBudget,
   formatAccountRiskBudget,
 } from '../../../trading/accountRiskBudget.js';
-import { resolveCanonicalRegimeLevel } from '../../../trading/regime/canonicalRegimeAccess.js';
-import { calculateRegimePositionSizing } from '../../../trading/sizing/regimePositionPolicy.js';
 import { commandRegistry } from '../../commandRegistry.js';
 import type { TelegramCommand } from '../_types.js';
 
@@ -16,27 +13,12 @@ const risk: TelegramCommand = {
   category: 'LRN',
   visibility: 'ADMIN',
   riskLevel: 0,
-  description: 'Account risk budget and simplified regime position policy',
+  description: '계좌 위험예산과 현재 Shadow 실험 정책',
   async execute({ reply }) {
     const settings = loadTradingSettings();
     const totalAssets = settings.startingCapital ?? 0;
     const budget = getAccountRiskBudget({ totalAssets });
-    const regime = resolveCanonicalRegimeLevel(loadMacroState()); // ADR-0531: Gate0 정본 레짐
-    const sizing = calculateRegimePositionSizing({
-      regime,
-      totalEquity: totalAssets,
-      currentPositions: 0,
-    });
-    await reply(
-      formatAccountRiskBudget(budget) +
-      `\n\n<b>Position policy</b>` +
-      `\nregime=${sizing.policy.regime}` +
-      `\nmaxPositions=${sizing.policy.maxPositions}` +
-      `\nmaxGrossExposurePct=${sizing.policy.maxGrossExposurePct}` +
-      `\nperPositionPct=${sizing.policy.perPositionPct}` +
-      `\npositionAmount=${Math.round(sizing.positionAmount).toLocaleString()} KRW` +
-      `\nexecutionImpact=NONE`,
-    );
+    await reply(formatAccountRiskBudget(budget) + '\n\n현재 Shadow는 실험당 1주를 기록하며 실제 주문을 하지 않습니다. /paper · /paper_research');
   },
 };
 

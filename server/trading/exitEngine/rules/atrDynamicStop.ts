@@ -9,26 +9,19 @@ import type { ExitContext, ExitRuleResult } from '../types.js';
 import { NO_OP } from '../types.js';
 import { emitTelegramEvent } from '../../../alerts/telegramEventRouter.js';
 import { appendShadowLog } from '../../../persistence/shadowTradeRepo.js';
-import { regimeToStopRegime } from '../../entryEngine.js';
-import { evaluateDynamicStop } from '../../../../src/services/quant/dynamicStopEngine.js';
+import { bepGlideStopPrice } from '../../../../src/services/quant/dynamicStopEngine.js';
 
 export async function atrDynamicStop(ctx: ExitContext): Promise<ExitRuleResult> {
-  const { shadow, currentPrice, returnPct, currentRegime, hardStopLoss } = ctx;
+  const { shadow, currentPrice, returnPct, hardStopLoss } = ctx;
 
   if (!shadow.entryATR14 || shadow.entryATR14 <= 0) return NO_OP;
 
-  const stopRegime = regimeToStopRegime(currentRegime);
-  const dynResult = evaluateDynamicStop({
-    entryPrice: shadow.shadowEntryPrice,
-    atr14: shadow.entryATR14,
-    regime: stopRegime,
-    currentPrice,
-  });
-
-  // 트레일링 활성 시 trailingStopPrice, 아니면 기본 stopPrice
-  const effectiveDynamicStop = dynResult.trailingActive
-    ? dynResult.trailingStopPrice
-    : dynResult.stopPrice;
+  // Keep the saved stop. Preserve existing price-based BEP and profit-lock protection without a regime multiplier.
+  if (returnPct < 5) return NO_OP;
+  const profitLockIn = returnPct >= 10;
+  const effectiveDynamicStop = profitLockIn
+    ? Math.round(shadow.shadowEntryPrice * 1.03)
+    : bepGlideStopPrice(shadow.shadowEntryPrice, shadow.entryATR14);
 
   // hardStopLoss는 오직 상향만 허용 (래칫 — 한번 올라간 손절은 내려가지 않음)
   if (effectiveDynamicStop > hardStopLoss) {
@@ -41,7 +34,7 @@ export async function atrDynamicStop(ctx: ExitContext): Promise<ExitRuleResult> 
     // stopApproachAlert 가 hardStopLoss vs shadowEntryPrice 런타임 비교로 결정.
     shadow.stopLossExitType = 'PROFIT_PROTECTION';
 
-    if (dynResult.profitLockIn) {
+    if (profitLockIn) {
       appendShadowLog({ event: 'ATR_PROFIT_LOCKIN', ...shadow, prevHardStop, newHardStop });
       console.log(`[AutoTrade] 🔒 ${shadow.stockName} ATR 수익 Lock-in: 손절 ${prevHardStop.toLocaleString()} → ${newHardStop.toLocaleString()} (+3%)`);
       await emitTelegramEvent({
@@ -53,7 +46,7 @@ export async function atrDynamicStop(ctx: ExitContext): Promise<ExitRuleResult> 
         severity: 'NORMAL',
         metadata: { symbol: shadow.stockCode },
       }).catch(console.error);
-    } else if (dynResult.bepProtection) {
+    } else {
       appendShadowLog({ event: 'ATR_BEP_PROTECTION', ...shadow, prevHardStop, newHardStop });
       console.log(`[AutoTrade] 🛡️ ${shadow.stockName} ATR BEP 보호: 손절 ${prevHardStop.toLocaleString()} → ${newHardStop.toLocaleString()} (원금)`);
       await emitTelegramEvent({

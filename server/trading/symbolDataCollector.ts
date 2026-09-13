@@ -494,7 +494,7 @@ async function buildMacroContext(): Promise<UnifiedMacroContext> {
   const macro = loadMacroState();
 
   return {
-    regime: macro?.regime ?? 'UNKNOWN',
+    regime: 'RETIRED',
     engineMode: 'OBSERVE_ONLY',   // EngineModeManager는 서버 상태 싱글톤 — 여기서는 보수적 기본값
     marketSession: macro?.marketSessionState ?? 'UNKNOWN',
     sectorCycleStage: macro?.sectorCycleStage ?? null,

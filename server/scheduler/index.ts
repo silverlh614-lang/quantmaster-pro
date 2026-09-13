@@ -50,12 +50,12 @@ const SCHEDULE_CATALOG_EXTENSION_JOB_NAMES = [
 
 export function startScheduler(): void {
   if (schedulerSingletonRunning) {
-    console.log('[SCHEDULER_DUPLICATE_BLOCKED] scheduler=RegimeMonitorScheduler reason=ALREADY_RUNNING telegramSent=false');
+    console.log('[SCHEDULER_DUPLICATE_BLOCKED] scheduler=BackgroundDataScheduler reason=ALREADY_RUNNING telegramSent=false');
     console.log('[SCHEDULER_DUPLICATE_BLOCKED] scheduler=MarketScanScheduler reason=ALREADY_RUNNING telegramSent=false');
     return;
   }
   schedulerSingletonRunning = true;
-  console.log(`[SCHEDULER_SINGLETON_ACQUIRED] scheduler=RegimeMonitorScheduler instanceId=${schedulerInstanceId}`);
+  console.log(`[SCHEDULER_SINGLETON_ACQUIRED] scheduler=BackgroundDataScheduler instanceId=${schedulerInstanceId}`);
   console.log(`[SCHEDULER_SINGLETON_ACQUIRED] scheduler=MarketScanScheduler instanceId=${schedulerInstanceId}`);
   registerOrchestratorJobs();
   registerAlertJobs();

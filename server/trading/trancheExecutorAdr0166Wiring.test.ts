@@ -1,133 +1,130 @@
-/**
- * @responsibility audit-PR-520 §M2 wiring 회귀 — trancheExecutor 노출 예산 cap (isAddOnBuy=true)
- *
- * audit-PR-520 §M2: 4 wiring 모두 isAddOnBuy=false 고정이라 R3+ 추매 정책 미활성화.
- * 본 PR 이 trancheExecutor.checkPendingTranches LIVE 주문 직전에 동일 wiring 추가
- * (isAddOnBuy=true) → R3+ 추매 허용 정책 활성화.
- *
- * 정적 grep 가드 + 동작 분기 시나리오 (vi.spyOn 으로 외부 의존성 격리).
- */
+// @responsibility Verify pending tranche orders use existing plans and actual cash limits without regime or Kelly decisions.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+const mocks = vi.hoisted(() => ({
+  saved: '[]', trades: [] as Array<Record<string, unknown>>,
+  balance: vi.fn(async (): Promise<number | null> => 25000),
+  price: vi.fn(async (): Promise<number | null> => 10000),
+  submit: vi.fn(async (_input: unknown) => ({ kind: 'SUBMITTED', ordNo: 'order-test' })),
+  approval: vi.fn(async (_input: unknown) => 'APPROVE'),
+  alert: vi.fn(async () => undefined), addOrder: vi.fn(), mode: vi.fn(() => 'LIVE'),
+  regime: vi.fn(() => { throw new Error('REGIME_RETIRED'); }),
+  shadowAccount: vi.fn((_trades: Array<Record<string, unknown>>, _capital: number) => ({ totalAssets: 1000000, cashBalance: 25000 })),
+  exposure: vi.fn((capital: number, cash: number, _trades: Array<Record<string, unknown>>) => Math.max(0, capital - cash)),
+}));
+vi.mock('fs', () => ({ default: {
+  existsSync: () => true, readFileSync: () => mocks.saved,
+  writeFileSync: (_path: string, content: string) => { mocks.saved = content; },
+} }));
+vi.mock('../persistence/paths.js', () => ({ TRANCHE_FILE: '/tranches-test.json', ensureDataDir: () => undefined }));
+vi.mock('../persistence/conditionWeightsRepo.js', () => ({ loadConditionWeights: () => ({}) }));
+vi.mock('../quantFilter.js', () => ({ evaluateServerGate: () => ({ signalType: 'BUY', gateScore: 6 }) }));
+vi.mock('../clients/kisClient.js', () => ({ submitBuyOrder: mocks.submit, fetchCurrentPrice: mocks.price, fetchAccountBalance: mocks.balance }));
+vi.mock('../alerts/telegramClient.js', () => ({ sendTelegramAlert: mocks.alert }));
+vi.mock('./fillMonitor.js', () => ({ fillMonitor: { addOrder: mocks.addOrder } }));
+vi.mock('../screener/adapters/technicalQuoteRouter.js', () => ({ fetchTechnicalQuoteByCode: async () => null }));
+vi.mock('../persistence/shadowTradeRepo.js', () => ({ loadShadowTrades: () => mocks.trades }));
+vi.mock('../persistence/tradingSettingsRepo.js', () => ({ loadTradingSettings: () => ({ startingCapital: 1000000, positionLimit: { enabled: true, maxSingleStockPercent: 15 } }) }));
+vi.mock('../persistence/shadowAccountRepo.js', () => ({ computeShadowAccount: mocks.shadowAccount }));
+vi.mock('../state.js', () => ({ getTradingMode: mocks.mode }));
+vi.mock('./sizing/currentEquityExposure.js', () => ({ resolveCurrentEquityExposure: mocks.exposure }));
+vi.mock('../telegram/buyApproval.js', () => ({ requestBuyApproval: mocks.approval }));
+vi.mock('../telegram/shadowApprovalDedupeStore.js', () => ({ deriveShadowApprovalContext: () => ({ tradeDate: '2026-09-14', marketSession: 'REGULAR' }) }));
+vi.mock('./regime/canonicalRegimeAccess.js', () => ({ resolveCanonicalRegimeLevel: mocks.regime }));
+import { trancheExecutor } from './trancheExecutor.js';
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-import { describe, expect, it } from 'vitest';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const REPO_ROOT = path.resolve(__dirname, '../..');
-
-function readSrc(rel: string): string {
-  return readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
+function plan(id = 'tr2-test', stockCode = '005930', quantity = 10) {
+  return { id, parentTradeId: `parent-${stockCode}`, stockCode, stockName: '시험종목', trancheNumber: 2,
+    scheduledDate: '2000-01-01', quantity, entryPrice: 9500, stopLoss: 9000, targetPrice: 13000, status: 'PENDING' };
 }
+function installPlans(plans = [plan()]) {
+  mocks.saved = JSON.stringify(plans);
+  mocks.trades = plans.map((item) => ({ id: item.parentTradeId, stockCode: item.stockCode,
+    status: 'ACTIVE', quantity: 1, mode: 'LIVE', entryRegime: 'R1_TURBO' }));
+}
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubEnv('KIS_APP_KEY', 'test_key');
+  vi.stubEnv('AUTO_TRADE_ENABLED', 'true');
+  vi.stubEnv('AUTO_TRADE_ASSETS', '1000000');
+  mocks.balance.mockResolvedValue(25000);
+  mocks.price.mockResolvedValue(10000);
+  mocks.approval.mockResolvedValue('APPROVE');
+  mocks.mode.mockReturnValue('LIVE');
+  installPlans();
+});
+afterEach(() => vi.unstubAllEnvs());
 
-const SRC = readSrc('server/trading/trancheExecutor.ts');
-
-describe('audit-PR-520 §M2 — trancheExecutor 노출 예산 cap wiring', () => {
-  describe('정적 grep 가드 — drift 차단', () => {
-    it('applyExposureBudgetCap import 보유', () => {
-      expect(SRC).toMatch(
-        /import\s+\{[^}]*\bapplyExposureBudgetCap\b[^}]*\}\s+from\s+['"]\.\/sizing\/entrySizingPolicy\.js['"]/,
-      );
-    });
-
-    it('resolveCurrentEquityExposure import 보유 (ADR-0167 SSOT)', () => {
-      expect(SRC).toMatch(
-        /import\s+\{[^}]*\bresolveCurrentEquityExposure\b[^}]*\}\s+from\s+['"]\.\/sizing\/currentEquityExposure\.js['"]/,
-      );
-    });
-
-    it('fetchAccountBalance import 보유 (LIVE 잔고 fetch)', () => {
-      expect(SRC).toMatch(
-        /import\s+\{[^}]*\bfetchAccountBalance\b[^}]*\}\s+from\s+['"]\.\.\/clients\/kisClient\.js['"]/,
-      );
-    });
-
-    it('computeShadowAccount import 보유 (SHADOW 잔고 fetch)', () => {
-      expect(SRC).toMatch(
-        /import\s+\{[^}]*\bcomputeShadowAccount\b[^}]*\}\s+from\s+['"]\.\.\/persistence\/shadowAccountRepo\.js['"]/,
-      );
-    });
-
-    it('loadTradingSettings import 보유 (SHADOW startingCapital)', () => {
-      expect(SRC).toMatch(
-        /import\s+\{[^}]*\bloadTradingSettings\b[^}]*\}\s+from\s+['"]\.\.\/persistence\/tradingSettingsRepo\.js['"]/,
-      );
-    });
-
-    it('checkPendingTranches 진입부 isLive 분기 잔고 fetch', () => {
-      expect(SRC).toContain('if (isLive) {');
-      expect(SRC).toContain('await fetchAccountBalance().catch(() => null)');
-    });
-
-    it('checkPendingTranches SHADOW 분기 computeShadowAccount 호출', () => {
-      expect(SRC).toContain('computeShadowAccount(allShadows, startingCapital)');
-    });
-
-    it('currentEquityExposureAmount 산출 — resolveCurrentEquityExposure 사용', () => {
-      expect(SRC).toContain('resolveCurrentEquityExposure(totalAssets, orderableCash, allShadows)');
-    });
-
-    it('applyExposureBudgetCap 호출 — isAddOnBuy: true 명시 (M2 핵심)', () => {
-      expect(SRC).toMatch(/applyExposureBudgetCap\(\s*\{[\s\S]*?isAddOnBuy:\s*true/);
-    });
-
-    it('isAddOnBuy=false 패턴 부재 (drift 차단)', () => {
-      // applyExposureBudgetCap 호출에 isAddOnBuy=false 가 들어가면 audit M2 의도 위반
-      expect(SRC).not.toMatch(/applyExposureBudgetCap\(\s*\{[\s\S]*?isAddOnBuy:\s*false/);
-    });
-
-    it('cap 결과 cancel 분기 — finalQuantity ≤ 0 시 트랜치 취소', () => {
-      expect(SRC).toContain("t.cancelReason = `노출 예산 cap");
-      expect(SRC).toContain('exposureCap.applied && cappedQty <= 0');
-    });
-
-    it('cap 결과 quantity 축소 분기 — finalQuantity < t.quantity', () => {
-      expect(SRC).toContain('exposureCap.applied && cappedQty < t.quantity');
-      expect(SRC).toContain('t.quantity = cappedQty');
-    });
-
-    it('Telegram 알림 — 차단/축소 두 분기 모두 발송', () => {
-      expect(SRC).toContain('[분할 매수 ${t.trancheNumber}차 취소]');
-      expect(SRC).toContain('[분할 매수 ${t.trancheNumber}차 수량 축소]');
-    });
-
-    it('ADR-0166 §M2 추적 주석 존재', () => {
-      expect(SRC).toMatch(/ADR-0166[^\n]*M2/);
-    });
-
-    it('audit-PR-520 추적 주석 존재', () => {
-      expect(SRC).toMatch(/audit-PR-520/);
-    });
+describe('pending tranche budget integration', () => {
+  it('caps the approved quantity to actual cash while preserving stop, target and order identity', async () => {
+    await trancheExecutor.checkPendingTranches();
+    expect(mocks.regime).not.toHaveBeenCalled();
+    expect(mocks.approval).toHaveBeenCalledWith(expect.objectContaining({ quantity: 10, stopLoss: 9000, targetPrice: 13000 }));
+    expect(mocks.submit).toHaveBeenCalledWith(expect.objectContaining({ quantity: 2, orderIntentId: 'tr2-test', correlationId: 'parent-005930' }));
+    expect(JSON.parse(mocks.saved)[0]).toMatchObject({ quantity: 2, stopLoss: 9000, targetPrice: 13000, status: 'EXECUTED' });
+    expect(mocks.addOrder).toHaveBeenCalledWith(expect.objectContaining({ quantity: 2 }));
   });
-
-  describe('호출 위치 정합 — 승인 통과 후 LIVE 주문 직전', () => {
-    it('applyExposureBudgetCap 가 requestBuyApproval 이후 호출', () => {
-      const approvalIdx = SRC.indexOf('requestBuyApproval(');
-      const capIdx = SRC.indexOf('applyExposureBudgetCap(');
-      expect(approvalIdx).toBeGreaterThan(0);
-      expect(capIdx).toBeGreaterThan(approvalIdx);
-    });
-
-    it('applyExposureBudgetCap 가 LIVE kisPost 직전 호출 (`if (isLive)` 분기 진입 전)', () => {
-      const capIdx = SRC.indexOf('applyExposureBudgetCap(');
-      // checkPendingTranches 안에는 두 isLive 사용처 (조기 잔고 분기 + LIVE 주문 분기) 가 있다.
-      // 두 번째 사용처 (LIVE 주문) 직전에 cap 호출이 와야 한다.
-      const livePostIdx = SRC.lastIndexOf('if (isLive) {');
-      expect(capIdx).toBeGreaterThan(0);
-      expect(livePostIdx).toBeGreaterThan(capIdx);
-    });
-
-    it('cap 결과 t.quantity 변경 시 LIVE 주문이 변경된 quantity 사용 (submitBuyOrder quantity: t.quantity)', () => {
-      // LIVE 주문 placement 가 inline kisPost(ORD_QTY: t.quantity.toString()) 에서
-      // submitBuyOrder({ ..., quantity: t.quantity }) 헬퍼(kisClient 단일 통로)로 이관됨.
-      // cap mutation(t.quantity = cappedQty) 이 submitBuyOrder 호출보다 앞서므로
-      // 변경된 t.quantity 가 LIVE 주문 수량으로 자연 반영된다 — intent 동일.
-      const capMutationIdx = SRC.indexOf('t.quantity = cappedQty;');
-      const submitIdx = SRC.indexOf('submitBuyOrder({');
-      expect(capMutationIdx).toBeGreaterThan(0);
-      expect(submitIdx).toBeGreaterThan(capMutationIdx);
-      expect(SRC).toMatch(/submitBuyOrder\(\{[\s\S]*?quantity:\s*t\.quantity/);
-    });
+  it('does not enlarge an existing planned quantity when cash is ample', async () => {
+    mocks.balance.mockResolvedValue(1000000);
+    installPlans([plan('tr2-test', '005930', 3)]);
+    await trancheExecutor.checkPendingTranches();
+    expect(mocks.submit).toHaveBeenCalledWith(expect.objectContaining({ quantity: 3 }));
+  });
+  it('keeps an unverified LIVE balance pending without asking for approval or ordering', async () => {
+    mocks.balance.mockResolvedValue(null);
+    await trancheExecutor.checkPendingTranches();
+    expect(mocks.approval).not.toHaveBeenCalled();
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(JSON.parse(mocks.saved)[0]).toMatchObject({ quantity: 10, status: 'PENDING' });
+  });
+  it('does not reuse the same cash across two pending plans', async () => {
+    installPlans([plan(), plan('tr2-second', '000660')]);
+    await trancheExecutor.checkPendingTranches();
+    expect(mocks.submit).toHaveBeenCalledOnce();
+    expect(mocks.submit).toHaveBeenCalledWith(expect.objectContaining({ quantity: 2 }));
+    expect(JSON.parse(mocks.saved)[1]).toMatchObject({ status: 'CANCELLED' });
+  });
+  it('includes existing stock holdings in the user position limit', async () => {
+    mocks.balance.mockResolvedValue(1000000);
+    mocks.trades[0]!.quantity = 14;
+    await trancheExecutor.checkPendingTranches();
+    expect(mocks.submit).toHaveBeenCalledWith(expect.objectContaining({ quantity: 1 }));
+  });
+  it.each(['LIVE', 'SHADOW', 'PAPER'])('does not charge another execution mode against the %s stock limit', async (mode) => {
+    mocks.mode.mockReturnValue(mode);
+    const isLive = mode === 'LIVE';
+    mocks.trades[0]!.mode = isLive ? 'LIVE' : 'SHADOW';
+    mocks.trades.push({ id: 'other-mode', stockCode: '005930', status: 'ACTIVE', quantity: 100,
+      mode: isLive ? 'SHADOW' : 'LIVE' });
+    await trancheExecutor.checkPendingTranches();
+    expect(JSON.parse(mocks.saved)[0]).toMatchObject({ status: 'EXECUTED', quantity: 2 });
+    const accountTrades = [mocks.trades[0]!];
+    expect(mocks.exposure).toHaveBeenCalledWith(1000000, 25000, accountTrades);
+    if (isLive) {
+      expect(mocks.submit).toHaveBeenCalledWith(expect.objectContaining({ quantity: 2 }));
+      expect(mocks.shadowAccount).not.toHaveBeenCalled();
+    } else {
+      expect(mocks.submit).not.toHaveBeenCalled();
+      expect(mocks.shadowAccount).toHaveBeenCalledWith(accountTrades, 1000000);
+    }
+  });
+  it('preserves user rejection and never submits the order', async () => {
+    mocks.approval.mockResolvedValue('REJECT');
+    await trancheExecutor.checkPendingTranches();
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(JSON.parse(mocks.saved)[0]).toMatchObject({ status: 'CANCELLED', cancelReason: '사용자 REJECT' });
+  });
+  it('preserves the stop-loss and add-buy-block plan checks', async () => {
+    mocks.price.mockResolvedValue(8900);
+    await trancheExecutor.checkPendingTranches();
+    expect(mocks.approval).not.toHaveBeenCalled();
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(JSON.parse(mocks.saved)[0]).toMatchObject({ status: 'CANCELLED', cancelReason: '1차 포지션 손절선 하회' });
+  });
+  it('never turns a Shadow pending plan into a real order', async () => {
+    mocks.mode.mockReturnValue('SHADOW');
+    await trancheExecutor.checkPendingTranches();
+    expect(mocks.balance).not.toHaveBeenCalled();
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(mocks.approval).toHaveBeenCalledWith(expect.objectContaining({ mode: 'SHADOW' }));
   });
 });

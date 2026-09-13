@@ -13,7 +13,7 @@ import {
 import { sendTelegramAlert } from '../alerts/telegramClient.js';
 import { fillMonitor } from '../trading/fillMonitor.js';
 import { trancheExecutor } from '../trading/trancheExecutor.js';
-import { runAutoSignalScan } from '../trading/signalScanner.js';
+import { runAutoSignalScan } from '../trading/scanDispatcher.js';
 import { getTradingMode } from '../state.js';
 import { preScreenStocks, autoPopulateWatchlist, sendWatchlistRejectionReport, maybeRefreshScreenerIntraday } from '../screener/stockScreener.js';
 import { generateDailyReport } from '../alerts/reportGenerator.js';
@@ -28,10 +28,7 @@ import { runPreMarketSmokeTest } from '../trading/preMarketSmokeTest.js';
 import { cleanupWatchlist } from '../screener/watchlistManager.js';
 import { probePreMarketGap, type GapProbeResult } from '../trading/preMarketGapProbe.js';
 import { assertSafeOrder, PreOrderGuardError } from '../trading/preOrderGuard.js';
-import { loadMacroState } from '../persistence/macroStateRepo.js';
-import { resolveCanonicalRegimeLevel, isCanonicalR6Defense } from '../trading/regime/canonicalRegimeAccess.js';
 import { withForcedMarket } from '../utils/forceMarketGuard.js';
-import { REGIME_CONFIGS } from '../../src/services/quant/regimeEngine.js';
 import { buildPreopenOrchestratorCycleKey } from '../utils/preopenDiscoveryGuards.js';
 import {
   acquireShadowAuctionLock,
@@ -63,7 +60,7 @@ function kstTradeDate(): string {
 
 /**
  * OPENING_AUCTION 진입 시 (08:45 KST) 워치리스트 종목에 대해:
- * 1. 동시호가 진입 전 포지션 Full 가드 (regimeConfig.maxPositions)
+ * 1. 동시호가 진입 전 포지션 Full 가드 (고정 포지션 한도)
  * 2. preMarketGapProbe 로 KIS 전일종가 기반 갭 체크 (ADR-0004)
  * 3. ServerGate 재평가 (8개 조건) — quote 없이 워치리스트 entryPrice 기반
  * 4. assertSafeOrder 최종 Kill-Switch (LIVE 경로)
@@ -84,27 +81,26 @@ export async function preMarketOrderPrep(): Promise<void> {
   try {
 
   // ── 포지션 Full 가드 (진입부 즉시) ─────────────────────────────────────────
-  // regimeConfig.maxPositions 이상 보유 시 preMarket 예약 주문 자체를 스킵.
+  // 고정 포지션 한도 이상 보유 시 preMarket 예약 주문 자체를 스킵.
   // 신호 발견 후 뒤늦게 skip 하던 기존 구조는 이미 Shadow DB 에 PROVISIONAL 기록이
   // 남아 "가득 찬 계좌에 추가 매수 시도" 이력이 누적되었다. 진입부에서 끊는다.
   const activeCount = loadShadowTrades().filter(s => isOpenShadowStatus(s.status)).length;
-  // ADR-0531: Gate0 레짐 정본 사용(legacy getLiveRegime 고착 제거).
-  const regime = resolveCanonicalRegimeLevel(loadMacroState());
-  const maxPositions = REGIME_CONFIGS[regime]?.maxPositions ?? 4;
+  // ADR-0673: preserve the existing four-position fallback without a market classification.
+  const maxPositions = 4;
   if (activeCount >= maxPositions) {
     console.log(
-      `[PreMarket] 포지션 Full (${activeCount}/${maxPositions}, regime=${regime}) — 전체 스킵`,
+      `[PreMarket] 포지션 Full (${activeCount}/${maxPositions}) — 전체 스킵`,
     );
     await sendTelegramAlert(
       `🛑 <b>[PreMarket Full 가드]</b>\n` +
-      `활성 포지션 ${activeCount}/${maxPositions} (regime=${regime}) — 예약 주문 전량 스킵`
+      `활성 포지션 ${activeCount}/${maxPositions} — 예약 주문 전량 스킵`
     ).catch(console.error);
     return;
   }
 
   console.log(
     `[PreMarket] 동시호가 예약 주문 준비 — ${watchlist.length}개 종목 ` +
-    `(포지션 ${activeCount}/${maxPositions}, regime=${regime})`,
+    `(포지션 ${activeCount}/${maxPositions})`,
   );
   // ADR-0392 P0-B — env 직접 참조 → getTradingMode() SSOT 통일.
   const isLive = getTradingMode() === 'LIVE';
@@ -363,16 +359,6 @@ function resolveState(h: number, m: number, dow: number): TradingState {
   if (t < 1600) return 'POST_MARKET';
   if (t < 1700) return 'REPORT_ANALYSIS';
   return 'PRE_MARKET';
-}
-
-function isR6DefenseRegime(): boolean {
-  try {
-    // ADR-0531: canonical R6 판정(riskOverride/effectiveRegime). 진짜 R6는 sanitize 후 보존.
-    return isCanonicalR6Defense(loadMacroState());
-  } catch (e) {
-    console.warn('[Orchestrator] R6 post-close scan regime check failed:', e instanceof Error ? e.message : e);
-    return false;
-  }
 }
 
 export class TradingDayOrchestrator {
@@ -651,13 +637,13 @@ export class TradingDayOrchestrator {
           await generateDailyReport().catch(console.error);
           this.markRan('dailyReport');
         }
-        if (enabled && t >= 1605 && !this.hasRan('r6PostCloseCandidateScan') && isR6DefenseRegime()) {
-          console.log('[Orchestrator] R6 post-close candidate scan (POST_CLOSE_OBSERVE, executionImpact=NONE)');
+        if (enabled && t >= 1605 && !this.hasRan('postCloseCandidateScan')) {
+          console.log('[Orchestrator] post-close candidate scan (POST_CLOSE_OBSERVE, executionImpact=NONE)');
           const shadowsBefore = loadShadowTrades().length;
           const scanResult = await withForcedMarket(() =>
             runAutoSignalScan({ candidateScanTrigger: 'POST_CLOSE_OBSERVE' }),
           ).catch((e) => {
-            console.error('[Orchestrator] R6 post-close candidate scan failed:', e);
+            console.error('[Orchestrator] post-close candidate scan failed:', e);
             return {};
           }) ?? {};
           const shadowsAfter = loadShadowTrades().length;
@@ -667,7 +653,7 @@ export class TradingDayOrchestrator {
             engineMode: 'SELL_ONLY',
             now: new Date(),
           });
-          this.markRan('r6PostCloseCandidateScan');
+          this.markRan('postCloseCandidateScan');
         }
         // 16:30+ 한 번만: L2 일일 평가 (evaluateRecommendations + anomaly + first-calib)
         if (t >= 1630 && !this.hasRan('evalRecs')) {

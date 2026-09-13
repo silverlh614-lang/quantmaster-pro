@@ -9,6 +9,7 @@ import type {
   PositionSourceAggregate,
 } from '../telegram/commands/positions/positionSourceTypes.js';
 import { calculateEntryPositionSizing } from '../trading/sizing/entrySizingPolicy.js';
+import { loadTradingSettings } from '../persistence/tradingSettingsRepo.js';
 import type {
   TradeLifecycleOutcome,
   TradeLifecycleState,
@@ -346,6 +347,9 @@ async function getCurrentPositionCount(
 
 export async function calculatePositionSlotsBySsot(input: {
   regime?: string | null;
+  positionSizePct?: number;
+  maxPositions?: number;
+  maxGrossExposurePct?: number;
   totalEquity: number;
   modePreference?: PositionStateModePreference;
   sourceAggregate?: PositionSourceAggregate;
@@ -357,8 +361,11 @@ export async function calculatePositionSlotsBySsot(input: {
     readers: input.readers,
     now: input.now,
   });
+  const positionLimit = loadTradingSettings().positionLimit;
   const sizing = calculateEntryPositionSizing({
-    regime: input.regime,
+    positionSizePct: input.positionSizePct ?? (positionLimit.enabled ? positionLimit.maxSingleStockPercent : 15),
+    maxPositions: input.maxPositions,
+    maxGrossExposurePct: input.maxGrossExposurePct,
     totalEquity: input.totalEquity,
     currentPositions,
   });

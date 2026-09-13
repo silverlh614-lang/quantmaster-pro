@@ -17,11 +17,11 @@ export function registerReportJobs(): void {
     catch (error) { console.warn('[Scheduler] KRX 회로 reset 실패:', error instanceof Error ? error.name : 'unknown error'); }
     if (cleared > 0) console.log(`[Scheduler] KIS 회로 ${cleared}개 해제 + KRX reset`);
   }, { timezone: 'UTC' });
-  scheduledJob('38 23 * * 0-4', 'TRADING_DAY_ONLY', 'market_regime_refresh_morning',
+  scheduledJob('38 23 * * 0-4', 'TRADING_DAY_ONLY', 'market_data_refresh_morning',
     () => refreshMarketRegimeVars(), { timezone: 'UTC' });
-  scheduledJob('*/3 0-6 * * 1-5', 'TRADING_DAY_ONLY', 'market_regime_refresh_intraday_ttl',
+  scheduledJob('*/3 0-6 * * 1-5', 'TRADING_DAY_ONLY', 'market_data_refresh_intraday_ttl',
     () => refreshMarketRegimeVars(), { timezone: 'UTC' });
-  scheduledJob('30 6 * * 1-5', 'TRADING_DAY_ONLY', 'market_regime_refresh_close',
+  scheduledJob('30 6 * * 1-5', 'TRADING_DAY_ONLY', 'market_data_refresh_close',
     () => refreshMarketRegimeVars(), { timezone: 'UTC' });
   scheduledJob('0 * * * *', 'ALWAYS_ON', 'hourly_canary',
     () => runHourlyCanary(), { timezone: 'UTC' });

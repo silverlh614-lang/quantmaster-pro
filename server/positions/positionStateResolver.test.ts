@@ -142,6 +142,7 @@ describe('PositionStateResolver SSOT', () => {
     ]);
     const sizing = await calculatePositionSlotsBySsot({
       regime: 'R5_STABILIZING',
+      maxPositions: 3,
       totalEquity: 5_000_000,
       modePreference: 'SHADOW_FIRST',
       sourceAggregate,
