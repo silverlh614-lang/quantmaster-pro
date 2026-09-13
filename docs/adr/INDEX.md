@@ -14,9 +14,9 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0669`**
+**다음 ADR 번호: `0670`**
 
-최근 발급: 2026-09-13, [0668 — 저장 자료 Shadow 학습·연구](0668-archived-data-shadow-research.md), Accepted. 선행 0667은 뉴스·추세 전략, 0666은 기준 실험이다.
+최근 발급: 2026-09-13, [0669 — 기존 Gate 관측값 연구 확장](0669-shadow-feature-research.md), Accepted. 선행 0668은 저장 자료 재현, 0667은 뉴스·추세 전략이다.
 
 상세 결정은 해당 ADR, 과거 구현 내역은 Git에서 조회한다. 이 파일에는 발급 번호와 검색 목록만 남긴다.
 
@@ -595,6 +595,7 @@
 | 0666 | shadow-first-experiments | 레짐·Kelly·Gate·승인 제약 없는 기본 Shadow 기준 실험 |
 | 0667 | news-trend-shadow-strategy | 기준 실험 성과로 조건부 Shadow 진입과 사전 고정 예약 종가 청산 실행 |
 | 0668 | archived-data-shadow-research | 저장 가격·뉴스 보존, 과거 재현과 후반 검증, Shadow 초기 근거 연결 |
+| 0669 | shadow-feature-research | OHLCV·시장 지수로 7개 조건 독립 연구, 후반 대조군 비교, 총점·레짐 제한 없음 |
 
 **최대 발급 0664 · 다음 발급 0665** — `node scripts/check_adr_index.js --json` 기준 (2026-07-13 실측·validate:adrIndex). 카운트 SSOT = `validate:adrIndex`, 충돌·누락 분류는 위 §"알려진 충돌"·§"누락".
 

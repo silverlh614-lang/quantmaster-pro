@@ -6,6 +6,7 @@ import { loadDartAlerts } from '../../persistence/dartRepo.js';
 import { loadNewsSupplyRecords } from '../../learning/newsSupplyLogger.js';
 import { toKstDateKey, isKrxTradingDay, previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { collectUnifiedSnapshot } from '../symbolDataCollector.js';
+import { researchBarFields } from './paperResearchFeatures.js';
 
 function codeOf(input: string): string | null {
   const code = input.trim().replace(/\.(KS|KQ)$/i, '');
@@ -58,7 +59,7 @@ export async function collectPaperExperimentSnapshot(openSymbols: string[]): Pro
       const date = bar.date.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
       const closedAt = Date.parse(`${date}T15:30:00+09:00`);
       if (!isKrxTradingDay(date) || !Number.isFinite(closedAt) || !Number.isFinite(bar.close) || bar.close <= 0 || closedAt > startMs) return [];
-      return [{ tradingDate: date, close: bar.close, availableAt: asOf }];
+      return [{ tradingDate: date, close: bar.close, availableAt: asOf, ...researchBarFields(bar) }];
     }).sort((a, b) => b.tradingDate.localeCompare(a.tradingDate));
     const priorCloses = dailyCloses.filter((item) => item.tradingDate < tradingDate);
     let referenceDate = tradingDate;
@@ -73,6 +74,7 @@ export async function collectPaperExperimentSnapshot(openSymbols: string[]): Pro
     return {
       symbol, name: names.get(symbol) || data?.name || symbol,
       price, observedAt: quote?.fetchedAt ?? asOf, source: 'KIS_REST_REQUEST_OBSERVED',
+      ...(data?.market === 'KOSPI' || data?.market === 'KOSDAQ' ? { market: data.market } : {}),
       return1dPct: price !== null && previousClose ? (price / previousClose.close - 1) * 100 : null,
       return5dPct: price !== null && fifthClose ? (price / fifthClose.close - 1) * 100 : null,
       aboveMa20: price !== null && average20 !== null ? price > average20 : null,

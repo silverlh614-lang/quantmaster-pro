@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import type { ResearchArchive, ResearchInventory, ResearchNews, ResearchSeries } from '../../../src/types/paperResearch.js';
 import type { PaperObservation } from '../../../src/types/paperExperiment.js';
 import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
+import { researchBarFields } from './paperResearchFeatures.js';
 
 type Row = Record<string, any>;
 const object = (value: unknown): value is Row => Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -20,8 +21,10 @@ export function seriesFromObservations(observations: PaperObservation[], retriev
     // This collector's dailyCloses originate from the existing KIS daily-bar channel.
     if (!['KIS_REST_REQUEST_OBSERVED', 'KIS'].includes(item.source) || !symbol(item.symbol)) return [];
     const closes = item.dailyCloses.filter((bar) => Number.isFinite(bar.close) && bar.close > 0)
-      .map((bar) => ({ date: bar.tradingDate, close: bar.close }));
-    return [{ id: `kis:${item.symbol}:${hash(closes)}`, symbol: item.symbol, source: 'KIS_SNAPSHOT' as const, retrievedAt, closes }];
+      .filter((bar) => Date.parse(bar.availableAt) <= Date.parse(retrievedAt))
+      .map((bar) => ({ date: bar.tradingDate, close: bar.close, ...researchBarFields(bar) }));
+    return [{ id: `kis:${item.symbol}:${hash(closes)}`, symbol: item.symbol, market: item.market,
+      source: 'KIS_SNAPSHOT' as const, retrievedAt, closes }];
   });
 }
 
@@ -45,18 +48,22 @@ export function readPaperResearchSources(dataDir: string, asOf: string): Researc
   const chartStore = read('offhours-snapshot.json');
   for (const item of chartStore ?? []) {
     if (!object(item) || typeof item.key !== 'string' || !/:1d$/.test(item.key)) continue;
-    const code = symbol(item.key.split(':')[0]);
+    const ticker = item.key.split(':')[0];
+    const code = symbol(ticker) ?? (['^KS11', '^KQ11'].includes(ticker) ? ticker : null);
     const fetched = item.entry?.fetchedAt;
     if (!code || !Number.isFinite(fetched) || fetched > Date.parse(asOf)) continue;
     try {
       const body = JSON.parse(item.entry.body);
       const chart = body.chart?.result?.[0];
       if (!Array.isArray(chart?.timestamp) || !Array.isArray(chart?.indicators?.quote?.[0]?.close)) continue;
+      const quote = chart.indicators.quote[0];
       const closes = chart.timestamp.map((time: number, index: number) => ({
         date: Number.isFinite(time) ? toKstDateKey(new Date(time * 1000)) : '',
-        close: chart.indicators.quote[0].close[index],
+        close: quote.close[index],
+        ...researchBarFields({ open: quote.open?.[index], high: quote.high?.[index], low: quote.low?.[index], volume: quote.volume?.[index] }),
       })).filter((bar: { date: string; close: number }) => bar.date && Number.isFinite(bar.close) && bar.close > 0);
-      series.push({ id: `chart:${code}:${hash(closes)}`, symbol: code, source: 'ARCHIVED_CHART',
+      series.push({ id: `chart:${code}:${hash(closes)}`, symbol: code,
+        market: ticker.endsWith('.KQ') || ticker === '^KQ11' ? 'KOSDAQ' : 'KOSPI', source: 'ARCHIVED_CHART',
         retrievedAt: new Date(fetched).toISOString(), closes });
     } catch {
       inventory.push({ file: `offhours-snapshot.json:${item.key}`, records: 0, status: 'ERROR', issue: '차트 본문 해석 실패' });

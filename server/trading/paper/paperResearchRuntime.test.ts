@@ -13,7 +13,7 @@ afterEach(() => { for (const dir of directories.splice(0)) fs.rmSync(dir, { recu
 describe('research persistence', () => {
   it('archives valid daily points and news, reports inventory, and leaves every source byte unchanged', () => {
     const dir = temporary();
-    const body = JSON.stringify({ chart: { result: [{ timestamp: [1770000000, 1770086400], indicators: { quote: [{ close: [100, null] }] } }] } });
+    const body = JSON.stringify({ chart: { result: [{ timestamp: [1770000000, 1770086400], indicators: { quote: [{ close: [100, null], high: [110, 120], low: [90, 95], volume: [0, 1000] }] } }] } });
     const chart = JSON.stringify({ version: 1, entries: [{ key: '005930.KS:1y:1d', entry: { body, fetchedAt: Date.parse('2026-09-01') } }] });
     const news = JSON.stringify([{ id: 'old', koreanStockCodes: ['005930.KS'], detectedAt: '2026-02-02T01:00:00Z', newsHeadline: '공시' }]);
     fs.writeFileSync(path.join(dir, 'offhours-snapshot.json'), chart);
@@ -22,6 +22,7 @@ describe('research persistence', () => {
     expect(first.view.seriesCount).toBe(1);
     expect(first.view.newsCount).toBe(1);
     expect(loadResearchArchive(dir).series[0].closes).toHaveLength(1);
+    expect(loadResearchArchive(dir).series[0]).toMatchObject({ market: 'KOSPI', closes: [{ close: 100, high: 110, low: 90, volume: 0 }] });
     expect(fs.readFileSync(path.join(dir, 'offhours-snapshot.json'), 'utf8')).toBe(chart);
     expect(fs.readFileSync(path.join(dir, 'news-supply-log.json'), 'utf8')).toBe(news);
     fs.writeFileSync(path.join(dir, 'news-supply-log.json'), '[]');

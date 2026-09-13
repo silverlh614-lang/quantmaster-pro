@@ -51,6 +51,17 @@ describe('paper observation collector', () => {
     expect(result.observations[0]).toMatchObject({ price: null, issue: 'CURRENT_QUOTE_UNAVAILABLE' });
   });
 
+  it('preserves closed OHLCV and market from the same collector snapshot for later research', async () => {
+    mocks.collect.mockResolvedValue({ perSymbol: { '005930': { market: 'KOSPI', quote: null,
+      dailyBars: [{ date: '20260917', close: 100, open: 95, high: 110, low: 90, volume: 0 },
+        { date: '20260918', close: 150, high: 200, low: 80, volume: 1000 }] } } });
+    const result = await collectPaperExperimentSnapshot([]);
+    expect(result.observations[0]).toMatchObject({ market: 'KOSPI', dailyCloses: [
+      { tradingDate: '2026-09-17', close: 100, open: 95, high: 110, low: 90, volume: 0 },
+    ] });
+    expect(result.observations[0].dailyCloses).toHaveLength(1);
+  });
+
   it('does not classify a bar requested before the closing auction as finalized', async () => {
     vi.setSystemTime(new Date('2026-09-18T06:29:00Z'));
     mocks.collect.mockImplementationOnce(async () => {

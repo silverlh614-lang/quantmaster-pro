@@ -22,7 +22,12 @@ export function loadResearchArchive(directory: string): ResearchArchive {
   if (value?.schemaVersion !== 1 || !Array.isArray(value.series) || !Array.isArray(value.news) || !Array.isArray(value.inventory)
     || value.series.some((item) => !item || typeof item.id !== 'string' || typeof item.symbol !== 'string'
       || !['KIS_SNAPSHOT', 'ARCHIVED_CHART'].includes(item.source) || typeof item.retrievedAt !== 'string'
-      || !Array.isArray(item.closes) || item.closes.some((bar) => !bar || typeof bar.date !== 'string' || !Number.isFinite(bar.close)))
+      || item.market !== undefined && !['KOSPI', 'KOSDAQ'].includes(item.market)
+      || !Array.isArray(item.closes) || item.closes.some((bar) => !bar || typeof bar.date !== 'string' || !Number.isFinite(bar.close)
+        || ['open', 'high', 'low', 'volume'].some((key) => {
+          const field = bar[key as 'open' | 'high' | 'low' | 'volume'];
+          return field !== undefined && (!Number.isFinite(field) || (key === 'volume' ? field < 0 : field <= 0));
+        })))
     || value.news.some((item) => !item || typeof item.id !== 'string' || typeof item.symbol !== 'string'
       || typeof item.observedAt !== 'string' || typeof item.headline !== 'string')) {
     throw new Error('과거 연구 원장 형식이 올바르지 않습니다. 원본을 보존했습니다.');

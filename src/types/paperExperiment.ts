@@ -13,6 +13,10 @@ export interface PaperDailyClose {
   tradingDate: string;
   close: number;
   availableAt: string;
+  open?: number;
+  high?: number;
+  low?: number;
+  volume?: number;
 }
 
 export interface PaperObservation {
@@ -21,6 +25,7 @@ export interface PaperObservation {
   price: number | null;
   observedAt: string;
   source: string;
+  market?: 'KOSPI' | 'KOSDAQ';
   return1dPct: number | null;
   return5dPct: number | null;
   aboveMa20: boolean | null;

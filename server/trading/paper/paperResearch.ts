@@ -5,6 +5,8 @@ import type { PaperStrategyHorizon } from '../../../src/types/paperStrategy.js';
 import { isKrxTradingDay, previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate, getStaticKrxHolidays } from '../krxHolidays.js';
 import { calculatePaperReturn } from './paperAccounting.js';
+import { createResearchFeatureReader } from './paperResearchFeatures.js';
+import { compareResearchFeatures } from './paperResearchComparison.js';
 
 const horizons = [1, 3, 5] as const;
 const closeAt = (date: string) => `${date}T15:30:00+09:00`;
@@ -47,10 +49,13 @@ export function buildPaperResearch(
   const selected = new Map<string, HistoricalPaperSample>();
   const calendars = new Map<string, { prior: string[]; targets: string[] }>();
   const costs = new Map<string, PaperCostModel>();
+  const readFeatures = createResearchFeatureReader(archive, asOf);
   // Prefer KIS where a complete KIS series is available. Never splice differing price bases.
-  const series = [...archive.series].sort((a, b) =>
+  const richness = (item: typeof archive.series[number]) => item.closes.filter((bar) => bar.volume !== undefined || bar.high !== undefined).length;
+  const series = archive.series.filter((item) => !['^KS11', '^KQ11'].includes(item.symbol)).sort((a, b) =>
     Number(b.source === 'KIS_SNAPSHOT') - Number(a.source === 'KIS_SNAPSHOT')
-    || b.retrievedAt.localeCompare(a.retrievedAt) || b.closes.length - a.closes.length || a.id.localeCompare(b.id));
+    || b.retrievedAt.localeCompare(a.retrievedAt) || richness(b) - richness(a)
+    || b.closes.length - a.closes.length || a.id.localeCompare(b.id));
   const news = new Map<string, typeof archive.news>();
   for (const item of archive.news) {
     if (!Number.isFinite(Date.parse(item.observedAt)) || Date.parse(item.observedAt) > Date.parse(asOf)) continue;
@@ -104,7 +109,8 @@ export function buildPaperResearch(
         tradingDate: date, entryAt, entryPrice: price, aboveMa20,
         cohort: recent.length ? `NEWS_RECENT_${aboveMa20 ? 'ABOVE' : 'BELOW'}_MA20` : null,
         newsIds: recent.map((event) => event.id), seriesId: item.id, source: item.source,
-        reconstructedAt: asOf, costModel: { ...costModel }, outcomes });
+        reconstructedAt: asOf, costModel: { ...costModel }, outcomes,
+        features: readFeatures(item, date, calendar.prior) });
     }
   }
   const samples = [...selected.values()].sort((a, b) => a.tradingDate.localeCompare(b.tradingDate) || a.symbol.localeCompare(b.symbol));
@@ -130,6 +136,18 @@ export function buildPaperResearch(
     seriesCount: archive.series.length, newsCount: archive.news.length, sampleCount: samples.length,
     learningSampleCount: samples.filter((item) => item.cohort !== null).length,
     firstDate: dates[0] ?? null, lastDate: dates.at(-1) ?? null, skipped, inventory: archive.inventory, groups, validation,
+    benchmarkSeriesCount: archive.series.filter((item) => ['^KS11', '^KQ11'].includes(item.symbol)).length,
+    featureStudies: compareResearchFeatures(samples, splitDate),
+    featureNotes: [
+      '7개 조건을 각각 비교합니다. 총점·중복 가감점·조건 일괄 통과·레짐 제한을 적용하지 않으며 매매 정책에 자동 반영하지 않습니다.',
+      '숫자 조건은 앞선 학습 기간의 중앙값으로 둘로 나눕니다. 구간과 보유기간은 학습 자료에서만 선택하고 후반 자료에서 확인합니다.',
+      '비교 차이는 후반의 동일 진입일·뉴스/20일선 그룹·보유기간을 맞춰 계산합니다. 각 날짜/그룹을 동일 가중하며 대조군에는 선택 종목도 포함됩니다.',
+      '조건 결손 표본은 해당 조건의 양쪽 비교에서 제외합니다. 서로 다른 조건의 표본 수와 종목·기간 구성은 다를 수 있습니다.',
+      '가격 위치는 기존 Gate 3 계산을 재사용합니다. 거래량은 진입일 확정 일봉, 고점·평균·변동폭은 진입일 이전 봉만 사용합니다.',
+      '상대강도는 해당 시장의 보관 지수와 정확한 20거래일을 맞춥니다. 코스닥 지수가 부족할 때 코스피로 대체하지 않습니다.',
+      '기존 수급 건강도·통과 점수·섹터 이름만으로 당시 수급량이나 업종 강도를 만들지 않습니다. 이번 확장 연구는 가격·거래량·보관 지수 범위입니다.',
+      '여러 가설을 비교하는 탐색 연구입니다. 겹치는 보유기간·종목 상관·사후 수정주가·표본 편중이 남으며 우위의 인과관계나 통계적 유의성을 증명하지 않습니다.',
+    ],
     notes: [
       '과거 종가→종가 재현 연구입니다. 실제 장중 체결·새 전략의 실시간 거래 성과와 구분합니다.',
       '현재 보관된 과거 차트로 계산한 회고 검증입니다. 당시 저장본 전체를 복원한 실시간 검증은 아닙니다.',

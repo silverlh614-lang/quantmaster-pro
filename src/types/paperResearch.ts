@@ -2,12 +2,22 @@
 import type { PaperCostModel, PaperOutcome } from './paperExperiment';
 import type { PaperStrategyCohort, PaperStrategyHorizon } from './paperStrategy';
 
+export interface ResearchBar {
+  date: string;
+  close: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  volume?: number;
+}
+
 export interface ResearchSeries {
   id: string;
   symbol: string;
   source: 'KIS_SNAPSHOT' | 'ARCHIVED_CHART';
   retrievedAt: string;
-  closes: Array<{ date: string; close: number }>;
+  market?: 'KOSPI' | 'KOSDAQ';
+  closes: ResearchBar[];
 }
 
 export interface ResearchNews {
@@ -47,6 +57,42 @@ export interface HistoricalPaperSample {
   reconstructedAt: string;
   costModel: PaperCostModel;
   outcomes: PaperOutcome[];
+  features?: ResearchFeatures;
+}
+
+export interface ResearchFeatures {
+  return5dPct: number | null;
+  volumeRatio20d: number | null;
+  relativeReturn20dPct: number | null;
+  extensionMa20Pct: number | null;
+  distanceHigh20dPct: number | null;
+  atr14Pct: number | null;
+  priceSetup: string | null;
+  benchmarkSeriesId: string | null;
+}
+
+export interface ResearchFeatureStudy {
+  feature: keyof Omit<ResearchFeatures, 'benchmarkSeriesId'>;
+  label: string;
+  availableCount: number;
+  missingCount: number;
+  splitDate: string | null;
+  threshold: number | null;
+  groups: ResearchGroupResult[];
+  trainingCount: number;
+  testAvailableCount: number;
+  selectedGroup: string | null;
+  selectedHorizon: PaperStrategyHorizon | null;
+  selectedTrainingCount: number;
+  testCount: number;
+  testDateCount: number;
+  testSymbolCount: number;
+  testMeanNetReturnPct: number | null;
+  matchedGroupCount: number;
+  matchedSelectedMeanPct: number | null;
+  matchedBaselineMeanPct: number | null;
+  matchedDifferencePct: number | null;
+  status: 'EVALUATED' | 'MISSING_INPUT' | 'NO_TRAIN_VARIATION' | 'NO_TEST_MATCH';
 }
 
 export interface ResearchGroupResult {
@@ -78,5 +124,8 @@ export interface PaperResearchView {
     testWinRatePct: number | null;
   }>;
   notes: string[];
+  featureStudies?: ResearchFeatureStudy[];
+  featureNotes?: string[];
+  benchmarkSeriesCount?: number;
   error?: string;
 }

@@ -5,6 +5,7 @@ import type { PaperResearchView } from '../../types/paperResearch';
 import { Section } from '../../ui/section';
 import { PAPER_EXPERIMENT_QUERY_KEY } from '../../api/paperExperimentClient';
 import { apiFetch } from '../../api/client';
+import { PaperResearchFeatures } from './PaperResearchFeatures';
 
 const label = (group: string) => `${group.startsWith('NEWS_RECENT') ? '관측 뉴스 있음' : '뉴스 기록 미확인'} · ${group.includes('ABOVE') ? '20일선 위' : '20일선 이하'}`;
 const percent = (value: number | null) => value === null ? '집계 대기' : `${value.toFixed(2)}%`;
@@ -47,6 +48,7 @@ export function PaperResearchPanel({ view }: { view?: PaperResearchView }) {
           </tr>)}</tbody>
         </table></div>
         {view.validation.length === 0 && <p className="text-xs text-slate-400">날짜를 나눠 검증할 충분한 기간이 아직 없습니다.</p>}
+        {view.featureStudies && <PaperResearchFeatures studies={view.featureStudies} notes={view.featureNotes ?? []} />}
         <details className="text-xs text-slate-400"><summary className="cursor-pointer py-2">원본 보유 현황·계산 제외 사유</summary>
           {view.inventory.map((item, index) => <p key={`${item.file}:${index}`}>{item.file}: {item.status === 'FOUND' ? `${item.records}건` : item.status === 'MISSING' ? '파일 없음' : '읽기 오류'} {item.issue}</p>)}
           {Object.entries(view.skipped).map(([reason, count]) => <p key={reason}>{({ MISSING_PRIOR_20_CLOSES: '직전 20거래일 가격 부족', MISSING_EXACT_D1_D3_D5: '정확한 D1·D3·D5 가격 부족', UNSUPPORTED_CALENDAR_YEAR: '휴장일 달력 미등록 연도', INVALID_SERIES: '가격 묶음의 시각·종목 확인 불가', INVALID_COST_MODEL: '비용 설정 확인 불가' } as Record<string, string>)[reason] ?? reason}: {count}건</p>)}
