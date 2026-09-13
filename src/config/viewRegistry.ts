@@ -3,6 +3,11 @@
 import type { View } from '../stores/useSettingsStore';
 
 export const VIEW_LABELS: Record<View, string> = {
+  DASHBOARD: '운영 현황',
+  PAPER_OBSERVATIONS: '기본 관측',
+  PAPER_STRATEGY: '전략 판단',
+  PAPER_RESEARCH: '저장 자료 연구',
+  OPERATIONS: '운영 설정',
   DISCOVER: '후보 발굴',
   WATCHLIST: '관심종목',
   SCREENER: '스크리너',

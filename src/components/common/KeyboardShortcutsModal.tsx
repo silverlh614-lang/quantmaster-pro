@@ -21,11 +21,10 @@ const SHORTCUTS: ShortcutRow[] = [
   { keys: ['J'], description: '다음 페이지로 이동' },
   { keys: ['K'], description: '이전 페이지로 이동' },
   { keys: ['G', 'H'], description: '홈으로 이동' },
-  { keys: ['G', 'A'], description: '자동매매 관제실로 이동' },
-  { keys: ['G', 'M'], description: '시장 대시보드로 이동' },
+  { keys: ['G', 'A'], description: '전략 판단으로 이동' },
+  { keys: ['G', 'M'], description: '저장 자료 연구로 이동' },
   { keys: ['/'], description: '검색창에 포커스' },
   { keys: ['Esc'], description: '열린 모달·드로어 닫기' },
-  { keys: ['Shift', 'V'], description: '간단 ↔ 프로 뷰 토글 (자동매매)' },
 ];
 
 export function KeyboardShortcutsModal({ open, onClose }: KeyboardShortcutsModalProps) {

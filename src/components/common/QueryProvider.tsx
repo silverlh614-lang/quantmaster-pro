@@ -1,19 +1,12 @@
 // @responsibility common 영역 QueryProvider 컴포넌트
-import { QueryClient, QueryCache, MutationCache } from '@tanstack/react-query';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
-import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
+import { QueryClient, QueryCache, MutationCache, QueryClientProvider } from '@tanstack/react-query';
 import { ReactNode, useState } from 'react';
 import { toast } from 'sonner';
-import { PERSIST_GC_TIME } from '../../utils/cacheConfig';
 
 interface QueryProviderProps {
   children: ReactNode;
 }
 
-const persister = createSyncStoragePersister({
-  storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-  key: 'qm-query-cache',
-});
 
 // PR-2 #2: API 호출 실패가 페이지 전체 렌더링을 막지 않도록 기본 재시도·경고 정책을
 // 중앙에서 설정한다. 네트워크 일시 장애는 exponential backoff 로 흡수하고,
@@ -55,7 +48,7 @@ export function QueryProvider({ children }: QueryProviderProps) {
     defaultOptions: {
       queries: {
         staleTime: 60 * 1000,
-        gcTime: PERSIST_GC_TIME,
+        gcTime: 5 * 60 * 1000,
         refetchOnWindowFocus: false,
         retry: shouldRetry,
         retryDelay,
@@ -68,11 +61,8 @@ export function QueryProvider({ children }: QueryProviderProps) {
   }));
 
   return (
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{ persister, maxAge: PERSIST_GC_TIME }}
-    >
+    <QueryClientProvider client={queryClient}>
       {children}
-    </PersistQueryClientProvider>
+    </QueryClientProvider>
   );
 }

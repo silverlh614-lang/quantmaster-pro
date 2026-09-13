@@ -1,64 +1,61 @@
-// @vitest-environment jsdom
-/**
- * @responsibility 전체 App 트리에서 하단 탭 클릭 → 섹션(view) 전환 회귀
- *
- * 검증: App 이 크래시 없이 마운트되고, BottomNav 의 4개 주요 탭 클릭이
- *       useSettingsStore.view 를 올바른 섹션으로 전환한다 (섹션 전환 연결 회귀).
- */
+﻿// @vitest-environment jsdom
+// @responsibility Verify lightweight workspace navigation.
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, cleanup, fireEvent, screen } from '@testing-library/react';
-
+import { render, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import App from './App';
+import { useSettingsStore } from './stores/useSettingsStore';
+import { apiFetch } from './api/client';
+vi.mock('./api/client', () => ({ apiFetch: vi.fn() }));
+const baseline = { mode: 'SHADOW', strategyVersion: 'shadow-baseline-v1', lastRun: null, totalCount: 0, openCount: 0, completedCount: 0, outcomes: [], groups: [], experiments: [] };
+let client: QueryClient;
 beforeEach(() => {
-  vi.stubGlobal('matchMedia', (q: string) => ({
-    matches: false, media: q, onchange: null,
-    addEventListener: () => {}, removeEventListener: () => {},
-    addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
-  }));
-  class Obs { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } }
-  vi.stubGlobal('IntersectionObserver', Obs as unknown as typeof IntersectionObserver);
-  vi.stubGlobal('ResizeObserver', Obs as unknown as typeof ResizeObserver);
-  Object.defineProperty(window, 'scrollTo', { value: () => {}, writable: true });
-  vi.stubGlobal('fetch', vi.fn(async () => ({
-    ok: true, status: 200, json: async () => ({}), text: async () => '{}',
-    headers: new Map(), clone() { return this; },
-  })) as unknown as typeof fetch);
-  if (!('vibrate' in navigator)) {
-    Object.defineProperty(navigator, 'vibrate', { value: () => true, writable: true });
-  }
+  useSettingsStore.setState({ view: 'DASHBOARD', sidebarDrawerOpen: false });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  vi.mocked(apiFetch).mockImplementation(async (url, options) => {
+    if (url.endsWith('/engine/status')) return { mode: 'SHADOW' };
+    if (url.endsWith('/engine/guards')) return { autoTradingPaused: false };
+    if (options?.query?.section === 'strategy' || options?.query?.section === 'research') return null;
+    return baseline;
+  });
 });
-
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
-
-describe('App — 하단 탭 섹션 전환 (연결 회귀)', () => {
-  it('App 마운트 + 4개 주요 탭이 올바른 view 로 전환된다', async () => {
-    const { useSettingsStore } = await import('./stores/useSettingsStore');
-    useSettingsStore.getState().setView('DISCOVER');
-
-    const { default: App } = await import('./App');
-    const { QueryProvider } = await import('./components/common/QueryProvider');
-
-    render(
-      <QueryProvider>
-        <App />
-      </QueryProvider>,
-    );
-
-    // BottomNav 가 렌더되어야 함 (마운트 성공 증거)
-    expect(screen.queryByLabelText('후보'), 'BottomNav 가 렌더되어야 함').not.toBeNull();
-
-    const cases: Array<[string, string]> = [
-      ['매매', 'AUTO_TRADE'],
-      ['관심종목', 'WATCHLIST'],
-      ['리포트', 'PUBLIC_REPORT'],
-      ['후보', 'DISCOVER'],
-    ];
-    for (const [label, expected] of cases) {
+afterEach(() => { cleanup(); client.clear(); vi.clearAllMocks(); });
+describe('App workspace', () => {
+  it('starts with only three read requests and loads detailed data on navigation', async () => {
+    render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
+    await screen.findByText('첫 관측을 기다리고 있습니다');
+    expect(apiFetch).toHaveBeenCalledTimes(3);
+    expect(apiFetch).toHaveBeenCalledWith('/api/shadow/experiments', { query: { section: 'overview' } });
+    expect(screen.queryByText('마켓 게이트')).toBeNull();
+    expect(screen.queryByText('후보 발굴')).toBeNull();
+    const cases = [['기본 관측', 'PAPER_OBSERVATIONS'], ['전략 판단', 'PAPER_STRATEGY'], ['저장 자료 연구', 'PAPER_RESEARCH'], ['운영 설정', 'OPERATIONS'], ['운영 현황', 'DASHBOARD']] as const;
+    for (const [label, view] of cases) {
       fireEvent.click(screen.getByLabelText(label));
-      expect(useSettingsStore.getState().view, `${label} 탭 → ${expected}`).toBe(expected);
+      expect(useSettingsStore.getState().view).toBe(view);
+      await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(label));
     }
-  }, 20000);
+    expect(apiFetch).toHaveBeenCalledWith('/api/shadow/experiments', { query: { section: 'research' } });
+    expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => !options?.method || options.method === 'GET')).toBe(true);
+  });
+  it('redirects retired history without loading retired page effects', async () => {
+    useSettingsStore.setState({ view: 'PUBLIC_REPORT' });
+    render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
+    await waitFor(() => expect(useSettingsStore.getState().view).toBe('DASHBOARD'));
+    expect(screen.queryByText('공개 리포트')).toBeNull();
+    expect(vi.mocked(apiFetch).mock.calls.every(([url]) => ['/api/auto-trade/engine/status', '/api/auto-trade/engine/guards', '/api/shadow/experiments'].includes(url))).toBe(true);
+  });
+  it('keeps the scan unavailable until the server mode is known', async () => {
+    vi.mocked(apiFetch).mockImplementation(async url => {
+      if (url.endsWith('/engine/status')) return new Promise(() => {});
+      if (url.endsWith('/engine/guards')) return { autoTradingPaused: false };
+      return baseline;
+    });
+    render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
+    await screen.findByText('운영 상태 확인 중');
+    const scan = screen.getByRole('button', { name: '지금 스캔' }) as HTMLButtonElement;
+    expect(scan.disabled).toBe(true);
+    fireEvent.click(scan);
+    expect(vi.mocked(apiFetch).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+  });
 });

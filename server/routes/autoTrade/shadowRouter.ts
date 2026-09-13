@@ -29,6 +29,7 @@ import { getRealtimePrice } from '../../clients/kisStreamClient.js';
 import { getSectorByCode } from '../../screener/sectorMap.js';
 import { getPaperExperimentView, runPaperExperimentScan } from '../../trading/paper/paperExperimentRunner.js';
 import { refreshPaperResearch, getPaperResearchView } from '../../trading/paper/paperResearchRuntime.js';
+import { buildPaperOverview } from '../../trading/paper/paperDashboardView.js';
 
 const router = Router();
 
@@ -38,9 +39,17 @@ router.post('/shadow/research', (_req, res) => {
   res.status(view?.error ? 500 : 200).json(view);
 });
 
-router.get('/shadow/experiments', async (_req: any, res: any) => {
+router.get('/shadow/experiments', async (req: any, res: any) => {
   try {
-    res.json(await getPaperExperimentView());
+    const view = await getPaperExperimentView();
+    switch (req.query.section) {
+      case undefined: return res.json(view);
+      case 'overview': return res.json(buildPaperOverview(view));
+      case 'observations': return res.json({ ...view, strategy: undefined, research: undefined });
+      case 'strategy': return res.json(view.strategy ?? null);
+      case 'research': return res.json(view.research ?? null);
+      default: return res.status(400).json({ error: '지원하지 않는 화면입니다.' });
+    }
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }

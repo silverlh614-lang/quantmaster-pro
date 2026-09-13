@@ -5,15 +5,16 @@
  */
 
 import { useEffect } from 'react';
-import { useSettingsStore } from '../stores';
+import { useSettingsStore } from '../stores/useSettingsStore';
 import type { View } from '../stores/useSettingsStore';
-import { buildPageTitle, THEME_BODY_CLASSES } from '../config';
+import { buildPageTitle } from '../config/viewRegistry';
+import { THEME_BODY_CLASSES } from '../config/themes';
 
 type HistoryViewState = { qmpView?: View } | null;
 
 /**
  * App-level side effects: document title, theme body class,
- * root font-size scaling, browser back-nav (section history), and notification permission.
+ * root font-size scaling and browser back-nav (section history).
  */
 export function useAppEffects() {
   const { view, theme, fontSize } = useSettingsStore();
@@ -55,9 +56,4 @@ export function useAppEffects() {
     document.documentElement.style.fontSize = `${(fontSize / 16) * 100}%`;
   }, [fontSize]);
 
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission !== 'granted') {
-      Notification.requestPermission();
-    }
-  }, []);
 }

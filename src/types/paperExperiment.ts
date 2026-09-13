@@ -115,3 +115,14 @@ export interface PaperExperimentView {
   strategy?: PaperStrategyView;
   research?: PaperResearchView;
 }
+
+/** Compact landing payload; detailed ledgers are fetched only on their page. */
+export interface PaperOverviewView extends Omit<PaperExperimentView, 'experiments' | 'groups' | 'strategy' | 'research'> {
+  strategy?: Omit<PaperStrategyView, 'trades' | 'latestDecisions'> & {
+    decisionCounts: Record<'BUY' | 'WAIT' | 'HOLD' | 'EXIT', number>;
+    waitingReasons: Array<{ code: string; label: string; count: number }>;
+  };
+  research?: Pick<PaperResearchView, 'asOf' | 'symbols' | 'sampleCount' | 'learningSampleCount' | 'newsCount' | 'seriesCount' | 'firstDate' | 'lastDate' | 'error'> & {
+    features: Array<Pick<NonNullable<PaperResearchView['featureStudies']>[number], 'feature' | 'label' | 'status' | 'matchedDifferencePct' | 'testCount' | 'testSymbolCount' | 'testDateCount'>>;
+  };
+}

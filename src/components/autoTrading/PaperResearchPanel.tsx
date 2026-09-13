@@ -23,7 +23,7 @@ export function PaperResearchPanel({ view }: { view?: PaperResearchView }) {
   return (
     <Section title="저장 자료 학습·연구" subtitle="원본을 보존하고 과거 가격·뉴스로 재현한 결과입니다. 새 전략의 거래 성과와 별도로 봅니다." variant="neo">
       <button type="button" disabled={research.isPending} onClick={() => research.mutate()}
-        className="rounded-lg border border-sky-400/30 px-3 py-2 text-sm text-sky-200 disabled:opacity-50">
+        className="workspace-button workspace-button-primary">
         {research.isPending ? '과거 자료 연구 중...' : '저장 자료 다시 연구'}
       </button>
       {(view?.error || research.isError) && <p role="alert" className="text-sm text-amber-200">{view?.error ?? research.error?.message}</p>}
@@ -31,6 +31,8 @@ export function PaperResearchPanel({ view }: { view?: PaperResearchView }) {
         <p className="text-sm text-slate-200">재현 {view.sampleCount}건 · {view.symbols}종목 · 뉴스 전략 학습에 사용 가능 {view.learningSampleCount}건</p>
         <p className="text-xs text-slate-400">진입일 {view.firstDate ?? '미확인'} ~ {view.lastDate ?? '미확인'} · 보관 가격 묶음 {view.seriesCount}개 · 뉴스 {view.newsCount}건</p>
         {view.sampleCount === 0 && <p className="text-sm text-amber-200">재현할 완전한 가격 자료가 아직 없습니다. 아래 원본 보유 현황과 누락 사유를 확인하세요.</p>}
+        {view.featureStudies && <PaperResearchFeatures studies={view.featureStudies} notes={view.featureNotes ?? []} />}
+        <details><summary className="cursor-pointer py-3 text-sm">뉴스·20일선 그룹의 기간별 성과와 후반 검증</summary>
         <div className="overflow-x-auto"><table className="w-full text-left text-sm">
           <caption className="py-2 text-left font-semibold text-slate-200">과거 기간별 성과</caption>
           <thead><tr>{['그룹', '표본', '진입일', 'D1', 'D3', 'D5'].map(text => <th key={text} className="p-2">{text}</th>)}</tr></thead>
@@ -48,7 +50,7 @@ export function PaperResearchPanel({ view }: { view?: PaperResearchView }) {
           </tr>)}</tbody>
         </table></div>
         {view.validation.length === 0 && <p className="text-xs text-slate-400">날짜를 나눠 검증할 충분한 기간이 아직 없습니다.</p>}
-        {view.featureStudies && <PaperResearchFeatures studies={view.featureStudies} notes={view.featureNotes ?? []} />}
+        </details>
         <details className="text-xs text-slate-400"><summary className="cursor-pointer py-2">원본 보유 현황·계산 제외 사유</summary>
           {view.inventory.map((item, index) => <p key={`${item.file}:${index}`}>{item.file}: {item.status === 'FOUND' ? `${item.records}건` : item.status === 'MISSING' ? '파일 없음' : '읽기 오류'} {item.issue}</p>)}
           {Object.entries(view.skipped).map(([reason, count]) => <p key={reason}>{({ MISSING_PRIOR_20_CLOSES: '직전 20거래일 가격 부족', MISSING_EXACT_D1_D3_D5: '정확한 D1·D3·D5 가격 부족', UNSUPPORTED_CALENDAR_YEAR: '휴장일 달력 미등록 연도', INVALID_SERIES: '가격 묶음의 시각·종목 확인 불가', INVALID_COST_MODEL: '비용 설정 확인 불가' } as Record<string, string>)[reason] ?? reason}: {count}건</p>)}

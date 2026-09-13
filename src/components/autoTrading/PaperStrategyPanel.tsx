@@ -1,5 +1,5 @@
 // @responsibility Display empirical Shadow strategy decisions.
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import type {
   PaperStrategyCohort, PaperStrategyDecision, PaperStrategyEvidence,
   PaperStrategyPolicy, PaperStrategyTrade, PaperStrategyView,
@@ -116,13 +116,22 @@ function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
 }
 
 export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
+  const [search, setSearch] = useState('');
+  const [action, setAction] = useState('ALL');
+  const [tradeStatus, setTradeStatus] = useState('ALL');
+  const [decisionPage, setDecisionPage] = useState(0);
+  const [tradePage, setTradePage] = useState(0);
   const unavailable = Boolean(view.error || view.lastRun?.error);
-  const decisions = [...view.latestDecisions].sort((a, b) => b.decisionAt.localeCompare(a.decisionAt)).slice(0, 30);
-  const trades = [...view.trades].sort((a, b) => b.entryAt.localeCompare(a.entryAt)).slice(0, 30);
+  const matchingDecisions = useMemo(() => [...view.latestDecisions].filter(item => (action === 'ALL' || item.action === action) && `${item.name} ${item.symbol}`.toLowerCase().includes(search.trim().toLowerCase())).sort((a, b) => b.decisionAt.localeCompare(a.decisionAt)), [view.latestDecisions, action, search]);
+  const matchingTrades = useMemo(() => [...view.trades].filter(item => (tradeStatus === 'ALL' || item.status === tradeStatus) && `${item.name} ${item.symbol}`.toLowerCase().includes(search.trim().toLowerCase())).sort((a, b) => b.entryAt.localeCompare(a.entryAt)), [view.trades, tradeStatus, search]);
+  const currentDecisionPage = Math.min(decisionPage, Math.max(0, Math.ceil(matchingDecisions.length / 12) - 1));
+  const currentTradePage = Math.min(tradePage, Math.max(0, Math.ceil(matchingTrades.length / 10) - 1));
+  const decisions = matchingDecisions.slice(currentDecisionPage * 12, (currentDecisionPage + 1) * 12);
+  const trades = matchingTrades.slice(currentTradePage * 10, (currentTradePage + 1) * 10);
   return (
     <Section title="뉴스·추세 매매 전략" subtitle="관측 성과로 진입과 보유 기간을 선택하는 독립 Shadow 전략" variant="neo">
       {unavailable ? (
-        <p role="alert" className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">전략 기록 확인 불가 · 판단과 성과를 불러오지 못했습니다. 기본 관측 실험은 아래에서 확인할 수 있습니다.</p>
+        <p role="alert" className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">전략 기록 확인 불가 · 판단과 성과를 불러오지 못했습니다. 기본 관측은 별도로 확인할 수 있습니다.</p>
       ) : (
         <>
           <div className="space-y-2 text-xs leading-relaxed text-slate-400">
@@ -145,17 +154,21 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
                 </div>
               ))}
             </dl>
-            <p className="mt-3 text-xs text-slate-400">이 전략이 선택하고 가상 청산한 거래만 비용을 반영해 집계합니다. 아래 기본 관측 실험의 D1·D3·D5 평균 및 계좌 포트폴리오 성과와 별도입니다.</p>
+            <p className="mt-3 text-xs text-slate-400">이 전략이 선택하고 가상 청산한 거래만 비용을 반영해 집계합니다. 기본 관측 실험의 D1·D3·D5 평균 및 계좌 포트폴리오 성과와 별도입니다.</p>
           </div>
           <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-slate-200">최근 전략 판단 <span className="font-normal text-slate-500">최대 30건</span></h4>
-            {decisions.length === 0 ? <p className="text-sm text-slate-400">아직 전략 판단이 없습니다. 스캔 후 매수·대기·보유·청산 근거가 표시됩니다.</p> : (
+            <h4 className="text-sm font-semibold text-slate-200">최근 전략 판단 <span className="font-normal text-slate-500">{matchingDecisions.length}건 · 페이지당 12건</span></h4>
+            <div className="workspace-filters"><input data-search-focus aria-label="전략 종목 검색" placeholder="종목명 또는 코드 검색" value={search} onChange={event => { setSearch(event.target.value); setDecisionPage(0); setTradePage(0); }} /><select aria-label="전략 판단 종류" value={action} onChange={event => { setAction(event.target.value); setDecisionPage(0); }}><option value="ALL">전체 판단</option><option value="BUY">매수</option><option value="WAIT">대기</option><option value="HOLD">보유</option><option value="EXIT">청산</option></select></div>
+            {decisions.length === 0 ? <p className="workspace-empty">{view.latestDecisions.length ? '검색 조건에 맞는 전략 판단이 없습니다.' : '아직 전략 판단이 없습니다. 스캔 후 매수·대기·보유·청산 근거가 표시됩니다.'}</p> : (
               <div className="grid gap-3 lg:grid-cols-2">{decisions.map((decision, index) => <DecisionCard key={`${decision.snapshotId}-${decision.symbol}-${decision.tradeId ?? index}`} decision={decision} policy={view.policy} />)}</div>
             )}
+            {matchingDecisions.length > 12 && <div className="workspace-pagination"><span>{currentDecisionPage + 1} / {Math.ceil(matchingDecisions.length / 12)}</span><button type="button" className="workspace-button" disabled={!currentDecisionPage} onClick={() => setDecisionPage(currentDecisionPage - 1)}>이전 판단</button><button type="button" className="workspace-button" disabled={(currentDecisionPage + 1) * 12 >= matchingDecisions.length} onClick={() => setDecisionPage(currentDecisionPage + 1)}>다음 판단</button></div>}
           </div>
           <div className="space-y-3">
-            <h4 className="text-sm font-semibold text-slate-200">전략 진입·청산 기록 <span className="font-normal text-slate-500">최근 진입 30건 · 누적 {view.totalCount}건</span></h4>
-            {trades.length === 0 ? <p className="text-sm text-slate-400">아직 전략 진입이 없습니다. 판단 근거와 표본 충족 상태는 최근 전략 판단에서 확인하세요.</p> : trades.map(trade => <TradeCard key={trade.id} trade={trade} />)}
+            <h4 className="text-sm font-semibold text-slate-200">전략 진입·청산 기록 <span className="font-normal text-slate-500">누적 {view.totalCount}건 · 페이지당 10건</span></h4>
+            <div className="workspace-filters"><select aria-label="전략 거래 상태" value={tradeStatus} onChange={event => { setTradeStatus(event.target.value); setTradePage(0); }}><option value="ALL">전체 거래</option><option value="OPEN">가상 보유</option><option value="CLOSED">가상 청산</option></select></div>
+            {trades.length === 0 ? <p className="workspace-empty">{view.trades.length ? '검색 조건에 맞는 전략 거래가 없습니다.' : '아직 전략 진입이 없습니다. 판단 근거와 표본 충족 상태는 최근 전략 판단에서 확인하세요.'}</p> : trades.map(trade => <TradeCard key={trade.id} trade={trade} />)}
+            {matchingTrades.length > 10 && <div className="workspace-pagination"><span>{currentTradePage + 1} / {Math.ceil(matchingTrades.length / 10)}</span><button type="button" className="workspace-button" disabled={!currentTradePage} onClick={() => setTradePage(currentTradePage - 1)}>이전 거래</button><button type="button" className="workspace-button" disabled={(currentTradePage + 1) * 10 >= matchingTrades.length} onClick={() => setTradePage(currentTradePage + 1)}>다음 거래</button></div>}
           </div>
         </>
       )}

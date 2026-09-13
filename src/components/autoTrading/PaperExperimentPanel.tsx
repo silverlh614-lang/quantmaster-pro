@@ -1,5 +1,5 @@
 // @responsibility Display independent Shadow experiment results.
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FlaskConical, Play, RefreshCw } from 'lucide-react';
 import { paperExperimentApi, PAPER_EXPERIMENT_QUERY_KEY } from '../../api/paperExperimentClient';
@@ -70,12 +70,17 @@ function trendLabel(experiment: PaperExperiment): string {
   return above === null ? '추세 미확인' : above ? '20일선 위' : '20일선 이하';
 }
 
-export function PaperExperimentResults({ view }: { view: PaperExperimentView }) {
+export function PaperExperimentResults({ view, showStrategy = true }: { view: PaperExperimentView; showStrategy?: boolean }) {
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('ALL');
+  const [page, setPage] = useState(0);
   const last = view.lastRun;
-  const recent = [...view.experiments].sort((a, b) => b.entryAt.localeCompare(a.entryAt)).slice(0, 30);
+  const filtered = useMemo(() => [...view.experiments].filter(item => (status === 'ALL' || item.status === status) && `${item.name} ${item.symbol}`.toLowerCase().includes(search.trim().toLowerCase())).sort((a, b) => b.entryAt.localeCompare(a.entryAt)), [view.experiments, status, search]);
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(filtered.length / 20) - 1));
+  const recent = filtered.slice(currentPage * 20, (currentPage + 1) * 20);
   return (
     <>
-      {view.strategy && <PaperStrategyPanel view={view.strategy} />}
+      {showStrategy && view.strategy && <PaperStrategyPanel view={view.strategy} />}
       <Section title="최근 관측" variant="neo">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-300">
           <span>마지막 스캔: {timestamp(last?.asOf)}</span>
@@ -123,9 +128,11 @@ export function PaperExperimentResults({ view }: { view: PaperExperimentView }) 
         <GroupTable groups={view.groups} />
       </Section>
 
-      <Section title="최근 실험" subtitle="최근 진입 30건 · 각 실험 1주 · D5 결과가 확인되면 완료" variant="neo">
+      <Section title="관측 기록" subtitle="각 실험 1주 · D5 결과가 확인되면 완료 · 페이지당 20건" variant="neo">
+        <div className="workspace-filters"><input data-search-focus aria-label="관측 종목 검색" placeholder="종목명 또는 코드 검색" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} />
+          <select aria-label="관측 상태" value={status} onChange={event => { setStatus(event.target.value); setPage(0); }}><option value="ALL">전체 상태</option><option value="OPEN">관찰 중</option><option value="COMPLETED">D5 완료</option></select></div>
         {recent.length === 0 ? (
-          <p className="py-6 text-center text-sm text-slate-400">아직 생성된 실험이 없습니다. 스캔을 실행하면 후보와 가격 관측 결과를 확인할 수 있습니다.</p>
+          <p className="workspace-empty">{view.experiments.length ? '검색 조건에 맞는 관측 기록이 없습니다.' : '아직 생성된 실험이 없습니다. 장중 첫 진입 이후 관측 결과가 쌓입니다.'}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-sm">
@@ -147,6 +154,7 @@ export function PaperExperimentResults({ view }: { view: PaperExperimentView }) 
             </table>
           </div>
         )}
+        {filtered.length > 0 && <div className="workspace-pagination"><span>{filtered.length}건 · {currentPage + 1} / {Math.ceil(filtered.length / 20)}</span><button type="button" className="workspace-button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>이전</button><button type="button" className="workspace-button" disabled={(currentPage + 1) * 20 >= filtered.length} onClick={() => setPage(currentPage + 1)}>다음</button></div>}
       </Section>
     </>
   );

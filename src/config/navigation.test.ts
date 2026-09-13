@@ -1,58 +1,20 @@
-import { describe, expect, it } from 'vitest';
-import { MORE_MOBILE_TABS, NAV_GROUPS, PRIMARY_MOBILE_TABS, getVisibleNavGroups } from './navigation';
+﻿import { describe, expect, it } from 'vitest';
+import { NAV_GROUPS, PRIMARY_MOBILE_TABS, MORE_MOBILE_TABS, getVisibleNavGroups, resolveWorkspaceView } from './navigation';
 import { VIEW_LABELS } from './viewRegistry';
-
-describe('navigation SSOT', () => {
-  it('registers every sidebar view in VIEW_LABELS', () => {
-    for (const group of NAV_GROUPS) {
-      for (const item of group.items) {
-        expect(VIEW_LABELS[item.id]).toBeDefined();
-      }
-    }
+describe('workspace navigation', () => {
+  it('exposes the same five destinations on desktop and mobile without reviving retired tools', () => {
+    const ids = ['DASHBOARD', 'PAPER_OBSERVATIONS', 'PAPER_STRATEGY', 'PAPER_RESEARCH', 'OPERATIONS'];
+    expect(NAV_GROUPS.flatMap(group => group.items.map(item => item.id))).toEqual(ids);
+    expect(PRIMARY_MOBILE_TABS.map(item => item.id)).toEqual(ids);
+    expect(MORE_MOBILE_TABS).toEqual([]);
+    expect(getVisibleNavGroups(true)).toEqual(getVisibleNavGroups(false));
+    for (const item of PRIMARY_MOBILE_TABS) expect(VIEW_LABELS[item.id]).toBe(item.label);
   });
-
-  it('registers every mobile more-tab view in VIEW_LABELS', () => {
-    for (const item of MORE_MOBILE_TABS) {
-      expect(VIEW_LABELS[item.id]).toBeDefined();
-    }
-  });
-
-  it('registers every primary mobile tab in VIEW_LABELS', () => {
-    for (const item of PRIMARY_MOBILE_TABS) {
-      expect(VIEW_LABELS[item.id]).toBeDefined();
-    }
-  });
-
-  it('keeps Decision History and Macro Intel registered', () => {
-    const allItems = NAV_GROUPS.flatMap((group) => group.items);
-    expect(allItems.some((item) => item.id === 'RECOMMENDATION_HISTORY')).toBe(true);
-    expect(allItems.some((item) => item.id === 'MACRO_INTEL')).toBe(true);
-  });
-
-  it('keeps report entry points available on desktop and mobile', () => {
-    const report = NAV_GROUPS.find((group) => group.label === '리포트');
-    expect(report).toBeDefined();
-    expect(report?.items.map((item) => item.id)).toEqual(['PUBLIC_REPORT', 'BLOG_EXPORT', 'TELEGRAM_SUMMARY', 'PAID_PREVIEW']);
-    expect(MORE_MOBILE_TABS.some((item) => item.id === 'BLOG_EXPORT')).toBe(true);
-  });
-
-  it('has no duplicate sidebar view ids', () => {
-    const allIds = NAV_GROUPS.flatMap((group) => group.items).map((item) => item.id);
-    expect(new Set(allIds).size).toBe(allIds.length);
-  });
-
-  it('hides operator navigation unless operator mode is enabled', () => {
-    expect(NAV_GROUPS.some((group) => group.label === '운영자')).toBe(true);
-    expect(getVisibleNavGroups(false).some((group) => group.label === '운영자')).toBe(false);
-    expect(getVisibleNavGroups(true).some((group) => group.label === '운영자')).toBe(true);
-    const operator = getVisibleNavGroups(true).find((group) => group.label === '운영자');
-    expect(operator?.items.map((item) => item.id)).toEqual([
-      'MACRO_INTEL',
-      'DIAGNOSTICS',
-      'PROVIDER_HEALTH',
-      'EXECUTION_TRACE',
-      'LEARNING_SANITY',
-      'RAW_SNAPSHOT',
-    ]);
+  it('restores old browser history to a working current destination', () => {
+    expect(resolveWorkspaceView('DISCOVER')).toBe('DASHBOARD');
+    expect(resolveWorkspaceView('PUBLIC_REPORT')).toBe('DASHBOARD');
+    expect(resolveWorkspaceView('AUTO_TRADE')).toBe('PAPER_STRATEGY');
+    expect(resolveWorkspaceView('SHADOW_LEARNING')).toBe('PAPER_RESEARCH');
+    expect(resolveWorkspaceView('PAPER_OBSERVATIONS')).toBe('PAPER_OBSERVATIONS');
   });
 });

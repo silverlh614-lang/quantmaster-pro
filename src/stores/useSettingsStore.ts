@@ -3,6 +3,11 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type View =
+  | 'DASHBOARD'
+  | 'PAPER_OBSERVATIONS'
+  | 'PAPER_STRATEGY'
+  | 'PAPER_RESEARCH'
+  | 'OPERATIONS'
   | 'DISCOVER'
   | 'WATCHLIST'
   | 'BACKTEST'
@@ -123,7 +128,7 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       // Navigation
-      view: 'DISCOVER',
+      view: 'DASHBOARD',
       setView: (view) => set({ view }),
 
       // Theme & Display

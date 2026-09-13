@@ -4,13 +4,12 @@
  *
  * 구성:
  *   - J / K : 다음/이전 페이지 (NAV_GROUPS flatten 순서)
- *   - G 접두 :  G→H 홈, G→A 자동매매, G→M 시장
+ *   - G 접두 :  G→H 운영 현황, G→A 전략 판단, G→M 저장 자료 연구
  *   - / : 첫번째 data-search-focus 속성 보유 요소에 포커스
  *   - ? : KeyboardShortcutsModal 열기/닫기
  *   - Esc : 열린 드로어/모달 닫기 (setShowSettings 등)
- *   - Shift+V : autoTradeViewMode 토글 (AutoTrade 페이지에서만 유효 체감)
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { NAV_GROUPS } from '../config/navigation';
@@ -28,8 +27,6 @@ export function useGlobalShortcuts(): UseGlobalShortcutsResult {
   const setView = useSettingsStore((s) => s.setView);
   const setShowSettings = useSettingsStore((s) => s.setShowSettings);
   const setDrawerOpen = useSettingsStore((s) => s.setSidebarDrawerOpen);
-  const viewMode = useSettingsStore((s) => s.autoTradeViewMode);
-  const setViewMode = useSettingsStore((s) => s.setAutoTradeViewMode);
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const closeShortcuts = useCallback(() => setShortcutsOpen(false), []);
@@ -85,11 +82,6 @@ export function useGlobalShortcuts(): UseGlobalShortcutsResult {
         setShowSettings(false);
       },
     },
-    {
-      key: 'V',
-      shift: true,
-      handler: () => setViewMode(viewMode === 'simple' ? 'pro' : 'simple'),
-    },
     // G 접두 — g 가 눌리고 1초 내 h/a/m 이 오면 점프.
     {
       key: 'g',
@@ -101,7 +93,7 @@ export function useGlobalShortcuts(): UseGlobalShortcutsResult {
       key: 'h',
       handler: () => {
         if (seqRef.current.key === 'g' && Date.now() - seqRef.current.at < 1000) {
-          setView('DISCOVER');
+          setView('DASHBOARD');
           seqRef.current = { key: null, at: 0 };
         }
       },
@@ -110,7 +102,7 @@ export function useGlobalShortcuts(): UseGlobalShortcutsResult {
       key: 'a',
       handler: () => {
         if (seqRef.current.key === 'g' && Date.now() - seqRef.current.at < 1000) {
-          setView('AUTO_TRADE');
+          setView('PAPER_STRATEGY');
           seqRef.current = { key: null, at: 0 };
         }
       },
@@ -119,22 +111,12 @@ export function useGlobalShortcuts(): UseGlobalShortcutsResult {
       key: 'm',
       handler: () => {
         if (seqRef.current.key === 'g' && Date.now() - seqRef.current.at < 1000) {
-          setView('MARKET');
+          setView('PAPER_RESEARCH');
           seqRef.current = { key: null, at: 0 };
         }
       },
     },
   ]);
-
-  // 오래된 sequence 초기화 (mem safety).
-  useEffect(() => {
-    const t = setInterval(() => {
-      if (seqRef.current.key && Date.now() - seqRef.current.at > 1500) {
-        seqRef.current = { key: null, at: 0 };
-      }
-    }, 500);
-    return () => clearInterval(t);
-  }, []);
 
   return { shortcutsOpen, closeShortcuts };
 }

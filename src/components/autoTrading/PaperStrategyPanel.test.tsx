@@ -2,7 +2,7 @@
 // @responsibility Verify visible empirical Shadow strategy outcomes.
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type {
   PaperStrategyDecision, PaperStrategyEvidence, PaperStrategyPolicy,
   PaperStrategyTrade, PaperStrategyView,
@@ -52,6 +52,20 @@ function view(overrides: Partial<PaperStrategyView> = {}): PaperStrategyView {
 afterEach(cleanup);
 
 describe('PaperStrategyPanel', () => {
+  it('bounds rendered decisions and lets users search beyond the first page', () => {
+    const decisions = Array.from({ length: 35 }, (_, index) => ({ ...buy, symbol: String(index), name: `관측종목${index}`, evidence: null }));
+    render(<PaperStrategyPanel view={view({ latestDecisions: decisions })} />);
+    expect(screen.getAllByRole('article')).toHaveLength(12);
+    expect(screen.queryByText('관측종목30')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '다음 판단' }));
+    expect(screen.getAllByRole('article')).toHaveLength(12);
+    fireEvent.change(screen.getByLabelText('전략 종목 검색'), { target: { value: '관측종목30' } });
+    expect(screen.getAllByRole('article')).toHaveLength(1);
+    expect(screen.getByRole('article').textContent).toContain('관측종목30');
+    fireEvent.change(screen.getByLabelText('전략 판단 종류'), { target: { value: 'WAIT' } });
+    expect(screen.queryByRole('article')).toBeNull();
+    expect(screen.getByText('검색 조건에 맞는 전략 판단이 없습니다.')).toBeTruthy();
+  });
   it('shows the server-selected BUY horizon and all stored horizon scores with evidence requirements', () => {
     render(<PaperStrategyPanel view={view({ latestDecisions: [buy] })} />);
     const decision = within(screen.getByRole('article', { name: '삼성전자 매수 · BUY 판단' }));

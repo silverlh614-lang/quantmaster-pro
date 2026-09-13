@@ -11,7 +11,7 @@ const status = (value: ResearchFeatureStudy['status']) => ({ EVALUATED: '후반 
 
 export function PaperResearchFeatures({ studies, notes }: { studies: ResearchFeatureStudy[]; notes: string[] }) {
   return <div className="space-y-3 border-t border-slate-700 pt-3">
-    <p className="font-semibold text-slate-200">기존 Gate 조건별 확장 연구</p>
+    <p className="font-semibold text-slate-200">조건별 독립 연구</p>
     <p className="text-xs text-slate-400">조건 하나씩 비교합니다. 후반 비교 차이는 동일 날짜·뉴스/추세·보유기간을 맞춘 대조군 대비 %p입니다. 탐색 결과는 매매에 자동 적용되지 않습니다.</p>
     <div className="overflow-x-auto"><table className="w-full text-left text-sm">
       <caption className="py-2 text-left text-slate-300">조건 선택 후 후반 기간 검증</caption>

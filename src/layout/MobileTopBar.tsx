@@ -19,7 +19,7 @@ export function MobileTopBar() {
       <AppMenuButton />
       <button
         type="button"
-        onClick={() => setView('DISCOVER')}
+        onClick={() => setView('DASHBOARD')}
         className="flex items-center gap-2"
         aria-label="홈으로"
       >
