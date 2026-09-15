@@ -1,6 +1,7 @@
 // @responsibility common 영역 SectionErrorBoundary 컴포넌트
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { isAssetLoadError, reloadPage } from '../../utils/lazyLoadRecovery';
 
 interface Props {
   children: ReactNode;
@@ -25,6 +26,11 @@ export class SectionErrorBoundary extends Component<Props, State> {
   }
 
   private handleRetry = () => {
+    // React.lazy retains rejected imports, so resetting this boundary cannot retry a stale chunk.
+    if (isAssetLoadError(this.state.error)) {
+      reloadPage();
+      return;
+    }
     this.setState({ hasError: false, error: null });
   };
 
@@ -39,7 +45,9 @@ export class SectionErrorBoundary extends Component<Props, State> {
             </span>
           </div>
           <p className="text-xs text-white/40 mb-4">
-            이 섹션에서 오류가 발생했습니다. 다른 섹션은 정상 작동합니다.
+            {isAssetLoadError(this.state.error)
+              ? '화면 파일을 불러오지 못했습니다. 새로고침하여 최신 화면을 불러와 주세요.'
+              : '이 화면을 표시하지 못했습니다. 다시 시도하거나 다른 메뉴를 열어 주세요.'}
           </p>
           {process.env.NODE_ENV === 'development' && this.state.error && (
             <pre className="text-[10px] text-red-300/60 bg-black/30 p-3 rounded-xl mb-4 overflow-auto max-h-24">
@@ -51,7 +59,7 @@ export class SectionErrorBoundary extends Component<Props, State> {
             className="flex items-center gap-2 px-4 py-2 bg-white/10 border border-white/[0.07] rounded-xl text-xs font-bold text-white/60 hover:bg-white/20 transition-all"
           >
             <RefreshCw className="w-3 h-3" />
-            다시 시도
+            {isAssetLoadError(this.state.error) ? '화면 새로고침' : '다시 시도'}
           </button>
         </div>
       );
