@@ -14,10 +14,12 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0676`**
+**다음 ADR 번호: `0677`**
+(2026-09-16 기준, 마지막 발급 0676 — Shadow 상장기업 공시 수집과 사실 관측.)
 
 
-최근 발급: 2026-09-16, [0675 — Shadow 기관·외국인 수급과 후속 성과 상관 연구](0675-shadow-investor-flow-correlation.md), Accepted.
+
+최근 발급: 2026-09-16, [0676 — Shadow 상장기업 공시 수집과 사실 관측](0676-shadow-disclosure-facts.md), Accepted.
 
 상세 결정은 해당 ADR, 과거 구현 내역은 Git에서 조회한다. 이 파일에는 발급 번호와 검색 목록만 남긴다.
 
@@ -90,6 +92,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0676 | Shadow 상장기업 공시 수집과 사실 관측 | learning |
 | 0675 | Shadow 기관·외국인 수급과 후속 성과 상관 연구 | learning |
 | 0674 | Shadow 뉴스 방향 기록과 독립 성과 비교 | learning |
 | 0654 | 주문 TR 신스킴 default-ON flip + 프록시 차단목록 동반 완성 — ADR-0653 신스킴을 default OFF→ON 승격(운영자 silverlh614 승인). constants.ts flag `=== 'true'`→`!== 'false'`(default ON·kill-switch `KIS_ORDER_TR_NXT_SCHEME_ENABLED=false`·ADR-0157 거울·본체 0줄). 동반 kisProxyPolicy.FORBIDDEN_TR_IDS 신스킴 주문 TR 6종(TTTC0012U/0011U/0013U+V) 추가(절대 규칙 #4 안전망 — 신스킴 default-ON 시 구 TR 만 막으면 클라이언트 신 TR 프록시 우회 가능). 안전: SHADOW_ONLY→live 주문 0(불변식 #8)·프록시 경로+TR 2겹 차단. executionImpact ON=신스킴(현 live 0)/=false=byte-identical 롤백. 회귀 402/402+default-ON/kill-switch/프록시 신TR 가드. 계보 0653/0157/0146 | kis-client / order-tr default-on-flip |

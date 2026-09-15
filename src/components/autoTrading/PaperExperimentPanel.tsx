@@ -13,6 +13,7 @@ import { PaperResearchPanel } from './PaperResearchPanel';
 import { PaperNewsDetails } from './PaperNewsDetails';
 import { PAPER_NEWS_LABELS, summarizePaperNews } from '../../utils/paperNews';
 import { PaperInvestorFlowPanel, PaperInvestorFlowDetails } from './PaperInvestorFlowPanel';
+import { PaperNewsFactsPanel } from './PaperNewsFactsPanel';
 
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-200 transition hover:bg-sky-500/20 disabled:cursor-wait disabled:opacity-50';
 const groupLabels: Record<string, string> = {
@@ -145,6 +146,7 @@ export function PaperExperimentResults({ view, showStrategy = true }: { view: Pa
       </Section>
 
       <PaperInvestorFlowPanel study={view.investorFlowStudy} snapshot={view.lastRun?.investorFlow} />
+      <PaperNewsFactsPanel status={view.lastRun?.disclosures} study={view.newsFactsStudy} />
 
       <Section title="관측 기록" subtitle="각 실험 1주 · D5 결과가 확인되면 완료 · 페이지당 20건" variant="neo">
         <div className="workspace-filters"><input data-search-focus aria-label="관측 종목 검색" placeholder="종목명 또는 코드 검색" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} />

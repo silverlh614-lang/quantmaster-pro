@@ -14,7 +14,7 @@ type Row = { experiment: PaperExperiment; foreign: number; institution: number; 
   news: ReturnType<typeof summarizePaperNews>['direction']; group: PaperFlowGroup };
 const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
 
-function invalidFlow(experiment: Pick<PaperExperiment, 'symbol' | 'entryAt' | 'tradingDate' | 'entryObservation'>, asOf: number): PaperFlowIssue | null {
+export function invalidFlow(experiment: Pick<PaperExperiment, 'symbol' | 'entryAt' | 'tradingDate' | 'entryObservation'>, asOf: number): PaperFlowIssue | null {
   const flow = experiment.entryObservation.investorFlow;
   if (!flow) return 'NOT_RECORDED';
   if (flow.issue !== null) return Object.hasOwn(PAPER_FLOW_ISSUE_LABELS, flow.issue) ? flow.issue : 'UNAVAILABLE';

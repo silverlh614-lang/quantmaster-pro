@@ -1,11 +1,12 @@
 // @responsibility Verify paper observation provenance.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ universe: vi.fn(), watchlist: vi.fn(), news: vi.fn(), dart: vi.fn(), collect: vi.fn() }));
+const mocks = vi.hoisted(() => ({ universe: vi.fn(), watchlist: vi.fn(), news: vi.fn(), dart: vi.fn(), collect: vi.fn(), disclosures: vi.fn() }));
 vi.mock('../../screener/dynamicUniverseExpander.js', () => ({ getExpandedUniverse: mocks.universe }));
 vi.mock('../../persistence/watchlistRepo.js', () => ({ loadWatchlist: mocks.watchlist }));
 vi.mock('../../learning/newsSupplyLogger.js', () => ({ loadNewsSupplyRecords: mocks.news }));
 vi.mock('../../persistence/dartRepo.js', () => ({ loadDartAlerts: mocks.dart }));
 vi.mock('../symbolDataCollector.js', () => ({ collectUnifiedSnapshot: mocks.collect }));
+vi.mock('./paperDisclosureCollection.js', () => ({ refreshPaperDisclosures: mocks.disclosures }));
 import { collectPaperExperimentSnapshot, isPaperMarketOpen } from './paperExperimentCollector.js';
 
 beforeEach(() => {
@@ -15,6 +16,7 @@ beforeEach(() => {
   mocks.watchlist.mockReturnValue([{ code: '005930', name: 'Samsung', section: 'MOMENTUM' }]);
   mocks.news.mockReturnValue([]);
   mocks.dart.mockReturnValue([]);
+  mocks.disclosures.mockResolvedValue({ schemaVersion: 1, records: [], status: null });
   mocks.collect.mockImplementation(async (codes: string[]) => ({ perSymbol: Object.fromEntries(codes.map((code) => [code, {
     name: code, quote: { code, currentPrice: 10000, fetchedAt: new Date().toISOString() },
     dailyBars: [{ date: '20260917', close: 9000 }, { date: '20260918', close: 20000 }, { date: '20260921', close: 50000 }],
@@ -23,6 +25,24 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('paper observation collector', () => {
+  it('connects independent listed disclosures only to existing candidates with immutable provenance', async () => {
+    const record = { receiptNo: '20260918000001', corpCode: '00126380', corpName: '삼성전자', stockCode: '005930', market: 'Y',
+      title: '단일판매ㆍ공급계약체결', filedDate: '2026-09-18', firstSeenAt: '2026-09-18T00:00:00Z',
+      symbol: '005930', linkedAt: '2026-09-18T00:30:00Z', linkMethod: 'DART_STOCK_CODE' };
+    mocks.disclosures.mockResolvedValue({ records: [record, { ...record, receiptNo: '20260918000002', symbol: '000660' }],
+      status: { state: 'PARTIAL', fetchedCount: 2, issue: '다음 페이지 통신 실패' } });
+    const result = await collectPaperExperimentSnapshot([]);
+    expect(mocks.collect.mock.calls[0][0]).toEqual(['005930']);
+    expect(result.disclosures?.state).toBe('PARTIAL');
+    expect(result.observations[0]).toMatchObject({ price: 10000, news: [{ id: 'dart:20260918000001',
+      observedAt: '2026-09-18T00:30:00.000Z', facts: { relationship: 'DIRECT', firstSeenAt: '2026-09-18T00:00:00Z', filedDate: '2026-09-18' } }] });
+  });
+  it('continues price observation while disclosure coverage is unavailable', async () => {
+    mocks.disclosures.mockResolvedValue({ records: [], status: { state: 'UNAVAILABLE', issue: 'DART 통신 실패' } });
+    const result = await collectPaperExperimentSnapshot([]);
+    expect(result.disclosures?.state).toBe('UNAVAILABLE');
+    expect(result.observations[0].price).toBe(10000);
+  });
   it('pairs dated investor share quantities with same-day volume from the shared snapshot', async () => {
     mocks.collect.mockResolvedValue({ perSymbol: { '005930': { quote: null,
       investorFlow: { stockCode: '005930', source: 'KIS_API', tradingDate: '2026-09-17', fetchedAt: '2026-09-18T00:59:00Z',

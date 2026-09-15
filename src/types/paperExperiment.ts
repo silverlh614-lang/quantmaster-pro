@@ -2,6 +2,7 @@
 import type { PaperStrategyScanResult, PaperStrategyView } from './paperStrategy';
 import type { PaperResearchView } from './paperResearch';
 import type { PaperInvestorFlow, PaperInvestorFlowSnapshot, PaperInvestorFlowStudy } from './paperInvestorFlow';
+import type { PaperDisclosureStatus, PaperNewsFacts, PaperNewsFactsStudy } from './paperNewsFacts';
 
 export const PAPER_OBSERVATION_ISSUE_LABELS: Record<string, string> = {
   CURRENT_QUOTE_UNAVAILABLE: '현재가 응답 없음',
@@ -24,6 +25,7 @@ export interface PaperNewsObservation {
   observedAt: string;
   source: string;
   assessment?: PaperNewsAssessment;
+  facts?: PaperNewsFacts;
 }
 
 export type PaperNewsDirection = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL' | 'MIXED' | 'UNKNOWN';
@@ -44,7 +46,7 @@ export interface PaperNewsSummary {
   counts: Record<PaperNewsDirection, number>;
   totalCount: number;
   evidence: Array<Pick<PaperNewsObservation, 'id' | 'headline' | 'source' | 'observedAt'> & {
-    direction: PaperNewsDirection; reason: string;
+    direction: PaperNewsDirection; reason: string; facts?: PaperNewsFacts;
   }>;
 }
 
@@ -91,6 +93,7 @@ export interface PaperSnapshot {
   tradingDate: string;
   marketOpen: boolean;
   observations: PaperObservation[];
+  disclosures?: PaperDisclosureStatus;
 }
 
 export interface PaperCostModel {
@@ -139,6 +142,7 @@ export interface PaperScanResult {
   marketOpen: boolean;
   issues: string[];
   investorFlow?: PaperInvestorFlowSnapshot;
+  disclosures?: PaperDisclosureStatus;
   strategy?: PaperStrategyScanResult;
 }
 
@@ -166,6 +170,7 @@ export interface PaperExperimentView {
   outcomes: Array<PaperLearningGroup & { horizon: 1 | 3 | 5 }>;
   groups: PaperLearningGroup[];
   newsStudy?: PaperNewsStudy;
+  newsFactsStudy?: PaperNewsFactsStudy;
   investorFlowStudy?: PaperInvestorFlowStudy;
   experiments: PaperExperiment[];
   strategy?: PaperStrategyView;

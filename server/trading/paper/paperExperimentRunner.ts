@@ -56,6 +56,7 @@ async function scan(): Promise<PaperScanResult> {
     marketOpen: snapshot.marketOpen,
     issues: snapshot.observations.flatMap((item) => item.issue ? [`${item.symbol}:${item.issue}`] : []),
     investorFlow: summarizeCurrentInvestorFlow(snapshot.observations, snapshot.asOf),
+    disclosures: snapshot.disclosures,
   };
   ledger.lastRun = result;
   savePaperExperimentLedger(ledger);

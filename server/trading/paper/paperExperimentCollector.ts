@@ -8,8 +8,9 @@ import { loadNewsSupplyRecords } from '../../learning/newsSupplyLogger.js';
 import { toKstDateKey, isKrxTradingDay, previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { collectUnifiedSnapshot } from '../symbolDataCollector.js';
 import { researchBarFields } from './paperResearchFeatures.js';
-import { assessPaperNews } from './paperNewsAssessment.js';
+import { assessPaperNews, recordPaperNewsFacts } from './paperNewsAssessment.js';
 import { observePaperInvestorFlow } from './paperInvestorFlowCollector.js';
+import { refreshPaperDisclosures } from './paperDisclosureCollection.js';
 
 function codeOf(input: string): string | null {
   const code = input.trim().replace(/\.(KS|KQ)$/i, '');
@@ -25,6 +26,7 @@ export function isPaperMarketOpen(now: Date): boolean {
 export async function collectPaperExperimentSnapshot(
   openSymbols: string[], onProgress?: (completed: number, total: number) => void,
 ): Promise<PaperSnapshot> {
+  const disclosures = await refreshPaperDisclosures();
   const startedAt = new Date();
   const startMs = startedAt.getTime();
   const names = new Map<string, string>();
@@ -34,7 +36,8 @@ export async function collectPaperExperimentSnapshot(
     if (!code || !Number.isFinite(Date.parse(item.observedAt)) || Date.parse(item.observedAt) > startMs) return;
     const items = news.get(code) ?? [];
     if (!items.some((existing) => existing.id === item.id)) {
-      items.push({ ...item, assessment: assessPaperNews(item, startedAt.toISOString()) });
+      items.push({ ...item, assessment: assessPaperNews(item, startedAt.toISOString()),
+        facts: item.facts ?? recordPaperNewsFacts(item, startedAt.toISOString()) });
     }
     news.set(code, items);
   };
@@ -49,7 +52,20 @@ export async function collectPaperExperimentSnapshot(
     }
   }
   for (const item of loadDartAlerts()) {
-    addNews(item.stock_code, { id: `dart:${item.rcept_no}`, headline: item.report_nm, observedAt: item.alertedAt, source: 'DART' });
+    const observation = { id: `dart:${item.rcept_no}`, headline: item.report_nm, observedAt: item.alertedAt, source: 'DART' };
+    const filedDate = (item.rcept_dt ?? '').replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
+    addNews(item.stock_code, { ...observation, facts: recordPaperNewsFacts(observation, startedAt.toISOString(),
+      { receiptNo: item.rcept_no, filedDate, firstSeenAt: item.alertedAt, linkMethod: 'LEGACY_RECORDED_CODE' }) });
+  }
+  const targets = new Set([...names.keys(), ...news.keys(), ...openSymbols.map(codeOf).filter((code): code is string => code !== null)]);
+  for (const item of disclosures.records) {
+    if (!item.symbol || !item.linkedAt || !targets.has(item.symbol)) continue;
+    const observedAt = new Date(Math.max(Date.parse(item.firstSeenAt), Date.parse(item.linkedAt))).toISOString();
+    if (Date.parse(observedAt) < startMs - 72 * 3_600_000) continue;
+    const observation: PaperNewsObservation = { id: `dart:${item.receiptNo}`, headline: item.title, observedAt, source: 'DART' };
+    // Enriched records supersede the mutable alert projection only for this new snapshot.
+    news.set(item.symbol, (news.get(item.symbol) ?? []).filter(existing => existing.id !== observation.id));
+    addNews(item.symbol, { ...observation, facts: recordPaperNewsFacts(observation, startedAt.toISOString(), item) });
   }
   const codes = [...new Set([...names.keys(), ...news.keys(), ...openSymbols.map(codeOf).filter((code): code is string => code !== null)])];
   const id = `paper_${randomUUID()}`;
@@ -95,5 +111,6 @@ export async function collectPaperExperimentSnapshot(
       ...(issue ? { issue } : {}),
     };
   });
-  return { id, asOf, tradingDate, marketOpen: isPaperMarketOpen(startedAt) && isPaperMarketOpen(finishedAt), observations };
+  return { id, asOf, tradingDate, marketOpen: isPaperMarketOpen(startedAt) && isPaperMarketOpen(finishedAt), observations,
+    ...(disclosures.status ? { disclosures: disclosures.status } : {}) };
 }

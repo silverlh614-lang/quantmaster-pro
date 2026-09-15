@@ -1,6 +1,29 @@
 // @responsibility Assess disclosure headline direction for independent Shadow research.
 import type { PaperNewsAssessment, PaperNewsObservation } from '../../../src/types/paperExperiment.js';
 import { PAPER_NEWS_VERSION } from '../../../src/utils/paperNews.js';
+import type { PaperNewsEvent, PaperNewsFacts } from '../../../src/types/paperNewsFacts.js';
+
+/** Event labels describe the filed subject, never its eventual price impact. */
+export function recordPaperNewsFacts(item: PaperNewsObservation, recordedAt: string,
+  disclosure?: { receiptNo: string; filedDate: string; firstSeenAt: string; linkMethod: string }): PaperNewsFacts {
+  const title = typeof item.headline === 'string' ? item.headline.normalize('NFKC').replace(/\s+/g, '') : '';
+  const rules: Array<[PaperNewsEvent, RegExp]> = [
+    ['CONTRACT', /단일판매|공급계약|수주|판매계약/], ['EARNINGS', /실적|영업이익|분기보고서|반기보고서|사업보고서/],
+    ['TREASURY', /자기주식|자사주|주식소각/], ['FINANCING', /유상증자|무상증자|전환사채|신주인수권|사채권발행/],
+    ['OWNERSHIP', /대량보유|소유상황|주요주주|지분/], ['LEGAL', /소송|횡령|배임|회생|파산/], ['LISTING', /상장폐지|거래정지|관리종목/],
+  ];
+  const direct = item.source === 'DART' && disclosure && /^\d{14}$/.test(disclosure.receiptNo)
+    && /^\d{4}-\d{2}-\d{2}$/.test(disclosure.filedDate) && Number.isFinite(Date.parse(`${disclosure.filedDate}T00:00:00Z`))
+    && new Date(`${disclosure.filedDate}T00:00:00Z`).toISOString().slice(0, 10) === disclosure.filedDate;
+  return { version: 'news-facts-v1', recordedAt,
+    relationship: direct ? 'DIRECT' : ['SUPPLY_CHAIN', 'EWY_FOREIGN', 'SECTOR_FLOW'].includes(item.source) ? 'INDIRECT' : 'UNVERIFIED',
+    event: direct ? rules.find(([, pattern]) => pattern.test(title))?.[0] ?? 'OTHER' : 'OTHER',
+    filingStatus: !direct ? 'UNCONFIRMED' : /철회|취하/.test(title) ? 'WITHDRAWN' : /정정|변경등록|첨부추가/.test(title) ? 'AMENDED' : 'FILED',
+    receiptNo: direct ? disclosure.receiptNo : null, filedDate: direct ? disclosure.filedDate : null,
+    firstSeenAt: direct ? disclosure.firstSeenAt : item.observedAt,
+    sourceUrl: direct ? `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${disclosure.receiptNo}` : null,
+    linkMethod: direct ? disclosure.linkMethod : 'SOURCE_ASSOCIATION' };
+}
 
 type Rule = [RegExp, string];
 const positive: Rule[] = [

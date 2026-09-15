@@ -1,5 +1,6 @@
 // @responsibility Summarize contemporaneously recorded news assessments.
 import type { PaperNewsDirection, PaperNewsGroup, PaperNewsObservation, PaperNewsSummary } from '../types/paperExperiment';
+import { readPaperNewsFacts } from './paperNewsFacts';
 
 export const PAPER_NEWS_VERSION = 'headline-rules-v1' as const;
 export const PAPER_NEWS_LOOKBACK_HOURS = 72;
@@ -33,8 +34,9 @@ export function summarizePaperNews(news: PaperNewsObservation[], asOf: string, l
       && assessed >= observed && assessed <= cutoff;
     const direction = usable ? assessment.direction : 'UNKNOWN';
     counts[direction]++;
+    const facts = readPaperNewsFacts(item, asOf);
     items.push({ id: item.id, headline: item.headline.slice(0, 180), source: item.source, observedAt: item.observedAt,
-      direction, reason: usable ? assessment.reason.slice(0, 180) : '당시 유효한 방향 평가가 저장되지 않음' });
+      direction, reason: usable ? assessment.reason.slice(0, 180) : '당시 유효한 방향 평가가 저장되지 않음', ...(facts ? { facts: structuredClone(facts) } : {}) });
   }
   summary.totalCount = Object.values(counts).reduce((sum, count) => sum + count, 0);
   // Preserve conflicting signs; incomplete coverage cannot become a clean positive/negative research group.
@@ -44,5 +46,9 @@ export function summarizePaperNews(news: PaperNewsObservation[], asOf: string, l
     const item = items.find(row => row.direction === direction);
     return item ? [item] : [];
   });
+  for (const item of items.filter(row => row.facts?.relationship === 'DIRECT')) {
+    if (summary.evidence.length >= 5) break;
+    if (!summary.evidence.some(row => row.source === item.source && row.id === item.id)) summary.evidence.push(item);
+  }
   return summary;
 }

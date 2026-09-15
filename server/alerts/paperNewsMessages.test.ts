@@ -1,7 +1,7 @@
 // @responsibility Verify frozen news explanations in Telegram analysis.
 import { describe, expect, it } from 'vitest';
 import { formatPaperTradeAnalysis } from './paperBotMessages.js';
-import { assessPaperNews } from '../trading/paper/paperNewsAssessment.js';
+import { assessPaperNews, recordPaperNewsFacts } from '../trading/paper/paperNewsAssessment.js';
 import { evaluatePaperStrategyScan } from '../trading/paper/paperStrategyPolicy.js';
 import { emptyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from '../trading/paper/paperStrategyFixtures.js';
 
@@ -13,6 +13,18 @@ function tradeFixture() {
 }
 
 describe('paper Telegram news evidence', () => {
+  it('retains direct filing provenance in entry and exit analysis', () => {
+    const trade = tradeFixture();
+    const item = trade.entryObservation.news[0]; item.id = 'dart:20260918000001';
+    item.facts = recordPaperNewsFacts(item, trade.entryAt, { receiptNo: '20260918000001', filedDate: '2026-09-18', firstSeenAt: trade.entryAt, linkMethod: 'DART_STOCK_CODE' });
+    for (const side of ['BUY', 'EXIT'] as const) {
+      const message = formatPaperTradeAnalysis([{ id: side, at: trade.entryAt, side, trade }]);
+      expect(message).toContain('해당 기업 직접 공시');
+      expect(message).toContain('접수일 2026-09-18');
+      expect(message).toContain('https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260918000001');
+      expect(message.length).toBeLessThan(3500);
+    }
+  });
   it('uses the entry-frozen flow for entry and exit, preserving missing quantities separately from zero', () => {
     const trade = tradeFixture();
     trade.entryObservation.investorFlow = { symbol: trade.symbol, source: 'KIS_API', unit: 'SHARES',

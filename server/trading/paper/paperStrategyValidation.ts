@@ -5,6 +5,7 @@ import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { calculatePaperReturn } from './paperAccounting.js';
 import { paperStrategyCohort } from './paperStrategyEvidence.js';
 import { PAPER_FLOW_ISSUE_LABELS, type PaperFlowIssue } from '../../../src/types/paperInvestorFlow.js';
+import { PAPER_NEWS_EVENT_LABELS, type PaperNewsEvent } from '../../../src/types/paperNewsFacts.js';
 
 const finite = z.number().finite();
 const timestamp = z.string().datetime({ offset: true });
@@ -20,6 +21,10 @@ const investorFlow = z.object({ symbol, source: z.literal('KIS_API'), unit: z.li
   institutionalNetShares: finite.nullable(), volume: finite.nullable(),
   issue: z.enum(Object.keys(PAPER_FLOW_ISSUE_LABELS) as [PaperFlowIssue, ...PaperFlowIssue[]]).nullable() });
 const newsDirection = z.enum(['POSITIVE', 'NEGATIVE', 'NEUTRAL', 'MIXED', 'UNKNOWN']);
+const newsFacts = z.object({ version: z.literal('news-facts-v1'), recordedAt: timestamp,
+  relationship: z.enum(['DIRECT', 'INDIRECT', 'UNVERIFIED']), event: z.enum(Object.keys(PAPER_NEWS_EVENT_LABELS) as [PaperNewsEvent, ...PaperNewsEvent[]]),
+  filingStatus: z.enum(['FILED', 'AMENDED', 'WITHDRAWN', 'UNCONFIRMED']), receiptNo: z.string().nullable(),
+  filedDate: date.nullable(), firstSeenAt: timestamp, sourceUrl: z.string().nullable(), linkMethod: z.string() });
 const newsAssessment = z.object({ version: z.literal('headline-rules-v1'), method: z.literal('DISCLOSURE_TITLE_RULES'),
   assessedAt: timestamp, direction: newsDirection, reason: z.string().min(1) });
 const newsSummary = z.object({ asOf: timestamp, lookbackHours: finite.positive(),
@@ -27,7 +32,7 @@ const newsSummary = z.object({ asOf: timestamp, lookbackHours: finite.positive()
   counts: z.object({ POSITIVE: finite.int().nonnegative(), NEGATIVE: finite.int().nonnegative(), NEUTRAL: finite.int().nonnegative(),
     MIXED: finite.int().nonnegative(), UNKNOWN: finite.int().nonnegative() }), totalCount: finite.int().nonnegative(),
   evidence: z.array(z.object({ id: z.string(), headline: z.string(), source: z.string(), observedAt: timestamp,
-    direction: newsDirection, reason: z.string() })).max(5) });
+    direction: newsDirection, reason: z.string(), facts: newsFacts.optional() })).max(5) });
 const cohort = z.enum(['NEWS_RECENT_ABOVE_MA20', 'NEWS_RECENT_BELOW_MA20', 'NEWS_ABSENT_ABOVE_MA20', 'NEWS_ABSENT_BELOW_MA20']);
 const policy = z.object({ version, newsLookbackHours: finite.positive(), minimumSamples: finite.int().positive(),
   minimumEntryDates: finite.int().positive(), horizonSelection: z.literal('MEAN_NET_RETURN_PER_DAY'), exitModel: z.literal('SCHEDULED_CLOSE') });
@@ -47,7 +52,7 @@ const decision = z.object({ snapshotId: z.string(), decisionAt: timestamp, symbo
 const observation = z.object({ symbol, name: z.string(), price: finite.positive().nullable(), observedAt: timestamp, source: z.string(),
   investorFlow: investorFlow.optional(),
   return1dPct: finite.nullable(), return5dPct: finite.nullable(), aboveMa20: z.boolean().nullable(),
-  news: z.array(z.object({ id: z.string(), headline: z.string(), observedAt: timestamp, source: z.string(), assessment: newsAssessment.optional() })),
+  news: z.array(z.object({ id: z.string(), headline: z.string(), observedAt: timestamp, source: z.string(), assessment: newsAssessment.optional(), facts: newsFacts.optional() })),
   dailyCloses: z.array(z.object({ tradingDate: date, close: finite.positive(), availableAt: timestamp })), issue: z.string().optional() });
 const cost = z.object({ version: z.string(), buyFeeRate: finite.nonnegative(), sellFeeRate: finite.nonnegative(),
   sellTaxRate: finite.nonnegative(), slippageRate: finite.nonnegative() });

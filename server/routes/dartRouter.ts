@@ -16,12 +16,12 @@ const getDartKey = () => {
 router.get('/list', async (req: Request, res: Response) => {
   try {
     const key = getDartKey();
-    const { bgn_de, end_de, pblntf_ty = 'B001' } = req.query;
+    const { bgn_de, end_de, pblntf_ty = 'B' } = req.query;
     if (!bgn_de || !end_de) return res.status(400).json({ error: 'bgn_de, end_de required' });
     const url = `https://opendart.fss.or.kr/api/list.json` +
       `?crtfc_key=${key}` +
       `&bgn_de=${bgn_de}&end_de=${end_de}` +
-      `&pblntf_ty=${pblntf_ty}&sort=rcp_dt&sort_mth=desc&page_count=40`;
+      `&pblntf_ty=${pblntf_ty}&sort=date&sort_mth=desc&page_count=40`;
     const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
     const data = await r.json();
     res.json(data);

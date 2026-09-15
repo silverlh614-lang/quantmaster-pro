@@ -15,6 +15,7 @@ import { safePctChange } from '../utils/safePctChange.js';
 // ADR-0456: DART corp_name → stockCode 역매핑 SSOT — DART stock_code 부재 시 ADR-0455 enrichment
 // (`isin` + `nameEng`) 기반 fallback 으로 disclosure 영구 손실 차단.
 import { resolveStockCodeFromDart } from '../persistence/dartCorpNameLookup.js';
+import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 
 // ── 인메모리 중복 방지 캐시 (서버 재시작 시 초기화 — 의도적) ─────────────────
 // 파일 기반 seen Set(DART_FAST_SEEN_FILE)에 더해 메모리 캐시로 중복 Gemini 호출을 차단.
@@ -537,7 +538,7 @@ export async function pollDartDisclosures(): Promise<void> {
     return;
   }
 
-  const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+  const today = toKstDateKey(new Date()).replace(/-/g, '');
   const url = `https://opendart.fss.or.kr/api/list.json` +
     `?crtfc_key=${process.env.DART_API_KEY}&bgn_de=${today}&sort=date&sort_mth=desc&page_no=1&page_count=40`;
 
@@ -595,7 +596,7 @@ export async function pollDartDisclosures(): Promise<void> {
 
     const alert: DartAlert = {
       corp_name:  corpName,
-      stock_code: d.stock_code ?? '',
+      stock_code: resolved.stockCode ?? '',
       report_nm:  reportNm,
       rcept_dt:   d.rcept_dt   ?? today,
       rcept_no:   d.rcept_no   ?? '',
@@ -764,11 +765,11 @@ export async function fastDartCheck(): Promise<void> {
   if (dow === 0 || dow === 6) return;
   if (kstT < 800 || kstT > 1630) return;
 
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const today = toKstDateKey(new Date()).replace(/-/g, '');
   const url = `https://opendart.fss.or.kr/api/list.json` +
     `?crtfc_key=${process.env.DART_API_KEY}` +
     `&bgn_de=${today}&end_de=${today}` +
-    `&sort=rcp_dt&sort_mth=desc&page_count=20`;
+    `&sort=date&sort_mth=desc&page_count=20`;
 
   let disclosures: Record<string, string>[] = [];
   try {

@@ -5,6 +5,8 @@ import type { PaperStrategyCohort } from '../../src/types/paperStrategy.js';
 import type { PaperBotState } from '../persistence/paperBotRepo.js';
 import { PAPER_NEWS_LABELS, summarizePaperNews } from '../../src/utils/paperNews.js';
 import { PAPER_FLOW_ISSUE_LABELS } from '../../src/types/paperInvestorFlow.js';
+import { PAPER_NEWS_EVENT_LABELS, PAPER_NEWS_FILING_LABELS, PAPER_NEWS_RELATION_LABELS } from '../../src/types/paperNewsFacts.js';
+import { readPaperNewsFacts } from '../../src/utils/paperNewsFacts.js';
 
 export const PAPER_BOT_SCHEDULES = [
   { kind: 'morning', minute: 8 * 60 + 45, graceMinutes: 45, label: '거래일 08:45 · 준비 요약' },
@@ -116,6 +118,10 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
     for (const item of summary.evidence.slice(0, 2)) {
       lines.push(`${PAPER_NEWS_LABELS[item.direction]} · ${escape(item.source)}: ${escape(item.headline.slice(0, 60))}`,
         `분류 근거: ${escape(item.reason.slice(0, 90))}`);
+      const facts = readPaperNewsFacts(item, trade.entryAt);
+      if (facts) lines.push(`${PAPER_NEWS_RELATION_LABELS[facts.relationship]} · ${PAPER_NEWS_FILING_LABELS[facts.filingStatus]}`,
+        ...(facts.relationship === 'DIRECT' ? [`사건 ${PAPER_NEWS_EVENT_LABELS[facts.event]} · 접수일 ${escape(facts.filedDate ?? '미확인')}`,
+          `최초 확인 ${stamp(facts.firstSeenAt)} · 원문 ${facts.sourceUrl}`] : []));
     }
     if (event.side === 'EXIT') lines.push(`해당 시그널 청산 순수익률 ${pct(trade.exit?.netReturnPct)} · 결과는 전략 원장에 별도 누적`);
   }
