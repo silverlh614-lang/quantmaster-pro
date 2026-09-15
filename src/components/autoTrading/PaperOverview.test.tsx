@@ -24,4 +24,20 @@ describe('PaperOverview', () => {
     render(<PaperOverview view={{ ...view, lastRun: { snapshotId: 's', asOf: '2020-01-01T00:00:00Z', candidateCount: 5, observedCount: 5, openedCount: 0, completedCount: 0, missingPriceCount: 0, marketOpen: true, issues: [] } }} mode="SHADOW" paused={false} />);
     expect(screen.getByText('최근 관측 갱신 확인 필요')).toBeTruthy();
   });
+  it('shows actual collection progress while the previous pre-open scan is still displayed', () => {
+    const now = new Date().toISOString();
+    render(<PaperOverview view={{ ...view, collection: { startedAt: now, lastProgressAt: now, completed: 200, total: 553 },
+      lastRun: { snapshotId: 's', asOf: now, durationMs: 80000, candidateCount: 553, observedCount: 539, openedCount: 0, completedCount: 0, missingPriceCount: 14, marketOpen: false,
+        issues: ['005930:CURRENT_QUOTE_INVALID_PRICE', '000660:CURRENT_QUOTE_UNAVAILABLE'] } }} mode="SHADOW" paused={false} />);
+    expect(screen.getByText('관측 자료 수집 중')).toBeTruthy();
+    expect(screen.getByText('200/553종목')).toBeTruthy();
+    expect(screen.getByText('80초')).toBeTruthy();
+    expect(screen.getByText('005930: 응답에 유효한 현재가 없음')).toBeTruthy();
+    expect(screen.getByText('000660: 현재가 응답 없음')).toBeTruthy();
+  });
+  it('does not hide a stalled collector behind a running label', () => {
+    render(<PaperOverview view={{ ...view, collection: { startedAt: '2020-01-01T00:00:00Z', lastProgressAt: '2020-01-01T00:00:00Z', completed: 1, total: 553 } }} mode="SHADOW" paused={false} />);
+    expect(screen.queryByText('관측 자료 수집 중')).toBeNull();
+    expect(screen.getByText('수집 지연 확인 필요')).toBeTruthy();
+  });
 });

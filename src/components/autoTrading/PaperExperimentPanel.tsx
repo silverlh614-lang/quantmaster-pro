@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FlaskConical, Play, RefreshCw } from 'lucide-react';
 import { paperExperimentApi, PAPER_EXPERIMENT_QUERY_KEY } from '../../api/paperExperimentClient';
 import type { PaperExperiment, PaperExperimentView, PaperLearningGroup } from '../../types/paperExperiment';
+import { PAPER_OBSERVATION_ISSUE_LABELS } from '../../types/paperExperiment';
 import { Stack } from '../../layout/Stack';
 import { PageHeader, LoadingState } from '../../ui';
 import { Section } from '../../ui/section';
@@ -101,7 +102,7 @@ export function PaperExperimentResults({ view, showStrategy = true }: { view: Pa
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-200">
             <p className="font-semibold">이번 관측에서 확인할 항목</p>
             <ul className="mt-2 list-disc space-y-1 pl-5">
-              {last.issues.slice(0, 5).map((issue, index) => <li key={`${index}-${issue}`}>{issue.replace('CURRENT_QUOTE_UNAVAILABLE', '현재가를 확인하지 못했습니다')}</li>)}
+              {last.issues.slice(0, 5).map((issue, index) => <li key={`${index}-${issue}`}>{issue.split(':').map(part => PAPER_OBSERVATION_ISSUE_LABELS[part] ?? part).join(': ')}</li>)}
             </ul>
             {last.issues.length > 5 && <p className="mt-2">외 {last.issues.length - 5}건</p>}
           </div>

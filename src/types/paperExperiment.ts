@@ -2,6 +2,21 @@
 import type { PaperStrategyScanResult, PaperStrategyView } from './paperStrategy';
 import type { PaperResearchView } from './paperResearch';
 
+export const PAPER_OBSERVATION_ISSUE_LABELS: Record<string, string> = {
+  CURRENT_QUOTE_UNAVAILABLE: '현재가 응답 없음',
+  CURRENT_QUOTE_INVALID_PRICE: '응답에 유효한 현재가 없음',
+  CURRENT_QUOTE_SYMBOL_MISMATCH: '응답 종목 코드 불일치',
+  CURRENT_QUOTE_TIME_INVALID: '현재가 조회 시각 오류',
+  CURRENT_QUOTE_STALE: '이번 수집 이전의 현재가',
+};
+
+export interface PaperCollectionProgress {
+  startedAt: string;
+  lastProgressAt: string;
+  completed: number;
+  total: number;
+}
+
 export interface PaperNewsObservation {
   id: string;
   headline: string;
@@ -79,6 +94,7 @@ export interface PaperExperiment {
 export interface PaperScanResult {
   snapshotId: string;
   asOf: string;
+  durationMs?: number;
   candidateCount: number;
   observedCount: number;
   openedCount: number;
@@ -106,6 +122,7 @@ export interface PaperExperimentView {
   mode: 'SHADOW';
   strategyVersion: 'shadow-baseline-v1';
   lastRun: PaperScanResult | null;
+  collection?: PaperCollectionProgress;
   totalCount: number;
   openCount: number;
   completedCount: number;

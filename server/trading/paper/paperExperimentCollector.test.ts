@@ -31,6 +31,7 @@ describe('paper observation collector', () => {
     mocks.dart.mockReturnValue([{ stock_code: '035420', rcept_no: 'd1', report_nm: 'disclosure', alertedAt: '2026-09-18T00:00:00Z' }]);
     const result = await collectPaperExperimentSnapshot(['005930', '051910']);
     expect(mocks.collect).toHaveBeenCalledTimes(1);
+    expect(mocks.collect.mock.calls[0][1].profile).toBe('PAPER');
     expect(mocks.collect.mock.calls[0][0]).toEqual(['005930', '000660', '035420', '051910']);
     expect(result.observations.find((item) => item.symbol === '000660')!.news).toEqual([
       { id: 'n1', headline: 'news', observedAt: '2026-09-18T00:00:00Z', source: 'SUPPLY_CHAIN' },
@@ -59,7 +60,33 @@ describe('paper observation collector', () => {
       quote: { code: '005930', currentPrice: 10000, fetchedAt: '2026-09-17T01:00:00Z' }, dailyBars: [{ date: '20260917', close: 9000 }],
     } } });
     const result = await collectPaperExperimentSnapshot([]);
-    expect(result.observations[0]).toMatchObject({ price: null, issue: 'CURRENT_QUOTE_UNAVAILABLE' });
+    expect(result.observations[0]).toMatchObject({ price: null, issue: 'CURRENT_QUOTE_STALE' });
+  });
+
+  it.each([
+    [null, 'CURRENT_QUOTE_UNAVAILABLE'],
+    [{ code: '005930', currentPrice: null, fetchedAt: '2026-09-18T01:00:00Z' }, 'CURRENT_QUOTE_INVALID_PRICE'],
+    [{ code: '005930', currentPrice: 0, fetchedAt: '2026-09-18T01:00:00Z' }, 'CURRENT_QUOTE_INVALID_PRICE'],
+    [{ code: '000660', currentPrice: 10000, fetchedAt: '2026-09-18T01:00:00Z' }, 'CURRENT_QUOTE_SYMBOL_MISMATCH'],
+    [{ code: '005930', currentPrice: 10000, fetchedAt: 'bad-time' }, 'CURRENT_QUOTE_TIME_INVALID'],
+    [{ code: '005930', currentPrice: 10000, fetchedAt: '2026-09-18T02:00:00Z' }, 'CURRENT_QUOTE_TIME_INVALID'],
+  ])('separates quote failures without manufacturing an entry price (%s)', async (quote, issue) => {
+    mocks.collect.mockResolvedValue({ perSymbol: { '005930': { quote, dailyBars: [] } } });
+    const result = await collectPaperExperimentSnapshot([]);
+    expect(result.observations[0]).toMatchObject({ price: null, issue });
+  });
+
+  it('forwards real collection progress and preserves the opening boundary', async () => {
+    vi.setSystemTime(new Date('2026-09-17T23:59:00Z'));
+    mocks.collect.mockImplementationOnce(async (_codes, options) => {
+      options.onProgress(1, 1);
+      vi.setSystemTime(new Date('2026-09-18T00:01:00Z'));
+      return { perSymbol: {} };
+    });
+    const progress = vi.fn();
+    const result = await collectPaperExperimentSnapshot([], progress);
+    expect(progress).toHaveBeenCalledWith(1, 1);
+    expect(result.marketOpen).toBe(false);
   });
 
   it('preserves closed OHLCV and market from the same collector snapshot for later research', async () => {

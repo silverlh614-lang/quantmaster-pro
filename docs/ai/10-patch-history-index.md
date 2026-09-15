@@ -3,6 +3,7 @@
 최근 20건만 한 줄씩 유지한다. 상세는 Git log/show와 [ADR 목록](../adr/INDEX.md)에서 조회한다.
 이 파일 전체를 기본 컨텍스트로 읽지 않는다. 필요한 날짜·키워드만 검색한다.
 
+- 2026-09-15 · fix · Shadow 가격·확정 일봉 수집 경량화와 장마감 인지 캐시, 실제 진행률·소요시간·누락 사유 표시, 구 배선 백로그 22건 현행 정책·의존성 정합.
 - 2026-09-13 · ADR-0673 · LIVE·PAPER·SHADOW 레짐·Kelly 운영 정책 제거, 가격 손절·OCO·계좌 안전과 독립 관측·시그널·연구 유지.
 - 2026-09-13 · fix · Shadow 스캔 실패를 스케줄 성공으로 기록하던 오류 수정, 조건 누적 방지 원칙·현행 문서 범위 정정.
 - 2026-09-13 · ADR-0672 · 매매 시그널 유지, 진입 고정 학습 근거·청산 복기와 4채널 연결, 채널별 재시도.
@@ -22,4 +23,3 @@
 - 2026-07-20 · Patch-ShadowVsLiveDelta-Phase3-SizingMissedAlpha
 - 2026-07-20 · Patch-CounterfactureGate-PhaseL-OperatorApprovalSeam
 - 2026-07-20 · Patch-Learning-Data-Maturity-Measure+Subdir-Backup
-- 2026-07-03 · Patch-PENDING-WIRING-SLA-SWEEP-001

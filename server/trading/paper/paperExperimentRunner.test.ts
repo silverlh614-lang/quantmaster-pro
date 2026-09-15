@@ -42,15 +42,21 @@ describe('paper runner', () => {
   it('coalesces concurrent scans and releases the lock after failure', async () => {
     const runner = await import('./paperExperimentRunner.js');
     let finish!: (snapshot: PaperSnapshot) => void;
-    state.collect.mockImplementationOnce(() => new Promise<PaperSnapshot>((resolve) => { finish = resolve; }));
+    state.collect.mockImplementationOnce((_symbols, progress) => new Promise<PaperSnapshot>((resolve) => {
+      progress(3, 10); finish = resolve;
+    }));
     const first = runner.runPaperExperimentScan();
     const second = runner.runPaperExperimentScan();
     expect(first).toBe(second);
+    expect(runner.getPaperExperimentView().collection).toMatchObject({ completed: 3, total: 10 });
     finish(sample());
     await first;
+    expect(runner.getPaperExperimentView().collection).toBeUndefined();
+    expect(state.ledger.lastRun?.durationMs).toBeGreaterThanOrEqual(0);
     expect(state.collect).toHaveBeenCalledTimes(1);
     state.collect.mockRejectedValueOnce(new Error('provider failure'));
     await expect(runner.runPaperExperimentScan()).rejects.toThrow('provider failure');
+    expect(runner.getPaperExperimentView().collection).toBeUndefined();
     await expect(runner.runPaperExperimentScan()).resolves.toMatchObject({ openedCount: 0 });
   });
 
@@ -63,7 +69,7 @@ describe('paper runner', () => {
     later.observations[0].dailyCloses = [{ tradingDate: '2026-09-29', close: 11000, availableAt: later.asOf }];
     state.collect.mockResolvedValue(later);
     expect(await runner.runPaperExperimentScan()).toMatchObject({ completedCount: 1, openedCount: 0, missingPriceCount: 1 });
-    expect(state.collect).toHaveBeenLastCalledWith(['005930']);
+    expect(state.collect).toHaveBeenLastCalledWith(['005930'], expect.any(Function));
     expect(runner.getPaperExperimentView().outcomes.find((item) => item.horizon === 5)!.count).toBe(1);
   });
 });

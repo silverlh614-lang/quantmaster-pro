@@ -86,7 +86,7 @@ describe('PaperExperimentPanel', () => {
     expect(screen.getByText('70,000원')).toBeTruthy();
     expect(screen.getByText('+1.20%')).toBeTruthy();
     expect(screen.getByText('추세 미확인')).toBeTruthy();
-    expect(screen.getByText('005930:현재가를 확인하지 못했습니다')).toBeTruthy();
+    expect(screen.getByText('005930: 현재가 응답 없음')).toBeTruthy();
   });
 
   it('runs the paper scan and fetches the persisted view again', async () => {

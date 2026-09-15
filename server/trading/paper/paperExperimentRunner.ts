@@ -1,5 +1,5 @@
 // @responsibility Run the default Shadow experiment cycle.
-import type { PaperExperimentView, PaperScanResult } from '../../../src/types/paperExperiment.js';
+import type { PaperCollectionProgress, PaperExperimentView, PaperScanResult } from '../../../src/types/paperExperiment.js';
 import { loadPaperExperimentLedger, savePaperExperimentLedger } from '../../persistence/paperExperimentRepo.js';
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { collectPaperExperimentSnapshot } from './paperExperimentCollector.js';
@@ -10,8 +10,11 @@ import { advancePaperStrategy, loadPaperStrategyState, readPaperStrategyView } f
 import { refreshPaperResearch, getPaperResearchView } from './paperResearchRuntime.js';
 
 let running: Promise<PaperScanResult> | null = null;
+let collection: PaperCollectionProgress | undefined;
 
 async function scan(): Promise<PaperScanResult> {
+  const startedAt = new Date().toISOString();
+  collection = { startedAt, lastProgressAt: startedAt, completed: 0, total: 0 };
   // Local historical research can proceed even if the following market-data collection fails.
   refreshPaperResearch();
   const ledger = loadPaperExperimentLedger();
@@ -20,7 +23,9 @@ async function scan(): Promise<PaperScanResult> {
     ...ledger.experiments.filter((item) => item.status === 'OPEN').map((item) => item.symbol),
     ...(strategy.ledger?.trades ?? []).filter((item) => item.status === 'OPEN').map((item) => item.symbol),
   ])];
-  const snapshot = await collectPaperExperimentSnapshot(openSymbols);
+  const snapshot = await collectPaperExperimentSnapshot(openSymbols, (completed, total) => {
+    collection = { startedAt, lastProgressAt: new Date().toISOString(), completed, total };
+  });
   const observations = new Map(snapshot.observations.map((item) => [item.symbol, item]));
   let completedCount = 0;
   ledger.experiments = ledger.experiments.map((experiment) => {
@@ -43,6 +48,7 @@ async function scan(): Promise<PaperScanResult> {
   }
   const result: PaperScanResult = {
     snapshotId: snapshot.id, asOf: snapshot.asOf, candidateCount: snapshot.observations.length,
+    durationMs: Date.now() - Date.parse(startedAt),
     observedCount: snapshot.observations.filter((item) => item.price !== null).length,
     openedCount, completedCount,
     missingPriceCount: snapshot.observations.filter((item) => item.price === null).length,
@@ -57,7 +63,7 @@ async function scan(): Promise<PaperScanResult> {
 }
 
 export function runPaperExperimentScan(): Promise<PaperScanResult> {
-  if (!running) running = scan().finally(() => { running = null; });
+  if (!running) running = scan().finally(() => { running = null; collection = undefined; });
   return running;
 }
 
@@ -65,5 +71,6 @@ export function getPaperExperimentView(includeAllRecords = false): PaperExperime
   const ledger = loadPaperExperimentLedger();
   const view = buildPaperExperimentView(ledger);
   if (includeAllRecords) view.experiments = [...ledger.experiments].reverse();
-  return { ...view, strategy: readPaperStrategyView(includeAllRecords), research: getPaperResearchView() };
+  return { ...view, ...(collection ? { collection: { ...collection } } : {}),
+    strategy: readPaperStrategyView(includeAllRecords), research: getPaperResearchView() };
 }

@@ -27,6 +27,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getAllStockEntries } from '../persistence/krxStockMasterRepo.js';
 import type { StockMasterEntry } from '../persistence/krxStockMasterRepo.js';
 import { logger } from '../utils/logger.js';
+import { toKstDateKey, isKrxTradingDay, previousKrxTradingDay } from '../calendar/krxTradingCalendar.js';
 import {
   generateSnapshotId,
 } from './sourceSnapshot/unifiedSourceSnapshot.js';
@@ -332,19 +333,47 @@ function deriveFieldFreshness(parts: {
 
 // ─── per-symbol 수집 ─────────────────────────────────────────────────────────
 
+// Paper only consumes prices and completed daily bars. Never cache a current
+// quote or carry an unfinished candle across the closing auction.
+const paperBarsCache = new Map<string, { bars: KisStockDailyBar[]; fetchedAt: number; closedDate: string }>();
+const PAPER_BARS_TTL_MS = 60 * 60_000;
+
+async function collectPaperDailyBars(code: string): Promise<KisStockDailyBar[]> {
+  const requestedAt = new Date();
+  const date = toKstDateKey(requestedAt);
+  const closedDate = isKrxTradingDay(date) && requestedAt.getTime() >= Date.parse(`${date}T15:30:00+09:00`)
+    ? date : previousKrxTradingDay(requestedAt);
+  const cached = paperBarsCache.get(code);
+  if (cached?.closedDate === closedDate && requestedAt.getTime() >= cached.fetchedAt
+    && requestedAt.getTime() - cached.fetchedAt < PAPER_BARS_TTL_MS) {
+    return cached.bars.map(bar => ({ ...bar }));
+  }
+  const bars = (await fetchKisStockDailyBars(code, 90)).filter(bar => {
+    const barDate = bar.date.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
+    return isKrxTradingDay(barDate) && barDate <= closedDate
+      && Number.isFinite(bar.close) && bar.close > 0;
+  });
+  // A partial/empty response must be retried next cycle, including delayed closes.
+  if (bars.some(bar => bar.date.replace(/-/g, '') === closedDate.replace(/-/g, ''))) {
+    if (paperBarsCache.size >= 3000) paperBarsCache.clear();
+    paperBarsCache.set(code, { bars: bars.map(bar => ({ ...bar })), fetchedAt: requestedAt.getTime(), closedDate });
+  }
+  return bars;
+}
+
 /**
  * 단일 종목에 대해 KIS 4개 엔드포인트를 동시 호출한다.
  * 각 fetch는 내부적으로 에러를 catch하여 null/빈배열을 반환하므로
  * 이 함수 자체는 throw하지 않는다.
  */
-async function collectSymbolData(code: string, krxEntry?: StockMasterEntry): Promise<SymbolSnapshotData> {
+async function collectSymbolData(code: string, krxEntry?: StockMasterEntry, paper = false): Promise<SymbolSnapshotData> {
   const t0 = performance.now();
 
   const [quoteResult, flowResult, barsResult, programResult] = await Promise.allSettled([
     fetchKisStockFullQuote(code),
-    fetchKisInvestorTradeByStockDaily(code),
-    fetchKisStockDailyBars(code, 90), // 60 거래일 + 여유 → 캘린더 90일
-    fetchKisStockProgramTrade(code),
+    paper ? Promise.resolve(null) : fetchKisInvestorTradeByStockDaily(code),
+    paper ? collectPaperDailyBars(code) : fetchKisStockDailyBars(code, 90),
+    paper ? Promise.resolve(null) : fetchKisStockProgramTrade(code),
   ]);
 
   const quote =
@@ -390,7 +419,7 @@ async function collectSymbolData(code: string, krxEntry?: StockMasterEntry): Pro
   // ADR-0529 방식 B(cached-reference): DART 정본 슬롯 채움.
   // flag-gated + try/catch 격리 — DART 실패가 4 KIS 수집/scan 을 막지 않는다 (불변식 #1).
   // 새 DART HTTP fetch 신설 0 — 기존 cache-first 단일 통로 위임만 (hit=외부호출 0, miss≤1 기존과 동일).
-  const dartFinancials = await collectDartFinancialsSlot(code);
+  const dartFinancials = paper ? null : await collectDartFinancialsSlot(code);
 
   const fetchDurationMs = Math.round(performance.now() - t0);
   const fetchedAt = new Date().toISOString();
@@ -567,6 +596,9 @@ export interface CollectUnifiedSnapshotOptions {
   concurrency?: number;
   /** 상위 buyListLoop의 사이클 식별자 */
   scanCycleId?: string;
+  /** Paper observes price/history only; all existing callers retain full collection. */
+  profile?: 'FULL' | 'PAPER';
+  onProgress?: (completed: number, total: number) => void;
 }
 
 /**
@@ -580,7 +612,8 @@ export async function collectUnifiedSnapshot(
   candidates: string[],
   options: CollectUnifiedSnapshotOptions = {},
 ): Promise<UnifiedSourceSnapshot> {
-  const { concurrency = 5, scanCycleId = `cycle_${Date.now()}` } = options;
+  const { concurrency = 5, scanCycleId = `cycle_${Date.now()}`, profile = 'FULL', onProgress } = options;
+  const paper = profile === 'PAPER';
   const snapshotId = generateSnapshotId();
   const t0 = performance.now();
 
@@ -589,6 +622,7 @@ export async function collectUnifiedSnapshot(
     scanCycleId,
     candidateCount: candidates.length,
     concurrency,
+    profile,
   });
 
   // KRX 마스터 코드→엔트리 맵 (동기 로드 — 경량 JSON)
@@ -598,10 +632,15 @@ export async function collectUnifiedSnapshot(
 
   // macroContext + 시장 레벨 program flow(ADR-0556 묶음4)는 per-symbol fetch와 병행 수집.
   // collectMarketProgramFlow 는 flag OFF 시 undefined·throw 격리 → 한 항목 실패가 전체 중단 안 함.
+  let completed = 0;
+  onProgress?.(completed, candidates.length);
   const [macroContext, marketProgram, rawResults] = await Promise.all([
     buildMacroContext(),
-    collectMarketProgramFlow(),
-    mapLimit(candidates, concurrency, (code) => collectSymbolData(code, krxMasterMap.get(code))),
+    paper ? Promise.resolve(undefined) : collectMarketProgramFlow(),
+    mapLimit(candidates, concurrency, async (code) => {
+      try { return await collectSymbolData(code, krxMasterMap.get(code), paper); }
+      finally { onProgress?.(++completed, candidates.length); }
+    }),
   ]);
 
   // perSymbol 맵 구성
@@ -659,9 +698,10 @@ export async function collectUnifiedSnapshot(
     fullCount,
     completionRate: completionRate.toFixed(3),
     collectorDurationMs,
+    profile,
   });
 
-  if (completionRate < 0.5 && candidates.length > 0) {
+  if (!paper && completionRate < 0.5 && candidates.length > 0) {
     logger.warn(
       '[SymbolDataCollector] completionRate < 0.5 — KIS API 상태 점검 필요',
       { snapshotId, completionRate, totalCandidates: candidates.length },

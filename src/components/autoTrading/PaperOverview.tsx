@@ -2,6 +2,7 @@
 import React from 'react';
 import { ArrowUpRight, ArrowRight, Database, Radar, Route } from 'lucide-react';
 import type { PaperOverviewView } from '../../types/paperExperiment';
+import { PAPER_OBSERVATION_ISSUE_LABELS } from '../../types/paperExperiment';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
 const count = (value: number | undefined) => value === undefined ? '확인 대기' : value.toLocaleString('ko-KR');
@@ -15,16 +16,22 @@ export function PaperOverview({ view, mode, paused }: { view: PaperOverviewView;
   const last = view.lastRun;
   const strategy = view.strategy;
   const research = view.research;
+  const collection = view.collection;
+  const collecting = !!collection && Date.now() - Date.parse(collection.lastProgressAt) >= 0
+    && Date.now() - Date.parse(collection.lastProgressAt) <= 60_000;
   const strategyUnavailable = Boolean(strategy?.error || strategy?.lastRun?.error);
   const stale = !!last && (!Number.isFinite(Date.parse(last.asOf)) || Date.now() - Date.parse(last.asOf) > 5 * 60_000);
-  const status = !mode || paused === undefined ? '운영 상태 확인 중' : mode !== 'SHADOW' ? '저장 기록 조회 중' : paused ? '자동 관측 일시정지' : stale ? '최근 관측 갱신 확인 필요' : !last ? '첫 관측을 기다리고 있습니다' : last.marketOpen ? '장중 관측 기록을 쌓고 있습니다' : '장외 관측 · 다음 진입을 기다립니다';
+  const status = !mode || paused === undefined ? '운영 상태 확인 중' : mode !== 'SHADOW' ? '저장 기록 조회 중' : paused ? '자동 관측 일시정지' : collecting ? '관측 자료 수집 중' : stale ? '최근 관측 갱신 확인 필요' : !last ? '첫 관측을 기다리고 있습니다' : last.marketOpen ? '장중 관측 기록을 쌓고 있습니다' : '장외 관측 · 다음 진입을 기다립니다';
   const features = research?.features ?? [];
   const extent = Math.max(0.01, ...features.map(item => Math.abs(item.matchedDifferencePct ?? 0)));
   return <>
     <section className="workspace-hero">
       <div><span className="workspace-eyebrow">현재 진행 상황</span><h2>{status}</h2>
         <p>종목당 1주를 관측하고, 결과가 쌓이면 뉴스·추세별 가상 전략의 근거로 사용합니다.</p>
-        <div className="workspace-hero-meta"><span>마지막 스캔 <strong>{paperTime(last?.asOf)}</strong></span><span>신규 진입 <strong>거래일 09:00–15:30</strong></span></div>
+        <div className="workspace-hero-meta"><span>마지막 관측 완료 <strong>{paperTime(last?.asOf)}</strong></span>
+          {last?.durationMs !== undefined && <span>수집 소요 <strong>{Math.round(last.durationMs / 1000)}초</strong></span>}
+          {collection && <span>{collecting ? '수집 진행' : '수집 지연 확인 필요'} <strong>{collection.completed}/{collection.total}종목</strong></span>}
+          <span>신규 진입 <strong>거래일 09:00–15:30</strong></span></div>
       </div><div className="workspace-hero-mark" aria-hidden="true"><Radar size={64} strokeWidth={1} /><span>OBSERVE / LEARN</span></div>
     </section>
     <dl className="workspace-metrics">
@@ -63,6 +70,6 @@ export function PaperOverview({ view, mode, paused }: { view: PaperOverviewView;
       </div>
       <div className="workspace-source-note"><Database size={15} /><span>과거 진입일 {research?.firstDate ?? '미확인'} ~ {research?.lastDate ?? '미확인'} · 연구 갱신 {paperTime(research?.asOf)}</span></div>
     </section>
-    {!!last?.issues.length && <details className="workspace-card"><summary>관측 중 확인할 항목 {last.issues.length}건</summary><ul className="workspace-issues">{last.issues.map((issue, i) => <li key={i}>{issue.replace('CURRENT_QUOTE_UNAVAILABLE', '현재가 확인 불가')}</li>)}</ul></details>}
+    {!!last?.issues.length && <details className="workspace-card"><summary>관측 중 확인할 항목 {last.issues.length}건</summary><ul className="workspace-issues">{last.issues.map((issue, i) => <li key={i}>{issue.split(':').map(part => PAPER_OBSERVATION_ISSUE_LABELS[part] ?? part).join(': ')}</li>)}</ul></details>}
   </>;
 }

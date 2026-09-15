@@ -106,7 +106,7 @@ describe('strategy integration in the default Shadow runner', () => {
     snapshot.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 9500, availableAt: snapshot.asOf }];
     state.collect.mockResolvedValue(snapshot);
     expect(await runner.runPaperExperimentScan()).toMatchObject({ openedCount: 0, strategy: { closedCount: 1 } });
-    expect(state.collect).toHaveBeenLastCalledWith(['005930']);
+    expect(state.collect).toHaveBeenLastCalledWith(['005930'], expect.any(Function));
     expect(runner.getPaperExperimentView().strategy!.performance.meanNetReturnPct).toBeLessThan(-5);
     const savedExit = structuredClone(state.strategy.trades[0].exit);
     expect(await runner.runPaperExperimentScan()).toMatchObject({ strategy: { closedCount: 0 } });

@@ -20,7 +20,9 @@ export function isPaperMarketOpen(now: Date): boolean {
   return isKrxTradingDay(toKstDateKey(now)) && clock >= 540 && clock < 930;
 }
 
-export async function collectPaperExperimentSnapshot(openSymbols: string[]): Promise<PaperSnapshot> {
+export async function collectPaperExperimentSnapshot(
+  openSymbols: string[], onProgress?: (completed: number, total: number) => void,
+): Promise<PaperSnapshot> {
   const startedAt = new Date();
   const startMs = startedAt.getTime();
   const names = new Map<string, string>();
@@ -47,7 +49,7 @@ export async function collectPaperExperimentSnapshot(openSymbols: string[]): Pro
   }
   const codes = [...new Set([...names.keys(), ...news.keys(), ...openSymbols.map(codeOf).filter((code): code is string => code !== null)])];
   const id = `paper_${randomUUID()}`;
-  const source = await collectUnifiedSnapshot(codes, { scanCycleId: id });
+  const source = await collectUnifiedSnapshot(codes, { scanCycleId: id, profile: 'PAPER', onProgress });
   const finishedAt = new Date();
   const asOf = finishedAt.toISOString();
   const tradingDate = toKstDateKey(finishedAt);
@@ -55,8 +57,12 @@ export async function collectPaperExperimentSnapshot(openSymbols: string[]): Pro
     const data = source.perSymbol[symbol];
     const quote = data?.quote;
     const quoteMs = Date.parse(quote?.fetchedAt ?? '');
-    const validQuote = quote?.code === symbol && Number.isFinite(quote.currentPrice) && (quote.currentPrice ?? 0) > 0
-      && Number.isFinite(quoteMs) && quoteMs >= startMs && quoteMs <= finishedAt.getTime();
+    const issue = !quote ? 'CURRENT_QUOTE_UNAVAILABLE'
+      : quote.code !== symbol ? 'CURRENT_QUOTE_SYMBOL_MISMATCH'
+        : !Number.isFinite(quote.currentPrice) || (quote.currentPrice ?? 0) <= 0 ? 'CURRENT_QUOTE_INVALID_PRICE'
+          : !Number.isFinite(quoteMs) || quoteMs > finishedAt.getTime() ? 'CURRENT_QUOTE_TIME_INVALID'
+            : quoteMs < startMs ? 'CURRENT_QUOTE_STALE' : undefined;
+    const validQuote = issue === undefined;
     const dailyCloses = (data?.dailyBars ?? []).flatMap((bar) => {
       const date = bar.date.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
       const closedAt = Date.parse(`${date}T15:30:00+09:00`);
@@ -81,7 +87,7 @@ export async function collectPaperExperimentSnapshot(openSymbols: string[]): Pro
       return5dPct: price !== null && fifthClose ? (price / fifthClose.close - 1) * 100 : null,
       aboveMa20: price !== null && average20 !== null ? price > average20 : null,
       news: news.get(symbol) ?? [], dailyCloses,
-      ...(!validQuote ? { issue: 'CURRENT_QUOTE_UNAVAILABLE' } : {}),
+      ...(issue ? { issue } : {}),
     };
   });
   return { id, asOf, tradingDate, marketOpen: isPaperMarketOpen(startedAt) && isPaperMarketOpen(finishedAt), observations };
