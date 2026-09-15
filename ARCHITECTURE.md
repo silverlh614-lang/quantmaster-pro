@@ -13,6 +13,8 @@ The public scan dispatcher selects `server/trading/paper/paperExperimentRunner.t
 
 News and price trends are entry-time observations for comparison, not initial eligibility filters. Independent experiment returns are not account portfolio returns. Missing or future prices cannot become completed outcomes. No automatic promotion or broker-order dependency belongs in this module.
 
+News direction research (ADR-0674): `paperNewsAssessment.ts` records conservative disclosure-title assessments during collection without provider calls. `src/utils/paperNews.ts` summarizes saved, versioned, temporally valid assessments within 72 hours. Baseline views compare entry-frozen directions across D1/D3/D5; unknown and unobserved news remain separate. Strategy decisions, observation details and Telegram analysis expose the reasons. Direction is not a v2 eligibility gate, and old records are never backfilled with today's assessment.
+
 The existing `symbolDataCollector` has a paper profile that requests fresh KIS quotes and closed daily history, omitting unused investor/program/financial calls. Only paper history is cached for one hour and invalidated at the next completed trading-day close; intraday candles and empty/incomplete responses are never cached as finalized history. Default full collection, the KIS client and rate limiter are unchanged. The runner exposes actual collection progress and completed-cycle duration; invalid quotes retain distinct failure reasons without replacement prices.
 
 ### Empirical Shadow strategy (ADR-0667)

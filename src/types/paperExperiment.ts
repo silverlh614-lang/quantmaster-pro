@@ -22,6 +22,40 @@ export interface PaperNewsObservation {
   headline: string;
   observedAt: string;
   source: string;
+  assessment?: PaperNewsAssessment;
+}
+
+export type PaperNewsDirection = 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL' | 'MIXED' | 'UNKNOWN';
+export type PaperNewsGroup = PaperNewsDirection | 'NO_NEWS';
+
+export interface PaperNewsAssessment {
+  version: 'headline-rules-v1';
+  method: 'DISCLOSURE_TITLE_RULES';
+  assessedAt: string;
+  direction: PaperNewsDirection;
+  reason: string;
+}
+
+export interface PaperNewsSummary {
+  asOf: string;
+  lookbackHours: number;
+  direction: PaperNewsGroup;
+  counts: Record<PaperNewsDirection, number>;
+  totalCount: number;
+  evidence: Array<Pick<PaperNewsObservation, 'id' | 'headline' | 'source' | 'observedAt'> & {
+    direction: PaperNewsDirection; reason: string;
+  }>;
+}
+
+export interface PaperNewsStudy {
+  version: 'headline-rules-v1';
+  lookbackHours: number;
+  groups: Array<{
+    direction: PaperNewsGroup;
+    observationCount: number;
+    entryDateCount: number;
+    outcomes: Array<PaperLearningGroup & { horizon: 1 | 3 | 5 }>;
+  }>;
 }
 
 export interface PaperDailyClose {
@@ -128,6 +162,7 @@ export interface PaperExperimentView {
   completedCount: number;
   outcomes: Array<PaperLearningGroup & { horizon: 1 | 3 | 5 }>;
   groups: PaperLearningGroup[];
+  newsStudy?: PaperNewsStudy;
   experiments: PaperExperiment[];
   strategy?: PaperStrategyView;
   research?: PaperResearchView;

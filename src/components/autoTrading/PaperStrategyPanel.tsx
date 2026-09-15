@@ -5,6 +5,8 @@ import type {
   PaperStrategyPolicy, PaperStrategyTrade, PaperStrategyView,
 } from '../../types/paperStrategy';
 import { Section } from '../../ui/section';
+import { PaperNewsDetails } from './PaperNewsDetails';
+import { summarizePaperNews } from '../../utils/paperNews';
 
 const cohortLabels: Record<PaperStrategyCohort, string> = {
   NEWS_RECENT_ABOVE_MA20: '최근 관측 뉴스 있음 · 20일선 위',
@@ -85,6 +87,7 @@ function DecisionCard({ decision, policy }: { decision: PaperStrategyDecision; p
       <p className="text-sm text-slate-200">{decision.reason}</p>
       <p className="text-xs text-slate-400">{decision.cohort ? cohortLabels[decision.cohort] : '관측 정보 확인 대기'} · 판단 {timestamp(decision.decisionAt)} KST</p>
       {decision.evidence && <Evidence evidence={decision.evidence} policy={policy} />}
+      {decision.newsSummary && <PaperNewsDetails summary={decision.newsSummary} />}
     </article>
   );
 }
@@ -102,6 +105,7 @@ function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
         <p className="sm:col-span-2">예정 종가 시각 {timestamp(trade.scheduledExitAt)} KST</p>
       </div>
       <p className="text-xs text-slate-400">진입 근거: {trade.entryDecision.reason}</p>
+      <PaperNewsDetails summary={summarizePaperNews(trade.entryObservation.news, trade.entryAt, trade.policy.newsLookbackHours)} />
       {trade.exit ? (
         <div className="space-y-2 rounded-lg border border-violet-400/20 bg-violet-500/5 p-3 text-xs text-slate-300">
           <p className="font-semibold text-violet-200">예약 종가 가상 청산 · 순수익률 {percent(trade.exit.netReturnPct)} · 순손익 {money(trade.exit.netPnl)}</p>
@@ -137,6 +141,7 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
           <div className="space-y-2 text-xs leading-relaxed text-slate-400">
             <p>최근 {view.policy.newsLookbackHours}시간에 관측한 뉴스와 20일선 위치가 같은 그룹에서, 완료 표본 최소 {view.policy.minimumSamples}건·진입일 최소 {view.policy.minimumEntryDates}일을 요구합니다. 양수인 일당 평균 순수익률이 가장 높은 기간을 선택합니다.</p>
             <p>진입 시 청산 날짜를 확정하며 해당 날짜의 종가로 가상 청산합니다. 브로커 체결 기록이 아닙니다.</p>
+            <p>호재·악재 분류는 근거로 표시하고 별도 성과를 관측합니다. 현재 전략의 진입 조건에는 아직 반영하지 않습니다.</p>
             <p>전략 {view.strategyVersion} · 마지막 판단 {view.lastRun ? `${timestamp(view.lastRun.asOf)} KST` : '아직 실행하지 않음'}</p>
           </div>
           <div>

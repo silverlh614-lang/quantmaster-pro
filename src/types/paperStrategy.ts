@@ -1,5 +1,5 @@
 // @responsibility Define the empirical Shadow strategy contract.
-import type { PaperCostModel, PaperObservation } from './paperExperiment';
+import type { PaperCostModel, PaperNewsSummary, PaperObservation } from './paperExperiment';
 
 export type PaperStrategyHorizon = 1 | 3 | 5;
 export type PaperStrategyCohort =
@@ -62,6 +62,7 @@ export interface PaperStrategyDecision {
   cohort: PaperStrategyCohort | null;
   evidence: PaperStrategyEvidence | null;
   tradeId: string | null;
+  newsSummary?: PaperNewsSummary;
 }
 
 export interface PaperStrategyExit {

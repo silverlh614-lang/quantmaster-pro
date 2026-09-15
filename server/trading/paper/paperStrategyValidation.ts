@@ -14,6 +14,15 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
 const horizon = z.union([z.literal(1), z.literal(3), z.literal(5)]);
 const version = z.enum(['news-trend-v1', 'news-trend-v2']);
 const symbol = z.string().regex(/^\d{6}$/);
+const newsDirection = z.enum(['POSITIVE', 'NEGATIVE', 'NEUTRAL', 'MIXED', 'UNKNOWN']);
+const newsAssessment = z.object({ version: z.literal('headline-rules-v1'), method: z.literal('DISCLOSURE_TITLE_RULES'),
+  assessedAt: timestamp, direction: newsDirection, reason: z.string().min(1) });
+const newsSummary = z.object({ asOf: timestamp, lookbackHours: finite.positive(),
+  direction: z.enum(['POSITIVE', 'NEGATIVE', 'NEUTRAL', 'MIXED', 'UNKNOWN', 'NO_NEWS']),
+  counts: z.object({ POSITIVE: finite.int().nonnegative(), NEGATIVE: finite.int().nonnegative(), NEUTRAL: finite.int().nonnegative(),
+    MIXED: finite.int().nonnegative(), UNKNOWN: finite.int().nonnegative() }), totalCount: finite.int().nonnegative(),
+  evidence: z.array(z.object({ id: z.string(), headline: z.string(), source: z.string(), observedAt: timestamp,
+    direction: newsDirection, reason: z.string() })).max(5) });
 const cohort = z.enum(['NEWS_RECENT_ABOVE_MA20', 'NEWS_RECENT_BELOW_MA20', 'NEWS_ABSENT_ABOVE_MA20', 'NEWS_ABSENT_BELOW_MA20']);
 const policy = z.object({ version, newsLookbackHours: finite.positive(), minimumSamples: finite.int().positive(),
   minimumEntryDates: finite.int().positive(), horizonSelection: z.literal('MEAN_NET_RETURN_PER_DAY'), exitModel: z.literal('SCHEDULED_CLOSE') });
@@ -29,10 +38,10 @@ const decision = z.object({ snapshotId: z.string(), decisionAt: timestamp, symbo
   reasonCode: z.enum(['POSITIVE_COHORT_EXPECTANCY', 'INSUFFICIENT_MATURE_SAMPLES', 'INSUFFICIENT_ENTRY_DATES',
     'NON_POSITIVE_EXPECTANCY', 'TREND_UNKNOWN', 'MARKET_CLOSED', 'CURRENT_PRICE_UNAVAILABLE', 'OBSERVATION_TIME_INVALID',
     'ALREADY_ENTERED_TODAY', 'HORIZON_PENDING', 'SCHEDULED_CLOSE_UNAVAILABLE', 'SCHEDULED_CLOSE_REACHED']),
-  reason: z.string(), cohort: cohort.nullable(), evidence: evidence.nullable(), tradeId: z.string().nullable() });
+  reason: z.string(), cohort: cohort.nullable(), evidence: evidence.nullable(), tradeId: z.string().nullable(), newsSummary: newsSummary.optional() });
 const observation = z.object({ symbol, name: z.string(), price: finite.positive().nullable(), observedAt: timestamp, source: z.string(),
   return1dPct: finite.nullable(), return5dPct: finite.nullable(), aboveMa20: z.boolean().nullable(),
-  news: z.array(z.object({ id: z.string(), headline: z.string(), observedAt: timestamp, source: z.string() })),
+  news: z.array(z.object({ id: z.string(), headline: z.string(), observedAt: timestamp, source: z.string(), assessment: newsAssessment.optional() })),
   dailyCloses: z.array(z.object({ tradingDate: date, close: finite.positive(), availableAt: timestamp })), issue: z.string().optional() });
 const cost = z.object({ version: z.string(), buyFeeRate: finite.nonnegative(), sellFeeRate: finite.nonnegative(),
   sellTaxRate: finite.nonnegative(), slippageRate: finite.nonnegative() });

@@ -8,6 +8,7 @@ import type {
   PaperStrategyTrade, PaperStrategyView,
 } from '../../types/paperStrategy';
 import { PaperStrategyPanel } from './PaperStrategyPanel';
+import { summarizePaperNews } from '../../utils/paperNews';
 
 const policy: PaperStrategyPolicy = {
   version: 'news-trend-v1', newsLookbackHours: 72, minimumSamples: 10,
@@ -52,6 +53,16 @@ function view(overrides: Partial<PaperStrategyView> = {}): PaperStrategyView {
 afterEach(cleanup);
 
 describe('PaperStrategyPanel', () => {
+  it('shows adverse news and its reason even while an entry waits', () => {
+    const decision: PaperStrategyDecision = { ...buy, action: 'WAIT', evidence: null,
+      newsSummary: summarizePaperNews([{ id: 'n1', headline: '계약 해지', source: 'DART', observedAt: buy.decisionAt,
+        assessment: { version: 'headline-rules-v1', method: 'DISCLOSURE_TITLE_RULES', assessedAt: buy.decisionAt,
+          direction: 'NEGATIVE', reason: '공시 제목 단서: 계약 해지' } }], buy.decisionAt) };
+    render(<PaperStrategyPanel view={view({ latestDecisions: [decision] })} />);
+    expect(screen.getByText('뉴스 평가 · 악재 추정 · 1건')).toBeTruthy();
+    expect(screen.getByText('공시 제목 단서: 계약 해지')).toBeTruthy();
+    expect(screen.getByText(/현재 전략의 진입 조건에는 아직 반영하지 않습니다/)).toBeTruthy();
+  });
   it('bounds rendered decisions and lets users search beyond the first page', () => {
     const decisions = Array.from({ length: 35 }, (_, index) => ({ ...buy, symbol: String(index), name: `관측종목${index}`, evidence: null }));
     render(<PaperStrategyPanel view={view({ latestDecisions: decisions })} />);

@@ -8,6 +8,7 @@ import { loadNewsSupplyRecords } from '../../learning/newsSupplyLogger.js';
 import { toKstDateKey, isKrxTradingDay, previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { collectUnifiedSnapshot } from '../symbolDataCollector.js';
 import { researchBarFields } from './paperResearchFeatures.js';
+import { assessPaperNews } from './paperNewsAssessment.js';
 
 function codeOf(input: string): string | null {
   const code = input.trim().replace(/\.(KS|KQ)$/i, '');
@@ -31,7 +32,9 @@ export async function collectPaperExperimentSnapshot(
     const code = codeOf(symbol);
     if (!code || !Number.isFinite(Date.parse(item.observedAt)) || Date.parse(item.observedAt) > startMs) return;
     const items = news.get(code) ?? [];
-    if (!items.some((existing) => existing.id === item.id)) items.push(item);
+    if (!items.some((existing) => existing.id === item.id)) {
+      items.push({ ...item, assessment: assessPaperNews(item, startedAt.toISOString()) });
+    }
     news.set(code, items);
   };
   // Candidate admission is independent of the retired regime/Gate watchlist pipeline.

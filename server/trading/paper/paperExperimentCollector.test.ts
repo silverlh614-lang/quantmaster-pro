@@ -33,10 +33,17 @@ describe('paper observation collector', () => {
     expect(mocks.collect).toHaveBeenCalledTimes(1);
     expect(mocks.collect.mock.calls[0][1].profile).toBe('PAPER');
     expect(mocks.collect.mock.calls[0][0]).toEqual(['005930', '000660', '035420', '051910']);
-    expect(result.observations.find((item) => item.symbol === '000660')!.news).toEqual([
+    expect(result.observations.find((item) => item.symbol === '000660')!.news).toMatchObject([
       { id: 'n1', headline: 'news', observedAt: '2026-09-18T00:00:00Z', source: 'SUPPLY_CHAIN' },
     ]);
     expect(JSON.stringify(result)).not.toContain('t5StockAvg');
+    expect(result.observations.find((item) => item.symbol === '000660')!.news[0].assessment).toMatchObject({ direction: 'UNKNOWN', assessedAt: '2026-09-18T01:00:00.000Z' });
+  });
+
+  it('independently assesses disclosures instead of copying legacy sentiment or later returns', async () => {
+    mocks.dart.mockReturnValue([{ stock_code: '005930', rcept_no: 'd1', report_nm: '상장폐지', alertedAt: '2026-09-18T00:00:00Z', sentiment: 'POSITIVE' }]);
+    const result = await collectPaperExperimentSnapshot([]);
+    expect(result.observations[0].news[0]).toMatchObject({ source: 'DART', assessment: { direction: 'NEGATIVE', method: 'DISCLOSURE_TITLE_RULES' } });
   });
 
   it('observes the expanded universe even when the legacy watchlist has no admitted stocks', async () => {

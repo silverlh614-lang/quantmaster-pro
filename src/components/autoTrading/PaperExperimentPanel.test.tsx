@@ -41,6 +41,19 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => { cleanup(); clients.forEach(client => client.clear()); clients.length = 0; });
 
 describe('PaperExperimentPanel', () => {
+  it('shows separate direction outcomes with unready horizons and unknown coverage', () => {
+    render(<PaperExperimentResults view={{ ...emptyView, newsStudy: {
+      version: 'headline-rules-v1', lookbackHours: 72, groups: [{ direction: 'NEGATIVE', observationCount: 3, entryDateCount: 2,
+        outcomes: emptyView.outcomes.map(item => item.horizon === 1 ? { ...item, count: 2, meanNetReturnPct: -2, winRatePct: 0 } : item) },
+      { direction: 'UNKNOWN', observationCount: 5, entryDateCount: 2, outcomes: emptyView.outcomes }],
+    } }} />);
+    expect(screen.getByText('호재·악재별 후속 성과')).toBeTruthy();
+    expect(screen.getByText('악재 추정')).toBeTruthy();
+    expect(screen.getByText('-2.00%')).toBeTruthy();
+    expect(screen.getByText('판단 불가')).toBeTruthy();
+    expect(screen.getByText('5건 / 2일')).toBeTruthy();
+    expect(screen.getByText(/기존 관측을 소급 분류하지 않습니다/)).toBeTruthy();
+  });
   it('keeps unavailable outcomes separate from an observed zero return', () => {
     render(<PaperExperimentResults view={{
       ...emptyView,

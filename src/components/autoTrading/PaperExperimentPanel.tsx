@@ -10,6 +10,8 @@ import { PageHeader, LoadingState } from '../../ui';
 import { Section } from '../../ui/section';
 import { PaperStrategyPanel } from './PaperStrategyPanel';
 import { PaperResearchPanel } from './PaperResearchPanel';
+import { PaperNewsDetails } from './PaperNewsDetails';
+import { PAPER_NEWS_LABELS, summarizePaperNews } from '../../utils/paperNews';
 
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-200 transition hover:bg-sky-500/20 disabled:cursor-wait disabled:opacity-50';
 const groupLabels: Record<string, string> = {
@@ -129,6 +131,18 @@ export function PaperExperimentResults({ view, showStrategy = true }: { view: Pa
         <GroupTable groups={view.groups} />
       </Section>
 
+      <Section title="호재·악재별 후속 성과" subtitle="진입 전 최근 72시간 뉴스 · 당시 저장한 분류로 D1·D3·D5 결과를 비교합니다." variant="neo">
+        <p className="text-xs text-slate-400">기존 관측을 소급 분류하지 않습니다. 분류 기록이 없거나 일부 뉴스의 방향이 불명확하면 판단 불가로 남깁니다. 표본·기간이 다른 단순 평균으로, 뉴스 효과가 입증됐다는 뜻은 아닙니다. 현재 진입 조건에는 미반영입니다.</p>
+        {view.newsStudy ? <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm">
+          <caption className="sr-only">뉴스 방향별 관측 수와 비용 차감 후 평균 수익률</caption>
+          <thead className="text-xs text-slate-400"><tr>{['뉴스 방향', '관측 / 진입일', 'D1 평균 / 표본', 'D3 평균 / 표본', 'D5 평균 / 표본'].map(label => <th key={label} className="p-3">{label}</th>)}</tr></thead>
+          <tbody className="divide-y divide-slate-800 text-slate-200">{view.newsStudy.groups.map(group => <tr key={group.direction}>
+            <th className="p-3 font-medium">{PAPER_NEWS_LABELS[group.direction]}</th><td className="p-3 tabular-nums">{group.observationCount}건 / {group.entryDateCount}일</td>
+            {group.outcomes.map(outcome => <td key={outcome.horizon} className="p-3 tabular-nums">{percent(outcome.meanNetReturnPct)}<div className="mt-1 text-xs text-slate-400">{outcome.count}건 · 승률 {percent(outcome.winRatePct)}</div></td>)}
+          </tr>)}</tbody>
+        </table></div> : <p className="workspace-empty">다음 관측 갱신부터 뉴스 방향별 결과를 확인할 수 있습니다.</p>}
+      </Section>
+
       <Section title="관측 기록" subtitle="각 실험 1주 · D5 결과가 확인되면 완료 · 페이지당 20건" variant="neo">
         <div className="workspace-filters"><input data-search-focus aria-label="관측 종목 검색" placeholder="종목명 또는 코드 검색" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} />
           <select aria-label="관측 상태" value={status} onChange={event => { setStatus(event.target.value); setPage(0); }}><option value="ALL">전체 상태</option><option value="OPEN">관찰 중</option><option value="COMPLETED">D5 완료</option></select></div>
@@ -146,7 +160,7 @@ export function PaperExperimentResults({ view, showStrategy = true }: { view: Pa
                     <th className="p-3 font-medium"><div>{experiment.name}</div><div className="mt-1 text-xs font-normal text-slate-500">{experiment.symbol}</div></th>
                     <td className="p-3 whitespace-nowrap">{experiment.tradingDate}</td>
                     <td className="p-3 tabular-nums">{experiment.entryPrice.toLocaleString('ko-KR')}원</td>
-                    <td className="p-3"><div>{experiment.entryObservation.news.length > 0 ? `관측 뉴스 ${experiment.entryObservation.news.length}건` : '관측 뉴스 없음'}</div><div className="mt-1 text-xs text-slate-400">{trendLabel(experiment)}</div></td>
+                    <td className="p-3"><PaperNewsDetails summary={summarizePaperNews(experiment.entryObservation.news, experiment.entryAt)} /><div className="mt-1 text-xs text-slate-400">{trendLabel(experiment)}</div></td>
                     <td className="p-3 whitespace-nowrap">{experiment.status === 'COMPLETED' ? '완료' : '관찰 중'}</td>
                     {([1, 3, 5] as const).map(horizon => <td key={horizon} className="p-3 whitespace-nowrap tabular-nums">{percent(experiment.outcomes.find(outcome => outcome.horizon === horizon)?.netReturnPct)}</td>)}
                   </tr>

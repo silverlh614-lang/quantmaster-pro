@@ -3,6 +3,7 @@ import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperStrategyTrade } from '../../src/types/paperStrategy.js';
 import type { PaperStrategyCohort } from '../../src/types/paperStrategy.js';
 import type { PaperBotState } from '../persistence/paperBotRepo.js';
+import { PAPER_NEWS_LABELS, summarizePaperNews } from '../../src/utils/paperNews.js';
 
 export const PAPER_BOT_SCHEDULES = [
   { kind: 'morning', minute: 8 * 60 + 45, graceMinutes: 45, label: '거래일 08:45 · 준비 요약' },
@@ -101,10 +102,18 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
     const headline = trade.entryObservation.news.filter(item => Date.parse(item.observedAt) <= entryMs
       && Date.parse(item.observedAt) >= entryMs - trade.policy.newsLookbackHours * 3_600_000)
       .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
+    const summary = summarizePaperNews(trade.entryObservation.news, trade.entryAt, trade.policy.newsLookbackHours);
+    lines.push(`진입 당시 뉴스 평가: ${PAPER_NEWS_LABELS[summary.direction]}`);
+    if (summary.totalCount) lines.push(`호재 ${summary.counts.POSITIVE} · 악재 ${summary.counts.NEGATIVE} · 혼재 ${summary.counts.MIXED} · 중립 ${summary.counts.NEUTRAL} · 판단 불가 ${summary.counts.UNKNOWN}`);
     if (headline) lines.push(`당시 뉴스: ${escape(headline.headline.slice(0, 70))}`);
+    for (const item of summary.evidence.slice(0, 2)) {
+      lines.push(`${PAPER_NEWS_LABELS[item.direction]} · ${escape(item.source)}: ${escape(item.headline.slice(0, 60))}`,
+        `분류 근거: ${escape(item.reason.slice(0, 90))}`);
+    }
     if (event.side === 'EXIT') lines.push(`해당 시그널 청산 순수익률 ${pct(trade.exit?.netReturnPct)} · 결과는 전략 원장에 별도 누적`);
   }
   lines.push('', '유형별 과거 평균이며 개별 종목의 수익 예측이 아닙니다.',
+    '뉴스 방향은 공시 제목의 추정 분류로 별도 성과를 관측하며, 현재 진입 조건에는 미반영입니다.',
     '기본 관측으로 학습하고 전략 성과는 별도 검증합니다. 7개 조건 연구는 자동 매매 규칙이 아닙니다.', '/paper · /paper_research');
   return lines.join('\n');
 }

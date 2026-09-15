@@ -2,11 +2,12 @@
 import { createHash } from 'node:crypto';
 import type {
   PaperCostModel, PaperExperiment, PaperExperimentLedger, PaperExperimentView,
-  PaperLearningGroup, PaperObservation, PaperOutcome, PaperSnapshot,
+  PaperLearningGroup, PaperNewsGroup, PaperNewsStudy, PaperObservation, PaperOutcome, PaperSnapshot,
 } from '../../../src/types/paperExperiment.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { getExecutionCostConfig, type Market } from '../executionCosts.js';
 import { calculatePaperReturn } from './paperAccounting.js';
+import { PAPER_NEWS_LOOKBACK_HOURS, PAPER_NEWS_VERSION, summarizePaperNews } from '../../../src/utils/paperNews.js';
 
 export const PAPER_STRATEGY_VERSION = 'shadow-baseline-v1' as const;
 const HORIZONS = [1, 3, 5] as const;
@@ -50,7 +51,7 @@ export function createPaperExperiment(
     quantity: 1,
     entryObservation: {
       ...structuredClone(observation),
-      news: observation.news.filter((item) => Date.parse(item.observedAt) <= cutoff).map((item) => ({ ...item })),
+      news: structuredClone(observation.news.filter((item) => Date.parse(item.observedAt) <= cutoff)),
       dailyCloses: observation.dailyCloses.filter((item) => Date.parse(item.availableAt) <= cutoff).map((item) => ({ ...item })),
     },
     costModel: { ...costModel },
@@ -94,6 +95,19 @@ function summarize(label: string, values: number[]): PaperLearningGroup {
   };
 }
 
+function buildNewsStudy(experiments: PaperExperiment[]): PaperNewsStudy {
+  const groups: PaperNewsGroup[] = ['POSITIVE', 'NEGATIVE', 'NEUTRAL', 'MIXED', 'UNKNOWN', 'NO_NEWS'];
+  const rows = experiments.map(experiment => ({ experiment,
+    direction: summarizePaperNews(experiment.entryObservation.news, experiment.entryAt).direction }));
+  return { version: PAPER_NEWS_VERSION, lookbackHours: PAPER_NEWS_LOOKBACK_HOURS,
+    groups: groups.map(direction => {
+      const matching = rows.filter(row => row.direction === direction).map(row => row.experiment);
+      return { direction, observationCount: matching.length, entryDateCount: new Set(matching.map(row => row.tradingDate)).size,
+        outcomes: HORIZONS.map(horizon => ({ horizon, ...summarize(`D${horizon}`, matching.flatMap(row =>
+          row.outcomes.filter(outcome => outcome.horizon === horizon).map(outcome => outcome.netReturnPct))) })) };
+    }) };
+}
+
 export function buildPaperExperimentView(ledger: PaperExperimentLedger): PaperExperimentView {
   const d5Values = (test: (item: PaperExperiment) => boolean) => ledger.experiments.filter(test)
     .flatMap((item) => item.outcomes.filter((outcome) => outcome.horizon === 5).map((outcome) => outcome.netReturnPct));
@@ -113,6 +127,7 @@ export function buildPaperExperimentView(ledger: PaperExperimentLedger): PaperEx
       summarize('BELOW_MA20', d5Values((item) => item.entryObservation.aboveMa20 === false)),
       summarize('TREND_UNKNOWN', d5Values((item) => item.entryObservation.aboveMa20 === null)),
     ],
+    newsStudy: buildNewsStudy(ledger.experiments),
     experiments: ledger.experiments.slice(-200).reverse(),
   };
 }

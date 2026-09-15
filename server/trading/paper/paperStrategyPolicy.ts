@@ -9,14 +9,16 @@ import { toKstDateKey, isKrxTradingDay } from '../../calendar/krxTradingCalendar
 import { calculatePaperReturn } from './paperAccounting.js';
 import type { HistoricalPaperSample } from '../../../src/types/paperResearch.js';
 import { buildPaperStrategyEvidence, PAPER_STRATEGY_POLICY, paperStrategyCohort, scheduledPaperClose } from './paperStrategyEvidence.js';
+import { summarizePaperNews } from '../../../src/utils/paperNews.js';
 
 function decision(
-  snapshot: PaperSnapshot, observation: Pick<PaperObservation, 'symbol' | 'name'>,
+  snapshot: PaperSnapshot, observation: Pick<PaperObservation, 'symbol' | 'name'> & Partial<Pick<PaperObservation, 'news'>>,
   action: PaperStrategyDecision['action'], reasonCode: PaperStrategyReasonCode, reason: string,
   evidence: PaperStrategyEvidence | null = null, tradeId: string | null = null,
 ): PaperStrategyDecision {
   return { snapshotId: snapshot.id, decisionAt: snapshot.asOf, symbol: observation.symbol, name: observation.name,
-    action, reasonCode, reason, cohort: evidence?.cohort ?? null, evidence, tradeId };
+    action, reasonCode, reason, cohort: evidence?.cohort ?? null, evidence, tradeId,
+    ...(observation.news ? { newsSummary: summarizePaperNews(observation.news, snapshot.asOf, PAPER_STRATEGY_POLICY.newsLookbackHours) } : {}) };
 }
 
 function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, experiments: PaperExperiment[], historical: HistoricalPaperSample[]): PaperStrategyDecision {
