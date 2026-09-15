@@ -18,10 +18,14 @@ router.get('/list', async (req: Request, res: Response) => {
     const key = getDartKey();
     const { bgn_de, end_de, pblntf_ty = 'B' } = req.query;
     if (!bgn_de || !end_de) return res.status(400).json({ error: 'bgn_de, end_de required' });
-    const url = `https://opendart.fss.or.kr/api/list.json` +
-      `?crtfc_key=${key}` +
-      `&bgn_de=${bgn_de}&end_de=${end_de}` +
-      `&pblntf_ty=${pblntf_ty}&sort=date&sort_mth=desc&page_count=40`;
+    if (typeof bgn_de !== 'string' || typeof end_de !== 'string' || !/^\d{8}$/.test(bgn_de) || !/^\d{8}$/.test(end_de)
+      || typeof pblntf_ty !== 'string' || !/^(?:[A-J](?:\d{3})?)?$/.test(pblntf_ty)) {
+      return res.status(400).json({ error: 'Invalid DART list query' });
+    }
+    const params = new URLSearchParams({ crtfc_key: key, bgn_de, end_de, sort: 'date', sort_mth: 'desc', page_count: '40' });
+    // Existing callers use B001 for a detailed report type; blank requests mean all types.
+    if (pblntf_ty) params.set(pblntf_ty.length === 4 ? 'pblntf_detail_ty' : 'pblntf_ty', pblntf_ty);
+    const url = `https://opendart.fss.or.kr/api/list.json?${params}`;
     const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
     const data = await r.json();
     res.json(data);
