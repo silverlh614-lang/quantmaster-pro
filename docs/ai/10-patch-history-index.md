@@ -3,6 +3,7 @@
 최근 20건만 한 줄씩 유지한다. 상세는 Git log/show와 [ADR 목록](../adr/INDEX.md)에서 조회한다.
 이 파일 전체를 기본 컨텍스트로 읽지 않는다. 필요한 날짜·키워드만 검색한다.
 
+- 2026-09-16 · ADR-0675 · 직전 거래일 기관·외국인 수급 수량 기록, 최근 수급 현황·상호 상관과 진입 고정 D1/D3/D5·뉴스별 독립 상관 연구, 화면·Telegram 분석 연결.
 - 2026-09-16 · ADR-0674 · 공시 제목 호악재 추정·근거·시각 기록, 진입 고정 방향별 D1/D3/D5 비교와 화면·Telegram 분석 연결, 기존 진입 정책 유지.
 - 2026-09-15 · fix · 배포 후 화면 파일 로드 실패의 1회 자동 복구·수동 새로고침, 메뉴별 오류 격리, HTML 재검증·누락 에셋 404 처리.
 - 2026-09-15 · fix · Shadow 가격·확정 일봉 수집 경량화와 장마감 인지 캐시, 실제 진행률·소요시간·누락 사유 표시, 구 배선 백로그 22건 현행 정책·의존성 정합.
@@ -22,4 +23,3 @@
 - 2026-07-31 · Patch-AlertHistory-PrevMonthKey-Overflow
 - 2026-07-31 · Patch-LearningMetrics-UnresolvedExclusion+NormalizedGateImpact
 - 2026-07-27 · Patch-SafetyGatePolicyFeedback-ObservationSurface
-- 2026-07-20 · Patch-ShadowVsLiveDelta-Phase3-SizingMissedAlpha

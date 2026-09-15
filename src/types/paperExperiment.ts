@@ -1,6 +1,7 @@
 // @responsibility Define independent Shadow experiment records.
 import type { PaperStrategyScanResult, PaperStrategyView } from './paperStrategy';
 import type { PaperResearchView } from './paperResearch';
+import type { PaperInvestorFlow, PaperInvestorFlowSnapshot, PaperInvestorFlowStudy } from './paperInvestorFlow';
 
 export const PAPER_OBSERVATION_ISSUE_LABELS: Record<string, string> = {
   CURRENT_QUOTE_UNAVAILABLE: '현재가 응답 없음',
@@ -80,6 +81,7 @@ export interface PaperObservation {
   aboveMa20: boolean | null;
   news: PaperNewsObservation[];
   dailyCloses: PaperDailyClose[];
+  investorFlow?: PaperInvestorFlow;
   issue?: string;
 }
 
@@ -136,6 +138,7 @@ export interface PaperScanResult {
   missingPriceCount: number;
   marketOpen: boolean;
   issues: string[];
+  investorFlow?: PaperInvestorFlowSnapshot;
   strategy?: PaperStrategyScanResult;
 }
 
@@ -163,6 +166,7 @@ export interface PaperExperimentView {
   outcomes: Array<PaperLearningGroup & { horizon: 1 | 3 | 5 }>;
   groups: PaperLearningGroup[];
   newsStudy?: PaperNewsStudy;
+  investorFlowStudy?: PaperInvestorFlowStudy;
   experiments: PaperExperiment[];
   strategy?: PaperStrategyView;
   research?: PaperResearchView;

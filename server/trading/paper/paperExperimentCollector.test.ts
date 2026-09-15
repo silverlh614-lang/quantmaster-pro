@@ -23,6 +23,19 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('paper observation collector', () => {
+  it('pairs dated investor share quantities with same-day volume from the shared snapshot', async () => {
+    mocks.collect.mockResolvedValue({ perSymbol: { '005930': { quote: null,
+      investorFlow: { stockCode: '005930', source: 'KIS_API', tradingDate: '2026-09-17', fetchedAt: '2026-09-18T00:59:00Z',
+        foreignNetBuy: 999999, institutionalNetBuy: 888888,
+        actualRows: [{ stck_bsop_date: '20260917', frgn_ntby_qty: '10', orgn_ntby_qty: '-20' }] },
+      dailyBars: [{ date: '20260917', close: 100, volume: 1000 }] } } });
+    const result = await collectPaperExperimentSnapshot([]);
+    expect(result.observations[0].investorFlow).toMatchObject({ tradingDate: '2026-09-17', unit: 'SHARES',
+      foreignNetShares: 10, institutionalNetShares: -20, volume: 1000, issue: null });
+    expect(result.observations[0].price).toBeNull();
+    expect(mocks.collect).toHaveBeenCalledTimes(1);
+  });
+
   it('collects the union of all watchlist sections, observable news, and open experiments once', async () => {
     mocks.news.mockReturnValue([
       { id: 'n1', koreanStockCodes: ['000660.KS'], detectedAt: '2026-09-18T00:00:00Z', newsHeadline: 'news', source: 'SUPPLY_CHAIN', t5StockAvg: 99 },

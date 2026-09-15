@@ -13,6 +13,23 @@ function tradeFixture() {
 }
 
 describe('paper Telegram news evidence', () => {
+  it('uses the entry-frozen flow for entry and exit, preserving missing quantities separately from zero', () => {
+    const trade = tradeFixture();
+    trade.entryObservation.investorFlow = { symbol: trade.symbol, source: 'KIS_API', unit: 'SHARES',
+      requestedTradingDate: '2026-09-17', tradingDate: '2026-09-17', observedAt: trade.entryAt,
+      foreignNetShares: -1234, institutionalNetShares: 0, volume: 10000, issue: null };
+    for (const side of ['BUY', 'EXIT'] as const) {
+      const message = formatPaperTradeAnalysis([{ id: side, at: trade.entryAt, side, trade }]);
+      expect(message).toContain('직전 거래일 수급(2026-09-17): 외국인 -1,234주 · 기관 0주');
+      expect(message.length).toBeLessThan(3500);
+    }
+    trade.entryObservation.investorFlow.institutionalNetShares = null;
+    trade.entryObservation.investorFlow.issue = 'QUANTITY_MISSING';
+    const message = formatPaperTradeAnalysis([{ id: 'buy', at: trade.entryAt, side: 'BUY', trade }]);
+    expect(message).toContain('기관 미확인');
+    expect(message).toContain('수급 비교 제외: 같은 날짜의 순매수 수량 미확인');
+  });
+
   it('escapes headlines, identifies title inference and retains the entry assessment on exit', () => {
     const trade = tradeFixture();
     const buy = formatPaperTradeAnalysis([{ id: 'buy', at: trade.entryAt, side: 'BUY', trade }]);

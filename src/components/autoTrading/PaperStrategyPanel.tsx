@@ -7,6 +7,7 @@ import type {
 import { Section } from '../../ui/section';
 import { PaperNewsDetails } from './PaperNewsDetails';
 import { summarizePaperNews } from '../../utils/paperNews';
+import { PaperInvestorFlowDetails } from './PaperInvestorFlowPanel';
 
 const cohortLabels: Record<PaperStrategyCohort, string> = {
   NEWS_RECENT_ABOVE_MA20: '최근 관측 뉴스 있음 · 20일선 위',
@@ -88,6 +89,7 @@ function DecisionCard({ decision, policy }: { decision: PaperStrategyDecision; p
       <p className="text-xs text-slate-400">{decision.cohort ? cohortLabels[decision.cohort] : '관측 정보 확인 대기'} · 판단 {timestamp(decision.decisionAt)} KST</p>
       {decision.evidence && <Evidence evidence={decision.evidence} policy={policy} />}
       {decision.newsSummary && <PaperNewsDetails summary={decision.newsSummary} />}
+      {decision.investorFlow && <PaperInvestorFlowDetails flow={decision.investorFlow} />}
     </article>
   );
 }
@@ -106,6 +108,7 @@ function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
       </div>
       <p className="text-xs text-slate-400">진입 근거: {trade.entryDecision.reason}</p>
       <PaperNewsDetails summary={summarizePaperNews(trade.entryObservation.news, trade.entryAt, trade.policy.newsLookbackHours)} />
+      <PaperInvestorFlowDetails flow={trade.entryObservation.investorFlow} />
       {trade.exit ? (
         <div className="space-y-2 rounded-lg border border-violet-400/20 bg-violet-500/5 p-3 text-xs text-slate-300">
           <p className="font-semibold text-violet-200">예약 종가 가상 청산 · 순수익률 {percent(trade.exit.netReturnPct)} · 순손익 {money(trade.exit.netPnl)}</p>

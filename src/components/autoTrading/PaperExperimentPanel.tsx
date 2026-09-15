@@ -12,6 +12,7 @@ import { PaperStrategyPanel } from './PaperStrategyPanel';
 import { PaperResearchPanel } from './PaperResearchPanel';
 import { PaperNewsDetails } from './PaperNewsDetails';
 import { PAPER_NEWS_LABELS, summarizePaperNews } from '../../utils/paperNews';
+import { PaperInvestorFlowPanel, PaperInvestorFlowDetails } from './PaperInvestorFlowPanel';
 
 const buttonClass = 'inline-flex items-center justify-center gap-2 rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-200 transition hover:bg-sky-500/20 disabled:cursor-wait disabled:opacity-50';
 const groupLabels: Record<string, string> = {
@@ -143,6 +144,8 @@ export function PaperExperimentResults({ view, showStrategy = true }: { view: Pa
         </table></div> : <p className="workspace-empty">다음 관측 갱신부터 뉴스 방향별 결과를 확인할 수 있습니다.</p>}
       </Section>
 
+      <PaperInvestorFlowPanel study={view.investorFlowStudy} snapshot={view.lastRun?.investorFlow} />
+
       <Section title="관측 기록" subtitle="각 실험 1주 · D5 결과가 확인되면 완료 · 페이지당 20건" variant="neo">
         <div className="workspace-filters"><input data-search-focus aria-label="관측 종목 검색" placeholder="종목명 또는 코드 검색" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} />
           <select aria-label="관측 상태" value={status} onChange={event => { setStatus(event.target.value); setPage(0); }}><option value="ALL">전체 상태</option><option value="OPEN">관찰 중</option><option value="COMPLETED">D5 완료</option></select></div>
@@ -160,7 +163,7 @@ export function PaperExperimentResults({ view, showStrategy = true }: { view: Pa
                     <th className="p-3 font-medium"><div>{experiment.name}</div><div className="mt-1 text-xs font-normal text-slate-500">{experiment.symbol}</div></th>
                     <td className="p-3 whitespace-nowrap">{experiment.tradingDate}</td>
                     <td className="p-3 tabular-nums">{experiment.entryPrice.toLocaleString('ko-KR')}원</td>
-                    <td className="p-3"><PaperNewsDetails summary={summarizePaperNews(experiment.entryObservation.news, experiment.entryAt)} /><div className="mt-1 text-xs text-slate-400">{trendLabel(experiment)}</div></td>
+                    <td className="p-3"><PaperNewsDetails summary={summarizePaperNews(experiment.entryObservation.news, experiment.entryAt)} /><PaperInvestorFlowDetails flow={experiment.entryObservation.investorFlow} /><div className="mt-1 text-xs text-slate-400">{trendLabel(experiment)}</div></td>
                     <td className="p-3 whitespace-nowrap">{experiment.status === 'COMPLETED' ? '완료' : '관찰 중'}</td>
                     {([1, 3, 5] as const).map(horizon => <td key={horizon} className="p-3 whitespace-nowrap tabular-nums">{percent(experiment.outcomes.find(outcome => outcome.horizon === horizon)?.netReturnPct)}</td>)}
                   </tr>

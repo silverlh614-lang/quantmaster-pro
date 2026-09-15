@@ -27,6 +27,7 @@ import { loadMacroState } from '../persistence/macroStateRepo.js';
 import { getAllStockEntries } from '../persistence/krxStockMasterRepo.js';
 import type { StockMasterEntry } from '../persistence/krxStockMasterRepo.js';
 import { logger } from '../utils/logger.js';
+import { collectPaperInvestorFlow } from './paper/paperInvestorFlowCollector.js';
 import { toKstDateKey, isKrxTradingDay, previousKrxTradingDay } from '../calendar/krxTradingCalendar.js';
 import {
   generateSnapshotId,
@@ -333,7 +334,7 @@ function deriveFieldFreshness(parts: {
 
 // ─── per-symbol 수집 ─────────────────────────────────────────────────────────
 
-// Paper only consumes prices and completed daily bars. Never cache a current
+// Paper consumes prices, completed daily bars and dated investor quantities. Never cache a current
 // quote or carry an unfinished candle across the closing auction.
 const paperBarsCache = new Map<string, { bars: KisStockDailyBar[]; fetchedAt: number; closedDate: string }>();
 const PAPER_BARS_TTL_MS = 60 * 60_000;
@@ -371,7 +372,7 @@ async function collectSymbolData(code: string, krxEntry?: StockMasterEntry, pape
 
   const [quoteResult, flowResult, barsResult, programResult] = await Promise.allSettled([
     fetchKisStockFullQuote(code),
-    paper ? Promise.resolve(null) : fetchKisInvestorTradeByStockDaily(code),
+    paper ? collectPaperInvestorFlow(code) : fetchKisInvestorTradeByStockDaily(code),
     paper ? collectPaperDailyBars(code) : fetchKisStockDailyBars(code, 90),
     paper ? Promise.resolve(null) : fetchKisStockProgramTrade(code),
   ]);

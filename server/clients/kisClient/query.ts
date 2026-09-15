@@ -901,7 +901,11 @@ export async function fetchKisCreditBalanceRanking(
 export async function fetchKisInvestorTradeByStockDaily(
   code: string,
   priority: KisApiPriority = 'LOW',
+  asOfDate?: string,
 ): Promise<KisInvestorTradeByStockDaily | null> {
+  if (asOfDate !== undefined && (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)
+    || !Number.isFinite(Date.parse(`${asOfDate}T00:00:00Z`))
+    || new Date(`${asOfDate}T00:00:00Z`).toISOString().slice(0, 10) !== asOfDate)) return null;
   const overrides = getKisOverrides();
   if (overrides.fetchKisInvestorTradeByStockDaily) return overrides.fetchKisInvestorTradeByStockDaily(code);
   if (!process.env.KIS_APP_KEY && !HAS_REAL_DATA_CLIENT) return null;
@@ -912,7 +916,8 @@ export async function fetchKisInvestorTradeByStockDaily(
   try {
     let rows: KisOutput[] = [];
     let selectedData: unknown = null;
-    const dateCandidates = investorTradeByStockDailyDateCandidates();
+    let selectedBucket: InvestorFlowBucketName | undefined;
+    const dateCandidates = asOfDate ? [asOfDate] : investorTradeByStockDailyDateCandidates();
     for (let i = 0; i < dateCandidates.length; i += 1) {
       const sourceDate = dateCandidates[i];
       try {
@@ -925,6 +930,7 @@ export async function fetchKisInvestorTradeByStockDaily(
         if (isAcceptedEmptyKisResponse(data)) continue;
         const selected = pickMaterializedBucket(data, ['output2', 'output', 'output1'], (bucketRows) => classifyInvestorFlowPayload(bucketRows, { trId: INVESTOR_TRADE_BY_STOCK_DAILY_TR_ID }));
         rows = selected?.rows ?? [];
+        selectedBucket = selected?.bucket;
         selectedData = data;
         if (rows.length > 0) break;
       } catch (e) {
@@ -942,24 +948,24 @@ export async function fetchKisInvestorTradeByStockDaily(
       }
       return null;
     }
-    const singleBucketRow = rows[0];
+    const singleBucketRow = asOfDate ? rows.find(item => formatKisYmd(extractKisString(item, ['stck_bsop_date', 'STCK_BSOP_DATE'])) === asOfDate) : rows[0];
     if (!singleBucketRow) return null;
 
     // ADR-0542 — 게이트 ON: output1·output2·output 어느 버킷에 net-buy 가 있든 합성한다.
     // 게이트 OFF: 직전과 동일하게 선택 버킷 row[0] 만 사용 (byte-equivalent revert).
-    const synthesized = bucketFixEnabled
+    const synthesized = bucketFixEnabled && !asOfDate
       ? synthesizeInvestorFlowAcrossBuckets(selectedData, ['output2', 'output', 'output1'])
       : undefined;
     const row = synthesized?.baseRow ?? singleBucketRow;
     const baseBucket = synthesized?.baseBucket;
 
-    const foreignNetBuy = bucketFixEnabled
+    const foreignNetBuy = bucketFixEnabled && !asOfDate
       ? synthesized?.foreignNetBuy
       : extractKisNumberOptional(row, INVESTOR_FLOW_FOREIGN_NET_BUY_KEYS);
-    const institutionalNetBuy = bucketFixEnabled
+    const institutionalNetBuy = bucketFixEnabled && !asOfDate
       ? synthesized?.institutionalNetBuy
       : extractKisNumberOptional(row, INVESTOR_FLOW_INSTITUTION_NET_BUY_KEYS);
-    const individualNetBuy = bucketFixEnabled
+    const individualNetBuy = bucketFixEnabled && !asOfDate
       ? synthesized?.individualNetBuy
       : extractKisNumberOptional(row, INVESTOR_FLOW_INDIVIDUAL_NET_BUY_KEYS);
     if (foreignNetBuy === undefined || institutionalNetBuy === undefined) {
@@ -976,7 +982,7 @@ export async function fetchKisInvestorTradeByStockDaily(
       return null;
     }
     logInvestorFlowSelected(rows.length);
-    const sourcePath = bucketFixEnabled && baseBucket
+    const sourcePath = asOfDate ? `KIS_INVESTOR_TRADE_BY_STOCK_DAILY.${selectedBucket ?? 'output2'}[${rows.indexOf(row)}]` : bucketFixEnabled && baseBucket
       ? `KIS_INVESTOR_TRADE_BY_STOCK_DAILY.${baseBucket}[0]`
       : 'KIS_INVESTOR_TRADE_BY_STOCK_DAILY.output2[0]';
     const actualInvestorFlowRowCarrier = buildKisActualInvestorFlowRowCarrier({

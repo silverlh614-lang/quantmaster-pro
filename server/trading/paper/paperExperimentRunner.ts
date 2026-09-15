@@ -3,6 +3,7 @@ import type { PaperCollectionProgress, PaperExperimentView, PaperScanResult } fr
 import { loadPaperExperimentLedger, savePaperExperimentLedger } from '../../persistence/paperExperimentRepo.js';
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { collectPaperExperimentSnapshot } from './paperExperimentCollector.js';
+import { summarizeCurrentInvestorFlow } from './paperInvestorFlowStudy.js';
 import {
   buildPaperExperimentView, capturePaperCostModel, createPaperExperiment, paperExperimentId, updatePaperOutcomes,
 } from './paperExperimentPolicy.js';
@@ -54,6 +55,7 @@ async function scan(): Promise<PaperScanResult> {
     missingPriceCount: snapshot.observations.filter((item) => item.price === null).length,
     marketOpen: snapshot.marketOpen,
     issues: snapshot.observations.flatMap((item) => item.issue ? [`${item.symbol}:${item.issue}`] : []),
+    investorFlow: summarizeCurrentInvestorFlow(snapshot.observations, snapshot.asOf),
   };
   ledger.lastRun = result;
   savePaperExperimentLedger(ledger);

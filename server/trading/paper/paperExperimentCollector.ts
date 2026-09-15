@@ -9,6 +9,7 @@ import { toKstDateKey, isKrxTradingDay, previousKrxTradingDay } from '../../cale
 import { collectUnifiedSnapshot } from '../symbolDataCollector.js';
 import { researchBarFields } from './paperResearchFeatures.js';
 import { assessPaperNews } from './paperNewsAssessment.js';
+import { observePaperInvestorFlow } from './paperInvestorFlowCollector.js';
 
 function codeOf(input: string): string | null {
   const code = input.trim().replace(/\.(KS|KQ)$/i, '');
@@ -90,6 +91,7 @@ export async function collectPaperExperimentSnapshot(
       return5dPct: price !== null && fifthClose ? (price / fifthClose.close - 1) * 100 : null,
       aboveMa20: price !== null && average20 !== null ? price > average20 : null,
       news: news.get(symbol) ?? [], dailyCloses,
+      investorFlow: observePaperInvestorFlow(symbol, data?.investorFlow, dailyCloses, asOf),
       ...(issue ? { issue } : {}),
     };
   });

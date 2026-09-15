@@ -29,7 +29,9 @@ describe('paper collection profile', () => {
     const result = await collectUnifiedSnapshot(['005930', '000660'], { profile: 'PAPER', onProgress });
     expect(mocks.quote).toHaveBeenCalledTimes(2);
     expect(mocks.bars).toHaveBeenCalledTimes(2);
-    for (const mock of [mocks.flow, mocks.program, mocks.dart, mocks.market]) expect(mock).not.toHaveBeenCalled();
+    expect(mocks.flow).toHaveBeenCalledTimes(2);
+    expect(mocks.flow).toHaveBeenCalledWith('005930', 'LOW', '2026-09-17');
+    for (const mock of [mocks.program, mocks.dart, mocks.market]) expect(mock).not.toHaveBeenCalled();
     expect(result.perSymbol['005930']).toMatchObject({ quote: { currentPrice: 10000 }, investorFlow: null, programTrade: null, dartFinancials: null });
     expect(onProgress.mock.calls).toEqual([[0, 2], [1, 2], [2, 2]]);
   });
@@ -52,7 +54,8 @@ describe('paper collection profile', () => {
     await collectUnifiedSnapshot(['005930'], { profile: 'PAPER' });
     const full = await collectUnifiedSnapshot(['005930']);
     expect(mocks.bars).toHaveBeenCalledTimes(2);
-    for (const mock of [mocks.flow, mocks.program, mocks.dart, mocks.market]) expect(mock).toHaveBeenCalledTimes(1);
+    expect(mocks.flow).toHaveBeenCalledTimes(2);
+    for (const mock of [mocks.program, mocks.dart, mocks.market]) expect(mock).toHaveBeenCalledTimes(1);
     expect(full.perSymbol['005930'].dailyBars[0].date).toBe('2026-09-18');
   });
 

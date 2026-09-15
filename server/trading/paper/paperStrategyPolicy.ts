@@ -12,13 +12,14 @@ import { buildPaperStrategyEvidence, PAPER_STRATEGY_POLICY, paperStrategyCohort,
 import { summarizePaperNews } from '../../../src/utils/paperNews.js';
 
 function decision(
-  snapshot: PaperSnapshot, observation: Pick<PaperObservation, 'symbol' | 'name'> & Partial<Pick<PaperObservation, 'news'>>,
+  snapshot: PaperSnapshot, observation: Pick<PaperObservation, 'symbol' | 'name'> & Partial<Pick<PaperObservation, 'news' | 'investorFlow'>>,
   action: PaperStrategyDecision['action'], reasonCode: PaperStrategyReasonCode, reason: string,
   evidence: PaperStrategyEvidence | null = null, tradeId: string | null = null,
 ): PaperStrategyDecision {
   return { snapshotId: snapshot.id, decisionAt: snapshot.asOf, symbol: observation.symbol, name: observation.name,
     action, reasonCode, reason, cohort: evidence?.cohort ?? null, evidence, tradeId,
-    ...(observation.news ? { newsSummary: summarizePaperNews(observation.news, snapshot.asOf, PAPER_STRATEGY_POLICY.newsLookbackHours) } : {}) };
+    ...(observation.news ? { newsSummary: summarizePaperNews(observation.news, snapshot.asOf, PAPER_STRATEGY_POLICY.newsLookbackHours) } : {}),
+    ...(observation.investorFlow ? { investorFlow: structuredClone(observation.investorFlow) } : {}) };
 }
 
 function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, experiments: PaperExperiment[], historical: HistoricalPaperSample[]): PaperStrategyDecision {

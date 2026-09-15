@@ -4,6 +4,7 @@ import type { PaperStrategyTrade } from '../../src/types/paperStrategy.js';
 import type { PaperStrategyCohort } from '../../src/types/paperStrategy.js';
 import type { PaperBotState } from '../persistence/paperBotRepo.js';
 import { PAPER_NEWS_LABELS, summarizePaperNews } from '../../src/utils/paperNews.js';
+import { PAPER_FLOW_ISSUE_LABELS } from '../../src/types/paperInvestorFlow.js';
 
 export const PAPER_BOT_SCHEDULES = [
   { kind: 'morning', minute: 8 * 60 + 45, graceMinutes: 45, label: '거래일 08:45 · 준비 요약' },
@@ -103,6 +104,12 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
       && Date.parse(item.observedAt) >= entryMs - trade.policy.newsLookbackHours * 3_600_000)
       .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
     const summary = summarizePaperNews(trade.entryObservation.news, trade.entryAt, trade.policy.newsLookbackHours);
+    const flow = trade.entryObservation.investorFlow;
+    if (flow) {
+      const shares = (value: number | null) => value === null ? '미확인' : `${num(value)}주`;
+      lines.push(`진입 당시 직전 거래일 수급(${escape(flow.requestedTradingDate)}): 외국인 ${shares(flow.foreignNetShares)} · 기관 ${shares(flow.institutionalNetShares)}`);
+      if (flow.issue) lines.push(`수급 비교 제외: ${PAPER_FLOW_ISSUE_LABELS[flow.issue] ?? '자료 확인 필요'}`);
+    } else lines.push('진입 당시 기관·외국인 수급 미기록');
     lines.push(`진입 당시 뉴스 평가: ${PAPER_NEWS_LABELS[summary.direction]}`);
     if (summary.totalCount) lines.push(`호재 ${summary.counts.POSITIVE} · 악재 ${summary.counts.NEGATIVE} · 혼재 ${summary.counts.MIXED} · 중립 ${summary.counts.NEUTRAL} · 판단 불가 ${summary.counts.UNKNOWN}`);
     if (headline) lines.push(`당시 뉴스: ${escape(headline.headline.slice(0, 70))}`);

@@ -53,6 +53,31 @@ afterEach(() => {
 });
 
 describe('fetchKisInvestorTradeByStockDaily — ADR-0542 output 버킷 합성', () => {
+  it('explicit date selects the matching dated row instead of the first newer row', async () => {
+    _realDataKisGet.mockResolvedValue({ output2: [
+      { stck_bsop_date: '20260511', frgn_ntby_qty: '999', orgn_ntby_qty: '888' },
+      { stck_bsop_date: '20260508', frgn_ntby_qty: '1000', orgn_ntby_qty: '-2000' },
+    ] });
+    const result = await fetchKisInvestorTradeByStockDaily('005930', 'LOW', '2026-05-08');
+    expect(result).toMatchObject({ tradingDate: '2026-05-08', foreignNetBuy: 1000, institutionalNetBuy: -2000 });
+    expect(_realDataKisGet.mock.calls[0][2].FID_INPUT_DATE_1).toBe('20260508');
+    expect(result?.actualInvestorFlowRowCarrier?.rowSourcePath).toContain('output2[1]');
+  });
+
+  it('explicit date never falls back to another trading day or synthesizes split rows', async () => {
+    _realDataKisGet.mockResolvedValue({ output2: [{ stck_bsop_date: '20260511', frgn_ntby_qty: '999', orgn_ntby_qty: '888' }] });
+    expect(await fetchKisInvestorTradeByStockDaily('005930', 'LOW', '2026-05-08')).toBeNull();
+    expect(_realDataKisGet).toHaveBeenCalledTimes(1);
+    _realDataKisGet.mockResolvedValue({ output1: { orgn_ntby_qty: '5000' },
+      output2: [{ stck_bsop_date: '20260508', frgn_ntby_qty: '1000' }] });
+    expect(await fetchKisInvestorTradeByStockDaily('005930', 'LOW', '2026-05-08')).toBeNull();
+  });
+
+  it('rejects an invalid explicit date without a provider request', async () => {
+    expect(await fetchKisInvestorTradeByStockDaily('005930', 'LOW', '2026-02-30')).toBeNull();
+    expect(_realDataKisGet).not.toHaveBeenCalled();
+  });
+
   it('단일 output2 row (외인+기관 동시) → materialized (기존 무회귀)', async () => {
     _realDataKisGet.mockResolvedValue({
       output2: [

@@ -8,6 +8,7 @@ import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { getExecutionCostConfig, type Market } from '../executionCosts.js';
 import { calculatePaperReturn } from './paperAccounting.js';
 import { PAPER_NEWS_LOOKBACK_HOURS, PAPER_NEWS_VERSION, summarizePaperNews } from '../../../src/utils/paperNews.js';
+import { buildPaperInvestorFlowStudy } from './paperInvestorFlowStudy.js';
 
 export const PAPER_STRATEGY_VERSION = 'shadow-baseline-v1' as const;
 const HORIZONS = [1, 3, 5] as const;
@@ -128,6 +129,7 @@ export function buildPaperExperimentView(ledger: PaperExperimentLedger): PaperEx
       summarize('TREND_UNKNOWN', d5Values((item) => item.entryObservation.aboveMa20 === null)),
     ],
     newsStudy: buildNewsStudy(ledger.experiments),
+    investorFlowStudy: buildPaperInvestorFlowStudy(ledger.experiments, ledger.lastRun?.asOf ?? new Date().toISOString()),
     experiments: ledger.experiments.slice(-200).reverse(),
   };
 }

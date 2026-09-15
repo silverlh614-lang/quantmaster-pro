@@ -4,6 +4,7 @@ import type { PaperStrategyEvidence, PaperStrategyLedger } from '../../../src/ty
 import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { calculatePaperReturn } from './paperAccounting.js';
 import { paperStrategyCohort } from './paperStrategyEvidence.js';
+import { PAPER_FLOW_ISSUE_LABELS, type PaperFlowIssue } from '../../../src/types/paperInvestorFlow.js';
 
 const finite = z.number().finite();
 const timestamp = z.string().datetime({ offset: true });
@@ -14,6 +15,10 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
 const horizon = z.union([z.literal(1), z.literal(3), z.literal(5)]);
 const version = z.enum(['news-trend-v1', 'news-trend-v2']);
 const symbol = z.string().regex(/^\d{6}$/);
+const investorFlow = z.object({ symbol, source: z.literal('KIS_API'), unit: z.literal('SHARES'), requestedTradingDate: date,
+  tradingDate: z.string().nullable(), observedAt: timestamp.nullable(), foreignNetShares: finite.nullable(),
+  institutionalNetShares: finite.nullable(), volume: finite.nullable(),
+  issue: z.enum(Object.keys(PAPER_FLOW_ISSUE_LABELS) as [PaperFlowIssue, ...PaperFlowIssue[]]).nullable() });
 const newsDirection = z.enum(['POSITIVE', 'NEGATIVE', 'NEUTRAL', 'MIXED', 'UNKNOWN']);
 const newsAssessment = z.object({ version: z.literal('headline-rules-v1'), method: z.literal('DISCLOSURE_TITLE_RULES'),
   assessedAt: timestamp, direction: newsDirection, reason: z.string().min(1) });
@@ -38,8 +43,9 @@ const decision = z.object({ snapshotId: z.string(), decisionAt: timestamp, symbo
   reasonCode: z.enum(['POSITIVE_COHORT_EXPECTANCY', 'INSUFFICIENT_MATURE_SAMPLES', 'INSUFFICIENT_ENTRY_DATES',
     'NON_POSITIVE_EXPECTANCY', 'TREND_UNKNOWN', 'MARKET_CLOSED', 'CURRENT_PRICE_UNAVAILABLE', 'OBSERVATION_TIME_INVALID',
     'ALREADY_ENTERED_TODAY', 'HORIZON_PENDING', 'SCHEDULED_CLOSE_UNAVAILABLE', 'SCHEDULED_CLOSE_REACHED']),
-  reason: z.string(), cohort: cohort.nullable(), evidence: evidence.nullable(), tradeId: z.string().nullable(), newsSummary: newsSummary.optional() });
+  reason: z.string(), cohort: cohort.nullable(), evidence: evidence.nullable(), tradeId: z.string().nullable(), newsSummary: newsSummary.optional(), investorFlow: investorFlow.optional() });
 const observation = z.object({ symbol, name: z.string(), price: finite.positive().nullable(), observedAt: timestamp, source: z.string(),
+  investorFlow: investorFlow.optional(),
   return1dPct: finite.nullable(), return5dPct: finite.nullable(), aboveMa20: z.boolean().nullable(),
   news: z.array(z.object({ id: z.string(), headline: z.string(), observedAt: timestamp, source: z.string(), assessment: newsAssessment.optional() })),
   dailyCloses: z.array(z.object({ tradingDate: date, close: finite.positive(), availableAt: timestamp })), issue: z.string().optional() });
