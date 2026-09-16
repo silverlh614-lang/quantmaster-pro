@@ -112,6 +112,15 @@ export function evaluatePaperStrategyScan(
     decisions.push(result);
   }
   ledger.latestDecisions = decisions;
+  const at = Date.parse(snapshot.asOf);
+  if (snapshot.marketOpen && isKrxTradingDay(snapshot.tradingDate)
+    && at >= Date.parse(`${snapshot.tradingDate}T09:00:00+09:00`) && at < Date.parse(`${snapshot.tradingDate}T15:30:00+09:00`)
+    && (!ledger.lastMarketSession || at >= Date.parse(ledger.lastMarketSession.asOf))) {
+    const reasonCounts: NonNullable<PaperStrategyLedger['lastMarketSession']>['reasonCounts'] = {};
+    for (const item of decisions) reasonCounts[item.reasonCode] = (reasonCounts[item.reasonCode] ?? 0) + 1;
+    ledger.lastMarketSession = { tradingDate: snapshot.tradingDate, snapshotId: snapshot.id, asOf: snapshot.asOf,
+      decisionCount: decisions.length, reasonCounts };
+  }
   ledger.lastRun = { snapshotId: snapshot.id, asOf: snapshot.asOf,
     openedCount: decisions.filter((item) => item.action === 'BUY').length,
     closedCount: decisions.filter((item) => item.action === 'EXIT').length,
@@ -129,7 +138,7 @@ export function buildPaperStrategyView(ledger: PaperStrategyLedger, error?: stri
       meanNetReturnPct: values.length ? values.reduce((sum, item) => sum + item.netReturnPct, 0) / values.length : null,
       winRatePct: values.length ? values.filter((item) => item.netReturnPct > 0).length / values.length * 100 : null,
       totalNetPnl: values.length ? values.reduce((sum, item) => sum + item.netPnl, 0) : null },
-    lastRun: ledger.lastRun, latestDecisions: ledger.latestDecisions,
+    lastRun: ledger.lastRun, latestDecisions: ledger.latestDecisions, lastMarketSession: ledger.lastMarketSession,
     trades: ledger.trades.slice(-200).reverse(), ...(error ? { error } : {}),
   };
 }

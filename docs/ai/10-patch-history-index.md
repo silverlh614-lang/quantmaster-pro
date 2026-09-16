@@ -3,6 +3,7 @@
 최근 20건만 한 줄씩 유지한다. 상세는 Git log/show와 [ADR 목록](../adr/INDEX.md)에서 조회한다.
 이 파일 전체를 기본 컨텍스트로 읽지 않는다. 필요한 날짜·키워드만 검색한다.
 
+- 2026-09-16 · ADR-0677 · Shadow 마감 요약의 당일·누적·지연 성과 분리, 장중 마지막 대기 사유 보존, 다음 평가일·뉴스·공시·수급 범위 및 발송 없는 미리보기 추가.
 - 2026-09-16 · ADR-0676 · 상장기업 공시 페이지 수집·종목 연결·날짜/정렬 오류 수정, 최초 확인 시각·직접/간접·정정/철회 근거 보존, 진입 고정 사건별 성과와 화면·Telegram 분석 연결.
 - 2026-09-16 · ADR-0675 · 직전 거래일 기관·외국인 수급 수량 기록, 최근 수급 현황·상호 상관과 진입 고정 D1/D3/D5·뉴스별 독립 상관 연구, 화면·Telegram 분석 연결.
 - 2026-09-16 · ADR-0674 · 공시 제목 호악재 추정·근거·시각 기록, 진입 고정 방향별 D1/D3/D5 비교와 화면·Telegram 분석 연결, 기존 진입 정책 유지.
@@ -22,4 +23,3 @@
 - 2026-09-12 · ADR-0665/0666 · 사이징 경로 통일, 독립 Shadow 기준 실험.
 - 2026-07-31 · Patch-Counterfactual-OutcomeMaturity-SourceBreakdown
 - 2026-07-31 · Patch-AlertHistory-PrevMonthKey-Overflow
-- 2026-07-31 · Patch-LearningMetrics-UnresolvedExclusion+NormalizedGateImpact

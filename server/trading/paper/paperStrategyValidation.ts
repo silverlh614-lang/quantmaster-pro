@@ -63,6 +63,8 @@ const trade = z.object({ id: z.string(), strategyVersion: version, symbol, name:
   entryObservation: observation, entryDecision: decision, policy, costModel: cost, horizon,
   scheduledExitDate: date, scheduledExitAt: timestamp, exit: exit.nullable() });
 const ledgerSchema = z.object({ schemaVersion: z.literal(1), trades: z.array(trade), latestDecisions: z.array(decision),
+  lastMarketSession: z.object({ tradingDate: date, snapshotId: z.string(), asOf: timestamp, decisionCount: finite.int().nonnegative(),
+    reasonCounts: z.record(z.string(), finite.int().positive()) }).optional(),
   lastRun: z.object({ snapshotId: z.string(), asOf: timestamp, openedCount: finite.int().nonnegative(), closedCount: finite.int().nonnegative(),
     waitingCount: finite.int().nonnegative(), holdingCount: finite.int().nonnegative(), error: z.string().optional() }).nullable() });
 
@@ -98,6 +100,13 @@ function sameEvidence(left: PaperStrategyEvidence, right: PaperStrategyEvidence 
 export function assertPaperStrategyLedger(value: unknown): asserts value is PaperStrategyLedger {
   const parsed = ledgerSchema.safeParse(value);
   if (!parsed.success) throw new Error('PAPER_STRATEGY_INVALID: invalid ledger structure');
+  const session = parsed.data.lastMarketSession;
+  if (session && (!(Date.parse(session.asOf) >= Date.parse(`${session.tradingDate}T09:00:00+09:00`)
+    && Date.parse(session.asOf) < Date.parse(`${session.tradingDate}T15:30:00+09:00`))
+    || Object.values(session.reasonCounts).reduce((sum, count) => sum + count, 0) !== session.decisionCount
+    || Object.keys(session.reasonCounts).some(key => key === 'MARKET_CLOSED' || !decision.shape.reasonCode.safeParse(key).success))) {
+    throw new Error('PAPER_STRATEGY_INVALID: inconsistent intraday summary');
+  }
   const ids = new Set<string>();
   const openSymbols = new Set<string>();
   const decisions = [...parsed.data.latestDecisions, ...parsed.data.trades.flatMap((item) =>

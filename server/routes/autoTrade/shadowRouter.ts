@@ -30,8 +30,22 @@ import { getSectorByCode } from '../../screener/sectorMap.js';
 import { getPaperExperimentView, runPaperExperimentScan } from '../../trading/paper/paperExperimentRunner.js';
 import { refreshPaperResearch, getPaperResearchView } from '../../trading/paper/paperResearchRuntime.js';
 import { buildPaperOverview } from '../../trading/paper/paperDashboardView.js';
+import { formatPaperCloseReport } from '../../alerts/paperCloseReport.js';
+import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 
 const router = Router();
+
+router.get('/shadow/close-report', (_req, res) => {
+  try {
+    const now = new Date();
+    const date = toKstDateKey(now);
+    const view = getPaperExperimentView(true);
+    res.json({ date, generatedAt: now.toISOString(), sourceAsOf: view.lastRun?.asOf ?? null,
+      message: formatPaperCloseReport(view, date, now) });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
 
 router.post('/shadow/research', (_req, res) => {
   refreshPaperResearch([], true);

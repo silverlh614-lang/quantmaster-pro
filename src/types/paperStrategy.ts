@@ -116,6 +116,16 @@ export interface PaperStrategyLedger {
   trades: PaperStrategyTrade[];
   latestDecisions: PaperStrategyDecision[];
   lastRun: PaperStrategyScanResult | null;
+  lastMarketSession?: PaperStrategySessionSummary;
+}
+
+/** The latest completed intraday decision counts survive subsequent off-hours scans. */
+export interface PaperStrategySessionSummary {
+  tradingDate: string;
+  snapshotId: string;
+  asOf: string;
+  decisionCount: number;
+  reasonCounts: Partial<Record<PaperStrategyReasonCode, number>>;
 }
 
 export interface PaperStrategyPerformance {
@@ -133,6 +143,7 @@ export interface PaperStrategyView {
   openCount: number;
   performance: PaperStrategyPerformance;
   lastRun: PaperStrategyScanResult | null;
+  lastMarketSession?: PaperStrategySessionSummary;
   latestDecisions: PaperStrategyDecision[];
   trades: PaperStrategyTrade[];
   error?: string;

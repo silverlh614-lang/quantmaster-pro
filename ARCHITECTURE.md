@@ -39,6 +39,8 @@ Production remains SHADOW. Its independent paper schedule never calls the legacy
 
 ### Shadow signal notifications (ADR-0672)
 
+Closing reports (ADR-0677): `paperCloseReport.ts` separates current evaluation-date results, cumulative outcomes, delayed collection, due-but-missing prices and the next calendar-based evaluation. The strategy ledger retains only `lastMarketSession` reason counts from its latest intraday SourceSnapshot so after-hours decisions cannot erase the explanation. Reports include dated news/disclosure/flow coverage from existing observations. The 16:10 delivery slot and per-day message identity remain unchanged; `GET /api/shadow/close-report` provides a read-only full-ledger preview without sending or collecting data.
+
 `paperBot.ts` projects saved strategy events into bounded CH1 signal and CH2 entry-evidence/exit-review messages, routes morning context to CH3 and closing/research reports to CH4 through `alertRouter.dispatchAlert`, and retains private operational alerts. `paperBotMessages.ts` formats entry-frozen evidence and matching outcomes without recomputing eligibility or modifying learning. `paperBotRepo.ts` persists each channel delivery independently; pre-existing messages without a destination retain private delivery. The bot requests complete records from the existing experiment/strategy read views so older exits and daily totals survive the UI-only 200-record cap. The strategy, provider collection and LIVE order paths remain unchanged.
 
 ### Entry sizing boundary (ADR-0665)

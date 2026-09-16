@@ -41,7 +41,7 @@ export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentV
     const id = `paper:${slot.kind}:${date}`;
     if (state.messages.some(item => item.id === id)) continue;
     const expiresAt = new Date(Date.parse(`${date}T00:00:00+09:00`) + (slot.minute + slot.graceMinutes) * MINUTE).toISOString();
-    const message = slot.kind === 'weekly' ? formatPaperResearch(view) : formatPaperReport(view, slot.kind, date, news());
+    const message = slot.kind === 'weekly' ? formatPaperResearch(view) : formatPaperReport(view, slot.kind, date, slot.kind === 'morning' ? news() : [], now);
     const channel = slot.kind === 'morning' ? ChannelSemantic.REGIME : ChannelSemantic.JOURNAL;
     enqueue(state, { id, kind: slot.kind, channel, message, createdAt: now.toISOString(), expiresAt });
   }

@@ -78,6 +78,17 @@ describe('paper experiment API registration', () => {
     expect(mocks.brokerQuote).not.toHaveBeenCalled();
     expect(mocks.reconcile).not.toHaveBeenCalled();
   });
+  it('previews the complete closing report without scanning, changing records or sending a message', async () => {
+    mocks.view.mockReturnValue({ mode: 'SHADOW', totalCount: 0, experiments: [], lastRun: null, outcomes: [] });
+    const res = response();
+    await handler(shadowRouter, 'get', '/shadow/close-report')({}, res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.view).toHaveBeenCalledWith(true);
+    expect(res.body).toMatchObject({ sourceAsOf: null, message: expect.stringContaining('Shadow 마감 요약') });
+    expect(mocks.paperScan).not.toHaveBeenCalled();
+    expect(mocks.legacySave).not.toHaveBeenCalled();
+    expect(mocks.brokerQuote).not.toHaveBeenCalled();
+  });
 
   it('runs explicit paper observations with broker automation disabled', async () => {
     const scan = { snapshotId: 'paper-1', openedCount: 1, missingPriceCount: 0 };

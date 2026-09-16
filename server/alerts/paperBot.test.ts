@@ -48,6 +48,16 @@ describe('KST report slots', () => {
     enqueuePaperReports(persisted, view, new Date('2026-09-14T18:00:00+09:00'));
     enqueuePaperReports(persisted, view, new Date('2026-09-14T18:01:00+09:00'));
     expect(persisted.messages).toHaveLength(1); expect(persisted.messages[0].kind).toBe('close');
+    expect(persisted.messages[0].message).toContain('1. 기본 관측 · 오늘과 누적');
+    expect(persisted.messages[0].message).toContain('오늘 장중 대기 사유 미기록');
+  });
+  it('keeps a previously sent closing summary without rewriting or resending after a format update', () => {
+    enqueuePaperReports(persisted, view, new Date('2026-09-14T16:10:00+09:00'));
+    const original = persisted.messages[0]; original.state = 'SENT'; original.message = '기존 마감 요약'; original.messageId = 7;
+    enqueuePaperReports(persisted, view, new Date('2026-09-14T18:01:00+09:00'), mocks.news);
+    expect(persisted.messages).toHaveLength(1);
+    expect(persisted.messages[0]).toMatchObject({ state: 'SENT', message: '기존 마감 요약', messageId: 7 });
+    expect(mocks.news).not.toHaveBeenCalled();
   });
   it('waits for research loading before consuming Sunday slot', () => {
     const sunday = new Date('2026-09-13T19:00:00+09:00');

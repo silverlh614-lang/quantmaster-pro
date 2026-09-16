@@ -7,6 +7,22 @@ import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
 const enter = () => evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples(), strategyTestSnapshot(), strategyTestCost);
 
 describe('paper strategy lifecycle', () => {
+  it('preserves the latest intraday reason counts through after-hours scans and restart', () => {
+    const snapshot = strategyTestSnapshot();
+    let result = evaluatePaperStrategyScan(emptyStrategyLedger(), [], snapshot, strategyTestCost);
+    const saved = structuredClone(result.lastMarketSession);
+    expect(saved).toMatchObject({ tradingDate: '2026-09-18', decisionCount: 1, reasonCounts: { INSUFFICIENT_MATURE_SAMPLES: 1 } });
+    snapshot.asOf = '2026-09-18T07:10:00Z'; snapshot.marketOpen = false;
+    result = evaluatePaperStrategyScan(JSON.parse(JSON.stringify(result)), [], snapshot, strategyTestCost);
+    expect(result.latestDecisions[0].reasonCode).toBe('MARKET_CLOSED');
+    expect(result.lastMarketSession).toEqual(saved);
+    expect(buildPaperStrategyView(result).lastMarketSession).toEqual(saved);
+    expect(() => assertPaperStrategyLedger(result)).not.toThrow();
+    result.lastMarketSession!.decisionCount = 2;
+    expect(() => assertPaperStrategyLedger(result)).toThrow('inconsistent intraday summary');
+    delete result.lastMarketSession;
+    expect(() => assertPaperStrategyLedger(result)).not.toThrow();
+  });
   it('buys one share with frozen evidence and a precommitted D3 scheduled close', () => {
     const result = enter();
     expect(result.lastRun).toMatchObject({ openedCount: 1, closedCount: 0 });

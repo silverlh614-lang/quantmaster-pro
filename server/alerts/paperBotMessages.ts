@@ -7,6 +7,7 @@ import { PAPER_NEWS_LABELS, summarizePaperNews } from '../../src/utils/paperNews
 import { PAPER_FLOW_ISSUE_LABELS } from '../../src/types/paperInvestorFlow.js';
 import { PAPER_NEWS_EVENT_LABELS, PAPER_NEWS_FILING_LABELS, PAPER_NEWS_RELATION_LABELS } from '../../src/types/paperNewsFacts.js';
 import { readPaperNewsFacts } from '../../src/utils/paperNewsFacts.js';
+import { formatPaperCloseReport } from './paperCloseReport.js';
 
 export const PAPER_BOT_SCHEDULES = [
   { kind: 'morning', minute: 8 * 60 + 45, graceMinutes: 45, label: '거래일 08:45 · 준비 요약' },
@@ -18,8 +19,9 @@ const num = (value: number) => value.toLocaleString('ko-KR');
 const pct = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? '집계 대기' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
 const stamp = (value: string | null | undefined) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '기록 대기';
 
-export function formatPaperReport(view: PaperExperimentView, kind: 'morning' | 'close' | 'status', date: string, news: string[] = []): string {
-  const title = kind === 'morning' ? '준비 요약' : kind === 'close' ? '마감 요약' : '현재 현황';
+export function formatPaperReport(view: PaperExperimentView, kind: 'morning' | 'close' | 'status', date: string, news: string[] = [], now = new Date()): string {
+  if (kind === 'close') return formatPaperCloseReport(view, date, now);
+  const title = kind === 'morning' ? '준비 요약' : '현재 현황';
   const last = view.lastRun;
   const strategy = view.strategy;
   const today = view.experiments.filter(item => item.tradingDate === date).length;
