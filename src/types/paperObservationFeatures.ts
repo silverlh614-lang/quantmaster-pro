@@ -33,6 +33,7 @@ export interface PaperFinancialFacts {
   symbol: string;
   observedAt: string;
   kis: { period: string | null; incomePeriod: string | null; stabilityPeriod: string | null;
+    incomeField?: 'bsop_prti';
     roe: number | null; operatingMargin: number | null; netMargin: number | null;
     revenueGrowth: number | null; debtRatio: number | null; currentRatio: number | null; bps: number | null } | null;
   dart: { period: string | null; statement: string; operatingCashFlowSign: number | null; equityRatio: number | null } | null;

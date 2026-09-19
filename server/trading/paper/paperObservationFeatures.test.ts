@@ -34,6 +34,12 @@ describe('same-snapshot observation features', () => {
     expect(values.macdHistogramPct).toBeCloseTo(0, 8);
     expect(values.stochasticK14).toBeCloseTo(14 / 15 * 100);
   });
+  it('continues the 60-session history across the July 17 exchange holiday', () => {
+    const input = observation();
+    expect(previousKrxTradingDay(new Date('2026-07-20T12:00:00+09:00'))).toBe('2026-07-16');
+    expect(input.dailyCloses.some(row => row.tradingDate === '2026-07-17')).toBe(false);
+    expect(calculatePaperFeatures(input, asOf).values.ma60Gap).toBeCloseTo((200 / 170.5 - 1) * 100);
+  });
   it('handles flat prices and real zero volume without infinity or artificial missing values', () => {
     const input = observation(70, 0);
     input.dailyCloses[0].volume = 0;

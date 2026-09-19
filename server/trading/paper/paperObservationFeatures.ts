@@ -103,6 +103,7 @@ export function calculatePaperFeatures(observation: Pick<PaperObservation, 'symb
   const facts = financials?.symbol === observation.symbol && age >= 0 && age <= 2 * 86_400_000 ? structuredClone(financials) : null;
   if (facts?.kis) {
     for (const key of ['roe', 'operatingMargin', 'netMargin', 'revenueGrowth', 'debtRatio', 'currentRatio'] as const) values[key] = facts.kis[key];
+    if (facts.kis.incomeField !== 'bsop_prti') values.operatingMargin = null;
     if (positive(observation.price) && positive(facts.kis.bps)) values.pbr = observation.price / facts.kis.bps;
   }
   if (facts?.dart?.period) {

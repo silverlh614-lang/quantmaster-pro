@@ -16,7 +16,7 @@ export function normalizePaperFinancials(symbol: string, observedAt: string, kis
   const stability = kis?.periods?.stability ?? null;
   const equity = finite(dart?.totalEquity), assets = finite(dart?.totalAssets), cash = finite(dart?.operatingCashFlow);
   return { symbol, observedAt, issues, kis: kis?.symbol === symbol ? {
-    period: ratio, incomePeriod: income, stabilityPeriod: stability,
+    period: ratio, incomePeriod: income, stabilityPeriod: stability, incomeField: 'bsop_prti',
     roe: validPeriod(ratio) && kis.periods?.roe === ratio && kis.fieldSources?.roe === 'KIS_L1' ? finite(kis.roe) : null,
     revenueGrowth: validPeriod(ratio) ? finite(kis.revenueYoYGrowth) : null,
     operatingMargin: validPeriod(income) ? finite(kis.opm) : null,
@@ -38,8 +38,13 @@ export async function refreshPaperFinancialBatch(symbols: string[], cache: Paper
   const due = [...new Set(symbols)].filter(symbol => /^\d{6}$/.test(symbol)).filter(symbol => {
     const row = cache.records[symbol];
     const age = now - Date.parse(row?.attemptedAt ?? '');
-    return !row || !Number.isFinite(age) || age < 0 || age >= (row.facts.kis || row.facts.dart ? DAY : 3_600_000);
-  }).sort((a, b) => (Date.parse(cache.records[a]?.attemptedAt ?? '') || 0) - (Date.parse(cache.records[b]?.attemptedAt ?? '') || 0)).slice(0, 8);
+    return !row || row.facts.kis && row.facts.kis.incomeField !== 'bsop_prti'
+      || !Number.isFinite(age) || age < 0 || age >= (row.facts.kis || row.facts.dart ? DAY : 3_600_000);
+  }).sort((a, b) => {
+    const legacy = (symbol: string) => Boolean(cache.records[symbol]?.facts.kis && cache.records[symbol].facts.kis!.incomeField !== 'bsop_prti');
+    return Number(legacy(b)) - Number(legacy(a))
+      || (Date.parse(cache.records[a]?.attemptedAt ?? '') || 0) - (Date.parse(cache.records[b]?.attemptedAt ?? '') || 0);
+  }).slice(0, 8);
   for (const symbol of due) {
     // Stop starting new work after one minute; a current provider call retains its own timeout.
     if (Date.now() - now > 60_000) break;
@@ -74,7 +79,11 @@ export function capturePaperFinancials(symbols: string[], asOf = new Date().toIS
     for (const symbol of symbols) {
       const facts = cache.records[symbol]?.facts;
       const age = Date.parse(asOf) - Date.parse(facts?.observedAt ?? '');
-      if (facts && age >= 0 && age <= 2 * DAY) rows.set(symbol, structuredClone(facts));
+      if (facts && age >= 0 && age <= 2 * DAY) {
+        const copy = structuredClone(facts);
+        if (copy.kis && copy.kis.incomeField !== 'bsop_prti') copy.kis.operatingMargin = null;
+        rows.set(symbol, copy);
+      }
     }
     if (!refreshing) refreshing = refreshPaperFinancialBatch(symbols, cache)
       .catch(error => console.warn('[PaperFinancials] refresh failed:', error instanceof Error ? error.message : String(error)))

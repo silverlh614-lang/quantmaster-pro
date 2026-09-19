@@ -32,6 +32,21 @@ describe('paper financial enrichment', () => {
     await refreshPaperFinancialBatch(symbols, cache);
     expect(mocks.kis).toHaveBeenCalledTimes(12);
   });
+  it('suppresses legacy margins immediately and prioritizes their refresh', async () => {
+    const now = new Date().toISOString();
+    const facts = normalizePaperFinancials('005930', now, { symbol: '005930', periods: { income: '202606' }, opm: 90 } as KisFinancials, null);
+    delete facts.kis!.incomeField;
+    const cache = { schemaVersion: 1 as const, records: { '005930': { attemptedAt: now, facts } } };
+    mocks.load.mockReturnValue(cache);
+    mocks.kis.mockResolvedValue({ symbol: '005930', periods: { income: '202606' }, opm: 15 });
+    const captured = capturePaperFinancials(['000660', '005930'], now);
+    expect(captured.get('005930')!.kis!.operatingMargin).toBeNull();
+    expect(facts.kis!.operatingMargin).toBe(90);
+    await vi.waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(2));
+    expect(mocks.kis.mock.calls[0][0]).toBe('005930');
+    expect(cache.records['005930'].facts.kis).toMatchObject({ incomeField: 'bsop_prti', operatingMargin: 15 });
+    expect(captured.get('005930')!.kis!.operatingMargin).toBeNull();
+  });
   it('returns the frozen cache immediately while refresh is pending', async () => {
     const cache = { schemaVersion: 1 as const, records: {} };
     mocks.load.mockReturnValue(cache);

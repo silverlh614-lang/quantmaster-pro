@@ -42,7 +42,7 @@ export interface KisFinancials {
   fiscalYearMonth: string | null; // stac_yymm (결산년월)
   periods?: { ratio: string | null; income: string | null; stability: string | null; roe?: string | null };
   roe: number | null; // % (financial-ratio roe_val) — source KIS_L1
-  opm: number | null; // % (income-statement op_prfi / sale_account * 100) — source KIS_DERIVED
+  opm: number | null; // % (income-statement bsop_prti / sale_account * 100) — source KIS_DERIVED
   netMargin: number | null; // % (thtr_ntin / sale_account * 100) — source KIS_DERIVED
   debtRatio: number | null; // % (financial-ratio lblt_rate / stability-ratio lblt_rate) — source KIS_L1
   currentRatio: number | null; // % (stability-ratio crnt_rate) — source KIS_L1
@@ -59,7 +59,7 @@ export interface KisFinancials {
   eps: number | null;
   bps: number | null;
   revenue: number | null; // sale_account
-  operatingIncome: number | null; // op_prfi
+  operatingIncome: number | null; // bsop_prti (op_prfi is ordinary income, not operating income)
   netIncome: number | null; // thtr_ntin
   /** ADR-0655 — metric 별 출처 분류 (관측 trace, 값 무변경). */
   fieldSources: {
@@ -151,7 +151,7 @@ export async function getKisFinancials(stockCode: string): Promise<KisFinancials
     const stabilityRow = await fetchFinanceRow(STABILITY_RATIO, symbol, 'GATE2_KIS_STABILITY_RATIO').catch(() => null);
 
     const revenue = cleanNumber(incomeRow?.sale_account);
-    const operatingIncome = cleanNumber(incomeRow?.op_prfi);
+    const operatingIncome = cleanNumber(incomeRow?.bsop_prti);
     const netIncome = cleanNumber(incomeRow?.thtr_ntin);
     // YoY 성장은 financial-ratio 응답에 이미 포함(grs/bsop_prfi_inrt/ntin_inrt) — 추가 호출 없이 추출.
     const revenueYoYGrowth = cleanNumber(ratioRow?.grs);

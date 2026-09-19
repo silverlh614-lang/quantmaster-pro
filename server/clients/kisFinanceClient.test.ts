@@ -30,7 +30,7 @@ describe('kisFinanceClient (ADR-0532 Phase 1)', () => {
           return { output: [{ stac_yymm: '202412', roe_val: '12.5', lblt_rate: '45.6', eps: '4,800', bps: '38000', grs: '10.0', bsop_prfi_inrt: '18.0', ntin_inrt: '12.0' }] };
         }
         if (trId === 'FHKST66430200') {
-          return { output: [{ stac_yymm: '202412', sale_account: '1000', op_prfi: '150', thtr_ntin: '100' }] };
+          return { output: [{ stac_yymm: '202412', sale_account: '1000', bsop_prti: '150', op_prfi: '900', thtr_ntin: '100' }] };
         }
         if (trId === 'FHKST66430600') {
           return { output: [{ stac_yymm: '202412', lblt_rate: '45.6', crnt_rate: '210.5', quck_rate: '180.0' }] };
@@ -67,7 +67,7 @@ describe('kisFinanceClient (ADR-0532 Phase 1)', () => {
       realDataKisGet: async (trId: string) => {
         if (trId === 'FHKST66430600') throw new Error('stability endpoint down');
         if (trId === 'FHKST66430300') return { output: [{ roe_val: '12.5', lblt_rate: '45.6' }] };
-        return { output: [{ sale_account: '1000', op_prfi: '150', thtr_ntin: '100' }] };
+        return { output: [{ sale_account: '1000', bsop_prti: '150', op_prfi: '900', thtr_ntin: '100' }] };
       },
     });
     const fin = await getKisFinancials('005930');
@@ -83,7 +83,7 @@ describe('kisFinanceClient (ADR-0532 Phase 1)', () => {
       realDataKisGet: async (trId: string) => {
         if (trId === 'FHKST66430300') return { output: [{ roe_val: '20', lblt_rate: '60', grs: '5.0', bsop_prfi_inrt: '9.0' }] };
         if (trId === 'FHKST66430600') return { output: [{ crnt_rate: '150' }] };
-        return { output: [{ sale_account: '200', op_prfi: '40' }] };
+        return { output: [{ sale_account: '200', bsop_prti: '40' }] };
       },
     });
 
@@ -116,7 +116,7 @@ describe('kisFinanceClient (ADR-0532 Phase 1)', () => {
         if (trId === 'FHKST66430300') return { output: [{ lblt_rate: '70', grs: '3.0', bsop_prfi_inrt: '4.0' }] };
         if (trId === 'FHKST66430400') return { output: [{ self_cptl_ntin_inrt: '8.4', sale_ntin_rate: '5.1' }] };
         if (trId === 'FHKST66430600') return { output: [{ crnt_rate: '120', lblt_rate: '70' }] };
-        return { output: [{ sale_account: '500', op_prfi: '60', thtr_ntin: '25' }] };
+        return { output: [{ sale_account: '500', bsop_prti: '60', thtr_ntin: '25' }] };
       },
     });
     const fin = await getKisFinancials('005930');
@@ -134,12 +134,21 @@ describe('kisFinanceClient (ADR-0532 Phase 1)', () => {
         if (trId === 'FHKST66430400') { profitRatioCalls += 1; return { output: [{ self_cptl_ntin_inrt: '8.4' }] }; }
         if (trId === 'FHKST66430300') return { output: [{ roe_val: '15.2', lblt_rate: '40' }] };
         if (trId === 'FHKST66430600') return { output: [{ crnt_rate: '180' }] };
-        return { output: [{ sale_account: '500', op_prfi: '60' }] };
+        return { output: [{ sale_account: '500', bsop_prti: '60' }] };
       },
     });
     const fin = await getKisFinancials('005930');
     expect(fin!.roe).toBe(15.2);
     expect(profitRatioCalls).toBe(0);
+  });
+
+  it('does not substitute ordinary income for missing operating income', async () => {
+    process.env.KIS_APP_KEY = 'k';
+    process.env.KIS_APP_SECRET = 's';
+    setKisClientOverrides({ realDataKisGet: async () => ({ output: [{ roe_val: '10', sale_account: '1000', op_prfi: '900' }] }) });
+    const fin = await getKisFinancials('005930');
+    expect(fin!.operatingIncome).toBeNull();
+    expect(fin!.opm).toBeNull();
   });
 
   it('returns null when both finance endpoints yield no rows', async () => {

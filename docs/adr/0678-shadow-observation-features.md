@@ -17,5 +17,9 @@ Accepted
 
 ## Validation and rollback
 
+- 운영 검증 중 기존 KIS 매핑의 `op_prfi`는 경상이익임을 확인했다. 영업이익은 `bsop_prti`로 수집하고 이전 재무 캐시의 영업이익률은 재확인 전까지 사용하지 않는다. 근거: [KIS 공식 손익계산서 필드 정의](https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/finance_income_statement/chk_finance_income_statement.py).
+
 - 계산 기준값, 미래/미완료/누락/중복 일봉, 재무 시각·기간, 캐시 손상·재시도·배경 작업 상한, 원장 복사·과거 기록 호환, 화면·수집·보고 경로를 검증한다.
 - 되돌릴 때 신규 관측 연결만 제거한다. 추가 필드는 이전 코드에서 무시되며 기존 관측·전략·주문 원장은 보존한다.
+
+운영 검증에서 60일 이동평균 전건 결측 원인이 2026-07-17 제헌절 휴장 누락임을 확인했다. KRX 휴장일 SSOT에 해당 날짜를 반영한다([KRX 공지](https://strn.krx.co.kr/corebbs5/BHPSTRN0401/list)). 실제 거래일 결측 시 계산 중단은 유지한다.
