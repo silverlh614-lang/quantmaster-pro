@@ -3,6 +3,7 @@ import type { PaperStrategyScanResult, PaperStrategyView } from './paperStrategy
 import type { PaperResearchView } from './paperResearch';
 import type { PaperInvestorFlow, PaperInvestorFlowSnapshot, PaperInvestorFlowStudy } from './paperInvestorFlow';
 import type { PaperDisclosureStatus, PaperNewsFacts, PaperNewsFactsStudy } from './paperNewsFacts';
+import type { PaperObservationFeatures, PaperFeatureCoverage, PaperFeatureStudy } from './paperObservationFeatures';
 
 export const PAPER_OBSERVATION_ISSUE_LABELS: Record<string, string> = {
   CURRENT_QUOTE_UNAVAILABLE: '현재가 응답 없음',
@@ -84,6 +85,7 @@ export interface PaperObservation {
   news: PaperNewsObservation[];
   dailyCloses: PaperDailyClose[];
   investorFlow?: PaperInvestorFlow;
+  features?: PaperObservationFeatures;
   issue?: string;
 }
 
@@ -142,6 +144,7 @@ export interface PaperScanResult {
   marketOpen: boolean;
   issues: string[];
   investorFlow?: PaperInvestorFlowSnapshot;
+  featureCoverage?: PaperFeatureCoverage;
   disclosures?: PaperDisclosureStatus;
   strategy?: PaperStrategyScanResult;
 }
@@ -172,6 +175,7 @@ export interface PaperExperimentView {
   newsStudy?: PaperNewsStudy;
   newsFactsStudy?: PaperNewsFactsStudy;
   investorFlowStudy?: PaperInvestorFlowStudy;
+  featureStudy?: PaperFeatureStudy;
   experiments: PaperExperiment[];
   strategy?: PaperStrategyView;
   research?: PaperResearchView;

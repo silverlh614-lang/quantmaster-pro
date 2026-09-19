@@ -25,6 +25,7 @@ import type {
 import type { Gate2DartEvaluationFinancials } from '../gate2/gate2ExternalDataProvider/types.js';
 // ADR-0556 D2: per-field freshness 의 공통 어휘는 신규 enum 신설 없이 기존 DataHealth(SSOT) 재사용.
 import type { DataHealth } from '../../../src/types/shadowCase.js';
+import type { PaperFinancialFacts } from '../../../src/types/paperObservationFeatures.js';
 
 // ─── 수집 품질 등급 ──────────────────────────────────────────────────────────
 
@@ -193,6 +194,7 @@ export interface SymbolSnapshotData {
 
   // DART 재무 정본 슬롯 (L2, 분기 cadence — ADR-0529). null/미지정 = 정본 미수집 → Gate fallback.
   dartFinancials?: SymbolDartFinancialsSlot | null;
+  paperFinancials?: PaperFinancialFacts;
 
   /**
    * ADR-0556 묶음0: 필드별 freshness/providerIssue 통합 요약 (DataHealth 공통 어휘).

@@ -10,6 +10,7 @@ import { calculatePaperReturn } from './paperAccounting.js';
 import { PAPER_NEWS_LOOKBACK_HOURS, PAPER_NEWS_VERSION, summarizePaperNews } from '../../../src/utils/paperNews.js';
 import { buildPaperInvestorFlowStudy } from './paperInvestorFlowStudy.js';
 import { buildPaperNewsFactsStudy } from './paperNewsFactsStudy.js';
+import { buildPaperFeatureStudy } from './paperFeatureStudy.js';
 
 export const PAPER_STRATEGY_VERSION = 'shadow-baseline-v1' as const;
 const HORIZONS = [1, 3, 5] as const;
@@ -132,6 +133,7 @@ export function buildPaperExperimentView(ledger: PaperExperimentLedger): PaperEx
     newsStudy: buildNewsStudy(ledger.experiments),
     newsFactsStudy: buildPaperNewsFactsStudy(ledger.experiments, ledger.lastRun?.asOf ?? new Date().toISOString()),
     investorFlowStudy: buildPaperInvestorFlowStudy(ledger.experiments, ledger.lastRun?.asOf ?? new Date().toISOString()),
+    featureStudy: buildPaperFeatureStudy(ledger.experiments, ledger.lastRun?.asOf ?? new Date().toISOString()),
     experiments: ledger.experiments.slice(-200).reverse(),
   };
 }

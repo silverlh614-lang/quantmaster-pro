@@ -1,7 +1,8 @@
 // @responsibility Verify minimal paper collection and closed-bar cache provenance.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ quote: vi.fn(), bars: vi.fn(), flow: vi.fn(), program: vi.fn(), dart: vi.fn(), market: vi.fn() }));
+const mocks = vi.hoisted(() => ({ quote: vi.fn(), bars: vi.fn(), flow: vi.fn(), program: vi.fn(), dart: vi.fn(), market: vi.fn(), financial: vi.fn() }));
+vi.mock('./paper/paperFinancialCollection.js', () => ({ capturePaperFinancials: mocks.financial }));
 vi.mock('../clients/kisClient.js', () => ({
   fetchKisStockFullQuote: mocks.quote, fetchKisStockDailyBars: mocks.bars,
   fetchKisInvestorTradeByStockDaily: mocks.flow, fetchKisStockProgramTrade: mocks.program,
@@ -19,10 +20,21 @@ beforeEach(() => {
   mocks.bars.mockResolvedValue([{ date: '2026-09-18', close: 10000 }, { date: '2026-09-17', close: 9000 }]);
   mocks.flow.mockResolvedValue(null); mocks.program.mockResolvedValue(null);
   mocks.dart.mockResolvedValue(null); mocks.market.mockResolvedValue(undefined);
+  mocks.financial.mockReturnValue(new Map());
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 
 describe('paper collection profile', () => {
+  it('carries the pre-captured financial facts only in the paper snapshot', async () => {
+    const facts = { symbol: '005930', observedAt: '2026-09-18T00:00:00Z', kis: null, dart: null, issues: [] };
+    mocks.financial.mockReturnValue(new Map([['005930', facts]]));
+    const { collectUnifiedSnapshot } = await import('./symbolDataCollector.js');
+    const paper = await collectUnifiedSnapshot(['005930'], { profile: 'PAPER' });
+    const full = await collectUnifiedSnapshot(['005930']);
+    expect(paper.perSymbol['005930'].paperFinancials).toEqual(facts);
+    expect(full.perSymbol['005930'].paperFinancials).toBeUndefined();
+    expect(mocks.financial).toHaveBeenCalledTimes(1);
+  });
   it('uses the same KIS quote/history channel, omits unused calls and reports real progress', async () => {
     const { collectUnifiedSnapshot } = await import('./symbolDataCollector.js');
     const onProgress = vi.fn();

@@ -25,6 +25,18 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('paper observation collector', () => {
+  it('records financial and valuation features from the same source even with short price history', async () => {
+    mocks.collect.mockResolvedValue({ perSymbol: { '005930': {
+      quote: { code: '005930', currentPrice: 10000, per: 12, fetchedAt: new Date().toISOString() }, dailyBars: [],
+      paperFinancials: { symbol: '005930', observedAt: '2026-09-18T00:00:00Z',
+        kis: null, dart: { period: '2026Q2', statement: 'CFS', equityRatio: -5, operatingCashFlowSign: -1 }, issues: [] },
+    } } });
+    const result = await collectPaperExperimentSnapshot([]);
+    expect(result.observations[0].features).toMatchObject({ version: 'observation-features-v1',
+      values: { per: 12, equityRatio: -5, operatingCashFlowSign: -1, rsi14: null } });
+    expect(result.observations[0].price).toBe(10000);
+    expect(mocks.collect).toHaveBeenCalledTimes(1);
+  });
   it('connects independent listed disclosures only to existing candidates with immutable provenance', async () => {
     const record = { receiptNo: '20260918000001', corpCode: '00126380', corpName: '삼성전자', stockCode: '005930', market: 'Y',
       title: '단일판매ㆍ공급계약체결', filedDate: '2026-09-18', firstSeenAt: '2026-09-18T00:00:00Z',

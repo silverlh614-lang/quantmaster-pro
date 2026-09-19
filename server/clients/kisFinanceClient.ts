@@ -40,6 +40,7 @@ type KisFinanceFieldSource = 'KIS_L1' | 'KIS_DERIVED' | 'DART_L2_RESIDUAL' | 'UN
 export interface KisFinancials {
   symbol: string;
   fiscalYearMonth: string | null; // stac_yymm (결산년월)
+  periods?: { ratio: string | null; income: string | null; stability: string | null; roe?: string | null };
   roe: number | null; // % (financial-ratio roe_val) — source KIS_L1
   opm: number | null; // % (income-statement op_prfi / sale_account * 100) — source KIS_DERIVED
   netMargin: number | null; // % (thtr_ntin / sale_account * 100) — source KIS_DERIVED
@@ -122,13 +123,13 @@ async function fetchFinanceRow(
 async function resolveRoeWithFallback(
   ratioRow: Record<string, unknown> | null,
   symbol: string,
-): Promise<{ roe: number | null; roeSource: KisFinanceFieldSource }> {
+): Promise<{ roe: number | null; roeSource: KisFinanceFieldSource; roePeriod: string | null }> {
   const roe = cleanNumber(ratioRow?.roe_val);
-  if (roe != null) return { roe, roeSource: 'KIS_L1' };
+  if (roe != null) return { roe, roeSource: 'KIS_L1', roePeriod: typeof ratioRow?.stac_yymm === 'string' ? ratioRow.stac_yymm : null };
   const profitRow = await fetchFinanceRow(PROFIT_RATIO, symbol, 'GATE2_KIS_PROFIT_RATIO').catch(() => null);
   const fallbackRoe = cleanNumber(profitRow?.self_cptl_ntin_inrt);
-  if (fallbackRoe != null) return { roe: fallbackRoe, roeSource: 'KIS_L1' };
-  return { roe: null, roeSource: 'UNAVAILABLE' };
+  if (fallbackRoe != null) return { roe: fallbackRoe, roeSource: 'KIS_L1', roePeriod: typeof profitRow?.stac_yymm === 'string' ? profitRow.stac_yymm : null };
+  return { roe: null, roeSource: 'UNAVAILABLE', roePeriod: null };
 }
 
 /**
@@ -157,10 +158,16 @@ export async function getKisFinancials(stockCode: string): Promise<KisFinancials
     const operatingIncomeYoYGrowth = cleanNumber(ratioRow?.bsop_prfi_inrt);
 
     // ADR-0655 — ROE 결손 시 profit-ratio 보강(헬퍼 추출, 동작 무변경).
-    const { roe, roeSource } = await resolveRoeWithFallback(ratioRow, symbol);
+    const { roe, roeSource, roePeriod } = await resolveRoeWithFallback(ratioRow, symbol);
 
     const result: KisFinancials = {
       symbol,
+      periods: {
+        roe: roePeriod,
+        ratio: typeof ratioRow?.stac_yymm === 'string' ? ratioRow.stac_yymm : null,
+        income: typeof incomeRow?.stac_yymm === 'string' ? incomeRow.stac_yymm : null,
+        stability: typeof stabilityRow?.stac_yymm === 'string' ? stabilityRow.stac_yymm : null,
+      },
       fiscalYearMonth: typeof ratioRow?.stac_yymm === 'string' ? ratioRow.stac_yymm
         : typeof incomeRow?.stac_yymm === 'string' ? incomeRow.stac_yymm : null,
       roe,

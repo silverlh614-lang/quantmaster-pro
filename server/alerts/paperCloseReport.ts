@@ -114,6 +114,8 @@ function newsLines(view: PaperExperimentView, date: string, cutoff: number): { l
     lines.push(`수급 기준일 ${flow.tradingDate} · 확인 ${num(flow.availableCount)}/${num(flow.candidateCount)}종목 · 미확인 ${num(flow.candidateCount - flow.availableCount)}`,
       `외국인·기관 동반 순매수 ${groups.get('BOTH_BUY') ?? 0} · 동반 순매도 ${groups.get('BOTH_SELL') ?? 0} · 엇갈림 ${groups.get('DIVERGENT') ?? 0} · 한쪽 이상 순매수 0 ${groups.get('OTHER') ?? 0}`);
   } else lines.push('기관·외국인 수급 자료 미확인');
+  const features = view.lastRun?.featureCoverage;
+  if (features && Date.parse(features.asOf) <= cutoff) lines.push(`동시 조건 확보 / ${num(features.candidateCount)}종목: RSI ${num(features.available.rsi14)} · 거래량 ${num(features.available.volumeRatio20)} · 영업이익률 ${num(features.available.operatingMargin)} · 현금흐름 ${num(features.available.operatingCashFlowSign)}`);
   const distinct = [...new Map(direct.sort((a, b) => b.observedAt.localeCompare(a.observedAt)).map(item => [item.id, item])).values()];
   const highlights = distinct.slice(0, 2).map(item => `• ${escape(item.name.slice(0, 20))}: ${escape(item.headline.slice(0, 70))} (${PAPER_NEWS_LABELS[item.direction]})\n${item.facts.sourceUrl}`);
   return { lines, highlights };

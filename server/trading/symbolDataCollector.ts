@@ -28,6 +28,7 @@ import { getAllStockEntries } from '../persistence/krxStockMasterRepo.js';
 import type { StockMasterEntry } from '../persistence/krxStockMasterRepo.js';
 import { logger } from '../utils/logger.js';
 import { collectPaperInvestorFlow } from './paper/paperInvestorFlowCollector.js';
+import { capturePaperFinancials } from './paper/paperFinancialCollection.js';
 import { toKstDateKey, isKrxTradingDay, previousKrxTradingDay } from '../calendar/krxTradingCalendar.js';
 import {
   generateSnapshotId,
@@ -615,6 +616,7 @@ export async function collectUnifiedSnapshot(
 ): Promise<UnifiedSourceSnapshot> {
   const { concurrency = 5, scanCycleId = `cycle_${Date.now()}`, profile = 'FULL', onProgress } = options;
   const paper = profile === 'PAPER';
+  const financials = paper ? capturePaperFinancials(candidates) : undefined;
   const snapshotId = generateSnapshotId();
   const t0 = performance.now();
 
@@ -652,6 +654,8 @@ export async function collectUnifiedSnapshot(
     const code = candidates[i];
     const data = rawResults[i];
     if (data !== null) {
+      const facts = financials?.get(code);
+      if (facts) data.paperFinancials = facts;
       perSymbol[code] = data;
       if (data.dataQuality === 'FULL') fullCount++;
     } else {

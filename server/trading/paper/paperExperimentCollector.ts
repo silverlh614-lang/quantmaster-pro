@@ -11,6 +11,7 @@ import { researchBarFields } from './paperResearchFeatures.js';
 import { assessPaperNews, recordPaperNewsFacts } from './paperNewsAssessment.js';
 import { observePaperInvestorFlow } from './paperInvestorFlowCollector.js';
 import { refreshPaperDisclosures } from './paperDisclosureCollection.js';
+import { calculatePaperFeatures, addPaperPeerComparison } from './paperObservationFeatures.js';
 
 function codeOf(input: string): string | null {
   const code = input.trim().replace(/\.(KS|KQ)$/i, '');
@@ -108,9 +109,12 @@ export async function collectPaperExperimentSnapshot(
       aboveMa20: price !== null && average20 !== null ? price > average20 : null,
       news: news.get(symbol) ?? [], dailyCloses,
       investorFlow: observePaperInvestorFlow(symbol, data?.investorFlow, dailyCloses, asOf),
+      features: calculatePaperFeatures({ symbol, price, dailyCloses }, asOf, data?.paperFinancials ?? null,
+        validQuote ? quote?.per ?? null : null),
       ...(issue ? { issue } : {}),
     };
   });
+  addPaperPeerComparison(observations);
   return { id, asOf, tradingDate, marketOpen: isPaperMarketOpen(startedAt) && isPaperMarketOpen(finishedAt), observations,
     ...(disclosures.status ? { disclosures: disclosures.status } : {}) };
 }
