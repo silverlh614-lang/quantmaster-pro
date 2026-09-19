@@ -144,6 +144,7 @@ export function formatPaperBotStatus(state: PaperBotState): string {
   return ['<b>Shadow 알림 봇</b>', ...PAPER_BOT_SCHEDULES.map(item => item.label), '매분 · 새 전략 진입/청산, 관측 중단/복구 확인',
     'signal: 진입·청산 / 분석: 시그널 학습 근거·청산 복기',
     '정보: 08:45 준비 / 시스템: 16:10 성과·일요일 연구 / 개인 DM: 운영 상태', '',
+    '관측 지연: 장중 10분·휴장/장외 60분, 진행률 확인 후 5분 지속 시 알림 · 같은 경고 최소 1시간 간격',
     `관측 상태 ${health}`,
     `마지막 점검 ${stamp(state.lastCheckedAt)}`, `마지막 확인된 발송 ${stamp(sent?.sentAt)}`,
     `최근 14일: 발송 대기 ${state.messages.filter(item => item.state === 'PENDING').length} · 실패 ${state.messages.filter(item => item.state === 'FAILED').length} · 만료 ${state.messages.filter(item => item.state === 'EXPIRED').length}`,

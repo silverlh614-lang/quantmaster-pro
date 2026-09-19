@@ -129,11 +129,94 @@ describe('new strategy events', () => {
 });
 
 describe('operational health transitions', () => {
+  const scanAt = (at: string) => {
+    view.lastRun = { snapshotId: 'scan', asOf: at, candidateCount: 863, durationMs: 140_000,
+      observedCount: 849, missingPriceCount: 14, openedCount: 0, completedCount: 0, marketOpen: true, issues: [] };
+  };
+  it.each(['2026-09-19T11:28:00+09:00', '2026-09-18T23:28:00+09:00', '2026-12-25T11:28:00+09:00'])(
+    'keeps short off-hours delays quiet and detects a prolonged outage: %s', at => {
+      const now = new Date(at);
+      scanAt(new Date(now.getTime() - 12 * 60_000).toISOString());
+      expect(classifyPaperBotHealth(view, false, now, 0)).toBe('OK');
+      scanAt(new Date(now.getTime() - 61 * 60_000).toISOString());
+      expect(classifyPaperBotHealth(view, false, now, 0)).toBe('STALE');
+    });
+  it('recognizes advancing work, bounds long scans and rejects invalid progress timestamps', () => {
+    const now = new Date('2026-09-18T13:35:00+09:00');
+    scanAt('2026-09-18T13:24:00+09:00');
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('STALE');
+    view.collection = { startedAt: '2026-09-18T13:33:00+09:00', lastProgressAt: '2026-09-18T13:34:55+09:00', completed: 204, total: 830 };
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('OK');
+    expect(classifyPaperBotHealth(view, false, now, 0, 'STALE')).toBe('STALE');
+    view.collection.lastProgressAt = '2026-09-18T13:36:00+09:00';
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('STALE');
+    view.collection.lastProgressAt = '2026-09-18T13:34:55+09:00';
+    view.collection.startedAt = '2026-09-18T13:00:00+09:00';
+    scanAt('2026-09-18T12:59:00+09:00');
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('STALE');
+    view.collection.startedAt = '2026-09-18T13:30:00+09:00';
+    view.collection.lastProgressAt = '2026-09-18T13:31:00+09:00';
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('STALE');
+  });
+  it('does not replay an old market price outage during the weekend or hide ledger errors', () => {
+    const now = new Date('2026-09-19T12:00:00+09:00');
+    scanAt('2026-09-19T11:55:00+09:00');
+    view.lastRun!.observedCount = 0;
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('OK');
+    view.strategy!.error = 'unreadable';
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('STRATEGY_ERROR');
+    expect(classifyPaperBotHealth(undefined, false, now, 0)).toBe('UNAVAILABLE');
+  });
+  it('cancels brief delays without recovery spam and persists repeat-warning spacing', () => {
+    const now = new Date('2026-09-19T12:00:00+09:00');
+    persisted = emptyState();
+    enqueuePaperHealth(persisted, 'STALE', now, view);
+    expect(persisted.messages[0].nextAttemptAt).toBe(new Date(now.getTime() + 5 * 60_000).toISOString());
+    expect(persisted.messages[0].message).toContain('휴장·장외 60분');
+    enqueuePaperHealth(persisted, 'OK', new Date(now.getTime() + 60_000), view);
+    expect(persisted.messages).toHaveLength(1);
+    expect(persisted.messages[0].state).toBe('SUPERSEDED');
+    persisted.messages[0].state = 'SENT'; persisted.messages[0].sentAt = now.toISOString();
+    persisted = JSON.parse(JSON.stringify(persisted));
+    enqueuePaperHealth(persisted, 'STALE', new Date(now.getTime() + 10 * 60_000), view);
+    expect(persisted.messages[1].nextAttemptAt).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
+    view.collection = { startedAt: now.toISOString(), lastProgressAt: now.toISOString(), completed: 50, total: 863 };
+    enqueuePaperHealth(persisted, 'STALE', new Date(now.getTime() + 11 * 60_000), view);
+    expect(persisted.messages[1].message).toContain('수집 50/863종목');
+    expect(persisted.messages[1].nextAttemptAt).toBe(new Date(now.getTime() + 60 * 60_000).toISOString());
+  });
   it('keeps startup grace from reporting a false recovery', () => {
     expect(classifyPaperBotHealth(undefined, false, monday, monday.getTime() - 60_000, 'STALE')).toBe('STALE');
     expect(classifyPaperBotHealth(undefined, false, monday, 0)).toBe('UNAVAILABLE');
     expect(classifyPaperBotHealth(view, true, monday, 0)).toBe('PAUSED');
     expect(classifyPaperBotHealth(view, false, monday, 0)).toBe('STALE');
+  });
+  it('requires a new completion before announcing recovery when the market closes', () => {
+    const now = new Date('2026-09-18T15:20:00+09:00');
+    persisted = emptyState();
+    scanAt('2026-09-18T15:00:00+09:00');
+    enqueuePaperHealth(persisted, 'STALE', now, view);
+    persisted.messages[0].state = 'SENT'; persisted.notifiedHealth = 'STALE';
+    enqueuePaperHealth(persisted, 'OK', new Date('2026-09-18T15:31:00+09:00'), view);
+    expect(persisted.messages).toHaveLength(1);
+    scanAt('2026-09-18T15:32:00+09:00');
+    enqueuePaperHealth(persisted, 'OK', new Date('2026-09-18T15:33:00+09:00'), view);
+    expect(persisted.messages).toHaveLength(2);
+    expect(persisted.messages[1].health).toBe('OK');
+  });
+  it('delivers a persistent weekend failure after confirmation, then exactly one recovery', async () => {
+    const now = new Date(Math.max(Date.now() + 3_600_000, Date.parse('2026-10-10T12:00:00+09:00')));
+    persisted = emptyState();
+    scanAt(new Date(now.getTime() - 61 * 60_000).toISOString());
+    await runPaperBotTick(now);
+    expect(mocks.send).not.toHaveBeenCalled();
+    await runPaperBotTick(new Date(now.getTime() + 5 * 60_000));
+    expect(persisted.messages.filter(item => item.kind === 'health' && item.state === 'SENT')).toHaveLength(1);
+    scanAt(new Date(now.getTime() + 6 * 60_000).toISOString());
+    await runPaperBotTick(new Date(now.getTime() + 6 * 60_000));
+    await runPaperBotTick(new Date(now.getTime() + 7 * 60_000));
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+    expect(persisted.notifiedHealth).toBe('OK');
   });
   it('supersedes an undelivered failure and sends recovery only for a delivered incident', () => {
     persisted = emptyState();

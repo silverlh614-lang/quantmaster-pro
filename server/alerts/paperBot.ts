@@ -10,6 +10,7 @@ import { sendTelegramAlert } from './telegramClient.js';
 import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { PAPER_BOT_SCHEDULES, formatPaperReport, formatPaperResearch, formatPaperTrades, formatPaperTradeAnalysis, paperTradeEvents } from './paperBotMessages.js';
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
+import { isPaperMarketOpen } from '../trading/paper/paperExperimentCollector.js';
 
 const MINUTE = 60_000;
 const DAY = 86_400_000;
@@ -77,27 +78,65 @@ export function classifyPaperBotHealth(view: PaperExperimentView | undefined, pa
   if (!view) return 'UNAVAILABLE';
   if (view.strategy?.error || view.strategy?.lastRun?.error) return 'STRATEGY_ERROR';
   const last = view.lastRun;
-  if (!last || !Number.isFinite(Date.parse(last.asOf)) || now.getTime() - Date.parse(last.asOf) > 10 * MINUTE) return 'STALE';
-  if (last.marketOpen && last.candidateCount > 0 && last.observedCount === 0) return 'PRICE_MISSING';
+  const marketOpen = isPaperMarketOpen(now);
+  const staleMs = (marketOpen ? 10 : 60) * MINUTE;
+  const lastAt = Date.parse(last?.asOf ?? '');
+  if (!Number.isFinite(lastAt) || lastAt > now.getTime() || now.getTime() - lastAt > staleMs) {
+    const progress = view.collection;
+    const start = Date.parse(progress?.startedAt ?? '');
+    const advanced = Date.parse(progress?.lastProgressAt ?? '');
+    // Progress proves activity, not recovery. Only a completed scan clears a reported delay.
+    if (progress && Number.isInteger(progress.completed) && Number.isInteger(progress.total)
+      && progress.completed > 0 && progress.completed <= progress.total
+      && start <= advanced && advanced <= now.getTime() && (!Number.isFinite(lastAt) || start >= lastAt)
+      && now.getTime() - advanced <= 2 * MINUTE && now.getTime() - start <= (marketOpen ? 30 : 120) * MINUTE) {
+      return previous === 'STALE' ? 'STALE' : 'OK';
+    }
+    return 'STALE';
+  }
+  if (marketOpen && last!.marketOpen && last!.candidateCount > 0 && last!.observedCount === 0) return 'PRICE_MISSING';
   return 'OK';
 }
 
-export function enqueuePaperHealth(state: PaperBotState, health: PaperBotHealth, now: Date): void {
-  if (state.health === health) return;
+export function enqueuePaperHealth(state: PaperBotState, health: PaperBotHealth, now: Date, view?: PaperExperimentView): void {
+  if (health === 'OK' && state.notifiedHealth === 'STALE' && view) {
+    const reportedAt = Math.max(0, ...state.messages.filter(item => item.health === 'STALE' && item.state === 'SENT')
+      .map(item => Date.parse(item.createdAt)).filter(Number.isFinite));
+    // A quieter session threshold alone is not evidence that observations recovered.
+    if (!(Date.parse(view.lastRun?.asOf ?? '') > reportedAt)) return;
+  }
+  if (state.health === health) {
+    for (const message of state.messages) if (message.kind === 'health' && message.state === 'PENDING' && message.health === health) {
+      message.message = formatPaperHealth(health, now, view);
+    }
+    return;
+  }
   state.health = health;
   for (const message of state.messages) if (message.kind === 'health' && message.state === 'PENDING') message.state = 'SUPERSEDED';
   if (health === 'OK' && state.notifiedHealth === 'OK') return;
+  const priorDelay = Math.max(0, ...state.messages.filter(item => item.kind === 'health' && item.health === 'STALE' && item.state === 'SENT')
+    .map(item => Date.parse(item.sentAt ?? item.createdAt)).filter(Number.isFinite));
+  const due = health === 'STALE' ? Math.max(now.getTime() + 5 * MINUTE, priorDelay + 60 * MINUTE) : now.getTime();
+  const id = `paper:health:${health}:${now.toISOString()}`;
+  enqueue(state, { id, kind: 'health', health, message: formatPaperHealth(health, now, view),
+    createdAt: now.toISOString(), expiresAt: new Date(due + 3_600_000).toISOString(),
+  });
+  state.messages.find(item => item.id === id)!.nextAttemptAt = new Date(due).toISOString();
+}
+
+function formatPaperHealth(health: PaperBotHealth, now: Date, view?: PaperExperimentView): string {
   const text: Record<PaperBotHealth, string> = {
     OK: '관측이 다시 갱신되고 있습니다.', PAUSED: '자동 관측이 일시정지 상태로 전환됐습니다.',
-    STALE: '10분 넘게 완료된 관측이 없습니다. 서버의 수집 상태를 확인하세요.',
+    STALE: `${isPaperMarketOpen(now) ? '장중 10분' : '휴장·장외 60분'} 넘게 완료된 관측이 없고 수집 진행을 정상으로 확인하지 못했습니다.`,
     UNAVAILABLE: 'Shadow 원장을 읽지 못했습니다. 서버 저장 자료 확인이 필요합니다.',
     PRICE_MISSING: '장중 최근 관측에서 현재가를 확인한 종목이 없습니다. 가격 공급 상태를 확인하세요.',
     STRATEGY_ERROR: '뉴스·추세 전략 기록 갱신에 오류가 있습니다. 최근 스캔 오류를 확인하세요.',
   };
-  enqueue(state, { id: `paper:health:${health}:${now.toISOString()}`, kind: 'health', health,
-    message: `<b>Shadow 운영 ${health === 'OK' ? '복구' : health === 'PAUSED' ? '상태' : '확인 필요'}</b>\n${text[health]}\n수집 상태 알림이며 시장 위험 신호가 아닙니다.\n/paper · /paper_bot`,
-    createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 3_600_000).toISOString(),
-  });
+  const progress = view?.collection;
+  const stamp = (at?: string) => at && Number.isFinite(Date.parse(at))
+    ? new Date(at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false }) : '미기록';
+  const details = health === 'STALE' ? `\n마지막 완료 ${stamp(view?.lastRun?.asOf)}${progress ? `\n수집 ${progress.completed}/${progress.total}종목 · 마지막 진행 ${stamp(progress.lastProgressAt)}` : '\n현재 진행 중인 수집 없음'}` : '';
+  return `<b>Shadow 운영 ${health === 'OK' ? '복구' : health === 'PAUSED' ? '상태' : '확인 필요'}</b>\n${text[health]}${details}\n수집 상태 알림이며 시장 위험 신호가 아닙니다.\n/paper · /paper_bot`;
 }
 
 async function deliverPending(state: PaperBotState, now: Date): Promise<void> {
@@ -137,7 +176,7 @@ async function tick(now: Date): Promise<void> {
   let view: PaperExperimentView | undefined;
   try { view = getPaperExperimentView(true); }
   catch (error) { console.error('[PaperBot] 관측 원장 조회 실패:', error instanceof Error ? error.name : 'unknown error'); }
-  enqueuePaperHealth(state, classifyPaperBotHealth(view, getAutoTradePaused(), now, processStartedAt, state.health), now);
+  enqueuePaperHealth(state, classifyPaperBotHealth(view, getAutoTradePaused(), now, processStartedAt, state.notifiedHealth), now, view);
   if (view) {
     enqueuePaperReports(state, view, now, () => recentPaperNews(now));
     enqueuePaperTradeChanges(state, view, now);
