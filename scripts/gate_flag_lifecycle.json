@@ -8,10 +8,10 @@
       "title": "Gate1 Regime-Aware Required Score",
       "introduced": "2026-06-11",
       "reviewBy": "2026-09-19",
-      "status": "SHADOW_OFF",
-      "activationCriteria": "legacy 70 vs regime-aware required-score pass-rate 델타를 shadow 병행 로깅으로 N세션 관측 + 운영자 승인. requiredScore=70 calibration SSOT(ADR-0467) 무차별 완화 위험이 있어 데이터 검증 필수.",
-      "nextAction": "legacy vs regime-aware pass-rate 델타 누적 관측 → forward-outcome 성숙 확인 → 운영자 승인 후 flip 결정",
-      "notes": "live ×1 임계(getEffectiveGateThreshold)를 ×10 환산한 레짐 인식 required-score. OFF=레거시 70 고정 byte-identical. flip 은 임계 측 calibration 변경이라 데이터 의존 고위험."
+      "status": "SUNSET",
+      "activationCriteria": "재활성화 대상 아님. 사용자 지시 2026-09-13 및 ADR-0673으로 LIVE/PAPER/SHADOW 운영 레짐 정책 폐기.",
+      "nextAction": "운영 복원 금지. 과거 재현용 코드와 기록만 보존한다.",
+      "notes": "2026-09-21 현행 결정과 레지스트리 정합화. 현행 scanDispatcher는 독립 Paper 관측으로 연결되며 이 구 Gate 임계를 사용하지 않는다. ENV·임계값·주문 동작 변경 없음."
     },
     {
       "envFlag": "GATE1_SECTOR_RS_COMPONENT_ENABLED",

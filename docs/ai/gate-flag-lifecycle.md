@@ -46,7 +46,7 @@ Gate1 에 default-OFF 플래그가 5개 영원히 OFF 로 쌓여 shadow 관측�
 > (0613/0627/0640 = ADR-0644 safe-lever flip · 0611 = ADR-0645 · 0646 = ADR-0647 volume-liquidity-wiring
 > default-ON flip, 운영자 효과확인 8/24 기여·avg 54.1→59.8·hardPass 1→9). `check_flag_lifecycle.js` 는 ON 이면
 > `reviewBy` 만료 검사를 면제하므로 이 5개는 검사 대상에서 빠진다. 남은 `SHADOW_OFF` 는 2개 —
-> 0546(regime-aware required·`reviewBy 2026-09-19`)·0643(positive-max-normalization·16/16 과개방 봉인·
+> 0546은 ADR-0673에 따라 운영 폐기(SUNSET, 2026-09-21 정합화). 0643(positive-max-normalization·16/16 과개방 봉인·
 > `reviewBy 2026-09-20`) — 이며 둘 다 `reviewBy` 미경과라
 > `validate:flagLifecycle` 통과. 각 `reviewBy` 경과 후 해당 flag 는 flip/sunset/연장 중 하나가 강제된다.
 
@@ -56,7 +56,7 @@ Gate1 에 default-OFF 플래그가 5개 영원히 OFF 로 쌓여 shadow 관측�
 
 | envFlag | ADR | status | reviewBy | 위험도 | 권장 다음 액션 | 분류 |
 |---------|-----|--------|----------|--------|----------------|------|
-| `GATE1_REGIME_AWARE_REQUIRED` | 0546 | SHADOW_OFF | 2026-09-19 | 높음(임계 측·calibration 의존) | legacy vs regime pass-rate 델타 + 운영자 승인 | 데이터 의존 (flip 제외 — 임계 측) |
+| `GATE1_REGIME_AWARE_REQUIRED` | 0546 | SUNSET | 2026-09-19 | 운영 폐기(ADR-0673) | 재활성화 대상 아님 | 과거 재현만 보존 |
 | `GATE1_SECTOR_RS_COMPONENT_ENABLED` | 0611 | **ON** (2026-06-22 flip) | 2026-09-19 | 낮음(additive capacity) | ADR-0645 flip 완료 · 죽은 OFF 분기 정리(후속) | **flipped (ADR-0645)** |
 | `GATE1_POSITIVE_CEILING_WIRING_ENABLED` | 0613 | **ON** (2026-06-22 flip) | 2026-09-19 | 중간(3종 묶음 효과) | ADR-0644 flip 완료 (16/16 정규화는 ADR-0643 분리·OFF 유지) | **flipped (ADR-0644)** |
 | `GATE1_RS_PERCENTILE_CONTINUOUS_ENABLED` | 0627 | **ON** (2026-06-22 flip) | 2026-09-19 | 낮음(손실 복원 버그픽스) | ADR-0644 flip 완료 | **flipped (ADR-0644)** |
@@ -81,7 +81,7 @@ Gate1 에 default-OFF 플래그가 5개 영원히 OFF 로 쌓여 shadow 관측�
   - **0640(Denominator Normalization)** — 수급/투자자 데이터 결손이 분모에 남아 실효 문턱을 올리는 갭을
     교정한다. 데이터 만성 결손 환경에서 게이트 완화 부작용 위험이 있어 **데이터 파이프 건강**에 의존. shadow
     denomNorm 4필드 델타 + 0.7× 하한 clamp binding 빈도 관측 필요.
-  - **0546(Regime-Aware Required)** — requiredScore=70 calibration SSOT(ADR-0467) 를 레짐 인식값으로 바꾸는
+  - **0546(Regime-Aware Required, ADR-0673으로 운영 폐기)** — 아래는 과거 활성화 검토 근거이며 현행 작업 대상이 아니다. requiredScore=70 calibration SSOT(ADR-0467) 를 레짐 인식값으로 바꾸는
     **임계 측** 변경이라 무차별 완화 위험. legacy vs regime pass-rate 델타 검증 + 운영자 승인 필수.
 - **관측 더 필요 (0613):**
   - **0613(Positive-Ceiling Wiring)** — RS percentile 입력·BREAKOUT_STRUCTURE OHLCV·positive max→100 정규화

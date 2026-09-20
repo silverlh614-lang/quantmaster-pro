@@ -47,8 +47,9 @@ describe('Shadow schedule', () => {
 
   it('runs independently of legacy emergency and trading-day restrictions', async () => {
     expect(mocks.scheduled).toHaveBeenCalledWith(
-      '* * * * *', 'ALWAYS_ON', 'paper_experiments', expect.any(Function), { timezone: 'UTC' },
+      '* * * * *', 'ALWAYS_ON', 'paper_experiments', expect.any(Function), { timezone: 'UTC', recoverMissedExecutions: true },
     );
+    expect(mocks.cron.mock.calls.filter(call => call[2]?.recoverMissedExecutions)).toHaveLength(1);
     await callback('paper_experiments')();
     expect(mocks.scan).toHaveBeenCalledOnce();
     expect(mocks.tick).not.toHaveBeenCalled();

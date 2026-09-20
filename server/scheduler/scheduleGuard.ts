@@ -34,6 +34,8 @@ export interface ScheduleGuardDecision {
 export interface ScheduleGuardOptions {
   /** cron timezone — 미지정 시 system local. learningJobs 는 `UTC` 권장. */
   timezone?: string;
+  /** Opt in only for coalesced observation jobs: resume a missed tick after event-loop delay. */
+  recoverMissedExecutions?: boolean;
   /** 테스트/긴급 우회 — true 면 가드 무시. 기본 false. */
   force?: boolean;
   /**
@@ -155,12 +157,22 @@ export function scheduledJob(
   fn: () => Promise<unknown> | unknown,
   options: ScheduleGuardOptions = {},
 ): void {
-  const cronOpts = options.timezone ? { timezone: options.timezone } : undefined;
+  const cronOpts = options.timezone || options.recoverMissedExecutions !== undefined ? {
+    ...(options.timezone ? { timezone: options.timezone } : {}),
+    ...(options.recoverMissedExecutions !== undefined ? { recoverMissedExecutions: options.recoverMissedExecutions } : {}),
+  } : undefined;
 
   // cron.schedule 호출 *전* 에 추적 — register 함수가 throw 해도 이전 jobName 은 보존.
   _registeredJobs.add(jobName);
 
-  cron.schedule(cronExpr, async () => {
+  let lastRecoveredTick = -Infinity;
+  cron.schedule(cronExpr, async (scheduledAt) => {
+    // node-cron 3 can emit the same recovered second twice because it retains milliseconds.
+    if (options.recoverMissedExecutions && scheduledAt instanceof Date) {
+      const tick = Math.floor(scheduledAt.getTime() / 1000);
+      if (tick <= lastRecoveredTick) return;
+      lastRecoveredTick = tick;
+    }
     const decision = options.force
       ? { skip: false }
       : shouldSkipForScheduleClass(scheduleClass);
