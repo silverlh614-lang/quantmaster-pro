@@ -32,8 +32,14 @@ import { refreshPaperResearch, getPaperResearchView } from '../../trading/paper/
 import { buildPaperOverview } from '../../trading/paper/paperDashboardView.js';
 import { formatPaperCloseReport } from '../../alerts/paperCloseReport.js';
 import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
+import { getGlobalMorningPreview } from '../../alerts/globalNewsRuntime.js';
 
 const router = Router();
+
+router.get('/shadow/morning-report', (_req, res) => {
+  try { res.json(getGlobalMorningPreview()); }
+  catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
 
 router.get('/shadow/close-report', (_req, res) => {
   try {

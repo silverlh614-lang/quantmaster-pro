@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   view: vi.fn(), paperScan: vi.fn(), publicScan: vi.fn(), mode: 'SHADOW',
   legacyRead: vi.fn(), legacySave: vi.fn(), brokerQuote: vi.fn(), reconcile: vi.fn(),
+  morning: vi.fn(),
 }));
+vi.mock('../../alerts/globalNewsRuntime.js', () => ({ getGlobalMorningPreview: mocks.morning }));
 vi.mock('../../trading/paper/paperExperimentRunner.js', () => ({
   getPaperExperimentView: mocks.view, runPaperExperimentScan: mocks.paperScan,
 }));
@@ -58,6 +60,13 @@ function response(): ResponseStub {
 }
 
 describe('paper experiment API registration', () => {
+  it('previews the stored morning brief without collecting or sending', async () => {
+    mocks.morning.mockReturnValue({ ready: true, message: '해외 뉴스·국내 연관주', items: [] });
+    const res = response();
+    await handler(shadowRouter, 'get', '/shadow/morning-report')({}, res);
+    expect(res.body).toEqual({ ready: true, message: '해외 뉴스·국내 연관주', items: [] });
+    expect(mocks.brokerQuote).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.mode = 'SHADOW';

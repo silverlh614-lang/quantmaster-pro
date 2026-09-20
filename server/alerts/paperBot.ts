@@ -11,6 +11,7 @@ import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
 import { PAPER_BOT_SCHEDULES, formatPaperReport, formatPaperResearch, formatPaperTrades, formatPaperTradeAnalysis, paperTradeEvents } from './paperBotMessages.js';
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import { isPaperMarketOpen } from '../trading/paper/paperExperimentCollector.js';
+import { maintainGlobalMorningNews, getGlobalMorningMessage } from './globalNewsRuntime.js';
 
 const MINUTE = 60_000;
 const DAY = 86_400_000;
@@ -30,7 +31,7 @@ function enqueue(state: PaperBotState, message: Omit<PaperBotMessage, 'state' | 
   if (!state.messages.some(item => item.id === message.id)) state.messages.push({ ...message, state: 'PENDING', attempts: 0, nextAttemptAt: message.createdAt });
 }
 
-export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentView, now: Date, news: () => string[] = () => []): void {
+export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentView | undefined, now: Date, news: () => string[] = () => [], morning?: () => string | null): void {
   const date = toKstDateKey(now);
   const kst = new Date(now.getTime() + 9 * 3_600_000);
   const minute = kst.getUTCHours() * 60 + kst.getUTCMinutes();
@@ -38,11 +39,14 @@ export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentV
     const eligibleDay = slot.kind === 'weekly' ? kst.getUTCDay() === 0 : isKrxTradingDay(date);
     if (!eligibleDay || minute < slot.minute || minute >= slot.minute + slot.graceMinutes) continue;
     // A loading report is retried next minute instead of consuming the weekly slot.
-    if (slot.kind === 'weekly' && !view.research) continue;
+    if (!view && (slot.kind !== 'morning' || !morning)) continue;
+    if (slot.kind === 'weekly' && !view?.research) continue;
     const id = `paper:${slot.kind}:${date}`;
     if (state.messages.some(item => item.id === id)) continue;
     const expiresAt = new Date(Date.parse(`${date}T00:00:00+09:00`) + (slot.minute + slot.graceMinutes) * MINUTE).toISOString();
-    const message = slot.kind === 'weekly' ? formatPaperResearch(view) : formatPaperReport(view, slot.kind, date, slot.kind === 'morning' ? news() : [], now);
+    const message = slot.kind === 'morning' && morning ? morning()
+      : slot.kind === 'weekly' ? formatPaperResearch(view!) : formatPaperReport(view!, slot.kind, date, slot.kind === 'morning' ? news() : [], now);
+    if (!message) continue;
     const channel = slot.kind === 'morning' ? ChannelSemantic.REGIME : ChannelSemantic.JOURNAL;
     enqueue(state, { id, kind: slot.kind, channel, message, createdAt: now.toISOString(), expiresAt });
   }
@@ -173,12 +177,13 @@ async function deliverPending(state: PaperBotState, now: Date): Promise<void> {
 async function tick(now: Date): Promise<void> {
   if (getTradingMode() !== 'SHADOW') return;
   const state = loadPaperBotState();
+  maintainGlobalMorningNews(now);
   let view: PaperExperimentView | undefined;
   try { view = getPaperExperimentView(true); }
   catch (error) { console.error('[PaperBot] 관측 원장 조회 실패:', error instanceof Error ? error.name : 'unknown error'); }
   enqueuePaperHealth(state, classifyPaperBotHealth(view, getAutoTradePaused(), now, processStartedAt, state.notifiedHealth), now, view);
+  enqueuePaperReports(state, view, now, () => recentPaperNews(now), () => getGlobalMorningMessage(now));
   if (view) {
-    enqueuePaperReports(state, view, now, () => recentPaperNews(now));
     enqueuePaperTradeChanges(state, view, now);
     if (view.strategy && !view.strategy.error && !view.strategy.lastRun?.error) state.initializedAt ??= now.toISOString();
   }

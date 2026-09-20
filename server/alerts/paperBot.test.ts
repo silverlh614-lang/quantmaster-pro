@@ -5,7 +5,8 @@ import type { PaperBotState } from '../persistence/paperBotRepo.js';
 import { buildPaperStrategyView, evaluatePaperStrategyScan } from '../trading/paper/paperStrategyPolicy.js';
 import { emptyStrategyLedger, matureStrategySamples, strategyTestSnapshot, strategyTestCost } from '../trading/paper/paperStrategyFixtures.js';
 
-const mocks = vi.hoisted(() => ({ send: vi.fn(), load: vi.fn(), save: vi.fn(), view: vi.fn(), mode: vi.fn(), paused: vi.fn(), news: vi.fn() }));
+const mocks = vi.hoisted(() => ({ send: vi.fn(), load: vi.fn(), save: vi.fn(), view: vi.fn(), mode: vi.fn(), paused: vi.fn(), news: vi.fn(), morning: vi.fn(), maintain: vi.fn() }));
+vi.mock('./globalNewsRuntime.js', () => ({ maintainGlobalMorningNews: mocks.maintain, getGlobalMorningMessage: mocks.morning }));
 vi.mock('./telegramClient.js', () => ({ sendTelegramAlert: mocks.send }));
 vi.mock('./alertRouter.js', async () => ({ ...(await import('./alertCategories.js')), dispatchAlert: mocks.send }));
 vi.mock('../persistence/paperBotRepo.js', () => ({ loadPaperBotState: mocks.load, savePaperBotState: mocks.save }));
@@ -28,6 +29,7 @@ beforeEach(() => {
   mocks.load.mockImplementation(() => structuredClone(persisted));
   mocks.save.mockImplementation((state: PaperBotState) => { persisted = structuredClone(state); });
   mocks.view.mockImplementation(() => view);
+  mocks.morning.mockReturnValue('해외 뉴스·국내 연관주');
   mocks.mode.mockReturnValue('SHADOW'); mocks.paused.mockReturnValue(false); mocks.news.mockReturnValue([]); mocks.send.mockResolvedValue(101);
 });
 
@@ -39,7 +41,8 @@ describe('KST report slots', () => {
     expect(persisted.messages[0]).toMatchObject({ id: 'paper:morning:2026-09-14', state: 'SENT', messageId: 101 });
     await runPaperBotTick(new Date(monday.getTime() + 60_000));
     expect(mocks.send).toHaveBeenCalledTimes(1);
-    expect(mocks.news).toHaveBeenCalledTimes(1);
+    expect(mocks.morning).toHaveBeenCalledTimes(1);
+    expect(mocks.news).not.toHaveBeenCalled();
   });
   it.each(['2026-09-14T08:44:00+09:00', '2026-09-14T09:30:00+09:00', '2026-09-19T08:45:00+09:00', '2026-12-25T08:45:00+09:00'])('does not enqueue outside the slot or on a closed market: %s', at => {
     enqueuePaperReports(persisted, view, new Date(at)); expect(persisted.messages).toEqual([]);
@@ -69,6 +72,18 @@ describe('KST report slots', () => {
 });
 
 describe('delivery ledger', () => {
+  it('waits for the brief without consuming the daily slot or delaying other deliveries', async () => {
+    mocks.morning.mockReturnValueOnce(null);
+    await runPaperBotTick(monday);
+    expect(persisted.messages.filter(item => item.kind === 'morning')).toHaveLength(0);
+    await runPaperBotTick(new Date(monday.getTime() + 60_000));
+    expect(persisted.messages.find(item => item.kind === 'morning')).toMatchObject({ state: 'SENT', message: '해외 뉴스·국내 연관주' });
+  });
+  it('can send sourced news when the observation view is unavailable', () => {
+    enqueuePaperReports(persisted, undefined, monday, mocks.news, mocks.morning);
+    expect(persisted.messages).toHaveLength(1);
+    expect(persisted.messages[0].channel).toBe('INFO');
+  });
   it('retries an unconfirmed send after restart without marking success', async () => {
     mocks.send.mockResolvedValueOnce(undefined);
     await runPaperBotTick(monday);

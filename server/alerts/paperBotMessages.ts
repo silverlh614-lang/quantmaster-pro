@@ -10,7 +10,7 @@ import { readPaperNewsFacts } from '../../src/utils/paperNewsFacts.js';
 import { formatPaperCloseReport } from './paperCloseReport.js';
 
 export const PAPER_BOT_SCHEDULES = [
-  { kind: 'morning', minute: 8 * 60 + 45, graceMinutes: 45, label: '거래일 08:45 · 준비 요약' },
+  { kind: 'morning', minute: 8 * 60 + 45, graceMinutes: 45, label: '거래일 08:45 · 해외 뉴스·국내 연관주' },
   { kind: 'close', minute: 16 * 60 + 10, graceMinutes: 240, label: '거래일 16:10 · 마감 요약' },
   { kind: 'weekly', minute: 19 * 60, graceMinutes: 180, label: '일요일 19:00 · 연구 요약' },
 ] as const;
