@@ -42,13 +42,11 @@ Gate1 에 default-OFF 플래그가 5개 영원히 OFF 로 쌓여 shadow 관측�
 
 이로써 "OFF 출하" 안전 규칙은 폐기되지 않고 *완결*된다 — 출하는 여전히 안전하되 flip 결정이 강제된다.
 
-> **검사 상태(2026-06-22 갱신):** 점수개선 5종(0611·0613·0627·0640·0646)이 `status: "ON"` 으로 flip 됨
-> (0613/0627/0640 = ADR-0644 safe-lever flip · 0611 = ADR-0645 · 0646 = ADR-0647 volume-liquidity-wiring
-> default-ON flip, 운영자 효과확인 8/24 기여·avg 54.1→59.8·hardPass 1→9). `check_flag_lifecycle.js` 는 ON 이면
-> `reviewBy` 만료 검사를 면제하므로 이 5개는 검사 대상에서 빠진다. 남은 `SHADOW_OFF` 는 2개 —
-> 0546은 ADR-0673에 따라 운영 폐기(SUNSET, 2026-09-21 정합화). 0643(positive-max-normalization·16/16 과개방 봉인·
-> `reviewBy 2026-09-20`) — 이며 둘 다 `reviewBy` 미경과라
-> `validate:flagLifecycle` 통과. 각 `reviewBy` 경과 후 해당 flag 는 flip/sunset/연장 중 하나가 강제된다.
+> **검토 상태(2026-09-21):** 레지스트리 17개는 ON 13개·SHADOW_OFF 3개·SUNSET 1개다.
+> 0546은 ADR-0673에 따라 운영 폐기다. 0643은 16/16 과개방을 해소한 신규 검증 근거가 없어
+> OFF를 유지하고, 구 참조와 별도 검증 자료를 확인하도록 검토 기한을 2026-09-28로 연장했다.
+> 현행 독립 Shadow 성과를 구 Gate 활성화 근거로 사용하지 않는다. 다른 플래그의 상태·기한은
+> JSON을 따른다. 이번 검토는 실행 코드·ENV·주문 정책을 변경하지 않는다.
 
 ---
 

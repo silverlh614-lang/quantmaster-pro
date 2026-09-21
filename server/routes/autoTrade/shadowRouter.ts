@@ -33,8 +33,22 @@ import { buildPaperOverview } from '../../trading/paper/paperDashboardView.js';
 import { formatPaperCloseReport } from '../../alerts/paperCloseReport.js';
 import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { getGlobalMorningPreview } from '../../alerts/globalNewsRuntime.js';
+import { buildPaperEvaluation } from '../../trading/paper/paperEvaluation.js';
+import { loadPaperBotState } from '../../persistence/paperBotRepo.js';
+import { loadPaperFinancialCache } from '../../persistence/paperFinancialRepo.js';
 
 const router = Router();
+
+router.get('/shadow/evaluation', (_req, res) => {
+  try {
+    const issues: string[] = [];
+    const read = <T>(label: string, load: () => T): T | null => {
+      try { return load(); } catch (error) { issues.push(`${label}: ${error instanceof Error ? error.name : '조회 실패'}`); return null; }
+    };
+    const view = getPaperExperimentView(true);
+    res.json({ ...buildPaperEvaluation(view, read('알림 원장', loadPaperBotState), read('재무 캐시', loadPaperFinancialCache), new Date()), issues });
+  } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
 
 router.get('/shadow/morning-report', (_req, res) => {
   try { res.json(getGlobalMorningPreview()); }

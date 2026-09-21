@@ -17,7 +17,8 @@ const {
   computeStopApproachBands,
   FIXED_STOP_APPROACH_BANDS,
 } = await import('../stopApproachAlert.js');
-const { makeMockShadow, makeMockCtx } = await import('./_testHelpers.js');
+const { makeMockShadow: makeBaseMockShadow, makeMockCtx } = await import('./_testHelpers.js');
+const makeMockShadow = (overrides: Parameters<typeof makeBaseMockShadow>[0] = {}) => makeBaseMockShadow({ mode: 'LIVE', ...overrides });
 const { sendPrivateAlert } = await import('../../../../alerts/telegramClient.js');
 // 테스트 격리: shadowExitDedup 모듈 레벨 ledger/STOP_APPROACH 쿨다운 Map 이 파일 내
 // 테스트 간 누수되어(동일 심볼 005930) 후속 Stage1 이 쿨다운 억제되던 사전결함 차단.
@@ -25,6 +26,18 @@ const { resetShadowExitDedupStateForTest } = await import('../../../../shadow/sh
 
 describe('stopApproachAlert (3-stage dedupe)', () => {
   beforeEach(() => { vi.clearAllMocks(); resetShadowExitDedupStateForTest(); });
+
+  it('explicit simulated positions create no urgent alert, acknowledgement, or position mutation', async () => {
+    const shadow = makeMockShadow({ mode: 'SHADOW', stopLoss: 90 });
+    const before = structuredClone(shadow);
+    expect(await stopApproachAlert(makeMockCtx({ shadow, currentPrice: 90.5, hardStopLoss: 90 }))).toEqual({ skipRest: false });
+    expect(sendPrivateAlert).not.toHaveBeenCalled(); expect(shadow).toEqual(before);
+  });
+  it('unknown position modes retain alerts rather than assuming no real exposure', async () => {
+    const shadow = makeMockShadow({ mode: undefined, stopLoss: 90 });
+    await stopApproachAlert(makeMockCtx({ shadow, currentPrice: 90.5, hardStopLoss: 90 }));
+    expect(sendPrivateAlert).toHaveBeenCalledTimes(3);
+  });
 
   it('손절가 위 5% 초과 거리 → 어떤 stage 도 발동 안 함', async () => {
     const shadow = makeMockShadow({ stopLoss: 90, hardStopLoss: 90 });

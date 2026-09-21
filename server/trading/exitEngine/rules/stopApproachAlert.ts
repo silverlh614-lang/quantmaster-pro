@@ -223,6 +223,9 @@ export function buildAlertMessage(input: {
 
 export async function stopApproachAlert(ctx: ExitContext): Promise<ExitRuleResult> {
   const { shadow, currentPrice, hardStopLoss } = ctx;
+  // A simulated legacy position needs no operator acknowledgement or urgent execution warning.
+  // Price-based exits still run in their own rules; explicit LIVE/unknown records keep existing alerts.
+  if (shadow.mode === 'SHADOW') return NO_OP;
 
   // ADR-0059: stale hardStopLoss 시 0 fallback — 청산선 접근 알림 보호.
   const distToStop = safePctChange(currentPrice, hardStopLoss, {
