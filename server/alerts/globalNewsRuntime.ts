@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { DATA_DIR } from '../persistence/paths.js';
 import { isKrxTradingDay } from '../calendar/krxTradingCalendar.js';
 import { canonicalNewsUrl, collectGlobalNews, mergeGlobalNews, GLOBAL_NEWS_FEEDS, type GlobalNewsArticle, type GlobalNewsSourceStatus } from './globalNewsSources.js';
-import { buildGlobalMorningBrief, formatGlobalMorningBrief, globalBriefWindow, sourceHeadlineBrief, type GlobalMorningBrief } from './globalNewsBriefing.js';
+import { buildGlobalMorningBrief, formatGlobalMorningBrief, globalBriefWindow, parseGlobalBriefSummary, sourceHeadlineBrief, type GlobalMorningBrief } from './globalNewsBriefing.js';
 
 interface GlobalNewsCache {
   schemaVersion: 1; lastAttemptAt: string | null; articles: GlobalNewsArticle[]; sources: GlobalNewsSourceStatus[]; briefs: GlobalMorningBrief[];
@@ -36,6 +36,17 @@ function readCache(): GlobalNewsCache {
   if (cache) return cache;
   if (!fs.existsSync(file)) return cache = { schemaVersion: 1, lastAttemptAt: null, articles: [], sources: [], briefs: [] };
   const value = cacheSchema.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
+  value.briefs = value.briefs.map(brief => {
+    if (brief.mode !== 'AI_SUMMARY') return brief;
+    const articles = brief.items.map(item => item.article);
+    try {
+      const raw = JSON.stringify(brief.items.map(item => ({ id: item.article.id, summary: item.summary, impact: item.impact })));
+      return { ...brief, items: parseGlobalBriefSummary(raw, articles) };
+    } catch (error) {
+      console.warn('[GlobalNews] 저장 요약 대체:', error instanceof Error ? error.message : 'unknown');
+      return { ...sourceHeadlineBrief(articles, brief.sources, new Date(brief.generatedAt), '요약 검증 실패: 확인된 원문 제목으로 대체'), candidateCount: brief.candidateCount };
+    }
+  });
   cache = value;
   return value;
 }

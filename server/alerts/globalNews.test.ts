@@ -84,6 +84,26 @@ describe('bounded and attributable morning content', () => {
     await vi.advanceTimersByTimeAsync(25_001);
     expect(await pending).toMatchObject({ mode: 'SOURCE_HEADLINES', issue: expect.stringContaining('원문 제목') });
   });
+  it.each([
+    ['Treasury yields ease as global borrowing costs tumble', "Treasury yields were lower following last week's interest rate bonanza.", '미국 국채 금리가 지난주 금리 인상 이후 하락했습니다.'],
+    ['Treasury yields fall', 'Bond yields were lower on Monday.', '미 연준의 금리 인하 이후 국채 금리가 하락했습니다.'],
+    ['Yemenis flee across Red Sea as war escalates', 'People have fled the war by crossing the Red Sea to Djibouti.', '수천 명의 예멘인들이 홍해를 건너 피난하고 있습니다.'],
+  ])('falls back when the summary adds unsupported policy actions or word quantities: %s', async (title, excerpt, summary) => {
+    const input = article({ title, excerpt });
+    const output = JSON.stringify([{ id: input.id, summary, impact: '방향 미확인 · 국내 반응 확인' }]);
+    expect(() => parseGlobalBriefSummary(output, [input])).toThrow();
+    mocks.ai.mockResolvedValueOnce(output);
+    const brief = await buildGlobalMorningBrief([input], [], now);
+    expect(brief.mode).toBe('SOURCE_HEADLINES');
+    expect(brief.items[0].summary).toBe(title);
+  });
+  it.each([
+    ['Treasury yields ease', '미국 국채 금리가 하락했습니다.'],
+    ['Fed raises interest rates', '미 연준이 금리를 인상했습니다.'],
+    ['Central bank announces rate cut', '중앙은행이 금리 인하를 발표했습니다.'],
+  ])('retains supported rate wording: %s', (title, summary) => {
+    expect(parseGlobalBriefSummary(JSON.stringify([{ id: 'story-1', summary, impact: '혼재 · 국내 반응 확인' }]), [article({ title, excerpt: '' })])[0].summary).toBe(summary);
+  });
   it('keeps links, escaped text, exposure reasons and the whole message below Telegram limit', () => {
     const brief = sourceHeadlineBrief([article({ title: '<Nvidia & chips>' })], [], now);
     const text = formatGlobalMorningBrief(brief);
@@ -98,6 +118,18 @@ describe('bounded and attributable morning content', () => {
 describe('durable background preparation', () => {
   beforeEach(() => { mocks.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'qmp-global-news-')); vi.resetModules(); });
   afterEach(() => { fs.rmSync(mocks.directory, { recursive: true, force: true }); });
+  it('revalidates saved AI summaries after restart without resending, fetching or changing the source archive', async () => {
+    const input = article({ title: 'Treasury yields fall', excerpt: 'Bond yields were lower on Monday.' });
+    const brief = sourceHeadlineBrief([input], [], now);
+    brief.mode = 'AI_SUMMARY'; brief.items[0].summary = '미 연준의 금리 인하 이후 국채 금리가 하락했습니다.';
+    const file = path.join(mocks.directory, 'global-morning-news.json');
+    const original = JSON.stringify({ schemaVersion: 1, lastAttemptAt: now.toISOString(), articles: [input], sources: [], briefs: [brief] });
+    fs.writeFileSync(file, original); vi.stubGlobal('fetch', vi.fn());
+    const runtime = await import('./globalNewsRuntime.js');
+    expect(runtime.getGlobalMorningPreview(now)).toMatchObject({ ready: true, mode: 'SOURCE_HEADLINES', items: [{ summary: input.title }] });
+    expect(fetch).not.toHaveBeenCalled(); expect(mocks.ai).not.toHaveBeenCalled();
+    expect(fs.readFileSync(file, 'utf8')).toBe(original);
+  });
   it('persists a daily brief, coalesces concurrent work, and reads it after restart without sending or another AI call', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(xml(''))));
     // A fresh response per call is required because streams are consumable.

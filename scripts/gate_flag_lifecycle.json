@@ -95,11 +95,11 @@
       "adr": "0650",
       "title": "Pullback Lane Forward-Return Observation Line (관측 전용)",
       "introduced": "2026-06-23",
-      "reviewBy": "2026-09-21",
+      "reviewBy": "2026-09-29",
       "status": "SHADOW_OFF",
       "activationCriteria": "ADR-0649 default-ON flip 효과(눌림목 레인 B vs 추격 레인 C 의 forward 1D/3D/5D return·진입 RRR 우월성)를 N≥30 forward 성숙 표본으로 검증 + 운영자 승인. 관측 라인 자체는 LIVE 매매 무영향(executionImpact=NONE)이라 저위험이나, 영속 ledger 증식이 운영 리소스 변화라 운영자 명시 활성(ADR-0641 거버넌스).",
-      "nextAction": "운영자 ENV `=true` 활성 → 관측 누적 → /gate_audit 눌림목 vs 추격 비교 판정(N≥30 && 눌림목 avg5D≥추격 → HOLD) → 유지 또는 롤백 결정.",
-      "notes": "SSOT isPullbackLaneForwardObservationEnabled() gateConfig.ts 거주(opt-IN `=== 'true'` default OFF·ADR-0157). 게이트 대상: D1 관측 row 영속(pullbackLaneObservationRepo)+D2 PULLBACK_LANE source(unifiedForwardOutcomeLabeler). 성숙 fetch 는 기존 priceFetcher(KIS 일봉 L1 read-only·ADR-0561/0625) 재사용·신규 fetch 0·신규 cron 0. OFF(미설정·=false)=byte-equivalent(row 0·source 0·/gate_audit 섹션 미노출). stamp *집계*(pullbackLaneShadowAdr0648)는 본 flag 무관 force-ON 유지. executionImpact=NONE·LIVE 본체 0줄·requiredScore=70 무접촉."
+      "nextAction": "OFF 유지. 다음 검토에서 구 관측 라인의 실제 참조와 별도 성숙 근거를 확인해 sunset 또는 보류를 결정한다. 현행 26개 독립 조건에 추가하지 않는다.",
+      "notes": "2026-09-22 검토: 구 scanner 영속 및 unifiedForwardOutcomeLabeler의 opt-IN 참조는 남아 있으나, 현행 news-trend-v2 및 첫 26조건 D1은 이 구 레인 실험 활성화의 증거가 아니다. 사용자의 조건 추가·원장 부담 억제 방향에 따라 default OFF와 기존 ENV·매매·원장을 유지하고 다음 검토일까지 7일 연장한다."
     },
     {
       "envFlag": "LEADER_RANKING_PARAM_FIX_ENABLED",
