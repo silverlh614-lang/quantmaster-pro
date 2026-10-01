@@ -66,8 +66,11 @@ describe('research persistence', () => {
       tradingDate: `2026-08-${String(from + i).padStart(2, '0')}`, close: 100 + from + i, availableAt: '2026-08-28T00:00:00Z' }));
     const experiment = (day: number, closes: ReturnType<typeof bars>) => ({ id: `e${day}`, symbol: '005930', entryAt: `2026-08-${day}T01:00:00Z`,
       entryObservation: { symbol: '005930', market: 'KOSPI', source: 'KIS_REST_REQUEST_OBSERVED', dailyCloses: closes } });
+    // Completed experiments are read from their monthly file as well as the open file (ADR-0681).
     fs.writeFileSync(path.join(dir, 'paper-experiments.json'), JSON.stringify({ schemaVersion: 1, lastRun: null,
-      experiments: [experiment(29, bars(3, 20)), experiment(30, bars(4, 20)), experiment(31, bars(5, 20))] }));
+      experiments: [experiment(31, bars(5, 20))] }));
+    fs.writeFileSync(path.join(dir, 'paper-experiments-completed-2026-08.json'), JSON.stringify({ schemaVersion: 1, month: '2026-08',
+      experiments: [experiment(29, bars(3, 20)), experiment(30, bars(4, 20))] }));
     const { archivedBars } = runArchivedPaperResearch(dir, '2026-09-12T00:00:00Z');
     expect(archivedBars.has('005930|2026-08-03|103')).toBe(true);
     expect(archivedBars.has('005930|2026-08-03|104')).toBe(false);

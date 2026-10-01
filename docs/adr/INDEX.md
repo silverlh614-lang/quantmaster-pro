@@ -14,12 +14,12 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0681`**
-(2026-10-01 기준, 마지막 발급 0680 — Shadow 원장의 중복 저장 제거.)
+**다음 ADR 번호: `0682`**
+(2026-10-01 기준, 마지막 발급 0681 — Shadow 관측 원장 분리.)
 
 
 
-최근 발급: 2026-10-01, [0680 — Shadow 원장의 중복 저장 제거](0680-shadow-ledger-compaction.md), Accepted.
+최근 발급: 2026-10-01, [0681 — Shadow 관측 원장 분리](0681-shadow-experiment-ledger-split.md), Accepted.
 
 상세 결정은 해당 ADR, 과거 구현 내역은 Git에서 조회한다. 이 파일에는 발급 번호와 검색 목록만 남긴다.
 
@@ -92,6 +92,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0681 | Shadow 관측 원장 분리 | learning |
 | 0680 | Shadow 원장의 중복 저장 제거 | learning |
 | 0679 | CH3 해외 뉴스 브리핑과 국내 연관주 | alerts |
 | 0678 | Shadow 동시 조건 관측과 독립 재무 보강 | learning |
