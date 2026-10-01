@@ -1,7 +1,12 @@
 // @responsibility Verify paper scan lifecycle.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaperExperimentLedger, PaperSnapshot } from '../../../src/types/paperExperiment.js';
-const state = vi.hoisted(() => ({ ledger: { schemaVersion: 1, experiments: [], lastRun: null } as PaperExperimentLedger, collect: vi.fn() }));
+import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
+const state = vi.hoisted(() => ({ ledger: { schemaVersion: 1, experiments: [], lastRun: null } as PaperExperimentLedger, collect: vi.fn(),
+  archived: null as null | ((symbol: string, date: string, close: number) => boolean) }));
+vi.mock('./paperResearchRuntime.js', () => ({
+  refreshPaperResearch: () => undefined, getPaperResearchView: () => undefined, getArchivedPaperBarCheck: () => state.archived,
+}));
 vi.mock('./paperStrategyRuntime.js', () => ({
   loadPaperStrategyState: () => ({ ledger: { trades: [] } }),
   advancePaperStrategy: () => ({ openedCount: 0, closedCount: 0, waitingCount: 1, holdingCount: 0 }),
@@ -20,6 +25,7 @@ const sample = (): PaperSnapshot => ({
 });
 beforeEach(() => {
   vi.resetModules();
+  state.archived = null;
   state.ledger = { schemaVersion: 1, experiments: [], lastRun: null };
   state.collect.mockReset().mockResolvedValue(sample());
 });
@@ -71,5 +77,22 @@ describe('paper runner', () => {
     expect(await runner.runPaperExperimentScan()).toMatchObject({ completedCount: 1, openedCount: 0, missingPriceCount: 1 });
     expect(state.collect).toHaveBeenLastCalledWith(['005930'], expect.any(Function));
     expect(runner.getPaperExperimentView().outcomes.find((item) => item.horizon === 5)!.count).toBe(1);
+  });
+
+  it('trims entry bars only after the research archive confirms them', async () => {
+    let date = '2026-09-18';
+    const bars = Array.from({ length: 30 }, (_, i) => {
+      date = previousKrxTradingDay(new Date(`${date}T12:00:00+09:00`));
+      return { tradingDate: date, close: 100 + i, availableAt: '2026-09-17T07:00:00Z' };
+    });
+    state.collect.mockResolvedValue({ ...sample(), observations: [{ ...sample().observations[0], dailyCloses: bars }] });
+    let runner = await import('./paperExperimentRunner.js');
+    await runner.runPaperExperimentScan();
+    expect(state.ledger.experiments[0].entryObservation.dailyCloses).toHaveLength(30);
+    state.archived = () => true;
+    vi.resetModules();
+    runner = await import('./paperExperimentRunner.js');
+    await runner.runPaperExperimentScan();
+    expect(state.ledger.experiments[0].entryObservation.dailyCloses).toEqual(bars.slice(0, 21));
   });
 });

@@ -57,7 +57,7 @@ function newTrade(index = 0): PaperStrategyTrade {
       cohort: 'NEWS_ABSENT_ABOVE_MA20', tradeId: id,
       evidence: {
         cutoffAt: friday.toISOString(), cohort: 'NEWS_ABSENT_ABOVE_MA20', sampleCount: 12,
-        entryDateCount: 3, experimentIds: ['sample-1'], selectedHorizon: 3,
+        entryDateCount: 3, experimentIdsDigest: 'a'.repeat(64), selectedHorizon: 3,
         historicalSampleCount: 4, baselineSampleCount: 8,
         horizons: [{ horizon: 3, count: 12, meanNetReturnPct: 1.5, meanDailyNetReturnPct: 0.5, winRatePct: 75 }],
       },

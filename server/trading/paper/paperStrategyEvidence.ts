@@ -1,4 +1,5 @@
 // @responsibility Build mature baseline cohort evidence.
+import { createHash } from 'node:crypto';
 import type { PaperExperiment, PaperObservation } from '../../../src/types/paperExperiment.js';
 import type { PaperStrategyCohort, PaperStrategyEvidence, PaperStrategyPolicy } from '../../../src/types/paperStrategy.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
@@ -12,6 +13,12 @@ export const PAPER_STRATEGY_POLICY: Readonly<PaperStrategyPolicy> = Object.freez
   horizonSelection: 'MEAN_NET_RETURN_PER_DAY', exitModel: 'SCHEDULED_CLOSE',
 });
 export const STRATEGY_HORIZONS = [1, 3, 5] as const;
+
+/** Order-independent fingerprint of the sample set; storing every ID per decision grew the ledger quadratically. */
+export function paperEvidenceDigest(ids: string[]): string {
+  return createHash('sha256').update([...ids].sort().join('\n')).digest('hex');
+}
+export const EMPTY_EVIDENCE_DIGEST = paperEvidenceDigest([]);
 
 export function paperStrategyCohort(
   observation: PaperObservation, asOf: string, policy: PaperStrategyPolicy = PAPER_STRATEGY_POLICY,
@@ -88,6 +95,6 @@ export function buildPaperStrategyEvidence(
   const ranked = [...horizons].sort((a, b) =>
     (b.meanDailyNetReturnPct ?? -Infinity) - (a.meanDailyNetReturnPct ?? -Infinity) || a.horizon - b.horizon);
   return { cutoffAt, cohort, sampleCount: rows.length, entryDateCount: new Set(rows.map((row) => row.date)).size,
-    experimentIds: rows.map((row) => row.id), horizons, selectedHorizon: rows.length ? ranked[0].horizon : null,
+    experimentIdsDigest: paperEvidenceDigest(rows.map((row) => row.id)), horizons, selectedHorizon: rows.length ? ranked[0].horizon : null,
     baselineSampleCount, historicalSampleCount: rows.length - baselineSampleCount };
 }

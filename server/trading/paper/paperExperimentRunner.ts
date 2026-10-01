@@ -6,12 +6,12 @@ import { collectPaperExperimentSnapshot } from './paperExperimentCollector.js';
 import { summarizeCurrentInvestorFlow } from './paperInvestorFlowStudy.js';
 import { summarizePaperFeatureCoverage } from './paperObservationFeatures.js';
 import {
-  buildPaperExperimentView, capturePaperCostModel, createPaperExperiment, paperExperimentId, updatePaperOutcomes,
+  buildPaperExperimentView, capturePaperCostModel, createPaperExperiment, paperExperimentId, trimArchivedEntryBars, updatePaperOutcomes,
 } from './paperExperimentPolicy.js';
 import { getPaperIndexSeries, refreshPaperIndexSeries } from './paperIndexCollection.js';
 import { buildPaperRelativeStrengthStudy } from './paperRelativeStrengthStudy.js';
 import { advancePaperStrategy, loadPaperStrategyState, readPaperStrategyView } from './paperStrategyRuntime.js';
-import { refreshPaperResearch, getPaperResearchView } from './paperResearchRuntime.js';
+import { getArchivedPaperBarCheck, refreshPaperResearch, getPaperResearchView } from './paperResearchRuntime.js';
 
 let running: Promise<PaperScanResult> | null = null;
 let collection: PaperCollectionProgress | undefined;
@@ -65,6 +65,11 @@ async function scan(): Promise<PaperScanResult> {
     disclosures: snapshot.disclosures,
   };
   ledger.lastRun = result;
+  const archived = getArchivedPaperBarCheck();
+  if (archived) ledger.experiments = ledger.experiments.map((experiment) => {
+    const entryObservation = trimArchivedEntryBars(experiment.entryObservation, experiment.tradingDate, archived);
+    return entryObservation === experiment.entryObservation ? experiment : { ...experiment, entryObservation };
+  });
   savePaperExperimentLedger(ledger);
   // Baseline is durable before strategy work; strategy failures never discard observations.
   result.strategy = advancePaperStrategy(strategy, ledger.experiments, snapshot);

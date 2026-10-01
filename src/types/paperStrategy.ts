@@ -31,7 +31,8 @@ export interface PaperStrategyEvidence {
   cohort: PaperStrategyCohort;
   sampleCount: number;
   entryDateCount: number;
-  experimentIds: string[];
+  /** SHA-256 of the sorted evidence sample IDs; the IDs follow from the append-only baseline ledger and cutoff (ADR-0680). */
+  experimentIdsDigest: string;
   horizons: PaperStrategyHorizonEvidence[];
   selectedHorizon: PaperStrategyHorizon | null;
   historicalSampleCount?: number;
