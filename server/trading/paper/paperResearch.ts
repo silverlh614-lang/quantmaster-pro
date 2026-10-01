@@ -6,6 +6,7 @@ import { isKrxTradingDay, previousKrxTradingDay } from '../../calendar/krxTradin
 import { addBusinessDaysFromKstDate, getStaticKrxHolidays } from '../krxHolidays.js';
 import { calculatePaperReturn } from './paperAccounting.js';
 import { createResearchFeatureReader } from './paperResearchFeatures.js';
+import { buildLongHorizonStudy } from './paperLongHorizonStudy.js';
 import { compareResearchFeatures } from './paperResearchComparison.js';
 
 const horizons = [1, 3, 5] as const;
@@ -138,6 +139,7 @@ export function buildPaperResearch(
     firstDate: dates[0] ?? null, lastDate: dates.at(-1) ?? null, skipped, inventory: archive.inventory, groups, validation,
     benchmarkSeriesCount: archive.series.filter((item) => ['^KS11', '^KQ11'].includes(item.symbol)).length,
     featureStudies: compareResearchFeatures(samples, splitDate),
+    longHorizon: buildLongHorizonStudy(archive, samples, asOf),
     featureNotes: [
       '7개 조건을 각각 비교합니다. 총점·중복 가감점·조건 일괄 통과·레짐 제한을 적용하지 않으며 매매 정책에 자동 반영하지 않습니다.',
       '숫자 조건은 앞선 학습 기간의 중앙값으로 둘로 나눕니다. 구간과 보유기간은 학습 자료에서만 선택하고 후반 자료에서 확인합니다.',
