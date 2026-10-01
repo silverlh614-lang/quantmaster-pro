@@ -102,6 +102,24 @@ export interface ResearchGroupResult {
   horizons: Array<{ horizon: PaperStrategyHorizon; meanNetReturnPct: number; winRatePct: number }>;
 }
 
+/** 20-session close-to-close research; separate from the D1/D3/D5 strategy learning path. */
+export interface PaperLongHorizonStudy {
+  horizon: 20;
+  sampleCount: number;
+  symbolCount: number;
+  entryDateCount: number;
+  firstDate: string | null;
+  lastDate: string | null;
+  meanNetReturnPct: number | null;
+  winRatePct: number | null;
+  excessCount: number;
+  meanExcessReturnPct: number | null;
+  splitDate: string | null;
+  features: Array<{ feature: string; label: string; availableCount: number; trainingCount: number;
+    selectedGroup: string | null; testCount: number; testDateCount: number; matchedDifferencePct: number | null;
+    status: 'EVALUATED' | 'MISSING_INPUT' | 'NO_TRAIN_VARIATION' | 'NO_TEST_MATCH' }>;
+}
+
 export interface PaperResearchView {
   asOf: string;
   symbols: number;
@@ -127,5 +145,6 @@ export interface PaperResearchView {
   featureStudies?: ResearchFeatureStudy[];
   featureNotes?: string[];
   benchmarkSeriesCount?: number;
+  longHorizon?: PaperLongHorizonStudy;
   error?: string;
 }

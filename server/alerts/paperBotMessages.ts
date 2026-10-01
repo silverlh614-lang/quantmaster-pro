@@ -66,6 +66,7 @@ export function formatPaperResearch(view: PaperExperimentView): string {
   lines.push(index ? `상대강도 기준 KIS 지수 일봉 ${num(index.records)}건 · ${index.status === 'FOUND' ? '수집 완료' : escape(index.issue ?? '수집 대기')}`
     : '상대강도 기준 KIS 지수 일봉 수집 대기 · 다음 스캔 이후 확인');
   lines.push(...relativeStrengthLines(view.relativeStrengthStudy));
+  lines.push(...longHorizonLines(research.longHorizon));
   const strategy = view.strategy;
   if (strategy && !strategy.error && !strategy.lastRun?.error) lines.push('', '<b>연결된 시그널 성과</b>',
     `뉴스·추세 전략 가상 청산 ${num(strategy.performance.closedCount)}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`,
@@ -73,6 +74,21 @@ export function formatPaperResearch(view: PaperExperimentView): string {
   lines.push('', '시그널은 진입 당시 뉴스·추세 학습 근거를 고정하고, 청산 결과를 별도 기록합니다.',
     '위 7개 조건은 같은 날짜·뉴스·추세·보유기간을 맞춘 탐색 연구이며 매매에 자동 적용하지 않습니다.', '/paper · /paper_bot');
   return lines.filter(line => line !== '').join('\n');
+}
+
+function longHorizonLines(study: NonNullable<PaperExperimentView['research']>['longHorizon']): string[] {
+  if (!study) return [];
+  const lines = ['', '<b>20거래일 보유 연구 · 과거 종가 재현</b>'];
+  if (!study.sampleCount) return [...lines, '20거래일 뒤 종가까지 확인된 표본이 아직 없습니다.'];
+  lines.push(`${num(study.sampleCount)}건/${num(study.symbolCount)}종목/${num(study.entryDateCount)}진입일 (${study.firstDate}~${study.lastDate})`,
+    `비용 차감 평균 ${pct(study.meanNetReturnPct)} · 승률 ${study.winRatePct === null ? '미확인' : `${study.winRatePct.toFixed(1)}%`} · 같은 기간 지수 대비 ${pct(study.meanExcessReturnPct)} (${num(study.excessCount)}건)`);
+  for (const item of study.features) {
+    lines.push(item.status === 'EVALUATED' && item.matchedDifferencePct !== null
+      ? `• ${escape(item.label)}: ${escape(item.selectedGroup ?? '')} 선택 → ${item.matchedDifferencePct > 0 ? '+' : ''}${item.matchedDifferencePct.toFixed(2)}%p · ${num(item.testCount)}건/${num(item.testDateCount)}진입일`
+      : `• ${escape(item.label)}: 비교 대기(${RESEARCH_WAIT_LABELS[item.status] ?? item.status} · 학습 ${num(item.trainingCount)}건)`);
+  }
+  lines.push(`20일 구간이 서로 겹쳐 독립 구간은 약 ${num(Math.ceil(study.entryDateCount / 20))}개뿐입니다. 탐색 연구이며 매수 조건에 쓰지 않습니다.`);
+  return lines;
 }
 
 function relativeStrengthLines(study: PaperExperimentView['relativeStrengthStudy']): string[] {

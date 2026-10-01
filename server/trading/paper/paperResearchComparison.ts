@@ -5,7 +5,7 @@ import type { PaperStrategyHorizon } from '../../../src/types/paperStrategy.js';
 const horizons = [1, 3, 5] as const;
 const mean = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 const valueAt = (sample: HistoricalPaperSample, horizon: PaperStrategyHorizon) => sample.outcomes.find((item) => item.horizon === horizon)!.netReturnPct;
-const featureDefinitions: Array<[keyof Omit<ResearchFeatures, 'benchmarkSeriesId'>, string]> = [
+export const featureDefinitions: Array<[keyof Omit<ResearchFeatures, 'benchmarkSeriesId'>, string]> = [
   ['volumeRatio20d', '20일 평균 대비 거래량'], ['relativeReturn20dPct', '시장 대비 20일 상대강도'],
   ['return5dPct', '5거래일 가격 모멘텀'], ['extensionMa20Pct', '20일 평균가격 이격률'],
   ['distanceHigh20dPct', '20일 고점까지의 거리'], ['atr14Pct', '직전 14거래일 변동폭 / 진입가'],
