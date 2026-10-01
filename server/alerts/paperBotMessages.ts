@@ -46,6 +46,10 @@ export function formatPaperReport(view: PaperExperimentView, kind: 'morning' | '
   return lines.join('\n');
 }
 
+const RESEARCH_WAIT_LABELS: Record<string, string> = {
+  MISSING_INPUT: '입력값 없음', NO_TRAIN_VARIATION: '학습 구간 비교군 부족', NO_TEST_MATCH: '후반 구간 해당 없음',
+};
+
 export function formatPaperResearch(view: PaperExperimentView): string {
   const research = view.research;
   if (!research) return '<b>Shadow 연구</b>\n저장 자료 연구 결과를 아직 불러오지 못했습니다. 다음 스캔 이후 확인하세요.';
@@ -53,9 +57,11 @@ export function formatPaperResearch(view: PaperExperimentView): string {
     `${research.symbols}종목 · 과거 재현 ${num(research.sampleCount)}건 · 전략 학습 가능 ${num(research.learningSampleCount)}건`,
     `과거 진입일 ${research.firstDate ?? '미확인'} ~ ${research.lastDate ?? '미확인'}`, '', '<b>조건별 후반 검증 · 대조군 대비</b>'];
   for (const item of research.featureStudies ?? []) {
-    const difference = item.status === 'EVALUATED' && item.matchedDifferencePct !== null ? `${item.matchedDifferencePct > 0 ? '+' : ''}${item.matchedDifferencePct.toFixed(2)}%p` : '비교 대기';
+    const difference = item.status === 'EVALUATED' && item.matchedDifferencePct !== null ? `${item.matchedDifferencePct > 0 ? '+' : ''}${item.matchedDifferencePct.toFixed(2)}%p`
+      : `비교 대기(${RESEARCH_WAIT_LABELS[item.status] ?? item.status} · 값 있음 ${num(item.availableCount)}건·학습 ${num(item.trainingCount)}건)`;
     lines.push(`• ${escape(item.label)}: ${difference} · ${item.testCount}건/${item.testSymbolCount}종목/${item.testDateCount}진입일`);
   }
+  lines.push(`상대강도 기준 지수 시계열 ${num(research.benchmarkSeriesCount ?? 0)}개`);
   const index = research.inventory?.find(item => item.file.startsWith('KIS 지수 일봉'));
   lines.push(index ? `상대강도 기준 KIS 지수 일봉 ${num(index.records)}건 · ${index.status === 'FOUND' ? '수집 완료' : escape(index.issue ?? '수집 대기')}`
     : '상대강도 기준 KIS 지수 일봉 수집 대기 · 다음 스캔 이후 확인');

@@ -18,8 +18,8 @@ let collection: PaperCollectionProgress | undefined;
 async function scan(): Promise<PaperScanResult> {
   const startedAt = new Date().toISOString();
   collection = { startedAt, lastProgressAt: startedAt, completed: 0, total: 0 };
-  // Index benchmarks are fetched in the background; research uses them from its next refresh.
-  void refreshPaperIndexSeries();
+  // Index benchmarks are fetched in the background; new bars re-run research immediately instead of waiting an hour.
+  void refreshPaperIndexSeries().then(updated => { if (updated) refreshPaperResearch([], true); });
   // Local historical research can proceed even if the following market-data collection fails.
   refreshPaperResearch();
   const ledger = loadPaperExperimentLedger();
