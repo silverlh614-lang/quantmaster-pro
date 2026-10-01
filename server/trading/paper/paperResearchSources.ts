@@ -69,8 +69,11 @@ export function readPaperResearchSources(dataDir: string, asOf: string): Researc
       inventory.push({ file: `offhours-snapshot.json:${item.key}`, records: 0, status: 'ERROR', issue: '차트 본문 해석 실패' });
     }
   }
-  const baseline = read('paper-experiments.json');
-  for (const item of baseline ?? []) {
+  // Completed experiments live in monthly files (ADR-0681); the open file still holds the rest.
+  const completed = fs.existsSync(dataDir)
+    ? fs.readdirSync(dataDir).filter((name) => /^paper-experiments-completed-\d{4}-\d{2}\.json$/.test(name)).sort() : [];
+  const baseline = [...(read('paper-experiments.json') ?? []), ...completed.flatMap((name) => read(name) ?? [])];
+  for (const item of baseline) {
     if (!object(item?.entryObservation) || !Array.isArray(item.entryObservation.dailyCloses)) continue;
     series.push(...seriesFromObservations([item.entryObservation], item.entryAt));
   }

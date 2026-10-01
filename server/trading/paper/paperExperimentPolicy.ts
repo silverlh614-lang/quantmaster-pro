@@ -113,8 +113,11 @@ export function updatePaperOutcomes(
     };
     outcomes.push(outcome);
   }
+  const status = outcomes.some((item) => item.horizon === 5) ? 'COMPLETED' : 'OPEN';
+  // Unchanged records keep their identity so the repository rewrites only what changed.
+  if (outcomes.length === experiment.outcomes.length && status === experiment.status) return experiment;
   outcomes.sort((a, b) => a.horizon - b.horizon);
-  return { ...experiment, outcomes, status: outcomes.some((item) => item.horizon === 5) ? 'COMPLETED' : 'OPEN' };
+  return { ...experiment, outcomes, status };
 }
 
 function summarize(label: string, values: number[]): PaperLearningGroup {
