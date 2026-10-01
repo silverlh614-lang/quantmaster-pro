@@ -65,6 +65,7 @@ export function formatPaperResearch(view: PaperExperimentView): string {
   const index = research.inventory?.find(item => item.file.startsWith('KIS 지수 일봉'));
   lines.push(index ? `상대강도 기준 KIS 지수 일봉 ${num(index.records)}건 · ${index.status === 'FOUND' ? '수집 완료' : escape(index.issue ?? '수집 대기')}`
     : '상대강도 기준 KIS 지수 일봉 수집 대기 · 다음 스캔 이후 확인');
+  lines.push(...relativeStrengthLines(view.relativeStrengthStudy));
   const strategy = view.strategy;
   if (strategy && !strategy.error && !strategy.lastRun?.error) lines.push('', '<b>연결된 시그널 성과</b>',
     `뉴스·추세 전략 가상 청산 ${num(strategy.performance.closedCount)}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`,
@@ -72,6 +73,20 @@ export function formatPaperResearch(view: PaperExperimentView): string {
   lines.push('', '시그널은 진입 당시 뉴스·추세 학습 근거를 고정하고, 청산 결과를 별도 기록합니다.',
     '위 7개 조건은 같은 날짜·뉴스·추세·보유기간을 맞춘 탐색 연구이며 매매에 자동 적용하지 않습니다.', '/paper · /paper_bot');
   return lines.filter(line => line !== '').join('\n');
+}
+
+function relativeStrengthLines(study: PaperExperimentView['relativeStrengthStudy']): string[] {
+  if (!study) return [];
+  const lines = ['', '<b>실제 관측 상대강도 검증 · 같은 날·같은 그룹 상위 대 하위</b>'];
+  if (!study.indexReady) return [...lines, 'KOSPI·KOSDAQ 지수 일봉 수집 대기 · 다음 스캔 이후 확인'];
+  lines.push(`지수 대비 20일 상대강도 계산 ${num(study.measuredCount)}/${num(study.experimentCount)}건 · 진입 전 완료 종가 기준`);
+  for (const item of study.horizons) {
+    lines.push(item.cellCount
+      ? `D${item.horizon}: 상위 ${pct(item.upperMeanPct)} vs 하위 ${pct(item.lowerMeanPct)} → ${item.differencePct! > 0 ? '+' : ''}${item.differencePct!.toFixed(2)}%p · ${num(item.cellCount)}개 날짜·그룹 중 상위 우세 ${num(item.upperWinCount)} · ${num(item.entryDateCount)}진입일/${num(item.sampleCount)}건`
+      : `D${item.horizon}: 확정 성과가 있는 같은 날·같은 그룹 비교 대기`);
+  }
+  lines.push('장중 진입 표본 검증이며 과거 재현과 별개입니다. 매수 조건에 쓰지 않습니다.');
+  return lines;
 }
 
 function selectionLines(selection: PaperStrategySelection | undefined): string[] {

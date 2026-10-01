@@ -162,6 +162,15 @@ export interface PaperLearningGroup {
   winRatePct: number | null;
 }
 
+/** Live-sample check of index-relative 20d strength; research display only, never a decision input. */
+export interface PaperRelativeStrengthStudy {
+  experimentCount: number;
+  measuredCount: number;
+  indexReady: boolean;
+  horizons: Array<{ horizon: 1 | 3 | 5; cellCount: number; upperWinCount: number; entryDateCount: number;
+    sampleCount: number; upperMeanPct: number | null; lowerMeanPct: number | null; differencePct: number | null }>;
+}
+
 export interface PaperExperimentView {
   mode: 'SHADOW';
   strategyVersion: 'shadow-baseline-v1';
@@ -176,6 +185,7 @@ export interface PaperExperimentView {
   newsFactsStudy?: PaperNewsFactsStudy;
   investorFlowStudy?: PaperInvestorFlowStudy;
   featureStudy?: PaperFeatureStudy;
+  relativeStrengthStudy?: PaperRelativeStrengthStudy;
   experiments: PaperExperiment[];
   strategy?: PaperStrategyView;
   research?: PaperResearchView;
