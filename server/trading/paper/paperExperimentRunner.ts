@@ -8,7 +8,8 @@ import { summarizePaperFeatureCoverage } from './paperObservationFeatures.js';
 import {
   buildPaperExperimentView, capturePaperCostModel, createPaperExperiment, paperExperimentId, updatePaperOutcomes,
 } from './paperExperimentPolicy.js';
-import { refreshPaperIndexSeries } from './paperIndexCollection.js';
+import { getPaperIndexSeries, refreshPaperIndexSeries } from './paperIndexCollection.js';
+import { buildPaperRelativeStrengthStudy } from './paperRelativeStrengthStudy.js';
 import { advancePaperStrategy, loadPaperStrategyState, readPaperStrategyView } from './paperStrategyRuntime.js';
 import { refreshPaperResearch, getPaperResearchView } from './paperResearchRuntime.js';
 
@@ -79,6 +80,8 @@ export function getPaperExperimentView(includeAllRecords = false): PaperExperime
   const ledger = loadPaperExperimentLedger();
   const view = buildPaperExperimentView(ledger);
   if (includeAllRecords) view.experiments = [...ledger.experiments].reverse();
+  view.relativeStrengthStudy = buildPaperRelativeStrengthStudy(ledger.experiments, getPaperIndexSeries().series,
+    ledger.lastRun?.asOf ?? new Date().toISOString());
   return { ...view, ...(collection ? { collection: { ...collection } } : {}),
     strategy: readPaperStrategyView(includeAllRecords, ledger.experiments), research: getPaperResearchView() };
 }
