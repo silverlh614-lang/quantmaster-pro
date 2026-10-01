@@ -77,5 +77,5 @@ export function getPaperExperimentView(includeAllRecords = false): PaperExperime
   const view = buildPaperExperimentView(ledger);
   if (includeAllRecords) view.experiments = [...ledger.experiments].reverse();
   return { ...view, ...(collection ? { collection: { ...collection } } : {}),
-    strategy: readPaperStrategyView(includeAllRecords), research: getPaperResearchView() };
+    strategy: readPaperStrategyView(includeAllRecords, ledger.experiments), research: getPaperResearchView() };
 }

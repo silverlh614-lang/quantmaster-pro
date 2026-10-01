@@ -135,6 +135,26 @@ export interface PaperStrategyPerformance {
   totalNetPnl: number | null;
 }
 
+/** Same-day selectivity research; display only, never a decision input. */
+export interface PaperStrategySelection {
+  dateCount: number;
+  candidateCount: number;
+  boughtCount: number;
+  heldCount: number;
+  notBoughtCount: number;
+  selectionRatePct: number | null;
+  cohorts: Array<{ cohort: PaperStrategyCohort; candidateCount: number; boughtCount: number }>;
+  comparison: {
+    groupCount: number;
+    strategyTradeCount: number;
+    unselectedCount: number;
+    strategyMeanPct: number | null;
+    unselectedMeanPct: number | null;
+    baselineMeanPct: number | null;
+    differencePct: number | null;
+  };
+}
+
 export interface PaperStrategyView {
   strategyVersion: 'news-trend-v1' | 'news-trend-v2';
   mode: 'SHADOW';
@@ -146,5 +166,6 @@ export interface PaperStrategyView {
   lastMarketSession?: PaperStrategySessionSummary;
   latestDecisions: PaperStrategyDecision[];
   trades: PaperStrategyTrade[];
+  selection?: PaperStrategySelection;
   error?: string;
 }

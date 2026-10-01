@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import type {
   PaperStrategyCohort, PaperStrategyDecision, PaperStrategyEvidence,
-  PaperStrategyPolicy, PaperStrategyTrade, PaperStrategyView,
+  PaperStrategyPolicy, PaperStrategySelection, PaperStrategyTrade, PaperStrategyView,
 } from '../../types/paperStrategy';
 import { Section } from '../../ui/section';
 import { PaperNewsDetails } from './PaperNewsDetails';
@@ -28,6 +28,34 @@ const actionColors: Record<PaperStrategyDecision['action'], string> = {
 function percent(value: number | null): string {
   return value !== null && Number.isFinite(value)
     ? `${value > 0 ? '+' : ''}${value.toFixed(2)}%` : '집계 대기';
+}
+
+function SelectionSummary({ selection }: { selection: PaperStrategySelection }) {
+  const c = selection.comparison;
+  return (
+    <div>
+      <h4 className="mb-3 text-sm font-semibold text-slate-200">전략 선별력 · 같은 날 후보 대비</h4>
+      <dl className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {[
+          ['신규 진입률', selection.selectionRatePct === null ? '집계 대기' : `${selection.selectionRatePct.toFixed(1)}%`, `후보 ${selection.candidateCount}건 중 ${selection.boughtCount}건 · ${selection.dateCount}일`],
+          ['전략 청산 평균', percent(c.strategyMeanPct), `${c.strategyTradeCount}건`],
+          ['같은 날 미진입 평균', percent(c.unselectedMeanPct), `${c.unselectedCount}건`],
+          ['차이', c.differencePct === null ? '비교 대기' : `${c.differencePct > 0 ? '+' : ''}${c.differencePct.toFixed(2)}%p`, `${c.groupCount}개 날짜·기간`],
+        ].map(([label, value, note]) => (
+          <div key={label} className="rounded-xl border border-slate-700/60 bg-slate-900/50 p-3">
+            <dt className="text-xs text-slate-400">{label}</dt><dd className="mt-2 text-xl font-semibold tabular-nums text-sky-200">{value}</dd>
+            <p className="mt-1 text-xs text-slate-500">{note}</p>
+          </div>
+        ))}
+      </dl>
+      <ul className="mt-3 space-y-1 text-xs text-slate-400">
+        {selection.cohorts.filter(item => item.candidateCount).map(item => (
+          <li key={item.cohort}>{cohortLabels[item.cohort]} · {item.boughtCount}/{item.candidateCount} 진입</li>
+        ))}
+      </ul>
+      <p className="mt-3 text-xs text-slate-400">전략이 진입한 날의 기본 관측 후보를 같은 진입일·같은 보유기간으로 맞춰 비교합니다. 기존 보유 {selection.heldCount}건은 그날 판단에서 빠진 종목입니다. 진입률이 높고 차이가 0 근처면 종목을 거르지 못하는 상태입니다. 연구 표시이며 매수 조건에 쓰지 않습니다.</p>
+    </div>
+  );
 }
 
 function money(value: number | null): string {
@@ -164,6 +192,7 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
             </dl>
             <p className="mt-3 text-xs text-slate-400">이 전략이 선택하고 가상 청산한 거래만 비용을 반영해 집계합니다. 기본 관측 실험의 D1·D3·D5 평균 및 계좌 포트폴리오 성과와 별도입니다.</p>
           </div>
+          {view.selection && view.selection.candidateCount > 0 && <SelectionSummary selection={view.selection} />}
           <div className="space-y-3">
             <h4 className="text-sm font-semibold text-slate-200">최근 전략 판단 <span className="font-normal text-slate-500">{matchingDecisions.length}건 · 페이지당 12건</span></h4>
             <div className="workspace-filters"><input data-search-focus aria-label="전략 종목 검색" placeholder="종목명 또는 코드 검색" value={search} onChange={event => { setSearch(event.target.value); setDecisionPage(0); setTradePage(0); }} /><select aria-label="전략 판단 종류" value={action} onChange={event => { setAction(event.target.value); setDecisionPage(0); }}><option value="ALL">전체 판단</option><option value="BUY">매수</option><option value="WAIT">대기</option><option value="HOLD">보유</option><option value="EXIT">청산</option></select></div>
