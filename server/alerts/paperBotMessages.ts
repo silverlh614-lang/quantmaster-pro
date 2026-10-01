@@ -1,7 +1,7 @@
 // @responsibility Format current Shadow bot reports.
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperStrategyTrade } from '../../src/types/paperStrategy.js';
-import type { PaperStrategyCohort } from '../../src/types/paperStrategy.js';
+import type { PaperStrategyCohort, PaperStrategySelection } from '../../src/types/paperStrategy.js';
 import type { PaperBotState } from '../persistence/paperBotRepo.js';
 import { PAPER_NEWS_LABELS, summarizePaperNews } from '../../src/utils/paperNews.js';
 import { PAPER_FLOW_ISSUE_LABELS } from '../../src/types/paperInvestorFlow.js';
@@ -58,10 +58,25 @@ export function formatPaperResearch(view: PaperExperimentView): string {
   }
   const strategy = view.strategy;
   if (strategy && !strategy.error && !strategy.lastRun?.error) lines.push('', '<b>연결된 시그널 성과</b>',
-    `뉴스·추세 전략 가상 청산 ${num(strategy.performance.closedCount)}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`);
+    `뉴스·추세 전략 가상 청산 ${num(strategy.performance.closedCount)}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`,
+    ...selectionLines(strategy.selection));
   lines.push('', '시그널은 진입 당시 뉴스·추세 학습 근거를 고정하고, 청산 결과를 별도 기록합니다.',
     '위 7개 조건은 같은 날짜·뉴스·추세·보유기간을 맞춘 탐색 연구이며 매매에 자동 적용하지 않습니다.', '/paper · /paper_bot');
   return lines.filter(line => line !== '').join('\n');
+}
+
+function selectionLines(selection: PaperStrategySelection | undefined): string[] {
+  if (!selection || !selection.candidateCount) return [];
+  const c = selection.comparison;
+  const rate = selection.selectionRatePct === null ? '미확인' : `${selection.selectionRatePct.toFixed(1)}%`;
+  return ['', '<b>전략 선별력 · 같은 날 후보 대비</b>',
+    `전략 진입일 ${num(selection.dateCount)}일 · 후보 ${num(selection.candidateCount)} 중 신규 진입 ${num(selection.boughtCount)} (${rate}) · 기존 보유 ${num(selection.heldCount)} · 미진입 ${num(selection.notBoughtCount)}`,
+    ...selection.cohorts.filter(item => item.candidateCount).map(item =>
+      `• ${COHORT_LABELS[item.cohort]}: ${num(item.boughtCount)}/${num(item.candidateCount)} 진입`),
+    c.groupCount
+      ? `청산 전략 ${pct(c.strategyMeanPct)} vs 같은 날·같은 기간 미진입 ${pct(c.unselectedMeanPct)} → 차이 ${c.differencePct === null ? '미확인' : `${c.differencePct > 0 ? '+' : ''}${c.differencePct.toFixed(2)}%p`} · ${num(c.groupCount)}개 날짜·기간 (전체 후보 ${pct(c.baselineMeanPct)})`
+      : '같은 날 미진입 후보의 확정 성과가 아직 없어 선별력 비교 대기',
+    '진입률이 높고 차이가 0 근처면 전략이 종목을 거르지 못하는 상태입니다. 연구 표시이며 매수 조건에 쓰지 않습니다.'];
 }
 
 export interface PaperBotTradeEvent { id: string; at: string; trade: PaperStrategyTrade; side: 'BUY' | 'EXIT' }

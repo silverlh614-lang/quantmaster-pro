@@ -6,6 +6,7 @@ import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { capturePaperCostModel } from './paperExperimentPolicy.js';
 import { buildPaperStrategyView, evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
 import { getHistoricalPaperSamples } from './paperResearchRuntime.js';
+import { buildPaperStrategySelection } from './paperStrategySelection.js';
 
 export interface PaperStrategyState { ledger: PaperStrategyLedger | null; error?: string }
 let lastFailure: string | undefined;
@@ -35,10 +36,11 @@ export function advancePaperStrategy(
   }
 }
 
-export function readPaperStrategyView(includeAllRecords = false) {
+export function readPaperStrategyView(includeAllRecords = false, experiments?: PaperExperiment[]) {
   const state = loadPaperStrategyState();
   const ledger: PaperStrategyLedger = state.ledger ?? { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null };
   const view = buildPaperStrategyView(ledger, state.error ?? lastFailure);
   if (includeAllRecords) view.trades = [...ledger.trades].reverse();
+  if (experiments && state.ledger) view.selection = buildPaperStrategySelection(ledger.trades, experiments);
   return view;
 }
