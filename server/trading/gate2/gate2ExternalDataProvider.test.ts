@@ -472,7 +472,7 @@ describe('Gate2ExternalDataProvider', () => {
     setKisClientOverrides({
       realDataKisGet: async (trId: string) => {
         if (trId === 'FHKST66430300') return { output: [{ stac_yymm: '202412', roe_val: '18.0', lblt_rate: '40', eps: '5000', bps: '40000' }] };
-        if (trId === 'FHKST66430200') return { output: [{ sale_account: '1000', op_prfi: '200', thtr_ntin: '150' }] };
+        if (trId === 'FHKST66430200') return { output: [{ sale_account: '1000', bsop_prti: '200', thtr_ntin: '150' }] };
         if (trId === 'FHKST01010100') return { output: { per: '12.0', stck_prpr: '60000', eps: '5000' } };
         return {};
       },
@@ -483,7 +483,7 @@ describe('Gate2ExternalDataProvider', () => {
 
     const record = getGate2ExternalCacheRecord('334466');
     expect(record?.projection?.profitability?.roe).toBeCloseTo(18);
-    expect(record?.projection?.profitability?.opm).toBeCloseTo(20); // 200/1000*100 from KIS income-statement
+    expect(record?.projection?.profitability?.opm).toBeCloseTo(20); // bsop_prti 200/1000*100 from KIS income-statement
     expect(record?.projection?.conditionResults?.roe?.status).toBe('PASS');
     expect(record?.projection?.conditionResults?.opm?.status).toBe('PASS');
     expect(record?.projection?.valuation?.per?.per).toBe(12); // PER from KIS inquire-price
@@ -513,7 +513,7 @@ describe('Gate2ExternalDataProvider', () => {
     setKisClientOverrides({
       realDataKisGet: async (trId: string) => {
         if (trId === 'FHKST66430300') return { output: [{ stac_yymm: '202412', roe_val: '18.0', lblt_rate: '40' }] };
-        if (trId === 'FHKST66430200') return { output: [{ sale_account: '1000', op_prfi: '200', thtr_ntin: '150' }] };
+        if (trId === 'FHKST66430200') return { output: [{ sale_account: '1000', bsop_prti: '200', thtr_ntin: '150' }] };
         if (trId === 'FHKST01010100') return { output: { per: '12.0', stck_prpr: '60000', eps: '5000' } };
         return {};
       },
@@ -548,7 +548,7 @@ describe('Gate2ExternalDataProvider', () => {
       realDataKisGet: async (trId: string) => {
         kisCalled = true;
         if (trId === 'FHKST66430300') return { output: [{ roe_val: '20', lblt_rate: '45' }] };
-        if (trId === 'FHKST66430200') return { output: [{ sale_account: '1000', op_prfi: '200', thtr_ntin: '150' }] };
+        if (trId === 'FHKST66430200') return { output: [{ sale_account: '1000', bsop_prti: '200', thtr_ntin: '150' }] };
         if (trId === 'FHKST66430600') return { output: [{ crnt_rate: '180' }] };
         if (trId === 'FHKST01010100') return { output: { per: '10', stck_prpr: '50000', eps: '5000' } };
         return {};
