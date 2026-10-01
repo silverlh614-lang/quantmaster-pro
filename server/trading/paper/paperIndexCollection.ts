@@ -14,7 +14,7 @@ const WINDOW_DAYS = 60;
 const DAY_MS = 86_400_000;
 
 let collected: { closedDate: string; series: ResearchSeries[]; inventory: ResearchInventory } | null = null;
-let running: Promise<void> | null = null;
+let running: Promise<boolean> | null = null;
 
 const yyyymmdd = (ms: number) => toKstDateKey(new Date(ms)).replace(/-/g, '');
 
@@ -58,12 +58,15 @@ export async function collectPaperIndexSeries(now = new Date(), fetch: Fetch = f
   return { closedDate, series, inventory };
 }
 
-/** Refreshes at most once per completed session; failures are retried on the next call. */
-export function refreshPaperIndexSeries(now = new Date()): Promise<void> {
-  if (collected?.closedDate === closedDateAt(now) && collected.inventory.status === 'FOUND') return Promise.resolve();
+/** Refreshes at most once per completed session; resolves true only when new benchmark bars arrived. */
+export function refreshPaperIndexSeries(now = new Date()): Promise<boolean> {
+  if (collected?.closedDate === closedDateAt(now) && collected.inventory.status === 'FOUND') return Promise.resolve(false);
   if (!running) {
-    running = collectPaperIndexSeries(now).then(result => { collected = result; })
-      .catch(error => { console.error('[PaperIndex] 지수 일봉 수집 실패:', error instanceof Error ? error.message : String(error)); })
+    running = collectPaperIndexSeries(now).then(result => { collected = result; return result.series.length > 0; })
+      .catch(error => {
+        console.error('[PaperIndex] 지수 일봉 수집 실패:', error instanceof Error ? error.message : String(error));
+        return false;
+      })
       .finally(() => { running = null; });
   }
   return running;
