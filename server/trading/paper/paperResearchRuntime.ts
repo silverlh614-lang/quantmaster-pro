@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { PaperObservation } from '../../../src/types/paperExperiment.js';
-import type { HistoricalPaperSample, PaperResearchView, ResearchArchive, ResearchInventory, ResearchSeries } from '../../../src/types/paperResearch.js';
+import type { HistoricalPaperSample, PaperResearchView, ResearchArchive, ResearchBar, ResearchInventory, ResearchSeries } from '../../../src/types/paperResearch.js';
 import { DATA_DIR } from '../../persistence/paths.js';
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
-import { capturePaperCostModel } from './paperExperimentPolicy.js';
+import { capturePaperCostModel, type ArchivedBarCheck } from './paperExperimentPolicy.js';
 import { buildPaperResearch } from './paperResearch.js';
 import { readPaperResearchSources, seriesFromObservations } from './paperResearchSources.js';
 import { getPaperIndexSeries } from './paperIndexCollection.js';
@@ -14,6 +14,9 @@ import { getPaperIndexSeries } from './paperIndexCollection.js';
 const archivePath = (directory: string) => path.join(directory, 'paper-research-archive.json');
 const empty = (): ResearchArchive => ({ schemaVersion: 1, series: [], news: [], inventory: [] });
 let cached: { samples: HistoricalPaperSample[]; view: PaperResearchView } | null = null;
+// KIS stock bars confirmed in the last successfully written archive; entry copies of them may be trimmed.
+let archivedBars: Set<string> | null = null;
+const barKey = (symbol: string, date: string, close: number) => `${symbol}|${date}|${close}`;
 let lastAttempt = 0;
 
 export function loadResearchArchive(directory: string): ResearchArchive {
@@ -36,6 +39,53 @@ export function loadResearchArchive(directory: string): ResearchArchive {
   return value;
 }
 
+/**
+ * Daily snapshots repeat most of a symbol's history. Same-source series of one symbol are merged when every
+ * overlapping close agrees; a re-based (adjusted) or unverifiable history stays a separate series. Empty series are dropped.
+ */
+export function mergeResearchSeries(items: ResearchSeries[]): ResearchSeries[] {
+  const groups = new Map<string, ResearchSeries[]>();
+  for (const item of items) {
+    // An empty series carries no price and only grows the archive.
+    if (!item.closes.length) continue;
+    const key = `${item.id.split(':')[0]}:${item.symbol}`;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  const merged: ResearchSeries[] = [];
+  for (const [key, members] of groups) {
+    const bases: Array<{ item: ResearchSeries; bars: Map<string, ResearchBar> }> = [];
+    const ordered = [...members].sort((a, b) => b.retrievedAt.localeCompare(a.retrievedAt)
+      || b.closes.length - a.closes.length || a.id.localeCompare(b.id));
+    for (const item of ordered) {
+      const own = new Map<string, ResearchBar>();
+      let selfConflict = false;
+      for (const bar of item.closes) {
+        if (own.has(bar.date) && own.get(bar.date)!.close !== bar.close) selfConflict = true;
+        own.set(bar.date, bar);
+      }
+      // A series that disagrees with itself is kept verbatim so the reader still rejects those dates.
+      if (selfConflict) { merged.push(item.id === key ? { ...item, id: `${key}:${item.retrievedAt}` } : item); continue; }
+      const target = bases.find((base) => {
+        let overlap = 0;
+        for (const [date, bar] of own) {
+          const known = base.bars.get(date);
+          if (!known) continue;
+          if (known.close !== bar.close) return false;
+          overlap++;
+        }
+        return overlap > 0;
+      });
+      if (!target) { bases.push({ item, bars: own }); continue; }
+      for (const [date, bar] of own) if (!target.bars.has(date)) target.bars.set(date, bar);
+      if (!target.item.market && item.market) target.item = { ...target.item, market: item.market };
+    }
+    bases.forEach(({ item, bars }, index) => merged.push({ ...item,
+      id: index === 0 ? key : item.id === key ? `${key}:${item.retrievedAt}` : item.id,
+      closes: [...bars.values()].sort((a, b) => a.date.localeCompare(b.date)) }));
+  }
+  return merged;
+}
+
 export function runArchivedPaperResearch(directory = DATA_DIR, asOf = new Date().toISOString(), observations: PaperObservation[] = [],
   index: { series: ResearchSeries[]; inventory: ResearchInventory | null } = { series: [], inventory: null }) {
   if (!Number.isFinite(Date.parse(asOf))) throw new Error('연구 기준 시각을 확인할 수 없습니다.');
@@ -50,7 +100,7 @@ export function runArchivedPaperResearch(directory = DATA_DIR, asOf = new Date()
   }
   const news = new Map(previous.news.map((item) => [`${item.symbol}:${item.id}:${item.observedAt}`, item]));
   for (const item of inputs.news) news.set(`${item.symbol}:${item.id}:${item.observedAt}`, item);
-  const archive: ResearchArchive = { schemaVersion: 1, series: [...series.values()], news: [...news.values()], inventory: inputs.inventory };
+  const archive: ResearchArchive = { schemaVersion: 1, series: mergeResearchSeries([...series.values()]), news: [...news.values()], inventory: inputs.inventory };
   const result = buildPaperResearch(archive, asOf, (symbol) =>
     capturePaperCostModel(getStockByCode(symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI'));
   fs.mkdirSync(directory, { recursive: true });
@@ -64,6 +114,8 @@ export function runArchivedPaperResearch(directory = DATA_DIR, asOf = new Date()
   } finally {
     if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
   }
+  const archived = new Set(archive.series.filter((item) => item.source === 'KIS_SNAPSHOT' && /^\d{6}$/.test(item.symbol))
+    .flatMap((item) => item.closes.map((bar) => barKey(item.symbol, bar.date, bar.close))));
   // Derived, reviewable results contain no broker balances or credentials.
   const reportPath = path.join(directory, 'paper-research-report.json');
   const reportTemp = `${reportPath}.${randomUUID()}.tmp`;
@@ -73,20 +125,30 @@ export function runArchivedPaperResearch(directory = DATA_DIR, asOf = new Date()
   } finally {
     if (fs.existsSync(reportTemp)) fs.unlinkSync(reportTemp);
   }
-  return result;
+  return { ...result, archivedBars: archived };
 }
 
 export function refreshPaperResearch(observations: PaperObservation[] = [], force = false): void {
   const now = Date.now();
   if (!force && now - lastAttempt < (cached?.view.error ? 60_000 : 3_600_000)) return;
   lastAttempt = now;
-  try { cached = runArchivedPaperResearch(DATA_DIR, new Date(now).toISOString(), observations, getPaperIndexSeries()); }
+  try {
+    const result = runArchivedPaperResearch(DATA_DIR, new Date(now).toISOString(), observations, getPaperIndexSeries());
+    cached = { samples: result.samples, view: result.view };
+    archivedBars = result.archivedBars;
+  }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[PaperResearch]', message);
     const result = cached ?? buildPaperResearch(empty(), new Date(now).toISOString(), () => capturePaperCostModel('KOSPI'));
     cached = { samples: result.samples, view: { ...result.view, error: message } };
   }
+}
+
+/** Null until an archive write succeeds in this process, so nothing is trimmed on unverified data. */
+export function getArchivedPaperBarCheck(): ArchivedBarCheck | null {
+  const bars = archivedBars;
+  return bars ? (symbol, date, close) => bars.has(barKey(symbol, date, close)) : null;
 }
 
 export function getHistoricalPaperSamples(): HistoricalPaperSample[] { return cached?.view.error ? [] : cached?.samples ?? []; }

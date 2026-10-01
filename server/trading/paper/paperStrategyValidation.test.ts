@@ -6,6 +6,7 @@ import * as calendar from '../../calendar/krxTradingCalendar.js';
 import { evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
 import { emptyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from './paperStrategyFixtures.js';
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
+import { EMPTY_EVIDENCE_DIGEST } from './paperStrategyEvidence.js';
 
 const enter = () => evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples(), strategyTestSnapshot(), strategyTestCost);
 function closed(): PaperStrategyLedger {
@@ -31,8 +32,9 @@ describe('persisted strategy evidence integrity', () => {
     ['unpaired horizon count', (ledger) => { ledger.trades[0].entryDecision.evidence!.horizons[0].count--; }],
     ['inconsistent daily mean', (ledger) => { ledger.trades[0].entryDecision.evidence!.horizons[1].meanDailyNetReturnPct = 99; }],
     ['missing mean on mature rows', (ledger) => { ledger.trades[0].entryDecision.evidence!.horizons[0].meanNetReturnPct = null; }],
-    ['duplicate evidence IDs', (ledger) => { const ids = ledger.trades[0].entryDecision.evidence!.experimentIds; ids[0] = ids[1]; }],
-    ['missing evidence ID', (ledger) => { ledger.trades[0].entryDecision.evidence!.experimentIds.pop(); }],
+    ['malformed evidence digest', (ledger) => { ledger.trades[0].entryDecision.evidence!.experimentIdsDigest = 'not-a-digest'; }],
+    ['empty-set digest on mature evidence', (ledger) => { ledger.trades[0].entryDecision.evidence!.experimentIdsDigest = EMPTY_EVIDENCE_DIGEST; }],
+    ['baseline and historical counts not adding up', (ledger) => { ledger.trades[0].entryDecision.evidence!.historicalSampleCount = 1; }],
     ['impossible entry-date count', (ledger) => { ledger.trades[0].entryDecision.evidence!.entryDateCount = 13; }],
     ['non-optimal selected horizon', (ledger) => { ledger.trades[0].entryDecision.evidence!.selectedHorizon = 5; }],
     ['longer horizon selected in a tie', (ledger) => {
@@ -94,7 +96,7 @@ describe('persisted strategy lifecycle integrity', () => {
     ['exit decision time', (ledger) => { ledger.trades[0].exit!.decision.decisionAt = '2026-09-28T02:00:00Z'; }],
     ['exit decision trade ID', (ledger) => { ledger.trades[0].exit!.decision.tradeId = 'other-trade'; }],
     ['exit decision reason', (ledger) => { ledger.trades[0].exit!.decision.reasonCode = 'HORIZON_PENDING'; }],
-    ['changed exit evidence', (ledger) => { ledger.trades[0].exit!.decision.evidence!.experimentIds[0] = 'different-evidence'; }],
+    ['changed exit evidence', (ledger) => { ledger.trades[0].exit!.decision.evidence!.experimentIdsDigest = 'a'.repeat(64); }],
     ['premature observed exit', (ledger) => { ledger.trades[0].exit!.observedAt = '2026-09-23T06:00:00Z'; }],
   ];
   it.each(corruptExit)('rejects mismatched %s metadata', (_, mutate) => {

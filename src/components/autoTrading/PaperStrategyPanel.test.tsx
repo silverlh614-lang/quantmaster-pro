@@ -16,7 +16,7 @@ const policy: PaperStrategyPolicy = {
 };
 const evidence: PaperStrategyEvidence = {
   cutoffAt: '2026-09-10T01:00:00Z', cohort: 'NEWS_RECENT_ABOVE_MA20',
-  sampleCount: 12, entryDateCount: 4, experimentIds: ['prior-1'], selectedHorizon: 3,
+  sampleCount: 12, entryDateCount: 4, experimentIdsDigest: 'a'.repeat(64), selectedHorizon: 3,
   horizons: [
     { horizon: 1, count: 12, meanNetReturnPct: 0.21, meanDailyNetReturnPct: 0.21, winRatePct: 60 },
     { horizon: 3, count: 12, meanNetReturnPct: 1.08, meanDailyNetReturnPct: 0.36, winRatePct: 70 },

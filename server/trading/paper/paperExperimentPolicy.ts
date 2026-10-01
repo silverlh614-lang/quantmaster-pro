@@ -5,6 +5,7 @@ import type {
   PaperLearningGroup, PaperNewsGroup, PaperNewsStudy, PaperObservation, PaperOutcome, PaperSnapshot,
 } from '../../../src/types/paperExperiment.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
+import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { getExecutionCostConfig, type Market } from '../executionCosts.js';
 import { calculatePaperReturn } from './paperAccounting.js';
 import { PAPER_NEWS_LOOKBACK_HOURS, PAPER_NEWS_VERSION, summarizePaperNews } from '../../../src/utils/paperNews.js';
@@ -61,6 +62,32 @@ export function createPaperExperiment(
     status: 'OPEN',
     outcomes: [],
   };
+}
+
+/** Sessions kept per entry once older bars are confirmed in the research archive: enough to recheck MA20 and 20-session returns. */
+export const PAPER_ENTRY_BAR_SESSIONS = 21;
+export type ArchivedBarCheck = (symbol: string, tradingDate: string, close: number) => boolean;
+const entryBarStarts = new Map<string, string>();
+
+function entryBarStart(tradingDate: string): string {
+  let start = entryBarStarts.get(tradingDate);
+  if (!start) {
+    start = tradingDate;
+    for (let i = 0; i < PAPER_ENTRY_BAR_SESSIONS; i++) start = previousKrxTradingDay(new Date(`${start}T12:00:00+09:00`));
+    entryBarStarts.set(tradingDate, start);
+  }
+  return start;
+}
+
+/**
+ * Each entry used to carry its own copy of the symbol's whole recent history (ADR-0680). Older bars are dropped
+ * only when every one of them is already stored with the same close in the research archive.
+ */
+export function trimArchivedEntryBars(observation: PaperObservation, tradingDate: string, archived: ArchivedBarCheck): PaperObservation {
+  const start = entryBarStart(tradingDate);
+  const dropped = observation.dailyCloses.filter((bar) => bar.tradingDate < start);
+  if (!dropped.length || !dropped.every((bar) => archived(observation.symbol, bar.tradingDate, bar.close))) return observation;
+  return { ...observation, dailyCloses: observation.dailyCloses.filter((bar) => bar.tradingDate >= start) };
 }
 
 /** Each horizon uses its exact calendar date; missing D1 is never relabelled D2. */

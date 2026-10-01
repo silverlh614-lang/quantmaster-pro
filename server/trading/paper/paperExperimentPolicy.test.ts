@@ -2,7 +2,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { PaperObservation, PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import { computeNetPnL, resetExecutionCostOverride, setExecutionCostOverride } from '../executionCosts.js';
-import { buildPaperExperimentView, capturePaperCostModel, createPaperExperiment, updatePaperOutcomes } from './paperExperimentPolicy.js';
+import { buildPaperExperimentView, capturePaperCostModel, createPaperExperiment, PAPER_ENTRY_BAR_SESSIONS, trimArchivedEntryBars, updatePaperOutcomes } from './paperExperimentPolicy.js';
+import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 
 const observation = (): PaperObservation => ({
   symbol: '005930', name: 'Samsung', price: 10000, observedAt: '2026-09-18T01:00:00Z',
@@ -98,5 +99,34 @@ describe('independent paper experiment policy', () => {
     expect(view.experiments).toHaveLength(200);
     expect(view.outcomes.map((item) => item.meanNetReturnPct)).toEqual([null, null, null]);
     expect(view.groups.every((group) => group.meanNetReturnPct === null && group.count === 0)).toBe(true);
+  });
+});
+
+describe('archived entry bars', () => {
+  const history = () => {
+    let date = '2026-09-18';
+    const bars = Array.from({ length: 60 }, (_, i) => {
+      date = previousKrxTradingDay(new Date(`${date}T12:00:00+09:00`));
+      return { tradingDate: date, close: 10000 + i, availableAt: '2026-09-18T00:00:00Z' };
+    });
+    return { ...observation(), dailyCloses: bars };
+  };
+
+  it('keeps the last 21 completed sessions once every older bar is archived with the same close', () => {
+    const full = history();
+    const trimmed = trimArchivedEntryBars(full, '2026-09-18', () => true);
+    expect(trimmed.dailyCloses).toEqual(full.dailyCloses.slice(0, PAPER_ENTRY_BAR_SESSIONS));
+    expect(trimmed.dailyCloses.at(-1)!.tradingDate).toBe(full.dailyCloses[PAPER_ENTRY_BAR_SESSIONS - 1].tradingDate);
+    expect({ ...trimmed, dailyCloses: [] }).toEqual({ ...full, dailyCloses: [] });
+    expect(trimArchivedEntryBars(trimmed, '2026-09-18', () => true)).toBe(trimmed);
+  });
+
+  it('keeps every bar while any older bar is missing from the archive', () => {
+    const full = history();
+    const missing = full.dailyCloses[40];
+    const archived = (symbol: string, date: string, close: number) =>
+      symbol === '005930' && !(date === missing.tradingDate && close === missing.close);
+    expect(trimArchivedEntryBars(full, '2026-09-18', archived)).toBe(full);
+    expect(trimArchivedEntryBars(full, '2026-09-18', (_, date, close) => date !== missing.tradingDate || close !== missing.close + 1)).not.toBe(full);
   });
 });

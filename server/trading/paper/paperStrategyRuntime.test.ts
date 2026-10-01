@@ -6,6 +6,10 @@ const state = vi.hoisted(() => ({
   baseline: { schemaVersion: 1, experiments: [], lastRun: null } as PaperExperimentLedger,
   strategy: { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null } as PaperStrategyLedger,
   collect: vi.fn(), saveBaseline: vi.fn(), saveStrategy: vi.fn(), loadStrategy: vi.fn(), loadBaseline: vi.fn(),
+  archived: null as null | ((symbol: string, date: string, close: number) => boolean),
+}));
+vi.mock('./paperResearchRuntime.js', async (original) => ({
+  ...(await original<typeof import('./paperResearchRuntime.js')>()), getArchivedPaperBarCheck: () => state.archived,
 }));
 vi.mock('../../persistence/paperExperimentRepo.js', () => ({
   loadPaperExperimentLedger: state.loadBaseline, savePaperExperimentLedger: state.saveBaseline,
@@ -14,10 +18,12 @@ vi.mock('../../persistence/paperStrategyRepo.js', () => ({ loadPaperStrategyLedg
 vi.mock('../../persistence/krxStockMasterRepo.js', () => ({ getStockByCode: () => ({ market: 'KOSPI' }) }));
 vi.mock('./paperExperimentCollector.js', () => ({ collectPaperExperimentSnapshot: state.collect }));
 import { emptyStrategyLedger, matureStrategySamples, strategyTestSnapshot } from './paperStrategyFixtures.js';
+import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
+  state.archived = null;
   state.baseline = { schemaVersion: 1, experiments: matureStrategySamples(), lastRun: null };
   state.strategy = emptyStrategyLedger();
   state.loadBaseline.mockReset().mockImplementation(() => structuredClone(state.baseline));
@@ -180,4 +186,26 @@ describe('strategy integration in the default Shadow runner', () => {
     expect(state.strategy).toEqual(originalStrategy);
   });
 
+
+  it('trims a trade\'s entry bars once the archive confirms them, without changing its decision', async () => {
+    let date = '2026-09-18';
+    const bars = Array.from({ length: 30 }, (_, i) => {
+      date = previousKrxTradingDay(new Date(`${date}T12:00:00+09:00`));
+      return { tradingDate: date, close: 9000 + i, availableAt: '2026-09-17T07:00:00Z' };
+    });
+    const snapshot = strategyTestSnapshot();
+    snapshot.observations[0].dailyCloses = bars;
+    state.collect.mockResolvedValue(snapshot);
+    let runner = await import('./paperExperimentRunner.js');
+    await runner.runPaperExperimentScan();
+    expect(state.strategy.trades[0].entryObservation.dailyCloses).toHaveLength(30);
+    const decision = structuredClone(state.strategy.trades[0].entryDecision);
+    state.archived = () => true;
+    vi.resetModules();
+    runner = await import('./paperExperimentRunner.js');
+    await runner.runPaperExperimentScan();
+    expect(state.strategy.trades[0].entryObservation.dailyCloses).toEqual(bars.slice(0, 21));
+    expect(state.strategy.trades[0].entryDecision).toEqual(decision);
+    expect(state.baseline.experiments.find((item) => item.tradingDate === '2026-09-18')!.entryObservation.dailyCloses).toEqual(bars.slice(0, 21));
+  });
 });

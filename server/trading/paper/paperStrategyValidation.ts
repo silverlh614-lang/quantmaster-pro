@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { PaperStrategyEvidence, PaperStrategyLedger } from '../../../src/types/paperStrategy.js';
 import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { calculatePaperReturn } from './paperAccounting.js';
-import { paperStrategyCohort } from './paperStrategyEvidence.js';
+import { EMPTY_EVIDENCE_DIGEST, paperStrategyCohort } from './paperStrategyEvidence.js';
 import { PAPER_FLOW_ISSUE_LABELS, type PaperFlowIssue } from '../../../src/types/paperInvestorFlow.js';
 import { PAPER_NEWS_EVENT_LABELS, type PaperNewsEvent } from '../../../src/types/paperNewsFacts.js';
 
@@ -38,7 +38,7 @@ const policy = z.object({ version, newsLookbackHours: finite.positive(), minimum
   minimumEntryDates: finite.int().positive(), horizonSelection: z.literal('MEAN_NET_RETURN_PER_DAY'), exitModel: z.literal('SCHEDULED_CLOSE') });
 const evidence = z.object({
   cutoffAt: timestamp, cohort, sampleCount: finite.int().nonnegative(), entryDateCount: finite.int().nonnegative(),
-  experimentIds: z.array(z.string()), selectedHorizon: horizon.nullable(),
+  experimentIdsDigest: z.string().regex(/^[0-9a-f]{64}$/), selectedHorizon: horizon.nullable(),
   historicalSampleCount: finite.int().nonnegative().optional(), baselineSampleCount: finite.int().nonnegative().optional(),
   horizons: z.array(z.object({ horizon, count: finite.int().nonnegative(), meanNetReturnPct: finite.nullable(),
     meanDailyNetReturnPct: finite.nullable(), winRatePct: finite.min(0).max(100).nullable() })).length(3),
@@ -69,13 +69,11 @@ const ledgerSchema = z.object({ schemaVersion: z.literal(1), trades: z.array(tra
     waitingCount: finite.int().nonnegative(), holdingCount: finite.int().nonnegative(), error: z.string().optional() }).nullable() });
 
 function consistentEvidence(value: PaperStrategyEvidence): boolean {
-  const { sampleCount, entryDateCount, experimentIds, horizons } = value;
+  const { sampleCount, entryDateCount, horizons } = value;
   if (value.historicalSampleCount !== undefined || value.baselineSampleCount !== undefined) {
-    if ((value.historicalSampleCount ?? 0) + (value.baselineSampleCount ?? 0) !== sampleCount
-      || value.historicalSampleCount !== experimentIds.filter((id) => id.startsWith('historical-close:')).length) return false;
+    if ((value.historicalSampleCount ?? 0) + (value.baselineSampleCount ?? 0) !== sampleCount) return false;
   }
-  if (experimentIds.length !== sampleCount || new Set(experimentIds).size !== sampleCount
-    || experimentIds.some((id) => !id.trim()) || entryDateCount > sampleCount
+  if (entryDateCount > sampleCount || (sampleCount === 0) !== (value.experimentIdsDigest === EMPTY_EVIDENCE_DIGEST)
     || (sampleCount === 0 ? entryDateCount !== 0 : entryDateCount === 0)
     || new Set(horizons.map((item) => item.horizon)).size !== 3) return false;
   for (const item of horizons) {
@@ -92,8 +90,7 @@ function consistentEvidence(value: PaperStrategyEvidence): boolean {
 
 function sameEvidence(left: PaperStrategyEvidence, right: PaperStrategyEvidence | null): boolean {
   if (!right) return false;
-  const normalized = (value: PaperStrategyEvidence) => ({ ...value,
-    experimentIds: [...value.experimentIds].sort(), horizons: [...value.horizons].sort((a, b) => a.horizon - b.horizon) });
+  const normalized = (value: PaperStrategyEvidence) => ({ ...value, horizons: [...value.horizons].sort((a, b) => a.horizon - b.horizon) });
   return JSON.stringify(normalized(left)) === JSON.stringify(normalized(right));
 }
 

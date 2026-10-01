@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readPaperResearchSources } from './paperResearchSources.js';
-import { loadResearchArchive, runArchivedPaperResearch } from './paperResearchRuntime.js';
+import { loadResearchArchive, mergeResearchSeries, runArchivedPaperResearch } from './paperResearchRuntime.js';
 
 const directories: string[] = [];
 const temporary = () => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qmp-research-')); directories.push(dir); return dir; };
@@ -40,6 +40,43 @@ describe('research persistence', () => {
     expect(first.view.inventory).toContainEqual(inventory);
     runArchivedPaperResearch(dir, '2026-09-12T01:00:00Z', [], { series: series('2026-09-13T07:00:00Z', 1), inventory });
     expect(loadResearchArchive(dir).series.find((item) => item.symbol === '^KS11')?.closes[0].close).toBe(3000);
+  });
+
+  it('merges a symbol\'s overlapping snapshots once and keeps a re-based history separate', () => {
+    const bar = (date: string, close: number) => ({ date, close });
+    const snapshot = (id: string, retrievedAt: string, closes: Array<{ date: string; close: number }>, market?: 'KOSPI') =>
+      ({ id, symbol: '005930', source: 'KIS_SNAPSHOT' as const, retrievedAt, closes, ...(market ? { market } : {}) });
+    const older = snapshot('kis:005930:a', '2026-09-10T00:00:00Z', [bar('2026-09-07', 100), bar('2026-09-08', 101)], 'KOSPI');
+    const newer = snapshot('kis:005930:b', '2026-09-11T00:00:00Z', [bar('2026-09-08', 101), bar('2026-09-09', 102)]);
+    const rebased = snapshot('kis:005930:c', '2026-09-09T00:00:00Z', [bar('2026-09-07', 50), bar('2026-09-06', 49)]);
+    const other = { ...snapshot('chart:005930:d', '2026-09-11T00:00:00Z', [bar('2026-09-08', 101)]), source: 'ARCHIVED_CHART' as const };
+    const merged = mergeResearchSeries([older, newer, rebased, other, snapshot('kis:005930:e', '2026-09-12T00:00:00Z', [])]);
+    expect(merged.map((item) => [item.id, item.retrievedAt, item.market, item.closes.map((value) => value.close)])).toEqual([
+      ['kis:005930', '2026-09-11T00:00:00Z', 'KOSPI', [100, 101, 102]],
+      ['kis:005930:c', '2026-09-09T00:00:00Z', undefined, [49, 50]],
+      ['chart:005930', '2026-09-11T00:00:00Z', undefined, [101]],
+    ]);
+    // Idempotent: a merged archive plus the same inputs does not grow.
+    expect(mergeResearchSeries([...merged, older, newer])).toEqual(merged);
+  });
+
+  it('stores one merged series per symbol in the persisted archive', () => {
+    const dir = temporary();
+    const bars = (from: number, count: number) => Array.from({ length: count }, (_, i) => ({
+      tradingDate: `2026-08-${String(from + i).padStart(2, '0')}`, close: 100 + from + i, availableAt: '2026-08-28T00:00:00Z' }));
+    const experiment = (day: number, closes: ReturnType<typeof bars>) => ({ id: `e${day}`, symbol: '005930', entryAt: `2026-08-${day}T01:00:00Z`,
+      entryObservation: { symbol: '005930', market: 'KOSPI', source: 'KIS_REST_REQUEST_OBSERVED', dailyCloses: closes } });
+    fs.writeFileSync(path.join(dir, 'paper-experiments.json'), JSON.stringify({ schemaVersion: 1, lastRun: null,
+      experiments: [experiment(29, bars(3, 20)), experiment(30, bars(4, 20)), experiment(31, bars(5, 20))] }));
+    const { archivedBars } = runArchivedPaperResearch(dir, '2026-09-12T00:00:00Z');
+    expect(archivedBars.has('005930|2026-08-03|103')).toBe(true);
+    expect(archivedBars.has('005930|2026-08-03|104')).toBe(false);
+    const series = loadResearchArchive(dir).series.filter((item) => item.symbol === '005930');
+    expect(series).toHaveLength(1);
+    expect(series[0]).toMatchObject({ id: 'kis:005930', market: 'KOSPI' });
+    expect(series[0].closes).toHaveLength(22);
+    runArchivedPaperResearch(dir, '2026-09-13T00:00:00Z');
+    expect(loadResearchArchive(dir).series.filter((item) => item.symbol === '005930')).toHaveLength(1);
   });
 
   it('reports missing and malformed source files without inventing successful samples', () => {

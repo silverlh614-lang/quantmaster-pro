@@ -54,7 +54,8 @@ export function savePaperExperimentLedger(ledger: PaperExperimentLedger): void {
   let descriptor: number | undefined;
   try {
     descriptor = fs.openSync(temporary, 'wx');
-    fs.writeFileSync(descriptor, JSON.stringify(ledger, null, 2), 'utf8');
+    // Compact JSON: indentation roughly doubled the size of a file rewritten every minute.
+    fs.writeFileSync(descriptor, JSON.stringify(ledger), 'utf8');
     fs.fsyncSync(descriptor);
     fs.closeSync(descriptor);
     descriptor = undefined;
