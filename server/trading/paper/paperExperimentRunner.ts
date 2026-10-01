@@ -8,6 +8,7 @@ import { summarizePaperFeatureCoverage } from './paperObservationFeatures.js';
 import {
   buildPaperExperimentView, capturePaperCostModel, createPaperExperiment, paperExperimentId, updatePaperOutcomes,
 } from './paperExperimentPolicy.js';
+import { refreshPaperIndexSeries } from './paperIndexCollection.js';
 import { advancePaperStrategy, loadPaperStrategyState, readPaperStrategyView } from './paperStrategyRuntime.js';
 import { refreshPaperResearch, getPaperResearchView } from './paperResearchRuntime.js';
 
@@ -17,6 +18,8 @@ let collection: PaperCollectionProgress | undefined;
 async function scan(): Promise<PaperScanResult> {
   const startedAt = new Date().toISOString();
   collection = { startedAt, lastProgressAt: startedAt, completed: 0, total: 0 };
+  // Index benchmarks are fetched in the background; research uses them from its next refresh.
+  void refreshPaperIndexSeries();
   // Local historical research can proceed even if the following market-data collection fails.
   refreshPaperResearch();
   const ledger = loadPaperExperimentLedger();

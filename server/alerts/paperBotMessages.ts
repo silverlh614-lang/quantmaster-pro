@@ -56,6 +56,9 @@ export function formatPaperResearch(view: PaperExperimentView): string {
     const difference = item.status === 'EVALUATED' && item.matchedDifferencePct !== null ? `${item.matchedDifferencePct > 0 ? '+' : ''}${item.matchedDifferencePct.toFixed(2)}%p` : '비교 대기';
     lines.push(`• ${escape(item.label)}: ${difference} · ${item.testCount}건/${item.testSymbolCount}종목/${item.testDateCount}진입일`);
   }
+  const index = research.inventory?.find(item => item.file.startsWith('KIS 지수 일봉'));
+  lines.push(index ? `상대강도 기준 KIS 지수 일봉 ${num(index.records)}건 · ${index.status === 'FOUND' ? '수집 완료' : escape(index.issue ?? '수집 대기')}`
+    : '상대강도 기준 KIS 지수 일봉 수집 대기 · 다음 스캔 이후 확인');
   const strategy = view.strategy;
   if (strategy && !strategy.error && !strategy.lastRun?.error) lines.push('', '<b>연결된 시그널 성과</b>',
     `뉴스·추세 전략 가상 청산 ${num(strategy.performance.closedCount)}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`,

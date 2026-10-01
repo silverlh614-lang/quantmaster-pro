@@ -3,12 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { PaperObservation } from '../../../src/types/paperExperiment.js';
-import type { HistoricalPaperSample, PaperResearchView, ResearchArchive } from '../../../src/types/paperResearch.js';
+import type { HistoricalPaperSample, PaperResearchView, ResearchArchive, ResearchInventory, ResearchSeries } from '../../../src/types/paperResearch.js';
 import { DATA_DIR } from '../../persistence/paths.js';
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { capturePaperCostModel } from './paperExperimentPolicy.js';
 import { buildPaperResearch } from './paperResearch.js';
 import { readPaperResearchSources, seriesFromObservations } from './paperResearchSources.js';
+import { getPaperIndexSeries } from './paperIndexCollection.js';
 
 const archivePath = (directory: string) => path.join(directory, 'paper-research-archive.json');
 const empty = (): ResearchArchive => ({ schemaVersion: 1, series: [], news: [], inventory: [] });
@@ -35,12 +36,15 @@ export function loadResearchArchive(directory: string): ResearchArchive {
   return value;
 }
 
-export function runArchivedPaperResearch(directory = DATA_DIR, asOf = new Date().toISOString(), observations: PaperObservation[] = []) {
+export function runArchivedPaperResearch(directory = DATA_DIR, asOf = new Date().toISOString(), observations: PaperObservation[] = [],
+  index: { series: ResearchSeries[]; inventory: ResearchInventory | null } = { series: [], inventory: null }) {
   if (!Number.isFinite(Date.parse(asOf))) throw new Error('연구 기준 시각을 확인할 수 없습니다.');
   const previous = loadResearchArchive(directory);
   const inputs = readPaperResearchSources(directory, asOf);
+  if (index.inventory) inputs.inventory.push(index.inventory);
   const series = new Map(previous.series.map((item) => [item.id, item]));
-  for (const item of [...inputs.series, ...seriesFromObservations(observations, asOf)]) {
+  const indexSeries = index.series.filter((item) => Date.parse(item.retrievedAt) <= Date.parse(asOf));
+  for (const item of [...inputs.series, ...seriesFromObservations(observations, asOf), ...indexSeries]) {
     const stored = series.get(item.id);
     if (!stored || item.retrievedAt > stored.retrievedAt) series.set(item.id, item);
   }
@@ -76,7 +80,7 @@ export function refreshPaperResearch(observations: PaperObservation[] = [], forc
   const now = Date.now();
   if (!force && now - lastAttempt < (cached?.view.error ? 60_000 : 3_600_000)) return;
   lastAttempt = now;
-  try { cached = runArchivedPaperResearch(DATA_DIR, new Date(now).toISOString(), observations); }
+  try { cached = runArchivedPaperResearch(DATA_DIR, new Date(now).toISOString(), observations, getPaperIndexSeries()); }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[PaperResearch]', message);

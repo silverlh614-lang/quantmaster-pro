@@ -30,6 +30,18 @@ describe('research persistence', () => {
     expect(fs.existsSync(path.join(dir, 'paper-research-report.json'))).toBe(true);
   });
 
+  it('archives KIS index benchmarks retrieved before the research cutoff and reports their status', () => {
+    const dir = temporary();
+    const inventory = { file: 'KIS 지수 일봉(KOSPI·KOSDAQ)', records: 1, status: 'FOUND' as const };
+    const series = (retrievedAt: string, close: number) => [{ id: 'kis-index:^KS11', symbol: '^KS11', market: 'KOSPI' as const,
+      source: 'KIS_SNAPSHOT' as const, retrievedAt, closes: [{ date: '2026-09-11', close }] }];
+    const first = runArchivedPaperResearch(dir, '2026-09-12T00:00:00Z', [], { series: series('2026-09-11T07:00:00Z', 3000), inventory });
+    expect(first.view.benchmarkSeriesCount).toBe(1);
+    expect(first.view.inventory).toContainEqual(inventory);
+    runArchivedPaperResearch(dir, '2026-09-12T01:00:00Z', [], { series: series('2026-09-13T07:00:00Z', 1), inventory });
+    expect(loadResearchArchive(dir).series.find((item) => item.symbol === '^KS11')?.closes[0].close).toBe(3000);
+  });
+
   it('reports missing and malformed source files without inventing successful samples', () => {
     const dir = temporary();
     fs.writeFileSync(path.join(dir, 'offhours-snapshot.json'), '{broken');
