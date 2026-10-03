@@ -7,6 +7,7 @@ import type { PaperAdaptiveCandidate, PaperAdaptiveState, PaperIndicatorInventio
 import { createPaperIndicatorFormula, paperIndicatorFormulaId } from '../../types/paperIndicatorFormula';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { PaperResearchBoard } from './PaperResearchBoard';
+import { PAPER_FEATURES } from '../../types/paperObservationFeatures';
 
 const base: PaperAdaptiveCandidate = {
   rule: { feature: 'rsi14', bucket: 1, horizon: 3 }, active: true, reason: 'ACTIVE',
@@ -33,7 +34,7 @@ afterEach(() => { cleanup(); useSettingsStore.getState().setView('DASHBOARD'); }
 describe('PaperResearchBoard', () => {
   it('keeps an unknown research state distinct from a confirmed empty result', () => {
     const { rerender } = render(<PaperResearchBoard />);
-    expect(screen.getByLabelText('기본 지표 26개')).toBeTruthy();
+    expect(screen.getByLabelText(`기본 지표 ${Object.keys(PAPER_FEATURES).length}개`)).toBeTruthy();
     expect(screen.getByLabelText('검토한 수식 확인 대기')).toBeTruthy();
     expect(screen.getByLabelText('매수에 채택 확인 대기')).toBeTruthy();
     expect(screen.getByText('첫 연구 결과를 기다립니다')).toBeTruthy();

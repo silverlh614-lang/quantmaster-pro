@@ -18,7 +18,7 @@ export function PaperFeaturePanel({ coverage, study }: { coverage?: PaperFeature
   const [key, setKey] = useState<PaperFeatureKey>('rsi14');
   const selected = study?.features.find(item => item.key === key);
   return <Section title="동시 관측 조건 비교">
-    <p className="text-sm text-slate-300">같은 관측에 기술·실적·재무 26개 항목을 함께 기록합니다. 자율 판단 전략은 각 지표를 개별 평가하고 학습·후반 확인 성과에 따라 매수 연결을 갱신합니다. 모든 항목의 동시 충족을 요구하지 않습니다.</p>
+    <p className="text-sm text-slate-300">같은 관측에 기술·실적·재무 {Object.keys(PAPER_FEATURES).length}개 원지표를 기록하고 조합 수식을 연구합니다. 원지표 목록은 확장할 수 있으며, 각 조건의 학습·후반 확인 성과에 따라 매수 연결을 갱신합니다. 모든 항목의 동시 충족을 요구하지 않습니다.</p>
     <p className="text-xs text-slate-400">아래는 지표 구간별 관측 성과입니다. 현재 연결된 지표와 해제 사유, 실제 가상 매수 근거는 전략 화면에서 확인합니다.</p>
     <p className="text-xs text-slate-400">기술 지표는 최근 완료된 일봉 기준입니다. 장중 현재가 지표와 구분합니다. 재무는 출처별 결산기간을 보존하며 캐시를 순차 갱신합니다.</p>
     <details className="text-sm text-slate-300" open>

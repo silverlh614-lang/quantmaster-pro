@@ -11,11 +11,13 @@ import { PAPER_NEWS_LOOKBACK_HOURS, scheduledPaperClose } from './paperStrategyE
 import { summarizePaperNews } from '../../../src/utils/paperNews.js';
 import { paperAdaptiveRuleLabel, type PaperAdaptiveCandidate, type PaperAdaptiveState, type PaperExplorationTrial } from '../../../src/types/paperAdaptive.js';
 import { adaptiveFeatureValue, adaptiveRuleMatches, PAPER_ADAPTIVE_POLICY } from './paperAdaptiveSelection.js';
+import { advancePaperExitResearch, freezePaperExitPolicy, initializePaperExitResearch, selectPaperExitLearning } from './paperAdaptiveExit.js';
+import { readPaperTradeRulePoint } from './paperTradeMeasurements.js';
 
 export const ADAPTIVE_STRATEGY_POLICY = Object.freeze({ version: PAPER_ADAPTIVE_POLICY.version,
   newsLookbackHours: PAPER_NEWS_LOOKBACK_HOURS, minimumSamples: PAPER_ADAPTIVE_POLICY.minimumSamples,
   minimumEntryDates: PAPER_ADAPTIVE_POLICY.minimumEntryDates, horizonSelection: 'FORWARD_VALIDATED_FEATURE' as const,
-  exitModel: 'SCHEDULED_CLOSE' as const });
+  exitModel: 'ADAPTIVE_OBSERVED' as const });
 
 function decision(
   snapshot: PaperSnapshot, observation: Pick<PaperObservation, 'symbol' | 'name'> & Partial<Pick<PaperObservation, 'news' | 'investorFlow'>>,
@@ -82,11 +84,32 @@ function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, a
   return adaptiveEntryDecision(snapshot, observation, adaptive);
 }
 
-function closeDecision(trade: PaperStrategyTrade, snapshot: PaperSnapshot, observation?: PaperObservation): PaperStrategyDecision {
+function closeDecision(trade: PaperStrategyTrade, snapshot: PaperSnapshot, ledger: PaperStrategyLedger, observation?: PaperObservation): PaperStrategyDecision {
   const evidence = trade.entryDecision.evidence;
   const carry = (result: PaperStrategyDecision): PaperStrategyDecision => ({ ...result,
     ...(trade.entryDecision.adaptiveEvidence ? { adaptiveEvidence: structuredClone(trade.entryDecision.adaptiveEvidence) } : {}),
     ...(trade.entryDecision.explorationEvidence ? { explorationEvidence: structuredClone(trade.entryDecision.explorationEvidence) } : {}) });
+  if (trade.policy.exitModel === 'ADAPTIVE_OBSERVED') {
+    const update = advancePaperExitResearch(trade, snapshot, observation);
+    trade.exitResearch = update.research;
+    const trigger = update.trigger;
+    if (!trigger || trigger.reason === 'D5_BENCHMARK') return carry(decision(snapshot, trade, 'HOLD',
+      update.quoteAccepted ? 'ADAPTIVE_EXIT_HOLD' : 'ADAPTIVE_EXIT_QUOTE_UNAVAILABLE',
+      update.quoteAccepted ? '새 가격 확인 · 손실 제한·수익 반납·진입 근거 약화 조건 미충족, D일 강제 청산 없음'
+        : '매도 판단용 유효한 새 장중 가격 대기 · 누락 자료를 매도 신호로 취급하지 않습니다.', evidence, trade.id));
+    const reasons = { ADAPTIVE_STOP_LOSS: '비용 차감 손실 제한', ADAPTIVE_TRAILING_STOP: '관측 수익 고점 대비 반납',
+      ADAPTIVE_SIGNAL_LOST: '진입 조건의 지속적인 약화' };
+    const exit = carry(decision(snapshot, trade, 'EXIT', trigger.reason,
+      `${reasons[trigger.reason]} · 관측 ${trigger.price.toLocaleString('ko-KR')}원으로 가상 청산 · D일과 독립적으로 판단`, evidence, trade.id));
+    trade.status = 'CLOSED';
+    trade.exit = { model: 'ADAPTIVE_OBSERVED', snapshotId: trigger.snapshotId, effectiveAt: trigger.effectiveAt,
+      observedAt: trigger.observedAt, decisionAt: snapshot.asOf, price: trigger.price, decision: structuredClone(exit),
+      observedTrigger: structuredClone(trigger),
+      observedQuote: { source: observation!.source, price: observation!.price!, observedAt: observation!.observedAt,
+        ...readPaperTradeRulePoint(trade, observation!, ledger, snapshot) },
+      ...calculatePaperReturn(trade.entryPrice, trigger.price, trade.costModel) };
+    return exit;
+  }
   if (!(Date.parse(snapshot.asOf) >= Date.parse(trade.scheduledExitAt))) {
     return carry(decision(snapshot, trade, 'HOLD', 'HORIZON_PENDING', `${trade.scheduledExitDate} 종가 청산 예정 · 진입 시 확정한 D${trade.horizon}까지 보유`, evidence, trade.id));
   }
@@ -112,12 +135,17 @@ export function evaluatePaperStrategyScan(
 ): PaperStrategyLedger {
   const ledger = structuredClone(input);
   ledger.adaptive = structuredClone(adaptive);
+  // Only already completed forward evidence can affect a new entry's frozen exit policy.
+  ledger.exitLearning = selectPaperExitLearning(ledger.trades, snapshot.asOf);
   const policy = ADAPTIVE_STRATEGY_POLICY;
   const observations = new Map(snapshot.observations.map((item) => [item.symbol, item]));
   const decisions: PaperStrategyDecision[] = [];
   const handled = new Set<string>();
+  for (const trade of ledger.trades.filter(item => item.status === 'CLOSED' && item.exitResearch && !item.exitResearch.completedAt)) {
+    trade.exitResearch = advancePaperExitResearch(trade, snapshot, observations.get(trade.symbol)).research;
+  }
   for (const trade of ledger.trades.filter((item) => item.status === 'OPEN')) {
-    decisions.push(closeDecision(trade, snapshot, observations.get(trade.symbol)));
+    decisions.push(closeDecision(trade, snapshot, ledger, observations.get(trade.symbol)));
     handled.add(trade.symbol);
   }
   for (const observation of observations.values()) {
@@ -133,7 +161,7 @@ export function evaluatePaperStrategyScan(
       const scheduledExitDate = addBusinessDaysFromKstDate(snapshot.tradingDate, horizon);
       result.tradeId = `${policy.version}:${snapshot.tradingDate}:${observation.symbol}`;
       const cutoff = Date.parse(snapshot.asOf);
-      ledger.trades.push({
+      const trade: PaperStrategyTrade = {
         id: result.tradeId, strategyVersion: policy.version, symbol: observation.symbol, name: observation.name,
         status: 'OPEN', entrySnapshotId: snapshot.id, entryAt: snapshot.asOf, tradingDate: snapshot.tradingDate,
         entryPrice: observation.price!, quantity: 1,
@@ -142,7 +170,10 @@ export function evaluatePaperStrategyScan(
           dailyCloses: observation.dailyCloses.filter((item) => Date.parse(item.availableAt) <= cutoff) }),
         entryDecision: structuredClone(result), policy: { ...policy }, costModel: { ...costForSymbol(observation.symbol) },
         horizon, scheduledExitDate, scheduledExitAt: scheduledPaperClose(scheduledExitDate), exit: null,
-      });
+        exitPolicy: freezePaperExitPolicy(ledger.exitLearning, snapshot.asOf),
+      };
+      trade.exitResearch = initializePaperExitResearch(trade);
+      ledger.trades.push(trade);
     }
     decisions.push(result);
   }
@@ -189,6 +220,7 @@ export function buildPaperStrategyView(ledger: PaperStrategyLedger, error?: stri
     strategyVersion: ADAPTIVE_STRATEGY_POLICY.version,
     mode: 'SHADOW', policy: { ...ADAPTIVE_STRATEGY_POLICY },
     ...(ledger.adaptive ? { adaptive: structuredClone(ledger.adaptive) } : {}),
+    ...(ledger.exitLearning ? { exitLearning: structuredClone(ledger.exitLearning) } : {}),
     performanceByVersion, performanceByPurpose,
     totalCount: ledger.trades.length, openCount: ledger.trades.filter((item) => item.status === 'OPEN').length,
     performance: { closedCount: values.length,

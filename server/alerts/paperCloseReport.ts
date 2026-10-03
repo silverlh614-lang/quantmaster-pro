@@ -70,10 +70,13 @@ function strategyLines(view: PaperExperimentView, date: string, cutoff: number):
     if (entered.length) lines.push(`진입: ${entered.slice(0, 3).map(item => escape(item.name.slice(0, 20))).join(', ')}${entered.length > 3 ? ` 외 ${entered.length - 3}종목` : ''}`);
     const late = closed.filter(item => toKstDateKey(item.exit!.decisionAt) === date && toKstDateKey(item.exit!.effectiveAt) < date).length;
     if (late) lines.push(`과거 예약일 청산을 오늘 추가 확인 ${late}건`);
-    const missed = held.filter(item => Date.parse(item.scheduledExitAt) <= cutoff).length;
+    const scheduled = held.filter(item => item.policy.exitModel === 'SCHEDULED_CLOSE');
+    const observed = held.length - scheduled.length;
+    if (observed) lines.push(`관측 기반 매도 판단 ${observed}건 · 손실·수익 반납·진입 근거 약화 확인, D일 강제 청산 없음`);
+    const missed = scheduled.filter(item => Date.parse(item.scheduledExitAt) <= cutoff).length;
     if (missed) lines.push(`예약일이 지난 청산 평가 ${missed}건 · 확정 종가 확인 필요`);
-    const next = held.filter(item => Date.parse(item.scheduledExitAt) > cutoff).map(item => item.scheduledExitDate).sort()[0];
-    if (next) lines.push(`다음 가상 청산 예정 ${next} · ${held.filter(item => item.scheduledExitDate === next).length}건`);
+    const next = scheduled.filter(item => Date.parse(item.scheduledExitAt) > cutoff).map(item => item.scheduledExitDate).sort()[0];
+    if (next) lines.push(`다음 가상 청산 예정 ${next} · ${scheduled.filter(item => item.scheduledExitDate === next).length}건`);
   } else lines.push('전체 전략 원장 미조회 · 오늘 진입·청산 건수 확인 필요');
   const adaptive = strategy.adaptive;
   if (adaptive && Date.parse(adaptive.evaluatedAt) <= cutoff) {

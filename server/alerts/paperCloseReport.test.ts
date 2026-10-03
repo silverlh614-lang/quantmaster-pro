@@ -132,6 +132,8 @@ describe('Shadow closing summary', () => {
     // Positive entry evidence is required; the subsequent closing price can still produce zero.
     const entered = evaluatePaperStrategyScan(emptyStrategyLedger(), initial, strategyTestCost,
       selectPaperAdaptiveState(undefined, matureAdaptiveSamples({ selectedReturns: [10, 1, 1] }), initial.asOf));
+    entered.trades[0].policy.exitModel = 'SCHEDULED_CLOSE';
+    delete entered.trades[0].exitPolicy; delete entered.trades[0].exitResearch;
     expect(ledger.trades).toHaveLength(0);
     const closed = structuredClone(initial); closed.asOf = now.toISOString(); closed.tradingDate = date; closed.marketOpen = false;
     closed.observations[0].dailyCloses = [{ tradingDate: date, close: 10000, availableAt: now.toISOString() }];

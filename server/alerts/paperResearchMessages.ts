@@ -44,6 +44,8 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date)
   const lines = ['<b>자율 연구 · 지표 발명</b>'], strategy = view.strategy, cutoff = now.getTime();
   if (!strategy || strategy.error || strategy.lastRun?.error) return [...lines, strategy ? '전략 갱신 오류 · 연구 상태 확인 불가' : '자율 연구 기록 미조회'];
   const state = strategy.adaptive;
+  const exitLearning = strategy.exitLearning;
+  if (exitLearning && known(exitLearning.evaluatedAt, cutoff)) lines.push(`매도 학습: ${exitLearning.selectedProfileId ? '후속 관측 검증 기준 채택' : '초기 기준 탐색 · 검증 전'} · 비교 완료 ${num(exitLearning.completedTradeCount)}건/${num(exitLearning.completedDateCount)}진입일 · D일 강제 청산 없음`);
   if (!state) lines.push('자율 지표 평가 미기록');
   else if (!known(state.evaluatedAt, cutoff) || !known(state.cutoffAt, cutoff)) lines.push('미래 또는 잘못된 평가 시각 · 연구 상태 확인 필요');
   else {

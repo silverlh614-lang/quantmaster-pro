@@ -97,13 +97,13 @@ describe('morning recommendation lifecycle', () => {
     const { report, ledger, snapshot } = fixture(); mocks.load.mockReturnValue(report);
     linkPaperMorningRecommendations(ledger, snapshot);
     const exitSnapshot = structuredClone(snapshot);
-    exitSnapshot.id = 'later-exit'; exitSnapshot.asOf = '2026-09-23T07:00:00Z';
-    exitSnapshot.tradingDate = '2026-09-23'; exitSnapshot.marketOpen = false;
-    exitSnapshot.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 11000, availableAt: exitSnapshot.asOf }];
+    exitSnapshot.id = 'later-exit'; exitSnapshot.asOf = '2026-09-18T01:05:00Z';
+    exitSnapshot.observations[0].observedAt = exitSnapshot.asOf; exitSnapshot.observations[0].price = 9400;
+    exitSnapshot.observations[0].features!.asOf = exitSnapshot.asOf;
     mocks.ledger.mockReturnValue(evaluatePaperStrategyScan(ledger, exitSnapshot, strategyTestCost,
       selectPaperAdaptiveState(undefined, [], exitSnapshot.asOf)));
     expect(getPaperMorningReview('2026-09-18', new Date(snapshot.asOf)).results[0]).toMatchObject({ status: 'OPEN', exitAt: null, netReturnPct: null });
-    expect(getPaperMorningReview('2026-09-18', new Date(exitSnapshot.asOf)).results[0]).toMatchObject({ status: 'CLOSED', netReturnPct: 10 });
+    expect(getPaperMorningReview('2026-09-18', new Date(exitSnapshot.asOf)).results[0]).toMatchObject({ status: 'CLOSED', netReturnPct: -6 });
   });
   it('recovers the read-only trade join when delivery archival was repaired on a later day', () => {
     const { report, ledger } = fixture(); mocks.load.mockReturnValue(report); mocks.ledger.mockReturnValue(ledger);

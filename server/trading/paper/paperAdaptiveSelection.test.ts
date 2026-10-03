@@ -3,12 +3,14 @@ import { describe, expect, it } from 'vitest';
 import type { PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import type { PaperAdaptiveState } from '../../../src/types/paperAdaptive.js';
 import type { PaperStrategyLedger } from '../../../src/types/paperStrategy.js';
+import { PAPER_FEATURES, PAPER_LEGACY_FEATURE_KEYS, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
 import { isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { adaptiveFeatureValue, adaptiveRuleMatches, selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { adaptiveTestSnapshot, matureAdaptiveSamples } from './paperAdaptiveFixtures.js';
 import { evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
+import { adaptiveObservationSchema, adaptiveStateSchema } from './paperAdaptiveValidation.js';
 import { emptyStrategyLedger, legacyStrategyLedger, strategyTestCost } from './paperStrategyFixtures.js';
 
 const asOf = '2026-09-18T01:00:00Z';
@@ -162,7 +164,52 @@ describe('dated autonomous feature selection', () => {
     expect(current.evaluatedAt).toBe(snapshot.asOf);
     expect(current.policy.maturityModel).toBe('per-horizon-v1');
     expect(selectPaperAdaptiveState(restore(current), [], '2026-09-18T06:00:00Z')).toEqual(current);
-    expect(evaluatePaperStrategyScan(ledger, snapshot, strategyTestCost, current).trades[0]).toEqual(originalTrade);
+    const updatedTrade = evaluatePaperStrategyScan(ledger, snapshot, strategyTestCost, current).trades[0];
+    expect(updatedTrade.entryDecision).toEqual(originalTrade.entryDecision);
+    expect(updatedTrade.entryObservation).toEqual(originalTrade.entryObservation);
+    expect(updatedTrade.policy).toEqual(originalTrade.policy);
+    expect(updatedTrade.exitPolicy).toEqual(originalTrade.exitPolicy);
+  });
+
+  it('expands a legacy catalog once without backfilling old observations or changing frozen evidence', () => {
+    const legacyKeys = new Set<PaperFeatureKey>(PAPER_LEGACY_FEATURE_KEYS);
+    const newKeys = (Object.keys(PAPER_FEATURES) as PaperFeatureKey[]).filter(key => !legacyKeys.has(key));
+    const samples = matureAdaptiveSamples();
+    for (const sample of samples) for (const key of newKeys) delete sample.entryObservation.features!.values[key];
+    const ledger = enter(samples);
+    ledger.trades[0].policy.exitModel = 'SCHEDULED_CLOSE';
+    delete ledger.trades[0].exitPolicy; delete ledger.trades[0].exitResearch;
+    const before = restore(ledger.trades[0]);
+    for (const key of newKeys) delete ledger.trades[0].entryObservation.features!.values[key];
+    ledger.adaptive!.candidates = ledger.adaptive!.candidates.filter(item => legacyKeys.has(item.rule.feature as PaperFeatureKey));
+    expect(adaptiveObservationSchema.safeParse(samples[0].entryObservation.features).success).toBe(true);
+    expect(adaptiveStateSchema.safeParse(restore(ledger.adaptive)).success).toBe(true);
+    expect(() => assertPaperStrategyLedger(restore(ledger))).not.toThrow();
+    const frozen = restore(ledger), expanded = selectPaperAdaptiveState(ledger.adaptive, samples, '2026-09-18T05:00:00Z');
+    expect(expanded.candidates).toHaveLength(Object.keys(PAPER_FEATURES).length);
+    expect(expanded.evaluatedAt).toBe('2026-09-18T05:00:00Z');
+    expect(expanded.discovery).toEqual(ledger.adaptive!.discovery);
+    expect(expanded.candidates.filter(item => newKeys.includes(item.rule.feature as PaperFeatureKey))
+      .every(item => !item.active && item.training.sampleCount === 0 && item.reason === 'MISSING_INPUT')).toBe(true);
+    expect(selectPaperAdaptiveState(restore(expanded), [], '2026-09-18T06:00:00Z')).toEqual(expanded);
+    expect(ledger).toEqual(frozen);
+    expect(ledger.trades[0].entryDecision).toEqual(before.entryDecision);
+    expect(newKeys.every(key => samples.every(sample => !(key in sample.entryObservation.features!.values)))).toBe(true);
+    expect(adaptiveStateSchema.safeParse(expanded).success).toBe(true);
+    const incomplete = restore(expanded); incomplete.candidates.pop();
+    expect(adaptiveStateSchema.safeParse(incomplete).success).toBe(false);
+  });
+
+  it('learns a new feature independently once its actual recorded outcomes become usable', () => {
+    const samples = matureAdaptiveSamples({ features: selected => ({ return5: selected ? -5 : 5, rsi14: null }) });
+    const state = select(samples), selected = state.candidates.find(item => item.rule.feature === 'return5')!;
+    expect(selected).toMatchObject({ active: true, rule: { feature: 'return5', bucket: 0 }, reason: 'ACTIVE' });
+    expect(state.candidates.filter(item => item.active)).toHaveLength(1);
+    expect(state.discovery!.inventions).toHaveLength(0);
+    const observation = adaptiveTestSnapshot().observations[0];
+    expect(adaptiveFeatureValue(observation, 'return5', asOf)).toBeNull();
+    observation.features!.values.return5 = -5;
+    expect(adaptiveRuleMatches(observation, selected.rule, asOf)).toBe(true);
   });
 
   it('lets invented D1 formulas validate on later D1 outcomes and preserves discovery budgets during same-day migration', () => {
@@ -255,6 +302,8 @@ describe('autonomous Shadow lifecycle and persistence', () => {
 
   it('preserves committed exit and frozen entry evidence when the rule is disconnected', () => {
     const ledger = enter(), snapshot = snapshotOn('2026-09-21');
+    ledger.trades[0].policy.exitModel = 'SCHEDULED_CLOSE';
+    delete ledger.trades[0].exitPolicy; delete ledger.trades[0].exitResearch;
     const disconnected = selectPaperAdaptiveState(ledger.adaptive, [], snapshot.asOf);
     expect(disconnected.candidates.some(item => item.active)).toBe(false);
     const held = evaluatePaperStrategyScan(restore(ledger), snapshot, strategyTestCost, disconnected);

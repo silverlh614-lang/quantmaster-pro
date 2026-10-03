@@ -9,10 +9,12 @@ import { calculatePaperReturn } from './paperAccounting.js';
 const finite = z.number().finite();
 const timestamp = z.string().datetime({ offset: true });
 const entryReasons = ['POSITIVE_COHORT_EXPECTANCY', 'ADAPTIVE_FEATURE_SELECTED', 'ADAPTIVE_EXPLORATION_SELECTED'] as const;
-const pointShape = z.object({ snapshotId: z.string().min(1), kind: z.enum(['ENTRY', 'QUOTE', 'SCHEDULED_CLOSE']),
+const adaptiveExitReasons = ['ADAPTIVE_STOP_LOSS', 'ADAPTIVE_TRAILING_STOP', 'ADAPTIVE_SIGNAL_LOST'] as const;
+const pointShape = z.object({ snapshotId: z.string().min(1), kind: z.enum(['ENTRY', 'QUOTE', 'SCHEDULED_CLOSE', 'ADAPTIVE_EXIT']),
   effectiveAt: timestamp, observedAt: timestamp, recordedAt: timestamp, price: finite.positive(), source: z.string().min(1),
   netReturnPct: finite, netPnl: finite, action: z.enum(['BUY', 'HOLD', 'EXIT']),
-  reasonCode: z.enum([...entryReasons, 'HORIZON_PENDING', 'SCHEDULED_CLOSE_UNAVAILABLE', 'SCHEDULED_CLOSE_REACHED']),
+  reasonCode: z.enum([...entryReasons, ...adaptiveExitReasons, 'HORIZON_PENDING', 'SCHEDULED_CLOSE_UNAVAILABLE', 'SCHEDULED_CLOSE_REACHED',
+    'ADAPTIVE_EXIT_HOLD', 'ADAPTIVE_EXIT_QUOTE_UNAVAILABLE']),
   ruleValue: finite.nullable(), ruleMatches: z.boolean().nullable(), ruleConnected: z.boolean().nullable(), featureAsOf: timestamp.nullable() });
 export const paperTradeMeasurementSchema = z.object({ version: z.literal('observed-trade-path-v1'),
   startedAt: timestamp, fromEntry: z.boolean(), pointCount: finite.int().positive(),
@@ -22,6 +24,11 @@ const ms = Date.parse;
 const sameTime = (a: string, b: string) => ms(a) === ms(b);
 const samePoint = (a: PaperTradeMeasurementPoint, b: PaperTradeMeasurementPoint) => JSON.stringify(a) === JSON.stringify(b);
 function fail(): never { throw new Error('PAPER_TRADE_MEASUREMENT_INVALID: inconsistent observed trade record'); }
+function freshIntraday(point: PaperTradeMeasurementPoint): boolean {
+  const day = toKstDateKey(point.observedAt), open = ms(`${day}T09:00:00+09:00`), close = ms(`${day}T15:30:00+09:00`);
+  return ms(point.observedAt) >= open && ms(point.observedAt) < close && ms(point.recordedAt) < close
+    && ms(point.recordedAt) - ms(point.observedAt) <= 5 * 60_000;
+}
 
 function validPoint(point: PaperTradeMeasurementPoint): boolean {
   const { effectiveAt, observedAt, recordedAt, featureAsOf, kind, action, reasonCode } = point;
@@ -34,7 +41,11 @@ function validPoint(point: PaperTradeMeasurementPoint): boolean {
     && sameTime(effectiveAt, recordedAt) && ms(observedAt) <= ms(effectiveAt);
   if (kind === 'QUOTE') return action === 'HOLD' && sameTime(observedAt, effectiveAt)
     && toKstDateKey(new Date(observedAt)) === toKstDateKey(new Date(recordedAt))
-    && (reasonCode === 'HORIZON_PENDING' || reasonCode === 'SCHEDULED_CLOSE_UNAVAILABLE');
+    && (reasonCode === 'HORIZON_PENDING' || reasonCode === 'SCHEDULED_CLOSE_UNAVAILABLE'
+      || (reasonCode === 'ADAPTIVE_EXIT_HOLD' && freshIntraday(point)));
+  if (kind === 'ADAPTIVE_EXIT') return action === 'EXIT' && adaptiveExitReasons.some(reason => reason === reasonCode)
+    && sameTime(observedAt, effectiveAt) && freshIntraday(point)
+    && toKstDateKey(new Date(observedAt)) === toKstDateKey(new Date(recordedAt));
   return action === 'EXIT' && reasonCode === 'SCHEDULED_CLOSE_REACHED' && ms(effectiveAt) <= ms(observedAt)
     && point.source === 'SCHEDULED_CLOSE_CONFIRMED' && point.ruleValue === null && point.ruleMatches === null
     && point.ruleConnected === null && featureAsOf === null;
@@ -61,7 +72,8 @@ function validRuleReading(point: PaperTradeMeasurementPoint, trade: PaperStrateg
 function validTradePoint(point: PaperTradeMeasurementPoint, trade: PaperStrategyTrade, asOf?: string): boolean {
   const result = calculatePaperReturn(trade.entryPrice, point.price, trade.costModel);
   if (!validPoint(point) || !validRuleReading(point, trade)
-    || ms(point.effectiveAt) < ms(trade.entryAt) || ms(point.effectiveAt) > ms(trade.scheduledExitAt)
+    || ms(point.effectiveAt) < ms(trade.entryAt)
+    || (trade.policy.exitModel === 'SCHEDULED_CLOSE' && ms(point.effectiveAt) > ms(trade.scheduledExitAt))
     || (asOf !== undefined && ms(point.recordedAt) > ms(asOf))
     || Math.abs(point.netPnl - result.netPnl) > 1e-8 || Math.abs(point.netReturnPct - result.netReturnPct) > 1e-8) return false;
   if (point.kind === 'ENTRY') return point.snapshotId === trade.entrySnapshotId && sameTime(point.effectiveAt, trade.entryAt)
@@ -69,8 +81,18 @@ function validTradePoint(point: PaperTradeMeasurementPoint, trade: PaperStrategy
     && point.source === trade.entryObservation.source && point.reasonCode === trade.entryDecision.reasonCode;
   if (point.snapshotId === trade.entrySnapshotId) return false;
   if (point.kind === 'QUOTE') return ms(point.effectiveAt) > ms(trade.entryAt)
+    && (trade.policy.exitModel === 'SCHEDULED_CLOSE'
+      ? point.reasonCode === 'HORIZON_PENDING' || point.reasonCode === 'SCHEDULED_CLOSE_UNAVAILABLE'
+      : point.reasonCode === 'ADAPTIVE_EXIT_HOLD' && ms(point.recordedAt) - ms(point.observedAt) <= 5 * 60_000)
     && (!trade.exit || ms(point.recordedAt) <= ms(trade.exit.decisionAt));
   const exit = trade.exit;
+  if (point.kind === 'ADAPTIVE_EXIT') {
+    const quote = exit?.observedQuote;
+    if (trade.policy.exitModel !== 'ADAPTIVE_OBSERVED' || exit?.model !== 'ADAPTIVE_OBSERVED' || !quote
+      || ms(point.effectiveAt) <= ms(trade.entryAt) || point.reasonCode !== exit.decision.reasonCode
+      || point.source !== quote.source || point.ruleValue !== quote.ruleValue || point.ruleMatches !== quote.ruleMatches
+      || point.ruleConnected !== quote.ruleConnected || point.featureAsOf !== quote.featureAsOf) return false;
+  } else if (trade.policy.exitModel !== 'SCHEDULED_CLOSE' || exit?.model !== 'SCHEDULED_CLOSE') return false;
   return Boolean(exit && trade.status === 'CLOSED' && point.snapshotId === exit.snapshotId && point.price === exit.price
     && sameTime(point.effectiveAt, exit.effectiveAt) && sameTime(point.observedAt, exit.observedAt)
     && sameTime(point.recordedAt, exit.decisionAt));

@@ -29,7 +29,7 @@ describe('morning recommendation message', () => {
     expect(message).toContain('검증 통과 규칙 추천');
     expect(message).toContain('직전 거래일 참고 종가 10,000원 · 2026-09-18 15:30 KST');
     expect(message).toContain('종가 확인 09. 21. 08:00 KST');
-    expect(message).toContain('관측 지표값 35 · 가상 추적 기준 D3거래일');
+    expect(message).toContain('관측 지표값 35 · 성과 비교 D3거래일 · 매도는 장중 관측으로 별도 판단');
     expect(message).toContain('규칙 과거 검증 12건/3일 · 평균 순수익률 0.00%');
     expect(message).toContain('과거 일당 대조군 차이 +0.15%p');
     expect(message).toContain('실제 가상 진입은 장중의 새 가격·지표 관측으로 별도 판단');

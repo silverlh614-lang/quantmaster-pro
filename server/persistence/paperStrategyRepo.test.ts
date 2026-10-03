@@ -60,6 +60,7 @@ describe('strategy ledger persistence', () => {
     const samples = matureAdaptiveSamples(), snapshot = adaptiveTestSnapshot();
     const adaptive = selectPaperAdaptiveState(undefined, samples, snapshot.asOf);
     const entered = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, adaptive);
+    entered.trades[0].policy.exitModel = 'SCHEDULED_CLOSE'; delete entered.trades[0].exitPolicy; delete entered.trades[0].exitResearch;
     const originalEntry = structuredClone(entered);
     const frozenEntry = compactExpected(entered.trades[0].entryDecision.adaptiveEvidence!);
     repo.savePaperStrategyLedger(entered);
@@ -109,6 +110,7 @@ describe('strategy ledger persistence', () => {
     const adaptive = selectPaperAdaptiveState(undefined, matureAdaptiveSamples({ entryDateCount: 4 }),
       registration.asOf, registration.observations);
     const entered = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, adaptive);
+    entered.trades[0].policy.exitModel = 'SCHEDULED_CLOSE'; delete entered.trades[0].exitPolicy; delete entered.trades[0].exitResearch;
     expect(entered.trades).toHaveLength(1);
     expect(entered.trades[0].entryDecision.explorationEvidence).toBeDefined();
     expect(adaptive.exploration!.rules[0].candidate.training.experimentIds!.length).toBeGreaterThan(0);
@@ -133,12 +135,40 @@ describe('strategy ledger persistence', () => {
       .toEqual(restored.trades[0].entryDecision.explorationEvidence);
   });
 
+  it('round-trips the real observed-exit policy, research and frozen trigger through restart', async () => {
+    const snapshot = adaptiveTestSnapshot();
+    const adaptive = selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), snapshot.asOf);
+    let ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, adaptive);
+    capturePaperTradeMeasurements(ledger, snapshot);
+    const frozenPolicy = structuredClone(ledger.trades[0].exitPolicy);
+    repo.savePaperStrategyLedger(ledger);
+    vi.resetModules(); repo = await import('./paperStrategyRepo.js');
+    ledger = repo.loadPaperStrategyLedger();
+    expect(ledger.trades[0].exitPolicy).toEqual(frozenPolicy);
+    for (const [at, price] of [['2026-09-18T01:01:00Z', 10050], ['2026-09-18T01:02:00Z', 9400]] as const) {
+      snapshot.id = `observed-${at}`; snapshot.asOf = at;
+      snapshot.observations[0].observedAt = at; snapshot.observations[0].features!.asOf = at; snapshot.observations[0].price = price;
+      ledger = evaluatePaperStrategyScan(ledger, snapshot, strategyTestCost, adaptive);
+      expect(capturePaperTradeMeasurements(ledger, snapshot)).toHaveLength(1);
+      repo.savePaperStrategyLedger(ledger);
+      vi.resetModules(); repo = await import('./paperStrategyRepo.js');
+      expect(repo.loadPaperStrategyLedger()).toEqual(compactExpected(ledger));
+      ledger = repo.loadPaperStrategyLedger();
+    }
+    expect(ledger.trades[0].exitPolicy).toEqual(frozenPolicy);
+    expect(ledger.trades[0].exit).toMatchObject({ model: 'ADAPTIVE_OBSERVED', price: 9400,
+      observedTrigger: { reason: 'ADAPTIVE_STOP_LOSS', peakNetReturnPct: 0.5 }, observedQuote: { price: 9400 } });
+    expect(ledger.trades[0].exitResearch!.quoteCount).toBe(2);
+    expect(ledger.trades[0].measurement).toMatchObject({ pointCount: 3, latest: { kind: 'ADAPTIVE_EXIT' }, highest: { price: 10050 } });
+  });
+
   it('preserves captured measurements through restart, later holding extrema and confirmed exit', async () => {
     const snapshot = adaptiveTestSnapshot();
     snapshot.observations[0].observedAt = '2026-09-18T00:59:55Z';
     const adaptive = selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), snapshot.asOf);
     const cost = { version: 'entry-frozen', buyFeeRate: 0.001, sellFeeRate: 0.002, sellTaxRate: 0.003, slippageRate: 0.004 };
     let ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, () => cost, adaptive);
+    ledger.trades[0].policy.exitModel = 'SCHEDULED_CLOSE'; delete ledger.trades[0].exitPolicy; delete ledger.trades[0].exitResearch;
     expect(capturePaperTradeMeasurements(ledger, snapshot)).toHaveLength(1);
     const entry = structuredClone(ledger.trades[0].measurement);
     const frozenDecision = compactExpected(ledger.trades[0].entryDecision);

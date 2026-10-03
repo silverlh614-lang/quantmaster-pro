@@ -78,7 +78,7 @@ describe('exploratory Shadow entry execution', () => {
     expect(() => assertPaperStrategyLedger(original)).not.toThrow();
   });
 
-  it('keeps a replaced exploration rule and horizon frozen through restart, HOLD and scheduled EXIT', () => {
+  it('keeps a replaced exploration rule and benchmark frozen through restart, HOLD and observed EXIT', () => {
     const first = enter(), frozen = structuredClone(first.trades[0].entryDecision.explorationEvidence);
     const changed = exploringState(); changed.exploration!.rules[0].candidate.rule.horizon = 5;
     changed.exploration!.sequence = 2;
@@ -87,12 +87,12 @@ describe('exploratory Shadow entry execution', () => {
     expect(held.latestDecisions[0]).toMatchObject({ action: 'HOLD', explorationEvidence: frozen });
     expect(held.trades[0]).toEqual(first.trades[0]);
     const snapshot = adaptiveTestSnapshot();
-    snapshot.tradingDate = '2026-09-21'; snapshot.asOf = '2026-09-21T07:00:00Z'; snapshot.marketOpen = false;
-    snapshot.observations[0].price = null;
-    snapshot.observations[0].dailyCloses = [{ tradingDate: '2026-09-21', close: 11000, availableAt: snapshot.asOf }];
+    snapshot.id = 'observed-exit'; snapshot.asOf = '2026-09-18T01:05:00Z';
+    snapshot.observations[0].observedAt = snapshot.asOf; snapshot.observations[0].price = 9400;
+    snapshot.observations[0].features!.asOf = snapshot.asOf;
     const retired = selectPaperAdaptiveState(undefined, [], snapshot.asOf);
     const closed = evaluatePaperStrategyScan(JSON.parse(JSON.stringify(held)), snapshot, strategyTestCost, retired);
-    expect(closed.trades[0].exit).toMatchObject({ effectiveAt: '2026-09-21T06:30:00.000Z', price: 11000,
+    expect(closed.trades[0].exit).toMatchObject({ effectiveAt: snapshot.asOf, price: 9400,
       decision: { action: 'EXIT', explorationEvidence: frozen } });
     expect(closed.trades[0].entryDecision.explorationEvidence).toEqual(frozen);
     expect(() => assertPaperStrategyLedger(JSON.parse(JSON.stringify(closed)))).not.toThrow();

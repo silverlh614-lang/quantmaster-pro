@@ -26,7 +26,7 @@ function sameRule(left: PaperAdaptiveRule, right: PaperAdaptiveRule): boolean {
   return JSON.stringify(identity(left)) === JSON.stringify(identity(right));
 }
 
-function rulePoint(trade: PaperStrategyTrade, observation: PaperObservation, ledger: PaperStrategyLedger, snapshot: PaperSnapshot): RulePoint {
+export function readPaperTradeRulePoint(trade: PaperStrategyTrade, observation: PaperObservation, ledger: PaperStrategyLedger, snapshot: PaperSnapshot): RulePoint {
   const rule = (trade.entryDecision.adaptiveEvidence ?? trade.entryDecision.explorationEvidence)?.candidate.rule;
   if (!rule) return { ...noRule };
   const state = ledger.adaptive;
@@ -41,19 +41,21 @@ function rulePoint(trade: PaperStrategyTrade, observation: PaperObservation, led
   return { ruleValue: value, ruleMatches: value === null ? null : adaptiveRuleMatches(observation, rule, snapshot.asOf), ruleConnected, featureAsOf };
 }
 
-function quoteAllowed(trade: PaperStrategyTrade, observation: PaperObservation, snapshot: PaperSnapshot): boolean {
+export function isPaperTradeQuoteAllowed(trade: PaperStrategyTrade, observation: PaperObservation, snapshot: PaperSnapshot): boolean {
   const now = Date.parse(snapshot.asOf), observed = Date.parse(observation.observedAt);
   const open = Date.parse(`${snapshot.tradingDate}T09:00:00+09:00`), close = Date.parse(`${snapshot.tradingDate}T15:30:00+09:00`);
   return snapshot.marketOpen && isKrxTradingDay(snapshot.tradingDate) && toKstDateKey(snapshot.asOf) === snapshot.tradingDate
     && now >= open && now < close && observed >= open && observed < close && observed <= now
     && toKstDateKey(observation.observedAt) === snapshot.tradingDate && observation.symbol === trade.symbol
-    && observed > Date.parse(trade.entryAt) && observed <= Date.parse(trade.scheduledExitAt)
+    && observed > Date.parse(trade.entryAt)
+    && (trade.policy.exitModel !== 'SCHEDULED_CLOSE' || observed <= Date.parse(trade.scheduledExitAt))
+    && (trade.policy.exitModel === 'SCHEDULED_CLOSE' || now - observed <= 5 * 60_000)
     && positive(observation.price) && !observation.issue;
 }
 
 function record(trade: PaperStrategyTrade, point: PaperTradeMeasurementPoint): PaperTradeMeasurementRow | null {
   const previous = trade.measurement;
-  if (previous && (previous.latest.kind === 'SCHEDULED_CLOSE'
+  if (previous && (previous.latest.kind === 'SCHEDULED_CLOSE' || previous.latest.kind === 'ADAPTIVE_EXIT'
     || Date.parse(point.recordedAt) <= Date.parse(previous.latest.recordedAt)
     || Date.parse(point.effectiveAt) < Date.parse(previous.latest.effectiveAt)
     || (point.kind === 'QUOTE' && Date.parse(point.effectiveAt) === Date.parse(previous.latest.effectiveAt)))) return null;
@@ -80,7 +82,14 @@ export function capturePaperTradeMeasurements(ledger: PaperStrategyLedger, snaps
       if (!exit || exit.snapshotId !== snapshot.id || exit.decisionAt !== snapshot.asOf || decision.action !== 'EXIT'
         || !positive(exit.price) || !(Date.parse(exit.effectiveAt) <= Date.parse(exit.observedAt))
         || !(Date.parse(exit.observedAt) <= Date.parse(snapshot.asOf))) continue;
-      point = { snapshotId: snapshot.id, kind: 'SCHEDULED_CLOSE', effectiveAt: exit.effectiveAt, observedAt: exit.observedAt,
+      if (exit.model === 'ADAPTIVE_OBSERVED') {
+        const quote = exit.observedQuote;
+        if (!quote || quote.price !== exit.price || quote.observedAt !== exit.observedAt) continue;
+        point = { snapshotId: snapshot.id, kind: 'ADAPTIVE_EXIT', effectiveAt: exit.effectiveAt, observedAt: exit.observedAt,
+          recordedAt: snapshot.asOf, price: exit.price, source: quote.source,
+          ...net(trade, exit.price), action: 'EXIT', reasonCode: decision.reasonCode,
+          ruleValue: quote.ruleValue, ruleMatches: quote.ruleMatches, ruleConnected: quote.ruleConnected, featureAsOf: quote.featureAsOf };
+      } else point = { snapshotId: snapshot.id, kind: 'SCHEDULED_CLOSE', effectiveAt: exit.effectiveAt, observedAt: exit.observedAt,
         recordedAt: snapshot.asOf, price: exit.price, source: 'SCHEDULED_CLOSE_CONFIRMED',
         ...net(trade, exit.price), action: 'EXIT', reasonCode: decision.reasonCode, ...noRule };
     } else if (!trade.measurement && trade.entrySnapshotId === snapshot.id && trade.entryAt === snapshot.asOf && decision.action === 'BUY') {
@@ -90,14 +99,15 @@ export function capturePaperTradeMeasurements(ledger: PaperStrategyLedger, snaps
       point = { snapshotId: snapshot.id, kind: 'ENTRY', effectiveAt: trade.entryAt, observedAt: observation.observedAt,
         recordedAt: snapshot.asOf, price: trade.entryPrice, source: observation.source,
         ...net(trade, trade.entryPrice), action: 'BUY', reasonCode: decision.reasonCode,
-        ...rulePoint(trade, observation, ledger, snapshot) };
+        ...readPaperTradeRulePoint(trade, observation, ledger, snapshot) };
     } else {
       const observation = observations.get(trade.symbol);
-      if (!observation || decision.action !== 'HOLD' || !quoteAllowed(trade, observation, snapshot)) continue;
+      if (!observation || decision.action !== 'HOLD' || !isPaperTradeQuoteAllowed(trade, observation, snapshot)) continue;
+      if (trade.policy.exitModel === 'ADAPTIVE_OBSERVED' && decision.reasonCode !== 'ADAPTIVE_EXIT_HOLD') continue;
       point = { snapshotId: snapshot.id, kind: 'QUOTE', effectiveAt: observation.observedAt, observedAt: observation.observedAt,
         recordedAt: snapshot.asOf, price: observation.price!, source: observation.source,
         ...net(trade, observation.price!), action: 'HOLD', reasonCode: decision.reasonCode,
-        ...rulePoint(trade, observation, ledger, snapshot) };
+        ...readPaperTradeRulePoint(trade, observation, ledger, snapshot) };
     }
     if (!Number.isFinite(point.netReturnPct) || !Number.isFinite(point.netPnl)) continue;
     const row = record(trade, point);

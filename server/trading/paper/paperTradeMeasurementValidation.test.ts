@@ -138,6 +138,7 @@ describe('measurement journal validation', () => {
     snapshot.observations[0].observedAt = '2026-09-18T00:59:55Z';
     const adaptive = selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), snapshot.asOf);
     let ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, () => measured().trades[0].costModel, adaptive);
+    ledger.trades[0].policy.exitModel = 'SCHEDULED_CLOSE'; delete ledger.trades[0].exitPolicy; delete ledger.trades[0].exitResearch;
     const check = () => {
       const rows = capturePaperTradeMeasurements(ledger, snapshot);
       expect(rows).toHaveLength(1);
@@ -190,7 +191,7 @@ describe('measurement journal validation', () => {
       ruleValue: 20, ruleMatches: true, ruleConnected: true, featureAsOf: snapshot.asOf });
     expect(() => assertPaperTradeMeasurementRows([row(trade, entry)], [trade])).not.toThrow();
     expect(() => assertPaperTradeMeasurementRows([row(trade, { ...entry, ruleValue: 21 })], [trade])).toThrow('INVALID');
-    expect(() => assertPaperTradeMeasurementRows([row(trade, point(trade, { ruleConnected: true }))], [trade])).not.toThrow();
+    expect(() => assertPaperTradeMeasurementRows([row(trade, point(trade, { ruleConnected: true, reasonCode: 'ADAPTIVE_EXIT_HOLD' }))], [trade])).not.toThrow();
     expect(() => assertPaperTradeMeasurementRows([row(trade, point(trade, { ruleValue: 80, ruleMatches: true,
       featureAsOf: '2026-09-18T01:01:05Z' }))], [trade])).toThrow('INVALID');
   });

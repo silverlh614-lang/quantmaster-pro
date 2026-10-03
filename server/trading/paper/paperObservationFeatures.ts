@@ -9,6 +9,7 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 const positive = (v: unknown): v is number => finite(v) && v > 0;
 const range = (bar: PaperDailyClose) => positive(bar.high) && positive(bar.low) && bar.high >= bar.low
   && bar.close >= bar.low && bar.close <= bar.high && (!positive(bar.open) || bar.open >= bar.low && bar.open <= bar.high);
+const closeLocation = (bar: PaperDailyClose) => bar.high === bar.low ? 0 : (2 * bar.close - bar.high! - bar.low!) / (bar.high! - bar.low!);
 
 function ema(xs: number[], period: number): number[] {
   if (xs.length < period) return [];
@@ -46,6 +47,12 @@ export function calculatePaperFeatures(observation: Pick<PaperObservation, 'symb
   const bars = [...newest].reverse(), closes = bars.map(bar => bar.close), n = bars.length;
   const last = newest[0], close = last?.close;
   if (last && positive(close)) {
+    if (n >= 6) values.return5 = (close / newest[5].close - 1) * 100;
+    if (n >= 11) {
+      const distance = newest.slice(0, 10).reduce((sum, bar, index) => sum + Math.abs(bar.close - newest[index + 1].close), 0);
+      values.efficiency10 = distance > 0 ? Math.abs(close - newest[10].close) / distance * 100 : 0;
+    }
+    if (range(last)) values.closeLocationPct = closeLocation(last) * 100;
     if (n >= 15) {
       const changes = closes.slice(1).map((value, i) => value - closes[i]);
       const up = wilder(changes.map(value => Math.max(0, value)), 14);
@@ -61,9 +68,20 @@ export function calculatePaperFeatures(observation: Pick<PaperObservation, 'symb
       if (sd > 0) values.bollingerB = (close - (average - 2 * sd)) / (4 * sd) * 100;
       const volumes = newest.slice(0, 20);
       if (volumes.every(bar => finite(bar.volume) && bar.volume >= 0)) values.turnover20 = mean(volumes.map(bar => bar.close * bar.volume!)) / 1e8;
+      if (volumes.every(range)) {
+        const ranges = volumes.map(bar => (bar.high! - bar.low!) / bar.close), averageRange = mean(ranges);
+        if (averageRange > 0) values.rangeCompression5To20 = mean(ranges.slice(0, 5)) / averageRange;
+        if (volumes.every(bar => finite(bar.volume) && bar.volume >= 0)) {
+          const totalVolume = volumes.reduce((sum, bar) => sum + bar.volume!, 0);
+          if (totalVolume > 0) values.volumeFlow20 = volumes.reduce((sum, bar) => sum + closeLocation(bar) * bar.volume!, 0) / totalVolume * 100;
+        }
+      }
     }
     if (n >= 21) {
       values.return20 = (close / newest[20].close - 1) * 100;
+      const dailyReturns = newest.slice(0, 20).map((bar, index) => (bar.close / newest[index + 1].close - 1) * 100);
+      const averageReturn = mean(dailyReturns);
+      values.realizedVolatility20 = Math.sqrt(dailyReturns.reduce((sum, value) => sum + (value - averageReturn) ** 2, 0) / (dailyReturns.length - 1));
       const prior = newest.slice(1, 21);
       if (finite(last.volume) && last.volume >= 0 && prior.every(bar => finite(bar.volume) && bar.volume >= 0)) {
         const volume = mean(prior.map(bar => bar.volume!));

@@ -27,7 +27,8 @@ async function scan(): Promise<PaperScanResult> {
   const strategy = loadPaperStrategyState();
   const openSymbols = [...new Set([
     ...ledger.experiments.filter((item) => item.status === 'OPEN').map((item) => item.symbol),
-    ...(strategy.ledger?.trades ?? []).filter((item) => item.status === 'OPEN').map((item) => item.symbol),
+    ...(strategy.ledger?.trades ?? []).filter((item) => item.status === 'OPEN'
+      || item.exitResearch && !item.exitResearch.completedAt).map((item) => item.symbol),
   ])];
   const snapshot = await collectPaperExperimentSnapshot(openSymbols, (completed, total) => {
     collection = { startedAt, lastProgressAt: new Date().toISOString(), completed, total };

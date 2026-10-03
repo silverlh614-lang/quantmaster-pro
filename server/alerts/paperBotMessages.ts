@@ -138,7 +138,7 @@ function selectionLines(selection: PaperStrategySelection | undefined): string[]
     c.groupCount
       ? `청산 전략 ${pct(c.strategyMeanPct)} vs 같은 날·같은 기간 미진입 ${pct(c.unselectedMeanPct)} → 차이 ${c.differencePct === null ? '미확인' : `${c.differencePct > 0 ? '+' : ''}${c.differencePct.toFixed(2)}%p`} · ${num(c.groupCount)}개 날짜·기간 (전체 후보 ${pct(c.baselineMeanPct)})`
       : '같은 날 미진입 후보의 확정 성과가 아직 없어 선별력 비교 대기',
-    '진입률이 높고 차이가 0 근처면 전략이 종목을 거르지 못하는 상태입니다. 연구 표시이며 매수 조건에 쓰지 않습니다.'];
+    '진입률은 전체 전략, 위 수익률 비교는 기존 예약 청산 거래 기준입니다. 관측 매도는 별도 매도 학습에서 비교합니다. 연구 표시이며 매수 조건에 쓰지 않습니다.'];
 }
 
 export interface PaperBotTradeEvent { id: string; at: string; trade: PaperStrategyTrade; side: 'BUY' | 'EXIT' }
@@ -148,13 +148,14 @@ export function paperTradeEvents(trades: PaperStrategyTrade[]): PaperBotTradeEve
 }
 export function formatPaperTrades(events: PaperBotTradeEvent[]): string {
   const buys = events.filter(item => item.side === 'BUY').length;
-  const lines = ['<b>Shadow 전략 변화 · 실제 주문 없음</b>', `새 가상 진입 ${buys}건 · 예약 종가 청산 ${events.length - buys}건`, ''];
+  const lines = ['<b>Shadow 전략 변화 · 실제 주문 없음</b>', `새 가상 진입 ${buys}건 · 가상 청산 ${events.length - buys}건`, ''];
   for (const event of events.slice(0, 10)) {
     const trade = event.trade;
     const purpose = trade.entryDecision.explorationEvidence ? '탐색 가상매수 · 검증 전' : trade.entryDecision.adaptiveEvidence ? '검증 통과 가상매수' : '구전략 가상매수';
     lines.push(event.side === 'BUY'
-      ? `• 진입 ${escape(trade.name.slice(0, 30))}(${trade.symbol}) · 1주/${num(trade.entryPrice)}원 · D${trade.horizon} · 청산 예정 ${trade.scheduledExitDate} · 기록 ${trade.tradingDate}`
-      : `• 청산 ${escape(trade.name.slice(0, 30))}(${trade.symbol}) · 평가일 ${trade.scheduledExitDate} · 순수익률 ${pct(trade.exit?.netReturnPct)} · 진입 기록 ${trade.tradingDate}`);
+      ? `• 진입 ${escape(trade.name.slice(0, 30))}(${trade.symbol}) · 1주/${num(trade.entryPrice)}원 · ${trade.policy.exitModel === 'ADAPTIVE_OBSERVED' ? `관측 기반 매도 / 성과 비교 D${trade.horizon}` : `D${trade.horizon} · 청산 예정 ${trade.scheduledExitDate}`} · 기록 ${trade.tradingDate}`
+      : `• 청산 ${escape(trade.name.slice(0, 30))}(${trade.symbol}) · ${trade.exit?.model === 'ADAPTIVE_OBSERVED' ? `관측 매도 ${stamp(trade.exit.effectiveAt)}` : `평가일 ${trade.scheduledExitDate}`} · 순수익률 ${pct(trade.exit?.netReturnPct)} · 진입 기록 ${trade.tradingDate}`);
+    if (event.side === 'EXIT' && trade.exit?.model === 'ADAPTIVE_OBSERVED') lines.push(`  ${escape(trade.exit.decision.reason)}`);
     lines.push(`  ${purpose}`);
   }
   if (events.length > 10) lines.push(`외 ${events.length - 10}건 · 전체 내역은 대시보드에서 확인`);
@@ -194,7 +195,12 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
     const adaptive = exploration ?? trade.entryDecision.adaptiveEvidence;
     const selected = evidence?.horizons.find(item => item.horizon === trade.horizon);
     lines.push('', `<b>${event.side === 'BUY' ? '진입 근거' : '청산 복기'} · ${escape(trade.name.slice(0, 30))}(${trade.symbol})</b>`,
-      `연결 기록 ${trade.symbol} · ${trade.tradingDate} · D${trade.horizon}`, `진입 ${num(trade.entryPrice)}원 · 예정 청산 ${trade.scheduledExitDate}`);
+      `연결 기록 ${trade.symbol} · ${trade.tradingDate} · D${trade.horizon}`, `진입 ${num(trade.entryPrice)}원 · ${trade.policy.exitModel === 'ADAPTIVE_OBSERVED' ? '새 장중 관측으로 매도 판단 · 날짜 도래만으로 청산하지 않음' : `예정 청산 ${trade.scheduledExitDate}`}`);
+    if (trade.exitPolicy) {
+      const policy = trade.exitPolicy, profile = policy.profile;
+      lines.push(`매도 기준: ${policy.origin === 'FORWARD_LEARNED' ? '후속 관측 검증으로 선택' : '초기 탐색 기준 · 학습 검증 전'}`,
+        `순손실 ${profile.stopLossPct}% · 수익 ${profile.trailingArmPct}% 도달 후 고점 대비 ${profile.trailingDrawdownPct}%p 반납 · 진입 근거 ${profile.signalFailureCount}회/${profile.signalFailureMinutes}분 이상 약화`);
+    }
     if (adaptive) {
       const { training, validation, rule } = adaptive.candidate;
       const invented = rule.invention;
@@ -205,7 +211,7 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
       lines.push(`${invented ? '발명 당시 학습' : '학습'} ${num(training.sampleCount)}건/${training.dateCount}진입일 · 평균 순수익률 ${pct(training.meanNetReturnPct)} · 일당 대조군 차이 ${excess(training.meanDailyExcessPct)}`,
         `${invented ? '생성 후 검증' : '후반 확인'} ${num(validation.sampleCount)}건/${validation.dateCount}진입일 · 평균 순수익률 ${pct(validation.meanNetReturnPct)} · 일당 대조군 차이 ${excess(validation.meanDailyExcessPct)}`,
         `근거 기준 ${stamp(adaptive.cutoffAt)} · 선택 평가 ${stamp(adaptive.evaluatedAt)} · ${invented ? '생성 후 검증' : '후반'} 시작 ${adaptive.validationStartDate ?? '누적 대기'}`,
-        '진입 시 고정한 근거입니다. 이후 지표 연결 해제는 이 거래의 보유기간을 바꾸지 않습니다.');
+        '진입 시 고정한 근거입니다. 이후 지표 연결 해제만으로 매도하지 않으며 거래에 기록한 매도 규칙을 따릅니다.');
     } else if (evidence) {
       lines.push('구전략 가상매수', COHORT_LABELS[evidence.cohort],
         `동일 유형 ${num(evidence.sampleCount)}건 · ${num(evidence.entryDateCount)}개 진입일`,

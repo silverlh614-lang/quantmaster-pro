@@ -103,7 +103,7 @@ describe('PaperAdaptivePanel', () => {
       evaluatedAt: state.evaluatedAt, validationStartDate: state.validationStartDate! }} />);
     expect(screen.getByText(/진입 시 고정한 지표 근거 · RSI 14 · 30 이상 50 미만 · D3/)).toBeTruthy();
     expect(screen.getByText(/후반 확인 12건 · 3진입일 · 4종목.*\+0.15%p/)).toBeTruthy();
-    expect(screen.getByText(/지표 연결이 해제돼도 이 근거와 보유기간은 유지/)).toBeTruthy();
+    expect(screen.getByText(/지표 연결이 해제돼도 당시 근거는 보존/)).toBeTruthy();
   });
   it('separates invention observation from adoption and research retirement', () => {
     const pendingFormula = createPaperIndicatorFormula('DIFFERENCE', 'ma20Gap', 'return20');

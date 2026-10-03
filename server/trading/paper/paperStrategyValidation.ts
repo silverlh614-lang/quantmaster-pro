@@ -10,6 +10,8 @@ import { adaptiveEvidenceSchema, adaptiveStateSchema, adaptiveObservationSchema,
   explorationEvidenceSchema, validExplorationEntry, sameExplorationEvidence } from './paperAdaptiveValidation.js';
 import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 import { assertPaperTradeMeasurement, paperTradeMeasurementSchema } from './paperTradeMeasurementValidation.js';
+import { assertPaperAdaptiveExit, assertPaperExitLearning, paperAdaptiveExitPolicySchema, paperAdaptiveExitResearchSchema,
+  paperAdaptiveExitOutcomeSchema, paperExitLearningSchema, paperObservedExitQuoteSchema } from './paperAdaptiveExitValidation.js';
 
 const finite = z.number().finite();
 const timestamp = z.string().datetime({ offset: true });
@@ -39,7 +41,7 @@ const newsSummary = z.object({ asOf: timestamp, lookbackHours: finite.positive()
     direction: newsDirection, reason: z.string(), facts: newsFacts.optional() })).max(5) });
 const cohort = z.enum(['NEWS_RECENT_ABOVE_MA20', 'NEWS_RECENT_BELOW_MA20', 'NEWS_ABSENT_ABOVE_MA20', 'NEWS_ABSENT_BELOW_MA20']);
 const policy = z.object({ version, newsLookbackHours: finite.positive(), minimumSamples: finite.int().positive(),
-  minimumEntryDates: finite.int().positive(), horizonSelection: z.enum(['MEAN_NET_RETURN_PER_DAY', 'FORWARD_VALIDATED_FEATURE']), exitModel: z.literal('SCHEDULED_CLOSE') });
+  minimumEntryDates: finite.int().positive(), horizonSelection: z.enum(['MEAN_NET_RETURN_PER_DAY', 'FORWARD_VALIDATED_FEATURE']), exitModel: z.enum(['SCHEDULED_CLOSE', 'ADAPTIVE_OBSERVED']) });
 const evidence = z.object({
   cutoffAt: timestamp, cohort, sampleCount: finite.int().nonnegative(), entryDateCount: finite.int().nonnegative(),
   experimentIdsDigest: z.string().regex(/^[0-9a-f]{64}$/), selectedHorizon: horizon.nullable(),
@@ -52,7 +54,8 @@ const decision = z.object({ snapshotId: z.string(), decisionAt: timestamp, symbo
   reasonCode: z.enum(['ADAPTIVE_FEATURE_SELECTED', 'ADAPTIVE_EXPLORATION_SELECTED', 'ADAPTIVE_NO_ACTIVE_RULE', 'ADAPTIVE_FEATURE_UNAVAILABLE', 'ADAPTIVE_RULE_NOT_MATCHED',
     'POSITIVE_COHORT_EXPECTANCY', 'INSUFFICIENT_MATURE_SAMPLES', 'INSUFFICIENT_ENTRY_DATES',
     'NON_POSITIVE_EXPECTANCY', 'TREND_UNKNOWN', 'MARKET_CLOSED', 'CURRENT_PRICE_UNAVAILABLE', 'OBSERVATION_TIME_INVALID',
-    'ALREADY_ENTERED_TODAY', 'HORIZON_PENDING', 'SCHEDULED_CLOSE_UNAVAILABLE', 'SCHEDULED_CLOSE_REACHED']),
+    'ALREADY_ENTERED_TODAY', 'HORIZON_PENDING', 'SCHEDULED_CLOSE_UNAVAILABLE', 'SCHEDULED_CLOSE_REACHED',
+    'ADAPTIVE_EXIT_HOLD', 'ADAPTIVE_EXIT_QUOTE_UNAVAILABLE', 'ADAPTIVE_STOP_LOSS', 'ADAPTIVE_TRAILING_STOP', 'ADAPTIVE_SIGNAL_LOST']),
   reason: z.string(), cohort: cohort.nullable(), evidence: evidence.nullable(), adaptiveEvidence: adaptiveEvidenceSchema.optional(),
   explorationEvidence: explorationEvidenceSchema.optional(), tradeId: z.string().nullable(), newsSummary: newsSummary.optional(), investorFlow: investorFlow.optional() });
 export const paperObservationSchema = z.object({ symbol, name: z.string(), price: finite.positive().nullable(), observedAt: timestamp, source: z.string(),
@@ -62,16 +65,18 @@ export const paperObservationSchema = z.object({ symbol, name: z.string(), price
   dailyCloses: z.array(z.object({ tradingDate: date, close: finite.positive(), availableAt: timestamp })), issue: z.string().optional() });
 const cost = z.object({ version: z.string(), buyFeeRate: finite.nonnegative(), sellFeeRate: finite.nonnegative(),
   sellTaxRate: finite.nonnegative(), slippageRate: finite.nonnegative() });
-const exit = z.object({ model: z.literal('SCHEDULED_CLOSE'), snapshotId: z.string(), effectiveAt: timestamp,
-  observedAt: timestamp, decisionAt: timestamp, price: finite.positive(), grossReturnPct: finite, netReturnPct: finite, netPnl: finite, decision });
+const exit = z.object({ model: z.enum(['SCHEDULED_CLOSE', 'ADAPTIVE_OBSERVED']), snapshotId: z.string(), effectiveAt: timestamp,
+  observedAt: timestamp, decisionAt: timestamp, price: finite.positive(), grossReturnPct: finite, netReturnPct: finite, netPnl: finite, decision,
+  observedQuote: paperObservedExitQuoteSchema.optional(), observedTrigger: paperAdaptiveExitOutcomeSchema.optional() });
 const trade = z.object({ id: z.string(), strategyVersion: version, symbol, name: z.string(), status: z.enum(['OPEN', 'CLOSED']),
   entrySnapshotId: z.string(), entryAt: timestamp, tradingDate: date, entryPrice: finite.positive(), quantity: z.literal(1),
   entryObservation: paperObservationSchema, entryDecision: decision, policy, costModel: cost, horizon,
   scheduledExitDate: date, scheduledExitAt: timestamp, exit: exit.nullable(), measurement: paperTradeMeasurementSchema.optional(),
+  exitPolicy: paperAdaptiveExitPolicySchema.optional(), exitResearch: paperAdaptiveExitResearchSchema.optional(),
   morningRecommendation: z.object({ reportId: z.string(), rank: finite.int().min(1).max(3), purpose: z.enum(['VALIDATED', 'EXPLORATION']),
     recommendedAt: timestamp, sentAt: timestamp, matchesEntryRule: z.boolean() }).optional() });
 const ledgerSchema = z.object({ schemaVersion: z.literal(1), trades: z.array(trade), latestDecisions: z.array(decision),
-  adaptive: adaptiveStateSchema.optional(),
+  adaptive: adaptiveStateSchema.optional(), exitLearning: paperExitLearningSchema.optional(),
   lastMarketSession: z.object({ tradingDate: date, snapshotId: z.string(), asOf: timestamp, decisionCount: finite.int().nonnegative(),
     reasonCounts: z.record(z.string(), finite.int().positive()) }).optional(),
   lastRun: z.object({ snapshotId: z.string(), asOf: timestamp, openedCount: finite.int().nonnegative(), closedCount: finite.int().nonnegative(),
@@ -106,6 +111,7 @@ function sameEvidence(left: PaperStrategyEvidence, right: PaperStrategyEvidence 
 export function assertPaperStrategyLedger(value: unknown): asserts value is PaperStrategyLedger {
   const parsed = ledgerSchema.safeParse(value);
   if (!parsed.success) throw new Error('PAPER_STRATEGY_INVALID: invalid ledger structure');
+  if (parsed.data.exitLearning) assertPaperExitLearning(parsed.data.exitLearning, parsed.data.lastRun?.asOf);
   const session = parsed.data.lastMarketSession;
   if (session && (!(Date.parse(session.asOf) >= Date.parse(`${session.tradingDate}T09:00:00+09:00`)
     && Date.parse(session.asOf) < Date.parse(`${session.tradingDate}T15:30:00+09:00`))
@@ -161,10 +167,11 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
     }
     if (item.exit) {
       const result = calculatePaperReturn(item.entryPrice, item.exit.price, item.costModel);
-      if (Date.parse(item.exit.effectiveAt) !== expectedClose
-        || !(Date.parse(item.exit.observedAt) >= expectedClose)
+      if (item.exit.model !== item.policy.exitModel
+        || (item.exit.model === 'SCHEDULED_CLOSE' && (Date.parse(item.exit.effectiveAt) !== expectedClose
+          || !(Date.parse(item.exit.observedAt) >= expectedClose) || item.exit.decision.reasonCode !== 'SCHEDULED_CLOSE_REACHED'))
         || !(Date.parse(item.exit.decisionAt) >= Date.parse(item.exit.observedAt))
-        || item.exit.decision.action !== 'EXIT' || item.exit.decision.reasonCode !== 'SCHEDULED_CLOSE_REACHED'
+        || item.exit.decision.action !== 'EXIT'
         || item.exit.decision.tradeId !== item.id || item.exit.decision.symbol !== item.symbol || item.exit.decision.name !== item.name
         || item.exit.decision.snapshotId !== item.exit.snapshotId || item.exit.decision.decisionAt !== item.exit.decisionAt
         || (item.strategyVersion === 'adaptive-features-v1'
@@ -175,9 +182,10 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
         || Math.abs(item.exit.netPnl - result.netPnl) > 1e-8
         || Math.abs(item.exit.netReturnPct - result.netReturnPct) > 1e-8
         || Math.abs(item.exit.grossReturnPct - result.grossReturnPct) > 1e-8) {
-        throw new Error('PAPER_STRATEGY_INVALID: inconsistent scheduled exit');
+        throw new Error('PAPER_STRATEGY_INVALID: inconsistent strategy exit');
       }
     }
+    assertPaperAdaptiveExit(item as PaperStrategyTrade, parsed.data.lastRun?.asOf);
     assertPaperTradeMeasurement(item as PaperStrategyTrade, parsed.data.lastRun?.asOf);
     const recommendation = item.morningRecommendation;
     if (recommendation && (recommendation.reportId !== `paper:recommendation:${item.tradingDate}`
@@ -187,12 +195,20 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
     ids.add(item.id);
     if (item.status === 'OPEN') openSymbols.add(item.symbol);
   }
-  const entries = new Map(parsed.data.trades.map(item => [item.id, item.entryDecision]));
+  const trades = new Map(parsed.data.trades.map(item => [item.id, item]));
   for (const item of parsed.data.latestDecisions) {
     if (item.action !== 'HOLD' && item.action !== 'EXIT') continue;
-    const entry = item.tradeId ? entries.get(item.tradeId) : undefined;
+    const original = item.tradeId ? trades.get(item.tradeId) : undefined;
+    const entry = original?.entryDecision;
     if (entry?.explorationEvidence && !sameExplorationEvidence(entry.explorationEvidence, item.explorationEvidence)) {
       throw new Error('PAPER_STRATEGY_INVALID: inconsistent exploration carry');
     }
+    if (entry?.adaptiveEvidence && (!sameAdaptiveEvidence(entry.adaptiveEvidence, item.adaptiveEvidence) || item.explorationEvidence)) {
+      throw new Error('PAPER_STRATEGY_INVALID: inconsistent adaptive carry');
+    }
+    if (original?.policy.exitModel === 'ADAPTIVE_OBSERVED' && (item.symbol !== original.symbol || item.name !== original.name
+      || (item.action === 'HOLD' ? !['ADAPTIVE_EXIT_HOLD', 'ADAPTIVE_EXIT_QUOTE_UNAVAILABLE'].includes(item.reasonCode)
+        : !original.exit || item.reasonCode !== original.exit.decision.reasonCode || item.snapshotId !== original.exit.snapshotId
+          || item.decisionAt !== original.exit.decisionAt))) throw new Error('PAPER_STRATEGY_INVALID: inconsistent observed exit decision');
   }
 }

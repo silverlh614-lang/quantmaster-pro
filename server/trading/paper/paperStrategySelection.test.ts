@@ -10,6 +10,15 @@ const trade = (symbol: string, tradingDate: string, horizon: 1 | 3 | 5, schedule
 }) as unknown as PaperStrategyTrade;
 
 describe('paper strategy selectivity', () => {
+  it('counts observed holdings past the benchmark without mixing observed exits into fixed-duration returns', () => {
+    const observed = trade('000100', '2026-08-31', 1, '2026-09-01');
+    observed.policy = { exitModel: 'ADAPTIVE_OBSERVED' } as PaperStrategyTrade['policy'];
+    const result = buildPaperStrategySelection([observed, trade('000101', '2026-09-02', 3, '2026-09-07')], matureStrategySamples());
+    expect(result.heldCount).toBe(1);
+    observed.status = 'CLOSED'; observed.exit = { netReturnPct: 99, decisionAt: '2026-09-02T02:00:00Z' } as PaperStrategyTrade['exit'];
+    expect(buildPaperStrategySelection([observed], matureStrategySamples()).comparison.strategyTradeCount).toBe(0);
+  });
+
   it('separates new entries, held symbols and same-day unselected outcomes', () => {
     const experiments = matureStrategySamples();
     const result = buildPaperStrategySelection([

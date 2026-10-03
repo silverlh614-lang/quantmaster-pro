@@ -58,6 +58,19 @@ function view(overrides: Partial<PaperStrategyView> = {}): PaperStrategyView {
 afterEach(cleanup);
 
 describe('PaperStrategyPanel', () => {
+  it('labels a new exit policy as unvalidated exploration and keeps D3 as comparison only', () => {
+    const observed = structuredClone(trade);
+    observed.strategyVersion = 'adaptive-features-v1'; observed.policy.exitModel = 'ADAPTIVE_OBSERVED';
+    observed.exitPolicy = { version: 'observed-exit-v1', selectedAt: trade.entryAt, origin: 'EXPLORATION_DEFAULT', evidence: null,
+      profile: { id: 'BALANCED', stopLossPct: 5, trailingArmPct: 3, trailingDrawdownPct: 1.5, signalFailureCount: 3, signalFailureMinutes: 20 } };
+    render(<PaperStrategyPanel view={view({ strategyVersion: 'adaptive-features-v1', policy: observed.policy, trades: [observed] })} />);
+    const history = within(screen.getByRole('article', { name: '삼성전자 전략 거래' }));
+    expect(history.getByText('관측 기반 매도 · 성과 비교 D3')).toBeTruthy();
+    expect(history.getByText(/초기 탐색 기준 · 검증 전/)).toBeTruthy();
+    expect(history.queryByText(/예정 청산일/)).toBeNull();
+    expect(screen.getByLabelText('매도 기준 학습')).toBeTruthy();
+  });
+
   it('shows observed zero returns with prices and recording times while identifying incomplete tracking', () => {
     const latest = measuredPoint(), highest = measuredPoint({ price: 72100, netReturnPct: 3, netPnl: 2100 });
     render(<PaperStrategyPanel view={view({ trades: [{ ...trade, measurement: { version: 'observed-trade-path-v1',

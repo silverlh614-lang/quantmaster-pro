@@ -1,6 +1,6 @@
 // @responsibility Validate persisted autonomous Shadow decisions.
 import { z } from 'zod';
-import { PAPER_FEATURES, type PaperFeatureKey, type PaperObservationFeatures } from '../../../src/types/paperObservationFeatures.js';
+import { PAPER_FEATURES, PAPER_LEGACY_FEATURE_KEYS, type PaperFeatureKey, type PaperObservationFeatures } from '../../../src/types/paperObservationFeatures.js';
 import type { PaperAdaptiveCandidate, PaperAdaptiveEvidence, PaperAdaptiveState, PaperAdaptiveStats, PaperExplorationEvidence, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
 import { PAPER_INVENTED_FEATURE_CUTS, PAPER_MAX_INVENTIONS, PAPER_MAX_INVENTION_ATTEMPTS,
   paperIndicatorFormulaId, validPaperIndicatorFormula, type PaperIndicatorFormula, type PaperInventedFeatureId } from '../../../src/types/paperIndicatorFormula.js';
@@ -99,12 +99,14 @@ const horizonSamples = z.array(z.object({ horizon, matureSampleCount: count, mat
 export const adaptiveStateSchema = z.object({ policy, tradingDate: date, evaluatedAt: timestamp, cutoffAt: timestamp,
   windowStartDate: date.nullable(), validationStartDate: date.nullable(), matureSampleCount: count, matureDateCount: count,
   horizonSamples: horizonSamples.optional(),
-  candidates: z.array(candidate).min(Object.keys(PAPER_FEATURES).length).max(Object.keys(PAPER_FEATURES).length + PAPER_MAX_INVENTIONS),
+  candidates: z.array(candidate).min(PAPER_LEGACY_FEATURE_KEYS.length).max(Object.keys(PAPER_FEATURES).length + PAPER_MAX_INVENTIONS),
   discovery: discovery.optional(),
   exploration: exploration.optional(),
   changes: z.array(z.object({ at: timestamp, feature: adaptiveFeature, from: rule.nullable(), to: rule.nullable(), reason })).max(100),
 }).refine((value: PaperAdaptiveState) => {
-  const expected = [...Object.keys(PAPER_FEATURES), ...(value.discovery?.inventions.map(item => item.id) ?? [])];
+  const baseFeatures = value.candidates.filter(item => !item.rule.invention).map(item => item.rule.feature);
+  const catalog = baseFeatures.length === PAPER_LEGACY_FEATURE_KEYS.length ? PAPER_LEGACY_FEATURE_KEYS : Object.keys(PAPER_FEATURES);
+  const expected = [...catalog, ...(value.discovery?.inventions.map(item => item.id) ?? [])];
   if (value.cutoffAt !== new Date(`${value.tradingDate}T00:00:00+09:00`).toISOString()
     || toKstDateKey(new Date(value.evaluatedAt)) !== value.tradingDate
     || value.candidates.length !== expected.length || new Set(value.candidates.map(item => item.rule.feature)).size !== expected.length
@@ -133,7 +135,8 @@ export const adaptiveStateSchema = z.object({ policy, tradingDate: date, evaluat
     && (!change.from || !change.to || adaptiveRuleId(change.from) !== adaptiveRuleId(change.to)));
 });
 const featureSnapshot = z.object({ version: z.literal('observation-features-v1'), asOf: timestamp,
-  technicalDate: date.nullable(), values: z.record(feature, finite.nullable()), financials: z.unknown() });
+  technicalDate: date.nullable(), values: z.partialRecord(feature, finite.nullable())
+    .refine(values => PAPER_LEGACY_FEATURE_KEYS.every(key => Object.hasOwn(values, key))), financials: z.unknown() });
 export const adaptiveObservationSchema = z.custom<PaperObservationFeatures>(value => featureSnapshot.safeParse(value).success);
 
 export function validAdaptiveEntry(trade: PaperStrategyTrade): boolean {

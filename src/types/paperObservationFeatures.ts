@@ -1,5 +1,5 @@
 // @responsibility Define independent observation research contracts.
-export const PAPER_FEATURES = {
+const originalFeatures = {
   rsi14: { label: 'RSI 14', unit: '', cuts: [30, 50, 70] },
   rsiChange5: { label: 'RSI 5일 변화', unit: 'p', cuts: [-5, 0, 5] },
   volumeRatio20: { label: '완료일 거래량 / 이전 20일 평균', unit: '배', cuts: [0.5, 1, 2] },
@@ -27,8 +27,21 @@ export const PAPER_FEATURES = {
   operatingCashFlowSign: { label: 'DART 영업현금흐름 부호 (-1·0·1)', unit: '', cuts: [0, 1] },
   equityRatio: { label: 'DART 자본 / 자산', unit: '%', cuts: [0, 20, 50] },
 } as const;
+/** Frozen catalog required by observation-features-v1 records before the OHLCV expansion. */
+export const PAPER_LEGACY_FEATURE_KEYS = Object.keys(originalFeatures) as Array<keyof typeof originalFeatures>;
+export const PAPER_FEATURES = {
+  ...originalFeatures,
+  return5: { label: '5일 수익률', unit: '%', cuts: [-3, 0, 3] },
+  realizedVolatility20: { label: '20일 일간 수익률 표준편차', unit: '%', cuts: [1, 2, 4] },
+  closeLocationPct: { label: '완료일 고저 범위 내 종가 위치', unit: '%', cuts: [-50, 0, 50] },
+  volumeFlow20: { label: '20일 종가 위치 가중 거래량 흐름', unit: '%', cuts: [-10, 0, 10] },
+  rangeCompression5To20: { label: '5일 / 20일 평균 일중범위 비율', unit: '배', cuts: [0.6, 1, 1.4] },
+  efficiency10: { label: '10일 순이동 / 전체이동 효율', unit: '%', cuts: [20, 50, 80] },
+} as const;
 export type PaperFeatureKey = keyof typeof PAPER_FEATURES;
-export type PaperFeatureValues = Record<PaperFeatureKey, number | null>;
+/** Older frozen observations may omit features that were introduced later. */
+export type PaperFeatureValues = Record<keyof typeof originalFeatures, number | null>
+  & Partial<Record<Exclude<PaperFeatureKey, keyof typeof originalFeatures>, number | null>>;
 export interface PaperFinancialFacts {
   symbol: string;
   observedAt: string;

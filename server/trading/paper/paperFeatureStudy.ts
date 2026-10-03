@@ -10,7 +10,7 @@ export function buildPaperFeatureStudy(experiments: PaperExperiment[], asOf: str
     .filter(row => Date.parse(row.entryAt) <= cutoff).map(row => [`${row.symbol}:${row.tradingDate}`, row])).values()];
   const recorded = rows.filter(row => row.entryObservation.features?.version === 'observation-features-v1'
     && Date.parse(row.entryObservation.features.asOf) <= Date.parse(row.entryAt));
-  // Calendar validation is shared by all 26 features, not repeated for every bucket.
+  // Calendar validation is shared across the catalog rather than repeated for every bucket.
   const results = new Map(recorded.map(row => [row, ([1, 3, 5] as const).map(horizon => {
     const due = addBusinessDaysFromKstDate(row.tradingDate, horizon);
     return row.outcomes.find(item => item.horizon === horizon && item.tradingDate === due

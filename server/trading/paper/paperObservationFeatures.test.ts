@@ -1,6 +1,7 @@
 // @responsibility Verify indicator math, point-in-time boundaries, and independent feature research.
 import { describe, expect, it } from 'vitest';
 import type { PaperDailyClose, PaperObservation, PaperSnapshot } from '../../../src/types/paperExperiment.js';
+import { PAPER_LEGACY_FEATURE_KEYS, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
 import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { calculatePaperFeatures, addPaperPeerComparison, summarizePaperFeatureCoverage } from './paperObservationFeatures.js';
 import { buildPaperFeatureStudy } from './paperFeatureStudy.js';
@@ -40,6 +41,41 @@ describe('same-snapshot observation features', () => {
     expect(input.dailyCloses.some(row => row.tradingDate === '2026-07-17')).toBe(false);
     expect(calculatePaperFeatures(input, asOf).values.ma60Gap).toBeCloseTo((200 / 170.5 - 1) * 100);
   });
+  it('measures five-session momentum and ten-session path efficiency without annualizing daily volatility', () => {
+    const trending = calculatePaperFeatures(observation(), asOf).values;
+    expect(trending.return5).toBeCloseTo((200 / 195 - 1) * 100);
+    expect(trending.efficiency10).toBe(100);
+    const alternating = observation(21);
+    let close = 100;
+    for (const [index, bar] of [...alternating.dailyCloses].reverse().entries()) {
+      if (index) close *= index % 2 ? 1.01 : 0.99;
+      Object.assign(bar, { close, open: close, high: close * 1.02, low: close * 0.98 });
+    }
+    const values = calculatePaperFeatures(alternating, asOf).values;
+    expect(values.realizedVolatility20).toBeCloseTo(Math.sqrt(20 / 19), 10);
+    expect(values.efficiency10).toBeLessThan(1);
+    expect(values.rangeCompression5To20).toBeCloseTo(1, 10);
+  });
+  it('weights completed close locations by actual volume and measures recent range compression', () => {
+    const input = observation(20, 0);
+    for (const bar of input.dailyCloses) Object.assign(bar, { high: 210, low: 190 });
+    Object.assign(input.dailyCloses[0], { high: 200, low: 190, volume: 3000 });
+    const flow = calculatePaperFeatures(input, asOf).values;
+    expect(flow.closeLocationPct).toBe(100);
+    expect(flow.volumeFlow20).toBeCloseTo(3000 / 22000 * 100);
+    for (const [index, bar] of input.dailyCloses.entries()) Object.assign(bar, {
+      high: index < 5 ? 202 : 210, low: index < 5 ? 198 : 190,
+    });
+    expect(calculatePaperFeatures(input, asOf).values.rangeCompression5To20).toBeCloseTo(0.25);
+  });
+  it('keeps zero movement meaningful but leaves undefined flow and range ratios missing', () => {
+    const input = observation(21, 0);
+    for (const bar of input.dailyCloses) Object.assign(bar, { high: bar.close, low: bar.close, volume: 0 });
+    expect(calculatePaperFeatures(input, asOf).values).toMatchObject({ return5: 0, efficiency10: 0,
+      realizedVolatility20: 0, closeLocationPct: 0, volumeFlow20: null, rangeCompression5To20: null });
+    input.dailyCloses[0].volume = 1000;
+    expect(calculatePaperFeatures(input, asOf).values.volumeFlow20).toBe(0);
+  });
   it('handles flat prices and real zero volume without infinity or artificial missing values', () => {
     const input = observation(70, 0);
     input.dailyCloses[0].volume = 0;
@@ -64,6 +100,11 @@ describe('same-snapshot observation features', () => {
     expect(values.rsi14).toBeNull();
     expect(values.return20).toBeNull();
     expect(values.per).toBeNull();
+    expect(values.return5).not.toBeNull();
+    expect(values.efficiency10).toBeNull();
+    expect(values.realizedVolatility20).toBeNull();
+    expect(values.volumeFlow20).toBeNull();
+    expect(values.rangeCompression5To20).toBeNull();
   });
   it('rejects missing latest close, duplicate dates and bars retrieved in the future', () => {
     for (const mutate of [
@@ -89,6 +130,19 @@ describe('same-snapshot observation features', () => {
     expect(result.values.atr14Pct).toBeNull();
     expect(result.values.stochasticK14).toBeNull();
     expect(result.values.rsi14).toBe(100);
+    expect(result.values.closeLocationPct).toBeNull();
+    expect(result.values.volumeFlow20).toBeNull();
+    expect(result.values.rangeCompression5To20).toBeNull();
+    expect(result.values.realizedVolatility20).not.toBeNull();
+  });
+  it('does not manufacture volume flow from incomplete or negative volume', () => {
+    for (const volume of [undefined, -1]) {
+      const input = observation(); input.dailyCloses[10].volume = volume;
+      const values = calculatePaperFeatures(input, asOf).values;
+      expect(values.volumeFlow20).toBeNull();
+      expect(values.rangeCompression5To20).not.toBeNull();
+      expect(values.return5).not.toBeNull();
+    }
   });
   it('separates same-market peer relative strength from exchange indices and requires 20 peers', () => {
     const rows = Array.from({ length: 20 }, (_, i) => { const row = observation(); row.symbol = String(i).padStart(6, '0');
@@ -124,5 +178,17 @@ describe('frozen feature outcome research', () => {
     expect(buildPaperFeatureStudy([row], asOf).recordedCount).toBe(0);
     row.entryObservation.features = calculatePaperFeatures(observation(), '2026-09-19T03:00:00Z');
     expect(buildPaperFeatureStudy([row], '2026-09-20T03:00:00Z').recordedCount).toBe(0);
+  });
+  it('keeps older recorded feature sets intact when later catalog features become available', () => {
+    const input = observation(); input.features = calculatePaperFeatures(input, asOf);
+    const legacy = new Set<PaperFeatureKey>(PAPER_LEGACY_FEATURE_KEYS);
+    for (const key of Object.keys(input.features.values) as PaperFeatureKey[]) if (!legacy.has(key)) delete input.features.values[key];
+    const row = createPaperExperiment(snapshot, input, cost)!;
+    input.features.values.return5 = 50;
+    const study = buildPaperFeatureStudy([row], asOf);
+    expect(study.recordedCount).toBe(1);
+    expect(study.features.find(item => item.key === 'rsi14')!.availableCount).toBe(1);
+    expect(study.features.find(item => item.key === 'return5')).toMatchObject({ availableCount: 0, missingCount: 1 });
+    expect(row.entryObservation.features!.values).not.toHaveProperty('return5');
   });
 });

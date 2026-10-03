@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PaperAdaptiveState, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
 import { PAPER_FEATURES, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
-import { paperIndicatorFormulaId } from '../../../src/types/paperIndicatorFormula.js';
+import { PAPER_MAX_INVENTION_ATTEMPTS, paperIndicatorFormulaId } from '../../../src/types/paperIndicatorFormula.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { adaptiveFeatureValue, adaptiveRuleMatches, selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { adaptiveTestSnapshot, matureAdaptiveSamples, type AdaptiveSampleOptions } from './paperAdaptiveFixtures.js';
@@ -28,8 +28,9 @@ const afterMaturity = (rows: ReturnType<typeof interactionSamples>) => `${addBus
 describe('autonomous indicator invention', () => {
   it('deterministically searches a finite canonical grammar and freezes training-only inventions', () => {
     const universe = paperIndicatorFormulaUniverse();
-    expect(universe).toHaveLength(975);
-    expect(new Set(universe.map(paperIndicatorFormulaId)).size).toBe(975);
+    expect(universe).toHaveLength(Object.keys(PAPER_FEATURES).length * (Object.keys(PAPER_FEATURES).length - 1) / 2 * 3);
+    expect(new Set(universe.map(paperIndicatorFormulaId)).size).toBe(PAPER_MAX_INVENTION_ATTEMPTS);
+    expect(universe.some(item => item.left.feature === 'efficiency10' && item.right.feature === 'volumeFlow20')).toBe(true);
     expect(universe.every(item => item.left.feature < item.right.feature)).toBe(true);
     const state = select();
     expect(state).toEqual(selectPaperAdaptiveState(undefined, interactionSamples().reverse(), asOf));
@@ -92,6 +93,8 @@ describe('autonomous indicator invention', () => {
     snapshot.observations[0].features!.values.volumeRatio20 = 0.25;
     const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, connected);
     expect(ledger.trades).toHaveLength(1);
+    ledger.trades[0].policy.exitModel = 'SCHEDULED_CLOSE';
+    delete ledger.trades[0].exitPolicy; delete ledger.trades[0].exitResearch;
     expect(ledger.trades[0].entryDecision.adaptiveEvidence!.candidate.rule.invention).toBeDefined();
     expect(() => assertPaperStrategyLedger(JSON.parse(JSON.stringify(ledger)))).not.toThrow();
     const exit = structuredClone(snapshot), trade = ledger.trades[0];
@@ -146,10 +149,41 @@ describe('bounded continuing invention research', () => {
     expect(waiting.discovery.inventions).toHaveLength(24); expect(waiting.retired).toHaveLength(0);
     expect(waiting.discovery.attemptedIds).toEqual(state.discovery!.attemptedIds);
     state.candidates[0].active = true; state.candidates[0].reason = 'ACTIVE';
+    for (const item of state.candidates.slice(1, 3)) {
+      item.reason = 'NO_VALIDATION_EDGE';
+      item.validation.meanNetReturnPct = -1; item.validation.meanDailyExcessPct = -0.1;
+    }
     const aged = run(state, 20, { forwardDateCount: () => 20 });
     expect(aged.retired).toHaveLength(2);
     expect(aged.retired.map(item => item.id)).not.toContain(state.candidates[0].rule.feature);
     expect(aged.discovery.inventions).toHaveLength(22);
+  });
+
+  it('retires sufficiently observed failures before a full registry or a fresh research round', () => {
+    const state = select(), failed = inventions(state)[0];
+    failed.reason = 'NO_VALIDATION_EDGE';
+    failed.validation = { ...failed.training, meanNetReturnPct: -1, meanDailyExcessPct: -0.1 };
+    const options = { sufficientInputs: () => false, forwardDateCount: () => 19 };
+    expect(run(state, 0, options).retired).toHaveLength(0);
+    const updated = run(state, 0, { ...options, forwardDateCount: () => 20 });
+    expect(updated.discovery.round).toBe(state.discovery!.round);
+    expect(updated.retired.map(item => item.id)).toEqual([failed.rule.feature]);
+    expect(updated.discovery.inventions).toHaveLength(1);
+    expect(state.discovery!.inventions).toHaveLength(2);
+    failed.validation.sampleCount = 0; failed.validation.dateCount = 0;
+    expect(run(state, 0, { ...options, forwardDateCount: () => 20 }).retired).toHaveLength(0);
+  });
+
+  it('never retires a full registry merely for missing data or losing an active ranking slot', () => {
+    const state = select(), prototype = state.discovery!.inventions[0];
+    state.discovery!.inventions = paperIndicatorFormulaUniverse().slice(0, 24).map(formula => ({ ...structuredClone(prototype),
+      id: paperIndicatorFormulaId(formula), formula }));
+    state.candidates = state.discovery!.inventions.map((invention, index) => ({ rule: { feature: invention.id, ...invention.rule, invention },
+      training: invention.training, validation: { ...invention.training }, active: false,
+      reason: index % 2 ? 'RANKED_OUT' : 'FORWARD_OBSERVATION' }));
+    const result = run(state, 0, { forwardDateCount: () => 20 });
+    expect(result.retired).toHaveLength(0);
+    expect(result.discovery.inventions).toEqual(state.discovery!.inventions);
   });
 
   it('starts a fresh research round only after20 new training dates and keeps retained formulas frozen', () => {

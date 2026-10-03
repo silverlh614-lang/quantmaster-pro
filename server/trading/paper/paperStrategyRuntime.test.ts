@@ -44,8 +44,33 @@ beforeEach(() => {
   state.measurementHistory = { lastRecordedAt: null, failedBatchCount: 0, unrecordedPointCount: 0 };
   state.readHistory.mockReset().mockImplementation(() => structuredClone(state.measurementHistory));
 });
+function preserveScheduledFixture(): void {
+  state.strategy.trades[0].policy.exitModel = 'SCHEDULED_CLOSE';
+  delete state.strategy.trades[0].exitPolicy; delete state.strategy.trades[0].exitResearch;
+}
 
 describe('strategy integration in the default Shadow runner', () => {
+  it('collects a closed strategy-only symbol until its forward comparison is complete', async () => {
+    const runner = await import('./paperExperimentRunner.js');
+    await runner.runPaperExperimentScan();
+    const snapshot = strategyTestSnapshot();
+    snapshot.id = 'observed-exit'; snapshot.asOf = '2026-09-18T01:05:00Z';
+    snapshot.observations[0].observedAt = snapshot.asOf; snapshot.observations[0].price = 9400;
+    snapshot.observations[0].features!.asOf = snapshot.asOf;
+    state.collect.mockResolvedValue(snapshot);
+    expect(await runner.runPaperExperimentScan()).toMatchObject({ strategy: { closedCount: 1 } });
+    const frozen = structuredClone(state.strategy.trades[0].exit);
+    state.baseline.experiments = [];
+    snapshot.id = 'post-exit'; snapshot.asOf = '2026-09-18T01:10:00Z';
+    snapshot.observations[0].observedAt = snapshot.asOf; snapshot.observations[0].price = 9200;
+    snapshot.observations[0].features!.asOf = snapshot.asOf;
+    await runner.runPaperExperimentScan();
+    expect(state.collect).toHaveBeenLastCalledWith(['005930'], expect.any(Function));
+    expect(state.strategy.trades[0].exit).toEqual(frozen);
+    expect(state.strategy.trades[0].exitResearch!.outcomes.PATIENT?.price).toBe(9200);
+    expect(state.strategy.trades[0].measurement!.latest.kind).toBe('ADAPTIVE_EXIT');
+  });
+
   it('runs actual strategy entries on the same snapshot after baseline persistence', async () => {
     const runner = await import('./paperExperimentRunner.js');
     const result = await runner.runPaperExperimentScan();
@@ -161,15 +186,15 @@ describe('strategy integration in the default Shadow runner', () => {
     const entryDecision = structuredClone(state.strategy.trades[0].entryDecision);
 
     const exit = strategyTestSnapshot();
-    exit.id = 'measurement-failed-exit'; exit.asOf = '2026-09-23T07:00:00Z'; exit.tradingDate = '2026-09-23'; exit.marketOpen = false;
-    exit.observations[0].price = null;
-    exit.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 10500, availableAt: exit.asOf }];
+    exit.id = 'measurement-failed-exit'; exit.asOf = '2026-09-18T01:05:00Z';
+    exit.observations[0].price = 9400; exit.observations[0].observedAt = exit.asOf;
+    exit.observations[0].features!.asOf = exit.asOf;
     state.collect.mockResolvedValue(exit);
     const exitResult = await runner.runPaperExperimentScan();
     expect(exitResult.strategy).toMatchObject({ openedCount: 0, closedCount: 1 });
     expect(exitResult.strategy!.error).toBeUndefined();
-    expect(state.strategy.trades[0]).toMatchObject({ status: 'CLOSED', exit: { price: 10500 },
-      measurement: { pointCount: 2, latest: { kind: 'SCHEDULED_CLOSE' } } });
+    expect(state.strategy.trades[0]).toMatchObject({ status: 'CLOSED', exit: { price: 9400 },
+      measurement: { pointCount: 2, latest: { kind: 'ADAPTIVE_EXIT' } } });
     expect(state.strategy.trades[0].entryDecision).toEqual(entryDecision);
     expect(state.recordFailure).toHaveBeenLastCalledWith(exit.id, exit.asOf, 1, storageError, state.strategy.trades);
     expect(state.recordFailure).toHaveBeenCalledTimes(2);
@@ -197,6 +222,7 @@ describe('strategy integration in the default Shadow runner', () => {
   it('keeps watching strategy-only symbols and closes outside entry hours at the exact planned close', async () => {
     const runner = await import('./paperExperimentRunner.js');
     await runner.runPaperExperimentScan();
+    preserveScheduledFixture();
     state.baseline.experiments = matureStrategySamples();
     const snapshot = strategyTestSnapshot();
     snapshot.id = 'exit-scan'; snapshot.asOf = '2026-09-23T07:00:00Z'; snapshot.tradingDate = '2026-09-23'; snapshot.marketOpen = false;
@@ -217,6 +243,7 @@ describe('strategy integration in the default Shadow runner', () => {
   it('reads every saved record for the bot while keeping the UI limited to 200', async () => {
     const runner = await import('./paperExperimentRunner.js');
     await runner.runPaperExperimentScan();
+    preserveScheduledFixture();
     const exitSnapshot = strategyTestSnapshot();
     exitSnapshot.id = 'old-trade-exit';
     exitSnapshot.asOf = '2026-09-23T07:00:00Z';

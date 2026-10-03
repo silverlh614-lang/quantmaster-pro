@@ -9,6 +9,7 @@ const reasonLabels: Record<string, string> = {
   MARKET_CLOSED: '장 시작 대기', CURRENT_PRICE_UNAVAILABLE: '현재가 확인 대기',
   OBSERVATION_TIME_INVALID: '관측 시각 확인 필요', ALREADY_ENTERED_TODAY: '오늘 진입 완료',
   HORIZON_PENDING: '예약 청산 시각 전', SCHEDULED_CLOSE_UNAVAILABLE: '예정 시각 도래 · 확정 종가 대기',
+  ADAPTIVE_EXIT_HOLD: '관측 매도 조건 미충족', ADAPTIVE_EXIT_QUOTE_UNAVAILABLE: '매도 판단용 새 가격 대기',
 };
 
 export function buildPaperOverview(view: PaperExperimentView): PaperOverviewView {

@@ -32,7 +32,7 @@ export function formatPaperMorningMessage(selection: PaperMorningSelection, view
         `직전 거래일 참고 종가 ${number(pick.referenceClose.close)}원 · ${text(pick.referenceClose.tradingDate, 10)} 15:30 KST`,
         `종가 확인 ${stamp(pick.referenceClose.availableAt)} KST`,
         `고정 규칙: ${text(paperAdaptiveRuleLabel(rule), 110)}`,
-        `관측 지표값 ${number(pick.ruleValue)} · 가상 추적 기준 D${rule.horizon}거래일`);
+        `관측 지표값 ${number(pick.ruleValue)} · 성과 비교 D${rule.horizon}거래일 · 매도는 장중 관측으로 별도 판단`);
       if (pick.purpose === 'VALIDATED') lines.push(
         `규칙 과거 ${rule.invention ? '생성 후 검증' : '검증'} ${number(validation.sampleCount)}건/${number(validation.dateCount)}일 · 평균 순수익률 ${pct(validation.meanNetReturnPct)}`,
         `과거 일당 대조군 차이 ${pct(validation.meanDailyExcessPct, '%p')}`);

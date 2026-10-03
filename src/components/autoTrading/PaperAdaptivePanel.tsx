@@ -30,7 +30,7 @@ export function PaperAdaptiveEvidenceDetails({ evidence }: { evidence: PaperAdap
       <InventionContext rule={candidate.rule} />
       {invented && <p>위 수식과 생성 시각은 이 거래의 진입 당시 원본입니다. 이후 새 지표가 생성되거나 기존 지표가 해제돼도 바뀌지 않습니다.</p>}
       <p>근거 기준 {timestamp(evidence.cutoffAt)} KST · 선택 평가 {timestamp(evidence.evaluatedAt)} KST</p>
-      <p>{invented ? '생성 후 검증' : '후반 확인'} 시작 {evidence.validationStartDate ?? '누적 대기'} · 진입 이후 지표 연결이 해제돼도 이 근거와 보유기간은 유지됩니다.</p>
+      <p>{invented ? '생성 후 검증' : '후반 확인'} 시작 {evidence.validationStartDate ?? '누적 대기'} · 진입 이후 지표 연결이 해제돼도 당시 근거는 보존합니다. 매도는 거래에 기록한 규칙으로 판단합니다.</p>
       <p>{invented ? '발명 당시 학습' : '학습'} {samples(candidate.training)} · 평균 순수익률 {percent(candidate.training.meanNetReturnPct)} · 일당 대조군 차이 {percent(candidate.training.meanDailyExcessPct, '%p')}</p>
       <p>{invented ? '생성 후 검증' : '후반 확인'} {samples(candidate.validation)} · 평균 순수익률 {percent(candidate.validation.meanNetReturnPct)} · 일당 대조군 차이 {percent(candidate.validation.meanDailyExcessPct, '%p')}</p>
     </div>

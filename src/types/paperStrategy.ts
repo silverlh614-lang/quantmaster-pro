@@ -2,6 +2,7 @@
 import type { PaperCostModel, PaperNewsSummary, PaperObservation } from './paperExperiment';
 import type { PaperInvestorFlow } from './paperInvestorFlow';
 import type { PaperAdaptiveEvidence, PaperAdaptiveState, PaperExplorationEvidence } from './paperAdaptive';
+import type { PaperAdaptiveExitOutcome, PaperAdaptiveExitPolicy, PaperAdaptiveExitResearch, PaperExitLearningState } from './paperAdaptiveExit';
 
 export type PaperStrategyVersion = 'news-trend-v1' | 'news-trend-v2' | 'adaptive-features-v1';
 
@@ -18,7 +19,7 @@ export interface PaperStrategyPolicy {
   minimumSamples: number;
   minimumEntryDates: number;
   horizonSelection: 'MEAN_NET_RETURN_PER_DAY' | 'FORWARD_VALIDATED_FEATURE';
-  exitModel: 'SCHEDULED_CLOSE';
+  exitModel: 'SCHEDULED_CLOSE' | 'ADAPTIVE_OBSERVED';
 }
 
 export interface PaperStrategyHorizonEvidence {
@@ -58,6 +59,11 @@ export type PaperStrategyReasonCode =
   | 'OBSERVATION_TIME_INVALID'
   | 'ALREADY_ENTERED_TODAY'
   | 'HORIZON_PENDING'
+  | 'ADAPTIVE_EXIT_HOLD'
+  | 'ADAPTIVE_EXIT_QUOTE_UNAVAILABLE'
+  | 'ADAPTIVE_STOP_LOSS'
+  | 'ADAPTIVE_TRAILING_STOP'
+  | 'ADAPTIVE_SIGNAL_LOST'
   | 'SCHEDULED_CLOSE_UNAVAILABLE'
   | 'SCHEDULED_CLOSE_REACHED';
 
@@ -79,7 +85,7 @@ export interface PaperStrategyDecision {
 }
 
 export interface PaperStrategyExit {
-  model: 'SCHEDULED_CLOSE';
+  model: 'SCHEDULED_CLOSE' | 'ADAPTIVE_OBSERVED';
   snapshotId: string;
   effectiveAt: string;
   observedAt: string;
@@ -89,12 +95,17 @@ export interface PaperStrategyExit {
   netReturnPct: number;
   netPnl: number;
   decision: PaperStrategyDecision;
+  observedTrigger?: PaperAdaptiveExitOutcome;
+  observedQuote?: {
+    source: string; price: number; observedAt: string;
+    ruleValue: number | null; ruleMatches: boolean | null; ruleConnected: boolean | null; featureAsOf: string | null;
+  };
 }
 
 /** A sampled price is not the market's exact high, low, or an executable sell signal. */
 export interface PaperTradeMeasurementPoint {
   snapshotId: string;
-  kind: 'ENTRY' | 'QUOTE' | 'SCHEDULED_CLOSE';
+  kind: 'ENTRY' | 'QUOTE' | 'SCHEDULED_CLOSE' | 'ADAPTIVE_EXIT';
   effectiveAt: string;
   observedAt: string;
   recordedAt: string;
@@ -152,6 +163,8 @@ export interface PaperStrategyTrade {
   scheduledExitDate: string;
   scheduledExitAt: string;
   exit: PaperStrategyExit | null;
+  exitPolicy?: PaperAdaptiveExitPolicy;
+  exitResearch?: PaperAdaptiveExitResearch;
   measurement?: PaperTradeMeasurement;
   morningRecommendation?: import('./paperMorning').PaperMorningTradeReference;
 }
@@ -173,6 +186,7 @@ export interface PaperStrategyLedger {
   lastRun: PaperStrategyScanResult | null;
   lastMarketSession?: PaperStrategySessionSummary;
   adaptive?: PaperAdaptiveState;
+  exitLearning?: PaperExitLearningState;
 }
 
 /** The latest completed intraday decision counts survive subsequent off-hours scans. */
@@ -223,6 +237,7 @@ export interface PaperStrategyView {
   lastRun: PaperStrategyScanResult | null;
   lastMarketSession?: PaperStrategySessionSummary;
   adaptive?: PaperAdaptiveState;
+  exitLearning?: PaperExitLearningState;
   latestDecisions: PaperStrategyDecision[];
   trades: PaperStrategyTrade[];
   selection?: PaperStrategySelection;

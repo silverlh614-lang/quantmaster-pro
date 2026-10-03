@@ -244,7 +244,10 @@ afterAll(() => {
 
 describe('invented indicator durable trade lifecycle', () => {
   it('preserves exploration purpose and zero-sample evidence through restart, trial rotation, HOLD and EXIT', () => {
-    const entered = explorationLedger(), before = structuredClone(entered);
+    const entered = explorationLedger();
+    entered.trades[0].policy.exitModel = 'SCHEDULED_CLOSE';
+    delete entered.trades[0].exitPolicy; delete entered.trades[0].exitResearch;
+    const before = structuredClone(entered);
     repo.savePaperStrategyLedger(entered);
     expect(entered).toEqual(before);
     const restored = repo.loadPaperStrategyLedger(), frozen = compact(entered.trades[0].entryDecision.explorationEvidence!);
@@ -325,6 +328,8 @@ describe('invented indicator durable trade lifecycle', () => {
 
   it('preserves entry arithmetic through restart, definition retirement, a new research round, HOLD and EXIT', async () => {
     const entered = entryLedger(), frozen = compact(entered.trades[0].entryDecision.adaptiveEvidence!);
+    entered.trades[0].policy.exitModel = 'SCHEDULED_CLOSE';
+    delete entered.trades[0].exitPolicy; delete entered.trades[0].exitResearch;
     repo.savePaperStrategyLedger(entered);
     vi.resetModules(); repo = await import('../../persistence/paperStrategyRepo.js');
     const snapshot = adaptiveTestSnapshot();

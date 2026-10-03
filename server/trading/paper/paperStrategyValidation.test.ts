@@ -139,6 +139,7 @@ describe('persisted morning recommendation links', () => {
 
   it('preserves valid frozen recommendation references through serialization and scheduled exit', () => {
     const ledger = linked(), reference = structuredClone(ledger.trades[0].morningRecommendation);
+    ledger.trades[0].policy.exitModel = 'SCHEDULED_CLOSE'; delete ledger.trades[0].exitPolicy; delete ledger.trades[0].exitResearch;
     const entryEvidence = structuredClone(ledger.trades[0].entryDecision);
     const restored = JSON.parse(JSON.stringify(ledger));
     expect(() => assertPaperStrategyLedger(restored)).not.toThrow();

@@ -9,8 +9,67 @@ import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
 const state = () => selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), adaptiveTestSnapshot().asOf);
 const inactive = () => selectPaperAdaptiveState(undefined, [], adaptiveTestSnapshot().asOf);
 const enter = () => evaluatePaperStrategyScan(emptyStrategyLedger(), adaptiveTestSnapshot(), strategyTestCost, state());
+const scheduled = (ledger = enter()) => {
+  ledger.trades[0].policy.exitModel = 'SCHEDULED_CLOSE';
+  delete ledger.trades[0].exitPolicy; delete ledger.trades[0].exitResearch;
+  return ledger;
+};
+const quote = (at: string, price: number) => {
+  const snapshot = adaptiveTestSnapshot();
+  snapshot.id = `quote:${at}`; snapshot.asOf = at; snapshot.tradingDate = at.slice(0, 10);
+  snapshot.observations[0].observedAt = at; snapshot.observations[0].price = price;
+  snapshot.observations[0].features!.asOf = at;
+  return snapshot;
+};
 
 describe('paper strategy lifecycle', () => {
+  it('exits on a fresh loss observation before D1 with frozen costs and evidence', () => {
+    const ledger = enter(), snapshot = quote('2026-09-18T01:05:00Z', 9400);
+    const result = evaluatePaperStrategyScan(ledger, snapshot, strategyTestCost, state());
+    expect(result.trades[0].exit).toMatchObject({ model: 'ADAPTIVE_OBSERVED', price: 9400,
+      effectiveAt: snapshot.asOf, observedTrigger: { reason: 'ADAPTIVE_STOP_LOSS' },
+      observedQuote: { source: 'KIS_REST_REQUEST_OBSERVED', price: 9400 } });
+    expect(result.trades[0].entryDecision).toEqual(ledger.trades[0].entryDecision);
+    expect(result.lastRun).toMatchObject({ openedCount: 0, closedCount: 1 });
+    expect(() => assertPaperStrategyLedger(JSON.parse(JSON.stringify(result)))).not.toThrow();
+    expect(evaluatePaperStrategyScan(result, snapshot, strategyTestCost, state()).lastRun?.closedCount).toBe(0);
+  });
+
+  it('protects sampled gains and continues equal comparison paths after the actual exit', () => {
+    const peak = evaluatePaperStrategyScan(enter(), quote('2026-09-18T01:05:00Z', 10500), strategyTestCost, state());
+    const closed = evaluatePaperStrategyScan(peak, quote('2026-09-18T01:10:00Z', 10300), strategyTestCost, state());
+    expect(closed.trades[0].exit?.decision.reasonCode).toBe('ADAPTIVE_TRAILING_STOP');
+    const after = evaluatePaperStrategyScan(closed, quote('2026-09-18T01:15:00Z', 10100), strategyTestCost, state());
+    expect(after.trades[0].exit).toEqual(closed.trades[0].exit);
+    expect(after.trades[0].exitResearch!.quoteCount).toBeGreaterThan(closed.trades[0].exitResearch!.quoteCount);
+    expect(after.trades[0].exitResearch!.outcomes.PATIENT?.reason).toBe('ADAPTIVE_TRAILING_STOP');
+    expect(() => assertPaperStrategyLedger(after)).not.toThrow();
+  });
+
+  it('uses D5 only for comparison and can exit on a fresh observation after D5', () => {
+    const ledger = enter(), benchmark = ledger.trades[0].exitResearch!;
+    const atClose = quote(`${benchmark.watchUntilDate}T07:00:00Z`, 10000); atClose.marketOpen = false;
+    atClose.observations[0].dailyCloses = [{ tradingDate: benchmark.watchUntilDate, close: 10000, availableAt: atClose.asOf }];
+    const held = evaluatePaperStrategyScan(ledger, atClose, strategyTestCost, state());
+    expect(held.trades[0].status).toBe('OPEN');
+    expect(held.trades[0].exitResearch!.completedAt).toBe(atClose.asOf);
+    const later = quote('2026-10-02T01:00:00Z', 9400);
+    const closed = evaluatePaperStrategyScan(held, later, strategyTestCost, state());
+    expect(closed.trades[0].exit?.decision.reasonCode).toBe('ADAPTIVE_STOP_LOSS');
+    expect(closed.trades[0].exit?.effectiveAt).toBe(later.asOf);
+    expect(() => assertPaperStrategyLedger(closed)).not.toThrow();
+  });
+
+  it.each(['old', 'future', 'offhours', 'missing'] as const)('does not manufacture an exit from a %s quote', problem => {
+    const snapshot = quote('2026-09-18T01:10:00Z', 9000);
+    if (problem === 'old') snapshot.observations[0].observedAt = '2026-09-18T01:01:00Z';
+    if (problem === 'future') snapshot.observations[0].observedAt = '2026-09-18T01:11:00Z';
+    if (problem === 'offhours') snapshot.marketOpen = false;
+    if (problem === 'missing') snapshot.observations[0].price = null;
+    const result = evaluatePaperStrategyScan(enter(), snapshot, strategyTestCost, state());
+    expect(result.trades[0].exit).toBeNull();
+    expect(result.latestDecisions[0].reasonCode).toBe('ADAPTIVE_EXIT_QUOTE_UNAVAILABLE');
+  });
   it('preserves the latest intraday reason counts through after-hours scans and restart', () => {
     const snapshot = strategyTestSnapshot();
     let result = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, inactive());
@@ -27,10 +86,11 @@ describe('paper strategy lifecycle', () => {
     delete result.lastMarketSession;
     expect(() => assertPaperStrategyLedger(result)).not.toThrow();
   });
-  it('buys one share with frozen evidence and a precommitted D3 scheduled close', () => {
+  it('buys one share with frozen evidence and an observed exit policy independent of its D3 benchmark', () => {
     const result = enter();
     expect(result.lastRun).toMatchObject({ openedCount: 1, closedCount: 0 });
     expect(result.trades[0]).toMatchObject({ status: 'OPEN', quantity: 1, horizon: 3, scheduledExitDate: '2026-09-23',
+      policy: { exitModel: 'ADAPTIVE_OBSERVED' }, exitPolicy: { origin: 'EXPLORATION_DEFAULT' },
       entryDecision: { action: 'BUY', reasonCode: 'ADAPTIVE_FEATURE_SELECTED', adaptiveEvidence: { candidate: { active: true } } } });
     expect(() => assertPaperStrategyLedger(result)).not.toThrow();
   });
@@ -88,12 +148,12 @@ describe('paper strategy lifecycle', () => {
     snapshot.observations[0].aboveMa20 = false;
     const result = evaluatePaperStrategyScan(ledger, snapshot, strategyTestCost, inactive());
     expect(result.trades[0]).toEqual(ledger.trades[0]);
-    expect(result.latestDecisions[0].reasonCode).toBe('HORIZON_PENDING');
+    expect(result.latestDecisions[0].reasonCode).toBe('ADAPTIVE_EXIT_QUOTE_UNAVAILABLE');
   });
 
   it('closes at the precommitted exact close with own price/costs and separate observation time', () => {
     const cost = { ...strategyTestCost(), buyFeeRate: 0.01, sellFeeRate: 0.01, sellTaxRate: 0.02, slippageRate: 0.01 };
-    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), adaptiveTestSnapshot(), () => cost, state());
+    const ledger = scheduled(evaluatePaperStrategyScan(emptyStrategyLedger(), adaptiveTestSnapshot(), () => cost, state()));
     cost.buyFeeRate = 1;
     const snapshot = strategyTestSnapshot();
     snapshot.asOf = '2026-09-28T01:00:00Z'; snapshot.tradingDate = '2026-09-28';
@@ -117,7 +177,7 @@ describe('paper strategy lifecycle', () => {
     if (problem === 'future') snapshot.observations[0].dailyCloses[0].availableAt = '2026-09-28T02:00:00Z';
     if (problem === 'intraday') snapshot.observations[0].dailyCloses[0].availableAt = '2026-09-23T06:00:00Z';
     if (problem === 'absent-symbol') snapshot.observations = [];
-    const result = evaluatePaperStrategyScan(enter(), snapshot, strategyTestCost, inactive());
+    const result = evaluatePaperStrategyScan(scheduled(), snapshot, strategyTestCost, inactive());
     expect(result.latestDecisions[0]).toMatchObject({ action: 'HOLD', reasonCode: 'SCHEDULED_CLOSE_UNAVAILABLE' });
     expect(result.trades[0].exit).toBeNull();
   });
@@ -130,7 +190,7 @@ describe('paper strategy lifecycle', () => {
     const snapshot = strategyTestSnapshot();
     snapshot.asOf = '2026-09-23T07:00:00Z'; snapshot.tradingDate = '2026-09-23'; snapshot.marketOpen = false;
     snapshot.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 11000, availableAt: snapshot.asOf }];
-    const ledger = evaluatePaperStrategyScan(enter(), snapshot, strategyTestCost, inactive());
+    const ledger = evaluatePaperStrategyScan(scheduled(), snapshot, strategyTestCost, inactive());
     ledger.trades = Array.from({ length: 205 }, (_, index) => ({ ...structuredClone(ledger.trades[0]), id: `display-test-${index}` }));
     const view = buildPaperStrategyView(ledger);
     expect(view.trades).toHaveLength(200);

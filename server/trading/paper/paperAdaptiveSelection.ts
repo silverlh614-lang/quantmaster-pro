@@ -193,7 +193,8 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
   if (!Number.isFinite(Date.parse(asOf))) throw new Error('자율 지표 평가 시각 오류');
   if (previous && Date.parse(previous.evaluatedAt) > Date.parse(asOf)) throw new Error('과거 스냅샷으로 자율 지표 상태를 변경할 수 없습니다.');
   const tradingDate = toKstDateKey(new Date(asOf));
-  const frozen = previous?.tradingDate === tradingDate && previous.policy.maturityModel === PAPER_ADAPTIVE_POLICY.maturityModel;
+  const frozen = previous?.tradingDate === tradingDate && previous.policy.maturityModel === PAPER_ADAPTIVE_POLICY.maturityModel
+    && keys.every(key => previous.candidates.some(item => item.rule.feature === key));
   if (frozen && (previous.exploration?.rules.length || !observations.length)) return structuredClone(previous);
   const cutoffAt = new Date(`${tradingDate}T00:00:00+09:00`).toISOString();
   const all = matureRows(experiments, cutoffAt);

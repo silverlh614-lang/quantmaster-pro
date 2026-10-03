@@ -11,7 +11,7 @@ export interface PaperIndicatorFormula {
 export const PAPER_INVENTED_FEATURE_CUTS = [-1, 0, 1] as const;
 export const PAPER_MAX_INVENTIONS = 24;
 /** Discovery tries one ordered pair per operation, so an inverse difference is not a separate search. */
-export const PAPER_MAX_INVENTION_ATTEMPTS = 975;
+export const PAPER_MAX_INVENTION_ATTEMPTS = Object.keys(PAPER_FEATURES).length * (Object.keys(PAPER_FEATURES).length - 1) / 2 * 3;
 
 export function paperIndicatorOperand(feature: PaperFeatureKey): PaperIndicatorOperand {
   const cuts: readonly number[] = PAPER_FEATURES[feature].cuts;

@@ -5,6 +5,7 @@ import type { PaperOverviewView } from '../../types/paperExperiment';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { THEME_OPTIONS } from '../../config/themes';
 import { paperTime } from './PaperOverview';
+import { PAPER_FEATURES } from '../../types/paperObservationFeatures';
 
 const Execution = lazy(() => import('../../pages/AutoTradePage').then(module => ({ default: module.AutoTradePage })));
 
@@ -30,7 +31,7 @@ export function PaperOperations({ engine, paused, view }: { engine?: EngineStatu
     <section className="workspace-card"><h2>자료가 이어지는 경로</h2><ol className="workspace-data-path">
       <li><strong>관측 대상</strong><p>서버 관심 목록 전체 · 수집 뉴스와 공시의 연결 종목 · 가상 보유 종목</p></li>
       <li><strong>기본 관측</strong><p>진입 당시 가격·뉴스·20일선 위치를 고정하고 D1·D3·D5 종가로 평가</p></li>
-      <li><strong>전략 학습</strong><p>기본 관측에 저장한 26개 지표의 후속 성과로 규칙을 자동 연결·해제하고 가상 매수에 활용</p></li>
+      <li><strong>전략 학습</strong><p>{Object.keys(PAPER_FEATURES).length}개 원지표와 새 조합 수식을 연구하고 성과에 따라 연결·해제·연구 종료. 새 가상 매수는 관측 가격과 진입 근거로 매도를 판단하며 D1·D3·D5는 성과 비교에 활용</p></li>
       <li><strong>조건별 연구</strong><p>저장 OHLCV·지수로 각 조건을 개별 검증하고 후반 기간의 대조군과 비교</p></li>
     </ol></section>
     <section className="workspace-card"><h2>화면 설정</h2>

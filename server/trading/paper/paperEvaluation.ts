@@ -4,6 +4,7 @@ import type { PaperBotState } from '../../persistence/paperBotRepo.js';
 import type { PaperFinancialCache } from '../../persistence/paperFinancialRepo.js';
 import { toKstDateKey, isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
+import { PAPER_FEATURES } from '../../../src/types/paperObservationFeatures.js';
 
 const distinct = (items: string[]) => new Set(items).size;
 const horizons = [1, 3, 5] as const;
@@ -54,7 +55,7 @@ export function buildPaperEvaluation(view: PaperExperimentView, bot: PaperBotSta
     baseline: { ...summarize(rows), completedCount: view.completedCount,
       byEntryDate: dates.map(date => ({ date, ...summarize(rows.filter(row => row.tradingDate === date)) })) },
     features: { recordedCount: featureRows.length, entryDateCount: distinct(featureRows.map(row => row.tradingDate)),
-      meanCoveragePct: coverage?.candidateCount ? 100 * Object.values(coverage.available).reduce((sum, value) => sum + value, 0) / (26 * coverage.candidateCount) : null,
+      meanCoveragePct: coverage?.candidateCount ? 100 * Object.values(coverage.available).reduce((sum, value) => sum + value, 0) / (Object.keys(PAPER_FEATURES).length * coverage.candidateCount) : null,
       mature: summarize(featureRows).horizons,
       studies: view.featureStudy?.features.filter(feature => feature.groups.some(group => group.outcomes.some(outcome => outcome.count > 0))) ?? [] },
     financials: { available: financialCache !== null, count: financials.length, minAgeHours: ages.length ? Math.min(...ages) : null,
@@ -64,7 +65,7 @@ export function buildPaperEvaluation(view: PaperExperimentView, bot: PaperBotSta
     strategy: view.strategy ? { version: view.strategy.strategyVersion, policy: view.strategy.policy, totalCount: view.strategy.totalCount,
       openCount: view.strategy.openCount, performance: view.strategy.performance, error: view.strategy.error ?? view.strategy.lastRun?.error ?? null,
       entryDateCount: distinct(trades.map(row => row.tradingDate)), cohorts: Object.fromEntries(cohortCounts),
-      nextExits: [...new Set(trades.filter(row => !row.exit).map(row => row.scheduledExitDate))].sort().slice(0, 5),
+      nextExits: [...new Set(trades.filter(row => !row.exit && row.policy.exitModel === 'SCHEDULED_CLOSE').map(row => row.scheduledExitDate))].sort().slice(0, 5),
       evidence: trades.slice(0, 1).map(row => { const e = row.entryDecision.evidence; return e ? {
         sampleCount: e.sampleCount, entryDateCount: e.entryDateCount, baselineSampleCount: e.baselineSampleCount,
         historicalSampleCount: e.historicalSampleCount, horizons: e.horizons } : null; }) } : null,

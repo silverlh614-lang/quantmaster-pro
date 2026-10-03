@@ -43,6 +43,19 @@ function measuredExitTrade(): PaperStrategyTrade {
 }
 
 describe('adaptive trade analysis', () => {
+  it('reports an observed exit at the actual quote time with its reason instead of a scheduled close', () => {
+    const observed = measuredExitTrade();
+    observed.policy.exitModel = 'ADAPTIVE_OBSERVED'; observed.exit!.model = 'ADAPTIVE_OBSERVED';
+    observed.exit!.effectiveAt = '2026-09-23T01:00:00Z';
+    observed.exit!.decision.reason = '비용 차감 손실 제한 · 관측 가상 청산';
+    const message = formatPaperTrades([{ id: 'exit', side: 'EXIT', at: observed.exit!.decisionAt, trade: observed }]);
+    expect(message).toContain('가상 청산 1건');
+    expect(message).toContain('관측 매도 09. 23. 10:00');
+    expect(message).toContain('비용 차감 손실 제한');
+    expect(message).not.toContain('예약 종가 청산');
+    expect(message).not.toContain('평가일 2026-09-28');
+  });
+
   it('adds sampled path and giveback only to close analysis while preserving zero results and partial-history disclosure', () => {
     const measured = measuredExitTrade(), event = { id: 'exit', at: measured.exit!.decisionAt, trade: measured, side: 'EXIT' as const };
     const report = formatPaperTradeAnalysis([event]);
@@ -111,7 +124,7 @@ describe('adaptive trade analysis', () => {
     expect(text).toContain('학습 20건/5진입일 · 평균 순수익률 +1.50% · 일당 대조군 차이 +0.20%p');
     expect(text).toContain('후반 확인 12건/3진입일 · 평균 순수익률 +1.20% · 일당 대조군 차이 +0.15%p');
     expect(text).toContain('후반 시작 2026-09-01');
-    expect(text).toContain('이후 지표 연결 해제는 이 거래의 보유기간을 바꾸지 않습니다');
+    expect(text).toContain('이후 지표 연결 해제만으로 매도하지 않으며 거래에 기록한 매도 규칙을 따릅니다');
     expect(text).toContain('&lt;삼성&amp;&gt;');
     expect(text).not.toContain('진입 당시 학습 근거 미기록');
     expect(text).not.toContain('D1·D3·D5 중 거래일당 평균 성과로 보유기간 선택');

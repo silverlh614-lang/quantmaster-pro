@@ -9,6 +9,7 @@ import { PaperNewsDetails } from './PaperNewsDetails';
 import { summarizePaperNews } from '../../utils/paperNews';
 import { PaperInvestorFlowDetails } from './PaperInvestorFlowPanel';
 import { PaperAdaptiveEvidenceDetails, PaperAdaptivePanel } from './PaperAdaptivePanel';
+import { PaperExitLearningPanel, PaperExitPolicyDetails } from './PaperExitLearningPanel';
 
 const cohortLabels: Record<PaperStrategyCohort, string> = {
   NEWS_RECENT_ABOVE_MA20: '최근 관측 뉴스 있음 · 20일선 위',
@@ -54,7 +55,7 @@ function SelectionSummary({ selection }: { selection: PaperStrategySelection }) 
           <li key={item.cohort}>{cohortLabels[item.cohort]} · {item.boughtCount}/{item.candidateCount} 진입</li>
         ))}
       </ul>
-      <p className="mt-3 text-xs text-slate-400">전략이 진입한 날의 기본 관측 후보를 같은 진입일·같은 보유기간으로 맞춰 비교합니다. 기존 보유 {selection.heldCount}건은 그날 판단에서 빠진 종목입니다. 진입률이 높고 차이가 0 근처면 종목을 거르지 못하는 상태입니다. 연구 표시이며 매수 조건에 쓰지 않습니다.</p>
+      <p className="mt-3 text-xs text-slate-400">진입률은 전체 전략을 집계합니다. 수익률 비교는 기존 예약 청산 거래만 같은 진입일·같은 보유기간으로 맞추며 관측 매도는 별도 매도 학습에서 비교합니다. 기존 보유 {selection.heldCount}건은 그날 판단에서 빠진 종목입니다. 연구 표시이며 매수 조건에 쓰지 않습니다.</p>
     </div>
   );
 }
@@ -127,6 +128,7 @@ function DecisionCard({ decision, policy }: { decision: PaperStrategyDecision; p
 
 function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
   const measurement = trade.measurement;
+  const observedExit = trade.policy.exitModel === 'ADAPTIVE_OBSERVED';
   return (
     <article className="space-y-3 rounded-xl border border-slate-700/60 bg-slate-900/40 p-4" aria-label={`${trade.name} 전략 거래`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -135,10 +137,11 @@ function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
       </div>
       <div className="grid gap-x-6 gap-y-2 text-xs text-slate-300 sm:grid-cols-2">
         <p>진입 {timestamp(trade.entryAt)} KST · {trade.entryPrice.toLocaleString('ko-KR')}원 · {trade.quantity}주</p>
-        <p>확정 보유 기간 D{trade.horizon} · 예정 청산일 {trade.scheduledExitDate}</p>
-        <p className="sm:col-span-2">예정 종가 시각 {timestamp(trade.scheduledExitAt)} KST</p>
+        <p>{observedExit ? `관측 기반 매도 · 성과 비교 D${trade.horizon}` : `확정 보유 기간 D${trade.horizon} · 예정 청산일 ${trade.scheduledExitDate}`}</p>
+        <p className="sm:col-span-2">{observedExit ? '손실·수익 반납·진입 근거 약화로 판단 · D일 도래만으로 매도하지 않음' : `예정 종가 시각 ${timestamp(trade.scheduledExitAt)} KST`}</p>
       </div>
       <p className="text-xs text-slate-400">진입 근거: {trade.entryDecision.reason}</p>
+      {trade.exitPolicy && <PaperExitPolicyDetails policy={trade.exitPolicy} />}
       {trade.morningRecommendation && <p className="text-xs text-sky-200">08:30 추천 {trade.morningRecommendation.rank}순위 · {trade.morningRecommendation.purpose === 'VALIDATED' ? '검증 규칙 추천' : '탐색 추천 · 검증 전'} · {trade.morningRecommendation.matchesEntryRule ? '같은 규칙으로 가상 진입' : '다른 규칙으로 가상 진입'} · 추천 발송 {timestamp(trade.morningRecommendation.sentAt)} KST</p>}
       {measurement ? <div className="space-y-2 rounded-lg border border-slate-700/60 bg-slate-950/30 p-3 text-xs text-slate-300" role="group" aria-label="가상매수 이후 가격 관측">
         <p className="font-medium">가상매수 이후 가격 관측 · {measurement.pointCount.toLocaleString('ko-KR')}개 표본</p>
@@ -152,13 +155,13 @@ function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
       <PaperInvestorFlowDetails flow={trade.entryObservation.investorFlow} />
       {trade.exit ? (
         <div className="space-y-2 rounded-lg border border-violet-400/20 bg-violet-500/5 p-3 text-xs text-slate-300">
-          <p className="font-semibold text-violet-200">예약 종가 가상 청산 · 순수익률 {percent(trade.exit.netReturnPct)} · 순손익 {money(trade.exit.netPnl)}</p>
+          <p className="font-semibold text-violet-200">{observedExit ? '관측 판단 가상 청산' : '예약 종가 가상 청산'} · 순수익률 {percent(trade.exit.netReturnPct)} · 순손익 {money(trade.exit.netPnl)}</p>
           <p>청산 근거: {trade.exit.decision.reason}</p>
-          <p>평가 종가 시각 {timestamp(trade.exit.effectiveAt)} KST · 종가 {trade.exit.price.toLocaleString('ko-KR')}원</p>
-          <p>종가 확인 시각 {timestamp(trade.exit.observedAt)} KST</p>
+          <p>{observedExit ? '가격 관측 시각' : '평가 종가 시각'} {timestamp(trade.exit.effectiveAt)} KST · {observedExit ? '관측 가격' : '종가'} {trade.exit.price.toLocaleString('ko-KR')}원</p>
+          <p>{observedExit ? '관측 확인 시각' : '종가 확인 시각'} {timestamp(trade.exit.observedAt)} KST</p>
           <p>{measurement ? `관측 최고 순수익 − 청산 순수익 ${(measurement.highest.netReturnPct - trade.exit.netReturnPct).toFixed(2)}%p${measurement.fromEntry ? '' : ' · 중간 추적 구간 기준'}` : '관측 최고 대비 청산 차이 미집계 · 보유 중 측정 미기록'}</p>
         </div>
-      ) : <p className="text-xs text-sky-200">진입 시 정한 날짜의 종가 확인까지 보유합니다. 청산 순손익은 집계 대기입니다.</p>}
+      ) : <p className="text-xs text-sky-200">{observedExit ? '유효한 새 가격마다 진입 시 고정한 매도 규칙을 평가합니다.' : '진입 시 정한 날짜의 종가 확인까지 보유합니다.'} 청산 순손익은 집계 대기입니다.</p>}
       {trade.entryDecision.evidence && <Evidence evidence={trade.entryDecision.evidence} policy={trade.policy} />}
       {trade.entryDecision.adaptiveEvidence && <PaperAdaptiveEvidenceDetails evidence={trade.entryDecision.adaptiveEvidence} />}
       {trade.entryDecision.explorationEvidence && <PaperAdaptiveEvidenceDetails evidence={trade.entryDecision.explorationEvidence} />}
@@ -185,7 +188,7 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
   const decisions = matchingDecisions.slice(currentDecisionPage * 12, (currentDecisionPage + 1) * 12);
   const trades = matchingTrades.slice(currentTradePage * 10, (currentTradePage + 1) * 10);
   return (
-    <Section title={adaptive ? '지표 자율 판단 전략' : '뉴스·추세 매매 전략'} subtitle="관측 성과로 진입과 보유 기간을 선택하는 독립 Shadow 전략" variant="neo">
+    <Section title={adaptive ? '지표 자율 판단 전략' : '뉴스·추세 매매 전략'} subtitle="관측 성과로 매수 조건과 매도 기준을 학습하는 독립 Shadow 전략" variant="neo">
       {unavailable ? (
         <p role="alert" className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">전략 기록 확인 불가 · 판단과 성과를 불러오지 못했습니다. 기본 관측은 별도로 확인할 수 있습니다.</p>
       ) : (
@@ -195,13 +198,14 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
             {' · '}상세 저장 미확인 {history.unrecordedPointCount === null ? '집계 확인 불가' : `${history.unrecordedPointCount}개`}
             {' · '}마지막 상세 저장 {history.lastRecordedAt ? `${timestamp(history.lastRecordedAt)} KST` : history.failedBatchCount === null || history.unrecordedPointCount === null ? '확인 불가' : '기록 없음'}{history.error ? ` · ${history.error}` : ''}</p>}
           <div className="space-y-2 text-xs leading-relaxed text-slate-400">
-            {adaptive ? <p>완료된 기본 관측으로 지표별 구간과 보유기간을 학습하고, 이후 기간의 성과로 매수 연결을 매일 갱신합니다. 성과가 부족해지면 연결을 해제하며 기존 보유 거래는 진입 당시 정한 기간을 유지합니다.</p>
+            {adaptive ? <p>완료된 기본 관측으로 지표별 구간을 학습하고, 이후 기간의 성과로 매수 연결을 매일 갱신합니다. 새 거래는 가격과 진입 근거 변화로 매도하며, 청산 후 비교 관측도 이어가 다음 거래의 매도 기준을 학습합니다.</p>
               : <p>최근 {view.policy.newsLookbackHours}시간에 관측한 뉴스와 20일선 위치가 같은 그룹에서, 완료 표본 최소 {view.policy.minimumSamples}건·진입일 최소 {view.policy.minimumEntryDates}일을 요구합니다. 양수인 일당 평균 순수익률이 가장 높은 기간을 선택합니다.</p>}
-            <p>진입 시 청산 날짜를 확정하며 해당 날짜의 종가로 가상 청산합니다. 브로커 체결 기록이 아닙니다.</p>
+            <p>{view.policy.exitModel === 'ADAPTIVE_OBSERVED' ? 'D1·D3·D5는 성과 측정 기준입니다. 기존 예약 청산 거래는 당시 규칙을 보존합니다.' : '진입 시 청산 날짜를 확정하며 해당 날짜의 종가로 가상 청산합니다.'} 브로커 체결 기록이 아닙니다.</p>
             <p>호재·악재 분류는 근거로 표시하고 별도 성과를 관측합니다. 현재 전략의 진입 조건에는 아직 반영하지 않습니다.</p>
             <p>전략 {view.strategyVersion} · 마지막 판단 {view.lastRun ? `${timestamp(view.lastRun.asOf)} KST` : '아직 실행하지 않음'}</p>
           </div>
           {adaptive && (view.adaptive ? <PaperAdaptivePanel state={view.adaptive} /> : <p className="text-sm text-amber-200">지표 자동 연결 평가 대기 · 다음 관측에서 평가합니다.</p>)}
+          {view.policy.exitModel === 'ADAPTIVE_OBSERVED' && <PaperExitLearningPanel state={view.exitLearning} />}
           {adaptive && <section className="rounded-xl border border-emerald-400/20 bg-emerald-500/5 p-4" aria-label="자율 판단 전략의 가상 청산 성과">
             <h4 className="mb-3 text-sm font-semibold text-emerald-200">자율 전략 전체 · 검증 매수와 탐색 매수</h4>
             <dl className="grid grid-cols-2 gap-3 xl:grid-cols-4">{[

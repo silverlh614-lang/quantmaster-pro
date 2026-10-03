@@ -17,7 +17,9 @@ export function buildPaperStrategySelection(trades: PaperStrategyTrade[], experi
   for (const trade of trades) bySymbol.set(trade.symbol, [...(bySymbol.get(trade.symbol) ?? []), trade]);
   // A symbol held from an earlier entry is not re-evaluated that day, so it is neither bought nor rejected.
   const held = (row: PaperExperiment) => (bySymbol.get(row.symbol) ?? []).some(trade =>
-    trade.tradingDate < row.tradingDate && row.tradingDate <= trade.scheduledExitDate);
+    trade.tradingDate < row.tradingDate && (trade.policy?.exitModel === 'ADAPTIVE_OBSERVED'
+      ? !trade.exit || Date.parse(row.entryAt) <= Date.parse(trade.exit.decisionAt)
+      : row.tradingDate <= trade.scheduledExitDate));
   const cohorts = COHORTS.map(cohort => ({ cohort, candidateCount: 0, boughtCount: 0 }));
   let boughtCount = 0, heldCount = 0;
   for (const row of candidates) {
@@ -31,7 +33,8 @@ export function buildPaperStrategySelection(trades: PaperStrategyTrade[], experi
   // Equal weight per entry date × horizon so a crowded day cannot dominate the difference.
   const groups = new Map<string, { strategy: number[]; unselected: number[]; all: number[] }>();
   for (const trade of trades) {
-    if (trade.status !== 'CLOSED' || !trade.exit || !Number.isFinite(trade.exit.netReturnPct)) continue;
+    // Observed exits have different durations; do not present them as matched fixed-horizon returns.
+    if (trade.policy?.exitModel === 'ADAPTIVE_OBSERVED' || trade.status !== 'CLOSED' || !trade.exit || !Number.isFinite(trade.exit.netReturnPct)) continue;
     const key = `${trade.tradingDate}:${trade.horizon}`;
     if (!groups.has(key)) groups.set(key, { strategy: [], unselected: [], all: [] });
     groups.get(key)!.strategy.push(trade.exit.netReturnPct);

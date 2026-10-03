@@ -8,6 +8,7 @@ import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaLabel } from '../../t
 import '../../styles/paperResearchBoard.css';
 
 const featureNames: Record<PaperFeatureKey, string> = {
+  ...Object.fromEntries(Object.entries(PAPER_FEATURES).map(([key, value]) => [key, value.label])) as Record<PaperFeatureKey, string>,
   rsi14: 'RSI 14', rsiChange5: 'RSI 변화', volumeRatio20: '거래량 비율', turnover20: '평균 거래대금',
   return20: '20일 수익률', peerRelative20: '관측군 대비 수익률', ma20Gap: '20일선 이격', ma60Gap: '60일선 이격',
   ma20Slope5: '20일선 기울기', high20Gap: '20일 고가 이격', gapPct: '시가 갭', atr14Pct: '가격 변동폭',
@@ -43,7 +44,7 @@ function ActiveRule({ candidate, exploration = false }: { candidate: PaperAdapti
     <div className="lab-board-rule-heading">
       <div className="lab-board-rule-tags"><span>{exploration ? '탐색 · 검증 전' : invention ? '발명 지표' : '기본 지표'}</span><span>D{rule.horizon}</span></div>
       <h4>{ruleName(rule)}</h4>
-      <p>{ruleRange(rule)} · {rule.horizon}거래일 보유</p>
+      <p>{ruleRange(rule)} · {rule.horizon}거래일 성과 비교</p>
     </div>
     <dl className="lab-board-rule-stats">
       <div><dt>평균 순수익률</dt><dd>{percent(validation.meanNetReturnPct)}</dd></div>

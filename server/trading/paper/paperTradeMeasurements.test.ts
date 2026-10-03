@@ -20,7 +20,11 @@ function snapshot(at = '2026-09-18T01:00:00Z', price = 10000): PaperSnapshot {
 function entry() {
   const source = snapshot();
   const adaptive = selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), source.asOf);
-  return { source, ledger: evaluatePaperStrategyScan(emptyStrategyLedger(), source, () => cost, adaptive) };
+  const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), source, () => cost, adaptive);
+  for (const trade of ledger.trades) {
+    trade.policy.exitModel = 'SCHEDULED_CLOSE'; delete trade.exitPolicy; delete trade.exitResearch;
+  }
+  return { source, ledger };
 }
 function scan(ledger: PaperStrategyLedger, source: PaperSnapshot) {
   return evaluatePaperStrategyScan(ledger, source, strategyTestCost, ledger.adaptive ?? selectPaperAdaptiveState(undefined, [], source.asOf));

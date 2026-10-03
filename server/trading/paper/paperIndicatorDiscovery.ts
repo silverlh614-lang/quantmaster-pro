@@ -44,12 +44,11 @@ export function discoverPaperIndicators(input: DiscoveryInput): {
     discovery.attemptedIds = []; attempted = new Set();
   }
   const retired: PaperIndicatorInvention[] = [];
-  const full = discovery.inventions.length >= PAPER_MAX_INVENTIONS;
   const removable = discovery.inventions.filter(invention => {
     const current = input.candidates.find(item => item.rule.feature === invention.id);
-    // Keep one inactive day after disconnection. A failed older definition remains replaceable during the fresh round.
-    const failedOlderRound = current?.reason === 'NO_VALIDATION_EDGE' && Date.parse(invention.createdAt) < Date.parse(discovery.roundStartedAt);
-    return (full || failedOlderRound) && !current?.active
+    // Retire proven failures even before the registry fills; missing inputs or ranking alone are not failures.
+    return current?.reason === 'NO_VALIDATION_EDGE' && !current.active
+      && current.validation.sampleCount >= 10 && current.validation.dateCount >= 3
       && !input.previous?.candidates.some(item => item.active && item.rule.feature === invention.id)
       && input.forwardDateCount(invention) >= PAPER_DISCOVERY_RETIREMENT_DATES;
   });
