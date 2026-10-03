@@ -49,6 +49,14 @@ beforeEach(() => {
 });
 
 describe('intraday content slots', () => {
+  it('accepts a completed price-monitor update following a fresh broad scan', () => {
+    view.strategy!.lastRun!.snapshotId = 'paper_prices_test';
+    view.priceMonitor = { intervalSeconds: 30, running: false, marketOpen: true,
+      startedAt: morning.toISOString(), completedAt: morning.toISOString(), durationMs: 10,
+      checkedCount: 1, validCount: 1, closedCount: 0, heldCount: 1, staleCount: 0, oldestQuoteAt: morning.toISOString() };
+    enqueuePaperReports(state, view, morning);
+    expect(state.messages.some(item => item.kind === 'intraday')).toBe(true);
+  });
   it('keeps independent morning/afternoon IDs across repeats and restarts', () => {
     enqueuePaperReports(state, view, morning);
     enqueuePaperReports(state, view, new Date(morning.getTime() + 60_000));

@@ -9,6 +9,7 @@ import { runKillSwitchCheck } from '../trading/killSwitch.js';
 import { forceRefreshKisTokens } from '../clients/kisClient.js';
 import { getAutoTradePaused, getEmergencyStop, getTradingMode, touchHeartbeat } from '../state.js';
 import { runPaperExperimentScan } from '../trading/paper/paperExperimentRunner.js';
+import { runPaperPriceMonitor } from '../trading/paper/paperPriceMonitor.js';
 import { scheduledJob } from './scheduleGuard.js';
 
 let kisTokenRefreshFailureStreak = 0;
@@ -90,6 +91,7 @@ export function registerOrchestratorJobs(): void {
   // The paper runner coalesces recovered ticks into one current scan, never historical orders.
   // Observation/outcome processing continues independently of LIVE enable, regime and holidays.
   scheduledJob('* * * * *', 'ALWAYS_ON', 'paper_experiments', runPaperExperimentTick, { timezone: 'UTC', recoverMissedExecutions: true });
+  scheduledJob('*/30 * * * * *', 'ALWAYS_ON', 'paper_holding_prices', runPaperPriceMonitor, { timezone: 'UTC' });
 
   // KIS 토큰 강제 갱신 — **12시간 주기, 매일 실행**.
   // 주말도 포함 — 주말 해외 뉴스/공급망 스캔이 KIS 데이터 토큰을 쓰므로 365일 갱신.

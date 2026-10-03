@@ -4,7 +4,7 @@ import type { PaperStrategyLedger, PaperStrategyScanResult, PaperTradeMeasuremen
 import { loadPaperStrategyLedger, savePaperStrategyLedger } from '../../persistence/paperStrategyRepo.js';
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { capturePaperCostModel, trimArchivedEntryBars } from './paperExperimentPolicy.js';
-import { buildPaperStrategyView, evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
+import { buildPaperStrategyView, evaluatePaperStrategyScan, evaluatePaperHoldingPrices } from './paperStrategyPolicy.js';
 import { getArchivedPaperBarCheck } from './paperResearchRuntime.js';
 import { buildPaperStrategySelection } from './paperStrategySelection.js';
 import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
@@ -29,9 +29,10 @@ export function advancePaperStrategy(
 ): PaperStrategyScanResult {
   try {
     if (!state.ledger) throw new Error(state.error ?? '전략 기록 없음');
-    const adaptive = selectPaperAdaptiveState(state.ledger.adaptive, experiments, snapshot.asOf, snapshot.observations);
-    const ledger = evaluatePaperStrategyScan(state.ledger, snapshot, (symbol) =>
-      capturePaperCostModel(getStockByCode(symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI'), adaptive);
+    const ledger = snapshot.quoteOnly ? evaluatePaperHoldingPrices(state.ledger, snapshot)
+      : evaluatePaperStrategyScan(state.ledger, snapshot, (symbol) =>
+        capturePaperCostModel(getStockByCode(symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI'),
+      selectPaperAdaptiveState(state.ledger.adaptive, experiments, snapshot.asOf, snapshot.observations));
     const archived = getArchivedPaperBarCheck();
     if (archived) ledger.trades = ledger.trades.map((trade) => {
       const entryObservation = trimArchivedEntryBars(trade.entryObservation, trade.tradingDate, archived);
@@ -53,7 +54,7 @@ export function advancePaperStrategy(
     }
     savePaperStrategyLedger(ledger);
     capturePaperMorningTracking(ledger, snapshot);
-    capturePaperMorningSource(ledger, snapshot);
+    if (!snapshot.quoteOnly) capturePaperMorningSource(ledger, snapshot);
     if (measurementError) recordPaperTradeMeasurementFailure(snapshot.id, snapshot.asOf, 0, measurementError, ledger.trades);
     else if (rows.length) {
       try { savePaperTradeMeasurementBatch(rows, ledger.trades); }
@@ -71,8 +72,7 @@ export function advancePaperStrategy(
   }
 }
 
-export function readPaperStrategyView(includeAllRecords = false, experiments?: PaperExperiment[]) {
-  const state = loadPaperStrategyState();
+export function readPaperStrategyView(includeAllRecords = false, experiments?: PaperExperiment[], state = loadPaperStrategyState()) {
   const ledger: PaperStrategyLedger = state.ledger ?? { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null };
   const view = buildPaperStrategyView(ledger, state.error ?? lastFailure);
   view.measurementHistory = readPaperTradeMeasurementHistory(ledger);

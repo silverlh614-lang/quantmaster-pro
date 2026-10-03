@@ -195,6 +195,28 @@ export function evaluatePaperStrategyScan(
   return ledger;
 }
 
+/** Update only monitored holdings; entries, rule selection and broad scan counts stay independent. */
+export function evaluatePaperHoldingPrices(input: PaperStrategyLedger, snapshot: PaperSnapshot): PaperStrategyLedger {
+  if (!snapshot.quoteOnly) throw new Error('Holding monitor requires a price-only snapshot');
+  const ledger = structuredClone(input);
+  const observations = new Map(snapshot.observations.map(item => [item.symbol, item]));
+  const decisions: PaperStrategyDecision[] = [];
+  for (const trade of ledger.trades) {
+    const observation = observations.get(trade.symbol);
+    if (!observation) continue;
+    if (trade.status === 'OPEN') decisions.push(closeDecision(trade, snapshot, ledger, observation));
+    else if (trade.exitResearch && !trade.exitResearch.completedAt) {
+      trade.exitResearch = advancePaperExitResearch(trade, snapshot, observation).research;
+    }
+  }
+  const replaced = new Set(decisions.map(item => item.symbol));
+  ledger.latestDecisions = [...ledger.latestDecisions.filter(item => !replaced.has(item.symbol)), ...decisions];
+  ledger.lastRun = { snapshotId: snapshot.id, asOf: snapshot.asOf, openedCount: 0,
+    closedCount: decisions.filter(item => item.action === 'EXIT').length, waitingCount: 0,
+    holdingCount: decisions.filter(item => item.action === 'HOLD').length };
+  return ledger;
+}
+
 export function buildPaperStrategyView(ledger: PaperStrategyLedger, error?: string): PaperStrategyView {
   const values = ledger.trades.flatMap((trade) => trade.status === 'CLOSED' && trade.exit ? [trade.exit] : []);
   const performanceByVersion: NonNullable<PaperStrategyView['performanceByVersion']> = {};

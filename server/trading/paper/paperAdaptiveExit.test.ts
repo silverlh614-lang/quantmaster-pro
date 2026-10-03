@@ -68,6 +68,20 @@ function learnedTrades(): PaperStrategyTrade[] {
 }
 
 describe('observed exit policies', () => {
+  it('uses price-only peaks for trailing exits without consuming missing signal features', () => {
+    const value = trade();
+    value.exitResearch!.signalFailureCount = 3;
+    value.exitResearch!.signalFailureStartedAt = value.entryAt;
+    const peak = quote(value, '2026-09-18T01:30:00.000Z', 110);
+    peak.quoteOnly = true; delete peak.observations[0].features;
+    expect(advance(value, peak).trigger).toBeNull();
+    expect(value.exitResearch!.signalFailureCount).toBe(3);
+    const drop = quote(value, '2026-09-18T01:30:30.000Z', 108);
+    drop.quoteOnly = true; delete drop.observations[0].features;
+    expect(advance(value, drop).trigger?.reason).toBe('ADAPTIVE_TRAILING_STOP');
+    const old = quote(value, '2026-09-18T01:30:15.000Z', 80); old.quoteOnly = true;
+    expect(advance(value, old).quoteAccepted).toBe(false);
+  });
   it('freezes explicit exploration defaults without inventing learned evidence', () => {
     const learning = selectPaperExitLearning([], '2026-09-18T01:00:00Z');
     const policy = freezePaperExitPolicy(learning, learning.evaluatedAt);

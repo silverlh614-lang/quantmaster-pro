@@ -90,8 +90,13 @@ export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentV
 }
 
 function hasFreshPaperDecisions(view: PaperExperimentView | undefined, now: Date): boolean {
+  const monitored = view?.priceMonitor;
+  const monitorUpdate = monitored && !monitored.error && monitored.completedAt && view?.strategy?.lastRun
+    && view.strategy.lastRun.snapshotId.startsWith('paper_prices_')
+    && Date.parse(view.strategy.lastRun.asOf) <= Date.parse(monitored.completedAt)
+    && Date.parse(view.strategy.lastRun.asOf) >= Date.parse(view.lastRun?.asOf ?? '');
   if (!view?.lastRun?.marketOpen || !view.strategy?.lastRun || view.strategy.error || view.strategy.lastRun.error
-    || view.strategy.lastRun.snapshotId !== view.lastRun.snapshotId) return false;
+    || (view.strategy.lastRun.snapshotId !== view.lastRun.snapshotId && !monitorUpdate)) return false;
   return [view.lastRun.asOf, view.strategy.lastRun.asOf].every(at => {
     const age = now.getTime() - Date.parse(at);
     return age >= 0 && age <= 10 * MINUTE && toKstDateKey(at) === toKstDateKey(now);

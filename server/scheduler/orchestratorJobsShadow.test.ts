@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   mode: 'SHADOW', paused: false, emergency: true,
   scheduled: vi.fn(), cron: vi.fn(), recordRun: vi.fn(),
-  scan: vi.fn(), tick: vi.fn(), heartbeat: vi.fn(),
+  scan: vi.fn(), prices: vi.fn(), tick: vi.fn(), heartbeat: vi.fn(),
   dailyLoss: vi.fn(), killSwitch: vi.fn(),
 }));
 vi.mock('node-cron', () => ({ default: { schedule: mocks.cron } }));
@@ -23,6 +23,7 @@ vi.mock('../state.js', () => ({
   touchHeartbeat: mocks.heartbeat,
 }));
 vi.mock('../trading/paper/paperExperimentRunner.js', () => ({ runPaperExperimentScan: mocks.scan }));
+vi.mock('../trading/paper/paperPriceMonitor.js', () => ({ runPaperPriceMonitor: mocks.prices }));
 vi.mock('../orchestrator/tradingOrchestrator.js', () => ({ tradingOrchestrator: { tick: mocks.tick } }));
 vi.mock('../alerts/telegramClient.js', () => ({ sendTelegramAlert: vi.fn() }));
 vi.mock('../alerts/alertNoisePolicy.js', () => ({ evaluateAlertNoise: vi.fn() }));
@@ -38,6 +39,14 @@ const callback = (name: string): (() => Promise<void>) => {
 };
 
 describe('Shadow schedule', () => {
+  it('registers an independent 30-second price monitor without replaying missed price ticks', async () => {
+    registerOrchestratorJobs();
+    expect(mocks.scheduled).toHaveBeenCalledWith('*/30 * * * * *', 'ALWAYS_ON', 'paper_holding_prices',
+      mocks.prices, { timezone: 'UTC' });
+    await callback('paper_holding_prices')();
+    expect(mocks.prices).toHaveBeenCalledOnce();
+    expect(mocks.scan).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.mode = 'SHADOW'; mocks.paused = false; mocks.emergency = true;

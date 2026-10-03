@@ -152,15 +152,15 @@ describe('PaperOverview', () => {
     strategy.holdingReasons = [{ code: 'HORIZON_PENDING', label: '예약 청산 시각 전', count: 785 }];
     render(<PaperOverview view={data} mode="SHADOW" paused={false} />);
     const decisions = within(screen.getByRole('region', { name: '최근 전략 판단' }));
-    expect(decisions.getByText('이번 스캔의 판단')).toBeTruthy();
-    expect(decisions.getByText(/스캔 시각/).textContent).toContain('16:00');
+    expect(decisions.getByText('종목별 최근 판단')).toBeTruthy();
+    expect(decisions.getByText(/최근 판단 갱신/).textContent).toContain('16:00');
     expect(decisions.getByText('보유 유지').parentElement!.textContent).toBe('보유 유지785');
-    expect(decisions.getByText('이번 청산').parentElement!.textContent).toBe('이번 청산0');
+    expect(decisions.getByText('매도 판단').parentElement!.textContent).toBe('매도 판단0');
     expect(decisions.getByText('전체 Shadow 보유').textContent).toBe('전체 Shadow 보유 785건');
     expect(decisions.getByText('전체 누적 청산 (구전략 포함)').textContent).toBe('전체 누적 청산 (구전략 포함) 635건');
     const holdings = within(decisions.getByRole('group', { name: '보유 유지 사유' }));
     expect(holdings.getByText('예약 청산 시각 전').parentElement!.textContent).toBe('예약 청산 시각 전785건');
-    expect(decisions.getByText('이번 스캔에 진입 대기 판단이 없습니다.')).toBeTruthy();
+    expect(decisions.getByText('최근 집계에 진입 대기 판단이 없습니다.')).toBeTruthy();
     expect(screen.getByText('자율 전략 누적 청산').parentElement!.textContent).toBe('자율 전략 누적 청산12건');
   });
 
@@ -187,8 +187,8 @@ describe('PaperOverview', () => {
     render(<PaperOverview view={data} mode="SHADOW" paused={false} />);
     expect(screen.getByText('보유 사유 집계 확인 대기')).toBeTruthy();
     expect(screen.getByText('진입 대기 사유 집계 확인 대기')).toBeTruthy();
-    expect(screen.queryByText('이번 스캔에 보유 유지 판단이 없습니다.')).toBeNull();
-    expect(screen.queryByText('이번 스캔에 진입 대기 판단이 없습니다.')).toBeNull();
+    expect(screen.queryByText('최근 집계에 보유 유지 판단이 없습니다.')).toBeNull();
+    expect(screen.queryByText('최근 집계에 진입 대기 판단이 없습니다.')).toBeNull();
   });
 
   it.each(['view', 'lastRun', 'refresh'] as const)('does not present cached choices or realized performance as current after a %s failure', source => {

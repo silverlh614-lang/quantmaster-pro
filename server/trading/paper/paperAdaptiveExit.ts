@@ -72,11 +72,11 @@ function observeSignal(trade: PaperStrategyTrade, observation: PaperObservation,
   }
 }
 
-function triggerReason(profile: PaperExitProfile, state: PaperAdaptiveExitResearch, netReturnPct: number, at: string): PaperAdaptiveExitReason | null {
+function triggerReason(profile: PaperExitProfile, state: PaperAdaptiveExitResearch, netReturnPct: number, at: string, allowSignal = true): PaperAdaptiveExitReason | null {
   if (netReturnPct <= -profile.stopLossPct) return 'ADAPTIVE_STOP_LOSS';
   if (state.peakNetReturnPct >= profile.trailingArmPct
     && state.peakNetReturnPct - netReturnPct >= profile.trailingDrawdownPct) return 'ADAPTIVE_TRAILING_STOP';
-  if (state.signalFailureCount >= profile.signalFailureCount && state.signalFailureStartedAt
+  if (allowSignal && state.signalFailureCount >= profile.signalFailureCount && state.signalFailureStartedAt
     && Date.parse(at) - Date.parse(state.signalFailureStartedAt) >= profile.signalFailureMinutes * MINUTE) return 'ADAPTIVE_SIGNAL_LOST';
   return null;
 }
@@ -110,12 +110,12 @@ export function advancePaperExitResearch(trade: ResearchTrade, snapshot: PaperSn
     state.lastObservedAt = observation.observedAt; state.lastRecordedAt = snapshot.asOf; state.quoteCount += 1;
     const net = calculatePaperReturn(trade.entryPrice, observation.price!, trade.costModel).netReturnPct;
     state.peakNetReturnPct = Math.max(state.peakNetReturnPct, net);
-    observeSignal(trade, observation, snapshot, state);
+    if (!snapshot.quoteOnly) observeSignal(trade, observation, snapshot, state);
     if (beforeBenchmark && !state.completedAt) for (const profile of PAPER_EXIT_PROFILES) {
-      const reason = triggerReason(profile, state, net, snapshot.asOf);
+      const reason = triggerReason(profile, state, net, snapshot.asOf, !snapshot.quoteOnly);
       if (!state.outcomes[profile.id] && reason) state.outcomes[profile.id] = outcome(trade, state, snapshot, reason, observation.price!, observation.observedAt);
     }
-    const reason = trade.status === 'OPEN' ? triggerReason(trade.exitPolicy.profile, state, net, snapshot.asOf) : null;
+    const reason = trade.status === 'OPEN' ? triggerReason(trade.exitPolicy.profile, state, net, snapshot.asOf, !snapshot.quoteOnly) : null;
     if (reason) result.trigger = outcome(trade, state, snapshot, reason, observation.price!, observation.observedAt);
   }
   if (!state.baseline && now >= Date.parse(state.watchUntilAt)) {

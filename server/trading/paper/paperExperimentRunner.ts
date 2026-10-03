@@ -13,6 +13,7 @@ import { getPaperIndexSeries, refreshPaperIndexSeries } from './paperIndexCollec
 import { buildPaperRelativeStrengthStudy } from './paperRelativeStrengthStudy.js';
 import { advancePaperStrategy, loadPaperStrategyState, readPaperStrategyView } from './paperStrategyRuntime.js';
 import { getArchivedPaperBarCheck, refreshPaperResearch, getPaperResearchView } from './paperResearchRuntime.js';
+import { readPaperPriceMonitor } from './paperPriceMonitor.js';
 
 let running: Promise<PaperScanResult> | null = null;
 let collection: PaperCollectionProgress | undefined;
@@ -75,7 +76,8 @@ async function scan(): Promise<PaperScanResult> {
   });
   savePaperExperimentLedger(ledger);
   // Baseline is durable before strategy work; strategy failures never discard observations.
-  result.strategy = advancePaperStrategy(strategy, ledger.experiments, snapshot);
+  // A holding monitor can commit while collection awaits I/O. Never restore that stale ledger.
+  result.strategy = advancePaperStrategy(loadPaperStrategyState(), ledger.experiments, snapshot);
   return result;
 }
 
@@ -87,10 +89,11 @@ export function runPaperExperimentScan(): Promise<PaperScanResult> {
 export function getPaperExperimentView(includeAllRecords = false, options: { includeComparisons?: boolean } = {}): PaperExperimentView {
   const ledger = loadPaperExperimentLedger();
   const view = buildPaperExperimentView(ledger);
+  const strategyState = loadPaperStrategyState();
   if (includeAllRecords) view.experiments = [...ledger.experiments].reverse();
   const includeComparisons = options.includeComparisons !== false;
   if (includeComparisons) view.relativeStrengthStudy = buildPaperRelativeStrengthStudy(ledger.experiments, getPaperIndexSeries().series,
     ledger.lastRun?.asOf ?? new Date().toISOString());
-  return { ...view, storageMaintenance: readPaperStorageMaintenance(), ...(collection ? { collection: { ...collection } } : {}),
-    strategy: readPaperStrategyView(includeAllRecords, includeComparisons ? ledger.experiments : undefined), research: getPaperResearchView() };
+  return { ...view, priceMonitor: readPaperPriceMonitor(strategyState), storageMaintenance: readPaperStorageMaintenance(), ...(collection ? { collection: { ...collection } } : {}),
+    strategy: readPaperStrategyView(includeAllRecords, includeComparisons ? ledger.experiments : undefined, strategyState), research: getPaperResearchView() };
 }

@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaperExperimentLedger } from '../../../src/types/paperExperiment.js';
 import type { PaperStrategyLedger, PaperTradeMeasurementHistory } from '../../../src/types/paperStrategy.js';
+import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
 const state = vi.hoisted(() => ({
   baseline: { schemaVersion: 1, experiments: [], lastRun: null } as PaperExperimentLedger,
   strategy: { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null } as PaperStrategyLedger,
@@ -53,6 +54,46 @@ function preserveScheduledFixture(): void {
 }
 
 describe('strategy integration in the default Shadow runner', () => {
+  it('preserves a monitor exit committed during a slow full collection without duplicate exits', async () => {
+    const runner = await import('./paperExperimentRunner.js');
+    const runtime = await import('./paperStrategyRuntime.js');
+    await runner.runPaperExperimentScan();
+    const price = strategyTestSnapshot();
+    price.quoteOnly = true; price.id = 'paper_prices_stop'; price.asOf = '2026-09-18T01:01:00Z';
+    Object.assign(price.observations[0], { observedAt: price.asOf, price: 9000 });
+    delete price.observations[0].features;
+    state.collect.mockImplementationOnce(async () => {
+      expect(runtime.advancePaperStrategy(runtime.loadPaperStrategyState(), [], price)).toMatchObject({ openedCount: 0, closedCount: 1 });
+      assertPaperStrategyLedger(state.strategy);
+      const slow = strategyTestSnapshot(); slow.id = 'slow'; slow.asOf = '2026-09-18T01:02:00Z';
+      return slow;
+    });
+    await runner.runPaperExperimentScan();
+    expect(state.strategy.trades).toHaveLength(1);
+    expect(state.strategy.trades[0]).toMatchObject({ status: 'CLOSED', exit: { snapshotId: price.id, price: 9000 },
+      measurement: { latest: { kind: 'ADAPTIVE_EXIT', price: 9000 } } });
+    price.id = 'paper_prices_next'; price.asOf = '2026-09-18T01:03:00Z'; price.observations[0].observedAt = price.asOf;
+    expect(runtime.advancePaperStrategy(runtime.loadPaperStrategyState(), [], price).closedCount).toBe(0);
+    assertPaperStrategyLedger(state.strategy);
+  });
+
+  it('records fast holding prices without resetting signal evidence or opening another symbol', async () => {
+    const runner = await import('./paperExperimentRunner.js');
+    const runtime = await import('./paperStrategyRuntime.js');
+    await runner.runPaperExperimentScan();
+    state.strategy.trades[0].exitResearch!.signalFailureCount = 1;
+    state.strategy.trades[0].exitResearch!.signalFailureStartedAt = state.strategy.trades[0].entryAt;
+    const price = strategyTestSnapshot(); price.quoteOnly = true; price.id = 'paper_prices_hold'; price.asOf = '2026-09-18T01:01:00Z';
+    price.observations[0].observedAt = price.asOf; delete price.observations[0].features;
+    price.observations.push({ ...price.observations[0], symbol: '000001' });
+    const adaptive = structuredClone(state.strategy.adaptive);
+    expect(runtime.advancePaperStrategy(runtime.loadPaperStrategyState(), [], price)).toMatchObject({ openedCount: 0, holdingCount: 1 });
+    expect(state.strategy.trades).toHaveLength(1);
+    expect(state.strategy.adaptive).toEqual(adaptive);
+    expect(state.strategy.trades[0].exitResearch!.signalFailureCount).toBe(1);
+    expect(state.strategy.trades[0].measurement!.latest).toMatchObject({ kind: 'QUOTE', snapshotId: price.id, featureAsOf: null });
+  });
+
   it('collects a closed strategy-only symbol until its forward comparison is complete', async () => {
     const runner = await import('./paperExperimentRunner.js');
     await runner.runPaperExperimentScan();

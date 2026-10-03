@@ -90,6 +90,8 @@ export interface PaperObservation {
 }
 
 export interface PaperSnapshot {
+  /** Price-only monitoring never treats absent features as signal deterioration. */
+  quoteOnly?: boolean;
   id: string;
   asOf: string;
   tradingDate: string;
@@ -185,6 +187,7 @@ export interface PaperStorageMaintenance {
 }
 
 export interface PaperExperimentView {
+  priceMonitor?: PaperPriceMonitorStatus;
   storageMaintenance?: PaperStorageMaintenance;
   mode: 'SHADOW';
   strategyVersion: 'shadow-baseline-v1';
@@ -203,6 +206,22 @@ export interface PaperExperimentView {
   experiments: PaperExperiment[];
   strategy?: PaperStrategyView;
   research?: PaperResearchView;
+}
+
+export interface PaperPriceMonitorStatus {
+  intervalSeconds: number;
+  running: boolean;
+  marketOpen: boolean;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  checkedCount: number;
+  validCount: number;
+  closedCount: number;
+  heldCount: number;
+  staleCount: number;
+  oldestQuoteAt: string | null;
+  error?: string;
 }
 
 /** Compact landing payload; detailed ledgers are fetched only on their page. */
