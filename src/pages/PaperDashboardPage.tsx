@@ -1,7 +1,7 @@
 // @responsibility Coordinate workspace page data.
 import React, { lazy, Suspense } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, ScanLine } from 'lucide-react';
+import { ChevronRight, LoaderCircle, RefreshCw, ScanLine } from 'lucide-react';
 import { apiFetch } from '../api/client';
 import type { EngineStatus, EngineGuardsState } from '../api/autoTradeClient';
 import { paperExperimentApi, PAPER_EXPERIMENT_QUERY_KEY } from '../api/paperExperimentClient';
@@ -15,7 +15,7 @@ const Research = lazy(() => import('../components/autoTrading/PaperResearchPanel
 const Operations = lazy(() => import('../components/autoTrading/PaperOperations').then(module => ({ default: module.PaperOperations })));
 
 const descriptions: Partial<Record<View, string>> = {
-  DASHBOARD: '관측은 얼마나 쌓였고, 전략은 왜 기다리는지 한눈에 확인합니다.',
+  DASHBOARD: '지표 발명부터 검증과 가상 매매까지, 오늘의 연구 흐름을 확인합니다.',
   PAPER_OBSERVATIONS: '조건 없이 기록한 1주 실험으로 D1·D3·D5 성과를 비교합니다.',
   PAPER_STRATEGY: '성과에 따라 지표를 자동 연결·해제하고, 채택한 규칙으로 가상 매매를 판단합니다.',
   PAPER_RESEARCH: '쌓아 둔 자료로 조건 하나씩 검증하고, 다음 연구의 근거를 찾습니다.',
@@ -39,15 +39,20 @@ export function PaperDashboardPage({ page }: { page: View }) {
     onSuccess: async () => { await client.invalidateQueries({ queryKey: PAPER_EXPERIMENT_QUERY_KEY }); },
   });
   const refresh = () => { void active.refetch(); void engine.refetch(); void guards.refetch(); };
-  return <div className="workspace-page">
-    <div className="workspace-topline"><span>워크스페이스 <span aria-hidden="true">/</span> {VIEW_LABELS[page]}</span>
-      <span className={`workspace-mode ${mode === 'SHADOW' ? '' : 'workspace-mode-unknown'}`}><i />{mode ? `서버 ${mode}` : '서버 모드 확인 중'}</span>
+  const refreshing = active.isFetching || engine.isFetching || guards.isFetching;
+  return <div className={`workspace-page${page === 'DASHBOARD' ? ' workspace-page-dashboard' : ''}`}>
+    <div className="workspace-topline"><nav className="workspace-breadcrumbs" aria-label="현재 위치">
+      <span>워크스페이스</span><ChevronRight size={12} aria-hidden="true" /><span aria-current="page">{VIEW_LABELS[page]}</span></nav>
+      <span role="status" className={`workspace-mode${mode === 'SHADOW' ? '' : mode ? ' workspace-mode-other' : ' workspace-mode-unknown'}`}><i aria-hidden="true" />{mode ? `서버 ${mode}` : engine.isError ? '서버 모드 미확인' : '서버 모드 확인 중'}</span>
     </div>
-    <header className="workspace-page-header"><div><h1>{VIEW_LABELS[page]}</h1><p>{descriptions[page]}</p></div>
+    <header className="workspace-page-header"><div><h1>{page === 'DASHBOARD' ? '자율 연구 대시보드' : VIEW_LABELS[page]}</h1><p>{descriptions[page]}</p></div>
       <div className="workspace-actions">
-        <button type="button" className="workspace-button" disabled={active.isFetching || engine.isFetching || guards.isFetching} onClick={refresh}><RefreshCw size={15} />새로고침</button>
+        <button type="button" className="workspace-button" disabled={refreshing} aria-busy={refreshing} onClick={refresh}><RefreshCw size={15} className={refreshing ? 'workspace-is-spinning' : undefined} aria-hidden="true" />새로고침</button>
         {(page === 'DASHBOARD' || page === 'PAPER_OBSERVATIONS') && <button type="button" className="workspace-button workspace-button-primary"
-          disabled={scan.isPending || mode !== 'SHADOW'} onClick={() => scan.mutate()}><ScanLine size={16} />{scan.isPending ? '관측 중…' : '지금 스캔'}</button>}
+          disabled={scan.isPending || mode !== 'SHADOW'} aria-busy={scan.isPending}
+          title={mode !== 'SHADOW' ? '서버가 SHADOW 모드일 때 관측을 실행할 수 있습니다.' : undefined}
+          onClick={() => scan.mutate()}>{scan.isPending ? <LoaderCircle size={16} className="workspace-is-spinning" aria-hidden="true" /> : <ScanLine size={16} aria-hidden="true" />}
+          <span aria-live="polite">{scan.isPending ? '관측 중…' : '지금 관측'}</span></button>}
       </div>
     </header>
     {(engine.isError || guards.isError) && <p role="alert" className="workspace-alert">서버 운영 상태를 확인하지 못했습니다. 표시된 기록만으로 자동 관측 실행 여부를 판단할 수 없습니다.</p>}
@@ -56,7 +61,7 @@ export function PaperDashboardPage({ page }: { page: View }) {
     {active.isError && <p role="alert" className="workspace-alert">기록을 불러오지 못했습니다. {active.data ? '마지막으로 불러온 자료를 표시합니다.' : '새로고침으로 다시 시도해 주세요.'}</p>}
     {active.isPending && pending}
     <Suspense fallback={pending}>
-      {page === 'DASHBOARD' && overview.data && <PaperOverview view={overview.data} mode={mode} paused={paused} />}
+      {page === 'DASHBOARD' && overview.data && <PaperOverview view={overview.data} mode={mode} paused={paused} refreshFailed={overview.isError} />}
       {page === 'PAPER_OBSERVATIONS' && observations.data && <Observations view={observations.data} showStrategy={false} />}
       {page === 'PAPER_STRATEGY' && strategy.data && <Strategy view={strategy.data} />}
       {page === 'PAPER_STRATEGY' && strategy.isSuccess && !strategy.data && <div className="workspace-empty">첫 스캔 이후 전략 판단과 근거가 표시됩니다.</div>}

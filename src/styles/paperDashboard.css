@@ -1,0 +1,136 @@
+/* @responsibility Style the autonomous dashboard overview. */
+.qdash { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.qdash-status { position: relative; display: flex; gap: 14px; align-items: center; padding: 17px 20px; border: 1px solid var(--card-border); background: var(--bg-elevated); border-radius: 12px; overflow: hidden; }
+.qdash-status-icon { display: grid; place-items: center; width: 38px; height: 38px; flex-shrink: 0; border-radius: 50%; background: var(--surface-bg); color: var(--workspace-negative); }
+.qdash-status.is-current .qdash-status-icon { color: var(--workspace-positive); background: color-mix(in srgb, var(--workspace-positive) 10%, transparent); }
+.qdash-status-copy h2 { font-size: 13px; font-weight: 600; }
+.qdash-status-copy p { color: var(--text-secondary); font-size: 11px; margin-top: 5px; }
+.qdash-status-meta { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; color: var(--text-secondary); font-size: 10px; }
+.qdash-status-meta > span { display: flex; align-items: center; gap: 6px; }
+.qdash-status-meta strong { font-weight: 500; color: var(--text-primary); }
+.qdash-collection-progress { position: absolute; inset: auto 0 0; width: 100%; height: 2px; appearance: none; border: 0; }
+.qdash-collection-progress::-webkit-progress-bar { background: var(--surface-bg); }
+.qdash-collection-progress::-webkit-progress-value { background: var(--workspace-positive); }
+.qdash-collection-progress::-moz-progress-bar { background: var(--workspace-positive); }
+.qdash-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.qdash-metric { padding: 21px 22px 18px; border: 1px solid var(--card-border); border-radius: 12px; background: var(--bg-elevated); min-width: 0; }
+.qdash-metric dt { display: flex; justify-content: space-between; align-items: center; gap: 10px; color: var(--text-secondary); font-size: 11px; }
+.qdash-metric dt svg { opacity: .75; flex-shrink: 0; }
+.qdash-metric dd { margin: 15px 0 9px; font-family: var(--font-mono); font-size: clamp(25px, 2.4vw, 34px); font-weight: 500; letter-spacing: -1.4px; font-variant-numeric: tabular-nums; }
+.qdash-metric dd small { color: var(--text-secondary); font-family: var(--font-sans); font-size: 12px; font-weight: 400; margin-left: 6px; letter-spacing: 0; }
+.qdash-metric dd.is-pending { font-family: var(--font-sans); letter-spacing: -.6px; font-size: 24px; min-height: 41px; padding-top: 5px; }
+.qdash-metric p { color: var(--text-secondary); font-size: 10px; line-height: 1.6; }
+.qdash-metric.tone-lilac dd { color: var(--workspace-lilac, #b5abef); }
+.qdash-metric.tone-mint:not(:first-child) dd { color: var(--workspace-positive); }
+.qdash-metric.tone-negative dd, .qdash .is-negative { color: var(--workspace-negative); }
+.qdash-metric dd.is-pending { color: var(--text-secondary) !important; }
+.qdash-detail-grid { display: grid; grid-template-columns: minmax(0, 1.06fr) minmax(0, 1fr); gap: 20px; }
+.qdash-panel { padding: 25px; background: var(--bg-elevated); border: 1px solid var(--card-border); border-radius: 14px; min-width: 0; display: flex; flex-direction: column; }
+.qdash-panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 24px; }
+.qdash-panel-heading h2 { font-size: 16px; font-weight: 600; letter-spacing: -.45px; margin-top: 7px; }
+.qdash-panel-heading > svg { color: var(--text-secondary); }
+.qdash-kicker { display: block; color: var(--text-secondary); font-size: 10px; font-weight: 500; letter-spacing: .5px; }
+.qdash-link { display: inline-flex; align-items: center; gap: 7px; color: var(--workspace-accent); font-size: 11px; white-space: nowrap; }
+.qdash-link:hover { text-decoration: underline; text-underline-offset: 4px; }
+.qdash-performance { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 23px; border-bottom: 1px solid var(--card-border); }
+.qdash-performance > div > span { display: block; font-size: 11px; color: var(--text-secondary); }
+.qdash-performance > div > strong { display: block; font-size: 28px; font-weight: 500; color: var(--workspace-positive); letter-spacing: -.7px; margin-top: 9px; font-variant-numeric: tabular-nums; }
+.qdash-performance > div > strong.is-pending { color: var(--text-secondary); font-size: 23px; }
+.qdash-performance dl { display: flex; gap: 24px; }
+.qdash-performance dt { color: var(--text-secondary); font-size: 10px; margin-bottom: 7px; }
+.qdash-performance dd { font-size: 13px; font-variant-numeric: tabular-nums; }
+.qdash-chart-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 22px; }
+.qdash-chart-heading h3 { font-size: 12px; font-weight: 500; }
+.qdash-chart-heading > span { color: var(--text-secondary); font-size: 9px; }
+.qdash-outcomes { padding-top: 10px; }
+.qdash-outcome { display: grid; grid-template-columns: 65px minmax(0, 1fr) 80px; align-items: center; gap: 12px; min-height: 55px; }
+.qdash-horizon { font-family: var(--font-mono); font-size: 13px; }
+.qdash-horizon small { display: block; font-family: var(--font-sans); color: var(--text-secondary); font-size: 9px; margin-top: 4px; }
+.qdash-return-track { position: relative; height: 28px; border-left: 1px dashed var(--card-border); border-right: 1px dashed var(--card-border); }
+.qdash-return-track::before { content: ''; position: absolute; inset: 50% 0 auto; height: 1px; background: var(--card-border); }
+.qdash-return-track i { position: absolute; top: -8px; bottom: -8px; left: 50%; width: 1px; background: var(--card-border); }
+.qdash-return-track b { position: absolute; top: 9px; height: 10px; min-width: 0; border-radius: 2px; background: var(--workspace-positive); }
+.qdash-return-track b.is-negative { background: var(--workspace-negative); }
+.qdash-outcome > strong { text-align: right; font-weight: 500; font-size: 12px; font-variant-numeric: tabular-nums; }
+.qdash-chart-zero { margin: 0 92px 4px 77px; text-align: center; color: var(--text-secondary); font-family: var(--font-mono); font-size: 8px; }
+.qdash-note { color: var(--text-secondary); font-size: 10px; line-height: 1.85; margin-top: 16px; }
+.qdash-decisions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.qdash-decision { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: 8px; background: var(--surface-bg); min-width: 0; }
+.qdash-decision > span { color: var(--text-secondary); font-size: 10px; }
+.qdash-decision > strong { font-family: var(--font-mono); font-size: 24px; font-weight: 500; letter-spacing: -.5px; overflow-wrap: anywhere; }
+.qdash-decision.is-buy strong { color: var(--workspace-positive); }
+.qdash-decision.is-hold strong { color: var(--workspace-lilac, #b5abef); }
+.qdash-decision.is-wait strong { color: var(--text-secondary); }
+.qdash-decision > strong.is-pending { color: var(--text-secondary); font-family: var(--font-sans); font-size: 13px; line-height: 1.8; letter-spacing: -.3px; word-break: keep-all; overflow-wrap: normal; }
+.qdash-decision-strip { display: flex; gap: 2px; height: 3px; overflow: hidden; border-radius: 2px; margin: 17px 0 5px; }
+.qdash-decision-strip .is-buy { background: var(--workspace-positive); }
+.qdash-decision-strip .is-wait { background: var(--text-secondary); opacity: .35; }
+.qdash-decision-strip .is-hold { background: var(--workspace-lilac, #b5abef); }
+.qdash-decision-strip .is-exit { background: var(--workspace-accent); }
+.qdash-waiting { margin: 10px 0 16px; }
+.qdash-waiting > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 43px; border-bottom: 1px solid var(--card-border); font-size: 11px; }
+.qdash-waiting > div > span { display: inline-flex; gap: 8px; align-items: center; }
+.qdash-waiting i { width: 4px; height: 4px; border-radius: 50%; background: var(--text-secondary); flex-shrink: 0; }
+.qdash-waiting strong { font-weight: 500; font-family: var(--font-mono); white-space: nowrap; }
+.qdash-waiting strong small { color: var(--text-secondary); font-size: 10px; font-family: var(--font-sans); margin-left: 4px; }
+.qdash-waiting p { font-size: 12px; color: var(--text-secondary); line-height: 1.8; padding: 10px 0; }
+.qdash-trade-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--text-secondary); font-size: 10px; line-height: 1.7; flex-wrap: wrap; }
+.qdash-trade-meta strong { color: var(--text-primary); font-weight: 500; }
+.qdash-bottom-link { align-self: flex-start; margin-top: auto; padding-top: 20px; }
+.qdash-coverage { display: flex; align-items: center; gap: 24px; padding: 22px 25px; border: 1px solid var(--card-border); border-radius: 12px; background: var(--bg-elevated); }
+.qdash-coverage-title { display: flex; align-items: center; gap: 11px; flex-shrink: 0; }
+.qdash-coverage-title > svg { color: var(--text-secondary); }
+.qdash-coverage h2 { font-size: 12px; font-weight: 600; }
+.qdash-coverage p { color: var(--text-secondary); font-size: 10px; margin-top: 5px; }
+.qdash-coverage dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: 1; gap: 18px; }
+.qdash-coverage dt { display: flex; align-items: center; gap: 4px; color: var(--text-secondary); font-size: 10px; }
+.qdash-coverage dd { font-size: 16px; font-weight: 500; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.qdash-coverage dd small { font-size: 10px; font-weight: 400; color: var(--text-secondary); margin-left: 4px; }
+.qdash-archive { padding: 24px 25px; border: 1px solid var(--card-border); border-radius: 12px; }
+.qdash-archive header { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.qdash-archive h2 { font-size: 14px; font-weight: 500; margin-top: 7px; }
+.qdash-archive header p { color: var(--text-secondary); font-size: 10px; margin-top: 8px; line-height: 1.8; }
+.qdash-archive details { margin-top: 19px; border-top: 1px solid var(--card-border); padding-top: 17px; }
+.qdash-archive summary { cursor: pointer; font-size: 11px; }
+.qdash-archive summary span { color: var(--text-secondary); font-size: 10px; margin-left: 10px; }
+.qdash-archive-results > div { display: grid; grid-template-columns: minmax(140px, 1fr) 1fr 85px; gap: 20px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--card-border); font-size: 11px; }
+.qdash-archive-results small { display: block; margin-top: 5px; font-size: 10px; color: var(--text-secondary); }
+.qdash-archive-results strong { text-align: right; font-size: 11px; font-weight: 500; }
+.qdash-empty { padding: 25px 16px; background: var(--surface-bg); border: 1px dashed var(--card-border); border-radius: 10px; color: var(--text-secondary); font-size: 12px; line-height: 1.8; }
+.qdash-issues { border: 1px solid color-mix(in srgb, var(--workspace-negative) 30%, transparent); background: color-mix(in srgb, var(--workspace-negative) 4%, transparent); border-radius: 10px; padding: 16px 20px; }
+.qdash-issues summary { font-size: 11px; cursor: pointer; }
+.qdash-issues summary span { color: var(--workspace-negative); margin-left: 7px; }
+.qdash-issues ul { margin-top: 14px; max-height: 200px; overflow-y: auto; color: var(--text-secondary); font-size: 11px; line-height: 1.9; overflow-wrap: anywhere; }
+@media (max-width: 1199px) {
+  .qdash-metric { padding: 18px; }
+  .qdash-coverage { flex-wrap: wrap; }
+  .qdash-coverage-title { flex: 1; }
+  .qdash-coverage dl { flex-basis: 100%; order: 2; }
+}
+@media (max-width: 767px) {
+  .qdash { gap: 16px; }
+  .qdash-status { align-items: flex-start; flex-wrap: wrap; padding: 16px; gap: 11px; }
+  .qdash-status-copy { flex: 1; }
+  .qdash-status-copy h2 { line-height: 1.6; font-size: 12px; }
+  .qdash-status-copy p { line-height: 1.7; font-size: 10px; }
+  .qdash-status-meta { margin-left: 49px; align-items: flex-start; flex-direction: row; flex-wrap: wrap; gap: 8px 14px; }
+  .qdash-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .qdash-metric { padding: 17px 15px; }
+  .qdash-metric dt { font-size: 10px; }
+  .qdash-metric dd { font-size: 27px; margin: 13px 0 8px; }
+  .qdash-metric dd.is-pending { font-size: 20px; min-height: 33px; padding-top: 2px; }
+  .qdash-metric p { font-size: 9px; }
+  .qdash-detail-grid { grid-template-columns: 1fr; gap: 16px; }
+  .qdash-panel { padding: 20px; }
+  .qdash-panel-heading h2 { font-size: 14px; }
+  .qdash-panel-heading { gap: 10px; }
+  .qdash-panel-heading .qdash-link { font-size: 10px; }
+  .qdash-performance { gap: 12px; }
+  .qdash-performance dl { gap: 16px; }
+  .qdash-performance > div > strong { font-size: 25px; }
+  .qdash-coverage, .qdash-archive { padding: 20px; }
+  .qdash-coverage dl { grid-template-columns: repeat(2, 1fr); row-gap: 18px; }
+  .qdash-archive header { align-items: flex-start; flex-direction: column; gap: 14px; }
+  .qdash-archive summary span { display: block; margin: 8px 0 0 13px; }
+  .qdash-archive-results > div { grid-template-columns: minmax(105px, 1fr) 1fr 67px; gap: 9px; }
+}
