@@ -80,9 +80,7 @@ describe('paper research message', () => {
     expect(weekly).toContain('검증 지표 자동 연결 0개/최대 3개 · 발명 지표 0개');
     expect(weekly).toContain('저장 자료 연구 결과를 아직 불러오지 못했습니다');
     expect(weekly.length).toBeLessThanOrEqual(3500);
-    for (const kind of ['morning', 'status'] as const) {
-      expect(formatPaperReport(view, kind, '2026-09-18', [], now)).toContain(summary);
-    }
+    expect(formatPaperReport(view, 'status', '2026-09-18', [], now)).toContain(summary);
     expect(view).toEqual(original);
   });
 

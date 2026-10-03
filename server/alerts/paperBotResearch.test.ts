@@ -64,7 +64,7 @@ describe('intraday content slots', () => {
     if (condition === 'mismatched') view.strategy!.lastRun!.snapshotId = 'prior-scan';
     if (condition === 'error') view.strategy!.error = 'missing';
     if (condition === 'off-hours') view.lastRun!.marketOpen = false;
-    enqueuePaperReports(state, view, morning, undefined, undefined, condition === 'paused');
+    enqueuePaperReports(state, view, morning, { paused: condition === 'paused' });
     expect(state.messages).toEqual([]);
     delete view.strategy!.error; scanAt(morning);
     enqueuePaperReports(state, view, morning);

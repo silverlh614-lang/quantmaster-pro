@@ -146,7 +146,7 @@ describe('daily archived morning recommendations', () => {
     expect(persisted.messages.find(item => item.kind === 'recommendation')).toMatchObject({ state: 'SENT', message: report.message });
     expect(persisted.messages.find(item => item.kind === 'morning')?.state).toBe('SENT');
     const state = emptyState();
-    enqueuePaperReports(state, view, at, undefined, mocks.morning, false, () => { throw new Error('archive write failed'); });
+    enqueuePaperReports(state, view, at, { morning: mocks.morning, recommendation: () => { throw new Error('archive write failed'); } });
     expect(state.messages.map(item => item.kind)).toEqual(['morning']);
   });
   it('expires an undelivered recommendation at 09:00 and never backfills a new one after the slot', async () => {
@@ -158,7 +158,7 @@ describe('daily archived morning recommendations', () => {
     expect(persisted.messages.find(item => item.kind === 'recommendation')?.state).toBe('EXPIRED');
     expect(mocks.send).toHaveBeenCalledTimes(sentBefore);
     const state = emptyState(), generate = vi.fn(() => report);
-    enqueuePaperReports(state, undefined, new Date('2026-09-30T09:00:00+09:00'), undefined, undefined, false, generate);
+    enqueuePaperReports(state, undefined, new Date('2026-09-30T09:00:00+09:00'), { recommendation: generate });
     expect(generate).not.toHaveBeenCalled(); expect(state.messages).toEqual([]);
   });
   it('records the actual late acknowledgment time instead of backdating delivery before a possible entry', async () => {
@@ -189,9 +189,19 @@ describe('daily archived morning recommendations', () => {
 });
 
 describe('KST report slots', () => {
+  it('requests comparisons for a new weekly report, then reuses the archived message without computing them again', async () => {
+    view.strategy = buildPaperStrategyView(enteredStrategy());
+    const sunday = new Date('2026-09-20T19:00:00+09:00');
+    await runPaperBotTick(sunday);
+    expect(mocks.view).toHaveBeenLastCalledWith(true, { includeComparisons: true });
+    expect(persisted.messages.some(message => message.kind === 'weekly')).toBe(true);
+    await runPaperBotTick(new Date(sunday.getTime() + 60_000));
+    expect(mocks.view).toHaveBeenLastCalledWith(true, { includeComparisons: false });
+    expect(persisted.messages.filter(message => message.kind === 'weekly')).toHaveLength(1);
+  });
   it('uses Monday in Korea even on UTC Sunday and survives a restart without resending', async () => {
     await runPaperBotTick(monday);
-    expect(mocks.view).toHaveBeenCalledWith(true);
+    expect(mocks.view).toHaveBeenCalledWith(true, { includeComparisons: false });
     expect(mocks.send).toHaveBeenCalledTimes(1);
     expect(persisted.messages[0]).toMatchObject({ id: 'paper:morning:2026-09-14', state: 'SENT', messageId: 101 });
     await runPaperBotTick(new Date(monday.getTime() + 60_000));
@@ -212,7 +222,7 @@ describe('KST report slots', () => {
   it('keeps a previously sent closing summary without rewriting or resending after a format update', () => {
     enqueuePaperReports(persisted, view, new Date('2026-09-14T16:10:00+09:00'));
     const original = persisted.messages[0]; original.state = 'SENT'; original.message = '기존 마감 요약'; original.messageId = 7;
-    enqueuePaperReports(persisted, view, new Date('2026-09-14T18:01:00+09:00'), mocks.news);
+    enqueuePaperReports(persisted, view, new Date('2026-09-14T18:01:00+09:00'));
     expect(persisted.messages).toHaveLength(1);
     expect(persisted.messages[0]).toMatchObject({ state: 'SENT', message: '기존 마감 요약', messageId: 7 });
     expect(mocks.news).not.toHaveBeenCalled();
@@ -235,7 +245,7 @@ describe('delivery ledger', () => {
     expect(persisted.messages.find(item => item.kind === 'morning')).toMatchObject({ state: 'SENT', message: '해외 뉴스·국내 연관주' });
   });
   it('can send sourced news when the observation view is unavailable', () => {
-    enqueuePaperReports(persisted, undefined, monday, mocks.news, mocks.morning);
+    enqueuePaperReports(persisted, undefined, monday, { morning: mocks.morning });
     expect(persisted.messages).toHaveLength(1);
     expect(persisted.messages[0].channel).toBe('INFO');
   });

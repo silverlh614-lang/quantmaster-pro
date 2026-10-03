@@ -37,19 +37,33 @@ function enqueue(state: PaperBotState, message: Omit<PaperBotMessage, 'state' | 
   if (!state.messages.some(item => item.id === message.id)) state.messages.push({ ...message, state: 'PENDING', attempts: 0, nextAttemptAt: message.createdAt });
 }
 
-export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentView | undefined, now: Date, news: () => string[] = () => [], morning?: () => string | null, paused = false, recommendation?: () => PaperMorningReport | null): void {
+function duePaperReportSlots(state: PaperBotState, now: Date) {
   const date = toKstDateKey(now);
   const kst = new Date(now.getTime() + 9 * 3_600_000);
   const minute = kst.getUTCHours() * 60 + kst.getUTCMinutes();
-  for (const slot of PAPER_BOT_SCHEDULES) {
+  const queued = new Set(state.messages.map(message => message.id));
+  return PAPER_BOT_SCHEDULES.flatMap(slot => {
     const eligibleDay = slot.kind === 'recommendation' || (slot.kind === 'weekly' ? kst.getUTCDay() === 0 : isKrxTradingDay(date));
-    if (!eligibleDay || minute < slot.minute || minute >= slot.minute + slot.graceMinutes) continue;
+    const id = `paper:${slot.kind}:${date}${slot.kind === 'intraday' ? `:${slot.minute}` : ''}`;
+    return eligibleDay && minute >= slot.minute && minute < slot.minute + slot.graceMinutes && !queued.has(id)
+      ? [{ ...slot, id, date }] : [];
+  });
+}
+
+interface PaperReportOptions {
+  morning?: () => string | null;
+  paused?: boolean;
+  recommendation?: () => PaperMorningReport | null;
+}
+
+export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentView | undefined, now: Date, options: PaperReportOptions = {}): void {
+  const { morning, paused = false, recommendation } = options;
+  for (const slot of duePaperReportSlots(state, now)) {
+    const { id, date } = slot;
     // A loading report is retried next minute instead of consuming the weekly slot.
-    if (!view && slot.kind !== 'recommendation' && (slot.kind !== 'morning' || !morning)) continue;
+    if (slot.kind === 'morning' ? !morning : !view && slot.kind !== 'recommendation') continue;
     if (slot.kind === 'weekly' && !view?.research && !view?.strategy?.adaptive) continue;
     if (slot.kind === 'intraday' && (paused || !hasFreshPaperDecisions(view, now))) continue;
-    const id = `paper:${slot.kind}:${date}${slot.kind === 'intraday' ? `:${slot.minute}` : ''}`;
-    if (state.messages.some(item => item.id === id)) continue;
     const expiresAt = new Date(Date.parse(`${date}T00:00:00+09:00`) + (slot.minute + slot.graceMinutes) * MINUTE).toISOString();
     if (slot.kind === 'recommendation') {
       if (!recommendation) continue;
@@ -64,10 +78,10 @@ export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentV
       } catch (error) { console.error('[PaperBot] 아침 추천 보관 실패:', error instanceof Error ? error.message : String(error)); }
       continue;
     }
-    const message = slot.kind === 'morning' && morning ? morning()
+    const message = slot.kind === 'morning' ? morning!()
       : slot.kind === 'weekly' ? formatPaperResearch(view!, now)
         : slot.kind === 'intraday' ? formatPaperIntraday(view!, date, now)
-          : formatPaperReport(view!, slot.kind, date, slot.kind === 'morning' ? news() : [], now);
+          : formatPaperReport(view!, slot.kind, date, [], now);
     if (!message) continue;
     const channel = slot.kind === 'morning' ? ChannelSemantic.REGIME
       : slot.kind === 'intraday' ? ChannelSemantic.SIGNAL : ChannelSemantic.JOURNAL;
@@ -105,11 +119,14 @@ export function enqueuePaperResearchChanges(state: PaperBotState, view: PaperExp
   const added = events.filter(event => !state.seenEvents[event.id] && Date.parse(event.change.at) >= Date.parse(state.researchInitializedAt!));
   for (let offset = 0; offset < added.length;) {
     const batch = added.slice(offset, offset + 3);
-    while (batch.length > 1 && formatPaperResearchChanges(adaptive!, batch.map(item => item.change), now).length > 3500) batch.pop();
+    let message = formatPaperResearchChanges(adaptive!, batch.map(item => item.change), now);
+    while (batch.length > 1 && message.length > 3500) {
+      batch.pop(); message = formatPaperResearchChanges(adaptive!, batch.map(item => item.change), now);
+    }
     offset += batch.length;
     const hash = createHash('sha256').update(batch.map(item => item.id).sort().join('|')).digest('hex').slice(0, 20);
     enqueue(state, { id: `paper:research:${hash}`, kind: 'research', channel: ChannelSemantic.JOURNAL,
-      message: formatPaperResearchChanges(adaptive!, batch.map(item => item.change), now),
+      message,
       createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 6 * 3_600_000).toISOString() });
   }
   for (const event of events) state.seenEvents[event.id] = event.change.at;
@@ -123,14 +140,17 @@ export function enqueuePaperTradeChanges(state: PaperBotState, view: PaperExperi
     // Bound both channel payloads; every event is included, even in a large scan.
     for (let offset = 0; offset < added.length;) {
       const batch = added.slice(offset, offset + 5);
-      while (batch.length > 1 && Math.max(formatPaperTrades(batch).length, formatPaperTradeAnalysis(batch).length) > 3500) batch.pop();
+      let tradeMessage = formatPaperTrades(batch), analysisMessage = formatPaperTradeAnalysis(batch);
+      while (batch.length > 1 && Math.max(tradeMessage.length, analysisMessage.length) > 3500) {
+        batch.pop(); tradeMessage = formatPaperTrades(batch); analysisMessage = formatPaperTradeAnalysis(batch);
+      }
       offset += batch.length;
       const hash = createHash('sha256').update(batch.map(item => item.id).sort().join('|')).digest('hex').slice(0, 20);
       const createdAt = now.toISOString();
       const expiresAt = new Date(now.getTime() + 6 * 3_600_000).toISOString();
       for (const [channel, message] of [
-        [ChannelSemantic.EXECUTION, formatPaperTrades(batch)],
-        [ChannelSemantic.SIGNAL, formatPaperTradeAnalysis(batch)],
+        [ChannelSemantic.EXECUTION, tradeMessage],
+        [ChannelSemantic.SIGNAL, analysisMessage],
       ] as const) {
         enqueue(state, { id: `paper:trades:${hash}:${channel}`, kind: 'trades', channel, message, createdAt, expiresAt });
       }
@@ -279,11 +299,11 @@ async function tick(now: Date): Promise<void> {
   const paused = getAutoTradePaused();
   maintainGlobalMorningNews(now);
   let view: PaperExperimentView | undefined;
-  try { view = getPaperExperimentView(true); }
+  try { view = getPaperExperimentView(true, { includeComparisons: duePaperReportSlots(state, now).some(slot => slot.kind === 'weekly') }); }
   catch (error) { console.error('[PaperBot] 관측 원장 조회 실패:', error instanceof Error ? error.name : 'unknown error'); }
   enqueuePaperHealth(state, classifyPaperBotHealth(view, paused, now, processStartedAt, state.notifiedHealth), now, view);
-  enqueuePaperReports(state, view, now, () => recentPaperNews(now), () => getGlobalMorningMessage(now), paused,
-    () => getOrCreatePaperMorningReport(view, now, paused));
+  enqueuePaperReports(state, view, now, { morning: () => getGlobalMorningMessage(now), paused,
+    recommendation: () => getOrCreatePaperMorningReport(view, now, paused) });
   if (view) {
     enqueuePaperTradeChanges(state, view, now);
     enqueuePaperResearchChanges(state, view, now);

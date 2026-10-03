@@ -63,6 +63,7 @@ describe('morning source cache', () => {
     expect(loaded).toEqual(original);
     expect(loaded.snapshot.observations[0]).toMatchObject({ market: 'KOSPI', dailyCloses: [{ volume: 1234, high: 10500 }] });
     loaded.openSymbols.push('000660');
+    loaded.snapshot.observations[0].dailyCloses[0].volume = 1;
     expect(repo.loadPaperMorningSource()).toEqual(original);
   });
 
@@ -146,6 +147,21 @@ describe('morning source cache', () => {
 });
 
 describe('immutable morning recommendation archive', () => {
+  it('returns independently owned reports without exposing caller or stored nested evidence', () => {
+    const input = source(), expected = report(input); repo.savePaperMorningSource(input);
+    const created = repo.savePaperMorningReport(expected);
+    created.picks[0].referenceClose.volume = 1;
+    expect(expected.picks[0].referenceClose.volume).toBe(1234);
+    const loaded = repo.loadPaperMorningReport(expected.tradingDate)!;
+    expect(loaded).toEqual(expected);
+    loaded.picks[0].candidate.training.meanNetReturnPct = 999;
+    expect(repo.loadPaperMorningReport(expected.tradingDate)).toEqual(expected);
+    const sentAt = '2026-09-17T23:30:05Z';
+    const sent = repo.markPaperMorningReportSent(expected.tradingDate, sentAt, 321);
+    sent.picks[0].observation.dailyCloses[0].high = 99999;
+    expect(repo.loadPaperMorningReport(expected.tradingDate)).toEqual({ ...expected, delivery: { sentAt, messageId: 321 } });
+  });
+
   it('preserves the first full recommendation across restart, retries and a newer source day', async () => {
     const input = source(), expected = report(input); repo.savePaperMorningSource(input);
     expect(expected.status).toBe('READY');

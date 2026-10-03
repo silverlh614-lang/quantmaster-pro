@@ -78,23 +78,26 @@ export function buildPaperMorningSelection(source: PaperMorningSource | null, no
       || !(Date.parse(closes[0].availableAt) <= sourceMs)) continue;
     result.consideredCount++;
     if (held.has(observation.symbol)) { result.heldCount++; continue; }
-    const choices: PaperMorningPick[] = [];
+    let best: PaperMorningPick | undefined;
     const consider = (candidate: PaperAdaptiveCandidate, purpose: PaperMorningPick['purpose'], trial?: PaperMorningPick['trial']) => {
       if (!adaptiveRuleMatches(observation, candidate.rule, snapshot.asOf)) return;
       const value = adaptiveFeatureValue(observation, candidate.rule.feature, snapshot.asOf, candidate.rule.invention);
       if (value === null) return;
-      choices.push({ rank: 0, symbol: observation.symbol, name: observation.name, purpose, referenceClose: structuredClone(closes[0]),
-        observation: structuredClone(observation), candidate: structuredClone(candidate), ruleValue: value, ...(trial ? { trial } : {}) });
+      const choice: PaperMorningPick = { rank: 0, symbol: observation.symbol, name: observation.name, purpose, referenceClose: closes[0],
+        observation, candidate, ruleValue: value, ...(trial ? { trial } : {}) };
+      if (!best || rank(choice, best) < 0) best = choice;
     };
     for (const candidate of active) consider(candidate, 'VALIDATED');
-    for (const trial of trials) if (Date.parse(trial.registeredAt) < Date.parse(observation.observedAt)
+    if (!best) for (const trial of trials) if (Date.parse(trial.registeredAt) < Date.parse(observation.observedAt)
       && Date.parse(trial.registeredAt) < Date.parse(observation.features!.asOf)) {
       consider(trial.candidate, 'EXPLORATION', { id: trial.id, registeredAt: trial.registeredAt });
     }
-    if (choices.length) matches.push(choices.sort(rank)[0]);
+    if (best) matches.push(best);
   }
   result.matchedCount = matches.length;
-  result.picks = matches.sort(rank).slice(0, 3).map((pick, index) => ({ ...pick, rank: index + 1 }));
+  // Clone only the winners, keeping each pick and its reference close independent.
+  result.picks = matches.sort(rank).slice(0, 3).map((pick, index) => structuredClone({ ...pick, rank: index + 1,
+    referenceClose: { ...pick.referenceClose } }));
   if (!result.consideredCount) return { ...result, reason: '전일 확정 지표와 종가를 갖춘 유효 관측이 없습니다.' };
   if (!result.picks.length) return { ...result, status: 'NO_MATCH', reason: result.heldCount === result.consideredCount
     ? '관측 종목은 모두 보유 중이어서 신규 추천이 없습니다.' : '연결된 검증·탐색 규칙에 맞는 신규 종목이 없습니다.' };

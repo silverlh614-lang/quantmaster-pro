@@ -39,13 +39,12 @@ function compactReport(lines: string[], footer: string[]): string {
   return `${message}\n\n${tail}`;
 }
 
-export function formatPaperReport(view: PaperExperimentView, kind: 'morning' | 'close' | 'status', date: string, news: string[] = [], now = new Date()): string {
+export function formatPaperReport(view: PaperExperimentView, kind: 'close' | 'status', date: string, news: string[] = [], now = new Date()): string {
   if (kind === 'close') return formatPaperCloseReport(view, date, now);
-  const title = kind === 'morning' ? '준비 요약' : '현재 현황';
   const last = view.lastRun;
   const strategy = view.strategy;
   const today = view.experiments.filter(item => item.tradingDate === date).length;
-  const lines = [`<b>Shadow ${title} · ${date}</b>`, '가상 실험 · 실제 주문 없음', '',
+  const lines = [`<b>Shadow 현재 현황 · ${date}</b>`, '가상 실험 · 실제 주문 없음', '',
     `마지막 관측 ${stamp(last?.asOf)}`, last ? `후보 ${num(last.candidateCount)} · 현재가 확인 ${num(last.observedCount)} · 미확인 ${num(last.missingPriceCount)}` : '아직 관측 기록이 없습니다.',
     `기본 관측: 오늘 진입 ${num(today)} · 누적 ${num(view.totalCount)} · D5 완료 ${num(view.completedCount)}`, ];
   if (!strategy || strategy.error || strategy.lastRun?.error) lines.push('전략 기록 확인 대기');
@@ -59,7 +58,7 @@ export function formatPaperReport(view: PaperExperimentView, kind: 'morning' | '
     lines.push(`최근 판단 대기 ${waiting.length}종목${needsSamples ? ` · 표본/진입일 누적 중 ${needsSamples}종목` : ''}`);
   }
   lines.push('', ...formatPaperAdaptiveSummary(view, now));
-  if (kind !== 'morning') lines.push('', '<b>기본 관측 누적 성과</b>', ...view.outcomes.map(item => `D${item.horizon}: ${pct(item.meanNetReturnPct)} · ${item.count}건`));
+  lines.push('', '<b>기본 관측 누적 성과</b>', ...view.outcomes.map(item => `D${item.horizon}: ${pct(item.meanNetReturnPct)} · ${item.count}건`));
   if (view.research) lines.push('', `과거 재현 ${num(view.research.sampleCount)}건 · 과거 연구 가능 ${num(view.research.learningSampleCount)}건${view.research.error ? ' · 연구 갱신 확인 필요' : ''}`);
   if (news.length) lines.push('', '<b>최근 24시간 수집 뉴스·공시</b>', ...news.slice(0, 3).map(headline => `• ${escape(headline.slice(0, 100))}`));
   else lines.push('', '최근 24시간에 확인된 새 뉴스·공시 기록 없음');

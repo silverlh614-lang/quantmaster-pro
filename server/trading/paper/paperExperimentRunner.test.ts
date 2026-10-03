@@ -3,17 +3,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaperExperimentLedger, PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 const state = vi.hoisted(() => ({ ledger: { schemaVersion: 1, experiments: [], lastRun: null } as PaperExperimentLedger, collect: vi.fn(),
+  readStrategy: vi.fn(), indexSeries: vi.fn(() => ({ series: [], inventory: null })),
   archived: null as null | ((symbol: string, date: string, close: number) => boolean) }));
 vi.mock('./paperResearchRuntime.js', () => ({
   refreshPaperResearch: () => undefined, getPaperResearchView: () => undefined, getArchivedPaperBarCheck: () => state.archived,
 }));
 vi.mock('./paperIndexCollection.js', () => ({
-  refreshPaperIndexSeries: async () => false, getPaperIndexSeries: () => ({ series: [], inventory: null }),
+  refreshPaperIndexSeries: async () => false, getPaperIndexSeries: state.indexSeries,
 }));
 vi.mock('./paperStrategyRuntime.js', () => ({
   loadPaperStrategyState: () => ({ ledger: { trades: [] } }),
   advancePaperStrategy: () => ({ openedCount: 0, closedCount: 0, waitingCount: 1, holdingCount: 0 }),
-  readPaperStrategyView: () => undefined,
+  readPaperStrategyView: state.readStrategy,
 }));
 vi.mock('../../persistence/paperExperimentRepo.js', () => ({
   loadPaperExperimentLedger: () => structuredClone(state.ledger),
@@ -28,12 +29,25 @@ const sample = (): PaperSnapshot => ({
 });
 beforeEach(() => {
   vi.resetModules();
+  state.readStrategy.mockReset(); state.indexSeries.mockClear();
   state.archived = null;
   state.ledger = { schemaVersion: 1, experiments: [], lastRun: null };
   state.collect.mockReset().mockResolvedValue(sample());
 });
 
 describe('paper runner', () => {
+  it('omits comparison research only on request while preserving complete observation records', async () => {
+    const runner = await import('./paperExperimentRunner.js');
+    await runner.runPaperExperimentScan();
+    const full = runner.getPaperExperimentView(true);
+    expect(full.relativeStrengthStudy).toBeDefined();
+    expect(state.readStrategy).toHaveBeenLastCalledWith(true, state.ledger.experiments);
+    const light = runner.getPaperExperimentView(true, { includeComparisons: false });
+    expect(light).toEqual({ ...full, relativeStrengthStudy: undefined });
+    expect(light.experiments).toHaveLength(1);
+    expect(state.readStrategy).toHaveBeenLastCalledWith(true, undefined);
+    expect(state.indexSeries).toHaveBeenCalledTimes(1);
+  });
   it('deduplicates repeated scans and restart, then opens again on the next trading day', async () => {
     let runner = await import('./paperExperimentRunner.js');
     expect((await runner.runPaperExperimentScan()).openedCount).toBe(1);

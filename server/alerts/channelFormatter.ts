@@ -10,14 +10,6 @@
 // 기존 20 자는 한글 본문과 섞이면 일부 기기에서 줄넘김이 발생했다.
 export const CHANNEL_SEPARATOR = '━━━━━━━━━━━━━━━━';
 
-/** KST "MM/DD" 오늘 날짜. */
-export function kstMMDD(date: Date = new Date()): string {
-  const kst = new Date(date.getTime() + 9 * 3_600_000);
-  const mm = (kst.getUTCMonth() + 1).toString().padStart(2, '0');
-  const dd = kst.getUTCDate().toString().padStart(2, '0');
-  return `${mm}/${dd}`;
-}
-
 export interface ChannelHeaderOptions {
   /** 선두 이모지 (예: "📋", "🌙"). */
   icon: string;

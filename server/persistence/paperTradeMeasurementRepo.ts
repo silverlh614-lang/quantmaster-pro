@@ -50,21 +50,27 @@ export function savePaperTradeMeasurementBatch(rows: PaperTradeMeasurementRow[],
   const { snapshotId, recordedAt } = rows[0];
   if (rows.some(row => row.snapshotId !== snapshotId || row.recordedAt !== recordedAt)
     || new Set(rows.map(rowId)).size !== rows.length) throw new Error('PAPER_TRADE_MEASUREMENT_BATCH_INVALID');
-  const filename = path.join(PAPER_TRADE_MEASUREMENT_DIR, toKstDateKey(new Date(recordedAt)), `${batchId(snapshotId)}.json.gz`);
+  const id = batchId(snapshotId);
+  const filename = path.join(PAPER_TRADE_MEASUREMENT_DIR, toKstDateKey(new Date(recordedAt)), `${id}.json.gz`);
   const batch = { schemaVersion: 1, snapshotId, recordedAt, rows: [...rows].sort((a, b) => rowId(a).localeCompare(rowId(b))) };
+  const serialized = JSON.stringify(batch);
   if (fs.existsSync(filename)) {
-    const saved = JSON.parse(gunzipSync(fs.readFileSync(filename)).toString('utf8'));
-    if (!isDeepStrictEqual(saved, batch)) throw new Error('PAPER_TRADE_MEASUREMENT_BATCH_CONFLICT');
-  } else atomicWrite(filename, gzipSync(JSON.stringify(batch)));
+    const saved = gunzipSync(fs.readFileSync(filename)).toString('utf8');
+    if (saved !== serialized && !isDeepStrictEqual(JSON.parse(saved), batch)) throw new Error('PAPER_TRADE_MEASUREMENT_BATCH_CONFLICT');
+  } else atomicWrite(filename, gzipSync(serialized));
   const status = loadStatus();
   const expected = pointCount(trades);
+  const unconfirmed = Math.max(0, expected - status.accountedPointCount - rows.length);
+  const newer = !status.lastRecordedAt || Date.parse(recordedAt) > Date.parse(status.lastRecordedAt);
+  const changed = unconfirmed > 0 || expected > status.accountedPointCount || newer
+    || status.missingBatches[id] !== undefined || status.error !== undefined;
   // A crash after the core save but before this recorder must remain visible after subsequent successes.
-  status.unconfirmedPointCount += Math.max(0, expected - status.accountedPointCount - rows.length);
+  status.unconfirmedPointCount += unconfirmed;
   status.accountedPointCount = Math.max(status.accountedPointCount, expected);
-  if (!status.lastRecordedAt || Date.parse(recordedAt) > Date.parse(status.lastRecordedAt)) status.lastRecordedAt = recordedAt;
-  delete status.missingBatches[batchId(snapshotId)];
+  if (newer) status.lastRecordedAt = recordedAt;
+  delete status.missingBatches[id];
   delete status.error;
-  atomicWrite(PAPER_TRADE_MEASUREMENT_STATUS_FILE, JSON.stringify(status));
+  if (changed) atomicWrite(PAPER_TRADE_MEASUREMENT_STATUS_FILE, JSON.stringify(status));
   volatileError = undefined;
 }
 
@@ -90,11 +96,16 @@ export function recordPaperTradeMeasurementFailure(snapshotId: string, at: strin
 export function readPaperTradeMeasurementHistory(ledger: PaperStrategyLedger): PaperTradeMeasurementHistory {
   try {
     const status = loadStatus();
-    const latest = ledger.trades.reduce((at, trade) => Math.max(at, Date.parse(trade.measurement?.latest.recordedAt ?? '') || 0), 0);
+    let latest = 0, expected = 0;
+    for (const trade of ledger.trades) {
+      if (!trade.measurement) continue;
+      latest = Math.max(latest, Date.parse(trade.measurement.latest.recordedAt) || 0);
+      expected += trade.measurement.pointCount;
+    }
     const behind = latest > (Date.parse(status.lastRecordedAt ?? '') || 0);
     const error = volatileError ?? status.error ?? (behind ? '최근 거래 관측의 상세 기록 저장을 확인해야 합니다.' : undefined);
     return { lastRecordedAt: status.lastRecordedAt, failedBatchCount: status.failedBatchCount,
-      unrecordedPointCount: status.unconfirmedPointCount + Math.max(0, pointCount(ledger.trades) - status.accountedPointCount)
+      unrecordedPointCount: status.unconfirmedPointCount + Math.max(0, expected - status.accountedPointCount)
         + Object.values(status.missingBatches).reduce((sum, item) => sum + item.pointCount, 0),
       ...(error ? { error } : {}) };
   } catch (error) {

@@ -81,12 +81,13 @@ export function runPaperExperimentScan(): Promise<PaperScanResult> {
   return running;
 }
 
-export function getPaperExperimentView(includeAllRecords = false): PaperExperimentView {
+export function getPaperExperimentView(includeAllRecords = false, options: { includeComparisons?: boolean } = {}): PaperExperimentView {
   const ledger = loadPaperExperimentLedger();
   const view = buildPaperExperimentView(ledger);
   if (includeAllRecords) view.experiments = [...ledger.experiments].reverse();
-  view.relativeStrengthStudy = buildPaperRelativeStrengthStudy(ledger.experiments, getPaperIndexSeries().series,
+  const includeComparisons = options.includeComparisons !== false;
+  if (includeComparisons) view.relativeStrengthStudy = buildPaperRelativeStrengthStudy(ledger.experiments, getPaperIndexSeries().series,
     ledger.lastRun?.asOf ?? new Date().toISOString());
   return { ...view, ...(collection ? { collection: { ...collection } } : {}),
-    strategy: readPaperStrategyView(includeAllRecords, ledger.experiments), research: getPaperResearchView() };
+    strategy: readPaperStrategyView(includeAllRecords, includeComparisons ? ledger.experiments : undefined), research: getPaperResearchView() };
 }

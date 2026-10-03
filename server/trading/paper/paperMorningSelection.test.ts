@@ -1,5 +1,5 @@
 // @responsibility Verify frozen morning recommendation selection boundaries.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { PaperObservation } from '../../../src/types/paperExperiment.js';
 import type { PaperMorningSource } from '../../../src/types/paperMorning.js';
 import { createPaperIndicatorFormula, paperIndicatorFormulaId } from '../../../src/types/paperIndicatorFormula.js';
@@ -70,6 +70,39 @@ describe('08:30 frozen morning recommendations', () => {
     expect(result.picks[2].trial).toEqual({ id: pending.id, registeredAt: pending.registeredAt });
     expect(result.reason).toContain('탐색 추천 1개(검증 전)');
     expect(result.picks[2].candidate.active).toBe(false);
+  });
+
+  it('clones only the final three picks while isolating shared rule evidence and reference closes', () => {
+    const current = source(), original = current.adaptive.candidates.find(item => item.active)!;
+    const stronger = structuredClone(original);
+    stronger.rule = { feature: 'return20', bucket: 0, horizon: 3 };
+    stronger.validation.meanDailyExcessPct = original.validation.meanDailyExcessPct! + 1;
+    current.adaptive.candidates = [original, stronger];
+    trial(current);
+    current.snapshot.observations = Array.from({ length: 12 }, (_, index) => {
+      const value = observation(String(index + 1).padStart(6, '0'));
+      Object.assign(value.features!.values, { return20: -20, per: 5, turnover20: index });
+      return value;
+    });
+    const before = structuredClone(current), clone = vi.spyOn(globalThis, 'structuredClone');
+    let result: ReturnType<typeof buildPaperMorningSelection>;
+    try {
+      result = buildPaperMorningSelection(current, now);
+      expect(clone).toHaveBeenCalledTimes(3);
+    } finally {
+      clone.mockRestore();
+    }
+    expect(result).toMatchObject({ status: 'READY', consideredCount: 12, matchedCount: 12 });
+    expect(result.picks.map(item => [item.symbol, item.purpose, item.candidate.rule.feature])).toEqual([
+      ['000012', 'VALIDATED', 'return20'], ['000011', 'VALIDATED', 'return20'], ['000010', 'VALIDATED', 'return20'],
+    ]);
+    result.picks[0].candidate.rule.bucket = 1;
+    result.picks[0].observation.features!.values.return20 = 99;
+    result.picks[0].referenceClose.close = 1;
+    expect(result.picks[1].candidate).toEqual(stronger);
+    expect(result.picks[1].observation.features!.values.return20).toBe(-20);
+    expect(result.picks[0].observation.dailyCloses[0].close).toBe(9800);
+    expect(current).toEqual(before);
   });
 
   it('permits autonomous exploration with no mature training instead of requiring validated entries', () => {

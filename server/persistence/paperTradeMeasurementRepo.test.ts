@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { gunzipSync } from 'node:zlib';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaperStrategyLedger } from '../../src/types/paperStrategy.js';
 import { legacyStrategyLedger, strategyTestCost, strategyTestSnapshot } from '../trading/paper/paperStrategyFixtures.js';
@@ -73,6 +73,30 @@ describe('durable trade measurement batches', () => {
       .toThrow('PAPER_TRADE_MEASUREMENT_BATCH_CONFLICT');
     for (const [filename, bytes] of before) expect(fs.readFileSync(filename)).toEqual(bytes);
     expect(repo.readPaperTradeMeasurementHistory(second.ledger).unrecordedPointCount).toBe(0);
+  });
+
+  it('does not attempt another disk write for an already confirmed identical retry', () => {
+    const first = entry();
+    repo.savePaperTradeMeasurementBatch(first.rows, first.ledger.trades);
+    const before = fs.readFileSync(repo.PAPER_TRADE_MEASUREMENT_STATUS_FILE, 'utf8');
+    const write = vi.spyOn(fs, 'writeFileSync').mockImplementation(() => { throw new Error('no space for unnecessary writes'); });
+    expect(() => repo.savePaperTradeMeasurementBatch(first.rows, first.ledger.trades)).not.toThrow();
+    expect(write).not.toHaveBeenCalled();
+    expect(fs.readFileSync(repo.PAPER_TRADE_MEASUREMENT_STATUS_FILE, 'utf8')).toBe(before);
+    expect(repo.readPaperTradeMeasurementHistory(first.ledger)).toMatchObject({ failedBatchCount: 0, unrecordedPointCount: 0 });
+  });
+
+  it('accepts semantically identical legacy JSON formatting without replacing its bytes', () => {
+    const first = entry();
+    repo.savePaperTradeMeasurementBatch(first.rows, first.ledger.trades);
+    const filename = batchFiles()[0];
+    const stored = JSON.parse(gunzipSync(fs.readFileSync(filename)).toString('utf8'));
+    const reordered = { rows: stored.rows, recordedAt: stored.recordedAt, snapshotId: stored.snapshotId, schemaVersion: stored.schemaVersion };
+    const bytes = gzipSync(JSON.stringify(reordered, null, 2));
+    fs.writeFileSync(filename, bytes);
+    expect(() => repo.savePaperTradeMeasurementBatch(first.rows, first.ledger.trades)).not.toThrow();
+    expect(fs.readFileSync(filename)).toEqual(bytes);
+    expect(repo.readPaperTradeMeasurementHistory(first.ledger).unrecordedPointCount).toBe(0);
   });
 
   it('rejects bad accounting or duplicate observations before creating files', () => {

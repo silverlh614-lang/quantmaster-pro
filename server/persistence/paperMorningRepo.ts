@@ -37,20 +37,20 @@ export function loadPaperMorningSource(): PaperMorningSource | null {
   if (!fs.existsSync(PAPER_MORNING_SOURCE_FILE)) return null;
   const source: unknown = JSON.parse(gunzipSync(fs.readFileSync(PAPER_MORNING_SOURCE_FILE)).toString('utf8'));
   assertPaperMorningSource(source);
-  return structuredClone(source);
+  return source;
 }
 
 export function savePaperMorningSource(source: PaperMorningSource): void {
   if (!paperMorningTimestampSchema.safeParse(source?.snapshot?.asOf).success) throw new Error('PAPER_MORNING_INVALID: invalid snapshot time');
   if (!isPaperMorningSourceTime(source.snapshot.asOf)) return;
   assertPaperMorningSource(source);
-  const normalized = JSON.parse(JSON.stringify(source)) as PaperMorningSource;
+  const serialized = JSON.stringify(source);
   const current = loadPaperMorningSource();
   if (current && (Date.parse(source.snapshot.asOf) <= Date.parse(current.snapshot.asOf) || source.snapshot.id === current.snapshot.id)) {
-    if (isDeepStrictEqual(normalized, current)) return;
+    if (isDeepStrictEqual(JSON.parse(serialized), current)) return;
     throw new Error('PAPER_MORNING_SOURCE_CONFLICT');
   }
-  atomicWrite(PAPER_MORNING_SOURCE_FILE, gzipSync(JSON.stringify(normalized)));
+  atomicWrite(PAPER_MORNING_SOURCE_FILE, gzipSync(serialized));
 }
 
 export function loadPaperMorningReport(date: string): PaperMorningReport | null {
@@ -59,7 +59,7 @@ export function loadPaperMorningReport(date: string): PaperMorningReport | null 
   const report: unknown = JSON.parse(fs.readFileSync(filename, 'utf8'));
   assertPaperMorningReport(report);
   if (report.tradingDate !== date) throw new Error('PAPER_MORNING_REPORT_DATE_MISMATCH');
-  return structuredClone(report);
+  return report;
 }
 
 const content = ({ delivery: _delivery, ...report }: PaperMorningReport) => report;
@@ -71,7 +71,8 @@ function sameStoredReport(report: PaperMorningReport, stored: PaperMorningReport
 
 export function savePaperMorningReport(report: PaperMorningReport): PaperMorningReport {
   assertPaperMorningReport(report);
-  report = JSON.parse(JSON.stringify(report)) as PaperMorningReport;
+  const serialized = JSON.stringify(report);
+  report = JSON.parse(serialized) as PaperMorningReport;
   const stored = loadPaperMorningReport(report.tradingDate);
   if (stored) return sameStoredReport(report, stored);
   if (report.delivery) throw new Error('PAPER_MORNING_REPORT_ACK_REQUIRED');
@@ -85,14 +86,14 @@ export function savePaperMorningReport(report: PaperMorningReport): PaperMorning
     throw new Error('PAPER_MORNING_REPORT_SOURCE_MISMATCH');
   }
   try {
-    atomicWrite(reportFile(report.tradingDate), JSON.stringify(report), true);
+    atomicWrite(reportFile(report.tradingDate), serialized, true);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     const raced = loadPaperMorningReport(report.tradingDate);
     if (!raced) throw error;
     return sameStoredReport(report, raced);
   }
-  return structuredClone(report);
+  return report;
 }
 
 export function markPaperMorningReportSent(date: string, sentAt: string, messageId: number): PaperMorningReport {
@@ -105,5 +106,5 @@ export function markPaperMorningReportSent(date: string, sentAt: string, message
     return report;
   }
   atomicWrite(reportFile(date), JSON.stringify(updated));
-  return structuredClone(updated);
+  return updated;
 }
