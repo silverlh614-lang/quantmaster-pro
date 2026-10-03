@@ -310,6 +310,17 @@ describe('new strategy events', () => {
 });
 
 describe('operational health transitions', () => {
+  it('allows the hourly holiday interval plus collection grace but preserves intraday alarms', () => {
+    const now = new Date('2026-10-04T11:00:00+09:00');
+    view.scanIntervalSeconds = 3600;
+    scanAt(new Date(now.getTime() - 65 * 60_000).toISOString());
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('OK');
+    scanAt(new Date(now.getTime() - 71 * 60_000).toISOString());
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('STALE');
+    const open = new Date('2026-09-18T11:00:00+09:00');
+    scanAt(new Date(open.getTime() - 11 * 60_000).toISOString());
+    expect(classifyPaperBotHealth(view, false, open, 0)).toBe('STALE');
+  });
   const scanAt = (at: string) => {
     view.lastRun = { snapshotId: 'scan', asOf: at, candidateCount: 863, durationMs: 140_000,
       observedCount: 849, missingPriceCount: 14, openedCount: 0, completedCount: 0, marketOpen: true, issues: [] };

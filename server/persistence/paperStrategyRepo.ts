@@ -12,6 +12,12 @@ export const PAPER_STRATEGY_FILE = path.join(DATA_DIR, 'paper-strategy.json');
 export const PAPER_STRATEGY_EVIDENCE_ARCHIVE_FILE = path.join(DATA_DIR, 'paper-strategy-evidence-archive.json');
 
 type Raw = Record<string, any>;
+let validatedStamp: string | null = null;
+let preservedStamp: string | null = null;
+function diskStamp(): string {
+  const stat = fs.statSync(PAPER_STRATEGY_FILE, { bigint: true });
+  return `${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+}
 
 /** Replaces pre-ADR-0680 full ID lists with their digest in place and returns the unique lists by digest. */
 function compactLegacyEvidence(value: unknown): Map<string, string[]> {
@@ -105,11 +111,14 @@ function preserveLegacyEvidence(lists: Map<string, string[]>): void {
 export function loadPaperStrategyLedger(): PaperStrategyLedger {
   if (!fs.existsSync(PAPER_STRATEGY_FILE)) return { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null };
   try {
+    const stamp = diskStamp();
     const value: unknown = JSON.parse(fs.readFileSync(PAPER_STRATEGY_FILE, 'utf8'));
     compactLegacyEvidence(value);
-    assertPaperStrategyLedger(value);
-    compactAdaptiveEvidence(value);
-    return value;
+    if (stamp !== validatedStamp) assertPaperStrategyLedger(value);
+    compactAdaptiveEvidence(value as PaperStrategyLedger);
+    validatedStamp = stamp;
+    // Each caller still receives an independent object; retain no second resident ledger.
+    return value as PaperStrategyLedger;
   } catch (error) {
     throw new Error(`PAPER_STRATEGY_UNREADABLE: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -117,7 +126,7 @@ export function loadPaperStrategyLedger(): PaperStrategyLedger {
 
 export function savePaperStrategyLedger(ledger: PaperStrategyLedger): void {
   assertPaperStrategyLedger(ledger);
-  if (fs.existsSync(PAPER_STRATEGY_FILE)) {
+  if (fs.existsSync(PAPER_STRATEGY_FILE) && diskStamp() !== preservedStamp) {
     // Never replace a damaged ledger, and keep any pre-ADR-0680 ID lists once before dropping them.
     let current: unknown;
     let legacy: Map<string, string[]>;
@@ -130,6 +139,7 @@ export function savePaperStrategyLedger(ledger: PaperStrategyLedger): void {
       throw new Error(`PAPER_STRATEGY_UNREADABLE: ${error instanceof Error ? error.message : String(error)}`);
     }
     preserveLegacyEvidence(legacy);
+    preservedStamp = diskStamp();
   }
   // Fresh adaptive IDs are recoverable from the baseline ledger and cutoff; do not duplicate them in the archive.
   const compact = structuredClone(ledger);
@@ -138,4 +148,6 @@ export function savePaperStrategyLedger(ledger: PaperStrategyLedger): void {
   assertPaperStrategyLedger(compact);
   // Compact JSON: indentation roughly doubled the size of a file rewritten every minute.
   writeAtomically(PAPER_STRATEGY_FILE, JSON.stringify(compact));
+  validatedStamp = diskStamp();
+  preservedStamp = validatedStamp;
 }

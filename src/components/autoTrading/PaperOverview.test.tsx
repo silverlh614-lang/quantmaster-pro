@@ -69,6 +69,13 @@ describe('PaperOverview', () => {
     render(<PaperOverview view={{ ...view, lastRun: { snapshotId: 's', asOf: '2020-01-01T00:00:00Z', candidateCount: 5, observedCount: 5, openedCount: 0, completedCount: 0, missingPriceCount: 0, marketOpen: true, issues: [] } }} mode="SHADOW" paused={false} />);
     expect(screen.getByText('최근 관측 갱신 확인 필요')).toBeTruthy();
   });
+  it('shows economical full-scan cadence without flagging normal off-hours waiting as stale', () => {
+    const data = currentView(); data.scanIntervalSeconds = 3600;
+    data.lastRun!.asOf = new Date(Date.now() - 40 * 60_000).toISOString(); data.lastRun!.marketOpen = false;
+    render(<PaperOverview view={data} mode="SHADOW" paused={false} />);
+    expect(screen.getByText('60분')).toBeTruthy();
+    expect(screen.queryByText('최근 관측 갱신 확인 필요')).toBeNull();
+  });
   it('shows actual collection progress while the previous pre-open scan is still displayed', () => {
     const now = new Date().toISOString();
     render(<PaperOverview view={{ ...view, collection: { startedAt: now, lastProgressAt: now, completed: 200, total: 553 },

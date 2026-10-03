@@ -8,7 +8,8 @@ import { DATA_DIR } from '../../persistence/paths.js';
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { capturePaperCostModel, type ArchivedBarCheck } from './paperExperimentPolicy.js';
 import { buildPaperResearch } from './paperResearch.js';
-import { readPaperResearchSources, seriesFromObservations } from './paperResearchSources.js';
+import { readPaperResearchSources, seriesFromObservations, paperResearchSourceFiles } from './paperResearchSources.js';
+import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { getPaperIndexSeries } from './paperIndexCollection.js';
 
 const archivePath = (directory: string) => path.join(directory, 'paper-research-archive.json');
@@ -18,6 +19,17 @@ let cached: PaperResearchView | null = null;
 let archivedBars: Set<string> | null = null;
 const barKey = (symbol: string, date: string, close: number) => `${symbol}|${date}|${close}`;
 let lastAttempt = 0;
+let lastInputs: string | null = null;
+
+function inputStamp(now: number): string {
+  const files = [...paperResearchSourceFiles(DATA_DIR), 'paper-research-archive.json'];
+  return JSON.stringify([toKstDateKey(new Date(now)), getPaperIndexSeries(), files.map(file => {
+    const target = path.join(DATA_DIR, file);
+    if (!fs.existsSync(target)) return [file, null];
+    const stat = fs.statSync(target, { bigint: true });
+    return [file, `${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`];
+  })]);
+}
 
 export function loadResearchArchive(directory: string): ResearchArchive {
   const file = archivePath(directory);
@@ -133,9 +145,12 @@ export function refreshPaperResearch(observations: PaperObservation[] = [], forc
   if (!force && now - lastAttempt < (cached?.error ? 60_000 : 3_600_000)) return;
   lastAttempt = now;
   try {
+    const inputs = inputStamp(now);
+    if (!force && !observations.length && cached && !cached.error && inputs === lastInputs) return;
     const result = runArchivedPaperResearch(DATA_DIR, new Date(now).toISOString(), observations, getPaperIndexSeries());
     cached = result.view;
     archivedBars = result.archivedBars;
+    lastInputs = inputStamp(now);
   }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error);

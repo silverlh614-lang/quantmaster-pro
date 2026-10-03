@@ -30,6 +30,25 @@ afterAll(() => {
   if (testDataDir && path.dirname(path.resolve(testDataDir)) === temporaryRoot) fs.rmSync(testDataDir, { recursive: true, force: true });
 });
 
+it('skips rereading an unchanged validated disk ledger during save while keeping reads independent', () => {
+  const ledger = legacyStrategyLedger();
+  repo.savePaperStrategyLedger(ledger);
+  const read = vi.spyOn(fs, 'readFileSync');
+  try {
+    repo.savePaperStrategyLedger(ledger);
+    expect(read.mock.calls.filter(call => String(call[0]) === repo.PAPER_STRATEGY_FILE)).toHaveLength(0);
+    const first = repo.loadPaperStrategyLedger();
+    first.trades.length = 0;
+    expect(repo.loadPaperStrategyLedger().trades).toHaveLength(1);
+    fs.writeFileSync(repo.PAPER_STRATEGY_FILE, '{broken');
+    expect(() => repo.loadPaperStrategyLedger()).toThrow('PAPER_STRATEGY_UNREADABLE');
+    expect(() => repo.savePaperStrategyLedger(ledger)).toThrow('PAPER_STRATEGY_UNREADABLE');
+  } finally {
+    read.mockRestore();
+    fs.unlinkSync(repo.PAPER_STRATEGY_FILE);
+  }
+});
+
 describe('strategy ledger persistence', () => {
   it('loads an absent ledger as empty and round-trips frozen open and closed trades', async () => {
     expect(repo.loadPaperStrategyLedger()).toEqual(emptyStrategyLedger());

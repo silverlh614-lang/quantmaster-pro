@@ -14,10 +14,10 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0691`**
-(2026-10-03 기준, 마지막 발급 0690 — Shadow 보유 가격 독립 감시.)
+**다음 ADR 번호: `0692`**
+(2026-10-04 기준, 마지막 발급 0691 — Shadow 절약형 관측.)
 
-최근 발급: 2026-10-03, [0690 — Shadow 보유 가격 독립 감시](0690-shadow-holding-price-monitor.md), Accepted.
+최근 발급: 2026-10-04, [0691 — Shadow 절약형 관측](0691-shadow-economical-observation.md), Accepted.
 
 상세 결정은 해당 ADR, 과거 구현 내역은 Git에서 조회한다. 이 파일에는 발급 번호와 검색 목록만 남긴다.
 
@@ -93,6 +93,7 @@
 | 0688 | 관측 기반 매도 학습과 동적 조건 확장 | shadow |
 | 0689 | Shadow 상세 관측 자동 정리 | shadow |
 | 0690 | Shadow 보유 가격 독립 감시 | shadow |
+| 0691 | Shadow 절약형 관측 | shadow |
 | 0687 | 매일 08:30 학습 기반 추천과 휴장일 연구 발송 | telegram |
 | 0686 | Shadow 거래 관측 경로와 청산 복기 기록 | shadow |
 | 0685 | Shadow 기간별 학습과 검증 전 탐색 매수 | shadow |

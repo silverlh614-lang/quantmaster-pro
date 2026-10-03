@@ -14,9 +14,12 @@ import { buildPaperRelativeStrengthStudy } from './paperRelativeStrengthStudy.js
 import { advancePaperStrategy, loadPaperStrategyState, readPaperStrategyView } from './paperStrategyRuntime.js';
 import { getArchivedPaperBarCheck, refreshPaperResearch, getPaperResearchView } from './paperResearchRuntime.js';
 import { readPaperPriceMonitor } from './paperPriceMonitor.js';
+import { paperScanIntervalMs } from './paperScanCadence.js';
 
 let running: Promise<PaperScanResult> | null = null;
 let collection: PaperCollectionProgress | undefined;
+let lastResult: PaperScanResult | null = null;
+let lastStartedAt = 0;
 
 async function scan(): Promise<PaperScanResult> {
   const startedAt = new Date().toISOString();
@@ -81,8 +84,15 @@ async function scan(): Promise<PaperScanResult> {
   return result;
 }
 
-export function runPaperExperimentScan(): Promise<PaperScanResult> {
-  if (!running) running = scan().finally(() => { running = null; collection = undefined; });
+export function runPaperExperimentScan(options: { scheduled?: boolean } = {}): Promise<PaperScanResult> {
+  if (!running && options.scheduled && lastResult && !lastResult.strategy?.error
+    && Date.now() >= lastStartedAt && Date.now() - lastStartedAt < paperScanIntervalMs()) return Promise.resolve(lastResult);
+  if (!running) {
+    lastStartedAt = Date.now();
+    running = scan().then(result => { lastResult = result; return result; })
+      .catch(error => { lastResult = null; throw error; })
+      .finally(() => { running = null; collection = undefined; });
+  }
   return running;
 }
 
@@ -94,6 +104,6 @@ export function getPaperExperimentView(includeAllRecords = false, options: { inc
   const includeComparisons = options.includeComparisons !== false;
   if (includeComparisons) view.relativeStrengthStudy = buildPaperRelativeStrengthStudy(ledger.experiments, getPaperIndexSeries().series,
     ledger.lastRun?.asOf ?? new Date().toISOString());
-  return { ...view, priceMonitor: readPaperPriceMonitor(strategyState), storageMaintenance: readPaperStorageMaintenance(), ...(collection ? { collection: { ...collection } } : {}),
+  return { ...view, scanIntervalSeconds: paperScanIntervalMs() / 1000, priceMonitor: readPaperPriceMonitor(strategyState), storageMaintenance: readPaperStorageMaintenance(), ...(collection ? { collection: { ...collection } } : {}),
     strategy: readPaperStrategyView(includeAllRecords, includeComparisons ? ledger.experiments : undefined, strategyState), research: getPaperResearchView() };
 }

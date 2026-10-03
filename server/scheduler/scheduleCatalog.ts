@@ -115,7 +115,7 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
 
   // ── 상시 ──────────────────────────────────────────────────────────────────
   { timeKst: '상시',  label: '오케스트레이터 1분 tick', group: 'trading', jobName: 'orchestrator_tick' },
-  { timeKst: '상시',  label: 'Shadow 독립 실험 관측 (1분)', group: 'learning', jobName: 'paper_experiments', silentWhen: 'SHADOW 모드에서 관측·성과 기록 — Telegram 송출 없음' },
+  { timeKst: '상시',  label: 'Shadow 관측 (장전·장중·마감 1분 / 장외 30분 / 휴장 60분)', group: 'learning', jobName: 'paper_experiments', silentWhen: '매분 실행 필요 확인 · 진행 중 스캔 중복 없음' },
   { timeKst: '장중', label: 'Shadow 보유 가격 감시 (30초)', group: 'learning', jobName: 'paper_holding_prices', silentWhen: '현재가만 순환 수집 · 손실 제한/수익 반납 판단·기록' },
   { timeKst: '00:30', label: 'Daily Mini Backtest', group: 'learning', jobName: 'daily_mini_backtest', silentWhen: '내부 학습 영속만 — Telegram 송출 없음' },
   { timeKst: '09:30', label: 'MissedLearningQueue replay (ADR-0176)', group: 'learning', jobName: 'missed_learning_replay', silentWhen: 'ENV `MISSED_LEARNING_QUEUE_ENABLED` 미활성 또는 큐 비어 있으면 무음' },

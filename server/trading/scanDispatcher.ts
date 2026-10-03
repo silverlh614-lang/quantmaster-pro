@@ -11,5 +11,5 @@ export async function runAutoSignalScan(_options?: RunAutoSignalScanOptions): Pr
   // LIVE/PAPER regime-based automatic entry was retired by the operator on 2026-09-13.
   // Signals, observations and research continue without promoting virtual fills to broker orders.
   const { runPaperExperimentScan } = await import('./paper/paperExperimentRunner.js');
-  return { paperExperiment: await runPaperExperimentScan() };
+  return { paperExperiment: await runPaperExperimentScan({ scheduled: true }) };
 }

@@ -54,6 +54,30 @@ function preserveScheduledFixture(): void {
 }
 
 describe('strategy integration in the default Shadow runner', () => {
+  it('reduces scheduled off-hours scans but resumes at 08:00 and permits manual scans', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime('2026-09-18T07:50:00+09:00');
+      const runner = await import('./paperExperimentRunner.js');
+      await runner.runPaperExperimentScan({ scheduled: true });
+      vi.setSystemTime('2026-09-18T07:55:00+09:00');
+      await runner.runPaperExperimentScan({ scheduled: true });
+      expect(state.collect).toHaveBeenCalledTimes(1);
+      vi.setSystemTime('2026-09-18T08:00:00+09:00');
+      await runner.runPaperExperimentScan({ scheduled: true });
+      expect(state.collect).toHaveBeenCalledTimes(2);
+      await runner.runPaperExperimentScan();
+      expect(state.collect).toHaveBeenCalledTimes(3);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('retries a failed collection without waiting through the economy interval', async () => {
+    const runner = await import('./paperExperimentRunner.js');
+    state.collect.mockRejectedValueOnce(new Error('unavailable'));
+    await expect(runner.runPaperExperimentScan({ scheduled: true })).rejects.toThrow('unavailable');
+    await runner.runPaperExperimentScan({ scheduled: true });
+    expect(state.collect).toHaveBeenCalledTimes(2);
+  });
   it('preserves a monitor exit committed during a slow full collection without duplicate exits', async () => {
     const runner = await import('./paperExperimentRunner.js');
     const runtime = await import('./paperStrategyRuntime.js');

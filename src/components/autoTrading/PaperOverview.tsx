@@ -23,7 +23,7 @@ export function PaperOverview({ view, mode, paused, refreshFailed = false }: {
   const collecting = !refreshFailed && !!collection && collectionAge >= 0 && collectionAge <= 60_000;
   const strategyUnavailable = refreshFailed || Boolean(strategy?.error || strategy?.lastRun?.error);
   const age = last ? now - Date.parse(last.asOf) : Infinity;
-  const stale = !!last && (!Number.isFinite(age) || age < 0 || age > 5 * 60_000);
+  const stale = !!last && (!Number.isFinite(age) || age < 0 || age > Math.max(5 * 60_000, (view.scanIntervalSeconds ?? 0) * 1000 + 5 * 60_000));
   const status = !mode || paused === undefined ? '운영 상태 확인 중' : mode !== 'SHADOW' ? '저장 기록 조회 중'
     : paused ? '자동 관측 일시정지' : refreshFailed ? '최근 자료 조회 실패' : collecting ? '관측 자료 수집 중'
       : stale ? '최근 관측 갱신 확인 필요' : !last ? '첫 관측을 기다리고 있습니다'
@@ -52,6 +52,7 @@ export function PaperOverview({ view, mode, paused, refreshFailed = false }: {
       <span className="qdash-status-icon" aria-hidden="true"><Activity size={18} /></span>
       <div className="qdash-status-copy"><h2>{status}</h2><p>기본 관측은 쌓고, 지표는 검증하며, 판단은 기록합니다.</p></div>
       <div className="qdash-status-meta"><span><Clock3 size={13} />마지막 관측 완료 <strong>{paperTime(last?.asOf)}</strong></span>
+        {view.scanIntervalSeconds && <span>전체 관측 주기 <strong>{view.scanIntervalSeconds / 60}분</strong></span>}
         {collection && <span>{collecting ? '수집 진행' : '수집 지연 확인 필요'} <strong>{collection.completed}/{collection.total}종목</strong></span>}
         {last?.durationMs !== undefined && <span>수집 소요 <strong>{Math.round(last.durationMs / 1000)}초</strong></span>}</div>
       {collection && collecting && collection.total > 0 && <progress className="qdash-collection-progress" value={Math.max(0, Math.min(collection.completed, collection.total))} max={collection.total} aria-label="현재 관측 수집 진행률" />}

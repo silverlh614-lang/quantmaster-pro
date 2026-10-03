@@ -31,7 +31,7 @@ async function runPaperExperimentTick(): Promise<void> {
   if (getAutoTradePaused()) return;
   touchHeartbeat('paper_experiments');
   // This runner only writes virtual experiments/research and coalesces overlapping calls.
-  await runPaperExperimentScan();
+  await runPaperExperimentScan({ scheduled: true });
 }
 
 async function forceRefreshKisTokenCron(label: string): Promise<void> {

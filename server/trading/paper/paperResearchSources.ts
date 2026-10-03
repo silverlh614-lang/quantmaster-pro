@@ -28,6 +28,12 @@ export function seriesFromObservations(observations: PaperObservation[], retriev
   });
 }
 
+export function paperResearchSourceFiles(dataDir: string): string[] {
+  const completed = fs.existsSync(dataDir)
+    ? fs.readdirSync(dataDir).filter(name => /^paper-experiments-completed-\d{4}-\d{2}\.json$/.test(name)).sort() : [];
+  return ['offhours-snapshot.json', 'paper-experiments.json', 'news-supply-log.json', 'dart-alerts.json', ...completed];
+}
+
 export function readPaperResearchSources(dataDir: string, asOf: string): ResearchArchive {
   const inventory: ResearchInventory[] = [];
   const read = (file: string): any => {
@@ -70,8 +76,7 @@ export function readPaperResearchSources(dataDir: string, asOf: string): Researc
     }
   }
   // Completed experiments live in monthly files (ADR-0681); the open file still holds the rest.
-  const completed = fs.existsSync(dataDir)
-    ? fs.readdirSync(dataDir).filter((name) => /^paper-experiments-completed-\d{4}-\d{2}\.json$/.test(name)).sort() : [];
+  const completed = paperResearchSourceFiles(dataDir).slice(4);
   const baseline = [...(read('paper-experiments.json') ?? []), ...completed.flatMap((name) => read(name) ?? [])];
   for (const item of baseline) {
     if (!object(item?.entryObservation) || !Array.isArray(item.entryObservation.dailyCloses)) continue;

@@ -187,6 +187,7 @@ export interface PaperStorageMaintenance {
 }
 
 export interface PaperExperimentView {
+  scanIntervalSeconds?: number;
   priceMonitor?: PaperPriceMonitorStatus;
   storageMaintenance?: PaperStorageMaintenance;
   mode: 'SHADOW';

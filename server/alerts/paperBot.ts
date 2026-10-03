@@ -171,7 +171,7 @@ export function classifyPaperBotHealth(view: PaperExperimentView | undefined, pa
   if (view.strategy?.error || view.strategy?.lastRun?.error) return 'STRATEGY_ERROR';
   const last = view.lastRun;
   const marketOpen = isPaperMarketOpen(now);
-  const staleMs = (marketOpen ? 10 : 60) * MINUTE;
+  const staleMs = marketOpen ? 10 * MINUTE : Math.max(60 * MINUTE, (view.scanIntervalSeconds ?? 0) * 1000 + 10 * MINUTE);
   const lastAt = Date.parse(last?.asOf ?? '');
   if (!Number.isFinite(lastAt) || lastAt > now.getTime() || now.getTime() - lastAt > staleMs) {
     const progress = view.collection;
