@@ -3,10 +3,12 @@ import { apiFetch } from './client';
 import type { PaperExperimentView, PaperOverviewView, PaperScanResult } from '../types/paperExperiment';
 import type { PaperStrategyView } from '../types/paperStrategy';
 import type { PaperResearchView } from '../types/paperResearch';
+import type { PaperMorningReview } from '../types/paperMorning';
 
 export const PAPER_EXPERIMENT_QUERY_KEY = ['paper-experiments'] as const;
 
 export const paperExperimentApi = {
+  getMorningReview: (date: string) => apiFetch<PaperMorningReview>('/api/shadow/morning-recommendation', { query: { date } }),
   getOverview: () => apiFetch<PaperOverviewView>('/api/shadow/experiments', { query: { section: 'overview' } }),
   getObservations: () => apiFetch<PaperExperimentView>('/api/shadow/experiments', { query: { section: 'observations' } }),
   getStrategy: () => apiFetch<PaperStrategyView | null>('/api/shadow/experiments', { query: { section: 'strategy' } }),

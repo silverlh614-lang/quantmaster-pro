@@ -4,7 +4,8 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { isDeepStrictEqual } from 'node:util';
-import type { PaperMorningReport, PaperMorningSource } from '../../src/types/paperMorning.js';
+import { z } from 'zod';
+import type { PaperMorningReport, PaperMorningSource, PaperMorningTracking } from '../../src/types/paperMorning.js';
 import { DATA_DIR } from './paths.js';
 import { assertPaperMorningReport, assertPaperMorningSource, isPaperMorningSourceTime,
   paperMorningDateSchema, paperMorningTimestampSchema } from '../trading/paper/paperMorningValidation.js';
@@ -107,4 +108,48 @@ export function markPaperMorningReportSent(date: string, sentAt: string, message
   }
   atomicWrite(reportFile(date), JSON.stringify(updated));
   return updated;
+}
+
+const trackingSchema = z.object({ reportId: z.string().min(1), tradingDate: paperMorningDateSchema,
+  asOf: paperMorningTimestampSchema, snapshotId: z.string().min(1), decisions: z.array(z.object({
+    symbol: z.string().regex(/^\d{6}$/), action: z.enum(['BUY', 'WAIT', 'HOLD', 'EXIT']),
+    reason: z.string().min(1).max(2000), decisionAt: paperMorningTimestampSchema,
+  })).max(3) });
+const trackingFile = (date: string) => reportFile(date).replace(/\.json$/, '.tracking.json');
+
+export function loadPaperMorningTracking(date: string): PaperMorningTracking | null {
+  const file = trackingFile(date);
+  if (!fs.existsSync(file)) return null;
+  const value = trackingSchema.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
+  const report = loadPaperMorningReport(date);
+  const open = Date.parse(`${date}T09:00:00+09:00`), close = Date.parse(`${date}T15:30:00+09:00`);
+  if (value.tradingDate !== date || new Set(value.decisions.map(item => item.symbol)).size !== value.decisions.length
+    || !report?.delivery || value.reportId !== report.id || Date.parse(value.asOf) < open || Date.parse(value.asOf) >= close
+    || value.decisions.some(item => Date.parse(item.decisionAt) > Date.parse(value.asOf) || Date.parse(item.decisionAt) < open
+      || Date.parse(item.decisionAt) < Date.parse(report.delivery!.sentAt) || Date.parse(item.decisionAt) < Date.parse(report.createdAt)
+      || !report.picks.some(pick => pick.symbol === item.symbol))) throw new Error('PAPER_MORNING_TRACKING_INVALID');
+  return value;
+}
+
+/** Only same-day intraday decisions after confirmed recommendation delivery become persistent follow-up evidence. */
+export function savePaperMorningTracking(value: PaperMorningTracking): void {
+  value = trackingSchema.parse(value);
+  const report = loadPaperMorningReport(value.tradingDate);
+  const at = Date.parse(value.asOf), open = Date.parse(`${value.tradingDate}T09:00:00+09:00`);
+  const close = Date.parse(`${value.tradingDate}T15:30:00+09:00`);
+  if (!report?.delivery || report.id !== value.reportId || at < open || at >= close
+    || at < Date.parse(report.delivery.sentAt) || at < Date.parse(report.createdAt)
+    || new Set(value.decisions.map(item => item.symbol)).size !== value.decisions.length
+    || value.decisions.some(item => item.decisionAt !== value.asOf || !report.picks.some(pick => pick.symbol === item.symbol))) {
+    throw new Error('PAPER_MORNING_TRACKING_INVALID');
+  }
+  const previous = loadPaperMorningTracking(value.tradingDate);
+  if (previous && Date.parse(previous.asOf) >= at) {
+    if (Date.parse(previous.asOf) === at && !isDeepStrictEqual(previous, value)) throw new Error('PAPER_MORNING_TRACKING_CONFLICT');
+    return;
+  }
+  if (previous?.reportId === value.reportId) value.decisions = [...new Map([
+    ...previous.decisions, ...value.decisions,
+  ].map(item => [item.symbol, item])).values()];
+  atomicWrite(trackingFile(value.tradingDate), JSON.stringify(value));
 }

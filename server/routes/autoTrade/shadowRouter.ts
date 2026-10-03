@@ -36,7 +36,8 @@ import { getGlobalMorningPreview } from '../../alerts/globalNewsRuntime.js';
 import { buildPaperEvaluation } from '../../trading/paper/paperEvaluation.js';
 import { loadPaperBotState } from '../../persistence/paperBotRepo.js';
 import { loadPaperFinancialCache } from '../../persistence/paperFinancialRepo.js';
-import { getPaperMorningReview } from '../../trading/paper/paperMorningRuntime.js';
+import { getPaperMorningReview, getPaperMorningReviewSafely } from '../../trading/paper/paperMorningRuntime.js';
+import { formatPaperMorningFollowup } from '../../alerts/paperMorningFollowup.js';
 import { readPaperStorageMaintenance } from '../../persistence/paperStorageMaintenance.js';
 
 const router = Router();
@@ -73,7 +74,7 @@ router.get('/shadow/close-report', (_req, res) => {
     const date = toKstDateKey(now);
     const view = getPaperExperimentView(true);
     res.json({ date, generatedAt: now.toISOString(), sourceAsOf: view.lastRun?.asOf ?? null,
-      message: formatPaperCloseReport(view, date, now) });
+      message: formatPaperCloseReport(view, date, now, formatPaperMorningFollowup(getPaperMorningReviewSafely(date, now), true)) });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }

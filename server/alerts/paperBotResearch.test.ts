@@ -10,7 +10,8 @@ import { selectPaperAdaptiveState } from '../trading/paper/paperAdaptiveSelectio
 
 const mocks = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), view: vi.fn(), send: vi.fn(), paused: vi.fn() }));
 vi.mock('./globalNewsRuntime.js', () => ({ maintainGlobalMorningNews: () => undefined, getGlobalMorningMessage: () => null }));
-vi.mock('../trading/paper/paperMorningRuntime.js', () => ({ getOrCreatePaperMorningReport: () => null, reconcilePaperMorningDelivery: () => undefined }));
+vi.mock('../trading/paper/paperMorningRuntime.js', () => ({ getOrCreatePaperMorningReport: () => null, reconcilePaperMorningDelivery: () => undefined,
+  getPaperMorningReviewSafely: () => ({ report: null, results: [], asOf: '2026-09-18T07:10:00Z' }) }));
 vi.mock('./telegramClient.js', () => ({ sendTelegramAlert: mocks.send }));
 vi.mock('./alertRouter.js', async () => ({ ...(await import('./alertCategories.js')), dispatchAlert: mocks.send }));
 vi.mock('../persistence/paperBotRepo.js', () => ({ loadPaperBotState: mocks.load, savePaperBotState: mocks.save }));

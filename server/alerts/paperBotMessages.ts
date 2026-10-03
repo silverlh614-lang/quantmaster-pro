@@ -8,6 +8,8 @@ import { PAPER_FLOW_ISSUE_LABELS } from '../../src/types/paperInvestorFlow.js';
 import { PAPER_NEWS_EVENT_LABELS, PAPER_NEWS_FILING_LABELS, PAPER_NEWS_RELATION_LABELS } from '../../src/types/paperNewsFacts.js';
 import { readPaperNewsFacts } from '../../src/utils/paperNewsFacts.js';
 import { formatPaperCloseReport } from './paperCloseReport.js';
+import { getPaperMorningReviewSafely } from '../trading/paper/paperMorningRuntime.js';
+import { formatPaperMorningFollowup } from './paperMorningFollowup.js';
 import { paperAdaptiveRuleLabel } from '../../src/types/paperAdaptive.js';
 import { formatPaperAdaptiveSummary } from './paperResearchMessages.js';
 
@@ -40,7 +42,7 @@ function compactReport(lines: string[], footer: string[]): string {
 }
 
 export function formatPaperReport(view: PaperExperimentView, kind: 'close' | 'status', date: string, news: string[] = [], now = new Date()): string {
-  if (kind === 'close') return formatPaperCloseReport(view, date, now);
+  if (kind === 'close') return formatPaperCloseReport(view, date, now, formatPaperMorningFollowup(getPaperMorningReviewSafely(date, now), true));
   const last = view.lastRun;
   const strategy = view.strategy;
   const today = view.experiments.filter(item => item.tradingDate === date).length;
@@ -205,6 +207,7 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
       `매수 ${num(trade.entryPrice)}원 · ${trade.tradingDate}`,
       ...(event.side === 'EXIT' ? [`청산 순수익률 <b>${pct(trade.exit?.netReturnPct)}</b>`] : []),
       trade.policy.exitModel === 'ADAPTIVE_OBSERVED' ? '매도: 가격·진입 근거로 판단' : `예약 매도 ${trade.scheduledExitDate}`);
+    if (trade.morningRecommendation) lines.push(`아침 추천 연결: ${stamp(trade.morningRecommendation.sentAt)} · ${trade.morningRecommendation.rank}순위 · ${trade.morningRecommendation.matchesEntryRule ? '같은 규칙 진입' : '다른 규칙 진입'}`);
     if (trade.exitPolicy) {
       const policy = trade.exitPolicy, profile = policy.profile;
       lines.push(`매도 기준: ${policy.origin === 'FORWARD_LEARNED' ? '후속 관측 검증으로 선택' : '초기 탐색 기준 · 학습 검증 전'}`,

@@ -3,13 +3,14 @@ import { isDeepStrictEqual } from 'node:util';
 import type { PaperExperimentView, PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import type { PaperAdaptiveRule } from '../../../src/types/paperAdaptive.js';
 import type { PaperStrategyLedger } from '../../../src/types/paperStrategy.js';
-import type { PaperMorningReport } from '../../../src/types/paperMorning.js';
+import type { PaperMorningReport, PaperMorningReview } from '../../../src/types/paperMorning.js';
 import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { loadPaperMorningReport, loadPaperMorningSource, savePaperMorningReport,
-  savePaperMorningSource, markPaperMorningReportSent } from '../../persistence/paperMorningRepo.js';
+  savePaperMorningSource, markPaperMorningReportSent, loadPaperMorningTracking, savePaperMorningTracking } from '../../persistence/paperMorningRepo.js';
 import { loadPaperStrategyLedger } from '../../persistence/paperStrategyRepo.js';
 import { buildPaperMorningSelection } from './paperMorningSelection.js';
 import { formatPaperMorningMessage } from '../../alerts/paperMorningMessage.js';
+import { formatPaperMorningFollowup } from '../../alerts/paperMorningFollowup.js';
 
 export function getOrCreatePaperMorningReport(view: PaperExperimentView | undefined, now: Date, paused: boolean): PaperMorningReport {
   const saved = loadPaperMorningReport(toKstDateKey(now));
@@ -65,39 +66,64 @@ export function linkPaperMorningRecommendations(ledger: PaperStrategyLedger, sna
   } catch (error) { console.error('[PaperMorning] 추천 거래 연결 실패:', error instanceof Error ? error.message : String(error)); }
 }
 
-export function getPaperMorningReview(date = toKstDateKey(new Date()), now = new Date()) {
+export function capturePaperMorningTracking(ledger: PaperStrategyLedger, snapshot: PaperSnapshot): void {
+  if (!snapshot.marketOpen) return;
+  try {
+    const report = loadPaperMorningReport(snapshot.tradingDate);
+    if (!report?.delivery || report.status !== 'READY' || Date.parse(report.delivery.sentAt) > Date.parse(snapshot.asOf)) return;
+    const decisions = ledger.latestDecisions.filter(item => item.snapshotId === snapshot.id && item.decisionAt === snapshot.asOf
+      && report.picks.some(pick => pick.symbol === item.symbol))
+      .map(({ symbol, action, reason, decisionAt }) => ({ symbol, action, reason, decisionAt }));
+    savePaperMorningTracking({ reportId: report.id, tradingDate: report.tradingDate, asOf: snapshot.asOf, snapshotId: snapshot.id, decisions });
+  } catch (error) { console.error('[PaperMorning] 후속 판단 보존 실패:', error instanceof Error ? error.message : String(error)); }
+}
+
+export function getPaperMorningReview(date = toKstDateKey(new Date()), now = new Date()): PaperMorningReview {
+  const asOf = now.toISOString();
   const report = loadPaperMorningReport(date);
-  if (!report || Date.parse(report.createdAt) > now.getTime()) return { report: null, results: [] };
-  if (!report.picks.length) return { report, results: [] };
+  if (!report || Date.parse(report.createdAt) > now.getTime()) return { report: null, results: [], asOf };
+  if (!report.picks.length) return { report, results: [], asOf };
   let ledger: PaperStrategyLedger;
   try { ledger = loadPaperStrategyLedger(); }
   catch (error) {
     console.error('[PaperMorning] 추천 이후 거래 조회 실패:', error instanceof Error ? error.message : String(error));
-    return { report, results: [], trackingError: '추천 이후 가상 거래 기록 확인 불가' };
+    return { report, results: [], asOf, trackingError: '추천 이후 가상 거래 기록 확인 불가' };
   }
-  return { report, results: report.picks.map(pick => {
-    const trade = ledger.trades.find(item => item.symbol === pick.symbol && Date.parse(item.entryAt) <= now.getTime()
+  let tracking = null, trackingError: string | undefined;
+  try { tracking = loadPaperMorningTracking(date); }
+  catch (error) { console.error('[PaperMorning] 후속 판단 조회 실패:', error); trackingError = '추천 당시 장중 판단 기록 확인 불가'; }
+  const delivered = report.delivery && Date.parse(report.delivery.sentAt) <= now.getTime();
+  return { report, asOf, ...(trackingError ? { trackingError } : {}), results: report.picks.map(pick => {
+    const trade = delivered ? [...ledger.trades].sort((a, b) => a.entryAt.localeCompare(b.entryAt)).find(item => item.symbol === pick.symbol && Date.parse(item.entryAt) <= now.getTime()
       && (item.morningRecommendation?.reportId === report.id
         || (item.tradingDate === report.tradingDate && report.delivery
           && Date.parse(report.delivery.sentAt) <= Date.parse(item.entryAt)
-          && Date.parse(report.createdAt) <= Date.parse(item.entryAt))));
+          && Date.parse(report.createdAt) <= Date.parse(item.entryAt)))) : undefined;
     const exit = trade?.exit && Date.parse(trade.exit.decisionAt) <= now.getTime() ? trade.exit : null;
     const measurement = trade?.measurement && Date.parse(trade.measurement.latest.recordedAt) <= now.getTime() ? trade.measurement : null;
     return { rank: pick.rank, symbol: pick.symbol, name: pick.name, tradeId: trade?.id ?? null,
-      status: trade ? exit ? 'CLOSED' : 'OPEN' : now.getTime() >= Date.parse(`${date}T15:30:00+09:00`) ? 'NOT_ENTERED' : 'PENDING',
+      status: !delivered ? 'UNSENT' : trade ? exit ? 'CLOSED' : 'OPEN' : now.getTime() >= Date.parse(`${date}T15:30:00+09:00`) ? 'NOT_ENTERED' : 'PENDING',
       entryAt: trade?.entryAt ?? null, entryPrice: trade?.entryPrice ?? null,
+      entryReason: trade?.entryDecision.reason ?? null,
       exitAt: exit?.effectiveAt ?? null, netReturnPct: exit?.netReturnPct ?? null,
+      exitPrice: exit?.price ?? null, exitReason: exit?.decision.reason ?? null,
       matchesEntryRule: trade ? trade.morningRecommendation?.matchesEntryRule
         ?? sameRule((trade.entryDecision.adaptiveEvidence ?? trade.entryDecision.explorationEvidence)?.candidate.rule, pick.candidate.rule) : null,
-      measurement };
+      measurement,
+      lastDecision: delivered && tracking?.reportId === report.id && Date.parse(tracking.asOf) <= now.getTime()
+        ? tracking.decisions.find(item => item.symbol === pick.symbol) ?? null : null };
   }) };
 }
 
 export function formatStoredPaperMorningReport(now = new Date()): string {
-  const { report, results, trackingError } = getPaperMorningReview(toKstDateKey(now), now);
-  if (!report) return '오늘의 아침 추천 기록이 없습니다. 매일 08:30 KST에 거래일 추천 또는 휴장일 연구 현황을 발송합니다.';
-  const delivered = report.delivery ? `발송 확인 ${new Date(report.delivery.sentAt).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' })} KST` : '발송 확인 대기';
-  const labels = { OPEN: '가상 매수 후 보유', CLOSED: '가상 청산 완료', NOT_ENTERED: '가상 미진입', PENDING: '장중 가상 진입 확인 대기' };
-  return `${report.message}\n\n${delivered}${trackingError ? `\n${trackingError}` : ''}${results.length ? '\n추천 이후 추적\n' : ''}${results.map(item =>
-    `${item.rank}. ${item.symbol} · ${labels[item.status as keyof typeof labels]}${item.netReturnPct === null ? '' : ` · 순수익 ${item.netReturnPct.toFixed(2)}%`}${item.matchesEntryRule === false ? ' · 다른 규칙으로 진입' : ''}`).join('\n')}`;
+  const review = getPaperMorningReview(toKstDateKey(now), now);
+  return formatPaperMorningFollowup(review);
+}
+
+export function getPaperMorningReviewSafely(date: string, now: Date): PaperMorningReview {
+  try { return getPaperMorningReview(date, now); }
+  catch (error) {
+    console.error('[PaperMorning] 추천 추적 조회 실패:', error);
+    return { report: null, results: [], asOf: now.toISOString(), trackingError: '추천 원본 기록 확인 불가' };
+  }
 }

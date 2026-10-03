@@ -51,6 +51,21 @@ function report(input: PaperMorningSource | null, date = input?.snapshot.trading
 const reportFile = (date: string) => path.join(repo.PAPER_MORNING_REPORT_DIR, `${date}.json`);
 
 describe('morning source cache', () => {
+  it('retains last intraday reasons across restart and rejects after-hours overwrites', async () => {
+    const input = source(); repo.savePaperMorningSource(input);
+    const saved = repo.savePaperMorningReport(report(input));
+    repo.markPaperMorningReportSent(saved.tradingDate, saved.createdAt, 123);
+    const before = fs.readFileSync(reportFile(saved.tradingDate), 'utf8');
+    const tracking = { reportId: saved.id, tradingDate: saved.tradingDate, asOf: '2026-09-18T01:00:00Z', snapshotId: 'intraday',
+      decisions: [{ symbol: saved.picks[0].symbol, action: 'WAIT' as const, reason: '규칙 불일치', decisionAt: '2026-09-18T01:00:00Z' }] };
+    repo.savePaperMorningTracking(tracking);
+    repo.savePaperMorningTracking({ ...tracking, asOf: '2026-09-18T02:00:00Z', snapshotId: 'missing-symbol', decisions: [] });
+    vi.resetModules(); repo = await import('./paperMorningRepo.js');
+    expect(repo.loadPaperMorningTracking(saved.tradingDate)?.decisions).toEqual(tracking.decisions);
+    expect(() => repo.savePaperMorningTracking({ ...tracking, asOf: '2026-09-18T07:00:00Z' })).toThrow('TRACKING_INVALID');
+    expect(fs.readFileSync(reportFile(saved.tradingDate), 'utf8')).toBe(before);
+    expect(() => repo.loadPaperMorningTracking('../invalid')).toThrow('DATE_INVALID');
+  });
   it('round-trips the full compressed source through restart without stripping provider fields', async () => {
     expect(repo.loadPaperMorningSource()).toBeNull();
     const input = source(), original = structuredClone(input);

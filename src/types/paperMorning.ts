@@ -1,6 +1,7 @@
 // @responsibility Define frozen morning recommendations with source evidence.
 import type { PaperAdaptiveCandidate, PaperAdaptiveState } from './paperAdaptive';
 import type { PaperDailyClose, PaperObservation, PaperSnapshot } from './paperExperiment';
+import type { PaperTradeMeasurement } from './paperStrategy';
 
 export interface PaperMorningSource {
   version: 'morning-source-v1';
@@ -48,4 +49,32 @@ export interface PaperMorningTradeReference {
   sentAt: string;
   /** Same symbol can enter under another rule; retain the distinction. */
   matchesEntryRule: boolean;
+}
+
+export interface PaperMorningTracking {
+  reportId: string;
+  tradingDate: string;
+  asOf: string;
+  snapshotId: string;
+  decisions: Array<{ symbol: string; action: 'BUY' | 'WAIT' | 'HOLD' | 'EXIT'; reason: string; decisionAt: string }>;
+}
+export type PaperMorningResultStatus = 'OPEN' | 'CLOSED' | 'NOT_ENTERED' | 'PENDING' | 'UNSENT';
+export const PAPER_MORNING_RESULT_LABELS: Record<PaperMorningResultStatus, string> = {
+  OPEN: '가상 보유', CLOSED: '가상 매도 완료', NOT_ENTERED: '가상 미진입', PENDING: '진입 확인 대기', UNSENT: '추천 발송 미확인',
+};
+export interface PaperMorningResult {
+  rank: number; symbol: string; name: string; tradeId: string | null;
+  status: PaperMorningResultStatus;
+  entryAt: string | null; entryPrice: number | null; entryReason: string | null;
+  exitAt: string | null; exitPrice: number | null; exitReason: string | null;
+  netReturnPct: number | null;
+  matchesEntryRule: boolean | null;
+  measurement: PaperTradeMeasurement | null;
+  lastDecision: PaperMorningTracking['decisions'][number] | null;
+}
+export interface PaperMorningReview {
+  report: PaperMorningReport | null;
+  results: PaperMorningResult[];
+  asOf: string;
+  trackingError?: string;
 }

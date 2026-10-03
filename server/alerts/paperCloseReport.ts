@@ -137,7 +137,7 @@ function newsLines(view: PaperExperimentView, date: string, cutoff: number): { l
 }
 
 /** Requires full experiment/trade views; a partial view is explicitly marked incomplete. */
-export function formatPaperCloseReport(view: PaperExperimentView, date: string, now = new Date()): string {
+export function formatPaperCloseReport(view: PaperExperimentView, date: string, now = new Date(), recommendationFollowup?: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T00:00:00Z`))
     || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date || date > toKstDateKey(now)) {
     return '<b>Shadow 마감 요약</b>\n집계 날짜 확인 필요';
@@ -152,6 +152,7 @@ export function formatPaperCloseReport(view: PaperExperimentView, date: string, 
     `마지막 관측 ${stamp(last?.asOf)}${last && cutoff - at > 10 * 60_000 ? ' · 10분 이상 갱신 지연' : ''}`];
   if (last) lines.push(`가격 확인 ${num(last.observedCount)}/${num(last.candidateCount)}종목 · 미확인 ${num(last.missingPriceCount)}`);
   if (view.collection) lines.push(`다음 수집 진행 ${num(view.collection.completed)}/${num(view.collection.total)}종목`);
+  if (recommendationFollowup) lines.push('', ...recommendationFollowup.split('\n'));
   lines.push('', ...strategyLines(view, date, cutoff), '', ...baselineLines(view, date, cutoff));
   lines.push('', ...formatPaperAdaptiveSummary(view, new Date(cutoff), 'brief'));
   const news = newsLines(view, date, cutoff);
