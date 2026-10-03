@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({
   baseline: { schemaVersion: 1, experiments: [], lastRun: null } as PaperExperimentLedger,
   strategy: { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null } as PaperStrategyLedger,
   collect: vi.fn(), saveBaseline: vi.fn(), saveStrategy: vi.fn(), loadStrategy: vi.fn(), loadBaseline: vi.fn(),
-  saveBatch: vi.fn(), recordFailure: vi.fn(), readHistory: vi.fn(),
+  saveBatch: vi.fn(), recordFailure: vi.fn(), readHistory: vi.fn(), maintain: vi.fn(),
   measurementHistory: { lastRecordedAt: null, failedBatchCount: 0, unrecordedPointCount: 0 } as PaperTradeMeasurementHistory,
   archived: null as null | ((symbol: string, date: string, close: number) => boolean),
 }));
@@ -23,7 +23,10 @@ vi.mock('../../persistence/paperTradeMeasurementRepo.js', () => ({
   readPaperTradeMeasurementHistory: state.readHistory,
 }));
 vi.mock('../../persistence/krxStockMasterRepo.js', () => ({ getStockByCode: () => ({ market: 'KOSPI' }) }));
-vi.mock('./paperExperimentCollector.js', () => ({ collectPaperExperimentSnapshot: state.collect }));
+vi.mock('./paperExperimentCollector.js', () => ({ collectPaperExperimentSnapshot: state.collect, isPaperMarketOpen: () => false }));
+vi.mock('../../persistence/paperStorageMaintenance.js', () => ({
+  runPaperStorageMaintenance: state.maintain, readPaperStorageMaintenance: () => undefined,
+}));
 import { emptyStrategyLedger } from './paperStrategyFixtures.js';
 import { matureAdaptiveSamples as matureStrategySamples, adaptiveTestSnapshot as strategyTestSnapshot } from './paperAdaptiveFixtures.js';
 import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
@@ -76,6 +79,8 @@ describe('strategy integration in the default Shadow runner', () => {
     const result = await runner.runPaperExperimentScan();
     expect(result).toMatchObject({ openedCount: 1, strategy: { openedCount: 1 } });
     expect(state.collect).toHaveBeenCalledOnce();
+    expect(state.maintain).toHaveBeenCalledOnce();
+    expect(state.maintain.mock.invocationCallOrder[0]).toBeLessThan(state.collect.mock.invocationCallOrder[0]);
     expect(state.saveBaseline.mock.invocationCallOrder[0]).toBeLessThan(state.saveStrategy.mock.invocationCallOrder[0]);
     expect(state.saveStrategy.mock.invocationCallOrder[0]).toBeLessThan(state.saveBatch.mock.invocationCallOrder[0]);
     expect(state.saveBatch).toHaveBeenCalledWith([expect.objectContaining({ kind: 'ENTRY', action: 'BUY',

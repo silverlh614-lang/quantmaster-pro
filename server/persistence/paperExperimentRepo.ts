@@ -2,6 +2,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { gzipSync, gunzipSync } from 'node:zlib';
+import { isDeepStrictEqual } from 'node:util';
 import type { PaperExperiment, PaperExperimentLedger } from '../../src/types/paperExperiment.js';
 import { DATA_DIR, ensureDataDir } from './paths.js';
 
@@ -9,7 +11,7 @@ import { DATA_DIR, ensureDataDir } from './paths.js';
 export const PAPER_EXPERIMENT_FILE = path.join(DATA_DIR, 'paper-experiments.json');
 /** The per-minute scan summary; tiny, so it is the only file rewritten every scan. */
 export const PAPER_EXPERIMENT_RUN_FILE = path.join(DATA_DIR, 'paper-experiments-run.json');
-const COMPLETED_FILE = /^paper-experiments-completed-(\d{4}-\d{2})\.json$/;
+const COMPLETED_FILE = /^paper-experiments-completed-(\d{4}-\d{2})\.json(?:\.gz)?$/;
 const completedFile = (month: string) => path.join(DATA_DIR, `paper-experiments-completed-${month}.json`);
 
 function assertLedger(value: unknown): asserts value is PaperExperimentLedger {
@@ -48,14 +50,22 @@ function readFile(file: string): { stamp: string; value: unknown } {
   const stamp = stampOf(file);
   const cached = files.get(file);
   if (cached?.stamp === stamp) return cached;
-  const entry = { stamp, value: JSON.parse(fs.readFileSync(file, 'utf8')) as unknown };
+  const bytes = fs.readFileSync(file);
+  const entry = { stamp, value: JSON.parse((file.endsWith('.gz') ? gunzipSync(bytes) : bytes).toString('utf8')) as unknown };
   files.set(file, entry);
   return entry;
 }
 
 function completedFiles(): string[] {
   if (!fs.existsSync(DATA_DIR)) return [];
-  return fs.readdirSync(DATA_DIR).filter((name) => COMPLETED_FILE.test(name)).sort().map((name) => path.join(DATA_DIR, name));
+  return fs.readdirSync(DATA_DIR).filter((name) => COMPLETED_FILE.test(name)).sort().map((name) => path.join(DATA_DIR, name))
+    .filter(file => {
+      if (!file.endsWith('.gz') || !fs.existsSync(file.slice(0, -3))) return true;
+      if (!isDeepStrictEqual(readFile(file).value, readFile(file.slice(0, -3)).value)) {
+        throw new Error('PAPER_ARCHIVE_COMPRESSION_CONFLICT');
+      }
+      return false;
+    });
 }
 
 function experimentsIn(value: unknown, file: string): PaperExperiment[] {
@@ -114,7 +124,8 @@ function writeAtomically(file: string, value: unknown): void {
   let descriptor: number | undefined;
   try {
     descriptor = fs.openSync(temporary, 'wx');
-    fs.writeFileSync(descriptor, JSON.stringify(value), 'utf8');
+    const serialized = JSON.stringify(value);
+    fs.writeFileSync(descriptor, file.endsWith('.gz') ? gzipSync(serialized) : serialized);
     fs.fsyncSync(descriptor);
     fs.closeSync(descriptor);
     descriptor = undefined;
@@ -146,7 +157,11 @@ export function savePaperExperimentLedger(ledger: PaperExperimentLedger): void {
   }
   const known = new Set(ledger.experiments.map((item) => item.id));
   for (const [month, records] of months) {
-    const file = completedFile(month);
+    const plain = completedFile(month);
+    const compressed = `${plain}.gz`;
+    // Recover the verified duplicate left by an interrupted compression before updating this month.
+    if (fs.existsSync(plain) && fs.existsSync(compressed)) finishCompression(plain, compressed);
+    const file = fs.existsSync(compressed) ? compressed : plain;
     const stored = fs.existsSync(file) ? experimentsIn(readFile(file).value, file) : [];
     // Records are append-only: anything already stored but absent from this ledger is kept, not dropped.
     const next = [...records, ...stored.filter((item) => !known.has(item.id))].sort(order);
@@ -161,4 +176,39 @@ export function savePaperExperimentLedger(ledger: PaperExperimentLedger): void {
   if (JSON.stringify(run ?? null) !== JSON.stringify(ledger.lastRun)) {
     writeAtomically(PAPER_EXPERIMENT_RUN_FILE, { schemaVersion: 1, lastRun: ledger.lastRun });
   }
+}
+
+function finishCompression(plain: string, compressed: string): void {
+  for (const file of [plain, compressed]) {
+    if (path.dirname(path.resolve(file)) !== path.resolve(DATA_DIR) || !fs.lstatSync(file).isFile()
+      || path.dirname(fs.realpathSync(file)) !== fs.realpathSync(DATA_DIR)) throw new Error('PAPER_ARCHIVE_UNSAFE_PATH');
+  }
+  // Read disk again: a crash may have left a partial or conflicting compressed copy.
+  const original = JSON.parse(fs.readFileSync(plain, 'utf8')) as unknown;
+  const restored = JSON.parse(gunzipSync(fs.readFileSync(compressed)).toString('utf8')) as unknown;
+  if (!isDeepStrictEqual(original, restored)) throw new Error('PAPER_ARCHIVE_COMPRESSION_CONFLICT');
+  fs.unlinkSync(plain);
+  files.delete(plain);
+  merged = null;
+}
+
+/** Lossless compaction; all historical evidence remains readable by every existing learner. */
+export function compressPaperExperimentMonths(beforeMonth: string): { months: number; bytesSaved: number } {
+  loadPaperExperimentLedger();
+  let months = 0, bytesSaved = 0;
+  for (const plain of completedFiles()) {
+    if (plain.endsWith('.gz') || path.basename(plain).match(COMPLETED_FILE)![1] >= beforeMonth) continue;
+    if (months >= 2) break;
+    if (!fs.lstatSync(plain).isFile() || path.dirname(fs.realpathSync(plain)) !== fs.realpathSync(DATA_DIR)) {
+      throw new Error('PAPER_ARCHIVE_UNSAFE_PATH');
+    }
+    const compressed = `${plain}.gz`;
+    const originalSize = fs.statSync(plain).size;
+    if (!fs.existsSync(compressed)) writeAtomically(compressed, readFile(plain).value);
+    const compressedSize = fs.statSync(compressed).size;
+    finishCompression(plain, compressed);
+    months++;
+    bytesSaved += Math.max(0, originalSize - compressedSize);
+  }
+  return { months, bytesSaved };
 }

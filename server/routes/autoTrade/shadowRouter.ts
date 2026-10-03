@@ -37,8 +37,10 @@ import { buildPaperEvaluation } from '../../trading/paper/paperEvaluation.js';
 import { loadPaperBotState } from '../../persistence/paperBotRepo.js';
 import { loadPaperFinancialCache } from '../../persistence/paperFinancialRepo.js';
 import { getPaperMorningReview } from '../../trading/paper/paperMorningRuntime.js';
+import { readPaperStorageMaintenance } from '../../persistence/paperStorageMaintenance.js';
 
 const router = Router();
+router.get('/shadow/storage', (_req, res) => res.json(readPaperStorageMaintenance()));
 
 router.get('/shadow/morning-recommendation', (req, res) => {
   const date = typeof req.query.date === 'string' ? req.query.date : toKstDateKey(new Date());

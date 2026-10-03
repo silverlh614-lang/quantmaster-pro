@@ -136,6 +136,15 @@ export function PaperOverview({ view, mode, paused, refreshFailed = false }: {
         <p className="qdash-note">과거 진입일 {research?.firstDate ?? '미확인'} ~ {research?.lastDate ?? '미확인'}</p>
       </details>
     </section>
+    {view.storageMaintenance && <details className="qdash-issues"><summary>저장 자료 자동 정리
+      <span>{view.storageMaintenance.lastRunAt ? paperTime(view.storageMaintenance.lastRunAt) : '첫 점검 대기'}</span></summary>
+      <p>장외 시간에 매일 점검합니다. 최근 {view.storageMaintenance.retentionDays}일과 최근 {view.storageMaintenance.protectedEntryDates}개 진입일,
+        보유 중·청산 후 비교 중인 거래의 상세 관측은 보존합니다.</p>
+      <p>누적 월별 압축 {count(view.storageMaintenance.compressedMonths)}개 · 상세 관측 정리 {count(view.storageMaintenance.deletedPoints)}건 ·
+        절약 {(view.storageMaintenance.bytesSaved / 1024 / 1024).toFixed(1)} MB</p>
+      <p>추천·매수·매도 근거, 핵심 학습 표본과 성과는 보존합니다. 정리한 상세 가격 경로는 복원할 수 없습니다.</p>
+      {!!view.storageMaintenance.errors.length && <p role="alert">일부 자료 정리 보류 · 운영 상태를 확인해 주세요.</p>}
+    </details>}
     {!!last?.issues.length && <details className="qdash-issues"><summary>관측 중 확인할 항목 <span>{last.issues.length}건</span></summary>
       <ul>{last.issues.map((issue, index) => <li key={index}>{issue.split(':').map(part => PAPER_OBSERVATION_ISSUE_LABELS[part] ?? part).join(': ')}</li>)}</ul></details>}
   </div>;

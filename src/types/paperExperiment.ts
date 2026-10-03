@@ -171,7 +171,21 @@ export interface PaperRelativeStrengthStudy {
     sampleCount: number; upperMeanPct: number | null; lowerMeanPct: number | null; differencePct: number | null }>;
 }
 
+export interface PaperStorageMaintenance {
+  retentionDays: number;
+  protectedEntryDates: number;
+  lastRunAt: string | null;
+  compressedMonths: number;
+  deletedBatches: number;
+  deletedPoints: number;
+  bytesSaved: number;
+  checkedBatches: number;
+  protectedBatches: number;
+  errors: string[];
+}
+
 export interface PaperExperimentView {
+  storageMaintenance?: PaperStorageMaintenance;
   mode: 'SHADOW';
   strategyVersion: 'shadow-baseline-v1';
   lastRun: PaperScanResult | null;

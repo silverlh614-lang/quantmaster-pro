@@ -2,7 +2,8 @@
 import type { PaperCollectionProgress, PaperExperimentView, PaperScanResult } from '../../../src/types/paperExperiment.js';
 import { loadPaperExperimentLedger, savePaperExperimentLedger } from '../../persistence/paperExperimentRepo.js';
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
-import { collectPaperExperimentSnapshot } from './paperExperimentCollector.js';
+import { collectPaperExperimentSnapshot, isPaperMarketOpen } from './paperExperimentCollector.js';
+import { readPaperStorageMaintenance, runPaperStorageMaintenance } from '../../persistence/paperStorageMaintenance.js';
 import { summarizeCurrentInvestorFlow } from './paperInvestorFlowStudy.js';
 import { summarizePaperFeatureCoverage } from './paperObservationFeatures.js';
 import {
@@ -25,6 +26,7 @@ async function scan(): Promise<PaperScanResult> {
   refreshPaperResearch();
   const ledger = loadPaperExperimentLedger();
   const strategy = loadPaperStrategyState();
+  if (strategy.ledger) runPaperStorageMaintenance(ledger, strategy.ledger, new Date(startedAt), isPaperMarketOpen(new Date(startedAt)));
   const openSymbols = [...new Set([
     ...ledger.experiments.filter((item) => item.status === 'OPEN').map((item) => item.symbol),
     ...(strategy.ledger?.trades ?? []).filter((item) => item.status === 'OPEN'
@@ -89,6 +91,6 @@ export function getPaperExperimentView(includeAllRecords = false, options: { inc
   const includeComparisons = options.includeComparisons !== false;
   if (includeComparisons) view.relativeStrengthStudy = buildPaperRelativeStrengthStudy(ledger.experiments, getPaperIndexSeries().series,
     ledger.lastRun?.asOf ?? new Date().toISOString());
-  return { ...view, ...(collection ? { collection: { ...collection } } : {}),
+  return { ...view, storageMaintenance: readPaperStorageMaintenance(), ...(collection ? { collection: { ...collection } } : {}),
     strategy: readPaperStrategyView(includeAllRecords, includeComparisons ? ledger.experiments : undefined), research: getPaperResearchView() };
 }
