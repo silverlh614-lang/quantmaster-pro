@@ -1,4 +1,4 @@
-// @responsibility Collect bounded overseas RSS headlines with attributable publication metadata.
+// @responsibility Collect bounded publisher RSS headlines with attributable publication metadata.
 import { createHash } from 'node:crypto';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 
@@ -8,12 +8,17 @@ export const GLOBAL_NEWS_FEEDS = [
   { id: 'cnbc', name: 'CNBC', url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html', hosts: ['cnbc.com'] },
   { id: 'fed-policy', name: '미 연준 정책', url: 'https://www.federalreserve.gov/feeds/press_monetary.xml', hosts: ['federalreserve.gov'] },
   { id: 'fed-speeches', name: '미 연준 연설', url: 'https://www.federalreserve.gov/feeds/speeches.xml', hosts: ['federalreserve.gov'] },
+  { id: 'kr-hankyung-economy', name: '한국경제 경제', url: 'https://www.hankyung.com/feed/economy', hosts: ['hankyung.com'] },
+  { id: 'kr-hankyung-finance', name: '한국경제 증권', url: 'https://www.hankyung.com/feed/finance', hosts: ['hankyung.com'] },
+  { id: 'kr-mk-economy', name: '매일경제 경제', url: 'https://www.mk.co.kr/rss/30100041/', hosts: ['mk.co.kr'] },
+  { id: 'kr-mk-finance', name: '매일경제 증권', url: 'https://www.mk.co.kr/rss/50200011/', hosts: ['mk.co.kr'] },
 ] as const;
 export interface GlobalNewsArticle {
   id: string; feedId: string; source: string; title: string; excerpt: string; url: string; publishedAt: string; firstSeenAt: string;
 }
 export interface GlobalNewsSourceStatus { feedId: string; name: string; checkedAt: string; count: number; error?: string }
 export type GlobalNewsFeed = typeof GLOBAL_NEWS_FEEDS[number];
+export const isDomesticNewsFeed = (feedId: string): boolean => GLOBAL_NEWS_FEEDS.some(feed => feed.id === feedId && feed.id.startsWith('kr-'));
 const MAX_BYTES = 750_000;
 const parser = new XMLParser({ ignoreAttributes: true, parseTagValue: false, trimValues: true });
 const clean = (value: unknown, limit: number) => typeof value === 'string'

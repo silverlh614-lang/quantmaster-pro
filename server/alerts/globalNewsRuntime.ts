@@ -1,4 +1,4 @@
-// @responsibility Prepare persistent overseas news briefs independently of observation delivery.
+// @responsibility Prepare persistent market news briefs independently of observation delivery.
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -17,10 +17,10 @@ const articleSchema = z.object({
 }).refine(item => GLOBAL_NEWS_FEEDS.some(feed => feed.id === item.feedId && canonicalNewsUrl(item.url, feed) === item.url));
 const sourceSchema = z.object({ feedId: z.string(), name: z.string(), checkedAt: z.iso.datetime(), count: z.number().int().nonnegative(), error: z.string().optional() });
 const cacheSchema = z.object({
-  schemaVersion: z.literal(1), lastAttemptAt: z.iso.datetime().nullable(), articles: z.array(articleSchema).max(2000), sources: z.array(sourceSchema).max(5),
+  schemaVersion: z.literal(1), lastAttemptAt: z.iso.datetime().nullable(), articles: z.array(articleSchema).max(2000), sources: z.array(sourceSchema).max(GLOBAL_NEWS_FEEDS.length),
   briefs: z.array(z.object({
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), from: z.iso.datetime(), cutoff: z.iso.datetime(), generatedAt: z.iso.datetime(),
-    mode: z.enum(['AI_SUMMARY', 'SOURCE_HEADLINES']), candidateCount: z.number().int().nonnegative(), sources: z.array(sourceSchema).max(5), issue: z.string().optional(),
+    mode: z.enum(['AI_SUMMARY', 'SOURCE_HEADLINES']), candidateCount: z.number().int().nonnegative(), sources: z.array(sourceSchema).max(GLOBAL_NEWS_FEEDS.length), issue: z.string().optional(),
     items: z.array(z.object({ article: articleSchema, summary: z.string().max(240), impact: z.string().max(90),
       related: z.array(z.object({ symbol: z.string().regex(/^\d{6}$/), name: z.string(), relation: z.enum(['MENTIONED', 'SECTOR']), reason: z.string(), businessSource: z.string() })).max(2),
     })).max(5),
@@ -84,7 +84,7 @@ export function refreshGlobalMorningNews(now = new Date()): Promise<void> {
     serviceIssue = undefined;
     console.info(`[GlobalNews] RSS ${state.sources.filter(source => !source.error).length}/${GLOBAL_NEWS_FEEDS.length}, articles=${state.articles.length}`);
   })().catch(error => {
-    serviceIssue = '해외 뉴스 저장·수집 확인 필요';
+    serviceIssue = '국내·해외 뉴스 저장·수집 확인 필요';
     console.error('[GlobalNews] 갱신 실패:', error instanceof Error ? error.name : 'unknown');
   }).finally(() => { running = undefined; });
   return running;
@@ -95,9 +95,10 @@ export function maintainGlobalMorningNews(now = new Date()): void {
   if (running || now.getTime() - lastStartedAt < 60_000) return;
   try {
     const state = readCache();
-    if (!state.lastAttemptAt || now.getTime() - Date.parse(state.lastAttemptAt) >= 30 * 60_000 || preparationDue(now, state)) void refreshGlobalMorningNews(now);
+    const missingFeed = GLOBAL_NEWS_FEEDS.some(feed => !state.sources.some(source => source.feedId === feed.id));
+    if (!state.lastAttemptAt || missingFeed || now.getTime() - Date.parse(state.lastAttemptAt) >= 30 * 60_000 || preparationDue(now, state)) void refreshGlobalMorningNews(now);
   } catch (error) {
-    lastStartedAt = now.getTime(); serviceIssue = '해외 뉴스 저장 자료 확인 필요';
+    lastStartedAt = now.getTime(); serviceIssue = '국내·해외 뉴스 저장 자료 확인 필요';
     console.error('[GlobalNews] 캐시 조회 실패:', error instanceof Error ? error.name : 'unknown');
   }
 }
@@ -121,7 +122,7 @@ export function getGlobalMorningMessage(now = new Date()): string | null {
   } catch (error) {
     console.error('[GlobalNews] 보고 조회 실패:', error instanceof Error ? error.name : 'unknown');
     if (now.getTime() >= Date.parse(`${globalBriefWindow(now).date}T08:50:00+09:00`)) {
-      return formatGlobalMorningBrief(sourceHeadlineBrief([], [], now, '해외 뉴스 저장 자료 확인 필요'));
+      return formatGlobalMorningBrief(sourceHeadlineBrief([], [], now, '국내·해외 뉴스 저장 자료 확인 필요'));
     }
   }
   return null;

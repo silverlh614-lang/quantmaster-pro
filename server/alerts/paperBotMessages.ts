@@ -13,7 +13,7 @@ import { formatPaperAdaptiveSummary } from './paperResearchMessages.js';
 
 export const PAPER_BOT_SCHEDULES = [
   { kind: 'recommendation', minute: 8 * 60 + 30, graceMinutes: 30, label: '매일 08:30 · 학습 기반 추천 · 휴장일 연구 현황' },
-  { kind: 'morning', minute: 8 * 60 + 45, graceMinutes: 45, label: '거래일 08:45 · 해외 뉴스·국내 연관주' },
+  { kind: 'morning', minute: 8 * 60 + 45, graceMinutes: 45, label: '거래일 08:45 · 국내·해외 뉴스와 연관주' },
   { kind: 'intraday', minute: 10 * 60 + 30, graceMinutes: 45, label: '거래일 10:30 · 장중 판단·자율 연구' },
   { kind: 'intraday', minute: 13 * 60 + 30, graceMinutes: 45, label: '거래일 13:30 · 장중 판단·자율 연구' },
   { kind: 'close', minute: 16 * 60 + 10, graceMinutes: 240, label: '거래일 16:10 · 마감 요약' },

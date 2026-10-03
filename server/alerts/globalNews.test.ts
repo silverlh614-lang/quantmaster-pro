@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ ai: vi.fn(), directory: '' }));
 vi.mock('../clients/geminiClient.js', () => ({ callGeminiText: mocks.ai }));
 vi.mock('../persistence/paths.js', () => ({ get DATA_DIR() { return mocks.directory; } }));
-import { GLOBAL_NEWS_FEEDS, collectGlobalNews, mergeGlobalNews, parseGlobalNewsFeed, type GlobalNewsArticle } from './globalNewsSources.js';
+import { GLOBAL_NEWS_FEEDS, collectGlobalNews, isDomesticNewsFeed, mergeGlobalNews, parseGlobalNewsFeed, type GlobalNewsArticle } from './globalNewsSources.js';
 import { buildGlobalMorningBrief, formatGlobalMorningBrief, globalBriefWindow, parseGlobalBriefSummary, relatedNewsStocks, selectGlobalNews, sourceHeadlineBrief } from './globalNewsBriefing.js';
+import { validateTelegramHtml } from './telegramHtmlSanitizer.js';
 
 const now = new Date('2026-09-21T08:30:00+09:00');
 const article = (changes: Partial<GlobalNewsArticle> = {}): GlobalNewsArticle => ({
@@ -21,6 +22,16 @@ beforeEach(() => { vi.clearAllMocks(); mocks.ai.mockResolvedValue(null); });
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('verified RSS input', () => {
+  it('accepts Korean publisher feeds with their own link hosts and publication timestamps', () => {
+    const feeds = GLOBAL_NEWS_FEEDS.filter(feed => isDomesticNewsFeed(feed.id));
+    expect(feeds).toHaveLength(4);
+    for (const feed of feeds) {
+      const url = `https://www.${feed.hosts[0]}/article/example`;
+      const parsed = parseGlobalNewsFeed(xml(rssItem('국내 기업 실적 발표', url)), feed, now);
+      expect(parsed[0]).toMatchObject({ feedId: feed.id, source: feed.name, title: '국내 기업 실적 발표', url });
+      expect(parseGlobalNewsFeed(xml(rssItem('국내 기업 실적 발표', 'https://publisher.invalid/article')), feed, now)).toEqual([]);
+    }
+  });
   it('preserves source publication time, strips HTML and tracking parameters', () => {
     const parsed = parseGlobalNewsFeed(xml(rssItem()), GLOBAL_NEWS_FEEDS[0], now);
     expect(parsed).toHaveLength(1);
@@ -50,6 +61,48 @@ describe('verified RSS input', () => {
 });
 
 describe('bounded and attributable morning content', () => {
+  const domestic = (id: string, title: string): GlobalNewsArticle => article({ id, title, excerpt: '',
+    feedId: 'kr-hankyung-finance', source: '한국경제 증권', url: `https://www.hankyung.com/article/${id}` });
+  it('reserves three domestic and two overseas stories, deduplicating Korean headlines', () => {
+    const stories = [domestic('kr1', '삼성전자 반도체 투자 계획 발표'), domestic('dup', '삼성전자 반도체 투자 계획 발표 소식'),
+      domestic('kr2', '한국은행 기준금리 동결'), domestic('kr3', '원달러 환율 하락'), domestic('kr4', '국내 자동차 수출 증가'),
+      article(), article({ id: 'oil', url: 'https://www.bbc.com/news/oil', title: 'Oil supply update', excerpt: '' })];
+    const brief = sourceHeadlineBrief(stories, [], now);
+    expect(brief.items.filter(item => isDomesticNewsFeed(item.article.feedId))).toHaveLength(3);
+    expect(brief.items.filter(item => !isDomesticNewsFeed(item.article.feedId))).toHaveLength(2);
+    expect(brief.items.some(item => item.article.id === 'dup')).toBe(false);
+    expect(relatedNewsStocks(stories[0])[0]).toMatchObject({ symbol: '005930', relation: 'MENTIONED' });
+    expect(relatedNewsStocks(domestic('kr5', '메모리 수요 증가'))[0].relation).toBe('SECTOR');
+    const text = formatGlobalMorningBrief(brief);
+    expect(text).toContain('<b>국내 경제·증권</b>'); expect(text).toContain('<b>해외 뉴스</b>');
+    expect(text).toContain('한국경제 증권 원문'); expect(text).toContain('BBC 경제 원문');
+    expect(text.length).toBeLessThan(3900); expect(validateTelegramHtml(text).valid).toBe(true);
+  });
+  it('keeps both groups when AI omits a selected story, and accepts a complete grounded summary', async () => {
+    const stories = [domestic('kr1', '한국은행 기준금리 동결'), article()];
+    const summary = { id: 'story-1', summary: 'AI 메모리 수요 증가 소식', impact: '호재 가능 · 업종 수요 확인' };
+    mocks.ai.mockResolvedValueOnce(JSON.stringify([summary]));
+    const fallback = await buildGlobalMorningBrief(stories, [], now);
+    expect(fallback.mode).toBe('SOURCE_HEADLINES'); expect(fallback.items).toHaveLength(2);
+    mocks.ai.mockResolvedValueOnce(JSON.stringify([summary, { id: 'kr1', summary: '한국은행 기준금리 동결 소식', impact: '방향 미확인 · 국내 반응 확인' }]));
+    expect((await buildGlobalMorningBrief(stories, [], now)).mode).toBe('AI_SUMMARY');
+  });
+  it('shows domestic collection failure separately from a successfully checked empty feed', () => {
+    const source = { feedId: 'kr-hankyung-finance', name: '한국경제 증권', checkedAt: now.toISOString(), count: 0 };
+    const missing = formatGlobalMorningBrief(sourceHeadlineBrief([article()], [{ ...source, error: 'offline' }], now));
+    expect(missing).toContain('국내 RSS 0/4'); expect(missing).toContain('수집 상태 미확인');
+    const empty = formatGlobalMorningBrief(sourceHeadlineBrief([], [source], now));
+    expect(empty).toContain('국내 RSS 1/4');
+    expect(empty).toContain('<b>국내 경제·증권</b>\n수집 범위에서 해당 시간대 주요 기사 없음');
+  });
+  it('retains source groups and valid HTML even when long escaped stories need omission', () => {
+    const stories = [domestic('kr1', '국내 반도체 실적 발표'), article()];
+    const brief = sourceHeadlineBrief(stories, [], now);
+    brief.items = brief.items.flatMap(item => [item, { ...item, summary: '<&>'.repeat(80) }]);
+    const text = formatGlobalMorningBrief(brief);
+    expect(text).toContain('국내 반도체 실적 발표'); expect(text).toContain('Nvidia memory chip demand increases');
+    expect(text.length).toBeLessThan(3900); expect(validateTelegramHtml(text).valid).toBe(true);
+  });
   it('includes the weekend and Korean holidays, excluding after-cutoff, future-seen, and old stories', () => {
     expect(globalBriefWindow(now)).toMatchObject({ from: '2026-09-18T06:30:00.000Z', cutoff: '2026-09-20T23:30:00.000Z' });
     expect(globalBriefWindow(new Date('2026-09-28T08:30:00+09:00')).from).toBe('2026-09-23T06:30:00.000Z');
@@ -101,6 +154,7 @@ describe('bounded and attributable morning content', () => {
     ['Treasury yields ease', '미국 국채 금리가 하락했습니다.'],
     ['Fed raises interest rates', '미 연준이 금리를 인상했습니다.'],
     ['Central bank announces rate cut', '중앙은행이 금리 인하를 발표했습니다.'],
+    ['한국은행 기준금리 인하 발표', '한국은행 기준금리 인하 소식입니다.'],
   ])('retains supported rate wording: %s', (title, summary) => {
     expect(parseGlobalBriefSummary(JSON.stringify([{ id: 'story-1', summary, impact: '혼재 · 국내 반응 확인' }]), [article({ title, excerpt: '' })])[0].summary).toBe(summary);
   });
@@ -118,6 +172,25 @@ describe('bounded and attributable morning content', () => {
 describe('durable background preparation', () => {
   beforeEach(() => { mocks.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'qmp-global-news-')); vi.resetModules(); });
   afterEach(() => { fs.rmSync(mocks.directory, { recursive: true, force: true }); });
+  it('collects newly added feeds despite a recent legacy poll and retains the saved daily brief', async () => {
+    const previous = sourceHeadlineBrief([article()], [], now);
+    const file = path.join(mocks.directory, 'global-morning-news.json');
+    fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, lastAttemptAt: now.toISOString(), articles: [],
+      sources: GLOBAL_NEWS_FEEDS.filter(feed => !isDomesticNewsFeed(feed.id)).map(feed => ({ feedId: feed.id, name: feed.name, checkedAt: now.toISOString(), count: 0 })),
+      briefs: [previous] }));
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: string) => new Response(xml(url.includes('hankyung.com/feed/finance')
+      ? rssItem('삼성전자 반도체 투자 계획 발표', 'https://www.hankyung.com/article/domestic') : ''))));
+    const runtime = await import('./globalNewsRuntime.js');
+    runtime.maintainGlobalMorningNews(new Date(now.getTime() + 60_000));
+    await runtime.refreshGlobalMorningNews(now);
+    expect(fetch).toHaveBeenCalledTimes(GLOBAL_NEWS_FEEDS.length);
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect(saved.articles[0]).toMatchObject({ feedId: 'kr-hankyung-finance', title: '삼성전자 반도체 투자 계획 발표' });
+    expect(saved.briefs).toEqual([previous]);
+    vi.resetModules();
+    expect((await import('./globalNewsRuntime.js')).getGlobalMorningPreview(now)).toMatchObject({ ready: true, archiveCount: 1 });
+    expect(mocks.ai).not.toHaveBeenCalled();
+  });
   it('revalidates saved AI summaries after restart without resending, fetching or changing the source archive', async () => {
     const input = article({ title: 'Treasury yields fall', excerpt: 'Bond yields were lower on Monday.' });
     const brief = sourceHeadlineBrief([input], [], now);
@@ -139,12 +212,12 @@ describe('durable background preparation', () => {
     expect(runtime.refreshGlobalMorningNews(now)).toBe(first);
     await first;
     expect(runtime.getGlobalMorningPreview(now).ready).toBe(true);
-    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(fetch).toHaveBeenCalledTimes(GLOBAL_NEWS_FEEDS.length);
     vi.resetModules();
     const restarted = await import('./globalNewsRuntime.js');
     restarted.maintainGlobalMorningNews(new Date('2026-09-21T08:45:00+09:00'));
     expect(restarted.getGlobalMorningMessage(now)).toContain('해외 뉴스');
-    expect(fetch).toHaveBeenCalledTimes(5); expect(mocks.ai).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(GLOBAL_NEWS_FEEDS.length); expect(mocks.ai).not.toHaveBeenCalled();
   });
   it('returns immediately while collection is pending and provides a bounded late-start fallback', async () => {
     let release!: () => void;
