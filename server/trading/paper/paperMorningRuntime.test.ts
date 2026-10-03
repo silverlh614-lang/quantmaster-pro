@@ -152,6 +152,9 @@ describe('morning recommendation lifecycle', () => {
     expect(getPaperMorningReview('2026-09-18', new Date(snapshot.asOf)).results[0]).toMatchObject({ status: 'OPEN', exitAt: null, netReturnPct: null });
     const reviewed = getPaperMorningReview('2026-09-18', new Date(exitSnapshot.asOf));
     expect(reviewed.results[0]).toMatchObject({ status: 'CLOSED', netReturnPct: -6, exitPrice: 9400 });
+    expect(reviewed.results[0].application).toMatchObject({ exitModel: 'ADAPTIVE_OBSERVED',
+      entryRule: ledger.trades[0].entryDecision.adaptiveEvidence!.candidate.rule,
+      exitPolicy: ledger.trades[0].exitPolicy });
     expect(formatPaperMorningFollowup(reviewed)).toContain('확정 순수익 -6.00%');
     expect(formatPaperMorningFollowup(reviewed)).toContain('매도 사유:');
   });

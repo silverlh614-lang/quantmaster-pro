@@ -105,6 +105,10 @@ export function getPaperMorningReview(date = toKstDateKey(new Date()), now = new
       status: !delivered ? 'UNSENT' : trade ? exit ? 'CLOSED' : 'OPEN' : now.getTime() >= Date.parse(`${date}T15:30:00+09:00`) ? 'NOT_ENTERED' : 'PENDING',
       entryAt: trade?.entryAt ?? null, entryPrice: trade?.entryPrice ?? null,
       entryReason: trade?.entryDecision.reason ?? null,
+      ...(trade ? { application: {
+        entryRule: (trade.entryDecision.adaptiveEvidence ?? trade.entryDecision.explorationEvidence)?.candidate.rule ?? null,
+        exitModel: trade.policy.exitModel, exitPolicy: trade.exitPolicy ?? null, scheduledExitAt: trade.scheduledExitAt,
+      } } : {}),
       exitAt: exit?.effectiveAt ?? null, netReturnPct: exit?.netReturnPct ?? null,
       exitPrice: exit?.price ?? null, exitReason: exit?.decision.reason ?? null,
       matchesEntryRule: trade ? trade.morningRecommendation?.matchesEntryRule

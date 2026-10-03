@@ -63,6 +63,12 @@ export const PAPER_MORNING_RESULT_LABELS: Record<PaperMorningResultStatus, strin
   OPEN: '가상 보유', CLOSED: '가상 매도 완료', NOT_ENTERED: '가상 미진입', PENDING: '진입 확인 대기', UNSENT: '추천 발송 미확인',
 };
 export interface PaperMorningResult {
+  application?: {
+    entryRule: import('./paperAdaptive').PaperAdaptiveRule | null;
+    exitModel: 'SCHEDULED_CLOSE' | 'ADAPTIVE_OBSERVED';
+    exitPolicy: import('./paperAdaptiveExit').PaperAdaptiveExitPolicy | null;
+    scheduledExitAt: string;
+  };
   rank: number; symbol: string; name: string; tradeId: string | null;
   status: PaperMorningResultStatus;
   entryAt: string | null; entryPrice: number | null; entryReason: string | null;

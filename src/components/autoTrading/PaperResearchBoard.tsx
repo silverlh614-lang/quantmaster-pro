@@ -1,11 +1,13 @@
 // @responsibility Present the autonomous research lifecycle.
-import React from 'react';
+import React, { useState } from 'react';
 import { ArrowRight, ArrowUpRight } from 'lucide-react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { PAPER_ADAPTIVE_REASON_LABELS, type PaperAdaptiveCandidate, type PaperAdaptiveRule, type PaperAdaptiveState } from '../../types/paperAdaptive';
 import { PAPER_FEATURES, type PaperFeatureKey } from '../../types/paperObservationFeatures';
 import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaLabel } from '../../types/paperIndicatorFormula';
 import '../../styles/paperResearchBoard.css';
+import { PaperDetailDialog } from './PaperDetailDialog';
+import { PaperRuleDetails } from './PaperRuleDetails';
 
 const featureNames: Record<PaperFeatureKey, string> = {
   ...Object.fromEntries(Object.entries(PAPER_FEATURES).map(([key, value]) => [key, value.label])) as Record<PaperFeatureKey, string>,
@@ -39,11 +41,13 @@ function ruleRange(rule: PaperAdaptiveRule): string {
 }
 
 function ActiveRule({ candidate, exploration = false }: { candidate: PaperAdaptiveCandidate; exploration?: boolean }) {
+  const [open, setOpen] = useState(false);
   const { rule, validation } = candidate, invention = rule.invention;
   return <li className={`lab-board-rule${invention ? ' lab-board-rule-invented' : ''}`}>
     <div className="lab-board-rule-heading">
       <div className="lab-board-rule-tags"><span>{exploration ? '탐색 · 검증 전' : invention ? '발명 지표' : '기본 지표'}</span><span>D{rule.horizon}</span></div>
-      <h4>{ruleName(rule)}</h4>
+      <h4><button type="button" className="paper-detail-trigger w-full" aria-haspopup="dialog" onClick={() => setOpen(true)}
+        aria-label={`${ruleName(rule)} 적용 내용 보기`}><span>{ruleName(rule)}</span><ArrowUpRight size={17} aria-hidden="true" /></button></h4>
       <p>{ruleRange(rule)} · {rule.horizon}거래일 성과 비교</p>
     </div>
     <dl className="lab-board-rule-stats">
@@ -59,6 +63,10 @@ function ActiveRule({ candidate, exploration = false }: { candidate: PaperAdapti
         <p>생성 <time dateTime={invention.createdAt}>{time(invention.createdAt)} KST</time> · 생성 이후 새 관측으로 검증한 결과입니다.</p>
       </div>
     </details>}
+    {open && <PaperDetailDialog title={ruleName(rule)} subtitle={exploration ? '현재 탐색 매수에 연결된 규칙' : '현재 검증 매수에 연결된 규칙'} onClose={() => setOpen(false)}>
+      <PaperRuleDetails candidate={candidate} exploration={exploration} />
+      <p className="paper-detail-note">연구실의 현재 연결 상태입니다. 이미 보유한 거래는 각 거래에 저장된 진입 근거와 매도 정책을 따릅니다.</p>
+    </PaperDetailDialog>}
   </li>;
 }
 
