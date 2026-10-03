@@ -8,6 +8,7 @@ import { Section } from '../../ui/section';
 import { PaperNewsDetails } from './PaperNewsDetails';
 import { summarizePaperNews } from '../../utils/paperNews';
 import { PaperInvestorFlowDetails } from './PaperInvestorFlowPanel';
+import { PaperAdaptiveEvidenceDetails, PaperAdaptivePanel } from './PaperAdaptivePanel';
 
 const cohortLabels: Record<PaperStrategyCohort, string> = {
   NEWS_RECENT_ABOVE_MA20: '최근 관측 뉴스 있음 · 20일선 위',
@@ -114,7 +115,8 @@ function DecisionCard({ decision, policy }: { decision: PaperStrategyDecision; p
         <ActionBadge action={decision.action} />
       </div>
       <p className="text-sm text-slate-200">{decision.reason}</p>
-      <p className="text-xs text-slate-400">{decision.cohort ? cohortLabels[decision.cohort] : '관측 정보 확인 대기'} · 판단 {timestamp(decision.decisionAt)} KST</p>
+      <p className="text-xs text-slate-400">{decision.adaptiveEvidence ? '개별 지표 성과로 선택' : decision.cohort ? cohortLabels[decision.cohort] : '관측 정보 확인 대기'} · 판단 {timestamp(decision.decisionAt)} KST</p>
+      {decision.adaptiveEvidence && <PaperAdaptiveEvidenceDetails evidence={decision.adaptiveEvidence} />}
       {decision.evidence && <Evidence evidence={decision.evidence} policy={policy} />}
       {decision.newsSummary && <PaperNewsDetails summary={decision.newsSummary} />}
       {decision.investorFlow && <PaperInvestorFlowDetails flow={decision.investorFlow} />}
@@ -146,6 +148,7 @@ function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
         </div>
       ) : <p className="text-xs text-sky-200">진입 시 정한 날짜의 종가 확인까지 보유합니다. 청산 순손익은 집계 대기입니다.</p>}
       {trade.entryDecision.evidence && <Evidence evidence={trade.entryDecision.evidence} policy={trade.policy} />}
+      {trade.entryDecision.adaptiveEvidence && <PaperAdaptiveEvidenceDetails evidence={trade.entryDecision.adaptiveEvidence} />}
     </article>
   );
 }
@@ -157,6 +160,8 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
   const [decisionPage, setDecisionPage] = useState(0);
   const [tradePage, setTradePage] = useState(0);
   const unavailable = Boolean(view.error || view.lastRun?.error);
+  const adaptive = view.strategyVersion === 'adaptive-features-v1';
+  const adaptivePerformance = view.performanceByVersion?.['adaptive-features-v1'];
   const matchingDecisions = useMemo(() => [...view.latestDecisions].filter(item => (action === 'ALL' || item.action === action) && `${item.name} ${item.symbol}`.toLowerCase().includes(search.trim().toLowerCase())).sort((a, b) => b.decisionAt.localeCompare(a.decisionAt)), [view.latestDecisions, action, search]);
   const matchingTrades = useMemo(() => [...view.trades].filter(item => (tradeStatus === 'ALL' || item.status === tradeStatus) && `${item.name} ${item.symbol}`.toLowerCase().includes(search.trim().toLowerCase())).sort((a, b) => b.entryAt.localeCompare(a.entryAt)), [view.trades, tradeStatus, search]);
   const currentDecisionPage = Math.min(decisionPage, Math.max(0, Math.ceil(matchingDecisions.length / 12) - 1));
@@ -164,19 +169,31 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
   const decisions = matchingDecisions.slice(currentDecisionPage * 12, (currentDecisionPage + 1) * 12);
   const trades = matchingTrades.slice(currentTradePage * 10, (currentTradePage + 1) * 10);
   return (
-    <Section title="뉴스·추세 매매 전략" subtitle="관측 성과로 진입과 보유 기간을 선택하는 독립 Shadow 전략" variant="neo">
+    <Section title={adaptive ? '지표 자율 판단 전략' : '뉴스·추세 매매 전략'} subtitle="관측 성과로 진입과 보유 기간을 선택하는 독립 Shadow 전략" variant="neo">
       {unavailable ? (
         <p role="alert" className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">전략 기록 확인 불가 · 판단과 성과를 불러오지 못했습니다. 기본 관측은 별도로 확인할 수 있습니다.</p>
       ) : (
         <>
           <div className="space-y-2 text-xs leading-relaxed text-slate-400">
-            <p>최근 {view.policy.newsLookbackHours}시간에 관측한 뉴스와 20일선 위치가 같은 그룹에서, 완료 표본 최소 {view.policy.minimumSamples}건·진입일 최소 {view.policy.minimumEntryDates}일을 요구합니다. 양수인 일당 평균 순수익률이 가장 높은 기간을 선택합니다.</p>
+            {adaptive ? <p>완료된 기본 관측으로 지표별 구간과 보유기간을 학습하고, 이후 기간의 성과로 매수 연결을 매일 갱신합니다. 성과가 부족해지면 연결을 해제하며 기존 보유 거래는 진입 당시 정한 기간을 유지합니다.</p>
+              : <p>최근 {view.policy.newsLookbackHours}시간에 관측한 뉴스와 20일선 위치가 같은 그룹에서, 완료 표본 최소 {view.policy.minimumSamples}건·진입일 최소 {view.policy.minimumEntryDates}일을 요구합니다. 양수인 일당 평균 순수익률이 가장 높은 기간을 선택합니다.</p>}
             <p>진입 시 청산 날짜를 확정하며 해당 날짜의 종가로 가상 청산합니다. 브로커 체결 기록이 아닙니다.</p>
             <p>호재·악재 분류는 근거로 표시하고 별도 성과를 관측합니다. 현재 전략의 진입 조건에는 아직 반영하지 않습니다.</p>
             <p>전략 {view.strategyVersion} · 마지막 판단 {view.lastRun ? `${timestamp(view.lastRun.asOf)} KST` : '아직 실행하지 않음'}</p>
           </div>
+          {adaptive && (view.adaptive ? <PaperAdaptivePanel state={view.adaptive} /> : <p className="text-sm text-amber-200">지표 자동 연결 평가 대기 · 다음 관측에서 평가합니다.</p>)}
+          {adaptive && <section className="rounded-xl border border-emerald-400/20 bg-emerald-500/5 p-4" aria-label="자율 판단 전략의 가상 청산 성과">
+            <h4 className="mb-3 text-sm font-semibold text-emerald-200">자율 판단 도입 후 가상 청산 성과</h4>
+            <dl className="grid grid-cols-2 gap-3 xl:grid-cols-4">{[
+              ['자율 전략 청산', adaptivePerformance ? `${adaptivePerformance.closedCount}건` : '집계 대기'],
+              ['자율 전략 평균 순수익률', percent(adaptivePerformance?.meanNetReturnPct ?? null)],
+              ['자율 전략 승률', adaptivePerformance?.winRatePct == null ? '집계 대기' : `${adaptivePerformance.winRatePct.toFixed(1)}%`],
+              ['자율 전략 순손익 합계', money(adaptivePerformance?.totalNetPnl ?? null)],
+            ].map(([label, value]) => <div key={label}><dt className="text-xs text-slate-400">{label}</dt><dd className="mt-2 text-lg font-semibold tabular-nums text-emerald-200">{value}</dd></div>)}</dl>
+            <p className="mt-3 text-xs text-slate-400">자율 판단 전략이 연결한 지표로 진입한 가상 거래만 집계합니다. 지표를 고르는 학습·후반 확인 표본과 별도입니다.</p>
+          </section>}
           <div>
-            <h4 className="mb-3 text-sm font-semibold text-slate-200">전략 청산 성과</h4>
+            <h4 className="mb-3 text-sm font-semibold text-slate-200">{adaptive ? '전체 전략 이력 성과' : '전략 청산 성과'}</h4>
             <dl className="grid grid-cols-2 gap-3 xl:grid-cols-5">
               {[
                 ['전략 보유', `${view.openCount}건`],
@@ -191,6 +208,7 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
               ))}
             </dl>
             <p className="mt-3 text-xs text-slate-400">이 전략이 선택하고 가상 청산한 거래만 비용을 반영해 집계합니다. 기본 관측 실험의 D1·D3·D5 평균 및 계좌 포트폴리오 성과와 별도입니다.</p>
+            {adaptive && <p className="mt-2 text-xs text-slate-400">전체 이력에는 기존 뉴스·추세 전략의 거래도 포함됩니다. 각 거래의 진입 당시 전략과 근거는 그대로 보존됩니다.</p>}
           </div>
           {view.selection && view.selection.candidateCount > 0 && <SelectionSummary selection={view.selection} />}
           <div className="space-y-3">

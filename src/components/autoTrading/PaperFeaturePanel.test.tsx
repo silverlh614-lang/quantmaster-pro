@@ -12,6 +12,8 @@ describe('observation feature display', () => {
     expect(screen.getByText('동시 관측 조건 비교')).toBeTruthy();
     expect(screen.getAllByRole('option')).toHaveLength(26);
     expect(screen.getByText(/기존 관측은 소급 보충하지 않습니다/)).toBeTruthy();
+    expect(screen.getByText(/학습·후반 확인 성과에 따라 매수 연결을 갱신/)).toBeTruthy();
+    expect(screen.getByText(/현재 연결된 지표와 해제 사유.*전략 화면/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText('동시 관측 연구 항목'), { target: { value: 'operatingMargin' } });
     expect((screen.getByLabelText('동시 관측 연구 항목') as HTMLSelectElement).value).toBe('operatingMargin');
   });

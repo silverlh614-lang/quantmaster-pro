@@ -2,6 +2,8 @@
 import type { PaperExperimentView, PaperOverviewView } from '../../../src/types/paperExperiment.js';
 
 const reasonLabels: Record<string, string> = {
+  ADAPTIVE_NO_ACTIVE_RULE: '사용할 지표의 성과 확인 중', ADAPTIVE_FEATURE_UNAVAILABLE: '연결 지표 관측값 없음',
+  ADAPTIVE_RULE_NOT_MATCHED: '연결 지표의 진입 구간 밖',
   INSUFFICIENT_MATURE_SAMPLES: '완료 표본 누적 중', INSUFFICIENT_ENTRY_DATES: '진입일 누적 중',
   NON_POSITIVE_EXPECTANCY: '양수 기대 성과 없음', TREND_UNKNOWN: '추세 자료 확인 대기',
   MARKET_CLOSED: '장 시작 대기', CURRENT_PRICE_UNAVAILABLE: '현재가 확인 대기',

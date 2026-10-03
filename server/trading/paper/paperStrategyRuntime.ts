@@ -7,6 +7,7 @@ import { capturePaperCostModel, trimArchivedEntryBars } from './paperExperimentP
 import { buildPaperStrategyView, evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
 import { getArchivedPaperBarCheck, getHistoricalPaperSamples } from './paperResearchRuntime.js';
 import { buildPaperStrategySelection } from './paperStrategySelection.js';
+import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 
 export interface PaperStrategyState { ledger: PaperStrategyLedger | null; error?: string }
 let lastFailure: string | undefined;
@@ -24,8 +25,9 @@ export function advancePaperStrategy(
 ): PaperStrategyScanResult {
   try {
     if (!state.ledger) throw new Error(state.error ?? '전략 기록 없음');
+    const adaptive = selectPaperAdaptiveState(state.ledger.adaptive, experiments, snapshot.asOf);
     const ledger = evaluatePaperStrategyScan(state.ledger, experiments, snapshot, (symbol) =>
-      capturePaperCostModel(getStockByCode(symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI'), getHistoricalPaperSamples());
+      capturePaperCostModel(getStockByCode(symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI'), getHistoricalPaperSamples(), adaptive);
     const archived = getArchivedPaperBarCheck();
     if (archived) ledger.trades = ledger.trades.map((trade) => {
       const entryObservation = trimArchivedEntryBars(trade.entryObservation, trade.tradingDate, archived);

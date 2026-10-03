@@ -16,6 +16,7 @@ const WAIT_LABELS: Partial<Record<PaperStrategyReasonCode, string>> = {
   INSUFFICIENT_MATURE_SAMPLES: '완료 표본 부족', INSUFFICIENT_ENTRY_DATES: '서로 다른 진입일 부족',
   NON_POSITIVE_EXPECTANCY: '비용 차감 후 양수 성과 없음', TREND_UNKNOWN: '20일선 미확인',
   CURRENT_PRICE_UNAVAILABLE: '현재가 미확인', OBSERVATION_TIME_INVALID: '관측 시각 미확인', ALREADY_ENTERED_TODAY: '당일 중복 진입 방지',
+  ADAPTIVE_NO_ACTIVE_RULE: '연결된 지표 없음', ADAPTIVE_FEATURE_UNAVAILABLE: '연결 지표 자료 미확인', ADAPTIVE_RULE_NOT_MATCHED: '연결 규칙 불일치',
 };
 
 function baselineLines(view: PaperExperimentView, date: string, cutoff: number): string[] {
@@ -65,6 +66,8 @@ function strategyLines(view: PaperExperimentView, date: string, cutoff: number):
     const held = trades.filter(item => !exited(item));
     lines.push(`오늘 진입 ${num(entered.length)}건 · 오늘 평가일 청산 ${num(today.length)}건 · 보유 ${num(held.length)}건`,
       `오늘 청산 평균 ${pct(mean(today.map(item => item.exit!.netReturnPct)))} · 누적 ${num(closed.length)}건 ${pct(mean(closed.map(item => item.exit!.netReturnPct)))}`);
+    const autonomous = closed.filter(item => item.strategyVersion === 'adaptive-features-v1');
+    if (strategy.adaptive && Date.parse(strategy.adaptive.evaluatedAt) <= cutoff) lines.push(`자율 판단 도입 후 가상 청산 ${num(autonomous.length)}건 · 평균 ${pct(mean(autonomous.map(item => item.exit!.netReturnPct)))}`);
     if (entered.length) lines.push(`진입: ${entered.slice(0, 3).map(item => escape(item.name.slice(0, 20))).join(', ')}${entered.length > 3 ? ` 외 ${entered.length - 3}종목` : ''}`);
     const late = closed.filter(item => toKstDateKey(item.exit!.decisionAt) === date && toKstDateKey(item.exit!.effectiveAt) < date).length;
     if (late) lines.push(`과거 예약일 청산을 오늘 추가 확인 ${late}건`);
@@ -73,6 +76,13 @@ function strategyLines(view: PaperExperimentView, date: string, cutoff: number):
     const next = held.filter(item => Date.parse(item.scheduledExitAt) > cutoff).map(item => item.scheduledExitDate).sort()[0];
     if (next) lines.push(`다음 가상 청산 예정 ${next} · ${held.filter(item => item.scheduledExitDate === next).length}건`);
   } else lines.push('전체 전략 원장 미조회 · 오늘 진입·청산 건수 확인 필요');
+  const adaptive = strategy.adaptive;
+  if (adaptive && Date.parse(adaptive.evaluatedAt) <= cutoff) {
+    lines.push(`지표 자동 연결 ${adaptive.candidates.filter(item => item.active).length}개 · 평가 ${stamp(adaptive.evaluatedAt)} · 성숙 관측 ${num(adaptive.matureSampleCount)}건/${adaptive.matureDateCount}진입일`);
+    const changes = adaptive.changes.filter(item => toKstDateKey(item.at) === date && Date.parse(item.at) <= cutoff);
+    if (changes.length) lines.push(`오늘 지표 변경: 연결 ${changes.filter(item => !item.from && item.to).length} · 해제 ${changes.filter(item => item.from && !item.to).length} · 교체 ${changes.filter(item => item.from && item.to).length}`);
+    if (strategy.trades.some(item => item.strategyVersion !== 'adaptive-features-v1')) lines.push('전략 누적 성과에는 기존 뉴스·추세 거래 이력이 포함됩니다.');
+  }
   const session = strategy.lastMarketSession;
   if (session?.tradingDate === date && Date.parse(session.asOf) <= cutoff) {
     lines.push(`장중 마지막 판단 ${stamp(session.asOf)} · ${num(session.decisionCount)}종목`);

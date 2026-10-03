@@ -27,7 +27,7 @@ export function PaperOverview({ view, mode, paused }: { view: PaperOverviewView;
   return <>
     <section className="workspace-hero">
       <div><span className="workspace-eyebrow">현재 진행 상황</span><h2>{status}</h2>
-        <p>종목당 1주를 관측하고, 결과가 쌓이면 뉴스·추세별 가상 전략의 근거로 사용합니다.</p>
+        <p>종목당 1주를 관측하고, 누적 성과로 지표를 자동 연결·해제하며 가상 매수에 사용합니다.</p>
         <div className="workspace-hero-meta"><span>마지막 관측 완료 <strong>{paperTime(last?.asOf)}</strong></span>
           {last?.durationMs !== undefined && <span>수집 소요 <strong>{Math.round(last.durationMs / 1000)}초</strong></span>}
           {collection && <span>{collecting ? '수집 진행' : '수집 지연 확인 필요'} <strong>{collection.completed}/{collection.total}종목</strong></span>}
@@ -59,7 +59,7 @@ export function PaperOverview({ view, mode, paused }: { view: PaperOverviewView;
     </div>
     <section className="workspace-card"><div className="workspace-card-heading"><div><span className="workspace-eyebrow">연구에서 발견한 차이</span><h2>조건 하나씩, 같은 기준으로 비교</h2></div><button type="button" className="workspace-text-button" onClick={() => setView('PAPER_RESEARCH')}>연구 전체 보기 <ArrowUpRight size={16} /></button></div>
       {research?.error && <p role="alert" className="workspace-alert">연구 갱신 실패 · 저장된 결과를 표시합니다.</p>}
-      <p className="workspace-note">후반 검증에서 날짜·뉴스·추세·보유기간을 맞춘 대조군 대비 차이(%p). 탐색 결과이며 매매에 자동 적용되지 않습니다.</p>
+      <p className="workspace-note">과거 자료의 7개 조건을 후반 검증에서 날짜·뉴스·추세·보유기간이 같은 대조군과 비교한 차이(%p). 이 탐색 결과는 자동 적용하지 않으며, 동시 관측 26개 지표의 자율 선택과 별도입니다.</p>
       <div className="workspace-feature-chart" aria-label="조건별 후반 검증 차이">
         {features.map(item => { const value = item.status === 'EVALUATED' ? item.matchedDifferencePct : null; return <div key={item.feature} className="workspace-feature-row">
           <span>{item.label}<small>{count(item.testCount)}건 · {count(item.testSymbolCount)}종목 · {count(item.testDateCount)}진입일</small></span>

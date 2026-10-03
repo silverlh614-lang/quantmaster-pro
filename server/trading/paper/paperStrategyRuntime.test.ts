@@ -17,7 +17,8 @@ vi.mock('../../persistence/paperExperimentRepo.js', () => ({
 vi.mock('../../persistence/paperStrategyRepo.js', () => ({ loadPaperStrategyLedger: state.loadStrategy, savePaperStrategyLedger: state.saveStrategy }));
 vi.mock('../../persistence/krxStockMasterRepo.js', () => ({ getStockByCode: () => ({ market: 'KOSPI' }) }));
 vi.mock('./paperExperimentCollector.js', () => ({ collectPaperExperimentSnapshot: state.collect }));
-import { emptyStrategyLedger, matureStrategySamples, strategyTestSnapshot } from './paperStrategyFixtures.js';
+import { emptyStrategyLedger } from './paperStrategyFixtures.js';
+import { matureAdaptiveSamples as matureStrategySamples, adaptiveTestSnapshot as strategyTestSnapshot } from './paperAdaptiveFixtures.js';
 import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 
 beforeEach(() => {
@@ -41,14 +42,14 @@ describe('strategy integration in the default Shadow runner', () => {
     expect(state.collect).toHaveBeenCalledOnce();
     expect(state.saveBaseline.mock.invocationCallOrder[0]).toBeLessThan(state.saveStrategy.mock.invocationCallOrder[0]);
     expect(state.strategy.trades[0].entrySnapshotId).toBe(state.baseline.lastRun!.snapshotId);
-    expect(runner.getPaperExperimentView()).toMatchObject({ totalCount: 13, strategy: { totalCount: 1, openCount: 1 } });
+    expect(runner.getPaperExperimentView()).toMatchObject({ totalCount: 257, strategy: { totalCount: 1, openCount: 1, strategyVersion: 'adaptive-features-v1' } });
   });
 
   it('keeps baseline sampling when the strategy lacks evidence', async () => {
     state.baseline.experiments = [];
     const runner = await import('./paperExperimentRunner.js');
     expect(await runner.runPaperExperimentScan()).toMatchObject({ openedCount: 1, strategy: { openedCount: 0, waitingCount: 1 } });
-    expect(state.strategy.latestDecisions[0].reasonCode).toBe('INSUFFICIENT_MATURE_SAMPLES');
+    expect(state.strategy.latestDecisions[0].reasonCode).toBe('ADAPTIVE_NO_ACTIVE_RULE');
     expect(state.baseline.experiments).toHaveLength(1);
   });
 
@@ -66,10 +67,18 @@ describe('strategy integration in the default Shadow runner', () => {
     state.baseline.experiments = samples.map((item) => ({ ...item, status: 'OPEN', outcomes: item.outcomes.filter((outcome) => outcome.horizon !== 5) }));
     state.collect.mockResolvedValue(snapshot);
     const runner = await import('./paperExperimentRunner.js');
-    expect(await runner.runPaperExperimentScan()).toMatchObject({ completedCount: 12, strategy: { openedCount: 0 } });
-    expect(state.strategy.latestDecisions.find((item) => item.symbol === '005930')!.reasonCode).toBe('INSUFFICIENT_MATURE_SAMPLES');
+    expect(await runner.runPaperExperimentScan()).toMatchObject({ completedCount: 256, strategy: { openedCount: 0 } });
+    expect(state.strategy.latestDecisions.find((item) => item.symbol === '005930')!.reasonCode).toBe('ADAPTIVE_NO_ACTIVE_RULE');
+    expect(state.strategy.adaptive!.matureSampleCount).toBe(0);
     snapshot.asOf = '2026-09-18T01:01:00Z'; snapshot.id = 'next-scan';
-    expect(await runner.runPaperExperimentScan()).toMatchObject({ strategy: { openedCount: 1 } });
+    expect(await runner.runPaperExperimentScan()).toMatchObject({ strategy: { openedCount: 0 } });
+    expect(state.strategy.adaptive!.matureSampleCount).toBe(0);
+    snapshot.asOf = '2026-09-21T01:00:00Z'; snapshot.tradingDate = '2026-09-21';
+    for (const observation of snapshot.observations) observation.observedAt = snapshot.asOf;
+    await runner.runPaperExperimentScan();
+    expect(state.strategy.adaptive!.matureSampleCount).toBe(256);
+    // Late labels cannot be backdated into the training period preceding their confirmation.
+    expect(state.strategy.adaptive!.candidates.every(item => !item.active)).toBe(true);
   });
 
   it('does not overwrite corrupt strategy state or interrupt baseline persistence', async () => {

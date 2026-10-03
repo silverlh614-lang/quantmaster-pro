@@ -53,6 +53,40 @@ function view(overrides: Partial<PaperStrategyView> = {}): PaperStrategyView {
 afterEach(cleanup);
 
 describe('PaperStrategyPanel', () => {
+  it('shows adaptive evaluation pending without replacing existing trade evidence', () => {
+    render(<PaperStrategyPanel view={view({ strategyVersion: 'adaptive-features-v1', trades: [trade], totalCount: 1 })} />);
+    expect(screen.getByText('지표 자율 판단 전략')).toBeTruthy();
+    expect(screen.getByText(/지표 자동 연결 평가 대기/)).toBeTruthy();
+    expect(screen.getByText(/전체 이력에는 기존 뉴스·추세 전략의 거래도 포함/)).toBeTruthy();
+    const history = within(screen.getByRole('article', { name: '삼성전자 전략 거래' }));
+    expect(history.getByText(/근거 표본 12건/)).toBeTruthy();
+    expect(history.queryByText(/진입 시 고정한 지표 근거/)).toBeNull();
+  });
+  it('separates prospective adaptive performance from combined legacy history', () => {
+    render(<PaperStrategyPanel view={view({ strategyVersion: 'adaptive-features-v1',
+      performance: { closedCount: 20, meanNetReturnPct: 4, winRatePct: 75, totalNetPnl: 8000 },
+      performanceByVersion: { 'adaptive-features-v1': { closedCount: 2, meanNetReturnPct: -0.5, winRatePct: 50, totalNetPnl: -100 } },
+    })} />);
+    const own = within(screen.getByRole('region', { name: '자율 판단 전략의 가상 청산 성과' }));
+    expect(own.getByText('2건')).toBeTruthy();
+    expect(own.getByText('-0.50%')).toBeTruthy();
+    expect(own.queryByText('+4.00%')).toBeNull();
+    expect(screen.getByText('+4.00%')).toBeTruthy();
+    expect(screen.getByText(/지표를 고르는 학습·후반 확인 표본과 별도/)).toBeTruthy();
+  });
+  it('preserves same-day selection research alongside the adaptive strategy', () => {
+    render(<PaperStrategyPanel view={view({ strategyVersion: 'adaptive-features-v1', selection: {
+      dateCount: 3, candidateCount: 30, boughtCount: 6, heldCount: 2, notBoughtCount: 22, selectionRatePct: 20,
+      cohorts: [{ cohort: 'NEWS_RECENT_ABOVE_MA20', candidateCount: 30, boughtCount: 6 }],
+      comparison: { groupCount: 3, strategyTradeCount: 6, unselectedCount: 22,
+        strategyMeanPct: 1.5, unselectedMeanPct: 0.25, baselineMeanPct: 0.5, differencePct: 1.25 },
+    } })} />);
+    expect(screen.getByText('지표 자율 판단 전략')).toBeTruthy();
+    expect(screen.getByText('전략 선별력 · 같은 날 후보 대비')).toBeTruthy();
+    expect(screen.getByText('후보 30건 중 6건 · 3일')).toBeTruthy();
+    expect(screen.getByText('+1.25%p')).toBeTruthy();
+    expect(screen.getByText(/기존 보유 2건.*연구 표시이며 매수 조건에 쓰지 않습니다/)).toBeTruthy();
+  });
   it('shows adverse news and its reason even while an entry waits', () => {
     const decision: PaperStrategyDecision = { ...buy, action: 'WAIT', evidence: null,
       newsSummary: summarizePaperNews([{ id: 'n1', headline: '계약 해지', source: 'DART', observedAt: buy.decisionAt,

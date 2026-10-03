@@ -8,6 +8,7 @@ import { PAPER_FLOW_ISSUE_LABELS } from '../../src/types/paperInvestorFlow.js';
 import { PAPER_NEWS_EVENT_LABELS, PAPER_NEWS_FILING_LABELS, PAPER_NEWS_RELATION_LABELS } from '../../src/types/paperNewsFacts.js';
 import { readPaperNewsFacts } from '../../src/utils/paperNewsFacts.js';
 import { formatPaperCloseReport } from './paperCloseReport.js';
+import { paperAdaptiveRuleLabel } from '../../src/types/paperAdaptive.js';
 
 export const PAPER_BOT_SCHEDULES = [
   { kind: 'morning', minute: 8 * 60 + 45, graceMinutes: 45, label: '거래일 08:45 · 해외 뉴스·국내 연관주' },
@@ -17,6 +18,7 @@ export const PAPER_BOT_SCHEDULES = [
 const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const num = (value: number) => value.toLocaleString('ko-KR');
 const pct = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? '집계 대기' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+const excess = (value: number | null) => value === null ? '집계 대기' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%p`;
 const stamp = (value: string | null | undefined) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '기록 대기';
 
 export function formatPaperReport(view: PaperExperimentView, kind: 'morning' | 'close' | 'status', date: string, news: string[] = [], now = new Date()): string {
@@ -37,6 +39,12 @@ export function formatPaperReport(view: PaperExperimentView, kind: 'morning' | '
     const waiting = strategy.latestDecisions.filter(item => item.action === 'WAIT');
     const needsSamples = waiting.filter(item => item.reasonCode === 'INSUFFICIENT_MATURE_SAMPLES' || item.reasonCode === 'INSUFFICIENT_ENTRY_DATES').length;
     lines.push(`최근 판단 대기 ${waiting.length}종목${needsSamples ? ` · 표본/진입일 누적 중 ${needsSamples}종목` : ''}`);
+    if (strategy.adaptive && Date.parse(strategy.adaptive.evaluatedAt) <= now.getTime()) {
+      const state = strategy.adaptive, active = state.candidates.filter(item => item.active);
+      lines.push(`지표 자동 연결 ${active.length}개 · 성숙 관측 ${state.matureSampleCount}건/${state.matureDateCount}진입일 · 평가 ${stamp(state.evaluatedAt)}`);
+      const own = strategy.performanceByVersion?.['adaptive-features-v1'];
+      if (own) lines.push(`자율 판단 도입 후 가상 청산 ${num(own.closedCount)}건 · 평균 순수익률 ${pct(own.meanNetReturnPct)}`);
+    }
   }
   if (kind !== 'morning') lines.push('', '<b>기본 관측 누적 성과</b>', ...view.outcomes.map(item => `D${item.horizon}: ${pct(item.meanNetReturnPct)} · ${item.count}건`));
   if (view.research) lines.push('', `과거 재현 ${num(view.research.sampleCount)}건 · 전략 학습 가능 ${num(view.research.learningSampleCount)}건${view.research.error ? ' · 연구 갱신 확인 필요' : ''}`);
@@ -68,10 +76,14 @@ export function formatPaperResearch(view: PaperExperimentView): string {
   lines.push(...relativeStrengthLines(view.relativeStrengthStudy));
   lines.push(...longHorizonLines(research.longHorizon));
   const strategy = view.strategy;
-  if (strategy && !strategy.error && !strategy.lastRun?.error) lines.push('', '<b>연결된 시그널 성과</b>',
-    `뉴스·추세 전략 가상 청산 ${num(strategy.performance.closedCount)}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`,
+  const strategyAvailable = strategy && !strategy.error && !strategy.lastRun?.error;
+  if (strategyAvailable) lines.push('', '<b>연결된 시그널 성과</b>',
+    `전체 전략 이력 가상 청산 ${num(strategy.performance.closedCount)}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`,
     ...selectionLines(strategy.selection));
-  lines.push('', '시그널은 진입 당시 뉴스·추세 학습 근거를 고정하고, 청산 결과를 별도 기록합니다.',
+  if (strategyAvailable && strategy.adaptive) lines.push(`지표 자동 연결 ${strategy.adaptive.candidates.filter(item => item.active).length}개 · 기본 관측의 학습·후반 확인 결과로 매일 갱신`);
+  const adaptivePerformance = strategyAvailable ? strategy.performanceByVersion?.['adaptive-features-v1'] : undefined;
+  if (adaptivePerformance) lines.push(`자율 판단 도입 후 가상 청산 ${num(adaptivePerformance.closedCount)}건 · 평균 순수익률 ${pct(adaptivePerformance.meanNetReturnPct)}`);
+  lines.push('', '시그널은 진입 당시 선택 규칙과 학습 근거를 고정하고, 청산 결과를 별도 기록합니다.',
     '위 7개 조건은 같은 날짜·뉴스·추세·보유기간을 맞춘 탐색 연구이며 매매에 자동 적용하지 않습니다.', '/paper · /paper_bot');
   return lines.filter(line => line !== '').join('\n');
 }
@@ -148,10 +160,18 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
   for (const event of events.slice(0, 5)) {
     const trade = event.trade;
     const evidence = trade.entryDecision.evidence;
+    const adaptive = trade.entryDecision.adaptiveEvidence;
     const selected = evidence?.horizons.find(item => item.horizon === trade.horizon);
     lines.push('', `<b>${event.side === 'BUY' ? '진입 근거' : '청산 복기'} · ${escape(trade.name.slice(0, 30))}(${trade.symbol})</b>`,
       `연결 기록 ${trade.symbol} · ${trade.tradingDate} · D${trade.horizon}`, `진입 ${num(trade.entryPrice)}원 · 예정 청산 ${trade.scheduledExitDate}`);
-    if (evidence) {
+    if (adaptive) {
+      const { training, validation, rule } = adaptive.candidate;
+      lines.push(`자동 연결 지표: ${escape(paperAdaptiveRuleLabel(rule))}`,
+        `학습 ${num(training.sampleCount)}건/${training.dateCount}진입일 · 평균 순수익률 ${pct(training.meanNetReturnPct)} · 일당 대조군 차이 ${excess(training.meanDailyExcessPct)}`,
+        `후반 확인 ${num(validation.sampleCount)}건/${validation.dateCount}진입일 · 평균 순수익률 ${pct(validation.meanNetReturnPct)} · 일당 대조군 차이 ${excess(validation.meanDailyExcessPct)}`,
+        `근거 기준 ${stamp(adaptive.cutoffAt)} · 선택 평가 ${stamp(adaptive.evaluatedAt)} · 후반 시작 ${adaptive.validationStartDate}`,
+        '진입 시 고정한 근거입니다. 이후 지표 연결 해제는 이 거래의 보유기간을 바꾸지 않습니다.');
+    } else if (evidence) {
       lines.push(COHORT_LABELS[evidence.cohort],
         `동일 유형 ${num(evidence.sampleCount)}건 · ${num(evidence.entryDateCount)}개 진입일`,
         `기본 관측 ${evidence.baselineSampleCount ?? '미기록'}건 · 과거 재현 ${evidence.historicalSampleCount ?? '미기록'}건`,
@@ -182,7 +202,7 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
     }
     if (event.side === 'EXIT') lines.push(`해당 시그널 청산 순수익률 ${pct(trade.exit?.netReturnPct)} · 결과는 전략 원장에 별도 누적`);
   }
-  lines.push('', '유형별 과거 평균이며 개별 종목의 수익 예측이 아닙니다.',
+  lines.push('', '관측 표본의 과거 평균이며 개별 종목의 수익 예측이 아닙니다.',
     '뉴스 방향은 공시 제목의 추정 분류로 별도 성과를 관측하며, 현재 진입 조건에는 미반영입니다.',
     '기본 관측으로 학습하고 전략 성과는 별도 검증합니다. 7개 조건 연구는 자동 매매 규칙이 아닙니다.', '/paper · /paper_research');
   return lines.join('\n');

@@ -79,6 +79,30 @@ describe('Shadow closing summary', () => {
     expect(text).toContain('오늘 장중 대기 사유 미기록');
     expect(text).not.toContain('완료 표본 부족 500');
   });
+  it('keeps disconnected, missing-feature and unmatched-rule waits separate', () => {
+    const view = viewFixture();
+    view.strategy!.lastMarketSession = { tradingDate: date, asOf: `${date}T06:20:00Z`, snapshotId: 'adaptive', decisionCount: 15,
+      reasonCounts: { ADAPTIVE_NO_ACTIVE_RULE: 7, ADAPTIVE_FEATURE_UNAVAILABLE: 5, ADAPTIVE_RULE_NOT_MATCHED: 3 } };
+    const text = report(view);
+    expect(text).toContain('연결된 지표 없음 7 · 연결 지표 자료 미확인 5 · 연결 규칙 불일치 3');
+    expect(text).not.toContain('장중 마지막 판단에서 신규 진입 대기 없음');
+  });
+  it('includes only selection changes known on the reporting date', () => {
+    const view = viewFixture();
+    view.strategy!.adaptive = {
+      policy: { version: 'adaptive-features-v1', windowEntryDates: 60, trainingFraction: 0.7, minimumSamples: 10,
+        minimumEntryDates: 3, activationMarginDailyPct: 0.05, replacementMarginDailyPct: 0.05, maxActiveRules: 3 },
+      tradingDate: date, evaluatedAt: `${date}T01:00:00Z`, cutoffAt: '2026-09-20T15:00:00Z',
+      matureSampleCount: 40, matureDateCount: 8, windowStartDate: '2026-08-01', validationStartDate: '2026-09-01', candidates: [],
+      changes: [{ at: `${date}T01:00:00Z`, feature: 'rsi14', from: { feature: 'rsi14', bucket: 1, horizon: 3 }, to: null, reason: 'NO_VALIDATION_EDGE' },
+        { at: '2026-09-22T01:00:00Z', feature: 'per', from: null, to: { feature: 'per', bucket: 0, horizon: 1 }, reason: 'ACTIVE' }],
+    };
+    expect(report(view)).toContain('오늘 지표 변경: 연결 0 · 해제 1 · 교체 0');
+    expect(report(view)).toContain('성숙 관측 40건/8진입일');
+    view.strategy!.adaptive.evaluatedAt = '2026-09-22T01:00:00Z';
+    expect(report(view)).not.toContain('오늘 지표 변경');
+    expect(report(view)).not.toContain('지표 자동 연결');
+  });
   it('separates scheduled exit dates from the later day their prices became available', () => {
     const initial = strategyTestSnapshot();
     const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples([0, 0, 0]), initial, strategyTestCost);

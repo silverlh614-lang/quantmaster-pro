@@ -6,6 +6,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { emptyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from '../trading/paper/paperStrategyFixtures.js';
 import { evaluatePaperStrategyScan } from '../trading/paper/paperStrategyPolicy.js';
 import { paperEvidenceDigest } from '../trading/paper/paperStrategyEvidence.js';
+import { adaptiveTestSnapshot, matureAdaptiveSamples } from '../trading/paper/paperAdaptiveFixtures.js';
+import { selectPaperAdaptiveState } from '../trading/paper/paperAdaptiveSelection.js';
+
+const compactExpected = <T>(value: T): T => JSON.parse(JSON.stringify(value, (_key, item) =>
+  item && Array.isArray(item.experimentIds)
+    ? { ...item, experimentIds: undefined, experimentIdsDigest: paperEvidenceDigest(item.experimentIds) } : item));
 
 let repo: typeof import('./paperStrategyRepo.js');
 let temporaryRoot: string;
@@ -48,6 +54,50 @@ describe('strategy ledger persistence', () => {
     expect(fs.readFileSync(repo.PAPER_STRATEGY_FILE, 'utf8')).toBe(before);
   });
 
+  it('round-trips adaptive state and frozen entry evidence through restart, disconnection and scheduled exit', async () => {
+    const samples = matureAdaptiveSamples(), snapshot = adaptiveTestSnapshot();
+    const adaptive = selectPaperAdaptiveState(undefined, samples, snapshot.asOf);
+    const entered = evaluatePaperStrategyScan(emptyStrategyLedger(), samples, snapshot, strategyTestCost, [], adaptive);
+    const originalEntry = structuredClone(entered);
+    const frozenEntry = compactExpected(entered.trades[0].entryDecision.adaptiveEvidence!);
+    repo.savePaperStrategyLedger(entered);
+    expect(entered).toEqual(originalEntry);
+    expect(fs.existsSync(repo.PAPER_STRATEGY_EVIDENCE_ARCHIVE_FILE)).toBe(false);
+    vi.resetModules();
+    repo = await import('./paperStrategyRepo.js');
+    const restored = repo.loadPaperStrategyLedger();
+    expect(restored).toEqual(compactExpected(entered));
+    expect(restored.adaptive).toEqual(compactExpected(adaptive));
+    expect(restored.trades[0].entryDecision.adaptiveEvidence).toEqual(frozenEntry);
+
+    const heldSnapshot = adaptiveTestSnapshot();
+    heldSnapshot.id = 'adaptive-hold'; heldSnapshot.asOf = '2026-09-21T01:00:00Z'; heldSnapshot.tradingDate = '2026-09-21';
+    heldSnapshot.observations[0].observedAt = heldSnapshot.asOf;
+    heldSnapshot.observations[0].features!.asOf = heldSnapshot.asOf;
+    const disconnected = selectPaperAdaptiveState(restored.adaptive, [], heldSnapshot.asOf);
+    const held = evaluatePaperStrategyScan(restored, [], heldSnapshot, strategyTestCost, [], disconnected);
+    expect(held.adaptive!.candidates.some(candidate => candidate.active)).toBe(false);
+    expect(held.trades[0]).toEqual(restored.trades[0]);
+    repo.savePaperStrategyLedger(held);
+    expect(repo.loadPaperStrategyLedger()).toEqual(compactExpected(held));
+
+    const exitSnapshot = adaptiveTestSnapshot();
+    exitSnapshot.id = 'adaptive-exit'; exitSnapshot.asOf = '2026-09-23T07:00:00Z';
+    exitSnapshot.tradingDate = '2026-09-23'; exitSnapshot.marketOpen = false;
+    exitSnapshot.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 11000, availableAt: exitSnapshot.asOf }];
+    const retired = selectPaperAdaptiveState(disconnected, [], exitSnapshot.asOf);
+    const closed = evaluatePaperStrategyScan(repo.loadPaperStrategyLedger(), [], exitSnapshot, strategyTestCost, [], retired);
+    repo.savePaperStrategyLedger(closed);
+    vi.resetModules();
+    repo = await import('./paperStrategyRepo.js');
+    const restoredClosed = repo.loadPaperStrategyLedger();
+    expect(restoredClosed).toEqual(compactExpected(closed));
+    expect(restoredClosed.trades[0].exit!.decision.adaptiveEvidence).toEqual(frozenEntry);
+    expect(restoredClosed.trades[0].exit).toMatchObject({ effectiveAt: '2026-09-23T06:30:00.000Z', price: 11000, netPnl: 1000 });
+    expect(fs.readFileSync(repo.PAPER_STRATEGY_FILE, 'utf8')).not.toContain('\n');
+    expect(fs.readFileSync(repo.PAPER_STRATEGY_FILE, 'utf8')).not.toContain('experimentIds"');
+  });
+
   it('keeps pre-ADR-0680 evidence ID lists once in the cold archive and stores only their digest', () => {
     const samples = matureStrategySamples();
     const ids = samples.map(item => item.id);
@@ -84,6 +134,39 @@ describe('strategy ledger persistence', () => {
     expect(() => repo.savePaperStrategyLedger(ledger)).toThrow('PAPER_STRATEGY_EVIDENCE_ARCHIVE_INVALID');
     expect(fs.readFileSync(repo.PAPER_STRATEGY_FILE, 'utf8')).toBe(bytes);
     fs.rmSync(repo.PAPER_STRATEGY_EVIDENCE_ARCHIVE_FILE);
+  });
+
+  it('archives existing adaptive ID lists once while preserving their compact state and decision evidence', () => {
+    const samples = matureAdaptiveSamples(), snapshot = adaptiveTestSnapshot();
+    const adaptive = selectPaperAdaptiveState(undefined, samples, snapshot.asOf);
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), samples, snapshot, strategyTestCost, [], adaptive);
+    fs.writeFileSync(repo.PAPER_STRATEGY_FILE, JSON.stringify(ledger));
+    const loaded = repo.loadPaperStrategyLedger();
+    expect(loaded).toEqual(compactExpected(ledger));
+    repo.savePaperStrategyLedger(loaded);
+    const archive = JSON.parse(fs.readFileSync(repo.PAPER_STRATEGY_EVIDENCE_ARCHIVE_FILE, 'utf8'));
+    const active = adaptive.candidates.find(candidate => candidate.active)!;
+    for (const stats of [active.training, active.validation]) {
+      expect(archive.lists[paperEvidenceDigest(stats.experimentIds!)]).toEqual([...stats.experimentIds!].sort());
+    }
+    expect(repo.loadPaperStrategyLedger()).toEqual(loaded);
+    expect(fs.readFileSync(repo.PAPER_STRATEGY_FILE, 'utf8')).not.toContain('experimentIds"');
+    const archived = fs.readFileSync(repo.PAPER_STRATEGY_EVIDENCE_ARCHIVE_FILE, 'utf8');
+    repo.savePaperStrategyLedger(repo.loadPaperStrategyLedger());
+    expect(fs.readFileSync(repo.PAPER_STRATEGY_EVIDENCE_ARCHIVE_FILE, 'utf8')).toBe(archived);
+  });
+
+  it('rejects overlapping adaptive training and validation IDs before disk evidence is compacted', () => {
+    const samples = matureAdaptiveSamples(), snapshot = adaptiveTestSnapshot();
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), samples, snapshot, strategyTestCost, [],
+      selectPaperAdaptiveState(undefined, samples, snapshot.asOf));
+    const candidate = ledger.trades[0].entryDecision.adaptiveEvidence!.candidate;
+    candidate.validation.experimentIds![0] = candidate.training.experimentIds![0];
+    const bytes = JSON.stringify(ledger);
+    fs.writeFileSync(repo.PAPER_STRATEGY_FILE, bytes);
+    expect(() => repo.loadPaperStrategyLedger()).toThrow('PAPER_STRATEGY_UNREADABLE');
+    expect(() => repo.savePaperStrategyLedger(emptyStrategyLedger())).toThrow('PAPER_STRATEGY_UNREADABLE');
+    expect(fs.readFileSync(repo.PAPER_STRATEGY_FILE, 'utf8')).toBe(bytes);
   });
 
   it('does not reconstruct or overwrite a corrupt strategy ledger', () => {

@@ -22,6 +22,17 @@ describe('paper research message', () => {
         { horizon: 3, cellCount: 0, upperWinCount: 0, entryDateCount: 0, sampleCount: 0, upperMeanPct: null, lowerMeanPct: null, differencePct: null },
         { horizon: 5, cellCount: 0, upperWinCount: 0, entryDateCount: 0, sampleCount: 0, upperMeanPct: null, lowerMeanPct: null, differencePct: null }] },
     } as unknown as PaperExperimentView;
+    view.strategy = {
+      strategyVersion: 'adaptive-features-v1', mode: 'SHADOW', policy: { version: 'adaptive-features-v1', newsLookbackHours: 72,
+        minimumSamples: 10, minimumEntryDates: 3, horizonSelection: 'FORWARD_VALIDATED_FEATURE', exitModel: 'SCHEDULED_CLOSE' },
+      totalCount: 10, openCount: 0, lastRun: null, latestDecisions: [], trades: [],
+      performance: { closedCount: 10, meanNetReturnPct: 1, winRatePct: 60, totalNetPnl: 1000 },
+      performanceByVersion: { 'adaptive-features-v1': { closedCount: 2, meanNetReturnPct: 0.3, winRatePct: 50, totalNetPnl: 60 } },
+      selection: { dateCount: 3, candidateCount: 30, boughtCount: 10, heldCount: 2, notBoughtCount: 18, selectionRatePct: 33.3,
+        cohorts: [{ cohort: 'NEWS_RECENT_ABOVE_MA20', candidateCount: 30, boughtCount: 10 }],
+        comparison: { groupCount: 3, strategyTradeCount: 10, unselectedCount: 18,
+          strategyMeanPct: 1, unselectedMeanPct: 0.2, baselineMeanPct: 0.5, differencePct: 0.8 } },
+    };
     const text = formatPaperResearch(view);
     expect(text).toContain('지수 대비 20일 상대강도 계산 8/10건');
     expect(text).toContain('900건/300종목/120진입일 (2026-01-30~2026-08-21)');
@@ -34,5 +45,8 @@ describe('paper research message', () => {
     expect(text).toContain('5거래일 가격 모멘텀: +0.20%p');
     expect(text).toContain('상대강도 기준 지수 시계열 2개');
     expect(text).toContain('상대강도 기준 KIS 지수 일봉 400건 · 수집 완료');
+    expect(text).toContain('전략 선별력 · 같은 날 후보 대비');
+    expect(text).toContain('청산 전략 +1.00% vs 같은 날·같은 기간 미진입 +0.20% → 차이 +0.80%p');
+    expect(text).toContain('자율 판단 도입 후 가상 청산 2건 · 평균 순수익률 +0.30%');
   });
 });
