@@ -166,10 +166,12 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
       `연결 기록 ${trade.symbol} · ${trade.tradingDate} · D${trade.horizon}`, `진입 ${num(trade.entryPrice)}원 · 예정 청산 ${trade.scheduledExitDate}`);
     if (adaptive) {
       const { training, validation, rule } = adaptive.candidate;
-      lines.push(`자동 연결 지표: ${escape(paperAdaptiveRuleLabel(rule))}`,
-        `학습 ${num(training.sampleCount)}건/${training.dateCount}진입일 · 평균 순수익률 ${pct(training.meanNetReturnPct)} · 일당 대조군 차이 ${excess(training.meanDailyExcessPct)}`,
-        `후반 확인 ${num(validation.sampleCount)}건/${validation.dateCount}진입일 · 평균 순수익률 ${pct(validation.meanNetReturnPct)} · 일당 대조군 차이 ${excess(validation.meanDailyExcessPct)}`,
-        `근거 기준 ${stamp(adaptive.cutoffAt)} · 선택 평가 ${stamp(adaptive.evaluatedAt)} · 후반 시작 ${adaptive.validationStartDate}`,
+      const invented = rule.invention;
+      lines.push(`자동 연결 지표: ${escape(paperAdaptiveRuleLabel(rule))}`);
+      if (invented) lines.push(`원본 수식 생성 ${escape(invented.createdAt)} · 발명 자료 기준 ${escape(invented.discoveryCutoffAt)}`);
+      lines.push(`${invented ? '발명 당시 학습' : '학습'} ${num(training.sampleCount)}건/${training.dateCount}진입일 · 평균 순수익률 ${pct(training.meanNetReturnPct)} · 일당 대조군 차이 ${excess(training.meanDailyExcessPct)}`,
+        `${invented ? '생성 후 검증' : '후반 확인'} ${num(validation.sampleCount)}건/${validation.dateCount}진입일 · 평균 순수익률 ${pct(validation.meanNetReturnPct)} · 일당 대조군 차이 ${excess(validation.meanDailyExcessPct)}`,
+        `근거 기준 ${stamp(adaptive.cutoffAt)} · 선택 평가 ${stamp(adaptive.evaluatedAt)} · ${invented ? '생성 후 검증' : '후반'} 시작 ${adaptive.validationStartDate}`,
         '진입 시 고정한 근거입니다. 이후 지표 연결 해제는 이 거래의 보유기간을 바꾸지 않습니다.');
     } else if (evidence) {
       lines.push(COHORT_LABELS[evidence.cohort],

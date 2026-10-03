@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PaperStrategyTrade } from '../../src/types/paperStrategy.js';
 import type { PaperAdaptiveEvidence } from '../../src/types/paperAdaptive.js';
+import { createPaperIndicatorFormula, paperIndicatorFormulaId } from '../../src/types/paperIndicatorFormula.js';
 import { formatPaperTradeAnalysis } from './paperBotMessages.js';
 
 const entryAt = '2026-09-21T01:00:00Z';
@@ -38,6 +39,23 @@ describe('adaptive trade analysis', () => {
     expect(text).toContain('&lt;삼성&amp;&gt;');
     expect(text).not.toContain('진입 당시 학습 근거 미기록');
     expect(text).not.toContain('D1·D3·D5 중 거래일당 평균 성과로 보유기간 선택');
+    expect(text.length).toBeLessThan(3500);
+  });
+  it.each(['BUY', 'EXIT'] as const)('preserves the invented formula and its original creation time for %s', side => {
+    const formula = createPaperIndicatorFormula('PRODUCT', 'rsi14', 'volumeRatio20');
+    const invention = { id: paperIndicatorFormulaId(formula), formula, createdAt: '2026-09-04T01:00:00Z',
+      discoveryCutoffAt: '2026-09-03T15:00:00Z', rule: { bucket: 2, horizon: 3 as const },
+      training: adaptiveEvidence.candidate.training };
+    const frozenTrade = { ...trade, entryDecision: { ...trade.entryDecision,
+      adaptiveEvidence: { ...adaptiveEvidence, validationStartDate: '2026-09-07',
+        candidate: { ...adaptiveEvidence.candidate, rule: { feature: invention.id, ...invention.rule, invention } } } } };
+    const text = formatPaperTradeAnalysis([{ id: side, at: side === 'BUY' ? entryAt : '2026-09-28T07:00:00Z', trade: frozenTrade, side }]);
+    expect(text).toContain('자동 연결 지표: 발명 · N(RSI 14) × N(완료일 거래량 / 이전 20일 평균)');
+    expect(text).toContain('원본 수식 생성 2026-09-04T01:00:00Z · 발명 자료 기준 2026-09-03T15:00:00Z');
+    expect(text).toContain('발명 당시 학습 20건/5진입일');
+    expect(text).toContain('생성 후 검증 12건/3진입일');
+    expect(text).toContain('생성 후 검증 시작 2026-09-07');
+    expect(text).not.toContain('후반 확인');
     expect(text.length).toBeLessThan(3500);
   });
 });

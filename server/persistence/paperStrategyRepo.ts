@@ -47,7 +47,13 @@ function compactAdaptiveEvidence(ledger: PaperStrategyLedger, preserveLists = fa
   const decisions = [...ledger.latestDecisions, ...ledger.trades.flatMap(trade => [trade.entryDecision, trade.exit?.decision])];
   const candidates = [...(ledger.adaptive?.candidates ?? []),
     ...decisions.flatMap(decision => decision?.adaptiveEvidence ? [decision.adaptiveEvidence.candidate] : [])];
-  for (const candidate of candidates) for (const stats of [candidate.training, candidate.validation]) {
+  const inventions = [...(ledger.adaptive?.discovery?.inventions ?? []),
+    ...candidates.flatMap(candidate => candidate.rule.invention ? [candidate.rule.invention] : []),
+    ...(ledger.adaptive?.changes.flatMap(change => [change.from?.invention, change.to?.invention]
+      .filter(item => item !== undefined)) ?? [])];
+  const summaries = [...candidates.flatMap(candidate => [candidate.training, candidate.validation]),
+    ...inventions.map(invention => invention.training)];
+  for (const stats of summaries) {
     if (!stats.experimentIds) continue;
     const digest = paperEvidenceDigest(stats.experimentIds);
     if (preserveLists) lists.set(digest, [...stats.experimentIds].sort());

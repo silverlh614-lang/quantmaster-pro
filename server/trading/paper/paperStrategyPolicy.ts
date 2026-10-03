@@ -33,13 +33,16 @@ function adaptiveEntryDecision(snapshot: PaperSnapshot, observation: PaperObserv
   if (!active.length) return decision(snapshot, observation, 'WAIT', 'ADAPTIVE_NO_ACTIVE_RULE', '사용할 지표의 성과를 확인 중 · 기본 관측과 지표 재평가는 계속됩니다.');
   const selected = active.find(item => adaptiveRuleMatches(observation, item.rule, snapshot.asOf));
   if (!selected) {
-    const available = active.some(item => adaptiveFeatureValue(observation, item.rule.feature, snapshot.asOf) !== null);
+    const available = active.some(item => adaptiveFeatureValue(observation, item.rule.feature, snapshot.asOf, item.rule.invention) !== null);
     return decision(snapshot, observation, 'WAIT', available ? 'ADAPTIVE_RULE_NOT_MATCHED' : 'ADAPTIVE_FEATURE_UNAVAILABLE',
       available ? '연결 중인 지표의 진입 구간에 해당하지 않아 대기' : '연결 중인 지표의 현재 관측값이 없어 대기 · 성과 악화로 처리하지 않습니다.');
   }
   return { ...decision(snapshot, observation, 'BUY', 'ADAPTIVE_FEATURE_SELECTED',
-    `${paperAdaptiveRuleLabel(selected.rule)} 자동 선택 · 후반 확인 ${selected.validation.sampleCount}건/${selected.validation.dateCount}일, 일당 대조군 차이 ${selected.validation.meanDailyExcessPct!.toFixed(2)}%p · 1주 진입`),
-    adaptiveEvidence: { cutoffAt: state.cutoffAt, evaluatedAt: state.evaluatedAt, validationStartDate: state.validationStartDate!,
+    `${paperAdaptiveRuleLabel(selected.rule)} 자동 선택 · ${selected.rule.invention ? '생성 후 검증' : '후반 확인'} ${selected.validation.sampleCount}건/${selected.validation.dateCount}일, 일당 대조군 차이 ${selected.validation.meanDailyExcessPct!.toFixed(2)}%p · 1주 진입`),
+    adaptiveEvidence: { cutoffAt: state.cutoffAt, evaluatedAt: state.evaluatedAt,
+      validationStartDate: selected.rule.invention
+        ? addBusinessDaysFromKstDate(toKstDateKey(new Date(selected.rule.invention.createdAt)), 1)
+        : state.validationStartDate!,
       policy: structuredClone(state.policy), candidate: structuredClone(selected) } };
 }
 

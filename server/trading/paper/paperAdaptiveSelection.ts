@@ -1,11 +1,15 @@
 // @responsibility Reassess independent Shadow feature rules using dated baseline evidence.
 import type { PaperExperiment, PaperObservation } from '../../../src/types/paperExperiment.js';
 import { PAPER_FEATURES, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
-import type { PaperAdaptiveCandidate, PaperAdaptivePolicy, PaperAdaptiveRule, PaperAdaptiveState, PaperAdaptiveStats } from '../../../src/types/paperAdaptive.js';
+import type { PaperAdaptiveCandidate, PaperAdaptiveFeatureKey, PaperAdaptivePolicy, PaperAdaptiveRule, PaperAdaptiveState,
+  PaperAdaptiveStats, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
+import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaId, paperIndicatorFormulaValue,
+  type PaperIndicatorFormula } from '../../../src/types/paperIndicatorFormula.js';
 import { toKstDateKey, isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { calculatePaperReturn } from './paperAccounting.js';
 import { paperStrategyCohort, scheduledPaperClose } from './paperStrategyEvidence.js';
+import { discoverPaperIndicators } from './paperIndicatorDiscovery.js';
 
 export const PAPER_ADAPTIVE_POLICY: Readonly<PaperAdaptivePolicy> = Object.freeze({
   version: 'adaptive-features-v1', windowEntryDates: 60, trainingFraction: 0.7,
@@ -14,7 +18,7 @@ export const PAPER_ADAPTIVE_POLICY: Readonly<PaperAdaptivePolicy> = Object.freez
 });
 const keys = Object.keys(PAPER_FEATURES) as PaperFeatureKey[];
 const horizons = [1, 3, 5] as const;
-interface Row { experiment: PaperExperiment; returns: number[]; lastAvailableAt: number; cell: string; values: Partial<Record<PaperFeatureKey, number>> }
+interface Row { experiment: PaperExperiment; returns: number[]; lastAvailableAt: number; cell: string; values: Partial<Record<PaperAdaptiveFeatureKey, number>> }
 const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
 export const adaptiveRuleId = (rule: PaperAdaptiveRule) => `${rule.feature}:${rule.bucket}:D${rule.horizon}`;
 
@@ -25,13 +29,19 @@ function featureValues(observation: PaperObservation, asOf: string) {
     || !(Date.parse(features.asOf) >= Date.parse(`${toKstDateKey(new Date(asOf))}T00:00:00+09:00`))) return null;
   return features.values;
 }
-export function adaptiveFeatureValue(observation: PaperObservation, key: PaperFeatureKey, asOf: string): number | null {
-  const value = featureValues(observation, asOf)?.[key];
+export function adaptiveFeatureValue(observation: PaperObservation, key: PaperAdaptiveFeatureKey, asOf: string,
+  invention?: PaperIndicatorInvention): number | null {
+  const values = featureValues(observation, asOf);
+  if (!values) return null;
+  if (invention) return invention.id === key ? paperIndicatorFormulaValue(invention.formula, values) : null;
+  const value = values[key as PaperFeatureKey];
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
+const ruleCuts = (rule: PaperAdaptiveRule): readonly number[] => rule.feature.startsWith('invented:')
+  ? PAPER_INVENTED_FEATURE_CUTS : PAPER_FEATURES[rule.feature as PaperFeatureKey].cuts;
 export function adaptiveRuleMatches(observation: PaperObservation, rule: PaperAdaptiveRule, asOf: string): boolean {
-  const value = adaptiveFeatureValue(observation, rule.feature, asOf);
-  const cuts: readonly number[] = PAPER_FEATURES[rule.feature].cuts;
+  const value = adaptiveFeatureValue(observation, rule.feature, asOf, rule.invention);
+  const cuts = ruleCuts(rule);
   return value !== null && value >= (cuts[rule.bucket - 1] ?? -Infinity) && value < (cuts[rule.bucket] ?? Infinity);
 }
 
@@ -79,7 +89,7 @@ function matureRows(experiments: PaperExperiment[], cutoffAt: string): Row[] {
 function stats(rows: Row[], rule: PaperAdaptiveRule): PaperAdaptiveStats {
   const index = horizons.indexOf(rule.horizon);
   const selected: Row[] = [];
-  const cuts: readonly number[] = PAPER_FEATURES[rule.feature].cuts;
+  const cuts = ruleCuts(rule);
   const lower = cuts[rule.bucket - 1] ?? -Infinity, upper = cuts[rule.bucket] ?? Infinity;
   const cells = new Map<string, { date: string; count: number; sum: number; selectedCount: number; selectedSum: number }>();
   for (const row of rows) {
@@ -114,13 +124,46 @@ const rank = (a: PaperAdaptiveCandidate, b: PaperAdaptiveCandidate) => score(b) 
   || a.rule.horizon - b.rule.horizon || adaptiveRuleId(a.rule).localeCompare(adaptiveRuleId(b.rule));
 
 function candidate(rule: PaperAdaptiveRule, train: Row[], test: Row[], previous: PaperAdaptiveState | undefined): PaperAdaptiveCandidate {
-  const training = stats(train, rule), validation = stats(test, rule);
+  const training = rule.invention ? structuredClone(rule.invention.training) : stats(train, rule), validation = stats(test, rule);
   const retained = previous?.candidates.some(item => item.active && adaptiveRuleId(item.rule) === adaptiveRuleId(rule));
   const reason = !training.sampleCount ? 'MISSING_INPUT' : !sufficient(training) ? 'INSUFFICIENT_TRAINING'
-    : !positive(training) ? 'NO_TRAINING_EDGE' : !sufficient(validation) ? 'INSUFFICIENT_VALIDATION'
+    : !positive(training) ? 'NO_TRAINING_EDGE' : !sufficient(validation) ? (rule.invention ? 'FORWARD_OBSERVATION' : 'INSUFFICIENT_VALIDATION')
       : !positive(validation) || validation.meanDailyExcessPct! <= (retained ? 0 : PAPER_ADAPTIVE_POLICY.activationMarginDailyPct)
         ? 'NO_VALIDATION_EDGE' : 'ACTIVE';
   return { rule, training, validation, active: reason === 'ACTIVE', reason };
+}
+
+function chooseFormula(formula: PaperIndicatorFormula, train: Row[]): PaperAdaptiveCandidate | null {
+  const feature = paperIndicatorFormulaId(formula);
+  const paired = train.filter(row => row.values[feature] !== undefined);
+  for (const operand of [formula.left, formula.right]) {
+    if (new Set(paired.map(row => row.values[operand.feature])).size < 2) return null;
+  }
+  const rules = Array.from({ length: PAPER_INVENTED_FEATURE_CUTS.length + 1 }, (_, bucket) =>
+    horizons.map(horizon => candidate({ feature, bucket, horizon }, train, [], undefined))).flat();
+  const chosen = rules.sort((a, b) => Number(sufficient(b.training) && positive(b.training)) - Number(sufficient(a.training) && positive(a.training))
+    || Number(sufficient(b.training)) - Number(sufficient(a.training)) || rank(a, b))[0];
+  const ids = new Set(chosen.training.experimentIds);
+  for (const operand of [formula.left, formula.right]) {
+    const cuts: readonly number[] = PAPER_FEATURES[operand.feature].cuts;
+    for (let bucket = 0; bucket <= cuts.length; bucket++) {
+      const lower = cuts[bucket - 1] ?? -Infinity, upper = cuts[bucket] ?? Infinity;
+      const source = paired.filter(row => row.values[operand.feature]! >= lower && row.values[operand.feature]! < upper);
+      if (source.length === ids.size && source.every(row => ids.has(row.experiment.id))) return null;
+    }
+  }
+  return chosen;
+}
+
+function rankCandidates(candidates: PaperAdaptiveCandidate[], previous: PaperAdaptiveState | undefined): void {
+  const eligible = candidates.filter(item => item.active).sort(rank);
+  // Retain still-valid active indicators when a challenger only marginally changes the ranking.
+  eligible.sort((a, b) => {
+    const retained = (item: PaperAdaptiveCandidate) => previous?.candidates.some(old => old.active && adaptiveRuleId(old.rule) === adaptiveRuleId(item.rule)) ? PAPER_ADAPTIVE_POLICY.replacementMarginDailyPct : 0;
+    return score(b) + retained(b) - score(a) - retained(a) || rank(a, b);
+  });
+  const activeIds = new Set(eligible.slice(0, PAPER_ADAPTIVE_POLICY.maxActiveRules).map(item => adaptiveRuleId(item.rule)));
+  for (const item of candidates) if (item.active && !activeIds.has(adaptiveRuleId(item.rule))) { item.active = false; item.reason = 'RANKED_OUT'; }
 }
 
 function chooseFeature(feature: PaperFeatureKey, train: Row[], test: Row[], previous: PaperAdaptiveState | undefined): PaperAdaptiveCandidate {
@@ -152,23 +195,61 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
   const train = rows.filter(row => validationStartDate && row.experiment.tradingDate < validationStartDate && row.lastAvailableAt < splitMs);
   const test = rows.filter(row => validationStartDate && row.experiment.tradingDate >= validationStartDate);
   const candidates = keys.map(feature => chooseFeature(feature, train, test, previous));
-  const eligible = candidates.filter(item => item.active).sort(rank);
-  // Retain still-valid active indicators when a challenger only marginally changes the ranking.
-  eligible.sort((a, b) => {
-    const retained = (item: PaperAdaptiveCandidate) => previous?.candidates.some(old => old.active && adaptiveRuleId(old.rule) === adaptiveRuleId(item.rule)) ? PAPER_ADAPTIVE_POLICY.replacementMarginDailyPct : 0;
-    return score(b) + retained(b) - score(a) - retained(a) || rank(a, b);
+  const computed = new Set<string>();
+  const compute = (formula: PaperIndicatorFormula) => {
+    const id = paperIndicatorFormulaId(formula);
+    if (computed.has(id)) return;
+    computed.add(id);
+    for (const row of rows) {
+      const value = paperIndicatorFormulaValue(formula, row.values);
+      if (value !== null) row.values[id] = value;
+    }
+  };
+  const forwardRows = (invention: PaperIndicatorInvention) => {
+    compute(invention.formula);
+    const created = Date.parse(invention.createdAt), createdDate = toKstDateKey(new Date(created));
+    return rows.filter(row => Date.parse(row.experiment.entryAt) > created && row.experiment.tradingDate > createdDate);
+  };
+  for (const invention of previous?.discovery?.inventions ?? []) {
+    candidates.push(candidate({ feature: invention.id, ...invention.rule, invention: structuredClone(invention) },
+      [], forwardRows(invention), previous));
+  }
+  rankCandidates(candidates, previous);
+  const pairEligibility = new Map<string, boolean>();
+  const discovery = discoverPaperIndicators({ previous, asOf, cutoffAt, candidates,
+    trainingDates: [...new Set(train.map(row => row.experiment.tradingDate))].sort(),
+    sufficientInputs: formula => {
+      const left = formula.left.feature, right = formula.right.feature, pair = `${left}:${right}`;
+      if (pairEligibility.has(pair)) return pairEligibility.get(pair)!;
+      let count = 0; const dates = new Set<string>();
+      for (const row of train) if (row.values[left] !== undefined && row.values[right] !== undefined) {
+        count++; dates.add(row.experiment.tradingDate);
+        if (count >= PAPER_ADAPTIVE_POLICY.minimumSamples && dates.size >= PAPER_ADAPTIVE_POLICY.minimumEntryDates) break;
+      }
+      const eligible = count >= PAPER_ADAPTIVE_POLICY.minimumSamples && dates.size >= PAPER_ADAPTIVE_POLICY.minimumEntryDates;
+      pairEligibility.set(pair, eligible); return eligible;
+    },
+    evaluateTraining: formula => { compute(formula); return chooseFormula(formula, train); },
+    forwardDateCount: invention => new Set(forwardRows(invention).filter(row => row.values[invention.id] !== undefined)
+      .map(row => row.experiment.tradingDate)).size,
   });
-  const activeIds = new Set(eligible.slice(0, PAPER_ADAPTIVE_POLICY.maxActiveRules).map(item => adaptiveRuleId(item.rule)));
-  for (const item of candidates) if (item.active && !activeIds.has(adaptiveRuleId(item.rule))) { item.active = false; item.reason = 'RANKED_OUT'; }
+  const retiredIds = new Set<string>(discovery.retired.map(item => item.id));
+  const retainedCandidates = candidates.filter(item => !retiredIds.has(item.rule.feature));
+  for (const invention of discovery.created) retainedCandidates.push(candidate({ feature: invention.id, ...invention.rule,
+    invention: structuredClone(invention) }, [], [], previous));
   const changes = [...(previous?.changes ?? [])];
-  for (const item of candidates) {
+  for (const item of retainedCandidates) {
     const from = previous?.candidates.find(old => old.active && old.rule.feature === item.rule.feature)?.rule ?? null;
     const to = item.active ? item.rule : null;
     if ((from ? adaptiveRuleId(from) : null) !== (to ? adaptiveRuleId(to) : null)) {
       changes.push({ at: asOf, feature: item.rule.feature, from: from ? { ...from } : null, to: to ? { ...to } : null, reason: item.reason });
     }
   }
+  for (const invention of discovery.retired) changes.push({ at: asOf, feature: invention.id,
+    from: { feature: invention.id, ...invention.rule, invention: structuredClone(invention) }, to: null, reason: 'DISCOVERY_RETIRED' });
+  for (const invention of discovery.created) changes.push({ at: asOf, feature: invention.id, from: null,
+    to: { feature: invention.id, ...invention.rule, invention: structuredClone(invention) }, reason: 'FORWARD_OBSERVATION' });
   return { policy: { ...PAPER_ADAPTIVE_POLICY }, tradingDate, evaluatedAt: asOf, cutoffAt,
     windowStartDate: dates[0] ?? null, validationStartDate, matureSampleCount: rows.length, matureDateCount: dates.length,
-    candidates: candidates.sort(rank), changes: changes.slice(-100) };
+    candidates: retainedCandidates.sort(rank), discovery: discovery.discovery, changes: changes.slice(-100) };
 }
