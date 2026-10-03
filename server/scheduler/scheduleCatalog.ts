@@ -24,7 +24,7 @@ export interface ScheduleEntry {
 }
 
 export const SCHEDULE_CATALOG: ScheduleEntry[] = [
-  { timeKst: '상시', label: 'Shadow 봇: 거래일 08:45/10:30/13:30/16:10, 일 19:00, 매분 변화 점검', group: 'reports', jobName: 'paper_bot', silentWhen: '예정 보고 또는 새 가상 매매·연구·운영 상태 변화가 없으면 무음; 장중 보고는 최근 10분 내 판단 확인 시 발송' },
+  { timeKst: '상시', label: 'Shadow 봇: 매일 08:30 추천, 거래일 08:45/10:30/13:30/16:10, 일 19:00, 매분 변화 점검', group: 'reports', jobName: 'paper_bot', silentWhen: '예정 보고 또는 새 가상 매매·연구·운영 상태 변화가 없으면 무음; 08:30 휴장일은 연구 현황, 장중 보고는 최근 10분 내 판단 확인 시 발송' },
   // ── 리포트 (Telegram 송출 중심) ────────────────────────────────────────────
   { timeKst: '06:00', label: '글로벌 스캔 에이전트', group: 'screener', jobName: 'global_scan_agent', silentWhen: 'Yahoo 미국 지수·섹터 ETF 종합 스캔 — KR 휴장 무관 ALWAYS_ON' },
   { timeKst: '06:15', label: '미 섹터 ETF 모멘텀 스캔', group: 'reports', jobName: 'sector_etf_momentum' },

@@ -8,6 +8,7 @@ import { emptyStrategyLedger, legacyStrategyLedger, strategyTestCost, strategyTe
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
 import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { EMPTY_EVIDENCE_DIGEST } from './paperStrategyEvidence.js';
+import { adaptiveTestSnapshot, matureAdaptiveSamples } from './paperAdaptiveFixtures.js';
 
 const enter = () => legacyStrategyLedger();
 const inactive = () => selectPaperAdaptiveState(undefined, [], strategyTestSnapshot().asOf);
@@ -123,5 +124,62 @@ describe('persisted strategy lifecycle integrity', () => {
     }
     expect(businessDays).not.toHaveBeenCalled();
     expect(tradingDay).not.toHaveBeenCalled();
+  });
+});
+
+describe('persisted morning recommendation links', () => {
+  function linked(): PaperStrategyLedger {
+    const snapshot = adaptiveTestSnapshot();
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost,
+      selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), snapshot.asOf));
+    ledger.trades[0].morningRecommendation = { reportId: 'paper:recommendation:2026-09-18', rank: 1, purpose: 'VALIDATED',
+      recommendedAt: '2026-09-17T23:30:00Z', sentAt: '2026-09-17T23:30:05Z', matchesEntryRule: true };
+    return ledger;
+  }
+
+  it('preserves valid frozen recommendation references through serialization and scheduled exit', () => {
+    const ledger = linked(), reference = structuredClone(ledger.trades[0].morningRecommendation);
+    const entryEvidence = structuredClone(ledger.trades[0].entryDecision);
+    const restored = JSON.parse(JSON.stringify(ledger));
+    expect(() => assertPaperStrategyLedger(restored)).not.toThrow();
+    expect(restored.trades[0].morningRecommendation).toEqual(reference);
+    const snapshot = adaptiveTestSnapshot();
+    snapshot.id = 'morning-reference-exit'; snapshot.tradingDate = '2026-09-23'; snapshot.asOf = '2026-09-23T07:00:00Z'; snapshot.marketOpen = false;
+    snapshot.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 11000, availableAt: snapshot.asOf }];
+    const exited = evaluatePaperStrategyScan(restored, snapshot, strategyTestCost, inactive());
+    expect(() => assertPaperStrategyLedger(JSON.parse(JSON.stringify(exited)))).not.toThrow();
+    expect(exited.trades[0].status).toBe('CLOSED');
+    expect(exited.trades[0].morningRecommendation).toEqual(reference);
+    expect(exited.trades[0].entryDecision).toEqual(entryEvidence);
+  });
+
+  it('accepts absent references on old ledgers and honest entry-rule differences', () => {
+    for (const ledger of [enter(), closed(), linked()]) {
+      if (ledger.trades[0].morningRecommendation) {
+        ledger.trades[0].morningRecommendation!.matchesEntryRule = false;
+        ledger.trades[0].morningRecommendation!.purpose = 'EXPLORATION';
+        ledger.trades[0].morningRecommendation!.rank = 3;
+      }
+      const restored = JSON.parse(JSON.stringify(ledger));
+      expect(() => assertPaperStrategyLedger(restored)).not.toThrow();
+      expect(restored.trades[0].morningRecommendation).toEqual(ledger.trades[0].morningRecommendation);
+    }
+  });
+
+  const invalidReferences: Array<[string, (ledger: PaperStrategyLedger) => void]> = [
+    ['a report from another trading date', ledger => { ledger.trades[0].morningRecommendation!.reportId = 'paper:recommendation:2026-09-17'; }],
+    ['an unrelated report ID', ledger => { ledger.trades[0].morningRecommendation!.reportId = 'paper:morning:2026-09-18'; }],
+    ['rank zero', ledger => { ledger.trades[0].morningRecommendation!.rank = 0; }],
+    ['rank above the three-pick limit', ledger => { ledger.trades[0].morningRecommendation!.rank = 4; }],
+    ['fractional rank', ledger => { ledger.trades[0].morningRecommendation!.rank = 1.5; }],
+    ['creation before the 08:30 recommendation slot', ledger => { ledger.trades[0].morningRecommendation!.recommendedAt = '2026-09-17T23:29:59Z'; }],
+    ['delivery before report creation', ledger => { ledger.trades[0].morningRecommendation!.sentAt = '2026-09-17T23:29:59Z'; }],
+    ['a recommendation actually sent after entry', ledger => { ledger.trades[0].morningRecommendation!.sentAt = '2026-09-18T01:00:01Z'; }],
+    ['an invalid delivery timestamp', ledger => { ledger.trades[0].morningRecommendation!.sentAt = 'invalid'; }],
+    ['an unknown recommendation purpose', ledger => { ledger.trades[0].morningRecommendation!.purpose = 'UNKNOWN' as never; }],
+  ];
+  it.each(invalidReferences)('rejects %s using the actual ledger validator', (_, mutate) => {
+    const ledger = linked(); mutate(ledger);
+    expect(() => assertPaperStrategyLedger(JSON.parse(JSON.stringify(ledger)))).toThrow('PAPER_STRATEGY_INVALID');
   });
 });

@@ -4,12 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   view: vi.fn(), paperScan: vi.fn(), publicScan: vi.fn(), mode: 'SHADOW',
   legacyRead: vi.fn(), legacySave: vi.fn(), brokerQuote: vi.fn(), reconcile: vi.fn(),
-  morning: vi.fn(), evaluation: vi.fn(), bot: vi.fn(), financials: vi.fn(),
+  morning: vi.fn(), recommendation: vi.fn(), evaluation: vi.fn(), bot: vi.fn(), financials: vi.fn(),
 }));
 vi.mock('../../trading/paper/paperEvaluation.js', () => ({ buildPaperEvaluation: mocks.evaluation }));
 vi.mock('../../persistence/paperBotRepo.js', () => ({ loadPaperBotState: mocks.bot }));
 vi.mock('../../persistence/paperFinancialRepo.js', () => ({ loadPaperFinancialCache: mocks.financials }));
 vi.mock('../../alerts/globalNewsRuntime.js', () => ({ getGlobalMorningPreview: mocks.morning }));
+vi.mock('../../trading/paper/paperMorningRuntime.js', () => ({ getPaperMorningReview: mocks.recommendation }));
 vi.mock('../../trading/paper/paperExperimentRunner.js', () => ({
   getPaperExperimentView: mocks.view, runPaperExperimentScan: mocks.paperScan,
 }));
@@ -62,6 +63,19 @@ function response(): ResponseStub {
 }
 
 describe('paper experiment API registration', () => {
+  it('reads an archived morning recommendation without scanning or placing orders', async () => {
+    mocks.recommendation.mockReturnValue({ report: { id: 'paper:recommendation:2026-09-18', message: '동결된 추천' }, results: [] });
+    const res = response();
+    await handler(shadowRouter, 'get', '/shadow/morning-recommendation')({ query: { date: '2026-09-18' } }, res);
+    expect(mocks.recommendation).toHaveBeenCalledWith('2026-09-18');
+    expect(res.body).toMatchObject({ report: { message: '동결된 추천' } });
+    expect(mocks.paperScan).not.toHaveBeenCalled();
+    expect(mocks.brokerQuote).not.toHaveBeenCalled();
+    const bad = response();
+    await handler(shadowRouter, 'get', '/shadow/morning-recommendation')({ query: { date: '../private' } }, bad);
+    expect(bad.statusCode).toBe(400);
+    expect(mocks.recommendation).toHaveBeenCalledTimes(1);
+  });
   it('evaluates complete ledgers and keeps optional source failures visible', async () => {
     mocks.view.mockReturnValue({ totalCount: 4248 });
     mocks.bot.mockImplementationOnce(() => { throw new Error('unreadable'); });

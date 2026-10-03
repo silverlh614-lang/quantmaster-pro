@@ -11,6 +11,7 @@ import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { capturePaperTradeMeasurements } from './paperTradeMeasurements.js';
 import { assertPaperTradeMeasurement } from './paperTradeMeasurementValidation.js';
 import { savePaperTradeMeasurementBatch, recordPaperTradeMeasurementFailure, readPaperTradeMeasurementHistory } from '../../persistence/paperTradeMeasurementRepo.js';
+import { capturePaperMorningSource, linkPaperMorningRecommendations } from './paperMorningRuntime.js';
 
 export interface PaperStrategyState { ledger: PaperStrategyLedger | null; error?: string }
 let lastFailure: string | undefined;
@@ -36,6 +37,7 @@ export function advancePaperStrategy(
       const entryObservation = trimArchivedEntryBars(trade.entryObservation, trade.tradingDate, archived);
       return entryObservation === trade.entryObservation ? trade : { ...trade, entryObservation };
     });
+    linkPaperMorningRecommendations(ledger, snapshot);
     const previousMeasurements = ledger.trades.map(trade => trade.measurement);
     let rows: PaperTradeMeasurementRow[] = [], measurementError: unknown;
     try {
@@ -50,6 +52,7 @@ export function advancePaperStrategy(
       });
     }
     savePaperStrategyLedger(ledger);
+    capturePaperMorningSource(ledger, snapshot);
     if (measurementError) recordPaperTradeMeasurementFailure(snapshot.id, snapshot.asOf, 0, measurementError, ledger.trades);
     else if (rows.length) {
       try { savePaperTradeMeasurementBatch(rows, ledger.trades); }

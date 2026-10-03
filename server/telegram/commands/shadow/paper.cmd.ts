@@ -6,8 +6,10 @@ import { toKstDateKey } from '../../../calendar/krxTradingCalendar.js';
 import { recentPaperNews } from '../../../alerts/paperBot.js';
 import { formatPaperReport, formatPaperResearch, formatPaperBotStatus } from '../../../alerts/paperBotMessages.js';
 import { loadPaperBotState } from '../../../persistence/paperBotRepo.js';
+import { formatStoredPaperMorningReport } from '../../../trading/paper/paperMorningRuntime.js';
 
 const commands = [
+  { name: '/paper_recommend', description: '08:30 추천·휴장일 연구·이후 가상 성과', render: () => formatStoredPaperMorningReport() },
   { name: '/paper', description: 'Shadow 관측·가상 매매 현황', render: () => formatPaperReport(getPaperExperimentView(), 'status', toKstDateKey(new Date()), recentPaperNews()) },
   { name: '/paper_research', description: '저장 자료 연구·조건별 검증', render: () => formatPaperResearch(getPaperExperimentView()) },
   { name: '/paper_bot', description: '알림 일정·발송 성공·실패 확인', render: () => formatPaperBotStatus(loadPaperBotState()) },

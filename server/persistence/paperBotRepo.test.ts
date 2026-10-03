@@ -47,7 +47,7 @@ describe('bot persistence', () => {
     expect(repo.loadPaperBotState().researchInitializedAt).toBeUndefined();
     state.researchInitializedAt = initializedAt;
     state.seenEvents['research:example'] = initializedAt;
-    for (const kind of ['research', 'intraday'] as const) state.messages.push({ id: `paper:${kind}:test`, kind,
+    for (const kind of ['research', 'intraday', 'recommendation'] as const) state.messages.push({ id: `paper:${kind}:test`, kind,
       channel: kind === 'research' ? 'SYSTEM' as import('../alerts/alertCategories.js').AlertCategory : 'ANALYSIS' as import('../alerts/alertCategories.js').AlertCategory,
       message: '새 보고', state: 'PENDING', attempts: 0, createdAt: initializedAt,
       nextAttemptAt: initializedAt, expiresAt: '2026-09-18T07:00:00Z' });

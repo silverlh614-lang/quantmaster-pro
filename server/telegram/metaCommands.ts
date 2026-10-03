@@ -74,7 +74,7 @@ export const META_COMMAND_REGISTRY: Record<string, MetaCommandSpec> = {
     description: '자기학습 이력·포지션 정책·서킷·리스크 예산을 모두 모았습니다.',
     rows: [
       ['/learning_status', '/learning_history'],
-      ['/paper', '/paper_research'],
+      ['/paper', '/paper_research', '/paper_recommend'],
       ['/regime_coverage', '/ledger'],
       ['/counterfactual', '/risk'],
       ['/circuits', '/reset_circuits', '/ai_status'],
@@ -229,6 +229,7 @@ export function buildHelpMessage(topUsage?: HelpTopEntry[]): string {
     '<b>QuantMaster Pro · Shadow 봇</b>',
     '/paper — 관측·가상 진입·청산 현황',
     '/paper_research — 저장 자료 연구·조건별 검증',
+    '/paper_recommend — 08:30 추천·휴장일 연구·이후 가상 성과',
     '/paper_bot — 알림 일정·발송 성공·실패',
     '/control — 일시정지·재개 제어',
     '/admin_help — 기존 진단 명령 안내', '',
@@ -273,6 +274,7 @@ export function buildHelpMessage(topUsage?: HelpTopEntry[]): string {
 export function buildHelpKeyboard(nonce: string = newNonce()): InlineKeyboardMarkup {
   if (getTradingMode() === 'SHADOW') return { inline_keyboard: [
     [{ text: '관측·매매', callback_data: encodeMetaCallback('/paper', nonce) }, { text: '연구', callback_data: encodeMetaCallback('/paper_research', nonce) }],
+    [{ text: '아침 추천', callback_data: encodeMetaCallback('/paper_recommend', nonce) }],
     [{ text: '알림 상태', callback_data: encodeMetaCallback('/paper_bot', nonce) }, { text: '제어', callback_data: encodeMetaCallback('/control', nonce) }],
   ] };
   return {
@@ -343,6 +345,7 @@ export function buildBotMenuCommands(): BotMenuCommand[] {
     { command: 'help', description: 'Shadow 봇 도움말' },
     { command: 'paper', description: 'Shadow 관측·가상 매매 현황' },
     { command: 'paper_research', description: '저장 자료 연구·조건별 검증' },
+    { command: 'paper_recommend', description: '08:30 추천·휴장일 연구·이후 가상 성과' },
     { command: 'paper_bot', description: '알림 일정·발송 성공·실패 확인' },
     { command: 'control', description: '일시정지·재개 제어' },
   ];

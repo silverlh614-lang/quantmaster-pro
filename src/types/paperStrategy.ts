@@ -153,6 +153,7 @@ export interface PaperStrategyTrade {
   scheduledExitAt: string;
   exit: PaperStrategyExit | null;
   measurement?: PaperTradeMeasurement;
+  morningRecommendation?: import('./paperMorning').PaperMorningTradeReference;
 }
 
 export interface PaperStrategyScanResult {

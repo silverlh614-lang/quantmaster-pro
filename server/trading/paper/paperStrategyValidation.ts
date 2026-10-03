@@ -55,7 +55,7 @@ const decision = z.object({ snapshotId: z.string(), decisionAt: timestamp, symbo
     'ALREADY_ENTERED_TODAY', 'HORIZON_PENDING', 'SCHEDULED_CLOSE_UNAVAILABLE', 'SCHEDULED_CLOSE_REACHED']),
   reason: z.string(), cohort: cohort.nullable(), evidence: evidence.nullable(), adaptiveEvidence: adaptiveEvidenceSchema.optional(),
   explorationEvidence: explorationEvidenceSchema.optional(), tradeId: z.string().nullable(), newsSummary: newsSummary.optional(), investorFlow: investorFlow.optional() });
-const observation = z.object({ symbol, name: z.string(), price: finite.positive().nullable(), observedAt: timestamp, source: z.string(),
+export const paperObservationSchema = z.object({ symbol, name: z.string(), price: finite.positive().nullable(), observedAt: timestamp, source: z.string(),
   investorFlow: investorFlow.optional(), features: adaptiveObservationSchema.optional(),
   return1dPct: finite.nullable(), return5dPct: finite.nullable(), aboveMa20: z.boolean().nullable(),
   news: z.array(z.object({ id: z.string(), headline: z.string(), observedAt: timestamp, source: z.string(), assessment: newsAssessment.optional(), facts: newsFacts.optional() })),
@@ -66,8 +66,10 @@ const exit = z.object({ model: z.literal('SCHEDULED_CLOSE'), snapshotId: z.strin
   observedAt: timestamp, decisionAt: timestamp, price: finite.positive(), grossReturnPct: finite, netReturnPct: finite, netPnl: finite, decision });
 const trade = z.object({ id: z.string(), strategyVersion: version, symbol, name: z.string(), status: z.enum(['OPEN', 'CLOSED']),
   entrySnapshotId: z.string(), entryAt: timestamp, tradingDate: date, entryPrice: finite.positive(), quantity: z.literal(1),
-  entryObservation: observation, entryDecision: decision, policy, costModel: cost, horizon,
-  scheduledExitDate: date, scheduledExitAt: timestamp, exit: exit.nullable(), measurement: paperTradeMeasurementSchema.optional() });
+  entryObservation: paperObservationSchema, entryDecision: decision, policy, costModel: cost, horizon,
+  scheduledExitDate: date, scheduledExitAt: timestamp, exit: exit.nullable(), measurement: paperTradeMeasurementSchema.optional(),
+  morningRecommendation: z.object({ reportId: z.string(), rank: finite.int().min(1).max(3), purpose: z.enum(['VALIDATED', 'EXPLORATION']),
+    recommendedAt: timestamp, sentAt: timestamp, matchesEntryRule: z.boolean() }).optional() });
 const ledgerSchema = z.object({ schemaVersion: z.literal(1), trades: z.array(trade), latestDecisions: z.array(decision),
   adaptive: adaptiveStateSchema.optional(),
   lastMarketSession: z.object({ tradingDate: date, snapshotId: z.string(), asOf: timestamp, decisionCount: finite.int().nonnegative(),
@@ -177,6 +179,11 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
       }
     }
     assertPaperTradeMeasurement(item as PaperStrategyTrade, parsed.data.lastRun?.asOf);
+    const recommendation = item.morningRecommendation;
+    if (recommendation && (recommendation.reportId !== `paper:recommendation:${item.tradingDate}`
+      || Date.parse(recommendation.recommendedAt) < Date.parse(`${item.tradingDate}T08:30:00+09:00`)
+      || Date.parse(recommendation.sentAt) < Date.parse(recommendation.recommendedAt)
+      || Date.parse(recommendation.sentAt) > Date.parse(item.entryAt))) throw new Error('PAPER_STRATEGY_INVALID: inconsistent morning recommendation link');
     ids.add(item.id);
     if (item.status === 'OPEN') openSymbols.add(item.symbol);
   }

@@ -36,8 +36,18 @@ import { getGlobalMorningPreview } from '../../alerts/globalNewsRuntime.js';
 import { buildPaperEvaluation } from '../../trading/paper/paperEvaluation.js';
 import { loadPaperBotState } from '../../persistence/paperBotRepo.js';
 import { loadPaperFinancialCache } from '../../persistence/paperFinancialRepo.js';
+import { getPaperMorningReview } from '../../trading/paper/paperMorningRuntime.js';
 
 const router = Router();
+
+router.get('/shadow/morning-recommendation', (req, res) => {
+  const date = typeof req.query.date === 'string' ? req.query.date : toKstDateKey(new Date());
+  const parsed = Date.parse(`${date}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 10) !== date)
+    return res.status(400).json({ error: '날짜 형식을 확인하세요.' });
+  try { res.json(getPaperMorningReview(date)); }
+  catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
 
 router.get('/shadow/evaluation', (_req, res) => {
   try {

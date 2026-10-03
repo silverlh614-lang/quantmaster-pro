@@ -24,6 +24,7 @@ vi.mock('../state.js', () => ({ getTradingMode: mocks.mode, getAutoTradePaused: 
 vi.mock('../learning/newsSupplyLogger.js', () => ({ loadNewsSupplyRecords: () => [] }));
 vi.mock('../persistence/dartRepo.js', () => ({ loadDartAlerts: () => [] }));
 vi.mock('./globalNewsRuntime.js', () => ({ maintainGlobalMorningNews: () => undefined, getGlobalMorningMessage: () => '해외 뉴스·국내 연관주' }));
+vi.mock('../trading/paper/paperMorningRuntime.js', () => ({ getOrCreatePaperMorningReport: () => null, reconcilePaperMorningDelivery: () => undefined }));
 vi.mock('../persistence/channelStatsRepo.js', () => ({ incrementChannelStat: mocks.stats }));
 vi.mock('../persistence/alertHistoryRepo.js', () => ({ appendAlertHistory: mocks.history }));
 vi.mock('../persistence/notificationLedgerRepo.js', () => ({ updateNotificationLedgerState: mocks.ledger }));

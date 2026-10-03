@@ -14,11 +14,15 @@ import { isPaperMarketOpen } from '../trading/paper/paperExperimentCollector.js'
 import { maintainGlobalMorningNews, getGlobalMorningMessage } from './globalNewsRuntime.js';
 import { formatPaperIntraday, formatPaperResearchChanges } from './paperResearchMessages.js';
 import type { PaperAdaptiveRule, PaperAdaptiveState } from '../../src/types/paperAdaptive.js';
+import type { PaperMorningReport } from '../../src/types/paperMorning.js';
+import { getOrCreatePaperMorningReport, reconcilePaperMorningDelivery } from '../trading/paper/paperMorningRuntime.js';
 
 const MINUTE = 60_000;
 const DAY = 86_400_000;
 const processStartedAt = Date.now();
 let running: Promise<void> | undefined;
+const confirmedMorningDeliveries = new Set<string>();
+const MORNING_ARCHIVE_ACK_ERROR = '추천 발송 확인의 영구 보관 갱신 실패';
 
 export function recentPaperNews(now = new Date()): string[] {
   const cutoff = now.getTime() - DAY;
@@ -33,20 +37,33 @@ function enqueue(state: PaperBotState, message: Omit<PaperBotMessage, 'state' | 
   if (!state.messages.some(item => item.id === message.id)) state.messages.push({ ...message, state: 'PENDING', attempts: 0, nextAttemptAt: message.createdAt });
 }
 
-export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentView | undefined, now: Date, news: () => string[] = () => [], morning?: () => string | null, paused = false): void {
+export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentView | undefined, now: Date, news: () => string[] = () => [], morning?: () => string | null, paused = false, recommendation?: () => PaperMorningReport | null): void {
   const date = toKstDateKey(now);
   const kst = new Date(now.getTime() + 9 * 3_600_000);
   const minute = kst.getUTCHours() * 60 + kst.getUTCMinutes();
   for (const slot of PAPER_BOT_SCHEDULES) {
-    const eligibleDay = slot.kind === 'weekly' ? kst.getUTCDay() === 0 : isKrxTradingDay(date);
+    const eligibleDay = slot.kind === 'recommendation' || (slot.kind === 'weekly' ? kst.getUTCDay() === 0 : isKrxTradingDay(date));
     if (!eligibleDay || minute < slot.minute || minute >= slot.minute + slot.graceMinutes) continue;
     // A loading report is retried next minute instead of consuming the weekly slot.
-    if (!view && (slot.kind !== 'morning' || !morning)) continue;
+    if (!view && slot.kind !== 'recommendation' && (slot.kind !== 'morning' || !morning)) continue;
     if (slot.kind === 'weekly' && !view?.research && !view?.strategy?.adaptive) continue;
     if (slot.kind === 'intraday' && (paused || !hasFreshPaperDecisions(view, now))) continue;
     const id = `paper:${slot.kind}:${date}${slot.kind === 'intraday' ? `:${slot.minute}` : ''}`;
     if (state.messages.some(item => item.id === id)) continue;
     const expiresAt = new Date(Date.parse(`${date}T00:00:00+09:00`) + (slot.minute + slot.graceMinutes) * MINUTE).toISOString();
+    if (slot.kind === 'recommendation') {
+      if (!recommendation) continue;
+      try {
+        const report = recommendation();
+        if (!report) continue;
+        enqueue(state, { id, kind: slot.kind, channel: ChannelSemantic.SIGNAL, message: report.message, createdAt: report.createdAt, expiresAt });
+        // An archived acknowledgment also prevents replay if the shorter-lived outbox was restored separately.
+        if (report.delivery) Object.assign(state.messages.find(item => item.id === id)!, {
+          state: 'SENT', sentAt: report.delivery.sentAt, messageId: report.delivery.messageId,
+        });
+      } catch (error) { console.error('[PaperBot] 아침 추천 보관 실패:', error instanceof Error ? error.message : String(error)); }
+      continue;
+    }
     const message = slot.kind === 'morning' && morning ? morning()
       : slot.kind === 'weekly' ? formatPaperResearch(view!, now)
         : slot.kind === 'intraday' ? formatPaperIntraday(view!, date, now)
@@ -189,17 +206,22 @@ function formatPaperHealth(health: PaperBotHealth, now: Date, view?: PaperExperi
   return `<b>Shadow 운영 ${health === 'OK' ? '복구' : health === 'PAUSED' ? '상태' : '확인 필요'}</b>\n${text[health]}${details}\n수집 상태 알림이며 시장 위험 신호가 아닙니다.\n/paper · /paper_bot`;
 }
 
-async function deliverPending(state: PaperBotState, now: Date, view?: PaperExperimentView, paused = false): Promise<void> {
-  const pending = state.messages.filter(item => item.state === 'PENDING' && Date.parse(item.nextAttemptAt) <= now.getTime()).slice(0, 3);
+async function deliverPending(state: PaperBotState, now: Date, view: PaperExperimentView | undefined, paused: boolean, wallStartedAt: number): Promise<void> {
+  const currentTime = () => new Date(now.getTime() + Math.max(0, Date.now() - wallStartedAt));
+  const urgent = (item: PaperBotMessage) => Number(item.kind === 'recommendation' && Date.parse(item.expiresAt) > now.getTime());
+  const pending = state.messages.filter(item => item.state === 'PENDING'
+    && (Date.parse(item.nextAttemptAt) <= now.getTime() || Date.parse(item.expiresAt) <= now.getTime()))
+    .sort((a, b) => urgent(b) - urgent(a)).slice(0, 3);
   for (const message of pending) {
-    if (Date.parse(message.expiresAt) <= now.getTime()) { message.state = 'EXPIRED'; savePaperBotState(state); continue; }
+    const attemptAt = message.kind === 'recommendation' ? currentTime() : now;
+    if (Date.parse(message.expiresAt) <= attemptAt.getTime()) { message.state = 'EXPIRED'; savePaperBotState(state); continue; }
     if (message.kind === 'intraday') {
       if (paused || !hasFreshPaperDecisions(view, now)) continue;
       message.message = formatPaperIntraday(view!, toKstDateKey(now), now);
     }
     message.attempts++;
-    message.lastAttemptAt = now.toISOString();
-    message.nextAttemptAt = new Date(now.getTime() + Math.min(15, 2 ** (message.attempts - 1)) * MINUTE).toISOString();
+    message.lastAttemptAt = attemptAt.toISOString();
+    message.nextAttemptAt = new Date(attemptAt.getTime() + Math.min(15, 2 ** (message.attempts - 1)) * MINUTE).toISOString();
     savePaperBotState(state);
     let messageId: number | undefined;
     try {
@@ -214,36 +236,65 @@ async function deliverPending(state: PaperBotState, now: Date, view?: PaperExper
       });
     } catch (error) { console.error('[PaperBot] 전송 실패:', error instanceof Error ? error.name : 'unknown error'); }
     if (typeof messageId === 'number' && Number.isFinite(messageId) && messageId > 0) {
-      message.state = 'SENT'; message.messageId = messageId; message.sentAt = now.toISOString(); delete message.error;
+      // Include collection/queue/transport elapsed time; a late acknowledgment cannot precede a trade entry.
+      message.state = 'SENT'; message.messageId = messageId;
+      message.sentAt = (message.kind === 'recommendation' ? currentTime() : now).toISOString(); delete message.error;
       if (message.health) state.notifiedHealth = message.health;
     } else {
       message.error = 'Telegram 메시지 ID 미확인';
       if (message.attempts >= 6) message.state = 'FAILED';
     }
     savePaperBotState(state);
+    if (message.kind === 'recommendation' && message.state === 'SENT') reconcileSentRecommendations(state, new Date(message.sentAt!));
   }
 }
 
+function reconcileSentRecommendations(state: PaperBotState, now: Date): void {
+  const messages = state.messages.filter(item => item.kind === 'recommendation' && /^paper:recommendation:\d{4}-\d{2}-\d{2}$/.test(item.id)
+    && item.state === 'SENT' && item.sentAt && Date.parse(item.sentAt) <= now.getTime() && (item.messageId ?? 0) > 0);
+  const identity = (item: PaperBotMessage) => `${item.id}:${item.sentAt}:${item.messageId}`;
+  const retained = new Set(messages.map(identity));
+  for (const key of confirmedMorningDeliveries) if (!retained.has(key)) confirmedMorningDeliveries.delete(key);
+  let changed = false;
+  for (const message of messages) {
+    const key = identity(message), date = message.id.slice('paper:recommendation:'.length);
+    if (confirmedMorningDeliveries.has(key)) continue;
+    try {
+      reconcilePaperMorningDelivery(date, message.sentAt!, message.messageId!);
+      confirmedMorningDeliveries.add(key);
+      if (message.error) { delete message.error; changed = true; }
+    } catch (error) {
+      console.error('[PaperBot] 추천 발송 확인 보관 재시도:', error instanceof Error ? error.message : String(error));
+      message.error = MORNING_ARCHIVE_ACK_ERROR; changed = true;
+    }
+  }
+  if (changed) savePaperBotState(state);
+}
+
 async function tick(now: Date): Promise<void> {
+  const wallStartedAt = Date.now();
   if (getTradingMode() !== 'SHADOW') return;
   const state = loadPaperBotState();
+  reconcileSentRecommendations(state, now);
   const paused = getAutoTradePaused();
   maintainGlobalMorningNews(now);
   let view: PaperExperimentView | undefined;
   try { view = getPaperExperimentView(true); }
   catch (error) { console.error('[PaperBot] 관측 원장 조회 실패:', error instanceof Error ? error.name : 'unknown error'); }
   enqueuePaperHealth(state, classifyPaperBotHealth(view, paused, now, processStartedAt, state.notifiedHealth), now, view);
-  enqueuePaperReports(state, view, now, () => recentPaperNews(now), () => getGlobalMorningMessage(now), paused);
+  enqueuePaperReports(state, view, now, () => recentPaperNews(now), () => getGlobalMorningMessage(now), paused,
+    () => getOrCreatePaperMorningReport(view, now, paused));
   if (view) {
     enqueuePaperTradeChanges(state, view, now);
     enqueuePaperResearchChanges(state, view, now);
     if (view.strategy && !view.strategy.error && !view.strategy.lastRun?.error) state.initializedAt ??= now.toISOString();
   }
   state.lastCheckedAt = now.toISOString();
-  state.messages = state.messages.filter(item => Date.parse(item.createdAt) >= now.getTime() - 14 * DAY);
+  state.messages = state.messages.filter(item => Date.parse(item.createdAt) >= now.getTime() - 14 * DAY
+    || (item.kind === 'recommendation' && item.state === 'SENT' && item.error === MORNING_ARCHIVE_ACK_ERROR));
   state.seenEvents = Object.fromEntries(Object.entries(state.seenEvents).filter(([, at]) => Date.parse(at) >= now.getTime() - 14 * DAY));
   savePaperBotState(state);
-  await deliverPending(state, now, view, paused);
+  await deliverPending(state, now, view, paused, wallStartedAt);
 }
 
 export function runPaperBotTick(now = new Date()): Promise<void> {

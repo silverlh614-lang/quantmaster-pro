@@ -139,6 +139,7 @@ function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
         <p className="sm:col-span-2">예정 종가 시각 {timestamp(trade.scheduledExitAt)} KST</p>
       </div>
       <p className="text-xs text-slate-400">진입 근거: {trade.entryDecision.reason}</p>
+      {trade.morningRecommendation && <p className="text-xs text-sky-200">08:30 추천 {trade.morningRecommendation.rank}순위 · {trade.morningRecommendation.purpose === 'VALIDATED' ? '검증 규칙 추천' : '탐색 추천 · 검증 전'} · {trade.morningRecommendation.matchesEntryRule ? '같은 규칙으로 가상 진입' : '다른 규칙으로 가상 진입'} · 추천 발송 {timestamp(trade.morningRecommendation.sentAt)} KST</p>}
       {measurement ? <div className="space-y-2 rounded-lg border border-slate-700/60 bg-slate-950/30 p-3 text-xs text-slate-300" role="group" aria-label="가상매수 이후 가격 관측">
         <p className="font-medium">가상매수 이후 가격 관측 · {measurement.pointCount.toLocaleString('ko-KR')}개 표본</p>
         <p>{measurement.fromEntry ? '진입부터 추적' : '진입 후 중간 추적 · 이전 구간 미기록'} · 추적 시작 {timestamp(measurement.startedAt)} KST</p>

@@ -8,7 +8,7 @@ import type { AlertCategory } from '../alerts/alertCategories.js';
 export type PaperBotHealth = 'OK' | 'PAUSED' | 'STALE' | 'UNAVAILABLE' | 'PRICE_MISSING' | 'STRATEGY_ERROR';
 export interface PaperBotMessage {
   id: string;
-  kind: 'morning' | 'intraday' | 'close' | 'weekly' | 'trades' | 'research' | 'health';
+  kind: 'recommendation' | 'morning' | 'intraday' | 'close' | 'weekly' | 'trades' | 'research' | 'health';
   message: string;
   /** Missing on existing records: preserve their original private delivery. */
   channel?: AlertCategory;
@@ -46,7 +46,7 @@ export function loadPaperBotState(): PaperBotState {
     || Object.values(state.seenEvents).some(at => typeof at !== 'string' || !Number.isFinite(Date.parse(at)))
     || state.messages.some(item => !item || typeof item.id !== 'string' || !item.id || typeof item.message !== 'string'
       || !['PENDING', 'SENT', 'FAILED', 'EXPIRED', 'SUPERSEDED'].includes(item.state)
-      || !['morning', 'intraday', 'close', 'weekly', 'trades', 'research', 'health'].includes(item.kind)
+      || !['recommendation', 'morning', 'intraday', 'close', 'weekly', 'trades', 'research', 'health'].includes(item.kind)
       || (item.channel !== undefined && !['TRADE', 'ANALYSIS', 'INFO', 'SYSTEM'].includes(item.channel))
       || ![item.createdAt, item.expiresAt, item.nextAttemptAt].every(at => Number.isFinite(Date.parse(at)))
       || !Number.isInteger(item.attempts) || item.attempts < 0

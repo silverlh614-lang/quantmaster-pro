@@ -12,6 +12,7 @@ import { paperAdaptiveRuleLabel } from '../../src/types/paperAdaptive.js';
 import { formatPaperAdaptiveSummary } from './paperResearchMessages.js';
 
 export const PAPER_BOT_SCHEDULES = [
+  { kind: 'recommendation', minute: 8 * 60 + 30, graceMinutes: 30, label: '매일 08:30 · 학습 기반 추천 · 휴장일 연구 현황' },
   { kind: 'morning', minute: 8 * 60 + 45, graceMinutes: 45, label: '거래일 08:45 · 해외 뉴스·국내 연관주' },
   { kind: 'intraday', minute: 10 * 60 + 30, graceMinutes: 45, label: '거래일 10:30 · 장중 판단·자율 연구' },
   { kind: 'intraday', minute: 13 * 60 + 30, graceMinutes: 45, label: '거래일 13:30 · 장중 판단·자율 연구' },
@@ -252,11 +253,14 @@ export function formatPaperBotStatus(state: PaperBotState): string {
     return `${label}: 성공 ${messages.filter(item => item.state === 'SENT').length} · 대기 ${messages.filter(item => item.state === 'PENDING').length} · 실패 ${messages.filter(item => item.state === 'FAILED').length}`;
   });
   return ['<b>Shadow 알림 봇</b>', ...PAPER_BOT_SCHEDULES.map(item => item.label), '매분 · 새 전략 진입/청산, 연구 변경, 관측 중단/복구 확인',
-    'CH1 매매: 진입·청산 / CH2 판단: 진입 근거·청산 복기·10:30/13:30 판단',
+    'CH1 매매: 진입·청산 / CH2 판단: 08:30 추천·진입 근거·청산 복기·10:30/13:30 판단',
     'CH3 정보: 08:45 준비 / CH4 연구: 지표 변경·16:10 성과·일요일 연구 / 개인 DM: 운영 상태', '',
     '관측 지연: 장중 10분·휴장/장외 60분, 진행률 확인 후 5분 지속 시 알림 · 같은 경고 최소 1시간 간격',
     `관측 상태 ${health}`,
     `마지막 점검 ${stamp(state.lastCheckedAt)}`, `마지막 확인된 발송 ${stamp(sent?.sentAt)}`,
     `최근 14일: 발송 대기 ${state.messages.filter(item => item.state === 'PENDING').length} · 실패 ${state.messages.filter(item => item.state === 'FAILED').length} · 만료 ${state.messages.filter(item => item.state === 'EXPIRED').length}`,
+    '08:30 추천 명단·근거·발송 원문은 날짜별로 별도 영구 보관합니다.',
+    ...(state.messages.some(item => item.kind === 'recommendation' && item.state === 'SENT' && item.error)
+      ? ['추천 발송 성공 · 영구 보관의 발송 확인 갱신 필요'] : []),
     ...delivery, 'Telegram 메시지 ID를 받은 경우에만 발송 성공으로 기록합니다.', '/paper · /paper_research'].join('\n');
 }

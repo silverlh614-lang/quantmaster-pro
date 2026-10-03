@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
 vi.mock('./paperResearchRuntime.js', async (original) => ({
   ...(await original<typeof import('./paperResearchRuntime.js')>()), getArchivedPaperBarCheck: () => state.archived,
 }));
+vi.mock('./paperMorningRuntime.js', () => ({ capturePaperMorningSource: vi.fn(), linkPaperMorningRecommendations: vi.fn() }));
 vi.mock('../../persistence/paperExperimentRepo.js', () => ({
   loadPaperExperimentLedger: state.loadBaseline, savePaperExperimentLedger: state.saveBaseline,
 }));
