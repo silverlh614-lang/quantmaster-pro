@@ -4,6 +4,8 @@ import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperStrategyTrade } from '../../src/types/paperStrategy.js';
 import type { PaperBotMessage, PaperBotState } from '../persistence/paperBotRepo.js';
 import { AlertCategory } from './alertCategories.js';
+import { matureAdaptiveSamples } from '../trading/paper/paperAdaptiveFixtures.js';
+import { selectPaperAdaptiveState } from '../trading/paper/paperAdaptiveSelection.js';
 
 const mocks = vi.hoisted(() => ({
   channel: vi.fn<(chat: string, message: string, options?: { disableNotification?: boolean }) => Promise<number | undefined>>(),
@@ -125,6 +127,28 @@ afterEach(() => {
 });
 
 describe('paper bot through the real four-channel router', () => {
+  it('routes fresh intraday decisions to CH2 and retries a new research update only on CH4', async () => {
+    const now = new Date('2026-09-18T10:30:00+09:00');
+    view.strategy!.adaptive = selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), now.toISOString());
+    view.strategy!.lastRun = { snapshotId: 'scan', asOf: now.toISOString(), openedCount: 0, closedCount: 0, waitingCount: 0, holdingCount: 0 };
+    await tick(now);
+    expect(mocks.channel.mock.calls.map(call => call[0])).toEqual([destinations.ANALYSIS]);
+    expect(persisted.messages[0]).toMatchObject({ kind: 'intraday', channel: 'ANALYSIS', state: 'SENT' });
+    const next = new Date(now.getTime() + 60_000);
+    view.strategy!.adaptive.evaluatedAt = next.toISOString();
+    view.strategy!.adaptive.changes.push({ at: next.toISOString(), feature: 'rsi14', from: null,
+      to: { feature: 'rsi14', bucket: 1, horizon: 3 }, reason: 'ACTIVE' });
+    mocks.channel.mockResolvedValueOnce(undefined);
+    await tick(next);
+    expect(persisted.messages.find(item => item.kind === 'research')).toMatchObject({ channel: 'SYSTEM', state: 'PENDING', attempts: 1 });
+    await tick(new Date(next.getTime() + 60_000));
+    expect(mocks.channel.mock.calls.map(call => call[0])).toEqual([destinations.ANALYSIS, destinations.SYSTEM, destinations.SYSTEM]);
+    expect(persisted.messages.find(item => item.kind === 'research')).toMatchObject({ state: 'SENT', messageId: 101, attempts: 2 });
+    expect(mocks.channel).toHaveBeenLastCalledWith(destinations.SYSTEM, expect.any(String), { disableNotification: true });
+    expect(mocks.private).not.toHaveBeenCalled();
+    await tick(new Date(next.getTime() + 120_000));
+    expect(mocks.channel).toHaveBeenCalledTimes(3);
+  });
   it('routes scheduled reports and strategy events to all four channels without digest buffering', async () => {
     await tick(new Date('2026-09-14T08:45:00+09:00'));
     await tick(new Date('2026-09-14T16:10:00+09:00'));

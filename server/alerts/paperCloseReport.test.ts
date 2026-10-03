@@ -9,6 +9,7 @@ import { selectPaperAdaptiveState } from '../trading/paper/paperAdaptiveSelectio
 import { recordPaperNewsFacts, assessPaperNews } from '../trading/paper/paperNewsAssessment.js';
 import { summarizePaperNews } from '../../src/utils/paperNews.js';
 import { formatPaperCloseReport } from './paperCloseReport.js';
+import { formatPaperAdaptiveSummary } from './paperResearchMessages.js';
 
 const date = '2026-09-21';
 const now = new Date(`${date}T16:10:00+09:00`);
@@ -105,6 +106,25 @@ describe('Shadow closing summary', () => {
     expect(report(view)).not.toContain('오늘 지표 변경');
     expect(report(view)).not.toContain('지표 자동 연결');
   });
+  it('separates invented formula creation and retirement from actual buy-rule connections', () => {
+    const view = viewFixture(), samples = matureAdaptiveSamples();
+    for (const item of samples) {
+      const index = Number(item.symbol.slice(-1));
+      item.entryObservation.features!.values.rsi14 = index % 4 < 2 ? 20 : 80;
+      item.entryObservation.features!.values.volumeRatio20 = [0, 1, 6, 7].includes(index) ? 0.25 : 1.75;
+    }
+    view.strategy!.adaptive = selectPaperAdaptiveState(undefined, samples, `${date}T01:00:00Z`);
+    const state = view.strategy!.adaptive;
+    expect(state.discovery!.inventions).toHaveLength(2);
+    const original = state.changes[0].to!;
+    state.changes.push({ at: `${date}T02:00:00Z`, feature: original.feature,
+      from: structuredClone(original), to: null, reason: 'DISCOVERY_RETIRED' });
+    const text = report(view);
+    expect(text).toContain('오늘 수식 연구: 생성 2 · 연구 종료 1');
+    expect(text).not.toContain('오늘 지표 변경: 연결 2');
+    expect(text).toContain(formatPaperAdaptiveSummary(view, now).join('\n'));
+    expect(text.length).toBeLessThanOrEqual(3500);
+  });
   it('separates scheduled exit dates from the later day their prices became available', () => {
     const initial = adaptiveTestSnapshot();
     const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), initial, strategyTestCost,
@@ -120,6 +140,7 @@ describe('Shadow closing summary', () => {
     const view = viewFixture(); view.strategy = buildPaperStrategyView(result);
     expect(report(view)).toContain('오늘 진입 0건 · 오늘 평가일 청산 1건 · 보유 0건');
     expect(report(view)).toContain('오늘 청산 평균 0.00% · 누적 1건 0.00%');
+    expect(report(view)).toContain('현행 자율 전략 가상 청산 1건 · 평균 순수익률 0.00% (구전략 제외)');
     const nextDay = formatPaperCloseReport(view, '2026-09-22', new Date('2026-09-22T16:10:00+09:00'));
     expect(nextDay).toContain('오늘 평가일 청산 0건');
   });

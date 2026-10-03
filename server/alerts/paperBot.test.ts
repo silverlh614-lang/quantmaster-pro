@@ -299,6 +299,6 @@ describe('signal and learning linkage', () => {
     expect(text).toContain('후반 확인 40건/10진입일 · 평균 순수익률 +9.00%');
     expect(text).toContain('해당 시그널 청산 순수익률 -2.00%');
     expect(text).toContain('005930 · 2026-09-18');
-    expect(formatPaperBotStatus(persisted)).toContain('signal: 진입·청산');
+    expect(formatPaperBotStatus(persisted)).toContain('CH1 매매: 진입·청산');
   });
 });

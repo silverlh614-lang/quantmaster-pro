@@ -12,6 +12,8 @@ import { PAPER_BOT_SCHEDULES, formatPaperReport, formatPaperResearch, formatPape
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import { isPaperMarketOpen } from '../trading/paper/paperExperimentCollector.js';
 import { maintainGlobalMorningNews, getGlobalMorningMessage } from './globalNewsRuntime.js';
+import { formatPaperIntraday, formatPaperResearchChanges } from './paperResearchMessages.js';
+import type { PaperAdaptiveRule, PaperAdaptiveState } from '../../src/types/paperAdaptive.js';
 
 const MINUTE = 60_000;
 const DAY = 86_400_000;
@@ -31,7 +33,7 @@ function enqueue(state: PaperBotState, message: Omit<PaperBotMessage, 'state' | 
   if (!state.messages.some(item => item.id === message.id)) state.messages.push({ ...message, state: 'PENDING', attempts: 0, nextAttemptAt: message.createdAt });
 }
 
-export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentView | undefined, now: Date, news: () => string[] = () => [], morning?: () => string | null): void {
+export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentView | undefined, now: Date, news: () => string[] = () => [], morning?: () => string | null, paused = false): void {
   const date = toKstDateKey(now);
   const kst = new Date(now.getTime() + 9 * 3_600_000);
   const minute = kst.getUTCHours() * 60 + kst.getUTCMinutes();
@@ -40,16 +42,60 @@ export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentV
     if (!eligibleDay || minute < slot.minute || minute >= slot.minute + slot.graceMinutes) continue;
     // A loading report is retried next minute instead of consuming the weekly slot.
     if (!view && (slot.kind !== 'morning' || !morning)) continue;
-    if (slot.kind === 'weekly' && !view?.research) continue;
-    const id = `paper:${slot.kind}:${date}`;
+    if (slot.kind === 'weekly' && !view?.research && !view?.strategy?.adaptive) continue;
+    if (slot.kind === 'intraday' && (paused || !hasFreshPaperDecisions(view, now))) continue;
+    const id = `paper:${slot.kind}:${date}${slot.kind === 'intraday' ? `:${slot.minute}` : ''}`;
     if (state.messages.some(item => item.id === id)) continue;
     const expiresAt = new Date(Date.parse(`${date}T00:00:00+09:00`) + (slot.minute + slot.graceMinutes) * MINUTE).toISOString();
     const message = slot.kind === 'morning' && morning ? morning()
-      : slot.kind === 'weekly' ? formatPaperResearch(view!) : formatPaperReport(view!, slot.kind, date, slot.kind === 'morning' ? news() : [], now);
+      : slot.kind === 'weekly' ? formatPaperResearch(view!, now)
+        : slot.kind === 'intraday' ? formatPaperIntraday(view!, date, now)
+          : formatPaperReport(view!, slot.kind, date, slot.kind === 'morning' ? news() : [], now);
     if (!message) continue;
-    const channel = slot.kind === 'morning' ? ChannelSemantic.REGIME : ChannelSemantic.JOURNAL;
+    const channel = slot.kind === 'morning' ? ChannelSemantic.REGIME
+      : slot.kind === 'intraday' ? ChannelSemantic.SIGNAL : ChannelSemantic.JOURNAL;
     enqueue(state, { id, kind: slot.kind, channel, message, createdAt: now.toISOString(), expiresAt });
   }
+}
+
+function hasFreshPaperDecisions(view: PaperExperimentView | undefined, now: Date): boolean {
+  if (!view?.lastRun?.marketOpen || !view.strategy?.lastRun || view.strategy.error || view.strategy.lastRun.error
+    || view.strategy.lastRun.snapshotId !== view.lastRun.snapshotId) return false;
+  return [view.lastRun.asOf, view.strategy.lastRun.asOf].every(at => {
+    const age = now.getTime() - Date.parse(at);
+    return age >= 0 && age <= 10 * MINUTE && toKstDateKey(at) === toKstDateKey(now);
+  });
+}
+
+function researchEventId(change: PaperAdaptiveState['changes'][number]): string {
+  const rule = (value: PaperAdaptiveRule | null) => value && [value.feature, value.bucket, value.horizon, value.invention?.createdAt];
+  return `research:${createHash('sha256').update(JSON.stringify([change.at, change.feature, rule(change.from), rule(change.to), change.reason])).digest('hex').slice(0, 24)}`;
+}
+
+export function enqueuePaperResearchChanges(state: PaperBotState, view: PaperExperimentView, now: Date): void {
+  const strategy = view.strategy, adaptive = strategy?.adaptive;
+  if (!strategy || strategy.error || strategy.lastRun?.error) return;
+  if (adaptive && !(Date.parse(adaptive.evaluatedAt) <= now.getTime())) return;
+  const events = (adaptive?.changes ?? []).filter(change => {
+    const at = Date.parse(change.at);
+    return at >= now.getTime() - DAY && at <= now.getTime() && at <= Date.parse(adaptive!.evaluatedAt);
+  }).map(change => ({ change, id: researchEventId(change) })).sort((a, b) => a.change.at.localeCompare(b.change.at));
+  if (!state.researchInitializedAt) {
+    for (const event of events) state.seenEvents[event.id] = event.change.at;
+    state.researchInitializedAt = now.toISOString();
+    return;
+  }
+  const added = events.filter(event => !state.seenEvents[event.id] && Date.parse(event.change.at) >= Date.parse(state.researchInitializedAt!));
+  for (let offset = 0; offset < added.length;) {
+    const batch = added.slice(offset, offset + 3);
+    while (batch.length > 1 && formatPaperResearchChanges(adaptive!, batch.map(item => item.change), now).length > 3500) batch.pop();
+    offset += batch.length;
+    const hash = createHash('sha256').update(batch.map(item => item.id).sort().join('|')).digest('hex').slice(0, 20);
+    enqueue(state, { id: `paper:research:${hash}`, kind: 'research', channel: ChannelSemantic.JOURNAL,
+      message: formatPaperResearchChanges(adaptive!, batch.map(item => item.change), now),
+      createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 6 * 3_600_000).toISOString() });
+  }
+  for (const event of events) state.seenEvents[event.id] = event.change.at;
 }
 
 export function enqueuePaperTradeChanges(state: PaperBotState, view: PaperExperimentView, now: Date): void {
@@ -134,7 +180,7 @@ function formatPaperHealth(health: PaperBotHealth, now: Date, view?: PaperExperi
     STALE: `${isPaperMarketOpen(now) ? '장중 10분' : '휴장·장외 60분'} 넘게 완료된 관측이 없고 수집 진행을 정상으로 확인하지 못했습니다.`,
     UNAVAILABLE: 'Shadow 원장을 읽지 못했습니다. 서버 저장 자료 확인이 필요합니다.',
     PRICE_MISSING: '장중 최근 관측에서 현재가를 확인한 종목이 없습니다. 가격 공급 상태를 확인하세요.',
-    STRATEGY_ERROR: '뉴스·추세 전략 기록 갱신에 오류가 있습니다. 최근 스캔 오류를 확인하세요.',
+    STRATEGY_ERROR: '자율 지표 전략 기록 갱신에 오류가 있습니다. 최근 스캔 오류를 확인하세요.',
   };
   const progress = view?.collection;
   const stamp = (at?: string) => at && Number.isFinite(Date.parse(at))
@@ -143,10 +189,14 @@ function formatPaperHealth(health: PaperBotHealth, now: Date, view?: PaperExperi
   return `<b>Shadow 운영 ${health === 'OK' ? '복구' : health === 'PAUSED' ? '상태' : '확인 필요'}</b>\n${text[health]}${details}\n수집 상태 알림이며 시장 위험 신호가 아닙니다.\n/paper · /paper_bot`;
 }
 
-async function deliverPending(state: PaperBotState, now: Date): Promise<void> {
+async function deliverPending(state: PaperBotState, now: Date, view?: PaperExperimentView, paused = false): Promise<void> {
   const pending = state.messages.filter(item => item.state === 'PENDING' && Date.parse(item.nextAttemptAt) <= now.getTime()).slice(0, 3);
   for (const message of pending) {
     if (Date.parse(message.expiresAt) <= now.getTime()) { message.state = 'EXPIRED'; savePaperBotState(state); continue; }
+    if (message.kind === 'intraday') {
+      if (paused || !hasFreshPaperDecisions(view, now)) continue;
+      message.message = formatPaperIntraday(view!, toKstDateKey(now), now);
+    }
     message.attempts++;
     message.lastAttemptAt = now.toISOString();
     message.nextAttemptAt = new Date(now.getTime() + Math.min(15, 2 ** (message.attempts - 1)) * MINUTE).toISOString();
@@ -177,21 +227,23 @@ async function deliverPending(state: PaperBotState, now: Date): Promise<void> {
 async function tick(now: Date): Promise<void> {
   if (getTradingMode() !== 'SHADOW') return;
   const state = loadPaperBotState();
+  const paused = getAutoTradePaused();
   maintainGlobalMorningNews(now);
   let view: PaperExperimentView | undefined;
   try { view = getPaperExperimentView(true); }
   catch (error) { console.error('[PaperBot] 관측 원장 조회 실패:', error instanceof Error ? error.name : 'unknown error'); }
-  enqueuePaperHealth(state, classifyPaperBotHealth(view, getAutoTradePaused(), now, processStartedAt, state.notifiedHealth), now, view);
-  enqueuePaperReports(state, view, now, () => recentPaperNews(now), () => getGlobalMorningMessage(now));
+  enqueuePaperHealth(state, classifyPaperBotHealth(view, paused, now, processStartedAt, state.notifiedHealth), now, view);
+  enqueuePaperReports(state, view, now, () => recentPaperNews(now), () => getGlobalMorningMessage(now), paused);
   if (view) {
     enqueuePaperTradeChanges(state, view, now);
+    enqueuePaperResearchChanges(state, view, now);
     if (view.strategy && !view.strategy.error && !view.strategy.lastRun?.error) state.initializedAt ??= now.toISOString();
   }
   state.lastCheckedAt = now.toISOString();
   state.messages = state.messages.filter(item => Date.parse(item.createdAt) >= now.getTime() - 14 * DAY);
   state.seenEvents = Object.fromEntries(Object.entries(state.seenEvents).filter(([, at]) => Date.parse(at) >= now.getTime() - 14 * DAY));
   savePaperBotState(state);
-  await deliverPending(state, now);
+  await deliverPending(state, now, view, paused);
 }
 
 export function runPaperBotTick(now = new Date()): Promise<void> {

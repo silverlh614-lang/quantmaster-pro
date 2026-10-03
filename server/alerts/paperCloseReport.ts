@@ -5,6 +5,7 @@ import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate } from '../trading/krxHolidays.js';
 import { PAPER_NEWS_LABELS } from '../../src/utils/paperNews.js';
 import { readPaperNewsFacts } from '../../src/utils/paperNewsFacts.js';
+import { formatPaperAdaptiveSummary } from './paperResearchMessages.js';
 
 const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const num = (value: number) => value.toLocaleString('ko-KR');
@@ -53,7 +54,7 @@ function baselineLines(view: PaperExperimentView, date: string, cutoff: number):
 }
 
 function strategyLines(view: PaperExperimentView, date: string, cutoff: number): string[] {
-  const lines = ['<b>2. 전략 가상 매매</b>'];
+  const lines = ['<b>2. 전체 전략 가상 매매 · 구전략 포함</b>'];
   const strategy = view.strategy;
   if (!strategy || strategy.error || strategy.lastRun?.error) return [...lines, '전략 기록 확인 필요 · 기본 관측 성과는 별도 집계'];
   if (strategy.trades.length === strategy.totalCount) {
@@ -66,8 +67,6 @@ function strategyLines(view: PaperExperimentView, date: string, cutoff: number):
     const held = trades.filter(item => !exited(item));
     lines.push(`오늘 진입 ${num(entered.length)}건 · 오늘 평가일 청산 ${num(today.length)}건 · 보유 ${num(held.length)}건`,
       `오늘 청산 평균 ${pct(mean(today.map(item => item.exit!.netReturnPct)))} · 누적 ${num(closed.length)}건 ${pct(mean(closed.map(item => item.exit!.netReturnPct)))}`);
-    const autonomous = closed.filter(item => item.strategyVersion === 'adaptive-features-v1');
-    if (strategy.adaptive && Date.parse(strategy.adaptive.evaluatedAt) <= cutoff) lines.push(`자율 판단 도입 후 가상 청산 ${num(autonomous.length)}건 · 평균 ${pct(mean(autonomous.map(item => item.exit!.netReturnPct)))}`);
     if (entered.length) lines.push(`진입: ${entered.slice(0, 3).map(item => escape(item.name.slice(0, 20))).join(', ')}${entered.length > 3 ? ` 외 ${entered.length - 3}종목` : ''}`);
     const late = closed.filter(item => toKstDateKey(item.exit!.decisionAt) === date && toKstDateKey(item.exit!.effectiveAt) < date).length;
     if (late) lines.push(`과거 예약일 청산을 오늘 추가 확인 ${late}건`);
@@ -78,9 +77,12 @@ function strategyLines(view: PaperExperimentView, date: string, cutoff: number):
   } else lines.push('전체 전략 원장 미조회 · 오늘 진입·청산 건수 확인 필요');
   const adaptive = strategy.adaptive;
   if (adaptive && Date.parse(adaptive.evaluatedAt) <= cutoff) {
-    lines.push(`지표 자동 연결 ${adaptive.candidates.filter(item => item.active).length}개 · 평가 ${stamp(adaptive.evaluatedAt)} · 성숙 관측 ${num(adaptive.matureSampleCount)}건/${adaptive.matureDateCount}진입일`);
     const changes = adaptive.changes.filter(item => toKstDateKey(item.at) === date && Date.parse(item.at) <= cutoff);
-    if (changes.length) lines.push(`오늘 지표 변경: 연결 ${changes.filter(item => !item.from && item.to).length} · 해제 ${changes.filter(item => item.from && !item.to).length} · 교체 ${changes.filter(item => item.from && item.to).length}`);
+    const connections = changes.filter(item => item.reason !== 'FORWARD_OBSERVATION' && item.reason !== 'DISCOVERY_RETIRED');
+    if (connections.length) lines.push(`오늘 지표 변경: 연결 ${connections.filter(item => !item.from && item.to).length} · 해제 ${connections.filter(item => item.from && !item.to).length} · 교체 ${connections.filter(item => item.from && item.to).length}`);
+    const created = changes.filter(item => item.reason === 'FORWARD_OBSERVATION' && !item.from && item.to).length;
+    const retired = changes.filter(item => item.reason === 'DISCOVERY_RETIRED').length;
+    if (created || retired) lines.push(`오늘 수식 연구: 생성 ${created} · 연구 종료 ${retired}`);
     if (strategy.trades.some(item => item.strategyVersion !== 'adaptive-features-v1')) lines.push('전략 누적 성과에는 기존 뉴스·추세 거래 이력이 포함됩니다.');
   }
   const session = strategy.lastMarketSession;
@@ -148,10 +150,17 @@ export function formatPaperCloseReport(view: PaperExperimentView, date: string, 
   if (last) lines.push(`가격 확인 ${num(last.observedCount)}/${num(last.candidateCount)}종목 · 미확인 ${num(last.missingPriceCount)}`);
   if (view.collection) lines.push(`다음 수집 진행 ${num(view.collection.completed)}/${num(view.collection.total)}종목`);
   lines.push('', ...baselineLines(view, date, cutoff), '', ...strategyLines(view, date, cutoff));
+  lines.push('', ...formatPaperAdaptiveSummary(view, new Date(cutoff)));
   const news = newsLines(view, date, cutoff);
   lines.push('', ...news.lines);
   const footer = '\n\n성과는 평가일 종가 기준 독립 실험 평균입니다. 계좌 수익률이 아닙니다.\n뉴스·수급은 연구 자료이며 매수 확정 근거가 아닙니다.\n/paper · /paper_research · /paper_bot';
-  let message = lines.join('\n');
+  let message = '';
+  const omitted = '\n일부 상세는 대시보드에서 확인하세요.';
+  for (const line of lines) {
+    const next = message ? `${message}\n${line}` : line;
+    if (next.length + footer.length + omitted.length > 3500) { message += omitted; break; }
+    message = next;
+  }
   for (const headline of news.highlights) if (message.length + headline.length + footer.length + 2 <= 3500) message += `\n\n${headline}`;
   return message + footer;
 }

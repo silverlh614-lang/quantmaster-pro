@@ -39,6 +39,25 @@ describe('bot persistence', () => {
     fs.writeFileSync(repo.PAPER_BOT_FILE, JSON.stringify({ ...state, messages: [{ ...source, channel: 'UNKNOWN' }] }));
     expect(() => repo.loadPaperBotState()).toThrow('PAPER_BOT_STATE_INVALID');
   });
+  it('persists research baselines and new report kinds without upgrading legacy records', async () => {
+    const initializedAt = '2026-09-18T01:30:00Z';
+    const state: import('./paperBotRepo.js').PaperBotState = { schemaVersion: 1, initializedAt,
+      lastCheckedAt: null, health: 'OK', notifiedHealth: 'OK', seenEvents: {}, messages: [] };
+    repo.savePaperBotState(state);
+    expect(repo.loadPaperBotState().researchInitializedAt).toBeUndefined();
+    state.researchInitializedAt = initializedAt;
+    state.seenEvents['research:example'] = initializedAt;
+    for (const kind of ['research', 'intraday'] as const) state.messages.push({ id: `paper:${kind}:test`, kind,
+      channel: kind === 'research' ? 'SYSTEM' as import('../alerts/alertCategories.js').AlertCategory : 'ANALYSIS' as import('../alerts/alertCategories.js').AlertCategory,
+      message: '새 보고', state: 'PENDING', attempts: 0, createdAt: initializedAt,
+      nextAttemptAt: initializedAt, expiresAt: '2026-09-18T07:00:00Z' });
+    repo.savePaperBotState(state); vi.resetModules(); repo = await import('./paperBotRepo.js');
+    expect(repo.loadPaperBotState()).toEqual(state);
+    for (const researchInitializedAt of ['invalid', 1, null]) {
+      fs.writeFileSync(repo.PAPER_BOT_FILE, JSON.stringify({ ...state, researchInitializedAt }));
+      expect(() => repo.loadPaperBotState()).toThrow('PAPER_BOT_STATE_INVALID');
+    }
+  });
   it('does not erase a corrupt ledger and replay notifications', () => {
     fs.writeFileSync(repo.PAPER_BOT_FILE, '{broken');
     expect(() => repo.loadPaperBotState()).toThrow();

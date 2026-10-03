@@ -14,12 +14,10 @@
 
 ## 다음 발급
 
-**다음 ADR 번호: `0684`**
-(2026-10-03 기준, 마지막 발급 0683 — Shadow 지표 수식의 생성과 지속 연구.)
+**다음 ADR 번호: `0685`**
+(2026-10-03 기준, 마지막 발급 0684 — Shadow 채널의 장중 판단과 자율 연구 보고.)
 
-
-
-최근 발급: 2026-10-03, [0683 — Shadow 지표 수식의 생성과 지속 연구](0683-autonomous-shadow-indicator-discovery.md), Accepted.
+최근 발급: 2026-10-03, [0684 — Shadow 채널의 장중 판단과 자율 연구 보고](0684-shadow-channel-research-updates.md), Accepted.
 
 상세 결정은 해당 ADR, 과거 구현 내역은 Git에서 조회한다. 이 파일에는 발급 번호와 검색 목록만 남긴다.
 
@@ -92,6 +90,7 @@
 ## 전체 인덱스
 
 | 번호 | 제목 | 도메인 |
+| 0684 | Shadow 채널의 장중 판단과 자율 연구 보고 | telegram |
 | 0682 | Shadow 지표의 자율 연결·해제·재채택 | shadow |
 | 0683 | Shadow 지표 수식의 생성과 지속 연구 | shadow |
 | 0681 | Shadow 관측 원장 분리 | learning |
