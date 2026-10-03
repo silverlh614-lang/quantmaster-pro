@@ -91,6 +91,48 @@ export interface PaperStrategyExit {
   decision: PaperStrategyDecision;
 }
 
+/** A sampled price is not the market's exact high, low, or an executable sell signal. */
+export interface PaperTradeMeasurementPoint {
+  snapshotId: string;
+  kind: 'ENTRY' | 'QUOTE' | 'SCHEDULED_CLOSE';
+  effectiveAt: string;
+  observedAt: string;
+  recordedAt: string;
+  price: number;
+  source: string;
+  netReturnPct: number;
+  netPnl: number;
+  action: 'BUY' | 'HOLD' | 'EXIT';
+  reasonCode: PaperStrategyReasonCode;
+  ruleValue: number | null;
+  ruleMatches: boolean | null;
+  ruleConnected: boolean | null;
+  featureAsOf: string | null;
+}
+
+export interface PaperTradeMeasurement {
+  version: 'observed-trade-path-v1';
+  startedAt: string;
+  fromEntry: boolean;
+  pointCount: number;
+  latest: PaperTradeMeasurementPoint;
+  highest: PaperTradeMeasurementPoint;
+  lowest: PaperTradeMeasurementPoint;
+}
+
+export interface PaperTradeMeasurementRow extends PaperTradeMeasurementPoint {
+  tradeId: string;
+  entrySnapshotId: string;
+}
+
+export interface PaperTradeMeasurementHistory {
+  lastRecordedAt: string | null;
+  failedBatchCount: number | null;
+  /** Conservative storage confirmation gap; null when the status cannot be read. */
+  unrecordedPointCount: number | null;
+  error?: string;
+}
+
 export interface PaperStrategyTrade {
   id: string;
   strategyVersion: PaperStrategyVersion;
@@ -110,6 +152,7 @@ export interface PaperStrategyTrade {
   scheduledExitDate: string;
   scheduledExitAt: string;
   exit: PaperStrategyExit | null;
+  measurement?: PaperTradeMeasurement;
 }
 
 export interface PaperStrategyScanResult {
@@ -182,5 +225,6 @@ export interface PaperStrategyView {
   latestDecisions: PaperStrategyDecision[];
   trades: PaperStrategyTrade[];
   selection?: PaperStrategySelection;
+  measurementHistory?: PaperTradeMeasurementHistory;
   error?: string;
 }

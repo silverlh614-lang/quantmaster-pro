@@ -166,6 +166,24 @@ const COHORT_LABELS: Record<PaperStrategyCohort, string> = {
   NEWS_ABSENT_ABOVE_MA20: '최근 뉴스 미관측 · 20일선 위', NEWS_ABSENT_BELOW_MA20: '최근 뉴스 미관측 · 20일선 아래',
 };
 
+function measuredExitLines(trade: PaperStrategyTrade, reportedAt: string): string[] {
+  const measurement = trade.measurement, exit = trade.exit;
+  if (!measurement || !exit) return ['보유 중 가격 측정 미기록 · 관측 최고 대비 청산 차이 미집계'];
+  const cutoff = Date.parse(reportedAt), end = Date.parse(exit.effectiveAt), start = Date.parse(trade.entryAt);
+  const points = [measurement.latest, measurement.highest, measurement.lowest];
+  if (!points.every(point => Date.parse(point.effectiveAt) >= start && Date.parse(point.effectiveAt) <= end
+    && (point.kind === 'ENTRY'
+      ? Date.parse(point.observedAt) <= Date.parse(point.effectiveAt) && Date.parse(point.effectiveAt) === Date.parse(point.recordedAt)
+      : Date.parse(point.effectiveAt) <= Date.parse(point.observedAt) && Date.parse(point.observedAt) <= Date.parse(point.recordedAt))
+    && Date.parse(point.recordedAt) <= cutoff)) return ['청산 시점에 확인 가능한 가격 측정 기록 없음 · 경로 비교 미집계'];
+  return [`보유 중 관측 ${num(measurement.pointCount)}개 · 추적 시작 ${stamp(measurement.startedAt)} KST`,
+    ...(measurement.fromEntry ? [] : ['진입 후 중간 추적 · 이전 구간 미기록']),
+    ...([['최근', measurement.latest], ['관측 최고', measurement.highest], ['관측 최저', measurement.lowest]] as const).map(([label, point]) =>
+      `${label} ${pct(point.netReturnPct)} · ${num(point.price)}원 · 가격 ${stamp(point.effectiveAt)} / 관측 ${stamp(point.observedAt)} / 기록 ${stamp(point.recordedAt)} KST`),
+    `관측 최고 순수익 − 청산 순수익 ${(measurement.highest.netReturnPct - exit.netReturnPct).toFixed(2)}%p${measurement.fromEntry ? '' : ' · 중간 추적 구간 기준'}`,
+    '수집된 가격 기준이며 실제 장중 최고·최저나 최적 매도점은 아닙니다.'];
+}
+
 /** Only entry-frozen evidence and the matching exit; never re-evaluate a signal. */
 export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
   const lines = ['<b>Shadow 시그널 근거·성과</b>', '가상 실험 · 실제 주문 없음'];
@@ -217,7 +235,7 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
         ...(facts.relationship === 'DIRECT' ? [`사건 ${PAPER_NEWS_EVENT_LABELS[facts.event]} · 접수일 ${escape(facts.filedDate ?? '미확인')}`,
           `최초 확인 ${stamp(facts.firstSeenAt)} · 원문 ${facts.sourceUrl}`] : []));
     }
-    if (event.side === 'EXIT') lines.push(`해당 시그널 청산 순수익률 ${pct(trade.exit?.netReturnPct)} · 결과는 전략 원장에 별도 누적`);
+    if (event.side === 'EXIT') lines.push(`해당 시그널 청산 순수익률 ${pct(trade.exit?.netReturnPct)} · 결과는 전략 원장에 별도 누적`, ...measuredExitLines(trade, event.at));
   }
   lines.push('', '관측 표본의 과거 평균이며 개별 종목의 수익 예측이 아닙니다.',
     '뉴스 방향은 공시 제목의 추정 분류로 별도 성과를 관측하며, 현재 진입 조건에는 미반영입니다.',

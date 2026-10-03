@@ -126,6 +126,7 @@ function DecisionCard({ decision, policy }: { decision: PaperStrategyDecision; p
 }
 
 function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
+  const measurement = trade.measurement;
   return (
     <article className="space-y-3 rounded-xl border border-slate-700/60 bg-slate-900/40 p-4" aria-label={`${trade.name} 전략 거래`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -138,6 +139,14 @@ function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
         <p className="sm:col-span-2">예정 종가 시각 {timestamp(trade.scheduledExitAt)} KST</p>
       </div>
       <p className="text-xs text-slate-400">진입 근거: {trade.entryDecision.reason}</p>
+      {measurement ? <div className="space-y-2 rounded-lg border border-slate-700/60 bg-slate-950/30 p-3 text-xs text-slate-300" role="group" aria-label="가상매수 이후 가격 관측">
+        <p className="font-medium">가상매수 이후 가격 관측 · {measurement.pointCount.toLocaleString('ko-KR')}개 표본</p>
+        <p>{measurement.fromEntry ? '진입부터 추적' : '진입 후 중간 추적 · 이전 구간 미기록'} · 추적 시작 {timestamp(measurement.startedAt)} KST</p>
+        {([['최근 관측', measurement.latest], ['관측 최고 순수익', measurement.highest], ['관측 최저 순수익', measurement.lowest]] as const).map(([label, point]) =>
+          <div key={label} className="space-y-1"><p>{label} {percent(point.netReturnPct)} · {point.price.toLocaleString('ko-KR')}원</p>
+            <p className="text-slate-400">가격 기준 {timestamp(point.effectiveAt)} KST · 관측 {timestamp(point.observedAt)} KST · 기록 {timestamp(point.recordedAt)} KST</p></div>)}
+        <p className="text-slate-400">진입 당시 비용을 반영한 가상 청산 순수익입니다. 수집된 가격의 범위이며 실제 장중 최고·최저나 최적 매도점은 아닙니다.</p>
+      </div> : <p className="text-xs text-slate-400">{trade.exit ? '보유 중 가격 측정 미기록' : '가격 측정 대기 · 휴장·장외에는 새 측정 없이 유효한 관측 또는 예정 종가 확인을 기다립니다.'}</p>}
       <PaperNewsDetails summary={summarizePaperNews(trade.entryObservation.news, trade.entryAt, trade.policy.newsLookbackHours)} />
       <PaperInvestorFlowDetails flow={trade.entryObservation.investorFlow} />
       {trade.exit ? (
@@ -146,6 +155,7 @@ function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
           <p>청산 근거: {trade.exit.decision.reason}</p>
           <p>평가 종가 시각 {timestamp(trade.exit.effectiveAt)} KST · 종가 {trade.exit.price.toLocaleString('ko-KR')}원</p>
           <p>종가 확인 시각 {timestamp(trade.exit.observedAt)} KST</p>
+          <p>{measurement ? `관측 최고 순수익 − 청산 순수익 ${(measurement.highest.netReturnPct - trade.exit.netReturnPct).toFixed(2)}%p${measurement.fromEntry ? '' : ' · 중간 추적 구간 기준'}` : '관측 최고 대비 청산 차이 미집계 · 보유 중 측정 미기록'}</p>
         </div>
       ) : <p className="text-xs text-sky-200">진입 시 정한 날짜의 종가 확인까지 보유합니다. 청산 순손익은 집계 대기입니다.</p>}
       {trade.entryDecision.evidence && <Evidence evidence={trade.entryDecision.evidence} policy={trade.policy} />}
@@ -162,6 +172,9 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
   const [decisionPage, setDecisionPage] = useState(0);
   const [tradePage, setTradePage] = useState(0);
   const unavailable = Boolean(view.error || view.lastRun?.error);
+  const history = view.measurementHistory;
+  const measurementWarning = history && (history.error || history.failedBatchCount === null || history.unrecordedPointCount === null
+    || history.failedBatchCount > 0 || history.unrecordedPointCount > 0);
   const adaptive = view.strategyVersion === 'adaptive-features-v1';
   const adaptivePerformance = view.performanceByVersion?.['adaptive-features-v1'];
   const matchingDecisions = useMemo(() => [...view.latestDecisions].filter(item => (action === 'ALL' || item.action === action) && `${item.name} ${item.symbol}`.toLowerCase().includes(search.trim().toLowerCase())).sort((a, b) => b.decisionAt.localeCompare(a.decisionAt)), [view.latestDecisions, action, search]);
@@ -176,6 +189,10 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
         <p role="alert" className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">전략 기록 확인 불가 · 판단과 성과를 불러오지 못했습니다. 기본 관측은 별도로 확인할 수 있습니다.</p>
       ) : (
         <>
+          {measurementWarning && history && <p role="status" className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
+            상세 가격 기록 확인 필요 · 누적 저장 실패 {history.failedBatchCount === null ? '집계 확인 불가' : `${history.failedBatchCount}회`}
+            {' · '}상세 저장 미확인 {history.unrecordedPointCount === null ? '집계 확인 불가' : `${history.unrecordedPointCount}개`}
+            {' · '}마지막 상세 저장 {history.lastRecordedAt ? `${timestamp(history.lastRecordedAt)} KST` : history.failedBatchCount === null || history.unrecordedPointCount === null ? '확인 불가' : '기록 없음'}{history.error ? ` · ${history.error}` : ''}</p>}
           <div className="space-y-2 text-xs leading-relaxed text-slate-400">
             {adaptive ? <p>완료된 기본 관측으로 지표별 구간과 보유기간을 학습하고, 이후 기간의 성과로 매수 연결을 매일 갱신합니다. 성과가 부족해지면 연결을 해제하며 기존 보유 거래는 진입 당시 정한 기간을 유지합니다.</p>
               : <p>최근 {view.policy.newsLookbackHours}시간에 관측한 뉴스와 20일선 위치가 같은 그룹에서, 완료 표본 최소 {view.policy.minimumSamples}건·진입일 최소 {view.policy.minimumEntryDates}일을 요구합니다. 양수인 일당 평균 순수익률이 가장 높은 기간을 선택합니다.</p>}

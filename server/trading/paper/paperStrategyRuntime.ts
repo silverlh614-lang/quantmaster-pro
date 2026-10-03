@@ -1,6 +1,6 @@
 // @responsibility Isolate strategy persistence failures from baseline sampling.
 import type { PaperExperiment, PaperSnapshot } from '../../../src/types/paperExperiment.js';
-import type { PaperStrategyLedger, PaperStrategyScanResult } from '../../../src/types/paperStrategy.js';
+import type { PaperStrategyLedger, PaperStrategyScanResult, PaperTradeMeasurementRow } from '../../../src/types/paperStrategy.js';
 import { loadPaperStrategyLedger, savePaperStrategyLedger } from '../../persistence/paperStrategyRepo.js';
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { capturePaperCostModel, trimArchivedEntryBars } from './paperExperimentPolicy.js';
@@ -8,6 +8,9 @@ import { buildPaperStrategyView, evaluatePaperStrategyScan } from './paperStrate
 import { getArchivedPaperBarCheck } from './paperResearchRuntime.js';
 import { buildPaperStrategySelection } from './paperStrategySelection.js';
 import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
+import { capturePaperTradeMeasurements } from './paperTradeMeasurements.js';
+import { assertPaperTradeMeasurement } from './paperTradeMeasurementValidation.js';
+import { savePaperTradeMeasurementBatch, recordPaperTradeMeasurementFailure, readPaperTradeMeasurementHistory } from '../../persistence/paperTradeMeasurementRepo.js';
 
 export interface PaperStrategyState { ledger: PaperStrategyLedger | null; error?: string }
 let lastFailure: string | undefined;
@@ -33,7 +36,28 @@ export function advancePaperStrategy(
       const entryObservation = trimArchivedEntryBars(trade.entryObservation, trade.tradingDate, archived);
       return entryObservation === trade.entryObservation ? trade : { ...trade, entryObservation };
     });
+    const previousMeasurements = ledger.trades.map(trade => trade.measurement);
+    let rows: PaperTradeMeasurementRow[] = [], measurementError: unknown;
+    try {
+      rows = capturePaperTradeMeasurements(ledger, snapshot);
+      for (const trade of ledger.trades) if (trade.measurement) assertPaperTradeMeasurement(trade, snapshot.asOf);
+    } catch (error) {
+      // SDS-ignore: recordPaperTradeMeasurementFailure logs and persists this after the core commit.
+      measurementError = error;
+      ledger.trades.forEach((trade, index) => {
+        if (previousMeasurements[index]) trade.measurement = previousMeasurements[index];
+        else delete trade.measurement;
+      });
+    }
     savePaperStrategyLedger(ledger);
+    if (measurementError) recordPaperTradeMeasurementFailure(snapshot.id, snapshot.asOf, 0, measurementError, ledger.trades);
+    else if (rows.length) {
+      try { savePaperTradeMeasurementBatch(rows, ledger.trades); }
+      catch (error) {
+        // SDS-ignore: this helper logs and persists the failure without cancelling committed trades.
+        recordPaperTradeMeasurementFailure(snapshot.id, snapshot.asOf, rows.length, error, ledger.trades);
+      }
+    }
     lastFailure = undefined;
     return ledger.lastRun!;
   } catch (error) {
@@ -47,6 +71,7 @@ export function readPaperStrategyView(includeAllRecords = false, experiments?: P
   const state = loadPaperStrategyState();
   const ledger: PaperStrategyLedger = state.ledger ?? { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null };
   const view = buildPaperStrategyView(ledger, state.error ?? lastFailure);
+  view.measurementHistory = readPaperTradeMeasurementHistory(ledger);
   if (includeAllRecords) view.trades = [...ledger.trades].reverse();
   if (experiments && state.ledger) view.selection = buildPaperStrategySelection(ledger.trades, experiments);
   return view;

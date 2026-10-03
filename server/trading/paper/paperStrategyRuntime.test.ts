@@ -1,11 +1,13 @@
 // @responsibility Verify strategy integration preserves independent baseline observations.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaperExperimentLedger } from '../../../src/types/paperExperiment.js';
-import type { PaperStrategyLedger } from '../../../src/types/paperStrategy.js';
+import type { PaperStrategyLedger, PaperTradeMeasurementHistory } from '../../../src/types/paperStrategy.js';
 const state = vi.hoisted(() => ({
   baseline: { schemaVersion: 1, experiments: [], lastRun: null } as PaperExperimentLedger,
   strategy: { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null } as PaperStrategyLedger,
   collect: vi.fn(), saveBaseline: vi.fn(), saveStrategy: vi.fn(), loadStrategy: vi.fn(), loadBaseline: vi.fn(),
+  saveBatch: vi.fn(), recordFailure: vi.fn(), readHistory: vi.fn(),
+  measurementHistory: { lastRecordedAt: null, failedBatchCount: 0, unrecordedPointCount: 0 } as PaperTradeMeasurementHistory,
   archived: null as null | ((symbol: string, date: string, close: number) => boolean),
 }));
 vi.mock('./paperResearchRuntime.js', async (original) => ({
@@ -15,6 +17,10 @@ vi.mock('../../persistence/paperExperimentRepo.js', () => ({
   loadPaperExperimentLedger: state.loadBaseline, savePaperExperimentLedger: state.saveBaseline,
 }));
 vi.mock('../../persistence/paperStrategyRepo.js', () => ({ loadPaperStrategyLedger: state.loadStrategy, savePaperStrategyLedger: state.saveStrategy }));
+vi.mock('../../persistence/paperTradeMeasurementRepo.js', () => ({
+  savePaperTradeMeasurementBatch: state.saveBatch, recordPaperTradeMeasurementFailure: state.recordFailure,
+  readPaperTradeMeasurementHistory: state.readHistory,
+}));
 vi.mock('../../persistence/krxStockMasterRepo.js', () => ({ getStockByCode: () => ({ market: 'KOSPI' }) }));
 vi.mock('./paperExperimentCollector.js', () => ({ collectPaperExperimentSnapshot: state.collect }));
 import { emptyStrategyLedger } from './paperStrategyFixtures.js';
@@ -32,6 +38,10 @@ beforeEach(() => {
   state.saveBaseline.mockReset().mockImplementation((ledger: PaperExperimentLedger) => { state.baseline = structuredClone(ledger); });
   state.saveStrategy.mockReset().mockImplementation((ledger: PaperStrategyLedger) => { state.strategy = structuredClone(ledger); });
   state.loadStrategy.mockReset().mockImplementation(() => structuredClone(state.strategy));
+  state.saveBatch.mockReset();
+  state.recordFailure.mockReset();
+  state.measurementHistory = { lastRecordedAt: null, failedBatchCount: 0, unrecordedPointCount: 0 };
+  state.readHistory.mockReset().mockImplementation(() => structuredClone(state.measurementHistory));
 });
 
 describe('strategy integration in the default Shadow runner', () => {
@@ -41,6 +51,10 @@ describe('strategy integration in the default Shadow runner', () => {
     expect(result).toMatchObject({ openedCount: 1, strategy: { openedCount: 1 } });
     expect(state.collect).toHaveBeenCalledOnce();
     expect(state.saveBaseline.mock.invocationCallOrder[0]).toBeLessThan(state.saveStrategy.mock.invocationCallOrder[0]);
+    expect(state.saveStrategy.mock.invocationCallOrder[0]).toBeLessThan(state.saveBatch.mock.invocationCallOrder[0]);
+    expect(state.saveBatch).toHaveBeenCalledWith([expect.objectContaining({ kind: 'ENTRY', action: 'BUY',
+      snapshotId: strategyTestSnapshot().id, tradeId: state.strategy.trades[0].id })], state.strategy.trades);
+    expect(state.strategy.trades[0].measurement).toMatchObject({ fromEntry: true, pointCount: 1 });
     expect(state.strategy.trades[0].entrySnapshotId).toBe(state.baseline.lastRun!.snapshotId);
     expect(runner.getPaperExperimentView()).toMatchObject({ totalCount: 257, strategy: { totalCount: 1, openCount: 1, strategyVersion: 'adaptive-features-v1' } });
   }, 15_000);
@@ -106,6 +120,8 @@ describe('strategy integration in the default Shadow runner', () => {
     expect(result.strategy!.error).toContain('corrupt strategy ledger');
     expect(state.saveBaseline).toHaveBeenCalledOnce();
     expect(state.saveStrategy).not.toHaveBeenCalled();
+    expect(state.saveBatch).not.toHaveBeenCalled();
+    expect(state.recordFailure).not.toHaveBeenCalled();
     expect(runner.getPaperExperimentView().strategy!.error).toContain('corrupt strategy ledger');
     expect(runner.getPaperExperimentView(true).strategy!.error).toContain('corrupt strategy ledger');
   });
@@ -117,6 +133,8 @@ describe('strategy integration in the default Shadow runner', () => {
     expect(failed).toMatchObject({ openedCount: 1, strategy: { openedCount: 0 } });
     expect(failed.strategy!.error).toContain('disk full');
     expect(state.strategy.trades).toHaveLength(0);
+    expect(state.saveBatch).not.toHaveBeenCalled();
+    expect(state.recordFailure).not.toHaveBeenCalled();
     expect(runner.getPaperExperimentView().strategy!.error).toContain('disk full');
     expect(runner.getPaperExperimentView(true).strategy!.error).toContain('disk full');
     expect(await runner.runPaperExperimentScan()).toMatchObject({ openedCount: 0, strategy: { openedCount: 1 } });
@@ -126,6 +144,53 @@ describe('strategy integration in the default Shadow runner', () => {
     const restarted = await import('./paperExperimentRunner.js');
     expect(await restarted.runPaperExperimentScan()).toMatchObject({ strategy: { openedCount: 0, holdingCount: 1 } });
     expect(state.strategy.trades).toHaveLength(1);
+  });
+
+  it('preserves committed BUY and EXIT results when detailed measurement storage fails', async () => {
+    const storageError = new Error('measurement disk unavailable');
+    state.saveBatch.mockImplementation(() => { throw storageError; });
+    const runner = await import('./paperExperimentRunner.js');
+    const entryResult = await runner.runPaperExperimentScan();
+    expect(entryResult.strategy).toMatchObject({ openedCount: 1, closedCount: 0 });
+    expect(entryResult.strategy!.error).toBeUndefined();
+    expect(state.strategy.trades[0]).toMatchObject({ status: 'OPEN', measurement: { fromEntry: true, pointCount: 1 } });
+    expect(state.recordFailure).toHaveBeenCalledWith(strategyTestSnapshot().id, strategyTestSnapshot().asOf, 1, storageError, state.strategy.trades);
+    expect(state.saveStrategy.mock.invocationCallOrder[0]).toBeLessThan(state.recordFailure.mock.invocationCallOrder[0]);
+    expect(runner.getPaperExperimentView().strategy!.error).toBeUndefined();
+    const entryDecision = structuredClone(state.strategy.trades[0].entryDecision);
+
+    const exit = strategyTestSnapshot();
+    exit.id = 'measurement-failed-exit'; exit.asOf = '2026-09-23T07:00:00Z'; exit.tradingDate = '2026-09-23'; exit.marketOpen = false;
+    exit.observations[0].price = null;
+    exit.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 10500, availableAt: exit.asOf }];
+    state.collect.mockResolvedValue(exit);
+    const exitResult = await runner.runPaperExperimentScan();
+    expect(exitResult.strategy).toMatchObject({ openedCount: 0, closedCount: 1 });
+    expect(exitResult.strategy!.error).toBeUndefined();
+    expect(state.strategy.trades[0]).toMatchObject({ status: 'CLOSED', exit: { price: 10500 },
+      measurement: { pointCount: 2, latest: { kind: 'SCHEDULED_CLOSE' } } });
+    expect(state.strategy.trades[0].entryDecision).toEqual(entryDecision);
+    expect(state.recordFailure).toHaveBeenLastCalledWith(exit.id, exit.asOf, 1, storageError, state.strategy.trades);
+    expect(state.recordFailure).toHaveBeenCalledTimes(2);
+    expect(runner.getPaperExperimentView().strategy!.error).toBeUndefined();
+    const committed = structuredClone(state.strategy.trades[0]);
+    vi.resetModules();
+    const restarted = await import('./paperExperimentRunner.js');
+    expect(await restarted.runPaperExperimentScan()).toMatchObject({ strategy: { openedCount: 0, closedCount: 0 } });
+    expect(state.strategy.trades[0]).toEqual(committed);
+    expect(state.saveBatch).toHaveBeenCalledTimes(2);
+  });
+
+  it('exposes measurement history diagnostics without treating them as strategy failures', async () => {
+    state.measurementHistory = { lastRecordedAt: '2026-09-18T01:00:00Z', failedBatchCount: 2,
+      unrecordedPointCount: 7, error: '상세 관측 기록 일부 누락' };
+    const runtime = await import('./paperStrategyRuntime.js');
+    const view = runtime.readPaperStrategyView();
+    expect(view.measurementHistory).toEqual(state.measurementHistory);
+    expect(state.readHistory).toHaveBeenCalledWith(state.strategy);
+    expect(view.error).toBeUndefined();
+    expect(state.saveBatch).not.toHaveBeenCalled();
+    expect(state.recordFailure).not.toHaveBeenCalled();
   });
 
   it('keeps watching strategy-only symbols and closes outside entry hours at the exact planned close', async () => {

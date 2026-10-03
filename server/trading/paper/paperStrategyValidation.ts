@@ -9,6 +9,7 @@ import { PAPER_NEWS_EVENT_LABELS, type PaperNewsEvent } from '../../../src/types
 import { adaptiveEvidenceSchema, adaptiveStateSchema, adaptiveObservationSchema, validAdaptiveEntry, sameAdaptiveEvidence,
   explorationEvidenceSchema, validExplorationEntry, sameExplorationEvidence } from './paperAdaptiveValidation.js';
 import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
+import { assertPaperTradeMeasurement, paperTradeMeasurementSchema } from './paperTradeMeasurementValidation.js';
 
 const finite = z.number().finite();
 const timestamp = z.string().datetime({ offset: true });
@@ -66,7 +67,7 @@ const exit = z.object({ model: z.literal('SCHEDULED_CLOSE'), snapshotId: z.strin
 const trade = z.object({ id: z.string(), strategyVersion: version, symbol, name: z.string(), status: z.enum(['OPEN', 'CLOSED']),
   entrySnapshotId: z.string(), entryAt: timestamp, tradingDate: date, entryPrice: finite.positive(), quantity: z.literal(1),
   entryObservation: observation, entryDecision: decision, policy, costModel: cost, horizon,
-  scheduledExitDate: date, scheduledExitAt: timestamp, exit: exit.nullable() });
+  scheduledExitDate: date, scheduledExitAt: timestamp, exit: exit.nullable(), measurement: paperTradeMeasurementSchema.optional() });
 const ledgerSchema = z.object({ schemaVersion: z.literal(1), trades: z.array(trade), latestDecisions: z.array(decision),
   adaptive: adaptiveStateSchema.optional(),
   lastMarketSession: z.object({ tradingDate: date, snapshotId: z.string(), asOf: timestamp, decisionCount: finite.int().nonnegative(),
@@ -175,6 +176,7 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
         throw new Error('PAPER_STRATEGY_INVALID: inconsistent scheduled exit');
       }
     }
+    assertPaperTradeMeasurement(item as PaperStrategyTrade, parsed.data.lastRun?.asOf);
     ids.add(item.id);
     if (item.status === 'OPEN') openSymbols.add(item.symbol);
   }

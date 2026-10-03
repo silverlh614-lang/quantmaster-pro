@@ -1,9 +1,10 @@
 // @responsibility Verify Telegram analysis uses immutable adaptive entry evidence.
 import { describe, expect, it } from 'vitest';
-import type { PaperStrategyTrade } from '../../src/types/paperStrategy.js';
+import type { PaperStrategyTrade, PaperTradeMeasurementPoint } from '../../src/types/paperStrategy.js';
 import type { PaperAdaptiveEvidence } from '../../src/types/paperAdaptive.js';
 import { createPaperIndicatorFormula, paperIndicatorFormulaId } from '../../src/types/paperIndicatorFormula.js';
 import { formatPaperTradeAnalysis, formatPaperTrades } from './paperBotMessages.js';
+import { validateTelegramHtml } from './telegramHtmlSanitizer.js';
 
 const entryAt = '2026-09-21T01:00:00Z';
 const adaptiveEvidence: PaperAdaptiveEvidence = {
@@ -27,8 +28,64 @@ const trade: PaperStrategyTrade = {
   costModel: { version: 'test', buyFeeRate: 0, sellFeeRate: 0, sellTaxRate: 0, slippageRate: 0 },
   horizon: 3, scheduledExitDate: '2026-09-28', scheduledExitAt: '2026-09-28T06:30:00Z', exit: null,
 };
+function measuredExitTrade(): PaperStrategyTrade {
+  const point: PaperTradeMeasurementPoint = { snapshotId: 'measure', kind: 'QUOTE', effectiveAt: '2026-09-23T01:00:00Z',
+    observedAt: '2026-09-23T01:00:00Z', recordedAt: '2026-09-23T01:01:00Z', price: 10300, source: 'KIS', netReturnPct: 3, netPnl: 300,
+    action: 'HOLD', reasonCode: 'HORIZON_PENDING', ruleValue: 35, ruleMatches: true, ruleConnected: true, featureAsOf: '2026-09-23T01:00:00Z' };
+  const exitedAt = '2026-09-28T07:01:00Z';
+  const latest: PaperTradeMeasurementPoint = { ...point, kind: 'SCHEDULED_CLOSE', effectiveAt: trade.scheduledExitAt,
+    observedAt: '2026-09-28T07:00:00Z', recordedAt: exitedAt, price: 10000, netReturnPct: 0, netPnl: 0,
+    action: 'EXIT', reasonCode: 'SCHEDULED_CLOSE_REACHED' };
+  return { ...structuredClone(trade), status: 'CLOSED', measurement: { version: 'observed-trade-path-v1', startedAt: point.recordedAt,
+    fromEntry: false, pointCount: 3, latest, highest: point, lowest: latest }, exit: { model: 'SCHEDULED_CLOSE', snapshotId: 'exit',
+      effectiveAt: trade.scheduledExitAt, observedAt: latest.observedAt, decisionAt: exitedAt, price: 10000,
+      grossReturnPct: 0, netReturnPct: 0, netPnl: 0, decision: { ...trade.entryDecision, action: 'EXIT', reasonCode: 'SCHEDULED_CLOSE_REACHED', decisionAt: exitedAt } } };
+}
 
 describe('adaptive trade analysis', () => {
+  it('adds sampled path and giveback only to close analysis while preserving zero results and partial-history disclosure', () => {
+    const measured = measuredExitTrade(), event = { id: 'exit', at: measured.exit!.decisionAt, trade: measured, side: 'EXIT' as const };
+    const report = formatPaperTradeAnalysis([event]);
+    expect(report).toContain('보유 중 관측 3개 · 추적 시작');
+    expect(report).toContain('진입 후 중간 추적 · 이전 구간 미기록');
+    expect(report).toContain('최근 0.00% · 10,000원');
+    expect(report).toContain('관측 최고 +3.00% · 10,300원');
+    expect(report).toContain('관측 최저 0.00% · 10,000원');
+    expect(report).toContain('관측 최고 순수익 − 청산 순수익 3.00%p · 중간 추적 구간 기준');
+    expect(report).toMatch(/가격 .*15:30.*관측 .*16:00.*기록 .*16:01/);
+    expect(report).toContain('실제 장중 최고·최저나 최적 매도점은 아닙니다');
+    expect(formatPaperTrades([event])).not.toContain('관측 최고');
+    expect(formatPaperTradeAnalysis([{ ...event, side: 'BUY', at: trade.entryAt }])).not.toContain('관측 최고');
+    expect(report.length).toBeLessThanOrEqual(3500);
+    expect(validateTelegramHtml(report).valid).toBe(true);
+  });
+
+  it('does not substitute zero or future-recorded measurements into an earlier close report', () => {
+    const measured = measuredExitTrade(), event = { id: 'exit', at: measured.exit!.decisionAt, trade: measured, side: 'EXIT' as const };
+    measured.measurement!.highest.recordedAt = '2026-09-29T01:00:00Z';
+    const future = formatPaperTradeAnalysis([event]);
+    expect(future).toContain('청산 시점에 확인 가능한 가격 측정 기록 없음');
+    expect(future).not.toContain('관측 최고 +3.00%');
+    delete measured.measurement;
+    const missing = formatPaperTradeAnalysis([event]);
+    expect(missing).toContain('보유 중 가격 측정 미기록 · 관측 최고 대비 청산 차이 미집계');
+    expect(missing).not.toContain('청산 순수익 0.00%p');
+  });
+
+  it('retains an entry extreme based on a quote observed before the actual entry timestamp', () => {
+    const measured = measuredExitTrade(), path = measured.measurement!;
+    path.fromEntry = true; path.startedAt = measured.entryAt; path.pointCount = 2;
+    path.highest = { ...path.highest, snapshotId: measured.entrySnapshotId, kind: 'ENTRY', effectiveAt: measured.entryAt,
+      observedAt: '2026-09-21T00:59:00Z', recordedAt: measured.entryAt, price: 10000, netReturnPct: 0, netPnl: 0,
+      action: 'BUY', reasonCode: 'ADAPTIVE_FEATURE_SELECTED' };
+    Object.assign(path.latest, { price: 9900, netReturnPct: -1, netPnl: -100 });
+    path.lowest = path.latest;
+    Object.assign(measured.exit!, { price: 9900, netReturnPct: -1, grossReturnPct: -1, netPnl: -100 });
+    const report = formatPaperTradeAnalysis([{ id: 'exit', at: measured.exit!.decisionAt, trade: measured, side: 'EXIT' }]);
+    expect(report).toContain('관측 최고 0.00% · 10,000원');
+    expect(report).toContain('관측 최고 순수익 − 청산 순수익 1.00%p');
+    expect(report).not.toContain('경로 비교 미집계');
+  });
   it.each(['BUY', 'EXIT'] as const)('labels %s exploration from frozen evidence without claiming successful validation', side => {
     const frozenTrade: PaperStrategyTrade = structuredClone(trade);
     delete frozenTrade.entryDecision.adaptiveEvidence;

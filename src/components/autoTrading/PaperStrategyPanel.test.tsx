@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type {
   PaperStrategyDecision, PaperStrategyEvidence, PaperStrategyPolicy,
-  PaperStrategyTrade, PaperStrategyView,
+  PaperStrategyTrade, PaperStrategyView, PaperTradeMeasurementPoint,
 } from '../../types/paperStrategy';
 import { PaperStrategyPanel } from './PaperStrategyPanel';
 import { summarizePaperNews } from '../../utils/paperNews';
@@ -41,6 +41,11 @@ const trade: PaperStrategyTrade = {
   costModel: { version: 'test', buyFeeRate: 0, sellFeeRate: 0, sellTaxRate: 0, slippageRate: 0 },
   horizon: 3, scheduledExitDate: '2026-09-15', scheduledExitAt: '2026-09-15T06:30:00Z', exit: null,
 };
+function measuredPoint(overrides: Partial<PaperTradeMeasurementPoint> = {}): PaperTradeMeasurementPoint {
+  return { snapshotId: 'price-point', kind: 'QUOTE', effectiveAt: '2026-09-14T01:00:00Z', observedAt: '2026-09-14T01:00:00Z',
+    recordedAt: '2026-09-14T01:01:00Z', price: 70000, source: 'KIS', netReturnPct: 0, netPnl: 0,
+    action: 'HOLD', reasonCode: 'HORIZON_PENDING', ruleValue: null, ruleMatches: null, ruleConnected: null, featureAsOf: null, ...overrides };
+}
 
 function view(overrides: Partial<PaperStrategyView> = {}): PaperStrategyView {
   return {
@@ -53,6 +58,55 @@ function view(overrides: Partial<PaperStrategyView> = {}): PaperStrategyView {
 afterEach(cleanup);
 
 describe('PaperStrategyPanel', () => {
+  it('shows observed zero returns with prices and recording times while identifying incomplete tracking', () => {
+    const latest = measuredPoint(), highest = measuredPoint({ price: 72100, netReturnPct: 3, netPnl: 2100 });
+    render(<PaperStrategyPanel view={view({ trades: [{ ...trade, measurement: { version: 'observed-trade-path-v1',
+      startedAt: '2026-09-11T01:00:00Z', fromEntry: false, pointCount: 3, latest, highest, lowest: latest } }] })} />);
+    const path = within(screen.getByRole('group', { name: '가상매수 이후 가격 관측' }));
+    expect(path.getByText('가상매수 이후 가격 관측 · 3개 표본')).toBeTruthy();
+    expect(path.getByText(/진입 후 중간 추적 · 이전 구간 미기록 · 추적 시작/)).toBeTruthy();
+    expect(path.getByText('최근 관측 0.00% · 70,000원')).toBeTruthy();
+    expect(path.getByText('관측 최고 순수익 +3.00% · 72,100원')).toBeTruthy();
+    expect(path.getByText('관측 최저 순수익 0.00% · 70,000원')).toBeTruthy();
+    expect(path.getAllByText(/가격 기준.*(?:10:00:00|10시 0분 0초).*관측.*(?:10:00:00|10시 0분 0초).*기록.*(?:10:01:00|10시 1분 0초)/)).toHaveLength(3);
+    expect(path.getByText(/실제 장중 최고·최저나 최적 매도점은 아닙니다/)).toBeTruthy();
+    expect(path.queryByText('집계 대기')).toBeNull();
+  });
+
+  it('keeps absent measurements pending and detailed-write failures separate from recorded BUY decisions', () => {
+    const data = view({ latestDecisions: [buy], trades: [trade], measurementHistory: { lastRecordedAt: null,
+      failedBatchCount: 2, unrecordedPointCount: 7, error: '상세 파일 저장 지연' } });
+    const { rerender } = render(<PaperStrategyPanel view={data} />);
+    expect(screen.getByRole('status').textContent).toContain('누적 저장 실패 2회 · 상세 저장 미확인 7개 · 마지막 상세 저장 기록 없음');
+    expect(screen.getByRole('status').textContent).toContain('상세 파일 저장 지연');
+    expect(screen.getByRole('article', { name: '삼성전자 매수 · BUY 판단' })).toBeTruthy();
+    expect(screen.getByText(/가격 측정 대기 · 휴장·장외에는 새 측정 없이/)).toBeTruthy();
+    expect(screen.queryByRole('group', { name: '가상매수 이후 가격 관측' })).toBeNull();
+    rerender(<PaperStrategyPanel view={{ ...data, measurementHistory: { lastRecordedAt: null, failedBatchCount: null,
+      unrecordedPointCount: null, error: '상세 관측 기록 상태를 읽을 수 없습니다.' } }} />);
+    expect(screen.getByRole('status').textContent).toContain('누적 저장 실패 집계 확인 불가 · 상세 저장 미확인 집계 확인 불가 · 마지막 상세 저장 확인 불가');
+    expect(screen.getByRole('status').textContent).not.toContain('0회');
+    expect(screen.getByRole('status').textContent).not.toContain('0개');
+    expect(screen.getByRole('article', { name: '삼성전자 매수 · BUY 판단' })).toBeTruthy();
+    rerender(<PaperStrategyPanel view={{ ...data, measurementHistory: { lastRecordedAt: '2026-09-14T01:01:00Z', failedBatchCount: 0, unrecordedPointCount: 0 } }} />);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('compares observed peak with the realized exit in percentage points without manufacturing a missing path', () => {
+    const exitDecision: PaperStrategyDecision = { ...buy, action: 'EXIT', reasonCode: 'SCHEDULED_CLOSE_REACHED', decisionAt: '2026-09-15T07:00:00Z' };
+    const closed: PaperStrategyTrade = { ...trade, status: 'CLOSED', exit: { model: 'SCHEDULED_CLOSE', snapshotId: 'exit',
+      effectiveAt: trade.scheduledExitAt, observedAt: exitDecision.decisionAt, decisionAt: exitDecision.decisionAt,
+      price: 69300, grossReturnPct: -1, netReturnPct: -1, netPnl: -700, decision: exitDecision } };
+    const latest = measuredPoint({ kind: 'SCHEDULED_CLOSE', effectiveAt: trade.scheduledExitAt,
+      observedAt: exitDecision.decisionAt, recordedAt: exitDecision.decisionAt, price: 69300, netReturnPct: -1, netPnl: -700 });
+    const { rerender } = render(<PaperStrategyPanel view={view({ trades: [{ ...closed, measurement: { version: 'observed-trade-path-v1',
+      startedAt: '2026-09-11T01:00:00Z', fromEntry: false, pointCount: 3, latest,
+      highest: measuredPoint({ price: 72100, netReturnPct: 3, netPnl: 2100 }), lowest: latest } }] })} />);
+    expect(screen.getByText('관측 최고 순수익 − 청산 순수익 4.00%p · 중간 추적 구간 기준')).toBeTruthy();
+    rerender(<PaperStrategyPanel view={view({ trades: [closed] })} />);
+    expect(screen.getByText('관측 최고 대비 청산 차이 미집계 · 보유 중 측정 미기록')).toBeTruthy();
+    expect(screen.queryByText(/청산 순수익 0.00%p/)).toBeNull();
+  });
   it('shows the frozen exploration purpose on both current decisions and existing trades', () => {
     const exploration: PaperStrategyDecision = { ...buy, reasonCode: 'ADAPTIVE_EXPLORATION_SELECTED', reason: '탐색 규칙 일치', cohort: null, evidence: null,
       explorationEvidence: { cutoffAt: '2026-09-09T15:00:00Z', evaluatedAt: '2026-09-10T00:00:00Z', registeredAt: '2026-09-10T00:59:00Z',
