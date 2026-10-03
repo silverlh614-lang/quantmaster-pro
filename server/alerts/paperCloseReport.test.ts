@@ -122,7 +122,7 @@ describe('Shadow closing summary', () => {
     const text = report(view);
     expect(text).toContain('오늘 수식 연구: 생성 2 · 연구 종료 1');
     expect(text).not.toContain('오늘 지표 변경: 연결 2');
-    expect(text).toContain(formatPaperAdaptiveSummary(view, now).join('\n'));
+    expect(text).toContain(formatPaperAdaptiveSummary(view, now, 'brief').join('\n'));
     expect(text.length).toBeLessThanOrEqual(3500);
   });
   it('separates scheduled exit dates from the later day their prices became available', () => {
@@ -142,7 +142,7 @@ describe('Shadow closing summary', () => {
     const view = viewFixture(); view.strategy = buildPaperStrategyView(result);
     expect(report(view)).toContain('오늘 진입 0건 · 오늘 평가일 청산 1건 · 보유 0건');
     expect(report(view)).toContain('오늘 청산 평균 0.00% · 누적 1건 0.00%');
-    expect(report(view)).toContain('현행 자율 전략 전체(검증+탐색) 가상 청산 1건 · 평균 순수익률 0.00% (구전략 제외)');
+    expect(report(view)).toContain('현행 전략 매도 1건 · 평균 순수익률 0.00% (검증+탐색, 구전략 제외)');
     const nextDay = formatPaperCloseReport(view, '2026-09-22', new Date('2026-09-22T16:10:00+09:00'));
     expect(nextDay).toContain('오늘 평가일 청산 0건');
   });

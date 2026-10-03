@@ -54,7 +54,7 @@ describe('paper Telegram news evidence', () => {
       expect(message).toContain('&lt;b&gt;대규모 수주&lt;/b&gt; &amp; 계약');
       expect(message).not.toContain('<b>대규모 수주</b>');
       expect(message).toContain('공시 제목');
-      expect(message).toContain('현재 진입 조건에는 미반영');
+      expect(message).toContain('뉴스 분류는 연구용이며 진입 조건에 미반영');
       expect(message.length).toBeLessThan(3500);
     }
   });

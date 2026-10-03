@@ -25,14 +25,16 @@ describe('morning recommendation message', () => {
   it('shows frozen ranked evidence, prior close timestamps and zero historical returns without promising a fill', () => {
     const report = selection(), before = structuredClone(report);
     const message = formatPaperMorningMessage(report);
-    expect(message).toContain('1. &lt;삼성&amp;&gt;(005930)');
+    expect(message).toContain('1. &lt;삼성&amp;&gt; (005930)');
     expect(message).toContain('검증 통과 규칙 추천');
-    expect(message).toContain('직전 거래일 참고 종가 10,000원 · 2026-09-18 15:30 KST');
-    expect(message).toContain('종가 확인 09. 21. 08:00 KST');
-    expect(message).toContain('관측 지표값 35 · 성과 비교 D3거래일 · 매도는 장중 관측으로 별도 판단');
-    expect(message).toContain('규칙 과거 검증 12건/3일 · 평균 순수익률 0.00%');
-    expect(message).toContain('과거 일당 대조군 차이 +0.15%p');
-    expect(message).toContain('실제 가상 진입은 장중의 새 가격·지표 관측으로 별도 판단');
+    expect(message).toContain('참고 종가 <b>10,000원</b> · 2026-09-18');
+    expect(message).toContain('005930 종가 2026-09-18 15:30 KST · 확인 09. 21. 08:00 KST');
+    expect(message).toContain('지표값 35 · D3 성과 비교');
+    expect(message).toContain('과거 검증 12건/3일');
+    expect(message).toContain('평균 순수익률 0.00% · 일당 대조군 차이 +0.15%p');
+    expect(message).toContain('장중 새 가격·지표로 가상 매수·매도를 판단');
+    expect(message.indexOf('<b>1.')).toBeLessThan(message.indexOf('<b>자료 기준</b>'));
+    expect(message).not.toContain('자율 연구 · 지표 발명');
     expect(message).toContain('이 종목의 예상 수익률이 아닙니다');
     expect(report).toEqual(before);
   });
@@ -76,6 +78,6 @@ describe('morning recommendation message', () => {
     for (const rank of [1, 2, 3]) expect(message).toContain(`<b>${rank}.`);
     expect(message.length).toBeLessThan(3500);
     expect(validateTelegramHtml(message).valid).toBe(true);
-    expect(message.endsWith('/paper_recommend · /paper · /paper_bot')).toBe(true);
+    expect(message.endsWith('/paper_recommend · /paper_research')).toBe(true);
   });
 });

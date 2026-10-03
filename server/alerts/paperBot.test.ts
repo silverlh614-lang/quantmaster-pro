@@ -216,7 +216,7 @@ describe('KST report slots', () => {
     enqueuePaperReports(persisted, view, new Date('2026-09-14T18:00:00+09:00'));
     enqueuePaperReports(persisted, view, new Date('2026-09-14T18:01:00+09:00'));
     expect(persisted.messages).toHaveLength(1); expect(persisted.messages[0].kind).toBe('close');
-    expect(persisted.messages[0].message).toContain('1. 기본 관측 · 오늘과 누적');
+    expect(persisted.messages[0].message).toContain('기본 관측 · 오늘과 누적');
     expect(persisted.messages[0].message).toContain('오늘 장중 대기 사유 미기록');
   });
   it('keeps a previously sent closing summary without rewriting or resending after a format update', () => {
@@ -297,7 +297,7 @@ describe('new strategy events', () => {
     expect(persisted.messages.map(item => item.channel)).toEqual(['TRADE', 'ANALYSIS']);
     next.exit = { decisionAt: '2026-09-18T01:02:00Z', effectiveAt: '2026-09-17T06:30:00Z', netReturnPct: 0 } as NonNullable<typeof next.exit>;
     enqueuePaperTradeChanges(persisted, view, new Date('2026-09-18T01:03:00Z'));
-    expect(persisted.messages).toHaveLength(4); expect(persisted.messages[2].message).toContain('순수익률 0.00%');
+    expect(persisted.messages).toHaveLength(4); expect(persisted.messages[2].message).toContain('순수익률 <b>0.00%</b>');
     expect(paperTradeEvents([next])[1].at).toBe(next.exit.decisionAt);
     expect(formatPaperTrades(Array.from({ length: 100 }, () => paperTradeEvents([next])[0])).length).toBeLessThan(3500);
   });
@@ -455,8 +455,9 @@ describe('signal and learning linkage', () => {
     const text = formatPaperTradeAnalysis([paperTradeEvents([trade])[1]]);
     expect(text).toContain('청산 복기');
     expect(text).toContain('후반 확인 40건/10진입일 · 평균 순수익률 +9.00%');
-    expect(text).toContain('해당 시그널 청산 순수익률 -2.00%');
-    expect(text).toContain('005930 · 2026-09-18');
+    expect(text).toContain('청산 순수익률 <b>-2.00%</b>');
+    expect(text).toContain('(005930)');
+    expect(text).toContain('매수 10,000원 · 2026-09-18');
     expect(formatPaperBotStatus(persisted)).toContain('CH1 매매: 진입·청산');
   });
 });

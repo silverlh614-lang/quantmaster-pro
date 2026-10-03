@@ -40,12 +40,13 @@ function adaptivePerformance(view: PaperExperimentView, cutoff: number, purpose?
   return known(strategy.lastRun?.asOf, cutoff) ? purpose ? strategy.performanceByPurpose?.[purpose] : strategy.performanceByVersion?.['adaptive-features-v1'] : undefined;
 }
 
-export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date): string[] {
+export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date, detail: 'full' | 'brief' = 'full'): string[] {
   const lines = ['<b>자율 연구 · 지표 발명</b>'], strategy = view.strategy, cutoff = now.getTime();
   if (!strategy || strategy.error || strategy.lastRun?.error) return [...lines, strategy ? '전략 갱신 오류 · 연구 상태 확인 불가' : '자율 연구 기록 미조회'];
   const state = strategy.adaptive;
   const exitLearning = strategy.exitLearning;
-  if (exitLearning && known(exitLearning.evaluatedAt, cutoff)) lines.push(`매도 학습: ${exitLearning.selectedProfileId ? '후속 관측 검증 기준 채택' : '초기 기준 탐색 · 검증 전'} · 비교 완료 ${num(exitLearning.completedTradeCount)}건/${num(exitLearning.completedDateCount)}진입일 · D일 강제 청산 없음`);
+  if (exitLearning && known(exitLearning.evaluatedAt, cutoff)) lines.push(`매도 학습: ${exitLearning.selectedProfileId ? '검증 기준 채택' : '초기 기준 탐색 · 검증 전'}`,
+    `비교 완료 ${num(exitLearning.completedTradeCount)}건/${num(exitLearning.completedDateCount)}진입일`);
   if (!state) lines.push('자율 지표 평가 미기록');
   else if (!known(state.evaluatedAt, cutoff) || !known(state.cutoffAt, cutoff)) lines.push('미래 또는 잘못된 평가 시각 · 연구 상태 확인 필요');
   else {
@@ -56,25 +57,27 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date)
     lines.push(!exploration ? '탐색 가상매수 · 검증 전 · 등록 확인 대기'
       : exploration.some(trial => !known(trial.registeredAt, cutoff)) ? '탐색 등록 시각 확인 필요'
         : `탐색 가상매수 · 검증 전 · ${exploration.length}개/최대 2개`);
-    for (const trial of (exploration ?? []).filter(item => known(item.registeredAt, cutoff)).slice(0, 2)) {
+    for (const trial of (detail === 'full' ? exploration ?? [] : []).filter(item => known(item.registeredAt, cutoff)).slice(0, 2)) {
       lines.push(`• 탐색: ${text(paperAdaptiveRuleLabel(trial.candidate.rule), 90)} · ${text(PAPER_ADAPTIVE_REASON_LABELS[trial.candidate.reason], 35)}`);
     }
-    if (state.policy.maturityModel === 'per-horizon-v1') {
+    if (detail === 'full' && state.policy.maturityModel === 'per-horizon-v1') {
       if (state.horizonSamples) for (const item of state.horizonSamples) lines.push(`D${item.horizon} 전체 표본 · 학습 ${num(item.trainingSampleCount)}건/${num(item.trainingDateCount)}일 · 검증 ${num(item.validationSampleCount)}건/${num(item.validationDateCount)}일`);
       else lines.push('보유기간별 표본 집계 확인 대기');
     }
     if (discovery) lines.push(`발명 ${discovery.round}차 · 이번 회차 검토 ${discovery.attemptedIds.length}개 · 보관 ${discovery.inventions.length}개 · 생성 후 검증 대기 ${state.candidates.filter(item => item.rule.invention && item.reason === 'FORWARD_OBSERVATION').length}개`);
     else lines.push('지표 발명 연구 기록 미조회');
-    for (const item of active.slice(0, 3)) lines.push(`• ${text(paperAdaptiveRuleLabel(item.rule), 105)} · ${item.rule.invention ? '생성 후 검증' : '후반 검증'} ${num(item.validation.sampleCount)}건/${num(item.validation.dateCount)}일 · 일당 차이 ${pct(item.validation.meanDailyExcessPct, '%p')}`);
+    for (const item of active.slice(0, detail === 'full' ? 3 : 0)) lines.push(`• ${text(paperAdaptiveRuleLabel(item.rule), 105)} · ${item.rule.invention ? '생성 후 검증' : '후반 검증'} ${num(item.validation.sampleCount)}건/${num(item.validation.dateCount)}일 · 일당 차이 ${pct(item.validation.meanDailyExcessPct, '%p')}`);
     const reasons = new Map<string, number>();
     for (const item of state.candidates.filter(item => !item.active)) reasons.set(item.reason, (reasons.get(item.reason) ?? 0) + 1);
-    if (reasons.size) lines.push(`미채택: ${[...reasons].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([reason, count]) =>
+    if (detail === 'full' && reasons.size) lines.push(`미채택: ${[...reasons].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([reason, count]) =>
       `${text(PAPER_ADAPTIVE_REASON_LABELS[reason as keyof typeof PAPER_ADAPTIVE_REASON_LABELS] ?? reason, 35)} ${count}개`).join(' · ')}`);
   }
   const performance = adaptivePerformance(view, cutoff);
   const performanceLine = performance ? `현행 자율 전략 전체(검증+탐색) 가상 청산 ${num(performance.closedCount)}건 · 평균 순수익률 ${pct(performance.meanNetReturnPct)} (구전략 제외)`
     : '현행 자율 전략 성과 미집계 · 구전략 합산 성과로 대체하지 않음';
-  const performanceLines = [performanceLine, ...(['VALIDATED', 'EXPLORATION'] as const).map(purpose => {
+  const performanceLines = [detail === 'full' ? performanceLine : performance
+    ? `현행 전략 매도 ${num(performance.closedCount)}건 · 평균 순수익률 ${pct(performance.meanNetReturnPct)} (검증+탐색, 구전략 제외)`
+    : '현행 자율 전략 성과 미집계', ...(['VALIDATED', 'EXPLORATION'] as const).map(purpose => {
     const value = adaptivePerformance(view, cutoff, purpose), label = purpose === 'VALIDATED' ? '검증 통과 진입' : '탐색 진입(검증 전)';
     return value ? `${label}: 보유 ${value.openCount === undefined ? '미집계' : `${num(value.openCount)}건`} · 청산 ${num(value.closedCount)}건 · 평균 ${pct(value.meanNetReturnPct)}`
       : `${label}: 목적별 성과 미집계`;
@@ -151,20 +154,21 @@ export function formatPaperIntraday(view: PaperExperimentView, date: string, now
     else {
       if (decisions.length !== expected) lines.push(`최신 판단 일부 확인 ${decisions.length}/${num(expected)}종목 · 아래는 확인된 상세 기준`);
       const count = (action: PaperStrategyDecision['action']) => decisions.filter(item => item.action === action).length;
-      lines.push(`가상 진입(BUY) ${count('BUY')} · 대기(WAIT) ${count('WAIT')} · 보유(HOLD) ${count('HOLD')} · 청산(EXIT) ${count('EXIT')}`);
+      lines.push(`매수 ${count('BUY')} · 매도 ${count('EXIT')} · 보유 ${count('HOLD')} · 대기 ${count('WAIT')}`);
       const reasons = new Map<string, { reason: string; count: number }>();
       for (const item of decisions.filter(item => item.action === 'WAIT')) {
         const current = reasons.get(item.reasonCode) ?? { reason: item.reason, count: 0 };
         current.count++; reasons.set(item.reasonCode, current);
       }
       for (const item of [...reasons.values()].sort((a, b) => b.count - a.count).slice(0, 3)) lines.push(`• 대기 ${num(item.count)}종목: ${text(item.reason, 90)}`);
-      const selected = decisions.filter(item => item.action === 'BUY' || item.action === 'HOLD')
-        .sort((a, b) => Number(b.action === 'BUY') - Number(a.action === 'BUY')).slice(0, 3);
-      for (const item of selected) lines.push('', `${item.action === 'BUY' ? '가상 진입 판단' : '보유 판단'}: ${text(item.name, 30)}(${text(item.symbol, 12)})`,
+      const priority = { BUY: 0, EXIT: 1, HOLD: 2, WAIT: 3 };
+      const selected = decisions.filter(item => item.action !== 'WAIT')
+        .sort((a, b) => priority[a.action] - priority[b.action]).slice(0, 3);
+      for (const item of selected) lines.push('', `<b>${item.action === 'BUY' ? '매수' : item.action === 'EXIT' ? '매도' : '보유'} · ${text(item.name, 30)} (${text(item.symbol, 12)})</b>`,
         text(item.reason, 110), ...decisionEvidence(item));
-      if (!selected.length) lines.push('최신 판단에 표시할 매수·보유 종목 없음');
+      if (!selected.length) lines.push('표시할 매수·매도·보유 종목 없음');
     }
   }
-  lines.push('', ...formatPaperAdaptiveSummary(view, new Date(cutoff)), '', '기록된 가상 판단이며 개별 종목의 수익 예측이 아닙니다.', '/paper · /paper_research');
+  lines.push('', ...formatPaperAdaptiveSummary(view, new Date(cutoff), 'brief'), '', '/paper · /paper_research');
   return bounded(lines, 3500).join('\n');
 }

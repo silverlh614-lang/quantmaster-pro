@@ -21,7 +21,7 @@ const WAIT_LABELS: Partial<Record<PaperStrategyReasonCode, string>> = {
 };
 
 function baselineLines(view: PaperExperimentView, date: string, cutoff: number): string[] {
-  const lines = ['<b>1. 기본 관측 · 오늘과 누적</b>'];
+  const lines = ['<b>기본 관측 · 오늘과 누적</b>'];
   if (view.experiments.length !== view.totalCount) return [...lines, '전체 원장 미조회 · 오늘 성과와 평가 일정 확인 필요'];
   const records = view.experiments.filter(item => item.tradingDate <= date && Date.parse(item.entryAt) <= cutoff);
   lines.push(`관측 ${new Set(records.map(item => item.tradingDate)).size}거래일 · 오늘 신규 ${num(records.filter(item => item.tradingDate === date).length)}건 · 누적 ${num(records.length)}건`);
@@ -54,7 +54,7 @@ function baselineLines(view: PaperExperimentView, date: string, cutoff: number):
 }
 
 function strategyLines(view: PaperExperimentView, date: string, cutoff: number): string[] {
-  const lines = ['<b>2. 전체 전략 가상 매매 · 구전략 포함</b>'];
+  const lines = ['<b>전체 전략 가상 매매 · 구전략 포함</b>'];
   const strategy = view.strategy;
   if (!strategy || strategy.error || strategy.lastRun?.error) return [...lines, '전략 기록 확인 필요 · 기본 관측 성과는 별도 집계'];
   if (strategy.trades.length === strategy.totalCount) {
@@ -102,7 +102,7 @@ function strategyLines(view: PaperExperimentView, date: string, cutoff: number):
 }
 
 function newsLines(view: PaperExperimentView, date: string, cutoff: number): { lines: string[]; highlights: string[] } {
-  const lines = ['<b>3. 뉴스·공시와 수급</b>'];
+  const lines = ['<b>뉴스·공시와 수급</b>'];
   const disclosure = view.lastRun?.disclosures;
   if (disclosure && Date.parse(disclosure.checkedAt) <= cutoff) {
     lines.push(`공시 ${disclosure.state === 'COMPLETE' ? '조회 완료' : disclosure.state === 'PARTIAL' ? '일부 미확인' : '조회 실패'} · ${stamp(disclosure.checkedAt)}`,
@@ -152,8 +152,8 @@ export function formatPaperCloseReport(view: PaperExperimentView, date: string, 
     `마지막 관측 ${stamp(last?.asOf)}${last && cutoff - at > 10 * 60_000 ? ' · 10분 이상 갱신 지연' : ''}`];
   if (last) lines.push(`가격 확인 ${num(last.observedCount)}/${num(last.candidateCount)}종목 · 미확인 ${num(last.missingPriceCount)}`);
   if (view.collection) lines.push(`다음 수집 진행 ${num(view.collection.completed)}/${num(view.collection.total)}종목`);
-  lines.push('', ...baselineLines(view, date, cutoff), '', ...strategyLines(view, date, cutoff));
-  lines.push('', ...formatPaperAdaptiveSummary(view, new Date(cutoff)));
+  lines.push('', ...strategyLines(view, date, cutoff), '', ...baselineLines(view, date, cutoff));
+  lines.push('', ...formatPaperAdaptiveSummary(view, new Date(cutoff), 'brief'));
   const news = newsLines(view, date, cutoff);
   lines.push('', ...news.lines);
   const footer = '\n\n성과는 평가일 종가 기준 독립 실험 평균입니다. 계좌 수익률이 아닙니다.\n뉴스·수급은 연구 자료이며 매수 확정 근거가 아닙니다.\n/paper · /paper_research · /paper_bot';

@@ -140,8 +140,8 @@ export function formatGlobalMorningBrief(brief: GlobalMorningBrief): string {
   if (!brief.items.length) lines.push('', freshSources.length ? '수집 범위에서 해당 시간대 주요 기사를 확인하지 못했습니다.' : '해외 뉴스 수집 상태를 확인하지 못했습니다. 뉴스 부재나 시장 안정으로 해석하지 않습니다.');
   const footer = '\n\n요약·영향은 AI 해석(원문 대체 시 방향 미확인). 연관주는 사업 노출 관측용이며 수혜·추천 확정이 아닙니다.\n/paper · /paper_bot';
   for (const [i, item] of brief.items.entries()) {
-    const stocks = item.related.length ? item.related.map(stock => `${stock.name}(${stock.symbol}) [${stock.relation === 'MENTIONED' ? '제목·발췌 언급' : '업종 연관 추정'}] ${stock.reason}`).join('\n') : '연관주: 확인된 사업 연결 없음';
-    const block = `\n<b>${i + 1}. ${escape(item.summary.slice(0, 150))}</b>\n${escape(item.impact)}\n${escape(stocks)}\n<a href="${escape(item.article.url)}">${escape(item.article.source)} 원문</a> · ${stamp(item.article.publishedAt)} KST`;
+    const stocks = item.related.length ? item.related.map(stock => `• ${stock.name}(${stock.symbol}) · ${stock.relation === 'MENTIONED' ? '제목·발췌 언급' : '업종 연관 추정'}\n  ${stock.reason}`).join('\n') : '연관주: 확인된 사업 연결 없음';
+    const block = `\n<b>${i + 1}. ${escape(item.summary.slice(0, 150))}</b>\n영향: ${escape(item.impact)}\n\n${escape(stocks)}\n<a href="${escape(item.article.url)}">${escape(item.article.source)} 원문</a> · ${stamp(item.article.publishedAt)} KST`;
     if (lines.join('\n').length + block.length + footer.length > 3900) break;
     lines.push(block);
   }

@@ -176,15 +176,17 @@ describe('recorded research changes', () => {
 });
 
 describe('intraday actual decisions', () => {
-  it('summarizes current recorded decisions, real waits and at most three buy/hold symbols with frozen evidence', () => {
+  it('prioritizes buy and exit decisions before holds, retaining recorded counts and frozen evidence', () => {
     const current = view();
     current.strategy!.latestDecisions = [decision('BUY', '000001'), decision('HOLD', '000002'), decision('HOLD', '000003'),
       decision('HOLD', '000004'), decision('WAIT', '000005'), decision('WAIT', '000006'), decision('EXIT', '000007')];
     Object.assign(current.strategy!.lastRun!, { openedCount: 1, holdingCount: 3, waitingCount: 2, closedCount: 1 });
     const result = formatPaperIntraday(current, date, now);
-    expect(result).toContain('가상 진입(BUY) 1 · 대기(WAIT) 2 · 보유(HOLD) 3 · 청산(EXIT) 1');
+    expect(result).toContain('매수 1 · 매도 1 · 보유 3 · 대기 2');
     expect(result).toContain('대기 2종목: 연결된 규칙의 진입 구간 불일치');
-    expect(result).toContain('종목000001'); expect(result).toContain('종목000003'); expect(result).not.toContain('종목000004');
+    expect(result).toContain('종목000001'); expect(result).toContain('종목000007'); expect(result).toContain('종목000002');
+    expect(result).not.toContain('종목000003'); expect(result).not.toContain('종목000004');
+    expect(result.indexOf('<b>매도 ·')).toBeLessThan(result.indexOf('<b>보유 ·'));
     expect(result).toContain('진입 당시 고정 지표'); expect(result).toContain('생성 후 검증 12건/3일');
     expect(result).toContain('가격 확인 19/20종목'); expect(result).toContain('수집 진행 기록 5/20종목');
     expect(result.length).toBeLessThanOrEqual(3500); expect(validateTelegramHtml(result).valid).toBe(true);
@@ -197,7 +199,7 @@ describe('intraday actual decisions', () => {
       { ...decision('BUY', '000003'), name: '다른스냅샷종목', snapshotId: 'other' }];
     Object.assign(current.strategy!.lastRun!, { openedCount: 2, waitingCount: 1 });
     const result = formatPaperIntraday(current, date, now);
-    expect(result).toContain('최신 판단 일부 확인 1/3종목'); expect(result).toContain('가상 진입(BUY) 0');
+    expect(result).toContain('최신 판단 일부 확인 1/3종목'); expect(result).toContain('매수 0 · 매도 0');
     expect(result).not.toContain('미래종목'); expect(result).not.toContain('다른스냅샷종목'); expect(result).not.toContain('과거거래종목');
     current.strategy!.lastRun!.asOf = '2026-10-01T04:20:00Z';
     expect(formatPaperIntraday(current, date, now)).toContain('오늘 확인된 최신 전략 판단 미기록');

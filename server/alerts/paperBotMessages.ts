@@ -148,18 +148,25 @@ export function paperTradeEvents(trades: PaperStrategyTrade[]): PaperBotTradeEve
 }
 export function formatPaperTrades(events: PaperBotTradeEvent[]): string {
   const buys = events.filter(item => item.side === 'BUY').length;
-  const lines = ['<b>Shadow 전략 변화 · 실제 주문 없음</b>', `새 가상 진입 ${buys}건 · 가상 청산 ${events.length - buys}건`, ''];
+  const lines = ['<b>Shadow 매수·매도</b>', '가상 매매 · 실제 주문 없음',
+    `매수 ${buys}건 · 매도 ${events.length - buys}건`];
   for (const event of events.slice(0, 10)) {
     const trade = event.trade;
     const purpose = trade.entryDecision.explorationEvidence ? '탐색 가상매수 · 검증 전' : trade.entryDecision.adaptiveEvidence ? '검증 통과 가상매수' : '구전략 가상매수';
-    lines.push(event.side === 'BUY'
-      ? `• 진입 ${escape(trade.name.slice(0, 30))}(${trade.symbol}) · 1주/${num(trade.entryPrice)}원 · ${trade.policy.exitModel === 'ADAPTIVE_OBSERVED' ? `관측 기반 매도 / 성과 비교 D${trade.horizon}` : `D${trade.horizon} · 청산 예정 ${trade.scheduledExitDate}`} · 기록 ${trade.tradingDate}`
-      : `• 청산 ${escape(trade.name.slice(0, 30))}(${trade.symbol}) · ${trade.exit?.model === 'ADAPTIVE_OBSERVED' ? `관측 매도 ${stamp(trade.exit.effectiveAt)}` : `평가일 ${trade.scheduledExitDate}`} · 순수익률 ${pct(trade.exit?.netReturnPct)} · 진입 기록 ${trade.tradingDate}`);
-    if (event.side === 'EXIT' && trade.exit?.model === 'ADAPTIVE_OBSERVED') lines.push(`  ${escape(trade.exit.decision.reason)}`);
-    lines.push(`  ${purpose}`);
+    const block = [`<b>${event.side === 'BUY' ? '매수' : '매도'} · ${escape(trade.name.slice(0, 30))} (${escape(trade.symbol)})</b>`];
+    if (event.side === 'BUY') block.push(`1주 · ${num(trade.entryPrice)}원`,
+      `매수 판단 ${stamp(event.at)}`,
+      trade.policy.exitModel === 'ADAPTIVE_OBSERVED' ? '매도 기준: 가격·진입 근거 변화' : `예약 매도 ${trade.scheduledExitDate}`);
+    else block.push(`순수익률 <b>${pct(trade.exit?.netReturnPct)}</b>`,
+      `매수 ${num(trade.entryPrice)}원 → 매도 ${trade.exit && Number.isFinite(trade.exit.price) ? num(trade.exit.price) : '미확인'}원`,
+      trade.exit?.model === 'ADAPTIVE_OBSERVED' ? `관측 매도 ${stamp(trade.exit.effectiveAt)}` : `예약 매도 · 평가일 ${trade.scheduledExitDate}`,
+      ...(trade.exit?.model === 'ADAPTIVE_OBSERVED' ? [`사유: ${escape(trade.exit.decision.reason.slice(0, 100))}`] : []),
+      `매수일 ${trade.tradingDate} · 매도 판단 ${stamp(event.at)}`);
+    block.push(purpose);
+    lines.push(`\n${block.join('\n')}`);
   }
   if (events.length > 10) lines.push(`외 ${events.length - 10}건 · 전체 내역은 대시보드에서 확인`);
-  lines.push(`판단 시각 ${stamp(events[events.length - 1]?.at)}`, '같은 종목·진입일의 학습 근거와 결과는 분석 채널에서 확인합니다.', '/paper');
+  lines.push('', '근거·복기: 분석 채널 · 전체 내역 /paper');
   return lines.join('\n');
 }
 const COHORT_LABELS: Record<PaperStrategyCohort, string> = {
@@ -187,7 +194,7 @@ function measuredExitLines(trade: PaperStrategyTrade, reportedAt: string): strin
 
 /** Only entry-frozen evidence and the matching exit; never re-evaluate a signal. */
 export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
-  const lines = ['<b>Shadow 시그널 근거·성과</b>', '가상 실험 · 실제 주문 없음'];
+  const lines = ['<b>Shadow 매매 분석</b>', '가상 매매 · 실제 주문 없음'];
   for (const event of events.slice(0, 5)) {
     const trade = event.trade;
     const evidence = trade.entryDecision.evidence;
@@ -195,23 +202,27 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
     const adaptive = exploration ?? trade.entryDecision.adaptiveEvidence;
     const selected = evidence?.horizons.find(item => item.horizon === trade.horizon);
     lines.push('', `<b>${event.side === 'BUY' ? '진입 근거' : '청산 복기'} · ${escape(trade.name.slice(0, 30))}(${trade.symbol})</b>`,
-      `연결 기록 ${trade.symbol} · ${trade.tradingDate} · D${trade.horizon}`, `진입 ${num(trade.entryPrice)}원 · ${trade.policy.exitModel === 'ADAPTIVE_OBSERVED' ? '새 장중 관측으로 매도 판단 · 날짜 도래만으로 청산하지 않음' : `예정 청산 ${trade.scheduledExitDate}`}`);
+      `매수 ${num(trade.entryPrice)}원 · ${trade.tradingDate}`,
+      ...(event.side === 'EXIT' ? [`청산 순수익률 <b>${pct(trade.exit?.netReturnPct)}</b>`] : []),
+      trade.policy.exitModel === 'ADAPTIVE_OBSERVED' ? '매도: 가격·진입 근거로 판단' : `예약 매도 ${trade.scheduledExitDate}`);
     if (trade.exitPolicy) {
       const policy = trade.exitPolicy, profile = policy.profile;
       lines.push(`매도 기준: ${policy.origin === 'FORWARD_LEARNED' ? '후속 관측 검증으로 선택' : '초기 탐색 기준 · 학습 검증 전'}`,
-        `순손실 ${profile.stopLossPct}% · 수익 ${profile.trailingArmPct}% 도달 후 고점 대비 ${profile.trailingDrawdownPct}%p 반납 · 진입 근거 ${profile.signalFailureCount}회/${profile.signalFailureMinutes}분 이상 약화`);
+        `• 손실 제한 ${profile.stopLossPct}%`,
+        `• 수익 ${profile.trailingArmPct}% 도달 후 고점 대비 ${profile.trailingDrawdownPct}%p 반납`,
+        `• 진입 근거 ${profile.signalFailureCount}회/${profile.signalFailureMinutes}분 이상 약화`);
     }
     if (adaptive) {
       const { training, validation, rule } = adaptive.candidate;
       const invented = rule.invention;
       lines.push(exploration ? '탐색 가상매수 · 검증 전' : '검증 통과 가상매수',
         `${exploration ? '탐색' : '자동 연결'} 지표: ${escape(paperAdaptiveRuleLabel(rule))}`);
-      if (exploration) lines.push(`탐색 등록 ${stamp(exploration.registeredAt)} · ${escape(exploration.trialId)}`);
+      if (exploration) lines.push(`탐색 등록 ${stamp(exploration.registeredAt)}`);
       if (invented) lines.push(`원본 수식 생성 ${escape(invented.createdAt)} · 발명 자료 기준 ${escape(invented.discoveryCutoffAt)}`);
       lines.push(`${invented ? '발명 당시 학습' : '학습'} ${num(training.sampleCount)}건/${training.dateCount}진입일 · 평균 순수익률 ${pct(training.meanNetReturnPct)} · 일당 대조군 차이 ${excess(training.meanDailyExcessPct)}`,
         `${invented ? '생성 후 검증' : '후반 확인'} ${num(validation.sampleCount)}건/${validation.dateCount}진입일 · 평균 순수익률 ${pct(validation.meanNetReturnPct)} · 일당 대조군 차이 ${excess(validation.meanDailyExcessPct)}`,
         `근거 기준 ${stamp(adaptive.cutoffAt)} · 선택 평가 ${stamp(adaptive.evaluatedAt)} · ${invented ? '생성 후 검증' : '후반'} 시작 ${adaptive.validationStartDate ?? '누적 대기'}`,
-        '진입 시 고정한 근거입니다. 이후 지표 연결 해제만으로 매도하지 않으며 거래에 기록한 매도 규칙을 따릅니다.');
+        '진입 당시 근거 고정 · 이후 매도는 거래별 매도 규칙 적용');
     } else if (evidence) {
       lines.push('구전략 가상매수', COHORT_LABELS[evidence.cohort],
         `동일 유형 ${num(evidence.sampleCount)}건 · ${num(evidence.entryDateCount)}개 진입일`,
@@ -232,7 +243,7 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
     } else lines.push('진입 당시 기관·외국인 수급 미기록');
     lines.push(`진입 당시 뉴스 평가: ${PAPER_NEWS_LABELS[summary.direction]}`);
     if (summary.totalCount) lines.push(`호재 ${summary.counts.POSITIVE} · 악재 ${summary.counts.NEGATIVE} · 혼재 ${summary.counts.MIXED} · 중립 ${summary.counts.NEUTRAL} · 판단 불가 ${summary.counts.UNKNOWN}`);
-    if (headline) lines.push(`당시 뉴스: ${escape(headline.headline.slice(0, 70))}`);
+    if (headline && !summary.evidence.length) lines.push(`당시 뉴스: ${escape(headline.headline.slice(0, 70))}`);
     for (const item of summary.evidence.slice(0, 2)) {
       lines.push(`${PAPER_NEWS_LABELS[item.direction]} · ${escape(item.source)}: ${escape(item.headline.slice(0, 60))}`,
         `분류 근거: ${escape(item.reason.slice(0, 90))}`);
@@ -241,11 +252,10 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
         ...(facts.relationship === 'DIRECT' ? [`사건 ${PAPER_NEWS_EVENT_LABELS[facts.event]} · 접수일 ${escape(facts.filedDate ?? '미확인')}`,
           `최초 확인 ${stamp(facts.firstSeenAt)} · 원문 ${facts.sourceUrl}`] : []));
     }
-    if (event.side === 'EXIT') lines.push(`해당 시그널 청산 순수익률 ${pct(trade.exit?.netReturnPct)} · 결과는 전략 원장에 별도 누적`, ...measuredExitLines(trade, event.at));
+    if (event.side === 'EXIT') lines.push('', '<b>보유 중 관측</b>', ...measuredExitLines(trade, event.at));
   }
   lines.push('', '관측 표본의 과거 평균이며 개별 종목의 수익 예측이 아닙니다.',
-    '뉴스 방향은 공시 제목의 추정 분류로 별도 성과를 관측하며, 현재 진입 조건에는 미반영입니다.',
-    '기본 관측으로 학습하고 전략 성과는 별도 검증합니다. 7개 조건 연구는 자동 매매 규칙이 아닙니다.', '/paper · /paper_research');
+    '뉴스 분류는 연구용이며 진입 조건에 미반영입니다.', '/paper · /paper_research');
   return lines.join('\n');
 }
 
