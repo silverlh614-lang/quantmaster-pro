@@ -151,9 +151,11 @@ export function formatPaperTrades(events: PaperBotTradeEvent[]): string {
   const lines = ['<b>Shadow 전략 변화 · 실제 주문 없음</b>', `새 가상 진입 ${buys}건 · 예약 종가 청산 ${events.length - buys}건`, ''];
   for (const event of events.slice(0, 10)) {
     const trade = event.trade;
+    const purpose = trade.entryDecision.explorationEvidence ? '탐색 가상매수 · 검증 전' : trade.entryDecision.adaptiveEvidence ? '검증 통과 가상매수' : '구전략 가상매수';
     lines.push(event.side === 'BUY'
       ? `• 진입 ${escape(trade.name.slice(0, 30))}(${trade.symbol}) · 1주/${num(trade.entryPrice)}원 · D${trade.horizon} · 청산 예정 ${trade.scheduledExitDate} · 기록 ${trade.tradingDate}`
       : `• 청산 ${escape(trade.name.slice(0, 30))}(${trade.symbol}) · 평가일 ${trade.scheduledExitDate} · 순수익률 ${pct(trade.exit?.netReturnPct)} · 진입 기록 ${trade.tradingDate}`);
+    lines.push(`  ${purpose}`);
   }
   if (events.length > 10) lines.push(`외 ${events.length - 10}건 · 전체 내역은 대시보드에서 확인`);
   lines.push(`판단 시각 ${stamp(events[events.length - 1]?.at)}`, '같은 종목·진입일의 학습 근거와 결과는 분석 채널에서 확인합니다.', '/paper');
@@ -170,21 +172,24 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
   for (const event of events.slice(0, 5)) {
     const trade = event.trade;
     const evidence = trade.entryDecision.evidence;
-    const adaptive = trade.entryDecision.adaptiveEvidence;
+    const exploration = trade.entryDecision.explorationEvidence;
+    const adaptive = exploration ?? trade.entryDecision.adaptiveEvidence;
     const selected = evidence?.horizons.find(item => item.horizon === trade.horizon);
     lines.push('', `<b>${event.side === 'BUY' ? '진입 근거' : '청산 복기'} · ${escape(trade.name.slice(0, 30))}(${trade.symbol})</b>`,
       `연결 기록 ${trade.symbol} · ${trade.tradingDate} · D${trade.horizon}`, `진입 ${num(trade.entryPrice)}원 · 예정 청산 ${trade.scheduledExitDate}`);
     if (adaptive) {
       const { training, validation, rule } = adaptive.candidate;
       const invented = rule.invention;
-      lines.push(`자동 연결 지표: ${escape(paperAdaptiveRuleLabel(rule))}`);
+      lines.push(exploration ? '탐색 가상매수 · 검증 전' : '검증 통과 가상매수',
+        `${exploration ? '탐색' : '자동 연결'} 지표: ${escape(paperAdaptiveRuleLabel(rule))}`);
+      if (exploration) lines.push(`탐색 등록 ${stamp(exploration.registeredAt)} · ${escape(exploration.trialId)}`);
       if (invented) lines.push(`원본 수식 생성 ${escape(invented.createdAt)} · 발명 자료 기준 ${escape(invented.discoveryCutoffAt)}`);
       lines.push(`${invented ? '발명 당시 학습' : '학습'} ${num(training.sampleCount)}건/${training.dateCount}진입일 · 평균 순수익률 ${pct(training.meanNetReturnPct)} · 일당 대조군 차이 ${excess(training.meanDailyExcessPct)}`,
         `${invented ? '생성 후 검증' : '후반 확인'} ${num(validation.sampleCount)}건/${validation.dateCount}진입일 · 평균 순수익률 ${pct(validation.meanNetReturnPct)} · 일당 대조군 차이 ${excess(validation.meanDailyExcessPct)}`,
-        `근거 기준 ${stamp(adaptive.cutoffAt)} · 선택 평가 ${stamp(adaptive.evaluatedAt)} · ${invented ? '생성 후 검증' : '후반'} 시작 ${adaptive.validationStartDate}`,
+        `근거 기준 ${stamp(adaptive.cutoffAt)} · 선택 평가 ${stamp(adaptive.evaluatedAt)} · ${invented ? '생성 후 검증' : '후반'} 시작 ${adaptive.validationStartDate ?? '누적 대기'}`,
         '진입 시 고정한 근거입니다. 이후 지표 연결 해제는 이 거래의 보유기간을 바꾸지 않습니다.');
     } else if (evidence) {
-      lines.push(COHORT_LABELS[evidence.cohort],
+      lines.push('구전략 가상매수', COHORT_LABELS[evidence.cohort],
         `동일 유형 ${num(evidence.sampleCount)}건 · ${num(evidence.entryDateCount)}개 진입일`,
         `기본 관측 ${evidence.baselineSampleCount ?? '미기록'}건 · 과거 재현 ${evidence.historicalSampleCount ?? '미기록'}건`,
         `진입 당시 D${trade.horizon} 평균 순수익률 ${pct(selected?.meanNetReturnPct)} · 승률 ${pct(selected?.winRatePct)}`,

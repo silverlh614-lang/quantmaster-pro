@@ -1,7 +1,7 @@
 // @responsibility Define the empirical Shadow strategy contract.
 import type { PaperCostModel, PaperNewsSummary, PaperObservation } from './paperExperiment';
 import type { PaperInvestorFlow } from './paperInvestorFlow';
-import type { PaperAdaptiveEvidence, PaperAdaptiveState } from './paperAdaptive';
+import type { PaperAdaptiveEvidence, PaperAdaptiveState, PaperExplorationEvidence } from './paperAdaptive';
 
 export type PaperStrategyVersion = 'news-trend-v1' | 'news-trend-v2' | 'adaptive-features-v1';
 
@@ -44,6 +44,7 @@ export interface PaperStrategyEvidence {
 
 export type PaperStrategyReasonCode =
   | 'ADAPTIVE_FEATURE_SELECTED'
+  | 'ADAPTIVE_EXPLORATION_SELECTED'
   | 'ADAPTIVE_NO_ACTIVE_RULE'
   | 'ADAPTIVE_FEATURE_UNAVAILABLE'
   | 'ADAPTIVE_RULE_NOT_MATCHED'
@@ -71,6 +72,7 @@ export interface PaperStrategyDecision {
   cohort: PaperStrategyCohort | null;
   evidence: PaperStrategyEvidence | null;
   adaptiveEvidence?: PaperAdaptiveEvidence;
+  explorationEvidence?: PaperExplorationEvidence;
   tradeId: string | null;
   newsSummary?: PaperNewsSummary;
   investorFlow?: PaperInvestorFlow;
@@ -173,6 +175,7 @@ export interface PaperStrategyView {
   openCount: number;
   performance: PaperStrategyPerformance;
   performanceByVersion?: Partial<Record<PaperStrategyVersion, PaperStrategyPerformance>>;
+  performanceByPurpose?: Record<'VALIDATED' | 'EXPLORATION', PaperStrategyPerformance & { openCount: number }>;
   lastRun: PaperStrategyScanResult | null;
   lastMarketSession?: PaperStrategySessionSummary;
   adaptive?: PaperAdaptiveState;

@@ -43,17 +43,34 @@ describe('strategy integration in the default Shadow runner', () => {
     expect(state.saveBaseline.mock.invocationCallOrder[0]).toBeLessThan(state.saveStrategy.mock.invocationCallOrder[0]);
     expect(state.strategy.trades[0].entrySnapshotId).toBe(state.baseline.lastRun!.snapshotId);
     expect(runner.getPaperExperimentView()).toMatchObject({ totalCount: 257, strategy: { totalCount: 1, openCount: 1, strategyVersion: 'adaptive-features-v1' } });
-  });
+  }, 15_000);
 
-  it('keeps baseline sampling when the strategy lacks evidence', async () => {
+  it('keeps baseline sampling and registers exploration before buying on a later fresh snapshot', async () => {
     state.baseline.experiments = [];
     const runner = await import('./paperExperimentRunner.js');
     expect(await runner.runPaperExperimentScan()).toMatchObject({ openedCount: 1, strategy: { openedCount: 0, waitingCount: 1 } });
-    expect(state.strategy.latestDecisions[0].reasonCode).toBe('ADAPTIVE_NO_ACTIVE_RULE');
+    expect(state.strategy.latestDecisions[0].reasonCode).toBe('ADAPTIVE_FEATURE_UNAVAILABLE');
     expect(state.baseline.experiments).toHaveLength(1);
+    expect(state.strategy.adaptive!.candidates.every(item => !item.active)).toBe(true);
+    expect(state.strategy.adaptive!.exploration!.rules.length).toBeGreaterThan(0);
+    const registered = structuredClone(state.strategy.adaptive!.exploration);
+    const snapshot = strategyTestSnapshot();
+    snapshot.id = 'exploration-next-scan'; snapshot.asOf = '2026-09-18T01:01:00Z';
+    snapshot.observations[0].observedAt = snapshot.asOf; snapshot.observations[0].features!.asOf = snapshot.asOf;
+    state.collect.mockResolvedValue(snapshot);
+    vi.resetModules();
+    const restarted = await import('./paperExperimentRunner.js');
+    expect(await restarted.runPaperExperimentScan()).toMatchObject({ openedCount: 0, strategy: { openedCount: 1 } });
+    expect(state.strategy.adaptive!.exploration).toEqual(registered);
+    expect(state.strategy.trades[0].entryDecision).toMatchObject({ reasonCode: 'ADAPTIVE_EXPLORATION_SELECTED',
+      explorationEvidence: { registeredAt: '2026-09-18T01:00:00Z', candidate: { active: false } } });
+    expect(state.strategy.trades[0].entryDecision.adaptiveEvidence).toBeUndefined();
+    expect(state.baseline.experiments).toHaveLength(1);
+    expect(await restarted.runPaperExperimentScan()).toMatchObject({ strategy: { openedCount: 0, holdingCount: 1 } });
+    expect(state.strategy.trades).toHaveLength(1);
   });
 
-  it('cannot use newly observed baseline outcomes to buy in the same snapshot', async () => {
+  it('cannot treat newly observed baseline outcomes as verified evidence in the same snapshot', async () => {
     const snapshot = strategyTestSnapshot();
     const samples = matureStrategySamples();
     const symbols = [...new Set(samples.map((item) => item.symbol))];
@@ -64,11 +81,11 @@ describe('strategy integration in the default Shadow runner', () => {
           return { tradingDate: outcome.tradingDate, close: outcome.exitPrice, availableAt: snapshot.asOf };
         }) });
     }
-    state.baseline.experiments = samples.map((item) => ({ ...item, status: 'OPEN', outcomes: item.outcomes.filter((outcome) => outcome.horizon !== 5) }));
+    state.baseline.experiments = samples.map((item) => ({ ...item, status: 'OPEN', outcomes: [] }));
     state.collect.mockResolvedValue(snapshot);
     const runner = await import('./paperExperimentRunner.js');
     expect(await runner.runPaperExperimentScan()).toMatchObject({ completedCount: 256, strategy: { openedCount: 0 } });
-    expect(state.strategy.latestDecisions.find((item) => item.symbol === '005930')!.reasonCode).toBe('ADAPTIVE_NO_ACTIVE_RULE');
+    expect(state.strategy.latestDecisions.find((item) => item.symbol === '005930')!.reasonCode).toBe('ADAPTIVE_FEATURE_UNAVAILABLE');
     expect(state.strategy.adaptive!.matureSampleCount).toBe(0);
     snapshot.asOf = '2026-09-18T01:01:00Z'; snapshot.id = 'next-scan';
     expect(await runner.runPaperExperimentScan()).toMatchObject({ strategy: { openedCount: 0 } });

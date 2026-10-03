@@ -37,11 +37,11 @@ function ruleRange(rule: PaperAdaptiveRule): string {
     : upper === undefined ? `${lower}${definition.unit} 이상` : `${lower} 이상 · ${upper}${definition.unit} 미만`;
 }
 
-function ActiveRule({ candidate }: { candidate: PaperAdaptiveCandidate }) {
+function ActiveRule({ candidate, exploration = false }: { candidate: PaperAdaptiveCandidate; exploration?: boolean }) {
   const { rule, validation } = candidate, invention = rule.invention;
   return <li className={`lab-board-rule${invention ? ' lab-board-rule-invented' : ''}`}>
     <div className="lab-board-rule-heading">
-      <div className="lab-board-rule-tags"><span>{invention ? '발명 지표' : '기본 지표'}</span><span>D{rule.horizon}</span></div>
+      <div className="lab-board-rule-tags"><span>{exploration ? '탐색 · 검증 전' : invention ? '발명 지표' : '기본 지표'}</span><span>D{rule.horizon}</span></div>
       <h4>{ruleName(rule)}</h4>
       <p>{ruleRange(rule)} · {rule.horizon}거래일 보유</p>
     </div>
@@ -49,7 +49,7 @@ function ActiveRule({ candidate }: { candidate: PaperAdaptiveCandidate }) {
       <div><dt>평균 순수익률</dt><dd>{percent(validation.meanNetReturnPct)}</dd></div>
       <div><dt>일당 대조군 차이</dt><dd>{percent(validation.meanDailyExcessPct, '%p')}</dd></div>
     </dl>
-    <div className="lab-board-rule-evidence"><span>{invention ? '생성 후 검증' : '후반 검증'}</span>
+    <div className="lab-board-rule-evidence"><span>{exploration ? '검증 전 · 현재 표본' : invention ? '생성 후 검증' : '후반 검증'}</span>
       <span>{number(validation.sampleCount)}건 · {number(validation.dateCount)}진입일 · {number(validation.symbolCount)}종목</span></div>
     {invention && <details className="lab-board-formula"><summary>수식 보기</summary>
       <div><p>{paperIndicatorFormulaLabel(invention.formula)}</p>
@@ -72,6 +72,7 @@ export function PaperResearchBoard({ state, unavailable = false }: { state?: Pap
   const setView = useSettingsStore(value => value.setView);
   const current = unavailable ? undefined : state;
   const active = current?.candidates.filter(item => item.active);
+  const exploration = current?.exploration?.rules;
   const discovery = current?.discovery;
   const pending = discovery ? current!.candidates.filter(item => item.rule.invention && item.reason === 'FORWARD_OBSERVATION').length : undefined;
   const changes = [...(state?.changes ?? [])].reverse().sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5);
@@ -79,12 +80,12 @@ export function PaperResearchBoard({ state, unavailable = false }: { state?: Pap
     { label: '기본 지표', value: Object.keys(PAPER_FEATURES).length, note: '정의된 연구 재료', tone: 'base' },
     { label: '검토한 수식', value: discovery?.attemptedIds.length, note: discovery ? `이번 ${discovery.round}차 탐색` : '연구 기록 확인 대기', tone: 'research' },
     { label: '새 관측으로 검증', value: pending, note: discovery ? '생성 후 관측 중인 지표' : '연구 기록 확인 대기', tone: 'invented' },
-    { label: '매수에 채택', value: active?.length, note: current ? `최대 ${current.policy.maxActiveRules}개 · 독립 판단` : '채택 상태 확인 대기', tone: 'active' },
+    { label: '매수에 채택', value: active?.length, note: current ? `검증 통과 · 최대 ${current.policy.maxActiveRules}개` : '채택 상태 확인 대기', tone: 'active' },
   ];
   return <section className="lab-board" aria-labelledby="lab-board-title">
     <header className="lab-board-heading">
       <div><span className="lab-board-eyebrow">AUTONOMOUS RESEARCH</span><h2 id="lab-board-title">자율 연구실</h2>
-        <p>지표를 조합하고, 새 관측으로 검증해 매수 판단에 연결합니다.</p></div>
+        <p>지표를 조합하고, 검증 매수와 탐색 매수의 결과를 함께 살펴봅니다.</p></div>
       <div className="lab-board-evaluation">
         <span className={`lab-board-round${unavailable ? ' lab-board-round-unavailable' : ''}`}>{unavailable ? '상태 확인 필요' : discovery ? `탐색 ${discovery.round}차` : '연구 기록 대기'}</span>
         {state && <span><time dateTime={state.evaluatedAt}>{time(state.evaluatedAt)}</time> KST {unavailable ? '저장 기록' : '평가'}</span>}
@@ -100,7 +101,7 @@ export function PaperResearchBoard({ state, unavailable = false }: { state?: Pap
     </ol>
     <div className="lab-board-body">
       <div className="lab-board-connections">
-        <div className="lab-board-section-heading"><h3>매수에 연결된 지표</h3>{active && <span>현재 {active.length}개</span>}</div>
+        <div className="lab-board-section-heading"><h3>검증 후 매수에 연결된 지표</h3>{active && <span>현재 {active.length}개 · 최대 3개</span>}</div>
         {active?.length ? <ul className="lab-board-rule-list" aria-label="현재 채택 지표">{active.slice(0, 3).map(candidate =>
           <ActiveRule key={candidate.rule.feature} candidate={candidate} />)}</ul>
           : <div className="lab-board-empty">
@@ -108,6 +109,10 @@ export function PaperResearchBoard({ state, unavailable = false }: { state?: Pap
             <h4>{unavailable ? '채택 상태를 확인할 수 없습니다' : current ? '아직 연결된 지표가 없습니다' : '첫 연구 결과를 기다립니다'}</h4>
             <p>{unavailable ? '저장된 변경 이력과 현재 상태를 구분해 확인하세요.' : '매수를 기다리는 동안에도 기본 관측과 성과 누적은 이어집니다.'}</p>
           </div>}
+        <div className="lab-board-section-heading"><h3>탐색 가상매수 · 검증 전</h3><span>{exploration ? `${exploration.length}개 · 최대 2개` : '등록 확인 대기'}</span></div>
+        {exploration?.length ? <ul className="lab-board-rule-list" aria-label="탐색 가상매수 지표">{exploration.map(trial =>
+          <ActiveRule key={trial.id} candidate={trial.candidate} exploration />)}</ul>
+          : exploration && <p className="lab-board-history-empty">현재 등록된 탐색 규칙이 없습니다.</p>}
         <button type="button" className="lab-board-link" onClick={() => setView('PAPER_STRATEGY')}>전체 지표와 채택 근거 <ArrowUpRight size={15} aria-hidden="true" /></button>
       </div>
       <aside className="lab-board-history" aria-label={unavailable ? '저장된 연구 변경 이력' : '최근 연구 변경 이력'}>

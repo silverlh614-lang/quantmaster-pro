@@ -53,6 +53,25 @@ function view(overrides: Partial<PaperStrategyView> = {}): PaperStrategyView {
 afterEach(cleanup);
 
 describe('PaperStrategyPanel', () => {
+  it('shows the frozen exploration purpose on both current decisions and existing trades', () => {
+    const exploration: PaperStrategyDecision = { ...buy, reasonCode: 'ADAPTIVE_EXPLORATION_SELECTED', reason: '탐색 규칙 일치', cohort: null, evidence: null,
+      explorationEvidence: { cutoffAt: '2026-09-09T15:00:00Z', evaluatedAt: '2026-09-10T00:00:00Z', registeredAt: '2026-09-10T00:59:00Z',
+        trialId: 'shadow-exploration-v1:2026-09-10:1:rsi14:1:D3', validationStartDate: null,
+        policy: { version: 'adaptive-features-v1', windowEntryDates: 60, trainingFraction: 0.7, minimumSamples: 10,
+          minimumEntryDates: 3, activationMarginDailyPct: 0.05, replacementMarginDailyPct: 0.05, maxActiveRules: 3 },
+        candidate: { rule: { feature: 'rsi14', bucket: 1, horizon: 3 }, active: false, reason: 'MISSING_INPUT',
+          training: { sampleCount: 0, dateCount: 0, symbolCount: 0, meanNetReturnPct: null, meanDailyExcessPct: null },
+          validation: { sampleCount: 0, dateCount: 0, symbolCount: 0, meanNetReturnPct: null, meanDailyExcessPct: null } } } };
+    render(<PaperStrategyPanel view={view({ strategyVersion: 'adaptive-features-v1', latestDecisions: [exploration],
+      trades: [{ ...trade, strategyVersion: 'adaptive-features-v1', entryDecision: exploration }] })} />);
+    for (const name of ['삼성전자 매수 · BUY 판단', '삼성전자 전략 거래']) {
+      const card = within(screen.getByRole('article', { name }));
+      expect(card.getByText(/진입 시 고정한 탐색 근거/)).toBeTruthy();
+      expect(card.getByText(/탐색 가상매수 · 검증 전 · 학습에 쓸 지표 표본 없음/)).toBeTruthy();
+      expect(card.queryByText(/개별 지표 성과로 선택/)).toBeNull();
+      expect(card.queryByText(/근거 표본 12건/)).toBeNull();
+    }
+  });
   it('shows adaptive evaluation pending without replacing existing trade evidence', () => {
     render(<PaperStrategyPanel view={view({ strategyVersion: 'adaptive-features-v1', trades: [trade], totalCount: 1 })} />);
     expect(screen.getByText('지표 자율 판단 전략')).toBeTruthy();

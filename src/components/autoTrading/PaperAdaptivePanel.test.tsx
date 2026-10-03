@@ -41,14 +41,52 @@ describe('PaperAdaptivePanel', () => {
       { ...candidate, rule: { ...candidate.rule, feature: 'ma20Gap' }, active: false, reason: 'NO_VALIDATION_EDGE',
         validation: { ...candidate.validation, meanDailyExcessPct: 0 } },
     ] }} />);
-    expect(screen.getByText('지표 자동 연결 · 1개 사용 중')).toBeTruthy();
+    expect(screen.getByText('검증 지표 자동 연결 · 1개 사용 중')).toBeTruthy();
     expect(screen.getByText(/성숙 기본 관측 100건 · 20개 진입일/)).toBeTruthy();
     const rows = within(screen.getByRole('table', { hidden: true }));
-    expect(rows.getByText('당시 지표 자료 없음')).toBeTruthy();
+    expect(rows.getByText('학습에 쓸 지표 표본 없음')).toBeTruthy();
     expect(rows.getByText('후반 확인 성과 부족')).toBeTruthy();
     expect(rows.getByText('0.00%p')).toBeTruthy();
     expect(rows.getAllByText('12건 · 3진입일 · 4종목')).toHaveLength(3);
     expect(rows.getByText('집계 대기')).toBeTruthy();
+    expect(screen.queryByRole('group', { name: '보유기간별 학습·검증 표본' })).toBeNull();
+  });
+  it('shows separately matured horizons with actual zero training rather than calling them missing collected inputs', () => {
+    render(<PaperAdaptivePanel state={{ ...state, policy: { ...state.policy, maturityModel: 'per-horizon-v1' },
+      horizonSamples: [
+        { horizon: 1, matureSampleCount: 100, matureDateCount: 20, trainingSampleCount: 60, trainingDateCount: 12, validationSampleCount: 20, validationDateCount: 4 },
+        { horizon: 3, matureSampleCount: 80, matureDateCount: 16, trainingSampleCount: 0, trainingDateCount: 0, validationSampleCount: 20, validationDateCount: 4 },
+        { horizon: 5, matureSampleCount: 0, matureDateCount: 0, trainingSampleCount: 0, trainingDateCount: 0, validationSampleCount: 0, validationDateCount: 0 },
+      ], candidates: [{ ...candidate, active: false, reason: 'INSUFFICIENT_TRAINING' }],
+    }} />);
+    expect(screen.getByText(/한 보유기간 이상 확정 표본 100건 · 20개 진입일/)).toBeTruthy();
+    const diagnostics = within(screen.getByRole('group', { name: '보유기간별 학습·검증 표본' }));
+    expect(diagnostics.getByText('D1 확정 100건/20일 · 학습 60건/12일 · 검증 20건/4일')).toBeTruthy();
+    expect(diagnostics.getByText('D3 확정 80건/16일 · 학습 0건/0일 · 검증 20건/4일')).toBeTruthy();
+    expect(diagnostics.getByText('D5 확정 0건/0일 · 학습 0건/0일 · 검증 0건/0일')).toBeTruthy();
+    expect(screen.getByText('학습 표본 누적 중')).toBeTruthy();
+    expect(screen.queryByText('학습에 쓸 지표 표본 없음')).toBeNull();
+  });
+  it('keeps unavailable horizon diagnostics pending for marked states', () => {
+    render(<PaperAdaptivePanel state={{ ...state, policy: { ...state.policy, maturityModel: 'per-horizon-v1' } }} />);
+    expect(screen.getByText('보유기간별 표본 집계 확인 대기')).toBeTruthy();
+    expect(screen.queryByText(/D1 확정 0건/)).toBeNull();
+  });
+  it('separates unvalidated exploration from active rules and freezes its entry purpose', () => {
+    const pending: PaperAdaptiveCandidate = { ...candidate, active: false, reason: 'INSUFFICIENT_VALIDATION',
+      validation: { sampleCount: 0, dateCount: 0, symbolCount: 0, meanNetReturnPct: null, meanDailyExcessPct: null } };
+    const trial = { id: 'shadow-exploration-v1:2026-09-21:1:rsi14:1:D3', registeredAt: '2026-09-21T00:59:00Z', candidate: pending };
+    render(<><PaperAdaptivePanel state={{ ...state, candidates: [candidate], exploration: { version: 'shadow-exploration-v1', sequence: 1, rules: [trial] } }} />
+      <PaperAdaptiveEvidenceDetails evidence={{ ...trial, trialId: trial.id, cutoffAt: state.cutoffAt, evaluatedAt: state.evaluatedAt,
+        validationStartDate: null, policy: state.policy }} /></>);
+    expect(screen.getByText('검증 연결 1/3개 · 탐색 가상매수 1/2개 · 검증 전')).toBeTruthy();
+    const exploration = within(screen.getByRole('group', { name: '탐색 가상매수 · 검증 전' }));
+    expect(exploration.getByText(/등록 이후 새 관측이 일치하면 가상 진입/)).toBeTruthy();
+    const frozen = screen.getByText(/진입 시 고정한 탐색 근거/).closest('details')!;
+    expect(frozen.textContent).toContain('탐색 가상매수 · 검증 전');
+    expect(frozen.textContent).toContain('후반 확인 시작 누적 대기');
+    expect(frozen.textContent).toContain('후반 확인 0건 · 0진입일 · 0종목');
+    expect(frozen.textContent).not.toContain('검증 통과');
   });
   it('keeps baseline observation running while no rules are connected and bounds the change log', () => {
     render(<PaperAdaptivePanel state={{ ...state, candidates: [], changes: Array.from({ length: 12 }, (_, index) => ({
@@ -83,7 +121,7 @@ describe('PaperAdaptivePanel', () => {
         { at: state.evaluatedAt, feature: pendingInvention.id, from: null, to: pending.rule, reason: 'FORWARD_OBSERVATION' },
       ],
     }} />);
-    expect(screen.getByText('지표 자동 연결 · 2개 사용 중')).toBeTruthy();
+    expect(screen.getByText('검증 지표 자동 연결 · 2개 사용 중')).toBeTruthy();
     expect(screen.getByText('탐색 2차 · 이번 회차 기록 3개 · 보관 중 2개 · 생성 후 관측 중 1개 · 채택 1개')).toBeTruthy();
     expect(screen.getByText(/새 학습 진입일이 20일 쌓이면 다음 탐색/)).toBeTruthy();
     expect(screen.getByText(/최대 3개를 매수 판단에 연결/)).toBeTruthy();
@@ -125,6 +163,6 @@ describe('PaperAdaptivePanel', () => {
     expect(change.textContent).toContain(' · 해제 · ');
     expect(change.textContent).toContain('→ 미연결 · 발명 이후 성과 관측 중');
     expect(change.textContent).not.toContain('새 지표 생성');
-    expect(screen.getByText('지표 자동 연결 · 0개 사용 중')).toBeTruthy();
+    expect(screen.getByText('검증 지표 자동 연결 · 0개 사용 중')).toBeTruthy();
   });
 });

@@ -105,4 +105,21 @@ describe('PaperResearchBoard', () => {
     fireEvent.click(screen.getByRole('button', { name: '전체 지표와 채택 근거' }));
     expect(useSettingsStore.getState().view).toBe('PAPER_STRATEGY');
   });
+  it('separates two exploration slots from the three validated slots and hides both on failed reads', () => {
+    const pending = { ...invented, active: false, reason: 'FORWARD_OBSERVATION' as const,
+      validation: { sampleCount: 0, dateCount: 0, symbolCount: 0, meanNetReturnPct: null, meanDailyExcessPct: null } };
+    const current: PaperAdaptiveState = { ...state, candidates: [base], exploration: { version: 'shadow-exploration-v1', sequence: 1,
+      rules: [{ id: 'trial', registeredAt: state.evaluatedAt, candidate: pending }] } };
+    const { rerender } = render(<PaperResearchBoard state={current} />);
+    expect(screen.getByText('현재 1개 · 최대 3개')).toBeTruthy();
+    expect(screen.getByText('1개 · 최대 2개')).toBeTruthy();
+    expect(within(screen.getByRole('list', { name: '현재 채택 지표' })).getAllByRole('listitem')).toHaveLength(1);
+    const trial = within(screen.getByRole('list', { name: '탐색 가상매수 지표' }));
+    expect(trial.getByText('탐색 · 검증 전')).toBeTruthy();
+    expect(trial.getByText('0건 · 0진입일 · 0종목')).toBeTruthy();
+    expect(trial.queryByText('0.00%')).toBeNull();
+    rerender(<PaperResearchBoard state={current} unavailable />);
+    expect(screen.queryByRole('list', { name: '탐색 가상매수 지표' })).toBeNull();
+    expect(screen.getByText('등록 확인 대기')).toBeTruthy();
+  });
 });

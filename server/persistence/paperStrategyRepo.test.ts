@@ -99,6 +99,39 @@ describe('strategy ledger persistence', () => {
     expect(fs.readFileSync(repo.PAPER_STRATEGY_FILE, 'utf8')).not.toContain('experimentIds"');
   });
 
+  it('compacts exploratory trial and frozen entry evidence through storage, holding and scheduled exit', async () => {
+    const snapshot = adaptiveTestSnapshot();
+    const registration = structuredClone(snapshot);
+    registration.asOf = '2026-09-18T00:59:00Z';
+    registration.observations[0].observedAt = registration.asOf;
+    registration.observations[0].features!.asOf = registration.asOf;
+    const adaptive = selectPaperAdaptiveState(undefined, matureAdaptiveSamples({ entryDateCount: 4 }),
+      registration.asOf, registration.observations);
+    const entered = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, adaptive);
+    expect(entered.trades).toHaveLength(1);
+    expect(entered.trades[0].entryDecision.explorationEvidence).toBeDefined();
+    expect(adaptive.exploration!.rules[0].candidate.training.experimentIds!.length).toBeGreaterThan(0);
+    repo.savePaperStrategyLedger(entered);
+    vi.resetModules(); repo = await import('./paperStrategyRepo.js');
+    const restored = repo.loadPaperStrategyLedger();
+    expect(restored).toEqual(compactExpected(entered));
+    expect(fs.readFileSync(repo.PAPER_STRATEGY_FILE, 'utf8')).not.toContain('experimentIds"');
+    const held = evaluatePaperStrategyScan(restored, snapshot, strategyTestCost, adaptive);
+    repo.savePaperStrategyLedger(held);
+    expect(repo.loadPaperStrategyLedger().latestDecisions[0].explorationEvidence)
+      .toEqual(restored.trades[0].entryDecision.explorationEvidence);
+    const exitDate = entered.trades[0].scheduledExitDate;
+    snapshot.tradingDate = exitDate; snapshot.asOf = `${exitDate}T07:00:00Z`; snapshot.marketOpen = false;
+    snapshot.observations[0].dailyCloses = [{ tradingDate: exitDate, close: 11000, availableAt: snapshot.asOf }];
+    const closed = evaluatePaperStrategyScan(repo.loadPaperStrategyLedger(), snapshot, strategyTestCost,
+      selectPaperAdaptiveState(undefined, [], snapshot.asOf));
+    repo.savePaperStrategyLedger(closed);
+    vi.resetModules(); repo = await import('./paperStrategyRepo.js');
+    expect(repo.loadPaperStrategyLedger()).toEqual(compactExpected(closed));
+    expect(repo.loadPaperStrategyLedger().trades[0].exit!.decision.explorationEvidence)
+      .toEqual(restored.trades[0].entryDecision.explorationEvidence);
+  });
+
   it('keeps pre-ADR-0680 evidence ID lists once in the cold archive and stores only their digest', () => {
     const samples = matureStrategySamples();
     const ids = samples.map(item => item.id);

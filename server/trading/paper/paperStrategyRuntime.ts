@@ -25,7 +25,7 @@ export function advancePaperStrategy(
 ): PaperStrategyScanResult {
   try {
     if (!state.ledger) throw new Error(state.error ?? '전략 기록 없음');
-    const adaptive = selectPaperAdaptiveState(state.ledger.adaptive, experiments, snapshot.asOf);
+    const adaptive = selectPaperAdaptiveState(state.ledger.adaptive, experiments, snapshot.asOf, snapshot.observations);
     const ledger = evaluatePaperStrategyScan(state.ledger, snapshot, (symbol) =>
       capturePaperCostModel(getStockByCode(symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI'), adaptive);
     const archived = getArchivedPaperBarCheck();

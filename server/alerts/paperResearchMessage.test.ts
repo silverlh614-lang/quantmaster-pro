@@ -67,7 +67,7 @@ describe('paper research message', () => {
     expect(text).toContain('상대강도 기준 KIS 지수 일봉 400건 · 수집 완료');
     expect(text).toContain('전략 선별력 · 같은 날 후보 대비');
     expect(text).toContain('청산 전략 +1.00% vs 같은 날·같은 기간 미진입 +0.20% → 차이 +0.80%p');
-    expect(text).toContain('현행 자율 전략 가상 청산 2건 · 평균 순수익률 +0.30% (구전략 제외)');
+    expect(text).toContain('현행 자율 전략 전체(검증+탐색) 가상 청산 2건 · 평균 순수익률 +0.30% (구전략 제외)');
   });
 
   it('reports autonomous discovery even when archived seven-condition research is unavailable', () => {
@@ -77,7 +77,7 @@ describe('paper research message', () => {
     const weekly = formatPaperResearch(view, now);
     expect(weekly).toContain(summary);
     expect(weekly).toContain('발명 1차 · 이번 회차 검토 3개 · 보관 2개 · 생성 후 검증 대기 2개');
-    expect(weekly).toContain('지표 자동 연결 0개 · 발명 지표 0개');
+    expect(weekly).toContain('검증 지표 자동 연결 0개/최대 3개 · 발명 지표 0개');
     expect(weekly).toContain('저장 자료 연구 결과를 아직 불러오지 못했습니다');
     expect(weekly.length).toBeLessThanOrEqual(3500);
     for (const kind of ['morning', 'status'] as const) {

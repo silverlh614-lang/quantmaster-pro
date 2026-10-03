@@ -58,21 +58,81 @@ describe('adaptive research summary', () => {
     current.strategy!.adaptive!.candidates.push({ ...invented, rule: { ...invented.rule, feature: 'pbr', invention: undefined }, active: false, reason: 'MISSING_INPUT' });
     const result = formatPaperAdaptiveSummary(current, now).join('\n');
     expect(result).toContain('발명 2차 · 이번 회차 검토 1개 · 보관 1개');
-    expect(result).toContain('지표 자동 연결 2개 · 발명 지표 1개');
+    expect(result).toContain('검증 지표 자동 연결 2개/최대 3개 · 발명 지표 1개');
     expect(result).toContain('생성 후 검증 12건/3일');
-    expect(result).toContain('당시 지표 자료 없음 1개');
-    expect(result).toContain('현행 자율 전략 가상 청산 1건 · 평균 순수익률 +2.00% (구전략 제외)');
+    expect(result).toContain('학습에 쓸 지표 표본 없음 1개');
+    expect(result).toContain('현행 자율 전략 전체(검증+탐색) 가상 청산 1건 · 평균 순수익률 +2.00% (구전략 제외)');
     expect(result).not.toContain('+99.00%'); expect(result).not.toContain('+80.00%');
-    expect(result.length).toBeLessThanOrEqual(1000);
+    expect(result.length).toBeLessThanOrEqual(1200);
+  });
+
+  it('reports per-horizon learning counts and preserves realized performance within the message limit', () => {
+    const current = view(), adaptive = current.strategy!.adaptive!;
+    adaptive.policy.maturityModel = 'per-horizon-v1';
+    adaptive.horizonSamples = [
+      { horizon: 1, matureSampleCount: 100, matureDateCount: 20, trainingSampleCount: 60, trainingDateCount: 12, validationSampleCount: 20, validationDateCount: 4 },
+      { horizon: 3, matureSampleCount: 80, matureDateCount: 16, trainingSampleCount: 0, trainingDateCount: 0, validationSampleCount: 20, validationDateCount: 4 },
+      { horizon: 5, matureSampleCount: 0, matureDateCount: 0, trainingSampleCount: 0, trainingDateCount: 0, validationSampleCount: 0, validationDateCount: 0 },
+    ];
+    const result = formatPaperAdaptiveSummary(current, now).join('\n');
+    expect(result).toContain('한 보유기간 이상 확정 표본 100건/20진입일');
+    expect(result).toContain('D1 전체 표본 · 학습 60건/12일 · 검증 20건/4일');
+    expect(result).toContain('D3 전체 표본 · 학습 0건/0일 · 검증 20건/4일');
+    expect(result).toContain('D5 전체 표본 · 학습 0건/0일 · 검증 0건/0일');
+    expect(result).toContain('현행 자율 전략 전체(검증+탐색) 가상 청산 0건');
+    expect(result.length).toBeLessThanOrEqual(1200);
+    expect(validateTelegramHtml(result).valid).toBe(true);
+    delete adaptive.horizonSamples;
+    expect(formatPaperAdaptiveSummary(current, now).join('\n')).toContain('보유기간별 표본 집계 확인 대기');
+    delete adaptive.policy.maturityModel;
+    const legacy = formatPaperAdaptiveSummary(current, now).join('\n');
+    expect(legacy).toContain('성숙 관측 100건/20진입일');
+    expect(legacy).not.toContain('D1 전체 표본');
   });
 
   it('does not substitute all-strategy performance for an unaggregated current policy', () => {
     const current = view(); current.strategy!.totalCount = 400;
     expect(formatPaperAdaptiveSummary(current, now).join('\n')).toContain('현행 자율 전략 성과 미집계');
     current.strategy!.performanceByVersion = { 'adaptive-features-v1': { closedCount: 4, meanNetReturnPct: 0, winRatePct: 0, totalNetPnl: 0 } };
-    expect(formatPaperAdaptiveSummary(current, now).join('\n')).toContain('현행 자율 전략 가상 청산 4건 · 평균 순수익률 0.00%');
+    expect(formatPaperAdaptiveSummary(current, now).join('\n')).toContain('현행 자율 전략 전체(검증+탐색) 가상 청산 4건 · 평균 순수익률 0.00%');
     current.strategy!.lastRun!.asOf = '2026-10-05T07:00:00Z';
     expect(formatPaperAdaptiveSummary(current, now).join('\n')).toContain('현행 자율 전략 성과 미집계');
+  });
+
+  it('separates dated validated and exploration trade results using original entry purpose', () => {
+    const current = view(), exploratory = closed('adaptive-features-v1', -1);
+    exploratory.entryDecision.explorationEvidence = { ...decision('BUY').adaptiveEvidence!, trialId: 'trial', registeredAt: '2026-09-18T00:59:00Z' };
+    const future = structuredClone(exploratory);
+    future.exit!.observedAt = '2026-10-05T07:00:00Z'; future.exit!.decisionAt = future.exit!.observedAt;
+    current.strategy!.trades = [closed('adaptive-features-v1', 2), exploratory, future, closed('news-trend-v2', 99)];
+    current.strategy!.totalCount = 4;
+    current.strategy!.adaptive!.exploration = { version: 'shadow-exploration-v1', sequence: 1,
+      rules: [{ id: 'trial', registeredAt: at, candidate: { ...invented, active: false, reason: 'FORWARD_OBSERVATION' } }] };
+    const result = formatPaperAdaptiveSummary(current, now).join('\n');
+    expect(result).toContain('탐색 가상매수 · 검증 전 · 1개/최대 2개');
+    expect(result).toContain('검증 지표 자동 연결 2개/최대 3개');
+    expect(result).toContain('현행 자율 전략 전체(검증+탐색) 가상 청산 2건 · 평균 순수익률 +0.50%');
+    expect(result).toContain('검증 통과 진입: 보유 0건 · 청산 1건 · 평균 +2.00%');
+    expect(result).toContain('탐색 진입(검증 전): 보유 1건 · 청산 1건 · 평균 -1.00%');
+    expect(result).not.toContain('+99.00%');
+    expect(result.length).toBeLessThanOrEqual(1200);
+  });
+
+  it('uses only purpose-specific aggregates for partial ledgers and marks missing or future data unavailable', () => {
+    const current = view(); current.strategy!.totalCount = 400;
+    current.strategy!.performanceByVersion = { 'adaptive-features-v1': { closedCount: 99, meanNetReturnPct: 90, winRatePct: 50, totalNetPnl: 1 } };
+    expect(formatPaperAdaptiveSummary(current, now).join('\n')).toContain('탐색 진입(검증 전): 목적별 성과 미집계');
+    current.strategy!.performanceByPurpose = {
+      VALIDATED: { openCount: 5, closedCount: 3, meanNetReturnPct: 2, winRatePct: 100, totalNetPnl: 20 },
+      EXPLORATION: { openCount: 2, closedCount: 0, meanNetReturnPct: null, winRatePct: null, totalNetPnl: null },
+    };
+    const currentResult = formatPaperAdaptiveSummary(current, now).join('\n');
+    expect(currentResult).toContain('검증 통과 진입: 보유 5건 · 청산 3건 · 평균 +2.00%');
+    expect(currentResult).toContain('탐색 진입(검증 전): 보유 2건 · 청산 0건 · 평균 미집계');
+    current.strategy!.lastRun!.asOf = '2026-10-05T01:00:00Z';
+    const futureResult = formatPaperAdaptiveSummary(current, now).join('\n');
+    expect(futureResult).toContain('검증 통과 진입: 목적별 성과 미집계');
+    expect(futureResult).not.toContain('보유 5건');
   });
 
   it('distinguishes query errors, missing state, and future evaluation instead of reporting zero active rules', () => {

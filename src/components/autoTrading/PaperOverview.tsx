@@ -41,8 +41,8 @@ export function PaperOverview({ view, mode, paused, refreshFailed = false }: {
     { label: '누적 기본 관측', value: count(view.totalCount), unit: '건', note: `D5 완료 ${count(view.completedCount)}건`, icon: Radar, tone: 'mint' },
     { label: '발명 지표 연구', value: strategyUnavailable ? '확인 불가' : count(inventions), unit: '개',
       note: adaptive?.discovery ? `탐색 ${adaptive.discovery.round}차 · 보관 중인 수식` : '첫 수식 탐색을 기다립니다', icon: FlaskConical, tone: 'lilac' },
-    { label: '매수에 연결된 지표', value: strategyUnavailable ? '확인 불가' : count(active), unit: '개',
-      note: adaptive ? `기본·발명 지표 중 최대 ${adaptive.policy.maxActiveRules}개 선택` : '첫 지표 평가를 기다립니다', icon: Layers3, tone: 'mint' },
+    { label: '검증 매수에 연결된 지표', value: strategyUnavailable ? '확인 불가' : count(active), unit: '개',
+      note: adaptive ? `검증 최대 ${adaptive.policy.maxActiveRules}개 · 탐색은 별도 최대 2개` : '첫 지표 평가를 기다립니다', icon: Layers3, tone: 'mint' },
     { label: '자율 전략 평균 순수익', value: strategyUnavailable ? '확인 불가' : percent(performance?.meanNetReturnPct), unit: '',
       note: performance ? `실제 가상 청산 ${count(performance.closedCount)}건 기준` : '자율 전략의 청산 결과를 기다립니다', icon: TrendingUp,
       tone: (performance?.meanNetReturnPct ?? 0) < 0 ? 'negative' : 'mint' },
@@ -66,10 +66,15 @@ export function PaperOverview({ view, mode, paused, refreshFailed = false }: {
       <section className="qdash-panel" aria-label="성과 기록">
         <header className="qdash-panel-heading"><div><span className="qdash-kicker">성과 기록</span><h2>판단 이후, 어떤 결과였나요?</h2></div>
           <button type="button" className="qdash-link" onClick={() => setView('PAPER_OBSERVATIONS')}>관측 기록 <ArrowUpRight size={15} /></button></header>
-        <div className="qdash-performance"><div><span>자율 전략 · 가상 청산 평균</span>
+        <div className="qdash-performance"><div><span>자율 전략 전체 · 가상 청산 평균</span>
           <strong className={performance?.meanNetReturnPct == null ? 'is-pending' : performance.meanNetReturnPct < 0 ? 'is-negative' : ''}>{strategyUnavailable ? '확인 불가' : percent(performance?.meanNetReturnPct)}</strong></div>
           <dl><div><dt>자율 전략 누적 청산</dt><dd>{strategyUnavailable ? '확인 불가' : count(performance?.closedCount)}{performance && '건'}</dd></div>
             <div><dt>승률</dt><dd>{strategyUnavailable ? '확인 불가' : performance?.winRatePct == null ? '집계 대기' : `${performance.winRatePct.toFixed(1)}%`}</dd></div></dl></div>
+        <div className="qdash-waiting qdash-purpose-performance" role="group" aria-label="매수 목적별 성과">{(['VALIDATED', 'EXPLORATION'] as const).map(purpose => {
+          const result = strategyUnavailable ? undefined : strategy?.performanceByPurpose?.[purpose];
+          return <div key={purpose}><span>{purpose === 'VALIDATED' ? '검증 매수' : '탐색 매수 · 검증 전'}</span>
+            <strong>{result ? `보유 ${count(result.openCount)} · 청산 ${count(result.closedCount)}건 · ${percent(result.meanNetReturnPct)}` : '집계 확인 대기'}</strong></div>;
+        })}</div>
         <div className="qdash-chart-heading"><h3>기본 관측의 보유기간별 성과</h3><span>비용 반영 순수익률</span></div>
         <div className="qdash-outcomes" aria-label="기본 관측 D1·D3·D5 평균 순수익률">
           {([1, 3, 5] as const).map(horizon => {

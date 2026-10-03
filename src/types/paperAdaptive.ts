@@ -27,6 +27,7 @@ export interface PaperIndicatorDiscovery {
 }
 export interface PaperAdaptivePolicy {
   version: 'adaptive-features-v1'; windowEntryDates: number; trainingFraction: number;
+  maturityModel?: 'per-horizon-v1';
   minimumSamples: number; minimumEntryDates: number; activationMarginDailyPct: number;
   replacementMarginDailyPct: number; maxActiveRules: number;
 }
@@ -40,17 +41,30 @@ export interface PaperAdaptiveEvidence {
   cutoffAt: string; evaluatedAt: string; validationStartDate: string;
   policy: PaperAdaptivePolicy; candidate: PaperAdaptiveCandidate;
 }
+export interface PaperExplorationTrial {
+  id: string; registeredAt: string; candidate: PaperAdaptiveCandidate;
+}
+export interface PaperExplorationEvidence extends Omit<PaperAdaptiveEvidence, 'validationStartDate'> {
+  validationStartDate: string | null; trialId: string; registeredAt: string;
+}
+export interface PaperAdaptiveHorizonSamples {
+  horizon: 1 | 3 | 5; matureSampleCount: number; matureDateCount: number;
+  trainingSampleCount: number; trainingDateCount: number;
+  validationSampleCount: number; validationDateCount: number;
+}
 export interface PaperAdaptiveState {
   policy: PaperAdaptivePolicy; tradingDate: string; evaluatedAt: string; cutoffAt: string;
   windowStartDate: string | null; validationStartDate: string | null;
   matureSampleCount: number; matureDateCount: number;
+  horizonSamples?: PaperAdaptiveHorizonSamples[];
   candidates: PaperAdaptiveCandidate[];
   discovery?: PaperIndicatorDiscovery;
+  exploration?: { version: 'shadow-exploration-v1'; sequence: number; rules: PaperExplorationTrial[] };
   changes: Array<{ at: string; feature: PaperAdaptiveFeatureKey; from: PaperAdaptiveRule | null;
     to: PaperAdaptiveRule | null; reason: PaperAdaptiveReason }>;
 }
 export const PAPER_ADAPTIVE_REASON_LABELS: Record<PaperAdaptiveReason, string> = {
-  MISSING_INPUT: '당시 지표 자료 없음', INSUFFICIENT_TRAINING: '학습 표본 누적 중',
+  MISSING_INPUT: '학습에 쓸 지표 표본 없음', INSUFFICIENT_TRAINING: '학습 표본 누적 중',
   INSUFFICIENT_VALIDATION: '후반 확인 표본 누적 중', NO_TRAINING_EDGE: '학습 구간 우위 없음',
   NO_VALIDATION_EDGE: '후반 확인 성과 부족', ACTIVE: '매수 판단에 연결', RANKED_OUT: '다른 지표 우선 사용',
   FORWARD_OBSERVATION: '발명 이후 성과 관측 중',

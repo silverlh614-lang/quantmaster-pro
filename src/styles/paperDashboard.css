@@ -74,6 +74,8 @@
 .qdash-waiting strong { font-weight: 500; font-family: var(--font-mono); white-space: nowrap; }
 .qdash-waiting strong small { color: var(--text-secondary); font-size: 10px; font-family: var(--font-sans); margin-left: 4px; }
 .qdash-waiting p { font-size: 12px; color: var(--text-secondary); line-height: 1.8; padding: 10px 0; }
+.qdash-purpose-performance > div { flex-wrap: wrap; gap: 4px 12px; padding: 10px 0; }
+.qdash-purpose-performance strong { white-space: normal; line-height: 1.7; }
 .qdash-trade-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--text-secondary); font-size: 10px; line-height: 1.7; flex-wrap: wrap; }
 .qdash-trade-meta strong { color: var(--text-primary); font-weight: 500; }
 .qdash-bottom-link { align-self: flex-start; margin-top: auto; padding-top: 20px; }

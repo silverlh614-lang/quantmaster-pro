@@ -99,6 +99,22 @@ describe('PaperOverview', () => {
     expect(screen.getByLabelText('새 관측으로 검증 1개')).toBeTruthy();
   });
 
+  it('shows full-ledger verified and exploratory results separately without inferring missing aggregates', () => {
+    const data = currentView();
+    data.strategy!.performanceByPurpose = {
+      VALIDATED: { openCount: 2, closedCount: 12, meanNetReturnPct: 3.25, winRatePct: 75, totalNetPnl: 3900 },
+      EXPLORATION: { openCount: 301, closedCount: 8, meanNetReturnPct: -1.25, winRatePct: 25, totalNetPnl: -1000 },
+    };
+    const { rerender } = render(<PaperOverview view={data} />);
+    const purposes = () => within(screen.getByRole('group', { name: '매수 목적별 성과' }));
+    expect(purposes().getByText('검증 매수').parentElement!.textContent).toContain('보유 2 · 청산 12건 · +3.25%');
+    expect(purposes().getByText('탐색 매수 · 검증 전').parentElement!.textContent).toContain('보유 301 · 청산 8건 · -1.25%');
+    delete data.strategy!.performanceByPurpose;
+    rerender(<PaperOverview view={data} />);
+    expect(purposes().getAllByText('집계 확인 대기')).toHaveLength(2);
+    expect(purposes().queryByText(/보유 0/)).toBeNull();
+  });
+
   it.each(['version', 'all'] as const)('keeps current performance pending when %s performance is missing', missing => {
     const data = currentView();
     if (missing === 'version') delete data.strategy!.performanceByVersion!['adaptive-features-v1'];

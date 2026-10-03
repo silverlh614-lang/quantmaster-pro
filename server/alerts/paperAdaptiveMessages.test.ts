@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { PaperStrategyTrade } from '../../src/types/paperStrategy.js';
 import type { PaperAdaptiveEvidence } from '../../src/types/paperAdaptive.js';
 import { createPaperIndicatorFormula, paperIndicatorFormulaId } from '../../src/types/paperIndicatorFormula.js';
-import { formatPaperTradeAnalysis } from './paperBotMessages.js';
+import { formatPaperTradeAnalysis, formatPaperTrades } from './paperBotMessages.js';
 
 const entryAt = '2026-09-21T01:00:00Z';
 const adaptiveEvidence: PaperAdaptiveEvidence = {
@@ -29,6 +29,25 @@ const trade: PaperStrategyTrade = {
 };
 
 describe('adaptive trade analysis', () => {
+  it.each(['BUY', 'EXIT'] as const)('labels %s exploration from frozen evidence without claiming successful validation', side => {
+    const frozenTrade: PaperStrategyTrade = structuredClone(trade);
+    delete frozenTrade.entryDecision.adaptiveEvidence;
+    frozenTrade.entryDecision.reasonCode = 'ADAPTIVE_EXPLORATION_SELECTED';
+    frozenTrade.entryDecision.explorationEvidence = { ...adaptiveEvidence, validationStartDate: null,
+      trialId: 'shadow-exploration-v1:2026-09-21:1:rsi14:1:D3', registeredAt: '2026-09-21T00:59:00Z',
+      candidate: { ...adaptiveEvidence.candidate, active: false, reason: 'INSUFFICIENT_VALIDATION',
+        validation: { sampleCount: 0, dateCount: 0, symbolCount: 0, meanNetReturnPct: null, meanDailyExcessPct: null } } };
+    const events = [{ id: side, at: entryAt, trade: frozenTrade, side }];
+    const analysis = formatPaperTradeAnalysis(events), signal = formatPaperTrades(events);
+    expect(analysis).toContain('탐색 가상매수 · 검증 전');
+    expect(signal).toContain('탐색 가상매수 · 검증 전');
+    expect(analysis).toContain('탐색 지표: RSI 14');
+    expect(analysis).toContain('후반 시작 누적 대기');
+    expect(analysis).toContain('후반 확인 0건/0진입일 · 평균 순수익률 집계 대기');
+    expect(analysis).not.toContain('검증 통과 가상매수');
+    expect(analysis).not.toContain('진입 당시 학습 근거 미기록');
+    expect(analysis.length).toBeLessThanOrEqual(3500);
+  });
   it.each(['BUY', 'EXIT'] as const)('keeps %s tied to the original selected feature rather than news cohorts', side => {
     const text = formatPaperTradeAnalysis([{ id: side, at: side === 'BUY' ? entryAt : '2026-09-28T07:00:00Z', trade, side }]);
     expect(text).toContain('자동 연결 지표: RSI 14 · 30 이상 50 미만 · D3');

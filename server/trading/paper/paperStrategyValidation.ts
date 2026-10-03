@@ -6,7 +6,8 @@ import { calculatePaperReturn } from './paperAccounting.js';
 import { EMPTY_EVIDENCE_DIGEST, paperStrategyCohort } from './paperStrategyEvidence.js';
 import { PAPER_FLOW_ISSUE_LABELS, type PaperFlowIssue } from '../../../src/types/paperInvestorFlow.js';
 import { PAPER_NEWS_EVENT_LABELS, type PaperNewsEvent } from '../../../src/types/paperNewsFacts.js';
-import { adaptiveEvidenceSchema, adaptiveStateSchema, adaptiveObservationSchema, validAdaptiveEntry, sameAdaptiveEvidence } from './paperAdaptiveValidation.js';
+import { adaptiveEvidenceSchema, adaptiveStateSchema, adaptiveObservationSchema, validAdaptiveEntry, sameAdaptiveEvidence,
+  explorationEvidenceSchema, validExplorationEntry, sameExplorationEvidence } from './paperAdaptiveValidation.js';
 import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 
 const finite = z.number().finite();
@@ -47,11 +48,12 @@ const evidence = z.object({
 });
 const decision = z.object({ snapshotId: z.string(), decisionAt: timestamp, symbol, name: z.string(),
   action: z.enum(['BUY', 'WAIT', 'HOLD', 'EXIT']),
-  reasonCode: z.enum(['ADAPTIVE_FEATURE_SELECTED', 'ADAPTIVE_NO_ACTIVE_RULE', 'ADAPTIVE_FEATURE_UNAVAILABLE', 'ADAPTIVE_RULE_NOT_MATCHED',
+  reasonCode: z.enum(['ADAPTIVE_FEATURE_SELECTED', 'ADAPTIVE_EXPLORATION_SELECTED', 'ADAPTIVE_NO_ACTIVE_RULE', 'ADAPTIVE_FEATURE_UNAVAILABLE', 'ADAPTIVE_RULE_NOT_MATCHED',
     'POSITIVE_COHORT_EXPECTANCY', 'INSUFFICIENT_MATURE_SAMPLES', 'INSUFFICIENT_ENTRY_DATES',
     'NON_POSITIVE_EXPECTANCY', 'TREND_UNKNOWN', 'MARKET_CLOSED', 'CURRENT_PRICE_UNAVAILABLE', 'OBSERVATION_TIME_INVALID',
     'ALREADY_ENTERED_TODAY', 'HORIZON_PENDING', 'SCHEDULED_CLOSE_UNAVAILABLE', 'SCHEDULED_CLOSE_REACHED']),
-  reason: z.string(), cohort: cohort.nullable(), evidence: evidence.nullable(), adaptiveEvidence: adaptiveEvidenceSchema.optional(), tradeId: z.string().nullable(), newsSummary: newsSummary.optional(), investorFlow: investorFlow.optional() });
+  reason: z.string(), cohort: cohort.nullable(), evidence: evidence.nullable(), adaptiveEvidence: adaptiveEvidenceSchema.optional(),
+  explorationEvidence: explorationEvidenceSchema.optional(), tradeId: z.string().nullable(), newsSummary: newsSummary.optional(), investorFlow: investorFlow.optional() });
 const observation = z.object({ symbol, name: z.string(), price: finite.positive().nullable(), observedAt: timestamp, source: z.string(),
   investorFlow: investorFlow.optional(), features: adaptiveObservationSchema.optional(),
   return1dPct: finite.nullable(), return5dPct: finite.nullable(), aboveMa20: z.boolean().nullable(),
@@ -116,9 +118,14 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
     || item.cohort !== item.evidence.cohort || Date.parse(item.evidence.cutoffAt) > Date.parse(item.decisionAt)))) {
     throw new Error('PAPER_STRATEGY_INVALID: inconsistent decision evidence');
   }
-  if (decisions.some(item => item.adaptiveEvidence && (item.evidence !== null || item.cohort !== null
+  if (decisions.some(item => item.adaptiveEvidence && (item.explorationEvidence || item.evidence !== null || item.cohort !== null
     || Date.parse(item.adaptiveEvidence.evaluatedAt) > Date.parse(item.decisionAt)))) {
     throw new Error('PAPER_STRATEGY_INVALID: inconsistent adaptive evidence');
+  }
+  if (decisions.some(item => item.explorationEvidence && (item.adaptiveEvidence || item.evidence !== null || item.cohort !== null
+    || item.action === 'WAIT' || Date.parse(item.explorationEvidence.evaluatedAt) > Date.parse(item.decisionAt)
+    || Date.parse(item.explorationEvidence.registeredAt) >= Date.parse(item.decisionAt)))) {
+    throw new Error('PAPER_STRATEGY_INVALID: inconsistent exploration evidence');
   }
   for (const item of parsed.data.trades) {
     // The schedule was frozen at entry; later holiday-calendar corrections must not rewrite persisted decisions.
@@ -126,8 +133,9 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
     const entryMs = Date.parse(item.entryAt);
     const entryEvidence = item.entryDecision.evidence;
     const selected = entryEvidence?.horizons.find((row) => row.horizon === item.horizon);
-    const validEntry = item.strategyVersion === 'adaptive-features-v1' ? validAdaptiveEntry(item as PaperStrategyTrade)
-      : !item.entryDecision.adaptiveEvidence && item.entryDecision.reasonCode === 'POSITIVE_COHORT_EXPECTANCY'
+    const validEntry = item.strategyVersion === 'adaptive-features-v1'
+      ? item.entryDecision.explorationEvidence ? validExplorationEntry(item as PaperStrategyTrade) : validAdaptiveEntry(item as PaperStrategyTrade)
+      : !item.entryDecision.adaptiveEvidence && !item.entryDecision.explorationEvidence && item.entryDecision.reasonCode === 'POSITIVE_COHORT_EXPECTANCY'
         && entryEvidence && entryEvidence.selectedHorizon === item.horizon && entryEvidence.cutoffAt === item.entryAt
         && item.entryDecision.cohort === paperStrategyCohort(item.entryObservation, item.entryAt, item.policy)
         && entryEvidence.sampleCount >= item.policy.minimumSamples && entryEvidence.entryDateCount >= item.policy.minimumEntryDates
@@ -157,7 +165,9 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
         || item.exit.decision.tradeId !== item.id || item.exit.decision.symbol !== item.symbol || item.exit.decision.name !== item.name
         || item.exit.decision.snapshotId !== item.exit.snapshotId || item.exit.decision.decisionAt !== item.exit.decisionAt
         || (item.strategyVersion === 'adaptive-features-v1'
-          ? !sameAdaptiveEvidence(item.entryDecision.adaptiveEvidence, item.exit.decision.adaptiveEvidence)
+          ? item.entryDecision.explorationEvidence
+            ? !sameExplorationEvidence(item.entryDecision.explorationEvidence, item.exit.decision.explorationEvidence)
+            : !sameAdaptiveEvidence(item.entryDecision.adaptiveEvidence, item.exit.decision.adaptiveEvidence) || Boolean(item.exit.decision.explorationEvidence)
           : !entryEvidence || !sameEvidence(entryEvidence, item.exit.decision.evidence))
         || Math.abs(item.exit.netPnl - result.netPnl) > 1e-8
         || Math.abs(item.exit.netReturnPct - result.netReturnPct) > 1e-8
@@ -167,5 +177,13 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
     }
     ids.add(item.id);
     if (item.status === 'OPEN') openSymbols.add(item.symbol);
+  }
+  const entries = new Map(parsed.data.trades.map(item => [item.id, item.entryDecision]));
+  for (const item of parsed.data.latestDecisions) {
+    if (item.action !== 'HOLD' && item.action !== 'EXIT') continue;
+    const entry = item.tradeId ? entries.get(item.tradeId) : undefined;
+    if (entry?.explorationEvidence && !sameExplorationEvidence(entry.explorationEvidence, item.explorationEvidence)) {
+      throw new Error('PAPER_STRATEGY_INVALID: inconsistent exploration carry');
+    }
   }
 }

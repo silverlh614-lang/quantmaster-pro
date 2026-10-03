@@ -115,8 +115,9 @@ function DecisionCard({ decision, policy }: { decision: PaperStrategyDecision; p
         <ActionBadge action={decision.action} />
       </div>
       <p className="text-sm text-slate-200">{decision.reason}</p>
-      <p className="text-xs text-slate-400">{decision.adaptiveEvidence ? '개별 지표 성과로 선택' : decision.cohort ? cohortLabels[decision.cohort] : '관측 정보 확인 대기'} · 판단 {timestamp(decision.decisionAt)} KST</p>
+      <p className="text-xs text-slate-400">{decision.explorationEvidence ? '탐색 가상매수 · 검증 전' : decision.adaptiveEvidence ? '개별 지표 성과로 선택' : decision.cohort ? cohortLabels[decision.cohort] : '관측 정보 확인 대기'} · 판단 {timestamp(decision.decisionAt)} KST</p>
       {decision.adaptiveEvidence && <PaperAdaptiveEvidenceDetails evidence={decision.adaptiveEvidence} />}
+      {decision.explorationEvidence && <PaperAdaptiveEvidenceDetails evidence={decision.explorationEvidence} />}
       {decision.evidence && <Evidence evidence={decision.evidence} policy={policy} />}
       {decision.newsSummary && <PaperNewsDetails summary={decision.newsSummary} />}
       {decision.investorFlow && <PaperInvestorFlowDetails flow={decision.investorFlow} />}
@@ -149,6 +150,7 @@ function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
       ) : <p className="text-xs text-sky-200">진입 시 정한 날짜의 종가 확인까지 보유합니다. 청산 순손익은 집계 대기입니다.</p>}
       {trade.entryDecision.evidence && <Evidence evidence={trade.entryDecision.evidence} policy={trade.policy} />}
       {trade.entryDecision.adaptiveEvidence && <PaperAdaptiveEvidenceDetails evidence={trade.entryDecision.adaptiveEvidence} />}
+      {trade.entryDecision.explorationEvidence && <PaperAdaptiveEvidenceDetails evidence={trade.entryDecision.explorationEvidence} />}
     </article>
   );
 }
@@ -183,14 +185,19 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
           </div>
           {adaptive && (view.adaptive ? <PaperAdaptivePanel state={view.adaptive} /> : <p className="text-sm text-amber-200">지표 자동 연결 평가 대기 · 다음 관측에서 평가합니다.</p>)}
           {adaptive && <section className="rounded-xl border border-emerald-400/20 bg-emerald-500/5 p-4" aria-label="자율 판단 전략의 가상 청산 성과">
-            <h4 className="mb-3 text-sm font-semibold text-emerald-200">자율 판단 도입 후 가상 청산 성과</h4>
+            <h4 className="mb-3 text-sm font-semibold text-emerald-200">자율 전략 전체 · 검증 매수와 탐색 매수</h4>
             <dl className="grid grid-cols-2 gap-3 xl:grid-cols-4">{[
               ['자율 전략 청산', adaptivePerformance ? `${adaptivePerformance.closedCount}건` : '집계 대기'],
               ['자율 전략 평균 순수익률', percent(adaptivePerformance?.meanNetReturnPct ?? null)],
               ['자율 전략 승률', adaptivePerformance?.winRatePct == null ? '집계 대기' : `${adaptivePerformance.winRatePct.toFixed(1)}%`],
               ['자율 전략 순손익 합계', money(adaptivePerformance?.totalNetPnl ?? null)],
             ].map(([label, value]) => <div key={label}><dt className="text-xs text-slate-400">{label}</dt><dd className="mt-2 text-lg font-semibold tabular-nums text-emerald-200">{value}</dd></div>)}</dl>
-            <p className="mt-3 text-xs text-slate-400">자율 판단 전략이 연결한 지표로 진입한 가상 거래만 집계합니다. 지표를 고르는 학습·후반 확인 표본과 별도입니다.</p>
+            <div className="mt-4 grid gap-2 text-xs text-slate-300" aria-label="매수 목적별 성과">{(['VALIDATED', 'EXPLORATION'] as const).map(purpose => {
+              const result = view.performanceByPurpose?.[purpose];
+              return <p key={purpose}>{purpose === 'VALIDATED' ? '검증 매수' : '탐색 매수 · 검증 전'}: {result
+                ? `보유 ${result.openCount}건 · 청산 ${result.closedCount}건 · 평균 ${percent(result.meanNetReturnPct)}` : '집계 확인 대기'}</p>;
+            })}</div>
+            <p className="mt-3 text-xs text-slate-400">위 전체 성과에는 검증 전 탐색 매수가 포함됩니다. 지표를 고르는 학습·후반 확인 표본과 별도입니다.</p>
           </section>}
           <div>
             <h4 className="mb-3 text-sm font-semibold text-slate-200">{adaptive ? '전체 전략 이력 성과' : '전략 청산 성과'}</h4>

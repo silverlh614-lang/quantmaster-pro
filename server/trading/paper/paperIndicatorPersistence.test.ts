@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaperAdaptiveCandidate, PaperAdaptiveEvidence, PaperAdaptiveState, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
 import { createPaperIndicatorFormula, paperIndicatorFormulaId, PAPER_MAX_INVENTIONS } from '../../../src/types/paperIndicatorFormula.js';
-import { adaptiveEvidenceSchema, adaptiveStateSchema, sameAdaptiveEvidence } from './paperAdaptiveValidation.js';
+import { adaptiveEvidenceSchema, adaptiveStateSchema, sameAdaptiveEvidence, explorationEvidenceSchema, sameExplorationEvidence } from './paperAdaptiveValidation.js';
 import { adaptiveTestSnapshot, matureAdaptiveSamples } from './paperAdaptiveFixtures.js';
 import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { paperIndicatorFormulaUniverse } from './paperIndicatorDiscovery.js';
@@ -49,6 +49,14 @@ function entryLedger() {
 function evidence(): PaperAdaptiveEvidence {
   return entryLedger().trades[0].entryDecision.adaptiveEvidence!;
 }
+function explorationLedger() {
+  const snapshot = adaptiveTestSnapshot();
+  const state = selectPaperAdaptiveState(undefined, [], snapshot.asOf, snapshot.observations);
+  snapshot.id = 'exploration-entry'; snapshot.asOf = '2026-09-18T01:01:00Z';
+  snapshot.observations[0].observedAt = snapshot.asOf;
+  snapshot.observations[0].features!.asOf = snapshot.asOf;
+  return evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, state);
+}
 
 describe('invented indicator persisted contracts', () => {
   it('accepts self-contained frozen evidence and pre-discovery base states', () => {
@@ -61,7 +69,86 @@ describe('invented indicator persisted contracts', () => {
     expect(() => assertPaperStrategyLedger(ledger)).not.toThrow();
     const oldState = selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), asOf);
     delete oldState.discovery;
+    delete oldState.policy.maturityModel;
+    delete oldState.horizonSamples;
     expect(adaptiveStateSchema.safeParse(oldState).success).toBe(true);
+  });
+
+  it('preserves per-horizon diagnostics and rejects invalid maturity models or inconsistent counts', () => {
+    const state = inventedState();
+    state.policy.maturityModel = 'per-horizon-v1';
+    state.horizonSamples = [
+      { horizon: 1, matureSampleCount: 100, matureDateCount: 20, trainingSampleCount: 60, trainingDateCount: 12, validationSampleCount: 20, validationDateCount: 4 },
+      { horizon: 3, matureSampleCount: 80, matureDateCount: 16, trainingSampleCount: 40, trainingDateCount: 8, validationSampleCount: 20, validationDateCount: 4 },
+      { horizon: 5, matureSampleCount: 0, matureDateCount: 0, trainingSampleCount: 0, trainingDateCount: 0, validationSampleCount: 0, validationDateCount: 0 },
+    ];
+    const before = structuredClone(state), parsed = adaptiveStateSchema.parse(state);
+    expect(parsed.policy.maturityModel).toBe('per-horizon-v1');
+    expect(parsed.horizonSamples).toEqual(state.horizonSamples);
+    expect(state).toEqual(before);
+    const mutations: Array<(value: any) => void> = [
+      value => { value.policy.maturityModel = 'unknown-model'; },
+      value => { value.horizonSamples.pop(); },
+      value => { value.horizonSamples[1].horizon = 1; },
+      value => { value.horizonSamples[0].trainingSampleCount = -1; },
+      value => { value.horizonSamples[0].validationDateCount = 21; },
+      value => { value.horizonSamples[0].trainingSampleCount = 90; },
+      value => { value.horizonSamples[0].matureSampleCount = state.matureSampleCount + 1; },
+    ];
+    for (const mutate of mutations) {
+      const changed = structuredClone(state); mutate(changed);
+      expect(adaptiveStateSchema.safeParse(changed).success).toBe(false);
+    }
+  });
+
+  it('retains the maturity model in new frozen evidence without adding it to older evidence', () => {
+    const current = evidence(); current.policy.maturityModel = 'per-horizon-v1';
+    const saved = compact(current), old = structuredClone(current);
+    delete old.policy.maturityModel;
+    expect(adaptiveEvidenceSchema.parse(current).policy.maturityModel).toBe('per-horizon-v1');
+    expect(adaptiveEvidenceSchema.parse(saved).policy.maturityModel).toBe('per-horizon-v1');
+    expect(adaptiveEvidenceSchema.parse(old).policy).not.toHaveProperty('maturityModel');
+    expect(sameAdaptiveEvidence(current, saved)).toBe(true);
+    expect(sameAdaptiveEvidence(current, old)).toBe(false);
+    expect(adaptiveEvidenceSchema.safeParse({ ...current, policy: { ...current.policy, maturityModel: 'unknown-model' } }).success).toBe(false);
+  });
+
+  it('accepts a registered zero-sample exploration without weakening validated evidence', () => {
+    const ledger = explorationLedger(), trial = ledger.adaptive!.exploration!.rules[0];
+    const frozen = ledger.trades[0].entryDecision.explorationEvidence!;
+    expect(trial.candidate.active).toBe(false);
+    expect(trial.candidate.training.sampleCount).toBe(0);
+    expect(adaptiveStateSchema.parse(ledger.adaptive).exploration).toEqual(ledger.adaptive!.exploration);
+    expect(explorationEvidenceSchema.parse(frozen)).toEqual(frozen);
+    expect(frozen.validationStartDate).toBeNull();
+    expect(adaptiveEvidenceSchema.safeParse(frozen).success).toBe(false);
+    expect(sameExplorationEvidence(frozen, compact(frozen))).toBe(true);
+    expect(explorationEvidenceSchema.safeParse({ ...frozen, evaluatedAt: '2026-09-18T00:30:00Z' }).success).toBe(true);
+    expect(adaptiveStateSchema.safeParse({ ...ledger.adaptive, exploration: { ...ledger.adaptive!.exploration,
+      rules: [{ ...trial, registeredAt: '2026-09-18T01:02:00Z' }] } }).success).toBe(true);
+    expect(() => assertPaperStrategyLedger(ledger)).not.toThrow();
+  });
+
+  it('rejects malformed exploration stages, identities and registration boundaries', () => {
+    const original = explorationLedger();
+    const mutations: Array<(value: any) => void> = [
+      value => { value.adaptive.exploration.rules[0].candidate.active = true; },
+      value => { value.adaptive.exploration.rules[0].candidate.reason = 'NO_VALIDATION_EDGE'; },
+      value => { value.adaptive.exploration.rules.push(value.adaptive.exploration.rules[0]); },
+      value => { value.adaptive.exploration.sequence = 0; },
+      value => { value.adaptive.exploration.rules[0].id = 'arbitrary'; },
+      value => { value.trades[0].entryDecision.explorationEvidence.registeredAt = value.trades[0].entryAt; },
+      value => { value.trades[0].entryDecision.explorationEvidence.trialId += ':other'; },
+      value => { value.trades[0].entryDecision.explorationEvidence.trialId = value.trades[0].entryDecision.explorationEvidence.trialId.replace(':1:', ':1:extra:'); },
+      value => { value.trades[0].entryObservation.features.asOf = value.trades[0].entryDecision.explorationEvidence.registeredAt; },
+      value => { value.trades[0].entryObservation.observedAt = value.trades[0].entryDecision.explorationEvidence.registeredAt; },
+      value => { value.trades[0].entryDecision.adaptiveEvidence = evidence(); },
+      value => { value.trades[0].entryDecision.reasonCode = 'ADAPTIVE_FEATURE_SELECTED'; },
+    ];
+    for (const mutate of mutations) {
+      const changed = structuredClone(original); mutate(changed);
+      expect(() => assertPaperStrategyLedger(changed)).toThrow('PAPER_STRATEGY_INVALID');
+    }
   });
 
   it('rejects missing definitions, malformed identities and unsafe formulas without executing anything', () => {
@@ -156,6 +243,46 @@ afterAll(() => {
 });
 
 describe('invented indicator durable trade lifecycle', () => {
+  it('preserves exploration purpose and zero-sample evidence through restart, trial rotation, HOLD and EXIT', () => {
+    const entered = explorationLedger(), before = structuredClone(entered);
+    repo.savePaperStrategyLedger(entered);
+    expect(entered).toEqual(before);
+    const restored = repo.loadPaperStrategyLedger(), frozen = compact(entered.trades[0].entryDecision.explorationEvidence!);
+    expect(restored.adaptive!.exploration!.rules[0].candidate.training.experimentIds).toBeUndefined();
+    expect(restored.trades[0].entryDecision.explorationEvidence).toEqual(frozen);
+    const snapshot = adaptiveTestSnapshot();
+    snapshot.id = 'exploration-hold'; snapshot.asOf = '2026-09-18T02:00:00Z';
+    const next = selectPaperAdaptiveState(undefined, [], snapshot.asOf);
+    const held = evaluatePaperStrategyScan(restored, snapshot, strategyTestCost, next);
+    expect(held.latestDecisions[0].explorationEvidence).toEqual(frozen);
+    repo.savePaperStrategyLedger(held);
+    const changed = structuredClone(held);
+    changed.latestDecisions[0].explorationEvidence!.trialId = changed.latestDecisions[0].explorationEvidence!.trialId.replace(':1:', ':2:');
+    expect(() => assertPaperStrategyLedger(changed)).toThrow('PAPER_STRATEGY_INVALID');
+    snapshot.id = 'exploration-exit'; snapshot.tradingDate = '2026-09-21'; snapshot.asOf = '2026-09-21T07:00:00Z'; snapshot.marketOpen = false;
+    snapshot.observations[0].dailyCloses = [{ tradingDate: snapshot.tradingDate, close: 11000, availableAt: snapshot.asOf }];
+    const closed = evaluatePaperStrategyScan(repo.loadPaperStrategyLedger(), snapshot, strategyTestCost, selectPaperAdaptiveState(next, [], snapshot.asOf));
+    repo.savePaperStrategyLedger(closed);
+    const result = repo.loadPaperStrategyLedger();
+    expect(result.trades[0].status).toBe('CLOSED');
+    expect(result.trades[0].exit!.decision.explorationEvidence).toEqual(frozen);
+    expect(result.trades[0].entryDecision.adaptiveEvidence).toBeUndefined();
+    result.trades[0].exit!.decision.explorationEvidence!.registeredAt = '2026-09-18T00:59:00Z';
+    expect(() => assertPaperStrategyLedger(result)).toThrow('PAPER_STRATEGY_INVALID');
+  });
+  it('round-trips older ledgers without adding new maturity metadata to frozen entries', () => {
+    const ledger = JSON.parse(JSON.stringify(entryLedger(), (key, value) =>
+      key === 'maturityModel' || key === 'horizonSamples' ? undefined : value));
+    const before = structuredClone(ledger);
+    repo.savePaperStrategyLedger(ledger);
+    const restored = repo.loadPaperStrategyLedger();
+    expect(restored).toEqual(compact(ledger));
+    expect(restored.adaptive!.policy).not.toHaveProperty('maturityModel');
+    expect(restored.adaptive).not.toHaveProperty('horizonSamples');
+    expect(restored.trades[0].entryDecision.adaptiveEvidence!.policy).not.toHaveProperty('maturityModel');
+    expect(ledger).toEqual(before);
+  });
+
   it('compacts every nested invention without mutating the caller or duplicating fresh IDs into the archive', () => {
     const ledger = entryLedger(), original = structuredClone(ledger);
     repo.savePaperStrategyLedger(ledger);
@@ -164,6 +291,9 @@ describe('invented indicator durable trade lifecycle', () => {
     expect(fs.readFileSync(repo.PAPER_STRATEGY_FILE, 'utf8')).not.toContain('experimentIds"');
     expect(fs.existsSync(repo.PAPER_STRATEGY_EVIDENCE_ARCHIVE_FILE)).toBe(false);
     const restored = repo.loadPaperStrategyLedger();
+    expect(restored.adaptive!.policy.maturityModel).toBe('per-horizon-v1');
+    expect(restored.adaptive!.horizonSamples).toEqual(ledger.adaptive!.horizonSamples);
+    expect(restored.trades[0].entryDecision.adaptiveEvidence!.policy.maturityModel).toBe('per-horizon-v1');
     const digest = paperEvidenceDigest(invented(ledger.adaptive!).training.experimentIds!);
     expect(restored.adaptive!.discovery!.inventions[0].training.experimentIdsDigest).toBe(digest);
     expect(invented(restored.adaptive!).rule.invention!.training.experimentIdsDigest).toBe(digest);

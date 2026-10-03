@@ -25,18 +25,19 @@ function bounded(lines: string[], limit: number): string[] {
   return result;
 }
 
-function adaptivePerformance(view: PaperExperimentView, cutoff: number): PaperStrategyPerformance | undefined {
+function adaptivePerformance(view: PaperExperimentView, cutoff: number, purpose?: 'VALIDATED' | 'EXPLORATION'): (PaperStrategyPerformance & { openCount?: number }) | undefined {
   const strategy = view.strategy;
   if (!strategy) return undefined;
   if (strategy.trades.length === strategy.totalCount) {
-    const closed = strategy.trades.filter(trade => trade.strategyVersion === 'adaptive-features-v1'
-      && known(trade.entryAt, cutoff) && trade.status === 'CLOSED' && trade.exit
+    const trades = strategy.trades.filter(trade => trade.strategyVersion === 'adaptive-features-v1' && known(trade.entryAt, cutoff)
+      && (!purpose || (trade.entryDecision.explorationEvidence ? 'EXPLORATION' : 'VALIDATED') === purpose));
+    const closed = trades.filter(trade => trade.status === 'CLOSED' && trade.exit
       && known(trade.exit.effectiveAt, cutoff) && known(trade.exit.observedAt, cutoff) && known(trade.exit.decisionAt, cutoff)
       && Number.isFinite(trade.exit.netReturnPct)).map(trade => trade.exit!);
     return { closedCount: closed.length, meanNetReturnPct: closed.length ? closed.reduce((sum, item) => sum + item.netReturnPct, 0) / closed.length : null,
-      winRatePct: null, totalNetPnl: null };
+      winRatePct: null, totalNetPnl: null, openCount: trades.length - closed.length };
   }
-  return known(strategy.lastRun?.asOf, cutoff) ? strategy.performanceByVersion?.['adaptive-features-v1'] : undefined;
+  return known(strategy.lastRun?.asOf, cutoff) ? purpose ? strategy.performanceByPurpose?.[purpose] : strategy.performanceByVersion?.['adaptive-features-v1'] : undefined;
 }
 
 export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date): string[] {
@@ -47,8 +48,19 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date)
   else if (!known(state.evaluatedAt, cutoff) || !known(state.cutoffAt, cutoff)) lines.push('미래 또는 잘못된 평가 시각 · 연구 상태 확인 필요');
   else {
     const active = state.candidates.filter(item => item.active), discovery = state.discovery;
-    lines.push(`최근 평가 ${stamp(state.evaluatedAt)} KST · 성숙 관측 ${num(state.matureSampleCount)}건/${num(state.matureDateCount)}진입일`,
-      `지표 자동 연결 ${active.length}개${discovery ? ` · 발명 지표 ${active.filter(item => item.rule.invention).length}개` : ''}`);
+    lines.push(`최근 평가 ${stamp(state.evaluatedAt)} KST · ${state.policy.maturityModel === 'per-horizon-v1' ? '한 보유기간 이상 확정 표본' : '성숙 관측'} ${num(state.matureSampleCount)}건/${num(state.matureDateCount)}진입일`,
+      `검증 지표 자동 연결 ${active.length}개/최대 3개${discovery ? ` · 발명 지표 ${active.filter(item => item.rule.invention).length}개` : ''}`);
+    const exploration = state.exploration?.rules;
+    lines.push(!exploration ? '탐색 가상매수 · 검증 전 · 등록 확인 대기'
+      : exploration.some(trial => !known(trial.registeredAt, cutoff)) ? '탐색 등록 시각 확인 필요'
+        : `탐색 가상매수 · 검증 전 · ${exploration.length}개/최대 2개`);
+    for (const trial of (exploration ?? []).filter(item => known(item.registeredAt, cutoff)).slice(0, 2)) {
+      lines.push(`• 탐색: ${text(paperAdaptiveRuleLabel(trial.candidate.rule), 90)} · ${text(PAPER_ADAPTIVE_REASON_LABELS[trial.candidate.reason], 35)}`);
+    }
+    if (state.policy.maturityModel === 'per-horizon-v1') {
+      if (state.horizonSamples) for (const item of state.horizonSamples) lines.push(`D${item.horizon} 전체 표본 · 학습 ${num(item.trainingSampleCount)}건/${num(item.trainingDateCount)}일 · 검증 ${num(item.validationSampleCount)}건/${num(item.validationDateCount)}일`);
+      else lines.push('보유기간별 표본 집계 확인 대기');
+    }
     if (discovery) lines.push(`발명 ${discovery.round}차 · 이번 회차 검토 ${discovery.attemptedIds.length}개 · 보관 ${discovery.inventions.length}개 · 생성 후 검증 대기 ${state.candidates.filter(item => item.rule.invention && item.reason === 'FORWARD_OBSERVATION').length}개`);
     else lines.push('지표 발명 연구 기록 미조회');
     for (const item of active.slice(0, 3)) lines.push(`• ${text(paperAdaptiveRuleLabel(item.rule), 105)} · ${item.rule.invention ? '생성 후 검증' : '후반 검증'} ${num(item.validation.sampleCount)}건/${num(item.validation.dateCount)}일 · 일당 차이 ${pct(item.validation.meanDailyExcessPct, '%p')}`);
@@ -58,9 +70,14 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date)
       `${text(PAPER_ADAPTIVE_REASON_LABELS[reason as keyof typeof PAPER_ADAPTIVE_REASON_LABELS] ?? reason, 35)} ${count}개`).join(' · ')}`);
   }
   const performance = adaptivePerformance(view, cutoff);
-  lines.push(performance ? `현행 자율 전략 가상 청산 ${num(performance.closedCount)}건 · 평균 순수익률 ${pct(performance.meanNetReturnPct)} (구전략 제외)`
-    : '현행 자율 전략 성과 미집계 · 구전략 합산 성과로 대체하지 않음');
-  return bounded(lines, 1000);
+  const performanceLine = performance ? `현행 자율 전략 전체(검증+탐색) 가상 청산 ${num(performance.closedCount)}건 · 평균 순수익률 ${pct(performance.meanNetReturnPct)} (구전략 제외)`
+    : '현행 자율 전략 성과 미집계 · 구전략 합산 성과로 대체하지 않음';
+  const performanceLines = [performanceLine, ...(['VALIDATED', 'EXPLORATION'] as const).map(purpose => {
+    const value = adaptivePerformance(view, cutoff, purpose), label = purpose === 'VALIDATED' ? '검증 통과 진입' : '탐색 진입(검증 전)';
+    return value ? `${label}: 보유 ${value.openCount === undefined ? '미집계' : `${num(value.openCount)}건`} · 청산 ${num(value.closedCount)}건 · 평균 ${pct(value.meanNetReturnPct)}`
+      : `${label}: 목적별 성과 미집계`;
+  })];
+  return [...bounded(lines, 1200 - performanceLines.join('\n').length - 1), ...performanceLines];
 }
 
 function frozenFormula(rule: PaperAdaptiveRule | null): string[] {
@@ -95,13 +112,14 @@ export function formatPaperResearchChanges(state: PaperAdaptiveState, changes: P
 }
 
 function decisionEvidence(item: PaperStrategyDecision): string[] {
-  const evidence = item.adaptiveEvidence;
+  const evidence = item.explorationEvidence ?? item.adaptiveEvidence;
   if (!evidence) return [];
   const cutoff = Date.parse(item.decisionAt);
   if (!known(evidence.evaluatedAt, cutoff) || !known(evidence.cutoffAt, cutoff)
+    || (item.explorationEvidence && !known(item.explorationEvidence.registeredAt, cutoff))
     || (evidence.candidate.rule.invention && !known(evidence.candidate.rule.invention.createdAt, cutoff))) return ['진입 근거 시각 확인 필요'];
   const { rule, validation } = evidence.candidate;
-  return [`진입 당시 고정 지표: ${text(paperAdaptiveRuleLabel(rule), 140)}`,
+  return [...(item.explorationEvidence ? ['탐색 가상매수 · 검증 전'] : []), `진입 당시 고정 지표: ${text(paperAdaptiveRuleLabel(rule), 140)}`,
     `${rule.invention ? '생성 후 검증' : '후반 검증'} ${num(validation.sampleCount)}건/${num(validation.dateCount)}일 · 일당 대조군 차이 ${pct(validation.meanDailyExcessPct, '%p')}`];
 }
 

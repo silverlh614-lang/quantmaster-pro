@@ -40,7 +40,7 @@ describe('dated autonomous feature selection', () => {
     expect(state.changes).toEqual([{ at: asOf, feature: 'rsi14', from: null, to: rsi(state).rule, reason: 'ACTIVE' }]);
   });
 
-  it('excludes future entries, duplicate symbol/dates, invalid costs and invalid outcome dates', () => {
+  it('excludes invalid observations and rejects malformed results independently for each horizon', () => {
     const samples = matureAdaptiveSamples(), expected = select(samples);
     const invalid = Array.from({ length: 5 }, (_, index) => {
       const row = structuredClone(samples[0]);
@@ -53,32 +53,41 @@ describe('dated autonomous feature selection', () => {
     invalid[3].outcomes[2].tradingDate = addBusinessDaysFromKstDate(invalid[3].tradingDate, 6);
     invalid[4].outcomes[1].availableAt = `${invalid[4].outcomes[1].tradingDate}T06:00:00Z`;
     const duplicate = { ...structuredClone(samples[0]), id: `${samples[0].id}-duplicate` };
-    expect(select([...samples, duplicate, ...invalid])).toEqual(expected);
+    expect(select([...samples, duplicate, ...invalid.slice(0, 3)])).toEqual(expected);
+    const partlyValid = select([...samples, ...invalid.slice(3)]);
+    expect(partlyValid.matureSampleCount).toBe(258);
+    expect(partlyValid.horizonSamples!.map(item => item.matureSampleCount)).toEqual([258, 257, 257]);
+    expect(rsi(partlyValid).training.experimentIds).toContain(invalid[3].id);
+    expect(rsi(partlyValid).training.experimentIds).not.toContain(invalid[4].id);
   });
 
   it('uses only outcomes available strictly before the evaluation-day cutoff', () => {
     const samples = matureAdaptiveSamples(), cutoffAt = select(samples).cutoffAt;
-    samples[0].outcomes[2].availableAt = cutoffAt;
-    samples[1].outcomes[2].availableAt = '2026-09-18T00:30:00Z';
+    const first = samples.at(-8)!, second = samples.at(-7)!;
+    first.outcomes[1].availableAt = cutoffAt;
+    second.outcomes[1].availableAt = '2026-09-18T00:30:00Z';
     const state = select(samples);
-    expect(state.matureSampleCount).toBe(254);
-    expect(rsi(state).training.experimentIds).not.toContain(samples[0].id);
-    expect(rsi(state).training.experimentIds).not.toContain(samples[1].id);
-    samples[0].outcomes[2].availableAt = new Date(Date.parse(cutoffAt) - 1).toISOString();
-    expect(select(samples).matureSampleCount).toBe(255);
+    expect(state.matureSampleCount).toBe(256);
+    expect(state.horizonSamples!.find(item => item.horizon === 3)?.matureSampleCount).toBe(254);
+    expect(rsi(state).validation.experimentIds).not.toContain(first.id);
+    expect(rsi(state).validation.experimentIds).not.toContain(second.id);
+    first.outcomes[1].availableAt = new Date(Date.parse(cutoffAt) - 1).toISOString();
+    expect(select(samples).horizonSamples!.find(item => item.horizon === 3)?.matureSampleCount).toBe(255);
+    expect(rsi(select(samples)).validation.experimentIds).toContain(first.id);
   });
 
-  it('purges training entries whose D5 outcome overlaps the validation period', () => {
+  it('purges the selected horizon when it overlaps validation without discarding its usable result because D5 is later', () => {
     const samples = matureAdaptiveSamples(), state = select(samples), candidate = rsi(state);
     const boundary = Date.parse(`${state.validationStartDate}T00:00:00+09:00`);
     const training = samples.filter(item => candidate.training.experimentIds!.includes(item.id));
     const validation = samples.filter(item => candidate.validation.experimentIds!.includes(item.id));
-    expect(training).toHaveLength(68);
+    expect(training).toHaveLength(76);
     expect(validation).toHaveLength(40);
-    expect(training.every(item => item.outcomes.every(outcome => Date.parse(outcome.availableAt) < boundary))).toBe(true);
+    expect(training.every(item => Date.parse(item.outcomes.find(outcome => outcome.horizon === candidate.rule.horizon)!.availableAt) < boundary)).toBe(true);
+    expect(training.some(item => Date.parse(item.outcomes.find(outcome => outcome.horizon === 5)!.availableAt) >= boundary)).toBe(true);
     expect(validation.every(item => item.tradingDate >= state.validationStartDate!)).toBe(true);
     const overlap = samples.filter(item => item.tradingDate < state.validationStartDate!
-      && item.outcomes.some(outcome => Date.parse(outcome.availableAt) >= boundary));
+      && Date.parse(item.outcomes.find(outcome => outcome.horizon === candidate.rule.horizon)!.availableAt) >= boundary);
     expect(overlap.length).toBeGreaterThan(0);
     expect(overlap.every(item => !candidate.training.experimentIds!.includes(item.id))).toBe(true);
   });
@@ -101,6 +110,86 @@ describe('dated autonomous feature selection', () => {
     expect(rsi(state).training.meanDailyExcessPct).toBeCloseTo(1 / 3);
     const ledger = enter(samples);
     expect(ledger.trades[0]).toMatchObject({ horizon: 3, entryDecision: { action: 'BUY', reasonCode: 'ADAPTIVE_FEATURE_SELECTED' } });
+  });
+
+  it('learns and validates D1 from seven dated outcomes while D3 and D5 still lack independent training dates', () => {
+    const samples = matureAdaptiveSamples({ startDate: '2026-09-21', entryDateCount: 8, selectedReturns: [3, 60, 100] });
+    const current = selectPaperAdaptiveState(undefined, samples, '2026-10-03T01:00:00Z');
+    expect(current).toMatchObject({ validationStartDate: '2026-09-29', matureDateCount: 7, matureSampleCount: 56,
+      policy: { maturityModel: 'per-horizon-v1' } });
+    expect(current.horizonSamples).toEqual([
+      { horizon: 1, matureSampleCount: 56, matureDateCount: 7, trainingSampleCount: 24, trainingDateCount: 3, validationSampleCount: 24, validationDateCount: 3 },
+      { horizon: 3, matureSampleCount: 40, matureDateCount: 5, trainingSampleCount: 8, trainingDateCount: 1, validationSampleCount: 8, validationDateCount: 1 },
+      { horizon: 5, matureSampleCount: 24, matureDateCount: 3, trainingSampleCount: 0, trainingDateCount: 0, validationSampleCount: 0, validationDateCount: 0 },
+    ]);
+    expect(rsi(current)).toMatchObject({ active: true, rule: { horizon: 1 }, training: { sampleCount: 12, dateCount: 3 }, validation: { sampleCount: 12, dateCount: 3 } });
+    const futureChanged = structuredClone(samples);
+    for (const sample of futureChanged) for (const outcome of sample.outcomes) {
+      if (Date.parse(outcome.availableAt) >= Date.parse(current.cutoffAt)) outcome.exitPrice *= 100;
+    }
+    expect(selectPaperAdaptiveState(undefined, futureChanged, current.evaluatedAt)).toEqual(current);
+    const snapshot = snapshotOn('2026-10-06');
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost,
+      selectPaperAdaptiveState(current, samples, snapshot.asOf));
+    expect(ledger.trades[0]).toMatchObject({ horizon: 1, quantity: 1, entryDecision: { action: 'BUY' } });
+    expect(() => assertPaperStrategyLedger(restore(ledger))).not.toThrow();
+  });
+
+  it('excludes unavailable horizon outcomes from controls instead of treating them as zero returns', () => {
+    const samples = matureAdaptiveSamples({ selectedReturns: [-1, 9, -1], controlReturns: [-1, 90, -1] });
+    for (const sample of samples) if (Number(sample.symbol.at(-1)) >= 4) sample.outcomes = sample.outcomes.filter(item => item.horizon !== 3);
+    const current = select(samples);
+    expect(rsi(current)).toMatchObject({ active: false, reason: 'NO_TRAINING_EDGE' });
+    expect(rsi(current).training.meanDailyExcessPct).toBe(0);
+    expect(rsi(current).validation.meanDailyExcessPct).toBe(0);
+    expect(current.horizonSamples!.find(item => item.horizon === 3)?.matureSampleCount).toBe(128);
+  });
+
+  it('distinguishes absent training outcomes from a missing feature in otherwise usable training observations', () => {
+    const short = selectPaperAdaptiveState(undefined, matureAdaptiveSamples({ startDate: '2026-09-21', entryDateCount: 3 }), '2026-10-03T01:00:00Z');
+    expect(rsi(short)).toMatchObject({ training: { dateCount: 1 }, reason: 'INSUFFICIENT_TRAINING' });
+    const noOutcome = selectPaperAdaptiveState(undefined, [], asOf);
+    expect(noOutcome.candidates.every(item => item.reason === 'INSUFFICIENT_TRAINING')).toBe(true);
+    expect(select().candidates.find(item => item.rule.feature === 'per')!.reason).toBe('MISSING_INPUT');
+  });
+
+  it('migrates an old maturity policy once on the same day without rewriting existing trade evidence', () => {
+    const ledger = enter(), originalTrade = structuredClone(ledger.trades[0]);
+    delete ledger.adaptive!.policy.maturityModel;
+    const snapshot = adaptiveTestSnapshot(); snapshot.asOf = '2026-09-18T05:00:00Z';
+    snapshot.observations[0].observedAt = snapshot.asOf; snapshot.observations[0].features!.asOf = snapshot.asOf;
+    const current = selectPaperAdaptiveState(ledger.adaptive, matureAdaptiveSamples(), snapshot.asOf);
+    expect(current.evaluatedAt).toBe(snapshot.asOf);
+    expect(current.policy.maturityModel).toBe('per-horizon-v1');
+    expect(selectPaperAdaptiveState(restore(current), [], '2026-09-18T06:00:00Z')).toEqual(current);
+    expect(evaluatePaperStrategyScan(ledger, snapshot, strategyTestCost, current).trades[0]).toEqual(originalTrade);
+  });
+
+  it('lets invented D1 formulas validate on later D1 outcomes and preserves discovery budgets during same-day migration', () => {
+    const interaction = (startDate: string, entryDateCount: number) => {
+      const samples = matureAdaptiveSamples({ startDate, entryDateCount, selectedReturns: [3, 60, 100] });
+      for (const sample of samples) {
+        const index = Number(sample.symbol.at(-1));
+        sample.entryObservation.features!.values.rsi14 = index % 4 < 2 ? 20 : 80;
+        sample.entryObservation.features!.values.volumeRatio20 = [0, 1, 6, 7].includes(index) ? 0.25 : 1.75;
+      }
+      return samples;
+    };
+    const initial = interaction('2026-09-21', 8);
+    const discovered = selectPaperAdaptiveState(undefined, initial, '2026-10-03T01:00:00Z');
+    expect(discovered.discovery!.inventions).toHaveLength(1);
+    expect(discovered.discovery!.inventions[0].rule.horizon).toBe(1);
+    const old = structuredClone(discovered); delete old.policy.maturityModel;
+    const migrated = selectPaperAdaptiveState(old, initial, '2026-10-03T02:00:00Z');
+    expect(migrated.discovery).toEqual(discovered.discovery);
+    expect(migrated.changes).toEqual(discovered.changes);
+    const later = interaction('2026-10-06', 4);
+    for (const sample of later) sample.outcomes = sample.outcomes.filter(item => item.horizon === 1);
+    const connected = selectPaperAdaptiveState(migrated, [...initial, ...later], '2026-10-13T01:00:00Z');
+    const invented = connected.candidates.find(item => item.rule.feature === discovered.discovery!.inventions[0].id)!;
+    expect(invented).toMatchObject({ active: true, rule: { horizon: 1 }, validation: { sampleCount: 12, dateCount: 3 } });
+    expect(invented.validation.experimentIds!.every(id => later.some(row => row.id === id))).toBe(true);
+    expect(invented.rule.invention).toEqual(discovered.discovery!.inventions[0]);
   });
 
   it('freezes the daily choice across later scans and JSON restart, then reevaluates next day', () => {

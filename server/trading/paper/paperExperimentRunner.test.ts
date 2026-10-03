@@ -7,6 +7,9 @@ const state = vi.hoisted(() => ({ ledger: { schemaVersion: 1, experiments: [], l
 vi.mock('./paperResearchRuntime.js', () => ({
   refreshPaperResearch: () => undefined, getPaperResearchView: () => undefined, getArchivedPaperBarCheck: () => state.archived,
 }));
+vi.mock('./paperIndexCollection.js', () => ({
+  refreshPaperIndexSeries: async () => false, getPaperIndexSeries: () => ({ series: [], inventory: null }),
+}));
 vi.mock('./paperStrategyRuntime.js', () => ({
   loadPaperStrategyState: () => ({ ledger: { trades: [] } }),
   advancePaperStrategy: () => ({ openedCount: 0, closedCount: 0, waitingCount: 1, holdingCount: 0 }),
