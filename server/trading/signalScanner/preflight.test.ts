@@ -22,9 +22,6 @@ vi.mock('../../alerts/telegramClient.js', () => ({
   sendTelegramAlert: vi.fn().mockResolvedValue(undefined),
   escapeHtml: vi.fn((text: string) => text),
 }));
-vi.mock('../../utils/gatingAlertWindow.js', () => ({
-  getGatingAlertSession: vi.fn().mockReturnValue('OPEN'),
-}));
 vi.mock('../../persistence/macroStateRepo.js', () => ({
   loadMacroState: vi.fn(),
 }));

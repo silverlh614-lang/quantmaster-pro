@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { execSync } from 'child_process';
-import { writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -177,7 +177,7 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
 
   it('BASELINE_TECHNICAL_DEBT 카탈로그 SSOT 정합 (현재 0건)', () => {
     // ADR-0134 (PR-Refactor-2) 후 카탈로그 비움 — 향후 신규 위반 발생 시 재등록.
-    const src = execSync('cat scripts/check_complexity.js', { cwd: ROOT, encoding: 'utf-8' });
+    const src = readFileSync(join(ROOT, 'scripts/check_complexity.js'), 'utf-8');
     expect(src).toContain('BASELINE_TECHNICAL_DEBT');
     expect(src).toContain('ADR-0133');
     // perSymbolEvaluation.ts 는 카탈로그 active 항목에서 제거됐어야 함 (주석 안 언급은 OK)
@@ -185,7 +185,7 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
   });
 
   it('기존 ACMA 1500줄 한계 상수 보존 (LIMITS.lines = 1500)', () => {
-    const src = execSync('cat scripts/check_complexity.js', { cwd: ROOT, encoding: 'utf-8' });
+    const src = readFileSync(join(ROOT, 'scripts/check_complexity.js'), 'utf-8');
     expect(src).toMatch(/lines:\s*1500/);
   });
 });

@@ -5,7 +5,7 @@ import { loadPaperStrategyLedger, savePaperStrategyLedger } from '../../persiste
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { capturePaperCostModel, trimArchivedEntryBars } from './paperExperimentPolicy.js';
 import { buildPaperStrategyView, evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
-import { getArchivedPaperBarCheck, getHistoricalPaperSamples } from './paperResearchRuntime.js';
+import { getArchivedPaperBarCheck } from './paperResearchRuntime.js';
 import { buildPaperStrategySelection } from './paperStrategySelection.js';
 import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 
@@ -26,8 +26,8 @@ export function advancePaperStrategy(
   try {
     if (!state.ledger) throw new Error(state.error ?? '전략 기록 없음');
     const adaptive = selectPaperAdaptiveState(state.ledger.adaptive, experiments, snapshot.asOf);
-    const ledger = evaluatePaperStrategyScan(state.ledger, experiments, snapshot, (symbol) =>
-      capturePaperCostModel(getStockByCode(symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI'), getHistoricalPaperSamples(), adaptive);
+    const ledger = evaluatePaperStrategyScan(state.ledger, snapshot, (symbol) =>
+      capturePaperCostModel(getStockByCode(symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI'), adaptive);
     const archived = getArchivedPaperBarCheck();
     if (archived) ledger.trades = ledger.trades.map((trade) => {
       const entryObservation = trimArchivedEntryBars(trade.entryObservation, trade.tradingDate, archived);

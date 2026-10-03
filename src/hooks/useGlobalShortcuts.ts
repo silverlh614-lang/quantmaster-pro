@@ -7,7 +7,7 @@
  *   - G 접두 :  G→H 운영 현황, G→A 전략 판단, G→M 저장 자료 연구
  *   - / : 첫번째 data-search-focus 속성 보유 요소에 포커스
  *   - ? : KeyboardShortcutsModal 열기/닫기
- *   - Esc : 열린 드로어/모달 닫기 (setShowSettings 등)
+ *   - Esc : 단축키 도움말과 드로어 닫기
  */
 import { useCallback, useRef, useState } from 'react';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
@@ -25,7 +25,6 @@ const NAV_ORDER = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.id));
 export function useGlobalShortcuts(): UseGlobalShortcutsResult {
   const view = useSettingsStore((s) => s.view);
   const setView = useSettingsStore((s) => s.setView);
-  const setShowSettings = useSettingsStore((s) => s.setShowSettings);
   const setDrawerOpen = useSettingsStore((s) => s.setSidebarDrawerOpen);
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -79,7 +78,6 @@ export function useGlobalShortcuts(): UseGlobalShortcutsResult {
           return;
         }
         setDrawerOpen(false);
-        setShowSettings(false);
       },
     },
     // G 접두 — g 가 눌리고 1초 내 h/a/m 이 오면 점프.

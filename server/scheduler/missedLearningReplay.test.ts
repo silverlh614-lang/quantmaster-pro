@@ -89,9 +89,6 @@ vi.mock('../learning/ledgerSimulator.js', () => ({
   resolveLedger: async () => ({ hitTP: 0, hitSL: 0, expired: 0 }),
   evaluateLedgerSuggestion: async () => ({}),
 }));
-vi.mock('../learning/kellySurfaceMap.js', () => ({
-  evaluateKellySurfaceSuggestion: async () => ({}),
-}));
 vi.mock('../learning/regimeBalancedSampler.js', () => ({
   evaluateRegimeCoverageSuggestion: async () => ({}),
 }));

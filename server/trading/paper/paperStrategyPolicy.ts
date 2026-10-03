@@ -1,5 +1,5 @@
 // @responsibility Execute empirical Shadow strategy decisions.
-import type { PaperCostModel, PaperExperiment, PaperObservation, PaperSnapshot } from '../../../src/types/paperExperiment.js';
+import type { PaperCostModel, PaperObservation, PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import type {
   PaperStrategyDecision, PaperStrategyEvidence, PaperStrategyLedger, PaperStrategyReasonCode,
   PaperStrategyTrade, PaperStrategyView,
@@ -7,14 +7,15 @@ import type {
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { toKstDateKey, isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { calculatePaperReturn } from './paperAccounting.js';
-import type { HistoricalPaperSample } from '../../../src/types/paperResearch.js';
-import { buildPaperStrategyEvidence, PAPER_STRATEGY_POLICY, paperStrategyCohort, scheduledPaperClose } from './paperStrategyEvidence.js';
+import { PAPER_NEWS_LOOKBACK_HOURS, scheduledPaperClose } from './paperStrategyEvidence.js';
 import { summarizePaperNews } from '../../../src/utils/paperNews.js';
 import { paperAdaptiveRuleLabel, type PaperAdaptiveState } from '../../../src/types/paperAdaptive.js';
 import { adaptiveFeatureValue, adaptiveRuleMatches, PAPER_ADAPTIVE_POLICY } from './paperAdaptiveSelection.js';
 
-export const ADAPTIVE_STRATEGY_POLICY = Object.freeze({ ...PAPER_STRATEGY_POLICY,
-  version: PAPER_ADAPTIVE_POLICY.version, horizonSelection: 'FORWARD_VALIDATED_FEATURE' as const });
+export const ADAPTIVE_STRATEGY_POLICY = Object.freeze({ version: PAPER_ADAPTIVE_POLICY.version,
+  newsLookbackHours: PAPER_NEWS_LOOKBACK_HOURS, minimumSamples: PAPER_ADAPTIVE_POLICY.minimumSamples,
+  minimumEntryDates: PAPER_ADAPTIVE_POLICY.minimumEntryDates, horizonSelection: 'FORWARD_VALIDATED_FEATURE' as const,
+  exitModel: 'SCHEDULED_CLOSE' as const });
 
 function decision(
   snapshot: PaperSnapshot, observation: Pick<PaperObservation, 'symbol' | 'name'> & Partial<Pick<PaperObservation, 'news' | 'investorFlow'>>,
@@ -23,7 +24,7 @@ function decision(
 ): PaperStrategyDecision {
   return { snapshotId: snapshot.id, decisionAt: snapshot.asOf, symbol: observation.symbol, name: observation.name,
     action, reasonCode, reason, cohort: evidence?.cohort ?? null, evidence, tradeId,
-    ...(observation.news ? { newsSummary: summarizePaperNews(observation.news, snapshot.asOf, PAPER_STRATEGY_POLICY.newsLookbackHours) } : {}),
+    ...(observation.news ? { newsSummary: summarizePaperNews(observation.news, snapshot.asOf, PAPER_NEWS_LOOKBACK_HOURS) } : {}),
     ...(observation.investorFlow ? { investorFlow: structuredClone(observation.investorFlow) } : {}) };
 }
 
@@ -42,9 +43,9 @@ function adaptiveEntryDecision(snapshot: PaperSnapshot, observation: PaperObserv
       policy: structuredClone(state.policy), candidate: structuredClone(selected) } };
 }
 
-function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, experiments: PaperExperiment[], historical: HistoricalPaperSample[], adaptive?: PaperAdaptiveState): PaperStrategyDecision {
-  const wait = (code: PaperStrategyReasonCode, reason: string, evidence: PaperStrategyEvidence | null = null) =>
-    decision(snapshot, observation, 'WAIT', code, reason, evidence);
+function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, adaptive: PaperAdaptiveState): PaperStrategyDecision {
+  const wait = (code: PaperStrategyReasonCode, reason: string) =>
+    decision(snapshot, observation, 'WAIT', code, reason);
   const now = Date.parse(snapshot.asOf);
   const observed = Date.parse(observation.observedAt);
   if (!Number.isFinite(now) || !Number.isFinite(observed) || observed > now
@@ -55,22 +56,7 @@ function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, e
   if (observation.price === null || !Number.isFinite(observation.price) || observation.price <= 0 || observation.issue) {
     return wait('CURRENT_PRICE_UNAVAILABLE', '유효한 현재가를 확인할 수 없어 진입 대기');
   }
-  if (adaptive) return adaptiveEntryDecision(snapshot, observation, adaptive);
-  const cohort = paperStrategyCohort(observation, snapshot.asOf);
-  if (!cohort) return wait('TREND_UNKNOWN', '20일선 위치를 확인할 수 없어 진입 대기');
-  const evidence = buildPaperStrategyEvidence(experiments, cohort, snapshot.asOf, PAPER_STRATEGY_POLICY, historical);
-  if (evidence.sampleCount < PAPER_STRATEGY_POLICY.minimumSamples) {
-    return wait('INSUFFICIENT_MATURE_SAMPLES', `동일 뉴스·추세의 성숙 표본 ${evidence.sampleCount}/${PAPER_STRATEGY_POLICY.minimumSamples}건으로 진입 대기`, evidence);
-  }
-  if (evidence.entryDateCount < PAPER_STRATEGY_POLICY.minimumEntryDates) {
-    return wait('INSUFFICIENT_ENTRY_DATES', `표본의 진입일 ${evidence.entryDateCount}/${PAPER_STRATEGY_POLICY.minimumEntryDates}개로 진입 대기`, evidence);
-  }
-  const best = evidence.horizons.find((item) => item.horizon === evidence.selectedHorizon)!;
-  if (!(best.meanNetReturnPct !== null && best.meanNetReturnPct > 0)) {
-    return wait('NON_POSITIVE_EXPECTANCY', '동일 뉴스·추세의 비용 차감 후 평균 성과가 양수가 아니므로 진입 대기', evidence);
-  }
-  return decision(snapshot, observation, 'BUY', 'POSITIVE_COHORT_EXPECTANCY',
-    `동일 뉴스·추세 ${evidence.sampleCount}건·${evidence.entryDateCount}개 진입일: D${best.horizon} 평균 순수익률 ${best.meanNetReturnPct.toFixed(2)}%, 거래일당 평균 성과가 가장 높아 1주 진입`, evidence);
+  return adaptiveEntryDecision(snapshot, observation, adaptive);
 }
 
 function closeDecision(trade: PaperStrategyTrade, snapshot: PaperSnapshot, observation?: PaperObservation): PaperStrategyDecision {
@@ -96,14 +82,13 @@ function closeDecision(trade: PaperStrategyTrade, snapshot: PaperSnapshot, obser
 }
 
 export function evaluatePaperStrategyScan(
-  input: PaperStrategyLedger, experiments: PaperExperiment[], snapshot: PaperSnapshot,
+  input: PaperStrategyLedger, snapshot: PaperSnapshot,
   costForSymbol: (symbol: string) => PaperCostModel,
-  historical: HistoricalPaperSample[] = [],
-  adaptive?: PaperAdaptiveState,
+  adaptive: PaperAdaptiveState,
 ): PaperStrategyLedger {
   const ledger = structuredClone(input);
-  if (adaptive) ledger.adaptive = structuredClone(adaptive);
-  const policy = ledger.adaptive ? ADAPTIVE_STRATEGY_POLICY : PAPER_STRATEGY_POLICY;
+  ledger.adaptive = structuredClone(adaptive);
+  const policy = ADAPTIVE_STRATEGY_POLICY;
   const observations = new Map(snapshot.observations.map((item) => [item.symbol, item]));
   const decisions: PaperStrategyDecision[] = [];
   const handled = new Set<string>();
@@ -118,8 +103,8 @@ export function evaluatePaperStrategyScan(
       decisions.push(decision(snapshot, observation, 'WAIT', 'ALREADY_ENTERED_TODAY', '오늘 이미 진입한 종목으로 중복 진입 대기', null, today.id));
       continue;
     }
-    const result = entryDecision(snapshot, observation, experiments, historical, ledger.adaptive);
-    const horizon = result.adaptiveEvidence?.candidate.rule.horizon ?? result.evidence?.selectedHorizon;
+    const result = entryDecision(snapshot, observation, ledger.adaptive);
+    const horizon = result.adaptiveEvidence?.candidate.rule.horizon;
     if (result.action === 'BUY' && horizon) {
       const scheduledExitDate = addBusinessDaysFromKstDate(snapshot.tradingDate, horizon);
       result.tradeId = `${policy.version}:${snapshot.tradingDate}:${observation.symbol}`;
@@ -166,8 +151,8 @@ export function buildPaperStrategyView(ledger: PaperStrategyLedger, error?: stri
       totalNetPnl: closed.length ? closed.reduce((sum, item) => sum + item.netPnl, 0) : null };
   }
   return {
-    strategyVersion: ledger.adaptive ? ADAPTIVE_STRATEGY_POLICY.version : PAPER_STRATEGY_POLICY.version,
-    mode: 'SHADOW', policy: { ...(ledger.adaptive ? ADAPTIVE_STRATEGY_POLICY : PAPER_STRATEGY_POLICY) },
+    strategyVersion: ADAPTIVE_STRATEGY_POLICY.version,
+    mode: 'SHADOW', policy: { ...ADAPTIVE_STRATEGY_POLICY },
     ...(ledger.adaptive ? { adaptive: structuredClone(ledger.adaptive) } : {}),
     performanceByVersion,
     totalCount: ledger.trades.length, openCount: ledger.trades.filter((item) => item.status === 'OPEN').length,

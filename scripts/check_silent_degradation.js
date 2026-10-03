@@ -187,17 +187,34 @@ export function extractOptionalFields(src, interfaceName) {
  *
  * 주의: 주석 strip 후 검사로 false positive 차단.
  */
-export function countReaderUsage(field, sources, excludePaths = []) {
+function readerUsages(field, sources, excludePaths = []) {
   const excludeSet = new Set(excludePaths);
   const re = new RegExp(`\\.${field}\\b`, 'g');
-  let count = 0;
+  const usages = [];
   for (const f of sources) {
     if (excludeSet.has(f.path)) continue;
     const stripped = stripComments(f.src);
     const m = stripped.match(re);
-    if (m) count += m.length;
+    if (m) usages.push({ path: f.path.replace(/\\/g, '/'), count: m.length });
   }
-  return count;
+  return usages;
+}
+
+export function countReaderUsage(field, sources, excludePaths = []) {
+  return readerUsages(field, sources, excludePaths).reduce((sum, usage) => sum + usage.count, 0);
+}
+
+// ADR-0673 retired regime operations; the 2026-10-03 cleanup removed their old
+// client writer. Historical records still need this boolean for exact replay.
+// Any reader outside that archival module restores the missing-writer violation.
+function isHistoricalReadOnlyCompatibility({ schema, field, readerPaths }) {
+  return schema === 'MacroState' && field === 'vkospiRising' && readerPaths.length > 0
+    && readerPaths.every((reader) => reader === 'server/trading/regimeBridge.base.ts');
+}
+
+export function isSilentDegradationViolation(finding) {
+  return finding.readerCount > 0 && finding.writerCount === 0 && !finding.baselined
+    && !isHistoricalReadOnlyCompatibility(finding);
 }
 
 /**
@@ -275,7 +292,8 @@ function main() {
       const fields = extractOptionalFields(src, interfaceName);
 
       for (const { field, line } of fields) {
-        const readerCount = countReaderUsage(field, sources, excludePaths);
+        const readers = readerUsages(field, sources, excludePaths);
+        const readerCount = readers.reduce((sum, usage) => sum + usage.count, 0);
         const writerCount = countWriterUsage(field, sources, excludePaths);
         const baselineKey = `${interfaceName}:${field}`;
         const baselined = BASELINE_KEYS.has(baselineKey);
@@ -286,6 +304,7 @@ function main() {
           schemaPath: relative(process.cwd(), schemaPath),
           line,
           readerCount,
+          readerPaths: readers.map((reader) => reader.path),
           writerCount,
           baselined,
           isSilentDegradation: readerCount > 0 && writerCount === 0,
@@ -294,11 +313,12 @@ function main() {
     }
   }
 
-  const violations = findings.filter((f) => f.isSilentDegradation && !f.baselined);
+  const violations = findings.filter(isSilentDegradationViolation);
   const baselined = findings.filter((f) => f.isSilentDegradation && f.baselined);
+  const historicalReadOnly = findings.filter((f) => f.isSilentDegradation && isHistoricalReadOnlyCompatibility(f));
 
   if (json) {
-    console.log(JSON.stringify({ findings, violations, baselined }, null, 2));
+    console.log(JSON.stringify({ findings, violations, baselined, historicalReadOnly }, null, 2));
     process.exit(violations.length === 0 || !strict ? 0 : 1);
   }
 
@@ -312,7 +332,8 @@ function main() {
     const baseline = baselined.length > 0
       ? ` (baseline ${baselined.length}건 흡수)`
       : '';
-    console.log(`${header}${baseline}, 신규 위반 0건`);
+    const historical = historicalReadOnly.length > 0 ? ` (역사 재현 전용 ${historicalReadOnly.length}건)` : '';
+    console.log(`${header}${baseline}${historical}, 신규 위반 0건`);
     return;
   }
 

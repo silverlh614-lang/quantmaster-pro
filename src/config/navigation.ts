@@ -3,8 +3,8 @@ import type { ElementType } from 'react';
 import { LayoutDashboard, Radar, Route, FlaskConical, Settings2 } from 'lucide-react';
 import type { View } from '../stores/useSettingsStore';
 
-export interface NavItem { id: View; label: string; icon: ElementType; operatorOnly?: boolean }
-export interface NavGroup { label: string; items: NavItem[]; operatorOnly?: boolean }
+export interface NavItem { id: View; label: string; icon: ElementType }
+export interface NavGroup { label: string; items: NavItem[] }
 export const NAV_GROUPS: NavGroup[] = [{
   label: 'Shadow 워크스페이스',
   items: [
@@ -15,9 +15,7 @@ export const NAV_GROUPS: NavGroup[] = [{
     { id: 'OPERATIONS', label: '운영 설정', icon: Settings2 },
   ],
 }];
-export function getVisibleNavGroups(_operatorMode = false): NavGroup[] { return NAV_GROUPS; }
 export const PRIMARY_MOBILE_TABS = NAV_GROUPS[0].items;
-export const MORE_MOBILE_TABS: NavItem[] = [];
 
 /** Old browser history has a destination without mounting retired page effects. */
 export function resolveWorkspaceView(view: View): View {

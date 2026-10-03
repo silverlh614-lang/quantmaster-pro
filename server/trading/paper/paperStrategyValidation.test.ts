@@ -4,24 +4,26 @@ import type { PaperStrategyLedger } from '../../../src/types/paperStrategy.js';
 import * as holidays from '../krxHolidays.js';
 import * as calendar from '../../calendar/krxTradingCalendar.js';
 import { evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
-import { emptyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from './paperStrategyFixtures.js';
+import { emptyStrategyLedger, legacyStrategyLedger, strategyTestCost, strategyTestSnapshot } from './paperStrategyFixtures.js';
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
+import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { EMPTY_EVIDENCE_DIGEST } from './paperStrategyEvidence.js';
 
-const enter = () => evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples(), strategyTestSnapshot(), strategyTestCost);
+const enter = () => legacyStrategyLedger();
+const inactive = () => selectPaperAdaptiveState(undefined, [], strategyTestSnapshot().asOf);
 function closed(): PaperStrategyLedger {
   const snapshot = strategyTestSnapshot();
   snapshot.asOf = '2026-09-28T01:00:00Z';
   snapshot.tradingDate = '2026-09-28';
   snapshot.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 11000, availableAt: snapshot.asOf }];
-  return evaluatePaperStrategyScan(enter(), [], snapshot, strategyTestCost);
+  return evaluatePaperStrategyScan(enter(), snapshot, strategyTestCost, inactive());
 }
 
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('persisted strategy evidence integrity', () => {
   it('accepts generated open/closed trades and empty evidence while awaiting samples', () => {
-    const waiting = evaluatePaperStrategyScan(emptyStrategyLedger(), [], strategyTestSnapshot(), strategyTestCost);
+    const waiting = evaluatePaperStrategyScan(emptyStrategyLedger(), strategyTestSnapshot(), strategyTestCost, inactive());
     for (const ledger of [emptyStrategyLedger(), waiting, enter(), closed()]) {
       expect(() => assertPaperStrategyLedger(JSON.parse(JSON.stringify(ledger)))).not.toThrow();
     }
@@ -61,8 +63,15 @@ describe('persisted strategy evidence integrity', () => {
   });
 
   it('rejects fabricated non-null statistics when there are no samples', () => {
-    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), [], strategyTestSnapshot(), strategyTestCost);
-    ledger.latestDecisions[0].evidence!.horizons[0].meanNetReturnPct = 0;
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), strategyTestSnapshot(), strategyTestCost, inactive());
+    const evidence = structuredClone(enter().trades[0].entryDecision.evidence!);
+    Object.assign(evidence, { sampleCount: 0, entryDateCount: 0, baselineSampleCount: 0, historicalSampleCount: 0,
+      experimentIdsDigest: EMPTY_EVIDENCE_DIGEST, selectedHorizon: null });
+    evidence.horizons = evidence.horizons.map(row => ({ ...row, count: 0, meanNetReturnPct: null, meanDailyNetReturnPct: null, winRatePct: null }));
+    ledger.latestDecisions[0].evidence = evidence;
+    ledger.latestDecisions[0].cohort = evidence.cohort;
+    expect(() => assertPaperStrategyLedger(ledger)).not.toThrow();
+    evidence.horizons[0].meanNetReturnPct = 0;
     expect(() => assertPaperStrategyLedger(ledger)).toThrow('PAPER_STRATEGY_INVALID');
   });
 });

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @responsibility SSOT drift-prevention 정적 가드 — 등재된 guarded 개념(8심볼)이 owner + LEGITIMATE
+ * @responsibility SSOT drift-prevention 정적 가드 — 등재된 guarded 개념(7심볼)이 owner + LEGITIMATE
  *   allowed 외 신규 모듈에서 중복 정의/export 되면 커밋타임 차단(ADR-0560, grandfather, 런타임 0줄).
  *
  * 데이터 SSOT: docs/SSOT_REGISTRY.md §1(guarded 표) + §3.2(LEGITIMATE_PAIRS) + §3.4(에러 포맷).
@@ -20,13 +20,10 @@
  * registry drift 주석(코드=SSOT 진실, ADR/registry 갱신 필요):
  *   - addWeekdaysApprox owner: registry §3.2 는 server/screener/businessDayApprox.ts 로 기재했으나
  *     실제 owner 는 server/persistence/businessDayApprox.ts (registry 경로 오기 — 코드 기준 사용).
- *   - MarketSession: src/services/autoTrading/ssotPipeline.ts 의 동명 projection 세션 타입(2값 union,
- *     server 정본은 4값)은 ADR-0560 D4/registry §1 row6 "파생 세션 = 건별 LEGITIMATE" 의 기존 코드
- *     실체다. grandfather 로 allowed 등재 (신규 동명 추가는 여전히 차단).
  */
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join, dirname, resolve } from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -44,7 +41,6 @@ const GUARDED_SYMBOLS = [
   'UnifiedSourceSnapshot',
   'getOpenPositions',
   'loadOpenPositions',
-  'MarketSession',
 ];
 
 /**
@@ -92,8 +88,7 @@ const LEGITIMATE_PAIRS = new Map([
     {
       concept: 'SourceSnapshot 타입 (factory 정본 / projection 동명이인)',
       owner: 'server/trading/sourceSnapshot/unifiedSourceSnapshot.ts',
-      // projection 동명이인 (ADR-0556, 의도된 분리)
-      allowed: ['src/services/autoTrading/ssotPipeline.ts'],
+      allowed: [],
     },
   ],
   [
@@ -111,16 +106,6 @@ const LEGITIMATE_PAIRS = new Map([
       owner: 'server/persistence/positionTruth.ts',
       // getOpenPositions 와 짝 — 3번째 reader 금지
       allowed: [],
-    },
-  ],
-  [
-    'MarketSession',
-    {
-      concept: 'MarketSession 어휘 (canonical)',
-      owner: 'server/ssotSnapshot.ts',
-      // grandfather: ssotPipeline 의 동명 projection 세션 타입(2값). ADR-0560 D4 "파생 세션 건별
-      // LEGITIMATE". 신규 동명 추가는 여전히 차단.
-      allowed: ['src/services/autoTrading/ssotPipeline.ts'],
     },
   ],
 ]);
@@ -252,6 +237,6 @@ function main() {
 
 export { checkFile, GUARDED_SYMBOLS, LEGITIMATE_PAIRS, isDefinitionLine };
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   main();
 }

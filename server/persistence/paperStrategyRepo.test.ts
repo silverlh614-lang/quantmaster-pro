@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { emptyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from '../trading/paper/paperStrategyFixtures.js';
+import { emptyStrategyLedger, legacyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from '../trading/paper/paperStrategyFixtures.js';
 import { evaluatePaperStrategyScan } from '../trading/paper/paperStrategyPolicy.js';
 import { paperEvidenceDigest } from '../trading/paper/paperStrategyEvidence.js';
 import { adaptiveTestSnapshot, matureAdaptiveSamples } from '../trading/paper/paperAdaptiveFixtures.js';
@@ -32,7 +32,7 @@ afterAll(() => {
 describe('strategy ledger persistence', () => {
   it('loads an absent ledger as empty and round-trips frozen open and closed trades', async () => {
     expect(repo.loadPaperStrategyLedger()).toEqual(emptyStrategyLedger());
-    let ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples(), strategyTestSnapshot(), strategyTestCost);
+    let ledger = legacyStrategyLedger();
     repo.savePaperStrategyLedger(ledger);
     expect(repo.loadPaperStrategyLedger()).toEqual(ledger);
     vi.resetModules();
@@ -40,9 +40,10 @@ describe('strategy ledger persistence', () => {
     const snapshot = strategyTestSnapshot();
     snapshot.asOf = '2026-09-23T07:00:00Z'; snapshot.tradingDate = '2026-09-23'; snapshot.marketOpen = false;
     snapshot.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 11000, availableAt: snapshot.asOf }];
-    ledger = evaluatePaperStrategyScan(repo.loadPaperStrategyLedger(), matureStrategySamples(), snapshot, strategyTestCost);
+    ledger = evaluatePaperStrategyScan(repo.loadPaperStrategyLedger(), snapshot, strategyTestCost,
+      selectPaperAdaptiveState(undefined, [], snapshot.asOf));
     repo.savePaperStrategyLedger(ledger);
-    expect(repo.loadPaperStrategyLedger()).toEqual(ledger);
+    expect(repo.loadPaperStrategyLedger()).toEqual(compactExpected(ledger));
     expect(fs.readdirSync(testDataDir)).toEqual(['paper-strategy.json']);
   });
 
@@ -57,7 +58,7 @@ describe('strategy ledger persistence', () => {
   it('round-trips adaptive state and frozen entry evidence through restart, disconnection and scheduled exit', async () => {
     const samples = matureAdaptiveSamples(), snapshot = adaptiveTestSnapshot();
     const adaptive = selectPaperAdaptiveState(undefined, samples, snapshot.asOf);
-    const entered = evaluatePaperStrategyScan(emptyStrategyLedger(), samples, snapshot, strategyTestCost, [], adaptive);
+    const entered = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, adaptive);
     const originalEntry = structuredClone(entered);
     const frozenEntry = compactExpected(entered.trades[0].entryDecision.adaptiveEvidence!);
     repo.savePaperStrategyLedger(entered);
@@ -75,7 +76,7 @@ describe('strategy ledger persistence', () => {
     heldSnapshot.observations[0].observedAt = heldSnapshot.asOf;
     heldSnapshot.observations[0].features!.asOf = heldSnapshot.asOf;
     const disconnected = selectPaperAdaptiveState(restored.adaptive, [], heldSnapshot.asOf);
-    const held = evaluatePaperStrategyScan(restored, [], heldSnapshot, strategyTestCost, [], disconnected);
+    const held = evaluatePaperStrategyScan(restored, heldSnapshot, strategyTestCost, disconnected);
     expect(held.adaptive!.candidates.some(candidate => candidate.active)).toBe(false);
     expect(held.trades[0]).toEqual(restored.trades[0]);
     repo.savePaperStrategyLedger(held);
@@ -86,7 +87,7 @@ describe('strategy ledger persistence', () => {
     exitSnapshot.tradingDate = '2026-09-23'; exitSnapshot.marketOpen = false;
     exitSnapshot.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 11000, availableAt: exitSnapshot.asOf }];
     const retired = selectPaperAdaptiveState(disconnected, [], exitSnapshot.asOf);
-    const closed = evaluatePaperStrategyScan(repo.loadPaperStrategyLedger(), [], exitSnapshot, strategyTestCost, [], retired);
+    const closed = evaluatePaperStrategyScan(repo.loadPaperStrategyLedger(), exitSnapshot, strategyTestCost, retired);
     repo.savePaperStrategyLedger(closed);
     vi.resetModules();
     repo = await import('./paperStrategyRepo.js');
@@ -101,7 +102,7 @@ describe('strategy ledger persistence', () => {
   it('keeps pre-ADR-0680 evidence ID lists once in the cold archive and stores only their digest', () => {
     const samples = matureStrategySamples();
     const ids = samples.map(item => item.id);
-    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), samples, strategyTestSnapshot(), strategyTestCost);
+    const ledger = legacyStrategyLedger();
     expect(ledger.trades[0].entryDecision.evidence!.experimentIdsDigest).toBe(paperEvidenceDigest(ids));
     const legacy = JSON.parse(JSON.stringify(ledger));
     for (const decision of [...legacy.latestDecisions, legacy.trades[0].entryDecision]) {
@@ -124,7 +125,7 @@ describe('strategy ledger persistence', () => {
 
   it('keeps a legacy ledger untouched when the evidence archive is unreadable', () => {
     const samples = matureStrategySamples();
-    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), samples, strategyTestSnapshot(), strategyTestCost);
+    const ledger = legacyStrategyLedger();
     const legacy = JSON.parse(JSON.stringify(ledger));
     delete legacy.trades[0].entryDecision.evidence.experimentIdsDigest;
     legacy.trades[0].entryDecision.evidence.experimentIds = samples.map(item => item.id);
@@ -139,7 +140,7 @@ describe('strategy ledger persistence', () => {
   it('archives existing adaptive ID lists once while preserving their compact state and decision evidence', () => {
     const samples = matureAdaptiveSamples(), snapshot = adaptiveTestSnapshot();
     const adaptive = selectPaperAdaptiveState(undefined, samples, snapshot.asOf);
-    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), samples, snapshot, strategyTestCost, [], adaptive);
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, adaptive);
     fs.writeFileSync(repo.PAPER_STRATEGY_FILE, JSON.stringify(ledger));
     const loaded = repo.loadPaperStrategyLedger();
     expect(loaded).toEqual(compactExpected(ledger));
@@ -158,7 +159,7 @@ describe('strategy ledger persistence', () => {
 
   it('rejects overlapping adaptive training and validation IDs before disk evidence is compacted', () => {
     const samples = matureAdaptiveSamples(), snapshot = adaptiveTestSnapshot();
-    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), samples, snapshot, strategyTestCost, [],
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost,
       selectPaperAdaptiveState(undefined, samples, snapshot.asOf));
     const candidate = ledger.trades[0].entryDecision.adaptiveEvidence!.candidate;
     candidate.validation.experimentIds![0] = candidate.training.experimentIds![0];

@@ -15,8 +15,6 @@ import {
   type PriceSnapshot,
 } from './priceSnapshotSsot.js';
 import type { AuthoritativeQuoteSnapshot } from './shadowExecutionSafety.js';
-import { recordCounterfactualForDecision } from './gates/counterfactualAlwaysOn.js';
-import { resolveSimpleTradeDecision } from './gates/simpleDecision.js';
 
 const NOW = new Date('2026-05-21T00:05:00.000Z');
 
@@ -167,28 +165,5 @@ describe('Price Snapshot SSOT', () => {
     const plan = computeTradePlan(priceSnapshot);
 
     expect(priceSnapshot.currentPrice).toBe(plan.entryPrice);
-  });
-
-  it('H. stores priceSnapshotId in Counterfactual sample when price is usable', () => {
-    const priceSnapshot = snapshot();
-    const decision = resolveSimpleTradeDecision({
-      symbol: '005930',
-      dataUsable: true,
-      riskRewardOk: true,
-      slotAvailable: true,
-      finalScore: 75,
-    });
-    const recorded = recordCounterfactualForDecision({
-      decision,
-      snapshotId: 'scan_1',
-      asOf: NOW.toISOString(),
-      priceSnapshotId: priceSnapshot.priceSnapshotId,
-      priceConfidence: priceSnapshot.confidence,
-      priceAgeSec: priceSnapshot.ageSec,
-      entryPrice: priceSnapshot.currentPrice,
-    });
-
-    expect(recorded.sample.priceSnapshotId).toBe(priceSnapshot.priceSnapshotId);
-    expect(recorded.sample.entryPrice).toBe(10_000);
   });
 });

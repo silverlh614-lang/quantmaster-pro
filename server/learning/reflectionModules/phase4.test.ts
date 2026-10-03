@@ -7,43 +7,6 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-// ── #10 Meta-Decision Journal ────────────────────────────────────────────────
-describe('Phase 4 #10 — Meta-Decision Journal', () => {
-  let tmpDir: string;
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meta-'));
-    process.env.PERSIST_DATA_DIR = tmpDir;
-    vi.resetModules();
-  });
-  afterEach(() => {
-    delete process.env.PERSIST_DATA_DIR;
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
-  });
-
-  it('recordMetaDecision → JSONL append + summarize 통계 정확', async () => {
-    const { recordMetaDecision, summarizeMetaDecisions, computeDecisionHash } =
-      await import('./metaDecisionJournal.js');
-    const hash = computeDecisionHash({ engineVersion: 'v1', weightsSignature: 'w1', macroSnapshot: 'R2' });
-    recordMetaDecision({
-      decidedAt: '2026-04-20T10:43:00Z',
-      candidateCount: 12, gatePassCounts: { gate0: 7, gate1: 3, gate2: 1 },
-      finalSelection: '005930', decisionHash: hash, fillLatencyMs: 1320,
-    });
-    recordMetaDecision({
-      decidedAt: '2026-04-20T11:00:00Z',
-      candidateCount: 10, gatePassCounts: { gate0: 5, gate1: 2, gate2: 0 },
-      finalSelection: null, decisionHash: hash, fillLatencyMs: null,
-    });
-    const sum = summarizeMetaDecisions('202604');
-    expect(sum.totalDecisions).toBe(2);
-    expect(sum.selectedCount).toBe(1);
-    expect(sum.selectionRatePct).toBe(50);
-    expect(sum.topHashes[0].hash).toBe(hash);
-    expect(sum.topHashes[0].count).toBe(2);
-    expect(sum.avgFillLatencyMs).toBe(1320);
-  });
-});
-
 // ── #11 Bias Heatmap ─────────────────────────────────────────────────────────
 describe('Phase 4 #11 — biasHeatmap', () => {
   it('REGRET_AVERSION — 지연 손절 비율 높을수록 score 상승', async () => {

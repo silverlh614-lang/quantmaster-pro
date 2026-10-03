@@ -9,7 +9,9 @@ import { createPaperExperiment } from './paperExperimentPolicy.js';
 import { evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
 import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
-import { emptyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from './paperStrategyFixtures.js';
+import { emptyStrategyLedger, matureStrategySamples, strategyTestCost } from './paperStrategyFixtures.js';
+import { adaptiveTestSnapshot, matureAdaptiveSamples } from './paperAdaptiveFixtures.js';
+import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 
 const at = '2026-09-18T01:00:00Z';
 function news(title = '단일판매ㆍ공급계약체결', time = at): PaperNewsObservation {
@@ -51,9 +53,10 @@ describe('factual disclosure provenance', () => {
     expect(summarizePaperNews([first, second], at).evidence).toHaveLength(2);
   });
   it('freezes facts for baseline and strategy entries without changing BUY eligibility', () => {
-    const snapshot = strategyTestSnapshot(); snapshot.observations[0].news = [news()];
+    const snapshot = adaptiveTestSnapshot(); snapshot.observations[0].news = [news()];
     const baseline = createPaperExperiment(snapshot, snapshot.observations[0], strategyTestCost())!;
-    const strategy = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples([1, 9, 10], true), snapshot, strategyTestCost);
+    const strategy = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost,
+      selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), snapshot.asOf));
     expect(strategy.trades).toHaveLength(1);
     snapshot.observations[0].news[0].facts!.filingStatus = 'WITHDRAWN';
     expect(baseline.entryObservation.news[0].facts!.filingStatus).toBe('FILED');

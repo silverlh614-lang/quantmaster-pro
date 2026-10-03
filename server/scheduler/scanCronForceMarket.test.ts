@@ -40,11 +40,6 @@ vi.mock('../utils/forceMarketGuard.js', () => ({
   isForcedMarketActive: () => false,
 }));
 
-vi.mock('../screener/universeScanner.js', () => ({
-  runStage1PreScreening: _runStage1,
-  runStage2_3FinalScreening: _runStage2_3,
-}));
-
 vi.mock('../screener/watchlistManager.js', () => ({ cleanupWatchlist: vi.fn() }));
 vi.mock('../screener/dynamicUniverseExpander.js', () => ({ runDynamicUniverseExpansion: vi.fn() }));
 vi.mock('../trading/signalScanner.js', () => ({ runAutoSignalScan: _runAutoSignal }));
@@ -69,8 +64,6 @@ vi.mock('../trading/regime/canonicalRegimeAccess.js', () => ({
 }));
 
 vi.mock('../alerts/dartPoller.js', () => ({ fastDartCheck: vi.fn(), pollDartDisclosures: vi.fn() }));
-vi.mock('../alerts/bearRegimeAlert.js', () => ({ pollBearRegime: vi.fn() }));
-vi.mock('../alerts/ipsAlert.js', () => ({ pollIpsAlert: vi.fn() }));
 vi.mock('../alerts/mhsAlert.js', () => ({ pollMhsMorningAlert: vi.fn() }));
 vi.mock('../alerts/adrGapCalculator.js', () => ({ runAdrGapScan: _runAdrGap }));
 vi.mock('../alerts/preMarketSignal.js', () => ({ runPreMarketSignal: vi.fn() }));
@@ -79,9 +72,6 @@ vi.mock('../alerts/sectorEtfMomentum.js', () => ({ runSectorEtfMomentumScan: _ru
 vi.mock('../alerts/intradayYieldTicker.js', () => ({ tickIntradayYield: vi.fn() }));
 vi.mock('../alerts/ackTracker.js', () => ({ sweepPendingAcks: vi.fn() }));
 vi.mock('../alerts/foreignFlowLeadingAlert.js', () => ({ checkForeignFlowLeadingAlert: vi.fn() }));
-vi.mock('../trading/holidayResumeAlert.js', () => ({ runHolidayResumeAlert: vi.fn() }));
-vi.mock('../alerts/macroDigestReport.js', () => ({ runMacroDigest: vi.fn() }));
-vi.mock('../alerts/weeklySelfCritiqueReport.js', () => ({ runWeeklySelfCritique: vi.fn() }));
 
 vi.mock('../alerts/reportGenerator.js', () => ({
   generateWeeklyReport: vi.fn(),
@@ -100,22 +90,8 @@ vi.mock('../trading/ocoRecoveryAgent.js', () => ({ runOcoRecoveryRound: vi.fn() 
 vi.mock('../trading/fillMonitor.js', () => ({ SELL_POLL_INTERVAL: 30_000, pollSellFills: vi.fn() }));
 vi.mock('../trading/portfolioRiskEngine.js', () => ({ runPortfolioRiskCheck: vi.fn() }));
 vi.mock('../trading/fomcCalendar.js', () => ({ checkFomcProximityAlert: vi.fn() }));
-vi.mock('../alerts/stockPickReporter.js', () => ({ generateDailyPickReport: vi.fn() }));
 vi.mock('../clients/kisClient.js', () => ({ resetKisCircuits: vi.fn() }));
 vi.mock('../clients/krxOpenApi.js', () => ({ _resetKrxOpenApiBreaker: vi.fn() }));
-vi.mock('../alerts/qualityScorecard.js', () => ({ generateQualityScorecard: vi.fn() }));
-vi.mock('../alerts/scanReviewReport.js', () => ({ sendScanReviewReport: vi.fn() }));
-vi.mock('../alerts/positionMorningCard.js', () => ({ sendPositionMorningCard: vi.fn() }));
-vi.mock('../alerts/weeklyConditionScorecard.js', () => ({ sendWeeklyConditionScorecard: vi.fn() }));
-vi.mock('../alerts/sectorCycleDashboard.js', () => ({ sendSectorCycleDashboard: vi.fn() }));
-vi.mock('../alerts/newHighMomentumScanner.js', () => ({ sendNewHighMomentumScan: _sendNewHigh }));
-vi.mock('../alerts/weeklyDeepAnalysis.js', () => ({ sendWeeklyDeepAnalysis: vi.fn() }));
-vi.mock('../alerts/weeklyQuantInsight.js', () => ({ sendWeeklyQuantInsight: vi.fn() }));
-vi.mock('../alerts/shadowProgressBriefing.js', () => ({
-  sendDailyShadowProgress: vi.fn(),
-  sendSampleStallAlertIfNeeded: vi.fn(),
-}));
-vi.mock('../alerts/weeklyIntegrityReport.js', () => ({ sendWeeklyIntegrityReport: vi.fn() }));
 vi.mock('../alerts/weeklyHygieneAudit.js', () => ({ sendWeeklyHygieneAudit: vi.fn() }));
 
 beforeEach(() => {

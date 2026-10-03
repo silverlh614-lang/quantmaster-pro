@@ -27,14 +27,13 @@
 | 2 | 영업일 산술 (휴일 인식) | `server/trading/krxHolidays.ts:addBusinessDaysFromKstDate` | `addBusinessDaysFromKstDate` | `server/learning/futureReturnResolver.ts` / `server/persistence/nearMissOutcomeLedger.ts` / `server/persistence/gate2OutcomeRepo.ts` — owner 로 **수렴 대상(중복정리 #2)**, 통합 후 정당 예외 0 | ADR-0560 (catalog #2) |
 | 2b | 영업일 근사 (주말만, 학습 라벨) | `server/persistence/businessDayApprox.ts:addWeekdaysApprox` | `addWeekdaysApprox` | — (owner 단일, 별도 개념) | ADR-0558 / catalog #2 |
 | 3 | SourceSnapshot factory (정본 생성) | `server/trading/symbolDataCollector.ts:collectUnifiedSnapshot` | `collectUnifiedSnapshot` | — (factory 단일 진입점) | ADR-0556 / ADR-0519 |
-| 3b | SourceSnapshot projection (gate/policy 투영) | `src/services/autoTrading/ssotPipeline.ts:UnifiedSourceSnapshot` | `UnifiedSourceSnapshot` (projection 타입) | **factory ≠ projection** — 동명이인 분리. server 정본 타입과 src projection 타입은 의도된 별도 책임 | ADR-0556 / ADR-0557 |
+| 3b | SourceSnapshot 정본 타입 | `server/trading/sourceSnapshot/unifiedSourceSnapshot.ts:UnifiedSourceSnapshot` | `UnifiedSourceSnapshot` | — (미사용 클라이언트 projection 제거, 2026-10-03) | ADR-0556 / ADR-0557 |
 | 4 | 보유 포지션 조회 (엄격 표시/진입 view, 5가드) | `server/persistence/shadowPositionLedger.ts:getOpenPositions` | `getOpenPositions` | `server/persistence/positionTruth.ts:loadOpenPositions` — **divergence 경량 기준선(2가드)**, 필터강도 다른 정당 분리 | ADR-0191 / catalog #4 |
 | 4b | 보유 포지션 조회 (divergence 경량 기준선, 2가드) | `server/persistence/positionTruth.ts:loadOpenPositions` | `loadOpenPositions` | (#4 의 짝 — 두 reader 가 서로의 정당 예외. **신규 3번째 open-position reader 금지**) | ADR-0191 / catalog #4 |
-| 5 | providerIssue ↔ marketSignal 격리 (실행 허가) | `server/runtime/executionPermissionResolver.ts:resolveExecutionPermission` | `resolveExecutionPermission` | `server/.../dartProviderSignalSplit` — provider 메타와 marketSignal 분리 헬퍼 (불변식 #6, 비변환만 수행) | ADR-0555 / 불변식 #6 |
-| 6 | MarketSession 어휘 (canonical) | `server/ssotSnapshot.ts:MarketSession` | `MarketSession` | `src/services/autoTrading/ssotPipeline.ts` — **동명 projection 세션 타입**(2값 union `'REGULAR'\|'AFTERMARKET'`, 정본은 4값) grandfather 허용. gate1/entryPolicy/exit/investorFlow 의 파생 세션 타입은 *다른 심볼명*(Gate1MarketSession 등) = 건별 LEGITIMATE. **신규 동명 `MarketSession` 추가는 registry 등재 의무** | catalog #5 |
+| 5 | providerIssue ↔ marketSignal 격리 (실행 허가) | `server/runtime/executionPermissionResolver.ts:resolveExecutionPermission` | `resolveExecutionPermission` | — | ADR-0555 / 불변식 #6 |
 
 > **#5 표기 주의:** providerIssue↔marketSignal 격리는 "심볼 중복"이 아니라 *불변식 격리*다.
-> guarded 심볼은 `resolveExecutionPermission`(소유) 이며, dartProviderSignalSplit 은 격리 보조 헬퍼다.
+> guarded 심볼은 `resolveExecutionPermission`(소유) 이다. 미사용 보조 헬퍼와 옛 `MarketSession` 모듈·projection은 2026-10-03 정리했다. 현재 세션 판정과 거래일 SSOT는 유지한다.
 > 가드는 이 행을 **메타 등재**로 취급한다 (provider 상태 → marketSignal 변환 심볼이 신규로 생기면 별도 불변식 #6 가드가 잡는다; 본 레지스트리는 "단일 소유" 사실의 기록).
 
 ---
@@ -69,7 +68,6 @@ collectUnifiedSnapshot
 UnifiedSourceSnapshot
 getOpenPositions
 loadOpenPositions
-MarketSession
 ```
 
 ### 3.2 LEGITIMATE_PAIRS (정당 예외 = 통과 쌍)
@@ -96,7 +94,7 @@ collectUnifiedSnapshot:
 
 UnifiedSourceSnapshot:
   owner   = server/trading/sourceSnapshot/unifiedSourceSnapshot.ts
-  allowed = [ src/services/autoTrading/ssotPipeline.ts ] # projection 동명이인 (ADR-0556, 의도 분리)
+  allowed = [ ]
 
 getOpenPositions:
   owner   = server/persistence/shadowPositionLedger.ts
@@ -106,13 +104,9 @@ loadOpenPositions:
   owner   = server/persistence/positionTruth.ts
   allowed = [ ]                                          # getOpenPositions 와 짝 — 3번째 reader 금지
 
-MarketSession:
-  owner   = server/ssotSnapshot.ts
-  allowed = [ src/services/autoTrading/ssotPipeline.ts ] # 동명 projection 세션(2값, grandfather); 파생은 다른 심볼명; 신규 동명은 fail
 ```
 
-> **grandfather:** 위 `allowed` 가 현재 코드에 존재하는 LEGITIMATE 쌍(krxTradingCalendar 위임,
-> ssotPipeline projection 등)을 명시 등재함으로써 통과시킨다. 신규(미등재) 중복만 `EXIT≠0`.
+> **grandfather:** 위 `allowed` 가 현재 코드에 존재하는 LEGITIMATE 쌍(krxTradingCalendar 위임)을 명시 등재함으로써 통과시킨다. 신규(미등재) 중복만 `EXIT≠0`.
 > burn-down: `addBusinessDaysFromKstDate` 의 catalog #2 인라인 구현은 owner 로 수렴 후
 > `allowed` 가 비어 있는 상태가 유지되어야 한다(수렴 완료 = 자동으로 위반 0).
 

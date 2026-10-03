@@ -26,11 +26,6 @@ vi.mock('../utils/forceMarketGuard.js', () => ({
   withForcedMarket: <T>(fn: () => Promise<T>): Promise<T> => fn(),
   isForcedMarketActive: () => false,
 }));
-
-vi.mock('../screener/universeScanner.js', () => ({
-  runStage1PreScreening: vi.fn(),
-  runStage2_3FinalScreening: vi.fn(),
-}));
 vi.mock('../screener/watchlistManager.js', () => ({ cleanupWatchlist: vi.fn() }));
 vi.mock('../screener/dynamicUniverseExpander.js', () => ({
   runDynamicUniverseExpansion: vi.fn(),

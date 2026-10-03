@@ -18,8 +18,6 @@ import type {
   NormalizedPosition,
   PositionSourceAggregate,
 } from '../telegram/commands/positions/positionSourceTypes.js';
-import { recordCounterfactualForDecision } from '../trading/gates/counterfactualAlwaysOn.js';
-import { resolveSimpleTradeDecision } from '../trading/gates/simpleDecision.js';
 
 const NOW = new Date('2026-05-21T01:00:00.000Z');
 
@@ -159,28 +157,6 @@ describe('PositionStateResolver SSOT', () => {
       remainingSlots: sizing.remainingSlots,
       modePreference: 'SHADOW_FIRST',
     })).toContain("source='PositionStateResolver'");
-  });
-
-  it('F. records counterfactual even when PositionState slots are full', () => {
-    const decision = resolveSimpleTradeDecision({
-      symbol: '005930',
-      dataUsable: true,
-      riskRewardOk: true,
-      slotAvailable: false,
-      finalScore: 82,
-      maxPositions: 3,
-      currentPositions: 3,
-      remainingSlots: 0,
-    });
-    const recorded = recordCounterfactualForDecision({
-      decision,
-      snapshotId: 'slot-full',
-      asOf: NOW.toISOString(),
-    });
-
-    expect(recorded.sample.sampleType).toBe('SLOT_FULL_COUNTERFACTUAL');
-    expect(recorded.sample.outcomeStatus).toBe('PENDING');
-    expect(recorded.logs.join('\n')).toContain('[SLOT_FULL_COUNTERFACTUAL_RECORDED]');
   });
 
   it('G. formats Shadow PositionState OPENED log after paper fill', () => {

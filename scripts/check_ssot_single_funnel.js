@@ -21,8 +21,8 @@
  * 위반 발견 시 [FAIL] + 파일:라인 + 위반 규칙 + 허용 경로(SourceSnapshot.<field>) 안내, EXIT 1.
  */
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join, dirname, resolve } from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -102,7 +102,6 @@ const BASELINE_ALLOWLIST = new Map([
   //   비-통합이 헌법 정합. supply(fetchKisInvestorTradeByStockDaily, query.ts:901)는 factory 와 *이미*
   //   동일 단일함수 공유 = 단일 소유 충족. → burn-down 대상 아님(영구 허용). 신규 *유사* lazy/budget
   //   복제는 여전히 차단(allowlist 미등재 시 fail). V5 LEGITIMATE_DIAGNOSTIC 선례와 동일 패턴(ADR-0558).
-  ['server/screener/universeScanner.ts', 'LEGITIMATE_BUDGET_LAZY (영구 허용, ADR-0558) / audit V1 — quota 절약 lazy/budget fetch(max25, 통과 후보만), supply 는 factory 와 단일함수 공유. factory eager 통합 시 불변식 #9 위반 → 비-통합 정당. burn-down 대상 아님.'],
   // R3 grandfather: 기존 screener provider 통로(quote/technicals SSOT adapter 포함).
   //   universeScanner 패턴의 *신규* 복제만 차단 — 아래 기존 importer 는 candidate/quote 발굴 단일통로 자산.
   ['server/screener/adapters/kisQuoteAdapter.ts', 'LEGITIMATE_BUDGET_LAZY (영구 허용, ADR-0558) / audit V1-extended (quote SSOT adapter — technicalQuoteRouter 소유, lazy/budget 발굴 자산).'],
@@ -271,6 +270,6 @@ function main() {
 export { checkFile, BASELINE_ALLOWLIST, PROVIDER_IMPORT_TOKENS, RULES };
 
 // 직접 실행 시에만 main() (테스트 import 시 미실행)
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   main();
 }

@@ -45,7 +45,6 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 
 | ID | ADR | 모듈 | 등재일 | 상태 | 우선순위 | 차단 사유 / 다음 액션 |
 |----|-----|------|--------|------|----------|----------------------|
-| A1 | 0030 latentSignalScorer | `server/screener/latentSignalScorer.ts` | 2026-05-02 | BLOCKED | P2 | 운영 데이터 누적 후 — watchlistManager tag + stockScreener 통합 + VCP_HUNTER section. **외인/기관 5일 z-score 통합 목적은 ADR-0614/0617 KIS-native(consecutive net-buy ledger·leader 발굴)로 superseded — 2026-06-18 제거(ADR-0561 KIS-Primary 정합).** VCP score 축만 잔존. **현행 정합 2026-09-15:** 데이터 누적 대기: 현행 Shadow의 독립 VCP 연구 검증 후 필요성을 재평가하며 기존 Gate 가점으로 자동 연결하지 않는다 (ADR-0666/0669). |
 | A2 | 0031/0186 orderTypeOptimizer | `server/trading/orderTypeOptimizer.ts` | 2026-05-02 | BLOCKED | P1 | **재분류 2026-07-03 (Patch-PENDING-WIRING-SLA-SWEEP-001): PARTIAL→BLOCKED — 운영자 결정 (silverlh614) 연기, SLA 면제 (ADR-0158 §면제)**: 잔여 Wiring-2(체결 슬리피지 학습 수집)·Wiring-3(LIVE 적용)는 현 engineMode=SHADOW_ONLY(실주문 0 → 체결 슬리피지 표본 0)에서 실효 0. 재검토 트리거: LIVE 재개 검증 후. **PR-A2-Wiring-1 (2026-05-05, ADR-0186) 의사결정 가시화 wiring 완료** — `buyPipeline.createBuyTask` 진입부에 `decideOrderType` 호출 + `ServerShadowTrade.orderTypeDecision?` 옵셔널 영속 + 진단 로그. ENV `ORDER_TYPE_OPTIMIZER_ENABLED=true` default OFF (운영자 SHADOW 1주 검증 후 활성화). **실제 placeKisMarketBuyOrder 호출 시 orderType 무변경** (LIMIT 그대로) — LIVE 매매 본체 영향 0. **잔여 P1 wiring**: A2-Wiring-2 (`fillMonitor` 체결 시 `recordSlippageEntry` 호출, 학습 데이터 수집) + A2-Wiring-3 (LIVE 적용 — IOC_MARKET `idempotency='unsafe'` ADR-0014 정합 + AGGRESSIVE_LIMIT chase logic). |
 | A4 | 0083 walkForwardFramework | `server/learning/walkForwardFramework.ts` | 2026-05-02 | BLOCKED | P2 | 데이터 6개월 누적 후 — decay='DECAYING' 시 가중치 자동 보수화 **현행 정합 2026-09-15:** 데이터 누적 대기: 기존 6개월 자료 조건은 아직 충족되지 않았다. 검증 후 현행 독립 연구와의 연결 여부를 재평가한다. |
 | A5 | 0084 conditionLifecyclePolicy | `server/learning/conditionLifecyclePolicy.ts` | 2026-05-02 | BLOCKED | P2 | 데이터 6개월 누적 후 — 27조건 silent/deprecated 가드 wiring (signalScanner / entryRevalidationStep score 보수화) **현행 정합 2026-09-15:** ADR-0666 정책 검증 후 재검토: 현행 기본 관측에 27조건 가드를 복구하지 않는다. 기존 조건의 독립 연구 결과가 선행한다. |
@@ -64,7 +63,6 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 
 | ID | ADR | 모듈 | 등재일 | 상태 | 우선순위 | 차단 사유 / 다음 액션 |
 |----|-----|------|--------|------|----------|----------------------|
-| B2 | 0085 Slot Sizing | `server/trading/slotSizing.ts` | 2026-05-02 | BLOCKED | P1 | **재분류 2026-07-03 (Patch-PENDING-WIRING-SLA-SWEEP-001): INFRASTRUCTURE_ONLY→BLOCKED — 운영자 결정 (silverlh614) 연기, SLA 면제 (ADR-0158 §면제)**: 사용자 결정 대기 유지 (재노출 2026-07-03 — SHADOW_ONLY 구간이라 사이징 활성 실효 0, LIVE 재개 검증 후 재결정). 사용자 결정 대기 — `perSymbolEvaluation.ts:902` `evaluateSlotSizing()` wiring + intraday sizing 동일 분기 — `SLOT_CAPITAL_WEIGHTED_SIZING_ENABLED=true` 명시 활성화 + 1주 검증 후 |
 | B3 | 0001 preflight Phase B | `server/trading/signalScanner/preflight.ts` | 2026-05-02 | BLOCKED | P1 | **재분류 2026-07-03 (Patch-PENDING-WIRING-SLA-SWEEP-001): INFRASTRUCTURE_ONLY→BLOCKED — 운영자 결정 (silverlh614) 연기, SLA 면제 (ADR-0158 §면제)**: signalScanner 분해 Phase B가 본질적 선행 + LIVE 회귀 위험 격리(ADR-0001 정책). 재검토 트리거: Phase B 분해 작업 착수 시. LIVE 회귀 위험 격리 — 매크로 게이트 본체 교체 (signalScanner.ts:runPreflight() inline → preflight.ts 위임). signalScanner 분해 Phase B 후속 |
 | B4 | 0008 kellyHalfLife | `server/trading/kellyHalfLife.ts` | 2026-05-02 | DECIDED_NOT_WIRING | P2 | 운영 데이터 누적 후 — 보유 중 재평가 wiring 미완성 (현재 호출자 모두 신규 진입, `timeDecayInput` 미전달) **현행 정합 2026-09-15:** ADR-0673 정책: Kelly 운영 제거 완료. 보유 중 Kelly 재평가 배선은 폐기하며 과거 계산 기록만 보존한다. |
 | B5 | 0117/0128 entryRevalidationStep | `server/trading/signalScanner/revalidationSteps/entryRevalidationStep.ts` | 2026-05-02 | BLOCKED | P1 | **재분류 2026-07-03 (Patch-PENDING-WIRING-SLA-SWEEP-001): PARTIAL→BLOCKED — 운영자 결정 (silverlh614) 연기, SLA 면제 (ADR-0158 §면제)**: 사용자 결정 대기 유지 (재노출 2026-07-03 — 진단 디테일 보존 vs 일관성 trade-off 재결정은 운영 우선순위 낮음). 사용자 결정 대기 — DATA_HOLD 분기 SSOT 위임 격상 (현재 진단 디테일 보존 vs 일관성 trade-off) |
@@ -92,12 +90,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 
 | ID | ADR | 모듈 | 등재일 | 상태 | 우선순위 | 차단 사유 / 다음 액션 |
 |----|-----|------|--------|------|----------|----------------------|
-| D1 | 0098 ConfluenceMeter | `src/components/common/ConfluenceMeter.tsx` | 2026-05-02 | BLOCKED | P1 | **재분류 2026-07-03 (Patch-PENDING-WIRING-SLA-SWEEP-001): INFRASTRUCTURE_ONLY→BLOCKED — 운영자 결정 (silverlh614) 연기, SLA 면제 (ADR-0158 §면제)**: 서버 관측 파이프라인 안정화 우선 — UI 임베드는 대시보드 작업 재개 시. 재검토 트리거: dashboard-dev 작업 재개. UI 가시성 — DiscoverWatchlistPage Top 3 시범 임베드 + VerdictCard.Evidence 안 자식 |
 | D2 | 0098 confluenceEngine | `server/learning/walkForwardFramework.ts` | 2026-05-02 | BLOCKED | P2 | 운영 데이터 누적 후 (신규 모듈) — 백엔드 4축 score 산출 wiring + 결손 사유 자동 생성 (백엔드 데이터 출처 + 결손 패턴 매핑) **현행 정합 2026-09-15:** ADR-0670 정책 검증 후 재검토: 현재 UI는 기본 관측·전략·연구 결과를 표시한다. 구 4축 종합점수의 임베드는 현행 모델에 연결하지 않는다. |
-| D3 | 0097 VerdictCard | `src/components/watchlist/WatchlistCard.tsx` | 2026-05-02 | BLOCKED | P1 | **재분류 2026-07-03 (Patch-PENDING-WIRING-SLA-SWEEP-001): INFRASTRUCTURE_ONLY→BLOCKED — 운영자 결정 (silverlh614) 연기, SLA 면제 (ADR-0158 §면제)**: 서버 관측 파이프라인 안정화 우선 — 50+ 컴포넌트 점진 마이그레이션은 대시보드 작업 재개 시. 재검토 트리거: dashboard-dev 작업 재개. UI 가시성 — WatchlistCard 마이그레이션 (variant='verdict' 점진 도입). 50+ 컴포넌트 점진 |
-| D5 | 0096 DataQualityRibbon + IDontKnow | `src/components/common/DataQualityRibbon.tsx` | 2026-05-02 | BLOCKED | P2 | 운영 데이터 누적 후 — MarketOverviewHeader / DiscoverWatchlistPage 페이지 상단 임베드 **현행 정합 2026-09-15:** ADR-0670 정책 검증 후 재검토: 개편된 Paper 화면의 결손·진행 표시를 먼저 검증하고 구 페이지 리본 임베드 필요성을 재평가한다. |
-| D6 | 0094 UI_LANG.confluence | `src/config/uiLanguage.ts` | 2026-05-02 | BLOCKED | P2 | 운영 데이터 누적 후 — ConfluenceMeter 4축 라벨 SSOT 격상 (현재 컴포넌트 내부 AXIS_LABEL 상수) **현행 정합 2026-09-15:** ADR-0670 정책 검증 후 재검토: 현재 대시보드에서 사용하지 않는 구 ConfluenceMeter 라벨 승격은 현행 화면과 분리하여 보류한다. |
-| D7 | 0099 Verbosity Wiring | `src/components/common/UIVerbosityToggle.tsx` | 2026-05-02 | BLOCKED | P2 | 운영 데이터 누적 후 — 5 wiring PR 완주 (PR-Z14~Z18) 후 사용처 점진 마이그레이션 **현행 정합 2026-09-15:** ADR-0670 정책 검증 후 재검토: 새 경량 화면의 고정 설명을 먼저 검증하며 구 5단계 verbosity 마이그레이션은 별도로 보류한다. |
 | D8 | 0504 positionsRouter REAL mode wiring | `server/routes/autoTrade/positionsRouter.ts` | 2026-05-12 | BLOCKED | P1 | **재분류 2026-07-03 (Patch-PENDING-WIRING-SLA-SWEEP-001): INFRASTRUCTURE_ONLY→BLOCKED — 운영자 결정 (silverlh614) 연기, SLA 면제 (ADR-0158 §면제)**: REAL mode holdings wiring 은 현 SHADOW_ONLY 운영에서 실효 0 + 응답 schema breaking 위험(ADR-0504 정책 별도 PR). 재검토 트리거: LIVE 재개 검증 후. UI 가시성 — getOpenPositions SSOT 위임 + REAL mode `fetchKisHoldings` wiring (응답 schema breaking change 위험으로 별도 PR 분리, ADR-0504) |
 
 ### E. 영속 / 진단 / 정합
@@ -118,12 +111,12 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 
 | 카테고리 | 항목 수 | P0 | P1 | P2 | P3 |
 |----------|---------|----|----|----|----|
-| A. 학습 시리즈 | 14 | 0 | 8 | 6 | 0 |
-| B. 매매 본체 | 12 | 1 | 4 | 7 | 0 |
+| A. 학습 시리즈 | 13 | 0 | 8 | 5 | 0 |
+| B. 매매 본체 | 11 | 1 | 3 | 7 | 0 |
 | C. 시그널 입력 | 6 | 1 | 1 | 4 | 0 |
-| D. UI Phase | 7 | 0 | 3 | 4 | 0 |
+| D. UI Phase | 2 | 0 | 1 | 1 | 0 |
 | E. 영속/진단 | 9 | 0 | 0 | 8 | 1 |
-| **합계** | **48** | **2** | **16** | **29** | **1** |
+| **합계** | **41** | **2** | **13** | **25** | **1** |
 
 > 주: 위 통계는 active backlog 기준이다. 완료/영구결정 `DECIDED_NOT_WIRING` 15건은 2026-05-25 정리로 active table 에서 제거했다.
 
@@ -135,7 +128,7 @@ ADR 들이 *인프라 (영속 + SSOT 함수 + 회귀 테스트)* 만 머지하�
 
 ## 진행 중 잔여
 
-- **active backlog 47건** — 완료/영구결정 기록은 active table 에서 제거. 2026-06-18 KIS-Primary 충돌 폐기 3건(C4·E6 + A1 외인 z-score 목적) + 방치 사용자결정 부채 정리(C16/C17/C18 진단부채 폐기, E8~E11 안전·거버넌스 자산 재노출 P3→P2).
+- **active backlog 41건** — 완료/영구결정 기록은 active table 에서 제거. 2026-10-03 사용자 요청에 따라 미사용 모듈을 삭제하면서 해당 연결 작업 7건(A1·B2·D1·D3·D5·D6·D7)을 폐기했다.
 - **정량 격상 후속 0건** — 27 조건 시리즈 데이터 가용 한계 도달 (78%). 잔여 22% 정성 영구 (ADR-0154 §3).
 - **운영자 집중 영역** — Gemini 프롬프트 품질 향상 + AI 추정 가중치 학습 (ADR-0149 매핑 정정 후 30일 누적).
 

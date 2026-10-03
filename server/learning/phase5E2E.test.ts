@@ -136,56 +136,6 @@ describe('Phase 5 — E2E runNightlyReflection (FULL path with all modules)', ()
   });
 });
 
-describe('Phase 5 — weeklyReflectionAudit', () => {
-  let tmpDir: string;
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-'));
-    process.env.PERSIST_DATA_DIR = tmpDir;
-    vi.resetModules();
-  });
-  afterEach(() => {
-    delete process.env.PERSIST_DATA_DIR;
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
-  });
-
-  it('auditReports — claim 집계 + parseFailed + 5-Why 태그 분포', async () => {
-    const { auditReports } = await import('./reflectionModules/weeklyReflectionAudit.js');
-    const reports: any[] = [
-      {
-        date: '2026-04-14', generatedAt: '', dailyVerdict: 'MIXED', mode: 'FULL',
-        keyLessons: [{ text: '교훈 A', sourceIds: ['t1'] }, { text: '교훈 B', sourceIds: ['t2'] }],
-        questionableDecisions: [], tomorrowAdjustments: [], followUpActions: [],
-        integrity: { claimsIn: 3, claimsOut: 2, removed: ['bad'] },
-        fiveWhy: [{ tradeId: 't1', stockCode: '', steps: [], tag: 'YELLOW_NEW_INSIGHT' }],
-      },
-      {
-        date: '2026-04-15', generatedAt: '', dailyVerdict: 'BAD_DAY', mode: 'FULL',
-        keyLessons: [{ text: '교훈 A', sourceIds: ['t3'] }],
-        questionableDecisions: [], tomorrowAdjustments: [], followUpActions: [],
-        integrity: { claimsIn: 2, claimsOut: 1, removed: ['x'], parseFailed: true },
-        fiveWhy: [{ tradeId: 't3', stockCode: '', steps: [], tag: 'GREEN_EXISTING' }],
-      },
-      {
-        date: '2026-04-20', generatedAt: '', dailyVerdict: 'SILENT', mode: 'SILENCE_MONDAY',
-        keyLessons: [], questionableDecisions: [], tomorrowAdjustments: [], followUpActions: [],
-      },
-    ];
-    const audit = auditReports(reports, 7);
-    expect(audit.totalReports).toBe(3);
-    expect(audit.modeDistribution.FULL).toBe(2);
-    expect(audit.modeDistribution.SILENCE_MONDAY).toBe(1);
-    expect(audit.totalClaimsIn).toBe(5);
-    expect(audit.totalClaimsOut).toBe(3);
-    expect(audit.totalClaimsRemoved).toBe(2);
-    expect(audit.removalRatePct).toBe(40);
-    expect(audit.parseFailedCount).toBe(1);
-    expect(audit.fiveWhyYellowCount).toBe(1);
-    expect(audit.fiveWhyGreenCount).toBe(1);
-    expect(audit.topLessons[0].text).toBe('교훈 A');
-    expect(audit.topLessons[0].count).toBe(2);
-  });
-});
-
 describe('Phase 5 — callReflectionGemini fallback', () => {
   beforeEach(() => { vi.resetModules(); });
   afterEach(() => {

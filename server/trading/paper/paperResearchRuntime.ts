@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { PaperObservation } from '../../../src/types/paperExperiment.js';
-import type { HistoricalPaperSample, PaperResearchView, ResearchArchive, ResearchBar, ResearchInventory, ResearchSeries } from '../../../src/types/paperResearch.js';
+import type { PaperResearchView, ResearchArchive, ResearchBar, ResearchInventory, ResearchSeries } from '../../../src/types/paperResearch.js';
 import { DATA_DIR } from '../../persistence/paths.js';
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { capturePaperCostModel, type ArchivedBarCheck } from './paperExperimentPolicy.js';
@@ -13,7 +13,7 @@ import { getPaperIndexSeries } from './paperIndexCollection.js';
 
 const archivePath = (directory: string) => path.join(directory, 'paper-research-archive.json');
 const empty = (): ResearchArchive => ({ schemaVersion: 1, series: [], news: [], inventory: [] });
-let cached: { samples: HistoricalPaperSample[]; view: PaperResearchView } | null = null;
+let cached: PaperResearchView | null = null;
 // KIS stock bars confirmed in the last successfully written archive; entry copies of them may be trimmed.
 let archivedBars: Set<string> | null = null;
 const barKey = (symbol: string, date: string, close: number) => `${symbol}|${date}|${close}`;
@@ -130,18 +130,18 @@ export function runArchivedPaperResearch(directory = DATA_DIR, asOf = new Date()
 
 export function refreshPaperResearch(observations: PaperObservation[] = [], force = false): void {
   const now = Date.now();
-  if (!force && now - lastAttempt < (cached?.view.error ? 60_000 : 3_600_000)) return;
+  if (!force && now - lastAttempt < (cached?.error ? 60_000 : 3_600_000)) return;
   lastAttempt = now;
   try {
     const result = runArchivedPaperResearch(DATA_DIR, new Date(now).toISOString(), observations, getPaperIndexSeries());
-    cached = { samples: result.samples, view: result.view };
+    cached = result.view;
     archivedBars = result.archivedBars;
   }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[PaperResearch]', message);
-    const result = cached ?? buildPaperResearch(empty(), new Date(now).toISOString(), () => capturePaperCostModel('KOSPI'));
-    cached = { samples: result.samples, view: { ...result.view, error: message } };
+    const view = cached ?? buildPaperResearch(empty(), new Date(now).toISOString(), () => capturePaperCostModel('KOSPI')).view;
+    cached = { ...view, error: message };
   }
 }
 
@@ -151,5 +151,4 @@ export function getArchivedPaperBarCheck(): ArchivedBarCheck | null {
   return bars ? (symbol, date, close) => bars.has(barKey(symbol, date, close)) : null;
 }
 
-export function getHistoricalPaperSamples(): HistoricalPaperSample[] { return cached?.view.error ? [] : cached?.samples ?? []; }
-export function getPaperResearchView(): PaperResearchView | undefined { return cached?.view; }
+export function getPaperResearchView(): PaperResearchView | undefined { return cached ?? undefined; }

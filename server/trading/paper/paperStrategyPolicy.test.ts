@@ -1,19 +1,23 @@
 // @responsibility Verify empirical strategy lifecycle.
 import { describe, expect, it } from 'vitest';
 import { buildPaperStrategyView, evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
-import { emptyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from './paperStrategyFixtures.js';
+import { emptyStrategyLedger, legacyStrategyLedger, strategyTestCost, strategyTestSnapshot } from './paperStrategyFixtures.js';
+import { adaptiveTestSnapshot, matureAdaptiveSamples } from './paperAdaptiveFixtures.js';
+import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
 
-const enter = () => evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples(), strategyTestSnapshot(), strategyTestCost);
+const state = () => selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), adaptiveTestSnapshot().asOf);
+const inactive = () => selectPaperAdaptiveState(undefined, [], adaptiveTestSnapshot().asOf);
+const enter = () => evaluatePaperStrategyScan(emptyStrategyLedger(), adaptiveTestSnapshot(), strategyTestCost, state());
 
 describe('paper strategy lifecycle', () => {
   it('preserves the latest intraday reason counts through after-hours scans and restart', () => {
     const snapshot = strategyTestSnapshot();
-    let result = evaluatePaperStrategyScan(emptyStrategyLedger(), [], snapshot, strategyTestCost);
+    let result = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, inactive());
     const saved = structuredClone(result.lastMarketSession);
-    expect(saved).toMatchObject({ tradingDate: '2026-09-18', decisionCount: 1, reasonCounts: { INSUFFICIENT_MATURE_SAMPLES: 1 } });
+    expect(saved).toMatchObject({ tradingDate: '2026-09-18', decisionCount: 1, reasonCounts: { ADAPTIVE_NO_ACTIVE_RULE: 1 } });
     snapshot.asOf = '2026-09-18T07:10:00Z'; snapshot.marketOpen = false;
-    result = evaluatePaperStrategyScan(JSON.parse(JSON.stringify(result)), [], snapshot, strategyTestCost);
+    result = evaluatePaperStrategyScan(JSON.parse(JSON.stringify(result)), snapshot, strategyTestCost, inactive());
     expect(result.latestDecisions[0].reasonCode).toBe('MARKET_CLOSED');
     expect(result.lastMarketSession).toEqual(saved);
     expect(buildPaperStrategyView(result).lastMarketSession).toEqual(saved);
@@ -27,48 +31,51 @@ describe('paper strategy lifecycle', () => {
     const result = enter();
     expect(result.lastRun).toMatchObject({ openedCount: 1, closedCount: 0 });
     expect(result.trades[0]).toMatchObject({ status: 'OPEN', quantity: 1, horizon: 3, scheduledExitDate: '2026-09-23',
-      entryDecision: { action: 'BUY', reasonCode: 'POSITIVE_COHORT_EXPECTANCY', evidence: { sampleCount: 12 } } });
+      entryDecision: { action: 'BUY', reasonCode: 'ADAPTIVE_FEATURE_SELECTED', adaptiveEvidence: { candidate: { active: true } } } });
     expect(() => assertPaperStrategyLedger(result)).not.toThrow();
   });
 
-  it('waits for sufficient mature samples and multiple entry dates', () => {
+  it('never falls back to the retired news strategy when no adaptive rule is active', () => {
     const snapshot = strategyTestSnapshot();
-    let samples = matureStrategySamples().slice(0, 9);
-    let result = evaluatePaperStrategyScan(emptyStrategyLedger(), samples, snapshot, strategyTestCost);
-    expect(result.latestDecisions[0].reasonCode).toBe('INSUFFICIENT_MATURE_SAMPLES');
-    samples = matureStrategySamples().slice(0, 4);
-    samples = Array.from({ length: 12 }, (_, index) => {
-      const item = structuredClone(samples[index % 4]);
-      item.id = `one-day-${index}`; item.symbol = `0001${String(index).padStart(2, '0')}`;
-      item.entryObservation.symbol = item.symbol;
-      return item;
-    });
-    result = evaluatePaperStrategyScan(emptyStrategyLedger(), samples, snapshot, strategyTestCost);
-    expect(result.latestDecisions[0].reasonCode).toBe('INSUFFICIENT_ENTRY_DATES');
+    const result = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, inactive());
+    expect(result.trades).toEqual([]);
+    expect(result.latestDecisions[0].reasonCode).toBe('ADAPTIVE_NO_ACTIVE_RULE');
+    expect(buildPaperStrategyView(emptyStrategyLedger()).strategyVersion).toBe('adaptive-features-v1');
   });
 
-  it('waits for non-positive net expectancy even with sufficient evidence', () => {
-    const result = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples([-1, -2, -3]), strategyTestSnapshot(), strategyTestCost);
-    expect(result.trades).toEqual([]);
-    expect(result.latestDecisions[0].reasonCode).toBe('NON_POSITIVE_EXPECTANCY');
+  it.each(['news-trend-v1', 'news-trend-v2'] as const)('holds and closes a restored %s trade under its frozen schedule', (version) => {
+    const legacy = legacyStrategyLedger(strategyTestSnapshot(), version);
+    const result = evaluatePaperStrategyScan(legacy, adaptiveTestSnapshot(), strategyTestCost, state());
+    expect(result.trades[0]).toEqual(legacy.trades[0]);
+    expect(result.latestDecisions[0].action).toBe('HOLD');
+    expect(buildPaperStrategyView(result).strategyVersion).toBe('adaptive-features-v1');
+    expect(() => assertPaperStrategyLedger(result)).not.toThrow();
+    const close = strategyTestSnapshot();
+    close.asOf = '2026-09-23T07:00:00Z'; close.tradingDate = '2026-09-23'; close.marketOpen = false;
+    close.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 11000, availableAt: close.asOf }];
+    const closed = evaluatePaperStrategyScan(JSON.parse(JSON.stringify(result)), close, strategyTestCost,
+      selectPaperAdaptiveState(result.adaptive, [], close.asOf));
+    expect(closed.trades[0].exit).toMatchObject({ price: 11000, effectiveAt: '2026-09-23T06:30:00.000Z', netPnl: 1000 });
+    expect(closed.trades[0].exit!.decision.evidence).toEqual(legacy.trades[0].entryDecision.evidence);
+    expect(() => assertPaperStrategyLedger(closed)).not.toThrow();
   });
 
   it.each(['unknown', 'price', 'issue', 'future', 'stale', 'closed'] as const)('waits on %s without turning it into a sell', (problem) => {
-    const snapshot = strategyTestSnapshot();
-    if (problem === 'unknown') snapshot.observations[0].aboveMa20 = null;
+    const snapshot = adaptiveTestSnapshot();
+    if (problem === 'unknown') delete snapshot.observations[0].features;
     if (problem === 'price') snapshot.observations[0].price = null;
     if (problem === 'issue') snapshot.observations[0].issue = 'CURRENT_QUOTE_UNAVAILABLE';
     if (problem === 'future') snapshot.observations[0].observedAt = '2026-09-18T02:00:00Z';
     if (problem === 'stale') snapshot.observations[0].observedAt = '2026-09-17T01:00:00Z';
     if (problem === 'closed') snapshot.marketOpen = false;
-    const result = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples(), snapshot, strategyTestCost);
+    const result = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, state());
     expect(result.trades).toHaveLength(0);
     expect(result.latestDecisions[0].action).toBe('WAIT');
   });
 
   it('preserves one open trade across repeated scans and restart', () => {
     const result = enter();
-    const next = evaluatePaperStrategyScan(JSON.parse(JSON.stringify(result)), matureStrategySamples(), strategyTestSnapshot(), strategyTestCost);
+    const next = evaluatePaperStrategyScan(JSON.parse(JSON.stringify(result)), adaptiveTestSnapshot(), strategyTestCost, state());
     expect(next.trades).toHaveLength(1);
     expect(next.latestDecisions[0].action).toBe('HOLD');
     expect(next.lastRun!.openedCount).toBe(0);
@@ -79,20 +86,20 @@ describe('paper strategy lifecycle', () => {
     const ledger = enter();
     const snapshot = strategyTestSnapshot();
     snapshot.observations[0].aboveMa20 = false;
-    const result = evaluatePaperStrategyScan(ledger, matureStrategySamples([-10, -20, -30]), snapshot, strategyTestCost);
+    const result = evaluatePaperStrategyScan(ledger, snapshot, strategyTestCost, inactive());
     expect(result.trades[0]).toEqual(ledger.trades[0]);
     expect(result.latestDecisions[0].reasonCode).toBe('HORIZON_PENDING');
   });
 
   it('closes at the precommitted exact close with own price/costs and separate observation time', () => {
     const cost = { ...strategyTestCost(), buyFeeRate: 0.01, sellFeeRate: 0.01, sellTaxRate: 0.02, slippageRate: 0.01 };
-    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples(), strategyTestSnapshot(), () => cost);
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), adaptiveTestSnapshot(), () => cost, state());
     cost.buyFeeRate = 1;
     const snapshot = strategyTestSnapshot();
     snapshot.asOf = '2026-09-28T01:00:00Z'; snapshot.tradingDate = '2026-09-28';
     snapshot.observations[0].price = 50000;
     snapshot.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 11000, availableAt: snapshot.asOf }];
-    const result = evaluatePaperStrategyScan(ledger, [], snapshot, strategyTestCost);
+    const result = evaluatePaperStrategyScan(ledger, snapshot, strategyTestCost, inactive());
     expect(result.trades[0].exit).toMatchObject({ model: 'SCHEDULED_CLOSE', price: 11000, netPnl: 360,
       effectiveAt: '2026-09-23T06:30:00.000Z', observedAt: '2026-09-28T01:00:00Z', decisionAt: snapshot.asOf });
     expect(result.trades[0].exit!.netReturnPct).toBeCloseTo(3.6);
@@ -110,7 +117,7 @@ describe('paper strategy lifecycle', () => {
     if (problem === 'future') snapshot.observations[0].dailyCloses[0].availableAt = '2026-09-28T02:00:00Z';
     if (problem === 'intraday') snapshot.observations[0].dailyCloses[0].availableAt = '2026-09-23T06:00:00Z';
     if (problem === 'absent-symbol') snapshot.observations = [];
-    const result = evaluatePaperStrategyScan(enter(), [], snapshot, strategyTestCost);
+    const result = evaluatePaperStrategyScan(enter(), snapshot, strategyTestCost, inactive());
     expect(result.latestDecisions[0]).toMatchObject({ action: 'HOLD', reasonCode: 'SCHEDULED_CLOSE_UNAVAILABLE' });
     expect(result.trades[0].exit).toBeNull();
   });
@@ -123,7 +130,7 @@ describe('paper strategy lifecycle', () => {
     const snapshot = strategyTestSnapshot();
     snapshot.asOf = '2026-09-23T07:00:00Z'; snapshot.tradingDate = '2026-09-23'; snapshot.marketOpen = false;
     snapshot.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 11000, availableAt: snapshot.asOf }];
-    const ledger = evaluatePaperStrategyScan(enter(), [], snapshot, strategyTestCost);
+    const ledger = evaluatePaperStrategyScan(enter(), snapshot, strategyTestCost, inactive());
     ledger.trades = Array.from({ length: 205 }, (_, index) => ({ ...structuredClone(ledger.trades[0]), id: `display-test-${index}` }));
     const view = buildPaperStrategyView(ledger);
     expect(view.trades).toHaveLength(200);

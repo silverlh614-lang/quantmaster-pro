@@ -7,7 +7,6 @@ import {
   readShadowJson,
   writeShadowJson,
 } from './shadowPersistenceGateway.js';
-import { reconcileShadowPersistenceQueue } from './shadowPersistenceReconciler.js';
 import {
   __resetShadowLedgerWriteQueueForTests,
   getShadowLedgerWriteQueueSize,
@@ -106,34 +105,5 @@ describe('shadowPersistenceGateway', () => {
       expect(read.data.entries[0]?.id).toBe('queued');
       expect(read.learningImpact).toBe('DELAYED');
     }
-  });
-
-  it('reconciles queued writes when the disk path becomes writable', () => {
-    const filePath = path.join(tmpDir, 'retry-ledger.json');
-    fs.mkdirSync(filePath);
-
-    writeShadowJson({
-      source: 'RetryShadowLedger',
-      filePath,
-      data: { entries: [{ id: 'retry-ok' }] },
-    });
-    expect(getShadowLedgerWriteQueueSize()).toBe(1);
-
-    fs.rmSync(filePath, { recursive: true, force: true });
-    const result = reconcileShadowPersistenceQueue();
-
-    expect(result).toEqual(expect.objectContaining({
-      checked: 1,
-      succeeded: 1,
-      failed: 0,
-      replayRequired: 0,
-    }));
-    expect(listShadowLedgerWriteQueue()[0]).toEqual(expect.objectContaining({
-      status: 'SUCCEEDED',
-      learningImpact: 'NONE',
-    }));
-    expect(JSON.parse(fs.readFileSync(filePath, 'utf-8'))).toEqual({
-      entries: [{ id: 'retry-ok' }],
-    });
   });
 });

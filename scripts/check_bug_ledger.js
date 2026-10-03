@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * @responsibility BUG_LEDGER 형식·area·status·severity·recurrence·P0 섹션·Fixes BUG 참조 검증 (PR #669 후속 P1 가드)
  *
@@ -27,7 +26,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = resolve(__dirname, '..');
@@ -462,7 +461,7 @@ export function runCli({
 
 const isMain = (() => {
   try {
-    return import.meta.url === `file://${process.argv[1]}`;
+    return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
   } catch (_err) {
     return false;
   }

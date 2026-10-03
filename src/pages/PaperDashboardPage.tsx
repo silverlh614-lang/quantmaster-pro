@@ -17,7 +17,7 @@ const Operations = lazy(() => import('../components/autoTrading/PaperOperations'
 const descriptions: Partial<Record<View, string>> = {
   DASHBOARD: '관측은 얼마나 쌓였고, 전략은 왜 기다리는지 한눈에 확인합니다.',
   PAPER_OBSERVATIONS: '조건 없이 기록한 1주 실험으로 D1·D3·D5 성과를 비교합니다.',
-  PAPER_STRATEGY: '뉴스와 추세가 같은 과거 표본을 근거로 가상 매매를 판단합니다.',
+  PAPER_STRATEGY: '성과에 따라 지표를 자동 연결·해제하고, 채택한 규칙으로 가상 매매를 판단합니다.',
   PAPER_RESEARCH: '쌓아 둔 자료로 조건 하나씩 검증하고, 다음 연구의 근거를 찾습니다.',
   OPERATIONS: '서버 운영 상태와 자료의 연결 경로를 확인합니다.',
 };

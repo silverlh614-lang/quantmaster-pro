@@ -13,26 +13,6 @@ function readFile(rel: string): string {
   return fs.readFileSync(path.join(process.cwd(), rel), 'utf-8');
 }
 
-describe('ADR-0108 #1 — 일일 종목 픽 default OFF', () => {
-  it('stockPickReporter.ts 진입부에 DAILY_PICK_REPORT_ENABLED 가드', () => {
-    const src = readFile('server/alerts/stockPickReporter.ts');
-    expect(src).toContain("process.env.DAILY_PICK_REPORT_ENABLED !== 'true'");
-    expect(src).toContain('발송 skip (ADR-0108)');
-  });
-
-  it('가드 위치 — generateDailyPickReport 함수 시작 직후 (조기 return)', () => {
-    const src = readFile('server/alerts/stockPickReporter.ts');
-    const fnIdx = src.indexOf('export async function generateDailyPickReport');
-    expect(fnIdx).toBeGreaterThan(0);
-    const block = src.slice(fnIdx, fnIdx + 600);
-    expect(block).toContain('DAILY_PICK_REPORT_ENABLED');
-    // const macroState 호출 *전* 에 가드 위치
-    const guardIdx = block.indexOf('DAILY_PICK_REPORT_ENABLED');
-    const macroIdx = block.indexOf('loadMacroState');
-    expect(guardIdx).toBeLessThan(macroIdx);
-  });
-});
-
 describe('ADR-0108 #2 + Patch-WATCHLIST-SATURATION-COOLDOWN-001 — Watchlist 노이즈 cooldown', () => {
   // Auto-Trim 알림은 watchlistRepo.ts 에 잔존, 포화 알림은 watchlistSaturationPolicy.ts
   // SSOT 로 이관 (Patch-WATCHLIST-SATURATION-COOLDOWN-001 PR #995). 따옴표 정규화는

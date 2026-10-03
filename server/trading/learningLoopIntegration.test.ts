@@ -54,23 +54,6 @@ describe('learning loop integration boundaries', () => {
     expect(loadConditionWeights().momentum).toBeCloseTo(0.95, 5);
   });
 
-  it('biasHeatmap sustained heat reduces the bias position multiplier used by preflight sizing', async () => {
-    writeJson(path.join(tmpDir, 'bias-heatmap.json'), [
-      { date: day(-2), scores: [{ bias: 'FOMO', score: 0.8, evidence: '' }] },
-      { date: day(-1), scores: [{ bias: 'FOMO', score: 0.8, evidence: '' }] },
-      { date: day(0), scores: [{ bias: 'FOMO', score: 0.8, evidence: '' }] },
-    ]);
-
-    const { computeBiasPositionPenalty } = await import('../learning/biasPositionPenalty.js');
-    expect(computeBiasPositionPenalty().multiplier).toBe(0.5);
-
-    // ADR-0157/0168 SSOT: biasMultiplier 승수 체인 제거됨 (레짐별 매수비중 직접 사용).
-    // computeEffectiveKelly 는 정책 차단 체크 목적으로만 유지 (모든 승수=1.0).
-    const preflightSource = fs.readFileSync('server/trading/signalScanner/preflight.ts', 'utf-8');
-    expect(preflightSource).toMatch(/const\s+buyWeightPct\s*=\s*regimeConfig\.kellyMultiplier/);
-    expect(preflightSource).toMatch(/computeEffectiveKelly\(\{[\s\S]*?baseKelly:\s*buyWeightPct[\s\S]*?\}\)/);
-  });
-
   it('STATELESS health flows into killSwitch trigger and env can disable it', async () => {
     const { assessKillSwitch } = await import('./killSwitch.js');
     expect(assessKillSwitch({ learningLoopLevel: 'STATELESS' }).triggers).toContain('LEARNING_LOOP_STATELESS');

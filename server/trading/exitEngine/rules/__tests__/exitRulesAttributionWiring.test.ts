@@ -4,7 +4,6 @@
  * PR-3 4 규칙 (hardStopLoss / legacyTakeProfit / cascadeFinal / ma60DeathForceExit)
  * + PR-Fix-Attribution-FullClose 추가 2 규칙 (trailingStop / trancheTakeProfitLimit).
  *
- * r6EmergencyExit 는 30% 부분매도 로 PARTIAL 경로만, FullClose wiring 생략.
  * cascadeHalf / entryCircuitBreaker 도 부분매도 (50%) 라 wiring 생략.
  */
 
@@ -103,11 +102,6 @@ describe('PR-3+ 6 청산 규칙 emitFullCloseAttributionForExit wiring (정적 �
   });
 
   describe('회귀 차단', () => {
-    it('r6EmergencyExit 는 wiring 미적용 (PARTIAL 200% 과대 계상 차단)', () => {
-      const r6 = readRule('r6EmergencyExit.ts');
-      expect(r6).not.toMatch(/emitFullCloseAttributionForExit/);
-    });
-
     it('cascadeHalf 는 부분매도 (50%) 라 FullClose wiring 미적용', () => {
       const cascHalf = readRule('cascadeHalf.ts');
       expect(cascHalf).not.toMatch(/emitFullCloseAttributionForExit/);

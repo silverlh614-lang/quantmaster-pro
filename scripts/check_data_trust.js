@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * @responsibility ADR-0114 Data Trust Layer 정적 검증 — AI 가격 hallucination 차단
  *
@@ -13,23 +12,19 @@
  * 본 PR (ADR-0114): baseline 0건 위반 — 신규 회귀만 차단.
  *
  * 화이트리스트:
- *   - 정책 SSOT 자기 자신 (server/data/dataTrustLayer.ts)
  *   - 검증 스크립트 (scripts/check_data_trust.js, scripts/check_data_trust.test.js)
- *   - 회귀 테스트 (server/data/dataTrustLayer.test.ts)
  *   - ADR 문서 (docs/adr/0114-*)
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
 // ─── 화이트리스트 ──────────────────────────────────────────────────────────
 const ALLOWED_FILES = [
-  'server/data/dataTrustLayer.ts',
-  'server/data/dataTrustLayer.test.ts',
   'scripts/check_data_trust.js',
   'scripts/check_data_trust.test.js',
 ];
@@ -170,6 +165,6 @@ function main() {
   process.exit(1);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   main();
 }

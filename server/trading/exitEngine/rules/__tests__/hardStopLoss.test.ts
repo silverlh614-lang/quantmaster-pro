@@ -39,7 +39,6 @@ vi.mock('../../helpers/rollbackFullClose.js', () => ({
   captureFullCloseSnapshot: vi.fn(() => ({ status: 'ACTIVE', quantity: 100 })),
   rollbackFullCloseOnFailure: vi.fn(),
 }));
-vi.mock('../../../../learning/kellyDriftFailurePromotion.js', () => ({ promoteKellyDriftPattern: vi.fn() }));
 
 const { hardStopLoss } = await import('../hardStopLoss.js');
 const { makeMockShadow, makeMockCtx, LIVE_FAILED_RESULT } = await import('./_testHelpers.js');

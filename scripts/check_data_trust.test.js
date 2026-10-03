@@ -131,7 +131,7 @@ describe('check_data_trust — LIVE_INDICATOR_PRICE 패턴', () => {
 });
 
 describe('check_data_trust — 화이트리스트', () => {
-  it('server/data/dataTrustLayer.ts 자체는 화이트리스트 (주석/예시 무관)', () => {
+  it('the removed dataTrustLayer path no longer bypasses AI price validation', () => {
     const root = makeTmpRoot();
     fs.mkdirSync(path.join(root, 'server', 'data'), { recursive: true });
     fs.writeFileSync(
@@ -139,7 +139,7 @@ describe('check_data_trust — 화이트리스트', () => {
       `// 예시: gemini.targetPrice 는 위반\nconst x = aiResult.priceKrw;\n`,
     );
     const v = checkDataTrust(root);
-    expect(v).toEqual([]);
+    expect(v).toHaveLength(1);
   });
 
   it('docs/adr/ 디렉토리는 항상 통과', () => {

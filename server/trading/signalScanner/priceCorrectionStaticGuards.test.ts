@@ -132,7 +132,6 @@ describe('ADR-0414 §10 정적 grep 가드 — Stage 1 Read-Only invariant', () 
     const targets = [
       'server/trading/exitEngine/index.ts',
       'server/trading/exitEngine/rules/hardStopLoss.ts',
-      'server/trading/exitEngine/rules/r6EmergencyExit.ts',
       'server/trading/exitEngine/rules/legacyTakeProfit.ts',
       'server/trading/exitEngine/rules/trailingStop.ts',
     ];

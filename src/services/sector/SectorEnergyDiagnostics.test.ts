@@ -1,31 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildSectorIndexMaster, parseIdxCodeMasterText } from '../../providers/sector/SectorIndexMasterProvider';
-import { normalizeSectorName, resolveSectorAlias } from '../../providers/sector/SectorIndexCodeMap';
 import { evaluateCoverageDiagnostics } from './SectorEnergyDiagnostics';
 
 describe('SectorEnergy official index master diagnostics', () => {
-  it('parses KIS idxcode master rows and marks official KIS source tier', async () => {
-    const rawRows = parseIdxCodeMasterText('U 0001 코스피\nU,1001,코스닥\n');
-    const master = await buildSectorIndexMaster(rawRows);
-
-    expect(master.providerIssue).toBe(false);
-    expect(master.reasonCodes).toContain('OFFICIAL_INDEX_MASTER_LOADED');
-    expect(master.rows[0]).toMatchObject({
-      officialIndexCode: '0001',
-      officialIndexName: '코스피',
-      sourceTier: 'OFFICIAL_KIS_SECTOR_INDEX',
-    });
-  });
-
-  it('normalizes sector names and separates safe aliases from unsafe theme aliases', () => {
-    expect(normalizeSectorName('KRX 코스피 반도체 업종 지수')).toBe('반도체');
-
-    const safe = resolveSectorAlias('반도체');
-    expect(safe).toMatchObject({ resolved: '전기전자', unsafeAlias: false, aliasSource: 'SAFE_DICT' });
-
-    const unsafe = resolveSectorAlias('방산');
-    expect(unsafe).toMatchObject({ resolved: '기계장비', unsafeAlias: true, aliasSource: 'UNSAFE_THEME_DICT' });
-  });
 
   it('keeps 0% official coverage with basket proxy in SHADOW_ONLY confidence', () => {
     const diag = evaluateCoverageDiagnostics({

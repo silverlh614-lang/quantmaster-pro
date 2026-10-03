@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { scriptWarn } from '../server/observability/scriptWarn.js';
 /**
  * @responsibility ADR-0146 10-PR boundary audit-only PR 룰 자동 모니터링

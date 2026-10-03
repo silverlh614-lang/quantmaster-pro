@@ -57,7 +57,6 @@ const SSOT_FILE = 'server/clients/kisPrimaryFlag.ts';
 /** 통일 대상 6 소비처(ROOT 상대, POSIX) — SSOT import 의무. */
 const CONSUMERS = [
   'server/screener/adapters/technicalQuoteRouter.ts',
-  'server/ai/prefetchedContext.ts',
   'server/trading/exitEngine/helpers/closeSeriesProvider.ts',
   'server/clients/koreanQuoteBridge.ts',
   'server/learning/lateWinEvaluator.ts',

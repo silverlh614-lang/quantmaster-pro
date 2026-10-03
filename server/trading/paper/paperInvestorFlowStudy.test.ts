@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import type { PaperExperiment } from '../../../src/types/paperExperiment.js';
 import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { buildPaperInvestorFlowStudy, summarizeCurrentInvestorFlow } from './paperInvestorFlowStudy.js';
-import { emptyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from './paperStrategyFixtures.js';
+import { emptyStrategyLedger, matureStrategySamples, strategyTestCost } from './paperStrategyFixtures.js';
 import { createPaperExperiment } from './paperExperimentPolicy.js';
 import { evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
+import { adaptiveTestSnapshot, matureAdaptiveSamples } from './paperAdaptiveFixtures.js';
+import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
 
 const asOf = '2026-09-18T01:00:00Z';
@@ -121,12 +123,13 @@ describe('entry-frozen investor-flow research', () => {
   });
 
   it('freezes both baseline and strategy flow without adding an entry condition', () => {
-    const snapshot = strategyTestSnapshot();
+    const snapshot = adaptiveTestSnapshot();
     const experiment = createPaperExperiment(snapshot, snapshot.observations[0], strategyTestCost())!;
     attachFlow(experiment, -100, -200);
     snapshot.observations[0].investorFlow = experiment.entryObservation.investorFlow;
     const baseline = createPaperExperiment(snapshot, snapshot.observations[0], strategyTestCost())!;
-    const strategy = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples(), snapshot, strategyTestCost);
+    const strategy = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost,
+      selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), snapshot.asOf));
     expect(strategy.latestDecisions[0]).toMatchObject({ action: 'BUY', investorFlow: { foreignNetShares: -100 } });
     expect(() => assertPaperStrategyLedger(JSON.parse(JSON.stringify(strategy)))).not.toThrow();
     snapshot.observations[0].investorFlow!.foreignNetShares = 999;

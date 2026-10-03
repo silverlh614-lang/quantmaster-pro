@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { classifyInvestorFlowPayload, classifyShortPayload } from '../clients/kisClient/payloadValidators.js';
-import { evaluateYahooTimeseriesGuard } from './yahooProviderGuard.js';
-import { computeLiveExecutionAllowed, recordShadowCase } from './executionGate.js';
 import {
   MemoryDedupeStore,
   buildShadowAuctionOrderKey,
@@ -10,32 +8,8 @@ import {
   saveShadowAuctionOrderOnce,
   sendShadowAuctionTelegramOnce,
 } from './shadowAuctionIdempotency.js';
-import { summarizeKisPriceHealth } from './kisOnlyRebuildHealth.js';
 
 describe('KIS_ONLY_REBUILD defense patch', () => {
-  it('A. stale Yahoo chart is not usable for execution/signal/router but remains shadow-allowed', () => {
-    const result = evaluateYahooTimeseriesGuard([
-      { close: 1000, timestamp: '2026-01-23T06:00:00.000Z' },
-    ], { now: new Date('2026-05-12T03:00:00.000Z'), allowedStaleDays: 1 });
-
-    expect(result.health).toBe('STALE');
-    expect(result.usableForExecution).toBe(false);
-    expect(result.usableForSignal).toBe(false);
-    expect(result.usableForRouter).toBe(false);
-    expect(result.usableForShadow).toBe(true);
-    expect(result.reason).toBe('YAHOO_TIMESERIES_STALE');
-  });
-
-  it('B. KIS price current/prevClose/chart 10/10 reports OK', () => {
-    expect(summarizeKisPriceHealth({
-      currentOk: 10,
-      currentTotal: 10,
-      prevCloseOk: 10,
-      prevCloseTotal: 10,
-      chartOk: 10,
-      chartTotal: 10,
-    }).status).toBe('OK');
-  });
 
   it('C. INQUIRE_INVESTOR quote-like output is diagnostic-only QUOTE_LIKE_OUTPUT', () => {
     const result = classifyInvestorFlowPayload([
@@ -68,23 +42,6 @@ describe('KIS_ONLY_REBUILD defense patch', () => {
     expect(result.providerIssue).toBe(false);
     expect(result.marketSignal).toBe(false);
     expect(result.executionImpact).toBe('NONE');
-  });
-
-  it('G. KIS_ONLY_REBUILD forces liveExecutionAllowed=false', () => {
-    expect(computeLiveExecutionAllowed({
-      mode: 'KIS_ONLY_REBUILD',
-      freshExecutionProviderExists: true,
-      executionStage: 'CORE',
-      hasCriticalProviderMismatch: false,
-    })).toBe(false);
-  });
-
-  it('H. Shadow cases force executionImpact=NONE while learning remains enabled', () => {
-    const result = recordShadowCase({ reason: 'KIS_INVESTOR_FLOW_FIELD_MISMATCH' });
-    expect(result.executionImpact).toBe('NONE');
-    expect(result.shadowLearning).toBe(true);
-    expect(result.providerIssue).toBe(false);
-    expect(result.marketSignal).toBe(false);
   });
 
   it('I. duplicate Shadow auction Telegram message calls sendMessage once', async () => {

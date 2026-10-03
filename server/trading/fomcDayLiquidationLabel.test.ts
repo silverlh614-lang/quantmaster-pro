@@ -78,46 +78,6 @@ describe('ADR-0104 — originalReasonLabel 단위 분기', () => {
   });
 });
 
-describe('ADR-0104 — fomcDayLiquidation wiring (FOMC 청산 제거 후 stub)', () => {
-  /**
-   * 출력 drift 근거 (intent proof — 맹목 갱신 아님):
-   *   1. 패치 이력: docs/ai/10-patch-history-index.md `Patch-FOMC-DEAD-CODE-REMOVAL-001`.
-   *   2. production @responsibility: fomcDayLiquidation.ts L1
-   *      "FOMC DAY 청산 모듈 — 제거됨 (FOMC_LIQUIDATION_REMOVED). Stub only."
-   *   3. liquidateAllForFomc 본체(L28~41)는 항상 skipped 결과만 반환 — 청산 루프 부재.
-   *   4. cron 진입점 제거: orchestratorJobs.ts:96 "FOMC DAY 자동 청산 cron 제거됨".
-   * 따라서 구 wiring(placeKisSellOrder / addSellOrder reason='FOMC_DAY_LIQUIDATION') 단언은
-   * 제거된 동작이므로 현행 stub 계약(해당 호출 부재)을 검증하도록 정정한다.
-   * 단, originalReasonLabel/타입 union 은 보존됐으므로(아래 describe) 라벨 회귀는 그대로 검증.
-   */
-  it('fomcDayLiquidation.ts 가 청산 호출 stub 화 — placeKisSellOrder 호출 부재', () => {
-    const src = readFile('server/trading/fomcDayLiquidation.ts');
-    // 제거 마커 존재 확인 (stub 회귀 차단).
-    expect(src).toContain('FOMC_LIQUIDATION_REMOVED');
-    // 실 청산 호출(await placeKisSellOrder)이 본체에 없어야 함.
-    expect(src).not.toContain('await placeKisSellOrder(');
-  });
-
-  it('fomcDayLiquidation.ts addSellOrder 등록 부재 (LIVE 폴링 등록도 stub 화)', () => {
-    const src = readFile('server/trading/fomcDayLiquidation.ts');
-    expect(src).not.toContain('addSellOrder({');
-  });
-
-  it('회귀 차단 — fomcDayLiquidation.ts 본체에 reason="STOP_LOSS" 직접 사용 패턴 부재', () => {
-    // 사용자 보고 SHADOW 손절 메시지 재발 차단.
-    // ExitRuleTag 인 'STOP_LOSS' 는 다른 의미라 검사 대상 아님 (reason 인자만).
-    const src = readFile('server/trading/fomcDayLiquidation.ts');
-    // placeKisSellOrder + addSellOrder 두 호출 모두 'STOP_LOSS' reason 부재
-    const placeIdx = src.indexOf('await placeKisSellOrder(');
-    const placeBlock = src.slice(placeIdx, placeIdx + 300);
-    expect(placeBlock).not.toMatch(/['"]STOP_LOSS['"]/);
-
-    const addIdx = src.indexOf('addSellOrder({');
-    const addBlock = src.slice(addIdx, addIdx + 400);
-    expect(addBlock).not.toMatch(/originalReason:\s*['"]STOP_LOSS['"]/);
-  });
-});
-
 describe('ADR-0104 — 다른 청산 규칙 호환성 보존 (회귀 차단)', () => {
   it('exitEngine 의 hardStopLoss/r6Emergency 등은 여전히 STOP_LOSS 사용 (의도된 손절)', () => {
     // 다른 청산 규칙은 진짜 손절 (가격 도달) 이라 STOP_LOSS reason 보존.

@@ -11,9 +11,7 @@ import {
   formatTradePlanResolvedLog,
   type PriceSnapshot,
 } from './priceSnapshotSsot.js';
-import { recordCounterfactualForDecision } from './gates/counterfactualAlwaysOn.js';
 import { resolveSimpleTradeDecision } from './gates/simpleDecision.js';
-import { renderDisplayState, type DisplayState } from '../telegram/displayState.js';
 
 const NOW = '2026-05-21T00:05:00.000Z';
 
@@ -71,7 +69,7 @@ describe('Simplification Step 14 TradePlan SSOT', () => {
     expect(plan.invalidReasons).toContain('TARGET_NOT_ABOVE_ENTRY');
   });
 
-  it('D. routes insufficient R:R to WATCH_RR_INSUFFICIENT and counterfactual learning', () => {
+  it('D. routes insufficient R:R to WATCH_RR_INSUFFICIENT', () => {
     const plan = computeTradePlan(snapshot(), {
       initialStopLoss: 9_500,
       targetPrice1: 10_500,
@@ -85,28 +83,9 @@ describe('Simplification Step 14 TradePlan SSOT', () => {
       finalScore: 80,
       tradePlanValid: plan.status === 'VALID',
     });
-    const recorded = recordCounterfactualForDecision({
-      decision,
-      snapshotId: 'scan_trade_plan_1',
-      asOf: NOW,
-      entryPrice: plan.entryPrice,
-      stopLoss: plan.initialStopLoss,
-      targetPrice: plan.targetPrice1,
-      riskReward: plan.riskReward1,
-      tradePlanId: plan.tradePlanId,
-      initialStopLoss: plan.initialStopLoss,
-      targetPrice1: plan.targetPrice1,
-      riskReward1: plan.riskReward1,
-      tradePlanStatus: plan.status,
-      invalidReasons: plan.invalidReasons,
-    });
-
     expect(plan.riskReward1).toBe(1);
     expect(plan.status).toBe('RR_INSUFFICIENT');
     expect(decision.decision).toBe('WATCH_RR_INSUFFICIENT');
-    expect(recorded.sample.sampleType).toBe('RR_INSUFFICIENT_COUNTERFACTUAL');
-    expect(recorded.sample.tradePlanId).toBe(plan.tradePlanId);
-    expect(recorded.sample.learningLabels).toContain('RR_INSUFFICIENT_OBSERVED');
     expect(formatRrInsufficientObservedLog(plan)).toContain('[RR_INSUFFICIENT_OBSERVED]');
   });
 
@@ -153,64 +132,5 @@ describe('Simplification Step 14 TradePlan SSOT', () => {
     })).toContain('[POSITION_TRADE_PLAN_ATTACHED]');
   });
 
-  it('H. renders Telegram BUY candidates from TradePlan values', () => {
-    const plan = computeTradePlan(snapshot(), { computedAt: NOW });
-    const state: DisplayState = {
-      audience: 'USER_SIGNAL',
-      severity: 'ACTION',
-      eventType: 'BUY_CANDIDATE',
-      symbol: '005930',
-      name: 'Samsung',
-      decision: 'BUY_ALLOWED',
-      label: 'BUY',
-      finalScore: 74,
-      entryPrice: plan.entryPrice,
-      stopLoss: 1,
-      targetPrice: 1,
-      riskReward: 1,
-      initialStopLoss: plan.initialStopLoss,
-      targetPrice1: plan.targetPrice1,
-      riskReward1: plan.riskReward1,
-      tradePlanId: plan.tradePlanId,
-      tp1SellPct: plan.tp1SellPct,
-      moveStopToBreakevenAfterTp1: plan.moveStopToBreakevenAfterTp1,
-      mode: 'SHADOW',
-      summaryLines: [],
-    };
-    const message = renderDisplayState(state);
 
-    expect(message).toContain(plan.initialStopLoss.toLocaleString('ko-KR'));
-    expect(message).toContain(plan.targetPrice1.toLocaleString('ko-KR'));
-    expect(message).toContain(`R:R: ${plan.riskReward1}`);
-    expect(message).toContain(`TradePlan: ${plan.tradePlanId}`);
-  });
-
-  it('records invalid TradePlan as a counterfactual sample instead of dropping it', () => {
-    const plan = computeTradePlan(snapshot(), {
-      initialStopLoss: 10_100,
-      computedAt: NOW,
-    });
-    const decision = resolveSimpleTradeDecision({
-      symbol: '005930',
-      dataUsable: false,
-      finalScore: 80,
-      tradePlanValid: false,
-    });
-    const recorded = recordCounterfactualForDecision({
-      decision,
-      snapshotId: 'scan_trade_plan_invalid',
-      asOf: NOW,
-      tradePlanId: plan.tradePlanId,
-      tradePlanStatus: plan.status,
-      invalidReasons: plan.invalidReasons,
-      entryPrice: plan.entryPrice,
-      initialStopLoss: plan.initialStopLoss,
-      targetPrice1: plan.targetPrice1,
-      riskReward1: plan.riskReward1,
-    });
-
-    expect(plan.status).toBe('INVALID_STOP');
-    expect(recorded.sample.sampleType).toBe('TRADE_PLAN_INVALID_COUNTERFACTUAL');
-    expect(recorded.sample.learningLabels).toContain('TRADE_PLAN_INVALID_OBSERVED');
-  });
 });

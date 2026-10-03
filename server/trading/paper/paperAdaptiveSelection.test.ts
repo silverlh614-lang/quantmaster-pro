@@ -9,13 +9,13 @@ import { adaptiveFeatureValue, adaptiveRuleMatches, selectPaperAdaptiveState } f
 import { adaptiveTestSnapshot, matureAdaptiveSamples } from './paperAdaptiveFixtures.js';
 import { evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
-import { emptyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from './paperStrategyFixtures.js';
+import { emptyStrategyLedger, legacyStrategyLedger, strategyTestCost } from './paperStrategyFixtures.js';
 
 const asOf = '2026-09-18T01:00:00Z';
 const rsi = (state: PaperAdaptiveState) => state.candidates.find(item => item.rule.feature === 'rsi14')!;
 const select = (samples = matureAdaptiveSamples()) => selectPaperAdaptiveState(undefined, samples, asOf);
 const enter = (samples = matureAdaptiveSamples(), snapshot = adaptiveTestSnapshot()) =>
-  evaluatePaperStrategyScan(emptyStrategyLedger(), samples, snapshot, strategyTestCost, [], selectPaperAdaptiveState(undefined, samples, snapshot.asOf));
+  evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, selectPaperAdaptiveState(undefined, samples, snapshot.asOf));
 const restore = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 function snapshotOn(date: string): PaperSnapshot {
   const snapshot = adaptiveTestSnapshot();
@@ -140,7 +140,7 @@ describe('dated autonomous feature selection', () => {
       if (problem === 'future') observation.features!.asOf = '2026-09-18T02:00:00Z';
       expect(adaptiveFeatureValue(observation, 'rsi14', asOf)).toBeNull();
       expect(adaptiveRuleMatches(observation, rule, asOf)).toBe(false);
-      const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), [], snapshot, strategyTestCost, [], state);
+      const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, state);
       expect(ledger.trades).toHaveLength(0);
       expect(ledger.latestDecisions[0].reasonCode).toBe('ADAPTIVE_FEATURE_UNAVAILABLE');
     }
@@ -157,9 +157,9 @@ describe('autonomous Shadow lifecycle and persistence', () => {
     expect(state.candidates.filter(item => item.active)).toHaveLength(3);
     Object.assign(snapshot.observations[0].features!.values, { volumeRatio20: 3, ma20Gap: 8 });
     snapshot.observations.push(structuredClone(snapshot.observations[0]));
-    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), samples, snapshot, strategyTestCost, [], state);
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, state);
     expect(ledger.trades).toHaveLength(1); expect(ledger.latestDecisions).toHaveLength(1);
-    const next = evaluatePaperStrategyScan(restore(ledger), samples, snapshot, strategyTestCost, [], restore(state));
+    const next = evaluatePaperStrategyScan(restore(ledger), snapshot, strategyTestCost, restore(state));
     expect(next.trades).toEqual(ledger.trades);
     expect(next.latestDecisions[0].action).toBe('HOLD');
   });
@@ -168,20 +168,20 @@ describe('autonomous Shadow lifecycle and persistence', () => {
     const ledger = enter(), snapshot = snapshotOn('2026-09-21');
     const disconnected = selectPaperAdaptiveState(ledger.adaptive, [], snapshot.asOf);
     expect(disconnected.candidates.some(item => item.active)).toBe(false);
-    const held = evaluatePaperStrategyScan(restore(ledger), [], snapshot, strategyTestCost, [], disconnected);
+    const held = evaluatePaperStrategyScan(restore(ledger), snapshot, strategyTestCost, disconnected);
     expect(held.trades[0]).toEqual(ledger.trades[0]);
     expect(held.latestDecisions[0]).toMatchObject({ action: 'HOLD', reasonCode: 'HORIZON_PENDING' });
     const exitSnapshot = snapshotOn('2026-09-23'); exitSnapshot.asOf = '2026-09-23T07:00:00Z'; exitSnapshot.marketOpen = false;
     exitSnapshot.observations[0].dailyCloses = [{ tradingDate: '2026-09-23', close: 11000, availableAt: exitSnapshot.asOf }];
-    const closed = evaluatePaperStrategyScan(held, [], exitSnapshot, strategyTestCost, [], selectPaperAdaptiveState(disconnected, [], exitSnapshot.asOf));
+    const closed = evaluatePaperStrategyScan(held, exitSnapshot, strategyTestCost, selectPaperAdaptiveState(disconnected, [], exitSnapshot.asOf));
     expect(closed.trades[0].exit).toMatchObject({ price: 11000, effectiveAt: '2026-09-23T06:30:00.000Z', netPnl: 1000 });
     expect(closed.trades[0].exit!.decision.adaptiveEvidence).toEqual(ledger.trades[0].entryDecision.adaptiveEvidence);
     expect(() => assertPaperStrategyLedger(restore(closed))).not.toThrow();
   });
 
   it('roundtrips adaptive and legacy ledgers and allows existing legacy trades to finish after switching', () => {
-    const legacy = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples(), strategyTestSnapshot(), strategyTestCost);
-    const switched = evaluatePaperStrategyScan(restore(legacy), matureAdaptiveSamples(), adaptiveTestSnapshot(), strategyTestCost, [], select());
+    const legacy = legacyStrategyLedger();
+    const switched = evaluatePaperStrategyScan(restore(legacy), adaptiveTestSnapshot(), strategyTestCost, select());
     for (const ledger of [emptyStrategyLedger(), enter(), legacy, switched]) {
       expect(() => assertPaperStrategyLedger(restore(ledger))).not.toThrow();
     }

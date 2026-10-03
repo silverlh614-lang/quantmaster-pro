@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * @responsibility ADR 파일시스템 ↔ INDEX.md 정합 정적 검증 (PR-Governance 후속)
  *

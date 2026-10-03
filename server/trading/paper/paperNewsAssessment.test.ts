@@ -5,6 +5,8 @@ import { assessPaperNews } from './paperNewsAssessment.js';
 import { summarizePaperNews } from '../../../src/utils/paperNews.js';
 import { buildPaperExperimentView, createPaperExperiment } from './paperExperimentPolicy.js';
 import { evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
+import { adaptiveTestSnapshot, matureAdaptiveSamples } from './paperAdaptiveFixtures.js';
+import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
 import { emptyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from './paperStrategyFixtures.js';
 
@@ -106,14 +108,15 @@ describe('independent direction study', () => {
     expect(JSON.stringify(experiments)).toBe(before);
   });
 
-  it('records bad news in BUY and WAIT evidence without changing v2 eligibility', () => {
-    const snapshot = strategyTestSnapshot();
+  it('records bad news in BUY and WAIT evidence without changing adaptive eligibility', () => {
+    const snapshot = adaptiveTestSnapshot();
     snapshot.observations[0].news = [news('계약 해지')];
-    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples([1, 9, 10], true), snapshot, strategyTestCost);
+    const adaptive = selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), snapshot.asOf);
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, adaptive);
     expect(ledger.latestDecisions[0]).toMatchObject({ action: 'BUY', newsSummary: { direction: 'NEGATIVE' } });
     expect(() => assertPaperStrategyLedger(JSON.parse(JSON.stringify(ledger)))).not.toThrow();
     snapshot.marketOpen = false;
-    const waiting = evaluatePaperStrategyScan(emptyStrategyLedger(), [], snapshot, strategyTestCost);
+    const waiting = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, adaptive);
     expect(waiting.latestDecisions[0]).toMatchObject({ action: 'WAIT', newsSummary: { direction: 'NEGATIVE' } });
     expect(ledger.trades[0].entryObservation.news[0].assessment?.direction).toBe('NEGATIVE');
   });

@@ -353,7 +353,7 @@ describe('tradeSignalStatusRepo — TradeSignalStatus 상태머신', () => {
       const codes = new Set(all.map(r => r.stockCode));
       expect(codes.has('100000')).toBe(false);
       expect(codes.has('101000')).toBe(true); // 마지막 (i=1000)
-    });
+    }, 15_000); // Allow 1001 synchronous filesystem writes on Windows runners.
   });
 
   // ─── 진단 read API (2 케이스) ─────────────────────────────────────────────

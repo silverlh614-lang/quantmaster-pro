@@ -27,7 +27,6 @@ vi.mock('./ledgerSimulator.js', () => ({
   resolveLedger: vi.fn(async () => ({})),
   evaluateLedgerSuggestion: vi.fn(async () => ({})),
 }));
-vi.mock('./kellySurfaceMap.js', () => ({ evaluateKellySurfaceSuggestion: vi.fn(async () => ({})) }));
 vi.mock('./regimeBalancedSampler.js', () => ({
   evaluateRegimeCoverageSuggestion: vi.fn(async () => ({})),
 }));
@@ -50,7 +49,6 @@ import { refreshGhostPortfolio } from './ghostPortfolioTracker.js';
 import { evaluateCounterfactualSuggestion } from './counterfactualShadow.js';
 import { counterfactualResolveDueRun } from './learningSampleQuality.js';
 import { resolveLedger, evaluateLedgerSuggestion } from './ledgerSimulator.js';
-import { evaluateKellySurfaceSuggestion } from './kellySurfaceMap.js';
 import { evaluateRegimeCoverageSuggestion } from './regimeBalancedSampler.js';
 import { computeSafetyGateAttribution } from './safetyGateAttribution.js';
 import { computeShadowVsLiveDelta } from './shadowVsLiveDelta.js';
@@ -86,7 +84,6 @@ describe('dispatchMissedLearningReplay — jobName → 실함수 매핑', () => 
     await dispatchMissedLearningReplay('ledger_resolve');
     expect(resolveLedger).toHaveBeenCalledTimes(1);
     expect(evaluateLedgerSuggestion).toHaveBeenCalledTimes(1);
-    expect(evaluateKellySurfaceSuggestion).not.toHaveBeenCalled();
     expect(evaluateRegimeCoverageSuggestion).not.toHaveBeenCalled();
     expect(counterfactualResolveDueRun).not.toHaveBeenCalled();
   });

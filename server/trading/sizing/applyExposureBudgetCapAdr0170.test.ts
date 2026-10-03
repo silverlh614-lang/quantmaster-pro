@@ -10,8 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   applyExposureBudgetCap,
   type ApplyExposureBudgetCapInput,
-} from './positionSizingEngineWiring.js';
-import { applyExposureBudgetCap as activeExposureBudgetCap } from './entrySizingPolicy.js';
+} from './entrySizingPolicy.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,8 +55,7 @@ describe('retired macro inputs at the active exposure boundary', () => {
     expect(result).toMatchObject({ applied: true, finalQuantity: 100 });
     expect(result.budget).toBeUndefined();
   });
-  it('legacy import delegates to the current cash/capital boundary', () => {
-    expect(applyExposureBudgetCap).toBe(activeExposureBudgetCap);
+  it('caps quantity at available cash even when the legacy flag is absent', () => {
     delete process.env.POSITION_SIZING_EXPOSURE_BUDGET_ENABLED;
     expect(applyExposureBudgetCap(makeInput({ currentCashAmount: 15000 })))
       .toMatchObject({ applied: true, finalQuantity: 1 });

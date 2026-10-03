@@ -21,6 +21,7 @@ import {
   extractOptionalFields,
   countReaderUsage,
   countWriterUsage,
+  isSilentDegradationViolation,
 } from './check_silent_degradation.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -258,6 +259,20 @@ describe('countWriterUsage', () => {
 });
 
 describe('silent degradation 시나리오', () => {
+  it('allows the archival vkospiRising reader but blocks any new operational reader', () => {
+    const historical = {
+      schema: 'MacroState', field: 'vkospiRising', readerCount: 3, writerCount: 0,
+      baselined: false, readerPaths: ['server/trading/regimeBridge.base.ts'],
+    };
+    expect(isSilentDegradationViolation(historical)).toBe(false);
+    expect(isSilentDegradationViolation({
+      ...historical, readerCount: 4,
+      readerPaths: [...historical.readerPaths, 'server/trading/buyPipeline.ts'],
+    })).toBe(true);
+    expect(isSilentDegradationViolation({ ...historical, field: 'newUnwrittenField' })).toBe(true);
+    expect(isSilentDegradationViolation({ ...historical, schema: 'ServerShadowTrade' })).toBe(true);
+  });
+
   it('reader > 0 + writer = 0 → silent degradation candidate', () => {
     const sources = [
       { path: 'reader.ts', src: 'const x = state.silentField;' },

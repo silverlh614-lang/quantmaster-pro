@@ -3,7 +3,6 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type { TelegramCommand } from './telegram/commands/_types.js';
 import type { RegimeSnapshot } from './trading/regime/effectiveRegimeSnapshot.js';
 import { classifyOperationalWarnLogLevel } from './observability/operationalWarn.js';
-import { emitRegimeConflictWarnings } from './trading/regime/regimeConflictDetector.js';
 import { formatRegimeTelegramNow } from './trading/regime/regimeTelegramPresenter.js';
 import { emitScanEvaluationWarnings } from './trading/signalScanner/state/scanDiagnosticSuppressor.js';
 import {
@@ -43,39 +42,6 @@ describe('P1 logger level policy', () => {
       priority: 'P1', domain: 'DATA', code: 'P1_MACRO_STATE_STALE', message: 'stale', executionImpact: 'NONE', dedupKey: 'k', ttlSec: 60,
       details: { providerIssue: true, marketSignal: false },
     })).toBe('info');
-  });
-
-  // 출력 드리프트 정정 (canonical SSOT = operationalWarn.classifyOperationalWarnLogLevel):
-  //   - correctionApplied=true && userVisibleSafe=true 인 GREEN_WITH_R6 → executionImpact='NONE'
-  //     (regimeConflictDetector.ts L108~111) → classify 'info' (operationalWarn.ts L43~47).
-  //   - 본 다운그레이드는 P1 log-noise 안정화 의도 — "정정·사용자안전" conflict 는 비액션이므로
-  //     WARN 미만(INFO)으로 낮추되, 절대 ERROR 로 오에스컬레이션하지 않는다(핵심 안전 불변).
-  //   원본 테스트는 다운그레이드 도입 전 WARN 기대로 DOA. 정정된 케이스는 INFO + ERROR 부재로 검증.
-  it('corrected GREEN_WITH_R6 conflict is downgraded to INFO and never ERROR', () => {
-    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    emitRegimeConflictWarnings({
-      snapshotId: 's1', asOf: NOW.toISOString(), ttlSec: 300, detectedRegime: 'R3_EARLY', effectiveRegime: 'R6_DEFENSE', displayRegime: 'R6_DEFENSE',
-      riskOverride: 'R6_DEFENSE', engineMode: 'NORMAL', biasScore: 0, mhs: 70, dataHealth: {}, sourceHealth: 'VERIFIED', stale: false,
-      providerIssue: false, marketSignal: false, conflicts: ['GREEN_WITH_R6'], rawMhsLabel: 'GREEN', rawBiasLabel: 'NEUTRAL', correctionApplied: true, userVisibleSafe: true,
-    } as RegimeSnapshot);
-    expect(info).toHaveBeenCalled();
-    expect(warn).not.toHaveBeenCalled();
-    expect(error).not.toHaveBeenCalled();
-  });
-
-  // 경계 보강 — *미정정* GREEN_WITH_R6 (correctionApplied=false, displayRegime≠R6) 는
-  // executionImpact='REGIME_DISPLAY_CONFLICT' → classify 'error' 로 에스컬레이션되어야 한다.
-  // (정정 케이스의 INFO 다운그레이드가 미정정 케이스까지 약화시키지 않음을 잠금)
-  it('uncorrected GREEN_WITH_R6 conflict escalates to ERROR', () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    emitRegimeConflictWarnings({
-      snapshotId: 's2', asOf: NOW.toISOString(), ttlSec: 300, detectedRegime: 'R3_EARLY', effectiveRegime: 'R6_DEFENSE', displayRegime: 'R3_EARLY',
-      riskOverride: 'R6_DEFENSE', engineMode: 'NORMAL', biasScore: 0, mhs: 70, dataHealth: {}, sourceHealth: 'VERIFIED', stale: false,
-      providerIssue: false, marketSignal: false, conflicts: ['GREEN_WITH_R6'], rawMhsLabel: 'GREEN', rawBiasLabel: 'NEUTRAL', correctionApplied: false, userVisibleSafe: false,
-    } as RegimeSnapshot);
-    expect(error).toHaveBeenCalled();
   });
 });
 

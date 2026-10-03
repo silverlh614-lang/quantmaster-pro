@@ -40,16 +40,12 @@ vi.mock('../../../preMortemStructured.js', () => ({
   matchExitInvalidation: vi.fn(() => null),
   promoteInvalidationPatternIfRepeated: vi.fn(),
 }));
-vi.mock('../../../../learning/kellyDriftFailurePromotion.js', () => ({
-  promoteKellyDriftPattern: vi.fn(),
-}));
 vi.mock('../../../blacklistManager.js', () => ({
   addToBlacklist: vi.fn(),
   isBlacklisted: vi.fn(() => false),
 }));
 
 const { hardStopLoss } = await import('../hardStopLoss.js');
-const { r6EmergencyExit } = await import('../r6EmergencyExit.js');
 const { cascadeFinal } = await import('../cascadeFinal.js');
 const { cascadeHalf } = await import('../cascadeHalf.js');
 const { trailingStop } = await import('../trailingStop.js');
@@ -86,16 +82,6 @@ describe('exitEngine 청산 규칙 stdout stockCode 포함 (2026-04-27 진단 �
     expect(line).toBeDefined();
     expect(line).toContain('삼성전자 (005930)');
     expect(line).toContain('하드 스톱');
-  });
-
-  it('retired r6EmergencyExit emits no liquidation log', async () => {
-    const shadow = makeMockShadow({ stockCode: '006490', stockName: '인스코비', quantity: 100, mode: 'LIVE' });
-    await r6EmergencyExit(makeMockCtx({
-      shadow, currentPrice: 95, currentRegime: 'R6_DEFENSE' as any,
-    }));
-    const line = findAutoTradeLogLine(logSpy);
-    expect(line).toBeUndefined();
-    expect(shadow.quantity).toBe(100);
   });
 
   it('cascadeFinal: stockCode 포함', async () => {

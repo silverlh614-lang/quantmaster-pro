@@ -27,7 +27,6 @@ vi.mock('../../persistence/tradingSettingsRepo.js', () => ({ loadTradingSettings
 vi.mock('../../clients/kisClient.js', () => ({ fetchCurrentPrice: mocks.brokerQuote }));
 vi.mock('../../clients/kisStreamClient.js', () => ({ getRealtimePrice: vi.fn() }));
 vi.mock('../../screener/sectorMap.js', () => ({ getSectorByCode: vi.fn() }));
-vi.mock('../../trading/dryRunScanner.js', () => ({ runDryRunScan: vi.fn() }));
 vi.mock('../../screener/stockScreener.js', () => ({
   getScreenerCache: vi.fn(), preScreenStocks: vi.fn(), autoPopulateWatchlist: vi.fn(),
 }));

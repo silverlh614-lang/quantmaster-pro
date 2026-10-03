@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperBotState } from '../persistence/paperBotRepo.js';
 import { buildPaperStrategyView, evaluatePaperStrategyScan } from '../trading/paper/paperStrategyPolicy.js';
-import { emptyStrategyLedger, matureStrategySamples, strategyTestSnapshot, strategyTestCost } from '../trading/paper/paperStrategyFixtures.js';
+import { emptyStrategyLedger, strategyTestCost } from '../trading/paper/paperStrategyFixtures.js';
+import { adaptiveTestSnapshot, matureAdaptiveSamples } from '../trading/paper/paperAdaptiveFixtures.js';
+import { selectPaperAdaptiveState } from '../trading/paper/paperAdaptiveSelection.js';
 
 const mocks = vi.hoisted(() => ({ send: vi.fn(), load: vi.fn(), save: vi.fn(), view: vi.fn(), mode: vi.fn(), paused: vi.fn(), news: vi.fn(), morning: vi.fn(), maintain: vi.fn() }));
 vi.mock('./globalNewsRuntime.js', () => ({ maintainGlobalMorningNews: mocks.maintain, getGlobalMorningMessage: mocks.morning }));
@@ -19,6 +21,11 @@ import { formatPaperReport, formatPaperTrades, formatPaperTradeAnalysis, formatP
 
 function emptyState(): PaperBotState { return { schemaVersion: 1, initializedAt: null, lastCheckedAt: null, health: 'OK', notifiedHealth: 'OK', seenEvents: {}, messages: [] }; }
 function emptyView(): PaperExperimentView { return { mode: 'SHADOW', strategyVersion: 'shadow-baseline-v1', totalCount: 0, completedCount: 0, openCount: 0, experiments: [], groups: [], outcomes: [], lastRun: null, strategy: buildPaperStrategyView(emptyStrategyLedger()) }; }
+function enteredStrategy() {
+  const snapshot = adaptiveTestSnapshot();
+  return evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost,
+    selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), snapshot.asOf));
+}
 const monday = new Date('2026-09-14T08:45:00+09:00');
 let persisted: PaperBotState;
 let view: PaperExperimentView;
@@ -120,7 +127,7 @@ describe('delivery ledger', () => {
 
 describe('new strategy events', () => {
   it('baselines old entries silently, then emits each new entry and delayed exit once', () => {
-    const strategy = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples(), strategyTestSnapshot(), strategyTestCost);
+    const strategy = enteredStrategy();
     view.strategy = buildPaperStrategyView(strategy);
     const now = new Date('2026-09-18T01:01:00Z');
     enqueuePaperTradeChanges(persisted, view, now); expect(persisted.messages).toHaveLength(0);
@@ -247,7 +254,7 @@ describe('operational health transitions', () => {
 
 describe('signal and learning linkage', () => {
   it('keeps all events in bounded channel batches and freezes their evidence', () => {
-    const strategy = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples(), strategyTestSnapshot(), strategyTestCost);
+    const strategy = enteredStrategy();
     const template = strategy.trades[0];
     const now = new Date('2026-09-18T01:01:00Z');
     persisted.initializedAt = '2026-09-18T00:00:00Z';
@@ -263,8 +270,8 @@ describe('signal and learning linkage', () => {
       for (const item of messages) expect(item.message.length).toBeLessThan(3800);
     }
     expect(view.strategy.trades).toEqual(before);
-    expect(persisted.messages[1].message).toContain('12건 · 3개 진입일');
-    expect(persisted.messages[1].message).toContain('D3 평균 순수익률 +9.00%');
+    expect(persisted.messages[1].message).toContain('자동 연결 지표:');
+    expect(persisted.messages[1].message).toContain('후반 확인 40건/10진입일 · 평균 순수익률 +9.00%');
     enqueuePaperTradeChanges(persisted, view, now);
     expect(persisted.messages).toHaveLength(10);
     const longView = structuredClone(view);
@@ -285,11 +292,11 @@ describe('signal and learning linkage', () => {
     }
   });
   it('pairs an exit with the original entry evidence instead of current research', () => {
-    const trade = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples(), strategyTestSnapshot(), strategyTestCost).trades[0];
+    const trade = enteredStrategy().trades[0];
     trade.exit = { decisionAt: '2026-09-23T07:00:00Z', effectiveAt: '2026-09-23T06:30:00Z', netReturnPct: -2 } as NonNullable<typeof trade.exit>;
     const text = formatPaperTradeAnalysis([paperTradeEvents([trade])[1]]);
     expect(text).toContain('청산 복기');
-    expect(text).toContain('D3 평균 순수익률 +9.00%');
+    expect(text).toContain('후반 확인 40건/10진입일 · 평균 순수익률 +9.00%');
     expect(text).toContain('해당 시그널 청산 순수익률 -2.00%');
     expect(text).toContain('005930 · 2026-09-18');
     expect(formatPaperBotStatus(persisted)).toContain('signal: 진입·청산');

@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeDataSignal, canUseDataSignalInCore } from '../data/dataConfidenceRouter.js';
-import { classifyDiagnosticIsolation } from '../diagnostics/diagnosticIsolationPolicy.js';
-import { InMemoryShadowCaseLedger } from '../shadow/shadowCaseLedger.js';
-import { recordShadowCaseForRuntimePolicy } from '../shadow/shadowCaseRecordingPolicy.js';
-import { resolveTelegramCommandPolicy } from '../telegram/telegramCommandPolicy.js';
 import { resolveFinalDecision, type GateResult } from '../trading/gates/finalDecisionResolver.js';
 import {
   applyProviderSignalToEngineState,
@@ -84,29 +80,6 @@ describe('engine boundary refactor policy contracts', () => {
     expect(policy.sizingMultiplier).toBe(1.0);
   });
 
-  it('records SHADOW_ONLY cases with executionImpact NONE', () => {
-    const ledger = new InMemoryShadowCaseLedger();
-    const runtimePolicy = resolveEngineRuntimePolicy({ engineMode: 'SHADOW_ONLY', reasonCodes: ['MANUAL_SHADOW'] });
-
-    const shadowCase = recordShadowCaseForRuntimePolicy(ledger, {
-      runtimePolicy,
-      caseId: 'case-shadow-only',
-      symbol: '005930',
-      marketSession: 'OPEN',
-      learningTag: 'SHADOW_ONLY_POLICY_BLOCK',
-      dataHealth: 'VERIFIED',
-      entryPriceVirtual: 70000,
-      stopPriceVirtual: 67900,
-      targetPriceVirtual: 74200,
-      horizon1d: { outcomeLabel: 'ACTIVE', returnPct: 0.3, checkedAt: '2026-05-16T00:00:00.000Z' },
-    });
-
-    expect(shadowCase.engineMode).toBe('SHADOW_ONLY');
-    expect(shadowCase.executionImpact).toBe('NONE');
-    expect(shadowCase.brokerOrdersCreated).toBe(0);
-    expect(shadowCase.virtualOutcome1d).toBe('ACTIVE');
-  });
-
   it('blocks EOD snapshots from live/broker orders while preserving shadow learning', () => {
     const policy = resolveEngineRuntimePolicy({
       engineMode: 'NORMAL',
@@ -142,28 +115,6 @@ describe('engine boundary refactor policy contracts', () => {
     expect(signal.confidence).toBe('AI_ESTIMATED');
     expect(signal.promotionStage).toBe('ADVISORY');
     expect(canUseDataSignalInCore(signal)).toBe(false);
-  });
-
-  it('isolates P3 diagnostic budget overflow from data vacuum and blocking', () => {
-    const result = classifyDiagnosticIsolation({
-      phase: 'P3_SCAN_DIAGNOSTIC',
-      budgetExceeded: true,
-      coreDataMissing: true,
-    });
-
-    expect(result.diagnosticSuppressed).toBe(true);
-    expect(result.blocking).toBe(false);
-    expect(result.dataVacuum).toBe(false);
-    expect(result.executionImpact).toBe('NONE');
-  });
-
-  it('forbids Telegram commands from re-running gate evaluation', () => {
-    const policy = resolveTelegramCommandPolicy('RECOMPUTE_GATE');
-
-    expect(policy.allowed).toBe(false);
-    expect(policy.gateEvaluationAllowed).toBe(false);
-    expect(policy.providerCallAllowed).toBe(false);
-    expect(policy.engineModeMutationAllowed).toBe(false);
   });
 
   it('does not convert ACCEPTED_EMPTY into a bearish market signal', () => {

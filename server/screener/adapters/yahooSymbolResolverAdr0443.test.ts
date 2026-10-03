@@ -71,7 +71,6 @@ describe('ADR-0443 정적 grep 가드 — 10 호출자 SSOT import 보유', () =
   const callers = [
     { name: 'historicalClosePrice.ts', path: 'server/clients/historicalClosePrice.ts', expectedSsot: 'tryGetYahooSymbol' },
     { name: 'lateWinEvaluator.ts', path: 'server/learning/lateWinEvaluator.ts', expectedSsot: 'tryGetYahooSymbol' },
-    { name: 'prefetchedContext.ts', path: 'server/ai/prefetchedContext.ts', expectedSsot: 'tryGetYahooSymbol' },
     { name: 'stockScreener.ts', path: 'server/screener/stockScreener.ts', expectedSsot: 'tryGetYahooSymbol' },
   ];
 
@@ -91,7 +90,6 @@ describe('ADR-0443 정적 grep 가드 — 10 호출자 SSOT import 보유', () =
   // ADR-0561 router-위임 호출자: technicalQuoteRouter import + 직접 concat 부재 검증으로 대체.
   for (const { name, path } of [
     { name: 'reportGenerator.ts', path: 'server/alerts/reportGenerator.ts' },
-    { name: 'stockPickReporter.ts', path: 'server/alerts/stockPickReporter.ts' },
   ]) {
     it(`${name}: technicalQuoteRouter SSOT 위임 import 보유 (ADR-0561 burn-down)`, () => {
       const src = readSrc(path);
@@ -120,13 +118,6 @@ describe('ADR-0443 정적 grep 가드 — 10 호출자 SSOT import 보유', () =
   });
 });
 
-describe('ADR-0443 정적 grep 가드 — universeScanner.ts symbol 필드 격상', () => {
-  it('universeScanner.ts: symbol 필드가 tryGetYahooSymbol(code) ?? `${code}.KS` 패턴 (마스터 매칭 격상)', () => {
-    const src = readSrc('server/screener/universeScanner.ts');
-    expect(src).toMatch(/tryGetYahooSymbol\s*\(\s*code\s*\)\s*\?\?\s*`\$\{code\}\.KS`/);
-  });
-});
-
 describe('ADR-0443 정적 grep 가드 — Category A 호출자 fetchYahooQuoteByCode 사용', () => {
   // ADR-0561 burn-down: reportGenerator 는 fetchTechnicalQuoteByCode(w.code) router funnel 위임으로 치환됨.
   it('reportGenerator.ts: fetchTechnicalQuoteByCode(w.code) router 위임 호출 보유 (ADR-0561)', () => {
@@ -135,45 +126,11 @@ describe('ADR-0443 정적 grep 가드 — Category A 호출자 fetchYahooQuoteBy
     expect(cleaned).toMatch(/fetchTechnicalQuoteByCode\s*\(\s*w\.code\s*\)/);
   });
 
-  // ADR-0561 KIS Primary Absolute burn-down: universeScanner Stage1 quote fetch 가
-  // fetchYahooQuoteByCode(code, fetchYahooQuote) Yahoo-primary 에서 fetchKisQuoteFallback(code)
-  // KIS-primary funnel 로 치환됨(.KS/.KQ direct concat 부재는 아래 별도 가드가 유지). 원본의
-  // fetchYahooQuoteByCode 호출 기대는 burn-down 이전 패턴으로 DOA → 정본 quote funnel 로 정정.
-  it('universeScanner.ts: fetchKisQuoteFallback(code) KIS-primary quote funnel 호출 보유 (ADR-0561)', () => {
-    const src = readSrc('server/screener/universeScanner.ts');
-    const cleaned = stripComments(src);
-    expect(cleaned).toMatch(/fetchKisQuoteFallback\s*\(\s*code\s*\)/);
-  });
-
   it('reportGenerator.ts: legacy `await fetchYahooQuote(.KS) ?? await fetchYahooQuote(.KQ)` 패턴 부재', () => {
     const src = readSrc('server/alerts/reportGenerator.ts');
     const cleaned = stripComments(src);
     expect(cleaned).not.toMatch(/await\s+fetchYahooQuote\s*\(\s*`\$\{w\.code\}\.KS`/);
     expect(cleaned).not.toMatch(/await\s+fetchYahooQuote\s*\(\s*`\$\{w\.code\}\.KQ`/);
-  });
-
-  it('universeScanner.ts: legacy `await fetchYahooQuote(.KS) ?? await fetchYahooQuote(.KQ)` 패턴 부재', () => {
-    const src = readSrc('server/screener/universeScanner.ts');
-    const cleaned = stripComments(src);
-    expect(cleaned).not.toMatch(/await\s+fetchYahooQuote\s*\(\s*`\$\{code\}\.KS`/);
-    expect(cleaned).not.toMatch(/await\s+fetchYahooQuote\s*\(\s*`\$\{code\}\.KQ`/);
-  });
-});
-
-describe('ADR-0443/0561 정적 grep 가드 — Category B stockPickReporter 양쪽 호출 router 위임', () => {
-  it('stockPickReporter.ts: 단일 fetchYahooQuote(`${entry.code}.KS`) 호출 0건 (양쪽 모두 마이그레이션)', () => {
-    const src = readSrc('server/alerts/stockPickReporter.ts');
-    const cleaned = stripComments(src);
-    // legacy 단일 .KS 패턴 부재
-    expect(cleaned).not.toMatch(/fetchYahooQuote\s*\(\s*`\$\{entry\.code\}\.KS`/);
-  });
-
-  // ADR-0561 burn-down: 양쪽 분기 모두 fetchTechnicalQuoteByCode(entry.code) router funnel 위임으로 치환됨.
-  it('stockPickReporter.ts: fetchTechnicalQuoteByCode(entry.code) router 위임 호출 ≥2건 (양쪽 분기 모두)', () => {
-    const src = readSrc('server/alerts/stockPickReporter.ts');
-    const cleaned = stripComments(src);
-    const matches = cleaned.match(/fetchTechnicalQuoteByCode\s*\(\s*entry\.code\s*\)/g) || [];
-    expect(matches.length).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -197,10 +154,6 @@ describe('ADR-0443 정적 grep 가드 — Category C quantitativeCandidateGenera
 });
 
 describe('ADR-0443 정적 grep 가드 — Category B prefetchedContext / stockScreener 그레이스 패턴', () => {
-  it('prefetchedContext.ts: `tryGetYahooSymbol(ref.code) ?? \\`${ref.code}.KS\\`` 패턴 (그레이스 fallback 보존)', () => {
-    const src = readSrc('server/ai/prefetchedContext.ts');
-    expect(src).toMatch(/tryGetYahooSymbol\s*\(\s*ref\.code\s*\)\s*\?\?\s*`\$\{ref\.code\}\.KS`/);
-  });
 
   it('stockScreener.ts: `tryGetYahooSymbol(s.code) ?? \\`${s.code}.KS\\`` 패턴 (그레이스 fallback 보존)', () => {
     const src = readSrc('server/screener/stockScreener.ts');
@@ -266,10 +219,7 @@ describe('ADR-0443 안전 invariants — 호출자 측 KIS/autoTradeEngine impor
     'server/learning/backtestEngine.ts',
     'server/learning/lateWinEvaluator.ts',
     'server/alerts/reportGenerator.ts',
-    'server/screener/universeScanner.ts',
-    'server/ai/prefetchedContext.ts',
     'server/screener/stockScreener.ts',
-    'server/alerts/stockPickReporter.ts',
     'server/services/quantitativeCandidateGenerator.ts',
   ];
 

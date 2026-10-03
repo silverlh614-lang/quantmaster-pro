@@ -123,7 +123,6 @@ describe('Gate2 DART financials stage diagnostics', () => {
   it('wires DART-hydrated rechecks as ENTRY_RECHECK_GATE so null DART is not stage-not-fetched', () => {
     const root = process.cwd();
     const files = [
-      'server/screener/universeScanner.ts',
       'server/trading/buyPipeline.ts',
       'server/trading/signalScanner/perSymbol/steps/preBreakoutEntry.ts',
     ];

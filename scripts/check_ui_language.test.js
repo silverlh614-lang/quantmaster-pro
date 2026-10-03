@@ -9,7 +9,6 @@
  *   5) string literal 안에서만 매칭
  *   6) 다중 위반 모두 보고 + 총 카운트 표시
  *   7) --changed 모드 동작
- *   8) 화이트리스트 (uiLanguage.ts) 통과
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { execSync } from 'child_process';
@@ -230,17 +229,6 @@ describe('check_ui_language lint script', () => {
     expect(result.output).toContain('multi1.ts');
     expect(result.output).toContain('multi2.ts');
     expect(result.output).toContain('위반 2건');
-  });
-
-  // ============================================================
-  // 화이트리스트 (정책 SSOT 자기 자신)
-  // ============================================================
-  it('화이트리스트 (uiLanguage.ts) 베이스라인 통과', () => {
-    // uiLanguage.ts 자체가 정책 표현을 담을 수 있어도 ALLOWED_FILES 로 통과해야 함.
-    // 본 검증은 baseline test 와 동일하지만 명시적으로 화이트리스트 보존 강조.
-    const result = runLint();
-    expect(result.exitCode).toBe(0);
-    expect(result.output).toContain('위반 0건');
   });
 
   // ============================================================

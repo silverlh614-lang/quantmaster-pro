@@ -14,25 +14,6 @@ const closeAt = (date: string) => `${date}T15:30:00+09:00`;
 const calendarYears = new Set([...getStaticKrxHolidays()].map((date) => date.slice(0, 4)));
 const groupOf = (sample: HistoricalPaperSample) => sample.cohort ?? `NEWS_UNKNOWN_${sample.aboveMa20 ? 'ABOVE' : 'BELOW'}_MA20`;
 
-export function historicalSampleUsable(sample: HistoricalPaperSample, cutoff: string): boolean {
-  if (sample.model !== 'HISTORICAL_CLOSE_TO_CLOSE' || !/^\d{6}$/.test(sample.symbol)
-    || sample.id !== `historical-close:${sample.tradingDate}:${sample.symbol}`
-    || !calendarYears.has(sample.tradingDate.slice(0, 4)) || !isKrxTradingDay(sample.tradingDate) || !(sample.entryPrice > 0) || !Number.isFinite(sample.entryPrice)
-    || Date.parse(sample.entryAt) !== Date.parse(closeAt(sample.tradingDate))
-    || !(Date.parse(sample.reconstructedAt) < Date.parse(cutoff))
-    || ![sample.costModel.buyFeeRate, sample.costModel.sellFeeRate, sample.costModel.sellTaxRate, sample.costModel.slippageRate]
-      .every((rate) => Number.isFinite(rate) && rate >= 0)) return false;
-  return horizons.every((horizon) => {
-    const outcomes = sample.outcomes.filter((item) => item.horizon === horizon);
-    const item = outcomes[0];
-    return outcomes.length === 1 && item.tradingDate === addBusinessDaysFromKstDate(sample.tradingDate, horizon)
-      && Number.isFinite(item.exitPrice) && item.exitPrice > 0 && Number.isFinite(item.netReturnPct)
-      && Date.parse(item.availableAt) >= Date.parse(closeAt(item.tradingDate))
-      && Date.parse(item.availableAt) <= Date.parse(sample.reconstructedAt)
-      && Date.parse(item.availableAt) < Date.parse(cutoff);
-  });
-}
-
 function summarize(group: string, samples: HistoricalPaperSample[]): ResearchGroupResult {
   return { group, count: samples.length, entryDates: new Set(samples.map((item) => item.tradingDate)).size,
     horizons: horizons.map((horizon) => {
@@ -153,7 +134,7 @@ export function buildPaperResearch(
     notes: [
       '과거 종가→종가 재현 연구입니다. 실제 장중 체결·새 전략의 실시간 거래 성과와 구분합니다.',
       '현재 보관된 과거 차트로 계산한 회고 검증입니다. 당시 저장본 전체를 복원한 실시간 검증은 아닙니다.',
-      '기록이 남지 않은 뉴스는 미확인으로 분류해 추세 연구에 사용합니다. 뉴스가 확인되는 표본만 뉴스 전략 초기 학습에 연결합니다.',
+      '기록이 남지 않은 뉴스는 미확인으로 분류해 추세 연구에 사용합니다. 뉴스가 확인되는 표본은 별도의 뉴스·추세 그룹으로 비교합니다.',
       '동일 종목·진입일은 한 번만 계산합니다. 과거 선정 종목과 보관된 차트에 따른 표본 편중이 남습니다.',
       '비용은 재현 시점 설정을 적용한 가정이며, 당시의 실제 비용이나 체결 가능성을 증명하지 않습니다.',
       '후반 검증은 날짜순 70/30 분리이며, 검증 기간까지 결과가 이어지는 학습 표본은 제외합니다. 상관된 종목·기간의 반복 표본을 포함합니다.',

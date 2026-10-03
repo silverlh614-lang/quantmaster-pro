@@ -11,9 +11,6 @@ import {
   setKisSectorEnergyProviderOverridesForTests,
   type KisSectorEnergyIndexRow,
 } from './kisSectorEnergyProvider.js';
-import { scoreSectorEnergyAdr0462 } from './sectorEnergyScorer.js';
-import type { SectorCoverageReport } from './sectorCoverage.js';
-import type { SectorSymmetryValidationResult } from './sectorSymmetryValidator.js';
 import type { KisChartCandle } from '../screener/kisChartDataFetcher.js';
 
 function candles(start: number, end: number): KisChartCandle[] {
@@ -54,26 +51,6 @@ function officialRows(): KisSectorEnergyIndexRow[] {
     foreignInstitutionFlowAlignment: 60,
   }));
 }
-
-function coverageWith(indexValid: number): SectorCoverageReport {
-  const metric = { valid: 10, total: 10, ratio: 1 };
-  return {
-    sectorCoverage: metric,
-    indexCodeCoverage: { valid: indexValid, total: 10, ratio: indexValid / 10 },
-    aliasCoverage: metric,
-    providerCoverage: metric,
-  };
-}
-
-const okSymmetry: SectorSymmetryValidationResult = {
-  ok: true,
-  failedReasons: [],
-  duplicateAliases: [],
-  missingIndexCodes: [],
-  unresolvedAliases: [],
-  reverseLookupFailures: [],
-  aggregateIgnored: 0,
-};
 
 afterEach(() => {
   resetKisSectorEnergyProviderOverridesForTests();
@@ -312,29 +289,6 @@ describe('KIS SectorEnergy provider', () => {
     expect(result.providerIssue).toBe(true);
     expect(result.marketSignal).toBe(false);
     expect(result.liveExecutionAllowed).toBe(false);
-  });
-
-  it('keeps KIS basket usable while internal proxy remains diagnostic-only', () => {
-    const kisBasket = scoreSectorEnergyAdr0462({
-      sourceTier: 'KIS_STOCK_BASKET_DERIVED',
-      coverage: coverageWith(0),
-      symmetryValidation: okSymmetry,
-      rawLeadershipScore: 88,
-    });
-    expect(kisBasket.mode).toBe('LIMITED_SCORING');
-    expect(kisBasket.leadershipConfidence).toBe('READY_FOR_SHADOW');
-    expect(kisBasket.sectorBoost).toBe(0);
-    expect(kisBasket.strongBuyBlocked).toBe(true);
-
-    const internal = scoreSectorEnergyAdr0462({
-      sourceTier: 'INTERNAL_PROXY',
-      coverage: coverageWith(10),
-      symmetryValidation: okSymmetry,
-      rawLeadershipScore: 88,
-    });
-    expect(internal.mode).toBe('DIAGNOSTIC_ONLY');
-    expect(internal.leadershipConfidence).toBe('BLOCKED');
-    expect(internal.sectorBoost).toBe(0);
   });
 
   it('mounts KIS basket ahead of KRX/cache/Yahoo in the SectorEnergy provider chain', async () => {

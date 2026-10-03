@@ -65,10 +65,10 @@ describe('check_ssot_drift_registry guard', () => {
       'server/trading/krxHolidays.ts',
     );
     expect(ownerHit[0].symbol).toBe('isKrxHoliday');
-    // allowed projection 동명이인 (ssotPipeline UnifiedSourceSnapshot)
+    // The active snapshot type remains guarded after the old client projection was removed.
     const allowedHit = checkSrc(
       'export interface UnifiedSourceSnapshot { snapshotId: string; }',
-      'src/services/autoTrading/ssotPipeline.ts',
+      'server/trading/sourceSnapshot/unifiedSourceSnapshot.ts',
     );
     expect(allowedHit[0].symbol).toBe('UnifiedSourceSnapshot');
   });
@@ -82,14 +82,14 @@ describe('check_ssot_drift_registry guard', () => {
 
     const comments = [
       '// export function isKrxHoliday(d) {}',
-      ' * MarketSession 어휘 설명',
+      ' * UnifiedSourceSnapshot 어휘 설명',
       '/* export const collectUnifiedSnapshot */',
     ].join('\n');
     expect(checkSrc(comments)).toHaveLength(0);
 
     const imports = [
       "import { isKrxHoliday } from '../trading/krxHolidays.js';",
-      "import type { MarketSession } from '../ssotSnapshot.js';",
+      "import type { UnifiedSourceSnapshot } from '../trading/sourceSnapshot/unifiedSourceSnapshot.js';",
     ].join('\n');
     expect(checkSrc(imports)).toHaveLength(0);
 
@@ -106,7 +106,7 @@ describe('check_ssot_drift_registry guard', () => {
     expect(hits[0].symbol).toBe('getOpenPositions');
   });
 
-  it('(e) GUARDED_SYMBOLS matches registry §3.1 (8 symbols)', () => {
+  it('(e) GUARDED_SYMBOLS matches the current registry (7 symbols)', () => {
     expect([...GUARDED_SYMBOLS].sort()).toEqual(
       [
         'addBusinessDaysFromKstDate',
@@ -115,7 +115,6 @@ describe('check_ssot_drift_registry guard', () => {
         'getOpenPositions',
         'isKrxHoliday',
         'loadOpenPositions',
-        'MarketSession',
         'UnifiedSourceSnapshot',
       ].sort(),
     );
@@ -126,9 +125,7 @@ describe('check_ssot_drift_registry guard', () => {
     expect(LEGITIMATE_PAIRS.get('isKrxHoliday').allowed).toContain(
       'server/calendar/krxTradingCalendar.ts',
     );
-    expect(LEGITIMATE_PAIRS.get('UnifiedSourceSnapshot').allowed).toContain(
-      'src/services/autoTrading/ssotPipeline.ts',
-    );
+    expect(LEGITIMATE_PAIRS.get('UnifiedSourceSnapshot').allowed).toEqual([]);
     expect(LEGITIMATE_PAIRS.get('collectUnifiedSnapshot').owner).toBe(
       'server/trading/symbolDataCollector.ts',
     );

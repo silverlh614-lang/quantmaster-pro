@@ -3,13 +3,16 @@ import { describe, expect, it } from 'vitest';
 import { formatPaperTradeAnalysis } from './paperBotMessages.js';
 import { assessPaperNews, recordPaperNewsFacts } from '../trading/paper/paperNewsAssessment.js';
 import { evaluatePaperStrategyScan } from '../trading/paper/paperStrategyPolicy.js';
-import { emptyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from '../trading/paper/paperStrategyFixtures.js';
+import { emptyStrategyLedger, strategyTestCost } from '../trading/paper/paperStrategyFixtures.js';
+import { adaptiveTestSnapshot, matureAdaptiveSamples } from '../trading/paper/paperAdaptiveFixtures.js';
+import { selectPaperAdaptiveState } from '../trading/paper/paperAdaptiveSelection.js';
 
 function tradeFixture() {
-  const snapshot = strategyTestSnapshot();
+  const snapshot = adaptiveTestSnapshot();
   const item = { id: 'disclosure', headline: '<b>대규모 수주</b> & 계약', source: 'DART', observedAt: snapshot.asOf };
   snapshot.observations[0].news = [{ ...item, assessment: assessPaperNews(item, snapshot.asOf) }];
-  return evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples([1, 9, 10], true), snapshot, strategyTestCost).trades[0];
+  return evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost,
+    selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), snapshot.asOf)).trades[0];
 }
 
 describe('paper Telegram news evidence', () => {

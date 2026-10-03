@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { normalizeDataSignal } from '../data/dataConfidenceRouter.js';
-import { routeTelegramDisplayState } from '../telegram/displayState.js';
-import { recordCounterfactualForDecision, __resetCounterfactualAlwaysOnSamplesForTests } from '../trading/gates/counterfactualAlwaysOn.js';
 import { resolveSimpleTradeDecision, formatSimpleDecisionFinalLog } from '../trading/gates/simpleDecision.js';
-import { classifyDiagnosticIsolation } from './diagnosticIsolationPolicy.js';
 import {
   buildMarketSignal,
   classifyDataVacuumAsDataGap,
@@ -122,66 +119,16 @@ describe('Simplification Step 16 provider health / market signal isolation', () 
   });
 
   it('E. P3 diagnostic budget exceeded has no execution or market impact', () => {
-    const existingPolicy = classifyDiagnosticIsolation({
-      phase: 'P3_SCAN_DIAGNOSTIC',
-      budgetExceeded: true,
-      coreDataMissing: true,
-    });
     const isolated = isolateDiagnosticProviderIssue({
       priority: 'P3_SCAN_DIAGNOSTIC',
       reason: 'BUDGET_EXCEEDED',
     });
 
-    expect(existingPolicy.executionImpact).toBe('NONE');
-    expect(existingPolicy.dataVacuum).toBe(false);
     expect(isolated.executionImpact).toBe('NONE');
     expect(isolated.marketSignalImpact).toBe('NONE');
     expect(isolated.confidenceAdjustment).toBe(0);
     expect(formatDiagnosticProviderIssueIsolatedLog(isolated)).toContain('[DIAGNOSTIC_PROVIDER_ISSUE_ISOLATED]');
   });
 
-  it('F. provider issue cases are still recorded as counterfactual learning samples', () => {
-    __resetCounterfactualAlwaysOnSamplesForTests();
-    const provider = classifyProviderHealthSnapshot({
-      provider: 'KIS',
-      rawStatus: 'HTTP_500',
-      missingFields: ['supply'],
-    });
-    const decision = resolveSimpleTradeDecision({
-      snapshotId: 'scan_5',
-      symbol: '051910',
-      dataUsable: true,
-      executionScore: 66,
-      finalScore: 66,
-      providerIssuePresent: true,
-      missingFields: ['supply'],
-    });
-    const recorded = recordCounterfactualForDecision({
-      decision,
-      providerHealthSnapshot: provider,
-      missingFields: ['supply'],
-      excludedFeatures: ['supply'],
-    });
 
-    expect(recorded.recorded).toBe(true);
-    expect(recorded.sample.learningLabels).toContain('PROVIDER_ISSUE_OBSERVED');
-    expect(recorded.sample.providerIssuePresent).toBe(true);
-    expect(recorded.sample.executionImpact).toBe('NONE');
-  });
-
-  it('G. provider debug events are routed away from the user channel', () => {
-    const route = routeTelegramDisplayState({
-      audience: 'USER_SIGNAL',
-      severity: 'DEBUG',
-      eventType: 'PROVIDER_ISSUE_ISOLATED_FROM_MARKET_SIGNAL',
-      symbol: '005930',
-      summaryLines: ['provider=KIS issue=SERVER_ERROR marketSignalImpact=NONE'],
-    }, Date.parse('2026-05-21T00:00:00.000Z'));
-
-    expect(route.sentToUserChannel).toBe(false);
-    expect(route.sentToDebugChannel).toBe(true);
-    expect(route.storedInternal).toBe(true);
-    expect(route.executionDecisionImpact).toBe('NONE');
-    expect(route.learningImpact).toBe('NONE');
-  });
 });

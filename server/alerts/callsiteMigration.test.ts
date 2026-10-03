@@ -36,37 +36,17 @@ describe('PR-X3 sendPickChannelAlert 삭제', () => {
 });
 
 describe('PR-X3 9 callsite 마이그레이션 결과', () => {
-  const SIGNAL_FILES = [
-    'server/alerts/newHighMomentumScanner.ts',
-    'server/alerts/stockPickReporter.ts',
-  ];
   const REGIME_FILES = [
     'server/alerts/supplyChainAgent.ts',
-    'server/alerts/sectorCycleDashboard.ts',
     'server/alerts/foreignFlowLeadingAlert.ts',
   ];
   const JOURNAL_FILES = [
-    'server/alerts/weeklyConditionScorecard.ts',
-    'server/alerts/weeklyQuantInsight.ts',
-    'server/alerts/scanReviewReport.ts',
     'server/alerts/stopLossTransparencyReport.ts',
-    'server/alerts/weeklyDeepAnalysis.ts',
-  ];
-  const PRIVATE_DM_FILES = [
-    'server/alerts/positionMorningCard.ts',
   ];
 
   function stripComments(s: string): string {
     return s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
   }
-
-  it.each(SIGNAL_FILES)('%s 가 ChannelSemantic.SIGNAL 로 발송', (file) => {
-    const src = readSource(file);
-    const code = stripComments(src);
-    expect(src).toMatch(/dispatchAlert\s*\(\s*ChannelSemantic\.SIGNAL/);
-    expect(code).not.toMatch(/sendTelegramBroadcast/);
-    expect(code).not.toMatch(/sendPickChannelAlert\s*\(/);
-  });
 
   it.each(REGIME_FILES)('%s 가 ChannelSemantic.REGIME 로 발송', (file) => {
     const src = readSource(file);
@@ -81,32 +61,6 @@ describe('PR-X3 9 callsite 마이그레이션 결과', () => {
     expect(src).toMatch(/dispatchAlert\s*\(\s*ChannelSemantic\.JOURNAL/);
     expect(code).not.toMatch(/sendTelegramBroadcast/);
     expect(code).not.toMatch(/sendPickChannelAlert\s*\(/);
-  });
-
-  it.each(PRIVATE_DM_FILES)('%s 가 sendPrivateAlert 로 발송 (개인 자산 정보)', (file) => {
-    const src = readSource(file);
-    const code = stripComments(src);
-    expect(src).toMatch(/sendPrivateAlert/);
-    expect(code).not.toMatch(/sendTelegramBroadcast/);
-  });
-});
-
-describe('PR-X3 stockPickReporter 이중 발송 제거', () => {
-  const src = readSource('server/alerts/stockPickReporter.ts');
-
-  it('sendPickChannelAlert 호출 제거됨 (주석 제외)', () => {
-    // 주석 제거 후 실제 호출 컴퓨터 조각
-    const stripped = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-    expect(stripped).not.toMatch(/sendPickChannelAlert\s*\(/);
-  });
-
-  it('AlertCategory.ANALYSIS 호출이 ChannelSemantic.SIGNAL 로 대체', () => {
-    expect(src).not.toMatch(/dispatchAlert\s*\(\s*AlertCategory\.ANALYSIS/);
-    expect(src).toMatch(/ChannelSemantic\.SIGNAL/);
-  });
-
-  it('AlertCategory import 제거됨 (ChannelSemantic 만 사용)', () => {
-    expect(src).not.toMatch(/import\s+\{[^}]*\bAlertCategory\b[^}]*\}\s+from\s+['"]\.\/alertCategories\.js['"]/);
   });
 });
 

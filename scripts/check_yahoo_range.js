@@ -13,7 +13,6 @@
  * 화이트리스트 (정책 정의/문서/UI/테스트는 검출 제외):
  *   - server/utils/yahooRangePolicy.ts (정책 SSOT 자기 자신)
  *   - server/utils/yahooRangePolicy.test.ts (정책 회귀 테스트)
- *   - src/components/analysis/CandleChart.tsx (사용자 UI 옵션 — 서버 cap 적용됨)
  *   - scripts/check_yahoo_range.js (시그니처 정의)
  *   - docs/adr/ (정책 문서 자기 인용)
  *   - *.test.ts / *.test.tsx (회귀 시나리오)
@@ -37,7 +36,6 @@ const IGNORED_SUFFIX = ['.d.ts', '.test.ts', '.test.tsx', '.spec.ts', '.spec.tsx
 const ALLOWED_FILES = [
   'server/utils/yahooRangePolicy.ts',
   'server/utils/yahooRangePolicy.test.ts',
-  'src/components/analysis/CandleChart.tsx',
   'scripts/check_yahoo_range.js',
 ];
 

@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { PaperExperimentView, PaperOutcome } from '../../src/types/paperExperiment.js';
 import { createPaperExperiment } from '../trading/paper/paperExperimentPolicy.js';
 import { buildPaperStrategyView, evaluatePaperStrategyScan } from '../trading/paper/paperStrategyPolicy.js';
-import { emptyStrategyLedger, matureStrategySamples, strategyTestCost, strategyTestSnapshot } from '../trading/paper/paperStrategyFixtures.js';
+import { emptyStrategyLedger, strategyTestCost, strategyTestSnapshot } from '../trading/paper/paperStrategyFixtures.js';
+import { adaptiveTestSnapshot, matureAdaptiveSamples } from '../trading/paper/paperAdaptiveFixtures.js';
+import { selectPaperAdaptiveState } from '../trading/paper/paperAdaptiveSelection.js';
 import { recordPaperNewsFacts, assessPaperNews } from '../trading/paper/paperNewsAssessment.js';
 import { summarizePaperNews } from '../../src/utils/paperNews.js';
 import { formatPaperCloseReport } from './paperCloseReport.js';
@@ -104,14 +106,17 @@ describe('Shadow closing summary', () => {
     expect(report(view)).not.toContain('지표 자동 연결');
   });
   it('separates scheduled exit dates from the later day their prices became available', () => {
-    const initial = strategyTestSnapshot();
-    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples([0, 0, 0]), initial, strategyTestCost);
+    const initial = adaptiveTestSnapshot();
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), initial, strategyTestCost,
+      selectPaperAdaptiveState(undefined, matureAdaptiveSamples({ selectedReturns: [0, 0, 0] }), initial.asOf));
     // Positive entry evidence is required; the subsequent closing price can still produce zero.
-    const entered = evaluatePaperStrategyScan(emptyStrategyLedger(), matureStrategySamples([10, 1, 1]), initial, strategyTestCost);
+    const entered = evaluatePaperStrategyScan(emptyStrategyLedger(), initial, strategyTestCost,
+      selectPaperAdaptiveState(undefined, matureAdaptiveSamples({ selectedReturns: [10, 1, 1] }), initial.asOf));
     expect(ledger.trades).toHaveLength(0);
     const closed = structuredClone(initial); closed.asOf = now.toISOString(); closed.tradingDate = date; closed.marketOpen = false;
     closed.observations[0].dailyCloses = [{ tradingDate: date, close: 10000, availableAt: now.toISOString() }];
-    const result = evaluatePaperStrategyScan(entered, [], closed, strategyTestCost);
+    const result = evaluatePaperStrategyScan(entered, closed, strategyTestCost,
+      selectPaperAdaptiveState(entered.adaptive, [], closed.asOf));
     const view = viewFixture(); view.strategy = buildPaperStrategyView(result);
     expect(report(view)).toContain('오늘 진입 0건 · 오늘 평가일 청산 1건 · 보유 0건');
     expect(report(view)).toContain('오늘 청산 평균 0.00% · 누적 1건 0.00%');
@@ -125,7 +130,9 @@ describe('Shadow closing summary', () => {
     view.lastRun!.investorFlow = { asOf: now.toISOString(), tradingDate: '2026-09-18', candidateCount: 607, availableCount: 583,
       flowCorrelation: { count: 583, symbolCount: 583, entryDateCount: 1, pearson: null, spearman: null, status: 'NO_VARIATION' },
       groups: [{ group: 'BOTH_BUY', count: 138 }, { group: 'BOTH_SELL', count: 94 }, { group: 'DIVERGENT', count: 281 }, { group: 'OTHER', count: 70 }] };
-    const decisions = evaluatePaperStrategyScan(emptyStrategyLedger(), [], strategyTestSnapshot(), strategyTestCost).latestDecisions;
+    const snapshot = adaptiveTestSnapshot();
+    const decisions = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost,
+      selectPaperAdaptiveState(undefined, [], snapshot.asOf)).latestDecisions;
     const d = decisions[0]; d.decisionAt = now.toISOString(); d.name = '<기업&>';
     d.newsSummary = summarizePaperNews([1, 2].map(n => {
       const item = { id: `dart:2026092100000${n}`, headline: '<b>대규모 수주</b>' + '&'.repeat(100), source: 'DART', observedAt: d.decisionAt };

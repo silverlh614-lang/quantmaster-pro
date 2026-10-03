@@ -1,8 +1,8 @@
 // @responsibility Verify historical reconstruction, temporal separation and honest evidence reuse.
 import { describe, expect, it } from 'vitest';
 import type { ResearchArchive } from '../../../src/types/paperResearch.js';
-import { buildPaperResearch, historicalSampleUsable } from './paperResearch.js';
-import { buildPaperStrategyEvidence, PAPER_STRATEGY_POLICY } from './paperStrategyEvidence.js';
+import { buildPaperResearch } from './paperResearch.js';
+import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
 import { strategyTestCost, strategyTestSnapshot, emptyStrategyLedger } from './paperStrategyFixtures.js';
@@ -42,8 +42,7 @@ describe('archived paper research', () => {
     expect(result.view.sampleCount).toBeGreaterThan(0);
     expect(result.view.learningSampleCount).toBe(0);
     expect(result.view.groups[0].group).toBe('NEWS_UNKNOWN_ABOVE_MA20');
-    const evidence = buildPaperStrategyEvidence([], 'NEWS_ABSENT_ABOVE_MA20', '2026-09-13T00:00:00Z', PAPER_STRATEGY_POLICY, result.samples);
-    expect(evidence.sampleCount).toBe(0);
+    expect(result.samples.every(sample => sample.cohort === null)).toBe(true);
   });
 
   it('counts symbol/date only once and prefers complete KIS series over archived charts', () => {
@@ -76,18 +75,15 @@ describe('archived paper research', () => {
     expect(validation.trainingCount + validation.testCount).toBeLessThan(result.samples.length);
   });
 
-  it('connects historical evidence to new strategy trades without copying research returns into trade P&L', () => {
+  it('keeps archived research separate from autonomous entries without baseline observations', () => {
     const { samples } = buildPaperResearch(researchFixture(), asOf, strategyTestCost);
-    expect(historicalSampleUsable(samples[0], asOf)).toBe(false);
+    expect(samples.length).toBeGreaterThan(20);
     const snapshot = strategyTestSnapshot();
     snapshot.observations[0].news = [{ id: 'current-news', headline: '공시', source: 'DART', observedAt: snapshot.asOf }];
-    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), [], snapshot, strategyTestCost, samples);
-    expect(ledger.trades).toHaveLength(1);
-    expect(ledger.trades[0].entryDecision.evidence?.historicalSampleCount).toBe(samples.length);
-    expect(ledger.trades[0].exit).toBeNull();
+    const state = selectPaperAdaptiveState(undefined, [], snapshot.asOf);
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, state);
+    expect(ledger.trades).toHaveLength(0);
+    expect(ledger.latestDecisions[0].reasonCode).toBe('ADAPTIVE_NO_ACTIVE_RULE');
     expect(() => assertPaperStrategyLedger(ledger)).not.toThrow();
-    const damaged = structuredClone(ledger);
-    damaged.trades[0].entryDecision.evidence!.historicalSampleCount = 0;
-    expect(() => assertPaperStrategyLedger(damaged)).toThrow();
   });
 });

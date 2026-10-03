@@ -8,7 +8,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../state.js', () => ({ getEmergencyStop: mocks.emergency, getTradingMode: mocks.mode }));
 vi.mock('../../../trading/scanDispatcher.js', () => ({ runAutoSignalScan: mocks.scan }));
 vi.mock('../../../trading/regime/canonicalRegimeAccess.js', () => ({ resolveCanonicalRegimeLevel: mocks.regime }));
-vi.mock('../../../screener/guardedDiscoveryPipeline.js', () => ({ runGuardedFullDiscoveryPipeline: mocks.legacyDiscovery }));
 vi.mock('../../metaCommands.js', () => ({ composeNowVerdict: () => '현재 관측·매매 현황' }));
 vi.mock('../../commandRegistry.js', () => ({ commandRegistry: { register: vi.fn() } }));
 import forceWatchScan, { __resetForceWatchScanRateLimitForTests } from './forceWatchScan.cmd.js';

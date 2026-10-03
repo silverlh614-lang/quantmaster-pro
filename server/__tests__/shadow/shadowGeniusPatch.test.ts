@@ -2,11 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { InMemoryShadowCaseLedger } from '../../shadow/shadowCaseLedger.js';
 import type { ShadowCase } from '../../shadow/shadowTypes.js';
 import { transitionShadowState } from '../../shadow/shadowStateMachine.js';
-import { recordBlockedBuy, resolveBlockedOutcome } from '../../shadow/blockedOutcomeResolver.js';
 import { inspectShadowIntegrity } from '../../shadow/shadowIntegrityGuard.js';
 import { buildPromotionReport } from '../../shadow/shadowPromotionGate.js';
 import { ShadowReturnFlow } from '../../shadow/shadowReturnFlow.js';
-import { createDailyShadowReflection } from '../../shadow/dailyShadowReflection.js';
 import { formatShadowStatus } from '../../shadow/shadowCommands.js';
 
 function mkCase(patch: Partial<ShadowCase>): ShadowCase {
@@ -49,25 +47,6 @@ describe('Shadow Learning Genius Patch v1', () => {
     ledger.upsertCase(mkCase({ caseId: 'hard', engineMode: 'OBSERVE_ONLY', liveOrderCreated: true }));
     const issues = inspectShadowIntegrity(ledger);
     expect(issues.find((i) => i.item === 'live_order_created_in_shadow_mode')?.severity).toBe('CRITICAL');
-  });
-
-  it('blocked buy가 counterfactual case로 저장된다', () => {
-    const ledger = new InMemoryShadowCaseLedger();
-    const c = recordBlockedBuy(ledger, { caseId: 'b1', signalId: 's1', symbol: '000660', symbolName: 'SK하이닉스', engineMode: 'OBSERVE_ONLY', blockedReason: 'risk', entryPriceVirtual: 100, stopPriceVirtual: 90, targetPriceVirtual: 120 });
-    expect(c.counterfactualRecorded).toBe(true);
-    expect(c.executionImpact).toBe('NONE');
-  });
-
-  it('목표가 도달 blocked case가 MISSED_WIN 또는 BAD_BLOCK으로 라벨링된다', () => {
-    const ledger = new InMemoryShadowCaseLedger();
-    recordBlockedBuy(ledger, { caseId: 'b2', signalId: 's2', symbol: '1', symbolName: 'A', engineMode: 'SELL_ONLY', blockedReason: 'sell_only', entryPriceVirtual: 100, stopPriceVirtual: 90, targetPriceVirtual: 110 });
-    expect(['MISSED_WIN', 'BAD_BLOCK']).toContain(resolveBlockedOutcome(ledger, 'b2', [{ day: 1, high: 111, low: 99, close: 110 }]));
-  });
-
-  it('손절가 도달 blocked case가 AVOIDED_LOSS 또는 GOOD_BLOCK으로 라벨링된다', () => {
-    const ledger = new InMemoryShadowCaseLedger();
-    recordBlockedBuy(ledger, { caseId: 'b3', signalId: 's3', symbol: '2', symbolName: 'B', engineMode: 'OBSERVE_ONLY', blockedReason: 'hard', entryPriceVirtual: 100, stopPriceVirtual: 90, targetPriceVirtual: 120 });
-    expect(['AVOIDED_LOSS', 'GOOD_BLOCK']).toContain(resolveBlockedOutcome(ledger, 'b3', [{ day: 1, high: 101, low: 89, close: 91 }]));
   });
 
   it('closed position에 outcomeLabel이 없으면 integrity warning이 발생한다', () => {
@@ -118,13 +97,5 @@ describe('Shadow Learning Genius Patch v1', () => {
     ledger.upsertCase(mkCase({ caseId: 'bad-data', signalId: 'bad-data', outcomeLabel: 'DATA_CORRUPTED', finalReturnPct: -99, state: 'SHADOW_PAPER_FILLED' }));
     ledger.upsertCase(mkCase({ caseId: 'q', signalId: 'q', outcomeLabel: 'QUARANTINED', finalReturnPct: -99, state: 'SHADOW_PAPER_FILLED' }));
     expect(buildPromotionReport(ledger, 1).sampleSize).toBe(1);
-  });
-
-  it('Daily reflection이 파라미터를 자동 변경하지 않고 recommendation만 생성한다', () => {
-    const ledger = new InMemoryShadowCaseLedger();
-    ledger.upsertCase(mkCase({ caseId: 'w', outcomeLabel: 'WIN', finalReturnPct: 3 }));
-    const report = createDailyShadowReflection({ ledger, promotion: buildPromotionReport(ledger, 1), returnFlow: { hits: 1, misses: 0, hitRate: 1 } });
-    expect(report.parameterChangesApplied).toBe(false);
-    expect(report.recommendation).toContain('자동 파라미터 변경은 금지');
   });
 });

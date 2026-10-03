@@ -12,9 +12,6 @@
  *   4. 약속 표현: 반드시 / 무조건 / 승률 100%
  *
  * 화이트리스트 (정책 정의/문서/테스트는 검출 제외):
- *   - src/config/uiLanguage.ts (정책 SSOT 자기 자신)
- *   - src/config/uiLanguage.test.ts (회귀 테스트)
- *   - src/__tests__/uiLanguagePhaseA-DoD.test.ts (DoD 회귀)
  *   - scripts/check_ui_language.js (시그니처 정의)
  *   - scripts/check_ui_language.test.js (자체 회귀)
  *   - docs/adr/ (정책 문서 자기 인용)
@@ -44,9 +41,6 @@ const IGNORED_SUFFIX = ['.d.ts'];
 
 // 정책 정의/UI/문서 — 본 시그니처가 "정상적으로 등장" 가능한 파일
 const ALLOWED_FILES = [
-  'src/config/uiLanguage.ts',
-  'src/config/uiLanguage.test.ts',
-  'src/__tests__/uiLanguagePhaseA-DoD.test.ts',
   'scripts/check_ui_language.js',
   'scripts/check_ui_language.test.js',
 ];
@@ -66,23 +60,12 @@ const ALLOWED_FILES = [
  *
  * 마이그레이션 우선순위 (ADR-0094 후속 PR):
  *   1. src/services/stock/momentumRecommendations.ts (5건 — 가장 큰 부채)
- *   2. src/services/quant/bearSimulatorEngine.ts (1건)
- *   3. src/services/quant/bearScreenerEngine.ts
- *   4. src/components/* (UI 직접 노출 — 사용자 인지 우선)
- *   5. 나머지 helper / constants
+ *   2. src/components/* (UI 직접 노출 — 사용자 인지 우선)
+ *   3. 나머지 helper / constants
  */
 const BASELINE_TECHNICAL_DEBT = [
   'src/components/common/KeyboardShortcutsModal.tsx',
-  'src/components/common/RecommendationWarningsBanner.tsx',
-  'src/components/macro/constants.ts',
-  'src/components/trading/TradeJournal.tsx',
   'src/config/navigation.ts',
-  'src/constants/checklist.ts',
-  'src/hooks/useStockSearch.ts',
-  'src/pages/PortfolioExtractPage.tsx',
-  'src/services/autoTrading.slippageEngine.test.ts',
-  'src/services/quant/bearScreenerEngine.ts',
-  'src/services/quant/bearSimulatorEngine.ts',
   'src/services/stock/momentumRecommendations.ts',
   'src/services/stock/quantScreener.ts',
   'src/services/stock/stockSearch.ts',
