@@ -42,6 +42,7 @@ describe('compact dashboard projection', () => {
     expect(result.strategy?.performance.meanNetReturnPct).toBeNull();
     expect(result.strategy?.decisionCounts).toEqual({ BUY: 0, WAIT: 2, HOLD: 0, EXIT: 0 });
     expect(result.strategy?.waitingReasons).toEqual([{ code: 'INSUFFICIENT_MATURE_SAMPLES', label: '완료 표본 누적 중', count: 2 }]);
+    expect(result.strategy?.holdingReasons).toEqual([]);
     expect(result).not.toHaveProperty('experiments');
     expect(result.strategy).not.toHaveProperty('latestDecisions');
     expect(result.strategy).not.toHaveProperty('trades');
@@ -87,5 +88,27 @@ describe('compact dashboard projection', () => {
     expect(result.strategy!.performance.meanNetReturnPct).toBe(8);
     delete view.strategy;
     expect(buildPaperOverview(view)).not.toHaveProperty('strategy');
+  });
+
+  it('counts entry waits separately from holding reasons using this scan while preserving cumulative closes', () => {
+    const view = autonomousView(), strategy = view.strategy!;
+    const decision = strategy.latestDecisions[0];
+    strategy.latestDecisions = [
+      ...[0, 1].map(index => ({ ...decision, symbol: `wait-${index}`, action: 'WAIT' as const, reasonCode: 'ADAPTIVE_NO_ACTIVE_RULE' as const })),
+      ...[0, 1, 2].map(index => ({ ...decision, symbol: `hold-${index}`, action: 'HOLD' as const, reasonCode: 'HORIZON_PENDING' as const })),
+      { ...decision, symbol: 'close-pending', action: 'HOLD', reasonCode: 'SCHEDULED_CLOSE_UNAVAILABLE' },
+    ];
+    const before = structuredClone(view), result = buildPaperOverview(view);
+    expect(result.strategy!.decisionCounts).toEqual({ BUY: 0, WAIT: 2, HOLD: 4, EXIT: 0 });
+    expect(result.strategy!.waitingReasons).toEqual([{ code: 'ADAPTIVE_NO_ACTIVE_RULE', label: '사용할 지표의 성과 확인 중', count: 2 }]);
+    expect(result.strategy!.holdingReasons).toEqual([
+      { code: 'HORIZON_PENDING', label: '예약 청산 시각 전', count: 3 },
+      { code: 'SCHEDULED_CLOSE_UNAVAILABLE', label: '예정 시각 도래 · 확정 종가 대기', count: 1 },
+    ]);
+    expect(result.strategy!.performance.closedCount).toBe(9);
+    expect(result.strategy!.performanceByVersion!['adaptive-features-v1']!.closedCount).toBe(2);
+    expect(result.strategy).not.toHaveProperty('latestDecisions');
+    expect(result.strategy).not.toHaveProperty('trades');
+    expect(view).toEqual(before);
   });
 });

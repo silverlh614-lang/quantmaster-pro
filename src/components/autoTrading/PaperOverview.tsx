@@ -68,7 +68,7 @@ export function PaperOverview({ view, mode, paused, refreshFailed = false }: {
           <button type="button" className="qdash-link" onClick={() => setView('PAPER_OBSERVATIONS')}>관측 기록 <ArrowUpRight size={15} /></button></header>
         <div className="qdash-performance"><div><span>자율 전략 · 가상 청산 평균</span>
           <strong className={performance?.meanNetReturnPct == null ? 'is-pending' : performance.meanNetReturnPct < 0 ? 'is-negative' : ''}>{strategyUnavailable ? '확인 불가' : percent(performance?.meanNetReturnPct)}</strong></div>
-          <dl><div><dt>청산 완료</dt><dd>{strategyUnavailable ? '확인 불가' : count(performance?.closedCount)}{performance && '건'}</dd></div>
+          <dl><div><dt>자율 전략 누적 청산</dt><dd>{strategyUnavailable ? '확인 불가' : count(performance?.closedCount)}{performance && '건'}</dd></div>
             <div><dt>승률</dt><dd>{strategyUnavailable ? '확인 불가' : performance?.winRatePct == null ? '집계 대기' : `${performance.winRatePct.toFixed(1)}%`}</dd></div></dl></div>
         <div className="qdash-chart-heading"><h3>기본 관측의 보유기간별 성과</h3><span>비용 반영 순수익률</span></div>
         <div className="qdash-outcomes" aria-label="기본 관측 D1·D3·D5 평균 순수익률">
@@ -85,16 +85,23 @@ export function PaperOverview({ view, mode, paused, refreshFailed = false }: {
         <p className="qdash-note">기본 관측과 자율 전략은 서로 다른 표본입니다. 각 실험의 확정 성과이며 계좌 수익률은 아닙니다.</p>
       </section>
       <section className="qdash-panel" aria-label="최근 전략 판단">
-        <header className="qdash-panel-heading"><div><span className="qdash-kicker">최근 전략 판단</span><h2>지금의 선택과 대기 사유</h2></div><ScanLine size={20} aria-hidden="true" /></header>
+        <header className="qdash-panel-heading"><div><span className="qdash-kicker">이번 스캔의 판단</span><h2>지금의 선택과 대기 사유</h2></div><ScanLine size={20} aria-hidden="true" /></header>
         {strategyUnavailable ? <div role="alert" className="qdash-empty">전략 기록 확인 불가 · 기본 관측은 별도로 표시됩니다.</div> : <>
-          <div className="qdash-decisions">{([['BUY', '매수'], ['WAIT', '대기'], ['HOLD', '보유'], ['EXIT', '청산']] as const).map(([key, label]) =>
+          <p className="qdash-note">스캔 시각 {paperTime(strategy?.lastRun?.asOf)} · 표시된 스캔 1회의 판단</p>
+          <div className="qdash-decisions">{([['BUY', '신규 진입'], ['WAIT', '진입 대기'], ['HOLD', '보유 유지'], ['EXIT', '이번 청산']] as const).map(([key, label]) =>
             <div key={key} className={`qdash-decision is-${key.toLowerCase()}`}><span>{label}</span><strong className={strategy ? '' : 'is-pending'}>{count(strategy?.decisionCounts[key])}</strong></div>)}</div>
           {decisionTotal > 0 && <div className="qdash-decision-strip" aria-hidden="true">{(['BUY', 'WAIT', 'HOLD', 'EXIT'] as const).map(key =>
             <span className={`is-${key.toLowerCase()}`} key={key} style={{ width: `${strategy!.decisionCounts[key] / decisionTotal * 100}%` }} />)}</div>}
-          <div className="qdash-waiting">{strategy?.waitingReasons.length ? strategy.waitingReasons.slice(0, 3).map(item =>
+          <div className="qdash-chart-heading"><h3>보유 유지 사유</h3></div>
+          <div className="qdash-waiting" role="group" aria-label="보유 유지 사유">{strategy?.holdingReasons?.length ? strategy.holdingReasons.slice(0, 3).map(item =>
+            <div key={item.code}><span><i aria-hidden="true" />{item.label}</span><strong>{count(item.count)}<small>건</small></strong></div>)
+            : <p>{strategy?.decisionCounts.HOLD === 0 ? '이번 스캔에 보유 유지 판단이 없습니다.' : '보유 사유 집계 확인 대기'}</p>}</div>
+          <div className="qdash-chart-heading"><h3>진입 대기 사유</h3></div>
+          <div className="qdash-waiting" role="group" aria-label="진입 대기 사유">{strategy?.waitingReasons.length ? strategy.waitingReasons.slice(0, 3).map(item =>
             <div key={item.code}><span><i aria-hidden="true" />{item.label}</span><strong>{count(item.count)}<small>종목</small></strong></div>)
-            : <p>{strategy?.lastRun ? '최근 판단에 대기 중인 종목이 없습니다.' : '첫 전략 판단이 기록되면 사유가 표시됩니다.'}</p>}</div>
-          <div className="qdash-trade-meta"><span>전체 Shadow 보유 <strong>{strategy ? `${count(strategy.openCount)}건` : '확인 대기'}</strong></span><span>판단 시각 {paperTime(strategy?.lastRun?.asOf)}</span></div>
+            : <p>{strategy?.decisionCounts.WAIT === 0 ? '이번 스캔에 진입 대기 판단이 없습니다.' : '진입 대기 사유 집계 확인 대기'}</p>}</div>
+          <div className="qdash-trade-meta"><span>전체 Shadow 보유 <strong>{strategy ? `${count(strategy.openCount)}건` : '확인 대기'}</strong></span>
+            <span>전체 누적 청산 (구전략 포함) <strong>{strategy?.performance?.closedCount === undefined ? '확인 대기' : `${count(strategy.performance.closedCount)}건`}</strong></span></div>
         </>}
         <button type="button" className="qdash-link qdash-bottom-link" onClick={() => setView('PAPER_STRATEGY')}>종목별 판단과 진입 근거 <ArrowRight size={15} /></button>
       </section>

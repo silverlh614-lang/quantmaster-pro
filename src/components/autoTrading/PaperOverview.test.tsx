@@ -43,7 +43,8 @@ function currentView(): PaperOverviewView {
       adaptive: researchState(), performance: { closedCount: 27, meanNetReturnPct: 91, winRatePct: 90, totalNetPnl: 99999 },
       performanceByVersion: { 'adaptive-features-v1': { closedCount: 4, meanNetReturnPct: 2.75, winRatePct: 50, totalNetPnl: 1100 } },
       lastRun: { snapshotId: 's', asOf: now, openedCount: 7, closedCount: 0, waitingCount: 2, holdingCount: 1 },
-      decisionCounts: { BUY: 7, WAIT: 2, HOLD: 1, EXIT: 0 }, waitingReasons: [{ code: 'ADAPTIVE_RULE_NOT_MATCHED', label: '연결 지표의 진입 구간 밖', count: 2 }] } };
+      decisionCounts: { BUY: 7, WAIT: 2, HOLD: 1, EXIT: 0 }, waitingReasons: [{ code: 'ADAPTIVE_RULE_NOT_MATCHED', label: '연결 지표의 진입 구간 밖', count: 2 }],
+      holdingReasons: [{ code: 'HORIZON_PENDING', label: '예약 청산 시각 전', count: 1 }] } };
 }
 const returnMetric = () => within(screen.getByText('자율 전략 평균 순수익').closest('div')!);
 
@@ -53,6 +54,10 @@ describe('PaperOverview', () => {
     expect(screen.getByText('운영 상태 확인 중')).toBeTruthy();
     expect(screen.getByText('0.00%')).toBeTruthy();
     expect(screen.getAllByText('집계 대기').length).toBeGreaterThan(1);
+    const decisions = within(screen.getByRole('region', { name: '최근 전략 판단' }));
+    expect(decisions.getByText('전체 누적 청산 (구전략 포함)').textContent).toContain('확인 대기');
+    expect(decisions.getByText('보유 사유 집계 확인 대기')).toBeTruthy();
+    expect(decisions.queryByText('0')).toBeNull();
   });
   it('shows paused operation even when the last recorded scan was during market hours', () => {
     render(<PaperOverview view={{ ...view, lastRun: { snapshotId: 's', asOf: new Date().toISOString(), candidateCount: 185, observedCount: 180, openedCount: 0, completedCount: 0, missingPriceCount: 5, marketOpen: true, issues: [] } }} mode="SHADOW" paused />);
@@ -119,6 +124,57 @@ describe('PaperOverview', () => {
     expect(results.getAllByText('표본 확인 대기')).toHaveLength(2);
   });
 
+  it('separates this scan zero exits from cumulative closes and explains all held trades', () => {
+    const data = currentView(), strategy = data.strategy!;
+    strategy.totalCount = 1420;
+    strategy.openCount = 785;
+    strategy.performance.closedCount = 635;
+    strategy.performanceByVersion!['adaptive-features-v1']!.closedCount = 12;
+    strategy.lastRun = { snapshotId: 'hold-scan', asOf: '2026-10-02T07:00:00Z', openedCount: 0, closedCount: 0, waitingCount: 0, holdingCount: 785 };
+    strategy.decisionCounts = { BUY: 0, WAIT: 0, HOLD: 785, EXIT: 0 };
+    strategy.waitingReasons = [];
+    strategy.holdingReasons = [{ code: 'HORIZON_PENDING', label: '예약 청산 시각 전', count: 785 }];
+    render(<PaperOverview view={data} mode="SHADOW" paused={false} />);
+    const decisions = within(screen.getByRole('region', { name: '최근 전략 판단' }));
+    expect(decisions.getByText('이번 스캔의 판단')).toBeTruthy();
+    expect(decisions.getByText(/스캔 시각/).textContent).toContain('16:00');
+    expect(decisions.getByText('보유 유지').parentElement!.textContent).toBe('보유 유지785');
+    expect(decisions.getByText('이번 청산').parentElement!.textContent).toBe('이번 청산0');
+    expect(decisions.getByText('전체 Shadow 보유').textContent).toBe('전체 Shadow 보유 785건');
+    expect(decisions.getByText('전체 누적 청산 (구전략 포함)').textContent).toBe('전체 누적 청산 (구전략 포함) 635건');
+    const holdings = within(decisions.getByRole('group', { name: '보유 유지 사유' }));
+    expect(holdings.getByText('예약 청산 시각 전').parentElement!.textContent).toBe('예약 청산 시각 전785건');
+    expect(decisions.getByText('이번 스캔에 진입 대기 판단이 없습니다.')).toBeTruthy();
+    expect(screen.getByText('자율 전략 누적 청산').parentElement!.textContent).toBe('자율 전략 누적 청산12건');
+  });
+
+  it('keeps pending close prices distinct from entry waits', () => {
+    const data = currentView();
+    data.strategy!.decisionCounts.HOLD = 4;
+    data.strategy!.holdingReasons = [{ code: 'HORIZON_PENDING', label: '예약 청산 시각 전', count: 3 },
+      { code: 'SCHEDULED_CLOSE_UNAVAILABLE', label: '예정 시각 도래 · 확정 종가 대기', count: 1 }];
+    render(<PaperOverview view={data} mode="SHADOW" paused={false} />);
+    const holdings = within(screen.getByRole('group', { name: '보유 유지 사유' }));
+    expect(holdings.getByText('예약 청산 시각 전').parentElement!.textContent).toBe('예약 청산 시각 전3건');
+    expect(holdings.getByText('예정 시각 도래 · 확정 종가 대기').parentElement!.textContent).toBe('예정 시각 도래 · 확정 종가 대기1건');
+    expect(holdings.queryByText('연결 지표의 진입 구간 밖')).toBeNull();
+    const waits = within(screen.getByRole('group', { name: '진입 대기 사유' }));
+    expect(waits.getByText('연결 지표의 진입 구간 밖').parentElement!.textContent).toBe('연결 지표의 진입 구간 밖2종목');
+    expect(waits.queryByText('예약 청산 시각 전')).toBeNull();
+  });
+
+  it.each(['missing', 'empty'] as const)('keeps holding reasons unknown when a positive hold count has %s detail', detail => {
+    const data = currentView();
+    if (detail === 'missing') delete data.strategy!.holdingReasons;
+    else data.strategy!.holdingReasons = [];
+    data.strategy!.waitingReasons = [];
+    render(<PaperOverview view={data} mode="SHADOW" paused={false} />);
+    expect(screen.getByText('보유 사유 집계 확인 대기')).toBeTruthy();
+    expect(screen.getByText('진입 대기 사유 집계 확인 대기')).toBeTruthy();
+    expect(screen.queryByText('이번 스캔에 보유 유지 판단이 없습니다.')).toBeNull();
+    expect(screen.queryByText('이번 스캔에 진입 대기 판단이 없습니다.')).toBeNull();
+  });
+
   it.each(['view', 'lastRun', 'refresh'] as const)('does not present cached choices or realized performance as current after a %s failure', source => {
     const data = currentView();
     data.collection = { startedAt: data.lastRun!.asOf, lastProgressAt: data.lastRun!.asOf, completed: 4, total: 20 };
@@ -134,6 +190,8 @@ describe('PaperOverview', () => {
     const decisions = within(screen.getByRole('region', { name: '최근 전략 판단' }));
     expect(decisions.getByRole('alert')).toBeTruthy();
     expect(decisions.queryByText('7')).toBeNull();
+    expect(decisions.queryByText('전체 누적 청산 (구전략 포함)')).toBeNull();
+    expect(decisions.queryByText('예약 청산 시각 전')).toBeNull();
     if (source === 'refresh') {
       expect(screen.getByText('최근 자료 조회 실패')).toBeTruthy();
       expect(screen.queryByText('관측 자료 수집 중')).toBeNull();
