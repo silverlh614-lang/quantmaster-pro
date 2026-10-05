@@ -2,6 +2,7 @@
 import React from 'react';
 import { paperAdaptiveRuleLabel, type PaperAdaptiveCandidate } from '../../types/paperAdaptive';
 import { paperIndicatorFormulaLabel } from '../../types/paperIndicatorFormula';
+import { PaperFormulaExplanation } from './PaperFormulaExplanation';
 
 const pct = (value: number | null, unit = '%') => value === null ? '미집계' : `${value > 0 ? '+' : ''}${value.toFixed(2)}${unit}`;
 export function PaperRuleDetails({ candidate, exploration, observedValue }: {
@@ -11,6 +12,7 @@ export function PaperRuleDetails({ candidate, exploration, observedValue }: {
   return <section className="paper-detail-section">
     <h3>어떤 조건을 적용했나요?</h3>
     <p className="paper-detail-emphasis">{paperAdaptiveRuleLabel(rule)}</p>
+    {rule.invention && <PaperFormulaExplanation rule={rule} />}
     <p>{exploration ? '탐색용 규칙입니다. 성과 검증을 마치기 전에 가상 매매로 새 결과를 측정합니다.'
       : '학습 구간에서 선택한 뒤 별도의 후반 구간 검증을 통과해 매수 판단에 연결된 규칙입니다.'}</p>
     {observedValue !== undefined && <p>추천 당시 지표값 <strong>{observedValue.toLocaleString('ko-KR', { maximumFractionDigits: 4 })}</strong></p>}

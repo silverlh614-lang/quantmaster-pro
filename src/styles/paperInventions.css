@@ -1,0 +1,33 @@
+/* @responsibility Style plain-language indicator explanations. */
+.paper-invention-guide { margin: 0 24px 24px; padding: 20px; border: 1px solid var(--lab-border); border-radius: 12px; background: var(--lab-panel); font-size: 13px; line-height: 1.8; }
+.paper-invention-guide h3 { font-size: 17px; margin: 0 0 10px; }
+.paper-invention-guide p { margin: 8px 0; color: var(--lab-soft-text); }
+.paper-invention-steps { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0; gap: 10px; margin: 18px 0; }
+.paper-invention-steps li { padding: 12px; border-radius: 8px; background: var(--lab-ink); }
+.paper-invention-steps strong, .paper-invention-steps span { display: block; }
+.paper-invention-steps strong { color: var(--lab-mint); }
+.paper-invention-steps span { font-size: 12px; color: var(--lab-muted); }
+.paper-invention-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 20px; }
+.paper-invention-heading h4 { margin: 0; font-size: 14px; }
+.paper-invention-heading > span { color: var(--lab-muted); font-size: 12px; }
+.paper-invention-cards { display: grid; gap: 10px; margin-top: 12px; }
+.paper-invention-card { border: 1px solid var(--lab-border); border-radius: 9px; background: var(--lab-ink); min-width: 0; overflow-wrap: anywhere; }
+.paper-invention-card > summary { cursor: pointer; padding: 14px; }
+.paper-invention-card > summary strong { display: block; margin: 5px 0; font-size: 14px; color: var(--lab-text); }
+.paper-invention-card > summary > span:last-child { color: var(--lab-muted); font-size: 12px; }
+.paper-invention-status { color: var(--lab-lilac); font-weight: 600; font-size: 12px; }
+.paper-invention-card > div { padding: 0 16px 16px; border-top: 1px solid var(--lab-border); }
+.paper-invention-explanation { font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.paper-invention-explanation h4 { margin: 18px 0 6px; font-size: 14px; }
+.paper-invention-explanation p { margin: 8px 0; }
+.paper-invention-explanation dl { display: grid; gap: 10px; margin: 10px 0; }
+.paper-invention-explanation dt { font-weight: 600; }
+.paper-invention-explanation dd { margin: 2px 0 0; color: var(--text-secondary, #9daebc); }
+.paper-invention-example { border-left: 3px solid var(--workspace-lilac, #b5abef); padding: 8px 12px; background: color-mix(in srgb, var(--workspace-lilac, #b5abef) 7%, transparent); }
+.paper-invention-explanation summary { cursor: pointer; padding: 8px 0; }
+.paper-invention-card summary:focus-visible, .paper-invention-explanation summary:focus-visible { outline: 2px solid var(--workspace-accent, #82d9b7); outline-offset: 3px; border-radius: 4px; }
+@media (max-width: 760px) {
+  .paper-invention-guide { margin: 0 16px 20px; padding: 16px; }
+  .paper-invention-steps { grid-template-columns: 1fr; gap: 6px; }
+  .paper-invention-card > summary { padding: 12px; }
+}

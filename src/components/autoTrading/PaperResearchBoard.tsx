@@ -8,6 +8,8 @@ import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaLabel } from '../../t
 import '../../styles/paperResearchBoard.css';
 import { PaperDetailDialog } from './PaperDetailDialog';
 import { PaperRuleDetails } from './PaperRuleDetails';
+import { PaperInventionGuide } from './PaperInventionGuide';
+import { explainPaperIndicator } from '../../utils/paperIndicatorExplanation';
 
 const featureNames: Record<PaperFeatureKey, string> = {
   ...Object.fromEntries(Object.entries(PAPER_FEATURES).map(([key, value]) => [key, value.label])) as Record<PaperFeatureKey, string>,
@@ -49,6 +51,7 @@ function ActiveRule({ candidate, exploration = false }: { candidate: PaperAdapti
       <h4><button type="button" className="paper-detail-trigger w-full" aria-haspopup="dialog" onClick={() => setOpen(true)}
         aria-label={`${ruleName(rule)} 적용 내용 보기`}><span>{ruleName(rule)}</span><ArrowUpRight size={17} aria-hidden="true" /></button></h4>
       <p>{ruleRange(rule)} · {rule.horizon}거래일 성과 비교</p>
+      {invention && <p>{explainPaperIndicator(invention.formula).meaning}</p>}
     </div>
     <dl className="lab-board-rule-stats">
       <div><dt>평균 순수익률</dt><dd>{percent(validation.meanNetReturnPct)}</dd></div>
@@ -101,6 +104,7 @@ export function PaperResearchBoard({ state, unavailable = false }: { state?: Pap
       </div>
     </header>
     {unavailable && <p role="alert" className="lab-board-alert">연구 상태를 불러오지 못했습니다. 현재 채택 지표는 다시 확인되면 표시합니다.</p>}
+    <PaperInventionGuide state={current} />
     <ol className="lab-board-pipeline" aria-label="자율 연구 단계">
       {stages.map((stage, index) => <li className={`lab-board-stage lab-board-stage-${stage.tone}`} key={stage.label}>
         <div className="lab-board-stage-heading"><span className="lab-board-stage-index">0{index + 1}</span><h3>{stage.label}</h3></div>
