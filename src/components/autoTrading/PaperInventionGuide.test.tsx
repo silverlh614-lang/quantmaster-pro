@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { PaperAdaptiveState } from '../../types/paperAdaptive';
 import { createPaperIndicatorFormula, paperIndicatorFormulaId } from '../../types/paperIndicatorFormula';
 import { PaperInventionGuide } from './PaperInventionGuide';
+import type { PaperIndicatorProgram } from '../../types/paperIndicatorProgram';
 afterEach(cleanup);
 const stats = { sampleCount: 0, dateCount: 0, symbolCount: 0, meanNetReturnPct: null, meanDailyExcessPct: null };
 function state(): PaperAdaptiveState {
@@ -61,4 +62,29 @@ it('keeps the dashboard compact while making every stored invention accessible',
   expect(container.querySelectorAll('.paper-invention-card')).toHaveLength(4);
   fireEvent.click(screen.getByRole('button', { name: '주요 지표 3개만 보기' }));
   expect(container.querySelectorAll('.paper-invention-card')).toHaveLength(3);
+});
+it('separates AI authorship, queued calculation checks and prospective performance', () => {
+  const value = state();
+  const formula: PaperIndicatorProgram = { version: 'feature-program-v1', digest: 'a'.repeat(64), title: '가격 힘과 거래량의 차이',
+    hypothesis: '가격 힘보다 거래량이 강할 때를 시험합니다.', interpretation: '거래량 환산값에서 RSI 환산값을 뺍니다.', limitation: '급락 거래량도 포함됩니다.',
+    expression: { op: 'subtract', left: { op: 'feature', key: 'volumeRatio20' }, right: { op: 'feature', key: 'rsi14' } } };
+  const invention = { ...value.discovery!.inventions[0], formula, id: paperIndicatorFormulaId(formula),
+    authorship: { generatedAt: '2026-10-01T08:00:00Z', model: 'test', inputDigest: 'b'.repeat(64) } };
+  value.discovery!.inventions = [invention];
+  value.candidates[0].rule = { feature: invention.id, ...invention.rule, invention };
+  value.programResearch = { state: 'READY', attemptedAt: invention.authorship.generatedAt, completedAt: invention.authorship.generatedAt,
+    message: '계산 검사 통과 1개', proposals: [{ id: 'queued', title: '다음 계산 후보', generatedAt: invention.authorship.generatedAt, registered: false, evaluated: false }] };
+  const { rerender } = render(<PaperInventionGuide state={value} />);
+  expect(screen.getByText('작성 회차 완료 · 수익성 검증과 별개')).toBeTruthy();
+  expect(screen.getByText('계산 검사 통과 · 학습 선발 대기')).toBeTruthy();
+  expect(screen.getByText(formula.hypothesis)).toBeTruthy(); expect(screen.getByText(formula.limitation)).toBeTruthy();
+  expect(screen.getByText(formula.digest)).toBeTruthy();
+  expect(screen.getByText(/AI 작성/)).toBeTruthy(); expect(screen.getByText(/연구 등록 .*이 시점 이후 새 관측/)).toBeTruthy();
+  expect(screen.queryByText('검증 매수에 연결')).toBeNull();
+  value.programResearch.state = 'FAILED';
+  value.programResearch.proposals[0].evaluated = true;
+  value.discovery!.programReviews = [{ id: 'queued' as typeof invention.id, at: value.evaluatedAt, status: 'NO_TRAINING_EDGE', sampleCount: 12, dateCount: 3, meanDailyExcessPct: -0.2 }];
+  rerender(<PaperInventionGuide state={value} />);
+  expect(screen.getByText('이번 작성 회차 확인 필요')).toBeTruthy(); expect(screen.getByText('학습 표본 또는 성과 부족')).toBeTruthy();
+  expect(screen.getByText('연구 중 · 매수 연결 없음')).toBeTruthy();
 });

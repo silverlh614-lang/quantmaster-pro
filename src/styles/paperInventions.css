@@ -2,6 +2,13 @@
 .paper-invention-guide { margin: 0 24px 24px; padding: 20px; border: 1px solid var(--lab-border); border-radius: 12px; background: var(--lab-panel); font-size: 13px; line-height: 1.8; }
 .paper-invention-guide h3 { font-size: 17px; margin: 0 0 10px; }
 .paper-invention-guide p { margin: 8px 0; color: var(--lab-soft-text); }
+.paper-program-research { margin: 18px 0; padding: 14px; border: 1px solid var(--lab-border); border-radius: 9px; overflow-wrap: anywhere; }
+.paper-program-research h4 { margin: 0 0 8px; font-size: 14px; }
+.paper-program-research > strong { color: var(--lab-mint); }
+.paper-program-research summary { cursor: pointer; padding: 8px 0; }
+.paper-program-research ul { padding-left: 20px; }
+.paper-program-research li { margin: 10px 0; }
+.paper-program-research li span { display: block; color: var(--lab-muted); font-size: 12px; }
 .paper-invention-steps { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0; gap: 10px; margin: 18px 0; }
 .paper-invention-steps li { padding: 12px; border-radius: 8px; background: var(--lab-ink); }
 .paper-invention-steps strong, .paper-invention-steps span { display: block; }

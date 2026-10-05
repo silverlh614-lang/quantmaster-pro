@@ -52,6 +52,15 @@ it('changes the teaching inputs without invoking a trading action', () => {
   expect(screen.getByText(/실제 종목 자료가 아니며 매매·설정에 반영되지 않습니다/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: '지금 관측' })).toBeNull();
 });
+it('explains the bounded AI proposal lifecycle and remaining external-data scope', () => {
+  render(<PaperManualPage />);
+  fireEvent.click(category('학습과 발명 지표'));
+  expect(screen.getByText('AI가 쓴 계산법은 어떻게 적용되나요?')).toBeTruthy();
+  expect(screen.getByText(/한국 날짜 기준 하루 최대 1회/)).toBeTruthy();
+  expect(screen.getByText(/새 외부 데이터 수집은 아직 포함하지 않습니다/)).toBeTruthy();
+  expect(screen.getByText(/미채택 사유는 다음 AI 작성의 참고 자료/)).toBeTruthy();
+  expect(paperManualText()).toContain('이후 날짜의 장외 회차에서 재시도');
+});
 it('demonstrates negative products, operand order and the actual normalization clamp', () => {
   render(<PaperManualPage />);
   fireEvent.click(category('지표 움직임 체험'));
