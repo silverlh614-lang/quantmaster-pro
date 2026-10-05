@@ -8,6 +8,7 @@ export type View =
   | 'PAPER_STRATEGY'
   | 'PAPER_RESEARCH'
   | 'OPERATIONS'
+  | 'MANUAL'
   | 'DISCOVER'
   | 'WATCHLIST'
   | 'BACKTEST'

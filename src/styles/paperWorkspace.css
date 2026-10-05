@@ -97,6 +97,7 @@
 .workspace-bottom-nav { display: none; position: fixed; z-index: 55; bottom: 0; inset-inline: 0; background: var(--bg-elevated); border-top: 1px solid var(--card-border); padding: 6px 4px max(6px, env(safe-area-inset-bottom)); grid-template-columns: repeat(5, 1fr); }
 .workspace-bottom-nav button { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 8px 0; color: var(--text-secondary); font-size: 9px; }
 .workspace-bottom-nav button[aria-current] { color: var(--workspace-accent); }
+.workspace-manual-shortcut { margin-left: auto; display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 8px; color: var(--workspace-accent); font-size: 12px; }
 @media (max-width: 1023px) { .workspace-sidebar.app-sidebar { display: none; } .workspace-mobile-topbar { display: flex; } .workspace-bottom-nav { display: grid; } .paper-workspace .app-main { padding-bottom: calc(78px + env(safe-area-inset-bottom)); } }
 @media (max-width: 767px) {
   .workspace-page { gap: 18px; } .workspace-page-header { align-items: flex-start; flex-direction: column; gap: 14px; }

@@ -23,6 +23,13 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe('workspace error recovery', () => {
+  it('opens the manual independently of the dashboard and its server queries', async () => {
+    useSettingsStore.setState({ view: 'MANUAL' });
+    render(<PageRouter />);
+    expect(await screen.findByRole('heading', { name: '시스템 사용 설명서' })).toBeTruthy();
+    expect(screen.queryByText(/정상 화면/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '지금 관측' })).toBeNull();
+  });
   it('shows the menu label and clears a failed screen when navigating to another menu', () => {
     render(<PageRouter />);
     expect(screen.getByText('기본 관측 로드 실패')).toBeTruthy();

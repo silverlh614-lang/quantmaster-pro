@@ -8,6 +8,7 @@ export const VIEW_LABELS: Record<View, string> = {
   PAPER_STRATEGY: '전략 판단',
   PAPER_RESEARCH: '저장 자료 연구',
   OPERATIONS: '운영 설정',
+  MANUAL: '사용 설명서',
   DISCOVER: '후보 발굴',
   WATCHLIST: '관심종목',
   SCREENER: '스크리너',

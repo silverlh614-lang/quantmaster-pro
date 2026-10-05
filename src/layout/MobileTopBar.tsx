@@ -1,6 +1,6 @@
 // @responsibility Render the mobile research workspace header.
 import React from 'react';
-import { PanelsTopLeft } from 'lucide-react';
+import { BookOpen, PanelsTopLeft } from 'lucide-react';
 import { AppMenuButton } from './AppMenuButton';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
@@ -18,6 +18,9 @@ export function MobileTopBar() {
       >
         <span className="workspace-brand-mark" aria-hidden="true"><PanelsTopLeft size={19} strokeWidth={1.7} /></span>
         <span>QuantMaster<small>자율 투자 연구실</small></span>
+      </button>
+      <button type="button" className="workspace-manual-shortcut" onClick={() => setView('MANUAL')} aria-label="사용 설명서">
+        <BookOpen size={18} aria-hidden="true" /><span>설명서</span>
       </button>
     </div>
   );
