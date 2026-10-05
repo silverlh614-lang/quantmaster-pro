@@ -10,7 +10,8 @@ vi.mock('../../trading/paper/paperEvaluation.js', () => ({ buildPaperEvaluation:
 vi.mock('../../persistence/paperBotRepo.js', () => ({ loadPaperBotState: mocks.bot }));
 vi.mock('../../persistence/paperFinancialRepo.js', () => ({ loadPaperFinancialCache: mocks.financials }));
 vi.mock('../../alerts/globalNewsRuntime.js', () => ({ getGlobalMorningPreview: mocks.morning }));
-vi.mock('../../trading/paper/paperMorningRuntime.js', () => ({ getPaperMorningReview: mocks.recommendation }));
+vi.mock('../../trading/paper/paperMorningRuntime.js', () => ({ getPaperMorningReview: mocks.recommendation,
+  getPaperMorningReviewSafely: () => ({ report: null, results: [], asOf: '2026-09-18T07:00:00.000Z' }) }));
 vi.mock('../../trading/paper/paperExperimentRunner.js', () => ({
   getPaperExperimentView: mocks.view, runPaperExperimentScan: mocks.paperScan,
 }));

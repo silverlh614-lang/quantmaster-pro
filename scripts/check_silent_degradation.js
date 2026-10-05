@@ -319,7 +319,9 @@ function main() {
 
   if (json) {
     console.log(JSON.stringify({ findings, violations, baselined, historicalReadOnly }, null, 2));
-    process.exit(violations.length === 0 || !strict ? 0 : 1);
+    // process.exit() can cut off the queued tail of a large report written to a pipe; exit after it is flushed.
+    process.exitCode = violations.length === 0 || !strict ? 0 : 1;
+    return;
   }
 
   if (findings.length === 0) {
