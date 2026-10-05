@@ -9,6 +9,7 @@ import '../../styles/paperDashboard.css';
 
 const count = (value: number | undefined) => value === undefined ? '확인 대기' : value.toLocaleString('ko-KR');
 const percent = (value: number | null | undefined) => value == null ? '집계 대기' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+const intervalLabel = (seconds: number) => seconds % 60 === 0 ? `${seconds / 60}분` : `${seconds}초`;
 export function paperTime(value: string | null | undefined) {
   return value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '기록 대기';
 }
@@ -21,14 +22,16 @@ export function PaperOverview({ view, mode, paused, refreshFailed = false }: {
   const now = Date.now();
   const collectionAge = collection ? now - Date.parse(collection.lastProgressAt) : Infinity;
   const collecting = !refreshFailed && !!collection && collectionAge >= 0 && collectionAge <= 60_000;
+  const collectionStalled = !!collection && !collecting;
   const strategyUnavailable = refreshFailed || Boolean(strategy?.error || strategy?.lastRun?.error);
+  const automaticScanStopped = view.scanIntervalSeconds === null;
   const age = last ? now - Date.parse(last.asOf) : Infinity;
-  const stale = !!last && (!Number.isFinite(age) || age < 0 || age > Math.max(5 * 60_000, (view.scanIntervalSeconds ?? 0) * 1000 + 5 * 60_000));
+  const stale = !!last && (!Number.isFinite(age) || age < 0 || (!automaticScanStopped && age > Math.max(5 * 60_000, (view.scanIntervalSeconds ?? 0) * 1000 + 5 * 60_000)));
   const status = !mode || paused === undefined ? '운영 상태 확인 중' : mode !== 'SHADOW' ? '저장 기록 조회 중'
-    : paused ? '자동 관측 일시정지' : refreshFailed ? '최근 자료 조회 실패' : collecting ? '관측 자료 수집 중'
-      : stale ? '최근 관측 갱신 확인 필요' : !last ? '첫 관측을 기다리고 있습니다'
+    : paused ? '자동 관측 일시정지' : refreshFailed ? '최근 자료 조회 실패' : strategyUnavailable ? '전략 기록 확인 필요' : collecting ? '관측 자료 수집 중'
+      : stale || collectionStalled ? '최근 관측 갱신 확인 필요' : automaticScanStopped ? '휴장일 · 자동 가격 스캔 대기' : !last ? '첫 관측을 기다리고 있습니다'
         : last.marketOpen ? '장중 관측 기록을 쌓고 있습니다' : '장외 관측 · 다음 진입을 기다립니다';
-  const healthy = mode === 'SHADOW' && paused === false && !refreshFailed && (collecting || (!!last && !stale));
+  const healthy = mode === 'SHADOW' && paused === false && !strategyUnavailable && !collectionStalled && (collecting || (!stale && (automaticScanStopped || !!last)));
   const adaptive = strategy?.adaptive;
   const active = adaptive?.candidates.filter(item => item.active).length;
   const inventions = adaptive?.discovery?.inventions.length;
@@ -52,19 +55,19 @@ export function PaperOverview({ view, mode, paused, refreshFailed = false }: {
       <span className="qdash-status-icon" aria-hidden="true"><Activity size={18} /></span>
       <div className="qdash-status-copy"><h2>{status}</h2><p>기본 관측은 쌓고, 지표는 검증하며, 판단은 기록합니다.</p></div>
       <div className="qdash-status-meta"><span><Clock3 size={13} />마지막 관측 완료 <strong>{paperTime(last?.asOf)}</strong></span>
-        {view.scanIntervalSeconds && <span>전체 관측 주기 <strong>{view.scanIntervalSeconds / 60}분</strong></span>}
+        {automaticScanStopped ? <span>전체 관측 <strong>필요할 때 수동 관측</strong></span> : !!view.scanIntervalSeconds && <span>전체 관측 주기 <strong>{view.scanIntervalSeconds / 60}분</strong></span>}
         {collection && <span>{collecting ? '수집 진행' : '수집 지연 확인 필요'} <strong>{collection.completed}/{collection.total}종목</strong></span>}
         {last?.durationMs !== undefined && <span>수집 소요 <strong>{Math.round(last.durationMs / 1000)}초</strong></span>}</div>
       {collection && collecting && collection.total > 0 && <progress className="qdash-collection-progress" value={Math.max(0, Math.min(collection.completed, collection.total))} max={collection.total} aria-label="현재 관측 수집 진행률" />}
     </section>
     {view.priceMonitor && <section className="qdash-panel" aria-label="보유 가격 감시">
-      <h3>보유 가격 감시 · 30초 주기</h3>
+      <h3>보유 가격 감시 · {intervalLabel(view.priceMonitor.intervalSeconds)} 주기</h3>
       <p>{paused ? '일시정지' : view.priceMonitor.error ? '감시 오류 · 확인 필요' : !view.priceMonitor.marketOpen ? '장 시작 대기'
         : view.priceMonitor.running ? '현재가 확인 중' : '다음 감시 대기'}</p>
       <p className="qdash-note">전체 연구와 별도로 현재가를 순환 확인합니다. 종목별 갱신 간격은 보유 수와 응답 속도에 따라 달라집니다.</p>
       <p>최근 회차 {view.priceMonitor.validCount}/{view.priceMonitor.checkedCount}종목 가격 확인 · 매도 {view.priceMonitor.closedCount}건</p>
       <p>완료 {paperTime(view.priceMonitor.completedAt)} · 소요 {view.priceMonitor.durationMs === null ? '대기' : `${(view.priceMonitor.durationMs / 1000).toFixed(1)}초`}</p>
-      {view.priceMonitor.marketOpen && <p>보유 {view.priceMonitor.heldCount}종목 중 60초 초과·미확인 {view.priceMonitor.staleCount}종목</p>}
+      {view.priceMonitor.marketOpen && <p>보유 {view.priceMonitor.heldCount}종목 중 {intervalLabel(view.priceMonitor.intervalSeconds * 2)} 초과·미확인 {view.priceMonitor.staleCount}종목</p>}
       <p className="qdash-note">손실 제한·수익 반납은 새 가격으로 판단하며, 지표 약화와 신규 매수는 전체 스캔에서 판단합니다.</p>
     </section>}
     <dl className="qdash-metrics" aria-label="연구 핵심 지표">{stats.map(({ label, value, unit, note, icon: Icon, tone }) =>

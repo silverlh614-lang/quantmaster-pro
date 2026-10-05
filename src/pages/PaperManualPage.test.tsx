@@ -59,7 +59,8 @@ it('explains the bounded AI proposal lifecycle and remaining external-data scope
   expect(screen.getByText(/한국 날짜 기준 하루 최대 1회/)).toBeTruthy();
   expect(screen.getByText(/새 외부 데이터 수집은 아직 포함하지 않습니다/)).toBeTruthy();
   expect(screen.getByText(/미채택 사유는 다음 AI 작성의 참고 자료/)).toBeTruthy();
-  expect(paperManualText()).toContain('이후 날짜의 장외 회차에서 재시도');
+  expect(paperManualText()).toContain('이후 날짜의 장외 회차나 새 저장 자료를 연구할 때 다시 시도');
+  expect(paperManualText()).toContain('자료가 같은 휴장일에는 반복 호출하지 않습니다');
 });
 it('explains autonomous allocation without adding entry gates or fabricated comparison profits', () => {
   render(<PaperManualPage />);

@@ -1,7 +1,7 @@
 // @responsibility Manage the archived research lifecycle.
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { PaperObservation } from '../../../src/types/paperExperiment.js';
 import type { PaperResearchView, ResearchArchive, ResearchBar, ResearchInventory, ResearchSeries } from '../../../src/types/paperResearch.js';
 import { DATA_DIR } from '../../persistence/paths.js';
@@ -9,7 +9,7 @@ import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { capturePaperCostModel, type ArchivedBarCheck } from './paperExperimentPolicy.js';
 import { buildPaperResearch } from './paperResearch.js';
 import { readPaperResearchSources, seriesFromObservations, paperResearchSourceFiles } from './paperResearchSources.js';
-import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
+import { isKrxTradingDay, toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { getPaperIndexSeries } from './paperIndexCollection.js';
 
 const archivePath = (directory: string) => path.join(directory, 'paper-research-archive.json');
@@ -20,15 +20,70 @@ let archivedBars: Set<string> | null = null;
 const barKey = (symbol: string, date: string, close: number) => `${symbol}|${date}|${close}`;
 let lastAttempt = 0;
 let lastInputs: string | null = null;
+let lastIndexInputs: string | null = null;
+// Bump this version when research algorithms or report contracts change, invalidating old derived results.
+const RESEARCH_CACHE_VERSION = 1;
+const cachePath = () => path.join(DATA_DIR, 'paper-research-cache.json');
+const reportPath = () => path.join(DATA_DIR, 'paper-research-report.json');
+const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
-function inputStamp(now: number): string {
-  const files = [...paperResearchSourceFiles(DATA_DIR), 'paper-research-archive.json'];
-  return JSON.stringify([toKstDateKey(new Date(now)), getPaperIndexSeries(), files.map(file => {
+function inputStamp(): string {
+  const files = [...paperResearchSourceFiles(DATA_DIR), 'paper-research-archive.json', 'krx-holiday-patch.json'];
+  return digest(JSON.stringify([capturePaperCostModel('KOSPI'), capturePaperCostModel('KOSDAQ'), files.map(file => {
     const target = path.join(DATA_DIR, file);
     if (!fs.existsSync(target)) return [file, null];
     const stat = fs.statSync(target, { bigint: true });
     return [file, `${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`];
-  })]);
+  })]));
+}
+
+function indexStamp(): string | null {
+  const index = getPaperIndexSeries();
+  // Benchmarks are already in the durable archive. An empty process cache after restart is not new evidence.
+  return index.series.length || index.inventory ? digest(JSON.stringify(index)) : null;
+}
+
+function reusableOn(view: PaperResearchView, now: number): boolean {
+  const day = toKstDateKey(new Date(now));
+  return Number.isFinite(Date.parse(view.asOf)) && Date.parse(view.asOf) <= now
+    && (!isKrxTradingDay(day) || toKstDateKey(view.asOf) === day);
+}
+
+function validCachedReport(view: PaperResearchView): boolean {
+  return Boolean(view && !view.error) && ['inventory', 'groups', 'validation', 'notes']
+    .every(key => Array.isArray(view[key as keyof PaperResearchView]))
+    && ['symbols', 'seriesCount', 'newsCount', 'sampleCount', 'learningSampleCount']
+      .every(key => Number.isFinite(view[key as keyof PaperResearchView]));
+}
+
+function restoreResearchCache(inputs: string, indexInputs: string | null, now: number): boolean {
+  if (!fs.existsSync(cachePath()) || !fs.existsSync(reportPath())) return false;
+  try {
+    const metadata = JSON.parse(fs.readFileSync(cachePath(), 'utf8'));
+    if (metadata.version !== RESEARCH_CACHE_VERSION || metadata.inputs !== inputs
+      || indexInputs !== null && metadata.indexInputs !== indexInputs) return false;
+    const report = fs.readFileSync(reportPath(), 'utf8');
+    if (metadata.reportDigest !== digest(report)) throw new Error('저장 연구 보고서 무결성 검사 실패');
+    const view = JSON.parse(report) as PaperResearchView;
+    if (!validCachedReport(view)) throw new Error('저장 연구 보고서 형식 검사 실패');
+    if (!reusableOn(view, now)) return false;
+    cached = view;
+    lastInputs = inputs;
+    lastIndexInputs = indexInputs ?? metadata.indexInputs ?? null;
+    return true;
+  } catch (error) {
+    console.warn('[PaperResearch] 저장 결과 재사용 실패, 원본 자료로 다시 계산:', error instanceof Error ? error.message : String(error));
+    return false;
+  }
+}
+
+function persistResearchCache(inputs: string, indexInputs: string | null): void {
+  const temporary = `${cachePath()}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify({ version: RESEARCH_CACHE_VERSION, inputs, indexInputs,
+      reportDigest: digest(fs.readFileSync(reportPath(), 'utf8')) }), { flag: 'wx' });
+    fs.renameSync(temporary, cachePath());
+  } finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
 }
 
 export function loadResearchArchive(directory: string): ResearchArchive {
@@ -140,23 +195,32 @@ export function runArchivedPaperResearch(directory = DATA_DIR, asOf = new Date()
   return { ...result, archivedBars: archived };
 }
 
-export function refreshPaperResearch(observations: PaperObservation[] = [], force = false): void {
+/** Returns true only when stored evidence was recalculated, not when an existing report was restored. */
+export function refreshPaperResearch(observations: PaperObservation[] = [], force = false): boolean {
   const now = Date.now();
-  if (!force && now - lastAttempt < (cached?.error ? 60_000 : 3_600_000)) return;
+  if (!force && now - lastAttempt < (cached?.error ? 60_000 : 3_600_000)) return false;
   lastAttempt = now;
   try {
-    const inputs = inputStamp(now);
-    if (!force && !observations.length && cached && !cached.error && inputs === lastInputs) return;
+    const inputs = inputStamp(), indexInputs = indexStamp();
+    if (!force && !observations.length) {
+      if (cached && !cached.error && reusableOn(cached, now) && inputs === lastInputs
+        && (indexInputs === null || indexInputs === lastIndexInputs)) return false;
+      if (!cached && restoreResearchCache(inputs, indexInputs, now)) return false;
+    }
     const result = runArchivedPaperResearch(DATA_DIR, new Date(now).toISOString(), observations, getPaperIndexSeries());
     cached = result.view;
     archivedBars = result.archivedBars;
-    lastInputs = inputStamp(now);
+    lastInputs = inputStamp();
+    lastIndexInputs = indexInputs;
+    persistResearchCache(lastInputs, lastIndexInputs);
+    return true;
   }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[PaperResearch]', message);
     const view = cached ?? buildPaperResearch(empty(), new Date(now).toISOString(), () => capturePaperCostModel('KOSPI')).view;
     cached = { ...view, error: message };
+    return false;
   }
 }
 

@@ -50,6 +50,22 @@ describe('holding price monitor', () => {
     expect(mocks.collect.mock.calls[1][0][0].symbol).toBe('000025');
     expect(readPaperPriceMonitor()).toMatchObject({ heldCount: 30, staleCount: 30, running: false });
   });
+  it('reports minute monitoring and marks a held quote late only after two scheduled intervals', async () => {
+    const quoteAt = Date.now(), ledger = legacyStrategyLedger();
+    mocks.load.mockReturnValue({ ledger });
+    mocks.collect.mockImplementation(async () => ({ ...snapshot(), observations: [{
+      ...ledger.trades[0].entryObservation, observedAt: new Date(quoteAt).toISOString(),
+    }] }));
+    const { runPaperPriceMonitor, readPaperPriceMonitor } = await import('./paperPriceMonitor.js');
+    expect(readPaperPriceMonitor()).toMatchObject({ intervalSeconds: 60, staleCount: 1 });
+    await runPaperPriceMonitor();
+    vi.setSystemTime(quoteAt + 61_000);
+    expect(readPaperPriceMonitor()).toMatchObject({ intervalSeconds: 60, staleCount: 0, validCount: 1 });
+    vi.setSystemTime(quoteAt + 120_000);
+    expect(readPaperPriceMonitor().staleCount).toBe(0);
+    vi.setSystemTime(quoteAt + 120_001);
+    expect(readPaperPriceMonitor().staleCount).toBe(1);
+  });
   it('records failure and permits the next cycle', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.collect.mockRejectedValueOnce(new Error('provider down'));

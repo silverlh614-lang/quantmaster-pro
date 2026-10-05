@@ -53,6 +53,18 @@ function morningReport(date: string): PaperMorningReport {
 }
 
 describe('daily archived morning recommendations', () => {
+  it('sends the 08:30 holiday research report while scheduled price scanning is suspended', async () => {
+    persisted = emptyState(); view.scanIntervalSeconds = null;
+    const report = { ...morningReport('2026-10-05'), status: 'HOLIDAY' as const, message: '휴장일 연구 현황 · 저장된 연구 결과' };
+    mocks.recommendation.mockReturnValue(report);
+    await runPaperBotTick(new Date(report.createdAt));
+    await runPaperBotTick(new Date(Date.parse(report.createdAt) + 60_000));
+    expect(persisted.health).toBe('OK');
+    expect(persisted.messages).toHaveLength(1);
+    expect(persisted.messages[0]).toMatchObject({ kind: 'recommendation', state: 'SENT', message: report.message });
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(mocks.maintain).toHaveBeenCalledTimes(2);
+  });
   it.each(['2026-09-21', '2026-09-26', '2026-12-25'])('delivers once at 08:30 even on a closed day: %s', async date => {
     const report = morningReport(date), at = new Date(report.createdAt);
     mocks.recommendation.mockReturnValue(report);
@@ -310,16 +322,91 @@ describe('new strategy events', () => {
 });
 
 describe('operational health transitions', () => {
-  it('allows the hourly holiday interval plus collection grace but preserves intraday alarms', () => {
+  it('treats intentionally suspended holiday scans as normal without hiding pause or strategy failures', () => {
+    const now = new Date('2026-10-05T11:00:00+09:00');
+    view.scanIntervalSeconds = null;
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('OK');
+    scanAt('2026-10-02T16:00:00+09:00');
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('OK');
+    expect(classifyPaperBotHealth(view, true, now, 0)).toBe('PAUSED');
+    view.strategy!.error = 'unreadable';
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('STRATEGY_ERROR');
+    expect(classifyPaperBotHealth(view, false, now, now.getTime())).toBe('STRATEGY_ERROR');
+    expect(classifyPaperBotHealth(undefined, false, now, 0)).toBe('UNAVAILABLE');
+    delete view.strategy!.error;
+    expect(classifyPaperBotHealth(view, false, new Date('2026-10-06T11:00:00+09:00'), 0)).toBe('STALE');
+  });
+  it('still detects stalled manually requested collection during a holiday', () => {
+    const now = new Date('2026-10-05T11:00:00+09:00'); view.scanIntervalSeconds = null;
+    scanAt('2026-10-05T10:59:00+09:00');
+    view.collection = { startedAt: '2026-10-05T10:59:30+09:00', lastProgressAt: '2026-10-05T10:59:30+09:00', completed: 0, total: 0 };
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('OK');
+    expect(classifyPaperBotHealth(view, false, new Date(now.getTime() + 3 * 60_000), now.getTime())).toBe('STALE');
+    view.collection = { startedAt: '2026-10-05T10:59:30+09:00', lastProgressAt: '2026-10-05T11:00:00+09:00', completed: 50, total: 100 };
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('OK');
+    expect(classifyPaperBotHealth(view, false, now, 0, 'STALE')).toBe('STALE');
+    persisted = emptyState(); enqueuePaperHealth(persisted, 'STALE', now, view);
+    expect(persisted.messages[0].message).toContain('휴장일에 실행한 수집의 진행 상태');
+    expect(persisted.messages[0].message).not.toContain('60분 넘게');
+  });
+  it.each(['invalid', '2026-10-06T11:00:00+09:00'])('does not hide a bad holiday observation timestamp: %s', asOf => {
+    const now = new Date('2026-10-05T11:00:00+09:00'); view.scanIntervalSeconds = null;
+    scanAt(asOf);
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('STALE');
+    expect(classifyPaperBotHealth(view, false, now, now.getTime())).toBe('STALE');
+    persisted = emptyState(); enqueuePaperHealth(persisted, 'STALE', now, view);
+    expect(persisted.messages[0].message).toContain('마지막 관측 시각을 정상으로 확인할 수 없습니다');
+    expect(persisted.messages[0].message).not.toContain('휴장일에 실행한 수집의 진행 상태');
+  });
+  it('cancels holiday stale retries without claiming recovery and announces a later real completion once', () => {
+    const now = new Date('2026-10-05T11:00:00+09:00');
+    persisted = emptyState(); scanAt('2026-10-02T16:00:00+09:00');
+    enqueuePaperHealth(persisted, 'STALE', new Date('2026-10-02T20:00:00+09:00'), view);
+    persisted.messages[0].state = 'SENT'; persisted.notifiedHealth = 'STALE';
+    persisted.health = 'OK'; enqueuePaperHealth(persisted, 'STALE', now, view);
+    view.scanIntervalSeconds = null;
+    enqueuePaperHealth(persisted, 'OK', now, view);
+    expect(persisted.health).toBe('OK');
+    expect(persisted.notifiedHealth).toBe('STALE');
+    expect(persisted.messages.map(item => item.state)).toEqual(['SENT', 'SUPERSEDED']);
+    enqueuePaperHealth(persisted, 'OK', new Date(now.getTime() + 60_000), view);
+    expect(persisted.messages).toHaveLength(2);
+    view.scanIntervalSeconds = 600; scanAt('2026-10-06T09:10:00+09:00');
+    enqueuePaperHealth(persisted, 'OK', new Date('2026-10-06T09:11:00+09:00'), view);
+    expect(persisted.messages).toHaveLength(3);
+    expect(persisted.messages[2]).toMatchObject({ health: 'OK', state: 'PENDING' });
+    expect(persisted.messages[2].message).toContain('관측이 다시 갱신');
+    enqueuePaperHealth(persisted, 'OK', new Date('2026-10-06T09:12:00+09:00'), view);
+    expect(persisted.messages).toHaveLength(3);
+  });
+  it('preserves holiday grace while allowing the intraday interval plus five minutes', () => {
     const now = new Date('2026-10-04T11:00:00+09:00');
     view.scanIntervalSeconds = 3600;
     scanAt(new Date(now.getTime() - 65 * 60_000).toISOString());
     expect(classifyPaperBotHealth(view, false, now, 0)).toBe('OK');
+    scanAt(new Date(now.getTime() - 70 * 60_000).toISOString());
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('OK');
     scanAt(new Date(now.getTime() - 71 * 60_000).toISOString());
     expect(classifyPaperBotHealth(view, false, now, 0)).toBe('STALE');
+    persisted = emptyState(); enqueuePaperHealth(persisted, 'STALE', now, view);
+    expect(persisted.messages[0].message).toContain('휴장·장외 70분');
     const open = new Date('2026-09-18T11:00:00+09:00');
-    scanAt(new Date(open.getTime() - 11 * 60_000).toISOString());
+    view.scanIntervalSeconds = 600;
+    scanAt(new Date(open.getTime() - 14 * 60_000).toISOString());
+    expect(classifyPaperBotHealth(view, false, open, 0)).toBe('OK');
+    scanAt(new Date(open.getTime() - 16 * 60_000).toISOString());
     expect(classifyPaperBotHealth(view, false, open, 0)).toBe('STALE');
+    persisted = emptyState(); enqueuePaperHealth(persisted, 'STALE', open, view);
+    expect(persisted.messages[0].message).toContain('장중 15분');
+    expect(persisted.messages[0].message).not.toContain('장중 10분');
+  });
+  it('recognizes an eight-minute collection under the ten-minute cadence without hiding stalled work', () => {
+    const now = new Date('2026-09-18T13:35:00+09:00'); view.scanIntervalSeconds = 600;
+    scanAt('2026-09-18T13:17:00+09:00');
+    view.collection = { startedAt: '2026-09-18T13:27:00+09:00', lastProgressAt: '2026-09-18T13:34:55+09:00', completed: 204, total: 830 };
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('OK');
+    view.collection.lastProgressAt = '2026-09-18T13:32:00+09:00';
+    expect(classifyPaperBotHealth(view, false, now, 0)).toBe('STALE');
   });
   const scanAt = (at: string) => {
     view.lastRun = { snapshotId: 'scan', asOf: at, candidateCount: 863, durationMs: 140_000,

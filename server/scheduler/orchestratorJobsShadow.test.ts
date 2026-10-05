@@ -39,9 +39,9 @@ const callback = (name: string): (() => Promise<void>) => {
 };
 
 describe('Shadow schedule', () => {
-  it('registers an independent 30-second price monitor without replaying missed price ticks', async () => {
+  it('registers independent minute price checks at second 30 without replaying missed price ticks', async () => {
     registerOrchestratorJobs();
-    expect(mocks.scheduled).toHaveBeenCalledWith('*/30 * * * * *', 'ALWAYS_ON', 'paper_holding_prices',
+    expect(mocks.scheduled).toHaveBeenCalledWith('30 * * * * *', 'ALWAYS_ON', 'paper_holding_prices',
       mocks.prices, { timezone: 'UTC' });
     await callback('paper_holding_prices')();
     expect(mocks.prices).toHaveBeenCalledOnce();

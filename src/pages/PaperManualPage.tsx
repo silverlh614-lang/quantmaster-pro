@@ -45,7 +45,7 @@ export function PaperManualPage() {
     <button type="button" className="manual-try-banner" onClick={() => choose('indicators')}><span><strong>지표가 왜 오르고 내릴까요?</strong>
       <small>가격·거래량·발명 지표를 직접 움직여 보기</small></span><ArrowRight size={21} aria-hidden="true" /></button>
     <div className="manual-search"><Search size={18} aria-hidden="true" /><label className="sr-only" htmlFor="manual-search">설명서 검색</label>
-      <input id="manual-search" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="예: RSI, 매도, 30초, 텔레그램" />
+      <input id="manual-search" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="예: RSI, 매도, 1분, 텔레그램" />
       {query && <button type="button" onClick={() => setQuery('')}>검색 지우기</button>}</div>
     <div className="manual-layout"><nav className="manual-toc" aria-label="설명서 카테고리">{PAPER_MANUAL.map((section, index) =>
       <button type="button" key={section.id} aria-current={!needle && selected === section.id ? 'true' : undefined} onClick={() => choose(section.id)}>

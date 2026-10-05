@@ -187,7 +187,8 @@ export interface PaperStorageMaintenance {
 }
 
 export interface PaperExperimentView {
-  scanIntervalSeconds?: number;
+  /** Null: KRX holiday, manual price collection only. Missing: older server response. */
+  scanIntervalSeconds?: number | null;
   priceMonitor?: PaperPriceMonitorStatus;
   storageMaintenance?: PaperStorageMaintenance;
   mode: 'SHADOW';

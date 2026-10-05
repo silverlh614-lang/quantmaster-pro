@@ -70,11 +70,39 @@ describe('PaperOverview', () => {
     expect(screen.getByText('최근 관측 갱신 확인 필요')).toBeTruthy();
   });
   it('shows economical full-scan cadence without flagging normal off-hours waiting as stale', () => {
-    const data = currentView(); data.scanIntervalSeconds = 3600;
-    data.lastRun!.asOf = new Date(Date.now() - 40 * 60_000).toISOString(); data.lastRun!.marketOpen = false;
+    const data = currentView(); data.scanIntervalSeconds = 1800;
+    data.lastRun!.asOf = new Date(Date.now() - 25 * 60_000).toISOString(); data.lastRun!.marketOpen = false;
     render(<PaperOverview view={data} mode="SHADOW" paused={false} />);
-    expect(screen.getByText('60분')).toBeTruthy();
+    expect(screen.getByText('30분')).toBeTruthy();
     expect(screen.queryByText('최근 관측 갱신 확인 필요')).toBeNull();
+  });
+  it.each(['old', 'missing'] as const)('shows intentional holiday waiting with a %s scan', lastScan => {
+    const data = currentView(); data.scanIntervalSeconds = null;
+    if (lastScan === 'old') data.lastRun!.asOf = '2020-01-01T00:00:00Z';
+    else data.lastRun = null;
+    render(<PaperOverview view={data} mode="SHADOW" paused={false} />);
+    expect(screen.getByText('휴장일 · 자동 가격 스캔 대기')).toBeTruthy();
+    expect(screen.getByText('필요할 때 수동 관측')).toBeTruthy();
+    expect(screen.getByRole('region', { name: '관측 운영 상태' }).classList.contains('is-current')).toBe(true);
+    expect(screen.queryByText('최근 관측 갱신 확인 필요')).toBeNull();
+  });
+  it('keeps stalled manual collection visible during a holiday', () => {
+    const data = currentView(); data.scanIntervalSeconds = null;
+    data.collection = { startedAt: '2020-01-01T00:00:00Z', lastProgressAt: '2020-01-01T00:00:00Z', completed: 1, total: 20 };
+    render(<PaperOverview view={data} mode="SHADOW" paused={false} />);
+    expect(screen.getByText('최근 관측 갱신 확인 필요')).toBeTruthy();
+    expect(screen.getByText('수집 지연 확인 필요')).toBeTruthy();
+    expect(screen.getByRole('region', { name: '관측 운영 상태' }).classList.contains('needs-review')).toBe(true);
+    expect(screen.queryByText('휴장일 · 자동 가격 스캔 대기')).toBeNull();
+  });
+  it.each(['strategy', 'refresh', 'timestamp'] as const)('does not hide a holiday %s failure behind normal waiting', failure => {
+    const data = currentView(); data.scanIntervalSeconds = null;
+    if (failure === 'strategy') data.strategy!.error = '전략 원장 조회 실패';
+    if (failure === 'timestamp') data.lastRun!.asOf = new Date(Date.now() + 600_000).toISOString();
+    render(<PaperOverview view={data} mode="SHADOW" paused={false} refreshFailed={failure === 'refresh'} />);
+    expect(screen.getByRole('heading', { name: failure === 'strategy' ? '전략 기록 확인 필요' : failure === 'refresh' ? '최근 자료 조회 실패' : '최근 관측 갱신 확인 필요' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: '관측 운영 상태' }).classList.contains('needs-review')).toBe(true);
+    expect(screen.queryByText('휴장일 · 자동 가격 스캔 대기')).toBeNull();
   });
   it('shows actual collection progress while the previous pre-open scan is still displayed', () => {
     const now = new Date().toISOString();

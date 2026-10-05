@@ -89,9 +89,10 @@ async function forceRefreshKisTokenCron(label: string): Promise<void> {
 export function registerOrchestratorJobs(): void {
   // node-cron 3 otherwise drops minute ticks when synchronous work crosses second zero.
   // The paper runner coalesces recovered ticks into one current scan, never historical orders.
-  // Observation/outcome processing continues independently of LIVE enable, regime and holidays.
+  // Independent of LIVE controls; the runner skips holiday prices while retaining stored-data research.
   scheduledJob('* * * * *', 'ALWAYS_ON', 'paper_experiments', runPaperExperimentTick, { timezone: 'UTC', recoverMissedExecutions: true });
-  scheduledJob('*/30 * * * * *', 'ALWAYS_ON', 'paper_holding_prices', runPaperPriceMonitor, { timezone: 'UTC' });
+  // Offset minute-based holding checks from the broad-scan tick at second zero.
+  scheduledJob('30 * * * * *', 'ALWAYS_ON', 'paper_holding_prices', runPaperPriceMonitor, { timezone: 'UTC' });
 
   // KIS 토큰 강제 갱신 — **12시간 주기, 매일 실행**.
   // 주말도 포함 — 주말 해외 뉴스/공급망 스캔이 KIS 데이터 토큰을 쓰므로 365일 갱신.

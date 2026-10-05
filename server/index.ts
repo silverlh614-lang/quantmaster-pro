@@ -551,14 +551,15 @@ async function startServer() {
         .catch((e) => console.error('[BootReconcile] 모듈 로드 실패:', e));
     }, 30_000);
 
-    // ADR-0673: 부팅 60초 후 새 모델의 시장 관측/연구 스캔을 1회 실행한다.
+    // ADR-0673/0691: 부팅 60초 후 자동 관측 주기를 확인한다. 휴장일은 저장 자료 연구만 수행한다.
     // 빈 구 워치리스트 복구 대신 collector의 전체 종목 후보와 기존 열린 관측을 사용한다.
     // 기존 부팅 스캔 비활성화 설정과 30초 계좌 reconcile 순서는 유지한다.
     if (process.env.BOOT_SCAN_TRIGGER_DISABLED !== 'true') {
       setTimeout(() => {
         import('./trading/paper/paperExperimentRunner.js')
-          .then(({ runPaperExperimentScan }) => runPaperExperimentScan())
+          .then(({ runPaperExperimentScan }) => runPaperExperimentScan({ scheduled: true }))
           .then((result) => {
+            if (!result) { console.log('[BootScan] 휴장일 자동 가격 스캔 대기 · 저장 자료 연구 확인'); return; }
             console.log(
               `[BootScan] 부팅 시장 관측 완료 — snapshot=${result.snapshotId} ` +
                 `candidates=${result.candidateCount} observed=${result.observedCount} ` +
