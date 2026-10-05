@@ -36,4 +36,11 @@ describe('regime-free scan dispatch', () => {
     await expect(runAutoSignalScan()).rejects.toThrow('observation unavailable');
     expect(mocks.legacy).not.toHaveBeenCalled();
   });
+
+  it('returns no scan result during scheduled holiday rest and never falls back to the broker scanner', async () => {
+    mocks.paper.mockResolvedValue(null);
+    expect(await runAutoSignalScan()).toEqual({});
+    expect(mocks.paper).toHaveBeenCalledWith({ scheduled: true });
+    expect(mocks.legacy).not.toHaveBeenCalled();
+  });
 });

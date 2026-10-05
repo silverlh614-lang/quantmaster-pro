@@ -49,6 +49,16 @@ beforeEach(() => {
 });
 
 describe('intraday content slots', () => {
+  it('accepts the configured broad-scan gap but waits beyond its grace window', () => {
+    view.scanIntervalSeconds = 600;
+    scanAt(new Date(morning.getTime() - 14 * 60_000));
+    enqueuePaperReports(state, view, morning);
+    expect(state.messages.some(item => item.kind === 'intraday')).toBe(true);
+    state.messages = [];
+    scanAt(new Date(morning.getTime() - 16 * 60_000));
+    enqueuePaperReports(state, view, morning);
+    expect(state.messages).toEqual([]);
+  });
   it('accepts a completed price-monitor update following a fresh broad scan', () => {
     view.strategy!.lastRun!.snapshotId = 'paper_prices_test';
     view.priceMonitor = { intervalSeconds: 30, running: false, marketOpen: true,

@@ -12,6 +12,7 @@ import { Router } from 'express';
 import { loadPaperExperimentLedger } from '../../persistence/paperExperimentRepo.js';
 import { loadPaperStrategyLedger } from '../../persistence/paperStrategyRepo.js';
 import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
+import { paperScanIntervalMs } from '../../trading/paper/paperScanCadence.js';
 import {
   getEmergencyStop,
   setEmergencyStop,
@@ -72,13 +73,14 @@ export function buildEngineStatusSnapshot(now = new Date()) {
   const todayExits = strategy ? strategy.trades.filter((trade) => trade.status === 'CLOSED' && isToday(trade.exit?.effectiveAt)).length : null;
   const observationAgeMs = lastScanAt ? now.getTime() - Date.parse(lastScanAt) : null;
   const observationsPaused = getAutoTradePaused();
+  const scanInterval = paperScanIntervalMs(now);
   // The observation scheduler is independent of the live engine toggle. A recent
-  // completed ledger snapshot proves activity; no saved scan counter exists.
-  const observationsRunning = !observationsPaused && observationAgeMs !== null
-    && observationAgeMs >= 0 && observationAgeMs <= 10 * 60_000;
+  // completed ledger snapshot proves activity within its cadence plus scheduler grace.
+  const observationsRunning = !observationsPaused && scanInterval !== null && observationAgeMs !== null
+    && observationAgeMs >= 0 && observationAgeMs <= Math.max(10 * 60_000, scanInterval + 5 * 60_000);
   const observationStatus = observationsPaused ? 'PAUSED'
     : !experiments ? 'UNAVAILABLE'
-      : !lastScanAt ? 'WAITING'
+      : !lastScanAt || scanInterval === null ? 'WAITING'
         : observationsRunning ? 'ACTIVE' : 'STALE';
   const heartbeatAt = getLastHeartbeat();
   const killSwitch = getKillSwitchLast();

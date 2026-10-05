@@ -3,7 +3,8 @@ import type { PaperAdaptiveCandidate, PaperAdaptiveRule } from '../../../src/typ
 import type { PaperObservation } from '../../../src/types/paperExperiment.js';
 import type { PaperMorningPick, PaperMorningSelection, PaperMorningSource } from '../../../src/types/paperMorning.js';
 import { PAPER_FEATURES, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
-import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaId, validPaperIndicatorFormula } from '../../../src/types/paperIndicatorFormula.js';
+import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaId } from '../../../src/types/paperIndicatorFormula.js';
+import { validSealedPaperFormula } from './paperIndicatorProgram.js';
 import { isKrxTradingDay, previousKrxTradingDay, toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { adaptiveFeatureValue, adaptiveRuleId, adaptiveRuleMatches } from './paperAdaptiveSelection.js';
 
@@ -26,7 +27,7 @@ function validRule(rule: PaperAdaptiveRule, evaluatedAt: string): boolean {
   if (![1, 3, 5].includes(rule.horizon) || !Number.isInteger(rule.bucket) || rule.bucket < 0) return false;
   const invention = rule.invention;
   if (!invention) return Object.hasOwn(PAPER_FEATURES, rule.feature) && rule.bucket <= PAPER_FEATURES[rule.feature as PaperFeatureKey].cuts.length;
-  return validPaperIndicatorFormula(invention.formula) && paperIndicatorFormulaId(invention.formula) === rule.feature && invention.id === rule.feature
+  return validSealedPaperFormula(invention.formula) && paperIndicatorFormulaId(invention.formula) === rule.feature && invention.id === rule.feature
     && invention.rule.bucket === rule.bucket && invention.rule.horizon === rule.horizon && rule.bucket <= PAPER_INVENTED_FEATURE_CUTS.length
     && Date.parse(invention.discoveryCutoffAt) <= Date.parse(invention.createdAt) && Date.parse(invention.createdAt) <= Date.parse(evaluatedAt);
 }

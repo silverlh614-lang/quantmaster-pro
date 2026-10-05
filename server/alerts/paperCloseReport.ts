@@ -1,7 +1,7 @@
 // @responsibility Explain daily Shadow results from recorded evidence.
 import type { PaperExperimentView, PaperOutcome } from '../../src/types/paperExperiment.js';
 import type { PaperStrategyReasonCode, PaperStrategyTrade } from '../../src/types/paperStrategy.js';
-import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
+import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate } from '../trading/krxHolidays.js';
 import { PAPER_NEWS_LABELS } from '../../src/utils/paperNews.js';
 import { readPaperNewsFacts } from '../../src/utils/paperNewsFacts.js';
@@ -146,10 +146,13 @@ export function formatPaperCloseReport(view: PaperExperimentView, date: string, 
   const close = Date.parse(`${date}T15:30:00+09:00`);
   const last = view.lastRun;
   const at = Date.parse(last?.asOf ?? '');
+  const scanSuspended = view.scanIntervalSeconds === null && !isKrxTradingDay(date);
+  const staleMinutes = Math.max(10, (view.scanIntervalSeconds ?? 0) / 60 + 5);
   const completed = toKstDateKey(last?.asOf ?? '') === date && at >= close && at <= cutoff;
   const lines = [`🌙 <b>Shadow 마감 요약 · ${date}</b>`, '가상 실험 · 비용 반영 · KST', '',
-    cutoff < close ? '마감 전 미리보기 · 종가 성과 미확정' : completed ? '마감 후 관측 확인' : '마감 후 관측 미확인 · 아래는 저장된 기록',
-    `마지막 관측 ${stamp(last?.asOf)}${last && cutoff - at > 10 * 60_000 ? ' · 10분 이상 갱신 지연' : ''}`];
+    scanSuspended ? '휴장일 자동 가격 스캔 대기 · 아래는 저장된 기록'
+      : cutoff < close ? '마감 전 미리보기 · 종가 성과 미확정' : completed ? '마감 후 관측 확인' : '마감 후 관측 미확인 · 아래는 저장된 기록',
+    `마지막 관측 ${stamp(last?.asOf)}${!scanSuspended && last && cutoff - at > staleMinutes * 60_000 ? ` · ${staleMinutes}분 이상 갱신 지연` : ''}`];
   if (last) lines.push(`가격 확인 ${num(last.observedCount)}/${num(last.candidateCount)}종목 · 미확인 ${num(last.missingPriceCount)}`);
   if (view.collection) lines.push(`다음 수집 진행 ${num(view.collection.completed)}/${num(view.collection.total)}종목`);
   if (recommendationFollowup) lines.push('', ...recommendationFollowup.split('\n'));

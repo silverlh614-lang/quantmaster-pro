@@ -24,7 +24,7 @@ export interface ScheduleEntry {
 }
 
 export const SCHEDULE_CATALOG: ScheduleEntry[] = [
-  { timeKst: '상시', label: 'Shadow 봇: 매일 08:30 추천, 거래일 08:45/10:30/13:30/16:10, 일 19:00, 매분 변화 점검', group: 'reports', jobName: 'paper_bot', silentWhen: '예정 보고 또는 새 가상 매매·연구·운영 상태 변화가 없으면 무음; 08:30 휴장일은 연구 현황, 장중 보고는 최근 10분 내 판단 확인 시 발송' },
+  { timeKst: '상시', label: 'Shadow 봇: 매일 08:30 추천, 거래일 08:45/10:30/13:30/16:10, 일 19:00, 매분 변화 점검', group: 'reports', jobName: 'paper_bot', silentWhen: '예정 보고 또는 새 가상 매매·연구·운영 상태 변화가 없으면 무음; 08:30 휴장일은 연구 현황, 장중 보고는 관측 주기와 유예 시간 내 판단 확인 시 발송' },
   // ── 리포트 (Telegram 송출 중심) ────────────────────────────────────────────
   { timeKst: '06:00', label: '글로벌 스캔 에이전트', group: 'screener', jobName: 'global_scan_agent', silentWhen: 'Yahoo 미국 지수·섹터 ETF 종합 스캔 — KR 휴장 무관 ALWAYS_ON' },
   { timeKst: '06:15', label: '미 섹터 ETF 모멘텀 스캔', group: 'reports', jobName: 'sector_etf_momentum' },
@@ -115,8 +115,8 @@ export const SCHEDULE_CATALOG: ScheduleEntry[] = [
 
   // ── 상시 ──────────────────────────────────────────────────────────────────
   { timeKst: '상시',  label: '오케스트레이터 1분 tick', group: 'trading', jobName: 'orchestrator_tick' },
-  { timeKst: '상시',  label: 'Shadow 관측 (장전·장중·마감 1분 / 장외 30분 / 휴장 60분)', group: 'learning', jobName: 'paper_experiments', silentWhen: '매분 실행 필요 확인 · 진행 중 스캔 중복 없음' },
-  { timeKst: '장중', label: 'Shadow 보유 가격 감시 (30초)', group: 'learning', jobName: 'paper_holding_prices', silentWhen: '현재가만 순환 수집 · 손실 제한/수익 반납 판단·기록' },
+  { timeKst: '상시',  label: 'Shadow 관측 (08~16시 10분 / 장외 30분 / 휴장 수동)', group: 'learning', jobName: 'paper_experiments', silentWhen: '매분 실행 필요 확인 · 중복 스캔 없음 · 휴장일 가격 조회 중지, 같은 저장 자료는 연구 결과 재사용' },
+  { timeKst: '장중', label: 'Shadow 보유 가격 감시 (1분)', group: 'learning', jobName: 'paper_holding_prices', silentWhen: '현재가만 순환 수집 · 손실 제한/수익 반납 판단·기록' },
   { timeKst: '00:30', label: 'Daily Mini Backtest', group: 'learning', jobName: 'daily_mini_backtest', silentWhen: '내부 학습 영속만 — Telegram 송출 없음' },
   { timeKst: '09:30', label: 'MissedLearningQueue replay (ADR-0176)', group: 'learning', jobName: 'missed_learning_replay', silentWhen: 'ENV `MISSED_LEARNING_QUEUE_ENABLED` 미활성 또는 큐 비어 있으면 무음' },
   // OCO 감시 그룹 — tradeFlowJobs.ts. (cron stagger 감사 2026-06-10: 보조 cron 도 명시 등재)

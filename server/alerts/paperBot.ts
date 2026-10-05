@@ -99,7 +99,8 @@ function hasFreshPaperDecisions(view: PaperExperimentView | undefined, now: Date
     || (view.strategy.lastRun.snapshotId !== view.lastRun.snapshotId && !monitorUpdate)) return false;
   return [view.lastRun.asOf, view.strategy.lastRun.asOf].every(at => {
     const age = now.getTime() - Date.parse(at);
-    return age >= 0 && age <= 10 * MINUTE && toKstDateKey(at) === toKstDateKey(now);
+    return age >= 0 && age <= Math.max(10 * MINUTE, (view.scanIntervalSeconds ?? 0) * 1000 + 5 * MINUTE)
+      && toKstDateKey(at) === toKstDateKey(now);
   });
 }
 
@@ -166,20 +167,23 @@ export function enqueuePaperTradeChanges(state: PaperBotState, view: PaperExperi
 
 export function classifyPaperBotHealth(view: PaperExperimentView | undefined, paused: boolean, now: Date, startedAt = processStartedAt, previous: PaperBotHealth = 'OK'): PaperBotHealth {
   if (paused) return 'PAUSED';
-  if (now.getTime() - startedAt < 10 * MINUTE && (!view?.lastRun || now.getTime() - Date.parse(view.lastRun.asOf) > 10 * MINUTE)) return previous;
+  if (view?.strategy?.error || view?.strategy?.lastRun?.error) return 'STRATEGY_ERROR';
+  if (view?.lastRun && (!Number.isFinite(Date.parse(view.lastRun.asOf)) || Date.parse(view.lastRun.asOf) > now.getTime())) return 'STALE';
+  const scanSuspended = view?.scanIntervalSeconds === null && !isKrxTradingDay(toKstDateKey(now));
+  if (scanSuspended && !view.collection) return 'OK';
+  if (!scanSuspended && now.getTime() - startedAt < 10 * MINUTE && (!view?.lastRun || now.getTime() - Date.parse(view.lastRun.asOf) > 10 * MINUTE)) return previous;
   if (!view) return 'UNAVAILABLE';
-  if (view.strategy?.error || view.strategy?.lastRun?.error) return 'STRATEGY_ERROR';
   const last = view.lastRun;
   const marketOpen = isPaperMarketOpen(now);
-  const staleMs = marketOpen ? 10 * MINUTE : Math.max(60 * MINUTE, (view.scanIntervalSeconds ?? 0) * 1000 + 10 * MINUTE);
+  const staleMs = Math.max((marketOpen ? 10 : 60) * MINUTE, (view.scanIntervalSeconds ?? 0) * 1000 + (marketOpen ? 5 : 10) * MINUTE);
   const lastAt = Date.parse(last?.asOf ?? '');
-  if (!Number.isFinite(lastAt) || lastAt > now.getTime() || now.getTime() - lastAt > staleMs) {
+  if (scanSuspended || !Number.isFinite(lastAt) || lastAt > now.getTime() || now.getTime() - lastAt > staleMs) {
     const progress = view.collection;
     const start = Date.parse(progress?.startedAt ?? '');
     const advanced = Date.parse(progress?.lastProgressAt ?? '');
     // Progress proves activity, not recovery. Only a completed scan clears a reported delay.
     if (progress && Number.isInteger(progress.completed) && Number.isInteger(progress.total)
-      && progress.completed > 0 && progress.completed <= progress.total
+      && (progress.completed > 0 || scanSuspended && progress.completed === 0) && progress.completed <= progress.total
       && start <= advanced && advanced <= now.getTime() && (!Number.isFinite(lastAt) || start >= lastAt)
       && now.getTime() - advanced <= 2 * MINUTE && now.getTime() - start <= (marketOpen ? 30 : 120) * MINUTE) {
       return previous === 'STALE' ? 'STALE' : 'OK';
@@ -191,13 +195,22 @@ export function classifyPaperBotHealth(view: PaperExperimentView | undefined, pa
 }
 
 export function enqueuePaperHealth(state: PaperBotState, health: PaperBotHealth, now: Date, view?: PaperExperimentView): void {
+  if (health === 'OK' && view?.scanIntervalSeconds === null && !view.collection && !isKrxTradingDay(toKstDateKey(now))
+    && state.notifiedHealth === 'STALE') {
+    // A planned holiday rest cancels delay retries, but does not claim a failed scan recovered.
+    state.health = 'OK';
+    for (const message of state.messages) if (message.kind === 'health' && message.state === 'PENDING') message.state = 'SUPERSEDED';
+    return;
+  }
   if (health === 'OK' && state.notifiedHealth === 'STALE' && view) {
     const reportedAt = Math.max(0, ...state.messages.filter(item => item.health === 'STALE' && item.state === 'SENT')
       .map(item => Date.parse(item.createdAt)).filter(Number.isFinite));
     // A quieter session threshold alone is not evidence that observations recovered.
     if (!(Date.parse(view.lastRun?.asOf ?? '') > reportedAt)) return;
   }
-  if (state.health === health) {
+  const awaitingRecovery = health === 'OK' && state.notifiedHealth === 'STALE'
+    && !state.messages.some(message => message.kind === 'health' && message.health === 'OK' && message.state === 'PENDING');
+  if (state.health === health && !awaitingRecovery) {
     for (const message of state.messages) if (message.kind === 'health' && message.state === 'PENDING' && message.health === health) {
       message.message = formatPaperHealth(health, now, view);
     }
@@ -217,9 +230,16 @@ export function enqueuePaperHealth(state: PaperBotState, health: PaperBotHealth,
 }
 
 function formatPaperHealth(health: PaperBotHealth, now: Date, view?: PaperExperimentView): string {
+  const marketOpen = isPaperMarketOpen(now);
+  const scanSuspended = view?.scanIntervalSeconds === null && !isKrxTradingDay(toKstDateKey(now));
+  const invalidScanTime = view?.lastRun && (!Number.isFinite(Date.parse(view.lastRun.asOf)) || Date.parse(view.lastRun.asOf) > now.getTime());
+  const staleMinutes = Math.max(marketOpen ? 10 : 60, (view?.scanIntervalSeconds ?? 0) / 60 + (marketOpen ? 5 : 10));
   const text: Record<PaperBotHealth, string> = {
-    OK: '관측이 다시 갱신되고 있습니다.', PAUSED: '자동 관측이 일시정지 상태로 전환됐습니다.',
-    STALE: `${isPaperMarketOpen(now) ? '장중 10분' : '휴장·장외 60분'} 넘게 완료된 관측이 없고 수집 진행을 정상으로 확인하지 못했습니다.`,
+    OK: scanSuspended ? '휴장일 가격 스캔 대기 · 저장된 관측·전략 기록을 다시 확인했습니다.' : '관측이 다시 갱신되고 있습니다.',
+    PAUSED: '자동 관측이 일시정지 상태로 전환됐습니다.',
+    STALE: invalidScanTime ? '마지막 관측 시각을 정상으로 확인할 수 없습니다. 관측 기록 확인이 필요합니다.'
+      : scanSuspended ? '휴장일에 실행한 수집의 진행 상태를 정상으로 확인하지 못했습니다.'
+      : `${marketOpen ? '장중' : '휴장·장외'} ${staleMinutes}분 넘게 완료된 관측이 없고 수집 진행을 정상으로 확인하지 못했습니다.`,
     UNAVAILABLE: 'Shadow 원장을 읽지 못했습니다. 서버 저장 자료 확인이 필요합니다.',
     PRICE_MISSING: '장중 최근 관측에서 현재가를 확인한 종목이 없습니다. 가격 공급 상태를 확인하세요.',
     STRATEGY_ERROR: '자율 지표 전략 기록 갱신에 오류가 있습니다. 최근 스캔 오류를 확인하세요.',

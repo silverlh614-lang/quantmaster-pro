@@ -7,10 +7,13 @@ const state = vi.hoisted(() => ({
   baseline: { schemaVersion: 1, experiments: [], lastRun: null } as PaperExperimentLedger,
   strategy: { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null } as PaperStrategyLedger,
   collect: vi.fn(), saveBaseline: vi.fn(), saveStrategy: vi.fn(), loadStrategy: vi.fn(), loadBaseline: vi.fn(),
-  saveBatch: vi.fn(), recordFailure: vi.fn(), readHistory: vi.fn(), maintain: vi.fn(),
+  saveBatch: vi.fn(), recordFailure: vi.fn(), readHistory: vi.fn(), maintain: vi.fn(), programQueue: vi.fn(), holidayResearch: vi.fn(),
   measurementHistory: { lastRecordedAt: null, failedBatchCount: 0, unrecordedPointCount: 0 } as PaperTradeMeasurementHistory,
   archived: null as null | ((symbol: string, date: string, close: number) => boolean),
 }));
+vi.mock('./paperHolidayResearch.js', () => ({ runPaperHolidayResearch: state.holidayResearch }));
+vi.mock('./paperProgramResearch.js', () => ({ queuePaperProgramResearch: state.programQueue,
+  readPaperProgramProposals: () => [], readPaperProgramResearch: () => ({ state: 'IDLE', proposals: [], message: '대기', attemptedAt: null, completedAt: null }) }));
 vi.mock('./paperResearchRuntime.js', async (original) => ({
   ...(await original<typeof import('./paperResearchRuntime.js')>()), getArchivedPaperBarCheck: () => state.archived,
 }));
@@ -36,6 +39,7 @@ beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
   state.archived = null;
+  state.holidayResearch.mockResolvedValue(undefined);
   state.baseline = { schemaVersion: 1, experiments: matureStrategySamples(), lastRun: null };
   state.strategy = emptyStrategyLedger();
   state.loadBaseline.mockReset().mockImplementation(() => structuredClone(state.baseline));
@@ -72,11 +76,54 @@ describe('strategy integration in the default Shadow runner', () => {
   });
 
   it('retries a failed collection without waiting through the economy interval', async () => {
-    const runner = await import('./paperExperimentRunner.js');
-    state.collect.mockRejectedValueOnce(new Error('unavailable'));
-    await expect(runner.runPaperExperimentScan({ scheduled: true })).rejects.toThrow('unavailable');
-    await runner.runPaperExperimentScan({ scheduled: true });
-    expect(state.collect).toHaveBeenCalledTimes(2);
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime('2026-10-06T10:00:00+09:00');
+      const runner = await import('./paperExperimentRunner.js');
+      state.collect.mockRejectedValueOnce(new Error('unavailable'));
+      await expect(runner.runPaperExperimentScan({ scheduled: true })).rejects.toThrow('unavailable');
+      await runner.runPaperExperimentScan({ scheduled: true });
+      expect(state.collect).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+  it('skips holiday scheduled prices even after restart, keeps manual collection and resumes on a trading day', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime('2026-10-05T08:00:00+09:00');
+      let runner = await import('./paperExperimentRunner.js');
+      await expect(runner.runPaperExperimentScan({ scheduled: true })).resolves.toBeNull();
+      vi.setSystemTime('2026-10-05T09:00:00+09:00');
+      await runner.runPaperExperimentScan({ scheduled: true });
+      vi.resetModules();
+      runner = await import('./paperExperimentRunner.js');
+      await runner.runPaperExperimentScan({ scheduled: true });
+      expect(state.collect).not.toHaveBeenCalled();
+      expect(state.saveBaseline).not.toHaveBeenCalled();
+      expect(state.saveStrategy).not.toHaveBeenCalled();
+      expect(state.holidayResearch).toHaveBeenCalledTimes(3);
+      await runner.runPaperExperimentScan();
+      expect(state.collect).toHaveBeenCalledTimes(1);
+      vi.setSystemTime('2026-10-06T08:00:00+09:00');
+      await runner.runPaperExperimentScan({ scheduled: true });
+      expect(state.collect).toHaveBeenCalledTimes(2);
+      expect(state.holidayResearch).toHaveBeenCalledTimes(3);
+    } finally { vi.useRealTimers(); }
+  });
+  it('coalesces minute scheduler ticks until the ten-minute market scan interval is due', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime('2026-09-18T10:00:00+09:00');
+      const runner = await import('./paperExperimentRunner.js');
+      await runner.runPaperExperimentScan({ scheduled: true });
+      vi.setSystemTime('2026-09-18T10:01:00+09:00');
+      await runner.runPaperExperimentScan({ scheduled: true });
+      vi.setSystemTime('2026-09-18T10:09:59+09:00');
+      await runner.runPaperExperimentScan({ scheduled: true });
+      expect(state.collect).toHaveBeenCalledTimes(1);
+      vi.setSystemTime('2026-09-18T10:10:00+09:00');
+      await runner.runPaperExperimentScan({ scheduled: true });
+      expect(state.collect).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
   });
   it('preserves a monitor exit committed during a slow full collection without duplicate exits', async () => {
     const runner = await import('./paperExperimentRunner.js');
@@ -111,11 +158,14 @@ describe('strategy integration in the default Shadow runner', () => {
     price.observations[0].observedAt = price.asOf; delete price.observations[0].features;
     price.observations.push({ ...price.observations[0], symbol: '000001' });
     const adaptive = structuredClone(state.strategy.adaptive);
+    expect(state.programQueue).toHaveBeenCalledTimes(1);
+    expect(state.saveStrategy.mock.invocationCallOrder[0]).toBeLessThan(state.programQueue.mock.invocationCallOrder[0]);
     expect(runtime.advancePaperStrategy(runtime.loadPaperStrategyState(), [], price)).toMatchObject({ openedCount: 0, holdingCount: 1 });
     expect(state.strategy.trades).toHaveLength(1);
     expect(state.strategy.adaptive).toEqual(adaptive);
     expect(state.strategy.trades[0].exitResearch!.signalFailureCount).toBe(1);
     expect(state.strategy.trades[0].measurement!.latest).toMatchObject({ kind: 'QUOTE', snapshotId: price.id, featureAsOf: null });
+    expect(state.programQueue).toHaveBeenCalledTimes(1);
   });
 
   it('collects a closed strategy-only symbol until its forward comparison is complete', async () => {

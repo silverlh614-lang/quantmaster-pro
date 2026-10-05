@@ -3,6 +3,7 @@ import type { PaperCostModel, PaperNewsSummary, PaperObservation } from './paper
 import type { PaperInvestorFlow } from './paperInvestorFlow';
 import type { PaperAdaptiveEvidence, PaperAdaptiveState, PaperExplorationEvidence } from './paperAdaptive';
 import type { PaperAdaptiveExitOutcome, PaperAdaptiveExitPolicy, PaperAdaptiveExitResearch, PaperExitLearningState } from './paperAdaptiveExit';
+import type { PaperAutonomyAllocation } from './paperAutonomy';
 
 export type PaperStrategyVersion = 'news-trend-v1' | 'news-trend-v2' | 'adaptive-features-v1';
 
@@ -79,6 +80,7 @@ export interface PaperStrategyDecision {
   evidence: PaperStrategyEvidence | null;
   adaptiveEvidence?: PaperAdaptiveEvidence;
   explorationEvidence?: PaperExplorationEvidence;
+  allocation?: PaperAutonomyAllocation;
   tradeId: string | null;
   newsSummary?: PaperNewsSummary;
   investorFlow?: PaperInvestorFlow;

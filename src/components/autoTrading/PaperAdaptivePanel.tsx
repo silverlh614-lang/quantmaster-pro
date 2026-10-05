@@ -2,6 +2,7 @@
 import React from 'react';
 import { PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel, paperPlaceboChance, type PaperAdaptiveEvidence, type PaperAdaptiveRule, type PaperAdaptiveState, type PaperAdaptiveStats, type PaperExplorationEvidence } from '../../types/paperAdaptive';
 import { PAPER_FEATURES } from '../../types/paperObservationFeatures';
+import { paperIndicatorFormulaOperands } from '../../types/paperIndicatorFormula';
 
 const percent = (value: number | null, unit = '%') => value === null ? '집계 대기' : `${value > 0 ? '+' : ''}${value.toFixed(2)}${unit}`;
 const timestamp = (value: string) => new Date(value).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false });
@@ -13,7 +14,7 @@ function InventionContext({ rule }: { rule: PaperAdaptiveRule }) {
   return <div className="space-y-1 text-xs font-normal text-slate-400">
     <p>발명 지표 · 생성 <time dateTime={invention.createdAt}>{timestamp(invention.createdAt)} KST</time>
       {' · '}발명 자료 기준 <time dateTime={invention.discoveryCutoffAt}>{timestamp(invention.discoveryCutoffAt)} KST</time></p>
-    <p>{[invention.formula.left, invention.formula.right].map(operand =>
+    <p>{paperIndicatorFormulaOperands(invention.formula).map(operand =>
       `N(${PAPER_FEATURES[operand.feature].label}) = (값 − ${operand.center}) / ${operand.scale}`).join(' · ')} · 각각 −3~3 범위로 제한</p>
   </div>;
 }

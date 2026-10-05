@@ -1,10 +1,12 @@
 // @responsibility Propose bounded indicator formulas before their forward observations exist.
 import { PAPER_FEATURES, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
 import { createPaperIndicatorFormula, paperIndicatorFormulaId, PAPER_MAX_INVENTIONS,
-  type PaperIndicatorFormula } from '../../../src/types/paperIndicatorFormula.js';
+  type PaperIndicatorFormula, type PaperIndicatorComposition } from '../../../src/types/paperIndicatorFormula.js';
 import type { PaperAdaptiveCandidate, PaperAdaptiveState, PaperAdaptiveStats, PaperIndicatorDiscovery,
   PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
 import { paperEvidenceDigest } from './paperStrategyEvidence.js';
+import type { PaperProgramProposal } from './paperProgramResearch.js';
+import { validSealedPaperFormula } from './paperIndicatorProgram.js';
 
 export const PAPER_DISCOVERY_DAILY_ATTEMPTS = 24;
 export const PAPER_DISCOVERY_DAILY_PROPOSALS = 2;
@@ -14,9 +16,10 @@ const features = (Object.keys(PAPER_FEATURES) as PaperFeatureKey[]).sort();
 const formulas = features.flatMap((left, index) => features.slice(index + 1).flatMap(right =>
   (['MEAN', 'DIFFERENCE', 'PRODUCT'] as const).map(operation => createPaperIndicatorFormula(operation, left, right))));
 
-export function paperIndicatorFormulaUniverse(): PaperIndicatorFormula[] { return structuredClone(formulas); }
+export function paperIndicatorFormulaUniverse(): PaperIndicatorComposition[] { return structuredClone(formulas); }
 
 interface DiscoveryInput {
+  programs?: PaperProgramProposal[];
   previous: PaperAdaptiveState | undefined; asOf: string; cutoffAt: string;
   candidates: PaperAdaptiveCandidate[]; trainingDates: string[];
   sufficientInputs: (formula: PaperIndicatorFormula) => boolean;
@@ -33,6 +36,9 @@ export function discoverPaperIndicators(input: DiscoveryInput): {
   if (!discovery.roundTrainingEndDate && input.trainingDates.length) {
     discovery.roundTrainingEndDate = input.trainingDates.at(-1)!; discovery.roundStartedAt = input.asOf;
   }
+  const programs = (input.programs ?? []).filter(item => validSealedPaperFormula(item.formula)
+    && Date.parse(item.generatedAt) <= Date.parse(input.asOf));
+  const programAttempts = new Set(discovery.programAttemptedIds ?? []);
   const available = formulas.filter(formula => input.sufficientInputs(formula));
   const retainedAtStart = new Set(discovery.inventions.map(item => item.id));
   let attempted = new Set(discovery.attemptedIds);
@@ -64,14 +70,21 @@ export function discoverPaperIndicators(input: DiscoveryInput): {
   const room = Math.min(PAPER_DISCOVERY_DAILY_PROPOSALS, PAPER_MAX_INVENTIONS - discovery.inventions.length);
   if (!room) return { discovery, created: [], retired };
   const retainedIds = new Set(discovery.inventions.map(item => item.id));
-  const eligible = available.filter(formula => !retainedIds.has(paperIndicatorFormulaId(formula)));
+  const eligible = [...programs.filter(item => !programAttempts.has(paperIndicatorFormulaId(item.formula)) && input.sufficientInputs(item.formula))
+    .map(item => item.formula), ...available].filter(formula => !retainedIds.has(paperIndicatorFormulaId(formula)));
   const evaluated: PaperAdaptiveCandidate[] = [];
+  const programReviews = [...(discovery.programReviews ?? [])];
   let inspected = 0;
   for (const formula of eligible) {
     const id = paperIndicatorFormulaId(formula);
-    if (attempted.has(id)) continue;
-    attempted.add(id); discovery.attemptedIds.push(id);
+    if (formula.version === 'feature-program-v1') programAttempts.add(id);
+    else { if (attempted.has(id)) continue; attempted.add(id); discovery.attemptedIds.push(id); }
     const candidate = input.evaluateTraining(formula);
+    if (formula.version === 'feature-program-v1') programReviews.push({ id, at: input.asOf,
+      status: !candidate ? 'REDUNDANT_OR_CONSTANT' : candidate.training.sampleCount >= 10 && candidate.training.dateCount >= 3
+        && (candidate.training.meanNetReturnPct ?? 0) > 0 && (candidate.training.meanDailyExcessPct ?? 0) > 0 ? 'RANKED_OUT' : 'NO_TRAINING_EDGE',
+      sampleCount: candidate?.training.sampleCount ?? 0, dateCount: candidate?.training.dateCount ?? 0,
+      meanDailyExcessPct: candidate?.training.meanDailyExcessPct ?? null });
     if (candidate) evaluated.push(candidate);
     if (++inspected === PAPER_DISCOVERY_DAILY_ATTEMPTS) break;
   }
@@ -83,6 +96,9 @@ export function discoverPaperIndicators(input: DiscoveryInput): {
   const sampleKey = (item: { rule: { horizon: number }; training: PaperAdaptiveStats }) => `${item.rule.horizon}:${item.training.experimentIdsDigest
     ?? paperEvidenceDigest(item.training.experimentIds ?? [])}`;
   const selectedKeys = new Set(discovery.inventions.map(item => sampleKey(item)));
+  // At most one slot is reserved for a qualified AI proposal; it passes the same training checks.
+  const firstProgram = ranked.find(item => item.rule.feature.startsWith('invented:program:'));
+  if (firstProgram) { ranked.splice(ranked.indexOf(firstProgram), 1); ranked.unshift(firstProgram); }
   const distinct: PaperAdaptiveCandidate[] = [];
   for (const candidate of ranked) {
     const key = sampleKey(candidate);
@@ -91,11 +107,15 @@ export function discoverPaperIndicators(input: DiscoveryInput): {
     if (distinct.length === room) break;
   }
   const created = distinct.map(item => {
-    const formula = formulas.find(value => paperIndicatorFormulaId(value) === item.rule.feature)!;
+    const source = programs.find(value => paperIndicatorFormulaId(value.formula) === item.rule.feature);
+    const formula = source?.formula ?? formulas.find(value => paperIndicatorFormulaId(value) === item.rule.feature)!;
     return { id: paperIndicatorFormulaId(formula), formula: structuredClone(formula), createdAt: input.asOf,
       discoveryCutoffAt: input.cutoffAt, rule: { bucket: item.rule.bucket, horizon: item.rule.horizon },
-      training: structuredClone(item.training) };
+      training: structuredClone(item.training), ...(source ? { authorship: { generatedAt: source.generatedAt, model: source.model, inputDigest: source.inputDigest } } : {}) };
   });
+  if (programAttempts.size) discovery.programAttemptedIds = [...programAttempts].slice(-1000);
+  for (const item of created) { const review = [...programReviews].reverse().find(review => review.id === item.id); if (review) review.status = 'REGISTERED'; }
+  if (programReviews.length) discovery.programReviews = programReviews.slice(-48);
   discovery.inventions.push(...created);
   return { discovery, created, retired };
 }

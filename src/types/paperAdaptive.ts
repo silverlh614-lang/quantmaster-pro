@@ -1,5 +1,7 @@
 // @responsibility Define autonomous Shadow decision contracts.
 import { PAPER_FEATURES, type PaperFeatureKey } from './paperObservationFeatures';
+import type { PaperProgramResearchView } from './paperIndicatorProgram';
+import type { PaperAutonomyState } from './paperAutonomy';
 import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaLabel, type PaperIndicatorFormula,
   type PaperInventedFeatureId } from './paperIndicatorFormula';
 
@@ -19,11 +21,15 @@ export interface PaperIndicatorInvention {
   id: PaperInventedFeatureId; formula: PaperIndicatorFormula;
   createdAt: string; discoveryCutoffAt: string;
   rule: { bucket: number; horizon: 1 | 3 | 5 }; training: PaperAdaptiveStats;
+  authorship?: { generatedAt: string; model: string; inputDigest: string };
 }
 export interface PaperIndicatorDiscovery {
   version: 'indicator-discovery-v1'; attemptedIds: PaperInventedFeatureId[];
   round: number; roundStartedAt: string; roundTrainingEndDate: string | null;
   inventions: PaperIndicatorInvention[];
+  programAttemptedIds?: PaperInventedFeatureId[];
+  programReviews?: Array<{ id: PaperInventedFeatureId; at: string; status: 'REGISTERED' | 'NO_TRAINING_EDGE' | 'REDUNDANT_OR_CONSTANT' | 'RANKED_OUT';
+    sampleCount: number; dateCount: number; meanDailyExcessPct: number | null }>;
 }
 export interface PaperAdaptivePolicy {
   version: 'adaptive-features-v1'; windowEntryDates: number; trainingFraction: number;
@@ -63,13 +69,15 @@ export interface PaperAdaptivePlacebo {
   rules: Array<{ feature: PaperAdaptiveFeatureKey; bucket: number; horizon: 1 | 3 | 5; chancePct: number }>;
 }
 export interface PaperAdaptiveState {
+  /** Read-only generator status, projected by the view layer rather than used in decisions. */
+  programResearch?: PaperProgramResearchView;
   policy: PaperAdaptivePolicy; tradingDate: string; evaluatedAt: string; cutoffAt: string;
   windowStartDate: string | null; validationStartDate: string | null;
   matureSampleCount: number; matureDateCount: number;
   horizonSamples?: PaperAdaptiveHorizonSamples[];
   candidates: PaperAdaptiveCandidate[];
   discovery?: PaperIndicatorDiscovery;
-  exploration?: { version: 'shadow-exploration-v1'; sequence: number; rules: PaperExplorationTrial[] };
+  exploration?: { version: 'shadow-exploration-v1'; sequence: number; rules: PaperExplorationTrial[]; autonomy?: PaperAutonomyState };
   placebo?: PaperAdaptivePlacebo;
   changes: Array<{ at: string; feature: PaperAdaptiveFeatureKey; from: PaperAdaptiveRule | null;
     to: PaperAdaptiveRule | null; reason: PaperAdaptiveReason }>;
@@ -87,6 +95,7 @@ export function paperPlaceboChance(state: Pick<PaperAdaptiveState, 'placebo'>, r
     && item.horizon === rule.horizon)?.chancePct ?? null;
 }
 export function paperAdaptiveFeatureLabel(rule: PaperAdaptiveRule): string {
+  if (rule.invention?.formula.version === 'feature-program-v1') return `AI 발명 · ${rule.invention.formula.title}`;
   return rule.invention ? `발명 · ${paperIndicatorFormulaLabel(rule.invention.formula)}`
     : PAPER_FEATURES[rule.feature as PaperFeatureKey]?.label ?? '발명 지표';
 }

@@ -82,7 +82,25 @@ describe('current paper activity snapshot', () => {
       observationsRunning: false, observationStatus: 'WAITING', todayStats: { scans: null, buys: 0, exits: 0 } });
   });
   it('reports old completed observations as stale', () => {
-    expect(buildEngineStatusSnapshot(new Date('2026-09-13T15:13:00Z'))).toMatchObject({ observationsRunning: false, observationStatus: 'STALE' });
+    expect(buildEngineStatusSnapshot(new Date('2026-09-13T15:38:00Z'))).toMatchObject({ observationsRunning: false, observationStatus: 'STALE' });
+  });
+  it.each([
+    ['2026-10-06T11:00:00+09:00', 14, true], ['2026-10-06T11:00:00+09:00', 16, false],
+    ['2026-10-06T22:00:00+09:00', 34, true], ['2026-10-06T22:00:00+09:00', 36, false],
+  ] as const)('uses configured scan cadence at %s after %s minutes', (at, ageMinutes, active) => {
+    const now = new Date(at);
+    mocks.baseline.mockReturnValue({ schemaVersion: 1, experiments: [],
+      lastRun: { asOf: new Date(now.getTime() - ageMinutes * 60_000).toISOString() } });
+    expect(buildEngineStatusSnapshot(now)).toMatchObject({ observationsRunning: active, observationStatus: active ? 'ACTIVE' : 'STALE' });
+  });
+  it('reports a holiday as waiting without pretending an old price scan is active or stale', () => {
+    const now = new Date('2026-10-05T11:00:00+09:00');
+    expect(buildEngineStatusSnapshot(now)).toMatchObject({ observationsRunning: false, observationStatus: 'WAITING', lastScanAt: LAST });
+    mocks.paused = true;
+    expect(buildEngineStatusSnapshot(now)).toMatchObject({ observationStatus: 'PAUSED' });
+    mocks.paused = false;
+    mocks.baseline.mockImplementation(() => { throw new Error('damaged baseline ledger'); });
+    expect(buildEngineStatusSnapshot(now)).toMatchObject({ observationStatus: 'UNAVAILABLE', activityErrors: ['PAPER_EXPERIMENT_LEDGER_UNREADABLE'] });
   });
   it('reports an unreadable strategy ledger without replacing unknown counts with zero', () => {
     mocks.strategy.mockImplementation(() => { throw new Error('damaged strategy ledger'); });

@@ -8,7 +8,7 @@ import { advancePaperStrategy, loadPaperStrategyState } from './paperStrategyRun
 const attempts = new Map<string, number>();
 const quotes = new Map<string, string>();
 let running: Promise<void> | null = null;
-const status: PaperPriceMonitorStatus = { intervalSeconds: 30, running: false, marketOpen: false,
+const status: PaperPriceMonitorStatus = { intervalSeconds: 60, running: false, marketOpen: false,
   startedAt: null, completedAt: null, durationMs: null, checkedCount: 0, validCount: 0, closedCount: 0,
   heldCount: 0, staleCount: 0, oldestQuoteAt: null };
 
@@ -18,7 +18,7 @@ export function readPaperPriceMonitor(state = loadPaperStrategyState()): PaperPr
     .filter((at): at is string => !!at).sort().at(-1) ?? null);
   const now = Date.now();
   return { ...status, running: running !== null, marketOpen: isPaperMarketOpen(new Date(now)), heldCount: held.length,
-    staleCount: times.filter(at => !at || now - Date.parse(at) > 60_000).length,
+    staleCount: times.filter(at => !at || now - Date.parse(at) > status.intervalSeconds * 2 * 1000).length,
     oldestQuoteAt: times.length && times.every(Boolean) ? times.sort()[0] : null,
     ...(state.error ? { error: state.error } : {}) };
 }

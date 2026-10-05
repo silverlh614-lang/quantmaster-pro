@@ -4,7 +4,7 @@ import { ArrowRight, ArrowUpRight } from 'lucide-react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { PAPER_ADAPTIVE_REASON_LABELS, type PaperAdaptiveCandidate, type PaperAdaptiveRule, type PaperAdaptiveState } from '../../types/paperAdaptive';
 import { PAPER_FEATURES, type PaperFeatureKey } from '../../types/paperObservationFeatures';
-import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaLabel } from '../../types/paperIndicatorFormula';
+import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaLabel, paperIndicatorFormulaOperands } from '../../types/paperIndicatorFormula';
 import '../../styles/paperResearchBoard.css';
 import { PaperDetailDialog } from './PaperDetailDialog';
 import { PaperRuleDetails } from './PaperRuleDetails';
@@ -29,6 +29,7 @@ const time = (value: string) => Number.isFinite(Date.parse(value)) ? new Date(va
 function ruleName(rule: PaperAdaptiveRule): string {
   const formula = rule.invention?.formula;
   if (!formula) return featureNames[rule.feature as PaperFeatureKey] ?? '지표';
+  if (formula.version === 'feature-program-v1') return formula.title;
   const left = featureNames[formula.left.feature], right = featureNames[formula.right.feature];
   return formula.operation === 'MEAN' ? `${left} · ${right} 평균`
     : `${left} ${formula.operation === 'PRODUCT' ? '×' : '−'} ${right}`;
@@ -61,7 +62,7 @@ function ActiveRule({ candidate, exploration = false }: { candidate: PaperAdapti
       <span>{number(validation.sampleCount)}건 · {number(validation.dateCount)}진입일 · {number(validation.symbolCount)}종목</span></div>
     {invention && <details className="lab-board-formula"><summary>수식 보기</summary>
       <div><p>{paperIndicatorFormulaLabel(invention.formula)}</p>
-        <p>{[invention.formula.left, invention.formula.right].map(operand =>
+        <p>{paperIndicatorFormulaOperands(invention.formula).map(operand =>
           `N(${featureNames[operand.feature]}) = (값 − ${operand.center}) / ${operand.scale}`).join(' · ')}. 각 값은 −3~3으로 제한합니다.</p>
         <p>생성 <time dateTime={invention.createdAt}>{time(invention.createdAt)} KST</time> · 생성 이후 새 관측으로 검증한 결과입니다.</p>
       </div>

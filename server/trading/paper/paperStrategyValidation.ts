@@ -1,5 +1,7 @@
 // @responsibility Validate persisted empirical Shadow strategy records.
 import { z } from 'zod';
+import { paperAutonomyAssignment } from '../../../src/types/paperAutonomy.js';
+import { paperAutonomyAllocationSchema, validPaperAutonomyAllocation } from './paperAutonomyValidation.js';
 import type { PaperStrategyEvidence, PaperStrategyLedger } from '../../../src/types/paperStrategy.js';
 import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { calculatePaperReturn } from './paperAccounting.js';
@@ -57,7 +59,8 @@ const decision = z.object({ snapshotId: z.string(), decisionAt: timestamp, symbo
     'ALREADY_ENTERED_TODAY', 'HORIZON_PENDING', 'SCHEDULED_CLOSE_UNAVAILABLE', 'SCHEDULED_CLOSE_REACHED',
     'ADAPTIVE_EXIT_HOLD', 'ADAPTIVE_EXIT_QUOTE_UNAVAILABLE', 'ADAPTIVE_STOP_LOSS', 'ADAPTIVE_TRAILING_STOP', 'ADAPTIVE_SIGNAL_LOST']),
   reason: z.string(), cohort: cohort.nullable(), evidence: evidence.nullable(), adaptiveEvidence: adaptiveEvidenceSchema.optional(),
-  explorationEvidence: explorationEvidenceSchema.optional(), tradeId: z.string().nullable(), newsSummary: newsSummary.optional(), investorFlow: investorFlow.optional() });
+  explorationEvidence: explorationEvidenceSchema.optional(), allocation: paperAutonomyAllocationSchema.optional(),
+  tradeId: z.string().nullable(), newsSummary: newsSummary.optional(), investorFlow: investorFlow.optional() });
 export const paperObservationSchema = z.object({ symbol, name: z.string(), price: finite.positive().nullable(), observedAt: timestamp, source: z.string(),
   investorFlow: investorFlow.optional(), features: adaptiveObservationSchema.optional(),
   return1dPct: finite.nullable(), return5dPct: finite.nullable(), aboveMa20: z.boolean().nullable(),
@@ -121,6 +124,7 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
   }
   const ids = new Set<string>();
   const openSymbols = new Set<string>();
+  const trades = new Map(parsed.data.trades.map(item => [item.id, item]));
   const decisions = [...parsed.data.latestDecisions, ...parsed.data.trades.flatMap((item) =>
     item.exit ? [item.entryDecision, item.exit.decision] : [item.entryDecision])];
   if (decisions.some((item) => item.evidence && (!consistentEvidence(item.evidence)
@@ -135,6 +139,19 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
     || item.action === 'WAIT' || Date.parse(item.explorationEvidence.evaluatedAt) > Date.parse(item.decisionAt)
     || Date.parse(item.explorationEvidence.registeredAt) >= Date.parse(item.decisionAt)))) {
     throw new Error('PAPER_STRATEGY_INVALID: inconsistent exploration evidence');
+  }
+  for (const item of decisions.filter(item => item.allocation)) {
+    const allocation = item.allocation!, rule = (item.explorationEvidence ?? item.adaptiveEvidence)?.candidate.rule;
+    const entryAt = item.action === 'BUY' ? item.decisionAt : item.tradeId ? trades.get(item.tradeId)?.entryAt : undefined;
+    if (!rule || !entryAt || item.action === 'WAIT'
+      || !validPaperAutonomyAllocation(allocation, rule, entryAt, item.explorationEvidence ? 'EXPLORATION' : 'VALIDATED')) {
+      throw new Error('PAPER_STRATEGY_INVALID: inconsistent autonomy evidence');
+    }
+    const day = toKstDateKey(entryAt), choices = allocation.choices;
+    if (choices[paperAutonomyAssignment(item.symbol, day, choices.map(item => item.weight))].ruleKey !== allocation.selectedRuleKey
+      || choices[paperAutonomyAssignment(item.symbol, day, choices.map(() => 2))].ruleKey !== allocation.baselineRuleKey) {
+      throw new Error('PAPER_STRATEGY_INVALID: inconsistent autonomy assignment');
+    }
   }
   for (const item of parsed.data.trades) {
     // The schedule was frozen at entry; later holiday-calendar corrections must not rewrite persisted decisions.
@@ -167,7 +184,8 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
     }
     if (item.exit) {
       const result = calculatePaperReturn(item.entryPrice, item.exit.price, item.costModel);
-      if (item.exit.model !== item.policy.exitModel
+      if (JSON.stringify(item.entryDecision.allocation) !== JSON.stringify(item.exit.decision.allocation)
+        || item.exit.model !== item.policy.exitModel
         || (item.exit.model === 'SCHEDULED_CLOSE' && (Date.parse(item.exit.effectiveAt) !== expectedClose
           || !(Date.parse(item.exit.observedAt) >= expectedClose) || item.exit.decision.reasonCode !== 'SCHEDULED_CLOSE_REACHED'))
         || !(Date.parse(item.exit.decisionAt) >= Date.parse(item.exit.observedAt))
@@ -195,11 +213,11 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
     ids.add(item.id);
     if (item.status === 'OPEN') openSymbols.add(item.symbol);
   }
-  const trades = new Map(parsed.data.trades.map(item => [item.id, item]));
   for (const item of parsed.data.latestDecisions) {
     if (item.action !== 'HOLD' && item.action !== 'EXIT') continue;
     const original = item.tradeId ? trades.get(item.tradeId) : undefined;
     const entry = original?.entryDecision;
+    if (JSON.stringify(entry?.allocation) !== JSON.stringify(item.allocation)) throw new Error('PAPER_STRATEGY_INVALID: inconsistent autonomy carry');
     if (entry?.explorationEvidence && !sameExplorationEvidence(entry.explorationEvidence, item.explorationEvidence)) {
       throw new Error('PAPER_STRATEGY_INVALID: inconsistent exploration carry');
     }

@@ -4,8 +4,10 @@ import type { PaperStrategyDecision, PaperStrategyPerformance } from '../../src/
 import { PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel, paperPlaceboChance, type PaperAdaptiveRule,
   type PaperAdaptiveState } from '../../src/types/paperAdaptive.js';
 import { PAPER_FEATURES } from '../../src/types/paperObservationFeatures.js';
+import { paperIndicatorFormulaOperands } from '../../src/types/paperIndicatorFormula.js';
 import { explainPaperIndicator, inventedRuleRange } from '../../src/utils/paperIndicatorExplanation.js';
 import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
+import { PAPER_AUTONOMY_REASON_LABELS, paperAutonomyRuleKey } from '../../src/types/paperAutonomy.js';
 
 const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const text = (value: string, limit = 120) => escape(Array.from(value.replace(/\s+/g, ' ').trim()).slice(0, limit).join(''));
@@ -80,10 +82,22 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
         : `연결 ${exploration.length}개/최대 2개 · 수익성 검증 전`);
     for (const trial of (detail === 'full' ? exploration ?? [] : []).filter(item => known(item.registeredAt, cutoff)).slice(0, 2)) {
       lines.push('', ...ruleLines(trial.candidate.rule), text(PAPER_ADAPTIVE_REASON_LABELS[trial.candidate.reason], 35));
+      const autonomy = state.exploration?.autonomy;
+      const entry = autonomy?.entries.find(item => item.ruleKey === paperAutonomyRuleKey(trial.candidate.rule));
+      if (autonomy && known(autonomy.evaluatedAt, cutoff) && entry) lines.push(
+        `${PAPER_AUTONOMY_REASON_LABELS[entry.reason]} · 상대 배분 ${entry.weight}`,
+        `실제 탐색 평가 ${entry.stats.sampleCount}건/${entry.stats.dateCount}진입일 · 진행 ${entry.stats.pendingCount}건`);
     }
+    if (state.exploration?.autonomy?.status === 'FALLBACK' && known(state.exploration.autonomy.evaluatedAt, cutoff)) lines.push('자율 배분 확인 필요 · 기존 순환·균등 배정 사용');
     if (discovery) lines.push('', '🧬 <b>새 지표 연구</b>', `발명 ${discovery.round}차 · 이번 회차 검토 ${discovery.attemptedIds.length}개 · 보관 ${discovery.inventions.length}개`,
       `생성 후 검증 대기 ${state.candidates.filter(item => item.rule.invention && item.reason === 'FORWARD_OBSERVATION').length}개`);
     else lines.push('지표 발명 연구 기록 미조회');
+    if (state.programResearch && (!state.programResearch.attemptedAt || known(state.programResearch.attemptedAt, cutoff))) {
+      const research = state.programResearch;
+      const label = { IDLE: '새 자료 대기', RUNNING: '계산법 작성 중', READY: '작성 회차 완료 · 성과 검증 별도', FAILED: '작성 회차 확인 필요 · 기존 전략 계속' };
+      const terminal = research.state === 'READY' || research.state === 'FAILED';
+      lines.push(`AI 계산법: ${terminal && !known(research.completedAt ?? undefined, cutoff) ? '보고 시점의 작성 완료 미확인' : label[research.state]}`);
+    }
     if (detail === 'full' && state.policy.maturityModel === 'per-horizon-v1') {
       lines.push('', '📚 <b>학습·검증 표본</b>');
       if (state.horizonSamples) for (const item of state.horizonSamples) lines.push(`<b>D${item.horizon}</b> · 학습 ${num(item.trainingSampleCount)}건/${num(item.trainingDateCount)}일 · 검증 ${num(item.validationSampleCount)}건/${num(item.validationDateCount)}일`);
@@ -117,8 +131,12 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
 function frozenFormula(rule: PaperAdaptiveRule | null): string[] {
   const invention = rule?.invention;
   if (!invention) return [];
+  if (invention.formula.version === 'feature-program-v1') return ['', '📐 <b>AI 계산 기준 · 변경 당시 고정</b>',
+    `연구 등록 ${stamp(invention.createdAt)} KST · 계산 ID ${invention.formula.digest.slice(0, 12)}`,
+    `AI 해석: ${text(invention.formula.interpretation, 160)}`, `한계: ${text(invention.formula.limitation, 120)}`,
+    '가설·계산 절차·재료별 기준은 대시보드 발명 지표에서 확인'];
   return ['', '📐 <b>수식 기준</b>', `고정 수식 생성 ${stamp(invention.createdAt)} KST`,
-    ...[invention.formula.left, invention.formula.right].map(operand =>
+    ...paperIndicatorFormulaOperands(invention.formula).map(operand =>
       text(`N(${PAPER_FEATURES[operand.feature].label})=(값−${operand.center})/${operand.scale}`, 120)), '각각 −3~3 제한'];
 }
 function changeType(change: PaperAdaptiveState['changes'][number]): string {

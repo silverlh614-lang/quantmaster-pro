@@ -60,6 +60,23 @@ describe('Shadow closing summary', () => {
     expect(formatPaperCloseReport(view, date, new Date(`${date}T10:00:00+09:00`))).toContain('마감 전 미리보기');
     expect(report(view)).not.toContain('뉴스 기록 없음');
   });
+  it.each([[600, 15], [1800, 35], [3600, 65]])('uses a %s-second scan cadence before marking the close report delayed', (interval, graceMinutes) => {
+    const view = viewFixture(); view.scanIntervalSeconds = interval;
+    view.lastRun!.asOf = new Date(now.getTime() - (graceMinutes - 1) * 60_000).toISOString();
+    expect(report(view)).not.toContain('갱신 지연');
+    view.lastRun!.asOf = new Date(now.getTime() - (graceMinutes + 1) * 60_000).toISOString();
+    expect(report(view)).toContain(`${graceMinutes}분 이상 갱신 지연`);
+  });
+  it('labels planned holiday rest instead of overdue price collection while retaining strategy errors', () => {
+    const view = viewFixture(); view.scanIntervalSeconds = null;
+    view.strategy!.error = 'ledger unreadable';
+    const text = formatPaperCloseReport(view, '2026-10-05', new Date('2026-10-05T16:10:00+09:00'));
+    expect(text).toContain('휴장일 자동 가격 스캔 대기');
+    expect(text).toContain('전략 기록 확인 필요');
+    expect(text).not.toContain('갱신 지연');
+    expect(text).not.toContain('마감 후 관측 미확인');
+    expect(formatPaperCloseReport(view, '2026-10-06', new Date('2026-10-06T16:10:00+09:00'))).toContain('갱신 지연');
+  });
   it('does not claim full daily counts from a truncated API view', () => {
     const view = viewFixture(); view.totalCount = 1000;
     const text = report(view);

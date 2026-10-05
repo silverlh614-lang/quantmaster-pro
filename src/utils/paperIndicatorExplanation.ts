@@ -1,6 +1,7 @@
 // @responsibility Translate stored indicator formulas into plain Korean explanations.
 import { PAPER_FEATURES, type PaperFeatureKey } from '../types/paperObservationFeatures';
-import { PAPER_INVENTED_FEATURE_CUTS, type PaperIndicatorFormula } from '../types/paperIndicatorFormula';
+import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaOperands, type PaperIndicatorFormula } from '../types/paperIndicatorFormula';
+import { evaluatePaperProgram } from '../types/paperIndicatorProgram';
 
 export const PAPER_FEATURE_EXPLANATIONS: Record<PaperFeatureKey, string> = {
   rsi14: '최근 14일 가격의 상승 힘과 하락 힘을 비교합니다.',
@@ -38,6 +39,13 @@ export const PAPER_FEATURE_EXPLANATIONS: Record<PaperFeatureKey, string> = {
 };
 
 export function explainPaperIndicator(formula: PaperIndicatorFormula) {
+  const ingredients = paperIndicatorFormulaOperands(formula).map(operand => ({ ...operand,
+    label: PAPER_FEATURES[operand.feature].label, meaning: PAPER_FEATURE_EXPLANATIONS[operand.feature] }));
+  if (formula.version === 'feature-program-v1') {
+    const result = (value: number) => { const calculated = evaluatePaperProgram(formula, () => value); return calculated === null ? '계산 불가' : calculated.toFixed(2); };
+    return { title: formula.title, name: 'AI 계산 절차', meaning: formula.interpretation,
+      example: `모든 재료의 환산값이 −1이면 ${result(-1)}, +1이면 ${result(1)}입니다.`, ingredients };
+  }
   const left = PAPER_FEATURES[formula.left.feature].label, right = PAPER_FEATURES[formula.right.feature].label;
   const operation = {
     MEAN: { name: '평균', meaning: '두 재료의 기준 대비 수준을 평균으로 묶습니다. 한쪽이 높고 다른 쪽이 낮으면 서로 상쇄될 수 있습니다.',
@@ -48,8 +56,7 @@ export function explainPaperIndicator(formula: PaperIndicatorFormula) {
       example: '환산값이 −1과 −1이어도 곱은 +1입니다. 양수라고 두 재료가 모두 높다는 뜻은 아닙니다.' },
   }[formula.operation];
   return { title: `${left} · ${right} ${operation.name}`, ...operation,
-    ingredients: [formula.left, formula.right].map(operand => ({ ...operand,
-      label: PAPER_FEATURES[operand.feature].label, meaning: PAPER_FEATURE_EXPLANATIONS[operand.feature] })) };
+    ingredients };
 }
 
 export function inventedRuleRange(bucket: number): string {

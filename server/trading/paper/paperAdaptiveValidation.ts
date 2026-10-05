@@ -3,11 +3,14 @@ import { z } from 'zod';
 import { PAPER_FEATURES, PAPER_LEGACY_FEATURE_KEYS, type PaperFeatureKey, type PaperObservationFeatures } from '../../../src/types/paperObservationFeatures.js';
 import type { PaperAdaptiveCandidate, PaperAdaptiveEvidence, PaperAdaptiveState, PaperAdaptiveStats, PaperExplorationEvidence, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
 import { PAPER_INVENTED_FEATURE_CUTS, PAPER_MAX_INVENTIONS, PAPER_MAX_INVENTION_ATTEMPTS,
-  paperIndicatorFormulaId, validPaperIndicatorFormula, type PaperIndicatorFormula, type PaperInventedFeatureId } from '../../../src/types/paperIndicatorFormula.js';
+  paperIndicatorFormulaId, type PaperIndicatorFormula, type PaperInventedFeatureId } from '../../../src/types/paperIndicatorFormula.js';
 import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 import { adaptiveRuleId, adaptiveRuleMatches } from './paperAdaptiveSelection.js';
 import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { EMPTY_EVIDENCE_DIGEST, paperEvidenceDigest } from './paperStrategyEvidence.js';
+import { validSealedPaperFormula } from './paperIndicatorProgram.js';
+import { paperAutonomyRuleKey } from '../../../src/types/paperAutonomy.js';
+import { paperAutonomyStateSchema } from './paperAutonomyValidation.js';
 
 const finite = z.number().finite(), count = finite.int().nonnegative();
 const timestamp = z.string().datetime({ offset: true });
@@ -28,6 +31,7 @@ const stats = z.object({ sampleCount: count, dateCount: count, symbolCount: coun
 });
 const inventedId = z.custom<PaperInventedFeatureId>(value => {
   if (typeof value !== 'string') return false;
+  if (/^invented:program:[a-f0-9]{64}$/.test(value)) return true;
   const [prefix, operation, left, right, ...extra] = value.split(':');
   return prefix === 'invented' && ['mean', 'difference', 'product'].includes(operation) && !extra.length
     && Object.hasOwn(PAPER_FEATURES, left) && Object.hasOwn(PAPER_FEATURES, right) && left < right;
@@ -35,10 +39,12 @@ const inventedId = z.custom<PaperInventedFeatureId>(value => {
 const adaptiveFeature = z.union([feature, inventedId]);
 const sufficientPositive = (value: PaperAdaptiveStats) => value.sampleCount >= 10 && value.dateCount >= 3
   && (value.meanNetReturnPct ?? 0) > 0 && (value.meanDailyExcessPct ?? 0) > 0;
-const invention = z.object({ id: inventedId, formula: z.custom<PaperIndicatorFormula>(validPaperIndicatorFormula),
+const invention = z.object({ id: inventedId, formula: z.custom<PaperIndicatorFormula>(validSealedPaperFormula),
   createdAt: timestamp, discoveryCutoffAt: timestamp,
   rule: z.object({ bucket: count.max(PAPER_INVENTED_FEATURE_CUTS.length), horizon }), training: stats,
+  authorship: z.object({ generatedAt: timestamp, model: z.string().min(1).max(80), inputDigest: z.string().regex(/^[a-f0-9]{64}$/) }).optional(),
 }).refine(value => value.id === paperIndicatorFormulaId(value.formula) && sufficientPositive(value.training)
+  && (value.formula.version !== 'feature-program-v1' || Boolean(value.authorship && Date.parse(value.authorship.generatedAt) <= Date.parse(value.createdAt)))
   && value.discoveryCutoffAt === new Date(`${toKstDateKey(new Date(value.createdAt))}T00:00:00+09:00`).toISOString());
 const rule = z.object({ feature: adaptiveFeature, bucket: count, horizon, invention: invention.optional() })
   .refine(value => value.invention
@@ -66,8 +72,12 @@ const explorationCandidate = candidate.refine(value => !value.active
 const trialId = z.string().max(240).regex(/^shadow-exploration-v1:\d{4}-\d{2}-\d{2}:[1-9]\d*:.+$/);
 const exploration = z.object({ version: z.literal('shadow-exploration-v1'), sequence: count.positive(),
   rules: z.array(z.object({ id: trialId, registeredAt: timestamp, candidate: explorationCandidate })).max(2),
+  autonomy: paperAutonomyStateSchema.optional(),
 }).refine(value => new Set(value.rules.map(item => item.id)).size === value.rules.length
-  && new Set(value.rules.map(item => adaptiveRuleId(item.candidate.rule))).size === value.rules.length);
+  && new Set(value.rules.map(item => adaptiveRuleId(item.candidate.rule))).size === value.rules.length
+  && (!value.autonomy || value.rules.every(item => item.registeredAt === value.autonomy!.evaluatedAt)
+    && (value.autonomy.status === 'FALLBACK' || value.rules.length === value.autonomy.selectedRuleKeys.length
+      && value.rules.every(item => value.autonomy!.selectedRuleKeys.includes(paperAutonomyRuleKey(item.candidate.rule))))));
 export const adaptiveEvidenceSchema = z.object({ cutoffAt: timestamp, evaluatedAt: timestamp, validationStartDate: date,
   policy, candidate }).refine(value => value.candidate.active && Date.parse(value.cutoffAt) <= Date.parse(value.evaluatedAt)
     && value.validationStartDate < toKstDateKey(new Date(value.cutoffAt))
@@ -84,7 +94,11 @@ export const explorationEvidenceSchema = z.object({ cutoffAt: timestamp, evaluat
 const discovery = z.object({ version: z.literal('indicator-discovery-v1'), round: count.positive(), roundStartedAt: timestamp,
   roundTrainingEndDate: date.nullable(), attemptedIds: z.array(inventedId).max(PAPER_MAX_INVENTION_ATTEMPTS),
   inventions: z.array(invention).max(PAPER_MAX_INVENTIONS),
+  programAttemptedIds: z.array(z.custom<PaperInventedFeatureId>(value => typeof value === 'string' && /^invented:program:[a-f0-9]{64}$/.test(value))).max(1000).optional(),
+  programReviews: z.array(z.object({ id: inventedId, at: timestamp, status: z.enum(['REGISTERED', 'NO_TRAINING_EDGE', 'REDUNDANT_OR_CONSTANT', 'RANKED_OUT']),
+    sampleCount: count, dateCount: count, meanDailyExcessPct: finite.nullable() }).refine(value => value.dateCount <= value.sampleCount)).max(48).optional(),
 }).refine(value => new Set(value.attemptedIds).size === value.attemptedIds.length
+  && new Set(value.programAttemptedIds ?? []).size === (value.programAttemptedIds?.length ?? 0)
   && new Set(value.inventions.map(item => item.id)).size === value.inventions.length
   && (!value.roundTrainingEndDate || value.roundTrainingEndDate < toKstDateKey(new Date(value.roundStartedAt))));
 const chance = finite.positive().max(100);
@@ -123,7 +137,9 @@ export const adaptiveStateSchema = z.object({ policy, tradingDate: date, evaluat
   if ((value.matureSampleCount === 0) !== (value.windowStartDate === null && value.validationStartDate === null)) return false;
   if (value.windowStartDate && value.validationStartDate && !(value.windowStartDate <= value.validationStartDate && value.validationStartDate < value.tradingDate)) return false;
   if (value.discovery && (Date.parse(value.discovery.roundStartedAt) > Date.parse(value.evaluatedAt)
+    || value.discovery.programReviews?.some(item => Date.parse(item.at) > Date.parse(value.evaluatedAt) || !value.discovery?.programAttemptedIds?.includes(item.id))
     || value.discovery.inventions.some(item => Date.parse(item.createdAt) > Date.parse(value.evaluatedAt)))) return false;
+  if (value.exploration?.autonomy && value.exploration.autonomy.cutoffAt !== value.cutoffAt) return false;
   if (value.exploration?.rules.some(item => toKstDateKey(new Date(item.registeredAt)) !== value.tradingDate
     || item.id !== `shadow-exploration-v1:${value.tradingDate}:${value.exploration!.sequence}:${adaptiveRuleId(item.candidate.rule)}`
     || (item.candidate.rule.invention && (Date.parse(item.candidate.rule.invention.createdAt) > Date.parse(item.registeredAt)

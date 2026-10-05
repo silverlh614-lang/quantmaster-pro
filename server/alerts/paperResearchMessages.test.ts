@@ -7,6 +7,8 @@ import { createPaperIndicatorFormula, paperIndicatorFormulaId } from '../../src/
 import { legacyStrategyLedger } from '../trading/paper/paperStrategyFixtures.js';
 import { formatPaperAdaptiveSummary, formatPaperIntraday, formatPaperResearchChanges } from './paperResearchMessages.js';
 import { validateTelegramHtml } from './telegramHtmlSanitizer.js';
+import { sealPaperProgram } from '../trading/paper/paperIndicatorProgram.js';
+import { paperAutonomyRuleKey } from '../../src/types/paperAutonomy.js';
 
 const date = '2026-10-02', now = new Date(`${date}T04:30:00Z`), at = `${date}T04:20:00Z`;
 const candidate: PaperAdaptiveCandidate = {
@@ -51,6 +53,26 @@ function closed(version: PaperStrategyTrade['strategyVersion'], netReturnPct: nu
 }
 
 describe('adaptive research summary', () => {
+  it('reports dated allocation evidence separately from returns within the message budget', () => {
+    const current = view(), adaptive = current.strategy!.adaptive!;
+    adaptive.exploration = { version: 'shadow-exploration-v1', sequence: 1,
+      rules: [{ id: 'trial', registeredAt: at, candidate: { ...invented, active: false, reason: 'FORWARD_OBSERVATION' } }],
+      autonomy: { version: 'shadow-autonomy-v1', status: 'READY', evaluatedAt: at, cutoffAt: state.cutoffAt,
+        selectedRuleKeys: [paperAutonomyRuleKey(invented.rule)], entries: [{ ruleKey: paperAutonomyRuleKey(invented.rule),
+          lastSelectedAt: at, weight: 3, reason: 'INCREASE', stats: { totalCount: 15, closedCount: 12, pendingCount: 3,
+            sampleCount: 10, dateCount: 3, meanNetReturnPct: 2, meanDateNetReturnPct: 1, standardErrorPct: 0.1,
+            tradeIdsDigest: 'test-fixture' } }] } };
+    const result = formatPaperAdaptiveSummary(current, now).join('\n');
+    expect(result).toContain('탐색 기회를 늘립니다 · 상대 배분 3');
+    expect(result).toContain('실제 탐색 평가 10건/3진입일 · 진행 3건');
+    expect(result.length).toBeLessThanOrEqual(1900);
+    expect(validateTelegramHtml(result).valid).toBe(true);
+    adaptive.exploration.autonomy!.evaluatedAt = '2026-10-05T01:00:00Z';
+    expect(formatPaperAdaptiveSummary(current, now).join('\n')).not.toContain('상대 배분 3');
+    adaptive.exploration.autonomy = { version: 'shadow-autonomy-v1', status: 'FALLBACK', evaluatedAt: at,
+      cutoffAt: state.cutoffAt, selectedRuleKeys: [], entries: [], fallbackReason: '계산 확인 필요' };
+    expect(formatPaperAdaptiveSummary(current, now).join('\n')).toContain('기존 순환·균등 배정 사용');
+  });
   it('keeps five connected rules readable with samples, results and learning within one message budget', () => {
     const current = view(), adaptive = current.strategy!.adaptive!;
     adaptive.candidates = ['rsi14', 'pbr', 'currentRatio'].map(feature => ({ ...candidate,
@@ -176,6 +198,25 @@ describe('adaptive research summary', () => {
 });
 
 describe('recorded research changes', () => {
+  it('does not show research completion that happened after the report cutoff', () => {
+    const current = view(); current.strategy!.adaptive = { ...state, candidates: [], programResearch: {
+      state: 'READY', attemptedAt: at, completedAt: `${date}T04:40:00Z`, message: '완료', proposals: [],
+    } };
+    expect(formatPaperAdaptiveSummary(current, now).join('\n')).toContain('보고 시점의 작성 완료 미확인');
+    expect(formatPaperAdaptiveSummary(current, now).join('\n')).not.toContain('작성 회차 완료');
+    expect(formatPaperAdaptiveSummary(current, new Date(`${date}T04:45:00Z`)).join('\n')).toContain('작성 회차 완료');
+  });
+  it('labels AI interpretation as a proposal and preserves the calculation identity in safe HTML', () => {
+    const program = sealPaperProgram({ title: 'RSI & 거래량', hypothesis: '차이 구간의 성과를 시험합니다.', interpretation: '거래량에서 RSI를 뺀 값입니다.',
+      limitation: '급락 거래량도 포함됩니다.', expression: { op: 'subtract', left: { op: 'feature', key: 'volumeRatio20' }, right: { op: 'feature', key: 'rsi14' } } });
+    const record = { ...invention, id: paperIndicatorFormulaId(program), formula: program };
+    const rule = { ...invented.rule, feature: record.id, invention: record };
+    const result = formatPaperResearchChanges(state, [{ at, feature: record.id, from: null, to: rule, reason: 'FORWARD_OBSERVATION' }], now);
+    expect(result).toContain('RSI &amp; 거래량'); expect(result).toContain('AI 해석:');
+    expect(result).toContain(program.digest.slice(0, 12)); expect(result).toContain(program.limitation);
+    expect(result).not.toContain('매수에 채택'); expect(validateTelegramHtml(result).valid).toBe(true);
+    expect(result.length).toBeLessThanOrEqual(3500);
+  });
   it('distinguishes invention, observation-driven disconnection, and retirement without attaching later performance', () => {
     const changes: PaperAdaptiveState['changes'] = [
       { at: '2026-09-04T01:00:00Z', feature: invention.id, from: null, to: invented.rule, reason: 'FORWARD_OBSERVATION' },

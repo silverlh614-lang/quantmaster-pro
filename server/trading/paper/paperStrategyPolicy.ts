@@ -13,6 +13,7 @@ import { paperAdaptiveRuleLabel, type PaperAdaptiveCandidate, type PaperAdaptive
 import { adaptiveFeatureValue, adaptiveRuleMatches, PAPER_ADAPTIVE_POLICY } from './paperAdaptiveSelection.js';
 import { advancePaperExitResearch, freezePaperExitPolicy, initializePaperExitResearch, selectPaperExitLearning } from './paperAdaptiveExit.js';
 import { readPaperTradeRulePoint } from './paperTradeMeasurements.js';
+import { allocatePaperAutonomyEntry, recoverPaperAutonomyState } from './paperAutonomyAllocation.js';
 
 export const ADAPTIVE_STRATEGY_POLICY = Object.freeze({ version: PAPER_ADAPTIVE_POLICY.version,
   newsLookbackHours: PAPER_NEWS_LOOKBACK_HOURS, minimumSamples: PAPER_ADAPTIVE_POLICY.minimumSamples,
@@ -49,19 +50,15 @@ function adaptiveEntryDecision(snapshot: PaperSnapshot, observation: PaperObserv
     return decision(snapshot, observation, 'WAIT', available ? 'ADAPTIVE_RULE_NOT_MATCHED' : 'ADAPTIVE_FEATURE_UNAVAILABLE',
       available ? '연결 중인 지표의 진입 구간에 해당하지 않아 대기' : '연결 지표의 현재값 또는 탐색 등록 이후 새 관측을 확인 중 · 성과 악화로 처리하지 않습니다.');
   }
-  // Stable assignment gives exploration a chance even when verified rules match the same stocks.
-  const identity = (item: typeof matching[number]) => `${item.trial?.id ?? 'validated'}:${item.candidate.rule.feature}:${item.candidate.rule.bucket}:D${item.candidate.rule.horizon}`;
-  matching.sort((a, b) => identity(a).localeCompare(identity(b)));
-  const assignment = [...`${observation.symbol}:${snapshot.tradingDate}`].reduce((hash, char) => Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0, 2166136261);
-  const { candidate: selected, trial } = matching[assignment % matching.length];
+  const { choice: { candidate: selected, trial }, allocation } = allocatePaperAutonomyEntry(matching, state.exploration?.autonomy, observation.symbol, snapshot.asOf);
   if (trial) return { ...decision(snapshot, observation, 'BUY', 'ADAPTIVE_EXPLORATION_SELECTED',
     `${paperAdaptiveRuleLabel(selected.rule)} 탐색 가상 진입 · 성과 검증 전 가설을 1주로 관측`),
-    explorationEvidence: { cutoffAt: state.cutoffAt, evaluatedAt: state.evaluatedAt,
+    ...(allocation ? { allocation } : {}), explorationEvidence: { cutoffAt: state.cutoffAt, evaluatedAt: state.evaluatedAt,
       validationStartDate: state.validationStartDate, trialId: trial.id, registeredAt: trial.registeredAt,
       policy: structuredClone(state.policy), candidate: structuredClone(selected) } };
   return { ...decision(snapshot, observation, 'BUY', 'ADAPTIVE_FEATURE_SELECTED',
     `${paperAdaptiveRuleLabel(selected.rule)} 자동 선택 · ${selected.rule.invention ? '생성 후 검증' : '후반 확인'} ${selected.validation.sampleCount}건/${selected.validation.dateCount}일, 일당 대조군 차이 ${selected.validation.meanDailyExcessPct!.toFixed(2)}%p · 1주 진입`),
-    adaptiveEvidence: { cutoffAt: state.cutoffAt, evaluatedAt: state.evaluatedAt,
+    ...(allocation ? { allocation } : {}), adaptiveEvidence: { cutoffAt: state.cutoffAt, evaluatedAt: state.evaluatedAt,
       validationStartDate: selected.rule.invention
         ? addBusinessDaysFromKstDate(toKstDateKey(new Date(selected.rule.invention.createdAt)), 1)
         : state.validationStartDate!,
@@ -87,6 +84,7 @@ function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, a
 function closeDecision(trade: PaperStrategyTrade, snapshot: PaperSnapshot, ledger: PaperStrategyLedger, observation?: PaperObservation): PaperStrategyDecision {
   const evidence = trade.entryDecision.evidence;
   const carry = (result: PaperStrategyDecision): PaperStrategyDecision => ({ ...result,
+    ...(trade.entryDecision.allocation ? { allocation: structuredClone(trade.entryDecision.allocation) } : {}),
     ...(trade.entryDecision.adaptiveEvidence ? { adaptiveEvidence: structuredClone(trade.entryDecision.adaptiveEvidence) } : {}),
     ...(trade.entryDecision.explorationEvidence ? { explorationEvidence: structuredClone(trade.entryDecision.explorationEvidence) } : {}) });
   if (trade.policy.exitModel === 'ADAPTIVE_OBSERVED') {
@@ -135,6 +133,7 @@ export function evaluatePaperStrategyScan(
 ): PaperStrategyLedger {
   const ledger = structuredClone(input);
   ledger.adaptive = structuredClone(adaptive);
+  recoverPaperAutonomyState(ledger.adaptive);
   // Only already completed forward evidence can affect a new entry's frozen exit policy.
   ledger.exitLearning = selectPaperExitLearning(ledger.trades, snapshot.asOf);
   const policy = ADAPTIVE_STRATEGY_POLICY;

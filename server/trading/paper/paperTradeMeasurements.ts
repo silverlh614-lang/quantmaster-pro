@@ -1,6 +1,7 @@
 // @responsibility Preserve observed price paths for frozen Shadow trades.
 import type { PaperObservation, PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import type { PaperAdaptiveRule } from '../../../src/types/paperAdaptive.js';
+import { paperIndicatorFormulaLabel } from '../../../src/types/paperIndicatorFormula.js';
 import type { PaperStrategyLedger, PaperStrategyTrade, PaperTradeMeasurementPoint,
   PaperTradeMeasurementRow } from '../../../src/types/paperStrategy.js';
 import { isKrxTradingDay, toKstDateKey } from '../../calendar/krxTradingCalendar.js';
@@ -20,6 +21,7 @@ function sameRule(left: PaperAdaptiveRule, right: PaperAdaptiveRule): boolean {
   if (!left.invention || !right.invention) return !left.invention && !right.invention;
   const identity = (rule: PaperAdaptiveRule) => {
     const invention = rule.invention!, { formula } = invention;
+    if (formula.version === 'feature-program-v1') return [invention.id, invention.createdAt, invention.discoveryCutoffAt, formula.version, paperIndicatorFormulaLabel(formula)];
     return [invention.id, invention.createdAt, invention.discoveryCutoffAt, formula.version, formula.operation,
       formula.left.feature, formula.left.center, formula.left.scale, formula.right.feature, formula.right.center, formula.right.scale];
   };

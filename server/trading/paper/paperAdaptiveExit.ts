@@ -1,5 +1,6 @@
 // @responsibility Evaluate prospective exit profiles against equal observed trade paths.
 import type { PaperObservation, PaperSnapshot } from '../../../src/types/paperExperiment.js';
+import { paperIndicatorFormulaOperands } from '../../../src/types/paperIndicatorFormula.js';
 import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 import type { PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
 import type { PaperAdaptiveExitOutcome, PaperAdaptiveExitPolicy, PaperAdaptiveExitReason, PaperAdaptiveExitResearch,
@@ -54,7 +55,7 @@ function observeSignal(trade: PaperStrategyTrade, observation: PaperObservation,
     state.signalFailureCount = 0; state.signalFailureStartedAt = null;
     return;
   }
-  const dependencies = rule.invention ? [rule.invention.formula.left.feature, rule.invention.formula.right.feature] : [rule.feature as PaperFeatureKey];
+  const dependencies = rule.invention ? paperIndicatorFormulaOperands(rule.invention.formula).map(operand => operand.feature) : [rule.feature as PaperFeatureKey];
   const identities = dependencies.map(key => featureIdentity(observation, key));
   if (identities.some(identity => identity === null)) {
     state.signalFailureCount = 0; state.signalFailureStartedAt = null;

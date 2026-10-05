@@ -21,7 +21,10 @@ vi.mock('../../persistence/paperExperimentRepo.js', () => ({
   savePaperExperimentLedger: (ledger: PaperExperimentLedger) => { state.ledger = structuredClone(ledger); },
 }));
 vi.mock('../../persistence/krxStockMasterRepo.js', () => ({ getStockByCode: () => ({ market: 'KOSPI' }) }));
-vi.mock('./paperExperimentCollector.js', () => ({ collectPaperExperimentSnapshot: state.collect }));
+vi.mock('../../persistence/paperStorageMaintenance.js', () => ({
+  runPaperStorageMaintenance: vi.fn(), readPaperStorageMaintenance: () => undefined,
+}));
+vi.mock('./paperExperimentCollector.js', () => ({ collectPaperExperimentSnapshot: state.collect, isPaperMarketOpen: () => false }));
 const sample = (): PaperSnapshot => ({
   id: 'scan', asOf: '2026-09-18T01:00:00Z', tradingDate: '2026-09-18', marketOpen: true,
   observations: [{ symbol: '005930', name: 'Samsung', price: 10000, observedAt: '2026-09-18T01:00:00Z',
@@ -41,12 +44,23 @@ describe('paper runner', () => {
     await runner.runPaperExperimentScan();
     const full = runner.getPaperExperimentView(true);
     expect(full.relativeStrengthStudy).toBeDefined();
-    expect(state.readStrategy).toHaveBeenLastCalledWith(true, state.ledger.experiments);
+    expect(state.readStrategy).toHaveBeenLastCalledWith(true, state.ledger.experiments, { ledger: { trades: [] } });
     const light = runner.getPaperExperimentView(true, { includeComparisons: false });
     expect(light).toEqual({ ...full, relativeStrengthStudy: undefined });
     expect(light.experiments).toHaveLength(1);
-    expect(state.readStrategy).toHaveBeenLastCalledWith(true, undefined);
+    expect(state.readStrategy).toHaveBeenLastCalledWith(true, undefined, { ledger: { trades: [] } });
     expect(state.indexSeries).toHaveBeenCalledTimes(1);
+  });
+  it('exposes an explicit holiday stop and resumes the ten-minute interval on a trading day', async () => {
+    vi.useFakeTimers();
+    try {
+      const runner = await import('./paperExperimentRunner.js');
+      vi.setSystemTime('2026-10-05T10:00:00+09:00');
+      expect(runner.getPaperExperimentView().scanIntervalSeconds).toBeNull();
+      vi.setSystemTime('2026-10-06T10:00:00+09:00');
+      expect(runner.getPaperExperimentView().scanIntervalSeconds).toBe(600);
+      expect(state.collect).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
   it('deduplicates repeated scans and restart, then opens again on the next trading day', async () => {
     let runner = await import('./paperExperimentRunner.js');

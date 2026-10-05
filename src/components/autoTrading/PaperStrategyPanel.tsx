@@ -10,6 +10,7 @@ import { summarizePaperNews } from '../../utils/paperNews';
 import { PaperInvestorFlowDetails } from './PaperInvestorFlowPanel';
 import { PaperAdaptiveEvidenceDetails, PaperAdaptivePanel } from './PaperAdaptivePanel';
 import { PaperExitLearningPanel, PaperExitPolicyDetails } from './PaperExitLearningPanel';
+import { PaperAutonomyAllocationDetails } from './PaperAutonomyPanel';
 
 const cohortLabels: Record<PaperStrategyCohort, string> = {
   NEWS_RECENT_ABOVE_MA20: '최근 관측 뉴스 있음 · 20일선 위',
@@ -143,6 +144,7 @@ function DecisionCard({ decision, policy }: { decision: PaperStrategyDecision; p
       <p className="text-xs text-slate-400">{decision.explorationEvidence ? '탐색 가상매수 · 검증 전' : decision.adaptiveEvidence ? '개별 지표 성과로 선택' : decision.cohort ? cohortLabels[decision.cohort] : '관측 정보 확인 대기'} · 판단 {timestamp(decision.decisionAt)} KST</p>
       {decision.adaptiveEvidence && <PaperAdaptiveEvidenceDetails evidence={decision.adaptiveEvidence} />}
       {decision.explorationEvidence && <PaperAdaptiveEvidenceDetails evidence={decision.explorationEvidence} />}
+      <PaperAutonomyAllocationDetails allocation={decision.allocation} rule={(decision.explorationEvidence ?? decision.adaptiveEvidence)?.candidate.rule} />
       {decision.evidence && <Evidence evidence={decision.evidence} policy={policy} />}
       {decision.newsSummary && <PaperNewsDetails summary={decision.newsSummary} />}
       {decision.investorFlow && <PaperInvestorFlowDetails flow={decision.investorFlow} />}
@@ -189,6 +191,7 @@ function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
       {trade.entryDecision.evidence && <Evidence evidence={trade.entryDecision.evidence} policy={trade.policy} />}
       {trade.entryDecision.adaptiveEvidence && <PaperAdaptiveEvidenceDetails evidence={trade.entryDecision.adaptiveEvidence} />}
       {trade.entryDecision.explorationEvidence && <PaperAdaptiveEvidenceDetails evidence={trade.entryDecision.explorationEvidence} />}
+      <PaperAutonomyAllocationDetails allocation={trade.entryDecision.allocation} rule={(trade.entryDecision.explorationEvidence ?? trade.entryDecision.adaptiveEvidence)?.candidate.rule} />
     </article>
   );
 }

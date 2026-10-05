@@ -3,7 +3,7 @@ import type { PaperExperiment, PaperObservation } from '../../../src/types/paper
 import { PAPER_FEATURES, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
 import type { PaperAdaptiveCandidate, PaperAdaptiveFeatureKey, PaperAdaptivePlacebo, PaperAdaptivePolicy, PaperAdaptiveRule,
   PaperAdaptiveState, PaperAdaptiveStats, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
-import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaId, paperIndicatorFormulaValue,
+import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaId, paperIndicatorFormulaValue, paperIndicatorFormulaOperands,
   type PaperIndicatorFormula } from '../../../src/types/paperIndicatorFormula.js';
 import { toKstDateKey, isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
@@ -11,6 +11,8 @@ import { calculatePaperReturn } from './paperAccounting.js';
 import { paperStrategyCohort, scheduledPaperClose } from './paperStrategyEvidence.js';
 import { discoverPaperIndicators } from './paperIndicatorDiscovery.js';
 import { selectPaperShadowExploration } from './paperShadowExploration.js';
+import type { PaperProgramProposal } from './paperProgramResearch.js';
+import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 
 export const PAPER_ADAPTIVE_POLICY: Readonly<PaperAdaptivePolicy> = Object.freeze({
   version: 'adaptive-features-v1', maturityModel: 'per-horizon-v1', windowEntryDates: 60, trainingFraction: 0.7,
@@ -149,11 +151,11 @@ function chooseFormula(formula: PaperIndicatorFormula, train: Row[]): PaperAdapt
   const chosen = rules.sort((a, b) => Number(sufficient(b.training) && positive(b.training)) - Number(sufficient(a.training) && positive(a.training))
     || Number(sufficient(b.training)) - Number(sufficient(a.training)) || rank(a, b))[0];
   const paired = train.filter(row => row.values[feature] !== undefined && row.returns[horizons.indexOf(chosen.rule.horizon)] !== undefined);
-  for (const operand of [formula.left, formula.right]) {
+  for (const operand of paperIndicatorFormulaOperands(formula)) {
     if (new Set(paired.map(row => row.values[operand.feature])).size < 2) return null;
   }
   const ids = new Set(chosen.training.experimentIds);
-  for (const operand of [formula.left, formula.right]) {
+  for (const operand of paperIndicatorFormulaOperands(formula)) {
     const cuts: readonly number[] = PAPER_FEATURES[operand.feature].cuts;
     for (let bucket = 0; bucket <= cuts.length; bucket++) {
       const lower = cuts[bucket - 1] ?? -Infinity, upper = cuts[bucket] ?? Infinity;
@@ -243,7 +245,7 @@ function placeboCheck(rows: Row[], candidates: PaperAdaptiveCandidate[], trading
 }
 
 export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefined, experiments: PaperExperiment[], asOf: string,
-  observations: PaperObservation[] = []): PaperAdaptiveState {
+  observations: PaperObservation[] = [], programs: PaperProgramProposal[] = [], trades?: readonly PaperStrategyTrade[]): PaperAdaptiveState {
   if (!Number.isFinite(Date.parse(asOf))) throw new Error('자율 지표 평가 시각 오류');
   if (previous && Date.parse(previous.evaluatedAt) > Date.parse(asOf)) throw new Error('과거 스냅샷으로 자율 지표 상태를 변경할 수 없습니다.');
   const tradingDate = toKstDateKey(new Date(asOf));
@@ -287,7 +289,7 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
     const created = Date.parse(invention.createdAt), createdDate = toKstDateKey(new Date(created));
     return source.filter(row => Date.parse(row.experiment.entryAt) > created && row.experiment.tradingDate > createdDate);
   };
-  const exploration = (candidates: PaperAdaptiveCandidate[]) => selectPaperShadowExploration({ previous, candidates, observations, asOf,
+  const exploration = (candidates: PaperAdaptiveCandidate[]) => selectPaperShadowExploration({ previous, candidates, observations, asOf, trades,
     value: (observation, feature, invention) => adaptiveFeatureValue(observation, feature, asOf, invention),
     evaluate: rule => candidate(rule, rule.invention ? [] : train, rule.invention ? forwardRows(rule.invention) : test, previous) });
   if (frozen) {
@@ -308,13 +310,13 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
   // A one-time same-day policy migration must not spend an existing discovery round's daily budget twice.
   const discovery = previous?.tradingDate === tradingDate && previous.discovery
     ? { discovery: structuredClone(previous.discovery), created: [], retired: [] }
-    : discoverPaperIndicators({ previous, asOf, cutoffAt, candidates,
+    : discoverPaperIndicators({ previous, asOf, cutoffAt, candidates, programs,
     trainingDates: [...new Set(train.map(row => row.experiment.tradingDate))].sort(),
     sufficientInputs: formula => {
-      const left = formula.left.feature, right = formula.right.feature, pair = `${left}:${right}`;
+      const inputs = paperIndicatorFormulaOperands(formula).map(operand => operand.feature), pair = inputs.join(':');
       if (pairEligibility.has(pair)) return pairEligibility.get(pair)!;
       const counts = horizons.map(() => 0), dates = horizons.map(() => new Set<string>());
-      for (const row of train) if (row.values[left] !== undefined && row.values[right] !== undefined) {
+      for (const row of train) if (inputs.every(key => row.values[key] !== undefined)) {
         row.returns.forEach((value, index) => { if (value !== undefined) { counts[index]++; dates[index].add(row.experiment.tradingDate); } });
         if (counts.some((count, index) => count >= PAPER_ADAPTIVE_POLICY.minimumSamples && dates[index].size >= PAPER_ADAPTIVE_POLICY.minimumEntryDates)) break;
       }
