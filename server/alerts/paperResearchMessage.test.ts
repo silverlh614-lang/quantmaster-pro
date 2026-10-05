@@ -76,8 +76,8 @@ describe('paper research message', () => {
     const summary = formatPaperAdaptiveSummary(view, now).join('\n');
     const weekly = formatPaperResearch(view, now);
     expect(weekly).toContain(summary);
-    expect(weekly).toContain('발명 1차 · 이번 회차 검토 3개 · 보관 2개 · 생성 후 검증 대기 2개');
-    expect(weekly).toContain('검증 지표 자동 연결 0개/최대 3개 · 발명 지표 0개');
+    expect(weekly).toContain('발명 1차 · 이번 회차 검토 3개 · 보관 2개\n생성 후 검증 대기 2개');
+    expect(weekly).toContain('<b>검증 지표 자동 연결 0개/최대 3개</b>\n이 중 발명 지표 0개');
     expect(weekly).toContain('저장 자료 연구 결과를 아직 불러오지 못했습니다');
     expect(weekly.length).toBeLessThanOrEqual(3500);
     expect(formatPaperReport(view, 'status', '2026-09-18', [], now)).toContain(summary);

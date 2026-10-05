@@ -228,7 +228,7 @@ function formatPaperHealth(health: PaperBotHealth, now: Date, view?: PaperExperi
   const stamp = (at?: string) => at && Number.isFinite(Date.parse(at))
     ? new Date(at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false }) : '미기록';
   const details = health === 'STALE' ? `\n마지막 완료 ${stamp(view?.lastRun?.asOf)}${progress ? `\n수집 ${progress.completed}/${progress.total}종목 · 마지막 진행 ${stamp(progress.lastProgressAt)}` : '\n현재 진행 중인 수집 없음'}` : '';
-  return `<b>Shadow 운영 ${health === 'OK' ? '복구' : health === 'PAUSED' ? '상태' : '확인 필요'}</b>\n${text[health]}${details}\n수집 상태 알림이며 시장 위험 신호가 아닙니다.\n/paper · /paper_bot`;
+  return `${health === 'OK' ? '✅' : health === 'PAUSED' ? '⏸' : '⚠️'} <b>Shadow 운영 ${health === 'OK' ? '복구' : health === 'PAUSED' ? '상태' : '확인 필요'}</b>\n\n${text[health]}\n${details}\n\n수집 상태 알림이며 시장 위험 신호가 아닙니다.\n/paper · /paper_bot`;
 }
 
 async function deliverPending(state: PaperBotState, now: Date, view: PaperExperimentView | undefined, paused: boolean, wallStartedAt: number): Promise<void> {

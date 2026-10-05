@@ -145,7 +145,7 @@ export function formatGlobalMorningBrief(brief: GlobalMorningBrief): string {
   const freshSources = brief.sources.filter(source => !source.error && Date.parse(source.checkedAt) >= Date.parse(brief.cutoff));
   const domesticSources = freshSources.filter(source => isDomesticNewsFeed(source.feedId)).length;
   const domesticFeeds = GLOBAL_NEWS_FEEDS.filter(feed => isDomesticNewsFeed(feed.id)).length;
-  const lines = [`<b>국내·해외 뉴스 · 국내 연관주 · ${brief.date}</b>`, `${stamp(brief.from)} ~ ${stamp(brief.cutoff)} KST 발행 기사`,
+  const lines = [`📰 <b>국내·해외 뉴스 · 국내 연관주 · ${brief.date}</b>`, '', `${stamp(brief.from)} ~ ${stamp(brief.cutoff)} KST 발행 기사`,
     `국내 RSS ${domesticSources}/${domesticFeeds} · 해외 RSS ${freshSources.length - domesticSources}/${GLOBAL_NEWS_FEEDS.length - domesticFeeds}`,
     '주말·휴일 포함 · 공개 RSS 범위 · 기사 전문 미열람'];
   if (brief.issue) lines.push(escape(brief.issue));
@@ -156,15 +156,15 @@ export function formatGlobalMorningBrief(brief: GlobalMorningBrief): string {
   for (const domestic of [true, false]) {
     const items = brief.items.filter(item => isDomesticNewsFeed(item.article.feedId) === domestic);
     const sources = freshSources.filter(source => isDomesticNewsFeed(source.feedId) === domestic);
-    lines.push('', `<b>${domestic ? '국내 경제·증권' : '해외 뉴스'}</b>`);
+    lines.push('', `${domestic ? '🇰🇷' : '🌐'} <b>${domestic ? '국내 경제·증권' : '해외 뉴스'}</b>`);
     if (!items.length) {
       lines.push(sources.length ? '수집 범위에서 해당 시간대 주요 기사 없음' : '수집 상태 미확인 · 뉴스 부재나 시장 안정으로 해석하지 않습니다.');
       continue;
     }
     let size = 0, shown = 0;
     for (const [i, item] of items.entries()) {
-      const stocks = item.related.length ? item.related.map(stock => `• ${stock.name}(${stock.symbol}) · ${stock.relation === 'MENTIONED' ? '제목·발췌 언급' : '업종 연관 추정'}\n  ${stock.reason}`).join('\n') : '연관주: 확인된 사업 연결 없음';
-      const block = `\n<b>${i + 1}. ${escape(item.summary.slice(0, 150))}</b>\n영향: ${escape(item.impact)}\n\n${escape(stocks)}\n<a href="${escape(item.article.url)}">${escape(item.article.source)} 원문</a> · ${stamp(item.article.publishedAt)} KST`;
+      const stocks = item.related.length ? item.related.map(stock => `• <b>${escape(stock.name)}(${escape(stock.symbol)})</b>\n  ${stock.relation === 'MENTIONED' ? '제목·발췌 언급' : '업종 연관 추정'} · ${escape(stock.reason)}`).join('\n') : '연관주: 확인된 사업 연결 없음';
+      const block = `\n<b>${i + 1}. ${escape(item.summary.slice(0, 150))}</b>\n\n💡 <b>국내 영향</b>\n${escape(item.impact)}\n\n🔎 <b>연관 종목</b>\n${stocks}\n<a href="${escape(item.article.url)}">${escape(item.article.source)} 원문</a> · ${stamp(item.article.publishedAt)} KST`;
       if (size + block.length + 1 > available / populatedGroups) break;
       lines.push(block); size += block.length + 1; shown++;
     }

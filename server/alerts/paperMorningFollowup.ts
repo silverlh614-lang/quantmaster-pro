@@ -1,6 +1,6 @@
 // @responsibility Format recommendation follow-up evidence for Telegram reports.
 import { PAPER_MORNING_RESULT_LABELS, type PaperMorningReview } from '../../src/types/paperMorning.js';
-import { paperAdaptiveRuleLabel } from '../../src/types/paperAdaptive.js';
+import { paperTelegramRuleLabel } from './paperResearchMessages.js';
 const text = (value: string, max = 120) => {
   let result = '';
   for (const character of value.replace(/\s+/g, ' ')) {
@@ -22,17 +22,17 @@ export function formatPaperMorningFollowup(review: PaperMorningReview, compact =
   if (!report) return '해당 날짜의 아침 추천 기록이 없습니다. 매일 08:30 KST에 거래일 추천 또는 휴장일 연구 현황을 발송합니다.';
   if (!report.picks.length) return compact ? `아침 추천: ${text(report.reason)}` : report.message;
   const sent = report.delivery && Date.parse(report.delivery.sentAt) <= Date.parse(review.asOf);
-  const lines = [`<b>추천 이후 추적 · ${report.tradingDate}</b>`,
+  const lines = [`📍 <b>추천 이후 추적 · ${report.tradingDate}</b>`,
     `Shadow · 실제 주문 없음 · ${sent ? `발송 ${stamp(report.delivery!.sentAt)}` : '발송 확인 대기'}`];
   if (review.trackingError) lines.push(text(review.trackingError));
   for (const item of review.results.slice(0, 3)) {
     const pick = report.picks.find(value => value.symbol === item.symbol)!;
     lines.push('', `<b>${item.rank}. ${text(item.name, 24)} (${item.symbol})</b> · ${PAPER_MORNING_RESULT_LABELS[item.status]}`);
     if (!compact) lines.push(`추천 참고 종가 ${price(pick.referenceClose.close)} · ${pick.referenceClose.tradingDate}`,
-      `추천 근거: ${text(paperAdaptiveRuleLabel(pick.candidate.rule), 100)}`);
+      `추천 근거: ${text(paperTelegramRuleLabel(pick.candidate.rule), 100)}`);
     if (item.entryAt) lines.push(`매수 ${price(item.entryPrice)} · ${stamp(item.entryAt)}`);
     if (item.exitAt) lines.push(`매도 ${price(item.exitPrice)} · ${stamp(item.exitAt)}`,
-      `확정 순수익 ${pct(item.netReturnPct!)} · 매도 사유: ${text(item.exitReason ?? '미기록', 80)}`);
+      `<b>확정 순수익 ${pct(item.netReturnPct!)}</b>`, `매도 사유: ${text(item.exitReason ?? '미기록', 80)}`);
     else if (item.status === 'OPEN') {
       const point = item.measurement?.latest;
       lines.push(point ? `관측가 ${price(point.price)} · 평가 순수익 ${pct(point.netReturnPct)} · ${stamp(point.observedAt)}` : '보유 중 가격 관측 미확인');

@@ -10,8 +10,7 @@ import { readPaperNewsFacts } from '../../src/utils/paperNewsFacts.js';
 import { formatPaperCloseReport } from './paperCloseReport.js';
 import { getPaperMorningReviewSafely } from '../trading/paper/paperMorningRuntime.js';
 import { formatPaperMorningFollowup } from './paperMorningFollowup.js';
-import { paperAdaptiveRuleLabel } from '../../src/types/paperAdaptive.js';
-import { formatPaperAdaptiveSummary } from './paperResearchMessages.js';
+import { formatPaperAdaptiveSummary, paperTelegramRuleLabel } from './paperResearchMessages.js';
 
 export const PAPER_BOT_SCHEDULES = [
   { kind: 'recommendation', minute: 8 * 60 + 30, graceMinutes: 30, label: '매일 08:30 · 학습 기반 추천 · 휴장일 연구 현황' },
@@ -46,7 +45,7 @@ export function formatPaperReport(view: PaperExperimentView, kind: 'close' | 'st
   const last = view.lastRun;
   const strategy = view.strategy;
   const today = view.experiments.filter(item => item.tradingDate === date).length;
-  const lines = [`<b>Shadow 현재 현황 · ${date}</b>`, '가상 실험 · 실제 주문 없음', '',
+  const lines = [`📋 <b>Shadow 현재 현황 · ${date}</b>`, '가상 실험 · 실제 주문 없음', '',
     `마지막 관측 ${stamp(last?.asOf)}`, last ? `후보 ${num(last.candidateCount)} · 현재가 확인 ${num(last.observedCount)} · 미확인 ${num(last.missingPriceCount)}` : '아직 관측 기록이 없습니다.',
     `기본 관측: 오늘 진입 ${num(today)} · 누적 ${num(view.totalCount)} · D5 완료 ${num(view.completedCount)}`, ];
   if (!strategy || strategy.error || strategy.lastRun?.error) lines.push('전략 기록 확인 대기');
@@ -73,10 +72,10 @@ const RESEARCH_WAIT_LABELS: Record<string, string> = {
 
 export function formatPaperResearch(view: PaperExperimentView, now = new Date()): string {
   const research = view.research;
-  const lines = ['<b>Shadow 연구 점검 · 누적 자료 기준</b>', ...formatPaperAdaptiveSummary(view, now)];
+  const lines = ['🔬 <b>Shadow 연구 점검 · 누적 자료 기준</b>', '', ...formatPaperAdaptiveSummary(view, now)];
   if (!research) lines.push('저장 자료 연구 결과를 아직 불러오지 못했습니다. 다음 스캔 이후 확인하세요.');
   else {
-    lines.push('', '<b>저장 자료 연구 · 자율 연구와 별도</b>', `연구 갱신 ${stamp(research.asOf)}`, research.error ? '연구 갱신 오류 · 이전 저장 결과입니다.' : '',
+    lines.push('', '📂 <b>저장 자료 연구 · 자율 연구와 별도</b>', `연구 갱신 ${stamp(research.asOf)}`, research.error ? '연구 갱신 오류 · 이전 저장 결과입니다.' : '',
     `${research.symbols}종목 · 과거 재현 ${num(research.sampleCount)}건 · 과거 연구 가능 ${num(research.learningSampleCount)}건`,
     `과거 진입일 ${research.firstDate ?? '미확인'} ~ ${research.lastDate ?? '미확인'}`, '', '<b>조건별 후반 검증 · 대조군 대비</b>');
     for (const item of research.featureStudies ?? []) {
@@ -96,7 +95,7 @@ export function formatPaperResearch(view: PaperExperimentView, now = new Date())
   if (strategyAvailable) lines.push('', '<b>전체 전략 이력 · 구전략 포함</b>',
     `전체 전략 이력 가상 청산 ${num(strategy.performance.closedCount)}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`,
     ...selectionLines(strategy.selection));
-  return compactReport(lines.filter(line => line !== ''), ['시그널은 진입 당시 선택 규칙과 학습 근거를 고정하고, 청산 결과를 별도 기록합니다.',
+  return compactReport(lines, ['시그널은 진입 당시 선택 규칙과 학습 근거를 고정하고, 청산 결과를 별도 기록합니다.',
     '과거 7개 조건은 같은 날짜·뉴스·추세·보유기간을 맞춘 탐색 연구이며 매매에 자동 적용하지 않습니다.', '/paper · /paper_bot']);
 }
 
@@ -150,13 +149,13 @@ export function paperTradeEvents(trades: PaperStrategyTrade[]): PaperBotTradeEve
 }
 export function formatPaperTrades(events: PaperBotTradeEvent[]): string {
   const buys = events.filter(item => item.side === 'BUY').length;
-  const lines = ['<b>Shadow 매수·매도</b>', '가상 매매 · 실제 주문 없음',
-    `매수 ${buys}건 · 매도 ${events.length - buys}건`];
+  const lines = ['📣 <b>Shadow 매수·매도</b>', '가상 매매 · 실제 주문 없음', '',
+    `<b>매수 ${buys}건 · 매도 ${events.length - buys}건</b>`];
   for (const event of events.slice(0, 10)) {
     const trade = event.trade;
     const purpose = trade.entryDecision.explorationEvidence ? '탐색 가상매수 · 검증 전' : trade.entryDecision.adaptiveEvidence ? '검증 통과 가상매수' : '구전략 가상매수';
-    const block = [`<b>${event.side === 'BUY' ? '매수' : '매도'} · ${escape(trade.name.slice(0, 30))} (${escape(trade.symbol)})</b>`];
-    if (event.side === 'BUY') block.push(`1주 · ${num(trade.entryPrice)}원`,
+    const block = [`${event.side === 'BUY' ? '🟢' : '🔴'} <b>${event.side === 'BUY' ? '매수' : '매도'} · ${escape(trade.name.slice(0, 30))} (${escape(trade.symbol)})</b>`];
+    if (event.side === 'BUY') block.push(`<b>1주 · ${num(trade.entryPrice)}원</b>`,
       `매수 판단 ${stamp(event.at)}`,
       trade.policy.exitModel === 'ADAPTIVE_OBSERVED' ? '매도 기준: 가격·진입 근거 변화' : `예약 매도 ${trade.scheduledExitDate}`);
     else block.push(`순수익률 <b>${pct(trade.exit?.netReturnPct)}</b>`,
@@ -164,7 +163,7 @@ export function formatPaperTrades(events: PaperBotTradeEvent[]): string {
       trade.exit?.model === 'ADAPTIVE_OBSERVED' ? `관측 매도 ${stamp(trade.exit.effectiveAt)}` : `예약 매도 · 평가일 ${trade.scheduledExitDate}`,
       ...(trade.exit?.model === 'ADAPTIVE_OBSERVED' ? [`사유: ${escape(trade.exit.decision.reason.slice(0, 100))}`] : []),
       `매수일 ${trade.tradingDate} · 매도 판단 ${stamp(event.at)}`);
-    block.push(purpose);
+    block.push(trade.entryDecision.explorationEvidence ? `🧪 ${purpose}` : purpose);
     lines.push(`\n${block.join('\n')}`);
   }
   if (events.length > 10) lines.push(`외 ${events.length - 10}건 · 전체 내역은 대시보드에서 확인`);
@@ -196,7 +195,7 @@ function measuredExitLines(trade: PaperStrategyTrade, reportedAt: string): strin
 
 /** Only entry-frozen evidence and the matching exit; never re-evaluate a signal. */
 export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
-  const lines = ['<b>Shadow 매매 분석</b>', '가상 매매 · 실제 주문 없음'];
+  const lines = ['📝 <b>Shadow 매매 분석</b>', '가상 매매 · 실제 주문 없음'];
   for (const event of events.slice(0, 5)) {
     const trade = event.trade;
     const evidence = trade.entryDecision.evidence;
@@ -210,7 +209,7 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
     if (trade.morningRecommendation) lines.push(`아침 추천 연결: ${stamp(trade.morningRecommendation.sentAt)} · ${trade.morningRecommendation.rank}순위 · ${trade.morningRecommendation.matchesEntryRule ? '같은 규칙 진입' : '다른 규칙 진입'}`);
     if (trade.exitPolicy) {
       const policy = trade.exitPolicy, profile = policy.profile;
-      lines.push(`매도 기준: ${policy.origin === 'FORWARD_LEARNED' ? '후속 관측 검증으로 선택' : '초기 탐색 기준 · 학습 검증 전'}`,
+      lines.push('', '🎯 <b>매도 기준</b>', `매도 기준: ${policy.origin === 'FORWARD_LEARNED' ? '후속 관측 검증으로 선택' : '초기 탐색 기준 · 학습 검증 전'}`,
         `• 손실 제한 ${profile.stopLossPct}%`,
         `• 수익 ${profile.trailingArmPct}% 도달 후 고점 대비 ${profile.trailingDrawdownPct}%p 반납`,
         `• 진입 근거 ${profile.signalFailureCount}회/${profile.signalFailureMinutes}분 이상 약화`);
@@ -218,12 +217,14 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
     if (adaptive) {
       const { training, validation, rule } = adaptive.candidate;
       const invented = rule.invention;
-      lines.push(exploration ? '탐색 가상매수 · 검증 전' : '검증 통과 가상매수',
-        `${exploration ? '탐색' : '자동 연결'} 지표: ${escape(paperAdaptiveRuleLabel(rule))}`);
+      lines.push('', exploration ? '🧪 <b>탐색 가상매수 · 검증 전</b>' : '✅ <b>검증 통과 가상매수</b>',
+        `${exploration ? '탐색' : '자동 연결'} 지표: ${escape(paperTelegramRuleLabel(rule))}`);
       if (exploration) lines.push(`탐색 등록 ${stamp(exploration.registeredAt)}`);
       if (invented) lines.push(`원본 수식 생성 ${escape(invented.createdAt)} · 발명 자료 기준 ${escape(invented.discoveryCutoffAt)}`);
-      lines.push(`${invented ? '발명 당시 학습' : '학습'} ${num(training.sampleCount)}건/${training.dateCount}진입일 · 평균 순수익률 ${pct(training.meanNetReturnPct)} · 일당 대조군 차이 ${excess(training.meanDailyExcessPct)}`,
-        `${invented ? '생성 후 검증' : '후반 확인'} ${num(validation.sampleCount)}건/${validation.dateCount}진입일 · 평균 순수익률 ${pct(validation.meanNetReturnPct)} · 일당 대조군 차이 ${excess(validation.meanDailyExcessPct)}`,
+      lines.push('', `<b>${invented ? '발명 당시 학습' : '학습'} ${num(training.sampleCount)}건/${training.dateCount}진입일</b>`,
+        `평균 순수익률 ${pct(training.meanNetReturnPct)} · 일당 대조군 차이 ${excess(training.meanDailyExcessPct)}`,
+        '', `<b>${invented ? '생성 후 검증' : '후반 확인'} ${num(validation.sampleCount)}건/${validation.dateCount}진입일</b>`,
+        `평균 순수익률 ${pct(validation.meanNetReturnPct)} · 일당 대조군 차이 ${excess(validation.meanDailyExcessPct)}`,
         `근거 기준 ${stamp(adaptive.cutoffAt)} · 선택 평가 ${stamp(adaptive.evaluatedAt)} · ${invented ? '생성 후 검증' : '후반'} 시작 ${adaptive.validationStartDate ?? '누적 대기'}`,
         '진입 당시 근거 고정 · 이후 매도는 거래별 매도 규칙 적용');
     } else if (evidence) {
@@ -239,6 +240,7 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
       .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
     const summary = summarizePaperNews(trade.entryObservation.news, trade.entryAt, trade.policy.newsLookbackHours);
     const flow = trade.entryObservation.investorFlow;
+    lines.push('', '📰 <b>진입 당시 뉴스·수급</b>');
     if (flow) {
       const shares = (value: number | null) => value === null ? '미확인' : `${num(value)}주`;
       lines.push(`진입 당시 직전 거래일 수급(${escape(flow.requestedTradingDate)}): 외국인 ${shares(flow.foreignNetShares)} · 기관 ${shares(flow.institutionalNetShares)}`);
@@ -255,7 +257,7 @@ export function formatPaperTradeAnalysis(events: PaperBotTradeEvent[]): string {
         ...(facts.relationship === 'DIRECT' ? [`사건 ${PAPER_NEWS_EVENT_LABELS[facts.event]} · 접수일 ${escape(facts.filedDate ?? '미확인')}`,
           `최초 확인 ${stamp(facts.firstSeenAt)} · 원문 ${facts.sourceUrl}`] : []));
     }
-    if (event.side === 'EXIT') lines.push('', '<b>보유 중 관측</b>', ...measuredExitLines(trade, event.at));
+    if (event.side === 'EXIT') lines.push('', '📈 <b>보유 중 관측</b>', ...measuredExitLines(trade, event.at));
   }
   lines.push('', '관측 표본의 과거 평균이며 개별 종목의 수익 예측이 아닙니다.',
     '뉴스 분류는 연구용이며 진입 조건에 미반영입니다.', '/paper · /paper_research');
@@ -270,15 +272,15 @@ export function formatPaperBotStatus(state: PaperBotState): string {
     const messages = state.messages.filter(item => (item.channel ?? 'DM') === channel);
     return `${label}: 성공 ${messages.filter(item => item.state === 'SENT').length} · 대기 ${messages.filter(item => item.state === 'PENDING').length} · 실패 ${messages.filter(item => item.state === 'FAILED').length}`;
   });
-  return ['<b>Shadow 알림 봇</b>', ...PAPER_BOT_SCHEDULES.map(item => item.label), '매분 · 새 전략 진입/청산, 연구 변경, 관측 중단/복구 확인',
+  return ['🤖 <b>Shadow 알림 봇</b>', '', '🗓 <b>발송 일정</b>', ...PAPER_BOT_SCHEDULES.map(item => item.label), '매분 · 새 전략 진입/청산, 연구 변경, 관측 중단/복구 확인', '', '📮 <b>채널 역할</b>',
     'CH1 매매: 진입·청산 / CH2 판단: 08:30 추천·진입 근거·청산 복기·10:30/13:30 판단',
     'CH3 정보: 08:45 준비 / CH4 연구: 지표 변경·16:10 성과·일요일 연구 / 개인 DM: 운영 상태', '',
     '관측 지연: 장중 10분·휴장/장외 60분, 진행률 확인 후 5분 지속 시 알림 · 같은 경고 최소 1시간 간격',
-    `관측 상태 ${health}`,
+    '', `⚙️ <b>관측 상태 ${health}</b>`,
     `마지막 점검 ${stamp(state.lastCheckedAt)}`, `마지막 확인된 발송 ${stamp(sent?.sentAt)}`,
     `최근 14일: 발송 대기 ${state.messages.filter(item => item.state === 'PENDING').length} · 실패 ${state.messages.filter(item => item.state === 'FAILED').length} · 만료 ${state.messages.filter(item => item.state === 'EXPIRED').length}`,
     '08:30 추천 명단·근거·발송 원문은 날짜별로 별도 영구 보관합니다.',
     ...(state.messages.some(item => item.kind === 'recommendation' && item.state === 'SENT' && item.error)
       ? ['추천 발송 성공 · 영구 보관의 발송 확인 갱신 필요'] : []),
-    ...delivery, 'Telegram 메시지 ID를 받은 경우에만 발송 성공으로 기록합니다.', '/paper · /paper_research'].join('\n');
+    '', '📬 <b>채널별 발송 결과</b>', ...delivery, '', 'Telegram 메시지 ID를 받은 경우에만 발송 성공으로 기록합니다.', '/paper · /paper_research'].join('\n');
 }

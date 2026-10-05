@@ -51,6 +51,34 @@ function closed(version: PaperStrategyTrade['strategyVersion'], netReturnPct: nu
 }
 
 describe('adaptive research summary', () => {
+  it('keeps five connected rules readable with samples, results and learning within one message budget', () => {
+    const current = view(), adaptive = current.strategy!.adaptive!;
+    adaptive.candidates = ['rsi14', 'pbr', 'currentRatio'].map(feature => ({ ...candidate,
+      rule: { ...candidate.rule, feature: feature as 'rsi14' | 'pbr' | 'currentRatio' } }));
+    adaptive.exploration = { version: 'shadow-exploration-v1', sequence: 2,
+      rules: [1, 2].map(index => ({ id: `trial-${index}`, registeredAt: at,
+        candidate: { ...invented, active: false, reason: 'FORWARD_OBSERVATION' } })) };
+    adaptive.policy.maturityModel = 'per-horizon-v1';
+    adaptive.horizonSamples = [1, 3, 5].map(horizon => ({ horizon: horizon as 1 | 3 | 5,
+      matureSampleCount: 6526, matureDateCount: 7, trainingSampleCount: 2688, trainingDateCount: 3,
+      validationSampleCount: 2896, validationDateCount: 3 }));
+    const original = structuredClone(current);
+    const result = formatPaperAdaptiveSummary(current, now).join('\n');
+    for (const heading of ['✅ <b>검증 지표', '🧪 <b>탐색 가상매수', '🧬 <b>새 지표 연구', '📚 <b>학습·검증 표본', '📊 <b>가상 매매 결과']) {
+      expect(result).toContain(`\n\n${heading}`);
+    }
+    expect(result).toContain('연결 2개/최대 2개');
+    expect(result).toContain('<b>• PBR (주가순자산비율)</b>\n조건');
+    expect(result).not.toContain('N(RSI');
+    expect(result).toContain('조합값 0 이상 1 미만 · D3 성과 비교');
+    expect(result).toContain('<b>D5</b> · 학습 2,688건/3일 · 검증 2,896건/3일');
+    expect(result).toContain('탐색 진입(검증 전): 보유 0건 · 청산 0건 · 평균 미집계');
+    expect(result).not.toContain('… 상세');
+    expect(result.length).toBeLessThanOrEqual(1900);
+    expect(validateTelegramHtml(result).valid).toBe(true);
+    expect(current).toEqual(original);
+  });
+
   it('reports real research counts and separates current-policy completed results from legacy and future exits', () => {
     const current = view();
     current.strategy!.trades = [closed('news-trend-v2', 99), closed('adaptive-features-v1', 2), closed('adaptive-features-v1', 80, '2026-10-05T07:00:00Z')];
@@ -58,12 +86,12 @@ describe('adaptive research summary', () => {
     current.strategy!.adaptive!.candidates.push({ ...invented, rule: { ...invented.rule, feature: 'pbr', invention: undefined }, active: false, reason: 'MISSING_INPUT' });
     const result = formatPaperAdaptiveSummary(current, now).join('\n');
     expect(result).toContain('발명 2차 · 이번 회차 검토 1개 · 보관 1개');
-    expect(result).toContain('검증 지표 자동 연결 2개/최대 3개 · 발명 지표 1개');
+    expect(result).toContain('<b>검증 지표 자동 연결 2개/최대 3개</b>\n이 중 발명 지표 1개');
     expect(result).toContain('생성 후 검증 12건/3일');
     expect(result).toContain('학습에 쓸 지표 표본 없음 1개');
     expect(result).toContain('현행 자율 전략 전체(검증+탐색) 가상 청산 1건 · 평균 순수익률 +2.00% (구전략 제외)');
     expect(result).not.toContain('+99.00%'); expect(result).not.toContain('+80.00%');
-    expect(result.length).toBeLessThanOrEqual(1200);
+    expect(result.length).toBeLessThanOrEqual(1900);
   });
 
   it('reports per-horizon learning counts and preserves realized performance within the message limit', () => {
@@ -76,18 +104,18 @@ describe('adaptive research summary', () => {
     ];
     const result = formatPaperAdaptiveSummary(current, now).join('\n');
     expect(result).toContain('한 보유기간 이상 확정 표본 100건/20진입일');
-    expect(result).toContain('D1 전체 표본 · 학습 60건/12일 · 검증 20건/4일');
-    expect(result).toContain('D3 전체 표본 · 학습 0건/0일 · 검증 20건/4일');
-    expect(result).toContain('D5 전체 표본 · 학습 0건/0일 · 검증 0건/0일');
+    expect(result).toContain('<b>D1</b> · 학습 60건/12일 · 검증 20건/4일');
+    expect(result).toContain('<b>D3</b> · 학습 0건/0일 · 검증 20건/4일');
+    expect(result).toContain('<b>D5</b> · 학습 0건/0일 · 검증 0건/0일');
     expect(result).toContain('현행 자율 전략 전체(검증+탐색) 가상 청산 0건');
-    expect(result.length).toBeLessThanOrEqual(1200);
+    expect(result.length).toBeLessThanOrEqual(1900);
     expect(validateTelegramHtml(result).valid).toBe(true);
     delete adaptive.horizonSamples;
     expect(formatPaperAdaptiveSummary(current, now).join('\n')).toContain('보유기간별 표본 집계 확인 대기');
     delete adaptive.policy.maturityModel;
     const legacy = formatPaperAdaptiveSummary(current, now).join('\n');
     expect(legacy).toContain('성숙 관측 100건/20진입일');
-    expect(legacy).not.toContain('D1 전체 표본');
+    expect(legacy).not.toContain('<b>D1</b> · 학습');
   });
 
   it('does not substitute all-strategy performance for an unaggregated current policy', () => {
@@ -109,13 +137,13 @@ describe('adaptive research summary', () => {
     current.strategy!.adaptive!.exploration = { version: 'shadow-exploration-v1', sequence: 1,
       rules: [{ id: 'trial', registeredAt: at, candidate: { ...invented, active: false, reason: 'FORWARD_OBSERVATION' } }] };
     const result = formatPaperAdaptiveSummary(current, now).join('\n');
-    expect(result).toContain('탐색 가상매수 · 검증 전 · 1개/최대 2개');
+    expect(result).toContain('<b>탐색 가상매수 · 검증 전</b>\n연결 1개/최대 2개');
     expect(result).toContain('검증 지표 자동 연결 2개/최대 3개');
     expect(result).toContain('현행 자율 전략 전체(검증+탐색) 가상 청산 2건 · 평균 순수익률 +0.50%');
     expect(result).toContain('검증 통과 진입: 보유 0건 · 청산 1건 · 평균 +2.00%');
     expect(result).toContain('탐색 진입(검증 전): 보유 1건 · 청산 1건 · 평균 -1.00%');
     expect(result).not.toContain('+99.00%');
-    expect(result.length).toBeLessThanOrEqual(1200);
+    expect(result.length).toBeLessThanOrEqual(1900);
   });
 
   it('uses only purpose-specific aggregates for partial ledgers and marks missing or future data unavailable', () => {

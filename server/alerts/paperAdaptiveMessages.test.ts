@@ -115,7 +115,7 @@ describe('adaptive trade analysis', () => {
     expect(signal).toContain('탐색 가상매수 · 검증 전');
     expect(analysis).toContain('탐색 지표: RSI 14');
     expect(analysis).toContain('후반 시작 누적 대기');
-    expect(analysis).toContain('후반 확인 0건/0진입일 · 평균 순수익률 집계 대기');
+    expect(analysis).toContain('<b>후반 확인 0건/0진입일</b>\n평균 순수익률 집계 대기');
     expect(analysis).not.toContain('검증 통과 가상매수');
     expect(analysis).not.toContain('진입 당시 학습 근거 미기록');
     expect(analysis.length).toBeLessThanOrEqual(3500);
@@ -123,8 +123,8 @@ describe('adaptive trade analysis', () => {
   it.each(['BUY', 'EXIT'] as const)('keeps %s tied to the original selected feature rather than news cohorts', side => {
     const text = formatPaperTradeAnalysis([{ id: side, at: side === 'BUY' ? entryAt : '2026-09-28T07:00:00Z', trade, side }]);
     expect(text).toContain('자동 연결 지표: RSI 14 · 30 이상 50 미만 · D3');
-    expect(text).toContain('학습 20건/5진입일 · 평균 순수익률 +1.50% · 일당 대조군 차이 +0.20%p');
-    expect(text).toContain('후반 확인 12건/3진입일 · 평균 순수익률 +1.20% · 일당 대조군 차이 +0.15%p');
+    expect(text).toContain('<b>학습 20건/5진입일</b>\n평균 순수익률 +1.50% · 일당 대조군 차이 +0.20%p');
+    expect(text).toContain('<b>후반 확인 12건/3진입일</b>\n평균 순수익률 +1.20% · 일당 대조군 차이 +0.15%p');
     expect(text).toContain('후반 시작 2026-09-01');
     expect(text).toContain('진입 당시 근거 고정 · 이후 매도는 거래별 매도 규칙 적용');
     expect(text).toContain('&lt;삼성&amp;&gt;');
@@ -141,7 +141,7 @@ describe('adaptive trade analysis', () => {
       adaptiveEvidence: { ...adaptiveEvidence, validationStartDate: '2026-09-07',
         candidate: { ...adaptiveEvidence.candidate, rule: { feature: invention.id, ...invention.rule, invention } } } } };
     const text = formatPaperTradeAnalysis([{ id: side, at: side === 'BUY' ? entryAt : '2026-09-28T07:00:00Z', trade: frozenTrade, side }]);
-    expect(text).toContain('자동 연결 지표: 발명 · N(RSI 14) × N(완료일 거래량 / 이전 20일 평균)');
+    expect(text).toContain('자동 연결 지표: RSI 14 · 완료일 거래량 / 이전 20일 평균 곱 · 조합값 0 이상 1 미만 · D3');
     expect(text).toContain('원본 수식 생성 2026-09-04T01:00:00Z · 발명 자료 기준 2026-09-03T15:00:00Z');
     expect(text).toContain('발명 당시 학습 20건/5진입일');
     expect(text).toContain('생성 후 검증 12건/3진입일');

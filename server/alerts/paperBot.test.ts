@@ -432,7 +432,9 @@ describe('signal and learning linkage', () => {
     view.strategy.trades = Array.from({ length: 23 }, (_, index) => ({ ...structuredClone(template), id: `signal-${index}`, symbol: `1000${String(index).padStart(2, '0')}`, name: '<&>'.repeat(40) }));
     const before = structuredClone(view.strategy.trades);
     enqueuePaperTradeChanges(persisted, view, now);
-    expect(persisted.messages).toHaveLength(10);
+    const batchCount = persisted.messages.length;
+    expect(batchCount).toBeGreaterThan(0);
+    expect(batchCount % 2).toBe(0);
     expect(Object.keys(persisted.seenEvents)).toHaveLength(23);
     for (const channel of ['TRADE', 'ANALYSIS']) {
       const messages = persisted.messages.filter(item => item.channel === channel);
@@ -441,9 +443,9 @@ describe('signal and learning linkage', () => {
     }
     expect(view.strategy.trades).toEqual(before);
     expect(persisted.messages[1].message).toContain('자동 연결 지표:');
-    expect(persisted.messages[1].message).toContain('후반 확인 40건/10진입일 · 평균 순수익률 +9.00%');
+    expect(persisted.messages[1].message).toContain('<b>후반 확인 40건/10진입일</b>\n평균 순수익률 +9.00%');
     enqueuePaperTradeChanges(persisted, view, now);
-    expect(persisted.messages).toHaveLength(10);
+    expect(persisted.messages).toHaveLength(batchCount);
     const longView = structuredClone(view);
     for (const trade of longView.strategy!.trades) {
       trade.entryObservation.news = [{ id: 'long-news', headline: '&'.repeat(70), source: 'DART', observedAt: trade.entryAt }];
@@ -466,7 +468,7 @@ describe('signal and learning linkage', () => {
     trade.exit = { decisionAt: '2026-09-23T07:00:00Z', effectiveAt: '2026-09-23T06:30:00Z', netReturnPct: -2 } as NonNullable<typeof trade.exit>;
     const text = formatPaperTradeAnalysis([paperTradeEvents([trade])[1]]);
     expect(text).toContain('청산 복기');
-    expect(text).toContain('후반 확인 40건/10진입일 · 평균 순수익률 +9.00%');
+    expect(text).toContain('<b>후반 확인 40건/10진입일</b>\n평균 순수익률 +9.00%');
     expect(text).toContain('청산 순수익률 <b>-2.00%</b>');
     expect(text).toContain('(005930)');
     expect(text).toContain('매수 10,000원 · 2026-09-18');

@@ -21,7 +21,7 @@ const WAIT_LABELS: Partial<Record<PaperStrategyReasonCode, string>> = {
 };
 
 function baselineLines(view: PaperExperimentView, date: string, cutoff: number): string[] {
-  const lines = ['<b>기본 관측 · 오늘과 누적</b>'];
+  const lines = ['🔎 <b>기본 관측 · 오늘과 누적</b>'];
   if (view.experiments.length !== view.totalCount) return [...lines, '전체 원장 미조회 · 오늘 성과와 평가 일정 확인 필요'];
   const records = view.experiments.filter(item => item.tradingDate <= date && Date.parse(item.entryAt) <= cutoff);
   lines.push(`관측 ${new Set(records.map(item => item.tradingDate)).size}거래일 · 오늘 신규 ${num(records.filter(item => item.tradingDate === date).length)}건 · 누적 ${num(records.length)}건`);
@@ -54,7 +54,7 @@ function baselineLines(view: PaperExperimentView, date: string, cutoff: number):
 }
 
 function strategyLines(view: PaperExperimentView, date: string, cutoff: number): string[] {
-  const lines = ['<b>전체 전략 가상 매매 · 구전략 포함</b>'];
+  const lines = ['💼 <b>전체 전략 가상 매매 · 구전략 포함</b>'];
   const strategy = view.strategy;
   if (!strategy || strategy.error || strategy.lastRun?.error) return [...lines, '전략 기록 확인 필요 · 기본 관측 성과는 별도 집계'];
   if (strategy.trades.length === strategy.totalCount) {
@@ -65,7 +65,7 @@ function strategyLines(view: PaperExperimentView, date: string, cutoff: number):
     const closed = trades.filter(exited);
     const today = closed.filter(item => toKstDateKey(item.exit!.effectiveAt) === date);
     const held = trades.filter(item => !exited(item));
-    lines.push(`오늘 진입 ${num(entered.length)}건 · 오늘 평가일 청산 ${num(today.length)}건 · 보유 ${num(held.length)}건`,
+    lines.push(`<b>오늘 진입 ${num(entered.length)}건 · 오늘 평가일 청산 ${num(today.length)}건 · 보유 ${num(held.length)}건</b>`,
       `오늘 청산 평균 ${pct(mean(today.map(item => item.exit!.netReturnPct)))} · 누적 ${num(closed.length)}건 ${pct(mean(closed.map(item => item.exit!.netReturnPct)))}`);
     if (entered.length) lines.push(`진입: ${entered.slice(0, 3).map(item => escape(item.name.slice(0, 20))).join(', ')}${entered.length > 3 ? ` 외 ${entered.length - 3}종목` : ''}`);
     const late = closed.filter(item => toKstDateKey(item.exit!.decisionAt) === date && toKstDateKey(item.exit!.effectiveAt) < date).length;
@@ -102,7 +102,7 @@ function strategyLines(view: PaperExperimentView, date: string, cutoff: number):
 }
 
 function newsLines(view: PaperExperimentView, date: string, cutoff: number): { lines: string[]; highlights: string[] } {
-  const lines = ['<b>뉴스·공시와 수급</b>'];
+  const lines = ['📰 <b>뉴스·공시와 수급</b>'];
   const disclosure = view.lastRun?.disclosures;
   if (disclosure && Date.parse(disclosure.checkedAt) <= cutoff) {
     lines.push(`공시 ${disclosure.state === 'COMPLETE' ? '조회 완료' : disclosure.state === 'PARTIAL' ? '일부 미확인' : '조회 실패'} · ${stamp(disclosure.checkedAt)}`,
@@ -147,7 +147,7 @@ export function formatPaperCloseReport(view: PaperExperimentView, date: string, 
   const last = view.lastRun;
   const at = Date.parse(last?.asOf ?? '');
   const completed = toKstDateKey(last?.asOf ?? '') === date && at >= close && at <= cutoff;
-  const lines = [`<b>Shadow 마감 요약 · ${date}</b>`, '가상 실험 · 비용 반영 · KST',
+  const lines = [`🌙 <b>Shadow 마감 요약 · ${date}</b>`, '가상 실험 · 비용 반영 · KST', '',
     cutoff < close ? '마감 전 미리보기 · 종가 성과 미확정' : completed ? '마감 후 관측 확인' : '마감 후 관측 미확인 · 아래는 저장된 기록',
     `마지막 관측 ${stamp(last?.asOf)}${last && cutoff - at > 10 * 60_000 ? ' · 10분 이상 갱신 지연' : ''}`];
   if (last) lines.push(`가격 확인 ${num(last.observedCount)}/${num(last.candidateCount)}종목 · 미확인 ${num(last.missingPriceCount)}`);
