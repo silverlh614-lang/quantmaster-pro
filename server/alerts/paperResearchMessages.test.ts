@@ -8,6 +8,7 @@ import { legacyStrategyLedger } from '../trading/paper/paperStrategyFixtures.js'
 import { formatPaperAdaptiveSummary, formatPaperIntraday, formatPaperResearchChanges } from './paperResearchMessages.js';
 import { validateTelegramHtml } from './telegramHtmlSanitizer.js';
 import { sealPaperProgram } from '../trading/paper/paperIndicatorProgram.js';
+import { paperAutonomyRuleKey } from '../../src/types/paperAutonomy.js';
 
 const date = '2026-10-02', now = new Date(`${date}T04:30:00Z`), at = `${date}T04:20:00Z`;
 const candidate: PaperAdaptiveCandidate = {
@@ -52,6 +53,26 @@ function closed(version: PaperStrategyTrade['strategyVersion'], netReturnPct: nu
 }
 
 describe('adaptive research summary', () => {
+  it('reports dated allocation evidence separately from returns within the message budget', () => {
+    const current = view(), adaptive = current.strategy!.adaptive!;
+    adaptive.exploration = { version: 'shadow-exploration-v1', sequence: 1,
+      rules: [{ id: 'trial', registeredAt: at, candidate: { ...invented, active: false, reason: 'FORWARD_OBSERVATION' } }],
+      autonomy: { version: 'shadow-autonomy-v1', status: 'READY', evaluatedAt: at, cutoffAt: state.cutoffAt,
+        selectedRuleKeys: [paperAutonomyRuleKey(invented.rule)], entries: [{ ruleKey: paperAutonomyRuleKey(invented.rule),
+          lastSelectedAt: at, weight: 3, reason: 'INCREASE', stats: { totalCount: 15, closedCount: 12, pendingCount: 3,
+            sampleCount: 10, dateCount: 3, meanNetReturnPct: 2, meanDateNetReturnPct: 1, standardErrorPct: 0.1,
+            tradeIdsDigest: 'test-fixture' } }] } };
+    const result = formatPaperAdaptiveSummary(current, now).join('\n');
+    expect(result).toContain('탐색 기회를 늘립니다 · 상대 배분 3');
+    expect(result).toContain('실제 탐색 평가 10건/3진입일 · 진행 3건');
+    expect(result.length).toBeLessThanOrEqual(1900);
+    expect(validateTelegramHtml(result).valid).toBe(true);
+    adaptive.exploration.autonomy!.evaluatedAt = '2026-10-05T01:00:00Z';
+    expect(formatPaperAdaptiveSummary(current, now).join('\n')).not.toContain('상대 배분 3');
+    adaptive.exploration.autonomy = { version: 'shadow-autonomy-v1', status: 'FALLBACK', evaluatedAt: at,
+      cutoffAt: state.cutoffAt, selectedRuleKeys: [], entries: [], fallbackReason: '계산 확인 필요' };
+    expect(formatPaperAdaptiveSummary(current, now).join('\n')).toContain('기존 순환·균등 배정 사용');
+  });
   it('keeps five connected rules readable with samples, results and learning within one message budget', () => {
     const current = view(), adaptive = current.strategy!.adaptive!;
     adaptive.candidates = ['rsi14', 'pbr', 'currentRatio'].map(feature => ({ ...candidate,

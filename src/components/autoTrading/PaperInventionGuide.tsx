@@ -4,6 +4,7 @@ import { PAPER_ADAPTIVE_REASON_LABELS, type PaperAdaptiveState } from '../../typ
 import { PAPER_PROGRAM_LIMITS } from '../../types/paperIndicatorProgram';
 import { explainPaperIndicator } from '../../utils/paperIndicatorExplanation';
 import { PaperFormulaExplanation } from './PaperFormulaExplanation';
+import { PaperAutonomyPanel } from './PaperAutonomyPanel';
 
 export function PaperInventionGuide({ state }: { state?: PaperAdaptiveState }) {
   const [showAll, setShowAll] = useState(false);
@@ -27,6 +28,7 @@ export function PaperInventionGuide({ state }: { state?: PaperAdaptiveState }) {
       <li><strong>선택하기</strong><span>검증 성과에 따라 연결·해제·재검토</span></li></ol>
     <p>‘발명’은 수식을 만들었다는 뜻이며 수익성이 입증됐다는 뜻은 아닙니다. <strong>탐색 매수는 검증 전 시험</strong>이고, 검증 매수는 별도 성과 확인을 통과한 규칙을 사용합니다.</p>
     <PaperProgramStatus state={state} />
+    <PaperAutonomyPanel state={state} />
     {!state ? <p>현재 발명 지표의 적용 상태는 자료를 확인한 뒤 표시합니다.</p> : <>
       <div className="paper-invention-heading"><h4>보관 중인 발명 지표 {cards.length}개</h4><span>항목을 펼쳐 재료·뜻·적용 구간 확인</span></div>
       {!cards.length && <p>아직 표시할 발명 지표가 없습니다. 기본 지표의 관측과 연구는 계속됩니다.</p>}

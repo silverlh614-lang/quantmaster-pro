@@ -6,6 +6,7 @@ import { PAPER_FEATURES } from '../../src/types/paperObservationFeatures.js';
 import { paperIndicatorFormulaOperands } from '../../src/types/paperIndicatorFormula.js';
 import { explainPaperIndicator, inventedRuleRange } from '../../src/utils/paperIndicatorExplanation.js';
 import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
+import { PAPER_AUTONOMY_REASON_LABELS, paperAutonomyRuleKey } from '../../src/types/paperAutonomy.js';
 
 const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const text = (value: string, limit = 120) => escape(Array.from(value.replace(/\s+/g, ' ').trim()).slice(0, limit).join(''));
@@ -76,7 +77,13 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
         : `연결 ${exploration.length}개/최대 2개 · 수익성 검증 전`);
     for (const trial of (detail === 'full' ? exploration ?? [] : []).filter(item => known(item.registeredAt, cutoff)).slice(0, 2)) {
       lines.push('', ...ruleLines(trial.candidate.rule), text(PAPER_ADAPTIVE_REASON_LABELS[trial.candidate.reason], 35));
+      const autonomy = state.exploration?.autonomy;
+      const entry = autonomy?.entries.find(item => item.ruleKey === paperAutonomyRuleKey(trial.candidate.rule));
+      if (autonomy && known(autonomy.evaluatedAt, cutoff) && entry) lines.push(
+        `${PAPER_AUTONOMY_REASON_LABELS[entry.reason]} · 상대 배분 ${entry.weight}`,
+        `실제 탐색 평가 ${entry.stats.sampleCount}건/${entry.stats.dateCount}진입일 · 진행 ${entry.stats.pendingCount}건`);
     }
+    if (state.exploration?.autonomy?.status === 'FALLBACK' && known(state.exploration.autonomy.evaluatedAt, cutoff)) lines.push('자율 배분 확인 필요 · 기존 순환·균등 배정 사용');
     if (discovery) lines.push('', '🧬 <b>새 지표 연구</b>', `발명 ${discovery.round}차 · 이번 회차 검토 ${discovery.attemptedIds.length}개 · 보관 ${discovery.inventions.length}개`,
       `생성 후 검증 대기 ${state.candidates.filter(item => item.rule.invention && item.reason === 'FORWARD_OBSERVATION').length}개`);
     else lines.push('지표 발명 연구 기록 미조회');

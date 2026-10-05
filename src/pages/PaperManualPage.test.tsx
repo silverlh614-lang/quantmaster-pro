@@ -61,6 +61,17 @@ it('explains the bounded AI proposal lifecycle and remaining external-data scope
   expect(screen.getByText(/미채택 사유는 다음 AI 작성의 참고 자료/)).toBeTruthy();
   expect(paperManualText()).toContain('이후 날짜의 장외 회차에서 재시도');
 });
+it('explains autonomous allocation without adding entry gates or fabricated comparison profits', () => {
+  render(<PaperManualPage />);
+  fireEvent.click(category('학습과 발명 지표'));
+  expect(screen.getByText('자율 판단은 다음 시험 기회를 어떻게 고르나요?')).toBeTruthy();
+  expect(screen.getByText(/새 매수의 추가 대기 조건이 아닙니다/)).toBeTruthy();
+  expect(screen.getByText(/같은 날 진입한 거래가 모두 끝나야/)).toBeTruthy();
+  expect(screen.getByText(/둘째 자리는 최근 기회를 받지 못한 후보/)).toBeTruthy();
+  fireEvent.click(category('추천과 가상 매수'));
+  expect(screen.getByText(/실행하지 않은 비교 매매의 수익을 임의로 만들거나/)).toBeTruthy();
+  expect(paperManualText()).toContain('투자 신뢰도·예상 수익률·매수 수량이 아닙니다');
+});
 it('demonstrates negative products, operand order and the actual normalization clamp', () => {
   render(<PaperManualPage />);
   fireEvent.click(category('지표 움직임 체험'));
