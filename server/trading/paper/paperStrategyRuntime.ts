@@ -33,7 +33,7 @@ export function advancePaperStrategy(
     const ledger = snapshot.quoteOnly ? evaluatePaperHoldingPrices(state.ledger, snapshot)
       : evaluatePaperStrategyScan(state.ledger, snapshot, (symbol) =>
         capturePaperCostModel(getStockByCode(symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI'),
-      selectPaperAdaptiveState(state.ledger.adaptive, experiments, snapshot.asOf, snapshot.observations, readPaperProgramProposals()));
+      selectPaperAdaptiveState(state.ledger.adaptive, experiments, snapshot.asOf, snapshot.observations, readPaperProgramProposals(), state.ledger.trades));
     const archived = getArchivedPaperBarCheck();
     if (archived) ledger.trades = ledger.trades.map((trade) => {
       const entryObservation = trimArchivedEntryBars(trade.entryObservation, trade.tradingDate, archived);

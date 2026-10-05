@@ -12,6 +12,7 @@ import { paperStrategyCohort, scheduledPaperClose } from './paperStrategyEvidenc
 import { discoverPaperIndicators } from './paperIndicatorDiscovery.js';
 import { selectPaperShadowExploration } from './paperShadowExploration.js';
 import type { PaperProgramProposal } from './paperProgramResearch.js';
+import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 
 export const PAPER_ADAPTIVE_POLICY: Readonly<PaperAdaptivePolicy> = Object.freeze({
   version: 'adaptive-features-v1', maturityModel: 'per-horizon-v1', windowEntryDates: 60, trainingFraction: 0.7,
@@ -190,7 +191,7 @@ function chooseFeature(feature: PaperFeatureKey, train: Row[], test: Row[], prev
 }
 
 export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefined, experiments: PaperExperiment[], asOf: string,
-  observations: PaperObservation[] = [], programs: PaperProgramProposal[] = []): PaperAdaptiveState {
+  observations: PaperObservation[] = [], programs: PaperProgramProposal[] = [], trades?: readonly PaperStrategyTrade[]): PaperAdaptiveState {
   if (!Number.isFinite(Date.parse(asOf))) throw new Error('자율 지표 평가 시각 오류');
   if (previous && Date.parse(previous.evaluatedAt) > Date.parse(asOf)) throw new Error('과거 스냅샷으로 자율 지표 상태를 변경할 수 없습니다.');
   const tradingDate = toKstDateKey(new Date(asOf));
@@ -233,7 +234,7 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
     const created = Date.parse(invention.createdAt), createdDate = toKstDateKey(new Date(created));
     return rows.filter(row => Date.parse(row.experiment.entryAt) > created && row.experiment.tradingDate > createdDate);
   };
-  const exploration = (candidates: PaperAdaptiveCandidate[]) => selectPaperShadowExploration({ previous, candidates, observations, asOf,
+  const exploration = (candidates: PaperAdaptiveCandidate[]) => selectPaperShadowExploration({ previous, candidates, observations, asOf, trades,
     value: (observation, feature, invention) => adaptiveFeatureValue(observation, feature, asOf, invention),
     evaluate: rule => candidate(rule, rule.invention ? [] : train, rule.invention ? forwardRows(rule.invention) : test, previous) });
   if (frozen) {

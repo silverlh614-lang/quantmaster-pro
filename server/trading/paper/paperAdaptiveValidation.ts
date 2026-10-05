@@ -9,6 +9,8 @@ import { adaptiveRuleId, adaptiveRuleMatches } from './paperAdaptiveSelection.js
 import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { EMPTY_EVIDENCE_DIGEST, paperEvidenceDigest } from './paperStrategyEvidence.js';
 import { validSealedPaperFormula } from './paperIndicatorProgram.js';
+import { paperAutonomyRuleKey } from '../../../src/types/paperAutonomy.js';
+import { paperAutonomyStateSchema } from './paperAutonomyValidation.js';
 
 const finite = z.number().finite(), count = finite.int().nonnegative();
 const timestamp = z.string().datetime({ offset: true });
@@ -70,8 +72,12 @@ const explorationCandidate = candidate.refine(value => !value.active
 const trialId = z.string().max(240).regex(/^shadow-exploration-v1:\d{4}-\d{2}-\d{2}:[1-9]\d*:.+$/);
 const exploration = z.object({ version: z.literal('shadow-exploration-v1'), sequence: count.positive(),
   rules: z.array(z.object({ id: trialId, registeredAt: timestamp, candidate: explorationCandidate })).max(2),
+  autonomy: paperAutonomyStateSchema.optional(),
 }).refine(value => new Set(value.rules.map(item => item.id)).size === value.rules.length
-  && new Set(value.rules.map(item => adaptiveRuleId(item.candidate.rule))).size === value.rules.length);
+  && new Set(value.rules.map(item => adaptiveRuleId(item.candidate.rule))).size === value.rules.length
+  && (!value.autonomy || value.rules.every(item => item.registeredAt === value.autonomy!.evaluatedAt)
+    && (value.autonomy.status === 'FALLBACK' || value.rules.length === value.autonomy.selectedRuleKeys.length
+      && value.rules.every(item => value.autonomy!.selectedRuleKeys.includes(paperAutonomyRuleKey(item.candidate.rule))))));
 export const adaptiveEvidenceSchema = z.object({ cutoffAt: timestamp, evaluatedAt: timestamp, validationStartDate: date,
   policy, candidate }).refine(value => value.candidate.active && Date.parse(value.cutoffAt) <= Date.parse(value.evaluatedAt)
     && value.validationStartDate < toKstDateKey(new Date(value.cutoffAt))
@@ -127,6 +133,7 @@ export const adaptiveStateSchema = z.object({ policy, tradingDate: date, evaluat
   if (value.discovery && (Date.parse(value.discovery.roundStartedAt) > Date.parse(value.evaluatedAt)
     || value.discovery.programReviews?.some(item => Date.parse(item.at) > Date.parse(value.evaluatedAt) || !value.discovery?.programAttemptedIds?.includes(item.id))
     || value.discovery.inventions.some(item => Date.parse(item.createdAt) > Date.parse(value.evaluatedAt)))) return false;
+  if (value.exploration?.autonomy && value.exploration.autonomy.cutoffAt !== value.cutoffAt) return false;
   if (value.exploration?.rules.some(item => toKstDateKey(new Date(item.registeredAt)) !== value.tradingDate
     || item.id !== `shadow-exploration-v1:${value.tradingDate}:${value.exploration!.sequence}:${adaptiveRuleId(item.candidate.rule)}`
     || (item.candidate.rule.invention && (Date.parse(item.candidate.rule.invention.createdAt) > Date.parse(item.registeredAt)

@@ -1,6 +1,7 @@
 // @responsibility Define autonomous Shadow decision contracts.
 import { PAPER_FEATURES, type PaperFeatureKey } from './paperObservationFeatures';
 import type { PaperProgramResearchView } from './paperIndicatorProgram';
+import type { PaperAutonomyState } from './paperAutonomy';
 import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaLabel, type PaperIndicatorFormula,
   type PaperInventedFeatureId } from './paperIndicatorFormula';
 
@@ -66,7 +67,7 @@ export interface PaperAdaptiveState {
   horizonSamples?: PaperAdaptiveHorizonSamples[];
   candidates: PaperAdaptiveCandidate[];
   discovery?: PaperIndicatorDiscovery;
-  exploration?: { version: 'shadow-exploration-v1'; sequence: number; rules: PaperExplorationTrial[] };
+  exploration?: { version: 'shadow-exploration-v1'; sequence: number; rules: PaperExplorationTrial[]; autonomy?: PaperAutonomyState };
   changes: Array<{ at: string; feature: PaperAdaptiveFeatureKey; from: PaperAdaptiveRule | null;
     to: PaperAdaptiveRule | null; reason: PaperAdaptiveReason }>;
 }
