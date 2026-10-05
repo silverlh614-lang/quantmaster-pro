@@ -1,6 +1,6 @@
 // @responsibility Display autonomous feature decisions.
 import React from 'react';
-import { PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel, type PaperAdaptiveEvidence, type PaperAdaptiveRule, type PaperAdaptiveState, type PaperAdaptiveStats, type PaperExplorationEvidence } from '../../types/paperAdaptive';
+import { PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel, paperPlaceboChance, type PaperAdaptiveEvidence, type PaperAdaptiveRule, type PaperAdaptiveState, type PaperAdaptiveStats, type PaperExplorationEvidence } from '../../types/paperAdaptive';
 import { PAPER_FEATURES } from '../../types/paperObservationFeatures';
 
 const percent = (value: number | null, unit = '%') => value === null ? '집계 대기' : `${value > 0 ? '+' : ''}${value.toFixed(2)}${unit}`;
@@ -49,6 +49,10 @@ export function PaperAdaptivePanel({ state }: { state: PaperAdaptiveState }) {
       <h4 className="text-sm font-semibold text-slate-200">검증 지표 자동 연결 · {active.length}개 사용 중</h4>
       <p className="text-xs text-slate-300">검증 연결 {active.length}/{state.policy.maxActiveRules}개 · 탐색 가상매수 {exploration ? `${exploration.length}/2개 · 검증 전` : '등록 확인 대기'}</p>
       <p className="text-xs text-slate-400">평가 거래일 {state.tradingDate} · 평가 {timestamp(state.evaluatedAt)} KST · 근거 기준 {timestamp(state.cutoffAt)} KST</p>
+      {state.placebo && <div className="space-y-1 rounded-lg border border-slate-700 bg-slate-950/30 p-3 text-xs" role="group" aria-label="무작위 대조">
+        <p className="text-slate-200">무작위 대조 {state.placebo.permutations}회 · 검증 통과 실제 {state.placebo.passedCount}개 / 무작위 평균 {state.placebo.shuffledMeanPassedCount.toFixed(1)}개(상위 5% {state.placebo.shuffledHighPassedCount}개) · 우연히 이만큼 나올 확률 {state.placebo.chancePct.toFixed(0)}%</p>
+        <p className="text-slate-400">종목끼리 수익 기록을 바꿔 지표와 수익의 관계만 끊고 같은 검증을 반복한 결과입니다. 확률이 낮을수록 우연이 아닐 가능성이 큽니다. 매수 판단에는 쓰지 않습니다.</p>
+      </div>}
       <p className="text-xs text-slate-400">{state.policy.maturityModel === 'per-horizon-v1' ? '한 보유기간 이상 확정 표본' : '성숙 기본 관측'} {state.matureSampleCount}건 · {state.matureDateCount}개 진입일 · 관측 시작 {state.windowStartDate ?? '누적 대기'} · 후반 확인 시작 {state.validationStartDate ?? '누적 대기'}</p>
       {state.policy.maturityModel === 'per-horizon-v1' && <div className="space-y-1 rounded-lg border border-slate-700 bg-slate-950/30 p-3 text-xs text-slate-300" role="group" aria-label="보유기간별 학습·검증 표본">
         {state.horizonSamples ? state.horizonSamples.map(item => <p key={item.horizon}>D{item.horizon} 확정 {item.matureSampleCount}건/{item.matureDateCount}일 · 학습 {item.trainingSampleCount}건/{item.trainingDateCount}일 · 검증 {item.validationSampleCount}건/{item.validationDateCount}일</p>)
@@ -64,10 +68,14 @@ export function PaperAdaptivePanel({ state }: { state: PaperAdaptiveState }) {
         <p className="text-xs text-slate-400">검토 가능한 수식을 모두 확인하고 새 학습 진입일이 20일 쌓이면 다음 탐색을 시작합니다. 보관 중인 수식은 고정하며, 다시 발명한 수식은 생성 이후 관측을 새로 쌓습니다.</p>
       </div>}
     </div>
-    {active.length ? <ul className="space-y-2 text-sm text-emerald-200">{active.map(candidate => <li key={candidate.rule.feature}>
-      {paperAdaptiveRuleLabel(candidate.rule)} · {candidate.rule.invention ? '생성 후 검증' : '후반'} 일당 대조군 차이 {percent(candidate.validation.meanDailyExcessPct, '%p')}
-      <InventionContext rule={candidate.rule} />
-    </li>)}</ul>
+    {active.length ? <ul className="space-y-2 text-sm text-emerald-200">{active.map(candidate => {
+      const chance = paperPlaceboChance(state, candidate.rule);
+      return <li key={candidate.rule.feature}>
+        {paperAdaptiveRuleLabel(candidate.rule)} · {candidate.rule.invention ? '생성 후 검증' : '후반'} 일당 대조군 차이 {percent(candidate.validation.meanDailyExcessPct, '%p')}
+        {chance !== null && ` · 무작위로 이 이상 ${chance.toFixed(0)}%`}
+        <InventionContext rule={candidate.rule} />
+      </li>;
+    })}</ul>
       : <p className="text-sm text-amber-200">검증을 통과한 지표가 없습니다. 기본 관측과 성과 누적은 계속됩니다.</p>}
     {!!exploration?.length && <div className="space-y-2 text-xs text-amber-100" role="group" aria-label="탐색 가상매수 · 검증 전">
       <h5 className="font-medium">탐색 가상매수 · 검증 전</h5>

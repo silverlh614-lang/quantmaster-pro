@@ -41,4 +41,27 @@ describe('paper strategy selectivity', () => {
     expect(result.comparison).toMatchObject({ groupCount: 0, differencePct: null });
     expect(buildPaperStrategySelection([], [])).toMatchObject({ candidateCount: 0, selectionRatePct: null });
   });
+
+  it('measures entry choice and observed exits separately at the D5 close', () => {
+    const strong = matureStrategySamples([0, 0, 4]), weak = matureStrategySamples([0, 0, 1]);
+    const experiments = [...strong.filter(row => row.symbol === '000100'), ...weak.filter(row => row.symbol !== '000100')];
+    const observed = {
+      symbol: '000100', tradingDate: '2026-09-01', horizon: 5, scheduledExitDate: '2026-09-08', status: 'CLOSED',
+      strategyVersion: 'adaptive-features-v1', policy: { exitModel: 'ADAPTIVE_OBSERVED' }, entryDecision: { adaptiveEvidence: {} },
+      exit: { netReturnPct: 2, decisionAt: '2026-09-03T02:00:00Z' }, exitResearch: { baseline: { netReturnPct: 4 } },
+    } as unknown as PaperStrategyTrade;
+    const result = buildPaperStrategySelection([observed], experiments);
+    expect(result.comparison.strategyTradeCount).toBe(0);
+    const adaptive = result.adaptive!;
+    expect(adaptive.entry).toMatchObject({ dateCount: 1, tradeCount: 1 });
+    expect(adaptive.entry.edgePct).toBeCloseTo(3);
+    expect(adaptive.validatedEntry).toEqual(adaptive.entry);
+    expect(adaptive.explorationEntry).toEqual({ dateCount: 0, tradeCount: 0, edgePct: null });
+    expect(adaptive.exit).toMatchObject({ dateCount: 1, tradeCount: 1 });
+    expect(adaptive.exit.edgePct).toBeCloseTo(-2);
+    expect(adaptive.months).toEqual([{ month: '2026-09', entry: adaptive.entry, exit: adaptive.exit }]);
+    observed.status = 'OPEN'; observed.exit = null;
+    expect(buildPaperStrategySelection([observed], experiments).adaptive!.exit).toEqual({ dateCount: 0, tradeCount: 0, edgePct: null });
+  });
 });
+

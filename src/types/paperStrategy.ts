@@ -223,6 +223,18 @@ export interface PaperStrategySelection {
     baselineMeanPct: number | null;
     differencePct: number | null;
   };
+  /** Observed-exit trades on fixed D5 yardsticks; entry and exit skill are measured separately. */
+  adaptive?: PaperAdaptiveComparison;
+}
+
+/** Mean difference with equal weight per entry date. */
+export interface PaperStrategyEdge { dateCount: number; tradeCount: number; edgePct: number | null }
+export interface PaperAdaptiveComparison {
+  /** D5 baseline return of bought stocks minus same-day stocks not bought or held. */
+  entry: PaperStrategyEdge; validatedEntry: PaperStrategyEdge; explorationEntry: PaperStrategyEdge;
+  /** Actual observed exit minus the same trade held to its D5 close. */
+  exit: PaperStrategyEdge;
+  months: Array<{ month: string; entry: PaperStrategyEdge; exit: PaperStrategyEdge }>;
 }
 
 export interface PaperStrategyView {

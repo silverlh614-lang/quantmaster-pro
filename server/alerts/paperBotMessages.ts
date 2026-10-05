@@ -1,7 +1,7 @@
 // @responsibility Format current Shadow bot reports.
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperStrategyTrade } from '../../src/types/paperStrategy.js';
-import type { PaperStrategyCohort, PaperStrategySelection } from '../../src/types/paperStrategy.js';
+import type { PaperStrategyCohort, PaperStrategyEdge, PaperStrategySelection } from '../../src/types/paperStrategy.js';
 import type { PaperBotState } from '../persistence/paperBotRepo.js';
 import { PAPER_NEWS_LABELS, summarizePaperNews } from '../../src/utils/paperNews.js';
 import { PAPER_FLOW_ISSUE_LABELS } from '../../src/types/paperInvestorFlow.js';
@@ -128,9 +128,11 @@ function relativeStrengthLines(study: PaperExperimentView['relativeStrengthStudy
   return lines;
 }
 
+const edgeText = (edge: PaperStrategyEdge) => edge.edgePct === null ? '비교 대기'
+  : `${excess(edge.edgePct)} (${num(edge.dateCount)}일·${num(edge.tradeCount)}건)`;
 function selectionLines(selection: PaperStrategySelection | undefined): string[] {
   if (!selection || !selection.candidateCount) return [];
-  const c = selection.comparison;
+  const c = selection.comparison, adaptive = selection.adaptive;
   const rate = selection.selectionRatePct === null ? '미확인' : `${selection.selectionRatePct.toFixed(1)}%`;
   return ['', '<b>전략 선별력 · 같은 날 후보 대비</b>',
     `전략 진입일 ${num(selection.dateCount)}일 · 후보 ${num(selection.candidateCount)} 중 신규 진입 ${num(selection.boughtCount)} (${rate}) · 기존 보유 ${num(selection.heldCount)} · 미진입 ${num(selection.notBoughtCount)}`,
@@ -139,7 +141,12 @@ function selectionLines(selection: PaperStrategySelection | undefined): string[]
     c.groupCount
       ? `청산 전략 ${pct(c.strategyMeanPct)} vs 같은 날·같은 기간 미진입 ${pct(c.unselectedMeanPct)} → 차이 ${c.differencePct === null ? '미확인' : `${c.differencePct > 0 ? '+' : ''}${c.differencePct.toFixed(2)}%p`} · ${num(c.groupCount)}개 날짜·기간 (전체 후보 ${pct(c.baselineMeanPct)})`
       : '같은 날 미진입 후보의 확정 성과가 아직 없어 선별력 비교 대기',
-    '진입률은 전체 전략, 위 수익률 비교는 기존 예약 청산 거래 기준입니다. 관측 매도는 별도 매도 학습에서 비교합니다. 연구 표시이며 매수 조건에 쓰지 않습니다.'];
+    ...(adaptive ? ['', '<b>관측 매도 거래 · D5 종가 기준</b>',
+      `종목 선택: 산 종목 − 같은 날 안 산 종목 ${edgeText(adaptive.entry)}`,
+      `• 검증 통과 ${edgeText(adaptive.validatedEntry)} · 탐색 ${edgeText(adaptive.explorationEntry)}`,
+      `매도: 실제 청산 − 같은 거래 D5 보유 ${edgeText(adaptive.exit)}`,
+      ...adaptive.months.slice(-3).map(item => `• ${item.month}: 선택 ${edgeText(item.entry)} · 매도 ${edgeText(item.exit)}`)] : []),
+    '진입률은 전체 전략 기준입니다. 예약 청산 거래는 같은 보유기간, 관측 매도 거래는 D5 종가로 비교합니다. 연구 표시이며 매수 조건에 쓰지 않습니다.'];
 }
 
 export interface PaperBotTradeEvent { id: string; at: string; trade: PaperStrategyTrade; side: 'BUY' | 'EXIT' }

@@ -6,7 +6,7 @@ import type { PaperStrategyLedger } from '../../../src/types/paperStrategy.js';
 import { PAPER_FEATURES, PAPER_LEGACY_FEATURE_KEYS, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
 import { isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
-import { adaptiveFeatureValue, adaptiveRuleMatches, selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
+import { adaptiveFeatureValue, adaptiveRuleMatches, PAPER_PLACEBO_PERMUTATIONS, selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { adaptiveTestSnapshot, matureAdaptiveSamples } from './paperAdaptiveFixtures.js';
 import { evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
@@ -344,5 +344,32 @@ describe('autonomous Shadow lifecycle and persistence', () => {
   it.each(tampering)('rejects persisted %s', (_, mutate) => {
     const ledger = restore(enter()); mutate(ledger);
     expect(() => assertPaperStrategyLedger(ledger)).toThrow('PAPER_STRATEGY_INVALID');
+  });
+});
+
+describe('stock-shuffled chance check', () => {
+  it('repeats validation on shuffled returns once per evaluation day without changing the choice', () => {
+    const samples = matureAdaptiveSamples(), state = select(samples);
+    expect(rsi(state)).toMatchObject({ active: true, reason: 'ACTIVE' });
+    expect(state.placebo).toMatchObject({ version: 'symbol-permutation-v1', permutations: PAPER_PLACEBO_PERMUTATIONS, passedCount: 1 });
+    expect(state.placebo!.rules).toEqual([{ feature: 'rsi14', bucket: 0, horizon: 3, chancePct: expect.any(Number) }]);
+    // Only one pairing in seventy returns all four strong stocks to the range, so no shuffle should match the real edge.
+    expect(state.placebo!.rules[0].chancePct).toBeLessThanOrEqual(10);
+    expect(select(samples)).toEqual(state);
+    expect(adaptiveStateSchema.safeParse(restore(state)).success).toBe(true);
+    const sameDay = selectPaperAdaptiveState(restore(state), matureAdaptiveSamples({ selectedReturns: [-1, -9, -10] }), '2026-09-18T05:00:00Z');
+    expect(sameDay.placebo).toEqual(state.placebo);
+  });
+
+  it('reports chance level when nothing passes and waits for a validation period', () => {
+    expect(select(matureAdaptiveSamples({ selectedReturns: [0, 0, 0] })).placebo).toMatchObject({
+      passedCount: 0, shuffledMeanPassedCount: 0, shuffledHighPassedCount: 0, chancePct: 100, rules: [] });
+    expect(selectPaperAdaptiveState(undefined, [], asOf).placebo).toBeUndefined();
+  });
+
+  it('rejects a persisted chance check whose rules disagree with its count', () => {
+    const state = restore(select());
+    state.placebo!.passedCount = 2;
+    expect(adaptiveStateSchema.safeParse(state).success).toBe(false);
   });
 });

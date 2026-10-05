@@ -51,7 +51,10 @@ describe('paper research message', () => {
       selection: { dateCount: 3, candidateCount: 30, boughtCount: 10, heldCount: 2, notBoughtCount: 18, selectionRatePct: 33.3,
         cohorts: [{ cohort: 'NEWS_RECENT_ABOVE_MA20', candidateCount: 30, boughtCount: 10 }],
         comparison: { groupCount: 3, strategyTradeCount: 10, unselectedCount: 18,
-          strategyMeanPct: 1, unselectedMeanPct: 0.2, baselineMeanPct: 0.5, differencePct: 0.8 } },
+          strategyMeanPct: 1, unselectedMeanPct: 0.2, baselineMeanPct: 0.5, differencePct: 0.8 },
+        adaptive: { entry: { dateCount: 4, tradeCount: 6, edgePct: 0.5 }, validatedEntry: { dateCount: 3, tradeCount: 4, edgePct: 0.7 },
+          explorationEntry: { dateCount: 2, tradeCount: 2, edgePct: -0.2 }, exit: { dateCount: 3, tradeCount: 5, edgePct: -0.3 },
+          months: [{ month: '2026-09', entry: { dateCount: 4, tradeCount: 6, edgePct: 0.5 }, exit: { dateCount: 3, tradeCount: 5, edgePct: -0.3 } }] } },
     };
     const text = formatPaperResearch(view, new Date('2026-10-01T04:00:00Z'));
     expect(text).toContain('지수 대비 20일 상대강도 계산 8/10건');
@@ -67,6 +70,8 @@ describe('paper research message', () => {
     expect(text).toContain('상대강도 기준 KIS 지수 일봉 400건 · 수집 완료');
     expect(text).toContain('전략 선별력 · 같은 날 후보 대비');
     expect(text).toContain('청산 전략 +1.00% vs 같은 날·같은 기간 미진입 +0.20% → 차이 +0.80%p');
+    expect(text).toContain('종목 선택: 산 종목 − 같은 날 안 산 종목 +0.50%p (4일·6건)\n• 검증 통과 +0.70%p (3일·4건) · 탐색 -0.20%p (2일·2건)');
+    expect(text).toContain('매도: 실제 청산 − 같은 거래 D5 보유 -0.30%p (3일·5건)\n• 2026-09: 선택 +0.50%p (4일·6건) · 매도 -0.30%p (3일·5건)');
     expect(text).toContain('현행 자율 전략 전체(검증+탐색) 가상 청산 2건 · 평균 순수익률 +0.30% (구전략 제외)');
   });
 
@@ -78,6 +83,8 @@ describe('paper research message', () => {
     expect(weekly).toContain(summary);
     expect(weekly).toContain('발명 1차 · 이번 회차 검토 3개 · 보관 2개\n생성 후 검증 대기 2개');
     expect(weekly).toContain('<b>검증 지표 자동 연결 0개/최대 3개</b>\n이 중 발명 지표 0개');
+    expect(summary).toMatch(/🎲 무작위 대조 20회 · 검증 통과 실제 0개, 무작위 평균 \d+\.\d개 · 우연히 이만큼 나올 확률 \d+%/);
+    expect(summary).toContain('무작위 대조는 종목끼리 수익 기록을 바꿔 같은 검증을 반복합니다.');
     expect(weekly).toContain('저장 자료 연구 결과를 아직 불러오지 못했습니다');
     expect(weekly.length).toBeLessThanOrEqual(3500);
     expect(formatPaperReport(view, 'status', '2026-09-18', [], now)).toContain(summary);
@@ -124,4 +131,15 @@ describe('paper research message', () => {
     expect(message).toContain('거래일 10:30');
     expect(message).toContain('거래일 13:30');
   });
+
+  it('shows each connected rule with the chance of matching it on stock-shuffled returns', () => {
+    const samples = matureAdaptiveSamples();
+    const view = { ...autonomousView(), strategy: buildPaperStrategyView({ ...emptyStrategyLedger(),
+      adaptive: selectPaperAdaptiveState(undefined, samples, '2026-09-18T01:00:00Z') }) };
+    const summary = formatPaperAdaptiveSummary(view, now).join('\n');
+    expect(summary).toContain('검증 통과 실제 1개');
+    expect(summary).toMatch(/후반 검증 \d+건\/\d+일 · 일당 차이 \+\d+\.\d{2}%p · 무작위로 이 이상 \d+%/);
+    expect(formatPaperAdaptiveSummary(view, now, 'brief').join('\n')).not.toContain('무작위 대조는');
+  });
 });
+
