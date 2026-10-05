@@ -11,6 +11,7 @@ import { calculatePaperReturn } from './paperAccounting.js';
 import { paperStrategyCohort, scheduledPaperClose } from './paperStrategyEvidence.js';
 import { discoverPaperIndicators } from './paperIndicatorDiscovery.js';
 import { selectPaperShadowExploration } from './paperShadowExploration.js';
+import type { PaperProgramProposal } from './paperProgramResearch.js';
 
 export const PAPER_ADAPTIVE_POLICY: Readonly<PaperAdaptivePolicy> = Object.freeze({
   version: 'adaptive-features-v1', maturityModel: 'per-horizon-v1', windowEntryDates: 60, trainingFraction: 0.7,
@@ -189,7 +190,7 @@ function chooseFeature(feature: PaperFeatureKey, train: Row[], test: Row[], prev
 }
 
 export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefined, experiments: PaperExperiment[], asOf: string,
-  observations: PaperObservation[] = []): PaperAdaptiveState {
+  observations: PaperObservation[] = [], programs: PaperProgramProposal[] = []): PaperAdaptiveState {
   if (!Number.isFinite(Date.parse(asOf))) throw new Error('자율 지표 평가 시각 오류');
   if (previous && Date.parse(previous.evaluatedAt) > Date.parse(asOf)) throw new Error('과거 스냅샷으로 자율 지표 상태를 변경할 수 없습니다.');
   const tradingDate = toKstDateKey(new Date(asOf));
@@ -250,7 +251,7 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
   // A one-time same-day policy migration must not spend an existing discovery round's daily budget twice.
   const discovery = previous?.tradingDate === tradingDate && previous.discovery
     ? { discovery: structuredClone(previous.discovery), created: [], retired: [] }
-    : discoverPaperIndicators({ previous, asOf, cutoffAt, candidates,
+    : discoverPaperIndicators({ previous, asOf, cutoffAt, candidates, programs,
     trainingDates: [...new Set(train.map(row => row.experiment.tradingDate))].sort(),
     sufficientInputs: formula => {
       const inputs = paperIndicatorFormulaOperands(formula).map(operand => operand.feature), pair = inputs.join(':');

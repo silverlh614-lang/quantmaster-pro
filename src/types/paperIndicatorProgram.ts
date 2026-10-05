@@ -79,5 +79,5 @@ export function evaluatePaperProgram(program: PaperIndicatorProgram, input: (key
 
 export interface PaperProgramResearchView {
   state: 'IDLE' | 'RUNNING' | 'READY' | 'FAILED'; attemptedAt: string | null; completedAt: string | null;
-  message: string; proposals: Array<{ id: string; title: string; generatedAt: string; registered: boolean }>;
+  message: string; proposals: Array<{ id: string; title: string; generatedAt: string; registered: boolean; evaluated: boolean }>;
 }

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { PAPER_FEATURES, PAPER_LEGACY_FEATURE_KEYS, type PaperFeatureKey, type PaperObservationFeatures } from '../../../src/types/paperObservationFeatures.js';
 import type { PaperAdaptiveCandidate, PaperAdaptiveEvidence, PaperAdaptiveState, PaperAdaptiveStats, PaperExplorationEvidence, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
 import { PAPER_INVENTED_FEATURE_CUTS, PAPER_MAX_INVENTIONS, PAPER_MAX_INVENTION_ATTEMPTS,
-  paperIndicatorFormulaId, validPaperIndicatorFormula, type PaperIndicatorFormula, type PaperInventedFeatureId } from '../../../src/types/paperIndicatorFormula.js';
+  paperIndicatorFormulaId, type PaperIndicatorFormula, type PaperInventedFeatureId } from '../../../src/types/paperIndicatorFormula.js';
 import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 import { adaptiveRuleId, adaptiveRuleMatches } from './paperAdaptiveSelection.js';
 import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
@@ -40,7 +40,9 @@ const sufficientPositive = (value: PaperAdaptiveStats) => value.sampleCount >= 1
 const invention = z.object({ id: inventedId, formula: z.custom<PaperIndicatorFormula>(validSealedPaperFormula),
   createdAt: timestamp, discoveryCutoffAt: timestamp,
   rule: z.object({ bucket: count.max(PAPER_INVENTED_FEATURE_CUTS.length), horizon }), training: stats,
+  authorship: z.object({ generatedAt: timestamp, model: z.string().min(1).max(80), inputDigest: z.string().regex(/^[a-f0-9]{64}$/) }).optional(),
 }).refine(value => value.id === paperIndicatorFormulaId(value.formula) && sufficientPositive(value.training)
+  && (value.formula.version !== 'feature-program-v1' || Boolean(value.authorship && Date.parse(value.authorship.generatedAt) <= Date.parse(value.createdAt)))
   && value.discoveryCutoffAt === new Date(`${toKstDateKey(new Date(value.createdAt))}T00:00:00+09:00`).toISOString());
 const rule = z.object({ feature: adaptiveFeature, bucket: count, horizon, invention: invention.optional() })
   .refine(value => value.invention
@@ -86,7 +88,11 @@ export const explorationEvidenceSchema = z.object({ cutoffAt: timestamp, evaluat
 const discovery = z.object({ version: z.literal('indicator-discovery-v1'), round: count.positive(), roundStartedAt: timestamp,
   roundTrainingEndDate: date.nullable(), attemptedIds: z.array(inventedId).max(PAPER_MAX_INVENTION_ATTEMPTS),
   inventions: z.array(invention).max(PAPER_MAX_INVENTIONS),
+  programAttemptedIds: z.array(z.custom<PaperInventedFeatureId>(value => typeof value === 'string' && /^invented:program:[a-f0-9]{64}$/.test(value))).max(1000).optional(),
+  programReviews: z.array(z.object({ id: inventedId, at: timestamp, status: z.enum(['REGISTERED', 'NO_TRAINING_EDGE', 'REDUNDANT_OR_CONSTANT', 'RANKED_OUT']),
+    sampleCount: count, dateCount: count, meanDailyExcessPct: finite.nullable() }).refine(value => value.dateCount <= value.sampleCount)).max(48).optional(),
 }).refine(value => new Set(value.attemptedIds).size === value.attemptedIds.length
+  && new Set(value.programAttemptedIds ?? []).size === (value.programAttemptedIds?.length ?? 0)
   && new Set(value.inventions.map(item => item.id)).size === value.inventions.length
   && (!value.roundTrainingEndDate || value.roundTrainingEndDate < toKstDateKey(new Date(value.roundStartedAt))));
 const horizonSamples = z.array(z.object({ horizon, matureSampleCount: count, matureDateCount: count,
@@ -119,6 +125,7 @@ export const adaptiveStateSchema = z.object({ policy, tradingDate: date, evaluat
   if ((value.matureSampleCount === 0) !== (value.windowStartDate === null && value.validationStartDate === null)) return false;
   if (value.windowStartDate && value.validationStartDate && !(value.windowStartDate <= value.validationStartDate && value.validationStartDate < value.tradingDate)) return false;
   if (value.discovery && (Date.parse(value.discovery.roundStartedAt) > Date.parse(value.evaluatedAt)
+    || value.discovery.programReviews?.some(item => Date.parse(item.at) > Date.parse(value.evaluatedAt) || !value.discovery?.programAttemptedIds?.includes(item.id))
     || value.discovery.inventions.some(item => Date.parse(item.createdAt) > Date.parse(value.evaluatedAt)))) return false;
   if (value.exploration?.rules.some(item => toKstDateKey(new Date(item.registeredAt)) !== value.tradingDate
     || item.id !== `shadow-exploration-v1:${value.tradingDate}:${value.exploration!.sequence}:${adaptiveRuleId(item.candidate.rule)}`

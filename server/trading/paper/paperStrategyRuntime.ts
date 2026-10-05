@@ -12,6 +12,7 @@ import { capturePaperTradeMeasurements } from './paperTradeMeasurements.js';
 import { assertPaperTradeMeasurement } from './paperTradeMeasurementValidation.js';
 import { savePaperTradeMeasurementBatch, recordPaperTradeMeasurementFailure, readPaperTradeMeasurementHistory } from '../../persistence/paperTradeMeasurementRepo.js';
 import { capturePaperMorningSource, capturePaperMorningTracking, linkPaperMorningRecommendations } from './paperMorningRuntime.js';
+import { queuePaperProgramResearch, readPaperProgramProposals, readPaperProgramResearch } from './paperProgramResearch.js';
 
 export interface PaperStrategyState { ledger: PaperStrategyLedger | null; error?: string }
 let lastFailure: string | undefined;
@@ -32,7 +33,7 @@ export function advancePaperStrategy(
     const ledger = snapshot.quoteOnly ? evaluatePaperHoldingPrices(state.ledger, snapshot)
       : evaluatePaperStrategyScan(state.ledger, snapshot, (symbol) =>
         capturePaperCostModel(getStockByCode(symbol)?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI'),
-      selectPaperAdaptiveState(state.ledger.adaptive, experiments, snapshot.asOf, snapshot.observations));
+      selectPaperAdaptiveState(state.ledger.adaptive, experiments, snapshot.asOf, snapshot.observations, readPaperProgramProposals()));
     const archived = getArchivedPaperBarCheck();
     if (archived) ledger.trades = ledger.trades.map((trade) => {
       const entryObservation = trimArchivedEntryBars(trade.entryObservation, trade.tradingDate, archived);
@@ -64,6 +65,7 @@ export function advancePaperStrategy(
       }
     }
     lastFailure = undefined;
+    if (!snapshot.quoteOnly && ledger.adaptive) void queuePaperProgramResearch(ledger.adaptive, { asOf: snapshot.asOf, marketOpen: snapshot.marketOpen });
     return ledger.lastRun!;
   } catch (error) {
     lastFailure = `전략 처리 실패 · 기준 실험은 계속됩니다: ${error instanceof Error ? error.message : String(error)}`;
@@ -75,6 +77,7 @@ export function advancePaperStrategy(
 export function readPaperStrategyView(includeAllRecords = false, experiments?: PaperExperiment[], state = loadPaperStrategyState()) {
   const ledger: PaperStrategyLedger = state.ledger ?? { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null };
   const view = buildPaperStrategyView(ledger, state.error ?? lastFailure);
+  if (view.adaptive) view.adaptive = { ...view.adaptive, programResearch: readPaperProgramResearch(view.adaptive) };
   view.measurementHistory = readPaperTradeMeasurementHistory(ledger);
   if (includeAllRecords) view.trades = [...ledger.trades].reverse();
   if (experiments && state.ledger) view.selection = buildPaperStrategySelection(ledger.trades, experiments);
