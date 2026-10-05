@@ -8,6 +8,7 @@ import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 import { adaptiveRuleId, adaptiveRuleMatches } from './paperAdaptiveSelection.js';
 import { toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { EMPTY_EVIDENCE_DIGEST, paperEvidenceDigest } from './paperStrategyEvidence.js';
+import { validSealedPaperFormula } from './paperIndicatorProgram.js';
 
 const finite = z.number().finite(), count = finite.int().nonnegative();
 const timestamp = z.string().datetime({ offset: true });
@@ -28,6 +29,7 @@ const stats = z.object({ sampleCount: count, dateCount: count, symbolCount: coun
 });
 const inventedId = z.custom<PaperInventedFeatureId>(value => {
   if (typeof value !== 'string') return false;
+  if (/^invented:program:[a-f0-9]{64}$/.test(value)) return true;
   const [prefix, operation, left, right, ...extra] = value.split(':');
   return prefix === 'invented' && ['mean', 'difference', 'product'].includes(operation) && !extra.length
     && Object.hasOwn(PAPER_FEATURES, left) && Object.hasOwn(PAPER_FEATURES, right) && left < right;
@@ -35,7 +37,7 @@ const inventedId = z.custom<PaperInventedFeatureId>(value => {
 const adaptiveFeature = z.union([feature, inventedId]);
 const sufficientPositive = (value: PaperAdaptiveStats) => value.sampleCount >= 10 && value.dateCount >= 3
   && (value.meanNetReturnPct ?? 0) > 0 && (value.meanDailyExcessPct ?? 0) > 0;
-const invention = z.object({ id: inventedId, formula: z.custom<PaperIndicatorFormula>(validPaperIndicatorFormula),
+const invention = z.object({ id: inventedId, formula: z.custom<PaperIndicatorFormula>(validSealedPaperFormula),
   createdAt: timestamp, discoveryCutoffAt: timestamp,
   rule: z.object({ bucket: count.max(PAPER_INVENTED_FEATURE_CUTS.length), horizon }), training: stats,
 }).refine(value => value.id === paperIndicatorFormulaId(value.formula) && sufficientPositive(value.training)

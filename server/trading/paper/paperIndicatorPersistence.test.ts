@@ -211,7 +211,9 @@ describe('invented indicator persisted contracts', () => {
   it('compares full and compact nested training evidence while detecting changed formulas', () => {
     const full = evidence(), saved = compact(full);
     expect(sameAdaptiveEvidence(full, saved)).toBe(true);
-    saved.candidate.rule.invention!.formula.operation = 'PRODUCT';
+    const formula = saved.candidate.rule.invention!.formula;
+    if (formula.version !== 'feature-composition-v1') throw new Error('legacy fixture required');
+    formula.operation = 'PRODUCT';
     expect(sameAdaptiveEvidence(full, saved)).toBe(false);
   });
 
@@ -362,7 +364,9 @@ describe('invented indicator durable trade lifecycle', () => {
   it('keeps durable bytes intact when a nested discovery definition is corrupted', () => {
     const ledger = entryLedger(); repo.savePaperStrategyLedger(ledger);
     const before = fs.readFileSync(repo.PAPER_STRATEGY_FILE, 'utf8');
-    ledger.adaptive!.discovery!.inventions[0].formula.left.scale = 123;
+    const formula = ledger.adaptive!.discovery!.inventions[0].formula;
+    if (formula.version !== 'feature-composition-v1') throw new Error('legacy fixture required');
+    formula.left.scale = 123;
     expect(() => repo.savePaperStrategyLedger(ledger)).toThrow('PAPER_STRATEGY_INVALID');
     expect(fs.readFileSync(repo.PAPER_STRATEGY_FILE, 'utf8')).toBe(before);
     const corrupt = JSON.parse(before); corrupt.trades[0].entryDecision.adaptiveEvidence.candidate.rule.invention.formula.left.scale = 123;

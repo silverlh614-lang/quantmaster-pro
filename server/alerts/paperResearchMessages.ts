@@ -3,6 +3,7 @@ import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperStrategyDecision, PaperStrategyPerformance } from '../../src/types/paperStrategy.js';
 import { PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel, type PaperAdaptiveRule, type PaperAdaptiveState } from '../../src/types/paperAdaptive.js';
 import { PAPER_FEATURES } from '../../src/types/paperObservationFeatures.js';
+import { paperIndicatorFormulaOperands } from '../../src/types/paperIndicatorFormula.js';
 import { explainPaperIndicator, inventedRuleRange } from '../../src/utils/paperIndicatorExplanation.js';
 import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 
@@ -112,7 +113,7 @@ function frozenFormula(rule: PaperAdaptiveRule | null): string[] {
   const invention = rule?.invention;
   if (!invention) return [];
   return ['', '📐 <b>수식 기준</b>', `고정 수식 생성 ${stamp(invention.createdAt)} KST`,
-    ...[invention.formula.left, invention.formula.right].map(operand =>
+    ...paperIndicatorFormulaOperands(invention.formula).map(operand =>
       text(`N(${PAPER_FEATURES[operand.feature].label})=(값−${operand.center})/${operand.scale}`, 120)), '각각 −3~3 제한'];
 }
 function changeType(change: PaperAdaptiveState['changes'][number]): string {

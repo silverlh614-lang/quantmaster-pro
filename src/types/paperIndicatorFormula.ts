@@ -1,13 +1,15 @@
 // @responsibility Define bounded formulas for invented Shadow indicators.
 import { PAPER_FEATURES, type PaperFeatureKey, type PaperFeatureValues } from './paperObservationFeatures';
+import { evaluatePaperProgram, paperProgramCode, paperProgramFeatures, validPaperIndicatorProgram, type PaperIndicatorProgram } from './paperIndicatorProgram';
 
 export type PaperIndicatorOperation = 'MEAN' | 'DIFFERENCE' | 'PRODUCT';
-export type PaperInventedFeatureId = `invented:${Lowercase<PaperIndicatorOperation>}:${PaperFeatureKey}:${PaperFeatureKey}`;
+export type PaperInventedFeatureId = `invented:${Lowercase<PaperIndicatorOperation>}:${PaperFeatureKey}:${PaperFeatureKey}` | `invented:program:${string}`;
 export interface PaperIndicatorOperand { feature: PaperFeatureKey; center: number; scale: number }
-export interface PaperIndicatorFormula {
+export interface PaperIndicatorComposition {
   version: 'feature-composition-v1'; operation: PaperIndicatorOperation;
   left: PaperIndicatorOperand; right: PaperIndicatorOperand;
 }
+export type PaperIndicatorFormula = PaperIndicatorComposition | PaperIndicatorProgram;
 export const PAPER_INVENTED_FEATURE_CUTS = [-1, 0, 1] as const;
 export const PAPER_MAX_INVENTIONS = 24;
 /** Discovery tries one ordered pair per operation, so an inverse difference is not a separate search. */
@@ -18,12 +20,13 @@ export function paperIndicatorOperand(feature: PaperFeatureKey): PaperIndicatorO
   return { feature, center: cuts[Math.floor(cuts.length / 2)], scale: cuts[cuts.length - 1] - cuts[0] || 1 };
 }
 export function createPaperIndicatorFormula(operation: PaperIndicatorOperation, left: PaperFeatureKey,
-  right: PaperFeatureKey): PaperIndicatorFormula {
+  right: PaperFeatureKey): PaperIndicatorComposition {
   if (operation !== 'DIFFERENCE' && left > right) [left, right] = [right, left];
   return { version: 'feature-composition-v1', operation,
     left: paperIndicatorOperand(left), right: paperIndicatorOperand(right) };
 }
 export function paperIndicatorFormulaId(formula: PaperIndicatorFormula): PaperInventedFeatureId {
+  if (formula.version === 'feature-program-v1') return `invented:program:${formula.digest}`;
   let left = formula.left.feature, right = formula.right.feature;
   if (formula.operation !== 'DIFFERENCE' && left > right) [left, right] = [right, left];
   return `invented:${formula.operation.toLowerCase() as Lowercase<PaperIndicatorOperation>}:${left}:${right}`;
@@ -37,7 +40,8 @@ function validOperand(value: unknown): value is PaperIndicatorOperand {
 }
 export function validPaperIndicatorFormula(value: unknown): value is PaperIndicatorFormula {
   if (typeof value !== 'object' || value === null) return false;
-  const formula = value as Partial<PaperIndicatorFormula>;
+  if ((value as { version?: string }).version === 'feature-program-v1') return validPaperIndicatorProgram(value);
+  const formula = value as Partial<PaperIndicatorComposition>;
   return formula.version === 'feature-composition-v1'
     && (formula.operation === 'MEAN' || formula.operation === 'DIFFERENCE' || formula.operation === 'PRODUCT')
     && validOperand(formula.left) && validOperand(formula.right)
@@ -51,6 +55,7 @@ function normalizeOperand(operand: PaperIndicatorOperand, values: Partial<PaperF
 }
 export function paperIndicatorFormulaValue(formula: PaperIndicatorFormula, values: Partial<PaperFeatureValues>): number | null {
   if (!validPaperIndicatorFormula(formula)) return null;
+  if (formula.version === 'feature-program-v1') return evaluatePaperProgram(formula, key => normalizeOperand(paperIndicatorOperand(key), values));
   const left = normalizeOperand(formula.left, values), right = normalizeOperand(formula.right, values);
   if (left === null || right === null) return null;
   if (formula.operation === 'MEAN') return (left + right) / 2;
@@ -58,8 +63,12 @@ export function paperIndicatorFormulaValue(formula: PaperIndicatorFormula, value
 }
 /** N means the frozen normalization (value - center) / scale, limited to the range [-3, 3]. */
 export function paperIndicatorFormulaLabel(formula: PaperIndicatorFormula): string {
+  if (formula.version === 'feature-program-v1') return paperProgramCode(formula.expression);
   const left = `N(${PAPER_FEATURES[formula.left.feature].label})`;
   const right = `N(${PAPER_FEATURES[formula.right.feature].label})`;
   if (formula.operation === 'MEAN') return `(${left} + ${right}) / 2`;
   return `${left} ${formula.operation === 'DIFFERENCE' ? '−' : '×'} ${right}`;
+}
+export function paperIndicatorFormulaOperands(formula: PaperIndicatorFormula): PaperIndicatorOperand[] {
+  return formula.version === 'feature-program-v1' ? paperProgramFeatures(formula.expression).map(paperIndicatorOperand) : [formula.left, formula.right];
 }

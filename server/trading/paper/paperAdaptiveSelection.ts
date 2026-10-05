@@ -3,7 +3,7 @@ import type { PaperExperiment, PaperObservation } from '../../../src/types/paper
 import { PAPER_FEATURES, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
 import type { PaperAdaptiveCandidate, PaperAdaptiveFeatureKey, PaperAdaptivePolicy, PaperAdaptiveRule, PaperAdaptiveState,
   PaperAdaptiveStats, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
-import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaId, paperIndicatorFormulaValue,
+import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaId, paperIndicatorFormulaValue, paperIndicatorFormulaOperands,
   type PaperIndicatorFormula } from '../../../src/types/paperIndicatorFormula.js';
 import { toKstDateKey, isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
@@ -147,11 +147,11 @@ function chooseFormula(formula: PaperIndicatorFormula, train: Row[]): PaperAdapt
   const chosen = rules.sort((a, b) => Number(sufficient(b.training) && positive(b.training)) - Number(sufficient(a.training) && positive(a.training))
     || Number(sufficient(b.training)) - Number(sufficient(a.training)) || rank(a, b))[0];
   const paired = train.filter(row => row.values[feature] !== undefined && row.returns[horizons.indexOf(chosen.rule.horizon)] !== undefined);
-  for (const operand of [formula.left, formula.right]) {
+  for (const operand of paperIndicatorFormulaOperands(formula)) {
     if (new Set(paired.map(row => row.values[operand.feature])).size < 2) return null;
   }
   const ids = new Set(chosen.training.experimentIds);
-  for (const operand of [formula.left, formula.right]) {
+  for (const operand of paperIndicatorFormulaOperands(formula)) {
     const cuts: readonly number[] = PAPER_FEATURES[operand.feature].cuts;
     for (let bucket = 0; bucket <= cuts.length; bucket++) {
       const lower = cuts[bucket - 1] ?? -Infinity, upper = cuts[bucket] ?? Infinity;
@@ -253,10 +253,10 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
     : discoverPaperIndicators({ previous, asOf, cutoffAt, candidates,
     trainingDates: [...new Set(train.map(row => row.experiment.tradingDate))].sort(),
     sufficientInputs: formula => {
-      const left = formula.left.feature, right = formula.right.feature, pair = `${left}:${right}`;
+      const inputs = paperIndicatorFormulaOperands(formula).map(operand => operand.feature), pair = inputs.join(':');
       if (pairEligibility.has(pair)) return pairEligibility.get(pair)!;
       const counts = horizons.map(() => 0), dates = horizons.map(() => new Set<string>());
-      for (const row of train) if (row.values[left] !== undefined && row.values[right] !== undefined) {
+      for (const row of train) if (inputs.every(key => row.values[key] !== undefined)) {
         row.returns.forEach((value, index) => { if (value !== undefined) { counts[index]++; dates[index].add(row.experiment.tradingDate); } });
         if (counts.some((count, index) => count >= PAPER_ADAPTIVE_POLICY.minimumSamples && dates[index].size >= PAPER_ADAPTIVE_POLICY.minimumEntryDates)) break;
       }

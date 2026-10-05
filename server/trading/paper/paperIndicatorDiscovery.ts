@@ -1,7 +1,7 @@
 // @responsibility Propose bounded indicator formulas before their forward observations exist.
 import { PAPER_FEATURES, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
 import { createPaperIndicatorFormula, paperIndicatorFormulaId, PAPER_MAX_INVENTIONS,
-  type PaperIndicatorFormula } from '../../../src/types/paperIndicatorFormula.js';
+  type PaperIndicatorFormula, type PaperIndicatorComposition } from '../../../src/types/paperIndicatorFormula.js';
 import type { PaperAdaptiveCandidate, PaperAdaptiveState, PaperAdaptiveStats, PaperIndicatorDiscovery,
   PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
 import { paperEvidenceDigest } from './paperStrategyEvidence.js';
@@ -14,7 +14,7 @@ const features = (Object.keys(PAPER_FEATURES) as PaperFeatureKey[]).sort();
 const formulas = features.flatMap((left, index) => features.slice(index + 1).flatMap(right =>
   (['MEAN', 'DIFFERENCE', 'PRODUCT'] as const).map(operation => createPaperIndicatorFormula(operation, left, right))));
 
-export function paperIndicatorFormulaUniverse(): PaperIndicatorFormula[] { return structuredClone(formulas); }
+export function paperIndicatorFormulaUniverse(): PaperIndicatorComposition[] { return structuredClone(formulas); }
 
 interface DiscoveryInput {
   previous: PaperAdaptiveState | undefined; asOf: string; cutoffAt: string;

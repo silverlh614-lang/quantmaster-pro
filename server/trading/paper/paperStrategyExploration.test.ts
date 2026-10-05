@@ -124,6 +124,7 @@ describe('exploratory Shadow entry execution', () => {
     candidate.rule.invention!.createdAt = '2026-09-18T00:59:30Z';
     expect(enter(state, snapshot).trades).toHaveLength(0);
     invention.formula.left.scale = 999;
-    expect(trade.entryDecision.explorationEvidence!.candidate.rule.invention!.formula.left.scale).not.toBe(999);
+    const frozenFormula = trade.entryDecision.explorationEvidence!.candidate.rule.invention!.formula;
+    expect(frozenFormula.version === 'feature-composition-v1' && frozenFormula.left.scale).not.toBe(999);
   });
 });
