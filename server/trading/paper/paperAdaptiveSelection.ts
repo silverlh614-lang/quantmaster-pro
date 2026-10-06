@@ -192,17 +192,33 @@ function chooseFeature(feature: PaperFeatureKey, train: Row[], test: Row[], prev
   return chosen;
 }
 
+/**
+ * Each row takes the returns of the next stock, in one random stock order, among rows of the same date and market.
+ * No row is dropped when the universe changes by date; a stock present every day keeps one partner, so whole
+ * return series still move together. Only a stock alone in its date and market keeps its own returns.
+ */
+export function paperPlaceboDonors<T extends { experiment: Pick<PaperExperiment, 'symbol' | 'tradingDate' | 'entryObservation'> }>(
+  rows: readonly T[], rank: ReadonlyMap<string, number>): T[] {
+  const groups = new Map<string, T[]>(), donors = new Map<T, T>();
+  for (const row of rows) {
+    const key = `${row.experiment.tradingDate}:${row.experiment.entryObservation.market ?? 'UNKNOWN'}`;
+    const group = groups.get(key);
+    if (group) group.push(row); else groups.set(key, [row]);
+  }
+  for (const group of groups.values()) {
+    const ordered = group.sort((a, b) => (rank.get(a.experiment.symbol) ?? 0) - (rank.get(b.experiment.symbol) ?? 0)
+      || a.experiment.symbol.localeCompare(b.experiment.symbol));
+    ordered.forEach((row, index) => donors.set(row, ordered[(index + 1) % ordered.length]));
+  }
+  return rows.map(row => donors.get(row)!);
+}
+
 /** Repeats validation after pairing each stock's features with another same-market stock's complete returns. */
 function placeboCheck(rows: Row[], candidates: PaperAdaptiveCandidate[], tradingDate: string,
   evaluate: (item: PaperAdaptiveCandidate, source: Row[]) => PaperAdaptiveCandidate): PaperAdaptivePlacebo {
   const passed = candidates.filter(item => item.reason === 'ACTIVE' || item.reason === 'RANKED_OUT');
   const contenders = candidates.filter(item => sufficient(item.training) && positive(item.training));
-  const markets = new Map<string, Set<string>>(), byKey = new Map<string, Row>();
-  for (const row of rows) {
-    const market = row.experiment.entryObservation.market ?? 'UNKNOWN';
-    markets.set(market, (markets.get(market) ?? new Set<string>()).add(row.experiment.symbol));
-    byKey.set(`${row.experiment.tradingDate}:${row.experiment.symbol}`, row);
-  }
+  const symbols = [...new Set(rows.map(row => row.experiment.symbol))].sort();
   // A dated seed keeps each day's check reproducible.
   let seed = Number(tradingDate.replace(/-/g, ''));
   const random = () => {
@@ -214,20 +230,13 @@ function placeboCheck(rows: Row[], candidates: PaperAdaptiveCandidate[], trading
   const counts: number[] = [], beats = passed.map(() => 0);
   for (let run = 0; run < PAPER_PLACEBO_PERMUTATIONS; run++) {
     if (!contenders.length) { counts.push(0); continue; }
-    const partner = new Map<string, string>();
-    for (const members of markets.values()) {
-      const symbols = [...members], shuffled = [...symbols];
-      for (let index = shuffled.length - 1; index > 0; index--) {
-        const swap = Math.floor(random() * (index + 1));
-        [shuffled[index], shuffled[swap]] = [shuffled[swap], shuffled[index]];
-      }
-      symbols.forEach((symbol, index) => partner.set(symbol, shuffled[index]));
+    const shuffled = [...symbols];
+    for (let index = shuffled.length - 1; index > 0; index--) {
+      const swap = Math.floor(random() * (index + 1));
+      [shuffled[index], shuffled[swap]] = [shuffled[swap], shuffled[index]];
     }
-    // Whole return series move together, so repeated stocks and overlapping holding periods stay as correlated as in real data.
-    const permuted = rows.flatMap(row => {
-      const donor = byKey.get(`${row.experiment.tradingDate}:${partner.get(row.experiment.symbol)}`);
-      return donor ? [{ ...row, returns: donor.returns, availableAt: donor.availableAt }] : [];
-    });
+    const donors = paperPlaceboDonors(rows, new Map(shuffled.map((symbol, index) => [symbol, index])));
+    const permuted = rows.map((row, index) => ({ ...row, returns: donors[index].returns, availableAt: donors[index].availableAt }));
     const shuffledPassed = contenders.map(item => evaluate(item, permuted)).filter(item => item.reason === 'ACTIVE');
     counts.push(shuffledPassed.length);
     // A rule is compared with the best chance pass of the whole run, because it was itself picked among many candidates.
