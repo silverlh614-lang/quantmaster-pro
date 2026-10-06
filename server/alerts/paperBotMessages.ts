@@ -1,7 +1,7 @@
 // @responsibility Format current Shadow bot reports.
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperStrategyTrade } from '../../src/types/paperStrategy.js';
-import type { PaperStrategyCohort, PaperStrategyEdge, PaperStrategySelection } from '../../src/types/paperStrategy.js';
+import type { PaperStrategyCohort, PaperStrategyEdge, PaperStrategyReasonCode, PaperStrategySelection } from '../../src/types/paperStrategy.js';
 import type { PaperBotState } from '../persistence/paperBotRepo.js';
 import { PAPER_NEWS_LABELS, summarizePaperNews } from '../../src/utils/paperNews.js';
 import { PAPER_FLOW_ISSUE_LABELS } from '../../src/types/paperInvestorFlow.js';
@@ -154,27 +154,32 @@ export function paperTradeEvents(trades: PaperStrategyTrade[]): PaperBotTradeEve
   return trades.flatMap(trade => [{ id: `${trade.id}:BUY`, at: trade.entryAt, trade, side: 'BUY' as const },
     ...(trade.exit ? [{ id: `${trade.id}:EXIT`, at: trade.exit.decisionAt, trade, side: 'EXIT' as const }] : [])]);
 }
+const EXIT_REASON_LABELS: Partial<Record<PaperStrategyReasonCode, string>> = {
+  ADAPTIVE_STOP_LOSS: '손실 제한', ADAPTIVE_TRAILING_STOP: '수익 고점 대비 반납', ADAPTIVE_SIGNAL_LOST: '진입 근거 약화',
+};
 export function formatPaperTrades(events: PaperBotTradeEvent[]): string {
   const buys = events.filter(item => item.side === 'BUY').length;
-  const lines = ['📣 <b>Shadow 매수·매도</b>', '가상 매매 · 실제 주문 없음', '',
-    `<b>매수 ${buys}건 · 매도 ${events.length - buys}건</b>`];
+  // The channel name leads so a notification preview identifies CH1 without opening it.
+  const lines = [`<b>① 매매 · 매수 ${buys}건 · 매도 ${events.length - buys}건</b>`, 'Shadow 가상 매매 · 실제 주문 없음'];
   for (const event of events.slice(0, 10)) {
-    const trade = event.trade;
-    const purpose = trade.entryDecision.explorationEvidence ? '탐색 가상매수 · 검증 전' : trade.entryDecision.adaptiveEvidence ? '검증 통과 가상매수' : '구전략 가상매수';
+    const trade = event.trade, exit = trade.exit;
+    const [mark, bought, rule] = trade.entryDecision.explorationEvidence ? ['🧪 ', '탐색 가상매수 · 검증 전', '탐색 규칙 · 검증 전']
+      : trade.entryDecision.adaptiveEvidence ? ['✅ ', '검증 통과 가상매수', '검증 통과 규칙'] : ['', '구전략 가상매수', '구전략'];
     const block = [`${event.side === 'BUY' ? '🟢' : '🔴'} <b>${event.side === 'BUY' ? '매수' : '매도'} · ${escape(trade.name.slice(0, 30))} (${escape(trade.symbol)})</b>`];
     if (event.side === 'BUY') block.push(`<b>1주 · ${num(trade.entryPrice)}원</b>`,
       `매수 판단 ${stamp(event.at)}`,
-      trade.policy.exitModel === 'ADAPTIVE_OBSERVED' ? '매도 기준: 가격·진입 근거 변화' : `예약 매도 ${trade.scheduledExitDate}`);
-    else block.push(`순수익률 <b>${pct(trade.exit?.netReturnPct)}</b>`,
-      `매수 ${num(trade.entryPrice)}원 → 매도 ${trade.exit && Number.isFinite(trade.exit.price) ? num(trade.exit.price) : '미확인'}원`,
-      trade.exit?.model === 'ADAPTIVE_OBSERVED' ? `관측 매도 ${stamp(trade.exit.effectiveAt)}` : `예약 매도 · 평가일 ${trade.scheduledExitDate}`,
-      ...(trade.exit?.model === 'ADAPTIVE_OBSERVED' ? [`사유: ${escape(trade.exit.decision.reason.slice(0, 100))}`] : []),
-      `매수일 ${trade.tradingDate} · 매도 판단 ${stamp(event.at)}`);
-    block.push(trade.entryDecision.explorationEvidence ? `🧪 ${purpose}` : purpose);
+      trade.policy.exitModel === 'ADAPTIVE_OBSERVED' ? '매도 기준: 가격·진입 근거 변화' : `예약 매도 ${trade.scheduledExitDate}`,
+      `${mark}${bought}`);
+    else block.push(`순수익률 <b>${pct(exit?.netReturnPct)}</b>`,
+      `매수 ${num(trade.entryPrice)}원 → 매도 ${exit && Number.isFinite(exit.price) ? num(exit.price) : '미확인'}원`,
+      `사유: ${exit?.model === 'ADAPTIVE_OBSERVED' ? EXIT_REASON_LABELS[exit.decision.reasonCode] ?? '관측 매도' : `예약 매도 · 평가일 ${trade.scheduledExitDate}`}`,
+      // Sell time is the price's own time: the observed quote or the scheduled close.
+      `매수 ${stamp(trade.entryAt)} → 매도 ${stamp(exit?.effectiveAt)}`,
+      `${mark}진입: ${rule}`);
     lines.push(`\n${block.join('\n')}`);
   }
   if (events.length > 10) lines.push(`외 ${events.length - 10}건 · 전체 내역은 대시보드에서 확인`);
-  lines.push('', '근거·복기: 분석 채널 · 전체 내역 /paper');
+  lines.push('', '근거·복기: ② 판단 채널 · 전체 내역 /paper');
   return lines.join('\n');
 }
 const COHORT_LABELS: Record<PaperStrategyCohort, string> = {
