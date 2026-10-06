@@ -85,7 +85,8 @@ describe('current paper activity snapshot', () => {
     expect(buildEngineStatusSnapshot(new Date('2026-09-13T15:38:00Z'))).toMatchObject({ observationsRunning: false, observationStatus: 'STALE' });
   });
   it.each([
-    ['2026-10-06T11:00:00+09:00', 14, true], ['2026-10-06T11:00:00+09:00', 16, false],
+    ['2026-10-06T12:00:00+09:00', 14, true], ['2026-10-06T12:00:00+09:00', 16, false],
+    ['2026-10-06T11:00:00+09:00', 9, true], ['2026-10-06T11:00:00+09:00', 11, false],
     ['2026-10-06T22:00:00+09:00', 34, true], ['2026-10-06T22:00:00+09:00', 36, false],
   ] as const)('uses configured scan cadence at %s after %s minutes', (at, ageMinutes, active) => {
     const now = new Date(at);
