@@ -62,7 +62,7 @@ export function PaperDashboardPage({ page }: { page: View }) {
     {active.isError && <p role="alert" className="workspace-alert">기록을 불러오지 못했습니다. {active.data ? '마지막으로 불러온 자료를 표시합니다.' : '새로고침으로 다시 시도해 주세요.'}</p>}
     {active.isPending && pending}
     <Suspense fallback={pending}>
-      {(page === 'DASHBOARD' || page === 'PAPER_STRATEGY') && <PaperMorningReviewPanel />}
+      {page === 'DASHBOARD' && <PaperMorningReviewPanel />}
       {page === 'DASHBOARD' && overview.data && <PaperOverview view={overview.data} mode={mode} paused={paused} refreshFailed={overview.isError} />}
       {page === 'PAPER_OBSERVATIONS' && observations.data && <Observations view={observations.data} showStrategy={false} />}
       {page === 'PAPER_STRATEGY' && strategy.data && <Strategy view={strategy.data} />}

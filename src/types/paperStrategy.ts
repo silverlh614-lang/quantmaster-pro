@@ -232,6 +232,8 @@ export interface PaperStrategySelection {
 /** Mean difference with equal weight per entry date. */
 export interface PaperStrategyEdge { dateCount: number; tradeCount: number; edgePct: number | null }
 export interface PaperAdaptiveComparison {
+  /** Frozen entry signals share the full strategy's unbought/unheld control pool. */
+  signals?: Array<{ key: string; entry: PaperStrategyEdge; exit: PaperStrategyEdge }>;
   /** D5 baseline return of bought stocks minus same-day stocks not bought or held. */
   entry: PaperStrategyEdge; validatedEntry: PaperStrategyEdge; explorationEntry: PaperStrategyEdge;
   /** Actual observed exit minus the same trade held to its D5 close. */

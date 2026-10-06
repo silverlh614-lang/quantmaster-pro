@@ -9,7 +9,9 @@ import type {
 } from '../../types/paperStrategy';
 import { PaperStrategyPanel } from './PaperStrategyPanel';
 import { summarizePaperNews } from '../../utils/paperNews';
-import { buildTradeReview, summarizeTradeRecords, tradeRuleIdentity } from '../../utils/paperTradeReview';
+import { buildSignalReview, buildTradeReview, summarizeTradeRecords, tradeRuleIdentity, tradeSignalIdentity, signalRuleKey } from '../../utils/paperTradeReview';
+import type { PaperAdaptiveRule, PaperAdaptiveState } from '../../types/paperAdaptive';
+import { PaperSignalReview } from './PaperSignalReview';
 import { PaperTradeReview } from './PaperTradeReview';
 
 const policy: PaperStrategyPolicy = {
@@ -68,6 +70,54 @@ function resultTrade(net: number, date = trade.tradingDate): PaperStrategyTrade 
 }
 
 describe('trade record review', () => {
+  it('groups an entry signal across cost settings while preserving setting breakdowns and purposes', () => {
+    const a = resultTrade(8), b = resultTrade(-6);
+    b.costModel.slippageRate = 0.01;
+    const rows = buildSignalReview([a, b, trade]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ meanNetReturnPct: 1, closedCount: 2, openCount: 1, dateCount: 1 });
+    expect(rows[0].settings).toHaveLength(2);
+    const rule: PaperAdaptiveRule = { feature: 'rsi14', bucket: 1, horizon: 3 };
+    expect(signalRuleKey(rule)).not.toBe(signalRuleKey({ ...rule, bucket: 2 }));
+    const formula = { id: 'test', createdAt: '2026-09-01T00:00:00Z', formula: { operator: 'mean' } } as unknown as NonNullable<PaperAdaptiveRule['invention']>;
+    expect(signalRuleKey({ ...rule, invention: formula })).not.toBe(signalRuleKey({ ...rule, invention: { ...formula, createdAt: '2026-09-02T00:00:00Z' } }));
+  });
+  it('matches frozen rules to current connection changes without rewriting entry evidence', () => {
+    const rule: PaperAdaptiveRule = { feature: 'rsi14', bucket: 1, horizon: 3 };
+    const a = { ...resultTrade(8), strategyVersion: 'adaptive-features-v1',
+      entryDecision: { adaptiveEvidence: { candidate: { rule } } } } as unknown as PaperStrategyTrade;
+    const b = { ...a, entryAt: '2026-09-09T00:00:00Z' };
+    const state = { candidates: [{ rule: { ...rule, bucket: 2 }, active: true }],
+      changes: [{ at: '2026-09-10T00:00:00Z', from: rule, to: null, reason: 'NO_VALIDATION_EDGE' }] } as unknown as PaperAdaptiveState;
+    const before = JSON.stringify([a, b, state]);
+    const [row] = buildSignalReview([a, b], state);
+    expect(row.status).toBe('현재 미연결');
+    expect(row.afterChange).toMatchObject({ totalCount: 1, closedCount: 1, meanNetReturnPct: 8 });
+    expect(buildSignalReview([a])[0].status).toBe('연결 상태 미확인');
+    const exploration = { ...a, entryDecision: { explorationEvidence: a.entryDecision.adaptiveEvidence } } as unknown as PaperStrategyTrade;
+    expect(tradeSignalIdentity(exploration).key).not.toBe(tradeSignalIdentity(a).key);
+    expect(JSON.stringify([a, b, state])).toBe(before);
+  });
+  it('opens only a selected signal original record and resets the drilldown', () => {
+    const a = { ...resultTrade(8), strategyVersion: 'adaptive-features-v1' as const };
+    const b = { ...resultTrade(-6), strategyVersion: 'adaptive-features-v1' as const, name: '다른종목', symbol: '000001', horizon: 5 as const };
+    render(<PaperStrategyPanel view={view({ strategyVersion: 'adaptive-features-v1', trades: [a, b], totalCount: 2 })} />);
+    expect((document.getElementById('paper-original-trades') as HTMLDetailsElement).open).toBe(false);
+    const signals = within(screen.getByRole('region', { name: '신호별 수익성' }));
+    fireEvent.click(signals.getAllByRole('button', { name: '이 신호의 원본 거래 보기' })[0]);
+    expect((document.getElementById('paper-original-trades') as HTMLDetailsElement).open).toBe(true);
+    expect(screen.getByRole('article', { name: '삼성전자 전략 거래' })).toBeTruthy();
+    expect(screen.queryByRole('article', { name: '다른종목 전략 거래' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '거래 필터 초기화' }));
+    expect(screen.getByRole('article', { name: '다른종목 전략 거래' })).toBeTruthy();
+    fireEvent.change(signals.getByLabelText('신호 성과 매수 목적'), { target: { value: 'EXPLORATION' } });
+    expect(signals.getByText('선택한 목적의 진입 신호 기록이 없습니다.')).toBeTruthy();
+  });
+  it('withholds signal metrics for a partial ledger', () => {
+    render(<PaperSignalReview view={view({ trades: [resultTrade(8)], totalCount: 2 })} onSelect={() => {}} />);
+    expect(screen.getByRole('status').textContent).toContain('전체 원장 미조회');
+    expect(screen.queryByText(/8.00%/)).toBeNull();
+  });
   it('keeps open and unknown outcomes outside win rates and preserves zero results', () => {
     const broken = { ...structuredClone(trade), status: 'CLOSED' as const };
     const rows = [resultTrade(8), resultTrade(-6), resultTrade(0), trade, broken];
@@ -193,6 +243,8 @@ describe('PaperStrategyPanel', () => {
           validation: { sampleCount: 0, dateCount: 0, symbolCount: 0, meanNetReturnPct: null, meanDailyExcessPct: null } } } };
     render(<PaperStrategyPanel view={view({ strategyVersion: 'adaptive-features-v1', latestDecisions: [exploration],
       trades: [{ ...trade, strategyVersion: 'adaptive-features-v1', entryDecision: exploration }] })} />);
+    fireEvent.click(screen.getByText('종목별 최근 판단 펼치기'));
+    fireEvent.click(screen.getByText('종목별 원본 거래 펼치기'));
     for (const name of ['삼성전자 매수 · BUY 판단', '삼성전자 전략 거래']) {
       const card = within(screen.getByRole('article', { name }));
       expect(card.getByText(/진입 시 고정한 탐색 근거/)).toBeTruthy();
@@ -203,6 +255,7 @@ describe('PaperStrategyPanel', () => {
   });
   it('shows adaptive evaluation pending without replacing existing trade evidence', () => {
     render(<PaperStrategyPanel view={view({ strategyVersion: 'adaptive-features-v1', trades: [trade], totalCount: 1 })} />);
+    fireEvent.click(screen.getByText('종목별 원본 거래 펼치기'));
     expect(screen.getByText('지표 자율 판단 전략')).toBeTruthy();
     expect(screen.getByText(/지표 자동 연결 평가 대기/)).toBeTruthy();
     expect(screen.getByText(/전체 이력에는 기존 뉴스·추세 전략의 거래도 포함/)).toBeTruthy();
@@ -215,6 +268,7 @@ describe('PaperStrategyPanel', () => {
       performance: { closedCount: 20, meanNetReturnPct: 4, winRatePct: 75, totalNetPnl: 8000 },
       performanceByVersion: { 'adaptive-features-v1': { closedCount: 2, meanNetReturnPct: -0.5, winRatePct: 50, totalNetPnl: -100 } },
     })} />);
+    fireEvent.click(screen.getByText('전체·진입일별 성적표와 전략 비교'));
     const own = within(screen.getByRole('region', { name: '자율 판단 전략의 가상 청산 성과' }));
     expect(own.getByText('2건')).toBeTruthy();
     expect(own.getByText('-0.50%')).toBeTruthy();
@@ -237,6 +291,7 @@ describe('PaperStrategyPanel', () => {
     expect(screen.getByText('후보 30건 중 6건 · 3일')).toBeTruthy();
     expect(screen.getByText('+1.25%p')).toBeTruthy();
     expect(screen.getByText(/기존 보유 2건.*연구 표시이며 매수 조건에 쓰지 않습니다/)).toBeTruthy();
+    fireEvent.click(screen.getByText('전체·진입일별 성적표와 전략 비교'));
     const observed = within(screen.getByRole('group', { name: '관측 매도 거래 · D5 종가 기준' }));
     expect(observed.getByText('+0.42%p')).toBeTruthy();
     expect(observed.getByText('4일 · 7건 · 산 종목 − 같은 날 안 산 종목')).toBeTruthy();

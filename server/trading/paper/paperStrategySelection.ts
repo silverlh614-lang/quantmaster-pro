@@ -4,6 +4,7 @@ import type { PaperAdaptiveComparison, PaperStrategyCohort, PaperStrategyEdge, P
   PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { paperStrategyCohort } from './paperStrategyEvidence.js';
+import { tradeSignalIdentity } from '../../../src/utils/paperTradeReview.js';
 
 const COHORTS: PaperStrategyCohort[] = ['NEWS_RECENT_ABOVE_MA20', 'NEWS_RECENT_BELOW_MA20', 'NEWS_ABSENT_ABOVE_MA20', 'NEWS_ABSENT_BELOW_MA20'];
 const mean = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
@@ -24,11 +25,21 @@ function adaptiveComparison(trades: PaperStrategyTrade[], candidates: PaperExper
   const observed = new Map(trades.filter(trade => trade.policy?.exitModel === 'ADAPTIVE_OBSERVED')
     .map(trade => [`${trade.symbol}:${trade.tradingDate}`, trade]));
   const days = new Map<string, Day>();
+  const signalDays = new Map<string, Map<string, Day>>();
+  const signalDay = (trade: PaperStrategyTrade) => {
+    const key = tradeSignalIdentity(trade).key;
+    if (!signalDays.has(key)) signalDays.set(key, new Map());
+    const dates = signalDays.get(key)!;
+    if (!dates.has(trade.tradingDate)) dates.set(trade.tradingDate, { entry: { ALL: [], VALIDATED: [], EXPLORATION: [] }, other: [], exit: [] });
+    return dates.get(trade.tradingDate)!;
+  };
   const day = (date: string) => days.get(date) ?? days.set(date, { entry: { ALL: [], VALIDATED: [], EXPLORATION: [] }, other: [], exit: [] }).get(date)!;
   for (const trade of observed.values()) {
+    const signal = signalDay(trade);
     const benchmark = trade.exitResearch?.baseline?.netReturnPct;
     if (trade.status === 'CLOSED' && trade.exit && Number.isFinite(trade.exit.netReturnPct) && Number.isFinite(benchmark)) {
       day(trade.tradingDate).exit.push(trade.exit.netReturnPct - benchmark!);
+      signal.exit.push(trade.exit.netReturnPct - benchmark!);
     }
   }
   // Both entry arms use baseline observations, so only the choice of stock differs.
@@ -40,15 +51,20 @@ function adaptiveComparison(trades: PaperStrategyTrade[], candidates: PaperExper
     if (trade) {
       const entry = day(row.tradingDate).entry;
       entry.ALL.push(d5); entry[trade.entryDecision.explorationEvidence ? 'EXPLORATION' : 'VALIDATED'].push(d5);
+      signalDay(trade).entry.ALL.push(d5);
     } else if (!bought.has(key) && !held(row)) day(row.tradingDate).other.push(d5);
   }
   const all = [...days].sort((a, b) => a[0].localeCompare(b[0]));
+  const signals = [...signalDays].map(([key, dates]) => {
+    const rows = [...dates].map(([date, value]): [string, Day] => [date, { ...value, other: days.get(date)?.other ?? [] }]);
+    return { key, entry: edgeOf(rows, entryOf('ALL')), exit: edgeOf(rows, exitOf) };
+  });
   const months = [...new Set(all.map(([date]) => date.slice(0, 7)))].map(month => {
     const inMonth = all.filter(([date]) => date.startsWith(month));
     return { month, entry: edgeOf(inMonth, entryOf('ALL')), exit: edgeOf(inMonth, exitOf) };
   }).filter(item => item.entry.dateCount || item.exit.dateCount).slice(-6);
   return { entry: edgeOf(all, entryOf('ALL')), validatedEntry: edgeOf(all, entryOf('VALIDATED')),
-    explorationEntry: edgeOf(all, entryOf('EXPLORATION')), exit: edgeOf(all, exitOf), months };
+    explorationEntry: edgeOf(all, entryOf('EXPLORATION')), exit: edgeOf(all, exitOf), months, signals };
 }
 
 /** Read-only research: compares bought vs. not-bought candidates on the same date and horizon; never feeds decisions. */

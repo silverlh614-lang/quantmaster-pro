@@ -1,6 +1,39 @@
 // @responsibility Derive performance summaries from frozen trade evidence.
 import type { PaperStrategyTrade } from '../types/paperStrategy';
-import { paperAdaptiveRuleLabel } from '../types/paperAdaptive';
+import { paperAdaptiveRuleLabel, type PaperAdaptiveRule, type PaperAdaptiveState } from '../types/paperAdaptive.js';
+
+/** Frozen formula identity excludes today's research scores and exit settings. */
+export const signalRuleKey = (rule: PaperAdaptiveRule) => JSON.stringify([
+  rule.feature, rule.bucket, rule.horizon, rule.invention?.id, rule.invention?.createdAt, rule.invention?.formula,
+]);
+export function tradeSignalIdentity(trade: PaperStrategyTrade) {
+  const rule = (trade.entryDecision.explorationEvidence ?? trade.entryDecision.adaptiveEvidence)?.candidate?.rule;
+  return { key: JSON.stringify([trade.strategyVersion, tradePurpose(trade), rule ? signalRuleKey(rule) : trade.entryDecision.cohort, trade.horizon]),
+    rule, label: rule ? paperAdaptiveRuleLabel(rule) : `${trade.entryDecision.cohort ?? '과거 조건'} · D${trade.horizon}`,
+    purpose: tradePurpose(trade), version: trade.strategyVersion, bornAt: rule?.invention?.createdAt };
+}
+
+export function buildSignalReview(trades: readonly PaperStrategyTrade[], state?: PaperAdaptiveState) {
+  const groups = new Map<string, PaperStrategyTrade[]>();
+  for (const trade of trades) {
+    const key = tradeSignalIdentity(trade).key;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(trade);
+  }
+  return [...groups.values()].map(rows => {
+    const identity = tradeSignalIdentity(rows[0]);
+    const matches = (rule: PaperAdaptiveRule | null) => !!identity.rule && !!rule && signalRuleKey(rule) === signalRuleKey(identity.rule);
+    const connected = identity.purpose === 'EXPLORATION'
+      ? state?.exploration?.rules.some(trial => matches(trial.candidate.rule))
+      : state?.candidates.some(candidate => candidate.active && matches(candidate.rule));
+    const change = [...(state?.changes ?? [])].filter(item => matches(item.from) || matches(item.to))
+      .sort((a, b) => b.at.localeCompare(a.at))[0];
+    return { ...identity, ...summarizeTradeRecords(rows),
+      status: identity.purpose === 'LEGACY' ? '구전략' : !state || !identity.rule ? '연결 상태 미확인' : connected ? '현재 연결' : '현재 미연결',
+      change, afterChange: change ? summarizeTradeRecords(rows.filter(trade => Date.parse(trade.entryAt) >= Date.parse(change.at))) : null,
+      settings: buildTradeReview(rows).rules };
+  }).sort((a, b) => (b.meanNetReturnPct ?? -Infinity) - (a.meanNetReturnPct ?? -Infinity) || a.key.localeCompare(b.key));
+}
 
 export type TradePurpose = 'VALIDATED' | 'EXPLORATION' | 'LEGACY';
 export const tradePurposeLabels: Record<TradePurpose, string> = { VALIDATED: '검증 매수', EXPLORATION: '탐색 매수', LEGACY: '구전략' };
@@ -34,6 +67,7 @@ export function summarizeTradeRecords(trades: readonly PaperStrategyTrade[]) {
   const unknownCount = trades.length - openCount - closed.length;
   return { totalCount: trades.length, openCount, closedCount: closed.length, unknownCount,
     dateCount: new Set(trades.map(trade => trade.tradingDate)).size,
+    closedDateCount: new Set(closed.map(trade => trade.tradingDate)).size,
     complete: trades.length > 0 && openCount === 0 && unknownCount === 0,
     winCount: wins.length, lossCount: losses.length, flatCount: returns.length - wins.length - losses.length,
     winRatePct: returns.length ? wins.length / returns.length * 100 : null,

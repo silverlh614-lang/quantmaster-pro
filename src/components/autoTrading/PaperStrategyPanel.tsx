@@ -12,7 +12,8 @@ import { PaperAdaptiveEvidenceDetails, PaperAdaptivePanel } from './PaperAdaptiv
 import { PaperExitLearningPanel, PaperExitPolicyDetails } from './PaperExitLearningPanel';
 import { PaperAutonomyAllocationDetails } from './PaperAutonomyPanel';
 import { PaperTradeReview } from './PaperTradeReview';
-import { tradePurpose, tradePurposeLabels, tradeRuleIdentity } from '../../utils/paperTradeReview';
+import { PaperSignalReview } from './PaperSignalReview';
+import { tradePurpose, tradePurposeLabels, tradeRuleIdentity, tradeSignalIdentity } from '../../utils/paperTradeReview';
 
 const cohortLabels: Record<PaperStrategyCohort, string> = {
   NEWS_RECENT_ABOVE_MA20: '최근 관측 뉴스 있음 · 20일선 위',
@@ -205,6 +206,7 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
   const [entryDate, setEntryDate] = useState('');
   const [purpose, setPurpose] = useState('ALL');
   const [ruleFilter, setRuleFilter] = useState('');
+  const [signalFilter, setSignalFilter] = useState('');
   const [decisionPage, setDecisionPage] = useState(0);
   const [tradePage, setTradePage] = useState(0);
   const unavailable = Boolean(view.error || view.lastRun?.error);
@@ -217,8 +219,9 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
   const matchingTrades = useMemo(() => [...view.trades].filter(item => (tradeStatus === 'ALL' || item.status === tradeStatus)
     && (!entryDate || item.tradingDate === entryDate) && (purpose === 'ALL' || tradePurpose(item) === purpose)
     && (!ruleFilter || tradeRuleIdentity(item).key === ruleFilter)
+    && (!signalFilter || tradeSignalIdentity(item).key === signalFilter)
     && `${item.name} ${item.symbol}`.toLowerCase().includes(search.trim().toLowerCase()))
-    .sort((a, b) => b.entryAt.localeCompare(a.entryAt)), [view.trades, tradeStatus, search, entryDate, purpose, ruleFilter]);
+    .sort((a, b) => b.entryAt.localeCompare(a.entryAt)), [view.trades, tradeStatus, search, entryDate, purpose, ruleFilter, signalFilter]);
   const currentDecisionPage = Math.min(decisionPage, Math.max(0, Math.ceil(matchingDecisions.length / 12) - 1));
   const currentTradePage = Math.min(tradePage, Math.max(0, Math.ceil(matchingTrades.length / 10) - 1));
   const decisions = matchingDecisions.slice(currentDecisionPage * 12, (currentDecisionPage + 1) * 12);
@@ -229,6 +232,13 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
         <p role="alert" className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">전략 기록 확인 불가 · 판단과 성과를 불러오지 못했습니다. 기본 관측은 별도로 확인할 수 있습니다.</p>
       ) : (
         <>
+          {adaptive && <PaperSignalReview view={view} onSelect={key => {
+            setSignalFilter(key); setEntryDate(''); setRuleFilter(''); setPurpose('ALL');
+            setTradeStatus('ALL'); setSearch(''); setTradePage(0);
+            const records = document.getElementById('paper-original-trades') as HTMLDetailsElement | null;
+            if (records) records.open = true;
+            document.getElementById('paper-trade-records')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+          }} />}
           {measurementWarning && history && <p role="status" aria-label="상세 가격 저장 상태" className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
             상세 가격 기록 확인 필요 · 누적 저장 실패 {history.failedBatchCount === null ? '집계 확인 불가' : `${history.failedBatchCount}회`}
             {' · '}상세 저장 미확인 {history.unrecordedPointCount === null ? '집계 확인 불가' : `${history.unrecordedPointCount}개`}
@@ -240,8 +250,11 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
             <p>호재·악재 분류는 근거로 표시하고 별도 성과를 관측합니다. 현재 전략의 진입 조건에는 아직 반영하지 않습니다.</p>
             <p>전략 {view.strategyVersion} · 마지막 판단 {view.lastRun ? `${timestamp(view.lastRun.asOf)} KST` : '아직 실행하지 않음'}</p>
           </div>
+          <details open={!adaptive} className="space-y-4"><summary className="cursor-pointer py-2">학습·연결 현황과 매도 기준</summary>
           {adaptive && (view.adaptive ? <PaperAdaptivePanel state={view.adaptive} /> : <p className="text-sm text-amber-200">지표 자동 연결 평가 대기 · 다음 관측에서 평가합니다.</p>)}
           {view.policy.exitModel === 'ADAPTIVE_OBSERVED' && <PaperExitLearningPanel state={view.exitLearning} />}
+          </details>
+          <details open={!adaptive} className="space-y-4"><summary className="cursor-pointer py-2">전체·진입일별 성적표와 전략 비교</summary>
           {adaptive && <section className="rounded-xl border border-emerald-400/20 bg-emerald-500/5 p-4" aria-label="자율 판단 전략의 가상 청산 성과">
             <h4 className="mb-3 text-sm font-semibold text-emerald-200">자율 전략 전체 · 검증 매수와 탐색 매수</h4>
             <dl className="grid grid-cols-2 gap-3 xl:grid-cols-4">{[
@@ -276,33 +289,38 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
             {adaptive && <p className="mt-2 text-xs text-slate-400">전체 이력에는 기존 뉴스·추세 전략의 거래도 포함됩니다. 각 거래의 진입 당시 전략과 근거는 그대로 보존됩니다.</p>}
           </div>
           <PaperTradeReview trades={view.trades} totalCount={view.totalCount} onSelect={filter => {
+            setSignalFilter('');
             setEntryDate(filter.date ?? ''); setRuleFilter(filter.rule ?? ''); setPurpose(filter.purpose ?? 'ALL');
             setTradeStatus('ALL'); setSearch(''); setTradePage(0);
+            const records = document.getElementById('paper-original-trades') as HTMLDetailsElement | null;
+            if (records) records.open = true;
             document.getElementById('paper-trade-records')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
           }} />
           {view.selection && view.selection.candidateCount > 0 && <SelectionSummary selection={view.selection} />}
-          <div className="space-y-3">
+          </details>
+          <details open={!adaptive} className="space-y-3"><summary className="cursor-pointer py-2">종목별 최근 판단 펼치기</summary>
             <h4 className="text-sm font-semibold text-slate-200">최근 전략 판단 <span className="font-normal text-slate-500">{matchingDecisions.length}건 · 페이지당 12건</span></h4>
             <div className="workspace-filters"><input data-search-focus aria-label="전략 종목 검색" placeholder="종목명 또는 코드 검색" value={search} onChange={event => { setSearch(event.target.value); setDecisionPage(0); setTradePage(0); }} /><select aria-label="전략 판단 종류" value={action} onChange={event => { setAction(event.target.value); setDecisionPage(0); }}><option value="ALL">전체 판단</option><option value="BUY">매수</option><option value="WAIT">대기</option><option value="HOLD">보유</option><option value="EXIT">청산</option></select></div>
             {decisions.length === 0 ? <p className="workspace-empty">{view.latestDecisions.length ? '검색 조건에 맞는 전략 판단이 없습니다.' : '아직 전략 판단이 없습니다. 스캔 후 매수·대기·보유·청산 근거가 표시됩니다.'}</p> : (
               <div className="grid gap-3 lg:grid-cols-2">{decisions.map((decision, index) => <DecisionCard key={`${decision.snapshotId}-${decision.symbol}-${decision.tradeId ?? index}`} decision={decision} policy={view.policy} />)}</div>
             )}
             {matchingDecisions.length > 12 && <div className="workspace-pagination"><span>{currentDecisionPage + 1} / {Math.ceil(matchingDecisions.length / 12)}</span><button type="button" className="workspace-button" disabled={!currentDecisionPage} onClick={() => setDecisionPage(currentDecisionPage - 1)}>이전 판단</button><button type="button" className="workspace-button" disabled={(currentDecisionPage + 1) * 12 >= matchingDecisions.length} onClick={() => setDecisionPage(currentDecisionPage + 1)}>다음 판단</button></div>}
-          </div>
-          <div className="space-y-3">
+          </details>
+          <details id="paper-original-trades" open={!adaptive} className="space-y-3"><summary className="cursor-pointer py-2">종목별 원본 거래 펼치기</summary>
             <h4 id="paper-trade-records" className="text-sm font-semibold text-slate-200">전략 진입·청산 기록 <span className="font-normal text-slate-500">누적 {view.totalCount}건 · 검색 {matchingTrades.length}건 · 페이지당 10건</span></h4>
             <div className="workspace-filters">
               <label>진입일 <input aria-label="거래 진입일" type="date" value={entryDate} onChange={event => { setEntryDate(event.target.value); setTradePage(0); }} /></label>
               <select aria-label="거래 매수 목적" value={purpose} onChange={event => { setPurpose(event.target.value); setTradePage(0); }}>
                 <option value="ALL">전체 목적</option>{Object.entries(tradePurposeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
               </select>
-              <button type="button" className="workspace-button" onClick={() => { setEntryDate(''); setPurpose('ALL'); setRuleFilter(''); setTradeStatus('ALL'); setSearch(''); setTradePage(0); }}>거래 필터 초기화</button>
+              <button type="button" className="workspace-button" onClick={() => { setEntryDate(''); setPurpose('ALL'); setRuleFilter(''); setSignalFilter(''); setTradeStatus('ALL'); setSearch(''); setTradePage(0); }}>거래 필터 초기화</button>
             </div>
             {ruleFilter && <p className="text-xs text-sky-200">성적표에서 선택한 지표·버전의 거래만 표시합니다. <button type="button" className="underline" onClick={() => { setRuleFilter(''); setTradePage(0); }}>지표 필터 해제</button></p>}
+            {signalFilter && <p className="text-xs text-sky-200">선택한 진입 신호의 원본 거래입니다. <button type="button" className="underline" onClick={() => { setSignalFilter(''); setTradePage(0); }}>신호 필터 해제</button></p>}
             <div className="workspace-filters"><select aria-label="전략 거래 상태" value={tradeStatus} onChange={event => { setTradeStatus(event.target.value); setTradePage(0); }}><option value="ALL">전체 거래</option><option value="OPEN">가상 보유</option><option value="CLOSED">가상 청산</option></select></div>
             {trades.length === 0 ? <p className="workspace-empty">{view.trades.length ? '검색 조건에 맞는 전략 거래가 없습니다.' : '아직 전략 진입이 없습니다. 판단 근거와 표본 충족 상태는 최근 전략 판단에서 확인하세요.'}</p> : trades.map(trade => <TradeCard key={trade.id} trade={trade} />)}
             {matchingTrades.length > 10 && <div className="workspace-pagination"><span>{currentTradePage + 1} / {Math.ceil(matchingTrades.length / 10)}</span><button type="button" className="workspace-button" disabled={!currentTradePage} onClick={() => setTradePage(currentTradePage - 1)}>이전 거래</button><button type="button" className="workspace-button" disabled={(currentTradePage + 1) * 10 >= matchingTrades.length} onClick={() => setTradePage(currentTradePage + 1)}>다음 거래</button></div>}
-          </div>
+          </details>
         </>
       )}
     </Section>

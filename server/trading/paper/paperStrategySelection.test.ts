@@ -3,13 +3,39 @@ import { describe, expect, it } from 'vitest';
 import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 import { buildPaperStrategySelection } from './paperStrategySelection.js';
 import { matureStrategySamples } from './paperStrategyFixtures.js';
+import { tradeSignalIdentity } from '../../../src/utils/paperTradeReview.js';
 
 const trade = (symbol: string, tradingDate: string, horizon: 1 | 3 | 5, scheduledExitDate: string, netReturnPct?: number) => ({
   symbol, tradingDate, horizon, scheduledExitDate, status: netReturnPct === undefined ? 'OPEN' : 'CLOSED',
+  strategyVersion: 'adaptive-features-v1', entryDecision: { cohort: null },
   exit: netReturnPct === undefined ? null : { netReturnPct },
 }) as unknown as PaperStrategyTrade;
 
 describe('paper strategy selectivity', () => {
+  it('keeps other signal purchases out of controls and weights dates equally per signal', () => {
+    const experiments = matureStrategySamples([0, 0, 0]);
+    for (const row of experiments) {
+      row.outcomes.find(outcome => outcome.horizon === 5)!.netReturnPct = row.symbol === '000100' ? 10
+        : row.symbol === '000101' ? 100 : 1;
+    }
+    const observed = (symbol: string, date: string, bucket: number) => ({ ...trade(symbol, date, 5, '2026-09-10', 3),
+      policy: { exitModel: 'ADAPTIVE_OBSERVED' }, entryDecision: { adaptiveEvidence: { candidate: { rule: { feature: 'rsi14', bucket, horizon: 5 } } } },
+      exit: { netReturnPct: 3, decisionAt: '2026-09-04T02:00:00Z' }, exitResearch: { baseline: { netReturnPct: 5 } },
+    }) as unknown as PaperStrategyTrade;
+    const first = observed('000100', '2026-09-01', 1), other = observed('000101', '2026-09-01', 2);
+    const next = observed('000102', '2026-09-02', 1);
+    const crowdedDay = observed('000102', '2026-09-01', 1);
+    const before = JSON.stringify([first, other, next, crowdedDay, experiments]);
+    const result = buildPaperStrategySelection([first, other, next, crowdedDay], experiments).adaptive!.signals!;
+    expect(result.find(row => row.key === tradeSignalIdentity(first).key)).toMatchObject({
+      entry: { edgePct: 2.25, tradeCount: 3, dateCount: 2 }, exit: { edgePct: -2, tradeCount: 3, dateCount: 2 },
+    });
+    expect(result.find(row => row.key === tradeSignalIdentity(other).key)?.entry.edgePct).toBe(99);
+    expect(JSON.stringify([first, other, next, crowdedDay, experiments])).toBe(before);
+    // No unbought controls means unknown, not zero advantage.
+    const onlyBought = experiments.filter(row => row.tradingDate === first.tradingDate && row.symbol === first.symbol);
+    expect(buildPaperStrategySelection([first], onlyBought).adaptive!.signals![0].entry).toEqual({ edgePct: null, tradeCount: 0, dateCount: 0 });
+  });
   it('counts observed holdings past the benchmark without mixing observed exits into fixed-duration returns', () => {
     const observed = trade('000100', '2026-08-31', 1, '2026-09-01');
     observed.policy = { exitModel: 'ADAPTIVE_OBSERVED' } as PaperStrategyTrade['policy'];
@@ -64,4 +90,3 @@ describe('paper strategy selectivity', () => {
     expect(buildPaperStrategySelection([observed], experiments).adaptive!.exit).toEqual({ dateCount: 0, tradeCount: 0, edgePct: null });
   });
 });
-
