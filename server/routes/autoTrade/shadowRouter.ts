@@ -88,7 +88,7 @@ router.post('/shadow/research', (_req, res) => {
 
 router.get('/shadow/experiments', async (req: any, res: any) => {
   try {
-    const view = await getPaperExperimentView();
+    const view = await getPaperExperimentView(req.query.section === 'strategy');
     switch (req.query.section) {
       case undefined: return res.json(view);
       case 'overview': return res.json(buildPaperOverview(view));

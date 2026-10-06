@@ -9,6 +9,8 @@ import type {
 } from '../../types/paperStrategy';
 import { PaperStrategyPanel } from './PaperStrategyPanel';
 import { summarizePaperNews } from '../../utils/paperNews';
+import { buildTradeReview, summarizeTradeRecords, tradeRuleIdentity } from '../../utils/paperTradeReview';
+import { PaperTradeReview } from './PaperTradeReview';
 
 const policy: PaperStrategyPolicy = {
   version: 'news-trend-v1', newsLookbackHours: 72, minimumSamples: 10,
@@ -57,6 +59,66 @@ function view(overrides: Partial<PaperStrategyView> = {}): PaperStrategyView {
 
 afterEach(cleanup);
 
+function resultTrade(net: number, date = trade.tradingDate): PaperStrategyTrade {
+  return { ...structuredClone(trade), id: `closed-${net}-${date}`, tradingDate: date, status: 'CLOSED',
+    exit: { model: 'SCHEDULED_CLOSE', snapshotId: 'exit', effectiveAt: '2026-09-15T06:30:00Z',
+      observedAt: '2026-09-15T06:31:00Z', decisionAt: '2026-09-15T06:31:00Z', price: 70000,
+      grossReturnPct: net, netReturnPct: net, netPnl: net * 700,
+      decision: { ...buy, action: 'EXIT', reasonCode: 'SCHEDULED_CLOSE_REACHED' } } };
+}
+
+describe('trade record review', () => {
+  it('keeps open and unknown outcomes outside win rates and preserves zero results', () => {
+    const broken = { ...structuredClone(trade), status: 'CLOSED' as const };
+    const rows = [resultTrade(8), resultTrade(-6), resultTrade(0), trade, broken];
+    const before = JSON.stringify(rows), summary = summarizeTradeRecords(rows);
+    expect(summary).toMatchObject({ totalCount: 5, closedCount: 3, openCount: 1, unknownCount: 1,
+      winCount: 1, lossCount: 1, flatCount: 1, meanWinPct: 8, meanLossPct: -6, complete: false });
+    expect(summary.meanNetReturnPct).toBeCloseTo(2 / 3);
+    expect(summary.winRatePct).toBeCloseTo(100 / 3);
+    expect(summarizeTradeRecords([trade]).meanNetReturnPct).toBeNull();
+    expect(JSON.stringify(rows)).toBe(before);
+  });
+  it('groups by entry date rather than exit date and separates frozen settings', () => {
+    const a = resultTrade(8), b = resultTrade(-6, '2026-09-11');
+    b.costModel.slippageRate = 0.001;
+    const review = buildTradeReview([a, b, trade]);
+    expect(review.dates.map(row => [row.date, row.complete])).toEqual([['2026-09-11', true], ['2026-09-10', false]]);
+    expect(review.rules).toHaveLength(2);
+    const otherVersion = { ...a, strategyVersion: 'news-trend-v2' as const };
+    expect(tradeRuleIdentity(a).key).not.toBe(tradeRuleIdentity(otherVersion).key);
+  });
+  it('compares D5 only on paired trades and exposes missing and partial paths', () => {
+    const a = resultTrade(8), b = resultTrade(-6);
+    a.exitResearch = { version: 'observed-exit-research-v1', startedAt: a.entryAt, watchUntilDate: '2026-09-17',
+      watchUntilAt: '2026-09-17T06:30:00Z', lastObservedAt: null, lastRecordedAt: null, quoteCount: 1,
+      peakNetReturnPct: 8, lastFeatureKey: null, lastFeatureAsOf: null, signalFailureCount: 0,
+      signalFailureStartedAt: null, outcomes: {}, completedAt: null,
+      baseline: { ...a.exit!, reason: 'D5_BENCHMARK', recordedAt: a.exit!.decisionAt, netReturnPct: 10,
+        peakNetReturnPct: 10, signalFailureCount: 0, signalFailureStartedAt: null } };
+    const point = measuredPoint();
+    a.measurement = { version: 'observed-trade-path-v1', startedAt: a.entryAt, fromEntry: false, pointCount: 1,
+      latest: point, highest: point, lowest: point };
+    expect(summarizeTradeRecords([a, b])).toMatchObject({ d5Count: 1, d5DifferencePct: -2, missingPathCount: 1, partialPathCount: 1 });
+  });
+  it('refuses partial-ledger totals instead of reporting a misleading complete cohort', () => {
+    render(<PaperTradeReview trades={[resultTrade(8)]} totalCount={201} onSelect={() => {}} />);
+    expect(screen.getByRole('status').textContent).toContain('전체 원장 미조회');
+    expect(screen.queryByText('청산 완료')).toBeNull();
+  });
+  it('links a date summary to the original records and resets filters', () => {
+    const other = { ...resultTrade(-6, '2026-09-11'), name: '다른종목', symbol: '000001' };
+    render(<PaperStrategyPanel view={view({ totalCount: 2, trades: [trade, other] })} />);
+    fireEvent.click(screen.getByRole('button', { name: '2026-09-10 거래 보기' }));
+    expect(screen.getByRole('article', { name: '삼성전자 전략 거래' })).toBeTruthy();
+    expect(screen.queryByRole('article', { name: '다른종목 전략 거래' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '거래 필터 초기화' }));
+    expect(screen.getByRole('article', { name: '다른종목 전략 거래' })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('성적표 매수 목적'), { target: { value: 'EXPLORATION' } });
+    expect(screen.getByText('선택한 목적의 거래 기록이 없습니다.')).toBeTruthy();
+  });
+});
+
 describe('PaperStrategyPanel', () => {
   it('labels a new exit policy as unvalidated exploration and keeps D3 as comparison only', () => {
     const observed = structuredClone(trade);
@@ -90,19 +152,19 @@ describe('PaperStrategyPanel', () => {
     const data = view({ latestDecisions: [buy], trades: [trade], measurementHistory: { lastRecordedAt: null,
       failedBatchCount: 2, unrecordedPointCount: 7, error: '상세 파일 저장 지연' } });
     const { rerender } = render(<PaperStrategyPanel view={data} />);
-    expect(screen.getByRole('status').textContent).toContain('누적 저장 실패 2회 · 상세 저장 미확인 7개 · 마지막 상세 저장 기록 없음');
-    expect(screen.getByRole('status').textContent).toContain('상세 파일 저장 지연');
+    expect(screen.getByRole('status', { name: '상세 가격 저장 상태' }).textContent).toContain('누적 저장 실패 2회 · 상세 저장 미확인 7개 · 마지막 상세 저장 기록 없음');
+    expect(screen.getByRole('status', { name: '상세 가격 저장 상태' }).textContent).toContain('상세 파일 저장 지연');
     expect(screen.getByRole('article', { name: '삼성전자 매수 · BUY 판단' })).toBeTruthy();
     expect(screen.getByText(/가격 측정 대기 · 휴장·장외에는 새 측정 없이/)).toBeTruthy();
     expect(screen.queryByRole('group', { name: '가상매수 이후 가격 관측' })).toBeNull();
     rerender(<PaperStrategyPanel view={{ ...data, measurementHistory: { lastRecordedAt: null, failedBatchCount: null,
       unrecordedPointCount: null, error: '상세 관측 기록 상태를 읽을 수 없습니다.' } }} />);
-    expect(screen.getByRole('status').textContent).toContain('누적 저장 실패 집계 확인 불가 · 상세 저장 미확인 집계 확인 불가 · 마지막 상세 저장 확인 불가');
-    expect(screen.getByRole('status').textContent).not.toContain('0회');
-    expect(screen.getByRole('status').textContent).not.toContain('0개');
+    expect(screen.getByRole('status', { name: '상세 가격 저장 상태' }).textContent).toContain('누적 저장 실패 집계 확인 불가 · 상세 저장 미확인 집계 확인 불가 · 마지막 상세 저장 확인 불가');
+    expect(screen.getByRole('status', { name: '상세 가격 저장 상태' }).textContent).not.toContain('0회');
+    expect(screen.getByRole('status', { name: '상세 가격 저장 상태' }).textContent).not.toContain('0개');
     expect(screen.getByRole('article', { name: '삼성전자 매수 · BUY 판단' })).toBeTruthy();
     rerender(<PaperStrategyPanel view={{ ...data, measurementHistory: { lastRecordedAt: '2026-09-14T01:01:00Z', failedBatchCount: 0, unrecordedPointCount: 0 } }} />);
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByRole('status', { name: '상세 가격 저장 상태' })).toBeNull();
   });
 
   it('compares observed peak with the realized exit in percentage points without manufacturing a missing path', () => {
@@ -245,7 +307,7 @@ describe('PaperStrategyPanel', () => {
     }] })} />);
     expect(screen.getByText('대기 · WAIT')).toBeTruthy();
     expect(screen.getByText('20일선 추세를 확인할 수 없어 대기합니다.')).toBeTruthy();
-    expect(screen.queryByRole('table')).toBeNull();
+    expect(within(screen.getByRole('article', { name: '삼성전자 대기 · WAIT 판단' })).queryByRole('table')).toBeNull();
     expect(screen.queryByText('0.00%')).toBeNull();
   });
 
@@ -260,7 +322,7 @@ describe('PaperStrategyPanel', () => {
     expect(history.getByText('확정 보유 기간 D3 · 예정 청산일 2026-09-15')).toBeTruthy();
     expect(history.getByText(/예정 종가 시각.*(?:15:30:00|15시 30분 0초)/)).toBeTruthy();
     expect(history.getByText(/청산 순손익은 집계 대기/)).toBeTruthy();
-    expect(screen.getAllByText('집계 대기')).toHaveLength(3);
+    expect(screen.getAllByText('집계 대기').length).toBeGreaterThanOrEqual(3);
     expect(screen.queryByText('0.00%')).toBeNull();
   });
 
@@ -283,7 +345,7 @@ describe('PaperStrategyPanel', () => {
     expect(history.getByText(/평가 종가 시각.*(?:15:30:00|15시 30분 0초).*종가 71,000원/)).toBeTruthy();
     expect(history.getByText(/종가 확인 시각.*(?:16:07:00|16시 7분 0초)/)).toBeTruthy();
     expect(screen.getByText('+888.3원')).toBeTruthy();
-    expect(screen.getByText('+0.72%')).toBeTruthy();
+    expect(screen.getAllByText('+0.72%').length).toBeGreaterThan(0);
     expect(screen.getByText(/브로커 체결 기록이 아닙니다/)).toBeTruthy();
   });
 

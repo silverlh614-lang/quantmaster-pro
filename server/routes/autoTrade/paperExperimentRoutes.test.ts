@@ -64,6 +64,19 @@ function response(): ResponseStub {
 }
 
 describe('paper experiment API registration', () => {
+  it('returns older strategy records beyond the 200-trade preview without running collection', async () => {
+    const trades = Array.from({ length: 205 }, (_, index) => ({ id: `trade-${index}` }));
+    mocks.view.mockImplementation((full: boolean) => ({ strategy: { totalCount: trades.length, trades: full ? trades : trades.slice(-200) } }));
+    const res = response();
+    await handler(shadowRouter, 'get', '/shadow/experiments')({ query: { section: 'strategy' } }, res);
+    expect(mocks.view).toHaveBeenCalledWith(true);
+    expect(res.body).toEqual({ totalCount: 205, trades });
+    expect(mocks.paperScan).not.toHaveBeenCalled();
+    expect(mocks.brokerQuote).not.toHaveBeenCalled();
+    const preview = response();
+    await handler(shadowRouter, 'get', '/shadow/experiments')({ query: {} }, preview);
+    expect(mocks.view).toHaveBeenLastCalledWith(false);
+  });
   it('reads an archived morning recommendation without scanning or placing orders', async () => {
     mocks.recommendation.mockReturnValue({ report: { id: 'paper:recommendation:2026-09-18', message: '동결된 추천' }, results: [] });
     const res = response();
