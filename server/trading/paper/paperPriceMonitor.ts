@@ -42,9 +42,10 @@ async function monitor(): Promise<void> {
     const symbols = [...new Map(eligible.map(item => [item.symbol, item])).values()]
       .sort((a, b) => Number(held.has(b.symbol)) - Number(held.has(a.symbol))
         || (attempts.get(a.symbol) ?? 0) - (attempts.get(b.symbol) ?? 0) || a.symbol.localeCompare(b.symbol));
-    for (let offset = 0; offset < symbols.length && Date.now() - started < 20_000; offset += 25) {
+    // A batch of 30 is one KIS multi-stock quote request.
+    for (let offset = 0; offset < symbols.length && Date.now() - started < 20_000; offset += 30) {
       if (getAutoTradePaused() || !isPaperMarketOpen(new Date())) break;
-      const batch = symbols.slice(offset, offset + 25);
+      const batch = symbols.slice(offset, offset + 30);
       for (const item of batch) attempts.set(item.symbol, Date.now());
       const snapshot = await collectPaperPriceSnapshot(batch);
       status.checkedCount += batch.length;

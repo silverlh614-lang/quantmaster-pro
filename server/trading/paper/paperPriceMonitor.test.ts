@@ -42,14 +42,14 @@ describe('holding price monitor', () => {
   });
   it('rotates unfinished holdings after its time budget instead of starving them', async () => {
     const ledger = legacyStrategyLedger();
-    ledger.trades = Array.from({ length: 30 }, (_, index) => ({ ...ledger.trades[0], symbol: String(index).padStart(6, '0') }));
+    ledger.trades = Array.from({ length: 35 }, (_, index) => ({ ...ledger.trades[0], symbol: String(index).padStart(6, '0') }));
     mocks.load.mockReturnValue({ ledger });
     mocks.collect.mockImplementation(async () => { vi.setSystemTime(Date.now() + 21_000); return snapshot(); });
     const { runPaperPriceMonitor, readPaperPriceMonitor } = await import('./paperPriceMonitor.js');
     await runPaperPriceMonitor(); await runPaperPriceMonitor();
-    expect(mocks.collect.mock.calls[0][0]).toHaveLength(25);
-    expect(mocks.collect.mock.calls[1][0][0].symbol).toBe('000025');
-    expect(readPaperPriceMonitor()).toMatchObject({ heldCount: 30, staleCount: 30, running: false });
+    expect(mocks.collect.mock.calls[0][0]).toHaveLength(30);
+    expect(mocks.collect.mock.calls[1][0][0].symbol).toBe('000030');
+    expect(readPaperPriceMonitor()).toMatchObject({ heldCount: 35, staleCount: 35, running: false });
   });
   it('quotes held observed-exit positions before research-only symbols in every cycle', async () => {
     const ledger = legacyStrategyLedger(), base = ledger.trades[0];
@@ -64,7 +64,7 @@ describe('holding price monitor', () => {
     const symbols = (call: number) => mocks.collect.mock.calls[call][0].map((item: { symbol: string }) => item.symbol);
     expect(symbols(0).slice(0, 3)).toEqual(['900000', '900001', '000000']);
     // Held positions stay ahead of research symbols that were never attempted.
-    expect(symbols(1).slice(0, 3)).toEqual(['900000', '900001', '000023']);
+    expect(symbols(1).slice(0, 3)).toEqual(['900000', '900001', '000028']);
   });
   it('reports minute monitoring and marks a held quote late only after two scheduled intervals', async () => {
     const quoteAt = Date.now(), ledger = legacyStrategyLedger();
