@@ -12,9 +12,9 @@ import {
 } from './metaCommands.js';
 
 describe('buildBotMenuCommands — Telegram 메뉴 자동 동기화 SSOT', () => {
-  it('uses the current five-command Shadow menu and matching report schedule', () => {
+  it('uses the current six-command Shadow menu and matching report schedule', () => {
     vi.spyOn(state, 'getTradingMode').mockReturnValue('SHADOW');
-    expect(buildBotMenuCommandsExtended().map(item => item.command)).toEqual(['help', 'paper', 'paper_research', 'paper_bot', 'control']);
+    expect(buildBotMenuCommandsExtended().map(item => item.command)).toEqual(['help', 'paper', 'paper_research', 'paper_recommend', 'paper_bot', 'control']);
     expect(buildHelpMessage()).toContain('08:45'); expect(buildHelpMessage()).toContain('16:10');
     expect(buildHelpMessage()).not.toContain('지금 매수');
     expect(buildHelpKeyboard('test').inline_keyboard.flat().map(item => item.callback_data)).toContain('meta:paper:test');

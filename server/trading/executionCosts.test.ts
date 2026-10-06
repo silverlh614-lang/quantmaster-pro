@@ -17,9 +17,9 @@ import {
 describe('executionCosts — 기본 상수 불변식', () => {
   afterEach(() => resetExecutionCostOverride());
 
-  it('KOSPI 왕복 순비용 = 수수료(0.03%) + 거래세(0.18%) + 농특세(0.15%) + 슬리피지(0.6%) ≈ 0.96%', () => {
+  it('KOSPI 왕복 순비용 = 수수료(0.03%) + 거래세(0.05%) + 농특세(0.15%) + 슬리피지(0.6%) ≈ 0.83%', () => {
     const pct = computeRoundTripCostPct('KOSPI', true);
-    expect(pct).toBeCloseTo(0.96, 2);
+    expect(pct).toBeCloseTo(0.83, 2);
   });
 
   it('KOSDAQ 왕복 순비용 ≈ 0.83% (농특세 없음)', () => {
@@ -27,9 +27,9 @@ describe('executionCosts — 기본 상수 불변식', () => {
     expect(pct).toBeCloseTo(0.83, 2);
   });
 
-  it('슬리피지 제외 KOSPI 왕복 ≈ 0.36%', () => {
+  it('슬리피지 제외 KOSPI 왕복 ≈ 0.23%', () => {
     const pct = computeRoundTripCostPct('KOSPI', false);
-    expect(pct).toBeCloseTo(0.36, 2);
+    expect(pct).toBeCloseTo(0.23, 2);
   });
 });
 
@@ -44,17 +44,18 @@ describe('computeNetPnL — P&L 분해', () => {
     expect(r.gross - r.totalCost).toBeCloseTo(r.net, 2);
   });
 
-  it('gross +10% → net ≈ +8.9% (KOSPI, slippage 포함)', () => {
-    // (exit - entry)/entry = 10% → 왕복 비용 ≈ 1% 차감 후 ≈ 9%
+  it('gross +10% → net ≈ +9.1% (KOSPI, slippage 포함)', () => {
+    // (exit - entry)/entry = 10% → 왕복 비용 ≈ 0.9% 차감 후 ≈ 9.1%
     const r = computeNetPnL({ entryPrice: 10_000, exitPrice: 11_000, quantity: 100, market: 'KOSPI' });
-    expect(r.netPct).toBeGreaterThan(8.8);
-    expect(r.netPct).toBeLessThan(9.1);
+    expect(r.netPct).toBeGreaterThan(9.0);
+    expect(r.netPct).toBeLessThan(9.2);
   });
 
-  it('KOSDAQ 는 KOSPI 대비 같은 조건에서 net 이 더 높음 (세금 낮음)', () => {
+  it('2026년 KOSPI 거래세+농특세 합계는 KOSDAQ 거래세와 같음', () => {
     const kospi = computeNetPnL({ entryPrice: 10_000, exitPrice: 11_000, quantity: 100, market: 'KOSPI' });
     const kosdaq = computeNetPnL({ entryPrice: 10_000, exitPrice: 11_000, quantity: 100, market: 'KOSDAQ' });
-    expect(kosdaq.net).toBeGreaterThan(kospi.net);
+    expect(kospi.transferTax + kospi.ruralTax).toBeCloseTo(kosdaq.transferTax, 6);
+    expect(kosdaq.net).toBeCloseTo(kospi.net, 6);
     expect(kosdaq.ruralTax).toBe(0);
   });
 
@@ -101,8 +102,7 @@ describe('override / inferMarket / applyRoundTripCostToPct', () => {
   it('applyRoundTripCostToPct — gross 수익률에서 왕복 비용을 즉시 차감', () => {
     const kospi = applyRoundTripCostToPct(10, 'KOSPI', true);
     const kosdaq = applyRoundTripCostToPct(10, 'KOSDAQ', true);
-    expect(kospi).toBeCloseTo(10 - 0.96, 2);
+    expect(kospi).toBeCloseTo(10 - 0.83, 2);
     expect(kosdaq).toBeCloseTo(10 - 0.83, 2);
-    expect(kosdaq).toBeGreaterThan(kospi);
   });
 });

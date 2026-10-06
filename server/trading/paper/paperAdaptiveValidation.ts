@@ -101,6 +101,11 @@ const discovery = z.object({ version: z.literal('indicator-discovery-v1'), round
   && new Set(value.programAttemptedIds ?? []).size === (value.programAttemptedIds?.length ?? 0)
   && new Set(value.inventions.map(item => item.id)).size === value.inventions.length
   && (!value.roundTrainingEndDate || value.roundTrainingEndDate < toKstDateKey(new Date(value.roundStartedAt))));
+const chance = finite.positive().max(100);
+const placebo = z.object({ version: z.literal('symbol-permutation-v1'), permutations: count.positive(), passedCount: count,
+  shuffledMeanPassedCount: finite.nonnegative(), shuffledHighPassedCount: count, chancePct: chance,
+  rules: z.array(z.object({ feature: adaptiveFeature, bucket: count, horizon, chancePct: chance })) })
+  .refine(value => value.rules.length === value.passedCount);
 const horizonSamples = z.array(z.object({ horizon, matureSampleCount: count, matureDateCount: count,
   trainingSampleCount: count, trainingDateCount: count, validationSampleCount: count, validationDateCount: count,
 }).refine(value => [
@@ -116,6 +121,7 @@ export const adaptiveStateSchema = z.object({ policy, tradingDate: date, evaluat
   candidates: z.array(candidate).min(PAPER_LEGACY_FEATURE_KEYS.length).max(Object.keys(PAPER_FEATURES).length + PAPER_MAX_INVENTIONS),
   discovery: discovery.optional(),
   exploration: exploration.optional(),
+  placebo: placebo.optional(),
   changes: z.array(z.object({ at: timestamp, feature: adaptiveFeature, from: rule.nullable(), to: rule.nullable(), reason })).max(100),
 }).refine((value: PaperAdaptiveState) => {
   const baseFeatures = value.candidates.filter(item => !item.rule.invention).map(item => item.rule.feature);

@@ -57,7 +57,7 @@ describe('paper runner', () => {
       const runner = await import('./paperExperimentRunner.js');
       vi.setSystemTime('2026-10-05T10:00:00+09:00');
       expect(runner.getPaperExperimentView().scanIntervalSeconds).toBeNull();
-      vi.setSystemTime('2026-10-06T10:00:00+09:00');
+      vi.setSystemTime('2026-10-06T12:00:00+09:00');
       expect(runner.getPaperExperimentView().scanIntervalSeconds).toBe(600);
       expect(state.collect).not.toHaveBeenCalled();
     } finally { vi.useRealTimers(); }

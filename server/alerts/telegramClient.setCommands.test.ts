@@ -141,6 +141,6 @@ describe('setTelegramBotCommands autocomplete payload', () => {
     vi.spyOn(state, 'getTradingMode').mockReturnValue('SHADOW');
     await setTelegramBotCommands();
     const shadowBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body ?? '{}')) as { commands: Array<{ command: string }> };
-    expect(shadowBody.commands.map(cmd => cmd.command)).toEqual(['help', 'paper', 'paper_research', 'paper_bot', 'control']);
+    expect(shadowBody.commands.map(cmd => cmd.command)).toEqual(['help', 'paper', 'paper_research', 'paper_recommend', 'paper_bot', 'control']);
   }, 20000);
 });

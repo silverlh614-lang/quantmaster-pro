@@ -11,15 +11,15 @@
  * 한국 증시 비용 구조 (2026 기준, 대표 증권사):
  *   매수 위탁수수료: 0.015%
  *   매도 위탁수수료: 0.015%
- *   증권거래세:      KOSPI 0.18% / KOSDAQ 0.20% (매도 시에만)
+ *   증권거래세:      KOSPI 0.05% / KOSDAQ 0.20% (매도 시에만)
  *   농어촌특별세:    KOSPI 0.15% / KOSDAQ 0.00% (매도 시에만)
  *   슬리피지:        양방향 각 0.30% (기존 signalScanner 하드코딩과 정합 유지)
  *
  * 왕복 순수 비용 (세금+수수료만):
- *   KOSPI  ≈ 0.015 + 0.015 + 0.18 + 0.15 = 0.36%
+ *   KOSPI  ≈ 0.015 + 0.015 + 0.05 + 0.15 = 0.23%
  *   KOSDAQ ≈ 0.015 + 0.015 + 0.20        = 0.23%
  * 왕복 비용 (슬리피지 0.30% × 2 포함):
- *   KOSPI  ≈ 0.96%
+ *   KOSPI  ≈ 0.83%
  *   KOSDAQ ≈ 0.83%
  *
  * 모든 P&L 집계 지점(shadowRealDriftDetector, recommendationTracker,
@@ -44,7 +44,7 @@ export interface ExecutionCostConfig {
 const DEFAULT_COST: ExecutionCostConfig = {
   buyCommissionRate:  0.00015,
   sellCommissionRate: 0.00015,
-  transferTaxRate:    { KOSPI: 0.0018, KOSDAQ: 0.0020 },
+  transferTaxRate:    { KOSPI: 0.0005, KOSDAQ: 0.0020 },
   ruralTaxRate:       { KOSPI: 0.0015, KOSDAQ: 0 },
   slippageRate:       0.003,
 };
@@ -76,7 +76,7 @@ export interface ComputeNetPnLInput {
   entryPrice: number;
   exitPrice:  number;
   quantity:   number;
-  /** 기본 'KOSPI' — KOSPI 가 총비용이 더 높아 보수적. 가능하면 명시적으로 전달. */
+  /** 기본 'KOSPI' — 2026년 두 시장의 매도 세금 합계는 같다. 가능하면 명시적으로 전달. */
   market?:    Market;
   /** 슬리피지 반영 여부 (이미 slippage-adjusted price 라면 false). 기본 true. */
   includeSlippage?: boolean;
@@ -104,7 +104,7 @@ export interface NetPnLBreakdown {
  *
  * @example
  *   const r = computeNetPnL({ entryPrice: 50000, exitPrice: 51000, quantity: 10, market: 'KOSPI' });
- *   r.netPct  // ≈ +1.04% (gross +2% − 왕복비용 ~0.96%)
+ *   r.netPct  // ≈ +1.16% (gross +2% − 왕복비용 ~0.84%)
  */
 export function computeNetPnL(input: ComputeNetPnLInput): NetPnLBreakdown {
   const cfg = getExecutionCostConfig();

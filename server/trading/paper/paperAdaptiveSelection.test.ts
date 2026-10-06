@@ -6,7 +6,7 @@ import type { PaperStrategyLedger } from '../../../src/types/paperStrategy.js';
 import { PAPER_FEATURES, PAPER_LEGACY_FEATURE_KEYS, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
 import { isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
-import { adaptiveFeatureValue, adaptiveRuleMatches, selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
+import { adaptiveFeatureValue, adaptiveRuleMatches, PAPER_PLACEBO_PERMUTATIONS, paperPlaceboDonors, selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { adaptiveTestSnapshot, matureAdaptiveSamples } from './paperAdaptiveFixtures.js';
 import { evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
@@ -344,5 +344,44 @@ describe('autonomous Shadow lifecycle and persistence', () => {
   it.each(tampering)('rejects persisted %s', (_, mutate) => {
     const ledger = restore(enter()); mutate(ledger);
     expect(() => assertPaperStrategyLedger(ledger)).toThrow('PAPER_STRATEGY_INVALID');
+  });
+});
+
+describe('stock-shuffled chance check', () => {
+  it('repeats validation on shuffled returns once per evaluation day without changing the choice', () => {
+    const samples = matureAdaptiveSamples(), state = select(samples);
+    expect(rsi(state)).toMatchObject({ active: true, reason: 'ACTIVE' });
+    expect(state.placebo).toMatchObject({ version: 'symbol-permutation-v1', permutations: PAPER_PLACEBO_PERMUTATIONS, passedCount: 1 });
+    expect(state.placebo!.rules).toEqual([{ feature: 'rsi14', bucket: 0, horizon: 3, chancePct: expect.any(Number) }]);
+    // A cyclic pairing always hands at least one strong-range stock a control return, so no shuffle can match the real edge.
+    expect(state.placebo!.rules[0].chancePct).toBeLessThanOrEqual(10);
+    expect(select(samples)).toEqual(state);
+    expect(adaptiveStateSchema.safeParse(restore(state)).success).toBe(true);
+    const sameDay = selectPaperAdaptiveState(restore(state), matureAdaptiveSamples({ selectedReturns: [-1, -9, -10] }), '2026-09-18T05:00:00Z');
+    expect(sameDay.placebo).toEqual(state.placebo);
+  });
+
+  it('reports chance level when nothing passes and waits for a validation period', () => {
+    expect(select(matureAdaptiveSamples({ selectedReturns: [0, 0, 0] })).placebo).toMatchObject({
+      passedCount: 0, shuffledMeanPassedCount: 0, shuffledHighPassedCount: 0, chancePct: 100, rules: [] });
+    expect(selectPaperAdaptiveState(undefined, [], asOf).placebo).toBeUndefined();
+  });
+
+  it('pairs every row with a same-date, same-market donor when the universe changes by date', () => {
+    const row = (tradingDate: string, symbol: string, market: 'KOSPI' | 'KOSDAQ' = 'KOSPI') =>
+      ({ experiment: { tradingDate, symbol, entryObservation: { market } } }) as Parameters<typeof paperPlaceboDonors>[0][number];
+    const rows = [row('2026-09-01', 'A'), row('2026-09-01', 'B'), row('2026-09-01', 'C'), row('2026-09-01', 'K', 'KOSDAQ'),
+      row('2026-09-02', 'A'), row('2026-09-02', 'B'), row('2026-09-02', 'D'), row('2026-09-02', 'E')];
+    const donors = paperPlaceboDonors(rows, new Map([['A', 0], ['B', 1], ['C', 2], ['D', 3], ['E', 4], ['K', 5]]));
+    const pair = (index: number) => `${rows[index].experiment.symbol}<-${donors[index].experiment.symbol}`;
+    expect(rows.map((_, index) => pair(index))).toEqual(['A<-B', 'B<-C', 'C<-A', 'K<-K', 'A<-B', 'B<-D', 'D<-E', 'E<-A']);
+    expect(donors.every((donor, index) => donor.experiment.tradingDate === rows[index].experiment.tradingDate
+      && donor.experiment.entryObservation.market === rows[index].experiment.entryObservation.market)).toBe(true);
+  });
+
+  it('rejects a persisted chance check whose rules disagree with its count', () => {
+    const state = restore(select());
+    state.placebo!.passedCount = 2;
+    expect(adaptiveStateSchema.safeParse(state).success).toBe(false);
   });
 });

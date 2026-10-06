@@ -58,6 +58,16 @@ export interface PaperAdaptiveHorizonSamples {
   trainingSampleCount: number; trainingDateCount: number;
   validationSampleCount: number; validationDateCount: number;
 }
+/** The same validation repeated after pairing each stock's features with another stock's returns; display only. */
+export interface PaperAdaptivePlacebo {
+  version: 'symbol-permutation-v1'; permutations: number;
+  /** Candidates that passed validation, whether connected or ranked out. */
+  passedCount: number; shuffledMeanPassedCount: number; shuffledHighPassedCount: number;
+  /** Share of runs, the real one included, passing at least as many candidates. */
+  chancePct: number;
+  /** Per passed rule: share of runs whose best chance pass reached the same daily excess. */
+  rules: Array<{ feature: PaperAdaptiveFeatureKey; bucket: number; horizon: 1 | 3 | 5; chancePct: number }>;
+}
 export interface PaperAdaptiveState {
   /** Read-only generator status, projected by the view layer rather than used in decisions. */
   programResearch?: PaperProgramResearchView;
@@ -68,6 +78,7 @@ export interface PaperAdaptiveState {
   candidates: PaperAdaptiveCandidate[];
   discovery?: PaperIndicatorDiscovery;
   exploration?: { version: 'shadow-exploration-v1'; sequence: number; rules: PaperExplorationTrial[]; autonomy?: PaperAutonomyState };
+  placebo?: PaperAdaptivePlacebo;
   changes: Array<{ at: string; feature: PaperAdaptiveFeatureKey; from: PaperAdaptiveRule | null;
     to: PaperAdaptiveRule | null; reason: PaperAdaptiveReason }>;
 }
@@ -78,6 +89,11 @@ export const PAPER_ADAPTIVE_REASON_LABELS: Record<PaperAdaptiveReason, string> =
   FORWARD_OBSERVATION: '발명 이후 성과 관측 중',
   DISCOVERY_RETIRED: '발명 지표 연구 종료',
 };
+/** Stored chance share of a passed rule, matched by feature, range and holding period. */
+export function paperPlaceboChance(state: Pick<PaperAdaptiveState, 'placebo'>, rule: PaperAdaptiveRule): number | null {
+  return state.placebo?.rules.find(item => item.feature === rule.feature && item.bucket === rule.bucket
+    && item.horizon === rule.horizon)?.chancePct ?? null;
+}
 export function paperAdaptiveFeatureLabel(rule: PaperAdaptiveRule): string {
   if (rule.invention?.formula.version === 'feature-program-v1') return `AI 발명 · ${rule.invention.formula.title}`;
   return rule.invention ? `발명 · ${paperIndicatorFormulaLabel(rule.invention.formula)}`

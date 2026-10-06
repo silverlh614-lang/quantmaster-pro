@@ -1,7 +1,7 @@
 // @responsibility Display empirical Shadow strategy decisions.
 import React, { useMemo, useState } from 'react';
 import type {
-  PaperStrategyCohort, PaperStrategyDecision, PaperStrategyEvidence,
+  PaperStrategyCohort, PaperStrategyDecision, PaperStrategyEdge, PaperStrategyEvidence,
   PaperStrategyPolicy, PaperStrategySelection, PaperStrategyTrade, PaperStrategyView,
 } from '../../types/paperStrategy';
 import { Section } from '../../ui/section';
@@ -33,8 +33,18 @@ function percent(value: number | null): string {
     ? `${value > 0 ? '+' : ''}${value.toFixed(2)}%` : '집계 대기';
 }
 
+function edgeText(edge: PaperStrategyEdge): string {
+  return edge.edgePct === null ? '비교 대기' : `${edge.edgePct > 0 ? '+' : ''}${edge.edgePct.toFixed(2)}%p`;
+}
+
 function SelectionSummary({ selection }: { selection: PaperStrategySelection }) {
-  const c = selection.comparison;
+  const c = selection.comparison, adaptive = selection.adaptive;
+  const adaptiveRows: Array<[string, PaperStrategyEdge, string]> = adaptive ? [
+    ['종목 선택', adaptive.entry, '산 종목 − 같은 날 안 산 종목'],
+    ['검증 통과 진입', adaptive.validatedEntry, '같은 비교 · 검증 규칙'],
+    ['탐색 진입', adaptive.explorationEntry, '같은 비교 · 검증 전 규칙'],
+    ['매도', adaptive.exit, '실제 청산 − 같은 거래 D5 보유'],
+  ] : [];
   return (
     <div>
       <h4 className="mb-3 text-sm font-semibold text-slate-200">전략 선별력 · 같은 날 후보 대비</h4>
@@ -56,7 +66,21 @@ function SelectionSummary({ selection }: { selection: PaperStrategySelection }) 
           <li key={item.cohort}>{cohortLabels[item.cohort]} · {item.boughtCount}/{item.candidateCount} 진입</li>
         ))}
       </ul>
-      <p className="mt-3 text-xs text-slate-400">진입률은 전체 전략을 집계합니다. 수익률 비교는 기존 예약 청산 거래만 같은 진입일·같은 보유기간으로 맞추며 관측 매도는 별도 매도 학습에서 비교합니다. 기존 보유 {selection.heldCount}건은 그날 판단에서 빠진 종목입니다. 연구 표시이며 매수 조건에 쓰지 않습니다.</p>
+      {adaptive && <div className="mt-4" role="group" aria-label="관측 매도 거래 · D5 종가 기준">
+        <h5 className="mb-2 text-xs font-semibold text-slate-200">관측 매도 거래 · D5 종가 기준</h5>
+        <dl className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          {adaptiveRows.map(([label, edge, note]) => (
+            <div key={label} className="rounded-xl border border-slate-700/60 bg-slate-900/50 p-3">
+              <dt className="text-xs text-slate-400">{label}</dt><dd className="mt-2 text-xl font-semibold tabular-nums text-sky-200">{edgeText(edge)}</dd>
+              <p className="mt-1 text-xs text-slate-500">{edge.dateCount}일 · {edge.tradeCount}건 · {note}</p>
+            </div>
+          ))}
+        </dl>
+        {adaptive.months.length > 0 && <ul className="mt-2 space-y-1 text-xs text-slate-400">
+          {adaptive.months.map(item => <li key={item.month}>{item.month} · 선택 {edgeText(item.entry)} · 매도 {edgeText(item.exit)}</li>)}
+        </ul>}
+      </div>}
+      <p className="mt-3 text-xs text-slate-400">진입률은 전체 전략을 집계합니다. 예약 청산 거래는 같은 진입일·같은 보유기간으로, 관측 매도 거래는 D5 종가로 비교합니다. 기존 보유 {selection.heldCount}건은 그날 판단에서 빠진 종목입니다. 연구 표시이며 매수 조건에 쓰지 않습니다.</p>
     </div>
   );
 }

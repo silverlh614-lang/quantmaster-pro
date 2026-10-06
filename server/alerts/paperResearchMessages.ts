@@ -1,7 +1,8 @@
 // @responsibility Format dated Shadow research reports for Telegram.
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperStrategyDecision, PaperStrategyPerformance } from '../../src/types/paperStrategy.js';
-import { PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel, type PaperAdaptiveRule, type PaperAdaptiveState } from '../../src/types/paperAdaptive.js';
+import { PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel, paperPlaceboChance, type PaperAdaptiveRule,
+  type PaperAdaptiveState } from '../../src/types/paperAdaptive.js';
 import { PAPER_FEATURES } from '../../src/types/paperObservationFeatures.js';
 import { paperIndicatorFormulaOperands } from '../../src/types/paperIndicatorFormula.js';
 import { explainPaperIndicator, inventedRuleRange } from '../../src/utils/paperIndicatorExplanation.js';
@@ -68,9 +69,13 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
     const active = state.candidates.filter(item => item.active), discovery = state.discovery;
     lines.push(`최근 평가 ${stamp(state.evaluatedAt)} KST`, '',
       `✅ <b>검증 지표 자동 연결 ${active.length}개/최대 3개</b>`,
-      ...(discovery ? [`이 중 발명 지표 ${active.filter(item => item.rule.invention).length}개`] : []));
-    for (const item of active.slice(0, detail === 'full' ? 3 : 0)) lines.push('', ...ruleLines(item.rule),
-      `${item.rule.invention ? '생성 후 검증' : '후반 검증'} ${num(item.validation.sampleCount)}건/${num(item.validation.dateCount)}일 · 일당 차이 ${pct(item.validation.meanDailyExcessPct, '%p')}`);
+      ...(discovery ? [`이 중 발명 지표 ${active.filter(item => item.rule.invention).length}개`] : []),
+      ...(state.placebo ? [`🎲 무작위 대조 ${num(state.placebo.permutations)}회 · 검증 통과 실제 ${num(state.placebo.passedCount)}개, 무작위 평균 ${state.placebo.shuffledMeanPassedCount.toFixed(1)}개 · 우연히 이만큼 나올 확률 ${state.placebo.chancePct.toFixed(0)}%`] : []));
+    for (const item of active.slice(0, detail === 'full' ? 3 : 0)) {
+      const chance = paperPlaceboChance(state, item.rule);
+      lines.push('', ...ruleLines(item.rule),
+        `${item.rule.invention ? '생성 후 검증' : '후반 검증'} ${num(item.validation.sampleCount)}건/${num(item.validation.dateCount)}일 · 일당 차이 ${pct(item.validation.meanDailyExcessPct, '%p')}${chance === null ? '' : ` · 무작위로 이 이상 ${chance.toFixed(0)}%`}`);
+    }
     const exploration = state.exploration?.rules;
     lines.push('', '🧪 <b>탐색 가상매수 · 검증 전</b>', !exploration ? '등록 확인 대기'
       : exploration.some(trial => !known(trial.registeredAt, cutoff)) ? '탐색 등록 시각 확인 필요'
@@ -100,6 +105,7 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
     }
     lines.push(`${state.policy.maturityModel === 'per-horizon-v1' ? '한 보유기간 이상 확정 표본' : '성숙 관측'} ${num(state.matureSampleCount)}건/${num(state.matureDateCount)}진입일`);
     if (detail === 'full') lines.push('D1·D3·D5는 성과 비교 시점이며 매도 예약일이 아닙니다.',
+      ...(state.placebo ? ['무작위 대조는 종목끼리 수익 기록을 바꿔 같은 검증을 반복합니다. 확률이 낮을수록 우연이 아닐 가능성이 큽니다.'] : []),
       '발명 지표의 조합값은 재료를 기준값으로 환산한 값입니다. 수식·해설은 대시보드에서 확인하세요.');
     const reasons = new Map<string, number>();
     for (const item of state.candidates.filter(item => !item.active)) reasons.set(item.reason, (reasons.get(item.reason) ?? 0) + 1);

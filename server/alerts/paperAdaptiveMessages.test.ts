@@ -47,15 +47,25 @@ describe('adaptive trade analysis', () => {
     const observed = measuredExitTrade();
     observed.policy.exitModel = 'ADAPTIVE_OBSERVED'; observed.exit!.model = 'ADAPTIVE_OBSERVED';
     observed.exit!.effectiveAt = '2026-09-23T01:00:00Z';
+    observed.exit!.decision.reasonCode = 'ADAPTIVE_STOP_LOSS';
     observed.exit!.decision.reason = '비용 차감 손실 제한 · 관측 가상 청산';
     const message = formatPaperTrades([{ id: 'exit', side: 'EXIT', at: observed.exit!.decisionAt, trade: observed }]);
-    expect(message).toContain('매수 0건 · 매도 1건');
-    expect(message).toContain('매수 10,000원 → 매도 10,000원');
-    expect(message).toContain('순수익률 <b>0.00%</b>');
-    expect(message).toContain('관측 매도 09. 23. 10:00');
-    expect(message).toContain('비용 차감 손실 제한');
-    expect(message).not.toContain('예약 종가 청산');
+    expect(message.startsWith('<b>① 매매 · 매수 0건 · 매도 1건</b>\nShadow 가상 매매 · 실제 주문 없음\n\n')).toBe(true);
+    expect(message).toContain(['🔴 <b>매도 · &lt;삼성&amp;&gt; (005930)</b>', '순수익률 <b>0.00%</b>', '매수 10,000원 → 매도 10,000원',
+      '사유: 손실 제한', '매수 09. 21. 10:00 → 매도 09. 23. 10:00', '✅ 진입: 검증 통과 규칙'].join('\n'));
+    expect(message.endsWith('\n\n근거·복기: ② 판단 채널 · 전체 내역 /paper')).toBe(true);
+    expect(message).not.toContain('관측 가상 청산');
     expect(message).not.toContain('평가일 2026-09-28');
+    expect(validateTelegramHtml(message).valid).toBe(true);
+  });
+
+  it('marks a validated buy and keeps the scheduled date for an old scheduled close', () => {
+    const buy = formatPaperTrades([{ id: 'buy', side: 'BUY', at: entryAt, trade }]);
+    expect(buy).toContain('<b>① 매매 · 매수 1건 · 매도 0건</b>');
+    expect(buy).toContain('매수 판단 09. 21. 10:00\n예약 매도 2026-09-28\n✅ 검증 통과 가상매수');
+    const closed = measuredExitTrade();
+    const exit = formatPaperTrades([{ id: 'exit', side: 'EXIT', at: closed.exit!.decisionAt, trade: closed }]);
+    expect(exit).toContain('사유: 예약 매도 · 평가일 2026-09-28\n매수 09. 21. 10:00 → 매도 09. 28. 15:30');
   });
 
   it('adds sampled path and giveback only to close analysis while preserving zero results and partial-history disclosure', () => {
@@ -112,7 +122,8 @@ describe('adaptive trade analysis', () => {
     const events = [{ id: side, at: entryAt, trade: frozenTrade, side }];
     const analysis = formatPaperTradeAnalysis(events), signal = formatPaperTrades(events);
     expect(analysis).toContain('탐색 가상매수 · 검증 전');
-    expect(signal).toContain('탐색 가상매수 · 검증 전');
+    expect(signal).toContain(side === 'BUY' ? '🧪 탐색 가상매수 · 검증 전' : '🧪 진입: 탐색 규칙 · 검증 전');
+    expect(signal).not.toContain('검증 통과');
     expect(analysis).toContain('탐색 지표: RSI 14');
     expect(analysis).toContain('후반 시작 누적 대기');
     expect(analysis).toContain('<b>후반 확인 0건/0진입일</b>\n평균 순수익률 집계 대기');

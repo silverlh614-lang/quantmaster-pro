@@ -112,15 +112,15 @@ describe('strategy integration in the default Shadow runner', () => {
   it('coalesces minute scheduler ticks until the ten-minute market scan interval is due', async () => {
     vi.useFakeTimers();
     try {
-      vi.setSystemTime('2026-09-18T10:00:00+09:00');
+      vi.setSystemTime('2026-09-18T12:00:00+09:00');
       const runner = await import('./paperExperimentRunner.js');
       await runner.runPaperExperimentScan({ scheduled: true });
-      vi.setSystemTime('2026-09-18T10:01:00+09:00');
+      vi.setSystemTime('2026-09-18T12:01:00+09:00');
       await runner.runPaperExperimentScan({ scheduled: true });
-      vi.setSystemTime('2026-09-18T10:09:59+09:00');
+      vi.setSystemTime('2026-09-18T12:09:59+09:00');
       await runner.runPaperExperimentScan({ scheduled: true });
       expect(state.collect).toHaveBeenCalledTimes(1);
-      vi.setSystemTime('2026-09-18T10:10:00+09:00');
+      vi.setSystemTime('2026-09-18T12:10:00+09:00');
       await runner.runPaperExperimentScan({ scheduled: true });
       expect(state.collect).toHaveBeenCalledTimes(2);
     } finally { vi.useRealTimers(); }

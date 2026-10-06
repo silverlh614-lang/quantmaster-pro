@@ -34,6 +34,22 @@ function discovery(inventions: PaperIndicatorInvention[]): NonNullable<PaperAdap
 afterEach(cleanup);
 
 describe('PaperAdaptivePanel', () => {
+  it('shows the stock-shuffled chance check overall and for each connected rule', () => {
+    render(<PaperAdaptivePanel state={{ ...state, placebo: { version: 'symbol-permutation-v1', permutations: 20, passedCount: 1,
+      shuffledMeanPassedCount: 2.4, shuffledHighPassedCount: 5, chancePct: 81,
+      rules: [{ feature: 'rsi14', bucket: 1, horizon: 3, chancePct: 38.1 }] } }} />);
+    const group = within(screen.getByRole('group', { name: '무작위 대조' }));
+    expect(group.getByText('무작위 대조 20회 · 검증 통과 실제 1개 / 무작위 평균 2.4개(상위 5% 5개) · 우연히 이만큼 나올 확률 81%')).toBeTruthy();
+    expect(group.getByText(/확률이 낮을수록 우연이 아닐 가능성이 큽니다. 매수 판단에는 쓰지 않습니다/)).toBeTruthy();
+    expect(screen.getByText(/무작위로 이 이상 38%/)).toBeTruthy();
+  });
+
+  it('omits the chance check for states saved before it existed', () => {
+    render(<PaperAdaptivePanel state={state} />);
+    expect(screen.queryByRole('group', { name: '무작위 대조' })).toBeNull();
+    expect(screen.queryByText(/무작위로 이 이상/)).toBeNull();
+  });
+
   it('distinguishes missing inputs from failed validation and shows all candidate samples', () => {
     render(<PaperAdaptivePanel state={{ ...state, candidates: [candidate,
       { ...candidate, rule: { ...candidate.rule, feature: 'per' }, active: false, reason: 'MISSING_INPUT',

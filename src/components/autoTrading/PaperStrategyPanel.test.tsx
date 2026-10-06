@@ -166,12 +166,21 @@ describe('PaperStrategyPanel', () => {
       cohorts: [{ cohort: 'NEWS_RECENT_ABOVE_MA20', candidateCount: 30, boughtCount: 6 }],
       comparison: { groupCount: 3, strategyTradeCount: 6, unselectedCount: 22,
         strategyMeanPct: 1.5, unselectedMeanPct: 0.25, baselineMeanPct: 0.5, differencePct: 1.25 },
+      adaptive: { entry: { dateCount: 4, tradeCount: 7, edgePct: 0.42 }, validatedEntry: { dateCount: 3, tradeCount: 5, edgePct: 0.61 },
+        explorationEntry: { dateCount: 2, tradeCount: 2, edgePct: null }, exit: { dateCount: 2, tradeCount: 3, edgePct: -0.35 },
+        months: [{ month: '2026-09', entry: { dateCount: 4, tradeCount: 7, edgePct: 0.42 }, exit: { dateCount: 2, tradeCount: 3, edgePct: -0.35 } }] },
     } })} />);
     expect(screen.getByText('지표 자율 판단 전략')).toBeTruthy();
     expect(screen.getByText('전략 선별력 · 같은 날 후보 대비')).toBeTruthy();
     expect(screen.getByText('후보 30건 중 6건 · 3일')).toBeTruthy();
     expect(screen.getByText('+1.25%p')).toBeTruthy();
     expect(screen.getByText(/기존 보유 2건.*연구 표시이며 매수 조건에 쓰지 않습니다/)).toBeTruthy();
+    const observed = within(screen.getByRole('group', { name: '관측 매도 거래 · D5 종가 기준' }));
+    expect(observed.getByText('+0.42%p')).toBeTruthy();
+    expect(observed.getByText('4일 · 7건 · 산 종목 − 같은 날 안 산 종목')).toBeTruthy();
+    expect(observed.getByText('비교 대기')).toBeTruthy();
+    expect(observed.getByText('-0.35%p')).toBeTruthy();
+    expect(observed.getByText('2026-09 · 선택 +0.42%p · 매도 -0.35%p')).toBeTruthy();
   });
   it('shows adverse news and its reason even while an entry waits', () => {
     const decision: PaperStrategyDecision = { ...buy, action: 'WAIT', evidence: null,

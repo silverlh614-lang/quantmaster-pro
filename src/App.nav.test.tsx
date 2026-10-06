@@ -16,24 +16,29 @@ beforeEach(() => {
   vi.mocked(apiFetch).mockImplementation(async (url, options) => {
     if (url.endsWith('/engine/status')) return { mode: 'SHADOW' };
     if (url.endsWith('/engine/guards')) return { autoTradingPaused: false };
+    if (url.endsWith('/morning-recommendation')) return { report: null, results: [], asOf: '2026-09-18T07:00:00.000Z' };
     if (options?.query?.section === 'strategy' || options?.query?.section === 'research') return null;
     return baseline;
   });
 });
 afterEach(() => { cleanup(); client.clear(); vi.clearAllMocks(); });
 describe('App workspace', () => {
-  it('starts with only three read requests and loads detailed data on navigation', async () => {
+  it('starts with only four read requests and loads detailed data on navigation', async () => {
     render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
     await screen.findByText('첫 관측을 기다리고 있습니다');
-    expect(apiFetch).toHaveBeenCalledTimes(3);
+    expect(apiFetch).toHaveBeenCalledTimes(4);
     expect(apiFetch).toHaveBeenCalledWith('/api/shadow/experiments', { query: { section: 'overview' } });
+    // The home page also follows up today's 08:30 recommendation.
+    expect(apiFetch).toHaveBeenCalledWith('/api/shadow/morning-recommendation', { query: { date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) } });
     expect(screen.queryByText('마켓 게이트')).toBeNull();
     expect(screen.queryByText('후보 발굴')).toBeNull();
     const cases = [['기본 관측', 'PAPER_OBSERVATIONS'], ['전략 판단', 'PAPER_STRATEGY'], ['저장 자료 연구', 'PAPER_RESEARCH'], ['운영 설정', 'OPERATIONS'], ['운영 현황', 'DASHBOARD']] as const;
     for (const [label, view] of cases) {
       fireEvent.click(screen.getByLabelText(label));
       expect(useSettingsStore.getState().view).toBe(view);
-      await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(label));
+      // The home view keeps its menu label but titles the page as the research dashboard.
+      const heading = view === 'DASHBOARD' ? '자율 연구 대시보드' : label;
+      await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(heading));
     }
     expect(apiFetch).toHaveBeenCalledWith('/api/shadow/experiments', { query: { section: 'research' } });
     expect(vi.mocked(apiFetch).mock.calls.every(([, options]) => !options?.method || options.method === 'GET')).toBe(true);
@@ -43,7 +48,8 @@ describe('App workspace', () => {
     render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
     await waitFor(() => expect(useSettingsStore.getState().view).toBe('DASHBOARD'));
     expect(screen.queryByText('공개 리포트')).toBeNull();
-    expect(vi.mocked(apiFetch).mock.calls.every(([url]) => ['/api/auto-trade/engine/status', '/api/auto-trade/engine/guards', '/api/shadow/experiments'].includes(url))).toBe(true);
+    expect(vi.mocked(apiFetch).mock.calls.every(([url]) => ['/api/auto-trade/engine/status', '/api/auto-trade/engine/guards', '/api/shadow/experiments',
+      '/api/shadow/morning-recommendation'].includes(url))).toBe(true);
   });
   it('keeps the scan unavailable until the server mode is known', async () => {
     vi.mocked(apiFetch).mockImplementation(async url => {
@@ -53,7 +59,7 @@ describe('App workspace', () => {
     });
     render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
     await screen.findByText('운영 상태 확인 중');
-    const scan = screen.getByRole('button', { name: '지금 스캔' }) as HTMLButtonElement;
+    const scan = screen.getByRole('button', { name: '지금 관측' }) as HTMLButtonElement;
     expect(scan.disabled).toBe(true);
     fireEvent.click(scan);
     expect(vi.mocked(apiFetch).mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);

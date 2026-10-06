@@ -1,8 +1,8 @@
 // @responsibility Reassess independent Shadow feature rules using dated baseline evidence.
 import type { PaperExperiment, PaperObservation } from '../../../src/types/paperExperiment.js';
 import { PAPER_FEATURES, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
-import type { PaperAdaptiveCandidate, PaperAdaptiveFeatureKey, PaperAdaptivePolicy, PaperAdaptiveRule, PaperAdaptiveState,
-  PaperAdaptiveStats, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
+import type { PaperAdaptiveCandidate, PaperAdaptiveFeatureKey, PaperAdaptivePlacebo, PaperAdaptivePolicy, PaperAdaptiveRule,
+  PaperAdaptiveState, PaperAdaptiveStats, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
 import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaId, paperIndicatorFormulaValue, paperIndicatorFormulaOperands,
   type PaperIndicatorFormula } from '../../../src/types/paperIndicatorFormula.js';
 import { toKstDateKey, isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
@@ -19,6 +19,7 @@ export const PAPER_ADAPTIVE_POLICY: Readonly<PaperAdaptivePolicy> = Object.freez
   minimumSamples: 10, minimumEntryDates: 3, activationMarginDailyPct: 0.05,
   replacementMarginDailyPct: 0.05, maxActiveRules: 3,
 });
+export const PAPER_PLACEBO_PERMUTATIONS = 20;
 const keys = Object.keys(PAPER_FEATURES) as PaperFeatureKey[];
 const horizons = [1, 3, 5] as const;
 interface Row { experiment: PaperExperiment; returns: Array<number | undefined>; availableAt: Array<number | undefined>;
@@ -128,8 +129,9 @@ const score = (value: PaperAdaptiveCandidate) => value.training.meanDailyExcessP
 const rank = (a: PaperAdaptiveCandidate, b: PaperAdaptiveCandidate) => score(b) - score(a)
   || a.rule.horizon - b.rule.horizon || adaptiveRuleId(a.rule).localeCompare(adaptiveRuleId(b.rule));
 
-function candidate(rule: PaperAdaptiveRule, train: Row[], test: Row[], previous: PaperAdaptiveState | undefined): PaperAdaptiveCandidate {
-  const training = rule.invention ? structuredClone(rule.invention.training) : stats(train, rule), validation = stats(test, rule);
+function candidate(rule: PaperAdaptiveRule, train: Row[], test: Row[], previous: PaperAdaptiveState | undefined,
+  training = rule.invention ? structuredClone(rule.invention.training) : stats(train, rule)): PaperAdaptiveCandidate {
+  const validation = stats(test, rule);
   const retained = previous?.candidates.some(item => item.active && adaptiveRuleId(item.rule) === adaptiveRuleId(rule));
   const hasTrainingOutcomes = train.some(row => row.returns[horizons.indexOf(rule.horizon)] !== undefined);
   const rejectedValidation = !sufficient(training) && sufficient(validation)
@@ -190,6 +192,67 @@ function chooseFeature(feature: PaperFeatureKey, train: Row[], test: Row[], prev
   return chosen;
 }
 
+/**
+ * Each row takes the returns of the next stock, in one random stock order, among rows of the same date and market.
+ * No row is dropped when the universe changes by date; a stock present every day keeps one partner, so whole
+ * return series still move together. Only a stock alone in its date and market keeps its own returns.
+ */
+export function paperPlaceboDonors<T extends { experiment: Pick<PaperExperiment, 'symbol' | 'tradingDate' | 'entryObservation'> }>(
+  rows: readonly T[], rank: ReadonlyMap<string, number>): T[] {
+  const groups = new Map<string, T[]>(), donors = new Map<T, T>();
+  for (const row of rows) {
+    const key = `${row.experiment.tradingDate}:${row.experiment.entryObservation.market ?? 'UNKNOWN'}`;
+    const group = groups.get(key);
+    if (group) group.push(row); else groups.set(key, [row]);
+  }
+  for (const group of groups.values()) {
+    const ordered = group.sort((a, b) => (rank.get(a.experiment.symbol) ?? 0) - (rank.get(b.experiment.symbol) ?? 0)
+      || a.experiment.symbol.localeCompare(b.experiment.symbol));
+    ordered.forEach((row, index) => donors.set(row, ordered[(index + 1) % ordered.length]));
+  }
+  return rows.map(row => donors.get(row)!);
+}
+
+/** Repeats validation after pairing each stock's features with another same-market stock's complete returns. */
+function placeboCheck(rows: Row[], candidates: PaperAdaptiveCandidate[], tradingDate: string,
+  evaluate: (item: PaperAdaptiveCandidate, source: Row[]) => PaperAdaptiveCandidate): PaperAdaptivePlacebo {
+  const passed = candidates.filter(item => item.reason === 'ACTIVE' || item.reason === 'RANKED_OUT');
+  const contenders = candidates.filter(item => sufficient(item.training) && positive(item.training));
+  const symbols = [...new Set(rows.map(row => row.experiment.symbol))].sort();
+  // A dated seed keeps each day's check reproducible.
+  let seed = Number(tradingDate.replace(/-/g, ''));
+  const random = () => {
+    seed = (seed + 0x6d2b79f5) >>> 0;
+    let value = Math.imul(seed ^ (seed >>> 15), seed | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+  const counts: number[] = [], beats = passed.map(() => 0);
+  for (let run = 0; run < PAPER_PLACEBO_PERMUTATIONS; run++) {
+    if (!contenders.length) { counts.push(0); continue; }
+    const shuffled = [...symbols];
+    for (let index = shuffled.length - 1; index > 0; index--) {
+      const swap = Math.floor(random() * (index + 1));
+      [shuffled[index], shuffled[swap]] = [shuffled[swap], shuffled[index]];
+    }
+    const donors = paperPlaceboDonors(rows, new Map(shuffled.map((symbol, index) => [symbol, index])));
+    const permuted = rows.map((row, index) => ({ ...row, returns: donors[index].returns, availableAt: donors[index].availableAt }));
+    const shuffledPassed = contenders.map(item => evaluate(item, permuted)).filter(item => item.reason === 'ACTIVE');
+    counts.push(shuffledPassed.length);
+    // A rule is compared with the best chance pass of the whole run, because it was itself picked among many candidates.
+    const best = Math.max(-Infinity, ...shuffledPassed.map(item => item.validation.meanDailyExcessPct!));
+    passed.forEach((item, index) => { if (best >= item.validation.meanDailyExcessPct!) beats[index]++; });
+  }
+  const share = (count: number) => Math.round(1000 * (count + 1) / (counts.length + 1)) / 10;
+  const sorted = [...counts].sort((a, b) => a - b);
+  return { version: 'symbol-permutation-v1', permutations: counts.length, passedCount: passed.length,
+    shuffledMeanPassedCount: Math.round(10 * counts.reduce((sum, value) => sum + value, 0) / counts.length) / 10,
+    shuffledHighPassedCount: sorted[Math.ceil(counts.length * 0.95) - 1],
+    chancePct: share(counts.filter(count => count >= passed.length).length),
+    rules: passed.map((item, index) => ({ feature: item.rule.feature, bucket: item.rule.bucket, horizon: item.rule.horizon,
+      chancePct: share(beats[index]) })) };
+}
+
 export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefined, experiments: PaperExperiment[], asOf: string,
   observations: PaperObservation[] = [], programs: PaperProgramProposal[] = [], trades?: readonly PaperStrategyTrade[]): PaperAdaptiveState {
   if (!Number.isFinite(Date.parse(asOf))) throw new Error('자율 지표 평가 시각 오류');
@@ -210,7 +273,8 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
     const returns = row.returns.map((value, index) => row.availableAt[index] !== undefined && row.availableAt[index]! < splitMs ? value : undefined);
     return returns.some(value => value !== undefined) ? [{ ...row, returns }] : [];
   });
-  const test = rows.filter(row => validationStartDate && row.experiment.tradingDate >= validationStartDate);
+  const validationRows = (source: Row[]) => source.filter(row => validationStartDate && row.experiment.tradingDate >= validationStartDate);
+  const test = validationRows(rows);
   const horizonSamples = horizons.map(horizon => {
     const usable = (source: Row[]) => source.filter(row => row.returns[horizons.indexOf(horizon)] !== undefined);
     const mature = usable(rows), training = usable(train), validation = usable(test);
@@ -229,10 +293,10 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
       if (value !== null) row.values[id] = value;
     }
   };
-  const forwardRows = (invention: PaperIndicatorInvention) => {
+  const forwardRows = (invention: PaperIndicatorInvention, source = rows) => {
     compute(invention.formula);
     const created = Date.parse(invention.createdAt), createdDate = toKstDateKey(new Date(created));
-    return rows.filter(row => Date.parse(row.experiment.entryAt) > created && row.experiment.tradingDate > createdDate);
+    return source.filter(row => Date.parse(row.experiment.entryAt) > created && row.experiment.tradingDate > createdDate);
   };
   const exploration = (candidates: PaperAdaptiveCandidate[]) => selectPaperShadowExploration({ previous, candidates, observations, asOf, trades,
     value: (observation, feature, invention) => adaptiveFeatureValue(observation, feature, asOf, invention),
@@ -248,6 +312,9 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
       [], forwardRows(invention), previous));
   }
   rankCandidates(candidates, previous);
+  // Measured once per evaluation day and never fed back into the choice above.
+  const placebo = validationStartDate ? placeboCheck(rows, candidates, tradingDate, (item, source) => candidate(item.rule, train,
+    item.rule.invention ? forwardRows(item.rule.invention, source) : validationRows(source), previous, item.training)) : undefined;
   const pairEligibility = new Map<string, boolean>();
   // A one-time same-day policy migration must not spend an existing discovery round's daily budget twice.
   const discovery = previous?.tradingDate === tradingDate && previous.discovery
@@ -288,5 +355,6 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
     to: { feature: invention.id, ...invention.rule, invention: structuredClone(invention) }, reason: 'FORWARD_OBSERVATION' });
   return { policy: { ...PAPER_ADAPTIVE_POLICY }, tradingDate, evaluatedAt: asOf, cutoffAt,
     windowStartDate: dates[0] ?? null, validationStartDate, matureSampleCount: rows.length, matureDateCount: dates.length, horizonSamples,
-    candidates: retainedCandidates.sort(rank), discovery: discovery.discovery, changes: changes.slice(-100), exploration: exploration(retainedCandidates) };
+    candidates: retainedCandidates.sort(rank), discovery: discovery.discovery, changes: changes.slice(-100), exploration: exploration(retainedCandidates),
+    ...(placebo ? { placebo } : {}) };
 }
