@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { legacyStrategyLedger } from './paperStrategyFixtures.js';
 import type { PaperSnapshot } from '../../../src/types/paperExperiment.js';
+import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 const mocks = vi.hoisted(() => ({ load: vi.fn(), advance: vi.fn(), collect: vi.fn(), paused: false, open: true }));
 vi.mock('../../state.js', () => ({ getAutoTradePaused: () => mocks.paused }));
 vi.mock('./paperExperimentCollector.js', () => ({ isPaperMarketOpen: () => mocks.open }));
@@ -49,6 +50,21 @@ describe('holding price monitor', () => {
     expect(mocks.collect.mock.calls[0][0]).toHaveLength(25);
     expect(mocks.collect.mock.calls[1][0][0].symbol).toBe('000025');
     expect(readPaperPriceMonitor()).toMatchObject({ heldCount: 30, staleCount: 30, running: false });
+  });
+  it('quotes held observed-exit positions before research-only symbols in every cycle', async () => {
+    const ledger = legacyStrategyLedger(), base = ledger.trades[0];
+    const research = Array.from({ length: 30 }, (_, index) => ({ ...base, symbol: String(index).padStart(6, '0'), status: 'CLOSED',
+      exitResearch: { completedAt: null, watchUntilAt: '2026-09-25T06:30:00.000Z' } }));
+    const held = ['900001', '900000'].map(symbol => ({ ...base, symbol, policy: { ...base.policy, exitModel: 'ADAPTIVE_OBSERVED' } }));
+    ledger.trades = [...research, ...held] as unknown as PaperStrategyTrade[];
+    mocks.load.mockReturnValue({ ledger });
+    mocks.collect.mockImplementation(async () => { vi.setSystemTime(Date.now() + 21_000); return snapshot(); });
+    const { runPaperPriceMonitor } = await import('./paperPriceMonitor.js');
+    await runPaperPriceMonitor(); await runPaperPriceMonitor();
+    const symbols = (call: number) => mocks.collect.mock.calls[call][0].map((item: { symbol: string }) => item.symbol);
+    expect(symbols(0).slice(0, 3)).toEqual(['900000', '900001', '000000']);
+    // Held positions stay ahead of research symbols that were never attempted.
+    expect(symbols(1).slice(0, 3)).toEqual(['900000', '900001', '000023']);
   });
   it('reports minute monitoring and marks a held quote late only after two scheduled intervals', async () => {
     const quoteAt = Date.now(), ledger = legacyStrategyLedger();

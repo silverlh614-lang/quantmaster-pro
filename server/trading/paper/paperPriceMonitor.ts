@@ -35,11 +35,13 @@ async function monitor(): Promise<void> {
       || item.exitResearch && !item.exitResearch.completedAt && Date.parse(item.exitResearch.watchUntilAt) > started);
     const active = new Set(eligible.map(item => item.symbol));
     for (const symbol of attempts.keys()) if (!active.has(symbol)) { attempts.delete(symbol); quotes.delete(symbol); }
-    // Oldest attempted symbols first prevents failed quotes or large portfolios starving other holdings.
+    // Held observed-exit positions first: their sell checks never wait behind D5-only research symbols.
+    const held = new Set(eligible.filter(item => item.status === 'OPEN' && item.policy.exitModel === 'ADAPTIVE_OBSERVED')
+      .map(item => item.symbol));
+    // Within each group, oldest attempted symbols first prevents failed quotes or large portfolios starving other holdings.
     const symbols = [...new Map(eligible.map(item => [item.symbol, item])).values()]
-      .sort((a, b) => (attempts.get(a.symbol) ?? 0) - (attempts.get(b.symbol) ?? 0)
-        || Number(b.status === 'OPEN' && b.policy.exitModel === 'ADAPTIVE_OBSERVED')
-          - Number(a.status === 'OPEN' && a.policy.exitModel === 'ADAPTIVE_OBSERVED') || a.symbol.localeCompare(b.symbol));
+      .sort((a, b) => Number(held.has(b.symbol)) - Number(held.has(a.symbol))
+        || (attempts.get(a.symbol) ?? 0) - (attempts.get(b.symbol) ?? 0) || a.symbol.localeCompare(b.symbol));
     for (let offset = 0; offset < symbols.length && Date.now() - started < 20_000; offset += 25) {
       if (getAutoTradePaused() || !isPaperMarketOpen(new Date())) break;
       const batch = symbols.slice(offset, offset + 25);
