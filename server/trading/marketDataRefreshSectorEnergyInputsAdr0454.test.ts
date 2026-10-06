@@ -16,7 +16,7 @@
  * 따로 존재.
  */
 import { describe, expect, it } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -87,11 +87,12 @@ describe('ADR-0454 — SilentDegradation baseline 회복 검증', () => {
   it('check_silent_degradation.js EXIT=0 (sectorEnergyInputsUpdatedAt writer 0건 → 1건)', () => {
     // check_silent_degradation.js 는 5 schema * 144 옵셔널 필드 * 전체 source walk 로
     // 단독 실행 ~25s 소요. full-suite 병렬 실행 시 CPU 경합으로 30s 한계를 넘기면
-    // execSync 가 ETIMEDOUT/STACK_TRACE 로 던져 flaky 실패가 난다. cwd 고정 +
-    // execSync timeout(120s) + vitest test timeout(180s) 으로 경합 환경에서도
+    // execFileSync 가 ETIMEDOUT/STACK_TRACE 로 던져 flaky 실패가 난다. cwd 고정 +
+    // execFileSync timeout(120s) + vitest test timeout(180s) 으로 경합 환경에서도
     // 결정적으로 완주하도록 격리한다 (테스트 강도 무변 — 동일 assertion).
-    const result = execSync(
-      'node scripts/check_silent_degradation.js',
+    // 셸 없이 현재 node 실행 파일로 직접 실행 — /bin/sh·PATH 해석에 의존하지 않는다.
+    const result = execFileSync(
+      process.execPath, ['scripts/check_silent_degradation.js'],
       { cwd: REPO_ROOT, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 },
     );
     expect(result).toMatch(/OK/);
