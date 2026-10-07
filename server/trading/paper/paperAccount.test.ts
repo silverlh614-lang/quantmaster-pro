@@ -2,12 +2,11 @@
 import { describe, expect, it } from 'vitest';
 import { accountBalances, advancePaperAccount, buildPaperAccountView, createPaperAccount } from './paperAccount.js';
 import { assertPaperAccount } from './paperAccountValidation.js';
-import { legacyStrategyLedger, strategyTestSnapshot } from './paperStrategyFixtures.js';
+import { accountSignalFixture } from './paperAccountFixtures.js';
 import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 
 function fixture() {
-  const strategy = legacyStrategyLedger(), snapshot = strategyTestSnapshot();
-  const trade = strategy.trades[0];
+  const { strategy, snapshot, trade } = accountSignalFixture();
   trade.id = 'signal-1'; trade.strategyVersion = 'adaptive-features-v1'; trade.entrySnapshotId = snapshot.id;
   trade.entryAt = snapshot.asOf; trade.entryPrice = 100; trade.tradingDate = snapshot.tradingDate;
   trade.costModel = { version: 'cost-v1', buyFeeRate: 0.001, sellFeeRate: 0.001, sellTaxRate: 0.002, slippageRate: 0.001 };
@@ -41,12 +40,13 @@ describe('virtual account', () => {
     expect(view.returnPct).toBeCloseTo(1.7784); assertPaperAccount(sold);
     expect(advancePaperAccount(sold, f.strategy, f.snapshot)).toBe(sold);
   });
-  it('does not overspend or retry unfunded signals after restart', () => {
+  it('splits simultaneous buying power fairly without overspending or repeating after restart', () => {
     const f = fixture(); f.account.config.maxPositionPct = 100;
     const second = { ...structuredClone(f.trade), id: 'signal-2', symbol: '999999' };
     f.strategy.trades.push(second); f.snapshot.observations.push({ ...f.snapshot.observations[0], symbol: second.symbol });
     const first = advancePaperAccount(f.account, f.strategy, f.snapshot);
-    expect(first.orders.map(order => order.status)).toEqual(['FILLED', 'REJECTED']);
+    expect(first.orders.map(order => order.status)).toEqual(['FILLED', 'FILLED']);
+    expect(first.orders.map(order => order.budget)).toEqual([5000, 5000]);
     expect(accountBalances(first).cash).toBeGreaterThanOrEqual(0);
     next(f);
     const replayed = advancePaperAccount(JSON.parse(JSON.stringify(first)), f.strategy, f.snapshot);
@@ -109,12 +109,12 @@ describe('virtual account', () => {
     expect(result.orders[1]).toMatchObject({ status: 'REJECTED', statusReason: '동일 종목 보유 중', fill: null });
     assertPaperAccount(result);
   });
-  it('keeps exploratory signals outside the account unless configured', () => {
+  it('keeps exploratory signals in research even for an old exploration-enabled account', () => {
     const f = fixture();
     f.trade.entryDecision.explorationEvidence = {} as NonNullable<PaperStrategyTrade['entryDecision']['explorationEvidence']>;
-    expect(advancePaperAccount(f.account, f.strategy, f.snapshot).orders[0].statusReason).toBe('탐색 매수 제외 설정');
+    expect(advancePaperAccount(f.account, f.strategy, f.snapshot).orders[0].statusReason).toContain('탐색 신호는 1주 연구');
     f.account.config.includeExploration = true;
-    expect(advancePaperAccount(f.account, f.strategy, f.snapshot).orders[0].status).toBe('FILLED');
+    expect(advancePaperAccount(f.account, f.strategy, f.snapshot).orders[0].status).toBe('REJECTED');
   });
   it('marks old valuations as stale and rejects corrupted ledger balances', () => {
     const f = fixture(), bought = advancePaperAccount(f.account, f.strategy, f.snapshot);

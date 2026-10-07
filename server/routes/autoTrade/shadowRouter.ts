@@ -50,6 +50,7 @@ router.get('/shadow/virtual-account', (_req, res) => {
 router.post('/shadow/virtual-account', (req, res) => {
   try { assertAccountConfig(req.body); }
   catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
+  if (req.body.includeExploration) return res.status(400).json({ error: '가상 계좌는 검증 신호만 운용합니다. 탐색은 별도 1주 연구에서 계속됩니다.' });
   try { return res.status(201).json(startVirtualAccount(req.body)); }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error);

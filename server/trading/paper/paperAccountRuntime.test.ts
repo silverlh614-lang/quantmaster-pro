@@ -9,6 +9,10 @@ import { captureVirtualAccount, readVirtualAccount, startVirtualAccount, pauseVi
 
 beforeEach(() => { vi.resetAllMocks(); mocks.load.mockReturnValue(null); });
 describe('virtual account runtime', () => {
+  it('rejects new exploration-enabled accounts without changing existing research', () => {
+    expect(() => startVirtualAccount({ initialCash: 10000, maxPositionPct: 20, includeExploration: true })).toThrow('검증 신호만');
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
   it('does not auto-create an account or alter source signals', () => {
     const ledger = legacyStrategyLedger(), original = JSON.stringify(ledger);
     captureVirtualAccount(ledger, strategyTestSnapshot());

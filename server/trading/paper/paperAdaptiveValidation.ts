@@ -67,6 +67,7 @@ function validCandidate(value: PaperAdaptiveCandidate): boolean {
   return value.active === (value.reason === 'ACTIVE') && (!value.active || [value.training, value.validation].every(sufficientPositive));
 }
 const candidate = z.object({ rule, training: stats, validation: stats, active: z.boolean(), reason }).refine(validCandidate);
+export const isValidPaperAdaptiveCandidate = (value: unknown): boolean => candidate.safeParse(value).success;
 const explorationCandidate = candidate.refine(value => !value.active
   && ['MISSING_INPUT', 'INSUFFICIENT_TRAINING', 'INSUFFICIENT_VALIDATION', 'FORWARD_OBSERVATION'].includes(value.reason));
 const trialId = z.string().max(240).regex(/^shadow-exploration-v1:\d{4}-\d{2}-\d{2}:[1-9]\d*:.+$/);

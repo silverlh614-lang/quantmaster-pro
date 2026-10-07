@@ -7,7 +7,7 @@ import { PAPER_AUTONOMY_POLICY } from '../types/paperAutonomy';
 import { PAPER_FEATURE_EXPLANATIONS } from '../utils/paperIndicatorExplanation';
 import { PAPER_INDICATOR_GUIDE } from './paperIndicatorGuide';
 
-export const PAPER_MANUAL_REVIEWED_AT = '2026-10-05';
+export const PAPER_MANUAL_REVIEWED_AT = '2026-10-07';
 export interface ManualBlock { title: string; paragraphs: string[]; items?: string[]; table?: { headers: string[]; rows: string[][] } }
 export interface ManualSection {
   id: string; title: string; summary: string; blocks: ManualBlock[];
@@ -31,6 +31,12 @@ export const PAPER_MANUAL: ManualSection[] = [
       { title: '처음 볼 때의 순서', paragraphs: [
         '운영 현황에서 서버 모드와 마지막 관측 시각을 먼저 확인하세요. 자율 연구실에서 연결 지표와 검증 상태를 보고, 추천 종목 후속 결과에서 추천 → 매수 → 매도 기록을 연결해 읽으면 됩니다.',
         '숫자 옆의 범위를 함께 보세요. 기본 관측, 현행 자율 전략, 구전략을 포함한 전체 거래는 표본이 다릅니다. “미집계”는 아직 알 수 없다는 뜻이며 수익률 0%와 다릅니다.',
+      ] },
+      { title: '가상 계좌의 운용 기준', paragraphs: [
+        '가상 계좌는 1주 검증과 별도입니다. 매일 첫 장중 전체 관측에서 현재 연결된 검증 규칙 중 비용 차감 평균 순수익률이 가장 높은 하나를 선택하고 당일 유지합니다. 학습·확인 구간 각각 10건·3일 이상, 양의 순수익과 대조군 우위라는 기존 검증 요건을 사용합니다. 확인 성적이 같으면 일당 대조군 우위, 규칙 식별자 순으로 결정합니다.',
+        '선택된 규칙이 진입 근거인 새 신호만 계좌 매수를 시도합니다. 선택한 규칙에 해당해도 원본 신호가 발생하지 않으면 별도 매수를 만들지 않습니다. 탐색 신호는 기존 1주 연구에서 계속 검증하며 계좌 신규 매수에는 쓰지 않습니다. 같은 관측에서 여러 종목을 살 때는 현금을 균등하게 나누고 종목당 비중 상한·비용·정수 수량을 적용합니다. 나누고 남은 금액은 현금으로 남습니다.',
+        '선택에 사용한 과거 성적은 D1·D3·D5 고정 기간 관측입니다. 계좌의 실제 가상 매도 결과와 섞지 않습니다. 매일 선택 근거와 표본·자료 마감 시각을 보존하며, 그 선택으로 체결된 거래의 이후 순수익·손익비·승률을 따로 확인합니다. 보유 종목의 매도는 진입 당시 원본 거래에 고정한 매도 기준을 따릅니다.',
+        '최대 낙폭은 신선한 가격으로 관측한 계좌 청산 자산의 고점 대비 하락입니다. 관측 사이의 움직임은 포함하지 않습니다. 기존 계좌의 과거 낙폭은 만들지 않고 새 집계 시작 시각을 표시합니다. 호가 잔량·부분 체결·D+2 결제 및 실계좌 연결은 아직 재현하지 않습니다.',
       ] },
     ] },
   { id: 'indicators', title: '지표 움직임 체험', summary: '숫자를 직접 움직이며 원자료 → 지표 값 → 조건 해당 여부를 차례로 확인합니다.', blocks: [

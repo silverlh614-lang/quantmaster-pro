@@ -4,6 +4,7 @@ import type { PaperCostModel, PaperSnapshot } from '../../../src/types/paperExpe
 import type { PaperStrategyLedger, PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 import { tradeSignalIdentity } from '../../../src/utils/paperTradeReview.js';
 import { isKrxTradingDay, toKstDateKey } from '../../calendar/krxTradingCalendar.js';
+import { accountEntryRefusal, selectAccountPolicy } from './paperAccountSelection.js';
 
 export const ACCOUNT_QUOTE_MAX_AGE_MS = 120_000;
 const money = (value: number) => Math.round(value * 100) / 100;
@@ -18,7 +19,8 @@ export function createPaperAccount(config: PaperAccountConfig, at: string, id: s
   if (!Number.isFinite(Date.parse(at)) || !id) throw new Error('계좌 시작 정보가 올바르지 않습니다.');
   return { version: 'virtual-account-v1', id, startedAt: at,
     config: { initialCash: config.initialCash, maxPositionPct: config.maxPositionPct, includeExploration: config.includeExploration }, buyPaused: false,
-    controls: [], lastSnapshotAt: null, orders: [], marks: {} };
+    controls: [], lastSnapshotAt: null, orders: [], marks: {},
+    risk: { since: at, updatedAt: at, observations: 1, peakEquity: config.initialCash, maxDrawdownPct: 0 } };
 }
 /** Fee bases match the frozen signal cost model; slippage changes the simulated fill price. */
 export function accountFill(side: 'BUY' | 'SELL', quantity: number, quote: PaperAccountQuote, cost: PaperCostModel, at: string, id: string): PaperAccountFill {
@@ -91,6 +93,7 @@ export function advancePaperAccount(current: PaperAccountLedger, strategy: Paper
   const now = Date.parse(snapshot.asOf);
   if (!Number.isFinite(now) || now < Date.parse(current.startedAt) || current.lastSnapshotAt && now <= Date.parse(current.lastSnapshotAt)) return current;
   const account = structuredClone(current);
+  const selection = selectAccountPolicy(account, strategy.adaptive, snapshot);
   const signals = new Map(strategy.trades.map(trade => [trade.id, trade]));
   const orders = new Map(account.orders.map(order => [order.id, order]));
   // Exits release cash before new signals compete for the remaining budget.
@@ -112,23 +115,38 @@ export function advancePaperAccount(current: PaperAccountLedger, strategy: Paper
   for (const trade of entries) {
     const order = orderFor(trade, 'BUY', snapshot);
     account.orders.push(order); orders.set(order.id, order);
-    let refusal = account.buyPaused ? '계좌 신규 매수 일시정지' : order.purpose === 'EXPLORATION' && !account.config.includeExploration ? '탐색 매수 제외 설정' : '';
+    if (selection) order.selectionId = selection.id;
+    let refusal = account.buyPaused ? '계좌 신규 매수 일시정지' : accountEntryRefusal(trade, selection);
     if (trade.entrySnapshotId !== snapshot.id || trade.status !== 'OPEN') {
       order.status = 'EXPIRED'; order.statusReason = '신호 발생 시점 처리 누락 · 과거 가격 소급 체결 금지'; continue;
     }
     const balances = accountBalances(account), quote = freshQuote(snapshot, trade.symbol);
-    if ([...balances.buys.values()].some(buy => buy.symbol === trade.symbol)) refusal = '동일 종목 보유 중';
+    if ([...balances.buys.values()].some(buy => buy.symbol === trade.symbol)
+      || account.orders.some(prior => prior !== order && prior.side === 'BUY' && prior.status === 'PENDING' && prior.symbol === trade.symbol)) refusal = '동일 종목 보유 중';
     if (!quote || Date.parse(quote.observedAt) < Date.parse(account.startedAt)) refusal = refusal || '계좌 시작 이후의 신선한 실측 가격 없음';
     if (refusal) { order.status = 'REJECTED'; order.statusReason = refusal; continue; }
-    // Last observed liquidation equity includes estimated exit costs; never treats it as fresh market data.
-    const equity = buildPaperAccountView(account, snapshot.asOf).equity;
-    order.budget = money(Math.min(balances.cash, (equity ?? 0) * account.config.maxPositionPct / 100));
+    // Executable signals are collected before allocating cash, avoiding ticker-order concentration.
+  }
+  const candidates = account.orders.filter(order => order.side === 'BUY' && order.status === 'PENDING');
+  const balances = accountBalances(account), equity = buildPaperAccountView(account, snapshot.asOf).equity;
+  const budget = candidates.length ? Math.floor(Math.min(balances.cash / candidates.length, (equity ?? 0) * account.config.maxPositionPct / 100) * 100) / 100 : 0;
+  for (const order of candidates) {
+    const quote = freshQuote(snapshot, order.symbol)!;
+    order.budget = budget;
     const unit = quote!.price * (1 + order.costModel.slippageRate + order.costModel.buyFeeRate);
     order.quantity = Math.max(0, Math.floor(order.budget / unit));
     while (order.quantity > 0 && -accountFill('BUY', order.quantity, quote!, order.costModel, snapshot.asOf, '').cashDelta > order.budget) order.quantity--;
     if (!order.quantity) { order.status = 'REJECTED'; order.statusReason = '현금 또는 종목 비중 한도로 1주 매수 불가'; continue; }
-    completeOrder(order, quote!, snapshot.asOf); account.marks[trade.id] = quote!;
+    completeOrder(order, quote!, snapshot.asOf); account.marks[order.tradeId] = quote!;
   }
   account.lastSnapshotAt = snapshot.asOf;
+  const view = buildPaperAccountView(account, snapshot.asOf);
+  if (view.equity !== null && !view.positions.some(position => position.stale)) {
+    const prior = account.risk;
+    const peakEquity = Math.max(prior?.peakEquity ?? view.equity, view.equity);
+    account.risk = { since: prior?.since ?? snapshot.asOf, updatedAt: snapshot.asOf,
+      observations: (prior?.observations ?? 0) + 1, peakEquity,
+      maxDrawdownPct: Math.max(prior?.maxDrawdownPct ?? 0, peakEquity ? (peakEquity - view.equity) / peakEquity * 100 : 0) };
+  }
   return account;
 }

@@ -23,6 +23,12 @@ export function savePaperAccount(account: PaperAccountLedger): void {
     if (current.lastSnapshotAt && (!account.lastSnapshotAt || Date.parse(account.lastSnapshotAt) < Date.parse(current.lastSnapshotAt)))
       throw new Error('과거 계좌 상태 덮어쓰기 금지');
     if (JSON.stringify(account.controls.slice(0, current.controls.length)) !== JSON.stringify(current.controls)) throw new Error('계좌 제어 이력 변경 금지');
+    if (JSON.stringify((account.selections ?? []).slice(0, current.selections?.length ?? 0)) !== JSON.stringify(current.selections ?? []))
+      throw new Error('계좌 선택 기준 이력 변경 금지');
+    if (current.risk && (!account.risk || current.risk.since !== account.risk.since
+      || account.risk.observations < current.risk.observations || account.risk.peakEquity < current.risk.peakEquity
+      || account.risk.maxDrawdownPct < current.risk.maxDrawdownPct || Date.parse(account.risk.updatedAt) < Date.parse(current.risk.updatedAt)))
+      throw new Error('계좌 관측 위험 이력 변경 금지');
     for (let index = 0; index < current.orders.length; index++) {
       const prior = current.orders[index], next = account.orders[index];
       if (!next) throw new Error('주문 이력 삭제 금지');
@@ -34,6 +40,8 @@ export function savePaperAccount(account: PaperAccountLedger): void {
         throw new Error('기존 주문·체결 변경 금지');
     }
   }
+  if (account.orders.slice(current?.orders.length ?? 0).some(order => order.side === 'BUY' && order.status === 'FILLED' && !order.selectionId))
+    throw new Error('신규 매수에 계좌 선택 기준 누락');
   ensureDataDir();
   const temporary = `${PAPER_ACCOUNT_FILE}.${randomUUID()}.tmp`;
   let descriptor: number | undefined;

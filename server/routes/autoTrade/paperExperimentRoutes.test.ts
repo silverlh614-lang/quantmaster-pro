@@ -76,6 +76,9 @@ describe('paper experiment API registration', () => {
     const invalid = response();
     await handler(shadowRouter, 'post', '/shadow/virtual-account')({ body: { ...config, initialCash: -1 } }, invalid);
     expect(invalid.statusCode).toBe(400); expect(mocks.accountStart).toHaveBeenCalledTimes(1);
+    const exploration = response();
+    await handler(shadowRouter, 'post', '/shadow/virtual-account')({ body: { ...config, includeExploration: true } }, exploration);
+    expect(exploration.statusCode).toBe(400); expect(mocks.accountStart).toHaveBeenCalledTimes(1);
     mocks.accountStart.mockImplementationOnce(() => { throw new Error('VIRTUAL_ACCOUNT_EXISTS: exists'); });
     const conflict = response();
     await handler(shadowRouter, 'post', '/shadow/virtual-account')({ body: config }, conflict);

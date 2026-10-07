@@ -20,6 +20,18 @@ beforeEach(() => { vi.resetAllMocks(); client = new QueryClient({ defaultOptions
 afterEach(() => { cleanup(); client.clear(); });
 const mount = () => render(<QueryClientProvider client={client}><PaperAccountPanel /></QueryClientProvider>);
 describe('virtual account screen', () => {
+  it('separates past policy selection returns from subsequent account fills', () => {
+    const view = started();
+    const stats = { sampleCount: 20, dateCount: 5, symbolCount: 4, experimentIdsDigest: 'a'.repeat(64), meanNetReturnPct: 99, meanDailyExcessPct: 1 };
+    view.account!.selections = [{ version: 'validated-net-v1', id: 'choice', tradingDate: '2026-09-18', selectedAt: empty.asOf,
+      sourceEvaluatedAt: empty.asOf, cutoffAt: '2026-09-17T15:00:00Z', minimumSamples: 10, minimumEntryDates: 3,
+      selectedRuleKey: 'rule', candidates: [{ ruleKey: 'rule', label: '검증된 RSI 기준', rule: { feature: 'rsi14', bucket: 0, horizon: 3 }, training: stats, validation: stats }] }];
+    render(<PaperAccountRecords view={view} />);
+    expect(screen.getByText(/과거 검증 순수익 99.00%/)).toBeTruthy();
+    expect(screen.getByText(/선택 이후 계좌 체결: 청산 0건/).textContent).toContain('평균 순수익률 집계 대기');
+    expect(screen.getByText(/계좌 체결 성과: 청산 0건/).textContent).toContain('실현손익 0원');
+    expect(screen.getByText(/관측 최대 낙폭 집계 대기/)).toBeTruthy();
+  });
   it('starts with user settings and offers buy pause after creation', async () => {
     mocks.get.mockResolvedValue(empty); mocks.start.mockResolvedValue(started()); mount();
     const button = await screen.findByRole('button', { name: '가상 계좌 시작' });

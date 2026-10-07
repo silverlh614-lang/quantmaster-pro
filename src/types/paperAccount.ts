@@ -1,5 +1,17 @@
 // @responsibility Define isolated virtual account records.
 import type { PaperCostModel } from './paperExperiment';
+import type { PaperAdaptiveRule, PaperAdaptiveStats } from './paperAdaptive';
+
+export interface PaperAccountCandidate {
+  rule: PaperAdaptiveRule; ruleKey: string; label: string;
+  training: PaperAdaptiveStats; validation: PaperAdaptiveStats;
+}
+export interface PaperAccountSelection {
+  version: 'validated-net-v1'; id: string; tradingDate: string; selectedAt: string;
+  sourceEvaluatedAt: string; cutoffAt: string;
+  minimumSamples: number; minimumEntryDates: number;
+  candidates: PaperAccountCandidate[]; selectedRuleKey: string | null;
+}
 
 export interface PaperAccountConfig { initialCash: number; maxPositionPct: number; includeExploration: boolean }
 export interface PaperAccountQuote { price: number; observedAt: string; source: string; snapshotId: string }
@@ -14,11 +26,17 @@ export interface PaperAccountOrder {
   quantity: number; budget: number; costModel: PaperCostModel;
   status: 'PENDING' | 'FILLED' | 'REJECTED' | 'EXPIRED'; statusReason: string;
   fill: PaperAccountFill | null;
+  /** Absent only in orders written before account policy selection was introduced. */
+  selectionId?: string;
 }
 export interface PaperAccountLedger {
   version: 'virtual-account-v1'; id: string; startedAt: string; config: PaperAccountConfig;
   buyPaused: boolean; controls: Array<{ at: string; buyPaused: boolean }>;
   lastSnapshotAt: string | null; orders: PaperAccountOrder[]; marks: Record<string, PaperAccountQuote>;
+  /** Append-only daily choices; old account records remain readable. */
+  selections?: PaperAccountSelection[];
+  /** Observed liquidation-equity drawdown; excludes stale marks, never backfilled. */
+  risk?: { since: string; updatedAt: string; observations: number; peakEquity: number; maxDrawdownPct: number };
 }
 export interface PaperAccountPosition {
   tradeId: string; symbol: string; name: string; quantity: number; entryCost: number;

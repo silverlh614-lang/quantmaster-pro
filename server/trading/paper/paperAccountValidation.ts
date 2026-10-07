@@ -1,6 +1,10 @@
 // @responsibility Validate virtual account ledger reconciliation before persistence.
 import type { PaperAccountLedger, PaperAccountQuote } from '../../../src/types/paperAccount.js';
 import { ACCOUNT_QUOTE_MAX_AGE_MS, accountBalances, accountFill, assertAccountConfig } from './paperAccount.js';
+import { accountCandidateRank, accountStatsEligible } from './paperAccountSelection.js';
+import { isValidPaperAdaptiveCandidate } from './paperAdaptiveValidation.js';
+import { signalRuleKey } from '../../../src/utils/paperTradeReview.js';
+import { toKstDateKey, isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 
 const validTime = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value));
 const text = (value: unknown) => typeof value === 'string' && value.length > 0;
@@ -22,6 +26,43 @@ export function assertPaperAccount(value: unknown): asserts value is PaperAccoun
     controlAt = control.at;
   }
   check(ledger.buyPaused === (ledger.controls.at(-1)?.buyPaused ?? false), 'control state');
+  if (ledger.risk) {
+    const risk = ledger.risk;
+    check(validTime(risk.since) && validTime(risk.updatedAt) && Date.parse(risk.since) >= Date.parse(ledger.startedAt)
+      && Date.parse(risk.updatedAt) >= Date.parse(risk.since)
+      && Date.parse(risk.updatedAt) <= Date.parse(ledger.lastSnapshotAt ?? ledger.startedAt)
+      && Number.isSafeInteger(risk.observations) && risk.observations > 0
+      && Number.isFinite(risk.peakEquity) && risk.peakEquity >= 0
+      && Number.isFinite(risk.maxDrawdownPct) && risk.maxDrawdownPct >= 0 && risk.maxDrawdownPct <= 100, 'observed risk');
+  }
+  check(ledger.selections === undefined || Array.isArray(ledger.selections), 'policy history');
+  let previousDate = '';
+  for (const selection of ledger.selections ?? []) {
+    check(selection && selection.version === 'validated-net-v1' && typeof selection.tradingDate === 'string'
+      && /^\d{4}-\d{2}-\d{2}$/.test(selection.tradingDate) && isKrxTradingDay(selection.tradingDate)
+      && selection.tradingDate > previousDate && selection.id === `validated-net-v1:${selection.tradingDate}`, 'policy identity');
+    previousDate = selection.tradingDate;
+    check(validTime(selection.selectedAt) && validTime(selection.sourceEvaluatedAt) && validTime(selection.cutoffAt)
+      && toKstDateKey(selection.selectedAt) === selection.tradingDate && toKstDateKey(selection.sourceEvaluatedAt) === selection.tradingDate
+      && Date.parse(selection.selectedAt) >= Date.parse(ledger.startedAt)
+      && Date.parse(selection.cutoffAt) === Date.parse(`${selection.tradingDate}T00:00:00+09:00`)
+      && Date.parse(selection.sourceEvaluatedAt) <= Date.parse(selection.selectedAt)
+      && ledger.lastSnapshotAt && Date.parse(selection.selectedAt) <= Date.parse(ledger.lastSnapshotAt), 'policy time');
+    check(Number.isSafeInteger(selection.minimumSamples) && selection.minimumSamples >= 10
+      && Number.isSafeInteger(selection.minimumEntryDates) && selection.minimumEntryDates >= 3
+      && Array.isArray(selection.candidates), 'policy thresholds');
+    const ruleKeys = new Set<string>();
+    for (const [index, candidate] of selection.candidates.entries()) {
+      check(candidate && isValidPaperAdaptiveCandidate({ ...candidate, active: true, reason: 'ACTIVE' })
+        && accountStatsEligible(candidate.training, selection.minimumSamples, selection.minimumEntryDates)
+        && accountStatsEligible(candidate.validation, selection.minimumSamples, selection.minimumEntryDates)
+        && candidate.ruleKey === signalRuleKey(candidate.rule) && !ruleKeys.has(candidate.ruleKey) && text(candidate.label)
+        && (!candidate.rule.invention || Date.parse(candidate.rule.invention.createdAt) < Date.parse(selection.cutoffAt)), 'policy candidate');
+      ruleKeys.add(candidate.ruleKey);
+      check(!index || accountCandidateRank(selection.candidates[index - 1], candidate) <= 0, 'policy rank');
+    }
+    check(selection.selectedRuleKey === (selection.candidates[0]?.ruleKey ?? null), 'policy winner');
+  }
   const ids = new Set<string>(), bought = new Map<string, number>(), symbols = new Set<string>();
   let cash = ledger.config.initialCash;
   for (const order of ledger.orders) {
@@ -37,6 +78,13 @@ export function assertPaperAccount(value: unknown): asserts value is PaperAccoun
       .every(rate => Number.isFinite(rate) && rate >= 0 && rate < 1)
       && order.costModel.sellFeeRate + order.costModel.sellTaxRate + order.costModel.slippageRate < 1, 'cost');
     check(['PENDING', 'FILLED', 'REJECTED', 'EXPIRED'].includes(order.status), 'order status');
+    if (order.selectionId !== undefined) {
+      const selection = ledger.selections?.find(item => item.id === order.selectionId);
+      check(order.side === 'BUY' && selection && Date.parse(selection.selectedAt) <= Date.parse(order.submittedAt)
+        && selection.tradingDate === toKstDateKey(order.submittedAt), 'order policy reference');
+      if (order.status === 'FILLED') check(selection!.selectedRuleKey && order.purpose === 'VALIDATED'
+        && selection!.tradingDate === toKstDateKey(order.signalAt), 'filled order policy');
+    }
     if (order.status !== 'FILLED') {
       check(order.fill === null, 'unfilled order contains fill');
       if (order.status === 'PENDING') check(order.side === 'SELL' && order.quantity === bought.get(order.tradeId), 'pending sell');

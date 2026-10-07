@@ -31,7 +31,9 @@ export function formatAccountExecutions(account: PaperAccountLedger, orders: Pap
     const fill = order.fill!;
     lines.push('', `<b>${order.side === 'BUY' ? '🟢 매수' : '🔴 매도'} · ${safe(order.name, 30)} (${safe(order.symbol, 12)})</b>`,
       `${order.quantity}주 · 체결가 ${amount(fill.price)}`, `가상 체결 ${stamp(fill.at)}`);
+    const selection = order.selectionId ? account.selections?.find(item => item.id === order.selectionId) : undefined;
     if (analysis) lines.push(`신호: ${safe(order.signalLabel, 100)}`, `판단: ${safe(order.signalReason)}`,
+      ...(selection?.candidates[0] ? [`계좌 기준: ${selection.tradingDate} 검증 순수익 1순위 · 과거 ${selection.candidates[0].validation.meanNetReturnPct!.toFixed(2)}% (${selection.candidates[0].validation.sampleCount}건/${selection.candidates[0].validation.dateCount}일)`] : []),
       order.side === 'BUY' ? `당시 매수 한도 ${amount(order.budget)}` : '계좌 보유 전량 청산',
       `가격 관측 ${stamp(fill.quote.observedAt)} · ${safe(fill.quote.source, 40)}`);
     else {
@@ -54,6 +56,8 @@ export function formatAccountSummary(view: PaperAccountView | undefined, now: Da
     view.account.buyPaused ? '신규 매수 정지 · 보유 평가·매도 계속' : '신규 매수 허용',
     `평가 기준 ${view.account.lastSnapshotAt ? stamp(view.account.lastSnapshotAt) : '아직 처리 없음'}`);
   if (view.positions.some(position => position.stale)) lines.push('이전 관측 가격 포함 · 잠정 평가');
+  const selection = view.account.selections?.at(-1);
+  if (selection) lines.push(`운용 기준 ${selection.tradingDate}: ${selection.candidates[0] ? safe(selection.candidates[0].label, 100) : '검증 충족 규칙 없음 · 신규 매수 대기'}`);
   const today = toKstDateKey(now), reasons = new Map<string, number>();
   for (const order of view.account.orders) if (['REJECTED', 'EXPIRED'].includes(order.status)
     && Date.parse(order.submittedAt) <= now.getTime() && toKstDateKey(order.submittedAt) === today)

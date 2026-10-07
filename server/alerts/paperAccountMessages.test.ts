@@ -4,6 +4,8 @@ import type { PaperBotState } from '../persistence/paperBotRepo.js';
 import type { PaperAccountOrder } from '../../src/types/paperAccount.js';
 import { accountFill, createPaperAccount, buildPaperAccountView } from '../trading/paper/paperAccount.js';
 import { enqueueAccountExecutions, enqueueAccountHealth, formatAccountSummary, retireSignalTradeAlerts } from './paperAccountMessages.js';
+import { accountSignalFixture } from '../trading/paper/paperAccountFixtures.js';
+import { advancePaperAccount } from '../trading/paper/paperAccount.js';
 
 const now = new Date('2026-09-18T01:00:00Z');
 const state = (): PaperBotState => ({ schemaVersion: 1, initializedAt: null, lastCheckedAt: null, health: 'OK', notifiedHealth: 'OK', seenEvents: {}, messages: [] });
@@ -18,6 +20,16 @@ function accountView(count = 1) {
   return buildPaperAccountView(account, now.toISOString());
 }
 describe('account-only notifications', () => {
+  it('includes frozen policy evidence in bounded account analysis without reporting it as realized profit', () => {
+    const f = accountSignalFixture();
+    const account = advancePaperAccount(createPaperAccount({ initialCash: 10000, maxPositionPct: 20, includeExploration: false }, '2026-09-18T00:00:00Z', 'policy-account'), f.strategy, f.snapshot);
+    const view = buildPaperAccountView(account, f.snapshot.asOf), queue = state();
+    queue.accountInitializedAt = '2026-09-18T00:00:00Z'; enqueueAccountExecutions(queue, view, now);
+    const message = queue.messages.find(item => item.channel === 'ANALYSIS')!.message;
+    expect(message).toContain('검증 순수익 1순위 · 과거'); expect(message.length).toBeLessThanOrEqual(3500);
+    expect(formatAccountSummary(view, now)).toContain('운용 기준 2026-09-18:');
+    expect(formatAccountSummary(view, now)).toContain('실현손익 0원');
+  });
   it('baselines existing fills on upgrade, then queues each future fill once in bounded escaped batches', () => {
     const queue = state(), old = accountView();
     enqueueAccountExecutions(queue, old, now); expect(queue.messages).toHaveLength(0);

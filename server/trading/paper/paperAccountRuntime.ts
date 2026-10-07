@@ -12,6 +12,7 @@ export function readVirtualAccount(now = new Date()) {
 }
 export function startVirtualAccount(config: PaperAccountConfig, now = new Date()) {
   if (loadPaperAccount()) throw new Error('VIRTUAL_ACCOUNT_EXISTS: 이미 시작한 계좌가 있습니다.');
+  if (config.includeExploration) throw new Error('가상 계좌는 검증 신호만 운용합니다. 탐색은 별도 1주 연구에서 계속됩니다.');
   const account = createPaperAccount(config, now.toISOString(), randomUUID());
   savePaperAccount(account); lastError = undefined;
   return buildPaperAccountView(account, now.toISOString());
