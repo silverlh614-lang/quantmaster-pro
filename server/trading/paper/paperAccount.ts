@@ -10,6 +10,9 @@ import { accountEntryRefusal, isAccountRuleSignal, selectAccountPolicy } from '.
 export const ACCOUNT_QUOTE_MAX_AGE_MS = 120_000;
 /** Without orders, marks or policy changes, the processed time is still persisted at this interval. */
 export const ACCOUNT_IDLE_SAVE_MS = 5 * 60_000;
+const ACCOUNT_PRICE_WAIT = '유효한 새 장중 가격 대기';
+/** A halted stock cannot be traded; its orders wait for the first valid price after the halt lifts. */
+export const ACCOUNT_HALT_WAIT = '거래정지 · 정지 해제 후 첫 유효 가격으로 처리';
 const money = (value: number) => Math.round(value * 100) / 100;
 export function assertAccountConfig(value: unknown): asserts value is PaperAccountConfig {
   const config = value as PaperAccountConfig | null;
@@ -50,7 +53,9 @@ export function accountBalances(account: PaperAccountLedger) {
   }
   return { cash, realizedPnl, buys };
 }
-export function buildPaperAccountView(account: PaperAccountLedger | null, asOf: string, error?: string): PaperAccountView {
+/** `halted` lists symbols KIS last reported as halted; their positions keep the last traded price. */
+export function buildPaperAccountView(account: PaperAccountLedger | null, asOf: string, error?: string,
+  halted: ReadonlySet<string> = new Set()): PaperAccountView {
   if (!account) return { account, asOf, ...(error ? { error } : {}), cash: null, realizedPnl: null,
     unrealizedPnl: null, equity: null, returnPct: null, positions: [] };
   const { cash, realizedPnl, buys } = accountBalances(account);
@@ -59,7 +64,7 @@ export function buildPaperAccountView(account: PaperAccountLedger | null, asOf: 
     const stale = !mark || Date.parse(asOf) - Date.parse(mark.observedAt) > ACCOUNT_QUOTE_MAX_AGE_MS || Date.parse(mark.observedAt) > Date.parse(asOf);
     const liquidationValue = mark ? accountFill('SELL', order.quantity, mark, order.costModel, asOf, '').cashDelta : null;
     return { tradeId: order.tradeId, symbol: order.symbol, name: order.name, quantity: order.quantity,
-      entryCost: -order.fill!.cashDelta, mark, stale, liquidationValue,
+      entryCost: -order.fill!.cashDelta, mark, stale, ...(halted.has(order.symbol) ? { halted: true } : {}), liquidationValue,
       unrealizedPnl: liquidationValue === null ? null : money(liquidationValue + order.fill!.cashDelta) };
   });
   const complete = positions.every(position => position.liquidationValue !== null);
@@ -74,6 +79,7 @@ function assessQuote(snapshot: PaperSnapshot, symbol: string, notBefore?: string
   let refusal: string | null = null;
   if (!snapshot.marketOpen || !isKrxTradingDay(snapshot.tradingDate)) refusal = '정규장 실측 가격 대기';
   else if (!observation) refusal = '해당 종목 가격 관측 없음';
+  else if (observation.issue === 'TRADING_HALTED') refusal = ACCOUNT_HALT_WAIT;
   else if (observation.issue) refusal = `가격 수집 오류: ${observation.issue}`;
   else if (!['KIS', 'KIS_REST_REQUEST_OBSERVED', 'KRX'].includes(observation.source)) refusal = '체결에 사용할 수 없는 가격 출처';
   else if (!Number.isFinite(observation.price) || observation.price! <= 0) refusal = '유효한 현재가 없음';
@@ -92,7 +98,7 @@ function orderFor(trade: PaperStrategyTrade, side: 'BUY' | 'SELL', snapshot: Pap
     signalSnapshotId: side === 'BUY' ? trade.entrySnapshotId : trade.exit!.snapshotId,
     signalReason: side === 'BUY' ? trade.entryDecision.reason : trade.exit!.decision.reason,
     signalLabel: identity.label, purpose: identity.purpose === 'EXPLORATION' ? 'EXPLORATION' : 'VALIDATED',
-    costModel: { ...trade.costModel }, quantity: 0, budget: 0, status: 'PENDING', statusReason: '유효한 새 장중 가격 대기', fill: null };
+    costModel: { ...trade.costModel }, quantity: 0, budget: 0, status: 'PENDING', statusReason: ACCOUNT_PRICE_WAIT, fill: null };
 }
 function countSkippedSignal(account: PaperAccountLedger, trade: PaperStrategyTrade, reason: string): void {
   const skipped = account.skippedSignals ??= { through: trade.entryAt, counts: {} };
@@ -124,7 +130,7 @@ export function advancePaperAccount(current: PaperAccountLedger, strategy: Paper
   const orders = new Map(account.orders.map(order => [order.id, order]));
   // Exits release cash before new signals compete for the remaining budget.
   for (const buy of accountBalances(account).buys.values()) {
-    const { quote } = assessQuote(snapshot, buy.symbol);
+    const { quote, refusal } = assessQuote(snapshot, buy.symbol);
     if (quote && Date.parse(quote.observedAt) >= Date.parse(account.marks[buy.tradeId]?.observedAt ?? buy.fill!.quote.observedAt)) account.marks[buy.tradeId] = quote;
     const trade = signals.get(buy.tradeId);
     if (!trade?.exit || Date.parse(trade.exit.decisionAt) > now) continue;
@@ -132,6 +138,9 @@ export function advancePaperAccount(current: PaperAccountLedger, strategy: Paper
     if (!sell) { sell = orderFor(trade, 'SELL', snapshot); sell.quantity = buy.quantity; account.orders.push(sell); orders.set(sell.id, sell); }
     if (sell.status === 'PENDING' && quote && Date.parse(quote.observedAt) >= Date.parse(trade.exit.observedAt)) {
       completeOrder(sell, quote, snapshot.asOf); delete account.marks[buy.tradeId];
+    } else if (sell.status === 'PENDING' && snapshot.observations.some(item => item.symbol === buy.symbol)) {
+      // The frozen price of a halted stock is never sold; the reason shows why the exit is still waiting.
+      sell.statusReason = refusal === ACCOUNT_HALT_WAIT ? ACCOUNT_HALT_WAIT : ACCOUNT_PRICE_WAIT;
     }
   }
   // Full scans run one at a time and stamp new signals with their own time, so this watermark never skips one.

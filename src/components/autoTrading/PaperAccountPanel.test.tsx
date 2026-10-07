@@ -58,6 +58,17 @@ describe('virtual account screen', () => {
     expect(screen.getByText(/계좌 기준 밖 신호 5건/).textContent)
       .toBe('2026-09-18 계좌 기준 밖 신호 5건은 주문 없이 1주 연구로만 집계합니다: 당일 선택한 수익성 우선 규칙과 다른 신호 3건 · 탐색 신호 2건');
   });
+  it('labels a halted holding with its last traded price and when it will be sold', () => {
+    const view = started();
+    view.positions = [{ tradeId: 'trade', symbol: '005930', name: '삼성전자', quantity: 10, entryCost: 100000,
+      mark: { price: 10000, observedAt: empty.asOf, source: 'KIS_REST_REQUEST_OBSERVED', snapshotId: 's' }, stale: true, halted: true,
+      liquidationValue: 99000, unrealizedPnl: -1000 }];
+    render(<PaperAccountRecords view={view} />);
+    expect(screen.getAllByRole('status').map(item => item.textContent))
+      .toContain('거래정지 종목은 정지 직전 가격으로 평가하고, 정지 해제 후 첫 유효 가격으로 매도 판단·체결합니다.');
+    expect(screen.getByText(/거래정지 · 정지 직전 가격/)).toBeTruthy();
+    expect(screen.queryByText(/· 이전 가격/)).toBeNull();
+  });
   it('keeps stale and missing values visibly distinct from realized profit', () => {
     const view = started(); view.equity = null; view.unrealizedPnl = null; view.returnPct = null;
     view.positions = [{ tradeId: 'trade', symbol: '005930', name: '삼성전자', quantity: 10, entryCost: 100000,

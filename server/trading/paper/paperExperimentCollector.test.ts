@@ -9,10 +9,12 @@ vi.mock('../../persistence/dartRepo.js', () => ({ loadDartAlerts: mocks.dart }))
 vi.mock('../symbolDataCollector.js', () => ({ collectUnifiedSnapshot: mocks.collect }));
 vi.mock('./paperDisclosureCollection.js', () => ({ refreshPaperDisclosures: mocks.disclosures }));
 import { collectPaperExperimentSnapshot, isPaperMarketOpen } from './paperExperimentCollector.js';
+import { __resetPaperTradingHaltsForTest, paperTradingHaltStatus } from './paperTradingHalts.js';
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-09-18T01:00:00Z'));
+  __resetPaperTradingHaltsForTest();
   mocks.universe.mockReturnValue([]);
   mocks.watchlist.mockReturnValue([{ code: '005930', name: 'Samsung', section: 'MOMENTUM' }]);
   mocks.news.mockReturnValue([]);
@@ -56,6 +58,8 @@ describe('paper observation collector', () => {
     expect(halted).toMatchObject({ price: null, issue: 'TRADING_HALTED' });
     expect(result.observations.find(item => item.symbol === '000660')!.issue).toBeUndefined();
     expect(mocks.multi).toHaveBeenCalledWith(['000660']);
+    // The minute monitor learns both statuses from these full quotes.
+    expect([paperTradingHaltStatus('005930'), paperTradingHaltStatus('000660')]).toEqual([true, false]);
   });
   it('marks a stock halted during a slow scan when its single-quote refresh reports the halt', async () => {
     mocks.collect.mockImplementationOnce(async () => {
@@ -67,6 +71,7 @@ describe('paper observation collector', () => {
     const result = await collectPaperExperimentSnapshot([]);
     expect(mocks.single).toHaveBeenCalledWith('005930');
     expect(result.observations[0]).toMatchObject({ price: null, issue: 'TRADING_HALTED' });
+    expect(paperTradingHaltStatus('005930')).toBe(true);
   });
   it('preserves original research timestamps when end-of-scan refresh fails', async () => {
     const fetchedAt = new Date().toISOString();

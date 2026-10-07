@@ -67,7 +67,7 @@ export function PaperOverview({ view, mode, paused, refreshFailed = false }: {
       <p className="qdash-note">전체 연구와 별도로 현재가를 순환 확인합니다. 종목별 갱신 간격은 보유 수와 응답 속도에 따라 달라집니다.</p>
       <p>최근 회차 {view.priceMonitor.validCount}/{view.priceMonitor.checkedCount}종목 가격 확인 · 매도 {view.priceMonitor.closedCount}건</p>
       <p>완료 {paperTime(view.priceMonitor.completedAt)} · 소요 {view.priceMonitor.durationMs === null ? '대기' : `${(view.priceMonitor.durationMs / 1000).toFixed(1)}초`}</p>
-      {view.priceMonitor.marketOpen && <p>보유 {view.priceMonitor.heldCount}종목 중 {intervalLabel(view.priceMonitor.intervalSeconds * 2)} 초과·미확인 {view.priceMonitor.staleCount}종목</p>}
+      {view.priceMonitor.marketOpen && <p>보유 {view.priceMonitor.heldCount}종목 중 {intervalLabel(view.priceMonitor.intervalSeconds * 2)} 초과·미확인 {view.priceMonitor.staleCount}종목{view.priceMonitor.haltedCount ? ` · 거래정지 ${view.priceMonitor.haltedCount}종목(해제 후 매도 판단)` : ''}</p>}
       <p className="qdash-note">손실 제한·수익 반납은 새 가격으로 판단하며, 지표 약화와 신규 매수는 전체 스캔에서 판단합니다.</p>
     </section>}
     <dl className="qdash-metrics" aria-label="연구 핵심 지표">{stats.map(({ label, value, unit, note, icon: Icon, tone }) =>

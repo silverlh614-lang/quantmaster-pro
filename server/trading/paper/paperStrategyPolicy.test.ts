@@ -1,6 +1,6 @@
 // @responsibility Verify empirical strategy lifecycle.
 import { describe, expect, it } from 'vitest';
-import { buildPaperStrategyView, evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
+import { buildPaperStrategyView, evaluatePaperHoldingPrices, evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
 import { emptyStrategyLedger, legacyStrategyLedger, strategyTestCost, strategyTestSnapshot } from './paperStrategyFixtures.js';
 import { adaptiveTestSnapshot, matureAdaptiveSamples } from './paperAdaptiveFixtures.js';
 import { selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
@@ -69,6 +69,16 @@ describe('paper strategy lifecycle', () => {
     const result = evaluatePaperStrategyScan(enter(), snapshot, strategyTestCost, state());
     expect(result.trades[0].exit).toBeNull();
     expect(result.latestDecisions[0].reasonCode).toBe('ADAPTIVE_EXIT_QUOTE_UNAVAILABLE');
+  });
+  it('holds a halted position instead of selling at its frozen price, then decides on the first price after the halt', () => {
+    const halted = { ...quote('2026-09-18T01:05:00Z', 9400), quoteOnly: true };
+    Object.assign(halted.observations[0], { price: null, issue: 'TRADING_HALTED' });
+    const held = evaluatePaperHoldingPrices(enter(), halted);
+    expect(held.trades[0].exit).toBeNull();
+    expect(held.latestDecisions[0]).toMatchObject({ action: 'HOLD', reasonCode: 'ADAPTIVE_EXIT_QUOTE_UNAVAILABLE',
+      reason: '거래정지 · 멈춘 가격으로 매도 판단하지 않고 정지 해제 후 첫 유효 가격을 기다립니다.' });
+    const resumed = evaluatePaperHoldingPrices(held, { ...quote('2026-09-18T01:06:00Z', 9400), quoteOnly: true });
+    expect(resumed.trades[0].exit).toMatchObject({ price: 9400, observedTrigger: { reason: 'ADAPTIVE_STOP_LOSS' } });
   });
   it('preserves the latest intraday reason counts through after-hours scans and restart', () => {
     const snapshot = strategyTestSnapshot();

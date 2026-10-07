@@ -48,6 +48,8 @@ export interface PaperAccountLedger {
 export interface PaperAccountPosition {
   tradeId: string; symbol: string; name: string; quantity: number; entryCost: number;
   mark: PaperAccountQuote | null; stale: boolean; liquidationValue: number | null; unrealizedPnl: number | null;
+  /** KIS last reported a trading halt: valued at the last traded price, sold only after the halt lifts. */
+  halted?: boolean;
 }
 export interface PaperAccountView {
   account: PaperAccountLedger | null; asOf: string; error?: string;
