@@ -1,7 +1,7 @@
 // @responsibility Refresh aging prices before finalizing a paper observation snapshot.
 import { fetchKisMultiQuotes, fetchKisStockFullQuote, KIS_MULTI_QUOTE_LIMIT } from '../../clients/kisClient.js';
 
-type Quote = { code: string; currentPrice: number | null; fetchedAt: string; per?: number | null; eps?: number | null };
+type Quote = { code: string; currentPrice: number | null; fetchedAt: string; per?: number | null; eps?: number | null; tradingHalted?: boolean };
 type Target = { symbol: string; quote: Quote | null | undefined };
 
 /** Leave 30 seconds of headroom against the account's unchanged 120-second execution limit. */
@@ -26,7 +26,9 @@ export async function refreshPaperQuotes(targets: Target[], scanStartedAt: numbe
     const eps = scanEps.get(symbol);
     const per = quote.per !== undefined ? quote.per
       : typeof eps === 'number' && Number.isFinite(eps) && eps > 0 ? Math.round(quote.currentPrice! / eps * 100) / 100 : null;
-    refreshed.set(symbol, { code: symbol, currentPrice: quote.currentPrice, fetchedAt: quote.fetchedAt, per });
+    // A single quote reports a halt that began during the scan; the flag travels with its frozen price.
+    refreshed.set(symbol, { code: symbol, currentPrice: quote.currentPrice, fetchedAt: quote.fetchedAt, per,
+      ...(quote.tradingHalted ? { tradingHalted: true } : {}) });
     return true;
   };
   for (let offset = 0; offset < pending.length && Date.now() < deadline; offset += KIS_MULTI_QUOTE_LIMIT) {

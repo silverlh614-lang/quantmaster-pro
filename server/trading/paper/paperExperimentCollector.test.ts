@@ -57,6 +57,17 @@ describe('paper observation collector', () => {
     expect(result.observations.find(item => item.symbol === '000660')!.issue).toBeUndefined();
     expect(mocks.multi).toHaveBeenCalledWith(['000660']);
   });
+  it('marks a stock halted during a slow scan when its single-quote refresh reports the halt', async () => {
+    mocks.collect.mockImplementationOnce(async () => {
+      const fetchedAt = new Date().toISOString();
+      vi.setSystemTime(new Date('2026-09-18T01:05:00Z'));
+      return { perSymbol: { '005930': { quote: { code: '005930', currentPrice: 10000, per: 10, fetchedAt, tradingHalted: false }, dailyBars: [] } } };
+    });
+    mocks.single.mockImplementationOnce(async () => ({ code: '005930', currentPrice: 10000, per: 10, fetchedAt: new Date().toISOString(), tradingHalted: true }));
+    const result = await collectPaperExperimentSnapshot([]);
+    expect(mocks.single).toHaveBeenCalledWith('005930');
+    expect(result.observations[0]).toMatchObject({ price: null, issue: 'TRADING_HALTED' });
+  });
   it('preserves original research timestamps when end-of-scan refresh fails', async () => {
     const fetchedAt = new Date().toISOString();
     mocks.collect.mockImplementationOnce(async () => {

@@ -83,8 +83,8 @@ export async function collectPaperExperimentSnapshot(
     const data = source.perSymbol[symbol];
     const quote = refreshed.get(symbol) ?? data?.quote;
     const quoteMs = Date.parse(quote?.fetchedAt ?? '');
-    // The scan's own quote carries the halt flag; a frozen halted price is never a tradable current price.
-    const issue = data?.quote?.tradingHalted ? 'TRADING_HALTED'
+    // The scan quote or a single-quote refresh carries the halt flag; a frozen halted price is never a tradable current price.
+    const issue = data?.quote?.tradingHalted || quote?.tradingHalted ? 'TRADING_HALTED'
       : !quote ? 'CURRENT_QUOTE_UNAVAILABLE'
       : quote.code !== symbol ? 'CURRENT_QUOTE_SYMBOL_MISMATCH'
         : !Number.isFinite(quote.currentPrice) || (quote.currentPrice ?? 0) <= 0 ? 'CURRENT_QUOTE_INVALID_PRICE'

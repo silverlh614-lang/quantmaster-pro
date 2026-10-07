@@ -56,6 +56,14 @@ describe('paper final quote refresh', () => {
       .toMatchObject({ currentPrice: 120, per: 12 });
     expect(mocks.single).toHaveBeenCalledWith('005930');
   });
+  it('keeps a halt reported by the single-quote fallback with its frozen price', async () => {
+    mocks.multi.mockResolvedValue(null);
+    mocks.single.mockImplementation(async (code: string) => ({ code, currentPrice: 120, per: 12,
+      fetchedAt: new Date().toISOString(), tradingHalted: code === '005930' }));
+    const result = await refreshPaperQuotes([target('005930'), target('000660')], start);
+    expect(result.get('005930')).toMatchObject({ currentPrice: 120, tradingHalted: true });
+    expect(result.get('000660')).not.toHaveProperty('tradingHalted');
+  });
   it('stops starting requests at the budget without relabeling unanswered prices', async () => {
     mocks.multi.mockImplementation(async (codes: string[]) => {
       const fetchedAt = new Date().toISOString(); vi.setSystemTime(Date.now() + 20_000);
