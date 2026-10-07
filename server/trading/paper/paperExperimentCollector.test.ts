@@ -1,6 +1,7 @@
 // @responsibility Verify paper observation provenance.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ universe: vi.fn(), watchlist: vi.fn(), news: vi.fn(), dart: vi.fn(), collect: vi.fn(), disclosures: vi.fn() }));
+const mocks = vi.hoisted(() => ({ universe: vi.fn(), watchlist: vi.fn(), news: vi.fn(), dart: vi.fn(), collect: vi.fn(), disclosures: vi.fn(), multi: vi.fn(), single: vi.fn() }));
+vi.mock('../../clients/kisClient.js', () => ({ fetchKisMultiQuotes: mocks.multi, fetchKisStockFullQuote: mocks.single, KIS_MULTI_QUOTE_LIMIT: 30 }));
 vi.mock('../../screener/dynamicUniverseExpander.js', () => ({ getExpandedUniverse: mocks.universe }));
 vi.mock('../../persistence/watchlistRepo.js', () => ({ loadWatchlist: mocks.watchlist }));
 vi.mock('../../learning/newsSupplyLogger.js', () => ({ loadNewsSupplyRecords: mocks.news }));
@@ -17,6 +18,7 @@ beforeEach(() => {
   mocks.news.mockReturnValue([]);
   mocks.dart.mockReturnValue([]);
   mocks.disclosures.mockResolvedValue({ schemaVersion: 1, records: [], status: null });
+  mocks.multi.mockReset().mockResolvedValue(null); mocks.single.mockReset().mockResolvedValue(null);
   mocks.collect.mockImplementation(async (codes: string[]) => ({ perSymbol: Object.fromEntries(codes.map((code) => [code, {
     name: code, quote: { code, currentPrice: 10000, fetchedAt: new Date().toISOString() },
     dailyBars: [{ date: '20260917', close: 9000 }, { date: '20260918', close: 20000 }, { date: '20260921', close: 50000 }],
@@ -25,6 +27,31 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
 describe('paper observation collector', () => {
+  it('finalizes one refreshed price for research features and execution after a slow scan', async () => {
+    const quote = Object.freeze({ code: '005930', currentPrice: 10000, per: 10, fetchedAt: new Date().toISOString() });
+    mocks.collect.mockImplementationOnce(async () => {
+      vi.setSystemTime(new Date('2026-09-18T01:05:00Z'));
+      return { perSymbol: Object.freeze({ '005930': { quote, dailyBars: [{ date: '20260917', close: 9000 }],
+        paperFinancials: { symbol: '005930', observedAt: quote.fetchedAt, kis: { bps: 3000 }, dart: null, issues: [] } } }) };
+    });
+    mocks.multi.mockImplementationOnce(async () => new Map([['005930', { code: '005930', currentPrice: 12000, fetchedAt: new Date().toISOString() }]]));
+    const result = await collectPaperExperimentSnapshot([]);
+    expect(result.observations[0]).toMatchObject({ price: 12000, observedAt: result.asOf, features: { values: { pbr: 4, per: null } } });
+    expect(result.observations[0].return1dPct).toBeCloseTo(100 / 3);
+    expect(quote.currentPrice).toBe(10000); expect(quote.fetchedAt).toBe('2026-09-18T01:00:00.000Z');
+    expect(result.marketOpen).toBe(true); expect(mocks.collect).toHaveBeenCalledTimes(1);
+  });
+  it('preserves original research timestamps when end-of-scan refresh fails', async () => {
+    const fetchedAt = new Date().toISOString();
+    mocks.collect.mockImplementationOnce(async () => {
+      vi.setSystemTime(new Date('2026-09-18T01:05:00Z'));
+      return { perSymbol: { '005930': { quote: { code: '005930', currentPrice: 10000, fetchedAt }, dailyBars: [] } } };
+    });
+    const result = await collectPaperExperimentSnapshot([]);
+    expect(result.observations[0]).toMatchObject({ price: 10000, observedAt: fetchedAt });
+    expect(Date.parse(result.asOf) - Date.parse(result.observations[0].observedAt)).toBe(300_000);
+    expect(mocks.multi).toHaveBeenCalledTimes(1); expect(mocks.single).toHaveBeenCalledTimes(1);
+  });
   it('records financial and valuation features from the same source even with short price history', async () => {
     mocks.collect.mockResolvedValue({ perSymbol: { '005930': {
       quote: { code: '005930', currentPrice: 10000, per: 12, fetchedAt: new Date().toISOString() }, dailyBars: [],
@@ -161,6 +188,7 @@ describe('paper observation collector', () => {
     const result = await collectPaperExperimentSnapshot([]);
     expect(result.marketOpen).toBe(false);
     expect(result.observations[0].dailyCloses).toEqual([]);
+    expect(mocks.multi).not.toHaveBeenCalled(); expect(mocks.single).not.toHaveBeenCalled();
   });
 
   it('uses actual calendar hours even when data-fetch override flags are present', () => {

@@ -12,6 +12,7 @@ import { assessPaperNews, recordPaperNewsFacts } from './paperNewsAssessment.js'
 import { observePaperInvestorFlow } from './paperInvestorFlowCollector.js';
 import { refreshPaperDisclosures } from './paperDisclosureCollection.js';
 import { calculatePaperFeatures, addPaperPeerComparison } from './paperObservationFeatures.js';
+import { refreshPaperQuotes } from './paperQuoteRefresh.js';
 
 function codeOf(input: string): string | null {
   const code = input.trim().replace(/\.(KS|KQ)$/i, '');
@@ -71,12 +72,14 @@ export async function collectPaperExperimentSnapshot(
   const codes = [...new Set([...names.keys(), ...news.keys(), ...openSymbols.map(codeOf).filter((code): code is string => code !== null)])];
   const id = `paper_${randomUUID()}`;
   const source = await collectUnifiedSnapshot(codes, { scanCycleId: id, profile: 'PAPER', onProgress });
+  const refreshed = await refreshPaperQuotes(isPaperMarketOpen(startedAt) && isPaperMarketOpen(new Date())
+    ? codes.map(symbol => ({ symbol, quote: source.perSymbol[symbol]?.quote })) : [], startMs);
   const finishedAt = new Date();
   const asOf = finishedAt.toISOString();
   const tradingDate = toKstDateKey(finishedAt);
   const observations: PaperObservation[] = codes.map((symbol) => {
     const data = source.perSymbol[symbol];
-    const quote = data?.quote;
+    const quote = refreshed.get(symbol) ?? data?.quote;
     const quoteMs = Date.parse(quote?.fetchedAt ?? '');
     const issue = !quote ? 'CURRENT_QUOTE_UNAVAILABLE'
       : quote.code !== symbol ? 'CURRENT_QUOTE_SYMBOL_MISMATCH'

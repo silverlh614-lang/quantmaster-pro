@@ -65,8 +65,8 @@ export function PaperAccountRecords({ view }: { view: PaperAccountView }) {
         <h5 className="text-sm font-semibold">{order.side === 'BUY' ? '매수' : '매도'} · {order.name} · {statuses[order.status]} · {order.quantity}주</h5>
         <p>{order.signalLabel} · {order.purpose === 'EXPLORATION' ? '탐색' : '검증'}</p>
         <p>신호 {stamp(order.signalAt)} · 주문 {stamp(order.submittedAt)}</p><p>신호 근거: {order.signalReason}</p><p>{order.statusReason}</p>
-        {order.side === 'BUY' && <p>계좌 선택 기준: {order.selectionId ? account.selections?.find(choice => choice.id === order.selectionId)?.tradingDate ?? '기록 확인 필요' : '정책 적용 이전 거래'}</p>}
-        {order.side === 'BUY' && <p>당시 매수 한도 {money(order.budget)}</p>}
+        {order.side === 'BUY' && <p>계좌 선택 기준: {order.selectionId ? account.selections?.find(choice => choice.id === order.selectionId)?.tradingDate ?? '기록 확인 필요' : '선택 근거 미기록'}</p>}
+        {order.side === 'BUY' && <p>주문별 매수 한도 {money(order.budget)}{!order.fill && order.budget === 0 ? ' · 계좌 잔액과 별개이며, 조건 검사에서 거절되면 예산을 배정하지 않습니다.' : ''}</p>}
         {order.fill && <><p>체결 {stamp(order.fill.at)} · 기준 관측가 {money(order.fill.quote.price)} · 가상 체결가 {money(order.fill.price)}</p>
           <p>수수료 {money(order.fill.fee)} · 세금 {money(order.fill.tax)} · 현금 증감 {money(order.fill.cashDelta)}</p>
           <p>가격 출처 {order.fill.quote.source} · 관측 {stamp(order.fill.quote.observedAt)}</p></>}

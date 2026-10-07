@@ -26,7 +26,7 @@ export interface PaperAccountOrder {
   quantity: number; budget: number; costModel: PaperCostModel;
   status: 'PENDING' | 'FILLED' | 'REJECTED' | 'EXPIRED'; statusReason: string;
   fill: PaperAccountFill | null;
-  /** Absent only in orders written before account policy selection was introduced. */
+  /** Absent in legacy records or when no daily policy selection was available. */
   selectionId?: string;
 }
 export interface PaperAccountLedger {

@@ -65,15 +65,22 @@ export function buildPaperAccountView(account: PaperAccountLedger | null, asOf: 
     unrealizedPnl: complete ? money(positions.reduce((sum, position) => sum + position.unrealizedPnl!, 0)) : null,
     returnPct: equity === null ? null : (equity / account.config.initialCash - 1) * 100 };
 }
-function freshQuote(snapshot: PaperSnapshot, symbol: string): PaperAccountQuote | null {
+function assessQuote(snapshot: PaperSnapshot, symbol: string, notBefore?: string): { quote: PaperAccountQuote | null; refusal: string | null } {
   const observation = snapshot.observations.find(item => item.symbol === symbol);
   const age = Date.parse(snapshot.asOf) - Date.parse(observation?.observedAt ?? '');
-  if (!snapshot.marketOpen || !isKrxTradingDay(snapshot.tradingDate) || !observation || observation.issue
-    || !['KIS', 'KIS_REST_REQUEST_OBSERVED', 'KRX'].includes(observation.source)
-    || !Number.isFinite(observation.price) || observation.price! <= 0 || !Number.isFinite(age) || age < 0 || age > ACCOUNT_QUOTE_MAX_AGE_MS
-    || toKstDateKey(new Date(snapshot.asOf)) !== snapshot.tradingDate
-    || toKstDateKey(new Date(observation.observedAt)) !== snapshot.tradingDate) return null;
-  return { price: observation.price!, observedAt: observation.observedAt, source: observation.source, snapshotId: snapshot.id };
+  let refusal: string | null = null;
+  if (!snapshot.marketOpen || !isKrxTradingDay(snapshot.tradingDate)) refusal = '정규장 실측 가격 대기';
+  else if (!observation) refusal = '해당 종목 가격 관측 없음';
+  else if (observation.issue) refusal = `가격 수집 오류: ${observation.issue}`;
+  else if (!['KIS', 'KIS_REST_REQUEST_OBSERVED', 'KRX'].includes(observation.source)) refusal = '체결에 사용할 수 없는 가격 출처';
+  else if (!Number.isFinite(observation.price) || observation.price! <= 0) refusal = '유효한 현재가 없음';
+  else if (!Number.isFinite(age) || age < 0) refusal = '가격 관측 시각 오류 또는 미래 시각';
+  else if (toKstDateKey(new Date(snapshot.asOf)) !== snapshot.tradingDate
+    || toKstDateKey(new Date(observation.observedAt)) !== snapshot.tradingDate) refusal = '당일 거래일 가격 아님';
+  else if (notBefore && Date.parse(observation.observedAt) < Date.parse(notBefore)) refusal = '계좌 시작 이전에 수집한 가격';
+  else if (age > ACCOUNT_QUOTE_MAX_AGE_MS) refusal = `가격 유효시간 초과 · ${Math.ceil(age / 1000)}초 전 관측 (허용 ${ACCOUNT_QUOTE_MAX_AGE_MS / 1000}초) · 관측 ${observation.observedAt}`;
+  return { refusal, quote: refusal ? null : { price: observation!.price!, observedAt: observation!.observedAt,
+    source: observation!.source, snapshotId: snapshot.id } };
 }
 function orderFor(trade: PaperStrategyTrade, side: 'BUY' | 'SELL', snapshot: PaperSnapshot): PaperAccountOrder {
   const identity = tradeSignalIdentity(trade);
@@ -98,7 +105,7 @@ export function advancePaperAccount(current: PaperAccountLedger, strategy: Paper
   const orders = new Map(account.orders.map(order => [order.id, order]));
   // Exits release cash before new signals compete for the remaining budget.
   for (const buy of accountBalances(account).buys.values()) {
-    const quote = freshQuote(snapshot, buy.symbol);
+    const { quote } = assessQuote(snapshot, buy.symbol);
     if (quote && Date.parse(quote.observedAt) >= Date.parse(account.marks[buy.tradeId]?.observedAt ?? buy.fill!.quote.observedAt)) account.marks[buy.tradeId] = quote;
     const trade = signals.get(buy.tradeId);
     if (!trade?.exit || Date.parse(trade.exit.decisionAt) > now) continue;
@@ -120,10 +127,10 @@ export function advancePaperAccount(current: PaperAccountLedger, strategy: Paper
     if (trade.entrySnapshotId !== snapshot.id || trade.status !== 'OPEN') {
       order.status = 'EXPIRED'; order.statusReason = '신호 발생 시점 처리 누락 · 과거 가격 소급 체결 금지'; continue;
     }
-    const balances = accountBalances(account), quote = freshQuote(snapshot, trade.symbol);
+    const balances = accountBalances(account), checkedQuote = assessQuote(snapshot, trade.symbol, account.startedAt);
     if ([...balances.buys.values()].some(buy => buy.symbol === trade.symbol)
       || account.orders.some(prior => prior !== order && prior.side === 'BUY' && prior.status === 'PENDING' && prior.symbol === trade.symbol)) refusal = '동일 종목 보유 중';
-    if (!quote || Date.parse(quote.observedAt) < Date.parse(account.startedAt)) refusal = refusal || '계좌 시작 이후의 신선한 실측 가격 없음';
+    refusal = refusal || checkedQuote.refusal || '';
     if (refusal) { order.status = 'REJECTED'; order.statusReason = refusal; continue; }
     // Executable signals are collected before allocating cash, avoiding ticker-order concentration.
   }
@@ -131,7 +138,7 @@ export function advancePaperAccount(current: PaperAccountLedger, strategy: Paper
   const balances = accountBalances(account), equity = buildPaperAccountView(account, snapshot.asOf).equity;
   const budget = candidates.length ? Math.floor(Math.min(balances.cash / candidates.length, (equity ?? 0) * account.config.maxPositionPct / 100) * 100) / 100 : 0;
   for (const order of candidates) {
-    const quote = freshQuote(snapshot, order.symbol)!;
+    const quote = assessQuote(snapshot, order.symbol, account.startedAt).quote!;
     order.budget = budget;
     const unit = quote!.price * (1 + order.costModel.slippageRate + order.costModel.buyFeeRate);
     order.quantity = Math.max(0, Math.floor(order.budget / unit));

@@ -69,6 +69,19 @@ describe('virtual account', () => {
     f.trade.entryAt = f.snapshot.asOf; f.trade.entrySnapshotId = 'missed-snapshot';
     expect(advancePaperAccount(f.account, f.strategy, f.snapshot).orders[0]).toMatchObject({ status: 'EXPIRED', fill: null });
   });
+  it('records stale price age and never retries a rejected order against a later quote', () => {
+    const f = fixture();
+    f.snapshot.asOf = new Date(Date.parse(f.snapshot.asOf) + 162_504).toISOString();
+    f.trade.entryAt = f.snapshot.asOf;
+    const rejected = advancePaperAccount(f.account, f.strategy, f.snapshot);
+    expect(rejected.orders[0]).toMatchObject({ status: 'REJECTED', budget: 0, quantity: 0, fill: null });
+    expect(rejected.orders[0].statusReason).toContain('163초 전 관측 (허용 120초)');
+    expect(rejected.orders[0].statusReason).toContain(f.snapshot.observations[0].observedAt);
+    next(f);
+    const later = advancePaperAccount(rejected, f.strategy, f.snapshot);
+    expect(later.orders).toEqual(rejected.orders); expect(accountBalances(later).cash).toBe(10000);
+    assertPaperAccount(later);
+  });
   it('persists pending sells until fresh prices arrive, without backdating exit fills', () => {
     const f = fixture(), bought = advancePaperAccount(f.account, f.strategy, f.snapshot);
     next(f, null); close(f);
