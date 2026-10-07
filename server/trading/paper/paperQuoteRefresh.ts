@@ -1,7 +1,7 @@
 // @responsibility Refresh aging prices before finalizing a paper observation snapshot.
 import { fetchKisMultiQuotes, fetchKisStockFullQuote, KIS_MULTI_QUOTE_LIMIT } from '../../clients/kisClient.js';
 
-type Quote = { code: string; currentPrice: number | null; fetchedAt: string; per?: number | null };
+type Quote = { code: string; currentPrice: number | null; fetchedAt: string; per?: number | null; eps?: number | null };
 type Target = { symbol: string; quote: Quote | null | undefined };
 
 /** Leave 30 seconds of headroom against the account's unchanged 120-second execution limit. */
@@ -16,12 +16,17 @@ export async function refreshPaperQuotes(targets: Target[], scanStartedAt: numbe
     && startedAt - Date.parse(quote.fetchedAt) >= REFRESH_AFTER_MS)
     .sort((a, b) => Date.parse(a.quote!.fetchedAt) - Date.parse(b.quote!.fetchedAt));
   const refreshed = new Map<string, Quote>(), single: string[] = [];
+  const scanEps = new Map(pending.map(({ symbol, quote }) => [symbol, quote!.eps]));
   const accept = (symbol: string, quote: Quote | null | undefined, requestedAt: number): boolean => {
     if (!quote || quote.code !== symbol || !Number.isFinite(quote.currentPrice) || quote.currentPrice! <= 0
       || !Number.isFinite(Date.parse(quote.fetchedAt)) || Date.parse(quote.fetchedAt) < requestedAt
       || Date.parse(quote.fetchedAt) > Date.now()) return false;
-    // Multi-price responses omit PER. Never attach an old PER to a newly observed price.
-    refreshed.set(symbol, { code: symbol, currentPrice: quote.currentPrice, fetchedAt: quote.fetchedAt, per: quote.per ?? null });
+    // Multi-price responses omit PER. Never attach an old PER to a newly observed price; KIS PER is
+    // price / EPS, so it is recomputed at the new price from this scan's positive EPS, otherwise unknown.
+    const eps = scanEps.get(symbol);
+    const per = quote.per !== undefined ? quote.per
+      : typeof eps === 'number' && Number.isFinite(eps) && eps > 0 ? Math.round(quote.currentPrice! / eps * 100) / 100 : null;
+    refreshed.set(symbol, { code: symbol, currentPrice: quote.currentPrice, fetchedAt: quote.fetchedAt, per });
     return true;
   };
   for (let offset = 0; offset < pending.length && Date.now() < deadline; offset += KIS_MULTI_QUOTE_LIMIT) {

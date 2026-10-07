@@ -26,6 +26,15 @@ describe('paper final quote refresh', () => {
     expect(result.get('000000')).toMatchObject({ currentPrice: 110, per: null, fetchedAt: new Date().toISOString() });
     expect(mocks.single).not.toHaveBeenCalled();
   });
+  it('recomputes PER at a multi-quote price from the scan EPS, never reusing the old PER', async () => {
+    const targets = ['005930', '000660', '035420', '207940'].map((symbol, index) => {
+      const item = target(symbol);
+      return { ...item, quote: { ...item.quote, eps: [8, -5, 0, null][index] } };
+    });
+    const result = await refreshPaperQuotes(targets, start);
+    expect(result.get('005930')).toMatchObject({ currentPrice: 110, per: 13.75 });
+    for (const symbol of ['000660', '035420', '207940']) expect(result.get(symbol)?.per).toBeNull();
+  });
   it('does not requery fresh quotes or legitimize pre-scan cached data', async () => {
     vi.setSystemTime(start + 89_999);
     expect((await refreshPaperQuotes([target()], start)).size).toBe(0);
@@ -41,8 +50,10 @@ describe('paper final quote refresh', () => {
     if (issue === 'future') quote.fetchedAt = new Date(Date.now() + 1).toISOString();
     if (issue === 'invalidTime') quote.fetchedAt = 'invalid';
     mocks.multi.mockResolvedValue(issue === 'missing' ? null : new Map([['005930', quote]]));
-    mocks.single.mockResolvedValue({ code: '005930', currentPrice: 120, per: 12, fetchedAt: new Date().toISOString() });
-    expect((await refreshPaperQuotes([target()], start)).get('005930')).toMatchObject({ currentPrice: 120, per: 12 });
+    mocks.single.mockResolvedValue({ code: '005930', currentPrice: 120, per: 12, eps: 9, fetchedAt: new Date().toISOString() });
+    const source = target();
+    expect((await refreshPaperQuotes([{ ...source, quote: { ...source.quote, eps: 8 } }], start)).get('005930'))
+      .toMatchObject({ currentPrice: 120, per: 12 });
     expect(mocks.single).toHaveBeenCalledWith('005930');
   });
   it('stops starting requests at the budget without relabeling unanswered prices', async () => {
