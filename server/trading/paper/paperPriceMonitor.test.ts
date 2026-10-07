@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { legacyStrategyLedger } from './paperStrategyFixtures.js';
 import type { PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
-const mocks = vi.hoisted(() => ({ load: vi.fn(), advance: vi.fn(), collect: vi.fn(), paused: false, open: true }));
+const mocks = vi.hoisted(() => ({ load: vi.fn(), advance: vi.fn(), collect: vi.fn(), accountHeld: vi.fn(), paused: false, open: true }));
+vi.mock('./paperAccountRuntime.js', () => ({ virtualAccountHoldings: mocks.accountHeld }));
 vi.mock('../../state.js', () => ({ getAutoTradePaused: () => mocks.paused }));
 vi.mock('./paperExperimentCollector.js', () => ({ isPaperMarketOpen: () => mocks.open }));
 vi.mock('./paperPriceCollector.js', () => ({ collectPaperPriceSnapshot: mocks.collect }));
@@ -13,11 +14,20 @@ const snapshot = (): PaperSnapshot => ({ id: 'paper_prices_test', quoteOnly: tru
 beforeEach(() => {
   vi.resetModules(); vi.clearAllMocks(); vi.useFakeTimers(); vi.setSystemTime('2026-09-18T01:01:00Z');
   mocks.paused = false; mocks.open = true;
+  mocks.accountHeld.mockReturnValue([]);
   mocks.load.mockReturnValue({ ledger: legacyStrategyLedger() });
   mocks.collect.mockImplementation(async () => snapshot()); mocks.advance.mockReturnValue({ closedCount: 0 });
 });
 afterEach(() => vi.useRealTimers());
 describe('holding price monitor', () => {
+  it('keeps virtual-account holdings monitored after signal research has ended', async () => {
+    mocks.load.mockReturnValue({ ledger: { ...legacyStrategyLedger(), trades: [] } });
+    mocks.accountHeld.mockReturnValue([{ symbol: '005930', name: '삼성전자' }]);
+    const { runPaperPriceMonitor } = await import('./paperPriceMonitor.js');
+    await runPaperPriceMonitor();
+    expect(mocks.collect).toHaveBeenCalledWith([{ symbol: '005930', name: '삼성전자' }]);
+    expect(mocks.advance).toHaveBeenCalledOnce();
+  });
   it('coalesces overlap and reads the ledger after collection finishes', async () => {
     let resolve!: (value: PaperSnapshot) => void;
     mocks.collect.mockImplementation(() => new Promise<PaperSnapshot>(done => { resolve = done; }));

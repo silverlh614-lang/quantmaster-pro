@@ -39,8 +39,28 @@ import { loadPaperFinancialCache } from '../../persistence/paperFinancialRepo.js
 import { getPaperMorningReview, getPaperMorningReviewSafely } from '../../trading/paper/paperMorningRuntime.js';
 import { formatPaperMorningFollowup } from '../../alerts/paperMorningFollowup.js';
 import { readPaperStorageMaintenance } from '../../persistence/paperStorageMaintenance.js';
+import { readVirtualAccount, startVirtualAccount, pauseVirtualAccountBuys } from '../../trading/paper/paperAccountRuntime.js';
+import { assertAccountConfig } from '../../trading/paper/paperAccount.js';
 
 const router = Router();
+router.get('/shadow/virtual-account', (_req, res) => {
+  try { res.json(readVirtualAccount()); }
+  catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
+router.post('/shadow/virtual-account', (req, res) => {
+  try { assertAccountConfig(req.body); }
+  catch (error) { return res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
+  try { return res.status(201).json(startVirtualAccount(req.body)); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return res.status(message.startsWith('VIRTUAL_ACCOUNT_EXISTS:') ? 409 : 500).json({ error: message });
+  }
+});
+router.patch('/shadow/virtual-account/buys', (req, res) => {
+  if (typeof req.body?.id !== 'string' || typeof req.body?.paused !== 'boolean') return res.status(400).json({ error: '계좌 ID와 신규 매수 정지 여부가 필요합니다.' });
+  try { return res.json(pauseVirtualAccountBuys(req.body.id, req.body.paused)); }
+  catch (error) { return res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
 router.get('/shadow/storage', (_req, res) => res.json(readPaperStorageMaintenance()));
 
 router.get('/shadow/morning-recommendation', (req, res) => {

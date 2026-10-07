@@ -5,7 +5,10 @@ const mocks = vi.hoisted(() => ({
   view: vi.fn(), paperScan: vi.fn(), publicScan: vi.fn(), mode: 'SHADOW',
   legacyRead: vi.fn(), legacySave: vi.fn(), brokerQuote: vi.fn(), reconcile: vi.fn(),
   morning: vi.fn(), recommendation: vi.fn(), evaluation: vi.fn(), bot: vi.fn(), financials: vi.fn(),
+  accountRead: vi.fn(), accountStart: vi.fn(), accountPause: vi.fn(),
 }));
+vi.mock('../../trading/paper/paperAccountRuntime.js', () => ({ readVirtualAccount: mocks.accountRead,
+  startVirtualAccount: mocks.accountStart, pauseVirtualAccountBuys: mocks.accountPause }));
 vi.mock('../../trading/paper/paperEvaluation.js', () => ({ buildPaperEvaluation: mocks.evaluation }));
 vi.mock('../../persistence/paperBotRepo.js', () => ({ loadPaperBotState: mocks.bot }));
 vi.mock('../../persistence/paperFinancialRepo.js', () => ({ loadPaperFinancialCache: mocks.financials }));
@@ -64,6 +67,29 @@ function response(): ResponseStub {
 }
 
 describe('paper experiment API registration', () => {
+  it('configures only the isolated virtual account and rejects malformed setup', async () => {
+    const config = { initialCash: 10000000, maxPositionPct: 20, includeExploration: false };
+    mocks.accountStart.mockReturnValue({ account: { id: 'virtual' } });
+    const res = response();
+    await handler(shadowRouter, 'post', '/shadow/virtual-account')({ body: config }, res);
+    expect(res.statusCode).toBe(201); expect(mocks.accountStart).toHaveBeenCalledWith(config);
+    const invalid = response();
+    await handler(shadowRouter, 'post', '/shadow/virtual-account')({ body: { ...config, initialCash: -1 } }, invalid);
+    expect(invalid.statusCode).toBe(400); expect(mocks.accountStart).toHaveBeenCalledTimes(1);
+    mocks.accountStart.mockImplementationOnce(() => { throw new Error('VIRTUAL_ACCOUNT_EXISTS: exists'); });
+    const conflict = response();
+    await handler(shadowRouter, 'post', '/shadow/virtual-account')({ body: config }, conflict);
+    expect(conflict.statusCode).toBe(409);
+    expect(mocks.brokerQuote).not.toHaveBeenCalled(); expect(mocks.paperScan).not.toHaveBeenCalled(); expect(mocks.legacySave).not.toHaveBeenCalled();
+  });
+  it('exposes account read failures and validates pause payloads', async () => {
+    mocks.accountRead.mockImplementationOnce(() => { throw new Error('corrupt ledger'); });
+    const failed = response(); await handler(shadowRouter, 'get', '/shadow/virtual-account')({}, failed);
+    expect(failed.statusCode).toBe(500); expect(failed.body).toEqual({ error: 'corrupt ledger' });
+    const invalid = response();
+    await handler(shadowRouter, 'patch', '/shadow/virtual-account/buys')({ body: { id: 'virtual', paused: 'false' } }, invalid);
+    expect(invalid.statusCode).toBe(400); expect(mocks.accountPause).not.toHaveBeenCalled();
+  });
   it('returns older strategy records beyond the 200-trade preview without running collection', async () => {
     const trades = Array.from({ length: 205 }, (_, index) => ({ id: `trade-${index}` }));
     mocks.view.mockImplementation((full: boolean) => ({ strategy: { totalCount: trades.length, trades: full ? trades : trades.slice(-200) } }));

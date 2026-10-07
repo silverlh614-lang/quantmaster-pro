@@ -13,6 +13,7 @@ import { assertPaperTradeMeasurement } from './paperTradeMeasurementValidation.j
 import { savePaperTradeMeasurementBatch, recordPaperTradeMeasurementFailure, readPaperTradeMeasurementHistory } from '../../persistence/paperTradeMeasurementRepo.js';
 import { capturePaperMorningSource, capturePaperMorningTracking, linkPaperMorningRecommendations } from './paperMorningRuntime.js';
 import { queuePaperProgramResearch, readPaperProgramProposals, readPaperProgramResearch } from './paperProgramResearch.js';
+import { captureVirtualAccount } from './paperAccountRuntime.js';
 
 export interface PaperStrategyState { ledger: PaperStrategyLedger | null; error?: string }
 let lastFailure: string | undefined;
@@ -54,6 +55,7 @@ export function advancePaperStrategy(
       });
     }
     savePaperStrategyLedger(ledger);
+    captureVirtualAccount(ledger, snapshot);
     capturePaperMorningTracking(ledger, snapshot);
     if (!snapshot.quoteOnly) capturePaperMorningSource(ledger, snapshot);
     if (measurementError) recordPaperTradeMeasurementFailure(snapshot.id, snapshot.asOf, 0, measurementError, ledger.trades);

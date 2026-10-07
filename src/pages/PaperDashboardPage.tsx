@@ -9,6 +9,7 @@ import type { View } from '../stores/useSettingsStore';
 import { VIEW_LABELS } from '../config/viewRegistry';
 import { PaperOverview } from '../components/autoTrading/PaperOverview';
 import { PaperMorningReviewPanel } from '../components/autoTrading/PaperMorningReviewPanel';
+import { PaperAccountPanel } from '../components/autoTrading/PaperAccountPanel';
 
 const Observations = lazy(() => import('../components/autoTrading/PaperExperimentPanel').then(module => ({ default: module.PaperExperimentResults })));
 const Strategy = lazy(() => import('../components/autoTrading/PaperStrategyPanel').then(module => ({ default: module.PaperStrategyPanel })));
@@ -65,6 +66,7 @@ export function PaperDashboardPage({ page }: { page: View }) {
       {page === 'DASHBOARD' && <PaperMorningReviewPanel />}
       {page === 'DASHBOARD' && overview.data && <PaperOverview view={overview.data} mode={mode} paused={paused} refreshFailed={overview.isError} />}
       {page === 'PAPER_OBSERVATIONS' && observations.data && <Observations view={observations.data} showStrategy={false} />}
+      {page === 'PAPER_STRATEGY' && <PaperAccountPanel />}
       {page === 'PAPER_STRATEGY' && strategy.data && <Strategy view={strategy.data} />}
       {page === 'PAPER_STRATEGY' && strategy.isSuccess && !strategy.data && <div className="workspace-empty">첫 스캔 이후 전략 판단과 근거가 표시됩니다.</div>}
       {page === 'PAPER_RESEARCH' && research.isSuccess && <Research view={research.data ?? undefined} />}

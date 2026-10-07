@@ -8,9 +8,11 @@ const state = vi.hoisted(() => ({
   strategy: { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null } as PaperStrategyLedger,
   collect: vi.fn(), saveBaseline: vi.fn(), saveStrategy: vi.fn(), loadStrategy: vi.fn(), loadBaseline: vi.fn(),
   saveBatch: vi.fn(), recordFailure: vi.fn(), readHistory: vi.fn(), maintain: vi.fn(), programQueue: vi.fn(), holidayResearch: vi.fn(),
+  account: vi.fn(),
   measurementHistory: { lastRecordedAt: null, failedBatchCount: 0, unrecordedPointCount: 0 } as PaperTradeMeasurementHistory,
   archived: null as null | ((symbol: string, date: string, close: number) => boolean),
 }));
+vi.mock('./paperAccountRuntime.js', () => ({ captureVirtualAccount: state.account }));
 vi.mock('./paperHolidayResearch.js', () => ({ runPaperHolidayResearch: state.holidayResearch }));
 vi.mock('./paperProgramResearch.js', () => ({ queuePaperProgramResearch: state.programQueue,
   readPaperProgramProposals: () => [], readPaperProgramResearch: () => ({ state: 'IDLE', proposals: [], message: '대기', attemptedAt: null, completedAt: null }) }));
@@ -198,6 +200,8 @@ describe('strategy integration in the default Shadow runner', () => {
     expect(state.maintain.mock.invocationCallOrder[0]).toBeLessThan(state.collect.mock.invocationCallOrder[0]);
     expect(state.saveBaseline.mock.invocationCallOrder[0]).toBeLessThan(state.saveStrategy.mock.invocationCallOrder[0]);
     expect(state.saveStrategy.mock.invocationCallOrder[0]).toBeLessThan(state.saveBatch.mock.invocationCallOrder[0]);
+    expect(state.saveStrategy.mock.invocationCallOrder[0]).toBeLessThan(state.account.mock.invocationCallOrder[0]);
+    expect(state.account).toHaveBeenCalledWith(expect.objectContaining({ trades: state.strategy.trades }), strategyTestSnapshot());
     expect(state.saveBatch).toHaveBeenCalledWith([expect.objectContaining({ kind: 'ENTRY', action: 'BUY',
       snapshotId: strategyTestSnapshot().id, tradeId: state.strategy.trades[0].id })], state.strategy.trades);
     expect(state.strategy.trades[0].measurement).toMatchObject({ fromEntry: true, pointCount: 1 });

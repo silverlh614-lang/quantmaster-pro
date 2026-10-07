@@ -4,6 +4,7 @@ import { getAutoTradePaused } from '../../state.js';
 import { isPaperMarketOpen } from './paperExperimentCollector.js';
 import { collectPaperPriceSnapshot } from './paperPriceCollector.js';
 import { advancePaperStrategy, loadPaperStrategyState } from './paperStrategyRuntime.js';
+import { virtualAccountHoldings } from './paperAccountRuntime.js';
 
 const attempts = new Map<string, number>();
 const quotes = new Map<string, string>();
@@ -33,13 +34,15 @@ async function monitor(): Promise<void> {
     if (!state.ledger) throw new Error(state.error ?? '전략 원장 없음');
     const eligible = state.ledger.trades.filter(item => item.status === 'OPEN'
       || item.exitResearch && !item.exitResearch.completedAt && Date.parse(item.exitResearch.watchUntilAt) > started);
-    const active = new Set(eligible.map(item => item.symbol));
+    const accountHeld = virtualAccountHoldings();
+    const active = new Set([...eligible, ...accountHeld].map(item => item.symbol));
     for (const symbol of attempts.keys()) if (!active.has(symbol)) { attempts.delete(symbol); quotes.delete(symbol); }
     // Held observed-exit positions first: their sell checks never wait behind D5-only research symbols.
     const held = new Set(eligible.filter(item => item.status === 'OPEN' && item.policy.exitModel === 'ADAPTIVE_OBSERVED')
       .map(item => item.symbol));
+    for (const item of accountHeld) held.add(item.symbol);
     // Within each group, oldest attempted symbols first prevents failed quotes or large portfolios starving other holdings.
-    const symbols = [...new Map(eligible.map(item => [item.symbol, item])).values()]
+    const symbols = [...new Map([...eligible, ...accountHeld].map(item => [item.symbol, item])).values()]
       .sort((a, b) => Number(held.has(b.symbol)) - Number(held.has(a.symbol))
         || (attempts.get(a.symbol) ?? 0) - (attempts.get(b.symbol) ?? 0) || a.symbol.localeCompare(b.symbol));
     // A batch of 30 is one KIS multi-stock quote request.
