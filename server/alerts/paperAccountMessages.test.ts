@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { PaperBotState } from '../persistence/paperBotRepo.js';
 import type { PaperAccountOrder } from '../../src/types/paperAccount.js';
 import { accountFill, createPaperAccount, buildPaperAccountView } from '../trading/paper/paperAccount.js';
-import { enqueueAccountExecutions, enqueueAccountHealth, formatAccountSummary, retireSignalTradeAlerts } from './paperAccountMessages.js';
+import { enqueueAccountExecutions, enqueueAccountHealth, formatAccountExecutions, formatAccountSummary, retireSignalTradeAlerts } from './paperAccountMessages.js';
 import { accountSignalFixture } from '../trading/paper/paperAccountFixtures.js';
 import { advancePaperAccount } from '../trading/paper/paperAccount.js';
 
@@ -70,7 +70,31 @@ describe('account-only notifications', () => {
       { ...buy.fill!.quote, price: 11000 }, buy.costModel, now.toISOString(), 't0:SELL:fill') });
     const queue = state(); queue.accountInitializedAt = '2026-09-18T00:00:00Z';
     enqueueAccountExecutions(queue, view, now);
-    expect(queue.messages.find(item => item.channel === 'TRADE')!.message).toContain('실현손익 37,000원');
+    expect(queue.messages.find(item => item.channel === 'TRADE')!.message).toContain('순수익률 <b>+10.00%</b> · 실현손익 +37,000원');
+  });
+  it('uses the approved CH1 layout for account fills and keeps evidence for CH2', () => {
+    const view = accountView(), buy = view.account!.orders[0];
+    buy.name = '지투지바이오'; buy.symbol = '456160'; buy.quantity = 10;
+    buy.fill = accountFill('BUY', 10, { ...buy.fill!.quote, price: 43650, observedAt: '2026-10-06T00:10:00Z' }, buy.costModel, '2026-10-06T00:10:30Z', 't0:BUY:fill');
+    const sell = { ...buy, id: 't0:SELL', side: 'SELL' as const, quantity: 10,
+      signalReason: '관측 수익 고점 대비 반납 · 관측 45,050원으로 가상 청산 · D일과 독립적으로 판단',
+      fill: accountFill('SELL', 10, { ...buy.fill.quote, price: 45050, observedAt: '2026-10-07T04:42:00Z' }, buy.costModel, '2026-10-07T04:42:20Z', 't0:SELL:fill') };
+    const message = formatAccountExecutions(view.account!, [sell]);
+    expect(message).toBe(['<b>① 매매 · 매수 0건 · 매도 1건</b>', 'Shadow 가상 계좌 · 실제 주문 없음', '',
+      '🔴 <b>매도 · 지투지바이오 (456160)</b>', '순수익률 <b>+3.21%</b> · 실현손익 +14,000원', '10주 · 매수 43,650원 → 매도 45,050원',
+      '사유: 수익 고점 대비 반납', '매수 10. 06. 09:10 → 매도 10. 07. 13:42', '✅ 진입: 검증 통과 규칙', '',
+      '근거·복기: ② 판단 채널 · 전체 내역 대시보드 가상 계좌'].join('\n'));
+    expect(formatAccountExecutions(view.account!, [buy])).toContain(['🟢 <b>매수 · 지투지바이오 (456160)</b>', '<b>10주 · 43,650원</b>',
+      '매수 10. 06. 09:10 · 투입 436,500원', '✅ 검증 통과 가상매수'].join('\n'));
+    for (const [reason, label] of [['비용 차감 손실 제한 · 관측', '손실 제한'], ['진입 조건의 지속적인 약화 · 관측', '진입 근거 약화'],
+      ['진입 시 확정한 D3(2026-10-10) 종가 1원으로 가상 청산', '예약 매도'], ['<새 매도> · 상세', '&lt;새 매도&gt;']]) {
+      expect(formatAccountExecutions(view.account!, [{ ...sell, signalReason: reason }])).toContain(`사유: ${label}\n`);
+    }
+    const exploration = formatAccountExecutions(view.account!, [{ ...sell, purpose: 'EXPLORATION' }]);
+    expect(exploration).toContain('🧪 진입: 탐색 규칙 · 검증 전'); expect(exploration).not.toContain('검증 통과');
+    const unmatched = formatAccountExecutions({ ...view.account!, orders: [] }, [sell]);
+    expect(unmatched).toContain('순수익률·실현손익 대사 미확인\n10주 · 매수 미확인 → 매도 45,050원');
+    expect(formatAccountExecutions(view.account!, [sell], true)).toContain('판단: 관측 수익 고점 대비 반납 · 관측 45,050원으로 가상 청산');
   });
   it('retires pending old signal alerts but preserves sent originals and account retries', () => {
     const queue = state(); queue.accountInitializedAt = '2026-09-18T00:00:00Z'; enqueueAccountExecutions(queue, accountView(), now);
