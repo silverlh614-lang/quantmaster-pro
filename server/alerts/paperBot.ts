@@ -15,7 +15,7 @@ import { readVirtualAccount } from '../trading/paper/paperAccountRuntime.js';
 import { enqueueAccountExecutions, enqueueAccountHealth, formatAccountSummary, retireSignalTradeAlerts } from './paperAccountMessages.js';
 import { isPaperMarketOpen } from '../trading/paper/paperExperimentCollector.js';
 import { maintainGlobalMorningNews, getGlobalMorningMessage } from './globalNewsRuntime.js';
-import { formatPaperResearchChanges } from './paperResearchMessages.js';
+import { formatPaperIntraday, formatPaperResearchChanges } from './paperResearchMessages.js';
 import type { PaperAdaptiveRule, PaperAdaptiveState } from '../../src/types/paperAdaptive.js';
 import type { PaperMorningReport } from '../../src/types/paperMorning.js';
 import { getOrCreatePaperMorningReport, reconcilePaperMorningDelivery } from '../trading/paper/paperMorningRuntime.js';
@@ -67,7 +67,8 @@ export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentV
     // A loading report is retried next minute instead of consuming the weekly slot.
     if (slot.kind === 'morning' ? !morning : !view && slot.kind !== 'recommendation') continue;
     if (slot.kind === 'weekly' && !view?.research && !view?.strategy?.adaptive) continue;
-    if (slot.kind === 'intraday' && (!account?.account || account.error || paused || !hasFreshPaperDecisions(view, now))) continue;
+    const intraday = slot.kind === 'intraday' ? intradayReport(view, account, date, now, paused) : null;
+    if (slot.kind === 'intraday' && !intraday) continue;
     const expiresAt = new Date(Date.parse(`${date}T00:00:00+09:00`) + (slot.minute + slot.graceMinutes) * MINUTE).toISOString();
     if (slot.kind === 'recommendation') {
       if (!recommendation) continue;
@@ -84,7 +85,7 @@ export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentV
     }
     const message = slot.kind === 'morning' ? morning!()
       : slot.kind === 'weekly' ? `<b>신호 검증 연구 · 계좌 성과와 별도</b>\n${formatPaperResearch(view!, now)}`
-        : slot.kind === 'intraday' ? formatAccountSummary(account, now)
+        : slot.kind === 'intraday' ? intraday
           : `<b>신호 검증 연구 · 계좌 성과와 별도</b>\n${formatPaperReport(view!, slot.kind, date, [], now)}`;
     if (!message) continue;
     const channel = slot.kind === 'morning' ? ChannelSemantic.REGIME
@@ -93,6 +94,13 @@ export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentV
     if (account?.account && (slot.kind === 'close' || slot.kind === 'weekly')) enqueue(state, { id: `${id}:account`, kind: slot.kind, channel,
       message: formatAccountSummary(account, now), createdAt: now.toISOString(), expiresAt });
   }
+}
+
+/** A started account reports itself; before it starts, the signal check keeps the slot from going silent. */
+function intradayReport(view: PaperExperimentView | undefined, account: PaperAccountView | undefined, date: string, now: Date, paused: boolean): string | null {
+  // An unreadable account may exist, so neither summary is substituted; the account health DM reports it.
+  if (!account || account.error || paused || !hasFreshPaperDecisions(view, now)) return null;
+  return account.account ? formatAccountSummary(account, now) : formatPaperIntraday(view!, date, now);
 }
 
 function hasFreshPaperDecisions(view: PaperExperimentView | undefined, now: Date): boolean {
@@ -240,8 +248,10 @@ async function deliverPending(state: PaperBotState, now: Date, view: PaperExperi
     const attemptAt = message.kind === 'recommendation' ? currentTime() : now;
     if (Date.parse(message.expiresAt) <= attemptAt.getTime()) { message.state = 'EXPIRED'; savePaperBotState(state); continue; }
     if (message.kind === 'intraday') {
-      if (!account?.account || account.error || paused || !hasFreshPaperDecisions(view, now)) continue;
-      message.message = formatAccountSummary(account, now);
+      // The slot ID is paper:intraday:<date>:<minute>; content is rebuilt from what is current at delivery.
+      const content = intradayReport(view, account, message.id.split(':')[2], now, paused);
+      if (!content) continue;
+      message.message = content;
     }
     message.attempts++;
     message.lastAttemptAt = attemptAt.toISOString();
