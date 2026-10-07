@@ -12,22 +12,26 @@
  *   8) explicit 모드 jsxDepth/useEffects/imports 임계 강제 (App.tsx 검사 보존)
  *   9) 1499줄 (boundary) 통과 / 1500줄 (정확 임계) 통과 / 1501줄 fail
  */
-import { describe, it, expect, afterEach } from 'vitest';
-import { execSync } from 'child_process';
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
+import { execFileSync } from 'child_process';
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = join(__dirname, '..');
-const FIXTURE_DIR = join(ROOT, 'server', '__complexity_fixtures__');
-const SRC_FIXTURE_DIR = join(ROOT, 'src', '__complexity_fixtures__');
+// Fixtures live in a private sandbox with its own src/ and server/: in the shared tree they raced other scanners' tests.
+const SANDBOX = mkdtempSync(join(tmpdir(), 'check-complexity-'));
+for (const root of ['src', 'server']) mkdirSync(join(SANDBOX, root));
+const FIXTURE_DIR = join(SANDBOX, 'server', '__complexity_fixtures__');
+const SRC_FIXTURE_DIR = join(SANDBOX, 'src', '__complexity_fixtures__');
 
-function runCheck(args = '') {
+function runCheck(args = '', cwd = ROOT) {
   try {
-    const out = execSync(`node scripts/check_complexity.js ${args}`.trim(), {
-      cwd: ROOT,
+    const out = execFileSync(process.execPath, [join(ROOT, 'scripts', 'check_complexity.js'), ...args.split(' ').filter(Boolean)], {
+      cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -53,6 +57,7 @@ afterEach(() => {
   if (existsSync(FIXTURE_DIR)) rmSync(FIXTURE_DIR, { recursive: true, force: true });
   if (existsSync(SRC_FIXTURE_DIR)) rmSync(SRC_FIXTURE_DIR, { recursive: true, force: true });
 });
+afterAll(() => rmSync(SANDBOX, { recursive: true, force: true }));
 
 describe('check_complexity — ADR-0133 게이트 무결성', () => {
   it('현재 baseline (fixture 없을 때) 통과 EXIT=0 + 검사 파일 수 + baseline 건수 노출', () => {
@@ -68,7 +73,7 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
   it('server/* 1500+ 줄 신규 파일 발견 시 EXIT=1 (server walk 회귀 차단)', () => {
     mkdirSync(FIXTURE_DIR, { recursive: true });
     makeBigFile(join(FIXTURE_DIR, 'serverGiant.ts'), 1501);
-    const result = runCheck();
+    const result = runCheck('', SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('serverGiant.ts');
     expect(result.output).toContain('lines=1501/1500');
@@ -78,7 +83,7 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
   it('src/* 1500+ 줄 신규 파일 발견 시 EXIT=1 (App.tsx 한정 회귀 차단)', () => {
     mkdirSync(SRC_FIXTURE_DIR, { recursive: true });
     makeBigFile(join(SRC_FIXTURE_DIR, 'srcGiant.ts'), 1501);
-    const result = runCheck();
+    const result = runCheck('', SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('srcGiant.ts');
     expect(result.output).toContain('lines=1501');
@@ -87,14 +92,14 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
   it('1499줄 (boundary 미만) 통과 EXIT=0', () => {
     mkdirSync(FIXTURE_DIR, { recursive: true });
     makeBigFile(join(FIXTURE_DIR, 'boundary.ts'), 1499);
-    const result = runCheck();
+    const result = runCheck('', SANDBOX);
     expect(result.exitCode).toBe(0);
   });
 
   it('1500줄 정확 (한계 도달, 미초과) 통과 EXIT=0', () => {
     mkdirSync(FIXTURE_DIR, { recursive: true });
     makeBigFile(join(FIXTURE_DIR, 'exact.ts'), 1500);
-    const result = runCheck();
+    const result = runCheck('', SANDBOX);
     expect(result.exitCode).toBe(0);
   });
 
@@ -102,7 +107,7 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
     // ADR-0134 후 BASELINE 카탈로그 비었으므로 fixture 로 검증
     mkdirSync(FIXTURE_DIR, { recursive: true });
     makeBigFile(join(FIXTURE_DIR, 'forced.ts'), 1501);
-    const result = runCheck('server/__complexity_fixtures__/forced.ts');
+    const result = runCheck('server/__complexity_fixtures__/forced.ts', SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('forced.ts');
     expect(result.output).toMatch(/lines=1501/);
@@ -128,7 +133,7 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
     }
     lines.push('  );', '};');
     writeFileSync(join(SRC_FIXTURE_DIR, 'deepJsx.tsx'), lines.join('\n') + '\n');
-    const result = runCheck('src/__complexity_fixtures__/deepJsx.tsx');
+    const result = runCheck('src/__complexity_fixtures__/deepJsx.tsx', SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('deepJsx.tsx');
     expect(result.output).toMatch(/jsxDepth=\d+/);
@@ -143,7 +148,7 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
     }
     lines.push('  return null;', '};');
     writeFileSync(join(SRC_FIXTURE_DIR, 'manyEffects.tsx'), lines.join('\n') + '\n');
-    const result = runCheck('src/__complexity_fixtures__/manyEffects.tsx');
+    const result = runCheck('src/__complexity_fixtures__/manyEffects.tsx', SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toMatch(/useEffects=11/);
   });
@@ -157,7 +162,7 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
     }
     lines.push('export const x = 1;');
     writeFileSync(join(FIXTURE_DIR, 'manyImports.ts'), lines.join('\n') + '\n');
-    const result = runCheck();
+    const result = runCheck('', SANDBOX);
     expect(result.exitCode).toBe(0); // server/*.ts 는 imports 검사 대상 아님
   });
 
@@ -169,7 +174,7 @@ describe('check_complexity — ADR-0133 게이트 무결성', () => {
     }
     lines.push('export const X = () => null;');
     writeFileSync(join(SRC_FIXTURE_DIR, 'manyImports.tsx'), lines.join('\n') + '\n');
-    const result = runCheck();
+    const result = runCheck('', SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('manyImports.tsx');
     expect(result.output).toMatch(/imports=51/);

@@ -1,6 +1,6 @@
 // @responsibility ADR-455 Near-Miss Outcome Analytics & over-strict condition detection 회귀 테스트
 import fs from 'fs';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetNearMissOutcomeLedgerForTests,
   addBusinessDays,
@@ -15,6 +15,19 @@ import {
   formatNearMissOutcomeAnalyticsDiagnosticLine,
   formatNearMissOutcomeAnalyticsReport,
 } from './nearMissOutcomeFormatter.js';
+
+// Each file keeps a private near-miss ledger: files running in parallel overwrote the shared data/near-miss-outcomes.json.
+const privateDataDir = await vi.hoisted(async () => {
+  const [{ mkdtempSync }, { tmpdir }, { join }] = await Promise.all([import('node:fs'), import('node:os'), import('node:path')]);
+  const previous = process.env.PERSIST_DATA_DIR;
+  process.env.PERSIST_DATA_DIR = mkdtempSync(join(tmpdir(), 'near-miss-ledger-'));
+  return { previous, path: process.env.PERSIST_DATA_DIR };
+});
+afterAll(() => {
+  if (privateDataDir.previous === undefined) delete process.env.PERSIST_DATA_DIR;
+  else process.env.PERSIST_DATA_DIR = privateDataDir.previous;
+  fs.rmSync(privateDataDir.path, { recursive: true, force: true });
+});
 
 const signalDate = '2026-05-08';
 const signalPriceKrw = 10_000;

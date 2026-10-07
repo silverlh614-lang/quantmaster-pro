@@ -8,9 +8,10 @@
  *   4) 주석 안 import 는 무시 (false positive 차단)
  *   5) UI 화이트리스트 (src/components/**) 의 import 는 검사 대상 아님 (server/ 만 walk)
  */
-import { describe, it, expect, afterEach } from 'vitest';
-import { execSync } from 'child_process';
-import { writeFileSync, unlinkSync, mkdirSync, existsSync, rmSync } from 'fs';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
+import { execFileSync } from 'child_process';
+import { writeFileSync, mkdirSync, mkdtempSync, existsSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -18,12 +19,15 @@ import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = join(__dirname, '..');
-const FIXTURE_DIR = join(ROOT, 'server', 'trading', '__lint_fixtures__');
+// Fixtures live in a private sandbox: under the shared server/ tree they raced other scanners' tests.
+const SANDBOX = mkdtempSync(join(tmpdir(), 'check-market-overview-'));
+const FIXTURE_DIR = join(SANDBOX, 'server', 'trading', '__lint_fixtures__');
 
-function runLint() {
+function runLint(root = ROOT) {
   try {
-    const out = execSync('node scripts/check_market_overview_boundary.js', {
+    const out = execFileSync(process.execPath, [join(ROOT, 'scripts', 'check_market_overview_boundary.js')], {
       cwd: ROOT,
+      env: { ...process.env, LINT_ROOT: root },
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -41,6 +45,7 @@ afterEach(() => {
     rmSync(FIXTURE_DIR, { recursive: true, force: true });
   }
 });
+afterAll(() => rmSync(SANDBOX, { recursive: true, force: true }));
 
 describe('check_market_overview_boundary lint script', () => {
   it('현재 baseline (fixture 없을 때) 통과 EXIT=0', () => {
@@ -56,7 +61,7 @@ describe('check_market_overview_boundary lint script', () => {
       join(FIXTURE_DIR, 'badImport.ts'),
       "import { getMarketOverview } from '../../src/services/stock/marketOverview';\nexport const x = getMarketOverview;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('badImport.ts');
     expect(result.output).toContain('marketOverview');
@@ -68,7 +73,7 @@ describe('check_market_overview_boundary lint script', () => {
       join(FIXTURE_DIR, 'badHook.ts'),
       "import { useMarketData } from '../../src/hooks/useMarketData';\nexport const y = useMarketData;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('badHook.ts');
     expect(result.output).toContain('useMarketData');
@@ -80,7 +85,7 @@ describe('check_market_overview_boundary lint script', () => {
       join(FIXTURE_DIR, 'badStore.ts'),
       "import { useMarketStore } from '../../src/stores/useMarketStore';\nexport const z = useMarketStore;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('badStore.ts');
     expect(result.output).toContain('useMarketStore');
@@ -92,7 +97,7 @@ describe('check_market_overview_boundary lint script', () => {
       join(FIXTURE_DIR, 'commentOnly.ts'),
       "// 과거에는 import { getMarketOverview } from '../../src/services/stock/marketOverview';\n// 였지만 ADR-0067 로 차단\nexport const safe = true;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(0);
   });
 
@@ -102,7 +107,7 @@ describe('check_market_overview_boundary lint script', () => {
       join(FIXTURE_DIR, 'badCache.ts'),
       "import { getOrFetchAiResponse } from '../../src/services/stock/marketOverviewCache';\nexport const w = getOrFetchAiResponse;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('marketOverviewCache');
   });
@@ -113,7 +118,7 @@ describe('check_market_overview_boundary lint script', () => {
       join(FIXTURE_DIR, 'badIndicators.ts'),
       "import { fetchPrefilledMarketData } from '../../src/services/stock/marketOverviewIndicators';\nexport const v = fetchPrefilledMarketData;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('marketOverviewIndicators');
   });
@@ -124,7 +129,7 @@ describe('check_market_overview_boundary lint script', () => {
       join(FIXTURE_DIR, 'badDynamic.ts'),
       "export async function loadIt() {\n  const mod = await import('../../src/services/stock/marketOverview');\n  return mod;\n}\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('badDynamic.ts');
   });
@@ -139,7 +144,7 @@ describe('check_market_overview_boundary lint script', () => {
       join(FIXTURE_DIR, 'multi2.ts'),
       "import { useMarketData } from '../../src/hooks/useMarketData';\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('multi1.ts');
     expect(result.output).toContain('multi2.ts');

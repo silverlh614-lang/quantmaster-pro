@@ -10,21 +10,24 @@
  *   6) 다중 위반 모두 보고 + 총 카운트 표시
  *   7) --changed 모드 동작
  */
-import { describe, it, expect, afterEach } from 'vitest';
-import { execSync } from 'child_process';
-import { writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
+import { execFileSync, execSync } from 'child_process';
+import { writeFileSync, mkdirSync, mkdtempSync, existsSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = join(__dirname, '..');
-const FIXTURE_DIR = join(ROOT, 'src', '__ui_lang_fixtures__');
+// Fixtures live in a private sandbox: under the shared src/ tree they raced other scanners' tests.
+const SANDBOX = mkdtempSync(join(tmpdir(), 'check-ui-language-'));
+const FIXTURE_DIR = join(SANDBOX, 'src', '__ui_lang_fixtures__');
 
-function runLint() {
+function runLint(cwd = ROOT) {
   try {
-    const out = execSync('node scripts/check_ui_language.js', {
-      cwd: ROOT,
+    const out = execFileSync(process.execPath, [join(ROOT, 'scripts', 'check_ui_language.js')], {
+      cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -42,6 +45,7 @@ afterEach(() => {
     rmSync(FIXTURE_DIR, { recursive: true, force: true });
   }
 });
+afterAll(() => rmSync(SANDBOX, { recursive: true, force: true }));
 
 describe('check_ui_language lint script', () => {
   it('현재 baseline (fixture 없을 때) 통과 EXIT=0', () => {
@@ -59,7 +63,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'badAbsolute1.ts'),
       "export const label = '완벽한 매수 신호';\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('badAbsolute1.ts');
     expect(result.output).toContain('완벽한');
@@ -72,7 +76,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'badAbsolute2.ts'),
       'export const label = "강력한 추천";\n',
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('강력한');
   });
@@ -83,7 +87,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'badAbsolute3.ts'),
       "export const label = `오늘의 베스트 종목`;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('베스트');
   });
@@ -97,7 +101,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'badSource1.ts'),
       "export const label = 'AI 가 분석한 종목입니다';\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('AMBIGUOUS_SOURCE');
     expect(result.output).toContain('AI 가 분석');
@@ -109,7 +113,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'badSource2.ts'),
       'export const label = "AI 추천 결과";\n',
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('AI 추천');
   });
@@ -123,7 +127,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'badEmotional1.ts'),
       "export const label = '대박 종목 발굴';\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('EMOTIONAL');
     expect(result.output).toContain('대박');
@@ -135,7 +139,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'badEmotional2.ts'),
       'export const label = "엄청난 수익률";\n',
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('엄청난');
   });
@@ -149,7 +153,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'badPromise1.ts'),
       "export const label = '반드시 매수해야 할 종목';\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('PROMISE');
     expect(result.output).toContain('반드시');
@@ -161,7 +165,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'badPromise2.ts'),
       'export const label = "승률 100% 보장";\n',
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     // 한 줄에 '승률 100%' + '보장' 두 개 매칭되므로 PROMISE + ABSOLUTE 둘 다 발견될 수 있음
     expect(result.output).toContain('승률 100%');
@@ -176,7 +180,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'commentLine.ts'),
       "// 과거에는 '완벽한' 표현을 썼지만 ADR-0094 로 차단\n// '대박' 도 금지\nexport const safe = true;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(0);
   });
 
@@ -186,7 +190,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'commentBlock.ts'),
       "/* 정책: '완벽한', '강력한', '대박' 모두 금지\n   '반드시' 와 '베스트' 도 동일 */\nexport const safe = true;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(0);
   });
 
@@ -197,7 +201,7 @@ describe('check_ui_language lint script', () => {
       // 변수명 자체에 한국어 금지 — 영문 식별자만 사용. 본 테스트는 식별자 위치의 한국어 부재 검증.
       "export const completeFlag = true;\nexport const strongSignal = false;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(0);
   });
 
@@ -207,7 +211,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'goodExpressions.ts'),
       "export const labels = {\n  goodA: '강매수 후보',\n  goodB: '진입 권고',\n  goodC: '수익률 +12.5%',\n  goodD: '신호 수집 중',\n};\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(0);
   });
 
@@ -224,7 +228,7 @@ describe('check_ui_language lint script', () => {
       join(FIXTURE_DIR, 'multi2.ts'),
       "export const label2 = '대박 추천';\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('multi1.ts');
     expect(result.output).toContain('multi2.ts');

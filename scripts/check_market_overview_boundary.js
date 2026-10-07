@@ -16,13 +16,14 @@
  *       자동매매 본체에서 marketOverview / useMarketData / useMarketStore import 발견 시 FAIL.
  */
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
-import { join, sep } from 'path';
+import { join, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const ROOT = join(__dirname, '..');
+// Tests scan a private sandbox through LINT_ROOT; normal runs scan this repository.
+const ROOT = process.env.LINT_ROOT ? resolve(process.env.LINT_ROOT) : join(__dirname, '..');
 
 /** 자동매매·신호 경로 — 본 디렉토리/파일에서 marketOverview import 절대 금지. */
 const FORBIDDEN_PREFIXES = [
