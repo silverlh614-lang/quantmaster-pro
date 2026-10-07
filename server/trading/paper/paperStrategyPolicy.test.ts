@@ -112,6 +112,11 @@ describe('paper strategy lifecycle', () => {
     expect(result.trades).toEqual([]);
     expect(result.latestDecisions[0]).toMatchObject({ action: 'WAIT', reasonCode: 'CURRENT_PRICE_UNAVAILABLE',
       reason: '거래정지 종목 · 진입 대상에서 제외' });
+    // The closing report lists halted waits apart from missing prices.
+    expect(result.lastMarketSession).toMatchObject({ reasonCounts: { CURRENT_PRICE_UNAVAILABLE: 1 }, haltedCount: 1 });
+    expect(() => assertPaperStrategyLedger(result)).not.toThrow();
+    result.lastMarketSession!.haltedCount = 2;
+    expect(() => assertPaperStrategyLedger(result)).toThrow('inconsistent intraday summary');
   });
 
   it('never falls back to the retired news strategy when no adaptive rule is active', () => {

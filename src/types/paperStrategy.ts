@@ -198,6 +198,8 @@ export interface PaperStrategySessionSummary {
   asOf: string;
   decisionCount: number;
   reasonCounts: Partial<Record<PaperStrategyReasonCode, number>>;
+  /** Entry waits whose observation KIS reported halted; a subset of reasonCounts.CURRENT_PRICE_UNAVAILABLE. */
+  haltedCount?: number;
 }
 
 export interface PaperStrategyPerformance {

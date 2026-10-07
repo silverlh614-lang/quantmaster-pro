@@ -81,7 +81,7 @@ const trade = z.object({ id: z.string(), strategyVersion: version, symbol, name:
 const ledgerSchema = z.object({ schemaVersion: z.literal(1), trades: z.array(trade), latestDecisions: z.array(decision),
   adaptive: adaptiveStateSchema.optional(), exitLearning: paperExitLearningSchema.optional(),
   lastMarketSession: z.object({ tradingDate: date, snapshotId: z.string(), asOf: timestamp, decisionCount: finite.int().nonnegative(),
-    reasonCounts: z.record(z.string(), finite.int().positive()) }).optional(),
+    reasonCounts: z.record(z.string(), finite.int().positive()), haltedCount: finite.int().positive().optional() }).optional(),
   lastRun: z.object({ snapshotId: z.string(), asOf: timestamp, openedCount: finite.int().nonnegative(), closedCount: finite.int().nonnegative(),
     waitingCount: finite.int().nonnegative(), holdingCount: finite.int().nonnegative(), error: z.string().optional() }).nullable() });
 
@@ -119,6 +119,7 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
   if (session && (!(Date.parse(session.asOf) >= Date.parse(`${session.tradingDate}T09:00:00+09:00`)
     && Date.parse(session.asOf) < Date.parse(`${session.tradingDate}T15:30:00+09:00`))
     || Object.values(session.reasonCounts).reduce((sum, count) => sum + count, 0) !== session.decisionCount
+    || (session.haltedCount ?? 0) > (session.reasonCounts.CURRENT_PRICE_UNAVAILABLE ?? 0)
     || Object.keys(session.reasonCounts).some(key => key === 'MARKET_CLOSED' || !decision.shape.reasonCode.safeParse(key).success))) {
     throw new Error('PAPER_STRATEGY_INVALID: inconsistent intraday summary');
   }
