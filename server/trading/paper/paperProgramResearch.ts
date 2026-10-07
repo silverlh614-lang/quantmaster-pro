@@ -86,6 +86,8 @@ class ProgramResearchFailure extends Error {
 }
 const failureMessage = (failure: PaperProgramFailure) => `${PAPER_PROGRAM_FAILURE_LABELS[failure]} · 같은 날짜 재호출 없이 기존 연구를 계속합니다.`;
 const inFlight = new Map<string, Promise<void>>();
+/** A failed write cannot record itself, so this process remembers it until a later write succeeds. */
+const writeIssues = new Map<string, { attemptedAt: string; completedAt: string }>();
 let readIssue: string | null = null;
 export function readPaperProgramProposals(directory = DATA_DIR): PaperProgramProposal[] {
   try { const state = load(directory); readIssue = null; return state.proposals; }
@@ -96,10 +98,12 @@ export function readPaperProgramProposals(directory = DATA_DIR): PaperProgramPro
 }
 export function readPaperProgramResearch(adaptive?: PaperAdaptiveState, directory = DATA_DIR): PaperProgramResearchView {
   try {
-    const store = load(directory), interrupted = store.state === 'RUNNING' && !inFlight.has(directory);
-    const failure = interrupted ? 'INTERRUPTED' : store.state === 'FAILED' ? store.failure : undefined;
-    return { state: interrupted ? 'FAILED' : store.state, attemptedAt: store.attemptedAt, completedAt: store.completedAt,
-      message: interrupted ? failureMessage('INTERRUPTED') : store.message, ...(failure ? { failure } : {}),
+    const store = load(directory), writeIssue = inFlight.has(directory) ? undefined : writeIssues.get(directory);
+    const interrupted = !writeIssue && store.state === 'RUNNING' && !inFlight.has(directory);
+    const failure = writeIssue ? 'STORAGE' : interrupted ? 'INTERRUPTED' : store.state === 'FAILED' ? store.failure : undefined;
+    return { state: writeIssue || interrupted ? 'FAILED' : store.state, attemptedAt: writeIssue?.attemptedAt ?? store.attemptedAt,
+      completedAt: writeIssue?.completedAt ?? store.completedAt,
+      message: writeIssue ? failureMessage('STORAGE') : interrupted ? failureMessage('INTERRUPTED') : store.message, ...(failure ? { failure } : {}),
       proposals: store.proposals.map(item => ({ id: paperIndicatorFormulaId(item.formula), title: item.formula.title, generatedAt: item.generatedAt,
         registered: Boolean(adaptive?.discovery?.inventions.some(invention => invention.id === paperIndicatorFormulaId(item.formula))),
         evaluated: Boolean(adaptive?.discovery?.programAttemptedIds?.includes(paperIndicatorFormulaId(item.formula))) })) };
@@ -127,7 +131,7 @@ export function queuePaperProgramResearch(adaptive: PaperAdaptiveState, options:
     const { failure: _previousFailure, ...previous } = store;
     store = { ...previous, attemptedAt: options.asOf, completedAt: null, inputDigest, state: 'RUNNING', message: 'AI가 가설과 계산 절차를 작성 중입니다.' };
     const persist = (value: Store) => {
-      try { save(directory, value); } catch (error) {
+      try { save(directory, value); writeIssues.delete(directory); } catch (error) {
         throw new ProgramResearchFailure('STORAGE', error instanceof Error ? error.message : '저장 실패');
       }
     };
@@ -161,7 +165,11 @@ export function queuePaperProgramResearch(adaptive: PaperAdaptiveState, options:
       const failure = error instanceof ProgramResearchFailure ? error.failure : 'UNKNOWN';
       store.state = 'FAILED'; store.failure = failure; store.completedAt = options.now?.() ?? new Date().toISOString();
       store.message = failureMessage(failure);
-      try { save(directory, store); } catch (saveError) { console.error('[PaperProgramResearch] 실패 상태 저장 오류:', saveError instanceof Error ? saveError.name : '저장 실패'); }
+      try { save(directory, store); writeIssues.delete(directory); } catch (saveError) {
+        // The file still shows the earlier state, or RUNNING if only the claim was written; report the write failure instead.
+        writeIssues.set(directory, { attemptedAt: options.asOf, completedAt: store.completedAt });
+        console.error('[PaperProgramResearch] 실패 상태 저장 오류:', saveError instanceof Error ? saveError.name : '저장 실패');
+      }
     }
   };
   const pending = work().catch(error => { console.error('[PaperProgramResearch] 연구 격리 오류:', error instanceof Error ? error.name : '처리 실패'); })

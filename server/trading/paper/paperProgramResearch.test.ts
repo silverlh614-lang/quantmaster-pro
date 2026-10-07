@@ -80,6 +80,24 @@ describe('AI research proposal lifecycle', () => {
     } finally { vi.useRealTimers(); }
     expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'FAILED', failure });
   });
+  it('reports a failed write as a storage error instead of the stale or running state', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const real = fs.renameSync, generate = vi.fn(async () => response);
+    const full = () => { throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' }); };
+    // The claim is written, then the disk fills before the finished round is saved.
+    vi.spyOn(fs, 'renameSync').mockImplementationOnce(real).mockImplementation(full);
+    await queuePaperProgramResearch(state(), { ...options(), generate });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'FAILED', failure: 'STORAGE', attemptedAt: asOf });
+    // A claim that cannot be written stops before any AI call.
+    await queuePaperProgramResearch(state(), { ...options(), asOf: '2026-09-19T08:00:00Z', now: () => '2026-09-19T08:00:10Z', generate });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ failure: 'STORAGE', attemptedAt: '2026-09-19T08:00:00Z' });
+    vi.mocked(fs.renameSync).mockImplementation(real);
+    await queuePaperProgramResearch(state(), { ...options(), asOf: '2026-09-20T08:00:00Z', now: () => '2026-09-20T08:00:10Z', generate });
+    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'READY' });
+    expect(readPaperProgramResearch(undefined, directory)).not.toHaveProperty('failure');
+  });
   it('reports a round left running by a restart as interrupted', () => {
     fs.writeFileSync(path.join(directory, 'paper-program-research.json'), JSON.stringify({ version: 1, attemptedAt: asOf, completedAt: null,
       inputDigest: 'a'.repeat(64), state: 'RUNNING', message: 'AI가 가설과 계산 절차를 작성 중입니다.', proposals: [], seen: [] }));
