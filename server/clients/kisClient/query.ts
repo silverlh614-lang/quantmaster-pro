@@ -54,6 +54,7 @@ import {
   materializeKisMarketProgramTrade,
 } from './programMaterializer.js';
 import { classifyInvestorFlowPayload, classifyShortPayload } from './payloadValidators.js';
+import { isKisTradingHalted } from './kisOfficialQuoteMapper.js';
 import {
   pickKisOutput,
   pickKisRows,
@@ -1305,6 +1306,8 @@ export interface KisStockFullQuote {
   per?: number | null;          // per/PER/hts_per/HTS_PER 중 첫 finite
   eps?: number | null;          // eps/EPS/stac_eps/STAC_EPS 중 첫 finite
   listedShares?: number | null; // lstn_stcn/LSTN_STCN/listedShares 중 첫 positive
+  /** 같은 응답의 거래정지·임시정지·종목상태 58 (추가 호출 없음). Shadow 매매 대상 제외에 쓴다. */
+  tradingHalted?: boolean;
 }
 
 /**
@@ -1364,6 +1367,7 @@ export async function fetchKisStockFullQuote(stockCode: string): Promise<KisStoc
       per,
       eps,
       listedShares,
+      tradingHalted: isKisTradingHalted(out),
     };
   } catch (err) {
     logger.warn(`[KIS] fetchKisStockFullQuote ${code} 실패:`, err instanceof Error ? err.message : err);

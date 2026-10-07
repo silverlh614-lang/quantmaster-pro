@@ -56,6 +56,8 @@ export interface KisOfficialDesignation {
   tradingHalt?: boolean;
   /** 정리매매 sltr_yn='Y' → true. */
   liquidation?: boolean;
+  /** 임시정지 temp_stop_yn='Y' → true. */
+  temporaryStop?: boolean;
 }
 
 export interface NormalizedKisOfficialQuote {
@@ -144,6 +146,7 @@ const KIS_DESIGNATION_RAW_ALIASES = {
   mangIssuClsCode: ['mang_issu_cls_code', 'MANG_ISSU_CLS_CODE'],
   trhtYn: ['trht_yn', 'TRHT_YN'],
   sltrYn: ['sltr_yn', 'SLTR_YN'],
+  tempStopYn: ['temp_stop_yn', 'TEMP_STOP_YN'],
 } as const;
 
 const QUOTE_FIELD_ALIASES: Record<string, readonly string[]> = {
@@ -215,6 +218,7 @@ function extractDesignation(row: Record<string, unknown> | null): KisOfficialDes
   const mangIssuClsCode = readStringFromAliases(row, KIS_DESIGNATION_RAW_ALIASES.mangIssuClsCode);
   const trhtYn = readStringFromAliases(row, KIS_DESIGNATION_RAW_ALIASES.trhtYn);
   const sltrYn = readStringFromAliases(row, KIS_DESIGNATION_RAW_ALIASES.sltrYn);
+  const tempStopYn = readStringFromAliases(row, KIS_DESIGNATION_RAW_ALIASES.tempStopYn);
 
   const designation: KisOfficialDesignation = {};
   if (iscdStatCode != null) designation.iscdStatCode = iscdStatCode;
@@ -223,8 +227,18 @@ function extractDesignation(row: Record<string, unknown> | null): KisOfficialDes
   if (mangIssuClsCode != null) designation.managementIssue = mangIssuClsCode.toUpperCase() === 'Y';
   if (trhtYn != null) designation.tradingHalt = trhtYn.toUpperCase() === 'Y';
   if (sltrYn != null) designation.liquidation = sltrYn.toUpperCase() === 'Y';
+  if (tempStopYn != null) designation.temporaryStop = tempStopYn.toUpperCase() === 'Y';
 
   return Object.keys(designation).length > 0 ? designation : undefined;
+}
+
+/**
+ * 거래정지 판정 — 거래정지(trht_yn)·임시정지(temp_stop_yn) 플래그 또는 종목상태 58(거래정지).
+ * 같은 inquire-price 응답만 읽는다(추가 호출 0). 필드 결손은 정지로 보지 않는다(결손≠위험).
+ */
+export function isKisTradingHalted(row: Record<string, unknown> | null | undefined): boolean {
+  const designation = extractDesignation(row ?? null);
+  return designation?.tradingHalt === true || designation?.temporaryStop === true || designation?.iscdStatCode === '58';
 }
 
 function pickOutput(payload: unknown): Record<string, unknown> | null {

@@ -95,6 +95,15 @@ describe('paper strategy lifecycle', () => {
     expect(() => assertPaperStrategyLedger(result)).not.toThrow();
   });
 
+  it('keeps a halted stock out of new entries even when its rule matches', () => {
+    const snapshot = adaptiveTestSnapshot();
+    Object.assign(snapshot.observations[0], { price: null, issue: 'TRADING_HALTED' });
+    const result = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, state());
+    expect(result.trades).toEqual([]);
+    expect(result.latestDecisions[0]).toMatchObject({ action: 'WAIT', reasonCode: 'CURRENT_PRICE_UNAVAILABLE',
+      reason: '거래정지 종목 · 진입 대상에서 제외' });
+  });
+
   it('never falls back to the retired news strategy when no adaptive rule is active', () => {
     const snapshot = strategyTestSnapshot();
     const result = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, inactive());

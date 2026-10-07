@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   detectKisOfficialQuoteDrift,
+  isKisTradingHalted,
   normalizeKisOfficialQuotePayload,
 } from './kisOfficialQuoteMapper.js';
 
@@ -71,6 +72,20 @@ describe('KIS official inquire-price quote mapper', () => {
       tradingHalt: false,
       liquidation: false,
     });
+  });
+
+  it('treats a trading halt, temporary stop or status code 58 as halted, and missing fields as tradable', () => {
+    const halted: Record<string, string>[] = [{ trht_yn: 'Y' }, { TEMP_STOP_YN: 'y' }, { iscd_stat_cls_code: '58' }];
+    for (const fields of halted) {
+      expect(isKisTradingHalted(kisPricePayload(fields).output)).toBe(true);
+    }
+    const tradable: Record<string, string>[] = [{}, { trht_yn: 'N', temp_stop_yn: 'N', iscd_stat_cls_code: '55' }];
+    for (const fields of tradable) {
+      expect(isKisTradingHalted(kisPricePayload(fields).output)).toBe(false);
+    }
+    expect(isKisTradingHalted(null)).toBe(false);
+    expect(normalizeKisOfficialQuotePayload(kisPricePayload({ temp_stop_yn: 'Y' }), { symbol: '005930' })
+      .normalizedQuote.designation).toMatchObject({ temporaryStop: true });
   });
 
   it('ADR-0658: row without designation fields → designation undefined (additive, no break)', () => {
