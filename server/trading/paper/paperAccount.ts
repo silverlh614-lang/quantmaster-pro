@@ -1,5 +1,6 @@
 // @responsibility Execute cash-constrained virtual orders from frozen Shadow signals.
-import type { PaperAccountConfig, PaperAccountFill, PaperAccountLedger, PaperAccountOrder, PaperAccountQuote, PaperAccountView } from '../../../src/types/paperAccount.js';
+import { createHash } from 'node:crypto';
+import { paperAccountSlotCount, type PaperAccountConfig, type PaperAccountFill, type PaperAccountLedger, type PaperAccountOrder, type PaperAccountQuote, type PaperAccountView } from '../../../src/types/paperAccount.js';
 import type { PaperCostModel, PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import type { PaperStrategyLedger, PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 import { tradeSignalIdentity } from '../../../src/utils/paperTradeReview.js';
@@ -161,17 +162,24 @@ export function advancePaperAccount(current: PaperAccountLedger, strategy: Paper
   if (account.skippedSignals && latestEntry && Date.parse(latestEntry) > Date.parse(account.skippedSignals.through)) {
     account.skippedSignals.through = latestEntry;
   }
-  const candidates = account.orders.filter(order => order.side === 'BUY' && order.status === 'PENDING');
+  // ADR-0696: every buy targets the per-stock weight of liquidation equity, however many signals arrive together.
+  // Candidates beyond the free holding slots are taken in a date-and-symbol shuffled order, never ticker order.
+  const ranks = new Map(account.orders.filter(order => order.side === 'BUY' && order.status === 'PENDING')
+    .map(order => [order, createHash('sha256').update(`${snapshot.tradingDate}:${order.symbol}`).digest('hex')]));
+  const candidates = [...ranks.keys()].sort((a, b) => ranks.get(a)!.localeCompare(ranks.get(b)!));
   const balances = accountBalances(account), equity = buildPaperAccountView(account, snapshot.asOf).equity;
-  const budget = candidates.length ? Math.floor(Math.min(balances.cash / candidates.length, (equity ?? 0) * account.config.maxPositionPct / 100) * 100) / 100 : 0;
+  const slots = paperAccountSlotCount(account.config), target = (equity ?? 0) * account.config.maxPositionPct / 100;
+  let cash = balances.cash, held = balances.buys.size;
   for (const order of candidates) {
+    if (held >= slots) { order.status = 'REJECTED'; order.statusReason = `동시 보유 한도 ${slots}종목 도달`; continue; }
     const quote = assessQuote(snapshot, order.symbol, account.startedAt).quote!;
-    order.budget = budget;
-    const unit = quote!.price * (1 + order.costModel.slippageRate + order.costModel.buyFeeRate);
+    order.budget = Math.floor(Math.min(target, cash) * 100) / 100;
+    const unit = quote.price * (1 + order.costModel.slippageRate + order.costModel.buyFeeRate);
     order.quantity = Math.max(0, Math.floor(order.budget / unit));
-    while (order.quantity > 0 && -accountFill('BUY', order.quantity, quote!, order.costModel, snapshot.asOf, '').cashDelta > order.budget) order.quantity--;
+    while (order.quantity > 0 && -accountFill('BUY', order.quantity, quote, order.costModel, snapshot.asOf, '').cashDelta > order.budget) order.quantity--;
     if (!order.quantity) { order.status = 'REJECTED'; order.statusReason = '현금 또는 종목 비중 한도로 1주 매수 불가'; continue; }
-    completeOrder(order, quote!, snapshot.asOf); account.marks[order.tradeId] = quote!;
+    completeOrder(order, quote, snapshot.asOf); account.marks[order.tradeId] = quote;
+    cash = money(cash + order.fill!.cashDelta); held++;
   }
   account.lastSnapshotAt = snapshot.asOf;
   const view = buildPaperAccountView(account, snapshot.asOf);

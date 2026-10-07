@@ -31,6 +31,7 @@ describe('virtual account screen', () => {
     expect(screen.getByText(/선택 이후 계좌 체결: 청산 0건/).textContent).toContain('평균 순수익률 집계 대기');
     expect(screen.getByText(/계좌 체결 성과: 청산 0건/).textContent).toContain('실현손익 0원');
     expect(screen.getByText(/관측 최대 낙폭 집계 대기/)).toBeTruthy();
+    expect(screen.getByText(/매수마다 추정 자산의 20%를 배정하고 최대 5종목까지 보유합니다/)).toBeTruthy();
   });
   it('starts with user settings and offers buy pause after creation', async () => {
     mocks.get.mockResolvedValue(empty); mocks.start.mockResolvedValue(started()); mount();

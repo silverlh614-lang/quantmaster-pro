@@ -14,6 +14,10 @@ export interface PaperAccountSelection {
 }
 
 export interface PaperAccountConfig { initialCash: number; maxPositionPct: number; includeExploration: boolean }
+/** ADR-0696: each buy targets the per-stock weight, so at most this many positions are held at once. */
+export function paperAccountSlotCount(config: Pick<PaperAccountConfig, 'maxPositionPct'>): number {
+  return Math.max(1, Math.floor(100 / config.maxPositionPct + 1e-9));
+}
 export interface PaperAccountQuote { price: number; observedAt: string; source: string; snapshotId: string }
 export interface PaperAccountFill {
   id: string; at: string; snapshotId: string; quote: PaperAccountQuote; quantity: number;

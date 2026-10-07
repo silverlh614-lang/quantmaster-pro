@@ -29,6 +29,7 @@ describe('account-only notifications', () => {
     expect(message).toContain('검증 순수익 1순위 · 과거'); expect(message.length).toBeLessThanOrEqual(3500);
     expect(formatAccountSummary(view, now)).toContain('운용 기준 2026-09-18:');
     expect(formatAccountSummary(view, now)).toContain('실현손익 0원');
+    expect(formatAccountSummary(view, now)).toContain('보유 1/5종목');
   });
   it('baselines existing fills on upgrade, then queues each future fill once in bounded escaped batches', () => {
     const queue = state(), old = accountView();

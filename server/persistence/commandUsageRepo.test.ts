@@ -153,7 +153,8 @@ describe('영속화 round-trip', () => {
     flushCommandUsage();
 
     // 메모리만 클리어 (디스크 보존).
-    __resetForTests('/dev/null'); // 가짜 경로 — 실제 TMP_FILE 보존.
+    // 존재하지 않는 가짜 경로 — 실제 TMP_FILE 보존. '/dev/null'은 root 실행 시 장치 파일을 지운다.
+    __resetForTests(`${TMP_FILE}.absent`);
     // mock spy 가 여전히 TMP_FILE 를 가리키므로 ensureLoaded 가 디스크에서 재로드.
     expect(getCommandStats('/foo')?.count).toBe(2);
     expect(getCommandStats('/bar')?.count).toBe(1);

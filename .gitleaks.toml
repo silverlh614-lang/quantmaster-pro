@@ -58,6 +58,10 @@ regexes = [
   # 같은 테스트 line 34 가 `not.toContain('test-key-1234567890')` 로 키 미노출을 검증하는 의도적
   # placeholder 이며 실제 비밀이 아니다. CI 가 fetch-depth=0 전체 history 스캔이라 좁게 화이트리스트.
   '''test-key-1234567890''',
+  # `{ op: 'feature', key: 'volumeRatio20' }` (지표 수식 테스트, 2026-10-05 커밋 047c1863·2495ce50) —
+  # 32개 원지표 중 하나인 거래량 비율 지표 이름. generic-api-key 룰이 `key:` 뒤 식별자(엔트로피 3.55)를
+  # 비밀로 오탐. 실제 비밀이 아니고 CI 가 전체 history 를 스캔하므로 좁게 화이트리스트.
+  '''volumeRatio20''',
 ]
 
 # ADR-461 livePathSafetyAudit.ts 의 과거 false positive.

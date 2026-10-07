@@ -1,5 +1,6 @@
 // @responsibility ADR-454 Near-Miss Outcome Ledger 회귀 테스트
-import { describe, expect, it, beforeEach } from 'vitest';
+import fs from 'fs';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetNearMissOutcomeLedgerForTests,
   addBusinessDays,
@@ -8,6 +9,19 @@ import {
   refreshNearMissOutcomeLedger,
   summarizeNearMissOutcomeLedger,
 } from './nearMissOutcomeLedger.js';
+
+// Each file keeps a private near-miss ledger: files running in parallel overwrote the shared data/near-miss-outcomes.json.
+const privateDataDir = await vi.hoisted(async () => {
+  const [{ mkdtempSync }, { tmpdir }, { join }] = await Promise.all([import('node:fs'), import('node:os'), import('node:path')]);
+  const previous = process.env.PERSIST_DATA_DIR;
+  process.env.PERSIST_DATA_DIR = mkdtempSync(join(tmpdir(), 'near-miss-ledger-'));
+  return { previous, path: process.env.PERSIST_DATA_DIR };
+});
+afterAll(() => {
+  if (privateDataDir.previous === undefined) delete process.env.PERSIST_DATA_DIR;
+  else process.env.PERSIST_DATA_DIR = privateDataDir.previous;
+  fs.rmSync(privateDataDir.path, { recursive: true, force: true });
+});
 
 const baseInput = {
   stockCode: '005930',

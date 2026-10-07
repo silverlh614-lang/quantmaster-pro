@@ -10,21 +10,24 @@
  *   6) 블록 주석 안 패턴은 무시 (false positive 차단)
  *   7) 다중 위반 모두 보고 + 총 카운트 표시
  */
-import { describe, it, expect, afterEach } from 'vitest';
-import { execSync } from 'child_process';
-import { writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
+import { execFileSync, execSync } from 'child_process';
+import { writeFileSync, mkdirSync, mkdtempSync, existsSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = join(__dirname, '..');
-const FIXTURE_DIR = join(ROOT, 'server', 'trading', '__yahoo_range_fixtures__');
+// Fixtures live in a private sandbox: under the shared server/ tree they raced other scanners' tests.
+const SANDBOX = mkdtempSync(join(tmpdir(), 'check-yahoo-range-'));
+const FIXTURE_DIR = join(SANDBOX, 'server', 'trading', '__yahoo_range_fixtures__');
 
-function runLint() {
+function runLint(cwd = ROOT) {
   try {
-    const out = execSync('node scripts/check_yahoo_range.js', {
-      cwd: ROOT,
+    const out = execFileSync(process.execPath, [join(ROOT, 'scripts', 'check_yahoo_range.js')], {
+      cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -42,6 +45,7 @@ afterEach(() => {
     rmSync(FIXTURE_DIR, { recursive: true, force: true });
   }
 });
+afterAll(() => rmSync(SANDBOX, { recursive: true, force: true }));
 
 describe('check_yahoo_range lint script', () => {
   it('현재 baseline (fixture 없을 때) 통과 EXIT=0', () => {
@@ -56,7 +60,7 @@ describe('check_yahoo_range lint script', () => {
       join(FIXTURE_DIR, 'badQuery.ts'),
       "export const url = `https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=2y&interval=1d`;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('badQuery.ts');
     expect(result.output).toContain('range=2y');
@@ -69,7 +73,7 @@ describe('check_yahoo_range lint script', () => {
       join(FIXTURE_DIR, 'badRange5y.ts'),
       "export const url = 'https://q.yahoo.com/?range=5y&interval=1d';\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('range=5y');
   });
@@ -80,7 +84,7 @@ describe('check_yahoo_range lint script', () => {
       join(FIXTURE_DIR, 'badRangeMax.ts'),
       "export const url = 'https://q.yahoo.com/?range=max';\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('range=max');
   });
@@ -91,7 +95,7 @@ describe('check_yahoo_range lint script', () => {
       join(FIXTURE_DIR, 'badRangeYtd.ts'),
       "export const url = 'https://q.yahoo.com/?range=ytd';\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('range=ytd');
   });
@@ -102,7 +106,7 @@ describe('check_yahoo_range lint script', () => {
       join(FIXTURE_DIR, 'badLiteral2y.ts'),
       "const range = '2y';\nexport { range };\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('STRING_LITERAL');
     expect(result.output).toContain("'2y'");
@@ -114,7 +118,7 @@ describe('check_yahoo_range lint script', () => {
       join(FIXTURE_DIR, 'badLiteral5y.ts'),
       'const range = "5y";\nexport { range };\n',
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('STRING_LITERAL');
   });
@@ -125,7 +129,7 @@ describe('check_yahoo_range lint script', () => {
       join(FIXTURE_DIR, 'commentLine.ts'),
       "// 과거에는 range=2y 였지만 ADR-0082 로 차단\n// 또는 '2y' 문자열도 정책 위반\nexport const safe = true;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(0);
   });
 
@@ -135,7 +139,7 @@ describe('check_yahoo_range lint script', () => {
       join(FIXTURE_DIR, 'commentBlock.ts'),
       "/* 정책 변경 전: range=2y\n   변경 후: range=1y. \"2y\" 도 차단. */\nexport const safe = true;\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(0);
   });
 
@@ -149,7 +153,7 @@ describe('check_yahoo_range lint script', () => {
       join(FIXTURE_DIR, 'multi2.ts'),
       "const range = '5y';\nexport { range };\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain('multi1.ts');
     expect(result.output).toContain('multi2.ts');
@@ -162,7 +166,7 @@ describe('check_yahoo_range lint script', () => {
       join(FIXTURE_DIR, 'allowed.ts'),
       "export const urls = [\n  'https://q.yahoo.com/?range=1y',\n  'https://q.yahoo.com/?range=6mo',\n  'https://q.yahoo.com/?range=3mo',\n];\n",
     );
-    const result = runLint();
+    const result = runLint(SANDBOX);
     expect(result.exitCode).toBe(0);
   });
 

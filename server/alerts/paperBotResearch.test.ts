@@ -103,12 +103,28 @@ describe('intraday content slots', () => {
     reports(morning);
     expect(state.messages).toHaveLength(1);
   });
-  it('leaves the slot unsent until a virtual account has started', () => {
+  it('sends the signal check before a virtual account starts, but never guesses for an unreadable account', () => {
     enqueuePaperReports(state, view, morning);
-    enqueuePaperReports(state, view, morning, { account: buildPaperAccountView(null, morning.toISOString()) });
+    enqueuePaperReports(state, view, morning, { account: { ...accountAt(morning), error: '가상 계좌 처리 실패' } });
     expect(state.messages).toEqual([]);
-    reports(morning);
-    expect(state.messages.map(item => item.id)).toEqual(['paper:intraday:2026-09-18:630']);
+    enqueuePaperReports(state, view, morning, { account: buildPaperAccountView(null, morning.toISOString()) });
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({ id: 'paper:intraday:2026-09-18:630', channel: 'ANALYSIS' });
+    expect(state.messages[0].message).toContain('Shadow 장중 점검 · 2026-09-18');
+    expect(state.messages[0].message).not.toContain('가상 계좌 운용 요약');
+  });
+  it('switches a retried signal check to the account summary once the account starts', async () => {
+    mocks.account.mockImplementation((now: Date) => buildPaperAccountView(null, now.toISOString()));
+    mocks.send.mockResolvedValueOnce(undefined);
+    await runPaperBotTick(morning);
+    const original = state.messages.find(item => item.kind === 'intraday')!;
+    expect(original).toMatchObject({ state: 'PENDING', attempts: 1 });
+    expect(original.message).toContain('Shadow 장중 점검');
+    mocks.account.mockImplementation((now: Date) => accountAt(now));
+    const resumed = new Date(morning.getTime() + 2 * 60_000); scanAt(resumed);
+    await runPaperBotTick(resumed);
+    expect(state.messages.find(item => item.id === original.id)).toMatchObject({ state: 'SENT', attempts: 2,
+      message: formatAccountSummary(accountAt(resumed), resumed) });
   });
   it.each(['2026-09-18T11:15:00+09:00', '2026-09-19T10:30:00+09:00', '2026-12-25T13:30:00+09:00'])('does not invent a report outside its trading-day window: %s', at => {
     const now = new Date(at); scanAt(now); reports(now);
