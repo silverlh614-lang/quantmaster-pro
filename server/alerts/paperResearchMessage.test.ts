@@ -124,8 +124,8 @@ describe('paper research message', () => {
       .toEqual([{ minute: 630, graceMinutes: 45 }, { minute: 810, graceMinutes: 45 }]);
     const message = formatPaperBotStatus({ schemaVersion: 1, initializedAt: null, lastCheckedAt: null,
       health: 'OK', notifiedHealth: 'OK', seenEvents: {}, messages: [] });
-    expect(message).toContain('CH1 매매: 진입·청산');
-    expect(message).toContain('CH2 판단: 08:30 추천·진입 근거·청산 복기·10:30/13:30 판단');
+    expect(message).toContain('CH1 매매: 가상 계좌 체결만');
+    expect(message).toContain('CH2 판단: 08:30 후보·계좌 체결 근거·10:30/13:30 계좌 요약');
     expect(message).toContain('CH4 연구: 지표 변경·16:10 성과·일요일 연구');
     expect(message).toContain('CH3 정보: 08:45 준비');
     expect(message).toContain('거래일 10:30');
@@ -142,4 +142,3 @@ describe('paper research message', () => {
     expect(formatPaperAdaptiveSummary(view, now, 'brief').join('\n')).not.toContain('무작위 대조는');
   });
 });
-

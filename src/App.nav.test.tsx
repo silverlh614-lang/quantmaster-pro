@@ -16,6 +16,7 @@ beforeEach(() => {
   vi.mocked(apiFetch).mockImplementation(async (url, options) => {
     if (url.endsWith('/engine/status')) return { mode: 'SHADOW' };
     if (url.endsWith('/engine/guards')) return { autoTradingPaused: false };
+    if (url.endsWith('/virtual-account')) return { account: null, positions: [], cash: null, equity: null, realizedPnl: null, unrealizedPnl: null, returnPct: null };
     if (url.endsWith('/morning-recommendation')) return { report: null, results: [], asOf: '2026-09-18T07:00:00.000Z' };
     if (options?.query?.section === 'strategy' || options?.query?.section === 'research') return null;
     return baseline;
@@ -23,10 +24,11 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); client.clear(); vi.clearAllMocks(); });
 describe('App workspace', () => {
-  it('starts with only four read requests and loads detailed data on navigation', async () => {
+  it('starts with five read requests and loads detailed data on navigation', async () => {
     render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
     await screen.findByText('첫 관측을 기다리고 있습니다');
-    expect(apiFetch).toHaveBeenCalledTimes(4);
+    expect(apiFetch).toHaveBeenCalledTimes(5);
+    expect(screen.getByText('추천 후보와 신호 검증 연구 펼치기').closest('details')?.open).toBe(false);
     expect(apiFetch).toHaveBeenCalledWith('/api/shadow/experiments', { query: { section: 'overview' } });
     // The home page also follows up today's 08:30 recommendation.
     expect(apiFetch).toHaveBeenCalledWith('/api/shadow/morning-recommendation', { query: { date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) } });
@@ -36,8 +38,8 @@ describe('App workspace', () => {
     for (const [label, view] of cases) {
       fireEvent.click(screen.getByLabelText(label));
       expect(useSettingsStore.getState().view).toBe(view);
-      // The home view keeps its menu label but titles the page as the research dashboard.
-      const heading = view === 'DASHBOARD' ? '자율 연구 대시보드' : label;
+      // The home view keeps its menu label but titles the page as the account dashboard.
+      const heading = view === 'DASHBOARD' ? '가상 계좌 대시보드' : label;
       await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(heading));
     }
     expect(apiFetch).toHaveBeenCalledWith('/api/shadow/experiments', { query: { section: 'research' } });
@@ -49,7 +51,7 @@ describe('App workspace', () => {
     await waitFor(() => expect(useSettingsStore.getState().view).toBe('DASHBOARD'));
     expect(screen.queryByText('공개 리포트')).toBeNull();
     expect(vi.mocked(apiFetch).mock.calls.every(([url]) => ['/api/auto-trade/engine/status', '/api/auto-trade/engine/guards', '/api/shadow/experiments',
-      '/api/shadow/morning-recommendation'].includes(url))).toBe(true);
+      '/api/shadow/morning-recommendation', '/api/shadow/virtual-account'].includes(url))).toBe(true);
   });
   it('keeps the scan unavailable until the server mode is known', async () => {
     vi.mocked(apiFetch).mockImplementation(async url => {

@@ -17,9 +17,9 @@ const Research = lazy(() => import('../components/autoTrading/PaperResearchPanel
 const Operations = lazy(() => import('../components/autoTrading/PaperOperations').then(module => ({ default: module.PaperOperations })));
 
 const descriptions: Partial<Record<View, string>> = {
-  DASHBOARD: '지표 발명부터 검증과 가상 매매까지, 오늘의 연구 흐름을 확인합니다.',
+  DASHBOARD: '가상 계좌의 현금·보유·손익을 확인합니다. 신호 검증 연구는 상세에서 조회합니다.',
   PAPER_OBSERVATIONS: '조건 없이 기록한 1주 실험으로 D1·D3·D5 성과를 비교합니다.',
-  PAPER_STRATEGY: '성과에 따라 지표를 자동 연결·해제하고, 채택한 규칙으로 가상 매매를 판단합니다.',
+  PAPER_STRATEGY: '가상 계좌의 주문과 체결을 확인하고, 필요한 경우 신호 검증 기록을 펼쳐봅니다.',
   PAPER_RESEARCH: '쌓아 둔 자료로 조건 하나씩 검증하고, 다음 연구의 근거를 찾습니다.',
   OPERATIONS: '서버 운영 상태와 자료의 연결 경로를 확인합니다.',
 };
@@ -47,7 +47,7 @@ export function PaperDashboardPage({ page }: { page: View }) {
       <span>워크스페이스</span><ChevronRight size={12} aria-hidden="true" /><span aria-current="page">{VIEW_LABELS[page]}</span></nav>
       <span role="status" className={`workspace-mode${mode === 'SHADOW' ? '' : mode ? ' workspace-mode-other' : ' workspace-mode-unknown'}`}><i aria-hidden="true" />{mode ? `서버 ${mode}` : engine.isError ? '서버 모드 미확인' : '서버 모드 확인 중'}</span>
     </div>
-    <header className="workspace-page-header"><div><h1>{page === 'DASHBOARD' ? '자율 연구 대시보드' : VIEW_LABELS[page]}</h1><p>{descriptions[page]}</p></div>
+    <header className="workspace-page-header"><div><h1>{page === 'DASHBOARD' ? '가상 계좌 대시보드' : VIEW_LABELS[page]}</h1><p>{descriptions[page]}</p></div>
       <div className="workspace-actions">
         <button type="button" className="workspace-button" disabled={refreshing} aria-busy={refreshing} onClick={refresh}><RefreshCw size={15} className={refreshing ? 'workspace-is-spinning' : undefined} aria-hidden="true" />새로고침</button>
         {(page === 'DASHBOARD' || page === 'PAPER_OBSERVATIONS') && <button type="button" className="workspace-button workspace-button-primary"
@@ -63,11 +63,11 @@ export function PaperDashboardPage({ page }: { page: View }) {
     {active.isError && <p role="alert" className="workspace-alert">기록을 불러오지 못했습니다. {active.data ? '마지막으로 불러온 자료를 표시합니다.' : '새로고침으로 다시 시도해 주세요.'}</p>}
     {active.isPending && pending}
     <Suspense fallback={pending}>
-      {page === 'DASHBOARD' && <PaperMorningReviewPanel />}
-      {page === 'DASHBOARD' && overview.data && <PaperOverview view={overview.data} mode={mode} paused={paused} refreshFailed={overview.isError} />}
+      {(page === 'DASHBOARD' || page === 'PAPER_STRATEGY') && <PaperAccountPanel />}
+      {page === 'DASHBOARD' && <details><summary className="cursor-pointer py-3">추천 후보와 신호 검증 연구 펼치기</summary><PaperMorningReviewPanel />
+        {overview.data && <PaperOverview view={overview.data} mode={mode} paused={paused} refreshFailed={overview.isError} />}</details>}
       {page === 'PAPER_OBSERVATIONS' && observations.data && <Observations view={observations.data} showStrategy={false} />}
-      {page === 'PAPER_STRATEGY' && <PaperAccountPanel />}
-      {page === 'PAPER_STRATEGY' && strategy.data && <Strategy view={strategy.data} />}
+      {page === 'PAPER_STRATEGY' && strategy.data && <details><summary className="cursor-pointer py-3">신호 검증 성과·원본 기록 펼치기 · 계좌 거래와 별도</summary><Strategy view={strategy.data} /></details>}
       {page === 'PAPER_STRATEGY' && strategy.isSuccess && !strategy.data && <div className="workspace-empty">첫 스캔 이후 전략 판단과 근거가 표시됩니다.</div>}
       {page === 'PAPER_RESEARCH' && research.isSuccess && <Research view={research.data ?? undefined} />}
       {page === 'OPERATIONS' && <Operations engine={engine.isError ? undefined : engine.data} paused={paused} view={overview.data} />}

@@ -16,11 +16,12 @@ vi.mock('./telegramClient.js', () => ({ sendTelegramAlert: mocks.send }));
 vi.mock('./alertRouter.js', async () => ({ ...(await import('./alertCategories.js')), dispatchAlert: mocks.send }));
 vi.mock('../persistence/paperBotRepo.js', () => ({ loadPaperBotState: mocks.load, savePaperBotState: mocks.save }));
 vi.mock('../trading/paper/paperExperimentRunner.js', () => ({ getPaperExperimentView: mocks.view }));
+vi.mock('../trading/paper/paperAccountRuntime.js', () => ({ readVirtualAccount: () => ({ account: null }) }));
 vi.mock('../state.js', () => ({ getTradingMode: mocks.mode, getAutoTradePaused: mocks.paused }));
 vi.mock('../learning/newsSupplyLogger.js', () => ({ loadNewsSupplyRecords: mocks.news }));
 vi.mock('../persistence/dartRepo.js', () => ({ loadDartAlerts: () => [] }));
-import { classifyPaperBotHealth, enqueuePaperHealth, enqueuePaperReports, enqueuePaperTradeChanges, runPaperBotTick } from './paperBot.js';
-import { formatPaperReport, formatPaperTrades, formatPaperTradeAnalysis, formatPaperBotStatus, paperTradeEvents } from './paperBotMessages.js';
+import { classifyPaperBotHealth, enqueuePaperHealth, enqueuePaperReports, runPaperBotTick } from './paperBot.js';
+import { formatPaperReport, formatPaperTradeAnalysis, formatPaperBotStatus, paperTradeEvents } from './paperBotMessages.js';
 
 function emptyState(): PaperBotState { return { schemaVersion: 1, initializedAt: null, lastCheckedAt: null, health: 'OK', notifiedHealth: 'OK', seenEvents: {}, messages: [] }; }
 function emptyView(): PaperExperimentView { return { mode: 'SHADOW', strategyVersion: 'shadow-baseline-v1', totalCount: 0, completedCount: 0, openCount: 0, experiments: [], groups: [], outcomes: [], lastRun: null, strategy: buildPaperStrategyView(emptyStrategyLedger()) }; }
@@ -93,7 +94,7 @@ describe('daily archived morning recommendations', () => {
   });
   it('prioritizes recommendation retries ahead of an existing trade backlog', async () => {
     const report = morningReport('2026-09-23'), at = new Date(report.createdAt);
-    persisted.messages = Array.from({ length: 5 }, (_, index) => ({ id: `older-trade-${index}`, kind: 'trades' as const,
+    persisted.messages = Array.from({ length: 5 }, (_, index) => ({ id: `paper:account:older-trade-${index}`, kind: 'trades' as const,
       channel: undefined, message: `매매 ${index}`, createdAt: at.toISOString(), expiresAt: new Date(at.getTime() + 3_600_000).toISOString(),
       state: 'PENDING' as const, attempts: 0, nextAttemptAt: at.toISOString() }));
     mocks.recommendation.mockReturnValue(report); mocks.send.mockResolvedValueOnce(undefined);
@@ -297,23 +298,6 @@ describe('delivery ledger', () => {
 });
 
 describe('new strategy events', () => {
-  it('baselines old entries silently, then emits each new entry and delayed exit once', () => {
-    const strategy = enteredStrategy();
-    view.strategy = buildPaperStrategyView(strategy);
-    const now = new Date('2026-09-18T01:01:00Z');
-    enqueuePaperTradeChanges(persisted, view, now); expect(persisted.messages).toHaveLength(0);
-    persisted.initializedAt = now.toISOString();
-    const next = structuredClone(strategy.trades[0]); next.id = 'new'; next.entryAt = now.toISOString(); next.name = '<A&B>';
-    view.strategy.trades.push(next);
-    enqueuePaperTradeChanges(persisted, view, now); enqueuePaperTradeChanges(persisted, view, now);
-    expect(persisted.messages).toHaveLength(2); expect(persisted.messages[0].message).toContain('&lt;A&amp;B&gt;');
-    expect(persisted.messages.map(item => item.channel)).toEqual(['TRADE', 'ANALYSIS']);
-    next.exit = { decisionAt: '2026-09-18T01:02:00Z', effectiveAt: '2026-09-17T06:30:00Z', netReturnPct: 0 } as NonNullable<typeof next.exit>;
-    enqueuePaperTradeChanges(persisted, view, new Date('2026-09-18T01:03:00Z'));
-    expect(persisted.messages).toHaveLength(4); expect(persisted.messages[2].message).toContain('순수익률 <b>0.00%</b>');
-    expect(paperTradeEvents([next])[1].at).toBe(next.exit.decisionAt);
-    expect(formatPaperTrades(Array.from({ length: 100 }, () => paperTradeEvents([next])[0])).length).toBeLessThan(3500);
-  });
   it('preserves zero performance, missing samples and escaped headlines', () => {
     view.outcomes = [{ horizon: 1, label: 'D1', count: 1, meanNetReturnPct: 0, winRatePct: 0 }, { horizon: 3, label: 'D3', count: 0, meanNetReturnPct: null, winRatePct: null }];
     const text = formatPaperReport(view, 'status', '2026-09-14', ['<b>뉴스 & 공시</b>']);
@@ -510,46 +494,6 @@ describe('operational health transitions', () => {
 });
 
 describe('signal and learning linkage', () => {
-  it('keeps all events in bounded channel batches and freezes their evidence', () => {
-    const strategy = enteredStrategy();
-    const template = strategy.trades[0];
-    const now = new Date('2026-09-18T01:01:00Z');
-    persisted.initializedAt = '2026-09-18T00:00:00Z';
-    view.strategy = buildPaperStrategyView(strategy);
-    view.strategy.trades = Array.from({ length: 23 }, (_, index) => ({ ...structuredClone(template), id: `signal-${index}`, symbol: `1000${String(index).padStart(2, '0')}`, name: '<&>'.repeat(40) }));
-    const before = structuredClone(view.strategy.trades);
-    enqueuePaperTradeChanges(persisted, view, now);
-    const batchCount = persisted.messages.length;
-    expect(batchCount).toBeGreaterThan(0);
-    expect(batchCount % 2).toBe(0);
-    expect(Object.keys(persisted.seenEvents)).toHaveLength(23);
-    for (const channel of ['TRADE', 'ANALYSIS']) {
-      const messages = persisted.messages.filter(item => item.channel === channel);
-      for (const trade of view.strategy.trades) expect(messages.filter(item => item.message.includes(trade.symbol))).toHaveLength(1);
-      for (const item of messages) expect(item.message.length).toBeLessThan(3800);
-    }
-    expect(view.strategy.trades).toEqual(before);
-    expect(persisted.messages[1].message).toContain('자동 연결 지표:');
-    expect(persisted.messages[1].message).toContain('<b>후반 확인 40건/10진입일</b>\n평균 순수익률 +9.00%');
-    enqueuePaperTradeChanges(persisted, view, now);
-    expect(persisted.messages).toHaveLength(batchCount);
-    const longView = structuredClone(view);
-    for (const trade of longView.strategy!.trades) {
-      trade.entryObservation.news = [{ id: 'long-news', headline: '&'.repeat(70), source: 'DART', observedAt: trade.entryAt }];
-      trade.exit = { decisionAt: now.toISOString(), netReturnPct: -2 } as NonNullable<typeof trade.exit>;
-    }
-    const longState = emptyState(); longState.initializedAt = persisted.initializedAt;
-    enqueuePaperTradeChanges(longState, longView, now);
-    expect(Object.keys(longState.seenEvents)).toHaveLength(46);
-    for (const channel of ['TRADE', 'ANALYSIS']) {
-      const messages = longState.messages.filter(item => item.channel === channel);
-      for (const trade of longView.strategy!.trades) {
-        const body = messages.map(item => item.message).join('');
-        expect(body.split(`(${trade.symbol})`).length - 1).toBe(2);
-      }
-      for (const item of messages) expect(item.message.length).toBeLessThanOrEqual(3500);
-    }
-  });
   it('pairs an exit with the original entry evidence instead of current research', () => {
     const trade = enteredStrategy().trades[0];
     trade.exit = { decisionAt: '2026-09-23T07:00:00Z', effectiveAt: '2026-09-23T06:30:00Z', netReturnPct: -2 } as NonNullable<typeof trade.exit>;
@@ -559,6 +503,6 @@ describe('signal and learning linkage', () => {
     expect(text).toContain('청산 순수익률 <b>-2.00%</b>');
     expect(text).toContain('(005930)');
     expect(text).toContain('매수 10,000원 · 2026-09-18');
-    expect(formatPaperBotStatus(persisted)).toContain('CH1 매매: 진입·청산');
+    expect(formatPaperBotStatus(persisted)).toContain('CH1 매매: 가상 계좌 체결만');
   });
 });

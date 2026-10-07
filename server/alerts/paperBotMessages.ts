@@ -285,8 +285,8 @@ export function formatPaperBotStatus(state: PaperBotState): string {
     return `${label}: 성공 ${messages.filter(item => item.state === 'SENT').length} · 대기 ${messages.filter(item => item.state === 'PENDING').length} · 실패 ${messages.filter(item => item.state === 'FAILED').length}`;
   });
   return ['🤖 <b>Shadow 알림 봇</b>', '', '🗓 <b>발송 일정</b>', ...PAPER_BOT_SCHEDULES.map(item => item.label), '매분 · 새 전략 진입/청산, 연구 변경, 관측 중단/복구 확인', '', '📮 <b>채널 역할</b>',
-    'CH1 매매: 진입·청산 / CH2 판단: 08:30 추천·진입 근거·청산 복기·10:30/13:30 판단',
-    'CH3 정보: 08:45 준비 / CH4 연구: 지표 변경·16:10 성과·일요일 연구 / 개인 DM: 운영 상태', '',
+    'CH1 매매: 가상 계좌 체결만 / CH2 판단: 08:30 후보·계좌 체결 근거·10:30/13:30 계좌 요약',
+    'CH3 정보: 08:45 준비 / CH4 연구: 지표 변경·16:10 성과·일요일 연구(계좌/신호 검증 구분) / 개인 DM: 운영 상태', '',
     '관측 지연: 장중 10분·휴장/장외 60분, 진행률 확인 후 5분 지속 시 알림 · 같은 경고 최소 1시간 간격',
     '', `⚙️ <b>관측 상태 ${health}</b>`,
     `마지막 점검 ${stamp(state.lastCheckedAt)}`, `마지막 확인된 발송 ${stamp(sent?.sentAt)}`,

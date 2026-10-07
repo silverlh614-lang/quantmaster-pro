@@ -28,6 +28,8 @@ export interface PaperBotState {
   initializedAt: string | null;
   /** Baseline existing research separately when upgrading a previously running bot. */
   researchInitializedAt?: string;
+  accountInitializedAt?: string;
+  accountHealth?: 'OK' | 'ERROR';
   lastCheckedAt: string | null;
   health: PaperBotHealth;
   notifiedHealth: PaperBotHealth;
@@ -43,6 +45,8 @@ export function loadPaperBotState(): PaperBotState {
     || !healthValues.includes(state.health) || !healthValues.includes(state.notifiedHealth)
     || (state.initializedAt !== null && !Number.isFinite(Date.parse(state.initializedAt)))
     || (state.researchInitializedAt !== undefined && (typeof state.researchInitializedAt !== 'string' || !Number.isFinite(Date.parse(state.researchInitializedAt))))
+    || (state.accountInitializedAt !== undefined && (typeof state.accountInitializedAt !== 'string' || !Number.isFinite(Date.parse(state.accountInitializedAt))))
+    || (state.accountHealth !== undefined && !['OK', 'ERROR'].includes(state.accountHealth))
     || Object.values(state.seenEvents).some(at => typeof at !== 'string' || !Number.isFinite(Date.parse(at)))
     || state.messages.some(item => !item || typeof item.id !== 'string' || !item.id || typeof item.message !== 'string'
       || !['PENDING', 'SENT', 'FAILED', 'EXPIRED', 'SUPERSEDED'].includes(item.state)

@@ -6,12 +6,14 @@ import type { PaperBotMessage, PaperBotState } from '../persistence/paperBotRepo
 import { AlertCategory } from './alertCategories.js';
 import { matureAdaptiveSamples } from '../trading/paper/paperAdaptiveFixtures.js';
 import { selectPaperAdaptiveState } from '../trading/paper/paperAdaptiveSelection.js';
+import { accountFill, createPaperAccount, buildPaperAccountView } from '../trading/paper/paperAccount.js';
 
 const mocks = vi.hoisted(() => ({
   channel: vi.fn<(chat: string, message: string, options?: { disableNotification?: boolean }) => Promise<number | undefined>>(),
   private: vi.fn<() => Promise<number | undefined>>(),
   load: vi.fn(), save: vi.fn(), view: vi.fn(), paused: vi.fn(), mode: vi.fn(),
   stats: vi.fn(), history: vi.fn(), ledger: vi.fn(), fetch: vi.fn(),
+  account: vi.fn(),
 }));
 vi.mock('./telegramClient.js', () => ({
   sendChannelAlertTo: mocks.channel, sendTelegramAlert: mocks.private,
@@ -20,6 +22,7 @@ vi.mock('../persistence/paperBotRepo.js', () => ({
   loadPaperBotState: mocks.load, savePaperBotState: mocks.save,
 }));
 vi.mock('../trading/paper/paperExperimentRunner.js', () => ({ getPaperExperimentView: mocks.view }));
+vi.mock('../trading/paper/paperAccountRuntime.js', () => ({ readVirtualAccount: mocks.account }));
 vi.mock('../state.js', () => ({ getTradingMode: mocks.mode, getAutoTradePaused: mocks.paused }));
 vi.mock('../learning/newsSupplyLogger.js', () => ({ loadNewsSupplyRecords: () => [] }));
 vi.mock('../persistence/dartRepo.js', () => ({ loadDartAlerts: () => [] }));
@@ -42,6 +45,15 @@ const policy = {
 } as const;
 let persisted: PaperBotState;
 let view: PaperExperimentView;
+function accountView(trades: PaperStrategyTrade[] = []) {
+  const account = createPaperAccount({ initialCash: 10000000, maxPositionPct: 20, includeExploration: false }, '2026-09-14T00:00:00Z', 'test-account');
+  account.orders = trades.map(trade => ({ id: `${trade.id}:BUY`, tradeId: trade.id, symbol: trade.symbol, name: trade.name, side: 'BUY',
+    signalAt: trade.entryAt, submittedAt: trade.entryAt, updatedAt: trade.entryAt, signalSnapshotId: trade.entrySnapshotId,
+    signalReason: trade.entryDecision.reason, signalLabel: '검증 신호', purpose: 'VALIDATED', quantity: 4, budget: 40000,
+    costModel: trade.costModel, status: 'FILLED', statusReason: '가상 체결',
+    fill: accountFill('BUY', 4, { price: trade.entryPrice, observedAt: trade.entryAt, source: 'KIS', snapshotId: trade.entrySnapshotId }, trade.costModel, trade.entryAt, `${trade.id}:BUY:fill`) }));
+  return buildPaperAccountView(account, friday.toISOString());
+}
 
 function newTrade(index = 0): PaperStrategyTrade {
   const symbol = String(100000 + index);
@@ -73,7 +85,7 @@ function newTrade(index = 0): PaperStrategyTrade {
 
 function pending(id: string, channel?: AlertCategory): PaperBotMessage {
   return {
-    id, kind: 'trades', message: 'Shadow 기록 ' + id, ...(channel ? { channel } : {}),
+    id: id.startsWith('old-') ? id : `paper:account:${id}`, kind: 'trades', message: '가상 계좌 기록 ' + id, ...(channel ? { channel } : {}),
     createdAt: friday.toISOString(), expiresAt: new Date(friday.getTime() + 3600000).toISOString(),
     state: 'PENDING', attempts: 0, nextAttemptAt: friday.toISOString(),
   };
@@ -88,6 +100,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   persisted = {
     schemaVersion: 1, initializedAt: '2026-09-14T00:00:00Z', lastCheckedAt: null,
+    accountInitializedAt: '2026-09-14T00:00:00Z',
     health: 'OK', notifiedHealth: 'OK', seenEvents: {}, messages: [],
   };
   view = {
@@ -109,6 +122,7 @@ beforeEach(() => {
   mocks.mode.mockReturnValue('SHADOW');
   mocks.paused.mockReturnValue(false);
   mocks.channel.mockResolvedValue(101);
+  mocks.account.mockImplementation(() => view.strategy?.trades.length ? accountView(view.strategy.trades) : buildPaperAccountView(null, friday.toISOString()));
   mocks.private.mockResolvedValue(901);
   mocks.fetch.mockImplementation(() => { throw new Error('Real network is forbidden in paper bot channel tests'); });
   vi.stubGlobal('fetch', mocks.fetch);
@@ -130,6 +144,7 @@ afterEach(() => {
 
 describe('paper bot through the real four-channel router', () => {
   it('routes fresh intraday decisions to CH2 and retries a new research update only on CH4', async () => {
+    mocks.account.mockReturnValue(accountView());
     const now = new Date('2026-09-18T10:30:00+09:00');
     view.strategy!.adaptive = selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), now.toISOString());
     view.strategy!.lastRun = { snapshotId: 'scan', asOf: now.toISOString(), openedCount: 0, closedCount: 0, waitingCount: 0, holdingCount: 0 };
@@ -173,6 +188,14 @@ describe('paper bot through the real four-channel router', () => {
     expect(mocks.channel).toHaveBeenCalledTimes(4);
   });
 
+  it('keeps source signals internal when the virtual account has not started', async () => {
+    view.strategy!.trades = [newTrade()];
+    mocks.account.mockReturnValue(buildPaperAccountView(null, friday.toISOString()));
+    await tick();
+    expect(persisted.messages.filter(item => item.kind === 'trades')).toHaveLength(0);
+    expect(mocks.channel).not.toHaveBeenCalled();
+  });
+
   it('retries only the failed channel with the same ID through the real cooldown guard', async () => {
     view.strategy!.trades = [newTrade()];
     mocks.channel.mockImplementation(async chat => chat === destinations.TRADE ? 201 : undefined);
@@ -213,19 +236,19 @@ describe('paper bot through the real four-channel router', () => {
     expect(persisted.messages[0]).toMatchObject({ state: 'SENT', messageId: 101, attempts: 2 });
   });
 
-  it('preserves old unchannelled DM records and does not rebroadcast past successful DMs', async () => {
+  it('retires old pending signal DMs without changing successful delivery records', async () => {
     persisted.messages = [
       pending('old-pending-dm'),
       { ...pending('old-sent-dm'), state: 'SENT', messageId: 801, sentAt: friday.toISOString(), attempts: 1 },
     ];
     await tick();
-    expect(mocks.private).toHaveBeenCalledTimes(1);
+    expect(mocks.private).not.toHaveBeenCalled();
     expect(mocks.channel).not.toHaveBeenCalled();
-    expect(persisted.messages[0]).toMatchObject({ state: 'SENT', messageId: 901 });
+    expect(persisted.messages[0]).toMatchObject({ state: 'SUPERSEDED' });
     expect(persisted.messages[0].channel).toBeUndefined();
     expect(persisted.messages[1]).toMatchObject({ state: 'SENT', messageId: 801, attempts: 1 });
     await tick(new Date(friday.getTime() + 60000));
-    expect(mocks.private).toHaveBeenCalledTimes(1);
+    expect(mocks.private).not.toHaveBeenCalled();
   });
 
   it('keeps operational health in DM instead of sending it as a trading signal', async () => {
