@@ -72,8 +72,10 @@ export async function collectPaperExperimentSnapshot(
   const codes = [...new Set([...names.keys(), ...news.keys(), ...openSymbols.map(codeOf).filter((code): code is string => code !== null)])];
   const id = `paper_${randomUUID()}`;
   const source = await collectUnifiedSnapshot(codes, { scanCycleId: id, profile: 'PAPER', onProgress });
+  // A halted stock is not a target, so its frozen price is not re-queried.
   const refreshed = await refreshPaperQuotes(isPaperMarketOpen(startedAt) && isPaperMarketOpen(new Date())
-    ? codes.map(symbol => ({ symbol, quote: source.perSymbol[symbol]?.quote })) : [], startMs);
+    ? codes.filter(symbol => !source.perSymbol[symbol]?.quote?.tradingHalted)
+      .map(symbol => ({ symbol, quote: source.perSymbol[symbol]?.quote })) : [], startMs);
   const finishedAt = new Date();
   const asOf = finishedAt.toISOString();
   const tradingDate = toKstDateKey(finishedAt);
@@ -81,7 +83,9 @@ export async function collectPaperExperimentSnapshot(
     const data = source.perSymbol[symbol];
     const quote = refreshed.get(symbol) ?? data?.quote;
     const quoteMs = Date.parse(quote?.fetchedAt ?? '');
-    const issue = !quote ? 'CURRENT_QUOTE_UNAVAILABLE'
+    // The scan quote or a single-quote refresh carries the halt flag; a frozen halted price is never a tradable current price.
+    const issue = data?.quote?.tradingHalted || quote?.tradingHalted ? 'TRADING_HALTED'
+      : !quote ? 'CURRENT_QUOTE_UNAVAILABLE'
       : quote.code !== symbol ? 'CURRENT_QUOTE_SYMBOL_MISMATCH'
         : !Number.isFinite(quote.currentPrice) || (quote.currentPrice ?? 0) <= 0 ? 'CURRENT_QUOTE_INVALID_PRICE'
           : !Number.isFinite(quoteMs) || quoteMs > finishedAt.getTime() ? 'CURRENT_QUOTE_TIME_INVALID'

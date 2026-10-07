@@ -41,6 +41,33 @@ describe('paper observation collector', () => {
     expect(quote.currentPrice).toBe(10000); expect(quote.fetchedAt).toBe('2026-09-18T01:00:00.000Z');
     expect(result.marketOpen).toBe(true); expect(mocks.collect).toHaveBeenCalledTimes(1);
   });
+  it('marks a halted stock unusable without re-querying its frozen price', async () => {
+    mocks.watchlist.mockReturnValue([{ code: '005930', name: 'Samsung', section: 'MOMENTUM' }, { code: '000660', name: 'Hynix', section: 'MOMENTUM' }]);
+    mocks.collect.mockImplementationOnce(async () => {
+      const fetchedAt = new Date().toISOString();
+      vi.setSystemTime(new Date('2026-09-18T01:05:00Z'));
+      return { perSymbol: {
+        '005930': { quote: { code: '005930', currentPrice: 10000, per: 10, fetchedAt, tradingHalted: true }, dailyBars: [] },
+        '000660': { quote: { code: '000660', currentPrice: 20000, fetchedAt, tradingHalted: false }, dailyBars: [] },
+      } };
+    });
+    const result = await collectPaperExperimentSnapshot([]);
+    const halted = result.observations.find(item => item.symbol === '005930')!;
+    expect(halted).toMatchObject({ price: null, issue: 'TRADING_HALTED' });
+    expect(result.observations.find(item => item.symbol === '000660')!.issue).toBeUndefined();
+    expect(mocks.multi).toHaveBeenCalledWith(['000660']);
+  });
+  it('marks a stock halted during a slow scan when its single-quote refresh reports the halt', async () => {
+    mocks.collect.mockImplementationOnce(async () => {
+      const fetchedAt = new Date().toISOString();
+      vi.setSystemTime(new Date('2026-09-18T01:05:00Z'));
+      return { perSymbol: { '005930': { quote: { code: '005930', currentPrice: 10000, per: 10, fetchedAt, tradingHalted: false }, dailyBars: [] } } };
+    });
+    mocks.single.mockImplementationOnce(async () => ({ code: '005930', currentPrice: 10000, per: 10, fetchedAt: new Date().toISOString(), tradingHalted: true }));
+    const result = await collectPaperExperimentSnapshot([]);
+    expect(mocks.single).toHaveBeenCalledWith('005930');
+    expect(result.observations[0]).toMatchObject({ price: null, issue: 'TRADING_HALTED' });
+  });
   it('preserves original research timestamps when end-of-scan refresh fails', async () => {
     const fetchedAt = new Date().toISOString();
     mocks.collect.mockImplementationOnce(async () => {

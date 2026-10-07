@@ -11,6 +11,7 @@ export const PAPER_OBSERVATION_ISSUE_LABELS: Record<string, string> = {
   CURRENT_QUOTE_SYMBOL_MISMATCH: '응답 종목 코드 불일치',
   CURRENT_QUOTE_TIME_INVALID: '현재가 조회 시각 오류',
   CURRENT_QUOTE_STALE: '이번 수집 이전의 현재가',
+  TRADING_HALTED: '거래정지 · 매매 대상 제외',
 };
 
 export interface PaperCollectionProgress {

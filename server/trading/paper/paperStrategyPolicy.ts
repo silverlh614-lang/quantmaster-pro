@@ -76,7 +76,8 @@ function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, a
   }
   if (!snapshot.marketOpen || !isKrxTradingDay(snapshot.tradingDate)) return wait('MARKET_CLOSED', '장중 가격 관측까지 진입 대기');
   if (observation.price === null || !Number.isFinite(observation.price) || observation.price <= 0 || observation.issue) {
-    return wait('CURRENT_PRICE_UNAVAILABLE', '유효한 현재가를 확인할 수 없어 진입 대기');
+    return wait('CURRENT_PRICE_UNAVAILABLE', observation.issue === 'TRADING_HALTED'
+      ? '거래정지 종목 · 진입 대상에서 제외' : '유효한 현재가를 확인할 수 없어 진입 대기');
   }
   return adaptiveEntryDecision(snapshot, observation, adaptive);
 }
