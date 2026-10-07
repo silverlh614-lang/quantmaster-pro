@@ -1,7 +1,7 @@
 // @responsibility Define the empirical Shadow strategy contract.
 import type { PaperCostModel, PaperNewsSummary, PaperObservation } from './paperExperiment';
 import type { PaperInvestorFlow } from './paperInvestorFlow';
-import type { PaperAdaptiveEvidence, PaperAdaptiveState, PaperExplorationEvidence } from './paperAdaptive';
+import type { PaperAdaptiveCandidate, PaperAdaptiveEvidence, PaperAdaptiveState, PaperExplorationEvidence } from './paperAdaptive';
 import type { PaperAdaptiveExitOutcome, PaperAdaptiveExitPolicy, PaperAdaptiveExitResearch, PaperExitLearningState } from './paperAdaptiveExit';
 import type { PaperAutonomyAllocation } from './paperAutonomy';
 
@@ -260,3 +260,19 @@ export interface PaperStrategyView {
   measurementHistory?: PaperTradeMeasurementHistory;
   error?: string;
 }
+
+/** Strategy screen row: identity, grouping and result fields. Full evidence is read for the visible page only. */
+export interface PaperStrategyTradeSummary {
+  id: string; strategyVersion: PaperStrategyVersion; symbol: string; name: string; status: PaperStrategyTrade['status'];
+  entryAt: string; tradingDate: string; horizon: PaperStrategyHorizon; costModel: PaperCostModel;
+  policy: Pick<PaperStrategyPolicy, 'exitModel'>;
+  exitPolicy?: Pick<PaperAdaptiveExitPolicy, 'version' | 'profile'>;
+  entryDecision: Pick<PaperStrategyDecision, 'cohort'> & {
+    adaptiveEvidence?: { candidate: Pick<PaperAdaptiveCandidate, 'rule'> };
+    explorationEvidence?: { candidate: Pick<PaperAdaptiveCandidate, 'rule'> };
+  };
+  exit: Pick<PaperStrategyExit, 'netReturnPct'> | null;
+  exitResearch?: { baseline: Pick<PaperAdaptiveExitOutcome, 'netReturnPct'> | null };
+  measurement?: Pick<PaperTradeMeasurement, 'fromEntry'>;
+}
+export type PaperStrategyScreenView = Omit<PaperStrategyView, 'trades'> & { trades: PaperStrategyTradeSummary[] };

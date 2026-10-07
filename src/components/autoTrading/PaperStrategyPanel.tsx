@@ -1,9 +1,11 @@
 // @responsibility Display empirical Shadow strategy decisions.
 import React, { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type {
   PaperStrategyCohort, PaperStrategyDecision, PaperStrategyEdge, PaperStrategyEvidence,
-  PaperStrategyPolicy, PaperStrategySelection, PaperStrategyTrade, PaperStrategyView,
+  PaperStrategyPolicy, PaperStrategyScreenView, PaperStrategySelection, PaperStrategyTrade, PaperStrategyTradeSummary,
 } from '../../types/paperStrategy';
+import { paperExperimentApi, PAPER_EXPERIMENT_QUERY_KEY } from '../../api/paperExperimentClient';
 import { Section } from '../../ui/section';
 import { PaperNewsDetails } from './PaperNewsDetails';
 import { summarizePaperNews } from '../../utils/paperNews';
@@ -199,7 +201,22 @@ function TradeCard({ trade }: { trade: PaperStrategyTrade }) {
   );
 }
 
-export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
+const isFullTrade = (trade: PaperStrategyTradeSummary): trade is PaperStrategyTrade => 'entryObservation' in trade;
+/** The polled screen view carries compact rows; full evidence is read only for the open page. */
+function PageTradeCards({ ids }: { ids: string[] }) {
+  const query = useQuery({ queryKey: [...PAPER_EXPERIMENT_QUERY_KEY, 'strategy-trades', ids], queryFn: () => paperExperimentApi.getStrategyTrades(ids),
+    staleTime: 25_000, refetchInterval: 30_000, refetchIntervalInBackground: false, retry: 1 });
+  if (query.isPending) return <p role="status" className="workspace-empty">거래 상세를 불러오는 중입니다…</p>;
+  if (query.isError) return <p role="alert" className="workspace-alert">거래 상세를 불러오지 못했습니다. 새로고침으로 다시 시도해 주세요.</p>;
+  const records = new Map(query.data.map(trade => [trade.id, trade]));
+  return <>{ids.flatMap(id => records.get(id) ?? []).map(trade => <TradeCard key={trade.id} trade={trade} />)}</>;
+}
+function TradeCards({ trades, open }: { trades: PaperStrategyTradeSummary[]; open: boolean }) {
+  if (trades.every(isFullTrade)) return <>{trades.map(trade => <TradeCard key={trade.id} trade={trade} />)}</>;
+  return open ? <PageTradeCards ids={trades.map(trade => trade.id)} /> : null;
+}
+
+export function PaperStrategyPanel({ view }: { view: PaperStrategyScreenView }) {
   const [search, setSearch] = useState('');
   const [action, setAction] = useState('ALL');
   const [tradeStatus, setTradeStatus] = useState('ALL');
@@ -209,6 +226,7 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
   const [signalFilter, setSignalFilter] = useState('');
   const [decisionPage, setDecisionPage] = useState(0);
   const [tradePage, setTradePage] = useState(0);
+  const [recordsOpen, setRecordsOpen] = useState(view.strategyVersion !== 'adaptive-features-v1');
   const unavailable = Boolean(view.error || view.lastRun?.error);
   const history = view.measurementHistory;
   const measurementWarning = history && (history.error || history.failedBatchCount === null || history.unrecordedPointCount === null
@@ -306,7 +324,7 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
             )}
             {matchingDecisions.length > 12 && <div className="workspace-pagination"><span>{currentDecisionPage + 1} / {Math.ceil(matchingDecisions.length / 12)}</span><button type="button" className="workspace-button" disabled={!currentDecisionPage} onClick={() => setDecisionPage(currentDecisionPage - 1)}>이전 판단</button><button type="button" className="workspace-button" disabled={(currentDecisionPage + 1) * 12 >= matchingDecisions.length} onClick={() => setDecisionPage(currentDecisionPage + 1)}>다음 판단</button></div>}
           </details>
-          <details id="paper-original-trades" open={!adaptive} className="space-y-3"><summary className="cursor-pointer py-2">종목별 원본 거래 펼치기</summary>
+          <details id="paper-original-trades" open={!adaptive} onToggle={event => setRecordsOpen(event.currentTarget.open)} className="space-y-3"><summary className="cursor-pointer py-2">종목별 원본 거래 펼치기</summary>
             <h4 id="paper-trade-records" className="text-sm font-semibold text-slate-200">전략 진입·청산 기록 <span className="font-normal text-slate-500">누적 {view.totalCount}건 · 검색 {matchingTrades.length}건 · 페이지당 10건</span></h4>
             <div className="workspace-filters">
               <label>진입일 <input aria-label="거래 진입일" type="date" value={entryDate} onChange={event => { setEntryDate(event.target.value); setTradePage(0); }} /></label>
@@ -318,7 +336,7 @@ export function PaperStrategyPanel({ view }: { view: PaperStrategyView }) {
             {ruleFilter && <p className="text-xs text-sky-200">성적표에서 선택한 지표·버전의 거래만 표시합니다. <button type="button" className="underline" onClick={() => { setRuleFilter(''); setTradePage(0); }}>지표 필터 해제</button></p>}
             {signalFilter && <p className="text-xs text-sky-200">선택한 진입 신호의 원본 거래입니다. <button type="button" className="underline" onClick={() => { setSignalFilter(''); setTradePage(0); }}>신호 필터 해제</button></p>}
             <div className="workspace-filters"><select aria-label="전략 거래 상태" value={tradeStatus} onChange={event => { setTradeStatus(event.target.value); setTradePage(0); }}><option value="ALL">전체 거래</option><option value="OPEN">가상 보유</option><option value="CLOSED">가상 청산</option></select></div>
-            {trades.length === 0 ? <p className="workspace-empty">{view.trades.length ? '검색 조건에 맞는 전략 거래가 없습니다.' : '아직 전략 진입이 없습니다. 판단 근거와 표본 충족 상태는 최근 전략 판단에서 확인하세요.'}</p> : trades.map(trade => <TradeCard key={trade.id} trade={trade} />)}
+            {trades.length === 0 ? <p className="workspace-empty">{view.trades.length ? '검색 조건에 맞는 전략 거래가 없습니다.' : '아직 전략 진입이 없습니다. 판단 근거와 표본 충족 상태는 최근 전략 판단에서 확인하세요.'}</p> : <TradeCards trades={trades} open={recordsOpen} />}
             {matchingTrades.length > 10 && <div className="workspace-pagination"><span>{currentTradePage + 1} / {Math.ceil(matchingTrades.length / 10)}</span><button type="button" className="workspace-button" disabled={!currentTradePage} onClick={() => setTradePage(currentTradePage - 1)}>이전 거래</button><button type="button" className="workspace-button" disabled={(currentTradePage + 1) * 10 >= matchingTrades.length} onClick={() => setTradePage(currentTradePage + 1)}>다음 거래</button></div>}
           </details>
         </>

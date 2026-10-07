@@ -1,20 +1,20 @@
 // @responsibility Derive performance summaries from frozen trade evidence.
-import type { PaperStrategyTrade } from '../types/paperStrategy';
+import type { PaperStrategyTradeSummary } from '../types/paperStrategy';
 import { paperAdaptiveRuleLabel, type PaperAdaptiveRule, type PaperAdaptiveState } from '../types/paperAdaptive.js';
 
 /** Frozen formula identity excludes today's research scores and exit settings. */
 export const signalRuleKey = (rule: PaperAdaptiveRule) => JSON.stringify([
   rule.feature, rule.bucket, rule.horizon, rule.invention?.id, rule.invention?.createdAt, rule.invention?.formula,
 ]);
-export function tradeSignalIdentity(trade: PaperStrategyTrade) {
+export function tradeSignalIdentity(trade: PaperStrategyTradeSummary) {
   const rule = (trade.entryDecision.explorationEvidence ?? trade.entryDecision.adaptiveEvidence)?.candidate?.rule;
   return { key: JSON.stringify([trade.strategyVersion, tradePurpose(trade), rule ? signalRuleKey(rule) : trade.entryDecision.cohort, trade.horizon]),
     rule, label: rule ? paperAdaptiveRuleLabel(rule) : `${trade.entryDecision.cohort ?? '과거 조건'} · D${trade.horizon}`,
     purpose: tradePurpose(trade), version: trade.strategyVersion, bornAt: rule?.invention?.createdAt };
 }
 
-export function buildSignalReview(trades: readonly PaperStrategyTrade[], state?: PaperAdaptiveState) {
-  const groups = new Map<string, PaperStrategyTrade[]>();
+export function buildSignalReview(trades: readonly PaperStrategyTradeSummary[], state?: PaperAdaptiveState) {
+  const groups = new Map<string, PaperStrategyTradeSummary[]>();
   for (const trade of trades) {
     const key = tradeSignalIdentity(trade).key;
     if (!groups.has(key)) groups.set(key, []);
@@ -37,12 +37,12 @@ export function buildSignalReview(trades: readonly PaperStrategyTrade[], state?:
 
 export type TradePurpose = 'VALIDATED' | 'EXPLORATION' | 'LEGACY';
 export const tradePurposeLabels: Record<TradePurpose, string> = { VALIDATED: '검증 매수', EXPLORATION: '탐색 매수', LEGACY: '구전략' };
-export function tradePurpose(trade: PaperStrategyTrade): TradePurpose {
+export function tradePurpose(trade: PaperStrategyTradeSummary): TradePurpose {
   return trade.strategyVersion !== 'adaptive-features-v1' ? 'LEGACY'
     : trade.entryDecision.explorationEvidence ? 'EXPLORATION' : 'VALIDATED';
 }
 /** Group by the entry's actual rule, formula generation and frozen exit settings, never today's selected rule. */
-export function tradeRuleIdentity(trade: PaperStrategyTrade) {
+export function tradeRuleIdentity(trade: PaperStrategyTradeSummary) {
   const rule = (trade.entryDecision.explorationEvidence ?? trade.entryDecision.adaptiveEvidence)?.candidate.rule;
   const profile = trade.exitPolicy?.profile;
   const key = JSON.stringify([trade.strategyVersion, tradePurpose(trade), rule?.feature ?? trade.entryDecision.cohort,
@@ -58,7 +58,7 @@ export function tradeRuleIdentity(trade: PaperStrategyTrade) {
     purpose: tradePurpose(trade) };
 }
 const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
-export function summarizeTradeRecords(trades: readonly PaperStrategyTrade[]) {
+export function summarizeTradeRecords(trades: readonly PaperStrategyTradeSummary[]) {
   const closed = trades.filter(trade => trade.status === 'CLOSED' && trade.exit && Number.isFinite(trade.exit.netReturnPct));
   const returns = closed.map(trade => trade.exit!.netReturnPct);
   const wins = returns.filter(value => value > 0), losses = returns.filter(value => value < 0);
@@ -76,8 +76,8 @@ export function summarizeTradeRecords(trades: readonly PaperStrategyTrade[]) {
     partialPathCount: trades.filter(trade => trade.measurement && !trade.measurement.fromEntry).length,
     d5Count: pairs.length, d5DifferencePct: mean(pairs.map(trade => trade.exit!.netReturnPct - trade.exitResearch!.baseline!.netReturnPct)) };
 }
-export function buildTradeReview(trades: readonly PaperStrategyTrade[]) {
-  const dates = new Map<string, PaperStrategyTrade[]>(), rules = new Map<string, PaperStrategyTrade[]>();
+export function buildTradeReview(trades: readonly PaperStrategyTradeSummary[]) {
+  const dates = new Map<string, PaperStrategyTradeSummary[]>(), rules = new Map<string, PaperStrategyTradeSummary[]>();
   for (const trade of trades) {
     const key = tradeRuleIdentity(trade).key;
     if (!dates.has(trade.tradingDate)) dates.set(trade.tradingDate, []);

@@ -1,11 +1,11 @@
 // @responsibility Display historical trade performance with explicit evidence gaps.
 import React, { useMemo, useState } from 'react';
-import type { PaperStrategyTrade } from '../../types/paperStrategy';
+import type { PaperStrategyTradeSummary } from '../../types/paperStrategy';
 import { buildTradeReview, tradePurpose, tradePurposeLabels, type TradePurpose } from '../../utils/paperTradeReview';
 
 const pct = (value: number | null) => value === null ? '집계 대기' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
 export function PaperTradeReview({ trades, totalCount, onSelect }: {
-  trades: PaperStrategyTrade[]; totalCount: number; onSelect: (filter: { date?: string; rule?: string; purpose?: string }) => void;
+  trades: PaperStrategyTradeSummary[]; totalCount: number; onSelect: (filter: { date?: string; rule?: string; purpose?: string }) => void;
 }) {
   const [purpose, setPurpose] = useState('ALL');
   const [datePage, setDatePage] = useState(0), [rulePage, setRulePage] = useState(0);

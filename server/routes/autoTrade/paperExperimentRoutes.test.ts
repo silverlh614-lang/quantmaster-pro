@@ -5,8 +5,9 @@ const mocks = vi.hoisted(() => ({
   view: vi.fn(), paperScan: vi.fn(), publicScan: vi.fn(), mode: 'SHADOW',
   legacyRead: vi.fn(), legacySave: vi.fn(), brokerQuote: vi.fn(), reconcile: vi.fn(),
   morning: vi.fn(), recommendation: vi.fn(), evaluation: vi.fn(), bot: vi.fn(), financials: vi.fn(),
-  accountRead: vi.fn(), accountStart: vi.fn(), accountPause: vi.fn(),
+  accountRead: vi.fn(), accountStart: vi.fn(), accountPause: vi.fn(), strategyTrades: vi.fn(),
 }));
+vi.mock('../../trading/paper/paperStrategyRuntime.js', () => ({ readPaperStrategyTrades: mocks.strategyTrades }));
 vi.mock('../../trading/paper/paperAccountRuntime.js', () => ({ readVirtualAccount: mocks.accountRead,
   startVirtualAccount: mocks.accountStart, pauseVirtualAccountBuys: mocks.accountPause }));
 vi.mock('../../trading/paper/paperEvaluation.js', () => ({ buildPaperEvaluation: mocks.evaluation }));
@@ -40,6 +41,8 @@ vi.mock('../../persistence/dartRepo.js', () => ({ getDartAlerts: vi.fn() }));
 vi.mock('../../alerts/dartPoller.js', () => ({ pollDartDisclosures: vi.fn() }));
 
 import shadowRouter from './shadowRouter.js';
+import { legacyStrategyLedger } from '../../trading/paper/paperStrategyFixtures.js';
+import { summarizePaperStrategyTrade } from '../../trading/paper/paperStrategyScreen.js';
 import screenerRouter from './screenerRouter.js';
 
 interface ResponseStub {
@@ -93,18 +96,35 @@ describe('paper experiment API registration', () => {
     await handler(shadowRouter, 'patch', '/shadow/virtual-account/buys')({ body: { id: 'virtual', paused: 'false' } }, invalid);
     expect(invalid.statusCode).toBe(400); expect(mocks.accountPause).not.toHaveBeenCalled();
   });
-  it('returns older strategy records beyond the 200-trade preview without running collection', async () => {
-    const trades = Array.from({ length: 205 }, (_, index) => ({ id: `trade-${index}` }));
+  it('returns compact rows for strategy records beyond the 200-trade preview without running collection', async () => {
+    const base = legacyStrategyLedger().trades[0];
+    const trades = Array.from({ length: 205 }, (_, index) => ({ ...base, id: `trade-${index}` }));
     mocks.view.mockImplementation((full: boolean) => ({ strategy: { totalCount: trades.length, trades: full ? trades : trades.slice(-200) } }));
     const res = response();
     await handler(shadowRouter, 'get', '/shadow/experiments')({ query: { section: 'strategy' } }, res);
     expect(mocks.view).toHaveBeenCalledWith(true);
-    expect(res.body).toEqual({ totalCount: 205, trades });
+    expect(res.body).toEqual({ totalCount: 205, trades: trades.map(summarizePaperStrategyTrade) });
+    expect(JSON.stringify(res.body)).not.toContain('entryObservation');
     expect(mocks.paperScan).not.toHaveBeenCalled();
     expect(mocks.brokerQuote).not.toHaveBeenCalled();
     const preview = response();
     await handler(shadowRouter, 'get', '/shadow/experiments')({ query: {} }, preview);
     expect(mocks.view).toHaveBeenLastCalledWith(false);
+  });
+  it('reads full strategy records only for a bounded page of trade IDs', async () => {
+    const route = handler(shadowRouter, 'get', '/shadow/strategy-trades');
+    for (const ids of [undefined, '', Array.from({ length: 21 }, (_, index) => `trade-${index}`).join(','), 'x'.repeat(201)]) {
+      const invalid = response(); await route({ query: { ids } }, invalid);
+      expect(invalid.statusCode).toBe(400);
+    }
+    expect(mocks.strategyTrades).not.toHaveBeenCalled();
+    mocks.strategyTrades.mockReturnValue([{ id: 'trade-2' }]);
+    const page = response(); await route({ query: { ids: 'trade-2,trade-9' } }, page);
+    expect(mocks.strategyTrades).toHaveBeenCalledWith(['trade-2', 'trade-9']); expect(page.body).toEqual([{ id: 'trade-2' }]);
+    mocks.strategyTrades.mockImplementationOnce(() => { throw new Error('ledger unreadable'); });
+    const failed = response(); await route({ query: { ids: 'trade-2' } }, failed);
+    expect(failed.statusCode).toBe(500); expect(failed.body).toEqual({ error: 'ledger unreadable' });
+    expect(mocks.paperScan).not.toHaveBeenCalled();
   });
   it('reads an archived morning recommendation without scanning or placing orders', async () => {
     mocks.recommendation.mockReturnValue({ report: { id: 'paper:recommendation:2026-09-18', message: '동결된 추천' }, results: [] });

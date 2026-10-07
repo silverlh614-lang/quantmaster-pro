@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 // @responsibility Verify visible empirical Shadow strategy outcomes.
 import React from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
-  PaperStrategyDecision, PaperStrategyEvidence, PaperStrategyPolicy,
-  PaperStrategyTrade, PaperStrategyView, PaperTradeMeasurementPoint,
+  PaperStrategyDecision, PaperStrategyEvidence, PaperStrategyPolicy, PaperStrategyScreenView,
+  PaperStrategyTrade, PaperStrategyTradeSummary, PaperStrategyView, PaperTradeMeasurementPoint,
 } from '../../types/paperStrategy';
+const api = vi.hoisted(() => ({ trades: vi.fn() }));
+vi.mock('../../api/paperExperimentClient', () => ({ PAPER_EXPERIMENT_QUERY_KEY: ['paper-experiments'],
+  paperExperimentApi: { getStrategyTrades: api.trades } }));
 import { PaperStrategyPanel } from './PaperStrategyPanel';
 import { summarizePaperNews } from '../../utils/paperNews';
 import { buildSignalReview, buildTradeReview, summarizeTradeRecords, tradeRuleIdentity, tradeSignalIdentity, signalRuleKey } from '../../utils/paperTradeReview';
@@ -68,6 +72,26 @@ function resultTrade(net: number, date = trade.tradingDate): PaperStrategyTrade 
       grossReturnPct: net, netReturnPct: net, netPnl: net * 700,
       decision: { ...buy, action: 'EXIT', reasonCode: 'SCHEDULED_CLOSE_REACHED' } } };
 }
+
+describe('compact strategy rows', () => {
+  it('reads full trade cards only for the opened page of polled rows', async () => {
+    const full = { ...resultTrade(8), strategyVersion: 'adaptive-features-v1' as const };
+    const row: PaperStrategyTradeSummary = { id: full.id, strategyVersion: full.strategyVersion, symbol: full.symbol, name: full.name,
+      status: full.status, entryAt: full.entryAt, tradingDate: full.tradingDate, horizon: full.horizon, costModel: full.costModel,
+      policy: { exitModel: full.policy.exitModel }, entryDecision: { cohort: full.entryDecision.cohort }, exit: { netReturnPct: 8 } };
+    const screenView: PaperStrategyScreenView = { ...view({ strategyVersion: 'adaptive-features-v1', totalCount: 1 }), trades: [row] };
+    api.trades.mockResolvedValue([full]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><PaperStrategyPanel view={screenView} /></QueryClientProvider>);
+    expect(screen.getByText(/청산 평균 순수익률 \+8.00%/)).toBeTruthy();
+    expect(api.trades).not.toHaveBeenCalled();
+    const records = document.getElementById('paper-original-trades') as HTMLDetailsElement;
+    records.open = true; fireEvent(records, new Event('toggle'));
+    expect(await screen.findByRole('article', { name: '삼성전자 전략 거래' })).toBeTruthy();
+    expect(api.trades).toHaveBeenCalledWith([full.id]);
+    client.clear();
+  });
+});
 
 describe('trade record review', () => {
   it('groups an entry signal across cost settings while preserving setting breakdowns and purposes', () => {
