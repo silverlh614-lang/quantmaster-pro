@@ -7,8 +7,9 @@ import { buildPaperStrategyView } from '../trading/paper/paperStrategyPolicy.js'
 import { emptyStrategyLedger } from '../trading/paper/paperStrategyFixtures.js';
 import { matureAdaptiveSamples } from '../trading/paper/paperAdaptiveFixtures.js';
 import { selectPaperAdaptiveState } from '../trading/paper/paperAdaptiveSelection.js';
+import { buildPaperAccountView, createPaperAccount } from '../trading/paper/paperAccount.js';
 
-const mocks = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), view: vi.fn(), send: vi.fn(), paused: vi.fn() }));
+const mocks = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), view: vi.fn(), send: vi.fn(), paused: vi.fn(), account: vi.fn() }));
 vi.mock('./globalNewsRuntime.js', () => ({ maintainGlobalMorningNews: () => undefined, getGlobalMorningMessage: () => null }));
 vi.mock('../trading/paper/paperMorningRuntime.js', () => ({ getOrCreatePaperMorningReport: () => null, reconcilePaperMorningDelivery: () => undefined,
   getPaperMorningReviewSafely: () => ({ report: null, results: [], asOf: '2026-09-18T07:10:00Z' }) }));
@@ -16,10 +17,12 @@ vi.mock('./telegramClient.js', () => ({ sendTelegramAlert: mocks.send }));
 vi.mock('./alertRouter.js', async () => ({ ...(await import('./alertCategories.js')), dispatchAlert: mocks.send }));
 vi.mock('../persistence/paperBotRepo.js', () => ({ loadPaperBotState: mocks.load, savePaperBotState: mocks.save }));
 vi.mock('../trading/paper/paperExperimentRunner.js', () => ({ getPaperExperimentView: mocks.view }));
+vi.mock('../trading/paper/paperAccountRuntime.js', () => ({ readVirtualAccount: mocks.account }));
 vi.mock('../state.js', () => ({ getTradingMode: () => 'SHADOW', getAutoTradePaused: mocks.paused }));
 vi.mock('../learning/newsSupplyLogger.js', () => ({ loadNewsSupplyRecords: () => [] }));
 vi.mock('../persistence/dartRepo.js', () => ({ loadDartAlerts: () => [] }));
 import { enqueuePaperReports, enqueuePaperResearchChanges, runPaperBotTick } from './paperBot.js';
+import { formatAccountSummary } from './paperAccountMessages.js';
 
 const morning = new Date('2026-09-18T10:30:00+09:00');
 const adaptive = selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), morning.toISOString());
@@ -30,11 +33,21 @@ function scanAt(now: Date) {
     missingPriceCount: 0, openedCount: 0, completedCount: 0, marketOpen: true, issues: [] };
   view.strategy!.lastRun = { snapshotId: 'scan', asOf: now.toISOString(), openedCount: 0, closedCount: 0, waitingCount: 2, holdingCount: 0 };
 }
+/** A started account last evaluated at `at`; a resent summary shows the time it was rebuilt. */
+function accountAt(at: Date) {
+  const account = createPaperAccount({ initialCash: 10_000_000, maxPositionPct: 20, includeExploration: false }, '2026-09-17T00:00:00Z', 'research-account');
+  account.lastSnapshotAt = at.toISOString();
+  return buildPaperAccountView(account, at.toISOString());
+}
+function reports(now: Date, options: { paused?: boolean } = {}) {
+  enqueuePaperReports(state, view, now, { account: accountAt(now), ...options });
+}
 function change(at: Date, bucket = 0): PaperAdaptiveState['changes'][number] {
   return { at: at.toISOString(), feature: 'rsi14', from: null, to: { feature: 'rsi14', bucket, horizon: 3 }, reason: 'ACTIVE' };
 }
 beforeEach(() => {
-  vi.clearAllMocks();
+  // Reset queued one-shot transport results so one failing test cannot leak into the next.
+  vi.resetAllMocks();
   state = { schemaVersion: 1, initializedAt: '2026-09-17T00:00:00Z', lastCheckedAt: null,
     health: 'OK', notifiedHealth: 'OK', seenEvents: {}, messages: [] };
   view = { mode: 'SHADOW', strategyVersion: 'shadow-baseline-v1', totalCount: 0, completedCount: 0,
@@ -46,17 +59,18 @@ beforeEach(() => {
   mocks.view.mockImplementation(() => view);
   mocks.send.mockResolvedValue(123);
   mocks.paused.mockReturnValue(false);
+  mocks.account.mockImplementation((now: Date) => accountAt(now));
 });
 
 describe('intraday content slots', () => {
   it('accepts the configured broad-scan gap but waits beyond its grace window', () => {
     view.scanIntervalSeconds = 600;
     scanAt(new Date(morning.getTime() - 14 * 60_000));
-    enqueuePaperReports(state, view, morning);
+    reports(morning);
     expect(state.messages.some(item => item.kind === 'intraday')).toBe(true);
     state.messages = [];
     scanAt(new Date(morning.getTime() - 16 * 60_000));
-    enqueuePaperReports(state, view, morning);
+    reports(morning);
     expect(state.messages).toEqual([]);
   });
   it('accepts a completed price-monitor update following a fresh broad scan', () => {
@@ -64,14 +78,14 @@ describe('intraday content slots', () => {
     view.priceMonitor = { intervalSeconds: 30, running: false, marketOpen: true,
       startedAt: morning.toISOString(), completedAt: morning.toISOString(), durationMs: 10,
       checkedCount: 1, validCount: 1, closedCount: 0, heldCount: 1, staleCount: 0, oldestQuoteAt: morning.toISOString() };
-    enqueuePaperReports(state, view, morning);
+    reports(morning);
     expect(state.messages.some(item => item.kind === 'intraday')).toBe(true);
   });
   it('keeps independent morning/afternoon IDs across repeats and restarts', () => {
-    enqueuePaperReports(state, view, morning);
-    enqueuePaperReports(state, view, new Date(morning.getTime() + 60_000));
+    reports(morning);
+    reports(new Date(morning.getTime() + 60_000));
     const afternoon = new Date('2026-09-18T13:30:00+09:00'); scanAt(afternoon);
-    state = structuredClone(state); enqueuePaperReports(state, view, afternoon);
+    state = structuredClone(state); reports(afternoon);
     expect(state.messages.map(item => item.id)).toEqual(['paper:intraday:2026-09-18:630', 'paper:intraday:2026-09-18:810']);
     expect(state.messages.every(item => item.channel === 'ANALYSIS' && item.kind === 'intraday')).toBe(true);
     expect(state.messages[0].expiresAt).toBe(new Date('2026-09-18T11:15:00+09:00').toISOString());
@@ -83,14 +97,21 @@ describe('intraday content slots', () => {
     if (condition === 'mismatched') view.strategy!.lastRun!.snapshotId = 'prior-scan';
     if (condition === 'error') view.strategy!.error = 'missing';
     if (condition === 'off-hours') view.lastRun!.marketOpen = false;
-    enqueuePaperReports(state, view, morning, { paused: condition === 'paused' });
+    reports(morning, { paused: condition === 'paused' });
     expect(state.messages).toEqual([]);
     delete view.strategy!.error; scanAt(morning);
-    enqueuePaperReports(state, view, morning);
+    reports(morning);
     expect(state.messages).toHaveLength(1);
   });
+  it('leaves the slot unsent until a virtual account has started', () => {
+    enqueuePaperReports(state, view, morning);
+    enqueuePaperReports(state, view, morning, { account: buildPaperAccountView(null, morning.toISOString()) });
+    expect(state.messages).toEqual([]);
+    reports(morning);
+    expect(state.messages.map(item => item.id)).toEqual(['paper:intraday:2026-09-18:630']);
+  });
   it.each(['2026-09-18T11:15:00+09:00', '2026-09-19T10:30:00+09:00', '2026-12-25T13:30:00+09:00'])('does not invent a report outside its trading-day window: %s', at => {
-    const now = new Date(at); scanAt(now); enqueuePaperReports(state, view, now);
+    const now = new Date(at); scanAt(now); reports(now);
     expect(state.messages).toEqual([]);
   });
   it('publishes weekly autonomous research even when historical reconstruction is absent', () => {
@@ -112,7 +133,9 @@ describe('intraday content slots', () => {
     await runPaperBotTick(resumed);
     const delivered = state.messages.find(item => item.id === original.id)!;
     expect(delivered).toMatchObject({ state: 'SENT', attempts: 2, messageId: 123 });
-    expect(delivered.message).toContain('10:42');
+    // Resent content is rebuilt from the account read at delivery time, not replayed from the failed attempt.
+    expect(delivered.message).toBe(formatAccountSummary(accountAt(resumed), resumed));
+    expect(delivered.message).not.toBe(original.message);
     expect(state.messages.filter(item => item.kind === 'intraday')).toHaveLength(1);
   });
   it('expires a paused pending slot instead of replaying it after lunch', async () => {
