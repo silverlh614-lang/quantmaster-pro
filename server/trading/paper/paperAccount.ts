@@ -4,9 +4,11 @@ import type { PaperCostModel, PaperSnapshot } from '../../../src/types/paperExpe
 import type { PaperStrategyLedger, PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 import { tradeSignalIdentity } from '../../../src/utils/paperTradeReview.js';
 import { isKrxTradingDay, toKstDateKey } from '../../calendar/krxTradingCalendar.js';
-import { accountEntryRefusal, selectAccountPolicy } from './paperAccountSelection.js';
+import { accountEntryRefusal, isAccountRuleSignal, selectAccountPolicy } from './paperAccountSelection.js';
 
 export const ACCOUNT_QUOTE_MAX_AGE_MS = 120_000;
+/** Without orders, marks or policy changes, the processed time is still persisted at this interval. */
+export const ACCOUNT_IDLE_SAVE_MS = 5 * 60_000;
 const money = (value: number) => Math.round(value * 100) / 100;
 export function assertAccountConfig(value: unknown): asserts value is PaperAccountConfig {
   const config = value as PaperAccountConfig | null;
@@ -91,6 +93,22 @@ function orderFor(trade: PaperStrategyTrade, side: 'BUY' | 'SELL', snapshot: Pap
     signalLabel: identity.label, purpose: identity.purpose === 'EXPLORATION' ? 'EXPLORATION' : 'VALIDATED',
     costModel: { ...trade.costModel }, quantity: 0, budget: 0, status: 'PENDING', statusReason: '유효한 새 장중 가격 대기', fill: null };
 }
+function countSkippedSignal(account: PaperAccountLedger, trade: PaperStrategyTrade, reason: string): void {
+  const skipped = account.skippedSignals ??= { through: trade.entryAt, counts: {} };
+  const day = skipped.counts[trade.tradingDate] ??= {};
+  day[reason] = (day[reason] ?? 0) + 1;
+}
+function materialState(account: PaperAccountLedger): string {
+  const { lastSnapshotAt: _processedAt, risk, ...rest } = account;
+  return JSON.stringify({ ...rest, risk: risk && { since: risk.since, peakEquity: risk.peakEquity, maxDrawdownPct: risk.maxDrawdownPct } });
+}
+/** The processed time and evaluation count alone do not rewrite the ledger on every quote batch. */
+export function accountNeedsSave(prior: PaperAccountLedger, next: PaperAccountLedger): boolean {
+  if (next === prior) return false;
+  if (!prior.lastSnapshotAt || !next.lastSnapshotAt) return true;
+  return Date.parse(next.lastSnapshotAt) - Date.parse(prior.lastSnapshotAt) >= ACCOUNT_IDLE_SAVE_MS
+    || materialState(prior) !== materialState(next);
+}
 function completeOrder(order: PaperAccountOrder, quote: PaperAccountQuote, at: string): void {
   order.fill = accountFill(order.side, order.quantity, quote, order.costModel, at, `${order.id}:fill`);
   order.status = 'FILLED'; order.statusReason = '관측 현재가에 슬리피지·비용을 반영한 가상 체결'; order.updatedAt = at;
@@ -115,15 +133,19 @@ export function advancePaperAccount(current: PaperAccountLedger, strategy: Paper
       completeOrder(sell, quote, snapshot.asOf); delete account.marks[buy.tradeId];
     }
   }
+  // Full scans run one at a time and stamp new signals with their own time, so this watermark never skips one.
+  const handledThrough = Date.parse(account.skippedSignals?.through ?? '');
   const entries = strategy.trades.filter(trade => trade.strategyVersion === 'adaptive-features-v1'
     && Date.parse(trade.entryAt) >= Date.parse(account.startedAt) && Date.parse(trade.entryAt) <= now
-    && !orders.has(`${trade.id}:BUY`)).sort((a, b) => a.entryAt.localeCompare(b.entryAt)
+    && !(Date.parse(trade.entryAt) <= handledThrough) && !orders.has(`${trade.id}:BUY`)).sort((a, b) => a.entryAt.localeCompare(b.entryAt)
       || Number(!!a.entryDecision.explorationEvidence) - Number(!!b.entryDecision.explorationEvidence) || a.symbol.localeCompare(b.symbol));
   for (const trade of entries) {
+    const ruleRefusal = accountEntryRefusal(trade, selection);
+    if (!isAccountRuleSignal(trade, selection)) { countSkippedSignal(account, trade, ruleRefusal); continue; }
     const order = orderFor(trade, 'BUY', snapshot);
     account.orders.push(order); orders.set(order.id, order);
     if (selection) order.selectionId = selection.id;
-    let refusal = account.buyPaused ? '계좌 신규 매수 일시정지' : accountEntryRefusal(trade, selection);
+    let refusal = account.buyPaused ? '계좌 신규 매수 일시정지' : ruleRefusal;
     if (trade.entrySnapshotId !== snapshot.id || trade.status !== 'OPEN') {
       order.status = 'EXPIRED'; order.statusReason = '신호 발생 시점 처리 누락 · 과거 가격 소급 체결 금지'; continue;
     }
@@ -133,6 +155,11 @@ export function advancePaperAccount(current: PaperAccountLedger, strategy: Paper
     refusal = refusal || checkedQuote.refusal || '';
     if (refusal) { order.status = 'REJECTED'; order.statusReason = refusal; continue; }
     // Executable signals are collected before allocating cash, avoiding ticker-order concentration.
+  }
+  const latestEntry = entries.reduce<string | undefined>((latest, trade) =>
+    !latest || Date.parse(trade.entryAt) > Date.parse(latest) ? trade.entryAt : latest, undefined);
+  if (account.skippedSignals && latestEntry && Date.parse(latestEntry) > Date.parse(account.skippedSignals.through)) {
+    account.skippedSignals.through = latestEntry;
   }
   const candidates = account.orders.filter(order => order.side === 'BUY' && order.status === 'PENDING');
   const balances = accountBalances(account), equity = buildPaperAccountView(account, snapshot.asOf).equity;

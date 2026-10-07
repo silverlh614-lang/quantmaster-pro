@@ -54,6 +54,11 @@ describe('account-only notifications', () => {
       enqueueAccountExecutions(queue, view, now); expect(queue.messages).toHaveLength(0);
       expect(formatAccountSummary(view, now)).toContain(status === 'PENDING' ? '체결 대기 1건' : '미매수 1건');
     }
+    const counted = accountView(); counted.account!.orders[0].status = 'REJECTED'; counted.account!.orders[0].fill = null;
+    counted.account!.orders[0].statusReason = '당일 선택한 수익성 우선 규칙과 다른 신호';
+    counted.account!.skippedSignals = { through: now.toISOString(), counts: {
+      '2026-09-17': { '당일 선택한 수익성 우선 규칙과 다른 신호': 9 }, '2026-09-18': { '당일 선택한 수익성 우선 규칙과 다른 신호': 4 } } };
+    expect(formatAccountSummary(counted, now)).toContain('미매수 5건: 당일 선택한 수익성 우선 규칙과 다른 신호');
     const queue = state(); queue.accountInitializedAt = '2026-09-18T00:00:00Z';
     const future = accountView(); future.account!.orders[0].fill!.at = '2026-09-18T02:00:00Z';
     enqueueAccountExecutions(queue, future, now); enqueueAccountExecutions(queue, { ...accountView(), error: 'read failed' }, now);

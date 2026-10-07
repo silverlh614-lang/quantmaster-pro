@@ -4,7 +4,7 @@ import type { PaperAccountConfig } from '../../../src/types/paperAccount.js';
 import type { PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import type { PaperStrategyLedger } from '../../../src/types/paperStrategy.js';
 import { loadPaperAccount, savePaperAccount } from '../../persistence/paperAccountRepo.js';
-import { accountBalances, advancePaperAccount, buildPaperAccountView, createPaperAccount } from './paperAccount.js';
+import { accountBalances, accountNeedsSave, advancePaperAccount, buildPaperAccountView, createPaperAccount } from './paperAccount.js';
 
 let lastError: string | undefined;
 export function readVirtualAccount(now = new Date()) {
@@ -31,7 +31,7 @@ export function captureVirtualAccount(strategy: PaperStrategyLedger, snapshot: P
     const account = loadPaperAccount();
     if (!account) return;
     const next = advancePaperAccount(account, strategy, snapshot);
-    if (next !== account) savePaperAccount(next);
+    if (accountNeedsSave(account, next)) savePaperAccount(next);
     lastError = undefined;
   } catch (error) {
     lastError = `가상 계좌 처리 실패: ${error instanceof Error ? error.message : String(error)}`;

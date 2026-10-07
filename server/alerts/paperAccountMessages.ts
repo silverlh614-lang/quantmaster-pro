@@ -62,6 +62,7 @@ export function formatAccountSummary(view: PaperAccountView | undefined, now: Da
   for (const order of view.account.orders) if (['REJECTED', 'EXPIRED'].includes(order.status)
     && Date.parse(order.submittedAt) <= now.getTime() && toKstDateKey(order.submittedAt) === today)
     reasons.set(order.statusReason, (reasons.get(order.statusReason) ?? 0) + 1);
+  for (const [reason, count] of Object.entries(view.account.skippedSignals?.counts[today] ?? {})) reasons.set(reason, (reasons.get(reason) ?? 0) + count);
   const pending = view.account.orders.filter(order => order.status === 'PENDING').length;
   if (pending) lines.push(`체결 대기 ${pending}건 · 유효한 새 가격 확인 후 처리`);
   for (const [reason, count] of [...reasons].sort((a, b) => b[1] - a[1]).slice(0, 5)) lines.push(`미매수 ${count}건: ${safe(reason, 80)}`);

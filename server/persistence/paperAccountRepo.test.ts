@@ -45,6 +45,17 @@ describe('virtual account persistence', () => {
     const removedPolicy = structuredClone(result); delete removedPolicy.selections; delete removedPolicy.orders[0].selectionId;
     expect(() => repo.savePaperAccount(removedPolicy)).toThrow('계좌 선택 기준 이력 변경 금지');
   });
+  it('never lowers counts of signals outside the account rule', () => {
+    const input = { ...account(), lastSnapshotAt: '2026-09-18T01:00:00Z',
+      skippedSignals: { through: '2026-09-18T01:00:00Z', counts: { '2026-09-18': { '다른 신호': 2 } } } };
+    repo.savePaperAccount(input);
+    for (const skippedSignals of [undefined, { ...input.skippedSignals, counts: { '2026-09-18': { '다른 신호': 1 } } },
+      { ...input.skippedSignals, through: '2026-09-18T00:59:00Z' }]) {
+      expect(() => repo.savePaperAccount({ ...input, skippedSignals })).toThrow('계좌 기준 밖 신호 집계 감소 금지');
+    }
+    const grown = { ...input, skippedSignals: { ...input.skippedSignals, counts: { '2026-09-18': { '다른 신호': 3, '탐색': 1 } } } };
+    repo.savePaperAccount(grown); expect(repo.loadPaperAccount()).toEqual(grown);
+  });
   it('retains configuration and control history after reload', () => {
     const input = account(); repo.savePaperAccount(input);
     const restored = repo.loadPaperAccount()!;

@@ -37,6 +37,9 @@ export interface PaperAccountLedger {
   selections?: PaperAccountSelection[];
   /** Observed liquidation-equity drawdown; excludes stale marks, never backfilled. */
   risk?: { since: string; updatedAt: string; observations: number; peakEquity: number; maxDrawdownPct: number };
+  /** Signals outside the day's account rule, counted per trading day and reason instead of stored as orders.
+   *  Every adaptive signal entered at or before `through` has been handled. */
+  skippedSignals?: { through: string; counts: Record<string, Record<string, number>> };
 }
 export interface PaperAccountPosition {
   tradeId: string; symbol: string; name: string; quantity: number; entryCost: number;

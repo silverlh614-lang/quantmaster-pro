@@ -1,8 +1,9 @@
 // @responsibility Verify virtual account cash conservation through signal lifecycles.
 import { describe, expect, it } from 'vitest';
-import { accountBalances, advancePaperAccount, buildPaperAccountView, createPaperAccount } from './paperAccount.js';
+import { ACCOUNT_IDLE_SAVE_MS, accountBalances, accountNeedsSave, advancePaperAccount, buildPaperAccountView, createPaperAccount } from './paperAccount.js';
 import { assertPaperAccount } from './paperAccountValidation.js';
 import { accountSignalFixture } from './paperAccountFixtures.js';
+import { selectAccountPolicy } from './paperAccountSelection.js';
 import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 
 function fixture() {
@@ -58,7 +59,8 @@ describe('virtual account', () => {
     if (issue === 'future') quote.observedAt = new Date(Date.parse(f.snapshot.asOf) + 1).toISOString();
     if (issue === 'estimated') quote.source = 'AI_ESTIMATED';
     if (issue === 'missing') quote.price = null;
-    if (issue === 'closed') f.snapshot.marketOpen = false;
+    // The day's rule is chosen during the session; a later closed-market quote must still be refused.
+    if (issue === 'closed') { selectAccountPolicy(f.account, f.strategy.adaptive, f.snapshot); f.snapshot.marketOpen = false; }
     if (issue === 'beforeStart') quote.observedAt = new Date(Date.parse(f.account.startedAt) - 1).toISOString();
     const result = advancePaperAccount(f.account, f.strategy, f.snapshot);
     expect(result.orders[0].status).toBe('REJECTED'); expect(accountBalances(result).cash).toBe(10000); assertPaperAccount(result);
@@ -125,9 +127,53 @@ describe('virtual account', () => {
   it('keeps exploratory signals in research even for an old exploration-enabled account', () => {
     const f = fixture();
     f.trade.entryDecision.explorationEvidence = {} as NonNullable<PaperStrategyTrade['entryDecision']['explorationEvidence']>;
-    expect(advancePaperAccount(f.account, f.strategy, f.snapshot).orders[0].statusReason).toContain('탐색 신호는 1주 연구');
+    const counted = advancePaperAccount(f.account, f.strategy, f.snapshot);
+    expect(counted.orders).toEqual([]);
+    expect(counted.skippedSignals).toEqual({ through: f.trade.entryAt,
+      counts: { [f.trade.tradingDate]: { '계좌는 검증 기준만 운용 · 탐색 신호는 1주 연구로 유지': 1 } } });
+    assertPaperAccount(counted);
     f.account.config.includeExploration = true;
-    expect(advancePaperAccount(f.account, f.strategy, f.snapshot).orders[0].status).toBe('REJECTED');
+    expect(advancePaperAccount(f.account, f.strategy, f.snapshot).orders).toEqual([]);
+  });
+  it('counts signals outside the account rule once per day instead of storing rejected orders', () => {
+    const f = fixture();
+    f.trade.entryDecision.explorationEvidence = {} as NonNullable<PaperStrategyTrade['entryDecision']['explorationEvidence']>;
+    const first = advancePaperAccount(f.account, f.strategy, f.snapshot);
+    next(f);
+    const later = { ...structuredClone(f.trade), id: 'later-exploration', entrySnapshotId: f.snapshot.id, entryAt: f.snapshot.asOf };
+    f.strategy.trades.push(later);
+    // A restarted account re-reads the strategy ledger; the earlier signal stays counted once.
+    const second = advancePaperAccount(JSON.parse(JSON.stringify(first)), f.strategy, f.snapshot);
+    expect(second.orders).toEqual([]);
+    expect(second.skippedSignals).toEqual({ through: later.entryAt,
+      counts: { [f.trade.tradingDate]: { '계좌는 검증 기준만 운용 · 탐색 신호는 1주 연구로 유지': 2 } } });
+    assertPaperAccount(second);
+  });
+  it('keeps legacy rejected orders as the only record of earlier outside signals', () => {
+    const f = fixture();
+    f.trade.entryDecision.explorationEvidence = {} as NonNullable<PaperStrategyTrade['entryDecision']['explorationEvidence']>;
+    const legacy = structuredClone(f.account);
+    legacy.orders.push({ id: `${f.trade.id}:BUY`, tradeId: f.trade.id, symbol: f.trade.symbol, name: f.trade.name, side: 'BUY',
+      signalAt: f.trade.entryAt, submittedAt: f.trade.entryAt, updatedAt: f.trade.entryAt, signalSnapshotId: f.snapshot.id,
+      signalReason: 'legacy', signalLabel: 'legacy', purpose: 'EXPLORATION', quantity: 0, budget: 0, costModel: f.trade.costModel,
+      status: 'REJECTED', statusReason: '계좌는 검증 기준만 운용 · 탐색 신호는 1주 연구로 유지', fill: null });
+    const result = advancePaperAccount(legacy, f.strategy, f.snapshot);
+    expect(result.orders).toEqual(legacy.orders); expect(result.skippedSignals).toBeUndefined();
+  });
+  it('rewrites the ledger only for account changes or after the idle interval', () => {
+    const f = fixture(), bought = advancePaperAccount(f.account, f.strategy, f.snapshot);
+    expect(accountNeedsSave(f.account, bought)).toBe(true);
+    expect(accountNeedsSave(bought, bought)).toBe(false);
+    next(f, 110);
+    expect(accountNeedsSave(bought, advancePaperAccount(bought, f.strategy, f.snapshot))).toBe(true);
+    // Without holdings or signals, a quote batch only advances the processed time and evaluation count.
+    const idle = createPaperAccount(f.account.config, f.account.startedAt, 'idle'), empty = { ...f.strategy, trades: [] };
+    const processed = advancePaperAccount(idle, empty, f.snapshot);
+    next(f);
+    const quiet = advancePaperAccount(processed, empty, f.snapshot);
+    expect(quiet.lastSnapshotAt).not.toBe(processed.lastSnapshotAt); expect(accountNeedsSave(processed, quiet)).toBe(false);
+    f.snapshot.asOf = new Date(Date.parse(processed.lastSnapshotAt!) + ACCOUNT_IDLE_SAVE_MS).toISOString();
+    expect(accountNeedsSave(processed, advancePaperAccount(processed, empty, f.snapshot))).toBe(true);
   });
   it('marks old valuations as stale and rejects corrupted ledger balances', () => {
     const f = fixture(), bought = advancePaperAccount(f.account, f.strategy, f.snapshot);
@@ -135,6 +181,11 @@ describe('virtual account', () => {
     expect(buildPaperAccountView(bought, later).positions[0].stale).toBe(true);
     bought.orders[0].fill!.cashDelta += 1;
     expect(() => assertPaperAccount(bought)).toThrow('fill cashDelta');
+    bought.orders[0].fill!.cashDelta -= 1;
+    for (const counts of [{ '2026-09-18': { reason: 0 } }, { '2026-09-18': {} }, { '18-09-2026': { reason: 1 } }]) {
+      expect(() => assertPaperAccount({ ...bought, skippedSignals: { through: bought.lastSnapshotAt!, counts } })).toThrow('skipped signal counts');
+    }
+    expect(() => assertPaperAccount({ ...bought, skippedSignals: { through: later, counts: {} } })).toThrow('skipped signal counts');
     expect(() => createPaperAccount({ initialCash: -1, maxPositionPct: 20, includeExploration: false }, later, 'id')).toThrow();
   });
 });
