@@ -105,6 +105,14 @@ describe('Shadow closing summary', () => {
       reasonCounts: { ADAPTIVE_RULE_NOT_MATCHED: 3, CURRENT_PRICE_UNAVAILABLE: 7 }, haltedCount: 2 };
     expect(report(view)).toContain('장중 대기: 현재가 미확인 5 · 연결 규칙 불일치 3 · 거래정지 2');
   });
+  it('keeps held-only decisions apart from missing news evaluation', () => {
+    const view = viewFixture(), snapshot = adaptiveTestSnapshot();
+    const [held] = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost,
+      selectPaperAdaptiveState(undefined, [], snapshot.asOf)).latestDecisions;
+    Object.assign(held, { decisionAt: now.toISOString(), action: 'HOLD', reasonCode: 'ADAPTIVE_EXIT_HOLD' }); delete held.newsSummary;
+    view.strategy!.latestDecisions = [held];
+    expect(report(view)).toContain('오늘 뉴스 평가 자료 미확인 · 보유 판단 1건(뉴스 평가 대상 아님)');
+  });
   it('keeps disconnected, missing-feature and unmatched-rule waits separate', () => {
     const view = viewFixture();
     view.strategy!.lastMarketSession = { tradingDate: date, asOf: `${date}T06:20:00Z`, snapshotId: 'adaptive', decisionCount: 15,

@@ -123,7 +123,7 @@ function newsLines(view: PaperExperimentView, date: string, cutoff: number): { l
     `${num(summaries.length)}종목 평가${held ? ` · 보유 판단 ${num(held)}건(뉴스 평가 대상 아님)` : ''}${missing ? ` · 미기록 ${num(missing)}` : ''}`,
     `제목 기준 호재 추정 ${count('POSITIVE')} · 악재 추정 ${count('NEGATIVE')} · 혼재 ${count('MIXED')} · 중립 ${count('NEUTRAL')}`,
     `판단 불가 ${count('UNKNOWN')} · 최근 뉴스 미관측 ${count('NO_NEWS')} (뉴스 부재를 뜻하지 않음)`);
-  else lines.push('오늘 뉴스 평가 자료 미확인');
+  else lines.push(`오늘 뉴스 평가 자료 미확인${held ? ` · 보유 판단 ${num(held)}건(뉴스 평가 대상 아님)` : ''}`);
   const direct = summaries.flatMap(item => item.newsSummary!.evidence.flatMap(news => {
     const facts = readPaperNewsFacts(news, item.decisionAt);
     return facts?.relationship === 'DIRECT' ? [{ ...news, facts, name: item.name, symbol: item.symbol }] : [];
