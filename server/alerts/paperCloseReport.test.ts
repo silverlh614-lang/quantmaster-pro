@@ -99,6 +99,20 @@ describe('Shadow closing summary', () => {
     expect(text).toContain('오늘 장중 대기 사유 미기록');
     expect(text).not.toContain('완료 표본 부족 500');
   });
+  it('lists halted stocks apart from missing current prices', () => {
+    const view = viewFixture();
+    view.strategy!.lastMarketSession = { tradingDate: date, asOf: `${date}T06:20:00Z`, snapshotId: 'intraday', decisionCount: 10,
+      reasonCounts: { ADAPTIVE_RULE_NOT_MATCHED: 3, CURRENT_PRICE_UNAVAILABLE: 7 }, haltedCount: 2 };
+    expect(report(view)).toContain('장중 대기: 현재가 미확인 5 · 연결 규칙 불일치 3 · 거래정지 2');
+  });
+  it('keeps held-only decisions apart from missing news evaluation', () => {
+    const view = viewFixture(), snapshot = adaptiveTestSnapshot();
+    const [held] = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost,
+      selectPaperAdaptiveState(undefined, [], snapshot.asOf)).latestDecisions;
+    Object.assign(held, { decisionAt: now.toISOString(), action: 'HOLD', reasonCode: 'ADAPTIVE_EXIT_HOLD' }); delete held.newsSummary;
+    view.strategy!.latestDecisions = [held];
+    expect(report(view)).toContain('오늘 뉴스 평가 자료 미확인 · 보유 판단 1건(뉴스 평가 대상 아님)');
+  });
   it('keeps disconnected, missing-feature and unmatched-rule waits separate', () => {
     const view = viewFixture();
     view.strategy!.lastMarketSession = { tradingDate: date, asOf: `${date}T06:20:00Z`, snapshotId: 'adaptive', decisionCount: 15,
@@ -157,11 +171,11 @@ describe('Shadow closing summary', () => {
     const result = evaluatePaperStrategyScan(entered, closed, strategyTestCost,
       selectPaperAdaptiveState(entered.adaptive, [], closed.asOf));
     const view = viewFixture(); view.strategy = buildPaperStrategyView(result);
-    expect(report(view)).toContain('오늘 진입 0건 · 오늘 평가일 청산 1건 · 보유 0건');
+    expect(report(view)).toContain('오늘 진입 0건 · 오늘 청산 1건 · 보유 0건');
     expect(report(view)).toContain('오늘 청산 평균 0.00% · 누적 1건 0.00%');
     expect(report(view)).toContain('현행 전략 매도 1건 · 평균 순수익률 0.00% (검증+탐색, 구전략 제외)');
     const nextDay = formatPaperCloseReport(view, '2026-09-22', new Date('2026-09-22T16:10:00+09:00'));
-    expect(nextDay).toContain('오늘 평가일 청산 0건');
+    expect(nextDay).toContain('오늘 청산 0건');
   });
   it('includes dated coverage and escaped direct headlines while staying within one message', () => {
     const view = viewFixture();
@@ -179,8 +193,11 @@ describe('Shadow closing summary', () => {
       return { ...item, assessment: assessPaperNews(item, d.decisionAt), facts: recordPaperNewsFacts(item, d.decisionAt,
         { receiptNo: `2026092100000${n}`, filedDate: date, firstSeenAt: d.decisionAt, linkMethod: 'DART_RAW' }) };
     }), d.decisionAt);
-    view.strategy!.latestDecisions = decisions;
+    const held = structuredClone(d); held.symbol = '999999'; held.action = 'HOLD'; held.reasonCode = 'ADAPTIVE_EXIT_HOLD'; delete held.newsSummary;
+    view.strategy!.latestDecisions = [...decisions, held];
     const text = report(view);
+    // A held trade's decision has no news summary by design, so it is not reported as missing news.
+    expect(text).toContain('보유 판단 1건(뉴스 평가 대상 아님)'); expect(text).not.toMatch(/종목 평가[^\n]*미기록/);
     expect(text).toContain('공시 일부 미확인'); expect(text).toContain('&lt;통신 &amp; 지연&gt;');
     expect(text).toContain('직접 공시 연결 1종목');
     expect(text).toContain('&lt;기업&amp;&gt;'); expect(text).not.toContain('<기업&>');

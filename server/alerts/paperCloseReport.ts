@@ -65,7 +65,7 @@ function strategyLines(view: PaperExperimentView, date: string, cutoff: number):
     const closed = trades.filter(exited);
     const today = closed.filter(item => toKstDateKey(item.exit!.effectiveAt) === date);
     const held = trades.filter(item => !exited(item));
-    lines.push(`<b>오늘 진입 ${num(entered.length)}건 · 오늘 평가일 청산 ${num(today.length)}건 · 보유 ${num(held.length)}건</b>`,
+    lines.push(`<b>오늘 진입 ${num(entered.length)}건 · 오늘 청산 ${num(today.length)}건 · 보유 ${num(held.length)}건</b>`,
       `오늘 청산 평균 ${pct(mean(today.map(item => item.exit!.netReturnPct)))} · 누적 ${num(closed.length)}건 ${pct(mean(closed.map(item => item.exit!.netReturnPct)))}`);
     if (entered.length) lines.push(`진입: ${entered.slice(0, 3).map(item => escape(item.name.slice(0, 20))).join(', ')}${entered.length > 3 ? ` 외 ${entered.length - 3}종목` : ''}`);
     const late = closed.filter(item => toKstDateKey(item.exit!.decisionAt) === date && toKstDateKey(item.exit!.effectiveAt) < date).length;
@@ -91,10 +91,12 @@ function strategyLines(view: PaperExperimentView, date: string, cutoff: number):
   const session = strategy.lastMarketSession;
   if (session?.tradingDate === date && Date.parse(session.asOf) <= cutoff) {
     lines.push(`장중 마지막 판단 ${stamp(session.asOf)} · ${num(session.decisionCount)}종목`);
+    // Halts are price-unavailable entry waits; listing them apart keeps them from reading as collection gaps.
+    const halted = session.haltedCount ?? 0;
     const waits = Object.entries(WAIT_LABELS).flatMap(([code, label]) => {
-      const count = session.reasonCounts[code as PaperStrategyReasonCode] ?? 0;
-      return count ? [{ label, count }] : [];
-    }).sort((a, b) => b.count - a.count);
+      const count = (session.reasonCounts[code as PaperStrategyReasonCode] ?? 0) - (code === 'CURRENT_PRICE_UNAVAILABLE' ? halted : 0);
+      return count > 0 ? [{ label, count }] : [];
+    }).concat(halted ? [{ label: '거래정지', count: halted }] : []).sort((a, b) => b.count - a.count);
     lines.push(waits.length ? `장중 대기: ${waits.map(item => `${item.label} ${num(item.count)}`).join(' · ')}`
       : session.decisionCount ? '장중 마지막 판단에서 신규 진입 대기 없음' : '장중 판단 대상 0종목 · 수집 상태 확인 필요');
   } else lines.push('오늘 장중 대기 사유 미기록 · 장후 대기에서 추정하지 않습니다.');
@@ -113,11 +115,15 @@ function newsLines(view: PaperExperimentView, date: string, cutoff: number): { l
     && Date.parse(item.decisionAt) <= cutoff).map(item => [item.symbol, item])).values()];
   const summaries = decisions.filter(item => item.newsSummary && item.newsSummary.asOf === item.decisionAt);
   const count = (direction: string) => summaries.filter(item => item.newsSummary!.direction === direction).length;
+  // Held trades are judged by their exit policy, so their decisions carry no news summary by design.
+  const summarized = new Set(summaries);
+  const held = decisions.filter(item => !summarized.has(item) && (item.action === 'HOLD' || item.action === 'EXIT')).length;
+  const missing = decisions.length - summaries.length - held;
   if (summaries.length) lines.push(`뉴스 평가 ${stamp(view.strategy?.lastRun?.asOf)} · 최근 ${view.strategy!.policy.newsLookbackHours}시간 자료`,
-    `${num(summaries.length)}종목 평가 / 미기록 ${num(decisions.length - summaries.length)}`,
+    `${num(summaries.length)}종목 평가${held ? ` · 보유 판단 ${num(held)}건(뉴스 평가 대상 아님)` : ''}${missing ? ` · 미기록 ${num(missing)}` : ''}`,
     `제목 기준 호재 추정 ${count('POSITIVE')} · 악재 추정 ${count('NEGATIVE')} · 혼재 ${count('MIXED')} · 중립 ${count('NEUTRAL')}`,
     `판단 불가 ${count('UNKNOWN')} · 최근 뉴스 미관측 ${count('NO_NEWS')} (뉴스 부재를 뜻하지 않음)`);
-  else lines.push('오늘 뉴스 평가 자료 미확인');
+  else lines.push(`오늘 뉴스 평가 자료 미확인${held ? ` · 보유 판단 ${num(held)}건(뉴스 평가 대상 아님)` : ''}`);
   const direct = summaries.flatMap(item => item.newsSummary!.evidence.flatMap(news => {
     const facts = readPaperNewsFacts(news, item.decisionAt);
     return facts?.relationship === 'DIRECT' ? [{ ...news, facts, name: item.name, symbol: item.symbol }] : [];

@@ -185,8 +185,10 @@ export function evaluatePaperStrategyScan(
     && (!ledger.lastMarketSession || at >= Date.parse(ledger.lastMarketSession.asOf))) {
     const reasonCounts: NonNullable<PaperStrategyLedger['lastMarketSession']>['reasonCounts'] = {};
     for (const item of decisions) reasonCounts[item.reasonCode] = (reasonCounts[item.reasonCode] ?? 0) + 1;
+    const haltedCount = decisions.filter(item => item.action === 'WAIT' && item.reasonCode === 'CURRENT_PRICE_UNAVAILABLE'
+      && observations.get(item.symbol)?.issue === 'TRADING_HALTED').length;
     ledger.lastMarketSession = { tradingDate: snapshot.tradingDate, snapshotId: snapshot.id, asOf: snapshot.asOf,
-      decisionCount: decisions.length, reasonCounts };
+      decisionCount: decisions.length, reasonCounts, ...(haltedCount ? { haltedCount } : {}) };
   }
   ledger.lastRun = { snapshotId: snapshot.id, asOf: snapshot.asOf,
     openedCount: decisions.filter((item) => item.action === 'BUY').length,

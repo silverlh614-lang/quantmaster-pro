@@ -52,7 +52,7 @@ export function formatPaperReport(view: PaperExperimentView, kind: 'close' | 'st
   else {
     const opened = strategy.trades.filter(item => item.tradingDate === date).length;
     const closed = strategy.trades.filter(item => item.exit?.effectiveAt.startsWith(date)).length;
-    lines.push(`전략: 오늘 가상 진입 ${opened} · 오늘 평가일 청산 ${closed} · 보유 ${strategy.openCount}`,
+    lines.push(`전략: 오늘 가상 진입 ${opened} · 오늘 청산 ${closed} · 보유 ${strategy.openCount}`,
       `전체 전략 이력(구전략 포함) 청산 ${strategy.performance.closedCount}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`);
     const waiting = strategy.latestDecisions.filter(item => item.action === 'WAIT');
     const needsSamples = waiting.filter(item => item.reasonCode === 'INSUFFICIENT_MATURE_SAMPLES' || item.reasonCode === 'INSUFFICIENT_ENTRY_DATES').length;
