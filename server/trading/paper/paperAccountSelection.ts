@@ -51,6 +51,12 @@ export function selectAccountPolicy(account: PaperAccountLedger, state: PaperAda
   (account.selections ??= []).push(selection);
   return selection;
 }
+/** Only signals of the day's selected rule become account orders; the rest stay 1-week research. */
+export function isAccountRuleSignal(trade: PaperStrategyTrade, selection: PaperAccountSelection | undefined): boolean {
+  const evidence = trade.entryDecision.adaptiveEvidence;
+  return !trade.entryDecision.explorationEvidence && !!selection?.selectedRuleKey && !!evidence
+    && signalRuleKey(evidence.candidate.rule) === selection.selectedRuleKey;
+}
 export function accountEntryRefusal(trade: PaperStrategyTrade, selection: PaperAccountSelection | undefined): string {
   if (trade.entryDecision.explorationEvidence) return '계좌는 검증 기준만 운용 · 탐색 신호는 1주 연구로 유지';
   if (!selection) return '당일 계좌 기준을 선택할 유효한 연구 자료 대기';

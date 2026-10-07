@@ -1,6 +1,6 @@
 // @responsibility Isolate strategy persistence failures from baseline sampling.
 import type { PaperExperiment, PaperSnapshot } from '../../../src/types/paperExperiment.js';
-import type { PaperStrategyLedger, PaperStrategyScanResult, PaperTradeMeasurementRow } from '../../../src/types/paperStrategy.js';
+import type { PaperStrategyLedger, PaperStrategyScanResult, PaperStrategyTrade, PaperTradeMeasurementRow } from '../../../src/types/paperStrategy.js';
 import { loadPaperStrategyLedger, savePaperStrategyLedger } from '../../persistence/paperStrategyRepo.js';
 import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { capturePaperCostModel, trimArchivedEntryBars } from './paperExperimentPolicy.js';
@@ -84,4 +84,11 @@ export function readPaperStrategyView(includeAllRecords = false, experiments?: P
   if (includeAllRecords) view.trades = [...ledger.trades].reverse();
   if (experiments && state.ledger) view.selection = buildPaperStrategySelection(ledger.trades, experiments);
   return view;
+}
+
+/** Full records for one screen page; unknown IDs are omitted rather than invented. */
+export function readPaperStrategyTrades(ids: readonly string[], state = loadPaperStrategyState()): PaperStrategyTrade[] {
+  if (!state.ledger) throw new Error(state.error ?? '전략 기록 없음');
+  const trades = new Map(state.ledger.trades.map(trade => [trade.id, trade]));
+  return ids.flatMap(id => trades.get(id) ?? []);
 }

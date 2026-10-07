@@ -29,6 +29,16 @@ describe('virtual account runtime', () => {
       expect(readVirtualAccount().error).toBeUndefined();
     } finally { logger.mockRestore(); }
   });
+  it('does not rewrite an idle account for every quote batch', () => {
+    const snapshot = strategyTestSnapshot();
+    const account = { ...createPaperAccount({ initialCash: 10000, maxPositionPct: 20, includeExploration: false }, '2026-09-18T00:59:00Z', 'id'),
+      lastSnapshotAt: '2026-09-18T00:59:30Z' };
+    mocks.load.mockReturnValue(account);
+    captureVirtualAccount({ ...legacyStrategyLedger(), trades: [] }, { ...snapshot, quoteOnly: true });
+    expect(mocks.save).not.toHaveBeenCalled(); expect(readVirtualAccount().error).toBeUndefined();
+    captureVirtualAccount({ ...legacyStrategyLedger(), trades: [] }, { ...snapshot, quoteOnly: true, asOf: '2026-09-18T01:04:30Z' });
+    expect(mocks.save).toHaveBeenCalledOnce();
+  });
   it('retains account configuration across pauses and prevents resetting an existing account', () => {
     mocks.save.mockImplementation((account: PaperAccountLedger) => mocks.load.mockReturnValue(structuredClone(account)));
     const config = { initialCash: 10000, maxPositionPct: 20, includeExploration: false }, now = new Date('2026-09-18T01:00:00Z');

@@ -28,7 +28,8 @@ describe('prospective account policy', () => {
     const result = advancePaperAccount(f.account, f.strategy, f.snapshot);
     expect(result.selections![0].selectedRuleKey).toBe(signalRuleKey(second.rule));
     expect(result.selections![0].candidates.map(item => item.validation.meanNetReturnPct)).toEqual([50, f.candidate.validation.meanNetReturnPct]);
-    expect(result.orders[0]).toMatchObject({ status: 'REJECTED', statusReason: '당일 선택한 수익성 우선 규칙과 다른 신호' });
+    expect(result.orders).toEqual([]);
+    expect(result.skippedSignals!.counts[f.snapshot.tradingDate]).toEqual({ '당일 선택한 수익성 우선 규칙과 다른 신호': 1 });
     expect(JSON.stringify(f.strategy)).toBe(before); assertPaperAccount(result);
   });
   it('keeps daily choices unchanged through restart and considers changes on the next trading day', () => {
@@ -64,7 +65,9 @@ describe('prospective account policy', () => {
     if (kind === 'overlap') f.candidate.validation = structuredClone(f.candidate.training);
     const result = advancePaperAccount(f.account, f.strategy, f.snapshot);
     expect(result.selections![0].selectedRuleKey).toBeNull();
-    expect(result.orders[0].status).toBe('REJECTED'); expect(f.strategy.trades[0].status).toBe('OPEN'); assertPaperAccount(result);
+    expect(result.orders).toEqual([]);
+    expect(result.skippedSignals!.counts[f.snapshot.tradingDate]).toEqual({ '당일 검증 수익성 기준을 통과한 운용 규칙 없음': 1 });
+    expect(f.strategy.trades[0].status).toBe('OPEN'); assertPaperAccount(result);
   });
   it('requires matching entry evidence and rejects altered persisted winner or rank', () => {
     const f = setup(); f.trade.entryDecision.adaptiveEvidence!.candidate.validation.meanNetReturnPct! += 1;

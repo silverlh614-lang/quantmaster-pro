@@ -29,6 +29,11 @@ export function savePaperAccount(account: PaperAccountLedger): void {
       || account.risk.observations < current.risk.observations || account.risk.peakEquity < current.risk.peakEquity
       || account.risk.maxDrawdownPct < current.risk.maxDrawdownPct || Date.parse(account.risk.updatedAt) < Date.parse(current.risk.updatedAt)))
       throw new Error('계좌 관측 위험 이력 변경 금지');
+    const skipped = current.skippedSignals, nextSkipped = account.skippedSignals;
+    if (skipped && (!nextSkipped || Date.parse(nextSkipped.through) < Date.parse(skipped.through)
+      || Object.entries(skipped.counts).some(([date, reasons]) => Object.entries(reasons)
+        .some(([reason, count]) => !((nextSkipped.counts[date]?.[reason] ?? 0) >= count)))))
+      throw new Error('계좌 기준 밖 신호 집계 감소 금지');
     for (let index = 0; index < current.orders.length; index++) {
       const prior = current.orders[index], next = account.orders[index];
       if (!next) throw new Error('주문 이력 삭제 금지');

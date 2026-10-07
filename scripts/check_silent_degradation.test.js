@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -28,14 +28,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = join(__dirname, '..');
 
-function runLint(args = '') {
+function runLint(...args) {
   try {
-    const out = execSync(`node scripts/check_silent_degradation.js ${args}`.trim(), {
+    // 셸 없이 현재 node 실행 파일로 직접 실행 — /bin/sh 존재·PATH 의 node 해석에 의존하지 않는다.
+    const out = execFileSync(process.execPath, ['scripts/check_silent_degradation.js', ...args], {
       cwd: ROOT,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       // 단독 ~25s 소요 스크립트 — full-suite 병렬 CPU 경합 시 30s 한계를 넘겨
-      // execSync 가 ETIMEDOUT/STACK_TRACE 로 던지면 flaky. 120s timeout 으로 경합
+      // execFileSync 가 ETIMEDOUT/STACK_TRACE 로 던지면 flaky. 120s timeout 으로 경합
       // 환경에서도 완주 보장 (테스트 강도 무변 — 동일 exitCode/output assertion).
       timeout: 120_000,
     });
@@ -48,7 +49,7 @@ function runLint(args = '') {
   }
 }
 
-// PR-Governance-3-SLA (2026-05-02): script execSync 가 5 SCHEMA_FILES * 144 옵셔널 필드 *
+// PR-Governance-3-SLA (2026-05-02): script 실행이 5 SCHEMA_FILES * 144 옵셔널 필드 *
 // allFiles walk + reader/writer regex 매칭으로 ~24s 소요. vitest default 5s 초과 → 30s 부여.
 describe('check_silent_degradation — baseline', () => {
   it(

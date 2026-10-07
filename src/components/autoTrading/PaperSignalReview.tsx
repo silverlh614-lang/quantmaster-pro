@@ -1,12 +1,12 @@
 // @responsibility Display frozen entry signal profitability with matched comparison evidence.
 import React, { useMemo, useState } from 'react';
-import type { PaperStrategyView, PaperStrategyEdge } from '../../types/paperStrategy';
+import type { PaperStrategyScreenView, PaperStrategyEdge } from '../../types/paperStrategy';
 import { PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel } from '../../types/paperAdaptive';
 import { buildSignalReview, tradePurpose, tradePurposeLabels } from '../../utils/paperTradeReview';
 
 const pct = (value: number | null, unit = '%') => value === null ? '집계 대기' : `${value > 0 ? '+' : ''}${value.toFixed(2)}${unit}`;
 const edge = (value?: PaperStrategyEdge) => value ? `${pct(value.edgePct, '%p')} · ${value.tradeCount}건 / ${value.dateCount}일` : '비교 자료 미조회';
-export function PaperSignalReview({ view, onSelect }: { view: PaperStrategyView; onSelect: (key: string) => void }) {
+export function PaperSignalReview({ view, onSelect }: { view: PaperStrategyScreenView; onSelect: (key: string) => void }) {
   const [purpose, setPurpose] = useState('VALIDATED');
   const [page, setPage] = useState(0);
   const signals = useMemo(() => buildSignalReview(view.trades.filter(trade => tradePurpose(trade) === purpose), view.adaptive), [view.trades, view.adaptive, purpose]);

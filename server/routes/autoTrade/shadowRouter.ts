@@ -41,6 +41,8 @@ import { formatPaperMorningFollowup } from '../../alerts/paperMorningFollowup.js
 import { readPaperStorageMaintenance } from '../../persistence/paperStorageMaintenance.js';
 import { readVirtualAccount, startVirtualAccount, pauseVirtualAccountBuys } from '../../trading/paper/paperAccountRuntime.js';
 import { assertAccountConfig } from '../../trading/paper/paperAccount.js';
+import { readPaperStrategyTrades } from '../../trading/paper/paperStrategyRuntime.js';
+import { paperStrategyScreenView } from '../../trading/paper/paperStrategyScreen.js';
 
 const router = Router();
 router.get('/shadow/virtual-account', (_req, res) => {
@@ -114,13 +116,20 @@ router.get('/shadow/experiments', async (req: any, res: any) => {
       case undefined: return res.json(view);
       case 'overview': return res.json(buildPaperOverview(view));
       case 'observations': return res.json({ ...view, strategy: undefined, research: undefined });
-      case 'strategy': return res.json(view.strategy ?? null);
+      case 'strategy': return res.json(view.strategy ? paperStrategyScreenView(view.strategy) : null);
       case 'research': return res.json(view.research ?? null);
       default: return res.status(400).json({ error: '지원하지 않는 화면입니다.' });
     }
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
+});
+
+router.get('/shadow/strategy-trades', (req: any, res: any) => {
+  const ids = typeof req.query.ids === 'string' ? req.query.ids.split(',').filter(Boolean) : [];
+  if (!ids.length || ids.length > 20 || ids.some((id: string) => id.length > 200)) return res.status(400).json({ error: '거래 ID 1~20개가 필요합니다.' });
+  try { return res.json(readPaperStrategyTrades(ids)); }
+  catch (error) { return res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 
 router.post('/shadow/experiments/scan', async (_req: any, res: any) => {

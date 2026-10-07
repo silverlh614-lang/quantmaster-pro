@@ -1,7 +1,7 @@
 // @responsibility Access independent Shadow experiment endpoints.
 import { apiFetch } from './client';
 import type { PaperExperimentView, PaperOverviewView, PaperScanResult } from '../types/paperExperiment';
-import type { PaperStrategyView } from '../types/paperStrategy';
+import type { PaperStrategyScreenView, PaperStrategyTrade } from '../types/paperStrategy';
 import type { PaperResearchView } from '../types/paperResearch';
 import type { PaperMorningReview } from '../types/paperMorning';
 import type { PaperAccountConfig, PaperAccountView } from '../types/paperAccount';
@@ -15,7 +15,8 @@ export const paperExperimentApi = {
   getMorningReview: (date: string) => apiFetch<PaperMorningReview>('/api/shadow/morning-recommendation', { query: { date } }),
   getOverview: () => apiFetch<PaperOverviewView>('/api/shadow/experiments', { query: { section: 'overview' } }),
   getObservations: () => apiFetch<PaperExperimentView>('/api/shadow/experiments', { query: { section: 'observations' } }),
-  getStrategy: () => apiFetch<PaperStrategyView | null>('/api/shadow/experiments', { query: { section: 'strategy' } }),
+  getStrategy: () => apiFetch<PaperStrategyScreenView | null>('/api/shadow/experiments', { query: { section: 'strategy' } }),
+  getStrategyTrades: (ids: string[]) => apiFetch<PaperStrategyTrade[]>('/api/shadow/strategy-trades', { query: { ids: ids.join(',') } }),
   getResearch: () => apiFetch<PaperResearchView | null>('/api/shadow/experiments', { query: { section: 'research' } }),
   getView: () => apiFetch<PaperExperimentView>('/api/shadow/experiments'),
   scan: () => apiFetch<PaperScanResult>('/api/shadow/experiments/scan', { method: 'POST' }),

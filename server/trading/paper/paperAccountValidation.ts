@@ -35,6 +35,16 @@ export function assertPaperAccount(value: unknown): asserts value is PaperAccoun
       && Number.isFinite(risk.peakEquity) && risk.peakEquity >= 0
       && Number.isFinite(risk.maxDrawdownPct) && risk.maxDrawdownPct >= 0 && risk.maxDrawdownPct <= 100, 'observed risk');
   }
+  if (ledger.skippedSignals !== undefined) {
+    const skipped = ledger.skippedSignals;
+    check(skipped && validTime(skipped.through) && Date.parse(skipped.through) >= Date.parse(ledger.startedAt)
+      && ledger.lastSnapshotAt && Date.parse(skipped.through) <= Date.parse(ledger.lastSnapshotAt)
+      && skipped.counts && typeof skipped.counts === 'object' && !Array.isArray(skipped.counts)
+      && Object.entries(skipped.counts).every(([date, reasons]) => /^\d{4}-\d{2}-\d{2}$/.test(date)
+        && reasons && typeof reasons === 'object' && !Array.isArray(reasons) && Object.keys(reasons).length > 0
+        && Object.entries(reasons).every(([reason, count]) => text(reason) && reason.length <= 200
+          && Number.isSafeInteger(count) && count > 0)), 'skipped signal counts');
+  }
   check(ledger.selections === undefined || Array.isArray(ledger.selections), 'policy history');
   let previousDate = '';
   for (const selection of ledger.selections ?? []) {

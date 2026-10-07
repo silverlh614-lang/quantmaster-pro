@@ -49,6 +49,14 @@ describe('virtual account screen', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('계좌 기록 확인 불가');
     expect(screen.queryByRole('button', { name: '가상 계좌 시작' })).toBeNull(); expect(mocks.start).not.toHaveBeenCalled();
   });
+  it('shows the latest daily count of signals kept out of the account', () => {
+    const view = started();
+    view.account!.skippedSignals = { through: empty.asOf, counts: { '2026-09-17': { '탐색 신호': 7 },
+      '2026-09-18': { '당일 선택한 수익성 우선 규칙과 다른 신호': 3, '탐색 신호': 2 } } };
+    render(<PaperAccountRecords view={view} />);
+    expect(screen.getByText(/계좌 기준 밖 신호 5건/).textContent)
+      .toBe('2026-09-18 계좌 기준 밖 신호 5건은 주문 없이 1주 연구로만 집계합니다: 당일 선택한 수익성 우선 규칙과 다른 신호 3건 · 탐색 신호 2건');
+  });
   it('keeps stale and missing values visibly distinct from realized profit', () => {
     const view = started(); view.equity = null; view.unrealizedPnl = null; view.returnPct = null;
     view.positions = [{ tradeId: 'trade', symbol: '005930', name: '삼성전자', quantity: 10, entryCost: 100000,

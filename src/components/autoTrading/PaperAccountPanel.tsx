@@ -43,6 +43,8 @@ export function PaperAccountRecords({ view }: { view: PaperAccountView }) {
   const account = view.account;
   if (!account) return null;
   const orders = [...account.orders].reverse(), index = Math.min(page, Math.max(0, Math.ceil(orders.length / 10) - 1));
+  const skippedDate = Object.keys(account.skippedSignals?.counts ?? {}).sort().at(-1);
+  const skipped = skippedDate ? Object.entries(account.skippedSignals!.counts[skippedDate]) : [];
   return <div className="space-y-4">
     <dl className="grid grid-cols-2 gap-3 lg:grid-cols-5">{[
       ['주문 가능 현금', money(view.cash)], ['추정 청산 자산', money(view.equity)], ['실현손익', money(view.realizedPnl)],
@@ -60,6 +62,7 @@ export function PaperAccountRecords({ view }: { view: PaperAccountView }) {
       <p>미실현손익 {money(position.unrealizedPnl)} · 관측가 {money(position.mark?.price ?? null)}</p>
       <p className="text-xs text-slate-400">{stamp(position.mark?.observedAt ?? null)} {position.stale ? '· 이전 가격' : ''}</p>
     </article>)}</div>
+    {skippedDate && <p className="text-xs text-slate-400">{skippedDate} 계좌 기준 밖 신호 {skipped.reduce((sum, [, count]) => sum + count, 0)}건은 주문 없이 1주 연구로만 집계합니다: {skipped.map(([reason, count]) => `${reason} ${count}건`).join(' · ')}</p>}
     <details><summary className="cursor-pointer">주문·체결 원장 ({orders.length}건)</summary>
       <div className="space-y-3 py-3">{orders.slice(index * 10, index * 10 + 10).map(order => <article key={order.id} className="rounded-lg border border-slate-700 p-3 text-xs space-y-1">
         <h5 className="text-sm font-semibold">{order.side === 'BUY' ? '매수' : '매도'} · {order.name} · {statuses[order.status]} · {order.quantity}주</h5>
