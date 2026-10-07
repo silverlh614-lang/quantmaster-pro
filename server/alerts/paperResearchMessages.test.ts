@@ -206,6 +206,18 @@ describe('recorded research changes', () => {
     expect(formatPaperAdaptiveSummary(current, now).join('\n')).not.toContain('작성 회차 완료');
     expect(formatPaperAdaptiveSummary(current, new Date(`${date}T04:45:00Z`)).join('\n')).toContain('작성 회차 완료');
   });
+  it('names why the AI formula round failed, including a restart that left no completion time', () => {
+    const line = (programResearch: NonNullable<PaperAdaptiveState['programResearch']>) => {
+      const current = view(); current.strategy!.adaptive = { ...state, candidates: [], programResearch };
+      return formatPaperAdaptiveSummary(current, now).join('\n');
+    };
+    const failed = { state: 'FAILED' as const, attemptedAt: at, completedAt: at, message: '실패', proposals: [] };
+    expect(line({ ...failed, failure: 'TIMEOUT' })).toContain('AI 계산법: 작성 실패 · AI 응답 시간 초과(120초) · 기존 전략 계속, 다음 날 재시도');
+    expect(line({ ...failed, completedAt: null, failure: 'INTERRUPTED' })).toContain('AI 계산법: 작성 실패 · 서버 재시작으로 중단 · 기존 전략 계속, 다음 날 재시도');
+    expect(line({ ...failed, attemptedAt: null, completedAt: null, failure: 'STORAGE' })).toContain('연구 후보 파일 읽기·저장 오류 · 파일 점검 필요 · 기존 전략 계속');
+    // Records saved before causes existed keep the generic wording.
+    expect(line(failed)).toContain('AI 계산법: 작성 회차 확인 필요 · 기존 전략 계속');
+  });
   it('labels AI interpretation as a proposal and preserves the calculation identity in safe HTML', () => {
     const program = sealPaperProgram({ title: 'RSI & 거래량', hypothesis: '차이 구간의 성과를 시험합니다.', interpretation: '거래량에서 RSI를 뺀 값입니다.',
       limitation: '급락 거래량도 포함됩니다.', expression: { op: 'subtract', left: { op: 'feature', key: 'volumeRatio20' }, right: { op: 'feature', key: 'rsi14' } } });

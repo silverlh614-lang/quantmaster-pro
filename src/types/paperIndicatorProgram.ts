@@ -77,7 +77,18 @@ export function evaluatePaperProgram(program: PaperIndicatorProgram, input: (key
   return result === null ? null : Math.max(-3, Math.min(3, result));
 }
 
+/** Why the latest AI formula round failed. The raw error stays in the server log. */
+export const PAPER_PROGRAM_FAILURES = ['INTERRUPTED', 'TIMEOUT', 'NO_RESPONSE', 'AI_ERROR', 'INVALID_OUTPUT', 'STORAGE', 'UNKNOWN'] as const;
+export type PaperProgramFailure = typeof PAPER_PROGRAM_FAILURES[number];
+export const PAPER_PROGRAM_FAILURE_LABELS: Record<PaperProgramFailure, string> = {
+  INTERRUPTED: '서버 재시작으로 중단', TIMEOUT: 'AI 응답 시간 초과(120초)',
+  NO_RESPONSE: 'AI 응답 없음 · API 키·월 예산 확인(/ai_status)', AI_ERROR: 'AI 호출 오류 · 연결·호출 한도 확인(/ai_status)',
+  INVALID_OUTPUT: 'AI가 쓴 계산법이 형식·계산 검사를 통과하지 못함', STORAGE: '연구 후보 파일 읽기·저장 오류 · 파일 점검 필요',
+  UNKNOWN: '기타 오류 · 서버 로그 [PaperProgramResearch] 확인',
+};
+
 export interface PaperProgramResearchView {
   state: 'IDLE' | 'RUNNING' | 'READY' | 'FAILED'; attemptedAt: string | null; completedAt: string | null;
-  message: string; proposals: Array<{ id: string; title: string; generatedAt: string; registered: boolean; evaluated: boolean }>;
+  message: string; failure?: PaperProgramFailure;
+  proposals: Array<{ id: string; title: string; generatedAt: string; registered: boolean; evaluated: boolean }>;
 }

@@ -58,13 +58,33 @@ describe('AI research proposal lifecycle', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const generate = vi.fn(async () => null as string | null);
     await queuePaperProgramResearch(state(), { ...options(), generate });
-    expect(readPaperProgramResearch(undefined, directory).state).toBe('FAILED');
+    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'FAILED', failure: 'NO_RESPONSE',
+      message: expect.stringContaining('AI 응답 없음') });
     expect(readPaperProgramProposals(directory)).toEqual([]);
     await queuePaperProgramResearch(state(), { ...options(), generate });
     expect(generate).toHaveBeenCalledTimes(1);
     generate.mockResolvedValue(response);
     await queuePaperProgramResearch(state(), { ...options(), asOf: '2026-09-19T08:00:00Z', now: () => '2026-09-19T08:00:10Z', generate });
     expect(generate).toHaveBeenCalledTimes(2); expect(readPaperProgramResearch(undefined, directory).state).toBe('READY');
+    expect(readPaperProgramResearch(undefined, directory)).not.toHaveProperty('failure');
+  });
+  it.each([
+    ['TIMEOUT', () => new Promise<string | null>(() => {})],
+    ['AI_ERROR', async () => { throw new Error('503 unavailable'); }],
+  ] as const)('records a %s failure as its cause', async (failure, impl) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const work = queuePaperProgramResearch(state(), { ...options(), generate: vi.fn(impl) });
+      await vi.advanceTimersByTimeAsync(120_000); await work;
+    } finally { vi.useRealTimers(); }
+    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'FAILED', failure });
+  });
+  it('reports a round left running by a restart as interrupted', () => {
+    fs.writeFileSync(path.join(directory, 'paper-program-research.json'), JSON.stringify({ version: 1, attemptedAt: asOf, completedAt: null,
+      inputDigest: 'a'.repeat(64), state: 'RUNNING', message: 'AI가 가설과 계산 절차를 작성 중입니다.', proposals: [], seen: [] }));
+    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'FAILED', failure: 'INTERRUPTED',
+      message: expect.stringContaining('서버 재시작으로 중단') });
   });
   it('feeds training rejection back into the next research attempt without reusing the same program', async () => {
     const adaptive = state(), generate = vi.fn(async (_prompt: string) => response);
@@ -87,9 +107,11 @@ describe('AI research proposal lifecycle', () => {
     generate.mockResolvedValue('bad json');
     await queuePaperProgramResearch(adaptive, { ...options(), asOf: '2026-09-19T08:00:00Z', now: () => '2026-09-19T08:00:10Z', generate });
     expect(readPaperProgramProposals(directory)).toHaveLength(1);
+    expect(readPaperProgramResearch(undefined, directory).failure).toBe('INVALID_OUTPUT');
     const target = path.join(directory, 'paper-program-research.json'); fs.writeFileSync(target, '{broken');
     await queuePaperProgramResearch(adaptive, { ...options(), asOf: '2026-09-20T08:00:00Z', generate });
     expect(generate).toHaveBeenCalledTimes(2); expect(fs.readFileSync(target, 'utf8')).toBe('{broken');
-    expect(readPaperProgramProposals(directory)).toEqual([]); expect(readPaperProgramResearch(undefined, directory).state).toBe('FAILED');
+    expect(readPaperProgramProposals(directory)).toEqual([]);
+    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'FAILED', failure: 'STORAGE' });
   });
 });

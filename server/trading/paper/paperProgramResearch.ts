@@ -5,7 +5,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { PaperAdaptiveState } from '../../../src/types/paperAdaptive.js';
 import { PAPER_FEATURES } from '../../../src/types/paperObservationFeatures.js';
-import { PAPER_PROGRAM_LIMITS, type PaperIndicatorProgram, type PaperProgramResearchView } from '../../../src/types/paperIndicatorProgram.js';
+import { PAPER_PROGRAM_FAILURE_LABELS, PAPER_PROGRAM_FAILURES, PAPER_PROGRAM_LIMITS, type PaperIndicatorProgram, type PaperProgramFailure,
+  type PaperProgramResearchView } from '../../../src/types/paperIndicatorProgram.js';
 import { paperIndicatorFormulaId } from '../../../src/types/paperIndicatorFormula.js';
 import { DATA_DIR } from '../../persistence/paths.js';
 import { callGeminiText } from '../../clients/geminiClient.js';
@@ -21,6 +22,7 @@ const proposalSchema = z.object({ formula: z.custom<PaperIndicatorProgram>(value
   generatedAt: timestamp, model: z.string().min(1).max(80), inputDigest: digest });
 const storeSchema = z.object({ version: z.literal(1), attemptedAt: timestamp.nullable(), completedAt: timestamp.nullable(),
   inputDigest: digest.nullable(), state: z.enum(['IDLE', 'RUNNING', 'READY', 'FAILED']), message: z.string().max(300),
+  failure: z.enum(PAPER_PROGRAM_FAILURES).optional(),
   proposals: z.array(proposalSchema).max(PAPER_PROGRAM_LIMITS.storedProposals), seen: z.array(digest).max(1000),
 }).refine(value => new Set(value.proposals.map(item => item.formula.digest)).size === value.proposals.length
   && value.proposals.every(item => value.seen.includes(item.formula.digest))
@@ -78,6 +80,11 @@ export function parsePaperProgramProposals(raw: string): PaperIndicatorProgram[]
   if (!Array.isArray(entries) || entries.length > PAPER_PROGRAM_LIMITS.dailyProposals) throw new Error('AI 후보 개수 검사 실패');
   return entries.map(sealPaperProgram);
 }
+/** Tags each failing step so the stored round says why it failed without persisting the raw error. */
+class ProgramResearchFailure extends Error {
+  constructor(readonly failure: PaperProgramFailure, message: string) { super(message); }
+}
+const failureMessage = (failure: PaperProgramFailure) => `${PAPER_PROGRAM_FAILURE_LABELS[failure]} · 같은 날짜 재호출 없이 기존 연구를 계속합니다.`;
 const inFlight = new Map<string, Promise<void>>();
 let readIssue: string | null = null;
 export function readPaperProgramProposals(directory = DATA_DIR): PaperProgramProposal[] {
@@ -90,14 +97,16 @@ export function readPaperProgramProposals(directory = DATA_DIR): PaperProgramPro
 export function readPaperProgramResearch(adaptive?: PaperAdaptiveState, directory = DATA_DIR): PaperProgramResearchView {
   try {
     const store = load(directory), interrupted = store.state === 'RUNNING' && !inFlight.has(directory);
+    const failure = interrupted ? 'INTERRUPTED' : store.state === 'FAILED' ? store.failure : undefined;
     return { state: interrupted ? 'FAILED' : store.state, attemptedAt: store.attemptedAt, completedAt: store.completedAt,
-      message: interrupted ? '이전 생성이 완료되지 않았습니다. 같은 날짜에는 재호출하지 않습니다.' : store.message,
+      message: interrupted ? failureMessage('INTERRUPTED') : store.message, ...(failure ? { failure } : {}),
       proposals: store.proposals.map(item => ({ id: paperIndicatorFormulaId(item.formula), title: item.formula.title, generatedAt: item.generatedAt,
         registered: Boolean(adaptive?.discovery?.inventions.some(invention => invention.id === paperIndicatorFormulaId(item.formula))),
         evaluated: Boolean(adaptive?.discovery?.programAttemptedIds?.includes(paperIndicatorFormulaId(item.formula))) })) };
   } catch (error) {
     console.error('[PaperProgramResearch] 상태 조회 실패:', error instanceof Error ? error.name : '읽기 실패');
-    return { state: 'FAILED', attemptedAt: null, completedAt: null, message: '연구 후보 파일 확인 필요 · 기존 전략은 계속됩니다.', proposals: [] };
+    return { state: 'FAILED', attemptedAt: null, completedAt: null, failure: 'STORAGE',
+      message: '연구 후보 파일 확인 필요 · 기존 전략은 계속됩니다.', proposals: [] };
   }
 }
 /** Invoked after durable strategy commits; never awaited by market scanning or holding monitoring. */
@@ -115,18 +124,30 @@ export function queuePaperProgramResearch(adaptive: PaperAdaptiveState, options:
     const inputDigest = createHash('sha256').update(JSON.stringify([input, adaptive.discovery?.programReviews ?? []])).digest('hex');
     if (store.state === 'READY' && store.inputDigest === inputDigest) return;
     // Claim before external work so restarts cannot repeatedly spend the same daily budget.
-    store = { ...store, attemptedAt: options.asOf, completedAt: null, inputDigest, state: 'RUNNING', message: 'AI가 가설과 계산 절차를 작성 중입니다.' };
+    const { failure: _previousFailure, ...previous } = store;
+    store = { ...previous, attemptedAt: options.asOf, completedAt: null, inputDigest, state: 'RUNNING', message: 'AI가 가설과 계산 절차를 작성 중입니다.' };
+    const persist = (value: Store) => {
+      try { save(directory, value); } catch (error) {
+        throw new ProgramResearchFailure('STORAGE', error instanceof Error ? error.message : '저장 실패');
+      }
+    };
     try {
-      save(directory, store);
+      persist(store);
       const generate = options.generate ?? ((prompt: string) => callGeminiText(prompt, { caller: 'paper-program-research', prependPersona: false,
         stripPreamble: false, temperature: 0.4, maxOutputTokens: 4096, thinkingBudget: 0 }));
       let timeout: ReturnType<typeof setTimeout> | undefined;
       let raw: string | null;
       try { raw = await Promise.race([generate(paperProgramResearchPrompt(adaptive, store.proposals)), new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error('AI 응답 시간 초과')), 120_000);
-      })]); } finally { if (timeout) clearTimeout(timeout); }
-      if (!raw) throw new Error('AI 응답 없음 또는 API 예산·연결 확인 필요');
-      const programs = parsePaperProgramProposals(raw).filter(program => !store.seen.includes(program.digest));
+        timeout = setTimeout(() => reject(new ProgramResearchFailure('TIMEOUT', 'AI 응답 시간 초과')), 120_000);
+      })]); } catch (error) {
+        throw error instanceof ProgramResearchFailure ? error : new ProgramResearchFailure('AI_ERROR', error instanceof Error ? error.message : 'AI 호출 오류');
+      } finally { if (timeout) clearTimeout(timeout); }
+      if (!raw) throw new ProgramResearchFailure('NO_RESPONSE', 'AI 응답 없음 또는 API 예산·연결 확인 필요');
+      let parsed: PaperIndicatorProgram[];
+      try { parsed = parsePaperProgramProposals(raw); } catch (error) {
+        throw new ProgramResearchFailure('INVALID_OUTPUT', error instanceof Error ? error.message : '계산 검사 실패');
+      }
+      const programs = parsed.filter(program => !store.seen.includes(program.digest));
       const generatedAt = options.now?.() ?? new Date().toISOString();
       if (Date.parse(generatedAt) < Date.parse(options.asOf)) throw new Error('AI 생성 시각 검사 실패');
       const unique = [...new Map(programs.map(program => [program.digest, program])).values()];
@@ -134,11 +155,12 @@ export function queuePaperProgramResearch(adaptive: PaperAdaptiveState, options:
       store.seen = [...new Set([...store.seen, ...unique.map(program => program.digest)])].slice(-1000);
       store.state = 'READY'; store.completedAt = generatedAt;
       store.message = `계산 검사 통과 ${unique.length}개 · 다음 일일 평가에서 학습 우위와 중복 여부를 확인합니다.`;
-      save(directory, store);
+      persist(store);
     } catch (error) {
       console.error('[PaperProgramResearch] 생성 실패, 기존 전략 계속:', error instanceof Error ? error.message : '알 수 없는 오류');
-      store.state = 'FAILED'; store.completedAt = options.now?.() ?? new Date().toISOString();
-      store.message = 'AI 생성 또는 계산 검사 실패 · 같은 날짜 재호출 없이 기존 연구를 계속합니다.';
+      const failure = error instanceof ProgramResearchFailure ? error.failure : 'UNKNOWN';
+      store.state = 'FAILED'; store.failure = failure; store.completedAt = options.now?.() ?? new Date().toISOString();
+      store.message = failureMessage(failure);
       try { save(directory, store); } catch (saveError) { console.error('[PaperProgramResearch] 실패 상태 저장 오류:', saveError instanceof Error ? saveError.name : '저장 실패'); }
     }
   };
