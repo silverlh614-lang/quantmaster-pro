@@ -13,6 +13,7 @@ import { observePaperInvestorFlow } from './paperInvestorFlowCollector.js';
 import { refreshPaperDisclosures } from './paperDisclosureCollection.js';
 import { calculatePaperFeatures, addPaperPeerComparison } from './paperObservationFeatures.js';
 import { refreshPaperQuotes } from './paperQuoteRefresh.js';
+import { recordPaperTradingHalt } from './paperTradingHalts.js';
 
 function codeOf(input: string): string | null {
   const code = input.trim().replace(/\.(KS|KQ)$/i, '');
@@ -84,7 +85,10 @@ export async function collectPaperExperimentSnapshot(
     const quote = refreshed.get(symbol) ?? data?.quote;
     const quoteMs = Date.parse(quote?.fetchedAt ?? '');
     // The scan quote or a single-quote refresh carries the halt flag; a frozen halted price is never a tradable current price.
-    const issue = data?.quote?.tradingHalted || quote?.tradingHalted ? 'TRADING_HALTED'
+    // Multi-stock refreshes carry none, so the minute monitor learns the status from the latest full quote.
+    const checked = quote?.tradingHalted ? quote : data?.quote;
+    if (checked?.code === symbol) recordPaperTradingHalt(symbol, checked.tradingHalted, checked.fetchedAt);
+    const issue = checked?.tradingHalted ? 'TRADING_HALTED'
       : !quote ? 'CURRENT_QUOTE_UNAVAILABLE'
       : quote.code !== symbol ? 'CURRENT_QUOTE_SYMBOL_MISMATCH'
         : !Number.isFinite(quote.currentPrice) || (quote.currentPrice ?? 0) <= 0 ? 'CURRENT_QUOTE_INVALID_PRICE'

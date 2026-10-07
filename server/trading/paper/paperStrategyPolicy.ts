@@ -95,6 +95,7 @@ function closeDecision(trade: PaperStrategyTrade, snapshot: PaperSnapshot, ledge
     if (!trigger || trigger.reason === 'D5_BENCHMARK') return carry(decision(snapshot, trade, 'HOLD',
       update.quoteAccepted ? 'ADAPTIVE_EXIT_HOLD' : 'ADAPTIVE_EXIT_QUOTE_UNAVAILABLE',
       update.quoteAccepted ? '새 가격 확인 · 손실 제한·수익 반납·진입 근거 약화 조건 미충족, D일 강제 청산 없음'
+        : observation?.issue === 'TRADING_HALTED' ? '거래정지 · 멈춘 가격으로 매도 판단하지 않고 정지 해제 후 첫 유효 가격을 기다립니다.'
         : '매도 판단용 유효한 새 장중 가격 대기 · 누락 자료를 매도 신호로 취급하지 않습니다.', evidence, trade.id));
     const reasons = { ADAPTIVE_STOP_LOSS: '비용 차감 손실 제한', ADAPTIVE_TRAILING_STOP: '관측 수익 고점 대비 반납',
       ADAPTIVE_SIGNAL_LOST: '진입 조건의 지속적인 약화' };

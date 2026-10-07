@@ -1,7 +1,7 @@
 // @responsibility Verify virtual account cash conservation through signal lifecycles.
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { ACCOUNT_IDLE_SAVE_MS, accountBalances, accountNeedsSave, advancePaperAccount, buildPaperAccountView, createPaperAccount } from './paperAccount.js';
+import { ACCOUNT_HALT_WAIT, ACCOUNT_IDLE_SAVE_MS, accountBalances, accountNeedsSave, advancePaperAccount, buildPaperAccountView, createPaperAccount } from './paperAccount.js';
 import { assertPaperAccount } from './paperAccountValidation.js';
 import { accountSignalFixture } from './paperAccountFixtures.js';
 import { selectAccountPolicy } from './paperAccountSelection.js';
@@ -119,6 +119,20 @@ describe('virtual account', () => {
     next(f, 105);
     const sold = advancePaperAccount(JSON.parse(JSON.stringify(pending)), f.strategy, f.snapshot);
     expect(sold.orders[1]).toMatchObject({ status: 'FILLED', signalAt, fill: { at: f.snapshot.asOf, quote: { price: 105 } } });
+    assertPaperAccount(sold);
+  });
+  it('values a halted holding at its last price and sells only at the first valid price after the halt lifts', () => {
+    const f = fixture(), bought = advancePaperAccount(f.account, f.strategy, f.snapshot), lastMark = bought.marks[f.trade.id];
+    next(f, null); close(f); f.snapshot.observations[0].issue = 'TRADING_HALTED';
+    const halted = advancePaperAccount(bought, f.strategy, f.snapshot);
+    expect(halted.orders[1]).toMatchObject({ side: 'SELL', status: 'PENDING', statusReason: ACCOUNT_HALT_WAIT, fill: null });
+    expect(halted.marks[f.trade.id]).toEqual(lastMark); assertPaperAccount(halted);
+    expect(buildPaperAccountView(halted, f.snapshot.asOf, undefined, new Set([f.trade.symbol])).positions[0])
+      .toMatchObject({ halted: true, mark: lastMark });
+    expect(buildPaperAccountView(halted, f.snapshot.asOf).positions[0]).not.toHaveProperty('halted');
+    next(f, 80); delete f.snapshot.observations[0].issue;
+    const sold = advancePaperAccount(halted, f.strategy, f.snapshot);
+    expect(sold.orders[1]).toMatchObject({ status: 'FILLED', fill: { at: f.snapshot.asOf, quote: { price: 80 } } });
     assertPaperAccount(sold);
   });
   it('keeps exit processing active while new account buys are paused', () => {

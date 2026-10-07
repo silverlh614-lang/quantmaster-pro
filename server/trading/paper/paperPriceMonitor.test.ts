@@ -92,6 +92,19 @@ describe('holding price monitor', () => {
     vi.setSystemTime(quoteAt + 120_001);
     expect(readPaperPriceMonitor().staleCount).toBe(1);
   });
+  it('reports halted holdings apart from late or missing quotes', async () => {
+    const ledger = legacyStrategyLedger();
+    ledger.trades = ['005930', '000660'].map(symbol => ({ ...ledger.trades[0], symbol }));
+    mocks.load.mockReturnValue({ ledger });
+    const { recordPaperTradingHalt } = await import('./paperTradingHalts.js');
+    const { readPaperPriceMonitor } = await import('./paperPriceMonitor.js');
+    expect(readPaperPriceMonitor()).toMatchObject({ heldCount: 2, haltedCount: 0, staleCount: 2 });
+    recordPaperTradingHalt('005930', true, new Date().toISOString());
+    expect(readPaperPriceMonitor()).toMatchObject({ heldCount: 2, haltedCount: 1, staleCount: 1 });
+    // Failed re-checks leave only an old confirmation, which no longer hides the missing price.
+    vi.setSystemTime(Date.now() + 120_001);
+    expect(readPaperPriceMonitor()).toMatchObject({ heldCount: 2, haltedCount: 0, staleCount: 2 });
+  });
   it('records failure and permits the next cycle', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.collect.mockRejectedValueOnce(new Error('provider down'));

@@ -30,6 +30,9 @@ describe('account-only notifications', () => {
     expect(formatAccountSummary(view, now)).toContain('운용 기준 2026-09-18:');
     expect(formatAccountSummary(view, now)).toContain('실현손익 0원');
     expect(formatAccountSummary(view, now)).toContain('보유 1/5종목');
+    expect(formatAccountSummary(view, now)).not.toContain('거래정지');
+    const halted = buildPaperAccountView(account, f.snapshot.asOf, undefined, new Set([view.positions[0].symbol]));
+    expect(formatAccountSummary(halted, now)).toContain(`거래정지 ${view.positions[0].name} · 정지 직전 가격 평가 · 해제 후 매도 판단`);
   });
   it('baselines existing fills on upgrade, then queues each future fill once in bounded escaped batches', () => {
     const queue = state(), old = accountView();

@@ -5,6 +5,7 @@ import { isPaperMarketOpen } from './paperExperimentCollector.js';
 import { collectPaperPriceSnapshot } from './paperPriceCollector.js';
 import { advancePaperStrategy, loadPaperStrategyState } from './paperStrategyRuntime.js';
 import { virtualAccountHoldings } from './paperAccountRuntime.js';
+import { isPaperHaltConfirmedSince } from './paperTradingHalts.js';
 
 const attempts = new Map<string, number>();
 const quotes = new Map<string, string>();
@@ -14,12 +15,15 @@ const status: PaperPriceMonitorStatus = { intervalSeconds: 60, running: false, m
   heldCount: 0, staleCount: 0, oldestQuoteAt: null };
 
 export function readPaperPriceMonitor(state = loadPaperStrategyState()): PaperPriceMonitorStatus {
-  const held = state.ledger?.trades.filter(item => item.status === 'OPEN') ?? [];
+  const now = Date.now(), lateAfterMs = status.intervalSeconds * 2 * 1000;
+  const open = state.ledger?.trades.filter(item => item.status === 'OPEN') ?? [];
+  // A halt reconfirmed within the late window explains a missing price; an older confirmation counts as late.
+  const held = open.filter(item => !isPaperHaltConfirmedSince(item.symbol, now - lateAfterMs));
   const times = held.map(item => [quotes.get(item.symbol), item.measurement?.latest?.observedAt]
     .filter((at): at is string => !!at).sort().at(-1) ?? null);
-  const now = Date.now();
-  return { ...status, running: running !== null, marketOpen: isPaperMarketOpen(new Date(now)), heldCount: held.length,
-    staleCount: times.filter(at => !at || now - Date.parse(at) > status.intervalSeconds * 2 * 1000).length,
+  return { ...status, running: running !== null, marketOpen: isPaperMarketOpen(new Date(now)), heldCount: open.length,
+    haltedCount: open.length - held.length,
+    staleCount: times.filter(at => !at || now - Date.parse(at) > lateAfterMs).length,
     oldestQuoteAt: times.length && times.every(Boolean) ? times.sort()[0] : null,
     ...(state.error ? { error: state.error } : {}) };
 }

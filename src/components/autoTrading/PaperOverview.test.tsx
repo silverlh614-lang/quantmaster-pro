@@ -86,6 +86,13 @@ describe('PaperOverview', () => {
     expect(screen.getByRole('region', { name: '관측 운영 상태' }).classList.contains('is-current')).toBe(true);
     expect(screen.queryByText('최근 관측 갱신 확인 필요')).toBeNull();
   });
+  it('reports halted holdings apart from late quotes in the minute monitor', () => {
+    const data = currentView();
+    data.priceMonitor = { intervalSeconds: 60, running: false, marketOpen: true, startedAt: null, completedAt: null, durationMs: null,
+      checkedCount: 2, validCount: 2, closedCount: 0, heldCount: 3, haltedCount: 1, staleCount: 0, oldestQuoteAt: null };
+    render(<PaperOverview view={data} mode="SHADOW" paused={false} />);
+    expect(screen.getByText(/보유 3종목 중/).textContent).toContain('미확인 0종목 · 거래정지 1종목(해제 후 매도 판단)');
+  });
   it('keeps stalled manual collection visible during a holiday', () => {
     const data = currentView(); data.scanIntervalSeconds = null;
     data.collection = { startedAt: '2020-01-01T00:00:00Z', lastProgressAt: '2020-01-01T00:00:00Z', completed: 1, total: 20 };

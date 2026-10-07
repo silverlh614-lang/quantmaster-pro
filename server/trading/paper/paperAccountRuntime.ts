@@ -5,10 +5,11 @@ import type { PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import type { PaperStrategyLedger } from '../../../src/types/paperStrategy.js';
 import { loadPaperAccount, savePaperAccount } from '../../persistence/paperAccountRepo.js';
 import { accountBalances, accountNeedsSave, advancePaperAccount, buildPaperAccountView, createPaperAccount } from './paperAccount.js';
+import { paperHaltedSymbols } from './paperTradingHalts.js';
 
 let lastError: string | undefined;
 export function readVirtualAccount(now = new Date()) {
-  return buildPaperAccountView(loadPaperAccount(), now.toISOString(), lastError);
+  return buildPaperAccountView(loadPaperAccount(), now.toISOString(), lastError, paperHaltedSymbols());
 }
 export function startVirtualAccount(config: PaperAccountConfig, now = new Date()) {
   if (loadPaperAccount()) throw new Error('VIRTUAL_ACCOUNT_EXISTS: 이미 시작한 계좌가 있습니다.');
@@ -24,7 +25,7 @@ export function pauseVirtualAccountBuys(id: string, paused: boolean, now = new D
   if (account.buyPaused !== paused) {
     account.buyPaused = paused; account.controls.push({ at: now.toISOString(), buyPaused: paused }); savePaperAccount(account);
   }
-  return buildPaperAccountView(account, now.toISOString(), lastError);
+  return buildPaperAccountView(account, now.toISOString(), lastError, paperHaltedSymbols());
 }
 export function captureVirtualAccount(strategy: PaperStrategyLedger, snapshot: PaperSnapshot): void {
   try {

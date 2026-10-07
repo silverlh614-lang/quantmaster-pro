@@ -81,6 +81,8 @@ export function formatAccountSummary(view: PaperAccountView | undefined, now: Da
     view.account.buyPaused ? '신규 매수 정지 · 보유 평가·매도 계속' : '신규 매수 허용',
     `평가 기준 ${view.account.lastSnapshotAt ? stamp(view.account.lastSnapshotAt) : '아직 처리 없음'}`);
   if (view.positions.some(position => position.stale)) lines.push('이전 관측 가격 포함 · 잠정 평가');
+  const halted = view.positions.filter(position => position.halted);
+  if (halted.length) lines.push(`거래정지 ${halted.map(position => safe(position.name, 20)).join(', ')} · 정지 직전 가격 평가 · 해제 후 매도 판단`);
   const selection = view.account.selections?.at(-1);
   if (selection) lines.push(`운용 기준 ${selection.tradingDate}: ${selection.candidates[0] ? safe(selection.candidates[0].label, 100) : '검증 충족 규칙 없음 · 신규 매수 대기'}`);
   const today = toKstDateKey(now), reasons = new Map<string, number>();

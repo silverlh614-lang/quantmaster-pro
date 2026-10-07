@@ -54,13 +54,14 @@ export function PaperAccountRecords({ view }: { view: PaperAccountView }) {
     {account.config.includeExploration && <p className="text-xs">이전 탐색 포함 설정은 이력으로 보존합니다. 새 매수는 검증 전용 기준을 적용합니다.</p>}
     <AccountPolicy view={view} />
     {view.positions.some(position => position.stale) && <p role="status" className="text-amber-200">이전 관측 가격이 포함된 잠정 평가입니다. 현재 청산 가능한 금액으로 보지 마세요.</p>}
+    {view.positions.some(position => position.halted) && <p role="status" className="text-amber-200">거래정지 종목은 정지 직전 가격으로 평가하고, 정지 해제 후 첫 유효 가격으로 매도 판단·체결합니다.</p>}
     <h4 className="font-semibold">가상 계좌 보유 {view.positions.length}종목</h4>
     {!view.positions.length && <p>보유 종목이 없습니다.</p>}
     <div className="grid gap-3 lg:grid-cols-2">{view.positions.map(position => <article key={position.tradeId} className="rounded-lg border border-slate-700 p-3 text-sm">
       <h5>{position.name} ({position.symbol}) · {position.quantity}주</h5>
       <p>매수 지출 {money(position.entryCost)} · 추정 청산 금액 {money(position.liquidationValue)}</p>
       <p>미실현손익 {money(position.unrealizedPnl)} · 관측가 {money(position.mark?.price ?? null)}</p>
-      <p className="text-xs text-slate-400">{stamp(position.mark?.observedAt ?? null)} {position.stale ? '· 이전 가격' : ''}</p>
+      <p className="text-xs text-slate-400">{stamp(position.mark?.observedAt ?? null)} {position.halted ? '· 거래정지 · 정지 직전 가격' : position.stale ? '· 이전 가격' : ''}</p>
     </article>)}</div>
     {skippedDate && <p className="text-xs text-slate-400">{skippedDate} 계좌 기준 밖 신호 {skipped.reduce((sum, [, count]) => sum + count, 0)}건은 주문 없이 1주 연구로만 집계합니다: {skipped.map(([reason, count]) => `${reason} ${count}건`).join(' · ')}</p>}
     <details><summary className="cursor-pointer">주문·체결 원장 ({orders.length}건)</summary>
