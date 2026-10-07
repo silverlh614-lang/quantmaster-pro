@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { paperExperimentApi, PAPER_EXPERIMENT_QUERY_KEY } from '../../api/paperExperimentClient';
-import type { PaperAccountView } from '../../types/paperAccount';
+import { paperAccountSlotCount, type PaperAccountView } from '../../types/paperAccount';
 import { paperAccountPerformance } from '../../utils/paperAccountPerformance';
 
 const key = [...PAPER_EXPERIMENT_QUERY_KEY, 'virtual-account'];
@@ -18,7 +18,7 @@ function AccountPolicy({ view }: { view: PaperAccountView }) {
   return <div className="space-y-2 text-sm">
     <h4 className="font-semibold">계좌 운용 기준</h4>
     <p>{latest ? `${latest.tradingDate} 선택: ${latest.candidates[0]?.label ?? '검증 수익성 충족 규칙 없음 · 신규 진입 대기'}` : '첫 장중 전체 관측에서 검증 성과를 확인해 기준을 선택합니다.'}</p>
-    <p className="text-xs text-slate-400">검증 순수익률이 가장 높은 연결 규칙 하나를 매일 선택합니다. 같은 날 유지하며 해당 규칙으로 발생한 새 신호만 매수합니다. 동시 진입은 가용 현금을 균등 배정하고 종목별 상한을 적용합니다.</p>
+    <p className="text-xs text-slate-400">검증 순수익률이 가장 높은 연결 규칙 하나를 매일 선택합니다. 같은 날 유지하며 해당 규칙으로 발생한 새 신호만 매수합니다. 매수마다 추정 자산의 {account.config.maxPositionPct}%를 배정하고 최대 {paperAccountSlotCount(account.config)}종목까지 보유합니다. 빈 자리보다 신호가 많으면 날짜·종목으로 섞은 순서로 일부만 매수합니다.</p>
     <p>계좌 체결 성과: 청산 {result.closedCount}건 · 실현손익 {money(result.realizedPnl)} · 거래당 평균 순수익률 {pct(result.meanNetReturnPct)}</p>
     <p>평균 이익 {pct(result.meanWinPct)} · 평균 손실 {pct(result.meanLossPct)} · 총이익/총손실 {result.profitFactor === null ? '손실 표본 없음' : result.profitFactor.toFixed(2)} · 승률 {pct(result.winRatePct)}</p>
     <p>{account.risk ? `관측 최대 낙폭 ${pct(account.risk.maxDrawdownPct)} · ${stamp(account.risk.since)}부터 ${account.risk.observations}회 평가` : '관측 최대 낙폭 집계 대기'}</p>
@@ -50,7 +50,7 @@ export function PaperAccountRecords({ view }: { view: PaperAccountView }) {
       ['주문 가능 현금', money(view.cash)], ['추정 청산 자산', money(view.equity)], ['실현손익', money(view.realizedPnl)],
       ['미실현손익', money(view.unrealizedPnl)], ['계좌 수익률', view.returnPct === null ? '미확인' : `${view.returnPct.toFixed(2)}%`],
     ].map(([label, value]) => <div key={label}><dt className="text-xs text-slate-400">{label}</dt><dd className="font-semibold">{value}</dd></div>)}</dl>
-    <p className="text-xs text-slate-400">시작 {stamp(account.startedAt)} · 초기 예수금 {money(account.config.initialCash)} · 종목당 최대 {account.config.maxPositionPct}% · 검증 신호만 · 마지막 처리 {stamp(account.lastSnapshotAt)}</p>
+    <p className="text-xs text-slate-400">시작 {stamp(account.startedAt)} · 초기 예수금 {money(account.config.initialCash)} · 종목당 {account.config.maxPositionPct}% · 최대 {paperAccountSlotCount(account.config)}종목 · 검증 신호만 · 마지막 처리 {stamp(account.lastSnapshotAt)}</p>
     {account.config.includeExploration && <p className="text-xs">이전 탐색 포함 설정은 이력으로 보존합니다. 새 매수는 검증 전용 기준을 적용합니다.</p>}
     <AccountPolicy view={view} />
     {view.positions.some(position => position.stale) && <p role="status" className="text-amber-200">이전 관측 가격이 포함된 잠정 평가입니다. 현재 청산 가능한 금액으로 보지 마세요.</p>}
@@ -101,7 +101,7 @@ export function PaperAccountPanel() {
       <div className="workspace-filters"><label>초기 예수금(원) <input type="number" min="1000" max="1000000000000" step="1" required value={cash} onChange={event => setCash(event.target.value)} /></label>
         <label>종목당 최대 비중(%) <input type="number" min="1" max="100" step="0.1" required value={weight} onChange={event => setWeight(event.target.value)} /></label>
         </div>
-      <p className="text-xs">시작 이후 새 신호부터 운용합니다. 시작 금액과 비중 설정은 원장에 고정하며, 기존 계좌를 초기화하지 않습니다.</p>
+      <p className="text-xs">시작 이후 새 신호부터 운용합니다. 시작 금액과 비중 설정은 원장에 고정하며, 기존 계좌를 초기화하지 않습니다. 종목당 비중에 따라 동시에 보유하는 종목 수가 정해집니다(20%면 5종목, 10%면 10종목).</p>
       <button className="workspace-button" type="submit" disabled={start.isPending || query.isFetching}>가상 계좌 시작</button>
     </form>}
     {account && query.data && <>

@@ -1,4 +1,5 @@
 // @responsibility Verify virtual account cash conservation through signal lifecycles.
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { ACCOUNT_IDLE_SAVE_MS, accountBalances, accountNeedsSave, advancePaperAccount, buildPaperAccountView, createPaperAccount } from './paperAccount.js';
 import { assertPaperAccount } from './paperAccountValidation.js';
@@ -41,8 +42,8 @@ describe('virtual account', () => {
     expect(view.returnPct).toBeCloseTo(1.7784); assertPaperAccount(sold);
     expect(advancePaperAccount(sold, f.strategy, f.snapshot)).toBe(sold);
   });
-  it('splits simultaneous buying power fairly without overspending or repeating after restart', () => {
-    const f = fixture(); f.account.config.maxPositionPct = 100;
+  it('sizes simultaneous buys by holding slot without overspending or repeating after restart', () => {
+    const f = fixture(); f.account.config.maxPositionPct = 50;
     const second = { ...structuredClone(f.trade), id: 'signal-2', symbol: '999999' };
     f.strategy.trades.push(second); f.snapshot.observations.push({ ...f.snapshot.observations[0], symbol: second.symbol });
     const first = advancePaperAccount(f.account, f.strategy, f.snapshot);
@@ -52,6 +53,31 @@ describe('virtual account', () => {
     next(f);
     const replayed = advancePaperAccount(JSON.parse(JSON.stringify(first)), f.strategy, f.snapshot);
     expect(replayed.orders).toEqual(first.orders); assertPaperAccount(replayed);
+  });
+  it('gives crowded signals the same per-stock size and fills free slots in a shuffled order', () => {
+    const f = fixture(), symbols = ['100001', '100002', '100003', '100004', '100005', '100006', '100007'];
+    for (const [index, symbol] of symbols.entries()) {
+      f.strategy.trades.push({ ...structuredClone(f.trade), id: `signal-${index + 2}`, symbol });
+      f.snapshot.observations.push({ ...f.snapshot.observations[0], symbol });
+    }
+    const rank = (symbol: string) => createHash('sha256').update(`${f.snapshot.tradingDate}:${symbol}`).digest('hex');
+    const chosen = [f.trade.symbol, ...symbols].sort((a, b) => rank(a).localeCompare(rank(b))).slice(0, 5).sort();
+    const result = advancePaperAccount(f.account, f.strategy, f.snapshot);
+    const filled = result.orders.filter(order => order.status === 'FILLED');
+    // Eight same-time signals no longer shrink each position to cash ÷ 8; five slots of 20% are filled.
+    expect(filled.map(order => order.symbol).sort()).toEqual(chosen);
+    expect(filled.every(order => order.budget === 2000)).toBe(true);
+    expect(result.orders.filter(order => order.status === 'REJECTED').map(order => order.statusReason))
+      .toEqual(Array(3).fill('동시 보유 한도 5종목 도달'));
+    assertPaperAccount(result);
+    const reversed = advancePaperAccount(f.account, { ...f.strategy, trades: [...f.strategy.trades].reverse() }, f.snapshot);
+    expect(reversed.orders.filter(order => order.status === 'FILLED').map(order => order.symbol).sort()).toEqual(chosen);
+    next(f);
+    const later = { ...structuredClone(f.trade), id: 'signal-late', symbol: '100008', entrySnapshotId: f.snapshot.id, entryAt: f.snapshot.asOf };
+    f.strategy.trades.push(later); f.snapshot.observations.push({ ...f.snapshot.observations[0], symbol: later.symbol });
+    const full = advancePaperAccount(result, f.strategy, f.snapshot);
+    expect(full.orders.at(-1)).toMatchObject({ symbol: '100008', status: 'REJECTED', statusReason: '동시 보유 한도 5종목 도달', budget: 0 });
+    assertPaperAccount(full);
   });
   it.each(['stale', 'future', 'estimated', 'missing', 'closed', 'beforeStart'])('rejects %s quotes instead of manufacturing fills', issue => {
     const f = fixture(), quote = f.snapshot.observations[0];
