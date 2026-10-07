@@ -5,6 +5,7 @@ import { PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel, paperPlaceboChanc
   type PaperAdaptiveState } from '../../src/types/paperAdaptive.js';
 import { PAPER_FEATURES } from '../../src/types/paperObservationFeatures.js';
 import { paperIndicatorFormulaOperands } from '../../src/types/paperIndicatorFormula.js';
+import { PAPER_PROGRAM_FAILURE_LABELS } from '../../src/types/paperIndicatorProgram.js';
 import { explainPaperIndicator, inventedRuleRange } from '../../src/utils/paperIndicatorExplanation.js';
 import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { PAPER_AUTONOMY_REASON_LABELS, paperAutonomyRuleKey } from '../../src/types/paperAutonomy.js';
@@ -96,7 +97,11 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
       const research = state.programResearch;
       const label = { IDLE: '새 자료 대기', RUNNING: '계산법 작성 중', READY: '작성 회차 완료 · 성과 검증 별도', FAILED: '작성 회차 확인 필요 · 기존 전략 계속' };
       const terminal = research.state === 'READY' || research.state === 'FAILED';
-      lines.push(`AI 계산법: ${terminal && !known(research.completedAt ?? undefined, cutoff) ? '보고 시점의 작성 완료 미확인' : label[research.state]}`);
+      // A restart or unreadable file leaves no completion time, but its cause is already known at the attempt.
+      const failure = research.state === 'FAILED' && research.failure
+        && (!research.completedAt || known(research.completedAt, cutoff)) ? research.failure : undefined;
+      lines.push(`AI 계산법: ${failure ? `작성 실패 · ${PAPER_PROGRAM_FAILURE_LABELS[failure]} · 기존 전략 계속${failure === 'STORAGE' ? '' : ', 다음 날 재시도'}`
+        : terminal && !known(research.completedAt ?? undefined, cutoff) ? '보고 시점의 작성 완료 미확인' : label[research.state]}`);
     }
     if (detail === 'full' && state.policy.maturityModel === 'per-horizon-v1') {
       lines.push('', '📚 <b>학습·검증 표본</b>');
