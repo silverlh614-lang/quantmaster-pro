@@ -222,7 +222,7 @@ export interface PaperPriceMonitorStatus {
   validCount: number;
   closedCount: number;
   heldCount: number;
-  /** Held symbols KIS last reported as halted; excluded from staleCount and oldestQuoteAt. */
+  /** Held symbols whose halt KIS reconfirmed within two intervals; excluded from staleCount and oldestQuoteAt. */
   haltedCount?: number;
   staleCount: number;
   oldestQuoteAt: string | null;

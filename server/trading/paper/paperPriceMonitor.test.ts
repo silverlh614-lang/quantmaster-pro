@@ -101,6 +101,9 @@ describe('holding price monitor', () => {
     expect(readPaperPriceMonitor()).toMatchObject({ heldCount: 2, haltedCount: 0, staleCount: 2 });
     recordPaperTradingHalt('005930', true, new Date().toISOString());
     expect(readPaperPriceMonitor()).toMatchObject({ heldCount: 2, haltedCount: 1, staleCount: 1 });
+    // Failed re-checks leave only an old confirmation, which no longer hides the missing price.
+    vi.setSystemTime(Date.now() + 120_001);
+    expect(readPaperPriceMonitor()).toMatchObject({ heldCount: 2, haltedCount: 0, staleCount: 2 });
   });
   it('records failure and permits the next cycle', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});

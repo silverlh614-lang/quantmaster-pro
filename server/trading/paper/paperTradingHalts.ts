@@ -17,6 +17,12 @@ export function paperTradingHaltStatus(symbol: string): boolean | undefined {
   return statuses.get(symbol)?.halted;
 }
 
+/** A halt reconfirmed at or after `since` (epoch ms); an older confirmation no longer explains a missing price. */
+export function isPaperHaltConfirmedSince(symbol: string, since: number): boolean {
+  const status = statuses.get(symbol);
+  return status?.halted === true && status.checkedAt >= since;
+}
+
 export function paperHaltedSymbols(): Set<string> {
   return new Set([...statuses].flatMap(([symbol, status]) => status.halted ? [symbol] : []));
 }
