@@ -73,16 +73,28 @@ export function paperProgramResearchPrompt(state: PaperAdaptiveState, previous: 
 이미 제안한 계산(검사 결과의 id로 대조, 중복 금지): ${JSON.stringify(previous.map(item => ({ id: paperIndicatorFormulaId(item.formula), title: item.formula.title, expression: item.formula.expression })))}
 해석은 실제 계산의 증감 방향과 제한을 설명하고, 가설의 실패 상황을 명시하세요. 설명에 줄바꿈/HTML을 넣지 마세요.`;
 }
-export function parsePaperProgramProposals(raw: string): PaperIndicatorProgram[] {
-  if (raw.length > 30_000) throw new Error('AI 응답 길이 검사 실패');
-  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  const entries: unknown = JSON.parse(cleaned);
-  if (!Array.isArray(entries) || entries.length > PAPER_PROGRAM_LIMITS.dailyProposals) throw new Error('AI 후보 개수 검사 실패');
-  return entries.map(sealPaperProgram);
-}
 /** Tags each failing step so the stored round says why it failed without persisting the raw error. */
 class ProgramResearchFailure extends Error {
   constructor(readonly failure: PaperProgramFailure, message: string) { super(message); }
+}
+/** Each candidate is checked on its own, so one failing candidate no longer discards the others. */
+export function parsePaperProgramProposals(raw: string): { programs: PaperIndicatorProgram[]; rejectedCount: number } {
+  if (raw.length > 30_000) throw new ProgramResearchFailure('INVALID_FORMAT', 'AI 응답 길이 검사 실패');
+  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  let entries: unknown;
+  try { entries = JSON.parse(cleaned); } catch (error) {
+    throw new ProgramResearchFailure('INVALID_FORMAT', error instanceof Error ? error.message : 'AI 응답 JSON 검사 실패');
+  }
+  if (!Array.isArray(entries)) throw new ProgramResearchFailure('INVALID_FORMAT', 'AI 응답 배열 검사 실패');
+  const programs: PaperIndicatorProgram[] = [];
+  for (const entry of entries) {
+    if (programs.length === PAPER_PROGRAM_LIMITS.dailyProposals) break;
+    try { programs.push(sealPaperProgram(entry)); } catch (error) {
+      console.error('[PaperProgramResearch] 후보 제외:', error instanceof Error ? error.message : '계산 검사 실패');
+    }
+  }
+  if (!programs.length) throw new ProgramResearchFailure('INVALID_OUTPUT', '모든 후보 계산 검사 실패');
+  return { programs, rejectedCount: entries.length - programs.length };
 }
 const failureMessage = (failure: PaperProgramFailure) => `${PAPER_PROGRAM_FAILURE_LABELS[failure]} · 같은 날짜 재호출 없이 기존 연구를 계속합니다.`;
 const inFlight = new Map<string, Promise<void>>();
@@ -147,18 +159,15 @@ export function queuePaperProgramResearch(adaptive: PaperAdaptiveState, options:
         throw error instanceof ProgramResearchFailure ? error : new ProgramResearchFailure('AI_ERROR', error instanceof Error ? error.message : 'AI 호출 오류');
       } finally { if (timeout) clearTimeout(timeout); }
       if (!raw) throw new ProgramResearchFailure('NO_RESPONSE', 'AI 응답 없음 또는 API 예산·연결 확인 필요');
-      let parsed: PaperIndicatorProgram[];
-      try { parsed = parsePaperProgramProposals(raw); } catch (error) {
-        throw new ProgramResearchFailure('INVALID_OUTPUT', error instanceof Error ? error.message : '계산 검사 실패');
-      }
-      const programs = parsed.filter(program => !store.seen.includes(program.digest));
+      const parsed = parsePaperProgramProposals(raw);
+      const programs = parsed.programs.filter(program => !store.seen.includes(program.digest));
       const generatedAt = options.now?.() ?? new Date().toISOString();
       if (Date.parse(generatedAt) < Date.parse(options.asOf)) throw new Error('AI 생성 시각 검사 실패');
       const unique = [...new Map(programs.map(program => [program.digest, program])).values()];
       store.proposals = [...store.proposals, ...unique.map(formula => ({ formula, generatedAt, model: AI_MODELS.SERVER_SIDE, inputDigest }))].slice(-PAPER_PROGRAM_LIMITS.storedProposals);
       store.seen = [...new Set([...store.seen, ...unique.map(program => program.digest)])].slice(-1000);
       store.state = 'READY'; store.completedAt = generatedAt;
-      store.message = `계산 검사 통과 ${unique.length}개 · 다음 일일 평가에서 학습 우위와 중복 여부를 확인합니다.`;
+      store.message = `계산 검사 통과 ${unique.length}개${parsed.rejectedCount ? ` · 제외 ${parsed.rejectedCount}개` : ''} · 다음 일일 평가에서 학습 우위와 중복 여부를 확인합니다.`;
       persist(store);
     } catch (error) {
       console.error('[PaperProgramResearch] 생성 실패, 기존 전략 계속:', error instanceof Error ? error.message : '알 수 없는 오류');
