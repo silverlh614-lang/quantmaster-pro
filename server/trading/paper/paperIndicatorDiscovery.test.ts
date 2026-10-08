@@ -1,6 +1,6 @@
 // @responsibility Verify invented indicators use frozen discovery and genuinely later observations.
 import { describe, expect, it } from 'vitest';
-import type { PaperAdaptiveState, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
+import { PAPER_ACTIVATION_GATE, paperPlaceboChance, type PaperAdaptiveState, type PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
 import { PAPER_FEATURES, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
 import { PAPER_MAX_INVENTION_ATTEMPTS, paperIndicatorFormulaId } from '../../../src/types/paperIndicatorFormula.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
@@ -15,7 +15,7 @@ const asOf = '2026-09-18T01:00:00Z';
 function interactionSamples(options: AdaptiveSampleOptions = {}) {
   const rows = matureAdaptiveSamples(options);
   for (const row of rows) {
-    const index = Number(row.symbol.slice(-1));
+    const index = (Number(row.symbol) - 100) % 8;
     row.entryObservation.features!.values.rsi14 = index % 4 < 2 ? 20 : 80;
     row.entryObservation.features!.values.volumeRatio20 = [0, 1, 6, 7].includes(index) ? 0.25 : 1.75;
   }
@@ -70,7 +70,7 @@ describe('autonomous indicator invention', () => {
   });
 
   it('connects only after sufficient later results then disconnects on deteriorating forward performance', () => {
-    const state = select(), later = interactionSamples({ startDate: '2026-09-21', entryDateCount: 8 });
+    const state = select(), later = interactionSamples({ startDate: '2026-09-21', entryDateCount: 8, symbolCount: 16 });
     const connected = selectPaperAdaptiveState(state, [...interactionSamples(), ...later], afterMaturity(later));
     expect(inventions(connected).every(item => item.active)).toBe(true);
     for (const item of inventions(connected)) {
@@ -84,8 +84,23 @@ describe('autonomous indicator invention', () => {
       .every(item => !item.active && item.reason === 'NO_VALIDATION_EDGE')).toBe(true);
   });
 
-  it('buys with the invented formula and preserves it through disconnection and scheduled exit', () => {
+  it('withholds a first connection that shuffled returns often match but keeps an already connected rule under the looser limit', () => {
     const state = select(), later = interactionSamples({ startDate: '2026-09-21', entryDateCount: 8 });
+    const fresh = selectPaperAdaptiveState(state, [...interactionSamples(), ...later], afterMaturity(later));
+    for (const item of inventions(fresh)) {
+      const chance = paperPlaceboChance(fresh, item.rule)!;
+      expect(chance).toBeGreaterThan(PAPER_ACTIVATION_GATE.maxChancePct);
+      expect(chance).toBeLessThanOrEqual(PAPER_ACTIVATION_GATE.retainedMaxChancePct);
+      expect(item).toMatchObject({ active: false, reason: 'PLACEBO_NOT_PASSED' });
+    }
+    const connected = structuredClone(state);
+    for (const item of inventions(connected)) { item.active = true; item.reason = 'ACTIVE'; }
+    const retained = selectPaperAdaptiveState(connected, [...interactionSamples(), ...later], afterMaturity(later));
+    expect(inventions(retained).every(item => item.active && item.reason === 'ACTIVE')).toBe(true);
+  });
+
+  it('buys with the invented formula and preserves it through disconnection and scheduled exit', () => {
+    const state = select(), later = interactionSamples({ startDate: '2026-09-21', entryDateCount: 8, symbolCount: 16 });
     const connected = selectPaperAdaptiveState(state, [...interactionSamples(), ...later], afterMaturity(later));
     const snapshot = adaptiveTestSnapshot();
     snapshot.asOf = connected.evaluatedAt; snapshot.tradingDate = connected.tradingDate;
@@ -220,7 +235,7 @@ describe('bounded continuing invention research', () => {
 
   it('relearns failed formulas in a partial registry after reversal without recycling their old forward results', () => {
     const initial = interactionSamples(), state = select();
-    const later = interactionSamples({ startDate: '2026-09-21', entryDateCount: 8 });
+    const later = interactionSamples({ startDate: '2026-09-21', entryDateCount: 8, symbolCount: 16 });
     const connected = selectPaperAdaptiveState(state, [...initial, ...later], afterMaturity(later));
     expect(inventions(connected).every(item => item.active)).toBe(true);
     const reversed = interactionSamples({ startDate: addBusinessDaysFromKstDate(later.at(-1)!.tradingDate, 1),
@@ -245,7 +260,7 @@ describe('bounded continuing invention research', () => {
     expect(relearned.changes.slice(-4).map(item => item.reason)).toEqual(['DISCOVERY_RETIRED', 'DISCOVERY_RETIRED', 'FORWARD_OBSERVATION', 'FORWARD_OBSERVATION']);
     expect(selectPaperAdaptiveState(JSON.parse(JSON.stringify(relearned)), [], `${nextDate}T05:00:00Z`)).toEqual(relearned);
     expect(() => assertPaperStrategyLedger({ ...emptyStrategyLedger(), adaptive: relearned })).not.toThrow();
-    const postBirth = interactionSamples({ startDate: addBusinessDaysFromKstDate(nextDate, 1), entryDateCount: 8,
+    const postBirth = interactionSamples({ startDate: addBusinessDaysFromKstDate(nextDate, 1), entryDateCount: 8, symbolCount: 16,
       selectedReturns: [-1, -9, -10], controlReturns: [1, 9, 10] });
     const reconnected = selectPaperAdaptiveState(relearned, [...samples, ...postBirth], afterMaturity(postBirth));
     expect(inventions(reconnected).every(item => item.active && item.validation.experimentIds!.every(id => postBirth.some(row => row.id === id)))).toBe(true);

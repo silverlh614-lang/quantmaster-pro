@@ -15,9 +15,9 @@ const formula = sealPaperProgram({ title: '거래량과 가격 힘의 방향 일
     positive: { op: 'abs', value: feature('rsi14') }, otherwise: { op: 'negate', value: { op: 'abs', value: feature('rsi14') } } } });
 const proposal = { formula, generatedAt: '2026-09-17T08:00:00Z', model: 'test-model', inputDigest: 'a'.repeat(64) };
 const asOf = '2026-09-18T01:00:00Z';
-function samples(startDate?: string, entryDateCount?: number) {
-  return matureAdaptiveSamples({ startDate, entryDateCount }).map(row => {
-    const index = Number(row.symbol.slice(-1));
+function samples(startDate?: string, entryDateCount?: number, symbolCount?: number) {
+  return matureAdaptiveSamples({ startDate, entryDateCount, symbolCount }).map(row => {
+    const index = (Number(row.symbol) - 100) % 8;
     row.entryObservation.features!.values.rsi14 = index % 4 < 2 ? 20 : 80;
     row.entryObservation.features!.values.volumeRatio20 = [0, 1, 6, 7].includes(index) ? 0.25 : 1.75;
     return row;
@@ -58,7 +58,7 @@ describe('generated program integration', () => {
   });
   it('activates only from later observations while freezing the generated definition', () => {
     const state = selectPaperAdaptiveState(undefined, samples(), asOf, [], [proposal]);
-    const later = samples('2026-09-21', 8);
+    const later = samples('2026-09-21', 8, 16);
     const after = selectPaperAdaptiveState(state, [...samples(), ...later], '2026-10-15T01:00:00Z');
     const candidate = after.candidates.find(item => item.rule.invention?.formula.version === 'feature-program-v1')!;
     expect(candidate.active).toBe(true);

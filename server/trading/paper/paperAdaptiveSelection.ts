@@ -1,8 +1,9 @@
 // @responsibility Reassess independent Shadow feature rules using dated baseline evidence.
 import type { PaperExperiment, PaperObservation } from '../../../src/types/paperExperiment.js';
 import { PAPER_FEATURES, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
-import type { PaperAdaptiveCandidate, PaperAdaptiveFeatureKey, PaperAdaptivePlacebo, PaperAdaptivePolicy, PaperAdaptiveRule,
-  PaperAdaptiveState, PaperAdaptiveStats, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
+import { PAPER_ACTIVATION_GATE, paperPlaceboChance, type PaperAdaptiveCandidate, type PaperAdaptiveFeatureKey, type PaperAdaptivePlacebo,
+  type PaperAdaptivePolicy, type PaperAdaptiveRule, type PaperAdaptiveState, type PaperAdaptiveStats,
+  type PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
 import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaId, paperIndicatorFormulaValue, paperIndicatorFormulaOperands,
   type PaperIndicatorFormula } from '../../../src/types/paperIndicatorFormula.js';
 import { toKstDateKey, isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
@@ -15,11 +16,11 @@ import type { PaperProgramProposal } from './paperProgramResearch.js';
 import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 
 export const PAPER_ADAPTIVE_POLICY: Readonly<PaperAdaptivePolicy> = Object.freeze({
-  version: 'adaptive-features-v1', maturityModel: 'per-horizon-v1', windowEntryDates: 60, trainingFraction: 0.7,
+  version: 'adaptive-features-v1', maturityModel: 'per-horizon-v1', activationModel: 'placebo-gated-v1', windowEntryDates: 60, trainingFraction: 0.7,
   minimumSamples: 10, minimumEntryDates: 3, activationMarginDailyPct: 0.05,
   replacementMarginDailyPct: 0.05, maxActiveRules: 3,
 });
-export const PAPER_PLACEBO_PERMUTATIONS = 20;
+export const PAPER_PLACEBO_PERMUTATIONS = 50;
 const keys = Object.keys(PAPER_FEATURES) as PaperFeatureKey[];
 const horizons = [1, 3, 5] as const;
 interface Row { experiment: PaperExperiment; returns: Array<number | undefined>; availableAt: Array<number | undefined>;
@@ -124,6 +125,9 @@ function stats(rows: Row[], rule: PaperAdaptiveRule): PaperAdaptiveStats {
 }
 const sufficient = (value: PaperAdaptiveStats) => value.sampleCount >= PAPER_ADAPTIVE_POLICY.minimumSamples
   && value.dateCount >= PAPER_ADAPTIVE_POLICY.minimumEntryDates;
+// Validation needs more dates than training so a few days of one market mood cannot connect a rule.
+const sufficientValidation = (value: PaperAdaptiveStats) => value.sampleCount >= PAPER_ADAPTIVE_POLICY.minimumSamples
+  && value.dateCount >= PAPER_ACTIVATION_GATE.minimumValidationDates;
 const positive = (value: PaperAdaptiveStats) => (value.meanNetReturnPct ?? -Infinity) > 0 && (value.meanDailyExcessPct ?? -Infinity) > 0;
 const score = (value: PaperAdaptiveCandidate) => value.training.meanDailyExcessPct ?? -Infinity;
 const rank = (a: PaperAdaptiveCandidate, b: PaperAdaptiveCandidate) => score(b) - score(a)
@@ -134,11 +138,11 @@ function candidate(rule: PaperAdaptiveRule, train: Row[], test: Row[], previous:
   const validation = stats(test, rule);
   const retained = previous?.candidates.some(item => item.active && adaptiveRuleId(item.rule) === adaptiveRuleId(rule));
   const hasTrainingOutcomes = train.some(row => row.returns[horizons.indexOf(rule.horizon)] !== undefined);
-  const rejectedValidation = !sufficient(training) && sufficient(validation)
+  const rejectedValidation = !sufficient(training) && sufficientValidation(validation)
     && (validation.meanNetReturnPct! < 0 || validation.meanDailyExcessPct! < 0);
   const reason = rejectedValidation ? 'NO_VALIDATION_EDGE'
     : !training.sampleCount ? (hasTrainingOutcomes ? 'MISSING_INPUT' : 'INSUFFICIENT_TRAINING') : !sufficient(training) ? 'INSUFFICIENT_TRAINING'
-    : !positive(training) ? 'NO_TRAINING_EDGE' : !sufficient(validation) ? (rule.invention ? 'FORWARD_OBSERVATION' : 'INSUFFICIENT_VALIDATION')
+    : !positive(training) ? 'NO_TRAINING_EDGE' : !sufficientValidation(validation) ? (rule.invention ? 'FORWARD_OBSERVATION' : 'INSUFFICIENT_VALIDATION')
       : !positive(validation) || validation.meanDailyExcessPct! <= (retained ? 0 : PAPER_ADAPTIVE_POLICY.activationMarginDailyPct)
         ? 'NO_VALIDATION_EDGE' : 'ACTIVE';
   return { rule, training, validation, active: reason === 'ACTIVE', reason };
@@ -216,7 +220,7 @@ export function paperPlaceboDonors<T extends { experiment: Pick<PaperExperiment,
 /** Repeats validation after pairing each stock's features with another same-market stock's complete returns. */
 function placeboCheck(rows: Row[], candidates: PaperAdaptiveCandidate[], tradingDate: string,
   evaluate: (item: PaperAdaptiveCandidate, source: Row[]) => PaperAdaptiveCandidate): PaperAdaptivePlacebo {
-  const passed = candidates.filter(item => item.reason === 'ACTIVE' || item.reason === 'RANKED_OUT');
+  const passed = candidates.filter(item => item.reason === 'ACTIVE');
   const contenders = candidates.filter(item => sufficient(item.training) && positive(item.training));
   const symbols = [...new Set(rows.map(row => row.experiment.symbol))].sort();
   // A dated seed keeps each day's check reproducible.
@@ -251,6 +255,18 @@ function placeboCheck(rows: Row[], candidates: PaperAdaptiveCandidate[], trading
     chancePct: share(counts.filter(count => count >= passed.length).length),
     rules: passed.map((item, index) => ({ feature: item.rule.feature, bucket: item.rule.bucket, horizon: item.rule.horizon,
       chancePct: share(beats[index]) })) };
+}
+
+/** Many rules are validated at once, so a pass that shuffled returns also reach is not connected. */
+function applyPlaceboGate(candidates: PaperAdaptiveCandidate[], placebo: PaperAdaptivePlacebo | undefined,
+  previous: PaperAdaptiveState | undefined): void {
+  for (const item of candidates) if (item.active) {
+    const retained = previous?.candidates.some(old => old.active && adaptiveRuleId(old.rule) === adaptiveRuleId(item.rule));
+    const chance = placebo ? paperPlaceboChance({ placebo }, item.rule) : null;
+    if (chance === null || chance > (retained ? PAPER_ACTIVATION_GATE.retainedMaxChancePct : PAPER_ACTIVATION_GATE.maxChancePct)) {
+      item.active = false; item.reason = 'PLACEBO_NOT_PASSED';
+    }
+  }
 }
 
 export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefined, experiments: PaperExperiment[], asOf: string,
@@ -311,10 +327,11 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
     candidates.push(candidate({ feature: invention.id, ...invention.rule, invention: structuredClone(invention) },
       [], forwardRows(invention), previous));
   }
-  rankCandidates(candidates, previous);
-  // Measured once per evaluation day and never fed back into the choice above.
+  // Measured once per evaluation day before ranking; ranges and holding periods stay chosen on training only.
   const placebo = validationStartDate ? placeboCheck(rows, candidates, tradingDate, (item, source) => candidate(item.rule, train,
     item.rule.invention ? forwardRows(item.rule.invention, source) : validationRows(source), previous, item.training)) : undefined;
+  applyPlaceboGate(candidates, placebo, previous);
+  rankCandidates(candidates, previous);
   const pairEligibility = new Map<string, boolean>();
   // A one-time same-day policy migration must not spend an existing discovery round's daily budget twice.
   const discovery = previous?.tradingDate === tradingDate && previous.discovery

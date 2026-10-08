@@ -34,11 +34,15 @@ export interface PaperIndicatorDiscovery {
 export interface PaperAdaptivePolicy {
   version: 'adaptive-features-v1'; windowEntryDates: number; trainingFraction: number;
   maturityModel?: 'per-horizon-v1';
+  /** Connection also needs five validation dates and a passed symbol-permutation check. */
+  activationModel?: 'placebo-gated-v1';
   minimumSamples: number; minimumEntryDates: number; activationMarginDailyPct: number;
   replacementMarginDailyPct: number; maxActiveRules: number;
 }
 export type PaperAdaptiveReason = 'MISSING_INPUT' | 'INSUFFICIENT_TRAINING' | 'INSUFFICIENT_VALIDATION'
-  | 'NO_TRAINING_EDGE' | 'NO_VALIDATION_EDGE' | 'ACTIVE' | 'RANKED_OUT' | 'FORWARD_OBSERVATION' | 'DISCOVERY_RETIRED';
+  | 'NO_TRAINING_EDGE' | 'NO_VALIDATION_EDGE' | 'PLACEBO_NOT_PASSED' | 'ACTIVE' | 'RANKED_OUT' | 'FORWARD_OBSERVATION' | 'DISCOVERY_RETIRED';
+/** A connected rule keeps a looser chance limit so one day's permutation draw does not flip it. */
+export const PAPER_ACTIVATION_GATE = Object.freeze({ minimumValidationDates: 5, maxChancePct: 10, retainedMaxChancePct: 20 });
 export interface PaperAdaptiveCandidate {
   rule: PaperAdaptiveRule; training: PaperAdaptiveStats; validation: PaperAdaptiveStats;
   active: boolean; reason: PaperAdaptiveReason;
@@ -58,10 +62,10 @@ export interface PaperAdaptiveHorizonSamples {
   trainingSampleCount: number; trainingDateCount: number;
   validationSampleCount: number; validationDateCount: number;
 }
-/** The same validation repeated after pairing each stock's features with another stock's returns; display only. */
+/** The same validation repeated after pairing each stock's features with another stock's returns; gates connection. */
 export interface PaperAdaptivePlacebo {
   version: 'symbol-permutation-v1'; permutations: number;
-  /** Candidates that passed validation, whether connected or ranked out. */
+  /** Candidates that passed validation before the chance check and ranking. */
   passedCount: number; shuffledMeanPassedCount: number; shuffledHighPassedCount: number;
   /** Share of runs, the real one included, passing at least as many candidates. */
   chancePct: number;
@@ -85,7 +89,7 @@ export interface PaperAdaptiveState {
 export const PAPER_ADAPTIVE_REASON_LABELS: Record<PaperAdaptiveReason, string> = {
   MISSING_INPUT: '학습에 쓸 지표 표본 없음', INSUFFICIENT_TRAINING: '학습 표본 누적 중',
   INSUFFICIENT_VALIDATION: '후반 확인 표본 누적 중', NO_TRAINING_EDGE: '학습 구간 우위 없음',
-  NO_VALIDATION_EDGE: '후반 확인 성과 부족', ACTIVE: '매수 판단에 연결', RANKED_OUT: '다른 지표 우선 사용',
+  NO_VALIDATION_EDGE: '후반 확인 성과 부족', PLACEBO_NOT_PASSED: '무작위 대조 미통과', ACTIVE: '매수 판단에 연결', RANKED_OUT: '다른 지표 우선 사용',
   FORWARD_OBSERVATION: '발명 이후 성과 관측 중',
   DISCOVERY_RETIRED: '발명 지표 연구 종료',
 };

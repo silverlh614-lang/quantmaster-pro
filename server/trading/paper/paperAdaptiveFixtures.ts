@@ -11,6 +11,8 @@ type ReturnSource = Returns | ((date: string, dateIndex: number) => Returns);
 export interface AdaptiveSampleOptions {
   startDate?: string;
   entryDateCount?: number;
+  /** Symbols per date; every eight repeat the same four selected and four control rows. */
+  symbolCount?: number;
   selectedReturns?: ReturnSource;
   controlReturns?: ReturnSource;
   features?: (selected: boolean) => Partial<PaperFeatureValues>;
@@ -34,11 +36,11 @@ export function matureAdaptiveSamples(options: AdaptiveSampleOptions = {}): Pape
   const resolve = (source: ReturnSource, date: string, index: number) => typeof source === 'function' ? source(date, index) : source;
   return Array.from({ length: options.entryDateCount ?? 32 }, (_, dateIndex) => {
     const date = dateIndex ? addBusinessDaysFromKstDate(start, dateIndex) : start;
-    return Array.from({ length: 8 }, (_, symbolIndex) => {
-      const snapshot = adaptiveTestSnapshot(), selected = symbolIndex < 4;
+    return Array.from({ length: options.symbolCount ?? 8 }, (_, symbolIndex) => {
+      const snapshot = adaptiveTestSnapshot(), selected = symbolIndex % 8 < 4;
       snapshot.tradingDate = date; snapshot.asOf = `${date}T01:00:00Z`; snapshot.id = `adaptive-${date}`;
       const observation = snapshot.observations[0];
-      observation.symbol = `00010${symbolIndex}`; observation.observedAt = snapshot.asOf;
+      observation.symbol = String(100 + symbolIndex).padStart(6, '0'); observation.observedAt = snapshot.asOf;
       observation.features!.asOf = snapshot.asOf; observation.features!.technicalDate = date;
       observation.features!.values.rsi14 = selected ? 20 : 60;
       Object.assign(observation.features!.values, options.features?.(selected));

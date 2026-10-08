@@ -1,7 +1,7 @@
 // @responsibility Format dated Shadow research reports for Telegram.
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperStrategyDecision, PaperStrategyPerformance } from '../../src/types/paperStrategy.js';
-import { PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel, paperPlaceboChance, type PaperAdaptiveRule,
+import { PAPER_ACTIVATION_GATE, PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel, paperPlaceboChance, type PaperAdaptiveRule,
   type PaperAdaptiveState } from '../../src/types/paperAdaptive.js';
 import { PAPER_FEATURES } from '../../src/types/paperObservationFeatures.js';
 import { paperIndicatorFormulaOperands } from '../../src/types/paperIndicatorFormula.js';
@@ -110,7 +110,7 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
     }
     lines.push(`${state.policy.maturityModel === 'per-horizon-v1' ? '한 보유기간 이상 확정 표본' : '성숙 관측'} ${num(state.matureSampleCount)}건/${num(state.matureDateCount)}진입일`);
     if (detail === 'full') lines.push('D1·D3·D5는 성과 비교 시점이며 매도 예약일이 아닙니다.',
-      ...(state.placebo ? ['무작위 대조는 종목끼리 수익 기록을 바꿔 같은 검증을 반복합니다. 확률이 낮을수록 우연이 아닐 가능성이 큽니다.'] : []),
+      ...(state.placebo ? [`무작위 대조는 종목끼리 수익 기록을 바꿔 같은 검증을 반복합니다. 확률이 낮을수록 우연이 아닐 가능성이 큽니다.${state.policy.activationModel ? ` 규칙별 ${PAPER_ACTIVATION_GATE.maxChancePct}% 이하(연결 유지 ${PAPER_ACTIVATION_GATE.retainedMaxChancePct}% 이하)만 매수에 연결합니다.` : ''}`] : []),
       '발명 지표의 조합값은 재료를 기준값으로 환산한 값입니다. 수식·해설은 대시보드에서 확인하세요.');
     const reasons = new Map<string, number>();
     for (const item of state.candidates.filter(item => !item.active)) reasons.set(item.reason, (reasons.get(item.reason) ?? 0) + 1);
