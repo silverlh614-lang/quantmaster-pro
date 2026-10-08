@@ -4,7 +4,7 @@ import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperBotState } from '../persistence/paperBotRepo.js';
 import type { PaperMorningReport } from '../../src/types/paperMorning.js';
 import { buildPaperStrategyView, evaluatePaperStrategyScan } from '../trading/paper/paperStrategyPolicy.js';
-import { emptyStrategyLedger, strategyTestCost } from '../trading/paper/paperStrategyFixtures.js';
+import { emptyStrategyLedger, legacyStrategyLedger, strategyTestCost } from '../trading/paper/paperStrategyFixtures.js';
 import { adaptiveTestSnapshot, matureAdaptiveSamples } from '../trading/paper/paperAdaptiveFixtures.js';
 import { selectPaperAdaptiveState } from '../trading/paper/paperAdaptiveSelection.js';
 
@@ -298,6 +298,19 @@ describe('delivery ledger', () => {
 });
 
 describe('new strategy events', () => {
+  it('splits open trades by strategy and reports scheduled closes still missing after their date', () => {
+    const ledger = enteredStrategy(), legacy = legacyStrategyLedger();
+    ledger.trades.push(...legacy.trades);
+    const status = (asOf: string) => {
+      ledger.lastRun = { ...ledger.lastRun!, asOf };
+      return formatPaperReport({ ...emptyView(), strategy: buildPaperStrategyView(ledger) }, 'status', asOf.slice(0, 10));
+    };
+    expect(buildPaperStrategyView(ledger).openCount).toBe(2);
+    expect(status('2026-09-23T07:00:00Z')).toContain('보유 구성: 현행 자율 1 · 구전략 1\n');
+    expect(status('2026-09-25T01:00:00Z')).toContain('보유 구성: 현행 자율 1 · 구전략 1 · 예정일 지나 종가 미확인 1건(가장 오래된 예정일 2026-09-23)');
+  });
+
+
   it('preserves zero performance, missing samples and escaped headlines', () => {
     view.outcomes = [{ horizon: 1, label: 'D1', count: 1, meanNetReturnPct: 0, winRatePct: 0 }, { horizon: 3, label: 'D3', count: 0, meanNetReturnPct: null, winRatePct: null }];
     const text = formatPaperReport(view, 'status', '2026-09-14', ['<b>뉴스 & 공시</b>']);
