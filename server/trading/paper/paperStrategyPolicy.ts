@@ -241,13 +241,20 @@ export function buildPaperStrategyView(ledger: PaperStrategyLedger, error?: stri
       winRatePct: closed.length ? closed.filter(item => item.netReturnPct > 0).length / closed.length * 100 : null,
       totalNetPnl: closed.length ? closed.reduce((sum, item) => sum + item.netPnl, 0) : null };
   }
+  const open = ledger.trades.filter(trade => trade.status === 'OPEN');
+  const today = ledger.lastRun ? toKstDateKey(new Date(ledger.lastRun.asOf)) : null;
+  // A close is normally read on the next scan; one still missing after its date has passed is reported, not guessed.
+  const overdue = today ? open.filter(trade => trade.policy.exitModel !== 'ADAPTIVE_OBSERVED' && trade.scheduledExitDate < today)
+    .map(trade => trade.scheduledExitDate).sort() : [];
+  const current = open.filter(trade => trade.strategyVersion === ADAPTIVE_STRATEGY_POLICY.version).length;
   return {
     strategyVersion: ADAPTIVE_STRATEGY_POLICY.version,
     mode: 'SHADOW', policy: { ...ADAPTIVE_STRATEGY_POLICY },
+    openBreakdown: { current, legacy: open.length - current, overdueScheduledCount: overdue.length, oldestOverdueExitDate: overdue[0] ?? null },
     ...(ledger.adaptive ? { adaptive: structuredClone(ledger.adaptive) } : {}),
     ...(ledger.exitLearning ? { exitLearning: structuredClone(ledger.exitLearning) } : {}),
     performanceByVersion, performanceByPurpose,
-    totalCount: ledger.trades.length, openCount: ledger.trades.filter((item) => item.status === 'OPEN').length,
+    totalCount: ledger.trades.length, openCount: open.length,
     performance: { closedCount: values.length,
       meanNetReturnPct: values.length ? values.reduce((sum, item) => sum + item.netReturnPct, 0) / values.length : null,
       winRatePct: values.length ? values.filter((item) => item.netReturnPct > 0).length / values.length * 100 : null,
