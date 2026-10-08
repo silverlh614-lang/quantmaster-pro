@@ -20,9 +20,21 @@ const options = () => ({ directory, asOf, marketOpen: false, now: () => '2026-09
 
 describe('AI research proposal lifecycle', () => {
   it('accepts strict JSON proposals and rejects oversized or executable outputs', () => {
-    expect(parsePaperProgramProposals('```json\n' + response + '\n```')).toHaveLength(1);
-    for (const raw of ['function x() {}', '{}', JSON.stringify([definition, definition, definition]),
-      JSON.stringify([{ ...definition, expression: { op: 'require', module: 'fs' } }])]) expect(() => parsePaperProgramProposals(raw)).toThrow();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(parsePaperProgramProposals('```json\n' + response + '\n```')).toMatchObject({ programs: [{ title: definition.title }], rejectedCount: 0 });
+    for (const raw of ['function x() {}', '{}', 'x'.repeat(30_001), JSON.stringify([{ ...definition, expression: { op: 'require', module: 'fs' } }])]) {
+      expect(() => parsePaperProgramProposals(raw)).toThrow();
+    }
+  });
+  it('keeps candidates that pass their own check and drops the rest up to the daily limit', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const executable = { ...definition, expression: { op: 'require', module: 'fs' } };
+    expect(parsePaperProgramProposals(JSON.stringify([executable, definition]))).toMatchObject({ programs: [{ title: definition.title }], rejectedCount: 1 });
+    const second = { ...definition, title: '두 번째 가설', expression: { op: 'negate', value: definition.expression } };
+    const third = { ...definition, title: '세 번째 가설', expression: { op: 'abs', value: definition.expression } };
+    const limited = parsePaperProgramProposals(JSON.stringify([definition, second, third]));
+    expect(limited.programs.map(item => item.title)).toEqual([definition.title, second.title]);
+    expect(limited.rejectedCount).toBe(1);
   });
   it('does not expose validation returns, individual IDs or transactions in prompts', () => {
     const adaptive = state();
@@ -117,6 +129,19 @@ describe('AI research proposal lifecycle', () => {
     expect(readPaperProgramProposals(directory)).toHaveLength(1);
     expect(readPaperProgramResearch(adaptive, directory).proposals[0]).toMatchObject({ registered: false, evaluated: true });
   });
+  it('stores the passing candidate of a mixed reply and reports a reply whose every candidate fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const executable = { ...definition, expression: { op: 'require', module: 'fs' } }, adaptive = state();
+    const generate = vi.fn(async () => JSON.stringify([executable, definition]));
+    await queuePaperProgramResearch(adaptive, { ...options(), generate });
+    expect(readPaperProgramProposals(directory)).toHaveLength(1);
+    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'READY', message: expect.stringContaining('계산 검사 통과 1개 · 제외 1개') });
+    adaptive.candidates[0].training.meanNetReturnPct! += 1;
+    generate.mockResolvedValue(JSON.stringify([executable]));
+    await queuePaperProgramResearch(adaptive, { ...options(), asOf: '2026-09-19T08:00:00Z', now: () => '2026-09-19T08:00:10Z', generate });
+    expect(readPaperProgramProposals(directory)).toHaveLength(1);
+    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'FAILED', failure: 'INVALID_OUTPUT' });
+  });
   it('keeps previous candidates when a new generation fails and blocks corrupted files', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const generate = vi.fn(async () => response), adaptive = state();
@@ -125,7 +150,7 @@ describe('AI research proposal lifecycle', () => {
     generate.mockResolvedValue('bad json');
     await queuePaperProgramResearch(adaptive, { ...options(), asOf: '2026-09-19T08:00:00Z', now: () => '2026-09-19T08:00:10Z', generate });
     expect(readPaperProgramProposals(directory)).toHaveLength(1);
-    expect(readPaperProgramResearch(undefined, directory).failure).toBe('INVALID_OUTPUT');
+    expect(readPaperProgramResearch(undefined, directory).failure).toBe('INVALID_FORMAT');
     const target = path.join(directory, 'paper-program-research.json'); fs.writeFileSync(target, '{broken');
     await queuePaperProgramResearch(adaptive, { ...options(), asOf: '2026-09-20T08:00:00Z', generate });
     expect(generate).toHaveBeenCalledTimes(2); expect(fs.readFileSync(target, 'utf8')).toBe('{broken');
