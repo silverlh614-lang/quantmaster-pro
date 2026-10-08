@@ -116,15 +116,15 @@ describe('prospective Shadow trial registration', () => {
   });
 
   it('rejects adequately sampled validation losses even when training inputs were absent', () => {
-    const samples = matureAdaptiveSamples({ entryDateCount: 8, selectedReturns: [-2, -2, -2], controlReturns: [-2, -2, -2] });
+    const samples = matureAdaptiveSamples({ entryDateCount: 18, selectedReturns: [-2, -2, -2], controlReturns: [-2, -2, -2] });
     const dates = [...new Set(samples.map(row => row.tradingDate))];
     for (const row of samples) {
       row.entryObservation.features!.values.volumeRatio20 = 1;
-      if (row.tradingDate < dates[5]) row.entryObservation.features!.values.rsi14 = null;
+      if (row.tradingDate < dates[12]) row.entryObservation.features!.values.rsi14 = null;
     }
     const state = selectPaperAdaptiveState(undefined, samples, asOf, [observe()]);
     expect(state.candidates.find(item => item.rule.feature === 'rsi14')).toMatchObject({ active: false, reason: 'NO_VALIDATION_EDGE',
-      training: { sampleCount: 0 }, validation: { sampleCount: 12, dateCount: 3 } });
+      training: { sampleCount: 0 }, validation: { sampleCount: 24, dateCount: 6 } });
     expect(state.exploration!.rules).toEqual([]);
   });
 

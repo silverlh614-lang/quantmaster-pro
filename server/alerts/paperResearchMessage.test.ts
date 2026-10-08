@@ -83,7 +83,7 @@ describe('paper research message', () => {
     expect(weekly).toContain(summary);
     expect(weekly).toContain('발명 1차 · 이번 회차 검토 3개 · 보관 2개\n생성 후 검증 대기 2개');
     expect(weekly).toContain('<b>검증 지표 자동 연결 0개/최대 3개</b>\n이 중 발명 지표 0개');
-    expect(summary).toMatch(/🎲 무작위 대조 20회 · 검증 통과 실제 0개, 무작위 평균 \d+\.\d개 · 우연히 이만큼 나올 확률 \d+%/);
+    expect(summary).toMatch(/🎲 무작위 대조 50회 · 검증 통과 실제 0개, 무작위 평균 \d+\.\d개 · 우연히 이만큼 나올 확률 \d+%/);
     expect(summary).toContain('무작위 대조는 종목끼리 수익 기록을 바꿔 같은 검증을 반복합니다.');
     expect(weekly).toContain('저장 자료 연구 결과를 아직 불러오지 못했습니다');
     expect(weekly.length).toBeLessThanOrEqual(3500);

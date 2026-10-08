@@ -1,6 +1,6 @@
 // @responsibility Display autonomous feature decisions.
 import React from 'react';
-import { PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel, paperPlaceboChance, type PaperAdaptiveEvidence, type PaperAdaptiveRule, type PaperAdaptiveState, type PaperAdaptiveStats, type PaperExplorationEvidence } from '../../types/paperAdaptive';
+import { PAPER_ACTIVATION_GATE, PAPER_ADAPTIVE_REASON_LABELS, paperAdaptiveRuleLabel, paperPlaceboChance, type PaperAdaptiveEvidence, type PaperAdaptiveRule, type PaperAdaptiveState, type PaperAdaptiveStats, type PaperExplorationEvidence } from '../../types/paperAdaptive';
 import { PAPER_FEATURES } from '../../types/paperObservationFeatures';
 import { paperIndicatorFormulaOperands } from '../../types/paperIndicatorFormula';
 
@@ -52,7 +52,7 @@ export function PaperAdaptivePanel({ state }: { state: PaperAdaptiveState }) {
       <p className="text-xs text-slate-400">평가 거래일 {state.tradingDate} · 평가 {timestamp(state.evaluatedAt)} KST · 근거 기준 {timestamp(state.cutoffAt)} KST</p>
       {state.placebo && <div className="space-y-1 rounded-lg border border-slate-700 bg-slate-950/30 p-3 text-xs" role="group" aria-label="무작위 대조">
         <p className="text-slate-200">무작위 대조 {state.placebo.permutations}회 · 검증 통과 실제 {state.placebo.passedCount}개 / 무작위 평균 {state.placebo.shuffledMeanPassedCount.toFixed(1)}개(상위 5% {state.placebo.shuffledHighPassedCount}개) · 우연히 이만큼 나올 확률 {state.placebo.chancePct.toFixed(0)}%</p>
-        <p className="text-slate-400">종목끼리 수익 기록을 바꿔 지표와 수익의 관계만 끊고 같은 검증을 반복한 결과입니다. 확률이 낮을수록 우연이 아닐 가능성이 큽니다. 매수 판단에는 쓰지 않습니다.</p>
+        <p className="text-slate-400">종목끼리 수익 기록을 바꿔 지표와 수익의 관계만 끊고 같은 검증을 반복한 결과입니다. 확률이 낮을수록 우연이 아닐 가능성이 큽니다. {state.policy.activationModel ? `규칙별 확률 ${PAPER_ACTIVATION_GATE.maxChancePct}% 이하(이미 연결된 규칙 ${PAPER_ACTIVATION_GATE.retainedMaxChancePct}% 이하)일 때만 매수 판단에 연결합니다.` : '이 평가에서는 매수 판단에 쓰지 않았습니다.'}</p>
       </div>}
       <p className="text-xs text-slate-400">{state.policy.maturityModel === 'per-horizon-v1' ? '한 보유기간 이상 확정 표본' : '성숙 기본 관측'} {state.matureSampleCount}건 · {state.matureDateCount}개 진입일 · 관측 시작 {state.windowStartDate ?? '누적 대기'} · 후반 확인 시작 {state.validationStartDate ?? '누적 대기'}</p>
       {state.policy.maturityModel === 'per-horizon-v1' && <div className="space-y-1 rounded-lg border border-slate-700 bg-slate-950/30 p-3 text-xs text-slate-300" role="group" aria-label="보유기간별 학습·검증 표본">

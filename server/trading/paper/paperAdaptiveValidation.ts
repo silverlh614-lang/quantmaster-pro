@@ -1,7 +1,8 @@
 // @responsibility Validate persisted autonomous Shadow decisions.
 import { z } from 'zod';
 import { PAPER_FEATURES, PAPER_LEGACY_FEATURE_KEYS, type PaperFeatureKey, type PaperObservationFeatures } from '../../../src/types/paperObservationFeatures.js';
-import type { PaperAdaptiveCandidate, PaperAdaptiveEvidence, PaperAdaptiveState, PaperAdaptiveStats, PaperExplorationEvidence, PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
+import { PAPER_ACTIVATION_GATE, paperPlaceboChance, type PaperAdaptiveCandidate, type PaperAdaptiveEvidence, type PaperAdaptiveState,
+  type PaperAdaptiveStats, type PaperExplorationEvidence, type PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
 import { PAPER_INVENTED_FEATURE_CUTS, PAPER_MAX_INVENTIONS, PAPER_MAX_INVENTION_ATTEMPTS,
   paperIndicatorFormulaId, type PaperIndicatorFormula, type PaperInventedFeatureId } from '../../../src/types/paperIndicatorFormula.js';
 import type { PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
@@ -51,10 +52,10 @@ const rule = z.object({ feature: adaptiveFeature, bucket: count, horizon, invent
     ? value.feature === value.invention.id && value.bucket === value.invention.rule.bucket && value.horizon === value.invention.rule.horizon
     : Object.hasOwn(PAPER_FEATURES, value.feature) && value.bucket <= PAPER_FEATURES[value.feature as PaperFeatureKey].cuts.length);
 const policy = z.object({ version: z.literal('adaptive-features-v1'), windowEntryDates: z.literal(60), trainingFraction: z.literal(0.7),
-  maturityModel: z.literal('per-horizon-v1').optional(),
+  maturityModel: z.literal('per-horizon-v1').optional(), activationModel: z.literal('placebo-gated-v1').optional(),
   minimumSamples: z.literal(10), minimumEntryDates: z.literal(3), activationMarginDailyPct: z.literal(0.05),
   replacementMarginDailyPct: z.literal(0.05), maxActiveRules: z.literal(3) });
-const reason = z.enum(['MISSING_INPUT', 'INSUFFICIENT_TRAINING', 'INSUFFICIENT_VALIDATION', 'NO_TRAINING_EDGE', 'NO_VALIDATION_EDGE', 'ACTIVE', 'RANKED_OUT', 'FORWARD_OBSERVATION', 'DISCOVERY_RETIRED']);
+const reason = z.enum(['MISSING_INPUT', 'INSUFFICIENT_TRAINING', 'INSUFFICIENT_VALIDATION', 'NO_TRAINING_EDGE', 'NO_VALIDATION_EDGE', 'PLACEBO_NOT_PASSED', 'ACTIVE', 'RANKED_OUT', 'FORWARD_OBSERVATION', 'DISCOVERY_RETIRED']);
 function validCandidate(value: PaperAdaptiveCandidate): boolean {
   if (value.reason === 'DISCOVERY_RETIRED' || (value.reason === 'FORWARD_OBSERVATION' && !value.rule.invention)) return false;
   if (value.rule.invention && JSON.stringify(normalizedStats(value.training)) !== JSON.stringify(normalizedStats(value.rule.invention.training))) return false;
@@ -140,6 +141,8 @@ export const adaptiveStateSchema = z.object({ policy, tradingDate: date, evaluat
   if (value.discovery && (Date.parse(value.discovery.roundStartedAt) > Date.parse(value.evaluatedAt)
     || value.discovery.programReviews?.some(item => Date.parse(item.at) > Date.parse(value.evaluatedAt) || !value.discovery?.programAttemptedIds?.includes(item.id))
     || value.discovery.inventions.some(item => Date.parse(item.createdAt) > Date.parse(value.evaluatedAt)))) return false;
+  if (value.policy.activationModel && value.candidates.some(item => item.active && (item.validation.dateCount < PAPER_ACTIVATION_GATE.minimumValidationDates
+    || !value.placebo || !((paperPlaceboChance(value, item.rule) ?? Infinity) <= PAPER_ACTIVATION_GATE.retainedMaxChancePct)))) return false;
   if (value.exploration?.autonomy && value.exploration.autonomy.cutoffAt !== value.cutoffAt) return false;
   if (value.exploration?.rules.some(item => toKstDateKey(new Date(item.registeredAt)) !== value.tradingDate
     || item.id !== `shadow-exploration-v1:${value.tradingDate}:${value.exploration!.sequence}:${adaptiveRuleId(item.candidate.rule)}`

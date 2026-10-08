@@ -35,6 +35,8 @@ function inventedState(): PaperAdaptiveState {
     training: structuredClone(training), validation: structuredClone(base.validation), active: true, reason: 'ACTIVE' };
   base.active = false; base.reason = 'RANKED_OUT';
   state.candidates.unshift(candidate);
+  state.placebo!.passedCount++;
+  state.placebo!.rules.push({ feature: definition.id, ...definition.rule, chancePct: 2 });
   state.discovery = { version: 'indicator-discovery-v1', round: 1, roundStartedAt: createdAt,
     roundTrainingEndDate: '2026-07-01', attemptedIds: [definition.id], inventions: [definition] };
   state.changes = [{ at: createdAt, feature: definition.id, from: null, to: structuredClone(candidate.rule), reason: 'FORWARD_OBSERVATION' },

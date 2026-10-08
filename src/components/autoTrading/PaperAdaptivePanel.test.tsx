@@ -40,8 +40,13 @@ describe('PaperAdaptivePanel', () => {
       rules: [{ feature: 'rsi14', bucket: 1, horizon: 3, chancePct: 38.1 }] } }} />);
     const group = within(screen.getByRole('group', { name: '무작위 대조' }));
     expect(group.getByText('무작위 대조 20회 · 검증 통과 실제 1개 / 무작위 평균 2.4개(상위 5% 5개) · 우연히 이만큼 나올 확률 81%')).toBeTruthy();
-    expect(group.getByText(/확률이 낮을수록 우연이 아닐 가능성이 큽니다. 매수 판단에는 쓰지 않습니다/)).toBeTruthy();
+    expect(group.getByText(/확률이 낮을수록 우연이 아닐 가능성이 큽니다. 이 평가에서는 매수 판단에 쓰지 않았습니다/)).toBeTruthy();
     expect(screen.getByText(/무작위로 이 이상 38%/)).toBeTruthy();
+    cleanup();
+    render(<PaperAdaptivePanel state={{ ...state, policy: { ...state.policy, activationModel: 'placebo-gated-v1' }, placebo: { version: 'symbol-permutation-v1',
+      permutations: 50, passedCount: 0, shuffledMeanPassedCount: 0.4, shuffledHighPassedCount: 2, chancePct: 100, rules: [] } }} />);
+    expect(within(screen.getByRole('group', { name: '무작위 대조' }))
+      .getByText(/규칙별 확률 10% 이하\(이미 연결된 규칙 20% 이하\)일 때만 매수 판단에 연결합니다/)).toBeTruthy();
   });
 
   it('omits the chance check for states saved before it existed', () => {
