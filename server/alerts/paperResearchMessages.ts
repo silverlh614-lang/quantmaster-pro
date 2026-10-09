@@ -100,7 +100,7 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
       // A restart or unreadable file leaves no completion time, but its cause is already known at the attempt.
       const failure = research.state === 'FAILED' && research.failure
         && (!research.completedAt || known(research.completedAt, cutoff)) ? research.failure : undefined;
-      lines.push(`AI 계산법: ${failure ? `작성 실패 · ${PAPER_PROGRAM_FAILURE_LABELS[failure]} · 기존 전략 계속${failure === 'STORAGE' ? '' : ', 다음 날 재시도'}`
+      lines.push(`AI 계산법: ${failure ? `작성 실패 · ${PAPER_PROGRAM_FAILURE_LABELS[failure]}${research.failureDetail ? `(첫 사유: ${text(research.failureDetail)})` : ''} · 기존 전략 계속${failure === 'STORAGE' ? '' : ', 다음 날 재시도'}`
         : terminal && !known(research.completedAt ?? undefined, cutoff) ? '보고 시점의 작성 완료 미확인' : label[research.state]}`);
     }
     if (detail === 'full' && state.policy.maturityModel === 'per-horizon-v1') {

@@ -22,7 +22,7 @@ const proposalSchema = z.object({ formula: z.custom<PaperIndicatorProgram>(value
   generatedAt: timestamp, model: z.string().min(1).max(80), inputDigest: digest });
 const storeSchema = z.object({ version: z.literal(1), attemptedAt: timestamp.nullable(), completedAt: timestamp.nullable(),
   inputDigest: digest.nullable(), state: z.enum(['IDLE', 'RUNNING', 'READY', 'FAILED']), message: z.string().max(300),
-  failure: z.enum(PAPER_PROGRAM_FAILURES).optional(),
+  failure: z.enum(PAPER_PROGRAM_FAILURES).optional(), failureDetail: z.string().max(120).optional(),
   proposals: z.array(proposalSchema).max(PAPER_PROGRAM_LIMITS.storedProposals), seen: z.array(digest).max(1000),
 }).refine(value => new Set(value.proposals.map(item => item.formula.digest)).size === value.proposals.length
   && value.proposals.every(item => value.seen.includes(item.formula.digest))
@@ -58,14 +58,15 @@ export function paperProgramResearchInput(state: PaperAdaptiveState) {
 }
 export function paperProgramResearchPrompt(state: PaperAdaptiveState, previous: PaperProgramProposal[]): string {
   return `기존 관측 자료만 사용하는 Shadow 연구 가설과 계산 프로그램을 최대 2개 만드세요. 수익 보장이나 매수 지시는 금지합니다.
-한국어 title(60자), hypothesis(300자), interpretation(300자), limitation(300자), expression을 가진 JSON 배열만 반환하세요.
+한국어 title(60자 이내), hypothesis(300자 이내), interpretation(300자 이내), limitation(300자 이내), expression 5개 항목만 가진 JSON 배열만 반환하세요. 다른 항목(id, name 등)을 추가하면 후보가 제외됩니다.
+설명 문장에는 꺾쇠 기호(부등호)를 쓰지 말고 "초과", "미만", "양수일 때"처럼 한글로 쓰세요. 꺾쇠 기호가 있으면 후보가 제외됩니다.
 재료 정의: ${JSON.stringify(PAPER_FEATURES)}
 모든 feature는 고정 cuts의 가운데 값을 빼고 (최댓값-최솟값)으로 나눈 뒤 -3~3으로 제한한 환산값입니다.
 노드 형식: {"op":"feature","key":"rsi14"}, {"op":"constant","value":1},
 {"op":"abs 또는 negate","value":노드}, {"op":"add/subtract/multiply/divide/min/max/mean 중 하나","left":노드,"right":노드},
-{"op":"ifPositive","condition":노드,"positive":노드,"otherwise":노드}. condition>0일 때 positive입니다.
+{"op":"ifPositive","condition":노드,"positive":노드,"otherwise":노드}. condition이 양수일 때 positive입니다.
 문자열 코드, 파일, 네트워크, 시간, 미래 성과 접근은 없습니다. 현재 저장된 지표 외 자료와 원시 시계열 연산을 가정하지 마세요.
-최대31노드/깊이6/서로 다른2~6개재료/상수-3~3. 모든 분기의 입력이 필요합니다. 0에 가까운 나눗셈은 계산불가입니다.
+최대31노드/깊이6(가장 바깥 노드가 1)/서로 다른2~6개재료/상수-3~3. 모든 분기의 입력이 필요합니다. 0에 가까운 나눗셈은 계산불가입니다.
 중간 사칙연산은 -27~27, 최종값은 -3~3으로 제한합니다. 나눗셈의 분모가0이 되는 설계를 피하세요.
 기존 두 재료의 단순 평균/차이/곱 복제보다 여러 단계 계산이나 비선형/분기로 독립 가설을 제안하세요.
 학습 구간 집계(후반 검증 결과 아님): ${JSON.stringify(paperProgramResearchInput(state))}
@@ -75,10 +76,10 @@ export function paperProgramResearchPrompt(state: PaperAdaptiveState, previous: 
 }
 /** Tags each failing step so the stored round says why it failed without persisting the raw error. */
 class ProgramResearchFailure extends Error {
-  constructor(readonly failure: PaperProgramFailure, message: string) { super(message); }
+  constructor(readonly failure: PaperProgramFailure, message: string, readonly detail?: string) { super(message); }
 }
 /** Each candidate is checked on its own, so one failing candidate no longer discards the others. */
-export function parsePaperProgramProposals(raw: string): { programs: PaperIndicatorProgram[]; rejectedCount: number } {
+export function parsePaperProgramProposals(raw: string): { programs: PaperIndicatorProgram[]; rejectedCount: number; firstIssue: string | null } {
   if (raw.length > 30_000) throw new ProgramResearchFailure('INVALID_FORMAT', 'AI 응답 길이 검사 실패');
   const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   let entries: unknown;
@@ -87,16 +88,20 @@ export function parsePaperProgramProposals(raw: string): { programs: PaperIndica
   }
   if (!Array.isArray(entries)) throw new ProgramResearchFailure('INVALID_FORMAT', 'AI 응답 배열 검사 실패');
   const programs: PaperIndicatorProgram[] = [];
+  let firstIssue: string | null = null;
   for (const entry of entries) {
     if (programs.length === PAPER_PROGRAM_LIMITS.dailyProposals) break;
     try { programs.push(sealPaperProgram(entry)); } catch (error) {
-      console.error('[PaperProgramResearch] 후보 제외:', error instanceof Error ? error.message : '계산 검사 실패');
+      const issue = error instanceof Error ? error.message.slice(0, 120) : '계산 검사 실패';
+      firstIssue ??= issue;
+      console.error('[PaperProgramResearch] 후보 제외:', issue);
     }
   }
-  if (!programs.length) throw new ProgramResearchFailure('INVALID_OUTPUT', '모든 후보 계산 검사 실패');
-  return { programs, rejectedCount: entries.length - programs.length };
+  if (!programs.length) throw new ProgramResearchFailure('INVALID_OUTPUT', firstIssue ?? '모든 후보 계산 검사 실패', firstIssue ?? undefined);
+  return { programs, rejectedCount: entries.length - programs.length, firstIssue };
 }
-const failureMessage = (failure: PaperProgramFailure) => `${PAPER_PROGRAM_FAILURE_LABELS[failure]} · 같은 날짜 재호출 없이 기존 연구를 계속합니다.`;
+const failureMessage = (failure: PaperProgramFailure, detail?: string) =>
+  `${PAPER_PROGRAM_FAILURE_LABELS[failure]}${detail ? ` · 첫 사유: ${detail}` : ''} · 같은 날짜 재호출 없이 기존 연구를 계속합니다.`;
 const inFlight = new Map<string, Promise<void>>();
 /** A failed write cannot record itself, so this process remembers it until a later write succeeds. */
 const writeIssues = new Map<string, { attemptedAt: string; completedAt: string }>();
@@ -116,6 +121,7 @@ export function readPaperProgramResearch(adaptive?: PaperAdaptiveState, director
     return { state: writeIssue || interrupted ? 'FAILED' : store.state, attemptedAt: writeIssue?.attemptedAt ?? store.attemptedAt,
       completedAt: writeIssue?.completedAt ?? store.completedAt,
       message: writeIssue ? failureMessage('STORAGE') : interrupted ? failureMessage('INTERRUPTED') : store.message, ...(failure ? { failure } : {}),
+      ...(!writeIssue && !interrupted && store.state === 'FAILED' && store.failureDetail ? { failureDetail: store.failureDetail } : {}),
       proposals: store.proposals.map(item => ({ id: paperIndicatorFormulaId(item.formula), title: item.formula.title, generatedAt: item.generatedAt,
         registered: Boolean(adaptive?.discovery?.inventions.some(invention => invention.id === paperIndicatorFormulaId(item.formula))),
         evaluated: Boolean(adaptive?.discovery?.programAttemptedIds?.includes(paperIndicatorFormulaId(item.formula))) })) };
@@ -140,7 +146,7 @@ export function queuePaperProgramResearch(adaptive: PaperAdaptiveState, options:
     const inputDigest = createHash('sha256').update(JSON.stringify([input, adaptive.discovery?.programReviews ?? []])).digest('hex');
     if (store.state === 'READY' && store.inputDigest === inputDigest) return;
     // Claim before external work so restarts cannot repeatedly spend the same daily budget.
-    const { failure: _previousFailure, ...previous } = store;
+    const { failure: _previousFailure, failureDetail: _previousDetail, ...previous } = store;
     store = { ...previous, attemptedAt: options.asOf, completedAt: null, inputDigest, state: 'RUNNING', message: 'AI가 가설과 계산 절차를 작성 중입니다.' };
     const persist = (value: Store) => {
       try { save(directory, value); writeIssues.delete(directory); } catch (error) {
@@ -167,13 +173,15 @@ export function queuePaperProgramResearch(adaptive: PaperAdaptiveState, options:
       store.proposals = [...store.proposals, ...unique.map(formula => ({ formula, generatedAt, model: AI_MODELS.SERVER_SIDE, inputDigest }))].slice(-PAPER_PROGRAM_LIMITS.storedProposals);
       store.seen = [...new Set([...store.seen, ...unique.map(program => program.digest)])].slice(-1000);
       store.state = 'READY'; store.completedAt = generatedAt;
-      store.message = `계산 검사 통과 ${unique.length}개${parsed.rejectedCount ? ` · 제외 ${parsed.rejectedCount}개` : ''} · 다음 일일 평가에서 학습 우위와 중복 여부를 확인합니다.`;
+      store.message = `계산 검사 통과 ${unique.length}개${parsed.rejectedCount ? ` · 제외 ${parsed.rejectedCount}개${parsed.firstIssue ? `(첫 사유: ${parsed.firstIssue})` : ''}` : ''} · 다음 일일 평가에서 학습 우위와 중복 여부를 확인합니다.`;
       persist(store);
     } catch (error) {
       console.error('[PaperProgramResearch] 생성 실패, 기존 전략 계속:', error instanceof Error ? error.message : '알 수 없는 오류');
       const failure = error instanceof ProgramResearchFailure ? error.failure : 'UNKNOWN';
+      const detail = error instanceof ProgramResearchFailure ? error.detail : undefined;
       store.state = 'FAILED'; store.failure = failure; store.completedAt = options.now?.() ?? new Date().toISOString();
-      store.message = failureMessage(failure);
+      if (detail) store.failureDetail = detail;
+      store.message = failureMessage(failure, detail);
       try { save(directory, store); writeIssues.delete(directory); } catch (saveError) {
         // The file still shows the earlier state, or RUNNING if only the claim was written; report the write failure instead.
         writeIssues.set(directory, { attemptedAt: options.asOf, completedAt: store.completedAt });

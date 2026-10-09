@@ -63,10 +63,10 @@
       "title": "Gate1 Positive-Max Normalization (split from ADR-0613 bundle)",
       "introduced": "2026-06-22",
       "reviewBy": "2026-10-08",
-      "status": "SHADOW_OFF",
-      "activationCriteria": "applyPositiveMaxNormalization(positive 합 × 100/configuredPositiveMax)은 dry-run 에서 NORMALIZE_POSITIVE_MAX_TO_100 → survivors 16/16(게이트 과개방·선별력 상실, 운영자 통과율 target 3~7 위반). forward-outcome counterfactual 성숙 + 통과율 target 부합 확인 + 운영자 승인 전 flip 금지. (ADR-0644 default-ON flip 대상에서 명시 제외 — default OFF 유지.)",
-      "nextAction": "OFF 유지. 다음 검토에서 구 LIVE/PAPER 참조와 별도 검증 자료를 확인해 sunset 또는 보류를 결정한다. 현행 독립 Shadow 관측 경로에 복원하지 않는다.",
-      "notes": "2026-10-01 검토: 현행 Shadow 작업(전략 선별력 연구)은 이 구 플래그의 활성화 근거가 아니며 신규 검증 자료가 없다. OFF 유지, 기존 코드·ENV·주문 동작 변경 없이 다음 검토일까지 7일 연장한다. 이전: 2026-09-21 검토: 현행 news-trend-v2 성과는 이 구 Gate 실험의 활성화 근거가 아니며, 16/16 과개방을 해소한 신규 forward 검증 근거가 없다. 구 참조를 확인할 다음 검토일까지 7일 연장한다. ADR-0643 default OFF 및 기존 코드·ENV·주문 동작 유지."
+      "status": "SUNSET",
+      "activationCriteria": "재활성화 대상 아님. 사용자 지시 2026-09-13에 따라 구 Gate·관측 레인을 현행 독립 Shadow 경로에 복원하지 않으며, 사용자 결정 2026-10-09로 정리한다.",
+      "nextAction": "운영 복원 금지. 과거 재현용 코드와 기록만 보존한다.",
+      "notes": "2026-10-09 사용자 결정: 검토 기한 경과 후 sunset. 현행 Shadow는 자율 지표 선택 전략이며 이 구 플래그를 쓰지 않는다. 코드·ENV·주문 동작 변경 없음(기본 OFF 그대로). 이전: 2026-10-01 검토: 현행 Shadow 작업(전략 선별력 연구)은 이 구 플래그의 활성화 근거가 아니며 신규 검증 자료가 없다. OFF 유지, 기존 코드·ENV·주문 동작 변경 없이 다음 검토일까지 7일 연장한다. 이전: 2026-09-21 검토: 현행 news-trend-v2 성과는 이 구 Gate 실험의 활성화 근거가 아니며, 16/16 과개방을 해소한 신규 forward 검증 근거가 없다. 구 참조를 확인할 다음 검토일까지 7일 연장한다. ADR-0643 default OFF 및 기존 코드·ENV·주문 동작 유지."
     },
     {
       "envFlag": "GATE1_VOLUME_LIQUIDITY_WIRING_ENABLED",
@@ -96,21 +96,21 @@
       "title": "Pullback Lane Forward-Return Observation Line (관측 전용)",
       "introduced": "2026-06-23",
       "reviewBy": "2026-10-08",
-      "status": "SHADOW_OFF",
-      "activationCriteria": "ADR-0649 default-ON flip 효과(눌림목 레인 B vs 추격 레인 C 의 forward 1D/3D/5D return·진입 RRR 우월성)를 N≥30 forward 성숙 표본으로 검증 + 운영자 승인. 관측 라인 자체는 LIVE 매매 무영향(executionImpact=NONE)이라 저위험이나, 영속 ledger 증식이 운영 리소스 변화라 운영자 명시 활성(ADR-0641 거버넌스).",
-      "nextAction": "OFF 유지. 다음 검토에서 구 관측 라인의 실제 참조와 별도 성숙 근거를 확인해 sunset 또는 보류를 결정한다. 현행 26개 독립 조건에 추가하지 않는다.",
-      "notes": "2026-10-01 검토: 현행 Shadow 작업(전략 선별력 연구)은 이 구 플래그의 활성화 근거가 아니며 신규 검증 자료가 없다. OFF 유지, 기존 코드·ENV·주문 동작 변경 없이 다음 검토일까지 7일 연장한다. 이전: 2026-09-22 검토: 구 scanner 영속 및 unifiedForwardOutcomeLabeler의 opt-IN 참조는 남아 있으나, 현행 news-trend-v2 및 첫 26조건 D1은 이 구 레인 실험 활성화의 증거가 아니다. 사용자의 조건 추가·원장 부담 억제 방향에 따라 default OFF와 기존 ENV·매매·원장을 유지하고 다음 검토일까지 7일 연장한다."
+      "status": "SUNSET",
+      "activationCriteria": "재활성화 대상 아님. 사용자 지시 2026-09-13에 따라 구 Gate·관측 레인을 현행 독립 Shadow 경로에 복원하지 않으며, 사용자 결정 2026-10-09로 정리한다.",
+      "nextAction": "운영 복원 금지. 과거 재현용 코드와 기록만 보존한다.",
+      "notes": "2026-10-09 사용자 결정: 검토 기한 경과 후 sunset. 현행 Shadow는 자율 지표 선택 전략이며 이 구 플래그를 쓰지 않는다. 코드·ENV·주문 동작 변경 없음(기본 OFF 그대로). 이전: 2026-10-01 검토: 현행 Shadow 작업(전략 선별력 연구)은 이 구 플래그의 활성화 근거가 아니며 신규 검증 자료가 없다. OFF 유지, 기존 코드·ENV·주문 동작 변경 없이 다음 검토일까지 7일 연장한다. 이전: 2026-09-22 검토: 구 scanner 영속 및 unifiedForwardOutcomeLabeler의 opt-IN 참조는 남아 있으나, 현행 news-trend-v2 및 첫 26조건 D1은 이 구 레인 실험 활성화의 증거가 아니다. 사용자의 조건 추가·원장 부담 억제 방향에 따라 default OFF와 기존 ENV·매매·원장을 유지하고 다음 검토일까지 7일 연장한다."
     },
     {
       "envFlag": "LEADER_RANKING_PARAM_FIX_ENABLED",
       "adr": "0651",
       "title": "Leader Ranking TR Param Fix (institutional 파생 정합 + volume div_cls)",
       "introduced": "2026-06-25",
-      "reviewBy": "2026-10-08",
+      "reviewBy": "2026-10-22",
       "status": "SHADOW_OFF",
       "activationCriteria": "W1(ADR-0651) 배포 후 /lr(/leader_refresh) 1-스캔으로 institutional-net-buy TR 의 lastKisMsg=정상(rt_cd=0) 확인 + leader count>0 관측 → 운영자 승인. leader 발굴 종목 구성을 바꾸므로 live KIS 응답 가시화 후에만 flip.",
       "nextAction": "W1 가시성 위에서 /lr lastKisMsg 로 KIS 실거부 사유 확인 → 정상이면 운영자 승인 후 default-ON flip(후속 ADR) / 권한거부면 KIS 콘솔 TR 신청 / param 거부면 재조정.",
-      "notes": "2026-10-01 검토: 현행 Shadow 작업(전략 선별력 연구)은 이 구 플래그의 활성화 근거가 아니며 신규 검증 자료가 없다. OFF 유지, 기존 코드·ENV·주문 동작 변경 없이 다음 검토일까지 7일 연장한다. 이전: SSOT isLeaderRankingParamFixEnabled() gateConfig.ts 거주(opt-IN `=== 'true'` default OFF·ADR-0157). 게이트 대상: kisRankingClient institutional-net-buy params(미검증 기관 sort='2' → 검증된 외국인 sort='1'·cnt_1='40'·vol_cnt='50000', mapRow 는 동일 응답의 orgn_ntby_qty 기관 파생 유지). 신규 KIS 호출 0(기존 investor 응답 재사용·ADR-0477 단일통로). 두 번째 랭킹 공식 신설 0. OFF(미설정·=false)=기존 TR_SPECS param byte-identical. 랭킹=발굴 전용·executionImpact=NONE·LIVE 주문 0줄·SourceSnapshot 무접촉. 빈/파싱 실패 → 빈 배열 graceful(404≠bearish·불변식 #6). ADR-0652 endpoint-fix ON 시 본 W2 분기는 supersede(institutional 은 foreign-institution-total 로 migration·구 /ranking/investor path 에만 본 param 적용)."
+      "notes": "2026-10-09 사용자 결정: KIS 응답(/lr lastKisMsg) 확인과 운영자 승인이 필요해 OFF 유지, 기존 코드·ENV·주문 동작 변경 없이 2026-10-22까지 연장한다. 이전: 2026-10-01 검토: 현행 Shadow 작업(전략 선별력 연구)은 이 구 플래그의 활성화 근거가 아니며 신규 검증 자료가 없다. OFF 유지, 기존 코드·ENV·주문 동작 변경 없이 다음 검토일까지 7일 연장한다. 이전: SSOT isLeaderRankingParamFixEnabled() gateConfig.ts 거주(opt-IN `=== 'true'` default OFF·ADR-0157). 게이트 대상: kisRankingClient institutional-net-buy params(미검증 기관 sort='2' → 검증된 외국인 sort='1'·cnt_1='40'·vol_cnt='50000', mapRow 는 동일 응답의 orgn_ntby_qty 기관 파생 유지). 신규 KIS 호출 0(기존 investor 응답 재사용·ADR-0477 단일통로). 두 번째 랭킹 공식 신설 0. OFF(미설정·=false)=기존 TR_SPECS param byte-identical. 랭킹=발굴 전용·executionImpact=NONE·LIVE 주문 0줄·SourceSnapshot 무접촉. 빈/파싱 실패 → 빈 배열 graceful(404≠bearish·불변식 #6). ADR-0652 endpoint-fix ON 시 본 W2 분기는 supersede(institutional 은 foreign-institution-total 로 migration·구 /ranking/investor path 에만 본 param 적용)."
     },
     {
       "envFlag": "LEADER_RANKING_ENDPOINT_FIX_ENABLED",
