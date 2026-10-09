@@ -12,32 +12,60 @@ export interface PaperIndicatorProgram {
 export const PAPER_PROGRAM_LIMITS = { nodes: 31, depth: 6, features: 6, dailyProposals: 2, storedProposals: 12 } as const;
 const binary = ['add', 'subtract', 'multiply', 'divide', 'min', 'max', 'mean'];
 const fields = (value: object, keys: string[]) => Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
-export function validPaperProgramNode(value: unknown): value is PaperProgramNode {
+// Echo only plain identifiers from AI output; anything else is summarized.
+const shown = (value: unknown) => typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,30}$/.test(value) ? value : '기타';
+/** First reason a calculation tree fails, in Korean, or null when it is valid. */
+export function paperProgramNodeIssue(value: unknown): string | null {
   let count = 0;
   const keys = new Set<string>();
-  function visit(value: unknown, depth: number): boolean {
-    if (++count > PAPER_PROGRAM_LIMITS.nodes || depth > PAPER_PROGRAM_LIMITS.depth || !value || typeof value !== 'object' || Array.isArray(value)) return false;
+  function visit(value: unknown, depth: number): string | null {
+    if (++count > PAPER_PROGRAM_LIMITS.nodes) return `노드 ${PAPER_PROGRAM_LIMITS.nodes}개 초과`;
+    if (depth > PAPER_PROGRAM_LIMITS.depth) return `깊이 ${PAPER_PROGRAM_LIMITS.depth} 초과`;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return '노드 형식 오류';
     const node = value as Record<string, unknown>;
+    const only = (expected: string[]) => fields(node, expected) ? null : `${shown(node.op)} 노드 항목 오류(${expected.join('·')}만 허용)`;
     if (node.op === 'feature') {
-      if (!fields(node, ['op', 'key']) || typeof node.key !== 'string' || !Object.hasOwn(PAPER_FEATURES, node.key)) return false;
-      keys.add(node.key); return keys.size <= PAPER_PROGRAM_LIMITS.features;
+      const issue = only(['op', 'key']);
+      if (issue) return issue;
+      if (typeof node.key !== 'string' || !Object.hasOwn(PAPER_FEATURES, node.key)) return `없는 재료 ${shown(node.key)}`;
+      keys.add(node.key); return keys.size <= PAPER_PROGRAM_LIMITS.features ? null : `재료 ${PAPER_PROGRAM_LIMITS.features}개 초과`;
     }
-    if (node.op === 'constant') return fields(node, ['op', 'value']) && typeof node.value === 'number' && Number.isFinite(node.value) && Math.abs(node.value) <= 3;
-    if (node.op === 'abs' || node.op === 'negate') return fields(node, ['op', 'value']) && visit(node.value, depth + 1);
-    if (typeof node.op === 'string' && binary.includes(node.op)) return fields(node, ['op', 'left', 'right']) && visit(node.left, depth + 1) && visit(node.right, depth + 1);
-    return node.op === 'ifPositive' && fields(node, ['op', 'condition', 'positive', 'otherwise'])
-      && visit(node.condition, depth + 1) && visit(node.positive, depth + 1) && visit(node.otherwise, depth + 1);
+    if (node.op === 'constant') {
+      return only(['op', 'value']) ?? (typeof node.value !== 'number' || !Number.isFinite(node.value) ? '상수 숫자 오류'
+        : Math.abs(node.value) > 3 ? '상수 -3~3 범위 초과' : null);
+    }
+    if (node.op === 'abs' || node.op === 'negate') return only(['op', 'value']) ?? visit(node.value, depth + 1);
+    if (typeof node.op === 'string' && binary.includes(node.op)) return only(['op', 'left', 'right']) ?? visit(node.left, depth + 1) ?? visit(node.right, depth + 1);
+    if (node.op !== 'ifPositive') return `허용되지 않은 연산 ${shown(node.op)}`;
+    return only(['op', 'condition', 'positive', 'otherwise'])
+      ?? visit(node.condition, depth + 1) ?? visit(node.positive, depth + 1) ?? visit(node.otherwise, depth + 1);
   }
-  return visit(value, 1) && keys.size >= 2;
+  return visit(value, 1) ?? (keys.size >= 2 ? null : '서로 다른 재료 2개 미만');
+}
+export function validPaperProgramNode(value: unknown): value is PaperProgramNode {
+  return paperProgramNodeIssue(value) === null;
+}
+const programFields = ['version', 'digest', 'title', 'hypothesis', 'interpretation', 'limitation', 'expression'];
+/** First reason a program fails, in Korean, or null when it is valid. Angle brackets stay banned for HTML reports. */
+export function paperProgramIssue(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '계산 프로그램 형식 오류';
+  const program = value as PaperIndicatorProgram;
+  if (!fields(program, programFields)) {
+    const extra = Object.keys(program).filter(key => !programFields.includes(key));
+    return extra.length ? `허용되지 않은 항목 ${extra.slice(0, 3).map(shown).join('·')}` : '필수 항목 누락';
+  }
+  if (program.version !== 'feature-program-v1' || !/^[a-f0-9]{64}$/.test(program.digest)) return '버전·식별값 오류';
+  for (const [key, label, limit] of [['title', '제목', 60], ['hypothesis', '가설', 300], ['interpretation', '해석', 300], ['limitation', '한계', 300]] as const) {
+    const value: unknown = program[key];
+    if (typeof value !== 'string' || !value.trim()) return `${label} 비어 있음`;
+    if (value.length > limit) return `${label} ${limit}자 초과`;
+    if (/[\u0000-\u001f]/.test(value)) return `${label}에 줄바꿈·제어문자`;
+    if (/[<>]/.test(value)) return `${label}에 꺾쇠 기호`;
+  }
+  return paperProgramNodeIssue(program.expression);
 }
 export function validPaperIndicatorProgram(value: unknown): value is PaperIndicatorProgram {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const program = value as PaperIndicatorProgram;
-  const text = (value: unknown, limit: number) => typeof value === 'string' && value.trim().length > 0 && value.length <= limit && !/[\u0000-\u001f<>]/.test(value);
-  return fields(program, ['version', 'digest', 'title', 'hypothesis', 'interpretation', 'limitation', 'expression'])
-    && program.version === 'feature-program-v1' && /^[a-f0-9]{64}$/.test(program.digest)
-    && text(program.title, 60) && text(program.hypothesis, 300) && text(program.interpretation, 300) && text(program.limitation, 300)
-    && validPaperProgramNode(program.expression);
+  return paperProgramIssue(value) === null;
 }
 /** Canonical executable identity excludes prose; renaming cannot reset a failed experiment. */
 export function paperProgramCode(node: PaperProgramNode): string {
@@ -91,5 +119,7 @@ export const PAPER_PROGRAM_FAILURE_LABELS: Record<PaperProgramFailure, string> =
 export interface PaperProgramResearchView {
   state: 'IDLE' | 'RUNNING' | 'READY' | 'FAILED'; attemptedAt: string | null; completedAt: string | null;
   message: string; failure?: PaperProgramFailure;
+  /** First failed check of a candidate, already free of raw AI text. */
+  failureDetail?: string;
   proposals: Array<{ id: string; title: string; generatedAt: string; registered: boolean; evaluated: boolean }>;
 }

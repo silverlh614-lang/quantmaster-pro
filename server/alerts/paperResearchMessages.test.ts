@@ -213,6 +213,8 @@ describe('recorded research changes', () => {
     };
     const failed = { state: 'FAILED' as const, attemptedAt: at, completedAt: at, message: '실패', proposals: [] };
     expect(line({ ...failed, failure: 'TIMEOUT' })).toContain('AI 계산법: 작성 실패 · AI 응답 시간 초과(120초) · 기존 전략 계속, 다음 날 재시도');
+    expect(line({ ...failed, failure: 'INVALID_OUTPUT', failureDetail: '해석에 꺾쇠 기호' }))
+      .toContain('AI 계산법: 작성 실패 · AI가 쓴 계산법 후보가 모두 계산 검사를 통과하지 못함(첫 사유: 해석에 꺾쇠 기호) · 기존 전략 계속');
     expect(line({ ...failed, completedAt: null, failure: 'INTERRUPTED' })).toContain('AI 계산법: 작성 실패 · 서버 재시작으로 중단 · 기존 전략 계속, 다음 날 재시도');
     expect(line({ ...failed, attemptedAt: null, completedAt: null, failure: 'STORAGE' })).toContain('연구 후보 파일 읽기·저장 오류 · 파일 점검 필요 · 기존 전략 계속');
     // Records saved before causes existed keep the generic wording.

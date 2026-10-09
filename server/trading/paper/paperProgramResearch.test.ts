@@ -44,6 +44,8 @@ describe('AI research proposal lifecycle', () => {
     expect(prompt).not.toContain('987654321'); expect(prompt).not.toContain('validation-secret');
     expect(prompt).not.toContain(adaptive.candidates[0].training.experimentIds![0]);
     expect(prompt).toContain('학습 구간 집계');
+    expect(prompt).not.toContain('condition>0');
+    expect(prompt).toContain('꺾쇠 기호');
   });
   it('claims before generation, coalesces overlap and persists the daily limit across callers', async () => {
     let finish!: (value: string) => void;
@@ -135,12 +137,15 @@ describe('AI research proposal lifecycle', () => {
     const generate = vi.fn(async () => JSON.stringify([executable, definition]));
     await queuePaperProgramResearch(adaptive, { ...options(), generate });
     expect(readPaperProgramProposals(directory)).toHaveLength(1);
-    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'READY', message: expect.stringContaining('계산 검사 통과 1개 · 제외 1개') });
+    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'READY',
+      message: expect.stringContaining('계산 검사 통과 1개 · 제외 1개(첫 사유: 허용되지 않은 연산 require)') });
+    expect(readPaperProgramResearch(undefined, directory).failureDetail).toBeUndefined();
     adaptive.candidates[0].training.meanNetReturnPct! += 1;
     generate.mockResolvedValue(JSON.stringify([executable]));
     await queuePaperProgramResearch(adaptive, { ...options(), asOf: '2026-09-19T08:00:00Z', now: () => '2026-09-19T08:00:10Z', generate });
     expect(readPaperProgramProposals(directory)).toHaveLength(1);
-    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'FAILED', failure: 'INVALID_OUTPUT' });
+    expect(readPaperProgramResearch(undefined, directory)).toMatchObject({ state: 'FAILED', failure: 'INVALID_OUTPUT',
+      failureDetail: '허용되지 않은 연산 require', message: expect.stringContaining('첫 사유: 허용되지 않은 연산 require') });
   });
   it('keeps previous candidates when a new generation fails and blocks corrupted files', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
