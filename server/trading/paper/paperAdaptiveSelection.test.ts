@@ -6,7 +6,7 @@ import type { PaperStrategyLedger } from '../../../src/types/paperStrategy.js';
 import { PAPER_FEATURES, PAPER_LEGACY_FEATURE_KEYS, type PaperFeatureKey } from '../../../src/types/paperObservationFeatures.js';
 import { isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
-import { adaptiveFeatureValue, adaptiveRuleMatches, PAPER_PLACEBO_PERMUTATIONS, paperPlaceboDonors, selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
+import { adaptiveFeatureValue, adaptiveRuleMatches, PAPER_PLACEBO_PERMUTATIONS, paperPlaceboDonors, paperValidationWait, selectPaperAdaptiveState } from './paperAdaptiveSelection.js';
 import { adaptiveTestSnapshot, matureAdaptiveSamples } from './paperAdaptiveFixtures.js';
 import { evaluatePaperStrategyScan } from './paperStrategyPolicy.js';
 import { assertPaperStrategyLedger } from './paperStrategyValidation.js';
@@ -375,6 +375,26 @@ describe('stock-shuffled chance check', () => {
       && donor.experiment.entryObservation.market === rows[index].experiment.entryObservation.market)).toBe(true);
   });
 
+  it('explains a waiting connection and dates the first day five validation dates can exist', () => {
+    const waiting = (tradingDate: string, matureDateCount: number, validationDateCount: number) => {
+      const state = restore(select());
+      for (const item of state.candidates) { item.active = false; item.reason = 'INSUFFICIENT_VALIDATION'; }
+      state.tradingDate = tradingDate; state.matureDateCount = matureDateCount;
+      state.horizonSamples = state.horizonSamples!.map(item => item.horizon === 1 ? { ...item, validationDateCount } : item);
+      return state;
+    };
+    // The 10.09 holiday delays 10.08 entries until the 10.12 close, so five dates first exist at the 10.16 evaluation.
+    for (const [date, count, have] of [['2026-10-09', 10, 3], ['2026-10-12', 10, 3], ['2026-10-13', 11, 4], ['2026-10-15', 13, 4]] as const) {
+      expect(paperValidationWait(waiting(date, count, have))).toEqual({ kind: 'DATES', have, need: 5, earliestDate: '2026-10-16' });
+    }
+    const ready = waiting('2026-10-16', 14, 5);
+    expect(paperValidationWait(ready)).toEqual({ kind: 'NONE' });
+    ready.candidates[0].reason = 'PLACEBO_NOT_PASSED';
+    expect(paperValidationWait(ready)).toEqual({ kind: 'CHANCE', count: 1 });
+    expect(paperValidationWait(select())).toBeNull();
+    const legacy = waiting('2026-10-09', 10, 3); delete legacy.policy.activationModel;
+    expect(paperValidationWait(legacy)).toBeNull();
+  });
   it('rejects a persisted connection that skipped the chance or validation-date limits, but keeps older policies readable', () => {
     const state = restore(select());
     const lucky = restore(state); lucky.placebo!.rules[0].chancePct = 25;

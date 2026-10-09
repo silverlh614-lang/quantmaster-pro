@@ -8,6 +8,7 @@ import { paperIndicatorFormulaOperands } from '../../src/types/paperIndicatorFor
 import { PAPER_PROGRAM_FAILURE_LABELS } from '../../src/types/paperIndicatorProgram.js';
 import { explainPaperIndicator, inventedRuleRange } from '../../src/utils/paperIndicatorExplanation.js';
 import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
+import { paperValidationWait, type PaperValidationWait } from '../trading/paper/paperAdaptiveSelection.js';
 import { PAPER_AUTONOMY_REASON_LABELS, paperAutonomyRuleKey } from '../../src/types/paperAutonomy.js';
 
 const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -59,6 +60,17 @@ function adaptivePerformance(view: PaperExperimentView, cutoff: number, purpose?
   return known(strategy.lastRun?.asOf, cutoff) ? purpose ? strategy.performanceByPurpose?.[purpose] : strategy.performanceByVersion?.['adaptive-features-v1'] : undefined;
 }
 
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+/** Plain wording for why validated buying is waiting and when it could resume. */
+function validationWaitLine(wait: PaperValidationWait): string {
+  if (wait.kind === 'DATES') {
+    const [, month, day] = wait.earliestDate.split('-').map(Number);
+    const weekday = WEEKDAYS[new Date(`${wait.earliestDate}T12:00:00Z`).getUTCDay()];
+    return `⏳ 검증 매수 대기 · 후반 확인 ${wait.have}/${wait.need}일 · 빠르면 ${month}월 ${day}일(${weekday})부터 연결 가능`;
+  }
+  return `⏳ 검증 매수 대기 · 후반 확인 ${PAPER_ACTIVATION_GATE.minimumValidationDates}일 충족 · ${wait.kind === 'CHANCE'
+    ? `무작위 대조 미통과 ${wait.count}개` : '기준을 통과한 지표 없음'} · 매일 재평가`;
+}
 export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date, detail: 'full' | 'brief' = 'full'): string[] {
   const lines = ['🔬 <b>자율 연구 · 지표 발명</b>'], strategy = view.strategy, cutoff = now.getTime();
   if (!strategy || strategy.error || strategy.lastRun?.error) return [...lines, strategy ? '전략 갱신 오류 · 연구 상태 확인 불가' : '자율 연구 기록 미조회'];
@@ -71,7 +83,8 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
     lines.push(`최근 평가 ${stamp(state.evaluatedAt)} KST`, '',
       `✅ <b>검증 지표 자동 연결 ${active.length}개/최대 3개</b>`,
       ...(discovery ? [`이 중 발명 지표 ${active.filter(item => item.rule.invention).length}개`] : []),
-      ...(state.placebo ? [`🎲 무작위 대조 ${num(state.placebo.permutations)}회 · 검증 통과 실제 ${num(state.placebo.passedCount)}개, 무작위 평균 ${state.placebo.shuffledMeanPassedCount.toFixed(1)}개 · 우연히 이만큼 나올 확률 ${state.placebo.chancePct.toFixed(0)}%`] : []));
+      ...(state.placebo ? [`🎲 무작위 대조 ${num(state.placebo.permutations)}회 · 검증 통과 실제 ${num(state.placebo.passedCount)}개, 무작위 평균 ${state.placebo.shuffledMeanPassedCount.toFixed(1)}개 · 우연히 이만큼 나올 확률 ${state.placebo.chancePct.toFixed(0)}%`] : []),
+      ...((wait => wait ? [validationWaitLine(wait)] : [])(paperValidationWait(state))));
     for (const item of active.slice(0, detail === 'full' ? 3 : 0)) {
       const chance = paperPlaceboChance(state, item.rule);
       lines.push('', ...ruleLines(item.rule),
