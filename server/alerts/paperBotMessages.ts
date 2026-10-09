@@ -8,6 +8,8 @@ import { PAPER_FLOW_ISSUE_LABELS } from '../../src/types/paperInvestorFlow.js';
 import { PAPER_NEWS_EVENT_LABELS, PAPER_NEWS_FILING_LABELS, PAPER_NEWS_RELATION_LABELS } from '../../src/types/paperNewsFacts.js';
 import { readPaperNewsFacts } from '../../src/utils/paperNewsFacts.js';
 import { formatPaperCloseReport } from './paperCloseReport.js';
+import { formatShadowChecklist } from './paperHealthChecklist.js';
+import type { PaperAccountView } from '../../src/types/paperAccount.js';
 import { getPaperMorningReviewSafely } from '../trading/paper/paperMorningRuntime.js';
 import { formatPaperMorningFollowup } from './paperMorningFollowup.js';
 import { formatPaperAdaptiveSummary, paperTelegramRuleLabel } from './paperResearchMessages.js';
@@ -40,8 +42,11 @@ function compactReport(lines: string[], footer: string[]): string {
   return `${message}\n\n${tail}`;
 }
 
-export function formatPaperReport(view: PaperExperimentView, kind: 'close' | 'status', date: string, news: string[] = [], now = new Date()): string {
-  if (kind === 'close') return formatPaperCloseReport(view, date, now, formatPaperMorningFollowup(getPaperMorningReviewSafely(date, now), true));
+export function formatPaperReport(view: PaperExperimentView, kind: 'close' | 'status', date: string, news: string[] = [], now = new Date(), account?: PaperAccountView): string {
+  if (kind === 'close') {
+    const morning = getPaperMorningReviewSafely(date, now);
+    return formatPaperCloseReport(view, date, now, formatPaperMorningFollowup(morning, true), formatShadowChecklist({ view, account, morning, date, now }));
+  }
   const last = view.lastRun;
   const strategy = view.strategy;
   const today = view.experiments.filter(item => item.tradingDate === date).length;

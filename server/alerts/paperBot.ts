@@ -86,7 +86,7 @@ export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentV
     const message = slot.kind === 'morning' ? morning!()
       : slot.kind === 'weekly' ? `<b>신호 검증 연구 · 계좌 성과와 별도</b>\n${formatPaperResearch(view!, now)}`
         : slot.kind === 'intraday' ? intraday
-          : `<b>신호 검증 연구 · 계좌 성과와 별도</b>\n${formatPaperReport(view!, slot.kind, date, [], now)}`;
+          : `<b>신호 검증 연구 · 계좌 성과와 별도</b>\n${formatPaperReport(view!, slot.kind, date, [], now, account)}`;
     if (!message) continue;
     const channel = slot.kind === 'morning' ? ChannelSemantic.REGIME
       : slot.kind === 'intraday' ? ChannelSemantic.SIGNAL : ChannelSemantic.JOURNAL;
