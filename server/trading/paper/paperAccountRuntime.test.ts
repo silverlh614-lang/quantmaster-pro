@@ -5,7 +5,7 @@ import { createPaperAccount } from './paperAccount.js';
 import { legacyStrategyLedger, strategyTestSnapshot } from './paperStrategyFixtures.js';
 const mocks = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn() }));
 vi.mock('../../persistence/paperAccountRepo.js', () => ({ loadPaperAccount: mocks.load, savePaperAccount: mocks.save }));
-import { captureVirtualAccount, readVirtualAccount, startVirtualAccount, pauseVirtualAccountBuys, virtualAccountHoldings } from './paperAccountRuntime.js';
+import { captureVirtualAccount, changeVirtualAccountWeight, readVirtualAccount, startVirtualAccount, pauseVirtualAccountBuys, virtualAccountHoldings } from './paperAccountRuntime.js';
 
 beforeEach(() => { vi.resetAllMocks(); mocks.load.mockReturnValue(null); });
 describe('virtual account runtime', () => {
@@ -47,5 +47,17 @@ describe('virtual account runtime', () => {
     const paused = pauseVirtualAccountBuys(created.account!.id, true, now);
     expect(paused.account).toMatchObject({ config, buyPaused: true, controls: [{ at: now.toISOString(), buyPaused: true }] });
     expect(virtualAccountHoldings()).toEqual([]);
+  });
+  it('records a weight change once for later buys and keeps the starting configuration', () => {
+    mocks.save.mockImplementation((account: PaperAccountLedger) => mocks.load.mockReturnValue(structuredClone(account)));
+    const config = { initialCash: 10000, maxPositionPct: 20, includeExploration: false }, now = new Date('2026-09-18T01:00:00Z');
+    const id = startVirtualAccount(config, now).account!.id, later = new Date('2026-09-18T02:00:00Z');
+    expect(() => changeVirtualAccountWeight('other', 10, later)).toThrow('다시 조회');
+    for (const bad of [0, 101, Number.NaN]) expect(() => changeVirtualAccountWeight(id, bad, later)).toThrow('1~100%');
+    const changed = changeVirtualAccountWeight(id, 10, later);
+    expect(changed.account).toMatchObject({ config, weightChanges: [{ at: later.toISOString(), maxPositionPct: 10 }] });
+    mocks.save.mockClear();
+    changeVirtualAccountWeight(id, 10, new Date('2026-09-18T03:00:00Z'));
+    expect(mocks.save).not.toHaveBeenCalled();
   });
 });

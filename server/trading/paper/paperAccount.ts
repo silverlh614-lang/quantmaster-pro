@@ -1,6 +1,6 @@
 // @responsibility Execute cash-constrained virtual orders from frozen Shadow signals.
 import { createHash } from 'node:crypto';
-import { paperAccountSlotCount, type PaperAccountConfig, type PaperAccountFill, type PaperAccountLedger, type PaperAccountOrder, type PaperAccountQuote, type PaperAccountView } from '../../../src/types/paperAccount.js';
+import { paperAccountSlotCount, paperAccountWeightPct, type PaperAccountConfig, type PaperAccountFill, type PaperAccountLedger, type PaperAccountOrder, type PaperAccountQuote, type PaperAccountView } from '../../../src/types/paperAccount.js';
 import type { PaperCostModel, PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import type { PaperStrategyLedger, PaperStrategyTrade } from '../../../src/types/paperStrategy.js';
 import { tradeSignalIdentity } from '../../../src/utils/paperTradeReview.js';
@@ -177,7 +177,8 @@ export function advancePaperAccount(current: PaperAccountLedger, strategy: Paper
     .map(order => [order, createHash('sha256').update(`${snapshot.tradingDate}:${order.symbol}`).digest('hex')]));
   const candidates = [...ranks.keys()].sort((a, b) => ranks.get(a)!.localeCompare(ranks.get(b)!));
   const balances = accountBalances(account), equity = buildPaperAccountView(account, snapshot.asOf).equity;
-  const slots = paperAccountSlotCount(account.config), target = (equity ?? 0) * account.config.maxPositionPct / 100;
+  const weight = paperAccountWeightPct(account, snapshot.asOf);
+  const slots = paperAccountSlotCount({ maxPositionPct: weight }), target = (equity ?? 0) * weight / 100;
   let cash = balances.cash, held = balances.buys.size;
   for (const order of candidates) {
     if (held >= slots) { order.status = 'REJECTED'; order.statusReason = `동시 보유 한도 ${slots}종목 도달`; continue; }

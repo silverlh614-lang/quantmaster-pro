@@ -12,6 +12,7 @@ export const paperExperimentApi = {
   getAccount: () => apiFetch<PaperAccountView>('/api/shadow/virtual-account'),
   startAccount: (config: PaperAccountConfig) => apiFetch<PaperAccountView>('/api/shadow/virtual-account', { method: 'POST', json: config }),
   pauseAccountBuys: (input: { id: string; paused: boolean }) => apiFetch<PaperAccountView>('/api/shadow/virtual-account/buys', { method: 'PATCH', json: input }),
+  changeAccountWeight: (input: { id: string; maxPositionPct: number }) => apiFetch<PaperAccountView>('/api/shadow/virtual-account/weight', { method: 'PATCH', json: input }),
   getMorningReview: (date: string) => apiFetch<PaperMorningReview>('/api/shadow/morning-recommendation', { query: { date } }),
   getOverview: () => apiFetch<PaperOverviewView>('/api/shadow/experiments', { query: { section: 'overview' } }),
   getObservations: () => apiFetch<PaperExperimentView>('/api/shadow/experiments', { query: { section: 'observations' } }),

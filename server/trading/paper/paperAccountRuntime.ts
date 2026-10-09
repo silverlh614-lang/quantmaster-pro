@@ -1,6 +1,6 @@
 // @responsibility Isolate virtual account processing from independent signal research.
 import { randomUUID } from 'node:crypto';
-import type { PaperAccountConfig } from '../../../src/types/paperAccount.js';
+import { paperAccountWeightPct, type PaperAccountConfig } from '../../../src/types/paperAccount.js';
 import type { PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import type { PaperStrategyLedger } from '../../../src/types/paperStrategy.js';
 import { loadPaperAccount, savePaperAccount } from '../../persistence/paperAccountRepo.js';
@@ -24,6 +24,19 @@ export function pauseVirtualAccountBuys(id: string, paused: boolean, now = new D
   if (typeof paused !== 'boolean') throw new Error('신규 매수 정지 설정이 올바르지 않습니다.');
   if (account.buyPaused !== paused) {
     account.buyPaused = paused; account.controls.push({ at: now.toISOString(), buyPaused: paused }); savePaperAccount(account);
+  }
+  return buildPaperAccountView(account, now.toISOString(), lastError, paperHaltedSymbols());
+}
+/** ADR-0698: a new per-stock weight applies to buys from now on; earlier orders and holdings stay as recorded. */
+export function changeVirtualAccountWeight(id: string, maxPositionPct: number, now = new Date()) {
+  const account = loadPaperAccount();
+  if (!account || account.id !== id) throw new Error('가상 계좌를 다시 조회하세요.');
+  if (typeof maxPositionPct !== 'number' || !Number.isFinite(maxPositionPct) || maxPositionPct < 1 || maxPositionPct > 100) {
+    throw new Error('종목당 비중은 1~100% 사이여야 합니다.');
+  }
+  if (paperAccountWeightPct(account) !== maxPositionPct) {
+    (account.weightChanges ??= []).push({ at: now.toISOString(), maxPositionPct });
+    savePaperAccount(account);
   }
   return buildPaperAccountView(account, now.toISOString(), lastError, paperHaltedSymbols());
 }

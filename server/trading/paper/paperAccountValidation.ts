@@ -26,6 +26,13 @@ export function assertPaperAccount(value: unknown): asserts value is PaperAccoun
     controlAt = control.at;
   }
   check(ledger.buyPaused === (ledger.controls.at(-1)?.buyPaused ?? false), 'control state');
+  check(ledger.weightChanges === undefined || Array.isArray(ledger.weightChanges), 'weight history');
+  let weightAt = ledger.startedAt;
+  for (const change of ledger.weightChanges ?? []) {
+    check(change && validTime(change.at) && Date.parse(change.at) >= Date.parse(weightAt)
+      && Number.isFinite(change.maxPositionPct) && change.maxPositionPct >= 1 && change.maxPositionPct <= 100, 'weight change');
+    weightAt = change.at;
+  }
   if (ledger.risk) {
     const risk = ledger.risk;
     check(validTime(risk.since) && validTime(risk.updatedAt) && Date.parse(risk.since) >= Date.parse(ledger.startedAt)
