@@ -79,6 +79,35 @@ describe('virtual account', () => {
     expect(full.orders.at(-1)).toMatchObject({ symbol: '100008', status: 'REJECTED', statusReason: '동시 보유 한도 5종목 도달', budget: 0 });
     assertPaperAccount(full);
   });
+  it('applies a weight change only to buys at or after it and keeps earlier orders as recorded', () => {
+    const f = fixture();
+    // A change recorded after this snapshot cannot resize it.
+    f.account.weightChanges = [{ at: new Date(Date.parse(f.snapshot.asOf) + 1).toISOString(), maxPositionPct: 10 }];
+    const first = advancePaperAccount(f.account, f.strategy, f.snapshot);
+    expect(first.orders[0]).toMatchObject({ status: 'FILLED', budget: 2000 });
+    assertPaperAccount(first);
+    const signal = (symbol: string, index: number) => {
+      const trade = { ...structuredClone(f.trade), id: `signal-late-${index}`, symbol, entrySnapshotId: f.snapshot.id, entryAt: f.snapshot.asOf };
+      f.strategy.trades.push(trade); f.snapshot.observations.push({ ...f.snapshot.observations[0], symbol });
+    };
+    next(f); ['100001', '100002', '100003'].forEach(signal);
+    const resized = advancePaperAccount(first, f.strategy, f.snapshot), added = resized.orders.slice(first.orders.length);
+    expect(resized.orders.slice(0, first.orders.length)).toEqual(first.orders);
+    expect(added.map(order => order.status)).toEqual(['FILLED', 'FILLED', 'FILLED']);
+    expect(added.every(order => order.budget > 900 && order.budget < 1100)).toBe(true);
+    assertPaperAccount(resized);
+    // Raising the weight lowers the slot count; four holdings above two slots wait instead of being sold.
+    resized.weightChanges!.push({ at: f.snapshot.asOf, maxPositionPct: 50 });
+    next(f); signal('100004', 9);
+    const capped = advancePaperAccount(resized, f.strategy, f.snapshot);
+    expect(capped.orders.at(-1)).toMatchObject({ symbol: '100004', status: 'REJECTED', statusReason: '동시 보유 한도 2종목 도달' });
+    expect(accountBalances(capped).buys.size).toBe(4);
+    assertPaperAccount(capped);
+    for (const bad of [[{ at: f.account.startedAt, maxPositionPct: 0 }], [{ at: 'later', maxPositionPct: 10 }],
+      [{ at: f.snapshot.asOf, maxPositionPct: 10 }, { at: f.account.startedAt, maxPositionPct: 5 }]]) {
+      expect(() => assertPaperAccount({ ...capped, weightChanges: bad })).toThrow('weight');
+    }
+  });
   it.each(['stale', 'future', 'estimated', 'missing', 'closed', 'beforeStart'])('rejects %s quotes instead of manufacturing fills', issue => {
     const f = fixture(), quote = f.snapshot.observations[0];
     if (issue === 'stale') quote.observedAt = new Date(Date.parse(f.snapshot.asOf) - 121000).toISOString();

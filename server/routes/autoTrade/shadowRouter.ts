@@ -39,7 +39,7 @@ import { loadPaperFinancialCache } from '../../persistence/paperFinancialRepo.js
 import { getPaperMorningReview, getPaperMorningReviewSafely } from '../../trading/paper/paperMorningRuntime.js';
 import { formatPaperMorningFollowup } from '../../alerts/paperMorningFollowup.js';
 import { readPaperStorageMaintenance } from '../../persistence/paperStorageMaintenance.js';
-import { readVirtualAccount, startVirtualAccount, pauseVirtualAccountBuys } from '../../trading/paper/paperAccountRuntime.js';
+import { readVirtualAccount, startVirtualAccount, pauseVirtualAccountBuys, changeVirtualAccountWeight } from '../../trading/paper/paperAccountRuntime.js';
 import { assertAccountConfig } from '../../trading/paper/paperAccount.js';
 import { readPaperStrategyTrades } from '../../trading/paper/paperStrategyRuntime.js';
 import { paperStrategyScreenView } from '../../trading/paper/paperStrategyScreen.js';
@@ -62,6 +62,11 @@ router.post('/shadow/virtual-account', (req, res) => {
 router.patch('/shadow/virtual-account/buys', (req, res) => {
   if (typeof req.body?.id !== 'string' || typeof req.body?.paused !== 'boolean') return res.status(400).json({ error: '계좌 ID와 신규 매수 정지 여부가 필요합니다.' });
   try { return res.json(pauseVirtualAccountBuys(req.body.id, req.body.paused)); }
+  catch (error) { return res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
+router.patch('/shadow/virtual-account/weight', (req, res) => {
+  if (typeof req.body?.id !== 'string' || typeof req.body?.maxPositionPct !== 'number') return res.status(400).json({ error: '계좌 ID와 종목당 비중이 필요합니다.' });
+  try { return res.json(changeVirtualAccountWeight(req.body.id, req.body.maxPositionPct)); }
   catch (error) { return res.status(500).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 router.get('/shadow/storage', (_req, res) => res.json(readPaperStorageMaintenance()));

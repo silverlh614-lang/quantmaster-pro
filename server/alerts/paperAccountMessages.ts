@@ -1,6 +1,6 @@
 // @responsibility Queue virtual account execution notifications with durable deduplication.
 import { createHash } from 'node:crypto';
-import { paperAccountSlotCount, type PaperAccountLedger, type PaperAccountOrder, type PaperAccountView } from '../../src/types/paperAccount.js';
+import { paperAccountSlotCount, paperAccountWeightPct, type PaperAccountLedger, type PaperAccountOrder, type PaperAccountView } from '../../src/types/paperAccount.js';
 import type { PaperBotState } from '../persistence/paperBotRepo.js';
 import { ChannelSemantic } from './alertRouter.js';
 import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
@@ -77,7 +77,7 @@ export function formatAccountSummary(view: PaperAccountView | undefined, now: Da
   if (!view || view.error) return [...lines, '계좌 기록 확인 불가 · 손익을 추정하지 않습니다.'].join('\n');
   if (!view.account) return [...lines, '계좌 미시작 · 신호 검증은 내부 연구로 계속됩니다.'].join('\n');
   lines.push(`현금 ${amount(view.cash)} · 추정 청산 자산 ${amount(view.equity)}`, `실현손익 ${amount(view.realizedPnl)} · 미실현손익 ${amount(view.unrealizedPnl)}`,
-    `계좌 수익률 ${view.returnPct === null ? '미확인' : `${view.returnPct.toFixed(2)}%`} · 보유 ${view.positions.length}/${paperAccountSlotCount(view.account.config)}종목`,
+    `계좌 수익률 ${view.returnPct === null ? '미확인' : `${view.returnPct.toFixed(2)}%`} · 보유 ${view.positions.length}/${paperAccountSlotCount({ maxPositionPct: paperAccountWeightPct(view.account) })}종목 · 종목당 ${paperAccountWeightPct(view.account)}%`,
     view.account.buyPaused ? '신규 매수 정지 · 보유 평가·매도 계속' : '신규 매수 허용',
     `평가 기준 ${view.account.lastSnapshotAt ? stamp(view.account.lastSnapshotAt) : '아직 처리 없음'}`);
   if (view.positions.some(position => position.stale)) lines.push('이전 관측 가격 포함 · 잠정 평가');

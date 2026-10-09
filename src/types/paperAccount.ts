@@ -18,6 +18,11 @@ export interface PaperAccountConfig { initialCash: number; maxPositionPct: numbe
 export function paperAccountSlotCount(config: Pick<PaperAccountConfig, 'maxPositionPct'>): number {
   return Math.max(1, Math.floor(100 / config.maxPositionPct + 1e-9));
 }
+/** ADR-0698: the weight in force at a time (latest change at or before it), else the starting weight. */
+export function paperAccountWeightPct(account: Pick<PaperAccountLedger, 'config' | 'weightChanges'>, at?: string): number {
+  const changes = (account.weightChanges ?? []).filter(change => at === undefined || Date.parse(change.at) <= Date.parse(at));
+  return changes.at(-1)?.maxPositionPct ?? account.config.maxPositionPct;
+}
 export interface PaperAccountQuote { price: number; observedAt: string; source: string; snapshotId: string }
 export interface PaperAccountFill {
   id: string; at: string; snapshotId: string; quote: PaperAccountQuote; quantity: number;
@@ -39,6 +44,8 @@ export interface PaperAccountLedger {
   lastSnapshotAt: string | null; orders: PaperAccountOrder[]; marks: Record<string, PaperAccountQuote>;
   /** Append-only daily choices; old account records remain readable. */
   selections?: PaperAccountSelection[];
+  /** ADR-0698: append-only per-stock weight changes; each applies to buys at or after its time. */
+  weightChanges?: Array<{ at: string; maxPositionPct: number }>;
   /** Observed liquidation-equity drawdown; excludes stale marks, never backfilled. */
   risk?: { since: string; updatedAt: string; observations: number; peakEquity: number; maxDrawdownPct: number };
   /** Signals outside the day's account rule, counted per trading day and reason instead of stored as orders.
