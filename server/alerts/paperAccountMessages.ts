@@ -84,7 +84,7 @@ export function formatAccountSummary(view: PaperAccountView | undefined, now: Da
   const halted = view.positions.filter(position => position.halted);
   if (halted.length) lines.push(`거래정지 ${halted.map(position => safe(position.name, 20)).join(', ')} · 정지 직전 가격 평가 · 해제 후 매도 판단`);
   const selection = view.account.selections?.at(-1);
-  if (selection) lines.push(`운용 기준 ${selection.tradingDate}: ${selection.candidates[0] ? safe(selection.candidates[0].label, 100) : '검증 충족 규칙 없음 · 신규 매수 대기'}`);
+  if (selection) lines.push(`운용 기준 ${selection.tradingDate}: ${selection.candidates[0] ? safe(selection.candidates[0].label, 100) : '검증 충족 규칙 없음 · 신규 매수 대기 · 보유 종목 매도 판단은 계속'}`);
   const today = toKstDateKey(now), reasons = new Map<string, number>();
   for (const order of view.account.orders) if (['REJECTED', 'EXPIRED'].includes(order.status)
     && Date.parse(order.submittedAt) <= now.getTime() && toKstDateKey(order.submittedAt) === today)

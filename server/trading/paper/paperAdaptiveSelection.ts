@@ -6,7 +6,7 @@ import { PAPER_ACTIVATION_GATE, paperPlaceboChance, type PaperAdaptiveCandidate,
   type PaperIndicatorInvention } from '../../../src/types/paperAdaptive.js';
 import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaId, paperIndicatorFormulaValue, paperIndicatorFormulaOperands,
   type PaperIndicatorFormula } from '../../../src/types/paperIndicatorFormula.js';
-import { toKstDateKey, isKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
+import { toKstDateKey, isKrxTradingDay, previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { calculatePaperReturn } from './paperAccounting.js';
 import { paperStrategyCohort, scheduledPaperClose } from './paperStrategyEvidence.js';
@@ -267,6 +267,33 @@ function applyPlaceboGate(candidates: PaperAdaptiveCandidate[], placebo: PaperAd
       item.active = false; item.reason = 'PLACEBO_NOT_PASSED';
     }
   }
+}
+
+export type PaperValidationWait = { kind: 'DATES'; have: number; need: number; earliestDate: string }
+  | { kind: 'CHANCE'; count: number } | { kind: 'NONE' };
+/**
+ * Why no rule is connected under the placebo gate, and the first trading day one could connect.
+ * Assumes one entry date per trading day; a date counts once its next-day close is in, and validation is the newest dates.
+ */
+export function paperValidationWait(state: PaperAdaptiveState): PaperValidationWait | null {
+  if (!state.policy.activationModel || state.candidates.some(item => item.active)) return null;
+  const need = PAPER_ACTIVATION_GATE.minimumValidationDates;
+  const have = state.horizonSamples?.find(item => item.horizon === 1)?.validationDateCount ?? 0;
+  if (have >= need) {
+    const count = state.candidates.filter(item => item.reason === 'PLACEBO_NOT_PASSED').length;
+    return count ? { kind: 'CHANCE', count } : { kind: 'NONE' };
+  }
+  const validation = (dates: number) => {
+    const window = Math.min(dates, state.policy.windowEntryDates);
+    return window - Math.floor(window * state.policy.trainingFraction);
+  };
+  let extra = 1;
+  while (extra < 120 && validation(state.matureDateCount + extra) - validation(state.matureDateCount) < need - have) extra++;
+  const lastEntry = addBusinessDaysFromKstDate(previousKrxTradingDay(new Date(`${state.tradingDate}T12:00:00+09:00`)), extra - 1);
+  const counted = new Date(`${addBusinessDaysFromKstDate(lastEntry, 1)}T00:00:00Z`);
+  counted.setUTCDate(counted.getUTCDate() + 1);
+  const day = counted.toISOString().slice(0, 10);
+  return { kind: 'DATES', have, need, earliestDate: isKrxTradingDay(day) ? day : addBusinessDaysFromKstDate(day, 1) };
 }
 
 export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefined, experiments: PaperExperiment[], asOf: string,
