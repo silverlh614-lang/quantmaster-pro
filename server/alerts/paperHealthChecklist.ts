@@ -58,10 +58,16 @@ export function formatShadowChecklist(input: { view: PaperExperimentView; accoun
         : ['WARN', '아침 추천 발송 확인 대기']);
 
   const research = state?.programResearch;
-  if (research) checks.push(research.state === 'FAILED' && research.failure
-    ? ['FAIL', `AI 계산법 실패 · ${PAPER_PROGRAM_FAILURE_LABELS[research.failure]}${research.failureDetail ? ` · ${escape(research.failureDetail)}` : ''}`]
-    : research.state === 'READY' ? ['OK', `AI 계산법 완료${research.completedAt ? ` · ${day(toKstDateKey(research.completedAt))}` : ''}`]
-      : ['WAIT', research.state === 'RUNNING' ? 'AI 계산법 작성 중' : 'AI 계산법 장외 회차 대기']);
+  if (!research || research.attemptedAt && !known(research.attemptedAt)) checks.push(['WARN', 'AI 계산법 연구 기록 확인 불가']);
+  // A terminal result after the report cutoff cannot establish success or failure yet.
+  else if (research.completedAt && !known(research.completedAt)) checks.push(['WAIT', 'AI 계산법 보고 시점의 작성 완료 미확인']);
+  else if (research.state === 'FAILED') checks.push(['FAIL', `AI 계산법 실패 · ${PAPER_PROGRAM_FAILURE_LABELS[research.failure ?? 'UNKNOWN']}${research.failureDetail ? ` · ${escape(research.failureDetail)}` : ''}`]);
+  else if (research.state === 'READY') checks.push(known(research.completedAt)
+    ? ['OK', `AI 계산법 완료 · ${day(toKstDateKey(research.completedAt!))}`]
+    : ['WARN', 'AI 계산법 완료 기록 확인 불가']);
+  else if (research.state === 'RUNNING') checks.push(known(research.attemptedAt)
+    ? ['WAIT', 'AI 계산법 작성 중'] : ['WARN', 'AI 계산법 작성 시작 기록 확인 불가']);
+  else checks.push(['WAIT', 'AI 계산법 장외 새 학습 자료 대기']);
 
   const last = view.lastRun;
   if (!last || !today(last.asOf)) checks.push(['FAIL', '오늘 가격 관측 없음']);
