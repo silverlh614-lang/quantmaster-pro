@@ -245,12 +245,15 @@ export function buildPaperStrategyView(ledger: PaperStrategyLedger, error?: stri
   const today = ledger.lastRun ? toKstDateKey(new Date(ledger.lastRun.asOf)) : null;
   // A close is normally read on the next scan; one still missing after its date has passed is reported, not guessed.
   const overdue = today ? open.filter(trade => trade.policy.exitModel !== 'ADAPTIVE_OBSERVED' && trade.scheduledExitDate < today)
-    .map(trade => trade.scheduledExitDate).sort() : [];
+    .sort((a, b) => a.scheduledExitDate.localeCompare(b.scheduledExitDate) || a.symbol.localeCompare(b.symbol)) : [];
+  // Naming the oldest stuck trade lets an operator look up why its close never arrived (e.g. a halt).
+  const oldest = overdue[0];
   const current = open.filter(trade => trade.strategyVersion === ADAPTIVE_STRATEGY_POLICY.version).length;
   return {
     strategyVersion: ADAPTIVE_STRATEGY_POLICY.version,
     mode: 'SHADOW', policy: { ...ADAPTIVE_STRATEGY_POLICY },
-    openBreakdown: { current, legacy: open.length - current, overdueScheduledCount: overdue.length, oldestOverdueExitDate: overdue[0] ?? null },
+    openBreakdown: { current, legacy: open.length - current, overdueScheduledCount: overdue.length,
+      oldestOverdue: oldest ? { exitDate: oldest.scheduledExitDate, symbol: oldest.symbol, name: oldest.name } : null },
     ...(ledger.adaptive ? { adaptive: structuredClone(ledger.adaptive) } : {}),
     ...(ledger.exitLearning ? { exitLearning: structuredClone(ledger.exitLearning) } : {}),
     performanceByVersion, performanceByPurpose,

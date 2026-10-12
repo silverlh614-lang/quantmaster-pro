@@ -23,6 +23,8 @@ export const PAPER_BOT_SCHEDULES = [
   { kind: 'weekly', minute: 19 * 60, graceMinutes: 180, label: '일요일 19:00 · 연구 요약' },
 ] as const;
 const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const overdueLabel = (item: { exitDate: string; symbol: string; name: string } | null) =>
+  item ? `${item.exitDate} · ${escape(item.name)} ${item.symbol}` : '확인 불가';
 const num = (value: number) => value.toLocaleString('ko-KR');
 const pct = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? '집계 대기' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
 const excess = (value: number | null) => value === null ? '집계 대기' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%p`;
@@ -59,7 +61,7 @@ export function formatPaperReport(view: PaperExperimentView, kind: 'close' | 'st
     const closed = strategy.trades.filter(item => item.exit?.effectiveAt.startsWith(date)).length;
     lines.push(`전략: 오늘 가상 진입 ${opened} · 오늘 청산 ${closed} · 보유 ${strategy.openCount}`,
       ...(strategy.openBreakdown ? [`보유 구성: 현행 자율 ${num(strategy.openBreakdown.current)} · 구전략 ${num(strategy.openBreakdown.legacy)}${strategy.openBreakdown.overdueScheduledCount
-        ? ` · 예정일 지나 종가 미확인 ${num(strategy.openBreakdown.overdueScheduledCount)}건(가장 오래된 예정일 ${strategy.openBreakdown.oldestOverdueExitDate})` : ''}`] : []),
+        ? ` · 예정일 지나 종가 미확인 ${num(strategy.openBreakdown.overdueScheduledCount)}건(가장 오래된 예정일 ${overdueLabel(strategy.openBreakdown.oldestOverdue)})` : ''}`] : []),
       `전체 전략 이력(구전략 포함) 청산 ${strategy.performance.closedCount}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`);
     const waiting = strategy.latestDecisions.filter(item => item.action === 'WAIT');
     const needsSamples = waiting.filter(item => item.reasonCode === 'INSUFFICIENT_MATURE_SAMPLES' || item.reasonCode === 'INSUFFICIENT_ENTRY_DATES').length;

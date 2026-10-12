@@ -37,7 +37,8 @@ export function formatShadowChecklist(input: { view: PaperExperimentView; accoun
     const rules = state?.exploration?.rules.filter(rule => today(rule.registeredAt)).length ?? 0;
     checks.push([rules ? 'OK' : 'WARN', `가상 매수 검증 ${entered.length - exploring}건 · 탐색 ${exploring}건 · 탐색 규칙 ${rules ? `${rules}개` : '미등록'}`]);
     const overdue = strategy.openBreakdown?.overdueScheduledCount ?? 0;
-    if (overdue) checks.push(['WARN', `예정일 지나 종가 미확인 ${overdue}건 · 가장 오래된 예정일 ${strategy.openBreakdown!.oldestOverdueExitDate}`]);
+    const oldest = strategy.openBreakdown?.oldestOverdue;
+    if (overdue) checks.push(['WARN', `예정일 지나 종가 미확인 ${overdue}건${oldest ? ` · 가장 오래된 예정일 ${day(oldest.exitDate)} ${escape(oldest.name)} ${oldest.symbol}` : ''}`]);
   } else checks.push(['WARN', '가상 매수 기록 일부만 조회 · 대시보드 확인']);
 
   if (!account || account.error) checks.push(['FAIL', '가상 계좌 기록 확인 불가']);
