@@ -300,6 +300,7 @@ describe('delivery ledger', () => {
 describe('new strategy events', () => {
   it('splits open trades by strategy and reports scheduled closes still missing after their date', () => {
     const ledger = enteredStrategy(), legacy = legacyStrategyLedger();
+    legacy.trades[0].name = 'A&B';
     ledger.trades.push(...legacy.trades);
     const status = (asOf: string) => {
       ledger.lastRun = { ...ledger.lastRun!, asOf };
@@ -307,7 +308,7 @@ describe('new strategy events', () => {
     };
     expect(buildPaperStrategyView(ledger).openCount).toBe(2);
     expect(status('2026-09-23T07:00:00Z')).toContain('보유 구성: 현행 자율 1 · 구전략 1\n');
-    expect(status('2026-09-25T01:00:00Z')).toContain('보유 구성: 현행 자율 1 · 구전략 1 · 예정일 지나 종가 미확인 1건(가장 오래된 예정일 2026-09-23)');
+    expect(status('2026-09-25T01:00:00Z')).toContain(`보유 구성: 현행 자율 1 · 구전략 1 · 예정일 지나 종가 미확인 1건(가장 오래된 예정일 2026-09-23 · A&amp;B ${legacy.trades[0].symbol})`);
   });
 
 
@@ -481,7 +482,10 @@ describe('operational health transitions', () => {
     expect(persisted.messages[1].health).toBe('OK');
   });
   it('delivers a persistent weekend failure after confirmation, then exactly one recovery', async () => {
-    const now = new Date(Math.max(Date.now() + 3_600_000, Date.parse('2026-10-10T12:00:00+09:00')));
+    // A Saturday noon past the module's startup grace; a fixed date turned into a weekday once it passed.
+    let at = Date.parse('2026-10-10T12:00:00+09:00');
+    while (at < Date.now() + 3_600_000) at += 7 * 86_400_000;
+    const now = new Date(at);
     persisted = emptyState();
     scanAt(new Date(now.getTime() - 61 * 60_000).toISOString());
     await runPaperBotTick(now);

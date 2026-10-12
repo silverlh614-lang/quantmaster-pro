@@ -250,7 +250,8 @@ export interface PaperStrategyView {
   totalCount: number;
   openCount: number;
   /** Open trades split by strategy; scheduled closes past their date show a close that never arrived. */
-  openBreakdown?: { current: number; legacy: number; overdueScheduledCount: number; oldestOverdueExitDate: string | null };
+  openBreakdown?: { current: number; legacy: number; overdueScheduledCount: number;
+    oldestOverdue: { exitDate: string; symbol: string; name: string } | null };
   performance: PaperStrategyPerformance;
   performanceByVersion?: Partial<Record<PaperStrategyVersion, PaperStrategyPerformance>>;
   performanceByPurpose?: Record<'VALIDATED' | 'EXPLORATION', PaperStrategyPerformance & { openCount: number }>;

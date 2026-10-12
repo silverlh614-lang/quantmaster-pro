@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperMorningReview } from '../../src/types/paperMorning.js';
 import { buildPaperStrategyView, evaluatePaperStrategyScan } from '../trading/paper/paperStrategyPolicy.js';
-import { emptyStrategyLedger, strategyTestCost } from '../trading/paper/paperStrategyFixtures.js';
+import { emptyStrategyLedger, legacyStrategyLedger, strategyTestCost } from '../trading/paper/paperStrategyFixtures.js';
 import { adaptiveTestSnapshot, matureAdaptiveSamples } from '../trading/paper/paperAdaptiveFixtures.js';
 import { selectPaperAdaptiveState } from '../trading/paper/paperAdaptiveSelection.js';
 import { buildPaperAccountView, createPaperAccount } from '../trading/paper/paperAccount.js';
@@ -55,6 +55,18 @@ describe('Shadow operation checklist', () => {
     expect(formatShadowChecklist({ view, date, now })).toContain('❌ 가상 계좌 기록 확인 불가');
     expect(formatShadowChecklist({ view, account: buildPaperAccountView(null, now.toISOString()), date, now })).toContain('⚠️ 가상 계좌 미시작');
     expect(formatShadowChecklist({ view, account: accountView(), morning: morning(false), date, now })).toContain('⚠️ 아침 추천 발송 확인 대기');
+  });
+  it('names the oldest scheduled close still missing so its cause can be looked up', () => {
+    const view = viewFixture(), snapshot = adaptiveTestSnapshot();
+    const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost,
+      selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), snapshot.asOf));
+    const stuck = legacyStrategyLedger().trades[0];
+    stuck.name = 'A&B';
+    ledger.trades.push(stuck);
+    ledger.lastRun = { ...ledger.lastRun!, asOf: '2026-09-25T01:00:00Z' };
+    view.strategy = buildPaperStrategyView(ledger);
+    expect(formatShadowChecklist({ view, account: accountView(), morning: morning(true), date, now }))
+      .toContain(`⚠️ 예정일 지나 종가 미확인 1건 · 가장 오래된 예정일 9월 23일 A&amp;B ${stuck.symbol}`);
   });
   it('places the checklist near the top of the close report', () => {
     const view = viewFixture(), checklist = formatShadowChecklist({ view, account: accountView(), morning: morning(true), date, now });
