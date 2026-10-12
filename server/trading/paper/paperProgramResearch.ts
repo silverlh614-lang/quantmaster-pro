@@ -58,7 +58,9 @@ export function paperProgramResearchInput(state: PaperAdaptiveState) {
 }
 export function paperProgramResearchPrompt(state: PaperAdaptiveState, previous: PaperProgramProposal[]): string {
   return `기존 관측 자료만 사용하는 Shadow 연구 가설과 계산 프로그램을 최대 2개 만드세요. 수익 보장이나 매수 지시는 금지합니다.
-한국어 title(60자 이내), hypothesis(300자 이내), interpretation(300자 이내), limitation(300자 이내), expression 5개 항목만 가진 JSON 배열만 반환하세요. 다른 항목(id, name 등)을 추가하면 후보가 제외됩니다.
+아래 모양의 JSON 배열만 반환하세요. 항목 이름(키)은 title, hypothesis, interpretation, limitation, expression 다섯 개를 영어 그대로 쓰고 값만 한국어로 씁니다(title 60자, 나머지 설명 각 300자 이내).
+[{"title":"…","hypothesis":"…","interpretation":"…","limitation":"…","expression":노드}]
+다른 항목(id, name, 한글 이름의 항목 등)을 추가하거나 키를 번역하면 후보가 제외됩니다.
 설명 문장에는 꺾쇠 기호(부등호)를 쓰지 말고 "초과", "미만", "양수일 때"처럼 한글로 쓰세요. 꺾쇠 기호가 있으면 후보가 제외됩니다.
 재료 정의: ${JSON.stringify(PAPER_FEATURES)}
 모든 feature는 고정 cuts의 가운데 값을 빼고 (최댓값-최솟값)으로 나눈 뒤 -3~3으로 제한한 환산값입니다.
@@ -72,7 +74,7 @@ export function paperProgramResearchPrompt(state: PaperAdaptiveState, previous: 
 학습 구간 집계(후반 검증 결과 아님): ${JSON.stringify(paperProgramResearchInput(state))}
 이전 AI 계산의 학습 검사 결과(실패 사유를 참고해 계산을 개선): ${JSON.stringify(state.discovery?.programReviews ?? [])}
 이미 제안한 계산(검사 결과의 id로 대조, 중복 금지): ${JSON.stringify(previous.map(item => ({ id: paperIndicatorFormulaId(item.formula), title: item.formula.title, expression: item.formula.expression })))}
-해석은 실제 계산의 증감 방향과 제한을 설명하고, 가설의 실패 상황을 명시하세요. 설명에 줄바꿈/HTML을 넣지 마세요.`;
+interpretation에는 실제 계산의 증감 방향과 제한을, limitation에는 가설이 실패하는 상황을 씁니다(별도 항목을 만들지 않음). 설명에 줄바꿈/HTML을 넣지 마세요.`;
 }
 /** Tags each failing step so the stored round says why it failed without persisting the raw error. */
 class ProgramResearchFailure extends Error {

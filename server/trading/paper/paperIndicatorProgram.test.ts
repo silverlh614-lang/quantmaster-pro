@@ -55,6 +55,7 @@ describe('generated calculation programs', () => {
       [{ ...proposal(), limitation: '첫 줄\n둘째 줄' }, '한계에 줄바꿈·제어문자'],
       [{ ...proposal(), id: 'x', name: 'y' }, '허용되지 않은 항목 id·name'],
       [{ ...proposal(), '<b>': 1 }, '허용되지 않은 항목 기타'],
+      [{ ...proposal(), '실패 상황': '거래량 급감' }, '허용되지 않은 항목 실패 상황'],
       [proposal({ op: 'feature', key: 'futureReturn' } as unknown as PaperProgramNode), '없는 재료 futureReturn'],
       [proposal({ op: 'power', left: feature('rsi14'), right: feature('volumeRatio20') } as unknown as PaperProgramNode), '허용되지 않은 연산 power'],
       [proposal(deep), '깊이 6 초과'],
