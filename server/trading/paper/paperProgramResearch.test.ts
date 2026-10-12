@@ -46,6 +46,8 @@ describe('AI research proposal lifecycle', () => {
     expect(prompt).toContain('학습 구간 집계');
     expect(prompt).not.toContain('condition>0');
     expect(prompt).toContain('꺾쇠 기호');
+    expect(prompt).toContain('[{"title":"…","hypothesis":"…","interpretation":"…","limitation":"…","expression":노드}]');
+    expect(prompt).toContain('키를 번역하면 후보가 제외됩니다');
   });
   it('claims before generation, coalesces overlap and persists the daily limit across callers', async () => {
     let finish!: (value: string) => void;

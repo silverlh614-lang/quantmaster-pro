@@ -12,8 +12,8 @@ export interface PaperIndicatorProgram {
 export const PAPER_PROGRAM_LIMITS = { nodes: 31, depth: 6, features: 6, dailyProposals: 2, storedProposals: 12 } as const;
 const binary = ['add', 'subtract', 'multiply', 'divide', 'min', 'max', 'mean'];
 const fields = (value: object, keys: string[]) => Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
-// Echo only plain identifiers from AI output; anything else is summarized.
-const shown = (value: unknown) => typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,30}$/.test(value) ? value : '기타';
+// Echo only short plain names (letters, digits, Hangul, spaces) from AI output; anything else is summarized.
+const shown = (value: unknown) => typeof value === 'string' && /^[A-Za-z_가-힣][A-Za-z0-9_가-힣 ]{0,19}$/.test(value) ? value.trim() : '기타';
 /** First reason a calculation tree fails, in Korean, or null when it is valid. */
 export function paperProgramNodeIssue(value: unknown): string | null {
   let count = 0;
