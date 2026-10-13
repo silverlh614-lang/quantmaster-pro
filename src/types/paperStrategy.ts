@@ -57,6 +57,7 @@ export type PaperStrategyReasonCode =
   | 'TREND_UNKNOWN'
   | 'MARKET_CLOSED'
   | 'CURRENT_PRICE_UNAVAILABLE'
+  | 'RISK_DESIGNATED'
   | 'OBSERVATION_TIME_INVALID'
   | 'ALREADY_ENTERED_TODAY'
   | 'HORIZON_PENDING'
@@ -169,6 +170,8 @@ export interface PaperStrategyTrade {
   exitResearch?: PaperAdaptiveExitResearch;
   measurement?: PaperTradeMeasurement;
   morningRecommendation?: import('./paperMorning').PaperMorningTradeReference;
+  /** KIS re-based this stock after entry (병합·분할 등); later prices are divided by `factor` to stay on the entry basis. */
+  priceBasis?: { factor: number; referenceDate: string; checkedAt: string };
 }
 
 export interface PaperStrategyScanResult {

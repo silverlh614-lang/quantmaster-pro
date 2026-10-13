@@ -55,7 +55,7 @@ const decision = z.object({ snapshotId: z.string(), decisionAt: timestamp, symbo
   action: z.enum(['BUY', 'WAIT', 'HOLD', 'EXIT']),
   reasonCode: z.enum(['ADAPTIVE_FEATURE_SELECTED', 'ADAPTIVE_EXPLORATION_SELECTED', 'ADAPTIVE_NO_ACTIVE_RULE', 'ADAPTIVE_FEATURE_UNAVAILABLE', 'ADAPTIVE_RULE_NOT_MATCHED',
     'POSITIVE_COHORT_EXPECTANCY', 'INSUFFICIENT_MATURE_SAMPLES', 'INSUFFICIENT_ENTRY_DATES',
-    'NON_POSITIVE_EXPECTANCY', 'TREND_UNKNOWN', 'MARKET_CLOSED', 'CURRENT_PRICE_UNAVAILABLE', 'OBSERVATION_TIME_INVALID',
+    'NON_POSITIVE_EXPECTANCY', 'TREND_UNKNOWN', 'MARKET_CLOSED', 'CURRENT_PRICE_UNAVAILABLE', 'RISK_DESIGNATED', 'OBSERVATION_TIME_INVALID',
     'ALREADY_ENTERED_TODAY', 'HORIZON_PENDING', 'SCHEDULED_CLOSE_UNAVAILABLE', 'SCHEDULED_CLOSE_REACHED',
     'ADAPTIVE_EXIT_HOLD', 'ADAPTIVE_EXIT_QUOTE_UNAVAILABLE', 'ADAPTIVE_STOP_LOSS', 'ADAPTIVE_TRAILING_STOP', 'ADAPTIVE_SIGNAL_LOST']),
   reason: z.string(), cohort: cohort.nullable(), evidence: evidence.nullable(), adaptiveEvidence: adaptiveEvidenceSchema.optional(),
@@ -65,7 +65,8 @@ export const paperObservationSchema = z.object({ symbol, name: z.string(), price
   investorFlow: investorFlow.optional(), features: adaptiveObservationSchema.optional(),
   return1dPct: finite.nullable(), return5dPct: finite.nullable(), aboveMa20: z.boolean().nullable(),
   news: z.array(z.object({ id: z.string(), headline: z.string(), observedAt: timestamp, source: z.string(), assessment: newsAssessment.optional(), facts: newsFacts.optional() })),
-  dailyCloses: z.array(z.object({ tradingDate: date, close: finite.positive(), availableAt: timestamp })), issue: z.string().optional() });
+  dailyCloses: z.array(z.object({ tradingDate: date, close: finite.positive(), availableAt: timestamp })), issue: z.string().optional(),
+  riskDesignation: z.string().optional() });
 const cost = z.object({ version: z.string(), buyFeeRate: finite.nonnegative(), sellFeeRate: finite.nonnegative(),
   sellTaxRate: finite.nonnegative(), slippageRate: finite.nonnegative() });
 const exit = z.object({ model: z.enum(['SCHEDULED_CLOSE', 'ADAPTIVE_OBSERVED']), snapshotId: z.string(), effectiveAt: timestamp,
@@ -77,7 +78,8 @@ const trade = z.object({ id: z.string(), strategyVersion: version, symbol, name:
   scheduledExitDate: date, scheduledExitAt: timestamp, exit: exit.nullable(), measurement: paperTradeMeasurementSchema.optional(),
   exitPolicy: paperAdaptiveExitPolicySchema.optional(), exitResearch: paperAdaptiveExitResearchSchema.optional(),
   morningRecommendation: z.object({ reportId: z.string(), rank: finite.int().min(1).max(3), purpose: z.enum(['VALIDATED', 'EXPLORATION']),
-    recommendedAt: timestamp, sentAt: timestamp, matchesEntryRule: z.boolean() }).optional() });
+    recommendedAt: timestamp, sentAt: timestamp, matchesEntryRule: z.boolean() }).optional(),
+  priceBasis: z.object({ factor: finite.positive(), referenceDate: date, checkedAt: timestamp }).optional() });
 const ledgerSchema = z.object({ schemaVersion: z.literal(1), trades: z.array(trade), latestDecisions: z.array(decision),
   adaptive: adaptiveStateSchema.optional(), exitLearning: paperExitLearningSchema.optional(),
   lastMarketSession: z.object({ tradingDate: date, snapshotId: z.string(), asOf: timestamp, decisionCount: finite.int().nonnegative(),
@@ -175,6 +177,8 @@ export function assertPaperStrategyLedger(value: unknown): asserts value is Pape
       || toKstDateKey(new Date(item.entryAt)) !== item.tradingDate
       || item.entryObservation.news.some((news) => Date.parse(news.observedAt) > entryMs)
       || item.entryObservation.dailyCloses.some((close) => Date.parse(close.availableAt) > entryMs)
+      || (item.priceBasis && (item.priceBasis.factor === 1 || item.priceBasis.referenceDate >= item.tradingDate
+        || !(Date.parse(item.priceBasis.checkedAt) > entryMs)))
       || item.entryDecision.action !== 'BUY' || !validEntry
       || item.entryDecision.symbol !== item.symbol || item.entryDecision.name !== item.name || item.entryDecision.tradeId !== item.id
       || item.entryDecision.decisionAt !== item.entryAt || item.entryDecision.snapshotId !== item.entrySnapshotId

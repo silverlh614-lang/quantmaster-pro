@@ -6,7 +6,7 @@ const reasonLabels: Record<string, string> = {
   ADAPTIVE_RULE_NOT_MATCHED: '연결 지표의 진입 구간 밖',
   INSUFFICIENT_MATURE_SAMPLES: '완료 표본 누적 중', INSUFFICIENT_ENTRY_DATES: '진입일 누적 중',
   NON_POSITIVE_EXPECTANCY: '양수 기대 성과 없음', TREND_UNKNOWN: '추세 자료 확인 대기',
-  MARKET_CLOSED: '장 시작 대기', CURRENT_PRICE_UNAVAILABLE: '현재가 확인 대기',
+  MARKET_CLOSED: '장 시작 대기', CURRENT_PRICE_UNAVAILABLE: '현재가 확인 대기', RISK_DESIGNATED: '위험 지정 종목 제외',
   OBSERVATION_TIME_INVALID: '관측 시각 확인 필요', ALREADY_ENTERED_TODAY: '오늘 진입 완료',
   HORIZON_PENDING: '예약 청산 시각 전', SCHEDULED_CLOSE_UNAVAILABLE: '예정 시각 도래 · 확정 종가 대기',
   ADAPTIVE_EXIT_HOLD: '관측 매도 조건 미충족', ADAPTIVE_EXIT_QUOTE_UNAVAILABLE: '매도 판단용 새 가격 대기',

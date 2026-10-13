@@ -6,6 +6,7 @@ import type { PaperStrategyLedger, PaperStrategyTrade } from '../../../src/types
 import { tradeSignalIdentity } from '../../../src/utils/paperTradeReview.js';
 import { isKrxTradingDay, toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { accountEntryRefusal, isAccountRuleSignal, selectAccountPolicy } from './paperAccountSelection.js';
+import { PAPER_PRICE_BASIS_UNCONFIRMED, paperTradeObservation } from './paperPriceBasis.js';
 
 export const ACCOUNT_QUOTE_MAX_AGE_MS = 120_000;
 /** Without orders, marks or policy changes, the processed time is still persisted at this interval. */
@@ -73,13 +74,16 @@ export function buildPaperAccountView(account: PaperAccountLedger | null, asOf: 
     unrealizedPnl: complete ? money(positions.reduce((sum, position) => sum + position.unrealizedPnl!, 0)) : null,
     returnPct: equity === null ? null : (equity / account.config.initialCash - 1) * 100 };
 }
-function assessQuote(snapshot: PaperSnapshot, symbol: string, notBefore?: string): { quote: PaperAccountQuote | null; refusal: string | null } {
-  const observation = snapshot.observations.find(item => item.symbol === symbol);
+function assessQuote(snapshot: PaperSnapshot, symbol: string, notBefore?: string, holding?: PaperStrategyTrade): { quote: PaperAccountQuote | null; refusal: string | null } {
+  const found = snapshot.observations.find(item => item.symbol === symbol);
+  // A holding is valued and sold on its entry price basis after a KIS re-basing (병합·분할 등).
+  const observation = holding ? paperTradeObservation(holding, found) : found;
   const age = Date.parse(snapshot.asOf) - Date.parse(observation?.observedAt ?? '');
   let refusal: string | null = null;
   if (!snapshot.marketOpen || !isKrxTradingDay(snapshot.tradingDate)) refusal = '정규장 실측 가격 대기';
   else if (!observation) refusal = '해당 종목 가격 관측 없음';
   else if (observation.issue === 'TRADING_HALTED') refusal = ACCOUNT_HALT_WAIT;
+  else if (observation.issue === PAPER_PRICE_BASIS_UNCONFIRMED) refusal = '하루 가격 제한폭을 넘는 가격 변화 · 주식 수 변경(병합·분할 등) 확인 대기';
   else if (observation.issue) refusal = `가격 수집 오류: ${observation.issue}`;
   else if (!['KIS', 'KIS_REST_REQUEST_OBSERVED', 'KRX'].includes(observation.source)) refusal = '체결에 사용할 수 없는 가격 출처';
   else if (!Number.isFinite(observation.price) || observation.price! <= 0) refusal = '유효한 현재가 없음';
@@ -130,9 +134,9 @@ export function advancePaperAccount(current: PaperAccountLedger, strategy: Paper
   const orders = new Map(account.orders.map(order => [order.id, order]));
   // Exits release cash before new signals compete for the remaining budget.
   for (const buy of accountBalances(account).buys.values()) {
-    const { quote, refusal } = assessQuote(snapshot, buy.symbol);
-    if (quote && Date.parse(quote.observedAt) >= Date.parse(account.marks[buy.tradeId]?.observedAt ?? buy.fill!.quote.observedAt)) account.marks[buy.tradeId] = quote;
     const trade = signals.get(buy.tradeId);
+    const { quote, refusal } = assessQuote(snapshot, buy.symbol, undefined, trade);
+    if (quote && Date.parse(quote.observedAt) >= Date.parse(account.marks[buy.tradeId]?.observedAt ?? buy.fill!.quote.observedAt)) account.marks[buy.tradeId] = quote;
     if (!trade?.exit || Date.parse(trade.exit.decisionAt) > now) continue;
     let sell = orders.get(`${buy.tradeId}:SELL`);
     if (!sell) { sell = orderFor(trade, 'SELL', snapshot); sell.quantity = buy.quantity; account.orders.push(sell); orders.set(sell.id, sell); }

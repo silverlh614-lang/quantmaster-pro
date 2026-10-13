@@ -80,6 +80,19 @@ describe('paper strategy lifecycle', () => {
     const resumed = evaluatePaperHoldingPrices(held, { ...quote('2026-09-18T01:06:00Z', 9400), quoteOnly: true });
     expect(resumed.trades[0].exit).toMatchObject({ price: 9400, observedTrigger: { reason: 'ADAPTIVE_STOP_LOSS' } });
   });
+  it('never opens a risk-designated stock but keeps selling rules for one already held', () => {
+    const designated = adaptiveTestSnapshot();
+    designated.observations[0].riskDesignation = '정리매매';
+    const waited = evaluatePaperStrategyScan(emptyStrategyLedger(), designated, strategyTestCost, state());
+    expect(waited.trades).toHaveLength(0);
+    expect(waited.latestDecisions[0]).toMatchObject({ action: 'WAIT', reasonCode: 'RISK_DESIGNATED',
+      reason: '위험 지정 종목(정리매매) · 진입 대상에서 제외' });
+    expect(waited.lastMarketSession?.reasonCounts).toEqual({ RISK_DESIGNATED: 1 });
+    expect(() => assertPaperStrategyLedger(JSON.parse(JSON.stringify(waited)))).not.toThrow();
+    const loss = quote('2026-09-18T01:05:00Z', 9400);
+    loss.observations[0].riskDesignation = '관리종목';
+    expect(evaluatePaperStrategyScan(enter(), loss, strategyTestCost, state()).trades[0].exit?.observedTrigger?.reason).toBe('ADAPTIVE_STOP_LOSS');
+  });
   it('preserves the latest intraday reason counts through after-hours scans and restart', () => {
     const snapshot = strategyTestSnapshot();
     let result = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, inactive());

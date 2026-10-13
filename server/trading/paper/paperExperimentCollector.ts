@@ -7,6 +7,7 @@ import { loadDartAlerts } from '../../persistence/dartRepo.js';
 import { loadNewsSupplyRecords } from '../../learning/newsSupplyLogger.js';
 import { toKstDateKey, isKrxTradingDay, previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { collectUnifiedSnapshot } from '../symbolDataCollector.js';
+import { isRiskDesignatedStock } from '../riskDesignationClassifier.js';
 import { researchBarFields } from './paperResearchFeatures.js';
 import { assessPaperNews, recordPaperNewsFacts } from './paperNewsAssessment.js';
 import { observePaperInvestorFlow } from './paperInvestorFlowCollector.js';
@@ -110,6 +111,8 @@ export async function collectPaperExperimentSnapshot(
     const previousClose = priorCloses.find((item) => item.tradingDate === priorDates[0]);
     const fifthClose = priorCloses.find((item) => item.tradingDate === priorDates[4]);
     const price = validQuote ? quote!.currentPrice : null;
+    // ADR-0700: the scan's full quote carries the KRX designation; refreshed multi-stock quotes carry none.
+    const risk = data?.quote?.code === symbol ? isRiskDesignatedStock(data.quote.designation) : { excluded: false };
     const average20 = priorCloses.length >= 20 ? priorCloses.slice(0, 20).reduce((sum, item) => sum + item.close, 0) / 20 : null;
     return {
       symbol, name: names.get(symbol) || data?.name || symbol,
@@ -123,6 +126,7 @@ export async function collectPaperExperimentSnapshot(
       features: calculatePaperFeatures({ symbol, price, dailyCloses }, asOf, data?.paperFinancials ?? null,
         validQuote ? quote?.per ?? null : null),
       ...(issue ? { issue } : {}),
+      ...(risk.excluded && risk.reason ? { riskDesignation: risk.reason.replace(/^RISK_DESIGNATED:/, '') } : {}),
     };
   });
   addPaperPeerComparison(observations);

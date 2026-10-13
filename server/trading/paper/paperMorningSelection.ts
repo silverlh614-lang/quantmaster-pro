@@ -79,6 +79,8 @@ export function buildPaperMorningSelection(source: PaperMorningSource | null, no
       || !(Date.parse(closes[0].availableAt) <= sourceMs)) continue;
     result.consideredCount++;
     if (held.has(observation.symbol)) { result.heldCount++; continue; }
+    // ADR-0700: a risk-designated stock is never recommended, as it would never be bought.
+    if (observation.riskDesignation) continue;
     let best: PaperMorningPick | undefined;
     const consider = (candidate: PaperAdaptiveCandidate, purpose: PaperMorningPick['purpose'], trial?: PaperMorningPick['trial']) => {
       if (!adaptiveRuleMatches(observation, candidate.rule, snapshot.asOf)) return;
