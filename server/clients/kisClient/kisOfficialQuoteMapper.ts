@@ -210,7 +210,7 @@ function readStringFromAliases(row: Record<string, unknown> | null, aliases: rea
  * 존재하지 않으면 undefined 를 반환해(additive·결손≠위험) 기존 consumer 동작을 보존한다.
  * 'Y' 플래그는 boolean 으로, 코드 필드는 원본 문자열로 보존(분류기가 코드셋 판정).
  */
-function extractDesignation(row: Record<string, unknown> | null): KisOfficialDesignation | undefined {
+export function extractDesignation(row: Record<string, unknown> | null): KisOfficialDesignation | undefined {
   if (!row) return undefined;
   const iscdStatCode = readStringFromAliases(row, KIS_DESIGNATION_RAW_ALIASES.iscdStatCode);
   const marketWarnCode = readStringFromAliases(row, KIS_DESIGNATION_RAW_ALIASES.marketWarnCode);

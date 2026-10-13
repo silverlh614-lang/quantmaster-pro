@@ -8,6 +8,7 @@ import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { getExecutionCostConfig, type Market } from '../executionCosts.js';
 import { calculatePaperReturn } from './paperAccounting.js';
+import { paperPriceBasisFactor } from './paperPriceBasis.js';
 import { PAPER_NEWS_LOOKBACK_HOURS, PAPER_NEWS_VERSION, summarizePaperNews } from '../../../src/utils/paperNews.js';
 import { buildPaperInvestorFlowStudy } from './paperInvestorFlowStudy.js';
 import { buildPaperNewsFactsStudy } from './paperNewsFactsStudy.js';
@@ -106,7 +107,9 @@ export function updatePaperOutcomes(
       && Date.parse(item.availableAt) >= Date.parse(`${tradingDate}T15:30:00+09:00`));
     if (!close) continue;
     const entry = experiment.entryPrice;
-    const exit = close.close;
+    // Closes after a KIS re-basing (병합·분할 등) are read on the entry basis.
+    const exit = close.close / (paperPriceBasisFactor(experiment.entryObservation.dailyCloses, observation.dailyCloses,
+      experiment.tradingDate)?.factor ?? 1);
     const outcome: PaperOutcome = {
       horizon, tradingDate, availableAt: close.availableAt, exitPrice: exit,
       ...calculatePaperReturn(entry, exit, experiment.costModel),

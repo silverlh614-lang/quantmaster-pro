@@ -61,6 +61,24 @@ describe('paper observation collector', () => {
     // The minute monitor learns both statuses from these full quotes.
     expect([paperTradingHaltStatus('005930'), paperTradingHaltStatus('000660')]).toEqual([true, false]);
   });
+  it('records the KRX risk designation from the scan quote without dropping the stock from observation', async () => {
+    mocks.watchlist.mockReturnValue([{ code: '005930', name: 'Samsung', section: 'MOMENTUM' }, { code: '000660', name: 'Hynix', section: 'MOMENTUM' },
+      { code: '084180', name: 'Suseong', section: 'MOMENTUM' }]);
+    mocks.collect.mockImplementationOnce(async () => {
+      const fetchedAt = new Date().toISOString();
+      return { perSymbol: {
+        '005930': { quote: { code: '005930', currentPrice: 10000, fetchedAt, designation: { marketWarnCode: '00', iscdStatCode: '55' } }, dailyBars: [] },
+        '000660': { quote: { code: '000660', currentPrice: 20000, fetchedAt, designation: { marketWarnCode: '02' } }, dailyBars: [] },
+        '084180': { quote: { code: '084180', currentPrice: 500, fetchedAt, designation: { liquidation: true } }, dailyBars: [] },
+      } };
+    });
+    const result = await collectPaperExperimentSnapshot([]);
+    const bySymbol = new Map(result.observations.map(item => [item.symbol, item]));
+    expect(bySymbol.get('005930')!.riskDesignation).toBeUndefined();
+    expect(bySymbol.get('000660')).toMatchObject({ price: 20000, riskDesignation: '투자경고' });
+    expect(bySymbol.get('084180')).toMatchObject({ price: 500, riskDesignation: '정리매매' });
+    expect(bySymbol.get('084180')!.issue).toBeUndefined();
+  });
   it('marks a stock halted during a slow scan when its single-quote refresh reports the halt', async () => {
     mocks.collect.mockImplementationOnce(async () => {
       const fetchedAt = new Date().toISOString();

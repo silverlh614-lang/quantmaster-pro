@@ -7,6 +7,7 @@ import type { PaperStrategyLedger, PaperStrategyTrade, PaperTradeMeasurementPoin
 import { isKrxTradingDay, toKstDateKey } from '../../calendar/krxTradingCalendar.js';
 import { calculatePaperReturn } from './paperAccounting.js';
 import { adaptiveFeatureValue, adaptiveRuleMatches } from './paperAdaptiveSelection.js';
+import { paperTradeObservation } from './paperPriceBasis.js';
 
 type RulePoint = Pick<PaperTradeMeasurementPoint, 'ruleValue' | 'ruleMatches' | 'ruleConnected' | 'featureAsOf'>;
 const noRule: RulePoint = { ruleValue: null, ruleMatches: null, ruleConnected: null, featureAsOf: null };
@@ -103,7 +104,7 @@ export function capturePaperTradeMeasurements(ledger: PaperStrategyLedger, snaps
         ...net(trade, trade.entryPrice), action: 'BUY', reasonCode: decision.reasonCode,
         ...readPaperTradeRulePoint(trade, observation, ledger, snapshot) };
     } else {
-      const observation = observations.get(trade.symbol);
+      const observation = paperTradeObservation(trade, observations.get(trade.symbol));
       if (!observation || decision.action !== 'HOLD' || !isPaperTradeQuoteAllowed(trade, observation, snapshot)) continue;
       if (trade.policy.exitModel === 'ADAPTIVE_OBSERVED' && decision.reasonCode !== 'ADAPTIVE_EXIT_HOLD') continue;
       point = { snapshotId: snapshot.id, kind: 'QUOTE', effectiveAt: observation.observedAt, observedAt: observation.observedAt,

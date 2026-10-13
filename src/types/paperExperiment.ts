@@ -88,6 +88,8 @@ export interface PaperObservation {
   investorFlow?: PaperInvestorFlow;
   features?: PaperObservationFeatures;
   issue?: string;
+  /** KIS 위험·경고 지정(정리매매·관리종목·투자주의/경고/위험·단기과열 등). 새 가상 매수와 아침 추천에서만 제외한다. */
+  riskDesignation?: string;
 }
 
 export interface PaperSnapshot {

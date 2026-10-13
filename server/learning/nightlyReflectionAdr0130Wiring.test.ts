@@ -165,32 +165,29 @@ describe('buildActiveFailurePatternSummaries (ADR-0130 PR-Fix-2)', () => {
   });
 
   it('2. 패턴 8건 + topN=5 → 5건 + exitDate 내림차순', async () => {
+    // savedAt 이 180일 보관 기한(FAILURE_PATTERN_TTL_DAYS) 안에 있도록 실제 오늘 기준 날짜를 쓴다.
     const patterns = [
-      makePattern('p1', '2026-04-20', -5),
-      makePattern('p2', '2026-04-22', -7),
-      makePattern('p3', '2026-04-25', -3),
-      makePattern('p4', '2026-04-15', -10),
-      makePattern('p5', '2026-04-28', -8),
-      makePattern('p6', '2026-04-29', -2),
-      makePattern('p7', '2026-04-10', -6),
-      makePattern('p8', '2026-04-26', -4),
+      makePattern('p1', shiftDate(TODAY, -10), -5),
+      makePattern('p2', shiftDate(TODAY, -8), -7),
+      makePattern('p3', shiftDate(TODAY, -5), -3),
+      makePattern('p4', shiftDate(TODAY, -15), -10),
+      makePattern('p5', shiftDate(TODAY, -2), -8),
+      makePattern('p6', shiftDate(TODAY, -1), -2),
+      makePattern('p7', shiftDate(TODAY, -20), -6),
+      makePattern('p8', shiftDate(TODAY, -4), -4),
     ];
     writeFailurePatterns(tmpDir, patterns);
     const { buildActiveFailurePatternSummaries } = await import('./nightlyReflectionEngine.js');
     const out = buildActiveFailurePatternSummaries(5);
     expect(out.length).toBe(5);
-    expect(out[0].id).toBe('p6'); // 04-29
-    expect(out[1].id).toBe('p5'); // 04-28
-    expect(out[2].id).toBe('p8'); // 04-26
-    expect(out[3].id).toBe('p3'); // 04-25
-    expect(out[4].id).toBe('p2'); // 04-22
+    expect(out.map(item => item.id)).toEqual(['p6', 'p5', 'p8', 'p3', 'p2']);
   });
 
   it('3. exitDate ISO → YYYY-MM-DD 추출', async () => {
-    writeFailurePatterns(tmpDir, [makePattern('p1', '2026-04-25', -8)]);
+    writeFailurePatterns(tmpDir, [makePattern('p1', shiftDate(TODAY, -3), -8)]);
     const { buildActiveFailurePatternSummaries } = await import('./nightlyReflectionEngine.js');
     const out = buildActiveFailurePatternSummaries(5);
-    expect(out[0].exitDate).toBe('2026-04-25');
+    expect(out[0].exitDate).toBe(shiftDate(TODAY, -3));
   });
 
   it('4. topN=0 → 빈 배열 / 음수 → 빈 배열 (안전 fallback)', async () => {

@@ -13,6 +13,7 @@ import { paperAdaptiveRuleLabel, type PaperAdaptiveCandidate, type PaperAdaptive
 import { adaptiveFeatureValue, adaptiveRuleMatches, PAPER_ADAPTIVE_POLICY } from './paperAdaptiveSelection.js';
 import { advancePaperExitResearch, freezePaperExitPolicy, initializePaperExitResearch, selectPaperExitLearning } from './paperAdaptiveExit.js';
 import { readPaperTradeRulePoint } from './paperTradeMeasurements.js';
+import { PAPER_PRICE_BASIS_UNCONFIRMED, paperTradeObservation } from './paperPriceBasis.js';
 import { allocatePaperAutonomyEntry, recoverPaperAutonomyState } from './paperAutonomyAllocation.js';
 
 export const ADAPTIVE_STRATEGY_POLICY = Object.freeze({ version: PAPER_ADAPTIVE_POLICY.version,
@@ -79,12 +80,17 @@ function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, a
     return wait('CURRENT_PRICE_UNAVAILABLE', observation.issue === 'TRADING_HALTED'
       ? '거래정지 종목 · 진입 대상에서 제외' : '유효한 현재가를 확인할 수 없어 진입 대기');
   }
+  // ADR-0700: the LIVE risk-designation exclusion (ADR-0658) applies to new Shadow buys; holdings keep their exit rules.
+  if (observation.riskDesignation) return wait('RISK_DESIGNATED', `위험 지정 종목(${observation.riskDesignation}) · 진입 대상에서 제외`);
   return adaptiveEntryDecision(snapshot, observation, adaptive);
 }
 
-function closeDecision(trade: PaperStrategyTrade, snapshot: PaperSnapshot, ledger: PaperStrategyLedger, observation?: PaperObservation): PaperStrategyDecision {
+function closeDecision(trade: PaperStrategyTrade, snapshot: PaperSnapshot, ledger: PaperStrategyLedger, observed?: PaperObservation): PaperStrategyDecision {
+  // Prices after a KIS re-basing (병합·분할 등) are read on the entry basis; an unconfirmed jump carries no price.
+  const observation = paperTradeObservation(trade, observed, snapshot.asOf);
   const evidence = trade.entryDecision.evidence;
-  const carry = (result: PaperStrategyDecision): PaperStrategyDecision => ({ ...result,
+  const basis = trade.priceBasis ? ` · 주식 수 변경 반영(KIS 가격 ÷ ${Number(trade.priceBasis.factor.toFixed(4))})` : '';
+  const carry = (result: PaperStrategyDecision): PaperStrategyDecision => ({ ...result, reason: `${result.reason}${basis}`,
     ...(trade.entryDecision.allocation ? { allocation: structuredClone(trade.entryDecision.allocation) } : {}),
     ...(trade.entryDecision.adaptiveEvidence ? { adaptiveEvidence: structuredClone(trade.entryDecision.adaptiveEvidence) } : {}),
     ...(trade.entryDecision.explorationEvidence ? { explorationEvidence: structuredClone(trade.entryDecision.explorationEvidence) } : {}) });
@@ -96,6 +102,7 @@ function closeDecision(trade: PaperStrategyTrade, snapshot: PaperSnapshot, ledge
       update.quoteAccepted ? 'ADAPTIVE_EXIT_HOLD' : 'ADAPTIVE_EXIT_QUOTE_UNAVAILABLE',
       update.quoteAccepted ? '새 가격 확인 · 손실 제한·수익 반납·진입 근거 약화 조건 미충족, D일 강제 청산 없음'
         : observation?.issue === 'TRADING_HALTED' ? '거래정지 · 멈춘 가격으로 매도 판단하지 않고 정지 해제 후 첫 유효 가격을 기다립니다.'
+        : observation?.issue === PAPER_PRICE_BASIS_UNCONFIRMED ? '하루 가격 제한폭을 넘는 가격 변화 · 주식 수 변경(병합·분할 등)을 일봉으로 확인할 때까지 매도 판단 대기'
         : '매도 판단용 유효한 새 장중 가격 대기 · 누락 자료를 매도 신호로 취급하지 않습니다.', evidence, trade.id));
     const reasons = { ADAPTIVE_STOP_LOSS: '비용 차감 손실 제한', ADAPTIVE_TRAILING_STOP: '관측 수익 고점 대비 반납',
       ADAPTIVE_SIGNAL_LOST: '진입 조건의 지속적인 약화' };
@@ -143,7 +150,7 @@ export function evaluatePaperStrategyScan(
   const decisions: PaperStrategyDecision[] = [];
   const handled = new Set<string>();
   for (const trade of ledger.trades.filter(item => item.status === 'CLOSED' && item.exitResearch && !item.exitResearch.completedAt)) {
-    trade.exitResearch = advancePaperExitResearch(trade, snapshot, observations.get(trade.symbol)).research;
+    trade.exitResearch = advancePaperExitResearch(trade, snapshot, paperTradeObservation(trade, observations.get(trade.symbol), snapshot.asOf)).research;
   }
   for (const trade of ledger.trades.filter((item) => item.status === 'OPEN')) {
     decisions.push(closeDecision(trade, snapshot, ledger, observations.get(trade.symbol)));
@@ -209,7 +216,7 @@ export function evaluatePaperHoldingPrices(input: PaperStrategyLedger, snapshot:
     if (!observation) continue;
     if (trade.status === 'OPEN') decisions.push(closeDecision(trade, snapshot, ledger, observation));
     else if (trade.exitResearch && !trade.exitResearch.completedAt) {
-      trade.exitResearch = advancePaperExitResearch(trade, snapshot, observation).research;
+      trade.exitResearch = advancePaperExitResearch(trade, snapshot, paperTradeObservation(trade, observation)).research;
     }
   }
   const replaced = new Set(decisions.map(item => item.symbol));
