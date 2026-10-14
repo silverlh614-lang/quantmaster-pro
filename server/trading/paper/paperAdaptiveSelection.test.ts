@@ -63,6 +63,26 @@ describe('dated autonomous feature selection', () => {
     expect(rsi(partlyValid).training.experimentIds).not.toContain(invalid[4].id);
   });
 
+  it('leaves outcomes that crossed a share-count re-basing out of research, judged only from earlier records', () => {
+    const asOf = adaptiveTestSnapshot().asOf, samples = matureAdaptiveSamples();
+    const mine = samples.filter(item => item.symbol === samples[0].symbol).sort((a, b) => a.entryAt.localeCompare(b.entryAt));
+    const split = Date.parse(mine[10].entryAt);
+    // Entries from the 11th date onward recorded the same past close five times higher, as KIS does after a 5:1 merge.
+    for (const item of mine) item.entryObservation.dailyCloses = [{ tradingDate: '2026-07-17',
+      close: Date.parse(item.entryAt) >= split ? 5000 : 1000, availableAt: '2026-07-17T07:00:00Z' }];
+    const clean = selectPaperAdaptiveState(undefined, matureAdaptiveSamples(), asOf);
+    const state = selectPaperAdaptiveState(undefined, samples, asOf);
+    expect(clean.rebasedOutcomeCount).toBeUndefined();
+    // Earlier outcomes whose next same-stock entry already saw the new basis are the ones left out.
+    const crossed = mine.slice(0, 10).flatMap(item => item.outcomes.filter(outcome =>
+      mine.find(later => Date.parse(later.entryAt) >= Date.parse(outcome.availableAt))!.entryAt >= mine[10].entryAt)).length;
+    expect(crossed).toBeGreaterThan(0);
+    expect(state.rebasedOutcomeCount).toBe(crossed);
+    expect(adaptiveStateSchema.safeParse(state).success).toBe(true);
+    // Records entered after the cutoff cannot reach back into an earlier evaluation.
+    const early = selectPaperAdaptiveState(undefined, samples, mine[10].entryAt.replace(/T.*/, 'T00:30:00Z'));
+    expect(early.rebasedOutcomeCount).toBeUndefined();
+  });
   it('uses only outcomes available strictly before the evaluation-day cutoff', () => {
     const samples = matureAdaptiveSamples(), cutoffAt = select(samples).cutoffAt;
     const first = samples.at(-8)!, second = samples.at(-7)!;

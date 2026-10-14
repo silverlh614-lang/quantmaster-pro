@@ -20,7 +20,8 @@ vi.mock('../../persistence/paperExperimentRepo.js', () => ({
   loadPaperExperimentLedger: () => structuredClone(state.ledger),
   savePaperExperimentLedger: (ledger: PaperExperimentLedger) => { state.ledger = structuredClone(ledger); },
 }));
-vi.mock('../../persistence/krxStockMasterRepo.js', () => ({ getStockByCode: () => ({ market: 'KOSPI' }) }));
+vi.mock('../../persistence/krxStockMasterRepo.js', () => ({ getStockByCode: () => ({ market: 'KOSPI' }),
+  getKrxMasterMetadata: () => ({ is_partial: false, stale: false, raw_krx_master_total: 2700 }) }));
 vi.mock('../../persistence/paperStorageMaintenance.js', () => ({
   runPaperStorageMaintenance: vi.fn(), readPaperStorageMaintenance: () => undefined,
 }));

@@ -83,7 +83,9 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
     lines.push(`최근 평가 ${stamp(state.evaluatedAt)} KST`, '',
       `✅ <b>검증 지표 자동 연결 ${active.length}개/최대 3개</b>`,
       ...(discovery ? [`이 중 발명 지표 ${active.filter(item => item.rule.invention).length}개`] : []),
-      ...(state.placebo ? [`🎲 무작위 대조 ${num(state.placebo.permutations)}회 · 검증 통과 실제 ${num(state.placebo.passedCount)}개, 무작위 평균 ${state.placebo.shuffledMeanPassedCount.toFixed(1)}개 · 우연히 이만큼 나올 확률 ${state.placebo.chancePct.toFixed(0)}%`] : []),
+      ...(state.placebo ? [state.placebo.passedCount
+        ? `🎲 무작위 대조 ${num(state.placebo.permutations)}회 · 검증 통과 실제 ${num(state.placebo.passedCount)}개, 무작위 평균 ${state.placebo.shuffledMeanPassedCount.toFixed(1)}개 · 우연히 이만큼 나올 확률 ${state.placebo.chancePct.toFixed(0)}%`
+        : `🎲 무작위 대조 ${num(state.placebo.permutations)}회 · 검증을 통과한 지표가 없어 비교 대상 없음`] : []),
       ...((wait => wait ? [validationWaitLine(wait)] : [])(paperValidationWait(state))));
     for (const item of active.slice(0, detail === 'full' ? 3 : 0)) {
       const chance = paperPlaceboChance(state, item.rule);
@@ -91,6 +93,10 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
         `${item.rule.invention ? '생성 후 검증' : '후반 검증'} ${num(item.validation.sampleCount)}건/${num(item.validation.dateCount)}일 · 일당 차이 ${pct(item.validation.meanDailyExcessPct, '%p')}${chance === null ? '' : ` · 무작위로 이 이상 ${chance.toFixed(0)}%`}`);
     }
     const exploration = state.exploration?.rules;
+    // Allocation stats are frozen at registration; today's entries come from the live trade list when it is complete.
+    const todayEntries = (rule: PaperAdaptiveRule) => strategy.trades.length === strategy.totalCount
+      ? strategy.trades.filter(trade => trade.tradingDate === state.tradingDate && trade.entryDecision.explorationEvidence
+        && paperAutonomyRuleKey(trade.entryDecision.explorationEvidence.candidate.rule) === paperAutonomyRuleKey(rule)).length : null;
     lines.push('', '🧪 <b>탐색 가상매수 · 검증 전</b>', !exploration ? '등록 확인 대기'
       : exploration.some(trial => !known(trial.registeredAt, cutoff)) ? '탐색 등록 시각 확인 필요'
         : `연결 ${exploration.length}개/최대 2개 · 수익성 검증 전`);
@@ -100,7 +106,7 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
       const entry = autonomy?.entries.find(item => item.ruleKey === paperAutonomyRuleKey(trial.candidate.rule));
       if (autonomy && known(autonomy.evaluatedAt, cutoff) && entry) lines.push(
         `${PAPER_AUTONOMY_REASON_LABELS[entry.reason]} · 상대 배분 ${entry.weight}`,
-        `실제 탐색 평가 ${entry.stats.sampleCount}건/${entry.stats.dateCount}진입일 · 진행 ${entry.stats.pendingCount}건`);
+        `실제 탐색 평가 ${entry.stats.sampleCount}건/${entry.stats.dateCount}진입일${(count => count === null ? '' : ` · 오늘 진입 ${count}건`)(todayEntries(trial.candidate.rule))}`);
     }
     if (state.exploration?.autonomy?.status === 'FALLBACK' && known(state.exploration.autonomy.evaluatedAt, cutoff)) lines.push('자율 배분 확인 필요 · 기존 순환·균등 배정 사용');
     if (discovery) lines.push('', '🧬 <b>새 지표 연구</b>', `발명 ${discovery.round}차 · 이번 회차 검토 ${discovery.attemptedIds.length}개 · 보관 ${discovery.inventions.length}개`,
@@ -122,6 +128,7 @@ export function formatPaperAdaptiveSummary(view: PaperExperimentView, now: Date,
       else lines.push('보유기간별 표본 집계 확인 대기');
     }
     lines.push(`${state.policy.maturityModel === 'per-horizon-v1' ? '한 보유기간 이상 확정 표본' : '성숙 관측'} ${num(state.matureSampleCount)}건/${num(state.matureDateCount)}진입일`);
+    if (state.rebasedOutcomeCount) lines.push(`주식 수 변경(병합·분할 등)에 걸린 과거 결과 ${num(state.rebasedOutcomeCount)}건은 연구 계산에서 제외`);
     if (detail === 'full') lines.push('D1·D3·D5는 성과 비교 시점이며 매도 예약일이 아닙니다.',
       ...(state.placebo ? [`무작위 대조는 종목끼리 수익 기록을 바꿔 같은 검증을 반복합니다. 확률이 낮을수록 우연이 아닐 가능성이 큽니다.${state.policy.activationModel ? ` 규칙별 ${PAPER_ACTIVATION_GATE.maxChancePct}% 이하(연결 유지 ${PAPER_ACTIVATION_GATE.retainedMaxChancePct}% 이하)만 매수에 연결합니다.` : ''}`] : []),
       '발명 지표의 조합값은 재료를 기준값으로 환산한 값입니다. 수식·해설은 대시보드에서 확인하세요.');

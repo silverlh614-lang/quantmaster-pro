@@ -10,7 +10,8 @@ const state = vi.hoisted(() => ({ directory: '', build: vi.fn(), index: {
 vi.mock('../../persistence/paths.js', () => ({ get DATA_DIR() { return state.directory; } }));
 vi.mock('./paperResearch.js', () => ({ buildPaperResearch: state.build }));
 vi.mock('./paperIndexCollection.js', () => ({ getPaperIndexSeries: () => state.index }));
-vi.mock('../../persistence/krxStockMasterRepo.js', () => ({ getStockByCode: () => null }));
+vi.mock('../../persistence/krxStockMasterRepo.js', () => ({ getStockByCode: () => null,
+  getKrxMasterMetadata: () => ({ is_partial: true, stale: true, raw_krx_master_total: 0 }) }));
 const load = () => import('./paperResearchRuntime.js');
 const at = (value: string) => vi.setSystemTime(value);
 

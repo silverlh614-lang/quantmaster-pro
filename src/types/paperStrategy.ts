@@ -254,7 +254,9 @@ export interface PaperStrategyView {
   openCount: number;
   /** Open trades split by strategy; scheduled closes past their date show a close that never arrived. */
   openBreakdown?: { current: number; legacy: number; overdueScheduledCount: number;
-    oldestOverdue: { exitDate: string; symbol: string; name: string } | null };
+    oldestOverdue: { exitDate: string; symbol: string; name: string } | null;
+    /** Past-due scheduled closes of stocks no longer in the KRX listing; they can never close. */
+    delisted?: Array<{ symbol: string; name: string }> };
   performance: PaperStrategyPerformance;
   performanceByVersion?: Partial<Record<PaperStrategyVersion, PaperStrategyPerformance>>;
   performanceByPurpose?: Record<'VALIDATED' | 'EXPLORATION', PaperStrategyPerformance & { openCount: number }>;
