@@ -2,7 +2,7 @@
 import type { PaperExperiment, PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import type { PaperStrategyLedger, PaperStrategyScanResult, PaperStrategyTrade, PaperTradeMeasurementRow } from '../../../src/types/paperStrategy.js';
 import { loadPaperStrategyLedger, savePaperStrategyLedger } from '../../persistence/paperStrategyRepo.js';
-import { getStockByCode } from '../../persistence/krxStockMasterRepo.js';
+import { getKrxMasterMetadata, getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { capturePaperCostModel, trimArchivedEntryBars } from './paperExperimentPolicy.js';
 import { buildPaperStrategyView, evaluatePaperStrategyScan, evaluatePaperHoldingPrices } from './paperStrategyPolicy.js';
 import { getArchivedPaperBarCheck } from './paperResearchRuntime.js';
@@ -17,6 +17,8 @@ import { captureVirtualAccount } from './paperAccountRuntime.js';
 
 export interface PaperStrategyState { ledger: PaperStrategyLedger | null; error?: string }
 let lastFailure: string | undefined;
+/** KOSPI and KOSDAQ together list well over this; a smaller master is a failed download, not mass delisting. */
+const KRX_LISTING_MINIMUM = 2000;
 
 export function loadPaperStrategyState(): PaperStrategyState {
   try {
@@ -76,9 +78,21 @@ export function advancePaperStrategy(
   }
 }
 
+/** Only a complete, fresh KRX listing may call a stock delisted; anything else leaves the judgement out. */
+function krxListingCheck(): ((symbol: string) => boolean) | undefined {
+  try {
+    const master = getKrxMasterMetadata();
+    if (master.is_partial || master.stale || master.raw_krx_master_total < KRX_LISTING_MINIMUM) return undefined;
+    return symbol => getStockByCode(symbol) !== null;
+  } catch (error) {
+    console.warn('[PaperStrategy] KRX 종목 목록 확인 실패 · 상장폐지 판정 생략:', error instanceof Error ? error.message : String(error));
+    return undefined;
+  }
+}
+
 export function readPaperStrategyView(includeAllRecords = false, experiments?: PaperExperiment[], state = loadPaperStrategyState()) {
   const ledger: PaperStrategyLedger = state.ledger ?? { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null };
-  const view = buildPaperStrategyView(ledger, state.error ?? lastFailure);
+  const view = buildPaperStrategyView(ledger, state.error ?? lastFailure, krxListingCheck());
   if (view.adaptive) view.adaptive = { ...view.adaptive, programResearch: readPaperProgramResearch(view.adaptive) };
   view.measurementHistory = readPaperTradeMeasurementHistory(ledger);
   if (includeAllRecords) view.trades = [...ledger.trades].reverse();

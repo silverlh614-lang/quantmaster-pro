@@ -28,7 +28,8 @@ vi.mock('../../persistence/paperTradeMeasurementRepo.js', () => ({
   savePaperTradeMeasurementBatch: state.saveBatch, recordPaperTradeMeasurementFailure: state.recordFailure,
   readPaperTradeMeasurementHistory: state.readHistory,
 }));
-vi.mock('../../persistence/krxStockMasterRepo.js', () => ({ getStockByCode: () => ({ market: 'KOSPI' }) }));
+vi.mock('../../persistence/krxStockMasterRepo.js', () => ({ getStockByCode: () => ({ market: 'KOSPI' }),
+  getKrxMasterMetadata: () => ({ is_partial: false, stale: false, raw_krx_master_total: 2700 }) }));
 vi.mock('./paperExperimentCollector.js', () => ({ collectPaperExperimentSnapshot: state.collect, isPaperMarketOpen: () => false }));
 vi.mock('../../persistence/paperStorageMaintenance.js', () => ({
   runPaperStorageMaintenance: state.maintain, readPaperStorageMaintenance: () => undefined,

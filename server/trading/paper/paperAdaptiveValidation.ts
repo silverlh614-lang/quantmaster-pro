@@ -119,7 +119,7 @@ const horizonSamples = z.array(z.object({ horizon, matureSampleCount: count, mat
   .length(3).refine(value => new Set(value.map(item => item.horizon)).size === 3);
 export const adaptiveStateSchema = z.object({ policy, tradingDate: date, evaluatedAt: timestamp, cutoffAt: timestamp,
   windowStartDate: date.nullable(), validationStartDate: date.nullable(), matureSampleCount: count, matureDateCount: count,
-  horizonSamples: horizonSamples.optional(),
+  horizonSamples: horizonSamples.optional(), rebasedOutcomeCount: count.positive().optional(),
   candidates: z.array(candidate).min(PAPER_LEGACY_FEATURE_KEYS.length).max(Object.keys(PAPER_FEATURES).length + PAPER_MAX_INVENTIONS),
   discovery: discovery.optional(),
   exploration: exploration.optional(),

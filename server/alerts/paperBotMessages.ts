@@ -61,7 +61,8 @@ export function formatPaperReport(view: PaperExperimentView, kind: 'close' | 'st
     const closed = strategy.trades.filter(item => item.exit?.effectiveAt.startsWith(date)).length;
     lines.push(`전략: 오늘 가상 진입 ${opened} · 오늘 청산 ${closed} · 보유 ${strategy.openCount}`,
       ...(strategy.openBreakdown ? [`보유 구성: 현행 자율 ${num(strategy.openBreakdown.current)} · 구전략 ${num(strategy.openBreakdown.legacy)}${strategy.openBreakdown.overdueScheduledCount
-        ? ` · 예정일 지나 종가 미확인 ${num(strategy.openBreakdown.overdueScheduledCount)}건(가장 오래된 예정일 ${overdueLabel(strategy.openBreakdown.oldestOverdue)})` : ''}`] : []),
+        ? ` · 예정일 지나 종가 미확인 ${num(strategy.openBreakdown.overdueScheduledCount)}건(가장 오래된 예정일 ${overdueLabel(strategy.openBreakdown.oldestOverdue)})` : ''}${strategy.openBreakdown.delisted?.length
+        ? ` · 상장폐지로 종가 없음 ${num(strategy.openBreakdown.delisted.length)}건(${strategy.openBreakdown.delisted.slice(0, 2).map(item => `${escape(item.name)} ${item.symbol}`).join(', ')})` : ''}`] : []),
       `전체 전략 이력(구전략 포함) 청산 ${strategy.performance.closedCount}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`);
     const waiting = strategy.latestDecisions.filter(item => item.action === 'WAIT');
     const needsSamples = waiting.filter(item => item.reasonCode === 'INSUFFICIENT_MATURE_SAMPLES' || item.reasonCode === 'INSUFFICIENT_ENTRY_DATES').length;

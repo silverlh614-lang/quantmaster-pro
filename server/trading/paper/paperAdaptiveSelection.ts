@@ -9,6 +9,7 @@ import { PAPER_INVENTED_FEATURE_CUTS, paperIndicatorFormulaId, paperIndicatorFor
 import { toKstDateKey, isKrxTradingDay, previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
 import { addBusinessDaysFromKstDate } from '../krxHolidays.js';
 import { calculatePaperReturn } from './paperAccounting.js';
+import { paperPriceBasisFactor } from './paperPriceBasis.js';
 import { paperStrategyCohort, scheduledPaperClose } from './paperStrategyEvidence.js';
 import { discoverPaperIndicators } from './paperIndicatorDiscovery.js';
 import { selectPaperShadowExploration } from './paperShadowExploration.js';
@@ -51,10 +52,34 @@ export function adaptiveRuleMatches(observation: PaperObservation, rule: PaperAd
   return value !== null && value >= (cuts[rule.bucket - 1] ?? -Infinity) && value < (cuts[rule.bucket] ?? Infinity);
 }
 
-function matureRows(experiments: PaperExperiment[], cutoffAt: string): Row[] {
+/**
+ * An outcome recorded across a KIS re-basing (병합·분할 등) compared a raw entry price with a rescaled close. The first
+ * later entry of the same stock shows the rescaled series against this entry's recorded closes; such outcomes leave
+ * research (ADR-0701). Only records entered before the cutoff are compared, so the result is reproducible.
+ */
+type SymbolEntry = { at: number; experiment: PaperExperiment };
+function rebasedBefore(experiment: PaperExperiment, availableAt: string, entries: readonly SymbolEntry[]): boolean {
+  const at = Date.parse(availableAt);
+  let low = 0, high = entries.length;
+  while (low < high) { const middle = (low + high) >> 1; if (entries[middle].at < at) low = middle + 1; else high = middle; }
+  const next = entries[low]?.experiment;
+  const basis = next && paperPriceBasisFactor(experiment.entryObservation.dailyCloses, next.entryObservation.dailyCloses, experiment.tradingDate);
+  return Boolean(basis && basis.factor !== 1);
+}
+
+function matureRows(experiments: PaperExperiment[], cutoffAt: string, excluded = { rebased: 0 }): Row[] {
   const cutoff = Date.parse(cutoffAt), seen = new Set<string>(), rows: Row[] = [];
   const schedules = new Map<string, Array<{ date: string; closeAt: number }>>();
-  for (const experiment of [...experiments].sort((a, b) => a.entryAt.localeCompare(b.entryAt) || a.id.localeCompare(b.id))) {
+  const ordered = [...experiments].sort((a, b) => a.entryAt.localeCompare(b.entryAt) || a.id.localeCompare(b.id));
+  const bySymbol = new Map<string, SymbolEntry[]>();
+  for (const experiment of ordered) {
+    const at = Date.parse(experiment.entryAt);
+    if (!(at < cutoff)) continue;
+    const list = bySymbol.get(experiment.symbol);
+    if (list) list.push({ at, experiment }); else bySymbol.set(experiment.symbol, [{ at, experiment }]);
+  }
+  for (const list of bySymbol.values()) list.sort((a, b) => a.at - b.at);
+  for (const experiment of ordered) {
     const entryMs = Date.parse(experiment.entryAt), observation = experiment.entryObservation;
     const key = `${experiment.symbol}:${experiment.tradingDate}`;
     if (seen.has(key) || experiment.strategyVersion !== 'shadow-baseline-v1'
@@ -81,6 +106,7 @@ function matureRows(experiments: PaperExperiment[], cutoffAt: string): Row[] {
       const index = horizons.indexOf(horizon), { date, closeAt } = schedule[index];
       if (outcomes.length !== 1 || outcome.tradingDate !== date || !(outcome.exitPrice > 0) || !Number.isFinite(outcome.exitPrice)
         || !(Date.parse(outcome.availableAt) < cutoff) || !(Date.parse(outcome.availableAt) >= closeAt)) continue;
+      if (rebasedBefore(experiment, outcome.availableAt, bySymbol.get(experiment.symbol) ?? [])) { excluded.rebased++; continue; }
       const netReturn = calculatePaperReturn(experiment.entryPrice, outcome.exitPrice, experiment.costModel).netReturnPct;
       if (!Number.isFinite(netReturn)) continue;
       returns[index] = netReturn; availableAt[index] = Date.parse(outcome.availableAt);
@@ -305,7 +331,7 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
     && keys.every(key => previous.candidates.some(item => item.rule.feature === key));
   if (frozen && (previous.exploration?.rules.length || !observations.length)) return structuredClone(previous);
   const cutoffAt = new Date(`${tradingDate}T00:00:00+09:00`).toISOString();
-  const all = matureRows(experiments, cutoffAt);
+  const excluded = { rebased: 0 }, all = matureRows(experiments, cutoffAt, excluded);
   const dates = [...new Set(all.map(row => row.experiment.tradingDate))].sort()
     .filter(date => !frozen || (previous.windowStartDate !== null && date >= previous.windowStartDate)).slice(-PAPER_ADAPTIVE_POLICY.windowEntryDates);
   const validationStartDate = frozen ? previous.validationStartDate : dates[Math.floor(dates.length * PAPER_ADAPTIVE_POLICY.trainingFraction)] ?? null;
@@ -399,6 +425,7 @@ export function selectPaperAdaptiveState(previous: PaperAdaptiveState | undefine
     to: { feature: invention.id, ...invention.rule, invention: structuredClone(invention) }, reason: 'FORWARD_OBSERVATION' });
   return { policy: { ...PAPER_ADAPTIVE_POLICY }, tradingDate, evaluatedAt: asOf, cutoffAt,
     windowStartDate: dates[0] ?? null, validationStartDate, matureSampleCount: rows.length, matureDateCount: dates.length, horizonSamples,
+    ...(excluded.rebased ? { rebasedOutcomeCount: excluded.rebased } : {}),
     candidates: retainedCandidates.sort(rank), discovery: discovery.discovery, changes: changes.slice(-100), exploration: exploration(retainedCandidates),
     ...(placebo ? { placebo } : {}) };
 }

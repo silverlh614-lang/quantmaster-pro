@@ -79,6 +79,8 @@ export interface PaperAdaptiveState {
   windowStartDate: string | null; validationStartDate: string | null;
   matureSampleCount: number; matureDateCount: number;
   horizonSamples?: PaperAdaptiveHorizonSamples[];
+  /** Past outcomes left out of research because they crossed a KIS re-basing (병합·분할 등, ADR-0701). */
+  rebasedOutcomeCount?: number;
   candidates: PaperAdaptiveCandidate[];
   discovery?: PaperIndicatorDiscovery;
   exploration?: { version: 'shadow-exploration-v1'; sequence: number; rules: PaperExplorationTrial[]; autonomy?: PaperAutonomyState };

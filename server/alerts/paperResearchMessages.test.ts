@@ -62,9 +62,18 @@ describe('adaptive research summary', () => {
           lastSelectedAt: at, weight: 3, reason: 'INCREASE', stats: { totalCount: 15, closedCount: 12, pendingCount: 3,
             sampleCount: 10, dateCount: 3, meanNetReturnPct: 2, meanDateNetReturnPct: 1, standardErrorPct: 0.1,
             tradeIdsDigest: 'test-fixture' } }] } };
+    // Today's entries are counted live; the registration-time pending count is not shown.
+    const entered = closed('adaptive-features-v1', 1);
+    entered.tradingDate = adaptive.tradingDate;
+    entered.entryDecision = { ...entered.entryDecision, explorationEvidence: { candidate: { rule: invented.rule } } } as never;
+    current.strategy!.trades = [entered, { ...structuredClone(entered), tradingDate: '2026-09-01' }];
+    current.strategy!.totalCount = 2;
     const result = formatPaperAdaptiveSummary(current, now).join('\n');
     expect(result).toContain('탐색 기회를 늘립니다 · 상대 배분 3');
-    expect(result).toContain('실제 탐색 평가 10건/3진입일 · 진행 3건');
+    expect(result).toContain('실제 탐색 평가 10건/3진입일 · 오늘 진입 1건');
+    expect(result).not.toContain('진행 3건');
+    current.strategy!.totalCount = 3;
+    expect(formatPaperAdaptiveSummary(current, now).join('\n')).toContain('실제 탐색 평가 10건/3진입일\n');
     expect(result.length).toBeLessThanOrEqual(1900);
     expect(validateTelegramHtml(result).valid).toBe(true);
     adaptive.exploration.autonomy!.evaluatedAt = '2026-10-05T01:00:00Z';

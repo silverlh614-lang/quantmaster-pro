@@ -67,6 +67,10 @@ describe('Shadow operation checklist', () => {
     view.strategy = buildPaperStrategyView(ledger);
     expect(formatShadowChecklist({ view, account: accountView(), morning: morning(true), date, now }))
       .toContain(`⚠️ 예정일 지나 종가 미확인 1건 · 가장 오래된 예정일 9월 23일 A&amp;B ${stuck.symbol}`);
+    view.strategy = buildPaperStrategyView(ledger, undefined, symbol => symbol !== stuck.symbol);
+    const lines = formatShadowChecklist({ view, account: accountView(), morning: morning(true), date, now });
+    expect(lines).toContain(`✅ 상장폐지로 종가 없는 거래 1건 · 가격을 만들지 않고 보관 (A&amp;B ${stuck.symbol})`);
+    expect(lines.some(line => line.includes('예정일 지나 종가 미확인'))).toBe(false);
   });
   it('places the checklist near the top of the close report', () => {
     const view = viewFixture(), checklist = formatShadowChecklist({ view, account: accountView(), morning: morning(true), date, now });

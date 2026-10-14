@@ -227,7 +227,8 @@ export function evaluatePaperHoldingPrices(input: PaperStrategyLedger, snapshot:
   return ledger;
 }
 
-export function buildPaperStrategyView(ledger: PaperStrategyLedger, error?: string): PaperStrategyView {
+/** `listed` answers from a complete, fresh KRX listing only; without it no stock is called delisted. */
+export function buildPaperStrategyView(ledger: PaperStrategyLedger, error?: string, listed?: (symbol: string) => boolean): PaperStrategyView {
   const values = ledger.trades.flatMap((trade) => trade.status === 'CLOSED' && trade.exit ? [trade.exit] : []);
   const performanceByVersion: NonNullable<PaperStrategyView['performanceByVersion']> = {};
   for (const version of ['news-trend-v1', 'news-trend-v2', 'adaptive-features-v1'] as const) {
@@ -251,8 +252,11 @@ export function buildPaperStrategyView(ledger: PaperStrategyLedger, error?: stri
   const open = ledger.trades.filter(trade => trade.status === 'OPEN');
   const today = ledger.lastRun ? toKstDateKey(new Date(ledger.lastRun.asOf)) : null;
   // A close is normally read on the next scan; one still missing after its date has passed is reported, not guessed.
-  const overdue = today ? open.filter(trade => trade.policy.exitModel !== 'ADAPTIVE_OBSERVED' && trade.scheduledExitDate < today)
+  const late = today ? open.filter(trade => trade.policy.exitModel !== 'ADAPTIVE_OBSERVED' && trade.scheduledExitDate < today)
     .sort((a, b) => a.scheduledExitDate.localeCompare(b.scheduledExitDate) || a.symbol.localeCompare(b.symbol)) : [];
+  // A delisted stock never prints the close; it stays open without an invented price and is shown apart from late closes.
+  const delisted = listed ? late.filter(trade => !listed(trade.symbol)) : [];
+  const overdue = late.filter(trade => !delisted.includes(trade));
   // Naming the oldest stuck trade lets an operator look up why its close never arrived (e.g. a halt).
   const oldest = overdue[0];
   const current = open.filter(trade => trade.strategyVersion === ADAPTIVE_STRATEGY_POLICY.version).length;
@@ -260,7 +264,8 @@ export function buildPaperStrategyView(ledger: PaperStrategyLedger, error?: stri
     strategyVersion: ADAPTIVE_STRATEGY_POLICY.version,
     mode: 'SHADOW', policy: { ...ADAPTIVE_STRATEGY_POLICY },
     openBreakdown: { current, legacy: open.length - current, overdueScheduledCount: overdue.length,
-      oldestOverdue: oldest ? { exitDate: oldest.scheduledExitDate, symbol: oldest.symbol, name: oldest.name } : null },
+      oldestOverdue: oldest ? { exitDate: oldest.scheduledExitDate, symbol: oldest.symbol, name: oldest.name } : null,
+      ...(delisted.length ? { delisted: delisted.map(trade => ({ symbol: trade.symbol, name: trade.name })) } : {}) },
     ...(ledger.adaptive ? { adaptive: structuredClone(ledger.adaptive) } : {}),
     ...(ledger.exitLearning ? { exitLearning: structuredClone(ledger.exitLearning) } : {}),
     performanceByVersion, performanceByPurpose,
