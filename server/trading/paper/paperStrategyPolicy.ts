@@ -257,14 +257,13 @@ export function buildPaperStrategyView(ledger: PaperStrategyLedger, error?: stri
   // A delisted stock never prints the close; it stays open without an invented price and is shown apart from late closes.
   const delisted = listed ? late.filter(trade => !listed(trade.symbol)) : [];
   const overdue = late.filter(trade => !delisted.includes(trade));
-  // Naming the oldest stuck trade lets an operator look up why its close never arrived (e.g. a halt).
-  const oldest = overdue[0];
+  // Naming the oldest stuck trades lets an operator look up why their closes never arrived (e.g. a halt).
   const current = open.filter(trade => trade.strategyVersion === ADAPTIVE_STRATEGY_POLICY.version).length;
   return {
     strategyVersion: ADAPTIVE_STRATEGY_POLICY.version,
     mode: 'SHADOW', policy: { ...ADAPTIVE_STRATEGY_POLICY },
     openBreakdown: { current, legacy: open.length - current, overdueScheduledCount: overdue.length,
-      oldestOverdue: oldest ? { exitDate: oldest.scheduledExitDate, symbol: oldest.symbol, name: oldest.name } : null,
+      overdue: overdue.slice(0, 3).map(trade => ({ exitDate: trade.scheduledExitDate, symbol: trade.symbol, name: trade.name })),
       ...(delisted.length ? { delisted: delisted.map(trade => ({ symbol: trade.symbol, name: trade.name })) } : {}) },
     ...(ledger.adaptive ? { adaptive: structuredClone(ledger.adaptive) } : {}),
     ...(ledger.exitLearning ? { exitLearning: structuredClone(ledger.exitLearning) } : {}),

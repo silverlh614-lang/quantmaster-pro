@@ -17,4 +17,9 @@ describe('current Shadow commands', () => {
     expect(reply).toHaveBeenCalledOnce();
     expect(reply.mock.calls[0]?.[0]).toContain('현재 모드 SHADOW');
   });
+  it('reads every saved record so daily counts match the scheduled reports', async () => {
+    mocks.view.mockClear();
+    for (const name of ['/paper', '/paper_research']) await commandRegistry.resolve(name)!.execute({ args: [], reply: vi.fn(async () => {}) });
+    expect(mocks.view.mock.calls.map(call => (call as unknown[])[0])).toEqual([true, true]);
+  });
 });
