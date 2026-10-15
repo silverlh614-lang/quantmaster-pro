@@ -37,8 +37,8 @@ export function formatShadowChecklist(input: { view: PaperExperimentView; accoun
     const rules = state?.exploration?.rules.filter(rule => today(rule.registeredAt)).length ?? 0;
     checks.push([rules ? 'OK' : 'WARN', `가상 매수 검증 ${entered.length - exploring}건 · 탐색 ${exploring}건 · 탐색 규칙 ${rules ? `${rules}개` : '미등록'}`]);
     const overdue = strategy.openBreakdown?.overdueScheduledCount ?? 0;
-    const oldest = strategy.openBreakdown?.oldestOverdue;
-    if (overdue) checks.push(['WARN', `예정일 지나 종가 미확인 ${overdue}건${oldest ? ` · 가장 오래된 예정일 ${day(oldest.exitDate)} ${escape(oldest.name)} ${oldest.symbol}` : ''}`]);
+    const late = strategy.openBreakdown?.overdue ?? [];
+    if (overdue) checks.push(['WARN', `예정일 지나 종가 미확인 ${overdue}건${late.length ? ` · ${late.map(item => `${day(item.exitDate)} ${escape(item.name)} ${item.symbol}`).join(', ')}${overdue > late.length ? ' 외' : ''}` : ''}`]);
     const delisted = strategy.openBreakdown?.delisted ?? [];
     // KRX no longer lists these; leaving them open without an invented price is the intended handling.
     if (delisted.length) checks.push(['OK', `상장폐지로 종가 없는 거래 ${delisted.length}건 · 가격을 만들지 않고 보관 (${delisted.slice(0, 2).map(item => `${escape(item.name)} ${item.symbol}`).join(', ')})`]);

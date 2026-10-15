@@ -308,12 +308,18 @@ describe('new strategy events', () => {
     };
     expect(buildPaperStrategyView(ledger).openCount).toBe(2);
     expect(status('2026-09-23T07:00:00Z')).toContain('보유 구성: 현행 자율 1 · 구전략 1\n');
-    expect(status('2026-09-25T01:00:00Z')).toContain(`보유 구성: 현행 자율 1 · 구전략 1 · 예정일 지나 종가 미확인 1건(가장 오래된 예정일 2026-09-23 · A&amp;B ${legacy.trades[0].symbol})`);
+    expect(status('2026-09-25T01:00:00Z')).toContain(`보유 구성: 현행 자율 1 · 구전략 1 · 예정일 지나 종가 미확인 1건(2026-09-23 A&amp;B ${legacy.trades[0].symbol})`);
     // Once a complete KRX listing no longer has the stock, it is shown as delisted instead of a late close.
     const delisted = formatPaperReport({ ...emptyView(), strategy: buildPaperStrategyView(ledger, undefined, symbol => symbol !== legacy.trades[0].symbol) },
       'status', '2026-09-25');
     expect(delisted).toContain(`보유 구성: 현행 자율 1 · 구전략 1 · 상장폐지로 종가 없음 1건(A&amp;B ${legacy.trades[0].symbol})`);
     expect(delisted).not.toContain('예정일 지나 종가 미확인');
+    // Up to three late closes are named, oldest first; the rest are summarised.
+    const late = ['000010', '000020', '000030'].map((symbol, index) => ({ ...structuredClone(legacy.trades[0]), symbol, name: `L${index}`,
+      id: `late:${symbol}`, scheduledExitDate: `2026-09-2${index + 1}` }));
+    ledger.trades.push(...late);
+    const many = formatPaperReport({ ...emptyView(), strategy: buildPaperStrategyView(ledger) }, 'status', '2026-09-25');
+    expect(many).toContain('예정일 지나 종가 미확인 4건(2026-09-21 L0 000010, 2026-09-22 L1 000020, 2026-09-23 L2 000030 외)');
   });
 
 
