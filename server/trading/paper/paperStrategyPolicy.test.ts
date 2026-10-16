@@ -93,6 +93,19 @@ describe('paper strategy lifecycle', () => {
     loss.observations[0].riskDesignation = '관리종목';
     expect(evaluatePaperStrategyScan(enter(), loss, strategyTestCost, state()).trades[0].exit?.observedTrigger?.reason).toBe('ADAPTIVE_STOP_LOSS');
   });
+  it('never opens a SPAC but keeps selling rules for one already held', () => {
+    const spac = adaptiveTestSnapshot();
+    spac.observations[0].specialSecurity = 'SPAC';
+    const waited = evaluatePaperStrategyScan(emptyStrategyLedger(), spac, strategyTestCost, state());
+    expect(waited.trades).toHaveLength(0);
+    expect(waited.latestDecisions[0]).toMatchObject({ action: 'WAIT', reasonCode: 'SPAC_EXCLUDED',
+      reason: '스팩(기업인수목적회사) · 진입 대상에서 제외' });
+    expect(waited.lastMarketSession?.reasonCounts).toEqual({ SPAC_EXCLUDED: 1 });
+    expect(() => assertPaperStrategyLedger(JSON.parse(JSON.stringify(waited)))).not.toThrow();
+    const loss = quote('2026-09-18T01:05:00Z', 9400);
+    loss.observations[0].specialSecurity = 'SPAC';
+    expect(evaluatePaperStrategyScan(enter(), loss, strategyTestCost, state()).trades[0].exit?.observedTrigger?.reason).toBe('ADAPTIVE_STOP_LOSS');
+  });
   it('preserves the latest intraday reason counts through after-hours scans and restart', () => {
     const snapshot = strategyTestSnapshot();
     let result = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost, inactive());

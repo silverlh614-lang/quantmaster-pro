@@ -117,9 +117,10 @@ function dedupeMasterEntries(entries: StockMasterEntry[]): StockMasterEntry[] {
  *  - SPECIAL_SECURITY_NAME_PATTERNS — name 만 가지고 판정하는 fallback (master miss / cold-start).
  *    여기에 ETF 브랜드 prefix 를 추가해 master 없이도 ETF 종목명을 차단한다.
  */
+const SPAC_PATTERN = /스팩|SPAC|기업인수목적/;
 const SPECIAL_SECURITY_TYPE_PATTERNS: RegExp[] = [
   /ETF|ETN|ELW/,
-  /스팩|SPAC|기업인수목적/,
+  SPAC_PATTERN,
   /리츠|REIT/,
   /우선주|종류주|1우|2우|3우|우B|우\)/,
   /관리|거래정지|정리매매|투자위험|투자경고|투자주의/,
@@ -157,6 +158,12 @@ export function isSpecialSecurityName(name: string): boolean {
     if (re.test(upper)) return true;
   }
   return false;
+}
+
+/** SPAC(기업인수목적회사) 판정 — master 분류가 있으면 함께 보고, 없으면 종목명만 본다 (ADR-0702). */
+export function isSpacSecurity(name: string, entry?: StockMasterEntry | null): boolean {
+  return SPAC_PATTERN.test([name, entry?.name, entry?.securityType, entry?.stockType, entry?.department]
+    .filter(Boolean).join(' ').toUpperCase());
 }
 
 export function isTradableKrxEquity(entry: StockMasterEntry): boolean {

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { PaperNewsObservation, PaperObservation, PaperSnapshot } from '../../../src/types/paperExperiment.js';
 import { getExpandedUniverse } from '../../screener/dynamicUniverseExpander.js';
 import { loadWatchlist } from '../../persistence/watchlistRepo.js';
+import { getStockByCode, isSpacSecurity } from '../../persistence/krxStockMasterRepo.js';
 import { loadDartAlerts } from '../../persistence/dartRepo.js';
 import { loadNewsSupplyRecords } from '../../learning/newsSupplyLogger.js';
 import { toKstDateKey, isKrxTradingDay, previousKrxTradingDay } from '../../calendar/krxTradingCalendar.js';
@@ -114,8 +115,9 @@ export async function collectPaperExperimentSnapshot(
     // ADR-0700: the scan's full quote carries the KRX designation; refreshed multi-stock quotes carry none.
     const risk = data?.quote?.code === symbol ? isRiskDesignatedStock(data.quote.designation) : { excluded: false };
     const average20 = priorCloses.length >= 20 ? priorCloses.slice(0, 20).reduce((sum, item) => sum + item.close, 0) / 20 : null;
+    const name = names.get(symbol) || data?.name || symbol;
     return {
-      symbol, name: names.get(symbol) || data?.name || symbol,
+      symbol, name,
       price, observedAt: quote?.fetchedAt ?? asOf, source: 'KIS_REST_REQUEST_OBSERVED',
       ...(data?.market === 'KOSPI' || data?.market === 'KOSDAQ' ? { market: data.market } : {}),
       return1dPct: price !== null && previousClose ? (price / previousClose.close - 1) * 100 : null,
@@ -127,6 +129,8 @@ export async function collectPaperExperimentSnapshot(
         validQuote ? quote?.per ?? null : null),
       ...(issue ? { issue } : {}),
       ...(risk.excluded && risk.reason ? { riskDesignation: risk.reason.replace(/^RISK_DESIGNATED:/, '') } : {}),
+      // ADR-0702: a SPAC stays observed and is marked so new virtual buys and the 08:30 picks skip it.
+      ...(isSpacSecurity(name, getStockByCode(symbol)) ? { specialSecurity: 'SPAC' as const } : {}),
     };
   });
   addPaperPeerComparison(observations);

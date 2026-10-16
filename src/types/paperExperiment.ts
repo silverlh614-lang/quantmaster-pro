@@ -90,6 +90,8 @@ export interface PaperObservation {
   issue?: string;
   /** KIS 위험·경고 지정(정리매매·관리종목·투자주의/경고/위험·단기과열 등). 새 가상 매수와 아침 추천에서만 제외한다. */
   riskDesignation?: string;
+  /** 스팩(기업인수목적회사). 기본 관측은 유지하고 새 가상 매수와 아침 추천에서만 제외한다(ADR-0702). */
+  specialSecurity?: 'SPAC';
 }
 
 export interface PaperSnapshot {

@@ -82,6 +82,8 @@ function entryDecision(snapshot: PaperSnapshot, observation: PaperObservation, a
   }
   // ADR-0700: the LIVE risk-designation exclusion (ADR-0658) applies to new Shadow buys; holdings keep their exit rules.
   if (observation.riskDesignation) return wait('RISK_DESIGNATED', `위험 지정 종목(${observation.riskDesignation}) · 진입 대상에서 제외`);
+  // ADR-0702: a SPAC sits near its trust value and halts for its merger, so it is not a new Shadow buy.
+  if (observation.specialSecurity === 'SPAC') return wait('SPAC_EXCLUDED', '스팩(기업인수목적회사) · 진입 대상에서 제외');
   return adaptiveEntryDecision(snapshot, observation, adaptive);
 }
 
