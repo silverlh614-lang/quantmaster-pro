@@ -1,6 +1,6 @@
 // @responsibility Isolate strategy persistence failures from baseline sampling.
 import type { PaperExperiment, PaperSnapshot } from '../../../src/types/paperExperiment.js';
-import type { PaperStrategyLedger, PaperStrategyScanResult, PaperStrategyTrade, PaperTradeMeasurementRow } from '../../../src/types/paperStrategy.js';
+import type { PaperKrxListingStatus, PaperStrategyLedger, PaperStrategyScanResult, PaperStrategyTrade, PaperTradeMeasurementRow } from '../../../src/types/paperStrategy.js';
 import { loadPaperStrategyLedger, savePaperStrategyLedger } from '../../persistence/paperStrategyRepo.js';
 import { getKrxMasterMetadata, getStockByCode } from '../../persistence/krxStockMasterRepo.js';
 import { capturePaperCostModel, trimArchivedEntryBars } from './paperExperimentPolicy.js';
@@ -78,21 +78,28 @@ export function advancePaperStrategy(
   }
 }
 
-/** Only a complete, fresh KRX listing may call a stock delisted; anything else leaves the judgement out. */
-function krxListingCheck(): ((symbol: string) => boolean) | undefined {
+function readKrxListing(): PaperKrxListingStatus | null {
   try {
     const master = getKrxMasterMetadata();
-    if (master.is_partial || master.stale || master.raw_krx_master_total < KRX_LISTING_MINIMUM) return undefined;
-    return symbol => getStockByCode(symbol) !== null;
+    const at = master.last_full_master_refresh_at;
+    const refreshedAt = master.raw_krx_master_total && typeof at === 'number' && Number.isFinite(at) ? new Date(at).toISOString() : null;
+    return { refreshedAt, total: master.raw_krx_master_total, partial: master.is_partial, stale: master.stale,
+      usable: !master.is_partial && !master.stale && master.raw_krx_master_total >= KRX_LISTING_MINIMUM };
   } catch (error) {
     console.warn('[PaperStrategy] KRX 종목 목록 확인 실패 · 상장폐지 판정 생략:', error instanceof Error ? error.message : String(error));
-    return undefined;
+    return null;
   }
 }
 
+/** Only a complete, fresh KRX listing may call a stock delisted; anything else leaves the judgement out. */
+const krxListingCheck = (listing: PaperKrxListingStatus | null) => listing?.usable
+  ? (symbol: string) => getStockByCode(symbol) !== null : undefined;
+
 export function readPaperStrategyView(includeAllRecords = false, experiments?: PaperExperiment[], state = loadPaperStrategyState()) {
   const ledger: PaperStrategyLedger = state.ledger ?? { schemaVersion: 1, trades: [], latestDecisions: [], lastRun: null };
-  const view = buildPaperStrategyView(ledger, state.error ?? lastFailure, krxListingCheck());
+  const krxListing = readKrxListing();
+  const view = buildPaperStrategyView(ledger, state.error ?? lastFailure, krxListingCheck(krxListing));
+  view.krxListing = krxListing;
   if (view.adaptive) view.adaptive = { ...view.adaptive, programResearch: readPaperProgramResearch(view.adaptive) };
   view.measurementHistory = readPaperTradeMeasurementHistory(ledger);
   if (includeAllRecords) view.trades = [...ledger.trades].reverse();

@@ -56,6 +56,21 @@ describe('Shadow operation checklist', () => {
     expect(formatShadowChecklist({ view, account: buildPaperAccountView(null, now.toISOString()), date, now })).toContain('⚠️ 가상 계좌 미시작');
     expect(formatShadowChecklist({ view, account: accountView(), morning: morning(false), date, now })).toContain('⚠️ 아침 추천 발송 확인 대기');
   });
+  it('shows the KRX listing age so a stopped refresh is seen without /health', () => {
+    const view = viewFixture();
+    const line = (krxListing: NonNullable<PaperExperimentView['strategy']>['krxListing']) => {
+      view.strategy!.krxListing = krxListing;
+      return formatShadowChecklist({ view, account: accountView(), morning: morning(true), date, now }).filter(item => item.includes('종목 목록'));
+    };
+    expect(line(undefined)).toEqual([]);
+    expect(line({ refreshedAt: '2026-09-17T21:00:00Z', total: 2676, partial: false, stale: false, usable: true }))
+      .toEqual(['✅ 종목 목록 갱신 9월 18일 06:00 · 2,676종목']);
+    expect(line({ refreshedAt: '2026-09-16T07:30:00Z', total: 2681, partial: false, stale: true, usable: false }))
+      .toEqual(['⚠️ 종목 목록 24시간 넘게 갱신 안 됨 · 마지막 9월 16일 16:30 · 상장폐지 판정 멈춤 · /krx_master_refresh']);
+    expect(line({ refreshedAt: '2026-09-17T21:00:00Z', total: 396, partial: true, stale: false, usable: false }))
+      .toEqual(['⚠️ 종목 목록 일부만 확보 396종목 · 상장폐지 판정 멈춤 · /krx_master_refresh']);
+    expect(line(null)).toEqual(['⚠️ 종목 목록 확인 불가 · 상장폐지 판정 멈춤']);
+  });
   it('names the oldest scheduled close still missing so its cause can be looked up', () => {
     const view = viewFixture(), snapshot = adaptiveTestSnapshot();
     const ledger = evaluatePaperStrategyScan(emptyStrategyLedger(), snapshot, strategyTestCost,

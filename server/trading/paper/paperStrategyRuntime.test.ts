@@ -29,7 +29,7 @@ vi.mock('../../persistence/paperTradeMeasurementRepo.js', () => ({
   readPaperTradeMeasurementHistory: state.readHistory,
 }));
 vi.mock('../../persistence/krxStockMasterRepo.js', () => ({ getStockByCode: () => ({ market: 'KOSPI' }),
-  getKrxMasterMetadata: () => ({ is_partial: false, stale: false, raw_krx_master_total: 2700 }) }));
+  getKrxMasterMetadata: () => ({ is_partial: false, stale: false, raw_krx_master_total: 2700, last_full_master_refresh_at: Date.parse('2026-09-18T21:00:00Z') }) }));
 vi.mock('./paperExperimentCollector.js', () => ({ collectPaperExperimentSnapshot: state.collect, isPaperMarketOpen: () => false }));
 vi.mock('../../persistence/paperStorageMaintenance.js', () => ({
   runPaperStorageMaintenance: state.maintain, readPaperStorageMaintenance: () => undefined,
@@ -338,6 +338,7 @@ describe('strategy integration in the default Shadow runner', () => {
     const runtime = await import('./paperStrategyRuntime.js');
     const view = runtime.readPaperStrategyView();
     expect(view.measurementHistory).toEqual(state.measurementHistory);
+    expect(view.krxListing).toEqual({ refreshedAt: '2026-09-18T21:00:00.000Z', total: 2700, partial: false, stale: false, usable: true });
     expect(state.readHistory).toHaveBeenCalledWith(state.strategy);
     expect(view.error).toBeUndefined();
     expect(state.saveBatch).not.toHaveBeenCalled();
