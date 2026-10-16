@@ -43,6 +43,14 @@ export function formatShadowChecklist(input: { view: PaperExperimentView; accoun
     // KRX no longer lists these; leaving them open without an invented price is the intended handling.
     if (delisted.length) checks.push(['OK', `상장폐지로 종가 없는 거래 ${delisted.length}건 · 가격을 만들지 않고 보관 (${delisted.slice(0, 2).map(item => `${escape(item.name)} ${item.symbol}`).join(', ')})`]);
   } else checks.push(['WARN', '가상 매수 기록 일부만 조회 · 대시보드 확인']);
+  // An old or partial KRX listing silently stops the delisted judgement, so its age is shown every close.
+  const listing = strategy?.krxListing;
+  const refreshed = listing?.refreshedAt && known(listing.refreshedAt)
+    ? `${day(toKstDateKey(listing.refreshedAt))} ${time(listing.refreshedAt)}` : null;
+  if (listing !== undefined) checks.push(!listing ? ['WARN', '종목 목록 확인 불가 · 상장폐지 판정 멈춤']
+    : listing.usable ? ['OK', `종목 목록 갱신 ${refreshed ?? '시각 미확인'} · ${listing.total.toLocaleString('ko-KR')}종목`]
+      : ['WARN', `${listing.stale ? `종목 목록 24시간 넘게 갱신 안 됨${refreshed ? ` · 마지막 ${refreshed}` : ''}`
+        : `종목 목록 일부만 확보 ${listing.total.toLocaleString('ko-KR')}종목`} · 상장폐지 판정 멈춤 · /krx_master_refresh`]);
 
   if (!account || account.error) checks.push(['FAIL', '가상 계좌 기록 확인 불가']);
   else if (!account.account) checks.push(['WARN', '가상 계좌 미시작']);

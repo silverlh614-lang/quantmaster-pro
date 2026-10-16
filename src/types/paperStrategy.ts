@@ -270,7 +270,19 @@ export interface PaperStrategyView {
   trades: PaperStrategyTrade[];
   selection?: PaperStrategySelection;
   measurementHistory?: PaperTradeMeasurementHistory;
+  /** KRX listing behind the delisted judgement, read when the view is built; null when it could not be read. */
+  krxListing?: PaperKrxListingStatus | null;
   error?: string;
+}
+
+export interface PaperKrxListingStatus {
+  refreshedAt: string | null;
+  total: number;
+  partial: boolean;
+  /** Older than the master's 24-hour refresh window. */
+  stale: boolean;
+  /** Complete and fresh enough to call a held stock delisted. */
+  usable: boolean;
 }
 
 /** Strategy screen row: identity, grouping and result fields. Full evidence is read for the visible page only. */
