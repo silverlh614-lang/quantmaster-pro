@@ -211,7 +211,8 @@ describe('KST report slots', () => {
     expect(persisted.messages.some(message => message.kind === 'weekly')).toBe(true);
     await runPaperBotTick(new Date(sunday.getTime() + 60_000));
     expect(mocks.view).toHaveBeenLastCalledWith(true, { includeComparisons: false });
-    expect(persisted.messages.filter(message => message.kind === 'weekly')).toHaveLength(1);
+    expect(persisted.messages.filter(message => message.kind === 'weekly').map(message => message.id))
+      .toEqual(['paper:weekly:2026-09-20', 'paper:weekly:2026-09-20:archive']);
   });
   it('uses Monday in Korea even on UTC Sunday and survives a restart without resending', async () => {
     await runPaperBotTick(monday);
@@ -246,7 +247,8 @@ describe('KST report slots', () => {
     enqueuePaperReports(persisted, view, sunday); expect(persisted.messages).toHaveLength(0);
     view.research = { asOf: sunday.toISOString(), sampleCount: 4519, learningSampleCount: 6, symbols: 74, featureStudies: [] } as unknown as NonNullable<PaperExperimentView['research']>;
     enqueuePaperReports(persisted, view, sunday); expect(persisted.messages[0].kind).toBe('weekly');
-    expect(persisted.messages[0].message).toContain('4,519건');
+    expect(persisted.messages[1]).toMatchObject({ id: 'paper:weekly:2026-09-13:archive', kind: 'weekly' });
+    expect(persisted.messages[1].message).toContain('4,519건');
   });
 });
 

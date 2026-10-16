@@ -14,8 +14,16 @@ describe('current Shadow commands', () => {
     expect(command?.riskLevel).toBe(0);
     const reply = vi.fn(async (_message: string) => {});
     await command!.execute({ args: [], reply });
-    expect(reply).toHaveBeenCalledOnce();
+    expect(reply).toHaveBeenCalledTimes(name === '/paper_research' ? 2 : 1);
     expect(reply.mock.calls[0]?.[0]).toContain('현재 모드 SHADOW');
+  });
+  it('sends the archived study after the live research so the length limit cannot drop the exit comparison', async () => {
+    const reply = vi.fn(async (_message: string) => {});
+    await commandRegistry.resolve('/paper_research')!.execute({ args: [], reply });
+    expect(reply.mock.calls[0]?.[0]).toContain('Shadow 연구 점검');
+    expect(reply.mock.calls[0]?.[0]).not.toContain('저장 자료 연구 · 자율 연구와 별도');
+    expect(reply.mock.calls[1]?.[0]).toContain('저장 자료 연구 · 자율 연구와 별도');
+    expect(reply.mock.calls[1]?.[0]).not.toContain('현재 모드');
   });
   it('reads every saved record so daily counts match the scheduled reports', async () => {
     mocks.view.mockClear();

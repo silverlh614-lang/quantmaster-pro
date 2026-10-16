@@ -80,12 +80,25 @@ const RESEARCH_WAIT_LABELS: Record<string, string> = {
   MISSING_INPUT: '입력값 없음', NO_TRAIN_VARIATION: '학습 구간 비교군 부족', NO_TEST_MATCH: '후반 구간 해당 없음',
 };
 
+/** Autonomous research and live strategy evidence; the archived study goes in its own message so neither crowds out the other. */
 export function formatPaperResearch(view: PaperExperimentView, now = new Date()): string {
-  const research = view.research;
   const lines = ['🔬 <b>Shadow 연구 점검 · 누적 자료 기준</b>', '', ...formatPaperAdaptiveSummary(view, now)];
+  const strategy = view.strategy;
+  const strategyAvailable = strategy && !strategy.error && !strategy.lastRun?.error;
+  if (strategyAvailable) lines.push('', '<b>전체 전략 이력 · 구전략 포함</b>',
+    `전체 전략 이력 가상 청산 ${num(strategy.performance.closedCount)}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`,
+    ...selectionLines(strategy.selection));
+  return compactReport(lines, ['시그널은 진입 당시 선택 규칙과 학습 근거를 고정하고, 청산 결과를 별도 기록합니다.',
+    '저장 자료 연구는 다음 메시지 · /paper · /paper_bot']);
+}
+
+/** Archived seven-condition study, relative strength and 20-day holding research; none of it drives trades. */
+export function formatPaperArchivedResearch(view: PaperExperimentView): string {
+  const research = view.research;
+  const lines = ['📂 <b>저장 자료 연구 · 자율 연구와 별도</b>'];
   if (!research) lines.push('저장 자료 연구 결과를 아직 불러오지 못했습니다. 다음 스캔 이후 확인하세요.');
   else {
-    lines.push('', '📂 <b>저장 자료 연구 · 자율 연구와 별도</b>', `연구 갱신 ${stamp(research.asOf)}`, research.error ? '연구 갱신 오류 · 이전 저장 결과입니다.' : '',
+    lines.push(`연구 갱신 ${stamp(research.asOf)}`, research.error ? '연구 갱신 오류 · 이전 저장 결과입니다.' : '',
     `${research.symbols}종목 · 과거 재현 ${num(research.sampleCount)}건 · 과거 연구 가능 ${num(research.learningSampleCount)}건`,
     `과거 진입일 ${research.firstDate ?? '미확인'} ~ ${research.lastDate ?? '미확인'}`, '', '<b>조건별 후반 검증 · 대조군 대비</b>');
     for (const item of research.featureStudies ?? []) {
@@ -100,13 +113,8 @@ export function formatPaperResearch(view: PaperExperimentView, now = new Date())
     lines.push(...relativeStrengthLines(view.relativeStrengthStudy));
     lines.push(...longHorizonLines(research.longHorizon));
   }
-  const strategy = view.strategy;
-  const strategyAvailable = strategy && !strategy.error && !strategy.lastRun?.error;
-  if (strategyAvailable) lines.push('', '<b>전체 전략 이력 · 구전략 포함</b>',
-    `전체 전략 이력 가상 청산 ${num(strategy.performance.closedCount)}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`,
-    ...selectionLines(strategy.selection));
-  return compactReport(lines, ['시그널은 진입 당시 선택 규칙과 학습 근거를 고정하고, 청산 결과를 별도 기록합니다.',
-    '과거 7개 조건은 같은 날짜·뉴스·추세·보유기간을 맞춘 탐색 연구이며 매매에 자동 적용하지 않습니다.', '/paper · /paper_bot']);
+  return compactReport(lines, ['과거 7개 조건은 같은 날짜·뉴스·추세·보유기간을 맞춘 탐색 연구이며 매매에 자동 적용하지 않습니다.',
+    '/paper · /paper_research · /paper_bot']);
 }
 
 function longHorizonLines(study: NonNullable<PaperExperimentView['research']>['longHorizon']): string[] {

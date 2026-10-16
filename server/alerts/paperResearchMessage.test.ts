@@ -1,7 +1,7 @@
 // @responsibility Verify /paper_research explains why a research comparison is still waiting.
 import { describe, expect, it } from 'vitest';
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
-import { formatPaperBotStatus, formatPaperReport, formatPaperResearch, PAPER_BOT_SCHEDULES } from './paperBotMessages.js';
+import { formatPaperArchivedResearch, formatPaperBotStatus, formatPaperReport, formatPaperResearch, PAPER_BOT_SCHEDULES } from './paperBotMessages.js';
 import { buildPaperStrategyView } from '../trading/paper/paperStrategyPolicy.js';
 import { emptyStrategyLedger } from '../trading/paper/paperStrategyFixtures.js';
 import { matureAdaptiveSamples } from '../trading/paper/paperAdaptiveFixtures.js';
@@ -56,7 +56,11 @@ describe('paper research message', () => {
           explorationEntry: { dateCount: 2, tradeCount: 2, edgePct: -0.2 }, exit: { dateCount: 3, tradeCount: 5, edgePct: -0.3 },
           months: [{ month: '2026-09', entry: { dateCount: 4, tradeCount: 6, edgePct: 0.5 }, exit: { dateCount: 3, tradeCount: 5, edgePct: -0.3 } }] } },
     };
-    const text = formatPaperResearch(view, new Date('2026-10-01T04:00:00Z'));
+    const live = formatPaperResearch(view, new Date('2026-10-01T04:00:00Z')), archived = formatPaperArchivedResearch(view);
+    const text = `${live}\n${archived}`;
+    expect(live).toContain('매도: 실제 청산 − 같은 거래 D5 보유');
+    expect(live).not.toContain('조건별 후반 검증');
+    expect(archived).not.toContain('전략 선별력');
     expect(text).toContain('지수 대비 20일 상대강도 계산 8/10건');
     expect(text).toContain('900건/300종목/120진입일 (2026-01-30~2026-08-21)');
     expect(text).toContain('비용 차감 평균 +1.20% · 승률 51.5% · 같은 기간 지수 대비 -0.40% (880건)');
@@ -87,7 +91,7 @@ describe('paper research message', () => {
     expect(summary).not.toContain('우연히 이만큼 나올 확률 100%');
     expect(summary).toContain('무작위 대조는 종목끼리 수익 기록을 바꿔 같은 검증을 반복합니다.');
     expect(summary).toContain('⏳ 검증 매수 대기 · 후반 확인 5일 충족 · 기준을 통과한 지표 없음 · 매일 재평가');
-    expect(weekly).toContain('저장 자료 연구 결과를 아직 불러오지 못했습니다');
+    expect(formatPaperArchivedResearch(view)).toContain('저장 자료 연구 결과를 아직 불러오지 못했습니다');
     expect(weekly.length).toBeLessThanOrEqual(3500);
     expect(formatPaperReport(view, 'status', '2026-09-18', [], now)).toContain(summary);
     expect(view).toEqual(original);
@@ -106,17 +110,18 @@ describe('paper research message', () => {
     expect(formatPaperResearch(view, now)).not.toContain('지표 자동 연결');
   });
 
-  it('caps lengthy archived research at whole HTML lines while retaining autonomous status and navigation', () => {
+  it('caps lengthy archived research at whole HTML lines in its own message, leaving the live research whole', () => {
     const view = autonomousView();
     view.research = { asOf: now.toISOString(), symbols: 10, sampleCount: 100, learningSampleCount: 30,
       firstDate: '2026-01-01', lastDate: '2026-09-17', featureStudies: Array.from({ length: 60 }, (_, index) =>
         study(`<연구 ${index} & 기록>`, 'NO_TRAIN_VARIATION', 100, 30)) } as unknown as NonNullable<PaperExperimentView['research']>;
-    const message = formatPaperResearch(view, now);
-    expect(message).toContain(formatPaperAdaptiveSummary(view, now).join('\n'));
+    const live = formatPaperResearch(view, now), message = formatPaperArchivedResearch(view);
+    expect(live).toContain(formatPaperAdaptiveSummary(view, now).join('\n'));
+    expect(live).not.toContain('일부 상세는 대시보드에서 확인하세요.');
     expect(message).toContain('&lt;연구 0 &amp; 기록&gt;');
     expect(message).not.toContain('<연구 0');
     expect(message).toContain('일부 상세는 대시보드에서 확인하세요.');
-    expect(message.endsWith('/paper · /paper_bot')).toBe(true);
+    expect(message.endsWith('/paper · /paper_research · /paper_bot')).toBe(true);
     expect(message.length).toBeLessThanOrEqual(3500);
     expect((message.match(/<b>/g) ?? []).length).toBe((message.match(/<\/b>/g) ?? []).length);
   });
