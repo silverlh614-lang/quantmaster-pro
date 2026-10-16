@@ -8,7 +8,7 @@ import { loadDartAlerts } from '../persistence/dartRepo.js';
 import { loadPaperBotState, savePaperBotState, type PaperBotHealth, type PaperBotMessage, type PaperBotState } from '../persistence/paperBotRepo.js';
 import { sendTelegramAlert } from './telegramClient.js';
 import { dispatchAlert, ChannelSemantic } from './alertRouter.js';
-import { PAPER_BOT_SCHEDULES, formatPaperReport, formatPaperResearch } from './paperBotMessages.js';
+import { PAPER_BOT_SCHEDULES, formatPaperArchivedResearch, formatPaperReport, formatPaperResearch } from './paperBotMessages.js';
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperAccountView } from '../../src/types/paperAccount.js';
 import { readVirtualAccount } from '../trading/paper/paperAccountRuntime.js';
@@ -91,6 +91,8 @@ export function enqueuePaperReports(state: PaperBotState, view: PaperExperimentV
     const channel = slot.kind === 'morning' ? ChannelSemantic.REGIME
       : slot.kind === 'intraday' ? ChannelSemantic.SIGNAL : ChannelSemantic.JOURNAL;
     enqueue(state, { id, kind: slot.kind, channel, message, createdAt: now.toISOString(), expiresAt });
+    if (slot.kind === 'weekly') enqueue(state, { id: `${id}:archive`, kind: slot.kind, channel,
+      message: formatPaperArchivedResearch(view!), createdAt: now.toISOString(), expiresAt });
     if (account?.account && (slot.kind === 'close' || slot.kind === 'weekly')) enqueue(state, { id: `${id}:account`, kind: slot.kind, channel,
       message: formatAccountSummary(account, now), createdAt: now.toISOString(), expiresAt });
   }

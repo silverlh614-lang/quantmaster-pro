@@ -135,6 +135,8 @@ describe('intraday content slots', () => {
     enqueuePaperReports(state, view, now);
     expect(state.messages[0]).toMatchObject({ kind: 'weekly', channel: 'SYSTEM' });
     expect(state.messages[0].message).toContain('자율');
+    expect(state.messages[1]).toMatchObject({ id: 'paper:weekly:2026-09-20:archive', kind: 'weekly' });
+    expect(state.messages[1].message).toContain('저장 자료 연구 결과를 아직 불러오지 못했습니다');
   });
   it.each(['stale', 'paused'] as const)('holds a previously failed delivery while %s, then sends fresh content under its original ID', async condition => {
     mocks.send.mockResolvedValueOnce(undefined);
