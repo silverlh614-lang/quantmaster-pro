@@ -8,6 +8,9 @@ vi.mock('../../learning/newsSupplyLogger.js', () => ({ loadNewsSupplyRecords: mo
 vi.mock('../../persistence/dartRepo.js', () => ({ loadDartAlerts: mocks.dart }));
 vi.mock('../symbolDataCollector.js', () => ({ collectUnifiedSnapshot: mocks.collect }));
 vi.mock('./paperDisclosureCollection.js', () => ({ refreshPaperDisclosures: mocks.disclosures }));
+vi.mock('../../persistence/krxStockMasterRepo.js', async importOriginal => ({
+  ...await importOriginal<typeof import('../../persistence/krxStockMasterRepo.js')>(),
+  getStockByCode: (code: string) => code === '440790' ? { code, name: '한화플러스제4호', market: 'KOSDAQ', securityType: 'SPAC' } : null }));
 import { collectPaperExperimentSnapshot, isPaperMarketOpen } from './paperExperimentCollector.js';
 import { __resetPaperTradingHaltsForTest, paperTradingHaltStatus } from './paperTradingHalts.js';
 
@@ -78,6 +81,15 @@ describe('paper observation collector', () => {
     expect(bySymbol.get('000660')).toMatchObject({ price: 20000, riskDesignation: '투자경고' });
     expect(bySymbol.get('084180')).toMatchObject({ price: 500, riskDesignation: '정리매매' });
     expect(bySymbol.get('084180')!.issue).toBeUndefined();
+  });
+  it('marks a SPAC by its name or KRX master class without dropping it from observation', async () => {
+    mocks.watchlist.mockReturnValue([{ code: '005930', name: 'Samsung', section: 'MOMENTUM' },
+      { code: '469900', name: '하나31호기업인수목적', section: 'MOMENTUM' }, { code: '440790', name: '한화플러스제4호', section: 'MOMENTUM' }]);
+    const result = await collectPaperExperimentSnapshot([]);
+    const bySymbol = new Map(result.observations.map(item => [item.symbol, item]));
+    expect(bySymbol.get('005930')!.specialSecurity).toBeUndefined();
+    expect(bySymbol.get('469900')).toMatchObject({ price: 10000, specialSecurity: 'SPAC' });
+    expect(bySymbol.get('440790')).toMatchObject({ price: 10000, specialSecurity: 'SPAC' });
   });
   it('marks a stock halted during a slow scan when its single-quote refresh reports the halt', async () => {
     mocks.collect.mockImplementationOnce(async () => {

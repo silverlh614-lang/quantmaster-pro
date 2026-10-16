@@ -16,7 +16,7 @@ const stamp = (value?: string | null) => value && Number.isFinite(Date.parse(val
 const WAIT_LABELS: Partial<Record<PaperStrategyReasonCode, string>> = {
   INSUFFICIENT_MATURE_SAMPLES: '완료 표본 부족', INSUFFICIENT_ENTRY_DATES: '서로 다른 진입일 부족',
   NON_POSITIVE_EXPECTANCY: '비용 차감 후 양수 성과 없음', TREND_UNKNOWN: '20일선 미확인',
-  CURRENT_PRICE_UNAVAILABLE: '현재가 미확인', RISK_DESIGNATED: '위험 지정 종목 제외', OBSERVATION_TIME_INVALID: '관측 시각 미확인', ALREADY_ENTERED_TODAY: '당일 중복 진입 방지',
+  CURRENT_PRICE_UNAVAILABLE: '현재가 미확인', RISK_DESIGNATED: '위험 지정 종목 제외', SPAC_EXCLUDED: '스팩 제외', OBSERVATION_TIME_INVALID: '관측 시각 미확인', ALREADY_ENTERED_TODAY: '당일 중복 진입 방지',
   ADAPTIVE_NO_ACTIVE_RULE: '연결된 지표 없음', ADAPTIVE_FEATURE_UNAVAILABLE: '연결 지표 자료 미확인', ADAPTIVE_RULE_NOT_MATCHED: '연결 규칙 불일치',
 };
 

@@ -152,6 +152,14 @@ describe('08:30 frozen morning recommendations', () => {
     expect(result).toMatchObject({ consideredCount: 2, matchedCount: 1, status: 'READY' });
     expect(result.picks.map(item => item.symbol)).toEqual(['000002']);
   });
+  it('never recommends a SPAC it would not buy', () => {
+    const current = source();
+    current.snapshot.observations = ['000001', '000002'].map(observation);
+    current.snapshot.observations[1].specialSecurity = 'SPAC';
+    const result = buildPaperMorningSelection(current, now);
+    expect(result).toMatchObject({ consideredCount: 2, matchedCount: 1, status: 'READY' });
+    expect(result.picks.map(item => item.symbol)).toEqual(['000001']);
+  });
   it('rejects sources outside the pre-scheduled 90-minute window or inconsistent daily research clocks', () => {
     const mutations: Array<(value: PaperMorningSource) => void> = [
       value => { value.snapshot.asOf = '2026-09-17T21:59:59Z'; },

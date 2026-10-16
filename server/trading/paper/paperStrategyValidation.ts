@@ -55,7 +55,7 @@ const decision = z.object({ snapshotId: z.string(), decisionAt: timestamp, symbo
   action: z.enum(['BUY', 'WAIT', 'HOLD', 'EXIT']),
   reasonCode: z.enum(['ADAPTIVE_FEATURE_SELECTED', 'ADAPTIVE_EXPLORATION_SELECTED', 'ADAPTIVE_NO_ACTIVE_RULE', 'ADAPTIVE_FEATURE_UNAVAILABLE', 'ADAPTIVE_RULE_NOT_MATCHED',
     'POSITIVE_COHORT_EXPECTANCY', 'INSUFFICIENT_MATURE_SAMPLES', 'INSUFFICIENT_ENTRY_DATES',
-    'NON_POSITIVE_EXPECTANCY', 'TREND_UNKNOWN', 'MARKET_CLOSED', 'CURRENT_PRICE_UNAVAILABLE', 'RISK_DESIGNATED', 'OBSERVATION_TIME_INVALID',
+    'NON_POSITIVE_EXPECTANCY', 'TREND_UNKNOWN', 'MARKET_CLOSED', 'CURRENT_PRICE_UNAVAILABLE', 'RISK_DESIGNATED', 'SPAC_EXCLUDED', 'OBSERVATION_TIME_INVALID',
     'ALREADY_ENTERED_TODAY', 'HORIZON_PENDING', 'SCHEDULED_CLOSE_UNAVAILABLE', 'SCHEDULED_CLOSE_REACHED',
     'ADAPTIVE_EXIT_HOLD', 'ADAPTIVE_EXIT_QUOTE_UNAVAILABLE', 'ADAPTIVE_STOP_LOSS', 'ADAPTIVE_TRAILING_STOP', 'ADAPTIVE_SIGNAL_LOST']),
   reason: z.string(), cohort: cohort.nullable(), evidence: evidence.nullable(), adaptiveEvidence: adaptiveEvidenceSchema.optional(),
@@ -66,7 +66,7 @@ export const paperObservationSchema = z.object({ symbol, name: z.string(), price
   return1dPct: finite.nullable(), return5dPct: finite.nullable(), aboveMa20: z.boolean().nullable(),
   news: z.array(z.object({ id: z.string(), headline: z.string(), observedAt: timestamp, source: z.string(), assessment: newsAssessment.optional(), facts: newsFacts.optional() })),
   dailyCloses: z.array(z.object({ tradingDate: date, close: finite.positive(), availableAt: timestamp })), issue: z.string().optional(),
-  riskDesignation: z.string().optional() });
+  riskDesignation: z.string().optional(), specialSecurity: z.literal('SPAC').optional() });
 const cost = z.object({ version: z.string(), buyFeeRate: finite.nonnegative(), sellFeeRate: finite.nonnegative(),
   sellTaxRate: finite.nonnegative(), slippageRate: finite.nonnegative() });
 const exit = z.object({ model: z.enum(['SCHEDULED_CLOSE', 'ADAPTIVE_OBSERVED']), snapshotId: z.string(), effectiveAt: timestamp,
