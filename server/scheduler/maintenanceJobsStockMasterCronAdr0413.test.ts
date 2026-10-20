@@ -55,6 +55,13 @@ describe('ADR-0413 stockMaster cron 1일 2회 발동 정적 가드', () => {
       );
     });
 
+    it('두 cron 모두 지연된 :00 틱을 한 번 복구 — 이벤트 루프 지연으로 갱신이 조용히 빠지지 않음', () => {
+      const src = stripComments(loadSource());
+      const calls = src.match(/'stock_master_auto_enrichment',\s*\n?\s*\(\) => runStockMasterEnrichmentCron\('[^']+'\), \{[^}]*\}/g) ?? [];
+      expect(calls).toHaveLength(2);
+      expect(calls.every((call) => call.includes('recoverMissedExecutions: true'))).toBe(true);
+    });
+
     it('두 cron 모두 ScheduleClass="TRADING_DAY_ONLY" — KRX 휴장일 자동 skip (ADR-0045 정합)', () => {
       const src = stripComments(loadSource());
       // jobName 매칭 안에 'ALWAYS_ON' 같은 다른 ScheduleClass 사용 부재 검증
