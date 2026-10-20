@@ -34,7 +34,7 @@ export interface ScheduleGuardDecision {
 export interface ScheduleGuardOptions {
   /** cron timezone — 미지정 시 system local. learningJobs 는 `UTC` 권장. */
   timezone?: string;
-  /** Opt in only for coalesced observation jobs: resume a missed tick after event-loop delay. */
+  /** Opt in for jobs safe to run seconds late (coalesced observation, idempotent refresh): resume a missed tick after event-loop delay. */
   recoverMissedExecutions?: boolean;
   /** 테스트/긴급 우회 — true 면 가드 무시. 기본 false. */
   force?: boolean;

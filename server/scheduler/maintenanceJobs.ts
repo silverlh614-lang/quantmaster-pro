@@ -265,14 +265,17 @@ export function registerMaintenanceJobs(): void {
   // ENV `STOCK_MASTER_AUTO_ENRICHMENT_DISABLED=true` 시 본체 진입부에서 즉시 return.
   // ADR-0413: KIS 토큰 갱신 패턴 (08:30 + 20:30) 정합 — 동일 jobName 으로 1일 2회 발동.
   // 장전 (06:00) + 장후 (19:00) 두 번 갱신해 저녁 시간대 master staleness 차단.
+  // 2026-10: the per-minute Shadow work delays node-cron's one-second check past :00, and an
+  // ordinary job then skips its tick; 10.16~10.21 lost six of seven refreshes this way. A refresh
+  // is safe to run seconds late, so both ticks recover a delayed boundary once.
   scheduledJob('0 21 * * 0-4', 'TRADING_DAY_ONLY', 'stock_master_auto_enrichment',
-    () => runStockMasterEnrichmentCron('장전 06:00 KST'), { timezone: 'UTC' });
+    () => runStockMasterEnrichmentCron('장전 06:00 KST'), { timezone: 'UTC', recoverMissedExecutions: true });
 
   // ADR-0413: 저녁 갱신 — KST 평일 19:00 (UTC 10:00).
   // 장 마감 (15:30 KST) 3시간 30분 후, KIS 토큰 갱신 (20:30) 1시간 30분 전.
   // 동일 jobName 으로 metric 합산 (KIS 토큰 cron 패턴 정합 — ADR-0192/0195).
   scheduledJob('0 10 * * 1-5', 'TRADING_DAY_ONLY', 'stock_master_auto_enrichment',
-    () => runStockMasterEnrichmentCron('장후 19:00 KST'), { timezone: 'UTC' });
+    () => runStockMasterEnrichmentCron('장후 19:00 KST'), { timezone: 'UTC', recoverMissedExecutions: true });
 
   // ADR-0248: 워치리스트 시장 다양성 모니터 cron — KST 평일 06:35 (UTC 21:35 전일).
   // ADR-0242 master enrichment 35분 후 — fresh master 위에서 정확한 분포 산출.
