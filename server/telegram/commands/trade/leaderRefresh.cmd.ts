@@ -66,7 +66,8 @@ function formatRankingProbe(probe: LeaderRankingProbe, vtsOnly: boolean): string
   } else if (allZero) {
     verdict = '판정→real-data 호출됐으나 3종 모두 빈 응답. KIS 콘솔에서 랭킹 TR 권한·계좌·엔드포인트 점검.';
   } else if (anyNonZero) {
-    verdict = '판정→랭킹 정상 응답. leader 캐시 충전됨 — 0건이었다면 5분 캐시/타이밍. /scan_blockers funnel 이 HEALTHY 로 전환되는지 확인.';
+    // The retired LIVE scanner no longer runs in Shadow, so the result is followed through the Shadow candidates.
+    verdict = '판정→랭킹 정상 응답. leader 캐시 충전됨(0건이었다면 5분 캐시/타이밍) — 동적 유니버스를 거쳐 다음 전체 관측부터 Shadow 후보에 포함.';
   } else {
     verdict = '판정→데이터 축적 중.';
   }
