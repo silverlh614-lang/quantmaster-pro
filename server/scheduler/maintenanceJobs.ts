@@ -57,6 +57,8 @@ export function registerMaintenanceJobs(): void {
 
   // Daily Backup Ceremony — 매일 KST 01:00 (UTC 16:00 전일).
   // PR-B-2: ALWAYS_ON — 백업은 365일 무중단.
+  // Both backups recover a tick delayed past :00 by the per-minute Shadow work; a backup seconds late is harmless,
+  // a skipped one is a day without a copy (10.20~21 night both were skipped).
   scheduledJob('0 16 * * *', 'ALWAYS_ON', 'backup_ceremony', async () => {
     try {
       const r = runBackupCeremony(7);
@@ -83,7 +85,7 @@ export function registerMaintenanceJobs(): void {
         },
       ).catch(console.error);
     }
-  }, { timezone: 'UTC' });
+  }, { timezone: 'UTC', recoverMissedExecutions: true });
 
   // 일일 데이터 백업 — 매일 KST 03:00 (UTC 18:00).
   // PR-B-2: ALWAYS_ON — 백업은 365일 무중단.
@@ -113,7 +115,7 @@ export function registerMaintenanceJobs(): void {
         },
       ).catch(console.error);
     }
-  }, { timezone: 'UTC' });
+  }, { timezone: 'UTC', recoverMissedExecutions: true });
 
   // 데이터 완성도 트래커 리셋 — 평일 KST 08:00 (UTC 23:00 일~목).
   // PR-B-2: TRADING_DAY_ONLY — 장 시작 전 리셋이라 KRX 공휴일 무의미.
