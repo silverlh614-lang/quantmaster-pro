@@ -161,6 +161,8 @@ describe('/leader_refresh 동작', () => {
     expect(replies[1]).toContain('진단 (bypassCache 강제)');
     expect(replies[1]).toContain('시총(FHPST01720000): 20');
     expect(replies[1]).toContain('랭킹 정상 응답');
+    expect(replies[1]).toContain('다음 전체 관측부터 Shadow 후보에 포함');
+    expect(replies[1]).not.toContain('/scan_blockers');
   });
 
   it('진단 프로브: circuit OPEN → /reset_circuits 안내 verdict', async () => {
