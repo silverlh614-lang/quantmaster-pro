@@ -99,10 +99,11 @@ export function registerOrchestratorJobs(): void {
   // PR-B-2: ALWAYS_ON — 토요일/일요일/공휴일에도 토큰 신선도 유지.
   // 아침 갱신 08:20 KST — 08:30 동시각 경합(pre_market_card/macro_digest/post_holiday_followup)
   // 회피 + 08:30 KIS burst 이전 토큰 선갱신 (cron stagger 감사 2026-06-10).
+  // A token refresh seconds late is harmless; a tick skipped by event-loop delay past :00 leaves the token to expire.
   scheduledJob('20 23 * * *', 'ALWAYS_ON', 'kis_token_refresh',
-    () => forceRefreshKisTokenCron('장전 08:20 KST'), { timezone: 'UTC' });
+    () => forceRefreshKisTokenCron('장전 08:20 KST'), { timezone: 'UTC', recoverMissedExecutions: true });
   scheduledJob('30 11 * * *', 'ALWAYS_ON', 'kis_token_refresh',
-    () => forceRefreshKisTokenCron('장후 20:30 KST'), { timezone: 'UTC' });
+    () => forceRefreshKisTokenCron('장후 20:30 KST'), { timezone: 'UTC', recoverMissedExecutions: true });
 
   // TradingDayOrchestrator — 장 사이클 State Machine.
   // PR-B-2: TRADING_DAY_ONLY — KRX 공휴일 평일에 tick 도는 무의미.

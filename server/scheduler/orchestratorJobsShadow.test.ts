@@ -58,7 +58,10 @@ describe('Shadow schedule', () => {
     expect(mocks.scheduled).toHaveBeenCalledWith(
       '* * * * *', 'ALWAYS_ON', 'paper_experiments', expect.any(Function), { timezone: 'UTC', recoverMissedExecutions: true },
     );
-    expect(mocks.cron.mock.calls.filter(call => call[2]?.recoverMissedExecutions)).toHaveLength(1);
+    // Only the coalesced Shadow tick and the two idempotent token refreshes replay a delayed boundary.
+    expect(mocks.cron.mock.calls.filter(call => call[2]?.recoverMissedExecutions)).toHaveLength(3);
+    expect(mocks.scheduled.mock.calls.filter(call => call[2] === 'kis_token_refresh').map(call => [call[0], call[4]]))
+      .toEqual([['20 23 * * *', { timezone: 'UTC', recoverMissedExecutions: true }], ['30 11 * * *', { timezone: 'UTC', recoverMissedExecutions: true }]]);
     await callback('paper_experiments')();
     expect(mocks.scan).toHaveBeenCalledOnce();
     expect(mocks.tick).not.toHaveBeenCalled();
