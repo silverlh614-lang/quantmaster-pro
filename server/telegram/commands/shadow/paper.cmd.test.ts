@@ -4,7 +4,9 @@ import { commandRegistry } from '../../commandRegistry.js';
 const mocks = vi.hoisted(() => ({ view: vi.fn(() => ({ mode: 'SHADOW', lastRun: null, experiments: [], totalCount: 0, completedCount: 0, outcomes: [] })) }));
 vi.mock('../../../trading/paper/paperExperimentRunner.js', () => ({ getPaperExperimentView: mocks.view }));
 vi.mock('../../../alerts/paperBot.js', () => ({ recentPaperNews: () => [] }));
-vi.mock('../../../trading/paper/paperMorningRuntime.js', () => ({ formatStoredPaperMorningReport: () => '저장된 08:30 추천 · 이후 가상 성과' }));
+vi.mock('../../../trading/paper/paperMorningRuntime.js', () => ({ formatStoredPaperMorningReport: () => '저장된 08:30 추천 · 이후 가상 성과',
+  getPaperMorningReviewSafely: () => undefined }));
+vi.mock('../../../trading/paper/paperAccountRuntime.js', () => ({ readVirtualAccount: () => { throw new Error('계좌 파일 읽기 실패'); } }));
 vi.mock('../../../persistence/paperBotRepo.js', () => ({ loadPaperBotState: () => ({ messages: [], lastCheckedAt: null }) }));
 vi.mock('../../../state.js', () => ({ getTradingMode: () => 'SHADOW', getAutoTradePaused: () => false }));
 import './paper.cmd.js';
@@ -24,6 +26,12 @@ describe('current Shadow commands', () => {
     expect(reply.mock.calls[0]?.[0]).not.toContain('저장 자료 연구 · 자율 연구와 별도');
     expect(reply.mock.calls[1]?.[0]).toContain('저장 자료 연구 · 자율 연구와 별도');
     expect(reply.mock.calls[1]?.[0]).not.toContain('현재 모드');
+  });
+  it('shows the operation checklist in /paper and reports an unreadable account instead of failing', async () => {
+    const reply = vi.fn(async (_message: string) => {});
+    await commandRegistry.resolve('/paper')!.execute({ args: [], reply });
+    expect(reply.mock.calls[0]?.[0]).toContain('Shadow 운용 점검');
+    expect(reply.mock.calls[0]?.[0]).toContain('❌ 가상 계좌 기록 확인 불가');
   });
   it('reads every saved record so daily counts match the scheduled reports', async () => {
     mocks.view.mockClear();

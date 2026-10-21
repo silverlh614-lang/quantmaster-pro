@@ -42,7 +42,7 @@ describe('Shadow schedule', () => {
   it('registers independent minute price checks at second 30 without replaying missed price ticks', async () => {
     registerOrchestratorJobs();
     expect(mocks.scheduled).toHaveBeenCalledWith('30 * * * * *', 'ALWAYS_ON', 'paper_holding_prices',
-      mocks.prices, { timezone: 'UTC' });
+      mocks.prices, { timezone: 'UTC', recoverMissedExecutions: false });
     await callback('paper_holding_prices')();
     expect(mocks.prices).toHaveBeenCalledOnce();
     expect(mocks.scan).not.toHaveBeenCalled();
@@ -58,8 +58,9 @@ describe('Shadow schedule', () => {
     expect(mocks.scheduled).toHaveBeenCalledWith(
       '* * * * *', 'ALWAYS_ON', 'paper_experiments', expect.any(Function), { timezone: 'UTC', recoverMissedExecutions: true },
     );
-    // Only the coalesced Shadow tick and the two idempotent token refreshes replay a delayed boundary.
+    // The coalesced Shadow tick and the token refreshes replay a delayed boundary; the LIVE tick and price checks do not.
     expect(mocks.cron.mock.calls.filter(call => call[2]?.recoverMissedExecutions)).toHaveLength(3);
+    expect(mocks.cron.mock.calls.filter(call => /^\*\/1 /.test(call[0])).every(call => !call[2]?.recoverMissedExecutions)).toBe(true);
     expect(mocks.scheduled.mock.calls.filter(call => call[2] === 'kis_token_refresh').map(call => [call[0], call[4]]))
       .toEqual([['20 23 * * *', { timezone: 'UTC', recoverMissedExecutions: true }], ['30 11 * * *', { timezone: 'UTC', recoverMissedExecutions: true }]]);
     await callback('paper_experiments')();

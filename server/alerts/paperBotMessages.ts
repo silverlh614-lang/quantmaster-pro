@@ -52,7 +52,9 @@ export function formatPaperReport(view: PaperExperimentView, kind: 'close' | 'st
   const last = view.lastRun;
   const strategy = view.strategy;
   const today = view.experiments.filter(item => item.tradingDate === date).length;
-  const lines = [`📋 <b>Shadow 현재 현황 · ${date}</b>`, '가상 실험 · 실제 주문 없음', '',
+  // The same checklist as the 16:10 report, judged now; items not yet due wait instead of failing.
+  const checklist = formatShadowChecklist({ view, account, morning: getPaperMorningReviewSafely(date, now), date, now, live: true });
+  const lines = [`📋 <b>Shadow 현재 현황 · ${date}</b>`, '가상 실험 · 실제 주문 없음', '', ...checklist, '',
     `마지막 관측 ${stamp(last?.asOf)}`, last ? `후보 ${num(last.candidateCount)} · 현재가 확인 ${num(last.observedCount)} · 미확인 ${num(last.missingPriceCount)}` : '아직 관측 기록이 없습니다.',
     `기본 관측: 오늘 진입 ${num(today)} · 누적 ${num(view.totalCount)} · D5 완료 ${num(view.completedCount)}`, ];
   if (!strategy || strategy.error || strategy.lastRun?.error) lines.push('전략 기록 확인 대기');

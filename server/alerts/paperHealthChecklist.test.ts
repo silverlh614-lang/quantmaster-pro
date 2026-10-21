@@ -43,6 +43,29 @@ describe('Shadow operation checklist', () => {
     expect(lines).toContain('✅ 가격 미확인 5.0% (50/1000)');
     expect(lines.some(line => line.startsWith('⚠️ 가상 매수 검증 1건 · 탐색 0건 · 탐색 규칙'))).toBe(true);
   });
+  it('waits during /paper on records whose time has not come yet instead of failing them', () => {
+    const early = new Date(`${date}T00:30:00+09:00`);
+    const lines = formatShadowChecklist({ view: viewFixture(), account: accountView(null),
+      morning: { asOf: early.toISOString(), results: [], report: null }, date, now: early, live: true });
+    expect(lines).toContain('⏳ 0시 연구 평가 진행 대기');
+    expect(lines).toContain('⏳ 가상 계좌 장 시작 후 처리 · 종목당 10% · 보유 0/10');
+    expect(lines).toContain('⏳ 아침 추천 08:30 발송 예정');
+    expect(lines).toContain('⏳ 오늘 첫 가격 관측 대기');
+    expect(lines.some(line => line.startsWith('❌'))).toBe(false);
+    // The 16:10 report keeps failing the same missing records.
+    const closing = formatShadowChecklist({ view: viewFixture(), account: accountView(null),
+      morning: { asOf: early.toISOString(), results: [], report: null }, date, now: early });
+    expect(closing).toContain('❌ 오늘 아침 추천 기록 없음');
+  });
+  it('marks trading-day records as a market holiday during /paper on a closed day', () => {
+    const saturday = '2026-09-19', at = new Date(`${saturday}T12:00:00+09:00`);
+    const lines = formatShadowChecklist({ view: viewFixture(), account: accountView(), morning: morning(true), date: saturday, now: at, live: true });
+    expect(lines).toContain('⏳ 휴장일 · 연구 평가는 다음 관측 때 · 마지막 9월 18일');
+    expect(lines).toContain('⏳ 휴장일 · 가상 매수 없음');
+    expect(lines).toContain('⏳ 가상 계좌 휴장일 · 종목당 10% · 보유 0/10');
+    expect(lines).toContain('⏳ 휴장일 · 가격 관측 없음');
+    expect(lines.some(line => line.includes('가상 매수 검증'))).toBe(false);
+  });
   it('reports missing or stale records instead of assuming they are fine', () => {
     const view = viewFixture();
     view.lastRun = { ...view.lastRun!, asOf: '2026-09-17T06:35:00Z' };

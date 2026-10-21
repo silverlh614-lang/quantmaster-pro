@@ -92,7 +92,8 @@ export function registerOrchestratorJobs(): void {
   // Independent of LIVE controls; the runner skips holiday prices while retaining stored-data research.
   scheduledJob('* * * * *', 'ALWAYS_ON', 'paper_experiments', runPaperExperimentTick, { timezone: 'UTC', recoverMissedExecutions: true });
   // Offset minute-based holding checks from the broad-scan tick at second zero.
-  scheduledJob('30 * * * * *', 'ALWAYS_ON', 'paper_holding_prices', runPaperPriceMonitor, { timezone: 'UTC' });
+  // The next check is 30 seconds away, so a delayed price check is skipped rather than replayed.
+  scheduledJob('30 * * * * *', 'ALWAYS_ON', 'paper_holding_prices', runPaperPriceMonitor, { timezone: 'UTC', recoverMissedExecutions: false });
 
   // KIS 토큰 강제 갱신 — **12시간 주기, 매일 실행**.
   // 주말도 포함 — 주말 해외 뉴스/공급망 스캔이 KIS 데이터 토큰을 쓰므로 365일 갱신.
