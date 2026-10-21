@@ -34,7 +34,10 @@ export interface ScheduleGuardDecision {
 export interface ScheduleGuardOptions {
   /** cron timezone — 미지정 시 system local. learningJobs 는 `UTC` 권장. */
   timezone?: string;
-  /** Opt in for jobs safe to run seconds late (coalesced observation, idempotent refresh): resume a missed tick after event-loop delay. */
+  /**
+   * Replay one tick that node-cron's one-second check passed while the event loop was busy (ADR-0703).
+   * Default on except the order path below; `false` keeps the skip, e.g. minute price checks that never replay.
+   */
   recoverMissedExecutions?: boolean;
   /** 테스트/긴급 우회 — true 면 가드 무시. 기본 false. */
   force?: boolean;
@@ -141,6 +144,20 @@ export function shouldSkipForScheduleClass(
   }
 }
 
+/** Order-path jobs keep node-cron's skip-on-delay behaviour until a LIVE restart decides them (ADR-0703). */
+const NO_TICK_RECOVERY_JOBS: ReadonlySet<string> = new Set([
+  'orchestrator_tick', 'oco_confirm', 'oco_survival', 'oco_recovery_round', 'portfolio_risk_check', 'cancel_all_active_oco',
+  'sell_poll_start', 'sell_poll_stop', 'kis_stream_start', 'kis_stream_stop', 'kis_stream_watchdog',
+]);
+
+/**
+ * An explicit option wins; otherwise every job outside the order path recovers a delayed tick.
+ * `SCHEDULER_MISSED_TICK_RECOVERY_DISABLED=true` restores the old default (explicit opt-ins only).
+ */
+export function resolveMissedTickRecovery(jobName: string, explicit?: boolean): boolean {
+  return explicit ?? (process.env.SCHEDULER_MISSED_TICK_RECOVERY_DISABLED !== 'true' && !NO_TICK_RECOVERY_JOBS.has(jobName));
+}
+
 /**
  * cron.schedule 래퍼. ScheduleClass 가드 + 자동 메트릭 기록.
  *
@@ -157,9 +174,10 @@ export function scheduledJob(
   fn: () => Promise<unknown> | unknown,
   options: ScheduleGuardOptions = {},
 ): void {
-  const cronOpts = options.timezone || options.recoverMissedExecutions !== undefined ? {
+  const recover = resolveMissedTickRecovery(jobName, options.recoverMissedExecutions);
+  const cronOpts = options.timezone || recover ? {
     ...(options.timezone ? { timezone: options.timezone } : {}),
-    ...(options.recoverMissedExecutions !== undefined ? { recoverMissedExecutions: options.recoverMissedExecutions } : {}),
+    ...(recover ? { recoverMissedExecutions: true } : {}),
   } : undefined;
 
   // cron.schedule 호출 *전* 에 추적 — register 함수가 throw 해도 이전 jobName 은 보존.
@@ -168,7 +186,7 @@ export function scheduledJob(
   let lastRecoveredTick = -Infinity;
   cron.schedule(cronExpr, async (scheduledAt) => {
     // node-cron 3 can emit the same recovered second twice because it retains milliseconds.
-    if (options.recoverMissedExecutions && scheduledAt instanceof Date) {
+    if (recover && scheduledAt instanceof Date) {
       const tick = Math.floor(scheduledAt.getTime() / 1000);
       if (tick <= lastRecoveredTick) return;
       lastRecoveredTick = tick;

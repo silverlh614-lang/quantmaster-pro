@@ -4,7 +4,7 @@ import { paperAccountSlotCount, paperAccountWeightPct } from '../../src/types/pa
 import type { PaperExperimentView } from '../../src/types/paperExperiment.js';
 import type { PaperMorningReview } from '../../src/types/paperMorning.js';
 import { PAPER_PROGRAM_FAILURE_LABELS } from '../../src/types/paperIndicatorProgram.js';
-import { toKstDateKey } from '../calendar/krxTradingCalendar.js';
+import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { paperValidationWait } from '../trading/paper/paperAdaptiveSelection.js';
 
 type Mark = 'OK' | 'WAIT' | 'WARN' | 'FAIL';
@@ -14,9 +14,15 @@ const time = (value: string) => new Date(value).toLocaleTimeString('ko-KR', { ti
 const day = (value: string) => { const [, month, date] = value.split('-').map(Number); return `${month}월 ${date}일`; };
 const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/** Each line is judged only from records known by `now`; a missing record is reported, never assumed fine. */
-export function formatShadowChecklist(input: { view: PaperExperimentView; account?: PaperAccountView; morning?: PaperMorningReview; date: string; now: Date }): string[] {
-  const { view, account, morning, date } = input, cutoff = input.now.getTime();
+/**
+ * Each line is judged only from records known by `now`; a missing record is reported, never assumed fine.
+ * `live` (/paper during the day) waits on records whose time has not come yet or that a market holiday never makes.
+ */
+export function formatShadowChecklist(input: { view: PaperExperimentView; account?: PaperAccountView; morning?: PaperMorningReview; date: string; now: Date; live?: boolean }): string[] {
+  const { view, account, morning, date, live = false } = input, cutoff = input.now.getTime();
+  const kst = new Date(cutoff + 9 * 3_600_000), minute = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  const holiday = live && !isKrxTradingDay(date);
+  const before = (hour: number, min = 0) => live && minute < hour * 60 + min;
   const known = (value: string | null | undefined) => Boolean(value) && Date.parse(value!) <= cutoff;
   const today = (value: string | null | undefined) => known(value) && toKstDateKey(value!) === date;
   const checks: Array<[Mark, string]> = [];
@@ -24,18 +30,19 @@ export function formatShadowChecklist(input: { view: PaperExperimentView; accoun
   const state = strategy?.adaptive && known(strategy.adaptive.evaluatedAt) ? strategy.adaptive : undefined;
 
   checks.push(state && state.tradingDate === date ? ['OK', `연구 평가 ${time(state.evaluatedAt)}`]
-    : ['FAIL', `오늘 연구 평가 없음${state ? ` · 마지막 ${day(state.tradingDate)}` : ''}`]);
+    : [holiday || before(1) ? 'WAIT' : 'FAIL', `${holiday ? '휴장일 · 연구 평가는 다음 관측 때' : before(1) ? '0시 연구 평가 진행 대기' : '오늘 연구 평가 없음'}${state ? ` · 마지막 ${day(state.tradingDate)}` : ''}`]);
   if (state) {
     const active = state.candidates.filter(item => item.active).length, wait = paperValidationWait(state);
     checks.push(active ? ['OK', `검증 연결 ${active}개`]
       : ['WAIT', `검증 연결 0개${!wait ? '' : wait.kind === 'DATES' ? ` · 빠르면 ${day(wait.earliestDate)}`
         : wait.kind === 'CHANCE' ? ` · 무작위 대조 미통과 ${wait.count}개` : ' · 기준 통과 지표 없음'}`]);
   }
+  if (holiday) checks.push(['WAIT', '휴장일 · 가상 매수 없음']);
   if (strategy && strategy.trades.length === strategy.totalCount) {
     const entered = strategy.trades.filter(trade => trade.tradingDate === date && trade.strategyVersion === 'adaptive-features-v1' && known(trade.entryAt));
     const exploring = entered.filter(trade => trade.entryDecision.explorationEvidence).length;
     const rules = state?.exploration?.rules.filter(rule => today(rule.registeredAt)).length ?? 0;
-    checks.push([rules ? 'OK' : 'WARN', `가상 매수 검증 ${entered.length - exploring}건 · 탐색 ${exploring}건 · 탐색 규칙 ${rules ? `${rules}개` : '미등록'}`]);
+    if (!holiday) checks.push([rules ? 'OK' : 'WARN', `가상 매수 검증 ${entered.length - exploring}건 · 탐색 ${exploring}건 · 탐색 규칙 ${rules ? `${rules}개` : '미등록'}`]);
     const overdue = strategy.openBreakdown?.overdueScheduledCount ?? 0;
     const late = strategy.openBreakdown?.overdue ?? [];
     if (overdue) checks.push(['WARN', `예정일 지나 종가 미확인 ${overdue}건${late.length ? ` · ${late.map(item => `${day(item.exitDate)} ${escape(item.name)} ${item.symbol}`).join(', ')}${overdue > late.length ? ' 외' : ''}` : ''}`]);
@@ -57,7 +64,9 @@ export function formatShadowChecklist(input: { view: PaperExperimentView; accoun
   else {
     const ledger = account.account, weight = paperAccountWeightPct(ledger);
     const selection = ledger.selections?.find(item => item.tradingDate === date);
-    checks.push([today(ledger.lastSnapshotAt) ? 'OK' : 'FAIL', `가상 계좌 ${today(ledger.lastSnapshotAt) ? `처리 ${time(ledger.lastSnapshotAt!)}` : '오늘 처리 없음'} · 종목당 ${weight}% · 보유 ${account.positions.length}/${paperAccountSlotCount({ maxPositionPct: weight })}${selection && !selection.selectedRuleKey ? ' · 운용 기준 없음' : ''}`]);
+    const processed = today(ledger.lastSnapshotAt), waiting = !processed && (holiday || before(9));
+    checks.push([processed ? 'OK' : waiting ? 'WAIT' : 'FAIL', `가상 계좌 ${processed ? `처리 ${time(ledger.lastSnapshotAt!)}`
+      : waiting ? (holiday ? '휴장일' : '장 시작 후 처리') : '오늘 처리 없음'} · 종목당 ${weight}% · 보유 ${account.positions.length}/${paperAccountSlotCount({ maxPositionPct: weight })}${selection && !selection.selectedRuleKey ? ' · 운용 기준 없음' : ''}`]);
   }
 
   const exit = strategy?.exitLearning;
@@ -65,7 +74,7 @@ export function formatShadowChecklist(input: { view: PaperExperimentView; accoun
 
   const report = morning?.report;
   checks.push(!morning || morning.trackingError && !report ? ['WARN', '아침 추천 기록 확인 불가']
-    : !report ? ['FAIL', '오늘 아침 추천 기록 없음']
+    : !report ? (before(9) ? ['WAIT', '아침 추천 08:30 발송 예정'] : ['FAIL', '오늘 아침 추천 기록 없음'])
       : report.delivery && known(report.delivery.sentAt) ? ['OK', `아침 추천 발송 ${time(report.delivery.sentAt)} · ${report.picks.length}종목`]
         : ['WARN', '아침 추천 발송 확인 대기']);
 
@@ -76,7 +85,8 @@ export function formatShadowChecklist(input: { view: PaperExperimentView; accoun
       : ['WAIT', research.state === 'RUNNING' ? 'AI 계산법 작성 중' : 'AI 계산법 장외 회차 대기']);
 
   const last = view.lastRun;
-  if (!last || !today(last.asOf)) checks.push(['FAIL', '오늘 가격 관측 없음']);
+  if (!last || !today(last.asOf)) checks.push(holiday ? ['WAIT', '휴장일 · 가격 관측 없음']
+    : before(9) ? ['WAIT', '오늘 첫 가격 관측 대기'] : ['FAIL', '오늘 가격 관측 없음']);
   else {
     const missingPct = last.candidateCount ? last.missingPriceCount / last.candidateCount * 100 : 100;
     checks.push([missingPct <= MISSING_PRICE_WARN_PCT ? 'OK' : 'WARN', `가격 미확인 ${missingPct.toFixed(1)}% (${last.missingPriceCount}/${last.candidateCount})`]);

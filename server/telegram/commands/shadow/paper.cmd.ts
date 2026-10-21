@@ -7,11 +7,23 @@ import { recentPaperNews } from '../../../alerts/paperBot.js';
 import { formatPaperArchivedResearch, formatPaperReport, formatPaperResearch, formatPaperBotStatus } from '../../../alerts/paperBotMessages.js';
 import { loadPaperBotState } from '../../../persistence/paperBotRepo.js';
 import { formatStoredPaperMorningReport } from '../../../trading/paper/paperMorningRuntime.js';
+import { readVirtualAccount } from '../../../trading/paper/paperAccountRuntime.js';
+
+/** An unreadable account is left out, and the checklist reports it rather than failing the command. */
+function readAccountSafely(now: Date) {
+  try { return readVirtualAccount(now); } catch (error) {
+    console.warn('[paper.cmd] 가상 계좌 조회 실패:', error instanceof Error ? error.message : String(error));
+    return undefined;
+  }
+}
 
 const commands: Array<{ name: string; description: string; render: () => string | string[] }> = [
   { name: '/paper_recommend', description: '08:30 추천·휴장일 연구·이후 가상 성과', render: () => formatStoredPaperMorningReport() },
   // Daily counts read every saved record, as the scheduled reports do; the 200-row screen limit would drop older entries.
-  { name: '/paper', description: 'Shadow 관측·가상 매매 현황', render: () => formatPaperReport(getPaperExperimentView(true, { includeComparisons: false }), 'status', toKstDateKey(new Date()), recentPaperNews()) },
+  { name: '/paper', description: 'Shadow 관측·가상 매매 현황·운용 점검', render: () => {
+    const now = new Date();
+    return formatPaperReport(getPaperExperimentView(true, { includeComparisons: false }), 'status', toKstDateKey(now), recentPaperNews(), now, readAccountSafely(now));
+  } },
   // The archived study is its own message so the live exit-versus-D5 comparison is never cut at the length limit.
   { name: '/paper_research', description: '저장 자료 연구·조건별 검증', render: () => {
     const view = getPaperExperimentView(true);
