@@ -33,6 +33,13 @@ describe('current Shadow commands', () => {
     expect(reply.mock.calls[0]?.[0]).toContain('Shadow 운용 점검');
     expect(reply.mock.calls[0]?.[0]).toContain('❌ 가상 계좌 기록 확인 불가');
   });
+  it('names the running build so an undeployed merge is visible', async () => {
+    const reply = vi.fn(async (_message: string) => {});
+    vi.stubEnv('RAILWAY_GIT_COMMIT_SHA', '6e0d5250086c19dba53c2d04d0b1531759c97e42');
+    await commandRegistry.resolve('/paper_bot')!.execute({ args: [], reply });
+    vi.unstubAllEnvs();
+    expect(reply.mock.calls[0]?.[0]).toContain('현재 모드 SHADOW · 자동 관측 활성 · 빌드 6e0d525\n');
+  });
   it('reads every saved record so daily counts match the scheduled reports', async () => {
     mocks.view.mockClear();
     for (const name of ['/paper', '/paper_research']) await commandRegistry.resolve(name)!.execute({ args: [], reply: vi.fn(async () => {}) });
