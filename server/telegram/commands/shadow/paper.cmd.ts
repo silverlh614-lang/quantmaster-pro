@@ -9,6 +9,12 @@ import { loadPaperBotState } from '../../../persistence/paperBotRepo.js';
 import { formatStoredPaperMorningReport } from '../../../trading/paper/paperMorningRuntime.js';
 import { readVirtualAccount } from '../../../trading/paper/paperAccountRuntime.js';
 
+/** The running commit, as /health shows it, so a merge that never reached the server is visible from /paper. */
+function buildLabel(): string {
+  const sha = process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA;
+  return sha ? ` · 빌드 ${sha.slice(0, 7)}` : '';
+}
+
 /** An unreadable account is left out, and the checklist reports it rather than failing the command. */
 function readAccountSafely(now: Date) {
   try { return readVirtualAccount(now); } catch (error) {
@@ -33,7 +39,7 @@ const commands: Array<{ name: string; description: string; render: () => string 
 ];
 for (const item of commands) commandRegistry.register({ name: item.name, description: item.description, category: 'LRN', visibility: 'MENU', riskLevel: 0,
   execute: async ({ reply }) => {
-    const status = `현재 모드 ${getTradingMode()} · 자동 관측 ${getAutoTradePaused() ? '일시정지' : '활성'}\n`;
+    const status = `현재 모드 ${getTradingMode()} · 자동 관측 ${getAutoTradePaused() ? '일시정지' : '활성'}${buildLabel()}\n`;
     const [first, ...rest] = [item.render()].flat();
     await reply(status + first);
     for (const message of rest) await reply(message);
