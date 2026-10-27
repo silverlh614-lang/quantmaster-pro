@@ -7,6 +7,8 @@ import { emptyStrategyLedger } from '../trading/paper/paperStrategyFixtures.js';
 import { matureAdaptiveSamples } from '../trading/paper/paperAdaptiveFixtures.js';
 import { selectPaperAdaptiveState } from '../trading/paper/paperAdaptiveSelection.js';
 import { formatPaperAdaptiveSummary } from './paperResearchMessages.js';
+import { buildPaperAccountView, createPaperAccount } from '../trading/paper/paperAccount.js';
+import type { PaperAccountOrder } from '../../src/types/paperAccount.js';
 
 const now = new Date('2026-09-18T05:00:00Z');
 function autonomousView(): PaperExperimentView {
@@ -124,6 +126,26 @@ describe('paper research message', () => {
     expect(message.endsWith('/paper · /paper_research · /paper_bot')).toBe(true);
     expect(message.length).toBeLessThanOrEqual(3500);
     expect((message.match(/<b>/g) ?? []).length).toBe((message.match(/<\/b>/g) ?? []).length);
+  });
+
+  it('compares account protection rules from the recorded account without changing it', () => {
+    const view = autonomousView();
+    const account = createPaperAccount({ initialCash: 1_000_000, maxPositionPct: 50, includeExploration: false }, '2026-09-13T00:00:00Z', 'acct');
+    const cost = { version: 'test', buyFeeRate: 0, sellFeeRate: 0, sellTaxRate: 0, slippageRate: 0 };
+    const order = (side: 'BUY' | 'SELL', at: string, price: number): PaperAccountOrder => ({ id: `A:${side}`, tradeId: 'A', symbol: '000001',
+      name: 'A', side, signalAt: at, submittedAt: at, updatedAt: at, signalSnapshotId: at, signalReason: '', signalLabel: '', purpose: 'VALIDATED',
+      quantity: 50, budget: price * 50, costModel: cost, status: 'FILLED', statusReason: '',
+      fill: { id: `A:${side}:fill`, at, snapshotId: at, quote: { price, observedAt: at, source: 'KIS', snapshotId: at }, quantity: 50, price,
+        grossAmount: price * 50, fee: 0, tax: 0, cashDelta: side === 'BUY' ? -price * 50 : price * 50 } });
+    account.orders = [order('BUY', '2026-09-14T01:00:00Z', 10_000), order('SELL', '2026-09-15T01:00:00Z', 8_000)];
+    const original = structuredClone(account);
+    const text = formatPaperResearch(view, now, buildPaperAccountView(account, now.toISOString()));
+    expect(text).toContain('🛡️ <b>계좌 보호 장치 비교 · 실제 매매 미반영</b>');
+    expect(text).toContain('• 현행(다시 계산): -10.00% · 최대 낙폭 10.0% · 매수 1건');
+    expect(text).toContain('• 손실 브레이크 −10%·5거래일: -10.00% · 최대 낙폭 10.0% · 매수 1건 · 중단 1회·미매수 0건');
+    expect(text).toContain('실제 계좌 -10.00%');
+    expect(account).toEqual(original);
+    expect(formatPaperResearch(view, now)).not.toContain('계좌 보호 장치 비교');
   });
 
   it('declares the two bounded intraday slots and the correct semantic destinations', () => {
