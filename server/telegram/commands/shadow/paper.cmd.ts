@@ -32,8 +32,8 @@ const commands: Array<{ name: string; description: string; render: () => string 
   } },
   // The archived study is its own message so the live exit-versus-D5 comparison is never cut at the length limit.
   { name: '/paper_research', description: '저장 자료 연구·조건별 검증', render: () => {
-    const view = getPaperExperimentView(true);
-    return [formatPaperResearch(view), formatPaperArchivedResearch(view)];
+    const now = new Date(), view = getPaperExperimentView(true);
+    return [formatPaperResearch(view, now, readAccountSafely(now)), formatPaperArchivedResearch(view)];
   } },
   { name: '/paper_bot', description: '알림 일정·발송 성공·실패 확인', render: () => formatPaperBotStatus(loadPaperBotState()) },
 ];

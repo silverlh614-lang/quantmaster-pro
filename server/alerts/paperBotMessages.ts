@@ -13,6 +13,7 @@ import type { PaperAccountView } from '../../src/types/paperAccount.js';
 import { getPaperMorningReviewSafely } from '../trading/paper/paperMorningRuntime.js';
 import { formatPaperMorningFollowup } from './paperMorningFollowup.js';
 import { formatPaperAdaptiveSummary, paperTelegramRuleLabel } from './paperResearchMessages.js';
+import { studyPaperAccountProtection } from '../trading/paper/paperAccountProtection.js';
 
 export const PAPER_BOT_SCHEDULES = [
   { kind: 'recommendation', minute: 8 * 60 + 30, graceMinutes: 30, label: '매일 08:30 · 학습 기반 추천 · 휴장일 연구 현황' },
@@ -82,14 +83,27 @@ const RESEARCH_WAIT_LABELS: Record<string, string> = {
   MISSING_INPUT: '입력값 없음', NO_TRAIN_VARIATION: '학습 구간 비교군 부족', NO_TEST_MATCH: '후반 구간 해당 없음',
 };
 
+/** What the recorded account would have returned under each protection rule; the live account rules stay as they are. */
+function protectionLines(view: PaperExperimentView, account: PaperAccountView | undefined, now: Date): string[] {
+  const ledger = account?.account, trades = view.strategy?.trades;
+  if (!ledger || account?.error || !trades || !ledger.orders.some(order => order.side === 'BUY')) return [];
+  const study = studyPaperAccountProtection(ledger, trades, now.toISOString());
+  return ['', '🛡️ <b>계좌 보호 장치 비교 · 실제 매매 미반영</b>',
+    `계좌 시작 ${stamp(study.since)} 이후 같은 신호·체결가로 다시 계산 · 매수 후보 ${num(study.candidateCount)}건${study.estimatedCount
+      ? `(보유 한도로 못 산 ${num(study.estimatedCount)}건은 전략 기록 가격)` : ''}`,
+    ...study.results.map(item => `• ${item.label}: ${pct(item.returnPct)} · 최대 낙폭 ${item.maxDrawdownPct.toFixed(1)}% · 매수 ${num(item.buyCount)}건${
+      item.brakeCount ? ` · 중단 ${item.brakeCount}회·미매수 ${num(item.pausedSkips)}건` : ''}`),
+    `실제 계좌 ${pct(account?.returnPct)} · 다시 계산은 보유 종목을 매수 금액으로 두고 비중·낙폭을 계산합니다.`];
+}
+
 /** Autonomous research and live strategy evidence; the archived study goes in its own message so neither crowds out the other. */
-export function formatPaperResearch(view: PaperExperimentView, now = new Date()): string {
+export function formatPaperResearch(view: PaperExperimentView, now = new Date(), account?: PaperAccountView): string {
   const lines = ['🔬 <b>Shadow 연구 점검 · 누적 자료 기준</b>', '', ...formatPaperAdaptiveSummary(view, now)];
   const strategy = view.strategy;
   const strategyAvailable = strategy && !strategy.error && !strategy.lastRun?.error;
   if (strategyAvailable) lines.push('', '<b>전체 전략 이력 · 구전략 포함</b>',
     `전체 전략 이력 가상 청산 ${num(strategy.performance.closedCount)}건 · 평균 순수익률 ${pct(strategy.performance.meanNetReturnPct)}`,
-    ...selectionLines(strategy.selection));
+    ...selectionLines(strategy.selection), ...protectionLines(view, account, now));
   return compactReport(lines, ['시그널은 진입 당시 선택 규칙과 학습 근거를 고정하고, 청산 결과를 별도 기록합니다.',
     '저장 자료 연구는 다음 메시지 · /paper · /paper_bot']);
 }
