@@ -336,7 +336,11 @@ describe('strategy integration in the default Shadow runner', () => {
     state.measurementHistory = { lastRecordedAt: '2026-09-18T01:00:00Z', failedBatchCount: 2,
       unrecordedPointCount: 7, error: '상세 관측 기록 일부 누락' };
     const runtime = await import('./paperStrategyRuntime.js');
+    // Saturday: the Friday-evening schedule slot has passed and the mocked 06:00 Saturday refresh is after it.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime('2026-09-19T12:00:00+09:00');
     const view = runtime.readPaperStrategyView();
+    vi.useRealTimers();
     expect(view.measurementHistory).toEqual(state.measurementHistory);
     expect(view.krxListing).toEqual({ refreshedAt: '2026-09-18T21:00:00.000Z', total: 2700, partial: false, stale: false, usable: true });
     expect(state.readHistory).toHaveBeenCalledWith(state.strategy);

@@ -89,7 +89,7 @@ describe('Shadow operation checklist', () => {
     expect(line({ refreshedAt: '2026-09-17T21:00:00Z', total: 2676, partial: false, stale: false, usable: true }))
       .toEqual(['✅ 종목 목록 갱신 9월 18일 06:00 · 2,676종목']);
     expect(line({ refreshedAt: '2026-09-16T07:30:00Z', total: 2681, partial: false, stale: true, usable: false }))
-      .toEqual(['⚠️ 종목 목록 24시간 넘게 갱신 안 됨 · 마지막 9월 16일 16:30 · 상장폐지 판정 멈춤 · /krx_master_refresh']);
+      .toEqual(['⚠️ 종목 목록 정해진 갱신(거래일 06:00·19:00) 누락 · 마지막 9월 16일 16:30 · 상장폐지 판정 멈춤 · /krx_master_refresh']);
     expect(line({ refreshedAt: '2026-09-17T21:00:00Z', total: 396, partial: true, stale: false, usable: false }))
       .toEqual(['⚠️ 종목 목록 일부만 확보 396종목 · 상장폐지 판정 멈춤 · /krx_master_refresh']);
     expect(line(null)).toEqual(['⚠️ 종목 목록 확인 불가 · 상장폐지 판정 멈춤']);

@@ -56,7 +56,7 @@ export function formatShadowChecklist(input: { view: PaperExperimentView; accoun
     ? `${day(toKstDateKey(listing.refreshedAt))} ${time(listing.refreshedAt)}` : null;
   if (listing !== undefined) checks.push(!listing ? ['WARN', '종목 목록 확인 불가 · 상장폐지 판정 멈춤']
     : listing.usable ? ['OK', `종목 목록 갱신 ${refreshed ?? '시각 미확인'} · ${listing.total.toLocaleString('ko-KR')}종목`]
-      : ['WARN', `${listing.stale ? `종목 목록 24시간 넘게 갱신 안 됨${refreshed ? ` · 마지막 ${refreshed}` : ''}`
+      : ['WARN', `${listing.stale ? `종목 목록 정해진 갱신(거래일 06:00·19:00) 누락${refreshed ? ` · 마지막 ${refreshed}` : ''}`
         : `종목 목록 일부만 확보 ${listing.total.toLocaleString('ko-KR')}종목`} · 상장폐지 판정 멈춤 · /krx_master_refresh`]);
 
   if (!account || account.error) checks.push(['FAIL', '가상 계좌 기록 확인 불가']);

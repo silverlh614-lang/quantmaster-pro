@@ -279,7 +279,7 @@ export interface PaperKrxListingStatus {
   refreshedAt: string | null;
   total: number;
   partial: boolean;
-  /** Older than the master's 24-hour refresh window. */
+  /** The latest scheduled master refresh (KRX trading days 06:00·19:00 KST) did not land. */
   stale: boolean;
   /** Complete and fresh enough to call a held stock delisted. */
   usable: boolean;
