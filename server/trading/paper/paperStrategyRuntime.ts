@@ -3,6 +3,7 @@ import type { PaperExperiment, PaperSnapshot } from '../../../src/types/paperExp
 import type { PaperKrxListingStatus, PaperStrategyLedger, PaperStrategyScanResult, PaperStrategyTrade, PaperTradeMeasurementRow } from '../../../src/types/paperStrategy.js';
 import { loadPaperStrategyLedger, savePaperStrategyLedger } from '../../persistence/paperStrategyRepo.js';
 import { getKrxMasterMetadata, getStockByCode } from '../../persistence/krxStockMasterRepo.js';
+import { missedKrxMasterRefresh } from './paperKrxListing.js';
 import { capturePaperCostModel, trimArchivedEntryBars } from './paperExperimentPolicy.js';
 import { buildPaperStrategyView, evaluatePaperStrategyScan, evaluatePaperHoldingPrices } from './paperStrategyPolicy.js';
 import { getArchivedPaperBarCheck } from './paperResearchRuntime.js';
@@ -78,13 +79,15 @@ export function advancePaperStrategy(
   }
 }
 
-function readKrxListing(): PaperKrxListingStatus | null {
+function readKrxListing(now = new Date()): PaperKrxListingStatus | null {
   try {
     const master = getKrxMasterMetadata();
     const at = master.last_full_master_refresh_at;
     const refreshedAt = master.raw_krx_master_total && typeof at === 'number' && Number.isFinite(at) ? new Date(at).toISOString() : null;
-    return { refreshedAt, total: master.raw_krx_master_total, partial: master.is_partial, stale: master.stale,
-      usable: !master.is_partial && !master.stale && master.raw_krx_master_total >= KRX_LISTING_MINIMUM };
+    // Judged against the refresh schedule, not the master's 24-hour TTL, so weekends keep the delisted judgement.
+    const stale = missedKrxMasterRefresh(refreshedAt, now);
+    return { refreshedAt, total: master.raw_krx_master_total, partial: master.is_partial, stale,
+      usable: !master.is_partial && !stale && master.raw_krx_master_total >= KRX_LISTING_MINIMUM };
   } catch (error) {
     console.warn('[PaperStrategy] KRX 종목 목록 확인 실패 · 상장폐지 판정 생략:', error instanceof Error ? error.message : String(error));
     return null;
