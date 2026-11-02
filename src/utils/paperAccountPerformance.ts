@@ -1,5 +1,26 @@
-// @responsibility Summarize realized virtual account results after policy selection.
+// @responsibility Summarize virtual account execution by frozen policy selection.
 import type { PaperAccountLedger } from '../types/paperAccount';
+
+/** Selection IDs describe the decision context, not proof that every rejected order matched its winning rule.
+ * Null selects buys whose original selection is missing; later sells follow their buy's trade ID. */
+export function paperAccountOrderReview(account: PaperAccountLedger, selectionId?: string | null) {
+  const known = new Set(account.selections?.map(selection => selection.id));
+  const buys = account.orders.filter(order => order.side === 'BUY' && (selectionId === undefined
+    || (selectionId === null ? !order.selectionId || !known.has(order.selectionId) : order.selectionId === selectionId)));
+  const tradeIds = new Set(buys.map(order => order.tradeId));
+  const orders = selectionId === undefined ? account.orders : account.orders.filter(order => tradeIds.has(order.tradeId));
+  const counts = { FILLED: 0, REJECTED: 0, EXPIRED: 0, PENDING: 0 };
+  const reasons = new Map<string, { status: PaperAccountLedger['orders'][number]['status']; reason: string; count: number }>();
+  for (const buy of buys) {
+    counts[buy.status]++;
+    if (buy.status === 'FILLED') continue;
+    const key = JSON.stringify([buy.status, buy.statusReason]);
+    const item = reasons.get(key) ?? { status: buy.status, reason: buy.statusReason, count: 0 };
+    item.count++; reasons.set(key, item);
+  }
+  return { buyCount: buys.length, counts, orders, reasons: [...reasons.values()]
+    .sort((a, b) => b.count - a.count || a.status.localeCompare(b.status) || a.reason.localeCompare(b.reason)) };
+}
 
 /** Selection statistics never enter these results; only paired account fills contribute. */
 export function paperAccountPerformance(account: PaperAccountLedger, selectionId?: string) {

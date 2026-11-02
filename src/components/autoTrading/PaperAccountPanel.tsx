@@ -1,16 +1,16 @@
 // @responsibility Display virtual account operation evidence.
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { paperExperimentApi, PAPER_EXPERIMENT_QUERY_KEY } from '../../api/paperExperimentClient';
 import { paperAccountSlotCount, paperAccountWeightPct, type PaperAccountView } from '../../types/paperAccount';
-import { paperAccountPerformance } from '../../utils/paperAccountPerformance';
+import { paperAccountOrderReview, paperAccountPerformance } from '../../utils/paperAccountPerformance';
 
 const key = [...PAPER_EXPERIMENT_QUERY_KEY, 'virtual-account'];
 const money = (value: number | null) => value === null ? '미확인' : `${value.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}원`;
 const stamp = (value: string | null) => value ? new Date(value).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false }) : '아직 처리 없음';
 const statuses = { FILLED: '가상 체결', PENDING: '체결 대기', REJECTED: '매수 불가', EXPIRED: '신호 만료' };
 const pct = (value: number | null) => value === null ? '집계 대기' : `${value.toFixed(2)}%`;
-function AccountPolicy({ view }: { view: PaperAccountView }) {
+function AccountPolicy({ view, onOrders }: { view: PaperAccountView; onOrders: (selectionId: string) => void }) {
   const [page, setPage] = useState(0), account = view.account!;
   const choices = [...(account.selections ?? [])].reverse(), latest = choices[0];
   const index = Math.min(page, Math.max(0, Math.ceil(choices.length / 10) - 1));
@@ -25,11 +25,17 @@ function AccountPolicy({ view }: { view: PaperAccountView }) {
     <p className="text-xs text-slate-400">최대 낙폭은 신선한 가격으로 평가한 청산 자산 기준이며 관측 사이의 가격과 기록 이전 구간은 포함하지 않습니다.</p>
     <details><summary className="cursor-pointer">선택 근거·적용 후 성과 ({choices.length}회)</summary>
       {choices.slice(index * 10, index * 10 + 10).map(choice => {
-        const forward = paperAccountPerformance(account, choice.id);
+        const forward = paperAccountPerformance(account, choice.id), flow = paperAccountOrderReview(account, choice.id);
+        const skipped = account.skippedSignals?.counts[choice.tradingDate];
         return <article key={choice.id} className="border-b border-slate-700 py-3 space-y-1 text-xs">
           <h5 className="font-semibold">{choice.tradingDate} · {choice.candidates[0]?.label ?? '검증 기준 없음'}</h5>
           <p>선택 {stamp(choice.selectedAt)} · 학습 자료 마감 {stamp(choice.cutoffAt)} · 표본 기준 학습/확인 각각 {choice.minimumSamples}건·{choice.minimumEntryDates}일</p>
           {choice.candidates.map((candidate, rank) => <p key={candidate.ruleKey}>{rank + 1}순위 {candidate.label}: 과거 검증 순수익 {pct(candidate.validation.meanNetReturnPct)} · {candidate.validation.sampleCount}건/{candidate.validation.dateCount}일</p>)}
+          <p>선택 근거에 연결된 매수 주문 {flow.buyCount}건: 체결 {flow.counts.FILLED} · 거절 {flow.counts.REJECTED} · 만료 {flow.counts.EXPIRED} · 대기 {flow.counts.PENDING}</p>
+          {flow.reasons.map(item => <p key={JSON.stringify([item.status, item.reason])}>{statuses[item.status]}: {item.reason} · {item.count}건</p>)}
+          <p>{skipped ? `당일 주문 없이 제외된 신호 ${Object.values(skipped).reduce((sum, count) => sum + count, 0)}건: ${Object.entries(skipped).map(([reason, count]) => `${reason} ${count}건`).join(' · ')}` : '당일 주문 없이 제외된 신호: 일별 집계 기록 없음'}</p>
+          <p>주문 없는 제외 신호는 해당 날짜 전체의 집계입니다. 과거 거절 주문에는 다른 규칙의 신호도 포함될 수 있어, 모두 선택 규칙의 진입으로 계산하지 않습니다.</p>
+          <button type="button" className="underline" onClick={() => onOrders(choice.id)}>{choice.tradingDate} 선택의 주문 보기</button>
           <p>선택 이후 계좌 체결: 청산 {forward.closedCount}건 / 보유 {forward.openCount}건 · 실현손익 {money(forward.realizedPnl)} · 평균 순수익률 {pct(forward.meanNetReturnPct)}</p>
           <p>과거 검증은 D1·D3·D5 고정 기간 성적입니다. 계좌의 관측 매도 성과와 별개이며 미래 수익을 보장하지 않습니다.</p>
         </article>;
@@ -38,11 +44,26 @@ function AccountPolicy({ view }: { view: PaperAccountView }) {
     </details>
   </div>;
 }
+function AccountOrderFilter({ account, selectionId, onReset }: {
+  account: NonNullable<PaperAccountView['account']>; selectionId: string | null | undefined; onReset: () => void;
+}) {
+  if (selectionId === undefined) return null;
+  const label = selectionId === null ? '선택 근거 미확인' : `${account.selections?.find(choice => choice.id === selectionId)?.tradingDate ?? '기록 확인 필요'} 선택`;
+  return <p className="text-xs">{label}의 매수와 같은 거래의 후속 매도 · <button type="button" className="underline" onClick={onReset}>전체 주문 보기</button></p>;
+}
 export function PaperAccountRecords({ view }: { view: PaperAccountView }) {
   const [page, setPage] = useState(0);
+  const [selectionId, setSelectionId] = useState<string | null | undefined>(undefined);
+  const orderDetails = useRef<HTMLDetailsElement>(null);
   const account = view.account;
   if (!account) return null;
-  const orders = [...account.orders].reverse(), index = Math.min(page, Math.max(0, Math.ceil(orders.length / 10) - 1));
+  const flow = paperAccountOrderReview(account, selectionId);
+  const orders = [...flow.orders].reverse(), index = Math.min(page, Math.max(0, Math.ceil(orders.length / 10) - 1));
+  const unassigned = paperAccountOrderReview(account, null).buyCount;
+  const selectOrders = (id: string | null | undefined) => {
+    setSelectionId(id); setPage(0);
+    if (orderDetails.current) orderDetails.current.open = true;
+  };
   const skippedDate = Object.keys(account.skippedSignals?.counts ?? {}).sort().at(-1);
   const skipped = skippedDate ? Object.entries(account.skippedSignals!.counts[skippedDate]) : [];
   return <div className="space-y-4">
@@ -53,7 +74,7 @@ export function PaperAccountRecords({ view }: { view: PaperAccountView }) {
     <p className="text-xs text-slate-400">시작 {stamp(account.startedAt)} · 초기 예수금 {money(account.config.initialCash)} · 종목당 {paperAccountWeightPct(account)}% · 최대 {paperAccountSlotCount({ maxPositionPct: paperAccountWeightPct(account) })}종목 · 검증 신호만 · 마지막 처리 {stamp(account.lastSnapshotAt)}</p>
     {account.weightChanges?.length ? <p className="text-xs text-slate-400">비중 변경: 시작 {account.config.maxPositionPct}% → {account.weightChanges.map(change => `${stamp(change.at)} ${change.maxPositionPct}%`).join(' → ')} · 변경 이후 매수부터 적용</p> : null}
     {account.config.includeExploration && <p className="text-xs">이전 탐색 포함 설정은 이력으로 보존합니다. 새 매수는 검증 전용 기준을 적용합니다.</p>}
-    <AccountPolicy view={view} />
+    <AccountPolicy view={view} onOrders={selectOrders} />
     {view.positions.some(position => position.stale) && <p role="status" className="text-amber-200">이전 관측 가격이 포함된 잠정 평가입니다. 현재 청산 가능한 금액으로 보지 마세요.</p>}
     {view.positions.some(position => position.halted) && <p role="status" className="text-amber-200">거래정지 종목은 정지 직전 가격으로 평가하고, 정지 해제 후 첫 유효 가격으로 매도 판단·체결합니다.</p>}
     <h4 className="font-semibold">가상 계좌 보유 {view.positions.length}종목</h4>
@@ -65,7 +86,10 @@ export function PaperAccountRecords({ view }: { view: PaperAccountView }) {
       <p className="text-xs text-slate-400">{stamp(position.mark?.observedAt ?? null)} {position.halted ? '· 거래정지 · 정지 직전 가격' : position.stale ? '· 이전 가격' : ''}</p>
     </article>)}</div>
     {skippedDate && <p className="text-xs text-slate-400">{skippedDate} 계좌 기준 밖 신호 {skipped.reduce((sum, [, count]) => sum + count, 0)}건은 주문 없이 1주 연구로만 집계합니다: {skipped.map(([reason, count]) => `${reason} ${count}건`).join(' · ')}</p>}
-    <details><summary className="cursor-pointer">주문·체결 원장 ({orders.length}건)</summary>
+    {unassigned > 0 && <p className="text-xs">선택 근거 미확인 매수 주문 {unassigned}건 · <button type="button" className="underline" onClick={() => selectOrders(null)}>선택 근거 미확인 주문 보기</button></p>}
+    <details ref={orderDetails} aria-label="계좌 주문·체결 원장"><summary className="cursor-pointer">주문·체결 원장 ({orders.length}건)</summary>
+      <AccountOrderFilter account={account} selectionId={selectionId} onReset={() => selectOrders(undefined)} />
+      {!orders.length && <p>해당 범위에 기록된 주문이 없습니다.</p>}
       <div className="space-y-3 py-3">{orders.slice(index * 10, index * 10 + 10).map(order => <article key={order.id} className="rounded-lg border border-slate-700 p-3 text-xs space-y-1">
         <h5 className="text-sm font-semibold">{order.side === 'BUY' ? '매수' : '매도'} · {order.name} · {statuses[order.status]} · {order.quantity}주</h5>
         <p>{order.signalLabel} · {order.purpose === 'EXPLORATION' ? '탐색' : '검증'}</p>
