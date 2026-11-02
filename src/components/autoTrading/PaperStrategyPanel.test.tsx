@@ -122,6 +122,18 @@ describe('trade record review', () => {
     expect(tradeSignalIdentity(exploration).key).not.toBe(tradeSignalIdentity(a).key);
     expect(JSON.stringify([a, b, state])).toBe(before);
   });
+  it('renders verified connection cohorts and explicitly labels unattributed entries', () => {
+    const rule: PaperAdaptiveRule = { feature: 'rsi14', bucket: 1, horizon: 3 };
+    const a = { ...resultTrade(8), strategyVersion: 'adaptive-features-v1',
+      entryDecision: { adaptiveEvidence: { candidate: { rule } } } } as unknown as PaperStrategyTrade;
+    const earlier = { ...a, id: 'earlier', entryAt: '2026-09-09T00:00:00Z' };
+    const state = { candidates: [{ rule, active: true }],
+      changes: [{ at: '2026-09-10T00:00:00Z', from: null, to: rule, reason: 'ACTIVE' }] } as unknown as PaperAdaptiveState;
+    render(<PaperSignalReview view={view({ trades: [a, earlier], totalCount: 2, adaptive: state })} onSelect={() => {}} />);
+    expect(screen.getByText('연결 회차별 진입 성과 (1회)')).toBeTruthy();
+    expect(screen.getByText('연결 회차 미확인 진입 1건')).toBeTruthy();
+    expect(screen.getByText(/해당 연결 중 진입 1건/)).toBeTruthy();
+  });
   it('opens only a selected signal original record and resets the drilldown', () => {
     const a = { ...resultTrade(8), strategyVersion: 'adaptive-features-v1' as const };
     const b = { ...resultTrade(-6), strategyVersion: 'adaptive-features-v1' as const, name: '다른종목', symbol: '000001', horizon: 5 as const };

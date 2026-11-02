@@ -60,6 +60,45 @@ describe('account protection replay', () => {
     expect(brake.maxDrawdownPct).toBeCloseTo(10);
   });
 
+  it('preserves lifetime drawdown across repeated brake restarts without changing the brake decisions', () => {
+    const account = ledger(100, [
+      order('A', 'BUY', '2026-09-14T01:00:00Z', 100, 10000), order('A', 'SELL', '2026-09-14T02:00:00Z', 90, 10000),
+      order('B', 'BUY', '2026-09-15T01:00:00Z', 100, 9000), order('B', 'SELL', '2026-09-15T02:00:00Z', 90, 9000),
+      order('C', 'BUY', '2026-09-16T01:00:00Z', 100, 8100), order('C', 'SELL', '2026-09-16T02:00:00Z', 100, 8100),
+    ]);
+    const before = JSON.stringify(account);
+    const [result] = studyPaperAccountProtection(account, [], '2026-09-16T07:00:00Z',
+      [rule('BRAKE', 100, { drawdownPct: 7, pauseTradingDays: 1 })]).results;
+    expect(result).toMatchObject({ buyCount: 3, pausedSkips: 0, brakeCount: 2 });
+    expect(result.returnPct).toBeCloseTo(-19);
+    expect(result.maxDrawdownPct).toBeCloseTo(19);
+    expect(JSON.stringify(account)).toBe(before);
+  });
+
+  it('retains a profitable lifetime high after later brake restarts', () => {
+    const account = ledger(100, [
+      order('A', 'BUY', '2026-09-14T01:00:00Z', 100, 10000), order('A', 'SELL', '2026-09-14T02:00:00Z', 120, 10000),
+      order('B', 'BUY', '2026-09-14T03:00:00Z', 100, 12000), order('B', 'SELL', '2026-09-14T04:00:00Z', 90, 12000),
+      order('C', 'BUY', '2026-09-15T01:00:00Z', 100, 10800), order('C', 'SELL', '2026-09-15T02:00:00Z', 90, 10800),
+    ]);
+    const [result] = studyPaperAccountProtection(account, [], '2026-09-15T07:00:00Z',
+      [rule('BRAKE', 100, { drawdownPct: 7, pauseTradingDays: 1 })]).results;
+    expect(result.returnPct).toBeCloseTo(-2.8);
+    expect(result.maxDrawdownPct).toBeCloseTo(19);
+    expect(result.brakeCount).toBe(2);
+  });
+
+  it('includes final open-position losses against the lifetime peak after a brake restart', () => {
+    const account = ledger(100, [
+      order('A', 'BUY', '2026-09-14T01:00:00Z', 100, 10000), order('A', 'SELL', '2026-09-14T02:00:00Z', 90, 10000),
+      order('B', 'BUY', '2026-09-15T01:00:00Z', 100, 9000),
+    ], { B: quote('2026-09-15T06:00:00Z', 85) });
+    const [result] = studyPaperAccountProtection(account, [], '2026-09-15T07:00:00Z',
+      [rule('BRAKE', 100, { drawdownPct: 7, pauseTradingDays: 1 })]).results;
+    expect(result.returnPct).toBeCloseTo(-23.5);
+    expect(result.maxDrawdownPct).toBeCloseTo(23.5);
+  });
+
   it('never buys the same stock twice and ignores refusals other than the holding limit', () => {
     const account = ledger(50, [order('A', 'BUY', '2026-09-14T01:00:00Z', 1_000, 500),
       order('X', 'BUY', '2026-09-14T02:00:00Z', 0, 0, 'REJECTED', '가격 유효시간 초과')]);

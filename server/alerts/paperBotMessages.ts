@@ -93,7 +93,7 @@ function protectionLines(view: PaperExperimentView, account: PaperAccountView | 
       ? `(보유 한도로 못 산 ${num(study.estimatedCount)}건은 전략 기록 가격)` : ''}`,
     ...study.results.map(item => `• ${item.label}: ${pct(item.returnPct)} · 최대 낙폭 ${item.maxDrawdownPct.toFixed(1)}% · 매수 ${num(item.buyCount)}건${
       item.brakeCount ? ` · 중단 ${item.brakeCount}회·미매수 ${num(item.pausedSkips)}건` : ''}`),
-    `실제 계좌 ${pct(account?.returnPct)} · 다시 계산은 보유 종목을 매수 금액으로 두고 비중·낙폭을 계산합니다.`];
+    `실제 계좌 ${pct(account?.returnPct)} · 중간 보유는 매수 금액, 최종 보유는 마지막 확보 가격(없으면 매수 금액)으로 평가합니다. 최대 낙폭은 재개 때 초기화하지 않으며 장중 시가 낙폭은 아닙니다.`];
 }
 
 /** Autonomous research and live strategy evidence; the archived study goes in its own message so neither crowds out the other. */

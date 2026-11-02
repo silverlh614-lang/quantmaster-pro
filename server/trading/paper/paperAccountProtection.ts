@@ -82,7 +82,7 @@ function accountCandidates(account: PaperAccountLedger, trades: ReadonlyMap<stri
  * since no mark history is stored; the brake therefore reacts to realized losses. Exits release cash first.
  */
 function replay(account: PaperAccountLedger, candidates: readonly Candidate[], rule: PaperProtectionRule, asOf: string): PaperProtectionResult {
-  let cash = account.config.initialCash, peak = cash, maxDrawdownPct = 0;
+  let cash = account.config.initialCash, peak = cash, brakePeak = cash, maxDrawdownPct = 0;
   let buyCount = 0, pausedSkips = 0, brakeCount = 0;
   // Held in an object: `observe` sets it from inside a closure, which plain narrowing would not see.
   const pause: { resumeDate: string | null } = { resumeDate: null };
@@ -93,7 +93,9 @@ function replay(account: PaperAccountLedger, candidates: readonly Candidate[], r
     peak = Math.max(peak, equity);
     const drawdown = peak > 0 ? (peak - equity) / peak * 100 : 0;
     maxDrawdownPct = Math.max(maxDrawdownPct, drawdown);
-    if (rule.brake && pause.resumeDate === null && drawdown >= rule.brake.drawdownPct) {
+    brakePeak = Math.max(brakePeak, equity);
+    const brakeDrawdown = brakePeak > 0 ? (brakePeak - equity) / brakePeak * 100 : 0;
+    if (rule.brake && pause.resumeDate === null && brakeDrawdown >= rule.brake.drawdownPct) {
       pause.resumeDate = tradingDayAfter(toKstDateKey(at), rule.brake.pauseTradingDays); brakeCount++;
     }
   };
@@ -110,8 +112,8 @@ function replay(account: PaperAccountLedger, candidates: readonly Candidate[], r
     settleThrough(candidate.at);
     if (pause.resumeDate !== null) {
       if (toKstDateKey(candidate.at) < pause.resumeDate) { pausedSkips++; continue; }
-      // A resumed account measures later falls from where it restarted.
-      pause.resumeDate = null; peak = equityAtCost();
+      // Only the brake restarts its reference; reported drawdown keeps the lifetime peak.
+      pause.resumeDate = null; brakePeak = equityAtCost();
     }
     const weight = paperAccountWeightPct(account, candidate.at);
     const slots = Math.max(1, Math.floor(Math.min(rule.investedCapPct, 100) / weight + 1e-9));

@@ -38,6 +38,16 @@ export function PaperSignalReview({ view, onSelect }: { view: PaperStrategyScree
             <p>청산 평균 {pct(setting.meanNetReturnPct)} · 청산 {setting.closedCount}건 / 진입 {setting.dateCount}일 · 보유 {setting.openCount}건</p>
           </div>)}
         </details>
+        {row.connections && <details><summary>연결 회차별 진입 성과 ({row.connections.periods.length}회)</summary>
+          {row.connections.periods.map(period => <div key={period.startedAt} className="my-2 border-t border-slate-700 pt-2">
+            <p>연결 {new Date(period.startedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} · {period.endedAt
+              ? `해제 ${new Date(period.endedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}` : '현재 연결'}</p>
+            <p>해당 연결 중 진입 {period.totalCount}건 / {period.dateCount}일 · 청산 {period.closedCount}건 · 보유 {period.openCount}건 · 결과 미확인 {period.unknownCount}건</p>
+            <p>청산 평균 순수익률 {pct(period.meanNetReturnPct)}{!period.complete && ' · 잠정'}</p>
+          </div>)}
+          <p>연결 회차 미확인 진입 {row.connections.unassignedCount}건</p>
+          <p>보관된 채택·해제 기록으로 확인된 구간만 집계합니다. 재연결은 별도 회차이며, 해제 후 청산도 진입 당시 회차에 포함합니다. 생성 시점이나 첫 거래로 연결 시점을 추정하지 않습니다.</p>
+        </details>}
         <details><summary>최근 연결 변화와 이후 진입 결과</summary>
           {row.change && row.afterChange ? <>
             <p>{new Date(row.change.at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} · {PAPER_ADAPTIVE_REASON_LABELS[row.change.reason]}</p>

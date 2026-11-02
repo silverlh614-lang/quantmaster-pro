@@ -142,6 +142,8 @@ describe('paper research message', () => {
     const text = formatPaperResearch(view, now, buildPaperAccountView(account, now.toISOString()));
     expect(text).toContain('🛡️ <b>계좌 보호 장치 비교 · 실제 매매 미반영</b>');
     expect(text).toContain('• 현행(다시 계산): -10.00% · 최대 낙폭 10.0% · 매수 1건');
+    expect(text).toContain('최대 낙폭은 재개 때 초기화하지 않으며 장중 시가 낙폭은 아닙니다.');
+    expect(text).toContain('최종 보유는 마지막 확보 가격(없으면 매수 금액)');
     expect(text).toContain('• 손실 브레이크 −10%·5거래일: -10.00% · 최대 낙폭 10.0% · 매수 1건 · 중단 1회·미매수 0건');
     expect(text).toContain('실제 계좌 -10.00%');
     expect(account).toEqual(original);

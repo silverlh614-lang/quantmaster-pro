@@ -13,6 +13,28 @@ export function tradeSignalIdentity(trade: PaperStrategyTradeSummary) {
     purpose: tradePurpose(trade), version: trade.strategyVersion, bornAt: rule?.invention?.createdAt };
 }
 
+/** Only explicit ACTIVE transitions establish a validated connection; discovery and exploration are separate. */
+function signalConnections(rows: readonly PaperStrategyTradeSummary[], state: PaperAdaptiveState | undefined,
+  rule: PaperAdaptiveRule | undefined, connected: boolean | undefined) {
+  const periods: Array<{ startedAt: string; endedAt: string | null }> = [];
+  const matches = (value: PaperAdaptiveRule | null) => !!rule && !!value && signalRuleKey(value) === signalRuleKey(rule);
+  let startedAt: string | null = null;
+  const changes = [...(state?.changes ?? [])].filter(change => Number.isFinite(Date.parse(change.at)))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  for (const change of changes) {
+    if (matches(change.from) && !matches(change.to) && startedAt !== null) {
+      periods.push({ startedAt, endedAt: change.at }); startedAt = null;
+    }
+    if (change.reason === 'ACTIVE' && matches(change.to) && !matches(change.from) && startedAt === null) startedAt = change.at;
+  }
+  // Without a closing event and a matching current connection, the last interval is not reconstructible.
+  if (startedAt !== null && connected) periods.push({ startedAt, endedAt: null });
+  const results = periods.map(period => ({ ...period, ...summarizeTradeRecords(rows.filter(trade =>
+    Date.parse(trade.entryAt) >= Date.parse(period.startedAt)
+    && (period.endedAt === null || Date.parse(trade.entryAt) < Date.parse(period.endedAt)))) }));
+  return { periods: results.reverse(), unassignedCount: rows.length - results.reduce((sum, period) => sum + period.totalCount, 0) };
+}
+
 export function buildSignalReview(trades: readonly PaperStrategyTradeSummary[], state?: PaperAdaptiveState) {
   const groups = new Map<string, PaperStrategyTradeSummary[]>();
   for (const trade of trades) {
@@ -30,6 +52,7 @@ export function buildSignalReview(trades: readonly PaperStrategyTradeSummary[], 
       .sort((a, b) => b.at.localeCompare(a.at))[0];
     return { ...identity, ...summarizeTradeRecords(rows),
       status: identity.purpose === 'LEGACY' ? '구전략' : !state || !identity.rule ? '연결 상태 미확인' : connected ? '현재 연결' : '현재 미연결',
+      connections: identity.purpose === 'VALIDATED' ? signalConnections(rows, state, identity.rule, connected) : null,
       change, afterChange: change ? summarizeTradeRecords(rows.filter(trade => Date.parse(trade.entryAt) >= Date.parse(change.at))) : null,
       settings: buildTradeReview(rows).rules };
   }).sort((a, b) => (b.meanNetReturnPct ?? -Infinity) - (a.meanNetReturnPct ?? -Infinity) || a.key.localeCompare(b.key));
