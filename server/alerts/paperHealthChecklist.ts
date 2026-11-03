@@ -6,6 +6,7 @@ import type { PaperMorningReview } from '../../src/types/paperMorning.js';
 import { PAPER_PROGRAM_FAILURE_LABELS } from '../../src/types/paperIndicatorProgram.js';
 import { isKrxTradingDay, toKstDateKey } from '../calendar/krxTradingCalendar.js';
 import { paperValidationWait } from '../trading/paper/paperAdaptiveSelection.js';
+import { paperExplorationEligible } from '../trading/paper/paperShadowExploration.js';
 
 type Mark = 'OK' | 'WAIT' | 'WARN' | 'FAIL';
 const ICONS: Record<Mark, string> = { OK: '✅', WAIT: '⏳', WARN: '⚠️', FAIL: '❌' };
@@ -42,7 +43,10 @@ export function formatShadowChecklist(input: { view: PaperExperimentView; accoun
     const entered = strategy.trades.filter(trade => trade.tradingDate === date && trade.strategyVersion === 'adaptive-features-v1' && known(trade.entryAt));
     const exploring = entered.filter(trade => trade.entryDecision.explorationEvidence).length;
     const rules = state?.exploration?.rules.filter(rule => today(rule.registeredAt)).length ?? 0;
-    if (!holiday) checks.push([rules ? 'OK' : 'WARN', `가상 매수 검증 ${entered.length - exploring}건 · 탐색 ${exploring}건 · 탐색 규칙 ${rules ? `${rules}개` : '미등록'}`]);
+    // No trial is normal when every candidate is connected or refuted; only an unused waiting candidate is a warning.
+    const awaiting = !rules && state !== undefined && !state.candidates.some(paperExplorationEligible);
+    if (!holiday) checks.push([rules ? 'OK' : awaiting ? 'WAIT' : 'WARN', `가상 매수 검증 ${entered.length - exploring}건 · 탐색 ${exploring}건 · 탐색 규칙 ${rules
+      ? `${rules}개` : awaiting ? '없음 · 시험할 후보가 없어 새 지표 회차 대기' : '미등록'}`]);
     const overdue = strategy.openBreakdown?.overdueScheduledCount ?? 0;
     const late = strategy.openBreakdown?.overdue ?? [];
     if (overdue) checks.push(['WARN', `예정일 지나 종가 미확인 ${overdue}건${late.length ? ` · ${late.map(item => `${day(item.exitDate)} ${escape(item.name)} ${item.symbol}`).join(', ')}${overdue > late.length ? ' 외' : ''}` : ''}`]);

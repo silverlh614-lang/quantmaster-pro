@@ -41,7 +41,13 @@ describe('Shadow operation checklist', () => {
     expect(lines).toContain('⏳ 매도 학습 비교 0건 · D5 결과 대기');
     expect(lines).toContain('✅ 아침 추천 발송 08:30 · 2종목');
     expect(lines).toContain('✅ 가격 미확인 5.0% (50/1000)');
-    expect(lines.some(line => line.startsWith('⚠️ 가상 매수 검증 1건 · 탐색 0건 · 탐색 규칙'))).toBe(true);
+    expect(lines.some(line => line.startsWith('⚠️ 가상 매수 검증 1건 · 탐색 0건 · 탐색 규칙 미등록'))).toBe(true);
+  });
+  it('waits instead of warning when no candidate is left for a trial', () => {
+    const view = viewFixture();
+    for (const candidate of view.strategy!.adaptive!.candidates) if (!candidate.active) candidate.reason = 'NO_VALIDATION_EDGE';
+    const lines = formatShadowChecklist({ view, account: accountView(), morning: morning(true), date, now });
+    expect(lines).toContain('⏳ 가상 매수 검증 1건 · 탐색 0건 · 탐색 규칙 없음 · 시험할 후보가 없어 새 지표 회차 대기');
   });
   it('waits during /paper on records whose time has not come yet instead of failing them', () => {
     const early = new Date(`${date}T00:30:00+09:00`);
