@@ -11,7 +11,9 @@ import { buildPaperAutonomy } from './paperAutonomy.js';
 import { paperAutonomyStateSchema } from './paperAutonomyValidation.js';
 
 const pending = new Set(['MISSING_INPUT', 'INSUFFICIENT_TRAINING', 'INSUFFICIENT_VALIDATION', 'FORWARD_OBSERVATION']);
-const eligible = (item: PaperAdaptiveCandidate) => !item.active && pending.has(item.reason);
+/** A candidate a Shadow trial may register: not connected and still waiting on evidence rather than refuted. */
+export const paperExplorationEligible = (item: PaperAdaptiveCandidate) => !item.active && pending.has(item.reason);
+const eligible = paperExplorationEligible;
 const horizons = [1, 3, 5] as const;
 const rotate = <T>(items: T[], offset: number): T[] => items.length
   ? [...items.slice(offset % items.length), ...items.slice(0, offset % items.length)] : [];
