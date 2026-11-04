@@ -107,7 +107,10 @@ function newsLines(view: PaperExperimentView, date: string, cutoff: number): { l
   const lines = ['📰 <b>뉴스·공시와 수급</b>'];
   const disclosure = view.lastRun?.disclosures;
   if (disclosure && Date.parse(disclosure.checkedAt) <= cutoff) {
-    lines.push(`공시 ${disclosure.state === 'COMPLETE' ? '조회 완료' : disclosure.state === 'PARTIAL' ? '일부 미확인' : '조회 실패'} · ${stamp(disclosure.checkedAt)}`,
+    // Only the latest attempt is stored; the last success tells one late failure apart from a day-long outage.
+    const lastSuccess = disclosure.state === 'COMPLETE' ? ''
+      : ` · 마지막 성공 ${disclosure.lastSuccessAt ? stamp(disclosure.lastSuccessAt) : '기록 없음'}`;
+    lines.push(`공시 ${disclosure.state === 'COMPLETE' ? '조회 완료' : disclosure.state === 'PARTIAL' ? '일부 미확인' : '조회 실패'} · ${stamp(disclosure.checkedAt)}${lastSuccess}`,
       `접수일 ${disclosure.fromDate}~${disclosure.toDate} · ${num(disclosure.fetchedCount)}건 / 연결 ${num(disclosure.linkedCount)} / 미연결 ${num(disclosure.unlinkedCount)}`);
     if (disclosure.issue) lines.push(escape(disclosure.issue.slice(0, 80)));
   } else lines.push('공시 수집 상태 미확인');
