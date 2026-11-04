@@ -177,6 +177,15 @@ describe('Shadow closing summary', () => {
     const nextDay = formatPaperCloseReport(view, '2026-09-22', new Date('2026-09-22T16:10:00+09:00'));
     expect(nextDay).toContain('오늘 청산 0건');
   });
+  it('shows the last successful disclosure fetch only when the latest attempt failed', () => {
+    const view = viewFixture();
+    const status = { state: 'UNAVAILABLE' as const, checkedAt: '2026-09-21T06:56:00.000Z', lastSuccessAt: '2026-09-21T06:30:00.000Z',
+      fromDate: '2026-09-18', toDate: date, pages: 0, fetchedCount: 0, linkedCount: 0, unlinkedCount: 0, issue: 'DART 통신 실패 또는 응답 형식 오류' };
+    view.lastRun!.disclosures = status;
+    expect(report(view)).toContain('공시 조회 실패 · 09. 21. 15:56 · 마지막 성공 09. 21. 15:30');
+    view.lastRun!.disclosures = { ...status, state: 'COMPLETE', lastSuccessAt: status.checkedAt, issue: null };
+    expect(report(view)).toMatch(/공시 조회 완료 · 09\. 21\. 15:56\n/);
+  });
   it('includes dated coverage and escaped direct headlines while staying within one message', () => {
     const view = viewFixture();
     view.lastRun!.disclosures = { state: 'PARTIAL', checkedAt: now.toISOString(), lastSuccessAt: null,
@@ -199,6 +208,7 @@ describe('Shadow closing summary', () => {
     // A held trade's decision has no news summary by design, so it is not reported as missing news.
     expect(text).toContain('보유 판단 1건(뉴스 평가 대상 아님)'); expect(text).not.toMatch(/종목 평가[^\n]*미기록/);
     expect(text).toContain('공시 일부 미확인'); expect(text).toContain('&lt;통신 &amp; 지연&gt;');
+    expect(text).toMatch(/공시 일부 미확인 · [^\n]* · 마지막 성공 기록 없음\n/);
     expect(text).toContain('직접 공시 연결 1종목');
     expect(text).toContain('&lt;기업&amp;&gt;'); expect(text).not.toContain('<기업&>');
     expect(text).toContain('수급 기준일 2026-09-18 · 확인 583/607종목 · 미확인 24');
