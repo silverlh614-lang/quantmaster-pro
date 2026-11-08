@@ -9,6 +9,8 @@
     "prebuild": "node scripts/validate_gemini_calls.js",
     "build": "vite build",
     "start": "NODE_ENV=production node --import tsx --import ./server/utils/safePctChangeCalendarPatch.ts server/index.ts",
+    "start:local": "node scripts/start_local.mjs",
+    "stop:local": "node scripts/stop_local.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",

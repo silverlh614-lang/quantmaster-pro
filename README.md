@@ -248,20 +248,26 @@ EMAIL_USER=gmail주소
 EMAIL_PASS=앱비밀번호
 ```
 
-### 로컬 실행
+### 로컬 실행 (운영)
+
+운영 서버는 로컬 PC에서 상시 실행한다(2026-11 Railway에서 이전).
 
 ```bash
-npm install
-npm run dev
-# http://localhost:3000 접속
+npm ci --include=dev
+npm run build             # 화면 빌드 (build/)
+npm run start:local       # http://localhost:3000
 ```
 
-### 검증 · 배포
+- `.env`의 `PERSIST_DATA_DIR`에 학습·원장·Shadow 기록 폴더를 지정한다. 미설정이거나 폴더가 없으면 기동을 거부한다.
+- `TELEGRAM_POLLING_ENABLED=true`이면 공개 URL 없이 롱폴링으로 텔레그램 명령을 받는다.
+- 로그는 `logs/qmp-YYYY-MM-DD.log`(KST, 14일 보관). 비정상 종료 시 실행기가 자동 재기동한다.
+- PC 절전·종료 시 스케줄(08:30 추천 발송 등)도 멈춘다.
+
+### 검증
 
 ```bash
 npm run validate:all      # complexity · responsibility · exposure · sds 정적 가드
 npm run precommit         # 커밋 전 필수 (훅 우회 금지)
-# GitHub push → Railway 자동 배포 (railway.json)
 ```
 
 ---
@@ -292,7 +298,7 @@ npm run precommit         # 커밋 전 필수 (훅 우회 금지)
 | 차트 | Recharts · lightweight-charts |
 | AI (정성 보조) | Google Gemini (gemini-2.5-flash · gemini-3-flash-preview) |
 | Backend | Express · tsx |
-| 배포 | Railway (24시간 클라우드) |
+| 운영 | 로컬 PC 상시 실행 (`npm run start:local`) |
 | 데이터 | KIS Developers API · KRX · DART OpenAPI · FRED · ECOS · (Yahoo/Naver fallback) |
 
 ---

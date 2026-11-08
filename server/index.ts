@@ -382,14 +382,14 @@ async function startServer() {
     }
   }
 
-  // Railway Volume 마운트 검증 — 데이터 소실 위험을 기동 시 즉시 감지
+  // 영속 데이터 디렉토리 쓰기 검증 — 데이터 소실 위험을 기동 시 즉시 감지
   const volumeCheck = verifyVolumeMount();
   if (volumeCheck.ok) {
     console.log(`[Volume] ✅ 마운트 확인 (${DATA_DIR}): ${volumeCheck.timestamp}`);
   } else {
     console.error(`[Volume] ❌ 미마운트 (${DATA_DIR}): ${volumeCheck.error}`);
     sendTelegramAlert(
-      `🚨 <b>[Railway Volume 미마운트]</b>\n` +
+      `🚨 <b>[영속 데이터 디렉토리 쓰기 실패]</b>\n` +
       `경로: ${DATA_DIR}\n` +
       `오류: ${volumeCheck.error}\n` +
       `재시작 시 shadow_trades·watchlist·dart·fss 데이터 전량 소실됩니다.`,
@@ -433,10 +433,16 @@ async function startServer() {
     markBootReady(bootInfo.current.bootId, Date.now() - bootStartNs);
 
     // ─── Graceful shutdown (Railway SIGTERM 대응) ─────────────────────────
+    let shuttingDown = false;
     const shutdown = (signal: string) => {
+      if (shuttingDown) return; // Ctrl+C 와 실행기 IPC 요청이 겹쳐도 1회만 마감
+      shuttingDown = true;
       console.log(`[Server] ${signal} 수신 — graceful shutdown 시작`);
       // 기억 보완 회로: 정상 종료 마감 — 다음 부팅에서 'clean' 으로 관측된다.
       try { markCleanShutdown(bootInfo.current.bootId, signal); } catch { /* noop */ }
+      import('./telegram/longPollReceiver.js')
+        .then(({ stopTelegramLongPolling }) => stopTelegramLongPolling())
+        .catch((e) => console.warn('[TelegramPolling] 종료 처리 실패:', e));
       // ADR-0508 — SIGTERM graceful inflight approval drain.
       // process restart 시점에 in-memory `pendingApprovals` Map + dedupe store 가
       // 휘발되어 사용자가 클릭한 승인 메시지의 Promise 가 영원히 unresolved 되던
@@ -470,6 +476,10 @@ async function startServer() {
     };
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
+    // 로컬 실행기(scripts/start_local.mjs) IPC 종료 요청 — Windows 는 신호로 graceful shutdown 을 보낼 수 없다.
+    process.on('message', (msg) => {
+      if ((msg as { type?: string } | null)?.type === 'shutdown') shutdown('IPC_SHUTDOWN');
+    });
 
     // ─── Phase 5: 엔진 스냅샷 복원 + 30초 주기 체크포인트 ────────────────────
     // app.listen 콜백은 동기라서 await 못 씀 — dynamic import 를 .then 체이닝.
@@ -525,6 +535,12 @@ async function startServer() {
 
     // 재기동은 개인 요약 1건만 보낸다. 채널 시험 발송은 /channel_test 요청 시에만 실행한다.
     void setTelegramBotCommands().catch(console.error);
+    // 로컬 운영(공개 URL 없음): TELEGRAM_POLLING_ENABLED=true 이면 webhook 대신 롱폴링으로 명령 수신.
+    import('./telegram/longPollReceiver.js')
+      .then(({ startTelegramLongPollingIfEnabled }) => {
+        if (startTelegramLongPollingIfEnabled()) console.log('[TelegramPolling] 롱폴링 수신 모드 가동');
+      })
+      .catch((e) => console.error('[TelegramPolling] 수신기 초기화 실패:', e));
     void sendTelegramAlert(
       '🟢 <b>QuantMaster Pro 서버 기동</b>\n' +
       `모드: ${process.env.AUTO_TRADE_MODE !== 'LIVE' ? 'SHADOW' : 'LIVE'} · ` +
