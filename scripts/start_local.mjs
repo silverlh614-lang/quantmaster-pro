@@ -10,6 +10,7 @@
 //   (Windows 는 다른 프로세스에 SIGINT 를 보낼 수 없어 강제 종료 시 쓰던 파일이 깨질 수 있다.)
 import { spawn, execSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
@@ -84,6 +85,18 @@ if (!fs.existsSync(path.join(ROOT, 'build', 'index.html'))) {
   console.warn('[start_local] build/index.html 없음 — 화면은 `npm run build` 후 제공됩니다(API 는 정상 기동).');
 }
 
+// 작업 스케줄러 기본 우선순위(7)는 '낮음'이라 다른 프로그램이 바쁘면 서버가 수 분간 응답하지 못한다.
+// 실행기 자신을 '보통'으로 올리면 서버 자식 프로세스가 이를 상속한다.
+function ensureNormalPriority() {
+  try {
+    if (os.getPriority() > os.constants.priority.PRIORITY_NORMAL) os.setPriority(os.constants.priority.PRIORITY_NORMAL);
+    return os.getPriority() === os.constants.priority.PRIORITY_NORMAL ? 'normal' : `level ${os.getPriority()}`;
+  } catch (e) {
+    return `확인 실패(${e instanceof Error ? e.message : e})`;
+  }
+}
+const priorityText = ensureNormalPriority();
+
 let child = null;
 let stopping = false;
 let restartDelayMs = 5_000;
@@ -96,7 +109,7 @@ function log(line) {
 
 function launch() {
   const startedAt = Date.now();
-  log(`서버 기동 — DATA_DIR=${dataDir} · 로그=${logDir}`);
+  log(`서버 기동 — DATA_DIR=${dataDir} · 로그=${logDir} · 우선순위=${priorityText}`);
   child = spawn(process.execPath, SERVER_ARGS, { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
   child.stdout.on('data', (chunk) => { process.stdout.write(chunk); writeLog(chunk); });
   child.stderr.on('data', (chunk) => { process.stderr.write(chunk); writeLog(chunk); });

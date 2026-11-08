@@ -261,6 +261,9 @@ npm run start:local       # http://localhost:3000
 - `.env`의 `PERSIST_DATA_DIR`에 학습·원장·Shadow 기록 폴더를 지정한다. 미설정이거나 폴더가 없으면 기동을 거부한다.
 - `TELEGRAM_POLLING_ENABLED=true`이면 공개 URL 없이 롱폴링으로 텔레그램 명령을 받는다.
 - 로그는 `logs/qmp-YYYY-MM-DD.log`(KST, 14일 보관). 비정상 종료 시 실행기가 자동 재기동한다.
+- 끌 때는 `npm run stop:local`(정상 종료). 강제 종료는 쓰는 중인 기억 파일을 깨뜨릴 수 있다.
+- 상시 운영: 작업 스케줄러 `QuantMasterPro`가 컴퓨터 시작 1분 뒤 로그인 없이 실행한다(S4U, 우선순위 4). 기본 우선순위 7(낮음)은 다른 프로그램이 바쁠 때 서버 응답이 수 분 멈추므로 쓰지 않는다. Windows 빠른 시작은 꺼 둔다(켜져 있으면 시작 트리거가 동작하지 않음).
+- 제어판: 바탕화면 `QuantMaster Pro 제어판`에서 상태 확인·켜기·끄기·재시작(`scripts/control_panel.ps1`). 바로 가기 재생성은 `powershell -ExecutionPolicy Bypass -File scripts\control_panel.ps1 -InstallShortcut`.
 - PC 절전·종료 시 스케줄(08:30 추천 발송 등)도 멈춘다.
 
 ### 검증
