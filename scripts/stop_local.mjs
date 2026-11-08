@@ -3,6 +3,7 @@
 //   npm run stop:local
 // start_local.mjs 가 <로그폴더>/stop.request 를 감지해 서버 graceful shutdown(IPC)을 수행한다.
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
@@ -14,13 +15,15 @@ const logDir = path.resolve(ROOT, (process.env.LOCAL_LOG_DIR ?? fileEnv.LOCAL_LO
 const port = Number(process.env.PORT ?? fileEnv.PORT) || 3000;
 const WAIT_MS = 45_000;
 
-async function isServerUp() {
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(2_000) });
-    return res.ok;
-  } catch {
-    return false; // 연결 거부 = 포트 닫힘 = 종료 완료
-  }
+// HTTP 응답 대신 TCP 연결로 판단한다 — 무거운 작업 중인 서버도 연결은 받으므로 '이미 종료' 오판이 없다.
+function isServerUp() {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: '127.0.0.1', port });
+    const done = (up) => { socket.destroy(); resolve(up); };
+    socket.setTimeout(3_000, () => done(true)); // 응답 지연은 아직 살아 있는 것으로 본다
+    socket.once('connect', () => done(true));
+    socket.once('error', (e) => done(e.code !== 'ECONNREFUSED')); // 연결 거부 = 포트 닫힘 = 종료 완료
+  });
 }
 
 if (!(await isServerUp())) {
