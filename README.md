@@ -8,7 +8,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-22+-green)](https://nodejs.org)
 [![React](https://img.shields.io/badge/React-19-blue)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)](https://www.typescriptlang.org)
-[![Railway](https://img.shields.io/badge/Deploy-Railway-purple)](https://railway.app)
+[![Runtime](https://img.shields.io/badge/Runtime-Local_PC-purple)](#로컬-실행-운영)
 [![License](https://img.shields.io/badge/License-Private-red)](#)
 
 > **⚠️ 본 시스템은 개인 투자 연구 목적으로 제작되었습니다. 분석 결과는 투자 권유가 아니며, 모든 투자의 책임은 본인에게 있습니다.**
