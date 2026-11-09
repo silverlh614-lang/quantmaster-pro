@@ -5,6 +5,7 @@
   - 켜기: 작업 스케줄러 'QuantMasterPro' 실행 (컴퓨터 시작 시 자동 실행과 같은 경로)
   - 끄기: scripts\stop_local.mjs 정상 종료 (강제 종료하지 않는다 — 기억 파일 보호)
   - 이 창을 닫아도 서버는 계속 실행된다.
+  - 운영 폴더(qmp-runtime)의 사본으로 연다. '자동 배포' 줄은 <로그폴더>\deploy-state.json(local_runtime.mjs 기록)을 보여 준다.
   - 서버 상태와 무관하게 동작해야 하므로 서버(3000) 밖의 독립 창으로 둔다. 로컬 HTTP 제어 엔드포인트는 만들지 않는다(CSRF 위험).
 #>
 param(
@@ -43,6 +44,7 @@ $Port = 3000
 if ($EnvMap['PORT']) { $Port = [int]$EnvMap['PORT'] }
 $LogDir = Resolve-RepoPath $EnvMap['LOCAL_LOG_DIR'] 'logs'
 $DataDir = if ($EnvMap['PERSIST_DATA_DIR']) { Resolve-RepoPath $EnvMap['PERSIST_DATA_DIR'] 'data' } else { '(PERSIST_DATA_DIR 미설정)' }
+$DeployStateFile = Join-Path $LogDir 'deploy-state.json'
 $NodeExe = 'C:\Program Files\nodejs\node.exe'
 $nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue
 if ($nodeCmd) { $NodeExe = $nodeCmd.Source }
@@ -176,7 +178,7 @@ $form.BackColor = $Color.Card
 $form.Font = $FontBody
 $form.AutoScaleDimensions = [System.Drawing.SizeF]::new(96, 96)
 $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Dpi
-$form.ClientSize = [System.Drawing.Size]::new(520, 690)
+$form.ClientSize = [System.Drawing.Size]::new(520, 720)
 try { $form.Icon = [System.Drawing.Icon]::FromHandle((New-QmpBitmap 64).GetHicon()) } catch { Write-Verbose "icon: $($_.Exception.Message)" }
 
 function Add-Label($parent, [string]$text, [int]$x, [int]$y, [int]$w, [int]$h, $font, $color) {
@@ -243,7 +245,7 @@ $sep.Location = [System.Drawing.Point]::new(0, 96); $sep.Size = [System.Drawing.
 $form.Controls.Add($sep)
 
 # 정보 행
-$rows = [ordered]@{ uptime = '가동 시간'; commit = '실행 커밋'; mode = '운영 모드'; memory = '기억 진단'; data = '데이터 폴더' }
+$rows = [ordered]@{ uptime = '가동 시간'; commit = '실행 커밋'; deploy = '자동 배포'; mode = '운영 모드'; memory = '기억 진단'; data = '데이터 폴더' }
 $infoValue = @{}
 $y = 114
 foreach ($key in $rows.Keys) {
@@ -255,16 +257,16 @@ $infoValue['data'].Text = $DataDir
 $infoValue['data'].Font = $FontSmall
 
 # 버튼
-$btnOn      = Add-Button '켜기'   24 280 148 48 $Color.Green $Color.Card $FontBtn
-$btnOff     = Add-Button '끄기'   186 280 148 48 $Color.Red $Color.Card $FontBtn
-$btnRestart = Add-Button '재시작' 348 280 148 48 $Color.Slate $Color.Card $FontBtn
-$btnWeb  = Add-Button '웹 화면 열기' 24 340 148 36 $Color.Card $Color.Text $FontBody
-$btnLogs = Add-Button '로그 폴더'    186 340 148 36 $Color.Card $Color.Text $FontBody
-$btnData = Add-Button '데이터 폴더'  348 340 148 36 $Color.Card $Color.Text $FontBody
+$btnOn      = Add-Button '켜기'   24 310 148 48 $Color.Green $Color.Card $FontBtn
+$btnOff     = Add-Button '끄기'   186 310 148 48 $Color.Red $Color.Card $FontBtn
+$btnRestart = Add-Button '재시작' 348 310 148 48 $Color.Slate $Color.Card $FontBtn
+$btnWeb  = Add-Button '웹 화면 열기' 24 370 148 36 $Color.Card $Color.Text $FontBody
+$btnLogs = Add-Button '로그 폴더'    186 370 148 36 $Color.Card $Color.Text $FontBody
+$btnData = Add-Button '데이터 폴더'  348 370 148 36 $Color.Card $Color.Text $FontBody
 
-[void](Add-Label $form '최근 로그' 24 394 200 24 $FontBold $Color.Text)
+[void](Add-Label $form '최근 로그' 24 424 200 24 $FontBold $Color.Text)
 $logBox = New-Object System.Windows.Forms.TextBox
-$logBox.Location = [System.Drawing.Point]::new(24, 420)
+$logBox.Location = [System.Drawing.Point]::new(24, 450)
 $logBox.Size = [System.Drawing.Size]::new(472, 214)
 $logBox.Multiline = $true
 $logBox.ReadOnly = $true
@@ -276,7 +278,7 @@ $logBox.Font = $FontLog
 $logBox.BorderStyle = [System.Windows.Forms.BorderStyle]::None
 $form.Controls.Add($logBox)
 
-[void](Add-Label $form '이 창을 닫아도 서버는 계속 실행됩니다. 컴퓨터를 켜면 1분 뒤 자동으로 시작됩니다.' 24 644 472 36 $FontSmall $Color.Muted)
+[void](Add-Label $form '이 창을 닫아도 서버는 계속 실행됩니다. 컴퓨터를 켜면 1분 뒤 자동으로 시작되고, GitHub main 에 push 하면 1분 안에 자동 반영됩니다.' 24 674 472 36 $FontSmall $Color.Muted)
 
 # ─── 상태 확인 ───────────────────────────────────────────────────────────────
 $script:http = [System.Net.Http.HttpClient]::new()
@@ -366,6 +368,43 @@ function Read-LogTail {
   $lines -join "`r`n"
 }
 
+$PhaseText = @{
+  'stopping' = '서버 종료'; 'updating' = '코드 교체'; 'installing' = '패키지 설치'; 'building' = '화면 빌드'
+  'restarting-runtime' = '실행기 재시작'; 'verifying' = '기동 확인'; 'rolling-back' = '이전 버전 복귀'
+}
+
+function Get-Short([string]$sha) { if ($sha.Length -gt 7) { $sha.Substring(0, 7) } else { $sha } }
+
+function Read-DeployState {
+  if (-not (Test-Path -LiteralPath $DeployStateFile)) { return $null }
+  try { [IO.File]::ReadAllText($DeployStateFile, [Text.Encoding]::UTF8) | ConvertFrom-Json } catch { $null }
+}
+
+# 진행 중인 배포 단계. 실행기가 도중에 꺼져 오래 남은 기록(40분 초과)은 무시한다.
+function Get-ActiveDeployPhase($state) {
+  if (-not $state -or -not $state.phase) { return $null }
+  try { $at = [DateTime]::Parse([string]$state.phaseAt).ToUniversalTime() } catch { return $null }
+  if (([DateTime]::UtcNow - $at).TotalMinutes -gt 40) { return $null }
+  [string]$state.phase
+}
+
+function Format-DeployInfo($state) {
+  if (-not $state) { return @('정보 없음', $Color.Muted) }
+  $phase = Get-ActiveDeployPhase $state
+  if ($phase) { return @("배포 중 · $($PhaseText[$phase]) $(Get-Short ([string]$state.phaseTarget))", $Color.Amber) }
+  $mode = if ($state.autoDeploy) { '켜짐' } else { '꺼짐' }
+  $last = $state.last
+  if (-not $last) { return @("$mode · 아직 배포 기록 없음", $Color.Text) }
+  $when = ''
+  try { $when = [DateTime]::Parse([string]$last.at).ToLocalTime().ToString('MM.dd HH:mm') } catch { $when = '' }
+  $sha = Get-Short ([string]$last.target)
+  switch ([string]$last.result) {
+    'deployed'    { return @("$mode · $when $sha 반영", $Color.Text) }
+    'rolled-back' { return @("$mode · $when $sha 실패 → 이전 버전 복귀", $Color.Amber) }
+    default       { return @("$mode · $when $sha 실패 · 로그 확인", $Color.Red) }
+  }
+}
+
 function Set-Status([string]$tone, [string]$text) {
   $script:dotColor = switch ($tone) { 'green' { $Color.Green } 'red' { $Color.Red } 'amber' { $Color.Amber } default { $Color.Off } }
   $dot.Invalidate()
@@ -410,6 +449,8 @@ function Update-Status {
     $script:audit = $null; $script:auditReq = $null; $script:auditAt = [DateTime]::MinValue
   }
   $healthy = $listening -and $null -ne $script:health -and ($now - $script:healthAt).TotalSeconds -lt 15
+  $deployState = Read-DeployState
+  $deployPhase = Get-ActiveDeployPhase $deployState
   $stopFailed = $script:stopProc -and $script:stopProc.HasExited -and $script:stopProc.ExitCode -ne 0 -and $listening
 
   switch ($script:pending) {
@@ -430,6 +471,7 @@ function Update-Status {
 
   if ($script:pending -in @('stop', 'restart-stop')) { Set-Status 'amber' '끄는 중…' }
   elseif ($script:pending -eq 'start') { Set-Status 'amber' $(if ($listening) { '켜는 중… (기동 작업 처리)' } else { '켜는 중…' }) }
+  elseif ($deployPhase -and -not $healthy) { Set-Status 'amber' "배포 중… ($($PhaseText[$deployPhase]))" }
   elseif ($healthy) { Set-Status 'green' '실행 중' }
   elseif ($listening -and ($now - $script:listenSince).TotalSeconds -lt 20) { Set-Status 'gray' '확인 중…' }
   elseif ($listening) { Set-Status 'amber' '응답 지연 — 작업 처리 중' }
@@ -450,6 +492,9 @@ function Update-Status {
   } elseif (-not $listening) {
     foreach ($k in 'uptime', 'commit', 'mode') { $infoValue[$k].Text = '—'; $infoValue[$k].ForeColor = $Color.Text }
   }
+  $deployInfo = Format-DeployInfo $deployState
+  if ($infoValue['deploy'].Text -ne $deployInfo[0]) { $infoValue['deploy'].Text = $deployInfo[0] }
+  $infoValue['deploy'].ForeColor = $deployInfo[1]
   if ($script:audit) {
     $infoValue['memory'].Text = "$($script:audit.verdict) · $($script:audit.healthScore)점"
     $infoValue['memory'].ForeColor = if ($script:audit.verdict -eq 'HEALTHY') { $Color.Green } else { $Color.Amber }

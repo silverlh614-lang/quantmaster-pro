@@ -250,20 +250,32 @@ EMAIL_PASS=앱비밀번호
 
 ### 로컬 실행 (운영)
 
-운영 서버는 로컬 PC에서 상시 실행한다(2026-11 Railway에서 이전).
+운영 서버는 로컬 PC에서 상시 실행한다(2026-11 Railway에서 이전). 운영과 개발은 폴더를 나눈다.
+
+| 폴더 | 역할 |
+|------|------|
+| `qmp-runtime` (운영) | GitHub `main` 사본(분리된 HEAD). `.env`·`logs/`·자동 시작 작업·제어판이 여기 있다. 직접 고치지 않는다. |
+| `quantmaster-pro-main` (개발) | 브랜치 작업·테스트·커밋·push. 비밀키(`.env`) 없음 — `npm run dev`가 운영 기억 폴더·텔레그램을 건드리지 않는다. |
+
+**배포 = `main`에 push.** 운영 실행기가 1분마다 GitHub `main`을 확인해 새 커밋이면 서버 정상 종료 → 코드 교체 → (필요할 때만) `npm ci`·`npm run build` → 재기동 → `/api/health` 커밋 확인까지 한다. 서버만 바뀐 커밋은 설치·빌드를 건너뛰어 1분 안팎에 끝난다. 확인에 실패하면 이전 커밋으로 되돌리고 텔레그램으로 알리며, 그 커밋은 다시 배포하지 않는다(고친 커밋을 push하면 다시 시도). 진행 상황은 제어판 '자동 배포' 줄과 `logs/deploy-state.json`.
 
 ```bash
-npm ci --include=dev
-npm run build             # 화면 빌드 (build/)
-npm run start:local       # http://localhost:3000
+# 운영 폴더 최초 준비 (한 번)
+git clone https://github.com/silverlh614-lang/quantmaster-pro.git qmp-runtime
+cd qmp-runtime && git checkout --detach origin/main
+npm ci --include=dev && npm run build
+# .env 에 LOCAL_AUTO_DEPLOY=true 추가 후 작업 스케줄러 작업의 시작 위치를 이 폴더로
+npm run start:local       # http://localhost:3000 (평소에는 작업 스케줄러가 실행)
 ```
 
+- 실행 구조: `scripts/start_local.mjs`(부트스트랩) → `scripts/local_runtime.mjs`(실행기: .env 주입·로그·재기동·자동 배포, 절차는 `scripts/local_deploy.mjs`) → 서버. 실행기 코드가 배포로 바뀌면 부트스트랩이 새 실행기를 다시 띄운다. `start_local.mjs` 변경만은 다음 컴퓨터 시작 때 적용된다.
+- 자동 배포는 `LOCAL_AUTO_DEPLOY=true`이고 HEAD가 분리된 폴더에서만 켜진다 — 브랜치가 체크아웃된 개발 폴더에서 `start:local`을 실행해도 작업물을 덮어쓰지 않는다.
 - `.env`의 `PERSIST_DATA_DIR`에 학습·원장·Shadow 기록 폴더를 지정한다. 미설정이거나 폴더가 없으면 기동을 거부한다.
 - `TELEGRAM_POLLING_ENABLED=true`이면 공개 URL 없이 롱폴링으로 텔레그램 명령을 받는다.
 - 로그는 `logs/qmp-YYYY-MM-DD.log`(KST, 14일 보관). 비정상 종료 시 실행기가 자동 재기동한다.
 - 끌 때는 `npm run stop:local`(정상 종료). 강제 종료는 쓰는 중인 기억 파일을 깨뜨릴 수 있다.
 - 상시 운영: 작업 스케줄러 `QuantMasterPro`가 컴퓨터 시작 1분 뒤 로그인 없이 실행한다(S4U, 우선순위 4). 기본 우선순위 7(낮음)은 다른 프로그램이 바쁠 때 서버 응답이 수 분 멈추므로 쓰지 않는다. Windows 빠른 시작은 꺼 둔다(켜져 있으면 시작 트리거가 동작하지 않음).
-- 제어판: 바탕화면 `QuantMaster Pro 제어판`에서 상태 확인·켜기·끄기·재시작(`scripts/control_panel.ps1`). 바로 가기 재생성은 `powershell -ExecutionPolicy Bypass -File scripts\control_panel.ps1 -InstallShortcut`.
+- 제어판: 바탕화면 `QuantMaster Pro 제어판`에서 상태·자동 배포 확인과 켜기·끄기·재시작(`scripts/control_panel.ps1`). 바로 가기 재생성은 운영 폴더에서 `powershell -ExecutionPolicy Bypass -File scripts\control_panel.ps1 -InstallShortcut`.
 - PC 절전·종료 시 스케줄(08:30 추천 발송 등)도 멈춘다.
 
 ### 검증

@@ -1,155 +1,55 @@
 #!/usr/bin/env node
-// @responsibility 로컬 PC 상시 운영 실행기 — .env 선주입, 영속 데이터 경로 확인, 일별 로그, 비정상 종료 시 재기동.
+// @responsibility 로컬 운영 부트스트랩 — 실행기(local_runtime.mjs)를 띄우고, 실행기가 배포로 바뀌면 새 코드로 다시 띄운다.
 //
-// Railway 가 대신하던 플랫폼 역할(환경변수 주입·재시작·로그 보관)을 로컬에서 수행한다.
-//   npm run start:local
-// - .env 를 서버 모듈 import 이전에 주입한다(paths.ts 의 PERSIST_DATA_DIR 등은 import 시점에 읽힘).
-// - PERSIST_DATA_DIR 가 없거나 폴더가 없으면 기동을 거부한다(빈 data/ 로 기억 없이 시작하는 사고 방지).
-// - 로그: LOCAL_LOG_DIR(기본 ./logs)/qmp-YYYY-MM-DD.log (KST), LOCAL_LOG_RETENTION_DAYS(기본 14) 초과분 정리.
-// - 정상 종료: `npm run stop:local` 이 <로그폴더>/stop.request 를 만들면 IPC 로 서버 graceful shutdown 을 요청한다.
-//   (Windows 는 다른 프로세스에 SIGINT 를 보낼 수 없어 강제 종료 시 쓰던 파일이 깨질 수 있다.)
-import { spawn, execSync } from 'node:child_process';
-import fs from 'node:fs';
+//   npm run start:local        (작업 스케줄러 'QuantMasterPro' 도 이 파일을 실행한다)
+// 실제 일(.env 주입·로그·재기동·자동 배포)은 local_runtime.mjs 가 한다. 이 파일은 일부러 작게 유지한다:
+// 자동 배포가 이 파일을 바꾸면 다음 컴퓨터 시작(또는 작업 재실행) 때에야 적용되기 때문이다.
+// 실행기 종료 코드: 0 = 정상 종료(같이 끝남), 75 = 자체 갱신(즉시 다시 띄움), 그 밖 = 비정상(5초부터 늘려 가며 다시 띄움).
+import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import dotenv from 'dotenv';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ENV_FILE = path.join(ROOT, '.env');
-const SERVER_ARGS = ['--import', 'tsx', '--import', './server/utils/safePctChangeCalendarPatch.ts', 'server/index.ts'];
+const RUNTIME = path.join(ROOT, 'scripts', 'local_runtime.mjs');
+const SELF_UPDATE_EXIT_CODE = 75; // local_deploy.mjs 와 같은 값
 const HEALTHY_RUN_MS = 10 * 60_000;
-const MAX_RESTART_DELAY_MS = 5 * 60_000;
-const STOP_GRACE_MS = 15_000;
+const MAX_DELAY_MS = 5 * 60_000;
 
-function kstDate() {
-  return new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
+// 작업 스케줄러 기본 우선순위(7)는 '낮음'이라 바쁜 PC 에서 서버가 수 분간 응답하지 못한다 — 자식들이 상속하도록 먼저 올린다.
+try {
+  if (os.getPriority() > os.constants.priority.PRIORITY_NORMAL) os.setPriority(os.constants.priority.PRIORITY_NORMAL);
+} catch (e) {
+  console.warn('[start_local] 우선순위 조정 실패:', e instanceof Error ? e.message : e);
 }
 
-function buildChildEnv() {
-  const fileEnv = fs.existsSync(ENV_FILE) ? dotenv.parse(fs.readFileSync(ENV_FILE)) : {};
-  // 실제 OS 환경변수가 .env 보다 우선한다(dotenv 기본 규칙과 동일).
-  const env = { ...fileEnv, ...process.env, NODE_ENV: 'production' };
-  if (!env.GIT_COMMIT_SHA) {
-    try {
-      env.GIT_COMMIT_SHA = execSync('git rev-parse HEAD', { cwd: ROOT, encoding: 'utf-8' }).trim();
-    } catch (e) {
-      console.warn('[start_local] git 커밋 확인 실패 — /api/health commit=unknown:', e instanceof Error ? e.message : e);
-    }
-  }
-  return env;
-}
-
-function assertDataDir(env) {
-  const dir = env.PERSIST_DATA_DIR?.trim();
-  if (!dir) {
-    throw new Error('PERSIST_DATA_DIR 미설정 — .env 에 이전한 영속 데이터 폴더 경로를 지정하세요.');
-  }
-  const resolved = path.resolve(ROOT, dir);
-  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
-    throw new Error(`PERSIST_DATA_DIR 폴더 없음: ${resolved}`);
-  }
-  return resolved;
-}
-
-function pruneLogs(logDir, retentionDays) {
-  const cutoff = Date.now() - retentionDays * 86_400_000;
-  for (const name of fs.readdirSync(logDir)) {
-    const m = /^qmp-(\d{4}-\d{2}-\d{2})\.log$/.exec(name);
-    if (m && new Date(m[1]).getTime() < cutoff) fs.rmSync(path.join(logDir, name), { force: true });
-  }
-}
-
-function createLogWriter(logDir) {
-  let currentDate = '';
-  let stream = null;
-  return (chunk) => {
-    const today = kstDate();
-    if (today !== currentDate) {
-      stream?.end();
-      currentDate = today;
-      stream = fs.createWriteStream(path.join(logDir, `qmp-${today}.log`), { flags: 'a' });
-    }
-    stream.write(chunk);
-  };
-}
-
-const env = buildChildEnv();
-const dataDir = assertDataDir(env);
-const logDir = path.resolve(ROOT, env.LOCAL_LOG_DIR?.trim() || 'logs');
-fs.mkdirSync(logDir, { recursive: true });
-pruneLogs(logDir, Number(env.LOCAL_LOG_RETENTION_DAYS) || 14);
-const writeLog = createLogWriter(logDir);
-
-if (!fs.existsSync(path.join(ROOT, 'build', 'index.html'))) {
-  console.warn('[start_local] build/index.html 없음 — 화면은 `npm run build` 후 제공됩니다(API 는 정상 기동).');
-}
-
-// 작업 스케줄러 기본 우선순위(7)는 '낮음'이라 다른 프로그램이 바쁘면 서버가 수 분간 응답하지 못한다.
-// 실행기 자신을 '보통'으로 올리면 서버 자식 프로세스가 이를 상속한다.
-function ensureNormalPriority() {
-  try {
-    if (os.getPriority() > os.constants.priority.PRIORITY_NORMAL) os.setPriority(os.constants.priority.PRIORITY_NORMAL);
-    return os.getPriority() === os.constants.priority.PRIORITY_NORMAL ? 'normal' : `level ${os.getPriority()}`;
-  } catch (e) {
-    return `확인 실패(${e instanceof Error ? e.message : e})`;
-  }
-}
-const priorityText = ensureNormalPriority();
-
-let child = null;
+let delayMs = 5_000;
 let stopping = false;
-let restartDelayMs = 5_000;
+let runtime = null;
 
-function log(line) {
-  const text = `[start_local ${new Date().toISOString()}] ${line}\n`;
-  process.stdout.write(text);
-  writeLog(text);
-}
-
-function launch() {
+function start() {
   const startedAt = Date.now();
-  log(`서버 기동 — DATA_DIR=${dataDir} · 로그=${logDir} · 우선순위=${priorityText}`);
-  child = spawn(process.execPath, SERVER_ARGS, { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
-  child.stdout.on('data', (chunk) => { process.stdout.write(chunk); writeLog(chunk); });
-  child.stderr.on('data', (chunk) => { process.stderr.write(chunk); writeLog(chunk); });
-  child.on('exit', (code, signal) => {
-    child = null;
-    if (stopping) {
-      log(`서버 종료 완료 (code=${code} signal=${signal})`);
-      process.exit(0);
+  runtime = spawn(process.execPath, [RUNTIME], { cwd: ROOT, stdio: 'inherit' });
+  runtime.on('exit', (code, signal) => {
+    runtime = null;
+    if (stopping || code === 0) process.exit(code ?? 0);
+    if (code === SELF_UPDATE_EXIT_CODE) {
+      console.log('[start_local] 실행기 갱신 — 새 코드로 다시 띄웁니다');
+      delayMs = 5_000;
+      start();
+      return;
     }
-    if (Date.now() - startedAt >= HEALTHY_RUN_MS) restartDelayMs = 5_000;
-    log(`서버 비정상 종료 (code=${code} signal=${signal}) — ${Math.round(restartDelayMs / 1000)}초 후 재기동`);
-    setTimeout(launch, restartDelayMs);
-    restartDelayMs = Math.min(restartDelayMs * 2, MAX_RESTART_DELAY_MS);
+    if (Date.now() - startedAt >= HEALTHY_RUN_MS) delayMs = 5_000;
+    console.error(`[start_local] 실행기 비정상 종료 (code=${code} signal=${signal}) — ${Math.round(delayMs / 1000)}초 후 다시 띄움`);
+    setTimeout(start, delayMs);
+    delayMs = Math.min(delayMs * 2, MAX_DELAY_MS);
   });
 }
 
-function stop(signal) {
-  if (stopping) return;
+// 콘솔 Ctrl+C 는 실행기에도 전달되어 실행기가 서버를 정상 종료한다. 여기서는 끝나기를 기다리기만 한다.
+process.on('SIGINT', () => { stopping = true; });
+process.on('SIGTERM', () => {
   stopping = true;
-  log(`${signal} 수신 — 서버 graceful shutdown 대기`);
-  if (!child) process.exit(0);
-  // IPC 로 서버 shutdown 핸들러를 직접 호출한다(Windows 콘솔 Ctrl+C 는 자식에게도 전달되며 중복은 서버가 무시).
-  if (child.connected) child.send({ type: 'shutdown' });
-  else if (process.platform !== 'win32') child.kill(signal);
-  setTimeout(() => {
-    if (child) {
-      log('graceful shutdown 시간 초과 — 강제 종료');
-      child.kill('SIGKILL');
-    }
-  }, STOP_GRACE_MS).unref();
-}
-
-const STOP_REQUEST_FILE = path.join(logDir, 'stop.request');
-fs.rmSync(STOP_REQUEST_FILE, { force: true });
-setInterval(() => {
-  if (!fs.existsSync(STOP_REQUEST_FILE)) return;
-  fs.rmSync(STOP_REQUEST_FILE, { force: true });
-  stop('STOP_REQUEST');
-}, 2_000);
-
-process.on('SIGINT', () => stop('SIGINT'));
-process.on('SIGTERM', () => stop('SIGTERM'));
-launch();
+  if (runtime && process.platform !== 'win32') runtime.kill('SIGTERM');
+});
+start();
